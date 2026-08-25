@@ -102,7 +102,7 @@ TEST(FTextureDerivedDataTests, CanonicalKeyCoversEverySemanticInput)
 		.TargetProfile = Durin::Asset::ECookTargetProfile::Game};
 	const std::string Baseline =
 		Durin::Asset::Build::BuildTexture2DDerivedDataKey(Input);
-	EXPECT_EQ(Baseline, "ceabc87aee9e8db676c2f6c13020593f");
+	EXPECT_EQ(Baseline, "5b1aa80fd0348f7d01d88e7c7687f39e");
 	EXPECT_EQ(Baseline.size(), 32u);
 
 	auto ExpectChange = [&Baseline](const Durin::Asset::Build::FTexture2DBuildKeyInput& Changed) {
@@ -152,13 +152,13 @@ TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 		Durin::EPixelFormat::BC7_UNORM,
 		Durin::EPixelFormat::BC7_UNORM_SRGB};
 	constexpr std::array<std::string_view, 7> ExpectedPayloadHashes{
-		"77bdfeb3d6ca79944202b1c8313f9f23",
-		"5d8d35cf6e3bd1310adfcf8be175af58",
-		"ca544d4a8eba2254722aeea249712e45",
-		"5eb1ce657248bc93efeaac279a0720bd",
-		"db4d2a5ecf8cf92991ff04c0f95b4b53",
-		"20293487d2903b76c4ae42cc49e69cee",
-		"01efb428f4563742aeeaaa3073a62d36"};
+		"d905d2d277bfb013cfb44f8f0c8d8096",
+		"1a580f6e95f71c6ed63bead79491040a",
+		"480a95182680fbd3af44e79dbea8c122",
+		"1a367b53725ed95df885a28474222131",
+		"71b478236dcc3779cce0143badf3a228",
+		"1249003c62e807a0158e03081b4584ca",
+		"e292eee438d02ae3b3f03a723e30c29c"};
 	for (size_t FormatIndex = 0; FormatIndex < Formats.size(); ++FormatIndex)
 	{
 		const Durin::EPixelFormat Format = Formats[FormatIndex];
@@ -262,7 +262,7 @@ TEST(FTextureDerivedDataTests, CubeKeysCoverFaceOrderLayoutAndProjectionInputs)
 	std::string Error;
 	Baseline = Durin::Asset::Build::BuildTextureCubeDerivedDataKey(Input, Error);
 	ASSERT_FALSE(Baseline.empty()) << Error;
-	EXPECT_EQ(Baseline, "61dec1a0575878952e205558f058bd2d");
+	EXPECT_EQ(Baseline, "9b662f5ddca0399ae3bf02bda265d860");
 	EXPECT_EQ(Baseline.size(), 32u);
 
 	auto Changed = Input;
@@ -325,7 +325,7 @@ TEST(FTextureDerivedDataTests, CubePayloadRoundTripsDirectionalSlicesDeterminist
 	ASSERT_FALSE(SecondWriter.HasError());
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(Durin::FXxHash128::HashBuffer(First).ToString(),
-		"d476639b4d52cee3e9b5db3b09e6c874");
+		"b58d569e2b733237bee9037ab4fab262");
 
 	Durin::FTextureCubePlatformData Actual;
 	Durin::FCanonicalMemoryReader Reader(First, Durin::EArchivePurpose::DerivedDataPayload);

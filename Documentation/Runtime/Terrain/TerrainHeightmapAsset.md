@@ -109,8 +109,8 @@ activation barrier; missing/corrupt payload recovery failure rejects play.
 ## THPL Payload and Cook
 
 The independently identified cooked payload uses
-`TerrainHeightmapPrimaryCookedPayloadId`, magic `THPL`, payload schema 1,
-builder 2, 16-byte section alignment, and no bulk compression. Its 96-byte
+`TerrainHeightmapPrimaryCookedPayloadId`, owner-selected magic-free THPL payload schema 2,
+builder 3, 16-byte section alignment, and no bulk compression. Its 96-byte
 little-endian header records platform/profile, dimensions, hierarchy policy,
 counts, global range, table/section offsets, stored size, and XXH64 body
 checksum. Each 24-byte level record stores level dimensions, node offset,

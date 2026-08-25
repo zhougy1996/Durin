@@ -48,6 +48,11 @@ and validation replace caller outputs or destination bytes only on success.
 Core never interprets format-owned sections, asset paths, schemas, codecs, or
 publication policy.
 
+AssetCore currently consumes this envelope through three sibling identities:
+DAST v6 object packages, DABK v2 authored bulk companions, and DBLK v2 cooked
+bulk companions. Embedded domain payloads and raw DDC `.bin` values do not nest
+another DURF envelope; their owning asset slot supplies the codec and schema.
+
 Persistent values expose one bidirectional customization: member
 `Serialize(FArchive&)`, free `Serialize(FArchive&, Value&)`, or an explicit
 UE-style member taking a stable owner/context when the value cannot interpret

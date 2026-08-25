@@ -344,7 +344,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	EXPECT_TRUE(std::filesystem::is_regular_file(EditorBulkDataFiles.front()));
 	EXPECT_LT(std::filesystem::file_size(SavedData->PhysicalPath), 256ull * 1024);
 	EXPECT_EQ(std::filesystem::file_size(EditorBulkDataFiles.front()),
-		Voxels.size() + 160ull);
+		Voxels.size() + 192ull);
 	const std::filesystem::path OrphanCompanion =
 		std::filesystem::path(SavedData->PhysicalPath).parent_path()
 		/ (std::filesystem::path(SavedData->PhysicalPath).stem().string()

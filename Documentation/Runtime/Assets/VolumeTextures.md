@@ -104,7 +104,7 @@ V5 retains the same reflected fields and requires its EOF trailer to
 agree exactly with every external descriptor in the object stream. Small
 inline voxel payloads produce no external trailer entry. External voxel
 payloads produce one matching trailer entry and stable
-`<package-stem>.dabulk` DABK v1 companion. Reimport, repair, and canonical
+`<package-stem>.dabulk` DURF/DABK v2 companion. Reimport, repair, and canonical
 resave all use the v5 writer; there is no legacy rollback route.
 
 The 256 KiB authoring threshold changes placement,
@@ -120,7 +120,7 @@ calls `LoadCookedPackagePayload` for an opaque verified byte view. It decodes
 that view transactionally into `FVolumeTexturePlatformData`; no common bulk
 descriptor or cross-authority provider translation participates.
 
-Volume data uses TXPL schema 1 with texture dimension value 3. Stable pixel
+Volume data uses the owner-selected, magic-free TXPL schema 2 with texture dimension value 3. Stable pixel
 format identifiers 8 through 12 were appended for the five portable formats;
 existing 2D and cube identifiers retain their meanings. Volume records reuse
 the fixed 40-byte record layout and store depth and depth pitch in fields whose

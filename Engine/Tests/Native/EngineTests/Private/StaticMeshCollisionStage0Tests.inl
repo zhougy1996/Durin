@@ -18,10 +18,9 @@ namespace
 {
 	using namespace Durin;
 
-	inline constexpr uint32 CollisionPayloadMagic = 0x4c4f4344; // DCOL
-	inline constexpr uint32 CollisionPayloadSchemaVersion = 1;
-	inline constexpr uint32 CollisionBuilderVersion = 1;
-	inline constexpr uint32 CollisionKeySchemaVersion = 1;
+	inline constexpr uint32 CollisionPayloadSchemaVersion = 2;
+	inline constexpr uint32 CollisionBuilderVersion = 2;
+	inline constexpr uint32 CollisionKeySchemaVersion = 2;
 	inline constexpr uint32 CollisionPayloadAlignment = 16;
 	inline constexpr uint32 CollisionPayloadHeaderSize = 64;
 	inline constexpr uint32 CollisionPayloadChunkEntrySize = 32;
@@ -588,7 +587,7 @@ namespace
 
 		std::vector<std::byte> Bytes(CollisionPayloadHeaderSize
 			+ Chunks.size() * CollisionPayloadChunkEntrySize, std::byte{0});
-		WriteLittleEndian<uint32>(Bytes, 0, CollisionPayloadMagic);
+		WriteLittleEndian<uint32>(Bytes, 0, 0);
 		WriteLittleEndian<uint32>(Bytes, 4, CollisionPayloadSchemaVersion);
 		WriteLittleEndian<uint32>(Bytes, 8, CollisionBuilderVersion);
 		WriteLittleEndian<uint32>(Bytes, 12, 1u); // Win64
@@ -619,7 +618,7 @@ namespace
 	auto ValidatePrototypePayload(std::span<const std::byte> Bytes) -> bool
 	{
 		if (Bytes.size() < CollisionPayloadHeaderSize
-			|| ReadLittleEndian<uint32>(Bytes, 0) != CollisionPayloadMagic
+			|| ReadLittleEndian<uint32>(Bytes, 0) != 0
 			|| ReadLittleEndian<uint32>(Bytes, 4) != CollisionPayloadSchemaVersion
 			|| ReadLittleEndian<uint32>(Bytes, 12) != 1u
 			|| ReadLittleEndian<uint32>(Bytes, 16) != CollisionPayloadHeaderSize
@@ -841,7 +840,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, Free
 		std::bit_cast<uint32>(1.0e-5f), "Assimp", 602, {5, 0, 2}, 1);
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(First.size(), 75u);
-	EXPECT_EQ(FXxHash128::HashBuffer(First).ToString(), "31049dc20de3b54a742c931cb587ce92");
+	EXPECT_EQ(FXxHash128::HashBuffer(First).ToString(), "90a7dc1e16f761812d2975e56988d120");
 	const std::string BaselineHash = FXxHash128::HashBuffer(First).ToString();
 	auto ExpectKeyChanged = [&](auto&& Bytes) {
 		EXPECT_NE(FXxHash128::HashBuffer(Bytes).ToString(), BaselineHash);
@@ -879,7 +878,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage0Tests, Free
 	ASSERT_FALSE(Payload.empty());
 	EXPECT_TRUE(ValidatePrototypePayload(Payload));
 	EXPECT_EQ(Payload.size(), 336u);
-	EXPECT_EQ(FXxHash128::HashBuffer(Payload).ToString(), "e18caaa3799e0c65edea7a0af09edbf1");
+	EXPECT_EQ(FXxHash128::HashBuffer(Payload).ToString(), "b43434e49ae8c9c62ea8ef4024b54159");
 	auto ExpectCorrupt = [&](size_t Offset) {
 		std::vector<std::byte> Corrupt = Payload;
 		Corrupt[Offset] ^= std::byte{0x40};
@@ -977,9 +976,9 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage3Tests, Prod
 		Asset::Build::BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput, Error);
 	ASSERT_TRUE(Error.empty()) << Error;
 	EXPECT_EQ(KeyBytes.size(), 75u);
-	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "31049dc20de3b54a742c931cb587ce92");
+	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "90a7dc1e16f761812d2975e56988d120");
 	EXPECT_EQ(Asset::Build::BuildStaticMeshCollisionDerivedDataKey(KeyInput, Error),
-		"31049dc20de3b54a742c931cb587ce92");
+		"90a7dc1e16f761812d2975e56988d120");
 
 	const FCollisionSourceFixture Tetra = MakeTetrahedron();
 	std::vector<FVector3> Positions;
@@ -998,7 +997,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FAetherCookedCollisionStage3Tests, Prod
 		Payload, EStaticMeshTargetPlatform::Win64, Second, Error)) << Error;
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(First.size(), 336u);
-	EXPECT_EQ(FXxHash128::HashBuffer(First).ToString(), "e18caaa3799e0c65edea7a0af09edbf1");
+	EXPECT_EQ(FXxHash128::HashBuffer(First).ToString(), "b43434e49ae8c9c62ea8ef4024b54159");
 	FStaticMeshCollisionPayloadData Decoded;
 	ASSERT_TRUE(DecodeCollisionPayload(
 		First, EStaticMeshTargetPlatform::Win64, Decoded));

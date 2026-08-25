@@ -66,7 +66,7 @@ persists 15 bounded reflected source/build/domain descriptor fields. Neither
 the authored package.
 
 Source image encoding belongs to the mounted source file and decoder, TXPL
-schema 1 belongs to Texture2D, DDC values are rebuildable canonical platform
+schema 2 belongs to Texture2D, DDC values are rebuildable canonical platform
 data, and cooked DBLK bytes are immutable deployment data loaded through
 `LoadCookedPackagePayload`. Decoded source, platform mip, and RHI resource
 lifetimes are independent downstream products. This measured boundary already
@@ -102,7 +102,7 @@ state; the Texture Editor requires an explicit Wait for Build or Cancel Build
 decision instead of serializing a pending candidate.
 
 The DDC path is derived entirely from the key; `.dasset` never stores a cache
-file path or byte offset. Texture payloads use TXPL schema 1, an 80-byte header,
+file path or byte offset. Texture payloads use owner-selected, magic-free TXPL schema 2, an 80-byte header,
 40-byte records, 16-byte aligned non-overlapping ranges, explicit BC format,
 dimension, mip and slice counts, target platform/profile, and XXH3-128
 checksums. Texture2D has exactly one slice and TextureCube has six ordered
@@ -111,7 +111,7 @@ slices. The selected cross-asset storage and cooked companion contract is docume
 
 ## Cooking and Runtime Loading
 
-Texture2D builder version 2 contributes its validated TXPL bytes under stable
+Texture2D producer version 3 contributes its validated TXPL bytes under stable
 payload ID `53aa6a89-dc49-401a-b409-adc498ac4f8b`. Cook serializes runtime
 settings plus the logical descriptor, strips source provenance and editor
 fingerprints, and publishes TXPL inside the package DBLK companion.

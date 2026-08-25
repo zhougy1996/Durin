@@ -419,8 +419,9 @@ chunk without changing asset references or the asset-specific payload schema.
 Offsets and sizes are unsigned, explicitly encoded values rather than native
 structure layouts.
 
-The `.dbulk` container has its own `DBLK` magic, container-format version,
-target-platform identifier, and bounded payload table. Payload ranges must be
+The `.dbulk` container is DURF/DBLK v2: the common envelope selects the
+permanent DBLK `FormatId`, while the format-owned header carries target/profile
+and the bounded payload table. Payload ranges must be
 aligned, non-overlapping, contained by the file, and validated before
 allocation. Each payload is independently checksummed so corruption is reported
 against the owning asset and `PayloadId`.
@@ -428,12 +429,14 @@ against the owning asset and `PayloadId`.
 DBLK and authored DABK reuse one AssetCore-private physical mechanism for
 bounded little-endian IO, checked arithmetic/alignment, detached ordering,
 zero-padding checks, safe range projection, and canonical layout construction.
-The mechanism stops below both schemas: magic, headers, entries, limits, hash
+The mechanism stops below both schemas: format identity, headers, entries, limits, hash
 algorithms, diagnostics, suffixes, providers, and authored-versus-Cook
 transactions remain format-owned. CMNF uses only the bounded codec primitives;
 it remains a Cook manifest and is not treated as a payload container.
 
-Asset-specific codecs own the bytes inside a payload. For example, a texture
+Asset-specific codecs own the bytes inside a payload. The reflected asset class
+and payload slot select exactly one codec; generic storage never probes bytes
+or carries a payload-type identity. For example, a texture
 codec owns mip records and GPU block-compressed bytes, while a static-mesh codec
 owns vertex and index streams. `AssetCore` owns container lookup, bounded I/O,
 and descriptor validation but does not interpret those bytes. C++ object
@@ -466,11 +469,11 @@ codec and loading policy support it.
 
 ### Skeletal Payload Codecs
 
-SkeletalMesh payload schema 1 uses `DSKM` (`0x4D4B5344` little-endian) and
-builder version 1. Its required chunks store metadata and bounds, sections,
+SkeletalMesh payload schema 2 and producer version 2 use a required-zero first
+header word. Its required chunks store metadata and bounds, sections,
 positions, vertex attributes, indices, canonical four-slot influences, and
-palette indices with inverse-bind matrices. AnimationClip payload schema 1 uses
-`DANM` (`0x4D4E4144`) and builder version 1; its required chunks store clip
+palette indices with inverse-bind matrices. AnimationClip payload schema 2 and
+producer version 2 use the same magic-free framing; its required chunks store clip
 metadata, track records, key times, and typed translation/rotation/scale values.
 
 Both codecs use an explicit 64-byte little-endian header, 32-byte chunk
@@ -491,10 +494,12 @@ asset package.
 
 ### Implemented Container Contract
 
-`DBLK` version 1 uses explicit little-endian fields, a 64-byte header, 80-byte
-payload-table entries, and 16-byte default payload alignment. The header records
-target platform and profile, table offset and size, payload count, total file
-size, and an XXH64 table checksum. Each entry records the stable payload GUID,
+`DBLK` version 2 uses DURF header version 1, permanent `FormatId`
+`76c5d46c-a3744b7e-9cda6c8f-e0dbcd17`, a 64-byte format header after the
+common preamble, 80-byte payload-table entries, and 16-byte default payload
+alignment. The header records target platform/profile, table and data offsets,
+payload count, and an XXH64 table checksum; DURF owns exact file extent and
+front-header integrity. Each entry records the stable payload GUID,
 flags, schema, location, compression, alignment, range, uncompressed size, and
 XXH3-128 payload hash. Unknown required entries, duplicate identities, invalid enums,
 misaligned or overlapping ranges, overflow, trailing size disagreement, and
@@ -633,10 +638,11 @@ or placement before live construction. All publication uses v6, publishes
 companions first, and replaces the complete package file atomically. No legacy
 rollback route exists.
 
-DABK v1 retains the physical 16-byte identity and 4-byte version slots used by
-authored external storage. Readers accept and ignore historical nonzero values,
-while current writers emit zero. Domain schema versions are reflected by the
-owning asset instead.
+DABK v2 uses DURF header version 1 and permanent `FormatId`
+`49efbbb4-e2434e35-a7c01c34-9ed84ea0`. Its 64-byte format header and sorted
+64-byte entries carry only storage facts: payload id, sizes, content and
+container hashes, offsets, flags, and required-zero reserved fields. Domain
+schema versions remain reflected facts owned by the asset slot instead.
 
 Asset package loading resolves external storage to the stable sibling
 `<package-stem>.dabulk`, then validates the complete DABK container and selected

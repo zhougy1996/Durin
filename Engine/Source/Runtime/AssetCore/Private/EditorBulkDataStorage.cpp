@@ -1,20 +1,23 @@
 #include "Asset/EditorBulkDataStorage.h"
 
 #include "BulkContainerInfrastructure.h"
+#include "Asset/PackageVersionPolicy.h"
 #include "Misc/FileHelper.h"
 #include "Serialization/Archive.h"
+#include "Serialization/BinaryEnvelope.h"
 
 namespace Durin::Asset
 {
 	namespace
 	{
-		constexpr uint32 Magic = 0x4b424144; // DABK
-		constexpr uint32 Version = 1;
-		constexpr uint32 HeaderBytes = 64;
-		constexpr uint32 EntryBytes = 96;
 		constexpr uint64 Alignment = 16;
 		constexpr uint64 MaximumEntries = 65536;
 		constexpr uint64 MaximumBytes = 1024ull * 1024 * 1024;
+		constexpr uint32 DurfVersion = 2;
+		constexpr uint32 DurfFormatHeaderBytes = 64;
+		constexpr uint32 DurfEntryBytes = 64;
+		constexpr uint64 DurfFixedHeaderBytes = BinaryEnvelopePreambleBytes + DurfFormatHeaderBytes;
+		constexpr FBinaryEnvelopeLimits DurfLimits{8ull * 1024 * 1024, MaximumBytes};
 
 		struct FEntry
 		{
@@ -22,132 +25,18 @@ namespace Durin::Asset
 			uint64 Offset = 0;
 		};
 
-		struct FHeader
+		struct FDurfHeader
 		{
-			uint32 Magic = 0;
-			uint32 Version = 0;
 			uint32 HeaderSize = 0;
 			uint32 EntrySize = 0;
+			uint32 Flags = 0;
+			uint32 Reserved0 = 0;
 			uint64 EntryCount = 0;
 			uint64 DirectoryOffset = 0;
 			uint64 DataOffset = 0;
 			FXxHash128 ContainerHash;
-			uint64 Reserved = 0;
-		};
-
-		struct FWireEntry
-		{
-			FEntry Entry;
-			uint32 Flags = 0;
-			uint64 Reserved0 = 0;
 			uint64 Reserved1 = 0;
 		};
-
-		auto ReadHeader(BulkContainer::FBoundedReader& Reader, FHeader& OutHeader) -> bool
-		{
-			FHeader Header;
-			Reader.Read(Header.Magic);
-			Reader.Read(Header.Version);
-			Reader.Read(Header.HeaderSize);
-			Reader.Read(Header.EntrySize);
-			Reader.Read(Header.EntryCount);
-			Reader.Read(Header.DirectoryOffset);
-			Reader.Read(Header.DataOffset);
-			Reader.Read(Header.ContainerHash.HashLow);
-			Reader.Read(Header.ContainerHash.HashHigh);
-			Reader.Read(Header.Reserved);
-			if (!Reader.IsValid()) return false;
-			OutHeader = Header;
-			return true;
-		}
-
-		auto WriteHeader(
-			BulkContainer::FBoundedWriter& Writer,
-			const FHeader& Header) -> bool
-		{
-			Writer.Write(Header.Magic);
-			Writer.Write(Header.Version);
-			Writer.Write(Header.HeaderSize);
-			Writer.Write(Header.EntrySize);
-			Writer.Write(Header.EntryCount);
-			Writer.Write(Header.DirectoryOffset);
-			Writer.Write(Header.DataOffset);
-			Writer.Write(Header.ContainerHash.HashLow);
-			Writer.Write(Header.ContainerHash.HashHigh);
-			Writer.Write(Header.Reserved);
-			return Writer.IsValid();
-		}
-
-		auto ReadEntry(
-			BulkContainer::FBoundedReader& Reader,
-			FXxHash128 ContainerHash,
-			FWireEntry& OutEntry) -> bool
-		{
-			FWireEntry Candidate;
-			FGuid ReservedIdentity;
-			uint32 ReservedVersion = 0;
-			uint64 HashLow = 0, HashHigh = 0;
-			Reader.ReadGuid(Candidate.Entry.Descriptor.PayloadId);
-			Reader.ReadGuid(ReservedIdentity);
-			Reader.Read(ReservedVersion);
-			Reader.Read(Candidate.Flags);
-			Reader.Read(Candidate.Entry.Descriptor.LogicalByteCount);
-			Reader.Read(Candidate.Entry.Descriptor.StoredByteCount);
-			Reader.Read(HashLow);
-			Reader.Read(HashHigh);
-			Reader.Read(Candidate.Entry.Offset);
-			Reader.Read(Candidate.Reserved0);
-			Reader.Read(Candidate.Reserved1);
-			if (!Reader.IsValid()) return false;
-			Candidate.Entry.Descriptor.ContentHash = {HashLow, HashHigh};
-			Candidate.Entry.Descriptor.ContainerHash = ContainerHash;
-			Candidate.Entry.Descriptor.StorageKind = EEditorBulkDataStorageKind::External;
-			OutEntry = Candidate;
-			return true;
-		}
-
-		auto WriteEntry(
-			BulkContainer::FBoundedWriter& Writer,
-			const FEditorBulkDataStorageDescriptor& Descriptor,
-			uint64 Offset) -> bool
-		{
-			Writer.WriteGuid(Descriptor.PayloadId);
-			Writer.WriteGuid(FGuid{});
-			Writer.Write(uint32{0});
-			Writer.Write(uint32{0});
-			Writer.Write(Descriptor.LogicalByteCount);
-			Writer.Write(Descriptor.StoredByteCount);
-			Writer.Write(Descriptor.ContentHash.HashLow);
-			Writer.Write(Descriptor.ContentHash.HashHigh);
-			Writer.Write(Offset);
-			Writer.Write(uint64{0});
-			Writer.Write(uint64{0});
-			return Writer.IsValid();
-		}
-
-		auto IsValidHeaderIdentity(
-			const FHeader& Header,
-			FXxHash128 ExpectedContainerHash) -> bool
-		{
-			return Header.Magic == Magic && Header.Version == Version
-				&& Header.HeaderSize == HeaderBytes && Header.EntrySize == EntryBytes
-				&& Header.EntryCount <= MaximumEntries
-				&& Header.DirectoryOffset == HeaderBytes && Header.Reserved == 0
-				&& !Header.ContainerHash.IsZero()
-				&& (ExpectedContainerHash.IsZero()
-					|| Header.ContainerHash == ExpectedContainerHash);
-		}
-
-		auto IsValidEntry(const FWireEntry& WireEntry, uint64 DataOffset) -> bool
-		{
-			const FEntry& Entry = WireEntry.Entry;
-			return Entry.Descriptor.PayloadId.IsValid()
-				&& WireEntry.Flags == 0
-				&& Entry.Descriptor.LogicalByteCount == Entry.Descriptor.StoredByteCount
-				&& Entry.Descriptor.StoredByteCount <= MaximumBytes
-				&& Entry.Offset >= DataOffset && Entry.Offset % Alignment == 0
-				&& WireEntry.Reserved0 == 0 && WireEntry.Reserved1 == 0;
-		}
 
 		auto CollectDescriptors(
 			DurinCodeGen::EPropertyGenFlags Kind,
@@ -220,74 +109,167 @@ namespace Durin::Asset
 			return true;
 		}
 
-		auto Parse(std::span<const std::byte> Bytes, FXxHash128 ExpectedContainerHash,
+		auto GetDurfRegistry() -> const FBinaryFormatRegistry&
+		{
+			static const FBinaryFormatRegistry Registry = [] {
+				const std::array Descriptors{FBinaryFormatDescriptor{
+					.FormatId = DabkBinaryFormatId,
+					.DebugName = std::string(DabkBinaryFormatName),
+					.MinimumFormatVersion = DurfVersion,
+					.MaximumFormatVersion = DurfVersion,
+					.SupportedRequiredFeatures = 0,
+					.Limits = DurfLimits}};
+				FBinaryFormatRegistry Result;
+				require(FBinaryFormatRegistry::Create(Descriptors, Result));
+				return Result;
+			}();
+			return Registry;
+		}
+
+		auto ReadDurfHeader(BulkContainer::FBoundedReader& Reader, FDurfHeader& OutHeader) -> bool
+		{
+			FDurfHeader Header;
+			Reader.Read(Header.HeaderSize);
+			Reader.Read(Header.EntrySize);
+			Reader.Read(Header.Flags);
+			Reader.Read(Header.Reserved0);
+			Reader.Read(Header.EntryCount);
+			Reader.Read(Header.DirectoryOffset);
+			Reader.Read(Header.DataOffset);
+			Reader.Read(Header.ContainerHash.HashLow);
+			Reader.Read(Header.ContainerHash.HashHigh);
+			Reader.Read(Header.Reserved1);
+			if (!Reader.IsValid()) return false;
+			OutHeader = Header;
+			return true;
+		}
+
+		auto WriteDurfHeader(BulkContainer::FBoundedWriter& Writer, const FDurfHeader& Header) -> bool
+		{
+			Writer.Write(Header.HeaderSize);
+			Writer.Write(Header.EntrySize);
+			Writer.Write(Header.Flags);
+			Writer.Write(Header.Reserved0);
+			Writer.Write(Header.EntryCount);
+			Writer.Write(Header.DirectoryOffset);
+			Writer.Write(Header.DataOffset);
+			Writer.Write(Header.ContainerHash.HashLow);
+			Writer.Write(Header.ContainerHash.HashHigh);
+			Writer.Write(Header.Reserved1);
+			return Writer.IsValid();
+		}
+
+		auto ReadDurfEntry(BulkContainer::FBoundedReader& Reader, FXxHash128 ContainerHash,
+			FEntry& OutEntry) -> bool
+		{
+			FEntry Entry;
+			uint32 Flags = 0, Reserved = 0;
+			Reader.ReadGuid(Entry.Descriptor.PayloadId);
+			Reader.Read(Entry.Descriptor.LogicalByteCount);
+			Reader.Read(Entry.Descriptor.StoredByteCount);
+			Reader.Read(Entry.Descriptor.ContentHash.HashLow);
+			Reader.Read(Entry.Descriptor.ContentHash.HashHigh);
+			Reader.Read(Entry.Offset);
+			Reader.Read(Flags);
+			Reader.Read(Reserved);
+			if (!Reader.IsValid() || Flags != 0 || Reserved != 0) return false;
+			Entry.Descriptor.ContainerHash = ContainerHash;
+			Entry.Descriptor.StorageKind = EEditorBulkDataStorageKind::External;
+			OutEntry = Entry;
+			return true;
+		}
+
+		auto WriteDurfEntry(BulkContainer::FBoundedWriter& Writer,
+			const FEditorBulkDataStorageDescriptor& Descriptor, uint64 Offset) -> bool
+		{
+			Writer.WriteGuid(Descriptor.PayloadId);
+			Writer.Write(Descriptor.LogicalByteCount);
+			Writer.Write(Descriptor.StoredByteCount);
+			Writer.Write(Descriptor.ContentHash.HashLow);
+			Writer.Write(Descriptor.ContentHash.HashHigh);
+			Writer.Write(Offset);
+			Writer.Write(uint32{0});
+			Writer.Write(uint32{0});
+			return Writer.IsValid();
+		}
+
+		auto ParseV2(std::span<const std::byte> Bytes, FXxHash128 ExpectedContainerHash,
 			std::vector<FEntry>& OutEntries, uint64& OutDataOffset,
 			std::string* OutError) -> bool
 		{
 			OutEntries.clear();
 			OutDataOffset = 0;
-			if (Bytes.size() < HeaderBytes || Bytes.size() > MaximumBytes)
+			if (Bytes.size() < DurfFixedHeaderBytes || Bytes.size() > MaximumBytes)
 				return Fail("Authored bulk companion size is outside the supported bound.", OutError);
-			BulkContainer::FBoundedReader Reader(Bytes, MaximumBytes);
-			FHeader Header;
-			if (!ReadHeader(Reader, Header))
-				return Fail("Authored bulk companion header is invalid.", OutError);
+			FBinaryEnvelopePreamble Preamble;
+			FBinaryEnvelopeDiagnostic Diagnostic;
+			if (!ParseBinaryEnvelopePrefix(Bytes.first(BinaryEnvelopePreambleBytes), Bytes.size(),
+					DurfLimits, Preamble, &Diagnostic)
+				|| Preamble.HeaderBytes > Bytes.size())
+				return Fail(std::string(Diagnostic.Message), OutError);
+			FValidatedBinaryEnvelope Envelope;
+			if (!ValidateBinaryEnvelopeHeader(Bytes.first(static_cast<size_t>(Preamble.HeaderBytes)),
+					Bytes.size(), DurfLimits, GetDurfRegistry(), Envelope, &Diagnostic))
+				return Fail(std::string(Diagnostic.Message), OutError);
+
+			BulkContainer::FBoundedReader Reader(Envelope.FormatHeaderBytes, DurfLimits.MaximumHeaderBytes);
+			FDurfHeader Header;
+			if (!ReadDurfHeader(Reader, Header))
+				return Fail("Authored bulk DURF header is truncated.", OutError);
 			uint64 DirectoryBytes = 0, DirectoryEnd = 0, ExpectedDataOffset = 0;
-			if (!IsValidHeaderIdentity(Header, ExpectedContainerHash)
-				|| !BulkContainer::TryMultiply(
-					Header.EntryCount, EntryBytes, MaximumBytes, DirectoryBytes)
-				|| !BulkContainer::TryAdd(HeaderBytes, DirectoryBytes, MaximumBytes, DirectoryEnd)
+			if (Header.HeaderSize != DurfFormatHeaderBytes || Header.EntrySize != DurfEntryBytes
+				|| Header.Flags != 0 || Header.Reserved0 != 0 || Header.Reserved1 != 0
+				|| Header.EntryCount == 0 || Header.EntryCount > MaximumEntries
+				|| Header.DirectoryOffset != DurfFixedHeaderBytes || Header.ContainerHash.IsZero()
+				|| (!ExpectedContainerHash.IsZero() && Header.ContainerHash != ExpectedContainerHash)
+				|| !BulkContainer::TryMultiply(Header.EntryCount, DurfEntryBytes, MaximumBytes, DirectoryBytes)
+				|| !BulkContainer::TryAdd(DurfFixedHeaderBytes, DirectoryBytes, MaximumBytes, DirectoryEnd)
 				|| !BulkContainer::TryAlignUp(DirectoryEnd, Alignment, MaximumBytes, ExpectedDataOffset)
-				|| Header.DataOffset != ExpectedDataOffset
-				|| Header.DataOffset > Bytes.size())
-				return Fail("Authored bulk companion header is invalid.", OutError);
+				|| Header.DataOffset != ExpectedDataOffset || Header.DataOffset != Preamble.HeaderBytes)
+				return Fail("Authored bulk DURF header is invalid.", OutError);
 
 			OutEntries.reserve(static_cast<size_t>(Header.EntryCount));
 			std::vector<BulkContainer::FPayloadRange> Ranges;
 			Ranges.reserve(static_cast<size_t>(Header.EntryCount));
 			for (uint64 Index = 0; Index < Header.EntryCount; ++Index)
 			{
-				FWireEntry WireEntry;
-				if (!ReadEntry(Reader, Header.ContainerHash, WireEntry))
-					return Fail("Authored bulk companion directory entry is invalid.", OutError);
-				if (!IsValidEntry(WireEntry, Header.DataOffset))
-					return Fail("Authored bulk companion directory entry is invalid.", OutError);
-				const FEntry& Entry = WireEntry.Entry;
-				if (!OutEntries.empty() && !(OutEntries.back().Descriptor.PayloadId < Entry.Descriptor.PayloadId))
-					return Fail("Authored bulk companion payload ids are duplicate or noncanonical.", OutError);
+				FEntry Entry;
+				if (!ReadDurfEntry(Reader, Header.ContainerHash, Entry)
+					|| !Entry.Descriptor.PayloadId.IsValid()
+					|| Entry.Descriptor.LogicalByteCount != Entry.Descriptor.StoredByteCount
+					|| Entry.Descriptor.StoredByteCount > MaximumBytes
+					|| Entry.Offset < Header.DataOffset || Entry.Offset % Alignment != 0
+					|| (!OutEntries.empty() && !(OutEntries.back().Descriptor.PayloadId < Entry.Descriptor.PayloadId)))
+					return Fail("Authored bulk DURF directory entry is invalid.", OutError);
 				Ranges.push_back({Entry.Offset, Entry.Descriptor.StoredByteCount, Alignment});
 				OutEntries.push_back(Entry);
 			}
-			BulkContainer::FFailure LayoutFailure;
 			const BulkContainer::FLayoutPolicy LayoutPolicy{
-				.MaximumCount = MaximumEntries,
-				.MaximumPayloadBytes = MaximumBytes,
-				.MaximumContainerBytes = MaximumBytes,
-				.RequireCanonicalOffsets = true,
+				.MaximumCount = MaximumEntries, .MaximumPayloadBytes = MaximumBytes,
+				.MaximumContainerBytes = MaximumBytes, .RequireCanonicalOffsets = true,
 				.AllowTrailingZeroPadding = false};
-			if (!BulkContainer::ValidateLayout(
-				Bytes, Reader.Tell(), Header.DataOffset, Ranges, LayoutPolicy, &LayoutFailure))
-			{
-				if (LayoutFailure.Category == BulkContainer::EFailure::NonzeroPadding
-					&& LayoutFailure.Offset < Header.DataOffset)
-					return Fail("Authored bulk directory padding is nonzero.", OutError);
-				if (LayoutFailure.Category == BulkContainer::EFailure::TrailingBytes)
-					return Fail("Authored bulk companion contains trailing or unconsumed bytes.", OutError);
-				return Fail("Authored bulk payload ranges overlap, contain gaps, or exceed the file.", OutError);
-			}
-
+			BulkContainer::FFailure LayoutFailure;
+			if (!BulkContainer::ValidateLayout(Bytes, DirectoryEnd, Header.DataOffset,
+					Ranges, LayoutPolicy, &LayoutFailure))
+				return Fail("Authored bulk DURF layout is invalid.", OutError);
 			for (const FEntry& Entry : OutEntries)
 			{
 				std::span<const std::byte> Payload;
-				if (!BulkContainer::TryProjectRange(
-					Bytes, Entry.Offset, Entry.Descriptor.StoredByteCount, Payload))
-					return Fail("Authored bulk payload ranges overlap, contain gaps, or exceed the file.", OutError);
-				if (FXxHash128::HashBuffer(Payload) != Entry.Descriptor.ContentHash)
+				if (!BulkContainer::TryProjectRange(Bytes, Entry.Offset,
+						Entry.Descriptor.StoredByteCount, Payload)
+					|| FXxHash128::HashBuffer(Payload) != Entry.Descriptor.ContentHash)
 					return Fail("Authored bulk payload content hash verification failed.", OutError);
 			}
 			OutDataOffset = Header.DataOffset;
 			if (OutError) OutError->clear();
 			return true;
+		}
+
+		auto Parse(std::span<const std::byte> Bytes, FXxHash128 ExpectedContainerHash,
+			std::vector<FEntry>& OutEntries, uint64& OutDataOffset,
+			std::string* OutError) -> bool
+		{
+			return ParseV2(Bytes, ExpectedContainerHash, OutEntries, OutDataOffset, OutError);
 		}
 	}
 
@@ -320,8 +302,8 @@ namespace Durin::Asset
 			return Fail("Authored bulk companion contains duplicate payload ids.", OutError);
 
 		uint64 DirectoryBytes = 0, DirectoryEnd = 0, DataOffset = 0;
-		if (!BulkContainer::TryMultiply(Sorted.size(), EntryBytes, MaximumBytes, DirectoryBytes)
-			|| !BulkContainer::TryAdd(HeaderBytes, DirectoryBytes, MaximumBytes, DirectoryEnd)
+		if (!BulkContainer::TryMultiply(Sorted.size(), DurfEntryBytes, MaximumBytes, DirectoryBytes)
+			|| !BulkContainer::TryAdd(DurfFixedHeaderBytes, DirectoryBytes, MaximumBytes, DirectoryEnd)
 			|| !BulkContainer::TryAlignUp(DirectoryEnd, Alignment, MaximumBytes, DataOffset))
 			return Fail("Authored bulk companion exceeds the 1 GiB bound.", OutError);
 		std::vector<BulkContainer::FLayoutItem> LayoutItems;
@@ -351,22 +333,23 @@ namespace Durin::Asset
 			return Fail("Authored bulk companion exceeds the 1 GiB bound.", OutError);
 
 		BulkContainer::FBoundedWriter Writer(MaximumBytes);
-		const FHeader Header{
-			.Magic = Magic,
-			.Version = Version,
-			.HeaderSize = HeaderBytes,
-			.EntrySize = EntryBytes,
+		const std::array<std::byte, BinaryEnvelopePreambleBytes> EmptyPreamble{};
+		const FDurfHeader Header{
+			.HeaderSize = DurfFormatHeaderBytes,
+			.EntrySize = DurfEntryBytes,
+			.Flags = 0,
+			.Reserved0 = 0,
 			.EntryCount = Sorted.size(),
-			.DirectoryOffset = HeaderBytes,
+			.DirectoryOffset = DurfFixedHeaderBytes,
 			.DataOffset = DataOffset,
 			.ContainerHash = ContainerHash,
-			.Reserved = 0};
-		if (!WriteHeader(Writer, Header))
+			.Reserved1 = 0};
+		if (!Writer.Write(EmptyPreamble) || !WriteDurfHeader(Writer, Header))
 			return Fail("Authored bulk companion encoding failed.", OutError);
 		for (size_t Index = 0; Index < Sorted.size(); ++Index)
 		{
 			const auto& Descriptor = Sorted[Index]->Descriptor;
-			if (!WriteEntry(Writer, Descriptor, Ranges[Index].Offset))
+			if (!WriteDurfEntry(Writer, Descriptor, Ranges[Index].Offset))
 				return Fail("Authored bulk companion encoding failed.", OutError);
 		}
 		if (!Writer.PadTo(DataOffset))
@@ -382,6 +365,14 @@ namespace Durin::Asset
 		std::vector<std::byte> Candidate;
 		if (Writer.Tell() != FileSize || !Writer.TryTake(Candidate))
 			return Fail("Authored bulk companion encoding failed.", OutError);
+		const FBinaryEnvelopePreamble Preamble{
+			.FormatId = DabkBinaryFormatId, .FormatVersion = DurfVersion,
+			.RequiredFeatures = 0, .HeaderBytes = DataOffset, .FileBytes = FileSize};
+		FBinaryEnvelopeDiagnostic Diagnostic;
+		if (!EncodeBinaryEnvelopePreamble(Preamble, Candidate, &Diagnostic)
+			|| !FinalizeBinaryEnvelopeHeader(std::span(Candidate).first(static_cast<size_t>(DataOffset)),
+				FileSize, DurfLimits, &Diagnostic))
+			return Fail(std::string(Diagnostic.Message), OutError);
 		if (!ValidateEditorBulkDataCompanion(Candidate, ContainerHash, OutError)) return false;
 		OutBytes = std::move(Candidate);
 		return true;

@@ -1,6 +1,7 @@
 #include "AssetPackageV6Codec.h"
 #include "Asset/PackageObjectStreamWriter.h"
 #include "Misc/FileHelper.h"
+#include "Serialization/BinaryEnvelope.h"
 
 #include <gtest/gtest.h>
 
@@ -243,6 +244,28 @@ TEST(FDastV6WireTests, V6CodecIsTheSoleOrdinaryPolicy)
 	EXPECT_EQ(Resolved->CodecId, Codec.CodecId);
 	EXPECT_EQ(FindAssetPackageWriter(OrdinaryAssetPackageWriterVersion)->FormatVersion,
 		AssetPackageV6FormatVersion);
+}
+
+TEST(FDastV6WireTests, AssetFileFormatIdentitiesArePermanentAndCollisionFree)
+{
+	EXPECT_TRUE(DastBinaryFormatId.IsValid());
+	EXPECT_TRUE(DabkBinaryFormatId.IsValid());
+	EXPECT_TRUE(DblkBinaryFormatId.IsValid());
+	EXPECT_NE(DastBinaryFormatId, DabkBinaryFormatId);
+	EXPECT_NE(DastBinaryFormatId, DblkBinaryFormatId);
+	EXPECT_NE(DabkBinaryFormatId, DblkBinaryFormatId);
+
+	const std::array Descriptors{
+		FBinaryFormatDescriptor{DastBinaryFormatId, std::string(DastBinaryFormatName), 6, 6, 0, {1024, 1024}},
+		FBinaryFormatDescriptor{DabkBinaryFormatId, std::string(DabkBinaryFormatName), 2, 2, 0, {1024, 1024}},
+		FBinaryFormatDescriptor{DblkBinaryFormatId, std::string(DblkBinaryFormatName), 2, 2, 0, {1024, 1024}}};
+	FBinaryFormatRegistry Registry;
+	FBinaryEnvelopeDiagnostic Diagnostic;
+	ASSERT_TRUE(FBinaryFormatRegistry::Create(Descriptors, Registry, &Diagnostic));
+	ASSERT_EQ(Registry.GetDescriptors().size(), 3u);
+	EXPECT_EQ(Registry.Find(DastBinaryFormatId)->DebugName, DastBinaryFormatName);
+	EXPECT_EQ(Registry.Find(DabkBinaryFormatId)->DebugName, DabkBinaryFormatName);
+	EXPECT_EQ(Registry.Find(DblkBinaryFormatId)->DebugName, DblkBinaryFormatName);
 }
 
 TEST(FDastV6WireTests, TrackedCompatibilityFixturesPreserveNamedV6Intent)

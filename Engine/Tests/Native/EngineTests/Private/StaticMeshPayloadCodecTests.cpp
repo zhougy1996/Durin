@@ -668,8 +668,8 @@ TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
 {
 	const std::array Fixtures{MakeSingleSectionFixture(), MakeMultiMaterialFixture()};
 	const std::array<std::string_view, 2> ExpectedPayloadHashes{
-		"f8a1b99877a1dd9fd070e498ba1ca9b2",
-		"fc478ee22fb777e44d793448c41be804"};
+		"38eca74fe55840b7496a5a7ce640a9c8",
+		"22b719d486a6e9c288ede84204ab5ab6"};
 	const std::array<size_t, 2> ExpectedPayloadSizes{556, 824};
 	for (size_t FixtureIndex = 0; FixtureIndex < Fixtures.size(); ++FixtureIndex)
 	{
@@ -679,7 +679,7 @@ TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
 		EXPECT_EQ(First, Second);
 		EXPECT_EQ(FXxHash128::HashBuffer(First).ToString(), ExpectedPayloadHashes[FixtureIndex]);
 		EXPECT_EQ(First.size(), ExpectedPayloadSizes[FixtureIndex]);
-		EXPECT_EQ(ReadU32(First, 0), StaticMeshPayloadMagic);
+		EXPECT_EQ(ReadU32(First, 0), 0u);
 		EXPECT_EQ(ReadU64(First, 48), First.size());
 
 		FStaticMeshPayloadData Decoded;
@@ -1056,7 +1056,7 @@ TEST(FStaticMeshPayloadCodecTests, RejectsInvalidEnvelopeAndChunkRanges)
 		ExpectDecodeFailure(Bytes);
 	};
 
-	Mutate([](auto& Bytes) { WriteU32(Bytes, 0, 0); });
+	Mutate([](auto& Bytes) { WriteU32(Bytes, 0, 1); });
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 8, StaticMeshBuilderVersion + 1); });
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 12, 0); });
 	Mutate([](auto& Bytes) { WriteU32(Bytes, 16, 2); });

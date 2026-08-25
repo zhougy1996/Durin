@@ -667,19 +667,19 @@ TEST(FSkeletalAssetTests, PayloadCodecsAreDeterministicAndRoundTripExactValues)
 	EXPECT_EQ(MeshBytes, RepeatedMeshBytes);
 	EXPECT_EQ(ClipBytes, RepeatedClipBytes);
 	EXPECT_EQ(Durin::FXxHash128::HashBuffer(MeshBytes).ToString(),
-		"fc7f61d6067225ce84e3c50ccce55c51");
+		"c9b34549e31c18d6d80fffe38134e18a");
 	EXPECT_EQ(Durin::FXxHash128::HashBuffer(ClipBytes).ToString(),
-		"7da58a36cd32f38a3dcb1daa910994f7");
+		"46de1c43345e7a1a6e0957742c7dcbe5");
 	ASSERT_GE(MeshBytes.size(), Durin::SkeletalPayloadHeaderSize);
 	ASSERT_GE(ClipBytes.size(), Durin::SkeletalPayloadHeaderSize);
-	EXPECT_EQ(MeshBytes[0], static_cast<std::byte>('D'));
-	EXPECT_EQ(MeshBytes[1], static_cast<std::byte>('S'));
-	EXPECT_EQ(MeshBytes[2], static_cast<std::byte>('K'));
-	EXPECT_EQ(MeshBytes[3], static_cast<std::byte>('M'));
-	EXPECT_EQ(ClipBytes[0], static_cast<std::byte>('D'));
-	EXPECT_EQ(ClipBytes[1], static_cast<std::byte>('A'));
-	EXPECT_EQ(ClipBytes[2], static_cast<std::byte>('N'));
-	EXPECT_EQ(ClipBytes[3], static_cast<std::byte>('M'));
+	EXPECT_EQ(MeshBytes[0], std::byte{});
+	EXPECT_EQ(MeshBytes[1], std::byte{});
+	EXPECT_EQ(MeshBytes[2], std::byte{});
+	EXPECT_EQ(MeshBytes[3], std::byte{});
+	EXPECT_EQ(ClipBytes[0], std::byte{});
+	EXPECT_EQ(ClipBytes[1], std::byte{});
+	EXPECT_EQ(ClipBytes[2], std::byte{});
+	EXPECT_EQ(ClipBytes[3], std::byte{});
 
 	Durin::FSkeletalMeshPayloadData DecodedMesh;
 	Durin::FAnimationClipPayloadData DecodedClip;
@@ -722,7 +722,7 @@ TEST(FSkeletalAssetTests, PayloadCodecsAreDeterministicAndRoundTripExactValues)
 	KeyInput.TargetProfile = Durin::ESkeletalPayloadTargetProfile::Game;
 	const std::string MeshKey = Durin::Asset::Build::BuildSkeletalMeshDerivedDataKey(
 		MeshKeyInput, Error);
-	EXPECT_EQ(MeshKey, "d4a4365a271f98c048d49b3491170eb3");
+	EXPECT_EQ(MeshKey, "52c09bf719453d299c5525d2ea1dda6d");
 	EXPECT_EQ(MeshKey.size(), 32u);
 	EXPECT_EQ(Durin::Asset::Build::BuildSkeletalMeshDerivedDataKey(MeshKeyInput, Error), MeshKey);
 	Durin::Asset::Build::FAnimationClipBuildKeyInput ClipKeyInput;
@@ -731,7 +731,7 @@ TEST(FSkeletalAssetTests, PayloadCodecsAreDeterministicAndRoundTripExactValues)
 	ClipKeyInput.StableOutputIdentity = "animation-clip:animation/0/skin/0";
 	const std::string ClipKey = Durin::Asset::Build::BuildAnimationClipDerivedDataKey(
 		ClipKeyInput, Error);
-	EXPECT_EQ(ClipKey, "a8eb4f43273627152dd71bea93f6d2e9");
+	EXPECT_EQ(ClipKey, "683755735a794db9d991a4c83e733839");
 	EXPECT_EQ(ClipKey.size(), 32u);
 	EXPECT_NE(ClipKey, MeshKey);
 }

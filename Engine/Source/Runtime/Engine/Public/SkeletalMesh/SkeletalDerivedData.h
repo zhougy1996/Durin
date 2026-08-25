@@ -6,14 +6,12 @@
 
 namespace Durin
 {
-	inline constexpr uint32 SkeletalMeshPayloadMagic = 0x4D4B5344; // DSKM
-	inline constexpr uint32 AnimationClipPayloadMagic = 0x4D4E4144; // DANM
-	inline constexpr uint32 SkeletalMeshPayloadSchemaVersion = 1;
-	inline constexpr uint32 AnimationClipPayloadSchemaVersion = 1;
+	inline constexpr uint32 SkeletalMeshPayloadSchemaVersion = 2;
+	inline constexpr uint32 AnimationClipPayloadSchemaVersion = 2;
 	// Retained in the version-1 wire header for byte compatibility; it is not a
 	// runtime compatibility gate for future Build recipe revisions.
-	inline constexpr uint32 SkeletalMeshPayloadProducerVersion = 1;
-	inline constexpr uint32 AnimationClipPayloadProducerVersion = 1;
+	inline constexpr uint32 SkeletalMeshPayloadProducerVersion = 2;
+	inline constexpr uint32 AnimationClipPayloadProducerVersion = 2;
 	inline constexpr uint32 SkeletalPayloadAlignment = 16;
 	inline constexpr uint32 SkeletalPayloadHeaderSize = 64;
 	inline constexpr uint32 SkeletalPayloadChunkEntrySize = 32;

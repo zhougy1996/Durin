@@ -357,11 +357,11 @@ validated as another fallback, so no partial payload can reach a draw.
 
 ## Payload Compatibility
 
-DMSH schema 4 stores each LOD's `ScreenSize` beside its geometry and retains
+DMSH schema 5 stores each LOD's `ScreenSize` beside its geometry and retains
 the schema-3 bounded material-slot count rather than slot GUIDs.
 Every decoded section index is validated against that count; package metadata
 then restores editor/runtime slot names and imported source indices by stable
-position. Schema 3 and older payloads are incompatible, and builder version 3
+position. Schema 4 and older payloads are incompatible, and builder version 4
 invalidates prior derived data while the derived-data key schema remains 1
 because it already encodes both version values. Source-backed assets and stale
 DDC entries rebuild; cooked/runtime-only schema-3 content must be recooked and

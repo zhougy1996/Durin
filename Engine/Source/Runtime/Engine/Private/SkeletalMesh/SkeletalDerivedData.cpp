@@ -168,7 +168,6 @@ namespace Durin
 		}
 
 		auto BuildContainer(
-			uint32 Magic,
 			uint32 SchemaVersion,
 			uint32 ProducerVersion,
 			ESkeletalPayloadTargetPlatform TargetPlatform,
@@ -194,7 +193,7 @@ namespace Durin
 					.DecodedSize = Chunk.Bytes.size()});
 
 			const Asset::FChunkedPayloadResult Result = Asset::EncodeChunkedPayload(
-				{Magic, SchemaVersion, ProducerVersion, static_cast<uint32>(TargetPlatform),
+				{0, SchemaVersion, ProducerVersion, static_cast<uint32>(TargetPlatform),
 					static_cast<uint32>(TargetProfile), 0, SkeletalPayloadHeaderSize,
 					static_cast<uint32>(Chunks.size())},
 				Chunks, GetSkeletalChunkedPayloadFormat(
@@ -206,7 +205,6 @@ namespace Durin
 
 		auto ParseContainer(
 			std::span<const std::byte> Bytes,
-			uint32 ExpectedMagic,
 			uint32 ExpectedSchema,
 			ESkeletalPayloadTargetPlatform ExpectedPlatform,
 			ESkeletalPayloadTargetProfile ExpectedProfile,
@@ -226,13 +224,13 @@ namespace Durin
 				return Fail("A concrete skeletal payload target and profile are required.", &OutError);
 			}
 
-			uint32 Magic = 0, Schema = 0, Producer = 0, Platform = 0, Profile = 0;
+			uint32 Reserved0 = 0, Schema = 0, Producer = 0, Platform = 0, Profile = 0;
 			uint32 Flags = 0;
-			if (!ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, Schema)
+			if (!ReadLittleEndianAt(Bytes, 0, Reserved0) || !ReadLittleEndianAt(Bytes, 4, Schema)
 				|| !ReadLittleEndianAt(Bytes, 8, Producer) || !ReadLittleEndianAt(Bytes, 12, Platform)
 				|| !ReadLittleEndianAt(Bytes, 16, Profile) || !ReadLittleEndianAt(Bytes, 20, Flags))
 				return Fail("Skeletal payload header is truncated.", &OutError);
-			if (Magic != ExpectedMagic) return Fail("Skeletal payload magic is invalid.", &OutError);
+			if (Reserved0 != 0) return Fail("Skeletal payload reserved header field is nonzero.", &OutError);
 			if (Schema != ExpectedSchema)
 			{
 				OutCode = EPayloadDecodeError::Incompatible;
@@ -358,7 +356,7 @@ namespace Durin
 		Chunks.push_back({static_cast<uint32>(EMeshChunk::PaletteAndInverseBinds), Palette.TakeBytes()});
 
 		return BuildContainer(
-			SkeletalMeshPayloadMagic, SkeletalMeshPayloadSchemaVersion,
+			SkeletalMeshPayloadSchemaVersion,
 			SkeletalMeshPayloadProducerVersion, Context.TargetPlatform,
 			Context.TargetProfile, Chunks,
 			MaximumSkeletalMeshPayloadBytes, OutBytes, OutError);
@@ -372,8 +370,7 @@ namespace Durin
 		std::vector<std::span<const std::byte>> Chunks;
 		std::string Error;
 		EPayloadDecodeError Code = EPayloadDecodeError::Corrupt;
-		if (!ParseContainer(Bytes, SkeletalMeshPayloadMagic,
-			SkeletalMeshPayloadSchemaVersion,
+		if (!ParseContainer(Bytes, SkeletalMeshPayloadSchemaVersion,
 			Context.TargetPlatform, Context.TargetProfile, 7,
 			MaximumSkeletalMeshPayloadBytes,
 			Chunks, Error, Code)) return {Code, std::move(Error)};
@@ -600,7 +597,7 @@ namespace Durin
 		Chunks.push_back({static_cast<uint32>(EAnimationChunk::Values), Values.TakeBytes()});
 
 		return BuildContainer(
-			AnimationClipPayloadMagic, AnimationClipPayloadSchemaVersion,
+			AnimationClipPayloadSchemaVersion,
 			AnimationClipPayloadProducerVersion, Context.TargetPlatform,
 			Context.TargetProfile, Chunks,
 			MaximumAnimationClipPayloadBytes, OutBytes, OutError);
@@ -614,8 +611,7 @@ namespace Durin
 		std::vector<std::span<const std::byte>> Chunks;
 		std::string Error;
 		EPayloadDecodeError Code = EPayloadDecodeError::Corrupt;
-		if (!ParseContainer(Bytes, AnimationClipPayloadMagic,
-			AnimationClipPayloadSchemaVersion,
+		if (!ParseContainer(Bytes, AnimationClipPayloadSchemaVersion,
 			Context.TargetPlatform, Context.TargetProfile, 4,
 			MaximumAnimationClipPayloadBytes,
 			Chunks, Error, Code)) return {Code, std::move(Error)};

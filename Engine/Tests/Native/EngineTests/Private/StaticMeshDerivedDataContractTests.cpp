@@ -34,7 +34,7 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 		Durin::Asset::Build::BuildStaticMeshDerivedDataKeyBytes(Input, Error);
 	const std::vector<std::byte> Expected = [] {
 		const uint8 Values[]{
-		0x02, 0x00, 0x00, 0x00,
+		0x03, 0x00, 0x00, 0x00,
 		0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
 		0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
 		0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
@@ -43,8 +43,8 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 		'A', 's', 's', 'i', 'm', 'p',
 		0x5a, 0x02, 0x00, 0x00,
 		0x05, 0x00, 0x02,
-		0x03, 0x00, 0x00, 0x00,
 		0x04, 0x00, 0x00, 0x00,
+		0x05, 0x00, 0x00, 0x00,
 		0x01, 0x00, 0x00, 0x00};
 		const std::span<const std::byte> Bytes = std::as_bytes(std::span{Values});
 		return std::vector<std::byte>(Bytes.begin(), Bytes.end());
@@ -53,7 +53,7 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(First, Expected);
 	EXPECT_EQ(Durin::Asset::Build::BuildStaticMeshDerivedDataKey(Input, Error),
-		"06dd0f0c896c2a603a7f704cacdbba55");
+		"91ec748883b0f5c56230c3f0b4c54f6b");
 	EXPECT_EQ(Durin::Asset::Build::BuildStaticMeshDerivedDataKey(Input, Error).size(), 32u);
 }
 

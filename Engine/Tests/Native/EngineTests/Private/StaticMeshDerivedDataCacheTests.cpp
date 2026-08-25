@@ -100,6 +100,24 @@ namespace
 			Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
 	}
 
+	auto ReadU64(const std::vector<std::byte>& Bytes, size_t Offset) -> uint64
+	{
+		uint64 Value = 0;
+		for (uint32 Byte = 0; Byte < 8; ++Byte)
+			Value |= std::to_integer<uint64>(Bytes[Offset + Byte]) << (Byte * 8);
+		return Value;
+	}
+
+	auto RefreshEnvelopeHeaderHash(std::vector<std::byte>& Bytes) -> void
+	{
+		const uint64 HeaderBytes = ReadU64(Bytes, 32);
+		std::ranges::fill(std::span(Bytes).subspan(48, 16), std::byte{});
+		const Durin::FXxHash128 Hash = Durin::FXxHash128::HashBuffer(
+			std::span(Bytes).first(static_cast<size_t>(HeaderBytes)));
+		WriteU64(Bytes, 48, Hash.HashLow);
+		WriteU64(Bytes, 56, Hash.HashHigh);
+	}
+
 	auto SaveVariantPackage(
 		Durin::DStaticMesh& Mesh,
 		const std::filesystem::path& PackagePath,
@@ -502,7 +520,8 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 	const std::filesystem::path WrongPlatformRoot =
 		std::filesystem::absolute(Fixture.Root / "CookWrongPlatform");
 	std::vector<std::byte> WrongPlatformBulk = FirstBulk;
-	WriteU32(WrongPlatformBulk, 8, static_cast<uint32>(Durin::Asset::ECookTargetPlatform::Invalid));
+	WriteU32(WrongPlatformBulk, 64, static_cast<uint32>(Durin::Asset::ECookTargetPlatform::Invalid));
+	RefreshEnvelopeHeaderHash(WrongPlatformBulk);
 	std::filesystem::create_directories(WrongPlatformRoot / "Game");
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(FirstPackage)), WrongPlatformRoot / "Game/CookedMesh.dasset"));

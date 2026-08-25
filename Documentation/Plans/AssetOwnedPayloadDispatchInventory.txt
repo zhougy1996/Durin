@@ -1,0 +1,43 @@
+# Asset-Owned Payload Dispatch Inventory
+
+Summary: Freeze the production and test ownership surface for the DURF bulk-container and magic-free payload cutover.
+
+Last reviewed: 2026-08-25
+
+## Storage Containers
+
+| Contract | Production authority | Producers | Consumers and policy | Focused tests / fixtures |
+| --- | --- | --- | --- | --- |
+| DABK | `AssetCore/Private/EditorBulkDataStorage.cpp` | authored package save, canonical resave, relocation and package transaction paths | authored load, inspection, orphan detection, backup recovery and package Payload Directory validation | `BulkDataTests.cpp`, `PackageV6Tests.cpp`, `PackageAuthoringTests.cpp`, `AssetRelocationTests.cpp`, `AssetToolTests.cpp`; two tracked companions |
+| DBLK | `AssetCore/Private/CookedAsset.cpp` | `FCookContext::AddPackage/Publish` | cooked file load, descriptor resolution, source-free runtime owners, Cook manifest | `CookedAssetTests.cpp`, `TextureCookTests.cpp`, `StaticMeshPayloadCodecTests.cpp`, `SkeletalAssetTests.cpp`, `SkeletalAnimationTests.cpp`, `TerrainHeightmapCookTests.cpp`, `EnvironmentLightingTests.cpp`; `AssetCoreTests/Data/CookedBulk` |
+| DDC value | `AssetBuildCore/Private/DerivedDataObjectStore.cpp` | texture, static-mesh, collision, skeletal, animation and terrain builders | same owning asset/build function that created the key; store remains opaque | corresponding derived-data/cache tests listed below |
+
+## Domain Payloads and Invalidation
+
+All successor headers keep word/field zero as a required-zero reserved field, so removing the mnemonic does not move semantic fields or change header size. Schema, producer/builder and key generations all advance even when the current code does not expose a separate key-schema constant; the changed schema/producer values feed those keys and Cook descriptors.
+
+| Payload | Owner and codec | Current -> successor | DDC / Cook consumers | Focused tests |
+| --- | --- | --- | --- | --- |
+| TXPL | texture owners; `TexturePayloadContainer.cpp` | schema 1 -> 2; 2D producer 2 -> 3; cube builder 1 -> 2; volume builder 1 -> 2; key schema 1 -> 2 | Texture2D/Cube/Volume build, inspection, Cook and post-load | `TextureDerivedDataTests.cpp`, `TextureCookTests.cpp`, `TextureCubeTests.cpp`, `VolumeTextureTests.cpp` |
+| DMSH | static-mesh owner; `StaticMeshDerivedData.cpp` | schema 4 -> 5; builder 3 -> 4; key schema 2 -> 3 | static-mesh DDC, Cook and runtime load | `StaticMeshPayloadCodecTests.cpp`, `StaticMeshDerivedDataCacheTests.cpp` |
+| DCOL | BodySetup/static-mesh collision slot; `StaticMeshDerivedData.cpp` | schema 1 -> 2; builder 1 -> 2; key schema 1 -> 2 | collision DDC, optional Cook slot and runtime publication | `StaticMeshPayloadCodecTests.cpp`, `StaticMeshDerivedDataCacheTests.cpp` |
+| DSKM | skeletal-mesh owner; `SkeletalDerivedData.cpp` | schema 1 -> 2; producer 1 -> 2 | skeletal DDC, Cook and runtime load | `SkeletalAssetTests.cpp` |
+| DANM | animation-clip owner; `SkeletalDerivedData.cpp` | schema 1 -> 2; producer 1 -> 2 | animation DDC, Cook and playback load | `SkeletalAnimationTests.cpp` |
+| THPL | terrain-heightmap owner; `TerrainHeightmapDerivedData.cpp` | schema 1 -> 2; builder 2 -> 3; key schema 2 -> 3 | terrain DDC, Cook and runtime load | `TerrainHeightmapCookTests.cpp` and terrain derived-data tests |
+| IBLP | environment-lighting owner; `EnvironmentLighting.cpp` | schema 1 -> 2; builder 1 -> 2 | deterministic Cook and runtime environment publication | `EnvironmentLightingTests.cpp` |
+
+`FCookedPayloadDescriptor::PayloadId` continues to identify the owner's logical slot. `PayloadSchemaVersion`, target/profile, sizes and hashes validate that selected slot; none is a codec-dispatch identity. DABK, DBLK, `FBulkData`, and `FDerivedDataObjectStore` never probe these payload bytes.
+
+## Diagnostics and Inspection
+
+- Container diagnostics originate in `EditorBulkDataStorage.cpp`, `CookedAsset.cpp`, and Core `BinaryEnvelope.cpp`; they identify the selected storage format, never a payload domain.
+- Owner-selected payload diagnostics originate in the seven codecs above. The old “magic is invalid” cases become “reserved header field is nonzero”; unsupported schema remains incompatible rather than corrupt.
+- Construct-free texture inspection receives the owner-selected domain and schema from descriptors/reflection in `TexturePayloadInspection.cpp`; it does not recognize TXPL bytes.
+- DAST v6 Payload Directory, authored descriptors, cooked descriptors, Cook manifests, and DDC keys are the fingerprint propagation points. The invalidation table above is exhaustive for this cutover.
+
+## Validation Set
+
+- Focused: `CoreTests`, `AssetCoreTests`, and the registered targets containing the texture, static-mesh, skeletal, animation, terrain, and environment-lighting cases named above.
+- Aggregate: `fast-all`, followed by integration targets selected through `DevTool.bat test list` for Cook and package lifecycle coverage.
+- Baselines: DurinAssetTool audit/storage qualification for both `Engine/Engine.dproject` and `Sandbox/Sandbox.dproject`, plus deterministic representative Cook for every row above.
+- Residual gate: production code contains no legacy DABK/DBLK magic reader or writer and no domain payload mnemonic constant; mnemonic text may remain only in diagnostics, test labels, or historical documentation.

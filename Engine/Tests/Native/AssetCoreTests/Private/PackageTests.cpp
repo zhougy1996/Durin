@@ -1505,19 +1505,26 @@ TEST(FEditorBulkDataStorageTests, IsCanonicalBoundedAndRejectsCorruption)
 		Payloads, ContainerHash, SecondBytes, &Error)) << Error;
 	EXPECT_EQ(FirstBytes, SecondBytes);
 	EXPECT_EQ(FirstBytes.size(), 274u);
-	ASSERT_GE(FirstBytes.size(), 101u);
-	EXPECT_TRUE(std::ranges::all_of(
-		std::span(FirstBytes).subspan(80, 20), [](std::byte Byte) { return Byte == std::byte{0}; }));
-	const Durin::FXxHash128 GoldenHash = Durin::FXxHash128::HashBuffer(FirstBytes);
-	EXPECT_EQ(GoldenHash.HashLow, 17664847411479251375ull);
-	EXPECT_EQ(GoldenHash.HashHigh, 17152355170962831719ull);
+	ASSERT_GE(FirstBytes.size(), 128u);
+	EXPECT_TRUE(std::ranges::equal(std::span(FirstBytes).first(4),
+		std::array{std::byte{'D'}, std::byte{'U'}, std::byte{'R'}, std::byte{'F'}}));
+	uint32 FormatA = 0, FormatB = 0, FormatC = 0, FormatD = 0, FormatVersion = 0;
+	ASSERT_TRUE(Durin::ReadLittleEndianAt(FirstBytes, 8, FormatA));
+	ASSERT_TRUE(Durin::ReadLittleEndianAt(FirstBytes, 12, FormatB));
+	ASSERT_TRUE(Durin::ReadLittleEndianAt(FirstBytes, 16, FormatC));
+	ASSERT_TRUE(Durin::ReadLittleEndianAt(FirstBytes, 20, FormatD));
+	ASSERT_TRUE(Durin::ReadLittleEndianAt(FirstBytes, 24, FormatVersion));
+	EXPECT_EQ(FormatA, Durin::Asset::DabkBinaryFormatId.A);
+	EXPECT_EQ(FormatB, Durin::Asset::DabkBinaryFormatId.B);
+	EXPECT_EQ(FormatC, Durin::Asset::DabkBinaryFormatId.C);
+	EXPECT_EQ(FormatD, Durin::Asset::DabkBinaryFormatId.D);
+	EXPECT_EQ(FormatVersion, 2u);
 	EXPECT_TRUE(Durin::Asset::ValidateEditorBulkDataCompanion(
 		FirstBytes, ContainerHash, &Error)) << Error;
-	auto HistoricalSlots = FirstBytes;
-	HistoricalSlots[80] = std::byte{1};
-	HistoricalSlots[96] = std::byte{1};
-	EXPECT_TRUE(Durin::Asset::ValidateEditorBulkDataCompanion(
-		HistoricalSlots, ContainerHash, &Error)) << Error;
+	auto UnknownFormat = FirstBytes;
+	UnknownFormat[8] ^= std::byte{1};
+	EXPECT_FALSE(Durin::Asset::ValidateEditorBulkDataCompanion(
+		UnknownFormat, ContainerHash, &Error));
 
 	const std::filesystem::path PackagePath =
 		Durin::Testing::GetTestWorkDirectory() / "AuthoredBulk/Fixture.dasset";

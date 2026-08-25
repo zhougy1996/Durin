@@ -52,7 +52,7 @@ This API publishes one file. Multi-file transactions, asset move/delete
 rollback, and cook ordering retain their owning subsystem's coordination rules.
 DAST v5 authored publication uses the same primitive for a complete package;
 it does not rewrite a tail in place. AssetCore publishes and validates the
-stable DABK v1 companion first after durably copying any prior file to its
+stable DURF/DABK v2 companion first after durably copying any prior file to its
 internal `.durin-backup`, stages the complete
 `ObjectStream || Trailer || Footer` package second, atomically replaces the
 package, then publishes catalog state. Failure before catalog publication

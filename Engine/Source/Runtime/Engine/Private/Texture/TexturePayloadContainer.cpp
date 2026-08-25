@@ -79,7 +79,7 @@ namespace Durin::TexturePayloadContainer
 		const std::vector<std::byte> BodyBytes = Body.TakeBytes();
 
 		FBinaryWriter Result;
-		Result.WriteU32(TexturePayloadMagic);
+		Result.WriteU32(0);
 		Result.WriteU32(TexturePayloadSchemaVersion);
 		Result.WriteU32(Descriptor.ProducerVersion);
 		Result.WriteU32(static_cast<uint32>(Descriptor.TargetPlatform));
@@ -113,11 +113,11 @@ namespace Durin::TexturePayloadContainer
 			return Reject(EPayloadDecodeError::Corrupt,
 				"Texture payload header is truncated.");
 
-		uint32 Magic = 0, Schema = 0, Producer = 0, Platform = 0, Profile = 0;
+		uint32 Reserved0 = 0, Schema = 0, Producer = 0, Platform = 0, Profile = 0;
 		uint32 Dimension = 0, StableFormat = 0, SliceCount = 0, MipCount = 0;
 		uint32 HeaderSize = 0, RecordCount = 0, RecordSize = 0;
 		uint64 TableOffset = 0, StoredSize = 0, StoredHash = 0, Reserved = 0;
-		if (!ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, Schema)
+		if (!ReadLittleEndianAt(Bytes, 0, Reserved0) || !ReadLittleEndianAt(Bytes, 4, Schema)
 			|| !ReadLittleEndianAt(Bytes, 8, Producer) || !ReadLittleEndianAt(Bytes, 12, Platform)
 			|| !ReadLittleEndianAt(Bytes, 16, Profile) || !ReadLittleEndianAt(Bytes, 20, Dimension)
 			|| !ReadLittleEndianAt(Bytes, 24, StableFormat) || !ReadLittleEndianAt(Bytes, 28, SliceCount)
@@ -127,9 +127,9 @@ namespace Durin::TexturePayloadContainer
 			|| !ReadLittleEndianAt(Bytes, 64, StoredHash) || !ReadLittleEndianAt(Bytes, 72, Reserved))
 			return Reject(EPayloadDecodeError::Corrupt,
 				"Texture payload header is truncated.");
-		if (Magic != TexturePayloadMagic)
+		if (Reserved0 != 0)
 			return Reject(EPayloadDecodeError::Corrupt,
-				"Texture payload magic is invalid.");
+				"Texture payload reserved header field is nonzero.");
 		if (Schema != TexturePayloadSchemaVersion)
 			return Reject(EPayloadDecodeError::Incompatible,
 				"Texture payload schema version is unsupported.");

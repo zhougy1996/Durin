@@ -60,6 +60,15 @@ namespace
 	}
 
 	template<typename T>
+	auto ReadLittle(const std::vector<std::byte>& Bytes, size_t Offset) -> T
+	{
+		T Value = 0;
+		for (size_t Index = 0; Index < sizeof(T); ++Index)
+			Value |= static_cast<T>(std::to_integer<uint8>(Bytes[Offset + Index])) << (Index * 8);
+		return Value;
+	}
+
+	template<typename T>
 	auto WriteLittle(std::vector<std::byte>& Bytes, size_t Offset, T Value) -> void
 	{
 		for (size_t Index = 0; Index < sizeof(T); ++Index)
@@ -68,9 +77,14 @@ namespace
 
 	auto RefreshTableHash(std::vector<std::byte>& Bytes) -> void
 	{
-		const uint32 Count = std::to_integer<uint32>(Bytes[24]);
-		const uint64 Hash = FXxHash64::HashBuffer(std::span(Bytes).subspan(64, Count * 80)).HashValue;
-		WriteLittle(Bytes, 48, Hash);
+		const uint32 Count = ReadLittle<uint32>(Bytes, 80);
+		const uint64 Hash = FXxHash64::HashBuffer(std::span(Bytes).subspan(128, Count * 80)).HashValue;
+		WriteLittle(Bytes, 104, Hash);
+		const uint64 HeaderBytes = ReadLittle<uint64>(Bytes, 32);
+		std::ranges::fill(std::span(Bytes).subspan(48, 16), std::byte{});
+		const FXxHash128 HeaderHash = FXxHash128::HashBuffer(std::span(Bytes).first(HeaderBytes));
+		WriteLittle(Bytes, 48, HeaderHash.HashLow);
+		WriteLittle(Bytes, 56, HeaderHash.HashHigh);
 	}
 }
 
@@ -80,10 +94,12 @@ TEST(FCookedBulkTests, ProducesDeterministicSortedMultiPayloadContainer)
 	const std::vector<std::byte> First = MakeBulk(&Descriptors);
 	const std::vector<std::byte> Second = MakeBulk();
 	EXPECT_EQ(First, Second);
-	EXPECT_EQ(First.size(), 259u);
+	EXPECT_EQ(First.size(), 323u);
 	const FXxHash128 GoldenHash = FXxHash128::HashBuffer(First);
-	EXPECT_EQ(GoldenHash.HashLow, 12417320302211656157ull);
-	EXPECT_EQ(GoldenHash.HashHigh, 3049470508272984121ull);
+	EXPECT_EQ(GoldenHash.HashLow, 7957336162608224858ull);
+	EXPECT_EQ(GoldenHash.HashHigh, 18071802371373617090ull);
+	EXPECT_TRUE(std::ranges::equal(std::span(First).first(4),
+		std::array{std::byte{'D'}, std::byte{'U'}, std::byte{'R'}, std::byte{'F'}}));
 	ASSERT_EQ(Descriptors.size(), 2u);
 	EXPECT_EQ(Descriptors[0].PayloadId, FGuid(1, 0, 0, 0));
 	EXPECT_EQ(Descriptors[1].PayloadId, FGuid(2, 0, 0, 0));
@@ -109,15 +125,15 @@ TEST(FCookedBulkTests, RejectsWrongTargetCorruptionOverlapTruncationAndUnknownCo
 	const uint64 FirstOffset = [] (const std::vector<std::byte>& Value) {
 		uint64 Result = 0;
 		for (size_t Index = 0; Index < 8; ++Index)
-			Result |= std::to_integer<uint64>(Value[64 + 40 + Index]) << (Index * 8);
+			Result |= std::to_integer<uint64>(Value[128 + 40 + Index]) << (Index * 8);
 		return Result;
 	}(Overlap);
-	WriteLittle(Overlap, 64 + 80 + 40, FirstOffset);
+	WriteLittle(Overlap, 128 + 80 + 40, FirstOffset);
 	RefreshTableHash(Overlap);
 	EXPECT_FALSE(DecodeCookedBulk(Overlap, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Container));
 
 	auto UnknownCompression = Bytes;
-	WriteLittle(UnknownCompression, 64 + 32, uint32{99});
+	WriteLittle(UnknownCompression, 128 + 32, uint32{99});
 	RefreshTableHash(UnknownCompression);
 	EXPECT_FALSE(DecodeCookedBulk(UnknownCompression, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Container));
 

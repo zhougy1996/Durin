@@ -2,22 +2,25 @@
 #include "Asset/PackageAuthoring.h"
 
 #include "AssetCatalogStoreInternal.h"
+#include "Asset/PackageVersionPolicy.h"
 #include "BulkContainerInfrastructure.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 #include "Misc/LexicalPath.h"
+#include "Serialization/BinaryEnvelope.h"
 
 namespace Durin::Asset
 {
 	namespace
 	{
-		constexpr uint32 BulkMagic = 0x4b4c4244;
-		constexpr uint32 BulkVersion = 1;
+		constexpr uint32 BulkVersion = 2;
 		constexpr uint32 BulkHeaderSize = 64;
+		constexpr uint64 BulkFixedHeaderSize = BinaryEnvelopePreambleBytes + BulkHeaderSize;
 		constexpr uint32 BulkEntrySize = 80;
 		constexpr uint32 MaximumPayloadCount = 64;
 		constexpr uint64 MaximumPayloadBytes = 8ull * 1024 * 1024 * 1024;
 		constexpr uint64 MaximumBulkBytes = 64ull * 1024 * 1024 * 1024;
+		constexpr FBinaryEnvelopeLimits BulkEnvelopeLimits{64ull * 1024, MaximumBulkBytes};
 		constexpr uint32 ManifestMagic = 0x464e4d43;
 		constexpr uint32 ManifestVersion = 1;
 		constexpr uint32 ManifestHeaderSize = 48;
@@ -26,18 +29,17 @@ namespace Durin::Asset
 
 		struct FBulkHeader
 		{
-			uint32 Magic = 0;
-			uint32 Version = 0;
 			uint32 Platform = 0;
 			uint32 Profile = 0;
 			uint32 Flags = 0;
-			uint32 HeaderSize = 0;
-			uint32 Count = 0;
 			uint32 EntrySize = 0;
+			uint32 Count = 0;
+			uint32 Reserved0 = 0;
 			uint64 TableOffset = 0;
-			uint64 FileSize = 0;
+			uint64 DataOffset = 0;
 			uint64 TableHash = 0;
-			uint64 Reserved = 0;
+			uint64 Reserved1 = 0;
+			uint64 Reserved2 = 0;
 		};
 
 		struct FBulkWireEntry
@@ -83,18 +85,17 @@ namespace Durin::Asset
 			FBulkHeader& OutHeader) -> bool
 		{
 			FBulkHeader Header;
-			Reader.Read(Header.Magic);
-			Reader.Read(Header.Version);
 			Reader.Read(Header.Platform);
 			Reader.Read(Header.Profile);
 			Reader.Read(Header.Flags);
-			Reader.Read(Header.HeaderSize);
-			Reader.Read(Header.Count);
 			Reader.Read(Header.EntrySize);
+			Reader.Read(Header.Count);
+			Reader.Read(Header.Reserved0);
 			Reader.Read(Header.TableOffset);
-			Reader.Read(Header.FileSize);
+			Reader.Read(Header.DataOffset);
 			Reader.Read(Header.TableHash);
-			Reader.Read(Header.Reserved);
+			Reader.Read(Header.Reserved1);
+			Reader.Read(Header.Reserved2);
 			if (!Reader.IsValid()) return false;
 			OutHeader = Header;
 			return true;
@@ -104,18 +105,17 @@ namespace Durin::Asset
 			BulkContainer::FBoundedWriter& Writer,
 			const FBulkHeader& Header) -> bool
 		{
-			Writer.Write(Header.Magic);
-			Writer.Write(Header.Version);
 			Writer.Write(Header.Platform);
 			Writer.Write(Header.Profile);
 			Writer.Write(Header.Flags);
-			Writer.Write(Header.HeaderSize);
-			Writer.Write(Header.Count);
 			Writer.Write(Header.EntrySize);
+			Writer.Write(Header.Count);
+			Writer.Write(Header.Reserved0);
 			Writer.Write(Header.TableOffset);
-			Writer.Write(Header.FileSize);
+			Writer.Write(Header.DataOffset);
 			Writer.Write(Header.TableHash);
-			Writer.Write(Header.Reserved);
+			Writer.Write(Header.Reserved1);
+			Writer.Write(Header.Reserved2);
 			return Writer.IsValid();
 		}
 
@@ -258,6 +258,23 @@ namespace Durin::Asset
 				&& (Profile == ECookTargetProfile::Game || Profile == ECookTargetProfile::EditorValidation);
 		}
 
+		auto GetBulkFormatRegistry() -> const FBinaryFormatRegistry&
+		{
+			static const FBinaryFormatRegistry Registry = [] {
+				const std::array Descriptors{FBinaryFormatDescriptor{
+					.FormatId = DblkBinaryFormatId,
+					.DebugName = std::string(DblkBinaryFormatName),
+					.MinimumFormatVersion = BulkVersion,
+					.MaximumFormatVersion = BulkVersion,
+					.SupportedRequiredFeatures = 0,
+					.Limits = BulkEnvelopeLimits}};
+				FBinaryFormatRegistry Result;
+				require(FBinaryFormatRegistry::Create(Descriptors, Result));
+				return Result;
+			}();
+			return Registry;
+		}
+
 		auto ParseCookedBulk(
 			std::span<const std::byte> Bytes,
 			ECookTargetPlatform ExpectedPlatform,
@@ -265,17 +282,27 @@ namespace Durin::Asset
 			FParsedCookedBulk& OutParsed,
 			std::string* OutError) -> bool
 		{
-			if (Bytes.size() < BulkHeaderSize || Bytes.size() > MaximumBulkBytes)
+			if (Bytes.size() < BulkFixedHeaderSize || Bytes.size() > MaximumBulkBytes)
 				return Fail("DBLK file size is invalid.", OutError);
-			BulkContainer::FBoundedReader Reader(Bytes, MaximumBulkBytes);
+			FBinaryEnvelopePreamble Preamble;
+			FBinaryEnvelopeDiagnostic Diagnostic;
+			if (!ParseBinaryEnvelopePrefix(Bytes.first(BinaryEnvelopePreambleBytes), Bytes.size(),
+					BulkEnvelopeLimits, Preamble, &Diagnostic)
+				|| Preamble.HeaderBytes > Bytes.size())
+				return Fail(std::string(Diagnostic.Message), OutError);
+			FValidatedBinaryEnvelope Envelope;
+			if (!ValidateBinaryEnvelopeHeader(Bytes.first(static_cast<size_t>(Preamble.HeaderBytes)),
+					Bytes.size(), BulkEnvelopeLimits, GetBulkFormatRegistry(), Envelope, &Diagnostic))
+				return Fail(std::string(Diagnostic.Message), OutError);
+			BulkContainer::FBoundedReader Reader(Envelope.FormatHeaderBytes, BulkEnvelopeLimits.MaximumHeaderBytes);
 			FBulkHeader Header;
 			if (!ReadBulkHeader(Reader, Header))
 				return Fail("DBLK header is truncated.", OutError);
-			if (Header.Magic != BulkMagic || Header.Version != BulkVersion
-				|| Header.Flags != 0 || Header.HeaderSize != BulkHeaderSize
+			if (Header.Flags != 0
 				|| Header.Count == 0 || Header.Count > MaximumPayloadCount
-				|| Header.EntrySize != BulkEntrySize || Header.TableOffset != BulkHeaderSize
-				|| Header.FileSize != Bytes.size() || Header.Reserved != 0)
+				|| Header.EntrySize != BulkEntrySize || Header.TableOffset != BulkFixedHeaderSize
+				|| Header.Reserved0 != 0 || Header.Reserved1 != 0 || Header.Reserved2 != 0
+				|| Header.DataOffset != Preamble.HeaderBytes)
 				return Fail("DBLK header is invalid.", OutError);
 			if (Header.Platform != static_cast<uint32>(ExpectedPlatform)
 				|| Header.Profile != static_cast<uint32>(ExpectedProfile)
@@ -287,16 +314,17 @@ namespace Durin::Asset
 			if (!BulkContainer::TryMultiply(
 					Header.Count, BulkEntrySize, MaximumBulkBytes, TableBytes)
 				|| !BulkContainer::TryAdd(
-					BulkHeaderSize, TableBytes, MaximumBulkBytes, DirectoryEnd)
+					BulkFixedHeaderSize, TableBytes, MaximumBulkBytes, DirectoryEnd)
 				|| DirectoryEnd > Bytes.size())
 				return Fail("DBLK table is truncated.", OutError);
 			std::span<const std::byte> Table;
-			if (!BulkContainer::TryProjectRange(Bytes, BulkHeaderSize, TableBytes, Table))
+			if (!BulkContainer::TryProjectRange(Bytes, BulkFixedHeaderSize, TableBytes, Table))
 				return Fail("DBLK table is truncated.", OutError);
 			if (FXxHash64::HashBuffer(Table).HashValue != Header.TableHash)
 				return Fail("DBLK table checksum is invalid.", OutError);
 			if (!BulkContainer::TryAlignUp(
-				DirectoryEnd, 16, MaximumBulkBytes, MinimumDataOffset))
+				DirectoryEnd, 16, MaximumBulkBytes, MinimumDataOffset)
+				|| Header.DataOffset != MinimumDataOffset)
 				return Fail("DBLK payload range is invalid.", OutError);
 
 			BulkContainer::FBoundedReader TableReader(Table, TableBytes);
@@ -524,14 +552,14 @@ namespace Durin::Asset
 			if (!BulkContainer::IsPowerOfTwo(Payload.Alignment) || Payload.Alignment < 16 || Payload.Alignment > 4096)
 				return Fail("DBLK payload alignment is invalid.", OutError);
 			if (Payload.Compression != ECookedPayloadCompression::None)
-				return Fail("DBLK writer supports only uncompressed version 1 payloads.", OutError);
+				return Fail("DBLK writer supports only uncompressed version 2 payloads.", OutError);
 			if (Payload.Bytes.empty() || Payload.Bytes.size() > MaximumPayloadBytes)
 				return Fail("DBLK payload size is outside its bound.", OutError);
 		}
 
 		uint64 TableBytes = 0, TableEnd = 0, DataOffset = 0;
 		if (!BulkContainer::TryMultiply(Sorted.size(), BulkEntrySize, MaximumBulkBytes, TableBytes)
-			|| !BulkContainer::TryAdd(BulkHeaderSize, TableBytes, MaximumBulkBytes, TableEnd)
+			|| !BulkContainer::TryAdd(BulkFixedHeaderSize, TableBytes, MaximumBulkBytes, TableEnd)
 			|| !BulkContainer::TryAlignUp(TableEnd, 16, MaximumBulkBytes, DataOffset))
 			return Fail("DBLK table size overflowed.", OutError);
 		std::vector<BulkContainer::FLayoutItem> LayoutItems;
@@ -580,20 +608,21 @@ namespace Durin::Asset
 		}
 		const uint64 TableHash = FXxHash64::HashBuffer(Table.View()).HashValue;
 		BulkContainer::FBoundedWriter Writer(MaximumBulkBytes);
+		const std::array<std::byte, BinaryEnvelopePreambleBytes> EmptyPreamble{};
 		const FBulkHeader Header{
-			.Magic = BulkMagic,
-			.Version = BulkVersion,
 			.Platform = static_cast<uint32>(TargetPlatform),
 			.Profile = static_cast<uint32>(TargetProfile),
 			.Flags = 0,
-			.HeaderSize = BulkHeaderSize,
-			.Count = static_cast<uint32>(Sorted.size()),
 			.EntrySize = BulkEntrySize,
-			.TableOffset = BulkHeaderSize,
-			.FileSize = FileSize,
+			.Count = static_cast<uint32>(Sorted.size()),
+			.Reserved0 = 0,
+			.TableOffset = BulkFixedHeaderSize,
+			.DataOffset = DataOffset,
 			.TableHash = TableHash,
-			.Reserved = 0};
-		if (!WriteBulkHeader(Writer, Header) || !Writer.Write(Table.View()))
+			.Reserved1 = 0,
+			.Reserved2 = 0};
+		if (!Writer.Write(EmptyPreamble) || !WriteBulkHeader(Writer, Header)
+			|| !Writer.Write(Table.View()))
 			return Fail("DBLK encoding failed.", OutError);
 		for (size_t Index = 0; Index < Sorted.size(); ++Index)
 		{
@@ -603,6 +632,14 @@ namespace Durin::Asset
 		std::vector<std::byte> Candidate;
 		if (Writer.Tell() != FileSize || !Writer.TryTake(Candidate))
 			return Fail("DBLK encoding failed.", OutError);
+		const FBinaryEnvelopePreamble Preamble{
+			.FormatId = DblkBinaryFormatId, .FormatVersion = BulkVersion,
+			.RequiredFeatures = 0, .HeaderBytes = DataOffset, .FileBytes = FileSize};
+		FBinaryEnvelopeDiagnostic Diagnostic;
+		if (!EncodeBinaryEnvelopePreamble(Preamble, Candidate, &Diagnostic)
+			|| !FinalizeBinaryEnvelopeHeader(std::span(Candidate).first(static_cast<size_t>(DataOffset)),
+				FileSize, BulkEnvelopeLimits, &Diagnostic))
+			return Fail(std::string(Diagnostic.Message), OutError);
 		FParsedCookedBulk Validation;
 		if (!ParseCookedBulk(
 			Candidate, TargetPlatform, TargetProfile, Validation, OutError)) return false;

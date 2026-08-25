@@ -150,11 +150,12 @@ reference caches include the package format in their fingerprints, discard
 unsupported entries, and cannot reuse a projection after package bytes or the
 declared format changes.
 
-Asset-specific magic values belong to external derived or cooked payloads, not
-to alternative `.dasset` envelopes. StaticMesh payloads use DMSH and texture
-payloads use TXPL. A cooked `.dbulk` uses the DBLK container format and may
-contain one of those asset-specific payloads; the cooked `.dasset` that
-references it still begins with DAST.
+Domain payloads are not alternative `.dasset` envelopes. The reflected asset
+class and payload slot select the StaticMesh, texture, skeletal, animation,
+terrain, collision, or lighting codec; generic DDC/DABK/DBLK storage carries no
+codec identity and does not recognize mnemonic bytes. A cooked `.dbulk` uses
+DURF/DBLK v2 and contains the selected magic-free payload bytes; the cooked
+`.dasset` that references it remains DURF/DAST v6.
 
 ### DAST v6 Envelope Route
 
@@ -805,18 +806,18 @@ External authored bytes live beside the package as
 `<package-stem>.dabulk`. The stable filename is discovery only: the package
 descriptor and v6 Payload Directory remain authoritative for the container hash. This is
 distinct from cooked `.dbulk`.
-The frozen DABK v1 format has a 64-byte header, sorted 96-byte entries, 16-byte
-payload alignment, at most 65,536 unique payload ids, and a 1 GiB file/payload
-ceiling. Each entry retains the same 16+4 compatibility-reserved bytes and the
-same old-read/current-zero-write rule as DAST. Readers reject invalid
-magic/version, duplicate or unordered ids,
+The DABK v2 format uses DURF v1 with permanent identity
+`49efbbb4-e2434e35-a7c01c34-9ed84ea0`, a 64-byte format header, sorted 64-byte
+entries, 16-byte payload alignment, at most 65,536 unique payload ids, and a
+1 GiB file/payload ceiling. Readers reject invalid identity/version/features,
+duplicate or unordered ids,
 misalignment, overlap, gaps, nonzero padding, bounds overflow, size/hash
 mismatch, wrong container identity, and trailing bytes.
 
 DABK schema and authored lifecycle policy sit above AssetCore's private bounded
-container infrastructure. That mechanism supplies explicit little-endian IO,
+container infrastructure. That mechanism supplies DURF discovery, explicit little-endian IO,
 checked arithmetic and alignment, detached canonical ordering, zero padding,
-safe byte-range projection, and layout validation; it does not know DABK magic,
+safe byte-range projection, and layout validation; it does not know domain payload schemas,
 descriptors, suffixes, providers, package paths, or publication transactions.
 
 Save constructs and validates the replacement companion, copies any prior

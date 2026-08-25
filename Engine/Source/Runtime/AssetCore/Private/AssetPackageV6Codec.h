@@ -84,5 +84,5 @@ namespace Durin::Asset::Private::DastV6
 		std::span<const std::byte> V6Bytes,
 		std::vector<std::byte>& OutObjectStream) -> FAssetResult;
 
-	auto GetCodec() -> const FAssetPackageCodec&;
+	ASSETCORE_API auto GetCodec() -> const FAssetPackageCodec&;
 }

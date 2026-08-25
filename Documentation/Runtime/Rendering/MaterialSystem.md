@@ -376,11 +376,11 @@ copy; external files require an explicit writable destination. Reimport reads
 only the persisted source, while changing one reference, replacing shared
 bytes, repair, and relocation are separate editor operations. Legacy
 package-relative source fields are rejected. The
-canonical DDC key also includes builder version 3, DMSH schema 4, and target
+canonical DDC key also includes builder version 4, DMSH schema 5, and target
 platform. A valid warm DDC object can load from persisted identity while source
 and Assimp are unavailable.
 
-DMSH schema 4 is a little-endian, checksummed chunk envelope for bounds, a
+DMSH schema 5 is a magic-free little-endian, checksummed chunk envelope for bounds, a
 bounded material-slot count, per-LOD screen-size policy and geometry metadata,
 sections, vertex streams, and index buffers.
 Readers bound all counts and ranges, reject invalid numeric data and indices,

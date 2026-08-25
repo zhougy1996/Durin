@@ -159,7 +159,7 @@ When a new large asset extension is introduced, add an explicit LFS rule to `.gi
 
 Do not place `.dasset` under LFS by default. Packages are currently compact,
 and keeping them in normal Git makes ordinary engine and level changes
-self-contained. Ordinary DAST v6 packages retain external DABK v1 companions,
+self-contained. Ordinary DURF/DAST v6 packages retain external DURF/DABK v2 companions,
 so the route does not change this split: `.dasset` remains ordinary Git and
 `.dabulk` remains LFS. A submit must include the package and every newly
 referenced stable companion. Hidden `.dabulk.durin-backup` files and atomic

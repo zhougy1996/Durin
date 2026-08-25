@@ -405,7 +405,7 @@ TEST(FTerrainHeightmapDerivedDataTests, KeyAndPayloadRoundTripAreStableAndCorrup
 		Durin::Asset::ECookTargetProfile::Game);
 	ASSERT_FALSE(Writer.HasError());
 	EXPECT_EQ(Durin::FXxHash128::HashBuffer(Bytes).ToString(),
-		"56caac409ccb3ee8fbd5690626d85273");
+		"bc8f85141d6502d40546657fbb6b9c15");
 	Durin::FTerrainHeightmapPayload Decoded;
 	Durin::FCanonicalMemoryReader Reader(Bytes, Durin::EArchivePurpose::DerivedDataPayload);
 	Decoded.Serialize(Reader, Durin::Asset::ECookTargetPlatform::Win64,

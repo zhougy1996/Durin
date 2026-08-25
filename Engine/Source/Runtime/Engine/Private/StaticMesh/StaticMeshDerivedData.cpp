@@ -428,7 +428,7 @@ namespace Durin
 				.DecodedSize = ChunkBytes[Index].size()};
 
 		const Asset::FChunkedPayloadResult Result = Asset::EncodeChunkedPayload(
-			{StaticMeshPayloadMagic, StaticMeshPayloadSchemaVersion, StaticMeshBuilderVersion,
+			{0, StaticMeshPayloadSchemaVersion, StaticMeshBuilderVersion,
 				static_cast<uint32>(TargetPlatform), 0, StaticMeshPayloadHeaderSize,
 				StaticMeshPayloadRequiredChunkCount, 0},
 			Chunks, GetStaticMeshChunkedPayloadFormat(), OutBytes);
@@ -452,17 +452,17 @@ namespace Durin
 			return Fail("A concrete target platform is required to decode a static-mesh payload.", &OutError);
 		}
 
-		uint32 Magic = 0;
+		uint32 Reserved0 = 0;
 		uint32 SchemaVersion = 0;
 		uint32 BuilderVersion = 0;
 		uint32 Platform = 0;
 		uint32 PayloadFlags = 0;
 		uint32 Reserved = 0;
-		if (!ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, SchemaVersion)
+		if (!ReadLittleEndianAt(Bytes, 0, Reserved0) || !ReadLittleEndianAt(Bytes, 4, SchemaVersion)
 			|| !ReadLittleEndianAt(Bytes, 8, BuilderVersion) || !ReadLittleEndianAt(Bytes, 12, Platform)
 			|| !ReadLittleEndianAt(Bytes, 16, PayloadFlags) || !ReadLittleEndianAt(Bytes, 28, Reserved))
 			return Fail("Static-mesh payload header is truncated.", &OutError);
-		if (Magic != StaticMeshPayloadMagic) return Fail("Static-mesh payload magic is invalid.", &OutError);
+		if (Reserved0 != 0) return Fail("Static-mesh payload reserved header field is nonzero.", &OutError);
 		if (SchemaVersion != StaticMeshPayloadSchemaVersion)
 		{
 			OutCode = EPayloadDecodeError::Incompatible;
@@ -821,7 +821,7 @@ namespace Durin
 			+ Payload.Indices.size() * sizeof(uint32)
 			+ Payload.SourceOrdinals.size() * sizeof(uint32)
 			+ Payload.Nodes.size() * sizeof(FCollisionGeometryNode);
-		WriteCollisionU32(Bytes, 0, StaticMeshCollisionPayloadMagic);
+		WriteCollisionU32(Bytes, 0, 0);
 		WriteCollisionU32(Bytes, 4, StaticMeshCollisionPayloadSchemaVersion);
 		WriteCollisionU32(Bytes, 8, StaticMeshCollisionBuilderVersion);
 		WriteCollisionU32(Bytes, 12, static_cast<uint32>(TargetPlatform));
@@ -845,11 +845,11 @@ namespace Durin
 		EStaticMeshTargetPlatform ExpectedPlatform,
 		FStaticMeshCollisionPayloadData& OutPayload) -> FPayloadDecodeResult
 	{
-		uint32 Magic = 0, Schema = 0, Builder = 0, Platform = 0, Header = 0;
+		uint32 Reserved0 = 0, Schema = 0, Builder = 0, Platform = 0, Header = 0;
 		uint32 ChunkCount = 0, Alignment = 0, Mode = 0, Policy = 0, Reserved = 0;
 		uint64 StoredSize = 0, LogicalBytes = 0, Checksum = 0;
 		if (Bytes.size() < StaticMeshCollisionPayloadHeaderSize
-			|| !ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, Schema)
+			|| !ReadLittleEndianAt(Bytes, 0, Reserved0) || !ReadLittleEndianAt(Bytes, 4, Schema)
 			|| !ReadLittleEndianAt(Bytes, 8, Builder) || !ReadLittleEndianAt(Bytes, 12, Platform)
 			|| !ReadLittleEndianAt(Bytes, 16, Header) || !ReadLittleEndianAt(Bytes, 20, ChunkCount)
 			|| !ReadLittleEndianAt(Bytes, 24, Alignment) || !ReadLittleEndianAt(Bytes, 28, Mode)
@@ -857,11 +857,11 @@ namespace Durin
 			|| !ReadLittleEndianAt(Bytes, 48, Checksum) || !ReadLittleEndianAt(Bytes, 56, Policy)
 			|| !ReadLittleEndianAt(Bytes, 60, Reserved))
 			return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL header is truncated.");
-		if (Magic != StaticMeshCollisionPayloadMagic || Schema != StaticMeshCollisionPayloadSchemaVersion
+		if (Schema != StaticMeshCollisionPayloadSchemaVersion
 			|| Builder != StaticMeshCollisionBuilderVersion
 			|| Platform != static_cast<uint32>(ExpectedPlatform))
-			return CollisionDecodeFailure(EPayloadDecodeError::Incompatible, "DCOL identity, version, or platform is incompatible.");
-		if (Header != StaticMeshCollisionPayloadHeaderSize || ChunkCount != 4
+			return CollisionDecodeFailure(EPayloadDecodeError::Incompatible, "DCOL version or platform is incompatible.");
+		if (Reserved0 != 0 || Header != StaticMeshCollisionPayloadHeaderSize || ChunkCount != 4
 			|| ChunkCount > MaximumStaticMeshCollisionPayloadChunks
 			|| Alignment != StaticMeshCollisionPayloadAlignment || Mode != 0 || Policy != 0 || Reserved != 0
 			|| StoredSize != Bytes.size() || StoredSize > MaximumStaticMeshCollisionPayloadBytes

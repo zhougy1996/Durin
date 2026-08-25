@@ -68,7 +68,7 @@ namespace Durin::Asset::Private
 	{
 		return FindAssetPackageWriter(DastBinaryFormatId, FormatVersion);
 	}
-	auto ResolveAssetPackageReader(
+	ASSETCORE_API auto ResolveAssetPackageReader(
 		std::span<const std::byte> Bytes, const FAssetPackageCodec*& OutCodec,
 		FAssetPackagePreamble* OutPreamble = nullptr,
 		uint64 PhysicalFileBytes = 0) -> FAssetResult;

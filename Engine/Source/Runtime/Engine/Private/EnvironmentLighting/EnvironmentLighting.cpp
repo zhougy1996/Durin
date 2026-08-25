@@ -103,7 +103,7 @@ namespace Durin
 
 		FBinaryWriter Writer;
 		Writer.WriteHeader({
-			.Magic = EnvironmentLightingPayloadMagic,
+			.Magic = 0,
 			.SchemaVersion = EnvironmentLightingPayloadSchemaVersion,
 			.FormatVersion = DefaultStudioEnvironmentBuilderVersion});
 		Writer.WriteU32(EnvironmentLightingStablePixelFormatRgba16Float);
@@ -133,11 +133,11 @@ namespace Durin
 		uint32 BrdfLutDimension = 0;
 		uint64 ElementCount = 0;
 		uint64 StoredHash = 0;
-		uint32 Magic = 0;
+		uint32 Reserved0 = 0;
 		uint32 SchemaVersion = 0;
 		uint32 ProducerVersion = 0;
 		uint32 SerializationMarker = 0;
-		if (!Reader.ReadU32(Magic)
+		if (!Reader.ReadU32(Reserved0)
 			|| !Reader.ReadU32(SchemaVersion)
 			|| !Reader.ReadU32(ProducerVersion)
 			|| !Reader.ReadU32(SerializationMarker)
@@ -152,9 +152,9 @@ namespace Durin
 			return Reject(EPayloadDecodeError::Corrupt,
 				"Environment-lighting payload header is invalid.");
 		}
-		if (Magic != EnvironmentLightingPayloadMagic)
+		if (Reserved0 != 0)
 			return Reject(EPayloadDecodeError::Corrupt,
-				"Environment-lighting payload magic is invalid.");
+				"Environment-lighting payload reserved header field is nonzero.");
 		if (SchemaVersion != EnvironmentLightingPayloadSchemaVersion
 			|| SerializationMarker != BinaryFormatMarker
 			|| PixelFormat != EnvironmentLightingStablePixelFormatRgba16Float

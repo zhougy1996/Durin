@@ -63,7 +63,11 @@ namespace Durin::Asset::Private
 			std::memcpy(&Magic, Bytes.data(), sizeof(Magic));
 		constexpr uint32 DurfMagic = 0x46525544;
 		uint32 ReaderVersion = 0;
-		if (Magic == DastPackageMagic || Magic == DurfMagic)
+		// Relocation journals also own opaque companion files. A DURF prefix alone
+		// no longer implies DAST now that DABK is a sibling branch, so only package
+		// paths enter the package-reader policy here.
+		if (Path.extension() == ".dasset"
+			&& (Magic == DastPackageMagic || Magic == DurfMagic))
 		{
 			FAssetPackagePreamble Preamble;
 			const FAssetResult PreambleResult = ReadAssetPackagePreamble(Bytes, Preamble);

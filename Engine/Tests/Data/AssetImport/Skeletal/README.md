@@ -237,13 +237,13 @@ Third-party message text and Assimp allocation/order are never the contract.
   bindings, and logical DBLK descriptors. It strips captured source paths and
   bytes, provider state, import-record state, normalized build inputs, physical
   DDC paths, and editor rebuild keys.
-- Skeletal mesh payload magic is ASCII `DSKM` (`0x4D4B5344` little-endian),
-  schema version 1, builder version 1, target platform, profile, flags, header
+- Skeletal mesh payload is owner-selected and magic-free, with schema version
+  2, builder version 2, target platform, profile, flags, header
   size, chunk table, decoded/stored sizes, and XXH3-64 body checksum. Required
   chunks are metadata/bounds, sections, positions, vertex attributes, indices,
   influences, and palette/inverse binds.
-- Animation payload magic is ASCII `DANM` (`0x4D4E4144` little-endian), schema
-  version 1, builder version 1, target platform, profile, flags, header size,
+- Animation payload is owner-selected and magic-free, with schema version 2,
+  builder version 2, target platform, profile, flags, header size,
   chunk table, decoded/stored sizes, and XXH3-64 body checksum. Required chunks
   are clip metadata, track records, key times, and typed key values.
 - Both formats use 16-byte aligned non-overlapping chunks, zero padding,
@@ -252,8 +252,8 @@ Third-party message text and Assimp allocation/order are never the contract.
   pointer, `size_t`, reflected object, source token, or physical cache path is
   serialized.
 - Skeletal DDC namespace/builder identities are
-  `SkeletalMesh/Objects` / `Durin.SkeletalMesh.Builder.V1` and
-  `AnimationClip/Objects` / `Durin.AnimationClip.Builder.V1`. Key input is the
+  `SkeletalMesh/Objects` / `Durin.SkeletalMesh.Builder.V2` and
+  `AnimationClip/Objects` / `Durin.AnimationClip.Builder.V2`. Key input is the
   canonical little-endian tuple of builder and schema versions, target platform
   and profile, provider/parser version, exact captured source-closure hashes,
   normalized settings/state, output stable identity, Skeleton compatibility,

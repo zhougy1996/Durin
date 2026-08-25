@@ -13,9 +13,8 @@ namespace Durin
 	inline constexpr uint32 EnvironmentPrefilterDimension = 64;
 	inline constexpr uint32 EnvironmentPrefilterMipCount = 7;
 	inline constexpr uint32 EnvironmentBrdfLutDimension = 128;
-	inline constexpr uint32 EnvironmentLightingPayloadMagic = 0x504C4249; // IBLP
-	inline constexpr uint32 EnvironmentLightingPayloadSchemaVersion = 1;
-	inline constexpr uint32 DefaultStudioEnvironmentBuilderVersion = 1;
+	inline constexpr uint32 EnvironmentLightingPayloadSchemaVersion = 2;
+	inline constexpr uint32 DefaultStudioEnvironmentBuilderVersion = 2;
 	inline constexpr uint32 EnvironmentLightingPayloadAlignment = 16;
 	inline const FGuid EnvironmentLightingPrimaryCookedPayloadId{
 		0x6ab24b59, 0x9bb94b7f, 0x831c596e, 0x1e822f9a};

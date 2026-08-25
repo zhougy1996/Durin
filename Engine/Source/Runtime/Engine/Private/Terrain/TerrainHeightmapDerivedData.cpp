@@ -76,7 +76,7 @@ namespace Durin
 		const std::vector<std::byte> BodyBytes = Body.TakeBytes();
 
 		FBinaryWriter Writer;
-		Writer.WriteU32(TerrainHeightmapPayloadMagic);
+		Writer.WriteU32(0);
 		Writer.WriteU32(TerrainHeightmapPayloadSchemaVersion);
 		Writer.WriteU32(TerrainHeightmapBuilderVersion);
 		Writer.WriteU32(static_cast<uint32>(TargetPlatform));
@@ -115,11 +115,11 @@ namespace Durin
 			|| Bytes.size() > MaximumTerrainHeightmapPayloadBytes)
 			return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap payload size is invalid.");
 
-		uint32 Magic = 0, Schema = 0, Builder = 0, Platform = 0, Profile = 0;
+		uint32 Reserved0 = 0, Schema = 0, Builder = 0, Platform = 0, Profile = 0;
 		uint32 Width = 0, Height = 0, BaseRegion = 0, LevelCount = 0, NodeCount = 0;
 		uint32 Minimum = 0, Maximum = 0, HeaderSize = 0, LevelRecordSize = 0;
 		uint64 LevelOffset = 0, SampleOffset = 0, HierarchyOffset = 0, StoredSize = 0, StoredHash = 0;
-		if (!ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, Schema)
+		if (!ReadLittleEndianAt(Bytes, 0, Reserved0) || !ReadLittleEndianAt(Bytes, 4, Schema)
 			|| !ReadLittleEndianAt(Bytes, 8, Builder) || !ReadLittleEndianAt(Bytes, 12, Platform)
 			|| !ReadLittleEndianAt(Bytes, 16, Profile) || !ReadLittleEndianAt(Bytes, 20, Width)
 			|| !ReadLittleEndianAt(Bytes, 24, Height) || !ReadLittleEndianAt(Bytes, 28, BaseRegion)
@@ -130,8 +130,8 @@ namespace Durin
 			|| !ReadLittleEndianAt(Bytes, 72, HierarchyOffset) || !ReadLittleEndianAt(Bytes, 80, StoredSize)
 			|| !ReadLittleEndianAt(Bytes, 88, StoredHash))
 			return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap payload header is truncated.");
-		if (Magic != TerrainHeightmapPayloadMagic)
-			return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap payload magic is invalid.");
+		if (Reserved0 != 0)
+			return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap payload reserved header field is nonzero.");
 		if (Schema != TerrainHeightmapPayloadSchemaVersion || Builder != TerrainHeightmapBuilderVersion)
 			return Reject(EPayloadDecodeError::Incompatible, "Terrain heightmap payload schema or builder is unsupported.");
 		if (Platform != static_cast<uint32>(ExpectedPlatform)

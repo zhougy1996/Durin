@@ -10,10 +10,9 @@
 namespace Durin
 {
 	class FArchive;
-	inline constexpr uint32 StaticMeshPayloadMagic = 0x48534D44; // DMSH
-	inline constexpr uint32 StaticMeshPayloadSchemaVersion = 4;
-	inline constexpr uint32 StaticMeshBuilderVersion = 3;
-	inline constexpr uint32 StaticMeshDerivedDataKeySchemaVersion = 2;
+	inline constexpr uint32 StaticMeshPayloadSchemaVersion = 5;
+	inline constexpr uint32 StaticMeshBuilderVersion = 4;
+	inline constexpr uint32 StaticMeshDerivedDataKeySchemaVersion = 3;
 	inline constexpr uint32 StaticMeshPayloadAlignment = 16;
 	inline constexpr uint32 StaticMeshPayloadHeaderSize = 64;
 	inline constexpr uint32 StaticMeshPayloadChunkEntrySize = 32;
@@ -25,10 +24,9 @@ namespace Durin
 	inline constexpr uint64 MaximumStaticMeshPayloadBytes = 8ull * 1024ull * 1024ull * 1024ull;
 	inline const FGuid StaticMeshPrimaryCookedPayloadId{
 		0x6d9f79b5, 0x7b684d91, 0xa42c2a60, 0x63fcab16};
-	inline constexpr uint32 StaticMeshCollisionPayloadMagic = 0x4c4f4344; // DCOL
-	inline constexpr uint32 StaticMeshCollisionPayloadSchemaVersion = 1;
-	inline constexpr uint32 StaticMeshCollisionBuilderVersion = 1;
-	inline constexpr uint32 StaticMeshCollisionKeySchemaVersion = 1;
+	inline constexpr uint32 StaticMeshCollisionPayloadSchemaVersion = 2;
+	inline constexpr uint32 StaticMeshCollisionBuilderVersion = 2;
+	inline constexpr uint32 StaticMeshCollisionKeySchemaVersion = 2;
 	inline constexpr uint32 StaticMeshCollisionPayloadAlignment = 16;
 	inline constexpr uint32 StaticMeshCollisionPayloadHeaderSize = 64;
 	inline constexpr uint32 StaticMeshCollisionPayloadChunkEntrySize = 32;
