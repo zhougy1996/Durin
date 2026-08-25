@@ -153,7 +153,7 @@ Terrain surface providers use the committed full-resolution canonical payload
 and its regional extrema. Reference tests every cell, accelerated queries only
 regions whose conservative bounds survive, and compare records Terrain parity
 separately. The exact diagonal and row-major orientation match Renderer and
-Aether; render LOD and collision enablement never affect selection. See
+Physics; render LOD and collision enablement never affect selection. See
 [Terrain Editing](TerrainEditing.md).
 
 Geometry and the prepared visualization candidate enter one resolver. A

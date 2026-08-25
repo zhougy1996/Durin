@@ -90,7 +90,7 @@ namespace
 	}
 }
 
-TEST(FAetherCollisionGeometryQualificationTests, TenThousandBodiesRetainOneSharedPayload)
+TEST(FPhysicsCollisionGeometryQualificationTests, TenThousandBodiesRetainOneSharedPayload)
 {
 	const Durin::FCollisionGeometryRef Geometry = Durin::FCollisionGeometryRef::MakePrimitive(
 		Durin::FCollisionShape::MakeBox({0.5, 0.5, 0.5}));
@@ -118,7 +118,7 @@ TEST(FAetherCollisionGeometryQualificationTests, TenThousandBodiesRetainOneShare
 	EXPECT_EQ(Diagnostics.Mutations.RetainedGeometryBytes, 0u);
 }
 
-TEST(FAetherCollisionGeometryQualificationTests, ProductionBvhMatchesReferenceAndKeepsSparseWorkLocal)
+TEST(FPhysicsCollisionGeometryQualificationTests, ProductionBvhMatchesReferenceAndKeepsSparseWorkLocal)
 {
 	constexpr uint32 GridSize = 224;
 	std::vector<Durin::FVector3> Vertices;
@@ -213,7 +213,7 @@ TEST(FAetherCollisionGeometryQualificationTests, ProductionBvhMatchesReferenceAn
 	}
 }
 
-TEST(FAetherHeightFieldQualificationTests, MeetsMaximumBuildQueryMemoryAndSharingBudgets)
+TEST(FPhysicsHeightFieldQualificationTests, MeetsMaximumBuildQueryMemoryAndSharingBudgets)
 {
 	using FClock = std::chrono::steady_clock;
 	constexpr uint32 Dimension = 1025;
@@ -306,7 +306,7 @@ TEST(FAetherHeightFieldQualificationTests, MeetsMaximumBuildQueryMemoryAndSharin
 	RecordProperty("heightfield_first_body_publish_microseconds", FirstBodyMicroseconds);
 }
 
-TEST(FAetherSceneAccelerationQualificationTests, MeetsSparseDenseScratchAndRetainedMemoryGatesAtScale)
+TEST(FPhysicsSceneAccelerationQualificationTests, MeetsSparseDenseScratchAndRetainedMemoryGatesAtScale)
 {
 	constexpr size_t BodyCount = 10'000;
 	static_assert(Durin::FPhysicsSceneQueryTestAccess::GetBodyRecordSize() == 176);
@@ -340,7 +340,7 @@ TEST(FAetherSceneAccelerationQualificationTests, MeetsSparseDenseScratchAndRetai
 		64u * BodyCount + 64u * 1024u);
 }
 
-TEST(FAetherSceneAccelerationQualificationTests, RetainedMemoryFitsEveryScaleAndPartitionMix)
+TEST(FPhysicsSceneAccelerationQualificationTests, RetainedMemoryFitsEveryScaleAndPartitionMix)
 {
 	for (const size_t BodyCount : FixtureBodyCounts)
 	{
@@ -368,7 +368,7 @@ TEST(FAetherSceneAccelerationQualificationTests, RetainedMemoryFitsEveryScaleAnd
 	}
 }
 
-TEST(FAetherQueryFixtureQualificationTests, DefinesRecordedScalesDistributionsFiltersIgnoresAndChurn)
+TEST(FPhysicsQueryFixtureQualificationTests, DefinesRecordedScalesDistributionsFiltersIgnoresAndChurn)
 {
 	for (const size_t BodyCount : FixtureBodyCounts)
 	{

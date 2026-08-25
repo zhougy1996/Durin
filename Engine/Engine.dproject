@@ -2,8 +2,8 @@
     "ProjectName": "Engine",
     "ModuleDirs": {
         "Core": "Source/Runtime/Core",
-        "AetherCore": "Source/Runtime/AetherCore",
-        "Aether": "Source/Runtime/Aether",
+        "PhysicsCore": "Source/Runtime/PhysicsCore",
+        "Physics": "Source/Runtime/Physics",
         "CoreDObject": "Source/Runtime/CoreDObject",
         "ApplicationCore": "Source/Runtime/ApplicationCore",
         "AssetCore": "Source/Runtime/AssetCore",

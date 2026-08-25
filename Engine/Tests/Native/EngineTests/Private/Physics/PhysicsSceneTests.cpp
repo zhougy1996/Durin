@@ -126,7 +126,7 @@ TEST(FPhysicsPublicContractTests, FreezesCompleteNamesAndReflectionIdentities)
 	EXPECT_EQ(Dimensions->GetTypedMetadata().Units, Durin::EPropertyUnit::Meters);
 }
 
-TEST(FAetherGeometryTests, RaycastsRotatedPositiveScaleBoxes)
+TEST(FPhysicsGeometryTests, RaycastsRotatedPositiveScaleBoxes)
 {
 	Durin::FPhysicsScene Scene;
 	Durin::FPhysicsBodyDesc Body = MakeBoxBody(
@@ -141,7 +141,7 @@ TEST(FAetherGeometryTests, RaycastsRotatedPositiveScaleBoxes)
 	EXPECT_NEAR(Durin::Math::Length(Hit.ImpactNormal), 1.0, 1.e-8);
 }
 
-TEST(FAetherGeometryTests, SweepsCapsulesAndReportsInitialPenetration)
+TEST(FPhysicsGeometryTests, SweepsCapsulesAndReportsInitialPenetration)
 {
 	Durin::FPhysicsScene Scene;
 	ASSERT_TRUE(Scene.AddBody(MakeBoxBody({0.0, 0.0, 0.0}, {0.5, 3.0, 3.0})).IsValid());
@@ -159,7 +159,7 @@ TEST(FAetherGeometryTests, SweepsCapsulesAndReportsInitialPenetration)
 	EXPECT_GE(Hit.PenetrationDepth, 0.0);
 }
 
-TEST(FAetherHeightFieldTests, BuildsExactRegularGridWithoutExpandedTriangles)
+TEST(FPhysicsHeightFieldTests, BuildsExactRegularGridWithoutExpandedTriangles)
 {
 	const std::array<uint16, 4> Samples{0, 0, 0, 65535};
 	Durin::FCollisionGeometryBuildDiagnostics Diagnostics;
@@ -226,7 +226,7 @@ TEST(FAetherHeightFieldTests, BuildsExactRegularGridWithoutExpandedTriangles)
 	}
 }
 
-TEST(FAetherHeightFieldTests, MatchesExplicitMeshOracleAcrossStructuralAndContactFixtures)
+TEST(FPhysicsHeightFieldTests, MatchesExplicitMeshOracleAcrossStructuralAndContactFixtures)
 {
 	constexpr uint32 Width = 3;
 	constexpr uint32 Height = 3;
@@ -360,7 +360,7 @@ TEST(FAetherHeightFieldTests, MatchesExplicitMeshOracleAcrossStructuralAndContac
 	}
 }
 
-TEST(FAetherHeightFieldTests, BoundsProductionWorkAtFrozenMaximum)
+TEST(FPhysicsHeightFieldTests, BoundsProductionWorkAtFrozenMaximum)
 {
 	constexpr uint32 Dimension = 1025;
 	std::vector<uint16> Samples(static_cast<size_t>(Dimension) * Dimension, 32768);
@@ -415,7 +415,7 @@ TEST(FAetherHeightFieldTests, BoundsProductionWorkAtFrozenMaximum)
 	EXPECT_GT(SceneCounters.HeightFieldCellTests, 0u);
 }
 
-TEST(FAetherHeightFieldTests, QualifiesTangencyPenetrationZeroLengthAndUpwardMotion)
+TEST(FPhysicsHeightFieldTests, QualifiesTangencyPenetrationZeroLengthAndUpwardMotion)
 {
 	const std::array<uint16, 4> Samples{0, 0, 0, 0};
 	const Durin::FCollisionGeometryRef Geometry = Durin::FCollisionGeometryRef::BuildHeightField(
@@ -475,7 +475,7 @@ TEST(FAetherHeightFieldTests, QualifiesTangencyPenetrationZeroLengthAndUpwardMot
 	}
 }
 
-TEST(FAetherHeightFieldTests, MatchesReferenceAcrossGoldenBoundariesAndFixedSeedQueries)
+TEST(FPhysicsHeightFieldTests, MatchesReferenceAcrossGoldenBoundariesAndFixedSeedQueries)
 {
 	constexpr uint32 Width = 9;
 	constexpr uint32 Height = 7;
@@ -570,7 +570,7 @@ TEST(FAetherHeightFieldTests, MatchesReferenceAcrossGoldenBoundariesAndFixedSeed
 	}
 }
 
-TEST(FAetherHeightFieldTests, RejectsInvalidExtentsAndSupportsSignedHeightTransforms)
+TEST(FPhysicsHeightFieldTests, RejectsInvalidExtentsAndSupportsSignedHeightTransforms)
 {
 	const std::array<uint16, 4> Samples{0, 0, 0, 65535};
 	Durin::FCollisionGeometryBuildDiagnostics Diagnostics;
@@ -991,7 +991,7 @@ TEST(FPhysicsTerrainTests, BeginPlayRejectsMissingRequiredTerrainCollision)
 	Durin::CollectGarbage();
 }
 
-TEST(FAetherSceneTests, AppliesTwoSidedFiltersIgnoresAndStableTieBreaking)
+TEST(FPhysicsSceneTests, AppliesTwoSidedFiltersIgnoresAndStableTieBreaking)
 {
 	Durin::FPhysicsScene Scene;
 	Durin::FPhysicsBodyDesc First = MakeBoxBody({0.0, 0.0, 0.0});
@@ -1014,7 +1014,7 @@ TEST(FAetherSceneTests, AppliesTwoSidedFiltersIgnoresAndStableTieBreaking)
 	EXPECT_FALSE(Scene.RemoveBody(SecondHandle));
 }
 
-TEST(FAetherSceneTests, RejectsOffThreadAndNonFiniteInputWithoutMutation)
+TEST(FPhysicsSceneTests, RejectsOffThreadAndNonFiniteInputWithoutMutation)
 {
 	Durin::FPhysicsScene Scene;
 	const Durin::FPhysicsActorHandle Handle = Scene.AddBody(MakeBoxBody({0.0, 0.0, 0.0}));
@@ -1226,7 +1226,7 @@ TEST(FPhysicsBodySetupTests, SharesAssetGeometryWhileInstancesKeepDistinctHandle
 	Durin::CollectGarbage();
 }
 
-TEST(FAetherCollisionGeometryResourceTests, ValidatesIdentityBoundsChildrenAndRetainedBytes)
+TEST(FPhysicsCollisionGeometryResourceTests, ValidatesIdentityBoundsChildrenAndRetainedBytes)
 {
 	static_assert(sizeof(Durin::FCollisionGeometryRef) == 16);
 	static_assert(sizeof(Durin::FCollisionGeometryChild) == 112);
@@ -1278,7 +1278,7 @@ TEST(FPhysicsBodySetupTests, CachesOneGeometryIdentityPerAuthoredRevision)
 	Durin::CollectGarbage();
 }
 
-TEST(FAetherNarrowphaseMatrixTests, ReachesEveryPrimitiveRaySweepAndOverlapCell)
+TEST(FPhysicsNarrowphaseMatrixTests, ReachesEveryPrimitiveRaySweepAndOverlapCell)
 {
 	const std::array<Durin::FCollisionShape, 3> Shapes{
 		Durin::FCollisionShape::MakeBox({0.75, 0.75, 0.75}),
@@ -1313,7 +1313,7 @@ TEST(FAetherNarrowphaseMatrixTests, ReachesEveryPrimitiveRaySweepAndOverlapCell)
 	}
 }
 
-TEST(FAetherNarrowphaseMatrixTests, CompoundUsesStableChildOrderAndOneBodyResult)
+TEST(FPhysicsNarrowphaseMatrixTests, CompoundUsesStableChildOrderAndOneBodyResult)
 {
 	std::array<Durin::FCollisionGeometryChild, 2> Children{};
 	Children[0].Shape = Durin::FCollisionShape::MakeSphere(0.5);
@@ -1360,7 +1360,7 @@ namespace
 	}
 }
 
-TEST(FAetherCollisionGeometryStage1Tests, ValidatesImmutableFeatureResourcesAndStableAccess)
+TEST(FPhysicsCollisionGeometryStage1Tests, ValidatesImmutableFeatureResourcesAndStableAccess)
 {
 	static_assert(sizeof(Durin::FCollisionGeometryRef) == 16);
 	static_assert(sizeof(Durin::FCollisionGeometryTriangle) == 16);
@@ -1398,7 +1398,7 @@ TEST(FAetherCollisionGeometryStage1Tests, ValidatesImmutableFeatureResourcesAndS
 	EXPECT_EQ(Primitive.GetRetainedBytes(), ExpectedPrimitiveRetainedBytes);
 }
 
-TEST(FAetherCollisionGeometryStage1Tests, RejectsMalformedFeatureResourcesTransactionally)
+TEST(FPhysicsCollisionGeometryStage1Tests, RejectsMalformedFeatureResourcesTransactionally)
 {
 	const std::array<Durin::FVector3, 4> Tetra{
 		Durin::FVector3{0.0, 0.0, 0.0}, Durin::FVector3{1.0, 0.0, 0.0},
@@ -1427,7 +1427,7 @@ TEST(FAetherCollisionGeometryStage1Tests, RejectsMalformedFeatureResourcesTransa
 	EXPECT_FALSE(Durin::FCollisionGeometryRef::MakeTriangleMesh(Degenerate, Triangle).IsValid());
 }
 
-TEST(FAetherCollisionGeometryStage1Tests, ReferenceMatrixCoversHullAndTriangleTargets)
+TEST(FPhysicsCollisionGeometryStage1Tests, ReferenceMatrixCoversHullAndTriangleTargets)
 {
 	const std::array<Durin::FCollisionGeometryRef, 2> Targets{
 		MakeStage1CubeHull(), MakeStage1TrianglePlane()};
@@ -1479,7 +1479,7 @@ TEST(FAetherCollisionGeometryStage1Tests, ReferenceMatrixCoversHullAndTriangleTa
 	}
 }
 
-TEST(FAetherCollisionGeometryStage1Tests, AppliesRandomizedPositiveTransformsWithStableReferenceProductionParity)
+TEST(FPhysicsCollisionGeometryStage1Tests, AppliesRandomizedPositiveTransformsWithStableReferenceProductionParity)
 {
 	const Durin::FCollisionGeometryRef Target = MakeStage1CubeHull();
 	std::mt19937_64 Random(0x5341474531ull);
@@ -1513,7 +1513,7 @@ TEST(FAetherCollisionGeometryStage1Tests, AppliesRandomizedPositiveTransformsWit
 	}
 }
 
-TEST(FAetherCollisionGeometryStage2Tests, BuildsDeterministicHullAndMeshTopology)
+TEST(FPhysicsCollisionGeometryStage2Tests, BuildsDeterministicHullAndMeshTopology)
 {
 	static_assert(sizeof(Durin::FCollisionGeometryNode) == 32);
 	static_assert(sizeof(Durin::FCollisionHullPlane) == 16);
@@ -1597,7 +1597,7 @@ TEST(FAetherCollisionGeometryStage2Tests, BuildsDeterministicHullAndMeshTopology
 		EXPECT_EQ(Mesh.GetLeafTriangle(Index), Repeat.GetLeafTriangle(Index));
 }
 
-TEST(FAetherCollisionGeometryStage2Tests, ReportsTransactionalBuilderFailures)
+TEST(FPhysicsCollisionGeometryStage2Tests, ReportsTransactionalBuilderFailures)
 {
 	Durin::FCollisionGeometryBuildDiagnostics Facts;
 	const std::array<Durin::FVector3, 3> Collinear{
@@ -1615,7 +1615,7 @@ TEST(FAetherCollisionGeometryStage2Tests, ReportsTransactionalBuilderFailures)
 	EXPECT_EQ(Facts.Status, Durin::ECollisionGeometryBuildStatus::InvalidInput);
 }
 
-TEST(FAetherCollisionGeometryStage2Tests, ProductionSweepAndOverlapMatchReferenceWithoutFallback)
+TEST(FPhysicsCollisionGeometryStage2Tests, ProductionSweepAndOverlapMatchReferenceWithoutFallback)
 {
 	const std::array<Durin::FVector3, 4> Vertices{
 		Durin::FVector3{0.0, -3.0, -3.0}, Durin::FVector3{0.0, 3.0, -3.0},

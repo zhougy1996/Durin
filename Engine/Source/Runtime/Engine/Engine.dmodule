@@ -4,8 +4,8 @@
     "PCH": "SharedPCH_DObject",
     "PublicDependencies": [
         "Core",
-        "AetherCore",
-        "Aether",
+        "PhysicsCore",
+        "Physics",
         "AssetCore",
         "CoreDObject",
         "MonaCore",

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AetherAPI.h"
+#include "PhysicsAPI.h"
 #include "Physics/PhysicsTypes.h"
 
 namespace Durin
@@ -150,38 +150,38 @@ namespace Durin
 	class FPhysicsScene
 	{
 	public:
-		AETHER_API FPhysicsScene();
-		AETHER_API ~FPhysicsScene();
+		PHYSICS_API FPhysicsScene();
+		PHYSICS_API ~FPhysicsScene();
 		FPhysicsScene(const FPhysicsScene&) = delete;
 		auto operator=(const FPhysicsScene&) -> FPhysicsScene& = delete;
 
-		AETHER_API auto AddBody(const FPhysicsBodyDesc& Desc) -> FPhysicsActorHandle;
-		AETHER_API auto RemoveBody(FPhysicsActorHandle Handle) -> bool;
-		AETHER_API auto UpdateBody(FPhysicsActorHandle Handle, const FPhysicsBodyDesc& Desc) -> bool;
-		AETHER_API auto ContainsBody(FPhysicsActorHandle Handle) const -> bool;
-		AETHER_API auto GetBodyCount() const -> size_t;
-		AETHER_API auto CaptureBodies() const -> std::vector<FPhysicsBodySnapshot>;
-		AETHER_API auto SetQueryExecutionPolicy(EPhysicsSceneQueryExecutionPolicy Policy) -> bool;
+		PHYSICS_API auto AddBody(const FPhysicsBodyDesc& Desc) -> FPhysicsActorHandle;
+		PHYSICS_API auto RemoveBody(FPhysicsActorHandle Handle) -> bool;
+		PHYSICS_API auto UpdateBody(FPhysicsActorHandle Handle, const FPhysicsBodyDesc& Desc) -> bool;
+		PHYSICS_API auto ContainsBody(FPhysicsActorHandle Handle) const -> bool;
+		PHYSICS_API auto GetBodyCount() const -> size_t;
+		PHYSICS_API auto CaptureBodies() const -> std::vector<FPhysicsBodySnapshot>;
+		PHYSICS_API auto SetQueryExecutionPolicy(EPhysicsSceneQueryExecutionPolicy Policy) -> bool;
 		auto GetQueryExecutionPolicy() const -> EPhysicsSceneQueryExecutionPolicy { return QueryExecutionPolicy; }
 		// Enables bounded mismatch payloads and steady-clock sampling on the owning thread.
-		AETHER_API auto SetDetailedQueryDiagnosticsEnabled(bool bEnabled) -> bool;
+		PHYSICS_API auto SetDetailedQueryDiagnosticsEnabled(bool bEnabled) -> bool;
 		// Returns an O(1) value copy, or a default snapshot when called off-thread.
-		AETHER_API auto CaptureQueryDiagnostics() const -> FPhysicsSceneQueryDiagnostics;
+		PHYSICS_API auto CaptureQueryDiagnostics() const -> FPhysicsSceneQueryDiagnostics;
 		// Clears cumulative/last-query values in O(1) while retaining the current body baseline.
-		AETHER_API auto ResetQueryDiagnostics() -> bool;
+		PHYSICS_API auto ResetQueryDiagnostics() -> bool;
 
-		AETHER_API auto LineTraceSingle(
+		PHYSICS_API auto LineTraceSingle(
 			const FVector3& Start,
 			const FVector3& End,
 			const FPhysicsQueryFilter& Filter,
 			FPhysicsQueryHit& OutHit) const -> bool;
-		AETHER_API auto SweepSingle(
+		PHYSICS_API auto SweepSingle(
 			const FCollisionShape& Shape,
 			const FTransform& StartTransform,
 			const FVector3& Delta,
 			const FPhysicsQueryFilter& Filter,
 			FPhysicsQueryHit& OutHit) const -> bool;
-		AETHER_API auto OverlapMulti(
+		PHYSICS_API auto OverlapMulti(
 			const FCollisionShape& Shape,
 			const FTransform& Transform,
 			const FPhysicsQueryFilter& Filter,

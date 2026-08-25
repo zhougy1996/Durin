@@ -112,30 +112,30 @@ namespace Durin
 	{
 	public:
 		FCollisionGeometryRef() = default;
-		AETHERCORE_API static auto MakePrimitive(const FCollisionShape& Shape) -> FCollisionGeometryRef;
-		AETHERCORE_API static auto MakeCompound(std::span<const FCollisionGeometryChild> Children) -> FCollisionGeometryRef;
-		AETHERCORE_API static auto MakeConvexHull(
+		PHYSICSCORE_API static auto MakePrimitive(const FCollisionShape& Shape) -> FCollisionGeometryRef;
+		PHYSICSCORE_API static auto MakeCompound(std::span<const FCollisionGeometryChild> Children) -> FCollisionGeometryRef;
+		PHYSICSCORE_API static auto MakeConvexHull(
 			std::span<const FVector3> Vertices,
 			std::span<const uint32> Indices) -> FCollisionGeometryRef;
-		AETHERCORE_API static auto MakeTriangleMesh(
+		PHYSICSCORE_API static auto MakeTriangleMesh(
 			std::span<const FVector3> Vertices,
 			std::span<const uint32> Indices,
 			std::span<const uint32> SourceOrdinals = {}) -> FCollisionGeometryRef;
-		AETHERCORE_API static auto MakeCookedTriangleMesh(
+		PHYSICSCORE_API static auto MakeCookedTriangleMesh(
 			std::span<const FVector3> Vertices,
 			std::span<const uint32> Indices,
 			std::span<const uint32> SourceOrdinals,
 			std::span<const FCollisionGeometryNode> Nodes,
 			std::span<const uint32> LeafTriangles) -> FCollisionGeometryRef;
-		AETHERCORE_API static auto BuildConvexHull(
+		PHYSICSCORE_API static auto BuildConvexHull(
 			std::span<const FVector3> Points,
 			FCollisionGeometryBuildDiagnostics* Diagnostics = nullptr) -> FCollisionGeometryRef;
-		AETHERCORE_API static auto BuildTriangleMesh(
+		PHYSICSCORE_API static auto BuildTriangleMesh(
 			std::span<const FVector3> Vertices,
 			std::span<const uint32> Indices,
 			FCollisionGeometryBuildDiagnostics* Diagnostics = nullptr) -> FCollisionGeometryRef;
 		// Copies one top-left row-major sample plane into a bounded regular-grid query surface.
-		AETHERCORE_API static auto BuildHeightField(
+		PHYSICSCORE_API static auto BuildHeightField(
 			uint32 Width,
 			uint32 Height,
 			std::span<const uint16> Samples,
@@ -147,36 +147,36 @@ namespace Durin
 
 		auto IsValid() const -> bool { return Payload != nullptr; }
 		explicit operator bool() const { return IsValid(); }
-		AETHERCORE_API auto GetKind() const -> ECollisionGeometryKind;
-		AETHERCORE_API auto GetIdentity() const -> uint64;
-		AETHERCORE_API auto GetChildCount() const -> uint32;
-		AETHERCORE_API auto GetChild(uint32 Index) const -> const FCollisionGeometryChild*;
-		AETHERCORE_API auto GetVertexCount() const -> uint32;
-		AETHERCORE_API auto GetVertex(uint32 Index) const -> const FVector3*;
-		AETHERCORE_API auto GetTriangleCount() const -> uint32;
-		AETHERCORE_API auto GetTriangle(uint32 Index) const -> const FCollisionGeometryTriangle*;
-		AETHERCORE_API auto GetTriangleVertices(
+		PHYSICSCORE_API auto GetKind() const -> ECollisionGeometryKind;
+		PHYSICSCORE_API auto GetIdentity() const -> uint64;
+		PHYSICSCORE_API auto GetChildCount() const -> uint32;
+		PHYSICSCORE_API auto GetChild(uint32 Index) const -> const FCollisionGeometryChild*;
+		PHYSICSCORE_API auto GetVertexCount() const -> uint32;
+		PHYSICSCORE_API auto GetVertex(uint32 Index) const -> const FVector3*;
+		PHYSICSCORE_API auto GetTriangleCount() const -> uint32;
+		PHYSICSCORE_API auto GetTriangle(uint32 Index) const -> const FCollisionGeometryTriangle*;
+		PHYSICSCORE_API auto GetTriangleVertices(
 			uint32 Index, FVector3& OutFirst, FVector3& OutSecond, FVector3& OutThird,
 			uint32* OutSourceOrdinal = nullptr) const -> bool;
-		AETHERCORE_API auto GetNodeCount() const -> uint32;
-		AETHERCORE_API auto GetNode(uint32 Index) const -> const FCollisionGeometryNode*;
-		AETHERCORE_API auto GetLeafTriangleCount() const -> uint32;
-		AETHERCORE_API auto GetLeafTriangle(uint32 Index) const -> uint32;
-		AETHERCORE_API auto GetHeightFieldWidth() const -> uint32;
-		AETHERCORE_API auto GetHeightFieldHeight() const -> uint32;
-		AETHERCORE_API auto GetHeightFieldSample(uint32 X, uint32 Y, uint16& OutSample) const -> bool;
-		AETHERCORE_API auto GetHeightFieldSpacing(double& OutX, double& OutY) const -> bool;
-		AETHERCORE_API auto GetHeightFieldHeightRange(double& OutScale, double& OutOffset) const -> bool;
-		AETHERCORE_API auto GetHeightFieldRegionCount() const -> uint32;
-		AETHERCORE_API auto GetHeightFieldRegion(uint32 Index) const -> const FCollisionHeightFieldRegion*;
-		AETHERCORE_API auto GetHullPlaneCount() const -> uint32;
-		AETHERCORE_API auto GetHullPlane(uint32 Index) const -> const FCollisionHullPlane*;
-		AETHERCORE_API auto GetHullHalfEdgeCount() const -> uint32;
-		AETHERCORE_API auto GetHullHalfEdge(uint32 Index) const -> const FCollisionHullHalfEdge*;
-		AETHERCORE_API auto GetHullFaceCount() const -> uint32;
-		AETHERCORE_API auto GetHullFace(uint32 Index) const -> const FCollisionHullFace*;
-		AETHERCORE_API auto GetLocalBounds(FVector3& OutMin, FVector3& OutMax) const -> bool;
-		AETHERCORE_API auto GetRetainedBytes() const -> uint64;
+		PHYSICSCORE_API auto GetNodeCount() const -> uint32;
+		PHYSICSCORE_API auto GetNode(uint32 Index) const -> const FCollisionGeometryNode*;
+		PHYSICSCORE_API auto GetLeafTriangleCount() const -> uint32;
+		PHYSICSCORE_API auto GetLeafTriangle(uint32 Index) const -> uint32;
+		PHYSICSCORE_API auto GetHeightFieldWidth() const -> uint32;
+		PHYSICSCORE_API auto GetHeightFieldHeight() const -> uint32;
+		PHYSICSCORE_API auto GetHeightFieldSample(uint32 X, uint32 Y, uint16& OutSample) const -> bool;
+		PHYSICSCORE_API auto GetHeightFieldSpacing(double& OutX, double& OutY) const -> bool;
+		PHYSICSCORE_API auto GetHeightFieldHeightRange(double& OutScale, double& OutOffset) const -> bool;
+		PHYSICSCORE_API auto GetHeightFieldRegionCount() const -> uint32;
+		PHYSICSCORE_API auto GetHeightFieldRegion(uint32 Index) const -> const FCollisionHeightFieldRegion*;
+		PHYSICSCORE_API auto GetHullPlaneCount() const -> uint32;
+		PHYSICSCORE_API auto GetHullPlane(uint32 Index) const -> const FCollisionHullPlane*;
+		PHYSICSCORE_API auto GetHullHalfEdgeCount() const -> uint32;
+		PHYSICSCORE_API auto GetHullHalfEdge(uint32 Index) const -> const FCollisionHullHalfEdge*;
+		PHYSICSCORE_API auto GetHullFaceCount() const -> uint32;
+		PHYSICSCORE_API auto GetHullFace(uint32 Index) const -> const FCollisionHullFace*;
+		PHYSICSCORE_API auto GetLocalBounds(FVector3& OutMin, FVector3& OutMax) const -> bool;
+		PHYSICSCORE_API auto GetRetainedBytes() const -> uint64;
 
 	private:
 		explicit FCollisionGeometryRef(std::shared_ptr<const FCollisionGeometry> InPayload)
@@ -227,7 +227,7 @@ namespace Durin::CollisionGeometry
 		bool bOverflowed = false;
 	};
 
-	AETHERCORE_API auto Raycast(
+	PHYSICSCORE_API auto Raycast(
 		const FVector3& Start,
 		const FVector3& End,
 		const FCollisionGeometryRef& Target,
@@ -236,7 +236,7 @@ namespace Durin::CollisionGeometry
 		FPhysicsQueryHit& OutHit,
 		FCollisionGeometryCounters* Counters = nullptr) -> ECollisionQueryStatus;
 
-	AETHERCORE_API auto Sweep(
+	PHYSICSCORE_API auto Sweep(
 		const FCollisionShape& Query,
 		const FTransform& QueryTransform,
 		const FVector3& Delta,
@@ -246,7 +246,7 @@ namespace Durin::CollisionGeometry
 		FPhysicsQueryHit& OutHit,
 		FCollisionGeometryCounters* Counters = nullptr) -> ECollisionQueryStatus;
 
-	AETHERCORE_API auto Overlap(
+	PHYSICSCORE_API auto Overlap(
 		const FCollisionShape& Query,
 		const FTransform& QueryTransform,
 		const FCollisionGeometryRef& Target,
@@ -256,7 +256,7 @@ namespace Durin::CollisionGeometry
 		FCollisionGeometryCounters* Counters = nullptr) -> ECollisionQueryStatus;
 
 	// Traces a finite segment against a positive-scale oriented box.
-	AETHERCORE_API auto RaycastBox(
+	PHYSICSCORE_API auto RaycastBox(
 		const FVector3& Start,
 		const FVector3& End,
 		const FCollisionShape& Box,
@@ -265,7 +265,7 @@ namespace Durin::CollisionGeometry
 		FCollisionGeometryCounters* Counters = nullptr) -> bool;
 
 	// Tests a capsule against a positive-scale oriented box and reports bounded penetration.
-	AETHERCORE_API auto OverlapCapsuleBox(
+	PHYSICSCORE_API auto OverlapCapsuleBox(
 		const FCollisionShape& Capsule,
 		const FTransform& CapsuleTransform,
 		const FCollisionShape& Box,
@@ -274,7 +274,7 @@ namespace Durin::CollisionGeometry
 		FCollisionGeometryCounters* Counters = nullptr) -> bool;
 
 	// Sweeps a capsule by Delta against a positive-scale oriented box.
-	AETHERCORE_API auto SweepCapsuleBox(
+	PHYSICSCORE_API auto SweepCapsuleBox(
 		const FCollisionShape& Capsule,
 		const FTransform& CapsuleTransform,
 		const FVector3& Delta,

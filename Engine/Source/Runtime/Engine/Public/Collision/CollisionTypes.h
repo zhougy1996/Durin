@@ -79,7 +79,7 @@ namespace Durin
 		ENGINE_API auto AddObjectType(ECollisionChannel Channel) -> void;
 	};
 
-	// Gameplay-facing blocking hit mapped from one opaque Aether result.
+	// Gameplay-facing blocking hit mapped from one opaque Physics result.
 	struct FHitResult
 	{
 		bool bBlockingHit = false;

@@ -50,7 +50,7 @@ The required program delivers:
 - Component-owned horizontal spacing, vertical scale, vertical offset,
   transform, visibility, material, and collision policy.
 - Runtime Engine asset/component/actor ownership, Renderer primitive-family
-  integration, AetherCore/Aether geometry, and Level Editor workflows.
+  integration, PhysicsCore/Physics geometry, and Level Editor workflows.
 - Patch-local bounds and visibility; deterministic CPU-selected terrain LOD.
 - Opaque and Masked PBR surface participation using existing material passes.
 - Line traces, sphere/capsule/box sweeps, and overlaps through existing World
@@ -71,7 +71,7 @@ The required program delivers:
   program. These may be activated after immutable import/reimport is qualified.
 - Tessellation, mesh shaders, compute-generated geometry, GPU-driven indirect
   submission, or occlusion/HZB as prerequisites.
-- Merging renderer visibility, Aether broad phase, and editor picking into one
+- Merging renderer visibility, Physics broad phase, and editor picking into one
   shared mutable spatial scene.
 
 ## Program Decisions and Invariants
@@ -85,7 +85,7 @@ The required program delivers:
 - Import source provenance remains editor-only. DDC and cooked bulk are
   independently versioned and checksummed. Cooked runtime loads the exact
   canonical samples and required acceleration metadata without source or DDC.
-- Renderer upload layouts, Aether heightfield resources, and editor query data
+- Renderer upload layouts, Physics heightfield resources, and editor query data
   are derived from one committed asset revision. No consumer silently decodes
   the source image, keeps an unrelated copy as authority, or publishes a new
   revision partially.
@@ -124,8 +124,8 @@ The required program delivers:
 
 ### Collision shares data identity, not renderer storage
 
-- AetherCore owns immutable shared `HeightField` geometry and narrow-phase
-  algorithms; Aether owns scene publication and traversal; Engine owns
+- PhysicsCore owns immutable shared `HeightField` geometry and narrow-phase
+  algorithms; Physics owns scene publication and traversal; Engine owns
   component settings, BodyInstance lifecycle, and asset-revision synchronization.
 - Render buffers and render-selected LOD are never collision geometry.
   Collision derives from canonical samples and has its own version, bounds,
@@ -181,7 +181,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- | --- |
 | T0: Heightmap asset foundation | Required; complete | [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md) | Existing AssetCore, Engine asset lifecycle, StandardAssetImport | Dedicated 16-bit asset with validated source import, derived/cooked data, load, reimport, inspection facts, and bounded tests | Complete | Editor and cooked runtime reproduce identical canonical samples and regional metadata without source/DDC |
 | T1: Terrain render primitive | Required; complete | [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md) | T0, existing Renderer scene/visibility/material contracts | Actor/Component, proxy/info, patch resources, vertex factory/shader, PBR material mapping, single-LOD visible terrain | Complete | Exact single-LOD Terrain renders through shared PBR/output paths with conservative patch visibility, counted bounded resources, revision propagation, and editor placement |
-| T2: Heightfield collision | Required; completed 2026-08-13 | [Aether Heightfield Collision](../../../Plans/Archive/2026-08/AetherHeightfieldCollision.md) | T0, existing Aether geometry/query facade | Immutable HeightField resource, cell acceleration, full Ray/Sweep/Overlap matrix, Cook/load, BodyInstance publication | Met: 1025² runtime-build layout, exact diagonal, bounded sparse query, World publication/sharing, source-free Cook construction, and debug sampling | Met: Production matches the qualified Reference/oracle matrix, visits local cells, atomically tracks asset revisions, exposes bounded facts/overlay, and passes Release Editor/Game gates |
+| T2: Heightfield collision | Required; completed 2026-08-13 | [Physics Heightfield Collision](../../../Plans/Archive/2026-08/PhysicsHeightfieldCollision.md) | T0, existing Physics geometry/query facade | Immutable HeightField resource, cell acceleration, full Ray/Sweep/Overlap matrix, Cook/load, BodyInstance publication | Met: 1025² runtime-build layout, exact diagonal, bounded sparse query, World publication/sharing, source-free Cook construction, and debug sampling | Met: Production matches the qualified Reference/oracle matrix, visits local cells, atomically tracks asset revisions, exposes bounded facts/overlay, and passes Release Editor/Game gates |
 | T3: Patch LOD and crack control | Required; completed 2026-08-13 | [Terrain Patch LOD](../../../Plans/Archive/2026-08/TerrainPatchLOD.md) | T1 | Deterministic patch LOD, adjacency resolution, stitched topology, regional bounds, counters and GPU qualification | Met: T1 has a correct single-LOD baseline and measured patch/draw/triangle costs | Met: exhaustive topology coverage, all-mask Vulkan execution, camera/shadow integration, bounded metadata/counters, 512-triangle flat far output, aggregate builds/tests, and Editor/Game smokes pass |
 | T4: Editor workflow and qualification | Required; completed 2026-08-14 | [Terrain Editor Workflow](../../../Plans/Archive/2026-08/TerrainEditorWorkflow.md) | T1-T3 | Transactional placement/properties, exact surface picking, reimport propagation, bounded presentation/diagnostics, final fixtures and lasting docs | Met: T0-T3 runtime, render, LOD, and collision contracts are stable | Met: atomic placement, exact bounded picking, canonical thumbnails, coherent Details, reimport/cooked-runtime coverage, aggregate gates, and lasting editor documentation pass |
 | T5: Terrain streaming | Deferred; conditional on World Partition or measured scale evidence | T4 plus a future world-partitioning plan | Partitioned height/render/collision residency with explicit budgets and failure behavior | Named world dimensions, working-set limits, or measured memory/loading stalls exceed the finite component budgets | Selected working set and latency targets pass without incomplete collision or visible seam behavior |
@@ -194,7 +194,7 @@ flowchart LR
 Owns `DTerrainHeightmap`, canonical sample and orientation rules, accepted
 source format, validation limits, derived-data key/payload, cooked companion,
 transactional import/reimport, asset registry facts, and focused inspection.
-It does not create Terrain actors, GPU render resources, materials, Aether
+It does not create Terrain actors, GPU render resources, materials, Physics
 geometry, viewport tools, or runtime deformation.
 
 ### [Terrain Render Primitive](../../../Runtime/Rendering/TerrainRendering.md)
@@ -205,7 +205,7 @@ mapping, visibility integration, counters, failure/reload behavior, and the
 first visible editor placement smoke. It does not own scalable LOD, collision,
 streaming, foliage, or painting.
 
-### [Aether Heightfield Collision](../../../Plans/Archive/2026-08/AetherHeightfieldCollision.md)
+### [Physics Heightfield Collision](../../../Plans/Archive/2026-08/PhysicsHeightfieldCollision.md)
 
 Owns the immutable regular-grid collision resource, bounds/cell acceleration,
 operation/pair algorithms, reference comparison, payload/versioning,
@@ -222,7 +222,7 @@ quality/performance gates. It does not introduce streaming or writable terrain.
 
 Owns user-facing placement, details, selection, reimport propagation,
 diagnostics presentation, final end-to-end fixtures, and lasting documentation.
-It consumes rather than redefines asset, Renderer, and Aether contracts.
+It consumes rather than redefines asset, Renderer, and Physics contracts.
 
 ## Program Validation Matrix
 
@@ -273,13 +273,13 @@ It consumes rather than redefines asset, Renderer, and Aether contracts.
 - T5 remains conditional with no World Partition or measured scale evidence
   requiring it. T6 is explicitly unnecessary while external tools such as Gaea
   satisfy source authoring; no required contract relies on either milestone.
-- Rendering Capability Expansion and Aether Physics Evolution link the
+- Rendering Capability Expansion and Physics Evolution link the
   completed terrain capabilities without duplicating their contracts.
 
 ## Related Documentation
 
 - [Rendering Capability Expansion](RenderingCapabilityExpansion.md)
-- [Aether Physics Evolution](AetherPhysicsEvolution.md)
+- [Physics Evolution](PhysicsEvolution.md)
 - [Texture System](../../../Runtime/Rendering/TextureSystem.md)
 - [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
 - [Renderer Scene Representation](../../../Runtime/Rendering/SceneRepresentation.md)
@@ -297,8 +297,8 @@ It consumes rather than redefines asset, Renderer, and Aether contracts.
 - `Engine/Source/Runtime/Renderer/Private/Scene.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneVisibility.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderer.cpp`
-- `Engine/Source/Runtime/AetherCore/Public/Collision/CollisionGeometry.h`
-- `Engine/Source/Runtime/AetherCore/Private/Collision/CollisionGeometry.cpp`
+- `Engine/Source/Runtime/PhysicsCore/Public/Collision/CollisionGeometry.h`
+- `Engine/Source/Runtime/PhysicsCore/Private/Collision/CollisionGeometry.cpp`
 - `Engine/Source/Runtime/Engine/Public/Components/PrimitiveComponent.h`
 - `Engine/Source/Editor/StandardAssetImport/Private/StandardAssetImportProviders.cpp`
 - `Engine/Source/Editor/LevelEditor`

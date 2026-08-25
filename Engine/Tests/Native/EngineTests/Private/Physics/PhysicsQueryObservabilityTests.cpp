@@ -141,7 +141,7 @@ namespace
 
 }
 
-TEST(FAetherQueryCharacterizationTests, LineTraceFreezesValidationClearingAndEveryResultField)
+TEST(FPhysicsQueryCharacterizationTests, LineTraceFreezesValidationClearingAndEveryResultField)
 {
 	Durin::FPhysicsScene Scene;
 	const Durin::FPhysicsActorHandle Handle = Scene.AddBody(MakeBoxBody({0.0, 0.0, 0.0}, 41, {1.0, 1.0, 1.0}));
@@ -184,7 +184,7 @@ TEST(FAetherQueryCharacterizationTests, LineTraceFreezesValidationClearingAndEve
 	ExpectClearedHit(Hit);
 }
 
-TEST(FAetherQueryCharacterizationTests, SweepFreezesValidationClearingAndPenetrationFields)
+TEST(FPhysicsQueryCharacterizationTests, SweepFreezesValidationClearingAndPenetrationFields)
 {
 	Durin::FPhysicsScene Scene;
 	const Durin::FPhysicsActorHandle Handle = Scene.AddBody(MakeBoxBody({0.0, 0.0, 0.0}, 42, {0.5, 3.0, 3.0}));
@@ -223,7 +223,7 @@ TEST(FAetherQueryCharacterizationTests, SweepFreezesValidationClearingAndPenetra
 	ExpectClearedHit(Hit);
 }
 
-TEST(FAetherQueryCharacterizationTests, FilteringAndOverlapOrderingRemainTwoSidedAndHandleStable)
+TEST(FPhysicsQueryCharacterizationTests, FilteringAndOverlapOrderingRemainTwoSidedAndHandleStable)
 {
 	Durin::FPhysicsScene Scene;
 	Durin::FPhysicsBodyDesc Block = MakeBoxBody({0.0, 0.0, 0.0}, 51, {1.0, 1.0, 1.0});
@@ -271,7 +271,7 @@ TEST(FAetherQueryCharacterizationTests, FilteringAndOverlapOrderingRemainTwoSide
 	EXPECT_TRUE(Hits.empty());
 }
 
-TEST(FAetherQueryCharacterizationTests, EveryQueryRejectsOffThreadAndClearsOutputs)
+TEST(FPhysicsQueryCharacterizationTests, EveryQueryRejectsOffThreadAndClearsOutputs)
 {
 	Durin::FPhysicsScene Scene;
 	ASSERT_TRUE(Scene.AddBody(MakeBoxBody({0.0, 0.0, 0.0}, 61)).IsValid());
@@ -297,7 +297,7 @@ TEST(FAetherQueryCharacterizationTests, EveryQueryRejectsOffThreadAndClearsOutpu
 	EXPECT_TRUE(OverlapHits.empty());
 }
 
-TEST(FAetherQueryCharacterizationTests, TieBreakingAndTangentOverlapSemanticsAreExplicit)
+TEST(FPhysicsQueryCharacterizationTests, TieBreakingAndTangentOverlapSemanticsAreExplicit)
 {
 	Durin::FPhysicsScene Scene;
 	const Durin::FPhysicsActorHandle First = Scene.AddBody(MakeBoxBody({0.0, 0.0, 0.0}, 71));
@@ -320,7 +320,7 @@ TEST(FAetherQueryCharacterizationTests, TieBreakingAndTangentOverlapSemanticsAre
 	EXPECT_TRUE(Hits.empty());
 }
 
-TEST(FAetherQueryPipelineTests, PoliciesMatchAndOnlyOwningThreadCanSelectAValidPolicy)
+TEST(FPhysicsQueryPipelineTests, PoliciesMatchAndOnlyOwningThreadCanSelectAValidPolicy)
 {
 	Durin::FPhysicsScene Scene;
 	EXPECT_EQ(Scene.GetQueryExecutionPolicy(), Durin::EPhysicsSceneQueryExecutionPolicy::Production);
@@ -379,7 +379,7 @@ TEST(FAetherQueryPipelineTests, PoliciesMatchAndOnlyOwningThreadCanSelectAValidP
 	EXPECT_EQ(Scene.GetQueryExecutionPolicy(), Durin::EPhysicsSceneQueryExecutionPolicy::Compare);
 }
 
-TEST(FAetherQueryPipelineTests, CompareFallsBackToReferenceAndDetectsInjectedDivergence)
+TEST(FPhysicsQueryPipelineTests, CompareFallsBackToReferenceAndDetectsInjectedDivergence)
 {
 	Durin::FPhysicsScene Scene;
 	const Durin::FPhysicsActorHandle First = Scene.AddBody(MakeBoxBody({0.0, 0.0, 0.0}, 91));
@@ -420,7 +420,7 @@ TEST(FAetherQueryPipelineTests, CompareFallsBackToReferenceAndDetectsInjectedDiv
 	Durin::FPhysicsSceneQueryTestAccess::ClearFault(Scene);
 }
 
-TEST(FAetherGeometryCounterTests, OptionalSinkCountsBoundedDistanceWorkAndSaturates)
+TEST(FPhysicsGeometryCounterTests, OptionalSinkCountsBoundedDistanceWorkAndSaturates)
 {
 	const Durin::FCollisionShape Capsule = Durin::FCollisionShape::MakeCapsule(0.4, 1.0);
 	const Durin::FCollisionShape Box = Durin::FCollisionShape::MakeBox({0.5, 3.0, 3.0});
@@ -457,7 +457,7 @@ TEST(FAetherGeometryCounterTests, OptionalSinkCountsBoundedDistanceWorkAndSatura
 	EXPECT_TRUE(Counters.bOverflowed);
 }
 
-TEST(FAetherGeometryCounterTests, ProductionCapsuleBoxAvoidsNestedReferenceSearch)
+TEST(FPhysicsGeometryCounterTests, ProductionCapsuleBoxAvoidsNestedReferenceSearch)
 {
 	const Durin::FCollisionShape Capsule = Durin::FCollisionShape::MakeCapsule(0.4, 1.0);
 	const Durin::FCollisionShape Box = Durin::FCollisionShape::MakeBox({0.5, 3.0, 3.0});
@@ -475,7 +475,7 @@ TEST(FAetherGeometryCounterTests, ProductionCapsuleBoxAvoidsNestedReferenceSearc
 	EXPECT_EQ(Counters.ReferenceFallbacks, 0u);
 }
 
-TEST(FAetherQueryDiagnosticsTests, ReconcilesProductionReferenceAndCompareStructuralWork)
+TEST(FPhysicsQueryDiagnosticsTests, ReconcilesProductionReferenceAndCompareStructuralWork)
 {
 	Durin::FPhysicsScene Scene;
 	Durin::FPhysicsBodyDesc IgnoredBody = MakeBoxBody({0.0, 0.0, 0.0}, 101);
@@ -564,7 +564,7 @@ TEST(FAetherQueryDiagnosticsTests, ReconcilesProductionReferenceAndCompareStruct
 	EXPECT_LE(Overlap.ScratchHighWater, 128u);
 }
 
-TEST(FAetherQueryDiagnosticsTests, ReconcilesRejectedQueriesDetailedMismatchAndSaturation)
+TEST(FPhysicsQueryDiagnosticsTests, ReconcilesRejectedQueriesDetailedMismatchAndSaturation)
 {
 	Durin::FPhysicsScene Scene;
 	const Durin::FPhysicsActorHandle Handle = Scene.AddBody(MakeBoxBody({0.0, 0.0, 0.0}, 111));
@@ -633,7 +633,7 @@ TEST(FAetherQueryDiagnosticsTests, ReconcilesRejectedQueriesDetailedMismatchAndS
 	Durin::FPhysicsSceneQueryTestAccess::ClearFault(Scene);
 }
 
-TEST(FAetherQueryDiagnosticsTests, MutationCountersAndResetRetainAConstantTimeBodyBaseline)
+TEST(FPhysicsQueryDiagnosticsTests, MutationCountersAndResetRetainAConstantTimeBodyBaseline)
 {
 	Durin::FPhysicsScene Scene;
 	ASSERT_TRUE(Scene.ResetQueryDiagnostics());
@@ -682,7 +682,7 @@ TEST(FAetherQueryDiagnosticsTests, MutationCountersAndResetRetainAConstantTimeBo
 	EXPECT_FALSE(OffThreadSnapshot.LastQuery.bValid);
 }
 
-TEST(FAetherSceneAccelerationTests, ReusesGenerationSlotsAndRepairsDenseSwapsWithoutChangingIdentity)
+TEST(FPhysicsSceneAccelerationTests, ReusesGenerationSlotsAndRepairsDenseSwapsWithoutChangingIdentity)
 {
 	Durin::FPhysicsScene Scene;
 	const Durin::FPhysicsActorHandle First = Scene.AddBody(MakeBoxBody({0.0, 0.0, 0.0}, 1));
@@ -712,7 +712,7 @@ TEST(FAetherSceneAccelerationTests, ReusesGenerationSlotsAndRepairsDenseSwapsWit
 	EXPECT_EQ(Mutations.DenseSwaps, 1u);
 }
 
-TEST(FAetherSceneAccelerationTests, BuildsConservativeBoundsForEveryShapeAndRejectsOverflow)
+TEST(FPhysicsSceneAccelerationTests, BuildsConservativeBoundsForEveryShapeAndRejectsOverflow)
 {
 	static_assert(static_cast<uint8>(Durin::EPhysicsBodyMotionType::Static) == 0);
 	static_assert(static_cast<uint8>(Durin::EPhysicsBodyMotionType::Kinematic) == 1);
@@ -755,7 +755,7 @@ TEST(FAetherSceneAccelerationTests, BuildsConservativeBoundsForEveryShapeAndReje
 	EXPECT_FALSE(Scene.AddBody(Overflow).IsValid());
 }
 
-TEST(FAetherSceneAccelerationTests, MaintainsMotionPartitionsAndIsolatesMovingUpdatesFromStaticBuilds)
+TEST(FPhysicsSceneAccelerationTests, MaintainsMotionPartitionsAndIsolatesMovingUpdatesFromStaticBuilds)
 {
 	Durin::FPhysicsScene Scene;
 	Durin::FPhysicsBodyDesc Static = MakeBoxBody({0.0, 0.0, 0.0}, 1);
@@ -796,7 +796,7 @@ TEST(FAetherSceneAccelerationTests, MaintainsMotionPartitionsAndIsolatesMovingUp
 	EXPECT_EQ(Mutations.DynamicBodies, 1u);
 }
 
-TEST(FAetherSceneAccelerationTests, ScratchOverflowFallsBackToTheCompleteReferenceResult)
+TEST(FPhysicsSceneAccelerationTests, ScratchOverflowFallsBackToTheCompleteReferenceResult)
 {
 	Durin::FPhysicsScene Scene;
 	const Durin::FPhysicsActorHandle Handle = Scene.AddBody(MakeBoxBody({0.0, 0.0, 0.0}, 77));
@@ -815,7 +815,7 @@ TEST(FAetherSceneAccelerationTests, ScratchOverflowFallsBackToTheCompleteReferen
 	Durin::FPhysicsSceneQueryTestAccess::ClearFault(Scene);
 }
 
-TEST(FAetherQueryParityTests, FixedSeedRandomizedAdversarialScenesRemainMismatchFreeThroughChurn)
+TEST(FPhysicsQueryParityTests, FixedSeedRandomizedAdversarialScenesRemainMismatchFreeThroughChurn)
 {
 	constexpr uint64 ParitySeed = 0xA37E'5041'5459'0001ull;
 	for (size_t Scenario = 0; Scenario < 16; ++Scenario)

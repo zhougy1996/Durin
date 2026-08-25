@@ -1,6 +1,6 @@
-# Aether Heightfield Collision Plan
+# Physics Heightfield Collision Plan
 
-Summary: Add immutable regular-grid heightfield collision to Aether and publish Terrain revisions through existing World query, Cook, lifecycle, and diagnostic contracts.
+Summary: Add immutable regular-grid heightfield collision to Physics and publish Terrain revisions through existing World query, Cook, lifecycle, and diagnostic contracts.
 
 Last reviewed: 2026-08-13
 
@@ -9,11 +9,11 @@ Completed: 2026-08-13
 
 ## Current Status
 
-The complete bounded T2 implementation and qualification are complete. AetherCore now
+The complete bounded T2 implementation and qualification are complete. PhysicsCore now
 owns `HeightField`, exact samples and interpretation, on-demand `(A,B,C)` /
 `(B,D,C)` triangle reconstruction, 8x8-cell leaf regions, conservative 32-byte
 nodes, immutable sharing, and Reference/Production Ray/Sweep/Overlap dispatch.
-Aether publishes HeightField bounds without interpreting samples. Engine builds
+Physics publishes HeightField bounds without interpreting samples. Engine builds
 from one `FTerrainHeightmapPayload` revision, publishes through inherited
 `FBodyInstance`, removes invalid state, and exposes bounded collision status.
 
@@ -86,7 +86,7 @@ was introduced.
 
 ### Stage 2/3 continuation handoff (2026-08-13)
 
-- Query observability: AetherCore and `FPhysicsScene` now accumulate distinct
+- Query observability: PhysicsCore and `FPhysicsScene` now accumulate distinct
   HeightField cell and triangle tests alongside existing asset node/leaf and
   generic feature work. Saturation uses the existing diagnostics overflow path.
 - Parity: the fixed seed `0x4846504152495459` covers transformed signed-height
@@ -145,7 +145,7 @@ payload without source, DDC, Renderer, or editor dependencies.
 
 ## Scope
 
-- Add `ECollisionGeometryKind::HeightField` and an AetherCore-owned immutable
+- Add `ECollisionGeometryKind::HeightField` and an PhysicsCore-owned immutable
   heightfield resource with dimensions, exact unsigned samples or an equivalent
   lossless owned sample representation, spacing, signed height scale, height
   offset, exact bounds, deterministic cell acceleration, identity, and retained
@@ -183,10 +183,10 @@ payload without source, DDC, Renderer, or editor dependencies.
   navmesh generation, character-movement policy changes, or a new physics
   backend. Terrain bodies remain query-compatible World bodies.
 - A second height source decoder, color conversion, resampling, observed-range
-  normalization, or source-file access from Aether/Engine consumers.
+  normalization, or source-file access from Physics/Engine consumers.
 - Per-cell materials, face identifiers as a public gameplay ABI, caves,
   overhangs, thickness, or closed-volume terrain semantics.
-- Replacing Aether scene broad phase, `FBodyInstance`, collision profiles,
+- Replacing Physics scene broad phase, `FBodyInstance`, collision profiles,
   filters, closest-hit ordering, or existing primitive/hull/mesh algorithms.
 - Keeping an expanded full-resolution triangle array or triangle-mesh BVH as
   the shipping HeightField representation. Such a mesh is test-oracle and
@@ -196,16 +196,16 @@ payload without source, DDC, Renderer, or editor dependencies.
 
 ### Ownership and module direction
 
-- AetherCore owns the immutable `HeightField` geometry payload, validation,
+- PhysicsCore owns the immutable `HeightField` geometry payload, validation,
   exact local bounds, cell hierarchy, Reference/Production algorithms, identity,
   retained-byte accounting, and serialization-neutral read-only accessors.
-- Aether owns only scene-body publication, broad-phase candidate selection,
+- Physics owns only scene-body publication, broad-phase candidate selection,
   stable handles, query-policy dispatch, and aggregate diagnostics. It never
   traverses height samples or HeightField nodes directly.
 - Engine captures one complete `shared_ptr<const FTerrainHeightmapPayload>`
   revision and component interpretation, builds or retrieves one detached
-  AetherCore resource, and publishes it through `DTerrainComponent`'s existing
-  `FBodyInstance` path. AetherCore does not depend on Engine or `DObject`.
+  PhysicsCore resource, and publishes it through `DTerrainComponent`'s existing
+  `FBodyInstance` path. PhysicsCore does not depend on Engine or `DObject`.
 - Renderer buffers, render proxies, patch visibility, GPU height textures, and
   visual LOD are never collision inputs or lifetime owners.
 
@@ -241,9 +241,9 @@ payload without source, DDC, Renderer, or editor dependencies.
   deterministic 2D hierarchy over cell rectangles. Nodes retain conservative
   local XYZ bounds or exact sample extrema plus checked cell ranges. They never
   retain expanded per-cell vertices or triangles.
-- T0's 64x64 extrema hierarchy may seed the first node layer, but AetherCore
+- T0's 64x64 extrema hierarchy may seed the first node layer, but PhysicsCore
   owns its collision traversal layout and validates every copied fact. No
-  Aether query holds a `FTerrainHeightmapPayload` pointer or calls Engine code.
+  Physics query holds a `FTerrainHeightmapPayload` pointer or calls Engine code.
 - Reference visits stable Y-major cells and exact triangles without
   acceleration. Production traverses conservative nodes, visits stable
   candidate cells, and uses the same exact leaf kernels. Compare runs both,
@@ -401,7 +401,7 @@ Dependencies: Stage 0 frozen resource, semantics, limits, and oracle.
 - [x] Prove geometry bounds/identity/bytes, permutation-independent construction
   where applicable, flat/extreme/negative-scale validity, snapshot lifetime,
   and complete Reference parity against the triangle-mesh oracle.
-- [x] Run the smallest AetherCore/PhysicsScene targets and record the Stage 1
+- [x] Run the smallest PhysicsCore/PhysicsScene targets and record the Stage 1
   handoff with frozen sizes, bytes, fixtures, and remaining Production gaps.
 
 #### Acceptance Gate
@@ -427,7 +427,7 @@ Dependencies: Stage 1 exact resource/Reference behavior and Stage 0 work gates.
   the same qualified leaf kernels and conservative advancement/status policy as
   other feature geometry.
 - [x] Integrate Production/Reference/Compare, bounded fallback, mismatch facts,
-  and HeightField node/leaf/cell/triangle counters through AetherCore and
+  and HeightField node/leaf/cell/triangle counters through PhysicsCore and
   `FPhysicsScene` without changing World bool/closest-hit APIs.
 - [x] Qualify randomized/adversarial transforms, diagonal/shared-edge ties,
   initial penetration, tangency, filters, ignore sets, multiple bodies, and
@@ -455,7 +455,7 @@ Dependencies: Stage 2 qualified HeightField geometry and T0/T1 revision hooks.
 - [x] Add reflected Terrain collision status/facts and the minimum component
   collision configuration needed beyond inherited BodyInstance policy. Keep
   render status independent from collision availability.
-- [x] Add bounded AetherCore builder interning keyed by exact canonical samples
+- [x] Add bounded PhysicsCore builder interning keyed by exact canonical samples
   and collision interpretation, plus an Engine component-local revision cache.
   Build detached candidates, share identical resources, never alias different
   interpretations, and prune expired entries without Renderer/editor ownership.
@@ -541,7 +541,7 @@ Dependencies: Stages 1-4 complete end-to-end behavior.
   Profile; validate plan, roadmap, and repository documentation.
 - [x] Publish lasting HeightField geometry/query, Terrain collision component,
   revision, Cook/runtime, diagnostics, limits, and failure contracts under the
-  owning Runtime documentation; update the Heightfield Terrain and Aether
+  owning Runtime documentation; update the Heightfield Terrain and Physics
   roadmaps with T2 evidence and precise T4 entry state.
 - [x] Record final revision, profile, test counts, fixtures, query/build/startup
   measurements, bytes, limits, executable, decisions, and deferred work before
@@ -561,15 +561,15 @@ Dependencies: Stages 1-4 complete end-to-end behavior.
 | Scenario | Required behavior | Evidence owner |
 | --- | --- | --- |
 | Coordinate identity | Asymmetric corners/interiors, source Y direction, spacing, signed height and rendered/collision positions agree | HeightField builder and Terrain integration tests |
-| Cell topology | Exact diagonal, Y-major ordinals, odd/non-square edges, shared edge/corner ties, and no out-of-extent triangles | AetherCore geometry tests |
-| Resource validity | Dimensions/counts/settings/bounds/limits checked; immutable identity, hierarchy, retained/peak bytes, and failure transaction are deterministic | AetherCore builder tests |
+| Cell topology | Exact diagonal, Y-major ordinals, odd/non-square edges, shared edge/corner ties, and no out-of-extent triangles | PhysicsCore geometry tests |
+| Resource validity | Dimensions/counts/settings/bounds/limits checked; immutable identity, hierarchy, retained/peak bytes, and failure transaction are deterministic | PhysicsCore builder tests |
 | Ray | Interior, diagonal, boundary, vertical, grazing, coplanar, upward/below, zero-length, and closest ties match oracle | Reference/Production query tests |
-| Sweeps | Sphere/Capsule/Box hits, misses, tangency, initial penetration, motion direction, and time/normal/penetration match oracle | AetherCore and PhysicsScene tests |
-| Overlaps | Sphere/Capsule/Box surface contact and penetration match zero-thickness two-sided semantics without treating below-terrain space as solid | AetherCore and PhysicsScene tests |
+| Sweeps | Sphere/Capsule/Box hits, misses, tangency, initial penetration, motion direction, and time/normal/penetration match oracle | PhysicsCore and PhysicsScene tests |
+| Overlaps | Sphere/Capsule/Box surface contact and penetration match zero-thickness two-sided semantics without treating below-terrain space as solid | PhysicsCore and PhysicsScene tests |
 | Production work | Sparse node/cell/feature work is local, dense work is bounded, scratch cannot escape, and ordinary cases have zero exceptional status | Characterization and controlled performance tests |
 | World policy | Filters, ignore, closest ordering, stable handles, motion partition, Reference/Production/Compare, and multiple bodies remain compatible | PhysicsScene and World tests |
 | Revision transaction | Assignment, property edits, changed/no-op/failed reimport, invalid/recovery, and removal publish complete matching generations exactly once | Engine Terrain lifecycle tests |
-| Sharing and lifetime | Same revision/interpretation shares; different keys do not alias; two Worlds, removal, query retention, unload, and shutdown balance | Engine/Aether lifecycle tests |
+| Sharing and lifetime | Same revision/interpretation shares; different keys do not alias; two Worlds, removal, query retention, unload, and shutdown balance | Engine/Physics lifecycle tests |
 | Cooked runtime | Selected persistent policy loads/builds exact collision without source/DDC/Renderer/editor and rejects corruption before publication | Terrain heightmap Cook/runtime process tests |
 | Diagnostics/debug | Resource/work equations reconcile, O(1) capture/reset holds, strings and overlays are bounded, disabled debug has no retained surface expansion | Physics diagnostics and LevelEditor tests |
 | Regression | Primitive/Compound/Hull/TriangleMesh sizes, queries, bytes, Cook, debug, Box/Sandbox behavior, and renderer Terrain remain unchanged | Focused and required aggregate targets |
@@ -616,7 +616,7 @@ Dependencies: Stages 1-4 complete end-to-end behavior.
 ## Related Documentation
 
 - [Heightfield Terrain Roadmap](../../../Roadmaps/Archive/2026-08/HeightfieldTerrain.md)
-- [Aether Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/AetherPhysicsEvolution.md)
+- [Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/PhysicsEvolution.md)
 - [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
 - [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
 - [Runtime Collision](../../../Runtime/Physics/Collision.md)
@@ -625,11 +625,11 @@ Dependencies: Stages 1-4 complete end-to-end behavior.
 
 ## Related Code
 
-- `Engine/Source/Runtime/AetherCore/Public/Collision/CollisionGeometry.h`
-- `Engine/Source/Runtime/AetherCore/Private/Collision/CollisionGeometry.cpp`
-- `Engine/Source/Runtime/AetherCore/Public/Physics/PhysicsTypes.h`
-- `Engine/Source/Runtime/Aether/Public/Physics/PhysicsScene.h`
-- `Engine/Source/Runtime/Aether/Private/Physics/PhysicsScene.cpp`
+- `Engine/Source/Runtime/PhysicsCore/Public/Collision/CollisionGeometry.h`
+- `Engine/Source/Runtime/PhysicsCore/Private/Collision/CollisionGeometry.cpp`
+- `Engine/Source/Runtime/PhysicsCore/Public/Physics/PhysicsTypes.h`
+- `Engine/Source/Runtime/Physics/Public/Physics/PhysicsScene.h`
+- `Engine/Source/Runtime/Physics/Private/Physics/PhysicsScene.cpp`
 - `Engine/Source/Runtime/Engine/Public/Terrain/TerrainHeightmap.h`
 - `Engine/Source/Runtime/Engine/Public/Terrain/TerrainHeightmapDerivedData.h`
 - `Engine/Source/Runtime/Engine/Private/Terrain/TerrainHeightmap.cpp`

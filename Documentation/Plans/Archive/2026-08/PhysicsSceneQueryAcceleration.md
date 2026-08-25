@@ -1,6 +1,6 @@
-# Aether Scene Query Acceleration Plan
+# Physics Scene Query Acceleration Plan
 
-Summary: Replace Aether's linear body lifecycle and Production candidate walk with generation-checked dense storage and a deterministic static/moving broad phase while preserving the M0 query oracle.
+Summary: Replace Physics's linear body lifecycle and Production candidate walk with generation-checked dense storage and a deterministic static/moving broad phase while preserving the M0 query oracle.
 
 Last reviewed: 2026-08-11
 
@@ -10,7 +10,7 @@ Completed: 2026-08-11
 ## Current Status
 
 Completed as M1 of the
-[Aether Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/AetherPhysicsEvolution.md) from
+[Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/PhysicsEvolution.md) from
 source revision `07b9bc567b0deaa3b744755047d14f89a4711dce`. The implementation
 adds generation-checked dense slots, explicit Static/Kinematic/Dynamic
 publication, outward-rounded compact exact bounds, a deterministic static BVH,
@@ -34,7 +34,7 @@ by this plan.
 
 ## Goal
 
-Make Aether body lookup and lifecycle independent of scene size and make normal
+Make Physics body lookup and lifecycle independent of scene size and make normal
 Production queries test bodies near the finite query volume rather than every
 body, without changing Engine-facing World query APIs or any M0 result
 semantics.
@@ -47,7 +47,7 @@ Reference executor across the qualified corpus.
 
 ## Scope
 
-- AetherCore motion classification and conservative world/query AABBs for the
+- PhysicsCore motion classification and conservative world/query AABBs for the
   existing Box, Sphere, and Capsule shape values and transform rules.
 - Generation-checked slot identity, dense body records, free-slot reuse,
   swap-remove bookkeeping, and amortized constant-time add, lookup, update, and
@@ -57,7 +57,7 @@ Reference executor across the qualified corpus.
 - Engine publication of Static for qualified immutable world geometry and
   Kinematic for component-driven moving/query bodies without a new editor UI.
 - A deterministic rebuildable static BVH and an incremental moving fat-AABB
-  tree behind one Aether-private candidate traversal contract.
+  tree behind one Physics-private candidate traversal contract.
 - Transactional partition insertion, removal, migration, transform/geometry
   update, and filter-only update behavior.
 - Finite LineTrace segment bounds, conservative swept-shape bounds, overlap
@@ -97,12 +97,12 @@ Reference executor across the qualified corpus.
 
 ### Ownership and compatibility boundary
 
-- The dependency direction remains `Core -> AetherCore -> Aether -> Engine`.
-  AetherCore owns motion and conservative-bounds values/functions. Aether owns
+- The dependency direction remains `Core -> PhysicsCore -> Physics -> Engine`.
+  PhysicsCore owns motion and conservative-bounds values/functions. Physics owns
   slots, dense storage, partitions, indexes, traversal, scratch, and scene
   diagnostics. Engine publishes motion with body descriptions and continues to
   resolve opaque user tokens.
-- `FPhysicsScene` remains the complete public Aether facade. Storage and index
+- `FPhysicsScene` remains the complete public Physics facade. Storage and index
   types stay private and create no dependency on Engine, LevelEditor, Renderer,
   or AssetCore.
 - Reference and Production read the same validated dense records. Reference
@@ -134,13 +134,13 @@ Reference executor across the qualified corpus.
 
 ### Explicit motion publication
 
-- AetherCore adds `EPhysicsBodyMotionType` with fixed Static, Kinematic, and
+- PhysicsCore adds `EPhysicsBodyMotionType` with fixed Static, Kinematic, and
   Dynamic values, and `FPhysicsBodyDesc` carries one value. Direct low-level
   descriptions default to Kinematic so existing mutable callers do not
   silently imply immutable storage.
 - `FBodyInstance` owns an explicit non-reflected M1 motion value and publishes
   it in creation and update descriptions. It is not inferred from channel,
-  profile, collision enabled state, or Actor type at the Aether boundary.
+  profile, collision enabled state, or Actor type at the Physics boundary.
 - Qualified `AStaticMeshActor` world geometry explicitly publishes Static.
   Component-driven shapes, including the Sandbox pawn Capsule, publish
   Kinematic. Dynamic is accepted and queried in the moving partition but has
@@ -274,7 +274,7 @@ accepted entry budgets.
   removal repair, maximum slots, and failure behavior with executable tests.
 - [x] Freeze motion values, Kinematic default, Engine publication points,
   Dynamic reserved behavior, and profile/channel-independent migration.
-- [x] Add AetherCore golden bounds for shapes and all query kinds across
+- [x] Add PhysicsCore golden bounds for shapes and all query kinds across
   rotation, positive non-uniform scale, zero delta, tangency, large finite
   coordinates, and invalid input.
 - [x] Prototype the static BVH and moving fat-AABB layouts in bounded private
@@ -299,7 +299,7 @@ accepted entry budgets.
 
 Dependencies: Stage 0 handle, motion, memory, ordering, and failure contracts.
 
-- [x] Add the AetherCore motion enum/body field and publish explicit values
+- [x] Add the PhysicsCore motion enum/body field and publish explicit values
   from Engine body instances, StaticMeshActor, and Sandbox paths.
 - [x] Implement the generation slot table, dense records, free-list reuse, and
   swap-remove repair while retaining flat deterministic Reference iteration.
@@ -389,7 +389,7 @@ Dependencies: Stage 3 accelerated Production and reconciled diagnostics.
   assertions and partition diagnostics.
 - [x] Verify diagnostics overhead, O(1) capture/reset, mismatch capacity, debug
   limits, and zero fallback/overflow at qualified supported scales.
-- [x] Record why Aether remains independent from the editor picking index.
+- [x] Record why Physics remains independent from the editor picking index.
 
 #### Acceptance Gate
 
@@ -409,7 +409,7 @@ Dependencies: Stage 4 evidence and every preceding gate.
   residual pair/iteration measurements without selecting M2 algorithms.
 - [x] Run focused PhysicsScene and Sandbox native targets throughout and after
   documentation updates.
-- [x] Run final native `--target all` because M1 crosses AetherCore, Aether,
+- [x] Run final native `--target all` because M1 crosses PhysicsCore, Physics,
   Engine body lifecycle, and the separate Sandbox consumer.
 - [x] Run changed/all documentation plus all-plan/all-roadmap validation.
 - [x] Record final revision, profile, evidence, tests, and deferred limits;
@@ -465,13 +465,13 @@ Dependencies: Stage 4 evidence and every preceding gate.
   import invalidation, policies, and inspection.
 - Dynamic simulation, Engine transform authority/materials/events, parallel
   execution, snapshots, and backend providers until their conditional gates.
-- Shared Core spatial primitives until Aether and LevelEditor independently
+- Shared Core spatial primitives until Physics and LevelEditor independently
   prove one consumer-neutral contract; their scene indexes remain separate.
 
 ## Related Documentation
 
-- [Aether Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/AetherPhysicsEvolution.md)
-- [Aether Physics Query Observability Plan](AetherPhysicsQueryObservability.md)
+- [Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/PhysicsEvolution.md)
+- [Physics Query Observability Plan](PhysicsQueryObservability.md)
 - [Physics Scene And Character Collision Plan](PhysicsSceneAndCharacterCollision.md)
 - [Runtime Collision](../../../Runtime/Physics/Collision.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
@@ -482,13 +482,13 @@ Dependencies: Stage 4 evidence and every preceding gate.
 
 ## Related Code
 
-- `Engine/Source/Runtime/AetherCore/Public/Physics/PhysicsTypes.h`
-- `Engine/Source/Runtime/AetherCore/Public/Collision/CollisionShape.h`
-- `Engine/Source/Runtime/AetherCore/Public/Collision/CollisionGeometry.h`
-- `Engine/Source/Runtime/AetherCore/Private/Collision/CollisionGeometry.cpp`
+- `Engine/Source/Runtime/PhysicsCore/Public/Physics/PhysicsTypes.h`
+- `Engine/Source/Runtime/PhysicsCore/Public/Collision/CollisionShape.h`
+- `Engine/Source/Runtime/PhysicsCore/Public/Collision/CollisionGeometry.h`
+- `Engine/Source/Runtime/PhysicsCore/Private/Collision/CollisionGeometry.cpp`
 - `Engine/Source/Runtime/Core/Public/Math/Box.h`
-- `Engine/Source/Runtime/Aether/Public/Physics/PhysicsScene.h`
-- `Engine/Source/Runtime/Aether/Private/Physics/PhysicsScene.cpp`
+- `Engine/Source/Runtime/Physics/Public/Physics/PhysicsScene.h`
+- `Engine/Source/Runtime/Physics/Private/Physics/PhysicsScene.cpp`
 - `Engine/Source/Runtime/Engine/Public/Physics/BodyInstance.h`
 - `Engine/Source/Runtime/Engine/Public/Collision/CollisionTypes.h`
 - `Engine/Source/Runtime/Engine/Public/Components/PrimitiveComponent.h`

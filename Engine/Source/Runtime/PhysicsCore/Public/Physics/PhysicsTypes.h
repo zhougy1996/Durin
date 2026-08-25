@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AetherCoreAPI.h"
+#include "PhysicsCoreAPI.h"
 #include "Collision/CollisionGeometry.h"
 #include "Math/Transform.h"
 
@@ -18,7 +18,7 @@ namespace Durin
 		auto operator<=>(const FPhysicsActorHandle&) const = default;
 	};
 
-	// Low-level response used only at the Aether scene/query boundary.
+	// Low-level response used only at the Physics scene/query boundary.
 	enum class EPhysicsQueryResponse : uint8
 	{
 		Ignore,
@@ -86,5 +86,5 @@ namespace Durin
 		}
 	};
 
-	AETHERCORE_API auto IsValidPhysicsTransform(const FTransform& Transform) -> bool;
+	PHYSICSCORE_API auto IsValidPhysicsTransform(const FTransform& Transform) -> bool;
 }

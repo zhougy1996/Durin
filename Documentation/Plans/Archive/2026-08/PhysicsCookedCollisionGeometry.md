@@ -1,4 +1,4 @@
-# Aether Cooked Collision Geometry Plan
+# Physics Cooked Collision Geometry Plan
 
 Summary: Add versioned shared convex and triangle-mesh collision payloads, deterministic asset cooking and acceleration, and render-independent StaticMesh world queries.
 
@@ -10,7 +10,7 @@ Completed: 2026-08-12
 ## Current Status
 
 M0-M2 of the
-[Aether Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/AetherPhysicsEvolution.md) are
+[Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/PhysicsEvolution.md) are
 complete. `FPhysicsScene` already provides generation-checked storage, hybrid
 broad phases, Reference/Production/Compare execution, complete primitive and
 compound dispatch, bounded scratch, and reconciled diagnostics.
@@ -21,7 +21,7 @@ StaticMesh already has deterministic source hashing, DMSH derived data,
 companion-bulk cooking, transactional reimport, cooked-only runtime loading,
 and a read-only Inspector. Collision does not participate in those paths:
 arbitrary meshes remain collision-free, BodySetup stores only one primitive,
-and AetherCore has no hull/mesh payload, asset BVH, or disk reconstruction seam.
+and PhysicsCore has no hull/mesh payload, asset BVH, or disk reconstruction seam.
 
 M3 is active. Stage 0 completed on 2026-08-12 from entry revision `1501a569`.
 Eleven executable characterization tests now freeze the source/policy matrix,
@@ -39,7 +39,7 @@ The conservative two-million-triangle worst-case runtime equation is
 119,999,968 bytes, below the accepted 256 MiB payload cap; the corresponding
 estimated builder working set stays below 512 MiB.
 
-Stage 1 completed on 2026-08-12. AetherCore now owns validated immutable convex
+Stage 1 completed on 2026-08-12. PhysicsCore now owns validated immutable convex
 hull and triangle-mesh resources with stable feature access, exact bounds,
 identity, retained-byte accounting, and unchanged two-word references. The
 Reference path covers ray, sweep, and overlap for Box, Sphere, and Capsule
@@ -49,7 +49,7 @@ PhysicsScene validation passes 38/38 including all 18 target/operation/query
 cells, malformed resources, stable ordinals, and 128 deterministic randomized
 positive-scale transforms.
 
-Stage 2 completed on 2026-08-12. AetherCore now captures canonical position/
+Stage 2 completed on 2026-08-12. PhysicsCore now captures canonical position/
 index spans without render or picking ownership, builds permutation-stable
 QuickHull topology, cleans triangle sources in source order, and emits the
 frozen 32-byte-node/eight-triangle-leaf BVH with outward float bounds. Production
@@ -111,7 +111,7 @@ lifetime, and reuse repository DDC and Cook publication contracts.
 
 ## Scope
 
-- AetherCore immutable convex-hull and indexed triangle-mesh payloads.
+- PhysicsCore immutable convex-hull and indexed triangle-mesh payloads.
 - Deterministic builders from an explicit canonical StaticMesh LOD 0 source
   snapshot and a deterministic asset-local triangle BVH.
 - Primitive Ray, Sweep, and Overlap against hull and mesh targets with stable
@@ -144,8 +144,8 @@ lifetime, and reuse repository DDC and Cook publication contracts.
 
 ### Ownership and publication
 
-- Module direction remains `Core -> AetherCore -> Aether -> Engine`.
-  AetherCore owns immutable collision values/algorithms; Engine owns BodySetup,
+- Module direction remains `Core -> PhysicsCore -> Physics -> Engine`.
+  PhysicsCore owns immutable collision values/algorithms; Engine owns BodySetup,
   source capture, DDC, serialization, Cook, and inspection; AssetCore remains
   the generic object-store and cooked-bulk publisher.
 - A StaticMesh BodySetup owns collision settings and optional simple and
@@ -339,12 +339,12 @@ Dependencies: Stage 0 resource, topology, query, and limit contracts.
   qualified scene body-record size.
 - [x] Add validated construction, stable test/debug feature access, exact local
   bounds, identity, and complete retained-byte accounting.
-- [x] Implement hull support/topology behind AetherCore while preserving all
+- [x] Implement hull support/topology behind PhysicsCore while preserving all
   primitive analytic selection.
 - [x] Implement brute-force Box/Sphere/Capsule Ray/Sweep/Overlap against hull
   and mesh targets, stable ties, normals, penetration, and tangency semantics.
 - [x] Add malformed/oversized rejection, bounded status, and feature counters.
-- [x] Run focused AetherCore/PhysicsScene matrix and randomized transform tests.
+- [x] Run focused PhysicsCore/PhysicsScene matrix and randomized transform tests.
 
 #### Acceptance Gate
 
@@ -544,7 +544,7 @@ Dependencies: Stage 4 resources and Stage 2 qualified queries.
 
 #### Acceptance Gate
 
-- Scene broad phase owns only the body bound and delegates features to AetherCore.
+- Scene broad phase owns only the body bound and delegates features to PhysicsCore.
 - Resource/work equations reconcile and debug/Inspector capture is bounded.
 - Primitive/Box/Sandbox behavior remains unchanged; cooked collision survives
   render release and editor-independent runtime.
@@ -588,7 +588,7 @@ Dependencies: Stage 5 end-to-end behavior and reconciled diagnostics.
 - [x] Move lasting contracts to owning docs and update the roadmap with evidence
   and deliberate M4-M7 disposition.
 - [x] Run focused targets throughout and final native `--target all` because M3
-  crosses AetherCore, Aether, Engine physics/assets/components, AssetCore Cook,
+  crosses PhysicsCore, Physics, Engine physics/assets/components, AssetCore Cook,
   editor inspection/debug, and Sandbox.
 - [x] Run a full `all` build for user-visible inspection/debug changes, verify
   that profile's editor executable, and validate all documentation.
@@ -642,9 +642,9 @@ Dependencies: Stage 5 end-to-end behavior and reconciled diagnostics.
 
 ## Related Documentation
 
-- [Aether Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/AetherPhysicsEvolution.md)
-- [Aether Geometry And Narrowphase Plan](AetherGeometryAndNarrowphase.md)
-- [Aether Scene Query Acceleration Plan](AetherSceneQueryAcceleration.md)
+- [Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/PhysicsEvolution.md)
+- [Physics Geometry And Narrowphase Plan](PhysicsGeometryAndNarrowphase.md)
+- [Physics Scene Query Acceleration Plan](PhysicsSceneQueryAcceleration.md)
 - [Runtime Collision](../../../Runtime/Physics/Collision.md)
 - [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
 - [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
@@ -654,10 +654,10 @@ Dependencies: Stage 5 end-to-end behavior and reconciled diagnostics.
 
 ## Related Code
 
-- `Engine/Source/Runtime/AetherCore/Public/Collision/CollisionGeometry.h`
-- `Engine/Source/Runtime/AetherCore/Private/Collision/CollisionGeometry.cpp`
-- `Engine/Source/Runtime/Aether/Public/Physics/PhysicsScene.h`
-- `Engine/Source/Runtime/Aether/Private/Physics/PhysicsScene.cpp`
+- `Engine/Source/Runtime/PhysicsCore/Public/Collision/CollisionGeometry.h`
+- `Engine/Source/Runtime/PhysicsCore/Private/Collision/CollisionGeometry.cpp`
+- `Engine/Source/Runtime/Physics/Public/Physics/PhysicsScene.h`
+- `Engine/Source/Runtime/Physics/Private/Physics/PhysicsScene.cpp`
 - `Engine/Source/Runtime/AssetCore/Public/DerivedDataObjectStore.h`
 - `Engine/Source/Runtime/AssetCore/Public/CookedAsset.h`
 - `Engine/Source/Runtime/Engine/Public/Physics/BodySetup.h`

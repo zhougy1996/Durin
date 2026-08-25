@@ -86,7 +86,7 @@ patch costs required by T3. It does not solve scalable LOD or crack control.
   neighbor resolution, skirts, stitching, geomipmapping, or crack control; T3
   owns those contracts after this single-LOD baseline is measured.
 - Heightfield collision, `DBodySetup`, `FBodyInstance` geometry publication,
-  World traces/sweeps/overlaps, or Aether resource ownership; T2 owns them and
+  World traces/sweeps/overlaps, or Physics resource ownership; T2 owns them and
   must not consume Renderer buffers.
 - Sculpting, writable samples, holes, painted layers, splat maps, runtime
   deformation, procedural generation, foliage, roads, water, navmesh, or
@@ -450,7 +450,7 @@ patch costs required by T3. It does not solve scalable LOD or crack control.
 
 - Screen-space error, patch LOD selection, adjacency resolution, skirts or
   stitched topology, temporal stability, and crack-free transitions (T3).
-- Aether HeightField geometry, cell acceleration, query algorithms, Cook/load,
+- Physics HeightField geometry, cell acceleration, query algorithms, Cook/load,
   BodySetup/BodyInstance publication, and collision debug evidence (T2).
 - Polished placement, specialized picking, details customization, diagnostics
   presentation, undo/redo qualification, and end-to-end editor workflow (T4).

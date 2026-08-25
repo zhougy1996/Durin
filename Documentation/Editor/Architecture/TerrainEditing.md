@@ -10,7 +10,7 @@ Last reviewed: 2026-08-14
 
 `DTerrainHeightmap` remains the only height authority. LevelEditor consumes an
 immutable payload and revision for placement, thumbnails, and picking; it does
-not decode source images or inspect Renderer and Aether storage. A Terrain
+not decode source images or inspect Renderer and Physics storage. A Terrain
 component owns spacing, signed height scale/offset, transform, material,
 visibility, and collision policy. Renderer, collision, thumbnail, and picking
 resources are derived snapshots and may report unavailable state independently.
@@ -45,7 +45,7 @@ component interpretation, and local-to-world matrix. Hidden, unregistered,
 malformed, over-extent, or singular components are misses.
 
 The reference provider tests both full-resolution triangles of every cell using
-the `(A,B,C)` and `(B,D,C)` diagonal shared by rendering and Aether. The
+the `(A,B,C)` and `(B,D,C)` diagonal shared by rendering and Physics. The
 accelerated provider first intersects immutable 64-sample regional min/max
 bounds, then tests full-resolution cells only in surviving regions. Neither
 provider reads render LOD, collision enablement, BodyInstance, or Renderer

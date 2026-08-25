@@ -242,7 +242,7 @@ contract.
   authored-package, DDC, or Cooked schema bytes.
 - Removing Material render-layout v1/v2 factories, validators, or decoders;
   they remain an intentional compatibility boundary.
-- Redesigning World, Actor, Component, Renderer, RHI, Aether, package, DDC, or
+- Redesigning World, Actor, Component, Renderer, RHI, Physics, package, DDC, or
   garbage-collection architecture.
 - Introducing a generic base class merely to make unrelated asset types look
   uniform. Shared abstractions must remove repeated policy or state-machine

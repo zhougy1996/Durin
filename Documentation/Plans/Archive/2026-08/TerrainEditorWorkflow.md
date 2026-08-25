@@ -43,7 +43,7 @@ A user can import one finite heightmap, recognize it in Content Browser, place
 and select a Terrain, edit and undo its supported properties, inspect render
 and collision health, reimport without mixed generations, save/reload, Cook,
 launch Game, and obtain exact World collision behavior. Every action preserves
-the authoritative asset revision and the existing Renderer and Aether
+the authoritative asset revision and the existing Renderer and Physics
 contracts.
 
 ## Scope
@@ -110,7 +110,7 @@ contracts.
   publish a BodyInstance, or materialize a full triangle array.
 - The exact cell diagonal, top-left row-major orientation, signed height
   reconstruction, double-sided surface rule, and stable closest-hit ordering
-  match rendering and Aether. Rotation, translation, positive non-uniform
+  match rendering and Physics. Rotation, translation, positive non-uniform
   scale, mirroring, grazing rays, border cells, and asymmetric non-square
   fixtures are covered.
 - Bounds only reject candidates. Missing, stale, malformed, over-budget, or
@@ -216,7 +216,7 @@ contracts.
 ### Stage 2: Add exact Terrain surface picking
 
 - [x] Expose the minimum immutable Terrain picking snapshot/query boundary from
-  Engine/AetherCore without exposing Renderer state or mutable samples to
+  Engine/PhysicsCore without exposing Renderer state or mutable samples to
   LevelEditor.
 - [x] Add Terrain geometry providers to reference, accelerated, and compare
   picking policies with bounds rejection, stable hit identity/distance, named
@@ -312,7 +312,7 @@ contracts.
   Game load and exact collision query.
 - Terrain placement/property edits are transactional; surface picking is exact
   and bounded; presentation and diagnostics are revision-correct and bounded.
-- Existing asset, Renderer, Aether, viewport, thumbnail, transaction, package,
+- Existing asset, Renderer, Physics, viewport, thumbnail, transaction, package,
   Cook, and module-lifetime contracts remain authoritative and pass their
   regression suites.
 - Lasting behavior is documented under Editor Architecture/Guides, this plan is

@@ -20,8 +20,8 @@ direction.
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
 | `Core` | Platform abstraction, containers, threading, logging, math, modules, serialization primitives, and low-level utilities | [source](../../Engine/Source/Runtime/Core) |
-| `AetherCore` | Engine-independent collision shapes, handles, filters, hits, validation, and reference geometry math | [source](../../Engine/Source/Runtime/AetherCore) |
-| `Aether` | World-independent physics scene body storage and synchronous query orchestration | [source](../../Engine/Source/Runtime/Aether) |
+| `PhysicsCore` | Engine-independent collision shapes, handles, filters, hits, validation, and reference geometry math | [source](../../Engine/Source/Runtime/PhysicsCore) |
+| `Physics` | World-independent physics scene body storage and synchronous query orchestration | [source](../../Engine/Source/Runtime/Physics) |
 | `CoreDObject` | Managed objects, reflection, properties, garbage collection, and object serialization foundations | [source](../../Engine/Source/Runtime/CoreDObject) |
 | `ApplicationCore` | Native application, window, input-message, GLFW, and file-dialog integration | [source](../../Engine/Source/Runtime/ApplicationCore) |
 | `AssetCore` | Asset paths, registry, packages, DAST serialization, dependencies, redirectors, derived data, cooking, and mutation transactions | [source](../../Engine/Source/Runtime/AssetCore) |

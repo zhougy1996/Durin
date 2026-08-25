@@ -1,14 +1,14 @@
 # Runtime Collision
 
-Summary: Define Aether module ownership, World query behavior, immutable primitive and cooked geometry, filtering, component synchronization, and collision debugging.
+Summary: Define Physics module ownership, World query behavior, immutable primitive and cooked geometry, filtering, component synchronization, and collision debugging.
 
-Modules: AetherCore, Aether, Engine
+Modules: PhysicsCore, Physics, Engine
 
 ## Ownership and dependencies
 
-Runtime collision follows the one-way dependency chain `Core -> AetherCore ->
-Aether -> Engine`. `AetherCore` owns Engine-independent shapes, handles,
-filters, hits, validation, and reference Box/Capsule geometry math. `Aether`
+Runtime collision follows the one-way dependency chain `Core -> PhysicsCore ->
+Physics -> Engine`. `PhysicsCore` owns Engine-independent shapes, handles,
+filters, hits, validation, and reference Box/Capsule geometry math. `Physics`
 owns the deterministic query-only `FPhysicsScene`; it stores numeric handles
 and opaque user tokens and never includes Engine objects. Engine owns body
 setups, body instances, profiles, gameplay results, component synchronization,
@@ -25,7 +25,7 @@ disabled; that flag gates future simulation stepping, not query-only geometry.
 
 `FCollisionShape` remains the compact query-side Box, Sphere, or Z-axis Capsule
 value. Bodies instead retain a copyable `FCollisionGeometryRef` to one
-validated immutable AetherCore payload. A primitive payload contains one
+validated immutable PhysicsCore payload. A primitive payload contains one
 shape. A compound contains 1 through 64 simple children in stable input order,
 each with one valid local transform; compounds do not nest. Every payload has
 a non-zero process-local identity, immutable local bounds, and retained-byte
@@ -150,7 +150,7 @@ render ownership.
 
 `DTerrainComponent` also defaults to `NoCollision`. When enabled, it captures
 one valid `DTerrainHeightmap` payload revision and builds a HeightField through
-the AetherCore builder from exact samples and component interpretation. The T2
+the PhysicsCore builder from exact samples and component interpretation. The T2
 collision ceiling is 1025x1025 samples. Editor and Preview worlds select
 `OnDemand`: registration reports `Dormant` and performs no hashing, sample copy,
 tree construction, or scene insertion. Collision debug visualization and other
@@ -212,7 +212,7 @@ the complete output, and returns the Reference output on any mismatch. Policy
 changes reject invalid values and off-thread calls without changing the prior
 policy. `DWorld` and component code never select or interpret a policy.
 
-AetherCore owns operation/pair selection and compound iteration behind one
+PhysicsCore owns operation/pair selection and compound iteration behind one
 facade. Scene traversal validates, filters, and accumulates bodies but contains
 no concrete pair algorithm calls. Internal outcomes distinguish Hit, Miss,
 Invalid, Unsupported, and NonConverged. Analytic and finite-feature paths cover
@@ -272,7 +272,7 @@ last-mismatch payload are explicit opt-in behavior. Diagnostic reset preserves
 the current body count and detailed-enabled state without walking bodies.
 Off-thread diagnostic capture returns a default snapshot.
 
-AetherCore geometry functions accept an optional
+PhysicsCore geometry functions accept an optional
 `FCollisionGeometryCounters` pointer. A null pointer preserves ordinary behavior
 without allocating or invoking callbacks. A penetrating Capsule/Box overlap
 performs 59 distance evaluations and 28 search iterations. Its sparse
@@ -369,4 +369,4 @@ stepping, moving platforms, overlap events, and project-defined
 profiles remain future work.
 The cross-plan sequencing for scalable queries, geometry, cooked collision,
 and evidence-gated simulation or backend work is maintained in the
-[Aether Physics Evolution Roadmap](../../Roadmaps/Archive/2026-08/AetherPhysicsEvolution.md).
+[Physics Evolution Roadmap](../../Roadmaps/Archive/2026-08/PhysicsEvolution.md).

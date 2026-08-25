@@ -1,6 +1,6 @@
-# Aether Physics Query Observability Plan
+# Physics Query Observability Plan
 
-Summary: Establish an instrumented reference/production query pipeline, deterministic parity checking, and representative Aether collision baselines before scene acceleration changes.
+Summary: Establish an instrumented reference/production query pipeline, deterministic parity checking, and representative Physics collision baselines before scene acceleration changes.
 
 Last reviewed: 2026-08-11
 
@@ -10,7 +10,7 @@ Completed: 2026-08-11
 ## Current Status
 
 Selected as M0 of the
-[Aether Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/AetherPhysicsEvolution.md).
+[Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/PhysicsEvolution.md).
 All stages completed on 2026-08-11. The baseline source revision is
 `cca78dbc30e0cc70a6d64e7a9d12d990c725fa2a`, where the completed first-slice
 physics scene stores bodies in one flat vector and executes deterministic
@@ -32,7 +32,7 @@ candidate omission, result reversal, and field corruption were detected and
 returned the Reference result.
 
 Stage 2 added saturating per-kind query work, O(1) scene mutation/capture/reset
-values, optional detailed timing/mismatch capture, zero-allocation AetherCore
+values, optional detailed timing/mismatch capture, zero-allocation PhysicsCore
 distance/search counters, and disabled-safe query/pair profiling zones.
 `PhysicsSceneTests` passed in Debug and Release and `SandboxGameplayTests`
 passed. Exact counter tests cover invalid,
@@ -49,7 +49,7 @@ retained-memory, and real Sandbox evidence below.
 
 Stage 4 published the lasting execution-policy, comparison, diagnostics,
 measurement, current-limit, and M1-entry contracts in Runtime Physics and
-updated the Aether roadmap to mark M0 complete while leaving M1 unselected.
+updated the Physics roadmap to mark M0 complete while leaving M1 unselected.
 Focused PhysicsScene/Sandbox targets, the required Debug native `--target all`
 aggregate, changed/all documentation validation, and all-plan/all-roadmap
 validation passed under the recorded build profile. No editor-visible surface
@@ -63,7 +63,7 @@ algorithms, or claim production speedup.
 
 ## Goal
 
-Make every future Aether query optimization measurable and correctness-checked
+Make every future Physics query optimization measurable and correctness-checked
 without changing Engine-facing collision behavior.
 
 At completion, one immutable query input can execute through a retained flat
@@ -76,7 +76,7 @@ math before M1 selects a broad phase.
 
 ## Scope
 
-- Private Aether query-pipeline orchestration behind the existing
+- Private Physics query-pipeline orchestration behind the existing
   `FPhysicsScene` public query methods.
 - A retained deterministic flat reference path preserving current query and
   result semantics.
@@ -86,7 +86,7 @@ math before M1 selects a broad phase.
 - Value-only scene diagnostics for LineTraceSingle, SweepSingle, and
   OverlapMulti, including query validation, candidate/filter/narrow-phase work,
   results, bounded geometry iterations, and compare mismatches.
-- Optional low-level AetherCore reference-geometry counters with no allocation
+- Optional low-level PhysicsCore reference-geometry counters with no allocation
   and negligible work when no counter sink is supplied.
 - Deterministic reference-versus-production comparison of query status, hits,
   ordering, and every public result field within frozen tolerances.
@@ -123,9 +123,9 @@ math before M1 selects a broad phase.
 
 ### Ownership and module boundaries
 
-- The dependency chain remains `Core -> AetherCore -> Aether -> Engine`.
-  AetherCore may own geometry-operation counter values because it owns the
-  reference geometry math. Aether owns query policy, pipeline orchestration,
+- The dependency chain remains `Core -> PhysicsCore -> Physics -> Engine`.
+  PhysicsCore may own geometry-operation counter values because it owns the
+  reference geometry math. Physics owns query policy, pipeline orchestration,
   scene diagnostics, parity comparison, and the flat body candidate source.
   Engine and Sandbox only consume value snapshots for integration tests and
   do not participate in query execution.
@@ -133,7 +133,7 @@ math before M1 selects a broad phase.
   call the same LineTrace, Sweep, and Overlap entry points and never selects a
   query implementation or interprets diagnostic internals.
 - Pipeline, reference executor, candidate source, accumulator, and comparator
-  types remain Aether-private. M0 does not publish an abstraction that a later
+  types remain Physics-private. M0 does not publish an abstraction that a later
   second backend would be forced to implement.
 - Scene diagnostics contain numeric values, operation kinds, handles, and
   bounded mismatch facts only. They never retain or expose Engine objects,
@@ -200,7 +200,7 @@ math before M1 selects a broad phase.
   atomics, locks, logging, allocation, or scene traversal. Detailed wall-clock
   sampling and bounded mismatch payload capture are opt-in. Capturing or
   resetting diagnostics is O(1) in body count.
-- AetherCore geometry functions accept an optional counter sink or equivalent
+- PhysicsCore geometry functions accept an optional counter sink or equivalent
   zero-allocation instrumentation seam. A null sink preserves ordinary API
   behavior without constructing a statistics object or invoking callbacks.
 - The last mismatch record is fixed-size/value-only and includes query kind,
@@ -213,7 +213,7 @@ math before M1 selects a broad phase.
 ### Fixture and measurement contract
 
 - Stage 0 selects checked-in deterministic builders rather than persisted test
-  assets for synthetic Aether scenes. Randomized tests record fixed seeds and
+  assets for synthetic Physics scenes. Randomized tests record fixed seeds and
   generated distribution parameters in failure output.
 - Minimum body scales are 0, 32, 1,000, and 10,000. Workloads include an empty
   scene, a sparse miss, a sparse closest hit, a dense crossing, equal-time
@@ -226,7 +226,7 @@ math before M1 selects a broad phase.
   equal-time hits, and target-order permutations.
 - The Sandbox workload uses the real pawn/capsule movement integration fixture
   and reports its query mix and structural work for grounded movement, wall
-  slide, ramp/step traversal, jump/landing, and empty-World fall. Aether tests
+  slide, ramp/step traversal, jump/landing, and empty-World fall. Physics tests
   do not depend on Sandbox types; Sandbox owns this consumer measurement.
 - Timing uses optimized test binaries from one recorded Agent Build Profile,
   a warm-up, multiple samples, median and a tail percentile, stable fixture
@@ -259,11 +259,11 @@ math before M1 selects a broad phase.
 | Reference behavior | Flat deterministic LineTrace, Capsule Sweep, and Capsule Overlap implementations | No named retained oracle after production traversal changes |
 | Ordering | Closest hit uses time then handle; overlaps sort by handle | No shared comparator or cross-policy parity assertion |
 | Filtering | Two-sided channel responses and ignored handles are implemented | No counters distinguish visited, ignored, filtered, tested, and hit bodies |
-| Geometry | AetherCore exposes Ray/Box and Capsule/Box reference functions with bounded iteration | No optional iteration/evaluation counters; expensive geometry work is invisible |
+| Geometry | PhysicsCore exposes Ray/Box and Capsule/Box reference functions with bounded iteration | No optional iteration/evaluation counters; expensive geometry work is invisible |
 | Diagnostics | Body count/capture and Engine collision debug snapshot exist | Debug capture walks bodies and does not explain query work, comparison, or cost |
 | Testing | `PhysicsSceneTests` cover names, geometry, filtering, thread rejection, lifecycle, BodySetup sharing, and debug bounds | No randomized parity, policy comparison, scale fixtures, churn baselines, or reconciled counters |
 | Gameplay | `SandboxGameplayTests` cover authored scene movement and bounded sweeps | Real movement query mix and structural work are not recorded |
-| Profiling | Core provides optional Tracy CPU-zone macros and native tests support recorded properties | Aether query zones, controlled warm timing, and baseline evidence are absent |
+| Profiling | Core provides optional Tracy CPU-zone macros and native tests support recorded properties | Physics query zones, controlled warm timing, and baseline evidence are absent |
 
 ## Stage 0 Frozen Contract
 
@@ -352,7 +352,7 @@ M1 may reduce Production candidates but must preserve the remaining equations.
 Compare work counts both internal executions while returned results count the
 single public result, so `ReturnedResults <= RawHits` is intentionally not an
 equality in Compare mode. Geometry evaluation/iteration values count only work
-reported by the optional AetherCore sink.
+reported by the optional PhysicsCore sink.
 
 ### Fixtures and measurement method
 
@@ -373,7 +373,7 @@ Sandbox measurement cases are frozen to grounded forward movement, wall stop
 and slide, rotated ramp plus supported step traversal, jump/ceiling/landing,
 raised-platform landing, and empty-World fall. They use the real
 `DSimpleGroundMovementComponent` fixture at its existing 60 Hz sequence (plus
-the existing 30/60/120 Hz comparison), not an Aether-owned surrogate.
+the existing 30/60/120 Hz comparison), not an Physics-owned surrogate.
 
 Timing uses the `windows-msvc-x64` Agent Build Profile,
 `Win64-Release-DurinEditor`, MSVC 14.44.35207, Ninja, Tracy disabled, fixture
@@ -385,7 +385,7 @@ processors on Windows 10.0.26200. Timings are evidence, not an absolute gate.
 ### Pre-refactor flat-query timing evidence
 
 These nanoseconds-per-query values came from the disabled
-`FAetherQueryBaselineBenchmarks.RecordsPrePipelineFlatQueryBaseline` entry at
+`FPhysicsQueryBaselineBenchmarks.RecordsPrePipelineFlatQueryBaseline` entry at
 baseline code revision `cca78dbc30e0cc70a6d64e7a9d12d990c725fa2a`.
 
 | Fixture | Bodies | Median ns | P95 ns |
@@ -608,7 +608,7 @@ Dependencies: Stage 1 query stages and Compare lifecycle.
 - [x] Instrument validation, body/candidate enumeration, ignore and filter
   rejection, narrow-phase dispatch, raw hits, result accumulation, compare,
   and fallback paths so reconciliation equations hold for every return path.
-- [x] Add optional zero-allocation AetherCore geometry counters for reference
+- [x] Add optional zero-allocation PhysicsCore geometry counters for reference
   iteration/evaluation work without changing contact results.
 - [x] Add scene mutation/body-presence counters that expose current flat-store
   behavior without inventing future broad-phase terms.
@@ -663,14 +663,14 @@ Dependencies: Stages 0-3 and complete recorded qualification evidence.
 
 - [x] Move lasting query policy, diagnostics, comparison, measurement, and
   current performance-limit contracts into Runtime Physics documentation.
-- [x] Update the Aether Physics Evolution Roadmap Current Status and M0 row with
+- [x] Update the Physics Evolution Roadmap Current Status and M0 row with
   completion evidence, link this plan, and leave M1 unselected until its entry
   budgets are accepted.
 - [x] Run focused `PhysicsSceneTests` throughout implementation and focused
   `SandboxGameplayTests` when the consumer measurement is added, following the
   root native-test guidance.
 - [x] Run final native `--target all` because the completed work changes shared
-  AetherCore/Aether query infrastructure and crosses Engine and Sandbox test
+  PhysicsCore/Physics query infrastructure and crosses Engine and Sandbox test
   targets; diagnose any aggregate failure with focused target/case reruns.
 - [x] Run changed and all-plan documentation validation, record evidence in
   Current Status, close only passed checklists, and set this plan Completed only
@@ -698,7 +698,7 @@ Dependencies: Stages 0-3 and complete recorded qualification evidence.
 | Reference parity | Fixed-seed randomized and adversarial scenes, insertion permutations, transform/filter/ignored variations, invalid data, equal ties, and churn produce zero unexplained mismatch |
 | Scale evidence | 0, 32, 1,000, and 10,000-body sparse/dense/filter/ignored/overlap/mutation workloads record structural work and controlled warm timing |
 | Gameplay evidence | Ground, wall, ramp/step, jump/landing, and empty-World Sandbox cases retain behavior and publish a reconciled real query mix |
-| Module boundary | AetherCore owns optional geometry counters; Aether owns pipeline/policy/scene diagnostics; Engine and Sandbox consume values only; no reverse dependency or DObject leakage |
+| Module boundary | PhysicsCore owns optional geometry counters; Physics owns pipeline/policy/scene diagnostics; Engine and Sandbox consume values only; no reverse dependency or DObject leakage |
 | Failure and lifetime | Invalid/off-thread input, scene teardown, World replacement, policy reset, counter saturation, compare mismatch, and diagnostic failure cannot mutate bodies or return a partial production result |
 | Final qualification | Focused PhysicsScene/Sandbox tests, justified full native suite, documentation validation, plan/roadmap status, and clean commit provenance pass under root guidance |
 
@@ -726,10 +726,10 @@ Dependencies: Stages 0-3 and complete recorded qualification evidence.
 
 ## Deferred Follow-ups
 
-- M1 `AetherSceneQueryAcceleration`: generation-checked dense body storage,
+- M1 `PhysicsSceneQueryAcceleration`: generation-checked dense body storage,
   explicit motion type, conservative world AABBs, static/moving broad phases,
   bounded scratch, and accelerated candidate traversal.
-- M2 `AetherGeometryAndNarrowphase`: immutable shared geometry, compound
+- M2 `PhysicsGeometryAndNarrowphase`: immutable shared geometry, compound
   primitives, shape-pair dispatch, common analytic fast paths, generic convex
   fallback, and replacement of pathological Capsule/Box production searches.
 - M3 cooked convex and triangle-mesh geometry, asset-level BVHs, BodySetup
@@ -742,7 +742,7 @@ Dependencies: Stages 0-3 and complete recorded qualification evidence.
 
 ## Related Documentation
 
-- [Aether Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/AetherPhysicsEvolution.md)
+- [Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/PhysicsEvolution.md)
 - [Runtime Collision](../../../Runtime/Physics/Collision.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Sandbox Gameplay](../../../Runtime/Gameplay/SandboxGameplay.md)
@@ -752,11 +752,11 @@ Dependencies: Stages 0-3 and complete recorded qualification evidence.
 
 ## Related Code
 
-- [`Engine/Source/Runtime/AetherCore/Public/Physics/PhysicsTypes.h`](../../../../Engine/Source/Runtime/AetherCore/Public/Physics/PhysicsTypes.h)
-- [`Engine/Source/Runtime/AetherCore/Public/Collision/CollisionGeometry.h`](../../../../Engine/Source/Runtime/AetherCore/Public/Collision/CollisionGeometry.h)
-- [`Engine/Source/Runtime/AetherCore/Private/Collision/CollisionGeometry.cpp`](../../../../Engine/Source/Runtime/AetherCore/Private/Collision/CollisionGeometry.cpp)
-- [`Engine/Source/Runtime/Aether/Public/Physics/PhysicsScene.h`](../../../../Engine/Source/Runtime/Aether/Public/Physics/PhysicsScene.h)
-- [`Engine/Source/Runtime/Aether/Private/Physics/PhysicsScene.cpp`](../../../../Engine/Source/Runtime/Aether/Private/Physics/PhysicsScene.cpp)
+- [`Engine/Source/Runtime/PhysicsCore/Public/Physics/PhysicsTypes.h`](../../../../Engine/Source/Runtime/PhysicsCore/Public/Physics/PhysicsTypes.h)
+- [`Engine/Source/Runtime/PhysicsCore/Public/Collision/CollisionGeometry.h`](../../../../Engine/Source/Runtime/PhysicsCore/Public/Collision/CollisionGeometry.h)
+- [`Engine/Source/Runtime/PhysicsCore/Private/Collision/CollisionGeometry.cpp`](../../../../Engine/Source/Runtime/PhysicsCore/Private/Collision/CollisionGeometry.cpp)
+- [`Engine/Source/Runtime/Physics/Public/Physics/PhysicsScene.h`](../../../../Engine/Source/Runtime/Physics/Public/Physics/PhysicsScene.h)
+- [`Engine/Source/Runtime/Physics/Private/Physics/PhysicsScene.cpp`](../../../../Engine/Source/Runtime/Physics/Private/Physics/PhysicsScene.cpp)
 - [`Engine/Source/Runtime/Engine/Public/Engine/World.h`](../../../../Engine/Source/Runtime/Engine/Public/Engine/World.h)
 - [`Engine/Source/Runtime/Engine/Private/Engine/World.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Engine/World.cpp)
 - [`Engine/Tests/Native/EngineTests/Private/Physics/PhysicsSceneTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Physics/PhysicsSceneTests.cpp)

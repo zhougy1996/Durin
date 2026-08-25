@@ -588,7 +588,7 @@ manual component management.
 | Duplication and PIE | New owner regenerates new object identities with equivalent stable keys and output | World/editor tests |
 | Undo/Redo and Cancel | Geometry, generated set, output, selection, package dirty state, and history restore coherently | Spline/viewport tests |
 | Editor picking | Deformed LOD 0 surface, not undeformed mesh or bounds alone, owns the hit | Viewport tests |
-| Collision | Ray/sweep/overlap results agree with deformed visible surface and retire without stale handles | Engine/Aether tests |
+| Collision | Ray/sweep/overlap results agree with deformed visible surface and retire without stale handles | Engine/Physics tests |
 | Runtime mutation | Registered/playing Actor updates render and physics without Tick polling | World/Engine tests |
 | Recovery/reload | Shader/device/resource recreation does not retain stale proxy, pipeline, buffer, or deformation state | Renderer/Vulkan tests |
 | Performance | Frozen editor drag, render, memory, and collision workloads meet Stage 0 budgets | Stage handoff measurements |

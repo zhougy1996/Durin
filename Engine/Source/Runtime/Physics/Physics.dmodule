@@ -1,8 +1,9 @@
 {
-    "ModuleName": "AetherCore",
+    "ModuleName": "Physics",
     "LinkType": "Shared",
     "PCH": "SharedPCH_Core",
     "PublicDependencies": [
-        "Core"
+        "Core",
+        "PhysicsCore"
     ]
 }

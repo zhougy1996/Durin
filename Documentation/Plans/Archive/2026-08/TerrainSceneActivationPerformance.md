@@ -307,7 +307,7 @@ editor picking, collision query correctness, and asset corruption detection.
 | --- | --- | --- |
 | Payload trust | canonical, malformed layout, corrupt hierarchy, DDC decode | Heightmap unit and derived-data tests |
 | Patch cache | render then picking, picking then render, unchanged reuse, each key field changed | Terrain component/primitive tests |
-| Collision lifecycle | editor dormant registration, explicit tool request, Play/Simulate barrier, build, cache reuse, disable, edit, reimport, replace, destroy, cancel, shutdown | Engine and Aether focused tests |
+| Collision lifecycle | editor dormant registration, explicit tool request, Play/Simulate barrier, build, cache reuse, disable, edit, reimport, replace, destroy, cancel, shutdown | Engine and Physics focused tests |
 | Asset loading | warm/cold DDC, miss, corrupt object, missing/corrupt RAW16, concurrent references | Asset integration tests |
 | Render first use | height upload/reuse, topology/pipeline creation/reuse, device failure | Vulkan Terrain tests and counters |
 | End to end | editor open/reopen and cooked runtime level transition | Named smoke capture with phase timings |
@@ -341,7 +341,7 @@ editor picking, collision query correctness, and asset corruption detection.
 ## Related Documentation
 
 - [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
-- [Aether Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/AetherPhysicsEvolution.md)
+- [Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/PhysicsEvolution.md)
 - [CPU Task System](../../../Runtime/Core/TaskSystem.md)
 - [Terrain Workflow](../../../Editor/Guides/TerrainWorkflow.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
@@ -355,7 +355,7 @@ editor picking, collision query correctness, and asset corruption detection.
 - `Engine/Source/Runtime/Engine/Private/Components/TerrainComponent.cpp`
 - `Engine/Source/Runtime/Engine/Private/Components/PrimitiveComponent.cpp`
 - `Engine/Source/Runtime/Engine/Private/Engine/WorldCore.cpp`
-- `Engine/Source/Runtime/AetherCore/Private/Collision/CollisionGeometry.cpp`
+- `Engine/Source/Runtime/PhysicsCore/Private/Collision/CollisionGeometry.cpp`
 - `Engine/Source/Editor/StandardAssetImport/Private/TerrainHeightmapAuthoringPolicy.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Viewport/ViewportPickingSceneIndex.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/TerrainRenderer.cpp`

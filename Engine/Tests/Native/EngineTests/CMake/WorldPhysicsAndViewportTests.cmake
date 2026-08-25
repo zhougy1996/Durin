@@ -39,22 +39,22 @@ endif()
 durin_add_engine_functional_test(PhysicsSceneTests
 	KIND feature
 	DOMAINS physics
-	MODULES aether engine geometry-build
+	MODULES physics engine geometry-build
 	STACKS editor
 	RUNTIME_STACK_RATIONALE
 		"Exercises editor-only StaticMesh collision authoring registration through GeometryBuild."
 	SOURCES
 		Private/Physics/PhysicsSceneTests.cpp
 		Private/Physics/PhysicsQueryObservabilityTests.cpp
-	LIBRARIES AetherCore Aether GeometryBuild
+	LIBRARIES PhysicsCore Physics GeometryBuild
 )
 
 durin_add_engine_functional_test(PhysicsQualificationTests
 	KIND qualification
 	DOMAINS physics
-	MODULES aether engine
+	MODULES physics engine
 	SOURCES Private/Physics/PhysicsQualificationTests.cpp
-	LIBRARIES AetherCore Aether
+	LIBRARIES PhysicsCore Physics
 )
 
 add_durin_test(MonaCoreBoundaryTests

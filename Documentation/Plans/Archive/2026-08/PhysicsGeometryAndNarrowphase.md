@@ -1,4 +1,4 @@
-# Aether Geometry And Narrowphase Plan
+# Physics Geometry And Narrowphase Plan
 
 Summary: Add immutable shared collision geometry and pair dispatch, complete primitive and compound queries, and replace the pathological production Capsule/Box search without changing the World or M1 scene boundary.
 
@@ -10,7 +10,7 @@ Completed: 2026-08-12
 ## Current Status
 
 Activated as M2 of the
-[Aether Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/AetherPhysicsEvolution.md) after
+[Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/PhysicsEvolution.md) after
 M1 completed at source revision `07b9bc567b0deaa3b744755047d14f89a4711dce`.
 The entry evidence is sufficient: generation-checked body storage and both
 spatial indexes are qualified; Reference, Production, and Compare have a
@@ -20,7 +20,7 @@ filtering.
 
 Completed at source revision `82fef8cb`. Bodies now retain immutable
 primitive or 1-64 child compound resources; BodySetup publishes one identity
-per revision; AetherCore owns the complete primitive operation/pair facade;
+per revision; PhysicsCore owns the complete primitive operation/pair facade;
 and Production Capsule/Box uses exact piecewise segment/box distance with
 bounded advancement. The Win64 layout is 176 bytes per body record, 16 bytes
 per reference, 112 bytes per child, and 208/7,264 retained bytes for 1/64
@@ -49,14 +49,14 @@ stable result ordering. At completion:
 
 ## Scope
 
-- AetherCore immutable geometry references, validated primitive/compound
+- PhysicsCore immutable geometry references, validated primitive/compound
   resources, stable identity, child transforms/order, bounds, and memory facts.
 - Ray against Box/Sphere/Capsule and every directed Box/Sphere/Capsule Sweep and
   Overlap pair.
 - Analytic fast paths, dedicated Capsule/Box distance/cast, bounded generic
   convex distance/penetration/cast, explicit convergence status, and reference
   fallback.
-- Aether body references, aggregate bounds, dispatch, compound accumulation,
+- Physics body references, aggregate bounds, dispatch, compound accumulation,
   stable internal ties, and reconciled pair/iteration diagnostics.
 - `DBodySetup` publication of one cached immutable resource per revision while
   preserving its existing single-shape authored API.
@@ -78,11 +78,11 @@ stable result ordering. At completion:
 
 ## Design Decisions and Invariants
 
-### Geometry is an immutable AetherCore resource
+### Geometry is an immutable PhysicsCore resource
 
 - `FCollisionShape` remains the compact by-value simple query shape. A new
   copyable `FCollisionGeometryRef` is an opaque owning reference to a `const`
-  AetherCore payload; only validated factory functions create it.
+  PhysicsCore payload; only validated factory functions create it.
 - Each payload has a non-zero process-local identity used for update detection
   and diagnostics, never serialization or gameplay results.
 - A primitive resource contains one shape. A compound contains 1 through 64
@@ -108,7 +108,7 @@ stable result ordering. At completion:
 
 ### One dispatcher owns operation and pair selection
 
-- AetherCore owns a closed compile-time table indexed by Raycast/Sweep/Overlap,
+- PhysicsCore owns a closed compile-time table indexed by Raycast/Sweep/Overlap,
   query primitive where applicable, and target leaf type. Runtime registration
   and virtual geometry objects are excluded.
 - Its internal status distinguishes Hit, Miss, Invalid, Unsupported, and
@@ -313,7 +313,7 @@ allocation and one exactly reserved child-array allocation.
 - [x] Verify BodySetup/BodyInstance/component publication, Level/World teardown,
   PIE/standalone, collision debug capture, and default Box content lifetime.
 - [x] Use focused native targets during work. Since final scope crosses
-  AetherCore, Aether, Engine publication, and Sandbox, run the root-required
+  PhysicsCore, Physics, Engine publication, and Sandbox, run the root-required
   full native validation before handoff.
 
 #### Acceptance Gate
@@ -366,7 +366,7 @@ allocation and one exactly reserved child-array allocation.
   per-instance payload copies and with deterministic identity, bounds, lifetime,
   and memory accounting.
 - All primitive Ray/Sweep/Overlap pairs and compound targets produce stable,
-  qualified contacts through one AetherCore dispatcher outside scene traversal.
+  qualified contacts through one PhysicsCore dispatcher outside scene traversal.
 - Analytic paths remain preferred, convex work is bounded, and Production
   Capsule/Box removes the pathological reference search.
 - Tolerance, scale, contact, convergence, fallback, and ordering pass golden,
@@ -386,9 +386,9 @@ allocation and one exactly reserved child-array allocation.
 
 ## Related Documentation
 
-- [Aether Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/AetherPhysicsEvolution.md)
-- [Aether Scene Query Acceleration Plan](AetherSceneQueryAcceleration.md)
-- [Aether Physics Query Observability Plan](AetherPhysicsQueryObservability.md)
+- [Physics Evolution Roadmap](../../../Roadmaps/Archive/2026-08/PhysicsEvolution.md)
+- [Physics Scene Query Acceleration Plan](PhysicsSceneQueryAcceleration.md)
+- [Physics Query Observability Plan](PhysicsQueryObservability.md)
 - [Physics Scene And Character Collision Plan](PhysicsSceneAndCharacterCollision.md)
 - [Runtime Collision](../../../Runtime/Physics/Collision.md)
 - [Core Math](../../../Runtime/Core/Math.md)
@@ -398,12 +398,12 @@ allocation and one exactly reserved child-array allocation.
 
 ## Related Code
 
-- `Engine/Source/Runtime/AetherCore/Public/Collision/CollisionShape.h`
-- `Engine/Source/Runtime/AetherCore/Public/Collision/CollisionGeometry.h`
-- `Engine/Source/Runtime/AetherCore/Private/Collision/CollisionGeometry.cpp`
-- `Engine/Source/Runtime/AetherCore/Public/Physics/PhysicsTypes.h`
-- `Engine/Source/Runtime/Aether/Public/Physics/PhysicsScene.h`
-- `Engine/Source/Runtime/Aether/Private/Physics/PhysicsScene.cpp`
+- `Engine/Source/Runtime/PhysicsCore/Public/Collision/CollisionShape.h`
+- `Engine/Source/Runtime/PhysicsCore/Public/Collision/CollisionGeometry.h`
+- `Engine/Source/Runtime/PhysicsCore/Private/Collision/CollisionGeometry.cpp`
+- `Engine/Source/Runtime/PhysicsCore/Public/Physics/PhysicsTypes.h`
+- `Engine/Source/Runtime/Physics/Public/Physics/PhysicsScene.h`
+- `Engine/Source/Runtime/Physics/Private/Physics/PhysicsScene.cpp`
 - `Engine/Source/Runtime/Engine/Public/Physics/BodySetup.h`
 - `Engine/Source/Runtime/Engine/Private/Physics/BodySetup.cpp`
 - `Engine/Source/Runtime/Engine/Public/Physics/BodyInstance.h`

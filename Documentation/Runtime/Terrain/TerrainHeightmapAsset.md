@@ -159,6 +159,6 @@ source-reference indexing, duplication/snapshot lifetime, and warm DDC reload.
 `TerrainHeightmapCookTests` removes source and DDC before loading the published
 cooked package and verifies exact samples.
 
-Renderer terrain and Aether heightfield consumers may depend on this payload
+Renderer terrain and Physics heightfield consumers may depend on this payload
 and revision contract. They may not reopen source or redefine coordinates,
 height normalization, hierarchy coverage, or runtime fallback behavior.

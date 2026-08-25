@@ -1,6 +1,6 @@
-# Aether Physics Evolution Roadmap
+# Physics Evolution Roadmap
 
-Summary: Evolve Aether from a deterministic query-only reference scene into a scalable collision and physics foundation without changing Engine-facing World, component, or asset ownership.
+Summary: Evolve Physics from a deterministic query-only reference scene into a scalable collision and physics foundation without changing Engine-facing World, component, or asset ownership.
 
 Last reviewed: 2026-08-18
 
@@ -11,24 +11,24 @@ Completed: 2026-08-18
 
 The initial ownership slice and required M0-M3 query-scalability program are
 complete through [Physics Scene And Character Collision](../../../Plans/Archive/2026-08/PhysicsSceneAndCharacterCollision.md),
-[Query Observability](../../../Plans/Archive/2026-08/AetherPhysicsQueryObservability.md),
-[Scene Query Acceleration](../../../Plans/Archive/2026-08/AetherSceneQueryAcceleration.md),
-[Geometry And Narrowphase](../../../Plans/Archive/2026-08/AetherGeometryAndNarrowphase.md),
-and [Cooked Collision Geometry](../../../Plans/Archive/2026-08/AetherCookedCollisionGeometry.md).
+[Query Observability](../../../Plans/Archive/2026-08/PhysicsQueryObservability.md),
+[Scene Query Acceleration](../../../Plans/Archive/2026-08/PhysicsSceneQueryAcceleration.md),
+[Geometry And Narrowphase](../../../Plans/Archive/2026-08/PhysicsGeometryAndNarrowphase.md),
+and [Cooked Collision Geometry](../../../Plans/Archive/2026-08/PhysicsCookedCollisionGeometry.md).
 The resulting Reference, Production, and Compare paths, shared immutable
 geometry, broad phases, cooked mesh collision, diagnostics, and qualification
 evidence are summarized in the milestone table and owned permanently by the
 [Runtime Collision](../../../Runtime/Physics/Collision.md) contract.
 
 Terrain T2 is also complete through
-[Aether Heightfield Collision](../../../Plans/Archive/2026-08/AetherHeightfieldCollision.md).
+[Physics Heightfield Collision](../../../Plans/Archive/2026-08/PhysicsHeightfieldCollision.md).
 Rigid-body simulation, Engine dynamics, parallel execution, and alternate
 backends remain conditional tracks whose entry gates require named consumers or
 measurement evidence.
 
 ## Outcome
 
-Aether provides a stable physics-scene boundary whose implementation can
+Physics provides a stable physics-scene boundary whose implementation can
 scale from deterministic synchronous collision queries to cooked world
 geometry and, when activated, rigid-body simulation. Engine gameplay continues
 to use `DWorld`, components, body setups, body instances, collision profiles,
@@ -56,9 +56,9 @@ consumer and validation matrix exist.
 
 ## Scope
 
-- Low-level AetherCore collision values, geometry bounds, distance, overlap,
+- Low-level PhysicsCore collision values, geometry bounds, distance, overlap,
   raycast, shape-cast, contact, and validation contracts.
-- Aether body identity and storage, scene mutation, static and moving broad
+- Physics body identity and storage, scene mutation, static and moving broad
   phases, filtering, query dispatch, scratch memory, diagnostics, and reference
   comparison.
 - Engine publication of motion type, shared `DBodySetup` geometry,
@@ -100,16 +100,16 @@ consumer and validation matrix exist.
 
 ### Public ownership remains stable
 
-- The module direction remains `Core -> AetherCore -> Aether -> Engine`.
-  Scaling the scene does not create an `AetherEngine` reverse dependency or
+- The module direction remains `Core -> PhysicsCore -> Physics -> Engine`.
+  Scaling the scene does not create an `PhysicsEngine` reverse dependency or
   move DObjects, assets, Actors, components, or collision profiles below
   Engine.
 - `DWorld` remains the gameplay query facade and owns one `FPhysicsScene`.
-  `FPhysicsScene` remains the complete-name Aether facade and does not expose
+  `FPhysicsScene` remains the complete-name Physics facade and does not expose
   the concrete body store, spatial index, geometry cache, solver, or backend.
 - `DBodySetup` owns authored and cooked collision intent. `FBodyInstance` owns
   one component instance's filter, motion, scene identity, and transient
-  state. Aether sees immutable values, handles, geometry references, and opaque
+  state. Physics sees immutable values, handles, geometry references, and opaque
   user tokens, never Engine object pointers.
 - Existing trace, sweep, overlap, filter, ignored-body, hit-field, initial
   penetration, and stable equal-time ordering behavior is compatibility input
@@ -158,7 +158,7 @@ consumer and validation matrix exist.
 ### Geometry is immutable, shared, and dispatched by capability
 
 - `FCollisionShape` remains the compact value for simple query shapes.
-  Production body geometry evolves into an immutable Aether-owned geometry
+  Production body geometry evolves into an immutable Physics-owned geometry
   resource referenced by body descriptions; component instances do not own or
   duplicate cooked mesh payloads.
 - A compound is a stable array of shape instances with local transforms and
@@ -176,13 +176,13 @@ consumer and validation matrix exist.
   diagnostics rather than hidden cost.
 - Render LOD data is not runtime collision data. Collision cook inputs may
   originate from mesh source geometry, but the resulting versioned payload,
-  bounds, BVH, memory budget, and failure policy belong to BodySetup/Aether.
+  bounds, BVH, memory budget, and failure policy belong to BodySetup/Physics.
 
 ### Simulation and concurrency do not distort the query foundation
 
 - Efficient synchronous queries remain available while simulation is paused
   or disabled. Query acceleration does not wait for rigid-body simulation.
-- If rigid-body simulation is activated, Aether owns a fixed-step accumulator,
+- If rigid-body simulation is activated, Physics owns a fixed-step accumulator,
   body-state authority, broad-phase pair generation, contact cache, island
   building, solver, sleeping, and continuous-collision policy. Engine owns tick
   integration, component publication/application, gameplay events, and object
@@ -228,7 +228,7 @@ consumer and validation matrix exist.
 | Simulation | World already distinguishes query availability from simulation enable/pause state | No dynamic state, fixed step, mass/inertia, contacts, solver, sleeping, or CCD | Conditional M4 |
 | Engine dynamics | Component lifecycle publication and opaque user-token resolution exist | No dynamic transform authority, physics material, contact/overlap events, or legacy `DPhysicsComponent` migration | Conditional M5 |
 | Concurrency | Game-thread ownership rejects off-thread mutation/query safely | No batch queries, committed snapshot, command buffer, worker schedule, or latency contract | Conditional M6 |
-| Backend ecosystem | AetherCore/Aether boundary prevents Engine coupling | No second backend, provider capability model, conformance suite, or migration evidence | Conditional M7 |
+| Backend ecosystem | PhysicsCore/Physics boundary prevents Engine coupling | No second backend, provider capability model, conformance suite, or migration evidence | Conditional M7 |
 
 ## Milestone Map
 
@@ -250,14 +250,14 @@ flowchart LR
 
 | Milestone | Requirement | Proposed child plan | Dependencies | Deliverable | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- | --- | --- |
-| M0: Query observability and reference oracle | Required; completed 2026-08-11 | [Aether Physics Query Observability](../../../Plans/Archive/2026-08/AetherPhysicsQueryObservability.md) | Completed first-slice collision plan and current focused fixtures | Explicit query pipeline seam, Reference/Production/Compare policy, diagnostics snapshot, representative fixtures, randomized/adversarial parity corpus, and recorded baselines | Frozen World semantics, result tolerances, ordering, counter equations, scene scales, Sandbox mixes, and measurement method | Zero qualified mismatch; reconciled structural/geometry/mutation work; bounded diagnostic overhead; controlled small, sparse, dense, churn, and Sandbox evidence plus M1 budget proposals |
-| M1: Body storage and hybrid broad phase | Required; completed 2026-08-11 | [Aether Scene Query Acceleration](../../../Plans/Archive/2026-08/AetherSceneQueryAcceleration.md) | Completed M0 oracle, counters, fixtures, and accepted entry budgets | Generation-checked dense body storage; explicit motion type; conservative AABBs; deterministic static BVH; incremental moving fat-AABB tree; closest-hit pruning; bounded scratch and complete fallback | Met: 192-byte record, 12-byte slot, 36-byte node, 128-entry stack, and actual capacities fit the accepted memory gate at every qualified scale/mix | Zero mismatches and stale resolutions; 10,000 sparse misses emit zero candidates; dense overlap returns 10,000; moving updates isolate Static; all Release query/mutation and Sandbox gates pass with zero qualified overflow/fallback |
-| M2: Geometry and narrow-phase architecture | Required; completed 2026-08-12 | [Aether Geometry And Narrowphase](../../../Plans/Archive/2026-08/AetherGeometryAndNarrowphase.md) | M1 body/index ownership and query pipeline | Immutable shared geometry references, compound simple shapes, operation/pair dispatch, complete primitive query matrix, analytic common fast paths, generic convex fallback, bounded penetration and shape casts, and pair/iteration diagnostics | Met: resource lifetime, compound precedence, convergence caps, pair budgets, result fields, and ordering were frozen before dispatch changes | Met at `82fef8cb`: primitive/compound matrix and sharing qualify; Production Capsule/Box removes nested search and improves 25.17x; traversal contains no pair algorithms; diagnostics and full native validation pass |
-| M3: Cooked world collision | Required; completed 2026-08-12 | [Aether Cooked Collision Geometry](../../../Plans/Archive/2026-08/AetherCookedCollisionGeometry.md) | M2 immutable geometry and dispatch; AssetCore derived-data contracts | Versioned BodySetup cook input/output, convex and triangle-mesh payloads, asset-level BVH, simple-versus-complex query policy, bounded cook/runtime memory, serialization/DDC integration, and collision inspection | Met: representative fixtures, explicit source modes, Cook ownership, invalidation, feature semantics, degenerate/oversized failure, independent platform versions, hard caps, and read-only editor scope were frozen before persistence | Met: one identity is shared by 10,000 instances; complete queries and nearest-feature ordering match Reference; 100,352-triangle sparse work is local; DDC/reimport/cooked-only load, two Worlds, PIE, render independence, full native/build/docs, and Release gates pass |
-| M4: Rigid-body simulation kernel | Conditional; deferred | `AetherRigidBodySimulation` | M1-M2; concrete Dynamic-body gameplay requirement and accepted stability budget | Fixed-step scene state, mass/inertia, forces/impulses, broad-phase pair generation, persistent manifolds, islands, iterative constraint solver, sleeping, kinematic targets, and bounded CCD policy | Not met: no selected dynamic-body consumer, stack/joint scale, timestep, determinism, CCD, failure, or performance budget | Selected dynamic scenarios remain stable within frozen tolerances; query and simulation body identity agree; pause/step/restart/teardown are deterministic; solver/island/contact work and energy/error bounds are observable |
-| M5: Engine dynamics and events | Conditional; deferred | `AetherEngineDynamicsIntegration` | M4 and selected Engine/gameplay consumers | Engine motion publication and state application, physics materials, hit/overlap event queues, safe object resolution, transaction/PIE lifecycle, and migration or retirement of legacy `DPhysicsComponent` | Not met until M4 exists and event ordering, transform authority, teleports, ownership, and gameplay consumers are frozen | Exactly one transform authority per body mode; stale events cannot resolve retired objects; PIE/standalone lifecycle, moving bodies/platforms, material responses, and event ordering pass focused and full integration gates |
-| M6: Batch and parallel execution | Conditional; deferred | `AetherParallelPhysicsExecution` | M0-M2 diagnostics; accepted CPU task-system integration; measured query or step pressure | Batch query API, bounded scratch arenas, mutation commands, committed query snapshot, worker scheduling, cancellation/teardown, and latency/freshness diagnostics | Not met: single-thread query cost must first be reduced; activate only when profiles show remaining parallel work and freeze synchronous-query visibility semantics | Supported batch/worker results match synchronous reference semantics; no DObject crosses threads; buffers and in-flight work are bounded; shutdown, cancellation, World replacement, and fallback complete without races or hidden waits |
-| M7: Backend provider ecosystem | Conditional; deferred | `AetherPhysicsBackendProviders` | M3 and, for simulation backends, M4-M5; one qualified second implementation | Capability-described provider selection behind `FPhysicsScene`, conformance tests, versioned geometry/state exchange, deterministic fallback, diagnostics, and packaging boundaries | Not met: name the second backend, supported feature matrix, licensing/build/runtime constraints, migration path, and measurable benefit before introducing the interface | Built-in and alternate providers pass the shared supported conformance corpus; unsupported features reject or fall back explicitly; Engine code and serialized assets contain no provider-native types |
+| M0: Query observability and reference oracle | Required; completed 2026-08-11 | [Physics Query Observability](../../../Plans/Archive/2026-08/PhysicsQueryObservability.md) | Completed first-slice collision plan and current focused fixtures | Explicit query pipeline seam, Reference/Production/Compare policy, diagnostics snapshot, representative fixtures, randomized/adversarial parity corpus, and recorded baselines | Frozen World semantics, result tolerances, ordering, counter equations, scene scales, Sandbox mixes, and measurement method | Zero qualified mismatch; reconciled structural/geometry/mutation work; bounded diagnostic overhead; controlled small, sparse, dense, churn, and Sandbox evidence plus M1 budget proposals |
+| M1: Body storage and hybrid broad phase | Required; completed 2026-08-11 | [Physics Scene Query Acceleration](../../../Plans/Archive/2026-08/PhysicsSceneQueryAcceleration.md) | Completed M0 oracle, counters, fixtures, and accepted entry budgets | Generation-checked dense body storage; explicit motion type; conservative AABBs; deterministic static BVH; incremental moving fat-AABB tree; closest-hit pruning; bounded scratch and complete fallback | Met: 192-byte record, 12-byte slot, 36-byte node, 128-entry stack, and actual capacities fit the accepted memory gate at every qualified scale/mix | Zero mismatches and stale resolutions; 10,000 sparse misses emit zero candidates; dense overlap returns 10,000; moving updates isolate Static; all Release query/mutation and Sandbox gates pass with zero qualified overflow/fallback |
+| M2: Geometry and narrow-phase architecture | Required; completed 2026-08-12 | [Physics Geometry And Narrowphase](../../../Plans/Archive/2026-08/PhysicsGeometryAndNarrowphase.md) | M1 body/index ownership and query pipeline | Immutable shared geometry references, compound simple shapes, operation/pair dispatch, complete primitive query matrix, analytic common fast paths, generic convex fallback, bounded penetration and shape casts, and pair/iteration diagnostics | Met: resource lifetime, compound precedence, convergence caps, pair budgets, result fields, and ordering were frozen before dispatch changes | Met at `82fef8cb`: primitive/compound matrix and sharing qualify; Production Capsule/Box removes nested search and improves 25.17x; traversal contains no pair algorithms; diagnostics and full native validation pass |
+| M3: Cooked world collision | Required; completed 2026-08-12 | [Physics Cooked Collision Geometry](../../../Plans/Archive/2026-08/PhysicsCookedCollisionGeometry.md) | M2 immutable geometry and dispatch; AssetCore derived-data contracts | Versioned BodySetup cook input/output, convex and triangle-mesh payloads, asset-level BVH, simple-versus-complex query policy, bounded cook/runtime memory, serialization/DDC integration, and collision inspection | Met: representative fixtures, explicit source modes, Cook ownership, invalidation, feature semantics, degenerate/oversized failure, independent platform versions, hard caps, and read-only editor scope were frozen before persistence | Met: one identity is shared by 10,000 instances; complete queries and nearest-feature ordering match Reference; 100,352-triangle sparse work is local; DDC/reimport/cooked-only load, two Worlds, PIE, render independence, full native/build/docs, and Release gates pass |
+| M4: Rigid-body simulation kernel | Conditional; deferred | `PhysicsRigidBodySimulation` | M1-M2; concrete Dynamic-body gameplay requirement and accepted stability budget | Fixed-step scene state, mass/inertia, forces/impulses, broad-phase pair generation, persistent manifolds, islands, iterative constraint solver, sleeping, kinematic targets, and bounded CCD policy | Not met: no selected dynamic-body consumer, stack/joint scale, timestep, determinism, CCD, failure, or performance budget | Selected dynamic scenarios remain stable within frozen tolerances; query and simulation body identity agree; pause/step/restart/teardown are deterministic; solver/island/contact work and energy/error bounds are observable |
+| M5: Engine dynamics and events | Conditional; deferred | `PhysicsEngineDynamicsIntegration` | M4 and selected Engine/gameplay consumers | Engine motion publication and state application, physics materials, hit/overlap event queues, safe object resolution, transaction/PIE lifecycle, and migration or retirement of legacy `DPhysicsComponent` | Not met until M4 exists and event ordering, transform authority, teleports, ownership, and gameplay consumers are frozen | Exactly one transform authority per body mode; stale events cannot resolve retired objects; PIE/standalone lifecycle, moving bodies/platforms, material responses, and event ordering pass focused and full integration gates |
+| M6: Batch and parallel execution | Conditional; deferred | `PhysicsParallelPhysicsExecution` | M0-M2 diagnostics; accepted CPU task-system integration; measured query or step pressure | Batch query API, bounded scratch arenas, mutation commands, committed query snapshot, worker scheduling, cancellation/teardown, and latency/freshness diagnostics | Not met: single-thread query cost must first be reduced; activate only when profiles show remaining parallel work and freeze synchronous-query visibility semantics | Supported batch/worker results match synchronous reference semantics; no DObject crosses threads; buffers and in-flight work are bounded; shutdown, cancellation, World replacement, and fallback complete without races or hidden waits |
+| M7: Backend provider ecosystem | Conditional; deferred | `PhysicsBackendProviders` | M3 and, for simulation backends, M4-M5; one qualified second implementation | Capability-described provider selection behind `FPhysicsScene`, conformance tests, versioned geometry/state exchange, deterministic fallback, diagnostics, and packaging boundaries | Not met: name the second backend, supported feature matrix, licensing/build/runtime constraints, migration path, and measurable benefit before introducing the interface | Built-in and alternate providers pass the shared supported conformance corpus; unsupported features reject or fall back explicitly; Engine code and serialized assets contain no provider-native types |
 
 M0-M3 are required. M4-M7 are conditional and may remain deferred when their
 entry evidence is absent. Completing the roadmap requires passing M0-M3 and
@@ -278,14 +278,14 @@ plans and the milestone table above. Future plans must preserve their published
 Reference/Production semantics, ownership direction, geometry identity, and
 runtime collision contract rather than reopening completed local design.
 
-### `AetherRigidBodySimulation`
+### `PhysicsRigidBodySimulation`
 
-This conditional plan owns Aether's simulation state and numerical kernel. It
+This conditional plan owns Physics's simulation state and numerical kernel. It
 does not expose Engine objects or gameplay callbacks, choose editor workflows,
 or introduce networking prediction. It must start with representative dynamic
 scenarios and stability budgets, not with a generic constraint class hierarchy.
 
-### `AetherEngineDynamicsIntegration`
+### `PhysicsEngineDynamicsIntegration`
 
 This conditional plan owns Engine body-mode properties, World stepping,
 component state exchange, physical materials, object-safe event delivery,
@@ -294,7 +294,7 @@ generic character movement component, moving-platform policy, ragdoll, vehicle,
 or gameplay-specific force system should remain separate consumer plans unless
 one is selected as the bounded acceptance slice.
 
-### `AetherParallelPhysicsExecution`
+### `PhysicsParallelPhysicsExecution`
 
 This conditional plan owns the task, command, snapshot, batch, scratch,
 cancellation, and teardown protocol. It may parallelize already-correct broad
@@ -302,7 +302,7 @@ phase, narrow phase, or simulation islands only after profiles identify the
 work. It does not make ordinary synchronous queries silently stale or convert
 Engine object pointers into cross-thread payloads.
 
-### `AetherPhysicsBackendProviders`
+### `PhysicsBackendProviders`
 
 This conditional plan owns a provider capability and conformance boundary for
 one named second implementation. It does not redesign Engine APIs around the
@@ -337,7 +337,7 @@ selected backend and remain below Engine.
 | Object channel is reused as motion type and later dynamic bodies require asset/profile migration. | Motion type is a separate low-level and Engine publication contract before the first index partitions bodies. |
 | Compound or triangle geometry is copied into every body instance. | M2-M3 require immutable reference-counted or handle-owned geometry and verify retained bytes across many instances of one asset. |
 | A generic convex algorithm replaces all analytic paths and slows the common Sandbox case. | Pair dispatch preserves measured analytic fast paths and compares overlapping supported algorithms; generic convex is a fallback capability, not mandatory dispatch for every pair. |
-| Physics reuses the LevelEditor picking tree and inherits editor visibility, mutation, or identity semantics. | Only neutral Core primitives may be shared after two-consumer proof; Aether owns its index, handles, filters, query volumes, and lifetime. |
+| Physics reuses the LevelEditor picking tree and inherits editor visibility, mutation, or identity semantics. | Only neutral Core primitives may be shared after two-consumer proof; Physics owns its index, handles, filters, query volumes, and lifetime. |
 | Async physics is added before single-thread algorithms are efficient and creates stale-query complexity without benefit. | M6 activates only after M1-M3 measurements isolate remaining parallel work and a query-freshness contract is accepted. |
 | A speculative backend interface calcifies around no real backend. | `FPhysicsScene` encapsulation is sufficient through M0-M6; M7 requires a named provider, feature matrix, constraints, conformance corpus, and benefit. |
 | Rigid-body simulation becomes one monolithic plan spanning math, threading, Engine events, editor UI, and gameplay. | M4 owns the Engine-free numerical kernel; M5 owns Engine integration; M6 owns concurrency; gameplay consumers and editor tools remain separate plans. |
@@ -379,8 +379,8 @@ selected backend and remain below Engine.
 
 ## Related Code
 
-- [`Engine/Source/Runtime/AetherCore`](../../../../Engine/Source/Runtime/AetherCore)
-- [`Engine/Source/Runtime/Aether`](../../../../Engine/Source/Runtime/Aether)
+- [`Engine/Source/Runtime/PhysicsCore`](../../../../Engine/Source/Runtime/PhysicsCore)
+- [`Engine/Source/Runtime/Physics`](../../../../Engine/Source/Runtime/Physics)
 - [`Engine/Source/Runtime/Engine/Public/Physics`](../../../../Engine/Source/Runtime/Engine/Public/Physics)
 - [`Engine/Source/Runtime/Engine/Public/Collision`](../../../../Engine/Source/Runtime/Engine/Public/Collision)
 - [`Engine/Source/Runtime/Engine/Public/Engine/World.h`](../../../../Engine/Source/Runtime/Engine/Public/Engine/World.h)

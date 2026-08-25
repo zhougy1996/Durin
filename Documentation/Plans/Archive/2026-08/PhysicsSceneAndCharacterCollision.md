@@ -1,6 +1,6 @@
 # Physics Scene And Character Collision Plan
 
-Summary: Add layered AetherCore/Aether physics modules, a UE-shaped World query boundary, StaticMesh bodies, and capsule-based Sandbox movement against authored graybox geometry.
+Summary: Add layered PhysicsCore/Physics modules, a UE-shaped World query boundary, StaticMesh bodies, and capsule-based Sandbox movement against authored graybox geometry.
 
 Last reviewed: 2026-08-11
 
@@ -9,8 +9,8 @@ Completed: 2026-08-11
 
 ## Current Status
 
-Stages 0-5 are complete. `AetherCore` now owns Engine-independent shapes,
-filters, handles, validation, and reference query geometry; `Aether` owns the
+Stages 0-5 are complete. `PhysicsCore` now owns Engine-independent shapes,
+filters, handles, validation, and reference query geometry; `Physics` owns the
 deterministic `FPhysicsScene`; Engine exposes reflected collision profiles,
 body setup/instance/component types, one scene per World, and UE-shaped trace,
 sweep, and overlap entry points. Qualified `/Engine/Models/Box` assets publish
@@ -38,7 +38,7 @@ documentation validation passed across 106 documents.
 ## Goal
 
 - Establish the one-way runtime dependency chain
-  `Core -> AetherCore -> Aether -> Engine` before physics types become embedded
+  `Core -> PhysicsCore -> Physics -> Engine` before physics types become embedded
   in World and component APIs.
 - Give every `DWorld` one authoritative runtime `FPhysicsScene` for collision
   registration and synchronous scene queries.
@@ -57,15 +57,15 @@ documentation validation passed across 106 documents.
 
 ## Scope
 
-- A new `AetherCore` runtime module containing Engine-independent collision
+- A new `PhysicsCore` runtime module containing Engine-independent collision
   shapes, physics handles, low-level filter data, query-hit values, geometry
   conventions, and exact reference math.
-- A new `Aether` runtime module containing `FPhysicsScene`, immutable body
+- A new `Physics` runtime module containing `FPhysicsScene`, immutable body
   descriptors, the deterministic body store, broadphase/narrowphase query
   orchestration, and the first built-in query implementation.
 - Engine-owned collision channels, response containers, profiles, query
   parameters, `FHitResult`, and `FOverlapResult`, with explicit conversion to
-  and from AetherCore values and handles.
+  and from PhysicsCore values and handles.
 - One game-thread-owned `FPhysicsScene` per `DWorld`, with deterministic body
   registration, removal, transform/shape updates, and synchronous
   line-trace, sweep, and overlap queries.
@@ -99,7 +99,7 @@ documentation validation passed across 106 documents.
   or an asynchronous physics tick.
 - Selecting or integrating a third-party physics backend in this plan. The
   initial query implementation remains replaceable behind `FPhysicsScene`.
-- An `AetherEditor` module, backend-specific Aether module, or plugin/provider
+- An `PhysicsEditor` module, backend-specific Physics module, or plugin/provider
   discovery protocol before a second implementation demonstrates the need.
 - Treating the existing `DPhysicsComponent` ground-plane integrator as the new
   body or character authority. It remains a legacy baseline until a later
@@ -124,35 +124,35 @@ documentation validation passed across 106 documents.
 
 ### Module topology and names
 
-- `AetherCore` is the low-level foundation module and exports through
-  `AETHERCORE_API`. It may depend on `Core` only. It never includes or forward
+- `PhysicsCore` is the low-level foundation module and exports through
+  `PHYSICSCORE_API`. It may depend on `Core` only. It never includes or forward
   declares `DWorld`, `DObject`, Actor, component, asset, renderer, editor, or
   Sandbox types.
-- `Aether` is the physics-runtime module and exports through `AETHER_API`. It
-  depends on `Core` and `AetherCore` and owns `FPhysicsScene`, scene body
+- `Physics` is the physics-runtime module and exports through `PHYSICS_API`. It
+  depends on `Core` and `PhysicsCore` and owns `FPhysicsScene`, scene body
   storage, query dispatch, and the built-in broadphase/narrowphase
   implementation.
-- `Engine` publicly depends on `Aether` and `AetherCore` because World and
+- `Engine` publicly depends on `Physics` and `PhysicsCore` because World and
   component public contracts expose the complete `FPhysicsScene` and
-  `FCollisionShape` names. Neither Aether module depends on `Engine`,
+  `FCollisionShape` names. Neither Physics module depends on `Engine`,
   `CoreDObject`, `AssetCore`, `RenderCore`, or `RHI`.
-- `AetherCore` owns `FCollisionShape`, `FPhysicsActorHandle`, low-level filter
+- `PhysicsCore` owns `FCollisionShape`, `FPhysicsActorHandle`, low-level filter
   values, and `FPhysicsQueryHit`. These types carry numeric handles or bounded
   opaque user tokens, never Actor/component pointers.
-- `Aether` owns `FPhysicsScene` and accepts Engine-independent immutable body
-  descriptors. It returns AetherCore handles and query hits and does not map
+- `Physics` owns `FPhysicsScene` and accepts Engine-independent immutable body
+  descriptors. It returns PhysicsCore handles and query hits and does not map
   them to gameplay objects.
 - `Engine` owns `DBodySetup`, `FBodyInstance`, `FCollisionQueryParams`,
   `FCollisionResponseParams`, `FCollisionObjectQueryParams`, `FHitResult`,
   `FOverlapResult`, collision profiles/channels, `DWorld` query facades, and
   every DObject/component integration. `FBodyInstance` is the stable mapping
-  between one Engine component and one Aether physics-actor handle.
-- Source roots are `Engine/Source/Runtime/AetherCore` and
-  `Engine/Source/Runtime/Aether`. Public semantic headers remain grouped below
+  between one Engine component and one Physics actor handle.
+- Source roots are `Engine/Source/Runtime/PhysicsCore` and
+  `Engine/Source/Runtime/Physics`. Public semantic headers remain grouped below
   `Public/Collision/` and `Public/Physics/`; public class names do not acquire
-  `Aether` prefixes merely because of their module ownership.
-- `Aether` and `AetherCore` are distinct registered module names, directories,
-  libraries, export surfaces, and test boundaries. `AetherCore`, `Aether`,
+  `Physics` prefixes merely because of their module ownership.
+- `Physics` and `PhysicsCore` are distinct registered module names, directories,
+  libraries, export surfaces, and test boundaries. `PhysicsCore`, `Physics`,
   `PhysicsCore`, and `Physics` are not interchangeable aliases.
 
 ### Public naming
@@ -161,7 +161,7 @@ documentation validation passed across 106 documents.
   `FCollisionScene` are not aliases and do not enter the public API.
 - Asset-owned reusable collision is `DBodySetup`; instance-owned body state is
   `FBodyInstance`.
-- Low-level query values use AetherCore's `FCollisionShape` and
+- Low-level query values use PhysicsCore's `FCollisionShape` and
   `FPhysicsQueryHit`. Engine gameplay queries use `FCollisionQueryParams`,
   `FCollisionResponseParams`, `FCollisionObjectQueryParams`, `FHitResult`, and
   `FOverlapResult`.
@@ -184,7 +184,7 @@ documentation validation passed across 106 documents.
   from its current Level can register and destroys it only after those
   components unregister. PIE and the editor World therefore never share
   registered body instances or mutable acceleration state.
-- `DWorld` owns the Aether `FPhysicsScene` instance, but `FPhysicsScene` never
+- `DWorld` owns the Physics `FPhysicsScene` instance, but `FPhysicsScene` never
   owns or calls back through a `DWorld` pointer. Engine supplies immutable body
   descriptions and maps returned handles through its `FBodyInstance` state.
 - `DWorld` is the gameplay query facade. Ordinary gameplay and movement code
@@ -297,7 +297,7 @@ documentation validation passed across 106 documents.
 
 | Area | Existing foundation | Gap owned by this plan |
 | --- | --- | --- |
-| Modules | Layered Core, RenderCore, Renderer, RHI, and Engine runtime modules | No physics foundation/runtime split or one-way Aether dependency chain |
+| Modules | Layered Core, RenderCore, Renderer, RHI, and Engine runtime modules | No physics foundation/runtime split or one-way Physics dependency chain |
 | World | One current Level, component registration, PIE isolation, pause/single-step, physics-enable flag | No world-owned physics scene, body registry, queries, or collision lifecycle |
 | Primitive components | Common register/unregister/transform hooks and stable render-scene identity | No body instance, collision profile, shape provider, or physics-scene handle |
 | StaticMesh | CPU LOD0 vertices/indices/bounds and picking ray hierarchy | No independently owned simple collision, body setup, collision cook identity, or component binding |
@@ -316,7 +316,7 @@ Sandbox gameplay tests, and the authored graybox Box convention.
 - [x] Record the source revision and focused baseline for World lifecycle,
   component registration, StaticMesh save/load/derived data, Sandbox gameplay,
   PIE, and the current graybox level package.
-- [x] Freeze the exact `AetherCore` and `Aether` module identities, source
+- [x] Freeze the exact `PhysicsCore` and `Physics` module identities, source
   roots, export macros, public/private dependency edges, header ownership, and
   Engine-facing conversion boundary in module-graph fixtures.
 - [x] Add compile-time and reflection fixtures for the exact
@@ -345,18 +345,18 @@ Sandbox gameplay tests, and the authored graybox Box convention.
   the first supported graybox transforms are represented by failing fixtures;
   the unchanged focused baseline remains green.
 
-### Stage 1: Add AetherCore, Aether, and the World query contracts
+### Stage 1: Add PhysicsCore, Physics, and the World query contracts
 
 Dependencies: Stage 0 module graph, public names, and query reference fixtures.
 
-- [x] Register `AetherCore` and `Aether` in the Engine project/module graph,
+- [x] Register `PhysicsCore` and `Physics` in the Engine project/module graph,
   add their module descriptors and CMake targets, and prove the exact
-  `Core -> AetherCore -> Aether -> Engine` dependency order in generated and
+  `Core -> PhysicsCore -> Physics -> Engine` dependency order in generated and
   native module metadata.
-- [x] Add AetherCore collision shapes, opaque stable actor handles, low-level
+- [x] Add PhysicsCore collision shapes, opaque stable actor handles, low-level
   filter values, physics query hits, validation, and reference geometry math
   without an Engine, DObject, AssetCore, or rendering dependency.
-- [x] Add Aether `FPhysicsScene`, immutable body descriptors, deterministic
+- [x] Add Physics `FPhysicsScene`, immutable body descriptors, deterministic
   body storage, and atomic register, unregister, transform, shape, and filter
   operations with idempotent stale-handle refusal, without an Engine pointer
   or gameplay-object result.
@@ -365,7 +365,7 @@ Dependencies: Stage 0 module graph, public names, and query reference fixtures.
   initial-penetration reporting.
 - [x] Add `DWorld::GetPhysicsScene()`, `LineTraceSingleByChannel`,
   `SweepSingleByChannel`, and `OverlapMultiByChannel`; add Engine-owned query
-  parameters/results and convert them to AetherCore filters, handles, and hits
+  parameters/results and convert them to PhysicsCore filters, handles, and hits
   without exposing scene storage or narrowphase helpers.
 - [x] Implement two-sided channel responses, ignored Actor/component filters,
   closest-blocking selection, overlap collection, and stable tie-breaking.
@@ -375,7 +375,7 @@ Dependencies: Stage 0 module graph, public names, and query reference fixtures.
 
 #### Acceptance Gate
 
-- `AetherCore` and `Aether` build as separate one-way modules with no forbidden
+- `PhysicsCore` and `Physics` build as separate one-way modules with no forbidden
   Engine/render/asset dependency. An isolated `DWorld` owns one leak-free
   `FPhysicsScene`; deterministic value-type queries return exact results for
   the frozen geometry/filter matrix; another World and a retired World cannot
@@ -383,7 +383,7 @@ Dependencies: Stage 0 module graph, public names, and query reference fixtures.
 
 ### Stage 2: Bind body setup and body instances to components
 
-Dependencies: Stage 1 Aether scene registration and Engine query APIs;
+Dependencies: Stage 1 Physics scene registration and Engine query APIs;
 qualified StaticMesh save/load and mutation baselines from Stage 0.
 
 - [x] Add reflected `DBodySetup` with simple aggregate geometry, revision,
@@ -517,8 +517,8 @@ Dependencies: Stages 1-4 and lasting documentation updates.
 
 | Boundary | Required evidence |
 | --- | --- |
-| Module graph | Registered `AetherCore` and `Aether` targets, exact one-way `Core -> AetherCore -> Aether -> Engine` dependencies, correct export macros, and no forbidden reverse/render/asset edge |
-| Public API | Exact complete `FPhysicsScene` name, UE-shaped body/query value names, correct AetherCore/Aether/Engine ownership, reflection identities, and no `FPhysScene`/`FCollisionScene` alias |
+| Module graph | Registered `PhysicsCore` and `Physics` targets, exact one-way `Core -> PhysicsCore -> Physics -> Engine` dependencies, correct export macros, and no forbidden reverse/render/asset edge |
+| Public API | Exact complete `FPhysicsScene` name, UE-shaped body/query value names, correct PhysicsCore/Physics/Engine ownership, reflection identities, and no `FPhysScene`/`FCollisionScene` alias |
 | World lifetime | One scene per World, construction before registration, removal before destruction, Level replacement, PIE isolation, and repeated teardown |
 | Geometry | Ray/Box, Capsule/Box, arbitrary graybox rotation/positive scale, overlap, sweep, initial penetration, normals, and frozen tolerances |
 | Filtering | Collision enabled modes, built-in profiles, two-sided responses, ignored owner/component, blocking versus overlap, and stable equal-time order |
@@ -532,8 +532,8 @@ Dependencies: Stages 1-4 and lasting documentation updates.
 
 ## Definition of Done
 
-- `AetherCore` and `Aether` exist as distinct runtime modules: AetherCore owns
-  Engine-independent physics values and math, Aether owns `FPhysicsScene` and
+- `PhysicsCore` and `Physics` exist as distinct runtime modules: PhysicsCore owns
+  Engine-independent physics values and math, Physics owns `FPhysicsScene` and
   query orchestration, and neither depends on Engine or rendering/assets.
 - `DWorld` owns one complete-name `FPhysicsScene` and exposes deterministic
   UE-shaped synchronous collision queries without leaking backend storage.
@@ -559,8 +559,8 @@ Dependencies: Stages 1-4 and lasting documentation updates.
 - A replaceable production rigid-body backend, dynamic bodies, forces,
   constraints, sleeping, async fixed-step scheduling, and migration or removal
   of the legacy `DPhysicsComponent`.
-- Backend-specific modules built above `AetherCore`, provider selection through
-  `Aether`, and an `AetherEditor` module. Their names and plugin boundaries
+- Backend-specific modules built above `PhysicsCore`, provider selection through
+  `Physics`, and an `PhysicsEditor` module. Their names and plugin boundaries
   require a concrete second backend or editor consumer.
 - Generic `ACharacter` and `DCharacterMovementComponent`, Capsule-root spawn
   semantics, moving platforms, movement modes, crouch, root motion,
@@ -596,8 +596,8 @@ Dependencies: Stages 1-4 and lasting documentation updates.
 ## Related Code
 
 - `Engine/Engine.dproject`
-- `Engine/Source/Runtime/AetherCore/AetherCore.dmodule`
-- `Engine/Source/Runtime/Aether/Aether.dmodule`
+- `Engine/Source/Runtime/PhysicsCore/PhysicsCore.dmodule`
+- `Engine/Source/Runtime/Physics/Physics.dmodule`
 - `Engine/Source/Runtime/Engine/Engine.dmodule`
 - `Engine/Source/Runtime/Engine/Public/Engine/World.h`
 - `Engine/Source/Runtime/Engine/Private/Engine/World.cpp`

@@ -477,7 +477,7 @@ namespace Durin
 		const FPhysicsQueryFilter& Filter,
 		FPhysicsQueryHit& OutHit) const -> bool
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.LineTraceSingle");
+		DURIN_PROFILE_CPU_ZONE_NAMED("Physics.Query.LineTraceSingle");
 		FPhysicsSceneLastQueryDiagnostics Query = BeginQuery(EPhysicsSceneQueryKind::LineTraceSingle);
 		const uint64 TimingStart = BeginDetailedTiming();
 		OutHit = {};
@@ -560,7 +560,7 @@ namespace Durin
 		const FPhysicsQueryFilter& Filter,
 		FPhysicsQueryHit& OutHit) const -> bool
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.SweepSingle");
+		DURIN_PROFILE_CPU_ZONE_NAMED("Physics.Query.SweepSingle");
 		FPhysicsSceneLastQueryDiagnostics Query = BeginQuery(EPhysicsSceneQueryKind::SweepSingle);
 		const uint64 TimingStart = BeginDetailedTiming();
 		OutHit = {};
@@ -643,7 +643,7 @@ namespace Durin
 		const FPhysicsQueryFilter& Filter,
 		std::vector<FPhysicsQueryHit>& OutHits) const -> bool
 	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.OverlapMulti");
+		DURIN_PROFILE_CPU_ZONE_NAMED("Physics.Query.OverlapMulti");
 		FPhysicsSceneLastQueryDiagnostics Query = BeginQuery(EPhysicsSceneQueryKind::OverlapMulti);
 		const uint64 TimingStart = BeginDetailedTiming();
 		OutHits.clear();
@@ -780,7 +780,7 @@ namespace Durin
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
 			CollisionGeometry::ECollisionQueryStatus Status;
 			{
-				DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.Pair.Raycast");
+				DURIN_PROFILE_CPU_ZONE_NAMED("Physics.Query.Pair.Raycast");
 				Status = CollisionGeometry::Raycast(Start, End, Body.Desc.Geometry, Body.Desc.Transform,
 					CollisionGeometry::ECollisionQueryAlgorithm::Reference, Candidate, &GeometryCounters);
 			}
@@ -825,7 +825,7 @@ namespace Durin
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
 			CollisionGeometry::ECollisionQueryStatus Status;
 			{
-				DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.Pair.Raycast");
+				DURIN_PROFILE_CPU_ZONE_NAMED("Physics.Query.Pair.Raycast");
 				Status = CollisionGeometry::Raycast(Start, End, Body.Desc.Geometry, Body.Desc.Transform,
 					CollisionGeometry::ECollisionQueryAlgorithm::Production, Candidate, &GeometryCounters);
 			}
@@ -878,7 +878,7 @@ namespace Durin
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
 			CollisionGeometry::ECollisionQueryStatus Status;
 			{
-				DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.Pair.Sweep");
+				DURIN_PROFILE_CPU_ZONE_NAMED("Physics.Query.Pair.Sweep");
 				Status = CollisionGeometry::Sweep(
 					Shape,
 					StartTransform,
@@ -935,7 +935,7 @@ namespace Durin
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
 			CollisionGeometry::ECollisionQueryStatus Status;
 			{
-				DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.Pair.Sweep");
+				DURIN_PROFILE_CPU_ZONE_NAMED("Physics.Query.Pair.Sweep");
 				Status = CollisionGeometry::Sweep(
 					Shape,
 					StartTransform,
@@ -994,7 +994,7 @@ namespace Durin
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
 			CollisionGeometry::ECollisionQueryStatus Status;
 			{
-				DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.Pair.Overlap");
+				DURIN_PROFILE_CPU_ZONE_NAMED("Physics.Query.Pair.Overlap");
 				Status = CollisionGeometry::Overlap(Shape, Transform, Body.Desc.Geometry, Body.Desc.Transform,
 					CollisionGeometry::ECollisionQueryAlgorithm::Reference, Hit, &GeometryCounters);
 			}
@@ -1040,7 +1040,7 @@ namespace Durin
 			CollisionGeometry::FCollisionGeometryCounters GeometryCounters;
 			CollisionGeometry::ECollisionQueryStatus Status;
 			{
-				DURIN_PROFILE_CPU_ZONE_NAMED("Aether.Query.Pair.Overlap");
+				DURIN_PROFILE_CPU_ZONE_NAMED("Physics.Query.Pair.Overlap");
 				Status = CollisionGeometry::Overlap(Shape, Transform, Body.Desc.Geometry, Body.Desc.Transform,
 					CollisionGeometry::ECollisionQueryAlgorithm::Production, Hit, &GeometryCounters);
 			}
