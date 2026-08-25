@@ -1,5 +1,7 @@
 #include "Texture/Texture2D.h"
 
+#include "DObject/Package.h"
+
 #include "Asset/MountedSource.h"
 #include "AssetCook.h"
 #include "DObject/DurinPropertyTypes.h"

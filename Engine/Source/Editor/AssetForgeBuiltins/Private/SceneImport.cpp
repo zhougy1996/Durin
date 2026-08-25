@@ -1,6 +1,7 @@
 #include "AssetForge/Builtins/SceneImport.h"
 
 #include "Animation/AnimationClip.h"
+#include "DObject/Package.h"
 #include "AssetForge/Builtins/ImportedScene.h"
 #include "AssetForge/ImportService.h"
 #include "AssetAuthoring.h"

@@ -1,5 +1,7 @@
 #include "StaticMesh/StaticMesh.h"
 
+#include "DObject/Package.h"
+
 #include "Asset.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"

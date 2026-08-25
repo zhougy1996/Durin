@@ -1,6 +1,7 @@
 #include "AssetForge/Builtins/TextureCubeImport.h"
 
 #include "AssetAuthoring.h"
+#include "DObject/Package.h"
 #include "DObject/DObjectGlobals.h"
 #include "EncodedSourceSnapshot.h"
 #include "Image/ImageDecoder.h"

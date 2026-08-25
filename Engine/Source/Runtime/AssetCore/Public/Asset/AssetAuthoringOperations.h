@@ -2,7 +2,8 @@
 
 #include "AssetCoreAPI.h"
 #include "Asset/Result.h"
-#include "DObject/CoreDObject.h"
+#include "DObject/AssetPath.h"
+#include "DObject/Object.h"
 
 namespace Durin::Asset
 {

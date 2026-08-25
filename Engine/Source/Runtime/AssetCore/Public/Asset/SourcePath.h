@@ -1,7 +1,8 @@
 #pragma once
 
 #include "AssetCoreAPI.h"
-#include "DObject/CoreDObject.h"
+#include "DObject/DObjectFwd.h"
+#include "DObject/ObjectMacros.h"
 
 #include "SourcePath.gen.h"
 

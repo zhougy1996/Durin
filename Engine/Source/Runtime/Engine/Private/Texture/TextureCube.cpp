@@ -1,5 +1,7 @@
 #include "Texture/TextureCube.h"
 
+#include "DObject/Package.h"
+
 #include "Asset/MountedSource.h"
 #include "AssetCook.h"
 #include "DObject/DObjectGlobals.h"

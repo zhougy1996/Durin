@@ -3,6 +3,7 @@
 #include "AssetTools.h"
 #include "AssetForge/Persistence/ImportRecordIndex.h"
 #include "AssetForge/ImportService.h"
+#include "DObject/Package.h"
 
 namespace Durin::AssetForge
 {

@@ -1,6 +1,7 @@
 #include "AssetForge/Builtins/SceneImport.h"
 
 #include "AssetAuthoring.h"
+#include "DObject/Package.h"
 #include "Materials/Material.h"
 
 namespace Durin::AssetForge::Builtins

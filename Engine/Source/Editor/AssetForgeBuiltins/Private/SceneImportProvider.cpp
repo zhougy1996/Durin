@@ -1,6 +1,7 @@
 #include "SceneImportProviderSchema.h"
 #include "BuiltinImportProviderCommon.h"
 #include "BuiltinProviderRegistration.h"
+#include "DObject/Package.h"
 #include "Asset/AssetAuthoringOperations.h"
 
 namespace Durin::AssetForge::Builtins

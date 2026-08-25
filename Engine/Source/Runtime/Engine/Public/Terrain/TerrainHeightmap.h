@@ -2,7 +2,7 @@
 
 #include "Asset/Cook.h"
 #include "Asset/SourcePath.h"
-#include "DObject/CoreDObject.h"
+#include "DObject/Object.h"
 #include "EngineAPI.h"
 
 #include "TerrainHeightmap.gen.h"

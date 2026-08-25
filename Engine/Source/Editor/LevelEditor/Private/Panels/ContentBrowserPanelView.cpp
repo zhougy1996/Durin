@@ -1,6 +1,7 @@
 #include "Panels/ContentBrowserPanel.h"
 #include "Panels/ContentBrowserFilesystem.h"
 
+#include "DObject/Package.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"

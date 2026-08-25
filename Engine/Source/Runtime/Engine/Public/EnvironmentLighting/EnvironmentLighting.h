@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Asset/Cook.h"
-#include "DObject/CoreDObject.h"
+#include "DObject/Object.h"
 #include "EngineAPI.h"
 #include "RHIDefinitions.h"
 

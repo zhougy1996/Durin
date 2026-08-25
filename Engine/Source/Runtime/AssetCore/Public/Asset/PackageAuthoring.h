@@ -5,7 +5,6 @@
 #include "Asset/EditorBulkDataStorageTypes.h"
 #include "Asset/CookedAsset.h"
 #include "DObject/Archive.h"
-#include "DObject/CoreDObject.h"
 #include "DObject/ObjectPtr.h"
 #include "DObject/Property.h"
 #include "DObject/SoftObjectPtr.h"

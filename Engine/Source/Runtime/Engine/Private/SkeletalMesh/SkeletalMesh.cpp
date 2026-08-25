@@ -1,5 +1,7 @@
 #include "SkeletalMesh/SkeletalMesh.h"
 
+#include "DObject/Package.h"
+
 #include "AssetCook.h"
 #include "CoreGlobals.h"
 #include "DObject/Property.h"

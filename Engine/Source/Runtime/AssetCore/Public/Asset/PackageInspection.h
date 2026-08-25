@@ -5,7 +5,8 @@
 #include "Asset/Catalog.h"
 #include "Asset/PackageTypes.h"
 #include "Asset/Result.h"
-#include "DObject/CoreDObject.h"
+#include "DObject/AssetPath.h"
+#include "DObject/DObjectFwd.h"
 
 namespace Durin::Asset
 {

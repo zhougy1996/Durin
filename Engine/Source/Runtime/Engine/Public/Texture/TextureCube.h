@@ -1,7 +1,6 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "DObject/CoreDObject.h"
 #include "RHIDefinitions.h"
 #include "RHIResources.h"
 #include "Texture/Texture.h"

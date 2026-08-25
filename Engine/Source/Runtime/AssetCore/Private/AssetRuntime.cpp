@@ -19,6 +19,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Package.h"
 #include "Misc/FileHelper.h"
 
 #include "Misc/LexicalPath.h"

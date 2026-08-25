@@ -1,5 +1,7 @@
 #include "Texture/TextureBuildOperations.h"
 
+#include "DObject/Package.h"
+
 #include "AssetBuild/BuildSession.h"
 #include "AssetAuthoring.h"
 #include "Hash/XxHash.h"

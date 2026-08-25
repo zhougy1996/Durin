@@ -1,6 +1,9 @@
 #pragma once
 
-#include "DObject/CoreDObject.h"
+#include "DObject/DObjectFwd.h"
+#include "DObject/ObjectMacros.h"
+#include "DObject/ObjectPtr.h"
+#include "Misc/Guid.h"
 #include "EngineAPI.h"
 #include "Texture/Texture2D.h"
 

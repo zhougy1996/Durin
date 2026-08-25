@@ -1,5 +1,7 @@
 #include "EnvironmentLighting/EnvironmentLighting.h"
 
+#include "DObject/Package.h"
+
 #include "AssetCook.h"
 #include "Hash/XxHash.h"
 #include "Serialization/BinaryFormat.h"

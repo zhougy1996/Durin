@@ -2,7 +2,7 @@
 
 #include "EngineAPI.h"
 #include "Asset/CookedAsset.h"
-#include "DObject/CoreDObject.h"
+#include "DObject/Object.h"
 #include "Physics/PhysicsTypes.h"
 
 #include "BodySetup.gen.h"

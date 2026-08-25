@@ -1,5 +1,6 @@
 #include "Panels/WorldOutlinerPanel.h"
 
+#include "DObject/Package.h"
 #include "Panels/ActorAttachmentTransaction.h"
 #include "Panels/WorldOutlinerPresentation.h"
 

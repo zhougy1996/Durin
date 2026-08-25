@@ -1,5 +1,6 @@
 #include "AssetForge/Builtins/TerrainHeightmapImport.h"
 
+#include "DObject/Package.h"
 #include "EncodedSourceSnapshot.h"
 #include "Image/ImageDecoder.h"
 #include "AssetAuthoring.h"

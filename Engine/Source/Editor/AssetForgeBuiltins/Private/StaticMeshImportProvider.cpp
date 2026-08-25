@@ -1,6 +1,7 @@
 #include "StaticMeshImportProviderSchema.h"
 #include "BuiltinImportProviderCommon.h"
 #include "BuiltinImportProvenance.h"
+#include "DObject/Package.h"
 #include "BuiltinProviderRegistration.h"
 #include "Asset/AssetAuthoringOperations.h"
 

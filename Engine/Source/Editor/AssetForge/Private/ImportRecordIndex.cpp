@@ -2,6 +2,7 @@
 
 #include "AssetAuthoring.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/Package.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 

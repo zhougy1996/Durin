@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "DObject/CoreDObject.h"
+#include "DObject/ObjectPtr.h"
 #include "Components/SceneComponent.h"
 #include "Engine/TickFunction.h"
 #include "Engine/ActorConstruction.h"

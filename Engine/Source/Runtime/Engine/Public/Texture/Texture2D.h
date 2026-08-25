@@ -3,7 +3,6 @@
 #include "Asset/Cook.h"
 #include "Asset/SourcePath.h"
 #include "EngineAPI.h"
-#include "DObject/CoreDObject.h"
 #include "PixelFormat.h"
 #include "RHIResources.h"
 #include "Texture/Texture.h"

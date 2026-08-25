@@ -1,4 +1,5 @@
 #include "AssetForge/Builtins/Texture2DImport.h"
+#include "DObject/Package.h"
 #include "EncodedSourceSnapshot.h"
 #include "Texture2DBuildAdapter.h"
 #include "Texture2DPostLoad.h"

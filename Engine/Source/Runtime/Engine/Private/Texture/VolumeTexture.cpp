@@ -1,5 +1,7 @@
 #include "Texture/VolumeTexture.h"
 
+#include "DObject/Package.h"
+
 #include "AssetCook.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Serialization/Archive.h"

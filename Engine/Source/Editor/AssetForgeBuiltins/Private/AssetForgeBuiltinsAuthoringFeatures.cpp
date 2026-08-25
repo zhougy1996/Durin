@@ -1,5 +1,6 @@
 #include "BuiltinImportProviderCommon.h"
 
+#include "DObject/Package.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Texture/Texture2D.h"

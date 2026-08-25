@@ -1,6 +1,7 @@
 #include "Panels/ContentBrowserPanel.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
+#include "DObject/Package.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"

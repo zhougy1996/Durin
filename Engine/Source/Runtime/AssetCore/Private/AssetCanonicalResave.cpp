@@ -4,6 +4,7 @@
 #include "Asset/PackageObjectStreamReader.h"
 #include "AssetRuntimeStateInternal.h"
 #include "Hash/XxHash.h"
+#include "DObject/Package.h"
 #include "Misc/FileHelper.h"
 #include "Misc/FileTime.h"
 #include "Misc/Paths.h"

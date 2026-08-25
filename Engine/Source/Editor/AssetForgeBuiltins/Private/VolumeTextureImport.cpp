@@ -1,6 +1,7 @@
 #include "AssetForge/Builtins/VolumeTextureImport.h"
 
 #include "AssetAuthoring.h"
+#include "DObject/Package.h"
 #include "Image/ImageDecoder.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"

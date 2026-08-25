@@ -1,5 +1,7 @@
 #include "Assets/EditorAssetMoveCoordinator.h"
 
+#include "DObject/Package.h"
+
 #include "Assets/AssetRelocationTransaction.h"
 #include "Editor/Transaction.h"
 #include "Engine/Level.h"

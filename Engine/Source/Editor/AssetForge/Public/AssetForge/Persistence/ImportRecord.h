@@ -4,7 +4,7 @@
 #include "Asset/SourcePath.h"
 #include "AssetForgeAPI.h"
 #include "DObject/AssetPath.h"
-#include "DObject/CoreDObject.h"
+#include "DObject/Object.h"
 
 #include "ImportRecord.gen.h"
 

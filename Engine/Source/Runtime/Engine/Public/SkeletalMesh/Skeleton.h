@@ -2,7 +2,7 @@
 
 #include "Asset/Cook.h"
 #include "EngineAPI.h"
-#include "DObject/CoreDObject.h"
+#include "DObject/Object.h"
 #include "Math/Vector.h"
 
 #include "Skeleton.gen.h"

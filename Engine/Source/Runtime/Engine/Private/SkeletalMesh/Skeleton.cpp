@@ -1,5 +1,7 @@
 #include "SkeletalMesh/Skeleton.h"
 
+#include "DObject/Package.h"
+
 #include "AssetCook.h"
 #include "Hash/XxHash.h"
 #include "Math/Operations.h"

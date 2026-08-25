@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DObject/CoreDObject.h"
+#include "DObject/Object.h"
 #include "EngineAPI.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Materials/MaterialTypes.h"

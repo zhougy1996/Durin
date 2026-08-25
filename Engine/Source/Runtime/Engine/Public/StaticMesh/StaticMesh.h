@@ -3,7 +3,7 @@
 #include "Asset/Cook.h"
 #include "Asset/SourcePath.h"
 #include "EngineAPI.h"
-#include "DObject/CoreDObject.h"
+#include "DObject/ObjectPtr.h"
 #include "Materials/MeshMaterialSlot.h"
 #include "RenderingThread.h"
 

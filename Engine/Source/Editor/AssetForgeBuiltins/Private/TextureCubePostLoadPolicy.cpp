@@ -1,5 +1,6 @@
 #include "TextureCubePostLoadPolicy.h"
 
+#include "DObject/Package.h"
 #include "EncodedSourceSnapshot.h"
 #include "Texture/TextureCube.h"
 #include "Texture/TextureCubeBuildOperations.h"

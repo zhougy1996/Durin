@@ -1,5 +1,7 @@
 #include "Texture/Texture.h"
 
+#include "DObject/Package.h"
+
 #include "DynamicRHI.h"
 #include "RenderingThread.h"
 #include "Texture/TextureRenderResource.h"

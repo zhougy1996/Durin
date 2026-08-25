@@ -1,5 +1,7 @@
 #include "StaticMesh/StaticMesh.h"
 
+#include "DObject/Package.h"
+
 #include "AssetCook.h"
 #include "DObject/Property.h"
 #include "Physics/BodySetup.h"

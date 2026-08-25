@@ -1,5 +1,6 @@
 #include "Texture2DPostLoad.h"
 #include "Texture2DBuildAdapter.h"
+#include "DObject/Package.h"
 
 #include "Hash/XxHash.h"
 #include "Misc/FileTime.h"

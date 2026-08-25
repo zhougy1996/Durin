@@ -1,7 +1,8 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "DObject/CoreDObject.h"
+#include "DObject/DObjectFwd.h"
+#include "DObject/ObjectMacros.h"
 
 #include "PawnControlIntent.gen.h"
 

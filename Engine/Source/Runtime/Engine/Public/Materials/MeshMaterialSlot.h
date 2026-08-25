@@ -1,6 +1,8 @@
 #pragma once
 
-#include "DObject/CoreDObject.h"
+#include "DObject/DObjectFwd.h"
+#include "DObject/ObjectMacros.h"
+#include "DObject/ObjectPtr.h"
 #include "EngineAPI.h"
 
 #include "MeshMaterialSlot.gen.h"

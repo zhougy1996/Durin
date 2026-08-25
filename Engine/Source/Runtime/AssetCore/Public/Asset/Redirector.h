@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetCoreAPI.h"
-#include "DObject/CoreDObject.h"
+#include "DObject/ObjectPtr.h"
 
 #include "Redirector.gen.h"
 

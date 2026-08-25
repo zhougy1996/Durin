@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BuiltinImportSchema.h"
+#include "DObject/Package.h"
 #include "BuiltinSingleAssetImport.h"
 #include "AssetForgeBuiltinsProviders.h"
 #include "AssetForge/ImportService.h"

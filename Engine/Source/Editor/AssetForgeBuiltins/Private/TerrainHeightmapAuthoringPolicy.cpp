@@ -1,6 +1,7 @@
 #include "TerrainAuthoringFeature.h"
 
 #include "Asset/MountedSource.h"
+#include "DObject/Package.h"
 #include "DObject/ObjectHandle.h"
 #include "EncodedSourceSnapshot.h"
 #include "Terrain/TerrainHeightmap.h"

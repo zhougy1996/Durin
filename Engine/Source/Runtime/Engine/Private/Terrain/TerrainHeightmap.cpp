@@ -1,5 +1,7 @@
 #include "Terrain/TerrainHeightmap.h"
 
+#include "DObject/Package.h"
+
 #include "AssetCook.h"
 #include "DObject/Property.h"
 #include "Serialization/Archive.h"
