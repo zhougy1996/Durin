@@ -322,7 +322,8 @@ namespace Durin
 		OutMetaData.SourceTreeSignature = FXxHash128::FromString(SourceTreeSignature);
 
 		const FJsonNodeView Dependencies = Root.GetView("Dependencies");
-		if (!Dependencies.IsArray() || Dependencies.Num() == 0 || Dependencies.Num() > GMaximumShaderDependencies)
+		if (!Dependencies.IsArray()
+			|| Dependencies.Num() > GMaximumShaderDependencies)
 		{
 			return false;
 		}
@@ -362,7 +363,9 @@ namespace Durin
 
 	auto FShaderCacheStore::SaveMetaData(std::string_view VirtualShaderPath, const FShaderDependencyKey& DependencyKey, const FShaderMetaData& MetaData) -> bool
 	{
-		if (!IsValidCacheKey(DependencyKey.Hex) || MetaData.Dependencies.empty() || MetaData.Dependencies.size() > GMaximumShaderDependencies)
+		if (!IsValidCacheKey(DependencyKey.Hex)
+			|| MetaData.SourceTreeSignature.IsZero()
+			|| MetaData.Dependencies.size() > GMaximumShaderDependencies)
 		{
 			return false;
 		}

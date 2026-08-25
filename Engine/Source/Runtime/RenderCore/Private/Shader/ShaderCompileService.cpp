@@ -5,9 +5,12 @@
 #include "SlangShaderDependencyResolver.h"
 
 #include "Misc/FileFingerprintCache.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "ShaderCacheStore.h"
 #include "Shader/ShaderPaths.h"
+
+#include <tuple>
 
 namespace Durin
 {
@@ -59,9 +62,78 @@ namespace Durin
 		class FShaderCompileService
 		{
 		public:
+			FShaderCompileService()
+				: CompilerEnvironmentIdentity(Compiler.GetEnvironmentIdentity())
+			{
+			}
+
 			~FShaderCompileService()
 			{
 				FileFingerprintCache.Clear();
+			}
+
+			auto GetCompilerEnvironmentIdentity() const -> const std::string&
+			{
+				return CompilerEnvironmentIdentity;
+			}
+
+			auto BuildSourceDependencyManifest(
+				std::string_view VirtualShaderPath,
+				const FShaderCompileOptions& Options,
+				std::vector<FShaderSourceDependencyFingerprint>& OutDependencies,
+				std::string& OutError) -> bool
+			{
+				OutDependencies.clear();
+				OutError.clear();
+				if (VirtualShaderPath.empty())
+				{
+					OutError = "Shader dependency manifest requires a virtual root path.";
+					return false;
+				}
+				FShaderCompileOptions EffectiveOptions = Options;
+				EffectiveOptions.VirtualShaderPath = std::string(VirtualShaderPath);
+				EffectiveOptions.CompilerEnvironment = CompilerEnvironmentIdentity;
+				std::vector<std::string> PhysicalDependencies;
+				if (!DependencyResolver.Resolve(
+					FShaderPaths::SourcePath(VirtualShaderPath), EffectiveOptions,
+					PhysicalDependencies, OutError)) return false;
+
+				OutDependencies.reserve(PhysicalDependencies.size());
+				for (const std::string& PhysicalPath : PhysicalDependencies)
+				{
+					std::string VirtualPath;
+					if (!FShaderPaths::TryMakeVirtualSourcePath(
+						PhysicalPath, VirtualPath))
+					{
+						OutError = "Shader dependency cannot be represented by a registered virtual path.";
+						OutDependencies.clear();
+						return false;
+					}
+					FXxHash128 ContentHash;
+					std::error_code ErrorCode;
+					if (!FFileHelper::HashFileXx128(
+						PhysicalPath, ContentHash, ErrorCode))
+					{
+						OutError = std::format(
+							"Failed to fingerprint shader dependency {}: {}",
+							VirtualPath, ErrorCode.message());
+						OutDependencies.clear();
+						return false;
+					}
+					OutDependencies.push_back({
+						.VirtualPath = std::move(VirtualPath),
+						.ContentHash = ContentHash});
+				}
+				std::ranges::sort(OutDependencies, [](const auto& A, const auto& B) {
+					return std::tie(A.VirtualPath, A.ContentHash.HashHigh,
+						A.ContentHash.HashLow)
+						< std::tie(B.VirtualPath, B.ContentHash.HashHigh,
+							B.ContentHash.HashLow);
+				});
+				OutDependencies.erase(
+					std::unique(OutDependencies.begin(), OutDependencies.end()),
+					OutDependencies.end());
+				return true;
 			}
 
 			auto GetOrCompile(std::string_view VirtualShaderPath, const FShaderCompileOptions& Options) -> FShaderCompilerOutput
@@ -81,7 +153,7 @@ namespace Durin
 				const std::string SourceFilePath = FShaderPaths::SourcePath(VirtualShaderPath);
 				FShaderCompileOptions EffectiveOptions = Options;
 				EffectiveOptions.VirtualShaderPath = std::string(VirtualShaderPath);
-				EffectiveOptions.CompilerEnvironment = Compiler.GetEnvironmentIdentity();
+				EffectiveOptions.CompilerEnvironment = CompilerEnvironmentIdentity;
 
 				std::vector<FShaderMacroDefinition> NormalizedMacros;
 				if (!ShaderCompileUtilities::NormalizeMacros(EffectiveOptions, NormalizedMacros, Output.ErrorMessage))
@@ -151,7 +223,7 @@ namespace Durin
 				Options.Macros = Request.Macros;
 				Options.bForceRecompile = Request.bForceRecompile;
 				Options.VirtualShaderPath = Request.VirtualPath;
-				Options.CompilerEnvironment = Compiler.GetEnvironmentIdentity();
+				Options.CompilerEnvironment = CompilerEnvironmentIdentity;
 				Options.EntryPoints.reserve(Request.EntryPoints.size());
 				for (const std::string& Entry : Request.EntryPoints)
 					Options.EntryPoints.push_back(Entry.c_str());
@@ -159,6 +231,12 @@ namespace Durin
 				std::vector<FShaderMacroDefinition> Macros;
 				if (!ShaderCompileUtilities::NormalizeMacros(
 					Options, Macros, Output.ErrorMessage)) return Output;
+				std::vector<std::string> AllowedImportVirtualPrefixes =
+					Request.AllowedImportVirtualPrefixes;
+				std::ranges::sort(AllowedImportVirtualPrefixes);
+				AllowedImportVirtualPrefixes.erase(
+					std::ranges::unique(AllowedImportVirtualPrefixes).begin(),
+					AllowedImportVirtualPrefixes.end());
 				const FXxHash128 SourceHash = FXxHash128::HashBuffer(Request.Source);
 				const auto& Mounts = FShaderPaths::GetRegisteredMountPoints();
 				if (Mounts.empty())
@@ -169,7 +247,7 @@ namespace Durin
 				const auto SourceMount = std::ranges::find_if(Mounts,
 					[&](const FShaderPaths::FShaderMountPoint& Mount) {
 						return std::ranges::any_of(
-							Request.AllowedImportVirtualPrefixes,
+							AllowedImportVirtualPrefixes,
 							[&](const std::string& Prefix) {
 								return Prefix.starts_with(Mount.VirtualRoot);
 							});
@@ -178,36 +256,76 @@ namespace Durin
 					(std::filesystem::path(SourceMount != Mounts.end()
 						? SourceMount->SourceDir : Mounts.front().SourceDir)
 						/ "GeneratedMaterial.slang").generic_string();
-				std::vector<std::string> DependencyPaths;
-				DependencyResolutions.fetch_add(1, std::memory_order_relaxed);
-				if (!DependencyResolver.ResolveSource(
-					Request.VirtualPath.substr(1), SourcePathHint, Request.Source,
-					Options, DependencyPaths, Output.ErrorMessage)) return Output;
-				for (const std::string& PhysicalPath : DependencyPaths)
+				const std::string CachePath = std::format(
+					"{}__GeneratedMaterials/{}", Mounts.front().VirtualRoot,
+					SourceHash.ToString());
+				FXxHash128Builder ImportContextBuilder;
+				UpdateHashStringField(
+					ImportContextBuilder, "DurinGeneratedImportContext_v1");
+				UpdateHashStringField(ImportContextBuilder, SourcePathHint);
+				ImportContextBuilder.UpdateValue(
+					static_cast<uint64>(AllowedImportVirtualPrefixes.size()));
+				for (const std::string& Prefix : AllowedImportVirtualPrefixes)
+					UpdateHashStringField(ImportContextBuilder, Prefix);
+				const std::string DependencyIdentity = std::format(
+					"{}/Imports/{}", CachePath,
+					ImportContextBuilder.Finalize().ToString());
+				FShaderDependencyKey DependencyKey;
+				ShaderCompileUtilities::BuildDependencyKey(
+					DependencyIdentity, Macros, Options.CompilerEnvironment,
+					DependencyKey);
+				FShaderMetaData DependencyMetaData;
+				bool bManifestCurrent = false;
+				if (CacheStore.LoadMetaData(
+					CachePath, DependencyKey, DependencyMetaData))
 				{
-					std::string VirtualPath;
-					if (!FShaderPaths::TryMakeVirtualSourcePath(
-						PhysicalPath, VirtualPath))
+					std::string ManifestError;
+					if (!ShaderCompileUtilities::TryReuseMetaData(
+						DependencyMetaData, FileFingerprintCache,
+						bManifestCurrent, ManifestError))
 					{
-						Output.ErrorMessage = "Generated shader import has no virtual identity";
-						return Output;
-					}
-					const bool bAllowed = std::ranges::any_of(
-						Request.AllowedImportVirtualPrefixes,
-						[&](const std::string& Prefix) {
-							return VirtualPath.starts_with(Prefix);
-						});
-					if (!bAllowed)
-					{
-						Output.ErrorMessage = std::format(
-							"Generated shader import is not allowlisted: {}", VirtualPath);
-						return Output;
+						DURIN_WARN(
+							"Failed to validate generated shader dependency manifest for {}: {}",
+							Request.VirtualPath, ManifestError);
 					}
 				}
-				FShaderMetaData MetaData;
-				if (!ShaderCompileUtilities::BuildShaderMetaData(
-					DependencyPaths, FileFingerprintCache, MetaData,
+
+				std::vector<std::string> DependencyPaths;
+				if (bManifestCurrent)
+				{
+					DependencyPaths.reserve(DependencyMetaData.Dependencies.size());
+					for (const FFileFingerprint& Dependency
+						: DependencyMetaData.Dependencies)
+						DependencyPaths.push_back(Dependency.NormalizedPath);
+				}
+				else
+				{
+					DependencyResolutions.fetch_add(1, std::memory_order_relaxed);
+					if (!DependencyResolver.ResolveSource(
+						Request.VirtualPath.substr(1), SourcePathHint,
+						Request.Source, Options, DependencyPaths,
+						Output.ErrorMessage)) return Output;
+					if (!ShaderCompileUtilities::BuildShaderMetaData(
+						DependencyPaths, FileFingerprintCache,
+						DependencyMetaData, Output.ErrorMessage)) return Output;
+				}
+				if (!ValidateGeneratedImports(
+					DependencyPaths, AllowedImportVirtualPrefixes,
 					Output.ErrorMessage)) return Output;
+				if (!bManifestCurrent)
+				{
+					if (!CacheStore.SaveMetaData(
+						CachePath, DependencyKey, DependencyMetaData))
+						DURIN_WARN(
+							"Generated shader dependency manifest write failed for {}",
+							Request.VirtualPath);
+				}
+				else
+				{
+					ManifestHits.fetch_add(1, std::memory_order_relaxed);
+				}
+
+				FShaderMetaData MetaData = DependencyMetaData;
 				FXxHash128Builder SourceTree;
 				SourceTree.Update("DurinGeneratedShaderSourceTree_v1");
 				SourceTree.UpdateValue(SourceHash);
@@ -230,9 +348,6 @@ namespace Durin
 						return Found->second.Output;
 					}
 				}
-				const std::string CachePath = std::format(
-					"{}__GeneratedMaterials/{}", Mounts.front().VirtualRoot,
-					SourceHash.ToString());
 				if (!Options.bForceRecompile && CacheStore.TryLoad(
 					CachePath, Options, VariantKey, Output))
 				{
@@ -253,6 +368,36 @@ namespace Durin
 
 		private:
 			static constexpr size_t GMaximumOutputEntries = 128;
+
+			static auto ValidateGeneratedImports(
+				std::span<const std::string> DependencyPaths,
+				std::span<const std::string> AllowedImportVirtualPrefixes,
+				std::string& OutErrorMessage) -> bool
+			{
+				for (const std::string& PhysicalPath : DependencyPaths)
+				{
+					std::string VirtualPath;
+					if (!FShaderPaths::TryMakeVirtualSourcePath(
+						PhysicalPath, VirtualPath))
+					{
+						OutErrorMessage =
+							"Generated shader import has no virtual identity";
+						return false;
+					}
+					if (!std::ranges::any_of(
+						AllowedImportVirtualPrefixes,
+						[&](const std::string& Prefix) {
+							return VirtualPath.starts_with(Prefix);
+						}))
+					{
+						OutErrorMessage = std::format(
+							"Generated shader import is not allowlisted: {}",
+							VirtualPath);
+						return false;
+					}
+				}
+				return true;
+			}
 
 			struct FOutputCacheEntry
 			{
@@ -370,6 +515,7 @@ namespace Durin
 
 			FSlangShaderCompiler Compiler;
 			FSlangShaderDependencyResolver DependencyResolver;
+			const std::string CompilerEnvironmentIdentity;
 			FShaderCacheStore CacheStore;
 			FFileFingerprintCache FileFingerprintCache;
 			std::mutex InFlightMutex;
@@ -414,6 +560,29 @@ namespace Durin
 		return GShaderCompileService ? GShaderCompileService->GetStats() : FShaderCompileServiceStats{};
 	}
 
+	auto GetShaderCompilerEnvironmentIdentityFromService() -> std::string
+	{
+		return GShaderCompileService
+			? GShaderCompileService->GetCompilerEnvironmentIdentity()
+			: std::string{};
+	}
+
+	auto BuildShaderSourceDependencyManifestFromService(
+		std::string_view VirtualShaderPath,
+		const FShaderCompileOptions& Options,
+		std::vector<FShaderSourceDependencyFingerprint>& OutDependencies,
+		std::string& OutError) -> bool
+	{
+		if (!GShaderCompileService)
+		{
+			OutDependencies.clear();
+			OutError = "Shader compile service is not initialized";
+			return false;
+		}
+		return GShaderCompileService->BuildSourceDependencyManifest(
+			VirtualShaderPath, Options, OutDependencies, OutError);
+	}
+
 	auto GetOrCompileGeneratedShader(
 		const FGeneratedShaderCompileRequest& Request)
 		-> FShaderCompilerOutput
@@ -426,4 +595,5 @@ namespace Durin
 		}
 		return GShaderCompileService->GetOrCompileGenerated(Request);
 	}
+
 }

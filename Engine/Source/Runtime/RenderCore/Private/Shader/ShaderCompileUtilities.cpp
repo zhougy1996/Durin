@@ -145,7 +145,7 @@ namespace Durin::ShaderCompileUtilities
 	) -> bool
 	{
 		bOutCurrent = false;
-		if (CachedMetaData.SourceTreeSignature.IsZero() || CachedMetaData.Dependencies.empty())
+		if (CachedMetaData.SourceTreeSignature.IsZero())
 		{
 			return true;
 		}

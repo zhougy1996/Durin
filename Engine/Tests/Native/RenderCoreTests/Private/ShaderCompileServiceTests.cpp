@@ -139,11 +139,106 @@ float4 FragmentMain() : SV_Target0
 		EXPECT_EQ(WarmStats.Compilations, ColdStats.Compilations);
 		EXPECT_EQ(WarmStats.MemoryHits, ColdStats.MemoryHits + 1u);
 
+		ShutdownShaderCompileService();
+		InitShaderCompileService();
+		const FShaderCompilerOutput RestartWarm =
+			GetOrCompileGeneratedShader(Request);
+		ASSERT_TRUE(RestartWarm) << RestartWarm.ErrorMessage;
+		const auto RestartWarmStats = GetShaderCompileServiceStats();
+		EXPECT_EQ(RestartWarmStats.DependencyResolutions, 0u);
+		EXPECT_EQ(RestartWarmStats.ManifestHits, 1u);
+		EXPECT_EQ(RestartWarmStats.DiskHits, 1u);
+		EXPECT_EQ(RestartWarmStats.Compilations, 0u);
+		EXPECT_EQ(RestartWarmStats.ContentReads, 0u);
+
 		Request.AllowedImportVirtualPrefixes.clear();
 		const FShaderCompilerOutput Rejected =
 			GetOrCompileGeneratedShader(Request);
 		EXPECT_FALSE(Rejected);
 		EXPECT_NE(Rejected.ErrorMessage.find("allowlisted"), std::string::npos);
+	}
+
+	TEST_F(FShaderCompileServiceTests,
+		GeneratedManifestInvalidatesWhenImportedModuleChanges)
+	{
+		const std::filesystem::path ImportedPath =
+			GetServiceTestRoot() / "Source/Imported.slang";
+		WriteTextFile(ImportedPath,
+			"module Imported; public float GeneratedValue() { return 0.25; }\n");
+		FGeneratedShaderCompileRequest Request;
+		Request.VirtualPath =
+			"/Generated/Materials/ffeeddccbbaa99887766554433221100";
+		Request.Source = R"(module GeneratedMaterialInvalidationTest;
+import Imported;
+[shader("fragment")]
+float4 FragmentMain() : SV_Target0
+{
+    return float4(GeneratedValue(), 0.5, 0.75, 1.0);
+}
+)";
+		Request.EntryPoints = {"FragmentMain"};
+		Request.Frequencies = {EShaderFrequency::Fragment};
+		Request.AllowedImportVirtualPrefixes = {
+			"/ShaderCompileServiceTests/"};
+
+		InitShaderCompileService();
+		const FShaderCompilerOutput First =
+			GetOrCompileGeneratedShader(Request);
+		ASSERT_TRUE(First) << First.ErrorMessage;
+		ASSERT_EQ(First.CompiledShaders.size(), 1u);
+		const FXxHash128 FirstHash = First.CompiledShaders.front().Hash;
+		ShutdownShaderCompileService();
+
+		WriteTextFile(ImportedPath,
+			"module Imported; public float GeneratedValue() { return 0.875; }\n");
+		std::filesystem::last_write_time(
+			ImportedPath,
+			std::filesystem::last_write_time(ImportedPath)
+				+ std::chrono::seconds(2));
+		InitShaderCompileService();
+		const FShaderCompilerOutput Changed =
+			GetOrCompileGeneratedShader(Request);
+		ASSERT_TRUE(Changed) << Changed.ErrorMessage;
+		ASSERT_EQ(Changed.CompiledShaders.size(), 1u);
+		EXPECT_NE(Changed.CompiledShaders.front().Hash, FirstHash);
+		const auto Stats = GetShaderCompileServiceStats();
+		EXPECT_EQ(Stats.DependencyResolutions, 1u);
+		EXPECT_EQ(Stats.ManifestHits, 0u);
+		EXPECT_EQ(Stats.DiskHits, 0u);
+		EXPECT_EQ(Stats.Compilations, 1u);
+	}
+
+	TEST_F(FShaderCompileServiceTests,
+		GeneratedShaderWithoutImportsReusesEmptyManifestAfterRestart)
+	{
+		FGeneratedShaderCompileRequest Request;
+		Request.VirtualPath =
+			"/Generated/Materials/1234567890abcdef1234567890abcdef";
+		Request.Source = R"(module GeneratedMaterialWithoutImports;
+[shader("fragment")]
+float4 FragmentMain() : SV_Target0
+{
+    return float4(0.25, 0.5, 0.75, 1.0);
+}
+)";
+		Request.EntryPoints = {"FragmentMain"};
+		Request.Frequencies = {EShaderFrequency::Fragment};
+
+		InitShaderCompileService();
+		const FShaderCompilerOutput First =
+			GetOrCompileGeneratedShader(Request);
+		ASSERT_TRUE(First) << First.ErrorMessage;
+		ShutdownShaderCompileService();
+
+		InitShaderCompileService();
+		const FShaderCompilerOutput Warm =
+			GetOrCompileGeneratedShader(Request);
+		ASSERT_TRUE(Warm) << Warm.ErrorMessage;
+		const auto Stats = GetShaderCompileServiceStats();
+		EXPECT_EQ(Stats.DependencyResolutions, 0u);
+		EXPECT_EQ(Stats.ManifestHits, 1u);
+		EXPECT_EQ(Stats.DiskHits, 1u);
+		EXPECT_EQ(Stats.Compilations, 0u);
 	}
 
 	TEST_F(FShaderCompileServiceTests, ConcurrentIdenticalRequestsCompileOnce)
@@ -369,13 +464,14 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		Options.Macros.emplace_back("DURIN_MATERIAL_SHADING_MODEL", "1");
 		Options.Macros.emplace_back(
 			"DURIN_MATERIAL_OPACITY_MASK_THRESHOLD_BITS", "1056964608");
+		InitShaderCompileService();
 		std::vector<FShaderSourceDependencyFingerprint> FirstManifest;
 		std::vector<FShaderSourceDependencyFingerprint> SecondManifest;
 		std::string ManifestError;
-		ASSERT_TRUE(BuildShaderSourceDependencyManifest(
+		ASSERT_TRUE(BuildShaderSourceDependencyManifestFromService(
 			VirtualPath, Options, FirstManifest, ManifestError))
 			<< ManifestError;
-		ASSERT_TRUE(BuildShaderSourceDependencyManifest(
+		ASSERT_TRUE(BuildShaderSourceDependencyManifestFromService(
 			VirtualPath, Options, SecondManifest, ManifestError))
 			<< ManifestError;
 		EXPECT_EQ(FirstManifest, SecondManifest);
@@ -390,7 +486,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 			EXPECT_FALSE(Dependency.ContentHash.IsZero());
 		}
 		const std::string CompilerIdentity =
-			GetShaderCompilerEnvironmentIdentity();
+			GetShaderCompilerEnvironmentIdentityFromService();
 		EXPECT_FALSE(CompilerIdentity.empty());
 		EXPECT_NE(CompilerIdentity.find("spirv"), std::string::npos);
 
@@ -402,7 +498,6 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 			DependencyDiagnostic)) << DependencyDiagnostic;
 		ASSERT_FALSE(Dependencies.empty());
 
-		InitShaderCompileService();
 		FShaderCompileOptions ColdOptions = Options;
 		ColdOptions.bForceRecompile = true;
 		const auto ColdBegin = std::chrono::steady_clock::now();

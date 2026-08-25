@@ -22,5 +22,11 @@ namespace Durin
 	auto GetOrCompileGeneratedShader(
 		const FGeneratedShaderCompileRequest& Request)
 		-> FShaderCompilerOutput;
+	auto GetShaderCompilerEnvironmentIdentityFromService() -> std::string;
+	auto BuildShaderSourceDependencyManifestFromService(
+		std::string_view VirtualShaderPath,
+		const FShaderCompileOptions& Options,
+		std::vector<FShaderSourceDependencyFingerprint>& OutDependencies,
+		std::string& OutError) -> bool;
 	auto GetShaderCompileServiceStats() -> FShaderCompileServiceStats;
 } // namespace Durin
