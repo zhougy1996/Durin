@@ -4,24 +4,22 @@ Summary: Build the command-driven material graph authoring workflow, canvas, dia
 
 Last reviewed: 2026-08-26
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-26
 
 ## Current Status
 
-Material System milestones 5 and 6 are complete. `DMaterial` persists one
-bounded reflected `FMaterialProgram`; validation, normalized IR, stable program
-identity, source-linked diagnostics, asynchronous compilation, last-known-good
-publication, Cook admission, and runtime loading are already implemented.
+Material System milestone 7 is complete. MaterialEditor now exposes one
+UI-independent, candidate-validated command surface for the existing bounded
+`FMaterialProgram`, a typed ImGui canvas, reflected editor-only presentation,
+atomic transactions, versioned clipboard operations, deterministic layout, and
+diagnostic navigation. Base-material documents preserve independent canvas
+state and handle asset relocation, deletion, save/discard, compile failure, and
+last-known-good preview behavior without changing the M5 program or M6 compiler
+lifecycle architecture.
 
-MaterialEditor can edit base materials and instances, manage dirty documents,
-Undo/Redo reflected property edits, display compile status and diagnostics, and
-render live previews. It cannot author the landed program: there is no graph
-editing command surface, persisted node presentation, canvas, node/pin
-interaction, copy/paste, automatic layout, or diagnostic-to-node navigation.
-
-This plan executes Material System roadmap milestone 7 without changing the M5
-program or M6 compiler lifecycle architecture.
+The lasting ownership and interaction contracts now live in
+[Material Graph Authoring](../Editor/Architecture/MaterialGraphAuthoring.md).
 
 ## Goal
 
@@ -324,20 +322,42 @@ not infer success from labels or mutate reflected storage directly.
 
 ### Stage 5: Qualify and document the landed workflow
 
-- [ ] Run the selected native command/schema/compiler tests, MaterialEditor
+- [x] Run the selected native command/schema/compiler tests, MaterialEditor
   workflow tests, rendered preview checks, Cook regression, and maximum-graph
   interaction workload under the repository test workflow.
-- [ ] Record exact targets, configurations, workloads, timings, and any justified
+- [x] Record exact targets, configurations, workloads, timings, and any justified
   exceptions in this plan.
-- [ ] Move lasting authoring, presentation, command, and interaction contracts to
+- [x] Move lasting authoring, presentation, command, and interaction contracts to
   the owning Runtime and Editor documentation.
-- [ ] Update the Material System roadmap M7 status and route any measured runtime
+- [x] Update the Material System roadmap M7 status and route any measured runtime
   scalability evidence to M8 without implementing it here.
 
 #### Acceptance Gate
 
 - The validation matrix passes, lasting contracts are authoritative outside the
   plan, and Material System milestone 7 satisfies its exit gate.
+
+## Completion Record
+
+Completed on 2026-08-26 in `Win64-Debug-DurinEditor`.
+
+| Command or workload | Result |
+| --- | --- |
+| `.\DevTool.bat test MaterialTests` | 93/93 passed; 7.254 seconds of test execution, 7.88 seconds total. Covers the schema, sanitizer, opcode catalog and pins, atomic commands, transactions, copy/paste, normalized identity, diagnostic navigation, compiler lifecycle, Cook round-trip, and a deterministic 256-node layout asserted below one second. |
+| `.\DevTool.bat test EditorShellTests` | 49/49 passed; 95 milliseconds of test execution, 0.66 seconds total. Includes open and deferred document resource-ID remapping. |
+| `.\DevTool.bat test MaterialThumbnailTests` | 6/6 passed; 835 milliseconds of test execution, 4.97 seconds total. |
+| `.\DevTool.bat test MaterialVulkanTests` | 1/1 passed; 6.405 seconds of test execution, 11.47 seconds total. Qualifies material rendering correctness; the run is not authoritative GPU-performance evidence because external GPU exclusivity was not established. |
+| `.\DevTool.bat build` | The full `all` target linked successfully in 14.11 seconds. |
+| Hidden editor startup smoke | `DurinEditor.exe` remained alive for eight seconds after startup and was then intentionally force-stopped. |
+| `.\DevTool.bat doc validate --scope changed` | Passed for all changed documents. |
+| `.\DevTool.bat doc plan validate --scope all` | Passed for the complete plan set. |
+| `.\DevTool.bat doc roadmap validate --scope all` | Passed for the complete roadmap set. |
+
+The rendered qualification uses the existing Vulkan material test, thumbnail
+tests, full editor link, and startup smoke rather than introducing a brittle
+canvas pixel baseline. Canvas interaction semantics and maximum-graph behavior
+are qualified through the shared command/controller tests; runtime update
+scalability remains deliberately evidence-gated in roadmap milestone 8.
 
 ## Validation Matrix
 
@@ -380,6 +400,7 @@ not infer success from labels or mutate reflected storage directly.
 
 - [Material System Roadmap](../Roadmaps/MaterialSystem.md)
 - [Material System](../Runtime/Rendering/MaterialSystem.md)
+- [Material Graph Authoring](../Editor/Architecture/MaterialGraphAuthoring.md)
 - [Material Compile Lifecycle and Derived Data](MaterialCompileLifecycleAndDerivedData.md)
 - [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
 - [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)

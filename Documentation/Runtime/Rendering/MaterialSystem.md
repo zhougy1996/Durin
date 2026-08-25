@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -86,6 +86,13 @@ missing or incompatible surface outputs before residency. Diagnostics are
 bounded and sort by stable category/node/location/message identity. Duplication
 deep-copies program values while preserving program GUIDs; presentation names
 round trip but do not affect rendering semantics.
+
+Base materials also persist bounded `EditorOnly` graph presentation containing
+one integral position per live node GUID. It sanitizes independently from the
+program and never enters validation, normalized IR, compile snapshots, shader
+identity, derived data, or Cook. MaterialEditor's shared inspection, command,
+canvas, clipboard, transaction, and diagnostic-navigation boundary is defined
+by [Material Graph Authoring](../../Editor/Architecture/MaterialGraphAuthoring.md).
 
 The persisted program is authored state, not a render artifact. GameThread can
 snapshot it, parameter declarations, code-affecting static properties, target,
