@@ -277,13 +277,12 @@ namespace Durin::Asset::Build
 		ETerrainWorldOutcome& OutOutcome, std::string& OutError) -> bool
 	{
 		OutManifest = {};
-		if (Bytes.size() < 6)
-			return Fail(ETerrainWorldOutcome::Corrupt,
-				"Terrain World manifest is truncated.", OutOutcome, OutError);
 		uint32 Magic = 0;
 		uint16 Version = 0;
-		ReadLittleEndianAt(Bytes, 0, Magic);
-		ReadLittleEndianAt(Bytes, 4, Version);
+		if (Bytes.size() < 6 || !ReadLittleEndianAt(Bytes, 0, Magic)
+			|| !ReadLittleEndianAt(Bytes, 4, Version))
+			return Fail(ETerrainWorldOutcome::Corrupt,
+				"Terrain World manifest is truncated.", OutOutcome, OutError);
 		if (Magic != ManifestMagic)
 			return Fail(ETerrainWorldOutcome::UnsupportedLegacySchema,
 				"Terrain World manifest magic is unsupported.", OutOutcome, OutError);
