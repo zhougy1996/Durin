@@ -238,7 +238,7 @@ TEST(FTerrainWorldBuildTests, OrderedHeightAndCoverageSourcesComposeDeterministi
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::MissingDependency);
 }
 
-TEST(FTerrainWorldBuildTests, AsymmetricTileBuildIsDeterministicAndEveryCodecRoundTrips)
+TEST(FTerrainWorldBuildTests, AsymmetricTileBuildIsDeterministicAndEveryProductBodyRoundTrips)
 {
 	const FTerrainNormalizedTileInput Input = MakeInput();
 	ETerrainWorldOutcome Outcome{};
@@ -262,6 +262,15 @@ TEST(FTerrainWorldBuildTests, AsymmetricTileBuildIsDeterministicAndEveryCodecRou
 		const FTerrainTileProduct& Product = First.Products[Index];
 		EXPECT_EQ(Product.Bytes, Second.Products[Index].Bytes);
 		EXPECT_EQ(Product.DerivedDataKey, Second.Products[Index].DerivedDataKey);
+		const std::array ProductMagic{std::byte{'T'}, std::byte{'W'},
+			std::byte{'P'}, std::byte{'D'}};
+		EXPECT_TRUE(std::equal(Product.Bytes.begin(), Product.Bytes.begin() + 4,
+			ProductMagic.begin()));
+		EXPECT_TRUE(std::equal(Product.Bytes.begin(), Product.Bytes.begin() + 4,
+			First.Products[0].Bytes.begin()));
+		EXPECT_EQ(std::to_integer<uint8>(Product.Bytes[6]),
+			static_cast<uint8>(Product.ProductClass));
+		EXPECT_EQ(Product.Bytes[7], std::byte{0});
 		FTerrainTileProduct Decoded;
 		ASSERT_TRUE(DecodeTerrainTileProduct(Product.Bytes, Product.ProductClass,
 			Decoded, Outcome, Error)) << Error;
@@ -276,7 +285,7 @@ TEST(FTerrainWorldBuildTests, AsymmetricTileBuildIsDeterministicAndEveryCodecRou
 	EXPECT_LE(First.Products[4].Bytes.size(), 160u * 1024u);
 }
 
-TEST(FTerrainWorldBuildTests, CodecRejectsLegacyCorruptionTrailingAndOversizedInputBeforePublication)
+TEST(FTerrainWorldBuildTests, EnvelopeRejectsLegacyClassMismatchCorruptionTrailingAndOversizedInput)
 {
 	const FTerrainNormalizedTileInput Input = MakeInput();
 	ETerrainWorldOutcome Outcome{};
@@ -285,10 +294,19 @@ TEST(FTerrainWorldBuildTests, CodecRejectsLegacyCorruptionTrailingAndOversizedIn
 	ASSERT_TRUE(BuildTerrainTileGeneration(Input, Id(9), Generation, Outcome, Error)) << Error;
 	std::vector<std::byte> Bytes = Generation.Products[1].Bytes;
 	FTerrainTileProduct Product;
-	Bytes[0] = static_cast<std::byte>('D');
+	Bytes[0] = std::byte{'T'};
+	Bytes[1] = std::byte{'W'};
+	Bytes[2] = std::byte{'H'};
+	Bytes[3] = std::byte{'T'};
 	EXPECT_FALSE(DecodeTerrainTileProduct(Bytes, ETerrainTileProductClass::Height,
 		Product, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::UnsupportedLegacySchema);
+	Bytes = Generation.Products[1].Bytes;
+	Bytes[6] = static_cast<std::byte>(
+		static_cast<uint8>(ETerrainTileProductClass::Coverage));
+	EXPECT_FALSE(DecodeTerrainTileProduct(Bytes, ETerrainTileProductClass::Height,
+		Product, Outcome, Error));
+	EXPECT_EQ(Outcome, ETerrainWorldOutcome::Corrupt);
 	Bytes = Generation.Products[1].Bytes;
 	Bytes.back() ^= std::byte{1};
 	EXPECT_FALSE(DecodeTerrainTileProduct(Bytes, ETerrainTileProductClass::Height,

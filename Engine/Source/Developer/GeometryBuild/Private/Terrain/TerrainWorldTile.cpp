@@ -9,11 +9,7 @@ namespace Durin::Asset::Build
 {
 	namespace
 	{
-		constexpr uint32 MagicMetadata = 0x444d5754; // TWMD
-		constexpr uint32 MagicHeight = 0x54485754; // TWHT
-		constexpr uint32 MagicCoverage = 0x56435754; // TWCV
-		constexpr uint32 MagicCollision = 0x4c435754; // TWCL
-		constexpr uint32 MagicQuery = 0x59515754; // TWQY
+		constexpr uint32 ProductEnvelopeMagic = 0x44505754; // TWPD
 		constexpr uint32 RequiredFlags = 1;
 		constexpr uint64 MaximumLatticeContributionMeters = 1ull << 40;
 		constexpr uint64 MaximumCellsPerAxis = 1ull << 31;
@@ -30,19 +26,6 @@ namespace Durin::Asset::Build
 		auto ProductIndex(ETerrainTileProductClass ProductClass) -> size_t
 		{
 			return static_cast<size_t>(ProductClass) - 1;
-		}
-
-		auto ProductMagic(ETerrainTileProductClass ProductClass) -> uint32
-		{
-			switch (ProductClass)
-			{
-			case ETerrainTileProductClass::Metadata: return MagicMetadata;
-			case ETerrainTileProductClass::Height: return MagicHeight;
-			case ETerrainTileProductClass::Coverage: return MagicCoverage;
-			case ETerrainTileProductClass::Collision: return MagicCollision;
-			case ETerrainTileProductClass::Query: return MagicQuery;
-			}
-			return 0;
 		}
 
 		auto ProductCeiling(ETerrainTileProductClass ProductClass) -> uint64
@@ -146,7 +129,9 @@ namespace Durin::Asset::Build
 
 		auto IsValidProductClass(ETerrainTileProductClass ProductClass) -> bool
 		{
-			return ProductMagic(ProductClass) != 0;
+			const uint8 Value = static_cast<uint8>(ProductClass);
+			return Value >= static_cast<uint8>(ETerrainTileProductClass::Metadata)
+				&& Value <= static_cast<uint8>(ETerrainTileProductClass::Query);
 		}
 
 		auto EncodeCommonKey(const FTerrainNormalizedTileInput& Input,
@@ -1062,9 +1047,9 @@ namespace Durin::Asset::Build
 				OutOutcome, OutError);
 		const FXxHash128 BodyHash = FXxHash128::HashBuffer(Body);
 		FBinaryWriter Writer;
-		Writer.WriteU32(ProductMagic(ProductClass));
+		Writer.WriteU32(ProductEnvelopeMagic);
 		Writer.WriteU16(TerrainWorldSchemaVersion);
-		Writer.WriteU16(0);
+		Writer.WriteU16(static_cast<uint16>(ProductClass));
 		Writer.WriteU32(RequiredFlags);
 		Writer.WriteU32(0);
 		WriteTileKey(Writer, Tile);
@@ -1094,31 +1079,35 @@ namespace Durin::Asset::Build
 		if (!IsValidProductClass(ExpectedClass))
 			return Fail(ETerrainWorldOutcome::InvalidDefinition,
 				"Expected Terrain tile product class is invalid.", OutOutcome, OutError);
-		if (Bytes.size() < 6)
+		if (Bytes.size() < 8)
 			return Fail(ETerrainWorldOutcome::Corrupt,
 				"Terrain tile product header is truncated.", OutOutcome, OutError);
 		uint32 Magic = 0;
-		uint16 Version = 0;
-		if (!ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, Version))
+		uint16 Version = 0, EncodedClass = 0;
+		if (!ReadLittleEndianAt(Bytes, 0, Magic) || !ReadLittleEndianAt(Bytes, 4, Version)
+			|| !ReadLittleEndianAt(Bytes, 6, EncodedClass))
 			return Fail(ETerrainWorldOutcome::Corrupt,
 				"Terrain tile product header is truncated.", OutOutcome, OutError);
-		if (Magic != ProductMagic(ExpectedClass))
+		if (Magic != ProductEnvelopeMagic)
 			return Fail(ETerrainWorldOutcome::UnsupportedLegacySchema,
-				std::format("Terrain tile product magic {:#x} does not match expected {:#x}; legacy Terrain values are never decoded.",
-					Magic, ProductMagic(ExpectedClass)), OutOutcome, OutError);
+				std::format("Terrain tile product magic {:#x} does not match the unified TWPD envelope; legacy Terrain values are never decoded.",
+					Magic), OutOutcome, OutError);
 		if (Version != TerrainWorldSchemaVersion)
 			return Fail(ETerrainWorldOutcome::Incompatible,
 				"Terrain tile product schema version is incompatible.", OutOutcome, OutError);
+		if (EncodedClass != static_cast<uint16>(ExpectedClass))
+			return Fail(ETerrainWorldOutcome::Corrupt,
+				"Terrain tile product class does not match the requested product.", OutOutcome, OutError);
 		if (Bytes.size() > ProductCeiling(ExpectedClass) || Bytes.size() < HeaderBytes)
 			return Fail(ETerrainWorldOutcome::BudgetRejected,
 				"Terrain tile product byte count is outside its class bound.", OutOutcome, OutError);
 		FBinaryReader Reader(Bytes);
 		uint32 HeaderMagic = 0, Required = 0, Optional = 0, DependencyCount = 0, Reserved32 = 0;
-		uint16 HeaderVersion = 0, Reserved16 = 0, TileReserved = 0;
+		uint16 HeaderVersion = 0, HeaderClass = 0, TileReserved = 0;
 		FTerrainTileProduct Candidate;
 		uint64 LogicalBytes = 0, StoredBytes = 0;
 		if (!Reader.ReadU32(HeaderMagic) || !Reader.ReadU16(HeaderVersion)
-			|| !Reader.ReadU16(Reserved16) || !Reader.ReadU32(Required)
+			|| !Reader.ReadU16(HeaderClass) || !Reader.ReadU32(Required)
 			|| !Reader.ReadU32(Optional) || !ReadTileKey(Reader, Candidate.Tile)
 			|| !Reader.ReadU16(TileReserved) || !ReadGuid(Reader, Candidate.GenerationId)
 			|| !Reader.ReadU64(LogicalBytes) || !Reader.ReadU64(StoredBytes)
@@ -1126,7 +1115,7 @@ namespace Durin::Asset::Build
 			|| !Reader.ReadU32(Reserved32))
 			return Fail(ETerrainWorldOutcome::Corrupt,
 				"Terrain tile product header is truncated.", OutOutcome, OutError);
-		if (HeaderMagic != Magic || HeaderVersion != Version || Reserved16 != 0
+		if (HeaderMagic != Magic || HeaderVersion != Version || HeaderClass != EncodedClass
 			|| Required != RequiredFlags || Optional != 0 || TileReserved != 0 || Reserved32 != 0
 			|| !Candidate.Tile.WorldId.IsValid() || Candidate.Tile.SchemeVersion != TerrainWorldTileSchemeVersion
 			|| !Candidate.GenerationId.IsValid() || DependencyCount > TerrainWorldMaximumDependencies

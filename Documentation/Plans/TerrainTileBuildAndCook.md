@@ -10,8 +10,8 @@ Completed: 2026-08-26
 ## Current Status
 
 Completed. `GeometryBuild` now owns checked Terrain World values, deterministic
-ordered source composition, immutable normalized tile inputs, exact schema-1
-`TWHT`/`TWMD`/`TWCV`/`TWCL`/`TWQY` codecs, five independently validated
+ordered source composition, immutable normalized tile inputs, one exact schema-1
+`TWPD` product envelope with five validated body classes, five independently validated
 AssetBuildCore functions, atomic generation publication, signed 8×8 regions,
 sorted `TWMF` manifests, and AssetCore Cook/source-free load. The registered
 `TerrainWorldBuildTests` integration target covers asymmetric coordinates,
@@ -27,13 +27,13 @@ for T2.
 ## Goal
 
 Implement deterministic normalized Terrain tile composition and five immutable
-product codecs, integrate them with AssetBuildCore/DDC and AssetCore Cook region
+product body schemas in one envelope, integrate them with AssetBuildCore/DDC and AssetCore Cook region
 packages, and prove source- and DDC-free loading of a complete tile generation.
 
 ## Scope
 
 - New Terrain World authored values and normalized value-only build inputs.
-- Height/source composition, border evidence, five product codecs, validation,
+- Height/source composition, border evidence, one product envelope with five body classes, validation,
   independent build functions/keys, cancellation, and atomic generation.
 - World manifests, 8×8 region package Cook, reachability, partial installation,
   checksums, compatibility inspection, and source-free load.
@@ -74,8 +74,9 @@ builders, package directory, authored bridge, and tests.
 - [x] Add world/tile/layer/generation identities, checked coordinate helpers,
   floor division, extents, and canonical encoders.
 - [x] Add authored definition validation and immutable normalized tile inputs.
-- [x] Implement `TWHT`, `TWMD`, `TWCV`, `TWCL`, and `TWQY` codecs with exact
-  headers, limits, XXH3-128, byte order, and compatibility inspection.
+- [x] Implement the unified `TWPD` envelope and its Metadata, Height, Coverage,
+  Collision, and Query body schemas with exact headers, limits, XXH3-128, byte
+  order, and compatibility inspection.
 - [x] Add golden/asymmetric, round-trip, malformed, overflow, and legacy rejects.
 
 #### Acceptance Gate

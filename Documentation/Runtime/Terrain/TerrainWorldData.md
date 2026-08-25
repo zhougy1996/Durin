@@ -213,17 +213,18 @@ evidence.
 
 ## Tile products and generation
 
-Each value begins with its own four-byte magic, `uint16` schema version,
-required/optional flags, world and tile identity, generation ID, logical/stored
-sizes, and XXH3-128 of the exact canonical body. Schema-1 products are:
+Each value uses the same four-byte `TWPD` Terrain World Product Data magic,
+followed by `uint16` schema version, `uint16 ProductClass`, required/optional
+flags, world and tile identity, generation ID, logical/stored sizes, and
+XXH3-128 of the exact canonical body. Schema-1 products are:
 
-| Product | Magic | Per-tile ceiling | Required dependencies | Authority |
-| --- | --- | ---: | --- | --- |
-| Metadata | `TWMD` | 16 KiB | height, neighbor evidence | bounds, extrema, geometric error, product directory |
-| Height | `TWHT` | 160 KiB | normalized height input | canonical 257² signed quanta |
-| Coverage | `TWCV` | 320 KiB | layer library, coverage input, neighbors | stable logical weights, not shader output |
-| Collision | `TWCL` | 96 KiB | exact height identity, policy | rebuildable physics value |
-| Query | `TWQY` | 160 KiB | height, coverage, neighbors | height/normal/layer/min-max query value |
+| Product | Class | Per-tile ceiling | Required dependencies | Authority |
+| --- | ---: | ---: | --- | --- |
+| Metadata | 1 | 16 KiB | height, neighbor evidence | bounds, extrema, geometric error, product directory |
+| Height | 2 | 160 KiB | normalized height input | canonical 257² signed quanta |
+| Coverage | 3 | 320 KiB | layer library, coverage input, neighbors | stable logical weights, not shader output |
+| Collision | 4 | 96 KiB | exact height identity, policy | rebuildable physics value |
+| Query | 5 | 160 KiB | height, coverage, neighbors | height/normal/layer/min-max query value |
 
 The aggregate maximum is 752 KiB per tile. A region package is capped at
 64 MiB stored and 256 MiB logical bytes; an individual product is independently
@@ -252,7 +253,7 @@ the canonical body. Fields occur in this order:
 
 | Field | Encoding |
 | --- | --- |
-| magic, schema, header-reserved | `uint32`, `uint16`, zero `uint16` |
+| magic, schema, product class | `TWPD` `uint32`, `uint16`, `uint16` value 1-5 |
 | required, optional flags | `uint32` value 1, zero `uint32` |
 | tile identity | RFC 4122 world UUID, signed `int64 X/Y`, `uint16` scheme |
 | tile-reserved, generation | zero `uint16`, RFC 4122 generation UUID |
@@ -261,19 +262,19 @@ the canonical body. Fields occur in this order:
 | dependency count, reserved | bounded `uint32`, zero `uint32` |
 | dependencies and body | ordered XXH3-128 values, then exact body bytes |
 
-Compatibility inspection reads only magic and schema before any body or
-dependency allocation. The implemented bodies are:
+Compatibility inspection reads only the unified magic, schema, and product
+class before any body or dependency allocation. The implemented bodies are:
 
-- `TWHT`: `uint16 Width=257`, `uint16 Height=257`, then row-major signed
+- Height: `uint16 Width=257`, `uint16 Height=257`, then row-major signed
   little-endian `int16` canonical heights.
-- `TWCV`: 257² dimensions, a one-byte palette count and RFC 4122 layer IDs,
+- Coverage: 257² dimensions, a one-byte palette count and RFC 4122 layer IDs,
   then one to four sorted `(palette uint8, weight uint8)` pairs per sample;
   every sample sums to 255.
-- `TWCL`: deterministic 129² even-coordinate samples, including coordinate
+- Collision: deterministic 129² even-coordinate samples, including coordinate
   256, from the exact canonical height input.
-- `TWQY`: deterministic 129² records containing height, signed X/Y central
+- Query: deterministic 129² records containing height, signed X/Y central
   differences, and the dominant logical-layer palette index.
-- `TWMD`: signed extrema, geometric range, canonical world-space XYZ bounds,
+- Metadata: signed extrema, geometric range, canonical world-space XYZ bounds,
   and the ordered five-class product directory with each schema ceiling.
 
 The five AssetBuildCore functions cache and validate canonical bodies
@@ -305,7 +306,8 @@ no source provenance into runtime bulk. A cooked runtime must load with source
 and DDC unavailable. Missing region, missing product, corrupt range, checksum
 mismatch, and incompatible platform/schema are distinct terminals.
 
-Readers inspect magic and compatibility before reading a body. The old
+Readers require the unified `TWPD` envelope and inspect its magic, schema, and
+product class before reading a body. The retired per-class product magics, old
 `DTerrainHeightmap` class, DAST Terrain packages, `TerrainHeightmap` build keys,
 legacy cooked payload IDs, and old component/actor fields return
 `UnsupportedLegacySchema`; no partial decode, alias, or dependency lookup occurs.
