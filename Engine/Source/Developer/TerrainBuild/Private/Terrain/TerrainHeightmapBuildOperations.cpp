@@ -1,7 +1,7 @@
 #include "Terrain/TerrainHeightmapBuildOperations.h"
 
 #include "DerivedDataCache/DerivedDataBuildSession.h"
-#include "GeometryBuildFunctionRegistry.h"
+#include "TerrainBuildFunctionRegistry.h"
 #include "Terrain/TerrainHeightmapBuildFunctions.h"
 #include "Terrain/TerrainHeightmapBuildKey.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
@@ -26,7 +26,7 @@ namespace Durin::Asset::Build
 		std::string& OutError) -> bool
 	{
 		OutProduct = {};
-		if (!EnsureGeometryBuildFunctions(&OutError)) return false;
+		if (!EnsureTerrainBuildFunctions(&OutError)) return false;
 		if (Request.DecoderId.empty() || Request.DecoderVersion == 0
 			|| Request.SourceFormat == ETerrainHeightmapSourceFormat::Unknown
 			|| Request.SourceProfileVersion == 0)
@@ -138,7 +138,7 @@ namespace Durin::Asset::Build
 		FTerrainHeightmapDerivedDataLoadDiagnostics* Diagnostics) -> bool
 	{
 		FTerrainHeightmapDerivedDataLoadDiagnostics Result;
-		if (!EnsureGeometryBuildFunctions(&OutError))
+		if (!EnsureTerrainBuildFunctions(&OutError))
 		{
 			if (Diagnostics) *Diagnostics = Result;
 			return false;

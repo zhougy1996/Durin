@@ -1,6 +1,6 @@
 #pragma once
 
-#include "GeometryBuildAPI.h"
+#include "TerrainBuildAPI.h"
 #include "Asset/CookedAsset.h"
 #include "Hash/XxHash.h"
 #include "Misc/Guid.h"
@@ -237,13 +237,13 @@ namespace Durin::Asset::Build
 	class FTerrainTileGenerationPublisher
 	{
 	public:
-		GEOMETRYBUILD_API auto BeginRequest() -> uint64;
-		GEOMETRYBUILD_API auto Publish(
+		TERRAINBUILD_API auto BeginRequest() -> uint64;
+		TERRAINBUILD_API auto Publish(
 			uint64 RequestId, FTerrainTileGeneration Candidate,
 			ETerrainWorldOutcome& OutOutcome, std::string& OutError) -> bool;
-		GEOMETRYBUILD_API auto GetCurrent() const
+		TERRAINBUILD_API auto GetCurrent() const
 			-> std::shared_ptr<const FTerrainTileGeneration>;
-		GEOMETRYBUILD_API auto Retire() -> void;
+		TERRAINBUILD_API auto Retire() -> void;
 
 		FTerrainTileGenerationPublisher() = default;
 		FTerrainTileGenerationPublisher(const FTerrainTileGenerationPublisher&) = delete;
@@ -256,59 +256,59 @@ namespace Durin::Asset::Build
 		std::shared_ptr<const FTerrainTileGeneration> Current;
 	};
 
-	GEOMETRYBUILD_API auto TerrainFloorDiv(int64 Value, int64 Divisor, int64& OutResult) -> bool;
-	GEOMETRYBUILD_API auto TerrainFloorMod(int64 Value, int64 Divisor, int64& OutResult) -> bool;
-	GEOMETRYBUILD_API auto ValidateTerrainWorldDefinition(
+	TERRAINBUILD_API auto TerrainFloorDiv(int64 Value, int64 Divisor, int64& OutResult) -> bool;
+	TERRAINBUILD_API auto TerrainFloorMod(int64 Value, int64 Divisor, int64& OutResult) -> bool;
+	TERRAINBUILD_API auto ValidateTerrainWorldDefinition(
 		const FTerrainWorldDefinition& Definition, ETerrainWorldOutcome& OutOutcome,
 		std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto ResolveTerrainSampleAddress(
+	TERRAINBUILD_API auto ResolveTerrainSampleAddress(
 		const FTerrainWorldId& WorldId, const FTerrainSampleExtent& Extent,
 		FTerrainGlobalSample Sample, FTerrainTileAddress& OutAddress,
 		ETerrainWorldOutcome& OutOutcome, std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto GetTerrainTileSampleExtent(
+	TERRAINBUILD_API auto GetTerrainTileSampleExtent(
 		const FTerrainTileKey& Tile, FTerrainSampleExtent& OutExtent,
 		ETerrainWorldOutcome& OutOutcome, std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto TerrainSampleToWorldPosition(
+	TERRAINBUILD_API auto TerrainSampleToWorldPosition(
 		const FTerrainWorldCoordinates& Coordinates, FTerrainGlobalSample Sample,
 		int16 Height, std::array<double, 3>& OutPosition,
 		ETerrainWorldOutcome& OutOutcome, std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto NormalizeTerrainHeightQuantum(
+	TERRAINBUILD_API auto NormalizeTerrainHeightQuantum(
 		int32 Height, int16& OutHeight, ETerrainWorldOutcome& OutOutcome,
 		std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto ValidateTerrainNormalizedTileInput(
+	TERRAINBUILD_API auto ValidateTerrainNormalizedTileInput(
 		const FTerrainNormalizedTileInput& Input, ETerrainWorldOutcome& OutOutcome,
 		std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto NormalizeTerrainTileInput(
+	TERRAINBUILD_API auto NormalizeTerrainTileInput(
 		const FTerrainWorldDefinition& Definition, int64 TileX, int64 TileY,
 		const FTerrainComposedTileValues& ComposedValues,
 		FTerrainNormalizedTileInput& OutInput,
 		ETerrainWorldOutcome& OutOutcome, std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto ComposeTerrainTileInput(
+	TERRAINBUILD_API auto ComposeTerrainTileInput(
 		const FTerrainWorldDefinition& Definition, int64 TileX, int64 TileY,
 		std::span<const FTerrainTileSourceContribution> Contributions,
 		FTerrainNormalizedTileInput& OutInput,
 		ETerrainWorldOutcome& OutOutcome, std::string& OutError,
 		std::function<bool()> ShouldCancel = {}) -> bool;
-	GEOMETRYBUILD_API auto EstimateTerrainTileBuildBytes(
+	TERRAINBUILD_API auto EstimateTerrainTileBuildBytes(
 		const FTerrainNormalizedTileInput& Input) -> uint64;
-	GEOMETRYBUILD_API auto BuildTerrainNeighborEvidence(
+	TERRAINBUILD_API auto BuildTerrainNeighborEvidence(
 		const FTerrainNormalizedTileInput& Tile,
 		const FTerrainNormalizedTileInput& Neighbor,
 		FTerrainNeighborEvidence& OutEvidence,
 		ETerrainWorldOutcome& OutOutcome, std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto MakeTerrainTileBuildKey(
+	TERRAINBUILD_API auto MakeTerrainTileBuildKey(
 		const FTerrainNormalizedTileInput& Input, ETerrainTileProductClass ProductClass,
 		std::string& OutError) -> std::string;
-	GEOMETRYBUILD_API auto EncodeTerrainTileProduct(
+	TERRAINBUILD_API auto EncodeTerrainTileProduct(
 		ETerrainTileProductClass ProductClass, const FTerrainTileKey& Tile,
 		const FGuid& GenerationId, std::span<const FXxHash128> Dependencies,
 		std::span<const std::byte> Body, std::vector<std::byte>& OutBytes,
 		ETerrainWorldOutcome& OutOutcome, std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto DecodeTerrainTileProduct(
+	TERRAINBUILD_API auto DecodeTerrainTileProduct(
 		std::span<const std::byte> Bytes, ETerrainTileProductClass ExpectedClass,
 		FTerrainTileProduct& OutProduct, ETerrainWorldOutcome& OutOutcome,
 		std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto BuildTerrainTileGeneration(
+	TERRAINBUILD_API auto BuildTerrainTileGeneration(
 		const FTerrainNormalizedTileInput& Input, const FGuid& GenerationId,
 		FTerrainTileGeneration& OutGeneration, ETerrainWorldOutcome& OutOutcome,
 		std::string& OutError) -> bool;

@@ -32,7 +32,7 @@ if(DURIN_WITH_EDITOR)
 	durin_register_native_test(TextureTests
 		KIND feature
 		DOMAINS asset-workflow texture
-		MODULES engine texture-build asset-forge asset-forge-builtins texture-editor
+		MODULES engine texture-build geometry-build terrain-build asset-forge asset-forge-builtins texture-editor
 		STACKS editor
 		TIMEOUT 600
 	)
@@ -82,35 +82,35 @@ endif()
 durin_add_engine_functional_test(TerrainHeightmapTests
 	KIND feature
 	DOMAINS terrain
-	MODULES engine geometry-build asset-forge asset-forge-builtins
+	MODULES engine terrain-build asset-forge asset-forge-builtins
 	STACKS editor
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises heightmap import, DDC, package, and source-index integration."
 	SOURCES Private/Terrain/TerrainHeightmapTests.cpp
-	LIBRARIES AssetForge AssetForgeBuiltins DurinEd GeometryBuild
+	LIBRARIES AssetForge AssetForgeBuiltins DurinEd TerrainBuild
 )
 
 durin_add_engine_functional_test(TerrainHeightmapCookTests
 	KIND integration
 	DOMAINS asset-cook terrain
-	MODULES engine geometry-build asset-forge asset-forge-builtins
+	MODULES engine terrain-build asset-forge asset-forge-builtins
 	STACKS editor
 	EDITOR_ONLY
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises source-free cooked heightmap package loading."
 	SOURCES Private/Terrain/TerrainHeightmapCookTests.cpp
-	LIBRARIES GeometryBuild AssetForgeBuiltins
+	LIBRARIES TerrainBuild AssetForgeBuiltins
 )
 
 durin_add_engine_functional_test(TerrainWorldBuildTests
 	KIND integration
 	DOMAINS asset-build asset-cook terrain
-	MODULES geometry-build derived-data-cache asset-core
+	MODULES terrain-build derived-data-cache asset-core
 	STACKS editor
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises offline Terrain World tile codecs, build identities, generation publication, and Cook contracts."
 	SOURCES Private/Terrain/TerrainWorldBuildTests.cpp
-	LIBRARIES GeometryBuild DerivedDataCache
+	LIBRARIES TerrainBuild DerivedDataCache
 )
 
 durin_add_engine_functional_test(TerrainRenderPrimitiveTests

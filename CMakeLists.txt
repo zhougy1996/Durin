@@ -43,6 +43,7 @@ if(TARGET AssetCore)
 		Engine
 		AssetForge
 		GeometryBuild
+		TerrainBuild
 		TextureBuild
 		AssetForgeBuiltins
 		assimp::assimp
@@ -55,6 +56,7 @@ if(TARGET AssetForge)
 	durin_assert_target_dependency_closure_excludes(AssetForge
 		Engine
 		GeometryBuild
+		TerrainBuild
 		TextureBuild
 		AssetForgeBuiltins
 		assimp::assimp
@@ -67,6 +69,7 @@ if(TARGET Engine)
 	durin_assert_target_dependency_closure_excludes(Engine
 		AssetForge
 		GeometryBuild
+		TerrainBuild
 		TextureBuild
 		AssetForgeBuiltins
 		assimp::assimp
@@ -82,6 +85,7 @@ if(TARGET TextureBuild)
 	durin_assert_target_dependency_closure_excludes(TextureBuild
 		AssetForge
 		GeometryBuild
+		TerrainBuild
 		AssetForgeBuiltins
 		assimp::assimp
 	)
@@ -94,6 +98,23 @@ if(TARGET GeometryBuild)
 	)
 	durin_assert_target_dependency_closure_excludes(GeometryBuild
 		AssetForge
+		TerrainBuild
+		TextureBuild
+		AssetForgeBuiltins
+		assimp::assimp
+		bc7enc_rdo::bc7enc_rdo
+		rgbcx
+	)
+endif()
+
+if(TARGET TerrainBuild)
+	durin_assert_target_dependency_closure_includes(TerrainBuild
+		DerivedDataCache
+		Engine
+	)
+	durin_assert_target_dependency_closure_excludes(TerrainBuild
+		AssetForge
+		GeometryBuild
 		TextureBuild
 		AssetForgeBuiltins
 		assimp::assimp
@@ -110,6 +131,7 @@ if(TARGET DerivedDataCache)
 		AssetCore
 		Engine
 		GeometryBuild
+		TerrainBuild
 		TextureBuild
 		DurinEd
 		RHI
@@ -123,6 +145,7 @@ if(TARGET AssetForgeBuiltins)
 	durin_assert_target_dependency_closure_includes(AssetForgeBuiltins
 		AssetForge
 		GeometryBuild
+		TerrainBuild
 		TextureBuild
 		assimp::assimp
 	)
@@ -141,6 +164,7 @@ if(DURIN_PROFILE_NAME STREQUAL "DurinGame")
 		AssetForge
 		# Derived builders and offline compressors.
 		GeometryBuild
+		TerrainBuild
 		DerivedDataCache
 		TextureBuild
 		bc7enc_rdo::bc7enc_rdo

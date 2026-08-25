@@ -17,7 +17,7 @@ targets depend on neither editor module.
 
 Concrete translation terminates at normalized owned values. Built-in implementations
 do not pass encoded PNG, HDR, glTF, FBX, or Assimp input into
-`TextureBuild` or `GeometryBuild`. Build requests contain no decoder type or mutable
+`TextureBuild`, `GeometryBuild`, or `TerrainBuild`. Build requests contain no decoder type or mutable
 `DObject`; detached products publish on the main thread through narrow Engine
 state exchanges and AssetCore transactions.
 
@@ -51,7 +51,8 @@ Runtime Engine assets contain only runtime state and lightweight single-asset pr
 Its public Texture2D translation/submission contract intentionally exposes
 `TextureBuild` settings and completion values, so `TextureBuild` remains a
 public module dependency; geometry recipes are implementation-only and
-`GeometryBuild` is private.
+`GeometryBuild` is private. Terrain recipes and Cook production are likewise
+implementation-only through the private `TerrainBuild` dependency.
 
 Public framework contracts supplied by `AssetForge` live in
 `Durin::AssetForge`. Built-in registration, direct authoring APIs,

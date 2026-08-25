@@ -2,7 +2,7 @@
 
 Summary: Define authored, derived, cooked, and runtime asset-data ownership and transitions.
 
-Modules: AssetCore, DerivedDataCache, Engine, GeometryBuild, TextureBuild, AssetForge, AssetForgeBuiltins
+Modules: AssetCore, DerivedDataCache, Engine, GeometryBuild, TerrainBuild, TextureBuild, AssetForge, AssetForgeBuiltins
 
 Last reviewed: 2026-08-26
 
@@ -15,7 +15,7 @@ merely whether a file contains binary bytes.
 Persistent values use the common archive protocol rather than paired
 direction-named codecs. Runtime `Engine` values own their bidirectional
 `Serialize(FArchive&)` field order and validation for DDC and cooked payloads;
-Developer `TextureBuild` and `GeometryBuild` own normalized,
+Developer `TextureBuild`, `GeometryBuild`, and `TerrainBuild` own normalized,
 source-independent recipes and canonical build-key inputs;
 `AssetForgeBuiltins` adapts standard concrete source formats into those
 normalized values. `DerivedDataCache` owns the backend-neutral
@@ -38,13 +38,17 @@ origin, status, failure phase, and bounded nanosecond durations for each
 executed phase. It does not own worker threads, priorities,
 callbacks, dependency graphs, remote execution, or typed asset interpretation.
 
-GeometryBuild registers the StaticMesh render/collision, SkeletalMesh,
-AnimationClip, and TerrainHeightmap functions as one atomic module-owned
-transaction; TextureBuild does the same for Texture2D, TextureCube, and
-VolumeTexture. Each
+GeometryBuild registers the StaticMesh render/collision, SkeletalMesh, and
+AnimationClip functions as one atomic module-owned transaction; TerrainBuild
+does the same for TerrainHeightmap and the five Terrain World product functions;
+TextureBuild does the same for Texture2D, TextureCube, and VolumeTexture. Each
 transaction rolls back registrations acquired by a failed attempt and resets
 the complete set in reverse order during owner retirement. Each family retains
 its build keys, cache namespace, value schema, codec, and validation policy.
+Terrain function identities intentionally retain their historical
+`Durin.GeometryBuild.Terrain...` prefix: the identity is persisted production
+identity rather than the selectable module name, so this ownership extraction
+does not invalidate otherwise compatible disposable cache entries.
 TextureBuild's coordinator calls the synchronous session from its existing
 worker and retains cancellation, supersession, metrics, and main-thread
 publication ownership. AssetForgeBuiltins likewise retains TextureCube source

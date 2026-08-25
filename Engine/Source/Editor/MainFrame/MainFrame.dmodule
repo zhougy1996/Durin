@@ -13,6 +13,7 @@
         "MonaImGui",
 		"AssetForge",
 		"GeometryBuild",
+		"TerrainBuild",
 		"TextureBuild",
 		"AssetForgeBuiltins",
         "LevelEditor",

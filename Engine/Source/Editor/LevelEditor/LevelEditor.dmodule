@@ -15,6 +15,7 @@
         "AssetForge",
         "AssetForgeBuiltins",
         "GeometryBuild",
+        "TerrainBuild",
         "TextureBuild",
         "DurinEd"
     ]

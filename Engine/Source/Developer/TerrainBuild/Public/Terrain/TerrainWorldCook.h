@@ -65,29 +65,29 @@ namespace Durin::Asset::Build
 		}
 	};
 
-	GEOMETRYBUILD_API auto GetTerrainRegionKey(
+	TERRAINBUILD_API auto GetTerrainRegionKey(
 		const FTerrainTileKey& Tile, FTerrainRegionKey& OutRegion,
 		ETerrainWorldOutcome& OutOutcome, std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto EncodeTerrainWorldManifest(
+	TERRAINBUILD_API auto EncodeTerrainWorldManifest(
 		const FTerrainWorldManifest& Manifest, std::vector<std::byte>& OutBytes,
 		ETerrainWorldOutcome& OutOutcome, std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto DecodeTerrainWorldManifest(
+	TERRAINBUILD_API auto DecodeTerrainWorldManifest(
 		std::span<const std::byte> Bytes, const FTerrainWorldId& ExpectedWorld,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
 		FTerrainWorldManifest& OutManifest, ETerrainWorldOutcome& OutOutcome,
 		std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto CookTerrainWorld(
+	TERRAINBUILD_API auto CookTerrainWorld(
 		const FTerrainWorldCookRequest& Request, FTerrainWorldManifest& OutManifest,
 		ETerrainWorldOutcome& OutOutcome, std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto LoadCookedTerrainWorldManifest(
+	TERRAINBUILD_API auto LoadCookedTerrainWorldManifest(
 		const Asset::FAssetRuntimeConfiguration& RuntimeConfiguration,
 		std::string_view VirtualWorldRoot, const FTerrainWorldId& WorldId,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
 		std::shared_ptr<const FTerrainWorldManifest>& OutManifest,
 		ETerrainWorldOutcome& OutOutcome, std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto LoadCookedTerrainProduct(
+	TERRAINBUILD_API auto LoadCookedTerrainProduct(
 		const Asset::FAssetRuntimeConfiguration& RuntimeConfiguration,
 		const std::shared_ptr<const FTerrainWorldManifest>& Manifest,
 		const FTerrainTileKey& Tile, const FGuid& GenerationId,

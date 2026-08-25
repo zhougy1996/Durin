@@ -1,6 +1,6 @@
 #pragma once
 
-#include "GeometryBuildAPI.h"
+#include "TerrainBuildAPI.h"
 #include "Terrain/TerrainHeightmap.h"
 
 namespace Durin::Asset::Build
@@ -50,19 +50,19 @@ namespace Durin::Asset::Build
 		bool bHit = false;
 	};
 
-	GEOMETRYBUILD_API auto BuildTerrainHeightmap(
+	TERRAINBUILD_API auto BuildTerrainHeightmap(
 		FTerrainHeightmapBuildRequest Request,
 		FTerrainHeightmapBuildProduct& OutProduct,
 		std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto PublishTerrainHeightmapProduct(
+	TERRAINBUILD_API auto PublishTerrainHeightmapProduct(
 		DTerrainHeightmap& Heightmap,
 		FTerrainHeightmapBuildProduct Product,
 		const FTerrainHeightmapPublicationContext& Context,
 		std::string& OutError) -> bool;
-	GEOMETRYBUILD_API auto MakeTerrainHeightmapDerivedDataKey(
+	TERRAINBUILD_API auto MakeTerrainHeightmapDerivedDataKey(
 		const DTerrainHeightmap& Heightmap,
 		std::string& OutError) -> std::string;
-	GEOMETRYBUILD_API auto LoadTerrainHeightmapDerivedData(
+	TERRAINBUILD_API auto LoadTerrainHeightmapDerivedData(
 		std::string_view Key,
 		std::shared_ptr<const FTerrainHeightmapPayload>& OutPayload,
 		std::string& OutError,

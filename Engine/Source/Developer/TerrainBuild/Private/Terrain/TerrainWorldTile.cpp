@@ -2,7 +2,7 @@
 
 #include "DerivedDataCache/DerivedDataBuildSession.h"
 #include "Serialization/BinaryFormat.h"
-#include "GeometryBuildFunctionRegistry.h"
+#include "TerrainBuildFunctionRegistry.h"
 #include "Terrain/TerrainWorldBuildFunctions.h"
 
 namespace Durin::Asset::Build
@@ -1154,7 +1154,7 @@ namespace Durin::Asset::Build
 	{
 		if (!GenerationId.IsValid() || !ValidateTerrainNormalizedTileInput(Input, OutOutcome, OutError))
 			return false;
-		if (!EnsureGeometryBuildFunctions(&OutError))
+		if (!EnsureTerrainBuildFunctions(&OutError))
 			return Fail(ETerrainWorldOutcome::PublicationFailed,
 				"Terrain World build functions could not be registered: " + OutError,
 				OutOutcome, OutError);

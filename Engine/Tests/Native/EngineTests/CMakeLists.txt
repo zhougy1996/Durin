@@ -16,6 +16,7 @@ set(_durin_editor_test_modules
 	Mona
 	MonaImGui
 	GeometryBuild
+	TerrainBuild
 	DerivedDataCache
 	TextureBuild
 	AssetForgeBuiltins

@@ -2,7 +2,7 @@
 
 Summary: Define the canonical Terrain World lattice, tile products, packages, budgets, and spatial-interest boundary.
 
-Modules: Engine, GeometryBuild, DerivedDataCache, AssetCore
+Modules: Engine, TerrainBuild, DerivedDataCache, AssetCore
 
 Last reviewed: 2026-08-26
 
@@ -247,7 +247,7 @@ worker count, cache path, package placement, and cancellation timing are absent.
 
 ### Implemented schema-1 product layout
 
-`GeometryBuild` implements every schema-1 product as one canonical envelope.
+`TerrainBuild` implements every schema-1 product as one canonical envelope.
 The fixed 108-byte prefix is followed by zero to 64 dependency hashes and then
 the canonical body. Fields occur in this order:
 
@@ -277,7 +277,7 @@ class before any body or dependency allocation. The implemented bodies are:
 - Metadata: signed extrema, geometric range, canonical world-space XYZ bounds,
   and the ordered five-class product directory with each schema ceiling.
 
-The five GeometryBuild functions use the DerivedDataCache Build Framework to
+The five TerrainBuild functions use the DerivedDataCache Build Framework to
 cache and validate canonical bodies
 independently. Generation envelopes are applied only at atomic publication, so
 one body can be reused without putting generation or package placement in its
@@ -313,7 +313,7 @@ product class before reading a body. The retired per-class product magics, old
 legacy cooked payload IDs, and old component/actor fields return
 `UnsupportedLegacySchema`; no partial decode, alias, or dependency lookup occurs.
 
-`GeometryBuild` materializes this contract through a sorted `TWMF` world
+`TerrainBuild` materializes this contract through a sorted `TWMF` world
 manifest stored as an AssetCore cooked-bulk value. Installed region packages
 contain five independently addressable DBLK entries per complete tile;
 uninstalled occupied regions remain explicit manifest records with no product
@@ -406,8 +406,8 @@ interest, traversal, teleport, failure fallback, and the four product profiles.
 
 ## Related code
 
-- `Engine/Source/Developer/GeometryBuild/Public/Terrain/TerrainWorldTile.h`
-- `Engine/Source/Developer/GeometryBuild/Public/Terrain/TerrainWorldCook.h`
-- `Engine/Source/Developer/GeometryBuild/Private/Terrain/TerrainWorldBuildFunctions.cpp`
+- `Engine/Source/Developer/TerrainBuild/Public/Terrain/TerrainWorldTile.h`
+- `Engine/Source/Developer/TerrainBuild/Public/Terrain/TerrainWorldCook.h`
+- `Engine/Source/Developer/TerrainBuild/Private/Terrain/TerrainWorldBuildFunctions.cpp`
 - `Engine/Source/Editor/AssetForgeBuiltins/Private/TerrainWorldBuildAdapter.h`
 - `Engine/Tests/Native/EngineTests/Private/Terrain/TerrainWorldBuildTests.cpp`

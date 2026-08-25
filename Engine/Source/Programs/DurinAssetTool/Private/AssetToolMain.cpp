@@ -613,6 +613,7 @@ int main(int ArgC, char** ArgV)
 			return 1;
 		}
 		Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
+		Durin::FModuleManager::Get().LoadModuleChecked("TerrainBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	}

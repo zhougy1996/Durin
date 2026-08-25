@@ -9,7 +9,7 @@ Completed: 2026-08-26
 
 ## Current Status
 
-Completed. `GeometryBuild` now owns checked Terrain World values, deterministic
+Completed. `TerrainBuild` now owns checked Terrain World values, deterministic
 ordered source composition, immutable normalized tile inputs, one exact schema-1
 `TWPD` product envelope with five validated body classes, five independently validated
 AssetBuildCore functions, atomic generation publication, signed 8×8 regions,
@@ -63,7 +63,7 @@ packages, and prove source- and DDC-free loading of a complete tile generation.
 AssetBuildCore provides versioned build functions, canonical XXH3-128 identities,
 cache validation, cancellation terminals, and timing. AssetCore provides DAST,
 cooked bulk, manifests, compatibility inspection, reachability, and atomic file
-publication. GeometryBuild and AssetForgeBuiltins own current heightmap examples
+publication. TerrainBuild and AssetForgeBuiltins own current heightmap examples
 but not new compatibility. Missing work is the new family of values, codecs,
 builders, package directory, authored bridge, and tests.
 
@@ -168,7 +168,7 @@ builders, package directory, authored bridge, and tests.
 ## Related Code
 
 - `Engine/Source/Developer/AssetBuildCore`
-- `Engine/Source/Developer/GeometryBuild`
+- `Engine/Source/Developer/TerrainBuild`
 - `Engine/Source/Editor/AssetForgeBuiltins`
 - `Engine/Source/Runtime/AssetCore`
 - `Engine/Source/Runtime/Engine/Public/Terrain`

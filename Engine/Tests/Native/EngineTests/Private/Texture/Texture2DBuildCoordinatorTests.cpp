@@ -63,10 +63,11 @@ namespace
 
 }
 
-TEST(FBuildRecipeModuleTests, GeometryLifecycleDoesNotAddAnEmptyCompilationDomain)
+TEST(FBuildRecipeModuleTests, RecipeModuleLifecyclesDoNotAddEmptyCompilationDomains)
 {
 	InitializeDObjectSystem();
 	Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("TerrainBuild");
 	ASSERT_TRUE(RestartTextureCompilingManager({.MaxWorkers = 1}));
 	const Durin::FAssetCompilingManagerDiagnostics Running =
 		Durin::FAssetCompilingManager::Get().GetDiagnostics();
@@ -78,7 +79,11 @@ TEST(FBuildRecipeModuleTests, GeometryLifecycleDoesNotAddAnEmptyCompilationDomai
 	const auto GeometryUnload = Durin::FModuleManager::Get().UnloadModule("GeometryBuild");
 	ASSERT_TRUE(GeometryUnload.Succeeded()) << GeometryUnload.Message;
 	EXPECT_EQ(Durin::FAssetCompilingManager::Get().GetDiagnostics().ManagerCount, 1u);
+	const auto TerrainUnload = Durin::FModuleManager::Get().UnloadModule("TerrainBuild");
+	ASSERT_TRUE(TerrainUnload.Succeeded()) << TerrainUnload.Message;
+	EXPECT_EQ(Durin::FAssetCompilingManager::Get().GetDiagnostics().ManagerCount, 1u);
 	Durin::FModuleManager::Get().LoadModuleChecked("GeometryBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("TerrainBuild");
 	EXPECT_TRUE(EnsureTextureCompilingManager());
 	EXPECT_EQ(Durin::FAssetCompilingManager::Get().GetDiagnostics().ManagerCount, 2u);
 	Durin::Asset::Build::FTexture2DBuildCoordinator* Coordinator =

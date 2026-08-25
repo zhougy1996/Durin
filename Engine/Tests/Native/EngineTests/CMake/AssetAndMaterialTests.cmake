@@ -314,6 +314,7 @@ set(_durin_texture_test_libraries
 	Engine
 	AssetForge
 	GeometryBuild
+	TerrainBuild
 	TextureBuild
 	AssetForgeBuiltins
 	TextureEditor

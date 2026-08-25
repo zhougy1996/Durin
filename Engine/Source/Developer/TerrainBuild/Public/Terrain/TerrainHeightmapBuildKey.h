@@ -1,6 +1,6 @@
 #pragma once
 
-#include "GeometryBuildAPI.h"
+#include "TerrainBuildAPI.h"
 #include "Hash/XxHash.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
@@ -19,13 +19,13 @@ namespace Durin::Asset::Build
 		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Invalid;
 		Asset::ECookTargetProfile TargetProfile = Asset::ECookTargetProfile::Invalid;
 
-		GEOMETRYBUILD_API auto Serialize(FArchive& Ar) -> void;
+		TERRAINBUILD_API auto Serialize(FArchive& Ar) -> void;
 	};
 
-	GEOMETRYBUILD_API auto BuildTerrainHeightmapDerivedDataKeyBytes(
+	TERRAINBUILD_API auto BuildTerrainHeightmapDerivedDataKeyBytes(
 		const FTerrainHeightmapBuildKeyInput& Input,
 		std::string& OutError) -> std::vector<std::byte>;
-	GEOMETRYBUILD_API auto BuildTerrainHeightmapDerivedDataKey(
+	TERRAINBUILD_API auto BuildTerrainHeightmapDerivedDataKey(
 		const FTerrainHeightmapBuildKeyInput& Input,
 		std::string& OutError) -> std::string;
 }
