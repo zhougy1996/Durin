@@ -8,6 +8,7 @@
 #include "RenderingThread.h"
 #include "Serialization/Archive.h"
 #include "Texture/TextureCube.h"
+#include "Texture/TextureCubeBuildOperations.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureDerivedData.h"
 
@@ -384,6 +385,35 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 		Root / "Textures/Panorama_panorama.tga"));
 }
 
+TEST(FTextureCubeTests, PanoramaBuildQueriesDdcBeforeProjection)
+{
+	InitializeCubeMount();
+	Durin::Asset::Build::TextureCubeBuilder::FTexturePanoramaImage Panorama{
+		.Pixels = std::vector<std::byte>(4u * 2u * 4u, std::byte{127}),
+		.Width = 4,
+		.Height = 2,
+		.SourceChannelCount = 4};
+	const Durin::FXxHash128 SourceHash{
+		.HashLow = 0x32f0551922ffbe31ull,
+		.HashHigh = 0x7c01c243d75dba09ull};
+	const Durin::Asset::Build::FTextureCubePanoramaBuildSettings Settings{
+		.FaceDimension = 2};
+	Durin::Asset::Build::FTextureCubeBuildProduct Initial;
+	std::string Error;
+	ASSERT_TRUE(Durin::Asset::Build::BuildTextureCubePanorama(
+		Panorama, SourceHash, Settings, Initial, Error)) << Error;
+	ASSERT_NE(Initial.PlatformData, nullptr);
+
+	Panorama.Pixels.clear();
+	Durin::Asset::Build::FTextureCubeBuildProduct Cached;
+	ASSERT_TRUE(Durin::Asset::Build::BuildTextureCubePanorama(
+		std::move(Panorama), SourceHash, Settings, Cached, Error)) << Error;
+	EXPECT_TRUE(Cached.bLoadedFromDerivedDataCache);
+	EXPECT_FALSE(Cached.SourceData.Faces[0].IsValid());
+	ASSERT_NE(Cached.PlatformData, nullptr);
+	EXPECT_TRUE(Cached.PlatformData->IsValid());
+}
+
 TEST(FTextureCubeTests, SourceLayoutReflectionRetainsSixFaceCompatibilityValue)
 {
 	InitializeDObjectSystem();
@@ -467,7 +497,8 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	EXPECT_FLOAT_EQ(Texture->GetPanoramaExposureEV(), 1.0f);
 
 	const uint64 ValidRevision = Texture->GetBuildRevision();
-	const std::vector<std::byte> ValidPixels = Texture->GetSourceData()->Faces[0].Pixels;
+	const std::vector<std::byte> ValidPixels =
+		Texture->GetPlatformData()->Faces[0].Mips[0].Pixels;
 	const std::filesystem::path Corrupt = Root / "CorruptReplacement.hdr";
 	{
 		std::ofstream Stream(Corrupt, std::ios::binary | std::ios::trunc);
@@ -481,7 +512,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 		"/TextureCubeTests/Textures/ReimportPanorama_panorama.hdr");
 	EXPECT_EQ(Texture->GetPanoramaFaceDimension(), 4u);
 	EXPECT_FLOAT_EQ(Texture->GetPanoramaExposureEV(), 1.0f);
-	EXPECT_EQ(Texture->GetSourceData()->Faces[0].Pixels, ValidPixels);
+	EXPECT_EQ(Texture->GetPlatformData()->Faces[0].Mips[0].Pixels, ValidPixels);
 	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
 
 	Durin::FAssetPath AssetPath;

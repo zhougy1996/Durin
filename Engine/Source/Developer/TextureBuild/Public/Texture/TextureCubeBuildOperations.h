@@ -30,6 +30,8 @@ namespace Durin::Asset::Build
 		uint32 PanoramaFaceDimension = 0;
 		float PanoramaExposureEV = 0.0f;
 		bool bSRGB = true;
+		// Cache hits intentionally omit transient normalized source pixels.
+		bool bLoadedFromDerivedDataCache = false;
 	};
 
 	// GameThread provenance captured outside the pure TextureCube recipe.

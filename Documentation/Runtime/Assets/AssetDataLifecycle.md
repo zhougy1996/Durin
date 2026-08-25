@@ -284,9 +284,10 @@ best-effort store failure and surface the store diagnostic.
 
 TextureCube uses `Durin.TextureBuild.TextureCube@1` with value
 `TextureCubePayload` under `TextureCube/Objects`. Source decode and panorama
-projection precede the immutable request; a valid cached payload skips mip generation,
-compression, encoding, and store. Cache-only authored load carries no local
-input and never captures source.
+metadata capture precede the immutable request. Panorama builds query the
+content-addressed payload before projection, so a valid cached payload skips
+projection, mip generation, compression, encoding, and store. Cache-only
+authored load carries no local input and never captures source.
 
 ### Skeletal Derived Data
 

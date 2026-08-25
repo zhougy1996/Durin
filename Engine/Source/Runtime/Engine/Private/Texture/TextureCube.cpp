@@ -499,7 +499,7 @@ namespace Durin
 		std::string InDerivedDataKey,
 		FTextureDerivedDataDiagnostic InDiagnostic) -> void
 	{
-		check(InSourceData && InPlatformData && InPlatformData->IsValid());
+		check(InPlatformData && InPlatformData->IsValid());
 		SourceLayout = InSourceLayout;
 		SourceImportData = std::move(InSourceImportData);
 		PanoramaFaceDimension = InPanoramaFaceDimension;
@@ -513,7 +513,8 @@ namespace Durin
 		DerivedDataDiagnostic = std::move(InDiagnostic);
 		BuildStatus = ETextureBuildStatus::Ready;
 		LastBuildError.clear();
-		bLoadedFromDerivedDataCache = false;
+		bLoadedFromDerivedDataCache =
+			DerivedDataDiagnostic.Status == ETextureDerivedDataStatus::Hit;
 		QueueRenderResourceBuild();
 		MarkPackageDirty();
 	}

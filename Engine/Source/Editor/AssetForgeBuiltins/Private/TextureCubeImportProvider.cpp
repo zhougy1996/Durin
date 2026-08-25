@@ -112,6 +112,8 @@ namespace Durin::AssetForge::Builtins
 				Result->Product.PanoramaFaceDimension = Product.PanoramaFaceDimension;
 				Result->Product.PanoramaExposureEV = Product.PanoramaExposureEV;
 				Result->Product.bSRGB = Product.bSRGB;
+				Result->Product.bLoadedFromDerivedDataCache =
+					Product.bLoadedFromDerivedDataCache;
 				Result->Publication = Publication;
 				return Result;
 			}
