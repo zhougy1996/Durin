@@ -13,7 +13,7 @@ rendering thread never reads the component, mesh asset, skeleton, clip, or
 actor.
 
 GeometryBuild registers `Durin.GeometryBuild.SkeletalMesh@1`; its synchronous
-session validates complete DSKM values against Skeleton bone count, material
+session validates complete skeletal-mesh payloads against Skeleton bone count, material
 slot count, target, and request identity. Scene parsing and detached candidate
 construction remain in AssetForge, which also owns the atomic asset
 graph publication and hard Skeleton relationship. A valid cache hit skips

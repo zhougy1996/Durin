@@ -1,11 +1,11 @@
 # Volume Textures
 
-Summary: Define source import, normalized data, deterministic build, TXPL cook,
+Summary: Define source import, normalized data, deterministic build, cooked payload,
 and revisioned GPU-resource contracts for package-backed volume textures.
 
 Modules: Engine, TextureBuild, AssetForgeBuiltins, RHI, VulkanRHI
 
-Last reviewed: 2026-08-24
+Last reviewed: 2026-08-25
 
 ## Asset boundary
 
@@ -72,8 +72,8 @@ uses a three-axis box filter in linear numeric space, and deterministically
 builds the complete chain for all five formats. Odd extents include each valid
 source voxel exactly once in the corresponding clamped two-texel footprint;
 floating inputs must be finite. Numeric filtering explicitly converts at the
-`std::byte` boundary; TXPL, DDC, mip, cook, and RHI upload bytes retain their
-existing `uint8` platform representation and byte identity.
+`std::byte` boundary; cached, cooked, mip, and RHI upload bytes retain their
+`uint8` platform representation and byte identity.
 
 The canonical DDC key includes source bytes and dimensions, source/output
 format, mip filter, builder and payload schema versions, and Win64/Game target
@@ -98,29 +98,26 @@ packed row-major depth-slice encoding whose exact byte width comes from
 `EVolumeTextureFormat`; DAST/DABK
 placement and replacement remain authored-only capabilities.
 
-Ordinary and explicit VolumeTexture saves emit DAST v5 and only the authored
-BulkData field. The writer selection is never persisted on the domain object.
-V5 retains the same reflected fields and requires its EOF trailer to
-agree exactly with every external descriptor in the object stream. Small
-inline voxel payloads produce no external trailer entry. External voxel
-payloads produce one matching trailer entry and stable
-`<package-stem>.dabulk` DURF/DABK v2 companion. Reimport, repair, and canonical
-resave all use the v5 writer; there is no legacy rollback route.
+Ordinary and explicit saves emit DURF/DAST v6 and only the authored BulkData
+field; writer selection is not persisted on the asset. Small voxel values stay
+inline. External values produce one matching Payload Directory entry and the
+stable `<package-stem>.dabulk` DURF/DABK v2 companion. Reimport, repair, and
+canonical resave use the same writer; there is no legacy rollback route.
 
 The 256 KiB authoring threshold changes placement,
-not reflection identity, DDC key input, mip bytes, TXPL, cooked DBLK, or upload
+not reflection identity, DDC key input, platform payload, cooked DBLK, or upload
 bytes. The production `16384 x 128` atlas therefore keeps its exact normalized
 2 MiB source while ordinary `.dasset` Value bytes contain only the descriptor.
 
 ## Payload and cook
 
-Cooked post-load validates the VolumeTexture payload id, TXPL schema version,
+Cooked post-load validates the VolumeTexture slot, schema version,
 compression, target, and profile from its domain and DBLK descriptors, then
 calls `LoadCookedPackagePayload` for an opaque verified byte view. It decodes
 that view transactionally into `FVolumeTexturePlatformData`; no common bulk
 descriptor or cross-authority provider translation participates.
 
-Volume data uses the owner-selected, magic-free TXPL schema 2 with texture dimension value 3. Stable pixel
+The owner-selected texture payload schema 2 uses dimension value 3. Stable pixel
 format identifiers 8 through 12 were appended for the five portable formats;
 existing 2D and cube identifiers retain their meanings. Volume records reuse
 the fixed 40-byte record layout and store depth and depth pitch in fields whose
@@ -128,14 +125,14 @@ interpretation is selected by the dimension. Ranges are 16-byte aligned,
 non-overlapping, checksummed with XXH3-128, bounded, and validated across all
 three axes before allocation.
 
-The volume producer version is 1 and the primary cooked payload ID is
+The volume producer version is 2 and the primary cooked payload ID is
 `672b164e-4e19-4871-a7b8-41dfe3208b15`. Cook accepts only Win64/Game and emits
 one uncompressed PackageCompanion payload. Cooked loading requires the matching
 descriptor and valid payload, strips authored source by default, does not query
 DDC or invoke an importer, and fails the asset load transactionally on missing
 or corrupt bulk. At runtime VolumeTexture passes its reflected cooked descriptor
 to the DBLK-owned `LoadCookedPackagePayload` service and transactionally decodes
-the returned opaque verified view. Cooked `.dasset`, DBLK, and TXPL bytes remain
+the returned opaque verified view. Cooked `.dasset`, DBLK, and payload bytes remain
 unchanged.
 
 ## GPU resource and diagnostics
@@ -146,7 +143,7 @@ source schema/dimensions and `FEditorBulkData` storage descriptor, and validates
 the referenced stable DABK companion without modifying recovery state.
 Generation-named companions are not a supported production route. Live
 inspection independently reports source, DDC/platform,
-cooked TXPL/DBLK, decoded CPU, and GPU stages. Missing/corrupt DABK maps to
+cooked payload/DBLK, decoded CPU, and GPU stages. Missing/corrupt DABK maps to
 restore or reimport, DDC failure maps to rebuild, cooked failure maps to recook,
 and GPU failure maps to resource retry.
 

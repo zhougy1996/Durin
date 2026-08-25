@@ -70,13 +70,12 @@ DAST prefixes, including v4 and v5, are unsupported and fail before
 object-stream parsing or publication. DAST v6 is both the supported reader and
 the ordinary writer.
 
-DURF also selects the independent DABK v2 authored-companion and DBLK v2
-cooked-companion branches by permanent GUID. Their format versions describe
-storage grammar only. Payload schema compatibility is selected and validated
-by the reflected owning asset slot; it is never inferred from container entry
-bytes, `PayloadId`, or a mnemonic magic. DDC keys and Cook descriptors advance
-with every domain schema/producer change so old raw cache values miss rather
-than entering a new decoder.
+DURF selects three independent storage formats by permanent GUID: DAST v6
+packages, DABK v2 authored companions, and DBLK v2 cooked companions. Their
+versions describe storage grammar only. The reflected asset slot selects and
+validates its payload schema; `PayloadId` locates that slot but does not select
+a codec. DDC keys and Cook descriptors advance with domain schema or producer
+changes so old raw values cannot enter a new decoder.
 
 A frozen writer constructs its Archive context from its own codec identity.
 The v6 writer therefore always reports DAST v6 to serializers and emits v6. The

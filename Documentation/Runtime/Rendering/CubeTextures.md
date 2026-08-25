@@ -134,8 +134,8 @@ shared source art. Legacy face and panorama filename fields are rejected.
 
 Builder identity covers the active source layout and hashes, face dimension,
 finite exposure, sRGB policy, schema versions, target platform, and profile.
-Cube TXPL schema 2 uses the shared magic-free texture envelope with exactly six matching
-slices in the frozen `+X/-X/+Y/-Y/+Z/-Z` order. Cook strips source provenance
+Texture payload schema 2 uses exactly six matching slices in the frozen
+`+X/-X/+Y/-Y/+Z/-Z` order. Cook strips source provenance
 and publishes the payload under stable ID
 `d52878ce-8f50-48c7-a3c7-ff846e2c4c5a`. Generic DDC, build-session, Cook, DBLK,
 and runtime fallback rules are defined by

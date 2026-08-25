@@ -4,7 +4,7 @@ Summary: Defines the exact unsigned 16-bit terrain-height authority, regional ex
 
 Modules: AssetCore, Engine, AssetForge, AssetForgeBuiltins, DurinEd, LevelEditor
 
-Last reviewed: 2026-08-14
+Last reviewed: 2026-08-25
 
 ## Asset Contract
 
@@ -50,7 +50,7 @@ The frozen limits are:
 | Encoded source | 512 MiB |
 | Canonical sample bytes | 512 MiB |
 | Serialized hierarchy nodes | 512 KiB |
-| THPL object | 513 MiB |
+| Encoded heightmap payload | 513 MiB |
 | Peak synchronous decode/build admission | 2,560 MiB |
 
 The maximum canonical sample plane is 536,870,912 bytes. Its 64×64 hierarchy
@@ -106,11 +106,11 @@ invalidates or cancels stale work. Editor rendering reports payload loading and
 publishes no partial proxy. Required gameplay collision waits at its explicit
 activation barrier; missing/corrupt payload recovery failure rejects play.
 
-## THPL Payload and Cook
+## Payload and Cook
 
-The independently identified cooked payload uses
-`TerrainHeightmapPrimaryCookedPayloadId`, owner-selected magic-free THPL payload schema 2,
-builder 3, 16-byte section alignment, and no bulk compression. Its 96-byte
+The terrain owner selects `TerrainHeightmapPrimaryCookedPayloadId`, payload
+schema 2, and builder 3. The value uses 16-byte section alignment, no bulk
+compression, and a 96-byte
 little-endian header records platform/profile, dimensions, hierarchy policy,
 counts, global range, table/section offsets, stored size, and XXH64 body
 checksum. Each 24-byte level record stores level dimensions, node offset,

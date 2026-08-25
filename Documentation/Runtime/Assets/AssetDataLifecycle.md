@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: AssetCore, AssetBuildCore, Engine, GeometryBuild, TextureBuild, AssetForge, AssetForgeBuiltins
 
-Last reviewed: 2026-08-24
+Last reviewed: 2026-08-25
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -19,10 +19,8 @@ Developer `TextureBuild` and `GeometryBuild` own normalized,
 source-independent recipes and canonical build-key inputs;
 `AssetForgeBuiltins` adapts standard concrete source formats into those
 normalized values. `AssetBuildCore` provides family-neutral cache policy over
-the opaque store; its physical ObjectStore adapter is private implementation,
-and recipe modules reach cache query/store only through `FBuildSession`.
-`AssetBuildCore` stores DDC values opaquely through its private physical object
-store. `AssetCore` owns package, descriptor, container, manifest, and
+an opaque private ObjectStore, and recipe modules reach cache query/store only
+through `FBuildSession`. `AssetCore` owns package, descriptor, container, manifest, and
 atomic-publication formats without interpreting Engine payloads.
 
 Builder and translator versions invalidate production identity. Payload schema
@@ -43,9 +41,8 @@ AnimationClip, and TerrainHeightmap functions as one atomic module-owned
 transaction; TextureBuild does the same for Texture2D, TextureCube, and
 VolumeTexture. Each
 transaction rolls back registrations acquired by a failed attempt and resets
-the complete set in reverse order during owner retirement. Their DMSH,
-collision, TXPL, DSKM, DANM, and terrain keys, cache roots, value bytes, and
-codecs remain family-owned and unchanged.
+the complete set in reverse order during owner retirement. Each family retains
+its build keys, cache namespace, value schema, codec, and validation policy.
 TextureBuild's coordinator calls the synchronous session from its existing
 worker and retains cancellation, supersession, metrics, and main-thread
 publication ownership. AssetForgeBuiltins likewise retains TextureCube source
@@ -168,13 +165,13 @@ The current import behavior is:
 
 | Asset | Import-time build | Persistent outputs |
 | --- | --- | --- |
-| StaticMesh | Import geometry, build render data, and encode DMSH for the DDC | Authored `.dasset`, normalized source file, DDC `.bin` |
-| Texture2D | Decode source pixels, generate mips, select/compress the platform format, and encode TXPL for the DDC | Authored `.dasset`, normalized source file, DDC `.bin` |
-| TextureCube, six-face | Decode six sources, validate a common layout, generate/compress platform faces, and encode TXPL for the DDC | Authored `.dasset`, six normalized source files, DDC `.bin` |
-| TextureCube, panorama | Decode and project the panorama, generate/compress platform faces, and encode TXPL for the DDC | Authored `.dasset`, normalized panorama source, DDC `.bin` |
+| StaticMesh | Import geometry and build the render payload | Authored `.dasset`, normalized source file, DDC `.bin` |
+| Texture2D | Decode source pixels, generate mips, and select/compress the platform format | Authored `.dasset`, normalized source file, DDC `.bin` |
+| TextureCube, six-face | Decode six sources, validate a common layout, and build platform faces | Authored `.dasset`, six normalized source files, DDC `.bin` |
+| TextureCube, panorama | Decode and project the panorama, then build platform faces | Authored `.dasset`, normalized panorama source, DDC `.bin` |
 | Skeleton | Validate and persist the canonical reference hierarchy and structural compatibility identity | Authored `.dasset` |
-| SkeletalMesh | Validate the Skeleton relationship and detached LOD0 CPU payload, then encode DSKM for the DDC | Authored `.dasset`, Scene source closure through its import record, DDC `.bin` |
-| AnimationClip | Validate the Skeleton relationship and detached track/key CPU payload, then encode DANM for the DDC | Authored `.dasset`, Scene source closure through its import record, DDC `.bin` |
+| SkeletalMesh | Validate the Skeleton relationship and build the detached LOD0 CPU payload | Authored `.dasset`, Scene source closure through its import record, DDC `.bin` |
+| AnimationClip | Validate the Skeleton relationship and build detached track/key data | Authored `.dasset`, Scene source closure through its import record, DDC `.bin` |
 | Assets without an external platform payload | Construct and save reflected authoring state | Authored `.dasset` |
 
 StaticMesh, texture, SkeletalMesh, and AnimationClip import currently build the
@@ -246,12 +243,13 @@ DBLK companion.
 
 ## Derived Data Cache Objects
 
-Generic content-addressed DDC objects use `.bin` and let their owning subsystem
-provide a magic value and versioned schema to identify the payload type. Domains
-whose native artifacts have their own strict validation may retain those
-formats beneath a namespaced DDC subtree; shader SPIR-V and reflection sidecars
-are examples. The lifetime contract remains the same: every entry is disposable
-and its authored inputs are authoritative.
+Generic content-addressed DDC objects are opaque `.bin` values. The request's
+build function and expected value name select one owner-defined decoder; the
+store does not identify a type from the bytes. That owner validates its schema,
+producer, bounds, structure, and checksums. Native artifacts such as shader
+SPIR-V and reflection sidecars may retain their own strict file grammar beneath
+a namespaced subtree. Every DDC entry remains disposable and its authored inputs
+remain authoritative.
 
 A DDC key must be built from a canonical byte encoding of every input that can
 change the output, including:
@@ -271,8 +269,8 @@ same-directory temporary file is flushed and closed before replacement. The
 temporary name is independent of the destination name, and DDC round trips are
 supported beyond the traditional Windows `MAX_PATH` boundary under the
 [physical file I/O contract](../Core/FileIO.md).
-Readers validate magic, versions, declared sizes, allocation limits, structural
-invariants, and checksums before publishing data. A cache write failure does not
+Owners validate reserved fields, versions, declared sizes, allocation limits,
+structural invariants, and checksums before publishing data. A cache write failure does not
 invalidate a complete in-memory build result.
 
 For migrated StaticMesh render/collision, Texture2D/TextureCube,
@@ -286,7 +284,7 @@ best-effort store failure and surface the store diagnostic.
 
 TextureCube uses `Durin.TextureBuild.TextureCube@1` with value
 `TextureCubePayload` under `TextureCube/Objects`. Source decode and panorama
-projection precede the immutable request; a valid TXPL hit skips mip generation,
+projection precede the immutable request; a valid cached payload skips mip generation,
 compression, encoding, and store. Cache-only authored load carries no local
 input and never captures source.
 
@@ -310,7 +308,7 @@ invent those inputs or silently reimport.
 The registered functions are `Durin.GeometryBuild.SkeletalMesh@1` and
 `Durin.GeometryBuild.AnimationClip@1`, both returning `SkeletalPayload`.
 Definitions carry the exact Skeleton/count/material target context. Cache-only
-post-load validates the complete DSKM or DANM value without mutating the asset;
+post-load validates the complete owner-selected value without mutating the asset;
 scene import owns the detached publication transaction and hard Skeleton edges.
 
 ### Terrain Heightmap Derived Data
@@ -419,35 +417,28 @@ chunk without changing asset references or the asset-specific payload schema.
 Offsets and sizes are unsigned, explicitly encoded values rather than native
 structure layouts.
 
-The `.dbulk` container is DURF/DBLK v2: the common envelope selects the
-permanent DBLK `FormatId`, while the format-owned header carries target/profile
-and the bounded payload table. Payload ranges must be
-aligned, non-overlapping, contained by the file, and validated before
-allocation. Each payload is independently checksummed so corruption is reported
-against the owning asset and `PayloadId`.
+The `.dbulk` companion is DURF/DBLK v2. DURF selects the storage format; DBLK
+records target/profile and a bounded payload table. Ranges are aligned,
+non-overlapping, file-contained, and independently checksummed so failures can
+name the owning asset and `PayloadId`.
 
-DBLK and authored DABK reuse one AssetCore-private physical mechanism for
-bounded little-endian IO, checked arithmetic/alignment, detached ordering,
-zero-padding checks, safe range projection, and canonical layout construction.
-The mechanism stops below both schemas: format identity, headers, entries, limits, hash
-algorithms, diagnostics, suffixes, providers, and authored-versus-Cook
-transactions remain format-owned. CMNF uses only the bounded codec primitives;
-it remains a Cook manifest and is not treated as a payload container.
+DBLK and DABK share AssetCore's bounded little-endian container primitives, but
+remain separate formats and authority services. CMNF reuses only lower-level
+codec primitives; it remains a Cook manifest, not a payload container.
 
-Asset-specific codecs own the bytes inside a payload. The reflected asset class
-and payload slot select exactly one codec; generic storage never probes bytes
-or carries a payload-type identity. For example, a texture
-codec owns mip records and GPU block-compressed bytes, while a static-mesh codec
-owns vertex and index streams. `AssetCore` owns container lookup, bounded I/O,
-and descriptor validation but does not interpret those bytes. C++ object
-memory, STL layouts, pointers, and RHI handles are never serialized.
+The reflected asset class and payload slot select exactly one codec before
+lookup. That codec owns its schema and bytes—for example texture mip records or
+static-mesh vertex/index streams. AssetCore owns container lookup, bounded I/O,
+and descriptor validation, but neither dispatches from payload bytes nor
+interprets them. C++ object memory, STL layouts, pointers, and RHI handles are
+never serialized.
 
 Runtime asset loaders use `LoadCookedPackagePayload` for the common package
 path, `.dbulk` companion, target/profile, and exact-descriptor lookup. Its
 `FCookedPackagePayload` result owns the decoded container, so the selected
-opaque byte span remains valid for the result lifetime. Loaders validate their
-payload identity and schema before lookup, decode into detached candidates,
-and publish only after complete type-specific validation. Engine-private wire
+opaque byte span remains valid for the result lifetime. The owning asset
+validates its slot descriptor and schema before lookup, decodes into a detached
+candidate, and publishes only after complete type-specific validation. Engine-private wire
 helpers provide bounded little-endian reads/writes and checked alignment to the
 StaticMesh, Skeletal, Texture, and Terrain codecs; their field order, chunks,
 limits, hashes, compatibility rules, and diagnostics remain locally owned.
@@ -467,13 +458,13 @@ texture data is already compressed and must remain independently addressable by
 mip. Other payload types may select an explicit compression method when their
 codec and loading policy support it.
 
-### Skeletal Payload Codecs
+### Skeletal Payload Schemas
 
-SkeletalMesh payload schema 2 and producer version 2 use a required-zero first
-header word. Its required chunks store metadata and bounds, sections,
+SkeletalMesh schema 2 and producer 2 use a required-zero first header word. Its
+required chunks store metadata and bounds, sections,
 positions, vertex attributes, indices, canonical four-slot influences, and
-palette indices with inverse-bind matrices. AnimationClip payload schema 2 and
-producer version 2 use the same magic-free framing; its required chunks store clip
+palette indices with inverse-bind matrices. AnimationClip schema 2 and producer
+2 use the same framing; its required chunks store clip
 metadata, track records, key times, and typed translation/rotation/scale values.
 
 Both codecs use an explicit 64-byte little-endian header, 32-byte chunk
@@ -613,13 +604,11 @@ provider, mutable lock, or unloaded/failed residency state. Transactional
 creation verifies size and hash before replacing a destination value, and
 copies share the immutable `FSharedByteBuffer` allocation.
 
-Authored DABK and cooked DBLK remain separate authority services and formats,
-even though their private implementations share bounded physical container
-primitives. Authored package loading resolves and verifies DABK bytes before
-constructing its common resident-byte value. Cooked consumers call
-`LoadCookedPackagePayload` and interpret the returned opaque view through their
-own reflected descriptor and codec. DDC misses and rebuilds continue to use the
-existing derived-data services. There is no cross-authority provider adapter.
+Authored DABK, cooked DBLK, and DDC remain separate authority services. Authored
+load resolves DABK before constructing resident bytes; cooked consumers request
+one descriptor-selected DBLK view; derived-data services own DDC misses and
+rebuilds. Their shared container primitives do not create a common provider or
+payload-dispatch layer.
 
 UE-style `FEditorBulkData` composes only `FBulkData` and editor-side atomic
 replacement. It stores no authored placement, container, or stored-size state;
@@ -629,20 +618,11 @@ never exposes writable resident memory. Immutable byte access goes through
 `GetBulkData()`; authored package loading remains eager and publishes the object
 graph only after external DABK bytes have been resolved and verified.
 
-DAST v6 under `DURF` v1 is the ordinary authored route. It retains the canonical
-logical Archive encoding as bounded sections and records external DABK facts in
-the front-directory-owned Payload Directory; there is no EOF trailer or footer.
-The reader derives the complete descriptor set construct-free and rejects any
-missing, extra, or disagreeing payload id, size, content hash, container hash,
-or placement before live construction. All publication uses v6, publishes
-companions first, and replaces the complete package file atomically. No legacy
-rollback route exists.
-
-DABK v2 uses DURF header version 1 and permanent `FormatId`
-`49efbbb4-e2434e35-a7c01c34-9ed84ea0`. Its 64-byte format header and sorted
-64-byte entries carry only storage facts: payload id, sizes, content and
-container hashes, offsets, flags, and required-zero reserved fields. Domain
-schema versions remain reflected facts owned by the asset slot instead.
+DAST's Payload Directory and DABK entries carry only storage facts. Before live
+construction, authored load rejects any missing, extra, or disagreeing payload
+id, size, hash, or placement. Domain schema versions remain reflected facts
+owned by the asset slot. Exact DAST/DABK framing and publication rules are
+defined by [Asset Packages](AssetPackages.md#authored-bulk-companions).
 
 Asset package loading resolves external storage to the stable sibling
 `<package-stem>.dabulk`, then validates the complete DABK container and selected

@@ -99,10 +99,10 @@ reimports publish render data, BodySetup state, collision resources, revisions,
 and diagnostics transactionally. A cache miss or corruption is rebuildable only
 while detached source inputs exist.
 
-Cook writes independently versioned DMSH render and optional required DCOL
-collision companions in one `FCookContext` transaction. Cooked BodySetup state
-contains policy and the exact DCOL descriptor but no source snapshot or DDC key.
-Runtime validates both descriptors and payloads before publishing either, and
+Cook writes independently versioned render and optional required collision
+slots in one `FCookContext` transaction. Cooked BodySetup state contains policy
+and the exact collision descriptor but no source snapshot or DDC key. Runtime
+validates both descriptors and payloads before publishing either, and
 reconstructs collision without source, DDC, importers, editor modules, or
 initialized render resources. Missing, corrupt, mismatched, or incompatible
 required collision rejects the asset; there is no cooked-runtime fallback.
@@ -183,8 +183,8 @@ retained and estimated peak bytes, and build status. The diagnostic string is
 separately bounded by the component contract. These facts retain no source,
 Renderer state, expanded triangles, or mutable scene storage.
 
-Cooked Terrain collision is constructed deterministically from validated THPL
-state. It adds no collision companion or duplicate sample plane and requires no
+Cooked Terrain collision is constructed deterministically from the validated
+heightmap payload. It adds no collision slot or duplicate sample plane and requires no
 source, DDC, Renderer resource, or editor module.
 
 ## Profiles, queries, and results

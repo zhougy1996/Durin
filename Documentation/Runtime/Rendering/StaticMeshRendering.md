@@ -357,14 +357,14 @@ validated as another fallback, so no partial payload can reach a draw.
 
 ## Payload Compatibility
 
-DMSH schema 5 stores each LOD's `ScreenSize` beside its geometry and retains
+StaticMesh render schema 5 stores each LOD's `ScreenSize` beside its geometry and retains
 the schema-3 bounded material-slot count rather than slot GUIDs.
 Every decoded section index is validated against that count; package metadata
 then restores editor/runtime slot names and imported source indices by stable
 position. Schema 4 and older payloads are incompatible, and builder version 4
 invalidates prior derived data while the derived-data key schema remains 1
 because it already encodes both version values. Source-backed assets and stale
-DDC entries rebuild; cooked/runtime-only schema-3 content must be recooked and
+DDC entries rebuild; cooked/runtime-only schema-4-or-older content must be recooked and
 is never silently reinterpreted. Encode reads semantic data back from the named buffer resources;
 decode constructs them from the payload's position, normal, tangent, UV,
 color, index, and LOD-policy data. Decode and render-data reconstruction publish

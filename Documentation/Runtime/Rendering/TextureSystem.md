@@ -65,9 +65,9 @@ persists 15 bounded reflected source/build/domain descriptor fields. Neither
 `FTextureSourceData::Pixels` nor platform mip vectors are reflected or stored in
 the authored package.
 
-Source image encoding belongs to the mounted source file and decoder, TXPL
-schema 2 belongs to Texture2D, DDC values are rebuildable canonical platform
-data, and cooked DBLK bytes are immutable deployment data loaded through
+Source image encoding belongs to the mounted source file and decoder. Texture
+payload schema 2 belongs to the owning asset, DDC values are rebuildable
+canonical platform data, and cooked DBLK bytes are immutable deployment data loaded through
 `LoadCookedPackagePayload`. Decoded source, platform mip, and RHI resource
 lifetimes are independent downstream products. This measured boundary already
 satisfies the large-payload architecture; converting Texture2D to editor DABK
@@ -102,8 +102,8 @@ state; the Texture Editor requires an explicit Wait for Build or Cancel Build
 decision instead of serializing a pending candidate.
 
 The DDC path is derived entirely from the key; `.dasset` never stores a cache
-file path or byte offset. Texture payloads use owner-selected, magic-free TXPL schema 2, an 80-byte header,
-40-byte records, 16-byte aligned non-overlapping ranges, explicit BC format,
+file path or byte offset. Owner-selected texture payload schema 2 uses an
+80-byte header, 40-byte records, 16-byte aligned non-overlapping ranges, explicit BC format,
 dimension, mip and slice counts, target platform/profile, and XXH3-128
 checksums. Texture2D has exactly one slice and TextureCube has six ordered
 slices. The selected cross-asset storage and cooked companion contract is documented in
@@ -111,12 +111,12 @@ slices. The selected cross-asset storage and cooked companion contract is docume
 
 ## Cooking and Runtime Loading
 
-Texture2D producer version 3 contributes its validated TXPL bytes under stable
+Texture2D producer version 3 contributes its validated platform bytes under stable
 payload ID `53aa6a89-dc49-401a-b409-adc498ac4f8b`. Cook serializes runtime
 settings plus the logical descriptor, strips source provenance and editor
-fingerprints, and publishes TXPL inside the package DBLK companion.
+fingerprints, and publishes them inside the package DBLK companion.
 
-Cooked-runtime package mode accepts only Win64/Game, PackageCompanion, schema-1,
+Cooked-runtime package mode accepts only Win64/Game, PackageCompanion, schema 2,
 uncompressed descriptors matching the DBLK entry. Decode validates every mip
 dimension, block row pitch, byte range, padding, format, checksum, and allocation
 limit before replacing live platform data. Missing or malformed bulk is a hard,

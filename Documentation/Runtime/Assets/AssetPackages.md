@@ -118,22 +118,20 @@ and transactional relocation are defined by
 
 ## File Format
 
-Every authored or cooked `.dasset`, regardless of its main asset class, uses the
-same DAST object-package envelope. DAST v6 under `DURF` v1 is the ordinary
-writer, repository baseline, and only supported authored package version. Unsupported versions fail before
-header-specific interpretation, object construction, mutation, or publication.
-DAST has the permanent nonzero format identity
+Every authored or cooked `.dasset` is a DURF/DAST v6 object package, regardless
+of its main asset class. It is the repository baseline, ordinary writer, and
+only supported package format. DAST has the permanent format identity
 `3c59d1a9-6ceb-4e4c-b059-452db0a5af56` and canonical diagnostic name
-`Durin.BinaryFormat.DAST`. The private codec key is `(FormatId, FormatVersion)`;
-the `DURF` front envelope carries that identity directly. AssetCore validates
-the common envelope through an explicit immutable registry; unknown identities,
-unsupported required features, legacy DAST prefixes, and corrupt envelopes fail
-before any package codec is called.
+`Durin.BinaryFormat.DAST`. DURF carries `(FormatId, FormatVersion)` and common
+integrity facts; AssetCore resolves that pair through an immutable codec
+registry before DAST parses package sections. Unknown identities, unsupported
+features or versions, legacy prefixes, and corrupt envelopes fail before object
+construction, mutation, or publication.
+
 Relocation preserves the package format while changing only the main-object
-name when a rename requires it. The header records the `DAST` magic, format
-version, main asset class, bounded registry-entry kind, redirect destination,
-dependencies, and object count. An ordinary
-asset must have an empty destination. A redirector must name
+name when a rename requires it. DAST's Public Summary and Import sections record
+the main asset class, package kind, redirect destination, dependencies, and
+object count. An ordinary asset has no destination. A redirector must name
 `Durin::Asset::DAssetRedirector`, contain exactly one object and one dependency,
 and make that dependency equal its canonical destination. The asset path is
 derived from the mounted package filename, so moving a package within a content
@@ -150,12 +148,11 @@ reference caches include the package format in their fingerprints, discard
 unsupported entries, and cannot reuse a projection after package bytes or the
 declared format changes.
 
-Domain payloads are not alternative `.dasset` envelopes. The reflected asset
-class and payload slot select the StaticMesh, texture, skeletal, animation,
-terrain, collision, or lighting codec; generic DDC/DABK/DBLK storage carries no
-codec identity and does not recognize mnemonic bytes. A cooked `.dbulk` uses
-DURF/DBLK v2 and contains the selected magic-free payload bytes; the cooked
-`.dasset` that references it remains DURF/DAST v6.
+Domain payloads are not file formats or nested DURF envelopes. The reflected
+asset class and payload slot select one codec and schema before bytes are read.
+DDC, DABK, and DBLK remain opaque storage at that boundary: they do not probe
+payload bytes or carry a codec tag. A cooked `.dbulk` is DURF/DBLK v2; the
+`.dasset` that describes its slots remains DURF/DAST v6.
 
 ### DAST v6 Envelope Route
 
@@ -780,7 +777,7 @@ referenced companions, and unreferenced same-package companions read-only.
 
 The texture domain composes these physical facts through
 `InspectTexturePayloadPackage`. AssetCore does not interpret dimensions, pixel
-formats, voxel counts, TXPL versions, or repair policy. Inspection may read and
+formats, voxel counts, domain schema versions, or repair policy. Inspection may read and
 validate a referenced companion, but it never publishes, restores, removes, or
 rewrites a file; those remain explicit package/source/Cook workflows.
 
@@ -806,7 +803,7 @@ External authored bytes live beside the package as
 `<package-stem>.dabulk`. The stable filename is discovery only: the package
 descriptor and v6 Payload Directory remain authoritative for the container hash. This is
 distinct from cooked `.dbulk`.
-The DABK v2 format uses DURF v1 with permanent identity
+The companion is DURF/DABK v2 with permanent identity
 `49efbbb4-e2434e35-a7c01c34-9ed84ea0`, a 64-byte format header, sorted 64-byte
 entries, 16-byte payload alignment, at most 65,536 unique payload ids, and a
 1 GiB file/payload ceiling. Readers reject invalid identity/version/features,
@@ -814,11 +811,11 @@ duplicate or unordered ids,
 misalignment, overlap, gaps, nonzero padding, bounds overflow, size/hash
 mismatch, wrong container identity, and trailing bytes.
 
-DABK schema and authored lifecycle policy sit above AssetCore's private bounded
-container infrastructure. That mechanism supplies DURF discovery, explicit little-endian IO,
-checked arithmetic and alignment, detached canonical ordering, zero padding,
-safe byte-range projection, and layout validation; it does not know domain payload schemas,
-descriptors, suffixes, providers, package paths, or publication transactions.
+AssetCore's bounded container mechanism supplies DURF discovery,
+little-endian IO, checked alignment, canonical ordering, zero padding, safe
+range projection, and layout validation. DABK owns its descriptors, suffix,
+recovery, and publication transaction; the reflected asset owns payload meaning
+and schema.
 
 Save constructs and validates the replacement companion, copies any prior
 stable companion to `<package-stem>.dabulk.durin-backup`, and publishes the
