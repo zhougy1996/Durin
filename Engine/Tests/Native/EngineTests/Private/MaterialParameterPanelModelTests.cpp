@@ -29,12 +29,21 @@ namespace
 			.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 		};
 	}
+
+	auto MakeExpandedBase(const char* Name) -> Durin::DMaterial*
+	{
+		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
+		Durin::FMaterialProgramValidationResult Validation;
+		if (!Material || !Material->SetMaterialProgram(
+			Durin::MakeLegacyExpandedMaterialProgram(), Validation)) return nullptr;
+		return Material;
+	}
 }
 
 TEST(FMaterialParameterPanelModelTests, BuildsControlsAndResolvedSourceFromRuntimeSchema)
 {
 	InitializeDObjectSystem();
-	auto* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "PanelSchemaBase");
+	auto* Base = MakeExpandedBase("PanelSchemaBase");
 	auto* Parent = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PanelSchemaParent");
 	auto* Child = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PanelSchemaChild");
 	ASSERT_TRUE(Parent->SetParent(Base));
@@ -77,7 +86,7 @@ TEST(FMaterialParameterPanelModelTests, BuildsControlsAndResolvedSourceFromRunti
 TEST(FMaterialParameterPanelModelTests, IntegerPresentationCanonicalizesSubmittedValues)
 {
 	InitializeDObjectSystem();
-	auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "PanelIntegerMaterial");
+	auto* Material = MakeExpandedBase("PanelIntegerMaterial");
 	Durin::Editor::FTransactionManager Transactions;
 	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
@@ -107,7 +116,7 @@ TEST(FMaterialParameterPanelModelTests, IntegerPresentationCanonicalizesSubmitte
 TEST(FMaterialParameterPanelModelTests, EnablingOverrideCopiesTheParameterType)
 {
 	InitializeDObjectSystem();
-	auto* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "PanelTypedOverrideBase");
+	auto* Base = MakeExpandedBase("PanelTypedOverrideBase");
 	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PanelTypedOverrideInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));
 
@@ -136,7 +145,7 @@ TEST(FMaterialParameterPanelModelTests, EnablingOverrideCopiesTheParameterType)
 TEST(FMaterialParameterPanelModelTests, GuidRootEditsSurviveIndexChangesAndCoalesceOrCancel)
 {
 	InitializeDObjectSystem();
-	auto* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "PanelEditBase");
+	auto* Base = MakeExpandedBase("PanelEditBase");
 	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PanelEditInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Instance->SetVectorParameterValue(
@@ -199,7 +208,7 @@ TEST(FMaterialParameterPanelModelTests, GuidRootEditsSurviveIndexChangesAndCoale
 TEST(FMaterialParameterPanelModelTests, ResetAndOrphanRemovalAreTransactional)
 {
 	InitializeDObjectSystem();
-	auto* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "PanelOrphanBase");
+	auto* Base = MakeExpandedBase("PanelOrphanBase");
 	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PanelOrphanInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.3f));
@@ -242,7 +251,7 @@ TEST(FMaterialParameterPanelModelTests, ResetAndOrphanRemovalAreTransactional)
 TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoHistory)
 {
 	InitializeDObjectSystem();
-	auto* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "PanelValueBase");
+	auto* Base = MakeExpandedBase("PanelValueBase");
 	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PanelValueInstance");
 	auto* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "PanelValueTexture");
 	ASSERT_TRUE(Instance->SetParent(Base));
@@ -302,7 +311,7 @@ TEST(FMaterialParameterPanelModelTests, BaseAndTexturePickerValuesUseSharedUndoH
 TEST(FMaterialParameterPanelModelTests, RootSnapshotContinuousSessionsRemainParameterScoped)
 {
 	InitializeDObjectSystem();
-	auto* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "PanelIdentityBase");
+	auto* Base = MakeExpandedBase("PanelIdentityBase");
 	Durin::Editor::FTransactionManager Transactions;
 	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;

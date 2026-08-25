@@ -12,7 +12,9 @@ namespace Durin
 	DMaterial::DMaterial(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 		, ParameterDefinitions(MakeCanonicalMaterialParameterDefinitions())
-		, Program(MakeCanonicalMaterialProgram())
+		, Program(ObjectInitializer.Purpose == EObjectConstructionPurpose::AssetLoad
+			? MakeLegacyExpandedMaterialProgram()
+			: MakeDefaultMaterialProgram())
 	{
 		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose))
 		{
@@ -200,6 +202,26 @@ namespace Durin
 		return true;
 	}
 
+	auto DMaterial::SetParameterValue(
+		const FGuid& Id, const FMaterialParameterValue& Value) -> bool
+	{
+		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Id);
+		if (!Definition) return false;
+		switch (Definition->Type)
+		{
+		case EMaterialParameterType::Scalar:
+			return SetScalarParameterValue(Definition->Name, Value.ScalarValue);
+		case EMaterialParameterType::Vector2:
+			return SetVector2ParameterValue(Definition->Name, Value.Vector2Value);
+		case EMaterialParameterType::Vector:
+			return SetVectorParameterValue(Definition->Name, Value.VectorValue);
+		case EMaterialParameterType::Texture:
+			return SetTextureParameterValue(
+				Definition->Name, Value.TextureValue.Get());
+		}
+		return false;
+	}
+
 	auto DMaterial::GetScalarParameterValue(FName Name, float& OutValue) const -> bool
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Name);
@@ -236,15 +258,19 @@ namespace Durin
 		-> FMaterialLocalRenderLayer
 	{
 		FMaterialLocalRenderLayer Result;
-		Result.Parameters.reserve(ParameterDefinitions.size());
-		for (const FMaterialParameterDefinition& Definition
-			: ParameterDefinitions)
+		const std::vector Dependencies = InspectMaterialParameterDependencies(
+			Program, ParameterDefinitions);
+		Result.Parameters.reserve(Dependencies.size());
+		for (const FMaterialParameterDependency& Dependency : Dependencies)
 		{
+			const FMaterialParameterDefinition* Definition =
+				FindParameterDefinition(Dependency.ParameterId);
+			if (!Definition) continue;
 			Result.Parameters.push_back(
 				BuildMaterialLocalRenderParameter(
-					Definition.Id,
-					Definition.Type,
-					Definition.Value));
+					Definition->Id,
+					Definition->Type,
+					Definition->Value));
 		}
 		Result.StaticProperties = GetRenderableStaticProperties();
 		Result.CompiledProgram = AcceptedCompiledProgram;
@@ -263,6 +289,11 @@ namespace Durin
 		}
 		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
 			return LoadCookedProgram(OutError);
+		if (!UpgradeMaterialProgramSchema(Program))
+		{
+			OutError = "Material program schema version is unsupported.";
+			return false;
+		}
 		const FMaterialProgramValidationResult ProgramValidation =
 			ValidateMaterialProgram(Program, ParameterDefinitions);
 		if (!ProgramValidation)

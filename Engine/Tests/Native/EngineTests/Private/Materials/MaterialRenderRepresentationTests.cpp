@@ -8,6 +8,15 @@
 
 namespace
 {
+	auto MakeExpandedMaterial(const char* Name) -> Durin::DMaterial*
+	{
+		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
+		Durin::FMaterialProgramValidationResult Validation;
+		if (!Material || !Material->SetMaterialProgram(
+			Durin::MakeLegacyExpandedMaterialProgram(), Validation)) return nullptr;
+		return Material;
+	}
+
 	auto ReadFloat(std::span<const std::byte> Bytes, uint32 Offset) -> float
 	{
 		float Value = 0.0f;
@@ -73,8 +82,7 @@ TEST(FMaterialProgramCharacterizationTests,
 	FixedPathSeparatesDynamicShaderAndPipelineIdentity)
 {
 	InitializeDObjectSystem();
-	auto* Base = Durin::NewObject<Durin::DMaterial>(
-		nullptr, "M5FixedPathBase");
+	auto* Base = MakeExpandedMaterial("M5FixedPathBase");
 	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(
 		nullptr, "M5FixedPathInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));
@@ -542,8 +550,7 @@ TEST(FMaterialRenderRepresentationTests, V1BindingRejectsAChangedFieldTable)
 TEST(FMaterialRenderRepresentationTests, MaterialSnapshotsResolveThroughTheSelectedLayout)
 {
 	InitializeDObjectSystem();
-	Durin::DMaterial* Base =
-		Durin::NewObject<Durin::DMaterial>(nullptr, "RepresentationBase");
+	Durin::DMaterial* Base = MakeExpandedMaterial("RepresentationBase");
 	Durin::DMaterialInstance* Instance =
 		Durin::NewObject<Durin::DMaterialInstance>(nullptr, "RepresentationInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));
@@ -571,7 +578,7 @@ TEST(FMaterialRenderRepresentationTests, MaterialSnapshotsResolveThroughTheSelec
 TEST(FMaterialRenderRepresentationTests, V3CompilationCanonicalizesEveryInputClass)
 {
 	InitializeDObjectSystem();
-	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "CanonicalPBRMaterial");
+	Durin::DMaterial* Material = MakeExpandedMaterial("CanonicalPBRMaterial");
 	const double NaN = std::numeric_limits<double>::quiet_NaN();
 	ASSERT_TRUE(Material->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(NaN, 0.0, 0.0)));
 	ASSERT_TRUE(Material->SetVectorParameterValue(Durin::MaterialParameters::NormalName(), Durin::FVector3(0.0)));

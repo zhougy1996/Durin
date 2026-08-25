@@ -38,6 +38,15 @@ namespace
 		Input.Environment.Target = "vulkan-spirv-1.5";
 		return NormalizeMaterialProgram(Input);
 	}
+
+	auto MakeExpandedGraphMaterial(const char* Name) -> DMaterial*
+	{
+		DMaterial* Material = NewObject<DMaterial>(nullptr, Name);
+		FMaterialProgramValidationResult Validation;
+		if (!Material || !Material->SetMaterialProgram(
+			MakeLegacyExpandedMaterialProgram(), Validation)) return nullptr;
+		return Material;
+	}
 }
 
 TEST(FMaterialGraphAuthoringTests, PresentationSanitizationIsIndependentAndBounded)
@@ -79,7 +88,7 @@ TEST(FMaterialGraphAuthoringTests, PresentationReachesMaximumNodeBoundAndDuplica
 	EXPECT_EQ(Sanitized.Nodes.size(), MaterialProgramMaxNodeCount);
 
 	InitializeDObjectSystem();
-	DMaterial* Material = NewObject<DMaterial>(nullptr, "PresentationSource");
+	DMaterial* Material = MakeExpandedGraphMaterial("PresentationSource");
 	ASSERT_NE(Material, nullptr);
 	const FGuid NodeId = Material->GetMaterialProgram()->Nodes.front().Id;
 	ASSERT_TRUE(Material->SetMaterialGraphPresentation(
@@ -117,13 +126,66 @@ TEST(FMaterialGraphAuthoringTests, CatalogAndInspectionCoverTheClosedOpcodeDomai
 	EXPECT_EQ(View.Nodes.size(), Material->GetMaterialProgram()->Nodes.size());
 	for (const FMaterialGraphNodeView& Node : View.Nodes)
 	{
+		EXPECT_FALSE(Node.PrimaryLabel.empty());
 		EXPECT_EQ(Node.Inputs.size(), Node.Node.Inputs.size());
 		for (const FMaterialGraphPinView& Input : Node.Inputs)
+		{
+			EXPECT_FALSE(Input.Name.empty());
 			EXPECT_FALSE(Input.AcceptedTypes.empty());
+		}
+	}
+	for (const FMaterialGraphCatalogEntry& Entry : Catalog)
+	{
+		EXPECT_FALSE(Entry.OperationName.empty());
+		EXPECT_FALSE(Entry.Category.empty());
+		EXPECT_EQ(Entry.InputNames.size(), Entry.AcceptedInputTypes.size());
+	}
+	const std::vector<FMaterialGraphCatalogEntry> MultiplyResults =
+		FMaterialGraphService::SearchCatalog(*Material, "multiply");
+	ASSERT_FALSE(MultiplyResults.empty());
+	EXPECT_EQ(MultiplyResults.front().OperationName, "Multiply");
+	const std::vector<FMaterialGraphCatalogEntry> TextureSourceResults =
+		FMaterialGraphService::SearchCatalog(*Material, {},
+			EMaterialProgramValueType::Texture2D);
+	ASSERT_FALSE(TextureSourceResults.empty());
+	for (const FMaterialGraphCatalogEntry& Entry : TextureSourceResults)
+	{
+		ASSERT_FALSE(Entry.AcceptedInputTypes.empty());
+		EXPECT_NE(std::ranges::find(Entry.AcceptedInputTypes.front(),
+			EMaterialProgramValueType::Texture2D),
+			Entry.AcceptedInputTypes.front().end());
 	}
 
 	MarkAsGarbage(Material);
 	CollectGarbage();
+}
+
+TEST(FMaterialGraphAuthoringTests, CanvasGeometryUsesStableMetricsAndZoomHysteresis)
+{
+	const FMaterialGraphCanvasMetrics& Metrics = FMaterialGraphGeometry::GetMetrics();
+	EXPECT_FLOAT_EQ(Metrics.NodeWidth, 224.0f);
+	EXPECT_FLOAT_EQ(Metrics.MinimumHitDiameter, 16.0f);
+	EXPECT_FLOAT_EQ(FMaterialGraphGeometry::GetNodeHeight(0), 94.0f);
+	EXPECT_FLOAT_EQ(FMaterialGraphGeometry::GetNodeHeight(3), 142.0f);
+
+	EXPECT_EQ(FMaterialGraphGeometry::SelectDetailLevel(
+		0.40f, EMaterialGraphDetailLevel::Readable),
+		EMaterialGraphDetailLevel::Overview);
+	EXPECT_EQ(FMaterialGraphGeometry::SelectDetailLevel(
+		0.45f, EMaterialGraphDetailLevel::Overview),
+		EMaterialGraphDetailLevel::Overview);
+	EXPECT_EQ(FMaterialGraphGeometry::SelectDetailLevel(
+		0.50f, EMaterialGraphDetailLevel::Overview),
+		EMaterialGraphDetailLevel::Readable);
+	EXPECT_EQ(FMaterialGraphGeometry::SelectDetailLevel(
+		0.84f, EMaterialGraphDetailLevel::Readable),
+		EMaterialGraphDetailLevel::Editing);
+	EXPECT_EQ(FMaterialGraphGeometry::SelectDetailLevel(
+		0.78f, EMaterialGraphDetailLevel::Editing),
+		EMaterialGraphDetailLevel::Editing);
+	EXPECT_EQ(FMaterialGraphGeometry::SelectDetailLevel(
+		0.70f, EMaterialGraphDetailLevel::Editing),
+		EMaterialGraphDetailLevel::Readable);
 }
 
 TEST(FMaterialGraphAuthoringTests, MaximumGraphLayoutIsDeterministicAndPresentationOnly)
@@ -158,10 +220,111 @@ TEST(FMaterialGraphAuthoringTests, MaximumGraphLayoutIsDeterministicAndPresentat
 		SemanticRevision);
 	const FMaterialGraphPresentation FirstLayout =
 		Material->GetMaterialGraphPresentation();
+	const FMaterialGraphView LayoutView = FMaterialGraphService::Inspect(*Material);
+	for (size_t A = 0; A < LayoutView.Nodes.size(); ++A)
+		for (size_t B = A + 1; B < LayoutView.Nodes.size(); ++B)
+		{
+			ASSERT_TRUE(LayoutView.Nodes[A].Presentation);
+			ASSERT_TRUE(LayoutView.Nodes[B].Presentation);
+			const auto& PositionA = *LayoutView.Nodes[A].Presentation;
+			const auto& PositionB = *LayoutView.Nodes[B].Presentation;
+			const float HeightA = FMaterialGraphGeometry::GetNodeHeight(
+				static_cast<uint32>(LayoutView.Nodes[A].Inputs.size()));
+			const float HeightB = FMaterialGraphGeometry::GetNodeHeight(
+				static_cast<uint32>(LayoutView.Nodes[B].Inputs.size()));
+			const float Width = FMaterialGraphGeometry::GetMetrics().NodeWidth;
+			EXPECT_FALSE(PositionA.X < PositionB.X + Width
+				&& PositionA.X + Width > PositionB.X
+				&& PositionA.Y < PositionB.Y + HeightB
+				&& PositionA.Y + HeightA > PositionB.Y);
+		}
 	const FMaterialGraphCommandResult Second =
 		FMaterialGraphService::Layout(*Material);
 	EXPECT_EQ(Second.Status, EMaterialGraphCommandStatus::NoChange);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), FirstLayout);
+	std::vector<std::chrono::microseconds> Samples;
+	Samples.reserve(100);
+	for (uint32 Sample = 0; Sample < 100; ++Sample)
+	{
+		const auto SampleBegin = std::chrono::steady_clock::now();
+		EXPECT_TRUE(FMaterialGraphService::Layout(*Material));
+		Samples.push_back(std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::steady_clock::now() - SampleBegin));
+	}
+	std::ranges::sort(Samples);
+	EXPECT_LT(Samples[50], std::chrono::milliseconds(25));
+	EXPECT_LT(Samples[95], std::chrono::milliseconds(50));
+
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
+TEST(FMaterialGraphAuthoringTests, LayoutReducesDenseCrossingsAndAvoidsSelectedCollisions)
+{
+	InitializeDObjectSystem();
+	DMaterial* Material = NewObject<DMaterial>(nullptr, "DenseLayoutMaterial");
+	ASSERT_NE(Material, nullptr);
+	FMaterialProgram Program = *Material->GetMaterialProgram();
+	std::array<FGuid, 8> Sources;
+	std::array<FGuid, 8> Consumers;
+	for (uint32 Index = 0; Index < Sources.size(); ++Index)
+	{
+		Sources[Index] = FGuid(100 + Index, 0, 0, 1);
+		Consumers[Index] = FGuid(200 + Index, 0, 0, 1);
+	}
+	for (uint32 Index = 0; Index < Sources.size(); ++Index)
+	{
+		Program.Nodes.push_back({
+			.Id = Sources[Index],
+			.Opcode = EMaterialProgramOpcode::Constant,
+			.ResultType = EMaterialProgramValueType::Float,
+		});
+		Program.Nodes.push_back({
+			.Id = Consumers[Index],
+			.Opcode = EMaterialProgramOpcode::Saturate,
+			.ResultType = EMaterialProgramValueType::Float,
+			.Inputs = {{Sources[Sources.size() - Index - 1], 0}},
+		});
+	}
+	FMaterialProgramValidationResult Validation;
+	ASSERT_TRUE(Material->SetMaterialProgram(Program, Validation));
+	ASSERT_TRUE(FMaterialGraphService::Layout(*Material));
+	const FMaterialGraphView View = FMaterialGraphService::Inspect(*Material);
+	auto Y = [&](const FGuid& Id) {
+		const FMaterialGraphNodeView* Node = FindViewNode(View, Id);
+		EXPECT_NE(Node, nullptr);
+		EXPECT_TRUE(Node && Node->Presentation);
+		return Node && Node->Presentation ? Node->Presentation->Y : 0;
+	};
+	uint32 Crossings = 0;
+	for (size_t A = 0; A < Sources.size(); ++A)
+		for (size_t B = A + 1; B < Sources.size(); ++B)
+			if (static_cast<int64>(Y(Sources[Sources.size() - A - 1])
+				- Y(Sources[Sources.size() - B - 1]))
+				* static_cast<int64>(Y(Consumers[A]) - Y(Consumers[B])) < 0)
+				++Crossings;
+	EXPECT_LE(Crossings, 2u);
+
+	const FGuid Selected = Sources.front();
+	const FGuid Fixed = Sources.back();
+	const FMaterialGraphNodeView* SelectedView = FindViewNode(View, Selected);
+	ASSERT_NE(SelectedView, nullptr);
+	ASSERT_TRUE(SelectedView->Presentation);
+	const FMaterialGraphNodePresentation Occupied{
+		Fixed, SelectedView->Presentation->X, 0};
+	ASSERT_TRUE(FMaterialGraphService::MoveNodes(*Material, std::span(&Occupied, 1)));
+	ASSERT_TRUE(FMaterialGraphService::Layout(*Material, std::span(&Selected, 1)));
+	const FMaterialGraphView Relayout = FMaterialGraphService::Inspect(*Material);
+	const auto* RelayoutSelected = FindViewNode(Relayout, Selected);
+	const auto* RelayoutFixed = FindViewNode(Relayout, Fixed);
+	ASSERT_TRUE(RelayoutSelected && RelayoutSelected->Presentation);
+	ASSERT_TRUE(RelayoutFixed && RelayoutFixed->Presentation);
+	const float Height = FMaterialGraphGeometry::GetNodeHeight(0);
+	const float Width = FMaterialGraphGeometry::GetMetrics().NodeWidth;
+	EXPECT_FALSE(RelayoutSelected->Presentation->X < RelayoutFixed->Presentation->X + Width
+		&& RelayoutSelected->Presentation->X + Width > RelayoutFixed->Presentation->X
+		&& RelayoutSelected->Presentation->Y < RelayoutFixed->Presentation->Y + Height
+		&& RelayoutSelected->Presentation->Y + Height > RelayoutFixed->Presentation->Y);
 
 	MarkAsGarbage(Material);
 	CollectGarbage();
@@ -170,7 +333,7 @@ TEST(FMaterialGraphAuthoringTests, MaximumGraphLayoutIsDeterministicAndPresentat
 TEST(FMaterialGraphAuthoringTests, ClipboardPasteRemapsInternalIdentityAndRejectsAtomically)
 {
 	InitializeDObjectSystem();
-	DMaterial* Material = NewObject<DMaterial>(nullptr, "ClipboardMaterial");
+	DMaterial* Material = MakeExpandedGraphMaterial("ClipboardMaterial");
 	ASSERT_NE(Material, nullptr);
 	ASSERT_TRUE(FMaterialGraphService::Layout(*Material));
 	std::vector<FGuid> AllNodes;
@@ -297,6 +460,92 @@ TEST(FMaterialGraphAuthoringTests, DiagnosticNavigationIsLocatedAndDocumentLocal
 	}));
 }
 
+TEST(FMaterialGraphAuthoringTests, CanvasProducesBoundedEditingDrawData)
+{
+	InitializeDObjectSystem();
+	DMaterial* Material = NewObject<DMaterial>(nullptr, "RenderedGraphMaterial");
+	ASSERT_NE(Material, nullptr);
+	ImGuiContext* Context = ImGui::CreateContext();
+	ASSERT_NE(Context, nullptr);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.DisplaySize = {1200.0f, 720.0f};
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault();
+	IO.Fonts->Build();
+	FTransactionManager Transactions;
+	FMaterialGraphCanvas Canvas;
+
+	const auto DrawAtZoom = [&](float Zoom) {
+		Canvas.SetViewport(Zoom, {40.0f, 40.0f});
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0.0f, 0.0f});
+		ImGui::SetNextWindowSize({1200.0f, 720.0f});
+		ImGui::Begin("Material Graph Render Test", nullptr,
+			ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+		Canvas.Draw(*Material, Transactions, 660.0f,
+			[](std::string Message) { FAIL() << Message; });
+		ImGui::End();
+		ImGui::Render();
+		const ImDrawData* DrawData = ImGui::GetDrawData();
+		EXPECT_NE(DrawData, nullptr);
+		return DrawData ? DrawData->TotalVtxCount : 0;
+	};
+	const int EditingVertices = DrawAtZoom(1.0f);
+	const int OverviewVertices = DrawAtZoom(0.30f);
+	EXPECT_GT(EditingVertices, 100);
+	EXPECT_LT(EditingVertices, 100000);
+	EXPECT_GT(OverviewVertices, 100);
+	EXPECT_LT(OverviewVertices, 100000);
+	EXPECT_NE(OverviewVertices, EditingVertices);
+
+	FMaterialProgram DenseProgram = *Material->GetMaterialProgram();
+	std::array<FGuid, 8> DenseSources;
+	for (uint32 Index = 0; Index < DenseSources.size(); ++Index)
+		DenseSources[Index] = FGuid(300 + Index, 0, 0, 1);
+	for (uint32 Index = 0; Index < DenseSources.size(); ++Index)
+	{
+		DenseProgram.Nodes.push_back({
+			.Id = DenseSources[Index],
+			.Opcode = EMaterialProgramOpcode::Constant,
+			.ResultType = EMaterialProgramValueType::Float,
+			.DisplayName = Index == 0
+				? "Ambient Occlusion Texture With A Deliberately Long Authored Name" : "",
+		});
+		DenseProgram.Nodes.push_back({
+			.Id = FGuid(400 + Index, 0, 0, 1),
+			.Opcode = EMaterialProgramOpcode::Saturate,
+			.ResultType = EMaterialProgramValueType::Float,
+			.Inputs = {{DenseSources[DenseSources.size() - Index - 1], 0}},
+		});
+	}
+	FMaterialProgramValidationResult Validation;
+	ASSERT_TRUE(Material->SetMaterialProgram(DenseProgram, Validation));
+	const int DenseVertices = DrawAtZoom(0.55f);
+	EXPECT_GT(DenseVertices, 100);
+	EXPECT_LT(DenseVertices, 100000);
+
+	FMaterialProgram MaximumProgram = *Material->GetMaterialProgram();
+	uint32 MaximumIndex = 1000;
+	while (MaximumProgram.Nodes.size() < MaterialProgramMaxNodeCount)
+	{
+		MaximumProgram.Nodes.push_back({
+			.Id = FGuid(MaximumIndex++, 0, 0, 1),
+			.Opcode = EMaterialProgramOpcode::Constant,
+			.ResultType = EMaterialProgramValueType::Float,
+		});
+	}
+	ASSERT_TRUE(Material->SetMaterialProgram(MaximumProgram, Validation));
+	const int MaximumVertices = DrawAtZoom(0.30f);
+	EXPECT_GT(MaximumVertices, 100);
+	EXPECT_LT(MaximumVertices, 100000);
+
+	Transactions.Clear();
+	ImGui::DestroyContext(Context);
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
 TEST(FMaterialGraphAuthoringTests, CommandsAreAtomicAndTransactionsRestoreSemanticAndPresentationState)
 {
 	InitializeDObjectSystem();
@@ -342,7 +591,7 @@ TEST(FMaterialGraphAuthoringTests, CommandsAreAtomicAndTransactionsRestoreSemant
 		BeforeRejected.Nodes, CreatedId, &FMaterialProgramNode::Id);
 	ASSERT_NE(CreatedNodeIt, BeforeRejected.Nodes.end());
 	FMaterialProgramNode Invalid = *CreatedNodeIt;
-	Invalid.ResultType = EMaterialProgramValueType::Texture2D;
+	Invalid.Literal.X = std::numeric_limits<float>::quiet_NaN();
 	const FMaterialGraphCommandResult Rejected =
 		FMaterialGraphService::ReplaceNode(*Material, std::move(Invalid), &Transactions);
 	EXPECT_EQ(Rejected.Status, EMaterialGraphCommandStatus::Rejected);
@@ -383,6 +632,99 @@ TEST(FMaterialGraphAuthoringTests, CommandsAreAtomicAndTransactionsRestoreSemant
 	ASSERT_NE(CoalescedUndo, nullptr);
 	ASSERT_TRUE(CoalescedUndo->Presentation.has_value());
 	EXPECT_EQ(CoalescedUndo->Presentation->X, 320);
+
+	Transactions.Clear();
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
+TEST(FMaterialGraphAuthoringTests,
+	MaterialOutputPromotionTextureAndDisconnectAreAtomic)
+{
+	InitializeDObjectSystem();
+	DMaterial* Material = NewObject<DMaterial>(nullptr, "MaterialOutputCommands");
+	ASSERT_NE(Material, nullptr);
+	ASSERT_TRUE(Material->GetMaterialProgram()->Nodes.empty());
+	FTransactionManager Transactions;
+
+	FMaterialProgramLiteral EditedBaseColor{0.2f, 0.3f, 0.4f, 0.0f};
+	ASSERT_TRUE(FMaterialGraphService::SetSurfaceDefault(*Material, {
+		.Output = EMaterialSurfaceOutput::BaseColor,
+		.Value = EditedBaseColor}, &Transactions));
+	const FMaterialGraphCommandResult Promoted =
+		FMaterialGraphService::PromoteSurfaceOutputToParameter(*Material, {
+			.Output = EMaterialSurfaceOutput::BaseColor,
+			.X = 100,
+			.Y = 200}, &Transactions);
+	ASSERT_TRUE(Promoted) << Promoted.Message;
+	ASSERT_EQ(Promoted.GeneratedNodeIds.size(), 1u);
+	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.size(), 1u);
+	EXPECT_TRUE(Material->GetMaterialProgram()->Outputs.BaseColor.SourceNodeId.IsValid());
+	FVector3 BaseColor;
+	ASSERT_TRUE(Material->GetVectorParameterValue(
+		MaterialParameters::BaseColorName(), BaseColor));
+	EXPECT_NEAR(BaseColor.x, 0.2, 1.e-6);
+	EXPECT_NEAR(BaseColor.y, 0.3, 1.e-6);
+	EXPECT_NEAR(BaseColor.z, 0.4, 1.e-6);
+	const std::vector PromotedDependencies = InspectMaterialParameterDependencies(
+		*Material->GetMaterialProgram(), Material->GetParameterDefinitions());
+	ASSERT_EQ(PromotedDependencies.size(), 1u);
+	EXPECT_EQ(PromotedDependencies.front().ParameterId,
+		MaterialParameters::BaseColorId);
+	const uint64 CompileGeneration =
+		Material->GetMaterialCompileStatus().RequestGeneration;
+	ASSERT_TRUE(FMaterialGraphService::SetParameterValue(
+		*Material, MaterialParameters::BaseColorId,
+		FMaterialParameterValue::MakeVector({0.7, 0.6, 0.5}),
+		&Transactions));
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
+		CompileGeneration);
+	ASSERT_TRUE(Material->GetVectorParameterValue(
+		MaterialParameters::BaseColorName(), BaseColor));
+	EXPECT_EQ(BaseColor, FVector3(0.7, 0.6, 0.5));
+	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Material->GetVectorParameterValue(
+		MaterialParameters::BaseColorName(), BaseColor));
+	EXPECT_NEAR(BaseColor.x, 0.2, 1.e-6);
+	EXPECT_NEAR(BaseColor.y, 0.3, 1.e-6);
+	EXPECT_NEAR(BaseColor.z, 0.4, 1.e-6);
+	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions.Undo());
+
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_TRUE(Material->GetMaterialProgram()->Nodes.empty());
+	ASSERT_TRUE(Material->GetVectorParameterValue(
+		MaterialParameters::BaseColorName(), BaseColor));
+	EXPECT_EQ(BaseColor, FVector3(0.95, 0.62, 0.22));
+	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(FMaterialGraphService::DisconnectSurfaceOutput(
+		*Material, EMaterialSurfaceOutput::BaseColor, &Transactions));
+	EXPECT_FALSE(Material->GetMaterialProgram()->Outputs.BaseColor.SourceNodeId.IsValid());
+	EXPECT_EQ(Material->GetMaterialProgram()->Outputs.BaseColorDefault,
+		EditedBaseColor);
+	EXPECT_TRUE(InspectMaterialParameterDependencies(
+		*Material->GetMaterialProgram(),
+		Material->GetParameterDefinitions()).empty());
+
+	const FMaterialGraphCommandResult Textured =
+		FMaterialGraphService::AddTextureToSurfaceOutput(*Material, {
+			.Output = EMaterialSurfaceOutput::Normal,
+			.X = 400,
+			.Y = 200}, &Transactions);
+	ASSERT_TRUE(Textured) << Textured.Message;
+	ASSERT_EQ(Textured.GeneratedNodeIds.size(), 5u);
+	const std::vector TextureDependencies = InspectMaterialParameterDependencies(
+		*Material->GetMaterialProgram(), Material->GetParameterDefinitions());
+	ASSERT_EQ(TextureDependencies.size(), 6u);
+	EXPECT_EQ(TextureDependencies.front().ParameterId,
+		MaterialParameters::NormalTextureId);
+	EXPECT_EQ(TextureDependencies.back().ParameterId,
+		MaterialParameters::SamplerStateIds[1]);
+	const FMaterialNormalizationResult Normalized = Normalize(*Material);
+	ASSERT_TRUE(Normalized);
+	EXPECT_EQ(Normalized.IR.Nodes.size(), 12u);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_FALSE(Material->GetMaterialProgram()->Outputs.Normal.SourceNodeId.IsValid());
 
 	Transactions.Clear();
 	MarkAsGarbage(Material);

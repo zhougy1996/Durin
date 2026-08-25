@@ -38,6 +38,10 @@ namespace Durin
 			EMaterialSurfaceOutput::Emissive,
 			EMaterialSurfaceOutput::Opacity,
 			EMaterialSurfaceOutput::OpacityMask};
+		// Source schema 2 only changes how optional surface links and their retained
+		// fallbacks are authored. Keep the normalized identity domain stable so a
+		// fully connected legacy graph retains its pre-upgrade identity.
+		inline constexpr uint32 MaterialProgramIdentitySchemaVersion = 1;
 
 		auto IsCommutative(EMaterialProgramOpcode Opcode) -> bool
 		{
@@ -45,25 +49,6 @@ namespace Durin
 				|| Opcode == EMaterialProgramOpcode::Multiply
 				|| Opcode == EMaterialProgramOpcode::Minimum
 				|| Opcode == EMaterialProgramOpcode::Maximum;
-		}
-
-		auto GetOutputLink(
-			const FMaterialSurfaceOutputs& Outputs,
-			EMaterialSurfaceOutput Output) -> const FMaterialProgramLink&
-		{
-			switch (Output)
-			{
-			case EMaterialSurfaceOutput::BaseColor: return Outputs.BaseColor;
-			case EMaterialSurfaceOutput::Normal: return Outputs.Normal;
-			case EMaterialSurfaceOutput::Metallic: return Outputs.Metallic;
-			case EMaterialSurfaceOutput::Roughness: return Outputs.Roughness;
-			case EMaterialSurfaceOutput::AmbientOcclusion:
-				return Outputs.AmbientOcclusion;
-			case EMaterialSurfaceOutput::Emissive: return Outputs.Emissive;
-			case EMaterialSurfaceOutput::Opacity: return Outputs.Opacity;
-			case EMaterialSurfaceOutput::OpacityMask: return Outputs.OpacityMask;
-			}
-			return Outputs.BaseColor;
 		}
 
 		template <typename TValue>
@@ -359,11 +344,21 @@ namespace Durin
 				MarkReachable(AuthoredIndices.at(Link.SourceNodeId));
 		};
 		for (EMaterialSurfaceOutput Output : GSurfaceOutputOrder)
-			MarkReachable(AuthoredIndices.at(
-				GetOutputLink(Input.Program.Outputs, Output).SourceNodeId));
+		{
+			const FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(
+				Input.Program.Outputs, Output);
+			if (Link.SourceNodeId.IsValid())
+				MarkReachable(AuthoredIndices.at(Link.SourceNodeId));
+		}
 
 		FMaterialIR IR;
-		IR.Nodes.reserve(std::ranges::count(Reachable, true));
+		const size_t ReachableCount = std::ranges::count(Reachable, true);
+		const size_t FallbackCount = std::ranges::count_if(
+			GSurfaceOutputOrder, [&](EMaterialSurfaceOutput Output) {
+				return !GetMaterialSurfaceOutputLink(
+					Input.Program.Outputs, Output).SourceNodeId.IsValid();
+			});
+		IR.Nodes.reserve(ReachableCount + FallbackCount);
 		std::unordered_map<FGuid, uint32> NormalizedIndices;
 		NormalizedIndices.reserve(IR.Nodes.capacity());
 
@@ -414,10 +409,13 @@ namespace Durin
 		};
 
 		for (EMaterialSurfaceOutput Output : GSurfaceOutputOrder)
-			EmitNode(GetOutputLink(Input.Program.Outputs, Output).SourceNodeId);
+		{
+			const FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(
+				Input.Program.Outputs, Output);
+			if (Link.SourceNodeId.IsValid()) EmitNode(Link.SourceNodeId);
+		}
 
-		if (IR.Nodes.size() != static_cast<size_t>(
-			std::ranges::count(Reachable, true)))
+		if (IR.Nodes.size() != ReachableCount)
 		{
 			Result.Diagnostics.push_back(MakeNormalizationFailure(
 				"Material normalization did not consume the complete reachable DAG."));
@@ -425,8 +423,23 @@ namespace Durin
 		}
 		IR.SurfaceOutputs.reserve(GSurfaceOutputOrder.size());
 		for (EMaterialSurfaceOutput Output : GSurfaceOutputOrder)
-			IR.SurfaceOutputs.push_back(NormalizedIndices.at(
-				GetOutputLink(Input.Program.Outputs, Output).SourceNodeId));
+		{
+			const FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(
+				Input.Program.Outputs, Output);
+			if (Link.SourceNodeId.IsValid())
+			{
+				IR.SurfaceOutputs.push_back(
+					NormalizedIndices.at(Link.SourceNodeId));
+				continue;
+			}
+			FMaterialIRNode Constant;
+			Constant.Opcode = EMaterialProgramOpcode::Constant;
+			Constant.ResultType = GetMaterialSurfaceOutputType(Output);
+			Constant.Literal = GetMaterialSurfaceOutputDefault(
+				Input.Program.Outputs, Output);
+			IR.SurfaceOutputs.push_back(static_cast<uint32>(IR.Nodes.size()));
+			IR.Nodes.push_back(Constant);
+		}
 
 		std::string EncodeError;
 		if (!EncodeMaterialIRCanonical(IR, Result.CanonicalBytes, EncodeError))
@@ -454,6 +467,7 @@ namespace Durin
 		OutError.clear();
 		if (IR.Version != CurrentMaterialIRVersion
 			|| IR.Nodes.size() > MaterialProgramMaxNodeCount
+				+ GSurfaceOutputOrder.size()
 			|| IR.SurfaceOutputs.size() != GSurfaceOutputOrder.size())
 		{
 			OutError = "Material IR version, node count, or surface output count is invalid.";
@@ -511,7 +525,7 @@ namespace Durin
 		AppendLittleEndian(Bytes, Input.StaticProperties.ShadingModel);
 		AppendLittleEndian(Bytes, CanonicalFloatBits(
 			Input.StaticProperties.OpacityMaskThreshold));
-		AppendLittleEndian(Bytes, CurrentMaterialProgramSchemaVersion);
+		AppendLittleEndian(Bytes, MaterialProgramIdentitySchemaVersion);
 		AppendLittleEndian(Bytes, CurrentMaterialIRVersion);
 		AppendLittleEndian(Bytes, CurrentMaterialGeneratorVersion);
 		AppendLittleEndian(Bytes, CurrentMaterialCompilerEnvelopeVersion);

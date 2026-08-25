@@ -8,6 +8,15 @@
 
 namespace
 {
+	auto MakeExpandedMaterial(const char* Name) -> Durin::DMaterial*
+	{
+		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
+		Durin::FMaterialProgramValidationResult Validation;
+		if (!Material || !Material->SetMaterialProgram(
+			Durin::MakeLegacyExpandedMaterialProgram(), Validation)) return nullptr;
+		return Material;
+	}
+
 	auto ReplaceWithDebugCandidate(Durin::DStaticMesh* Mesh) -> bool
 	{
 		Durin::DStaticMesh* Candidate =
@@ -184,8 +193,8 @@ TEST(FStaticMeshRenderStateRecreateContextTests, RepublishesSplineMeshDerivedSta
 TEST(FStaticMeshUpdateTests, CurrentAssignmentsAndDefaultsDriveLoadedComponentScans)
 {
 	FRenderSceneHarness Harness;
-	auto* First = Durin::NewObject<Durin::DMaterial>(nullptr, "StaticMeshScanFirst");
-	auto* Second = Durin::NewObject<Durin::DMaterial>(nullptr, "StaticMeshScanSecond");
+	auto* First = MakeExpandedMaterial("StaticMeshScanFirst");
+	auto* Second = MakeExpandedMaterial("StaticMeshScanSecond");
 	First->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.3, 0.4));
 	Second->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.6, 0.5));
 	auto* FirstMesh = Durin::DStaticMesh::CreateDebugTriangle();

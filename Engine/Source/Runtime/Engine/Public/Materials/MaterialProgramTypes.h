@@ -15,7 +15,8 @@ namespace Durin
 {
 	struct FMaterialParameterDefinition;
 
-	inline constexpr uint32 CurrentMaterialProgramSchemaVersion = 1;
+	inline constexpr uint32 CurrentMaterialProgramSchemaVersion = 2;
+	inline constexpr uint32 LegacyMaterialProgramSchemaVersion = 1;
 	inline constexpr uint32 MaterialProgramMaxNodeCount = 256;
 	inline constexpr uint32 MaterialProgramMaxLinkCount = 1024;
 	inline constexpr uint32 MaterialProgramMaxReferencedParameterCount = 128;
@@ -194,6 +195,30 @@ namespace Durin
 		DPROPERTY()
 		FMaterialProgramLink OpacityMask;
 
+		DPROPERTY()
+		FMaterialProgramLiteral BaseColorDefault{0.95f, 0.62f, 0.22f, 0.0f};
+
+		DPROPERTY()
+		FMaterialProgramLiteral NormalDefault{0.0f, 0.0f, 1.0f, 0.0f};
+
+		DPROPERTY()
+		FMaterialProgramLiteral MetallicDefault{};
+
+		DPROPERTY()
+		FMaterialProgramLiteral RoughnessDefault{0.5f, 0.0f, 0.0f, 0.0f};
+
+		DPROPERTY()
+		FMaterialProgramLiteral AmbientOcclusionDefault{1.0f, 0.0f, 0.0f, 0.0f};
+
+		DPROPERTY()
+		FMaterialProgramLiteral EmissiveDefault{};
+
+		DPROPERTY()
+		FMaterialProgramLiteral OpacityDefault{1.0f, 0.0f, 0.0f, 0.0f};
+
+		DPROPERTY()
+		FMaterialProgramLiteral OpacityMaskDefault{1.0f, 0.0f, 0.0f, 0.0f};
+
 		auto operator==(const FMaterialSurfaceOutputs&) const -> bool = default;
 	};
 
@@ -290,7 +315,25 @@ namespace Durin
 		operator bool() const { return bSucceeded; }
 	};
 
+	ENGINE_API auto MakeDefaultMaterialProgram() -> FMaterialProgram;
+	ENGINE_API auto MakeLegacyExpandedMaterialProgram() -> FMaterialProgram;
 	ENGINE_API auto MakeCanonicalMaterialProgram() -> FMaterialProgram;
+	ENGINE_API auto UpgradeMaterialProgramSchema(FMaterialProgram& Program)
+		-> bool;
+	ENGINE_API auto GetMaterialSurfaceOutputType(EMaterialSurfaceOutput Output)
+		-> EMaterialProgramValueType;
+	ENGINE_API auto GetMaterialSurfaceOutputLink(
+		FMaterialSurfaceOutputs& Outputs, EMaterialSurfaceOutput Output)
+		-> FMaterialProgramLink&;
+	ENGINE_API auto GetMaterialSurfaceOutputLink(
+		const FMaterialSurfaceOutputs& Outputs, EMaterialSurfaceOutput Output)
+		-> const FMaterialProgramLink&;
+	ENGINE_API auto GetMaterialSurfaceOutputDefault(
+		FMaterialSurfaceOutputs& Outputs, EMaterialSurfaceOutput Output)
+		-> FMaterialProgramLiteral&;
+	ENGINE_API auto GetMaterialSurfaceOutputDefault(
+		const FMaterialSurfaceOutputs& Outputs, EMaterialSurfaceOutput Output)
+		-> const FMaterialProgramLiteral&;
 	ENGINE_API auto ValidateMaterialProgram(
 		const FMaterialProgram& Program,
 		std::span<const FMaterialParameterDefinition> ParameterDefinitions)

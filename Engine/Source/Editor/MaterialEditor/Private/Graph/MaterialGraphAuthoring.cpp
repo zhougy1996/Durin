@@ -16,6 +16,57 @@ namespace Durin::Editor::Material
 			EMaterialProgramValueType::Float4,
 		};
 
+		auto GetInputNames(EMaterialProgramOpcode Opcode, size_t Count)
+			-> std::vector<std::string>
+		{
+			std::vector<std::string> Names;
+			switch (Opcode)
+			{
+			case EMaterialProgramOpcode::TextureSample2D: Names = {"Texture", "UV"}; break;
+			case EMaterialProgramOpcode::Add:
+			case EMaterialProgramOpcode::Subtract:
+			case EMaterialProgramOpcode::Multiply:
+			case EMaterialProgramOpcode::Divide:
+			case EMaterialProgramOpcode::Minimum:
+			case EMaterialProgramOpcode::Maximum: Names = {"A", "B"}; break;
+			case EMaterialProgramOpcode::Clamp: Names = {"Value", "Min", "Max"}; break;
+			case EMaterialProgramOpcode::Lerp: Names = {"A", "B", "Alpha"}; break;
+			case EMaterialProgramOpcode::MakeFloat2: Names = {"X", "Y"}; break;
+			case EMaterialProgramOpcode::MakeFloat3: Names = {"X", "Y", "Z"}; break;
+			case EMaterialProgramOpcode::MakeFloat4: Names = {"X", "Y", "Z", "W"}; break;
+			case EMaterialProgramOpcode::BlendNormalsRNM: Names = {"Base", "Detail"}; break;
+			default: break;
+			}
+			if (Names.size() < Count) Names.resize(Count, "Value");
+			if (Names.size() > Count) Names.resize(Count);
+			return Names;
+		}
+
+		auto GetCategory(EMaterialProgramOpcode Opcode) -> const char*
+		{
+			switch (Opcode)
+			{
+			case EMaterialProgramOpcode::Constant:
+			case EMaterialProgramOpcode::Parameter:
+			case EMaterialProgramOpcode::TextureParameter:
+			case EMaterialProgramOpcode::TextureCoordinate: return "Inputs";
+			case EMaterialProgramOpcode::TextureSample2D:
+			case EMaterialProgramOpcode::DecodeNormalRG:
+			case EMaterialProgramOpcode::BlendNormalsRNM: return "Textures";
+			case EMaterialProgramOpcode::Swizzle:
+			case EMaterialProgramOpcode::MakeFloat2:
+			case EMaterialProgramOpcode::MakeFloat3:
+			case EMaterialProgramOpcode::MakeFloat4:
+			case EMaterialProgramOpcode::Splat2:
+			case EMaterialProgramOpcode::Splat3:
+			case EMaterialProgramOpcode::Splat4:
+			case EMaterialProgramOpcode::TruncateToFloat:
+			case EMaterialProgramOpcode::TruncateToFloat2:
+			case EMaterialProgramOpcode::TruncateToFloat3: return "Channels";
+			default: return "Math";
+			}
+		}
+
 		auto GetProgramType(EMaterialParameterType Type)
 			-> EMaterialProgramValueType
 		{
@@ -27,6 +78,19 @@ namespace Durin::Editor::Material
 			case EMaterialParameterType::Texture: return EMaterialProgramValueType::Texture2D;
 			}
 			return EMaterialProgramValueType::Float;
+		}
+
+		auto GetProgramTypeName(EMaterialProgramValueType Type) -> const char*
+		{
+			switch (Type)
+			{
+			case EMaterialProgramValueType::Float: return "Float";
+			case EMaterialProgramValueType::Float2: return "Float2";
+			case EMaterialProgramValueType::Float3: return "Float3";
+			case EMaterialProgramValueType::Float4: return "Float4";
+			case EMaterialProgramValueType::Texture2D: return "Texture2D";
+			}
+			return "Unknown";
 		}
 
 		auto GetOpcodeName(EMaterialProgramOpcode Opcode) -> const char*
@@ -75,9 +139,12 @@ namespace Durin::Editor::Material
 		{
 			FMaterialGraphCatalogEntry Entry;
 			Entry.Name = GetOpcodeName(Opcode);
+			Entry.OperationName = Entry.Name;
+			Entry.Category = GetCategory(Opcode);
 			Entry.NodeTemplate.Opcode = Opcode;
 			Entry.NodeTemplate.ResultType = ResultType;
 			Entry.NodeTemplate.Inputs.resize(Inputs.size());
+			Entry.InputNames = GetInputNames(Opcode, Inputs.size());
 			Entry.AcceptedInputTypes = std::move(Inputs);
 			return Entry;
 		}
@@ -98,22 +165,50 @@ namespace Durin::Editor::Material
 			return It == Program.Nodes.end() ? nullptr : &*It;
 		}
 
-		auto GetSurfaceOutputLink(
-			FMaterialSurfaceOutputs& Outputs,
-			EMaterialSurfaceOutput Output) -> FMaterialProgramLink*
+		auto GetSurfaceParameterId(EMaterialSurfaceOutput Output) -> FGuid
 		{
 			switch (Output)
 			{
-			case EMaterialSurfaceOutput::BaseColor: return &Outputs.BaseColor;
-			case EMaterialSurfaceOutput::Normal: return &Outputs.Normal;
-			case EMaterialSurfaceOutput::Metallic: return &Outputs.Metallic;
-			case EMaterialSurfaceOutput::Roughness: return &Outputs.Roughness;
-			case EMaterialSurfaceOutput::AmbientOcclusion: return &Outputs.AmbientOcclusion;
-			case EMaterialSurfaceOutput::Emissive: return &Outputs.Emissive;
-			case EMaterialSurfaceOutput::Opacity: return &Outputs.Opacity;
-			case EMaterialSurfaceOutput::OpacityMask: return &Outputs.OpacityMask;
+			case EMaterialSurfaceOutput::BaseColor:
+				return MaterialParameters::BaseColorId;
+			case EMaterialSurfaceOutput::Normal:
+				return MaterialParameters::NormalId;
+			case EMaterialSurfaceOutput::Metallic:
+				return MaterialParameters::MetallicId;
+			case EMaterialSurfaceOutput::Roughness:
+				return MaterialParameters::RoughnessId;
+			case EMaterialSurfaceOutput::AmbientOcclusion:
+				return MaterialParameters::AmbientOcclusionId;
+			case EMaterialSurfaceOutput::Emissive:
+				return MaterialParameters::EmissiveId;
+			case EMaterialSurfaceOutput::Opacity:
+				return MaterialParameters::OpacityId;
+			case EMaterialSurfaceOutput::OpacityMask:
+				return MaterialParameters::OpacityMaskId;
 			}
-			return nullptr;
+			return {};
+		}
+
+		auto GetSurfaceTextureRole(EMaterialSurfaceOutput Output) -> FGuid
+		{
+			return MaterialParameters::TextureIds[static_cast<size_t>(Output)];
+		}
+
+		auto MakeParameterValue(
+			EMaterialProgramValueType Type,
+			const FMaterialProgramLiteral& Literal) -> FMaterialParameterValue
+		{
+			switch (Type)
+			{
+			case EMaterialProgramValueType::Float:
+				return FMaterialParameterValue::MakeScalar(Literal.X);
+			case EMaterialProgramValueType::Float2:
+				return FMaterialParameterValue::MakeVector2({Literal.X, Literal.Y});
+			case EMaterialProgramValueType::Float3:
+				return FMaterialParameterValue::MakeVector(
+					{Literal.X, Literal.Y, Literal.Z});
+			default: return {};
+			}
 		}
 
 		auto MakeRejected(
@@ -138,7 +233,10 @@ namespace Durin::Editor::Material
 				FMaterialProgram InAfterProgram,
 				FMaterialGraphPresentation InAfterPresentation,
 				bool bInSemantic,
-				std::string InDescription)
+				std::string InDescription,
+				FGuid InParameterId = {},
+				FMaterialParameterValue InBeforeParameterValue = {},
+				FMaterialParameterValue InAfterParameterValue = {})
 				: Material(&InMaterial)
 				, BeforeProgram(std::move(InBeforeProgram))
 				, BeforePresentation(std::move(InBeforePresentation))
@@ -146,6 +244,9 @@ namespace Durin::Editor::Material
 				, AfterPresentation(std::move(InAfterPresentation))
 				, bSemantic(bInSemantic)
 				, Description(std::move(InDescription))
+				, ParameterId(InParameterId)
+				, BeforeParameterValue(std::move(InBeforeParameterValue))
+				, AfterParameterValue(std::move(InAfterParameterValue))
 			{
 				AffectedPackages.front() = InMaterial.GetPackage();
 			}
@@ -162,21 +263,27 @@ namespace Durin::Editor::Material
 
 			auto Undo() -> bool override
 			{
-				return Apply(BeforeProgram, BeforePresentation);
+				return Apply(BeforeProgram, BeforePresentation,
+					BeforeParameterValue);
 			}
 
 			auto Redo() -> bool override
 			{
-				return Apply(AfterProgram, AfterPresentation);
+				return Apply(AfterProgram, AfterPresentation,
+					AfterParameterValue);
 			}
 
 		private:
-			auto Apply(
+				auto Apply(
 				const FMaterialProgram& Program,
-				const FMaterialGraphPresentation& Presentation) -> bool
+				const FMaterialGraphPresentation& Presentation,
+				const FMaterialParameterValue& ParameterValue) -> bool
 			{
 				DMaterial* Target = Material.Get();
 				if (!Target) return false;
+				if (ParameterId.IsValid()
+					&& !Target->SetParameterValue(ParameterId, ParameterValue))
+					return false;
 				if (bSemantic)
 				{
 					FMaterialProgramValidationResult Validation;
@@ -192,6 +299,9 @@ namespace Durin::Editor::Material
 			FMaterialGraphPresentation AfterPresentation;
 			bool bSemantic = false;
 			std::string Description;
+			FGuid ParameterId;
+			FMaterialParameterValue BeforeParameterValue;
+			FMaterialParameterValue AfterParameterValue;
 			std::array<DPackage*, 1> AffectedPackages{};
 		};
 
@@ -267,6 +377,34 @@ namespace Durin::Editor::Material
 		}
 	}
 
+	auto FMaterialGraphGeometry::GetMetrics()
+		-> const FMaterialGraphCanvasMetrics&
+	{
+		static constexpr FMaterialGraphCanvasMetrics Metrics;
+		return Metrics;
+	}
+
+	auto FMaterialGraphGeometry::GetNodeHeight(uint32 InputCount) -> float
+	{
+		const FMaterialGraphCanvasMetrics& Metrics = GetMetrics();
+		return Metrics.HeaderHeight + Metrics.SecondaryHeight
+			+ Metrics.BodyPadding * 2.0f
+			+ Metrics.PinRowHeight * std::max(1u, InputCount);
+	}
+
+	auto FMaterialGraphGeometry::SelectDetailLevel(
+		float Zoom,
+		EMaterialGraphDetailLevel Previous) -> EMaterialGraphDetailLevel
+	{
+		if (Previous == EMaterialGraphDetailLevel::Overview)
+			return Zoom > 0.48f ? EMaterialGraphDetailLevel::Readable : Previous;
+		if (Previous == EMaterialGraphDetailLevel::Editing)
+			return Zoom < 0.74f ? EMaterialGraphDetailLevel::Readable : Previous;
+		if (Zoom < 0.42f) return EMaterialGraphDetailLevel::Overview;
+		if (Zoom > 0.82f) return EMaterialGraphDetailLevel::Editing;
+		return EMaterialGraphDetailLevel::Readable;
+	}
+
 	auto FMaterialGraphService::Inspect(const DMaterial& Material)
 		-> FMaterialGraphView
 	{
@@ -291,6 +429,11 @@ namespace Durin::Editor::Material
 						&& (!Node.ParameterId.IsValid()
 							|| Entry.NodeTemplate.ParameterId == Node.ParameterId);
 				});
+			View.PrimaryLabel = Shape == Catalog.end()
+				? GetOpcodeName(Node.Opcode) : Shape->OperationName;
+			View.SecondaryLabel = Node.DisplayName;
+			if (View.SecondaryLabel.empty() && Shape != Catalog.end())
+				View.SecondaryLabel = Shape->SecondaryName;
 			View.Inputs.reserve(Node.Inputs.size());
 			for (uint32 InputIndex = 0; InputIndex < Node.Inputs.size(); ++InputIndex)
 			{
@@ -298,6 +441,9 @@ namespace Durin::Editor::Material
 					Program, Node.Inputs[InputIndex].SourceNodeId);
 				FMaterialGraphPinView Pin{
 					.InputIndex = InputIndex,
+					.Name = Shape != Catalog.end()
+						&& InputIndex < Shape->InputNames.size()
+						? Shape->InputNames[InputIndex] : "Value",
 					.Link = Node.Inputs[InputIndex],
 					.SourceType = Source ? Source->ResultType
 						: EMaterialProgramValueType::Float,
@@ -342,6 +488,7 @@ namespace Durin::Editor::Material
 					: EMaterialProgramOpcode::Parameter,
 				Type);
 			Parameter.Name = Definition.DisplayName;
+			Parameter.SecondaryName = Definition.DisplayName;
 			Parameter.NodeTemplate.ParameterId = Definition.Id;
 			Parameter.NodeTemplate.DisplayName = Definition.DisplayName;
 			Result.push_back(std::move(Parameter));
@@ -351,6 +498,7 @@ namespace Durin::Editor::Material
 					EMaterialProgramOpcode::TextureCoordinate,
 					EMaterialProgramValueType::Float2);
 				Coordinates.Name = std::format("{} UV", Definition.DisplayName);
+				Coordinates.SecondaryName = Definition.DisplayName;
 				Coordinates.NodeTemplate.ParameterId = Definition.Id;
 				Result.push_back(std::move(Coordinates));
 			}
@@ -430,6 +578,77 @@ namespace Durin::Editor::Material
 		return Result;
 	}
 
+	auto FMaterialGraphService::SearchCatalog(
+		const DMaterial& Material,
+		std::string_view Query,
+		std::optional<EMaterialProgramValueType> SourceType)
+		-> std::vector<FMaterialGraphCatalogEntry>
+	{
+		auto Lower = [](std::string_view Value) {
+			std::string Result(Value);
+			std::ranges::transform(Result, Result.begin(), [](char Character) {
+				return static_cast<char>(std::tolower(
+					static_cast<unsigned char>(Character)));
+			});
+			return Result;
+		};
+		const std::string Needle = Lower(Query);
+		struct FRankedEntry
+		{
+			FMaterialGraphCatalogEntry Entry;
+			uint8 Match = 3;
+			size_t Ordinal = 0;
+		};
+		std::vector<FRankedEntry> Ranked;
+		std::vector<FMaterialGraphCatalogEntry> Catalog = EnumerateCatalog(Material);
+		for (size_t Ordinal = 0; Ordinal < Catalog.size(); ++Ordinal)
+		{
+			FMaterialGraphCatalogEntry& Entry = Catalog[Ordinal];
+			if (SourceType)
+			{
+				if (Entry.AcceptedInputTypes.empty()
+					|| std::ranges::find(Entry.AcceptedInputTypes.front(), *SourceType)
+						== Entry.AcceptedInputTypes.front().end()) continue;
+			}
+			uint8 Match = Needle.empty() ? 3 : 4;
+			for (const std::string* Field : {
+				&Entry.OperationName, &Entry.SecondaryName, &Entry.Category})
+			{
+				const std::string Haystack = Lower(*Field);
+				if (Haystack == Needle) Match = std::min<uint8>(Match, 0);
+				else if (Haystack.starts_with(Needle)) Match = std::min<uint8>(Match, 1);
+				else if (Haystack.find(Needle) != std::string::npos)
+					Match = std::min<uint8>(Match, 2);
+			}
+			const std::string Type = Lower(GetProgramTypeName(Entry.NodeTemplate.ResultType));
+			if (!Needle.empty())
+			{
+				if (Type == Needle) Match = std::min<uint8>(Match, 0);
+				else if (Type.starts_with(Needle)) Match = std::min<uint8>(Match, 1);
+				else if (Type.find(Needle) != std::string::npos)
+					Match = std::min<uint8>(Match, 2);
+			}
+			if (Match < 4) Ranked.push_back({std::move(Entry), Match, Ordinal});
+		}
+		std::ranges::sort(Ranked, [](const FRankedEntry& A, const FRankedEntry& B) {
+			if (A.Match != B.Match) return A.Match < B.Match;
+			if (A.Entry.Category != B.Entry.Category)
+				return A.Entry.Category < B.Entry.Category;
+			if (A.Entry.OperationName != B.Entry.OperationName)
+				return A.Entry.OperationName < B.Entry.OperationName;
+			if (A.Entry.NodeTemplate.ResultType != B.Entry.NodeTemplate.ResultType)
+				return A.Entry.NodeTemplate.ResultType < B.Entry.NodeTemplate.ResultType;
+			if (A.Entry.NodeTemplate.ParameterId != B.Entry.NodeTemplate.ParameterId)
+				return A.Entry.NodeTemplate.ParameterId < B.Entry.NodeTemplate.ParameterId;
+			return A.Ordinal < B.Ordinal;
+		});
+		std::vector<FMaterialGraphCatalogEntry> Result;
+		Result.reserve(Ranked.size());
+		for (FRankedEntry& Entry : Ranked)
+			Result.push_back(std::move(Entry.Entry));
+		return Result;
+	}
+
 	auto FMaterialGraphService::CreateNode(
 		DMaterial& Material,
 		FMaterialGraphCreateNodeRequest Request,
@@ -484,6 +703,20 @@ namespace Durin::Editor::Material
 			std::erase_if(Node.Inputs, [&](const FMaterialProgramLink& Link) {
 				return Removed.contains(Link.SourceNodeId);
 			});
+		for (EMaterialSurfaceOutput Output : {
+			EMaterialSurfaceOutput::BaseColor,
+			EMaterialSurfaceOutput::Normal,
+			EMaterialSurfaceOutput::Metallic,
+			EMaterialSurfaceOutput::Roughness,
+			EMaterialSurfaceOutput::AmbientOcclusion,
+			EMaterialSurfaceOutput::Emissive,
+			EMaterialSurfaceOutput::Opacity,
+			EMaterialSurfaceOutput::OpacityMask})
+		{
+			FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(
+				Candidate.Outputs, Output);
+			if (Removed.contains(Link.SourceNodeId)) Link = {};
+		}
 		FMaterialGraphPresentation Presentation = Material.GetMaterialGraphPresentation();
 		std::erase_if(Presentation.Nodes, [&](const FMaterialGraphNodePresentation& Node) {
 			return Removed.contains(Node.NodeId);
@@ -544,14 +777,270 @@ namespace Durin::Editor::Material
 		FMaterialProgram Candidate = *Material.GetMaterialProgram();
 		if (!FindNode(Candidate, Request.SourceNodeId))
 			return MakeRejected("The material graph source node does not exist.");
-		FMaterialProgramLink* Output = GetSurfaceOutputLink(Candidate.Outputs, Request.Output);
-		if (!Output) return MakeRejected("The material surface output is invalid.");
+		FMaterialProgramLink* Output = &GetMaterialSurfaceOutputLink(
+			Candidate.Outputs, Request.Output);
 		const FMaterialProgramLink Link{Request.SourceNodeId, Request.SourceOutputIndex};
 		if (*Output == Link) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		*Output = Link;
 		return Commit(Material, std::move(Candidate),
 			Material.GetMaterialGraphPresentation(), true,
 			"Assign Material Surface Output", {Request.SourceNodeId}, {}, Transactions);
+	}
+
+	auto FMaterialGraphService::DisconnectSurfaceOutput(
+		DMaterial& Material,
+		EMaterialSurfaceOutput Output,
+		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+	{
+		FMaterialProgram Candidate = *Material.GetMaterialProgram();
+		FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(
+			Candidate.Outputs, Output);
+		if (!Link.SourceNodeId.IsValid())
+			return {.Status = EMaterialGraphCommandStatus::NoChange};
+		const FGuid Affected = Link.SourceNodeId;
+		Link = {};
+		return Commit(Material, std::move(Candidate),
+			Material.GetMaterialGraphPresentation(), true,
+			"Disconnect Material Surface Output", {Affected}, {}, Transactions);
+	}
+
+	auto FMaterialGraphService::SetSurfaceDefault(
+		DMaterial& Material,
+		const FMaterialGraphSurfaceDefaultRequest& Request,
+		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+	{
+		FMaterialProgram Candidate = *Material.GetMaterialProgram();
+		FMaterialProgramLiteral& Value = GetMaterialSurfaceOutputDefault(
+			Candidate.Outputs, Request.Output);
+		if (Value == Request.Value)
+			return {.Status = EMaterialGraphCommandStatus::NoChange};
+		Value = Request.Value;
+		return Commit(Material, std::move(Candidate),
+			Material.GetMaterialGraphPresentation(), true,
+			"Edit Material Surface Default", {}, {}, Transactions);
+	}
+
+	auto FMaterialGraphService::ResetSurfaceDefault(
+		DMaterial& Material,
+		EMaterialSurfaceOutput Output,
+		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+	{
+		return SetSurfaceDefault(Material, {
+			.Output = Output,
+			.Value = GetMaterialSurfaceOutputDefault(
+				MakeDefaultMaterialProgram().Outputs, Output)}, Transactions);
+	}
+
+	auto FMaterialGraphService::SetParameterValue(
+		DMaterial& Material,
+		const FGuid& ParameterId,
+		FMaterialParameterValue Value,
+		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+	{
+		if (Transactions && Transactions->HasPendingOperation())
+			return MakeRejected("The editor transaction manager is busy.");
+		const std::vector Dependencies = InspectMaterialParameterDependencies(
+			*Material.GetMaterialProgram(), Material.GetParameterDefinitions());
+		if (std::ranges::none_of(Dependencies, [&](const auto& Dependency) {
+			return Dependency.ParameterId == ParameterId;
+		}))
+			return MakeRejected(
+				"Only a reachable material graph parameter can be edited here.");
+		FResolvedMaterialParameter Resolved;
+		if (!Material.ResolveParameterValue(ParameterId, Resolved)
+			|| !Resolved.Definition)
+			return MakeRejected("The material parameter definition is unavailable.");
+		const FMaterialParameterValue BeforeValue = Resolved.Value;
+		if (BeforeValue == Value)
+			return {.Status = EMaterialGraphCommandStatus::NoChange};
+		if (!Material.SetParameterValue(ParameterId, Value))
+			return MakeRejected("The material rejected the parameter value.");
+		if (Transactions)
+		{
+			const FMaterialProgram Program = *Material.GetMaterialProgram();
+			const FMaterialGraphPresentation Presentation =
+				Material.GetMaterialGraphPresentation();
+			const bool bRecorded = Transactions->CommitApplied(
+				std::make_unique<FMaterialGraphTransaction>(
+					Material, Program, Presentation, Program, Presentation, false,
+					"Edit Material Parameter", ParameterId, BeforeValue,
+					std::move(Value)));
+			check(bRecorded);
+		}
+		std::vector<FGuid> AffectedNodes;
+		for (const FMaterialProgramNode& Node : Material.GetMaterialProgram()->Nodes)
+			if (Node.ParameterId == ParameterId) AffectedNodes.push_back(Node.Id);
+		return {.Status = EMaterialGraphCommandStatus::Succeeded,
+			.AffectedNodeIds = std::move(AffectedNodes)};
+	}
+
+	auto FMaterialGraphService::PromoteSurfaceOutputToParameter(
+		DMaterial& Material,
+		const FMaterialGraphSurfaceNodeRequest& Request,
+		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+	{
+		if (static_cast<uint8>(Request.Output)
+			> static_cast<uint8>(EMaterialSurfaceOutput::OpacityMask))
+			return MakeRejected("The material surface output is invalid.");
+		if (Transactions && Transactions->HasPendingOperation())
+			return MakeRejected("The editor transaction manager is busy.");
+		const FMaterialProgram BeforeProgram = *Material.GetMaterialProgram();
+		if (GetMaterialSurfaceOutputLink(
+			BeforeProgram.Outputs, Request.Output).SourceNodeId.IsValid())
+			return MakeRejected(
+				"Only an unconnected material surface output can be promoted.");
+		if (BeforeProgram.Nodes.size() >= MaterialProgramMaxNodeCount)
+			return MakeRejected("The material graph node limit has been reached.");
+		const FGuid ParameterId = GetSurfaceParameterId(Request.Output);
+		FResolvedMaterialParameter BeforeResolved;
+		if (!Material.ResolveParameterValue(ParameterId, BeforeResolved))
+			return MakeRejected(
+				"The material surface parameter definition is unavailable.");
+		const EMaterialProgramValueType Type =
+			GetMaterialSurfaceOutputType(Request.Output);
+		const FMaterialParameterValue AfterValue = MakeParameterValue(
+			Type, GetMaterialSurfaceOutputDefault(
+				BeforeProgram.Outputs, Request.Output));
+
+		FMaterialProgram Candidate = BeforeProgram;
+		FMaterialProgramNode Node;
+		Node.Id = FGuid::NewGuid();
+		Node.Opcode = EMaterialProgramOpcode::Parameter;
+		Node.ResultType = Type;
+		Node.ParameterId = ParameterId;
+		if (const FMaterialParameterDefinition* Definition =
+			Material.FindParameterDefinition(ParameterId))
+			Node.DisplayName = Definition->DisplayName;
+		const FGuid NodeId = Node.Id;
+		Candidate.Nodes.push_back(std::move(Node));
+		GetMaterialSurfaceOutputLink(Candidate.Outputs, Request.Output) =
+			{NodeId, 0};
+		FMaterialGraphPresentation CandidatePresentation =
+			Material.GetMaterialGraphPresentation();
+		CandidatePresentation.Nodes.push_back(
+			{NodeId, Request.X, Request.Y});
+		const FMaterialGraphPresentation BeforePresentation =
+			Material.GetMaterialGraphPresentation();
+		FMaterialGraphCommandResult Result = Commit(Material, Candidate,
+			CandidatePresentation, true, "Promote Material Surface Parameter",
+			{NodeId}, {NodeId}, nullptr);
+		if (!Result) return Result;
+		if (!Material.SetParameterValue(ParameterId, AfterValue))
+		{
+			FMaterialProgramValidationResult RollbackValidation;
+			Material.SetMaterialProgram(BeforeProgram, RollbackValidation);
+			Material.SetMaterialGraphPresentation(BeforePresentation);
+			return MakeRejected(
+				"The promoted material parameter value could not be initialized.");
+		}
+		if (Transactions)
+		{
+			const bool bRecorded = Transactions->CommitApplied(
+				std::make_unique<FMaterialGraphTransaction>(Material,
+					BeforeProgram, BeforePresentation, Candidate,
+					CandidatePresentation, true,
+					"Promote Material Surface Parameter", ParameterId,
+					BeforeResolved.Value, AfterValue));
+			check(bRecorded);
+		}
+		return Result;
+	}
+
+	auto FMaterialGraphService::AddTextureToSurfaceOutput(
+		DMaterial& Material,
+		const FMaterialGraphSurfaceNodeRequest& Request,
+		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+	{
+		if (static_cast<uint8>(Request.Output)
+			> static_cast<uint8>(EMaterialSurfaceOutput::OpacityMask))
+			return MakeRejected("The material surface output is invalid.");
+		FMaterialProgram Candidate = *Material.GetMaterialProgram();
+		const bool bNormal = Request.Output == EMaterialSurfaceOutput::Normal;
+		const bool bVector = GetMaterialSurfaceOutputType(Request.Output)
+			== EMaterialProgramValueType::Float3;
+		const size_t RequiredNodeCount = bNormal ? 5u : (bVector ? 4u : 4u);
+		if (Candidate.Nodes.size() + RequiredNodeCount
+			> MaterialProgramMaxNodeCount)
+			return MakeRejected(
+				"Adding the texture branch would exceed the material graph node limit.");
+		const FGuid TextureRole = GetSurfaceTextureRole(Request.Output);
+		FMaterialGraphPresentation Presentation =
+			Material.GetMaterialGraphPresentation();
+		std::vector<FGuid> Generated;
+		auto AddNode = [&](EMaterialProgramOpcode Opcode,
+			EMaterialProgramValueType Type,
+			std::vector<FMaterialProgramLink> Inputs,
+			int32 X, int32 Y) -> FMaterialProgramNode& {
+			FMaterialProgramNode Node;
+			Node.Id = FGuid::NewGuid();
+			Node.Opcode = Opcode;
+			Node.ResultType = Type;
+			Node.Inputs = std::move(Inputs);
+			const FGuid Id = Node.Id;
+			Candidate.Nodes.push_back(std::move(Node));
+			Presentation.Nodes.push_back({Id, X, Y});
+			Generated.push_back(Id);
+			return Candidate.Nodes.back();
+		};
+		FMaterialProgramNode& Texture = AddNode(
+			EMaterialProgramOpcode::TextureParameter,
+			EMaterialProgramValueType::Texture2D, {},
+			Request.X - 640, Request.Y - 80);
+		Texture.ParameterId = TextureRole;
+		if (const FMaterialParameterDefinition* Definition =
+			Material.FindParameterDefinition(TextureRole))
+			Texture.DisplayName = Definition->DisplayName;
+		const FGuid TextureId = Texture.Id;
+		FMaterialProgramNode& UV = AddNode(
+			EMaterialProgramOpcode::TextureCoordinate,
+			EMaterialProgramValueType::Float2, {},
+			Request.X - 640, Request.Y + 80);
+		UV.ParameterId = TextureRole;
+		const FGuid UVId = UV.Id;
+		FMaterialProgramNode& Sample = AddNode(
+			EMaterialProgramOpcode::TextureSample2D,
+			EMaterialProgramValueType::Float4,
+			{{TextureId, 0}, {UVId, 0}}, Request.X - 320, Request.Y);
+		FGuid ResultId = Sample.Id;
+
+		FMaterialProgramNode& Swizzle = AddNode(
+			EMaterialProgramOpcode::Swizzle,
+			bNormal ? EMaterialProgramValueType::Float2
+				: GetMaterialSurfaceOutputType(Request.Output),
+			{{Sample.Id, 0}}, Request.X, Request.Y);
+		if (bNormal)
+		{
+			Swizzle.SwizzleLength = 2;
+			Swizzle.SwizzleX = 0;
+			Swizzle.SwizzleY = 1;
+		}
+		else if (bVector)
+		{
+			Swizzle.SwizzleLength = 3;
+			Swizzle.SwizzleX = 0;
+			Swizzle.SwizzleY = 1;
+			Swizzle.SwizzleZ = 2;
+		}
+		else
+		{
+			constexpr std::array<uint8, 8> Components{0, 0, 2, 1, 0, 0, 3, 0};
+			Swizzle.SwizzleLength = 1;
+			Swizzle.SwizzleX = Components[static_cast<size_t>(Request.Output)];
+		}
+		ResultId = Swizzle.Id;
+		if (bNormal)
+		{
+			FMaterialProgramNode& Decode = AddNode(
+				EMaterialProgramOpcode::DecodeNormalRG,
+				EMaterialProgramValueType::Float3,
+				{{Swizzle.Id, 0}}, Request.X + 320, Request.Y);
+			ResultId = Decode.Id;
+		}
+		GetMaterialSurfaceOutputLink(Candidate.Outputs, Request.Output) =
+			{ResultId, 0};
+		return Commit(Material, std::move(Candidate), std::move(Presentation),
+			true, "Add Material Surface Texture", Generated, Generated,
+			Transactions);
 	}
 
 	auto FMaterialGraphService::MoveNodes(
@@ -636,16 +1125,142 @@ namespace Durin::Editor::Material
 		std::map<uint32, std::vector<FGuid>> Columns;
 		for (const FGuid& Id : Requested)
 			Columns[MaximumDistance - DistanceToSink[Id]].push_back(Id);
-		FMaterialGraphPresentation Presentation = Material.GetMaterialGraphPresentation();
-		std::vector<FMaterialGraphNodePresentation> Positions;
+		std::unordered_map<FGuid, uint32> NodeColumns;
+		std::unordered_map<FGuid, size_t> Ranks;
 		for (auto& [Column, Nodes] : Columns)
 		{
 			std::ranges::sort(Nodes);
-			for (size_t Row = 0; Row < Nodes.size(); ++Row)
-				Positions.push_back({
-					Nodes[Row],
-					static_cast<int32>(Column * 280),
-					static_cast<int32>(Row * 160)});
+			for (size_t Index = 0; Index < Nodes.size(); ++Index)
+			{
+				NodeColumns.emplace(Nodes[Index], Column);
+				Ranks[Nodes[Index]] = Index;
+			}
+		}
+
+		const std::array SurfaceOrder{
+			Program.Outputs.BaseColor.SourceNodeId,
+			Program.Outputs.Normal.SourceNodeId,
+			Program.Outputs.Metallic.SourceNodeId,
+			Program.Outputs.Roughness.SourceNodeId,
+			Program.Outputs.AmbientOcclusion.SourceNodeId,
+			Program.Outputs.Emissive.SourceNodeId,
+			Program.Outputs.Opacity.SourceNodeId,
+			Program.Outputs.OpacityMask.SourceNodeId,
+		};
+		std::unordered_map<FGuid, size_t> SurfaceRanks;
+		for (size_t Index = 0; Index < SurfaceOrder.size(); ++Index)
+			SurfaceRanks.try_emplace(SurfaceOrder[Index], Index);
+		if (!Columns.empty())
+		{
+			auto& SinkNodes = Columns.rbegin()->second;
+			std::ranges::stable_sort(SinkNodes, [&](const FGuid& A, const FGuid& B) {
+				const size_t RankA = SurfaceRanks.contains(A)
+					? SurfaceRanks[A] : SurfaceOrder.size();
+				const size_t RankB = SurfaceRanks.contains(B)
+					? SurfaceRanks[B] : SurfaceOrder.size();
+				return RankA == RankB ? A < B : RankA < RankB;
+			});
+			for (size_t Index = 0; Index < SinkNodes.size(); ++Index)
+				Ranks[SinkNodes[Index]] = Index;
+		}
+
+		auto Median = [&](const FGuid& Id, uint32 NeighborColumn,
+			bool bUseInputs) -> float {
+			std::vector<size_t> NeighborRanks;
+			if (bUseInputs)
+			{
+				const FMaterialProgramNode* Node = FindNode(Program, Id);
+				if (Node)
+					for (const FMaterialProgramLink& Input : Node->Inputs)
+						if (NodeColumns.contains(Input.SourceNodeId)
+							&& NodeColumns[Input.SourceNodeId] == NeighborColumn)
+							NeighborRanks.push_back(Ranks[Input.SourceNodeId]);
+			}
+			else if (const auto It = Consumers.find(Id); It != Consumers.end())
+			{
+				for (const FGuid& Consumer : It->second)
+					if (NodeColumns.contains(Consumer)
+						&& NodeColumns[Consumer] == NeighborColumn)
+						NeighborRanks.push_back(Ranks[Consumer]);
+			}
+			if (NeighborRanks.empty()) return static_cast<float>(Ranks[Id]);
+			std::ranges::sort(NeighborRanks);
+			const size_t Middle = NeighborRanks.size() / 2;
+			if (NeighborRanks.size() % 2) return static_cast<float>(NeighborRanks[Middle]);
+			return (static_cast<float>(NeighborRanks[Middle - 1])
+				+ static_cast<float>(NeighborRanks[Middle])) * 0.5f;
+		};
+		auto SortColumn = [&](uint32 Column, uint32 NeighborColumn,
+			bool bUseInputs) {
+			auto It = Columns.find(Column);
+			if (It == Columns.end()) return;
+			auto& Nodes = It->second;
+			const auto PreviousRanks = Ranks;
+			std::ranges::stable_sort(Nodes, [&](const FGuid& A, const FGuid& B) {
+				const float MedianA = Median(A, NeighborColumn, bUseInputs);
+				const float MedianB = Median(B, NeighborColumn, bUseInputs);
+				if (MedianA != MedianB) return MedianA < MedianB;
+				if (PreviousRanks.at(A) != PreviousRanks.at(B))
+					return PreviousRanks.at(A) < PreviousRanks.at(B);
+				return A < B;
+			});
+			for (size_t Index = 0; Index < Nodes.size(); ++Index)
+				Ranks[Nodes[Index]] = Index;
+		};
+		for (uint32 Sweep = 0; Sweep < 4; ++Sweep)
+		{
+			for (auto It = std::next(Columns.begin()); It != Columns.end(); ++It)
+				SortColumn(It->first, std::prev(It)->first, true);
+			for (auto It = Columns.rbegin(); It != Columns.rend(); ++It)
+			{
+				const auto Next = std::next(It);
+				if (Next != Columns.rend()) SortColumn(Next->first, It->first, false);
+			}
+		}
+
+		FMaterialGraphPresentation Presentation = Material.GetMaterialGraphPresentation();
+		const FMaterialGraphCanvasMetrics& Metrics = FMaterialGraphGeometry::GetMetrics();
+		struct FRect { float MinX; float MinY; float MaxX; float MaxY; };
+		std::vector<FRect> Occupied;
+		if (!NodeIds.empty())
+			for (const FMaterialGraphNodePresentation& Existing : Presentation.Nodes)
+				if (!Requested.contains(Existing.NodeId))
+				{
+					const FMaterialProgramNode* Node = FindNode(Program, Existing.NodeId);
+					if (!Node) continue;
+					Occupied.push_back({static_cast<float>(Existing.X), static_cast<float>(Existing.Y),
+						Existing.X + Metrics.NodeWidth,
+						Existing.Y + FMaterialGraphGeometry::GetNodeHeight(
+							static_cast<uint32>(Node->Inputs.size()))});
+				}
+		std::vector<FMaterialGraphNodePresentation> Positions;
+		for (auto& [Column, Nodes] : Columns)
+		{
+			float Y = 0.0f;
+			for (const FGuid& Id : Nodes)
+			{
+				const FMaterialProgramNode* Node = FindNode(Program, Id);
+				const float Height = FMaterialGraphGeometry::GetNodeHeight(
+					Node ? static_cast<uint32>(Node->Inputs.size()) : 0u);
+				const float X = Column * (Metrics.NodeWidth + Metrics.ColumnGap);
+				for (uint32 Attempt = 0; Attempt <= MaterialProgramMaxNodeCount; ++Attempt)
+				{
+					const FRect Candidate{X, Y, X + Metrics.NodeWidth, Y + Height};
+					const auto Collision = std::ranges::find_if(Occupied,
+						[&](const FRect& Rect) {
+							return Candidate.MinX < Rect.MaxX && Candidate.MaxX > Rect.MinX
+								&& Candidate.MinY < Rect.MaxY && Candidate.MaxY > Rect.MinY;
+						});
+					if (Collision == Occupied.end()) break;
+					Y = Collision->MaxY + Metrics.RowGap;
+					if (Attempt == MaterialProgramMaxNodeCount)
+						return MakeRejected("The selected material graph layout has no collision-free placement.");
+				}
+				Positions.push_back({Id, static_cast<int32>(std::round(X)),
+					static_cast<int32>(std::round(Y))});
+				Occupied.push_back({X, Y, X + Metrics.NodeWidth, Y + Height});
+				Y += Height + Metrics.RowGap;
+			}
 		}
 		for (const FMaterialGraphNodePresentation& Position : Positions)
 		{

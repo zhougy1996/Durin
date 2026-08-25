@@ -465,26 +465,27 @@ float4 FragmentMain(
 				|| Stage.SourceEntryPoint != Entries[StageIndex]
 				|| Stage.Frequency != EShaderFrequency::Fragment
 				|| !Stage.Reflection.PushConstantRanges.empty()
-				|| Stage.Reflection.ResourceBindings.size() != Expected.size())
+				|| Stage.Reflection.ResourceBindings.size() > Expected.size())
 			{
 				OutError = std::format(
 					"Material stage {} violates the compiled stage contract.",
 					Entries[StageIndex]);
 				return false;
 			}
-			for (uint32 BindingIndex : Expected)
+			std::unordered_set<uint32> SeenBindings;
+			for (const FShaderResourceBinding& Binding
+				: Stage.Reflection.ResourceBindings)
 			{
-				const auto Binding = std::ranges::find(
-					Stage.Reflection.ResourceBindings, BindingIndex,
-					&FShaderResourceBinding::BindingIndex);
-				if (Binding == Stage.Reflection.ResourceBindings.end()
-					|| Binding->SetIndex != 0 || Binding->ArraySize != 1
-					|| Binding->Type != ExpectedType(BindingIndex)
-					|| Binding->StageFlags != EShaderStageFlags::Fragment)
+				if (std::ranges::find(Expected, Binding.BindingIndex)
+					== Expected.end()
+					|| !SeenBindings.insert(Binding.BindingIndex).second
+					|| Binding.SetIndex != 0 || Binding.ArraySize != 1
+					|| Binding.Type != ExpectedType(Binding.BindingIndex)
+					|| Binding.StageFlags != EShaderStageFlags::Fragment)
 				{
 					OutError = std::format(
 						"Material stage {} has an incompatible binding {}.",
-						Entries[StageIndex], BindingIndex);
+						Entries[StageIndex], Binding.BindingIndex);
 					return false;
 				}
 			}

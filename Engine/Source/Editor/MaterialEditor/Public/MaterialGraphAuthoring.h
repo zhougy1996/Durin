@@ -44,6 +44,7 @@ namespace Durin::Editor::Material
 	struct FMaterialGraphPinView
 	{
 		uint32 InputIndex = 0;
+		std::string Name;
 		FMaterialProgramLink Link;
 		EMaterialProgramValueType SourceType = EMaterialProgramValueType::Float;
 		std::vector<EMaterialProgramValueType> AcceptedTypes;
@@ -53,7 +54,11 @@ namespace Durin::Editor::Material
 	struct FMaterialGraphCatalogEntry
 	{
 		std::string Name;
+		std::string OperationName;
+		std::string SecondaryName;
+		std::string Category;
 		FMaterialProgramNode NodeTemplate;
+		std::vector<std::string> InputNames;
 		std::vector<std::vector<EMaterialProgramValueType>> AcceptedInputTypes;
 	};
 
@@ -61,6 +66,8 @@ namespace Durin::Editor::Material
 	struct FMaterialGraphNodeView
 	{
 		FMaterialProgramNode Node;
+		std::string PrimaryLabel;
+		std::string SecondaryLabel;
 		std::vector<FMaterialGraphPinView> Inputs;
 		std::optional<FMaterialGraphNodePresentation> Presentation;
 	};
@@ -95,6 +102,19 @@ namespace Durin::Editor::Material
 		uint8 SourceOutputIndex = 0;
 	};
 
+	struct FMaterialGraphSurfaceDefaultRequest
+	{
+		EMaterialSurfaceOutput Output = EMaterialSurfaceOutput::BaseColor;
+		FMaterialProgramLiteral Value;
+	};
+
+	struct FMaterialGraphSurfaceNodeRequest
+	{
+		EMaterialSurfaceOutput Output = EMaterialSurfaceOutput::BaseColor;
+		int32 X = 0;
+		int32 Y = 0;
+	};
+
 	struct FMaterialGraphClipboardNode
 	{
 		FMaterialProgramNode Node;
@@ -109,6 +129,40 @@ namespace Durin::Editor::Material
 		std::vector<FMaterialGraphClipboardNode> Nodes;
 	};
 
+	// Defines stable logical canvas dimensions shared by layout, rendering, and tests.
+	struct FMaterialGraphCanvasMetrics
+	{
+		float NodeWidth = 224.0f;
+		float HeaderHeight = 30.0f;
+		float SecondaryHeight = 20.0f;
+		float PinRowHeight = 24.0f;
+		float BodyPadding = 10.0f;
+		float ColumnGap = 96.0f;
+		float RowGap = 28.0f;
+		float SurfaceWidth = 300.0f;
+		float SurfaceHeaderHeight = 34.0f;
+		float MinimumHitDiameter = 16.0f;
+	};
+
+	enum class EMaterialGraphDetailLevel : uint8
+	{
+		Overview,
+		Readable,
+		Editing,
+	};
+
+	// Provides deterministic presentation calculations without mutable ImGui state.
+	class FMaterialGraphGeometry
+	{
+	public:
+		MATERIALEDITOR_API static auto GetMetrics()
+			-> const FMaterialGraphCanvasMetrics&;
+		MATERIALEDITOR_API static auto GetNodeHeight(uint32 InputCount) -> float;
+		MATERIALEDITOR_API static auto SelectDetailLevel(
+			float Zoom,
+			EMaterialGraphDetailLevel Previous) -> EMaterialGraphDetailLevel;
+	};
+
 	// Provides candidate-validated graph authoring with no widget or viewport dependency.
 	class FMaterialGraphService
 	{
@@ -116,6 +170,11 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API static auto Inspect(const DMaterial& Material)
 			-> FMaterialGraphView;
 		MATERIALEDITOR_API static auto EnumerateCatalog(const DMaterial& Material)
+			-> std::vector<FMaterialGraphCatalogEntry>;
+		MATERIALEDITOR_API static auto SearchCatalog(
+			const DMaterial& Material,
+			std::string_view Query,
+			std::optional<EMaterialProgramValueType> SourceType = std::nullopt)
 			-> std::vector<FMaterialGraphCatalogEntry>;
 		MATERIALEDITOR_API static auto CreateNode(
 			DMaterial& Material,
@@ -146,6 +205,37 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API static auto AssignSurfaceOutput(
 			DMaterial& Material,
 			const FMaterialGraphSurfaceOutputRequest& Request,
+			FTransactionManager* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto DisconnectSurfaceOutput(
+			DMaterial& Material,
+			EMaterialSurfaceOutput Output,
+			FTransactionManager* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto SetSurfaceDefault(
+			DMaterial& Material,
+			const FMaterialGraphSurfaceDefaultRequest& Request,
+			FTransactionManager* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto ResetSurfaceDefault(
+			DMaterial& Material,
+			EMaterialSurfaceOutput Output,
+			FTransactionManager* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto SetParameterValue(
+			DMaterial& Material,
+			const FGuid& ParameterId,
+			FMaterialParameterValue Value,
+			FTransactionManager* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto PromoteSurfaceOutputToParameter(
+			DMaterial& Material,
+			const FMaterialGraphSurfaceNodeRequest& Request,
+			FTransactionManager* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto AddTextureToSurfaceOutput(
+			DMaterial& Material,
+			const FMaterialGraphSurfaceNodeRequest& Request,
 			FTransactionManager* Transactions = nullptr)
 			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API static auto MoveNodes(

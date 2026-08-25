@@ -61,6 +61,8 @@ namespace Durin
 		ENGINE_API auto SetVector2ParameterValue(FName Name, const FVector2& Value) -> bool;
 		ENGINE_API auto SetVectorParameterValue(FName Name, const FVector3& Value) -> bool;
 		ENGINE_API auto SetTextureParameterValue(FName Name, DTexture2D* Value) -> bool;
+		ENGINE_API auto SetParameterValue(
+			const FGuid& Id, const FMaterialParameterValue& Value) -> bool;
 		ENGINE_API auto GetScalarParameterValue(FName Name, float& OutValue) const -> bool override;
 		ENGINE_API auto GetVector2ParameterValue(FName Name, FVector2& OutValue) const -> bool override;
 		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;

@@ -389,6 +389,10 @@ namespace Durin::Tests
 
 		Asset::FAssetResult Result = Asset::CreateAsset(MaterialPath, OutFixtures.Material);
 		if (!Result) return Fail(Result.Message);
+		FMaterialProgramValidationResult ProgramValidation;
+		if (!OutFixtures.Material->SetMaterialProgram(
+			MakeLegacyExpandedMaterialProgram(), ProgramValidation))
+			return Fail("Could not assign the expanded material fixture program.");
 		if (!OutFixtures.Material->SetVectorParameterValue(
 				MaterialParameters::BaseColorName(), FVector3(0.35, 0.55, 0.75))
 			|| !OutFixtures.Material->SetScalarParameterValue(

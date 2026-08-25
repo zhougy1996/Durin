@@ -31,13 +31,7 @@ namespace
 		float Delta) -> Durin::FMaterialProgram
 	{
 		Durin::FMaterialProgram Program = *Material.GetMaterialProgram();
-		const auto Constant = std::ranges::find_if(
-			Program.Nodes, [](const Durin::FMaterialProgramNode& Node) {
-				return Node.Opcode == Durin::EMaterialProgramOpcode::Constant
-					&& Node.ResultType
-						== Durin::EMaterialProgramValueType::Float;
-			});
-		if (Constant != Program.Nodes.end()) Constant->Literal.X += Delta;
+		Program.Outputs.RoughnessDefault.X += Delta;
 		return Program;
 	}
 }

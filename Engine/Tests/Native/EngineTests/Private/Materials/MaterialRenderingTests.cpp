@@ -32,6 +32,16 @@
 
 namespace
 {
+	auto MakeExpandedMaterial(Durin::DObject* Outer, const char* Name)
+		-> Durin::DMaterial*
+	{
+		auto* Material = Durin::NewObject<Durin::DMaterial>(Outer, Name);
+		Durin::FMaterialProgramValidationResult Validation;
+		if (!Material || !Material->SetMaterialProgram(
+			Durin::MakeLegacyExpandedMaterialProgram(), Validation)) return nullptr;
+		return Material;
+	}
+
 	auto WaitForMaterialPreviewMeshRecovery(
 		const Durin::FAssetPath& AssetPath,
 		double TimeoutSeconds = 10.0) -> bool
@@ -251,7 +261,7 @@ TEST(FMaterialTests, EnvironmentPBRReferenceScopesAOToIndirectLighting)
 TEST(FMaterialTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
 {
 	FRenderSceneHarness Harness;
-	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "ProxyMaterial");
+	Durin::DMaterial* Material = MakeExpandedMaterial(nullptr, "ProxyMaterial");
 	Material->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.25, 0.5, 0.75));
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	Durin::DStaticMeshComponent* Component = Harness.CreateStaticMeshComponent("MeshComponent");
@@ -276,7 +286,7 @@ TEST(FMaterialTests, StaticMeshProxyCapturesAssignedMaterialRenderData)
 TEST(FMaterialTests, StaticPropertyChangesUpdatePlanningPassIdentityWithoutRecreatingProxy)
 {
 	FRenderSceneHarness Harness;
-	auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "StaticIdentityMaterial");
+	auto* Material = MakeExpandedMaterial(nullptr, "StaticIdentityMaterial");
 	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* Component = Harness.CreateStaticMeshComponent("StaticIdentityComponent");
 	Component->SetStaticMesh(Mesh);
@@ -315,8 +325,8 @@ TEST(FMaterialTests, StaticPropertyChangesUpdatePlanningPassIdentityWithoutRecre
 TEST(FMaterialTests, StaticMeshProxyCapturesPerSlotMaterials)
 {
 	FRenderSceneHarness Harness;
-	Durin::DMaterial* First = Durin::NewObject<Durin::DMaterial>(nullptr, "FirstSlotMaterial");
-	Durin::DMaterial* Second = Durin::NewObject<Durin::DMaterial>(nullptr, "SecondSlotMaterial");
+	Durin::DMaterial* First = MakeExpandedMaterial(nullptr, "FirstSlotMaterial");
+	Durin::DMaterial* Second = MakeExpandedMaterial(nullptr, "SecondSlotMaterial");
 	First->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.3, 0.4));
 	Second->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.6, 0.5));
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
@@ -390,8 +400,8 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
 	FRenderSceneHarness Harness;
-	auto* Shared = Durin::NewObject<Durin::DMaterial>(nullptr, "SharedSlotMaterial");
-	auto* Override = Durin::NewObject<Durin::DMaterial>(nullptr, "OverrideSlotMaterial");
+	auto* Shared = MakeExpandedMaterial(nullptr, "SharedSlotMaterial");
+	auto* Override = MakeExpandedMaterial(nullptr, "OverrideSlotMaterial");
 	Shared->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.2, 0.3));
 	Override->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.8, 0.7, 0.6));
 	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
@@ -462,9 +472,9 @@ TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMater
 TEST(FMaterialTests, StaticMeshProxyOrdersRapidBindingChangesAndRejectsStaleRevisions)
 {
 	FRenderSceneHarness Harness;
-	auto* First = Durin::NewObject<Durin::DMaterial>(nullptr, "RapidFirstMaterial");
-	auto* Second = Durin::NewObject<Durin::DMaterial>(nullptr, "RapidSecondMaterial");
-	auto* Replacement = Durin::NewObject<Durin::DMaterial>(nullptr, "RapidReplacementMaterial");
+	auto* First = MakeExpandedMaterial(nullptr, "RapidFirstMaterial");
+	auto* Second = MakeExpandedMaterial(nullptr, "RapidSecondMaterial");
+	auto* Replacement = MakeExpandedMaterial(nullptr, "RapidReplacementMaterial");
 	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	AddDebugMaterialSlot(Mesh, "Second");
 	auto* Component = Harness.CreateStaticMeshComponent("RapidSlotComponent");

@@ -35,7 +35,8 @@ parameter definitions.
 Commands use node GUIDs, explicit pin indices, parameter GUIDs, and
 `EMaterialSurfaceOutput`. They cover creation, complete node replacement,
 removal, connection, disconnection, surface assignment, movement, layout,
-copy, cut, paste, and duplication. Each result reports a stable status,
+surface-default edit/reset, parameter promotion, explicit texture-branch
+creation, copy, cut, paste, and duplication. Each result reports a stable status,
 affected/generated GUIDs, bounded validation diagnostics, and a message; an
 automation caller never needs to scrape canvas labels.
 
@@ -48,11 +49,12 @@ submits exactly one M6 compile generation. Presentation-only commands sanitize
 and commit positions, mark the package dirty, and never compile or invalidate
 render data.
 
-The version-1 program representation requires every node input and all eight
-surface outputs to remain valid at a committed boundary. A standalone
-disconnect or deletion therefore rejects when it would leave an incomplete
-node or output. The canvas makes input replacement explicit with Shift and
-uses the same command result for invalid-target feedback.
+Program schema 2 keeps ordinary node inputs mandatory but makes each of the
+eight fixed Material Output inputs optionally connected. Disconnecting or
+deleting a surface source clears its link and returns to the retained typed
+fallback; disconnecting an ordinary required node input still rejects. The
+canvas makes input replacement explicit with Shift and uses the same command
+result for invalid-target feedback.
 
 ## Transactions and gestures
 
@@ -88,20 +90,59 @@ automation semantics cannot diverge.
 Automatic layout is presentation-only and deterministic. It derives consumer
 edges from the semantic DAG, calculates each node's longest distance to a
 surface sink, places dependencies before consumers in fixed-width columns, and
-orders each column by GUID at fixed row spacing. It handles 256 nodes in linear
-graph work without changing program order, node IDs, links, outputs, normalized
-IR, or identity. Missing legacy positions invoke this layout when the graph is
-first displayed.
+uses four forward/backward median sweeps with surface-output order as the sink
+seed. Stable prior order and GUIDs break all ties. Columns use computed node
+heights and fixed gaps; selected-only layout treats every unselected node as an
+occupied rectangle and searches downward for the nearest collision-free slot.
+It rejects atomically if the bounded search fails. Layout never changes program
+order, node IDs, links, outputs, normalized IR, or identity. Missing legacy
+positions invoke this layout when the graph is first displayed.
 
 ## Canvas and diagnostics
 
-The MaterialEditor canvas uses the existing ImGui draw/input stack. It renders a
-clipped grid, typed nodes and pins, links, fixed surface outputs, selection,
-hover and valid/invalid link targets. It supports pan, cursor-centered zoom,
-framing, selection and marquee, multi-node dragging, typed linking, context
-creation, constant and parameter editing, delete, copy/cut/paste, duplicate,
-automatic layout, and keyboard operations. Every mutation routes to the graph
-service.
+The MaterialEditor canvas uses the existing ImGui draw/input stack and one
+logical geometry authority shared with layout and native tests. Nodes use a
+stable 224-unit width and height derived from their named pin rows. Operation
+identity is the primary title and an authored parameter/resource name is the
+secondary title. Text is clipped and ellipsized to its owning bounds; editing
+zoom adds named inputs and a textual output type so type color is never the only
+cue.
+
+Semantic zoom has hysteretic overview, readable, and editing bands. Overview
+keeps silhouettes, selection, focus, pan, and framing while disabling pin
+mutation. Readable mode adds clipped operation titles. Editing mode adds
+secondary identity, named pins, output type, tooltips, and inline constant
+controls. Frame All includes the derived surface proxy; Frame Selection uses
+only the selection. The derived `Material Output` terminal lives one logical
+column after the rightmost node, pans and zooms with the graph, participates in
+bounds and diagnostic framing, and is never persisted. It owns fixed Base
+Color, Normal, Metallic, Roughness, Ambient Occlusion, Emissive, Opacity, and
+Opacity Mask input rows. Editing mode exposes inline fallback controls for
+unconnected rows; each completed gesture is one validated transaction, while
+Escape and document lifecycle cancellation discard the draft.
+
+Visible links are coarsely culled before curve drawing. When nodes or a surface
+output are selected, unrelated links dim while adjacent paths receive a thicker
+typed stroke. Occupied-input reconnection retains its authored link until a
+valid source drop succeeds as one replace transaction.
+
+The searchable creation palette ranks exact, prefix, and substring matches,
+then uses stable category, operation, type, parameter GUID, and catalog order
+ties. Opening from a source output filters the first input by compatible type.
+Additional required inputs are collected in index order by a canvas-local
+draft; only the complete node reaches `CreateNode`. Escape and every document
+lifecycle cancellation discard creation, reconnection, movement, and inline
+edit drafts without dirtying or compiling the material. Every mutation still
+routes to the graph service.
+
+`Promote to Parameter` is available on an unconnected Material Output input. It
+creates the compatible canonical Parameter node one column upstream, copies the
+fallback into the definition value, connects the input, and records program,
+presentation, and value as one Undo/Redo transaction. `Add Texture` explicitly
+creates the role's TextureParameter, TextureCoordinate, TextureSample, and
+required channel swizzle or normal decode nodes before replacing the surface
+connection in one candidate-validated transaction. Neither workflow creates a
+hidden branch.
 
 Compile state is observational. Pending and failed states identify whether the
 preview is showing last-known-good output, but never block canvas input or
@@ -110,6 +151,22 @@ replace the M6 publication policy. Diagnostic activation uses the retained
 select and frame their node; a surface target highlights its fixed output.
 Program-wide, invalid, or generation-stale locations remain visible as text and
 do not fabricate a target.
+
+## Reachable parameter views
+
+MaterialEditor consumes Engine's detached
+`InspectMaterialParameterDependencies` snapshot rather than enumerating the
+canonical definition catalog. Base Details contains one row per reachable
+declaration in deterministic first-use order. Parameter-node inline controls
+and Details submit the same nested definition-value edit, so continuous edits
+coalesce through the shared property transaction path and produce dynamic render
+updates without compilation.
+
+Instance rows use the resolved root program's same snapshot for override
+eligibility and source labels. A local override which becomes unreachable moves
+to the collapsed orphan group and remains removable; it is not rendered or
+presented as active. Reconnecting the same GUID restores the preserved base
+value and makes that override eligible again.
 
 ## Document and asset lifecycle
 

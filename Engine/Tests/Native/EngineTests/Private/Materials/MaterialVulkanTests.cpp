@@ -64,6 +64,17 @@ namespace
 			std::span<Durin::DObject* const>(&Object, 1));
 	}
 
+	auto MakeExpandedMaterial(const char* Name) -> Durin::DMaterial*
+	{
+		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
+		if (!Durin::IsValid(Material)) return nullptr;
+		Durin::FMaterialProgramValidationResult Validation;
+		if (!Material->SetMaterialProgram(
+			Durin::MakeLegacyExpandedMaterialProgram(), Validation))
+			return nullptr;
+		return Material;
+	}
+
 }
 
 TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDifferences)
@@ -179,14 +190,14 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 	Durin::DStaticMesh* LowRoughnessMesh =
 		Durin::DStaticMesh::CreateDebugTriangle();
 	Durin::DMaterial* LowRoughnessMaterial =
-		Durin::NewObject<Durin::DMaterial>(
-			nullptr, "LowRoughnessRenderedReferenceMaterial");
+		MakeExpandedMaterial("LowRoughnessRenderedReferenceMaterial");
 	ASSERT_NE(LowRoughnessMesh, nullptr);
 	ASSERT_NE(LowRoughnessMaterial, nullptr);
 	ASSERT_TRUE(LowRoughnessMaterial->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.5)));
 	ASSERT_TRUE(LowRoughnessMaterial->SetScalarParameterValue(
 		Durin::MaterialParameters::MetallicName(), 0.0f));
+	FinishMaterialCompilation(LowRoughnessMaterial);
 	Durin::Editor::FRenderedAssetThumbnailVisualContract AlignedContract = Contract;
 	AlignedContract.CameraDirectionX = 0.001f;
 	AlignedContract.CameraDirectionY = 0.0f;
@@ -255,8 +266,8 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_NE(Sphere->GetRenderData(), nullptr);
 		CaptureMesh = Durin::DStaticMesh::CreateDebugTriangle();
 		ASSERT_NE(CaptureMesh, nullptr);
-		CaptureMaterial = Durin::NewObject<Durin::DMaterial>(
-			nullptr, "RenderedThumbnailCaptureMaterial");
+		CaptureMaterial = MakeExpandedMaterial(
+			"RenderedThumbnailCaptureMaterial");
 		ErrorFallbackMaterial = Durin::NewObject<Durin::DMaterialInterface>(
 			nullptr, "RenderedThumbnailErrorFallbackMaterial");
 		CaptureInstance = Durin::NewObject<Durin::DMaterialInstance>(

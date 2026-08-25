@@ -1,9 +1,22 @@
 #include "MaterialTestSupport.h"
 
+namespace
+{
+	auto MakeExpandedMaterial(Durin::DObject* Outer, const char* Name)
+		-> Durin::DMaterial*
+	{
+		auto* Material = Durin::NewObject<Durin::DMaterial>(Outer, Name);
+		Durin::FMaterialProgramValidationResult Validation;
+		if (!Material || !Material->SetMaterialProgram(
+			Durin::MakeLegacyExpandedMaterialProgram(), Validation)) return nullptr;
+		return Material;
+	}
+}
+
 TEST(FMaterialTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
 {
 	FRenderSceneHarness Harness;
-	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "LiveBaseMaterial");
+	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "LiveBaseMaterial");
 	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "LiveMaterialInstance");
 	EXPECT_TRUE(Instance->SetParent(Base));
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
@@ -45,8 +58,8 @@ TEST(FMaterialTests, BoundMaterialAndParentChangesUpdateProxyInPlace)
 TEST(FMaterialTests, PositionalOverrideTransfersAcrossMeshSwitch)
 {
 	FRenderSceneHarness Harness;
-	Durin::DMaterial* Default = Durin::NewObject<Durin::DMaterial>(nullptr, "BoundMeshDefault");
-	Durin::DMaterial* Orphan = Durin::NewObject<Durin::DMaterial>(nullptr, "DetachedOrphanOverride");
+	Durin::DMaterial* Default = MakeExpandedMaterial(nullptr, "BoundMeshDefault");
+	Durin::DMaterial* Orphan = MakeExpandedMaterial(nullptr, "DetachedOrphanOverride");
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* Slots = static_cast<Durin::FArrayProperty*>(Mesh->GetClass()->FindPropertyByName("MaterialSlots"));
 	static_cast<Durin::FMeshMaterialSlotDefinition*>(Slots->GetMutableElementPtr(Mesh, 0))->DefaultMaterial = Default;
@@ -87,7 +100,7 @@ TEST(FMaterialTests, PositionalOverrideTransfersAcrossMeshSwitch)
 TEST(FMaterialTests, BoundTextureChangesUpdateProxyResourceSnapshotInPlace)
 {
 	FRenderSceneHarness Harness;
-	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "LiveTextureBaseMaterial");
+	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "LiveTextureBaseMaterial");
 	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "LiveTextureMaterialInstance");
 	Durin::DTexture2D* BaseTexture = Durin::NewObject<Durin::DTexture2D>(nullptr, "LiveBaseColorTexture");
 	Durin::DTexture2D* OverrideTexture = Durin::NewObject<Durin::DTexture2D>(nullptr, "LiveOverrideColorTexture");
@@ -159,7 +172,7 @@ TEST(FMaterialTests, SceneCommandsPreserveLatestTransformAndReleaseAllProxies)
 TEST(FMaterialTests, InstancesInheritOverrideAndRejectParentCycles)
 {
 	InitializeDObjectSystem();
-	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "BaseMaterial");
+	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "BaseMaterial");
 	Durin::DMaterialInstance* First = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "FirstInstance");
 	Durin::DMaterialInstance* Second = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "SecondInstance");
 
@@ -183,7 +196,7 @@ TEST(FMaterialTests, InstancesInheritOverrideAndRejectParentCycles)
 TEST(FMaterialTests, MultiLevelResolutionReportsSupplyingSourceAndCurrentOverrideState)
 {
 	InitializeDObjectSystem();
-	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "ResolutionBase");
+	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "ResolutionBase");
 	Durin::DMaterialInstance* Parent = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "ResolutionParent");
 	Durin::DMaterialInstance* Child = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "ResolutionChild");
 	ASSERT_TRUE(Parent->SetParent(Base));
@@ -216,7 +229,7 @@ TEST(FMaterialTests, MultiLevelResolutionReportsSupplyingSourceAndCurrentOverrid
 TEST(FMaterialTests, ParentRemovalPreservesOrphansAndExcludesThemFromRendering)
 {
 	InitializeDObjectSystem();
-	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "OrphanBase");
+	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "OrphanBase");
 	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "OrphanInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Instance->SetVectorParameterValue(
@@ -246,7 +259,7 @@ TEST(FMaterialTests, ParentRemovalPreservesOrphansAndExcludesThemFromRendering)
 TEST(FMaterialTests, GuidOverrideRejectsUnknownAndPreservesVersionOnNoOp)
 {
 	InitializeDObjectSystem();
-	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "GuidOverrideBase");
+	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "GuidOverrideBase");
 	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "GuidOverrideInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));
 	const Durin::FGuid Unknown{1, 2, 3, 4};
@@ -282,7 +295,7 @@ TEST(FMaterialTests, GuidOverrideRejectsUnknownAndPreservesVersionOnNoOp)
 TEST(FMaterialTests, InstanceOverrideStateTracksSetAndClear)
 {
 	InitializeDObjectSystem();
-	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "OverrideStateBase");
+	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "OverrideStateBase");
 	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "OverrideStateInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));
 	EXPECT_FALSE(Instance->HasScalarParameterOverride(Durin::MaterialParameters::OpacityName()));
@@ -312,7 +325,7 @@ TEST(FMaterialTests, TextureParametersInheritOverrideAndPreserveExplicitNull)
 {
 	InitializeDObjectSystem();
 	Durin::InitRenderingThread();
-	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "TextureBaseMaterial");
+	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "TextureBaseMaterial");
 	Durin::DMaterialInstance* First = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "FirstTextureInstance");
 	Durin::DMaterialInstance* Second = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "SecondTextureInstance");
 	Durin::DTexture2D* BaseTexture = Durin::NewObject<Durin::DTexture2D>(nullptr, "InheritedBaseColorTexture");
@@ -346,7 +359,7 @@ TEST(FMaterialTests, ReflectedTextureParameterKeepsTextureReachable)
 {
 	InitializeDObjectSystem();
 	Durin::InitRenderingThread();
-	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "RootedTextureMaterial");
+	Durin::DMaterial* Material = MakeExpandedMaterial(nullptr, "RootedTextureMaterial");
 	Durin::DTexture2D* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "ReferencedMaterialTexture");
 	Material->SetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), Texture);
 	Durin::AddToRoot(Material);
@@ -367,7 +380,7 @@ TEST(FMaterialTests, ReflectedInstanceOverrideKeepsNestedTextureReachable)
 {
 	InitializeDObjectSystem();
 	Durin::InitRenderingThread();
-	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "RootedOverrideBase");
+	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "RootedOverrideBase");
 	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "RootedOverrideInstance");
 	Durin::DTexture2D* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "ReferencedOverrideTexture");
 	ASSERT_TRUE(Instance->SetParent(Base));
@@ -391,7 +404,7 @@ TEST(FMaterialTests, ReflectedInstanceOverrideKeepsNestedTextureReachable)
 TEST(FMaterialTests, DuplicateInstancePreservesParentAndNestedTextureOverride)
 {
 	InitializeDObjectSystem();
-	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "DuplicateOverrideBase");
+	Durin::DMaterial* Base = MakeExpandedMaterial(nullptr, "DuplicateOverrideBase");
 	Durin::DMaterialInstance* Source = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "DuplicateOverrideSource");
 	Durin::DTexture2D* Texture = Durin::NewObject<Durin::DTexture2D>(nullptr, "DuplicateOverrideTexture");
 	ASSERT_TRUE(Source->SetParent(Base));

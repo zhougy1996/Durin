@@ -71,6 +71,17 @@ namespace Durin
 			return false;
 		}
 
+		auto IsReachableParameter(
+			const DMaterialInterface& Material, const FGuid& Id) -> bool
+		{
+			const FMaterialProgram* Program = Material.GetMaterialProgram();
+			if (!Program) return false;
+			const std::vector Dependencies = InspectMaterialParameterDependencies(
+				*Program, Material.GetParameterDefinitions());
+			return std::ranges::find(Dependencies, Id,
+				&FMaterialParameterDependency::ParameterId) != Dependencies.end();
+		}
+
 	}
 
 	DMaterialInstance::DMaterialInstance(const FObjectInitializer& ObjectInitializer)
@@ -222,7 +233,8 @@ namespace Durin
 	) -> bool
 	{
 		const FMaterialParameterDefinition* Definition = FindParameterDefinition(Id);
-		if (!Definition || Definition->Type != Type) return false;
+		if (!Definition || Definition->Type != Type
+			|| !IsReachableParameter(*this, Id)) return false;
 		const FMaterialParameterValue CanonicalValue = CanonicalizeParameterValue(Type, Value);
 		if (FMaterialParameterOverride* Override = FindMutableOverride(ParameterOverrides, Id))
 		{
@@ -261,7 +273,8 @@ namespace Durin
 
 	auto DMaterialInstance::IsParameterOverrideOrphan(const FGuid& Id) const -> bool
 	{
-		return HasLocalParameterOverride(Id) && FindParameterDefinition(Id) == nullptr;
+		if (!HasLocalParameterOverride(Id)) return false;
+		return !IsReachableParameter(*this, Id);
 	}
 
 	auto DMaterialInstance::SetScalarParameterValue(FName Name, float Value) -> bool
@@ -402,6 +415,7 @@ namespace Durin
 		for (const FMaterialParameterOverride& Override
 			: ParameterOverrides)
 		{
+			if (!IsReachableParameter(*this, Override.ParameterId)) continue;
 			const FMaterialParameterDefinition* Definition =
 				FindParameterDefinition(Override.ParameterId);
 			if (!Definition) continue;

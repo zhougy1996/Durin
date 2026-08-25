@@ -16,6 +16,7 @@
 
 namespace Durin
 {
+	struct FMaterialProgram;
 	class DMaterialInterface;
 
 	// Selects the active storage field in a material parameter value.
@@ -190,6 +191,23 @@ namespace Durin
 		bool bHasLocalOverride = false;
 	};
 
+	// Describes one reachable graph parameter declaration in deterministic first-use order.
+	struct FMaterialParameterDependency
+	{
+		FGuid SourceNodeId;
+		FGuid ParameterId;
+		EMaterialParameterType Type = EMaterialParameterType::Scalar;
+		uint32 FirstUseOrder = 0;
+		bool bImplicitTextureRole = false;
+		FName Name;
+		std::string DisplayName;
+		FName GroupName;
+		int32 SortOrder = 0;
+
+		auto operator==(const FMaterialParameterDependency&) const
+			-> bool = default;
+	};
+
 	namespace MaterialParameters
 	{
 		inline constexpr FGuid BaseColorId{0x6c4d841a, 0x88e14c35, 0xa428910e, 0xa8338339};
@@ -258,5 +276,9 @@ namespace Durin
 		const FMaterialStaticProperties& Properties,
 		std::string& OutError
 	) -> bool;
+	ENGINE_API auto InspectMaterialParameterDependencies(
+		const FMaterialProgram& Program,
+		std::span<const FMaterialParameterDefinition> Definitions)
+		-> std::vector<FMaterialParameterDependency>;
 
 }

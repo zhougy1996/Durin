@@ -8,6 +8,18 @@
 
 namespace
 {
+	template<typename TName>
+	auto MakeExpandedMaterial(Durin::DObject* Outer, TName&& Name)
+		-> Durin::DMaterial*
+	{
+		auto* Material = Durin::NewObject<Durin::DMaterial>(
+			Outer, std::forward<TName>(Name));
+		Durin::FMaterialProgramValidationResult Validation;
+		if (!Material || !Material->SetMaterialProgram(
+			Durin::MakeLegacyExpandedMaterialProgram(), Validation)) return nullptr;
+		return Material;
+	}
+
 	struct FMaterialProxySnapshot
 	{
 		Durin::FMaterialRenderData RenderData;
@@ -83,7 +95,7 @@ namespace
 TEST(FMaterialRenderProxyTests, StableIdentityPublishesVersionsAndRejectsStaleState)
 {
 	FRenderSceneHarness Harness;
-	auto* Material = Durin::NewObject<Durin::DMaterial>(
+	auto* Material = MakeExpandedMaterial(
 		nullptr, "StableProxyMaterial");
 	Durin::FMaterialRenderProxyRef Proxy =
 		Material->GetMaterialRenderProxy();
@@ -182,7 +194,7 @@ TEST(FMaterialRenderProxyTests, StableIdentityPublishesVersionsAndRejectsStaleSt
 TEST(FMaterialRenderProxyTests, CanonicalV3ValuesMatchDirectCompilationForBasesAndInstances)
 {
 	FRenderSceneHarness Harness;
-	auto* Base = Durin::NewObject<Durin::DMaterial>(
+	auto* Base = MakeExpandedMaterial(
 		nullptr, "CanonicalProxyBase");
 	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(
 		nullptr, "CanonicalProxyInstance");
@@ -426,7 +438,7 @@ TEST(FMaterialRenderProxyTests, CanonicalV3ValuesMatchDirectCompilationForBasesA
 TEST(FMaterialRenderProxyTests, OrdinarySetterDoesNotRunLoadedMaterialQuery)
 {
 	FRenderSceneHarness Harness;
-	auto* Material = Durin::NewObject<Durin::DMaterial>(
+	auto* Material = MakeExpandedMaterial(
 		nullptr, "ProxyOnlyQueryMaterial");
 	Durin::FMaterialRenderProxyRef Proxy = Material->GetMaterialRenderProxy();
 	Durin::ResetMaterialLoadedQueryDiagnostics();
@@ -453,7 +465,7 @@ TEST(FMaterialRenderProxyTests, OrdinarySetterDoesNotRunLoadedMaterialQuery)
 TEST(FMaterialRenderProxyTests, CoalescesQueuedPublicationsPerProxy)
 {
 	FRenderSceneHarness Harness;
-	auto* Material = Durin::NewObject<Durin::DMaterial>(
+	auto* Material = MakeExpandedMaterial(
 		nullptr, "CoalescedProxyMaterial");
 	Durin::FMaterialRenderProxyRef Proxy =
 		Material->GetMaterialRenderProxy();
@@ -516,9 +528,9 @@ TEST(FMaterialRenderProxyTests, CoalescesQueuedPublicationsPerProxy)
 TEST(FMaterialRenderProxyTests, DescendantsResolveParentChangesLazilyAcrossLongChains)
 {
 	FRenderSceneHarness Harness;
-	auto* FirstBase = Durin::NewObject<Durin::DMaterial>(
+	auto* FirstBase = MakeExpandedMaterial(
 		nullptr, "ProxyChainFirstBase");
-	auto* SecondBase = Durin::NewObject<Durin::DMaterial>(
+	auto* SecondBase = MakeExpandedMaterial(
 		nullptr, "ProxyChainSecondBase");
 	ASSERT_TRUE(FirstBase->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(),
@@ -602,9 +614,9 @@ TEST(FMaterialRenderProxyTests, DescendantsResolveParentChangesLazilyAcrossLongC
 TEST(FMaterialRenderProxyTests, ImportExchangePublishesCurrentParentProxy)
 {
 	FRenderSceneHarness Harness;
-	auto* FirstBase = Durin::NewObject<Durin::DMaterial>(
+	auto* FirstBase = MakeExpandedMaterial(
 		nullptr, "ProxyImportFirstBase");
-	auto* SecondBase = Durin::NewObject<Durin::DMaterial>(
+	auto* SecondBase = MakeExpandedMaterial(
 		nullptr, "ProxyImportSecondBase");
 	auto* First = Durin::NewObject<Durin::DMaterialInstance>(
 		nullptr, "ProxyImportFirst");
@@ -681,7 +693,7 @@ TEST(FMaterialRenderProxyTests, ImportExchangePublishesCurrentParentProxy)
 TEST(FMaterialRenderProxyTests, PublishedStateOutlivesOwnersAndPostLoadDuplication)
 {
 	FRenderSceneHarness Harness;
-	auto* Base = Durin::NewObject<Durin::DMaterial>(
+	auto* Base = MakeExpandedMaterial(
 		nullptr, "ProxyLifetimeBase");
 	auto* Source = Durin::NewObject<Durin::DMaterialInstance>(
 		nullptr, "ProxyLifetimeSource");
@@ -754,9 +766,9 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 		return Count;
 	};
 
-	auto* Base = Durin::NewObject<Durin::DMaterial>(
+	auto* Base = MakeExpandedMaterial(
 		nullptr, "ProxyStressBase");
-	auto* AlternateBase = Durin::NewObject<Durin::DMaterial>(
+	auto* AlternateBase = MakeExpandedMaterial(
 		nullptr, "ProxyStressAlternateBase");
 	ASSERT_TRUE(Base->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(),
@@ -783,15 +795,15 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 	ASSERT_TRUE(LeafProxy);
 	const FMaterialProxySnapshot InitialLeaf = CaptureMaterialProxy(LeafProxy);
 
-	auto* Shared = Durin::NewObject<Durin::DMaterial>(
+	auto* Shared = MakeExpandedMaterial(
 		nullptr, "ProxyStressShared");
-	auto* Replacement = Durin::NewObject<Durin::DMaterial>(
+	auto* Replacement = MakeExpandedMaterial(
 		nullptr, "ProxyStressReplacement");
 	std::vector<Durin::DMaterial*> SlotMaterials;
 	SlotMaterials.reserve(SlotCount);
 	for (uint32 SlotIndex = 0; SlotIndex < SlotCount; ++SlotIndex)
 	{
-		auto* Material = Durin::NewObject<Durin::DMaterial>(
+		auto* Material = MakeExpandedMaterial(
 			nullptr,
 			Durin::FName(std::format("ProxyStressSlotMaterial{}", SlotIndex)));
 		ASSERT_TRUE(Material->SetVectorParameterValue(
@@ -849,7 +861,7 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 	UnrelatedMaterials.reserve(UnrelatedMaterialCount);
 	for (uint32 Index = 0; Index < UnrelatedMaterialCount; ++Index)
 	{
-		UnrelatedMaterials.push_back(Durin::NewObject<Durin::DMaterial>(
+		UnrelatedMaterials.push_back(MakeExpandedMaterial(
 			nullptr,
 			Durin::FName(std::format("ProxyStressUnrelated{}", Index))));
 	}
@@ -858,7 +870,7 @@ TEST(FMaterialRenderProxyTests, StressSharedUsersSlotsInterleavedPublicationAndD
 		Shared->GetMaterialRenderProxy();
 	Durin::FMaterialRenderProxyRef QueuedDestructionProxy;
 	{
-		auto* QueuedDestructionMaterial = Durin::NewObject<Durin::DMaterial>(
+		auto* QueuedDestructionMaterial = MakeExpandedMaterial(
 			nullptr, "ProxyStressQueuedDestruction");
 		QueuedDestructionProxy =
 			QueuedDestructionMaterial->GetMaterialRenderProxy();

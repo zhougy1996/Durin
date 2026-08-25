@@ -8,6 +8,13 @@
 
 namespace
 {
+	auto SetExpandedProgram(Durin::DMaterial& Material) -> bool
+	{
+		Durin::FMaterialProgramValidationResult Validation;
+		return Material.SetMaterialProgram(
+			Durin::MakeLegacyExpandedMaterialProgram(), Validation);
+	}
+
 	auto WaitForStaticMeshRecovery(
 		const Durin::FAssetPath& AssetPath,
 		double TimeoutSeconds = 10.0) -> bool
@@ -371,6 +378,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 
 	Durin::DMaterial* Material = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(MaterialPath, Material));
+	ASSERT_TRUE(SetExpandedProgram(*Material));
 	Material->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.85, 0.15, 0.1));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Material->GetPackage()));
 	Durin::DStaticMeshComponent* Component = nullptr;
@@ -578,6 +586,7 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 
 	Durin::DMaterial* Base = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(BasePath, Base));
+	ASSERT_TRUE(SetExpandedProgram(*Base));
 	Base->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.4, 0.6));
 	Base->SetVectorParameterValue(Durin::MaterialParameters::NormalName(), Durin::FVector3(0.0, 1.0, 1.0));
 	Base->SetScalarParameterValue(Durin::MaterialParameters::RoughnessName(), 0.7f);
@@ -749,6 +758,7 @@ TEST(FStaticMeshMaterialTests, LegacyParameterMapsFailBeforeResidency)
 
 	Durin::DMaterial* Base = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(BasePath, Base));
+	ASSERT_TRUE(SetExpandedProgram(*Base));
 	ASSERT_TRUE(Base->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.2, 0.3)));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Base->GetPackage()));

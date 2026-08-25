@@ -2,6 +2,7 @@
 
 #include "DObject/DefaultObjectGraph.h"
 #include "DObject/MathStructs.h"
+#include "Hash/XxHash.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
@@ -55,6 +56,15 @@ namespace
 			&Program.Outputs.Opacity, &Program.Outputs.OpacityMask};
 		for (Durin::FMaterialProgramLink* Output : Outputs)
 			Output->SourceNodeId = Remapping.at(Output->SourceNodeId);
+	}
+
+	auto MakeExpandedMaterial(const char* Name) -> Durin::DMaterial*
+	{
+		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
+		Durin::FMaterialProgramValidationResult Validation;
+		if (!Material || !Material->SetMaterialProgram(
+			Durin::MakeLegacyExpandedMaterialProgram(), Validation)) return nullptr;
+		return Material;
 	}
 }
 
@@ -293,6 +303,26 @@ TEST(FMaterialProgramSchemaTests,
 }
 
 TEST(FMaterialProgramSchemaTests,
+	LegacySurfaceLinksUpgradeWithoutChangingExpandedSemantics)
+{
+	Durin::FMaterialProgram Legacy =
+		Durin::MakeLegacyExpandedMaterialProgram();
+	Legacy.SchemaVersion = Durin::LegacyMaterialProgramSchemaVersion;
+	const Durin::FMaterialProgram Before = Legacy;
+	EXPECT_FALSE(Durin::ValidateMaterialProgram(
+		Legacy, Durin::GetCanonicalMaterialParameterDefinitions()));
+	ASSERT_TRUE(Durin::UpgradeMaterialProgramSchema(Legacy));
+	EXPECT_EQ(Legacy.SchemaVersion,
+		Durin::CurrentMaterialProgramSchemaVersion);
+	EXPECT_EQ(Legacy.Nodes, Before.Nodes);
+	EXPECT_EQ(Legacy.Outputs, Before.Outputs);
+	EXPECT_TRUE(Durin::ValidateMaterialProgram(
+		Legacy, Durin::GetCanonicalMaterialParameterDefinitions()));
+	Legacy.SchemaVersion = 99;
+	EXPECT_FALSE(Durin::UpgradeMaterialProgramSchema(Legacy));
+}
+
+TEST(FMaterialProgramSchemaTests,
 	ValidatorRejectsSchemaGraphTypeAndBoundsFailuresDeterministically)
 {
 	const auto Definitions =
@@ -470,7 +500,8 @@ TEST(FMaterialProgramSchemaTests,
 	EXPECT_EQ(Instance->GetMaterialProgram(), Base->GetMaterialProgram());
 
 	Durin::FMaterialProgram Invalid = Reordered;
-	Invalid.Outputs.BaseColor = {};
+	Invalid.Outputs.BaseColorDefault.X =
+		std::numeric_limits<float>::quiet_NaN();
 	const Durin::FMaterialProgram Before = *Base->GetMaterialProgram();
 	EXPECT_FALSE(Base->SetMaterialProgram(std::move(Invalid), Validation));
 	EXPECT_FALSE(Validation);
@@ -505,6 +536,50 @@ TEST(FMaterialProgramNormalizationTests,
 		Material->GetParameterDefinitions().size());
 	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();
+}
+
+TEST(FMaterialProgramNormalizationTests,
+	DefaultProgramLowersEightSurfaceFallbacksWithoutAuthoredNodes)
+{
+	InitializeDObjectSystem();
+	Durin::FMaterialCompilerInput Input = MakeSyntheticMaterialCompilerInput();
+	Input.Program = Durin::MakeDefaultMaterialProgram();
+	const Durin::FMaterialProgramValidationResult Validation =
+		Durin::ValidateMaterialProgram(Input.Program,
+			Durin::GetCanonicalMaterialParameterDefinitions());
+	ASSERT_TRUE(Validation);
+	const Durin::FMaterialNormalizationResult Normalized =
+		Durin::NormalizeMaterialProgram(Input);
+	ASSERT_TRUE(Normalized);
+	EXPECT_TRUE(Input.Program.Nodes.empty());
+	ASSERT_EQ(Normalized.IR.Nodes.size(), 8u);
+	ASSERT_EQ(Normalized.IR.SurfaceOutputs.size(), 8u);
+	EXPECT_EQ(Normalized.IR.Nodes[0].Literal,
+		(Durin::FMaterialProgramLiteral{0.95f, 0.62f, 0.22f, 0.0f}));
+	EXPECT_EQ(Normalized.IR.Nodes[1].Literal,
+		(Durin::FMaterialProgramLiteral{0.0f, 0.0f, 1.0f, 0.0f}));
+	std::string Source;
+	std::string Error;
+	ASSERT_TRUE(Durin::GenerateMaterialProgramSlang(
+		Normalized.IR, Source, Error)) << Error;
+	EXPECT_EQ(Source.find("BaseColorTexture.Sample"), std::string::npos);
+	EXPECT_EQ(Source.find("NormalTexture.Sample"), std::string::npos);
+	Durin::FModuleManager::Get().LoadModule("RenderCore");
+	const Durin::FMaterialCompilerResult Compiled =
+		Durin::CompileMaterialProgram(Input);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty()
+		? std::string("no diagnostic") : Compiled.Diagnostics.front().Message);
+	size_t ActiveBindings = 0;
+	for (const Durin::FCompiledShader& Shader : Compiled.CompiledShaders)
+		ActiveBindings += Shader.Reflection.ResourceBindings.size();
+	std::cout << "[MaterialOutputDefaultBaseline] authored_nodes="
+		<< Input.Program.Nodes.size()
+		<< " ir_nodes=" << Normalized.IR.Nodes.size()
+		<< " texture_samples=0 generated_bytes=" << Source.size()
+		<< " source_hash=" << Durin::FXxHash128::HashBuffer(Source).ToString()
+		<< " identity=" << Compiled.Identity.Digest.ToString()
+		<< " compiled_stages=" << Compiled.CompiledShaders.size()
+		<< " active_bindings=" << ActiveBindings << '\n';
 }
 
 TEST(FMaterialProgramNormalizationTests,
@@ -693,7 +768,7 @@ TEST(FMaterialProgramCompilerTests,
 	EXPECT_EQ(Compiled.CompiledShaders[1].Reflection.ResourceBindings.size(), 17u);
 	EXPECT_EQ(Compiled.CompiledShaders[2].Reflection.ResourceBindings.size(), 3u);
 	std::vector CorruptedStages = Compiled.CompiledShaders;
-	CorruptedStages[1].Reflection.ResourceBindings.pop_back();
+	CorruptedStages[1].Reflection.ResourceBindings.back().BindingIndex = 99;
 	std::string ReflectionError;
 	EXPECT_FALSE(Durin::ValidateMaterialCompiledStages(
 		CorruptedStages, ReflectionError));
@@ -722,8 +797,17 @@ TEST(FMaterialProgramCompilerTests,
 		Compiled.Timings.CompilationMicroseconds);
 	RecordProperty("WarmCompilationMicroseconds",
 		Warm.Timings.CompilationMicroseconds);
-	std::cout << "[M5MaterialCompilerBaseline] generated_bytes="
-		<< Compiled.GeneratedSource.size()
+	std::cout << "[M5MaterialCompilerBaseline] authored_nodes="
+		<< Input.Program.Nodes.size()
+		<< " ir_nodes=" << Normalized.IR.Nodes.size()
+		<< " texture_samples=" << std::ranges::count_if(
+			Normalized.IR.Nodes, [](const Durin::FMaterialIRNode& Node) {
+				return Node.Opcode == Durin::EMaterialProgramOpcode::TextureSample2D;
+			})
+		<< " generated_bytes=" << Compiled.GeneratedSource.size()
+		<< " source_hash="
+		<< Durin::FXxHash128::HashBuffer(Compiled.GeneratedSource).ToString()
+		<< " identity=" << Compiled.Identity.Digest.ToString()
 		<< " dependencies=" << Compiled.Dependencies.size()
 		<< " spirv_bytes=" << SpirvBytes
 		<< " normalize_us=" << Compiled.Timings.NormalizationMicroseconds
@@ -787,13 +871,7 @@ TEST(FMaterialProgramPublicationTests,
 		Initial.PlanningPassIdentity.ShaderMap.ProgramIdentity);
 
 	Durin::FMaterialProgram Edited = *Base->GetMaterialProgram();
-	const auto Constant = std::ranges::find_if(
-		Edited.Nodes, [](const auto& Node) {
-			return Node.Opcode == Durin::EMaterialProgramOpcode::Constant
-				&& Node.ResultType == Durin::EMaterialProgramValueType::Float;
-		});
-	ASSERT_NE(Constant, Edited.Nodes.end());
-	Constant->Literal.X += 0.01f;
+	Edited.Outputs.RoughnessDefault.X += 0.01f;
 	Durin::FMaterialProgramValidationResult Validation;
 	ASSERT_TRUE(Base->SetMaterialProgram(std::move(Edited), Validation));
 	const auto ProgramChanged = Base->GetRenderData();
@@ -811,8 +889,8 @@ TEST(FMaterialProgramPublicationTests,
 TEST(FMaterialTests, ReflectedPositionalMaterialOverrideUsesSharedTransactions)
 {
 	FRenderSceneHarness Harness;
-	Durin::DMaterial* First = Durin::NewObject<Durin::DMaterial>(nullptr, "FirstDetailsMaterial");
-	Durin::DMaterial* Second = Durin::NewObject<Durin::DMaterial>(nullptr, "SecondDetailsMaterial");
+	Durin::DMaterial* First = MakeExpandedMaterial("FirstDetailsMaterial");
+	Durin::DMaterial* Second = MakeExpandedMaterial("SecondDetailsMaterial");
 	First->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.2, 0.3));
 	Second->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.6, 0.5));
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
@@ -867,8 +945,8 @@ TEST(FMaterialTests, ReflectedPositionalMaterialOverrideUsesSharedTransactions)
 TEST(FMaterialTests, PositionalMaterialOverridesResolveDefaultsAndSurviveMeshSwitches)
 {
 	InitializeDObjectSystem();
-	Durin::DMaterial* First = Durin::NewObject<Durin::DMaterial>(nullptr, "FirstReflectedSlotMaterial");
-	Durin::DMaterial* Second = Durin::NewObject<Durin::DMaterial>(nullptr, "SecondReflectedSlotMaterial");
+	Durin::DMaterial* First = MakeExpandedMaterial("FirstReflectedSlotMaterial");
+	Durin::DMaterial* Second = MakeExpandedMaterial("SecondReflectedSlotMaterial");
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle(nullptr);
 	AddDebugMaterialSlot(Mesh, "Second");
 	auto* Slots = static_cast<Durin::FArrayProperty*>(Mesh->GetClass()->FindPropertyByName("MaterialSlots"));
@@ -1057,7 +1135,7 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksPresentedOwnerSeparatelyFromEdit
 TEST(FMaterialTests, ReflectedPropertyViewTracksMaterialOverrideStructureInSharedHistory)
 {
 	InitializeDObjectSystem();
-	Durin::DMaterial* Base = Durin::NewObject<Durin::DMaterial>(nullptr, "TransactionalOverrideBase");
+	Durin::DMaterial* Base = MakeExpandedMaterial("TransactionalOverrideBase");
 	Durin::DMaterialInstance* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "TransactionalOverrideInstance");
 	ASSERT_TRUE(Instance->SetParent(Base));
 	auto* Property = static_cast<Durin::FArrayProperty*>(Instance->GetClass()->FindPropertyByName("ParameterOverrides"));
@@ -1135,8 +1213,8 @@ TEST(FMaterialTests, ParentHookRejectsCyclesWithoutCreatingHistory)
 TEST(FMaterialTests, ParentTransactionsRenderFromCurrentCanonicalStorage)
 {
 	FRenderSceneHarness Harness;
-	auto* FirstParent = Durin::NewObject<Durin::DMaterial>(nullptr, "CanonicalFirstParent");
-	auto* SecondParent = Durin::NewObject<Durin::DMaterial>(nullptr, "CanonicalSecondParent");
+	auto* FirstParent = MakeExpandedMaterial("CanonicalFirstParent");
+	auto* SecondParent = MakeExpandedMaterial("CanonicalSecondParent");
 	auto* Instance = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "CanonicalParentInstance");
 	FirstParent->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.2, 0.3));

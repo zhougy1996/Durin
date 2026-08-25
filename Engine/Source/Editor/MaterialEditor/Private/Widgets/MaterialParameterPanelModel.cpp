@@ -117,16 +117,24 @@ namespace Durin::Editor::Material
 		, Instance(Cast<DMaterialInstance>(InMaterial))
 	{
 		if (!Material) return;
-		for (const FMaterialParameterDefinition& Definition : Material->GetParameterDefinitions())
+		const FMaterialProgram* Program = Material->GetMaterialProgram();
+		const std::vector Dependencies = Program
+			? InspectMaterialParameterDependencies(
+				*Program, Material->GetParameterDefinitions())
+			: std::vector<FMaterialParameterDependency>{};
+		for (const FMaterialParameterDependency& Dependency : Dependencies)
 		{
+			const FMaterialParameterDefinition* Definition =
+				Material->FindParameterDefinition(Dependency.ParameterId);
+			if (!Definition) continue;
 			FResolvedMaterialParameter Resolved;
-			if (!Material->ResolveParameterValue(Definition.Id, Resolved)) continue;
+			if (!Material->ResolveParameterValue(Definition->Id, Resolved)) continue;
 			Entries.push_back({
-				.Definition = Definition,
-				.ParameterId = Definition.Id,
+				.Definition = *Definition,
+				.ParameterId = Definition->Id,
 				.Value = Resolved.Value,
 				.Source = Resolved.Source,
-				.Control = SelectControl(Definition),
+				.Control = SelectControl(*Definition),
 				.bCanOverride = Instance != nullptr,
 				.bHasLocalOverride = Resolved.bHasLocalOverride,
 			});

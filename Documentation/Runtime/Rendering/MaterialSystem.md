@@ -29,14 +29,18 @@ the error material, and diagnostic counters.
   a parallel descriptor table.
 - `DMaterial` stores one ordered reflected definition collection. Definition
   identity, type, order, and metadata are canonical; only the nested values are
-  editable.
+  editable. Definitions are a compatibility/value catalog; a definition becomes
+  active only when a reachable Parameter, TextureParameter, TextureCoordinate,
+  or TextureSample graph node declares it.
 - `DMaterialInstance` references a parent material interface and stores one
   ordered collection of GUID/value overrides plus an optional all-or-nothing
   static-property override. Dynamic resolution walks the current
   instance, its parent instances, and the root material, and reports the object
   that supplied the value. Parent cycles are rejected.
-- Parent changes preserve unmatched overrides as orphans for explicit editor
-  removal. Orphans are never resolved into render data.
+- Parent or root-graph changes preserve overrides which are no longer reachable
+  as orphans for explicit editor removal. Orphans are never resolved into
+  render data, while reconnecting the same parameter GUID restores the retained
+  base value and override eligibility.
 - `DMaterial` owns one reflected static-property set: blend mode, shading model,
   two-sided state, depth-write policy, and masked-opacity threshold. Instances
   inherit that complete set through the canonical parent chain unless their
@@ -68,21 +72,27 @@ uniform offsets and eight resource indices. User-authored parameter
 declarations and compiled layouts remain deferred work.
 
 `DMaterial` additionally persists one reflected material program defined by
-`Materials/MaterialProgramTypes.h`. Version 1 is a bounded typed expression DAG
-with stable node/parameter/link identities and one required record covering all
-eight surface outputs. Constants, parameter and texture reads, UV resolution,
+`Materials/MaterialProgramTypes.h`. Version 2 is a bounded typed expression DAG
+with stable node/parameter/link identities and eight fixed typed surface inputs.
+Each surface input stores a retained fallback literal and an optional source
+link; an invalid source GUID means unconnected. Constants, parameter and texture reads, UV resolution,
 sampling, arithmetic, composition, explicit conversions, safe normal decode,
 and RNM normal blending form the closed opcode domain. `DMaterialInstance`
 stores no graph and resolves the root base program through its existing parent
 chain, so dynamic GUID overrides remain independent of authored node order.
 
-Fresh materials own the permanent canonical fixed-surface program. Packages
-written before the `Program` field existed retain that constructor value during
-load and write version 1 on their next save. A present empty, unknown-version,
+Fresh materials own zero expression nodes and eight unconnected defaults:
+BaseColor `(0.95, 0.62, 0.22)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
+`0.5`, AmbientOcclusion `1`, Emissive `(0, 0, 0)`, Opacity `1`, and
+OpacityMask `1`. Asset-load construction retains the explicitly named legacy
+expanded program so packages written before `Program` existed preserve their
+old behavior. Present version-1 mandatory links upgrade in place to version 2
+without changing nodes, links, parameter GUIDs, or rendering. An unknown-version
 or malformed program does not take the legacy transition: bounded validation
 rejects invalid enums and GUIDs, count/string/byte/input/depth limits, dangling
 links, cycles, non-finite constants, bad parameter references, input types, and
-missing or incompatible surface outputs before residency. Diagnostics are
+incompatible connected surface outputs before residency. Unconnected outputs
+validate and compile through their finite typed fallback. Diagnostics are
 bounded and sort by stable category/node/location/message identity. Duplication
 deep-copies program values while preserving program GUIDs; presentation names
 round trip but do not affect rendering semantics.
@@ -97,7 +107,8 @@ by [Material Graph Authoring](../../Editor/Architecture/MaterialGraphAuthoring.m
 The persisted program is authored state, not a render artifact. GameThread can
 snapshot it, parameter declarations, code-affecting static properties, target,
 compiler identity, and virtual dependency fingerprints into a detached value
-request. Normalization removes dead and presentation-only state, canonicalizes
+request. Normalization starts only from connected Material Output inputs,
+injects one typed IR constant for each unconnected fallback, removes dead and presentation-only state, canonicalizes
 commutative inputs and numeric bytes, and produces versioned typed IR plus a
 stable digest independent of authored node order, node GUIDs, and dynamic
 parameter/resource values. Two-sided state and depth policy remain pipeline-
@@ -122,7 +133,10 @@ The synchronous compiler lowers that IR to bounded deterministic Slang using
 stable IR-index symbols and exact floating-point bit expressions. RenderCore
 accepts the generated root as owned memory, resolves only allowlisted virtual
 imports, retains cache/artifact ownership, compiles forward, GBuffer, and
-masked-shadow fragments, and reflects their exact 24/17/3 binding contracts.
+masked-shadow fragments, and accepts only correctly typed reflected bindings
+from each pass's closed allowlist. Unused material textures, samplers, and
+uniform fields may therefore be optimized out; a default material contains no
+material texture-sample expressions or texture-role bindings.
 The complete value-owned result includes identity, IR, source, dependencies,
 three compiled stages, phase timings, and bounded diagnostics; any failure
 retains no publishable partial stage set.
@@ -189,6 +203,14 @@ two-sided/depth changes rebuild only the existing v3 layer and preserve the
 compiled identity. Instance-authored static shader-map overrides remain on the
 existing M5 renderer permutation boundary; M6 does not duplicate a parent
 graph or cooked program in the instance package.
+
+`InspectMaterialParameterDependencies` is the UI-independent dependency
+authority. It traverses connected surface branches in fixed surface/input order,
+de-duplicates shared declarations by first use, and adds the UV channel, scale,
+offset, rotation, and sampler GUIDs implied by reachable texture roles. Base
+Details, instance eligibility/orphans, and local render layers consume this same
+snapshot. Serialized but unreachable values remain intact and are excluded from
+ordinary controls and active local bindings.
 
 Production Renderer resource slots key generated shader maps, PSOs, diagnostics,
 and deterministic draw ordering by the material-program digest plus the exact

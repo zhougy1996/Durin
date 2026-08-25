@@ -90,25 +90,6 @@ namespace Durin
 			return static_cast<EMaterialProgramValueType>(0xff);
 		}
 
-		auto GetSurfaceOutputType(EMaterialSurfaceOutput Output)
-			-> EMaterialProgramValueType
-		{
-			switch (Output)
-			{
-			case EMaterialSurfaceOutput::BaseColor:
-			case EMaterialSurfaceOutput::Normal:
-			case EMaterialSurfaceOutput::Emissive:
-				return EMaterialProgramValueType::Float3;
-			case EMaterialSurfaceOutput::Metallic:
-			case EMaterialSurfaceOutput::Roughness:
-			case EMaterialSurfaceOutput::AmbientOcclusion:
-			case EMaterialSurfaceOutput::Opacity:
-			case EMaterialSurfaceOutput::OpacityMask:
-				return EMaterialProgramValueType::Float;
-			}
-			return static_cast<EMaterialProgramValueType>(0xff);
-		}
-
 		auto AddDiagnostic(
 			std::vector<FMaterialProgramDiagnostic>& Diagnostics,
 			EMaterialProgramDiagnosticCategory Category,
@@ -336,7 +317,12 @@ namespace Durin
 		}
 	}
 
-	auto MakeCanonicalMaterialProgram() -> FMaterialProgram
+	auto MakeDefaultMaterialProgram() -> FMaterialProgram
+	{
+		return {};
+	}
+
+	auto MakeLegacyExpandedMaterialProgram() -> FMaterialProgram
 	{
 		FMaterialProgram Program;
 		Program.Nodes.reserve(MaterialProgramMaxNodeCount);
@@ -497,6 +483,92 @@ namespace Durin
 		return Program;
 	}
 
+	auto MakeCanonicalMaterialProgram() -> FMaterialProgram
+	{
+		return MakeLegacyExpandedMaterialProgram();
+	}
+
+	auto UpgradeMaterialProgramSchema(FMaterialProgram& Program) -> bool
+	{
+		if (Program.SchemaVersion == CurrentMaterialProgramSchemaVersion)
+			return true;
+		if (Program.SchemaVersion != LegacyMaterialProgramSchemaVersion)
+			return false;
+		Program.SchemaVersion = CurrentMaterialProgramSchemaVersion;
+		return true;
+	}
+
+	auto GetMaterialSurfaceOutputType(EMaterialSurfaceOutput Output)
+		-> EMaterialProgramValueType
+	{
+		switch (Output)
+		{
+		case EMaterialSurfaceOutput::BaseColor:
+		case EMaterialSurfaceOutput::Normal:
+		case EMaterialSurfaceOutput::Emissive:
+			return EMaterialProgramValueType::Float3;
+		case EMaterialSurfaceOutput::Metallic:
+		case EMaterialSurfaceOutput::Roughness:
+		case EMaterialSurfaceOutput::AmbientOcclusion:
+		case EMaterialSurfaceOutput::Opacity:
+		case EMaterialSurfaceOutput::OpacityMask:
+			return EMaterialProgramValueType::Float;
+		}
+		return static_cast<EMaterialProgramValueType>(0xff);
+	}
+
+	auto GetMaterialSurfaceOutputLink(
+		FMaterialSurfaceOutputs& Outputs, EMaterialSurfaceOutput Output)
+		-> FMaterialProgramLink&
+	{
+		return const_cast<FMaterialProgramLink&>(GetMaterialSurfaceOutputLink(
+			std::as_const(Outputs), Output));
+	}
+
+	auto GetMaterialSurfaceOutputLink(
+		const FMaterialSurfaceOutputs& Outputs, EMaterialSurfaceOutput Output)
+		-> const FMaterialProgramLink&
+	{
+		switch (Output)
+		{
+		case EMaterialSurfaceOutput::BaseColor: return Outputs.BaseColor;
+		case EMaterialSurfaceOutput::Normal: return Outputs.Normal;
+		case EMaterialSurfaceOutput::Metallic: return Outputs.Metallic;
+		case EMaterialSurfaceOutput::Roughness: return Outputs.Roughness;
+		case EMaterialSurfaceOutput::AmbientOcclusion: return Outputs.AmbientOcclusion;
+		case EMaterialSurfaceOutput::Emissive: return Outputs.Emissive;
+		case EMaterialSurfaceOutput::Opacity: return Outputs.Opacity;
+		case EMaterialSurfaceOutput::OpacityMask: return Outputs.OpacityMask;
+		}
+		return Outputs.BaseColor;
+	}
+
+	auto GetMaterialSurfaceOutputDefault(
+		FMaterialSurfaceOutputs& Outputs, EMaterialSurfaceOutput Output)
+		-> FMaterialProgramLiteral&
+	{
+		return const_cast<FMaterialProgramLiteral&>(GetMaterialSurfaceOutputDefault(
+			std::as_const(Outputs), Output));
+	}
+
+	auto GetMaterialSurfaceOutputDefault(
+		const FMaterialSurfaceOutputs& Outputs, EMaterialSurfaceOutput Output)
+		-> const FMaterialProgramLiteral&
+	{
+		switch (Output)
+		{
+		case EMaterialSurfaceOutput::BaseColor: return Outputs.BaseColorDefault;
+		case EMaterialSurfaceOutput::Normal: return Outputs.NormalDefault;
+		case EMaterialSurfaceOutput::Metallic: return Outputs.MetallicDefault;
+		case EMaterialSurfaceOutput::Roughness: return Outputs.RoughnessDefault;
+		case EMaterialSurfaceOutput::AmbientOcclusion: return Outputs.AmbientOcclusionDefault;
+		case EMaterialSurfaceOutput::Emissive: return Outputs.EmissiveDefault;
+		case EMaterialSurfaceOutput::Opacity: return Outputs.OpacityDefault;
+		case EMaterialSurfaceOutput::OpacityMask: return Outputs.OpacityMaskDefault;
+		}
+		return Outputs.BaseColorDefault;
+	}
+
 	auto ValidateMaterialProgram(
 		const FMaterialProgram& Program,
 		std::span<const FMaterialParameterDefinition> ParameterDefinitions)
@@ -510,20 +582,30 @@ namespace Durin
 				EMaterialProgramDiagnosticCategory::Schema,
 				EMaterialProgramDiagnosticLocationKind::Program, {}, 0,
 				"Material program schema version is unsupported.");
-		if (Program.Nodes.empty()
-			|| Program.Nodes.size() > MaterialProgramMaxNodeCount)
+		if (Program.Nodes.size() > MaterialProgramMaxNodeCount)
 		{
 			AddDiagnostic(Diagnostics,
 				EMaterialProgramDiagnosticCategory::Bounds,
 				EMaterialProgramDiagnosticLocationKind::Program, {}, 0,
-				"Material program node count is outside the version-1 bounds.");
+				"Material program node count exceeds the schema bound.");
 			SortAndBoundDiagnostics(Diagnostics);
 			return Result;
 		}
 
-		uint64 LinkCount = 8;
+		uint64 LinkCount = static_cast<uint64>(std::ranges::count_if(
+			std::array{
+				Program.Outputs.BaseColor.SourceNodeId,
+				Program.Outputs.Normal.SourceNodeId,
+				Program.Outputs.Metallic.SourceNodeId,
+				Program.Outputs.Roughness.SourceNodeId,
+				Program.Outputs.AmbientOcclusion.SourceNodeId,
+				Program.Outputs.Emissive.SourceNodeId,
+				Program.Outputs.Opacity.SourceNodeId,
+				Program.Outputs.OpacityMask.SourceNodeId},
+			[](const FGuid& Id) { return Id.IsValid(); }));
 		uint64 StringBytes = 0;
-		uint64 EstimatedBytes = sizeof(Program.SchemaVersion) + 8 * sizeof(FMaterialProgramLink);
+		uint64 EstimatedBytes = sizeof(Program.SchemaVersion)
+			+ 8 * (sizeof(FMaterialProgramLink) + sizeof(FMaterialProgramLiteral));
 		std::unordered_map<FGuid, size_t> NodeIndices;
 		NodeIndices.reserve(std::min<size_t>(
 			Program.Nodes.size(), MaterialProgramMaxNodeCount));
@@ -683,9 +765,30 @@ namespace Durin
 			{EMaterialSurfaceOutput::OpacityMask, &Program.Outputs.OpacityMask}}};
 		for (const auto& [Output, Link] : Outputs)
 		{
+			const FMaterialProgramLiteral& Default =
+				GetMaterialSurfaceOutputDefault(Program.Outputs, Output);
+			const uint8 ComponentCount = GetComponentCount(
+				GetMaterialSurfaceOutputType(Output));
+			const std::array Components{Default.X, Default.Y, Default.Z, Default.W};
+			if (!std::ranges::all_of(Components | std::views::take(ComponentCount),
+				[](float Value) { return std::isfinite(Value); }))
+				AddDiagnostic(Diagnostics,
+					EMaterialProgramDiagnosticCategory::Schema,
+					EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
+					{}, static_cast<uint32>(Output),
+					"Material surface output default contains a non-finite component.");
+			if (!Link->SourceNodeId.IsValid())
+			{
+				if (Link->SourceOutputIndex != 0)
+					AddDiagnostic(Diagnostics,
+						EMaterialProgramDiagnosticCategory::Graph,
+						EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
+						{}, static_cast<uint32>(Output),
+						"An unconnected material surface output has an invalid output slot.");
+				continue;
+			}
 			const auto It = NodeIndices.find(Link->SourceNodeId);
-			if (!Link->SourceNodeId.IsValid() || Link->SourceOutputIndex != 0
-				|| It == NodeIndices.end())
+			if (Link->SourceOutputIndex != 0 || It == NodeIndices.end())
 			{
 				AddDiagnostic(Diagnostics,
 					EMaterialProgramDiagnosticCategory::Graph,
@@ -695,7 +798,7 @@ namespace Durin
 				continue;
 			}
 			if (Program.Nodes[It->second].ResultType
-				!= GetSurfaceOutputType(Output))
+				!= GetMaterialSurfaceOutputType(Output))
 				AddDiagnostic(Diagnostics,
 					EMaterialProgramDiagnosticCategory::Type,
 					EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
@@ -735,6 +838,93 @@ namespace Durin
 		}
 		std::ranges::sort(Result.Nodes, {},
 			&FMaterialGraphNodePresentation::NodeId);
+		return Result;
+	}
+
+	auto InspectMaterialParameterDependencies(
+		const FMaterialProgram& Program,
+		std::span<const FMaterialParameterDefinition> Definitions)
+		-> std::vector<FMaterialParameterDependency>
+	{
+		std::unordered_map<FGuid, const FMaterialProgramNode*> Nodes;
+		Nodes.reserve(Program.Nodes.size());
+		for (const FMaterialProgramNode& Node : Program.Nodes)
+			Nodes.try_emplace(Node.Id, &Node);
+		std::unordered_set<FGuid> VisitedNodes;
+		std::unordered_set<FGuid> AddedParameters;
+		std::vector<FMaterialParameterDependency> Result;
+		auto Add = [&](const FGuid& SourceNodeId, const FGuid& ParameterId,
+			bool bImplicitTextureRole) {
+			if (!ParameterId.IsValid()
+				|| !AddedParameters.insert(ParameterId).second) return;
+			const FMaterialParameterDefinition* Definition = FindParameter(
+				Definitions, ParameterId);
+			if (!Definition) return;
+			Result.push_back({
+				.SourceNodeId = SourceNodeId,
+				.ParameterId = ParameterId,
+				.Type = Definition->Type,
+				.FirstUseOrder = static_cast<uint32>(Result.size()),
+				.bImplicitTextureRole = bImplicitTextureRole,
+				.Name = Definition->Name,
+				.DisplayName = Definition->DisplayName,
+				.GroupName = Definition->GroupName,
+				.SortOrder = Definition->SortOrder});
+		};
+		std::function<void(const FGuid&)> Visit = [&](const FGuid& Id) {
+			if (!VisitedNodes.insert(Id).second) return;
+			const auto It = Nodes.find(Id);
+			if (It == Nodes.end()) return;
+			const FMaterialProgramNode& Node = *It->second;
+			for (const FMaterialProgramLink& Input : Node.Inputs)
+				Visit(Input.SourceNodeId);
+			if (Node.Opcode == EMaterialProgramOpcode::Parameter
+				|| Node.Opcode == EMaterialProgramOpcode::TextureParameter)
+				Add(Node.Id, Node.ParameterId, false);
+			if (Node.Opcode == EMaterialProgramOpcode::TextureCoordinate)
+			{
+				const auto Role = std::ranges::find(
+					MaterialParameters::TextureIds, Node.ParameterId);
+				if (Role != MaterialParameters::TextureIds.end())
+				{
+					const size_t Index = static_cast<size_t>(
+						Role - MaterialParameters::TextureIds.begin());
+					Add(Node.Id, MaterialParameters::UVChannelIds[Index], true);
+					Add(Node.Id, MaterialParameters::UVScaleIds[Index], true);
+					Add(Node.Id, MaterialParameters::UVOffsetIds[Index], true);
+					Add(Node.Id, MaterialParameters::UVRotationIds[Index], true);
+				}
+			}
+			if (Node.Opcode == EMaterialProgramOpcode::TextureSample2D
+				&& !Node.Inputs.empty())
+			{
+				const auto TextureIt = Nodes.find(Node.Inputs.front().SourceNodeId);
+				if (TextureIt != Nodes.end())
+				{
+					const auto Role = std::ranges::find(
+						MaterialParameters::TextureIds,
+						TextureIt->second->ParameterId);
+					if (Role != MaterialParameters::TextureIds.end())
+						Add(Node.Id, MaterialParameters::SamplerStateIds[
+							static_cast<size_t>(Role
+								- MaterialParameters::TextureIds.begin())], true);
+				}
+			}
+		};
+		for (EMaterialSurfaceOutput Output : {
+			EMaterialSurfaceOutput::BaseColor,
+			EMaterialSurfaceOutput::Normal,
+			EMaterialSurfaceOutput::Metallic,
+			EMaterialSurfaceOutput::Roughness,
+			EMaterialSurfaceOutput::AmbientOcclusion,
+			EMaterialSurfaceOutput::Emissive,
+			EMaterialSurfaceOutput::Opacity,
+			EMaterialSurfaceOutput::OpacityMask})
+		{
+			const FGuid& Source = GetMaterialSurfaceOutputLink(
+				Program.Outputs, Output).SourceNodeId;
+			if (Source.IsValid()) Visit(Source);
+		}
 		return Result;
 	}
 }
