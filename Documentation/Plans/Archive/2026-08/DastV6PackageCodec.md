@@ -4,13 +4,13 @@ Summary: Implement the detached DAST v6 package codec with complete AssetCore ca
 
 Last reviewed: 2026-08-25
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-25
 
 ## Current Status
 
 This is the active M2 child of the
-[Durin Binary Envelope and DAST v6 roadmap](../Roadmaps/DurinBinaryEnvelopeAndDastV6.md).
+[Durin Binary Envelope and DAST v6 roadmap](../../../Roadmaps/Archive/2026-08/DurinBinaryEnvelopeAndDastV6.md).
 M1 has frozen and implemented `DURF` v1, the permanent DAST identity, immutable
 registry, diagnostics, and fail-closed AssetCore dispatch. DAST v5 remains the
 only registered reader and ordinary writer; no tracked package or fixture has
@@ -247,13 +247,13 @@ and a detached codec proving every AssetCore capability before cutover.
 
 ## Related Documentation
 
-- [Durin Binary Envelope and DAST v6](../Roadmaps/DurinBinaryEnvelopeAndDastV6.md)
+- [Durin Binary Envelope and DAST v6](../../../Roadmaps/Archive/2026-08/DurinBinaryEnvelopeAndDastV6.md)
 - [Durin Binary Envelope Foundation](DurinBinaryEnvelopeFoundation.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Versioning](../Runtime/Assets/Versioning.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Testing Workflow](../Agents/Testing.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

@@ -4,7 +4,7 @@ Summary: Introduce the reusable DURF envelope, ship DAST v6, and replace the tra
 
 Last reviewed: 2026-08-25
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-25
 
 ## Current Status
@@ -156,9 +156,9 @@ the cutover.
 
 | Proposed or active plan | Milestone | Boundary | Activation |
 | --- | --- | --- | --- |
-| [Durin Binary Envelope Foundation](../Plans/DurinBinaryEnvelopeFoundation.md) | M1 | Common envelope and registry foundation, independent test oracle, permanent DAST identity, and fail-closed dispatch seam; excludes the DAST v6 section codec and asset conversion | Completed 2026-08-25; exit evidence recorded |
-| [DAST v6 Package Codec](../Plans/DastV6PackageCodec.md) | M2 | Complete detached v6 package codec and capability parity; excludes changing the ordinary writer and tracked files | Completed 2026-08-25; exit evidence recorded |
-| [DAST v6 Baseline Cutover](../Plans/DastV6BaselineCutover.md) | M3 | Exact temporary converter, frozen corpus conversion, writer/reader policy switch, project baseline qualification, and removal of all v5/converter code | Completed 2026-08-25; exit evidence recorded |
+| [Durin Binary Envelope Foundation](../../../Plans/Archive/2026-08/DurinBinaryEnvelopeFoundation.md) | M1 | Common envelope and registry foundation, independent test oracle, permanent DAST identity, and fail-closed dispatch seam; excludes the DAST v6 section codec and asset conversion | Completed 2026-08-25; exit evidence recorded |
+| [DAST v6 Package Codec](../../../Plans/Archive/2026-08/DastV6PackageCodec.md) | M2 | Complete detached v6 package codec and capability parity; excludes changing the ordinary writer and tracked files | Completed 2026-08-25; exit evidence recorded |
+| [DAST v6 Baseline Cutover](../../../Plans/Archive/2026-08/DastV6BaselineCutover.md) | M3 | Exact temporary converter, frozen corpus conversion, writer/reader policy switch, project baseline qualification, and removal of all v5/converter code | Completed 2026-08-25; exit evidence recorded |
 
 The staged delivery kept M2 from switching the ordinary writer. M3 remained one
 child plan so the converter, corpus rewrite, baseline validation, and
@@ -178,7 +178,7 @@ long-lived states.
 | Cost and robustness | Header bytes and parse cost versus v5, pathological bounded counts, corrupted hash/extent corpus, deterministic preamble mutation/fuzz coverage, and plan-owned acceptance budgets before cutover |
 
 Validation selection and execution follow the repository
-[build and run](../Agents/BuildAndRun.md) and [testing](../Agents/Testing.md)
+[build and run](../../../Agents/BuildAndRun.md) and [testing](../../../Agents/Testing.md)
 workflows. Each child plan owns its exact targets, fixtures, corpus commands,
 budgets, and recorded evidence.
 
@@ -224,14 +224,14 @@ budgets, and recorded evidence.
 
 ## Related Documentation
 
-- [Durin Binary Envelope Evolution](../Investigations/DurinBinaryEnvelopeEvolution.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Versioning](../Runtime/Assets/Versioning.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
-- [Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Testing Workflow](../Agents/Testing.md)
+- [Durin Binary Envelope Evolution](../../../Investigations/DurinBinaryEnvelopeEvolution.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
+- [Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

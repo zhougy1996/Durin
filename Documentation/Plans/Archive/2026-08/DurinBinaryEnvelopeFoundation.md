@@ -4,13 +4,13 @@ Summary: Freeze and implement the reusable DURF v1 preamble, explicit format reg
 
 Last reviewed: 2026-08-25
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-25
 
 ## Current Status
 
 This is the active M1 child of the
-[Durin Binary Envelope and DAST v6 roadmap](../Roadmaps/DurinBinaryEnvelopeAndDastV6.md).
+[Durin Binary Envelope and DAST v6 roadmap](../../../Roadmaps/Archive/2026-08/DurinBinaryEnvelopeAndDastV6.md).
 DAST v6 has been selected, but DAST v5 remains the only supported reader and
 ordinary writer. No current format, tracked package, compatibility fixture, or
 companion has changed.
@@ -320,15 +320,15 @@ Dependencies: Stage 3 acceptance gate.
 
 ## Related Documentation
 
-- [Durin Binary Envelope and DAST v6 Roadmap](../Roadmaps/DurinBinaryEnvelopeAndDastV6.md)
-- [Durin Binary Envelope Evolution](../Investigations/DurinBinaryEnvelopeEvolution.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Versioning](../Runtime/Assets/Versioning.md)
-- [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
-- [Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Testing Workflow](../Agents/Testing.md)
+- [Durin Binary Envelope and DAST v6 Roadmap](../../../Roadmaps/Archive/2026-08/DurinBinaryEnvelopeAndDastV6.md)
+- [Durin Binary Envelope Evolution](../../../Investigations/DurinBinaryEnvelopeEvolution.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
+- [Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

@@ -31,9 +31,9 @@ This investigation by itself did not select DAST v6, change a reader or writer,
 promise backward compatibility, or authorize tracked-asset conversion.
 
 The implementation selection made after this evidence was recorded is tracked
-by the [Durin Binary Envelope and DAST v6 roadmap](../Roadmaps/DurinBinaryEnvelopeAndDastV6.md).
+by the [Durin Binary Envelope and DAST v6 roadmap](../Roadmaps/Archive/2026-08/DurinBinaryEnvelopeAndDastV6.md).
 Its first active child is the
-[Durin Binary Envelope Foundation plan](../Plans/DurinBinaryEnvelopeFoundation.md).
+[Durin Binary Envelope Foundation plan](../Plans/Archive/2026-08/DurinBinaryEnvelopeFoundation.md).
 Those documents own selected scope, decisions, stages, and acceptance gates;
 this investigation remains the evidence and candidate-design record until the
 validated change lands.

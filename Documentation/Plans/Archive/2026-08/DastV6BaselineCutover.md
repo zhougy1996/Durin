@@ -4,13 +4,13 @@ Summary: Freeze and convert the complete tracked DAST corpus to v6, switch packa
 
 Last reviewed: 2026-08-25
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-25
 
 ## Current Status
 
 This completed M3 child of the
-[Durin Binary Envelope and DAST v6 roadmap](../Roadmaps/DurinBinaryEnvelopeAndDastV6.md)
+[Durin Binary Envelope and DAST v6 roadmap](../../../Roadmaps/Archive/2026-08/DurinBinaryEnvelopeAndDastV6.md)
 converted the frozen corpus, made DAST v6 the sole production package route,
 qualified Engine and Sandbox, and removed v5 plus the temporary converter.
 
@@ -187,13 +187,12 @@ replacement, complete project qualification, and legacy deletion.
 
 ## Related Documentation
 
-- [Durin Binary Envelope and DAST v6](../Roadmaps/DurinBinaryEnvelopeAndDastV6.md)
+- [Durin Binary Envelope and DAST v6](../../../Roadmaps/Archive/2026-08/DurinBinaryEnvelopeAndDastV6.md)
 - [DAST v6 Package Codec](DastV6PackageCodec.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Versioning](../Runtime/Assets/Versioning.md)
-- [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
-- [Frozen Cutover Manifest](DastV6BaselineCutoverManifest.txt)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
 
 ## Related Code
 

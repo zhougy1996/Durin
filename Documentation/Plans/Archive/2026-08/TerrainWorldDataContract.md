@@ -4,7 +4,7 @@ Summary: Freeze the product targets, canonical coordinates, tile products, owner
 
 Last reviewed: 2026-08-25
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-25
 
 ## Current Status
@@ -347,7 +347,7 @@ independent from future Actor/Level cell dimensions.
 | Budgets | 4 | One-past-limit rejection, bounded diagnostics, previous-state retention, and request/product/byte conservation through failure/shutdown |
 | Documentation | 0-4 | Changed-document, plan, roadmap, link, and whitespace validation passes |
 
-Native validation selection follows [Agent testing workflow](../Agents/Testing.md);
+Native validation selection follows [Agent testing workflow](../../../Agents/Testing.md);
 build/run/recovery follow [Agent build and run
 workflow](../Agents/BuildAndRun.md). Later child plans own exact targets and
 commands.
@@ -379,19 +379,19 @@ commands.
 
 ## Related Documentation
 
-- [Terrain World Data](../Runtime/Terrain/TerrainWorldData.md)
-- [Terrain Tile Build and Cook](TerrainTileBuildAndCook.md)
-- [Terrain World System Roadmap](../Roadmaps/TerrainWorldSystem.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Material System Roadmap](../Roadmaps/MaterialSystem.md)
-- [Current Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md)
-- [Current Finite Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
-- [Runtime Collision](../Runtime/Physics/Collision.md)
-- [Level System](../Runtime/World/LevelSystem.md)
-- [Task System](../Runtime/Core/TaskSystem.md)
-- [Async Asset Operations](../Editor/Architecture/AsyncAssetOperations.md)
+- [Terrain World Data](../../../Runtime/Terrain/TerrainWorldData.md)
+- [Terrain Tile Build and Cook](../../TerrainTileBuildAndCook.md)
+- [Terrain World System Roadmap](../../../Roadmaps/TerrainWorldSystem.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
+- [Current Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
+- [Current Finite Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
+- [Runtime Collision](../../../Runtime/Physics/Collision.md)
+- [Level System](../../../Runtime/World/LevelSystem.md)
+- [Task System](../../../Runtime/Core/TaskSystem.md)
+- [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md)
 
 ## Related Code
 

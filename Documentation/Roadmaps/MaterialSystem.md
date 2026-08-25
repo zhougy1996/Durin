@@ -32,7 +32,7 @@ identity, inspect compiler diagnostics, or persist and cook compiled material
 artifacts. Runtime-only dynamic material instances and measured reuse/batching
 policy have also not landed.
 
-The [M5 material-program and compiler foundation plan](../Plans/MaterialProgramAndCompilerFoundation.md)
+The [M5 material-program and compiler foundation plan](../Plans/Archive/2026-08/MaterialProgramAndCompilerFoundation.md)
 is complete: bounded authored programs compile deterministically and render
 through every production surface consumer. The
 [M6 lifecycle plan](../Plans/MaterialCompileLifecycleAndDerivedData.md) is the
@@ -174,7 +174,7 @@ surface with actionable diagnostics.
 | [Default Material and Error Fallback](../Plans/Archive/2026-08/DefaultMaterialAndErrorFallback.md) | M3 | Valid unassigned default and independent invalid-state terminal | Complete |
 | [Material Render Pass Policies](../Plans/Archive/2026-08/MaterialRenderPassPolicies.md) | M4 | Blend, depth, culling, mask, and translucent ordering | Complete |
 | [Surface Material Pass Execution](../Plans/Archive/2026-08/SurfaceMaterialPassExecution.md) | M4 | Shared material resource and pass execution across geometry families | Complete |
-| [Material Program and Compiler Foundation](../Plans/MaterialProgramAndCompilerFoundation.md) | M5 | One bounded persisted program domain and synchronous end-to-end compiled surface slice; excludes async orchestration and graph canvas | Complete |
+| [Material Program and Compiler Foundation](../Plans/Archive/2026-08/MaterialProgramAndCompilerFoundation.md) | M5 | One bounded persisted program domain and synchronous end-to-end compiled surface slice; excludes async orchestration and graph canvas | Complete |
 | [Material Compile Lifecycle and Derived Data](../Plans/MaterialCompileLifecycleAndDerivedData.md) | M6 | Async requests, cancellation, diagnostics, last-known-good publication, cache/cook, reload, and shutdown; excludes graph UI | Prepared; selected next with M5 handoff recorded |
 | Material Graph Editor | M7 | Authoring interaction and compiler feedback over the landed schema/lifecycle; excludes compiler architecture changes | Create after M5 schema and M6 diagnostic contracts stabilize |
 | Runtime Dynamic Material Instances | M8 | Non-asset instances and profiling-selected scalability work; excludes authored graph compilation | Create only from measured compiled-path evidence |

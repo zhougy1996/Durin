@@ -4,7 +4,7 @@ Summary: Reframe AssetForge as the asset-import framework, separate built-in imp
 
 Last reviewed: 2026-08-24
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-24
 
 ## Current Status
@@ -600,23 +600,23 @@ Dependencies: Stages 1 through 4 complete.
 
 ## Related Documentation
 
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Async Asset Operations](../Editor/Architecture/AsyncAssetOperations.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Mounted Source Workflows](../Editor/Guides/MountedSourceWorkflows.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Asset Interchange Framework Plan](Archive/2026-08/AssetInterchangeFramework.md)
-- [Asset Import Framework Plan](Archive/2026-08/AssetImportFramework.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Mounted Source Workflows](../../../Editor/Guides/MountedSourceWorkflows.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Asset Interchange Framework Plan](AssetInterchangeFramework.md)
+- [Asset Import Framework Plan](AssetImportFramework.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`Engine/Source/Editor/AssetForge`](../../Engine/Source/Editor/AssetForge)
-- [`Engine/Source/Editor/AssetForgeBuiltins`](../../Engine/Source/Editor/AssetForgeBuiltins)
-- [`Engine/Source/Editor/LevelEditor`](../../Engine/Source/Editor/LevelEditor)
-- [`Engine/Source/Editor/TextureEditor`](../../Engine/Source/Editor/TextureEditor)
-- [`Engine/Tests/Native/AssetCoreTests`](../../Engine/Tests/Native/AssetCoreTests)
-- [`Engine/Tests/Native/EngineTests`](../../Engine/Tests/Native/EngineTests)
-- [`Engine/Engine.dproject`](../../Engine/Engine.dproject)
-- [`CMakeLists.txt`](../../CMakeLists.txt)
+- [`Engine/Source/Editor/AssetForge`](../../../../Engine/Source/Editor/AssetForge)
+- [`Engine/Source/Editor/AssetForgeBuiltins`](../../../../Engine/Source/Editor/AssetForgeBuiltins)
+- [`Engine/Source/Editor/LevelEditor`](../../../../Engine/Source/Editor/LevelEditor)
+- [`Engine/Source/Editor/TextureEditor`](../../../../Engine/Source/Editor/TextureEditor)
+- [`Engine/Tests/Native/AssetCoreTests`](../../../../Engine/Tests/Native/AssetCoreTests)
+- [`Engine/Tests/Native/EngineTests`](../../../../Engine/Tests/Native/EngineTests)
+- [`Engine/Engine.dproject`](../../../../Engine/Engine.dproject)
+- [`CMakeLists.txt`](../../../../CMakeLists.txt)

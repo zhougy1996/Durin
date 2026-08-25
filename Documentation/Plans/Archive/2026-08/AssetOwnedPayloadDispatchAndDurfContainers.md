@@ -4,7 +4,7 @@ Summary: Adopt DURF for DABK and DBLK while making asset-owned context the sole 
 
 Last reviewed: 2026-08-25
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-25
 
 ## Current Status
@@ -227,8 +227,8 @@ before any payload range is trusted.
 TXPL, DMSH, DCOL, DSKM, DANM, THPL and IBLP keep their existing header sizes,
 field offsets, semantic fields, tables, payload bytes, hashing and alignment.
 Header word/field zero changes from mnemonic magic to required-zero reserved;
-schema and every producer/key generation listed in
-`AssetOwnedPayloadDispatchInventory.txt` advance. A nonzero reserved field is
+schema and every producer/key generation captured by the completed migration
+advance. A nonzero reserved field is
 corrupt, an unsupported schema is incompatible, and old bytes cannot alias a
 new DDC or Cook identity. There is no replacement type field.
 
@@ -462,15 +462,15 @@ trailing bytes all reject before returning opaque payload spans.
 
 ## Related Documentation
 
-- [Durin Binary Envelope and DAST v6](../Roadmaps/DurinBinaryEnvelopeAndDastV6.md)
-- [Durin Binary Envelope Evolution](../Investigations/DurinBinaryEnvelopeEvolution.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Versioning](../Runtime/Assets/Versioning.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
-- [Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Testing Workflow](../Agents/Testing.md)
+- [Durin Binary Envelope and DAST v6](../../../Roadmaps/Archive/2026-08/DurinBinaryEnvelopeAndDastV6.md)
+- [Durin Binary Envelope Evolution](../../../Investigations/DurinBinaryEnvelopeEvolution.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Versioning](../../../Runtime/Assets/Versioning.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
+- [Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

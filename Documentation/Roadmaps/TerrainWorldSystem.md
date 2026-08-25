@@ -272,7 +272,7 @@ flowchart LR
 
 | Proposed plan | Milestone | Boundary | Activation |
 | --- | --- | --- | --- |
-| [Terrain World Data Contract](../Plans/TerrainWorldDataContract.md) | T0 | Characterization, product targets, global lattice, schemas, identities, ownership, budgets, compatibility rejection, World Partition interest seam, and deletion/migration boundary; no runtime implementation | Completed 2026-08-25 |
+| [Terrain World Data Contract](../Plans/Archive/2026-08/TerrainWorldDataContract.md) | T0 | Characterization, product targets, global lattice, schemas, identities, ownership, budgets, compatibility rejection, World Partition interest seam, and deletion/migration boundary; no runtime implementation | Completed 2026-08-25 |
 | [Terrain Tile Build and Cook](../Plans/TerrainTileBuildAndCook.md) | T1 | Normalized inputs, composition, build keys/functions, tile payloads, manifests, DDC, Cook, checksums, cancellation, and source-free load; no renderer or editor surface workflow | Active; T0 entry evidence met |
 | Terrain Runtime Tile Reference | T2 | New Engine ownership, scene proxy/info, reference geometry/LOD, render resources, collision/query publication, passes, diagnostics, and lifecycle; no world streaming | Create after T1 produces a complete runtime tile |
 | Terrain Surface Domain | T3 | Layer definitions, coverage, compiler inputs, bounded evaluation, resource binding, near/middle/far policy, debug modes, and pass qualification; no generic material-compiler architecture | Create after Material System M5 and T2 satisfy their entry evidence |

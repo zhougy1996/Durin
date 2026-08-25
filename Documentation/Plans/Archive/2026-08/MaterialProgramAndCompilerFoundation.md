@@ -4,7 +4,7 @@ Summary: Add a bounded persisted material-program schema, deterministic compiler
 
 Last reviewed: 2026-08-25
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-25
 
 ## Current Status
@@ -41,7 +41,7 @@ fragment, while opaque shadow remains material-resource-free.
 
 This plan deliberately remains synchronous. It must leave one immutable,
 value-owned compiler input/result and measured compile/artifact baseline for
-[Material Compile Lifecycle and Derived Data](MaterialCompileLifecycleAndDerivedData.md),
+[Material Compile Lifecycle and Derived Data](../../MaterialCompileLifecycleAndDerivedData.md),
 which owns asynchronous requests, cancellation, generations, last-known-good
 asset state, material-level derived artifacts, Cook, and shutdown orchestration.
 
@@ -794,8 +794,8 @@ their cold compilation before measuring an in-process warm request.
 | Compatibility | Canonical material visual parity or explicit migration/rejection, package strictness, instance overrides, shader/pass ABI stability, ErrorMaterial independence, and no silent program substitution |
 | Qualification and M6 handoff | Focused and aggregate tests, full build, editor smoke, representative hardware/profile, cold/warm timings, generated/artifact bytes, dependency counts, failure modes, and exact immutable API/result evidence |
 
-Use the repository [build and run](../Agents/BuildAndRun.md) and
-[testing](../Agents/Testing.md) workflows to select profiles and commands.
+Use the repository [build and run](../../../Agents/BuildAndRun.md) and
+[testing](../../../Agents/Testing.md) workflows to select profiles and commands.
 Stage handoffs record exact targets, filters, timings, hardware, cache state,
 and any environment-dependent measurements rather than embedding commands here.
 
@@ -835,18 +835,18 @@ and any environment-dependent measurements rather than embedding commands here.
 
 ## Related Documentation
 
-- [Material System Roadmap](../Roadmaps/MaterialSystem.md)
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Shader Cache](../Runtime/Rendering/ShaderCache.md)
-- [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Render Resource Lifecycle](../Runtime/Rendering/RenderResourceLifecycle.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md)
-- [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
+- [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
+- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Render Resource Lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
+- [Terrain Rendering](../../../Runtime/Rendering/TerrainRendering.md)
 
 ## Related Code
 
