@@ -604,7 +604,6 @@ namespace Durin
 			return false;
 		}
 		const FMaterialRenderData& Material = Item.Material;
-		if (!Material.CompiledProgram) return false;
 		const FLocalVertexFactory& VertexFactory = *Primitive.VertexFactory;
 
 		using FShaderMapResult =
@@ -667,7 +666,7 @@ namespace Durin
 					const bool bOpaqueShadow = bShadowDepth
 						&& Identity.BlendMode != EMaterialBlendMode::Masked;
 					bool bInitialized = false;
-					if (bOpaqueShadow)
+					if (bOpaqueShadow || !Material.CompiledProgram)
 					{
 						ShaderMap = std::make_shared<FShaderMapBase>();
 						bInitialized = ShaderMap->InitializeFromShaderTypes(

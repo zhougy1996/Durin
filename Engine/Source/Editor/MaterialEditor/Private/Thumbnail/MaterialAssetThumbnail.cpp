@@ -16,7 +16,7 @@ namespace Durin::Editor::Material
 	namespace
 	{
 		constexpr uint32 MaterialThumbnailGeneratorSchema = 3;
-		constexpr uint32 MaterialThumbnailShaderContract = 2;
+		constexpr uint32 MaterialThumbnailShaderContract = 3;
 		constexpr float MaterialThumbnailSphereScale = 1.65f;
 
 		class FMaterialThumbnailGenerationInput final

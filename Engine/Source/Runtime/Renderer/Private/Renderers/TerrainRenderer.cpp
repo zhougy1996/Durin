@@ -488,7 +488,6 @@ namespace Durin
 
 		if (bPrepareForwardPipeline)
 		{
-			if (!Draw.Material.CompiledProgram) return false;
 			const auto ShaderBegin = std::chrono::steady_clock::now();
 			auto& ShaderCache = bShadowDepth ? State->ShadowShaders : State->Shaders;
 			auto& ShaderEntry = ShaderCache.FindOrAdd(
@@ -529,7 +528,7 @@ namespace Durin
 				const bool bOpaqueShadow = bShadowDepth
 					&& Identity.BlendMode != EMaterialBlendMode::Masked;
 				bool bInitialized = false;
-				if (bOpaqueShadow)
+				if (bOpaqueShadow || !Draw.Material.CompiledProgram)
 				{
 					Map = std::make_shared<FShaderMapBase>();
 					bInitialized = Map->InitializeFromShaderTypes(

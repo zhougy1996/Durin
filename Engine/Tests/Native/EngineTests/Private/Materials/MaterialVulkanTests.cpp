@@ -150,6 +150,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 	Durin::DStaticMesh* CaptureMesh = nullptr;
 	Durin::DStaticMesh* CaptureSphere = nullptr;
 	Durin::DMaterial* CaptureMaterial = nullptr;
+	Durin::DMaterialInterface* ErrorFallbackMaterial = nullptr;
 	Durin::DMaterialInstance* CaptureInstance = nullptr;
 	Durin::DMaterialInstance* InheritedInstance = nullptr;
 	Durin::DTextureCube* CaptureCube = nullptr;
@@ -241,6 +242,8 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_NE(CaptureMesh, nullptr);
 		CaptureMaterial = Durin::NewObject<Durin::DMaterial>(
 			nullptr, "RenderedThumbnailCaptureMaterial");
+		ErrorFallbackMaterial = Durin::NewObject<Durin::DMaterialInterface>(
+			nullptr, "RenderedThumbnailErrorFallbackMaterial");
 		CaptureInstance = Durin::NewObject<Durin::DMaterialInstance>(
 			nullptr, "RenderedThumbnailCaptureInstance");
 		InheritedInstance = Durin::NewObject<Durin::DMaterialInstance>(
@@ -323,6 +326,9 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		};
 		const std::vector<std::byte> MaterialPixels =
 			Capture(CaptureMaterial);
+		ASSERT_EQ(ErrorFallbackMaterial->GetAcceptedCompiledProgram(), nullptr);
+		const std::vector<std::byte> ErrorFallbackPixels =
+			Capture(ErrorFallbackMaterial);
 		Durin::FMaterialStaticProperties TwoSidedProperties =
 			CaptureMaterial->GetStaticProperties();
 		TwoSidedProperties.bTwoSided = true;
@@ -1033,6 +1039,9 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		const size_t Center = (32u * 64u + 32u) * 4u;
 		EXPECT_EQ(MaterialPixels[Corner + 3], std::byte{0});
 		EXPECT_GT(std::to_integer<uint8>(MaterialPixels[Center + 3]), 0u);
+		EXPECT_GT(
+			std::to_integer<uint8>(ErrorFallbackPixels[Center + 3]), 0u);
+		EXPECT_NE(ErrorFallbackPixels, MaterialPixels);
 		EXPECT_EQ(CubePixels[Corner + 3], std::byte{255});
 		const std::array CornerRgb = {
 			MaterialPixels[Corner], MaterialPixels[Corner + 1], MaterialPixels[Corner + 2]};
@@ -1123,6 +1132,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 	Durin::MarkAsGarbage(CaptureCube);
 	Durin::MarkAsGarbage(InheritedInstance);
 	Durin::MarkAsGarbage(CaptureInstance);
+	Durin::MarkAsGarbage(ErrorFallbackMaterial);
 	Durin::MarkAsGarbage(CaptureMaterial);
 	Durin::MarkAsGarbage(CaptureMesh);
 	Durin::MarkAsGarbage(LowRoughnessMaterial);

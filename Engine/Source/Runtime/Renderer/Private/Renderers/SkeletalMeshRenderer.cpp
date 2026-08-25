@@ -277,7 +277,6 @@ namespace Durin
 	{
 		if (Primitive.VertexFactory == nullptr) return false;
 		const FMaterialRenderData& Material = Item.Material;
-		if (!Material.CompiledProgram) return false;
 		using FShaderResult = TRenderResourceCreateResult<FState::FShaderMapPayload>;
 		auto& ShaderMapCache = bShadowDepth ? State->ShadowShaderMaps : State->ShaderMaps;
 		auto& ShaderEntry = ShaderMapCache.FindOrAdd(
@@ -325,7 +324,7 @@ namespace Durin
 				const bool bOpaqueShadow = bShadowDepth
 					&& Identity.BlendMode != EMaterialBlendMode::Masked;
 				bool bInitialized = false;
-				if (bOpaqueShadow)
+				if (bOpaqueShadow || !Material.CompiledProgram)
 				{
 					ShaderMap = std::make_shared<FShaderMapBase>();
 					bInitialized = ShaderMap->InitializeFromShaderTypes(
