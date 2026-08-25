@@ -2,20 +2,27 @@
 
 Summary: Implement normalized Terrain tile inputs, product codecs, DDC, Cook, manifests, and source-free loading
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-26
 
 ## Current Status
 
-T0 completed through the [Terrain World Data Contract
-Plan](TerrainWorldDataContract.md). The authoritative [Terrain World Data
-contract](../Runtime/Terrain/TerrainWorldData.md) freezes all input domains,
-wire values, product magics/ceilings, build-key fields, atomic generation,
-8×8-region packages, compatibility rejection, outcomes, and qualification
-vectors. Legacy Sandbox Terrain content is gone; existing Terrain code remains
-only as an oracle until T2.
+Completed. `GeometryBuild` now owns checked Terrain World values, deterministic
+ordered source composition, immutable normalized tile inputs, exact schema-1
+`TWHT`/`TWMD`/`TWCV`/`TWCL`/`TWQY` codecs, five independently validated
+AssetBuildCore functions, atomic generation publication, signed 8×8 regions,
+sorted `TWMF` manifests, and AssetCore Cook/source-free load. The registered
+`TerrainWorldBuildTests` integration target covers asymmetric coordinates,
+bounds and overflow, malformed/legacy/checksum rejection, cold/warm/corrupt
+DDC recovery, parallel determinism, border evidence, cancel/supersede/prior
+retention, F0 package reconciliation, partial installation, corrupt cooked
+bulk, and shutdown retirement within the profile 512/768 MiB task ceilings.
+The lasting wire and lifecycle details are published in [Terrain World
+Data](../Runtime/Terrain/TerrainWorldData.md),
+and [Terrain Runtime Tile Reference](TerrainRuntimeTileReference.md) is active
+for T2.
 
 ## Goal
 
@@ -64,12 +71,12 @@ builders, package directory, authored bridge, and tests.
 
 ### Stage 0: Implement values and codecs
 
-- [ ] Add world/tile/layer/generation identities, checked coordinate helpers,
+- [x] Add world/tile/layer/generation identities, checked coordinate helpers,
   floor division, extents, and canonical encoders.
-- [ ] Add authored definition validation and immutable normalized tile inputs.
-- [ ] Implement `TWHT`, `TWMD`, `TWCV`, `TWCL`, and `TWQY` codecs with exact
+- [x] Add authored definition validation and immutable normalized tile inputs.
+- [x] Implement `TWHT`, `TWMD`, `TWCV`, `TWCL`, and `TWQY` codecs with exact
   headers, limits, XXH3-128, byte order, and compatibility inspection.
-- [ ] Add golden/asymmetric, round-trip, malformed, overflow, and legacy rejects.
+- [x] Add golden/asymmetric, round-trip, malformed, overflow, and legacy rejects.
 
 #### Acceptance Gate
 
@@ -78,12 +85,12 @@ builders, package directory, authored bridge, and tests.
 
 ### Stage 1: Implement composition and product builds
 
-- [ ] Normalize ordered height and coverage sources without reflected-worker access.
-- [ ] Implement border/halo evidence and bit-identical neighbor validation.
-- [ ] Register five versioned build functions and deterministic keys.
-- [ ] Implement independent cache validation, cancellation, supersession, and
+- [x] Normalize ordered height and coverage sources without reflected-worker access.
+- [x] Implement border/halo evidence and bit-identical neighbor validation.
+- [x] Register five versioned build functions and deterministic keys.
+- [x] Implement independent cache validation, cancellation, supersession, and
   complete-generation publication retaining the prior generation on failure.
-- [ ] Qualify cold/warm/reordered/parallel builds and the 768 MiB task ceiling.
+- [x] Qualify cold/warm/reordered/parallel builds and the profile task ceilings.
 
 #### Acceptance Gate
 
@@ -93,11 +100,11 @@ builders, package directory, authored bridge, and tests.
 
 ### Stage 2: Implement manifests and Cook
 
-- [ ] Implement sorted world manifests and 8×8 signed region lookup.
-- [ ] Cook independently addressable product bulk with exact ranges/checksums,
+- [x] Implement sorted world manifests and 8×8 signed region lookup.
+- [x] Cook independently addressable product bulk with exact ranges/checksums,
   selected-region reachability, package ceilings, and unload blockers.
-- [ ] Validate DDC reuse/local fallback identically and reject corruption.
-- [ ] Prove partial installation and source/DDC-free cooked loading.
+- [x] Validate DDC reuse/local fallback identically and reject corruption.
+- [x] Prove partial installation and source/DDC-free cooked loading.
 
 #### Acceptance Gate
 
@@ -106,13 +113,13 @@ builders, package directory, authored bridge, and tests.
 
 ### Stage 3: Integrate authored build lifecycle and hand off T2
 
-- [ ] Connect compact authored definitions to normalization/build/Cook through
+- [x] Connect compact authored definitions to normalization/build/Cook through
   existing AssetForge and async-operation ownership.
-- [ ] Add diagnostics and conservation for bytes, phases, origins, products,
+- [x] Add diagnostics and conservation for bytes, phases, origins, products,
   requests, cancellations, retained generations, and shutdown.
-- [ ] Run the smallest registered targets plus required asset/Cook integration
+- [x] Run the smallest registered targets plus required asset/Cook integration
   domains selected through `DevTool test list/explain`.
-- [ ] Publish implemented contract details, update the roadmap, and create
+- [x] Publish implemented contract details, update the roadmap, and create
   `Terrain Runtime Tile Reference` only after the gate passes.
 
 #### Acceptance Gate
@@ -151,6 +158,7 @@ builders, package directory, authored bridge, and tests.
 
 - [Terrain World Data](../Runtime/Terrain/TerrainWorldData.md)
 - [Terrain World System Roadmap](../Roadmaps/TerrainWorldSystem.md)
+- [Terrain Runtime Tile Reference](TerrainRuntimeTileReference.md)
 - [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
 - [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
@@ -163,3 +171,4 @@ builders, package directory, authored bridge, and tests.
 - `Engine/Source/Editor/AssetForgeBuiltins`
 - `Engine/Source/Runtime/AssetCore`
 - `Engine/Source/Runtime/Engine/Public/Terrain`
+- `Engine/Tests/Native/EngineTests/Private/Terrain/TerrainWorldBuildTests.cpp`

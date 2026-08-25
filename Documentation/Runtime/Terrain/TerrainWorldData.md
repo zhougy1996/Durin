@@ -4,7 +4,7 @@ Summary: Define the canonical Terrain World lattice, tile products, packages, bu
 
 Modules: Engine, GeometryBuild, AssetBuildCore, AssetCore
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 
 This contract is authoritative for the new Terrain World family. The current
 `DTerrainHeightmap`, `DTerrainComponent`, `ATerrainActor`, `FTerrainSceneProxy`,
@@ -172,13 +172,29 @@ The authored `DTerrainWorldDefinition` schema contains only:
   physical-surface references;
 - up to 1,024 canonically ordered composition sources, each with stable ID,
   source reference/content hash, affected global rectangle, blend operation,
-  integer strength, and enabled state;
+  integer strength, enabled state, and a required Height/Coverage domain mask;
 - build-policy ID/version, target platform/profile, and package-region policy.
 
 The package is capped at 4 MiB and 16 levels of composition nesting. Paths are
 references, never product identity. Local source formats, editor previews, DDC
 locations, cooked locations, cache hits, timestamps, and workstation paths are
 excluded.
+
+Schema-1 composition uses wire values `Replace=1`, `Add=2`, `Minimum=3`, and
+`Maximum=4`; other values reject. Strength is an integer in `[0,255]`. Height
+Replace evaluates `(current*(255-strength) + source*strength) / 255`; Add adds
+`source*strength/255`; Minimum and Maximum compare against that scaled source.
+Signed division rounds to nearest with half values away from zero, and a result
+outside the signed schema-1 height envelope is `Overflow`. Sources execute in
+canonical source-ID order and affect only their inclusive clipped rectangle.
+Schema-1 logical coverage uses full-strength ordered Replace; other coverage
+blend/strength pairs reject until a later schema freezes component-wise weight
+composition. Decoded source contributions must match the authored source ID,
+content hash, and 257² tile sample count before composition.
+The domain-mask wire bits are `Height=1` and `Coverage=2`; zero and unknown bits
+reject. Product build keys include only sources in the product's declared
+domain. Metadata and Collision consume Height, Coverage consumes Coverage, and
+Query consumes both.
 
 One immutable `FTerrainNormalizedTileInput` owns copied values for the tile key,
 clipped source rectangles, canonical signed height quanta, decoded layer IDs and
@@ -187,6 +203,13 @@ builder/schema/platform IDs, and a cancellation token. At most 64 sources and
 16 logical layers may overlap one tile; at most four layers have nonzero weight
 at one sample and their `uint8` weights sum exactly 255. Workers never inspect
 reflected objects or read source files.
+
+The implemented normalized value carries separate 259² Height and Coverage
+halos. A completely omitted halo is legal only when the tile contains the
+whole world extent; otherwise both arrays are required. Query edge differences
+and Metadata conservative geometric error use Height halo samples, while
+Coverage and Query keys consume Coverage halo values and ordered neighbor
+evidence.
 
 ## Tile products and generation
 
@@ -221,6 +244,45 @@ layer identities and weights, ordered neighbor evidence, builder and product
 schema versions, target platform/profile, and output policy. Scheduling order,
 worker count, cache path, package placement, and cancellation timing are absent.
 
+### Implemented schema-1 product layout
+
+`GeometryBuild` implements every schema-1 product as one canonical envelope.
+The fixed 108-byte prefix is followed by zero to 64 dependency hashes and then
+the canonical body. Fields occur in this order:
+
+| Field | Encoding |
+| --- | --- |
+| magic, schema, header-reserved | `uint32`, `uint16`, zero `uint16` |
+| required, optional flags | `uint32` value 1, zero `uint32` |
+| tile identity | RFC 4122 world UUID, signed `int64 X/Y`, `uint16` scheme |
+| tile-reserved, generation | zero `uint16`, RFC 4122 generation UUID |
+| logical and stored body bytes | two `uint64`; equal in schema 1 |
+| body checksum | XXH3-128 low then high `uint64` |
+| dependency count, reserved | bounded `uint32`, zero `uint32` |
+| dependencies and body | ordered XXH3-128 values, then exact body bytes |
+
+Compatibility inspection reads only magic and schema before any body or
+dependency allocation. The implemented bodies are:
+
+- `TWHT`: `uint16 Width=257`, `uint16 Height=257`, then row-major signed
+  little-endian `int16` canonical heights.
+- `TWCV`: 257² dimensions, a one-byte palette count and RFC 4122 layer IDs,
+  then one to four sorted `(palette uint8, weight uint8)` pairs per sample;
+  every sample sums to 255.
+- `TWCL`: deterministic 129² even-coordinate samples, including coordinate
+  256, from the exact canonical height input.
+- `TWQY`: deterministic 129² records containing height, signed X/Y central
+  differences, and the dominant logical-layer palette index.
+- `TWMD`: signed extrema, geometric range, canonical world-space XYZ bounds,
+  and the ordered five-class product directory with each schema ceiling.
+
+The five AssetBuildCore functions cache and validate canonical bodies
+independently. Generation envelopes are applied only at atomic publication, so
+one body can be reused without putting generation or package placement in its
+build identity. A generation publisher accepts exactly the five checked
+classes, verifies Height/Collision/Query dependencies, rejects stale request
+tokens, and retains the previous complete generation on every failure.
+
 ## DDC, Cook, manifests, and compatibility
 
 Authored intent remains `.dasset`; rebuildable product values remain DDC; Cook
@@ -247,6 +309,18 @@ Readers inspect magic and compatibility before reading a body. The old
 `DTerrainHeightmap` class, DAST Terrain packages, `TerrainHeightmap` build keys,
 legacy cooked payload IDs, and old component/actor fields return
 `UnsupportedLegacySchema`; no partial decode, alias, or dependency lookup occurs.
+
+`GeometryBuild` materializes this contract through a sorted `TWMF` world
+manifest stored as an AssetCore cooked-bulk value. Installed region packages
+contain five independently addressable DBLK entries per complete tile;
+uninstalled occupied regions remain explicit manifest records with no product
+directory. Each installed record carries the exact AssetCore descriptor
+(offset, stored/logical range, alignment, target, compression, and checksum),
+the full product checksum, and ordered dependencies. Runtime loading first
+validates DBLK and `TWMF`, then the selected descriptor, manifest checksum,
+product envelope, identity, generation, and dependencies. The returned handle
+co-owns its immutable manifest generation and decoded bulk container, which
+prevents package storage from being released while a product is open.
 
 ## Runtime handles and spatial interest
 
@@ -326,3 +400,11 @@ interest, traversal, teleport, failure fallback, and the four product profiles.
 - [Terrain World System Roadmap](../../Roadmaps/TerrainWorldSystem.md)
 - [Current Terrain Heightmap Asset](TerrainHeightmapAsset.md)
 - [Current Finite Terrain Rendering](../Rendering/TerrainRendering.md)
+
+## Related code
+
+- `Engine/Source/Developer/GeometryBuild/Public/Terrain/TerrainWorldTile.h`
+- `Engine/Source/Developer/GeometryBuild/Public/Terrain/TerrainWorldCook.h`
+- `Engine/Source/Developer/GeometryBuild/Private/Terrain/TerrainWorldBuildFunctions.cpp`
+- `Engine/Source/Editor/AssetForgeBuiltins/Private/TerrainWorldBuildAdapter.h`
+- `Engine/Tests/Native/EngineTests/Private/Terrain/TerrainWorldBuildTests.cpp`
