@@ -11,6 +11,8 @@
 #include "DeferredRegistry.h"
 #include "Logging/LogMacros.h"
 
+COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DObject();
+
 namespace Durin
 {
 	namespace
@@ -84,16 +86,6 @@ namespace Durin
 		(void)Class;
 	}
 
-	COREDOBJECT_API DClass* Z_Construct_DClass_DObject()
-	{
-		if (!Z_Registration_Info_DClass_DObject.OuterSingleton)
-		{
-			Z_Registration_Info_DClass_DObject.OuterSingleton = Z_Construct_DClass_DObject_Statics::Construct();
-		}
-		check(Z_Registration_Info_DClass_DObject.OuterSingleton->GetClass());
-		return Z_Registration_Info_DClass_DObject.OuterSingleton;
-	}
-
 	COREDOBJECT_API DClass* DObject::GetPrivateStaticClass()
 	{
 		if (!Z_Registration_Info_DClass_DObject.InnerSingleton)
@@ -114,7 +106,7 @@ namespace Durin
 	}
 
 	static FClassRegisterCompiledInInfo Z_AutoRegister_DObject(
-		&Z_Construct_DClass_DObject,
+		&::Z_Construct_DClass_Durin_DObject,
 		&DObject::StaticClass,
 		STR("DObject"),
 		&Z_Registration_Info_DClass_DObject
@@ -613,4 +605,14 @@ namespace Durin
 		ClassRegistry.ClearRegistrations();
 		EnumRegistry.ClearRegistrations();
 	}
+}
+
+COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DObject()
+{
+	if (!Durin::Z_Registration_Info_DClass_DObject.OuterSingleton)
+	{
+		Durin::Z_Registration_Info_DClass_DObject.OuterSingleton = Durin::Z_Construct_DClass_DObject_Statics::Construct();
+	}
+	check(Durin::Z_Registration_Info_DClass_DObject.OuterSingleton->GetClass());
+	return Durin::Z_Registration_Info_DClass_DObject.OuterSingleton;
 }

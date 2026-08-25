@@ -123,26 +123,6 @@ namespace
 
 namespace Durin
 {
-	COREDOBJECT_API DClass* Z_Construct_DClass_DObject();
-	COREDOBJECT_API DClass* Z_Construct_DClass_DType();
-	COREDOBJECT_API DClass* Z_Construct_DClass_DStructBase();
-	COREDOBJECT_API DClass* Z_Construct_DClass_DClass();
-	COREDOBJECT_API DClass* Z_Construct_DClass_DStruct();
-	COREDOBJECT_API DClass* Z_Construct_DClass_DEnum();
-}
-
-namespace Durin
-{
-	IMPLEMENT_INTRINSIC_CLASS(DType, COREDOBJECT_API, DObject, COREDOBJECT_API, {})
-
-	IMPLEMENT_INTRINSIC_CLASS(DStructBase, COREDOBJECT_API, DType, COREDOBJECT_API, {})
-
-	IMPLEMENT_INTRINSIC_CLASS(DClass, COREDOBJECT_API, DStructBase, COREDOBJECT_API, {})
-
-	IMPLEMENT_INTRINSIC_CLASS(DStruct, COREDOBJECT_API, DStructBase, COREDOBJECT_API, {})
-
-	IMPLEMENT_INTRINSIC_CLASS(DEnum, COREDOBJECT_API, DType, COREDOBJECT_API, {})
-
 	auto DStructBase::RegisterDependencies() -> void
 	{
 		if (SuperStructBase)
@@ -946,32 +926,12 @@ namespace Durin
 	auto FindEnumByPath(std::string_view ObjectPath) -> DEnum* { return FindTypeByPath<DEnum>(ObjectPath); }
 }
 
-COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DObject()
-{
-	return Durin::Z_Construct_DClass_DObject();
-}
+IMPLEMENT_INTRINSIC_CLASS(Durin::DType, DType, COREDOBJECT_API, Durin::DObject, DObject, COREDOBJECT_API, {})
 
-COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DType()
-{
-	return Durin::Z_Construct_DClass_DType();
-}
+IMPLEMENT_INTRINSIC_CLASS(Durin::DStructBase, DStructBase, COREDOBJECT_API, Durin::DType, DType, COREDOBJECT_API, {})
 
-COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DStructBase()
-{
-	return Durin::Z_Construct_DClass_DStructBase();
-}
+IMPLEMENT_INTRINSIC_CLASS(Durin::DClass, DClass, COREDOBJECT_API, Durin::DStructBase, DStructBase, COREDOBJECT_API, {})
 
-COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DClass()
-{
-	return Durin::Z_Construct_DClass_DClass();
-}
+IMPLEMENT_INTRINSIC_CLASS(Durin::DStruct, DStruct, COREDOBJECT_API, Durin::DStructBase, DStructBase, COREDOBJECT_API, {})
 
-COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DStruct()
-{
-	return Durin::Z_Construct_DClass_DStruct();
-}
-
-COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DEnum()
-{
-	return Durin::Z_Construct_DClass_DEnum();
-}
+IMPLEMENT_INTRINSIC_CLASS(Durin::DEnum, DEnum, COREDOBJECT_API, Durin::DType, DType, COREDOBJECT_API, {})
