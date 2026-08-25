@@ -1,12 +1,17 @@
 #include <gtest/gtest.h>
 
 #include "Panels/ConsolePanelLayout.h"
+#include "ContentBrowser/ContentBrowserContracts.h"
 #include "Workspace/LevelEditorUILayout.h"
 #include "Workspace/LevelEditorPresentationPolicy.h"
 #include "MonaImGui.h"
 
 namespace Durin::Editor::Level
 {
+	static_assert(!std::is_copy_constructible_v<
+		::Durin::Editor::ContentBrowser::FScopedExtensionRegistration>);
+	static_assert(std::is_move_constructible_v<
+		::Durin::Editor::ContentBrowser::FScopedExtensionRegistration>);
 	TEST(FEditorUILayoutTests, SelectsResponsiveModeAtBoundaries)
 	{
 		EXPECT_EQ(ResolveEditorUILayout(-1.0f, 520.0f, 780.0f), EEditorUILayoutMode::Narrow);
@@ -38,6 +43,24 @@ namespace Durin::Editor::Level
 		EXPECT_EQ(AccumulateConsoleUnreadImportantRecord(4, ELogLevel::Warn), 5u);
 		EXPECT_EQ(AccumulateConsoleUnreadImportantRecord(998, ELogLevel::Error), 999u);
 		EXPECT_EQ(AccumulateConsoleUnreadImportantRecord(999, ELogLevel::Fatal), 999u);
+	}
+
+	TEST(FEditorUILayoutTests, CharacterizesLegacySharedToolVisibilityGap)
+	{
+		EXPECT_EQ(ResolveLegacySharedToolUpdateDisposition(true),
+			ELegacySharedToolUpdateDisposition::Updated);
+		EXPECT_EQ(ResolveLegacySharedToolUpdateDisposition(false),
+			ELegacySharedToolUpdateDisposition::Skipped);
+	}
+
+	TEST(FEditorUILayoutTests, SubmitsEachSingleInstanceToolAtMostOncePerFrame)
+	{
+		FEditorToolFrameSubmissionState State;
+		EXPECT_TRUE(State.TrySubmit(0, 41));
+		EXPECT_FALSE(State.TrySubmit(0, 41));
+		EXPECT_TRUE(State.TrySubmit(1, 41));
+		EXPECT_TRUE(State.TrySubmit(0, 42));
+		EXPECT_FALSE(State.TrySubmit(2, 42));
 	}
 
 	TEST(FEditorUILayoutTests, ClipsVariableHeightConsoleRecordsWithOverscan)

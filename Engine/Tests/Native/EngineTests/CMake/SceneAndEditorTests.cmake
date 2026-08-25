@@ -283,7 +283,7 @@ durin_add_engine_functional_test(EditorShellTests
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
 		${_durin_level_editor_private}/Viewport/ViewportPickingSceneIndex.cpp
 		${_durin_level_editor_private}/Panels/ConsoleRecordModel.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui AssetForge DurinEd
 )
 
 durin_add_engine_functional_test(ExternalToolTests

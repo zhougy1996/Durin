@@ -9,16 +9,88 @@ Completed:
 
 ## Current Status
 
-The selected architecture is recorded, but implementation has not started.
-`LevelEditor` still owns the Content Browser panel, its settings bridge, import
-dialogs, asset-move coordinator, Console panel, bottom drawer, status bar, and
-Activity History presentation. `MainFrame` owns only the outer workspace host
-and delegates all of those surfaces to the Level workspace.
+Stage 0 is complete. The public boundary, migration behavior, responsibility
+inventory, and source/test move map below are frozen. Existing native coverage
+already characterizes browser reveal/refresh, drawer focus and drag dismissal,
+Console record/unread behavior, notification history, and transaction feedback.
+The remaining known gap is also characterized by the current call path:
+`MLevelEditor::DrawWorkspace` returns before Console polling, notification
+updates, transaction-event projection, status-bar drawing, and toasts whenever
+the Level workspace root is not visible.
 
-Stage 0 is next. It must freeze the public module and extension contracts and
-capture the existing behavior before files move. Later stages deliberately
-separate module extraction from host integration so a source move cannot hide a
-behavioral regression.
+Stage 1 is next. It extracts the implementation behind the frozen boundary while
+retaining `MLevelEditor` as the temporary composition owner.
+
+## Stage 0 Frozen Baseline
+
+### Public boundary
+
+- `IContentBrowser` is an opaque, non-ImGui facade with reveal asset, reveal
+  directory, request focus, mounted-content invalidation, and request-admission
+  shutdown operations. Callers never receive a model, panel, cache, or Level
+  context.
+- `FContentBrowserConstructionServices` supplies asset opening, transaction
+  execution, mounted-content revision/read notification, import-operation
+  notification, asset relocation, the shared thumbnail task scope, and the
+  callback gate. Every callback is implementation-neutral.
+- Contributions use `FContentBrowserExtensionDescriptor` with a stable string
+  ID, category, numeric order, applicability predicate, and deferred invocation
+  callback. The registry returns a move-only scoped handle. Invalid descriptors
+  and duplicate live IDs fail without changing the registry.
+- Contribution order is `(Order, Id)`. Registration and removal become visible
+  only when the next immutable frame snapshot is published; callbacks enqueue
+  work that executes after the browser finishes traversing that snapshot.
+- Admission states are `Accepting`, `Stopping`, and `Stopped`. Stopping rejects
+  new reveal, refresh, import, and contribution work while allowing already
+  admitted work to drain.
+
+### Persistent migration
+
+The legacy source is `LevelEditorSession.yaml`, map `ContentBrowser`, with exact
+keys `ViewMode`, `IconSize`, `IconSizeLocked`, `TreeWidth`, `ShowHiddenFiles`,
+and `LastDirectory`. The destination is `ContentBrowserSettings.yaml` with the
+same value keys plus `LegacyMigrationCompleted: true`.
+
+When the destination is absent, individually valid legacy values are imported,
+invalid values use Content Browser defaults, and the destination is written
+atomically. Once the destination exists or the completion marker has been
+written, Level Editor settings are never consulted again. Level Editor may
+continue reading old files during the compatibility window but stops writing
+the `ContentBrowser` map after migration lands. Viewport, gizmo, and Details
+settings remain untouched.
+
+### Responsibility and move map
+
+| Current source/responsibility | Selected destination |
+| --- | --- |
+| `Panels/ContentBrowserModel*`, item view/filesystem, operations, deletion transaction, refresh coordinator | `ContentBrowser/Private/Model` and `ContentBrowser/Private/Operations` |
+| `Assets/ContentBrowserThumbnailCache*` and `SourceImageThumbnail*` | `ContentBrowser/Private/Thumbnail` |
+| `Panels/ContentBrowserPanel*` | opaque `ContentBrowser` tool implementation and public facade |
+| Generic relocation execution in `EditorAssetMoveCoordinator` and `AssetRelocationTransaction` | `ContentBrowser` operation adapter; workspace document remap observer in `DurinEd` |
+| Level viewport/session relocation repair | `LevelEditor` observer |
+| Level/Scene/Terrain create/import forms | `LevelEditor` contributions |
+| Material/MaterialInstance create forms | `MaterialEditor` contributions |
+| Texture2D/TextureCube/VolumeTexture import forms | `TextureEditor` contributions |
+| StaticMesh import form | `StaticMeshEditor` contribution |
+| `LevelEditorSessionSettings` browser fields | `ContentBrowserSettings` with one-time legacy reader |
+| `ConsolePanel*`, `ConsoleRecordModel*` | `MainFrame/Private/Tools/Console` |
+| `EditorNotificationOverlay*`, Activity History, status bar, toasts, import aggregation | `MainFrame/Private/Tools/Activity` |
+| Level drawer selection/geometry and `Ctrl+Space` | `MainFrame` host tool state |
+| Level workspace browser reveal API and compatibility-audit detour | direct host-owned `IContentBrowser` facade |
+
+White-box browser model, item-view, refresh, deletion/relocation, destination,
+source-thumbnail, and browser-thumbnail tests move to Content Browser private
+source ownership. Drawer/status/Console/Activity shell tests move to MainFrame
+private source ownership. Asset-family contribution tests stay with the
+contributing feature module.
+
+### Dependency audit
+
+The frozen descriptor graph is `MainFrame -> ContentBrowser -> DurinEd,
+AssetCore, AssetForge` plus contribution-only edges from concrete editor
+modules to `ContentBrowser`. `ContentBrowser` has no dependency on `MainFrame`
+or a concrete editor module. `DurinEd`, `AssetCore`, and `AssetForge` do not
+depend on `ContentBrowser`.
 
 ## Goal
 
@@ -214,19 +286,19 @@ and visibility do not depend on whether the Level Editor dock tab is submitted.
 
 ### Stage 0: Freeze contracts and characterize behavior
 
-- [ ] Inventory every Content Browser source, private-header consumer, native
+- [x] Inventory every Content Browser source, private-header consumer, native
   test source, settings key, ImGui ID, import dialog, thumbnail dependency,
   mutation observer, reveal caller, and shutdown callback.
-- [ ] Add characterization coverage for drawer toggle/focus dispositions,
+- [x] Add characterization coverage for drawer toggle/focus dispositions,
   once-per-frame tool submission, hidden Console polling, unread counts,
   transaction-event publication, and browser reveal behavior.
-- [ ] Specify the public browser facade, host-construction inputs, extension
+- [x] Specify the public browser facade, host-construction inputs, extension
   descriptor, scoped registration handle, and shutdown/admission states without
   exposing Level Editor types.
-- [ ] Specify deterministic extension ordering and the safe frame boundary for
+- [x] Specify deterministic extension ordering and the safe frame boundary for
   contribution changes.
-- [ ] Record the exact legacy settings keys and one-time migration behavior.
-- [ ] Produce the final source/test move map and verify the proposed `.dmodule`
+- [x] Record the exact legacy settings keys and one-time migration behavior.
+- [x] Produce the final source/test move map and verify the proposed `.dmodule`
   graph has no concrete-editor or `MainFrame` dependency below
   `ContentBrowser`.
 
