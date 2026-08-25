@@ -78,26 +78,7 @@ namespace Durin::Editor::StaticMesh
 								Input.AssetPath.ToString())
 							: Result.Message};
 				}
-				FStaticMeshRenderResourceStatus Status =
-					StaticMesh->GetRenderResourceStatus();
-				if (!StaticMesh->GetLOD0LocalBounds())
-				{
-					return {
-						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
-						.AssetRevision = Status.Revision,
-						.Diagnostic = std::format(
-							"StaticMesh '{}' has no valid non-degenerate LOD 0 bounds.",
-							Input.AssetPath.ToString())};
-				}
-				if (Status.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
-				{
-					StaticMesh->InitResources();
-					Status = StaticMesh->GetRenderResourceStatus();
-				}
-				AssetRevision = Status.Revision;
-				return {
-					.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
-					.AssetRevision = AssetRevision};
+				return PollStaticMeshReadiness();
 			}
 
 			auto PollResources() -> ::Durin::Editor::FRenderedAssetThumbnailSessionUpdate override
@@ -107,8 +88,45 @@ namespace Durin::Editor::StaticMesh
 						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
 						.Diagnostic = QualifyDiagnostic(
 							Input.AssetPath, "The StaticMesh asset is unavailable.")};
-				const FStaticMeshRenderResourceStatus Status =
+				return PollStaticMeshReadiness();
+			}
+
+		private:
+			auto PollStaticMeshReadiness()
+				-> ::Durin::Editor::FRenderedAssetThumbnailSessionUpdate
+			{
+				FStaticMeshRenderResourceStatus Status =
 					StaticMesh->GetRenderResourceStatus();
+				if (!StaticMesh->GetLOD0LocalBounds())
+				{
+					const FStaticMeshDerivedDataDiagnostic& Diagnostic =
+						StaticMesh->GetDerivedDataDiagnostic();
+					if (Diagnostic.Status == EStaticMeshDerivedDataStatus::Missing
+						&& Diagnostic.bSourceImporterInvoked)
+					{
+						return {
+							.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
+							.AssetRevision = Status.Revision,
+							.ResourceRevision = Status.Revision};
+					}
+					return {
+						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
+						.AssetRevision = Status.Revision,
+						.ResourceRevision = Status.Revision,
+						.Diagnostic = std::format(
+							"StaticMesh '{}' has no valid non-degenerate LOD 0 bounds.",
+							Input.AssetPath.ToString())};
+				}
+				if (Status.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
+				{
+					StaticMesh->InitResources();
+					Status = StaticMesh->GetRenderResourceStatus();
+				}
+				if (!bCapturedAssetRevision)
+				{
+					AssetRevision = Status.Revision;
+					bCapturedAssetRevision = true;
+				}
 				switch (Status.Readiness)
 				{
 				case EStaticMeshRenderResourceReadiness::Ready:
@@ -259,10 +277,10 @@ namespace Durin::Editor::StaticMesh
 				World = nullptr;
 			}
 
-		private:
 			FStaticMeshAssetThumbnailGenerationInput Input;
 			DStaticMesh* StaticMesh = nullptr;
 			uint64 AssetRevision = 0;
+			bool bCapturedAssetRevision = false;
 			DWorld* World = nullptr;
 			AActor* Actor = nullptr;
 			DStaticMeshComponent* Component = nullptr;
