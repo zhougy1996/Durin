@@ -1,5 +1,6 @@
 #include "Widgets/MTextureEditor.h"
 
+#include "Asset/AssetCompilingManager.h"
 #include "AssetForge/ImportTypes.h"
 #include "AssetForge/ImportService.h"
 #include "AssetAuthoring.h"
@@ -178,7 +179,8 @@ namespace Durin::Editor::Texture
 		for (auto& [ResourceId, Texture] : OpenTextures)
 		{
 			(void)ResourceId;
-			if (Texture) Asset::Build::CancelTexture2DBuild(*Texture);
+			if (Texture)
+				FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 		}
 		SharedSourceReplacementOperation.Abort();
 	}
@@ -235,7 +237,7 @@ namespace Durin::Editor::Texture
 			return ::Durin::Editor::EDocumentCloseResult::Rejected;
 		if (IsDocumentDirty(Document)) return ::Durin::Editor::EDocumentCloseResult::PendingConfirmation;
 		if (DTexture2D* Texture = FindOpenTexture(Document.ResourceId))
-			Asset::Build::CancelTexture2DBuild(*Texture);
+			FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 		OpenTextures.erase(Document.ResourceId);
 		PreviewStates.erase(Document.ResourceId);
 		Documents.Close(Document.ResourceId);
@@ -251,7 +253,7 @@ namespace Durin::Editor::Texture
 	{
 		DTexture2D* Texture = FindOpenTexture(Document.ResourceId);
 		return Documents.Discard(Texture, [Texture] {
-			Asset::Build::CancelTexture2DBuild(*Texture);
+			FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 		});
 	}
 
@@ -488,7 +490,8 @@ namespace Durin::Editor::Texture
 				"Failure stage: %s", DescribeBuildPhase(Diagnostic.FailurePhase));
 		if (bPending)
 		{
-			if (ImGui::Button("Cancel Build")) Asset::Build::CancelTexture2DBuild(*Texture);
+			if (ImGui::Button("Cancel Build"))
+				FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 			ImGui::SameLine();
 			if (ImGui::Button("Wait for Build"))
 			{

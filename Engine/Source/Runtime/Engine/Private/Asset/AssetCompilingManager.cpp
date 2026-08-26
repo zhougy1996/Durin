@@ -249,17 +249,17 @@ namespace Durin
 				FAssetCompilingManagerRegistration{};
 		FModuleOwnedResourceLease Resource = OwnerGate.RetainResource();
 		if (!Resource)
-			return SetError(OutError, "Asset compilation provider module is retiring."),
+			return SetError(OutError, "Asset compilation domain owner is retiring."),
 				FAssetCompilingManagerRegistration{};
 		FName DomainName;
 		std::vector<FName> Dependencies;
 		{
 			auto Invocation = OwnerGate.TryEnter();
 			if (!Invocation)
-				return SetError(OutError, "Asset compilation provider module is retiring."),
+				return SetError(OutError, "Asset compilation domain owner is retiring."),
 					FAssetCompilingManagerRegistration{};
-			DomainName = Manager->GetAssetTypeName();
-			Dependencies = Manager->GetDependentTypeNames();
+			DomainName = Manager->GetDomainName();
+			Dependencies = Manager->GetDependencies();
 		}
 		if (!IsCanonicalDomainName(DomainName))
 			return SetError(OutError, "Asset compilation domain name is not canonical."),
@@ -327,8 +327,8 @@ namespace Durin
 		-> FAssetCompilingManagerRegistration
 	{
 		if (!Manager) return {};
-		const FName DomainName = Manager->GetAssetTypeName();
-		const std::vector<FName> Dependencies = Manager->GetDependentTypeNames();
+		const FName DomainName = Manager->GetDomainName();
+		const std::vector<FName> Dependencies = Manager->GetDependencies();
 		if (!IsCanonicalDomainName(DomainName)) return {};
 		if (!Manager->Start(OutError)) return {};
 		FAssetCompilingManagerRegistration Result;
@@ -484,16 +484,30 @@ namespace Durin
 		return Aggregate;
 	}
 
-	auto FAssetCompilingManager::MarkCompilationAsCanceled(
-		std::span<DObject* const> Objects) -> bool
+	auto FAssetCompilingManager::FinishCompilationForObject(DObject& Object)
+		-> FAssetCompileProcessResult
 	{
-		if (!IsSupportedThread()) return false;
+		DObject* ObjectPointer = &Object;
+		return FinishCompilationForObjects(
+			std::span<DObject* const>(&ObjectPointer, 1));
+	}
+
+	auto FAssetCompilingManager::MarkCompilationAsCanceled(
+		std::span<DObject* const> Objects) -> void
+	{
+		if (!IsSupportedThread()) return;
 		auto Entries = MakeSnapshot();
 		for (auto& Entry : Entries)
 			Invoke(Entry, [&](IAssetCompilingManager& Manager) {
 				Manager.MarkCompilationAsCanceled(Objects);
 			});
-		return true;
+	}
+
+	auto FAssetCompilingManager::MarkCompilationAsCanceled(DObject& Object) -> void
+	{
+		DObject* ObjectPointer = &Object;
+		MarkCompilationAsCanceled(
+			std::span<DObject* const>(&ObjectPointer, 1));
 	}
 
 	auto FAssetCompilingManager::FinishAllCompilation() -> FAssetCompileProcessResult

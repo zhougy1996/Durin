@@ -142,6 +142,8 @@ namespace Durin::Asset::Build
 		// Reopens admission after a completed Shutdown so the owning build host
 		// can honor its restartable process-lifecycle contract.
 		TEXTUREBUILD_API auto Start() -> bool;
+		// Rejects new submissions while allowing already accepted work to drain.
+		TEXTUREBUILD_API auto StopAdmission() -> void;
 		// Applies completed callbacks on the GameThread and returns the number pumped.
 		TEXTUREBUILD_API auto PumpCompletions(uint32 MaximumCount = 64) -> uint32;
 		// Explicit blocking boundary for save, cook, tools, and deterministic tests.

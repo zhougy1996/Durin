@@ -32,7 +32,6 @@ namespace Durin::Asset::Build
 	TEXTUREBUILD_API auto GetTexture2DBuildDiagnostic(const DTexture2D& Texture)
 		-> FTexture2DBuildDiagnostic;
 	TEXTUREBUILD_API auto HasPendingTexture2DBuild(const DTexture2D& Texture) -> bool;
-	TEXTUREBUILD_API auto CancelTexture2DBuild(DTexture2D& Texture) -> bool;
 	TEXTUREBUILD_API auto WaitForTexture2DBuild(
 		DTexture2D& Texture,
 		double TimeoutSeconds = 300.0) -> bool;

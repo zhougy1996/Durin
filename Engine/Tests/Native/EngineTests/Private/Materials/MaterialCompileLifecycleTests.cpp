@@ -120,7 +120,7 @@ TEST(FMaterialCompileLifecycleTests,
 	ASSERT_TRUE(First->SetStaticProperties(FailedProperties));
 	const Durin::FMaterialCompileStatus Pending =
 		First->GetMaterialCompileStatus();
-	ASSERT_TRUE(Durin::CancelMaterialCompile(*First));
+	Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*First);
 	Durin::FMaterialCompileResult Failed{
 		.Owner = Durin::MakeObjectHandle(First),
 		.AuthoredRevision = Pending.AuthoredRevision,

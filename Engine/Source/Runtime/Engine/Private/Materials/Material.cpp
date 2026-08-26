@@ -1,5 +1,6 @@
 #include "Materials/Material.h"
 
+#include "Asset/AssetCompilingManager.h"
 #include "Materials/MaterialCompileLifecycle.h"
 #include "Materials/MaterialCookedProgram.h"
 #include "Materials/MaterialProgramCompiler.h"
@@ -326,7 +327,7 @@ namespace Durin
 
 	auto DMaterial::BeginDestroy() -> void
 	{
-		CancelMaterialCompile(*this);
+		FAssetCompilingManager::Get().MarkCompilationAsCanceled(*this);
 		Super::BeginDestroy();
 	}
 }

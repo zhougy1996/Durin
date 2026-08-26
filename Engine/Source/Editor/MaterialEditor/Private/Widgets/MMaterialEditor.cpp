@@ -3,6 +3,7 @@
 #include "Widgets/MaterialPreview.h"
 #include "Graph/MaterialGraphCanvas.h"
 
+#include "Asset/AssetCompilingManager.h"
 #include "AssetAuthoring.h"
 #include "DObject/Package.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -431,7 +432,8 @@ namespace Durin::Editor::Material
 				|| Status.State == EMaterialCompileState::Running;
 			if (bPending)
 			{
-				if (ImGui::Button("Cancel Compile")) CancelMaterialCompile(*Base);
+				if (ImGui::Button("Cancel Compile"))
+					FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Base);
 			}
 			else if (ImGui::Button(Status.State == EMaterialCompileState::Failed
 				|| Status.State == EMaterialCompileState::Rejected

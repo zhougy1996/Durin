@@ -163,7 +163,6 @@ namespace Durin
 	ENGINE_API auto NotifyMaterialShaderReload(bool bForceRecompile) -> void;
 	ENGINE_API auto RequestMaterialRecompile(
 		DMaterial& Material, bool bForceRecompile = false) -> bool;
-	ENGINE_API auto CancelMaterialCompile(DMaterial& Material) -> bool;
 
 	namespace Private
 	{

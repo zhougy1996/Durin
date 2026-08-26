@@ -607,6 +607,7 @@ namespace Durin
 
 		FMaterialCompileService GMaterialCompileService;
 		std::atomic_uint8_t GPendingShaderReloadMode = 0;
+		auto CancelMaterialCompileDomain(DMaterial& Material) -> bool;
 
 		auto PumpMaterialCompileResultsDetailed(uint32 MaximumCount)
 			-> FAssetCompileProcessResult
@@ -647,7 +648,7 @@ namespace Durin
 		class FMaterialCompilingManager final : public IAssetCompilingManager
 		{
 		public:
-			auto GetAssetTypeName() const -> FName override
+			auto GetDomainName() const -> FName override
 			{
 				return FName("Durin.MaterialCompilation");
 			}
@@ -702,7 +703,7 @@ namespace Durin
 			{
 				for (DObject* Object : Objects)
 					if (auto* Material = Cast<DMaterial>(Object); IsValid(Material))
-						CancelMaterialCompile(*Material);
+						CancelMaterialCompileDomain(*Material);
 			}
 			auto FinishAllCompilation() -> FAssetCompileProcessResult override
 			{
@@ -951,14 +952,17 @@ namespace Durin
 			Material, bForceRecompile);
 	}
 
-	auto CancelMaterialCompile(DMaterial& Material) -> bool
+	namespace
 	{
-		CheckMaterialCompileGameThread();
-		const bool bCanceled = GMaterialCompileService.CancelOwner(
-			MakeObjectHandle(&Material));
-		if (bCanceled)
-			Private::FMaterialCompileServiceAccess::MarkCanceled(Material);
-		return bCanceled;
+		auto CancelMaterialCompileDomain(DMaterial& Material) -> bool
+		{
+			CheckMaterialCompileGameThread();
+			const bool bCanceled = GMaterialCompileService.CancelOwner(
+				MakeObjectHandle(&Material));
+			if (bCanceled)
+				Private::FMaterialCompileServiceAccess::MarkCanceled(Material);
+			return bCanceled;
+		}
 	}
 
 	auto CreateMaterialCompilingManager() -> std::shared_ptr<IAssetCompilingManager>

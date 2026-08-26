@@ -1,5 +1,6 @@
 #include "Source/TextureSourceReplacementOperation.h"
 
+#include "Asset/AssetCompilingManager.h"
 #include "Asset/MountedSource.h"
 #include "DObject/Package.h"
 #include "DObject/WeakObjectPtr.h"
@@ -35,7 +36,8 @@ namespace Durin::Editor::Texture
 			{
 				OutCancel = [WeakTexture] {
 					if (DTexture2D* PendingTexture = WeakTexture.Get())
-						Asset::Build::CancelTexture2DBuild(*PendingTexture);
+						FAssetCompilingManager::Get().MarkCompilationAsCanceled(
+							*PendingTexture);
 				};
 			}
 			return bStarted;

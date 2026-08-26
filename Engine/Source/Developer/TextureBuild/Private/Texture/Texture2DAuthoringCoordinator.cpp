@@ -94,7 +94,7 @@ namespace Durin::Asset::Build
 			Job->EnqueueNanoseconds = NowNanoseconds();
 			{
 				std::lock_guard Lock(Mutex);
-				if (!bAccepting) return 0;
+				if (!bAcceptingRequests) return 0;
 				Job->Diagnostic.RequestId = NextRequestId++;
 				Job->Diagnostic.Generation = Job->Request.Generation;
 				Job->Diagnostic.AssetIdentity = Job->Request.AssetIdentity;
@@ -139,7 +139,7 @@ namespace Durin::Asset::Build
 			std::vector<std::shared_ptr<FJob>> Cancelled;
 			{
 				std::lock_guard Lock(Mutex);
-				while (bAccepting && RunningCount < Config.MaxWorkers)
+				while (!bShutdown && RunningCount < Config.MaxWorkers)
 				{
 					std::shared_ptr<FJob> Job = SelectNextJobLocked();
 					if (!Job) break;
@@ -479,16 +479,22 @@ namespace Durin::Asset::Build
 		auto Start() -> bool
 		{
 			std::lock_guard Lock(Mutex);
-			if (bAccepting) return true;
+			if (bAcceptingRequests) return true;
 			if (RunningCount != 0 || !InteractiveQueue.empty()
 				|| !BackgroundQueue.empty() || !Completions.empty())
 			{
 				return false;
 			}
 			bShutdown = false;
-			bAccepting = true;
+			bAcceptingRequests = true;
 			ConsecutiveInteractive = 0;
 			return true;
+		}
+
+		auto StopAdmission() -> void
+		{
+			std::lock_guard Lock(Mutex);
+			bAcceptingRequests = false;
 		}
 
 		auto Shutdown() -> void
@@ -498,7 +504,7 @@ namespace Durin::Asset::Build
 			{
 				std::lock_guard Lock(Mutex);
 				if (bShutdown) return;
-				bAccepting = false;
+				bAcceptingRequests = false;
 				bShutdown = true;
 				for (const auto& [RequestId, Job] : Jobs)
 				{
@@ -537,7 +543,7 @@ namespace Durin::Asset::Build
 		uint64 InFlightEstimatedBytes = 0;
 		uint32 RunningCount = 0;
 		uint32 ConsecutiveInteractive = 0;
-		bool bAccepting = true;
+		bool bAcceptingRequests = true;
 		bool bShutdown = false;
 		std::function<void(uint64, ETexture2DBuildPhase)> PhaseHookForTests;
 	};
@@ -629,6 +635,11 @@ namespace Durin::Asset::Build
 	auto FTexture2DBuildCoordinator::Start() -> bool
 	{
 		return State && State->Start();
+	}
+
+	auto FTexture2DBuildCoordinator::StopAdmission() -> void
+	{
+		if (State) State->StopAdmission();
 	}
 
 	auto FTexture2DBuildCoordinator::WaitForRequest(

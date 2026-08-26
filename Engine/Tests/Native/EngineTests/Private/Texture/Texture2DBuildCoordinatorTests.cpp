@@ -304,6 +304,68 @@ TEST(FTexture2DBuildCoordinatorTests, BoundsAdmissionAndPreventsBackgroundStarva
 	EXPECT_EQ(PreparationOrder[6], InteractiveIds[4]);
 }
 
+TEST(FTexture2DBuildCoordinatorTests, StopAdmissionRejectsNewWorkAndDrainsAcceptedQueue)
+{
+	InitializeDObjectSystem();
+	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
+	const std::filesystem::path Source =
+		Durin::Testing::GetTestWorkDirectory() / "TextureCoordinatorStopAdmission.png";
+	WriteTextureFixture(Source);
+	std::vector<std::byte> Bytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, Source));
+
+	Durin::Asset::Build::FTexture2DBuildCoordinator Coordinator({.MaxWorkers = 1});
+	std::mutex Mutex;
+	std::condition_variable Condition;
+	bool bWorkerEntered = false;
+	bool bReleaseWorker = false;
+	uint32 TerminalCount = 0;
+	Coordinator.SetPhaseHookForTests(
+		[&](uint64, Durin::Asset::Build::ETexture2DBuildPhase Phase) {
+			std::unique_lock Lock(Mutex);
+			if (Phase == Durin::Asset::Build::ETexture2DBuildPhase::Preparing
+				&& !bWorkerEntered)
+			{
+				bWorkerEntered = true;
+				Condition.notify_all();
+				Condition.wait(Lock, [&] { return bReleaseWorker; });
+			}
+			if (IsTerminal(Phase))
+			{
+				++TerminalCount;
+				Condition.notify_all();
+			}
+		});
+	uint32 CompletionCount = 0;
+	auto Complete = [&](Durin::Asset::Build::FTexture2DQueuedBuildResult&& Result) {
+		EXPECT_EQ(Result.Phase, Durin::Asset::Build::ETexture2DBuildPhase::UploadPending);
+		++CompletionCount;
+	};
+	ASSERT_NE(Coordinator.Submit(
+		MakeCoordinatorRequest(Bytes, "/Coordinator/StopAdmissionRunning"), Complete), 0u);
+	{
+		std::unique_lock Lock(Mutex);
+		ASSERT_TRUE(Condition.wait_for(Lock, std::chrono::seconds(10), [&] {
+			return bWorkerEntered;
+		}));
+	}
+	ASSERT_NE(Coordinator.Submit(
+		MakeCoordinatorRequest(Bytes, "/Coordinator/StopAdmissionQueued"), Complete), 0u);
+	Coordinator.StopAdmission();
+	EXPECT_EQ(Coordinator.Submit(
+		MakeCoordinatorRequest(Bytes, "/Coordinator/StopAdmissionRejected"), Complete), 0u);
+	{
+		std::lock_guard Lock(Mutex);
+		bReleaseWorker = true;
+		Condition.notify_all();
+	}
+	ASSERT_TRUE(WaitForTerminalCount(Mutex, Condition, TerminalCount, 2));
+	EXPECT_EQ(Coordinator.PumpCompletions(), 2u);
+	EXPECT_EQ(CompletionCount, 2u);
+	EXPECT_EQ(Coordinator.GetQueuedCount(), 0u);
+	EXPECT_EQ(Coordinator.GetRunningCount(), 0u);
+}
+
 TEST(FTexture2DBuildCoordinatorTests, CancelsRunningAndQueuedWorkExactlyOnceDuringShutdown)
 {
 	InitializeDObjectSystem();

@@ -27,6 +27,7 @@ namespace Durin::Asset::Build
 		uint64 GNextTexture2DGeneration = 1;
 		std::vector<FWeakObjectPtr> GSuccessfullyPublishedTextures;
 		FAssetCompilingManagerRegistration GTextureCompilingRegistration;
+		auto CancelTexture2DBuildDomain(DTexture2D& Texture) -> bool;
 
 		auto FindStateLocked(std::string_view Identity) -> FTexture2DAuthoringState*
 		{
@@ -124,7 +125,7 @@ namespace Durin::Asset::Build
 		class FTextureCompilingManager final : public IAssetCompilingManager
 		{
 		public:
-			auto GetAssetTypeName() const -> FName override
+			auto GetDomainName() const -> FName override
 			{
 				return FName("Durin.TextureCompilation");
 			}
@@ -142,7 +143,7 @@ namespace Durin::Asset::Build
 			auto StopAdmission() -> void override
 			{
 				if (FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator())
-					Coordinator->Shutdown();
+					Coordinator->StopAdmission();
 			}
 			auto GetNumRemainingAssets() const -> uint64 override
 			{
@@ -190,7 +191,7 @@ namespace Durin::Asset::Build
 			{
 				for (DObject* Object : Objects)
 					if (auto* Texture = Cast<DTexture2D>(Object); IsValid(Texture))
-						CancelTexture2DBuild(*Texture);
+						CancelTexture2DBuildDomain(*Texture);
 			}
 			auto FinishAllCompilation() -> FAssetCompileProcessResult override
 			{
@@ -370,16 +371,20 @@ namespace Durin::Asset::Build
 		return State && State->Texture.Get() == &Texture && State->ActiveRequestId != 0;
 	}
 
-	auto CancelTexture2DBuild(DTexture2D& Texture) -> bool
+	namespace
 	{
-		uint64 RequestId = 0;
+		auto CancelTexture2DBuildDomain(DTexture2D& Texture) -> bool
 		{
-			std::lock_guard Lock(GTexture2DAuthoringMutex);
-			FTexture2DAuthoringState* State = FindStateLocked(Texture.GetObjectPath());
-			if (State && State->Texture.Get() == &Texture) RequestId = State->ActiveRequestId;
+			uint64 RequestId = 0;
+			{
+				std::lock_guard Lock(GTexture2DAuthoringMutex);
+				FTexture2DAuthoringState* State = FindStateLocked(Texture.GetObjectPath());
+				if (State && State->Texture.Get() == &Texture)
+					RequestId = State->ActiveRequestId;
+			}
+			FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
+			return Coordinator && RequestId != 0 && Coordinator->Cancel(RequestId);
 		}
-		FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
-		return Coordinator && RequestId != 0 && Coordinator->Cancel(RequestId);
 	}
 
 	auto WaitForTexture2DBuild(DTexture2D& Texture, double TimeoutSeconds) -> bool
@@ -398,9 +403,7 @@ namespace Durin::Asset::Build
 		}
 		FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
 		if (!Coordinator || !Coordinator->WaitForRequest(RequestId, TimeoutSeconds)) return false;
-		DObject* Object = &Texture;
-		FAssetCompilingManager::Get().FinishCompilationForObjects(
-			std::span<DObject* const>(&Object, 1));
+		FAssetCompilingManager::Get().FinishCompilationForObject(Texture);
 		bool bFailed = false;
 		{
 			std::lock_guard Lock(GTexture2DAuthoringMutex);

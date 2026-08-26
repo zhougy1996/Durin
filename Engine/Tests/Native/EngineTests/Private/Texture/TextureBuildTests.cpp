@@ -1140,7 +1140,7 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
 	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
 	EXPECT_FALSE(Transactions.CanUndo());
-	ASSERT_TRUE(Durin::Asset::Build::CancelTexture2DBuild(*Texture));
+	Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 	{
 		std::lock_guard Lock(Mutex);
 		bRelease = true;
@@ -1203,7 +1203,7 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 			return bEntered;
 		}));
 	}
-	ASSERT_TRUE(Durin::Asset::Build::CancelTexture2DBuild(*Texture));
+	Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 	{
 		std::lock_guard Lock(Mutex);
 		bRelease = true;

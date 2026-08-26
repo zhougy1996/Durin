@@ -1,5 +1,6 @@
 #include "Texture2DPropertyEditing.h"
 
+#include "Asset/AssetCompilingManager.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Property.h"
 #include "DObject/WeakObjectPtr.h"
@@ -142,7 +143,8 @@ namespace Durin::Editor::Texture
 					}
 					return FPropertyEditDeferredCancel([WeakTexture] {
 						if (DTexture2D* PendingTexture = WeakTexture.Get())
-							Asset::Build::CancelTexture2DBuild(*PendingTexture);
+							FAssetCompilingManager::Get().MarkCompilationAsCanceled(
+								*PendingTexture);
 					});
 				}))
 			{

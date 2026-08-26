@@ -1,6 +1,6 @@
 # Asset Compilation
 
-Summary: Define the Engine-owned object-aware compilation aggregate and provider lifetime contract.
+Summary: Define the Engine-owned object-aware compilation aggregate and domain lifetime contract.
 
 Modules: Engine, Launch, TextureBuild
 
@@ -16,7 +16,7 @@ DDC key, worker queue, or asset publication policy.
 The built-in domain is `Durin.MaterialCompilation`. Optional modules register
 additional domains while the aggregate is accepting requests;
 `TextureBuild` contributes `Durin.TextureCompilation`. Runtime Engine does not
-depend on Developer or Editor providers, and game deployments do not acquire a
+depend on Developer or Editor compilation domains, and game deployments do not acquire a
 TextureBuild or DDC dependency through the aggregate.
 
 ## Domain Contract
@@ -29,7 +29,7 @@ canonical names for deterministic ordering.
 
 Dependency-first order applies to normal processing, selected-object finish,
 and finish-all. Shutdown first closes every domain's admission, then finishes
-and shuts domains down in reverse dependency order. Provider calls and
+and shuts domains down in reverse dependency order. Domain calls and
 post-compile listener dispatch never hold the aggregate registry mutex.
 
 Normal processing has a process completion limit of 64. The aggregate gives
@@ -53,18 +53,18 @@ is returned to the aggregate as a weak object identity. Failed, canceled,
 superseded, destroyed, and stale results do not emit success.
 
 The aggregate coalesces duplicate successful object reports per domain and
-broadcasts `FAssetPostCompileData` outside provider calls and the registry
-mutex. Listeners may submit future work, but event dispatch does not recursively
-enter a provider callback.
+broadcasts `FAssetPostCompileData` outside domain calls and the registry mutex.
+Listeners may submit future work, but event dispatch does not recursively enter
+a domain callback.
 
 ## Module and Task Lifetime
 
 External registration returns a move-only
-`FAssetCompilingManagerRegistration`. Registration retains a provider resource
-lease for its full lifetime and enters the provider's
+`FAssetCompilingManagerRegistration`. Registration retains a domain-owner
+resource lease for its full lifetime and enters the domain owner's
 `FModuleOwnedCallbackGate` immediately before every callback. Reset removes the
 domain from future snapshots, stops admission, finishes accepted work, invokes
-provider shutdown, destroys retained provider values, and only then releases
+domain shutdown, destroys retained domain values, and only then releases
 the module resource lease. Owner retirement rejects later callback entry.
 
 Concrete domains retain their own task scopes, cancellation sources,

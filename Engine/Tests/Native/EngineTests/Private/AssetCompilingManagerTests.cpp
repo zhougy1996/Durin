@@ -28,8 +28,8 @@ namespace
 			: Name(std::move(InName)), Dependencies(std::move(InDependencies)),
 			  State(std::move(InState)) {}
 
-		auto GetAssetTypeName() const -> FName override { return FName(Name); }
-		auto GetDependentTypeNames() const -> std::vector<FName> override
+		auto GetDomainName() const -> FName override { return FName(Name); }
+		auto GetDependencies() const -> std::vector<FName> override
 		{
 			return Dependencies;
 		}
@@ -152,8 +152,7 @@ TEST(FAssetCompilingManagerTests, AggregatesDomainsObjectsEventsAndModuleLifetim
 	EXPECT_EQ(Aggregate.GetNumRemainingAssets(), 2u);
 
 	DObject* Selected = Material;
-	EXPECT_TRUE(Aggregate.MarkCompilationAsCanceled(
-		std::span<DObject* const>(&Selected, 1)));
+	Aggregate.MarkCompilationAsCanceled(std::span<DObject* const>(&Selected, 1));
 	EXPECT_TRUE(DependentState->bCanceled);
 	EXPECT_GT(DependentState->Remaining, 0u);
 	const auto Finished = Aggregate.FinishCompilationForObjects(

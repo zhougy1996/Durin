@@ -53,12 +53,13 @@ namespace Durin
 
 	DECLARE_MULTICAST_DELEGATE_OneParam(FAssetPostCompileEvent, const FAssetPostCompileData&)
 
+	// Defines one independently scheduled asset-compilation domain.
 	class IAssetCompilingManager
 	{
 	public:
 		virtual ~IAssetCompilingManager() = default;
-		virtual auto GetAssetTypeName() const -> FName = 0;
-		virtual auto GetDependentTypeNames() const -> std::vector<FName> { return {}; }
+		virtual auto GetDomainName() const -> FName = 0;
+		virtual auto GetDependencies() const -> std::vector<FName> { return {}; }
 		virtual auto Start(std::string* OutError) -> bool = 0;
 		virtual auto StopAdmission() -> void = 0;
 		virtual auto GetNumRemainingAssets() const -> uint64 = 0;
@@ -109,8 +110,11 @@ namespace Durin
 		ENGINE_API auto GetNumRemainingAssets() const -> uint64;
 		ENGINE_API auto FinishCompilationForObjects(std::span<DObject* const> Objects)
 			-> FAssetCompileProcessResult;
+		ENGINE_API auto FinishCompilationForObject(DObject& Object)
+			-> FAssetCompileProcessResult;
 		ENGINE_API auto MarkCompilationAsCanceled(std::span<DObject* const> Objects)
-			-> bool;
+			-> void;
+		ENGINE_API auto MarkCompilationAsCanceled(DObject& Object) -> void;
 		ENGINE_API auto FinishAllCompilation() -> FAssetCompileProcessResult;
 		ENGINE_API auto GetDiagnostics() const -> FAssetCompilingManagerDiagnostics;
 		ENGINE_API auto OnAssetPostCompile() -> FAssetPostCompileEvent&;
