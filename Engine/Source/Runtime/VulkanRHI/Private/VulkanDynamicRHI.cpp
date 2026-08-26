@@ -534,17 +534,19 @@ namespace Durin::VulkanRHI
 		check(!DebugMessenger);
 		if (!DiagnosticAvailability.bDebugUtilsActive) return;
 
-		vk::DebugUtilsMessengerCreateInfoEXT CreateInfo;
-		CreateInfo.setMessageSeverity(
-			vk::DebugUtilsMessageSeverityFlagBitsEXT::eVerbose
-			| vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo
-			| vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning
-			| vk::DebugUtilsMessageSeverityFlagBitsEXT::eError)
-			.setMessageType(vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral
-				| vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation
-				| vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance)
-			.setPfnUserCallback(&VulkanDebugUtilsCallback)
-			.setPUserData(&DebugCallbackState);
+		VkDebugUtilsMessengerCreateInfoEXT CreateInfo{};
+		CreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+		CreateInfo.messageSeverity =
+			VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT
+			| VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT
+			| VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
+			| VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+		CreateInfo.messageType =
+			VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
+			| VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
+			| VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+		CreateInfo.pfnUserCallback = &VulkanDebugUtilsCallback;
+		CreateInfo.pUserData = &DebugCallbackState;
 		try
 		{
 #if DURIN_VULKAN_TEST_FAILURE_INJECTION
