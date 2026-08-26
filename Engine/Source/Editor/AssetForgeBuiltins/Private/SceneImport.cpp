@@ -4,7 +4,8 @@
 #include "DObject/Package.h"
 #include "AssetForge/Builtins/ImportedScene.h"
 #include "AssetForge/ImportService.h"
-#include "AssetAuthoring.h"
+#include "Asset/MountedSource.h"
+#include "Asset.h"
 #include "Image/ImageDecoder.h"
 #include "HAL/PlatformProcess.h"
 #include "Materials/Material.h"
@@ -1053,7 +1054,7 @@ namespace Durin::AssetForge::Builtins
 		std::string_view ExternalIngestDestination,
 		FPreparedSceneSourceBundle& OutBundle,
 		std::string& OutError,
-		bool bEngineAuthoringContext,
+		bool bAllowEngineContentWrite,
 		const std::function<bool()>& IsCancellationRequested) -> bool
 	{
 		OutBundle = {};
@@ -1065,8 +1066,8 @@ namespace Durin::AssetForge::Builtins
 		FScopedMountedSourceFile Root;
 		if (!PrepareMountedSourceFile(InputRoot, ReferencingContentPath,
 			ExternalIngestDestination, Root, OutError,
-			bEngineAuthoringContext
-				? EMountedSourceMutationContext::EngineAuthoring
+			bAllowEngineContentWrite
+				? EMountedSourceMutationContext::EngineContentWrite
 				: EMountedSourceMutationContext::DependencySafe)) return false;
 		OutBundle.RootSource = Root.SourcePath;
 		OutBundle.Sources.push_back(std::move(Root));
@@ -1113,8 +1114,8 @@ namespace Durin::AssetForge::Builtins
 				if (!PrepareMountedSourceFile(
 					InputParent / Relative, ReferencingContentPath,
 					(TargetParent / Relative).generic_string(), Dependency, OutError,
-					bEngineAuthoringContext
-						? EMountedSourceMutationContext::EngineAuthoring
+					bAllowEngineContentWrite
+						? EMountedSourceMutationContext::EngineContentWrite
 						: EMountedSourceMutationContext::DependencySafe))
 					return false;
 				OutBundle.Sources.push_back(std::move(Dependency));
@@ -1136,11 +1137,11 @@ namespace Durin::AssetForge::Builtins
 		std::string_view ExternalIngestDestination,
 		FPreparedSceneSourceBundle& OutBundle,
 		std::string& OutError,
-		bool bEngineAuthoringContext) -> bool
+		bool bAllowEngineContentWrite) -> bool
 	{
 		return PrepareSceneSourceBundleImpl(
 			InputRoot, ReferencingContentPath, ExternalIngestDestination,
-			OutBundle, OutError, bEngineAuthoringContext, {});
+			OutBundle, OutError, bAllowEngineContentWrite, {});
 	}
 
 	struct FSceneSourceBundleAsyncState
@@ -1165,7 +1166,7 @@ namespace Durin::AssetForge::Builtins
 		std::filesystem::path InputRoot,
 		std::string ReferencingContentPath,
 		std::string ExternalIngestDestination,
-		bool bEngineAuthoringContext) -> FSceneSourceBundleAsyncHandle
+		bool bAllowEngineContentWrite) -> FSceneSourceBundleAsyncHandle
 	{
 		auto State = std::make_shared<FSceneSourceBundleAsyncState>();
 		State->Scope = CreateTaskScope();
@@ -1180,12 +1181,12 @@ namespace Durin::AssetForge::Builtins
 			[State, InputRoot = std::move(InputRoot),
 				ReferencingContentPath = std::move(ReferencingContentPath),
 				ExternalIngestDestination = std::move(ExternalIngestDestination),
-				bEngineAuthoringContext](const FTaskCancellationToken&) mutable {
+				bAllowEngineContentWrite](const FTaskCancellationToken&) mutable {
 				const FScopedImportWorkerPreparation WorkerPreparation;
 				FSceneSourceBundleAsyncState::FResult Result;
 				Result.bSucceeded = PrepareSceneSourceBundleImpl(
 					InputRoot, ReferencingContentPath, ExternalIngestDestination,
-					Result.Bundle, Result.Error, bEngineAuthoringContext,
+					Result.Bundle, Result.Error, bAllowEngineContentWrite,
 					[State] { return State->Cancellation.IsCancellationRequested(); });
 				return Result;
 			}, LaunchOptions, 4ull * 1'024ull * 1'024ull);

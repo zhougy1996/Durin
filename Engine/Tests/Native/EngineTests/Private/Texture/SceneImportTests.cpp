@@ -56,10 +56,10 @@ namespace
 			std::vector<Durin::PathUtilities::FMountPoint>{
 				{.VirtualRoot = "/Engine/", .Owner = Durin::PathUtilities::EMountOwner::Test,
 					.Root = Root / "Engine/Content", .bAutoScan = true,
-					.bAuthoringWritable = true},
+					.bContentWritable = true},
 				{.VirtualRoot = "/SceneImportTests/", .Owner = Durin::PathUtilities::EMountOwner::Test,
 					.Root = Root / "Project/Content", .bAutoScan = true,
-					.bAuthoringWritable = true, .Dependencies = {"/Engine/"}}});
+					.bContentWritable = true, .Dependencies = {"/Engine/"}}});
 		EXPECT_TRUE(Mounts->IsValid()) << Mounts->GetError();
 		EXPECT_NE(Durin::AssetForge::Builtins::EnsureImportedSurfaceMaterial(Error), nullptr) << Error;
 		const std::filesystem::path Input = std::filesystem::path(DURIN_TEST_DATA_DIR)

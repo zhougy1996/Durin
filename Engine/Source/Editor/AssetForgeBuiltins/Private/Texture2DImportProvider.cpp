@@ -2,7 +2,7 @@
 #include "BuiltinImportProviderCommon.h"
 #include "BuiltinImportProvenance.h"
 #include "BuiltinProviderRegistration.h"
-#include "Asset/AssetAuthoringOperations.h"
+#include "Asset/AssetOperations.h"
 
 namespace Durin::AssetForge::Builtins
 {

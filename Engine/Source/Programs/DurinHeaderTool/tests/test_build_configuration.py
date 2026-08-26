@@ -112,7 +112,7 @@ class TestModuleDependency:
                             "Root": "Plugins/Fixture",
                             "ContentPath": "Content",
                             "AutoScan": True,
-                            "AuthoringWritable": False,
+                            "ContentWritable": False,
                             "Dependencies": ["/Engine/"],
                         }
                     ],

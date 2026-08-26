@@ -25,8 +25,8 @@ namespace Durin
 			TextureCubeRegistration = FModuleStartup::RegisterFeature<ITextureCubePostLoadFeature>(AssetFeatures);
 			VolumeTextureRegistration = FModuleStartup::RegisterFeature<
 				IVolumeTextureImportRecoveryFeature>(AssetFeatures);
-			AuthoringReadinessRegistration = FModuleStartup::RegisterFeature<
-				IAssetAuthoringReadinessFeature>(AssetFeatures);
+			SaveReadinessRegistration = FModuleStartup::RegisterFeature<
+				IAssetSaveReadinessFeature>(AssetFeatures);
 			require(StaticMeshBuildRegistration.IsValid());
 			require(StaticMeshPostLoadRegistration.IsValid());
 			require(StaticMeshSourceMutationRegistration.IsValid());
@@ -34,7 +34,7 @@ namespace Durin
 			require(Texture2DRecoveryRegistration.IsValid());
 			require(TextureCubeRegistration.IsValid());
 			require(VolumeTextureRegistration.IsValid());
-			require(AuthoringReadinessRegistration.IsValid());
+			require(SaveReadinessRegistration.IsValid());
 			TerrainFeatures = std::make_unique<AssetForge::Builtins::FTerrainHeightmapAssetFeatures>();
 			require(TerrainFeatures->SetOperationGroup(
 				FModuleStartup::CreateAsyncOperationGroup("TerrainDerivedDataLoads")));
@@ -64,7 +64,7 @@ namespace Durin
 		FModularFeatureRegistration Texture2DRecoveryRegistration;
 		FModularFeatureRegistration TextureCubeRegistration;
 		FModularFeatureRegistration VolumeTextureRegistration;
-		FModularFeatureRegistration AuthoringReadinessRegistration;
+		FModularFeatureRegistration SaveReadinessRegistration;
 		std::unique_ptr<AssetForge::Builtins::FTerrainHeightmapAssetFeatures> TerrainFeatures;
 		FModularFeatureRegistration TerrainDerivedDataLoadRegistration;
 		FModularFeatureRegistration TerrainSourceMutationRegistration;

@@ -50,14 +50,14 @@ namespace
 					.Root = Root / "Engine",
 					.ContentPath = "Content",
 					.bAutoScan = true,
-					.bAuthoringWritable = true},
+					.bContentWritable = true},
 				{
 					.VirtualRoot = "/Game/",
 					.Owner = EMountOwner::ActiveProject,
 					.Root = Root / "Game",
 					.ContentPath = "Content",
 					.bAutoScan = true,
-					.bAuthoringWritable = true,
+					.bContentWritable = true,
 					.Dependencies = {"/Engine/", "/Plugins/PCG/", "/Libraries/StudioArt/"}},
 				{
 					.VirtualRoot = "/Plugins/PCG/",
@@ -65,20 +65,20 @@ namespace
 					.Root = Root / "PCG",
 					.ContentPath = "Content",
 					.bAutoScan = true,
-					.bAuthoringWritable = false,
+					.bContentWritable = false,
 					.Dependencies = {"/Engine/"}},
 				{
 					.VirtualRoot = "/Libraries/StudioArt/",
 					.Owner = EMountOwner::ExternalSources,
 					.Root = Root / "StudioArt",
 					.ContentPath = ".",
-					.bAuthoringWritable = false,
+					.bContentWritable = false,
 					.Dependencies = {"/Engine/"}},
 				{
 					.VirtualRoot = "/Libraries/Offline/",
 					.Owner = EMountOwner::ExternalSources,
 					.Root = Root / "Offline",
-					.bAuthoringWritable = false,
+					.bContentWritable = false,
 					.Dependencies = {"/Engine/"}}}};
 		}
 
@@ -130,7 +130,7 @@ TEST(FPathsTests, RootAndEngineMountAreWorkspaceRelative)
 			.Root = EngineDir,
 			.ContentPath = "Content",
 			.bAutoScan = true,
-			.bAuthoringWritable = true}};
+			.bContentWritable = true}};
 	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 	const Durin::PathUtilities::FAssetPathResult Result =
@@ -194,7 +194,7 @@ TEST(FPathsTests, ExplicitProjectFileControlsProjectDirectoryAndMount)
 			.Root = ProjectDir,
 			.ContentPath = "Content",
 			.bAutoScan = true,
-			.bAuthoringWritable = true}};
+			.bContentWritable = true}};
 	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 	const Durin::PathUtilities::FAssetPathResult Result =
@@ -252,9 +252,9 @@ TEST_F(FMountRegistryTests, ResolvesTypedPathsClassifiesRootsAndEnforcesPolicy)
 	EXPECT_EQ(
 		CheckMountDependency("/Engine/Asset", "/Game/Source").Error,
 		EMountPathError::ForbiddenDependency);
-	EXPECT_TRUE(CheckAuthoringMutation("/Game/Asset", "/Game/Textures/New.png"));
+	EXPECT_TRUE(CheckContentWriteAdmission("/Game/Asset", "/Game/Textures/New.png"));
 	EXPECT_EQ(
-		CheckAuthoringMutation("/Game/Asset", "/Engine/Textures/Stone.png").Error,
+		CheckContentWriteAdmission("/Game/Asset", "/Engine/Textures/Stone.png").Error,
 		EMountPathError::ReadOnlyMount);
 
 	std::string PublishError;

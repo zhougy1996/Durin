@@ -3,7 +3,8 @@
 #include "Asset/AssetCompilingManager.h"
 #include "AssetForge/ImportTypes.h"
 #include "AssetForge/ImportService.h"
-#include "AssetAuthoring.h"
+#include "Asset/MountedSource.h"
+#include "Asset.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
 #include "Dialogs/FileDialog.h"
@@ -817,7 +818,7 @@ namespace Durin::Editor::Texture
 					"{} ({})  |  {}",
 					Resolved.Mount->VirtualRoot,
 					DescribeMountOwner(Resolved.Mount->Owner),
-					Resolved.Mount->bAuthoringWritable ? "writable" : "read-only"));
+					Resolved.Mount->bContentWritable ? "writable" : "read-only"));
 			}
 			if (SourceReferenceIndex.IsCurrent())
 			{
@@ -1257,7 +1258,7 @@ namespace Durin::Editor::Texture
 		{
 			std::string Error;
 			if (!::Durin::Editor::RelocateMountedSourceAcrossPackages({
-					.AuthoringAssetPath =
+					.ReferencingAssetPath =
 						Texture && Texture->GetPackage()
 							? Texture->GetPackage()->GetPackagePath() : "",
 					.OriginalSourceVirtualPath =

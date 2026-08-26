@@ -3,7 +3,7 @@
 #include "BuiltinImportProvenance.h"
 #include "DObject/Package.h"
 #include "BuiltinProviderRegistration.h"
-#include "Asset/AssetAuthoringOperations.h"
+#include "Asset/AssetOperations.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -492,7 +492,7 @@ namespace Durin::AssetForge::Builtins
 			std::string_view AssetPath,
 			const FStaticMeshImportSettings& ImportSettings,
 			std::string_view SourceDestination,
-			bool bEngineAuthoringContext) -> FStaticMeshImportResult
+			bool bAllowEngineContentWrite) -> FStaticMeshImportResult
 		{
 			const std::filesystem::path Input =
 				std::filesystem::absolute(FilePath).lexically_normal();
@@ -520,8 +520,8 @@ namespace Durin::AssetForge::Builtins
 			FScopedMountedSourceFile MountedSource;
 			if (!PrepareMountedSourceFile(
 				Input, ParsedAssetPath.ToString(), StoredSourcePath, MountedSource, Error,
-				bEngineAuthoringContext
-					? EMountedSourceMutationContext::EngineAuthoring
+				bAllowEngineContentWrite
+					? EMountedSourceMutationContext::EngineContentWrite
 					: EMountedSourceMutationContext::DependencySafe))
 				return {false, std::move(Error), nullptr};
 			FImportRequest Request;
@@ -592,7 +592,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto SubmitStaticMeshImport(std::string_view FilePath,
 		const FAssetPath& Destination, const FStaticMeshImportSettings& Settings,
-		std::string_view SourceDestination, bool bEngineAuthoringContext,
+		std::string_view SourceDestination, bool bAllowEngineContentWrite,
 		FImportCompletion Completion, std::string& OutError)
 		-> FImportHandle
 	{
@@ -609,8 +609,8 @@ namespace Durin::AssetForge::Builtins
 			PhysicalDestination, StoredSourcePath, OutError)) return {};
 		auto Mounted = std::make_shared<FScopedMountedSourceFile>();
 		if (!PrepareMountedSourceFile(Input, Destination.ToString(), StoredSourcePath,
-			*Mounted, OutError, bEngineAuthoringContext
-				? EMountedSourceMutationContext::EngineAuthoring
+			*Mounted, OutError, bAllowEngineContentWrite
+				? EMountedSourceMutationContext::EngineContentWrite
 				: EMountedSourceMutationContext::DependencySafe)) return {};
 		FImportRequest Request;
 		if (!MakeStaticMeshImportRequest(Mounted->SourcePath, Destination, Settings,

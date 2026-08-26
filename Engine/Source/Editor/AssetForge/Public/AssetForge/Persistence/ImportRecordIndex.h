@@ -2,7 +2,7 @@
 
 #include "AssetForgeAPI.h"
 #include "Asset/MutationExtensions.h"
-#include "Asset/PackageAuthoring.h"
+#include "Asset/PackageSerialization.h"
 #include "AssetForge/Persistence/ImportRecord.h"
 
 namespace Durin::AssetForge

@@ -6,7 +6,7 @@
       "Root": "Plugin",
       "ContentPath": "Content",
       "AutoScan": true,
-      "AuthoringWritable": false,
+      "ContentWritable": false,
       "Dependencies": [
         "/Engine/"
       ]
@@ -17,7 +17,7 @@
       "Root": "StudioArt",
       "ContentPath": ".",
       "AutoScan": false,
-      "AuthoringWritable": false,
+      "ContentWritable": false,
       "Dependencies": [
         "/Engine/"
       ]

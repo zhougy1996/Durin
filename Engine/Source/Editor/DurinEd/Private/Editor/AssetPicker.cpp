@@ -1,6 +1,6 @@
 #include "Editor/AssetPicker.h"
 
-#include "AssetAuthoring.h"
+#include "Asset.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
 #include "Editor/AssetDragDrop.h"

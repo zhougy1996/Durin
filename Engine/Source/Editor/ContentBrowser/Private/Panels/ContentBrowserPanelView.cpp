@@ -8,7 +8,9 @@
 #include "AssetForge/Persistence/ImportRecordIndex.h"
 #include "Panels/ContentBrowserItemView.h"
 
-#include "AssetAuthoring.h"
+#include "Asset/AssetOperations.h"
+#include "Asset.h"
+#include "Asset/References.h"
 #include "Assets/ContentBrowserThumbnailCache.h"
 #include "Editor/AssetDragDrop.h"
 #include "Editor/WorkspaceUI.h"

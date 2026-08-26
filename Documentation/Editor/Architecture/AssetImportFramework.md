@@ -37,7 +37,7 @@ The dependency direction is `Core/CoreDObject -> AssetCore -> AssetForge
   source/build graph contracts, candidates, import records, record
   indexing, component registries, and scheduled/inline orchestration.
 - Extension modules register source translators for source semantics, ordered planning
-  passes for authoring policy, and typed asset builders for output construction. None owns
+  passes for import policy, and typed asset builders for output construction. None owns
   a complete import job.
 - Editor hosts build or reconstruct `FImportRequest` values and
   observe framework operation snapshots and terminal outcomes. They do not
@@ -55,7 +55,7 @@ public module dependency; geometry recipes are implementation-only and the
 implementation-only through the private `TerrainBuild` dependency.
 
 Public framework contracts supplied by `AssetForge` live in
-`Durin::AssetForge`. Built-in registration, direct authoring APIs,
+`Durin::AssetForge`. Built-in registration, direct asset-operation APIs,
 format admission, and typed translators supplied by AssetForgeBuiltins live in
 `Durin::AssetForge::Builtins`. Implementation-only build composition and
 uncooked policies remain private to the physical module; no former C++
@@ -317,7 +317,7 @@ compatibility identity.
 A runtime-only target loads
 cooked outputs without `AssetForge`, `AssetForgeBuiltins`, Assimp,
 authoring source files, or DDC fallback. Core may contain the generic codec,
-but cooked loading never invokes source decoding or admits authoring policy.
+but cooked loading never invokes source decoding or admits editor import policy.
 
 For skeletal Scene outputs, candidate construction hashes the exact ordered
 source closure plus normalized Scene settings, typed implementation state, stable

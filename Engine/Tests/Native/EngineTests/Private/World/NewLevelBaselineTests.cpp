@@ -118,7 +118,7 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 		.Owner = Durin::PathUtilities::EMountOwner::Test,
 		.Root = Root.generic_string() + "/",
 		.bAutoScan = true,
-		.bAuthoringWritable = true,
+		.bContentWritable = true,
 		.Dependencies = {"/Engine/"}});
 	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry(MountDefinitions);
 	ASSERT_TRUE(MountRegistry.IsValid()) << MountRegistry.GetError();

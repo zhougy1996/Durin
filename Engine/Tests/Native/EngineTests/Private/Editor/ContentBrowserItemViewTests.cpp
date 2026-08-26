@@ -92,7 +92,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				.Owner = PathUtilities::EMountOwner::Test,
 				.Root = Root / "Content",
 				.bAutoScan = true,
-				.bAuthoringWritable = true}};
+				.bContentWritable = true}};
 		PathUtilities::FScopedMountRegistryFixture Registry(Definitions);
 		ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 		FAssetPath CubePath;

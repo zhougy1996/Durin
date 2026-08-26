@@ -79,7 +79,7 @@ namespace Durin
 				.Root = Root / "Content",
 				.ContentPath = ".",
 				.bAutoScan = true,
-				.bAuthoringWritable = true}};
+				.bContentWritable = true}};
 		PathUtilities::FScopedMountRegistryFixture Mounts(Definitions);
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 		FPaths::SetDerivedDataCacheDirForTests(
@@ -471,4 +471,4 @@ namespace Durin
 		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
 	}
 } // namespace Durin
-#include "TextureAuthoringTestEnvironment.h"
+#include "TextureAssetTestEnvironment.h"

@@ -25,7 +25,7 @@ namespace Durin::AssetForge::Builtins
 	ASSETFORGEBUILTINS_API auto SubmitStaticMeshImport(
 		std::string_view FilePath, const FAssetPath& Destination,
 		const FStaticMeshImportSettings& Settings,
-		std::string_view SourceDestination, bool bEngineAuthoringContext,
+		std::string_view SourceDestination, bool bAllowEngineContentWrite,
 		FImportCompletion Completion,
 		std::string& OutError) -> FImportHandle;
 	ASSETFORGEBUILTINS_API auto ChangeStaticMeshSourceReference(
@@ -48,5 +48,5 @@ namespace Durin::AssetForge::Builtins
 		std::string_view AssetPath,
 		const FStaticMeshImportSettings& ImportSettings = {},
 		std::string_view SourceDestination = {},
-		bool bEngineAuthoringContext = false) -> FStaticMeshImportResult;
+		bool bAllowEngineContentWrite = false) -> FStaticMeshImportResult;
 }

@@ -184,9 +184,9 @@ namespace Durin::Asset
 			return false;
 		}
 		const PathUtilities::FMountPolicyResult Mutation =
-			PathUtilities::CheckAuthoringMutation(
+			PathUtilities::CheckContentWriteAdmission(
 				ReferencingAssetPath, Destination.NormalizedVirtualPath,
-				MutationContext == EMountedSourceMutationContext::EngineAuthoring);
+				MutationContext == EMountedSourceMutationContext::EngineContentWrite);
 		if (!Mutation)
 		{
 			OutError = Mutation.Message;
@@ -271,7 +271,7 @@ namespace Durin::Asset
 			return false;
 		}
 		const PathUtilities::FMountPolicyResult Mutation =
-			PathUtilities::CheckAuthoringMutation(
+			PathUtilities::CheckContentWriteAdmission(
 				ReferencingAssetPath, Destination.NormalizedVirtualPath);
 		if (!Mutation)
 		{
@@ -382,7 +382,7 @@ namespace Durin::Asset
 
 	auto PrepareMountedSourceReplacement(
 		const std::filesystem::path& ReplacementFile,
-		std::string_view AuthoringAssetPath,
+		std::string_view ReferencingAssetPath,
 		std::string_view SourceVirtualPath,
 		FMountedSourceReplacement& OutReplacement,
 		std::string& OutError,
@@ -408,9 +408,9 @@ namespace Durin::Asset
 			return false;
 		}
 		const PathUtilities::FMountPolicyResult Mutation =
-			PathUtilities::CheckAuthoringMutation(
-				AuthoringAssetPath, Target.NormalizedVirtualPath,
-				MutationContext == EMountedSourceMutationContext::EngineAuthoring);
+			PathUtilities::CheckContentWriteAdmission(
+				ReferencingAssetPath, Target.NormalizedVirtualPath,
+				MutationContext == EMountedSourceMutationContext::EngineContentWrite);
 		if (!Mutation)
 		{
 			OutError = Mutation.Message;
@@ -494,7 +494,7 @@ namespace Durin::Asset
 	}
 
 	auto PrepareMountedSourceRelocation(
-		std::string_view AuthoringAssetPath,
+		std::string_view ReferencingAssetPath,
 		std::string_view OriginalSourceVirtualPath,
 		std::string_view DestinationSourceVirtualPath,
 		FMountedSourceRelocation& OutRelocation,
@@ -526,18 +526,18 @@ namespace Durin::Asset
 			return false;
 		}
 		const PathUtilities::FMountPolicyResult OriginalMutation =
-			PathUtilities::CheckAuthoringMutation(
-				AuthoringAssetPath, Original.NormalizedVirtualPath,
-				MutationContext == EMountedSourceMutationContext::EngineAuthoring);
+			PathUtilities::CheckContentWriteAdmission(
+				ReferencingAssetPath, Original.NormalizedVirtualPath,
+				MutationContext == EMountedSourceMutationContext::EngineContentWrite);
 		if (!OriginalMutation)
 		{
 			OutError = OriginalMutation.Message;
 			return false;
 		}
 		const PathUtilities::FMountPolicyResult DestinationMutation =
-			PathUtilities::CheckAuthoringMutation(
-				AuthoringAssetPath, Destination.NormalizedVirtualPath,
-				MutationContext == EMountedSourceMutationContext::EngineAuthoring);
+			PathUtilities::CheckContentWriteAdmission(
+				ReferencingAssetPath, Destination.NormalizedVirtualPath,
+				MutationContext == EMountedSourceMutationContext::EngineContentWrite);
 		if (!DestinationMutation)
 		{
 			OutError = DestinationMutation.Message;

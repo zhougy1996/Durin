@@ -5403,7 +5403,7 @@ TEST(FPackageAssetTests, ManualScanMountsRequireExplicitAdmissionBeforeLoading)
 			.Root = Root,
 			.ContentPath = ".",
 			.bAutoScan = false,
-			.bAuthoringWritable = true
+			.bContentWritable = true
 		}
 	};
 	Durin::FAssetPath Path;
@@ -5635,14 +5635,14 @@ TEST(FPackageAssetTests, RegistryDuplicatePathsReadOnlyTheAcceptedReferenceSourc
 			.Root = RootA,
 			.ContentPath = ".",
 			.bAutoScan = true,
-			.bAuthoringWritable = true},
+			.bContentWritable = true},
 		Durin::PathUtilities::FMountPoint{
 			.VirtualRoot = "/TestAssets/Nested/",
 			.Owner = Durin::PathUtilities::EMountOwner::Test,
 			.Root = RootB,
 			.ContentPath = ".",
 			.bAutoScan = true,
-			.bAuthoringWritable = true}};
+			.bContentWritable = true}};
 	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(Definitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());

@@ -1,6 +1,7 @@
 #include "AssetForge/Builtins/VolumeTextureImport.h"
 
-#include "AssetAuthoring.h"
+#include "Asset/MountedSource.h"
+#include "Asset.h"
 #include "DObject/Package.h"
 #include "Image/ImageDecoder.h"
 #include "Misc/FileHelper.h"
@@ -343,7 +344,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto ImportVolumeTextureAsset(std::string_view FilePath,
 		std::string_view AssetPath, const FVolumeTextureImportSettings& Settings,
-		bool bEngineAuthoringContext)
+		bool bAllowEngineContentWrite)
 		-> FVolumeTextureImportResult
 	{
 		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
@@ -363,8 +364,8 @@ namespace Durin::AssetForge::Builtins
 			&& !MakeDefaultSourceDestination(ParsedAssetPath,
 				Input.filename().generic_string(), SourceDestination, Error))
 			return {false, std::move(Error), nullptr};
-		const Asset::EMountedSourceMutationContext MutationContext = bEngineAuthoringContext
-			? Asset::EMountedSourceMutationContext::EngineAuthoring
+		const Asset::EMountedSourceMutationContext MutationContext = bAllowEngineContentWrite
+			? Asset::EMountedSourceMutationContext::EngineContentWrite
 			: Asset::EMountedSourceMutationContext::DependencySafe;
 		Asset::FScopedMountedSourceFile MountedSource;
 		if (!Asset::PrepareMountedSourceFile(Input, ParsedAssetPath.ToString(),
@@ -389,7 +390,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto SubmitVolumeTextureImport(std::string_view FilePath,
 		const FAssetPath& Destination, const FVolumeTextureImportSettings& Settings,
-		bool bEngineAuthoringContext, FImportCompletion Completion,
+		bool bAllowEngineContentWrite, FImportCompletion Completion,
 		std::string& OutError)
 		-> FImportHandle
 	{
@@ -406,8 +407,8 @@ namespace Durin::AssetForge::Builtins
 			Input.filename().generic_string(), SourceDestination, OutError)) return {};
 		auto Mounted = std::make_shared<FScopedMountedSourceFile>();
 		if (!PrepareMountedSourceFile(Input, Destination.ToString(), SourceDestination,
-			*Mounted, OutError, bEngineAuthoringContext
-				? EMountedSourceMutationContext::EngineAuthoring
+			*Mounted, OutError, bAllowEngineContentWrite
+				? EMountedSourceMutationContext::EngineContentWrite
 				: EMountedSourceMutationContext::DependencySafe)) return {};
 		FImportRequest Request;
 		if (!MakeVolumeTextureImportRequest(Mounted->SourcePath, Destination, Settings,

@@ -1,10 +1,10 @@
-#include "AssetAuthoringReadiness.h"
+#include "AssetSaveReadiness.h"
 
 #include "Modules/ModularFeature.h"
 
 namespace Durin
 {
-	auto ValidateAssetAuthoringReadiness(const DObject* Asset)
+	auto ValidateAssetSaveReadiness(const DObject* Asset)
 		-> Asset::FAssetResult
 	{
 		if (!Asset)
@@ -12,8 +12,8 @@ namespace Durin
 				"Loaded package has no main asset."};
 
 		const auto Invoked = FModularFeatureRegistry::Get().InvokeAll<
-			IAssetAuthoringReadinessFeature>(
-			[&](IAssetAuthoringReadinessFeature& Feature) {
+			IAssetSaveReadinessFeature>(
+			[&](IAssetSaveReadinessFeature& Feature) {
 				return Feature.Validate(*Asset);
 			});
 		std::optional<Asset::FAssetResult> Handled;

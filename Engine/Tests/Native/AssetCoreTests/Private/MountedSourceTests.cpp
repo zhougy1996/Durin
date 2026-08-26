@@ -101,7 +101,7 @@ TEST(FMountedSourceTests, StagesCommitsAndRollsBackWithoutEngine)
 			.Root = Root / "Game",
 			.ContentPath = "Content",
 			.bAutoScan = true,
-			.bAuthoringWritable = true}};
+			.bContentWritable = true}};
 	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Mounts);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 
@@ -152,7 +152,7 @@ TEST(FMountedSourceTests, ScopedOwnerRollsBackAndTransfersExactlyOnce)
 			.Root = Root / "Game",
 			.ContentPath = "Content",
 			.bAutoScan = true,
-			.bAuthoringWritable = true}};
+			.bContentWritable = true}};
 	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Mounts);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 	std::string Error;
@@ -202,7 +202,7 @@ TEST(FMountedSourceTests, ScopedOwnerNeverRemovesReferencedOrReusedFiles)
 			.Root = Root / "Game",
 			.ContentPath = "Content",
 			.bAutoScan = true,
-			.bAuthoringWritable = true}};
+			.bContentWritable = true}};
 	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Mounts);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 	std::string Error;

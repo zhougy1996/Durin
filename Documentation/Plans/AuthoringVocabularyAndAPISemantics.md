@@ -9,18 +9,23 @@ Completed:
 
 ## Current Status
 
-Stages 0 and 1 are complete. StaticMesh build, post-load, and source mutation
+Stages 0 through 2 are complete. StaticMesh build, post-load, and source mutation
 have independent modular features because their callers require independent
 availability; one AssetForgeBuiltins implementation object still implements
 all three contracts. TextureCube and VolumeTexture now use post-load feature
 vocabulary, while Terrain derived-data loading and source mutation use separate
 features and generation-safe publication names.
 
-The `AssetForgeBuiltins` module closure builds. `StaticMeshTests` passed 74/74,
-`TextureTests` passed 78/78, and `TerrainHeightmapTests` passed 11/11. The
-Texture target also required correcting a stale private-header include that
-prevented the existing focused target from compiling. Stage 2 is the next open
-stage.
+The Stage 1 `AssetForgeBuiltins` module closure builds; `StaticMeshTests` passed
+74/74, `TextureTests` passed 78/78, and `TerrainHeightmapTests` passed 11/11.
+Stage 2 renamed content-write, project-edit, asset-operation, package-
+serialization, and save-readiness APIs, removed the AssetCore authoring
+umbrella, and retained `AuthoringWritable` only as a legacy descriptor input.
+Launch and all affected editor/program targets build. `CoreFileSystemTests`
+completed with 36 passes and 2 skips; `AssetMountedSourceTests` passed 4/4,
+`AssetSaveReadinessTests` 3/3, `AssetPackageTests` 123/123,
+`EditorAssetWorkflowTests` 35/35, and the focused DurinHeaderTool descriptor and
+configuration tests 57/57. Stage 3 is the next open stage.
 
 ## Goal
 
@@ -160,11 +165,10 @@ interface-shape decision; the vocabulary and module ownership are fixed.
 
 The canonical project mount key becomes `ContentWritable`. Checked-in schemas,
 fixtures, examples, and generated descriptor expectations migrate in the same
-stage. The loader may accept legacy `AuthoringWritable` only as a documented
-input migration path if repository compatibility policy requires it; it must
-reject descriptors containing both keys, emit only the canonical key, and must
-not expose the legacy spelling in C++ APIs. Stage 2 records the compatibility
-decision and evidence before implementation.
+stage. Because project descriptors have no format-version migration boundary,
+the loader accepts legacy `AuthoringWritable` only as an input migration path.
+It rejects descriptors containing both keys, while schemas, checked-in data,
+examples, generated descriptors, and all C++ APIs use only `ContentWritable`.
 
 ### Tests
 
@@ -272,25 +276,25 @@ cleanup.”
 
 ### Stage 2: Clarify content-write, project-edit, and persistence APIs
 
-- [ ] Rename `FMountPoint::bAuthoringWritable`, mount mutation checks,
+- [x] Rename `FMountPoint::bAuthoringWritable`, mount mutation checks,
   `EMountedSourceMutationContext::EngineAuthoring`, parameters, helpers,
   diagnostics, and UI labels to content-write vocabulary.
-- [ ] Decide and record the project-descriptor compatibility treatment, then
+- [x] Decide and record the project-descriptor compatibility treatment, then
   migrate the schema, loader, checked-in fixtures, examples, and tests to the
   canonical `ContentWritable` key.
-- [ ] Rename project authoring ownership APIs and lock diagnostics to project
+- [x] Rename project authoring ownership APIs and lock diagnostics to project
   edit ownership without changing lock path, process lifetime, or release
   ordering.
-- [ ] Rename `AssetAuthoringOperations.h` to `AssetOperations.h` and
+- [x] Rename `AssetAuthoringOperations.h` to `AssetOperations.h` and
   `PackageAuthoring.h` to `PackageSerialization.h`; update exact includes and
   keep save/canonicalization behavior unchanged.
-- [ ] Remove the `AssetAuthoring.h` umbrella and replace every consumer with
+- [x] Remove the `AssetAuthoring.h` umbrella and replace every consumer with
   the smallest direct AssetCore includes it uses.
-- [ ] Rename asset authoring readiness declarations, feature identifiers,
+- [x] Rename asset authoring readiness declarations, feature identifiers,
   implementation files, tests, and program call sites to asset save readiness.
-- [ ] Rename remaining import-dialog and mounted-source variables such as
+- [x] Rename remaining import-dialog and mounted-source variables such as
   `bEngineAuthoringContext` to explicit Engine-content write permission.
-- [ ] Update workspace project, asset package, asset catalog, mounted source,
+- [x] Update workspace project, asset package, asset catalog, mounted source,
   import, and asset lifecycle documentation.
 
 #### Acceptance Gate
@@ -450,11 +454,10 @@ not be used to expand rendering behavior.
 
 - `Engine/Source/Runtime/Core/Public/Misc/Paths.h`
 - `Engine/Source/Runtime/Core/Public/Misc/Project.h`
-- `Engine/Source/Runtime/AssetCore/Public/AssetAuthoring.h`
-- `Engine/Source/Runtime/AssetCore/Public/Asset/AssetAuthoringOperations.h`
-- `Engine/Source/Runtime/AssetCore/Public/Asset/PackageAuthoring.h`
+- `Engine/Source/Runtime/AssetCore/Public/Asset/AssetOperations.h`
+- `Engine/Source/Runtime/AssetCore/Public/Asset/PackageSerialization.h`
 - `Engine/Source/Runtime/AssetCore/Public/Asset/MountedSource.h`
-- `Engine/Source/Runtime/Engine/Public/AssetAuthoringReadiness.h`
+- `Engine/Source/Runtime/Engine/Public/AssetSaveReadiness.h`
 - `Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshAuthoring.h`
 - `Engine/Source/Runtime/Engine/Public/Texture/Texture2DPostLoad.h`
 - `Engine/Source/Runtime/Engine/Public/Texture/TextureCubePostLoad.h`

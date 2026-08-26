@@ -37,7 +37,7 @@ namespace
 					.Owner = PathUtilities::EMountOwner::Test,
 					.Root = Root / "Content",
 					.bAutoScan = true,
-					.bAuthoringWritable = true}};
+					.bContentWritable = true}};
 			Registry =
 				std::make_unique<PathUtilities::FScopedMountRegistryFixture>(
 					Definitions);
@@ -231,13 +231,13 @@ TEST_F(FContentBrowserModelTests, RejectsExcludedMountsAndClearsStaleCurrentDire
 			.Owner = PathUtilities::EMountOwner::Test,
 			.Root = Root / "Content",
 			.bAutoScan = true,
-			.bAuthoringWritable = true},
+			.bContentWritable = true},
 		PathUtilities::FMountPoint{
 			.VirtualRoot = "/ContentBrowserExcluded/",
 			.Owner = PathUtilities::EMountOwner::Test,
 			.Root = Root / "Excluded",
 			.bAutoScan = false,
-			.bAuthoringWritable = true}};
+			.bContentWritable = true}};
 	Registry = std::make_unique<PathUtilities::FScopedMountRegistryFixture>(
 		Definitions);
 	ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
@@ -273,7 +273,7 @@ TEST_F(FContentBrowserModelTests, RejectsExcludedMountsAndClearsStaleCurrentDire
 			.Owner = PathUtilities::EMountOwner::Test,
 			.Root = Root / "Replacement",
 			.bAutoScan = true,
-			.bAuthoringWritable = true}};
+			.bContentWritable = true}};
 	Registry = std::make_unique<PathUtilities::FScopedMountRegistryFixture>(
 		ReplacementDefinitions);
 	ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
@@ -993,7 +993,7 @@ TEST_F(FContentBrowserModelTests, RejectsOrdinaryMutationsInReadOnlyMount)
 			.Owner = PathUtilities::EMountOwner::Test,
 			.Root = Root / "Content",
 			.bAutoScan = true,
-			.bAuthoringWritable = false}};
+			.bContentWritable = false}};
 	Registry = std::make_unique<PathUtilities::FScopedMountRegistryFixture>(
 		Definitions);
 	ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
@@ -1292,7 +1292,7 @@ TEST(FContentDeletionAnalysisTests, RejectsReadOnlyMountBeforeMutation)
 			.Owner = PathUtilities::EMountOwner::Test,
 			.Root = Root / "Content",
 			.bAutoScan = true,
-			.bAuthoringWritable = false}};
+			.bContentWritable = false}};
 	PathUtilities::FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 	FContentBrowserModel Model;

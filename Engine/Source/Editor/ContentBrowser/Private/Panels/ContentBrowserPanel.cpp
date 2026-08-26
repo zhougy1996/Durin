@@ -60,7 +60,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				&Asset::FAssetPackageCompatibilityProbeInput::PackagePath);
 			if (Input == Snapshot.Packages.end())
 			{
-				SetError(std::format("Package {} is not in an authoring-mounted snapshot.", Path.ToString()));
+				SetError(std::format("Package {} is not in an content-writable mounted snapshot.", Path.ToString()));
 				return;
 			}
 			auto Probe = Asset::ProbeAssetPackageCompatibility(*Input, Catalog);

@@ -14,7 +14,7 @@ namespace Durin::Editor
 	};
 
 	// Reads a process-shared immutable reverse index of serialized source provenance.
-	// UI callers request asynchronous revision-driven rebuilds; explicit authoring
+	// UI callers request asynchronous revision-driven rebuilds; explicit asset mutation
 	// workflows may use Refresh when they must synchronously obtain a current snapshot.
 	class FSourceReferenceIndex
 	{

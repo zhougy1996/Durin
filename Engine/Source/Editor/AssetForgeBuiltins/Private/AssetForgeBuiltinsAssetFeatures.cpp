@@ -10,41 +10,41 @@
 namespace Durin::AssetForge::Builtins
 {
 	auto FAssetForgeBuiltinsAssetFeatures::Validate(const DObject& Object) const
-		-> FAssetAuthoringReadinessFeatureResult
+		-> FAssetSaveReadinessFeatureResult
 	{
 		auto NotReady = [](std::string_view Domain) {
-			return FAssetAuthoringReadinessFeatureResult{
+			return FAssetSaveReadinessFeatureResult{
 				.bHandled = true,
 				.Result = {Asset::EAssetError::StaleData,
 					std::format("{} post-load recovery did not publish domain-ready data.", Domain)}};
 		};
 		if (const auto* Mesh = Cast<DStaticMesh>(&Object))
 			return Mesh->GetRenderData()
-				? FAssetAuthoringReadinessFeatureResult{.bHandled = true}
+				? FAssetSaveReadinessFeatureResult{.bHandled = true}
 				: NotReady("StaticMesh");
 		if (const auto* Mesh = Cast<DSkeletalMesh>(&Object))
 			return Mesh->GetRenderData()
-				? FAssetAuthoringReadinessFeatureResult{.bHandled = true}
+				? FAssetSaveReadinessFeatureResult{.bHandled = true}
 				: NotReady("SkeletalMesh");
 		if (const auto* Texture = Cast<DTexture2D>(&Object))
 			return Texture->GetPlatformData()
 				&& Texture->GetBuildStatus() == ETextureBuildStatus::Ready
-				? FAssetAuthoringReadinessFeatureResult{.bHandled = true}
+				? FAssetSaveReadinessFeatureResult{.bHandled = true}
 				: NotReady("Texture2D");
 		if (const auto* Texture = Cast<DTextureCube>(&Object))
 			return Texture->GetPlatformData()
 				&& Texture->GetBuildStatus() == ETextureBuildStatus::Ready
-				? FAssetAuthoringReadinessFeatureResult{.bHandled = true}
+				? FAssetSaveReadinessFeatureResult{.bHandled = true}
 				: NotReady("TextureCube");
 		if (const auto* Texture = Cast<DVolumeTexture>(&Object))
 			return Texture->GetPlatformData()
 				&& Texture->GetBuildStatus() == ETextureBuildStatus::Ready
-				? FAssetAuthoringReadinessFeatureResult{.bHandled = true}
+				? FAssetSaveReadinessFeatureResult{.bHandled = true}
 				: NotReady("VolumeTexture");
 		if (const auto* Heightmap = Cast<DTerrainHeightmap>(&Object))
 			return Heightmap->GetPayload()
 				&& Heightmap->GetStatus() == ETerrainHeightmapStatus::Ready
-				? FAssetAuthoringReadinessFeatureResult{.bHandled = true}
+				? FAssetSaveReadinessFeatureResult{.bHandled = true}
 				: NotReady("TerrainHeightmap");
 		return {};
 	}

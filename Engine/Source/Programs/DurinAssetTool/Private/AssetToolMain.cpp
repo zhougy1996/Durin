@@ -1,6 +1,6 @@
 #include "AssetTools.h"
 #include "AssetForge/Persistence/ImportRecord.h"
-#include "AssetAuthoringReadiness.h"
+#include "AssetSaveReadiness.h"
 
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/PackageInspection.h"
@@ -49,7 +49,7 @@ namespace
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
 		(void)Service.PumpImportOperations();
-		return Durin::ValidateAssetAuthoringReadiness(Asset);
+		return Durin::ValidateAssetSaveReadiness(Asset);
 	}
 
 	enum class EOperation : uint8

@@ -1,6 +1,8 @@
 #include "AssetForge/Builtins/TextureCubeImport.h"
 
-#include "AssetAuthoring.h"
+#include "Asset/AssetOperations.h"
+#include "Asset/MountedSource.h"
+#include "Asset.h"
 #include "DObject/Package.h"
 #include "DObject/DObjectGlobals.h"
 #include "EncodedSourceSnapshot.h"
@@ -22,11 +24,11 @@ namespace Durin::AssetForge::Builtins
 		constexpr std::array<std::string_view, TextureCubeFaceCount> FaceSuffixes = {
 			"px", "nx", "py", "ny", "pz", "nz"};
 
-		auto MutationContext(bool bEngineAuthoringContext)
+		auto MutationContext(bool bAllowEngineContentWrite)
 			-> Asset::EMountedSourceMutationContext
 		{
-			return bEngineAuthoringContext
-				? Asset::EMountedSourceMutationContext::EngineAuthoring
+			return bAllowEngineContentWrite
+				? Asset::EMountedSourceMutationContext::EngineContentWrite
 				: Asset::EMountedSourceMutationContext::DependencySafe;
 		}
 
@@ -302,7 +304,7 @@ namespace Durin::AssetForge::Builtins
 		std::string_view AssetPath,
 		const FTextureCubePanoramaImportSettings& Settings,
 		std::string_view SourceDestination,
-		bool bEngineAuthoringContext) -> FTextureCubeImportResult
+		bool bAllowEngineContentWrite) -> FTextureCubeImportResult
 	{
 		const std::filesystem::path Input =
 			std::filesystem::absolute(PanoramaFile).lexically_normal();
@@ -322,7 +324,7 @@ namespace Durin::AssetForge::Builtins
 			StoredSourcePath, Error)) return {false, std::move(Error), nullptr};
 		Asset::FScopedMountedSourceFile Source;
 		if (!Asset::PrepareMountedSourceFile(Input, ParsedAssetPath.ToString(),
-			StoredSourcePath, Source, Error, MutationContext(bEngineAuthoringContext)))
+			StoredSourcePath, Source, Error, MutationContext(bAllowEngineContentWrite)))
 			return {false, std::move(Error), nullptr};
 		FImportRequest Request;
 		const std::array Mounted{Source.SourcePath};
@@ -348,7 +350,7 @@ namespace Durin::AssetForge::Builtins
 		std::string_view AssetPath,
 		const FTextureCubeImportSettings& Settings,
 		const std::array<std::string, TextureCubeFaceCount>& SourceDestinations,
-		bool bEngineAuthoringContext) -> FTextureCubeImportResult
+		bool bAllowEngineContentWrite) -> FTextureCubeImportResult
 	{
 		FAssetPath ParsedAssetPath;
 		std::string Error;
@@ -373,7 +375,7 @@ namespace Durin::AssetForge::Builtins
 				SourceDestinations[Index], StoredSourcePath, Error)
 				|| !Asset::PrepareMountedSourceFile(Input, ParsedAssetPath.ToString(),
 					StoredSourcePath, Sources[Index], Error,
-					MutationContext(bEngineAuthoringContext)))
+					MutationContext(bAllowEngineContentWrite)))
 			{
 				return {false, std::move(Error), nullptr};
 			}
@@ -402,7 +404,7 @@ namespace Durin::AssetForge::Builtins
 		std::span<const std::string> SourceDestinations, ETextureCubeSourceLayout Layout,
 		const FAssetPath& Destination, const FTextureCubeImportSettings& FaceSettings,
 		const FTextureCubePanoramaImportSettings& PanoramaSettings,
-		bool bEngineAuthoringContext, FImportCompletion Completion,
+		bool bAllowEngineContentWrite, FImportCompletion Completion,
 		std::string& OutError) -> FImportHandle
 	{
 		const size_t Required = Layout == ETextureCubeSourceLayout::SixFaces
@@ -436,7 +438,7 @@ namespace Durin::AssetForge::Builtins
 				Input.extension().generic_string(), RequestedDestination,
 				StoredSourcePath, OutError)
 				|| !PrepareMountedSourceFile(Input, Destination.ToString(), StoredSourcePath,
-					(*Mounted)[Index], OutError, MutationContext(bEngineAuthoringContext))) return {};
+					(*Mounted)[Index], OutError, MutationContext(bAllowEngineContentWrite))) return {};
 			MountedPaths[Index] = (*Mounted)[Index].SourcePath;
 		}
 		FImportRequest Request;

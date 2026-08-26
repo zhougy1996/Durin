@@ -2,7 +2,8 @@
 
 #include "Editor/Import/AssetDestinationValidation.h"
 #include "Editor/Import/MountedSourceImport.h"
-#include "AssetAuthoring.h"
+#include "Asset/MountedSource.h"
+#include "Asset.h"
 #include "AssetForge/ImportService.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
@@ -92,14 +93,14 @@ namespace Durin::Editor::Level
 
 		const FContentDirectoryValidation DestinationValidation =
 			DestinationDirectory.Inspect();
-		const bool bEngineAuthoringContext = DestinationValidation.Mount
+		const bool bAllowEngineContentWrite = DestinationValidation.Mount
 			&& DestinationValidation.Mount->Owner == PathUtilities::EMountOwner::Engine;
 		std::string ImportSettingsError;
 		const bool bImportSettingsValid = Coordinates.GetSettings().IsValid(&ImportSettingsError);
 		const FMountedSourceImportDiagnostic SourceDiagnostic =
 			DestinationValidation.bDirectoryPathValid
 			? SourceForm.Inspect(
-				DestinationValidation.DirectoryPath.GetView(), bEngineAuthoringContext)
+				DestinationValidation.DirectoryPath.GetView(), bAllowEngineContentWrite)
 			: FMountedSourceImportDiagnostic{};
 		if (DestinationValidation.bDirectoryPathValid && bSourceExists
 			&& bImportSettingsValid && DestinationValidation
@@ -143,8 +144,8 @@ namespace Durin::Editor::Level
 			ImGui::TextDisabled("Mount: %s (%s)  |  %s  |  dependency allowed",
 				SourceDiagnostic.Mount->VirtualRoot.c_str(),
 				DescribeMountOwner(SourceDiagnostic.Mount->Owner),
-				SourceDiagnostic.Mount->bAuthoringWritable ? "writable" : "read-only");
-			if (bEngineAuthoringContext)
+				SourceDiagnostic.Mount->bContentWritable ? "writable" : "read-only");
+			if (bAllowEngineContentWrite)
 				ImGui::TextDisabled("Engine authoring: this import writes shared Engine content.");
 		}
 
@@ -403,7 +404,7 @@ namespace Durin::Editor::Level
 			SourcePathBuffer.data(), OutputDirectory.ToString(),
 			SourceMode == EMountedSourceImportMode::IngestExternal
 				? std::string(SourceDestinationBuffer.data()) : std::string{},
-			IsEngineAuthoringDestination(OutputDirectory.GetView()));
+			IsEngineContentWriteDestination(OutputDirectory.GetView()));
 		return false;
 	}
 

@@ -34,7 +34,7 @@ TEST(FTextureSourceRelocationTests, RelocatesSharedSourceAndAllReferencingPackag
 	std::string Error;
 	Second.Asset->MarkPackageDirty();
 	EXPECT_FALSE(Durin::Editor::RelocateMountedSourceAcrossPackages({
-		.AuthoringAssetPath = "/TextureImportTests/Relocation/First",
+		.ReferencingAssetPath = "/TextureImportTests/Relocation/First",
 		.OriginalSourceVirtualPath = OriginalVirtualPath,
 		.DestinationSourceVirtualPath = DestinationVirtualPath,
 		.AffectedAssets = {References.begin(), References.end()}}, Error));
@@ -49,7 +49,7 @@ TEST(FTextureSourceRelocationTests, RelocatesSharedSourceAndAllReferencingPackag
 	Second.Asset->GetPackage()->ClearDirty();
 
 	ASSERT_TRUE(Durin::Editor::RelocateMountedSourceAcrossPackages({
-		.AuthoringAssetPath = "/TextureImportTests/Relocation/First",
+		.ReferencingAssetPath = "/TextureImportTests/Relocation/First",
 		.OriginalSourceVirtualPath = OriginalVirtualPath,
 		.DestinationSourceVirtualPath = DestinationVirtualPath,
 		.AffectedAssets = {References.begin(), References.end()}}, Error)) << Error;

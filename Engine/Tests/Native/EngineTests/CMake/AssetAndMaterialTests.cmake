@@ -1,8 +1,8 @@
-durin_add_engine_functional_test(AssetAuthoringReadinessTests
+durin_add_engine_functional_test(AssetSaveReadinessTests
 	KIND contract
 	DOMAINS asset-workflow
 	MODULES engine
-	SOURCES Private/AssetAuthoringReadinessTests.cpp
+	SOURCES Private/AssetSaveReadinessTests.cpp
 )
 
 durin_add_engine_functional_test(AssetCompilingManagerTests
@@ -325,6 +325,7 @@ durin_add_engine_functional_test(SkeletalMeshRenderResourcesVulkanTests
 
 set(_durin_texture_test_include_directories
 	${CMAKE_CURRENT_SOURCE_DIR}/Private
+	${DURIN_PROJECT_ROOT_DIR}/Source
 	${DURIN_PROJECT_ROOT_DIR}/Source/Developer/TextureBuild/Private
 	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/AssetForgeBuiltins/Private
 )

@@ -21,10 +21,10 @@ namespace Durin
 		std::optional<FProjectInfo> GCurrentProject;
 		std::optional<std::string> GPendingEditorRelaunchArguments;
 #ifdef _WIN32
-		HANDLE GProjectAuthoringMutex = nullptr;
+		HANDLE GProjectEditMutex = nullptr;
 #elif defined(__APPLE__)
-		int GProjectAuthoringFile = -1;
-		pid_t GProjectAuthoringOwnerProcess = 0;
+		int GProjectEditFile = -1;
+		pid_t GProjectEditOwnerProcess = 0;
 #endif
 
 		auto Normalize(const std::filesystem::path& Path) -> std::string
@@ -105,12 +105,12 @@ namespace Durin
 		return FPlatformProcess::LaunchProcess(FPlatformProcess::ExecutablePath(), Arguments, OutError);
 	}
 
-	auto AcquireProjectAuthoringOwnership(std::string* OutError) -> bool
+	auto AcquireProjectEditOwnership(std::string* OutError) -> bool
 	{
 		if (OutError) OutError->clear();
 		if (!GCurrentProject) return true;
 #ifdef _WIN32
-		if (GProjectAuthoringMutex) return true;
+		if (GProjectEditMutex) return true;
 		uint64 Hash = 14695981039346656037ull;
 		for (unsigned char Character : GCurrentProject->ProjectFile)
 		{
@@ -123,7 +123,7 @@ namespace Durin
 		if (!Mutex)
 		{
 			if (OutError) *OutError = std::format(
-				"Could not create project authoring ownership (Windows error {}).",
+				"Could not create project edit ownership (Windows error {}).",
 				GetLastError());
 			return false;
 		}
@@ -135,14 +135,14 @@ namespace Durin
 				GCurrentProject->Name);
 			return false;
 		}
-		GProjectAuthoringMutex = Mutex;
+		GProjectEditMutex = Mutex;
 #elif defined(__APPLE__)
-		if (GProjectAuthoringFile >= 0
-			&& GProjectAuthoringOwnerProcess == getpid()) return true;
-		if (GProjectAuthoringFile >= 0)
+		if (GProjectEditFile >= 0
+			&& GProjectEditOwnerProcess == getpid()) return true;
+		if (GProjectEditFile >= 0)
 		{
-			close(GProjectAuthoringFile);
-			GProjectAuthoringFile = -1;
+			close(GProjectEditFile);
+			GProjectEditFile = -1;
 		}
 		std::error_code CanonicalError;
 		const std::string Identity = std::filesystem::weakly_canonical(
@@ -161,7 +161,7 @@ namespace Durin
 		if (File < 0)
 		{
 			if (OutError) *OutError = std::format(
-				"Could not create project authoring lock '{}': macOS error {} ({}).",
+				"Could not create project edit lock '{}': macOS error {} ({}).",
 				LockPath.generic_string(), errno, std::generic_category().message(errno));
 			return false;
 		}
@@ -172,7 +172,7 @@ namespace Durin
 			if (OutError) *OutError = Error == EWOULDBLOCK
 				? std::format("Another Editor process already owns project '{}'.",
 					GCurrentProject->Name)
-				: std::format("Could not acquire project authoring lock: macOS error {} ({}).",
+				: std::format("Could not acquire project edit lock: macOS error {} ({}).",
 					Error, std::generic_category().message(Error));
 			return false;
 		}
@@ -180,25 +180,25 @@ namespace Durin
 			getpid(), GCurrentProject->ProjectFile);
 		(void)ftruncate(File, 0);
 		(void)write(File, Owner.data(), Owner.size());
-		GProjectAuthoringFile = File;
-		GProjectAuthoringOwnerProcess = getpid();
+		GProjectEditFile = File;
+		GProjectEditOwnerProcess = getpid();
 #endif
 		return true;
 	}
 
-	auto ReleaseProjectAuthoringOwnership() -> void
+	auto ReleaseProjectEditOwnership() -> void
 	{
 #ifdef _WIN32
-		if (!GProjectAuthoringMutex) return;
-		ReleaseMutex(GProjectAuthoringMutex);
-		CloseHandle(GProjectAuthoringMutex);
-		GProjectAuthoringMutex = nullptr;
+		if (!GProjectEditMutex) return;
+		ReleaseMutex(GProjectEditMutex);
+		CloseHandle(GProjectEditMutex);
+		GProjectEditMutex = nullptr;
 #elif defined(__APPLE__)
-		if (GProjectAuthoringFile < 0) return;
-		(void)flock(GProjectAuthoringFile, LOCK_UN);
-		close(GProjectAuthoringFile);
-		GProjectAuthoringFile = -1;
-		GProjectAuthoringOwnerProcess = 0;
+		if (GProjectEditFile < 0) return;
+		(void)flock(GProjectEditFile, LOCK_UN);
+		close(GProjectEditFile);
+		GProjectEditFile = -1;
+		GProjectEditOwnerProcess = 0;
 #endif
 	}
 }

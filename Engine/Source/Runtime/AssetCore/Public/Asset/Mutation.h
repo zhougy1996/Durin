@@ -1,7 +1,7 @@
 #pragma once
 
 // Compatibility aggregation for callers that need the complete authored-mutation API.
-#include "Asset/AssetAuthoringOperations.h"
+#include "Asset/AssetOperations.h"
 #include "Asset/Deletion.h"
 #include "Asset/MutationExtensions.h"
 #include "Asset/MutationTypes.h"

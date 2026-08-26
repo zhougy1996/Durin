@@ -2,7 +2,7 @@
 
 #include "AssetCoreAPI.h"
 #include "Asset/Catalog.h"
-#include "Asset/PackageAuthoring.h"
+#include "Asset/PackageSerialization.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "DObject/DefaultDeltaPlan.h"
 

@@ -1,5 +1,5 @@
 #include "Asset/Cook.h"
-#include "Asset/PackageAuthoring.h"
+#include "Asset/PackageSerialization.h"
 
 #include "AssetCatalogStoreInternal.h"
 #include "Asset/PackageVersionPolicy.h"

@@ -5,7 +5,8 @@
 #include "Texture2DPostLoad.h"
 #include "AssetForge/ImportService.h"
 
-#include "AssetAuthoring.h"
+#include "Asset/MountedSource.h"
+#include "Asset.h"
 #include "Hash/XxHash.h"
 #include "Image/ImageDecoder.h"
 #include "Misc/Paths.h"
@@ -309,7 +310,7 @@ namespace Durin::AssetForge::Builtins
 		std::string_view FilePath,
 		std::string_view AssetPath,
 		const FTexture2DImportSettings& Settings,
-		bool bEngineAuthoringContext) -> FImportResult
+		bool bAllowEngineContentWrite) -> FImportResult
 	{
 		auto Failed = [](std::string Message) {
 			FImportResult Result;
@@ -363,8 +364,8 @@ namespace Durin::AssetForge::Builtins
 			StoredSourcePath,
 			MountedSource,
 			Error,
-			bEngineAuthoringContext
-				? EMountedSourceMutationContext::EngineAuthoring
+			bAllowEngineContentWrite
+				? EMountedSourceMutationContext::EngineContentWrite
 				: EMountedSourceMutationContext::DependencySafe))
 			return Failed(std::move(Error));
 
@@ -391,7 +392,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto SubmitTexture2DImport(std::string_view FilePath,
 		const FAssetPath& Destination, const FTexture2DImportSettings& Settings,
-		bool bEngineAuthoringContext, FImportCompletion Completion,
+		bool bAllowEngineContentWrite, FImportCompletion Completion,
 		std::string& OutError) -> FImportHandle
 	{
 		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
@@ -406,8 +407,8 @@ namespace Durin::AssetForge::Builtins
 			Settings.SourceDestination, StoredSourcePath, OutError)) return {};
 		auto Mounted = std::make_shared<FScopedMountedSourceFile>();
 		if (!PrepareMountedSourceFile(Input, Destination.ToString(), StoredSourcePath,
-			*Mounted, OutError, bEngineAuthoringContext
-				? EMountedSourceMutationContext::EngineAuthoring
+			*Mounted, OutError, bAllowEngineContentWrite
+				? EMountedSourceMutationContext::EngineContentWrite
 				: EMountedSourceMutationContext::DependencySafe)) return {};
 		FImportRequest Request;
 		if (!MakeTexture2DImportRequest(Mounted->SourcePath, Destination, Settings,
@@ -427,10 +428,10 @@ namespace Durin::AssetForge::Builtins
 		std::string_view FilePath,
 		std::string_view AssetPath,
 		const FTexture2DImportSettings& Settings,
-		bool bEngineAuthoringContext) -> FTexture2DImportResult
+		bool bAllowEngineContentWrite) -> FTexture2DImportResult
 	{
 		const FImportResult Imported = ImportTexture2D(
-			FilePath, AssetPath, Settings, bEngineAuthoringContext);
+			FilePath, AssetPath, Settings, bAllowEngineContentWrite);
 		if (Imported.Outcome.State != EImportOperationState::Succeeded)
 			return {false, Imported.Outcome.Diagnostic.empty()
 				? "Texture2D AssetForge import failed."

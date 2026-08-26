@@ -2,7 +2,8 @@
 
 #include "Editor/Import/AssetDestinationValidation.h"
 #include "Editor/Import/MountedSourceImport.h"
-#include "AssetAuthoring.h"
+#include "Asset/MountedSource.h"
+#include "Asset.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Project.h"
 #include "Misc/StringConvert.h"
@@ -148,7 +149,7 @@ namespace Durin::Editor::Level
 		const FImportDialogCallbacks CompletionCallbacks = Callbacks;
 		AssetForge::FImportHandle Handle = AssetForge::Builtins::SubmitTerrainHeightmapImport(
 			Source.generic_string(), AssetPath, SourceDestination,
-			IsEngineAuthoringDestination(Destination.GetPath()),
+			IsEngineContentWriteDestination(Destination.GetPath()),
 			[CompletionCallbacks, Path](const AssetForge::FImportResult& Result) {
 				if (Result.Outcome.State == AssetForge::EImportOperationState::Succeeded)
 				{

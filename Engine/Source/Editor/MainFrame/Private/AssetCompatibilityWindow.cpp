@@ -347,8 +347,8 @@ namespace Durin::Editor::MainFrame
 		if (Mount)
 		{
 			ImGui::SameLine();
-			ImGui::TextDisabled("%s mount; authoring %s", MountOwnerName(Mount.Mount->Owner),
-				Mount.Mount->bAuthoringWritable ? "writable" : "read-only");
+			ImGui::TextDisabled("%s mount; content writes %s", MountOwnerName(Mount.Mount->Owner),
+				Mount.Mount->bContentWritable ? "writable" : "read-only");
 		}
 		ImGui::SameLine();
 		if (ImGui::SmallButton("Copy Diagnostics")) CopySelectedDiagnostics();

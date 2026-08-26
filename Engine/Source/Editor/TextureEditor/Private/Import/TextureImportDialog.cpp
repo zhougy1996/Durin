@@ -2,7 +2,8 @@
 
 #include "Editor/Import/AssetDestinationValidation.h"
 #include "Editor/Import/MountedSourceImport.h"
-#include "AssetAuthoring.h"
+#include "Asset/MountedSource.h"
+#include "Asset.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -314,13 +315,13 @@ namespace Durin::Editor::Texture
 
 		const FAssetDestinationValidation DestinationValidation =
 			Destination.Inspect();
-		const bool bEngineAuthoringContext = DestinationValidation.Mount &&
+		const bool bAllowEngineContentWrite = DestinationValidation.Mount &&
 			DestinationValidation.Mount->Owner ==
 				PathUtilities::EMountOwner::Engine;
 		const FMountedSourceImportDiagnostic SourceDiagnostic =
 			DestinationValidation.bAssetPathValid
 				? Source.Inspect(DestinationValidation.AssetPath.GetView(),
-					bEngineAuthoringContext)
+					bAllowEngineContentWrite)
 				: FMountedSourceImportDiagnostic{};
 		const std::filesystem::path SourceDestination(
 			SourceDiagnostic.VirtualPath.empty()
@@ -350,11 +351,11 @@ namespace Durin::Editor::Texture
 			ImGui::TextDisabled("Mount: %s (%s)  |  %s  |  dependency allowed",
 				SourceDiagnostic.Mount->VirtualRoot.c_str(),
 				DescribeMountOwner(SourceDiagnostic.Mount->Owner),
-				SourceDiagnostic.Mount->bAuthoringWritable
+				SourceDiagnostic.Mount->bContentWritable
 					? "writable" : "read-only");
-			if (bEngineAuthoringContext)
+			if (bAllowEngineContentWrite)
 				ImGui::TextDisabled(
-					"Engine authoring: this import writes shared Engine content.");
+					"Engine content write: this import mutates shared Engine content.");
 		}
 
 		std::string ValidationMessage;
@@ -649,7 +650,7 @@ namespace Durin::Editor::Texture
 			AssetForge::FImportHandle Handle =
 				AssetForge::Builtins::SubmitVolumeTextureImport(
 					Source.GetSourcePathBuffer().data(), AssetPath, Settings,
-					IsEngineAuthoringDestination(Destination.GetPath()), Completion, Error);
+					IsEngineContentWriteDestination(Destination.GetPath()), Completion, Error);
 			if (!Handle)
 			{
 				SetError(std::move(Error));
@@ -666,7 +667,7 @@ namespace Durin::Editor::Texture
 		Settings.Usage = State.GetTexture2D().Usage;
 		AssetForge::FImportHandle Handle = AssetForge::Builtins::SubmitTexture2DImport(
 			Source.GetSourcePathBuffer().data(), AssetPath, Settings,
-			IsEngineAuthoringDestination(Destination.GetPath()), Completion, Error);
+			IsEngineContentWriteDestination(Destination.GetPath()), Completion, Error);
 		if (!Handle)
 		{
 			SetError(std::move(Error));

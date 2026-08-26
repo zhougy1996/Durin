@@ -1,7 +1,8 @@
 #include "AssetForge/Persistence/ImportRecord.h"
 
 #include "AssetForge/ImportTypes.h"
-#include "AssetAuthoring.h"
+#include "Asset/AssetOperations.h"
+#include "Asset.h"
 #include "Hash/XxHash.h"
 
 namespace Durin::AssetForge

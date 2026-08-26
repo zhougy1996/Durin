@@ -107,7 +107,7 @@ mounts:
             "Root": "Plugins/PCG",
             "ContentPath": "Content",
             "AutoScan": true,
-            "AuthoringWritable": false,
+            "ContentWritable": false,
             "Dependencies": ["/Engine/"]
         },
         {
@@ -116,7 +116,7 @@ mounts:
             "Root": "Libraries/StudioArt",
             "ContentPath": ".",
             "AutoScan": false,
-            "AuthoringWritable": false,
+            "ContentWritable": false,
             "Dependencies": ["/Engine/"]
         }
     ]
@@ -124,7 +124,7 @@ mounts:
 ```
 
 Every entry requires exactly `VirtualRoot`, `Owner`, `Root`, `ContentPath`,
-`AutoScan`, `AuthoringWritable`, and `Dependencies`. Only `Extension` and
+`AutoScan`, `ContentWritable`, and `Dependencies`. Only `Extension` and
 `ExternalSources` owners are accepted. `Root` is descriptor-relative;
 `ContentPath` is relative to that root. Neither may traverse or be absolute,
 and custom mounts cannot override `/Engine/` or `/Game/`. `AutoScan` controls
@@ -132,6 +132,12 @@ recursive `.dasset` discovery only: a manual-scan mount still admits valid
 asset and source identities and direct package loading. The active `/Game/`
 mount automatically depends on every additional mount; each additional mount
 declares its own outgoing dependencies.
+
+`ContentWritable` is the canonical descriptor key. The runtime loader accepts
+legacy `AuthoringWritable` only as an input migration path for unversioned
+project descriptors and rejects entries containing both spellings. Schemas,
+checked-in descriptors, examples, and generated output use only the canonical
+key.
 
 A declared root may be a directory, junction, or symbolic link. Canonical
 containment requires the effective content directory to remain beneath `Root`
@@ -191,7 +197,7 @@ ordinary source discovery still uses its recursive `Public/` and `Private/`
 trees as the visibility boundary.
 
 Developer is not a third runtime variant and a `Source/Developer` path does
-not make a module authoring-only by itself. Programs such as Cook explicitly
+not make a module editor-only by itself. Programs such as Cook explicitly
 select the Developer modules they require, while a game root that does not
 select them never receives them through directory discovery. For asset
 authoring, editor roots select `DerivedDataCache` and the needed

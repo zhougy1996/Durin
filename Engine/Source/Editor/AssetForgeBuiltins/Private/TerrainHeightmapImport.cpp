@@ -3,7 +3,8 @@
 #include "DObject/Package.h"
 #include "EncodedSourceSnapshot.h"
 #include "Image/ImageDecoder.h"
-#include "AssetAuthoring.h"
+#include "Asset/MountedSource.h"
+#include "Asset.h"
 #include "Misc/Paths.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
@@ -204,7 +205,7 @@ namespace Durin::AssetForge::Builtins
 		std::string_view FilePath,
 		std::string_view AssetPath,
 		const FTerrainHeightmapImportSettings& Settings,
-		bool bEngineAuthoringContext) -> FTerrainHeightmapImportResult
+		bool bAllowEngineContentWrite) -> FTerrainHeightmapImportResult
 	{
 		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
 		std::string Extension = Input.extension().generic_string();
@@ -225,8 +226,8 @@ namespace Durin::AssetForge::Builtins
 		FScopedMountedSourceFile MountedSource;
 		if (!PrepareMountedSourceFile(Input, ParsedPath.ToString(), StoredSourcePath,
 			MountedSource, Error,
-			bEngineAuthoringContext
-				? EMountedSourceMutationContext::EngineAuthoring
+			bAllowEngineContentWrite
+				? EMountedSourceMutationContext::EngineContentWrite
 				: EMountedSourceMutationContext::DependencySafe))
 			return {false, std::move(Error), nullptr};
 		FImportRequest Request;
@@ -248,7 +249,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto SubmitTerrainHeightmapImport(std::string_view FilePath,
 		const FAssetPath& Destination, std::string_view SourceDestination,
-		bool bEngineAuthoringContext, FImportCompletion Completion,
+		bool bAllowEngineContentWrite, FImportCompletion Completion,
 		std::string& OutError) -> FImportHandle
 	{
 		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
@@ -263,8 +264,8 @@ namespace Durin::AssetForge::Builtins
 			StoredSourcePath, OutError)) return {};
 		auto Mounted = std::make_shared<FScopedMountedSourceFile>();
 		if (!PrepareMountedSourceFile(Input, Destination.ToString(), StoredSourcePath,
-			*Mounted, OutError, bEngineAuthoringContext
-				? EMountedSourceMutationContext::EngineAuthoring
+			*Mounted, OutError, bAllowEngineContentWrite
+				? EMountedSourceMutationContext::EngineContentWrite
 				: EMountedSourceMutationContext::DependencySafe)) return {};
 		FImportRequest Request;
 		if (!MakeTerrainHeightmapImportRequest(Mounted->SourcePath, Destination,

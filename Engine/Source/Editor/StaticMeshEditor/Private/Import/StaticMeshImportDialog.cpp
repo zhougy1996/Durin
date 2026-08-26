@@ -1,7 +1,8 @@
 #include "Import/StaticMeshImportDialog.h"
 
 #include "Editor/Import/AssetDestinationValidation.h"
-#include "AssetAuthoring.h"
+#include "Asset/MountedSource.h"
+#include "Asset.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -95,14 +96,14 @@ namespace Durin::Editor::StaticMesh
 			BrowseSourceDestination();
 
 		const FAssetDestinationValidation DestinationValidation = Destination.Inspect();
-		const bool bEngineAuthoringContext = DestinationValidation.Mount
+		const bool bAllowEngineContentWrite = DestinationValidation.Mount
 			&& DestinationValidation.Mount->Owner == PathUtilities::EMountOwner::Engine;
 		std::string ImportSettingsError;
 		const bool bImportSettingsValid = Coordinates.GetSettings().IsValid(&ImportSettingsError);
 		const FMountedSourceImportDiagnostic SourceDiagnostic =
 			DestinationValidation.bAssetPathValid
 			? SourceForm.Inspect(
-				DestinationValidation.AssetPath.GetView(), bEngineAuthoringContext)
+				DestinationValidation.AssetPath.GetView(), bAllowEngineContentWrite)
 			: FMountedSourceImportDiagnostic{};
 		const std::filesystem::path SourceDestination(
 			SourceDiagnostic.VirtualPath.empty()
@@ -129,9 +130,9 @@ namespace Durin::Editor::StaticMesh
 			ImGui::TextDisabled("Mount: %s (%s)  |  %s  |  dependency allowed",
 				SourceDiagnostic.Mount->VirtualRoot.c_str(),
 				DescribeMountOwner(SourceDiagnostic.Mount->Owner),
-				SourceDiagnostic.Mount->bAuthoringWritable ? "writable" : "read-only");
-			if (bEngineAuthoringContext)
-				ImGui::TextDisabled("Engine authoring: this import writes shared Engine content.");
+				SourceDiagnostic.Mount->bContentWritable ? "writable" : "read-only");
+			if (bAllowEngineContentWrite)
+				ImGui::TextDisabled("Engine content write: this import mutates shared Engine content.");
 		}
 
 		std::string ValidationMessage;
@@ -305,7 +306,7 @@ namespace Durin::Editor::StaticMesh
 			SourcePathBuffer.data(), AssetPath, Coordinates.GetSettings(),
 			SourceMode == EMountedSourceImportMode::IngestExternal
 				? std::string_view(SourceDestinationBuffer.data()) : std::string_view{},
-			IsEngineAuthoringDestination(Destination.GetPath()),
+			IsEngineContentWriteDestination(Destination.GetPath()),
 			[CompletionCallbacks, Path](const AssetForge::FImportResult& Result) {
 				if (Result.Outcome.State == AssetForge::EImportOperationState::Succeeded)
 				{

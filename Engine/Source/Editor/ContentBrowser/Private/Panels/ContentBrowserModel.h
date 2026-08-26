@@ -99,7 +99,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			std::string VirtualRoot;
 			std::string SourcePhysicalRoot;
 			std::string PhysicalRoot;
-			bool bAuthoringWritable = false;
+			bool bContentWritable = false;
 		};
 
 		struct FMountPath

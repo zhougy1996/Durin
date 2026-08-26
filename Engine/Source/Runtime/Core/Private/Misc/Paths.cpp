@@ -357,13 +357,28 @@ namespace Durin
 				for (size_t Index = 0; Index < Mounts.Num(); ++Index)
 				{
 					const FJsonNodeView Entry = Mounts.GetView(Index);
-					if (!Entry.IsObject() || Entry.Num() != 7)
+					if (!Entry.IsObject())
+					{
+						if (OutError) *OutError = std::format("Mounts[{}] must be an object.", Index);
+						return false;
+					}
+					const bool bHasContentWritable = Entry.GetView("ContentWritable").IsValid();
+					const bool bHasLegacyAuthoringWritable = Entry.GetView("AuthoringWritable").IsValid();
+					if (bHasContentWritable && bHasLegacyAuthoringWritable)
+					{
+						if (OutError) *OutError = std::format(
+							"Mounts[{}] cannot contain both ContentWritable and legacy AuthoringWritable.",
+							Index);
+						return false;
+					}
+					if (Entry.Num() != 7)
 					{
 						if (OutError) *OutError = std::format("Mounts[{}] must contain exactly seven fields.", Index);
 						return false;
 					}
-					constexpr std::array<std::string_view, 7> Fields{
-						"VirtualRoot", "Owner", "Root", "ContentPath", "AutoScan", "AuthoringWritable", "Dependencies"};
+					constexpr std::array<std::string_view, 8> Fields{
+						"VirtualRoot", "Owner", "Root", "ContentPath", "AutoScan",
+						"ContentWritable", "AuthoringWritable", "Dependencies"};
 					bool bUnknownField = false;
 					Entry.ForEachObjectMember([&](const std::string_view Key, FJsonNodeView) {
 						if (std::ranges::find(Fields, Key) == Fields.end()) bUnknownField = true;
@@ -379,14 +394,16 @@ namespace Durin
 					std::string RootText;
 					std::string ContentPathText;
 					bool bAutoScan = false;
-					bool bAuthoringWritable = false;
+					bool bContentWritable = false;
 					const FJsonNodeView Dependencies = Entry.GetView("Dependencies");
+					const std::string_view ContentWritableKey = bHasContentWritable
+						? "ContentWritable" : "AuthoringWritable";
 					if (!Entry.GetChildValue("VirtualRoot", VirtualRoot)
 						|| !Entry.GetChildValue("Owner", OwnerText)
 						|| !Entry.GetChildValue("Root", RootText)
 						|| !Entry.GetChildValue("ContentPath", ContentPathText)
 						|| !Entry.GetChildValue("AutoScan", bAutoScan)
-						|| !Entry.GetChildValue("AuthoringWritable", bAuthoringWritable)
+						|| !Entry.GetChildValue(ContentWritableKey, bContentWritable)
 						|| !Dependencies.IsArray()
 						|| !ValidateRelativeDefinitionPath(RootText)
 						|| !ValidateRelativeDefinitionPath(ContentPathText))
@@ -408,7 +425,7 @@ namespace Durin
 						.Root = (ProjectRoot / RootText).lexically_normal(),
 						.ContentPath = std::filesystem::path(ContentPathText).lexically_normal(),
 						.bAutoScan = bAutoScan,
-						.bAuthoringWritable = bAuthoringWritable};
+						.bContentWritable = bContentWritable};
 					for (size_t DependencyIndex = 0; DependencyIndex < Dependencies.Num(); ++DependencyIndex)
 					{
 						const FJsonNodeView Dependency = Dependencies.GetView(DependencyIndex);
@@ -436,7 +453,7 @@ namespace Durin
 					.Root = EngineRoot,
 					.ContentPath = "Content",
 					.bAutoScan = true,
-					.bAuthoringWritable = true}};
+					.bContentWritable = true}};
 				if (FPaths::ProjectFile().empty()) return true;
 
 				const std::filesystem::path ProjectRoot =
@@ -450,7 +467,7 @@ namespace Durin
 					.Root = ProjectRoot,
 					.ContentPath = "Content",
 					.bAutoScan = true,
-					.bAuthoringWritable = true,
+					.bContentWritable = true,
 					.Dependencies = {"/Engine/"}});
 				if (!ParseProjectMounts(Definitions, OutError)) return false;
 				for (size_t Index = 2; Index < Definitions.size(); ++Index)
@@ -538,20 +555,20 @@ namespace Durin
 			return Result;
 		}
 
-		auto CheckAuthoringMutation(
-			std::string_view AuthoringVirtualPath,
+		auto CheckContentWriteAdmission(
+			std::string_view ReferencingVirtualPath,
 			std::string_view SourceVirtualPath,
-			bool bEngineAuthoringContext
+			bool bAllowEngineContentWrite
 		) -> FMountPolicyResult
 		{
-			FMountPolicyResult Result = CheckMountDependency(AuthoringVirtualPath, SourceVirtualPath);
+			FMountPolicyResult Result = CheckMountDependency(ReferencingVirtualPath, SourceVirtualPath);
 			if (!Result) return Result;
-			if (!Result.ReferencedMount->bAuthoringWritable
+			if (!Result.ReferencedMount->bContentWritable
 				|| Result.ReferencingMount != Result.ReferencedMount
-				|| (Result.ReferencedMount->Owner == EMountOwner::Engine && !bEngineAuthoringContext))
+				|| (Result.ReferencedMount->Owner == EMountOwner::Engine && !bAllowEngineContentWrite))
 			{
 				Result.Error = EMountPathError::ReadOnlyMount;
-				Result.Message = "The authoring context may not mutate this mount.";
+				Result.Message = "Engine-content write permission does not admit mutation of this mount.";
 			}
 			return Result;
 		}
@@ -674,7 +691,7 @@ namespace Durin
 			std::string_view VirtualRoot,
 			std::string_view PhysicalPath,
 			bool bAutoScan,
-			bool bAuthoringWritable
+			bool bContentWritable
 		) -> void
 		{
 			checkf(IsInGameThread(), "RegisterMountPointForTests must be called from the game thread.");
@@ -692,7 +709,7 @@ namespace Durin
 				.Owner = EMountOwner::Test,
 				.Root = Root,
 				.bAutoScan = bAutoScan,
-				.bAuthoringWritable = bAuthoringWritable};
+				.bContentWritable = bContentWritable};
 			if (Existing == MountPoints.end()) MountPoints.push_back(std::move(Definition));
 			else *Existing = std::move(Definition);
 			std::ranges::sort(MountPoints, [](const FMountPoint& A, const FMountPoint& B) {

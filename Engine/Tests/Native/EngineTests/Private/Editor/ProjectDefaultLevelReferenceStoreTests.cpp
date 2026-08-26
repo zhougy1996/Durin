@@ -100,7 +100,7 @@ namespace
 			.Owner = Durin::PathUtilities::EMountOwner::Test,
 			.Root = Scenario.Root / "Content",
 			.bAutoScan = true,
-			.bAuthoringWritable = true}};
+			.bContentWritable = true}};
 		auto Fixture = std::make_unique<
 			Durin::PathUtilities::FScopedMountRegistryFixture>(Mounts);
 		EXPECT_TRUE(Durin::Asset::RefreshAssetCatalog(

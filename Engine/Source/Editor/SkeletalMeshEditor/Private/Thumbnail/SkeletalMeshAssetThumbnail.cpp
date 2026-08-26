@@ -1,6 +1,6 @@
 #include "Thumbnail/SkeletalMeshAssetThumbnail.h"
 
-#include "AssetAuthoring.h"
+#include "Asset.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/Actor.h"
 #include "Engine/World.h"

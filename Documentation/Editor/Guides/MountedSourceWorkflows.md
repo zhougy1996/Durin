@@ -72,9 +72,9 @@ The form displays the asset or output-directory destination and source
 destination separately,
 along with mount identity, dependency status, availability, containment, and
 write policy. A Game asset may reference an Engine or declared plugin/library
-source. An Engine asset may not reference Game. Ordinary project authoring
+source. An Engine asset may not reference Game. Ordinary project editing
 cannot mutate Engine source; an explicit editor import whose asset or output
-destination is inside `/Engine/` runs in Engine-authoring context and may
+destination is inside `/Engine/` runs in Engine-content write permission and may
 ingest its sources into the same writable Engine mount.
 
 ## Existing Assets

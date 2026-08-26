@@ -188,13 +188,13 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 				.Owner = Durin::PathUtilities::EMountOwner::Test,
 				.Root = EngineContent,
 				.bAutoScan = true,
-				.bAuthoringWritable = true},
+				.bContentWritable = true},
 			{
 				.VirtualRoot = "/Game/",
 				.Owner = Durin::PathUtilities::EMountOwner::Test,
 				.Root = GameContent,
 				.bAutoScan = true,
-				.bAuthoringWritable = true,
+				.bContentWritable = true,
 				.Dependencies = {"/Engine/"}}}};
 		Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
@@ -390,13 +390,13 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 				.Owner = Durin::PathUtilities::EMountOwner::Test,
 				.Root = EngineContent,
 				.bAutoScan = true,
-				.bAuthoringWritable = true},
+				.bContentWritable = true},
 			{
 				.VirtualRoot = "/Game/",
 				.Owner = Durin::PathUtilities::EMountOwner::Test,
 				.Root = GameContent,
 				.bAutoScan = true,
-				.bAuthoringWritable = true,
+				.bContentWritable = true,
 				.Dependencies = {"/Engine/"}}}};
 		Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();

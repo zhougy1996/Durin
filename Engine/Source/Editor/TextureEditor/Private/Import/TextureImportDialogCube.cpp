@@ -4,7 +4,8 @@
 
 #include "Editor/Import/AssetDestinationValidation.h"
 #include "Editor/Import/MountedSourceImport.h"
-#include "AssetAuthoring.h"
+#include "Asset/MountedSource.h"
+#include "Asset.h"
 #include "AssetForge/ImportService.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
@@ -240,7 +241,7 @@ namespace Durin::Editor::Texture
 		FTextureCubeImportFormState& Cube = State.GetTextureCube();
 		const FAssetDestinationValidation DestinationValidation =
 			Destination.Inspect();
-		const bool bEngineAuthoringContext = DestinationValidation.Mount &&
+		const bool bAllowEngineContentWrite = DestinationValidation.Mount &&
 			DestinationValidation.Mount->Owner ==
 				PathUtilities::EMountOwner::Engine;
 		std::array<FMountedSourceImportDiagnostic, TextureCubeFaceCount>
@@ -255,7 +256,7 @@ namespace Durin::Editor::Texture
 						Cube.FacePathBuffers[Index].data(),
 						DestinationValidation.AssetPath.GetView(),
 						Cube.FaceDestinationBuffers[Index].data(),
-						State.GetSourceMode(), bEngineAuthoringContext);
+						State.GetSourceMode(), bAllowEngineContentWrite);
 			}
 			else
 			{
@@ -263,7 +264,7 @@ namespace Durin::Editor::Texture
 					Cube.PanoramaPathBuffer.data(),
 					DestinationValidation.AssetPath.GetView(),
 					Cube.PanoramaDestinationBuffer.data(),
-					State.GetSourceMode(), bEngineAuthoringContext);
+					State.GetSourceMode(), bAllowEngineContentWrite);
 			}
 		}
 		const auto FirstInvalidFace = std::ranges::find_if(
@@ -317,10 +318,10 @@ namespace Durin::Editor::Texture
 			ImGui::TextDisabled("Mount: %s (%s)  |  %s  |  dependency allowed",
 				Summary.Mount->VirtualRoot.c_str(),
 				DescribeMountOwner(Summary.Mount->Owner),
-				Summary.Mount->bAuthoringWritable ? "writable" : "read-only");
-			if (bEngineAuthoringContext)
+				Summary.Mount->bContentWritable ? "writable" : "read-only");
+			if (bAllowEngineContentWrite)
 				ImGui::TextDisabled(
-					"Engine authoring: this import writes shared Engine content.");
+					"Engine content write: this import mutates shared Engine content.");
 		}
 		if (ValidationMessage.empty() && !Cube.bSourcesValid)
 			ValidationMessage = Cube.SourceValidationMessage;
@@ -554,7 +555,7 @@ namespace Durin::Editor::Texture
 		AssetForge::FImportHandle Handle = AssetForge::Builtins::SubmitTextureCubeImport(
 			std::span(Sources).first(SourceCount), std::span(Destinations).first(SourceCount),
 			Cube.SourceLayout, AssetPath, {}, PanoramaSettings,
-			IsEngineAuthoringDestination(Destination.GetPath()),
+			IsEngineContentWriteDestination(Destination.GetPath()),
 			[CompletionCallbacks, Path](const AssetForge::FImportResult& Result) {
 				if (Result.Outcome.State == AssetForge::EImportOperationState::Succeeded)
 				{

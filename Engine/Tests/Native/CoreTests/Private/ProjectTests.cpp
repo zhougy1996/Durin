@@ -142,21 +142,21 @@ TEST(FProjectTests, LoadsExplicitProjectFile)
 }
 
 #if defined(__APPLE__)
-TEST(FProjectTests, ProjectAuthoringOwnershipIsExclusiveAcrossProcesses)
+TEST(FProjectTests, ProjectEditOwnershipIsExclusiveAcrossProcesses)
 {
 	Durin::FProjectInitializationParams Params;
 	Params.RequestedProjectFile = Durin::FPaths::RootDir() + "Sandbox/Sandbox.dproject";
 	std::string Error;
 	ASSERT_TRUE(Durin::InitializeCurrentProject(Params, &Error)) << Error;
-	ASSERT_TRUE(Durin::AcquireProjectAuthoringOwnership(&Error)) << Error;
-	EXPECT_TRUE(Durin::AcquireProjectAuthoringOwnership(&Error));
+	ASSERT_TRUE(Durin::AcquireProjectEditOwnership(&Error)) << Error;
+	EXPECT_TRUE(Durin::AcquireProjectEditOwnership(&Error));
 
 	const pid_t Child = fork();
 	ASSERT_GE(Child, 0);
 	if (Child == 0)
 	{
 		std::string ChildError;
-		const bool bAcquired = Durin::AcquireProjectAuthoringOwnership(&ChildError);
+		const bool bAcquired = Durin::AcquireProjectEditOwnership(&ChildError);
 		_exit(!bAcquired && ChildError.find("already owns") != std::string::npos ? 0 : 1);
 	}
 	int Status = 0;
@@ -164,9 +164,9 @@ TEST(FProjectTests, ProjectAuthoringOwnershipIsExclusiveAcrossProcesses)
 	EXPECT_TRUE(WIFEXITED(Status));
 	EXPECT_EQ(WEXITSTATUS(Status), 0);
 
-	Durin::ReleaseProjectAuthoringOwnership();
-	EXPECT_TRUE(Durin::AcquireProjectAuthoringOwnership(&Error)) << Error;
-	Durin::ReleaseProjectAuthoringOwnership();
+	Durin::ReleaseProjectEditOwnership();
+	EXPECT_TRUE(Durin::AcquireProjectEditOwnership(&Error)) << Error;
+	Durin::ReleaseProjectEditOwnership();
 }
 #endif
 
@@ -203,7 +203,7 @@ TEST_F(FProjectHistoryTest, ValidatesAdditionalMountDescriptorSchema)
 					"Root":"Extensions/PCG",
 					"ContentPath":"Content",
 					"AutoScan":true,
-					"AuthoringWritable":false,
+					"ContentWritable":false,
 					"Dependencies":["/Engine/"]
 				},
 				{
@@ -212,7 +212,7 @@ TEST_F(FProjectHistoryTest, ValidatesAdditionalMountDescriptorSchema)
 					"Root":"Libraries/StudioArt",
 					"ContentPath":".",
 					"AutoScan":false,
-					"AuthoringWritable":false,
+					"ContentWritable":false,
 					"Dependencies":["/Engine/"]
 				}
 			]
@@ -244,24 +244,43 @@ TEST_F(FProjectHistoryTest, ValidatesAdditionalMountDescriptorSchema)
 		Durin::PathUtilities::CheckMountDependency("/Engine/Asset", "/Game/Source").Error,
 		Durin::PathUtilities::EMountPathError::ForbiddenDependency);
 
+	const std::string LegacyWritable = WriteProject(
+		"LegacyWritable",
+		R"({"ProjectName":"LegacyWritable","Mounts":[{
+			"VirtualRoot":"/Libraries/Legacy/","Owner":"ExternalSources",
+			"Root":"Legacy","ContentPath":".","AutoScan":false,"AuthoringWritable":false,
+			"Dependencies":["/Engine/"]}]})");
+	std::filesystem::create_directories(
+		std::filesystem::path(LegacyWritable).parent_path() / "Legacy");
+	Params.RequestedProjectFile = LegacyWritable;
+	Error.clear();
+	EXPECT_TRUE(Durin::InitializeCurrentProject(Params, &Error)) << Error;
+
 	const std::array InvalidDescriptors{
+		WriteProject(
+			"ConflictingWritableKeys",
+			R"({"ProjectName":"ConflictingWritableKeys","Mounts":[{
+				"VirtualRoot":"/Libraries/Art/","Owner":"ExternalSources",
+				"Root":"Art","ContentPath":".","AutoScan":false,
+				"ContentWritable":false,"AuthoringWritable":false,
+				"Dependencies":["/Engine/"]}]})"),
 		WriteProject(
 			"UnknownField",
 			R"({"ProjectName":"UnknownField","Mounts":[{
 				"VirtualRoot":"/Libraries/Art/","Owner":"ExternalSources",
-				"Root":"Art","ContentPath":".","AutoScan":false,"AuthoringWritable":false,
+				"Root":"Art","ContentPath":".","AutoScan":false,"ContentWritable":false,
 				"Dependencies":["/Engine/"],"Unexpected":true}]})"),
 		WriteProject(
 			"BuiltInOverride",
 			R"({"ProjectName":"BuiltInOverride","Mounts":[{
 				"VirtualRoot":"/Engine/","Owner":"Extension",
-				"Root":"Plugin","ContentPath":"Content","AutoScan":true,"AuthoringWritable":false,
+				"Root":"Plugin","ContentPath":"Content","AutoScan":true,"ContentWritable":false,
 				"Dependencies":[]}]})"),
 		WriteProject(
 			"Traversal",
 			R"({"ProjectName":"Traversal","Mounts":[{
 				"VirtualRoot":"/Libraries/Art/","Owner":"ExternalSources",
-				"Root":"../Art","ContentPath":".","AutoScan":false,"AuthoringWritable":false,
+				"Root":"../Art","ContentPath":".","AutoScan":false,"ContentWritable":false,
 				"Dependencies":["/Engine/"]}]})"),
 		WriteProject(
 			"LegacyDomains",

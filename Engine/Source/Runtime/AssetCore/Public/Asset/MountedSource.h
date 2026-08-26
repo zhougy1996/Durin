@@ -8,7 +8,7 @@ namespace Durin::Asset
 	enum class EMountedSourceMutationContext : uint8
 	{
 		DependencySafe,
-		EngineAuthoring
+		EngineContentWrite
 	};
 
 	enum class ESourceFileDisposition : uint8
@@ -107,7 +107,7 @@ namespace Durin::Asset
 	// rolls back to restore the prior source bytes.
 	ASSETCORE_API auto PrepareMountedSourceReplacement(
 		const std::filesystem::path& ReplacementFile,
-		std::string_view AuthoringAssetPath,
+		std::string_view ReferencingAssetPath,
 		std::string_view SourceVirtualPath,
 		FMountedSourceReplacement& OutReplacement,
 		std::string& OutError,
@@ -131,7 +131,7 @@ namespace Durin::Asset
 	// original only after every referencing package has been updated; rollback
 	// removes only the staged destination.
 	ASSETCORE_API auto PrepareMountedSourceRelocation(
-		std::string_view AuthoringAssetPath,
+		std::string_view ReferencingAssetPath,
 		std::string_view OriginalSourceVirtualPath,
 		std::string_view DestinationSourceVirtualPath,
 		FMountedSourceRelocation& OutRelocation,

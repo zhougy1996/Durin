@@ -102,4 +102,4 @@ TEST(FSourceReferenceIndexTests, PublishesOneSharedAsynchronousSnapshot)
 	EXPECT_EQ(Second.GetInspectedPackageCount(), First.GetInspectedPackageCount());
 }
 
-#include "TextureAuthoringTestEnvironment.h"
+#include "TextureAssetTestEnvironment.h"

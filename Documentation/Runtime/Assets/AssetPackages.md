@@ -13,8 +13,9 @@ Durin object assets are stored as versioned `.dasset` packages. A package has on
 AssetCore exposes capability-named entry points rather than one complete public
 surface. `Asset.h` is the ordinary runtime entry point for catalog lookup,
 redirect resolution, package residency, asset loading, and cooked-payload
-reading. `AssetAuthoring.h` adds package creation and persistence, mounted-source
-mutation, relocation, deletion, and redirector fix-up. `AssetCook.h` adds Cook
+reading. Callers include `Asset/AssetOperations.h`, `Asset/MountedSource.h`,
+`Asset/Mutation.h`, or `Asset/PackageSerialization.h` for the exact create/save,
+source-mutation, asset-mutation, or serialization capability. `AssetCook.h` adds Cook
 reachability, cooked-container construction, package serialization for Cook, and
 manifest publication. `AssetTools.h` adds offline inspection, compatibility, and
 canonical-resave workflows.
@@ -23,7 +24,7 @@ Public Engine asset headers include narrow leaves such as
 `Asset/CookedAsset.h`, `Asset/Cook.h`, and `Asset/SourcePath.h` when their type
 layout or method signatures require those declarations. They do not include an
 umbrella solely to obtain one value type. Callers select `PackageTypes.h`,
-`PackageInspection.h`, or `PackageAuthoring.h` by capability; there is no
+`PackageInspection.h`, or `PackageSerialization.h` by capability; there is no
 package compatibility aggregate.
 The V4 reader, writer, archive adapter, and version policy remain AssetCore
 implementation details.
@@ -40,7 +41,7 @@ The immutable Core mount registry publishes `/Engine/` and `/Game/` plus
 validated project-declared extension and external-source mounts. Every mount
 may contain `.dasset` packages and ordinary authoring files. Typed resolution
 reports invalid paths, unknown mounts, unavailable content directories,
-escapes, missing files, forbidden dependencies, and read-only authoring policy
+escapes, missing files, forbidden dependencies, and read-only content-write policy
 distinctly. `AutoScan`, explicit admission, and load-visibility projection are
 defined by [Asset Catalog And Mutation](AssetCatalogAndMutation.md).
 
@@ -555,15 +556,15 @@ exposes `IsCanonicalResaveRecommended()` without becoming Dirty.
 mounts, or an explicit project scope and captures the physical fingerprint,
 format, entry kind, residency, Dirty conflict, compatibility state, and
 evidence. It blocks stale inputs, non-current formats, incompatible payloads,
-dirty loaded packages, and non-authoring mounts; non-asset entries such as
+dirty loaded packages, and non-content-writable mounts; non-asset entries such as
 redirectors are skipped. A package with no evidence is skipped unless an
 interactive caller explicitly requests a plain package resave.
 
 Apply revalidates each fingerprint and loads through the ordinary current-format
 reader when necessary. In the uncooked tool host, PostLoad may schedule
 family-owned derived-data recovery; apply alone loads the required build and
-built-in authoring modules, drains the asset's active recovery claim, and asks
-the registered `IAssetAuthoringReadinessFeature` provider to validate transient
+built-in asset-operation modules, drains the asset's active recovery claim, and asks
+the registered `IAssetSaveReadinessFeature` provider to validate transient
 domain state. The generic tool does not enumerate concrete asset classes.
 Recovery may read a mounted source or DDC entry, but recovery-mode AssetForge
 does not publish an authored package; an authored mutation or Dirty package

@@ -1,6 +1,6 @@
 #include "Editor/Import/AssetDestinationValidation.h"
 
-#include "AssetAuthoring.h"
+#include "Asset.h"
 
 namespace Durin::Editor::Import
 {

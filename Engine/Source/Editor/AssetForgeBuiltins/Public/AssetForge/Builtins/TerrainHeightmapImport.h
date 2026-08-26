@@ -41,7 +41,7 @@ namespace Durin::AssetForge::Builtins
 		std::string_view FilePath,
 		std::string_view AssetPath,
 		const FTerrainHeightmapImportSettings& Settings = {},
-		bool bEngineAuthoringContext = false) -> FTerrainHeightmapImportResult;
+		bool bAllowEngineContentWrite = false) -> FTerrainHeightmapImportResult;
 	ASSETFORGEBUILTINS_API auto ChangeTerrainHeightmapSourceReference(
 		DTerrainHeightmap& Heightmap,
 		std::string_view SourceVirtualPath,
@@ -63,7 +63,7 @@ namespace Durin::AssetForge::Builtins
 		std::string& OutError) -> bool;
 	ASSETFORGEBUILTINS_API auto SubmitTerrainHeightmapImport(
 		std::string_view FilePath, const FAssetPath& Destination,
-		std::string_view SourceDestination, bool bEngineAuthoringContext,
+		std::string_view SourceDestination, bool bAllowEngineContentWrite,
 		AssetForge::FImportCompletion Completion,
 		std::string& OutError) -> AssetForge::FImportHandle;
 }

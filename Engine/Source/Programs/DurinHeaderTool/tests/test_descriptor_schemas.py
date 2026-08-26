@@ -81,7 +81,7 @@ def test_complete_project_with_mounts_is_valid(tmp_path: Path):
                 "Root": "Plugins/PCG",
                 "ContentPath": "Content",
                 "AutoScan": True,
-                "AuthoringWritable": False,
+                "ContentWritable": False,
                 "Dependencies": ["/Engine/"],
             }
         ],
@@ -312,7 +312,7 @@ def test_prepare_project_build_accepts_valid_mounts(tmp_path: Path):
                     "Root": "Plugins/Mounted",
                     "ContentPath": "Content",
                     "AutoScan": True,
-                    "AuthoringWritable": False,
+                    "ContentWritable": False,
                     "Dependencies": ["/Engine/"],
                 }
             ],

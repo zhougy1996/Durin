@@ -54,7 +54,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		Durin::Testing::GetTestWorkDirectory() / "SkyBoxAssets";
 	Durin::Testing::RemoveTestWorkDirectory(AssetRoot);
 	std::filesystem::create_directories(AssetRoot);
-	MountDefinitions.push_back({.VirtualRoot = "/SkyBoxAssetTests/", .Owner = Durin::PathUtilities::EMountOwner::Test, .Root = AssetRoot, .bAutoScan = true, .bAuthoringWritable = true});
+	MountDefinitions.push_back({.VirtualRoot = "/SkyBoxAssetTests/", .Owner = Durin::PathUtilities::EMountOwner::Test, .Root = AssetRoot, .bAutoScan = true, .bContentWritable = true});
 	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");

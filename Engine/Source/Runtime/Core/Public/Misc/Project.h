@@ -29,7 +29,7 @@ namespace Durin
 	CORE_API auto NormalizeProjectFile(std::string_view ProjectFile) -> std::string;
 	CORE_API auto RelaunchEditorForProject(std::string_view ProjectFile, std::string* OutError = nullptr) -> bool;
 	CORE_API auto LaunchPendingEditorRelaunch(std::string* OutError = nullptr) -> bool;
-	// Exclusively owns one project's authoring session for this process lifetime.
-	CORE_API auto AcquireProjectAuthoringOwnership(std::string* OutError = nullptr) -> bool;
-	CORE_API auto ReleaseProjectAuthoringOwnership() -> void;
+	// Exclusively owns one project's edit session for this process lifetime.
+	CORE_API auto AcquireProjectEditOwnership(std::string* OutError = nullptr) -> bool;
+	CORE_API auto ReleaseProjectEditOwnership() -> void;
 }

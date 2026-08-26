@@ -1,6 +1,7 @@
 #include "Source/SourceReferenceIndex.h"
 
-#include "AssetAuthoring.h"
+#include "Asset.h"
+#include "Asset/PackageInspection.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"

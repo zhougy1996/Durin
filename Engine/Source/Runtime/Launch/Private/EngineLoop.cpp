@@ -84,7 +84,7 @@ namespace Durin
 		if (!InitializeCurrentProject(Params.Project, &ProjectError) && !ProjectError.empty()) DURIN_WARN("{}", ProjectError);
 #if DURIN_WITH_EDITOR
 		if (HasCurrentProject()
-			&& !AcquireProjectAuthoringOwnership(&ProjectError))
+			&& !AcquireProjectEditOwnership(&ProjectError))
 		{
 			DURIN_ERROR("Editor project ownership failed: {}", ProjectError);
 			Exit();
@@ -463,7 +463,7 @@ namespace Durin
 			ShutdownApplicationCore();
 		}
 #if DURIN_WITH_EDITOR
-		ReleaseProjectAuthoringOwnership();
+		ReleaseProjectEditOwnership();
 #endif
 		if (bWasRunning) DURIN_INFO(STR("Durin Engine exited."));
 		State = EEngineLoopState::Exited;

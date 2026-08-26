@@ -1,6 +1,7 @@
 #include "MaterialEditorModule.h"
 
-#include "AssetAuthoring.h"
+#include "Asset/AssetOperations.h"
+#include "Asset.h"
 #include "Editor/WorkspaceManager.h"
 #include "Workspace/MaterialEditorWorkspace.h"
 #include "Materials/Material.h"

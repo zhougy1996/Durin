@@ -246,7 +246,7 @@ TEST(FDefaultMaterialServiceTests, MissingEngineContentSelectsErrorTerminal)
 			.Owner = Durin::PathUtilities::EMountOwner::Engine,
 			.Root = Root,
 			.bAutoScan = true,
-			.bAuthoringWritable = false}};
+			.bContentWritable = false}};
 	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(

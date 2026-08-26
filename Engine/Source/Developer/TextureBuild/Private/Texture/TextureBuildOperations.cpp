@@ -3,7 +3,7 @@
 #include "DObject/Package.h"
 
 #include "DerivedDataCache/DerivedDataBuildSession.h"
-#include "AssetAuthoring.h"
+#include "Asset.h"
 #include "Hash/XxHash.h"
 #include "Misc/Paths.h"
 #include "Texture/Texture2DDerivedData.h"

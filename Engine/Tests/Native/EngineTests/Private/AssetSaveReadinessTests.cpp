@@ -1,32 +1,32 @@
 #include <gtest/gtest.h>
 
-#include "AssetAuthoringReadiness.h"
+#include "AssetSaveReadiness.h"
 #include "DObject/Object.h"
 #include "Modules/ModuleTestSupport.h"
 
 namespace
 {
-	class FReadinessFeature final : public Durin::IAssetAuthoringReadinessFeature
+	class FReadinessFeature final : public Durin::IAssetSaveReadinessFeature
 	{
 	public:
 		bool bHandles = true;
 		Durin::Asset::FAssetResult Result;
 
 		auto Validate(const Durin::DObject&) const
-			-> Durin::FAssetAuthoringReadinessFeatureResult override
+			-> Durin::FAssetSaveReadinessFeatureResult override
 		{
 			return {.bHandled = bHandles, .Result = Result};
 		}
 	};
 }
 
-TEST(AssetAuthoringReadinessTests, RejectsMissingAsset)
+TEST(AssetSaveReadinessTests, RejectsMissingAsset)
 {
-	const auto Result = Durin::ValidateAssetAuthoringReadiness(nullptr);
+	const auto Result = Durin::ValidateAssetSaveReadiness(nullptr);
 	EXPECT_EQ(Durin::Asset::EAssetError::InvalidObjectGraph, Result.Error);
 }
 
-TEST(AssetAuthoringReadinessTests, UsesTheSingleHandlingProvider)
+TEST(AssetSaveReadinessTests, UsesTheSingleHandlingProvider)
 {
 	Durin::DObject Object;
 	FReadinessFeature Ignored;
@@ -39,12 +39,12 @@ TEST(AssetAuthoringReadinessTests, UsesTheSingleHandlingProvider)
 	auto IgnoredRegistration = IgnoredOwner.RegisterFeature(Ignored);
 	auto RejectedRegistration = RejectedOwner.RegisterFeature(Rejected);
 
-	const auto Result = Durin::ValidateAssetAuthoringReadiness(&Object);
+	const auto Result = Durin::ValidateAssetSaveReadiness(&Object);
 	EXPECT_EQ(Durin::Asset::EAssetError::StaleData, Result.Error);
 	EXPECT_EQ("Asset family is not ready.", Result.Message);
 }
 
-TEST(AssetAuthoringReadinessTests, RejectsAmbiguousHandlingProviders)
+TEST(AssetSaveReadinessTests, RejectsAmbiguousHandlingProviders)
 {
 	Durin::DObject Object;
 	FReadinessFeature First;
@@ -54,7 +54,7 @@ TEST(AssetAuthoringReadinessTests, RejectsAmbiguousHandlingProviders)
 	auto FirstRegistration = FirstOwner.RegisterFeature(First);
 	auto SecondRegistration = SecondOwner.RegisterFeature(Second);
 
-	const auto Result = Durin::ValidateAssetAuthoringReadiness(&Object);
+	const auto Result = Durin::ValidateAssetSaveReadiness(&Object);
 	EXPECT_EQ(Durin::Asset::EAssetError::StaleData, Result.Error);
 	EXPECT_NE(std::string::npos, Result.Message.find("ambiguous"));
 }

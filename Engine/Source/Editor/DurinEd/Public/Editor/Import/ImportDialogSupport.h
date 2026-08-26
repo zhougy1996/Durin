@@ -152,7 +152,7 @@ namespace Durin::Editor::Import
 		DURINED_API auto SuggestDestination(std::string_view SuggestedPath) -> void;
 		DURINED_API auto SetDestination(std::string_view VirtualPath) -> bool;
 		DURINED_API auto Inspect(std::string_view ReferencingPath,
-			bool bEngineAuthoringContext = false) const -> FMountedSourceImportDiagnostic;
+			bool bAllowEngineContentWrite = false) const -> FMountedSourceImportDiagnostic;
 		DURINED_API auto DrawMode(std::string_view ExternalDescription) -> void;
 		DURINED_API auto DrawSourceRow(const char* InputId, const char* Hint,
 			float BrowseButtonWidth) -> bool;

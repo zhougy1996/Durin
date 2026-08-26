@@ -33,7 +33,7 @@ namespace Durin::AssetForge::Builtins
 		std::string& OutError) -> bool;
 	ASSETFORGEBUILTINS_API auto SubmitTexture2DImport(
 		std::string_view FilePath, const FAssetPath& Destination,
-		const FTexture2DImportSettings& Settings, bool bEngineAuthoringContext,
+		const FTexture2DImportSettings& Settings, bool bAllowEngineContentWrite,
 		FImportCompletion Completion,
 		std::string& OutError) -> FImportHandle;
 	// Ingests an external source and executes the generic request inline. The
@@ -42,7 +42,7 @@ namespace Durin::AssetForge::Builtins
 		std::string_view FilePath,
 		std::string_view AssetPath,
 		const FTexture2DImportSettings& Settings = {},
-		bool bEngineAuthoringContext = false) -> FImportResult;
+		bool bAllowEngineContentWrite = false) -> FImportResult;
 
 	// Standard image-provider adapter: translate, build a detached product, then
 	// publish it to a main-thread candidate object.
@@ -51,7 +51,7 @@ namespace Durin::AssetForge::Builtins
 		std::string_view FilePath,
 		std::string_view AssetPath,
 		const FTexture2DImportSettings& Settings = {},
-		bool bEngineAuthoringContext = false) -> FTexture2DImportResult;
+		bool bAllowEngineContentWrite = false) -> FTexture2DImportResult;
 
 	// Submits a rebuild from retained source; completion runs on the game thread
 	// after the candidate state is either published or rejected.

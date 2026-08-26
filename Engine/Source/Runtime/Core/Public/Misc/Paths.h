@@ -45,7 +45,7 @@ namespace Durin
 			std::filesystem::path Root;
 			std::filesystem::path ContentPath = ".";
 			bool bAutoScan = false;
-			bool bAuthoringWritable = false;
+			bool bContentWritable = false;
 			std::vector<std::string> Dependencies;
 
 			[[nodiscard]] auto GetContentDir() const -> std::filesystem::path
@@ -106,10 +106,10 @@ namespace Durin
 			std::string_view ReferencingVirtualPath,
 			std::string_view ReferencedVirtualPath
 		) -> FMountPolicyResult;
-		CORE_API auto CheckAuthoringMutation(
-			std::string_view AuthoringVirtualPath,
+		CORE_API auto CheckContentWriteAdmission(
+			std::string_view ReferencingVirtualPath,
 			std::string_view SourceVirtualPath,
-			bool bEngineAuthoringContext = false
+			bool bAllowEngineContentWrite = false
 		) -> FMountPolicyResult;
 
 		CORE_API auto PublishMountRegistry(std::span<const FMountPoint> Definitions, std::string* OutError = nullptr) -> bool;
@@ -121,7 +121,7 @@ namespace Durin
 			std::string_view VirtualRoot,
 			std::string_view PhysicalPath,
 			bool bAutoScan = true,
-			bool bAuthoringWritable = true
+			bool bContentWritable = true
 		) -> void;
 
 		class CORE_API FScopedMountRegistryFixture

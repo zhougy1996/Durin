@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/PackageAuthoring.h"
+#include "Asset/PackageSerialization.h"
 #include "Asset/SourcePath.h"
 #include "AssetForgeAPI.h"
 #include "DObject/AssetPath.h"

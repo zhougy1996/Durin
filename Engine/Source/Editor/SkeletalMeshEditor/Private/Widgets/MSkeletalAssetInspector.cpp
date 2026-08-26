@@ -1,7 +1,8 @@
 #include "Widgets/MSkeletalAssetInspector.h"
 
 #include "Animation/AnimationClip.h"
-#include "AssetAuthoring.h"
+#include "Asset.h"
+#include "Asset/PackageInspection.h"
 #include "AssetForge/Persistence/ImportRecordIndex.h"
 #include "DObject/Object.h"
 #include "Editor/WorkspaceManager.h"

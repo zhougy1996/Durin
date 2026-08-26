@@ -43,7 +43,7 @@ namespace
 			.Owner = Durin::PathUtilities::EMountOwner::Test,
 			.Root = Root,
 			.bAutoScan = false,
-			.bAuthoringWritable = true};
+			.bContentWritable = true};
 	}
 
 	auto WriteSource(const std::filesystem::path& Path, std::string_view Text) -> void

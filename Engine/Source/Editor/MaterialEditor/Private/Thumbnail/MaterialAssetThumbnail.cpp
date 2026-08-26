@@ -1,7 +1,7 @@
 #include "Thumbnail/MaterialAssetThumbnail.h"
 
 #include "Asset/AssetRetention.h"
-#include "AssetAuthoring.h"
+#include "Asset.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Actor.h"
 #include "Engine/World.h"

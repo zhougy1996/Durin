@@ -5,7 +5,7 @@
 #include "AssetMutationReferenceInternal.h"
 #include "AssetRelocationExtensionsInternal.h"
 #include "Asset/PackageObjectStreamReader.h"
-#include "Asset/PackageAuthoring.h"
+#include "Asset/PackageSerialization.h"
 #include "AssetPackageCodec.h"
 #include "AssetPackageV6Codec.h"
 #include "Asset/PackageVersionPolicy.h"

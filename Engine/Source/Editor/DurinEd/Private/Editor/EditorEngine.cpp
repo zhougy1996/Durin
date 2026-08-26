@@ -2,7 +2,8 @@
 #include "Editor/Notification.h"
 #include "Editor/Transaction.h"
 
-#include "AssetAuthoring.h"
+#include "Asset/Mutation.h"
+#include "Asset.h"
 #include "AssetForge/ImportService.h"
 #include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"

@@ -1,6 +1,8 @@
 #include "Source/MountedSourceRelocation.h"
 
-#include "AssetAuthoring.h"
+#include "Asset/AssetOperations.h"
+#include "Asset/MountedSource.h"
+#include "Asset.h"
 #include "DObject/Package.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -211,7 +213,7 @@ namespace Durin::Editor
 
 		FMountedSourceRelocation Relocation;
 		if (!PrepareMountedSourceRelocation(
-			Request.AuthoringAssetPath,
+			Request.ReferencingAssetPath,
 			Request.OriginalSourceVirtualPath,
 			Request.DestinationSourceVirtualPath,
 			Relocation, OutError))

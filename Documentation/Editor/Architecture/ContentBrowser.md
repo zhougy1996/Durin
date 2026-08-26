@@ -181,7 +181,7 @@ restore, or compensation phases directly.
 
 The Content Browser enumerates and navigates only automatically scanned mounts.
 Filesystem-backed creation and rename operations additionally require the owning
-mount to be authoring-writable. These browsing constraints do not change the
+mount to be content-writable. These browsing constraints do not change the
 validity of typed source paths or AssetCore's authoring policy.
 
 Its asset rows are derived from owned `FAssetCatalogSnapshot` values. Manual or

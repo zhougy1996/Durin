@@ -129,7 +129,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		.Owner = Durin::PathUtilities::EMountOwner::Test,
 		.Root = TextureMount,
 		.bAutoScan = true,
-		.bAuthoringWritable = true});
+		.bContentWritable = true});
 	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry(MountDefinitions);
 	ASSERT_TRUE(MountRegistry.IsValid()) << MountRegistry.GetError();
 	Durin::FAssetPath SpherePath;
@@ -1189,4 +1189,4 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 	Durin::FRHICommandListImmediate::Get().SwitchPipeline(Durin::ERHIPipeline::None);
 	Durin::RHIExit();
 }
-#include "TextureAuthoringTestEnvironment.h"
+#include "TextureAssetTestEnvironment.h"

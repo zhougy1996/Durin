@@ -15,7 +15,7 @@
 #include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureBuilder.h"
 #include "Texture/Texture2DCompilation.h"
-#include "Texture/Texture2DCompilationDomain.h"
+#include "Developer/TextureBuild/Private/Texture/Texture2DCompilationDomain.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "TexturePlatformDataTestFixtures.h"
 

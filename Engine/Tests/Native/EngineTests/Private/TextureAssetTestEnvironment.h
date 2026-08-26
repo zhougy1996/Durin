@@ -8,7 +8,7 @@
 
 namespace Durin::Testing
 {
-	class FTextureAuthoringTestEnvironment final : public testing::Environment
+	class FTextureAssetTestEnvironment final : public testing::Environment
 	{
 	public:
 		auto SetUp() -> void override
@@ -24,6 +24,6 @@ namespace Durin::Testing
 		}
 	};
 
-	inline testing::Environment* GTextureAuthoringTestEnvironment =
-		testing::AddGlobalTestEnvironment(new FTextureAuthoringTestEnvironment);
+	inline testing::Environment* GTextureAssetTestEnvironment =
+		testing::AddGlobalTestEnvironment(new FTextureAssetTestEnvironment);
 }

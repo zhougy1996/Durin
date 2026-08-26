@@ -158,7 +158,7 @@ TEST(FSourcePathContractTests, UnifiedMountFixtureFreezesSingleRootsCapabilities
 	EXPECT_EQ(Plugin.GetView("Root").GetString(), "Plugin");
 	EXPECT_EQ(Plugin.GetView("ContentPath").GetString(), "Content");
 	EXPECT_TRUE(Plugin.GetView("AutoScan").GetBool());
-	EXPECT_FALSE(Plugin.GetView("AuthoringWritable").GetBool());
+	EXPECT_FALSE(Plugin.GetView("ContentWritable").GetBool());
 
 	const Durin::FJsonNodeView External = FindNamedEntry(Mounts, "/Libraries/StudioArt/");
 	ASSERT_TRUE(External.IsObject());
@@ -166,7 +166,7 @@ TEST(FSourcePathContractTests, UnifiedMountFixtureFreezesSingleRootsCapabilities
 	EXPECT_EQ(External.GetView("Root").GetString(), "StudioArt");
 	EXPECT_EQ(External.GetView("ContentPath").GetString(), ".");
 	EXPECT_FALSE(External.GetView("AutoScan").GetBool());
-	EXPECT_FALSE(External.GetView("AuthoringWritable").GetBool());
+	EXPECT_FALSE(External.GetView("ContentWritable").GetBool());
 
 	const Durin::FJsonNodeView Cases = Contract.GetRootView().GetView("Cases");
 	ASSERT_TRUE(Cases.IsArray());
@@ -204,14 +204,14 @@ TEST(FSourcePathContractTests, SharedSourceOperationsClassifyIngestAndRollback)
 			.Root = Root / "Engine",
 			.ContentPath = "Content",
 			.bAutoScan = true,
-			.bAuthoringWritable = true},
+			.bContentWritable = true},
 		Durin::PathUtilities::FMountPoint{
 			.VirtualRoot = "/Game/",
 			.Owner = Durin::PathUtilities::EMountOwner::ActiveProject,
 			.Root = Root / "Game",
 			.ContentPath = "Content",
 			.bAutoScan = true,
-			.bAuthoringWritable = true,
+			.bContentWritable = true,
 			.Dependencies = {"/Engine/"}}};
 	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Mounts);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
@@ -250,7 +250,7 @@ TEST(FSourcePathContractTests, SharedSourceOperationsClassifyIngestAndRollback)
 	ASSERT_TRUE(Durin::Asset::PrepareMountedSourceFile(
 		ExternalSource, "/Engine/Models/Asset", "/Engine/Models/Ingested.bin",
 		Prepared, Error,
-		Durin::Asset::EMountedSourceMutationContext::EngineAuthoring)) << Error;
+		Durin::Asset::EMountedSourceMutationContext::EngineContentWrite)) << Error;
 	EXPECT_EQ(Prepared.SourcePath.Path, "/Engine/Models/Ingested.bin");
 	EXPECT_EQ(Prepared.Disposition, Durin::Asset::ESourceFileDisposition::IngestedExternal);
 	Durin::Asset::RollbackMountedSourceFile(Prepared);

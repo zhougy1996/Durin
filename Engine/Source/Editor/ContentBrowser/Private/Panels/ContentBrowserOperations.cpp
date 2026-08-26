@@ -1,7 +1,9 @@
 #include "Panels/ContentBrowserOperations.h"
 #include "Panels/ContentBrowserFilesystem.h"
 
-#include "AssetAuthoring.h"
+#include "Asset/AssetOperations.h"
+#include "Asset/Mutation.h"
+#include "Asset.h"
 #include "AssetForge/Persistence/ImportRecord.h"
 #include "DObject/Class.h"
 #include "Misc/LexicalPath.h"
@@ -255,10 +257,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			return Failure(
 				Asset::EAssetError::InvalidPath,
 				"File renames must stay inside the same automatically scanned content mount.");
-		if (!SourceMount.Mount->bAuthoringWritable)
+		if (!SourceMount.Mount->bContentWritable)
 			return Failure(
 				Asset::EAssetError::ReadOnlyMode,
-				"This content mount is read-only for authoring. Choose a writable mount before renaming the file.");
+				"This content mount is not content-writable. Choose a writable mount before renaming the file.");
 		const ContentBrowserFilesystem::FPathProbe DestinationProbe =
 			ContentBrowserFilesystem::Probe(Destination);
 		if (DestinationProbe.Error)
@@ -327,10 +329,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			return Failure(
 				Asset::EAssetError::InvalidPath,
 				"The paste destination is outside an automatically scanned content mount.");
-		if (!Mount.Mount->bAuthoringWritable)
+		if (!Mount.Mount->bContentWritable)
 			return Failure(
 				Asset::EAssetError::ReadOnlyMode,
-				"This content mount is read-only for authoring. Choose a writable mount before pasting the asset.");
+				"This content mount is not content-writable. Choose a writable mount before pasting the asset.");
 
 		const std::string AssetName(SourcePath.GetAssetName());
 		FAssetPath DestinationPath;
@@ -425,10 +427,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			return {
 				Asset::EAssetError::InvalidPath,
 				"Folder moves must stay inside the same automatically scanned content mount."};
-		if (!OldMount.Mount->bAuthoringWritable)
+		if (!OldMount.Mount->bContentWritable)
 			return {
 				Asset::EAssetError::ReadOnlyMode,
-				"This content mount is read-only for authoring. Choose a writable mount before renaming the folder."};
+				"This content mount is not content-writable. Choose a writable mount before renaming the folder."};
 		const ContentBrowserFilesystem::FPathProbe NewFolderProbe =
 			ContentBrowserFilesystem::Probe(NewFolder);
 		if (NewFolderProbe.Error)
@@ -661,10 +663,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			return Failure(
 				Asset::EAssetError::InvalidPath,
 				"Folders can only be created inside an automatically scanned content mount.");
-		if (!DirectoryMount.Mount->bAuthoringWritable)
+		if (!DirectoryMount.Mount->bContentWritable)
 			return Failure(
 				Asset::EAssetError::ReadOnlyMode,
-				"This content mount is read-only for authoring. Choose a writable mount before creating a folder.");
+				"This content mount is not content-writable. Choose a writable mount before creating a folder.");
 
 		for (int32 Suffix = 0; Suffix < 1000; ++Suffix)
 		{
@@ -854,13 +856,13 @@ namespace Durin::Editor::ContentBrowser::Private
 					PhysicalPath,
 					{},
 					"A mounted content root cannot be deleted.");
-			if (!Mount->bAuthoringWritable)
+			if (!Mount->bContentWritable)
 				AddBlocker(
 					EContentDeletionBlocker::ReadOnlyMount,
 					Item.Name,
 					PhysicalPath,
 					{},
-					"The selected mount is read-only for authoring.");
+					"The selected mount is not content-writable.");
 			if (!IsSameVolume(PhysicalPath, Plan->StagingVolumeRoot))
 				AddBlocker(
 					EContentDeletionBlocker::CrossVolumeStaging,

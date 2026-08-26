@@ -73,12 +73,12 @@ namespace Durin::AssetForge::Builtins
 		std::string_view ExternalIngestDestination,
 		FPreparedSceneSourceBundle& OutBundle,
 		std::string& OutError,
-		bool bEngineAuthoringContext = false) -> bool;
+		bool bAllowEngineContentWrite = false) -> bool;
 	ASSETFORGEBUILTINS_API auto BeginSceneSourceBundlePreparation(
 		std::filesystem::path InputRoot,
 		std::string ReferencingContentPath,
 		std::string ExternalIngestDestination,
-		bool bEngineAuthoringContext = false) -> FSceneSourceBundleAsyncHandle;
+		bool bAllowEngineContentWrite = false) -> FSceneSourceBundleAsyncHandle;
 	ASSETFORGEBUILTINS_API auto PollSceneSourceBundlePreparation(
 		FSceneSourceBundleAsyncHandle& Handle,
 		FPreparedSceneSourceBundle& OutBundle,

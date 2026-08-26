@@ -31,7 +31,7 @@ namespace Durin::Editor::Import
 		return "Unknown";
 	}
 
-	inline auto IsEngineAuthoringDestination(std::string_view VirtualPath) -> bool
+	inline auto IsEngineContentWriteDestination(std::string_view VirtualPath) -> bool
 	{
 		const PathUtilities::FMountLookupResult Lookup =
 			PathUtilities::FindMountForVirtualPath(VirtualPath);
@@ -43,7 +43,7 @@ namespace Durin::Editor::Import
 		std::string_view AssetPath,
 		std::string_view IngestTarget,
 		EMountedSourceImportMode Mode,
-		bool bEngineAuthoringContext = false) -> FMountedSourceImportDiagnostic
+		bool bAllowEngineContentWrite = false) -> FMountedSourceImportDiagnostic
 	{
 		FMountedSourceImportDiagnostic Result;
 		if (InputFile.empty())
@@ -110,8 +110,8 @@ namespace Durin::Editor::Import
 			return Result;
 		}
 		const PathUtilities::FMountPolicyResult Mutation =
-			PathUtilities::CheckAuthoringMutation(
-				AssetPath, Destination.NormalizedVirtualPath, bEngineAuthoringContext);
+			PathUtilities::CheckContentWriteAdmission(
+				AssetPath, Destination.NormalizedVirtualPath, bAllowEngineContentWrite);
 		if (!Mutation)
 		{
 			Result.Message = Mutation.Message;

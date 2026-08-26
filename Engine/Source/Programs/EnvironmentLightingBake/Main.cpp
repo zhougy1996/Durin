@@ -1,6 +1,7 @@
 #include "CoreMinimal.h"
 
-#include "AssetAuthoring.h"
+#include "Asset/AssetOperations.h"
+#include "Asset.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "EnvironmentLighting/EnvironmentLighting.h"
@@ -44,7 +45,7 @@ auto main(int ArgumentCount, char** Arguments) -> int
 		.Root = ContentDirectory.parent_path(),
 		.ContentPath = ContentDirectory.filename(),
 		.bAutoScan = false,
-		.bAuthoringWritable = true};
+		.bContentWritable = true};
 	if (!Durin::PathUtilities::PublishMountRegistry({&EngineMount, 1}, &Error))
 	{
 		std::cerr << "Failed to mount Engine Content: " << Error << '\n';

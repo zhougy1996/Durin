@@ -2,5 +2,5 @@
 
 #include "Asset.h"
 #include "Asset/Cook.h"
-#include "Asset/PackageAuthoring.h"
+#include "Asset/PackageSerialization.h"
 #include "Asset/References.h"

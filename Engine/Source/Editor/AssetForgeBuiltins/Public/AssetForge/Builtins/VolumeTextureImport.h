@@ -80,7 +80,7 @@ namespace Durin::AssetForge::Builtins
 		std::string_view FilePath,
 		std::string_view AssetPath,
 		const FVolumeTextureImportSettings& Settings = {},
-		bool bEngineAuthoringContext = false)
+		bool bAllowEngineContentWrite = false)
 		-> FVolumeTextureImportResult;
 	ASSETFORGEBUILTINS_API auto RepairVolumeTextureSource(
 		DVolumeTexture& Texture,
@@ -101,7 +101,7 @@ namespace Durin::AssetForge::Builtins
 		std::string& OutError) -> bool;
 	ASSETFORGEBUILTINS_API auto SubmitVolumeTextureImport(
 		std::string_view FilePath, const FAssetPath& Destination,
-		const FVolumeTextureImportSettings& Settings, bool bEngineAuthoringContext,
+		const FVolumeTextureImportSettings& Settings, bool bAllowEngineContentWrite,
 		AssetForge::FImportCompletion Completion,
 		std::string& OutError)
 		-> AssetForge::FImportHandle;

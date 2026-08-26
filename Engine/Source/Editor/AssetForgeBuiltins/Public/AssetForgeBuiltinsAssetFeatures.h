@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetForgeBuiltinsAPI.h"
-#include "AssetAuthoringReadiness.h"
+#include "AssetSaveReadiness.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshPostLoad.h"
 #include "StaticMesh/StaticMeshSourceMutation.h"
@@ -19,11 +19,11 @@ namespace Durin::AssetForge::Builtins
 		, public ITexture2DImportRecoveryFeature
 		, public ITextureCubePostLoadFeature
 		, public IVolumeTextureImportRecoveryFeature
-		, public IAssetAuthoringReadinessFeature
+		, public IAssetSaveReadinessFeature
 	{
 	public:
 		ASSETFORGEBUILTINS_API auto Validate(const DObject& Asset) const
-			-> FAssetAuthoringReadinessFeatureResult override;
+			-> FAssetSaveReadinessFeatureResult override;
 		ASSETFORGEBUILTINS_API auto BuildFileProduct(
 			DStaticMesh& Mesh,
 			std::string_view SourcePath,

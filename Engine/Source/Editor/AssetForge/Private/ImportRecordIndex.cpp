@@ -1,6 +1,8 @@
 #include "AssetForge/Persistence/ImportRecordIndex.h"
 
-#include "AssetAuthoring.h"
+#include "Asset/Mutation.h"
+#include "Asset/PackageSerialization.h"
+#include "Asset.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"
 #include "Hash/XxHash.h"

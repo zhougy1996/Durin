@@ -2,7 +2,7 @@
 #include "Panels/ContentBrowserFilesystem.h"
 #include "Panels/ContentBrowserItemView.h"
 
-#include "AssetAuthoring.h"
+#include "Asset.h"
 #include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
 #include "Misc/StringHelper.h"
@@ -54,7 +54,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				Mount.VirtualRoot,
 				ContentRoot,
 				NormalizePath(ContentRoot),
-				Mount.bAuthoringWritable});
+				Mount.bContentWritable});
 		}
 		const auto GameMount = std::ranges::find(
 			NextMountSnapshot, std::string_view{"/Game/"}, &FMountSnapshot::VirtualRoot);
@@ -72,7 +72,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				return A.VirtualRoot == B.VirtualRoot
 					&& A.SourcePhysicalRoot == B.SourcePhysicalRoot
 					&& A.PhysicalRoot == B.PhysicalRoot
-					&& A.bAuthoringWritable == B.bAuthoringWritable;
+					&& A.bContentWritable == B.bContentWritable;
 			});
 		if (bUnchanged) return;
 

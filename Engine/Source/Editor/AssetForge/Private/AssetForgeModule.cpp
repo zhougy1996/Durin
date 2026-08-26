@@ -1,6 +1,6 @@
 #include "AssetForge/Operations/ImportOperation.h"
 #include "AssetForge/ImportService.h"
-#include "AssetAuthoring.h"
+#include "Asset/Mutation.h"
 #include "AssetForge/Persistence/ImportRecordIndex.h"
 #include "Modules/ModuleManager.h"
 

@@ -10,7 +10,7 @@ Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
 classes are defined by [Asset Data Lifecycle and Storage](AssetDataLifecycle.md).
 This document owns only rebuildable discovery/reference projections and
-authoring mutations over those package identities.
+asset mutations over those package identities.
 
 ## Catalog Ownership
 
@@ -39,7 +39,7 @@ scope affects only presentation.
 Public headers remain split by responsibility: `Asset/Catalog.h` owns discovery
 values, `Asset/References.h` owns the immutable reference projection,
 `Asset/Load.h` owns runtime resolution and residency, `Asset/Mutation.h` owns
-authoring transactions, and `Asset/Testing.h` owns deterministic failure seams.
+asset-mutation transactions, and `Asset/Testing.h` owns deterministic failure seams.
 The supported aggregate entry points are defined by
 [Asset Packages](AssetPackages.md#public-capability-boundary). There is no
 public mutable catalog manager.
@@ -107,7 +107,7 @@ broken aliases, and incomplete alias closure are blocked. Soft and external
 references warn that authored paths will dangle. Commit, Undo, and Redo retain
 enough exact metadata to restore redirectors and catalog state.
 
-Fix Up is the only path-canonicalizing authoring transaction. It rewrites tagged
+Fix Up is the only path-canonicalizing asset-mutation transaction. It rewrites tagged
 hard and soft package fields plus registered external stores, verifies that no
 incoming persistent occurrence remains, and may then delete proven aliases.
 Dirty, incompatible, read-only, incomplete, stale, or failed participants leave

@@ -66,13 +66,13 @@ namespace Durin::AssetForge::Builtins
 		std::string_view AssetPath,
 		const FTextureCubeImportSettings& Settings = {},
 		const std::array<std::string, TextureCubeFaceCount>& SourceDestinations = {},
-		bool bEngineAuthoringContext = false) -> FTextureCubeImportResult;
+		bool bAllowEngineContentWrite = false) -> FTextureCubeImportResult;
 	ASSETFORGEBUILTINS_API auto ImportTextureCubePanorama(
 		std::string_view PanoramaFile,
 		std::string_view AssetPath,
 		const FTextureCubePanoramaImportSettings& Settings = {},
 		std::string_view SourceDestination = {},
-		bool bEngineAuthoringContext = false) -> FTextureCubeImportResult;
+		bool bAllowEngineContentWrite = false) -> FTextureCubeImportResult;
 	ASSETFORGEBUILTINS_API auto ReimportTextureCubePanorama(
 		DTextureCube& Texture,
 		std::string_view PanoramaFile,
@@ -127,7 +127,7 @@ namespace Durin::AssetForge::Builtins
 		ETextureCubeSourceLayout Layout, const FAssetPath& Destination,
 		const FTextureCubeImportSettings& FaceSettings,
 		const FTextureCubePanoramaImportSettings& PanoramaSettings,
-		bool bEngineAuthoringContext,
+		bool bAllowEngineContentWrite,
 		AssetForge::FImportCompletion Completion,
 		std::string& OutError) -> AssetForge::FImportHandle;
 }

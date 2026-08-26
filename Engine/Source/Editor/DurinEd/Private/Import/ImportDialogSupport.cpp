@@ -389,10 +389,10 @@ namespace Durin::Editor::Import
 	}
 
 	auto FMountedSourceImportFormModel::Inspect(std::string_view ReferencingPath,
-		bool bEngineAuthoringContext) const -> FMountedSourceImportDiagnostic
+		bool bAllowEngineContentWrite) const -> FMountedSourceImportDiagnostic
 	{
 		return InspectMountedSourceImport(SourcePath.data(), ReferencingPath,
-			Destination.data(), Mode, bEngineAuthoringContext);
+			Destination.data(), Mode, bAllowEngineContentWrite);
 	}
 
 	auto FMountedSourceImportFormModel::DrawMode(

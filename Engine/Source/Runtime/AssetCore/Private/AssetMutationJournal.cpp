@@ -140,7 +140,7 @@ namespace Durin::Asset::Private
 			if (!PathUtilities::IsLexicalDescendantPath(
 					Normalized.generic_string(), Content.generic_string(), true))
 				continue;
-			if (!Mount.bAuthoringWritable)
+			if (!Mount.bContentWritable)
 			{
 				OutError = std::format(
 					"Content mount {} is read-only.", Mount.VirtualRoot);

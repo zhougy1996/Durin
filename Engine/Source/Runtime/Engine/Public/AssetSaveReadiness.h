@@ -9,23 +9,23 @@ namespace Durin
 	class DObject;
 
 	// Carries one provider's decision for an asset family it may or may not own.
-	struct FAssetAuthoringReadinessFeatureResult
+	struct FAssetSaveReadinessFeatureResult
 	{
 		bool bHandled = false;
 		Asset::FAssetResult Result;
 	};
 
-	// Lets authoring modules validate family-specific transient state before a save.
-	class IAssetAuthoringReadinessFeature : public IModularFeature
+	// Lets asset-family modules validate family-specific transient state before a save.
+	class IAssetSaveReadinessFeature : public IModularFeature
 	{
 	public:
-		static constexpr std::string_view FeatureName = "Engine.AssetAuthoringReadiness";
+		static constexpr std::string_view FeatureName = "Engine.AssetSaveReadiness";
 		static constexpr uint32 FeatureVersion = 1;
 		virtual auto Validate(const DObject& Asset) const
-			-> FAssetAuthoringReadinessFeatureResult = 0;
+			-> FAssetSaveReadinessFeatureResult = 0;
 	};
 
 	// Rejects missing assets, ambiguous providers, and handled assets that are not ready.
-	ENGINE_API auto ValidateAssetAuthoringReadiness(const DObject* Asset)
+	ENGINE_API auto ValidateAssetSaveReadiness(const DObject* Asset)
 		-> Asset::FAssetResult;
 }

@@ -1,6 +1,7 @@
 #include "Thumbnail/Texture2DAssetThumbnail.h"
 
-#include "AssetAuthoring.h"
+#include "Asset.h"
+#include "Asset/PackageInspection.h"
 #include "Image/ImageDecoder.h"
 #include "Misc/Paths.h"
 #include "Texture/Texture2D.h"

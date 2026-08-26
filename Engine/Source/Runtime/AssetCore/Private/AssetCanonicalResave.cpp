@@ -1,5 +1,5 @@
 #include "Asset/CanonicalResave.h"
-#include "Asset/PackageAuthoring.h"
+#include "Asset/PackageSerialization.h"
 
 #include "Asset/PackageObjectStreamReader.h"
 #include "AssetRuntimeStateInternal.h"
@@ -194,8 +194,8 @@ namespace Durin::Asset
 					"NonCurrentFormat: canonical resave accepts only DAST v6 packages.");
 			const PathUtilities::FMountLookupResult Mount =
 				PathUtilities::FindMountForVirtualPath(Record->PackagePath.GetView());
-			if (!Mount || !Mount.Mount->bAuthoringWritable)
-				Package.Diagnostics.push_back("ReadOnlyMount: package is not on an authoring-writable mount.");
+			if (!Mount || !Mount.Mount->bContentWritable)
+				Package.Diagnostics.push_back("ReadOnlyMount: package is not on an content-writable mount.");
 			if (Package.bDirty)
 				Package.Diagnostics.push_back("DirtyConflict: loaded package has authored changes.");
 			if (!Package.Diagnostics.empty()) Package.Status = EAssetCanonicalResavePackageStatus::Blocked;

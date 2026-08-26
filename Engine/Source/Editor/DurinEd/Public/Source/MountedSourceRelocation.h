@@ -22,7 +22,7 @@ namespace Durin::Editor
 
 	struct FMountedSourceRelocationRequest
 	{
-		std::string AuthoringAssetPath;
+		std::string ReferencingAssetPath;
 		std::string OriginalSourceVirtualPath;
 		std::string DestinationSourceVirtualPath;
 		std::vector<FSourceReference> AffectedAssets;

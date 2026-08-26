@@ -4,7 +4,8 @@
 #include "Graph/MaterialGraphCanvas.h"
 
 #include "Asset/AssetCompilingManager.h"
-#include "AssetAuthoring.h"
+#include "Asset/Mutation.h"
+#include "Asset.h"
 #include "DObject/Package.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Editor/AssetPicker.h"
