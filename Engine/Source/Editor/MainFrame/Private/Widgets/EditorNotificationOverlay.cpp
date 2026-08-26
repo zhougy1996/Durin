@@ -105,8 +105,9 @@ namespace Durin::Editor::MainFrame
 
 	auto FEditorNotificationOverlay::DrawHistoryWindow() -> void
 	{
+		if (!bHistoryOpen || !GEditor) return;
 		if (bFocusHistoryRequested) ImGui::SetNextWindowFocus();
-		if (GEditor) DrawHistory(GEditor->GetNotificationManager(), &bHistoryOpen);
+		DrawHistory(GEditor->GetNotificationManager(), &bHistoryOpen);
 		bFocusHistoryRequested = false;
 	}
 

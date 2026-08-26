@@ -99,7 +99,7 @@ namespace Durin::MonaImGui
 		ImGui::SetNextWindowPos(Geometry.Min, ImGuiCond_Always);
 		ImGui::SetNextWindowSize(Geometry.Size, ImGuiCond_Always);
 		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 		const ImGuiWindowFlags Flags = ImGuiWindowFlags_NoTitleBar
 			| ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoDocking
 			| ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize
@@ -150,7 +150,14 @@ namespace Durin::MonaImGui
 				ResizeColor);
 			ImGui::SetCursorScreenPos(ImGui::GetWindowPos()
 				+ ImVec2(ImGui::GetStyle().WindowPadding.x,
-					ResizeHeight + ImGui::GetStyle().WindowPadding.y));
+					ResizeHeight + ScaleUI(4.0f)));
+		}
+		else
+		{
+			ImGui::GetWindowDrawList()->AddLine(
+				ImGui::GetWindowPos(),
+				ImGui::GetWindowPos() + ImVec2(ImGui::GetWindowWidth(), 0.0f),
+				ImGui::GetColorU32(ImGuiCol_Separator));
 		}
 
 		if (Config.bAllowEscapeDismissal

@@ -17,6 +17,7 @@
 #include "StaticMeshEditorModule.h"
 #include "SkeletalMeshEditorModule.h"
 #include "Thumbnail/AssetThumbnailProvider.h"
+#include "Icons/FontAwesomeIcons.h"
 #include "MonaImGui.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -92,7 +93,7 @@ namespace Durin::Editor::MainFrame
 			std::string ProfilingStatusMessage;
 			bool bProfilingStatusOpen = false;
 			bool bAssetCompatibilityOpen = false;
-			bool bContentBrowserOpen = true;
+			bool bContentBrowserOpen = false;
 			bool bConsoleOpen = false;
 			bool bActivityHistoryRequested = false;
 			bool bResetHostLayoutRequested = false;
@@ -971,12 +972,18 @@ namespace Durin::Editor::MainFrame
 			{
 				// DockBuilder must finish before DockSpace submission so the new tree retains this frame's host window.
 				BuildDefaultEditorHostLayout(DockSpaceId, DockSpaceSize, WorkspaceManager.GetWorkspaceDescriptors());
-				ViewState.bContentBrowserOpen = true;
+				ViewState.bContentBrowserOpen = false;
 				ViewState.bConsoleOpen = false;
 				ViewState.Drawer.Reset();
+				ViewState.DrawerTool = EHostDrawerTool::ContentBrowser;
 				ViewState.bResetHostLayoutRequested = false;
 			}
-			Editor::WorkspaceUI::SubmitHostDockSpace(Editor::WorkspaceUI::HostLayoutVersion, DockSpaceSize, ImGuiDockNodeFlags_NoWindowMenuButton);
+			const ImVec2 HostItemSpacing(
+				ImGui::GetStyle().ItemSpacing.x, 0.0f);
+			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, HostItemSpacing);
+			Editor::WorkspaceUI::SubmitHostDockSpace(Editor::WorkspaceUI::HostLayoutVersion,
+				DockSpaceSize, ImGuiDockNodeFlags_NoWindowMenuButton);
+			ImGui::PopStyleVar();
 
 			bool bBrowserSubmitted = false;
 			bool bConsoleSubmitted = false;
@@ -1065,24 +1072,42 @@ namespace Durin::Editor::MainFrame
 					.bDismissOnFocusLoss = true,
 					.bDismissWhenDragLeavesBounds = true,
 				};
+				const ImVec2 DrawerPadding(
+					ImGui::GetStyle().WindowPadding.x, 0.0f);
+				ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, DrawerPadding);
 				if (MonaImGui::BeginBottomDrawer(Config, ViewState.Drawer))
 				{
 					const bool bConsole = ViewState.DrawerTool == EHostDrawerTool::Console;
 					ImGui::AlignTextToFramePadding();
 					ImGui::TextUnformatted(bConsole ? "Console" : "Content Browser");
 					const char* DockLabel = "Dock in Layout";
-					const float ButtonWidth = ImGui::CalcTextSize(DockLabel).x
+					const float DockButtonWidth = ImGui::CalcTextSize(DockLabel).x
 						+ ImGui::GetStyle().FramePadding.x * 2.0f;
+					const float CloseButtonWidth = ImGui::GetFrameHeight();
 					ImGui::SameLine(std::max(ImGui::GetCursorPosX(),
-						ImGui::GetWindowContentRegionMax().x - ButtonWidth));
+						ImGui::GetWindowContentRegionMax().x - DockButtonWidth
+							- ImGui::GetStyle().ItemSpacing.x - CloseButtonWidth));
 					const bool bDock = ImGui::Button(DockLabel);
+					ImGui::SameLine();
+					const bool bClose = ImGui::Button(
+						Icons::Close, ImVec2(CloseButtonWidth, 0.0f));
+					if (ImGui::IsItemHovered()) ImGui::SetTooltip("Close drawer");
 					ImGui::Separator();
-					if (bConsole && !bConsoleSubmitted)
+					const ImVec2 DrawerWindowPos = ImGui::GetWindowPos();
+					const ImVec2 DrawerWindowSize = ImGui::GetWindowSize();
+					const ImVec2 ContentPos = ImGui::GetCursorScreenPos();
+					const float ContentHeight = std::max(
+						0.0f, DrawerWindowPos.y + DrawerWindowSize.y - ContentPos.y);
+					const bool bDrawContent = ImGui::BeginChild(
+						"##EditorBottomDrawerContent", ImVec2(0.0f, ContentHeight),
+						ImGuiChildFlags_None,
+						ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+					if (bDrawContent && bConsole && !bConsoleSubmitted)
 					{
 						Console.DrawContents();
 						bConsoleSubmitted = true;
 					}
-					else if (!bConsole && !bBrowserSubmitted)
+					else if (bDrawContent && !bConsole && !bBrowserSubmitted)
 					{
 						const bool bDisableMutations = GEditor && GEditor->IsPlaying();
 						if (bDisableMutations) ImGui::BeginDisabled();
@@ -1090,7 +1115,9 @@ namespace Durin::Editor::MainFrame
 						if (bDisableMutations) ImGui::EndDisabled();
 						bBrowserSubmitted = true;
 					}
+					ImGui::EndChild();
 					MonaImGui::EndBottomDrawer(ViewState.Drawer);
+					if (bClose) ViewState.Drawer.Close();
 					if (bDock)
 					{
 						if (bConsole) ViewState.bConsoleOpen = true;
@@ -1098,6 +1125,7 @@ namespace Durin::Editor::MainFrame
 						ViewState.Drawer.Reset();
 					}
 				}
+				ImGui::PopStyleVar();
 			}
 			if (!bBrowserSubmitted) ContentBrowserTool.TickWhenHidden();
 			TextureEditorModule.DrawImportDialogs();
