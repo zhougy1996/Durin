@@ -176,19 +176,18 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(Durin::AssetForge::Builtins::MakeSceneImportRequest(
 		{.Path = "/SceneImportVulkan/Models/RenderedOpaqueDataUri.gltf"},
 		DestinationDirectory, Durin::FStaticMeshImportSettings::MakeDurin(),
-		Durin::AssetForge::EImportMode::Import,
-		{.OwnerId = "SceneImportVulkan.AssetForge"}, {}, SceneRequest, SceneError))
+		{.OwnerId = "SceneImportVulkan.AssetForge"}, SceneRequest, SceneError))
 		<< SceneError;
 	const Durin::AssetForge::FImportResult Executed =
 		Durin::AssetForge::GetImportService().RunImportInline(
 			std::move(SceneRequest), "Scene Vulkan AssetForge import");
 	ASSERT_EQ(Executed.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
 		<< Executed.Outcome.Diagnostic;
-	ASSERT_EQ(Executed.Inspection.Outputs.size(), 4u);
+	ASSERT_EQ(Executed.Inspection.Outputs.size(), 3u);
 	Durin::FAssetPath MeshPath;
 	Durin::FAssetPath TexturePath;
 	Durin::FAssetPath MaterialPath;
-	for (const Durin::AssetForge::FImportOutputPreview& Output
+	for (const Durin::AssetForge::FImportOutputSummary& Output
 		: Executed.Inspection.Outputs)
 	{
 		if (Output.AssetClassName

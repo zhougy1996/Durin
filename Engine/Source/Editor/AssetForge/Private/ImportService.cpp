@@ -113,7 +113,6 @@ namespace Durin::AssetForge
 		std::string_view Id,
 		uint64 Identity) -> bool
 	{
-		ClearImportPreviewCache();
 		CancelAndDrainAsyncImportsForProvider(Id);
 		return Impl->Import.Unregister(Role, Id, Identity);
 	}

@@ -564,7 +564,7 @@ namespace Durin::AssetForge
 				"Source capture limits must be non-zero.");
 			return false;
 		}
-		if (!Impl->CaptureMounted("root", "Root", RootSource, {}, 0, false, OutDiagnostics))
+		if (!Impl->CaptureMounted("root", "source", RootSource, {}, 0, false, OutDiagnostics))
 			return false;
 		Impl->bRootCaptured = true;
 		return true;
@@ -583,7 +583,7 @@ namespace Durin::AssetForge
 			return false;
 		}
 		if (!Impl->CaptureBytes(
-			"root", "Root", RootSource, Bytes, {}, 0, false, OutDiagnostics)) return false;
+			"root", "source", RootSource, Bytes, {}, 0, false, OutDiagnostics)) return false;
 		Impl->bRootCaptured = true;
 		return true;
 	}

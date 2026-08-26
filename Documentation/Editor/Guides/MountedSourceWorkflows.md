@@ -1,6 +1,6 @@
 # Mounted Source Workflows
 
-Last reviewed: 2026-08-24
+Last reviewed: 2026-08-26
 
 StaticMesh, Texture2D, TextureCube, VolumeTexture, and Terrain Heightmap assets keep source provenance as a
 complete virtual `FSourcePath`. Asset packages and authoring files resolve
@@ -16,7 +16,7 @@ Choose one source mode:
 
 - **Reference Existing Source** selects a file already inside a registered
   mount content directory. The referencing asset's mount must depend on the
-  source mount. Import records the virtual path and does not copy or rename the
+  source mount. Import stores the virtual path and does not copy or rename the
   file.
 - **Ingest External Source** selects a file outside every registered source
   mount. Choose a writable target mount and complete virtual destination.
@@ -34,9 +34,9 @@ publish/restore transactions because they have different commit semantics.
 
 Import captures the selected source and its translator-declared dependency
 closure into one immutable snapshot. A single-output import stores lightweight
-provenance on that asset. A multi-output import publishes peer assets plus an
-editor-only `DImportRecord`; selecting an output does not make it the owner of
-the others. See [Asset Import Framework](../Architecture/AssetImportFramework.md).
+provenance on that asset. Scene import publishes ordinary independent peer
+assets and stores no aggregate management asset. See
+[Asset Import Framework](../Architecture/AssetImportFramework.md).
 
 After confirmation, every import dialog submits one AssetForge import operation.
 Closing the dialog or choosing background mode does not abandon accepted work;
@@ -47,9 +47,9 @@ non-cancelable and completes success or full restoration.
 Use **Scene Source (FBX/glTF)** for supported scene documents. Choose one output
 directory; the importer creates only populated type directories beneath it,
 including `Meshes`, `Materials`, `Textures`, `Skeletons`, `SkeletalMeshes`, and
-`Animations` as required, and stores
-`<SourceName>_Import` at the output root. No generated Mesh is treated as the
-primary asset.
+`Animations` as required. No generated Mesh is treated as the primary asset.
+Scene import is creation-only: importing a revised scene requires a fresh
+destination, and there is no whole-scene reimport or generated-output repair.
 
 Use **Static Mesh (Geometry Only)** to create one StaticMesh from OBJ or another
 supported model format without creating scene materials or textures. FBX and
@@ -64,9 +64,11 @@ uses `Sources/Textures/<Asset>/<File>`. Single-output imports suggest one asset
 in the current Content Browser directory; Scene Source suggests one output
 directory there. Changing an automatically suggested destination updates its
 dependent source suggestions, while a manually edited path is preserved.
-Single-output forms label the destination as one `.dasset` and preview the
+Single-output forms label the destination as one `.dasset` and display the
 extension-bearing package filename; the editable asset identity remains the
-canonical extension-free virtual path.
+canonical extension-free virtual path. Dialogs show settings and cheap source
+metadata; full parsing, output planning, collision detection, and construction
+start only after **Import** is confirmed.
 
 The form displays the asset or output-directory destination and source
 destination separately,

@@ -354,10 +354,10 @@ metadata and this catalog remains an unavailable-type compatibility failure.
 Aliases may be removed only after every supported authored-content baseline has
 zero findings, canonical-resave CI passes, authored diffs have been reviewed,
 and the compatibility policy for external content has been recorded separately.
-The current repository baseline has completed that process for the former
-`Durin::Asset::Import` and `Durin::AssetImport` ImportRecord identities, so
-those concrete `LegacyNames` registrations are absent. The generic mechanism
-and owner-scoped alias tests remain available for future bounded migrations.
+The current repository baseline has completed that process for retired
+identities, so their concrete `LegacyNames` registrations are absent. The
+generic mechanism and owner-scoped alias tests remain available for future
+bounded migrations.
 
 `ConstructDClass(...)` forces class registration, then creates `FProperty` nodes from generated property parameters and attaches top-level fields to `DStructBase::ChildProperties`. Container inner/key/value properties are constructed recursively and owned by their containing `FArrayProperty` or `FMapProperty`; they are not inserted into the class property chain.
 
@@ -501,9 +501,8 @@ structs use the same path. `TDStructOpsTraits<T>` derives safe mechanical
 defaults from the C++ type and lets an audited specialization disable or replace
 an operation or enable an optional callback. The specialization is
 compile-checked against the callback signature before its operation is emitted.
-Current non-mechanical specializations are the deterministic zero default for
-`FVector3` and post-deserialize repair for the two import-record structs whose
-parsed asset paths are derived from reflected path text. The former mutable
+Current non-mechanical specializations provide deterministic mathematical
+defaults for vector, quaternion, matrix, and color structs. The former mutable
 three-callback registration path and ambiguous struct copy operation no longer
 exist.
 

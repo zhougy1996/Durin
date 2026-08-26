@@ -68,7 +68,7 @@ namespace Durin::AssetForge::Builtins
 				.MaxResolution = Texture.GetMaxResolution(),
 				.bSRGB = Texture.IsSRGB()};
 			if (!MakeTexture2DImportRequest(
-				Texture.GetSourceImportData().Source.SourcePath, Destination,
+				{.Path = Texture.GetSourceFile()}, Destination,
 				Settings, EImportMode::Recover,
 				{.OwnerId = std::format("Texture2D.Recovery:{}", Destination.ToString()),
 					.ConflictIdentities = {Destination.ToString()}},
@@ -91,7 +91,7 @@ namespace Durin::AssetForge::Builtins
 
 		auto PostLoadTexture2DImpl(DTexture2D& Texture, std::string& OutError) -> bool
 		{
-			if (!Texture.GetSourceImportData().HasSource())
+			if (Texture.GetSourceFile().empty())
 				return FailLoad(
 					Texture,
 					ETextureDerivedDataStatus::SourceUnavailable,
@@ -126,18 +126,11 @@ namespace Durin::AssetForge::Builtins
 				if (bSourceContentMatches)
 				{
 					Texture.PublishSourceFingerprint(CurrentFileSize, CurrentLastWriteTime);
-					const FTextureSourceFile& PersistedSource =
-						Texture.GetSourceImportData().Source;
-					const std::string PersistedHash = PersistedSource.HasContentHash()
-						? FXxHash128{
-							.HashLow = PersistedSource.SourceContentHashLow,
-							.HashHigh = PersistedSource.SourceContentHashHigh}.ToString()
-						: Texture.GetSourceContentHash();
 				}
 			}
 
-			const bool bHasPersistedIdentity =
-				Texture.GetSourceImportData().Source.HasContentHash()
+			const bool bHasPersistedIdentity = Texture.GetImportedSource()
+				|| Texture.GetSourceImportData().Source.HasContentHash()
 				|| IsCanonicalTextureHash(Texture.GetSourceContentHash());
 			if (bHasPersistedIdentity && (!bSourceAvailable || bSourceContentMatches))
 			{

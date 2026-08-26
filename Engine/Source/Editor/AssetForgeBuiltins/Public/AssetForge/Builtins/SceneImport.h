@@ -1,6 +1,5 @@
 #pragma once
 
-#include "AssetForge/Persistence/ImportRecordIndex.h"
 #include "AssetForge/ImportRequest.h"
 #include "AssetForge/Operations/ImportOperation.h"
 #include "AssetForgeBuiltinsAPI.h"
@@ -26,14 +25,6 @@ namespace Durin::AssetForge::Builtins
 		const FSourcePath& MountedRootSource,
 		const FAssetPath& DestinationDirectory,
 		const FStaticMeshImportSettings& Settings,
-		EImportMode Mode,
-		FImportOperationOwner Owner,
-		std::optional<FImportProvenance> ExistingProvenance,
-		FImportRequest& OutRequest,
-		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto MakeSceneRecordImportRequest(
-		const DImportRecord& Record,
-		EImportRecordAction Action,
 		FImportOperationOwner Owner,
 		FImportRequest& OutRequest,
 		std::string& OutError) -> bool;
@@ -89,9 +80,6 @@ namespace Durin::AssetForge::Builtins
 		FPreparedSceneSourceBundle& Bundle) -> void;
 	ASSETFORGEBUILTINS_API auto RollbackSceneSourceBundle(
 		FPreparedSceneSourceBundle& Bundle) -> void;
-	ASSETFORGEBUILTINS_API auto FindSceneImportRecordForOutput(
-		const DObject& Output,
-		std::string& OutError) -> DImportRecord*;
 	ASSETFORGEBUILTINS_API auto EnsureImportedSurfaceMaterial(
 		std::string& OutError) -> DMaterial*;
 }

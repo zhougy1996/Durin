@@ -42,7 +42,6 @@ namespace Durin::AssetForge
 
 	enum class EImportOperationLifetime : uint8
 	{
-		EphemeralPreview,
 		EditorOperation,
 		SessionCritical
 	};

@@ -2,15 +2,15 @@
 
 Summary: Defines editor ownership, document identity, preview, thumbnail, and lifecycle contracts for Skeleton, SkeletalMesh, and AnimationClip assets.
 
-Last reviewed: 2026-08-11
+Last reviewed: 2026-08-26
 
 ## Ownership
 
 `SkeletalMeshEditor` owns one read-only workspace and exact asset routes for
 `DSkeleton`, `DSkeletalMesh`, and `DAnimationClip`. `DurinEd` continues to own
 workspace hosting, preview scenes, auxiliary viewports, and the bounded rendered
-thumbnail service. `AssetForge` remains the only owner of import records,
-record-local peer discovery, reimport, reconciliation, and publication.
+thumbnail service. `AssetForge` owns Scene translation, planning, construction,
+and publication. Scene outputs are independent after the creation transaction.
 
 Documents are keyed by the workspace manager's class-qualified document key and
 virtual asset path. Opening the same class and path focuses the existing tab;
@@ -26,10 +26,10 @@ uses immutable summary, payload, material, palette, compatibility, DDC, and
 cooked metadata. Ordinary Content Browser cards use registry/package metadata
 and do not load skeletal assets.
 
-Preview peers are discovered through the selected asset's import-record index.
-Only managed outputs from that record are considered. Candidate paths are sorted
-before compatible assets are loaded, and structural Skeleton compatibility is
-checked before a peer appears in the selector. No global object scan is used.
+The editor performs no automatic Scene peer discovery. A SkeletalMesh
+document can render its own reference pose. AnimationClip metadata remains
+inspectable without inventing a mesh association; playback requires a mesh and
+clip to be bound explicitly by a host that can validate Skeleton compatibility.
 
 ## Preview and playback
 

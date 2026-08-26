@@ -3,7 +3,6 @@
 #include "StaticMeshImportProviderSchema.h"
 #include "Texture2DImportProviderSchema.h"
 
-#include "AssetForge/Persistence/ImportRecord.h"
 #include "SceneImportInternal.h"
 
 namespace Durin::AssetForge::Builtins
@@ -14,31 +13,28 @@ namespace Durin::AssetForge::Builtins
 		inline constexpr std::string_view ScenePlanningPassId = "Durin.Scene.Default";
 		inline constexpr std::string_view ScenePlanSchema = "Durin.Scene.Plan";
 		inline constexpr std::string_view SceneNodeSchema = "Durin.Scene.Node";
-		inline constexpr std::array<std::string_view, 7> SceneBuilderIds{
+	inline constexpr std::array<std::string_view, 6> SceneBuilderIds{
 			"Durin.Scene.StaticMesh.Builder", "Durin.Scene.Material.Builder",
 			"Durin.Scene.Skeleton.Builder", "Durin.Scene.SkeletalMesh.Builder",
-			"Durin.Scene.AnimationClip.Builder", "Durin.Scene.Texture2D.Builder",
-			"Durin.Scene.ImportRecord.Builder"};
+			"Durin.Scene.AnimationClip.Builder", "Durin.Scene.Texture2D.Builder"};
 
 		struct FSceneImportPlan
 		{
 			FAssetPath DestinationDirectory;
 			FStaticMeshImportSettings MeshSettings;
-			EImportOutputPolicy DefaultPolicy = EImportOutputPolicy::Create;
-			std::vector<FOutputMapping> ExistingMappings;
 		};
 
 		struct FSceneCachedImportPlan
 		{
 			std::shared_ptr<const FSceneProviderPlanData> Data;
 			std::shared_ptr<const FSourceSnapshot> Snapshot;
-			std::vector<FImportOutputPreview> Outputs;
+			std::vector<FImportOutputSummary> Outputs;
 		};
 
 		std::mutex GSceneImportCacheMutex;
 		std::unordered_map<std::string, std::shared_ptr<const FSceneCachedImportPlan>>
 			GSceneImportCache;
-		std::unordered_map<std::string, std::vector<FImportOutputPreview>>
+		std::unordered_map<std::string, std::vector<FImportOutputSummary>>
 			GSceneImportOutputCache;
 
 		auto MakeSceneOutputCacheKey(
@@ -52,27 +48,10 @@ namespace Durin::AssetForge::Builtins
 		{
 			std::vector<std::byte> Bytes;
 			AppendString(Bytes, Plan.DestinationDirectory.ToString());
-			AppendValue(Bytes, Plan.DefaultPolicy);
 			AppendValue(Bytes, Plan.MeshSettings.ForwardAxis);
 			AppendValue(Bytes, Plan.MeshSettings.RightAxis);
 			AppendValue(Bytes, Plan.MeshSettings.UpAxis);
-			AppendValue(Bytes, static_cast<uint64>(Plan.ExistingMappings.size()));
-			for (const FOutputMapping& Mapping : Plan.ExistingMappings)
-			{
-				AppendString(Bytes, Mapping.SourceNodeIdentity);
-				AppendString(Bytes, Mapping.OutputIdentity);
-				AppendString(Bytes, Mapping.AssetPath.ToString());
-			}
 			return MakeSchemaPayload(std::string(ScenePlanSchema), 1, std::move(Bytes));
-		}
-
-		auto EncodeSceneAuthoredSettings(const FSceneImportPlan& Plan)
-			-> FSchemaPayload
-		{
-			return EncodeSceneImportPlan({
-				.DestinationDirectory = Plan.DestinationDirectory,
-				.MeshSettings = Plan.MeshSettings,
-				.DefaultPolicy = EImportOutputPolicy::Create});
 		}
 
 		auto DecodeSceneImportPlan(
@@ -85,7 +64,6 @@ namespace Durin::AssetForge::Builtins
 			if (Payload.SchemaId != ScenePlanSchema || Payload.SchemaVersion != 1
 				|| Payload.ContentHash != FXxHash128::HashBuffer(Payload.Bytes)
 				|| !ReadString(Bytes, Destination)
-				|| !ReadValue(Bytes, OutPlan.DefaultPolicy)
 				|| !ReadValue(Bytes, OutPlan.MeshSettings.ForwardAxis)
 				|| !ReadValue(Bytes, OutPlan.MeshSettings.RightAxis)
 				|| !ReadValue(Bytes, OutPlan.MeshSettings.UpAxis)
@@ -94,26 +72,6 @@ namespace Durin::AssetForge::Builtins
 			{
 				if (OutError.empty()) OutError = "Scene AssetForge plan payload is malformed.";
 				return false;
-			}
-			uint64 MappingCount = 0;
-			if (!ReadValue(Bytes, MappingCount) || MappingCount > MaximumImportRecordOutputs)
-			{
-				OutError = "Scene AssetForge output mapping count is invalid.";
-				return false;
-			}
-			OutPlan.ExistingMappings.clear();
-			OutPlan.ExistingMappings.reserve(static_cast<size_t>(MappingCount));
-			for (uint64 Index = 0; Index < MappingCount; ++Index)
-			{
-				std::string SourceIdentity;
-				std::string OutputIdentity;
-				std::string AssetPath;
-				FAssetPath ParsedPath;
-				if (!ReadString(Bytes, SourceIdentity) || !ReadString(Bytes, OutputIdentity)
-					|| !ReadString(Bytes, AssetPath)
-					|| !FAssetPath::TryCreate(AssetPath, ParsedPath, &OutError)) return false;
-				OutPlan.ExistingMappings.push_back({.SourceNodeIdentity = std::move(SourceIdentity),
-					.OutputIdentity = std::move(OutputIdentity), .AssetPath = std::move(ParsedPath)});
 			}
 			if (!Bytes.empty()) { OutError = "Scene AssetForge plan has trailing bytes."; return false; }
 			OutError.clear();
@@ -170,7 +128,6 @@ namespace Durin::AssetForge::Builtins
 			case ESceneOutputKind::SkeletalMesh: return "Durin.Scene.SkeletalMesh";
 			case ESceneOutputKind::AnimationClip: return "Durin.Scene.AnimationClip";
 			case ESceneOutputKind::Texture2D: return "Durin.Scene.Texture2D";
-			case ESceneOutputKind::ImportRecord: return "Durin.Scene.ImportRecord";
 			}
 			return {};
 		}
@@ -185,7 +142,6 @@ namespace Durin::AssetForge::Builtins
 			case ESceneOutputKind::SkeletalMesh: return 3;
 			case ESceneOutputKind::AnimationClip: return 4;
 			case ESceneOutputKind::Texture2D: return 5;
-			case ESceneOutputKind::ImportRecord: return 6;
 			}
 			return 0;
 		}
@@ -200,7 +156,6 @@ namespace Durin::AssetForge::Builtins
 			case ESceneOutputKind::SkeletalMesh: return "Durin::DSkeletalMesh";
 			case ESceneOutputKind::AnimationClip: return "Durin::DAnimationClip";
 			case ESceneOutputKind::Texture2D: return "Durin::DTexture2D";
-			case ESceneOutputKind::ImportRecord: return "Durin::AssetForge::DImportRecord";
 			}
 			return {};
 		}

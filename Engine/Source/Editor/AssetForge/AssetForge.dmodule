@@ -4,10 +4,11 @@
     "PCH": "SharedPCH_DObject",
     "PrivateDependencies": [],
     "PublicDependencies": [
-        "AssetCore"
+        "AssetCore",
+        "Engine"
     ],
     "ReflectHeaders": [
-        "Public/AssetForge/Persistence/ImportRecord.h"
+        "Public/AssetForge/Persistence/AssetForgeImportData.h"
     ],
     "OptionalPrivateDependencies": [],
     "OptionalPublicDependencies": []

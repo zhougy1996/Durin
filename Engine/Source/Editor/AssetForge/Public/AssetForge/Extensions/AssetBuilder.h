@@ -16,14 +16,10 @@ struct FAssetBuilderDescriptor
 		EThreadCapability ProductBuildThread = EThreadCapability::WorkerSafe;
 	};
 
-class IBuildProduct
+	class IBuildProduct
 	{
 	public:
 		virtual ~IBuildProduct() = default;
-		// Preview reuse is opt-in for extension products. The clone remains an
-		// immutable detached value and is destroyed while the factory lease lives.
-		virtual auto CloneDetachedProduct() const
-			-> std::unique_ptr<IBuildProduct> { return {}; }
 	};
 
 	class IReconciliationContext
@@ -85,19 +81,21 @@ class IBuildProduct
 			ISingleAssetCandidate&,
 			const FMaterializationContext&,
 			std::vector<FImportDiagnostic>&) const -> bool { return true; }
-		virtual auto PrepareImportedStateExchange(
+		// Publishes a completed candidate into an existing asset on the GameThread.
+		// Import task state is the authority for in-progress work; publication is
+		// one-way and leaves the asset dirty for an independent save attempt.
+		virtual auto PublishImportedState(
 			DObject&,
 			ISingleAssetCandidate&,
-			std::vector<FImportDiagnostic>&) const
-			-> std::unique_ptr<IPreparedImportedStateExchange> { return {}; }
-		// Called after a recovery exchange. The candidate now contains the
+			std::vector<FImportDiagnostic>&) const -> bool { return false; }
+		// Called after recovery publication. The candidate now contains the
 		// displaced target state, allowing factories to distinguish authored
 		// changes from disposable runtime/DDC reconstruction.
 		virtual auto HasAuthoredRecoveryChanges(
 			const DObject&,
 			const ISingleAssetCandidate&) const -> bool { return false; }
-		// Persists framework reproduction metadata after the reversible state
-		// exchange and authored fingerprint are complete, but before atomic save.
+		// Persists framework reproduction metadata after one-way publication and
+		// authored fingerprinting, but before the independent save attempt.
 		virtual auto ApplyProvenance(
 			DObject&,
 			const FImportProvenance&,

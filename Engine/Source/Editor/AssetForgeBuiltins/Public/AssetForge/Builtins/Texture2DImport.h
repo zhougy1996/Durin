@@ -16,8 +16,8 @@ namespace Durin::AssetForge::Builtins
 		FTextureSourceData& OutSourceData,
 		std::string& OutError) -> bool;
 
-	// Builds the generic framework request used by Texture2D import, preview,
-	// reimport, replacement, repair, and recovery entrypoints.
+	// Builds the generic framework request used by Texture2D import, reimport,
+	// replacement, repair, and recovery entrypoints.
 	ASSETFORGEBUILTINS_API auto MakeTexture2DImportRequest(
 		const FSourcePath& MountedSource,
 		const FAssetPath& Destination,

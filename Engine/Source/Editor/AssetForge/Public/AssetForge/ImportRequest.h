@@ -8,7 +8,6 @@ namespace Durin::AssetForge
 enum class EImportMode : uint8
 	{
 		Import,
-		Preview,
 		Reimport,
 		ReplaceSource,
 		Repair,
@@ -43,4 +42,9 @@ struct FDeclaredSource
 		Asset::FAssetBundleSaveOptions SaveOptions;
 		std::optional<FImportProvenance> ExistingProvenance;
 	};
+
+	ASSETFORGE_API auto ApplyAssetImportDataStateToRequest(
+		const FAssetForgeImportState& State,
+		FImportRequest& OutRequest,
+		std::string& OutError) -> bool;
 }

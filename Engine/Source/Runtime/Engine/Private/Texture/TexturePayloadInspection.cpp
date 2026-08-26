@@ -172,12 +172,29 @@ namespace Durin
 			uint64 SourceBytes = 0;
 			ReadScalar(Package, "SourceWidth", Width);
 			ReadScalar(Package, "SourceHeight", Height);
-			ReadScalar(Package, "SourceFileSize", SourceBytes);
-			FTexture2DSourceImportData ImportData;
-			const Asset::FAssetPackageField* ImportField = Package.FindField("SourceImportData");
-			const bool bHasSource = ImportField && ImportField->TryReadStruct(
-				FTexture2DSourceImportData::StaticStruct(), &ImportData)
-				&& ImportData.HasSource();
+			std::string SourcePath;
+			AssetImport::FAssetImportInfo CommonInfo;
+			std::string CommonError;
+			bool bHasSource = false;
+			if (AssetImport::InspectAssetImportInfo(Package, CommonInfo, CommonError))
+			{
+				if (const AssetImport::FSourceFile* Source = CommonInfo.FindByRole("source"))
+				{
+					bHasSource = true;
+					SourceBytes = Source->ByteCount;
+					SourcePath = Source->SourcePath.Path;
+				}
+			}
+			else
+			{
+				ReadScalar(Package, "SourceFileSize", SourceBytes);
+				FTexture2DSourceImportData ImportData;
+				const Asset::FAssetPackageField* ImportField = Package.FindField("SourceImportData");
+				bHasSource = ImportField && ImportField->TryReadStruct(
+					FTexture2DSourceImportData::StaticStruct(), &ImportData)
+					&& ImportData.HasSource();
+				if (bHasSource) SourcePath = ImportData.Source.SourcePath.Path;
+			}
 			OutInspection.Entries.push_back({
 				.Domain = "Texture2D", .Stage = ETexturePayloadStage::Source,
 				.State = bHasSource ? ETexturePayloadState::Unknown : ETexturePayloadState::NotPresent,
@@ -187,7 +204,7 @@ namespace Durin
 				.LogicalByteCount = SourceBytes,
 				.StoredByteCount = SourceBytes,
 				.Placement = "MountedSource",
-				.Provenance = bHasSource ? ImportData.Source.SourcePath.Path : std::string{},
+				.Provenance = std::move(SourcePath),
 				.Diagnostic = bHasSource
 					? "Source identity is present; availability requires a live source mount."
 					: "No mounted source identity is present."});

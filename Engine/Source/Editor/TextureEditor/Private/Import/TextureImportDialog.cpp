@@ -73,9 +73,6 @@ namespace Durin::Editor::Texture
 		VolumeInspection = {};
 		InspectedVolumeSourcePath.clear();
 		SubmissionError.clear();
-		TextureCubePreview.reset();
-		PendingTextureCubePreviewKey.clear();
-		ValidatedTextureCubePreviewKey.clear();
 		SelectedVolumeLayout = -1;
 		ModalState.RequestOpen();
 	}

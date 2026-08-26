@@ -25,6 +25,7 @@ direction.
 | `CoreDObject` | Managed objects, reflection, properties, garbage collection, and object serialization foundations | [source](../../Engine/Source/Runtime/CoreDObject) |
 | `ApplicationCore` | Native application, window, input-message, GLFW, and file-dialog integration | [source](../../Engine/Source/Runtime/ApplicationCore) |
 | `AssetCore` | Asset paths, registry, packages, DAST serialization, dependencies, redirectors, derived data, cooking, and mutation transactions | [source](../../Engine/Source/Runtime/AssetCore) |
+| `AssetImportCore` | Persistent editor-only import source and replay schemas, validation, cloning, and construct-free inspection | [source](../../Engine/Source/Runtime/AssetImportCore) |
 | `Engine` | World, actors, components, levels, runtime assets, object-aware asset-compilation aggregation, materials, meshes, textures, input, and render-facing engine objects | [source](../../Engine/Source/Runtime/Engine) |
 | `RHI` | Backend-neutral GPU resources, command lists, contexts, feature levels, shader parameters, and RHI-thread contracts | [source](../../Engine/Source/Runtime/RHI) |
 | `VulkanRHI` | Vulkan instance/device selection, queues, resources, pipelines, descriptors, swapchains, and backend diagnostics | [source](../../Engine/Source/Runtime/VulkanRHI) |

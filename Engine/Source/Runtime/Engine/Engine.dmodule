@@ -65,6 +65,7 @@
         "Public/SkeletalMesh/SkeletalMesh.h",
         "Public/Animation/AnimationClip.h",
         "Public/StaticMesh/StaticMesh.h",
+        "Public/Asset/AssetImportData.h",
         "Public/Texture/Texture.h",
         "Public/Texture/Texture2D.h",
         "Public/Texture/TextureCube.h",

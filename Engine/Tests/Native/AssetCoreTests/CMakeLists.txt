@@ -92,6 +92,14 @@ durin_add_asset_functional_test(AssetMountedSourceTests
 )
 
 if(DURIN_WITH_EDITOR)
+	durin_add_asset_functional_test(AssetImportDataTests
+		KIND contract
+		DOMAINS asset-import asset-package
+		MODULES asset-core engine asset-forge
+		LIBRARIES Engine AssetForge
+		SOURCES Private/AssetImportDataTests.cpp
+	)
+
 	durin_add_asset_functional_test(AssetImportTests
 		KIND integration
 		DOMAINS asset-import
@@ -116,6 +124,7 @@ else()
 	durin_exclude_native_test_sources(
 		RATIONALE "Asset import services and their test fixtures are editor-only."
 		SOURCES
+			Private/AssetImportDataTests.cpp
 			Private/AssetImportTests.cpp
 			Private/AssetForgeContractTests.cpp
 	)

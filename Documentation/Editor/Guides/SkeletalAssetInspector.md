@@ -1,8 +1,8 @@
 # Skeletal Asset Inspector
 
-Summary: Import, inspect, preview, and reimport glTF/GLB skeletal asset graphs in the editor.
+Summary: Import a glTF/GLB skeletal scene once, then inspect its independent skeletal assets in the editor.
 
-Last reviewed: 2026-08-11
+Last reviewed: 2026-08-26
 
 ## Import a skeletal scene
 
@@ -10,18 +10,17 @@ Last reviewed: 2026-08-11
    Scene Source (FBX/glTF)**.
 2. Select a mounted `.gltf`/`.glb` source, or ingest an external source and its
    external buffers into a mounted source destination.
-3. Review every populated peer row. Each row names its output role, management
-   action, destination, and CPU/GPU/disk estimate. Review warnings and captured
-   source dependencies before confirming.
+3. Review the static settings and destination. Complete parsing, output
+   discovery, collision checks, and construction start only after confirmation.
 4. Confirm the import. The Content Browser reveals the published output
    directory. Skeleton, SkeletalMesh, AnimationClip, StaticMesh, Material, and
    Texture outputs are peers; there is no primary skeletal asset.
 
 Use the **Skeletal assets** filter to isolate Skeleton, SkeletalMesh, and
-AnimationClip packages. Their record actions always operate on the entire owning
-record. Use **Reimport**, **Recreate Missing Outputs**, source repair, or record
-navigation from any managed peer; do not treat one generated peer as an
-independent source authority.
+AnimationClip packages. Generated outputs are ordinary independent assets.
+Scene import is creation-only: it provides no whole-scene reimport, missing-output
+recreation, repair, or reverse ownership navigation. Import a revised source to
+a fresh destination.
 
 ## Inspect and preview
 
@@ -32,35 +31,29 @@ palette size, material slots, and payload storage. Clip documents show Skeleton
 compatibility, duration, counts, and clipped track rows with bone, path,
 interpolation, and key count.
 
-SkeletalMesh documents start in reference pose and list compatible clips from
-the same import record. AnimationClip documents choose compatible same-record
-meshes by stable path. Use **Frame Selection**, **Lit**, **Wireframe**, orbit,
-pan, zoom, **Play/Pause**, **Loop**, **Rate**, **Reset**, and the timeline. These
-controls belong to the open document and do not dirty the asset.
+SkeletalMesh documents start in reference pose. AnimationClip documents expose
+metadata but do not automatically discover a matching mesh. Use **Frame
+Selection**, **Lit**, **Wireframe**, orbit, pan, and zoom for an available mesh.
+Playback controls apply only when a compatible mesh/clip pair has been explicitly
+bound by the host. These controls do not dirty the asset.
 
 Drag a SkeletalMesh asset from the Content Browser into an editable Scene
 Viewport to create a Skeletal Mesh Actor at the drop location. The actor starts
 in reference pose. Assign a compatible AnimationClip and playback settings on
 its SkeletalMeshComponent when the level needs animated playback; Skeleton,
-AnimationClip, and import-record assets are not directly placeable.
+and AnimationClip assets are not directly placeable.
 
-If no compatible same-record peer exists, metadata remains inspectable and the
-preview reports that it is unavailable. Missing packages, incompatible peers,
+When no explicit compatible peer is bound, metadata remains inspectable and
+animation playback is unavailable. Missing packages, incompatible peers,
 payload failures, and render-resource failures likewise do not retain stale
 geometry or pose.
 
-## Reimport and qualify
+## Qualify
 
-Save packages normally, then reimport from any managed peer. Changed and
-unchanged reimports publish one record graph revision; open documents and
-SkeletalMesh thumbnails refresh from package, dependency, and render-resource
-revisions. Missing outputs can be recreated transactionally, while removed
-outputs remain explicit orphans.
-
-For production handoff, save and reload the graph, cook the target, and launch
+For production handoff, save and reload the assets, cook the target, and launch
 the Shipping game through the repository build profile. Runtime-only loading
 uses the cooked Skeleton, SkeletalMesh, AnimationClip, and payloads without the
-editor module, import records, source files, or DDC fallback.
+editor module, source files, or DDC fallback.
 
 ## Related documentation
 

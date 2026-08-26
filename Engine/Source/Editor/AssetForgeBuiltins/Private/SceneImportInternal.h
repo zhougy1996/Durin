@@ -9,8 +9,7 @@ namespace Durin::AssetForge::Builtins
 {
 	enum class ESceneOutputKind : uint8
 	{
-		Skeleton, SkeletalMesh, AnimationClip, StaticMesh, MaterialInstance, Texture2D,
-		ImportRecord
+		Skeleton, SkeletalMesh, AnimationClip, StaticMesh, MaterialInstance, Texture2D
 	};
 	enum class ESceneTextureDerivation : uint8
 	{
@@ -54,7 +53,7 @@ namespace Durin::AssetForge::Builtins
 		const FAssetPath& DestinationDirectory,
 		const FStaticMeshImportSettings& Settings,
 		std::shared_ptr<const FSceneProviderPlanData>& OutData,
-		std::vector<FImportOutputPreview>& OutOutputs,
+		std::vector<FImportOutputSummary>& OutOutputs,
 		std::vector<FImportDiagnostic>& OutDiagnostics,
 		std::string& OutError) -> bool;
 	auto DiscoverSceneImportDependencies(

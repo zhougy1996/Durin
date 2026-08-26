@@ -53,7 +53,6 @@ namespace Durin::AssetForge
 			std::string_view Title = {}) -> FImportOutcome;
 		auto CancelImportOperation(const FImportOperationHandle& Handle) -> bool;
 		auto HasActiveImportClaim(std::string_view Identity) const -> bool;
-		auto ReleaseImportPreviewOwner(std::string_view OwnerId) -> void;
 		auto CancelAndDrainAsyncImportsForOwner(std::string_view OwnerId) -> void;
 		auto CancelAndDrainAsyncImportsForProvider(std::string_view ProviderId) -> void;
 		auto CancelAndDrainAllAsyncImports() -> void;

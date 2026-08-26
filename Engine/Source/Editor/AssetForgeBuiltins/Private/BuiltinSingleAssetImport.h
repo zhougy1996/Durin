@@ -1,7 +1,6 @@
 #pragma once
 
 #include "AssetForge/ImportService.h"
-#include "AssetForge/Persistence/ImportRecord.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Animation/AnimationClip.h"
 #include "Materials/MaterialInstance.h"
@@ -90,11 +89,6 @@ namespace Durin::AssetForge::Builtins
 					std::string Error;
 					bValid = Clip->Validate(Error);
 				}
-				else if (const auto* Record = Cast<DImportRecord>(AssetObject))
-				{
-					std::string Error;
-					bValid = Record->Validate(Error);
-				}
 				else if (Cast<DMaterialInstance>(AssetObject)) bValid = true;
 				if (!bValid)
 					OutDiagnostics.push_back({
@@ -124,43 +118,6 @@ namespace Durin::AssetForge::Builtins
 			DObject* AssetObject = nullptr;
 			DPackage* Package = nullptr;
 			bool bNewAsset = false;
-		};
-
-		template<typename T>
-		class TImportedStateExchange final : public IPreparedImportedStateExchange
-		{
-		public:
-			TImportedStateExchange(T& InTarget, T& InCandidate)
-				: Target(&InTarget), Candidate(&InCandidate) {}
-
-			auto Commit() noexcept -> void override
-			{
-				if (!bCommitted)
-				{
-					Target->ExchangeImportedState(*Candidate);
-					bCommitted = true;
-				}
-			}
-
-			auto Reverse() noexcept -> void override
-			{
-				if (bCommitted)
-				{
-					Target->ExchangeImportedState(*Candidate);
-					bCommitted = false;
-				}
-			}
-
-			auto Finalize() noexcept -> void override
-			{
-				Target = nullptr;
-				Candidate = nullptr;
-			}
-
-		private:
-			T* Target = nullptr;
-			T* Candidate = nullptr;
-			bool bCommitted = false;
 		};
 
 	}

@@ -189,7 +189,11 @@ namespace Durin::Asset
 		std::string& OutError) -> bool
 	{
 		FXxHash128 SourceHash;
-		if (Texture.GetSourceImportData().Source.HasContentHash())
+		if (const AssetImport::FSourceFile* Source = Texture.GetImportedSource())
+		{
+			SourceHash = Source->GetContentHash();
+		}
+		else if (Texture.GetSourceImportData().Source.HasContentHash())
 		{
 			const FTextureSourceFile& Source = Texture.GetSourceImportData().Source;
 			SourceHash.HashLow = Source.SourceContentHashLow;

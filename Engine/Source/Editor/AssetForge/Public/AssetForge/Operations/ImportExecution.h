@@ -10,9 +10,6 @@ namespace Durin::AssetForge
 
 	struct FImportResultState;
 
-	// Releases graph/product preview values before component retirement.
-	ASSETFORGE_API auto ClearImportPreviewCache() -> void;
-
 	// Observes one framework-owned interchange job and its immutable terminal
 	// inspection/result value.
 	class FImportHandle

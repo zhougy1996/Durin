@@ -95,9 +95,8 @@ Assets open through registered asset editors and use asset-aware rename, move,
 duplication, and deletion workflows. **Duplicate** and `Ctrl+D` clone one
 selected real asset into the same writable folder, choosing `_Copy`, `_Copy2`,
 and later suffixes until both catalog and physical destinations are free. The
-complete persistent object graph is copied and published as a clean package;
-duplicated import records receive a new record identity and relinquish
-management of the original record's outputs. `Ctrl+C` writes one selected real
+  complete persistent object graph is copied and published as a clean package.
+  `Ctrl+C` writes one selected real
 asset identity to the system clipboard; `Ctrl+V` pastes it into the current
 folder, preserving its name when free and otherwise using the same copy suffix
 sequence. A folder context menu can paste directly into that folder. Opening a
@@ -119,12 +118,6 @@ preflight failures are reported without writing other selected packages.
 Presentation never turns a resave recommendation into an unsaved-change
 decoration or close prompt. Registry and item snapshots refresh only after
 verified publication.
-
-A managed output exposes `Resave Import Record` beside `Reveal Import Record`.
-The Content Browser resolves the association through the import-record index
-and passes only the record package to the generic service. Reimport, recreate,
-repair, detach, and resave remain distinct actions; canonical resave reads no
-source and invokes no provider.
 
 Double-click routing is resolved by the live `Editor::FWorkspaceManager` exact-class
 route table. `MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` own their

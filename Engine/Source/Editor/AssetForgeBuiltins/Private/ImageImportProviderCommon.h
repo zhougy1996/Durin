@@ -390,7 +390,7 @@ namespace Durin::AssetForge::Builtins
 
 		auto PolicyFor(EImportMode Mode) -> EImportOutputPolicy
 		{
-			return Mode == EImportMode::Import || Mode == EImportMode::Preview
+			return Mode == EImportMode::Import
 				? EImportOutputPolicy::Create : EImportOutputPolicy::ReplaceWholeState;
 		}
 	}

@@ -2,8 +2,6 @@
 
 #include "Animation/AnimationClip.h"
 #include "Asset.h"
-#include "Asset/PackageInspection.h"
-#include "AssetForge/Persistence/ImportRecordIndex.h"
 #include "DObject/Object.h"
 #include "Editor/WorkspaceManager.h"
 #include "Materials/MaterialInterface.h"
@@ -36,50 +34,6 @@ namespace Durin::Editor::SkeletalMesh
 			return "Unknown";
 		}
 
-		auto ResolveSameRecordPreviewPeer(const FAssetPath& AssetPath, DObject* Asset,
-			std::vector<std::string>& OutPaths)
-			-> DObject*
-		{
-			const AssetForge::FImportRecordInspection Inspection =
-				AssetForge::InspectImportRecordForOutput(
-					AssetPath, AssetForge::GetImportRecordIndex());
-			if (!Inspection || !Inspection.Record) return nullptr;
-			std::vector<const AssetForge::FImportRecordOutput*> Candidates;
-			for (const AssetForge::FImportRecordOutput& Output : Inspection.Record->GetOutputs())
-			{
-				const bool bWanted = Cast<DSkeletalMesh>(Asset)
-					? Output.AssetClassName == DAnimationClip::StaticClass()->GetQualifiedName().ToString()
-					: Cast<DAnimationClip>(Asset)
-						&& Output.AssetClassName == DSkeletalMesh::StaticClass()->GetQualifiedName().ToString();
-				if (bWanted && Output.Policy == AssetForge::EImportRecordOutputPolicy::Managed)
-					Candidates.push_back(&Output);
-			}
-			std::ranges::sort(Candidates, {}, [](const auto* Output) {
-				return Output->AssetPath.GetView();
-			});
-			for (const AssetForge::FImportRecordOutput* Candidate : Candidates)
-			{
-				const std::string_view Expected = Cast<DSkeletalMesh>(Asset)
-					? Cast<DSkeletalMesh>(Asset)->GetSkeletonCompatibilityIdentity()
-					: Cast<DAnimationClip>(Asset)->GetSkeletonCompatibilityIdentity();
-				const Asset::FAssetCatalogEntry Data =
-					Asset::FindAssetExact(Candidate->AssetPath);
-				Asset::FAssetPackageInspection Package;
-				std::string Actual;
-				const Asset::FAssetPackageField* Field = Data
-					&& Asset::InspectAssetPackage(Data->PhysicalPath, Package)
-					? Package.FindField("SkeletonCompatibilityIdentity") : nullptr;
-				if (!Expected.empty() && Field && Field->TryReadString(Actual)
-					&& Expected == Actual)
-					OutPaths.push_back(Candidate->AssetPath.ToString());
-			}
-			if (OutPaths.empty()) return nullptr;
-			FAssetPath FirstPath;
-			DObject* FirstCompatible = nullptr;
-			return FAssetPath::TryCreate(OutPaths.front(), FirstPath)
-				&& Asset::LoadAsset(FirstPath, FirstCompatible)
-				? FirstCompatible : nullptr;
-		}
 	}
 
 	MSkeletalAssetInspector::MSkeletalAssetInspector(::Durin::Editor::FWorkspaceManager& InWorkspaceManager)
@@ -115,9 +69,6 @@ namespace Durin::Editor::SkeletalMesh
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		FDocumentState State{.Asset = Asset, .PreviewId = Document.Id.Value};
-		if (Cast<DSkeletalMesh>(Asset) || Cast<DAnimationClip>(Asset))
-			State.PreviewPeer = ResolveSameRecordPreviewPeer(
-				AssetPath, Asset, State.PreviewPeerPaths);
 		Documents.emplace(Document.DocumentKey, std::move(State));
 		return ::Durin::Editor::EDocumentOpenResult::Opened;
 	}

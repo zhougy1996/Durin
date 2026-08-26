@@ -25,7 +25,6 @@ namespace Durin::Editor::Level
 		auto BrowseDestinationDirectory() -> void;
 		auto BrowseSourceDestination() -> void;
 		auto SuggestSourceDestination() -> void;
-		auto RefreshPreview(const FAssetPath& DestinationDirectory) -> void;
 		auto Import() -> bool;
 		auto PollImport() -> bool;
 		auto CancelRequests() -> void;
@@ -39,9 +38,6 @@ namespace Durin::Editor::Level
 		std::array<char, 512>& SourceDestinationBuffer = SourceForm.GetDestinationBuffer();
 		FMeshCoordinateImportModel Coordinates;
 		EMountedSourceImportMode& SourceMode = SourceForm.GetMode();
-		std::string PreviewKey;
-		std::optional<AssetForge::FImportResult> Preview;
-		std::optional<AssetForge::FImportHandle> PreviewRequest;
 		std::optional<AssetForge::Builtins::FSceneSourceBundleAsyncHandle> SourceRequest;
 		std::optional<FAssetPath> PendingImportDirectory;
 		std::optional<AssetForge::FImportHandle> ImportRequestHandle;

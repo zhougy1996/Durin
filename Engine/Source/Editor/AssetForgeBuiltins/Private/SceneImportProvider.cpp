@@ -8,48 +8,6 @@ namespace Durin::AssetForge::Builtins
 {
 	namespace
 	{
-		class FStaticMeshExchange final : public IPreparedImportedStateExchange
-		{
-		public:
-			explicit FStaticMeshExchange(
-				std::unique_ptr<FStaticMeshImportedStateExchange> InExchange)
-				: Exchange(std::move(InExchange)) {}
-			auto Commit() noexcept -> void override { Exchange->Commit(); }
-			auto Reverse() noexcept -> void override { Exchange->Reverse(); }
-			auto Finalize() noexcept -> void override { Exchange->Finalize(); }
-
-		private:
-			std::unique_ptr<FStaticMeshImportedStateExchange> Exchange;
-		};
-
-		auto CloneStaticMeshBuildProduct(
-			const FStaticMeshBuildProduct& Source)
-			-> FStaticMeshBuildProduct
-		{
-			FStaticMeshBuildProduct Result;
-			if (Source.RenderData)
-				Result.RenderData =
-					std::make_unique<FStaticMeshRenderData>(*Source.RenderData);
-			Result.MaterialSlots = Source.MaterialSlots;
-			Result.SourceImportData = Source.SourceImportData;
-			Result.NormalizedSize = Source.NormalizedSize;
-			Result.DerivedDataKey = Source.DerivedDataKey;
-			Result.bSlotMetadataChanged = Source.bSlotMetadataChanged;
-			Result.DerivedDataStatus = Source.DerivedDataStatus;
-			Result.DiagnosticMessage = Source.DiagnosticMessage;
-			Result.bSourceImporterInvoked = Source.bSourceImporterInvoked;
-			Result.bMarkPackageDirty = Source.bMarkPackageDirty;
-			Result.FailureStage = Source.FailureStage;
-			return Result;
-		}
-
-		class FStaticMeshReconciliationContext final
-			: public IReconciliationContext
-		{
-		public:
-			Asset::FStaticMeshReconciliationSnapshot Snapshot;
-		};
-
 	class FSceneSourceTranslator final : public ISourceTranslator
 		{
 		public:
@@ -86,7 +44,7 @@ namespace Durin::AssetForge::Builtins
 					return false;
 				}
 				std::shared_ptr<const FSceneProviderPlanData> Data;
-				std::vector<FImportOutputPreview> Outputs;
+				std::vector<FImportOutputSummary> Outputs;
 				if (!BuildSceneImportPlanData(Snapshot, Request.DestinationDirectory,
 					Request.MeshSettings, Data, Outputs, OutDiagnostics, Error))
 				{
@@ -96,21 +54,6 @@ namespace Durin::AssetForge::Builtins
 						.SourceIdentity = "root", .Message = std::move(Error)});
 					return false;
 				}
-				auto MutableData = std::make_shared<FSceneProviderPlanData>(*Data);
-				MutableData->Outputs.push_back({.StableIdentity = "scene-import-record",
-					.Kind = ESceneOutputKind::ImportRecord});
-				const FSourceSnapshotEntry* Root = Snapshot.FindSource("root");
-				const std::string RecordName = Root
-					? std::filesystem::path(Root->SourcePath.Path).stem().generic_string() + "_Import"
-					: "Scene_Import";
-				FAssetPath RecordPath;
-				if (!FAssetPath::TryCreate(std::format("{}/{}",
-					Request.DestinationDirectory.ToString(), RecordName), RecordPath, &Error))
-					return false;
-				Outputs.push_back({.StableIdentity = "scene-import-record", .Role = "ImportRecord",
-					.AssetPath = RecordPath, .AssetClassName = "Durin::AssetForge::DImportRecord",
-					.Policy = EImportOutputPolicy::Create, .Collision = EImportCollisionAction::Create});
-				Data = std::move(MutableData);
 				std::vector<std::byte> KeyBytes;
 				AppendValue(KeyBytes, Request.MeshSettings.ForwardAxis);
 				AppendValue(KeyBytes, Request.MeshSettings.RightAxis);
@@ -150,10 +93,6 @@ namespace Durin::AssetForge::Builtins
 						|| Output.Kind == ESceneOutputKind::SkeletalMesh)
 						for (const auto& [_, Identity] : MaterialIdentities)
 							Dependencies.push_back(Identity);
-					if (Output.Kind == ESceneOutputKind::ImportRecord)
-						for (const FSceneOutputData& Dependency : Cached->Data->Outputs)
-							if (Dependency.Kind != ESceneOutputKind::ImportRecord)
-								Dependencies.push_back(Dependency.StableIdentity);
 					std::vector<std::string> SourceIdentities{"root"};
 					if (Output.Kind == ESceneOutputKind::Texture2D
 						&& Output.SourceIndex < Cached->Data->Scene.Images.size())
@@ -199,7 +138,7 @@ namespace Durin::AssetForge::Builtins
 							.OutputIdentity = Node.StableIdentity, .Message = std::move(Error)});
 						return false;
 					}
-					std::vector<FImportOutputPreview> Outputs;
+					std::vector<FImportOutputSummary> Outputs;
 					std::span<const std::byte> ReferenceBytes(Node.Payload.Bytes);
 					std::string SourceKey;
 					uint32 IgnoredIndex = 0;
@@ -213,38 +152,18 @@ namespace Durin::AssetForge::Builtins
 						Outputs = It->second;
 					}
 					const auto Preview = std::ranges::find(
-						Outputs, Output->StableIdentity, &FImportOutputPreview::StableIdentity);
+						Outputs, Output->StableIdentity, &FImportOutputSummary::StableIdentity);
 					if (Preview == Outputs.end()) return false;
-					const auto Existing = std::ranges::find(Request.ExistingMappings,
-						Output->StableIdentity, &FOutputMapping::OutputIdentity);
-					const FAssetPath OutputPath = Existing == Request.ExistingMappings.end()
-						? Preview->AssetPath : Existing->AssetPath;
-					Preview->AssetPath = OutputPath;
-					Preview->Policy = Existing == Request.ExistingMappings.end()
-						? Preview->Policy : EImportOutputPolicy::ReplaceWholeState;
-					{
-						std::lock_guard Lock(GSceneImportCacheMutex);
-						GSceneImportOutputCache[
-							MakeSceneOutputCacheKey(SourceKey, Request.DestinationDirectory)] = Outputs;
-					}
 					if (!Builder.AddNode({.StableIdentity = Output->StableIdentity,
 						.BuilderId = std::string(SceneBuilderIds[SceneAssetBuilderIndex(Output->Kind)]),
 						.BuilderContractVersion = 1,
 						.OutputClassName = std::string(SceneOutputClassName(Output->Kind)),
-						.Destination = OutputPath,
-						.Policy = Existing == Request.ExistingMappings.end()
-							? Preview->Policy : EImportOutputPolicy::ReplaceWholeState,
+						.Destination = Preview->AssetPath,
+						.Policy = EImportOutputPolicy::Create,
 						.Settings = Settings,
 						.SourceNodeReferences = {Output->StableIdentity},
 						.BuildDependencies = Node.Dependencies})) return false;
 				}
-				for (const FOutputMapping& Existing : Request.ExistingMappings)
-					if (!SourceGraph.FindNode(Existing.OutputIdentity))
-						OutDiagnostics.push_back({.Severity = EImportDiagnosticSeverity::Warning,
-							.Category = EImportDiagnosticCategory::StalePlan,
-							.Identity = "Durin.Scene.RemovedOutput", .Phase = "PlanningPass",
-							.OutputIdentity = Existing.OutputIdentity,
-							.Message = "Previously managed Scene output is absent and remains orphaned."});
 				return true;
 			}
 		};
@@ -254,51 +173,16 @@ namespace Durin::AssetForge::Builtins
 		public:
 			std::shared_ptr<const FSceneCachedImportPlan> Cached;
 			uint32 OutputIndex = 0;
-			std::vector<FImportOutputPreview> Outputs;
 			FStaticMeshBuildProduct StaticMesh;
 			FSceneTextureBuildProduct Texture;
 			Asset::FSkeletalMeshBuildProduct SkeletalMesh;
 			Asset::FAnimationClipBuildProduct Animation;
-			auto CloneDetachedProduct() const
-				-> std::unique_ptr<IBuildProduct> override
-			{
-				auto Result = std::make_unique<FSceneBuildProduct>();
-				Result->Cached = Cached;
-				Result->OutputIndex = OutputIndex;
-				Result->Outputs = Outputs;
-				Result->StaticMesh = CloneStaticMeshBuildProduct(StaticMesh);
-				Result->Texture = Texture;
-				Result->SkeletalMesh = SkeletalMesh;
-				Result->Animation = Animation;
-				return Result;
-			}
-		};
-
-		template<typename TExchange>
-		class TOwnedSceneExchange final : public IPreparedImportedStateExchange
-		{
-		public:
-			explicit TOwnedSceneExchange(std::unique_ptr<TExchange> InExchange)
-				: Exchange(std::move(InExchange)) {}
-			auto Commit() noexcept -> void override { Exchange->Commit(); }
-			auto Reverse() noexcept -> void override { Exchange->Reverse(); }
-			auto Finalize() noexcept -> void override { Exchange->Finalize(); }
-		private:
-			std::unique_ptr<TExchange> Exchange;
 		};
 
 			class FSceneAssetBuilder final : public IAssetBuilder
 		{
 			public:
 				explicit FSceneAssetBuilder(ESceneOutputKind InKind) : Kind(InKind) {}
-
-				auto LoadExistingTarget(
-					const FBuildNode& AssetBuilderNode,
-					DObject*& OutTarget) const -> Asset::FAssetResult override
-				{
-					const FScopedSkeletalDerivedDataRepairLoad RepairLoad;
-					return Asset::LoadAsset(AssetBuilderNode.Destination, OutTarget);
-				}
 
 			auto BuildDetachedProduct(
 				const FBuildNode& AssetBuilderNode,
@@ -329,21 +213,7 @@ namespace Durin::AssetForge::Builtins
 				FSceneImportPlan AssetBuilderPlan;
 				if (!DecodeSceneImportPlan(AssetBuilderNode.Settings, AssetBuilderPlan, Error))
 					return Fail(AssetBuilderNode, std::move(Error), OutDiagnostics);
-				const FSchemaPayload AuthoredSettings =
-					EncodeSceneAuthoredSettings(AssetBuilderPlan);
-				std::span<const std::byte> ReferenceBytes(Node->Payload.Bytes);
-				std::string SourceKey;
-				uint32 IgnoredIndex = 0;
-				if (!ReadString(ReferenceBytes, SourceKey) || !ReadValue(ReferenceBytes, IgnoredIndex))
-					return Fail(AssetBuilderNode, "Scene source-node reference is malformed.", OutDiagnostics);
-				{
-					std::lock_guard Lock(GSceneImportCacheMutex);
-					const auto It = GSceneImportOutputCache.find(
-						MakeSceneOutputCacheKey(SourceKey, AssetBuilderPlan.DestinationDirectory));
-					if (It == GSceneImportOutputCache.end())
-						return Fail(AssetBuilderNode, "Scene output plan is unavailable.", OutDiagnostics);
-					Product->Outputs = It->second;
-				}
+				const FSchemaPayload AuthoredSettings = EncodeSceneImportPlan(AssetBuilderPlan);
 				const FSourceSnapshotEntry* Root = Cached->Snapshot->FindSource("root");
 				if (Kind == ESceneOutputKind::Texture2D)
 				{
@@ -425,64 +295,6 @@ namespace Durin::AssetForge::Builtins
 				return Product;
 			}
 
-			auto CaptureReconciliationContext(
-				const FBuildNode& AssetBuilderNode,
-				const DObject& ExistingTarget,
-				std::vector<FImportDiagnostic>& OutDiagnostics) const
-				-> std::unique_ptr<IReconciliationContext> override
-			{
-				if (Kind != ESceneOutputKind::StaticMesh) return {};
-				const auto* Mesh = Cast<DStaticMesh>(&ExistingTarget);
-				if (!Mesh)
-				{
-					(void)Fail(AssetBuilderNode,
-						"Scene StaticMesh replacement target is invalid.", OutDiagnostics);
-					return {};
-				}
-				auto Result = std::make_unique<FStaticMeshReconciliationContext>();
-				Result->Snapshot =
-					Asset::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(*Mesh);
-				return Result;
-			}
-
-			auto ReconcileDetachedProduct(
-				const FBuildNode& AssetBuilderNode,
-				const IReconciliationContext* Context,
-				IBuildProduct& ProductObject,
-				std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool override
-			{
-				if (Kind != ESceneOutputKind::StaticMesh
-					|| AssetBuilderNode.Policy == EImportOutputPolicy::Create) return true;
-				const auto* Reconciliation =
-					dynamic_cast<const FStaticMeshReconciliationContext*>(Context);
-				auto* Product = dynamic_cast<FSceneBuildProduct*>(&ProductObject);
-				const FSourceSnapshotEntry* Root = Product && Product->Cached
-					? Product->Cached->Snapshot->FindSource("root") : nullptr;
-				std::string Error;
-				if (!Reconciliation || !Product || !Root
-					|| Product->OutputIndex >= Product->Cached->Data->Outputs.size())
-				{
-					(void)Fail(AssetBuilderNode,
-						"Scene StaticMesh replacement context is invalid.", OutDiagnostics);
-					return false;
-				}
-				FStaticMeshSourceImportData Provenance{
-					.SourcePath = Root->SourcePath,
-					.SourceContentHash = Root->ContentHash.ToString(),
-					.ImporterId = std::string(SceneTranslatorId), .ImporterVersion = 1,
-					.ImportSettings = Product->Cached->Data->MeshSettings};
-				if (!Asset::FStaticMeshBuildOperations::BuildImportedProduct(
-					Reconciliation->Snapshot,
-					MakeStaticMeshImportedData(Product->Cached->Data->Scene),
-					std::move(Provenance), Root->SourcePath.Path,
-					Product->StaticMesh, Error))
-				{
-					(void)Fail(AssetBuilderNode, std::move(Error), OutDiagnostics);
-					return false;
-				}
-				return true;
-			}
-
 			auto MaterializeCandidate(
 				const FBuildNode& AssetBuilderNode,
 				std::unique_ptr<IBuildProduct> InProduct,
@@ -492,9 +304,7 @@ namespace Durin::AssetForge::Builtins
 				auto Product = std::unique_ptr<FSceneBuildProduct>(
 					dynamic_cast<FSceneBuildProduct*>(InProduct.release()));
 				if (!Product || Product->OutputIndex >= Product->Cached->Data->Outputs.size()) return {};
-				FAssetPath CandidatePath = AssetBuilderNode.Destination;
-				if (AssetBuilderNode.Policy != EImportOutputPolicy::Create
-					&& !MakeCandidatePath(AssetBuilderNode.Destination, CandidatePath)) return {};
+				const FAssetPath& CandidatePath = AssetBuilderNode.Destination;
 				DObject* Candidate = nullptr;
 				Asset::FAssetResult Created;
 				if (Kind == ESceneOutputKind::StaticMesh) { DStaticMesh* Value = nullptr; Created = Asset::CreateAsset(CandidatePath, Value); Candidate = Value; }
@@ -503,10 +313,9 @@ namespace Durin::AssetForge::Builtins
 				else if (Kind == ESceneOutputKind::SkeletalMesh) { DSkeletalMesh* Value = nullptr; Created = Asset::CreateAsset(CandidatePath, Value); Candidate = Value; }
 				else if (Kind == ESceneOutputKind::AnimationClip) { DAnimationClip* Value = nullptr; Created = Asset::CreateAsset(CandidatePath, Value); Candidate = Value; }
 				else if (Kind == ESceneOutputKind::Texture2D) { DTexture2D* Value = nullptr; Created = Asset::CreateAsset(CandidatePath, Value); Candidate = Value; }
-				else { AssetForge::DImportRecord* Value = nullptr; Created = AssetForge::CreateImportRecordAsset(CandidatePath, Value); Candidate = Value; }
+				else return {};
 				if (!Created || !Candidate) return {};
-				auto Result = std::make_unique<FBuiltinSingleAssetCandidate>(
-					Candidate, AssetBuilderNode.Policy == EImportOutputPolicy::Create);
+				auto Result = std::make_unique<FBuiltinSingleAssetCandidate>(Candidate, true);
 				std::string Error;
 				const FSceneOutputData& Output = Product->Cached->Data->Outputs[Product->OutputIndex];
 				if (Kind == ESceneOutputKind::Skeleton)
@@ -530,46 +339,6 @@ namespace Durin::AssetForge::Builtins
 						*Cast<DStaticMesh>(Candidate), std::move(Product->StaticMesh), Error))
 						return MaterializationFailure(std::move(Result), std::move(Error), OutDiagnostics);
 				}
-				else if (Kind == ESceneOutputKind::ImportRecord)
-				{
-					FSceneImportPlan PersistedPlan;
-					if (!DecodeSceneImportPlan(
-						AssetBuilderNode.Settings, PersistedPlan, Error))
-						return MaterializationFailure(
-							std::move(Result), std::move(Error), OutDiagnostics);
-					const FSchemaPayload AuthoredSettings =
-						EncodeSceneAuthoredSettings(PersistedPlan);
-					AssetForge::FImportRecordState State{
-						.ProviderId = std::string(SceneTranslatorId), .ProviderContractVersion = 1};
-					if (!AssetForge::MakeImportRecordPayload(std::string(ScenePlanSchema), 1,
-						AuthoredSettings.Bytes, AssetForge::MaximumImportRecordSettingsBytes,
-						State.Settings, Error)
-						|| !AssetForge::MakeImportRecordPayload("Durin.AssetForge.Scene.State", 2,
-							AuthoredSettings.Bytes, AssetForge::MaximumImportRecordProviderStateBytes,
-							State.ProviderState, Error))
-						return MaterializationFailure(std::move(Result), std::move(Error), OutDiagnostics);
-					for (const FSourceSnapshotEntry& Source : Product->Cached->Snapshot->GetSources())
-						State.Sources.push_back({.StableIdentity = Source.StableIdentity,
-							.Role = Source.Role, .SourcePath = Source.SourcePath,
-							.ContentHashLow = Source.ContentHash.HashLow,
-							.ContentHashHigh = Source.ContentHash.HashHigh,
-							.ByteCount = Source.ByteCount});
-					for (const FImportOutputPreview& Preview : Product->Outputs)
-					{
-						if (Preview.StableIdentity == "scene-import-record") continue;
-						std::vector<std::byte> FingerprintBytes;
-						AppendString(FingerprintBytes, Preview.StableIdentity);
-						AppendValue(FingerprintBytes, AuthoredSettings.ContentHash.HashLow);
-						AppendValue(FingerprintBytes, AuthoredSettings.ContentHash.HashHigh);
-						State.Outputs.push_back({.StableIdentity = Preview.StableIdentity,
-							.Role = Preview.Role, .AssetPath = Preview.AssetPath,
-							.AssetClassName = Preview.AssetClassName,
-							.Policy = AssetForge::EImportRecordOutputPolicy::Managed,
-							.AuthoredFingerprint = FXxHash128::HashBuffer(FingerprintBytes).ToString()});
-					}
-					if (!Cast<AssetForge::DImportRecord>(Candidate)->SetState(std::move(State), Error))
-						return MaterializationFailure(std::move(Result), std::move(Error), OutDiagnostics);
-				}
 				if (Kind == ESceneOutputKind::MaterialInstance
 					|| Kind == ESceneOutputKind::StaticMesh
 					|| Kind == ESceneOutputKind::SkeletalMesh
@@ -587,14 +356,24 @@ namespace Durin::AssetForge::Builtins
 				const FMaterializationContext& Context,
 				std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool override
 			{
-				if (Kind == ESceneOutputKind::Skeleton || Kind == ESceneOutputKind::Texture2D
-					|| Kind == ESceneOutputKind::ImportRecord)
+				auto FailResolution = [&](std::string Message) {
+					OutDiagnostics.push_back({
+						.Severity = EImportDiagnosticSeverity::Error,
+						.Category = EImportDiagnosticCategory::MissingDependency,
+						.Identity = "Durin.Scene.DependencyResolutionFailed",
+						.Phase = "DependencyResolution",
+						.OutputIdentity = AssetBuilderNode.StableIdentity,
+						.Message = std::move(Message)});
+					return false;
+				};
+				if (Kind == ESceneOutputKind::Skeleton || Kind == ESceneOutputKind::Texture2D)
 					return true;
 				std::unique_ptr<FSceneBuildProduct> Product;
 				{
 					std::lock_guard Lock(PendingMutex);
 					auto It = Pending.find(Candidate.GetAsset());
-					if (It == Pending.end()) return false;
+					if (It == Pending.end())
+						return FailResolution("Scene candidate lost its detached dependency product.");
 					Product = std::move(It->second);
 					Pending.erase(It);
 				}
@@ -615,7 +394,10 @@ namespace Durin::AssetForge::Builtins
 						Output.SourceIndex, &FImportedMaterial::SourceMaterialIndex);
 					if (!FAssetPath::TryCreate(ImportedSurfaceMaterialPath, StandardPath, &Error)
 						|| !Asset::LoadAsset(StandardPath, Standard) || !Standard
-						|| Imported == Product->Cached->Data->Scene.Materials.end()) return false;
+						|| Imported == Product->Cached->Data->Scene.Materials.end())
+						return FailResolution(Error.empty()
+							? "Scene material dependency or imported descriptor is unavailable."
+							: std::move(Error));
 					auto* Material = Cast<DMaterialInstance>(Candidate.GetAsset());
 					FMaterialStaticProperties StaticProperties = Standard->GetStaticProperties();
 					StaticProperties.BlendMode = Imported->AlphaMode == EImportedAlphaMode::Mask
@@ -623,20 +405,36 @@ namespace Durin::AssetForge::Builtins
 							? EMaterialBlendMode::Translucent : EMaterialBlendMode::Opaque;
 					StaticProperties.bTwoSided = Imported->bDoubleSided;
 					StaticProperties.OpacityMaskThreshold = Imported->AlphaCutoff;
-					if (!Material || !Material->SetParent(Standard)
-						|| !Material->SetStaticPropertiesOverride(StaticProperties)
-						|| !Material->SetVectorParameterValue(MaterialParameters::BaseColorName(), FVector3(Imported->BaseColorFactor))
-						|| !Material->SetScalarParameterValue(MaterialParameters::OpacityName(), Imported->BaseColorFactor.a)
-						|| !Material->SetScalarParameterValue(MaterialParameters::MetallicName(), Imported->MetallicFactor)
-						|| !Material->SetScalarParameterValue(MaterialParameters::RoughnessName(), Imported->RoughnessFactor)) return false;
+					if (!Material) return FailResolution("Scene material candidate is invalid.");
+					if (!Material->SetParent(Standard))
+						return FailResolution("Scene material parent could not be applied.");
+					if (!Material->SetStaticPropertiesOverride(StaticProperties))
+						return FailResolution("Scene material static properties could not be applied.");
+					// A project-provided imported-surface graph may expose only a subset of
+					// the canonical parameters. Unsupported overrides keep their parent defaults.
+					(void)Material->SetVectorParameterValue(
+						MaterialParameters::BaseColorName(), FVector3(Imported->BaseColorFactor));
+					(void)Material->SetScalarParameterValue(
+						MaterialParameters::OpacityName(), Imported->BaseColorFactor.a);
+					(void)Material->SetScalarParameterValue(
+						MaterialParameters::MetallicName(), Imported->MetallicFactor);
+					(void)Material->SetScalarParameterValue(
+						MaterialParameters::RoughnessName(), Imported->RoughnessFactor);
 					const std::array<const FName*, 8> Names{&MaterialParameters::BaseColorTextureName(),
 						&MaterialParameters::NormalTextureName(), &MaterialParameters::MetallicTextureName(),
 						&MaterialParameters::RoughnessTextureName(), &MaterialParameters::AmbientOcclusionTextureName(),
 						&MaterialParameters::EmissiveTextureName(), &MaterialParameters::OpacityTextureName(),
 						&MaterialParameters::OpacityMaskTextureName()};
 					for (const FSceneMaterialTextureBinding& Binding : Output.TextureBindings)
-						if (!Material->SetTextureParameterValue(*Names[Binding.MaterialRole],
-							Cast<DTexture2D>(Context.ExistingTarget(Binding.TextureIdentity)))) return false;
+					{
+						const FName Name = *Names[Binding.MaterialRole];
+						if (!Material->FindParameterDefinition(Name)) continue;
+						auto* Texture = Cast<DTexture2D>(Context.ExistingTarget(Binding.TextureIdentity));
+						if (!Texture)
+							return FailResolution(std::format(
+								"Scene texture dependency '{}' is unavailable.", Binding.TextureIdentity));
+						(void)Material->SetTextureParameterValue(Name, Texture);
+					}
 				}
 				else if (Kind == ESceneOutputKind::StaticMesh)
 				{
@@ -677,38 +475,6 @@ namespace Durin::AssetForge::Builtins
 				return true;
 			}
 
-			auto PrepareImportedStateExchange(DObject& Target, ISingleAssetCandidate& Candidate,
-				std::vector<FImportDiagnostic>&) const -> std::unique_ptr<IPreparedImportedStateExchange> override
-			{
-				std::string Error;
-				if (Kind == ESceneOutputKind::StaticMesh)
-				{
-					auto Exchange = Cast<DStaticMesh>(&Target)->PrepareImportedStateExchange(
-						*Cast<DStaticMesh>(Candidate.GetAsset()), Error);
-					return Exchange ? std::make_unique<FStaticMeshExchange>(std::move(Exchange)) : nullptr;
-				}
-				if (Kind == ESceneOutputKind::Texture2D) return std::make_unique<TImportedStateExchange<DTexture2D>>(
-					*Cast<DTexture2D>(&Target), *Cast<DTexture2D>(Candidate.GetAsset()));
-				if (Kind == ESceneOutputKind::MaterialInstance) return std::make_unique<TImportedStateExchange<DMaterialInstance>>(
-					*Cast<DMaterialInstance>(&Target), *Cast<DMaterialInstance>(Candidate.GetAsset()));
-				if (Kind == ESceneOutputKind::ImportRecord) return std::make_unique<TImportedStateExchange<AssetForge::DImportRecord>>(
-					*Cast<AssetForge::DImportRecord>(&Target), *Cast<AssetForge::DImportRecord>(Candidate.GetAsset()));
-				if (Kind == ESceneOutputKind::Skeleton)
-				{
-					auto Exchange = Cast<DSkeleton>(&Target)->PrepareImportedStateExchange(*Cast<DSkeleton>(Candidate.GetAsset()), Error);
-					return Exchange ? std::make_unique<TOwnedSceneExchange<FSkeletonImportedStateExchange>>(std::move(Exchange)) : nullptr;
-				}
-				if (Kind == ESceneOutputKind::SkeletalMesh)
-				{
-					auto* Mesh = Cast<DSkeletalMesh>(Candidate.GetAsset());
-					auto Exchange = Cast<DSkeletalMesh>(&Target)->PrepareImportedStateExchange(*Mesh, *Mesh->GetSkeleton(), Error);
-					return Exchange ? std::make_unique<TOwnedSceneExchange<FSkeletalMeshImportedStateExchange>>(std::move(Exchange)) : nullptr;
-				}
-				auto* Clip = Cast<DAnimationClip>(Candidate.GetAsset());
-				auto Exchange = Cast<DAnimationClip>(&Target)->PrepareImportedStateExchange(*Clip, *Clip->GetSkeleton(), Error);
-				return Exchange ? std::make_unique<TOwnedSceneExchange<FAnimationClipImportedStateExchange>>(std::move(Exchange)) : nullptr;
-			}
-
 		private:
 			auto Fail(const FBuildNode& Node, std::string Message,
 				std::vector<FImportDiagnostic>& Diagnostics) const
@@ -743,9 +509,7 @@ namespace Durin::AssetForge::Builtins
 		const FSourcePath& MountedRootSource,
 		const FAssetPath& DestinationDirectory,
 		const FStaticMeshImportSettings& Settings,
-		EImportMode Mode,
 		FImportOperationOwner Owner,
-		std::optional<FImportProvenance> ExistingProvenance,
 		FImportRequest& OutRequest,
 		std::string& OutError) -> bool
 	{
@@ -755,87 +519,20 @@ namespace Durin::AssetForge::Builtins
 			if (OutError.empty()) OutError = "Scene AssetForge request is invalid.";
 			return false;
 		}
-		const EImportOutputPolicy Policy = Mode == EImportMode::Import
-			|| Mode == EImportMode::Preview
-			? EImportOutputPolicy::Create : EImportOutputPolicy::ReplaceWholeState;
 		if (Owner.OwnerId.empty()) Owner.OwnerId = "Scene.AssetForge";
 		if (Owner.ConflictIdentities.empty())
 			Owner.ConflictIdentities.push_back(DestinationDirectory.ToString());
-		std::vector<FOutputMapping> ExistingMappings;
-		if (ExistingProvenance) ExistingMappings = ExistingProvenance->OutputMappings;
 		const FSchemaPayload Plan = EncodeSceneImportPlan({
 			.DestinationDirectory = DestinationDirectory,
-			.MeshSettings = Settings, .DefaultPolicy = Policy,
-			.ExistingMappings = std::move(ExistingMappings)});
-		std::optional<FImportProvenance> PersistedProvenance = std::move(ExistingProvenance);
-		std::string ProvenanceError;
-		if (PersistedProvenance && !PersistedProvenance->Validate(ProvenanceError))
-			PersistedProvenance.reset();
+			.MeshSettings = Settings});
 		OutRequest = {
-			.Mode = Mode, .RootSource = MountedRootSource,
+			.Mode = EImportMode::Import, .RootSource = MountedRootSource,
 			.TranslatorId = std::string(SceneTranslatorId), .TranslatorSettings = Plan,
 			.PlanningPassStack = {{.PlanningPassId = std::string(ScenePlanningPassId),
 				.ContractVersion = 1, .Settings = Plan}},
-			.Destination = DestinationDirectory, .Owner = std::move(Owner),
-			.ExistingProvenance = std::move(PersistedProvenance)};
+			.Destination = DestinationDirectory, .Owner = std::move(Owner)};
 		OutError.clear();
 		return true;
-	}
-
-	auto MakeSceneRecordImportRequest(
-		const DImportRecord& Record,
-		EImportRecordAction,
-		FImportOperationOwner Owner,
-		FImportRequest& OutRequest,
-		std::string& OutError) -> bool
-	{
-		const auto Root = std::ranges::find(
-			Record.GetSources(), std::string_view("root"),
-			&FImportRecordSource::StableIdentity);
-		if (Root == Record.GetSources().end())
-		{
-			OutError = "Scene import record has no root source.";
-			return false;
-		}
-
-		FAssetPath DestinationDirectory;
-		FStaticMeshImportSettings MeshSettings;
-		if (Record.GetProviderId() == SceneTranslatorId)
-		{
-			FSceneImportPlan PersistedPlan;
-			const FSchemaPayload Settings = MakeSchemaPayload(
-				Record.GetSettings().SchemaId, Record.GetSettings().SchemaVersion,
-				std::vector<std::byte>(Record.GetSettings().Bytes));
-			if (!DecodeSceneImportPlan(Settings, PersistedPlan, OutError)) return false;
-			DestinationDirectory = PersistedPlan.DestinationDirectory;
-			MeshSettings = PersistedPlan.MeshSettings;
-		}
-		else
-		{
-			OutError = std::format("Scene import record provider '{}'/{} is unsupported.",
-				Record.GetProviderId(), Record.GetProviderContractVersion());
-			return false;
-		}
-
-		FImportProvenance MappingCarrier;
-		for (const FImportRecordOutput& Output : Record.GetOutputs())
-			MappingCarrier.OutputMappings.push_back({
-				.SourceNodeIdentity = Output.StableIdentity,
-				.OutputIdentity = Output.StableIdentity,
-				.AssetPath = Output.AssetPath});
-		const std::string RecordPath = Record.GetPackage()
-			? Record.GetPackage()->GetPackagePath() : std::string{};
-		FAssetPath ParsedRecordPath;
-		if (!FAssetPath::TryCreate(RecordPath, ParsedRecordPath, &OutError)) return false;
-		MappingCarrier.OutputMappings.push_back({
-			.SourceNodeIdentity = "scene-import-record",
-			.OutputIdentity = "scene-import-record", .AssetPath = ParsedRecordPath});
-		if (Owner.OwnerId.empty())
-			Owner.OwnerId = std::format("Scene.RecordReimport:{}", RecordPath);
-		if (Owner.ConflictIdentities.empty()) Owner.ConflictIdentities.push_back(RecordPath);
-		return MakeSceneImportRequest(Root->SourcePath, DestinationDirectory,
-			MeshSettings, EImportMode::Reimport, std::move(Owner),
-			std::move(MappingCarrier), OutRequest, OutError);
 	}
 
 	auto RegisterSceneImportProvider(FImportService& Service,
@@ -866,7 +563,7 @@ namespace Durin::AssetForge::Builtins
 				: Index == 2 ? ESceneOutputKind::Skeleton
 				: Index == 3 ? ESceneOutputKind::SkeletalMesh
 				: Index == 4 ? ESceneOutputKind::AnimationClip
-				: Index == 5 ? ESceneOutputKind::Texture2D : ESceneOutputKind::ImportRecord;
+				: ESceneOutputKind::Texture2D;
 			if (!Add(Service.RegisterAssetBuilderScoped({.Descriptor = {
 				.Identity = {.Id = std::string(SceneBuilderIds[Index]), .ContractVersion = 1,
 					.Settings = {.SchemaId = std::string(ScenePlanSchema), .SchemaVersion = 1}},

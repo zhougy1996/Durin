@@ -4,8 +4,6 @@
 #include "DObject/Package.h"
 #include "AssetForge/ImportTypes.h"
 #include "AssetForge/ImportService.h"
-#include "AssetForge/Persistence/ImportRecord.h"
-#include "AssetForge/Persistence/ImportRecordIndex.h"
 #include "Panels/ContentBrowserItemView.h"
 
 #include "Asset/AssetOperations.h"
@@ -866,7 +864,6 @@ namespace Durin::Editor::ContentBrowser::Private
 				? "Open Destination"
 				: "Open"))
 			QueueContentAction([this, Item] { OpenItem(Item); });
-		bool bManagedByRecord = false;
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
 			FAssetPath PackagePath;
@@ -900,110 +897,8 @@ namespace Durin::Editor::ContentBrowser::Private
 				ImGui::EndDisabled();
 				ImGui::Separator();
 			}
-			FAssetPath ItemPath;
-			AssetForge::FImportRecordInspection Inspection;
-			if (FAssetPath::TryCreate(Item.VirtualPath, ItemPath))
-			{
-				Inspection = Item.AssetClassName ==
-					AssetForge::DImportRecord::StaticClass()->GetQualifiedName().ToString()
-					? AssetForge::InspectImportRecord(
-						ItemPath, AssetForge::GetImportRecordIndex())
-					: AssetForge::InspectImportRecordForOutput(
-						ItemPath, AssetForge::GetImportRecordIndex());
-			}
-			if (Inspection && Inspection.Record)
-			{
-				bManagedByRecord = Inspection.SelectedOutputPath.IsValid();
-				if (bManagedByRecord && ImGui::MenuItem("Reveal Import Record"))
-					QueueContentAction([this, Path = Inspection.RecordPath.ToString()] {
-						RevealAsset(Path);
-					});
-				ImGui::BeginDisabled(!bAllowAssetMutation);
-				if (ImGui::MenuItem("Resave Import Record"))
-					QueueContentAction([this, Path = Inspection.RecordPath] {
-						ResaveAssetPackages({Path});
-					});
-				ImGui::EndDisabled();
-				if (ImGui::BeginMenu("Reveal Managed Output"))
-				{
-					for (const AssetForge::FImportRecordManagement& Output : Inspection.Outputs)
-					{
-						const auto Recorded = std::ranges::find(
-							Inspection.Record->GetOutputs(), Output.OutputIdentity,
-							&AssetForge::FImportRecordOutput::StableIdentity);
-						if (Recorded != Inspection.Record->GetOutputs().end()
-							&& ImGui::MenuItem(Recorded->AssetPath.GetAssetName().data()))
-							QueueContentAction([this, Path = Recorded->AssetPath.ToString()] {
-								RevealAsset(Path);
-							});
-					}
-					ImGui::EndMenu();
-				}
-				for (const AssetForge::EImportRecordAction Action : {
-					AssetForge::EImportRecordAction::Reimport,
-					AssetForge::EImportRecordAction::RecreateMissingOutputs,
-					AssetForge::EImportRecordAction::RepairManagedOutputs})
-				{
-					const bool bRelevant = Action == AssetForge::EImportRecordAction::Reimport
-						|| Action == AssetForge::EImportRecordAction::RecreateMissingOutputs
-							&& Inspection.bHasMissingManagedOutput
-						|| Action == AssetForge::EImportRecordAction::RepairManagedOutputs
-							&& Inspection.bHasFingerprintMismatch;
-					const bool bAvailable = !Inspection.bConflicted && bRelevant;
-					const char* Label = Action == AssetForge::EImportRecordAction::Reimport
-						? "Reimport Managed Outputs"
-						: Action == AssetForge::EImportRecordAction::RecreateMissingOutputs
-							? "Recreate Missing Outputs" : "Repair Changed Outputs";
-					ImGui::BeginDisabled(!bAllowAssetMutation);
-					if (ImGui::MenuItem(Label, nullptr, false, bAvailable))
-						QueueContentAction([this, Item, Action] {
-							ExecuteImportRecordAction(Item, Action);
-						});
-					ImGui::EndDisabled();
-					if (!bAvailable && ImGui::IsItemHovered())
-						ImGui::SetTooltip("%s", Inspection.bConflicted
-							? "Repair the import-record conflict first."
-							: "The selected record does not require this action.");
-				}
-				ImGui::BeginDisabled(!bAllowAssetMutation);
-				if (bManagedByRecord && ImGui::MenuItem("Detach from Import Record"))
-				{
-					const auto Managed = std::ranges::find_if(
-						Inspection.Record->GetOutputs(), [&](const AssetForge::FImportRecordOutput& Output) {
-							return Output.AssetPath == Inspection.SelectedOutputPath;
-						});
-					if (Managed != Inspection.Record->GetOutputs().end())
-						QueueContentAction([this,
-							RecordPath = Inspection.RecordPath,
-							Identity = Managed->StableIdentity] {
-							AssetForge::DImportRecord* Record = nullptr;
-							const Asset::FAssetResult Load = Asset::LoadAsset(RecordPath, Record);
-							if (!Load || !Record) { SetError(Load ? "Import record is unavailable." : Load.Message); return; }
-							const AssetForge::FImportRecordEditResult Result =
-								AssetForge::DetachImportRecordOutput(
-									*Record, Identity, AssetForge::GetImportRecordIndex());
-							if (!Result) { SetError(Result.Message); return; }
-							PublishMountedContentMutation();
-							RevealAsset(Result.RevealPath.ToString());
-						});
-				}
-				if (Inspection.bConflicted && ImGui::MenuItem("Repair Record Identity"))
-					QueueContentAction([this, RecordPath = Inspection.RecordPath] {
-						AssetForge::DImportRecord* Record = nullptr;
-						const Asset::FAssetResult Load = Asset::LoadAsset(RecordPath, Record);
-						if (!Load || !Record) { SetError(Load ? "Import record is unavailable." : Load.Message); return; }
-						const AssetForge::FImportRecordEditResult Result =
-							AssetForge::RepairDuplicatedImportRecord(
-								*Record, AssetForge::GetImportRecordIndex());
-						if (!Result) { SetError(Result.Message); return; }
-						PublishMountedContentMutation();
-						RevealAsset(Result.RevealPath.ToString());
-					});
-				ImGui::EndDisabled();
-				ImGui::Separator();
-			}
 		}
-		if (Item.Kind == EContentBrowserItemKind::Asset && !bManagedByRecord)
+		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
 			const ::Durin::Editor::ContentBrowser::FExtensionContext Context{
 				.AssetPath = Item.VirtualPath,
@@ -1049,18 +944,6 @@ namespace Durin::Editor::ContentBrowser::Private
 							});
 					});
 				ImGui::EndDisabled();
-			}
-			if (!LastReimportOrphans.empty()
-				&& ImGui::BeginMenu("Reveal Last Reimport Orphan"))
-			{
-				for (const FAssetPath& Orphan : LastReimportOrphans)
-				{
-					if (ImGui::MenuItem(Orphan.GetAssetName().data()))
-						QueueContentAction([this, Path = Orphan.ToString()] {
-							RevealAsset(Path);
-						});
-				}
-				ImGui::EndMenu();
 			}
 			ImGui::Separator();
 		}

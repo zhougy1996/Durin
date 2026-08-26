@@ -89,11 +89,6 @@ namespace Durin::AssetForge::Builtins
 		public:
 			Asset::FTexture2DBuildProduct Product;
 			Asset::FTexture2DPublicationContext Publication;
-			auto CloneDetachedProduct() const
-				-> std::unique_ptr<IBuildProduct> override
-			{
-				return std::make_unique<FTexture2DBuildProduct>(*this);
-			}
 		};
 
 		class FTexture2DAssetBuilder final : public IAssetBuilder
@@ -181,17 +176,16 @@ namespace Durin::AssetForge::Builtins
 				return Result;
 			}
 
-			auto PrepareImportedStateExchange(
+			auto PublishImportedState(
 				DObject& TargetObject,
 				ISingleAssetCandidate& CandidateObject,
-				std::vector<FImportDiagnostic>&) const
-				-> std::unique_ptr<IPreparedImportedStateExchange> override
+				std::vector<FImportDiagnostic>&) const -> bool override
 			{
 				auto* Target = Cast<DTexture2D>(&TargetObject);
 				auto* Candidate = Cast<DTexture2D>(CandidateObject.GetAsset());
-				return Target && Candidate
-					? std::make_unique<TImportedStateExchange<DTexture2D>>(*Target, *Candidate)
-					: nullptr;
+				if (!Target || !Candidate) return false;
+				Target->ExchangeImportedState(*Candidate);
+				return true;
 			}
 
 			auto ApplyProvenance(
@@ -200,20 +194,29 @@ namespace Durin::AssetForge::Builtins
 				std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool override
 			{
 				auto* Texture = Cast<DTexture2D>(&AssetObject);
-				std::vector<std::byte> Bytes;
 				std::string Error;
-				if (!Texture || !SerializeImportProvenance(Provenance, Bytes, Error))
+				DAssetForgeImportData* ImportData = Texture
+					? dynamic_cast<DAssetForgeImportData*>(Texture->GetAssetImportData())
+					: nullptr;
+				FAssetForgeImportState State;
+				const bool bPreparedImportData = Texture && (ImportData
+					? MakeAssetImportDataState(Provenance, State, Error)
+						&& ImportData->SetState(std::move(State), Error)
+					: CreateAssetImportData(
+						Provenance, AssetObject, "AssetImportData", ImportData, Error));
+				if (!bPreparedImportData
+					|| !Texture->PublishAssetImportData(*ImportData, Error))
 				{
 					OutDiagnostics.push_back({
 						.Severity = EImportDiagnosticSeverity::Error,
 						.Category = EImportDiagnosticCategory::PublicationFailure,
-						.Identity = "Durin.Texture2D.ProvenanceFailed",
+						.Identity = "Durin.Texture2D.ImportDataFailed",
 						.Phase = "Publication", .Message = std::move(Error)});
 					return false;
 				}
-				Texture->PublishImportProvenance(std::move(Bytes));
 				return true;
 			}
+
 		};
 
 		}
@@ -245,7 +248,6 @@ namespace Durin::AssetForge::Builtins
 			return false;
 		}
 		const EImportOutputPolicy Policy = Mode == EImportMode::Import
-			|| Mode == EImportMode::Preview
 			? EImportOutputPolicy::Create : EImportOutputPolicy::ReplaceWholeState;
 		if (Owner.OwnerId.empty()) Owner.OwnerId = "Texture2D.AssetForge";
 		if (Owner.ConflictIdentities.empty())
@@ -275,6 +277,10 @@ namespace Durin::AssetForge::Builtins
 		FImportProvenance& OutProvenance,
 		std::string& OutError) -> bool
 	{
+		if (const auto* ImportData = dynamic_cast<const DAssetForgeImportData*>(
+			Texture.GetAssetImportData()))
+			return MakeImportProvenance(
+				ImportData->GetAssetForgeState(), OutProvenance, OutError);
 		if (Texture.GetImportProvenance().empty())
 		{
 			OutError = "Texture2D has no current AssetForge provenance.";

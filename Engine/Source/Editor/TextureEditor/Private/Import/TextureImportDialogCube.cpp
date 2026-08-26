@@ -62,7 +62,6 @@ namespace Durin::Editor::Texture
 	auto FTextureImportDialog::DrawTextureCubeSource() -> void
 	{
 		FTextureCubeImportFormState& Cube = State.GetTextureCube();
-		if (TextureCubePreview) (void)RevalidateTextureCubeSources();
 		ImGui::TextUnformatted("Source format");
 		if (ImGui::RadioButton("Panorama (2:1)",
 			Cube.SourceLayout ==
@@ -435,48 +434,6 @@ namespace Durin::Editor::Texture
 			for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 				Files[Index] = Cube.FacePathBuffers[Index].data();
 		else Files[0] = Cube.PanoramaPathBuffer.data();
-		const std::string CurrentKey = std::format("{}:{}:{}:{}",
-			static_cast<uint32>(Cube.SourceLayout), Cube.PanoramaFaceDimension,
-			Cube.PanoramaExposureEV,
-			std::accumulate(Files.begin(), Files.begin() + SourceCount, std::string{},
-				[](std::string Result, const std::string& File) {
-					Result.append("|").append(File); return Result;
-				}));
-		if (TextureCubePreview)
-		{
-			if (PendingTextureCubePreviewKey != CurrentKey)
-			{
-				TextureCubePreview.reset();
-				PendingTextureCubePreviewKey.clear();
-			}
-			else
-			{
-			AssetForge::FImportResult Preview;
-			if (!TextureCubePreview->TryGetResult(Preview)) return Cube.bSourcesValid;
-			TextureCubePreview.reset();
-			PendingTextureCubePreviewKey.clear();
-			Cube.bSourcesValid = Preview.Outcome.State == AssetForge::EImportOperationState::Succeeded
-				&& Preview.Inspection.bCompatible;
-			ValidatedTextureCubePreviewKey = Cube.bSourcesValid ? CurrentKey : std::string{};
-			Cube.SourceValidationMessage = Cube.bSourcesValid
-				? "TextureCube source graph is compatible."
-				: Preview.Outcome.Diagnostic.empty()
-					? "TextureCube AssetForge preview failed."
-					: Preview.Outcome.Diagnostic;
-			return Cube.bSourcesValid;
-			}
-		}
-		if (ValidatedTextureCubePreviewKey == CurrentKey) return Cube.bSourcesValid;
-		std::array<FSourcePath, TextureCubeFaceCount> Sources;
-		if (Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces)
-		{
-			for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
-			{
-				Sources[Index].Path = Files[Index];
-			}
-		}
-		else
-			Sources[0].Path = Files[0];
 		if (std::ranges::any_of(std::span(Files).first(SourceCount),
 			[](const std::string& File) { return File.empty(); }))
 		{
@@ -484,32 +441,10 @@ namespace Durin::Editor::Texture
 			Cube.SourceValidationMessage = "Select every required TextureCube source.";
 			return false;
 		}
-		FAssetPath PreviewDestination;
-		if (!FAssetPath::TryCreate(Destination.GetPath(), PreviewDestination))
-			(void)FAssetPath::TryCreate("/Engine/Transient/TextureCubePreview", PreviewDestination);
-		AssetForge::FImportRequest Request;
-		std::string Error;
-		if (!AssetForge::Builtins::MakeTextureCubeImportRequest(
-			std::span(Sources).first(SourceCount), Cube.SourceLayout, PreviewDestination, {},
-			{.FaceDimension = Cube.PanoramaFaceDimension,
-				.ExposureEV = IsRadianceHDRPath(Cube.PanoramaPathBuffer.data())
-					? Cube.PanoramaExposureEV : 0.0f},
-			AssetForge::EImportMode::Preview,
-			{.OwnerId = "TextureImportDialog.TextureCubePreview"}, {}, Request, Error))
-		{
-			Cube.bSourcesValid = false;
-			Cube.SourceValidationMessage = std::move(Error);
-			return false;
-		}
-		Request.Lifetime = AssetForge::EImportOperationLifetime::EphemeralPreview;
-		TextureCubePreview = AssetForge::GetImportService().SubmitImport(
-			std::move(Request), "Preview TextureCube");
-		PendingTextureCubePreviewKey = TextureCubePreview && *TextureCubePreview
-			? CurrentKey : std::string{};
-		Cube.bSourcesValid = false;
-		Cube.SourceValidationMessage = TextureCubePreview && *TextureCubePreview
-			? "Preparing TextureCube preview..." : "TextureCube preview could not be submitted.";
-		return false;
+		Cube.bSourcesValid = true;
+		Cube.SourceValidationMessage =
+			"Sources selected. Compatibility will be checked when import starts.";
+		return true;
 	}
 
 	auto FTextureImportDialog::ImportTextureCube() -> bool

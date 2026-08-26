@@ -97,26 +97,6 @@ namespace Durin::AssetForge::Builtins
 		public:
 			Asset::FTextureCubeBuildProduct Product;
 			Asset::FTextureCubePublicationContext Publication;
-			auto CloneDetachedProduct() const
-				-> std::unique_ptr<IBuildProduct> override
-			{
-				auto Result = std::make_unique<FCubeProduct>();
-				Result->Product.SourceLayout = Product.SourceLayout;
-				Result->Product.SourceData = Product.SourceData;
-				if (Product.PlatformData)
-					Result->Product.PlatformData =
-						std::make_unique<FTextureCubePlatformData>(*Product.PlatformData);
-				Result->Product.DerivedDataKey = Product.DerivedDataKey;
-				Result->Product.SourceWidth = Product.SourceWidth;
-				Result->Product.SourceHeight = Product.SourceHeight;
-				Result->Product.PanoramaFaceDimension = Product.PanoramaFaceDimension;
-				Result->Product.PanoramaExposureEV = Product.PanoramaExposureEV;
-				Result->Product.bSRGB = Product.bSRGB;
-				Result->Product.bLoadedFromDerivedDataCache =
-					Product.bLoadedFromDerivedDataCache;
-				Result->Publication = Publication;
-				return Result;
-			}
 		};
 
 		class FCubeAssetBuilder final : public IAssetBuilder
@@ -193,14 +173,14 @@ namespace Durin::AssetForge::Builtins
 				}
 				return Result;
 			}
-			auto PrepareImportedStateExchange(DObject& Target, ISingleAssetCandidate& Candidate,
-				std::vector<FImportDiagnostic>&) const -> std::unique_ptr<IPreparedImportedStateExchange> override
+			auto PublishImportedState(DObject& Target, ISingleAssetCandidate& Candidate,
+				std::vector<FImportDiagnostic>&) const -> bool override
 			{
 				auto* A = Cast<DTextureCube>(&Target);
 				auto* B = Cast<DTextureCube>(Candidate.GetAsset());
-				return A && B
-					? std::make_unique<TImportedStateExchange<DTextureCube>>(*A, *B)
-					: nullptr;
+				if (!A || !B) return false;
+				A->ExchangeImportedState(*B);
+				return true;
 			}
 			auto ApplyProvenance(DObject& Object, const FImportProvenance& Provenance,
 				std::vector<FImportDiagnostic>& Diagnostics) const -> bool override

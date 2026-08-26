@@ -1,10 +1,6 @@
 #include "Documents/LevelDocumentController.h"
 #include "Documents/LevelDocumentRevisionState.h"
 
-#include "Animation/AnimationClip.h"
-#include "AssetForge/Persistence/ImportRecord.h"
-#include "AssetForge/ImportService.h"
-#include "AssetForge/Builtins/SceneImport.h"
 #include "Asset/AssetOperations.h"
 #include "Asset/Mutation.h"
 #include "Asset.h"
@@ -18,8 +14,6 @@
 #include "Misc/Project.h"
 #include "Panels/SceneViewportPanel.h"
 #include "Profiling/Profiling.h"
-#include "SkeletalMesh/SkeletalDerivedData.h"
-#include "SkeletalMesh/SkeletalMesh.h"
 
 namespace Durin::Editor::Level
 {
@@ -28,77 +22,6 @@ namespace Durin::Editor::Level
 		auto GetLevelTransactions() -> ::Durin::Editor::FTransactionManager*
 		{
 			return GEditor ? &GEditor->GetTransactionManager() : nullptr;
-		}
-
-		auto RepairMissingSkeletalDerivedData(
-			std::span<DObject* const> MissingAssets,
-			std::string& OutError) -> bool
-		{
-			const std::vector<DObject*> Assets(MissingAssets.begin(), MissingAssets.end());
-			std::vector<AssetForge::DImportRecord*> Records;
-			for (DObject* Asset : Assets)
-			{
-				std::string RecordError;
-				AssetForge::DImportRecord* Record = AssetForge::Builtins::FindSceneImportRecordForOutput(
-					*Asset, RecordError);
-				if (!Record)
-				{
-					OutError = std::format(
-						"Could not rebuild missing skeletal derived data for '{}': {}",
-						Asset->GetObjectPath(), RecordError);
-					return false;
-				}
-				if (std::ranges::find(Records, Record) == Records.end())
-					Records.push_back(Record);
-			}
-
-			for (AssetForge::DImportRecord* Record : Records)
-			{
-				AssetForge::FImportRequest Request;
-				std::string Error;
-				if (!AssetForge::Builtins::MakeSceneRecordImportRequest(*Record,
-					AssetForge::EImportRecordAction::Reimport,
-					{.OwnerId = std::format("LevelOpen.SceneRecovery:{}", Record->GetObjectPath()),
-						.ConflictIdentities = {Record->GetObjectPath()}},
-					Request, Error))
-				{
-					OutError = std::format(
-						"Could not rebuild skeletal derived data from its Scene import record: {}",
-						Error);
-					return false;
-				}
-				Request.Lifetime = AssetForge::EImportOperationLifetime::SessionCritical;
-				const AssetForge::FImportResult Result =
-					AssetForge::GetImportService().RunImportInline(
-						std::move(Request), "Recover Scene skeletal data");
-				if (Result.Outcome.State != AssetForge::EImportOperationState::Succeeded)
-				{
-					OutError = std::format(
-						"Could not rebuild skeletal derived data from its Scene import record: {}",
-						Result.Outcome.Diagnostic);
-					return false;
-				}
-			}
-
-			for (DObject* Asset : Assets)
-			{
-				const DAnimationClip* Clip = Cast<DAnimationClip>(Asset);
-				const DSkeletalMesh* Mesh = Cast<DSkeletalMesh>(Asset);
-				const bool bReady = Clip ? Clip->GetPayloadData() != nullptr
-					: Mesh && Mesh->GetPayloadData() != nullptr;
-				if (!bReady)
-				{
-					OutError = std::format(
-						"Scene reimport did not restore skeletal derived data for '{}'.",
-						Asset->GetObjectPath());
-					return false;
-				}
-			}
-			if (!Assets.empty())
-				DURIN_INFO("Rebuilt missing skeletal derived data for {} asset(s) before opening the level.",
-					Assets.size());
-			OutError.clear();
-			return true;
 		}
 
 	}
@@ -241,15 +164,10 @@ namespace Durin::Editor::Level
 		DLevel* Level = nullptr;
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadBegin);
 		Asset::FAssetResult Result;
-		std::string DerivedDataRepairError;
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.DefaultDocument.AssetLoad");
-			const FScopedSkeletalDerivedDataRepairLoad RepairLoad;
 			Result = Asset::LoadSoftObject(
 				DefaultLevel, Level, Asset::ESoftObjectNullPolicy::Reject);
-			if (Result && !RepairMissingSkeletalDerivedData(
-				RepairLoad.GetMissingAssets(), DerivedDataRepairError))
-				Result = {Asset::EAssetError::InvalidObjectGraph, DerivedDataRepairError};
 		}
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::DefaultDocumentAssetLoadComplete);
 		if (!Result)
@@ -291,14 +209,7 @@ namespace Durin::Editor::Level
 			Asset::CapturePackageLoadSnapshot();
 		DLevel* Level = nullptr;
 		Asset::FAssetResult Result;
-		std::string DerivedDataRepairError;
-		{
-			const FScopedSkeletalDerivedDataRepairLoad RepairLoad;
-			Result = Asset::LoadAsset(Path, Level);
-			if (Result && !RepairMissingSkeletalDerivedData(
-				RepairLoad.GetMissingAssets(), DerivedDataRepairError))
-				Result = {Asset::EAssetError::InvalidObjectGraph, DerivedDataRepairError};
-		}
+		Result = Asset::LoadAsset(Path, Level);
 		if (!Result)
 		{
 			SetError(Result.Message);

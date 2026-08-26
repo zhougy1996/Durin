@@ -1,10 +1,12 @@
 #include "AssetTools.h"
 #include "AssetForge/ImportService.h"
 #include "AssetForge/Operations/ImportJob.h"
-#include "AssetForge/Persistence/ImportRecord.h"
+#include "CoreGlobals.h"
 #include "DObject/Class.h"
+#include "HAL/PlatformLTS.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleTestSupport.h"
+#include "Materials/MaterialInstance.h"
 #include "NativeTestSupport.h"
 #include "Threading/Task.h"
 
@@ -281,40 +283,33 @@ namespace
 
 	class FJobProduct final : public Durin::AssetForge::IBuildProduct
 	{
-	public:
-		auto CloneDetachedProduct() const
-			-> std::unique_ptr<Durin::AssetForge::IBuildProduct> override
-		{
-			return std::make_unique<FJobProduct>();
-		}
 	};
 
 	class FJobCandidate final : public Durin::AssetForge::ISingleAssetCandidate
 	{
 	public:
-		explicit FJobCandidate(Durin::AssetForge::DImportRecord& InRecord)
-			: Record(&InRecord) {}
+		explicit FJobCandidate(Durin::DObject& InAsset)
+			: Asset(&InAsset) {}
 
-		auto GetAsset() const -> Durin::DObject* override { return Record; }
+		auto GetAsset() const -> Durin::DObject* override { return Asset; }
 		auto GetPackage() const -> Durin::DPackage* override
 		{
-			return Record ? Record->GetPackage() : nullptr;
+			return Asset ? Asset->GetPackage() : nullptr;
 		}
 		auto IsNewAsset() const -> bool override { return true; }
 		auto GetAuthoredFingerprint() const -> std::string override
 		{
-			return Record ? Record->GetFingerprint() : std::string{};
+			return Asset ? "synthetic" : std::string{};
 		}
 		auto Validate(std::vector<Durin::AssetForge::FImportDiagnostic>& OutDiagnostics) const
 			-> bool override
 		{
-			std::string Error;
-			if (Record && Record->Validate(Error)) return true;
+			if (Asset) return true;
 			OutDiagnostics.push_back({
 				.Category = Durin::AssetForge::EImportDiagnosticCategory::ValidationFailure,
 				.Identity = "Tests.JobCandidateInvalid",
 				.Phase = "Validation",
-				.Message = std::move(Error)});
+				.Message = "Synthetic candidate is unavailable."});
 			return false;
 		}
 		auto Abandon() noexcept -> void override
@@ -325,13 +320,13 @@ namespace
 		}
 		auto DetachPackageForAbandon() noexcept -> Durin::DPackage* override
 		{
-			Durin::DPackage* Detached = Record ? Record->GetPackage() : nullptr;
-			Record = nullptr;
+			Durin::DPackage* Detached = Asset ? Asset->GetPackage() : nullptr;
+			Asset = nullptr;
 			return Detached;
 		}
 
 	private:
-		Durin::AssetForge::DImportRecord* Record = nullptr;
+		Durin::DObject* Asset = nullptr;
 	};
 
 	class FJobAssetBuilder final : public Durin::AssetForge::IAssetBuilder
@@ -357,10 +352,10 @@ namespace
 			std::vector<Durin::AssetForge::FImportDiagnostic>& OutDiagnostics) const
 			-> std::unique_ptr<Durin::AssetForge::ISingleAssetCandidate> override
 		{
-			Durin::AssetForge::DImportRecord* Record = nullptr;
+			Durin::DMaterialInstance* Asset = nullptr;
 			const Durin::Asset::FAssetResult Created =
-				Durin::AssetForge::CreateImportRecordAsset(Node.Destination, Record);
-			if (!Created || !Record)
+				Durin::Asset::CreateAsset(Node.Destination, Asset);
+			if (!Created || !Asset)
 			{
 				OutDiagnostics.push_back({
 					.Category = Durin::AssetForge::EImportDiagnosticCategory::CandidateFailure,
@@ -369,46 +364,7 @@ namespace
 					.Message = Created.Message});
 				return {};
 			}
-			Durin::AssetForge::FImportRecordPayload Settings;
-			Durin::AssetForge::FImportRecordPayload StatePayload;
-			std::string Error;
-			if (!Durin::AssetForge::MakeImportRecordPayload(
-				"Tests.Settings", 1, {}, 64, Settings, Error)
-				|| !Durin::AssetForge::MakeImportRecordPayload(
-					"Tests.State", 1, {}, 64, StatePayload, Error))
-			{
-				(void)Durin::Asset::UnloadPackage(Record->GetPackage(),
-					Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
-				return {};
-			}
-			Durin::AssetForge::FImportRecordState State{
-				.ProviderId = "Tests.AssetForge.Job",
-				.ProviderContractVersion = 1,
-				.Settings = std::move(Settings),
-				.ProviderState = std::move(StatePayload),
-				.Sources = {{
-					.StableIdentity = "root", .Role = "Root",
-					.SourcePath = {.Path = "/AssetForgeTests/source.graph"},
-					.ContentHashLow = 1, .ContentHashHigh = 2, .ByteCount = 1}},
-				.Outputs = {{
-					.StableIdentity = Node.StableIdentity,
-					.Role = "Synthetic",
-					.AssetPath = Node.Destination,
-					.AssetClassName = Node.OutputClassName,
-					.Policy = Durin::AssetForge::EImportRecordOutputPolicy::Managed,
-					.AuthoredFingerprint = "synthetic"}}};
-			if (!Record->SetState(std::move(State), Error))
-			{
-				(void)Durin::Asset::UnloadPackage(Record->GetPackage(),
-					Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
-				OutDiagnostics.push_back({
-					.Category = Durin::AssetForge::EImportDiagnosticCategory::CandidateFailure,
-					.Identity = "Tests.JobCandidateStateFailed",
-					.Phase = "CandidateBuild",
-					.Message = std::move(Error)});
-				return {};
-			}
-			return std::make_unique<FJobCandidate>(*Record);
+			return std::make_unique<FJobCandidate>(*Asset);
 		}
 	private:
 		std::shared_ptr<std::atomic_uint32_t> BuildCount;
@@ -900,6 +856,62 @@ TEST(FAssetForgeContractTests, ProvenanceSerializationRoundTripsCanonicalValues)
 	ASSERT_TRUE(Durin::AssetForge::DeserializeImportProvenance(
 		Bytes, RoundTrip, Error)) << Error;
 	EXPECT_EQ(RoundTrip, Provenance);
+
+	Durin::AssetForge::FAssetForgeImportState ImportState;
+	ASSERT_TRUE(Durin::AssetForge::MakeAssetImportDataState(
+		Provenance, ImportState, Error)) << Error;
+	ASSERT_EQ(ImportState.SourceData.Sources.size(), 1u);
+	EXPECT_EQ(ImportState.SourceData.Sources.front().SourcePath,
+		Provenance.Sources.front().SourcePath);
+	EXPECT_EQ(ImportState.SourceData.Sources.front().ContentHashLow,
+		Provenance.Sources.front().ContentHash.HashLow);
+	EXPECT_EQ(ImportState.SourceReferences.front().StableIdentity, "root");
+	Durin::AssetForge::FImportProvenance ConvertedBack;
+	ASSERT_TRUE(Durin::AssetForge::MakeImportProvenance(
+		ImportState, ConvertedBack, Error)) << Error;
+	EXPECT_EQ(ConvertedBack, Provenance);
+	std::vector<std::byte> ConvertedBytes;
+	ASSERT_TRUE(Durin::AssetForge::SerializeImportProvenance(
+		ConvertedBack, ConvertedBytes, Error)) << Error;
+	EXPECT_EQ(ConvertedBytes, Bytes);
+
+	Durin::AssetForge::FAssetForgeImportState LegacyState;
+	ASSERT_TRUE(Durin::AssetForge::DecodeLegacyImportProvenanceState(
+		Bytes, LegacyState, Error)) << Error;
+	EXPECT_EQ(LegacyState, ImportState);
+	Durin::AssetForge::FImportRequest Request;
+	ASSERT_TRUE(Durin::AssetForge::ApplyAssetImportDataStateToRequest(
+		ImportState, Request, Error)) << Error;
+	EXPECT_EQ(Request.RootSource, Provenance.Sources.front().SourcePath);
+	EXPECT_EQ(Request.TranslatorId, Provenance.Translator.Id);
+	EXPECT_EQ(Request.TranslatorSettings, Provenance.Translator.Settings);
+	EXPECT_EQ(Request.PlanningPassStack, Provenance.PlanningPassStack);
+	EXPECT_EQ(Request.Destination, Provenance.OutputMappings.front().AssetPath);
+	ASSERT_TRUE(Request.ExistingProvenance.has_value());
+	EXPECT_EQ(*Request.ExistingProvenance, Provenance);
+
+	auto* Owner = Durin::NewObject<Durin::DObject>(nullptr, "ImportDataOwner");
+	if (!Durin::GIsGameThreadIdInitialized)
+	{
+		Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+		Durin::GIsGameThreadIdInitialized = true;
+	}
+	Durin::AssetForge::DAssetForgeImportData* ImportData = nullptr;
+	ASSERT_TRUE(Durin::AssetForge::CreateAssetImportData(
+		Provenance, *Owner, "AssetImportData", ImportData, Error)) << Error;
+	ASSERT_NE(ImportData, nullptr);
+	EXPECT_EQ(ImportData->GetOuter(), Owner);
+	EXPECT_EQ(ImportData->GetAssetForgeState(), ImportState);
+	bool bWorkerCreationSucceeded = true;
+	std::string WorkerError;
+	std::jthread Worker([&] {
+		Durin::AssetForge::DAssetForgeImportData* WorkerValue = nullptr;
+		bWorkerCreationSucceeded = Durin::AssetForge::CreateAssetImportData(
+			Provenance, *Owner, "WorkerImportData", WorkerValue, WorkerError);
+	});
+	Worker.join();
+	EXPECT_FALSE(bWorkerCreationSucceeded);
+	EXPECT_NE(WorkerError.find("game thread"), std::string::npos);
 }
 
 TEST(FAssetForgeContractTests, UnifiedJobPublishesSyntheticGraphInlineAndScheduled)
@@ -915,7 +927,7 @@ TEST(FAssetForgeContractTests, UnifiedJobPublishesSyntheticGraphInlineAndSchedul
 	auto& Service = Durin::AssetForge::GetImportService();
 	const auto TranslateCount = std::make_shared<std::atomic_uint32_t>(0);
 	const auto BuildCount = std::make_shared<std::atomic_uint32_t>(0);
-	const std::string ClassName = Durin::AssetForge::DImportRecord::StaticClass()
+	const std::string ClassName = Durin::DMaterialInstance::StaticClass()
 		->GetQualifiedName().ToString();
 	std::string Error;
 	auto Translator = Service.RegisterSourceTranslatorScoped({
@@ -966,14 +978,6 @@ TEST(FAssetForgeContractTests, UnifiedJobPublishesSyntheticGraphInlineAndSchedul
 		.Owner = {
 			.OwnerId = "Tests.AssetForge.InlineJob",
 			.ConflictIdentities = {InlineFirst.ToString(), InlineSecond.ToString()}}};
-	auto PreviewRequest = InlineRequest;
-	PreviewRequest.Mode = Durin::AssetForge::EImportMode::Preview;
-	PreviewRequest.Lifetime = Durin::AssetForge::EImportOperationLifetime::EphemeralPreview;
-	const Durin::AssetForge::FImportResult Preview =
-		Service.RunImportInline(PreviewRequest, "AssetForge preview test");
-	ASSERT_EQ(Preview.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded);
-	EXPECT_EQ(TranslateCount->load(std::memory_order_relaxed), 1u);
-	EXPECT_EQ(BuildCount->load(std::memory_order_relaxed), 2u);
 	const Durin::AssetForge::FImportResult Inline =
 		Service.RunImportInline(InlineRequest, "Inline interchange test");
 	ASSERT_EQ(Inline.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
@@ -1030,11 +1034,19 @@ TEST(FAssetForgeContractTests, UnifiedJobPublishesSyntheticGraphInlineAndSchedul
 		}}};
 	const auto Failed = Service.RunImportInline(
 		FailedRequest, "Failed interchange publication test");
-	EXPECT_EQ(Failed.Outcome.State, Durin::AssetForge::EImportOperationState::Failed);
+	EXPECT_EQ(Failed.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded);
+	EXPECT_EQ(Failed.Persistence.State,
+		Durin::AssetForge::EImportPersistenceState::Failed);
+	// Disk publication failed, so the catalog remains unchanged while the new
+	// in-memory packages stay resident and dirty for an explicit save retry.
 	EXPECT_FALSE(Durin::Asset::FindAssetExact(FailedFirst));
 	EXPECT_FALSE(Durin::Asset::FindAssetExact(FailedSecond));
-	EXPECT_EQ(Durin::Asset::FindResidentPackage(FailedFirst), nullptr);
-	EXPECT_EQ(Durin::Asset::FindResidentPackage(FailedSecond), nullptr);
+	EXPECT_NE(Durin::Asset::FindResidentPackage(FailedFirst), nullptr);
+	EXPECT_NE(Durin::Asset::FindResidentPackage(FailedSecond), nullptr);
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(
+		FailedFirst, Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(
+		FailedSecond, Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(InlineFirst));
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(InlineSecond));

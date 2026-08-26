@@ -9,18 +9,6 @@ namespace Durin::AssetForge::Builtins
 {
 	namespace
 	{
-	class FStaticMeshExchange final : public IPreparedImportedStateExchange
-		{
-		public:
-			explicit FStaticMeshExchange(std::unique_ptr<FStaticMeshImportedStateExchange> InExchange)
-				: Exchange(std::move(InExchange)) {}
-			auto Commit() noexcept -> void override { Exchange->Commit(); }
-			auto Reverse() noexcept -> void override { Exchange->Reverse(); }
-			auto Finalize() noexcept -> void override { Exchange->Finalize(); }
-		private:
-			std::unique_ptr<FStaticMeshImportedStateExchange> Exchange;
-		};
-
 		class FGeometrySourceTranslator final : public ISourceTranslator
 		{
 		public:
@@ -111,26 +99,6 @@ namespace Durin::AssetForge::Builtins
 			}
 		};
 
-		auto CloneStaticMeshBuildProduct(
-			const FStaticMeshBuildProduct& Source)
-			-> FStaticMeshBuildProduct
-		{
-			FStaticMeshBuildProduct Result;
-			if (Source.RenderData)
-				Result.RenderData = std::make_unique<FStaticMeshRenderData>(*Source.RenderData);
-			Result.MaterialSlots = Source.MaterialSlots;
-			Result.SourceImportData = Source.SourceImportData;
-			Result.NormalizedSize = Source.NormalizedSize;
-			Result.DerivedDataKey = Source.DerivedDataKey;
-			Result.bSlotMetadataChanged = Source.bSlotMetadataChanged;
-			Result.DerivedDataStatus = Source.DerivedDataStatus;
-			Result.DiagnosticMessage = Source.DiagnosticMessage;
-			Result.bSourceImporterInvoked = Source.bSourceImporterInvoked;
-			Result.bMarkPackageDirty = Source.bMarkPackageDirty;
-			Result.FailureStage = Source.FailureStage;
-			return Result;
-		}
-
 		class FStaticMeshImportBuildProduct final : public IBuildProduct
 		{
 		public:
@@ -138,16 +106,6 @@ namespace Durin::AssetForge::Builtins
 			Asset::FStaticMeshImportedData ImportedData;
 			FStaticMeshSourceImportData SourceImportData;
 			std::string SourceLabel;
-			auto CloneDetachedProduct() const
-				-> std::unique_ptr<IBuildProduct> override
-			{
-				auto Result = std::make_unique<FStaticMeshImportBuildProduct>();
-				Result->Product = CloneStaticMeshBuildProduct(Product);
-				Result->ImportedData = ImportedData;
-				Result->SourceImportData = SourceImportData;
-				Result->SourceLabel = SourceLabel;
-				return Result;
-			}
 		};
 
 		class FStaticMeshReconciliationContext final
@@ -286,11 +244,10 @@ namespace Durin::AssetForge::Builtins
 				return Result;
 			}
 
-			auto PrepareImportedStateExchange(
+			auto PublishImportedState(
 				DObject& TargetObject,
 				ISingleAssetCandidate& CandidateObject,
-				std::vector<FImportDiagnostic>& OutDiagnostics) const
-				-> std::unique_ptr<IPreparedImportedStateExchange> override
+				std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool override
 			{
 				auto* Target = Cast<DStaticMesh>(&TargetObject);
 				auto* Candidate = Cast<DStaticMesh>(CandidateObject.GetAsset());
@@ -300,11 +257,13 @@ namespace Durin::AssetForge::Builtins
 				if (!Exchange)
 					OutDiagnostics.push_back({
 						.Severity = EImportDiagnosticSeverity::Error,
-						.Category = EImportDiagnosticCategory::CandidateFailure,
-						.Identity = "Durin.StaticMesh.ExchangeFailed",
-						.Phase = "Exchange", .Message = std::move(Error)});
-				return Exchange
-					? std::make_unique<FStaticMeshExchange>(std::move(Exchange)) : nullptr;
+						.Category = EImportDiagnosticCategory::PublicationFailure,
+						.Identity = "Durin.StaticMesh.PublicationFailed",
+						.Phase = "Publication", .Message = std::move(Error)});
+				if (!Exchange) return false;
+				Exchange->Commit();
+				Exchange->Finalize();
+				return true;
 			}
 
 			auto HasAuthoredRecoveryChanges(
@@ -564,7 +523,6 @@ namespace Durin::AssetForge::Builtins
 			return false;
 		}
 		const EImportOutputPolicy Policy = Mode == EImportMode::Import
-			|| Mode == EImportMode::Preview
 			? EImportOutputPolicy::Create : EImportOutputPolicy::ReplaceWholeState;
 		if (Owner.OwnerId.empty()) Owner.OwnerId = "StaticMesh.AssetForge";
 		if (Owner.ConflictIdentities.empty())

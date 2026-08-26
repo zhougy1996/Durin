@@ -1,6 +1,9 @@
 #include "AssetForge/Extensions/PlanningPass.h"
 #include "AssetForge/Persistence/ImportProvenance.h"
+#include "AssetForge/ImportRequest.h"
 #include "AssetForge/ImportService.h"
+#include "CoreGlobals.h"
+#include "Threading/RunnableThread.h"
 
 #include <unordered_set>
 
@@ -651,6 +654,206 @@ namespace Durin::AssetForge
 		}
 		if (!Value.Validate(OutError)) return false;
 		OutProvenance = std::move(Value);
+		OutError.clear();
+		return true;
+	}
+
+	auto MakeAssetImportDataState(
+		const FImportProvenance& Provenance,
+		FAssetForgeImportState& OutState,
+		std::string& OutError) -> bool
+	{
+		if (!Provenance.Validate(OutError)) return false;
+		FAssetForgeImportState State;
+		State.Translator.ComponentId = Provenance.Translator.Id;
+		State.Translator.ContractVersion = Provenance.Translator.ContractVersion;
+		const auto ConvertPayload = [&](const FSchemaPayload& Source,
+			FAssetImportPayload& Destination) -> bool {
+			if (Source.SchemaId.empty())
+			{
+				Destination = {};
+				return Source.SchemaVersion == 0 && Source.Bytes.empty()
+					&& Source.ContentHash.IsZero();
+			}
+			if (Source.ContentHash != FXxHash128::HashBuffer(
+					std::span<const std::byte>(Source.Bytes)))
+			{
+				OutError = "AssetImportDataPayloadHashMismatch: AssetForge settings hash does not match its bytes.";
+				return false;
+			}
+			return MakeAssetImportPayload(
+				Source.SchemaId, Source.SchemaVersion, Source.Bytes,
+				MaximumAssetImportSettingsBytes, Destination, OutError);
+		};
+		if (!ConvertPayload(Provenance.Translator.Settings, State.Translator.Settings))
+			return false;
+		State.PlanningPassStack.reserve(Provenance.PlanningPassStack.size());
+		for (const FPlanningPassStackEntry& Source : Provenance.PlanningPassStack)
+		{
+			FAssetImportPlanningPassDescriptor Destination;
+			Destination.PlanningPassId = Source.PlanningPassId;
+			Destination.ContractVersion = Source.ContractVersion;
+			if (!ConvertPayload(Source.Settings, Destination.Settings)) return false;
+			State.PlanningPassStack.push_back(std::move(Destination));
+		}
+		State.SourceData.Sources.reserve(Provenance.Sources.size());
+		for (const FImportProvenance::FSourceProvenance& Source : Provenance.Sources)
+		{
+			State.SourceData.Sources.push_back({
+				.StableIdentity = Source.StableIdentity,
+				.Role = Source.Role,
+				.DisplayLabel = Source.StableIdentity,
+				.SourcePath = Source.SourcePath,
+				.ContentHashLow = Source.ContentHash.HashLow,
+				.ContentHashHigh = Source.ContentHash.HashHigh,
+				.ByteCount = Source.ByteCount,
+				.LastWriteTime = Source.LastWriteTime});
+		}
+		State.SourceData.Normalize();
+		for (const AssetImport::FSourceFile& Source : State.SourceData.Sources)
+			State.SourceReferences.push_back({Source.StableIdentity});
+		State.OutputMappings.reserve(Provenance.OutputMappings.size());
+		for (const FOutputMapping& Mapping : Provenance.OutputMappings)
+			State.OutputMappings.push_back({
+				.SourceNodeIdentity = Mapping.SourceNodeIdentity,
+				.OutputIdentity = Mapping.OutputIdentity,
+				.AssetPathText = Mapping.AssetPath.ToString()});
+		State.SourceGraphFingerprintLow = Provenance.SourceGraphFingerprint.HashLow;
+		State.SourceGraphFingerprintHigh = Provenance.SourceGraphFingerprint.HashHigh;
+		State.BuildGraphFingerprintLow = Provenance.BuildGraphFingerprint.HashLow;
+		State.BuildGraphFingerprintHigh = Provenance.BuildGraphFingerprint.HashHigh;
+		State.AuthoredOutputFingerprint = Provenance.AuthoredOutputFingerprint;
+		if (!ValidateAssetImportDataState(State, OutError)) return false;
+		OutState = std::move(State);
+		OutError.clear();
+		return true;
+	}
+
+	auto MakeImportProvenance(
+		const FAssetForgeImportState& State,
+		FImportProvenance& OutProvenance,
+		std::string& OutError) -> bool
+	{
+		if (!ValidateAssetImportDataState(State, OutError)) return false;
+		FImportProvenance Provenance;
+		Provenance.SchemaVersion = AssetForgeContractVersion;
+		const auto ConvertPayload = [](const FAssetImportPayload& Source) {
+			return FSchemaPayload{
+				.SchemaId = Source.SchemaId,
+				.SchemaVersion = Source.SchemaVersion,
+				.Bytes = Source.Bytes,
+				.ContentHash = {Source.ContentHashLow, Source.ContentHashHigh}};
+		};
+		Provenance.Translator = {
+			.Id = State.Translator.ComponentId,
+			.ContractVersion = State.Translator.ContractVersion,
+			.Settings = ConvertPayload(State.Translator.Settings)};
+		Provenance.PlanningPassStack.reserve(State.PlanningPassStack.size());
+		for (const FAssetImportPlanningPassDescriptor& Source : State.PlanningPassStack)
+			Provenance.PlanningPassStack.push_back({
+				.PlanningPassId = Source.PlanningPassId,
+				.ContractVersion = Source.ContractVersion,
+				.Settings = ConvertPayload(Source.Settings)});
+		Provenance.Sources.reserve(State.SourceData.Sources.size());
+		for (const AssetImport::FSourceFile& Source : State.SourceData.Sources)
+			Provenance.Sources.push_back({
+				.StableIdentity = Source.StableIdentity,
+				.Role = Source.Role,
+				.SourcePath = Source.SourcePath,
+				.ContentHash = {Source.ContentHashLow, Source.ContentHashHigh},
+				.ByteCount = Source.ByteCount,
+				.LastWriteTime = Source.LastWriteTime});
+		Provenance.OutputMappings.reserve(State.OutputMappings.size());
+		for (const FAssetImportOutputMapping& Source : State.OutputMappings)
+		{
+			FAssetPath Path;
+			if (!FAssetPath::TryCreate(Source.AssetPathText, Path, &OutError)) return false;
+			Provenance.OutputMappings.push_back({
+				.SourceNodeIdentity = Source.SourceNodeIdentity,
+				.OutputIdentity = Source.OutputIdentity,
+				.AssetPath = std::move(Path)});
+		}
+		Provenance.SourceGraphFingerprint = {
+			State.SourceGraphFingerprintLow, State.SourceGraphFingerprintHigh};
+		Provenance.BuildGraphFingerprint = {
+			State.BuildGraphFingerprintLow, State.BuildGraphFingerprintHigh};
+		Provenance.AuthoredOutputFingerprint = State.AuthoredOutputFingerprint;
+		if (!Provenance.Validate(OutError)) return false;
+		OutProvenance = std::move(Provenance);
+		OutError.clear();
+		return true;
+	}
+
+	auto DecodeLegacyImportProvenanceState(
+		std::span<const std::byte> Bytes,
+		FAssetForgeImportState& OutState,
+		std::string& OutError) -> bool
+	{
+		FImportProvenance Provenance;
+		return DeserializeImportProvenance(Bytes, Provenance, OutError)
+			&& MakeAssetImportDataState(Provenance, OutState, OutError);
+	}
+
+	auto CreateAssetImportData(
+		const FImportProvenance& Provenance,
+		DObject& Owner,
+		FName Name,
+		DAssetForgeImportData*& OutImportData,
+		std::string& OutError) -> bool
+	{
+		OutImportData = nullptr;
+		if (!GIsGameThreadIdInitialized || !IsInGameThread())
+		{
+			OutError = "Asset import data objects may only be created on the game thread.";
+			return false;
+		}
+		FAssetForgeImportState State;
+		if (!MakeAssetImportDataState(Provenance, State, OutError)) return false;
+		auto* Value = NewObject<DAssetForgeImportData>(
+			&Owner, Name);
+		if (!Value || !Value->SetState(std::move(State), OutError)) return false;
+		OutImportData = Value;
+		OutError.clear();
+		return true;
+	}
+
+	auto ApplyAssetImportDataStateToRequest(
+		const FAssetForgeImportState& State,
+		FImportRequest& OutRequest,
+		std::string& OutError) -> bool
+	{
+		FImportProvenance Provenance;
+		if (!MakeImportProvenance(State, Provenance, OutError)) return false;
+		const AssetImport::FSourceFile* Root =
+			State.SourceData.FindByStableIdentity("root");
+		if (!Root)
+		{
+			OutError = "Asset import replay state has no stable 'root' source.";
+			return false;
+		}
+		FAssetPath Destination;
+		if (State.OutputMappings.size() != 1)
+		{
+			OutError = "Standalone asset replay requires exactly one output mapping.";
+			return false;
+		}
+		if (!FAssetPath::TryCreate(
+				State.OutputMappings.front().AssetPathText, Destination, &OutError)) return false;
+		FImportRequest Request = OutRequest;
+		Request.RootSource = Root->SourcePath;
+		Request.DeclaredSources.clear();
+		for (const AssetImport::FSourceFile& Source : State.SourceData.Sources)
+			if (Source.StableIdentity != "root")
+				Request.DeclaredSources.push_back({
+					.StableIdentity = Source.StableIdentity,
+					.Role = Source.Role,
+					.SourcePath = Source.SourcePath});
+		Request.TranslatorId = Provenance.Translator.Id;
+		Request.TranslatorSettings = Provenance.Translator.Settings;
+		Request.PlanningPassStack = Provenance.PlanningPassStack;
+		Request.Destination = std::move(Destination);
+		Request.ExistingProvenance = std::move(Provenance);
+		OutRequest = std::move(Request);
 		OutError.clear();
 		return true;
 	}

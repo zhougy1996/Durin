@@ -17,6 +17,7 @@
 #include "DObject/MathStructs.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
+#include "DObject/WeakObjectPtr.h"
 #include "Misc/FileTime.h"
 #include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
@@ -373,6 +374,238 @@ namespace
 	}
 	auto GVectorMapHelper() -> const Durin::FMapOps* { return Durin::ResolveMapOps<FVectorMap>(); }
 	uint64 GSoftPackageConstructionCount = 0;
+	uint64 GImportMetadataConstructionCount = 0;
+
+	class DImportMetadataForTest : public Durin::DObject
+	{
+	public:
+		explicit DImportMetadataForTest(
+			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
+			: DObject(Initializer)
+		{
+			++GImportMetadataConstructionCount;
+		}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
+		{
+			new (X.GetObj()) DImportMetadataForTest(X);
+		}
+
+		static auto StaticClassNoRegister() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(
+					Durin::EC_StaticConstructor, "DImportMetadataForTest",
+					sizeof(DImportMetadataForTest), alignof(DImportMetadataForTest),
+					Durin::EObjectFlags::NoFlags, Durin::EClassFlags::None,
+					Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)
+						Durin::InternalConstructor<DImportMetadataForTest>);
+				Class->SetSuperStructBase(Durin::DObject::StaticClass());
+				Class->Register(Durin::DClass::StaticClass, "", "DImportMetadataForTest");
+			}
+			return Class;
+		}
+
+		static auto StaticClass() -> Durin::DClass*
+		{
+			using namespace Durin;
+			using namespace Durin::DurinCodeGen;
+			static const FUInt32PropertyParams SchemaVersionProperty{
+				"SchemaVersion", EPropertyFlags::None, 1,
+				STRUCT_OFFSET_UINT16(DImportMetadataForTest, SchemaVersion)};
+			static const FStringPropertyParams SourcePathProperty{
+				"SourcePath", EPropertyFlags::None, 1,
+				STRUCT_OFFSET_UINT16(DImportMetadataForTest, SourcePath)};
+			static const FPropertyParamsBase* Properties[] = {
+				&SchemaVersionProperty, &SourcePathProperty};
+			static const FClassParams Params{
+				&StaticClassNoRegister, "Tests::DImportMetadataForTest",
+				"DImportMetadataForTest", Properties, std::size(Properties)};
+			static DClass* Class = ConstructDClass(Params);
+			return Class;
+		}
+
+		uint32 SchemaVersion = 1;
+		std::string SourcePath;
+	};
+
+	class DReplayImportMetadataForTest : public DImportMetadataForTest
+	{
+	public:
+		explicit DReplayImportMetadataForTest(
+			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
+			: DImportMetadataForTest(Initializer)
+		{
+		}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
+		{
+			new (X.GetObj()) DReplayImportMetadataForTest(X);
+		}
+
+		static auto StaticClassNoRegister() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(
+					Durin::EC_StaticConstructor, "DReplayImportMetadataForTest",
+					sizeof(DReplayImportMetadataForTest),
+					alignof(DReplayImportMetadataForTest),
+					Durin::EObjectFlags::NoFlags, Durin::EClassFlags::None,
+					Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)
+						Durin::InternalConstructor<DReplayImportMetadataForTest>);
+				Class->SetSuperStructBase(DImportMetadataForTest::StaticClass());
+				Class->Register(
+					Durin::DClass::StaticClass, "", "DReplayImportMetadataForTest");
+			}
+			return Class;
+		}
+
+		static auto StaticClass() -> Durin::DClass*
+		{
+			using namespace Durin;
+			using namespace Durin::DurinCodeGen;
+			static const FStringPropertyParams TranslatorProperty{
+				"Translator", EPropertyFlags::None, 1,
+				STRUCT_OFFSET_UINT16(DReplayImportMetadataForTest, Translator)};
+			static const FUInt64PropertyParams FingerprintProperty{
+				"Fingerprint", EPropertyFlags::None, 1,
+				STRUCT_OFFSET_UINT16(DReplayImportMetadataForTest, Fingerprint)};
+			static const FPropertyParamsBase* Properties[] = {
+				&TranslatorProperty, &FingerprintProperty};
+			static const FClassParams Params{
+				&StaticClassNoRegister, "Tests::DReplayImportMetadataForTest",
+				"DReplayImportMetadataForTest", Properties, std::size(Properties)};
+			static DClass* Class = ConstructDClass(Params);
+			return Class;
+		}
+
+		auto CloneToOwner(Durin::DObject* Owner, Durin::FName Name) const
+			-> DReplayImportMetadataForTest*
+		{
+			auto* Clone = Durin::NewObject<DReplayImportMetadataForTest>(Owner, Name);
+			Clone->SchemaVersion = SchemaVersion;
+			Clone->SourcePath = SourcePath;
+			Clone->Translator = Translator;
+			Clone->Fingerprint = Fingerprint;
+			return Clone;
+		}
+
+		std::string Translator;
+		uint64 Fingerprint = 0;
+	};
+
+	class DImportMetadataOwnerForTest : public Durin::DObject
+	{
+	public:
+		explicit DImportMetadataOwnerForTest(
+			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
+			: DObject(Initializer)
+		{
+		}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& X)
+		{
+			new (X.GetObj()) DImportMetadataOwnerForTest(X);
+		}
+
+		static auto StaticClassNoRegister() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = nullptr;
+			if (!Class)
+			{
+				Class = new Durin::DClass(
+					Durin::EC_StaticConstructor, "DImportMetadataOwnerForTest",
+					sizeof(DImportMetadataOwnerForTest), alignof(DImportMetadataOwnerForTest),
+					Durin::EObjectFlags::NoFlags, Durin::EClassFlags::None,
+					Durin::EClassCastFlags::DClass,
+					(Durin::DClass::ClassConstructorType)
+						Durin::InternalConstructor<DImportMetadataOwnerForTest>);
+				Class->SetSuperStructBase(Durin::DObject::StaticClass());
+				Class->Register(Durin::DClass::StaticClass, "", "DImportMetadataOwnerForTest");
+			}
+			return Class;
+		}
+
+		static auto StaticClass() -> Durin::DClass*
+		{
+			using namespace Durin;
+			using namespace Durin::DurinCodeGen;
+			static const FObjectPropertyParams ImportDataProperty =
+				FObjectPropertyParams::ObjectPtr<DImportMetadataForTest>(
+					"AssetImportData", EPropertyFlags::EditorOnly, 1,
+					STRUCT_OFFSET_UINT16(DImportMetadataOwnerForTest, AssetImportData),
+					&DImportMetadataForTest::StaticClass);
+			static const FUInt32PropertyParams RuntimeValueProperty{
+				"RuntimeValue", EPropertyFlags::None, 1,
+				STRUCT_OFFSET_UINT16(DImportMetadataOwnerForTest, RuntimeValue)};
+			static const FPropertyParamsBase* Properties[] = {
+				&ImportDataProperty, &RuntimeValueProperty};
+			static const FClassParams Params{
+				&StaticClassNoRegister, "Tests::DImportMetadataOwnerForTest",
+				"DImportMetadataOwnerForTest", Properties, std::size(Properties)};
+			static DClass* Class = ConstructDClass(Params);
+			return Class;
+		}
+
+		Durin::TObjectPtr<DImportMetadataForTest> AssetImportData;
+		uint32 RuntimeValue = 0;
+	};
+
+	class FPreparedImportMetadataExchange
+	{
+	public:
+		static auto Prepare(
+			DImportMetadataOwnerForTest& Target,
+			const DImportMetadataOwnerForTest& Candidate,
+			FPreparedImportMetadataExchange& Out,
+			std::string& OutError) -> bool
+		{
+			auto* CandidateData = Durin::Cast<DReplayImportMetadataForTest>(
+				Candidate.AssetImportData.Get());
+			if (!CandidateData)
+			{
+				OutError = "Candidate import metadata is missing or has the wrong class.";
+				return false;
+			}
+			auto* Clone = CandidateData->CloneToOwner(&Target, "PreparedAssetImportData");
+			if (!Clone || Clone->GetOuter() != &Target)
+			{
+				OutError = "Prepared import metadata clone has the wrong owner.";
+				return false;
+			}
+			Out.Target = &Target;
+			Out.OldValue = Target.AssetImportData;
+			Out.NewValue = Clone;
+			return true;
+		}
+
+		auto Apply() -> void
+		{
+			Target->AssetImportData = NewValue;
+			bApplied = true;
+		}
+
+		auto Rollback() -> void
+		{
+			if (!bApplied) return;
+			Target->AssetImportData = OldValue;
+			bApplied = false;
+		}
+
+		auto Commit() -> void { bApplied = false; }
+
+	private:
+		DImportMetadataOwnerForTest* Target = nullptr;
+		Durin::TObjectPtr<DImportMetadataForTest> OldValue;
+		Durin::TObjectPtr<DImportMetadataForTest> NewValue;
+		bool bApplied = false;
+	};
 
 	class DPackageAssetForTest : public Durin::DObject
 	{
@@ -1196,6 +1429,9 @@ namespace
 	{
 		static const bool Initialized = [] {
 			Durin::Testing::InitializeDObjectSystemForTests();
+			(void)DImportMetadataForTest::StaticClass();
+			(void)DReplayImportMetadataForTest::StaticClass();
+			(void)DImportMetadataOwnerForTest::StaticClass();
 			(void)DPackageAssetForTest::StaticClass();
 			(void)DBulkPackageAssetForTest::StaticClass();
 			(void)DAuthoredArchiveAssetForTest::StaticClass();
@@ -2616,6 +2852,176 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 	EXPECT_EQ(CachedReport.PackageFileReadCount, 0u);
 
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
+}
+
+TEST(FPackageAssetTests, EditorOnlyInnerObjectPersistsInspectsAndPrunesForCook)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TestAssets/EditorOnlyInnerObject", Path));
+	DImportMetadataOwnerForTest* Owner = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Owner));
+	auto* ImportData = Durin::NewObject<DReplayImportMetadataForTest>(
+		Owner, "AssetImportData");
+	ImportData->SchemaVersion = 7;
+	ImportData->SourcePath = "/TestSources/EditorOnlyInnerObject.png";
+	ImportData->Translator = "Tests.EditorOnlyTranslator";
+	ImportData->Fingerprint = 0x123456789abcdef0ull;
+	Owner->AssetImportData = ImportData;
+	Owner->RuntimeValue = 91;
+	const std::string ExpectedObjectPath = ImportData->GetObjectPath();
+
+	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
+	const Durin::Asset::FAssetCatalogEntry Data = Durin::Asset::FindAssetExact(Path);
+	ASSERT_TRUE(Data);
+	const uint64 ConstructionCountBeforeInspection =
+		GImportMetadataConstructionCount;
+	Durin::Asset::FAssetPackageInspection AuthoredInspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		Data->PhysicalPath, AuthoredInspection));
+	EXPECT_EQ(GImportMetadataConstructionCount, ConstructionCountBeforeInspection);
+	ASSERT_EQ(AuthoredInspection.Objects.size(), 2u);
+	const auto* ReferenceField = AuthoredInspection.FindField("AssetImportData");
+	ASSERT_NE(ReferenceField, nullptr);
+	Durin::Asset::FAssetPackageObjectReference Reference;
+	ASSERT_TRUE(ReferenceField->TryReadObjectReference(Reference));
+	ASSERT_EQ(Reference.Kind,
+		Durin::Asset::EAssetPackageObjectReferenceKind::Internal);
+	const auto* InspectedImportData = AuthoredInspection.FindObject(Reference.ObjectId);
+	ASSERT_NE(InspectedImportData, nullptr);
+	EXPECT_EQ(InspectedImportData->OuterId, 1u);
+	EXPECT_EQ(InspectedImportData->ClassName,
+		"Tests::DReplayImportMetadataForTest");
+	EXPECT_EQ(InspectedImportData->ObjectPath,
+		"EditorOnlyInnerObject/AssetImportData");
+	const auto* InspectedSource = InspectedImportData->FindField("SourcePath");
+	ASSERT_NE(InspectedSource, nullptr);
+	std::string SourcePath;
+	ASSERT_TRUE(InspectedSource->TryReadString(SourcePath));
+	EXPECT_EQ(SourcePath, ImportData->SourcePath);
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+	DImportMetadataOwnerForTest* LoadedOwner = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, LoadedOwner));
+	auto* LoadedImportData = Durin::Cast<DReplayImportMetadataForTest>(
+		LoadedOwner->AssetImportData.Get());
+	ASSERT_NE(LoadedImportData, nullptr);
+	EXPECT_EQ(LoadedImportData->GetOuter(), LoadedOwner);
+	EXPECT_EQ(LoadedImportData->GetObjectPath(), ExpectedObjectPath);
+	EXPECT_EQ(LoadedImportData->SchemaVersion, 7u);
+	EXPECT_EQ(LoadedImportData->SourcePath,
+		"/TestSources/EditorOnlyInnerObject.png");
+	EXPECT_EQ(LoadedImportData->Translator, "Tests.EditorOnlyTranslator");
+	EXPECT_EQ(LoadedImportData->Fingerprint, 0x123456789abcdef0ull);
+
+	Durin::Asset::FAssetPackageSerializationOptions CookOptions;
+	CookOptions.Domain = Durin::Asset::EAssetPackageSaveDomain::Cooked;
+	CookOptions.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64;
+	CookOptions.TargetProfile = Durin::Asset::ECookTargetProfile::Game;
+	std::vector<std::byte> CookedBytes;
+	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(
+		LoadedOwner->GetPackage(), CookedBytes, CookOptions));
+	const auto CookedFile = Durin::Testing::GetTestWorkDirectory()
+		/ "Assets" / "EditorOnlyInnerObjectCooked.dasset";
+	WriteTestBytes(CookedFile, CookedBytes);
+	Durin::Asset::FAssetPackageInspection CookedInspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		CookedFile.generic_string(), CookedInspection));
+	ASSERT_EQ(CookedInspection.Objects.size(), 1u);
+	EXPECT_EQ(CookedInspection.FindField("AssetImportData"), nullptr);
+	EXPECT_NE(CookedInspection.FindField("RuntimeValue"), nullptr);
+	const auto ContainsText = [&](std::string_view Text) {
+		const auto Bytes = std::as_bytes(std::span{Text.data(), Text.size()});
+		return std::search(CookedBytes.begin(), CookedBytes.end(),
+			Bytes.begin(), Bytes.end()) != CookedBytes.end();
+	};
+	EXPECT_FALSE(ContainsText("DReplayImportMetadataForTest"));
+	EXPECT_FALSE(ContainsText("Tests.EditorOnlyTranslator"));
+	EXPECT_FALSE(ContainsText("/TestSources/EditorOnlyInnerObject.png"));
+	EXPECT_FALSE(ContainsText("SchemaVersion"));
+
+	Durin::TWeakObjectPtr<DImportMetadataForTest> WeakImportData = LoadedImportData;
+	LoadedOwner->AssetImportData = nullptr;
+	LoadedImportData = nullptr;
+	Durin::CollectGarbage();
+	EXPECT_FALSE(WeakImportData.IsValid());
+	EXPECT_NE(LoadedOwner, nullptr);
+	EXPECT_EQ(LoadedOwner->RuntimeValue, 91u);
+	EXPECT_TRUE(Durin::GDObjectArray.GetObjectsWithOuter(
+		LoadedOwner, Durin::EObjectQueryScope::LiveOnly).empty());
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
+}
+
+TEST(FPackageAssetTests, PreparedInnerObjectExchangeClonesOwnershipAndRollsBack)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath TargetPath;
+	Durin::FAssetPath CandidatePath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TestAssets/InnerExchangeTarget", TargetPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TestAssets/InnerExchangeCandidate", CandidatePath));
+	DImportMetadataOwnerForTest* Target = nullptr;
+	DImportMetadataOwnerForTest* Candidate = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(TargetPath, Target));
+	ASSERT_TRUE(Durin::Asset::CreateAsset(CandidatePath, Candidate));
+	auto* OldData = Durin::NewObject<DReplayImportMetadataForTest>(
+		Target, "OldAssetImportData");
+	OldData->SourcePath = "/TestSources/old.png";
+	OldData->Fingerprint = 11;
+	Target->AssetImportData = OldData;
+	auto* CandidateData = Durin::NewObject<DReplayImportMetadataForTest>(
+		Candidate, "CandidateAssetImportData");
+	CandidateData->SchemaVersion = 3;
+	CandidateData->SourcePath = "/TestSources/new.png";
+	CandidateData->Translator = "Tests.PreparedTranslator";
+	CandidateData->Fingerprint = 29;
+	Candidate->AssetImportData = CandidateData;
+	ASSERT_TRUE(Durin::Asset::SavePackage(Target->GetPackage()));
+
+	FPreparedImportMetadataExchange Exchange;
+	std::string Error;
+	ASSERT_TRUE(FPreparedImportMetadataExchange::Prepare(
+		*Target, *Candidate, Exchange, Error)) << Error;
+	Exchange.Apply();
+	auto* Prepared = Durin::Cast<DReplayImportMetadataForTest>(
+		Target->AssetImportData.Get());
+	ASSERT_NE(Prepared, nullptr);
+	EXPECT_NE(Prepared, CandidateData);
+	EXPECT_EQ(Prepared->GetOuter(), Target);
+	EXPECT_EQ(Prepared->SchemaVersion, CandidateData->SchemaVersion);
+	EXPECT_EQ(Prepared->SourcePath, CandidateData->SourcePath);
+	EXPECT_EQ(Prepared->Translator, CandidateData->Translator);
+	EXPECT_EQ(Prepared->Fingerprint, CandidateData->Fingerprint);
+	EXPECT_EQ(CandidateData->GetOuter(), Candidate);
+
+	Durin::DPackage* Packages[] = {Target->GetPackage()};
+	const Durin::Asset::FAssetResult FailedPublication =
+		Durin::Asset::SavePackagesAtomically(Packages,
+			{.RootPackage = Target->GetPackage(),
+				.ShouldFail = [](Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
+					return Phase == Durin::Asset::EAssetBundleSavePhase::PublishRegistry;
+				}});
+	EXPECT_EQ(FailedPublication.Error, Durin::Asset::EAssetError::IoError);
+	Exchange.Rollback();
+	EXPECT_EQ(Target->AssetImportData.Get(), OldData);
+	EXPECT_EQ(OldData->SourcePath, "/TestSources/old.png");
+	EXPECT_EQ(OldData->Fingerprint, 11u);
+	EXPECT_NE(Target->AssetImportData.Get(), CandidateData);
+
+	FPreparedImportMetadataExchange SuccessfulExchange;
+	ASSERT_TRUE(FPreparedImportMetadataExchange::Prepare(
+		*Target, *Candidate, SuccessfulExchange, Error)) << Error;
+	SuccessfulExchange.Apply();
+	auto* Published = Durin::Cast<DReplayImportMetadataForTest>(
+		Target->AssetImportData.Get());
+	ASSERT_NE(Published, nullptr);
+	SuccessfulExchange.Commit();
+	EXPECT_EQ(Published->GetOuter(), Target);
+	EXPECT_NE(Published, CandidateData);
+	EXPECT_EQ(Published->Fingerprint, 29u);
+	EXPECT_EQ(CandidateData->GetOuter(), Candidate);
 }
 
 TEST(FPackageAssetTests, SoftObjectResolveAndLoadPreservePathAcrossResidencyChanges)

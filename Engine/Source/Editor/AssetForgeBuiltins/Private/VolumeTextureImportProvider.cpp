@@ -32,20 +32,6 @@ namespace Durin::AssetForge::Builtins
 		public:
 			Asset::FVolumeTextureBuildProduct Product;
 			FVolumeTextureSourceImportData Provenance;
-			auto CloneDetachedProduct() const
-				-> std::unique_ptr<IBuildProduct> override
-			{
-				auto Result = std::make_unique<FVolumeProduct>();
-				Result->Product.SourceData = Product.SourceData;
-				Result->Product.Settings = Product.Settings;
-				if (Product.PlatformData)
-					Result->Product.PlatformData =
-						std::make_unique<FVolumeTexturePlatformData>(*Product.PlatformData);
-				Result->Product.DerivedDataKey = Product.DerivedDataKey;
-				Result->Product.bCacheHit = Product.bCacheHit;
-				Result->Provenance = Provenance;
-				return Result;
-			}
 		};
 
 		class FVolumeAssetBuilder final : public IAssetBuilder
@@ -153,14 +139,14 @@ namespace Durin::AssetForge::Builtins
 				}
 				return Result;
 			}
-			auto PrepareImportedStateExchange(DObject& Target, ISingleAssetCandidate& Candidate,
-				std::vector<FImportDiagnostic>&) const -> std::unique_ptr<IPreparedImportedStateExchange> override
+			auto PublishImportedState(DObject& Target, ISingleAssetCandidate& Candidate,
+				std::vector<FImportDiagnostic>&) const -> bool override
 			{
 				auto* A = Cast<DVolumeTexture>(&Target);
 				auto* B = Cast<DVolumeTexture>(Candidate.GetAsset());
-				return A && B
-					? std::make_unique<TImportedStateExchange<DVolumeTexture>>(*A, *B)
-					: nullptr;
+				if (!A || !B) return false;
+				A->ExchangeImportedState(*B);
+				return true;
 			}
 			auto ApplyProvenance(DObject& Object, const FImportProvenance& Provenance,
 				std::vector<FImportDiagnostic>& Diagnostics) const -> bool override

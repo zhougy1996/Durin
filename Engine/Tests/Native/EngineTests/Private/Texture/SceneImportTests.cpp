@@ -3,9 +3,9 @@
 #include "Animation/AnimationClip.h"
 #include "AssetForgeBuiltinsProviders.h"
 #include "AssetTools.h"
-#include "AssetForge/Persistence/ImportRecord.h"
 #include "AssetForge/ImportService.h"
 #include "Materials/MaterialInstance.h"
+#include "RenderingThread.h"
 #include "AssetForge/Builtins/SceneImport.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/Skeleton.h"
@@ -22,6 +22,13 @@ namespace
 
 	struct FSceneFixture
 	{
+		struct FRenderingThreadScope
+		{
+			FRenderingThreadScope() { Durin::InitRenderingThread(); }
+			~FRenderingThreadScope() { Durin::ShutdownRenderingThread(); }
+		};
+
+		std::unique_ptr<FRenderingThreadScope> RenderingThread;
 		std::unique_ptr<Durin::PathUtilities::FScopedMountRegistryFixture> Mounts;
 		Durin::FSourcePath Source;
 		Durin::FAssetPath DestinationDirectory;
@@ -29,7 +36,8 @@ namespace
 
 		FSceneFixture() = default;
 		FSceneFixture(FSceneFixture&& Other) noexcept
-			: Mounts(std::move(Other.Mounts)), Source(std::move(Other.Source)),
+			: RenderingThread(std::move(Other.RenderingThread)),
+			Mounts(std::move(Other.Mounts)), Source(std::move(Other.Source)),
 			DestinationDirectory(std::move(Other.DestinationDirectory)),
 			bOwnsRegistration(std::exchange(Other.bOwnsRegistration, false)) {}
 		~FSceneFixture()
@@ -44,6 +52,8 @@ namespace
 		-> FSceneFixture
 	{
 		InitializeDObjectSystem();
+		auto RenderingThread =
+			std::make_unique<FSceneFixture::FRenderingThreadScope>();
 		std::string Error;
 		EXPECT_TRUE(Durin::AssetForge::Builtins::RegisterAssetForgeBuiltinsProviders(
 			Error, GetEngineTestModuleCallbackGate())) << Error;
@@ -74,6 +84,7 @@ namespace
 				Root / "Project/Content/Scenes/Contract.bin",
 				std::filesystem::copy_options::overwrite_existing);
 		FSceneFixture Fixture;
+		Fixture.RenderingThread = std::move(RenderingThread);
 		Fixture.Mounts = std::move(Mounts);
 		Fixture.Source = {.Path = std::format(
 			"/SceneImportTests/Scenes/{}{}", Name, Extension)};
@@ -82,101 +93,53 @@ namespace
 		return Fixture;
 	}
 
-	auto MakeRequest(const FSceneFixture& Fixture,
-		Durin::AssetForge::EImportMode Mode,
-		std::optional<Durin::AssetForge::FImportProvenance> Provenance = {})
+	auto MakeRequest(const FSceneFixture& Fixture)
 		-> Durin::AssetForge::FImportRequest
 	{
 		Durin::AssetForge::FImportRequest Request;
 		std::string Error;
 		EXPECT_TRUE(Durin::AssetForge::Builtins::MakeSceneImportRequest(
 			Fixture.Source, Fixture.DestinationDirectory,
-			Durin::FStaticMeshImportSettings::MakeDurin(), Mode,
+			Durin::FStaticMeshImportSettings::MakeDurin(),
 			{.OwnerId = std::format("SceneImportTests.{}", Fixture.DestinationDirectory.ToString()),
 				.ConflictIdentities = {Fixture.DestinationDirectory.ToString()}},
-			std::move(Provenance), Request, Error)) << Error;
+			Request, Error)) << Error;
 		return Request;
 	}
 
-	auto RunScene(const FSceneFixture& Fixture,
-		Durin::AssetForge::EImportMode Mode,
-		std::optional<Durin::AssetForge::FImportProvenance> Provenance = {})
+	auto RunScene(const FSceneFixture& Fixture)
 		-> Durin::AssetForge::FImportResult
 	{
 		return Durin::AssetForge::GetImportService().RunImportInline(
-			MakeRequest(Fixture, Mode, std::move(Provenance)), "Scene AssetForge test");
-	}
-
-	auto FindRecord(const Durin::AssetForge::FImportResult& Result)
-		-> Durin::AssetForge::DImportRecord*
-	{
-		const auto Found = std::ranges::find(Result.Provenance.OutputMappings,
-			std::string_view("scene-import-record"),
-			&Durin::AssetForge::FOutputMapping::OutputIdentity);
-		if (Found == Result.Provenance.OutputMappings.end()) return nullptr;
-		Durin::AssetForge::DImportRecord* Record = nullptr;
-		(void)Durin::Asset::LoadAsset(Found->AssetPath, Record);
-		return Record;
+			MakeRequest(Fixture), "Scene AssetForge test");
 	}
 }
 
-TEST(FSceneImportTests, AssetForgePublishesAndReimportsHeterogeneousGraph)
+TEST(FSceneImportTests, AssetForgePublishesHeterogeneousGraph)
 {
 	const FSceneFixture Fixture = InitializeFixture("Heterogeneous");
-	const auto Imported = RunScene(Fixture, Durin::AssetForge::EImportMode::Import);
+	const auto Imported = RunScene(Fixture);
 	ASSERT_EQ(Imported.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
 		<< Imported.Outcome.Diagnostic;
-	ASSERT_EQ(Imported.Inspection.Outputs.size(), 4u);
-	ASSERT_EQ(Imported.Provenance.OutputMappings.size(), 4u);
+	ASSERT_EQ(Imported.Inspection.Outputs.size(), 3u);
+	ASSERT_EQ(Imported.Provenance.OutputMappings.size(), 3u);
 	for (const auto& Output : Imported.Inspection.Outputs)
 	{
 		Durin::DObject* Object = nullptr;
 		EXPECT_TRUE(Durin::Asset::LoadAsset(Output.AssetPath, Object));
 		EXPECT_NE(Object, nullptr);
 	}
-	auto* Record = FindRecord(Imported);
-	ASSERT_NE(Record, nullptr);
-	EXPECT_EQ(Record->GetProviderId(), "Durin.SceneGraph");
-	EXPECT_EQ(Record->GetOutputs().size(), 3u);
-
-	const auto Reimported = RunScene(Fixture, Durin::AssetForge::EImportMode::Reimport,
-		Imported.Provenance);
-	ASSERT_EQ(Reimported.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
-		<< Reimported.Outcome.Diagnostic;
-	EXPECT_EQ(Reimported.Provenance.OutputMappings, Imported.Provenance.OutputMappings);
-	EXPECT_EQ(Reimported.Provenance.SourceGraphFingerprint,
-		Imported.Provenance.SourceGraphFingerprint);
-}
-
-TEST(FSceneImportTests, RecordActionsUsePersistedImportProvenance)
-{
-	const FSceneFixture Fixture = InitializeFixture("RecordAction");
-	const auto Imported = RunScene(Fixture, Durin::AssetForge::EImportMode::Import);
-	ASSERT_EQ(Imported.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
-		<< Imported.Outcome.Diagnostic;
-	auto* Record = FindRecord(Imported);
-	ASSERT_NE(Record, nullptr);
-	Durin::AssetForge::FImportRequest Request;
-	std::string Error;
-	ASSERT_TRUE(Durin::AssetForge::Builtins::MakeSceneRecordImportRequest(
-		*Record, Durin::AssetForge::EImportRecordAction::Reimport,
-		{.OwnerId = "SceneImportTests.RecordReimport"}, Request, Error)) << Error;
-	const auto Result = Durin::AssetForge::GetImportService().RunImportInline(
-		std::move(Request), "Scene record AssetForge reimport");
-	EXPECT_EQ(Result.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
-		<< Result.Outcome.Diagnostic;
-	EXPECT_EQ(Result.Provenance.OutputMappings, Imported.Provenance.OutputMappings);
 }
 
 TEST(FSceneImportTests, AssetForgePublishesSkeletalDependencyGraph)
 {
 	const FSceneFixture Fixture = InitializeFixture(
 		"Skeletal", "Skeletal/ContractExternal.gltf");
-	const auto Imported = RunScene(Fixture, Durin::AssetForge::EImportMode::Import);
+	const auto Imported = RunScene(Fixture);
 	ASSERT_EQ(Imported.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
 		<< Imported.Outcome.Diagnostic;
-	ASSERT_EQ(Imported.Inspection.Outputs.size(), 12u);
-	EXPECT_EQ(Imported.Provenance.OutputMappings.size(), 12u);
+	ASSERT_EQ(Imported.Inspection.Outputs.size(), 11u);
+	EXPECT_EQ(Imported.Provenance.OutputMappings.size(), 11u);
 	size_t Skeletons = 0;
 	size_t SkeletalMeshes = 0;
 	size_t Animations = 0;
@@ -197,7 +160,7 @@ TEST(FSceneImportTests, ScheduledImportSurvivesInitiatorLifetimeAndCancelsTermin
 {
 	const FSceneFixture Fixture = InitializeFixture("Scheduled");
 	auto Handle = Durin::AssetForge::GetImportService().SubmitImport(
-		MakeRequest(Fixture, Durin::AssetForge::EImportMode::Import),
+		MakeRequest(Fixture),
 		"Scheduled Scene AssetForge import");
 	ASSERT_TRUE(Handle);
 	Durin::AssetForge::FImportResult Result;
@@ -210,8 +173,7 @@ TEST(FSceneImportTests, ScheduledImportSurvivesInitiatorLifetimeAndCancelsTermin
 		<< Result.Outcome.Diagnostic;
 
 	auto Canceled = Durin::AssetForge::GetImportService().SubmitImport(
-		MakeRequest(Fixture, Durin::AssetForge::EImportMode::Reimport,
-			Result.Provenance), "Canceled Scene AssetForge reimport");
+		MakeRequest(Fixture), "Canceled Scene AssetForge import");
 	ASSERT_TRUE(Canceled.GetOperationHandle().RequestCancel());
 	Durin::AssetForge::GetImportService().CancelAndDrainImportOperation(
 		Canceled.GetOperationHandle());

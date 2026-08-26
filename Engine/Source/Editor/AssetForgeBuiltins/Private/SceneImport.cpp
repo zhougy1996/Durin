@@ -416,10 +416,10 @@ namespace Durin::AssetForge::Builtins
 		public:
 			struct FResult
 			{
-				std::vector<FImportOutputPreview> Outputs;
+				std::vector<FImportOutputSummary> Outputs;
 				std::shared_ptr<const FSceneProviderPlanData> Data;
 
-				auto AddOutput(FImportOutputPreview Output) -> void
+				auto AddOutput(FImportOutputSummary Output) -> void
 				{
 					Outputs.push_back(std::move(Output));
 				}
@@ -477,35 +477,17 @@ namespace Durin::AssetForge::Builtins
 						MakeUniqueName(Skeleton.SuggestedName,
 							std::format("Skeleton_{}", SkeletonIndex), SkeletonNames),
 						SkeletonPath, Error)) return false;
-					const uint64 AuthoredBytes = Skeleton.Bones.size() * sizeof(FSkeletonBone)
-						+ Skeleton.CompatibilityIdentity.size();
 					Result.AddOutput({
 						.StableIdentity = Skeleton.StableIdentity,
 						.Role = "Skeleton",
 						.AssetPath = SkeletonPath,
 						.AssetClassName = "Durin::DSkeleton",
-						.Policy = EImportOutputPolicy::Create,
-						.Collision = EImportCollisionAction::Create,
-						.EstimatedCpuBytes = AuthoredBytes,
-						.EstimatedDiskBytes = AuthoredBytes});
+						.Policy = EImportOutputPolicy::Create});
 					Data->Outputs.push_back({
 						.StableIdentity = Skeleton.StableIdentity,
 						.Kind = ESceneOutputKind::Skeleton,
 						.SourceIndex = SkeletonIndex});
 				}
-				uint64 MeshBytes = 0;
-				for (const FImportedMeshData& Mesh : Data->Scene.Meshes)
-				{
-					if (CheckCanceled()) return false;
-					MeshBytes += Mesh.Positions.size() * sizeof(Mesh.Positions.front());
-					MeshBytes += Mesh.Normals.size() * sizeof(Mesh.Normals.front());
-					MeshBytes += Mesh.Tangents.size() * sizeof(Mesh.Tangents.front());
-					MeshBytes += Mesh.Colors.size() * sizeof(Mesh.Colors.front());
-					MeshBytes += Mesh.Indices.size() * sizeof(Mesh.Indices.front());
-					for (const auto& UVs : Mesh.UVChannels)
-						MeshBytes += UVs.size() * sizeof(UVs.front());
-				}
-
 				FAssetPath MeshPath;
 				if (!MakeSceneOutputPath(Decoded.DestinationDirectory, "Meshes",
 					SceneName, MeshPath, Error)) return false;
@@ -514,11 +496,7 @@ namespace Durin::AssetForge::Builtins
 					.Role = "StaticMesh",
 					.AssetPath = MeshPath,
 					.AssetClassName = "Durin::DStaticMesh",
-					.Policy = EImportOutputPolicy::Create,
-					.Collision = EImportCollisionAction::Create,
-					.EstimatedCpuBytes = MeshBytes,
-					.EstimatedGpuBytes = MeshBytes,
-					.EstimatedDiskBytes = MeshBytes});
+					.Policy = EImportOutputPolicy::Create});
 				Data->Outputs.push_back({
 					.StableIdentity = "scene:mesh:combined",
 					.Kind = ESceneOutputKind::StaticMesh});
@@ -586,11 +564,7 @@ namespace Durin::AssetForge::Builtins
 								.Role = "Texture2D." + std::string(Role),
 								.AssetPath = TexturePath,
 								.AssetClassName = "Durin::DTexture2D",
-								.Policy = EImportOutputPolicy::Create,
-								.Collision = EImportCollisionAction::Create,
-								.EstimatedCpuBytes = Image.EncodedByteCount * 4,
-								.EstimatedGpuBytes = Image.EncodedByteCount * 4,
-								.EstimatedDiskBytes = Image.EncodedByteCount});
+								.Policy = EImportOutputPolicy::Create});
 							Data->Outputs.push_back({
 								.StableIdentity = TextureIdentity,
 								.Kind = ESceneOutputKind::Texture2D,
@@ -649,11 +623,7 @@ namespace Durin::AssetForge::Builtins
 						.Role = "MaterialInstance",
 						.AssetPath = MaterialPath,
 						.AssetClassName = "Durin::DMaterialInstance",
-						.Policy = EImportOutputPolicy::Create,
-						.Collision = EImportCollisionAction::Create,
-						.EstimatedCpuBytes = 4096,
-						.EstimatedGpuBytes = 256,
-						.EstimatedDiskBytes = 4096});
+						.Policy = EImportOutputPolicy::Create});
 					Data->Outputs.push_back(std::move(MaterialOutput));
 				}
 
@@ -673,27 +643,12 @@ namespace Durin::AssetForge::Builtins
 						MakeUniqueName(Mesh.SuggestedName,
 							std::format("SkeletalMesh_{}", MeshIndex), SkeletalMeshNames),
 						MeshPath, Error)) return false;
-					uint64 PayloadBytes = Mesh.Payload->Positions.size() * sizeof(FVector3f)
-						+ Mesh.Payload->Normals.size() * sizeof(FVector3f)
-						+ Mesh.Payload->Tangents.size() * sizeof(FVector4f)
-						+ Mesh.Payload->Colors.size() * sizeof(FVector4f)
-						+ Mesh.Payload->Indices.size() * sizeof(uint32)
-						+ Mesh.Payload->Influences.size() * sizeof(FSkeletalMeshVertexInfluences)
-						+ Mesh.Payload->Sections.size() * sizeof(FSkeletalMeshSection)
-						+ Mesh.Payload->PaletteBoneIndices.size() * sizeof(uint16)
-						+ Mesh.Payload->InverseBindMatrices.size() * sizeof(FMatrix4f);
-					for (const auto& UVs : Mesh.Payload->UVChannels)
-						PayloadBytes += UVs.size() * sizeof(FVector2f);
 					Result.AddOutput({
 						.StableIdentity = Mesh.StableIdentity,
 						.Role = "SkeletalMesh",
 						.AssetPath = MeshPath,
 						.AssetClassName = "Durin::DSkeletalMesh",
-						.Policy = EImportOutputPolicy::Create,
-						.Collision = EImportCollisionAction::Create,
-						.EstimatedCpuBytes = PayloadBytes,
-						.EstimatedGpuBytes = PayloadBytes,
-						.EstimatedDiskBytes = PayloadBytes});
+						.Policy = EImportOutputPolicy::Create});
 					Data->Outputs.push_back({
 						.StableIdentity = Mesh.StableIdentity,
 						.Kind = ESceneOutputKind::SkeletalMesh,
@@ -717,21 +672,12 @@ namespace Durin::AssetForge::Builtins
 						MakeUniqueName(Clip.SuggestedName,
 							std::format("Animation_{}", ClipIndex), AnimationNames),
 						ClipPath, Error)) return false;
-					uint64 PayloadBytes = sizeof(float)
-						+ Clip.Payload->Tracks.size() * sizeof(FAnimationTrackData);
-					for (const FAnimationTrackData& Track : Clip.Payload->Tracks)
-						PayloadBytes += Track.Times.size() * sizeof(float)
-							+ Track.VectorValues.size() * sizeof(FVector3f)
-							+ Track.RotationValues.size() * sizeof(FVector4f);
 					Result.AddOutput({
 						.StableIdentity = Clip.StableIdentity,
 						.Role = std::format("AnimationClip.{:.6g}s", Clip.Payload->DurationSeconds),
 						.AssetPath = ClipPath,
 						.AssetClassName = "Durin::DAnimationClip",
-						.Policy = EImportOutputPolicy::Create,
-						.Collision = EImportCollisionAction::Create,
-						.EstimatedCpuBytes = PayloadBytes,
-						.EstimatedDiskBytes = PayloadBytes});
+						.Policy = EImportOutputPolicy::Create});
 					Data->Outputs.push_back({
 						.StableIdentity = Clip.StableIdentity,
 						.Kind = ESceneOutputKind::AnimationClip,
@@ -948,7 +894,7 @@ namespace Durin::AssetForge::Builtins
 		const FAssetPath& DestinationDirectory,
 		const FStaticMeshImportSettings& Settings,
 		std::shared_ptr<const FSceneProviderPlanData>& OutData,
-		std::vector<FImportOutputPreview>& OutOutputs,
+		std::vector<FImportOutputSummary>& OutOutputs,
 		std::vector<FImportDiagnostic>& OutDiagnostics,
 		std::string& OutError) -> bool
 	{
@@ -1266,41 +1212,4 @@ namespace Durin::AssetForge::Builtins
 		Handle.State.reset();
 	}
 
-	auto FindSceneImportRecordForOutput(
-		const DObject& Output,
-		std::string& OutError) -> DImportRecord*
-	{
-		if (!Output.GetPackage())
-		{
-			OutError = "Scene output is not packaged.";
-			return nullptr;
-		}
-		FAssetPath OutputPath;
-		if (!FAssetPath::TryCreate(
-			Output.GetPackage()->GetPackagePath(), OutputPath, &OutError)) return nullptr;
-		FImportRecordIndex& Index = GetImportRecordIndex();
-		if (!Index.EnsureCurrent(OutError)) return nullptr;
-		const std::vector<FImportRecordManagement> Managers = Index.FindManagers(OutputPath);
-		if (Managers.size() != 1)
-		{
-			OutError = Managers.empty()
-				? "Output is not managed by an import record."
-				: "Output has conflicting import-record managers.";
-			return nullptr;
-		}
-		DImportRecord* Record = nullptr;
-		const Asset::FAssetResult Load = Asset::LoadAsset(Managers.front().RecordPath, Record);
-		if (!Load || !Record)
-		{
-			OutError = Load.Message;
-			return nullptr;
-		}
-		if (Record->GetProviderId() != "Durin.SceneGraph")
-		{
-			OutError = "Managing import record belongs to another provider.";
-			return nullptr;
-		}
-		OutError.clear();
-		return Record;
-	}
 }

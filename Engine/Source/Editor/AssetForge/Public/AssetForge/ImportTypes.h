@@ -26,6 +26,7 @@ namespace Durin::AssetForge
 		CandidateFailure,
 		ValidationFailure,
 		PublicationFailure,
+		PersistenceFailure,
 		RestoreFailure,
 		InvalidSource,
 		MissingDependency,
@@ -45,7 +46,7 @@ namespace Durin::AssetForge
 		EImportDiagnosticSeverity Severity = EImportDiagnosticSeverity::Error;
 		EImportDiagnosticCategory Category = EImportDiagnosticCategory::InvalidRequest;
 		// Providers may supply a stable identity. The framework derives one from
-		// the stable context when this is empty before preview or persistence.
+		// the stable context when this is empty before persistence.
 		std::string Identity;
 		std::string Phase;
 		std::string SourceIdentity;
@@ -111,7 +112,7 @@ namespace Durin::AssetForge
 		std::string_view Message = {}) noexcept -> void;
 	ASSETFORGE_API auto GetImportPhaseLabel(EImportPhase Phase) -> std::string_view;
 
-	struct FImportSourcePreview
+	struct FImportSourceSummary
 	{
 		std::string StableIdentity;
 		std::string Role;
@@ -119,7 +120,7 @@ namespace Durin::AssetForge
 		uint64 ByteCount = 0;
 		bool bEmbedded = false;
 
-		auto operator==(const FImportSourcePreview&) const -> bool = default;
+		auto operator==(const FImportSourceSummary&) const -> bool = default;
 	};
 
 	struct FImportPayload
@@ -238,90 +239,17 @@ namespace Durin::AssetForge
 	enum class EImportOutputPolicy : uint8
 	{
 		Create,
-		ReplaceWholeState,
-		ReplaceTypedSubobjects,
-		Reference,
-		Detach
+		ReplaceWholeState
 	};
 
-	enum class EImportCollisionAction : uint8
-	{
-		None,
-		Create,
-		ReplaceManaged,
-		RejectUnrelated,
-		RequireExplicitRepair
-	};
-
-	struct FImportOutputPreview
+	struct FImportOutputSummary
 	{
 		std::string StableIdentity;
 		std::string Role;
 		FAssetPath AssetPath;
 		std::string AssetClassName;
 		EImportOutputPolicy Policy = EImportOutputPolicy::Create;
-		EImportCollisionAction Collision = EImportCollisionAction::None;
-		uint64 EstimatedCpuBytes = 0;
-		uint64 EstimatedGpuBytes = 0;
-		uint64 EstimatedDiskBytes = 0;
-
-		auto operator==(const FImportOutputPreview&) const -> bool = default;
-	};
-
-	enum class EImportPreviewAction : uint8
-	{
-		Create,
-		Replace,
-		Reference,
-		KeepDetached,
-		Missing,
-		Collision,
-		Orphan
-	};
-
-	struct FImportPreviewOutput
-	{
-		FImportOutputPreview Output;
-		EImportPreviewAction Action = EImportPreviewAction::Create;
-		bool bManaged = true;
-
-		auto operator==(const FImportPreviewOutput&) const -> bool = default;
-	};
-
-	enum class EImportWarningChange : uint8
-	{
-		New,
-		PreviouslyAccepted,
-		Resolved
-	};
-
-	struct FImportWarningPreview
-	{
-		EImportWarningChange Change = EImportWarningChange::New;
-		FImportDiagnostic Diagnostic;
-
-		auto operator==(const FImportWarningPreview&) const -> bool = default;
-	};
-
-	struct FImportPreview
-	{
-		std::vector<FImportSourcePreview> Sources;
-		std::vector<FImportPreviewOutput> Outputs;
-		std::vector<FImportWarningPreview> Warnings;
-		uint64 EstimatedCpuBytes = 0;
-		uint64 EstimatedGpuBytes = 0;
-		uint64 EstimatedDiskBytes = 0;
-	};
-
-	struct FImportTargetPrecondition
-	{
-		FAssetPath AssetPath;
-		std::string AssetClassName;
-		uint64 PackageEditRevision = 0;
-		std::string AuthoredFingerprint;
-		FAssetPath ManagementOwner;
-
-		auto operator==(const FImportTargetPrecondition&) const -> bool = default;
+		auto operator==(const FImportOutputSummary&) const -> bool = default;
 	};
 
 	class FComponentLease;
@@ -388,17 +316,5 @@ namespace Durin::AssetForge
 		virtual auto DetachPackageForAbandon() noexcept -> DPackage* = 0;
 		virtual auto Abandon() noexcept -> void = 0;
 	};
-
-	// All failable runtime work is completed before this token is returned.
-	// Commit and Reverse are deliberately no-fail and symmetric.
-	class ASSETFORGE_API IPreparedImportedStateExchange
-	{
-	public:
-		virtual ~IPreparedImportedStateExchange() = default;
-		virtual auto Commit() noexcept -> void = 0;
-		virtual auto Reverse() noexcept -> void = 0;
-		virtual auto Finalize() noexcept -> void = 0;
-	};
-
 
 }

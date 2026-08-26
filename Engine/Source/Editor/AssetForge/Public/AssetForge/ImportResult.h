@@ -8,10 +8,25 @@ struct FImportInspection
 	{
 		bool bCompatible = false;
 		std::vector<FImportDiagnostic> Diagnostics;
-		std::vector<FImportSourcePreview> Sources;
-		std::vector<FImportOutputPreview> Outputs;
+		std::vector<FImportSourceSummary> Sources;
+		std::vector<FImportOutputSummary> Outputs;
 		FXxHash128 SourceGraphFingerprint{};
 		FXxHash128 BuildGraphFingerprint{};
+	};
+
+	enum class EImportPersistenceState : uint8
+	{
+		NotRequested,
+		Succeeded,
+		Failed
+	};
+
+	struct FImportPersistenceResult
+	{
+		EImportPersistenceState State = EImportPersistenceState::NotRequested;
+		std::string Diagnostic;
+
+		auto operator==(const FImportPersistenceResult&) const -> bool = default;
 	};
 
 	struct FImportResult
@@ -19,5 +34,6 @@ struct FImportInspection
 		FImportOutcome Outcome;
 		FImportProvenance Provenance;
 		FImportInspection Inspection;
+		FImportPersistenceResult Persistence;
 	};
 }

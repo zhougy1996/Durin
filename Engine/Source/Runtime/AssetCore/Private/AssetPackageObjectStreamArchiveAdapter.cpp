@@ -48,6 +48,7 @@ namespace Durin::Asset::Private
 			std::vector<FCapturedObject> Objects;
 			std::vector<FAssetPath> Dependencies;
 			std::vector<FEditorBulkDataStoragePayload> BulkPayloads;
+			std::vector<std::pair<uint64, uint64>> InternalReferences;
 		};
 
 		auto FindReflectedProperty(const FArchiveFieldDescriptor& Descriptor) -> FProperty*
@@ -200,7 +201,9 @@ namespace Durin::Asset::Private
 
 		auto EqualManifest(const FCapturedPackage& A, const FCapturedPackage& B) -> bool
 		{
-			if (A.Dependencies != B.Dependencies || A.Objects.size() != B.Objects.size()
+			if (A.Dependencies != B.Dependencies
+				|| A.InternalReferences != B.InternalReferences
+				|| A.Objects.size() != B.Objects.size()
 				|| A.BulkPayloads.size() != B.BulkPayloads.size()) return false;
 			for (size_t Index = 0; Index < A.BulkPayloads.size(); ++Index)
 			{
@@ -874,6 +877,13 @@ namespace Durin::Asset::Private
 					{
 						Kind = 1;
 						Id = It->second;
+						if (!CurrentObject)
+						{
+							Fail(EArchiveFailureCode::MalformedSerializer,
+								"An internal reference was serialized outside an object scope.");
+							return;
+						}
+						Package.InternalReferences.emplace_back(CurrentObject->Id, Id);
 					}
 					else
 					{
@@ -1179,6 +1189,39 @@ namespace Durin::Asset::Private
 				if (Override && Override->bOmitObject) return true;
 			}
 			return false;
+		}
+
+		auto PruneUnreachableCookedObjects(
+			const FCapturedPackage& Discovery,
+			std::vector<DObject*>& Objects) -> bool
+		{
+			if (Discovery.Objects.size() != Objects.size() || Objects.empty()) return false;
+			std::vector<uint8> Reachable(Objects.size(), 0);
+			Reachable[0] = 1;
+			bool bChanged = true;
+			while (bChanged)
+			{
+				bChanged = false;
+				for (const auto& [SourceId, TargetId] : Discovery.InternalReferences)
+				{
+					if (SourceId == 0 || SourceId > Reachable.size()
+						|| TargetId == 0 || TargetId > Reachable.size()) return false;
+					if (!Reachable[SourceId - 1] || Reachable[TargetId - 1]) continue;
+					uint64 CurrentId = TargetId;
+					while (CurrentId != 0 && !Reachable[CurrentId - 1])
+					{
+						Reachable[CurrentId - 1] = 1;
+						bChanged = true;
+						CurrentId = Discovery.Objects[CurrentId - 1].OuterId;
+					}
+				}
+			}
+			std::vector<DObject*> Filtered;
+			Filtered.reserve(Objects.size());
+			for (size_t Index = 0; Index < Objects.size(); ++Index)
+				if (Reachable[Index]) Filtered.push_back(Objects[Index]);
+			Objects = std::move(Filtered);
+			return true;
 		}
 
 		auto CapturePackage(
@@ -1724,6 +1767,26 @@ namespace Durin::Asset::PackageObjectStream
 		{
 			Diagnostic = {EWriterFailure::ManifestMismatch, {}, "Archive discovery mutated the frozen package object graph."};
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
+		}
+		if (Options.Serialization.Domain == EAssetPackageSaveDomain::Cooked
+			&& !Options.Serialization.bRetainEditorOnlyData)
+		{
+			if (!Private::PruneUnreachableCookedObjects(Discovery, Objects))
+			{
+				Diagnostic = {EWriterFailure::InvalidTopology, {},
+					"Cooked object reachability discovery produced an invalid graph."};
+				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
+			}
+			ObjectIds.clear();
+			for (size_t Index = 0; Index < Objects.size(); ++Index)
+				ObjectIds.emplace(Objects[Index], Index + 1);
+			Result = Private::CapturePackage(
+				Objects, ObjectIds, Options.Serialization, false, Version, {}, Discovery);
+			if (!Result)
+			{
+				Diagnostic = {EWriterFailure::ArchiveFailure, {}, Result.Message};
+				return Finish(Result);
+			}
 		}
 		const FXxHash128 ContainerHash = Private::ComputeContainerHash(Discovery.BulkPayloads);
 		if (!Discovery.BulkPayloads.empty()

@@ -122,8 +122,8 @@ Files under `Malformed/` are deterministic mutations of that graph;
 
 - Version 1 creates one Skeleton per source skin. Structurally identical skins
   are not coalesced, although their compatibility identities are equal. This
-  keeps reimport identities anchored to normative source associations and
-  leaves cross-source deduplication to a later explicit feature.
+  keeps outputs anchored to normative source associations during the initial
+  transaction and leaves cross-source deduplication to a later explicit feature.
 - One SkeletalMesh is produced for each skinned node/mesh association. All
   supported primitives of that mesh become material sections in one LOD0
   payload. Reusing a mesh from two nodes with the same skin therefore creates
@@ -138,18 +138,17 @@ Files under `Malformed/` are deterministic mutations of that graph;
 - Stable identities are `skeleton:skin/<skin-index>`,
   `skeletal-mesh:node/<node-index>/mesh/<mesh-index>`, and
   `animation-clip:animation/<animation-index>/skin/<skin-index>`. Source array
-  index is the reconciliation identity in version 1; names are presentation
-  only. Reordering source arrays is an authored identity change.
+  indices deterministically derive output paths for one import; they are not
+  retained as later reconciliation identities. Names are presentation only.
 - Outputs live under `Skeletons`, `SkeletalMeshes`, and `Animations` beneath
   the selected destination. Sanitized display names use skin, node/mesh, and
   animation names with the stable source indices as deterministic duplicate
-  suffixes. Occupied unmanaged paths are collisions; import never adopts or
-  overwrites them. Reimport resolves managed assets by stable identity, and a
-  removed output is an orphan rather than an implicit deletion.
+  suffixes. Occupied paths are collisions; import never adopts or overwrites
+  them. Scene import is creation-only and has no whole-scene reimport.
 - Skeleton, SkeletalMesh, AnimationClip, material, texture, and existing static
-  outputs are peer main assets under one `DImportRecord`. There is no primary
-  skeletal output. Root-last publication validates all Skeleton relationships
-  before any package becomes visible.
+  outputs are ordinary independent peer assets. There is no primary skeletal
+  output. Root-last publication validates all Skeleton relationships before any
+  package becomes visible.
 - FBX and other Assimp formats remain static-only. A glTF scene with valid
   skeletal data may still retain its established static outputs; adding the
   skeletal records must not change existing normalized static mesh bytes,
@@ -235,8 +234,8 @@ Third-party message text and Assimp allocation/order are never the contract.
   editor-only rebuild metadata.
 - Cook retains runtime hard references, compatibility, summaries, material
   bindings, and logical DBLK descriptors. It strips captured source paths and
-  bytes, provider state, import-record state, normalized build inputs, physical
-  DDC paths, and editor rebuild keys.
+  bytes, provider state, normalized build inputs, physical DDC paths, and editor
+  rebuild keys.
 - Skeletal mesh payload is owner-selected and magic-free, with schema version
   2, builder version 2, target platform, profile, flags, header
   size, chunk table, decoded/stored sizes, and XXH3-64 body checksum. Required

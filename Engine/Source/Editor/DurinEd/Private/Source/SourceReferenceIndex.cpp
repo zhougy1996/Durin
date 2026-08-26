@@ -1,6 +1,7 @@
 #include "Source/SourceReferenceIndex.h"
 
 #include "Asset.h"
+#include "Asset/AssetImportData.h"
 #include "Asset/PackageInspection.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
@@ -60,13 +61,25 @@ namespace Durin::Editor
 				.AssetClassName = Data.AssetClassName});
 		}
 
-		auto InspectKnownSourceFields(
+		auto InspectSourceFields(
 			const Asset::FAssetData& Data,
 			std::unordered_map<std::string, std::vector<FSourceReference>>& References)
 			-> bool
 		{
 			Asset::FAssetPackageInspection Inspection;
 			if (!Asset::InspectAssetPackage(Data.PhysicalPath, Inspection)) return false;
+			AssetImport::FAssetImportInfo ImportInfo;
+			std::string ImportInfoError;
+			if (AssetImport::InspectAssetImportInfo(
+				Inspection, ImportInfo, ImportInfoError))
+			{
+				for (const AssetImport::FSourceFile& Source : ImportInfo.Sources)
+					AddReference(References, Data, Source.SourcePath.Path);
+				return true;
+			}
+
+			// Temporary read-only fallback for authored packages that have not yet
+			// been canonically resaved with the common import-data reference.
 			const Asset::FAssetPackageField* SourceField =
 				Inspection.FindField("SourceImportData");
 			if (!SourceField) return true;
@@ -143,12 +156,6 @@ namespace Durin::Editor
 			Snapshot.RegistryRevision = Catalog.Revision;
 			for (const auto& [Path, Asset] : Catalog.Assets)
 			{
-				if (Asset.AssetClassName.find("Texture2D") == std::string::npos
-					&& Asset.AssetClassName.find("TextureCube") == std::string::npos
-					&& Asset.AssetClassName.find("VolumeTexture") == std::string::npos
-					&& Asset.AssetClassName.find("StaticMesh") == std::string::npos
-					&& Asset.AssetClassName.find("TerrainHeightmap") == std::string::npos)
-					continue;
 				if (Snapshot.InspectedPackageCount >= MaximumPackageInspections)
 				{
 					Snapshot.Warning = std::format(
@@ -157,7 +164,7 @@ namespace Durin::Editor
 					break;
 				}
 				++Snapshot.InspectedPackageCount;
-				if (!InspectKnownSourceFields(Asset, Snapshot.References)
+				if (!InspectSourceFields(Asset, Snapshot.References)
 					&& Snapshot.Warning.empty())
 				{
 					Snapshot.Warning =

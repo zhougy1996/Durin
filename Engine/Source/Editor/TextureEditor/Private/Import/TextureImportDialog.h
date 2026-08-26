@@ -54,9 +54,6 @@ namespace Durin::Editor::Texture
 		AssetForge::Builtins::FVolumeTextureAtlasInspection VolumeInspection;
 		std::string InspectedVolumeSourcePath;
 		std::string SubmissionError;
-		std::optional<AssetForge::FImportHandle> TextureCubePreview;
-		std::string PendingTextureCubePreviewKey;
-		std::string ValidatedTextureCubePreviewKey;
 		int SelectedVolumeLayout = -1;
 	};
 } // namespace Durin::Editor::Texture

@@ -1,5 +1,4 @@
 #include "AssetTools.h"
-#include "AssetForge/Persistence/ImportRecord.h"
 #include "AssetSaveReadiness.h"
 
 #include "Asset/EditorBulkDataStorage.h"
@@ -619,7 +618,6 @@ int main(int ArgC, char** ArgV)
 		Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	}
 	(void)Durin::DLevel::StaticClass(); // Force the Engine reflection module into this process.
-	(void)Durin::AssetForge::DImportRecord::StaticClass(); // AssetImport packages are part of the authored corpus.
 	const Durin::Asset::FReflectionCompatibilityCatalog Catalog =
 		Durin::Asset::FReflectionCompatibilityCatalog::Capture();
 	Durin::Asset::FAssetPackageDiscoverySnapshot Snapshot =

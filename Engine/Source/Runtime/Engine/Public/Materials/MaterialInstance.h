@@ -54,7 +54,7 @@ namespace Durin
 		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
 		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
 		// Exchanges importer-owned parent and parameter state without changing
-		// package or object identity. Used by atomic multi-asset reimport.
+		// package or object identity.
 		ENGINE_API auto ExchangeImportedState(DMaterialInstance& Other) -> void;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		ENGINE_API auto PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool override;

@@ -172,12 +172,11 @@ modes; startup and console commands; asset-reference stores; and asset-move
 observers. Each registry keeps its existing domain-specific matching and
 ordering behavior.
 
-Interchange component leases cover more than callback duration. Submitted jobs,
-detached products, and reusable preview products retain the exact component and
-module resource until their values are destroyed. Component unregistration
-closes admission and clears matching preview cache entries before the exact
-registration generation retires; provider code can therefore neither execute
-nor run a product destructor after native release.
+Interchange component leases cover more than callback duration. Submitted jobs
+and detached products retain the exact component and module resource until
+their values are destroyed. Component unregistration closes admission before
+the exact registration generation retires; provider code can therefore neither
+execute nor run a product destructor after native release.
 
 ## External and Deferred Execution
 

@@ -94,11 +94,11 @@ TEST(FSingleAssetImportTests, Texture2DPersistsImportProvenance)
 	ASSERT_EQ(Provenance.PlanningPassStack.size(), 1u);
 	EXPECT_EQ(Provenance.PlanningPassStack.front().PlanningPassId,
 		"Durin.Texture2D.Default");
-	ASSERT_TRUE(Imported.Asset->GetSourceImportData().HasSource());
+	ASSERT_NE(Imported.Asset->GetImportedSource(), nullptr);
 	Imported.Asset->PublishImportProvenance({});
-	EXPECT_FALSE(Durin::AssetForge::Builtins::InspectTexture2DImportProvenance(
-		*Imported.Asset, Provenance, Error));
-	EXPECT_EQ(Error, "Texture2D has no current AssetForge provenance.");
+	EXPECT_TRUE(Durin::AssetForge::Builtins::InspectTexture2DImportProvenance(
+		*Imported.Asset, Provenance, Error)) << Error;
+	EXPECT_TRUE(Error.empty());
 }
 
 TEST(FSingleAssetImportTests, ReimportsGeometryOnlyThroughAssetForge)

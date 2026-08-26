@@ -55,7 +55,6 @@ endif()
 
 if(TARGET AssetForge)
 	durin_assert_target_dependency_closure_excludes(AssetForge
-		Engine
 		StaticMeshBuild
 		SkeletalBuild
 		TerrainBuild

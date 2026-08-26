@@ -1085,7 +1085,6 @@ TEST(FSkeletalAssetTests, RuntimeTypesExposeOnlySourceIndependentAuthoredFields)
 	{
 		EXPECT_EQ(Class->FindPropertyByName("SourcePath", false), nullptr);
 		EXPECT_EQ(Class->FindPropertyByName("ProviderState", false), nullptr);
-		EXPECT_EQ(Class->FindPropertyByName("ImportRecord", false), nullptr);
 		EXPECT_EQ(Class->FindPropertyByName("RetiredUnknownField", false), nullptr);
 	}
 }

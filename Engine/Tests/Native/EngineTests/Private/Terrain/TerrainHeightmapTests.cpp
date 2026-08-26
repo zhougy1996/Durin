@@ -558,7 +558,7 @@ TEST(FTerrainHeightmapImportTests, RawImportReimportRelocationAndWarmDdcPreserve
 		std::vector<uint16>(Changed.begin(), Changed.end()));
 }
 
-TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndRollbackPreserveTheAssetContract)
+TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndFailedSavePreservePublishedState)
 {
 	const std::filesystem::path Root = InitializeHeightmapTests();
 	FScopedDdcRoot Ddc(Root / "DDC");
@@ -617,16 +617,21 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndRollbackPreserveTheA
 	EXPECT_FALSE(Imported.Asset->GetPackage()->IsDirty());
 
 	const uint64 BeforeFailureRevision = Imported.Asset->GetRevision();
-	const auto BeforeFailurePayload = Imported.Asset->GetPayload();
 	const std::array<uint16, 6> FailedChange{9, 9, 9, 9, 9, 9};
 	WritePng(Source, 3, 2, FailedChange);
 	const auto Failed = ReimportHeightmap(*Imported.Asset,
 		{.ShouldFail = [](Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
 			return Phase == Durin::Asset::EAssetBundleSavePhase::StagePackage;
 		}});
-	EXPECT_EQ(Failed.Outcome.State, Durin::AssetForge::EImportOperationState::Failed);
-	EXPECT_EQ(Imported.Asset->GetRevision(), BeforeFailureRevision);
-	EXPECT_EQ(Imported.Asset->GetPayload()->Samples, BeforeFailurePayload->Samples);
+	EXPECT_EQ(Failed.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded);
+	EXPECT_EQ(Failed.Persistence.State,
+		Durin::AssetForge::EImportPersistenceState::Failed);
+	EXPECT_FALSE(Failed.Persistence.Diagnostic.empty());
+	EXPECT_EQ(Imported.Asset->GetRevision(), BeforeFailureRevision + 1);
+	EXPECT_EQ(Imported.Asset->GetPayload()->Samples,
+		std::vector<uint16>(FailedChange.begin(), FailedChange.end()));
+	EXPECT_TRUE(Imported.Asset->GetPackage()->IsDirty());
+	ASSERT_TRUE(Durin::Asset::SavePackage(Imported.Asset->GetPackage()));
 	EXPECT_FALSE(Imported.Asset->GetPackage()->IsDirty());
 }
 

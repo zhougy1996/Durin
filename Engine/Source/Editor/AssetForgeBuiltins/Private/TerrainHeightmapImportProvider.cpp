@@ -66,11 +66,6 @@ namespace Durin::AssetForge::Builtins
 		public:
 			Asset::FTerrainHeightmapBuildProduct Product;
 			Asset::FTerrainHeightmapPublicationContext Publication;
-			auto CloneDetachedProduct() const
-				-> std::unique_ptr<IBuildProduct> override
-			{
-				return std::make_unique<FTerrainProduct>(*this);
-			}
 		};
 
 		class FTerrainAssetBuilder final : public IAssetBuilder
@@ -134,15 +129,15 @@ namespace Durin::AssetForge::Builtins
 				}
 				return Result;
 			}
-			auto PrepareImportedStateExchange(DObject& Target, ISingleAssetCandidate& Candidate,
-				std::vector<FImportDiagnostic>&) const -> std::unique_ptr<IPreparedImportedStateExchange> override
+			auto PublishImportedState(DObject& Target, ISingleAssetCandidate& Candidate,
+				std::vector<FImportDiagnostic>&) const -> bool override
 			{
 				auto* A = Cast<DTerrainHeightmap>(&Target);
 				auto* B = Cast<DTerrainHeightmap>(Candidate.GetAsset());
-				if (A && B) A->PrepareCandidateRevision(*B);
-				return A && B
-					? std::make_unique<TImportedStateExchange<DTerrainHeightmap>>(*A, *B)
-					: nullptr;
+				if (!A || !B) return false;
+				A->PrepareCandidateRevision(*B);
+				A->ExchangeImportedState(*B);
+				return true;
 			}
 			auto ApplyProvenance(DObject& Object, const FImportProvenance& Provenance,
 				std::vector<FImportDiagnostic>& Diagnostics) const -> bool override

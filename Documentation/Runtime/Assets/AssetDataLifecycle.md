@@ -84,7 +84,7 @@ not the name of the compilation domain or one of its requests.
 
 | Class | Typical location | Suffix | Authoritative for | May be deleted locally |
 | --- | --- | --- | --- | --- |
-| Source input | Mounted content directory | Source-specific | Reimport and rebuilding | No |
+| Source input | Mounted content directory | Source-specific | Supported single-asset reimport and rebuilding; initial Scene import | No |
 | Object package | Mounted content directory | `.dasset` | Asset identity and editable object state | No |
 | Derived data | `DerivedDataCache/` | `.bin` | Nothing; it accelerates editor and cook work | Yes |
 | Cooked package | `Cooked/<Platform>/...` | `.dasset` | Runtime object metadata for that cook | No |
@@ -158,26 +158,33 @@ authored `.dasset`, records portable source provenance, builds data required for
 immediate editor use, and populates the DDC. It does not create `Cooked/`
 packages, `.dbulk` companions, or `CookManifest.bin`.
 
-Multi-output import also creates an editor-only `DImportRecord` companion.
-Outputs remain independent runtime assets; the record stores management and
-reconciliation state and is explicitly excluded from cooking. Built-in implementation state,
-accepted editor diagnostics, record indexes, and extension-module identities do
-not enter cooked runtime ownership. See
+Scene import creates ordinary independent output assets and no aggregate
+management companion. It is creation-only and offers no whole-scene reimport,
+stable reconciliation, or generated-output recovery. Built-in implementation
+state, editor diagnostics, and extension-module identities do not enter cooked
+runtime ownership. See
 [Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md).
 
 Editor import extensions register source translators, ordered planning passes, and typed
 asset builders with AssetForge's `FImportService`. One
-`FImportRequest` and framework-owned job serve initial import,
-preview, reimport, repair, multi-output reconciliation, and implemented editor
-recovery. Callers never coordinate a parallel provider, single-asset-handler,
-or record-handler workflow.
+`FImportRequest` and framework-owned job serve initial import, supported
+single-asset reimport and repair, and implemented editor recovery. Callers never
+coordinate a parallel provider or single-asset-handler workflow. There is no
+general preview execution mode; dialogs defer complete parsing and building
+until confirmation.
 
 The source graph records source semantics and explicit dependencies. The
-build graph records output class, destination, reconciliation policy, and
+build graph records output class, destination policy, and
 cross-output dependencies. Both are immutable, bounded, canonically ordered,
-and fingerprinted. Detached products remain ordinary CPU-owned values until
-the editor thread materializes candidates and enters failure-atomic package
-publication.
+and fingerprinted. Detached products remain ordinary CPU-owned values while
+the operation reports preparation progress. The editor thread then enters a
+non-cancelable finalization phase and publishes completed candidate state once;
+the live asset retains its previous usable state until that point.
+
+Package persistence is a subsequent operation, not a reversible part of the
+asset-state transition. A save failure leaves the newly published package
+Dirty and reports persistence failure separately, while the prior disk/catalog
+state remains intact. The editor can retry Save without rerunning import.
 
 The current import behavior is:
 
@@ -188,8 +195,8 @@ The current import behavior is:
 | TextureCube, six-face | Decode six sources, validate a common layout, and build platform faces | Authored `.dasset`, six normalized source files, DDC `.bin` |
 | TextureCube, panorama | Decode and project the panorama, then build platform faces | Authored `.dasset`, normalized panorama source, DDC `.bin` |
 | Skeleton | Validate and persist the canonical reference hierarchy and structural compatibility identity | Authored `.dasset` |
-| SkeletalMesh | Validate the Skeleton relationship and build the detached LOD0 CPU payload | Authored `.dasset`, Scene source closure through its import record, DDC `.bin` |
-| AnimationClip | Validate the Skeleton relationship and build detached track/key data | Authored `.dasset`, Scene source closure through its import record, DDC `.bin` |
+| SkeletalMesh | Validate the Skeleton relationship and build the detached LOD0 CPU payload | Authored `.dasset`, DDC `.bin` |
+| AnimationClip | Validate the Skeleton relationship and build detached track/key data | Authored `.dasset`, DDC `.bin` |
 | Assets without an external platform payload | Construct and save reflected authoring state | Authored `.dasset` |
 
 StaticMesh, texture, SkeletalMesh, and AnimationClip import currently build the
@@ -254,13 +261,12 @@ handle, playback clock, evaluated pose, or palette state.
 
 Authored editor packages may retain a content-addressed rebuild key and compact
 source/import metadata. A loaded package first attempts a validated DDC object.
-Where an editor recovery policy exists, missing disposable data reconstructs a
-`SessionCritical` AssetForge request from persisted provenance or the managing
-Scene record; it does not enter a separate decoder or publication path. Scene
-replacement target loading may tolerate missing disposable skeletal payloads
-while preserving the published object identity that the recovery transaction
-updates. `DSkeleton` has no external payload and therefore no DDC object or
-DBLK companion.
+Where a single-asset editor recovery policy exists, missing disposable data
+reconstructs a `SessionCritical` AssetForge request from that asset's persisted
+provenance; it does not enter a separate decoder or publication path. Scene
+outputs retain no aggregate source recipe, so a missing skeletal Scene payload
+is reported rather than silently rebuilding the whole Scene. `DSkeleton` has no
+external payload and therefore no DDC object or DBLK companion.
 
 ## Derived Data Cache Objects
 
@@ -383,8 +389,8 @@ StaticMesh, texture, SkeletalMesh, and AnimationClip cooked packages also omit
 import source provenance, rebuild keys, and editor diagnostics. SkeletalMesh
 and AnimationClip retain exact hard Skeleton dependencies and compatibility
 identities; their logical payload descriptors select fixed type payload IDs in
-the package companion. Import-record packages are not cook inputs, and runtime
-targets do not deploy `AssetForge`, `AssetForgeBuiltins`, Assimp, or
+the package companion. Runtime targets do not deploy `AssetForge`,
+`AssetForgeBuiltins`, Assimp, or
 editor image decoders.
 
 Cook package construction is a read-only projection of the authored object

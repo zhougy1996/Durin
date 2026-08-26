@@ -370,7 +370,7 @@ TEST(FTexture2DTests, ScheduledImportReimportPublishesOnceAndCancellationPreserv
 		.bSRGB = Texture->IsSRGB()};
 	Durin::AssetForge::FImportRequest Request;
 	ASSERT_TRUE(Durin::AssetForge::Builtins::MakeTexture2DImportRequest(
-		Texture->GetSourceImportData().Source.SourcePath, AssetPath, Settings,
+		{.Path = Texture->GetSourceFile()}, AssetPath, Settings,
 		Durin::AssetForge::EImportMode::Reimport,
 		{.OwnerId = "Tests.Texture2D.ScheduledReimport",
 			.ConflictIdentities = {AssetPath.ToString()}},
@@ -415,79 +415,7 @@ TEST(FTexture2DTests, ScheduledImportReimportPublishesOnceAndCancellationPreserv
 	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }
 
-TEST(FTexture2DTests, ImportPreviewIsDeterministicAndMatchesScheduledInspection)
-{
-	InitializeDObjectSystem();
-	InitializeTextureImportMount();
-	FScopedDerivedDataCacheRoot CacheRoot(
-		Durin::Testing::GetTestWorkDirectory() / "TextureImportPreviewDdc");
-	const std::filesystem::path Source =
-		Durin::Testing::GetTestWorkDirectory() / "TextureImportPreview.png";
-	WriteTextureFixture(Source);
-	const Durin::FTexture2DImportResult Imported = Durin::AssetForge::Builtins::ImportTexture2DAsset(
-		Source.generic_string(), "/TextureImportTests/PreviewSeed");
-	ASSERT_TRUE(Imported) << Imported.Message;
-
-	Durin::FAssetPath PreviewPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
-		"/TextureImportTests/PreviewOnly", PreviewPath));
-	Durin::AssetForge::FImportRequest Request;
-	std::string Error;
-	ASSERT_TRUE(Durin::AssetForge::Builtins::MakeTexture2DImportRequest(
-		Imported.Asset->GetSourceImportData().Source.SourcePath, PreviewPath,
-		{}, Durin::AssetForge::EImportMode::Preview,
-		{.OwnerId = "Tests.Texture2D.Preview",
-			.ConflictIdentities = {PreviewPath.ToString()}},
-		std::nullopt, Request, Error)) << Error;
-	Request.Lifetime = Durin::AssetForge::EImportOperationLifetime::EphemeralPreview;
-	auto& Service = Durin::AssetForge::GetImportService();
-	const Durin::AssetForge::FImportResult First =
-		Service.RunImportInline(Request, "Texture2D preview");
-	const Durin::AssetForge::FImportResult Second =
-		Service.RunImportInline(Request, "Repeated Texture2D preview");
-	ASSERT_EQ(First.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
-		<< First.Outcome.Diagnostic;
-	ASSERT_EQ(Second.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
-		<< Second.Outcome.Diagnostic;
-	EXPECT_EQ(First.Provenance, Second.Provenance);
-	EXPECT_EQ(First.Inspection.SourceGraphFingerprint,
-		Second.Inspection.SourceGraphFingerprint);
-	EXPECT_EQ(First.Inspection.BuildGraphFingerprint,
-		Second.Inspection.BuildGraphFingerprint);
-	ASSERT_EQ(First.Inspection.Outputs.size(), 1u);
-	EXPECT_EQ(First.Inspection.Outputs.front().StableIdentity, "texture2d");
-	EXPECT_EQ(First.Inspection.Outputs.front().AssetPath, PreviewPath);
-	EXPECT_EQ(Durin::Asset::FindAssetExact(PreviewPath), nullptr);
-
-	auto Scheduled = Service.SubmitImport(
-		Request, "Scheduled Texture2D preview");
-	ASSERT_TRUE(Scheduled);
-	Durin::AssetForge::FImportResult ScheduledResult;
-	bool bPreviewReady = false;
-	const auto PreviewDeadline = std::chrono::steady_clock::now()
-		+ std::chrono::seconds(5);
-	while (!(bPreviewReady = Scheduled.TryGetResult(ScheduledResult))
-		&& std::chrono::steady_clock::now() < PreviewDeadline)
-	{
-		(void)Service.PumpImportOperations();
-		std::this_thread::sleep_for(std::chrono::milliseconds(1));
-	}
-	ASSERT_TRUE(bPreviewReady);
-	ASSERT_EQ(ScheduledResult.Outcome.State,
-		Durin::AssetForge::EImportOperationState::Succeeded)
-		<< ScheduledResult.Outcome.Diagnostic;
-	EXPECT_EQ(ScheduledResult.Provenance, First.Provenance);
-	EXPECT_EQ(ScheduledResult.Inspection.Outputs, First.Inspection.Outputs);
-	EXPECT_EQ(Durin::Asset::FindAssetExact(PreviewPath), nullptr);
-
-	Durin::FAssetPath SeedPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
-		"/TextureImportTests/PreviewSeed", SeedPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(SeedPath));
-	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(SeedPath));
-}
-
-TEST(FTexture2DTests, ImportSaveFailureRestoresAuthoredRuntimeAndProvenanceState)
+TEST(FTexture2DTests, ImportSaveFailureKeepsPublishedStateDirtyForRetry)
 {
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
@@ -501,10 +429,13 @@ TEST(FTexture2DTests, ImportSaveFailureRestoresAuthoredRuntimeAndProvenanceState
 	ASSERT_TRUE(Imported) << Imported.Message;
 	Durin::DTexture2D* Texture = Imported.Asset;
 	ASSERT_NE(Texture, nullptr);
-	const Durin::FTexture2DSourceImportData PriorSource = Texture->GetSourceImportData();
+	const std::string PriorSource = Texture->GetSourceFile();
 	const Durin::FTexturePlatformData PriorPlatform = *Texture->GetPlatformData();
 	const std::string PriorKey = Texture->GetDerivedDataKey();
-	const std::string PriorProvenance(Texture->GetImportProvenance());
+	Durin::AssetForge::FImportProvenance PriorProvenance;
+	std::string Error;
+	ASSERT_TRUE(Durin::AssetForge::Builtins::InspectTexture2DImportProvenance(
+		*Texture, PriorProvenance, Error)) << Error;
 	const uint64 PriorRevision = Texture->GetBuildRevision();
 	ASSERT_FALSE(Texture->GetPackage()->IsDirty());
 
@@ -512,7 +443,6 @@ TEST(FTexture2DTests, ImportSaveFailureRestoresAuthoredRuntimeAndProvenanceState
 	ASSERT_EQ(SourceDiagnostic.Status, Durin::ETextureSourceStatus::Available);
 	WriteNpotTextureFixture(SourceDiagnostic.PhysicalPath);
 	Durin::AssetForge::FImportProvenance Existing;
-	std::string Error;
 	ASSERT_TRUE(Durin::AssetForge::Builtins::InspectTexture2DImportProvenance(
 		*Texture, Existing, Error)) << Error;
 	Durin::FAssetPath AssetPath;
@@ -527,7 +457,7 @@ TEST(FTexture2DTests, ImportSaveFailureRestoresAuthoredRuntimeAndProvenanceState
 		.bSRGB = Texture->IsSRGB()};
 	Durin::AssetForge::FImportRequest Request;
 	ASSERT_TRUE(Durin::AssetForge::Builtins::MakeTexture2DImportRequest(
-		PriorSource.Source.SourcePath, AssetPath, Settings,
+		{.Path = PriorSource}, AssetPath, Settings,
 		Durin::AssetForge::EImportMode::Reimport,
 		{.OwnerId = "Tests.Texture2D.Rollback",
 			.ConflictIdentities = {AssetPath.ToString()}},
@@ -539,16 +469,22 @@ TEST(FTexture2DTests, ImportSaveFailureRestoresAuthoredRuntimeAndProvenanceState
 	const Durin::AssetForge::FImportResult Failed =
 		Durin::AssetForge::GetImportService().RunImportInline(
 			std::move(Request), "Texture2D rollback injection");
-	EXPECT_EQ(Failed.Outcome.State, Durin::AssetForge::EImportOperationState::Failed);
-	EXPECT_EQ(Texture->GetSourceImportData(), PriorSource);
-	ExpectPlatformDataEqual(*Texture->GetPlatformData(), PriorPlatform);
-	EXPECT_EQ(Texture->GetDerivedDataKey(), PriorKey);
-	// Resource revisions are monotonic scheduling tokens. Reversal schedules the
-	// restored last-good resource instead of rewinding an already-issued token.
-	EXPECT_GT(Texture->GetBuildRevision(), PriorRevision);
-	EXPECT_EQ(Texture->GetImportProvenance(), PriorProvenance);
-	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
+	EXPECT_EQ(Failed.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded);
+	EXPECT_EQ(Failed.Persistence.State,
+		Durin::AssetForge::EImportPersistenceState::Failed);
+	EXPECT_FALSE(Failed.Persistence.Diagnostic.empty());
+	EXPECT_EQ(Texture->GetSourceFile(), PriorSource);
+	EXPECT_NE(Texture->GetPlatformData()->Mips.front().Pixels,
+		PriorPlatform.Mips.front().Pixels);
+	EXPECT_NE(Texture->GetDerivedDataKey(), PriorKey);
+	EXPECT_EQ(Texture->GetBuildRevision(), PriorRevision + 1);
+	Durin::AssetForge::FImportProvenance PublishedProvenance;
+	ASSERT_TRUE(Durin::AssetForge::Builtins::InspectTexture2DImportProvenance(
+		*Texture, PublishedProvenance, Error)) << Error;
+	EXPECT_NE(PublishedProvenance, PriorProvenance);
+	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
 
+	ASSERT_TRUE(Durin::Asset::SavePackage(Texture->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }

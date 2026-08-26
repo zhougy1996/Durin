@@ -467,7 +467,7 @@ namespace Durin::AssetForge::Builtins
 		Asset::ETexture2DCompilationPriority Priority,
 		Asset::FTexture2DCompilationCompletion Completion) -> bool
 	{
-		if (!Texture.GetPackage() || !Texture.GetSourceImportData().HasSource())
+		if (!Texture.GetPackage() || Texture.GetSourceFile().empty())
 		{
 			OutError = "Only packaged Texture2D assets with mounted provenance can rebuild.";
 			return false;
@@ -482,7 +482,7 @@ namespace Durin::AssetForge::Builtins
 			return false;
 		}
 		FMountedSourceResolution MountedSource{
-			.SourcePath = Texture.GetSourceImportData().Source.SourcePath,
+			.SourcePath = {.Path = Texture.GetSourceFile()},
 			.PhysicalPath = Source.PhysicalPath,
 			.bExists = true};
 		return SubmitTexture2DFromMountedSource(
@@ -511,13 +511,13 @@ namespace Durin::AssetForge::Builtins
 				return false;
 			}
 		}
-		if (!Texture.GetSourceImportData().HasSource())
+		if (Texture.GetSourceFile().empty())
 		{
 			OutError = "Texture2D has no mounted source to reimport.";
 			return false;
 		}
 		return SubmitTexture2DImportReplacement(
-			Texture, Texture.GetSourceImportData().Source.SourcePath,
+			Texture, {.Path = Texture.GetSourceFile()},
 			MakeTexture2DBuildSettings(Texture), EImportMode::Reimport,
 			OutError, std::move(Completion));
 	}
@@ -633,7 +633,7 @@ namespace Durin::AssetForge::Builtins
 		FMountedSourceRelocation Relocation;
 		if (!PrepareMountedSourceRelocation(
 			Texture.GetPackage()->GetPackagePath(),
-			Texture.GetSourceImportData().Source.SourcePath.Path,
+			Texture.GetSourceFile(),
 			StoredSourcePath,
 			Relocation,
 			OutError)) return false;

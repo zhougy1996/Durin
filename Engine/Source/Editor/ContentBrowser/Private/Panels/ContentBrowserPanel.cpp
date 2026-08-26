@@ -487,56 +487,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		BeginRename(*It);
 	}
 
-	auto FContentBrowserPanel::ExecuteImportRecordAction(
-		const FContentBrowserItem& Item,
-		AssetForge::EImportRecordAction Action) -> void
-	{
-		if (PendingSingleAssetReimport)
-		{
-			SetError("Another single-asset reimport is already active in this Content Browser.");
-			return;
-		}
-		FAssetPath Path;
-		if (!FAssetPath::TryCreate(Item.VirtualPath, Path))
-		{
-			SetError("The selected import-record asset path is invalid.");
-			return;
-		}
-		AssetForge::FImportRecordInspection Inspection =
-			Item.AssetClassName
-				== AssetForge::DImportRecord::StaticClass()->GetQualifiedName().ToString()
-				? AssetForge::InspectImportRecord(
-					Path, AssetForge::GetImportRecordIndex())
-				: AssetForge::InspectImportRecordForOutput(
-					Path, AssetForge::GetImportRecordIndex());
-		if (Inspection && Inspection.Record)
-		{
-			AssetForge::FImportRequest Request;
-			std::string Error;
-			if (!AssetForge::Builtins::MakeSceneRecordImportRequest(
-				*Inspection.Record, Action,
-				{.OwnerId = std::format("ContentBrowser.RecordReimport:{}", Path.ToString()),
-					.ConflictIdentities = {Inspection.RecordPath.ToString()}},
-				Request, Error))
-			{
-				SetError(std::move(Error));
-				return;
-			}
-			(void)SubmitSingleAssetImport(Path, std::move(Request),
-				"Reimport Scene graph",
-				std::vector<AssetForge::FImportRecordOutput>(
-					Inspection.Record->GetOutputs().begin(),
-					Inspection.Record->GetOutputs().end()));
-			return;
-		}
-		SetError(Inspection.Message.empty()
-			? "The selected asset has no import-record action."
-			: Inspection.Message);
-	}
-
 	auto FContentBrowserPanel::SubmitSingleAssetImport(FAssetPath AssetPath,
-		AssetForge::FImportRequest Request, std::string Title,
-		std::vector<AssetForge::FImportRecordOutput> PreviousRecordOutputs) -> bool
+		AssetForge::FImportRequest Request, std::string Title) -> bool
 	{
 		if (PendingSingleAssetReimport)
 		{
@@ -550,12 +502,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			SetError(std::format("{} could not be submitted.", Title));
 			return false;
 		}
-		LastReimportOrphans.clear();
 		if (NotifyImportStarted)
 			NotifyImportStarted(Handle.GetOperationHandle(), Title);
 		PendingSingleAssetReimport = FPendingSingleAssetReimport{
-			.AssetForge = std::move(Handle), .AssetPath = std::move(AssetPath),
-			.PreviousRecordOutputs = std::move(PreviousRecordOutputs)};
+			.AssetForge = std::move(Handle), .AssetPath = std::move(AssetPath)};
 		return true;
 	}
 
@@ -565,8 +515,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		AssetForge::FImportResult Result;
 		if (!PendingSingleAssetReimport->AssetForge->TryGetResult(Result)) return;
 		const FAssetPath AssetPath = PendingSingleAssetReimport->AssetPath;
-		const std::vector<AssetForge::FImportRecordOutput> PreviousOutputs =
-			std::move(PendingSingleAssetReimport->PreviousRecordOutputs);
 		PendingSingleAssetReimport.reset();
 		if (Result.Outcome.State != AssetForge::EImportOperationState::Succeeded)
 		{
@@ -575,11 +523,6 @@ namespace Durin::Editor::ContentBrowser::Private
 					? "AssetForge reimport failed." : Result.Outcome.Diagnostic);
 			return;
 		}
-		for (const AssetForge::FImportRecordOutput& Previous : PreviousOutputs)
-			if (std::ranges::none_of(Result.Provenance.OutputMappings,
-				[&](const AssetForge::FOutputMapping& Mapping) {
-					return Mapping.OutputIdentity == Previous.StableIdentity; }))
-				LastReimportOrphans.push_back(Previous.AssetPath);
 		PublishMountedContentMutation();
 		RevealAsset(AssetPath.ToString());
 	}

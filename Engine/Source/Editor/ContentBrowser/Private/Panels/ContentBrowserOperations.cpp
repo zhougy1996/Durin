@@ -4,7 +4,6 @@
 #include "Asset/AssetOperations.h"
 #include "Asset/Mutation.h"
 #include "Asset.h"
-#include "AssetForge/Persistence/ImportRecord.h"
 #include "DObject/Class.h"
 #include "Misc/LexicalPath.h"
 #include "Misc/FileHelper.h"
@@ -380,19 +379,6 @@ namespace Durin::Editor::ContentBrowser::Private
 				DestinationPath,
 				Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 		};
-		if (auto* Record = Cast<AssetForge::DImportRecord>(DuplicatedAsset))
-		{
-			std::string CloneError;
-			if (!Record->SetRecordIdForClone(FGuid::NewGuid(), CloneError))
-			{
-				const Asset::FAssetResult Cleanup = DiscardDuplicate();
-				if (!Cleanup && !Cleanup.Message.empty())
-					CloneError += std::format(" Cleanup also failed: {}", Cleanup.Message);
-				return Failure(
-					Asset::EAssetError::InvalidObjectGraph,
-					std::move(CloneError));
-			}
-		}
 		Result = Asset::SavePackage(DuplicatedAsset->GetPackage());
 		if (!Result)
 		{

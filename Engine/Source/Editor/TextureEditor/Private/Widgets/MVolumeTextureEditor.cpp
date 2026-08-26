@@ -339,6 +339,6 @@ namespace Durin::Editor::Texture
 			MonaImGui::PropertyEdit::EndTable();
 		}
 		ImGui::Spacing();
-		ImGui::TextWrapped("Reimport and source repair remain available from the Content Browser import-record actions.");
+		ImGui::TextWrapped("Reimport and source repair remain available from the Content Browser asset actions.");
 	}
 }

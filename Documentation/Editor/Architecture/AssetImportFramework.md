@@ -7,9 +7,9 @@ Modules: AssetForge, AssetForgeBuiltins, AssetCore
 Last reviewed: 2026-08-26
 
 Durin editor imports use one AssetForge framework for source capture,
-translation, ordered planning-pass execution, typed detached construction, preview,
-candidate validation, publication, diagnostics, cancellation, reimport, record
-actions, and editor recovery. `AssetForge` owns immutable source and build
+translation, ordered planning-pass execution, typed detached construction,
+candidate validation, publication, diagnostics, cancellation, single-asset
+reimport, and editor recovery. `AssetForge` owns immutable source and build
 graphs plus `FImportJob`; `AssetForgeBuiltins` supplies built-in source
 translators, planning passes, and asset builders for StaticMesh, Texture2D,
 TextureCube, VolumeTexture, Terrain Heightmap, and heterogeneous Scene output. Runtime
@@ -19,7 +19,7 @@ Concrete translation terminates at normalized owned values. Built-in implementat
 do not pass encoded PNG, HDR, glTF, FBX, or Assimp input into
 `TextureBuild`, `StaticMeshBuild`, `SkeletalBuild`, or `TerrainBuild`. Build requests contain no decoder type or mutable
 `DObject`; detached products publish on the main thread through narrow Engine
-state exchanges and AssetCore transactions.
+state-application APIs, then use AssetCore persistence independently.
 
 ## Ownership and layering
 
@@ -27,15 +27,15 @@ The dependency direction is `Core/CoreDObject -> AssetCore -> AssetForge
 -> AssetForgeBuiltins -> editor hosts`.
 
 - `AssetCore` owns packages, the private catalog store, resident publication
-  state, disposable DDC objects, and failure-atomic package-bundle publication.
+  state, disposable DDC objects, and atomic package-bundle persistence.
   Import candidates are `NewlyCreated`, Dirty resident packages. Import code
   consumes catalog values and uses `UnloadPackage(..., DiscardUnsaved)` for
-  failed candidate rollback; successful bundle publication promotes the same
+  candidates abandoned before live publication; successful bundle persistence promotes the same
   resident entries to `Published`. AssetCore has no knowledge of import extensions or
   concrete imported asset classes.
 - `AssetForge` owns one `FImportService`, source snapshots, diagnostics,
-  source/build graph contracts, candidates, import records, record
-  indexing, component registries, and scheduled/inline orchestration.
+  source/build graph contracts, candidates, component registries, and
+  scheduled/inline orchestration.
 - Extension modules register source translators for source semantics, ordered planning
   passes for import policy, and typed asset builders for output construction. None owns
   a complete import job.
@@ -77,24 +77,25 @@ service destruction closes admission and drains every accepted request before
 releasing its implementation state.
 
 Each exact registration retains the module callback gate and resource lease.
-A submitted or cached value retains component leases through invocation and
-destruction; preview-product cache entries are discarded during component
-unregistration. Retirement closes admission, cancels and drains owned jobs,
-waits admitted callbacks, clears escaped cached products, then removes the
-exact generation. A stale registration handle cannot retire its replacement.
+A submitted value retains component leases through invocation and destruction.
+Retirement closes admission, cancels and drains owned jobs, waits admitted
+callbacks, then removes the exact generation. A stale registration handle
+cannot retire its replacement.
 
 The public request selects one source translator, versioned translator settings, an
 ordered planning-pass stack, a mounted root and optional declared sources, one
 destination, operation owner/lifetime, limits, save policy, and optional
-existing provenance. Initial import, preview, reimport, source replacement,
-repair, recovery, and record actions differ by request mode and graph content,
-not by orchestration interface.
+existing single-asset provenance. Initial import, single-asset reimport, source
+replacement, repair, and recovery differ by request mode and graph content,
+not by orchestration interface. AssetForge has no general preview mode: an
+import dialog displays settings and cheap header-derived information, and full
+translation and construction begin only after confirmation.
 
 TextureCube follows the same boundary. `TextureCubeImport.h` owns
 six-face and panorama validation, import/reimport, source-reference changes,
-ingestion, package save, and rollback. It decodes concrete image bytes, submits
+ingestion and package save. It decodes concrete image bytes, submits
 owned normalized requests to TextureBuild, and publishes only detached products
-through Engine's narrow TextureCube state exchange. Runtime Engine exposes no
+through Engine's narrow TextureCube state-application API. Runtime Engine exposes no
 create/save/source workflow and no mutable TextureCube import registry.
 
 ## Source snapshots and graphs
@@ -121,7 +122,7 @@ candidate and uncooked-policy orchestration never decode image formats.
 independently; aggregate startup installs them in declaration order and rolls
 back or tears them down in strict reverse order.
 
-## Reimport, records, and recovery
+## Reimport, Scene import, and recovery
 
 Single-output reimport requires an asset identity, complete framework
 provenance, and compatible recorded translator/planning-pass/asset-builder components. It
@@ -131,47 +132,16 @@ same provenance reconstructs `SessionCritical` requests used by implemented
 missing-derived-data recovery policies; ordinary load observes or submits that
 work and does not run a separate family workflow.
 
-Multi-output import creates an editor-only `DImportRecord`. Its outputs are
-independent peer assets; no StaticMesh, material, texture, or other output owns
-the rest. The record persists normalized settings, source identities and hashes,
-stable output identities and policies, output fingerprints, accepted diagnostic
-identities, and bounded implementation reconciliation state. A rebuildable editor
-index maps managed output paths back to their record.
-
-Import records retain their authored output identities across asset relocation.
-Lookup, navigation, reconciliation, and reimport resolve each identity to its
-final real package before use, while record serialization remains unchanged.
-The record index participates in explicit redirector Fix Up as an external
-reference store; Fix Up, not relocation or reimport, is the operation that
-canonicalizes persisted record paths. A create/import/reimport destination
-occupied by a redirector is an actionable collision naming its final target.
-The store registration has an explicit handle, retained module-resource lease,
-and owner callback gate. Shutdown unregisters that handle; an unavailable or
-retired store makes strict Fix Up fail closed rather than invoking stale module
-code or silently omitting persistent occurrences.
-
 FBX and glTF enter through the Scene source workflow. The request selects one
 Content destination directory rather than a primary StaticMesh. The Scene implementation
 places generated assets in type directories such as `Meshes`, `Materials`, and
-`Textures`, keeps the import record at the destination root, and leaves the
-record's optional primary-output identity unset. FBX remains static-only;
+`Textures`. Every generated output is an ordinary independent asset. Scene
+import is intentionally creation-only: it persists no aggregate Scene asset,
+management record, reverse index, stable reconciliation identity, tombstone, or
+whole-scene reimport action. A later source revision is imported into a new
+destination or handled through supported single-asset workflows. FBX remains static-only;
 version-1 skeletal import is a glTF/GLB-specific direct decoder and does not use
 Assimp to associate joints, weights, inverse binds, or animation channels.
-
-Record reimport reconstructs a Scene import request from the record and
-reconciles every managed output in one build graph. Existing output mappings
-preserve loaded identities and paths; removed outputs are reported as orphans,
-and occupied unmanaged paths remain collisions. Reimport, recreate-missing,
-and repair actions use the same request builder and job. Stable authored Scene
-settings exclude ephemeral replacement mappings so unchanged reimport retains
-record fingerprints and skeletal derived-data keys.
-
-Canonical resave is not an import action. A selected record or any managed
-output can route to the record package through the index, but AssetForge
-performs no serialization of its own: AssetCore's generic package planner,
-ordinary writer, atomic publication, and post-write probe own the operation.
-Implementation state, settings, output fingerprints, managed assets, source files,
-and reconciliation policy remain unchanged.
 
 ### glTF Skeletal Scene Contract
 
@@ -228,30 +198,44 @@ animation/skin pair. Stable identities are `skeleton:skin/<skin-index>`,
 `skeletal-mesh:node/<node-index>/mesh/<mesh-index>`, and
 `animation-clip:animation/<animation-index>/skin/<skin-index>`. Outputs live in
 `Skeletons`, `SkeletalMeshes`, and `Animations` alongside existing peer
-materials, textures, and static meshes. There is no primary output. Names are
-presentation only; source-array indices are version-1 reconciliation identity,
-so reordering a source array is an authored identity change.
+materials, textures, and static meshes. There is no primary output. Names and
+source-array indices deterministically derive paths for that one import
+transaction; they are not identities retained for later reconciliation.
 
 The Scene planning pass and builders construct Skeleton candidates before dependent mesh
-and clip candidates, validates every relationship against the prospective
-Skeleton state, and commits in dependency order with reverse rollback. The
-framework execution result is reconstructed in import-record order.
-Unchanged reimport preserves loaded object identities, output paths, record
-fingerprint, derived-data keys, and payload values. Removed managed outputs
-become orphans; occupied unmanaged output paths remain collisions.
+and clip candidates, validate every relationship against the prospective
+Skeleton state, and publish in dependency order. The framework execution result
+follows planned dependency order. Existing destination packages are collisions;
+Scene import does not replace or reconcile them.
 
 ## Candidates and publication
 
 Asset builders build detached authored state and validate it before an existing
-identity changes. Loaded assets update only through typed, symmetric, no-fail
-state exchange. Package publication revalidates the plan, exchanges prepared
-state, and saves every changed output plus the record as one root-last bundle.
-If publication fails, exchanges reverse and authored fingerprints must match
-their pre-publication values.
+identity changes. While that work is running, the import operation state is the
+authority for progress and the loaded asset remains usable with its last
+published state. Workers never mark the asset itself as partially imported.
 
-Source ingestion and DDC writes have separate lifetimes. A failed import may
-leave an explicitly ingested source or disposable cache entry, but it must not
-leave a partially published authored asset graph.
+After the operation enters non-cancelable `Finalizing`, the editor thread
+publishes each completed candidate into its live identity once, in dependency
+order. This is a one-way state transition rather than an AssetForge-owned
+reversible exchange. Publication updates content, editor-only import data, DDC
+identity, diagnostics, and render resources, then leaves the affected package
+Dirty.
+
+Persistence follows publication and has an independent result in
+`FImportResult::Persistence`. A successful save makes the published state the
+new authored disk state. A failed save does not reverse a valid in-memory
+publication: the import outcome remains `Succeeded`, persistence is `Failed`,
+the package remains Dirty, and the prior on-disk/catalog state remains intact.
+This matches ordinary editor mutation semantics and allows the user to retry
+Save without rebuilding the asset.
+
+Source ingestion and DDC writes have separate lifetimes. Failure or cancellation
+before finalization leaves the prior live asset state unchanged. Once one-way
+publication begins, a builder contract violation may leave already published
+outputs Dirty; builders therefore must complete all failable construction and
+relationship validation before finalization and keep live publication to a
+narrow editor-thread state application.
 
 ## Asynchronous preparation
 
@@ -286,8 +270,8 @@ history is bounded by `MaximumAsyncImportProgressHistory`.
 Cancellation first publishes a non-cancelable `Canceling` snapshot. Terminal
 `Succeeded`, `Failed`, `Canceled`, `Superseded`, and `Rejected` snapshots are
 stable after result consumption and ignore late component progress. Publication
-will use `Finalizing` to close the cooperative-cancellation boundary before any
-failure-atomic editor mutation begins. Phase labels come from
+uses `Finalizing` to close the cooperative-cancellation boundary before any
+live editor mutation begins. Phase labels come from
 `GetImportPhaseLabel`; presentation may localize them but extensions do not
 invent a second phase vocabulary.
 
@@ -306,9 +290,8 @@ single-asset rebuild. Component contracts, settings serialization, implementatio
 state, and DDC builders have independent versions. DDC paths are never
 serialized and cache contents are never authoritative.
 
-`DImportRecord` packages, implementation state, accepted editor diagnostics, and the
-record index are editor-only. Records carry an explicit cook-exclusion marker
-and are never runtime dependencies. StaticMesh, texture, SkeletalMesh, and
+AssetForge implementation state and editor diagnostics are editor-only.
+StaticMesh, texture, SkeletalMesh, and
 AnimationClip cook paths strip source provenance, derived-data keys, implementation
 state, and editor diagnostics while publishing validated, redirect-free
 runtime packages and payloads into cooked ownership. Skeleton is package-only.
@@ -323,8 +306,8 @@ For skeletal Scene outputs, candidate construction hashes the exact ordered
 source closure plus normalized Scene settings, typed implementation state, stable
 output identity, Skeleton compatibility, payload fingerprint, builder/schema,
 and target/profile into the DDC key. The worker path produces only normalized
-values; `DObject` creation, relationship binding, DDC publication, package
-exchange, and registry publication remain on the editor thread.
+values; `DObject` creation, relationship binding, DDC publication, one-way
+asset publication, and registry publication remain on the editor thread.
 
 ## Compatibility baseline
 
@@ -334,12 +317,10 @@ retired StaticMesh-owned Scene `ImportManifest`, generated material/texture
 `ImportOwner`, StaticMesh `SourceFile` and duplicate `ImportSettings`,
 StaticMeshComponent `Material`/`Materials`, Texture2D `SourceFile`, and
 TextureCube face/panorama source-string fields have no compatibility reader or
-migration API. Import-record schema 1 and StaticMesh material-slot schema 0 are
-unsupported. Current Scene records identify translator `Durin.SceneGraph`
-contract 1 and `Durin.Scene.Plan` settings schema 1, use AssetForge contract 2,
-and store Scene state as `Durin.AssetForge.Scene.State` schema 2. The request
-builder accepts only the current component contracts and does not reconstruct
-retired provider or factory identities. StaticMesh and Texture2D reimport and
+migration API. StaticMesh material-slot schema 0 is unsupported. Scene requests
+use translator `Durin.SceneGraph` contract 1 and `Durin.Scene.Plan` settings
+schema 1. The request builder accepts only current component contracts and does
+not reconstruct retired provider or factory identities. StaticMesh and Texture2D reimport and
 recovery likewise require persisted current AssetForge provenance; source-import
 metadata is not a provenance reconstruction path.
 Repository assets must be upgraded or regenerated in the same change that
@@ -353,13 +334,12 @@ or reimport that asset with compatible AssetForge components.
 ## Editor workflow
 
 External files are first ingested into a writable mount content directory;
-import then references the mounted source. Preview shows the complete source
-closure, outputs, policies, collisions, replacements, warnings, resource
-estimates, missing outputs, and orphans before execution. Content Browser
-actions inspect framework capabilities, navigate from any managed output to its
-record, and keep single-asset reimport separate from record reimport. Scene
-source import is exposed independently from StaticMesh single-asset import and
-reveals its destination directory after publication.
+import then references the mounted source. Import dialogs show static settings
+and cheap source information only; confirmation performs the first complete
+parse, plan, build, and collision check. Content Browser actions inspect
+single-asset framework capabilities. Scene source import is exposed
+independently from StaticMesh single-asset import and reveals its destination
+directory after publication; it offers no whole-scene reimport.
 
 See [Mounted Source Workflows](../Guides/MountedSourceWorkflows.md),
 [Asset Packages](../../Runtime/Assets/AssetPackages.md), and

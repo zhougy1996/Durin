@@ -97,7 +97,6 @@ namespace
 
 	struct FSceneOutputs
 	{
-		Durin::AssetForge::DImportRecord* Record = nullptr;
 		std::vector<Durin::DSkeleton*> Skeletons;
 		std::vector<Durin::DSkeletalMesh*> SkeletalMeshes;
 		std::vector<Durin::DAnimationClip*> AnimationClips;
@@ -113,8 +112,7 @@ namespace
 		{
 			Durin::DObject* Object = nullptr;
 			if (!Durin::Asset::LoadAsset(Mapping.AssetPath, Object) || !Object) continue;
-			if (auto* Value = Durin::Cast<Durin::AssetForge::DImportRecord>(Object)) Outputs.Record = Value;
-			else if (auto* Value = Durin::Cast<Durin::DSkeleton>(Object)) Outputs.Skeletons.push_back(Value);
+			if (auto* Value = Durin::Cast<Durin::DSkeleton>(Object)) Outputs.Skeletons.push_back(Value);
 			else if (auto* Value = Durin::Cast<Durin::DSkeletalMesh>(Object)) Outputs.SkeletalMeshes.push_back(Value);
 			else if (auto* Value = Durin::Cast<Durin::DAnimationClip>(Object)) Outputs.AnimationClips.push_back(Value);
 			else if (auto* Value = Durin::Cast<Durin::DMaterialInstance>(Object)) Outputs.Materials.push_back(Value);
@@ -123,17 +121,15 @@ namespace
 	}
 
 	auto ExecuteSceneImport(const Durin::FSourcePath& Source,
-		const Durin::FAssetPath& Destination,
-		Durin::AssetForge::EImportMode Mode,
-		std::optional<Durin::AssetForge::FImportProvenance> Provenance = {})
+		const Durin::FAssetPath& Destination)
 		-> FSceneOutputs
 	{
 		Durin::AssetForge::FImportRequest Request;
 		std::string Error;
 		EXPECT_TRUE(Durin::AssetForge::Builtins::MakeSceneImportRequest(
-			Source, Destination, Durin::FStaticMeshImportSettings::MakeDurin(), Mode,
+			Source, Destination, Durin::FStaticMeshImportSettings::MakeDurin(),
 			{.OwnerId = "SkeletalSceneLifecycle.AssetForge"},
-			std::move(Provenance), Request, Error)) << Error;
+			Request, Error)) << Error;
 		const auto Result = Durin::AssetForge::GetImportService().RunImportInline(
 			std::move(Request), "Skeletal Scene lifecycle AssetForge");
 		EXPECT_EQ(Result.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
@@ -141,19 +137,6 @@ namespace
 		return LoadSceneOutputs(Result);
 	}
 
-	auto ReimportSceneRecord(Durin::AssetForge::DImportRecord& Record) -> FSceneOutputs
-	{
-		Durin::AssetForge::FImportRequest Request;
-		std::string Error;
-		EXPECT_TRUE(Durin::AssetForge::Builtins::MakeSceneRecordImportRequest(
-			Record, Durin::AssetForge::EImportRecordAction::Reimport,
-			{.OwnerId = "SkeletalSceneLifecycle.RecordReimport"}, Request, Error)) << Error;
-		const auto Result = Durin::AssetForge::GetImportService().RunImportInline(
-			std::move(Request), "Skeletal Scene record AssetForge reimport");
-		EXPECT_EQ(Result.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
-			<< Result.Outcome.Diagnostic;
-		return LoadSceneOutputs(Result);
-	}
 }
 
 TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntimeOnly)
@@ -180,7 +163,6 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 	std::vector<Durin::FSkeletalMeshPayloadData> ExpectedMeshes;
 	std::vector<Durin::FAssetPath> ClipPaths;
 	std::vector<Durin::FAnimationClipPayloadData> ExpectedClips;
-	std::vector<Durin::FAssetPath> RecordPaths;
 	{
 		const std::array<Durin::PathUtilities::FMountPoint, 2> MountDefinitions{{
 			{
@@ -227,10 +209,8 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 				std::filesystem::copy_options::overwrite_existing);
 			Results[CaseIndex] = ExecuteSceneImport(
 				{.Path = std::format("/Game/Scenes/{}{}", Name, Extension)},
-				MakeAssetPath(std::format("/Game/Imports/{}", Name)),
-				Durin::AssetForge::EImportMode::Import);
+				MakeAssetPath(std::format("/Game/Imports/{}", Name)));
 			const FSceneOutputs& Initial = Results[CaseIndex];
-			ASSERT_NE(Initial.Record, nullptr);
 			ASSERT_EQ(Initial.Skeletons.size(), 2u);
 			ASSERT_EQ(Initial.SkeletalMeshes.size(), 2u);
 			ASSERT_EQ(Initial.AnimationClips.size(), 4u);
@@ -301,34 +281,6 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 				EXPECT_EQ(Clips, ReferenceClips);
 			}
 
-			const std::string RecordFingerprint = Initial.Record->GetFingerprint();
-			const std::vector<Durin::DSkeleton*> SkeletonIdentities = Initial.Skeletons;
-			const std::vector<Durin::DSkeletalMesh*> MeshIdentities =
-				Initial.SkeletalMeshes;
-			const std::vector<Durin::DAnimationClip*> ClipIdentities =
-				Initial.AnimationClips;
-			std::vector<std::string> MeshKeys;
-			std::vector<std::string> ClipKeys;
-			for (Durin::DSkeletalMesh* Mesh : Initial.SkeletalMeshes)
-				MeshKeys.push_back(Mesh->GetDerivedDataKey());
-			for (Durin::DAnimationClip* Clip : Initial.AnimationClips)
-				ClipKeys.push_back(Clip->GetDerivedDataKey());
-			for (size_t ReimportIndex = 0; ReimportIndex < 2; ++ReimportIndex)
-			{
-				const FSceneOutputs Reimported = ReimportSceneRecord(*Initial.Record);
-				ASSERT_NE(Reimported.Record, nullptr);
-				EXPECT_EQ(Reimported.Record, Initial.Record);
-				EXPECT_EQ(Reimported.Record->GetFingerprint(), RecordFingerprint);
-				EXPECT_EQ(Reimported.Skeletons, SkeletonIdentities);
-				EXPECT_EQ(Reimported.SkeletalMeshes, MeshIdentities);
-				EXPECT_EQ(Reimported.AnimationClips, ClipIdentities);
-				for (size_t Index = 0; Index < MeshIdentities.size(); ++Index)
-					EXPECT_EQ(
-						Reimported.SkeletalMeshes[Index]->GetDerivedDataKey(), MeshKeys[Index]);
-				for (size_t Index = 0; Index < ClipIdentities.size(); ++Index)
-					EXPECT_EQ(
-						Reimported.AnimationClips[Index]->GetDerivedDataKey(), ClipKeys[Index]);
-			}
 		}
 
 		auto Cook = [&](const std::filesystem::path& CookRoot) -> bool {
@@ -365,8 +317,6 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 		EXPECT_EQ(FirstTree, SecondTree);
 		for (const FSceneOutputs& Result : Results)
 		{
-			RecordPaths.push_back(MakeAssetPath(
-				Result.Record->GetPackage()->GetPackagePath()));
 			for (Durin::DSkeletalMesh* Mesh : Result.SkeletalMeshes)
 			{
 				MeshPaths.push_back(MakeAssetPath(Mesh->GetPackage()->GetPackagePath()));
@@ -379,43 +329,6 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			}
 		}
 		ShutdownAssetManager();
-	}
-
-	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
-	InitializeAssetManager();
-	{
-		const std::array<Durin::PathUtilities::FMountPoint, 2> MountDefinitions{{
-			{
-				.VirtualRoot = "/Engine/",
-				.Owner = Durin::PathUtilities::EMountOwner::Test,
-				.Root = EngineContent,
-				.bAutoScan = true,
-				.bContentWritable = true},
-			{
-				.VirtualRoot = "/Game/",
-				.Owner = Durin::PathUtilities::EMountOwner::Test,
-				.Root = GameContent,
-				.bAutoScan = true,
-				.bContentWritable = true,
-				.Dependencies = {"/Engine/"}}}};
-		Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
-		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
-		for (const Durin::FAssetPath& RecordPath : RecordPaths)
-		{
-			Durin::AssetForge::DImportRecord* Record = nullptr;
-			ASSERT_TRUE(Durin::Asset::LoadAsset(RecordPath, Record));
-			ASSERT_NE(Record, nullptr);
-			const FSceneOutputs Reimported = ReimportSceneRecord(*Record);
-			ASSERT_NE(Reimported.Record, nullptr);
-			for (Durin::DSkeletalMesh* Mesh : Reimported.SkeletalMeshes)
-				EXPECT_NE(Mesh->GetPayloadData(), nullptr);
-			for (Durin::DAnimationClip* Clip : Reimported.AnimationClips)
-				EXPECT_NE(Clip->GetPayloadData(), nullptr);
-		}
-		EXPECT_TRUE(std::filesystem::exists(CacheRoot / "SkeletalMesh/Objects"));
-		EXPECT_TRUE(std::filesystem::exists(CacheRoot / "AnimationClip/Objects"));
-		ShutdownAssetManager();
-		Durin::CollectGarbage();
 	}
 
 	Durin::Testing::RemoveTestWorkDirectory(EngineContent);

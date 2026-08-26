@@ -1,7 +1,6 @@
 #include "AssetForge/Operations/ImportExecution.h"
 
 #include "AssetTools.h"
-#include "AssetForge/Persistence/ImportRecordIndex.h"
 #include "AssetForge/ImportService.h"
 #include "DObject/Package.h"
 
@@ -82,154 +81,9 @@ namespace Durin::AssetForge
 			FImportProvenance Provenance;
 			FImportInspection Inspection;
 			uint64 RegistryRevision = 0;
-			FXxHash128 PreviewReuseFingerprint{};
 			std::vector<std::unique_ptr<IReconciliationContext>>
 				ReconciliationContexts;
 		};
-
-		auto CloneGraphs(const FImportGraphJobValue& Source)
-			-> std::unique_ptr<FImportGraphJobValue>
-		{
-			auto Result = std::make_unique<FImportGraphJobValue>();
-			Result->Snapshot = Source.Snapshot;
-			Result->SourceGraph = Source.SourceGraph;
-			Result->AssetBuilderGraph = Source.AssetBuilderGraph;
-			Result->Provenance = Source.Provenance;
-			Result->Inspection = Source.Inspection;
-			Result->RegistryRevision = Source.RegistryRevision;
-			Result->PreviewReuseFingerprint = Source.PreviewReuseFingerprint;
-			return Result;
-		}
-
-		auto BuildPreviewReuseFingerprint(
-			const FImportRequest& Request,
-			const FSourceSnapshot& Snapshot,
-			const FComponentLease& Translator,
-			uint64 RegistryRevision) -> FXxHash128
-		{
-			FXxHash128Builder Builder;
-			auto AddString = [&](std::string_view Value) {
-				const uint64 Size = Value.size();
-				Builder.UpdateValue(Size);
-				Builder.Update(Value);
-			};
-			AddString("Durin.AssetForge.PreviewReuse");
-			Builder.UpdateValue(AssetForgeContractVersion);
-			Builder.UpdateValue(RegistryRevision);
-			Builder.UpdateValue(Asset::GetAssetCatalogRevision());
-			AddString(Translator.GetId());
-			Builder.UpdateValue(Translator.GetContractVersion());
-			AddString(Request.TranslatorSettings.SchemaId);
-			Builder.UpdateValue(Request.TranslatorSettings.SchemaVersion);
-			const FXxHash128 TranslatorSettingsHash = FXxHash128::HashBuffer(
-				std::span<const std::byte>(Request.TranslatorSettings.Bytes));
-			Builder.UpdateValue(TranslatorSettingsHash.HashLow);
-			Builder.UpdateValue(TranslatorSettingsHash.HashHigh);
-			for (const FPlanningPassStackEntry& PlanningPass : Request.PlanningPassStack)
-			{
-				AddString(PlanningPass.PlanningPassId);
-				Builder.UpdateValue(PlanningPass.ContractVersion);
-				AddString(PlanningPass.Settings.SchemaId);
-				Builder.UpdateValue(PlanningPass.Settings.SchemaVersion);
-				const FXxHash128 SettingsHash = FXxHash128::HashBuffer(
-					std::span<const std::byte>(PlanningPass.Settings.Bytes));
-				Builder.UpdateValue(SettingsHash.HashLow);
-				Builder.UpdateValue(SettingsHash.HashHigh);
-			}
-			for (const FSourceSnapshotEntry& Source : Snapshot.GetSources())
-			{
-				AddString(Source.StableIdentity);
-				AddString(Source.SourcePath.Path);
-				Builder.UpdateValue(Source.ContentHash.HashLow);
-				Builder.UpdateValue(Source.ContentHash.HashHigh);
-			}
-			AddString(Request.Destination.GetView());
-			if (Request.ExistingProvenance)
-				AddString(Request.ExistingProvenance->AuthoredOutputFingerprint);
-			return Builder.Finalize();
-		}
-
-		class FImportPreviewCache
-		{
-		public:
-			auto Find(const FXxHash128& Fingerprint)
-				-> std::unique_ptr<FImportGraphJobValue>
-			{
-				std::lock_guard Lock(Mutex);
-				const auto It = Entries.find(Fingerprint);
-				return It == Entries.end() ? nullptr : CloneGraphs(*It->second.Value);
-			}
-
-			auto Store(const FXxHash128& Fingerprint,
-				const FImportGraphJobValue& Value) -> void
-			{
-				const uint64 Bytes = Value.Snapshot->GetAggregateByteCount()
-					+ EstimateGraphBytes(Value.SourceGraph, Value.AssetBuilderGraph);
-				if (Bytes > MaximumBytes) return;
-				std::lock_guard Lock(Mutex);
-				if (const auto Existing = Entries.find(Fingerprint); Existing != Entries.end())
-				{
-					RetainedBytes -= Existing->second.Bytes;
-					Entries.erase(Existing);
-				}
-				while (!Order.empty()
-					&& (Entries.size() >= MaximumEntries || Bytes > MaximumBytes - RetainedBytes))
-				{
-					const FXxHash128 Oldest = Order.front();
-					Order.pop_front();
-					if (const auto It = Entries.find(Oldest); It != Entries.end())
-					{
-						RetainedBytes -= It->second.Bytes;
-						Entries.erase(It);
-					}
-				}
-				Entries.emplace(Fingerprint, FEntry{
-					.Value = std::shared_ptr<FImportGraphJobValue>(CloneGraphs(Value).release()),
-					.Bytes = Bytes});
-				Order.push_back(Fingerprint);
-				RetainedBytes += Bytes;
-			}
-
-			auto Clear() -> void
-			{
-				std::lock_guard Lock(Mutex);
-				Entries.clear();
-				Order.clear();
-				RetainedBytes = 0;
-			}
-
-		private:
-			struct FEntry
-			{
-				std::shared_ptr<FImportGraphJobValue> Value;
-				uint64 Bytes = 0;
-			};
-
-			static auto EstimateGraphBytes(
-				const FSourceGraph& Source,
-				const FBuildGraph& AssetBuilder) -> uint64
-			{
-				uint64 Bytes = 0;
-				for (const FSourceNode& Node : Source.GetNodes())
-					Bytes += sizeof(Node) + Node.Payload.Bytes.size();
-				for (const FBuildNode& Node : AssetBuilder.GetNodes())
-					Bytes += sizeof(Node) + Node.Settings.Bytes.size();
-				return Bytes;
-			}
-
-			static constexpr size_t MaximumEntries = 8;
-			static constexpr uint64 MaximumBytes = 256ull * 1'024ull * 1'024ull;
-			std::mutex Mutex;
-			std::unordered_map<FXxHash128, FEntry> Entries;
-			std::deque<FXxHash128> Order;
-			uint64 RetainedBytes = 0;
-		};
-
-		auto GetImportPreviewCache() -> FImportPreviewCache&
-		{
-			static FImportPreviewCache Cache;
-			return Cache;
-		}
 
 		struct FBuildProductEntry
 		{
@@ -244,66 +98,11 @@ namespace Durin::AssetForge
 			std::vector<FBuildProductEntry> Products;
 		};
 
-		auto CloneProducts(const FBuildProductJobValue& Source)
-			-> std::unique_ptr<FBuildProductJobValue>
-		{
-			auto Result = std::make_unique<FBuildProductJobValue>();
-			Result->Graphs = std::move(*CloneGraphs(Source.Graphs));
-			Result->Products.reserve(Source.Products.size());
-			for (const FBuildProductEntry& Entry : Source.Products)
-			{
-				if (!Entry.Product) return {};
-				auto Product = Entry.Product->CloneDetachedProduct();
-				if (!Product) return {};
-				Result->Products.push_back({
-					.AssetBuilder = Entry.AssetBuilder, .Product = std::move(Product),
-					.NodeIndex = Entry.NodeIndex});
-			}
-			return Result;
-		}
-
-		class FBuildProductPreviewCache
-		{
-		public:
-			auto Find(const FXxHash128& Fingerprint)
-				-> std::unique_ptr<FBuildProductJobValue>
-			{
-				std::lock_guard Lock(Mutex);
-				const auto It = Entries.find(Fingerprint);
-				return It == Entries.end() ? nullptr : CloneProducts(*It->second);
-			}
-			auto Store(const FXxHash128& Fingerprint,
-				const FBuildProductJobValue& Value) -> void
-			{
-				auto Clone = CloneProducts(Value);
-				if (!Clone) return;
-				std::lock_guard Lock(Mutex);
-				if (Entries.size() >= MaximumEntries) Entries.erase(Entries.begin());
-				Entries[Fingerprint] = std::shared_ptr<FBuildProductJobValue>(Clone.release());
-			}
-			auto Clear() -> void
-			{
-				std::lock_guard Lock(Mutex);
-				Entries.clear();
-			}
-		private:
-			static constexpr size_t MaximumEntries = 4;
-			std::mutex Mutex;
-			std::unordered_map<FXxHash128,
-				std::shared_ptr<FBuildProductJobValue>> Entries;
-		};
-
-		auto GetBuildProductPreviewCache() -> FBuildProductPreviewCache&
-		{
-			static FBuildProductPreviewCache Cache;
-			return Cache;
-		}
 
 		struct FPreparedImportOutput
 		{
 			FComponentLease AssetBuilder;
 			std::unique_ptr<ISingleAssetCandidate> Candidate;
-			std::unique_ptr<IPreparedImportedStateExchange> Exchange;
 			DObject* ExistingTarget = nullptr;
 			size_t NodeIndex = 0;
 		};
@@ -395,18 +194,6 @@ namespace Durin::AssetForge
 					auto* Products = dynamic_cast<FBuildProductJobValue*>(PreviousWorkerResult.get());
 					if (!Products) return Complete(FailureOutcome({},
 						"AssetForge product construction returned an invalid value."));
-					if (Request.Mode == EImportMode::Preview)
-					{
-						GetBuildProductPreviewCache().Store(
-							Products->Graphs.PreviewReuseFingerprint, *Products);
-						FImportResult Result;
-						Result.Outcome.State = EImportOperationState::Succeeded;
-						Result.Provenance = Products->Graphs.Provenance;
-						Result.Inspection = Products->Graphs.Inspection;
-						StoreResult(Result);
-						State = EState::Terminal;
-						return FImportJobEditorAdvance::Complete(Result.Outcome);
-					}
 					State = EState::Materialize;
 					return MaterializeAndPublish(Context, *Products);
 				}
@@ -471,13 +258,6 @@ namespace Durin::AssetForge
 					return WorkerFailure(std::move(Diagnostics), "Dependency discovery failed.");
 				auto Snapshot = SnapshotBuilder.Freeze(Diagnostics);
 				if (!Snapshot) return WorkerFailure(std::move(Diagnostics), "Snapshot finalization failed.");
-				const uint64 RegistryRevision = GetImportService().GetComponentRevision();
-				const FXxHash128 PreviewReuseFingerprint = BuildPreviewReuseFingerprint(
-					Request, *Snapshot, Selection.Lease, RegistryRevision);
-				if (Request.Mode != EImportMode::Preview)
-					if (auto Cached = GetImportPreviewCache().Find(PreviewReuseFingerprint))
-						return {.Value = std::move(Cached)};
-
 				FSourceGraphBuilder GraphBuilder(Request.GraphLimits);
 				auto Invocation = Selection.Lease.TryEnter();
 				if (!Invocation || !Selection.Lease.GetSourceTranslator()
@@ -507,7 +287,8 @@ namespace Durin::AssetForge
 						.Role = Source.Role,
 						.SourcePath = Source.SourcePath,
 						.ContentHash = Source.ContentHash,
-						.ByteCount = Source.ByteCount});
+						.ByteCount = Source.ByteCount,
+						.LastWriteTime = Source.LastWriteTime});
 					Value->Inspection.Sources.push_back({
 						.StableIdentity = Source.StableIdentity,
 						.Role = Source.Role,
@@ -537,9 +318,6 @@ namespace Durin::AssetForge
 				Value->SourceGraph = std::move(SourceGraph);
 				Value->AssetBuilderGraph = std::move(PlanningPassResult.Graph);
 				Value->RegistryRevision = PlanningPassResult.RegistryRevision;
-				Value->PreviewReuseFingerprint = PreviewReuseFingerprint;
-				if (Request.Mode == EImportMode::Preview)
-					GetImportPreviewCache().Store(PreviewReuseFingerprint, *Value);
 				return {.Value = std::move(Value)};
 			}
 
@@ -549,10 +327,6 @@ namespace Durin::AssetForge
 				auto* Graphs = dynamic_cast<FImportGraphJobValue*>(Input.get());
 				if (!Graphs) return {.bSucceeded = false,
 					.Diagnostic = "AssetForge product input is invalid."};
-				if (Request.Mode != EImportMode::Preview)
-					if (auto Cached = GetBuildProductPreviewCache().Find(
-						Graphs->PreviewReuseFingerprint))
-						return {.Value = std::move(Cached)};
 				auto Value = std::make_unique<FBuildProductJobValue>();
 				Value->Graphs = std::move(*Graphs);
 				const auto Nodes = Value->Graphs.AssetBuilderGraph.GetNodes();
@@ -714,21 +488,14 @@ namespace Durin::AssetForge
 							Node, *Output.Candidate, MaterializationContext, Diagnostics)
 						|| !Output.Candidate->Validate(Diagnostics))
 					{
+						std::string Message = std::format(
+							"Candidate '{}' dependency binding or validation failed.",
+							Node.StableIdentity);
+						if (!Diagnostics.empty() && !Diagnostics.back().Message.empty())
+							Message = Diagnostics.back().Message;
 						Abandon(Prepared);
 						return Complete(FailureOutcome(std::move(Diagnostics),
-							std::format("Candidate '{}' dependency binding or validation failed.",
-								Node.StableIdentity)));
-					}
-					if (Node.Policy != EImportOutputPolicy::Create)
-					{
-						Output.Exchange = Output.AssetBuilder.GetAssetBuilder()->PrepareImportedStateExchange(
-							*Output.ExistingTarget, *Output.Candidate, Diagnostics);
-						if (!Output.Exchange)
-						{
-							Abandon(Prepared);
-							return Complete(FailureOutcome(std::move(Diagnostics),
-								"AssetBuilder did not prepare a reversible replacement exchange."));
-						}
+							std::move(Message)));
 					}
 				}
 
@@ -747,15 +514,10 @@ namespace Durin::AssetForge
 				}
 				std::vector<DPackage*> Packages;
 				std::vector<std::pair<DPackage*, bool>> PackageDirtyStates;
-				std::vector<FPreparedImportOutput*> Committed;
 				auto RememberPackageDirtyState = [&](DPackage* Package) {
 					if (std::ranges::none_of(PackageDirtyStates,
 						[&](const auto& Entry) { return Entry.first == Package; }))
 						PackageDirtyStates.emplace_back(Package, Package->IsDirty());
-				};
-				auto RestorePackageDirtyStates = [&] {
-					for (const auto& [Package, bWasDirty] : PackageDirtyStates)
-						if (!bWasDirty) Package->ClearDirty();
 				};
 				for (FPreparedImportOutput& Output : Prepared)
 				{
@@ -779,39 +541,31 @@ namespace Durin::AssetForge
 					else
 					{
 						RememberPackageDirtyState(Output.ExistingTarget->GetPackage());
-						Output.Exchange->Commit();
-						Committed.push_back(&Output);
+						auto Invocation = Output.AssetBuilder.TryEnter();
+						if (!Invocation || !Output.AssetBuilder.GetAssetBuilder()
+							|| !Output.AssetBuilder.GetAssetBuilder()->PublishImportedState(
+								*Output.ExistingTarget, *Output.Candidate, Diagnostics))
+						{
+							Abandon(Prepared, true);
+							return Complete(FailureOutcome(std::move(Diagnostics),
+								"AssetBuilder failed to publish completed imported state."));
+						}
 						Packages.push_back(Output.ExistingTarget->GetPackage());
 					}
 				}
+				FImportPersistenceResult Persistence;
 				if (bPersistAuthoredPackages)
 				{
 					Asset::FAssetBundleSaveOptions SaveOptions = Request.SaveOptions;
 					if (!Packages.empty()) SaveOptions.RootPackage = Packages.back();
 					FXxHash128Builder AuthoredFingerprintBuilder;
-					bool bFingerprintSucceeded = true;
-					std::string FingerprintError;
-					for (DPackage* Package : Packages)
+					for (const FPreparedImportOutput& Output : Prepared)
 					{
-						std::string Fingerprint;
-						if (!ComputeImportPackageFingerprint(
-							Package, Fingerprint, FingerprintError))
-						{
-							bFingerprintSucceeded = false;
-							break;
-						}
+						const std::string Fingerprint =
+							Output.Candidate->GetAuthoredFingerprint();
 						const uint64 Size = Fingerprint.size();
 						AuthoredFingerprintBuilder.UpdateValue(Size);
 						AuthoredFingerprintBuilder.Update(Fingerprint);
-					}
-					if (!bFingerprintSucceeded)
-					{
-						for (auto It = Committed.rbegin(); It != Committed.rend(); ++It)
-							(*It)->Exchange->Reverse();
-						RestorePackageDirtyStates();
-						Abandon(Prepared);
-						return Complete(FailureOutcome(std::move(Diagnostics),
-							std::move(FingerprintError)));
 					}
 					Products.Graphs.Provenance.AuthoredOutputFingerprint =
 						AuthoredFingerprintBuilder.Finalize().ToString();
@@ -821,14 +575,12 @@ namespace Durin::AssetForge
 						DObject* PublishedAsset = Node.Policy == EImportOutputPolicy::Create
 							? Output.Candidate->GetAsset() : Output.ExistingTarget;
 						auto Invocation = Output.AssetBuilder.TryEnter();
-						if (!PublishedAsset || !Invocation || !Output.AssetBuilder.GetAssetBuilder()
+						if (!PublishedAsset || !Invocation
+							|| !Output.AssetBuilder.GetAssetBuilder()
 							|| !Output.AssetBuilder.GetAssetBuilder()->ApplyProvenance(
 								*PublishedAsset, Products.Graphs.Provenance, Diagnostics))
 						{
-							for (auto It = Committed.rbegin(); It != Committed.rend(); ++It)
-								(*It)->Exchange->Reverse();
-							RestorePackageDirtyStates();
-							Abandon(Prepared);
+							Abandon(Prepared, true);
 							return Complete(FailureOutcome(std::move(Diagnostics),
 								std::format("AssetBuilder '{}' failed to persist AssetForge provenance.",
 									Node.BuilderId)));
@@ -838,38 +590,40 @@ namespace Durin::AssetForge
 						Asset::SavePackagesAtomically(Packages, SaveOptions);
 					if (!Saved)
 					{
-						for (auto It = Committed.rbegin(); It != Committed.rend(); ++It)
-							(*It)->Exchange->Reverse();
-						RestorePackageDirtyStates();
-						Abandon(Prepared);
 						Diagnostics.push_back({
-							.Category = EImportDiagnosticCategory::PublicationFailure,
-							.Identity = "Durin.AssetForge.Diagnostic.PublicationFailed",
-							.Phase = "Publication",
+							.Severity = EImportDiagnosticSeverity::Warning,
+							.Category = EImportDiagnosticCategory::PersistenceFailure,
+							.Identity = "Durin.AssetForge.Diagnostic.PersistenceFailed",
+							.Phase = "Persistence",
 							.Message = Saved.Message});
-						return Complete(FailureOutcome(std::move(Diagnostics), Saved.Message));
+						Persistence = {
+							.State = EImportPersistenceState::Failed,
+							.Diagnostic = Saved.Message};
 					}
+					else Persistence.State = EImportPersistenceState::Succeeded;
 				}
 				else
 				{
 					if (Request.ExistingProvenance)
+					{
+						FImportProvenance RecoveryProvenance = Products.Graphs.Provenance;
+						RecoveryProvenance.AuthoredOutputFingerprint =
+							Request.ExistingProvenance->AuthoredOutputFingerprint;
 						for (FPreparedImportOutput& Output : Prepared)
 						{
 							auto Invocation = Output.AssetBuilder.TryEnter();
 							if (!Output.ExistingTarget || !Invocation
 								|| !Output.AssetBuilder.GetAssetBuilder()
 								|| !Output.AssetBuilder.GetAssetBuilder()->ApplyProvenance(
-									*Output.ExistingTarget, *Request.ExistingProvenance,
+									*Output.ExistingTarget, RecoveryProvenance,
 									Diagnostics))
 							{
-								for (auto It = Committed.rbegin(); It != Committed.rend(); ++It)
-									(*It)->Exchange->Reverse();
-								RestorePackageDirtyStates();
-								Abandon(Prepared);
+								Abandon(Prepared, true);
 								return Complete(FailureOutcome(std::move(Diagnostics),
 									"AssetForge recovery failed to restore existing provenance."));
 							}
 						}
+					}
 					for (FPreparedImportOutput& Output : Prepared)
 					{
 						DPackage* Package = Output.ExistingTarget->GetPackage();
@@ -887,17 +641,14 @@ namespace Durin::AssetForge
 
 				FImportResult Result;
 				Result.Outcome.State = EImportOperationState::Succeeded;
+				Result.Outcome.Diagnostics = std::move(Diagnostics);
 				Result.Provenance = Products.Graphs.Provenance;
 				Result.Inspection = Products.Graphs.Inspection;
+				Result.Persistence = std::move(Persistence);
 				for (FPreparedImportOutput& Output : Prepared)
 				{
 					const FBuildNode& Node = Nodes[Output.NodeIndex];
 					Result.Outcome.PublishedAssetIdentities.push_back(Node.Destination.ToString());
-					if (Output.Exchange)
-					{
-						Output.Exchange->Finalize();
-						Output.Exchange.reset();
-					}
 				}
 				Abandon(Prepared, true);
 				for (FPreparedImportOutput& Output : Prepared)
@@ -1025,12 +776,6 @@ namespace Durin::AssetForge
 			return false;
 		OutResult = {.Outcome = std::move(Outcome)};
 		return true;
-	}
-
-	auto ClearImportPreviewCache() -> void
-	{
-		GetBuildProductPreviewCache().Clear();
-		GetImportPreviewCache().Clear();
 	}
 
 	auto FImportService::SubmitImport(

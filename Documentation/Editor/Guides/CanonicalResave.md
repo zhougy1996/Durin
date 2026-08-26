@@ -2,7 +2,7 @@
 
 Summary: Canonicalize reflected identities without reimporting source data.
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-26
 
 Use canonical resave when the Asset Compatibility window or a package context
 menu says **Resave recommended**. This is maintenance of serialized type names;
@@ -10,9 +10,7 @@ it is separate from unsaved authored changes and reimport.
 
 For one asset, open its Content Browser context menu and choose **Resave
 Package**. **Save Package** is reserved for loaded assets with ordinary authored
-changes. For a multi-selection, choose **Resave Selected Packages**. A managed
-import output also offers **Resave Import Record**, which rewrites only its
-companion record and does not read source files or rebuild outputs.
+changes. For a multi-selection, choose **Resave Selected Packages**.
 
 For project maintenance, open **Tools > Asset Maintenance > Canonical Resave**,
 run the read-only audit, review stored/current identities and blockers, then

@@ -6,7 +6,6 @@
 #include "Panels/ContentBrowserItemView.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
 #include "AssetForge/ImportService.h"
-#include "AssetForge/Persistence/ImportRecord.h"
 #include "Threading/Task.h"
 
 #include <array>
@@ -109,12 +108,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto PasteAsset(std::string_view DestinationDirectory = {}) -> void;
 		auto HasAssetClipboard() const -> bool;
 		auto CreateFolder(std::string_view PhysicalDirectory) -> void;
-		auto ExecuteImportRecordAction(
-			const FContentBrowserItem& Item,
-			AssetForge::EImportRecordAction Action) -> void;
 		auto SubmitSingleAssetImport(FAssetPath AssetPath,
-			AssetForge::FImportRequest Request, std::string Title,
-			std::vector<AssetForge::FImportRecordOutput> PreviousRecordOutputs = {})
+			AssetForge::FImportRequest Request, std::string Title)
 			-> bool;
 		auto SaveAssetPackage(const FAssetPath& Path) -> void;
 		auto PollSingleAssetReimport() -> void;
@@ -166,12 +161,10 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::function<void()> DeferredContentAction;
 		std::string ErrorMessage;
 		std::string WarningMessage;
-		std::vector<FAssetPath> LastReimportOrphans;
 		struct FPendingSingleAssetReimport
 		{
 			std::optional<AssetForge::FImportHandle> AssetForge;
 			FAssetPath AssetPath;
-			std::vector<AssetForge::FImportRecordOutput> PreviousRecordOutputs;
 		};
 		std::optional<FPendingSingleAssetReimport> PendingSingleAssetReimport;
 		std::unique_ptr<FContentBrowserThumbnailCache> ThumbnailCache;

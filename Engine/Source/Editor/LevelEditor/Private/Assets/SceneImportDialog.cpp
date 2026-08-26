@@ -30,8 +30,6 @@ namespace Durin::Editor::Level
 		CancelRequests();
 		SourceForm.Reset();
 		Coordinates.Reset();
-		PreviewKey.clear();
-		Preview.reset();
 		DestinationDirectory.Reset(InDestinationDirectory);
 		std::string Error;
 		if (!AssetForge::Builtins::EnsureImportedSurfaceMaterial(Error)) SetError(std::move(Error));
@@ -102,45 +100,13 @@ namespace Durin::Editor::Level
 			? SourceForm.Inspect(
 				DestinationValidation.DirectoryPath.GetView(), bAllowEngineContentWrite)
 			: FMountedSourceImportDiagnostic{};
-		if (DestinationValidation.bDirectoryPathValid && bSourceExists
-			&& bImportSettingsValid && DestinationValidation
-			&& SourceDiagnostic.bValid)
-		{
-			RefreshPreview(DestinationValidation.DirectoryPath);
-		}
-		else
-		{
-			if (PreviewRequest)
-			{
-				AssetForge::GetImportService().CancelImportOperation(
-					PreviewRequest->GetOperationHandle());
-				PreviewRequest.reset();
-			}
-			PreviewKey.clear();
-			Preview.reset();
-		}
-
 		if (DestinationValidation.bDirectoryPathValid
 			&& DestinationValidation.bMountedDestination && bHasSource
-			&& SourceDiagnostic.bValid && Preview
-			&& Preview->Outcome.State == AssetForge::EImportOperationState::Succeeded
-			&& Preview->Inspection.bCompatible)
+			&& SourceDiagnostic.bValid)
 		{
-			ImGui::BeginChild("ImportOutputPreview",
-				ImVec2(0.0f, MonaImGui::ScaleUI(190.0f)), ImGuiChildFlags_Borders);
-			ImGui::TextDisabled("Peer outputs (role, policy, destination)");
-			for (const AssetForge::FImportOutputPreview& Output : Preview->Inspection.Outputs)
-			{
-				const char* Policy = Output.Policy == AssetForge::EImportOutputPolicy::Create
-					? "Create" : "Replace managed";
-				ImGui::BulletText("%s  [%s]  %s", Output.Role.c_str(), Policy,
-					Output.AssetPath.ToString().c_str());
-			}
-			ImGui::Spacing();
-			ImGui::TextDisabled("Captured sources");
-			for (const AssetForge::FImportSourcePreview& Source : Preview->Inspection.Sources)
-				ImGui::BulletText("%s", Source.SourcePath.Path.c_str());
-			ImGui::EndChild();
+			ImGui::TextDisabled("Source: %s", SourcePath.filename().generic_string().c_str());
+			ImGui::TextDisabled("Outputs will be created by type under: %s",
+				DestinationValidation.DirectoryPath.ToString().c_str());
 			ImGui::TextDisabled("Mount: %s (%s)  |  %s  |  dependency allowed",
 				SourceDiagnostic.Mount->VirtualRoot.c_str(),
 				DescribeMountOwner(SourceDiagnostic.Mount->Owner),
@@ -160,11 +126,6 @@ namespace Durin::Editor::Level
 			ValidationMessage = DestinationValidation.Message;
 		else if (!SourceDiagnostic.bValid)
 			ValidationMessage = SourceDiagnostic.Message;
-		else if (PreviewRequest)
-			ValidationMessage = "Preparing import preview...";
-		else if (Preview
-			&& Preview->Outcome.State != AssetForge::EImportOperationState::Succeeded)
-			ValidationMessage = Preview->Outcome.Diagnostic;
 		else if (SourceRequest)
 			ValidationMessage = "Capturing Scene sources in the background...";
 		else if (ImportRequestHandle)
@@ -345,50 +306,6 @@ namespace Durin::Editor::Level
 		SourceForm.SetDestination(Classified.NormalizedVirtualPath);
 	}
 
-	auto FSceneImportDialog::RefreshPreview(
-		const FAssetPath& InDestinationDirectory) -> void
-	{
-		const std::string Key = std::format(
-			"{}|{}|{}|{}|{}|{}|{}",
-			SourcePathBuffer.data(),
-			InDestinationDirectory.ToString(),
-			SourceDestinationBuffer.data(),
-			static_cast<uint32>(SourceMode),
-			static_cast<int32>(Coordinates.GetSettings().ForwardAxis),
-			static_cast<int32>(Coordinates.GetSettings().RightAxis),
-			static_cast<int32>(Coordinates.GetSettings().UpAxis));
-		if (Key != PreviewKey)
-		{
-			if (PreviewRequest) AssetForge::GetImportService().CancelImportOperation(
-				PreviewRequest->GetOperationHandle());
-			PreviewRequest.reset();
-			Preview.reset();
-			PreviewKey = Key;
-			AssetForge::FImportRequest Request;
-			std::string Error;
-			if (!AssetForge::Builtins::MakeSceneImportRequest(
-				{.Path = SourcePathBuffer.data()}, InDestinationDirectory,
-				Coordinates.GetSettings(), AssetForge::EImportMode::Preview,
-				{.OwnerId = "LevelEditor.SceneImportDialog.Preview"}, {}, Request, Error))
-			{
-				Preview = AssetForge::FImportResult{
-					.Outcome = {.State = AssetForge::EImportOperationState::Failed,
-						.Diagnostic = std::move(Error)}};
-				return;
-			}
-			Request.Lifetime = AssetForge::EImportOperationLifetime::EphemeralPreview;
-			PreviewRequest = AssetForge::GetImportService().SubmitImport(
-				std::move(Request), "Preview Scene import");
-		}
-		if (!PreviewRequest) return;
-		AssetForge::FImportResult Completed;
-		if (PreviewRequest->TryGetResult(Completed))
-		{
-			Preview = std::move(Completed);
-			PreviewRequest.reset();
-		}
-	}
-
 	auto FSceneImportDialog::Import() -> bool
 	{
 		if (SourceRequest || ImportRequestHandle) return false;
@@ -435,10 +352,9 @@ namespace Durin::Editor::Level
 			AssetForge::FImportRequest Request;
 			if (!AssetForge::Builtins::MakeSceneImportRequest(
 				Sources.RootSource, *PendingImportDirectory, Coordinates.GetSettings(),
-				AssetForge::EImportMode::Import,
 				{.OwnerId = "LevelEditor.SceneImportDialog.Execute",
 					.ConflictIdentities = {PendingImportDirectory->ToString()}},
-				{}, Request, Error))
+				Request, Error))
 			{
 				PendingImportDirectory.reset();
 				SetError(std::move(Error));
@@ -475,15 +391,11 @@ namespace Durin::Editor::Level
 
 	auto FSceneImportDialog::CancelRequests() -> void
 	{
-		if (PreviewRequest)
-			AssetForge::GetImportService().CancelImportOperation(
-				PreviewRequest->GetOperationHandle());
 		if (SourceRequest)
 			AssetForge::Builtins::CancelAndDrainSceneSourceBundlePreparation(*SourceRequest);
 		if (ImportRequestHandle)
 			AssetForge::GetImportService().CancelAndDrainImportOperation(
 				ImportRequestHandle->GetOperationHandle());
-		PreviewRequest.reset();
 		SourceRequest.reset();
 		PendingImportDirectory.reset();
 		ImportRequestHandle.reset();

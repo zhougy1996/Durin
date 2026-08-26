@@ -1,7 +1,9 @@
 #pragma once
 
+#include "Asset/AssetImportData.h"
 #include "Asset/Cook.h"
 #include "Asset/SourcePath.h"
+#include "DObject/ObjectPtr.h"
 #include "EngineAPI.h"
 #include "PixelFormat.h"
 #include "RHIResources.h"
@@ -194,8 +196,15 @@ namespace Durin
 		ENGINE_API ~DTexture2D() override;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 
+		auto GetImportedSource() const -> const AssetImport::FSourceFile*
+		{
+			return AssetImportData
+				? AssetImportData->GetSourceData().FindByRole("source") : nullptr;
+		}
 		auto GetSourceFile() const -> const std::string&
 		{
+			if (const AssetImport::FSourceFile* Source = GetImportedSource())
+				return Source->SourcePath.Path;
 			return SourceImportData.Source.SourcePath.Path;
 		}
 		auto GetSourceImportData() const -> const FTexture2DSourceImportData& { return SourceImportData; }
@@ -203,9 +212,37 @@ namespace Durin
 		{
 			return ImportProvenance;
 		}
+		auto GetAssetImportData() const -> const AssetImport::DAssetImportData*
+		{
+			return AssetImportData.Get();
+		}
+		auto GetAssetImportData() -> AssetImport::DAssetImportData*
+		{
+			return AssetImportData.Get();
+		}
+		// Publishes a validated owner-compatible import-data object after the
+		// completed imported state has been applied on the editor thread.
+		ENGINE_API auto PublishAssetImportData(
+			AssetImport::DAssetImportData& Value, std::string& OutError) -> bool;
 		auto GetSourceData() const -> const FTextureSourceData* { return SourceData.get(); }
-		auto GetSourceContentHash() const -> const std::string& { return SourceContentHash; }
-		auto GetSourceFileSize() const -> uint64 { return SourceFileSize; }
+		auto GetSourceContentHash() const -> std::string
+		{
+			if (const AssetImport::FSourceFile* Source = GetImportedSource())
+				return Source->GetContentHash().ToString();
+			return SourceContentHash;
+		}
+		auto GetSourceFileSize() const -> uint64
+		{
+			if (const AssetImport::FSourceFile* Source = GetImportedSource())
+				return Source->ByteCount;
+			return SourceFileSize;
+		}
+		auto GetSourceLastWriteTime() const -> int64
+		{
+			if (const AssetImport::FSourceFile* Source = GetImportedSource())
+				return Source->LastWriteTime;
+			return SourceLastWriteTime;
+		}
 		auto GetSourceWidth() const -> uint32 { return SourceWidth; }
 		auto GetSourceHeight() const -> uint32 { return SourceHeight; }
 		auto GetSourceChannelCount() const -> uint8 { return SourceChannelCount; }
@@ -268,6 +305,11 @@ protected:
 		auto LoadCookedPlatformData(std::string& OutError) -> bool;
 		DPROPERTY(EditorOnly)
 		FTexture2DSourceImportData SourceImportData;
+
+		// Complete editor-only replay authority. The concrete class is supplied by
+		// the owning authoring framework and is absent from Cooked packages.
+		DPROPERTY(EditorOnly)
+		TObjectPtr<AssetImport::DAssetImportData> AssetImportData;
 
 		// Opaque editor-framework reproduction metadata. Runtime Engine keeps the
 		// bytes without depending on the editor AssetForge schema.

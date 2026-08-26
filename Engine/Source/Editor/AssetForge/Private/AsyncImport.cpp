@@ -296,23 +296,13 @@ namespace Durin::AssetForge
 					&& Store->RequestCancel(Operation, false);
 			};
 
-			std::shared_ptr<FImportJobOperationState> Superseded;
 			bool bAccepted = false;
 			{
 				std::lock_guard Lock(Mutex);
 				bAccepted = bAdmissionOpen
 					&& !ClosedProviders.contains(State->ProviderId);
-				if (bAccepted && State->Lifetime == EImportOperationLifetime::EphemeralPreview)
-				{
-					if (const auto It = LatestPreviewByOwner.find(State->Owner.OwnerId);
-						It != LatestPreviewByOwner.end())
-						if (const auto Prior = Operations.find(It->second);
-							Prior != Operations.end()) Superseded = Prior->second;
-					LatestPreviewByOwner[State->Owner.OwnerId] = State->OperationId;
-				}
 				Operations.emplace(State->OperationId, State);
 			}
-			if (Superseded) RequestCancel(Superseded, true);
 			if (!bAccepted)
 			{
 				(void)State->Scope.Close(ETaskScopeCloseMode::Cancel);
@@ -467,14 +457,6 @@ namespace Durin::AssetForge
 				return !State->Outcome && std::ranges::find(
 					State->Owner.ConflictIdentities, Identity)
 					!= State->Owner.ConflictIdentities.end();
-			});
-		}
-
-		auto ReleasePreviewOwner(std::string_view OwnerId) -> void
-		{
-			CancelAndDrainMatching([OwnerId](const FImportJobOperationState& State) {
-				return State.Lifetime == EImportOperationLifetime::EphemeralPreview
-					&& State.Owner.OwnerId == OwnerId;
 			});
 		}
 
@@ -802,7 +784,6 @@ namespace Durin::AssetForge
 
 		mutable std::mutex Mutex;
 		std::unordered_map<uint64, std::shared_ptr<FImportJobOperationState>> Operations;
-		std::unordered_map<std::string, uint64> LatestPreviewByOwner;
 		std::unordered_set<std::string> ClosedProviders;
 		std::deque<uint64> Ready;
 		std::deque<uint64> TerminalOrder;
@@ -895,11 +876,6 @@ namespace Durin::AssetForge
 	auto FImportService::HasActiveImportClaim(std::string_view Identity) const -> bool
 	{
 		return Impl->AsyncJobs->HasClaim(Identity);
-	}
-
-	auto FImportService::ReleaseImportPreviewOwner(std::string_view OwnerId) -> void
-	{
-		Impl->AsyncJobs->ReleasePreviewOwner(OwnerId);
 	}
 
 	auto FImportService::CancelAndDrainAsyncImportsForOwner(std::string_view OwnerId) -> void
