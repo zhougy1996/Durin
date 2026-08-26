@@ -217,7 +217,7 @@ The completed workflow must provide:
   compile cache/single-flight, last-known-good publication, and cooked output.
 - The existing canonical builder precisely records the legacy 66-node
   parameter-by-texture behavior and remains useful as a compatibility fixture.
-- `FMaterialGraphAuthoring` owns candidate-validated commands, detached views,
+- `FMaterialGraphOperations` owns candidate-validated commands, detached views,
   transactions, layout, clipboard, and semantic mutation.
 - The graph-space Surface Outputs proxy already pans, zooms, frames, focuses,
   and renders eight typed target lanes; it can become Material Output without a
@@ -360,7 +360,7 @@ The completed workflow must provide:
 - [x] Record exact authored/IR node counts, generated sample counts, identities,
   cache outcomes, compile generations, active bindings, rendered comparison,
   configuration, timing method, and pass/fail evidence in this plan.
-- [x] Update [Material Graph Authoring](../Editor/Architecture/MaterialGraphAuthoring.md)
+- [x] Update [Material Graph Authoring](../Editor/Architecture/MaterialGraphOperations.md)
   and [Material System](../Runtime/Rendering/MaterialSystem.md) with lasting
   surface-default, reachability, compilation, parameter, instance, migration,
   and cook contracts; add a user guide only if promotion needs durable help.
@@ -463,7 +463,7 @@ Validation results:
 
 ## Related Documentation
 
-- [Material Graph Authoring](../Editor/Architecture/MaterialGraphAuthoring.md)
+- [Material Graph Authoring](../Editor/Architecture/MaterialGraphOperations.md)
 - [Material System](../Runtime/Rendering/MaterialSystem.md)
 - [Material Graph Editor Usability Plan](MaterialGraphEditorUsability.md)
 - [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
@@ -481,13 +481,13 @@ Validation results:
 - `Engine/Source/Runtime/Engine/Public/Materials/Material.h`
 - `Engine/Source/Runtime/Engine/Private/Materials/Material.cpp`
 - `Engine/Source/Runtime/Engine/Private/Materials/MaterialRenderProxy.cpp`
-- `Engine/Source/Editor/MaterialEditor/Public/MaterialGraphAuthoring.h`
-- `Engine/Source/Editor/MaterialEditor/Private/Graph/MaterialGraphAuthoring.cpp`
+- `Engine/Source/Editor/MaterialEditor/Public/MaterialGraphOperations.h`
+- `Engine/Source/Editor/MaterialEditor/Private/Graph/MaterialGraphOperations.cpp`
 - `Engine/Source/Editor/MaterialEditor/Private/Graph/MaterialGraphCanvas.h`
 - `Engine/Source/Editor/MaterialEditor/Private/Graph/MaterialGraphCanvas.cpp`
 - `Engine/Source/Editor/MaterialEditor/Private/Widgets/MaterialParameterPanelModel.cpp`
 - `Engine/Source/Editor/MaterialEditor/Private/Widgets/MMaterialEditor.cpp`
-- `Engine/Tests/Native/EngineTests/Private/Materials/MaterialGraphAuthoringTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/Materials/MaterialGraphOperationsTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/Materials/MaterialSchemaAndEditingTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/Materials/MaterialCompileLifecycleTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/Materials/MaterialInstanceTests.cpp`

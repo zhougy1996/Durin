@@ -9,7 +9,7 @@ Completed:
 
 ## Current Status
 
-Stages 0 through 3 are complete. StaticMesh build, post-load, and source mutation
+Stages 0 through 4 are complete. StaticMesh build, post-load, and source mutation
 have independent modular features because their callers require independent
 availability; one AssetForgeBuiltins implementation object still implements
 all three contracts. TextureCube and VolumeTexture now use post-load feature
@@ -29,7 +29,10 @@ configuration tests 57/57. Stage 3 renamed the LevelEditor boundaries to
 StaticMesh level mutations, Terrain placement, SkyBox placement, and graybox
 scene build, and removed the private `Authoring` directory. `LevelEditor` and
 `LevelMutationTests` build; `LevelMutationTests` passed 15/15 and `SkyBoxTests`
-passed 11/11. Stage 4 is the next open stage.
+passed 11/11. Stage 4 renamed the MaterialEditor stateless graph boundary,
+implementation, tests, and authoritative document to material graph operations.
+`MaterialEditor` builds and `MaterialTests` passed 99/99. Stage 5 is the next
+open stage.
 
 ## Goal
 
@@ -337,17 +340,17 @@ cleanup.”
 
 ### Stage 4: Rename the material graph boundary to operations
 
-- [ ] Rename `MaterialGraphAuthoring` files and the
+- [x] Rename `MaterialGraphAuthoring` files and the
   `FMaterialGraphAuthoring` stateless facade to material graph operations.
-- [ ] Update widgets, document lifecycle, automation, clipboard, layout,
+- [x] Update widgets, document lifecycle, automation, clipboard, layout,
   tests, and CMake source lists without changing command status or transaction
   behavior.
-- [ ] Retain `authored` where it describes persisted program, presentation,
+- [x] Retain `authored` where it describes persisted program, presentation,
   parameter/resource names, revisions, or user intent.
-- [ ] Remove obsolete compatibility/name-only test support while retaining
+- [x] Remove obsolete compatibility/name-only test support while retaining
   candidate validation, no-change, stale owner, undo/redo, compile generation,
   clipboard schema, and geometry coverage.
-- [ ] Rename the authoritative material graph document and repair direct links
+- [x] Rename the authoritative material graph document and repair direct links
   with the documentation move workflow.
 
 #### Acceptance Gate
@@ -450,7 +453,7 @@ not be used to expand rendering behavior.
 - [Workspace Projects](../Workspace/WorkspaceProjects.md)
 - [Static Mesh Level Mutations](../Editor/Architecture/StaticMeshLevelMutations.md)
 - [Terrain Editing Architecture](../Editor/Architecture/TerrainEditing.md)
-- [Material Graph Authoring](../Editor/Architecture/MaterialGraphAuthoring.md)
+- [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)
 - [Volume Textures](../Runtime/Assets/VolumeTextures.md)
 - [Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md)
 
@@ -475,5 +478,5 @@ not be used to expand rendering behavior.
 - `Engine/Source/Editor/LevelEditor/Public/TerrainPlacement.h`
 - `Engine/Source/Editor/LevelEditor/Public/SkyBoxPlacement.h`
 - `Engine/Source/Editor/LevelEditor/Public/GrayboxSceneBuild.h`
-- `Engine/Source/Editor/MaterialEditor/Public/MaterialGraphAuthoring.h`
+- `Engine/Source/Editor/MaterialEditor/Public/MaterialGraphOperations.h`
 - `Engine/Source/Programs/DurinHeaderTool/schemas/durin-project.schema.json`

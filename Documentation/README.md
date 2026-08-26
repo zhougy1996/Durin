@@ -50,7 +50,7 @@ not open the other rows or scan an entire directory.
 | Volumetric-cloud spatial inputs, compute/fragment fallback, composition order, target budget, or recovery | [Volumetric cloud spatial rendering](Runtime/Rendering/VolumetricCloudSpatialRendering.md) |
 | Volumetric-cloud quality tiers, low-resolution reconstruction, per-view history, invalidation, temporal diagnostics, or 4K budgets | [Volumetric cloud temporal reconstruction](Runtime/Rendering/VolumetricCloudTemporalReconstruction.md) |
 | Shadow quality, bias, PCF, cascades, contact shadows, or future local-light shadow development | [Shadow system evolution roadmap](Roadmaps/Archive/2026-08/ShadowSystemEvolution.md) |
-| Material graph commands, canvas, clipboard, diagnostics, or editor lifecycle | [Material graph authoring](Editor/Architecture/MaterialGraphAuthoring.md) |
+| Material graph commands, canvas, clipboard, diagnostics, or editor lifecycle | [Material graph authoring](Editor/Architecture/MaterialGraphOperations.md) |
 | Editor architecture, design, or user workflow | Use a targeted search under `Editor/Architecture/`, `Editor/Design/`, or `Editor/Guides/` |
 | Material-system long-term status, sequencing, or future milestones | [Material system roadmap](Roadmaps/MaterialSystem.md) |
 | Bounded implementation task or task selection | Run `.\DevTool.bat doc task list`, then open only the selected task |

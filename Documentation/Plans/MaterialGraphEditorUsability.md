@@ -419,7 +419,7 @@ rendered qualification additionally checks 125% UI scale.
   drafts until all sources are explicitly chosen. Occupied-input drags perform
   one replace command only after a valid output drop. Constant and swizzle
   gestures commit on deactivation; parameter selection commits once.
-- `MaterialTests FMaterialGraphAuthoringTests.*` passed 9 tests in 1.49 seconds,
+- `MaterialTests FMaterialGraphOperationsTests.*` passed 9 tests in 1.49 seconds,
   and the complete `MaterialTests` target passed 95 tests in 8.38 seconds on the
   configured Windows x64 Debug profile.
 
@@ -437,7 +437,7 @@ rendered qualification additionally checks 125% UI scale.
 - [x] Verify save/reload, dirty/save/discard, Undo/Redo, compile
   failure/recovery, last-known-good preview, diagnostic navigation, relocation,
   deletion, and multi-document isolation have not regressed.
-- [x] Update [Material Graph Authoring](../Editor/Architecture/MaterialGraphAuthoring.md)
+- [x] Update [Material Graph Authoring](../Editor/Architecture/MaterialGraphOperations.md)
   with the lasting geometry, semantic zoom, layout, proxy, and interaction
   contracts; add or update a user guide only if the final shortcut and editing
   workflow needs durable user-facing instruction.
@@ -466,7 +466,7 @@ rendered qualification additionally checks 125% UI scale.
   two crossing gate, all 256 node rectangles are pairwise non-intersecting, and
   100 warmed Debug layout samples meet the 25 ms median and 50 ms p95 gates.
   This is authoritative CPU timing; no GPU performance claim is made.
-- `MaterialTests FMaterialGraphAuthoringTests.*` passes 10 focused graph cases,
+- `MaterialTests FMaterialGraphOperationsTests.*` passes 10 focused graph cases,
   including deterministic layout, presentation-only identity, Undo/Redo,
   search/filtering, semantic zoom, diagnostic isolation, transactions,
   clipboard, atomic rejection, and bounded editing/overview draw data.
@@ -479,7 +479,7 @@ rendered qualification additionally checks 125% UI scale.
   capture without startup error. The graph-specific visual hierarchy is owned
   by the deterministic editing/overview ImGui draw qualification rather than
   treating the unrelated restored LevelEditor tab as graph evidence.
-- Lasting contracts are updated in [Material Graph Authoring](../Editor/Architecture/MaterialGraphAuthoring.md).
+- Lasting contracts are updated in [Material Graph Authoring](../Editor/Architecture/MaterialGraphOperations.md).
   Changed-document validation and all-plan lifecycle validation pass with this
   plan in the completed state.
 
@@ -534,7 +534,7 @@ rendered qualification additionally checks 125% UI scale.
 ## Related Documentation
 
 - [Material Graph Editor Plan](MaterialGraphEditor.md)
-- [Material Graph Authoring](../Editor/Architecture/MaterialGraphAuthoring.md)
+- [Material Graph Authoring](../Editor/Architecture/MaterialGraphOperations.md)
 - [Material System](../Runtime/Rendering/MaterialSystem.md)
 - [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../Agents/Testing.md)
@@ -544,8 +544,8 @@ rendered qualification additionally checks 125% UI scale.
 
 - `Engine/Source/Editor/MaterialEditor/Private/Graph/MaterialGraphCanvas.h`
 - `Engine/Source/Editor/MaterialEditor/Private/Graph/MaterialGraphCanvas.cpp`
-- `Engine/Source/Editor/MaterialEditor/Public/MaterialGraphAuthoring.h`
-- `Engine/Source/Editor/MaterialEditor/Private/Graph/MaterialGraphAuthoring.cpp`
+- `Engine/Source/Editor/MaterialEditor/Public/MaterialGraphOperations.h`
+- `Engine/Source/Editor/MaterialEditor/Private/Graph/MaterialGraphOperations.cpp`
 - `Engine/Source/Editor/MaterialEditor/Private/Widgets/MMaterialEditor.h`
 - `Engine/Source/Editor/MaterialEditor/Private/Widgets/MMaterialEditor.cpp`
-- `Engine/Tests/Native/EngineTests/Private/Materials/MaterialGraphAuthoringTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/Materials/MaterialGraphOperationsTests.cpp`

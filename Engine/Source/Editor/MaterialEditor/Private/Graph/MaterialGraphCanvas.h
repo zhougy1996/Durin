@@ -1,6 +1,6 @@
 #pragma once
 
-#include "MaterialGraphAuthoring.h"
+#include "MaterialGraphOperations.h"
 #include "MonaImGui.h"
 
 namespace Durin::Editor

@@ -290,7 +290,7 @@ persistent object formats remain unchanged.
 
 - [x] Replace the former SkyBox static service container with an operation/domain name or
   namespace consistent with the existing level authoring vocabulary.
-- [x] Name the material graph static container `FMaterialGraphAuthoring`, consistent
+- [x] Name the material graph static container `FMaterialGraphOperations`, consistent
   consistent with the material graph authoring contract.
 - [x] Apply the rename only to stateless static containers confirmed in Stage
   0; leave stateful services and independently owned managers unchanged.
@@ -398,7 +398,7 @@ stage-local success cannot hide a later cross-domain regression.
 - [Async Asset Operations](../Editor/Architecture/AsyncAssetOperations.md)
 - [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
 - [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Material Graph Authoring](../Editor/Architecture/MaterialGraphAuthoring.md)
+- [Material Graph Authoring](../Editor/Architecture/MaterialGraphOperations.md)
 - [Testing](../Agents/Testing.md)
 - [Build And Run](../Agents/BuildAndRun.md)
 - [Asset Compiling Manager Refactor Plan](AssetCompilingManagerRefactor.md)
@@ -417,7 +417,7 @@ stage-local success cannot hide a later cross-domain regression.
 - `Engine/Source/Runtime/Renderer/Private/Resources/RendererResourceCoordinator.h`
 - `Engine/Source/Runtime/Renderer/Private/Resources/RendererResourceCoordinator.cpp`
 - `Engine/Source/Editor/LevelEditor/Public/SkyBoxPlacement.h`
-- `Engine/Source/Editor/MaterialEditor/Public/MaterialGraphAuthoring.h`
+- `Engine/Source/Editor/MaterialEditor/Public/MaterialGraphOperations.h`
 - `Engine/Tests/Native/EngineTests/Private/Materials/MaterialCompileLifecycleTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/AssetThumbnailContractTests.cpp`
 - `Engine/Tests/Native/AssetCoreTests/Private/AssetForgeContractTests.cpp`

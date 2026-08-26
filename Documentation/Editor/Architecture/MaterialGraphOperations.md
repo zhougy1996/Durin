@@ -26,7 +26,7 @@ and per-document controller state. None of those values are serialized.
 
 ## Inspection and commands
 
-`MaterialGraphAuthoring.h` is the UI-independent boundary shared by the canvas,
+`MaterialGraphOperations.h` is the UI-independent boundary shared by the canvas,
 tests, and structured callers. Inspection returns detached deterministic node,
 pin, surface-output, presentation, and closed-domain catalog values. Catalog
 entries come from the M5 opcode/type rules and the live canonical material
@@ -133,7 +133,7 @@ Additional required inputs are collected in index order by a canvas-local
 draft; only the complete node reaches `CreateNode`. Escape and every document
 lifecycle cancellation discard creation, reconnection, movement, and inline
 edit drafts without dirtying or compiling the material. Every mutation still
-routes to the stateless `FMaterialGraphAuthoring` operation boundary.
+routes to the stateless `FMaterialGraphOperations` operation boundary.
 
 `Promote to Parameter` is available on an unconnected Material Output input. It
 creates the compatible canonical Parameter node one column upstream, copies the

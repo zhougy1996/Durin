@@ -251,7 +251,7 @@ targets, fixtures, profiles, budgets, and final evidence.
 - [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
 - [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
 - [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
-- [Material Graph Authoring](../Editor/Architecture/MaterialGraphAuthoring.md)
+- [Material Graph Authoring](../Editor/Architecture/MaterialGraphOperations.md)
 - [CPU Task System](../Runtime/Core/TaskSystem.md)
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)

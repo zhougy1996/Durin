@@ -174,7 +174,7 @@ durin_add_engine_functional_test(MaterialTests
 	RUNTIME_STACK_RATIONALE "Exercises rendered material editing and preview lifecycle."
 	SOURCES
 		Private/Materials/MaterialSchemaAndEditingTests.cpp
-		Private/Materials/MaterialGraphAuthoringTests.cpp
+		Private/Materials/MaterialGraphOperationsTests.cpp
 		Private/Materials/MaterialCompileLifecycleTests.cpp
 		Private/Materials/MaterialDependencyTests.cpp
 		Private/Materials/MaterialRenderProxyTests.cpp
