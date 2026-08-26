@@ -92,12 +92,12 @@ namespace Durin::AssetForge::Builtins
 	auto FAssetForgeBuiltinsAuthoringFeatures::RecoverUncooked(
 		DVolumeTexture& Texture, std::string& OutError) -> bool
 	{
-		const std::string Key = Asset::Build::MakeVolumeTextureDerivedDataKey(Texture, OutError);
+		const std::string Key = Asset::MakeVolumeTextureDerivedDataKey(Texture, OutError);
 		if (Key.empty()) return false;
 		std::unique_ptr<FVolumeTexturePlatformData> Cached;
 		ETextureDerivedDataStatus Status = ETextureDerivedDataStatus::None;
 		std::string Message;
-		if (Asset::Build::LoadVolumeTextureDerivedData(Key, Cached, Status, Message))
+		if (Asset::LoadVolumeTextureDerivedData(Key, Cached, Status, Message))
 			return Texture.PublishDerivedDataLoad(std::move(Cached), Key, OutError);
 		const FVolumeTextureSourceImportData& Source = Texture.GetSourceImportData();
 		FAssetPath Destination;

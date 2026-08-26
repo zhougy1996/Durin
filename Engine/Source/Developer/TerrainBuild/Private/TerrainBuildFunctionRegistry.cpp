@@ -3,7 +3,7 @@
 #include "Terrain/TerrainHeightmapBuildFunctions.h"
 #include "Terrain/TerrainWorldBuildFunctions.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	namespace
 	{

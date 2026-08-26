@@ -5,7 +5,7 @@
 #include "DObject/Package.h"
 #include "DObject/WeakObjectPtr.h"
 #include "Texture/Texture2D.h"
-#include "Texture/Texture2DAuthoringService.h"
+#include "Texture/Texture2DAuthoring.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 
 namespace Durin::Editor::Texture
@@ -29,7 +29,7 @@ namespace Durin::Editor::Texture
 				{},
 				OutError,
 				[Completion = std::move(Completion)](
-					Asset::Build::FTexture2DAuthoringResult Result) mutable {
+					Asset::FTexture2DAuthoringResult Result) mutable {
 					Completion(Result.Succeeded(), std::move(Result.Diagnostic));
 				});
 			if (bStarted)

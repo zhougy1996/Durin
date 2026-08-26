@@ -87,8 +87,8 @@ namespace Durin::AssetForge::Builtins
 		class FTexture2DBuildProduct final : public IBuildProduct
 		{
 		public:
-			Asset::Build::FTexture2DBuildProduct Product;
-			Asset::Build::FTexture2DPublicationContext Publication;
+			Asset::FTexture2DBuildProduct Product;
+			Asset::FTexture2DPublicationContext Publication;
 			auto CloneDetachedProduct() const
 				-> std::unique_ptr<IBuildProduct> override
 			{
@@ -122,9 +122,9 @@ namespace Durin::AssetForge::Builtins
 					return {};
 				}
 				auto Result = std::make_unique<FTexture2DBuildProduct>();
-				const Asset::Build::FTexture2DBuildExecutionControl Control{
+				const Asset::FTexture2DBuildExecutionControl Control{
 					.ShouldCancel = IsCancellationRequested};
-				if (!Asset::Build::BuildTexture2D({
+				if (!Asset::BuildTexture2D({
 					.SourceData = std::move(Source.SourceData),
 					.SourceContentHashLow = Source.SourceHash.HashLow,
 					.SourceContentHashHigh = Source.SourceHash.HashHigh,
@@ -167,7 +167,7 @@ namespace Durin::AssetForge::Builtins
 				auto Result = std::make_unique<FBuiltinSingleAssetCandidate>(
 					Candidate, AssetBuilderNode.Policy == EImportOutputPolicy::Create);
 				std::string Error;
-				if (!Asset::Build::PublishTexture2DProduct(*Candidate,
+				if (!Asset::PublishTexture2DProduct(*Candidate,
 					std::move(TextureProduct->Product), TextureProduct->Publication, Error))
 				{
 					OutDiagnostics.push_back({

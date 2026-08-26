@@ -35,7 +35,7 @@ namespace
 				EncodedBytes, Path.extension().generic_string(), Panorama, OutError))
 			return false;
 		return std::visit([&](const auto& Source) {
-			return Durin::Asset::Build::TextureCubeBuilder::ProjectEquirectangularTextureCube(
+			return Durin::Asset::TextureCubeBuilder::ProjectEquirectangularTextureCube(
 				Source, {Settings.FaceDimension, Settings.ExposureEV}, OutSource, OutError);
 		}, Panorama);
 	}

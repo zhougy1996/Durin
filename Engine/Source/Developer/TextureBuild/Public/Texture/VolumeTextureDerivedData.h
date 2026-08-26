@@ -5,7 +5,7 @@
 #include "Texture/TextureDerivedData.h"
 #include "Texture/VolumeTexture.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	// Canonical inputs that determine one volume texture derived-data identity.
 	struct FVolumeTextureBuildKeyInput

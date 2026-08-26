@@ -4,7 +4,7 @@
 #include "Hash/XxHash.h"
 #include "Texture/TextureDerivedData.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	inline constexpr uint32 Texture2DBuilderVersion = 2;
 

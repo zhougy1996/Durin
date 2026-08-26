@@ -7,7 +7,7 @@
 #include "Texture/TextureCubeBuilder.h"
 #include "Texture/TextureCubeDerivedData.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	using namespace ::Durin::DerivedData;
 

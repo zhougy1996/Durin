@@ -183,7 +183,7 @@ namespace Durin::AssetForge::Builtins
 				AppendValue(Bytes, Image.Width);
 				AppendValue(Bytes, Image.Height);
 				if constexpr (std::is_same_v<std::decay_t<decltype(Image)>,
-					Asset::Build::TextureCubeBuilder::FTexturePanoramaImage>)
+					Asset::TextureCubeBuilder::FTexturePanoramaImage>)
 				{
 					AppendValue(Bytes, Image.SourceChannelCount);
 					AppendValue(Bytes, Image.bHasTransparency);
@@ -215,20 +215,20 @@ namespace Durin::AssetForge::Builtins
 				return false;
 			if (Kind == 0)
 			{
-				Asset::Build::TextureCubeBuilder::FTexturePanoramaImage Image;
+				Asset::TextureCubeBuilder::FTexturePanoramaImage Image;
 				if (!ReadValue(Bytes, Image.Width) || !ReadValue(Bytes, Image.Height)
 					|| !ReadValue(Bytes, Image.SourceChannelCount)
 					|| !ReadValue(Bytes, Image.bHasTransparency)
 					|| !ReadTrivialVector(Bytes, Image.Pixels,
-						Asset::Build::TextureCubeBuilder::MaximumPanoramaPixels * 4)) return false;
+						Asset::TextureCubeBuilder::MaximumPanoramaPixels * 4)) return false;
 				Out.Source = std::move(Image);
 			}
 			else
 			{
-				Asset::Build::TextureCubeBuilder::FTexturePanoramaFloatImage Image;
+				Asset::TextureCubeBuilder::FTexturePanoramaFloatImage Image;
 				if (!ReadValue(Bytes, Image.Width) || !ReadValue(Bytes, Image.Height)
 					|| !ReadTrivialVector(Bytes, Image.Pixels,
-						Asset::Build::TextureCubeBuilder::MaximumPanoramaPixels * 4)) return false;
+						Asset::TextureCubeBuilder::MaximumPanoramaPixels * 4)) return false;
 				Out.Source = std::move(Image);
 			}
 			if (!Bytes.empty() || Out.Path.IsEmpty())

@@ -2,7 +2,7 @@
 
 #include "StaticMesh/StaticMeshBuildFunctions.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	namespace
 	{

@@ -2,7 +2,7 @@
 
 #include "Skeletal/SkeletalBuildFunctions.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	namespace
 	{

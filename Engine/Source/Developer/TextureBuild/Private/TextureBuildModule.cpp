@@ -1,6 +1,6 @@
 #include "Modules/ModuleManager.h"
+#include "Texture/Texture2DCompilingDomain.h"
 #include "Texture/TextureBuildFunctionRegistry.h"
-#include "Texture/TextureBuildService.h"
 #include "Texture/VolumeTextureBuildOperations.h"
 #include "Texture/VolumeTexturePostLoad.h"
 
@@ -11,23 +11,23 @@ namespace Durin
 	public:
 		auto PostLoadUncooked(DVolumeTexture& Texture, std::string& OutError) -> bool override
 		{
-			const std::string Key = Asset::Build::MakeVolumeTextureDerivedDataKey(
+			const std::string Key = Asset::MakeVolumeTextureDerivedDataKey(
 				Texture, OutError);
 			if (Key.empty()) return false;
 			std::unique_ptr<FVolumeTexturePlatformData> Cached;
 			ETextureDerivedDataStatus Status = ETextureDerivedDataStatus::None;
 			std::string Message;
-			if (Asset::Build::LoadVolumeTextureDerivedData(
+			if (Asset::LoadVolumeTextureDerivedData(
 				Key, Cached, Status, Message))
 				return Texture.PublishDerivedDataLoad(
 					std::move(Cached), Key, OutError);
 			if (const std::optional<bool> AssetForge =
 				TryInvokeVolumeTextureImportRecovery(Texture, OutError))
 				return *AssetForge;
-			Asset::Build::FVolumeTextureBuildProduct Product;
-			if (!Asset::Build::BuildVolumeTexture(Texture.GetSourceData(),
+			Asset::FVolumeTextureBuildProduct Product;
+			if (!Asset::BuildVolumeTexture(Texture.GetSourceData(),
 				Texture.GetBuildSettings(), Product, OutError)) return false;
-			return Asset::Build::PublishVolumeTextureProduct(
+			return Asset::PublishVolumeTextureProduct(
 				Texture, std::move(Product), OutError);
 		}
 	};
@@ -45,15 +45,15 @@ namespace Durin
 			BuildOperations = FModuleStartup::CreateAsyncOperationGroup("TextureBuild.Operations");
 			require(BuildOperations.IsValid());
 			std::string Error;
-			checkf(Asset::Build::InitializeTextureBuildFunctions(
+			checkf(Asset::InitializeTextureBuildFunctions(
 				AssetCompilingCallbackRegistration.GetGate(), &Error),
 				"TextureBuild could not register its build functions: {}", Error);
-			Asset::Build::FTexture2DBuildCoordinatorConfig Config;
+			Asset::FTexture2DBuildSchedulerConfig Config;
 			Config.OwnerCancellationToken = BuildOperations.GetCancellationToken();
 			Config.OwnerTaskScope = BuildOperations.GetTaskScope();
-			checkf(Asset::Build::InitializeTextureBuildService(
+			checkf(Asset::Private::InitializeTexture2DCompilingDomain(
 				AssetCompilingCallbackRegistration.GetGate(), Config),
-				"TextureBuild could not register its authoring service.");
+				"TextureBuild could not register its compilation domain.");
 		}
 
 	private:
@@ -64,8 +64,8 @@ namespace Durin
 
 		auto ShutdownModule() -> void override
 		{
-			Asset::Build::ShutdownTextureBuildService();
-			Asset::Build::ShutdownTextureBuildFunctions();
+			Asset::Private::ShutdownTexture2DCompilingDomain();
+			Asset::ShutdownTextureBuildFunctions();
 		}
 	};
 

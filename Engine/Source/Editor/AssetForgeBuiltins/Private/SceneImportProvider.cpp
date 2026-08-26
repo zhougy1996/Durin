@@ -23,10 +23,10 @@ namespace Durin::AssetForge::Builtins
 		};
 
 		auto CloneStaticMeshBuildProduct(
-			const Asset::Build::FStaticMeshBuildProduct& Source)
-			-> Asset::Build::FStaticMeshBuildProduct
+			const Asset::FStaticMeshBuildProduct& Source)
+			-> Asset::FStaticMeshBuildProduct
 		{
-			Asset::Build::FStaticMeshBuildProduct Result;
+			Asset::FStaticMeshBuildProduct Result;
 			if (Source.RenderData)
 				Result.RenderData =
 					std::make_unique<FStaticMeshRenderData>(*Source.RenderData);
@@ -47,7 +47,7 @@ namespace Durin::AssetForge::Builtins
 			: public IReconciliationContext
 		{
 		public:
-			Asset::Build::FStaticMeshReconciliationSnapshot Snapshot;
+			Asset::FStaticMeshReconciliationSnapshot Snapshot;
 		};
 
 	class FSceneSourceTranslator final : public ISourceTranslator
@@ -255,10 +255,10 @@ namespace Durin::AssetForge::Builtins
 			std::shared_ptr<const FSceneCachedImportPlan> Cached;
 			uint32 OutputIndex = 0;
 			std::vector<FImportOutputPreview> Outputs;
-			Asset::Build::FStaticMeshBuildProduct StaticMesh;
+			Asset::FStaticMeshBuildProduct StaticMesh;
 			FSceneTextureBuildProduct Texture;
-			Asset::Build::FSkeletalMeshBuildProduct SkeletalMesh;
-			Asset::Build::FAnimationClipBuildProduct Animation;
+			Asset::FSkeletalMeshBuildProduct SkeletalMesh;
+			Asset::FAnimationClipBuildProduct Animation;
 			auto CloneDetachedProduct() const
 				-> std::unique_ptr<IBuildProduct> override
 			{
@@ -359,11 +359,11 @@ namespace Durin::AssetForge::Builtins
 						.SourceContentHash = Root->ContentHash.ToString(),
 						.ImporterId = std::string(SceneTranslatorId), .ImporterVersion = 1,
 						.ImportSettings = Cached->Data->MeshSettings};
-					Asset::Build::FStaticMeshReconciliationSnapshot Reconciliation{
+					Asset::FStaticMeshReconciliationSnapshot Reconciliation{
 						.StableObjectPath = AssetBuilderNode.Destination.ToString(),
 						.Provenance = Provenance, .ImportSettings = Cached->Data->MeshSettings};
 					if (AssetBuilderNode.Policy == EImportOutputPolicy::Create
-						&& !Asset::Build::FStaticMeshBuildOperations::BuildImportedProduct(
+						&& !Asset::FStaticMeshBuildOperations::BuildImportedProduct(
 						Reconciliation, MakeStaticMeshImportedData(Cached->Data->Scene),
 						std::move(Provenance), Root->SourcePath.Path, Product->StaticMesh, Error))
 						return Fail(AssetBuilderNode, std::move(Error), OutDiagnostics);
@@ -377,8 +377,8 @@ namespace Durin::AssetForge::Builtins
 					if (Imported.SkeletonIndex >= Cached->Data->Scene.Skeletons.size())
 						return Fail(AssetBuilderNode, "Scene Skeleton mapping is invalid.", OutDiagnostics);
 					const FImportedSkeletonData& Skeleton = Cached->Data->Scene.Skeletons[Imported.SkeletonIndex];
-					Asset::Build::FSkeletalMeshBuildKeyInput Key;
-					static_cast<Asset::Build::FSkeletalBuildKeyFields&>(Key) = {
+					Asset::FSkeletalMeshBuildKeyInput Key;
+					static_cast<Asset::FSkeletalBuildKeyFields&>(Key) = {
 						.ProviderIdentity = std::string(SceneTranslatorId), .ProviderVersion = 1,
 						.SourceClosureHash = Root ? Root->ContentHash : FXxHash128{},
 						.SettingsHash = AuthoredSettings.ContentHash,
@@ -387,7 +387,7 @@ namespace Durin::AssetForge::Builtins
 						.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
 						.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
 						.TargetProfile = ESkeletalPayloadTargetProfile::Game};
-					if (!Asset::Build::BuildSkeletalMeshProduct({
+					if (!Asset::BuildSkeletalMeshProduct({
 						.SkeletonBoneCount = static_cast<uint32>(Skeleton.Bones.size()),
 						.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
 						.MeshNodeBindTransform = Imported.MeshNodeBindTransform,
@@ -405,8 +405,8 @@ namespace Durin::AssetForge::Builtins
 					if (Imported.SkeletonIndex >= Cached->Data->Scene.Skeletons.size())
 						return Fail(AssetBuilderNode, "Scene Skeleton mapping is invalid.", OutDiagnostics);
 					const FImportedSkeletonData& Skeleton = Cached->Data->Scene.Skeletons[Imported.SkeletonIndex];
-					Asset::Build::FAnimationClipBuildKeyInput Key;
-					static_cast<Asset::Build::FSkeletalBuildKeyFields&>(Key) = {
+					Asset::FAnimationClipBuildKeyInput Key;
+					static_cast<Asset::FSkeletalBuildKeyFields&>(Key) = {
 						.ProviderIdentity = std::string(SceneTranslatorId), .ProviderVersion = 1,
 						.SourceClosureHash = Root ? Root->ContentHash : FXxHash128{},
 						.SettingsHash = AuthoredSettings.ContentHash,
@@ -415,7 +415,7 @@ namespace Durin::AssetForge::Builtins
 						.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
 						.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
 						.TargetProfile = ESkeletalPayloadTargetProfile::Game};
-					if (!Asset::Build::BuildAnimationClipProduct({
+					if (!Asset::BuildAnimationClipProduct({
 						.SkeletonBoneCount = static_cast<uint32>(Skeleton.Bones.size()),
 						.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
 						.ClipName = FName(Imported.SuggestedName), .Payload = Imported.Payload,
@@ -441,7 +441,7 @@ namespace Durin::AssetForge::Builtins
 				}
 				auto Result = std::make_unique<FStaticMeshReconciliationContext>();
 				Result->Snapshot =
-					Asset::Build::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(*Mesh);
+					Asset::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(*Mesh);
 				return Result;
 			}
 
@@ -471,7 +471,7 @@ namespace Durin::AssetForge::Builtins
 					.SourceContentHash = Root->ContentHash.ToString(),
 					.ImporterId = std::string(SceneTranslatorId), .ImporterVersion = 1,
 					.ImportSettings = Product->Cached->Data->MeshSettings};
-				if (!Asset::Build::FStaticMeshBuildOperations::BuildImportedProduct(
+				if (!Asset::FStaticMeshBuildOperations::BuildImportedProduct(
 					Reconciliation->Snapshot,
 					MakeStaticMeshImportedData(Product->Cached->Data->Scene),
 					std::move(Provenance), Root->SourcePath.Path,
@@ -518,7 +518,7 @@ namespace Durin::AssetForge::Builtins
 				}
 				else if (Kind == ESceneOutputKind::Texture2D)
 				{
-					if (!Asset::Build::PublishTexture2DProduct(*Cast<DTexture2D>(Candidate),
+					if (!Asset::PublishTexture2DProduct(*Cast<DTexture2D>(Candidate),
 						std::move(Product->Texture.Product), {.SourcePath = Product->Texture.Source,
 							.DecoderId = "DurinImage", .DecoderVersion = 1,
 							.SourceFileSize = Product->Texture.SourceFileSize}, Error))
@@ -526,7 +526,7 @@ namespace Durin::AssetForge::Builtins
 				}
 				else if (Kind == ESceneOutputKind::StaticMesh)
 				{
-					if (!Asset::Build::FStaticMeshBuildOperations::PublishImportedProduct(
+					if (!Asset::FStaticMeshBuildOperations::PublishImportedProduct(
 						*Cast<DStaticMesh>(Candidate), std::move(Product->StaticMesh), Error))
 						return MaterializationFailure(std::move(Result), std::move(Error), OutDiagnostics);
 				}

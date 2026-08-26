@@ -7,7 +7,7 @@
 #include "Texture/TextureDerivedData.h"
 #include "Texture/VolumeTextureBuilder.h"
 
-namespace Durin::Asset::Build::Private
+namespace Durin::Asset::Private
 {
 	const FBuildFunctionIdentity Texture2DFunctionIdentity{
 		"Durin.TextureBuild.Texture2D", 1};

@@ -14,7 +14,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Asset::Build;
+	using namespace Durin::Asset;
 
 	auto Id(uint32 Value) -> FGuid
 	{

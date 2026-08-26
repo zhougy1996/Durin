@@ -31,7 +31,7 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto NormalizePanorama(Image::FDecodedImage&& Image)
-			-> Asset::Build::TextureCubeBuilder::FTexturePanoramaImage
+			-> Asset::TextureCubeBuilder::FTexturePanoramaImage
 		{
 			return {.Pixels = std::move(Image.Pixels), .Width = Image.Width,
 				.Height = Image.Height, .SourceChannelCount = Image.SourceChannelCount,
@@ -39,7 +39,7 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto NormalizePanorama(Image::FDecodedFloatImage&& Image)
-			-> Asset::Build::TextureCubeBuilder::FTexturePanoramaFloatImage
+			-> Asset::TextureCubeBuilder::FTexturePanoramaFloatImage
 		{
 			return {.Pixels = std::move(Image.Pixels), .Width = Image.Width,
 				.Height = Image.Height};
@@ -173,7 +173,7 @@ namespace Durin::AssetForge::Builtins
 			return true;
 		}
 
-		auto MakeValidation(const Asset::Build::FTextureCubeBuildProduct& Product, bool bHDR)
+		auto MakeValidation(const Asset::FTextureCubeBuildProduct& Product, bool bHDR)
 			-> FTextureCubeImportValidation
 		{
 			return {.bValid = true, .SourceLayout = Product.SourceLayout,
@@ -211,14 +211,14 @@ namespace Durin::AssetForge::Builtins
 		{
 			Image::FDecodedFloatImage Panorama;
 			if (!Image::DecodeRadianceHDRFromMemory(EncodedBytes, Panorama, OutError,
-				{.MaximumDecodedPixels = Asset::Build::TextureCubeBuilder::MaximumPanoramaPixels}))
+				{.MaximumDecodedPixels = Asset::TextureCubeBuilder::MaximumPanoramaPixels}))
 				return false;
 			OutSource = NormalizePanorama(std::move(Panorama));
 			return true;
 		}
 		Image::FDecodedImage Panorama;
 		if (!Image::DecodeImageFromMemory(EncodedBytes, Panorama, OutError,
-			{.MaximumDecodedPixels = Asset::Build::TextureCubeBuilder::MaximumPanoramaPixels}))
+			{.MaximumDecodedPixels = Asset::TextureCubeBuilder::MaximumPanoramaPixels}))
 			return false;
 		OutSource = NormalizePanorama(std::move(Panorama));
 		return true;
@@ -265,8 +265,8 @@ namespace Durin::AssetForge::Builtins
 		}
 		if (!TranslateTextureCubeFaceSources(EncodedFaces, SourceData, Error))
 			return {false, std::move(Error)};
-		Asset::Build::FTextureCubeBuildProduct Product;
-		if (!Asset::Build::BuildTextureCubeFaces(
+		Asset::FTextureCubeBuildProduct Product;
+		if (!Asset::BuildTextureCubeFaces(
 			std::move(SourceData), Hashes, Settings, Product, Error))
 			return {false, std::move(Error)};
 		return MakeValidation(Product, false);
@@ -284,14 +284,14 @@ namespace Durin::AssetForge::Builtins
 			return {false, "Panorama source is unavailable."};
 		const FXxHash128 Hash = FXxHash128::HashBuffer(Bytes);
 		std::string Error;
-		Asset::Build::FTextureCubeBuildProduct Product;
+		Asset::FTextureCubeBuildProduct Product;
 		const bool bHDR = Image::IsRadianceHDRExtension(
 			std::filesystem::path(PanoramaFile).extension().generic_string());
 		FTextureCubePanoramaSourceData Panorama;
 		if (!TranslateTextureCubePanoramaSource(Bytes,
 			std::filesystem::path(PanoramaFile).extension().generic_string(), Panorama, Error)
 			|| !std::visit([&](auto&& Source) {
-				return Asset::Build::BuildTextureCubePanorama(
+				return Asset::BuildTextureCubePanorama(
 					std::move(Source), Hash, Settings, Product, Error);
 			}, std::move(Panorama))) return {false, std::move(Error)};
 		return MakeValidation(Product, bHDR);

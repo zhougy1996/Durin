@@ -424,12 +424,12 @@ namespace Durin::Tests
 
 		Result = Asset::CreateAsset(StaticMeshPath, OutFixtures.StaticMesh);
 		if (!Result) return Fail(Result.Message);
-		Asset::Build::FStaticMeshImportedData ImportedMesh;
+		Asset::FStaticMeshImportedData ImportedMesh;
 		ImportedMesh.MaterialSlots.push_back({
 			.Name = "Default",
 			.SourceMaterialIndex = 0,
 			.SourceName = "Default"});
-		Asset::Build::FStaticMeshImportedMesh& Mesh = ImportedMesh.Meshes.emplace_back();
+		Asset::FStaticMeshImportedMesh& Mesh = ImportedMesh.Meshes.emplace_back();
 		Mesh.Name = "ThumbnailTetrahedron";
 		Mesh.Positions = {
 			FVector3f(-0.6f, -0.5f, -0.4f),
@@ -449,7 +449,7 @@ namespace Durin::Tests
 			.ImporterId = "RenderedThumbnailFixture",
 			.ImporterVersion = 1,
 			.ImportSettings = FStaticMeshImportSettings::MakeDurin()};
-		if (!Asset::Build::FStaticMeshBuildOperations::BuildAndPublishImported(
+		if (!Asset::FStaticMeshBuildOperations::BuildAndPublishImported(
 				*OutFixtures.StaticMesh, ImportedMesh,
 				SourceImportData,
 				"Rendered thumbnail StaticMesh fixture",

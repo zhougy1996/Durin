@@ -4,7 +4,7 @@
 #include "Serialization/Archive.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 
-namespace Durin::Asset::Build::Private
+namespace Durin::Asset::Private
 {
 	const FBuildFunctionIdentity TerrainHeightmapFunctionIdentity{
 		"Durin.GeometryBuild.TerrainHeightmap", 1};

@@ -8,12 +8,12 @@
 
 namespace Durin::AssetForge::Builtins
 {
-	using FTextureCubeImportSettings = Asset::Build::FTextureCubeFacesBuildSettings;
+	using FTextureCubeImportSettings = Asset::FTextureCubeFacesBuildSettings;
 	using FTextureCubePanoramaImportSettings =
-		Asset::Build::FTextureCubePanoramaBuildSettings;
+		Asset::FTextureCubePanoramaBuildSettings;
 	using FTextureCubePanoramaSourceData = std::variant<
-		Asset::Build::TextureCubeBuilder::FTexturePanoramaImage,
-		Asset::Build::TextureCubeBuilder::FTexturePanoramaFloatImage>;
+		Asset::TextureCubeBuilder::FTexturePanoramaImage,
+		Asset::TextureCubeBuilder::FTexturePanoramaFloatImage>;
 	ASSETFORGEBUILTINS_API auto IsTextureCubeFaceSourceExtension(
 		std::string_view Extension) -> bool;
 	ASSETFORGEBUILTINS_API auto IsTextureCubePanoramaSourceExtension(

@@ -961,7 +961,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage0Tests, Fre
 
 DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, ProductionKeyAndPayloadMatchFrozenGoldenBytes)
 {
-	const Asset::Build::FStaticMeshCollisionBuildKeyInput KeyInput{
+	const Asset::FStaticMeshCollisionBuildKeyInput KeyInput{
 		.SourceContentHash = {0x0123456789abcdefull, 0xfedcba9876543210ull},
 		.GeometryHash = {0x1111222233334444ull, 0xaaaabbbbccccddddull},
 		.ImporterId = "Assimp",
@@ -973,11 +973,11 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 		.TargetPlatform = EStaticMeshTargetPlatform::Win64};
 	std::string Error;
 	const std::vector<std::byte> KeyBytes =
-		Asset::Build::BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput, Error);
+		Asset::BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput, Error);
 	ASSERT_TRUE(Error.empty()) << Error;
 	EXPECT_EQ(KeyBytes.size(), 75u);
 	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "90a7dc1e16f761812d2975e56988d120");
-	EXPECT_EQ(Asset::Build::BuildStaticMeshCollisionDerivedDataKey(KeyInput, Error),
+	EXPECT_EQ(Asset::BuildStaticMeshCollisionDerivedDataKey(KeyInput, Error),
 		"90a7dc1e16f761812d2975e56988d120");
 
 	const FCollisionSourceFixture Tetra = MakeTetrahedron();

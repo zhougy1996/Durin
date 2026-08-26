@@ -2,7 +2,7 @@
 
 #include "Serialization/Archive.h"
 
-namespace Durin::Asset::Build::Private
+namespace Durin::Asset::Private
 {
 	const FBuildFunctionIdentity SkeletalMeshFunctionIdentity{
 		"Durin.GeometryBuild.SkeletalMesh", 1};

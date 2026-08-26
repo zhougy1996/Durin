@@ -58,7 +58,7 @@ contains 87,381 nodes (349,524 bytes) plus nine in-memory level records. The
 maximum retained canonical payload is 537,220,652 bytes. Direct import and
 reimport build inside a detached candidate. Uncooked package reload instead
 stages DDC and source recovery through the CPU task system; no worker accesses a
-DObject and no texture build coordinator is involved.
+DObject and no Texture2D scheduler is involved.
 
 ## Regional Min/Max Hierarchy
 

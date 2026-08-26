@@ -5,7 +5,7 @@
 #include "StaticMesh/StaticMeshBuildDerivedData.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
-namespace Durin::Asset::Build::Private
+namespace Durin::Asset::Private
 {
 	const FBuildFunctionIdentity StaticMeshFunctionIdentity{
 		"Durin.GeometryBuild.StaticMesh", 1};

@@ -325,6 +325,7 @@ durin_add_engine_functional_test(SkeletalMeshRenderResourcesVulkanTests
 
 set(_durin_texture_test_include_directories
 	${CMAKE_CURRENT_SOURCE_DIR}/Private
+	${DURIN_PROJECT_ROOT_DIR}/Source/Developer/TextureBuild/Private
 	${DURIN_PROJECT_ROOT_DIR}/Source/Editor/AssetForgeBuiltins/Private
 )
 set(_durin_texture_test_libraries

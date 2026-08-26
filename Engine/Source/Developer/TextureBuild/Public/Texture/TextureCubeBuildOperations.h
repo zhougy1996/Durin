@@ -5,7 +5,7 @@
 #include "Texture/TextureCube.h"
 #include "Texture/TextureCubeBuilder.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	struct FTextureCubeFacesBuildSettings
 	{

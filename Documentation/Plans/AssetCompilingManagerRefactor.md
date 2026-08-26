@@ -73,9 +73,9 @@ workspace module documents.
   `FMaterialCompilingManager` implementation without changing material program
   identity, single-flight sharing, last-known-good visibility, compile results,
   renderer publication, Cook payloads, or reload semantics.
-- Refactor TextureBuild's process service state and authoring state into an
-  `FTextureCompilingManager` implementation while retaining
-  `FTexture2DBuildCoordinator` as its worker admission and completion mailbox.
+- Refactor TextureBuild's compilation-domain and authoring state into an
+  `FTextureCompilingManager` implementation while keeping its private
+  `FTexture2DBuildScheduler` as the worker admission and completion mailbox.
 - Route EngineLoop and MainFrame compilation lifecycle through the new global
   manager, with exactly one normal-frame pump.
 - Replace BuildHost-dependent tests and test environments, then remove
@@ -93,7 +93,7 @@ workspace module documents.
 - Moving TextureBuild or GeometryBuild recipe implementations into Engine, or
   adding an Engine dependency on `AssetBuildCore`, `DerivedDataCache`,
   `TextureBuild`, `GeometryBuild`, AssetForge, or an Editor module.
-- Rewriting `FTexture2DBuildCoordinator`, changing its two-worker default,
+- Rewriting the private `FTexture2DBuildScheduler`, changing its two-worker default,
   priority fairness, 1 GiB estimated in-flight budget, worker phases,
   cancellation polling, completion history, or DDC behavior except where its
   owner and pump entry point change.
@@ -319,10 +319,10 @@ filter `DMaterial`; instances continue to share their root material program and
 do not become separate compile consumers. The migration changes no compiler,
 identity, shader cache, Cook payload, or Renderer contract.
 
-### Texture migration preserves the coordinator
+### Texture migration preserves the private scheduler
 
-`FTextureCompilingManager` lives in TextureBuild and owns the current process
-service state, Texture2D authoring map, and `FTexture2DBuildCoordinator`.
+`FTextureCompilingManager` lives in TextureBuild and owns the compilation-domain
+state and Texture2D authoring map around a private `FTexture2DBuildScheduler`.
 TextureBuild registers it with Engine during module startup using the module's
 owner gate and async operation group.
 
@@ -476,7 +476,7 @@ The following behavior remains compatible:
 - [x] Register the manager during TextureBuild module startup with the existing
   module callback gate and async operation group; reset registration before
   build functions and module-owned state retire.
-- [x] Preserve `FTexture2DBuildCoordinator` worker admission, priorities,
+- [x] Preserve the private `FTexture2DBuildScheduler` worker admission, priorities,
   fairness, memory budget, phases, metrics, mailbox, cancellation polling,
   result history, and test hooks.
 - [x] Route typed submit, diagnostic, pending, cancel, and wait APIs through the
@@ -492,7 +492,7 @@ The following behavior remains compatible:
 
 #### Acceptance Gate
 
-- Texture coordinator, authoring, import/reimport, property editing, source
+- Texture scheduler, authoring, import/reimport, property editing, source
   replacement/relocation, DDC cold/warm/corrupt, cancellation, supersession,
   shutdown, and exactly-once completion tests pass through the new manager.
 - A cross-domain test proves Material and Texture can be pending together,
@@ -624,12 +624,12 @@ The following behavior remains compatible:
 - [`DerivedDataBuild.cpp`](../../Engine/Source/Developer/DerivedDataCache/Private/DerivedDataBuild.cpp)
 - [`MaterialCompileLifecycle.h`](../../Engine/Source/Runtime/Engine/Public/Materials/MaterialCompileLifecycle.h)
 - [`MaterialCompileLifecycle.cpp`](../../Engine/Source/Runtime/Engine/Private/Materials/MaterialCompileLifecycle.cpp)
-- [`TextureBuildService.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/TextureBuildService.cpp)
-- [`Texture2DAuthoringService.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DAuthoringService.cpp)
-- [`Texture2DAuthoringCoordinator.h`](../../Engine/Source/Developer/TextureBuild/Public/Texture/Texture2DAuthoringCoordinator.h)
-- [`Texture2DAuthoringCoordinator.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DAuthoringCoordinator.cpp)
+- [`Texture2DAuthoring.h`](../../Engine/Source/Developer/TextureBuild/Public/Texture/Texture2DAuthoring.h)
+- [`Texture2DAuthoring.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DAuthoring.cpp)
+- [`Texture2DBuildScheduler.h`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DBuildScheduler.h)
+- [`Texture2DBuildScheduler.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DBuildScheduler.cpp)
 - [`EngineLoop.cpp`](../../Engine/Source/Runtime/Launch/Private/EngineLoop.cpp)
 - [`MainFrameModule.cpp`](../../Engine/Source/Editor/MainFrame/Private/MainFrameModule.cpp)
 - [`DerivedDataBuildTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/DerivedDataBuildTests.cpp)
 - [`MaterialCompileLifecycleTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Materials/MaterialCompileLifecycleTests.cpp)
-- [`Texture2DBuildCoordinatorTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Texture/Texture2DBuildCoordinatorTests.cpp)
+- [`TextureBuildTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Texture/TextureBuildTests.cpp)

@@ -16,13 +16,13 @@ namespace Durin::AssetForge::Builtins
 	{
 		auto PostLoadTextureCubeImpl(DTextureCube& Texture, std::string& OutError) -> bool
 		{
-			std::string Key = Asset::Build::MakeTextureCubeDerivedDataKey(Texture, OutError);
+			std::string Key = Asset::MakeTextureCubeDerivedDataKey(Texture, OutError);
 			if (!Key.empty())
 			{
 				std::unique_ptr<FTextureCubePlatformData> PlatformData;
 				ETextureDerivedDataStatus Status = ETextureDerivedDataStatus::Missing;
 				std::string Message;
-				if (Asset::Build::LoadTextureCubeDerivedData(Key, PlatformData, Status, Message))
+				if (Asset::LoadTextureCubeDerivedData(Key, PlatformData, Status, Message))
 					return Texture.PublishDerivedDataLoad(
 						std::move(PlatformData), std::move(Key), OutError);
 			}

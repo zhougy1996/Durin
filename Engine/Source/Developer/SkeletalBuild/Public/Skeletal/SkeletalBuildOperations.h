@@ -5,7 +5,7 @@
 #include "SkeletalMesh/SkeletalDerivedData.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	inline constexpr uint32 SkeletalPayloadKeySchemaVersion = 1;
 	inline constexpr uint32 SkeletalMeshBuilderVersion = 1;

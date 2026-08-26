@@ -112,10 +112,10 @@ namespace Durin::AssetForge::Builtins
 		};
 
 		auto CloneStaticMeshBuildProduct(
-			const Asset::Build::FStaticMeshBuildProduct& Source)
-			-> Asset::Build::FStaticMeshBuildProduct
+			const Asset::FStaticMeshBuildProduct& Source)
+			-> Asset::FStaticMeshBuildProduct
 		{
-			Asset::Build::FStaticMeshBuildProduct Result;
+			Asset::FStaticMeshBuildProduct Result;
 			if (Source.RenderData)
 				Result.RenderData = std::make_unique<FStaticMeshRenderData>(*Source.RenderData);
 			Result.MaterialSlots = Source.MaterialSlots;
@@ -134,8 +134,8 @@ namespace Durin::AssetForge::Builtins
 		class FStaticMeshBuildProduct final : public IBuildProduct
 		{
 		public:
-			Asset::Build::FStaticMeshBuildProduct Product;
-			Asset::Build::FStaticMeshImportedData ImportedData;
+			Asset::FStaticMeshBuildProduct Product;
+			Asset::FStaticMeshImportedData ImportedData;
 			FStaticMeshSourceImportData SourceImportData;
 			std::string SourceLabel;
 			auto CloneDetachedProduct() const
@@ -154,7 +154,7 @@ namespace Durin::AssetForge::Builtins
 			: public IReconciliationContext
 		{
 		public:
-			Asset::Build::FStaticMeshReconciliationSnapshot Snapshot;
+			Asset::FStaticMeshReconciliationSnapshot Snapshot;
 		};
 
 		class FStaticMeshAssetBuilder final : public IAssetBuilder
@@ -191,7 +191,7 @@ namespace Durin::AssetForge::Builtins
 					.ImporterId = std::string(StaticMeshImporterId),
 					.ImporterVersion = StaticMeshAssimpImporterVersion,
 					.ImportSettings = Plan.Settings};
-				Asset::Build::FStaticMeshReconciliationSnapshot Reconciliation{
+				Asset::FStaticMeshReconciliationSnapshot Reconciliation{
 					.StableObjectPath = Plan.Destination.ToString(),
 					.Provenance = Provenance,
 					.ImportSettings = Plan.Settings};
@@ -200,7 +200,7 @@ namespace Durin::AssetForge::Builtins
 				Result->SourceImportData = Provenance;
 				Result->SourceLabel = Source.SourcePath.Path;
 				if (AssetBuilderNode.Policy == EImportOutputPolicy::Create
-					&& !Asset::Build::FStaticMeshBuildOperations::BuildImportedProduct(
+					&& !Asset::FStaticMeshBuildOperations::BuildImportedProduct(
 					Reconciliation, Result->ImportedData, Provenance,
 					Source.SourcePath.Path, Result->Product, Error))
 				{
@@ -224,7 +224,7 @@ namespace Durin::AssetForge::Builtins
 				if (!Mesh) return {};
 				auto Result = std::make_unique<FStaticMeshReconciliationContext>();
 				Result->Snapshot =
-					Asset::Build::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(*Mesh);
+					Asset::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(*Mesh);
 				return Result;
 			}
 
@@ -240,7 +240,7 @@ namespace Durin::AssetForge::Builtins
 				auto* MeshProduct = dynamic_cast<FStaticMeshBuildProduct*>(&Product);
 				std::string Error;
 				if (!Reconciliation || !MeshProduct
-					|| !Asset::Build::FStaticMeshBuildOperations::BuildImportedProduct(
+					|| !Asset::FStaticMeshBuildOperations::BuildImportedProduct(
 						Reconciliation->Snapshot,
 						MeshProduct->ImportedData, MeshProduct->SourceImportData,
 						MeshProduct->SourceLabel, MeshProduct->Product, Error))
@@ -272,7 +272,7 @@ namespace Durin::AssetForge::Builtins
 				auto Result = std::make_unique<FBuiltinSingleAssetCandidate>(
 					Candidate, AssetBuilderNode.Policy == EImportOutputPolicy::Create);
 				std::string Error;
-				if (!Asset::Build::FStaticMeshBuildOperations::PublishImportedProduct(
+				if (!Asset::FStaticMeshBuildOperations::PublishImportedProduct(
 					*Candidate, std::move(MeshProduct->Product), Error))
 				{
 					OutDiagnostics.push_back({

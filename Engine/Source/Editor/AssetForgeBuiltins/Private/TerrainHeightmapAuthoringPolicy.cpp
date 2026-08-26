@@ -76,8 +76,8 @@ namespace Durin::AssetForge::Builtins
 			Result.Source = Source;
 			Result.DerivedDataKey = Key;
 			std::string DdcError;
-			Asset::Build::FTerrainHeightmapDerivedDataLoadDiagnostics DdcDiagnostics;
-			if (!Key.empty() && Asset::Build::LoadTerrainHeightmapDerivedData(
+			Asset::FTerrainHeightmapDerivedDataLoadDiagnostics DdcDiagnostics;
+			if (!Key.empty() && Asset::LoadTerrainHeightmapDerivedData(
 				Key, Result.Payload, DdcError, &DdcDiagnostics))
 			{
 				Result.Diagnostic = std::format(
@@ -131,8 +131,8 @@ namespace Durin::AssetForge::Builtins
 			}
 
 			const auto BuildStart = std::chrono::steady_clock::now();
-			Asset::Build::FTerrainHeightmapBuildProduct Product;
-			if (!Asset::Build::BuildTerrainHeightmap({
+			Asset::FTerrainHeightmapBuildProduct Product;
+			if (!Asset::BuildTerrainHeightmap({
 				.Samples = std::move(SourceData.Samples),
 				.Width = SourceData.Width,
 				.Height = SourceData.Height,
@@ -297,7 +297,7 @@ namespace Durin::AssetForge::Builtins
 			FTerrainAuthoringState& State,
 			DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
 		{
-			std::string Key = Asset::Build::MakeTerrainHeightmapDerivedDataKey(Heightmap, OutError);
+			std::string Key = Asset::MakeTerrainHeightmapDerivedDataKey(Heightmap, OutError);
 			const FGameThreadDeferredWorkQueueDiagnostics Deferred =
 				GetGameThreadDeferredWorkQueueDiagnostics();
 			if (State.OperationGroup.IsValid()
@@ -307,7 +307,7 @@ namespace Durin::AssetForge::Builtins
 			if (!Key.empty())
 			{
 				std::shared_ptr<const FTerrainHeightmapPayload> Payload;
-				if (Asset::Build::LoadTerrainHeightmapDerivedData(Key, Payload, OutError))
+				if (Asset::LoadTerrainHeightmapDerivedData(Key, Payload, OutError))
 				{
 					const auto& Source = Heightmap.GetSourceImportData();
 					Heightmap.PublishAuthoringCandidate(Source, 0, 0, std::move(Payload),

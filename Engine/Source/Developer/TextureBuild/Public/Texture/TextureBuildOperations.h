@@ -3,7 +3,7 @@
 #include "TextureBuildAPI.h"
 #include "Texture/Texture2D.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	struct FTexture2DBuildSettings
 	{

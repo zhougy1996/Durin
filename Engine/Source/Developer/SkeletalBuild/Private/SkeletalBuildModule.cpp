@@ -19,7 +19,7 @@ namespace Durin
 			FSkeletalMeshPayloadData& OutPayload,
 			std::string& OutMessage) -> bool override
 		{
-			return Asset::Build::LoadSkeletalMeshDerivedData(
+			return Asset::LoadSkeletalMeshDerivedData(
 				Key, Context, OutPayload, OutMessage);
 		}
 
@@ -29,7 +29,7 @@ namespace Durin
 			FAnimationClipPayloadData& OutPayload,
 			std::string& OutMessage) -> bool override
 		{
-			return Asset::Build::LoadAnimationClipDerivedData(
+			return Asset::LoadAnimationClipDerivedData(
 				Key, Context, OutPayload, OutMessage);
 		}
 
@@ -39,7 +39,7 @@ namespace Durin
 			BuildFunctionCallbackRegistration =
 				FModuleStartup::CreateOwnedCallbackRegistration(
 					"SkeletalBuild.BuildFunctions");
-			checkf(Asset::Build::InitializeSkeletalBuildFunctions(
+			checkf(Asset::InitializeSkeletalBuildFunctions(
 				BuildFunctionCallbackRegistration.GetGate(), &Error),
 				"SkeletalBuild could not register its build functions: {}", Error);
 			SkeletalFeatureRegistration =
@@ -50,7 +50,7 @@ namespace Durin
 
 		auto ShutdownModule() -> void override
 		{
-			Asset::Build::ShutdownSkeletalBuildFunctions();
+			Asset::ShutdownSkeletalBuildFunctions();
 		}
 	};
 

@@ -390,7 +390,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 TEST(FTextureCubeTests, PanoramaBuildQueriesDdcBeforeProjection)
 {
 	InitializeCubeMount();
-	Durin::Asset::Build::TextureCubeBuilder::FTexturePanoramaImage Panorama{
+	Durin::Asset::TextureCubeBuilder::FTexturePanoramaImage Panorama{
 		.Pixels = std::vector<std::byte>(4u * 2u * 4u, std::byte{127}),
 		.Width = 4,
 		.Height = 2,
@@ -398,17 +398,17 @@ TEST(FTextureCubeTests, PanoramaBuildQueriesDdcBeforeProjection)
 	const Durin::FXxHash128 SourceHash{
 		.HashLow = 0x32f0551922ffbe31ull,
 		.HashHigh = 0x7c01c243d75dba09ull};
-	const Durin::Asset::Build::FTextureCubePanoramaBuildSettings Settings{
+	const Durin::Asset::FTextureCubePanoramaBuildSettings Settings{
 		.FaceDimension = 2};
-	Durin::Asset::Build::FTextureCubeBuildProduct Initial;
+	Durin::Asset::FTextureCubeBuildProduct Initial;
 	std::string Error;
-	ASSERT_TRUE(Durin::Asset::Build::BuildTextureCubePanorama(
+	ASSERT_TRUE(Durin::Asset::BuildTextureCubePanorama(
 		Panorama, SourceHash, Settings, Initial, Error)) << Error;
 	ASSERT_NE(Initial.PlatformData, nullptr);
 
 	Panorama.Pixels.clear();
-	Durin::Asset::Build::FTextureCubeBuildProduct Cached;
-	ASSERT_TRUE(Durin::Asset::Build::BuildTextureCubePanorama(
+	Durin::Asset::FTextureCubeBuildProduct Cached;
+	ASSERT_TRUE(Durin::Asset::BuildTextureCubePanorama(
 		std::move(Panorama), SourceHash, Settings, Cached, Error)) << Error;
 	EXPECT_TRUE(Cached.bLoadedFromDerivedDataCache);
 	EXPECT_FALSE(Cached.SourceData.Faces[0].IsValid());

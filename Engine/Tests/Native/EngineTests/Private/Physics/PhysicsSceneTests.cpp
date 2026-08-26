@@ -1127,9 +1127,9 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	Durin::DWorld* SecondWorld = CreatePhysicsWorld();
 	std::string Error;
 	Durin::DStaticMesh* Mesh = Durin::NewObject<Durin::DStaticMesh>(FirstWorld, "SceneCollisionMesh");
-	Durin::Asset::Build::FStaticMeshImportedData Imported;
+	Durin::Asset::FStaticMeshImportedData Imported;
 	Imported.MaterialSlots.push_back({"Default", 0, "Default"});
-	Durin::Asset::Build::FStaticMeshImportedMesh& ImportedMesh = Imported.Meshes.emplace_back();
+	Durin::Asset::FStaticMeshImportedMesh& ImportedMesh = Imported.Meshes.emplace_back();
 	ImportedMesh.Name = "Tetrahedron";
 	ImportedMesh.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 	ImportedMesh.Indices = {0, 2, 1, 0, 1, 3, 1, 2, 3, 2, 0, 3};
@@ -1140,7 +1140,7 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 		.ImporterId = "PhysicsSceneFixture",
 		.ImporterVersion = 1,
 		.ImportSettings = Durin::FStaticMeshImportSettings::MakeDurin()};
-	ASSERT_TRUE(Durin::Asset::Build::FStaticMeshBuildOperations::BuildAndPublishImported(
+	ASSERT_TRUE(Durin::Asset::FStaticMeshBuildOperations::BuildAndPublishImported(
 		*Mesh, Imported, Provenance, "Scene collision fixture", Error)) << Error;
 	ASSERT_TRUE(Mesh->SetCollisionSourceMode(
 		Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;

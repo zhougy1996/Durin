@@ -2,7 +2,7 @@
 
 #include "Asset/AssetCompilingManager.h"
 #include "EngineTestSupport.h"
-#include "Texture/TextureBuildService.h"
+#include "Texture/Texture2DCompilingDomain.h"
 
 #include <gtest/gtest.h>
 
@@ -15,13 +15,13 @@ namespace Durin::Testing
 		{
 			InitializeDObjectSystem();
 			ASSERT_TRUE(InitializeAssetCompilingManager());
-			ASSERT_TRUE(Asset::Build::InitializeTextureBuildService(
+			ASSERT_TRUE(Asset::Private::InitializeTexture2DCompilingDomain(
 				GetEngineTestModuleCallbackGate()));
 		}
 
 		auto TearDown() -> void override
 		{
-			Asset::Build::ShutdownTextureBuildService();
+			Asset::Private::ShutdownTexture2DCompilingDomain();
 			ShutdownAssetCompilingManager();
 		}
 	};

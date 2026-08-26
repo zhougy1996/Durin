@@ -15,8 +15,8 @@ namespace Durin::AssetForge::Builtins
 		bool bMarkPackageDirty = true,
 		bool bQueryDerivedData = true) -> bool
 	{
-		Asset::Build::FTerrainHeightmapBuildProduct Product;
-		if (!Asset::Build::BuildTerrainHeightmap({
+		Asset::FTerrainHeightmapBuildProduct Product;
+		if (!Asset::BuildTerrainHeightmap({
 			.Samples = std::move(SourceData.Samples),
 			.Width = SourceData.Width,
 			.Height = SourceData.Height,
@@ -27,7 +27,7 @@ namespace Durin::AssetForge::Builtins
 			.SourceFormat = SourceData.SourceFormat,
 			.SourceProfileVersion = SourceData.SourceProfileVersion,
 			.bQueryDerivedData = bQueryDerivedData}, Product, OutError)) return false;
-		return Asset::Build::PublishTerrainHeightmapProduct(Heightmap, std::move(Product), {
+		return Asset::PublishTerrainHeightmapProduct(Heightmap, std::move(Product), {
 			.SourcePath = Source.SourcePath,
 			.DecoderId = SourceData.DecoderId,
 			.DecoderVersion = SourceData.DecoderVersion,

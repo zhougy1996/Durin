@@ -20,7 +20,7 @@ namespace Durin::AssetForge::Builtins
 			"Durin.Geometry.TranslatorSettings";
 		struct FDecodedStaticMeshImportValue
 		{
-			Asset::Build::FStaticMeshImportedData ImportedData;
+			Asset::FStaticMeshImportedData ImportedData;
 			FSourcePath SourcePath;
 			FXxHash128 SourceHash{};
 		};
@@ -76,7 +76,7 @@ namespace Durin::AssetForge::Builtins
 			AppendValue(Bytes, Value.SourceHash.HashLow);
 			AppendValue(Bytes, Value.SourceHash.HashHigh);
 			AppendValue(Bytes, static_cast<uint64>(Value.ImportedData.MaterialSlots.size()));
-			for (const Asset::Build::FStaticMeshImportedMaterialSlot& Slot
+			for (const Asset::FStaticMeshImportedMaterialSlot& Slot
 				: Value.ImportedData.MaterialSlots)
 			{
 				AppendString(Bytes, Slot.Name);
@@ -84,7 +84,7 @@ namespace Durin::AssetForge::Builtins
 				AppendString(Bytes, Slot.SourceName);
 			}
 			AppendValue(Bytes, static_cast<uint64>(Value.ImportedData.Meshes.size()));
-			for (const Asset::Build::FStaticMeshImportedMesh& Mesh
+			for (const Asset::FStaticMeshImportedMesh& Mesh
 				: Value.ImportedData.Meshes)
 			{
 				AppendString(Bytes, Mesh.Name);

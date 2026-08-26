@@ -1,11 +1,11 @@
-#include "Texture/Texture2DAuthoringCoordinator.h"
+#include "Texture/Texture2DBuildScheduler.h"
 
 #include "DObject/DObjectGlobals.h"
 #include "Texture/TextureBuildOperations.h"
 #include "Threading/RunnableThread.h"
 #include "Threading/Task.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	namespace
 	{
@@ -50,8 +50,8 @@ namespace Durin::Asset::Build
 
 	}
 
-	struct FTexture2DBuildCoordinator::FState final
-		: public std::enable_shared_from_this<FTexture2DBuildCoordinator::FState>
+	struct FTexture2DBuildScheduler::FState final
+		: public std::enable_shared_from_this<FTexture2DBuildScheduler::FState>
 	{
 		struct FJob
 		{
@@ -75,7 +75,7 @@ namespace Durin::Asset::Build
 			FTexture2DQueuedBuildResult Result;
 		};
 
-		explicit FState(FTexture2DBuildCoordinatorConfig InConfig)
+		explicit FState(FTexture2DBuildSchedulerConfig InConfig)
 			: Config(InConfig)
 		{
 			Config.MaxWorkers = std::max(Config.MaxWorkers, 1u);
@@ -396,27 +396,6 @@ namespace Durin::Asset::Build
 			return !Job->bCancellationRequested.exchange(true, std::memory_order_acq_rel);
 		}
 
-		auto CancelAsset(std::string_view AssetIdentity) -> uint32
-		{
-			std::vector<std::shared_ptr<FJob>> Matching;
-			{
-				std::lock_guard Lock(Mutex);
-				for (const auto& [RequestId, Job] : Jobs)
-				{
-					(void)RequestId;
-					if (Job->Request.AssetIdentity == AssetIdentity) Matching.push_back(Job);
-				}
-			}
-			uint32 Count = 0;
-			for (const std::shared_ptr<FJob>& Job : Matching)
-			{
-				std::lock_guard JobLock(Job->Mutex);
-				if (!Job->bCompletionQueued
-					&& !Job->bCancellationRequested.exchange(true, std::memory_order_acq_rel)) ++Count;
-			}
-			return Count;
-		}
-
 		auto Pump(uint32 MaximumCount) -> uint32
 		{
 			if (GIsGameThreadIdInitialized) CheckGameThread();
@@ -531,7 +510,7 @@ namespace Durin::Asset::Build
 			Pump(std::numeric_limits<uint32>::max());
 		}
 
-		FTexture2DBuildCoordinatorConfig Config;
+		FTexture2DBuildSchedulerConfig Config;
 		mutable std::mutex Mutex;
 		std::unordered_map<uint64, std::shared_ptr<FJob>> Jobs;
 		std::deque<std::shared_ptr<FJob>> InteractiveQueue;
@@ -548,34 +527,29 @@ namespace Durin::Asset::Build
 		std::function<void(uint64, ETexture2DBuildPhase)> PhaseHookForTests;
 	};
 
-	FTexture2DBuildCoordinator::FTexture2DBuildCoordinator(
-		const FTexture2DBuildCoordinatorConfig& Config)
+	FTexture2DBuildScheduler::FTexture2DBuildScheduler(
+		const FTexture2DBuildSchedulerConfig& Config)
 		: State(std::make_shared<FState>(Config))
 	{}
 
-	FTexture2DBuildCoordinator::~FTexture2DBuildCoordinator()
+	FTexture2DBuildScheduler::~FTexture2DBuildScheduler()
 	{
 		Shutdown();
 	}
 
-	auto FTexture2DBuildCoordinator::Submit(
+	auto FTexture2DBuildScheduler::Submit(
 		FTexture2DQueuedBuildRequest Request,
 		FTexture2DBuildCompletion Completion) -> uint64
 	{
 		return State ? State->Submit(std::move(Request), std::move(Completion)) : 0;
 	}
 
-	auto FTexture2DBuildCoordinator::Cancel(uint64 RequestId) -> bool
+	auto FTexture2DBuildScheduler::Cancel(uint64 RequestId) -> bool
 	{
 		return State && State->Cancel(RequestId);
 	}
 
-	auto FTexture2DBuildCoordinator::CancelAsset(std::string_view AssetIdentity) -> uint32
-	{
-		return State ? State->CancelAsset(AssetIdentity) : 0;
-	}
-
-	auto FTexture2DBuildCoordinator::GetDiagnostic(uint64 RequestId) const -> FTexture2DBuildDiagnostic
+	auto FTexture2DBuildScheduler::GetDiagnostic(uint64 RequestId) const -> FTexture2DBuildDiagnostic
 	{
 		if (!State) return {};
 		std::shared_ptr<FState::FJob> Job;
@@ -598,28 +572,21 @@ namespace Durin::Asset::Build
 		return Result;
 	}
 
-	auto FTexture2DBuildCoordinator::GetQueuedCount() const -> uint32
+	auto FTexture2DBuildScheduler::GetQueuedCount() const -> uint32
 	{
 		if (!State) return 0;
 		std::lock_guard Lock(State->Mutex);
 		return static_cast<uint32>(State->InteractiveQueue.size() + State->BackgroundQueue.size());
 	}
 
-	auto FTexture2DBuildCoordinator::GetRunningCount() const -> uint32
+	auto FTexture2DBuildScheduler::GetRunningCount() const -> uint32
 	{
 		if (!State) return 0;
 		std::lock_guard Lock(State->Mutex);
 		return State->RunningCount;
 	}
 
-	auto FTexture2DBuildCoordinator::GetInFlightEstimatedBytes() const -> uint64
-	{
-		if (!State) return 0;
-		std::lock_guard Lock(State->Mutex);
-		return State->InFlightEstimatedBytes;
-	}
-
-	auto FTexture2DBuildCoordinator::SetPhaseHookForTests(
+	auto FTexture2DBuildScheduler::SetPhaseHookForTests(
 		std::function<void(uint64, ETexture2DBuildPhase)> Hook) -> void
 	{
 		if (!State) return;
@@ -627,28 +594,28 @@ namespace Durin::Asset::Build
 		State->PhaseHookForTests = std::move(Hook);
 	}
 
-	auto FTexture2DBuildCoordinator::PumpCompletions(uint32 MaximumCount) -> uint32
+	auto FTexture2DBuildScheduler::PumpCompletions(uint32 MaximumCount) -> uint32
 	{
 		return State ? State->Pump(MaximumCount) : 0;
 	}
 
-	auto FTexture2DBuildCoordinator::Start() -> bool
+	auto FTexture2DBuildScheduler::Start() -> bool
 	{
 		return State && State->Start();
 	}
 
-	auto FTexture2DBuildCoordinator::StopAdmission() -> void
+	auto FTexture2DBuildScheduler::StopAdmission() -> void
 	{
 		if (State) State->StopAdmission();
 	}
 
-	auto FTexture2DBuildCoordinator::WaitForRequest(
+	auto FTexture2DBuildScheduler::WaitForRequest(
 		uint64 RequestId, double TimeoutSeconds) -> bool
 	{
 		return State && State->WaitForRequest(RequestId, TimeoutSeconds);
 	}
 
-	auto FTexture2DBuildCoordinator::Shutdown() -> void
+	auto FTexture2DBuildScheduler::Shutdown() -> void
 	{
 		if (State) State->Shutdown();
 	}

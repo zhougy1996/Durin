@@ -3,7 +3,7 @@
 #include "Terrain/TerrainWorldTile.h"
 #include "Asset/Cook.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	struct FTerrainRegionKey
 	{

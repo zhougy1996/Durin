@@ -142,7 +142,7 @@ namespace Durin::AssetForge::Builtins
 			if (bHasPersistedIdentity && (!bSourceAvailable || bSourceContentMatches))
 			{
 				std::string Key;
-				if (!Asset::Build::MakeTexture2DDerivedDataKey(Texture, Key, OutError))
+				if (!Asset::MakeTexture2DDerivedDataKey(Texture, Key, OutError))
 					return FailLoad(
 						Texture,
 						ETextureDerivedDataStatus::Incompatible,
@@ -151,7 +151,7 @@ namespace Durin::AssetForge::Builtins
 				std::unique_ptr<FTexturePlatformData> PlatformData;
 				ETextureDerivedDataStatus CacheStatus = ETextureDerivedDataStatus::Missing;
 				std::string CacheMessage;
-				if (Asset::Build::LoadTexture2DDerivedData(
+				if (Asset::LoadTexture2DDerivedData(
 						Key, PlatformData, CacheStatus, CacheMessage))
 					return Texture.PublishDerivedDataLoad(
 						std::move(PlatformData), std::move(Key), bSourceAvailable, OutError);

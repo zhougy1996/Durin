@@ -5,7 +5,7 @@
 #include "TerrainBuildFunctionRegistry.h"
 #include "Terrain/TerrainWorldBuildFunctions.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	using namespace ::Durin::DerivedData;
 

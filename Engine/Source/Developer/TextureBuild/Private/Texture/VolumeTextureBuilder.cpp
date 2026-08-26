@@ -1,6 +1,6 @@
 #include "Texture/VolumeTextureBuilder.h"
 
-namespace Durin::Asset::Build::VolumeTextureBuilder
+namespace Durin::Asset::VolumeTextureBuilder
 {
 	namespace
 	{

@@ -5,7 +5,7 @@
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	struct FTerrainHeightmapBuildKeyInput
 	{

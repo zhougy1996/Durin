@@ -10,7 +10,7 @@
 #include "StaticMesh/StaticMeshBuildFunctions.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	using namespace ::Durin::DerivedData;
 

@@ -30,7 +30,7 @@ namespace Durin::AssetForge::Builtins
 		class FVolumeProduct final : public IBuildProduct
 		{
 		public:
-			Asset::Build::FVolumeTextureBuildProduct Product;
+			Asset::FVolumeTextureBuildProduct Product;
 			FVolumeTextureSourceImportData Provenance;
 			auto CloneDetachedProduct() const
 				-> std::unique_ptr<IBuildProduct> override
@@ -114,7 +114,7 @@ namespace Durin::AssetForge::Builtins
 					.Format = Plan.Settings.GetOutputFormat()};
 				if (!Source.SetVoxelBytes(Voxels)) return {};
 				auto Result = std::make_unique<FVolumeProduct>();
-				if (!Asset::Build::BuildVolumeTexture(std::move(Source),
+				if (!Asset::BuildVolumeTexture(std::move(Source),
 					{.OutputFormat = Plan.Settings.GetOutputFormat()}, Result->Product, Error))
 				{
 					AddFailure(Diagnostics, "Durin.VolumeTexture.BuildFailed", "ProductBuild", Error);
@@ -143,7 +143,7 @@ namespace Durin::AssetForge::Builtins
 				auto Result = std::make_unique<FBuiltinSingleAssetCandidate>(
 					AssetObject, Node.Policy == EImportOutputPolicy::Create);
 				std::string Error;
-				if (!Asset::Build::PublishVolumeTextureProduct(*AssetObject,
+				if (!Asset::PublishVolumeTextureProduct(*AssetObject,
 					std::move(Typed->Product), Error)
 					|| !AssetObject->PublishSourceImportData(std::move(Typed->Provenance), Error))
 				{

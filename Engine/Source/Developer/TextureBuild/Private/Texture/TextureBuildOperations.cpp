@@ -12,7 +12,7 @@
 #include "Texture/TextureBuilder.h"
 #include "Texture/TextureDerivedData.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	using namespace ::Durin::DerivedData;
 

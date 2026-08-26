@@ -1,13 +1,13 @@
-#include "Texture/Texture2DAuthoringService.h"
+#include "Texture/Texture2DAuthoring.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "DObject/DObjectGlobals.h"
 #include "Threading/RunnableThread.h"
-#include "Texture/TextureBuildService.h"
+#include "Texture/Texture2DCompilingDomain.h"
 #include "Texture/TextureBuilder.h"
 #include "Texture/Texture2DPostLoad.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	namespace
 	{
@@ -26,8 +26,16 @@ namespace Durin::Asset::Build
 		std::unordered_map<std::string, FTexture2DAuthoringState> GTexture2DAuthoringStates;
 		uint64 GNextTexture2DGeneration = 1;
 		std::vector<FWeakObjectPtr> GSuccessfullyPublishedTextures;
+		std::mutex GTextureCompilingDomainMutex;
+		std::shared_ptr<FTexture2DBuildScheduler> GTextureBuildScheduler;
 		FAssetCompilingManagerRegistration GTextureCompilingRegistration;
 		auto CancelTexture2DBuildDomain(DTexture2D& Texture) -> bool;
+
+		auto GetTexture2DBuildScheduler() -> std::shared_ptr<FTexture2DBuildScheduler>
+		{
+			std::lock_guard Lock(GTextureCompilingDomainMutex);
+			return GTextureBuildScheduler;
+		}
 
 		auto FindStateLocked(std::string_view Identity) -> FTexture2DAuthoringState*
 		{
@@ -114,8 +122,8 @@ namespace Durin::Asset::Build
 		auto PumpTextureCompletions(uint32 MaximumCount) -> FAssetCompileProcessResult
 		{
 			FAssetCompileProcessResult Result;
-			if (FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator())
-				Result.ProcessedCompletionCount = Coordinator->PumpCompletions(MaximumCount);
+			if (const auto Scheduler = GetTexture2DBuildScheduler())
+				Result.ProcessedCompletionCount = Scheduler->PumpCompletions(MaximumCount);
 			std::lock_guard Lock(GTexture2DAuthoringMutex);
 			Result.SuccessfullyCompiledAssets = std::move(GSuccessfullyPublishedTextures);
 			GSuccessfullyPublishedTextures.clear();
@@ -125,25 +133,29 @@ namespace Durin::Asset::Build
 		class FTextureCompilingManager final : public IAssetCompilingManager
 		{
 		public:
+			explicit FTextureCompilingManager(
+				std::shared_ptr<FTexture2DBuildScheduler> InScheduler)
+				: Scheduler(std::move(InScheduler))
+			{
+			}
+
 			auto GetDomainName() const -> FName override
 			{
 				return FName("Durin.TextureCompilation");
 			}
 			auto Start(std::string* OutError) -> bool override
 			{
-				FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
-				if (Coordinator && Coordinator->Start())
+				if (Scheduler && Scheduler->Start())
 				{
 					if (OutError) OutError->clear();
 					return true;
 				}
-				if (OutError) *OutError = "Texture2D build coordinator could not start.";
+				if (OutError) *OutError = "Texture2D build scheduler could not start.";
 				return false;
 			}
 			auto StopAdmission() -> void override
 			{
-				if (FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator())
-					Coordinator->StopAdmission();
+				if (Scheduler) Scheduler->StopAdmission();
 			}
 			auto GetNumRemainingAssets() const -> uint64 override
 			{
@@ -175,8 +187,7 @@ namespace Durin::Asset::Build
 							RequestId = State->ActiveRequestId;
 					}
 					if (RequestId == 0) continue;
-					if (FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator())
-						Coordinator->WaitForRequest(RequestId, 300.0);
+					if (Scheduler) Scheduler->WaitForRequest(RequestId, 300.0);
 					auto Item = PumpTextureCompletions(std::numeric_limits<uint32>::max());
 					Aggregate.ProcessedCompletionCount += Item.ProcessedCompletionCount;
 					Aggregate.SuccessfullyCompiledAssets.insert(
@@ -196,9 +207,8 @@ namespace Durin::Asset::Build
 			auto FinishAllCompilation() -> FAssetCompileProcessResult override
 			{
 				FAssetCompileProcessResult Aggregate;
-				FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
-				while (Coordinator && (Coordinator->GetQueuedCount() != 0
-					|| Coordinator->GetRunningCount() != 0))
+				while (Scheduler && (Scheduler->GetQueuedCount() != 0
+					|| Scheduler->GetRunningCount() != 0))
 				{
 					auto Item = PumpTextureCompletions(std::numeric_limits<uint32>::max());
 					Aggregate.ProcessedCompletionCount += Item.ProcessedCompletionCount;
@@ -218,28 +228,54 @@ namespace Durin::Asset::Build
 			}
 			auto Shutdown() -> void override
 			{
-				if (FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator())
-					Coordinator->Shutdown();
+				if (Scheduler) Scheduler->Shutdown();
 			}
+
+		private:
+			std::shared_ptr<FTexture2DBuildScheduler> Scheduler;
 		};
 	}
 
 	namespace Private
 	{
-		auto InitializeTextureCompilingManager(FModuleOwnedCallbackGate OwnerGate) -> bool
+		auto InitializeTexture2DCompilingDomain(
+			FModuleOwnedCallbackGate OwnerGate,
+			const FTexture2DBuildSchedulerConfig& Config) -> bool
 		{
+			CheckGameThread();
 			if (GTextureCompilingRegistration.IsValid()) return true;
+			auto Scheduler = std::make_shared<FTexture2DBuildScheduler>(Config);
+			{
+				std::lock_guard Lock(GTextureCompilingDomainMutex);
+				GTextureBuildScheduler = Scheduler;
+			}
 			std::string Error;
 			GTextureCompilingRegistration = FAssetCompilingManager::Get().RegisterManager(
-				std::make_shared<FTextureCompilingManager>(), std::move(OwnerGate), &Error);
+				std::make_shared<FTextureCompilingManager>(Scheduler),
+				std::move(OwnerGate), &Error);
 			if (!GTextureCompilingRegistration.IsValid())
+			{
 				DURIN_ERROR("Texture compilation manager registration failed: {}", Error);
+				Scheduler->Shutdown();
+				std::lock_guard Lock(GTextureCompilingDomainMutex);
+				GTextureBuildScheduler.reset();
+			}
 			return GTextureCompilingRegistration.IsValid();
 		}
 
-		auto ShutdownTextureCompilingManager() -> void
+		auto ShutdownTexture2DCompilingDomain() -> void
 		{
+			CheckGameThread();
 			GTextureCompilingRegistration.Reset();
+			std::lock_guard Lock(GTextureCompilingDomainMutex);
+			GTextureBuildScheduler.reset();
+		}
+
+		auto SetTexture2DBuildPhaseHookForTests(
+			std::function<void(uint64, ETexture2DBuildPhase)> Hook) -> void
+		{
+			if (const auto Scheduler = GetTexture2DBuildScheduler())
+				Scheduler->SetPhaseHookForTests(std::move(Hook));
 		}
 	}
 
@@ -256,16 +292,10 @@ namespace Durin::Asset::Build
 			OutError = "Texture2D authoring submission requires normalized source and provenance.";
 			return false;
 		}
-		if (!GetTexture2DBuildCoordinator()
-			|| !FAssetCompilingManager::Get().IsAcceptingRequests())
+		const auto Scheduler = GetTexture2DBuildScheduler();
+		if (!Scheduler || !FAssetCompilingManager::Get().IsAcceptingRequests())
 		{
-			OutError = "The authoring host or TextureBuild coordinator is unavailable.";
-			return false;
-		}
-		FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
-		if (!Coordinator)
-		{
-			OutError = "The TextureBuild coordinator is unavailable.";
+			OutError = "The Texture2D authoring domain is unavailable.";
 			return false;
 		}
 
@@ -293,14 +323,14 @@ namespace Durin::Asset::Build
 					.bReportLoadMutation = Request.bReportLoadMutation},
 				.Completion = std::move(Completion)};
 		}
-		if (PreviousRequestId != 0) Coordinator->Cancel(PreviousRequestId);
+		if (PreviousRequestId != 0) Scheduler->Cancel(PreviousRequestId);
 
 		const FTexture2DBuildSettings Settings = Request.Settings;
 		const bool bSRGB = Settings.bSRGB.value_or(
 			TextureBuilder::GetDefaultSRGB(Settings.Usage));
 		const uint32 Width = Request.SourceData.Width;
 		const uint32 Height = Request.SourceData.Height;
-		const uint64 RequestId = Coordinator->Submit({
+		const uint64 RequestId = Scheduler->Submit({
 			.AssetIdentity = Identity,
 			.SourcePath = Request.SourcePath,
 			.SourceData = std::move(Request.SourceData),
@@ -330,7 +360,7 @@ namespace Durin::Asset::Build
 			if (SupersededCompletion) SupersededCompletion({
 				.Status = ETexture2DAuthoringStatus::Superseded,
 				.Diagnostic = "The Texture2D authoring build was superseded by a newer request."});
-			OutError = "The TextureBuild coordinator rejected the request.";
+			OutError = "The Texture2D authoring domain rejected the request.";
 			return false;
 		}
 		{
@@ -359,9 +389,9 @@ namespace Durin::Asset::Build
 				RequestId = State->ActiveRequestId != 0
 					? State->ActiveRequestId : State->LastRequestId;
 		}
-		FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
-		return Coordinator && RequestId != 0
-			? Coordinator->GetDiagnostic(RequestId) : FTexture2DBuildDiagnostic{};
+		const auto Scheduler = GetTexture2DBuildScheduler();
+		return Scheduler && RequestId != 0
+			? Scheduler->GetDiagnostic(RequestId) : FTexture2DBuildDiagnostic{};
 	}
 
 	auto HasPendingTexture2DBuild(const DTexture2D& Texture) -> bool
@@ -382,8 +412,8 @@ namespace Durin::Asset::Build
 				if (State && State->Texture.Get() == &Texture)
 					RequestId = State->ActiveRequestId;
 			}
-			FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
-			return Coordinator && RequestId != 0 && Coordinator->Cancel(RequestId);
+			const auto Scheduler = GetTexture2DBuildScheduler();
+			return Scheduler && RequestId != 0 && Scheduler->Cancel(RequestId);
 		}
 	}
 
@@ -401,8 +431,8 @@ namespace Durin::Asset::Build
 				Texture, TimeoutSeconds)) return *AssetForge;
 			return true;
 		}
-		FTexture2DBuildCoordinator* Coordinator = GetTexture2DBuildCoordinator();
-		if (!Coordinator || !Coordinator->WaitForRequest(RequestId, TimeoutSeconds)) return false;
+		const auto Scheduler = GetTexture2DBuildScheduler();
+		if (!Scheduler || !Scheduler->WaitForRequest(RequestId, TimeoutSeconds)) return false;
 		FAssetCompilingManager::Get().FinishCompilationForObject(Texture);
 		bool bFailed = false;
 		{

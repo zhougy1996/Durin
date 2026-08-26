@@ -95,8 +95,8 @@ namespace Durin::AssetForge::Builtins
 		class FCubeProduct final : public IBuildProduct
 		{
 		public:
-			Asset::Build::FTextureCubeBuildProduct Product;
-			Asset::Build::FTextureCubePublicationContext Publication;
+			Asset::FTextureCubeBuildProduct Product;
+			Asset::FTextureCubePublicationContext Publication;
 			auto CloneDetachedProduct() const
 				-> std::unique_ptr<IBuildProduct> override
 			{
@@ -148,7 +148,7 @@ namespace Durin::AssetForge::Builtins
 						Result->Publication.FaceHashes[Index] = Image.Hash;
 						Result->Publication.FacePaths[Index] = std::move(Image.Path);
 					}
-					Built = Asset::Build::BuildTextureCubeFaces(std::move(Source), Hashes,
+					Built = Asset::BuildTextureCubeFaces(std::move(Source), Hashes,
 						Plan.FaceSettings, Result->Product, Error);
 				}
 				else
@@ -159,7 +159,7 @@ namespace Durin::AssetForge::Builtins
 					Result->Publication.PanoramaHash = Panorama.Hash;
 					Result->Publication.PanoramaPath = std::move(Panorama.Path);
 					Built = std::visit([&](auto&& Source) {
-						return Asset::Build::BuildTextureCubePanorama(std::move(Source), Panorama.Hash,
+						return Asset::BuildTextureCubePanorama(std::move(Source), Panorama.Hash,
 							Plan.PanoramaSettings, Result->Product, Error);
 					}, std::move(Panorama.Source));
 				}
@@ -184,7 +184,7 @@ namespace Durin::AssetForge::Builtins
 				auto Result = std::make_unique<FBuiltinSingleAssetCandidate>(
 					AssetObject, Node.Policy == EImportOutputPolicy::Create);
 				std::string Error;
-				if (!Asset::Build::PublishTextureCubeProduct(*AssetObject,
+				if (!Asset::PublishTextureCubeProduct(*AssetObject,
 					std::move(Typed->Product), Typed->Publication, Error))
 				{
 					AddFailure(Diagnostics, "Durin.TextureCube.MaterializeFailed", "Materialization", Error);

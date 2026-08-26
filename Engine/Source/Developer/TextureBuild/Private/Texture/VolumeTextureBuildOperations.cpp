@@ -6,7 +6,7 @@
 #include "Texture/TextureBuildFunctions.h"
 #include "Texture/VolumeTextureDerivedData.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	using namespace ::Durin::DerivedData;
 

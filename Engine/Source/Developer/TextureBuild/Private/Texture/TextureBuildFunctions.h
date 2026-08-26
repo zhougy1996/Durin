@@ -5,7 +5,7 @@
 #include "Texture/TextureCubeBuildOperations.h"
 #include "Texture/VolumeTexture.h"
 
-namespace Durin::Asset::Build::Private
+namespace Durin::Asset::Private
 {
 	using namespace ::Durin::DerivedData;
 

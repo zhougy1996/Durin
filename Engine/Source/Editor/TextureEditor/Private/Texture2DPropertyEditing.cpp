@@ -5,7 +5,7 @@
 #include "DObject/Property.h"
 #include "DObject/WeakObjectPtr.h"
 #include "Editor/PropertyEditing.h"
-#include "Texture/Texture2DAuthoringService.h"
+#include "Texture/Texture2DAuthoring.h"
 #include "Texture/TextureBuilder.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 
@@ -16,7 +16,7 @@ namespace Durin::Editor::Texture
 		FPropertyEditExtensionHandle GTexture2DPropertyEditExtension = 0;
 
 		auto MakeTexture2DBuildSettings(const DTexture2D& Texture)
-			-> Asset::Build::FTexture2DBuildSettings
+			-> Asset::FTexture2DBuildSettings
 		{
 			return {
 				.Usage = Texture.GetUsage(),
@@ -36,7 +36,7 @@ namespace Durin::Editor::Texture
 			if (!Texture || !Proposal.MemberProperty
 				|| !Proposal.DraftRootProperty || !Proposal.DraftRootContainer) return true;
 
-			Asset::Build::FTexture2DBuildSettings Settings =
+			Asset::FTexture2DBuildSettings Settings =
 				MakeTexture2DBuildSettings(*Texture);
 			const FName PropertyName = Proposal.MemberProperty->NamePrivate;
 			if (PropertyName == FName("Usage"))
@@ -49,7 +49,7 @@ namespace Durin::Editor::Texture
 				Settings.Usage = static_cast<ETextureUsage>(
 					static_cast<const FEnumProperty*>(Proposal.DraftRootProperty)->GetValueAsUInt64(
 						Proposal.DraftRootContainer, Proposal.DraftRootArrayIndex));
-				Settings.bSRGB = Asset::Build::TextureBuilder::GetDefaultSRGB(Settings.Usage);
+				Settings.bSRGB = Asset::TextureBuilder::GetDefaultSRGB(Settings.Usage);
 			}
 			else if (PropertyName == FName("bSRGB"))
 			{
@@ -106,10 +106,10 @@ namespace Durin::Editor::Texture
 			}
 			else return true;
 
-			if (!Asset::Build::TextureBuilder::IsValidUsage(Settings.Usage)
-				|| !Asset::Build::TextureBuilder::IsValidCompressionQuality(Settings.CompressionQuality)
-				|| !Asset::Build::TextureBuilder::IsValidAlphaMipMode(Settings.AlphaMipMode)
-				|| !Asset::Build::TextureBuilder::IsValidAlphaCoverageThreshold(
+			if (!Asset::TextureBuilder::IsValidUsage(Settings.Usage)
+				|| !Asset::TextureBuilder::IsValidCompressionQuality(Settings.CompressionQuality)
+				|| !Asset::TextureBuilder::IsValidAlphaMipMode(Settings.AlphaMipMode)
+				|| !Asset::TextureBuilder::IsValidAlphaCoverageThreshold(
 					Settings.AlphaCoverageThreshold))
 			{
 				OutError = "Texture2D property proposal contains invalid build settings.";
@@ -132,8 +132,8 @@ namespace Durin::Editor::Texture
 						*LiveTexture,
 						Settings,
 						Error,
-						Asset::Build::ETexture2DBuildPriority::Interactive,
-						[DeferredCompletion](Asset::Build::FTexture2DAuthoringResult Result) {
+						Asset::ETexture2DBuildPriority::Interactive,
+						[DeferredCompletion](Asset::FTexture2DAuthoringResult Result) {
 							(*DeferredCompletion)(
 								Result.Succeeded(), std::move(Result.Diagnostic));
 						}))

@@ -3,7 +3,7 @@
 
 #include <gtest/gtest.h>
 
-namespace Durin::Asset::Build::TextureCubeBuilder
+namespace Durin::Asset::TextureCubeBuilder
 {
 	namespace
 	{

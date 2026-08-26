@@ -5,7 +5,6 @@ if(DURIN_WITH_EDITOR)
 		Private/Texture/TextureDerivedDataTests.cpp
 		Private/Texture/TextureBuildTests.cpp
 		Private/Texture/VolumeTextureSourceImportTests.cpp
-		Private/Texture/Texture2DBuildCoordinatorTests.cpp
 		Private/Texture/TextureFailureTests.cpp
 		Private/Texture/TextureSourceRelocationTests.cpp
 		Private/Texture/SingleAssetImportTests.cpp
@@ -62,14 +61,13 @@ if(DURIN_WITH_EDITOR)
 	)
 else()
 	durin_exclude_native_test_sources(
-		RATIONALE "Texture authoring and scene import require editor-only Build and AssetForgeBuiltins services."
+		RATIONALE "Texture authoring and scene import require the editor TextureBuild and AssetForgeBuiltins modules."
 		SOURCES
 			Private/Texture/TextureTestEnvironment.cpp
 			Private/Texture/TextureImportAndCacheTests.cpp
 			Private/Texture/TextureDerivedDataTests.cpp
 			Private/Texture/TextureBuildTests.cpp
 			Private/Texture/VolumeTextureSourceImportTests.cpp
-			Private/Texture/Texture2DBuildCoordinatorTests.cpp
 			Private/Texture/TextureFailureTests.cpp
 			Private/Texture/TextureSourceRelocationTests.cpp
 			Private/Texture/SceneImportTests.cpp

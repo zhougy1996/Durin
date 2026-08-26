@@ -13,14 +13,14 @@ namespace Durin
 			std::string Error;
 			BuildFunctionCallbackRegistration =
 				FModuleStartup::CreateOwnedCallbackRegistration("TerrainBuild.BuildFunctions");
-			checkf(Asset::Build::InitializeTerrainBuildFunctions(
+			checkf(Asset::InitializeTerrainBuildFunctions(
 				BuildFunctionCallbackRegistration.GetGate(), &Error),
 				"TerrainBuild could not register its build functions: {}", Error);
 		}
 
 		auto ShutdownModule() -> void override
 		{
-			Asset::Build::ShutdownTerrainBuildFunctions();
+			Asset::ShutdownTerrainBuildFunctions();
 		}
 	};
 

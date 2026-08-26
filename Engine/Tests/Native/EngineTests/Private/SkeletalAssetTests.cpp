@@ -31,7 +31,7 @@ namespace
 			Durin::FSkeletalMeshPayloadData& OutPayload,
 			std::string& OutMessage) -> bool override
 		{
-			return Durin::Asset::Build::LoadSkeletalMeshDerivedData(Key, Context, OutPayload, OutMessage);
+			return Durin::Asset::LoadSkeletalMeshDerivedData(Key, Context, OutPayload, OutMessage);
 		}
 
 		auto LoadAnimationClipPayload(
@@ -40,7 +40,7 @@ namespace
 			Durin::FAnimationClipPayloadData& OutPayload,
 			std::string& OutMessage) -> bool override
 		{
-			return Durin::Asset::Build::LoadAnimationClipDerivedData(Key, Context, OutPayload, OutMessage);
+			return Durin::Asset::LoadAnimationClipDerivedData(Key, Context, OutPayload, OutMessage);
 		}
 	};
 
@@ -207,9 +207,9 @@ namespace
 		std::string Error;
 		if (!DerivedDataKey.empty())
 		{
-			Durin::Asset::Build::FSkeletalMeshBuildProduct Product;
-			Durin::Asset::Build::FSkeletalMeshBuildKeyInput KeyInput;
-			auto& Fields = static_cast<Durin::Asset::Build::FSkeletalBuildKeyFields&>(KeyInput);
+			Durin::Asset::FSkeletalMeshBuildProduct Product;
+			Durin::Asset::FSkeletalMeshBuildKeyInput KeyInput;
+			auto& Fields = static_cast<Durin::Asset::FSkeletalBuildKeyFields&>(KeyInput);
 			Fields.ProviderIdentity = "Durin.Tests";
 			Fields.ProviderVersion = 1;
 			Fields.SourceClosureHash = Durin::FXxHash128::HashBuffer(DerivedDataKey);
@@ -219,7 +219,7 @@ namespace
 			Fields.SkeletonCompatibilityIdentity = Skeleton.GetCompatibilityIdentity();
 			Fields.TargetPlatform = Durin::ESkeletalPayloadTargetPlatform::Win64;
 			Fields.TargetProfile = Durin::ESkeletalPayloadTargetProfile::Game;
-			const bool bBuilt = Durin::Asset::Build::BuildSkeletalMeshProduct({
+			const bool bBuilt = Durin::Asset::BuildSkeletalMeshProduct({
 				.SkeletonBoneCount = Skeleton.GetBoneCount(),
 				.SkeletonCompatibilityIdentity = Skeleton.GetCompatibilityIdentity(),
 				.MeshNodeBindTransform = Data.MeshNodeBindTransform,
@@ -276,9 +276,9 @@ namespace
 		std::string Error;
 		if (!DerivedDataKey.empty())
 		{
-			Durin::Asset::Build::FAnimationClipBuildProduct Product;
-			Durin::Asset::Build::FAnimationClipBuildKeyInput KeyInput;
-			auto& Fields = static_cast<Durin::Asset::Build::FSkeletalBuildKeyFields&>(KeyInput);
+			Durin::Asset::FAnimationClipBuildProduct Product;
+			Durin::Asset::FAnimationClipBuildKeyInput KeyInput;
+			auto& Fields = static_cast<Durin::Asset::FSkeletalBuildKeyFields&>(KeyInput);
 			Fields.ProviderIdentity = "Durin.Tests";
 			Fields.ProviderVersion = 1;
 			Fields.SourceClosureHash = Durin::FXxHash128::HashBuffer(DerivedDataKey);
@@ -288,7 +288,7 @@ namespace
 			Fields.SkeletonCompatibilityIdentity = Skeleton.GetCompatibilityIdentity();
 			Fields.TargetPlatform = Durin::ESkeletalPayloadTargetPlatform::Win64;
 			Fields.TargetProfile = Durin::ESkeletalPayloadTargetProfile::Game;
-			const bool bBuilt = Durin::Asset::Build::BuildAnimationClipProduct({
+			const bool bBuilt = Durin::Asset::BuildAnimationClipProduct({
 				.SkeletonBoneCount = Skeleton.GetBoneCount(),
 				.SkeletonCompatibilityIdentity = Skeleton.GetCompatibilityIdentity(),
 				.ClipName = Data.ClipName,
@@ -710,8 +710,8 @@ TEST(FSkeletalAssetTests, PayloadCodecsAreDeterministicAndRoundTripExactValues)
 	Durin::FXxHash128 ClipFingerprint;
 	MeshFingerprint = Durin::FXxHash128::HashBuffer(MeshBytes);
 	ClipFingerprint = Durin::FXxHash128::HashBuffer(ClipBytes);
-	Durin::Asset::Build::FSkeletalMeshBuildKeyInput MeshKeyInput;
-	auto& KeyInput = static_cast<Durin::Asset::Build::FSkeletalBuildKeyFields&>(MeshKeyInput);
+	Durin::Asset::FSkeletalMeshBuildKeyInput MeshKeyInput;
+	auto& KeyInput = static_cast<Durin::Asset::FSkeletalBuildKeyFields&>(MeshKeyInput);
 	KeyInput.ProviderIdentity = "Durin.Scene";
 	KeyInput.ProviderVersion = 3;
 	KeyInput.SourceClosureHash = Durin::FXxHash128::HashBuffer("sources");
@@ -722,16 +722,16 @@ TEST(FSkeletalAssetTests, PayloadCodecsAreDeterministicAndRoundTripExactValues)
 	KeyInput.SkeletonCompatibilityIdentity = Skeleton->GetCompatibilityIdentity();
 	KeyInput.TargetPlatform = Durin::ESkeletalPayloadTargetPlatform::Win64;
 	KeyInput.TargetProfile = Durin::ESkeletalPayloadTargetProfile::Game;
-	const std::string MeshKey = Durin::Asset::Build::BuildSkeletalMeshDerivedDataKey(
+	const std::string MeshKey = Durin::Asset::BuildSkeletalMeshDerivedDataKey(
 		MeshKeyInput, Error);
 	EXPECT_EQ(MeshKey, "52c09bf719453d299c5525d2ea1dda6d");
 	EXPECT_EQ(MeshKey.size(), 32u);
-	EXPECT_EQ(Durin::Asset::Build::BuildSkeletalMeshDerivedDataKey(MeshKeyInput, Error), MeshKey);
-	Durin::Asset::Build::FAnimationClipBuildKeyInput ClipKeyInput;
-	static_cast<Durin::Asset::Build::FSkeletalBuildKeyFields&>(ClipKeyInput) = KeyInput;
+	EXPECT_EQ(Durin::Asset::BuildSkeletalMeshDerivedDataKey(MeshKeyInput, Error), MeshKey);
+	Durin::Asset::FAnimationClipBuildKeyInput ClipKeyInput;
+	static_cast<Durin::Asset::FSkeletalBuildKeyFields&>(ClipKeyInput) = KeyInput;
 	ClipKeyInput.PayloadInputFingerprint = ClipFingerprint;
 	ClipKeyInput.StableOutputIdentity = "animation-clip:animation/0/skin/0";
-	const std::string ClipKey = Durin::Asset::Build::BuildAnimationClipDerivedDataKey(
+	const std::string ClipKey = Durin::Asset::BuildAnimationClipDerivedDataKey(
 		ClipKeyInput, Error);
 	EXPECT_EQ(ClipKey, "683755735a794db9d991a4c83e733839");
 	EXPECT_EQ(ClipKey.size(), 32u);

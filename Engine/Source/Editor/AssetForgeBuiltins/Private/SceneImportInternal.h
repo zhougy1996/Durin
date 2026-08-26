@@ -43,7 +43,7 @@ namespace Durin::AssetForge::Builtins
 	};
 	struct FSceneTextureBuildProduct
 	{
-		Asset::Build::FTexture2DBuildProduct Product;
+		Asset::FTexture2DBuildProduct Product;
 		FSourcePath Source;
 		std::vector<std::byte> SourceBytesToMount;
 		uint64 SourceFileSize = 0;

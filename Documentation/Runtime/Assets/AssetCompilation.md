@@ -80,12 +80,12 @@ generation-safe admission, Renderer publication, reload behavior, and cooked
 program rules. Remaining count is the number of live outstanding material
 consumers rather than shared worker flights.
 
-Texture compilation remains TextureBuild-owned. It preserves
-`FTexture2DBuildCoordinator` worker admission, priority fairness, memory budget,
-DDC behavior, cancellation, completion mailbox, latest-wins authoring state,
-and exactly-once completion callbacks. Remaining count is live Texture2D
-authoring consumers. TextureCube, VolumeTexture, and Geometry recipes stay
-synchronous and do not register empty compilation domains.
+Texture compilation remains TextureBuild-owned. Its private scheduler preserves
+worker admission, priority fairness, memory budget, DDC behavior, cancellation,
+the completion mailbox, latest-wins authoring state, and exactly-once completion
+callbacks. Remaining count is live Texture2D authoring consumers. TextureCube,
+VolumeTexture, and Geometry recipes stay synchronous and do not register empty
+compilation domains.
 
 ## Related Documentation
 

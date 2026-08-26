@@ -6,7 +6,7 @@
 namespace Durin::AssetForge::Builtins
 {
 	auto MakeTexture2DBuildSettings(const DTexture2D& Texture)
-		-> Asset::Build::FTexture2DBuildSettings;
+		-> Asset::FTexture2DBuildSettings;
 	auto BuildTexture2DCandidateFromSource(
 		DTexture2D& Texture,
 		std::span<const std::byte> EncodedBytes,

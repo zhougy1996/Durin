@@ -4,7 +4,7 @@
 #include "Hash/XxHash.h"
 #include "Serialization/BinaryFormat.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	namespace
 	{

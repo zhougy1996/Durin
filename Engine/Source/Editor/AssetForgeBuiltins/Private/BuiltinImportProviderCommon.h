@@ -168,7 +168,7 @@ namespace Durin::AssetForge::Builtins
 		auto DecodeStaticMeshSource(
 			std::string_view FilePath,
 			const FStaticMeshImportSettings& Settings,
-			Asset::Build::FStaticMeshImportedData& OutData,
+			Asset::FStaticMeshImportedData& OutData,
 			std::string& OutError) -> bool
 		{
 			FImportedSceneData Scene;
@@ -191,12 +191,12 @@ namespace Durin::AssetForge::Builtins
 			FStaticMeshAuthoringProduct& OutProduct,
 			std::string& OutError) -> bool
 		{
-			Asset::Build::FStaticMeshImportedData ImportedData;
+			Asset::FStaticMeshImportedData ImportedData;
 			if (!DecodeStaticMeshSource(
 				FilePath, SourceImportData.ImportSettings, ImportedData, OutError))
 				return false;
-			return Asset::Build::FStaticMeshBuildOperations::BuildImportedProduct(
-				Asset::Build::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
+			return Asset::FStaticMeshBuildOperations::BuildImportedProduct(
+				Asset::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
 				ImportedData, std::move(SourceImportData), SourceLabel,
 				OutProduct, OutError);
 		}
@@ -259,8 +259,8 @@ namespace Durin::AssetForge::Builtins
 				EStaticMeshDerivedDataStatus::Missing;
 			std::string CacheMessage;
 			if (!bSourceMetadataStale
-				&& Asset::Build::FStaticMeshBuildOperations::LoadDerivedDataProduct(
-					Asset::Build::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
+				&& Asset::FStaticMeshBuildOperations::LoadDerivedDataProduct(
+					Asset::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
 					Source, bSourceAvailable, Product, CacheStatus,
 					CacheMessage, OutError))
 			{

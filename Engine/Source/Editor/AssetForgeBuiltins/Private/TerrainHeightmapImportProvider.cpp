@@ -64,8 +64,8 @@ namespace Durin::AssetForge::Builtins
 		class FTerrainProduct final : public IBuildProduct
 		{
 		public:
-			Asset::Build::FTerrainHeightmapBuildProduct Product;
-			Asset::Build::FTerrainHeightmapPublicationContext Publication;
+			Asset::FTerrainHeightmapBuildProduct Product;
+			Asset::FTerrainHeightmapPublicationContext Publication;
 			auto CloneDetachedProduct() const
 				-> std::unique_ptr<IBuildProduct> override
 			{
@@ -90,7 +90,7 @@ namespace Durin::AssetForge::Builtins
 				if (!SourceNode || !DecodeTerrain(SourceNode->Payload, Terrain, Error)
 					|| !DecodeTerrainPlan(Node.Settings, Plan, Error)) return {};
 				auto Result = std::make_unique<FTerrainProduct>();
-				if (!Asset::Build::BuildTerrainHeightmap({.Samples = std::move(Terrain.Source.Samples),
+				if (!Asset::BuildTerrainHeightmap({.Samples = std::move(Terrain.Source.Samples),
 					.Width = Terrain.Source.Width, .Height = Terrain.Source.Height,
 					.SourceContentHashLow = Terrain.Hash.HashLow,
 					.SourceContentHashHigh = Terrain.Hash.HashHigh,
@@ -125,7 +125,7 @@ namespace Durin::AssetForge::Builtins
 				auto Result = std::make_unique<FBuiltinSingleAssetCandidate>(
 					AssetObject, Node.Policy == EImportOutputPolicy::Create);
 				std::string Error;
-				if (!Asset::Build::PublishTerrainHeightmapProduct(*AssetObject,
+				if (!Asset::PublishTerrainHeightmapProduct(*AssetObject,
 					std::move(Typed->Product), Typed->Publication, Error))
 				{
 					AddFailure(Diagnostics, "Durin.TerrainHeightmap.MaterializeFailed", "Materialization", Error);

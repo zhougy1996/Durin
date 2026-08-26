@@ -7,32 +7,32 @@ namespace Durin::AssetForge::Builtins
 {
 	inline auto BuildAndPublishTextureCubePanorama(
 		DTextureCube& Texture,
-		Asset::Build::TextureCubeBuilder::FTexturePanoramaImage Panorama,
+		Asset::TextureCubeBuilder::FTexturePanoramaImage Panorama,
 		const FXxHash128& SourceHash,
 		const FSourcePath& SourcePath,
 		const FTextureCubePanoramaImportSettings& Settings,
 		std::string& OutError) -> bool
 	{
-		Asset::Build::FTextureCubeBuildProduct Product;
-		if (!Asset::Build::BuildTextureCubePanorama(
+		Asset::FTextureCubeBuildProduct Product;
+		if (!Asset::BuildTextureCubePanorama(
 			std::move(Panorama), SourceHash, Settings, Product, OutError)) return false;
-		return Asset::Build::PublishTextureCubeProduct(Texture, std::move(Product), {
+		return Asset::PublishTextureCubeProduct(Texture, std::move(Product), {
 			.PanoramaHash = SourceHash,
 			.PanoramaPath = SourcePath}, OutError);
 	}
 
 	inline auto BuildAndPublishTextureCubePanorama(
 		DTextureCube& Texture,
-		Asset::Build::TextureCubeBuilder::FTexturePanoramaFloatImage Panorama,
+		Asset::TextureCubeBuilder::FTexturePanoramaFloatImage Panorama,
 		const FXxHash128& SourceHash,
 		const FSourcePath& SourcePath,
 		const FTextureCubePanoramaImportSettings& Settings,
 		std::string& OutError) -> bool
 	{
-		Asset::Build::FTextureCubeBuildProduct Product;
-		if (!Asset::Build::BuildTextureCubePanorama(
+		Asset::FTextureCubeBuildProduct Product;
+		if (!Asset::BuildTextureCubePanorama(
 			std::move(Panorama), SourceHash, Settings, Product, OutError)) return false;
-		return Asset::Build::PublishTextureCubeProduct(Texture, std::move(Product), {
+		return Asset::PublishTextureCubeProduct(Texture, std::move(Product), {
 			.PanoramaHash = SourceHash,
 			.PanoramaPath = SourcePath}, OutError);
 	}
@@ -59,10 +59,10 @@ namespace Durin::AssetForge::Builtins
 		const FTextureCubeImportSettings& Settings,
 		std::string& OutError) -> bool
 	{
-		Asset::Build::FTextureCubeBuildProduct Product;
-		if (!Asset::Build::BuildTextureCubeFaces(
+		Asset::FTextureCubeBuildProduct Product;
+		if (!Asset::BuildTextureCubeFaces(
 			std::move(SourceData), SourceHashes, Settings, Product, OutError)) return false;
-		return Asset::Build::PublishTextureCubeProduct(Texture, std::move(Product), {
+		return Asset::PublishTextureCubeProduct(Texture, std::move(Product), {
 			.FaceHashes = SourceHashes,
 			.FacePaths = SourcePaths}, OutError);
 	}

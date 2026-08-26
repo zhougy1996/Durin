@@ -327,9 +327,9 @@ namespace Durin::AssetForge::Builtins
 		FVolumeTextureSourceData SourceData;
 		if (!TranslateVolumeTextureAtlasSource(Source, Settings, SourceData, OutError)) return false;
 		const FVolumeTextureBuildSettings BuildSettings{.OutputFormat = SourceData.Format};
-		Asset::Build::FVolumeTextureBuildProduct Product;
-		if (!Asset::Build::BuildVolumeTexture(std::move(SourceData), BuildSettings, Product, OutError)
-			|| !Asset::Build::PublishVolumeTextureProduct(Texture, std::move(Product), OutError))
+		Asset::FVolumeTextureBuildProduct Product;
+		if (!Asset::BuildVolumeTexture(std::move(SourceData), BuildSettings, Product, OutError)
+			|| !Asset::PublishVolumeTextureProduct(Texture, std::move(Product), OutError))
 			return false;
 		FVolumeTextureSourceImportData Provenance{
 			.Source = MakeSourceFile(Source), .SourceFile = Source.SourcePath.Path,

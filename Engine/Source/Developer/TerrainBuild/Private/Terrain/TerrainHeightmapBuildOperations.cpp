@@ -16,7 +16,7 @@ namespace Durin
 	};
 }
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	using namespace ::Durin::DerivedData;
 

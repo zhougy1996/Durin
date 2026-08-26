@@ -21,7 +21,7 @@ namespace Durin
 			FStaticMeshCollisionAuthoringProduct& OutProduct,
 			std::string& OutError) -> bool override
 		{
-			return Asset::Build::FStaticMeshBuildOperations::BuildCollisionProduct(
+			return Asset::FStaticMeshBuildOperations::BuildCollisionProduct(
 				RenderData, SourceImportData, Mode, Policy, OutProduct, OutError);
 		}
 
@@ -31,7 +31,7 @@ namespace Durin
 			BuildFunctionCallbackRegistration =
 				FModuleStartup::CreateOwnedCallbackRegistration(
 					"StaticMeshBuild.BuildFunctions");
-			checkf(Asset::Build::InitializeStaticMeshBuildFunctions(
+			checkf(Asset::InitializeStaticMeshBuildFunctions(
 				BuildFunctionCallbackRegistration.GetGate(), &Error),
 				"StaticMeshBuild could not register its build functions: {}", Error);
 			CollisionFeatureRegistration =
@@ -42,7 +42,7 @@ namespace Durin
 
 		auto ShutdownModule() -> void override
 		{
-			Asset::Build::ShutdownStaticMeshBuildFunctions();
+			Asset::ShutdownStaticMeshBuildFunctions();
 		}
 	};
 

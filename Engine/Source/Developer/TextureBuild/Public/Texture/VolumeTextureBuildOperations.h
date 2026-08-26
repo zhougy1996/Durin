@@ -3,7 +3,7 @@
 #include "TextureBuildAPI.h"
 #include "Texture/VolumeTexture.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	// Detached normalized source and built platform value ready for atomic publication.
 	struct FVolumeTextureBuildProduct

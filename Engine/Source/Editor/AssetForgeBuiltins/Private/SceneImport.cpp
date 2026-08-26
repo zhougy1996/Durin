@@ -1019,10 +1019,10 @@ namespace Durin::AssetForge::Builtins
 		OutProduct.SourceFileSize = Bytes.size();
 		FTextureSourceData SourceData;
 		const FXxHash128 SourceHash = FXxHash128::HashBuffer(Bytes);
-		const Asset::Build::FTexture2DBuildExecutionControl Control{
+		const Asset::FTexture2DBuildExecutionControl Control{
 			.ShouldCancel = IsCancellationRequested};
 		if (!TranslateTexture2DSource(Bytes, SourceData, OutError)
-			|| !Asset::Build::BuildTexture2D({
+			|| !Asset::BuildTexture2D({
 				.SourceData = std::move(SourceData),
 				.SourceContentHashLow = SourceHash.HashLow,
 				.SourceContentHashHigh = SourceHash.HashHigh,

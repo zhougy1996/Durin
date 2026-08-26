@@ -99,7 +99,7 @@ namespace
 		const uint32 Width = std::max<uint32>(1,
 			static_cast<uint32>(std::ceil(std::sqrt(static_cast<double>(CellCount)))));
 		const uint32 Height = (CellCount + Width - 1) / Width;
-		Durin::Asset::Build::FStaticMeshImportedData Imported;
+		Durin::Asset::FStaticMeshImportedData Imported;
 		Imported.MaterialSlots.push_back({.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
 		auto& Mesh = Imported.Meshes.emplace_back();
 		Mesh.Name = "PickingGrid";
@@ -124,7 +124,7 @@ namespace
 		auto* Result = Durin::NewObject<Durin::DStaticMesh>(Level,
 			std::format("PickingGrid{}", TriangleCount));
 		std::string Error;
-		if (!Durin::Asset::Build::FStaticMeshBuildOperations::BuildAndPublishImported(
+		if (!Durin::Asset::FStaticMeshBuildOperations::BuildAndPublishImported(
 			*Result, Imported,
 			{.SourcePath = {.Path = std::format("/Tests/PickingGrid{}.fixture", TriangleCount)},
 				.SourceContentHash = "0123456789abcdef0123456789abcdef",

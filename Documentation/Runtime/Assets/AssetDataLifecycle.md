@@ -50,7 +50,7 @@ Terrain function identities intentionally retain their historical
 `Durin.GeometryBuild.Terrain...` prefix: the identity is persisted production
 identity rather than the selectable module name, so this ownership extraction
 does not invalidate otherwise compatible disposable cache entries.
-TextureBuild's coordinator calls the synchronous session from its existing
+TextureBuild's private scheduler calls the synchronous session from its existing
 worker and retains cancellation, supersession, metrics, and main-thread
 publication ownership. AssetForgeBuiltins likewise retains TextureCube source
 normalization, scene parsing, Terrain source decoding/coalescing, and GameThread

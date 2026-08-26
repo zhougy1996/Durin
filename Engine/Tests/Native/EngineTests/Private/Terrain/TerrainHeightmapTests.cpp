@@ -341,7 +341,7 @@ TEST(FTerrainHeightmapDerivedDataTests, KeyAndPayloadRoundTripAreStableAndCorrup
 	std::shared_ptr<const Durin::FTerrainHeightmapPayload> Payload;
 	std::string Error;
 	ASSERT_TRUE(Durin::BuildTerrainHeightmapPayload(4, 3, Samples, Payload, Error)) << Error;
-	Durin::Asset::Build::FTerrainHeightmapBuildKeyInput KeyInput{
+	Durin::Asset::FTerrainHeightmapBuildKeyInput KeyInput{
 		.SourceContentHash = Durin::FXxHash128::HashBuffer(std::as_bytes(std::span(Samples))),
 		.DecoderId = "DurinImage.Png16",
 		.DecoderVersion = 1,
@@ -351,21 +351,21 @@ TEST(FTerrainHeightmapDerivedDataTests, KeyAndPayloadRoundTripAreStableAndCorrup
 		.TargetProfile = Durin::Asset::ECookTargetProfile::Game};
 	std::string FirstKey;
 	std::string SecondKey;
-	FirstKey = Durin::Asset::Build::BuildTerrainHeightmapDerivedDataKey(KeyInput, Error);
+	FirstKey = Durin::Asset::BuildTerrainHeightmapDerivedDataKey(KeyInput, Error);
 	ASSERT_FALSE(FirstKey.empty()) << Error;
-	SecondKey = Durin::Asset::Build::BuildTerrainHeightmapDerivedDataKey(KeyInput, Error);
+	SecondKey = Durin::Asset::BuildTerrainHeightmapDerivedDataKey(KeyInput, Error);
 	ASSERT_FALSE(SecondKey.empty()) << Error;
 	EXPECT_EQ(FirstKey, SecondKey);
 	EXPECT_EQ(FirstKey.size(), 32);
 	KeyInput.DecoderId = "DurinTerrainRaw16";
 	KeyInput.SourceFormat = Durin::ETerrainHeightmapSourceFormat::Raw16;
 	const std::string RawKey =
-		Durin::Asset::Build::BuildTerrainHeightmapDerivedDataKey(KeyInput, Error);
+		Durin::Asset::BuildTerrainHeightmapDerivedDataKey(KeyInput, Error);
 	EXPECT_FALSE(RawKey.empty()) << Error;
 	EXPECT_NE(RawKey, FirstKey);
-	Durin::Asset::Build::FTerrainHeightmapBuildProduct PngProduct;
-	Durin::Asset::Build::FTerrainHeightmapBuildProduct RawProduct;
-	ASSERT_TRUE(Durin::Asset::Build::BuildTerrainHeightmap({
+	Durin::Asset::FTerrainHeightmapBuildProduct PngProduct;
+	Durin::Asset::FTerrainHeightmapBuildProduct RawProduct;
+	ASSERT_TRUE(Durin::Asset::BuildTerrainHeightmap({
 		.Samples = std::vector<uint16>(Samples.begin(), Samples.end()),
 		.Width = 4,
 		.Height = 3,
@@ -375,7 +375,7 @@ TEST(FTerrainHeightmapDerivedDataTests, KeyAndPayloadRoundTripAreStableAndCorrup
 		.SourceFormat = Durin::ETerrainHeightmapSourceFormat::Png16,
 		.SourceProfileVersion = 1,
 		.bPersistDerivedData = false}, PngProduct, Error)) << Error;
-	ASSERT_TRUE(Durin::Asset::Build::BuildTerrainHeightmap({
+	ASSERT_TRUE(Durin::Asset::BuildTerrainHeightmap({
 		.Samples = std::vector<uint16>(Samples.begin(), Samples.end()),
 		.Width = 4,
 		.Height = 3,

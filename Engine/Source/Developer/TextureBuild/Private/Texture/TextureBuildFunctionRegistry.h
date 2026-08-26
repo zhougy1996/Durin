@@ -2,7 +2,7 @@
 
 #include "DerivedDataCache/DerivedDataBuildFunction.h"
 
-namespace Durin::Asset::Build
+namespace Durin::Asset
 {
 	using namespace ::Durin::DerivedData;
 
