@@ -305,17 +305,17 @@ namespace Durin::VulkanRHI
 		RecursionDropCount.store(0, std::memory_order_relaxed);
 	}
 
-	VKAPI_ATTR vk::Bool32 VKAPI_CALL VulkanDebugUtilsCallback(
-		vk::DebugUtilsMessageSeverityFlagBitsEXT Severity,
-		vk::DebugUtilsMessageTypeFlagsEXT Types,
-		const vk::DebugUtilsMessengerCallbackDataEXT* CallbackData,
+	VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugUtilsCallback(
+		VkDebugUtilsMessageSeverityFlagBitsEXT Severity,
+		VkDebugUtilsMessageTypeFlagsEXT Types,
+		const VkDebugUtilsMessengerCallbackDataEXT* CallbackData,
 		void* UserData)
 	{
 		if (auto* State = static_cast<FVulkanDebugCallbackState*>(UserData))
 		{
 			State->HandleMessage(
-				Severity,
-				Types,
+				static_cast<vk::DebugUtilsMessageSeverityFlagBitsEXT>(Severity),
+				static_cast<vk::DebugUtilsMessageTypeFlagsEXT>(Types),
 				CallbackData ? CallbackData->pMessage : nullptr,
 				&LogVulkanDebugMessage);
 		}
