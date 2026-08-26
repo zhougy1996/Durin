@@ -41,7 +41,7 @@ fragment, while opaque shadow remains material-resource-free.
 
 This plan deliberately remains synchronous. It must leave one immutable,
 value-owned compiler input/result and measured compile/artifact baseline for
-[Material Compile Lifecycle and Derived Data](../../MaterialCompileLifecycleAndDerivedData.md),
+[Material Compile Lifecycle and Derived Data](MaterialCompileLifecycleAndDerivedData.md),
 which owns asynchronous requests, cancellation, generations, last-known-good
 asset state, material-level derived artifacts, Cook, and shutdown orchestration.
 

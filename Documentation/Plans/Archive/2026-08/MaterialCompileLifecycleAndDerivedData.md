@@ -4,7 +4,7 @@ Summary: Add cancelable generation-safe material compilation, last-known-good pu
 
 Last reviewed: 2026-08-25
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-25
 
 ## Current Status
@@ -635,8 +635,8 @@ Limitations and dispositions:
 | Lifecycle | Provider close, module unload, editor shutdown, engine drain/cancel, render-command admission restart, and zero retained work/storage audits |
 | Qualification | Plan-owned latency, queue, memory, artifact, retention, and stress budgets derived from Stage 0; focused, aggregate, full build, and editor smoke evidence |
 
-Use the repository [build and run](../Agents/BuildAndRun.md) and
-[testing](../Agents/Testing.md) workflows to select profiles and commands.
+Use the repository [build and run](../../../Agents/BuildAndRun.md) and
+[testing](../../../Agents/Testing.md) workflows to select profiles and commands.
 Stage handoffs record exact targets, filters, timings, hardware, cache state,
 and any environment-dependent qualification values.
 
@@ -674,19 +674,19 @@ and any environment-dependent qualification values.
 
 ## Related Documentation
 
-- [Material System Roadmap](../Roadmaps/MaterialSystem.md)
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Shader Cache](../Runtime/Rendering/ShaderCache.md)
-- [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Render Resource Lifecycle](../Runtime/Rendering/RenderResourceLifecycle.md)
-- [CPU Task System](../Runtime/Core/TaskSystem.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [File I/O](../Runtime/Core/FileIO.md)
-- [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
-- [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
+- [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
+- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Render Resource Lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
+- [CPU Task System](../../../Runtime/Core/TaskSystem.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [File I/O](../../../Runtime/Core/FileIO.md)
+- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
+- [Reflected Property Editing](../../../Editor/Architecture/ReflectedPropertyEditing.md)
 
 ## Related Code
 

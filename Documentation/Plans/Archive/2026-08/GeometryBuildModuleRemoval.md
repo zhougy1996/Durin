@@ -4,7 +4,7 @@ Summary: Split StaticMesh and skeletal-animation build ownership into StaticMesh
 
 Last reviewed: 2026-08-26
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-26
 
 ## Current Status
@@ -152,18 +152,18 @@ test, project, and runtime-variant ownership.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Skeletal Animation Playback](../Runtime/Animation/SkeletalAnimationPlayback.md)
-- [Skeletal Mesh Rendering](../Runtime/Rendering/SkeletalMeshRendering.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Workspace And Projects](../Workspace/WorkspaceProjects.md)
-- [Build System](../Development/Build/BuildSystem.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
+- [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
+- [Build System](../../../Development/Build/BuildSystem.md)
 - [Terrain Build Module Extraction](TerrainBuildModuleExtraction.md)
 
 ## Related Code
 
-- [`StaticMeshBuild`](../../Engine/Source/Developer/StaticMeshBuild)
-- [`SkeletalBuild`](../../Engine/Source/Developer/SkeletalBuild)
-- [`AssetForgeBuiltins`](../../Engine/Source/Editor/AssetForgeBuiltins)
-- [`Engine project descriptor`](../../Engine/Engine.dproject)
-- [`Engine native tests`](../../Engine/Tests/Native/EngineTests)
+- [`StaticMeshBuild`](../../../../Engine/Source/Developer/StaticMeshBuild)
+- [`SkeletalBuild`](../../../../Engine/Source/Developer/SkeletalBuild)
+- [`AssetForgeBuiltins`](../../../../Engine/Source/Editor/AssetForgeBuiltins)
+- [`Engine project descriptor`](../../../../Engine/Engine.dproject)
+- [`Engine native tests`](../../../../Engine/Tests/Native/EngineTests)

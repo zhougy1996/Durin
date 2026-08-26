@@ -4,7 +4,7 @@ Summary: Replace the family-neutral AssetBuildCore BuildHost with an Engine-owne
 
 Last reviewed: 2026-08-26
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-26
 
 ## Current Status
@@ -33,7 +33,7 @@ refactor. Editor/game configuration, deployment inspection, and source-symbol
 audits confirm Engine has no new Developer/Editor dependency and DurinGame does
 not deploy TextureBuild, AssetBuildCore, or DerivedDataCache.
 
-The lasting contract is published in [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
+The lasting contract is published in [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
 and routed from the runtime lifecycle, asset lifecycle, material, texture, and
 workspace module documents.
 
@@ -606,30 +606,30 @@ The following behavior remains compatible:
 
 ## Related Documentation
 
-- [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Texture System](../Runtime/Rendering/TextureSystem.md)
-- [Runtime Lifecycle](../Runtime/Core/RuntimeLifecycle.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Build and Run](../Agents/BuildAndRun.md)
-- [Testing](../Agents/Testing.md)
-- [Derived Data Cache Module Extraction Plan](DerivedDataCacheModuleExtraction.md)
+- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Texture System](../../../Runtime/Rendering/TextureSystem.md)
+- [Runtime Lifecycle](../../../Runtime/Core/RuntimeLifecycle.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Build and Run](../../../Agents/BuildAndRun.md)
+- [Testing](../../../Agents/Testing.md)
+- [Derived Data Cache Module Extraction Plan](../../DerivedDataCacheModuleExtraction.md)
 - [Material Compile Lifecycle and Derived Data Plan](MaterialCompileLifecycleAndDerivedData.md)
 
 ## Related Code
 
-- [`AssetCompilingManager.h`](../../Engine/Source/Runtime/Engine/Public/Asset/AssetCompilingManager.h)
-- [`AssetCompilingManager.cpp`](../../Engine/Source/Runtime/Engine/Private/Asset/AssetCompilingManager.cpp)
+- [`AssetCompilingManager.h`](../../../../Engine/Source/Runtime/Engine/Public/Asset/AssetCompilingManager.h)
+- [`AssetCompilingManager.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetCompilingManager.cpp)
 - `Engine/Source/Developer/AssetBuildCore/Public/AssetBuild/BuildHost.h` (removed)
-- [`DerivedDataBuild.cpp`](../../Engine/Source/Developer/DerivedDataCache/Private/DerivedDataBuild.cpp)
-- [`MaterialCompileLifecycle.h`](../../Engine/Source/Runtime/Engine/Public/Materials/MaterialCompileLifecycle.h)
-- [`MaterialCompileLifecycle.cpp`](../../Engine/Source/Runtime/Engine/Private/Materials/MaterialCompileLifecycle.cpp)
-- [`Texture2DCompilation.h`](../../Engine/Source/Developer/TextureBuild/Public/Texture/Texture2DCompilation.h)
-- [`Texture2DCompilation.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DCompilation.cpp)
-- [`Texture2DCompilationDomain.h`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DCompilationDomain.h)
-- [`Texture2DCompilationDomain.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DCompilationDomain.cpp)
-- [`EngineLoop.cpp`](../../Engine/Source/Runtime/Launch/Private/EngineLoop.cpp)
-- [`MainFrameModule.cpp`](../../Engine/Source/Editor/MainFrame/Private/MainFrameModule.cpp)
-- [`DerivedDataBuildTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/DerivedDataBuildTests.cpp)
-- [`MaterialCompileLifecycleTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Materials/MaterialCompileLifecycleTests.cpp)
-- [`TextureBuildTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Texture/TextureBuildTests.cpp)
+- [`DerivedDataBuild.cpp`](../../../../Engine/Source/Developer/DerivedDataCache/Private/DerivedDataBuild.cpp)
+- [`MaterialCompileLifecycle.h`](../../../../Engine/Source/Runtime/Engine/Public/Materials/MaterialCompileLifecycle.h)
+- [`MaterialCompileLifecycle.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Materials/MaterialCompileLifecycle.cpp)
+- [`Texture2DCompilation.h`](../../../../Engine/Source/Developer/TextureBuild/Public/Texture/Texture2DCompilation.h)
+- [`Texture2DCompilation.cpp`](../../../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DCompilation.cpp)
+- [`Texture2DCompilationDomain.h`](../../../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DCompilationDomain.h)
+- [`Texture2DCompilationDomain.cpp`](../../../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DCompilationDomain.cpp)
+- [`EngineLoop.cpp`](../../../../Engine/Source/Runtime/Launch/Private/EngineLoop.cpp)
+- [`MainFrameModule.cpp`](../../../../Engine/Source/Editor/MainFrame/Private/MainFrameModule.cpp)
+- [`DerivedDataBuildTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/DerivedDataBuildTests.cpp)
+- [`MaterialCompileLifecycleTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Materials/MaterialCompileLifecycleTests.cpp)
+- [`TextureBuildTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Texture/TextureBuildTests.cpp)

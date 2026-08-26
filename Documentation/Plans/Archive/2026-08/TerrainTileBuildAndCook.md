@@ -4,7 +4,7 @@ Summary: Implement normalized Terrain tile inputs, product codecs, DDC, Cook, ma
 
 Last reviewed: 2026-08-26
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-26
 
 ## Current Status
@@ -21,7 +21,7 @@ retention, F0 package reconciliation, partial installation, corrupt cooked
 bulk, and shutdown retirement within the profile 512/768 MiB task ceilings.
 The lasting wire and lifecycle details are published in [Terrain World
 Data](../Runtime/Terrain/TerrainWorldData.md),
-and [Terrain Runtime Tile Reference](TerrainRuntimeTileReference.md) is active
+and [Terrain Runtime Tile Reference](../../TerrainRuntimeTileReference.md) is active
 for T2.
 
 ## Goal
@@ -157,13 +157,13 @@ builders, package directory, authored bridge, and tests.
 
 ## Related Documentation
 
-- [Terrain World Data](../Runtime/Terrain/TerrainWorldData.md)
-- [Terrain World System Roadmap](../Roadmaps/TerrainWorldSystem.md)
-- [Terrain Runtime Tile Reference](TerrainRuntimeTileReference.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Terrain World Data](../../../Runtime/Terrain/TerrainWorldData.md)
+- [Terrain World System Roadmap](../../../Roadmaps/TerrainWorldSystem.md)
+- [Terrain Runtime Tile Reference](../../TerrainRuntimeTileReference.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

@@ -4,7 +4,7 @@ Summary: Replace overloaded Authoring names with lifecycle-specific asset, load,
 
 Last reviewed: 2026-08-26
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-26
 
 ## Current Status
@@ -397,8 +397,8 @@ cleanup.”
 
 ## Validation Matrix
 
-Follow [Build and Run](../Agents/BuildAndRun.md) before building and
-[Testing](../Agents/Testing.md) before selecting or running native tests. Use
+Follow [Build and Run](../../../Agents/BuildAndRun.md) before building and
+[Testing](../../../Agents/Testing.md) before selecting or running native tests. Use
 the smallest affected targets during each stage and the full repository build
 after Stage 5.
 
@@ -454,18 +454,18 @@ not be used to expand rendering behavior.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Catalog And Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
-- [Async Asset Operations](../Editor/Architecture/AsyncAssetOperations.md)
-- [Workspace Projects](../Workspace/WorkspaceProjects.md)
-- [Static Mesh Level Mutations](../Editor/Architecture/StaticMeshLevelMutations.md)
-- [Terrain Editing Architecture](../Editor/Architecture/TerrainEditing.md)
-- [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)
-- [Volume Textures](../Runtime/Assets/VolumeTextures.md)
-- [Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Catalog And Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Workspace Projects](../../../Workspace/WorkspaceProjects.md)
+- [Static Mesh Level Mutations](../../../Editor/Architecture/StaticMeshLevelMutations.md)
+- [Terrain Editing Architecture](../../../Editor/Architecture/TerrainEditing.md)
+- [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
 
 ## Related Code
 

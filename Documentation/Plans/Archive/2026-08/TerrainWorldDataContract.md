@@ -380,7 +380,7 @@ commands.
 ## Related Documentation
 
 - [Terrain World Data](../../../Runtime/Terrain/TerrainWorldData.md)
-- [Terrain Tile Build and Cook](../../TerrainTileBuildAndCook.md)
+- [Terrain Tile Build and Cook](TerrainTileBuildAndCook.md)
 - [Terrain World System Roadmap](../../../Roadmaps/TerrainWorldSystem.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)

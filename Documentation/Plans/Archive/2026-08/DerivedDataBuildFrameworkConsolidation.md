@@ -4,7 +4,7 @@ Summary: Consolidate the family-neutral build framework into DerivedDataCache, r
 
 Last reviewed: 2026-08-26
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-26
 
 ## Current Status
@@ -144,18 +144,18 @@ asset compilation, runtime-variant closure, and focused test coverage.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
-- [Async Asset Operations](../Editor/Architecture/AsyncAssetOperations.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Workspace And Projects](../Workspace/WorkspaceProjects.md)
-- [Build System](../Development/Build/BuildSystem.md)
-- [Derived Data Cache Module Extraction](DerivedDataCacheModuleExtraction.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
+- [Build System](../../../Development/Build/BuildSystem.md)
+- [Derived Data Cache Module Extraction](../../DerivedDataCacheModuleExtraction.md)
 
 ## Related Code
 
-- [`DerivedDataCache`](../../Engine/Source/Developer/DerivedDataCache)
-- [`TextureBuild`](../../Engine/Source/Developer/TextureBuild)
-- [`StaticMeshBuild`](../../Engine/Source/Developer/StaticMeshBuild)
-- [`SkeletalBuild`](../../Engine/Source/Developer/SkeletalBuild)
-- [`DerivedDataBuildTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/DerivedDataBuildTests.cpp)
+- [`DerivedDataCache`](../../../../Engine/Source/Developer/DerivedDataCache)
+- [`TextureBuild`](../../../../Engine/Source/Developer/TextureBuild)
+- [`StaticMeshBuild`](../../../../Engine/Source/Developer/StaticMeshBuild)
+- [`SkeletalBuild`](../../../../Engine/Source/Developer/SkeletalBuild)
+- [`DerivedDataBuildTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/DerivedDataBuildTests.cpp)

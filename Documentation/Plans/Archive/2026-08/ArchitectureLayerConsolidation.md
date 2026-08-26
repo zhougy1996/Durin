@@ -4,7 +4,7 @@ Summary: Collapse redundant compilation, thumbnail, import, and renderer ownersh
 
 Last reviewed: 2026-08-26
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-26
 
 ## Current Status
@@ -334,8 +334,8 @@ persistent object formats remain unchanged.
 | Cross-module completion | repository full build and applicable editor/game smoke checks | public dependency and composition integrity |
 | Documentation | changed-doc validation and all-plan validation | valid links, metadata, and lasting ownership statements |
 
-Test selection and execution follow [Testing](../Agents/Testing.md); build and
-smoke execution follow [Build And Run](../Agents/BuildAndRun.md). Each stage
+Test selection and execution follow [Testing](../../../Agents/Testing.md); build and
+smoke execution follow [Build And Run](../../../Agents/BuildAndRun.md). Each stage
 runs the smallest focused targets first. Stage 6 repeats the complete matrix so
 stage-local success cannot hide a later cross-domain regression.
 
@@ -392,15 +392,15 @@ stage-local success cannot hide a later cross-domain regression.
 
 ## Related Documentation
 
-- [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
-- [Async Asset Operations](../Editor/Architecture/AsyncAssetOperations.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)
-- [Testing](../Agents/Testing.md)
-- [Build And Run](../Agents/BuildAndRun.md)
+- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
+- [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+- [Testing](../../../Agents/Testing.md)
+- [Build And Run](../../../Agents/BuildAndRun.md)
 - [Asset Compiling Manager Refactor Plan](AssetCompilingManagerRefactor.md)
 
 ## Related Code

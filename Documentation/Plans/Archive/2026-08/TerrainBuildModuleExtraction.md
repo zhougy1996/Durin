@@ -4,7 +4,7 @@ Summary: Extract Terrain heightmap and Terrain World build, DDC, and cook owners
 
 Last reviewed: 2026-08-26
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-26
 
 ## Current Status
@@ -149,17 +149,17 @@ identities, module-retirement safety, and existing Runtime publication behavior.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Terrain World Data](../Runtime/Terrain/TerrainWorldData.md)
-- [Terrain Heightmap Asset](../Runtime/Terrain/TerrainHeightmapAsset.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Workspace And Projects](../Workspace/WorkspaceProjects.md)
-- [Build System](../Development/Build/BuildSystem.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Terrain World Data](../../../Runtime/Terrain/TerrainWorldData.md)
+- [Terrain Heightmap Asset](../../../Runtime/Terrain/TerrainHeightmapAsset.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
+- [Build System](../../../Development/Build/BuildSystem.md)
 
 ## Related Code
 
-- [`StaticMeshBuild`](../../Engine/Source/Developer/StaticMeshBuild)
-- [`SkeletalBuild`](../../Engine/Source/Developer/SkeletalBuild)
-- [`Engine project descriptor`](../../Engine/Engine.dproject)
-- [`AssetForgeBuiltins`](../../Engine/Source/Editor/AssetForgeBuiltins)
-- [`Terrain tests`](../../Engine/Tests/Native/EngineTests/Private/Terrain)
+- [`StaticMeshBuild`](../../../../Engine/Source/Developer/StaticMeshBuild)
+- [`SkeletalBuild`](../../../../Engine/Source/Developer/SkeletalBuild)
+- [`Engine project descriptor`](../../../../Engine/Engine.dproject)
+- [`AssetForgeBuiltins`](../../../../Engine/Source/Editor/AssetForgeBuiltins)
+- [`Terrain tests`](../../../../Engine/Tests/Native/EngineTests/Private/Terrain)

@@ -38,7 +38,7 @@ and measured reuse/batching policy remain unlanded.
 The [M5 material-program and compiler foundation plan](../Plans/Archive/2026-08/MaterialProgramAndCompilerFoundation.md)
 is complete: bounded authored programs compile deterministically and render
 through every production surface consumer. The
-[M6 lifecycle plan](../Plans/MaterialCompileLifecycleAndDerivedData.md) is
+[M6 lifecycle plan](../Plans/Archive/2026-08/MaterialCompileLifecycleAndDerivedData.md) is
 complete: Engine owns bounded Worker orchestration and Cook admission while
 RenderCore remains the single shader-artifact DDC owner. M7 graph authoring is
 complete; M8 remains evidence-gated on measured runtime update workloads.
@@ -178,8 +178,8 @@ surface with actionable diagnostics.
 | [Material Render Pass Policies](../Plans/Archive/2026-08/MaterialRenderPassPolicies.md) | M4 | Blend, depth, culling, mask, and translucent ordering | Complete |
 | [Surface Material Pass Execution](../Plans/Archive/2026-08/SurfaceMaterialPassExecution.md) | M4 | Shared material resource and pass execution across geometry families | Complete |
 | [Material Program and Compiler Foundation](../Plans/Archive/2026-08/MaterialProgramAndCompilerFoundation.md) | M5 | One bounded persisted program domain and synchronous end-to-end compiled surface slice; excludes async orchestration and graph canvas | Complete |
-| [Material Compile Lifecycle and Derived Data](../Plans/MaterialCompileLifecycleAndDerivedData.md) | M6 | Async requests, cancellation, diagnostics, last-known-good publication, cache/cook, reload, and shutdown; excludes graph UI | Complete |
-| [Material Graph Editor](../Plans/MaterialGraphEditor.md) | M7 | Command-driven authoring, reflected presentation, human canvas, structured automation, and compiler feedback over the landed schema/lifecycle; excludes compiler architecture changes and per-node object graphs | Complete |
+| [Material Compile Lifecycle and Derived Data](../Plans/Archive/2026-08/MaterialCompileLifecycleAndDerivedData.md) | M6 | Async requests, cancellation, diagnostics, last-known-good publication, cache/cook, reload, and shutdown; excludes graph UI | Complete |
+| [Material Graph Editor](../Plans/Archive/2026-08/MaterialGraphEditor.md) | M7 | Command-driven authoring, reflected presentation, human canvas, structured automation, and compiler feedback over the landed schema/lifecycle; excludes compiler architecture changes and per-node object graphs | Complete |
 | Runtime Dynamic Material Instances | M8 | Non-asset instances and profiling-selected scalability work; excludes authored graph compilation | Create only from measured compiled-path evidence |
 | Remaining Material Editor Polish | M9 | Explicit parent-chain inspection and any newly selected workflow coverage; excludes graph/compiler design | Select only when a concrete post-M7 workflow is unserved |
 

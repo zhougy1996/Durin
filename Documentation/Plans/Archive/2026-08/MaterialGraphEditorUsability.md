@@ -4,7 +4,7 @@ Summary: Make large material graphs readable, predictable to lay out, and effici
 
 Last reviewed: 2026-08-26
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-26
 
 ## Current Status
@@ -437,7 +437,7 @@ rendered qualification additionally checks 125% UI scale.
 - [x] Verify save/reload, dirty/save/discard, Undo/Redo, compile
   failure/recovery, last-known-good preview, diagnostic navigation, relocation,
   deletion, and multi-document isolation have not regressed.
-- [x] Update [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)
+- [x] Update [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
   with the lasting geometry, semantic zoom, layout, proxy, and interaction
   contracts; add or update a user guide only if the final shortcut and editing
   workflow needs durable user-facing instruction.
@@ -479,7 +479,7 @@ rendered qualification additionally checks 125% UI scale.
   capture without startup error. The graph-specific visual hierarchy is owned
   by the deterministic editing/overview ImGui draw qualification rather than
   treating the unrelated restored LevelEditor tab as graph evidence.
-- Lasting contracts are updated in [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md).
+- Lasting contracts are updated in [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md).
   Changed-document validation and all-plan lifecycle validation pass with this
   plan in the completed state.
 
@@ -534,11 +534,11 @@ rendered qualification additionally checks 125% UI scale.
 ## Related Documentation
 
 - [Material Graph Editor Plan](MaterialGraphEditor.md)
-- [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Agent Documentation Workflow](../Agents/Documentation.md)
+- [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Agent Documentation Workflow](../../../Agents/Documentation.md)
 
 ## Related Code
 

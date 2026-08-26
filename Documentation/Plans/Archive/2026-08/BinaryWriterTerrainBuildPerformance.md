@@ -4,7 +4,7 @@ Summary: Remove per-scalar Archive construction from canonical binary writing an
 
 Last reviewed: 2026-08-26
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-26
 
 ## Current Status
@@ -114,13 +114,13 @@ determinism, Cook, and corruption coverage.
 
 ## Related Documentation
 
-- [Serialization](../Runtime/Core/Serialization.md)
-- [Terrain World Data](../Runtime/Terrain/TerrainWorldData.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [Terrain World Data](../../../Runtime/Terrain/TerrainWorldData.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`BinaryFormat.h`](../../Engine/Source/Runtime/Core/Public/Serialization/BinaryFormat.h)
-- [`BinaryFormat.cpp`](../../Engine/Source/Runtime/Core/Private/Serialization/BinaryFormat.cpp)
-- [`TerrainWorldTile.cpp`](../../Engine/Source/Developer/TerrainBuild/Private/Terrain/TerrainWorldTile.cpp)
-- [`TerrainWorldBuildTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Terrain/TerrainWorldBuildTests.cpp)
+- [`BinaryFormat.h`](../../../../Engine/Source/Runtime/Core/Public/Serialization/BinaryFormat.h)
+- [`BinaryFormat.cpp`](../../../../Engine/Source/Runtime/Core/Private/Serialization/BinaryFormat.cpp)
+- [`TerrainWorldTile.cpp`](../../../../Engine/Source/Developer/TerrainBuild/Private/Terrain/TerrainWorldTile.cpp)
+- [`TerrainWorldBuildTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Terrain/TerrainWorldBuildTests.cpp)

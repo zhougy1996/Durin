@@ -4,7 +4,7 @@ Summary: Replace the expanded canonical default graph with an eight-input Materi
 
 Last reviewed: 2026-08-26
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-26
 
 ## Current Status
@@ -360,8 +360,8 @@ The completed workflow must provide:
 - [x] Record exact authored/IR node counts, generated sample counts, identities,
   cache outcomes, compile generations, active bindings, rendered comparison,
   configuration, timing method, and pass/fail evidence in this plan.
-- [x] Update [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)
-  and [Material System](../Runtime/Rendering/MaterialSystem.md) with lasting
+- [x] Update [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+  and [Material System](../../../Runtime/Rendering/MaterialSystem.md) with lasting
   surface-default, reachability, compilation, parameter, instance, migration,
   and cook contracts; add a user guide only if promotion needs durable help.
 - [x] Run changed-document and all-plan validation, close only evidenced gates,
@@ -463,12 +463,12 @@ Validation results:
 
 ## Related Documentation
 
-- [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
+- [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
 - [Material Graph Editor Usability Plan](MaterialGraphEditorUsability.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Agent Documentation Workflow](../Agents/Documentation.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Agent Documentation Workflow](../../../Agents/Documentation.md)
 
 ## Related Code
 
