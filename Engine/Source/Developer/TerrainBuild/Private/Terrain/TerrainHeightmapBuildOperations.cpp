@@ -93,7 +93,7 @@ namespace Durin::Asset
 			OutError = "Terrain heightmap publication requires a complete product and provenance.";
 			return false;
 		}
-		Heightmap.PublishAuthoringCandidate({
+		Heightmap.PublishDerivedDataLoadResult({
 			.SourcePath = Context.SourcePath,
 			.SourceContentHashLow = Product.SourceContentHashLow,
 			.SourceContentHashHigh = Product.SourceContentHashHigh,

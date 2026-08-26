@@ -112,10 +112,10 @@ namespace Durin::AssetForge::Builtins
 		};
 
 		auto CloneStaticMeshBuildProduct(
-			const Asset::FStaticMeshBuildProduct& Source)
-			-> Asset::FStaticMeshBuildProduct
+			const FStaticMeshBuildProduct& Source)
+			-> FStaticMeshBuildProduct
 		{
-			Asset::FStaticMeshBuildProduct Result;
+			FStaticMeshBuildProduct Result;
 			if (Source.RenderData)
 				Result.RenderData = std::make_unique<FStaticMeshRenderData>(*Source.RenderData);
 			Result.MaterialSlots = Source.MaterialSlots;
@@ -131,17 +131,17 @@ namespace Durin::AssetForge::Builtins
 			return Result;
 		}
 
-		class FStaticMeshBuildProduct final : public IBuildProduct
+		class FStaticMeshImportBuildProduct final : public IBuildProduct
 		{
 		public:
-			Asset::FStaticMeshBuildProduct Product;
+			FStaticMeshBuildProduct Product;
 			Asset::FStaticMeshImportedData ImportedData;
 			FStaticMeshSourceImportData SourceImportData;
 			std::string SourceLabel;
 			auto CloneDetachedProduct() const
 				-> std::unique_ptr<IBuildProduct> override
 			{
-				auto Result = std::make_unique<FStaticMeshBuildProduct>();
+				auto Result = std::make_unique<FStaticMeshImportBuildProduct>();
 				Result->Product = CloneStaticMeshBuildProduct(Product);
 				Result->ImportedData = ImportedData;
 				Result->SourceImportData = SourceImportData;
@@ -195,7 +195,7 @@ namespace Durin::AssetForge::Builtins
 					.StableObjectPath = Plan.Destination.ToString(),
 					.Provenance = Provenance,
 					.ImportSettings = Plan.Settings};
-				auto Result = std::make_unique<FStaticMeshBuildProduct>();
+				auto Result = std::make_unique<FStaticMeshImportBuildProduct>();
 				Result->ImportedData = Source.ImportedData;
 				Result->SourceImportData = Provenance;
 				Result->SourceLabel = Source.SourcePath.Path;
@@ -237,7 +237,7 @@ namespace Durin::AssetForge::Builtins
 				if (AssetBuilderNode.Policy == EImportOutputPolicy::Create) return true;
 				const auto* Reconciliation =
 					dynamic_cast<const FStaticMeshReconciliationContext*>(Context);
-				auto* MeshProduct = dynamic_cast<FStaticMeshBuildProduct*>(&Product);
+				auto* MeshProduct = dynamic_cast<FStaticMeshImportBuildProduct*>(&Product);
 				std::string Error;
 				if (!Reconciliation || !MeshProduct
 					|| !Asset::FStaticMeshBuildOperations::BuildImportedProduct(
@@ -263,7 +263,7 @@ namespace Durin::AssetForge::Builtins
 				std::vector<FImportDiagnostic>& OutDiagnostics) const
 				-> std::unique_ptr<ISingleAssetCandidate> override
 			{
-				auto* MeshProduct = dynamic_cast<FStaticMeshBuildProduct*>(Product.get());
+				auto* MeshProduct = dynamic_cast<FStaticMeshImportBuildProduct*>(Product.get());
 				FAssetPath CandidatePath = AssetBuilderNode.Destination;
 				if (AssetBuilderNode.Policy != EImportOutputPolicy::Create
 					&& !MakeCandidatePath(AssetBuilderNode.Destination, CandidatePath)) return {};
@@ -471,7 +471,7 @@ namespace Durin::AssetForge::Builtins
 
 			DStaticMesh* Mesh = NewObject<DStaticMesh>(Outer, ObjectName);
 			std::string SourceHash;
-			FStaticMeshAuthoringProduct Product;
+			FStaticMeshBuildProduct Product;
 			if (HashStaticMeshSource(Input, SourceHash, OutError)
 				&& BuildStaticMeshFileProduct(
 					*Mesh, Input.generic_string(),

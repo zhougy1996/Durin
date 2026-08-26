@@ -6,7 +6,7 @@
 
 namespace Durin
 {
-	class FVolumeTextureAuthoringFeature final : public IVolumeTextureAuthoringFeature
+	class FVolumeTexturePostLoadFeature final : public IVolumeTexturePostLoadFeature
 	{
 	public:
 		auto PostLoadUncooked(DVolumeTexture& Texture, std::string& OutError) -> bool override
@@ -38,7 +38,7 @@ namespace Durin
 			auto StartupModule() -> void override
 		{
 			VolumeTextureRegistration = FModuleStartup::RegisterFeature<
-				IVolumeTextureAuthoringFeature>(VolumeTextureAuthoringFeature);
+				IVolumeTexturePostLoadFeature>(VolumeTexturePostLoadFeature);
 			require(VolumeTextureRegistration.IsValid());
 			AssetCompilingCallbackRegistration =
 				FModuleStartup::CreateOwnedCallbackRegistration("Engine.AssetCompilingManager");
@@ -59,7 +59,7 @@ namespace Durin
 	private:
 		FModuleOwnedCallbackRegistration AssetCompilingCallbackRegistration;
 		FAsyncOperationGroup BuildOperations;
-		FVolumeTextureAuthoringFeature VolumeTextureAuthoringFeature;
+		FVolumeTexturePostLoadFeature VolumeTexturePostLoadFeature;
 		FModularFeatureRegistration VolumeTextureRegistration;
 
 		auto ShutdownModule() -> void override

@@ -4,7 +4,7 @@
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
-#include "AssetForgeBuiltinsAuthoringTestSupport.h"
+#include "AssetForgeBuiltinsAssetTestSupport.h"
 #include "AssetForgeBuiltinsProviderTestFixture.h"
 
 namespace
@@ -22,7 +22,7 @@ namespace
 TEST(FSourceReferenceIndexTests, TracksSharedMountedSourcesAcrossRegistryRevisions)
 {
 	InitializeDObjectSystem();
-	ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAuthoringFeatures());
+	ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAssetFeatures());
 	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;

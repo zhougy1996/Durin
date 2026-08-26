@@ -488,7 +488,7 @@ namespace Durin
 		}
 	}
 
-	auto DTextureCube::PublishAuthoringCandidate(
+	auto DTextureCube::PublishBuildProduct(
 		ETextureCubeSourceLayout InSourceLayout,
 		FTextureCubeSourceImportData InSourceImportData,
 		uint32 InPanoramaFaceDimension,

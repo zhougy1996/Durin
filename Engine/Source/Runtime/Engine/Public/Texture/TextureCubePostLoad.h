@@ -6,10 +6,10 @@
 namespace Durin
 {
 	class DTextureCube;
-	class ITextureCubeAuthoringFeature : public IModularFeature
+	class ITextureCubePostLoadFeature : public IModularFeature
 	{
 	public:
-		static constexpr std::string_view FeatureName = "Engine.TextureCubeAuthoring";
+		static constexpr std::string_view FeatureName = "Engine.TextureCubePostLoad";
 		static constexpr uint32 FeatureVersion = 1;
 		virtual auto PostLoadUncooked(DTextureCube& Texture, std::string& OutError) -> bool = 0;
 	};

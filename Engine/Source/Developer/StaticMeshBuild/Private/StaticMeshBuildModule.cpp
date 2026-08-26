@@ -1,6 +1,6 @@
 #include "StaticMeshBuildFunctionRegistry.h"
 #include "Modules/ModuleManager.h"
-#include "StaticMesh/StaticMeshAuthoring.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 
 namespace Durin
@@ -18,7 +18,7 @@ namespace Durin
 			const FStaticMeshSourceImportData& SourceImportData,
 			EBodySetupCollisionSourceMode Mode,
 			EBodySetupCollisionQueryPolicy Policy,
-			FStaticMeshCollisionAuthoringProduct& OutProduct,
+			FStaticMeshCollisionBuildProduct& OutProduct,
 			std::string& OutError) -> bool override
 		{
 			return Asset::FStaticMeshBuildOperations::BuildCollisionProduct(

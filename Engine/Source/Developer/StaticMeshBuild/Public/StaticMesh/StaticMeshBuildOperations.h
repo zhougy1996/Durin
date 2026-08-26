@@ -2,7 +2,7 @@
 
 #include "StaticMeshBuildAPI.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshAuthoring.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshResources.h"
 
 namespace Durin::Asset
@@ -33,8 +33,6 @@ namespace Durin::Asset
 		std::vector<FStaticMeshImportedMaterialSlot> MaterialSlots;
 		std::vector<FStaticMeshImportedMesh> Meshes;
 	};
-
-	using FStaticMeshBuildProduct = FStaticMeshAuthoringProduct;
 
 	// Immutable GameThread capture consumed by pure StaticMesh recipe work.
 	struct FStaticMeshReconciliationSnapshot
@@ -87,7 +85,7 @@ namespace Durin::Asset
 			const FStaticMeshSourceImportData& SourceImportData,
 			EBodySetupCollisionSourceMode Mode,
 			EBodySetupCollisionQueryPolicy Policy,
-			FStaticMeshCollisionAuthoringProduct& OutProduct,
+			FStaticMeshCollisionBuildProduct& OutProduct,
 			std::string& OutError) -> bool;
 	};
 }

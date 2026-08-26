@@ -5,7 +5,7 @@
 #include "BuiltinSingleAssetImport.h"
 #include "AssetForgeBuiltinsProviders.h"
 #include "AssetForge/ImportService.h"
-#include "AssetForgeBuiltinsAuthoringFeatures.h"
+#include "AssetForgeBuiltinsAssetFeatures.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "Texture2DBuildAdapter.h"
@@ -34,7 +34,7 @@
 #include "Skeletal/SkeletalBuildOperations.h"
 #include "StaticMeshImportAdapter.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMesh/StaticMeshAuthoring.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
@@ -188,7 +188,7 @@ namespace Durin::AssetForge::Builtins
 			std::string_view FilePath,
 			FStaticMeshSourceImportData SourceImportData,
 			std::string_view SourceLabel,
-			FStaticMeshAuthoringProduct& OutProduct,
+			FStaticMeshBuildProduct& OutProduct,
 			std::string& OutError) -> bool
 		{
 			Asset::FStaticMeshImportedData ImportedData;
@@ -254,7 +254,7 @@ namespace Durin::AssetForge::Builtins
 			const bool bSourceMetadataStale = bSourceAvailable
 				&& Mesh.GetSourceImportData().SourceContentHash
 					!= Source.SourceContentHash;
-			FStaticMeshAuthoringProduct Product;
+			FStaticMeshBuildProduct Product;
 			EStaticMeshDerivedDataStatus CacheStatus =
 				EStaticMeshDerivedDataStatus::Missing;
 			std::string CacheMessage;

@@ -6,7 +6,7 @@
 #include "DObject/Property.h"
 #include "Physics/BodySetup.h"
 #include "Serialization/Archive.h"
-#include "StaticMesh/StaticMeshAuthoring.h"
+#include "StaticMesh/StaticMeshPostLoad.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
 namespace Durin

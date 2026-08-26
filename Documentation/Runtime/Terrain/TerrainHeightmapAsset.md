@@ -93,7 +93,7 @@ Uncooked PostLoad publishes the reflected object graph immediately in `Loading`
 and moves DDC query, object read, payload decode, source capture/decode, canonical
 build, and DDC store to worker execution. Query, read, decode, capture, and
 build/store timings remain separate in the bounded diagnostic. Publication is
-always deferred to GameThread and revalidates the object handle and authoring
+always deferred to GameThread and revalidates the object handle and derived-data
 load generation. A normal publication drives the existing payload revision
 context, so registered render and collision consumers rebuild through their
 ordinary invalidation path.
@@ -139,7 +139,7 @@ reference index and relocation workflow.
 
 `TranslateTerrainHeightmapSource` is the sole encoded-PNG interpretation
 authority. Direct import, provider candidates, source changes, repair, and the
-independently reversible `TerrainHeightmapAuthoringPolicy` consume one immutable
+independently reversible `TerrainHeightmapAssetFeatures` consume one immutable
 source capture and pass exact owned samples to TerrainBuild. Provider and
 PostLoad orchestration do not decode or hash the source themselves.
 

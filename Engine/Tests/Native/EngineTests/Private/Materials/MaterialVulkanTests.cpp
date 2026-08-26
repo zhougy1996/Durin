@@ -15,7 +15,7 @@
 #include "RHIGlobals.h"
 #include "AssetForgeBuiltinsProviders.h"
 #include "AssetForgeBuiltinsProviderTestFixture.h"
-#include "AssetForgeBuiltinsAuthoringFeatures.h"
+#include "AssetForgeBuiltinsAssetFeatures.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
@@ -78,17 +78,17 @@ namespace
 
 TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDifferences)
 {
-	static Durin::FModuleTestOwner AuthoringContext("MaterialVulkanTests.Authoring");
-	static Durin::AssetForge::Builtins::FAssetForgeBuiltinsAuthoringFeatures AuthoringFeatures;
-	static auto StaticMeshAuthoring =
-		AuthoringContext.RegisterFeature<Durin::IStaticMeshAuthoringFeature>(AuthoringFeatures);
+	static Durin::FModuleTestOwner AssetContext("MaterialVulkanTests.Assets");
+	static Durin::AssetForge::Builtins::FAssetForgeBuiltinsAssetFeatures AssetFeatures;
+	static auto StaticMeshPostLoad =
+		AssetContext.RegisterFeature<Durin::IStaticMeshPostLoadFeature>(AssetFeatures);
 	static auto Texture2DPostLoad =
-		AuthoringContext.RegisterFeature<Durin::ITexture2DPostLoadFeature>(AuthoringFeatures);
-	static auto TextureCubeAuthoring =
-		AuthoringContext.RegisterFeature<Durin::ITextureCubeAuthoringFeature>(AuthoringFeatures);
-	(void)StaticMeshAuthoring;
+		AssetContext.RegisterFeature<Durin::ITexture2DPostLoadFeature>(AssetFeatures);
+	static auto TextureCubePostLoad =
+		AssetContext.RegisterFeature<Durin::ITextureCubePostLoadFeature>(AssetFeatures);
+	(void)StaticMeshPostLoad;
 	(void)Texture2DPostLoad;
-	(void)TextureCubeAuthoring;
+	(void)TextureCubePostLoad;
 	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;

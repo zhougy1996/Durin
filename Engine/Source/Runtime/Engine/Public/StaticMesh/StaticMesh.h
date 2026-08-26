@@ -110,7 +110,7 @@ namespace Durin
 	struct FStaticMeshBuildData;
 	struct FStaticMeshRenderData;
 	struct FStaticMeshImportResult;
-	struct FStaticMeshAuthoringProduct;
+	struct FStaticMeshBuildProduct;
 	class FStaticMeshImportedStateExchange;
 
 	enum class EStaticMeshSourceStatus : uint8
@@ -239,7 +239,7 @@ namespace Durin
 		ENGINE_API auto SeedMaterialReconciliationFrom(
 			const DStaticMesh& Previous) -> void;
 		ENGINE_API auto PublishImportedProduct(
-			FStaticMeshAuthoringProduct Product,
+			FStaticMeshBuildProduct Product,
 			std::string& OutError) -> bool;
 		ENGINE_API auto PublishImportProvenance(
 			std::vector<std::byte> Provenance) -> void;

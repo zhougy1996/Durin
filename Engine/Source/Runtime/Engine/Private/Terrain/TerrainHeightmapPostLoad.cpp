@@ -6,37 +6,37 @@ namespace Durin
 {
 	namespace
 	{
-		constexpr std::string_view TerrainAuthoringAmbiguousMessage =
-			"TerrainHeightmap authoring capability is ambiguous.";
-		constexpr std::string_view TerrainAuthoringVisitorFailedMessage =
-			"TerrainHeightmap authoring provider failed.";
+		constexpr std::string_view TerrainDerivedDataLoadAmbiguousMessage =
+			"TerrainHeightmap derived-data load capability is ambiguous.";
+		constexpr std::string_view TerrainDerivedDataLoadVisitorFailedMessage =
+			"TerrainHeightmap derived-data load provider failed.";
 	}
 
-	auto WaitForTerrainHeightmapAuthoringLoad(
+	auto WaitForTerrainHeightmapDerivedDataLoad(
 		DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
 	{
-		return Private::InvokeSingleModularFeature<ITerrainHeightmapAuthoringFeature>(
-			[&](ITerrainHeightmapAuthoringFeature& Feature) {
-				return Feature.WaitForAuthoringLoad(Heightmap, OutError);
+		return Private::InvokeSingleModularFeature<ITerrainHeightmapDerivedDataLoadFeature>(
+			[&](ITerrainHeightmapDerivedDataLoadFeature& Feature) {
+				return Feature.WaitForDerivedDataLoad(Heightmap, OutError);
 			},
 			{
-				.Unavailable = "No TerrainHeightmap authoring-load wait policy is registered.",
-				.Ambiguous = TerrainAuthoringAmbiguousMessage,
-				.VisitorFailed = TerrainAuthoringVisitorFailedMessage},
+				.Unavailable = "No TerrainHeightmap derived-data load wait policy is registered.",
+				.Ambiguous = TerrainDerivedDataLoadAmbiguousMessage,
+				.VisitorFailed = TerrainDerivedDataLoadVisitorFailedMessage},
 			OutError);
 	}
 
 	auto InvokeTerrainHeightmapUncookedPostLoadHandler(
 		DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
 	{
-		return Private::InvokeSingleModularFeature<ITerrainHeightmapAuthoringFeature>(
-			[&](ITerrainHeightmapAuthoringFeature& Feature) {
+		return Private::InvokeSingleModularFeature<ITerrainHeightmapDerivedDataLoadFeature>(
+			[&](ITerrainHeightmapDerivedDataLoadFeature& Feature) {
 				return Feature.PostLoadUncooked(Heightmap, OutError);
 			},
 			{
 				.Unavailable = "No uncooked TerrainHeightmap load policy is registered.",
-				.Ambiguous = TerrainAuthoringAmbiguousMessage,
-				.VisitorFailed = TerrainAuthoringVisitorFailedMessage},
+				.Ambiguous = TerrainDerivedDataLoadAmbiguousMessage,
+				.VisitorFailed = TerrainDerivedDataLoadVisitorFailedMessage},
 			OutError);
 	}
 
@@ -45,14 +45,14 @@ namespace Durin
 		std::string_view SourceVirtualPath,
 		std::string& OutError) -> bool
 	{
-		return Private::InvokeSingleModularFeature<ITerrainHeightmapAuthoringFeature>(
-			[&](ITerrainHeightmapAuthoringFeature& Feature) {
+		return Private::InvokeSingleModularFeature<ITerrainHeightmapSourceMutationFeature>(
+			[&](ITerrainHeightmapSourceMutationFeature& Feature) {
 				return Feature.ChangeSourceReference(Heightmap, SourceVirtualPath, OutError);
 			},
 			{
 				.Unavailable = "No TerrainHeightmap source-change policy is registered.",
-				.Ambiguous = TerrainAuthoringAmbiguousMessage,
-				.VisitorFailed = TerrainAuthoringVisitorFailedMessage},
+				.Ambiguous = "TerrainHeightmap source mutation capability is ambiguous.",
+				.VisitorFailed = "TerrainHeightmap source mutation provider failed."},
 			OutError);
 	}
 }

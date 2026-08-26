@@ -15,7 +15,7 @@
 #include "Physics/BodySetup.h"
 #include "Serialization/Archive.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
-#include "StaticMesh/StaticMeshAuthoring.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "Threading/RunnableThread.h"
@@ -649,7 +649,7 @@ namespace Durin
 	}
 
 	auto DStaticMesh::PublishImportedProduct(
-		FStaticMeshAuthoringProduct Product,
+		FStaticMeshBuildProduct Product,
 		std::string& OutError) -> bool
 	{
 		const FStaticMeshSourceImportData PreviousSource = SourceImportData;

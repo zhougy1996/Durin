@@ -1,4 +1,4 @@
-#include "TerrainAuthoringFeature.h"
+#include "TerrainHeightmapAssetFeatures.h"
 
 #include "Asset/MountedSource.h"
 #include "DObject/Package.h"
@@ -21,7 +21,7 @@ namespace Durin::AssetForge::Builtins
 		constexpr size_t MaximumConcurrentTerrainLoads = 2;
 		constexpr size_t MaximumTerrainLoadSubscribers = 64;
 
-		struct FTerrainAuthoringLoadResult
+		struct FTerrainDerivedDataLoadResult
 		{
 			std::shared_ptr<const FTerrainHeightmapPayload> Payload;
 			FTerrainHeightmapSourceImportData Source;
@@ -34,28 +34,28 @@ namespace Durin::AssetForge::Builtins
 			bool bSucceeded = false;
 		};
 
-		struct FTerrainAuthoringLoadWork
+		struct FTerrainDerivedDataLoadWork
 		{
 			std::mutex Mutex;
-			FTerrainAuthoringLoadResult Result;
+			FTerrainDerivedDataLoadResult Result;
 			FTaskHandle Worker;
 			std::string CoalescingKey;
 		};
 
-		struct FTerrainAuthoringLoadPending
+		struct FTerrainDerivedDataLoadPending
 		{
-			std::shared_ptr<FTerrainAuthoringLoadWork> Work;
+			std::shared_ptr<FTerrainDerivedDataLoadWork> Work;
 			FTaskHandle Publisher;
 			uint64 Generation = 0;
 		};
 
 	}
 
-	struct FTerrainAuthoringState
+	struct FTerrainHeightmapDerivedDataLoadState
 	{
 		std::mutex Mutex;
-		std::unordered_map<std::string, std::weak_ptr<FTerrainAuthoringLoadWork>> LoadsByKey;
-		std::unordered_map<uint64, FTerrainAuthoringLoadPending> PendingByObject;
+		std::unordered_map<std::string, std::weak_ptr<FTerrainDerivedDataLoadWork>> LoadsByKey;
+		std::unordered_map<uint64, FTerrainDerivedDataLoadPending> PendingByObject;
 		std::unordered_map<uint64, FImportHandle> PendingImportByObject;
 		FAsyncOperationGroup OperationGroup;
 	};
@@ -70,9 +70,9 @@ namespace Durin::AssetForge::Builtins
 
 		auto BuildTerrainLoadResult(
 			FTerrainHeightmapSourceImportData Source, std::string Key,
-			const FTaskCancellationToken& Token) -> FTerrainAuthoringLoadResult
+			const FTaskCancellationToken& Token) -> FTerrainDerivedDataLoadResult
 		{
-			FTerrainAuthoringLoadResult Result;
+			FTerrainDerivedDataLoadResult Result;
 			Result.Source = Source;
 			Result.DerivedDataKey = Key;
 			std::string DdcError;
@@ -90,7 +90,7 @@ namespace Durin::AssetForge::Builtins
 			}
 			if (Token.IsCancellationRequested())
 			{
-				Result.Diagnostic = "Terrain heightmap authoring load was canceled.";
+				Result.Diagnostic = "Terrain heightmap derived-data load was canceled.";
 				return Result;
 			}
 
@@ -109,7 +109,7 @@ namespace Durin::AssetForge::Builtins
 				std::chrono::steady_clock::now() - CaptureStart).count());
 			if (Token.IsCancellationRequested())
 			{
-				Result.Diagnostic = "Terrain heightmap authoring load was canceled after source capture.";
+				Result.Diagnostic = "Terrain heightmap derived-data load was canceled after source capture.";
 				return Result;
 			}
 
@@ -126,7 +126,7 @@ namespace Durin::AssetForge::Builtins
 				std::chrono::steady_clock::now() - DecodeStart).count());
 			if (Token.IsCancellationRequested())
 			{
-				Result.Diagnostic = "Terrain heightmap authoring load was canceled after source decode.";
+				Result.Diagnostic = "Terrain heightmap derived-data load was canceled after source decode.";
 				return Result;
 			}
 
@@ -152,7 +152,7 @@ namespace Durin::AssetForge::Builtins
 				std::chrono::steady_clock::now() - BuildStart).count());
 			if (Token.IsCancellationRequested())
 			{
-				Result.Diagnostic = "Terrain heightmap authoring load was canceled after payload build.";
+				Result.Diagnostic = "Terrain heightmap derived-data load was canceled after payload build.";
 				return Result;
 			}
 			Result.Payload = std::move(Product.Payload);
@@ -175,14 +175,14 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto PublishTerrainLoad(
-			FTerrainAuthoringState& State,
+			FTerrainHeightmapDerivedDataLoadState& State,
 			FObjectHandle HeightmapHandle, uint64 Generation,
-			const std::shared_ptr<FTerrainAuthoringLoadWork>& Work,
+			const std::shared_ptr<FTerrainDerivedDataLoadWork>& Work,
 			std::string* OutError = nullptr) -> bool
 		{
 			auto* Heightmap = Cast<DTerrainHeightmap>(ResolveObjectHandle(HeightmapHandle));
-			if (!IsValid(Heightmap) || !Heightmap->IsAuthoringLoadCurrent(Generation)) return false;
-			FTerrainAuthoringLoadResult Result;
+			if (!IsValid(Heightmap) || !Heightmap->IsDerivedDataLoadCurrent(Generation)) return false;
+			FTerrainDerivedDataLoadResult Result;
 			{
 				std::lock_guard Lock(Work->Mutex);
 				Result = Work->Result;
@@ -190,7 +190,7 @@ namespace Durin::AssetForge::Builtins
 			bool bPublished = false;
 			if (Result.bSucceeded && Result.Payload)
 			{
-				Heightmap->PublishAuthoringCandidate(
+				Heightmap->PublishDerivedDataLoadResult(
 					std::move(Result.Source), Result.SourceFileSize, Result.SourceLastWriteTime,
 					std::move(Result.Payload), std::move(Result.DerivedDataKey),
 					std::move(Result.Diagnostic), false, false, Result.bLoadedFromDdc);
@@ -199,7 +199,7 @@ namespace Durin::AssetForge::Builtins
 			else
 			{
 				if (OutError) *OutError = Result.Diagnostic;
-				(void)Heightmap->FailAuthoringLoad(
+				(void)Heightmap->FailDerivedDataLoad(
 					Generation, Result.FailureStatus, std::move(Result.Diagnostic));
 			}
 			std::lock_guard Lock(State.Mutex);
@@ -211,18 +211,18 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto StartAsyncTerrainLoad(
-			FTerrainAuthoringState& State,
+			FTerrainHeightmapDerivedDataLoadState& State,
 			DTerrainHeightmap& Heightmap, std::string Key, std::string& OutError) -> bool
 		{
 			const FObjectHandle Handle = MakeObjectHandle(&Heightmap);
 			if (IsObjectHandleNull(Handle)) return false;
 			const std::string CoalescingKey = Key.empty()
 				? std::format("source:{}", Heightmap.GetSourceImportData().SourcePath.Path) : Key;
-			const uint64 Generation = Heightmap.BeginAuthoringLoad(
+			const uint64 Generation = Heightmap.BeginDerivedDataLoad(
 				Key.empty(), Key.empty()
 					? "Terrain heightmap payload is rebuilding asynchronously from source."
 					: "Terrain heightmap payload is loading asynchronously.");
-			std::shared_ptr<FTerrainAuthoringLoadWork> Work;
+			std::shared_ptr<FTerrainDerivedDataLoadWork> Work;
 			{
 				std::lock_guard Lock(State.Mutex);
 				std::erase_if(State.LoadsByKey, [](const auto& Entry) { return Entry.second.expired(); });
@@ -233,10 +233,10 @@ namespace Durin::AssetForge::Builtins
 					if (State.LoadsByKey.size() >= MaximumConcurrentTerrainLoads)
 					{
 						OutError = "Terrain heightmap load admission reached its two-request byte bound.";
-						(void)Heightmap.FailAuthoringLoad(Generation, ETerrainHeightmapStatus::Failed, OutError);
+						(void)Heightmap.FailDerivedDataLoad(Generation, ETerrainHeightmapStatus::Failed, OutError);
 						return false;
 					}
-					Work = std::make_shared<FTerrainAuthoringLoadWork>();
+					Work = std::make_shared<FTerrainDerivedDataLoadWork>();
 					Work->CoalescingKey = CoalescingKey;
 					const FTerrainHeightmapSourceImportData Source = Heightmap.GetSourceImportData();
 					FTaskLaunchOptions Options;
@@ -247,14 +247,14 @@ namespace Durin::AssetForge::Builtins
 					Options.Attribution = Attribution;
 					Work->Worker = LaunchCancelableTask("TerrainHeightmap.LoadPayload",
 						[Work, Source, Key](const FTaskCancellationToken& Token) {
-							FTerrainAuthoringLoadResult Result = BuildTerrainLoadResult(Source, Key, Token);
+							FTerrainDerivedDataLoadResult Result = BuildTerrainLoadResult(Source, Key, Token);
 							std::lock_guard ResultLock(Work->Mutex);
 							Work->Result = std::move(Result);
 						}, Options);
 					if (!Work->Worker.IsValid())
 					{
 						OutError = "The CPU task scheduler rejected Terrain heightmap loading.";
-						(void)Heightmap.FailAuthoringLoad(Generation, ETerrainHeightmapStatus::Failed, OutError);
+						(void)Heightmap.FailDerivedDataLoad(Generation, ETerrainHeightmapStatus::Failed, OutError);
 						return false;
 					}
 					State.LoadsByKey[CoalescingKey] = Work;
@@ -262,7 +262,7 @@ namespace Durin::AssetForge::Builtins
 				if (State.PendingByObject.size() >= MaximumTerrainLoadSubscribers)
 				{
 					OutError = "Terrain heightmap load subscriber bound was reached.";
-					(void)Heightmap.FailAuthoringLoad(Generation, ETerrainHeightmapStatus::Failed, OutError);
+					(void)Heightmap.FailDerivedDataLoad(Generation, ETerrainHeightmapStatus::Failed, OutError);
 					return false;
 				}
 				State.PendingByObject[ObjectKey(Handle)] = {.Work = Work, .Generation = Generation};
@@ -273,7 +273,7 @@ namespace Durin::AssetForge::Builtins
 			PublishOptions.CancellationToken = State.OperationGroup.GetCancellationToken();
 			PublishOptions.Scope = State.OperationGroup.GetTaskScope();
 			PublishOptions.EstimatedPayloadBytes = sizeof(FObjectHandle) + sizeof(uint64) + sizeof(std::shared_ptr<void>);
-			FTerrainAuthoringLoadPending* Pending = nullptr;
+			FTerrainDerivedDataLoadPending* Pending = nullptr;
 			{
 				std::lock_guard Lock(State.Mutex);
 				Pending = &State.PendingByObject.at(ObjectKey(Handle));
@@ -285,7 +285,7 @@ namespace Durin::AssetForge::Builtins
 				{
 					State.PendingByObject.erase(ObjectKey(Handle));
 					OutError = "The GameThread executor rejected Terrain heightmap publication.";
-					(void)Heightmap.FailAuthoringLoad(Generation, ETerrainHeightmapStatus::Failed, OutError);
+					(void)Heightmap.FailDerivedDataLoad(Generation, ETerrainHeightmapStatus::Failed, OutError);
 					return false;
 				}
 			}
@@ -294,7 +294,7 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto PostLoadTerrainHeightmap(
-			FTerrainAuthoringState& State,
+			FTerrainHeightmapDerivedDataLoadState& State,
 			DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
 		{
 			std::string Key = Asset::MakeTerrainHeightmapDerivedDataKey(Heightmap, OutError);
@@ -310,7 +310,7 @@ namespace Durin::AssetForge::Builtins
 				if (Asset::LoadTerrainHeightmapDerivedData(Key, Payload, OutError))
 				{
 					const auto& Source = Heightmap.GetSourceImportData();
-					Heightmap.PublishAuthoringCandidate(Source, 0, 0, std::move(Payload),
+					Heightmap.PublishDerivedDataLoadResult(Source, 0, 0, std::move(Payload),
 						std::move(Key), "Loaded terrain heightmap payload from DDC.",
 						false, false, true);
 					return true;
@@ -326,9 +326,9 @@ namespace Durin::AssetForge::Builtins
 				EMountedSourceExistencePolicy::AllowMissing,
 				SourceResolution, OutError))
 			{
-				const uint64 Generation = Heightmap.BeginAuthoringLoad(
+				const uint64 Generation = Heightmap.BeginDerivedDataLoad(
 					true, "Validating terrain heightmap recovery source.");
-				(void)Heightmap.FailAuthoringLoad(
+				(void)Heightmap.FailDerivedDataLoad(
 					Generation, ETerrainHeightmapStatus::Failed, OutError);
 				return false;
 			}
@@ -337,9 +337,9 @@ namespace Durin::AssetForge::Builtins
 				OutError = std::format(
 					"Terrain heightmap recovery source '{}' is unavailable.",
 					Heightmap.GetSourceImportData().SourcePath.Path);
-				const uint64 Generation = Heightmap.BeginAuthoringLoad(
+				const uint64 Generation = Heightmap.BeginDerivedDataLoad(
 					true, "Validating terrain heightmap recovery source.");
-				(void)Heightmap.FailAuthoringLoad(
+				(void)Heightmap.FailDerivedDataLoad(
 					Generation, ETerrainHeightmapStatus::SourceUnavailable, OutError);
 				return false;
 			}
@@ -374,7 +374,7 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto WaitForTerrainLoad(
-			FTerrainAuthoringState& State,
+			FTerrainHeightmapDerivedDataLoadState& State,
 			DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
 		{
 			const FObjectHandle Handle = MakeObjectHandle(&Heightmap);
@@ -407,7 +407,7 @@ namespace Durin::AssetForge::Builtins
 					: "TerrainHeightmap AssetForge recovery produced no result.";
 				return false;
 			}
-			FTerrainAuthoringLoadPending Pending;
+			FTerrainDerivedDataLoadPending Pending;
 			{
 				std::lock_guard Lock(State.Mutex);
 				const auto Found = State.PendingByObject.find(ObjectKey(Handle));
@@ -431,17 +431,17 @@ namespace Durin::AssetForge::Builtins
 		}
 	}
 
-	FTerrainAuthoringFeature::FTerrainAuthoringFeature()
-		: State(std::make_unique<FTerrainAuthoringState>())
+	FTerrainHeightmapAssetFeatures::FTerrainHeightmapAssetFeatures()
+		: State(std::make_unique<FTerrainHeightmapDerivedDataLoadState>())
 	{
 	}
 
-	FTerrainAuthoringFeature::~FTerrainAuthoringFeature()
+	FTerrainHeightmapAssetFeatures::~FTerrainHeightmapAssetFeatures()
 	{
 		Shutdown();
 	}
 
-	auto FTerrainAuthoringFeature::SetOperationGroup(FAsyncOperationGroup Group) -> bool
+	auto FTerrainHeightmapAssetFeatures::SetOperationGroup(FAsyncOperationGroup Group) -> bool
 	{
 		if (!Group.IsValid()) return false;
 		std::lock_guard Lock(State->Mutex);
@@ -451,9 +451,9 @@ namespace Durin::AssetForge::Builtins
 		return true;
 	}
 
-	auto FTerrainAuthoringFeature::Shutdown() -> void
+	auto FTerrainHeightmapAssetFeatures::Shutdown() -> void
 	{
-		std::vector<std::shared_ptr<FTerrainAuthoringLoadWork>> Works;
+		std::vector<std::shared_ptr<FTerrainDerivedDataLoadWork>> Works;
 		std::vector<FTaskHandle> Publishers;
 		std::vector<FImportOperationHandle> ImportOperations;
 		{
@@ -475,25 +475,25 @@ namespace Durin::AssetForge::Builtins
 			GetImportService().CancelAndDrainImportOperation(Operation);
 	}
 
-	auto FTerrainAuthoringFeature::PostLoadUncooked(
+	auto FTerrainHeightmapAssetFeatures::PostLoadUncooked(
 		DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
 	{
 		return PostLoadTerrainHeightmap(*State, Heightmap, OutError);
 	}
 
-	auto FTerrainAuthoringFeature::WaitForAuthoringLoad(
+	auto FTerrainHeightmapAssetFeatures::WaitForDerivedDataLoad(
 		DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
 	{
 		return WaitForTerrainLoad(*State, Heightmap, OutError);
 	}
 
-	auto FTerrainAuthoringFeature::ChangeSourceReference(
+	auto FTerrainHeightmapAssetFeatures::ChangeSourceReference(
 		DTerrainHeightmap& Heightmap,
 		std::string_view SourceVirtualPath,
 		std::string& OutError) -> bool
 	{
 		const FObjectHandle Handle = MakeObjectHandle(&Heightmap);
-		std::shared_ptr<FTerrainAuthoringLoadWork> Work;
+		std::shared_ptr<FTerrainDerivedDataLoadWork> Work;
 		FTaskHandle Publisher;
 		FImportOperationHandle ImportOperation;
 		bool bWorkHasOtherSubscribers = false;

@@ -8,10 +8,10 @@ namespace Durin
 	class DVolumeTexture;
 
 	// Supplies uncooked DDC lookup and rebuild policy without an Engine-to-builder dependency.
-	class IVolumeTextureAuthoringFeature : public IModularFeature
+	class IVolumeTexturePostLoadFeature : public IModularFeature
 	{
 	public:
-		static constexpr std::string_view FeatureName = "Engine.VolumeTextureAuthoring";
+		static constexpr std::string_view FeatureName = "Engine.VolumeTexturePostLoad";
 		static constexpr uint32 FeatureVersion = 1;
 		virtual auto PostLoadUncooked(
 			DVolumeTexture& Texture, std::string& OutError) -> bool = 0;

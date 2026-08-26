@@ -98,7 +98,7 @@ namespace
 TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 {
 	InitializeDObjectSystem();
-	ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAuthoringFeatures());
+	ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAssetFeatures());
 	std::string ProviderError;
 	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;

@@ -154,7 +154,7 @@ namespace Durin::AssetForge::Builtins
 			Builder&& Build,
 			std::string& OutError) -> bool
 		{
-			auto* Candidate = NewObject<DTextureCube>(nullptr, "TextureCubeAuthoringCandidate");
+			auto* Candidate = NewObject<DTextureCube>(nullptr, "TextureCubeImportCandidate");
 			if (!Build(*Candidate))
 			{
 				MarkAsGarbage(Candidate);

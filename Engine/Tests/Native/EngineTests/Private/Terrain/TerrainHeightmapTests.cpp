@@ -11,7 +11,7 @@
 #include "NativeTestSupport.h"
 #include "AssetForgeBuiltinsProviders.h"
 #include "Source/SourceReferenceIndex.h"
-#include "AssetForgeBuiltinsAuthoringTestSupport.h"
+#include "AssetForgeBuiltinsAssetTestSupport.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapPostLoad.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
@@ -33,7 +33,7 @@ namespace
 		auto SetUp() -> void override
 		{
 			InitializeDObjectSystem();
-			ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAuthoringFeatures());
+			ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAssetFeatures());
 			std::string Error;
 			ASSERT_TRUE(Durin::AssetForge::Builtins::RegisterAssetForgeBuiltinsProviders(
 				Error, GetEngineTestModuleCallbackGate())) << Error;
@@ -696,7 +696,7 @@ TEST(FTerrainHeightmapImportTests, AsyncLoadHandlesWarmDdcCorruptionRecoveryAndM
 	}
 	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 	ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
-	ASSERT_TRUE(Durin::Tests::EnsureTerrainAuthoringOperationGroup());
+	ASSERT_TRUE(Durin::Tests::EnsureTerrainDerivedDataOperationGroup());
 	Durin::DTerrainHeightmap* Reloaded = nullptr;
 	Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadAsset(Path, Reloaded);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
@@ -709,7 +709,7 @@ TEST(FTerrainHeightmapImportTests, AsyncLoadHandlesWarmDdcCorruptionRecoveryAndM
 	ASSERT_NE(Reloaded, nullptr);
 	EXPECT_EQ(Reloaded->GetStatus(), Durin::ETerrainHeightmapStatus::Loading);
 	std::string Error;
-	ASSERT_TRUE(Durin::WaitForTerrainHeightmapAuthoringLoad(*Reloaded, Error)) << Error;
+	ASSERT_TRUE(Durin::WaitForTerrainHeightmapDerivedDataLoad(*Reloaded, Error)) << Error;
 	EXPECT_EQ(Reloaded->GetStatus(), Durin::ETerrainHeightmapStatus::Ready);
 	EXPECT_TRUE(Reloaded->WasLoadedFromDerivedDataCache());
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
@@ -721,7 +721,7 @@ TEST(FTerrainHeightmapImportTests, AsyncLoadHandlesWarmDdcCorruptionRecoveryAndM
 	Reloaded = nullptr;
 	Loaded = Durin::Asset::LoadAsset(Path, Reloaded);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
-	ASSERT_TRUE(Durin::WaitForTerrainHeightmapAuthoringLoad(*Reloaded, Error)) << Error;
+	ASSERT_TRUE(Durin::WaitForTerrainHeightmapDerivedDataLoad(*Reloaded, Error)) << Error;
 	EXPECT_FALSE(Reloaded->WasLoadedFromDerivedDataCache());
 	EXPECT_NE(Reloaded->GetLastDiagnostic().find("Rebuilt terrain heightmap"), std::string::npos);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
@@ -733,7 +733,7 @@ TEST(FTerrainHeightmapImportTests, AsyncLoadHandlesWarmDdcCorruptionRecoveryAndM
 	Reloaded = nullptr;
 	Loaded = Durin::Asset::LoadAsset(Path, Reloaded);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
-	EXPECT_FALSE(Durin::WaitForTerrainHeightmapAuthoringLoad(*Reloaded, Error));
+	EXPECT_FALSE(Durin::WaitForTerrainHeightmapDerivedDataLoad(*Reloaded, Error));
 	EXPECT_EQ(Reloaded->GetStatus(), Durin::ETerrainHeightmapStatus::SourceUnavailable);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 	Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);

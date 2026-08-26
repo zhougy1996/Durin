@@ -123,7 +123,7 @@ namespace Durin
 
 		// Atomically accepts a complete, validated authoring candidate. Engine owns
 		// the live object and render-resource transition; production stays external.
-		ENGINE_API auto PublishAuthoringCandidate(
+		ENGINE_API auto PublishBuildProduct(
 			ETextureCubeSourceLayout InSourceLayout,
 			FTextureCubeSourceImportData InSourceImportData,
 			uint32 InPanoramaFaceDimension,

@@ -162,7 +162,7 @@ namespace Durin
 					"Terrain collision is waiting for the asynchronous heightmap payload.");
 				return true;
 			}
-			if (!WaitForTerrainHeightmapAuthoringLoad(*Owner.Heightmap, Error))
+			if (!WaitForTerrainHeightmapDerivedDataLoad(*Owner.Heightmap, Error))
 				return SetFailure(ETerrainCollisionStatus::BuildFailed, std::move(Error));
 			return RequestPhysicsStateCreation(true);
 		}

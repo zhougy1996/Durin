@@ -95,7 +95,7 @@ six-face and panorama validation, import/reimport, source-reference changes,
 ingestion, package save, and rollback. It decodes concrete image bytes, submits
 owned normalized requests to TextureBuild, and publishes only detached products
 through Engine's narrow TextureCube state exchange. Runtime Engine exposes no
-create/save/source workflow and no mutable TextureCube authoring registry.
+create/save/source workflow and no mutable TextureCube import registry.
 
 ## Source snapshots and graphs
 
@@ -113,11 +113,11 @@ and deterministic fingerprints make both graphs safe cross-stage values.
 Unknown schemas, missing references, duplicates, cycles, invalid destinations,
 and resource-limit excess fail before candidate construction.
 
-Direct authoring, source-reference changes, repair, and uncooked PostLoad use
+Direct asset creation, source-reference changes, repair, and uncooked PostLoad use
 the same AssetForge encoded-source snapshot contract. Texture2D,
 TextureCube, and Terrain each have one typed translation authority. Built-in
 candidate and uncooked-policy orchestration never decode image formats.
-`TextureCubePostLoadPolicy` and `TerrainHeightmapAuthoringPolicy` register
+`TextureCubePostLoadPolicy` and `TerrainHeightmapAssetFeatures` register
 independently; aggregate startup installs them in declaration order and rolls
 back or tears them down in strict reverse order.
 

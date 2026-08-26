@@ -2,7 +2,7 @@
 
 #include "Math/Operations.h"
 #include "Physics/BodySetup.h"
-#include "StaticMesh/StaticMeshAuthoring.h"
+#include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
 
 namespace Durin
@@ -34,7 +34,7 @@ namespace Durin
 		uint64& OutPayloadBytes,
 		std::string& OutError) const -> bool
 	{
-		FStaticMeshCollisionAuthoringProduct Product;
+		FStaticMeshCollisionBuildProduct Product;
 		if (!InvokeStaticMeshCollisionBuildFeature(
 			SourceRenderData, SourceImportData, Mode, Policy, Product, OutError))
 			return false;

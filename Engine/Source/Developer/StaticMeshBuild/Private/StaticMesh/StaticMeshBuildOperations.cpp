@@ -556,7 +556,7 @@ namespace Durin::Asset
 			|| SourceImportData.ImporterVersion == 0
 			|| !SourceImportData.ImportSettings.IsValid(&OutError))
 		{
-			OutProduct.FailureStage = EStaticMeshAuthoringFailureStage::Request;
+			OutProduct.FailureStage = EStaticMeshBuildFailureStage::Request;
 			if (OutError.empty())
 				OutError = "Imported StaticMesh build requires complete source provenance.";
 			return false;
@@ -574,7 +574,7 @@ namespace Durin::Asset
 			Product.bSlotMetadataChanged,
 			OutError))
 		{
-			Product.FailureStage = EStaticMeshAuthoringFailureStage::RenderConversion;
+			Product.FailureStage = EStaticMeshBuildFailureStage::RenderConversion;
 			return false;
 		}
 
@@ -590,13 +590,13 @@ namespace Durin::Asset
 		Product.DerivedDataKey = BuildStaticMeshDerivedDataKey(KeyInput, OutError);
 		if (Product.DerivedDataKey.empty())
 		{
-			Product.FailureStage = EStaticMeshAuthoringFailureStage::Key;
+			Product.FailureStage = EStaticMeshBuildFailureStage::Key;
 			return false;
 		}
 		FBuildValue CandidateValue;
 		if (!Private::EncodeStaticMeshRenderData(*Product.RenderData, CandidateValue, OutError))
 		{
-			Product.FailureStage = EStaticMeshAuthoringFailureStage::DerivedDataWrite;
+			Product.FailureStage = EStaticMeshBuildFailureStage::DerivedDataWrite;
 			return false;
 		}
 		const std::vector<std::byte> KeyBytes = BuildStaticMeshDerivedDataKeyBytes(KeyInput, OutError);
@@ -608,7 +608,7 @@ namespace Durin::Asset
 				std::vector<std::byte>(CandidateValue.GetBytes().begin(), CandidateValue.GetBytes().end())));
 		if (!Builder.Build(Definition, &OutError))
 		{
-			Product.FailureStage = EStaticMeshAuthoringFailureStage::Key;
+			Product.FailureStage = EStaticMeshBuildFailureStage::Key;
 			return false;
 		}
 		const FBuildOutput Output = FBuildSession().Build(Definition, {
@@ -617,8 +617,8 @@ namespace Durin::Asset
 		if (!Output.Succeeded())
 		{
 			Product.FailureStage = Output.FailurePhase == EBuildFailurePhase::CacheStore
-				? EStaticMeshAuthoringFailureStage::DerivedDataWrite
-				: EStaticMeshAuthoringFailureStage::RenderConversion;
+				? EStaticMeshBuildFailureStage::DerivedDataWrite
+				: EStaticMeshBuildFailureStage::RenderConversion;
 			OutError = Output.Diagnostic;
 			return false;
 		}
@@ -626,14 +626,14 @@ namespace Durin::Asset
 		if (!Private::DecodeStaticMeshRenderData(Output.Value, SelectedRenderData, OutError)
 			|| !RestoreRuntimeMetadata(Product.MaterialSlots, *SelectedRenderData, OutError))
 		{
-			Product.FailureStage = EStaticMeshAuthoringFailureStage::RenderConversion;
+			Product.FailureStage = EStaticMeshBuildFailureStage::RenderConversion;
 			return false;
 		}
 		Product.RenderData = std::move(SelectedRenderData);
 
 		Product.SourceImportData = std::move(SourceImportData);
 		Product.NormalizedSize = Reconciliation.NormalizedSize;
-		Product.FailureStage = EStaticMeshAuthoringFailureStage::None;
+		Product.FailureStage = EStaticMeshBuildFailureStage::None;
 		OutError.clear();
 		return true;
 	}
@@ -722,7 +722,7 @@ namespace Durin::Asset
 				Key);
 		OutProduct.bSourceImporterInvoked = false;
 		OutProduct.bMarkPackageDirty = false;
-		OutProduct.FailureStage = EStaticMeshAuthoringFailureStage::None;
+		OutProduct.FailureStage = EStaticMeshBuildFailureStage::None;
 		OutStatus = OutProduct.DerivedDataStatus;
 		OutMessage = OutProduct.DiagnosticMessage;
 		OutError.clear();
@@ -734,7 +734,7 @@ namespace Durin::Asset
 		const FStaticMeshSourceImportData& SourceImportData,
 		EBodySetupCollisionSourceMode Mode,
 		EBodySetupCollisionQueryPolicy Policy,
-		FStaticMeshCollisionAuthoringProduct& OutProduct,
+		FStaticMeshCollisionBuildProduct& OutProduct,
 		std::string& OutError) -> bool
 	{
 		OutProduct = {};

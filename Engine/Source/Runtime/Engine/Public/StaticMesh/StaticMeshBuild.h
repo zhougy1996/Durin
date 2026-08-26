@@ -8,7 +8,7 @@
 
 namespace Durin
 {
-	enum class EStaticMeshAuthoringFailureStage : uint8
+	enum class EStaticMeshBuildFailureStage : uint8
 	{
 		None,
 		Request,
@@ -17,7 +17,7 @@ namespace Durin
 		DerivedDataWrite
 	};
 
-	struct FStaticMeshAuthoringProduct
+	struct FStaticMeshBuildProduct
 	{
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
 		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
@@ -31,11 +31,11 @@ namespace Durin
 			"Built imported StaticMesh and populated the DDC.";
 		bool bSourceImporterInvoked = true;
 		bool bMarkPackageDirty = true;
-		EStaticMeshAuthoringFailureStage FailureStage =
-			EStaticMeshAuthoringFailureStage::None;
+		EStaticMeshBuildFailureStage FailureStage =
+			EStaticMeshBuildFailureStage::None;
 	};
 
-	struct FStaticMeshCollisionAuthoringProduct
+	struct FStaticMeshCollisionBuildProduct
 	{
 		FCollisionGeometryRef Simple;
 		FCollisionGeometryRef Complex;
@@ -46,27 +46,20 @@ namespace Durin
 		uint64 PayloadBytes = 0;
 	};
 
-	class IStaticMeshAuthoringFeature : public IModularFeature
+	class IStaticMeshBuildFeature : public IModularFeature
 	{
 	public:
-		static constexpr std::string_view FeatureName = "Engine.StaticMeshAuthoring";
+		static constexpr std::string_view FeatureName = "Engine.StaticMeshBuild";
 		static constexpr uint32 FeatureVersion = 1;
 		virtual auto BuildFileProduct(
 			DStaticMesh& Mesh,
 			std::string_view SourcePath,
 			FStaticMeshSourceImportData SourceImportData,
 			std::string_view SourceContentHash,
-			FStaticMeshAuthoringProduct& OutProduct,
-			std::string& OutError) -> bool = 0;
-		virtual auto PostLoadUncooked(
-			DStaticMesh& Mesh,
-			FStaticMeshDerivedDataDiagnostic& OutDiagnostic,
-			std::string& OutError) -> bool = 0;
-		virtual auto ChangeSourceReference(
-			DStaticMesh& Mesh,
-			std::string_view SourceVirtualPath,
+			FStaticMeshBuildProduct& OutProduct,
 			std::string& OutError) -> bool = 0;
 	};
+
 	class IStaticMeshCollisionBuildFeature : public IModularFeature
 	{
 	public:
@@ -77,23 +70,15 @@ namespace Durin
 			const FStaticMeshSourceImportData& SourceImportData,
 			EBodySetupCollisionSourceMode Mode,
 			EBodySetupCollisionQueryPolicy Policy,
-			FStaticMeshCollisionAuthoringProduct& OutProduct,
+			FStaticMeshCollisionBuildProduct& OutProduct,
 			std::string& OutError) -> bool = 0;
 	};
 
-	ENGINE_API auto InvokeStaticMeshPostLoadFeature(
-		DStaticMesh& Mesh,
-		FStaticMeshDerivedDataDiagnostic& OutDiagnostic,
-		std::string& OutError) -> bool;
 	ENGINE_API auto InvokeStaticMeshCollisionBuildFeature(
 		const FStaticMeshRenderData& RenderData,
 		const FStaticMeshSourceImportData& SourceImportData,
 		EBodySetupCollisionSourceMode Mode,
 		EBodySetupCollisionQueryPolicy Policy,
-		FStaticMeshCollisionAuthoringProduct& OutProduct,
-		std::string& OutError) -> bool;
-	ENGINE_API auto InvokeStaticMeshSourceChangeHandler(
-		DStaticMesh& Mesh,
-		std::string_view SourceVirtualPath,
+		FStaticMeshCollisionBuildProduct& OutProduct,
 		std::string& OutError) -> bool;
 }

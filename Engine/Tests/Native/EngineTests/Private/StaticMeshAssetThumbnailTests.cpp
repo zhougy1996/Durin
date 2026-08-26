@@ -7,7 +7,7 @@
 
 #include "AssetTools.h"
 #include "AssetForge/ImportService.h"
-#include "AssetForgeBuiltinsAuthoringFeatures.h"
+#include "AssetForgeBuiltinsAssetFeatures.h"
 #include "AssetForgeBuiltinsProviderTestFixture.h"
 #include "DObject/Class.h"
 #include "Editor/WorkspaceManager.h"
@@ -142,12 +142,11 @@ TEST(FStaticMeshAssetThumbnailTests,
 	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
-	Durin::FModuleTestOwner AuthoringContext("StaticMeshThumbnailTests.Recovery");
-	Durin::AssetForge::Builtins::FAssetForgeBuiltinsAuthoringFeatures AuthoringFeatures;
-	auto StaticMeshAuthoring =
-		AuthoringContext.RegisterFeature<Durin::IStaticMeshAuthoringFeature>(
-			AuthoringFeatures);
-	ASSERT_TRUE(StaticMeshAuthoring.IsValid());
+	Durin::FModuleTestOwner AssetContext("StaticMeshThumbnailTests.Recovery");
+	Durin::AssetForge::Builtins::FAssetForgeBuiltinsAssetFeatures AssetFeatures;
+	auto StaticMeshPostLoad =
+		AssetContext.RegisterFeature<Durin::IStaticMeshPostLoadFeature>(AssetFeatures);
+	ASSERT_TRUE(StaticMeshPostLoad.IsValid());
 	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string Error;
 	ASSERT_TRUE(Providers.Register(Error)) << Error;

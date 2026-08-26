@@ -6,13 +6,20 @@
 namespace Durin
 {
 	class DTerrainHeightmap;
-	class ITerrainHeightmapAuthoringFeature : public IModularFeature
+	class ITerrainHeightmapDerivedDataLoadFeature : public IModularFeature
 	{
 	public:
-		static constexpr std::string_view FeatureName = "Engine.TerrainHeightmapAuthoring";
+		static constexpr std::string_view FeatureName = "Engine.TerrainHeightmapDerivedDataLoad";
 		static constexpr uint32 FeatureVersion = 1;
 		virtual auto PostLoadUncooked(DTerrainHeightmap& Heightmap, std::string& OutError) -> bool = 0;
-		virtual auto WaitForAuthoringLoad(DTerrainHeightmap& Heightmap, std::string& OutError) -> bool = 0;
+		virtual auto WaitForDerivedDataLoad(DTerrainHeightmap& Heightmap, std::string& OutError) -> bool = 0;
+	};
+
+	class ITerrainHeightmapSourceMutationFeature : public IModularFeature
+	{
+	public:
+		static constexpr std::string_view FeatureName = "Engine.TerrainHeightmapSourceMutation";
+		static constexpr uint32 FeatureVersion = 1;
 		virtual auto ChangeSourceReference(
 			DTerrainHeightmap& Heightmap,
 			std::string_view SourceVirtualPath,
@@ -21,7 +28,7 @@ namespace Durin
 
 	ENGINE_API auto InvokeTerrainHeightmapUncookedPostLoadHandler(
 		DTerrainHeightmap& Heightmap, std::string& OutError) -> bool;
-	ENGINE_API auto WaitForTerrainHeightmapAuthoringLoad(
+	ENGINE_API auto WaitForTerrainHeightmapDerivedDataLoad(
 		DTerrainHeightmap& Heightmap, std::string& OutError) -> bool;
 	ENGINE_API auto InvokeTerrainHeightmapSourceChangeHandler(
 		DTerrainHeightmap& Heightmap,

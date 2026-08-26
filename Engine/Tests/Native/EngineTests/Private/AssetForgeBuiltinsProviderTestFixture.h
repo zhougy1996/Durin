@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetForgeBuiltinsAuthoringTestSupport.h"
+#include "AssetForgeBuiltinsAssetTestSupport.h"
 #include "AssetForgeBuiltinsProviders.h"
 #include "EngineTestSupport.h"
 

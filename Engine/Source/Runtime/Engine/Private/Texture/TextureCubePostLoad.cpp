@@ -7,8 +7,8 @@ namespace Durin
 	auto InvokeTextureCubeUncookedPostLoadHandler(
 		DTextureCube& Texture, std::string& OutError) -> bool
 	{
-		return Private::InvokeSingleModularFeature<ITextureCubeAuthoringFeature>(
-			[&](ITextureCubeAuthoringFeature& Feature) {
+		return Private::InvokeSingleModularFeature<ITextureCubePostLoadFeature>(
+			[&](ITextureCubePostLoadFeature& Feature) {
 				return Feature.PostLoadUncooked(Texture, OutError);
 			},
 			{

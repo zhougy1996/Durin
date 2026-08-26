@@ -2,18 +2,22 @@
 
 #include "AssetForgeBuiltinsAPI.h"
 #include "AssetAuthoringReadiness.h"
-#include "StaticMesh/StaticMeshAuthoring.h"
+#include "StaticMesh/StaticMeshBuild.h"
+#include "StaticMesh/StaticMeshPostLoad.h"
+#include "StaticMesh/StaticMeshSourceMutation.h"
 #include "Texture/Texture2DPostLoad.h"
 #include "Texture/TextureCubePostLoad.h"
 #include "Texture/VolumeTexturePostLoad.h"
 
 namespace Durin::AssetForge::Builtins
 {
-	class FAssetForgeBuiltinsAuthoringFeatures final
-		: public IStaticMeshAuthoringFeature
+	class FAssetForgeBuiltinsAssetFeatures final
+		: public IStaticMeshBuildFeature
+		, public IStaticMeshPostLoadFeature
+		, public IStaticMeshSourceMutationFeature
 		, public ITexture2DPostLoadFeature
 		, public ITexture2DImportRecoveryFeature
-		, public ITextureCubeAuthoringFeature
+		, public ITextureCubePostLoadFeature
 		, public IVolumeTextureImportRecoveryFeature
 		, public IAssetAuthoringReadinessFeature
 	{
@@ -25,7 +29,7 @@ namespace Durin::AssetForge::Builtins
 			std::string_view SourcePath,
 			FStaticMeshSourceImportData SourceImportData,
 			std::string_view SourceContentHash,
-			FStaticMeshAuthoringProduct& OutProduct,
+			FStaticMeshBuildProduct& OutProduct,
 			std::string& OutError) -> bool override;
 		ASSETFORGEBUILTINS_API auto PostLoadUncooked(
 			DStaticMesh& Mesh,

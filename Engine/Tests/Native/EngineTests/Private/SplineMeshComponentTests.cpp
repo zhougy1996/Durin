@@ -20,7 +20,7 @@
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "AssetForgeBuiltinsProviders.h"
-#include "AssetForgeBuiltinsAuthoringTestSupport.h"
+#include "AssetForgeBuiltinsAssetTestSupport.h"
 #include "AssetForgeBuiltinsProviderTestFixture.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 
@@ -78,7 +78,7 @@ TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationS
 	PathUtilities::FScopedMountRegistryFixture MountRegistry;
 	PathUtilities::InitDefaultMountPoints();
 	ASSERT_TRUE(Asset::RefreshAssetCatalog());
-	ASSERT_TRUE(Tests::InstallAssetForgeBuiltinsAuthoringFeatures());
+	ASSERT_TRUE(Tests::InstallAssetForgeBuiltinsAssetFeatures());
 	Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string ProviderError;
 	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;

@@ -80,7 +80,7 @@ format, mip filter, builder and payload schema versions, and Win64/Game target
 identity. A validated cache hit and a rebuild publish the same platform value.
 Corrupt or incompatible entries are misses; a failed candidate never replaces
 the asset's last-known-good CPU or GPU result. Engine reaches the uncooked
-post-load policy through `IVolumeTextureAuthoringFeature`, preserving the
+post-load policy through `IVolumeTexturePostLoadFeature`, preserving the
 Engine-to-TextureBuild dependency direction.
 
 ## Authored source bulk data

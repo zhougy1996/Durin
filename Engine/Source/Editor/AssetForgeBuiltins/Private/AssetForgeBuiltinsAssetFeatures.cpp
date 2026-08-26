@@ -9,7 +9,7 @@
 
 namespace Durin::AssetForge::Builtins
 {
-	auto FAssetForgeBuiltinsAuthoringFeatures::Validate(const DObject& Object) const
+	auto FAssetForgeBuiltinsAssetFeatures::Validate(const DObject& Object) const
 		-> FAssetAuthoringReadinessFeatureResult
 	{
 		auto NotReady = [](std::string_view Domain) {
@@ -49,19 +49,19 @@ namespace Durin::AssetForge::Builtins
 		return {};
 	}
 
-	auto FAssetForgeBuiltinsAuthoringFeatures::BuildFileProduct(
+	auto FAssetForgeBuiltinsAssetFeatures::BuildFileProduct(
 		DStaticMesh& Mesh,
 		std::string_view SourcePath,
 		FStaticMeshSourceImportData SourceImportData,
 		std::string_view SourceContentHash,
-		FStaticMeshAuthoringProduct& OutProduct,
+		FStaticMeshBuildProduct& OutProduct,
 		std::string& OutError) -> bool
 	{
 		return BuildStaticMeshFileProduct(
 			Mesh, SourcePath, std::move(SourceImportData), SourceContentHash, OutProduct, OutError);
 	}
 
-	auto FAssetForgeBuiltinsAuthoringFeatures::PostLoadUncooked(
+	auto FAssetForgeBuiltinsAssetFeatures::PostLoadUncooked(
 		DStaticMesh& Mesh,
 		FStaticMeshDerivedDataDiagnostic& OutDiagnostic,
 		std::string& OutError) -> bool
@@ -69,7 +69,7 @@ namespace Durin::AssetForge::Builtins
 		return PostLoadStaticMesh(Mesh, OutDiagnostic, OutError);
 	}
 
-	auto FAssetForgeBuiltinsAuthoringFeatures::ChangeSourceReference(
+	auto FAssetForgeBuiltinsAssetFeatures::ChangeSourceReference(
 		DStaticMesh& Mesh,
 		std::string_view SourceVirtualPath,
 		std::string& OutError) -> bool
@@ -77,19 +77,19 @@ namespace Durin::AssetForge::Builtins
 		return ChangeStaticMeshSourceReference(Mesh, SourceVirtualPath, OutError);
 	}
 
-	auto FAssetForgeBuiltinsAuthoringFeatures::PostLoadUncooked(
+	auto FAssetForgeBuiltinsAssetFeatures::PostLoadUncooked(
 		DTexture2D& Texture, std::string& OutError) -> bool
 	{
 		return PostLoadTexture2DFeature(Texture, OutError);
 	}
 
-	auto FAssetForgeBuiltinsAuthoringFeatures::WaitForRecovery(
+	auto FAssetForgeBuiltinsAssetFeatures::WaitForRecovery(
 		DTexture2D& Texture, double TimeoutSeconds) -> bool
 	{
 		return WaitForTexture2DImportRecovery(Texture, TimeoutSeconds);
 	}
 
-	auto FAssetForgeBuiltinsAuthoringFeatures::RecoverUncooked(
+	auto FAssetForgeBuiltinsAssetFeatures::RecoverUncooked(
 		DVolumeTexture& Texture, std::string& OutError) -> bool
 	{
 		const std::string Key = Asset::MakeVolumeTextureDerivedDataKey(Texture, OutError);
@@ -131,7 +131,7 @@ namespace Durin::AssetForge::Builtins
 		return true;
 	}
 
-	auto FAssetForgeBuiltinsAuthoringFeatures::PostLoadUncooked(
+	auto FAssetForgeBuiltinsAssetFeatures::PostLoadUncooked(
 		DTextureCube& Texture, std::string& OutError) -> bool
 	{
 		return PostLoadTextureCubeFeature(Texture, OutError);

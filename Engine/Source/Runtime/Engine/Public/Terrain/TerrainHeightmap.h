@@ -159,16 +159,16 @@ namespace Durin
 		auto GetLastDiagnostic() const -> const std::string& { return LastDiagnostic; }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
-		auto GetAuthoringLoadGeneration() const -> uint64 { return AuthoringLoadGeneration; }
-		ENGINE_API auto BeginAuthoringLoad(bool bRebuilding, std::string Diagnostic) -> uint64;
-		ENGINE_API auto IsAuthoringLoadCurrent(uint64 Generation) const -> bool;
-		ENGINE_API auto FailAuthoringLoad(
+		auto GetDerivedDataLoadGeneration() const -> uint64 { return DerivedDataLoadGeneration; }
+		ENGINE_API auto BeginDerivedDataLoad(bool bRebuilding, std::string Diagnostic) -> uint64;
+		ENGINE_API auto IsDerivedDataLoadCurrent(uint64 Generation) const -> bool;
+		ENGINE_API auto FailDerivedDataLoad(
 			uint64 Generation, ETerrainHeightmapStatus FailureStatus, std::string Diagnostic) -> bool;
 		ENGINE_API auto GetSample(uint32 X, uint32 Y, uint16& OutSample) const -> bool;
 		ENGINE_API auto QueryMinMax(
 			uint32 MinX, uint32 MinY, uint32 MaxX, uint32 MaxY,
 			uint16& OutMinimum, uint16& OutMaximum) const -> bool;
-		ENGINE_API auto PublishAuthoringCandidate(
+		ENGINE_API auto PublishDerivedDataLoadResult(
 			FTerrainHeightmapSourceImportData InSourceImportData,
 			uint64 InSourceFileSize,
 			int64 InSourceLastWriteTime,
@@ -256,7 +256,7 @@ namespace Durin
 
 		std::shared_ptr<const FTerrainHeightmapPayload> Payload;
 		bool bLoadedFromDerivedDataCache = false;
-		uint64 AuthoringLoadGeneration = 0;
+		uint64 DerivedDataLoadGeneration = 0;
 	};
 
 	ENGINE_API auto BuildTerrainHeightmapPayload(

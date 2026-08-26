@@ -16,7 +16,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "AssetForgeBuiltinsProviders.h"
-#include "AssetForgeBuiltinsAuthoringFeatures.h"
+#include "AssetForgeBuiltinsAssetFeatures.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 #include "Thumbnail/StaticMeshAssetThumbnail.h"
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
@@ -305,17 +305,17 @@ namespace Durin::Tests
 	) -> bool
 	{
 		InitializeDObjectSystem();
-		static FModuleTestOwner AuthoringContext("RenderedAssetThumbnailFixtures.Authoring");
-		static AssetForge::Builtins::FAssetForgeBuiltinsAuthoringFeatures AuthoringFeatures;
-		static auto StaticMeshAuthoring =
-			AuthoringContext.RegisterFeature<IStaticMeshAuthoringFeature>(AuthoringFeatures);
+		static FModuleTestOwner AssetContext("RenderedAssetThumbnailFixtures.Assets");
+		static AssetForge::Builtins::FAssetForgeBuiltinsAssetFeatures AssetFeatures;
+		static auto StaticMeshPostLoad =
+			AssetContext.RegisterFeature<IStaticMeshPostLoadFeature>(AssetFeatures);
 		static auto Texture2DPostLoad =
-			AuthoringContext.RegisterFeature<ITexture2DPostLoadFeature>(AuthoringFeatures);
-		static auto TextureCubeAuthoring =
-			AuthoringContext.RegisterFeature<ITextureCubeAuthoringFeature>(AuthoringFeatures);
-		(void)StaticMeshAuthoring;
+			AssetContext.RegisterFeature<ITexture2DPostLoadFeature>(AssetFeatures);
+		static auto TextureCubePostLoad =
+			AssetContext.RegisterFeature<ITextureCubePostLoadFeature>(AssetFeatures);
+		(void)StaticMeshPostLoad;
 		(void)Texture2DPostLoad;
-		(void)TextureCubeAuthoring;
+		(void)TextureCubePostLoad;
 		if (!AssetForge::Builtins::RegisterAssetForgeBuiltinsProviders(
 			OutError, GetEngineTestModuleCallbackGate())) return false;
 		const std::filesystem::path Root = GetRenderedAssetThumbnailFixtureRoot();

@@ -287,7 +287,7 @@ namespace Durin
 
 	auto DTerrainHeightmap::BeginDestroy() -> void
 	{
-		++AuthoringLoadGeneration;
+		++DerivedDataLoadGeneration;
 		Payload.reset();
 		Status = ETerrainHeightmapStatus::Unavailable;
 		Super::BeginDestroy();
@@ -323,7 +323,7 @@ namespace Durin
 			MinX, MinY, MaxX, MaxY, OutMinimum, OutMaximum);
 	}
 
-	auto DTerrainHeightmap::PublishAuthoringCandidate(
+	auto DTerrainHeightmap::PublishDerivedDataLoadResult(
 		FTerrainHeightmapSourceImportData InSourceImportData,
 		uint64 InSourceFileSize,
 		int64 InSourceLastWriteTime,
@@ -334,7 +334,7 @@ namespace Durin
 		bool bMarkPackageDirty,
 		bool bInLoadedFromDerivedDataCache) -> void
 	{
-		++AuthoringLoadGeneration;
+		++DerivedDataLoadGeneration;
 		SourceImportData = std::move(InSourceImportData);
 		SourceFileSize = InSourceFileSize;
 		SourceLastWriteTime = InSourceLastWriteTime;
@@ -347,28 +347,28 @@ namespace Durin
 		if (bMarkPackageDirty) MarkPackageDirty();
 	}
 
-	auto DTerrainHeightmap::BeginAuthoringLoad(bool bRebuilding, std::string Diagnostic) -> uint64
+	auto DTerrainHeightmap::BeginDerivedDataLoad(bool bRebuilding, std::string Diagnostic) -> uint64
 	{
-		++AuthoringLoadGeneration;
+		++DerivedDataLoadGeneration;
 		Status = bRebuilding ? ETerrainHeightmapStatus::Rebuilding : ETerrainHeightmapStatus::Loading;
 		SetBoundedDiagnostic(LastDiagnostic, std::move(Diagnostic));
-		return AuthoringLoadGeneration;
+		return DerivedDataLoadGeneration;
 	}
 
-	auto DTerrainHeightmap::IsAuthoringLoadCurrent(uint64 Generation) const -> bool
+	auto DTerrainHeightmap::IsDerivedDataLoadCurrent(uint64 Generation) const -> bool
 	{
-		return Generation != 0 && Generation == AuthoringLoadGeneration
+		return Generation != 0 && Generation == DerivedDataLoadGeneration
 			&& (Status == ETerrainHeightmapStatus::Loading
 				|| Status == ETerrainHeightmapStatus::Rebuilding);
 	}
 
-	auto DTerrainHeightmap::FailAuthoringLoad(
+	auto DTerrainHeightmap::FailDerivedDataLoad(
 		uint64 Generation, ETerrainHeightmapStatus FailureStatus, std::string Diagnostic) -> bool
 	{
-		if (!IsAuthoringLoadCurrent(Generation)
+		if (!IsDerivedDataLoadCurrent(Generation)
 			|| (FailureStatus != ETerrainHeightmapStatus::SourceUnavailable
 				&& FailureStatus != ETerrainHeightmapStatus::Failed)) return false;
-		++AuthoringLoadGeneration;
+		++DerivedDataLoadGeneration;
 		Status = FailureStatus;
 		SetBoundedDiagnostic(LastDiagnostic, std::move(Diagnostic));
 		return true;

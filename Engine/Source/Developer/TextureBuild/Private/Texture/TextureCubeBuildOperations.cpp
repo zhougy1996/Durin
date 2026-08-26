@@ -350,7 +350,7 @@ namespace Durin::Asset
 		if (!Product.bLoadedFromDerivedDataCache)
 			SourceData = std::make_unique<FTextureCubeSourceData>(
 				std::move(Product.SourceData));
-		Texture.PublishAuthoringCandidate(
+		Texture.PublishBuildProduct(
 			Product.SourceLayout, std::move(Provenance), Product.PanoramaFaceDimension,
 			Product.PanoramaExposureEV, Product.SourceWidth, Product.SourceHeight,
 			Product.bSRGB,

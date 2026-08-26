@@ -24,7 +24,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "AssetForgeBuiltinsProviders.h"
-#include "AssetForgeBuiltinsAuthoringTestSupport.h"
+#include "AssetForgeBuiltinsAssetTestSupport.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
@@ -62,7 +62,7 @@ namespace Durin
 		OrdinaryGraphRendersReloadsAndResavesDeterministically)
 	{
 		InitializeDObjectSystem();
-		ASSERT_TRUE(Tests::InstallAssetForgeBuiltinsAuthoringFeatures());
+		ASSERT_TRUE(Tests::InstallAssetForgeBuiltinsAssetFeatures());
 		std::string ProviderError;
 		ASSERT_TRUE(AssetForge::Builtins::RegisterAssetForgeBuiltinsProviders(
 			ProviderError, GetEngineTestModuleCallbackGate()))
@@ -240,7 +240,7 @@ namespace Durin
 		MaterialSnapshotSurvivesTextureReplacementProxyClosureAndAssetUnload)
 	{
 		InitializeDObjectSystem();
-		ASSERT_TRUE(Tests::InstallAssetForgeBuiltinsAuthoringFeatures());
+		ASSERT_TRUE(Tests::InstallAssetForgeBuiltinsAssetFeatures());
 		std::string ProviderError;
 		ASSERT_TRUE(AssetForge::Builtins::RegisterAssetForgeBuiltinsProviders(
 			ProviderError, GetEngineTestModuleCallbackGate())) << ProviderError;

@@ -9,17 +9,18 @@ Completed:
 
 ## Current Status
 
-Stage 0 is complete. The source audit found `Authoring` in 132 Runtime,
-Developer, Editor, and Program C++ files and in 24 source header or
-implementation paths. Those uses currently mix content-write policy, project
-edit ownership, package serialization, save readiness, import/build products,
-uncooked derived-data loading, source-reference mutation, and editor commands.
+Stages 0 and 1 are complete. StaticMesh build, post-load, and source mutation
+have independent modular features because their callers require independent
+availability; one AssetForgeBuiltins implementation object still implements
+all three contracts. TextureCube and VolumeTexture now use post-load feature
+vocabulary, while Terrain derived-data loading and source mutation use separate
+features and generation-safe publication names.
 
-The selected migration is semantic rather than mechanical. `Authored` remains
-the term for authoritative persisted user intent. Ambiguous `Authoring` API
-names move in dependency order to the specific vocabulary defined below, with
-each stage leaving the repository buildable and without C++ compatibility
-aliases. Implementation has not started; Stage 1 is the first open stage.
+The `AssetForgeBuiltins` module closure builds. `StaticMeshTests` passed 74/74,
+`TextureTests` passed 78/78, and `TerrainHeightmapTests` passed 11/11. The
+Texture target also required correcting a stale private-header include that
+prevented the existing focused target from compiling. Stage 2 is the next open
+stage.
 
 ## Goal
 
@@ -238,27 +239,27 @@ cleanup.”
 
 ### Stage 1: Clarify Engine optional asset-operation seams
 
-- [ ] Audit every caller and implementation of the StaticMesh optional seam,
+- [x] Audit every caller and implementation of the StaticMesh optional seam,
   then record whether build, uncooked load, and source mutation require one or
   multiple independently available modular features.
-- [ ] Rename `FStaticMeshAuthoringProduct`, collision product, failure stage,
+- [x] Rename `FStaticMeshAuthoringProduct`, collision product, failure stage,
   publication parameters, file paths, and diagnostics to build-specific
   vocabulary; remove the redundant Developer-module build-product alias.
-- [ ] Replace `IStaticMeshAuthoringFeature` with the selected explicit
+- [x] Replace `IStaticMeshAuthoringFeature` with the selected explicit
   operation contract or contracts without changing Runtime-to-Developer/Editor
   dependency direction.
-- [ ] Rename TextureCube and VolumeTexture authoring features and feature-name
+- [x] Rename TextureCube and VolumeTexture authoring features and feature-name
   strings to uncooked post-load vocabulary consistent with Texture2D.
-- [ ] Rename Terrain feature, state, load generation, wait, failure,
+- [x] Rename Terrain feature, state, load generation, wait, failure,
   publication, and operation-group labels to derived-data load and source
   mutation vocabulary.
-- [ ] Rename the AssetForgeBuiltins implementation aggregate and support
+- [x] Rename the AssetForgeBuiltins implementation aggregate and support
   fixtures after the contracts it implements; keep registration lifetime and
   shutdown ordering unchanged.
-- [ ] Update StaticMeshBuild, TextureBuild, TerrainBuild, AssetForgeBuiltins,
+- [x] Update StaticMeshBuild, TextureBuild, TerrainBuild, AssetForgeBuiltins,
   Engine consumers, cook paths, editor recovery paths, and focused tests in the
   same change.
-- [ ] Update the asset data lifecycle, VolumeTexture, TerrainHeightmap, import,
+- [x] Update the asset data lifecycle, VolumeTexture, TerrainHeightmap, import,
   and modular-feature ownership documents that name the old seams.
 
 #### Acceptance Gate
@@ -459,8 +460,8 @@ not be used to expand rendering behavior.
 - `Engine/Source/Runtime/Engine/Public/Texture/TextureCubePostLoad.h`
 - `Engine/Source/Runtime/Engine/Public/Texture/VolumeTexturePostLoad.h`
 - `Engine/Source/Runtime/Engine/Public/Terrain/TerrainHeightmapPostLoad.h`
-- `Engine/Source/Editor/AssetForgeBuiltins/Public/AssetForgeBuiltinsAuthoringFeatures.h`
-- `Engine/Source/Editor/AssetForgeBuiltins/Public/TerrainAuthoringFeature.h`
+- `Engine/Source/Editor/AssetForgeBuiltins/Public/AssetForgeBuiltinsAssetFeatures.h`
+- `Engine/Source/Editor/AssetForgeBuiltins/Public/TerrainHeightmapAssetFeatures.h`
 - `Engine/Source/Editor/LevelEditor/Public/StaticMeshLevelAuthoring.h`
 - `Engine/Source/Editor/LevelEditor/Public/TerrainLevelAuthoring.h`
 - `Engine/Source/Editor/LevelEditor/Public/SkyBoxLevelAuthoring.h`

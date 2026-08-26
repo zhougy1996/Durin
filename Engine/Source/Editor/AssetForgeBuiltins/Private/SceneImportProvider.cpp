@@ -23,10 +23,10 @@ namespace Durin::AssetForge::Builtins
 		};
 
 		auto CloneStaticMeshBuildProduct(
-			const Asset::FStaticMeshBuildProduct& Source)
-			-> Asset::FStaticMeshBuildProduct
+			const FStaticMeshBuildProduct& Source)
+			-> FStaticMeshBuildProduct
 		{
-			Asset::FStaticMeshBuildProduct Result;
+			FStaticMeshBuildProduct Result;
 			if (Source.RenderData)
 				Result.RenderData =
 					std::make_unique<FStaticMeshRenderData>(*Source.RenderData);
@@ -255,7 +255,7 @@ namespace Durin::AssetForge::Builtins
 			std::shared_ptr<const FSceneCachedImportPlan> Cached;
 			uint32 OutputIndex = 0;
 			std::vector<FImportOutputPreview> Outputs;
-			Asset::FStaticMeshBuildProduct StaticMesh;
+			FStaticMeshBuildProduct StaticMesh;
 			FSceneTextureBuildProduct Texture;
 			Asset::FSkeletalMeshBuildProduct SkeletalMesh;
 			Asset::FAnimationClipBuildProduct Animation;
