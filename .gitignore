@@ -6,13 +6,13 @@
 # Build Directories
 /Build/
 /.idea/
-/.vscode/
+/.vscode
 /.vscode.pre-link-backup/
-/.venv/
+/.venv
 /out/
 /.claude/
 /AGENTS_LOCAL.md
-/.agents/
+/.agents
 /.agents.pre-link-backup/
 
 # Regenerable content and editor output. Authored source assets and .dasset
