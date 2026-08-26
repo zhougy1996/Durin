@@ -4,7 +4,7 @@ Summary: Define the shared MaterialEditor command, presentation, canvas, transac
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-08-27
 
 ## Ownership
 
@@ -126,14 +126,19 @@ output are selected, unrelated links dim while adjacent paths receive a thicker
 typed stroke. Occupied-input reconnection retains its authored link until a
 valid source drop succeeds as one replace transaction.
 
-The searchable creation palette ranks exact, prefix, and substring matches,
-then uses stable category, operation, type, parameter GUID, and catalog order
-ties. Opening from a source output filters the first input by compatible type.
-Additional required inputs are collected in index order by a canvas-local
-draft; only the complete node reaches `CreateNode`. Escape and every document
-lifecycle cancellation discard creation, reconnection, movement, and inline
-edit drafts without dirtying or compiling the material. Every mutation still
-routes to the stateless `FMaterialGraphOperations` operation boundary.
+The centered searchable creation palette opens from Space, an empty-canvas
+double click, or an output link dropped on empty space. It focuses search,
+supports complete arrow/Enter/Escape navigation, surfaces category and pin type
+signatures, and places favorites and recent choices first. Search ranks exact,
+prefix, and substring matches, then uses stable category, operation, type,
+parameter GUID, and catalog order ties. Opening from a source output filters the
+first input by compatible type. Selection creates and connects the requested
+node as one command; missing numeric inputs receive visible default Constant
+nodes in the same transaction, while resource inputs without a default reject.
+Escape and every document lifecycle cancellation close the palette and discard
+reconnection, movement, and inline edit drafts without dirtying or compiling
+the material. Every mutation still routes to the stateless
+`FMaterialGraphOperations` operation boundary.
 
 `Promote to Parameter` is available on an unconnected Material Output input. It
 creates the compatible canonical Parameter node one column upstream, copies the
@@ -172,9 +177,12 @@ value and makes that override eligible again.
 
 Base-material documents own canvases; instance documents retain the parameter
 override workflow and direct users to the root base material for graph editing.
-Canvas maps use document IDs, so selection and viewport state cannot leak across
-materials or instances. Closing a document destroys its controller; reopening
-starts fresh transient state while persisted positions return from the package.
+Canvas maps use document IDs, so selection cannot leak across materials or
+instances. User-scoped material-editor session settings retain the left, right,
+and diagnostic pane proportions and the pan/zoom viewport for each material
+resource. Closing a document destroys its controller; reopening restores only
+that material's viewport while authored positions continue to come from the
+package.
 
 MaterialEditor registers the authoritative AssetCore move observer with its
 module callback gate. A relocation moves the loaded-material entry and asks

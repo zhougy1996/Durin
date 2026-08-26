@@ -20,6 +20,7 @@ namespace Durin::Editor::Material
 	class FMaterialGraphCanvas;
 	class FMaterialParameterPanelCache;
 	class FMaterialParameterPanelModel;
+	class FMaterialEditorSessionSettings;
 	struct FMaterialParameterPanelEntry;
 
 	// Hosts one material document with preview and parameter editing state.
@@ -57,6 +58,7 @@ namespace Durin::Editor::Material
 		auto DrawDocument(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawToolbar(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawCompileStatus(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
+		auto DrawDiagnosticsPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
 		auto DrawWideLayout(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawNarrowLayout(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material) -> void;
 		auto DrawPreviewPanel(const ::Durin::Editor::FDocumentTab& Document, DMaterialInterface* Material, float Height) -> void;
@@ -80,6 +82,7 @@ namespace Durin::Editor::Material
 		auto OnAssetsRelocated(
 			std::span<const Asset::FAssetRelocationMapping> Mappings) -> void override;
 		auto CancelCanvasInteraction(uint64 DocumentId) -> void;
+		auto CaptureCanvasViewport(const ::Durin::Editor::FDocumentTab& Document) -> void;
 
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager;
 		std::unordered_map<std::string, TObjectPtr<DMaterialInterface>> OpenMaterials;
@@ -87,13 +90,12 @@ namespace Durin::Editor::Material
 		std::unordered_map<uint64, std::unique_ptr<FMaterialPreview>> MaterialPreviews;
 		std::unordered_map<uint64, std::unique_ptr<FMaterialGraphCanvas>> MaterialGraphCanvases;
 		std::unique_ptr<FMaterialParameterPanelCache> MaterialParameterPanelCache;
+		std::unique_ptr<FMaterialEditorSessionSettings> SessionSettings;
 		std::array<char, 128> ParentSearchText{};
 		std::array<char, 128> TextureSearchText{};
 		std::string ErrorMessage;
 		::Durin::Editor::FPropertyView PropertyView;
-		float SidebarRatio = 0.40f;
-		float PreviewPaneRatio = 0.68f;
-		bool bUsePreferredPreviewWidth = true;
+		bool bGraphMaximized = false;
 		Asset::FAssetMoveObserverHandle MoveObserverHandle = 0;
 	};
 }

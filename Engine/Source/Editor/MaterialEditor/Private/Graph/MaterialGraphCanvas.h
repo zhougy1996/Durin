@@ -33,6 +33,7 @@ namespace Durin::Editor::Material
 			DetailLevel = FMaterialGraphGeometry::SelectDetailLevel(
 				Zoom, EMaterialGraphDetailLevel::Readable);
 		}
+		auto GetViewport() const -> std::pair<float, ImVec2> { return {Zoom, Pan}; }
 		auto GetSelection() const -> const std::unordered_set<FGuid>&
 		{
 			return SelectedNodes;
@@ -61,9 +62,10 @@ namespace Durin::Editor::Material
 		std::optional<uint32> ContextInputIndex;
 		std::optional<EMaterialSurfaceOutput> ContextSurfaceOutput;
 		ImVec2 PaletteGraphPosition{};
-		std::optional<FMaterialGraphCreateNodeRequest> CreationDraft;
-		std::vector<std::vector<EMaterialProgramValueType>> CreationDraftAcceptedTypes;
-		uint32 CreationDraftInputIndex = 0;
+		bool bPaletteOpenRequested = false;
+		int32 PaletteSelection = 0;
+		std::vector<std::string> RecentPaletteEntries;
+		std::unordered_set<std::string> FavoritePaletteEntries;
 		std::array<char, 96> PaletteSearch{};
 		FGuid ReconnectDestinationNode;
 		uint32 ReconnectDestinationInputIndex = 0;

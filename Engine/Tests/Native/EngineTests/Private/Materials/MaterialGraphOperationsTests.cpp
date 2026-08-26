@@ -138,6 +138,7 @@ TEST(FMaterialGraphOperationsTests, CatalogAndInspectionCoverTheClosedOpcodeDoma
 	{
 		EXPECT_FALSE(Entry.OperationName.empty());
 		EXPECT_FALSE(Entry.Category.empty());
+		EXPECT_FALSE(Entry.Description.empty());
 		EXPECT_EQ(Entry.InputNames.size(), Entry.AcceptedInputTypes.size());
 	}
 	const std::vector<FMaterialGraphCatalogEntry> MultiplyResults =
@@ -186,6 +187,54 @@ TEST(FMaterialGraphOperationsTests, CanvasGeometryUsesStableMetricsAndZoomHyster
 	EXPECT_EQ(FMaterialGraphGeometry::SelectDetailLevel(
 		0.70f, EMaterialGraphDetailLevel::Editing),
 		EMaterialGraphDetailLevel::Readable);
+}
+
+TEST(FMaterialGraphOperationsTests, PaletteCreationAddsVisibleDefaultsInOneTransaction)
+{
+	InitializeDObjectSystem();
+	DMaterial* Material = NewObject<DMaterial>(nullptr, "PaletteCreationMaterial");
+	ASSERT_NE(Material, nullptr);
+	const std::vector<FMaterialGraphCatalogEntry> Catalog =
+		FMaterialGraphOperations::SearchCatalog(*Material, "multiply");
+	const auto Multiply = std::ranges::find_if(Catalog,
+		[](const FMaterialGraphCatalogEntry& Entry) {
+			return Entry.OperationName == "Multiply"
+				&& Entry.NodeTemplate.ResultType == EMaterialProgramValueType::Float3;
+		});
+	ASSERT_NE(Multiply, Catalog.end());
+
+	const FMaterialProgram Before = *Material->GetMaterialProgram();
+	FTransactionManager Transactions;
+	const FMaterialGraphCommandResult Created =
+		FMaterialGraphOperations::CreateNodeWithDefaultInputs(*Material, {
+			.Node = Multiply->NodeTemplate,
+			.X = 400,
+			.Y = 200,
+		}, Multiply->AcceptedInputTypes, &Transactions);
+	ASSERT_TRUE(Created) << Created.Message;
+	ASSERT_EQ(Created.GeneratedNodeIds.size(), 3u);
+	const FMaterialGraphView View = FMaterialGraphOperations::Inspect(*Material);
+	const FMaterialGraphNodeView* Node = FindViewNode(View, Created.GeneratedNodeIds.front());
+	ASSERT_NE(Node, nullptr);
+	ASSERT_EQ(Node->Node.Inputs.size(), 2u);
+	for (const FMaterialProgramLink& Link : Node->Node.Inputs)
+	{
+		EXPECT_TRUE(Link.SourceNodeId.IsValid());
+		const FMaterialGraphNodeView* Default = FindViewNode(View, Link.SourceNodeId);
+		ASSERT_NE(Default, nullptr);
+		EXPECT_EQ(Default->Node.Opcode, EMaterialProgramOpcode::Constant);
+		EXPECT_EQ(Default->Node.ResultType, EMaterialProgramValueType::Float3);
+		EXPECT_TRUE(Default->Presentation.has_value());
+	}
+	const FMaterialGraphNodeView* IdentityDefault =
+		FindViewNode(View, Node->Node.Inputs[1].SourceNodeId);
+	ASSERT_NE(IdentityDefault, nullptr);
+	EXPECT_FLOAT_EQ(IdentityDefault->Node.Literal.X, 1.0f);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(*Material->GetMaterialProgram(), Before);
+
+	MarkAsGarbage(Material);
+	CollectGarbage();
 }
 
 TEST(FMaterialGraphOperationsTests, MaximumGraphLayoutIsDeterministicAndPresentationOnly)

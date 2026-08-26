@@ -57,6 +57,7 @@ namespace Durin::Editor::Material
 		std::string OperationName;
 		std::string SecondaryName;
 		std::string Category;
+		std::string Description;
 		FMaterialProgramNode NodeTemplate;
 		std::vector<std::string> InputNames;
 		std::vector<std::vector<EMaterialProgramValueType>> AcceptedInputTypes;
@@ -179,6 +180,12 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API static auto CreateNode(
 			DMaterial& Material,
 			FMaterialGraphCreateNodeRequest Request,
+			FTransactionManager* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto CreateNodeWithDefaultInputs(
+			DMaterial& Material,
+			FMaterialGraphCreateNodeRequest Request,
+			std::span<const std::vector<EMaterialProgramValueType>> AcceptedInputTypes,
 			FTransactionManager* Transactions = nullptr)
 			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API static auto ReplaceNode(

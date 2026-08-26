@@ -141,6 +141,39 @@ namespace Durin::Editor::Material
 			Entry.Name = GetOpcodeName(Opcode);
 			Entry.OperationName = Entry.Name;
 			Entry.Category = GetCategory(Opcode);
+			switch (Opcode)
+			{
+			case EMaterialProgramOpcode::Constant: Entry.Description = "A literal numeric value."; break;
+			case EMaterialProgramOpcode::Parameter:
+			case EMaterialProgramOpcode::TextureParameter: Entry.Description = "A value exposed by the material parameter definition."; break;
+			case EMaterialProgramOpcode::TextureCoordinate: Entry.Description = "Texture coordinates associated with a texture parameter."; break;
+			case EMaterialProgramOpcode::TextureSample2D: Entry.Description = "Samples a 2D texture at the supplied coordinates."; break;
+			case EMaterialProgramOpcode::Add: Entry.Description = "Adds two values component by component."; break;
+			case EMaterialProgramOpcode::Subtract: Entry.Description = "Subtracts the second value from the first."; break;
+			case EMaterialProgramOpcode::Multiply: Entry.Description = "Multiplies two values component by component."; break;
+			case EMaterialProgramOpcode::Divide: Entry.Description = "Divides the first value by the second."; break;
+			case EMaterialProgramOpcode::Minimum: Entry.Description = "Returns the component-wise minimum."; break;
+			case EMaterialProgramOpcode::Maximum: Entry.Description = "Returns the component-wise maximum."; break;
+			case EMaterialProgramOpcode::Negate: Entry.Description = "Reverses the sign of a value."; break;
+			case EMaterialProgramOpcode::OneMinus: Entry.Description = "Subtracts a value from one."; break;
+			case EMaterialProgramOpcode::Absolute: Entry.Description = "Returns the absolute value."; break;
+			case EMaterialProgramOpcode::Saturate: Entry.Description = "Clamps a value to the zero-to-one range."; break;
+			case EMaterialProgramOpcode::Normalize: Entry.Description = "Returns a unit-length vector."; break;
+			case EMaterialProgramOpcode::Clamp: Entry.Description = "Constrains a value between minimum and maximum inputs."; break;
+			case EMaterialProgramOpcode::Lerp: Entry.Description = "Interpolates between two values."; break;
+			case EMaterialProgramOpcode::MakeFloat2:
+			case EMaterialProgramOpcode::MakeFloat3:
+			case EMaterialProgramOpcode::MakeFloat4: Entry.Description = "Combines scalar inputs into a vector."; break;
+			case EMaterialProgramOpcode::Swizzle: Entry.Description = "Reorders or selects vector components."; break;
+			case EMaterialProgramOpcode::Splat2:
+			case EMaterialProgramOpcode::Splat3:
+			case EMaterialProgramOpcode::Splat4: Entry.Description = "Replicates a scalar across vector components."; break;
+			case EMaterialProgramOpcode::TruncateToFloat:
+			case EMaterialProgramOpcode::TruncateToFloat2:
+			case EMaterialProgramOpcode::TruncateToFloat3: Entry.Description = "Keeps the leading components of a wider vector."; break;
+			case EMaterialProgramOpcode::DecodeNormalRG: Entry.Description = "Reconstructs a tangent-space normal from two channels."; break;
+			case EMaterialProgramOpcode::BlendNormalsRNM: Entry.Description = "Blends two tangent-space normals with RNM."; break;
+			}
 			Entry.NodeTemplate.Opcode = Opcode;
 			Entry.NodeTemplate.ResultType = ResultType;
 			Entry.NodeTemplate.Inputs.resize(Inputs.size());
@@ -612,7 +645,8 @@ namespace Durin::Editor::Material
 			}
 			uint8 Match = Needle.empty() ? 3 : 4;
 			for (const std::string* Field : {
-				&Entry.OperationName, &Entry.SecondaryName, &Entry.Category})
+				&Entry.OperationName, &Entry.SecondaryName, &Entry.Category,
+				&Entry.Description})
 			{
 				const std::string Haystack = Lower(*Field);
 				if (Haystack == Needle) Match = std::min<uint8>(Match, 0);
@@ -666,6 +700,68 @@ namespace Durin::Editor::Material
 		Presentation.Nodes.push_back({GeneratedId, Request.X, Request.Y});
 		return Commit(Material, std::move(Candidate), std::move(Presentation), true,
 			"Create Material Node", {GeneratedId}, {GeneratedId}, Transactions);
+	}
+
+	auto FMaterialGraphOperations::CreateNodeWithDefaultInputs(
+		DMaterial& Material,
+		FMaterialGraphCreateNodeRequest Request,
+		std::span<const std::vector<EMaterialProgramValueType>> AcceptedInputTypes,
+		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+	{
+		if (AcceptedInputTypes.size() != Request.Node.Inputs.size())
+			return MakeRejected("The node palette input shape is stale.");
+		FMaterialProgram Candidate = *Material.GetMaterialProgram();
+		if (!Request.Node.Id.IsValid()) Request.Node.Id = FGuid::NewGuid();
+		if (FindNode(Candidate, Request.Node.Id))
+			return MakeRejected("The requested material graph node GUID already exists.");
+
+		std::vector<FMaterialProgramNode> Defaults;
+		for (size_t InputIndex = 0; InputIndex < Request.Node.Inputs.size(); ++InputIndex)
+		{
+			if (Request.Node.Inputs[InputIndex].SourceNodeId.IsValid()) continue;
+			const auto NumericType = std::ranges::find_if(AcceptedInputTypes[InputIndex],
+				[](EMaterialProgramValueType Type) {
+					return Type != EMaterialProgramValueType::Texture2D;
+				});
+			if (NumericType == AcceptedInputTypes[InputIndex].end())
+				return MakeRejected("This node requires a resource input that has no default value.");
+			FMaterialProgramNode Default;
+			Default.Id = FGuid::NewGuid();
+			Default.Opcode = EMaterialProgramOpcode::Constant;
+			Default.ResultType = *NumericType;
+			float Value = 0.0f;
+			if ((Request.Node.Opcode == EMaterialProgramOpcode::Multiply
+				|| Request.Node.Opcode == EMaterialProgramOpcode::Divide)
+				&& InputIndex == 1) Value = 1.0f;
+			else if (Request.Node.Opcode == EMaterialProgramOpcode::Clamp
+				&& InputIndex == 2) Value = 1.0f;
+			else if (Request.Node.Opcode == EMaterialProgramOpcode::Lerp)
+				Value = InputIndex == 1 ? 1.0f : InputIndex == 2 ? 0.5f : 0.0f;
+			else if (Request.Node.Opcode == EMaterialProgramOpcode::Normalize)
+				Value = 1.0f;
+			Default.Literal = {Value, Value, Value, Value};
+			Request.Node.Inputs[InputIndex] = {Default.Id, 0};
+			Defaults.push_back(std::move(Default));
+		}
+		if (Candidate.Nodes.size() + Defaults.size() + 1 > MaterialProgramMaxNodeCount)
+			return MakeRejected("The material graph node limit has been reached.");
+
+		const FGuid NodeId = Request.Node.Id;
+		std::vector<FGuid> Generated{NodeId};
+		FMaterialGraphPresentation Presentation = Material.GetMaterialGraphPresentation();
+		for (size_t Index = 0; Index < Defaults.size(); ++Index)
+		{
+			Generated.push_back(Defaults[Index].Id);
+			Presentation.Nodes.push_back({Defaults[Index].Id,
+				Request.X - static_cast<int32>(FMaterialGraphGeometry::GetMetrics().NodeWidth
+					+ FMaterialGraphGeometry::GetMetrics().ColumnGap),
+				Request.Y + static_cast<int32>(Index * FMaterialGraphGeometry::GetMetrics().PinRowHeight * 2.0f)});
+			Candidate.Nodes.push_back(std::move(Defaults[Index]));
+		}
+		Candidate.Nodes.push_back(std::move(Request.Node));
+		Presentation.Nodes.push_back({NodeId, Request.X, Request.Y});
+		return Commit(Material, std::move(Candidate), std::move(Presentation), true,
+			"Create Material Node", Generated, Generated, Transactions);
 	}
 
 	auto FMaterialGraphOperations::ReplaceNode(
