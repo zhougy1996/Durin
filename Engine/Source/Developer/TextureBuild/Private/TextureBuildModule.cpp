@@ -48,7 +48,7 @@ namespace Durin
 			checkf(Asset::InitializeTextureBuildFunctions(
 				AssetCompilingCallbackRegistration.GetGate(), &Error),
 				"TextureBuild could not register its build functions: {}", Error);
-			Asset::FTexture2DCompilationSchedulerConfig Config;
+			Asset::FTexture2DCompilationDomainConfig Config;
 			Config.OwnerCancellationToken = BuildOperations.GetCancellationToken();
 			Config.OwnerTaskScope = BuildOperations.GetTaskScope();
 			checkf(Asset::Private::InitializeTexture2DCompilationDomain(

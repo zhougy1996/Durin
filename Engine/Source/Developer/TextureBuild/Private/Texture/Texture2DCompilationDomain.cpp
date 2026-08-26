@@ -1,4 +1,4 @@
-#include "Texture/Texture2DCompilationScheduler.h"
+#include "Texture/Texture2DCompilationDomain.h"
 
 #include "DObject/DObjectGlobals.h"
 #include "Texture/TextureBuildOperations.h"
@@ -29,7 +29,7 @@ namespace Durin::Asset
 				? std::numeric_limits<uint64>::max() : Left * Right;
 		}
 
-		auto EstimateBuildBytes(const FTexture2DCompilationJob& Request) -> uint64
+		auto EstimateBuildBytes(const FTexture2DCompilationWork& Request) -> uint64
 		{
 			uint64 PixelCount = SaturatingMultiply(Request.EstimatedWidth, Request.EstimatedHeight);
 			uint64 WorkingBytes = SaturatingMultiply(PixelCount, 12);
@@ -50,13 +50,13 @@ namespace Durin::Asset
 
 	}
 
-	struct FTexture2DCompilationScheduler::FState final
-		: public std::enable_shared_from_this<FTexture2DCompilationScheduler::FState>
+	struct FTexture2DCompilationDomain::FQueueState final
+		: public std::enable_shared_from_this<FTexture2DCompilationDomain::FQueueState>
 	{
 		struct FJob
 		{
-			FTexture2DCompilationJob Request;
-			FTexture2DCompilationJobCompletion Completion;
+			FTexture2DCompilationWork Request;
+			FTexture2DCompilationWorkCompletion Completion;
 			FTexture2DCompilationDiagnostic Diagnostic;
 			FTaskHandle Task;
 			std::atomic<bool> bCancellationRequested = false;
@@ -72,10 +72,10 @@ namespace Durin::Asset
 		struct FCompletion
 		{
 			std::shared_ptr<FJob> Job;
-			FTexture2DCompilationJobResult Result;
+			FTexture2DCompilationWorkResult Result;
 		};
 
-		explicit FState(FTexture2DCompilationSchedulerConfig InConfig)
+		explicit FQueueState(FTexture2DCompilationDomainConfig InConfig)
 			: Config(InConfig)
 		{
 			Config.MaxWorkers = std::max(Config.MaxWorkers, 1u);
@@ -83,7 +83,7 @@ namespace Durin::Asset
 			Config.InFlightByteBudget = std::max<uint64>(Config.InFlightByteBudget, 1);
 		}
 
-		auto Submit(FTexture2DCompilationJob Request, FTexture2DCompilationJobCompletion Completion) -> uint64
+		auto Submit(FTexture2DCompilationWork Request, FTexture2DCompilationWorkCompletion Completion) -> uint64
 		{
 			if (!Completion || Request.AssetIdentity.empty() || !Request.SourceData.IsValid()
 				|| (Request.SourceHash.HashLow == 0 && Request.SourceHash.HashHigh == 0)) return 0;
@@ -173,7 +173,7 @@ namespace Durin::Asset
 
 		auto Launch(const std::shared_ptr<FJob>& Job) -> void
 		{
-			const std::shared_ptr<FState> Self = shared_from_this();
+			const std::shared_ptr<FQueueState> Self = shared_from_this();
 			FTaskLaunchOptions Options;
 			Options.CancellationToken = Config.OwnerCancellationToken;
 			Options.Scope = Config.OwnerTaskScope;
@@ -184,7 +184,7 @@ namespace Durin::Asset
 				}, Options);
 			if (!Task.IsValid())
 			{
-				FTexture2DCompilationJobResult Result = MakeFailureResult(
+				FTexture2DCompilationWorkResult Result = MakeFailureResult(
 					*Job, ETexture2DCompilationPhase::Failed,
 					"Texture build task admission was rejected.");
 				Result.FailurePhase = ETexture2DCompilationPhase::Queued;
@@ -198,7 +198,7 @@ namespace Durin::Asset
 		static auto MakeFailureResult(
 			const FJob& Job,
 			ETexture2DCompilationPhase Phase,
-			std::string Error) -> FTexture2DCompilationJobResult
+			std::string Error) -> FTexture2DCompilationWorkResult
 		{
 			return {
 				.RequestId = Job.Diagnostic.RequestId,
@@ -242,7 +242,7 @@ namespace Durin::Asset
 			const std::shared_ptr<FJob>& Job,
 			const FTaskCancellationToken& Token) -> void
 		{
-			FTexture2DCompilationJobResult Result = MakeFailureResult(
+			FTexture2DCompilationWorkResult Result = MakeFailureResult(
 				*Job, ETexture2DCompilationPhase::Failed, {});
 			const uint64 WorkerStart = NowNanoseconds();
 			{
@@ -330,14 +330,14 @@ namespace Durin::Asset
 			ETexture2DCompilationPhase Phase,
 			std::string Error) -> void
 		{
-			FTexture2DCompilationJobResult Result = MakeFailureResult(*Job, Phase, std::move(Error));
+			FTexture2DCompilationWorkResult Result = MakeFailureResult(*Job, Phase, std::move(Error));
 			std::vector<std::byte>().swap(Job->Request.SourceData.Pixels);
 			PushCompletion(Job, std::move(Result));
 		}
 
 		auto CompleteAdmitted(
 			const std::shared_ptr<FJob>& Job,
-			FTexture2DCompilationJobResult Result) -> void
+			FTexture2DCompilationWorkResult Result) -> void
 		{
 			Job->bWorkerCompleted.store(true, std::memory_order_release);
 			{
@@ -353,7 +353,7 @@ namespace Durin::Asset
 
 		auto PushCompletion(
 			const std::shared_ptr<FJob>& Job,
-			FTexture2DCompilationJobResult Result) -> void
+			FTexture2DCompilationWorkResult Result) -> void
 		{
 			if (Result.Metrics.WorkerNanoseconds == 0)
 				Result.Metrics.WorkerNanoseconds = NowNanoseconds() - Job->EnqueueNanoseconds;
@@ -510,7 +510,7 @@ namespace Durin::Asset
 			Pump(std::numeric_limits<uint32>::max());
 		}
 
-		FTexture2DCompilationSchedulerConfig Config;
+		FTexture2DCompilationDomainConfig Config;
 		mutable std::mutex Mutex;
 		std::unordered_map<uint64, std::shared_ptr<FJob>> Jobs;
 		std::deque<std::shared_ptr<FJob>> InteractiveQueue;
@@ -527,36 +527,37 @@ namespace Durin::Asset
 		std::function<void(uint64, ETexture2DCompilationPhase)> PhaseHookForTests;
 	};
 
-	FTexture2DCompilationScheduler::FTexture2DCompilationScheduler(
-		const FTexture2DCompilationSchedulerConfig& Config)
-		: State(std::make_shared<FState>(Config))
-	{}
+	FTexture2DCompilationDomain::FTexture2DCompilationDomain(
+		const FTexture2DCompilationDomainConfig& Config)
+		: QueueState(std::make_shared<FQueueState>(Config))
+	{
+	}
 
-	FTexture2DCompilationScheduler::~FTexture2DCompilationScheduler()
+	FTexture2DCompilationDomain::~FTexture2DCompilationDomain()
 	{
 		Shutdown();
 	}
 
-	auto FTexture2DCompilationScheduler::Submit(
-		FTexture2DCompilationJob Request,
-		FTexture2DCompilationJobCompletion Completion) -> uint64
+	auto FTexture2DCompilationDomain::SubmitWork(
+		FTexture2DCompilationWork Request,
+		FTexture2DCompilationWorkCompletion Completion) -> uint64
 	{
-		return State ? State->Submit(std::move(Request), std::move(Completion)) : 0;
+		return QueueState ? QueueState->Submit(std::move(Request), std::move(Completion)) : 0;
 	}
 
-	auto FTexture2DCompilationScheduler::Cancel(uint64 RequestId) -> bool
+	auto FTexture2DCompilationDomain::CancelWork(uint64 RequestId) -> bool
 	{
-		return State && State->Cancel(RequestId);
+		return QueueState && QueueState->Cancel(RequestId);
 	}
 
-	auto FTexture2DCompilationScheduler::GetDiagnostic(uint64 RequestId) const -> FTexture2DCompilationDiagnostic
+	auto FTexture2DCompilationDomain::GetWorkDiagnostic(uint64 RequestId) const -> FTexture2DCompilationDiagnostic
 	{
-		if (!State) return {};
-		std::shared_ptr<FState::FJob> Job;
+		if (!QueueState) return {};
+		std::shared_ptr<FQueueState::FJob> Job;
 		{
-			std::lock_guard Lock(State->Mutex);
-			const auto Iterator = State->Jobs.find(RequestId);
-			if (Iterator == State->Jobs.end()) return {};
+			std::lock_guard Lock(QueueState->Mutex);
+			const auto Iterator = QueueState->Jobs.find(RequestId);
+			if (Iterator == QueueState->Jobs.end()) return {};
 			Job = Iterator->second;
 		}
 		std::lock_guard JobLock(Job->Mutex);
@@ -572,52 +573,52 @@ namespace Durin::Asset
 		return Result;
 	}
 
-	auto FTexture2DCompilationScheduler::GetQueuedCount() const -> uint32
+	auto FTexture2DCompilationDomain::GetQueuedWorkCount() const -> uint32
 	{
-		if (!State) return 0;
-		std::lock_guard Lock(State->Mutex);
-		return static_cast<uint32>(State->InteractiveQueue.size() + State->BackgroundQueue.size());
+		if (!QueueState) return 0;
+		std::lock_guard Lock(QueueState->Mutex);
+		return static_cast<uint32>(QueueState->InteractiveQueue.size() + QueueState->BackgroundQueue.size());
 	}
 
-	auto FTexture2DCompilationScheduler::GetRunningCount() const -> uint32
+	auto FTexture2DCompilationDomain::GetRunningWorkCount() const -> uint32
 	{
-		if (!State) return 0;
-		std::lock_guard Lock(State->Mutex);
-		return State->RunningCount;
+		if (!QueueState) return 0;
+		std::lock_guard Lock(QueueState->Mutex);
+		return QueueState->RunningCount;
 	}
 
-	auto FTexture2DCompilationScheduler::SetPhaseHookForTests(
+	auto FTexture2DCompilationDomain::SetPhaseHookForTests(
 		std::function<void(uint64, ETexture2DCompilationPhase)> Hook) -> void
 	{
-		if (!State) return;
-		std::lock_guard Lock(State->Mutex);
-		State->PhaseHookForTests = std::move(Hook);
+		if (!QueueState) return;
+		std::lock_guard Lock(QueueState->Mutex);
+		QueueState->PhaseHookForTests = std::move(Hook);
 	}
 
-	auto FTexture2DCompilationScheduler::PumpCompletions(uint32 MaximumCount) -> uint32
+	auto FTexture2DCompilationDomain::PumpWorkCompletions(uint32 MaximumCount) -> uint32
 	{
-		return State ? State->Pump(MaximumCount) : 0;
+		return QueueState ? QueueState->Pump(MaximumCount) : 0;
 	}
 
-	auto FTexture2DCompilationScheduler::Start() -> bool
+	auto FTexture2DCompilationDomain::StartWorkAdmission() -> bool
 	{
-		return State && State->Start();
+		return QueueState && QueueState->Start();
 	}
 
-	auto FTexture2DCompilationScheduler::StopAdmission() -> void
+	auto FTexture2DCompilationDomain::StopWorkAdmission() -> void
 	{
-		if (State) State->StopAdmission();
+		if (QueueState) QueueState->StopAdmission();
 	}
 
-	auto FTexture2DCompilationScheduler::WaitForRequest(
+	auto FTexture2DCompilationDomain::WaitForWork(
 		uint64 RequestId, double TimeoutSeconds) -> bool
 	{
-		return State && State->WaitForRequest(RequestId, TimeoutSeconds);
+		return QueueState && QueueState->WaitForRequest(RequestId, TimeoutSeconds);
 	}
 
-	auto FTexture2DCompilationScheduler::Shutdown() -> void
+	auto FTexture2DCompilationDomain::ShutdownWorkQueue() -> void
 	{
-		if (State) State->Shutdown();
+		if (QueueState) QueueState->Shutdown();
 	}
 
 }

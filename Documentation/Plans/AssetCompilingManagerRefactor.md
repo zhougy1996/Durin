@@ -10,7 +10,7 @@ Completed: 2026-08-26
 ## Current Status
 
 Completed. Runtime `Engine` now owns the process `FAssetCompilingManager`, its
-object-aware provider contract, dependency ordering, bounded fair processing,
+object-aware `IAssetCompilationDomain` contract, dependency ordering, bounded fair processing,
 selected finish/cancel operations, successful post-compile event, aggregate
 diagnostics, owner-gated scoped registrations, and terminal shutdown. Material
 is the built-in Runtime domain and Texture2D is an optional, unload-safe
@@ -47,12 +47,12 @@ workspace module documents.
 - Replace `AssetBuildCore::BuildHost` completely; do not retain two public
   process aggregators or a forwarding compatibility facade after migration.
 - Migrate both existing object compilation paths: the Runtime material compile
-  service and the Editor-selected asynchronous Texture2D compilation service.
-- Preserve concrete-manager ownership of scheduling, detached worker values,
+  domain and the Editor-selected asynchronous Texture2D compilation domain.
+- Preserve concrete-domain ownership of scheduling, detached worker values,
   DDC requests, validation, generation admission, asset publication,
   diagnostics, concurrency limits, retained values, and memory budgets.
 - Preserve Durin's dynamic-module safety: no callback may enter a retired
-  provider module, and no registration may disappear while a manager call or
+  provider module, and no registration may disappear while a domain call or
   retained completion value still owns provider code or storage.
 - Give future Geometry, Shader, audio, or plugin compilation domains one stable
   integration contract without making Runtime Engine depend on Developer or
@@ -60,22 +60,22 @@ workspace module documents.
 
 ## Scope
 
-- Add public `IAssetCompilingManager` and `FAssetCompilingManager` contracts to
+- Add public `IAssetCompilationDomain` and `FAssetCompilingManager` contracts to
   Runtime `Engine`, plus process lifecycle, registration, diagnostics, event,
   and test seams.
-- Add a move-only scoped manager registration that retains a provider module
+- Add a move-only scoped domain registration that retains a provider module
   resource and gates every provider callback through its owner gate.
 - Add unique compile-domain names, dependency-name ordering, deterministic
   registration validation, aggregate remaining-asset accounting, bounded frame
   processing, selected-object finish, advisory selected-object cancellation,
   finish-all, and terminal shutdown.
 - Refactor the Engine-owned material compile service into an
-  `FMaterialCompilingManager` implementation without changing material program
+  `FMaterialCompilationDomain` implementation without changing material program
   identity, single-flight sharing, last-known-good visibility, compile results,
   renderer publication, Cook payloads, or reload semantics.
 - Refactor TextureBuild's compilation-domain state into an
-  `FTextureCompilingManager` implementation while keeping its private
-  `FTexture2DCompilationScheduler` as the worker admission and completion mailbox.
+	`FTexture2DCompilationDomain` implementation that directly owns worker
+  admission and the completion mailbox.
 - Route EngineLoop and MainFrame compilation lifecycle through the new global
   manager, with exactly one normal-frame pump.
 - Replace BuildHost-dependent tests and test environments, then remove
@@ -93,7 +93,7 @@ workspace module documents.
 - Moving TextureBuild or GeometryBuild recipe implementations into Engine, or
   adding an Engine dependency on `AssetBuildCore`, `DerivedDataCache`,
   `TextureBuild`, `GeometryBuild`, AssetForge, or an Editor module.
-- Rewriting the private `FTexture2DCompilationScheduler`, changing its two-worker default,
+- Changing Texture2D compilation's two-worker default,
   priority fairness, 1 GiB estimated in-flight budget, worker phases,
   cancellation polling, completion history, or DDC behavior except where its
   owner and pump entry point change.
@@ -104,7 +104,7 @@ workspace module documents.
   plan. Geometry receives the stable extension point but is not registered
   until it owns a real asynchronous object lifecycle.
 - Registering AssetForge translators, planning passes, builders, or import jobs
-  as asset compiling managers. Import operations remain transaction owners and
+  as asset compilation domains. Import operations remain transaction owners and
   may submit or wait for asset compilation through the object-level API.
 - Absorbing component-local runtime work such as Terrain collision rebuilding,
   rendering-thread work, asset discovery, package loading, cooking, or generic
@@ -153,7 +153,7 @@ cache mechanics into Engine.
 
 ### Compile domains, not reflected-class registrations
 
-`IAssetCompilingManager` represents one independently scheduled compile domain.
+`IAssetCompilationDomain` represents one independently scheduled compile domain.
 It exposes a unique stable `FName`-style domain name and zero or more dependency
 domain names. It does not expose `DClass*`, register an output class string, or
 promise one manager per reflected class.
@@ -200,7 +200,7 @@ finish the objects afterward.
 ### Scoped registration and module retirement
 
 The public registration operation returns a move-only
-`FAssetCompilingManagerRegistration`. External registrations require a valid
+`FAssetCompilationDomainRegistration`. External registrations require a valid
 `FModuleOwnedCallbackGate`; registration retains a resource lease for the
 complete registered lifetime. A registration reset:
 
@@ -265,13 +265,13 @@ The aggregate exposes a post-compile event carrying weak `DObject` identities
 and the producing domain name. It fires after successful, current, asset-visible
 GameThread publication and outside the registry mutex/provider call. Failed,
 canceled, superseded, destroyed, and stale-generation results update their
-concrete manager diagnostics but do not masquerade as post-compile success.
+concrete domain diagnostics but do not masquerade as post-compile success.
 
 Duplicate successful reports for the same object and domain in one aggregate
 operation are coalesced. Event listeners may submit new work; that work is not
 processed recursively in the current provider iteration.
 
-Aggregate diagnostics include manager count, accepting/shutdown state, summed
+Aggregate diagnostics include domain count, accepting/shutdown state, summed
 remaining assets, processed completion count, and per-domain remaining counts.
 Concrete material and texture diagnostics remain authoritative for phases,
 timings, memory, DDC origin, failures, retained programs, and queue details.
@@ -279,7 +279,7 @@ Counts use saturating addition.
 
 ### Object identity, generation, and worker boundary
 
-Concrete managers retain weak object identity plus a generation-qualified
+Concrete domains retain weak object identity plus a generation-qualified
 owner token. Object paths are diagnostic and scheduling identities but are not
 sufficient publication authority because replacement can create a new object
 at the same path. A current result must match the live weak object, path where
@@ -288,7 +288,7 @@ manager-specific dependencies before publication.
 
 Workers receive bounded immutable values only. They do not resolve, retain, or
 mutate `DObject`, packages, editor widgets, Renderer, RHI, or registries.
-Concrete managers alone own worker scheduling, priorities, task scopes,
+Concrete domains alone own worker scheduling, priorities, task scopes,
 single-flight records, memory budgets, completion mailboxes, and publication.
 The aggregate owns no payload and cannot write DDC entries.
 
@@ -307,11 +307,11 @@ not converted into successful shutdown.
 
 ### Material migration preserves its compile contract
 
-`FMaterialCompilingManager` is an Engine-private concrete implementation. It
+`FMaterialCompilationDomain` is an Engine-private concrete implementation. It
 absorbs the lifecycle currently surfaced as initialize, pump, and shutdown
 free functions. Existing typed request, cancel, state, result, diagnostics,
 single-flight, last-known-good, shader reload, and publication APIs remain or
-become thin typed calls into the concrete manager.
+become thin typed calls into the concrete domain.
 
 Material remaining-asset count is outstanding live consumer count, not the
 number of shared program-identity flights. Selected-object finish and cancel
@@ -319,19 +319,19 @@ filter `DMaterial`; instances continue to share their root material program and
 do not become separate compile consumers. The migration changes no compiler,
 identity, shader cache, Cook payload, or Renderer contract.
 
-### Texture migration preserves the private scheduler
+### Texture migration consolidates one domain owner
 
-`FTextureCompilingManager` lives in TextureBuild and owns the compilation-domain
-state and Texture2D compilation map around a private `FTexture2DCompilationScheduler`.
+`FTexture2DCompilationDomain` lives in TextureBuild and owns the compilation-domain
+state, worker admission, queues, memory budget, and completion mailbox directly.
 TextureBuild registers it with Engine during module startup using the module's
 owner gate and async operation group.
 
 The current typed functions remain supported for direct Texture workflows:
 submit, diagnostic, pending query, cancel, and wait. They delegate to the
-concrete manager. New requests remain latest-wins; completion callbacks remain
+concrete domain. New requests remain latest-wins; completion callbacks remain
 exactly once; successful publication remains GameThread-only. A selected-object
 finish filters `DTexture2D`, waits the corresponding request, performs an
-unbounded manager completion pump, and verifies Ready state.
+  unbounded domain completion pump, and verifies Ready state.
 
 TextureCube, VolumeTexture, and other synchronous TextureBuild operations do
 not count as pending compilation merely because their recipe module registers
@@ -345,12 +345,12 @@ The selected order is:
 Core task scheduler starts
   -> Engine asset-compiling aggregate starts
   -> built-in Material manager starts
-  -> optional authoring modules load and register managers
+  -> optional authoring modules load and register domains
   -> EngineLoop processes async compilation once per frame
   -> editor/import producers stop submitting work
   -> optional registrations reset and quiesce
   -> aggregate stops all remaining admission
-  -> aggregate finishes/cancels and drains managers
+  -> aggregate finishes/cancels and drains domains
   -> built-in Material manager releases retained state
   -> Core task scheduler closes
 ```
@@ -388,7 +388,7 @@ The following behavior remains compatible:
 | Material | Bounded Engine service, weak/generation owners, single-flight, last-known-good, GameThread admission | Register as a first-class compile domain and use aggregate frame/shutdown APIs |
 | Texture2D | Coordinator queues, memory budget, cancellation, mailbox, typed authoring map | Register as a first-class compile domain and use global object finish/cancel/progress |
 | AssetForge | Async import jobs and string-selected providers | Remains separate; may call object-level finish when publication requires readiness |
-| Core tasks | Cancellation, task scopes, attribution, module async-operation audit | Reused by each concrete manager; no new pool |
+| Core tasks | Cancellation, task scopes, attribution, module async-operation audit | Reused by each concrete domain; no new pool |
 | Launch/MainFrame | Separate Material and BuildHost lifecycle/pumps | One EngineLoop aggregate lifecycle and frame pump |
 | Tests | Strong BuildHost, Texture coordinator, and Material lifecycle coverage | Move host invariants to Engine manager tests and add cross-domain object behavior |
 
@@ -404,7 +404,7 @@ The following behavior remains compatible:
 - [x] Select dependency-first processing/finish and reverse-order shutdown with
   transactional cycle rejection.
 - [x] Select one EngineLoop frame pump and removal of MainFrame BuildHost pump.
-- [x] Select Material and Texture2D as the initial concrete manager migrations.
+- [x] Select Material and Texture2D as the initial concrete domain migrations.
 - [x] Select complete BuildHost deletion with no public compatibility facade.
 - [x] Lock object generation, worker isolation, cancellation, publication,
   event, diagnostics, task ownership, and target-closure invariants.
@@ -417,7 +417,7 @@ The following behavior remains compatible:
 ### Stage 1: Establish the Engine compilation aggregate
 
 - [x] Add Engine public contracts for process parameters, aggregate diagnostics,
-  post-compile data/event, `IAssetCompilingManager`, scoped registration, and
+  post-compile data/event, `IAssetCompilationDomain`, scoped registration, and
   `FAssetCompilingManager`.
 - [x] Implement unique-name validation, owner-gated registration snapshots,
   retained leases, deterministic dependency ordering, missing-dependency
@@ -427,7 +427,7 @@ The following behavior remains compatible:
   advisory cancel, finish-all, and terminal shutdown.
 - [x] Ensure all provider calls and event dispatch happen outside the registry
   mutex and reject unsupported thread or lifecycle state explicitly.
-- [x] Add focused Engine tests with synthetic managers for ordering, fairness,
+- [x] Add focused Engine tests with synthetic domains for ordering, fairness,
   reentrancy, duplicate names, cycles, missing dependencies, count saturation,
   selected-object broadcast/filtering, cancel-versus-finish semantics,
   post-compile coalescing, start rollback, shutdown order, registration reset,
@@ -446,7 +446,7 @@ The following behavior remains compatible:
 ### Stage 2: Migrate Runtime material compilation
 
 - [x] Refactor the private material compile service into an Engine-owned
-  `FMaterialCompilingManager` implementing the new domain contract.
+  `FMaterialCompilationDomain` implementing the new domain contract.
 - [x] Preserve material worker envelope, task attribution/scope, bounds,
   identity single-flight, retained result budget, weak owner generation,
   last-known-good state, reload policy, diagnostics, and GameThread admission.
@@ -471,20 +471,20 @@ The following behavior remains compatible:
 
 ### Stage 3: Migrate Texture2D compilation
 
-- [x] Add `FTextureCompilingManager` in TextureBuild and move the global
+- [x] Add `FTexture2DCompilationDomain` in TextureBuild and move the global
   coordinator service state plus Texture2D compilation state under its ownership.
-- [x] Register the manager during TextureBuild module startup with the existing
+- [x] Register the domain during TextureBuild module startup with the existing
   module callback gate and async operation group; reset registration before
   build functions and module-owned state retire.
-- [x] Preserve the private `FTexture2DCompilationScheduler` worker admission, priorities,
+- [x] Preserve Texture2D worker admission, priorities,
   fairness, memory budget, phases, metrics, mailbox, cancellation polling,
   result history, and test hooks.
 - [x] Route typed submit, diagnostic, pending, cancel, and wait APIs through the
-  concrete manager while preserving exactly-once and supersession behavior.
+  concrete domain while preserving exactly-once and supersession behavior.
 - [x] Implement domain remaining count, frame completion processing, selected
   `DTexture2D` finish/cancel, finish-all, shutdown, and successful post-compile
   reporting.
-- [x] Replace Texture test host helpers with scoped compilation-manager/provider
+- [x] Replace Texture test host helpers with scoped compilation-domain
   fixtures and migrate BuildHost snapshot assertions to aggregate plus
   texture-domain diagnostics.
 - [x] Remove MainFrame BuildHost initialization, normal-frame pump, wait, and
@@ -497,7 +497,7 @@ The following behavior remains compatible:
   shutdown, and exactly-once completion tests pass through the new manager.
 - A cross-domain test proves Material and Texture can be pending together,
   aggregate counts include both, a bounded frame cannot starve either, and
-  finish/cancel routes only to owning managers.
+  finish/cancel routes only to owning domains.
 - TextureBuild can unregister and re-register while the aggregate remains
   running, with no callback or retained value surviving provider retirement.
 
@@ -552,7 +552,7 @@ The following behavior remains compatible:
 
 | Area | Required evidence |
 | --- | --- |
-| Manager registration | Unique names, late register, scoped unregister, failed start rollback, missing dependency, cycle rejection, deterministic ordering |
+| Domain registration | Unique names, late register, scoped unregister, failed start rollback, missing dependency, cycle rejection, deterministic ordering |
 | Module lifetime | Retained lease during calls, owner retirement rejection, unregister wait/drain, reload/re-register, no callbacks after retirement |
 | Processing | GameThread enforcement, count/time budget, round-robin fairness, dependency order, reentrant listener, no lock across callbacks |
 | Object operations | Broadcast/filter routing, selected finish publishes, advisory cancel does not imply quiescence, destroyed/replaced/stale objects cannot publish |
@@ -568,7 +568,7 @@ The following behavior remains compatible:
 ## Definition of Done
 
 - Runtime Engine exposes one production `FAssetCompilingManager` authority and
-  a module-safe `IAssetCompilingManager` extension contract.
+  a module-safe `IAssetCompilationDomain` extension contract.
 - Material and Texture2D use that authority for aggregate processing, count,
   selected-object finish/cancel, successful completion notification, and
   shutdown.
@@ -576,7 +576,7 @@ The following behavior remains compatible:
   concrete services do not own competing process pumps.
 - BuildHost is deleted and AssetBuildCore owns no object-aware or process async
   host lifecycle.
-- Concrete managers preserve all existing worker, generation, publication,
+- Concrete domains preserve all existing worker, generation, publication,
   cache, compiler, diagnostic, memory, cancellation, and module-lifetime
   behavior selected by prior plans.
 - Provider unload/reload, object destruction/replacement, cancellation,
@@ -589,7 +589,7 @@ The following behavior remains compatible:
 
 ## Deferred Follow-ups
 
-- Add Geometry compiling managers when StaticMesh, skeletal/animation, Terrain,
+- Add Geometry compilation domains when StaticMesh, skeletal/animation, Terrain,
   or collision recipes acquire asynchronous object lifecycles.
 - Decide whether RenderCore shader jobs should implement the compile-domain
   contract after they expose an object-level consumer model; do not register a
@@ -626,8 +626,8 @@ The following behavior remains compatible:
 - [`MaterialCompileLifecycle.cpp`](../../Engine/Source/Runtime/Engine/Private/Materials/MaterialCompileLifecycle.cpp)
 - [`Texture2DCompilation.h`](../../Engine/Source/Developer/TextureBuild/Public/Texture/Texture2DCompilation.h)
 - [`Texture2DCompilation.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DCompilation.cpp)
-- [`Texture2DCompilationScheduler.h`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DCompilationScheduler.h)
-- [`Texture2DCompilationScheduler.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DCompilationScheduler.cpp)
+- [`Texture2DCompilationDomain.h`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DCompilationDomain.h)
+- [`Texture2DCompilationDomain.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DCompilationDomain.cpp)
 - [`EngineLoop.cpp`](../../Engine/Source/Runtime/Launch/Private/EngineLoop.cpp)
 - [`MainFrameModule.cpp`](../../Engine/Source/Editor/MainFrame/Private/MainFrameModule.cpp)
 - [`DerivedDataBuildTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/DerivedDataBuildTests.cpp)

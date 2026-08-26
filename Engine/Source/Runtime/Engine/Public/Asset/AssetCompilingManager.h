@@ -36,7 +36,7 @@ namespace Durin
 
 	struct FAssetCompilingManagerDiagnostics
 	{
-		uint32 ManagerCount = 0;
+		uint32 DomainCount = 0;
 		uint64 RemainingAssetCount = 0;
 		uint64 ProcessedCompletionCount = 0;
 		bool bAcceptingRequests = false;
@@ -54,10 +54,10 @@ namespace Durin
 	DECLARE_MULTICAST_DELEGATE_OneParam(FAssetPostCompileEvent, const FAssetPostCompileData&)
 
 	// Defines one independently scheduled asset-compilation domain.
-	class IAssetCompilingManager
+	class IAssetCompilationDomain
 	{
 	public:
-		virtual ~IAssetCompilingManager() = default;
+		virtual ~IAssetCompilationDomain() = default;
 		virtual auto GetDomainName() const -> FName = 0;
 		virtual auto GetDependencies() const -> std::vector<FName> { return {}; }
 		virtual auto Start(std::string* OutError) -> bool = 0;
@@ -73,18 +73,18 @@ namespace Durin
 		virtual auto Shutdown() -> void = 0;
 	};
 
-	class FAssetCompilingManagerRegistration
+	class FAssetCompilationDomainRegistration
 	{
 	public:
-		FAssetCompilingManagerRegistration() = default;
-		ENGINE_API ~FAssetCompilingManagerRegistration();
-		FAssetCompilingManagerRegistration(const FAssetCompilingManagerRegistration&) = delete;
-		auto operator=(const FAssetCompilingManagerRegistration&)
-			-> FAssetCompilingManagerRegistration& = delete;
-		ENGINE_API FAssetCompilingManagerRegistration(
-			FAssetCompilingManagerRegistration&& Other) noexcept;
-		ENGINE_API auto operator=(FAssetCompilingManagerRegistration&& Other) noexcept
-			-> FAssetCompilingManagerRegistration&;
+		FAssetCompilationDomainRegistration() = default;
+		ENGINE_API ~FAssetCompilationDomainRegistration();
+		FAssetCompilationDomainRegistration(const FAssetCompilationDomainRegistration&) = delete;
+		auto operator=(const FAssetCompilationDomainRegistration&)
+			-> FAssetCompilationDomainRegistration& = delete;
+		ENGINE_API FAssetCompilationDomainRegistration(
+			FAssetCompilationDomainRegistration&& Other) noexcept;
+		ENGINE_API auto operator=(FAssetCompilationDomainRegistration&& Other) noexcept
+			-> FAssetCompilationDomainRegistration&;
 		ENGINE_API auto Reset() -> void;
 		[[nodiscard]] auto IsValid() const -> bool { return Generation != 0; }
 
@@ -101,10 +101,10 @@ namespace Durin
 	public:
 		ENGINE_API static auto Get() -> FAssetCompilingManager&;
 		ENGINE_API auto Start(std::string* OutError = nullptr) -> bool;
-		ENGINE_API auto RegisterManager(
-			std::shared_ptr<IAssetCompilingManager> Manager,
+		ENGINE_API auto RegisterDomain(
+			std::shared_ptr<IAssetCompilationDomain> Domain,
 			FModuleOwnedCallbackGate OwnerGate,
-			std::string* OutError = nullptr) -> FAssetCompilingManagerRegistration;
+			std::string* OutError = nullptr) -> FAssetCompilationDomainRegistration;
 		ENGINE_API auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params = {})
 			-> FAssetCompileProcessResult;
 		ENGINE_API auto GetNumRemainingAssets() const -> uint64;
@@ -123,12 +123,12 @@ namespace Durin
 
 	private:
 		FAssetCompilingManager() = default;
-		auto RegisterBuiltInManager(
-			std::shared_ptr<IAssetCompilingManager> Manager,
-			std::string* OutError) -> FAssetCompilingManagerRegistration;
+		auto RegisterBuiltInDomain(
+			std::shared_ptr<IAssetCompilationDomain> Domain,
+			std::string* OutError) -> FAssetCompilationDomainRegistration;
 		auto Unregister(FName DomainName, uint64 Generation) -> void;
 
-		friend class FAssetCompilingManagerRegistration;
+		friend class FAssetCompilationDomainRegistration;
 		friend ENGINE_API auto InitializeAssetCompilingManager() -> bool;
 	};
 

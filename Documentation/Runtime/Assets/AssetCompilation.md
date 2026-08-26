@@ -21,7 +21,7 @@ TextureBuild or DDC dependency through the aggregate.
 
 ## Domain Contract
 
-Each `IAssetCompilingManager` publishes one canonical unique domain name and
+Each `IAssetCompilationDomain` publishes one canonical unique domain name and
 zero or more dependency-domain names. Missing dependencies are diagnosed but
 permitted for optional modules. Cycles among live domains reject the new
 registration without changing the prior order. Independent domains use their
@@ -34,7 +34,7 @@ post-compile listener dispatch never hold the aggregate registry mutex.
 
 Normal processing has a process completion limit of 64. The aggregate gives
 each ready domain a bounded first opportunity, rotates independent peers, and
-reclaims quota unused by idle domains. Concrete managers report consumed
+reclaims quota unused by idle domains. Concrete domains report consumed
 completions separately from successfully published live objects.
 
 ## Object Operations and Publication
@@ -45,7 +45,7 @@ Cancellation is advisory and does not imply quiescence; a caller requiring an
 asset-visible terminal state follows it with selected finish. Finish-all is
 reserved for actual global barriers.
 
-Concrete managers retain weak, generation-qualified object identity and admit
+Concrete domains retain weak, generation-qualified object identity and admit
 results only on GameThread after their family-specific revisions, target, and
 dependency qualifiers still match. Workers receive detached immutable values
 and never resolve or mutate managed objects. A successful, current publication
@@ -60,7 +60,7 @@ a domain callback.
 ## Module and Task Lifetime
 
 External registration returns a move-only
-`FAssetCompilingManagerRegistration`. Registration retains a domain-owner
+`FAssetCompilationDomainRegistration`. Registration retains a domain-owner
 resource lease for its full lifetime and enters the domain owner's
 `FModuleOwnedCallbackGate` immediately before every callback. Reset removes the
 domain from future snapshots, stops admission, finishes accepted work, invokes
@@ -80,10 +80,12 @@ generation-safe admission, Renderer publication, reload behavior, and cooked
 program rules. Remaining count is the number of live outstanding material
 consumers rather than shared worker flights.
 
-Texture compilation remains TextureBuild-owned. Its private scheduler preserves
-worker admission, priority fairness, memory budget, DDC behavior, cancellation,
-the completion mailbox, latest-wins authoring state, and exactly-once completion
-callbacks. Remaining count is live Texture2D authoring consumers. TextureCube,
+Texture compilation remains TextureBuild-owned. One
+`FTexture2DCompilationDomain` owns typed asset state, worker admission, priority
+fairness, memory budget, DDC behavior, cancellation, the completion mailbox,
+latest-wins request state, GameThread publication, and exactly-once completion
+callbacks. It has no separate coordinator, service, or scheduler object.
+Remaining count is live Texture2D compilation consumers. TextureCube,
 VolumeTexture, and Geometry recipes stay synchronous and do not register empty
 compilation domains.
 

@@ -50,9 +50,9 @@ Terrain function identities intentionally retain their historical
 `Durin.GeometryBuild.Terrain...` prefix: the identity is persisted production
 identity rather than the selectable module name, so this ownership extraction
 does not invalidate otherwise compatible disposable cache entries.
-TextureBuild's private scheduler calls the synchronous session from its existing
-worker and retains cancellation, supersession, metrics, and main-thread
-publication ownership. AssetForgeBuiltins likewise retains TextureCube source
+TextureBuild's Texture2D compilation domain calls the synchronous session from
+its workers and directly owns admission, cancellation, supersession, metrics,
+the completion mailbox, and main-thread publication. AssetForgeBuiltins likewise retains TextureCube source
 normalization, scene parsing, Terrain source decoding/coalescing, and GameThread
 publication. Shader and other unrelated DDC paths remain direct family clients.
 
@@ -66,7 +66,7 @@ calls but does not become a compilation domain. See
 
 Accepted asynchronous Texture2D requests use TextureBuild's terminal
 `FTexture2DCompilationResult` vocabulary and complete their observer exactly once,
-including cancellation and supersession. The family service still owns request
+including cancellation and supersession. The family domain still owns request
 identity, workers, typed publication, and the thread on which it pumps that
 completion. Editor-side commit and recovery sequencing is separately defined by
 [Async Asset Operations](../../Editor/Architecture/AsyncAssetOperations.md);
@@ -78,7 +78,7 @@ encoded mounted source into normalized pixels. Build is the detached
 observes an asset object. Compilation schedules that build for a specific
 `DTexture2D`, applies cancellation and supersession, and publishes the product
 on GameThread. Authored describes authoritative persisted package state; it is
-not the name of the compilation service or one of its requests.
+not the name of the compilation domain or one of its requests.
 
 ## Storage Classes
 

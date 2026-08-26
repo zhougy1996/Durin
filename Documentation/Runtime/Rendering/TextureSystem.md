@@ -130,8 +130,8 @@ fallback.
 `TextureBuild` registers `Durin.TextureCompilation` with the Engine-owned
 [asset-compilation aggregate](../Assets/AssetCompilation.md). Its scoped
 registration retains the module resource and shuts the domain down before the
-domain owner gate retires. The private scheduler
-owns two worker admissions and a conservative 1 GiB estimated in-flight byte
+domain owner gate retires. `FTexture2DCompilationDomain` directly owns two
+worker admissions and a conservative 1 GiB estimated in-flight byte
 budget. Requests are FIFO within background and interactive classes. At most
 four interactive requests are admitted consecutively while background work is
 waiting; an already admitted job is never preempted. A single valid request
@@ -142,15 +142,15 @@ Each request carries a normalized decoded source value, captured content hash,
 all build settings, Win64/Game target identity, scheduling identity, and a
 monotonic per-object generation. Workers only receive value snapshots. They
 generate mips, compress, validate, and atomically persist DDC data, then place a
-move-only result in the scheduler mailbox. The Texture2D compilation domain
+move-only result in the domain mailbox. The Texture2D compilation domain
 commits on the GameThread only when request id, generation, weak object identity,
 source path, and complete settings still match. Cancellation is cooperative;
 this commit comparison is the correctness boundary.
 
-Runtime Engine and Launch have no Texture2D scheduler dependency. Launch pumps
+Runtime Engine and Launch have no Texture2D worker-queue dependency. Launch pumps
 the aggregate with a 64-item normal-frame budget. The domain mailbox
 remains the durable owner of large move-only results and does not depend on
-deferred-executor admission for wakeup. `WaitForTexture2DBuild` waits until its
+deferred-executor admission for wakeup. `WaitForTexture2DCompilation` waits until its
 request reaches the mailbox and then pumps without the normal-frame item budget.
 Shutdown likewise drains all callbacks before the process task scheduler
 closes. Every callback is GameThread-only and the compilation domain's request/
@@ -161,7 +161,7 @@ between mips, and every 64 compression blocks. New requests cancel the older
 generation. Unload, destruction, document close, failed startup unwind, and
 normal shutdown cancel outstanding work. Shutdown stops admission, cancels the
 queued and running set, waits for worker quiescence, drains GameThread
-completions, and then destroys the scheduler. Completion history is bounded
+completions, and then destroys the domain-owned queue. Completion history is bounded
 to 256 diagnostics and encoded request bytes are released as soon as worker
 use ends.
 
@@ -182,7 +182,7 @@ remains diagnostic evidence and the item cap is the contract.
 
 The scheduling constants were selected from the
 `Win64-Debug-DurinEditor` characterization gate on 2026-08-10. Times below are
-synchronous baseline stalls; moving them to the scheduler removes the same
+synchronous baseline stalls; moving them to the compilation domain removes the same
 compression-scale interval from the GameThread.
 
 | Square source | Color Low / Normal / High | Normal Low / Normal / High | Data Low / Normal / High | Decoded | Peak uncompressed mip chain | BC result |

@@ -10,13 +10,13 @@ Last reviewed: 2026-08-24
 
 Asynchronous asset work crosses three independent concerns:
 
-1. Asset-family services schedule typed work and publish typed products.
+1. Asset-family compilation domains schedule typed work and publish typed products.
 2. DurinEd coordinates editor mutations that commit after success or compensate
    after failure.
 3. Asset editors adapt their family and source policy to those generic
    contracts and present progress.
 
-Typed build services retain their own workers, priorities, cancellation, and
+Typed compilation domains retain their own workers, priorities, cancellation, and
 metrics. Asset import is the exception at the authoring-workflow layer:
 `AssetForge` owns one `FImportJob` and runs both scheduled and
 inline requests through the same worker/editor phase machine. Asset families
@@ -28,7 +28,7 @@ scheduler.
 `FTexture2DCompilationResult` identifies one terminal outcome as `Succeeded`, `Failed`,
 `Canceled`, or `Superseded` and carries a bounded diagnostic. An accepted
 compilation request invokes its `FTexture2DCompilationCompletion` exactly once
-on the contributing service's completion thread. Rejection before acceptance is returned
+on the contributing domain's completion thread. Rejection before acceptance is returned
 synchronously and does not invoke completion.
 
 Supersession is terminal, not silent callback disposal. When a family admits a
@@ -37,7 +37,7 @@ worker and completes the old observer as `Superseded`. A late worker completion
 for that generation cannot publish or complete the observer again.
 
 The terminal contract is not a generic request scheduler or observation
-handle. A family service still decides whether requests are identified by
+handle. A family domain still decides whether requests are identified by
 asset, generation, opaque serial, or another typed key.
 
 ## Compensating Operation Contract
@@ -54,7 +54,7 @@ Commit failure takes the same compensation path as apply failure. The primary
 error is retained; compensation failure is appended instead of replacing it.
 Rollback executes at most once.
 
-The operation is completion-driven. It does not poll a family service, wait on
+The operation is completion-driven. It does not poll a family domain, wait on
 a worker, or know about assets, packages, source files, or Widgets. Apply and
 compensation callbacks execute on the operation's owning editor thread. Inline
 completion is valid and produces the same phase transitions as deferred

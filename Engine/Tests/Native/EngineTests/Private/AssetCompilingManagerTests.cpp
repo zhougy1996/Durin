@@ -20,10 +20,10 @@ namespace
 		bool bShutdown = false;
 	};
 
-	class FSyntheticManager final : public IAssetCompilingManager
+	class FSyntheticDomain final : public IAssetCompilationDomain
 	{
 	public:
-		FSyntheticManager(std::string InName, std::vector<FName> InDependencies,
+		FSyntheticDomain(std::string InName, std::vector<FName> InDependencies,
 			std::shared_ptr<FSyntheticState> InState)
 			: Name(std::move(InName)), Dependencies(std::move(InDependencies)),
 			  State(std::move(InState)) {}
@@ -118,18 +118,18 @@ TEST(FAssetCompilingManagerTests, AggregatesDomainsObjectsEventsAndModuleLifetim
 	DependentState->OwnedObject = Material;
 	DependentState->Remaining = 2;
 	DependentState->AvailableCompletions = 2;
-	auto Prerequisite = Aggregate.RegisterManager(
-		std::make_shared<FSyntheticManager>("Durin.Tests.Prerequisite",
+	auto Prerequisite = Aggregate.RegisterDomain(
+		std::make_shared<FSyntheticDomain>("Durin.Tests.Prerequisite",
 			std::vector<FName>{}, PrerequisiteState),
 		GateRegistration.GetGate(), &Error);
 	ASSERT_TRUE(Prerequisite.IsValid()) << Error;
-	auto Dependent = Aggregate.RegisterManager(
-		std::make_shared<FSyntheticManager>("Durin.Tests.Dependent",
+	auto Dependent = Aggregate.RegisterDomain(
+		std::make_shared<FSyntheticDomain>("Durin.Tests.Dependent",
 			std::vector<FName>{FName("Durin.Tests.Prerequisite")}, DependentState),
 		GateRegistration.GetGate(), &Error);
 	ASSERT_TRUE(Dependent.IsValid()) << Error;
-	EXPECT_FALSE(Aggregate.RegisterManager(
-		std::make_shared<FSyntheticManager>("Durin.Tests.Dependent",
+	EXPECT_FALSE(Aggregate.RegisterDomain(
+		std::make_shared<FSyntheticDomain>("Durin.Tests.Dependent",
 			std::vector<FName>{}, std::make_shared<FSyntheticState>()),
 		GateRegistration.GetGate(), &Error).IsValid());
 
@@ -139,7 +139,7 @@ TEST(FAssetCompilingManagerTests, AggregatesDomainsObjectsEventsAndModuleLifetim
 			++EventCount;
 			EXPECT_EQ(Data.DomainName, FName("Durin.Tests.Dependent"));
 			EXPECT_EQ(Data.Assets.size(), 1u);
-			EXPECT_EQ(Aggregate.GetDiagnostics().ManagerCount, 2u);
+			EXPECT_EQ(Aggregate.GetDiagnostics().DomainCount, 2u);
 		});
 	Calls.clear();
 	const FAssetCompileProcessResult Frame = Aggregate.ProcessAsyncTasks(
@@ -167,24 +167,24 @@ TEST(FAssetCompilingManagerTests, AggregatesDomainsObjectsEventsAndModuleLifetim
 	EXPECT_TRUE(DependentState->bShutdown);
 	EXPECT_TRUE(PrerequisiteState->bShutdown);
 
-	auto FirstCycle = Aggregate.RegisterManager(
-		std::make_shared<FSyntheticManager>("Durin.Tests.CycleA",
+	auto FirstCycle = Aggregate.RegisterDomain(
+		std::make_shared<FSyntheticDomain>("Durin.Tests.CycleA",
 			std::vector<FName>{FName("Durin.Tests.CycleB")},
 			std::make_shared<FSyntheticState>()),
 		GateRegistration.GetGate(), &Error);
 	ASSERT_TRUE(FirstCycle.IsValid()) << Error;
-	EXPECT_FALSE(Aggregate.RegisterManager(
-		std::make_shared<FSyntheticManager>("Durin.Tests.CycleB",
+	EXPECT_FALSE(Aggregate.RegisterDomain(
+		std::make_shared<FSyntheticDomain>("Durin.Tests.CycleB",
 			std::vector<FName>{FName("Durin.Tests.CycleA")},
 			std::make_shared<FSyntheticState>()),
 		GateRegistration.GetGate(), &Error).IsValid());
-	EXPECT_EQ(Aggregate.GetDiagnostics().ManagerCount, 1u);
+	EXPECT_EQ(Aggregate.GetDiagnostics().DomainCount, 1u);
 	FirstCycle.Reset();
 
 	auto RetiredState = std::make_shared<FSyntheticState>();
 	RetiredState->AvailableCompletions = 1;
-	auto Retired = Aggregate.RegisterManager(
-		std::make_shared<FSyntheticManager>("Durin.Tests.Retired",
+	auto Retired = Aggregate.RegisterDomain(
+		std::make_shared<FSyntheticDomain>("Durin.Tests.Retired",
 			std::vector<FName>{}, RetiredState),
 		GateRegistration.GetGate(), &Error);
 	ASSERT_TRUE(Retired.IsValid()) << Error;

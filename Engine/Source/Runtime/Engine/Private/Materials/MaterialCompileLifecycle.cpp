@@ -645,7 +645,7 @@ namespace Durin
 			return Processed;
 		}
 
-		class FMaterialCompilingManager final : public IAssetCompilingManager
+		class FMaterialCompilationDomain final : public IAssetCompilationDomain
 		{
 		public:
 			auto GetDomainName() const -> FName override
@@ -965,8 +965,8 @@ namespace Durin
 		}
 	}
 
-	auto CreateMaterialCompilingManager() -> std::shared_ptr<IAssetCompilingManager>
+	auto CreateMaterialCompilationDomain() -> std::shared_ptr<IAssetCompilationDomain>
 	{
-		return std::make_shared<FMaterialCompilingManager>();
+		return std::make_shared<FMaterialCompilationDomain>();
 	}
 }
