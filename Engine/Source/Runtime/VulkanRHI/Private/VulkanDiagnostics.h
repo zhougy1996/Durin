@@ -143,10 +143,10 @@ namespace Durin::VulkanRHI
 		std::atomic<uint64> RecursionDropCount = 0;
 	};
 
-	VULKANRHI_API VKAPI_ATTR VkBool32 VKAPI_CALL VulkanDebugUtilsCallback(
-		VkDebugUtilsMessageSeverityFlagBitsEXT Severity,
-		VkDebugUtilsMessageTypeFlagsEXT Types,
-		const VkDebugUtilsMessengerCallbackDataEXT* CallbackData,
+	VULKANRHI_API VKAPI_ATTR vk::Bool32 VKAPI_CALL VulkanDebugUtilsCallback(
+		vk::DebugUtilsMessageSeverityFlagBitsEXT Severity,
+		vk::DebugUtilsMessageTypeFlagsEXT Types,
+		const vk::DebugUtilsMessengerCallbackDataEXT* CallbackData,
 		void* UserData);
 
 	// Selects the backend-private VMA placement and CPU access policy.
