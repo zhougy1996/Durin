@@ -414,7 +414,7 @@ TEST(FReflectedPropertyViewTests, FloatVectorUsesInlineComponentEditor)
 			- reinterpret_cast<const uint8*>(&Object));
 	Durin::FStructProperty FloatVectorProperty(
 		Durin::FFieldVariant(&TestClass), Durin::FName("FloatVector"), Durin::EObjectFlags::Transient,
-		Durin::EPropertyFlags::Edit, 1, Offset, Durin::Z_Construct_DStruct_Durin_FVector3f());
+		Durin::EPropertyFlags::Edit, 1, Offset, Durin::Z_Construct_DStruct_FVector3f());
 
 	ImGuiContext* ImContext = ImGui::CreateContext();
 	ASSERT_NE(ImContext, nullptr);
@@ -476,7 +476,7 @@ TEST(FReflectedPropertyViewTests, FloatVectorUsesAuthoredStepAndPrecision)
 			- reinterpret_cast<const uint8*>(&Object));
 	Durin::FStructProperty FloatVectorProperty(
 		Durin::FFieldVariant(&TestClass), Durin::FName("FloatVector"), Durin::EObjectFlags::Transient,
-		Durin::EPropertyFlags::Edit, 1, Offset, Durin::Z_Construct_DStruct_Durin_FVector3f());
+		Durin::EPropertyFlags::Edit, 1, Offset, Durin::Z_Construct_DStruct_FVector3f());
 	const Durin::FPropertyMetadataParams Metadata{
 		.Step = Durin::FPropertyMetadataNumber::FromFloat(0.00001f),
 		.Precision = 6,

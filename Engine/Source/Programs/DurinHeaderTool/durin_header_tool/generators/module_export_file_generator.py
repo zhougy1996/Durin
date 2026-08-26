@@ -26,7 +26,7 @@ from durin_header_tool.resolver.reflection_resolver import load_dependency_symbo
 from durin_header_tool.extractors.export_symbol_extractor import resolve_module_export_info
 
 
-_GENERATOR_OPTIONS_HASH = "default"
+_GENERATOR_OPTIONS_HASH = "namespace-scoped-v2"
 def _export_cache_context_digest() -> str:
     return sha256_bytes(
         canonical_json_bytes(

@@ -176,14 +176,14 @@ namespace Durin
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 			{
 				const DStruct* Struct = static_cast<const FStructProperty*>(Property)->GetStruct();
-				if (Struct == Z_Construct_DStruct_Durin_FVector2f()
-					|| Struct == Z_Construct_DStruct_Durin_FVector3f()
-					|| Struct == Z_Construct_DStruct_Durin_FVector4f()
-					|| Struct == Z_Construct_DStruct_Durin_FQuatf()) return EPropertyMetadataNumericKind::Float;
-				if (Struct == Z_Construct_DStruct_Durin_FVector2()
-					|| Struct == Z_Construct_DStruct_Durin_FVector3()
-					|| Struct == Z_Construct_DStruct_Durin_FVector4()
-					|| Struct == Z_Construct_DStruct_Durin_FQuat()) return EPropertyMetadataNumericKind::Double;
+				if (Struct == Z_Construct_DStruct_FVector2f()
+					|| Struct == Z_Construct_DStruct_FVector3f()
+					|| Struct == Z_Construct_DStruct_FVector4f()
+					|| Struct == Z_Construct_DStruct_FQuatf()) return EPropertyMetadataNumericKind::Float;
+				if (Struct == Z_Construct_DStruct_FVector2()
+					|| Struct == Z_Construct_DStruct_FVector3()
+					|| Struct == Z_Construct_DStruct_FVector4()
+					|| Struct == Z_Construct_DStruct_FQuat()) return EPropertyMetadataNumericKind::Double;
 				return EPropertyMetadataNumericKind::None;
 			}
 			default: return EPropertyMetadataNumericKind::None;

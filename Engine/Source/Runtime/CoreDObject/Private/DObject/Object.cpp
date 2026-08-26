@@ -11,8 +11,6 @@
 #include "DeferredRegistry.h"
 #include "Logging/LogMacros.h"
 
-COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DObject();
-
 namespace Durin
 {
 	namespace
@@ -106,7 +104,7 @@ namespace Durin
 	}
 
 	static FClassRegisterCompiledInInfo Z_AutoRegister_DObject(
-		&::Z_Construct_DClass_Durin_DObject,
+		&::Durin::Z_Construct_DClass_DObject,
 		&DObject::StaticClass,
 		STR("DObject"),
 		&Z_Registration_Info_DClass_DObject
@@ -607,7 +605,7 @@ namespace Durin
 	}
 }
 
-COREDOBJECT_API Durin::DClass* Z_Construct_DClass_Durin_DObject()
+COREDOBJECT_API Durin::DClass* Durin::Z_Construct_DClass_DObject()
 {
 	if (!Durin::Z_Registration_Info_DClass_DObject.OuterSingleton)
 	{

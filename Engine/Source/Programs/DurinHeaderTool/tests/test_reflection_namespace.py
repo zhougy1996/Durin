@@ -72,7 +72,6 @@ class TestNamespaceAwareResolution:
         return ExportedSymbolInfo(
             Kind=kind, ShortName=short_name, Namespace=namespace,
             QualifiedName=qualified_name,
-            GeneratedHelperName=f"Z_Construct_{kind}_{qualified_name.replace('::', '_')}",
             Header=f"{short_name}.h", API="FIXTURE_API",
         )
 
@@ -142,7 +141,6 @@ class TestNamespaceAwareResolution:
         class_info = ReflectedClassInfo(
             short_name="ADerived", namespace="Durin::Gameplay",
             qualified_name="Durin::Gameplay::ADerived",
-            generated_helper_name="Z_Construct_DClass_Durin_Gameplay_ADerived",
             header="Derived.h", api="FIXTURE_API", base_qualified_name="AMissing",
         )
         header = ReflectedHeaderInfo(
@@ -161,14 +159,110 @@ class TestNamespaceAwareResolution:
 
 @pytest.mark.usefixtures("reflection_fixture")
 class TestReflectionNamespaceIntegration:
+    def test_namespace_scoped_symbols_preserve_underscores_inline_and_global_scope(self):
+        header = "Public/NamespaceScopedSymbols.h"
+        source = '''DSTRUCT()
+struct F_Global_Value
+{
+    GENERATED_BODY()
+};
+
+namespace A_B
+{
+    DCLASS()
+    class C
+    {
+        GENERATED_BODY()
+    };
+}
+
+namespace A
+{
+    DCLASS()
+    class B_C
+    {
+        GENERATED_BODY()
+    };
+}
+
+namespace Root_Name
+{
+    inline namespace V_1
+    {
+        DSTRUCT()
+        struct F_Row_Value
+        {
+            GENERATED_BODY()
+        };
+
+        DENUM()
+        enum class E_Mode_Value : int { First_Value };
+    }
+}
+'''
+        (self.module_dir / header).write_text(source, encoding="utf-8")
+        config = DurinModuleConfig(
+            module_name="Fixture", module_dir=self.module_dir, reflect_headers=[header]
+        )
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=config),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
+        ):
+            header_info = parse_reflection_header("Fixture", header)
+
+        classes = {item.qualified_name: item for item in header_info.classes}
+        assert classes["A_B::C"].generated_helper_reference == "::A_B::Z_Construct_DClass_C"
+        assert classes["A::B_C"].generated_helper_reference == "::A::Z_Construct_DClass_B_C"
+        assert classes["A_B::C"].generated_helper_reference != classes["A::B_C"].generated_helper_reference
+
+        global_struct = next(item for item in header_info.structs if item.short_name == "F_Global_Value")
+        inline_struct = next(item for item in header_info.structs if item.short_name == "F_Row_Value")
+        assert global_struct.generated_helper_reference == "::Z_Construct_DStruct_F_Global_Value"
+        assert [(segment.name, segment.is_inline) for segment in inline_struct.namespace_path] == [
+            ("Root_Name", False), ("V_1", True)
+        ]
+        assert inline_struct.generated_helper_reference == (
+            "::Root_Name::V_1::Z_Construct_DStruct_F_Row_Value"
+        )
+
+        generated_header = generate_header_content(header_info)
+        generated_source = generate_cpp_content(header_info, {})
+        assert "inline namespace V_1" in generated_header
+        assert "inline namespace V_1" in generated_source
+        assert "Z_Construct_DClass_A_B_C" not in generated_header + generated_source
+
+    def test_anonymous_namespace_reflection_is_rejected_before_generation(self):
+        header = "Public/AnonymousNamespaceSymbol.h"
+        (self.module_dir / header).write_text(
+            '''namespace
+{
+    DSTRUCT()
+    struct FHidden
+    {
+        GENERATED_BODY()
+    };
+}
+''',
+            encoding="utf-8",
+        )
+        config = DurinModuleConfig(
+            module_name="Fixture", module_dir=self.module_dir, reflect_headers=[header]
+        )
+        with (
+            mock.patch.object(configs, "get_module_config", return_value=config),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
+            pytest.raises(ValueError, match="cannot be declared in an anonymous namespace"),
+        ):
+            parse_reflection_header("Fixture", header)
+
     def test_module_export_resolves_cold_same_module_base(self):
         base = ExportedSymbolInfo(
             Kind="class", ShortName="ABase", Namespace="Fixture", QualifiedName="Fixture::ABase",
-            GeneratedHelperName="Z_Construct_DClass_Fixture_ABase", Header="Public/Base.h", API="FIXTURE_API",
+            Header="Public/Base.h", API="FIXTURE_API",
         )
         derived = ExportedSymbolInfo(
             Kind="class", ShortName="ADerived", Namespace="Fixture", QualifiedName="Fixture::ADerived",
-            GeneratedHelperName="Z_Construct_DClass_Fixture_ADerived", Header="Public/Derived.h", API="FIXTURE_API",
+            Header="Public/Derived.h", API="FIXTURE_API",
             BaseQualifiedName="ABase",
         )
         first = resolve_module_export_info(
@@ -238,4 +332,3 @@ namespace Beta
         assert classes["Beta::FItem"].generated_body_line == generated_body_lines[1]
         assert [prop.name for prop in classes["Alpha::FItem"].properties] == ["First"]
         assert [prop.name for prop in classes["Beta::FItem"].properties] == ["Second"]
-

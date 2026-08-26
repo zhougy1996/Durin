@@ -146,7 +146,7 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
         if prop.referenced_struct_type:
             referenced_symbol = symbols.get(prop.referenced_struct_type)
             if referenced_symbol:
-                referenced_struct_helper = referenced_symbol.GeneratedHelperName
+                referenced_struct_helper = referenced_symbol.generated_symbol.helper_reference
         metadata_arguments = f", {metadata_ref}, {metadata_count}" if prop.metadata else ""
         initializer = (
             f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, "
@@ -183,7 +183,7 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
         if prop.referenced_type:
             referenced_symbol = symbols.get(prop.referenced_type)
             if referenced_symbol:
-                referenced_class_helper = referenced_symbol.GeneratedHelperName
+                referenced_class_helper = referenced_symbol.generated_symbol.helper_reference
         metadata_arguments = f", {metadata_ref}, {metadata_count}" if prop.metadata else ""
         initializer = (
             f"Durin::DurinCodeGen::{param_type}::Create<{value_type}>("
@@ -198,7 +198,7 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
         if prop.referenced_enum_type:
             referenced_symbol = symbols.get(prop.referenced_enum_type)
             if referenced_symbol:
-                referenced_enum_helper = referenced_symbol.GeneratedHelperName
+                referenced_enum_helper = referenced_symbol.generated_symbol.helper_reference
         initializer = (
             f"{{ \"{prop.name}\", {property_flags}, {prop.array_dim}, {offset}, "
             f"{referenced_enum_helper}{metadata_arguments} }}"
@@ -210,7 +210,7 @@ def _property_definition(class_info: ReflectedClassInfo, prop: ReflectedProperty
         if prop.referenced_type:
             referenced_symbol = symbols.get(prop.referenced_type)
             if referenced_symbol:
-                referenced_class_helper = referenced_symbol.GeneratedHelperName
+                referenced_class_helper = referenced_symbol.generated_symbol.helper_reference
         target_type = _cpp_type_spelling(prop.referenced_type, symbols)
         factory = "ObjectPtr" if prop.is_object_ptr_wrapper else "Raw"
         initializer = (

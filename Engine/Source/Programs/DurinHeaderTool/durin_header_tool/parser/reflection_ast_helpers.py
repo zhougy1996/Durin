@@ -1,6 +1,7 @@
 import re
 
 import clang.cindex
+from durin_header_tool.model.reflection_info import NamespaceSegment
 from durin_header_tool.parser.cpp_source_scanner import CppSourceScanner
 
 _GENERATED_BODY_PATTERN = re.compile(r"\bGENERATED_BODY\s*\(")
@@ -13,14 +14,41 @@ def _get_annotation(cursor: clang.cindex.Cursor) -> str:
     return ""
 
 
-def _semantic_namespace(cursor: clang.cindex.Cursor) -> str:
-    names: list[str] = []
+def _semantic_namespace_path(cursor: clang.cindex.Cursor) -> tuple[NamespaceSegment, ...]:
+    segments: list[NamespaceSegment] = []
     parent = cursor.semantic_parent
     while parent and parent.kind != clang.cindex.CursorKind.TRANSLATION_UNIT:
-        if parent.kind == clang.cindex.CursorKind.NAMESPACE and parent.spelling:
-            names.append(parent.spelling)
+        if parent.kind == clang.cindex.CursorKind.NAMESPACE:
+            if not parent.spelling:
+                raise ValueError(
+                    f"Reflected type '{cursor.spelling}' cannot be declared in an anonymous namespace."
+                )
+            is_inline = False
+            inline_query = getattr(parent, "is_inline_namespace", None)
+            if inline_query is not None:
+                is_inline = bool(inline_query())
+            if not is_inline:
+                declaration_tokens: list[str] = []
+                for token in parent.get_tokens():
+                    if token.spelling == "{":
+                        break
+                    declaration_tokens.append(token.spelling)
+                is_inline = "inline" in declaration_tokens
+            segments.append(NamespaceSegment(parent.spelling, is_inline))
+        elif parent.kind in (
+            clang.cindex.CursorKind.CLASS_DECL,
+            clang.cindex.CursorKind.STRUCT_DECL,
+            clang.cindex.CursorKind.CLASS_TEMPLATE,
+        ):
+            raise ValueError(
+                f"Reflected type '{cursor.spelling}' cannot be declared in class scope."
+            )
         parent = parent.semantic_parent
-    return "::".join(reversed(names))
+    return tuple(reversed(segments))
+
+
+def _semantic_namespace(cursor: clang.cindex.Cursor) -> str:
+    return "::".join(segment.name for segment in _semantic_namespace_path(cursor))
 
 
 def _qualified_name(cursor: clang.cindex.Cursor) -> str:

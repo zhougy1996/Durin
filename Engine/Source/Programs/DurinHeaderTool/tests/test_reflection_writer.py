@@ -71,7 +71,6 @@ class TestReflectionSourceWriter:
             short_name="EValue",
             namespace="Durin",
             qualified_name="Durin::EValue",
-            generated_helper_name="Z_Construct_DEnum_Durin_EValue",
             header="Value.h",
             api="CORE_API",
             underlying_size=8,
@@ -92,7 +91,6 @@ class TestReflectionSourceWriter:
             short_name="EMode",
             namespace="Durin",
             qualified_name="Durin::EMode",
-            generated_helper_name="Z_Construct_DEnum_Durin_EMode",
             header="Mode.h",
             api="CORE_API",
             display_name='Editor "Mode"',
@@ -120,9 +118,9 @@ class TestReflectionWriterIntegration:
         assert abstract_class.is_abstract
         assert abstract_class.display_name == "Abstract Actor"
         abstract_definition = self.generated_cpp.split(
-            "Durin::DClass* Fixture::AAbstractActor::GetPrivateStaticClass()", 1
+            "Durin::DClass* AAbstractActor::GetPrivateStaticClass()", 1
         )[1].split(
-            "Durin::DClass* Z_Construct_DClass_Fixture_AAbstractActor_NoRegister()", 1
+            "Durin::DClass* Z_Construct_DClass_AAbstractActor_NoRegister()", 1
         )[0]
         assert "Durin::EClassFlags::Abstract," in abstract_definition
         assert "nullptr," in abstract_definition
@@ -130,7 +128,7 @@ class TestReflectionWriterIntegration:
 
         generated_header = generate_header_content(self.header_info)
         abstract_macros = generated_header.split(
-            "Z_Construct_DClass_Fixture_AAbstractActor_NoRegister", 1
+            "Z_Construct_DClass_AAbstractActor_NoRegister", 1
         )[1]
         assert "DEFINE_DEFAULT_CONSTRUCTOR_CALL(AAbstractActor)" not in abstract_macros
         assert "DEFINE_DEFAULT_OBJECT_INITIALIZER_CONSTRUCTOR_CALL(AAbstractActor)" not in abstract_macros
@@ -144,9 +142,9 @@ class TestReflectionWriterIntegration:
         )
         assert class_info.no_class_default_object
         definition = self.generated_cpp.split(
-            "Durin::DClass* Fixture::AInfrastructure::GetPrivateStaticClass()", 1
+            "Durin::DClass* AInfrastructure::GetPrivateStaticClass()", 1
         )[1].split(
-            "Durin::DClass* Z_Construct_DClass_Fixture_AInfrastructure_NoRegister()", 1
+            "Durin::DClass* Z_Construct_DClass_AInfrastructure_NoRegister()", 1
         )[0]
         assert "Durin::EClassFlags::NoClassDefaultObject," in definition
         assert "InternalConstructor<Fixture::AInfrastructure>" in definition
@@ -155,14 +153,16 @@ class TestReflectionWriterIntegration:
     def test_qualified_helper_name_and_validation(self):
         assert (
             make_generated_helper_name("Durin::Gameplay::AActor")
-            == "Z_Construct_DClass_Durin_Gameplay_AActor"
+            == "::Durin::Gameplay::Z_Construct_DClass_AActor"
         )
         assert (
             make_generated_enum_helper_name("Durin::Gameplay::ETeam")
-            == "Z_Construct_DEnum_Durin_Gameplay_ETeam"
+            == "::Durin::Gameplay::Z_Construct_DEnum_ETeam"
         )
-        with pytest.raises(ValueError):
+        assert (
             make_generated_helper_name("Durin::Gameplay_AActor")
+            == "::Durin::Z_Construct_DClass_Gameplay_AActor"
+        )
 
 
     def test_generated_types_use_module_cpp_package(self):
@@ -178,7 +178,7 @@ class TestReflectionWriterIntegration:
     def test_class_display_and_default_object_name_metadata(self):
         assert '"Fixture::ASampleActor",' in self.generated_cpp
         assert '"ASampleActor",' in self.generated_cpp
-        assert '13,\n\t"Sample Actor",' in self.generated_cpp
+        assert '13,\n\t\t"Sample Actor",' in self.generated_cpp
         assert '"Sample Actor",' in self.generated_cpp
         assert '"SampleActor"' in self.generated_cpp
 
@@ -186,7 +186,9 @@ class TestReflectionWriterIntegration:
     def test_generated_cpp_symbols_follow_current_qualified_names(self):
         assert '"Fixture::EFixtureMode"' in self.generated_cpp
         assert '"Legacy::EFixtureMode"' in self.generated_cpp
-        assert "Fixture::ASampleActor::GetPrivateStaticClass()" in self.generated_cpp
+        assert "namespace Fixture" in self.generated_cpp
+        assert "AAbstractActor::GetPrivateStaticClass()" in self.generated_cpp
+        assert "Z_Construct_DClass_Fixture_ASampleActor" not in self.generated_cpp
         assert "sizeof(Fixture::FCurvePoint)" in self.generated_cpp
 
 

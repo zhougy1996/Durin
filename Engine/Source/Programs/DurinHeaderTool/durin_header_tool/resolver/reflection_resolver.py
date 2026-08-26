@@ -5,6 +5,7 @@ from durin_header_tool import config as configs
 from durin_header_tool import io as utils
 from durin_header_tool.model.export_info import ExportedSymbolInfo, load_module_export_file
 from durin_header_tool.model.reflection_info import ReflectedHeaderInfo
+from durin_header_tool.model.reflection_info import namespace_path_from_name
 
 
 ExportedSymbols = dict[str, ExportedSymbolInfo]
@@ -36,28 +37,24 @@ class SymbolResolution:
 
 
 def _add_builtin_symbols(symbols: ExportedSymbols) -> None:
-    for qualified_name, short_name, helper_type in (
-        ("Durin::FVector2f", "FVector2f", "FVector2f"),
-        ("Durin::FVector3f", "FVector3f", "FVector3f"),
-        ("Durin::FVector4f", "FVector4f", "FVector4f"),
-        ("Durin::FVector2", "FVector2", "FVector2"),
-        ("Durin::FVector3", "FVector3", "FVector3"),
-        ("Durin::FVector4", "FVector4", "FVector4"),
-        ("Durin::FVector2d", "FVector2d", "FVector2"),
-        ("Durin::FVector3d", "FVector3d", "FVector3"),
-        ("Durin::FVector4d", "FVector4d", "FVector4"),
-        ("Durin::FQuatf", "FQuatf", "FQuatf"),
-        ("Durin::FQuatd", "FQuatd", "FQuat"),
-        ("Durin::FQuat", "FQuat", "FQuat"),
-        ("Durin::FMatrix4f", "FMatrix4f", "FMatrix4f"),
-        ("Durin::FTransform", "FTransform", "FTransform"),
-        ("Durin::FLinearColor", "FLinearColor", "FLinearColor"),
+    for short_name in (
+        "FVector2f", "FVector3f", "FVector4f",
+        "FVector2", "FVector3", "FVector4",
+        "FQuatf", "FQuat", "FMatrix4f", "FTransform", "FLinearColor",
     ):
+        qualified_name = f"Durin::{short_name}"
         symbols.setdefault(qualified_name, ExportedSymbolInfo(
             Kind="struct", ShortName=short_name, Namespace="Durin", QualifiedName=qualified_name,
-            GeneratedHelperName=f"Z_Construct_DStruct_Durin_{helper_type}",
+            NamespacePath=namespace_path_from_name("Durin"),
             Header="DObject/MathStructs.h", API="COREDOBJECT_API"
         ))
+    for alias_name, canonical_name in (
+        ("FVector2d", "FVector2"),
+        ("FVector3d", "FVector3"),
+        ("FVector4d", "FVector4"),
+        ("FQuatd", "FQuat"),
+    ):
+        symbols.setdefault(f"Durin::{alias_name}", symbols[f"Durin::{canonical_name}"])
 
 
 def load_dependency_symbols(module_name: str) -> ExportedSymbols:
@@ -124,7 +121,11 @@ def resolved_symbol_dependencies_for_header(header_info: ReflectedHeaderInfo, sy
 
 def symbol_dependency_snapshot(symbol: ExportedSymbolInfo) -> dict[str, str]:
     return {
-        "GeneratedHelperName": symbol.GeneratedHelperName,
+        "GeneratedHelperReference": symbol.generated_symbol.helper_reference,
+        "NamespacePath": "/".join(
+            ("inline:" if segment.is_inline else "namespace:") + segment.name
+            for segment in symbol.NamespacePath
+        ),
         "API": symbol.API,
         "BaseQualifiedName": symbol.BaseQualifiedName,
         "Kind": symbol.Kind,

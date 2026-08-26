@@ -37,7 +37,7 @@ from durin_header_tool.runtime.parallelism import resolve_worker_count
 from durin_header_tool.writers.reflection_source_writer import generate_cpp_content, generate_header_content
 
 
-_GENERATOR_OPTIONS_HASH = "cpp-packages-v1"
+_GENERATOR_OPTIONS_HASH = "cpp-packages-namespace-scoped-v2"
 
 
 def _reflection_cache_context_digest() -> str:

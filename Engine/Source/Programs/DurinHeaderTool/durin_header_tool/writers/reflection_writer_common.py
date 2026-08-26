@@ -1,4 +1,4 @@
-from durin_header_tool.model.reflection_info import ReflectedClassInfo
+from durin_header_tool.model.reflection_info import NamespaceSegment, ReflectedClassInfo
 
 TAB = "\t"
 
@@ -32,3 +32,19 @@ def _bool_literal(value: bool) -> str:
 def _append_lines_no_indent(builder: list[str], *lines: str) -> None:
     for content in lines:
         builder.append(f"{content}\n")
+
+
+def _wrap_in_namespace(content: str, namespace_path: tuple[NamespaceSegment, ...]) -> str:
+    if not namespace_path:
+        return content
+    builder: list[str] = []
+    for depth, segment in enumerate(namespace_path):
+        keyword = "inline namespace" if segment.is_inline else "namespace"
+        depth_indent = TAB * depth
+        builder.append(f"{depth_indent}{keyword} {segment.name}\n{depth_indent}{{\n")
+    indent = TAB * len(namespace_path)
+    for line in content.splitlines(keepends=True):
+        builder.append(indent + line if line.strip() else line)
+    for depth in range(len(namespace_path) - 1, -1, -1):
+        builder.append(f"{TAB * depth}}}\n")
+    return "".join(builder)

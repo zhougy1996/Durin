@@ -4,6 +4,8 @@ Summary: Define reflected type registration, generated metadata, properties, and
 
 Modules: CoreDObject
 
+Last reviewed: 2026-08-26
+
 This document describes the reflection framework that is currently implemented in Durin. Object lifetime and collector semantics are documented separately in [Garbage Collection](GarbageCollection.md).
 
 ## Overview
@@ -23,7 +25,8 @@ The current system supports:
 
 - `DCLASS()` classes with `GENERATED_BODY()`
 - fully qualified runtime type identities, such as `Durin::AActor`
-- namespace-safe generated helper names, such as `Z_Construct_DClass_Durin_AActor`
+- namespace-scoped generated helpers, such as
+  `::Durin::Z_Construct_DClass_AActor`
 - module export files as thin reflected-symbol indexes
 - clean-surviving module phase state for incremental generation and output repair
 - generated `.gen.h` and `.gen.cpp` files
@@ -148,13 +151,28 @@ Durin::AActor
 Durin::DSceneComponent
 ```
 
-Generated helper names are implementation details derived from the qualified name by replacing `::` with `_`:
+Generated helper names are implementation details. The `namespace-scoped-v2`
+scheme places each helper in the reflected type's exact owning namespace and
+derives its local spelling only from the reflected kind and short name:
 
 ```text
-Durin::AActor -> Z_Construct_DClass_Durin_AActor
+Durin::AActor                 -> ::Durin::Z_Construct_DClass_AActor
+Durin::Game_Play::A_Player   -> ::Durin::Game_Play::Z_Construct_DClass_A_Player
+F_Global                     -> ::Z_Construct_DStruct_F_Global
 ```
 
-The current scheme is `qualified-underscore-v1`. Reflected namespace and type-name segments must not contain `_`; DurinHeaderTool rejects those symbols because the generated helper name would become ambiguous.
+Namespace boundaries are never encoded into one identifier. Underscores are
+therefore ordinary characters in every supported named namespace and type
+segment, and formerly colliding spellings such as `A_B::C` and `A::B_C` have
+distinct helpers. `_NoRegister`, per-type `_Statics`, and registration-info
+entities use the same owning namespace. Generated cross-namespace references
+are absolute qualified names.
+
+DHT supports global, named nested, and inline namespaces. It records namespace
+segments structurally, including inline status, and reopens them explicitly in
+generated headers and sources. Anonymous-namespace and class-nested reflected
+types are rejected before output publication because they cannot participate in
+the cross-translation-unit free-helper contract.
 
 ## Export Files
 
@@ -164,11 +182,11 @@ Each reflected module writes:
 <Module>.export
 ```
 
-The export file currently uses schema v5 JSON:
+The export file uses schema v6 JSON:
 
 ```json
 {
-  "SchemaVersion": 5,
+  "SchemaVersion": 6,
   "Module": "Engine",
   "Symbols": {
     "Durin::AActor": {
@@ -176,16 +194,22 @@ The export file currently uses schema v5 JSON:
       "ShortName": "AActor",
       "Namespace": "Durin",
       "QualifiedName": "Durin::AActor",
-      "GeneratedHelperName": "Z_Construct_DClass_Durin_AActor",
       "Header": "Public/Engine/Actor.h",
       "API": "ENGINE_API",
+      "NamespacePath": [
+        { "Name": "Durin", "IsInline": false }
+      ],
       "BaseQualifiedName": "Durin::DObject"
     }
   }
 }
 ```
 
-Export files are intentionally thin. They are used for symbol resolution during parsing/generation, not as the full runtime reflection database.
+Export files are intentionally thin. They persist semantic identity and the
+structured namespace path, not a derived helper spelling. All consumers derive
+the same local and absolute C++ names through the central generated-symbol
+model. Exports are used for symbol resolution during parsing/generation, not as
+the full runtime reflection database.
 
 Export files should only change when the exported reflected-symbol contract changes. Whitespace-only edits in a reflected header may force the owning module's export command to run, but should not rewrite the public `.export` file if the symbol index is unchanged. This keeps downstream modules from regenerating purely because an upstream header timestamp changed.
 
@@ -195,7 +219,8 @@ DurinHeaderTool stores export-generation reuse data in:
 <Module>/DHTState/export-state.json
 ```
 
-The export phase payload currently uses schema v1 inside a checksummed envelope.
+The export and reflection phase payloads use schema v2 inside a schema-v2
+checksummed envelope.
 It records the tool and native-libclang fingerprints, parser context, runtime
 variant, platform, dependency-export content digests, SHA-256 reflected-header
 fingerprints, a serializable raw symbol projection for each header, and the
@@ -231,12 +256,13 @@ For each reflected header, DurinHeaderTool writes:
 <Header>.gen.h
 ```
 
-The generated header provides declarations injected by `GENERATED_BODY()`. It includes:
+The generated header groups helper and statics declarations into explicit
+owning namespace blocks before any `GENERATED_BODY()` expansion. It includes:
 
-- global construct helper declarations
+- namespace-member construct helper declarations
 - a generated statics forward declaration
 - `GetPrivateStaticClass()`
-- friend declarations for generated helpers
+- absolute qualified friend and accessor references
 - `DECLARE_CLASS(...)`
 - deleted copy and move constructors
 - default constructor glue
@@ -252,11 +278,12 @@ For each reflected header, DurinHeaderTool writes:
 <Header>.gen.cpp
 ```
 
-The generated source includes:
+The generated source defines each per-type helper, statics record, and
+registration-info entity inside the same owning namespace. It includes:
 
 - `DObject/GeneratedCppIncludes.h`
 - the original reflected header
-- cross-module helper declarations
+- namespace-grouped cross-module helper declarations
 - `FClassRegistrationInfo`
 - `FEnumRegistrationInfo`
 - `T::GetPrivateStaticClass()`
@@ -267,7 +294,18 @@ The generated source includes:
 - compiled-in registration records
 - generated object-initializer constructor definitions when needed
 
-Generated code uses fully qualified C++ type names for reflected C++ types.
+Generated code uses fully qualified C++ type names and absolute qualified
+cross-namespace helper references. File-only compiled-in registration
+aggregates have internal linkage and point at the qualified per-type symbols.
+Intrinsic `DObject` and math-struct helpers follow the same contract.
+
+The v2 helper ABI is an atomic binary migration. Outputs, export schema, parser
+context, phase state, dependency snapshots, tool identity, and generator
+context are versioned together. Schema-v5 exports and schema-v1 phase bundles
+are rejected or invalidated and regenerated; no forwarding wrappers preserve
+the former flattened global symbols. All dependent modules must regenerate and
+relink together. Runtime `QualifiedName`, `/Cpp/<Module>` ownership, serialized
+type names, and legacy-name behavior are unchanged.
 
 Struct-valued fields use the concrete
 `DurinCodeGen::FStructPropertyParams` record. DurinHeaderTool emits the field

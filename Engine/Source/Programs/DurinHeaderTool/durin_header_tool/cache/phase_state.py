@@ -14,9 +14,9 @@ from durin_header_tool.model.export_info import ExportedSymbolInfo
 from durin_header_tool.model.reflection_generation import ReflectionHeaderGenerationResult
 
 
-PHASE_STATE_ENVELOPE_SCHEMA_VERSION = 1
-EXPORT_PHASE_STATE_SCHEMA_VERSION = 1
-REFLECTION_PHASE_STATE_SCHEMA_VERSION = 1
+PHASE_STATE_ENVELOPE_SCHEMA_VERSION = 2
+EXPORT_PHASE_STATE_SCHEMA_VERSION = 2
+REFLECTION_PHASE_STATE_SCHEMA_VERSION = 2
 
 
 def canonical_json_bytes(value: object) -> bytes:

@@ -73,10 +73,11 @@ class TestReflectionAstAndState:
             content = save_module_export_file(self.export_info)
         data = json.loads(content)
 
-        assert data["SchemaVersion"] == 5
+        assert data["SchemaVersion"] == 6
         actor = data["Symbols"]["Fixture::ASampleActor"]
         assert actor["QualifiedName"] == "Fixture::ASampleActor"
-        assert actor["GeneratedHelperName"] == "Z_Construct_DClass_Fixture_ASampleActor"
+        assert "GeneratedHelperName" not in actor
+        assert actor["NamespacePath"] == [{"Name": "Fixture", "IsInline": False}]
         assert actor["BaseQualifiedName"] == "Durin::DObject"
         assert not actor["IsAbstract"]
         assert data["Symbols"]["Fixture::AAbstractActor"]["IsAbstract"]
@@ -200,7 +201,7 @@ class TestReflectionAstAndState:
             content = save_reflection_phase_state(state)
         data = json.loads(content)["Payload"]
 
-        assert data["SchemaVersion"] == 1
+        assert data["SchemaVersion"] == 2
         assert data["ToolFingerprint"] == "fixture-fingerprint"
         assert data["Module"] == "Fixture"
         assert data["RuntimeVariant"] == "DurinEditor"

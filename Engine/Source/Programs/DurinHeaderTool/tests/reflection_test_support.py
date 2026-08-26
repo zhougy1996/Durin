@@ -398,19 +398,19 @@ struct Durin::TDStructOpsTraits<Fixture::FMalformedEquality>
             cls.symbols.update({
                 "Durin::DObject": ExportedSymbolInfo(
                     Kind="class", ShortName="DObject", Namespace="Durin", QualifiedName="Durin::DObject",
-                    GeneratedHelperName="Z_Construct_DClass_Durin_DObject", Header="DObject/Object.h", API="COREDOBJECT_API",
+                    Header="DObject/Object.h", API="COREDOBJECT_API",
                 ),
                 "Durin::FVector3": ExportedSymbolInfo(
                     Kind="struct", ShortName="FVector3", Namespace="Durin", QualifiedName="Durin::FVector3",
-                    GeneratedHelperName="Z_Construct_DStruct_Durin_FVector3", Header="DObject/MathStructs.h", API="COREDOBJECT_API",
+                    Header="DObject/MathStructs.h", API="COREDOBJECT_API",
                 ),
                 "Durin::FVector3f": ExportedSymbolInfo(
                     Kind="struct", ShortName="FVector3f", Namespace="Durin", QualifiedName="Durin::FVector3f",
-                    GeneratedHelperName="Z_Construct_DStruct_Durin_FVector3f", Header="DObject/MathStructs.h", API="COREDOBJECT_API",
+                    Header="DObject/MathStructs.h", API="COREDOBJECT_API",
                 ),
                 "Durin::FLinearColor": ExportedSymbolInfo(
                     Kind="struct", ShortName="FLinearColor", Namespace="Durin", QualifiedName="Durin::FLinearColor",
-                    GeneratedHelperName="Z_Construct_DStruct_Durin_FLinearColor", Header="DObject/MathStructs.h", API="COREDOBJECT_API",
+                    Header="DObject/MathStructs.h", API="COREDOBJECT_API",
                 ),
             })
             cls.header_info = parse_reflection_header("Fixture", cls.header, exported_symbols=cls.symbols)

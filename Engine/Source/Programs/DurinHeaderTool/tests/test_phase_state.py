@@ -41,11 +41,10 @@ DIGEST = "a" * 64
 
 def _symbol() -> ExportedSymbolInfo:
     return ExportedSymbolInfo(
-        Kind="Class",
+        Kind="class",
         ShortName="AActor",
         Namespace="Durin",
         QualifiedName="Durin::AActor",
-        GeneratedHelperName="Z_Construct_DClass_Durin_AActor",
         Header=HEADER,
         API="FIXTURE_API",
         BaseQualifiedName="Durin::DObject",

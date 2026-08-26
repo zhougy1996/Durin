@@ -171,16 +171,17 @@ public: \
 #define IMPLEMENT_CLASS(TClass) \
 	IMPLEMENT_CLASS_API(TClass, NO_API)
 
-// Expand at global scope so intrinsic helpers follow the DurinHeaderTool ABI.
+// Expand at global scope; the macro reopens the reflected types' owning namespace.
 #define IMPLEMENT_INTRINSIC_CLASS(TClass, TClassName, TRequiredAPI, TSuperClass, TSuperClassName, TSuperRequiredAPI, InitCode) \
-	TRequiredAPI Durin::DClass* Z_Construct_DClass_Durin_##TClassName(); \
-	extern TSuperRequiredAPI Durin::DClass* Z_Construct_DClass_Durin_##TSuperClassName(); \
-	Durin::FClassRegistrationInfo Z_Registration_Info_DClass_Durin_##TClassName; \
-	struct Z_Construct_DClass_Durin_##TClassName##_Statics \
+	namespace Durin { \
+	TRequiredAPI Durin::DClass* Z_Construct_DClass_##TClassName(); \
+	extern TSuperRequiredAPI Durin::DClass* Z_Construct_DClass_##TSuperClassName(); \
+	Durin::FClassRegistrationInfo Z_Registration_Info_DClass_##TClassName; \
+	struct Z_Construct_DClass_##TClassName##_Statics \
 	{ \
 		static Durin::DClass* Construct() \
 		{ \
-			Durin::DClass* SuperClass = Z_Construct_DClass_Durin_##TSuperClassName(); \
+			Durin::DClass* SuperClass = Z_Construct_DClass_##TSuperClassName(); \
 			Durin::DClass* Class = TClass::StaticClass(); \
 			Durin::DObjectForceRegistration(Class); \
 			/*check(Class->GetSuperClass() == SuperClass);*/ \
@@ -192,23 +193,23 @@ public: \
 	void TClass::IntrinsicClassInit(Durin::DClass* Class){ \
 		InitCode \
 	} \
-	TRequiredAPI Durin::DClass* Z_Construct_DClass_Durin_##TClassName() \
+	TRequiredAPI Durin::DClass* Z_Construct_DClass_##TClassName() \
 	{ \
-		if (!Z_Registration_Info_DClass_Durin_##TClassName.OuterSingleton) \
+		if (!Z_Registration_Info_DClass_##TClassName.OuterSingleton) \
 		{ \
-			Z_Registration_Info_DClass_Durin_##TClassName.OuterSingleton = Z_Construct_DClass_Durin_##TClassName##_Statics::Construct(); \
+			Z_Registration_Info_DClass_##TClassName.OuterSingleton = Z_Construct_DClass_##TClassName##_Statics::Construct(); \
 		} \
-		check(Z_Registration_Info_DClass_Durin_##TClassName.OuterSingleton->GetClass()); \
-		return Z_Registration_Info_DClass_Durin_##TClassName.OuterSingleton; \
+		check(Z_Registration_Info_DClass_##TClassName.OuterSingleton->GetClass()); \
+		return Z_Registration_Info_DClass_##TClassName.OuterSingleton; \
 	} \
 	TRequiredAPI Durin::DClass* TClass::GetPrivateStaticClass() \
 	{ \
-		if (!Z_Registration_Info_DClass_Durin_##TClassName.InnerSingleton) \
+		if (!Z_Registration_Info_DClass_##TClassName.InnerSingleton) \
 		{ \
 			Durin::GetPrivateStaticClassBody( \
 				STR(""), \
 				STR(#TClassName), \
-				Z_Registration_Info_DClass_Durin_##TClassName.InnerSingleton, \
+				Z_Registration_Info_DClass_##TClassName.InnerSingleton, \
 				nullptr, \
 				sizeof(TClass), \
 				alignof(TClass), \
@@ -216,10 +217,11 @@ public: \
 				(Durin::DClass::ClassConstructorType)Durin::InternalConstructor<TClass>, \
 				&TClass::Super::StaticClass); \
 		} \
-		return Z_Registration_Info_DClass_Durin_##TClassName.InnerSingleton; \
+		return Z_Registration_Info_DClass_##TClassName.InnerSingleton; \
 	} \
-	static Durin::FClassRegisterCompiledInInfo Z_AutoRegister_Durin_##TClassName( \
-		&Z_Construct_DClass_Durin_##TClassName, \
+	static Durin::FClassRegisterCompiledInInfo Z_AutoRegister_##TClassName( \
+		&Z_Construct_DClass_##TClassName, \
 		&TClass::StaticClass, \
 		STR(#TClassName), \
-		&Z_Registration_Info_DClass_Durin_##TClassName);
+		&Z_Registration_Info_DClass_##TClassName); \
+	}

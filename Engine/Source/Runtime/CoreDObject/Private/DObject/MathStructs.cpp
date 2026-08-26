@@ -53,8 +53,6 @@ namespace Durin
 	};
 } // namespace Durin
 
-using namespace Durin;
-
 namespace
 {
 	template<typename T, auto Member>
@@ -81,15 +79,18 @@ namespace
 		return &static_cast<const T*>(Container)[ArrayIndex][Index];
 	}
 
-	auto MakeStruct(std::string_view QualifiedName, std::string_view ShortName, uint32 Size, uint32 Alignment) -> DStruct*
+	auto MakeStruct(std::string_view QualifiedName, std::string_view ShortName, uint32 Size, uint32 Alignment) -> Durin::DStruct*
 	{
-		auto* Struct = new DStruct(EC_StaticConstructor, FName(QualifiedName), FName(ShortName), Size, Alignment, EObjectFlags::Intrinsic);
-		Struct->Register(DStruct::StaticClass, "/Cpp/CoreDObject", std::string(QualifiedName).c_str());
+		auto* Struct = new Durin::DStruct(Durin::EC_StaticConstructor, Durin::FName(QualifiedName), Durin::FName(ShortName), Size, Alignment, Durin::EObjectFlags::Intrinsic);
+		Struct->Register(Durin::DStruct::StaticClass, "/Cpp/CoreDObject", std::string(QualifiedName).c_str());
 		return Struct;
 	}
 } // namespace
 
-auto Z_Construct_DStruct_Durin_FVector2f() -> DStruct*
+namespace Durin
+{
+
+auto Z_Construct_DStruct_FVector2f() -> DStruct*
 {
 	static DStruct* Singleton = nullptr;
 	if (Singleton) return Singleton;
@@ -101,7 +102,7 @@ auto Z_Construct_DStruct_Durin_FVector2f() -> DStruct*
 	return DurinCodeGen::ConstructDStruct(Params);
 }
 
-auto Z_Construct_DStruct_Durin_FVector3f() -> DStruct*
+auto Z_Construct_DStruct_FVector3f() -> DStruct*
 {
 	static DStruct* Singleton = nullptr;
 	if (Singleton) return Singleton;
@@ -114,7 +115,7 @@ auto Z_Construct_DStruct_Durin_FVector3f() -> DStruct*
 	return DurinCodeGen::ConstructDStruct(Params);
 }
 
-auto Z_Construct_DStruct_Durin_FVector4f() -> DStruct*
+auto Z_Construct_DStruct_FVector4f() -> DStruct*
 {
 	static DStruct* Singleton = nullptr;
 	if (Singleton) return Singleton;
@@ -128,7 +129,7 @@ auto Z_Construct_DStruct_Durin_FVector4f() -> DStruct*
 	return DurinCodeGen::ConstructDStruct(Params);
 }
 
-auto Z_Construct_DStruct_Durin_FVector2() -> DStruct*
+auto Z_Construct_DStruct_FVector2() -> DStruct*
 {
 	static DStruct* Singleton = nullptr;
 	if (Singleton) return Singleton;
@@ -140,7 +141,7 @@ auto Z_Construct_DStruct_Durin_FVector2() -> DStruct*
 	return DurinCodeGen::ConstructDStruct(Params);
 }
 
-auto Z_Construct_DStruct_Durin_FVector3() -> DStruct*
+auto Z_Construct_DStruct_FVector3() -> DStruct*
 {
 	static DStruct* Singleton = nullptr;
 	if (Singleton) return Singleton;
@@ -153,7 +154,7 @@ auto Z_Construct_DStruct_Durin_FVector3() -> DStruct*
 	return DurinCodeGen::ConstructDStruct(Params);
 }
 
-auto Z_Construct_DStruct_Durin_FVector4() -> DStruct*
+auto Z_Construct_DStruct_FVector4() -> DStruct*
 {
 	static DStruct* Singleton = nullptr;
 	if (Singleton) return Singleton;
@@ -167,7 +168,7 @@ auto Z_Construct_DStruct_Durin_FVector4() -> DStruct*
 	return DurinCodeGen::ConstructDStruct(Params);
 }
 
-auto Z_Construct_DStruct_Durin_FQuat() -> DStruct*
+auto Z_Construct_DStruct_FQuat() -> DStruct*
 {
 	static DStruct* Singleton = nullptr;
 	if (Singleton) return Singleton;
@@ -181,7 +182,7 @@ auto Z_Construct_DStruct_Durin_FQuat() -> DStruct*
 	return DurinCodeGen::ConstructDStruct(Params);
 }
 
-auto Z_Construct_DStruct_Durin_FQuatf() -> DStruct*
+auto Z_Construct_DStruct_FQuatf() -> DStruct*
 {
 	static DStruct* Singleton = nullptr;
 	if (Singleton) return Singleton;
@@ -195,37 +196,37 @@ auto Z_Construct_DStruct_Durin_FQuatf() -> DStruct*
 	return DurinCodeGen::ConstructDStruct(Params);
 }
 
-auto Z_Construct_DStruct_Durin_FMatrix4f() -> DStruct*
+auto Z_Construct_DStruct_FMatrix4f() -> DStruct*
 {
 	static DStruct* Singleton = nullptr;
 	if (Singleton) return Singleton;
 	Singleton = MakeStruct("Durin::FMatrix4f", "FMatrix4f", sizeof(FMatrix4f), alignof(FMatrix4f));
 	static constexpr FPropertyMetadataParams ColumnMetadata{.ToolTip = "Column-major matrix column", .Category = "Matrix"};
-	static const auto Column0 = DurinCodeGen::WithTypedMetadata(DurinCodeGen::FStructPropertyParams::WithAccessors("Column0", EPropertyFlags::None, 1, &Z_Construct_DStruct_Durin_FVector4f, &MutableIndex<FMatrix4f, 0>, &ConstIndex<FMatrix4f, 0>), &ColumnMetadata);
-	static const auto Column1 = DurinCodeGen::WithTypedMetadata(DurinCodeGen::FStructPropertyParams::WithAccessors("Column1", EPropertyFlags::None, 1, &Z_Construct_DStruct_Durin_FVector4f, &MutableIndex<FMatrix4f, 1>, &ConstIndex<FMatrix4f, 1>), &ColumnMetadata);
-	static const auto Column2 = DurinCodeGen::WithTypedMetadata(DurinCodeGen::FStructPropertyParams::WithAccessors("Column2", EPropertyFlags::None, 1, &Z_Construct_DStruct_Durin_FVector4f, &MutableIndex<FMatrix4f, 2>, &ConstIndex<FMatrix4f, 2>), &ColumnMetadata);
-	static const auto Column3 = DurinCodeGen::WithTypedMetadata(DurinCodeGen::FStructPropertyParams::WithAccessors("Column3", EPropertyFlags::None, 1, &Z_Construct_DStruct_Durin_FVector4f, &MutableIndex<FMatrix4f, 3>, &ConstIndex<FMatrix4f, 3>), &ColumnMetadata);
+	static const auto Column0 = DurinCodeGen::WithTypedMetadata(DurinCodeGen::FStructPropertyParams::WithAccessors("Column0", EPropertyFlags::None, 1, &Z_Construct_DStruct_FVector4f, &MutableIndex<FMatrix4f, 0>, &ConstIndex<FMatrix4f, 0>), &ColumnMetadata);
+	static const auto Column1 = DurinCodeGen::WithTypedMetadata(DurinCodeGen::FStructPropertyParams::WithAccessors("Column1", EPropertyFlags::None, 1, &Z_Construct_DStruct_FVector4f, &MutableIndex<FMatrix4f, 1>, &ConstIndex<FMatrix4f, 1>), &ColumnMetadata);
+	static const auto Column2 = DurinCodeGen::WithTypedMetadata(DurinCodeGen::FStructPropertyParams::WithAccessors("Column2", EPropertyFlags::None, 1, &Z_Construct_DStruct_FVector4f, &MutableIndex<FMatrix4f, 2>, &ConstIndex<FMatrix4f, 2>), &ColumnMetadata);
+	static const auto Column3 = DurinCodeGen::WithTypedMetadata(DurinCodeGen::FStructPropertyParams::WithAccessors("Column3", EPropertyFlags::None, 1, &Z_Construct_DStruct_FVector4f, &MutableIndex<FMatrix4f, 3>, &ConstIndex<FMatrix4f, 3>), &ColumnMetadata);
 	static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&Column0, &Column1, &Column2, &Column3};
 	static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FMatrix4f", "FMatrix4f", sizeof(FMatrix4f), alignof(FMatrix4f), Properties, std::size(Properties), &GetDStructOps<FMatrix4f>()};
 	return DurinCodeGen::ConstructDStruct(Params);
 }
 
-auto Z_Construct_DStruct_Durin_FTransform() -> DStruct*
+auto Z_Construct_DStruct_FTransform() -> DStruct*
 {
 	static DStruct* Singleton = nullptr;
 	if (Singleton) return Singleton;
 	Singleton = MakeStruct("Durin::FTransform", "FTransform", sizeof(FTransform), alignof(FTransform));
 	static constexpr FPropertyMetadataParams RotationMetadata{.ToolTip = "Local quaternion rotation", .Category = "Transform"};
 	static constexpr FPropertyMetadataParams TranslationMetadata{.ToolTip = "Local translation", .Category = "Transform"};
-	static const auto Rotation = DurinCodeGen::WithTypedMetadata(DurinCodeGen::FStructPropertyParams{"Rotation", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FTransform, Rotation)), &Z_Construct_DStruct_Durin_FQuat}, &RotationMetadata);
-	static const auto Translation = DurinCodeGen::WithTypedMetadata(DurinCodeGen::FStructPropertyParams{"Translation", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FTransform, Translation)), &Z_Construct_DStruct_Durin_FVector3}, &TranslationMetadata);
-	static const DurinCodeGen::FStructPropertyParams Scale = {"Scale3D", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FTransform, Scale3D)), &Z_Construct_DStruct_Durin_FVector3};
+	static const auto Rotation = DurinCodeGen::WithTypedMetadata(DurinCodeGen::FStructPropertyParams{"Rotation", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FTransform, Rotation)), &Z_Construct_DStruct_FQuat}, &RotationMetadata);
+	static const auto Translation = DurinCodeGen::WithTypedMetadata(DurinCodeGen::FStructPropertyParams{"Translation", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FTransform, Translation)), &Z_Construct_DStruct_FVector3}, &TranslationMetadata);
+	static const DurinCodeGen::FStructPropertyParams Scale = {"Scale3D", EPropertyFlags::None, 1, static_cast<uint16>(STRUCT_OFFSET(FTransform, Scale3D)), &Z_Construct_DStruct_FVector3};
 	static const DurinCodeGen::FPropertyParamsBase* Properties[] = {&Rotation, &Translation, &Scale};
 	static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FTransform", "FTransform", sizeof(FTransform), alignof(FTransform), Properties, std::size(Properties), &GetDStructOps<FTransform>()};
 	return DurinCodeGen::ConstructDStruct(Params);
 }
 
-auto Z_Construct_DStruct_Durin_FLinearColor() -> DStruct*
+auto Z_Construct_DStruct_FLinearColor() -> DStruct*
 {
 	static DStruct* Singleton = nullptr;
 	if (Singleton) return Singleton;
@@ -238,3 +239,4 @@ auto Z_Construct_DStruct_Durin_FLinearColor() -> DStruct*
 	static const DurinCodeGen::FStructParams Params = {[]() -> DStruct* { return Singleton; }, "Durin::FLinearColor", "FLinearColor", sizeof(FLinearColor), alignof(FLinearColor), Properties, std::size(Properties), &GetDStructOps<FLinearColor>()};
 	return DurinCodeGen::ConstructDStruct(Params);
 }
+} // namespace Durin

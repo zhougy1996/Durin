@@ -57,6 +57,7 @@ namespace Durin
 	};
 
 	COREDOBJECT_API auto Z_Construct_DClass_DObject_NoRegister() -> DClass*;
+	COREDOBJECT_API auto Z_Construct_DClass_DObject() -> DClass*;
 
 	// Provides reflected identity, Outer ownership, serialization, and destruction hooks for managed objects.
 	class DObject

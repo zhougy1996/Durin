@@ -1298,7 +1298,7 @@ TEST(FMaterialTests, ParentTransactionsRenderFromCurrentCanonicalStorage)
 TEST(FMaterialTests, ProductionClassDefaultsMatchFreshOrdinaryObjectGraphs)
 {
 	InitializeDObjectSystem();
-	(void)Durin::Z_Construct_DStruct_Durin_FVector4();
+	(void)Durin::Z_Construct_DStruct_FVector4();
 	uint32 ProductionStructCount = 0;
 	for (Durin::DObject* Object : Durin::GDObjectArray.GetAll(Durin::EObjectQueryScope::IncludeTemplates))
 	{

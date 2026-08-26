@@ -4,19 +4,16 @@ Summary: Move generated reflection helpers into each reflected type's owning nam
 
 Last reviewed: 2026-08-26
 
-Status: Active
-Completed:
+Status: Archived
+Completed: 2026-08-26
 
 ## Current Status
 
-The generated-symbol contract is selected but not implemented. DurinHeaderTool
-currently publishes every generated helper as a flattened global identifier
-under `qualified-underscore-v1`; the delimiter is ambiguous when a namespace or
-type segment contains `_`, so the parser rejects otherwise valid C++ names.
-
-This plan replaces that encoding with namespace-scoped generated symbols. It is
-a source and binary migration of code-generation implementation details, not a
-change to reflected type identity. No stage has started.
+The `namespace-scoped-v2` contract is implemented across DurinHeaderTool,
+generated outputs, schema-v6 exports, phase state, handwritten CoreDObject
+reflection, repository consumers, tests, and the lasting reflection contract.
+Reflected namespace and type segments accept underscores without flattened-name
+collisions. Runtime and serialized reflected identity remain unchanged.
 
 ## Goal
 
@@ -173,24 +170,24 @@ for `Durin::Game_Play::A_Player`, with the complete helper identity
 Dependencies: current reflection contract, DHT parser/export model, and
 generated include placement.
 
-- [ ] Inventory every producer, persisted representation, and consumer of
+- [x] Inventory every producer, persisted representation, and consumer of
   generated class/struct/enum helper, `_NoRegister`, `_Statics`, registration,
   and compiled-in defer names.
-- [ ] Add contract fixtures covering `_` in root/nested namespaces and class,
+- [x] Add contract fixtures covering `_` in root/nested namespaces and class,
   struct, and enum short names, including pairs that collide under v1.
-- [ ] Record behavior for global, nested named, inline, anonymous, alias-spelled,
+- [x] Record behavior for global, nested named, inline, anonymous, alias-spelled,
   and class-nested scopes; confirm supported scopes against MSVC and the DHT
   libclang AST.
-- [ ] Compile minimal generated-header probes proving that namespace-member
+- [x] Compile minimal generated-header probes proving that namespace-member
   helper/statics forward declarations satisfy qualified friend declarations
   before the authored namespace is opened.
-- [ ] Decide from evidence whether export schema v6 removes
+- [x] Decide from evidence whether export schema v6 removes
   `GeneratedHelperName` entirely; record any unavoidable persisted field and
   its single derivation path.
-- [ ] Enumerate all handwritten and direct-call migrations, including
+- [x] Enumerate all handwritten and direct-call migrations, including
   CoreDObject math structs, `DObject`, legacy object macros, editor property
   views, and native tests.
-- [ ] Name every cache, phase-state, manifest, export, and dependency identity
+- [x] Name every cache, phase-state, manifest, export, and dependency identity
   requiring an invalidation bump.
 
 #### Acceptance Gate
@@ -206,20 +203,20 @@ generated include placement.
 
 Dependencies: Stage 0 contract and export decision.
 
-- [ ] Replace `qualified_name_to_helper_suffix` and the three independent
+- [x] Replace `qualified_name_to_helper_suffix` and the three independent
   helper-name constructors with a value model containing kind, namespace path,
   local helper name, and absolute qualified reference.
-- [ ] Represent namespace segments and inline status independently from the
+- [x] Represent namespace segments and inline status independently from the
   runtime qualified-name string used by registration and serialization.
-- [ ] Make `_NoRegister`, `_Statics`, and registration-info derivation consume
+- [x] Make `_NoRegister`, `_Statics`, and registration-info derivation consume
   the same model without flattening namespaces.
-- [ ] Remove the underscore rejection and retain deterministic diagnostics for
+- [x] Remove the underscore rejection and retain deterministic diagnostics for
   genuinely unsupported identifiers/scopes.
-- [ ] Update intrinsic-symbol construction and parser models to use the shared
+- [x] Update intrinsic-symbol construction and parser models to use the shared
   builder rather than hard-coded `Z_Construct_*_Durin_*` strings.
-- [ ] Upgrade export schema and serialization according to Stage 0, rejecting
+- [x] Upgrade export schema and serialization according to Stage 0, rejecting
   stale or mixed-schema inputs explicitly.
-- [ ] Add order-independent model/export round-trip tests for all kinds,
+- [x] Add order-independent model/export round-trip tests for all kinds,
   namespace depths, inline namespaces, global types, and underscore collisions.
 
 #### Acceptance Gate
@@ -236,19 +233,19 @@ Dependencies: Stage 0 contract and export decision.
 
 Dependencies: Stage 1 symbol model.
 
-- [ ] Group `.gen.h` declarations by structured namespace path and emit correct
+- [x] Group `.gen.h` declarations by structured namespace path and emit correct
   nested/inline namespace blocks for helper functions and statics.
-- [ ] Change `GENERATED_BODY()` fragments to use absolute qualified friend,
+- [x] Change `GENERATED_BODY()` fragments to use absolute qualified friend,
   `DECLARE_CLASS`, and `StaticStruct()` references.
-- [ ] Emit helper, `_NoRegister`, statics, registration-info, property metadata,
+- [x] Emit helper, `_NoRegister`, statics, registration-info, property metadata,
   and callback definitions in their owning namespace in `.gen.cpp`.
-- [ ] Fully qualify cross-namespace base/property/enum/struct helpers at every
+- [x] Fully qualify cross-namespace base/property/enum/struct helpers at every
   generated use site.
-- [ ] Put file-only compiled-in registration aggregates behind internal linkage
+- [x] Put file-only compiled-in registration aggregates behind internal linkage
   while keeping their function-pointer entries fully qualified.
-- [ ] Preserve deterministic ordering and byte-stable output when one header
+- [x] Preserve deterministic ordering and byte-stable output when one header
   declares reflected types across multiple namespaces.
-- [ ] Expand writer golden tests for empty/multiple namespaces, same short names
+- [x] Expand writer golden tests for empty/multiple namespaces, same short names
   in different namespaces, underscore names, cross-module imports, inline
   namespaces, and headers containing all three reflected kinds.
 
@@ -264,17 +261,17 @@ Dependencies: Stage 1 symbol model.
 
 Dependencies: Stage 2 writer contract.
 
-- [ ] Move handwritten `DObject` and intrinsic math struct helpers into their
+- [x] Move handwritten `DObject` and intrinsic math struct helpers into their
   owning namespace and shorten their local names consistently with v2.
-- [ ] Update legacy CoreDObject reflection macros or replace their generated-name
+- [x] Update legacy CoreDObject reflection macros or replace their generated-name
   token concatenation with the shared namespace-scoped contract.
-- [ ] Remove global-to-`Durin` `using` aliases and any temporary adapters after
+- [x] Remove global-to-`Durin` `using` aliases and any temporary adapters after
   all generated and handwritten definitions use v2.
-- [ ] Migrate generated-code fixtures, Editor property-view comparisons, native
+- [x] Migrate generated-code fixtures, Editor property-view comparisons, native
   tests, and other direct callers to absolute v2 names.
-- [ ] Prefer normal `StaticClass()`/`StaticStruct()` entry points at call sites
+- [x] Prefer normal `StaticClass()`/`StaticStruct()` entry points at call sites
   where they already exist, without introducing a new public reflection API.
-- [ ] Verify API import/export annotations and mangled symbols across at least
+- [x] Verify API import/export annotations and mangled symbols across at least
   one dependency-module boundary on the supported Windows toolchain.
 
 #### Acceptance Gate
@@ -289,15 +286,15 @@ Dependencies: Stage 2 writer contract.
 
 Dependencies: Stages 1-3.
 
-- [ ] Bump the DHT tool/symbol scheme, export schema, parser/generator context,
+- [x] Bump the DHT tool/symbol scheme, export schema, parser/generator context,
   and each phase-state or manifest identity selected in Stage 0.
-- [ ] Ensure dependency snapshots compare semantic exported identities and
+- [x] Ensure dependency snapshots compare semantic exported identities and
   cannot retain an old helper spelling.
-- [ ] Cover cold generation, warm reuse, touched-but-unchanged input, changed
+- [x] Cover cold generation, warm reuse, touched-but-unchanged input, changed
   dependency export, corrupt cache, missing output, and interrupted publication.
-- [ ] Verify old export/cache/output mixtures trigger deterministic regeneration
+- [x] Verify old export/cache/output mixtures trigger deterministic regeneration
   or a clear schema error without publishing partial v2 artifacts.
-- [ ] Confirm independent modules remain safely parallel while commands writing
+- [x] Confirm independent modules remain safely parallel while commands writing
   the same module retain their existing serialization boundary.
 
 #### Acceptance Gate
@@ -312,20 +309,20 @@ Dependencies: Stages 1-3.
 
 Dependencies: Stages 0-4 and all focused acceptance gates.
 
-- [ ] Run the complete DurinHeaderTool Python suite, including writer, namespace,
+- [x] Run the complete DurinHeaderTool Python suite, including writer, namespace,
   property, export, persistent-state, and failure-publication coverage.
-- [ ] Run required configure/generation validation from warm incremental and
+- [x] Run required configure/generation validation from warm incremental and
   clean generated-output states under the repository build workflow.
-- [ ] Run the shared-infrastructure full build because generated declarations
+- [x] Run the shared-infrastructure full build because generated declarations
   and link symbols affect every reflected module.
-- [ ] Run affected CoreDObject, serialization/asset, Engine, and Editor native
+- [x] Run affected CoreDObject, serialization/asset, Engine, and Editor native
   tests selected under the repository testing workflow.
-- [ ] Inspect produced library/executable symbols or link maps to confirm v2
+- [x] Inspect produced library/executable symbols or link maps to confirm v2
   namespace mangling and absence of v1 exported helpers.
-- [ ] Update the Generated Reflection System contract with namespace-scoped
+- [x] Update the Generated Reflection System contract with namespace-scoped
   symbols, underscore support, supported namespace forms, internal linkage,
   export derivation, and binary migration rules.
-- [ ] Record exact validation evidence, close every acceptance gate, and update
+- [x] Record exact validation evidence, close every acceptance gate, and update
   plan lifecycle metadata before completion.
 
 #### Acceptance Gate
@@ -371,6 +368,29 @@ Dependencies: Stages 0-4 and all focused acceptance gates.
 - Lasting behavior is authoritative in the Generated Reflection System contract,
   and this plan is completed under the repository documentation lifecycle.
 
+## Completion Evidence
+
+- DurinHeaderTool Python suite: 199 tests passed, including structured-symbol,
+  schema-v6, underscore-collision, global, inline, anonymous-scope, writer,
+  property, cache, and publication coverage.
+- Cold migration: the first `CoreDObject` and full repository builds rejected
+  schema-v5 exports and schema-v1 phase envelopes, regenerated v2 state, and
+  linked successfully.
+- Incremental generation: a second `./DevTool build --target all` completed with
+  `ninja: no work to do`.
+- Shared build: `./DevTool build --target all` completed successfully for the
+  `MacOS-arm64-Debug-DurinEditor` profile.
+- Native validation: `./DevTool test "@domain=reflection"` passed all 3 targets;
+  `./DevTool test fast-all` passed all 64 selected contract, feature, and
+  infrastructure targets, including CoreDObject, asset, Engine, and Editor
+  coverage.
+- Symbol audit: `nm -gU | c++filt` over the CoreDObject and Engine dylibs found
+  975 namespace-qualified generated symbols and no global exported
+  `Z_Construct_DClass_*`, `Z_Construct_DStruct_*`, or `Z_Construct_DEnum_*`
+  symbol.
+- Documentation validation: the changed-scope and complete plan validators
+  passed before archival.
+
 ## Deferred Follow-ups
 
 - A public typed lookup API that removes legitimate direct calls to intrinsic
@@ -385,11 +405,11 @@ Dependencies: Stages 0-4 and all focused acceptance gates.
 
 ## Related Documentation
 
-- [Generated Reflection System](../Runtime/Core/ReflectionSystem.md)
-- [Build System](../Development/Build/BuildSystem.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [DHT Namespace-Aware Type Resolution](Archive/2026-08/DHTNamespaceAwareTypeResolution.md)
+- [Generated Reflection System](../../../Runtime/Core/ReflectionSystem.md)
+- [Build System](../../../Development/Build/BuildSystem.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [DHT Namespace-Aware Type Resolution](DHTNamespaceAwareTypeResolution.md)
 
 ## Related Code
 

@@ -110,15 +110,15 @@ namespace Durin::Editor
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 			{
 				const DStruct* Struct = static_cast<const FStructProperty&>(Property).GetStruct();
-				if (Struct == Z_Construct_DStruct_Durin_FVector2f()) return "Vector2 (Float)";
-				if (Struct == Z_Construct_DStruct_Durin_FVector3f()) return "Vector3 (Float)";
-				if (Struct == Z_Construct_DStruct_Durin_FVector4f()) return "Vector4 (Float)";
-				if (Struct == Z_Construct_DStruct_Durin_FVector2()) return "Vector2";
-				if (Struct == Z_Construct_DStruct_Durin_FVector3()) return "Vector3";
-				if (Struct == Z_Construct_DStruct_Durin_FVector4()) return "Vector4";
-				if (Struct == Z_Construct_DStruct_Durin_FQuat()) return "Quaternion";
-				if (Struct == Z_Construct_DStruct_Durin_FTransform()) return "Transform";
-				if (Struct == Z_Construct_DStruct_Durin_FLinearColor()) return "Linear Color";
+				if (Struct == Z_Construct_DStruct_FVector2f()) return "Vector2 (Float)";
+				if (Struct == Z_Construct_DStruct_FVector3f()) return "Vector3 (Float)";
+				if (Struct == Z_Construct_DStruct_FVector4f()) return "Vector4 (Float)";
+				if (Struct == Z_Construct_DStruct_FVector2()) return "Vector2";
+				if (Struct == Z_Construct_DStruct_FVector3()) return "Vector3";
+				if (Struct == Z_Construct_DStruct_FVector4()) return "Vector4";
+				if (Struct == Z_Construct_DStruct_FQuat()) return "Quaternion";
+				if (Struct == Z_Construct_DStruct_FTransform()) return "Transform";
+				if (Struct == Z_Construct_DStruct_FLinearColor()) return "Linear Color";
 				return Struct ? Struct->GetShortName().ToString() : "Struct";
 			}
 			case DurinCodeGen::EPropertyGenFlags::Array:
@@ -181,15 +181,15 @@ namespace Durin::Editor
 
 		auto HasInlineStructWidget(const DStruct* Struct) -> bool
 		{
-			return Struct == Z_Construct_DStruct_Durin_FTransform()
-				|| Struct == Z_Construct_DStruct_Durin_FVector2f()
-				|| Struct == Z_Construct_DStruct_Durin_FVector3f()
-				|| Struct == Z_Construct_DStruct_Durin_FVector4f()
-				|| Struct == Z_Construct_DStruct_Durin_FVector2()
-				|| Struct == Z_Construct_DStruct_Durin_FVector3()
-				|| Struct == Z_Construct_DStruct_Durin_FVector4()
-				|| Struct == Z_Construct_DStruct_Durin_FQuat()
-				|| Struct == Z_Construct_DStruct_Durin_FLinearColor();
+			return Struct == Z_Construct_DStruct_FTransform()
+				|| Struct == Z_Construct_DStruct_FVector2f()
+				|| Struct == Z_Construct_DStruct_FVector3f()
+				|| Struct == Z_Construct_DStruct_FVector4f()
+				|| Struct == Z_Construct_DStruct_FVector2()
+				|| Struct == Z_Construct_DStruct_FVector3()
+				|| Struct == Z_Construct_DStruct_FVector4()
+				|| Struct == Z_Construct_DStruct_FQuat()
+				|| Struct == Z_Construct_DStruct_FLinearColor();
 		}
 
 		auto ImGuiDataTypeForProperty(DurinCodeGen::EPropertyGenFlags Kind) -> ImGuiDataType
@@ -266,7 +266,7 @@ namespace Durin::Editor
 				: Property.NamePrivate.ToString();
 			const std::string DisplayName = MakePropertyLabel(Property, ArrayIndex);
 			if (Property.GetKind() == DurinCodeGen::EPropertyGenFlags::Struct
-				&& static_cast<const FStructProperty&>(Property).GetStruct() == Z_Construct_DStruct_Durin_FTransform())
+				&& static_cast<const FStructProperty&>(Property).GetStruct() == Z_Construct_DStruct_FTransform())
 			{
 				return std::format("{} {} Location Rotation Scale", SourceName, DisplayName);
 			}
@@ -566,39 +566,39 @@ namespace Durin::Editor
 			});
 		};
 
-		if (Struct == Z_Construct_DStruct_Durin_FTransform())
+		if (Struct == Z_Construct_DStruct_FTransform())
 		{
 			return EditMathStruct.template operator()<FTransform>([&](FTransform& Value, auto& State) {
 				return MonaImGui::PropertyEdit::EditTransform(Label.c_str(), Value, bReadOnly, &State, TypeTooltip.c_str());
 			});
 		}
 
-		if (Struct == Z_Construct_DStruct_Durin_FVector2f())
+		if (Struct == Z_Construct_DStruct_FVector2f())
 			return EditVector.template operator()<FVector2f>();
 
-		if (Struct == Z_Construct_DStruct_Durin_FVector3f())
+		if (Struct == Z_Construct_DStruct_FVector3f())
 			return EditVector.template operator()<FVector3f>();
 
-		if (Struct == Z_Construct_DStruct_Durin_FVector4f())
+		if (Struct == Z_Construct_DStruct_FVector4f())
 			return EditVector.template operator()<FVector4f>();
 
-		if (Struct == Z_Construct_DStruct_Durin_FVector2())
+		if (Struct == Z_Construct_DStruct_FVector2())
 			return EditVector.template operator()<FVector2>();
 
-		if (Struct == Z_Construct_DStruct_Durin_FVector3())
+		if (Struct == Z_Construct_DStruct_FVector3())
 			return EditVector.template operator()<FVector3>();
 
-		if (Struct == Z_Construct_DStruct_Durin_FVector4())
+		if (Struct == Z_Construct_DStruct_FVector4())
 			return EditVector.template operator()<FVector4>();
 
-		if (Struct == Z_Construct_DStruct_Durin_FQuat())
+		if (Struct == Z_Construct_DStruct_FQuat())
 		{
 			return EditMathStruct.template operator()<FQuat>([&](FQuat& Value, auto& State) {
 				return MonaImGui::PropertyEdit::EditQuat(Label.c_str(), Value, bReadOnly, &State, TypeTooltip.c_str());
 			});
 		}
 
-		if (Struct == Z_Construct_DStruct_Durin_FLinearColor())
+		if (Struct == Z_Construct_DStruct_FLinearColor())
 		{
 			const bool bShowAlpha = Property->GetMetaData(FName("HideAlpha")) != "true";
 			return EditMathStruct.template operator()<FLinearColor>([&](FLinearColor& EditedValue, auto& State) {

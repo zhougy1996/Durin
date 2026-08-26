@@ -167,8 +167,8 @@ namespace
 	void EnsureSnapshotTestsInitialized()
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
-		(void)Durin::Z_Construct_DStruct_Durin_FVector3();
-		(void)Durin::Z_Construct_DStruct_Durin_FTransform();
+		(void)Durin::Z_Construct_DStruct_FVector3();
+		(void)Durin::Z_Construct_DStruct_FTransform();
 	}
 
 	template<typename T>
@@ -362,8 +362,8 @@ namespace
 	TEST(FPropertyValueSnapshotTests, RestoresIntrinsicStructsDirectlyAndThroughTransformAndArray)
 	{
 		EnsureSnapshotTestsInitialized();
-		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_Durin_FVector3();
-		Durin::DStruct* TransformStruct = Durin::Z_Construct_DStruct_Durin_FTransform();
+		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_FVector3();
+		Durin::DStruct* TransformStruct = Durin::Z_Construct_DStruct_FTransform();
 		ASSERT_NE(VectorStruct, nullptr);
 		ASSERT_NE(TransformStruct, nullptr);
 		Durin::FStructProperty VectorProperty(
@@ -824,7 +824,7 @@ namespace
 		EXPECT_TRUE(Durin::ArePropertyValuesIdentical(&DoubleProperty, &NaN, 0, &SameNaN, 0));
 		EXPECT_FALSE(Durin::ArePropertyValuesIdentical(&DoubleProperty, &NaN, 0, &OtherNaN, 0));
 
-		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_Durin_FVector3();
+		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_FVector3();
 		Durin::FStructProperty VectorProperty(
 			Durin::FFieldVariant(), Durin::FName("Vector"), Durin::EObjectFlags::NoFlags,
 			Durin::EPropertyFlags::None, 1, 0, VectorStruct

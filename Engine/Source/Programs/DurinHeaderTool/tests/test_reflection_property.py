@@ -80,7 +80,7 @@ class TestReflectionProperties:
         assert property_parser._cpp_type_spelling(spelling, None) == "::uint32"
 
     def test_property_legacy_names_are_generated_as_first_class_descriptor_data(self):
-        statics = "Z_Construct_DClass_Fixture_ASampleActor_Statics"
+        statics = "Z_Construct_DClass_ASampleActor_Statics"
         assert (
             f"const char* const {statics}::NewProp_RenamedValue_LegacyNames[] = "
             '{ "OldRenamedValue", "OlderRenamedValue" };'
@@ -129,7 +129,6 @@ class TestReflectionProperties:
                 ShortName="FData",
                 Namespace="Beta",
                 QualifiedName="Beta::FData",
-                GeneratedHelperName="Z_Construct_DStruct_Beta_FData",
                 Header="Beta.h",
                 API="BETA_API",
             ),
@@ -138,7 +137,6 @@ class TestReflectionProperties:
                 ShortName="FData",
                 Namespace="Alpha",
                 QualifiedName="Alpha::FData",
-                GeneratedHelperName="Z_Construct_DStruct_Alpha_FData",
                 Header="Alpha.h",
                 API="ALPHA_API",
             ),
@@ -147,7 +145,6 @@ class TestReflectionProperties:
                 ShortName="EMode",
                 Namespace="Beta",
                 QualifiedName="Beta::EMode",
-                GeneratedHelperName="Z_Construct_DEnum_Beta_EMode",
                 Header="Beta.h",
                 API="BETA_API",
                 UnderlyingSize=4,
@@ -157,7 +154,6 @@ class TestReflectionProperties:
                 ShortName="EMode",
                 Namespace="Alpha",
                 QualifiedName="Alpha::EMode",
-                GeneratedHelperName="Z_Construct_DEnum_Alpha_EMode",
                 Header="Alpha.h",
                 API="ALPHA_API",
                 UnderlyingSize=4,
@@ -182,7 +178,6 @@ class TestReflectionProperties:
             ShortName="FData",
             Namespace="Alpha",
             QualifiedName="Alpha::FData",
-            GeneratedHelperName="Z_Construct_DStruct_Alpha_FData",
             Header="Alpha.h",
             API="ALPHA_API",
         )
@@ -191,7 +186,6 @@ class TestReflectionProperties:
             ShortName="EMode",
             Namespace="Alpha",
             QualifiedName="Alpha::EMode",
-            GeneratedHelperName="Z_Construct_DEnum_Alpha_EMode",
             Header="Alpha.h",
             API="ALPHA_API",
             UnderlyingSize=4,
@@ -247,8 +241,8 @@ class TestReflectionProperties:
         assert (
             'NewProp_Color = { "Color", Durin::EPropertyFlags::Edit, 1, '
             'static_cast<::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Color)), '
-            'Z_Construct_DStruct_Durin_FLinearColor, '
-            'Z_Construct_DClass_Fixture_ASampleActor_Statics::NewProp_Color_MetaData, 1 };'
+            '::Durin::Z_Construct_DStruct_FLinearColor, '
+            'Z_Construct_DClass_ASampleActor_Statics::NewProp_Color_MetaData, 1 };'
         ) in color_definition
         assert "sizeof(" not in color_definition
         assert "alignof(" not in color_definition
@@ -275,7 +269,7 @@ class TestReflectionProperties:
         assert (metadata.step, metadata.clamp_min, metadata.clamp_max, metadata.ui_min, metadata.ui_max) == (
             "1", "-100", "100", "-50", "50"
         )
-        statics = "Z_Construct_DClass_Fixture_ASampleActor_Statics"
+        statics = "Z_Construct_DClass_ASampleActor_Statics"
         assert f"const Durin::FPropertyMetadataParams {statics}::NewProp_Value_TypedMetaData" in self.generated_cpp
         assert "FPropertyMetadataNumber::FromFloat(-100.0f)" in self.generated_cpp
         assert "WithTypedMetadata(Durin::DurinCodeGen::FFloatPropertyParams" in self.generated_cpp
@@ -407,7 +401,7 @@ class TestReflectionProperties:
 
 
     def test_leaf_property_forms_use_concise_typed_registration(self):
-        statics = "Z_Construct_DClass_Fixture_ASampleActor_Statics"
+        statics = "Z_Construct_DClass_ASampleActor_Statics"
         expected_suffixes = {
             "Value": (
                 'NewProp_Value = { "Value", Durin::EPropertyFlags::Edit | Durin::EPropertyFlags::ReadOnly, 1, '
@@ -420,19 +414,19 @@ class TestReflectionProperties:
             "Mode": (
                 'NewProp_Mode = { "Mode", Durin::EPropertyFlags::None, 1, '
                 'static_cast<::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, Mode)), '
-                'Z_Construct_DEnum_Fixture_EFixtureMode };'
+                '::Fixture::Z_Construct_DEnum_EFixtureMode };'
             ),
             "RawReference": (
                 'NewProp_RawReference = Durin::DurinCodeGen::FObjectPropertyParams::Raw<Durin::DObject>('
                 '"RawReference", Durin::EPropertyFlags::None, 1, '
                 'static_cast<::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, RawReference)), '
-                'Z_Construct_DClass_Durin_DObject);'
+                '::Durin::Z_Construct_DClass_DObject);'
             ),
             "StrongReference": (
                 'NewProp_StrongReference = Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>('
                 '"StrongReference", Durin::EPropertyFlags::None, 1, '
                 'static_cast<::uint16>(STRUCT_OFFSET(Fixture::ASampleActor, StrongReference)), '
-                'Z_Construct_DClass_Durin_DObject);'
+                '::Durin::Z_Construct_DClass_DObject);'
             ),
         }
         definitions = {}
@@ -480,7 +474,7 @@ class TestReflectionProperties:
                 if f"::NewProp_{property_name} =" in line
             )
             assert f'NewProp_{property_name} = {{ "{property_name}",' in definition
-            assert definition.endswith("Z_Construct_DStruct_Durin_FVector3 };")
+            assert definition.endswith("Z_Construct_DStruct_FVector3 };")
             assert "nullptr" not in definition
             assert "sizeof(" not in definition
             assert "alignof(" not in definition
@@ -490,53 +484,53 @@ class TestReflectionProperties:
             line for line in self.generated_cpp.splitlines()
             if "::NewProp_CompactTangent =" in line
         )
-        assert float_definition.endswith("Z_Construct_DStruct_Durin_FVector3f };")
+        assert float_definition.endswith("Z_Construct_DStruct_FVector3f };")
 
 
     def test_all_struct_property_forms_use_concise_typed_registration(self):
-        statics = "Z_Construct_DStruct_Fixture_FStructPropertyShapes_Statics"
+        statics = "Z_Construct_DStruct_FStructPropertyShapes_Statics"
         expected_definitions = {
             "Direct": (
                 'NewProp_Direct = { "Direct", Durin::EPropertyFlags::None, 1, '
                 'static_cast<::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, Direct)), '
-                'Z_Construct_DStruct_Fixture_FTrivialOps };'
+                '::Fixture::Z_Construct_DStruct_FTrivialOps };'
             ),
             "DeletedDefault": (
                 'NewProp_DeletedDefault = { "DeletedDefault", Durin::EPropertyFlags::None, 1, '
                 'static_cast<::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, DeletedDefault)), '
-                'Z_Construct_DStruct_Fixture_FDeletedDefault };'
+                '::Fixture::Z_Construct_DStruct_FDeletedDefault };'
             ),
             "DeletedCopy": (
                 'NewProp_DeletedCopy = { "DeletedCopy", Durin::EPropertyFlags::None, 1, '
                 'static_cast<::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, DeletedCopy)), '
-                'Z_Construct_DStruct_Fixture_FMoveOnly };'
+                '::Fixture::Z_Construct_DStruct_FMoveOnly };'
             ),
             "NonTrivialDestructor": (
                 'NewProp_NonTrivialDestructor = { "NonTrivialDestructor", Durin::EPropertyFlags::None, 1, '
                 'static_cast<::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, NonTrivialDestructor)), '
-                'Z_Construct_DStruct_Fixture_FNonTrivialDestructor };'
+                '::Fixture::Z_Construct_DStruct_FNonTrivialDestructor };'
             ),
             "Metadata": (
                 'NewProp_Metadata = { "Metadata", Durin::EPropertyFlags::Edit, 1, '
                 'static_cast<::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, Metadata)), '
-                f'Z_Construct_DStruct_Fixture_FTrivialOps, {statics}::NewProp_Metadata_MetaData, 1 }};'
+                f'::Fixture::Z_Construct_DStruct_FTrivialOps, {statics}::NewProp_Metadata_MetaData, 1 }};'
             ),
             "Fixed": (
                 'NewProp_Fixed = { "Fixed", Durin::EPropertyFlags::None, 3, '
                 'static_cast<::uint16>(STRUCT_OFFSET(Fixture::FStructPropertyShapes, Fixed)), '
-                'Z_Construct_DStruct_Fixture_FTrivialOps };'
+                '::Fixture::Z_Construct_DStruct_FTrivialOps };'
             ),
             "ArrayValues_Inner": (
                 'NewProp_ArrayValues_Inner = { "ArrayValues_Inner", Durin::EPropertyFlags::None, 1, 0, '
-                'Z_Construct_DStruct_Fixture_FDeletedDefault };'
+                '::Fixture::Z_Construct_DStruct_FDeletedDefault };'
             ),
             "MapByStruct_Key": (
                 'NewProp_MapByStruct_Key = { "MapByStruct_Key", Durin::EPropertyFlags::None, 1, 0, '
-                'Z_Construct_DStruct_Fixture_FMoveOnly };'
+                '::Fixture::Z_Construct_DStruct_FMoveOnly };'
             ),
             "MapToStruct_Value": (
                 'NewProp_MapToStruct_Value = { "MapToStruct_Value", Durin::EPropertyFlags::None, 1, 0, '
-                'Z_Construct_DStruct_Fixture_FDeletedDefault };'
+                '::Fixture::Z_Construct_DStruct_FDeletedDefault };'
             ),
         }
 
@@ -554,7 +548,7 @@ class TestReflectionProperties:
                 line for line in self.generated_cpp.splitlines()
                 if f"{statics}::NewProp_{property_name} =" in line
             )
-            assert definition == (
+            assert definition.lstrip() == (
                 f"const Durin::DurinCodeGen::FStructPropertyParams {statics}::{expected}"
             )
             assert not any(token in definition for token in forbidden_tokens)
@@ -620,7 +614,7 @@ class TestReflectionProperties:
             line for line in self.generated_cpp.splitlines()
             if "FUnavailableContainers_Statics::NewProp_Values_Inner =" in line
         )
-        assert inner_definition.endswith("Z_Construct_DStruct_Fixture_FDeletedDefault };")
+        assert inner_definition.endswith("Z_Construct_DStruct_FDeletedDefault };")
         assert "nullptr" not in inner_definition
         assert "sizeof(" not in inner_definition
         assert "alignof(" not in inner_definition
@@ -714,14 +708,14 @@ class TestReflectionProperties:
             line for line in self.generated_cpp.splitlines()
             if "AContainerShapes_Statics::NewProp_SoftReference =" in line
         )
-        assert direct_definition == (
+        assert direct_definition.lstrip() == (
             "const Durin::DurinCodeGen::FSoftObjectPropertyParams "
-            "Z_Construct_DClass_Fixture_AContainerShapes_Statics::NewProp_SoftReference = "
+            "Z_Construct_DClass_AContainerShapes_Statics::NewProp_SoftReference = "
             "Durin::DurinCodeGen::FSoftObjectPropertyParams::Create<"
             "std::remove_extent_t<decltype(((Fixture::AContainerShapes*)0)->SoftReference)>>("
             '\"SoftReference\", Durin::EPropertyFlags::Edit, 1, '
             "static_cast<::uint16>(STRUCT_OFFSET(Fixture::AContainerShapes, SoftReference)), "
-            "Z_Construct_DClass_Durin_DObject);"
+            "::Durin::Z_Construct_DClass_DObject);"
         )
         nested_definition = next(
             line for line in self.generated_cpp.splitlines()
@@ -753,7 +747,7 @@ class TestReflectionProperties:
         )
         assert "FWeakObjectPropertyParams::Create<" in direct_definition
         assert "Durin::EPropertyFlags::Transient" in direct_definition
-        assert "Z_Construct_DClass_Durin_DObject" in direct_definition
+        assert "::Durin::Z_Construct_DClass_DObject" in direct_definition
 
 
     @pytest.mark.parametrize(
@@ -953,13 +947,13 @@ namespace Fixture
             "FQuatf", "FQuatd", "FQuat", "FMatrix4f",
         ):
             helper_type = expected_helpers.get(type_name, type_name)
-            assert symbols[f"Durin::{type_name}"].GeneratedHelperName == f"Z_Construct_DStruct_Durin_{helper_type}"
+            assert symbols[f"Durin::{type_name}"].generated_symbol.helper_reference == f"::Durin::Z_Construct_DStruct_{helper_type}"
 
         for source_type, helper_type in expected_helpers.items():
             prop = _make_property_from_spelling("Value", f"Durin::{source_type}", symbols)
             assert prop is not None
             assert prop.kind == "Struct"
-            assert symbols[prop.referenced_struct_type].GeneratedHelperName == f"Z_Construct_DStruct_Durin_{helper_type}"
+            assert symbols[prop.referenced_struct_type].generated_symbol.helper_reference == f"::Durin::Z_Construct_DStruct_{helper_type}"
 
         for source_type in ("FVector3d", "FQuatf", "FMatrix4f"):
             qualified_name = f"Durin::{source_type}"

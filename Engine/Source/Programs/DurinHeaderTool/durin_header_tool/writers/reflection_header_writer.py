@@ -4,6 +4,7 @@ from durin_header_tool.writers.reflection_writer_common import (
     _append_lines_no_indent,
     _base_name_for_macro,
     _constructor_mode,
+    _wrap_in_namespace,
 )
 
 
@@ -13,10 +14,27 @@ def generate_header_content(header: ReflectedHeaderInfo) -> str:
         "#pragma once\n\n",
     ]
 
+    declarations_by_namespace: dict[tuple, list[str]] = {}
+    all_types = [*header.classes, *header.structs, *header.enums]
+    for type_info in all_types:
+        declarations = declarations_by_namespace.setdefault(type_info.namespace_path, [])
+        return_type = {
+            "class": "DClass",
+            "struct": "DStruct",
+            "enum": "DEnum",
+        }[type_info.generated_symbol.kind]
+        declarations.append(f"struct {type_info.generated_statics_name};\n")
+        declarations.append(
+            f"{type_info.api} Durin::{return_type}* {type_info.generated_helper_name}();\n"
+        )
+        declarations.append(
+            f"{type_info.api} Durin::{return_type}* {type_info.generated_helper_no_register_name}();\n"
+        )
+    for namespace_path in sorted(declarations_by_namespace):
+        builder.append(_wrap_in_namespace("".join(declarations_by_namespace[namespace_path]), namespace_path))
+        builder.append("\n")
+
     for class_info in header.classes:
-        builder.append(f"struct {class_info.generated_statics_name};\n")
-        builder.append(f"{class_info.api} Durin::DClass* {class_info.generated_helper_name}();\n")
-        builder.append(f"{class_info.api} Durin::DClass* {class_info.generated_helper_no_register_name}();\n\n")
 
         if class_info.generated_body_line == 0:
             continue
@@ -29,13 +47,13 @@ def generate_header_content(header: ReflectedHeaderInfo) -> str:
 
         _append_macro_line(builder, f"#define {no_pure_decls}")
         _append_macro_line(builder, "private:", 1)
-        _append_macro_line(builder, f"friend struct ::{class_info.generated_statics_name};", 2)
+        _append_macro_line(builder, f"friend struct {class_info.generated_statics_reference};", 2)
         _append_macro_line(builder, "static Durin::DClass* GetPrivateStaticClass();", 2)
-        _append_macro_line(builder, f"friend {class_info.api} Durin::DClass* ::{class_info.generated_helper_no_register_name}();", 2)
+        _append_macro_line(builder, f"friend {class_info.api} Durin::DClass* {class_info.generated_helper_no_register_reference}();", 2)
         _append_macro_line(builder, "public:", 1)
         _append_macro_line(
             builder,
-            f"DECLARE_CLASS({class_info.short_name}, {_base_name_for_macro(class_info)}, ::{class_info.generated_helper_no_register_name})",
+            f"DECLARE_CLASS({class_info.short_name}, {_base_name_for_macro(class_info)}, {class_info.generated_helper_no_register_reference})",
             2,
             True,
         )
@@ -63,25 +81,17 @@ def generate_header_content(header: ReflectedHeaderInfo) -> str:
         builder.append("\n")
 
     for struct_info in header.structs:
-        builder.append(f"struct {struct_info.generated_statics_name};\n")
-        builder.append(f"{struct_info.api} Durin::DStruct* {struct_info.generated_helper_name}();\n")
-        builder.append(f"{struct_info.api} Durin::DStruct* {struct_info.generated_helper_no_register_name}();\n\n")
         if struct_info.generated_body_line == 0:
             continue
         generated_body_id = f"{header.file_id}_{struct_info.generated_body_line}"
         generated_body = f"{generated_body_id}_GENERATED_BODY"
         _append_macro_line(builder, f"#define {generated_body}")
         _append_macro_line(builder, "private:", 1)
-        _append_macro_line(builder, f"friend struct ::{struct_info.generated_statics_name};", 2)
-        _append_macro_line(builder, f"friend {struct_info.api} Durin::DStruct* ::{struct_info.generated_helper_name}();", 2)
+        _append_macro_line(builder, f"friend struct {struct_info.generated_statics_reference};", 2)
+        _append_macro_line(builder, f"friend {struct_info.api} Durin::DStruct* {struct_info.generated_helper_reference}();", 2)
         _append_macro_line(builder, "public:", 1)
-        _append_macro_line(builder, f"static Durin::DStruct* StaticStruct() {{ return ::{struct_info.generated_helper_name}(); }}", 2, True)
+        _append_macro_line(builder, f"static Durin::DStruct* StaticStruct() {{ return {struct_info.generated_helper_reference}(); }}", 2, True)
         builder.append("\n")
-
-    for enum_info in header.enums:
-        builder.append(f"struct {enum_info.generated_statics_name};\n")
-        builder.append(f"{enum_info.api} Durin::DEnum* {enum_info.generated_helper_name}();\n")
-        builder.append(f"{enum_info.api} Durin::DEnum* {enum_info.generated_helper_no_register_name}();\n\n")
 
     _append_lines_no_indent(
         builder,

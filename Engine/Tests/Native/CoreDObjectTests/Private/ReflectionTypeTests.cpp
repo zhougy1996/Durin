@@ -807,7 +807,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					Durin::FFieldVariant(Class), Durin::FName("ClassSpecific"), Durin::EObjectFlags::NoFlags,
 					Durin::EPropertyFlags::None, 1,
 					STRUCT_OFFSET_UINT16(DDefaultGraphOwnerForTest, ClassSpecific),
-					Durin::Z_Construct_DStruct_Durin_FVector3()
+					Durin::Z_Construct_DStruct_FVector3()
 				);
 				auto* FixedProperty = new Durin::FNumericProperty(
 					Durin::FFieldVariant(Class), Durin::FName("Fixed"), Durin::EObjectFlags::NoFlags,
@@ -2016,7 +2016,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			Durin::EPropertyFlags::Edit,
 			1,
 			STRUCT_OFFSET_UINT16(FTypedStructPropertyOwnerForTest, Direct),
-			&Durin::Z_Construct_DStruct_Durin_FVector3,
+			&Durin::Z_Construct_DStruct_FVector3,
 			DirectMetaData,
 			std::size(DirectMetaData)
 		};
@@ -2025,7 +2025,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 				"Accessed",
 				Durin::EPropertyFlags::ReadOnly,
 				1,
-				&Durin::Z_Construct_DStruct_Durin_FVector3,
+				&Durin::Z_Construct_DStruct_FVector3,
 				static_cast<Durin::DurinCodeGen::FStructPropertyParams::FMutableValueAccessor>(&GetAccessedVector),
 				static_cast<Durin::DurinCodeGen::FStructPropertyParams::FConstValueAccessor>(&GetAccessedVector)
 			);
@@ -2751,7 +2751,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		ASSERT_FALSE(Instance->HasAllocatedAuthoredOverrideLedger());
 
 		const Durin::FName Owner = Class->GetQualifiedName();
-		const Durin::FName Vector = Durin::Z_Construct_DStruct_Durin_FVector3()->GetQualifiedName();
+		const Durin::FName Vector = Durin::Z_Construct_DStruct_FVector3()->GetQualifiedName();
 		const Durin::FAuthoredOverridePath StructPath{
 			Durin::FAuthoredOverridePathToken::Field(Owner, Durin::FName("ClassSpecific"))};
 		Durin::FAuthoredOverridePath NestedPath = StructPath;
@@ -5340,15 +5340,15 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	TEST(FCoreDObjectReflectionTests, BuiltInMathStructsExposeNestedFieldMetadataAndOperations)
 	{
 		EnsureDObjectInitialized();
-		Durin::DStruct* FloatVector2Struct = Durin::Z_Construct_DStruct_Durin_FVector2f();
-		Durin::DStruct* FloatVectorStruct = Durin::Z_Construct_DStruct_Durin_FVector3f();
-		Durin::DStruct* FloatVector4Struct = Durin::Z_Construct_DStruct_Durin_FVector4f();
-		Durin::DStruct* Vector2Struct = Durin::Z_Construct_DStruct_Durin_FVector2();
-		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_Durin_FVector3();
-		Durin::DStruct* Vector4Struct = Durin::Z_Construct_DStruct_Durin_FVector4();
-		Durin::DStruct* QuatStruct = Durin::Z_Construct_DStruct_Durin_FQuat();
-		Durin::DStruct* TransformStruct = Durin::Z_Construct_DStruct_Durin_FTransform();
-		Durin::DStruct* ColorStruct = Durin::Z_Construct_DStruct_Durin_FLinearColor();
+		Durin::DStruct* FloatVector2Struct = Durin::Z_Construct_DStruct_FVector2f();
+		Durin::DStruct* FloatVectorStruct = Durin::Z_Construct_DStruct_FVector3f();
+		Durin::DStruct* FloatVector4Struct = Durin::Z_Construct_DStruct_FVector4f();
+		Durin::DStruct* Vector2Struct = Durin::Z_Construct_DStruct_FVector2();
+		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_FVector3();
+		Durin::DStruct* Vector4Struct = Durin::Z_Construct_DStruct_FVector4();
+		Durin::DStruct* QuatStruct = Durin::Z_Construct_DStruct_FQuat();
+		Durin::DStruct* TransformStruct = Durin::Z_Construct_DStruct_FTransform();
+		Durin::DStruct* ColorStruct = Durin::Z_Construct_DStruct_FLinearColor();
 		ASSERT_NE(FloatVector2Struct, nullptr);
 		ASSERT_NE(FloatVectorStruct, nullptr);
 		ASSERT_NE(FloatVector4Struct, nullptr);
@@ -5502,9 +5502,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	TEST(FCoreDObjectReflectionTests, PrecisionSpecificQuaternionAndMatrixStructsExposeCanonicalSchemas)
 	{
 		EnsureDObjectInitialized();
-		Durin::DStruct* FloatVector4Struct = Durin::Z_Construct_DStruct_Durin_FVector4f();
-		Durin::DStruct* FloatQuatStruct = Durin::Z_Construct_DStruct_Durin_FQuatf();
-		Durin::DStruct* FloatMatrixStruct = Durin::Z_Construct_DStruct_Durin_FMatrix4f();
+		Durin::DStruct* FloatVector4Struct = Durin::Z_Construct_DStruct_FVector4f();
+		Durin::DStruct* FloatQuatStruct = Durin::Z_Construct_DStruct_FQuatf();
+		Durin::DStruct* FloatMatrixStruct = Durin::Z_Construct_DStruct_FMatrix4f();
 		ASSERT_NE(FloatVector4Struct, nullptr);
 		ASSERT_NE(FloatQuatStruct, nullptr);
 		ASSERT_NE(FloatMatrixStruct, nullptr);
@@ -5534,7 +5534,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			EXPECT_EQ(Column->GetValuePtr(&Matrix), &Matrix[ColumnIndex]);
 			EXPECT_EQ(Column->GetTypedMetadata().Category, "Matrix");
 		}
-		auto* TransformStruct = Durin::Z_Construct_DStruct_Durin_FTransform();
+		auto* TransformStruct = Durin::Z_Construct_DStruct_FTransform();
 		ASSERT_NE(TransformStruct, nullptr);
 		auto* Rotation = TransformStruct->FindPropertyByName("Rotation", false);
 		auto* Translation = TransformStruct->FindPropertyByName("Translation", false);
@@ -5821,7 +5821,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	{
 		EnsureDObjectInitialized();
 		Durin::DStruct* OwnerStruct = GetTypedStructPropertyOwner();
-		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_Durin_FVector3();
+		Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_FVector3();
 		auto* Direct = static_cast<Durin::FStructProperty*>(OwnerStruct->FindPropertyByName("Direct", false));
 		auto* Accessed = static_cast<Durin::FStructProperty*>(OwnerStruct->FindPropertyByName("Accessed", false));
 		ASSERT_NE(Direct, nullptr);
@@ -5989,7 +5989,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 						"AccessorPairMismatch",
 						Durin::EPropertyFlags::None,
 						1,
-						&Durin::Z_Construct_DStruct_Durin_FVector3,
+						&Durin::Z_Construct_DStruct_FVector3,
 						static_cast<Durin::DurinCodeGen::FStructPropertyParams::FMutableValueAccessor>(&GetAccessedVector),
 						nullptr
 					);
@@ -6005,7 +6005,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 					Durin::EPropertyFlags::None,
 					1,
 					0,
-					&Durin::Z_Construct_DStruct_Durin_FVector3
+					&Durin::Z_Construct_DStruct_FVector3
 				};
 				Params.NumMetaData = 1;
 				ConstructInvalidStructProperty(Params);

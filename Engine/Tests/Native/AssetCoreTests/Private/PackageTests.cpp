@@ -1119,26 +1119,26 @@ namespace
 			static const Durin::DurinCodeGen::FStructPropertyParams VectorProp = {
 				"Vector", Durin::EPropertyFlags::None, 1,
 				STRUCT_OFFSET_UINT16(DMathStructAssetForTest, Vector),
-				&Durin::Z_Construct_DStruct_Durin_FVector3
+				&Durin::Z_Construct_DStruct_FVector3
 			};
 			static const Durin::DurinCodeGen::FStructPropertyParams TransformProp = {
 				"Transform", Durin::EPropertyFlags::None, 1,
 				STRUCT_OFFSET_UINT16(DMathStructAssetForTest, Transform),
-				&Durin::Z_Construct_DStruct_Durin_FTransform
+				&Durin::Z_Construct_DStruct_FTransform
 			};
 			static const Durin::DurinCodeGen::FStructPropertyParams FloatQuatProp = {
 				"FloatQuat", Durin::EPropertyFlags::None, 1,
 				STRUCT_OFFSET_UINT16(DMathStructAssetForTest, FloatQuat),
-				&Durin::Z_Construct_DStruct_Durin_FQuatf
+				&Durin::Z_Construct_DStruct_FQuatf
 			};
 			static const Durin::DurinCodeGen::FStructPropertyParams FloatMatrixProp = {
 				"FloatMatrix", Durin::EPropertyFlags::None, 1,
 				STRUCT_OFFSET_UINT16(DMathStructAssetForTest, FloatMatrix),
-				&Durin::Z_Construct_DStruct_Durin_FMatrix4f
+				&Durin::Z_Construct_DStruct_FMatrix4f
 			};
 			static const Durin::DurinCodeGen::FStructPropertyParams VectorInner = {
 				"Vectors_Inner", Durin::EPropertyFlags::None, 1, 0,
-				&Durin::Z_Construct_DStruct_Durin_FVector3
+				&Durin::Z_Construct_DStruct_FVector3
 			};
 			static const Durin::DurinCodeGen::FArrayPropertyParams VectorsProp = {
 				"Vectors", Durin::EPropertyFlags::None, 1,
@@ -1150,7 +1150,7 @@ namespace
 			};
 			static const Durin::DurinCodeGen::FStructPropertyParams VectorMapValue = {
 				"VectorMap_Value", Durin::EPropertyFlags::None, 1, 0,
-				&Durin::Z_Construct_DStruct_Durin_FVector3
+				&Durin::Z_Construct_DStruct_FVector3
 			};
 			static const Durin::DurinCodeGen::FMapPropertyParams VectorMapProp = {
 				"VectorMap", Durin::EPropertyFlags::None, 1,
@@ -4109,10 +4109,10 @@ TEST(FPackageAssetTests, MathStructRegistrationPreservesDirectAndNestedSchemaIde
 {
 	InitializeAssetTests();
 	Durin::DClass* Class = DMathStructAssetForTest::StaticClass();
-	Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_Durin_FVector3();
-	Durin::DStruct* TransformStruct = Durin::Z_Construct_DStruct_Durin_FTransform();
-	Durin::DStruct* FloatQuatStruct = Durin::Z_Construct_DStruct_Durin_FQuatf();
-	Durin::DStruct* FloatMatrixStruct = Durin::Z_Construct_DStruct_Durin_FMatrix4f();
+	Durin::DStruct* VectorStruct = Durin::Z_Construct_DStruct_FVector3();
+	Durin::DStruct* TransformStruct = Durin::Z_Construct_DStruct_FTransform();
+	Durin::DStruct* FloatQuatStruct = Durin::Z_Construct_DStruct_FQuatf();
+	Durin::DStruct* FloatMatrixStruct = Durin::Z_Construct_DStruct_FMatrix4f();
 	ASSERT_NE(Class, nullptr);
 	ASSERT_NE(VectorStruct, nullptr);
 	ASSERT_NE(TransformStruct, nullptr);

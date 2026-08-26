@@ -14,9 +14,6 @@ from durin_header_tool.model.reflection_info import (
     ReflectedHeaderInfo,
     ReflectedPropertyInfo,
     ReflectedStructInfo,
-    make_generated_enum_helper_name,
-    make_generated_helper_name,
-    make_generated_struct_helper_name,
 )
 from durin_header_tool.parser.cpp_source_scanner import CppSourceScanner
 from durin_header_tool.resolver.reflection_resolver import (
@@ -44,6 +41,7 @@ from durin_header_tool.parser.reflection_ast_helpers import (
     _qualified_name,
     _scan_generated_body_line,
     _semantic_namespace,
+    _semantic_namespace_path,
     _source_base_name,
 )
 from durin_header_tool.parser.property_parser import (
@@ -89,6 +87,7 @@ def _make_enum(
     consumed_dmeta_uses: set[int],
 ) -> ReflectedEnumInfo:
     qualified_name = _qualified_name(enum_cursor)
+    namespace_path = _semantic_namespace_path(enum_cursor)
     underlying_type = _normalize_type_spelling(enum_cursor.enum_type.spelling)
     values: list[ReflectedEnumValueInfo] = []
     for child in enum_cursor.get_children():
@@ -110,9 +109,9 @@ def _make_enum(
         short_name=enum_cursor.spelling,
         namespace=_semantic_namespace(enum_cursor),
         qualified_name=qualified_name,
-        generated_helper_name=make_generated_enum_helper_name(qualified_name),
         header=header,
         api=module_config.api_macro,
+        namespace_path=namespace_path,
         is_scoped=_is_scoped_enum(enum_cursor),
         underlying_type=underlying_type,
         underlying_kind=_underlying_kind_from_type_spelling(underlying_type),
@@ -226,13 +225,14 @@ def parse_reflection_header(
             if pending_dstruct_annotation and child.kind == clang.cindex.CursorKind.STRUCT_DECL and child.spelling:
                 qualified_name = _qualified_name(child)
                 declaring_namespace = _semantic_namespace(child)
+                namespace_path = _semantic_namespace_path(child)
                 reflected_struct = ReflectedStructInfo(
                     short_name=child.spelling,
                     namespace=declaring_namespace,
                     qualified_name=qualified_name,
-                    generated_helper_name=make_generated_struct_helper_name(qualified_name),
                     header=header,
                     api=module_config.api_macro,
+                    namespace_path=namespace_path,
                     generated_body_line=_scan_generated_body_line(source, child),
                     legacy_names=_string_list_metadata_from_annotation(
                         pending_dstruct_annotation, "LegacyNames"
@@ -270,7 +270,7 @@ def parse_reflection_header(
             if pending_dclass_annotation and child.kind in (clang.cindex.CursorKind.CLASS_DECL, clang.cindex.CursorKind.STRUCT_DECL) and child.spelling:
                 qualified_name = _qualified_name(child)
                 declaring_namespace = _semantic_namespace(child)
-                helper_name = make_generated_helper_name(qualified_name)
+                namespace_path = _semantic_namespace_path(child)
                 class_payload = pending_dclass_annotation.split(",", 1)[1] if "," in pending_dclass_annotation else ""
                 class_specifiers = _class_specifiers_from_payload(
                     class_payload, child.location.line, child.location.column
@@ -301,9 +301,9 @@ def parse_reflection_header(
                     short_name=child.spelling,
                     namespace=declaring_namespace,
                     qualified_name=qualified_name,
-                    generated_helper_name=helper_name,
                     header=header,
                     api=module_config.api_macro,
+                    namespace_path=namespace_path,
                     base_qualified_name=base_qualified_name,
                     generated_body_line=_scan_generated_body_line(source, child),
                     is_abstract=class_specifiers.is_abstract,

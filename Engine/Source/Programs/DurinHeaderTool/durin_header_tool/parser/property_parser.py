@@ -20,9 +20,6 @@ from durin_header_tool.model.reflection_info import (
     ReflectedPropertyDeprecationInfo,
     ReflectedPropertyMetadataInfo,
     ReflectedStructInfo,
-    make_generated_enum_helper_name,
-    make_generated_helper_name,
-    make_generated_struct_helper_name,
 )
 from durin_header_tool.parser.cpp_source_scanner import CppSourceScanner
 from durin_header_tool.resolver.reflection_resolver import (
