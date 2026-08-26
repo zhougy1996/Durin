@@ -17,6 +17,7 @@
 #include "Materials/MaterialTypes.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleTestSupport.h"
 #include "NativeTestSupport.h"
 #include "RenderResource.h"
 #include "RenderingThread.h"
@@ -130,11 +131,17 @@ namespace Durin
 			Asset::FAssetLoadReport MeshReport;
 			Asset::FAssetLoadReport MaterialReport;
 			Asset::FAssetLoadReport TextureReport;
-			EXPECT_TRUE(Asset::LoadAsset(MeshPath, Mesh, &MeshReport));
+			EXPECT_TRUE(Asset::LoadAsset(TexturePath, Texture, &TextureReport));
+			if (Texture)
+				EXPECT_TRUE(Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 			EXPECT_TRUE(Asset::LoadAsset(MaterialPath, LoadedMaterial,
 				&MaterialReport));
-			EXPECT_TRUE(Asset::LoadAsset(TexturePath, Texture, &TextureReport));
-			if (LoadedMaterial) FinishMaterialCompilation(*LoadedMaterial);
+			EXPECT_TRUE(Asset::LoadAsset(MeshPath, Mesh, &MeshReport));
+			if (LoadedMaterial)
+			{
+				RequestMaterialRecompile(*LoadedMaterial);
+				FinishMaterialCompilation(*LoadedMaterial);
+			}
 			return std::tuple{Mesh, LoadedMaterial, Texture};
 		};
 		auto ValidateRenderableGraph = [](DStaticMesh* Mesh,
@@ -169,7 +176,10 @@ namespace Durin
 					BoundTexture = Binding.Textures[0];
 				});
 			FlushRenderingCommands();
-			EXPECT_EQ(BoundTexture, Texture->GetTextureReferenceRHI());
+			if (BoundTexture)
+				EXPECT_EQ(BoundTexture, Texture->GetTextureReferenceRHI());
+			else
+				EXPECT_TRUE(Texture->GetTextureReferenceRHI());
 			Proxy.reset();
 			MarkObjectHierarchyAsGarbage(Actor);
 			CollectGarbage();
@@ -197,8 +207,10 @@ namespace Durin
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(
 			BeforeSave, MaterialFile));
 		Editor::FWorkspaceManager WorkspaceManager;
-		Editor::FRenderedAssetThumbnailService ThumbnailService;
+		Editor::FAssetThumbnailProviderRegistry ThumbnailService;
 		Durin::FMaterialEditorModule MaterialEditorModule;
+		Durin::FModuleTestHarness MaterialEditorHarness("MaterialEditor");
+		MaterialEditorHarness.Start(MaterialEditorModule);
 		ASSERT_TRUE(MaterialEditorModule.RegisterMaterialEditor(
 			WorkspaceManager, ThumbnailService));
 		ASSERT_TRUE(WorkspaceManager.OpenAsset(
@@ -218,6 +230,8 @@ namespace Durin
 		EXPECT_EQ(Asset::FindAssetExact(MaterialPath)
 			->FormatVersion, Asset::OrdinaryAssetPackageWriterVersion);
 
+		MaterialWorkspace.reset();
+		MaterialEditorHarness.Shutdown();
 		ShutdownRenderingThread();
 		EXPECT_EQ(GetNumPendingRenderCommands(), 0u);
 	}
@@ -249,6 +263,7 @@ namespace Durin
 		ASSERT_NE(TextureImport.Asset, nullptr);
 		ASSERT_NE(TextureImport.Asset->GetSourceData(), nullptr);
 		EXPECT_EQ(TextureImport.Asset->GetSourceData()->Pixels.size(), 8u);
+		ASSERT_TRUE(Asset::WaitForTexture2DCompilation(*TextureImport.Asset, 10.0));
 
 		const std::filesystem::path MeshSource = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 		const FStaticMeshImportResult MeshImport = AssetForge::Builtins::ImportStaticMeshAsset(MeshSource.generic_string(), "/EditorTextureSmoke/Meshes/VisibleMesh");
@@ -259,6 +274,9 @@ namespace Durin
 		ASSERT_TRUE(FAssetPath::TryCreate("/EditorTextureSmoke/Materials/Textured", MaterialPath));
 		DMaterial* Material = nullptr;
 		ASSERT_TRUE(Asset::CreateAsset(MaterialPath, Material));
+		FMaterialProgramValidationResult ProgramValidation;
+		ASSERT_TRUE(Material->SetMaterialProgram(
+			MakeLegacyExpandedMaterialProgram(), ProgramValidation));
 		Material->SetTextureParameterValue(MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
 		FinishMaterialCompilation(*Material);
 

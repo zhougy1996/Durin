@@ -11,13 +11,17 @@ project content.
 ## Ownership And Request Boundary
 
 - `DurinEd` owns the provider-neutral request, view, provider registry,
-  scheduler, rendered-generation pipeline, persistent object store, preview
-  scene pool, and resource budgets. Every shared contract lives in the flat
+  rendered-thumbnail cache, persistent object store, preview scene pool, and
+  resource budgets. Every shared contract lives in the flat
   `Durin::Editor` namespace; concrete feature-editor providers remain in their
   owning modules under `Durin::Editor::<Feature>`.
-- `Editor::FRenderedAssetThumbnailService` owns the one long-lived registry. A rendered
-  cache receives that service and resolves registrations when capturing each
+- `Editor::FAssetThumbnailProviderRegistry` owns the one long-lived registration
+  boundary. A rendered cache receives that registry and resolves providers when capturing each
   request, so cache construction order does not snapshot or fork provider state.
+- `Editor::FRenderedAssetThumbnailCache` is the sole generation/cache owner.
+  Request coalescing, priority admission, state transitions, persistence, preview
+  sessions, upload, and eviction are private implementation mechanics and are not
+  module extension surfaces.
 - Rendered providers may register a module-owned generation extension through a
   move-only scoped handle. A persistent hit remains entirely in the shared core;
   a cold miss receives one provider-owned session for load, readiness, preview
@@ -42,8 +46,8 @@ project content.
   exact-class canonical `DTerrainHeightmap` provider. That provider generates
   fixed 256x256 grayscale pixels from the immutable payload, includes revision
   and generator schema in identity, and uses no source image or Renderer state.
-  LevelEditor otherwise
-  asks the live service for a source-image request or rendered authored-asset
+  LevelEditor otherwise asks the live registry for a source-image request or
+  rendered authored-asset
   fingerprint. Unsupported
   classes issue no thumbnail job and retain their normal asset icon.
 
@@ -52,15 +56,15 @@ diagnostics live in `MaterialEditor`. Texture2D authored-source selection plus
 TextureCube provider code, sessions, orientation, wide-environment contract,
 and diagnostics live in `TextureEditor`. StaticMesh provider code, generation
 sessions, visual contracts, and diagnostics live in `StaticMeshEditor`. The
-default service constructs no concrete provider. Moving ownership did not change
+default registry constructs no concrete provider. Moving ownership did not change
 any rendered provider name, key field, schema, fixture, shader, or output policy.
 
 The public headers follow responsibility rather than one broad thumbnail facade:
-`AssetThumbnailTypes.h`, `AssetThumbnailKey.h`,
-`AssetThumbnailProvider.h`, and `AssetThumbnailScheduler.h` own core
-contracts; `AssetThumbnailObjectStore.h` owns persistence and budget
-selection; rendered extension, preview-scene, pipeline, service, and cache
-contracts each have their matching `RenderedAssetThumbnail*.h` header.
+`AssetThumbnailTypes.h`, `AssetThumbnailKey.h`, and
+`AssetThumbnailProvider.h` own core contracts;
+`AssetThumbnailObjectStore.h` owns persistence and budget selection; rendered
+extension, preview-scene, and cache contracts retain public headers. Queue and
+generation state-machine types are private to the cache implementation.
 The former `AssetThumbnail.h` and `AssetThumbnailCache.h` paths no longer
 exist.
 
@@ -76,7 +80,7 @@ retain transparent-black capture while TextureCube retains opaque output.
 
 ## Extension Registration And Unload
 
-The service owns one live exact-class registry. Request clients created before
+The registry owns one live exact-class registration set. Request clients created before
 or after a provider registration resolve that registry when they capture work;
 they do not snapshot provider objects. Duplicate exact-class registration fails
 without replacing the current provider. Replacement requires resetting the old
@@ -92,7 +96,7 @@ all reject that lease or its stale generation.
 
 GPU upload tickets copy only core-owned cancellation, provider generation,
 request serial, and asset identity. The game-thread drain re-resolves the live
-service registration before exposing the texture to the UI backend, preventing
+registry registration before exposing the texture to the UI backend, preventing
 an upload queued by an unloaded or replaced extension from publishing.
 
 The extension owns exact-class capture, deterministic key fields, immutable

@@ -1,5 +1,6 @@
 #include "AssetTools.h"
 #include "AssetForge/ImportService.h"
+#include "AssetForge/Operations/ImportJob.h"
 #include "AssetForge/Persistence/ImportRecord.h"
 #include "DObject/Class.h"
 #include "Misc/Paths.h"
@@ -417,6 +418,47 @@ namespace
 	{
 	public:
 		~FTaskSchedulerGuard() { Durin::ShutdownTaskScheduler(false); }
+	};
+
+	class FImmediateImportJob final : public Durin::AssetForge::IImportJob
+	{
+	public:
+		FImmediateImportJob()
+		{
+			Owner.OwnerId = "Tests.AssetForge.IsolatedOwner";
+			Owner.ConflictIdentities = {"/Tests/IsolatedAsset"};
+		}
+
+		auto GetProviderId() const -> std::string_view override
+		{
+			return "Tests.AssetForge.IsolatedProvider";
+		}
+		auto GetOwner() const -> const Durin::AssetForge::FImportOperationOwner& override
+		{
+			return Owner;
+		}
+		auto GetLifetime() const -> Durin::AssetForge::EImportOperationLifetime override
+		{
+			return Durin::AssetForge::EImportOperationLifetime::EditorOperation;
+		}
+		auto AdvanceOnEditor(
+			Durin::AssetForge::FImportJobEditorContext&,
+			std::unique_ptr<Durin::AssetForge::IImportJobValue>)
+			-> Durin::AssetForge::FImportJobEditorAdvance override
+		{
+			return Durin::AssetForge::FImportJobEditorAdvance::Complete({
+				.State = Durin::AssetForge::EImportOperationState::Succeeded});
+		}
+		auto ExecuteWorkerStep(
+			Durin::AssetForge::FImportJobWorkerContext&,
+			std::unique_ptr<Durin::AssetForge::IImportJobValue>)
+			-> Durin::AssetForge::FImportJobWorkerResult override
+		{
+			return {};
+		}
+
+	private:
+		Durin::AssetForge::FImportOperationOwner Owner;
 	};
 }
 
@@ -1053,6 +1095,22 @@ TEST(FAssetForgeContractTests, UnifiedJobCancellationProducesOneTerminalOutcome)
 	ASSERT_TRUE(Handle.GetOperationHandle().TryGetOutcome(Second));
 	EXPECT_EQ(Second, Result.Outcome);
 	EXPECT_TRUE(Translator.Reset());
+}
+
+TEST(FAssetForgeContractTests, ImportJobStateIsIsolatedPerServiceInstance)
+{
+	Durin::AssetForge::FImportService First;
+	Durin::AssetForge::FImportService Second;
+	const Durin::AssetForge::FImportOperationHandle Handle =
+		First.SubmitImportJob(std::make_unique<FImmediateImportJob>(), "Isolated import");
+	ASSERT_TRUE(Handle);
+	EXPECT_TRUE(First.HasActiveImportClaim("/Tests/IsolatedAsset"));
+	EXPECT_FALSE(Second.HasActiveImportClaim("/Tests/IsolatedAsset"));
+	EXPECT_FALSE(Second.CancelImportOperation(Handle));
+	EXPECT_EQ(First.PumpImportOperations(), 1u);
+	Durin::AssetForge::FImportOutcome Outcome;
+	ASSERT_TRUE(Handle.TryGetOutcome(Outcome));
+	EXPECT_EQ(Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded);
 }
 
 static_assert(std::is_move_constructible_v<Durin::AssetForge::FSourceGraph>);

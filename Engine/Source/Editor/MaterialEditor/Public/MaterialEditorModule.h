@@ -8,7 +8,7 @@ namespace Durin::Editor
 {
 	class FWorkspaceRegistrationHandle;
 	class FWorkspaceManager;
-	class FRenderedAssetThumbnailService;
+	class FAssetThumbnailProviderRegistry;
 	class FAssetThumbnailProviderRegistrationHandle;
 }
 
@@ -23,7 +23,7 @@ namespace Durin
 		MATERIALEDITOR_API auto ShutdownModule() -> void override;
 		MATERIALEDITOR_API auto RegisterMaterialEditor(
 			::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-			::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool;
+			::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService) -> bool;
 		MATERIALEDITOR_API auto UnregisterMaterialEditor() -> void;
 
 	private:

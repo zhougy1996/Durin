@@ -14,7 +14,6 @@ namespace
 	public:
 		~FScopedTextureCompilingManager()
 		{
-			Durin::Asset::Private::ShutdownTexture2DCompilationDomain();
 			Durin::ShutdownAssetCompilingManager();
 		}
 	};

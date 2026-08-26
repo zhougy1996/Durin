@@ -6,7 +6,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Thumbnail/MaterialAssetThumbnail.h"
-#include "Thumbnail/RenderedAssetThumbnailService.h"
+#include "Thumbnail/AssetThumbnailProvider.h"
 #include "Widgets/MMaterialEditor.h"
 
 namespace Durin
@@ -71,7 +71,7 @@ namespace Durin
 
 	auto FMaterialEditorModule::RegisterMaterialEditor(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-		::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool
+		::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
 			|| (MaterialThumbnailRegistration && MaterialThumbnailRegistration->IsValid())

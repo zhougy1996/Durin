@@ -9,7 +9,7 @@ namespace Durin::Editor
 {
 	class FWorkspaceManager;
 	class FWorkspaceRegistrationHandle;
-	class FRenderedAssetThumbnailService;
+	class FAssetThumbnailProviderRegistry;
 	class FAssetThumbnailProviderRegistrationHandle;
 }
 
@@ -27,7 +27,7 @@ namespace Durin
 		STATICMESHEDITOR_API auto ShutdownModule() -> void override;
 		STATICMESHEDITOR_API auto RegisterStaticMeshEditor(
 			::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-			::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService,
+			::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
 			::Durin::Editor::Import::FImportDialogCallbacks ImportCallbacks = {}) -> bool;
 		STATICMESHEDITOR_API auto UnregisterStaticMeshEditor() -> void;
 		STATICMESHEDITOR_API auto DrawImportDialogs() -> void;

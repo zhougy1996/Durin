@@ -91,7 +91,7 @@ TEST(FTextureAssetThumbnailTests, ModuleOwnsBothExactProvidersAndWorkspaceLifecy
 {
 	InitializeDObjectSystem();
 	Durin::Editor::FWorkspaceManager Manager;
-	Durin::Editor::FRenderedAssetThumbnailService Service;
+	Durin::Editor::FAssetThumbnailProviderRegistry Service;
 	Durin::FTextureEditorModule Module;
 	const std::string Texture2DClass =
 		Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString();
@@ -174,7 +174,7 @@ TEST(FTextureAssetThumbnailTests, ProviderConflictRollsBackWholeIntegration)
 {
 	InitializeDObjectSystem();
 	Durin::Editor::FWorkspaceManager Manager;
-	Durin::Editor::FRenderedAssetThumbnailService Service;
+	Durin::Editor::FAssetThumbnailProviderRegistry Service;
 	std::string Error;
 	auto Existing = Service.RegisterScoped(
 		std::make_unique<Durin::Editor::Texture::FTextureCubeAssetThumbnailProvider>(), Error);
@@ -197,7 +197,7 @@ TEST(FTextureAssetThumbnailTests,
 	ASSERT_TRUE(Durin::Tests::CreateRenderedAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
 	Durin::Editor::FWorkspaceManager Manager;
-	Durin::Editor::FRenderedAssetThumbnailService Service;
+	Durin::Editor::FAssetThumbnailProviderRegistry Service;
 	Durin::FTextureEditorModule Module;
 	ASSERT_TRUE(Module.RegisterTextureEditor(Manager, Service));
 	ASSERT_TRUE(Manager.OpenAsset(

@@ -1,15 +1,30 @@
 #pragma once
 
-#include "Thumbnail/RenderedAssetThumbnailPipeline.h"
+#include "Thumbnail/AssetThumbnailObjectStore.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
-#include "Thumbnail/RenderedAssetThumbnailService.h"
+#include "Thumbnail/AssetThumbnailProvider.h"
 
 namespace Durin::Editor
 {
+	// Reports deterministic generation activity without exposing queue mechanics.
+	struct FRenderedAssetThumbnailGenerationStats
+	{
+		uint64 Jobs = 0;
+		uint64 Loads = 0;
+		uint64 ResourceWaits = 0;
+		uint64 Renders = 0;
+		uint64 Readbacks = 0;
+		uint64 DiskHits = 0;
+		uint64 Failures = 0;
+		uint64 Retries = 0;
+		uint64 Cancellations = 0;
+		uint64 Evictions = 0;
+	};
+
 	// Provides stable lifecycle and budget observations without exposing preview or UI objects.
 	struct FRenderedAssetThumbnailCacheStats
 	{
-		FRenderedAssetThumbnailPipelineStats Pipeline;
+		FRenderedAssetThumbnailGenerationStats Generation;
 		uint64 PreviewSceneCreations = 0;
 		uint64 PreviewSceneAssignments = 0;
 		uint64 UploadsQueued = 0;
@@ -32,7 +47,7 @@ namespace Durin::Editor
 			FAssetThumbnailBudgets Budgets = {},
 			FAssetThumbnailObjectStoreSettings StoreSettings = {});
 		DURINED_API explicit FRenderedAssetThumbnailCache(
-			FRenderedAssetThumbnailService& Service,
+			FAssetThumbnailProviderRegistry& Service,
 			FAssetThumbnailBudgets Budgets = {},
 			FAssetThumbnailObjectStoreSettings StoreSettings = {});
 		DURINED_API ~FRenderedAssetThumbnailCache();

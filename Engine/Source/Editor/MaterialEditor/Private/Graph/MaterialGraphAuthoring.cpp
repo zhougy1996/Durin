@@ -405,7 +405,7 @@ namespace Durin::Editor::Material
 		return EMaterialGraphDetailLevel::Readable;
 	}
 
-	auto FMaterialGraphService::Inspect(const DMaterial& Material)
+	auto FMaterialGraphAuthoring::Inspect(const DMaterial& Material)
 		-> FMaterialGraphView
 	{
 		FMaterialGraphView Result;
@@ -464,7 +464,7 @@ namespace Durin::Editor::Material
 		return Result;
 	}
 
-	auto FMaterialGraphService::EnumerateCatalog(const DMaterial& Material)
+	auto FMaterialGraphAuthoring::EnumerateCatalog(const DMaterial& Material)
 		-> std::vector<FMaterialGraphCatalogEntry>
 	{
 		std::vector<FMaterialGraphCatalogEntry> Result;
@@ -578,7 +578,7 @@ namespace Durin::Editor::Material
 		return Result;
 	}
 
-	auto FMaterialGraphService::SearchCatalog(
+	auto FMaterialGraphAuthoring::SearchCatalog(
 		const DMaterial& Material,
 		std::string_view Query,
 		std::optional<EMaterialProgramValueType> SourceType)
@@ -649,7 +649,7 @@ namespace Durin::Editor::Material
 		return Result;
 	}
 
-	auto FMaterialGraphService::CreateNode(
+	auto FMaterialGraphAuthoring::CreateNode(
 		DMaterial& Material,
 		FMaterialGraphCreateNodeRequest Request,
 		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
@@ -668,7 +668,7 @@ namespace Durin::Editor::Material
 			"Create Material Node", {GeneratedId}, {GeneratedId}, Transactions);
 	}
 
-	auto FMaterialGraphService::ReplaceNode(
+	auto FMaterialGraphAuthoring::ReplaceNode(
 		DMaterial& Material,
 		FMaterialProgramNode Node,
 		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
@@ -683,7 +683,7 @@ namespace Durin::Editor::Material
 			"Edit Material Node", {AffectedId}, {}, Transactions);
 	}
 
-	auto FMaterialGraphService::RemoveNodes(
+	auto FMaterialGraphAuthoring::RemoveNodes(
 		DMaterial& Material,
 		std::span<const FGuid> NodeIds,
 		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
@@ -726,7 +726,7 @@ namespace Durin::Editor::Material
 			"Delete Material Nodes", std::move(Affected), {}, Transactions);
 	}
 
-	auto FMaterialGraphService::Connect(
+	auto FMaterialGraphAuthoring::Connect(
 		DMaterial& Material,
 		const FMaterialGraphConnectRequest& Request,
 		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
@@ -751,7 +751,7 @@ namespace Durin::Editor::Material
 			{Request.SourceNodeId, Request.DestinationNodeId}, {}, Transactions);
 	}
 
-	auto FMaterialGraphService::DisconnectInput(
+	auto FMaterialGraphAuthoring::DisconnectInput(
 		DMaterial& Material,
 		const FGuid& DestinationNodeId,
 		uint32 DestinationInputIndex,
@@ -769,7 +769,7 @@ namespace Durin::Editor::Material
 			"Disconnect Material Input", {DestinationNodeId}, {}, Transactions);
 	}
 
-	auto FMaterialGraphService::AssignSurfaceOutput(
+	auto FMaterialGraphAuthoring::AssignSurfaceOutput(
 		DMaterial& Material,
 		const FMaterialGraphSurfaceOutputRequest& Request,
 		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
@@ -787,7 +787,7 @@ namespace Durin::Editor::Material
 			"Assign Material Surface Output", {Request.SourceNodeId}, {}, Transactions);
 	}
 
-	auto FMaterialGraphService::DisconnectSurfaceOutput(
+	auto FMaterialGraphAuthoring::DisconnectSurfaceOutput(
 		DMaterial& Material,
 		EMaterialSurfaceOutput Output,
 		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
@@ -804,7 +804,7 @@ namespace Durin::Editor::Material
 			"Disconnect Material Surface Output", {Affected}, {}, Transactions);
 	}
 
-	auto FMaterialGraphService::SetSurfaceDefault(
+	auto FMaterialGraphAuthoring::SetSurfaceDefault(
 		DMaterial& Material,
 		const FMaterialGraphSurfaceDefaultRequest& Request,
 		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
@@ -820,7 +820,7 @@ namespace Durin::Editor::Material
 			"Edit Material Surface Default", {}, {}, Transactions);
 	}
 
-	auto FMaterialGraphService::ResetSurfaceDefault(
+	auto FMaterialGraphAuthoring::ResetSurfaceDefault(
 		DMaterial& Material,
 		EMaterialSurfaceOutput Output,
 		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
@@ -831,7 +831,7 @@ namespace Durin::Editor::Material
 				MakeDefaultMaterialProgram().Outputs, Output)}, Transactions);
 	}
 
-	auto FMaterialGraphService::SetParameterValue(
+	auto FMaterialGraphAuthoring::SetParameterValue(
 		DMaterial& Material,
 		const FGuid& ParameterId,
 		FMaterialParameterValue Value,
@@ -874,7 +874,7 @@ namespace Durin::Editor::Material
 			.AffectedNodeIds = std::move(AffectedNodes)};
 	}
 
-	auto FMaterialGraphService::PromoteSurfaceOutputToParameter(
+	auto FMaterialGraphAuthoring::PromoteSurfaceOutputToParameter(
 		DMaterial& Material,
 		const FMaterialGraphSurfaceNodeRequest& Request,
 		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
@@ -946,7 +946,7 @@ namespace Durin::Editor::Material
 		return Result;
 	}
 
-	auto FMaterialGraphService::AddTextureToSurfaceOutput(
+	auto FMaterialGraphAuthoring::AddTextureToSurfaceOutput(
 		DMaterial& Material,
 		const FMaterialGraphSurfaceNodeRequest& Request,
 		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
@@ -1043,7 +1043,7 @@ namespace Durin::Editor::Material
 			Transactions);
 	}
 
-	auto FMaterialGraphService::MoveNodes(
+	auto FMaterialGraphAuthoring::MoveNodes(
 		DMaterial& Material,
 		std::span<const FMaterialGraphNodePresentation> Positions,
 		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
@@ -1075,7 +1075,7 @@ namespace Durin::Editor::Material
 			"Move Material Nodes", std::move(Affected), {}, Transactions);
 	}
 
-	auto FMaterialGraphService::Layout(
+	auto FMaterialGraphAuthoring::Layout(
 		DMaterial& Material,
 		std::span<const FGuid> NodeIds,
 		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
@@ -1274,7 +1274,7 @@ namespace Durin::Editor::Material
 			"Layout Material Graph", std::move(Affected), {}, Transactions);
 	}
 
-	auto FMaterialGraphService::CopySelection(
+	auto FMaterialGraphAuthoring::CopySelection(
 		const DMaterial& Material,
 		std::span<const FGuid> NodeIds,
 		FMaterialGraphClipboardPayload& OutPayload)
@@ -1327,7 +1327,7 @@ namespace Durin::Editor::Material
 		};
 	}
 
-	auto FMaterialGraphService::Paste(
+	auto FMaterialGraphAuthoring::Paste(
 		DMaterial& Material,
 		const FMaterialGraphClipboardPayload& Payload,
 		int32 X,
@@ -1396,7 +1396,7 @@ namespace Durin::Editor::Material
 			"Paste Material Nodes", Generated, Generated, Transactions);
 	}
 
-	auto FMaterialGraphService::DuplicateNodes(
+	auto FMaterialGraphAuthoring::DuplicateNodes(
 		DMaterial& Material,
 		std::span<const FGuid> NodeIds,
 		int32 OffsetX,
@@ -1429,7 +1429,7 @@ namespace Durin::Editor::Material
 			static_cast<int32>(AnchorY), Transactions);
 	}
 
-	auto FMaterialGraphService::CutSelection(
+	auto FMaterialGraphAuthoring::CutSelection(
 		DMaterial& Material,
 		std::span<const FGuid> NodeIds,
 		FMaterialGraphClipboardPayload& OutPayload,
@@ -1512,7 +1512,7 @@ namespace Durin::Editor::Material
 		for (const FMaterialGraphNodePresentation& Position : Positions)
 			if (!Impl->NodeIds.contains(Position.NodeId))
 				return MakeRejected("A material graph move preview addresses a node outside the selection.");
-		FMaterialGraphCommandResult Result = FMaterialGraphService::MoveNodes(
+		FMaterialGraphCommandResult Result = FMaterialGraphAuthoring::MoveNodes(
 			*Material, Positions, nullptr);
 		if (Result) Impl->CurrentPresentation = Material->GetMaterialGraphPresentation();
 		return Result;

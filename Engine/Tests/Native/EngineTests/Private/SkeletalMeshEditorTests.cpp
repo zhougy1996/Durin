@@ -37,7 +37,7 @@ TEST(FSkeletalMeshEditorTests, PreviewControllerFramesAndNavigatesDeterministica
 TEST(FSkeletalMeshEditorTests, RegistrationIsExactReadOnlyAndScoped)
 {
 	Durin::Editor::FWorkspaceManager Manager;
-	Durin::Editor::FRenderedAssetThumbnailService ThumbnailService;
+	Durin::Editor::FAssetThumbnailProviderRegistry ThumbnailService;
 	Durin::FSkeletalMeshEditorModule Module;
 	ASSERT_TRUE(Module.RegisterSkeletalMeshEditor(Manager, ThumbnailService));
 	EXPECT_FALSE(Module.RegisterSkeletalMeshEditor(Manager, ThumbnailService));

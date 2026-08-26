@@ -18,7 +18,7 @@ namespace Durin::Editor
 {
 	class FWorkspaceRegistrationHandle;
 	class FWorkspaceManager;
-	class FRenderedAssetThumbnailService;
+	class FAssetThumbnailProviderRegistry;
 	class FAssetThumbnailProviderRegistrationHandle;
 }
 
@@ -38,7 +38,7 @@ namespace Durin
 		LEVELEDITOR_API auto StartupModule() -> void override;
 		LEVELEDITOR_API auto ShutdownModule() -> void override;
 		LEVELEDITOR_API auto RegisterLevelEditorWorkspace(::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-			::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService,
+			::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
 			std::function<void(AssetForge::FImportOperationHandle, std::string)>
 				NotifyImportStarted,
 			Editor::Level::FContentBrowserCallbacks ContentBrowserCallbacks) -> bool;

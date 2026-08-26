@@ -1,6 +1,7 @@
 #include "AssetForge/Operations/ImportOperation.h"
 #include "AssetForge/ImportService.h"
 #include "AssetForge/Operations/ImportJob.h"
+#include "ImportServicePrivate.h"
 
 #include "Threading/Task.h"
 
@@ -217,6 +218,7 @@ namespace Durin::AssetForge
 		bool bReadyQueued = false;
 		bool bFinalizing = false;
 		bool bSupersedeRequested = false;
+		std::function<bool()> RequestCancellation;
 	};
 
 	class FImportJobEditorContextImpl final : public FImportJobEditorContext
@@ -255,11 +257,12 @@ namespace Durin::AssetForge
 		IImportProgressReporter& Progress;
 	};
 
-	class FImportJobRegistry
+	class FImportJobStore final
+		: public std::enable_shared_from_this<FImportJobStore>
 	{
 	public:
 		auto Submit(std::unique_ptr<IImportJob> Job, std::string_view Title)
-			-> FImportOperationHandle
+			-> std::shared_ptr<FImportJobOperationState>
 		{
 			CheckImportEditorMutationAllowed("SubmitImportJob");
 			if (!Job) return {};
@@ -284,6 +287,14 @@ namespace Durin::AssetForge
 				.OutputIdentity = "request"};
 
 			State->Job = std::move(Job);
+			State->RequestCancellation = [
+				WeakStore = weak_from_this(),
+				WeakState = std::weak_ptr<FImportJobOperationState>(State)] {
+				const auto Store = WeakStore.lock();
+				const auto Operation = WeakState.lock();
+				return Store && Operation
+					&& Store->RequestCancel(Operation, false);
+			};
 
 			std::shared_ptr<FImportJobOperationState> Superseded;
 			bool bAccepted = false;
@@ -312,7 +323,7 @@ namespace Durin::AssetForge
 						: "Asset import provider is unavailable or closed."});
 			}
 			else QueueReady(State);
-			return FImportOperationHandle(State);
+			return State;
 		}
 
 		auto Pump(uint32 MaximumEditorSteps) -> uint32
@@ -366,9 +377,9 @@ namespace Durin::AssetForge
 			return Advanced;
 		}
 
-		auto Cancel(const FImportOperationHandle& Handle) -> bool
+		auto Cancel(const std::shared_ptr<FImportJobOperationState>& State) -> bool
 		{
-			return Handle.JobState && RequestCancel(Handle.JobState, false);
+			return Owns(State) && RequestCancel(State, false);
 		}
 
 		auto RunInline(std::unique_ptr<IImportJob> Job, std::string_view Title)
@@ -467,10 +478,10 @@ namespace Durin::AssetForge
 			});
 		}
 
-		auto CancelAndDrain(const FImportOperationHandle& Handle) -> void
+		auto CancelAndDrain(
+			const std::shared_ptr<FImportJobOperationState>& Target) -> void
 		{
-			const std::shared_ptr<FImportJobOperationState> Target = Handle.JobState;
-			if (!Target) return;
+			if (!Owns(Target)) return;
 			CancelAndDrainMatching([&](const FImportJobOperationState& State) {
 				return &State == Target.get();
 			});
@@ -512,6 +523,15 @@ namespace Durin::AssetForge
 		}
 
 	private:
+		auto Owns(const std::shared_ptr<FImportJobOperationState>& State) const
+			-> bool
+		{
+			if (!State) return false;
+			std::lock_guard Lock(Mutex);
+			const auto It = Operations.find(State->OperationId);
+			return It != Operations.end() && It->second == State;
+		}
+
 		auto QueueReady(const std::shared_ptr<FImportJobOperationState>& State) -> void
 		{
 			{
@@ -790,14 +810,12 @@ namespace Durin::AssetForge
 		bool bAdmissionOpen = true;
 	};
 
-	namespace
+	FImportService::FImpl::FImpl()
+		: AsyncJobs(std::make_shared<FImportJobStore>())
 	{
-		auto GetImportJobRegistry() -> FImportJobRegistry&
-		{
-			static FImportJobRegistry Registry;
-			return Registry;
-		}
 	}
+
+	FImportService::FImpl::~FImpl() = default;
 
 	auto FImportOperationHandle::GetOperationId() const -> uint64
 	{
@@ -832,7 +850,8 @@ namespace Durin::AssetForge
 
 	auto FImportOperationHandle::RequestCancel() const -> bool
 	{
-		return JobState && GetImportJobRegistry().Cancel(*this);
+		return JobState && JobState->RequestCancellation
+			&& JobState->RequestCancellation();
 	}
 
 	auto FImportOperationHandle::SetRunningInBackground(
@@ -846,61 +865,61 @@ namespace Durin::AssetForge
 		std::unique_ptr<IImportJob> Job,
 		std::string_view Title) -> FImportOperationHandle
 	{
-		return GetImportJobRegistry().Submit(std::move(Job), Title);
+		return FImportOperationHandle(Impl->AsyncJobs->Submit(std::move(Job), Title));
 	}
 
 	auto FImportService::PumpImportOperations(uint32 MaximumEditorSteps) -> uint32
 	{
-		return GetImportJobRegistry().Pump(MaximumEditorSteps);
+		return Impl->AsyncJobs->Pump(MaximumEditorSteps);
 	}
 
 	auto FImportService::CancelAndDrainImportOperation(
 		const FImportOperationHandle& Handle) -> void
 	{
-		GetImportJobRegistry().CancelAndDrain(Handle);
+		Impl->AsyncJobs->CancelAndDrain(Handle.JobState);
 	}
 
 	auto FImportService::RunImportJobInline(
 		std::unique_ptr<IImportJob> Job,
 		std::string_view Title) -> FImportOutcome
 	{
-		return GetImportJobRegistry().RunInline(std::move(Job), Title);
+		return Impl->AsyncJobs->RunInline(std::move(Job), Title);
 	}
 
 	auto FImportService::CancelImportOperation(
 		const FImportOperationHandle& Handle) -> bool
 	{
-		return Handle.RequestCancel();
+		return Impl->AsyncJobs->Cancel(Handle.JobState);
 	}
 
 	auto FImportService::HasActiveImportClaim(std::string_view Identity) const -> bool
 	{
-		return GetImportJobRegistry().HasClaim(Identity);
+		return Impl->AsyncJobs->HasClaim(Identity);
 	}
 
 	auto FImportService::ReleaseImportPreviewOwner(std::string_view OwnerId) -> void
 	{
-		GetImportJobRegistry().ReleasePreviewOwner(OwnerId);
+		Impl->AsyncJobs->ReleasePreviewOwner(OwnerId);
 	}
 
 	auto FImportService::CancelAndDrainAsyncImportsForOwner(std::string_view OwnerId) -> void
 	{
-		GetImportJobRegistry().CancelAndDrainOwner(OwnerId);
+		Impl->AsyncJobs->CancelAndDrainOwner(OwnerId);
 	}
 
 	auto FImportService::CancelAndDrainAsyncImportsForProvider(std::string_view ProviderId) -> void
 	{
-		GetImportJobRegistry().CancelAndDrainProvider(ProviderId);
+		Impl->AsyncJobs->CancelAndDrainProvider(ProviderId);
 	}
 
 	auto FImportService::CancelAndDrainAllAsyncImports() -> void
 	{
-		GetImportJobRegistry().CancelAndDrainAll();
+		Impl->AsyncJobs->CancelAndDrainAll();
 	}
 
 	auto FImportService::OpenAsyncImporterAdmission(std::string_view ProviderId) -> void
 	{
-		GetImportJobRegistry().OpenProvider(ProviderId);
+		Impl->AsyncJobs->OpenProvider(ProviderId);
 	}
 
 	auto LaunchAsyncImportExecution(FAsyncImportExecutionRequest Request)
@@ -1028,7 +1047,7 @@ namespace Durin::AssetForge
 
 	auto FImportService::CloseAsyncAdmission() -> void
 	{
-		GetImportJobRegistry().CloseAdmission();
+		Impl->AsyncJobs->CloseAdmission();
 	}
 
 	auto IsImportCancellationRequested() -> bool

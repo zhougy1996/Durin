@@ -6,7 +6,7 @@
 #include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
 #include "Misc/StringHelper.h"
-#include "Thumbnail/RenderedAssetThumbnailService.h"
+#include "Thumbnail/AssetThumbnailProvider.h"
 
 namespace Durin::Editor::ContentBrowser::Private
 {
@@ -393,8 +393,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		Item.LastWriteTime = Data.LastWriteTime;
 		::Durin::Editor::FAssetThumbnailSourceImage SourceImage;
 		std::string ThumbnailError;
-		::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService =
-			::Durin::Editor::GetDefaultRenderedAssetThumbnailService();
+		::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService =
+			::Durin::Editor::GetDefaultAssetThumbnailProviderRegistry();
 		if (ThumbnailService.UsesSourceImage(Data.AssetClassName))
 		{
 			if (ThumbnailService.CaptureSourceImage(Data, SourceImage, ThumbnailError))

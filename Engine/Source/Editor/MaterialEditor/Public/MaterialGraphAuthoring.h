@@ -164,7 +164,7 @@ namespace Durin::Editor::Material
 	};
 
 	// Provides candidate-validated graph authoring with no widget or viewport dependency.
-	class FMaterialGraphService
+	class FMaterialGraphAuthoring
 	{
 	public:
 		MATERIALEDITOR_API static auto Inspect(const DMaterial& Material)

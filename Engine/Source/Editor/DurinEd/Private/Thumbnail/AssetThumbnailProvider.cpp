@@ -435,4 +435,11 @@ namespace Durin::Editor
 		return State->Providers.size();
 	}
 
+	auto GetDefaultAssetThumbnailProviderRegistry()
+		-> FAssetThumbnailProviderRegistry&
+	{
+		static FAssetThumbnailProviderRegistry Registry;
+		return Registry;
+	}
+
 } // namespace Durin::Editor

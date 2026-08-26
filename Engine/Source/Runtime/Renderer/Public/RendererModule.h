@@ -5,6 +5,9 @@
 namespace Durin
 {
 	class FSceneRenderer;
+	enum class ERendererResourceInvalidationCause : uint8;
+	struct FConsoleCommandResult;
+	struct FRendererResourceInvalidationSnapshot;
 
 	// Adapts the public renderer-module contract to one private scene renderer.
 	class FRendererModule final : public IRendererModule
@@ -19,6 +22,10 @@ namespace Durin
 		RENDERER_API auto CreateViewState() -> FSceneViewStateOwner override;
 		RENDERER_API auto InvalidateViewState(FSceneViewStateId Id) -> void override;
 		RENDERER_API auto InvalidateAllViewStates() -> void override;
+		RENDERER_API auto RequestResourceInvalidation(
+			ERendererResourceInvalidationCause Cause) -> FConsoleCommandResult;
+		RENDERER_API auto GetResourceInvalidationSnapshot_RenderThread() const
+			-> FRendererResourceInvalidationSnapshot;
 		RENDERER_API auto RenderView(
 			FRHICommandListImmediate& CommandList,
 			IScene* Scene,

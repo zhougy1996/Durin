@@ -397,7 +397,7 @@ namespace Durin::Editor::Level
 						}
 						else if (DTextureCube* TextureCube = Cast<DTextureCube>(Asset))
 						{
-							const FSkyBoxPlacementResult Result = FSkyBoxLevelAuthoringService::PlaceTextureCube(
+							const FSkyBoxPlacementResult Result = FSkyBoxLevelAuthoring::PlaceTextureCube(
 								*Context.Level,
 								TextureCube,
 								FName(std::format("{}_SkyBox", AssetPath.GetAssetName())),

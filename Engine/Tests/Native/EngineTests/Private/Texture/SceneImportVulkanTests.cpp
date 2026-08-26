@@ -1,4 +1,5 @@
 #include "Asset/Testing.h"
+#include "Asset/AssetCompilingManager.h"
 #include "Asset/AssetRetention.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DynamicRHI.h"
@@ -25,7 +26,6 @@
 #include "AssetForge/ImportService.h"
 #include "Thumbnail/AssetThumbnailProvider.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
-#include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 #include "Texture/Texture2D.h"
@@ -93,6 +93,7 @@ namespace
 TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 {
 	InitializeDObjectSystem();
+	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
@@ -769,5 +770,6 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::ShutdownRenderingThread();
 	Durin::FRHICommandListImmediate::Get().SwitchPipeline(Durin::ERHIPipeline::None);
 	Durin::RHIExit();
+	Durin::ShutdownAssetCompilingManager();
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 }

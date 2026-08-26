@@ -553,6 +553,15 @@ namespace Durin
 		return Result;
 	}
 
+	auto FAssetCompilingManager::FindDomain(FName DomainName) const
+		-> std::shared_ptr<IAssetCompilationDomain>
+	{
+		std::lock_guard Lock(GAssetCompilingMutex);
+		const auto It = GDomains.find(DomainName);
+		return It != GDomains.end() && It->second.bStarted
+			? It->second.Domain : std::shared_ptr<IAssetCompilationDomain>{};
+	}
+
 	auto FAssetCompilingManager::OnAssetPostCompile() -> FAssetPostCompileEvent&
 	{
 		return GPostCompileEvent;

@@ -73,15 +73,4 @@ namespace Durin
 		FConsoleCommandHandle RetryResourcesHandle = 0;
 	};
 
-	auto GetRendererResourceCoordinator() -> FRendererResourceCoordinator&;
-	auto SetActiveRendererResourceCoordinator(
-		FRendererResourceCoordinator* Coordinator) -> void;
-
-	// Internal device-recovery seam. No backend publishes this request yet.
-	RENDERER_API auto RequestRendererDeviceInvalidation()
-		-> FConsoleCommandResult;
-
-	// Exposes the active render-thread generation to focused integration tests.
-	RENDERER_API auto GetRendererResourceInvalidationSnapshot_RenderThread()
-		-> FRendererResourceInvalidationSnapshot;
 } // namespace Durin

@@ -154,7 +154,7 @@ namespace Durin
 			std::atomic_uint64_t TaskId = 0;
 		};
 
-		class FMaterialCompileService
+		class FMaterialCompilationState
 		{
 		public:
 			auto Initialize() -> bool
@@ -361,10 +361,10 @@ namespace Durin
 				--OutstandingConsumers;
 			}
 
-			auto GetDiagnostics() const -> FMaterialCompileServiceDiagnostics
+			auto GetDiagnostics() const -> FMaterialCompilationDiagnostics
 			{
 				std::scoped_lock Lock(Mutex);
-				FMaterialCompileServiceDiagnostics Result = Diagnostics;
+				FMaterialCompilationDiagnostics Result = Diagnostics;
 				Result.bAcceptingRequests = bAcceptingRequests;
 				Result.InFlightCount = static_cast<uint32>(Flights.size());
 				Result.OutstandingConsumerCount = OutstandingConsumers;
@@ -602,14 +602,15 @@ namespace Durin
 				std::shared_ptr<const FMaterialCompilerResult>> RetainedPrograms;
 			std::deque<FMaterialProgramIdentity> RetentionOrder;
 			uint64 RetainedProgramBytes = 0;
-			FMaterialCompileServiceDiagnostics Diagnostics;
+			FMaterialCompilationDiagnostics Diagnostics;
 		};
 
-		FMaterialCompileService GMaterialCompileService;
+
 		std::atomic_uint8_t GPendingShaderReloadMode = 0;
 		auto CancelMaterialCompileDomain(DMaterial& Material) -> bool;
 
-		auto PumpMaterialCompileResultsDetailed(uint32 MaximumCount)
+		auto PumpMaterialCompileResultsDetailed(
+			FMaterialCompilationState& State, uint32 MaximumCount)
 			-> FAssetCompileProcessResult
 		{
 			CheckMaterialCompileGameThread();
@@ -631,16 +632,16 @@ namespace Durin
 
 			FAssetCompileProcessResult Processed;
 			std::vector<FMaterialCompileResult> Results =
-				GMaterialCompileService.Pump(MaximumCount);
+				State.Pump(MaximumCount);
 			Processed.ProcessedCompletionCount = static_cast<uint32>(Results.size());
 			for (FMaterialCompileResult& Result : Results)
 			{
 				DObject* Object = ResolveObjectHandle(Result.Owner);
 				if (auto* Material = Cast<DMaterial>(Object); IsValid(Material)
-					&& Private::FMaterialCompileServiceAccess::Admit(
+					&& Private::FMaterialCompilationLifecycle::Admit(
 						*Material, std::move(Result)))
 					Processed.SuccessfullyCompiledAssets.emplace_back(Material);
-				GMaterialCompileService.ConsumeOutstanding();
+				State.ConsumeOutstanding();
 			}
 			return Processed;
 		}
@@ -648,13 +649,15 @@ namespace Durin
 		class FMaterialCompilationDomain final : public IAssetCompilationDomain
 		{
 		public:
+			auto GetState() -> FMaterialCompilationState& { return State; }
+			auto GetState() const -> const FMaterialCompilationState& { return State; }
 			auto GetDomainName() const -> FName override
 			{
 				return FName("Durin.MaterialCompilation");
 			}
 			auto Start(std::string* OutError) -> bool override
 			{
-				if (GMaterialCompileService.Initialize())
+				if (State.Initialize())
 				{
 					if (OutError) OutError->clear();
 					return true;
@@ -664,16 +667,17 @@ namespace Durin
 			}
 			auto StopAdmission() -> void override
 			{
-				GMaterialCompileService.StopAdmission();
+				State.StopAdmission();
 			}
 			auto GetNumRemainingAssets() const -> uint64 override
 			{
-				return GMaterialCompileService.GetDiagnostics().OutstandingConsumerCount;
+				return State.GetDiagnostics().OutstandingConsumerCount;
 			}
 			auto ProcessAsyncTasks(const FAssetCompileProcessParams& Params)
 				-> FAssetCompileProcessResult override
 			{
-				return PumpMaterialCompileResultsDetailed(Params.MaximumCompletions);
+				return PumpMaterialCompileResultsDetailed(
+					State, Params.MaximumCompletions);
 			}
 			auto FinishCompilationForObjects(std::span<DObject* const> Objects)
 				-> FAssetCompileProcessResult override
@@ -683,12 +687,12 @@ namespace Durin
 				for (DObject* Object : Objects)
 					if (auto* Material = Cast<DMaterial>(Object); IsValid(Material))
 						Owners.push_back(MakeObjectHandle(Material));
-				while (std::ranges::any_of(Owners, [](FObjectHandle Owner) {
-					return GMaterialCompileService.HasOwner(Owner);
+				while (std::ranges::any_of(Owners, [this](FObjectHandle Owner) {
+					return State.HasOwner(Owner);
 				}))
 				{
 					auto Item = PumpMaterialCompileResultsDetailed(
-						std::numeric_limits<uint32>::max());
+						State, std::numeric_limits<uint32>::max());
 					Aggregate.ProcessedCompletionCount += Item.ProcessedCompletionCount;
 					Aggregate.SuccessfullyCompiledAssets.insert(
 						Aggregate.SuccessfullyCompiledAssets.end(),
@@ -711,7 +715,7 @@ namespace Durin
 				while (GetNumRemainingAssets() != 0)
 				{
 					auto Item = PumpMaterialCompileResultsDetailed(
-						std::numeric_limits<uint32>::max());
+						State, std::numeric_limits<uint32>::max());
 					Aggregate.ProcessedCompletionCount += Item.ProcessedCompletionCount;
 					Aggregate.SuccessfullyCompiledAssets.insert(
 						Aggregate.SuccessfullyCompiledAssets.end(),
@@ -723,24 +727,37 @@ namespace Durin
 			}
 			auto Shutdown() -> void override
 			{
-				GMaterialCompileService.Shutdown();
+				State.Shutdown();
 			}
+
+		private:
+			FMaterialCompilationState State;
 		};
+
+		auto GetMaterialCompilationDomain() -> FMaterialCompilationDomain*
+		{
+			const auto Domain = FAssetCompilingManager::Get().FindDomain(
+				FName("Durin.MaterialCompilation"));
+			return dynamic_cast<FMaterialCompilationDomain*>(Domain.get());
+		}
 	}
 
 	namespace Private
 	{
-		auto FMaterialCompileServiceAccess::Submit(
+		auto FMaterialCompilationLifecycle::Submit(
 			DMaterial& Material,
 			FMaterialCompilerInput Input,
 			bool bForceRecompile) -> bool
 		{
 			CheckMaterialCompileGameThread();
+			FMaterialCompilationDomain* Domain = GetMaterialCompilationDomain();
+			FMaterialCompilationState* Compilation =
+				Domain ? &Domain->GetState() : nullptr;
 			// Construction precedes DObject handle registration. In a running engine,
 			// defer that bootstrap request to PostLoad, an authored edit, or an
 			// explicit request instead of performing expensive work on GameThread.
 			if (IsObjectHandleNull(MakeObjectHandle(&Material))
-				&& GMaterialCompileService.IsAccepting())
+				&& Compilation && Compilation->IsAccepting())
 			{
 				Material.MaterialCompileStatus.State =
 					EMaterialCompileState::NeverRequested;
@@ -797,7 +814,7 @@ namespace Durin
 				}
 
 				if (IsObjectHandleNull(Request.Owner)
-					|| !GMaterialCompileService.IsAccepting()
+					|| !Compilation || !Compilation->IsAccepting()
 					|| !IsTaskSchedulerRunning())
 				{
 					FMaterialCompilerResult Compiled = CompileMaterialProgram(
@@ -837,7 +854,7 @@ namespace Durin
 				Material.MaterialCompileStatus.ResultCategory =
 					EMaterialCompileResultCategory::None;
 				const EMaterialCompileState Submitted =
-					GMaterialCompileService.Submit(std::move(Request));
+					Compilation->Submit(std::move(Request));
 				if (Submitted == EMaterialCompileState::Rejected)
 				{
 					Material.MaterialCompileStatus.State = EMaterialCompileState::Rejected;
@@ -861,7 +878,7 @@ namespace Durin
 				return true;
 		}
 
-		auto FMaterialCompileServiceAccess::Admit(
+		auto FMaterialCompilationLifecycle::Admit(
 			DMaterial& Material, FMaterialCompileResult Result) -> bool
 		{
 				CheckMaterialCompileGameThread();
@@ -907,7 +924,7 @@ namespace Durin
 				return false;
 		}
 
-		auto FMaterialCompileServiceAccess::MarkCanceled(
+		auto FMaterialCompilationLifecycle::MarkCanceled(
 			DMaterial& Material) -> void
 		{
 			Material.MaterialCompileStatus.State = EMaterialCompileState::Canceled;
@@ -917,7 +934,7 @@ namespace Durin
 				Material.AcceptedCompiledProgram != nullptr;
 		}
 
-		auto FMaterialCompileServiceAccess::RequestCurrent(
+		auto FMaterialCompilationLifecycle::RequestCurrent(
 			DMaterial& Material, bool bForceRecompile) -> bool
 		{
 			return Material.RequestProgramCompile(
@@ -925,15 +942,18 @@ namespace Durin
 		}
 	}
 
-	auto IsMaterialCompileServiceAcceptingRequests() -> bool
+	auto IsMaterialCompilationAcceptingRequests() -> bool
 	{
-		return GMaterialCompileService.IsAccepting();
+		const FMaterialCompilationDomain* Domain = GetMaterialCompilationDomain();
+		return Domain && Domain->GetState().IsAccepting();
 	}
 
-	auto GetMaterialCompileServiceDiagnostics()
-		-> FMaterialCompileServiceDiagnostics
+	auto GetMaterialCompilationDiagnostics()
+		-> FMaterialCompilationDiagnostics
 	{
-		return GMaterialCompileService.GetDiagnostics();
+		const FMaterialCompilationDomain* Domain = GetMaterialCompilationDomain();
+		return Domain ? Domain->GetState().GetDiagnostics()
+			: FMaterialCompilationDiagnostics{};
 	}
 
 	auto NotifyMaterialShaderReload(bool bForceRecompile) -> void
@@ -948,7 +968,7 @@ namespace Durin
 	auto RequestMaterialRecompile(
 		DMaterial& Material, bool bForceRecompile) -> bool
 	{
-		return Private::FMaterialCompileServiceAccess::RequestCurrent(
+		return Private::FMaterialCompilationLifecycle::RequestCurrent(
 			Material, bForceRecompile);
 	}
 
@@ -957,10 +977,11 @@ namespace Durin
 		auto CancelMaterialCompileDomain(DMaterial& Material) -> bool
 		{
 			CheckMaterialCompileGameThread();
-			const bool bCanceled = GMaterialCompileService.CancelOwner(
-				MakeObjectHandle(&Material));
+			FMaterialCompilationDomain* Domain = GetMaterialCompilationDomain();
+			const bool bCanceled = Domain
+				&& Domain->GetState().CancelOwner(MakeObjectHandle(&Material));
 			if (bCanceled)
-				Private::FMaterialCompileServiceAccess::MarkCanceled(Material);
+				Private::FMaterialCompilationLifecycle::MarkCanceled(Material);
 			return bCanceled;
 		}
 	}

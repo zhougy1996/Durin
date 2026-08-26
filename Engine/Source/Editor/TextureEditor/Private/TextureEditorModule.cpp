@@ -6,7 +6,7 @@
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
-#include "Thumbnail/RenderedAssetThumbnailService.h"
+#include "Thumbnail/AssetThumbnailProvider.h"
 #include "Thumbnail/Texture2DAssetThumbnail.h"
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
 #include "Widgets/MTextureEditor.h"
@@ -183,7 +183,7 @@ namespace Durin
 
 	auto FTextureEditorModule::RegisterTextureEditor(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-		::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService,
+		::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
 		::Durin::Editor::Import::FImportDialogCallbacks ImportCallbacks) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())

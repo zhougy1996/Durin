@@ -6,7 +6,7 @@
 #include "SkeletalMesh/Skeleton.h"
 #include "Widgets/MSkeletalAssetInspector.h"
 #include "Workspace/SkeletalMeshEditorWorkspace.h"
-#include "Thumbnail/RenderedAssetThumbnailService.h"
+#include "Thumbnail/AssetThumbnailProvider.h"
 #include "Thumbnail/SkeletalMeshAssetThumbnail.h"
 
 namespace Durin
@@ -26,7 +26,7 @@ namespace Durin
 
 	auto FSkeletalMeshEditorModule::RegisterSkeletalMeshEditor(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-		::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool
+		::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
 			|| (ThumbnailRegistration && ThumbnailRegistration->IsValid())) return false;

@@ -17,7 +17,6 @@
 #include "AssetForgeBuiltinsProviderTestFixture.h"
 #include "AssetForgeBuiltinsAuthoringFeatures.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
-#include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 #include "Thumbnail/MaterialAssetThumbnail.h"
@@ -96,18 +95,18 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 	InitializeDObjectSystem();
 	std::string StaticMeshProviderError;
 	Durin::Editor::FAssetThumbnailProviderRegistrationHandle StaticMeshProvider =
-		Durin::Editor::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
+		Durin::Editor::GetDefaultAssetThumbnailProviderRegistry().RegisterScoped(
 			std::make_unique<Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailProvider>(),
 			StaticMeshProviderError);
 	ASSERT_TRUE(StaticMeshProvider) << StaticMeshProviderError;
 	Durin::Editor::FAssetThumbnailProviderRegistrationHandle MaterialProvider =
-		Durin::Editor::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
+		Durin::Editor::GetDefaultAssetThumbnailProviderRegistry().RegisterScoped(
 			std::make_unique<Durin::Editor::Material::FMaterialAssetThumbnailProvider>(
 				Durin::DMaterial::StaticClass()->GetQualifiedName().ToString()),
 			StaticMeshProviderError);
 	ASSERT_TRUE(MaterialProvider) << StaticMeshProviderError;
 	Durin::Editor::FAssetThumbnailProviderRegistrationHandle MaterialInstanceProvider =
-		Durin::Editor::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
+		Durin::Editor::GetDefaultAssetThumbnailProviderRegistry().RegisterScoped(
 			std::make_unique<Durin::Editor::Material::FMaterialAssetThumbnailProvider>(
 				Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString()),
 			StaticMeshProviderError);
@@ -527,10 +526,10 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			ASSERT_NE(Ready.Texture, nullptr);
 			EXPECT_TRUE(Ready.bHasTransparency);
 			const Durin::Editor::FRenderedAssetThumbnailCacheStats Stats = Cache.GetStats();
-			EXPECT_EQ(Stats.Pipeline.Loads, 1u);
-			EXPECT_EQ(Stats.Pipeline.Renders, 1u);
-			EXPECT_EQ(Stats.Pipeline.Readbacks, 1u);
-			EXPECT_EQ(Stats.Pipeline.DiskHits, 0u);
+			EXPECT_EQ(Stats.Generation.Loads, 1u);
+			EXPECT_EQ(Stats.Generation.Renders, 1u);
+			EXPECT_EQ(Stats.Generation.Readbacks, 1u);
+			EXPECT_EQ(Stats.Generation.DiskHits, 0u);
 			EXPECT_EQ(Stats.PreviewSceneCreations, 1u);
 			EXPECT_EQ(Stats.PreviewSceneAssignments, 1u);
 			EXPECT_EQ(Stats.UploadsCompleted, 1u);
@@ -548,10 +547,10 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			ASSERT_EQ(Ready.State, Durin::Editor::EAssetThumbnailState::Ready)
 				<< Ready.Diagnostic;
 			const Durin::Editor::FRenderedAssetThumbnailCacheStats Stats = WarmCache.GetStats();
-			EXPECT_EQ(Stats.Pipeline.DiskHits, 1u);
-			EXPECT_EQ(Stats.Pipeline.Loads, 0u);
-			EXPECT_EQ(Stats.Pipeline.Renders, 0u);
-			EXPECT_EQ(Stats.Pipeline.Readbacks, 0u);
+			EXPECT_EQ(Stats.Generation.DiskHits, 1u);
+			EXPECT_EQ(Stats.Generation.Loads, 0u);
+			EXPECT_EQ(Stats.Generation.Renders, 0u);
+			EXPECT_EQ(Stats.Generation.Readbacks, 0u);
 			EXPECT_EQ(Stats.PreviewSceneCreations, 0u);
 			EXPECT_EQ(Stats.PreviewSceneAssignments, 0u);
 			EXPECT_EQ(Stats.UploadsCompleted, 1u);
@@ -572,7 +571,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			EXPECT_EQ(Revisited.Texture, Ready.Texture);
 			const Durin::Editor::FRenderedAssetThumbnailCacheStats RevisitedStats =
 				WarmCache.GetStats();
-			EXPECT_EQ(RevisitedStats.Pipeline.DiskHits, Stats.Pipeline.DiskHits);
+			EXPECT_EQ(RevisitedStats.Generation.DiskHits, Stats.Generation.DiskHits);
 			EXPECT_EQ(RevisitedStats.UploadsQueued, Stats.UploadsQueued);
 			WarmCache.Clear();
 		}

@@ -127,7 +127,7 @@ namespace Durin::Editor::Level
 		};
 	}
 
-	auto FSkyBoxLevelAuthoringService::PlaceTextureCube(
+	auto FSkyBoxLevelAuthoring::PlaceTextureCube(
 		DLevel& Level,
 		DTextureCube* TextureCube,
 		FName RequestedName,

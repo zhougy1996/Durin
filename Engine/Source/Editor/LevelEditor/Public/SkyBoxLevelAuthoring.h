@@ -29,7 +29,7 @@ namespace Durin::Editor::Level
 	};
 
 	// Applies the viewport TextureCube placement policy through reversible level mutations.
-	class FSkyBoxLevelAuthoringService
+	class FSkyBoxLevelAuthoring
 	{
 	public:
 		LEVELEDITOR_API static auto PlaceTextureCube(

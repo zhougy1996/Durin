@@ -19,7 +19,7 @@ namespace Durin
 	{
 		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose))
 		{
-			if (!IsMaterialCompileServiceAcceptingRequests())
+			if (!IsMaterialCompilationAcceptingRequests())
 				RequestProgramCompile(Program, StaticProperties);
 			PublishMaterialRenderProxyState();
 		}
@@ -67,7 +67,7 @@ namespace Durin
 			Input.Parameters.push_back({Definition.Id, Definition.Type});
 		std::ranges::sort(Input.Parameters, {},
 			&FMaterialCompilerParameterDeclaration::Id);
-		return Private::FMaterialCompileServiceAccess::Submit(
+		return Private::FMaterialCompilationLifecycle::Submit(
 			*this, std::move(Input), bForceRecompile);
 	}
 

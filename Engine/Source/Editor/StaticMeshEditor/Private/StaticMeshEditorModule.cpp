@@ -2,7 +2,7 @@
 
 #include "Editor/WorkspaceManager.h"
 #include "StaticMesh/StaticMesh.h"
-#include "Thumbnail/RenderedAssetThumbnailService.h"
+#include "Thumbnail/AssetThumbnailProvider.h"
 #include "Thumbnail/StaticMeshAssetThumbnail.h"
 #include "Widgets/MStaticMeshInspector.h"
 #include "Workspace/StaticMeshEditorWorkspace.h"
@@ -91,7 +91,7 @@ namespace Durin
 
 	auto FStaticMeshEditorModule::RegisterStaticMeshEditor(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-		::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService,
+		::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
 		::Durin::Editor::Import::FImportDialogCallbacks ImportCallbacks) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())

@@ -77,8 +77,6 @@ namespace Durin
 		require(ConsoleCallbacks.IsValid());
 		check(SceneRenderer == nullptr);
 		SceneRenderer = std::make_unique<FSceneRenderer>();
-		SetActiveRendererResourceCoordinator(
-			&SceneRenderer->GetResourceCoordinator());
 		SetActiveDefaultTextureResources(
 			&SceneRenderer->GetDefaultTextures());
 		const bool bCommandsRegistered =
@@ -130,8 +128,23 @@ namespace Durin
 				"Renderer shutdown released {} leaked persistent view state(s).",
 				LeakedViewStateCount);
 		SetActiveDefaultTextureResources(nullptr);
-		SetActiveRendererResourceCoordinator(nullptr);
 		SceneRenderer.reset();
+	}
+
+	auto FRendererModule::RequestResourceInvalidation(
+		ERendererResourceInvalidationCause Cause) -> FConsoleCommandResult
+	{
+		if (SceneRenderer == nullptr)
+			return FConsoleCommandResult::Failure(
+				"Renderer resource invalidation is not available.");
+		return SceneRenderer->GetResourceCoordinator().Request(Cause);
+	}
+
+	auto FRendererModule::GetResourceInvalidationSnapshot_RenderThread() const
+		-> FRendererResourceInvalidationSnapshot
+	{
+		check(SceneRenderer != nullptr);
+		return SceneRenderer->GetResourceCoordinator().GetSnapshot_RenderThread();
 	}
 
 	auto FRendererModule::CreateScene() -> FScenePtr

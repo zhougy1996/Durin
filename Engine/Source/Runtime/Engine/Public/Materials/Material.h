@@ -115,6 +115,6 @@ namespace Durin
 
 		auto LoadCookedProgram(std::string& OutError) -> bool;
 
-		friend struct Private::FMaterialCompileServiceAccess;
+		friend struct Private::FMaterialCompilationLifecycle;
 	};
 }

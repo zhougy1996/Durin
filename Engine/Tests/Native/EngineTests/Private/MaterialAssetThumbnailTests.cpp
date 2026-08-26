@@ -11,6 +11,7 @@
 #include "Engine/StaticMeshSceneProxy.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
+#include "Modules/ModuleTestSupport.h"
 #include "RenderingThread.h"
 #include "StaticMesh/StaticMesh.h"
 
@@ -67,8 +68,10 @@ TEST(FMaterialAssetThumbnailTests, ModuleOwnsBothExactProvidersAndWorkspaceLifec
 {
 	InitializeDObjectSystem();
 	Durin::Editor::FWorkspaceManager Manager;
-	Durin::Editor::FRenderedAssetThumbnailService Service;
+	Durin::Editor::FAssetThumbnailProviderRegistry Service;
 	Durin::FMaterialEditorModule Module;
+	Durin::FModuleTestHarness ModuleHarness("MaterialEditor");
+	ModuleHarness.Start(Module);
 	const std::string MaterialClass =
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString();
 	const std::string InstanceClass =
@@ -84,13 +87,14 @@ TEST(FMaterialAssetThumbnailTests, ModuleOwnsBothExactProvidersAndWorkspaceLifec
 	EXPECT_FALSE(Service.Find(InstanceClass));
 	EXPECT_EQ(Manager.FindWorkspace(
 		Durin::Editor::FWorkspaceTypeId("MaterialEditor")), nullptr);
+	ModuleHarness.Shutdown();
 }
 
 TEST(FMaterialAssetThumbnailTests, ProviderConflictRollsBackWholeIntegration)
 {
 	InitializeDObjectSystem();
 	Durin::Editor::FWorkspaceManager Manager;
-	Durin::Editor::FRenderedAssetThumbnailService Service;
+	Durin::Editor::FAssetThumbnailProviderRegistry Service;
 	std::string Error;
 	auto Existing = Service.RegisterScoped(
 		std::make_unique<Durin::Editor::Material::FMaterialAssetThumbnailProvider>(
@@ -98,6 +102,8 @@ TEST(FMaterialAssetThumbnailTests, ProviderConflictRollsBackWholeIntegration)
 		Error);
 	ASSERT_TRUE(Existing) << Error;
 	Durin::FMaterialEditorModule Module;
+	Durin::FModuleTestHarness ModuleHarness("MaterialEditor");
+	ModuleHarness.Start(Module);
 	EXPECT_FALSE(Module.RegisterMaterialEditor(Manager, Service));
 	EXPECT_FALSE(Service.Find(
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString()));
@@ -105,6 +111,7 @@ TEST(FMaterialAssetThumbnailTests, ProviderConflictRollsBackWholeIntegration)
 		Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_EQ(Manager.FindWorkspace(
 		Durin::Editor::FWorkspaceTypeId("MaterialEditor")), nullptr);
+	ModuleHarness.Shutdown();
 }
 
 TEST(FMaterialAssetThumbnailTests, ProviderCapturesSortedTransitiveMaterialDependencies)
@@ -261,7 +268,7 @@ TEST(FMaterialAssetThumbnailTests, InvalidInstancePublishesOneStableDiagnostic)
 		Durin::Asset::FindAssetExact(InvalidPath);
 	ASSERT_NE(Data, nullptr);
 
-	Durin::Editor::FRenderedAssetThumbnailService Service;
+	Durin::Editor::FAssetThumbnailProviderRegistry Service;
 	auto Handle = Service.RegisterScoped(
 		std::make_unique<Durin::Editor::Material::FMaterialAssetThumbnailProvider>(
 			Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString()),

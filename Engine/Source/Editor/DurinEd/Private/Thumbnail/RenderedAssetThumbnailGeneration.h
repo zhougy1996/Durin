@@ -1,29 +1,15 @@
 #pragma once
 
 #include "Thumbnail/AssetThumbnailObjectStore.h"
-#include "Thumbnail/AssetThumbnailScheduler.h"
+#include "Thumbnail/RenderedAssetThumbnailCache.h"
+#include "RenderedThumbnailRequestQueue.h"
 
 namespace Durin::Editor
 {
-	// Reports deterministic rendered-generation activity without exposing backend-specific objects.
-	struct FRenderedAssetThumbnailPipelineStats
-	{
-		uint64 Jobs = 0;
-		uint64 Loads = 0;
-		uint64 ResourceWaits = 0;
-		uint64 Renders = 0;
-		uint64 Readbacks = 0;
-		uint64 DiskHits = 0;
-		uint64 Failures = 0;
-		uint64 Retries = 0;
-		uint64 Cancellations = 0;
-		uint64 Evictions = 0;
-	};
-
 	// Identifies one cold generation while asynchronous game, render, and worker completions are outstanding.
 	struct FRenderedAssetThumbnailJob
 	{
-		FAssetThumbnailScheduledJob ScheduledJob;
+		FRenderedThumbnailScheduledRequest ScheduledJob;
 		uint64 AssetRevision = 0;
 		uint64 ResourceRevision = 0;
 	};
@@ -32,22 +18,22 @@ namespace Durin::Editor
 	struct FRenderedAssetThumbnailStartResult
 	{
 		std::optional<FRenderedAssetThumbnailJob> ColdJob;
-		std::optional<FAssetThumbnailScheduledJob> WarmJob;
+		std::optional<FRenderedThumbnailScheduledRequest> WarmJob;
 		std::vector<std::byte> EncodedBytes;
 	};
 
 	// Coordinates bounded rendered-thumbnail transitions and persistent publication across owning threads.
-	class FRenderedAssetThumbnailPipeline
+	class FRenderedAssetThumbnailGeneration
 	{
 	public:
-		DURINED_API FRenderedAssetThumbnailPipeline(
-			FAssetThumbnailScheduler& Scheduler,
+		DURINED_API FRenderedAssetThumbnailGeneration(
+			FRenderedThumbnailRequestQueue& Scheduler,
 			FAssetThumbnailObjectStoreSettings StoreSettings = {},
 			FAssetThumbnailBudgets Budgets = {});
-		DURINED_API ~FRenderedAssetThumbnailPipeline();
+		DURINED_API ~FRenderedAssetThumbnailGeneration();
 
-		FRenderedAssetThumbnailPipeline(const FRenderedAssetThumbnailPipeline&) = delete;
-		FRenderedAssetThumbnailPipeline& operator=(const FRenderedAssetThumbnailPipeline&) = delete;
+		FRenderedAssetThumbnailGeneration(const FRenderedAssetThumbnailGeneration&) = delete;
+		FRenderedAssetThumbnailGeneration& operator=(const FRenderedAssetThumbnailGeneration&) = delete;
 
 		// Resets the render-start allowance; callers invoke this once on the game thread per editor frame.
 		DURINED_API auto BeginFrame() -> void;
@@ -105,7 +91,7 @@ namespace Durin::Editor
 		DURINED_API auto Cancel(const FRenderedAssetThumbnailJob& Job) -> void;
 		DURINED_API auto RecordRetry() -> void;
 		DURINED_API auto InvalidatePersistentObject(std::string_view CacheKey) -> void;
-		DURINED_API auto GetStats() const -> FRenderedAssetThumbnailPipelineStats;
+		DURINED_API auto GetStats() const -> FRenderedAssetThumbnailGenerationStats;
 
 	private:
 		auto StartNextDetailed(bool bGeneratedPixelsOnly)

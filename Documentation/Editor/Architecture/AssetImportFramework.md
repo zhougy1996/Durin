@@ -69,6 +69,13 @@ component identity, contract/schema version, source recognition, output class,
 planning-pass order, and persisted provenance. Selection is deterministic and an
 ambiguous or incompatible match fails with structured evidence.
 
+Each service instance owns both its component registrations and its asynchronous
+job store. Operation handles observe retained request state and carry only a weak
+cancellation route back to that store; they never retain a service pointer. A
+different service instance cannot cancel, inspect, or drain those jobs, and
+service destruction closes admission and drains every accepted request before
+releasing its implementation state.
+
 Each exact registration retains the module callback gate and resource lease.
 A submitted or cached value retains component leases through invocation and
 destruction; preview-product cache entries are discarded during component

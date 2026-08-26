@@ -1,5 +1,6 @@
 #include "AssetForge/ImportService.h"
 #include "ComponentRegistryInternal.h"
+#include "ImportServicePrivate.h"
 #include "AssetForge/Operations/ImportExecution.h"
 
 namespace Durin::AssetForge
@@ -58,16 +59,13 @@ namespace Durin::AssetForge
 			Role, RegistrationId, RegistrationIdentity);
 	}
 
-	struct FImportService::FImpl
-	{
-		FComponentRegistryStore Import;
-	};
-
 	FImportService::FImportService()
 		: Lifetime(std::make_shared<uint8>(0)), Impl(std::make_unique<FImpl>()) {}
 
 	FImportService::~FImportService()
 	{
+		CloseAsyncAdmission();
+		CancelAndDrainAllAsyncImports();
 		Lifetime.reset();
 	}
 

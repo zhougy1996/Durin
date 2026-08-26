@@ -117,6 +117,8 @@ namespace Durin
 		ENGINE_API auto MarkCompilationAsCanceled(DObject& Object) -> void;
 		ENGINE_API auto FinishAllCompilation() -> FAssetCompileProcessResult;
 		ENGINE_API auto GetDiagnostics() const -> FAssetCompilingManagerDiagnostics;
+		ENGINE_API auto FindDomain(FName DomainName) const
+			-> std::shared_ptr<IAssetCompilationDomain>;
 		ENGINE_API auto OnAssetPostCompile() -> FAssetPostCompileEvent&;
 		ENGINE_API auto Shutdown() -> void;
 		ENGINE_API auto IsAcceptingRequests() const -> bool;

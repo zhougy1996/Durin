@@ -1,10 +1,10 @@
-#include "Thumbnail/AssetThumbnailScheduler.h"
+#include "Thumbnail/RenderedThumbnailRequestQueue.h"
 
 #include "Thumbnail/AssetThumbnailKey.h"
 
 namespace Durin::Editor
 {
-	struct FAssetThumbnailScheduler::FImpl
+	struct FRenderedThumbnailRequestQueue::FImpl
 	{
 		struct FEntry
 		{
@@ -18,18 +18,18 @@ namespace Durin::Editor
 		FAssetThumbnailProviderRegistry& Registry;
 		FAssetThumbnailBudgets Budgets;
 		std::unordered_map<std::string, FEntry> Entries;
-		std::vector<FAssetThumbnailScheduledJob> Queue;
+		std::vector<FRenderedThumbnailScheduledRequest> Queue;
 		bool bShuttingDown = false;
 
 		auto RemoveQueuedJob(std::string_view CacheKey) -> void
 		{
-			std::erase_if(Queue, [CacheKey](const FAssetThumbnailScheduledJob& Job) {
+			std::erase_if(Queue, [CacheKey](const FRenderedThumbnailScheduledRequest& Job) {
 				return Job.CacheKey == CacheKey;
 			});
 		}
 	};
 
-	FAssetThumbnailScheduler::FAssetThumbnailScheduler(
+	FRenderedThumbnailRequestQueue::FRenderedThumbnailRequestQueue(
 		FAssetThumbnailProviderRegistry& Registry,
 		FAssetThumbnailBudgets Budgets
 	)
@@ -39,12 +39,12 @@ namespace Durin::Editor
 	{
 	}
 
-	FAssetThumbnailScheduler::~FAssetThumbnailScheduler()
+	FRenderedThumbnailRequestQueue::~FRenderedThumbnailRequestQueue()
 	{
 		Shutdown();
 	}
 
-	auto FAssetThumbnailScheduler::Request(
+	auto FRenderedThumbnailRequestQueue::Request(
 		const FAssetThumbnailRequest& Request,
 		std::string& OutError
 	) -> bool
@@ -111,7 +111,7 @@ namespace Durin::Editor
 					if (Entry.State == EAssetThumbnailState::Queued
 						&& Request.Priority == EAssetThumbnailPriority::Visible)
 					{
-						for (FAssetThumbnailScheduledJob& Job : Impl->Queue)
+						for (FRenderedThumbnailScheduledRequest& Job : Impl->Queue)
 							if (Job.CacheKey == CacheKey)
 								Job.Priority = EAssetThumbnailPriority::Visible;
 					}
@@ -122,7 +122,7 @@ namespace Durin::Editor
 				{
 					Entry.RequestSerial = Request.RequestSerial;
 					Entry.GenerationRequest.RequestSerial = Request.RequestSerial;
-					for (FAssetThumbnailScheduledJob& Job : Impl->Queue)
+					for (FRenderedThumbnailScheduledRequest& Job : Impl->Queue)
 					{
 						if (Job.CacheKey != CacheKey) continue;
 						Job.GenerationRequest.RequestSerial = Request.RequestSerial;
@@ -158,7 +158,7 @@ namespace Durin::Editor
 		return true;
 	}
 
-	auto FAssetThumbnailScheduler::Find(const FAssetPath& AssetPath) const -> FAssetThumbnailView
+	auto FRenderedThumbnailRequestQueue::Find(const FAssetPath& AssetPath) const -> FAssetThumbnailView
 	{
 		const auto It = Impl->Entries.find(AssetPath.ToString());
 		if (It == Impl->Entries.end()) return {};
@@ -169,35 +169,35 @@ namespace Durin::Editor
 			.RequestSerial = Entry.RequestSerial};
 	}
 
-	auto FAssetThumbnailScheduler::TakeNext() -> std::optional<FAssetThumbnailScheduledJob>
+	auto FRenderedThumbnailRequestQueue::TakeNext() -> std::optional<FRenderedThumbnailScheduledRequest>
 	{
 		return TakeNext(false);
 	}
 
-	auto FAssetThumbnailScheduler::TakeNextGeneratedPixels()
-		-> std::optional<FAssetThumbnailScheduledJob>
+	auto FRenderedThumbnailRequestQueue::TakeNextGeneratedPixels()
+		-> std::optional<FRenderedThumbnailScheduledRequest>
 	{
 		return TakeNext(true);
 	}
 
-	auto FAssetThumbnailScheduler::TakeNext(bool bGeneratedPixelsOnly)
-		-> std::optional<FAssetThumbnailScheduledJob>
+	auto FRenderedThumbnailRequestQueue::TakeNext(bool bGeneratedPixelsOnly)
+		-> std::optional<FRenderedThumbnailScheduledRequest>
 	{
 		if (Impl->bShuttingDown || Impl->Queue.empty()) return std::nullopt;
 		auto IsEligible = [bGeneratedPixelsOnly](
-			const FAssetThumbnailScheduledJob& Job) {
+			const FRenderedThumbnailScheduledRequest& Job) {
 			return !bGeneratedPixelsOnly || Job.GenerationRequest.GeneratedPixels != nullptr;
 		};
 		auto Selected = std::ranges::find_if(
 			Impl->Queue,
-			[&](const FAssetThumbnailScheduledJob& Job) {
+			[&](const FRenderedThumbnailScheduledRequest& Job) {
 				return IsEligible(Job)
 					&& Job.Priority == EAssetThumbnailPriority::Visible;
 			});
 		if (Selected == Impl->Queue.end())
 			Selected = std::ranges::find_if(Impl->Queue, IsEligible);
 		if (Selected == Impl->Queue.end()) return std::nullopt;
-		FAssetThumbnailScheduledJob Job = std::move(*Selected);
+		FRenderedThumbnailScheduledRequest Job = std::move(*Selected);
 		Impl->Queue.erase(Selected);
 		const std::string AssetPath = Job.GenerationRequest.KeyInput.Asset.VirtualPath.ToString();
 		const auto Entry = Impl->Entries.find(AssetPath);
@@ -222,8 +222,8 @@ namespace Durin::Editor
 		return Job;
 	}
 
-	auto FAssetThumbnailScheduler::Transition(
-		const FAssetThumbnailScheduledJob& Job,
+	auto FRenderedThumbnailRequestQueue::Transition(
+		const FRenderedThumbnailScheduledRequest& Job,
 		EAssetThumbnailState ExpectedState,
 		EAssetThumbnailState NextState,
 		uint64 AssetRevision,
@@ -258,7 +258,7 @@ namespace Durin::Editor
 		return true;
 	}
 
-	auto FAssetThumbnailScheduler::Cancel(const FAssetPath& AssetPath) -> void
+	auto FRenderedThumbnailRequestQueue::Cancel(const FAssetPath& AssetPath) -> void
 	{
 		const auto It = Impl->Entries.find(AssetPath.ToString());
 		if (It == Impl->Entries.end()) return;
@@ -267,7 +267,7 @@ namespace Durin::Editor
 		Impl->Entries.erase(It);
 	}
 
-	auto FAssetThumbnailScheduler::CancelAll() -> void
+	auto FRenderedThumbnailRequestQueue::CancelAll() -> void
 	{
 		for (auto& [AssetPath, Entry] : Impl->Entries)
 			Entry.GenerationRequest.Cancellation.Cancel();
@@ -275,19 +275,19 @@ namespace Durin::Editor
 		Impl->Entries.clear();
 	}
 
-	auto FAssetThumbnailScheduler::Shutdown() -> void
+	auto FRenderedThumbnailRequestQueue::Shutdown() -> void
 	{
 		if (Impl->bShuttingDown) return;
 		Impl->bShuttingDown = true;
 		CancelAll();
 	}
 
-	auto FAssetThumbnailScheduler::NumQueued() const -> size_t
+	auto FRenderedThumbnailRequestQueue::NumQueued() const -> size_t
 	{
 		return Impl->Queue.size();
 	}
 
-	auto FAssetThumbnailScheduler::IsShuttingDown() const -> bool
+	auto FRenderedThumbnailRequestQueue::IsShuttingDown() const -> bool
 	{
 		return Impl->bShuttingDown;
 	}

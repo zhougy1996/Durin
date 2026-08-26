@@ -309,7 +309,8 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesTelemetry)
 
 	// Device invalidation deliberately drops every dependent retained resource;
 	// the next draw reconstructs a complete set on demand.
-	ASSERT_TRUE(Durin::RequestRendererDeviceInvalidation().bSuccess);
+	ASSERT_TRUE(Renderer.RequestResourceInvalidation(
+		Durin::ERendererResourceInvalidationCause::Device).bSuccess);
 	Durin::FlushRenderingCommands();
 	Durin::EnqueueRenderCommand<FTerrainRenderCommand>(
 		[&Renderer, &Scene](Durin::FRHICommandListImmediate& CommandList) {

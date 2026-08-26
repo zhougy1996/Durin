@@ -7,7 +7,6 @@ namespace Durin::AssetForge
 {
 	struct FAsyncImportExecutionState;
 	struct FImportJobOperationState;
-	class FImportJobRegistry;
 	class FImportOperationHandle;
 
 	enum class EAsyncImportPlanStatus : uint8
@@ -138,7 +137,6 @@ namespace Durin::AssetForge
 		std::shared_ptr<FImportJobOperationState> JobState;
 
 		friend class FImportService;
-		friend class FImportJobRegistry;
 	};
 
 	// Synchronous provider code can poll this at bounded CPU phase boundaries.

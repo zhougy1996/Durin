@@ -16,7 +16,7 @@
 #include "TextureEditorModule.h"
 #include "StaticMeshEditorModule.h"
 #include "SkeletalMeshEditorModule.h"
-#include "Thumbnail/RenderedAssetThumbnailService.h"
+#include "Thumbnail/AssetThumbnailProvider.h"
 #include "MonaImGui.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -123,7 +123,7 @@ namespace Durin::Editor::MainFrame
 			::Durin::FTextureEditorModule& TextureEditorModule,
 			::Durin::FStaticMeshEditorModule& StaticMeshEditorModule,
 			::Durin::FSkeletalMeshEditorModule& SkeletalMeshEditorModule,
-			Editor::FRenderedAssetThumbnailService& ThumbnailService,
+			Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
 			FEditorNotificationOverlay& Activity
 		) -> bool
 		{
@@ -226,8 +226,8 @@ namespace Durin::Editor::MainFrame
 				FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
 				FModuleManager::Get().LoadModuleChecked("TerrainBuild");
 				FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
-				Editor::FRenderedAssetThumbnailService& ThumbnailService =
-					Editor::GetDefaultRenderedAssetThumbnailService();
+				Editor::FAssetThumbnailProviderRegistry& ThumbnailService =
+					Editor::GetDefaultAssetThumbnailProviderRegistry();
 				::Durin::FLevelEditorModule& LevelEditorModule =
 					FModuleManager::LoadModuleChecked<::Durin::FLevelEditorModule>("LevelEditor");
 				::Durin::FMaterialEditorModule& MaterialEditorModule =

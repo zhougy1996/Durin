@@ -8,12 +8,6 @@
 
 namespace Durin
 {
-	namespace
-	{
-		FRendererResourceCoordinator* GActiveRendererResourceCoordinator =
-			nullptr;
-	}
-
 	struct FRendererResourceCoordinator::FSharedState
 	{
 		std::mutex Mutex;
@@ -234,33 +228,4 @@ namespace Durin
 		ForceRecompileShaderGeneration.reset();
 	}
 
-	auto GetRendererResourceCoordinator() -> FRendererResourceCoordinator&
-	{
-		check(GActiveRendererResourceCoordinator != nullptr);
-		return *GActiveRendererResourceCoordinator;
-	}
-
-	auto SetActiveRendererResourceCoordinator(
-		FRendererResourceCoordinator* Coordinator) -> void
-	{
-		GActiveRendererResourceCoordinator = Coordinator;
-	}
-
-	auto RequestRendererDeviceInvalidation() -> FConsoleCommandResult
-	{
-		if (GActiveRendererResourceCoordinator == nullptr)
-		{
-			return FConsoleCommandResult::Failure(
-				"Renderer resource invalidation is not available.");
-		}
-		return GActiveRendererResourceCoordinator->Request(
-			ERendererResourceInvalidationCause::Device);
-	}
-
-	auto GetRendererResourceInvalidationSnapshot_RenderThread()
-		-> FRendererResourceInvalidationSnapshot
-	{
-		check(IsInRenderingThread());
-		return GetRendererResourceCoordinator().GetSnapshot_RenderThread();
-	}
 } // namespace Durin

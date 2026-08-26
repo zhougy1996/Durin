@@ -1,4 +1,4 @@
-#include "Thumbnail/RenderedAssetThumbnailPipeline.h"
+#include "Thumbnail/RenderedAssetThumbnailGeneration.h"
 
 namespace Durin::Editor
 {
@@ -99,10 +99,10 @@ namespace Durin::Editor
 		}
 	}
 
-	struct FRenderedAssetThumbnailPipeline::FImpl
+	struct FRenderedAssetThumbnailGeneration::FImpl
 	{
 		FImpl(
-			FAssetThumbnailScheduler& InScheduler,
+			FRenderedThumbnailRequestQueue& InScheduler,
 			FAssetThumbnailObjectStoreSettings StoreSettings,
 			FAssetThumbnailBudgets InBudgets)
 			: Scheduler(InScheduler)
@@ -111,10 +111,10 @@ namespace Durin::Editor
 		{
 		}
 
-		FAssetThumbnailScheduler& Scheduler;
+		FRenderedThumbnailRequestQueue& Scheduler;
 		FAssetThumbnailObjectStore Store;
 		FAssetThumbnailBudgets Budgets;
-		FRenderedAssetThumbnailPipelineStats Stats;
+		FRenderedAssetThumbnailGenerationStats Stats;
 		uint32 RendersStartedThisFrame = 0;
 
 		auto Fail(
@@ -133,8 +133,8 @@ namespace Durin::Editor
 		}
 	};
 
-	FRenderedAssetThumbnailPipeline::FRenderedAssetThumbnailPipeline(
-		FAssetThumbnailScheduler& Scheduler,
+	FRenderedAssetThumbnailGeneration::FRenderedAssetThumbnailGeneration(
+		FRenderedThumbnailRequestQueue& Scheduler,
 		FAssetThumbnailObjectStoreSettings StoreSettings,
 		FAssetThumbnailBudgets Budgets
 	)
@@ -142,35 +142,35 @@ namespace Durin::Editor
 	{
 	}
 
-	FRenderedAssetThumbnailPipeline::~FRenderedAssetThumbnailPipeline() = default;
+	FRenderedAssetThumbnailGeneration::~FRenderedAssetThumbnailGeneration() = default;
 
-	auto FRenderedAssetThumbnailPipeline::BeginFrame() -> void
+	auto FRenderedAssetThumbnailGeneration::BeginFrame() -> void
 	{
 		Impl->RendersStartedThisFrame = 0;
 	}
 
-	auto FRenderedAssetThumbnailPipeline::StartNext() -> std::optional<FRenderedAssetThumbnailJob>
+	auto FRenderedAssetThumbnailGeneration::StartNext() -> std::optional<FRenderedAssetThumbnailJob>
 	{
 		return StartNextDetailed().ColdJob;
 	}
 
-	auto FRenderedAssetThumbnailPipeline::StartNextDetailed()
+	auto FRenderedAssetThumbnailGeneration::StartNextDetailed()
 		-> FRenderedAssetThumbnailStartResult
 	{
 		return StartNextDetailed(false);
 	}
 
-	auto FRenderedAssetThumbnailPipeline::StartNextGeneratedPixelsDetailed()
+	auto FRenderedAssetThumbnailGeneration::StartNextGeneratedPixelsDetailed()
 		-> FRenderedAssetThumbnailStartResult
 	{
 		return StartNextDetailed(true);
 	}
 
-	auto FRenderedAssetThumbnailPipeline::StartNextDetailed(
+	auto FRenderedAssetThumbnailGeneration::StartNextDetailed(
 		bool bGeneratedPixelsOnly) -> FRenderedAssetThumbnailStartResult
 	{
 		FRenderedAssetThumbnailStartResult Result;
-		std::optional<FAssetThumbnailScheduledJob> ScheduledJob = bGeneratedPixelsOnly
+		std::optional<FRenderedThumbnailScheduledRequest> ScheduledJob = bGeneratedPixelsOnly
 			? Impl->Scheduler.TakeNextGeneratedPixels()
 			: Impl->Scheduler.TakeNext();
 		if (!ScheduledJob) return Result;
@@ -199,7 +199,7 @@ namespace Durin::Editor
 		return Result;
 	}
 
-	auto FRenderedAssetThumbnailPipeline::CompleteLoad(
+	auto FRenderedAssetThumbnailGeneration::CompleteLoad(
 		FRenderedAssetThumbnailJob& Job,
 		uint64 AssetRevision,
 		std::string_view Error
@@ -214,7 +214,7 @@ namespace Durin::Editor
 		return true;
 	}
 
-	auto FRenderedAssetThumbnailPipeline::BeginRender(
+	auto FRenderedAssetThumbnailGeneration::BeginRender(
 		FRenderedAssetThumbnailJob& Job,
 		bool bResourcesReady,
 		uint64 AssetRevision,
@@ -249,7 +249,7 @@ namespace Durin::Editor
 		return true;
 	}
 
-	auto FRenderedAssetThumbnailPipeline::CompleteRender(
+	auto FRenderedAssetThumbnailGeneration::CompleteRender(
 		const FRenderedAssetThumbnailJob& Job,
 		uint64 AssetRevision,
 		uint64 ResourceRevision,
@@ -266,7 +266,7 @@ namespace Durin::Editor
 			ResourceRevision);
 	}
 
-	auto FRenderedAssetThumbnailPipeline::CompleteReadback(
+	auto FRenderedAssetThumbnailGeneration::CompleteReadback(
 		const FRenderedAssetThumbnailJob& Job,
 		uint64 AssetRevision,
 		uint64 ResourceRevision,
@@ -286,7 +286,7 @@ namespace Durin::Editor
 		return true;
 	}
 
-	auto FRenderedAssetThumbnailPipeline::CompleteEncoding(
+	auto FRenderedAssetThumbnailGeneration::CompleteEncoding(
 		const FRenderedAssetThumbnailJob& Job,
 		uint64 AssetRevision,
 		uint64 ResourceRevision,
@@ -316,7 +316,7 @@ namespace Durin::Editor
 			ResourceRevision);
 	}
 
-	auto FRenderedAssetThumbnailPipeline::CompletePixels(
+	auto FRenderedAssetThumbnailGeneration::CompletePixels(
 		const FRenderedAssetThumbnailJob& Job,
 		uint64 AssetRevision,
 		uint64 ResourceRevision,
@@ -347,7 +347,7 @@ namespace Durin::Editor
 			Job, AssetRevision, ResourceRevision, EncodedBytes);
 	}
 
-	auto FRenderedAssetThumbnailPipeline::CompleteGeneratedPixels(
+	auto FRenderedAssetThumbnailGeneration::CompleteGeneratedPixels(
 		FRenderedAssetThumbnailJob& Job,
 		uint64 AssetRevision,
 		std::span<const std::byte> Pixels,
@@ -367,7 +367,7 @@ namespace Durin::Editor
 			Pixels, Width, Height);
 	}
 
-	auto FRenderedAssetThumbnailPipeline::Cancel(const FRenderedAssetThumbnailJob& Job) -> void
+	auto FRenderedAssetThumbnailGeneration::Cancel(const FRenderedAssetThumbnailJob& Job) -> void
 	{
 		if (!Job.ScheduledJob.GenerationRequest.Cancellation.IsCancelled())
 		{
@@ -376,20 +376,20 @@ namespace Durin::Editor
 		}
 	}
 
-	auto FRenderedAssetThumbnailPipeline::RecordRetry() -> void
+	auto FRenderedAssetThumbnailGeneration::RecordRetry() -> void
 	{
 		++Impl->Stats.Retries;
 	}
 
-	auto FRenderedAssetThumbnailPipeline::InvalidatePersistentObject(
+	auto FRenderedAssetThumbnailGeneration::InvalidatePersistentObject(
 		std::string_view CacheKey) -> void
 	{
 		Impl->Store.Invalidate(CacheKey);
 	}
 
-	auto FRenderedAssetThumbnailPipeline::GetStats() const -> FRenderedAssetThumbnailPipelineStats
+	auto FRenderedAssetThumbnailGeneration::GetStats() const -> FRenderedAssetThumbnailGenerationStats
 	{
-		FRenderedAssetThumbnailPipelineStats Stats = Impl->Stats;
+		FRenderedAssetThumbnailGenerationStats Stats = Impl->Stats;
 		Stats.Evictions = Impl->Store.GetStats().Evictions;
 		return Stats;
 	}

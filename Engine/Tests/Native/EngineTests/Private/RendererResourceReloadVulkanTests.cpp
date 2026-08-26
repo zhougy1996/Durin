@@ -265,10 +265,10 @@ float4 FragmentMain() : SV_Target
 				}
 			};
 			EnqueueRenderCommand<FResolveReloadValidationResource>(
-				[&Slot, &Diagnostics, &Attempts, &ForceFlags, Observation](
+				[&Renderer, &Slot, &Diagnostics, &Attempts, &ForceFlags, Observation](
 					FRHICommandListImmediate&) {
 					Observation->Snapshot =
-						GetRendererResourceInvalidationSnapshot_RenderThread();
+						Renderer.GetResourceInvalidationSnapshot_RenderThread();
 					using FResult =
 						TRenderResourceCreateResult<FReloadTestPayload>;
 					Observation->Payload = Slot.Resolve(

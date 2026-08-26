@@ -4,21 +4,18 @@ Summary: Collapse redundant compilation, thumbnail, import, and renderer ownersh
 
 Last reviewed: 2026-08-26
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-26
 
 ## Current Status
 
-Selected and ready for Stage 0. The preceding asset-compilation refactor
-established `FAssetCompilingManager` plus concrete compilation domains and
-removed Texture2D's independent Coordinator/Service/Scheduler architecture.
-A follow-up source audit found the same ownership duplication in material
-compilation, a deeper public layering stack in rendered thumbnails, a hidden
-process job registry behind `FImportService`, and simultaneous dependency
-injection and active-global lookup for renderer resource invalidation.
-
-No implementation in this plan has started. Stage 0 must freeze the retained
-behavior and symbol-removal audits before any public thumbnail surface changes.
+Completed. Material compilation state is domain-owned, rendered-thumbnail
+registration and cache ownership are explicit, async import jobs are isolated
+per `FImportService` instance, and renderer invalidation enters through
+`FRendererModule`. The touched stateless authoring boundaries now use operation
+names. Focused tests, applicable Vulkan integration tests, the full build,
+editor startup smoke, documentation validation, and removed-symbol audits form
+the completion evidence recorded below.
 
 ## Goal
 
@@ -35,7 +32,7 @@ behavior and symbol-removal audits before any public thumbnail surface changes.
 
 ## Scope
 
-- Fold `FMaterialCompileService` state and behavior directly into
+- Fold material compilation state and behavior directly into
   `FMaterialCompilationDomain`, including task scope, single-flight records,
   retained programs, mailbox, diagnostics, and shutdown.
 - Consolidate rendered-thumbnail ownership around one provider-registration
@@ -160,41 +157,39 @@ persistent object formats remain unchanged.
 - `FTexture2DCompilationDomain` is the reference shape: the domain directly
   owns per-asset state, bounded worker admission, fairness, memory budget,
   cancellation, mailbox, diagnostics, and GameThread publication.
-- Material compilation still uses
-  `FMaterialCompilationDomain -> GMaterialCompileService`; the domain mostly
-  forwards lifecycle and aggregate operations to the service.
-- Material objects and tests also enter compilation through
-  `FMaterialCompileServiceAccess`, exposing the implementation-layer name
-  beyond the domain owner.
+- Material compilation still uses a domain-to-process-singleton forwarding
+  path; the domain mostly forwards lifecycle and aggregate operations.
+- Material objects and tests also enter compilation through a compile-service
+  access shim, exposing the implementation layer beyond the domain owner.
 - Rendered thumbnails currently expose provider registry, rendered-thumbnail
   service, scheduler, pipeline, and cache types. The service forwards registry
   operations, while each cache separately composes a scheduler and pipeline.
 - `AssetThumbnailContractTests.cpp` constructs the intermediate thumbnail
   layers directly across many tests, making their existence appear contractual.
 - `FImportService` owns component registration state, but every async operation
-  forwards to a function-local process `FImportJobRegistry` singleton.
+  forwards to a function-local process job-registry singleton.
 - Renderer sub-renderers already receive the coordinator by reference, while
-  device invalidation and test seams also use `GActiveRendererResourceCoordinator`.
-- `FSkyBoxLevelAuthoringService` and `FMaterialGraphService` are stateless
-  static function containers; their `Service` suffix communicates ownership
-  that they do not have.
+  device invalidation and test seams also use an active-global coordinator.
+- The SkyBox and material-graph authoring helpers are stateless static function
+  containers; their former `Service` suffix communicated ownership that they
+  do not have.
 
 ## Implementation Stages
 
 ### Stage 0: Define the implementation boundary
 
-- [ ] Record baseline behavior and focused test counts for `MaterialTests`,
+- [x] Record baseline behavior and focused test counts for `MaterialTests`,
   `ThumbnailTests`, `MaterialThumbnailTests`, `TextureThumbnailTests`,
   `StaticMeshThumbnailTests`, `AssetForgeTests`, and `EditorRenderingTests`.
-- [ ] Audit every non-archive source and documentation reference to the symbols
+- [x] Audit every non-archive source and documentation reference to the symbols
   selected for removal, including private test access and module registration
   signatures.
-- [ ] Confirm the final thumbnail public surface: one provider-registration
+- [x] Confirm the final thumbnail public surface: one provider-registration
   owner plus `FRenderedAssetThumbnailCache`, with queue and generation pipeline
   types private to the cache implementation.
-- [ ] Select the explicit renderer invalidation entry point and prove its
+- [x] Select the explicit renderer invalidation entry point and prove its
   lifetime is bounded by RendererModule/SceneRenderer shutdown.
-- [ ] Record any static `Service` rename that would create source churn outside
+- [x] Record any static `Service` rename that would create source churn outside
   the already touched authoring modules; defer broad or ambiguous renames.
 
 #### Acceptance Gate
@@ -205,19 +200,20 @@ persistent object formats remain unchanged.
 
 ### Stage 1: Make material compilation domain-owned
 
-- [ ] Move task scope, attribution, flight table, completion mailbox, retained
+- [x] Move task scope, attribution, flight table, completion mailbox, retained
   program cache, budgets, diagnostics, and admission state into
   `FMaterialCompilationDomain`.
-- [ ] Remove `FMaterialCompileService` and `GMaterialCompileService` without
+- [x] Remove the material compile forwarding container and its process-global
+  owner without
   changing GameThread publication or worker value ownership.
-- [ ] Replace `FMaterialCompileServiceAccess` with domain-neutral material
+- [x] Replace the compile-service access shim with domain-neutral material
   lifecycle functions or narrowly named private access required by `DMaterial`.
-- [ ] Preserve object construction fallback, normalization failure behavior,
+- [x] Preserve object construction fallback, normalization failure behavior,
   single-flight consumers, force recompilation, owner cancellation, stale
   result rejection, and last-known-good state.
-- [ ] Update material compilation tests to exercise the domain/public material
+- [x] Update material compilation tests to exercise the domain/public material
   lifecycle rather than the removed service layer.
-- [ ] Update the asset-compilation and material-system contracts.
+- [x] Update the asset-compilation and material-system contracts.
 
 #### Acceptance Gate
 
@@ -227,22 +223,22 @@ persistent object formats remain unchanged.
 
 ### Stage 2: Consolidate rendered-thumbnail ownership
 
-- [ ] Remove the forwarding `FRenderedAssetThumbnailService` or merge its
-  registration API into the selected provider registry boundary.
-- [ ] Migrate editor feature module registrations to the retained registry
+- [x] Remove the forwarding rendered-thumbnail facade and retain its
+  registration API on the selected provider registry boundary.
+- [x] Migrate editor feature module registrations to the retained registry
   type and preserve unload-safe owner gates, generations, exact-class lookup,
   source-image capture, replacement, and shutdown behavior.
-- [ ] Move request coalescing, priority ordering, queue budgets, state
+- [x] Move request coalescing, priority ordering, queue budgets, state
   transitions, persistent-object interaction, and pipeline statistics under
   `FRenderedAssetThumbnailCache` private implementation.
-- [ ] Remove public `FAssetThumbnailScheduler` and
-  `FRenderedAssetThumbnailPipeline` construction from production consumers.
-- [ ] Preserve warm hits, generated-pixel bypass, parked resource waits,
+- [x] Remove public `FRenderedThumbnailRequestQueue` and
+  `FRenderedAssetThumbnailGeneration` construction from production consumers.
+- [x] Preserve warm hits, generated-pixel bypass, parked resource waits,
   preview render allowance, retry, cancellation, stale revision rejection,
   upload, GPU eviction, and persistent publication.
-- [ ] Rewrite thumbnail tests around registry and cache behavior; retain small
+- [x] Rewrite thumbnail tests around registry and cache behavior; retain small
   direct tests only for independent pure object-store/key algorithms.
-- [ ] Update thumbnail and asynchronous editor-operation contracts.
+- [x] Update thumbnail and asynchronous editor-operation contracts.
 
 #### Acceptance Gate
 
@@ -253,18 +249,18 @@ persistent object formats remain unchanged.
 
 ### Stage 3: Give import jobs to FImportService
 
-- [ ] Move async job tables, admission, claim ownership, preview ownership,
+- [x] Move async job tables, admission, claim ownership, preview ownership,
   task scope, mailbox/editor steps, provider state, and drain behavior into
   `FImportService::FImpl`-owned state.
-- [ ] Remove the function-local `GetImportJobRegistry()` singleton and the
-  `FImportJobRegistry` friendship from public operation types.
-- [ ] Make `FImportOperationHandle` cancellation resolve only through the
+- [x] Remove the function-local import-job accessor and registry friendship
+  from public operation types.
+- [x] Make `FImportOperationHandle` cancellation resolve only through the
   owning service lifetime without retaining a dangling service pointer.
-- [ ] Preserve inline and submitted execution ordering, cancellation, owner and
+- [x] Preserve inline and submitted execution ordering, cancellation, owner and
   provider drains, component revision checks, and editor tick pumping.
-- [ ] Add isolated multi-instance tests if supported by the public constructor,
+- [x] Add isolated multi-instance tests if supported by the public constructor,
   proving jobs and shutdown state do not leak between service instances.
-- [ ] Update the asset-import architecture contract.
+- [x] Update the asset-import architecture contract.
 
 #### Acceptance Gate
 
@@ -274,17 +270,15 @@ persistent object formats remain unchanged.
 
 ### Stage 4: Remove renderer active-global lookup
 
-- [ ] Route shader reload, retry, and future device invalidation through the
+- [x] Route shader reload, retry, and future device invalidation through the
   Stage 0 selected RendererModule/SceneRenderer request boundary.
-- [ ] Remove `GActiveRendererResourceCoordinator`,
-  `GetRendererResourceCoordinator`, and
-  `SetActiveRendererResourceCoordinator`.
-- [ ] Preserve render-thread generation ordering, forced shader-recompile
+- [x] Remove the active-global coordinator pointer and its get/set accessors.
+- [x] Preserve render-thread generation ordering, forced shader-recompile
   generation, resource release/recreation fan-out, console command owner gates,
   and shutdown rejection.
-- [ ] Update integration test fixtures to own or obtain the coordinator through
+- [x] Update integration test fixtures to own or obtain the coordinator through
   normal composition rather than installing an active global.
-- [ ] Update renderer resource recovery documentation.
+- [x] Update renderer resource recovery documentation.
 
 #### Acceptance Gate
 
@@ -294,13 +288,13 @@ persistent object formats remain unchanged.
 
 ### Stage 5: Clarify stateless authoring APIs
 
-- [ ] Replace `FSkyBoxLevelAuthoringService` with an operation/domain name or
+- [x] Replace the former SkyBox static service container with an operation/domain name or
   namespace consistent with the existing level authoring vocabulary.
-- [ ] Replace `FMaterialGraphService` with an editing/domain name or namespace
+- [x] Name the material graph static container `FMaterialGraphAuthoring`, consistent
   consistent with the material graph authoring contract.
-- [ ] Apply the rename only to stateless static containers confirmed in Stage
+- [x] Apply the rename only to stateless static containers confirmed in Stage
   0; leave stateful services and independently owned managers unchanged.
-- [ ] Update call sites, focused editor tests, and authoritative authoring docs.
+- [x] Update call sites, focused editor tests, and authoritative authoring docs.
 
 #### Acceptance Gate
 
@@ -310,16 +304,16 @@ persistent object formats remain unchanged.
 
 ### Stage 6: Complete cross-domain validation and documentation
 
-- [ ] Run every focused target in the validation matrix after the final stage,
+- [x] Run every focused target in the validation matrix after the final stage,
   not only the target associated with the last code change.
-- [ ] Run the repository-required full build because the plan changes public
+- [x] Run the repository-required full build because the plan changes public
   APIs across Runtime, Developer, and Editor module boundaries.
-- [ ] Run relevant editor/game smoke validation when composition or shutdown
+- [x] Run relevant editor/game smoke validation when composition or shutdown
   code changes require it under the build and testing guides.
-- [ ] Run changed-document and all-plan validation.
-- [ ] Audit non-archive source and documentation for every removed symbol and
+- [x] Run changed-document and all-plan validation.
+- [x] Audit non-archive source and documentation for every removed symbol and
   obsolete ownership statement.
-- [ ] Publish lasting ownership and lifecycle rules in their authoritative
+- [x] Publish lasting ownership and lifecycle rules in their authoritative
   domain documents, then record completion evidence here.
 
 #### Acceptance Gate
@@ -347,23 +341,42 @@ stage-local success cannot hide a later cross-domain regression.
 
 ## Definition of Done
 
-- [ ] Material compilation has no domain-to-service forwarding layer or hidden
+- [x] Material compilation has no domain-to-service forwarding layer or hidden
   global mutable compile owner.
-- [ ] Rendered thumbnails expose one registration boundary and one cache owner;
+- [x] Rendered thumbnails expose one registration boundary and one cache owner;
   queue and pipeline mechanisms are private.
-- [ ] `FImportService` owns all component and async-job state for its lifetime.
-- [ ] Renderer resource invalidation uses explicit composition with no active
+- [x] `FImportService` owns all component and async-job state for its lifetime.
+- [x] Renderer resource invalidation uses explicit composition with no active
   global coordinator pointer.
-- [ ] Selected stateless authoring APIs no longer use misleading `Service`
+- [x] Selected stateless authoring APIs no longer use misleading `Service`
   names.
-- [ ] Removed types have no compatibility facade and no non-archive source or
+- [x] Removed types have no compatibility facade and no non-archive source or
   documentation references.
-- [ ] Tests assert retained behavior at stable owner boundaries and no longer
+- [x] Tests assert retained behavior at stable owner boundaries and no longer
   duplicate coverage solely because intermediate layers existed.
-- [ ] Focused tests, full build, required smoke checks, documentation validators,
+- [x] Focused tests, full build, required smoke checks, documentation validators,
   and source-symbol audits pass.
-- [ ] Authoritative runtime/editor contracts describe the final ownership and
+- [x] Authoritative runtime/editor contracts describe the final ownership and
   lifecycle model, and this plan is marked completed with exact evidence.
+
+## Completion Evidence
+
+- `AssetCompilingManagerTests`: 1/1 passed.
+- `MaterialTests`: 99/99 passed.
+- `ThumbnailTests`: 58/58 passed.
+- `MaterialThumbnailTests`: 6/6 passed.
+- `TextureThumbnailTests`: 9/9 passed.
+- `StaticMeshThumbnailTests`: 9/9 passed.
+- `AssetForgeTests`: 19/19 passed.
+- `EditorRenderingTests`: 77/77 passed.
+- `SkyBoxTests`: 11/11 passed.
+- `RendererResourceReloadVulkanTests`: 1/1 passed.
+- `MaterialVulkanTests`: 1/1 passed.
+- `DevTool build`: the complete `Win64-Debug-DurinEditor` `all` target passed.
+- Editor startup smoke: `DurinEditor` remained running after eight seconds and
+  was then stopped by the smoke harness.
+- Changed-document validation, all-plan validation, diff checks, and the
+  non-archive removed-symbol/file audit passed on 2026-08-26.
 
 ## Deferred Follow-ups
 
@@ -397,7 +410,7 @@ stage-local success cannot hide a later cross-domain regression.
 - `Engine/Source/Editor/DurinEd/Public/Thumbnail/AssetThumbnailProvider.h`
 - `Engine/Source/Editor/DurinEd/Public/Thumbnail/AssetThumbnailScheduler.h`
 - `Engine/Source/Editor/DurinEd/Public/Thumbnail/RenderedAssetThumbnailPipeline.h`
-- `Engine/Source/Editor/DurinEd/Public/Thumbnail/RenderedAssetThumbnailService.h`
+- `Engine/Source/Editor/DurinEd/Public/Thumbnail/AssetThumbnailProvider.h`
 - `Engine/Source/Editor/DurinEd/Private/Thumbnail/RenderedAssetThumbnailCache.cpp`
 - `Engine/Source/Editor/AssetForge/Public/AssetForge/ImportService.h`
 - `Engine/Source/Editor/AssetForge/Private/AsyncImport.cpp`

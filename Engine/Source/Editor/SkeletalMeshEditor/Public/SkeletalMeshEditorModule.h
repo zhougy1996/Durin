@@ -7,7 +7,7 @@ namespace Durin::Editor
 {
 	class FWorkspaceManager;
 	class FWorkspaceRegistrationHandle;
-	class FRenderedAssetThumbnailService;
+	class FAssetThumbnailProviderRegistry;
 	class FAssetThumbnailProviderRegistrationHandle;
 }
 
@@ -22,7 +22,7 @@ namespace Durin
 		SKELETALMESHEDITOR_API auto ShutdownModule() -> void override;
 		SKELETALMESHEDITOR_API auto RegisterSkeletalMeshEditor(
 			::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-			::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService) -> bool;
+			::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService) -> bool;
 		SKELETALMESHEDITOR_API auto UnregisterSkeletalMeshEditor() -> void;
 
 	private:

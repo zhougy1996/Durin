@@ -166,7 +166,7 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToRenderedThumbnails)
 	ASSERT_NE(AssetData, nullptr);
 	std::string RegistrationError;
 	auto ThumbnailRegistration =
-		Editor::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
+		Editor::GetDefaultAssetThumbnailProviderRegistry().RegisterScoped(
 			std::make_unique<FRouteOnlyThumbnailProvider>(AssetData->AssetClassName),
 			RegistrationError);
 	ASSERT_TRUE(ThumbnailRegistration) << RegistrationError;
@@ -202,7 +202,7 @@ TEST_F(FContentBrowserModelTests, SourceProviderWithoutUsableSourceKeepsAssetIco
 	ASSERT_NE(AssetData, nullptr);
 	std::string Error;
 	auto Registration =
-		Editor::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
+		Editor::GetDefaultAssetThumbnailProviderRegistry().RegisterScoped(
 			std::make_unique<FRouteOnlyThumbnailProvider>(
 				AssetData->AssetClassName, true),
 			Error);

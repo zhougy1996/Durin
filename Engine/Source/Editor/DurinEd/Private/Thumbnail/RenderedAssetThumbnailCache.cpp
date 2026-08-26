@@ -1,4 +1,5 @@
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
+#include "Thumbnail/RenderedAssetThumbnailGeneration.h"
 
 #include "DynamicRHI.h"
 #include "Image/ImageDecoder.h"
@@ -57,10 +58,10 @@ namespace Durin::Editor
 			std::string Diagnostic;
 		};
 
-		FRenderedAssetThumbnailService& Service;
+		FAssetThumbnailProviderRegistry& Service;
 		FAssetThumbnailBudgets Budgets;
-		FAssetThumbnailScheduler Scheduler;
-		FRenderedAssetThumbnailPipeline Pipeline;
+		FRenderedThumbnailRequestQueue Scheduler;
+		FRenderedAssetThumbnailGeneration Pipeline;
 		std::unique_ptr<FRenderedAssetThumbnailPreviewScenePool> ScenePool;
 		std::optional<FAssetThumbnailOutputSettings> SceneOutput;
 		std::unordered_map<FAssetPath, FEntry> Entries;
@@ -79,12 +80,12 @@ namespace Durin::Editor
 		uint64 ResourceWaitTimeouts = 0;
 
 		FImpl(
-			FRenderedAssetThumbnailService& InService,
+			FAssetThumbnailProviderRegistry& InService,
 			FAssetThumbnailBudgets InBudgets,
 			FAssetThumbnailObjectStoreSettings StoreSettings)
 			: Service(InService)
 			, Budgets(InBudgets)
-			, Scheduler(Service.Registry, Budgets)
+			, Scheduler(Service, Budgets)
 			, Pipeline(Scheduler, std::move(StoreSettings), Budgets)
 		{
 		}
@@ -578,7 +579,7 @@ namespace Durin::Editor
 				: Pipeline.StartNextDetailed();
 			if (Start.WarmJob)
 			{
-				FAssetThumbnailScheduledJob& WarmJob = *Start.WarmJob;
+				FRenderedThumbnailScheduledRequest& WarmJob = *Start.WarmJob;
 				const FAssetPath& Path =
 					WarmJob.GenerationRequest.KeyInput.Asset.VirtualPath;
 				if (auto It = Entries.find(Path); It != Entries.end())
@@ -680,14 +681,14 @@ namespace Durin::Editor
 		FAssetThumbnailBudgets Budgets,
 		FAssetThumbnailObjectStoreSettings StoreSettings)
 		: FRenderedAssetThumbnailCache(
-			GetDefaultRenderedAssetThumbnailService(),
+			GetDefaultAssetThumbnailProviderRegistry(),
 			Budgets,
 			std::move(StoreSettings))
 	{
 	}
 
 	FRenderedAssetThumbnailCache::FRenderedAssetThumbnailCache(
-		FRenderedAssetThumbnailService& Service,
+		FAssetThumbnailProviderRegistry& Service,
 		FAssetThumbnailBudgets Budgets,
 		FAssetThumbnailObjectStoreSettings StoreSettings)
 		: Impl(std::make_unique<FImpl>(
@@ -819,7 +820,7 @@ namespace Durin::Editor
 		for (const auto& [Path, Entry] : Impl->Entries)
 			LiveGpuTextures += Entry.Texture != nullptr ? 1u : 0u;
 		return {
-			.Pipeline = Impl->Pipeline.GetStats(),
+			.Generation = Impl->Pipeline.GetStats(),
 			.PreviewSceneCreations = Impl->PreviewSceneCreations,
 			.PreviewSceneAssignments = Impl->PreviewSceneAssignments,
 			.UploadsQueued = Impl->UploadsQueued,

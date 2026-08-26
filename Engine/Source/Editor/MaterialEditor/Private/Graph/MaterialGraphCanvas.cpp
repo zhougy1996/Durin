@@ -259,7 +259,7 @@ namespace Durin::Editor::Material
 			const bool bFrameSelectionRequested = ImGui::Button("Frame Selection");
 			ImGui::SameLine();
 			if (ImGui::Button("Auto Layout"))
-				ReportCommand(FMaterialGraphService::Layout(
+				ReportCommand(FMaterialGraphAuthoring::Layout(
 					Material, {}, &Transactions), ReportError);
 			ImGui::SameLine();
 			const char* DetailName = DetailLevel == EMaterialGraphDetailLevel::Overview
@@ -268,17 +268,17 @@ namespace Durin::Editor::Material
 			ImGui::TextDisabled("%s | Wheel: zoom  MMB: pan  LMB: select/drag  Shift: add/replace",
 				DetailName);
 
-			FMaterialGraphView View = FMaterialGraphService::Inspect(Material);
+			FMaterialGraphView View = FMaterialGraphAuthoring::Inspect(Material);
 			if (std::ranges::any_of(View.Nodes,
 				[](const FMaterialGraphNodeView& Node) { return !Node.Presentation; }))
 			{
 				const FMaterialGraphCommandResult Layout =
-					FMaterialGraphService::Layout(Material, {}, &Transactions);
+					FMaterialGraphAuthoring::Layout(Material, {}, &Transactions);
 				ReportCommand(Layout, ReportError);
-				if (Layout) View = FMaterialGraphService::Inspect(Material);
+				if (Layout) View = FMaterialGraphAuthoring::Inspect(Material);
 			}
 			const std::vector<FMaterialGraphCatalogEntry> Catalog =
-				FMaterialGraphService::EnumerateCatalog(Material);
+				FMaterialGraphAuthoring::EnumerateCatalog(Material);
 
 			const ImVec2 CanvasMinimum = ImGui::GetCursorScreenPos();
 			ImVec2 CanvasSize = ImGui::GetContentRegionAvail();
@@ -556,7 +556,7 @@ namespace Durin::Editor::Material
 							FMaterialProgramNode Edited = Visual.View->Node;
 							Edited.Literal = {InlineConstantDraft[0], InlineConstantDraft[1],
 								InlineConstantDraft[2], InlineConstantDraft[3]};
-							ReportCommand(FMaterialGraphService::ReplaceNode(
+							ReportCommand(FMaterialGraphAuthoring::ReplaceNode(
 								Material, std::move(Edited), &Transactions), ReportError);
 						}
 						if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape))
@@ -622,7 +622,7 @@ namespace Durin::Editor::Material
 										InlineConstantDraft[1]};
 								else Value.VectorValue = {InlineConstantDraft[0],
 									InlineConstantDraft[1], InlineConstantDraft[2]};
-								ReportCommand(FMaterialGraphService::SetParameterValue(
+								ReportCommand(FMaterialGraphAuthoring::SetParameterValue(
 									Material, Visual.View->Node.ParameterId,
 									std::move(Value), &Transactions), ReportError);
 								InlineEditNode = {};
@@ -645,7 +645,7 @@ namespace Durin::Editor::Material
 										Edited.ParameterId = Entry.NodeTemplate.ParameterId;
 										Edited.ResultType = Entry.NodeTemplate.ResultType;
 										Edited.DisplayName = Entry.SecondaryName;
-										ReportCommand(FMaterialGraphService::ReplaceNode(
+										ReportCommand(FMaterialGraphAuthoring::ReplaceNode(
 											Material, std::move(Edited), &Transactions), ReportError);
 									}
 								}
@@ -679,7 +679,7 @@ namespace Durin::Editor::Material
 							Edited.SwizzleY = static_cast<uint8>(std::clamp(InlineSwizzleDraft[1], 0, 3));
 							Edited.SwizzleZ = static_cast<uint8>(std::clamp(InlineSwizzleDraft[2], 0, 3));
 							Edited.SwizzleW = static_cast<uint8>(std::clamp(InlineSwizzleDraft[3], 0, 3));
-							ReportCommand(FMaterialGraphService::ReplaceNode(
+							ReportCommand(FMaterialGraphAuthoring::ReplaceNode(
 								Material, std::move(Edited), &Transactions), ReportError);
 						}
 						ImGui::PopID();
@@ -743,7 +743,7 @@ namespace Durin::Editor::Material
 								SurfaceDefaultDrafts[Index].data(), 0.01f);
 						if (ImGui::IsItemDeactivatedAfterEdit())
 						{
-							ReportCommand(FMaterialGraphService::SetSurfaceDefault(
+							ReportCommand(FMaterialGraphAuthoring::SetSurfaceDefault(
 								Material, {.Output = Output, .Value = {
 									SurfaceDefaultDrafts[Index][0],
 									SurfaceDefaultDrafts[Index][1],
@@ -798,7 +798,7 @@ namespace Durin::Editor::Material
 						++CreationDraftInputIndex;
 						if (CreationDraftInputIndex == CreationDraftAcceptedTypes.size())
 						{
-							ReportCommand(FMaterialGraphService::CreateNode(Material,
+							ReportCommand(FMaterialGraphAuthoring::CreateNode(Material,
 								std::move(*CreationDraft), &Transactions), ReportError);
 							CreationDraft.reset();
 							CreationDraftAcceptedTypes.clear();
@@ -889,14 +889,14 @@ namespace Durin::Editor::Material
 				if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
 				{
 					if (HoveredInputNode)
-						ReportCommand(FMaterialGraphService::Connect(Material, {
+						ReportCommand(FMaterialGraphAuthoring::Connect(Material, {
 							.SourceNodeId = LinkSourceNode,
 							.DestinationNodeId = HoveredInputNode->View->Node.Id,
 							.DestinationInputIndex = HoveredInputIndex,
 							.bReplaceExisting = ImGui::GetIO().KeyShift,
 						}, &Transactions), ReportError);
 					else if (HoveredSurfaceOutput)
-						ReportCommand(FMaterialGraphService::AssignSurfaceOutput(Material, {
+						ReportCommand(FMaterialGraphAuthoring::AssignSurfaceOutput(Material, {
 							.Output = *HoveredSurfaceOutput,
 							.SourceNodeId = LinkSourceNode,
 						}, &Transactions), ReportError);
@@ -919,7 +919,7 @@ namespace Durin::Editor::Material
 				if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
 				{
 					if (HoveredOutput)
-						ReportCommand(FMaterialGraphService::Connect(Material, {
+						ReportCommand(FMaterialGraphAuthoring::Connect(Material, {
 							.SourceNodeId = HoveredOutput->View->Node.Id,
 							.DestinationNodeId = ReconnectDestinationNode,
 							.DestinationInputIndex = ReconnectDestinationInputIndex,
@@ -942,7 +942,7 @@ namespace Durin::Editor::Material
 				std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
 				FMaterialGraphClipboardPayload Payload;
 				const FMaterialGraphCommandResult Copied =
-					FMaterialGraphService::CopySelection(Material, Selection, Payload);
+					FMaterialGraphAuthoring::CopySelection(Material, Selection, Payload);
 				ReportCommand(Copied, ReportError);
 				if (Copied) GraphClipboard = std::move(Payload);
 			}
@@ -951,7 +951,7 @@ namespace Durin::Editor::Material
 			{
 				std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
 				FMaterialGraphClipboardPayload Payload;
-				const FMaterialGraphCommandResult Cut = FMaterialGraphService::CutSelection(
+				const FMaterialGraphCommandResult Cut = FMaterialGraphAuthoring::CutSelection(
 					Material, Selection, Payload, &Transactions);
 				ReportCommand(Cut, ReportError);
 				if (Cut)
@@ -965,7 +965,7 @@ namespace Durin::Editor::Material
 			{
 				std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
 				const FMaterialGraphCommandResult Duplicated =
-					FMaterialGraphService::DuplicateNodes(
+					FMaterialGraphAuthoring::DuplicateNodes(
 						Material, Selection, 40, 40, &Transactions);
 				ReportCommand(Duplicated, ReportError);
 				if (Duplicated)
@@ -980,7 +980,7 @@ namespace Durin::Editor::Material
 			{
 				const ImVec2 GraphPosition = Multiply(
 					Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom);
-				const FMaterialGraphCommandResult Pasted = FMaterialGraphService::Paste(
+				const FMaterialGraphCommandResult Pasted = FMaterialGraphAuthoring::Paste(
 					Material, *GraphClipboard,
 					static_cast<int32>(std::round(GraphPosition.x)),
 					static_cast<int32>(std::round(GraphPosition.y)), &Transactions);
@@ -997,7 +997,7 @@ namespace Durin::Editor::Material
 			{
 				std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
 				const FMaterialGraphCommandResult Removed =
-					FMaterialGraphService::RemoveNodes(Material, Selection, &Transactions);
+					FMaterialGraphAuthoring::RemoveNodes(Material, Selection, &Transactions);
 				ReportCommand(Removed, ReportError);
 				if (Removed) SelectedNodes.clear();
 			}
@@ -1058,7 +1058,7 @@ namespace Durin::Editor::Material
 					if (ImGui::BeginMenu("Parameter"))
 					{
 						for (const FMaterialGraphCatalogEntry& Entry
-							: FMaterialGraphService::EnumerateCatalog(Material))
+							: FMaterialGraphAuthoring::EnumerateCatalog(Material))
 						{
 							if (Entry.NodeTemplate.Opcode != Edited.Opcode
 								|| !Entry.NodeTemplate.ParameterId.IsValid()) continue;
@@ -1068,7 +1068,7 @@ namespace Durin::Editor::Material
 								Edited.ParameterId = Entry.NodeTemplate.ParameterId;
 								Edited.ResultType = Entry.NodeTemplate.ResultType;
 								Edited.DisplayName = Entry.NodeTemplate.DisplayName;
-								ReportCommand(FMaterialGraphService::ReplaceNode(
+								ReportCommand(FMaterialGraphAuthoring::ReplaceNode(
 									Material, Edited, &Transactions), ReportError);
 							}
 							ImGui::PopID();
@@ -1078,14 +1078,14 @@ namespace Durin::Editor::Material
 					if (HoveredInputNode == HoveredNode
 						&& ImGui::MenuItem(std::format(
 							"Disconnect Input {}", HoveredInputIndex).c_str()))
-						ReportCommand(FMaterialGraphService::DisconnectInput(
+						ReportCommand(FMaterialGraphAuthoring::DisconnectInput(
 							Material, HoveredNode->View->Node.Id,
 							HoveredInputIndex, &Transactions), ReportError);
 					if (ImGui::MenuItem("Copy"))
 					{
 						FMaterialGraphClipboardPayload Payload;
 						const FMaterialGraphCommandResult Copied =
-							FMaterialGraphService::CopySelection(
+							FMaterialGraphAuthoring::CopySelection(
 								Material, ContextSelection, Payload);
 						ReportCommand(Copied, ReportError);
 						if (Copied) GraphClipboard = std::move(Payload);
@@ -1093,7 +1093,7 @@ namespace Durin::Editor::Material
 					if (ImGui::MenuItem("Duplicate"))
 					{
 						const FMaterialGraphCommandResult Duplicated =
-							FMaterialGraphService::DuplicateNodes(
+							FMaterialGraphAuthoring::DuplicateNodes(
 								Material, ContextSelection, 40, 40, &Transactions);
 						ReportCommand(Duplicated, ReportError);
 						if (Duplicated)
@@ -1107,7 +1107,7 @@ namespace Durin::Editor::Material
 					{
 						FMaterialGraphClipboardPayload Payload;
 						const FMaterialGraphCommandResult Cut =
-							FMaterialGraphService::CutSelection(
+							FMaterialGraphAuthoring::CutSelection(
 								Material, ContextSelection, Payload, &Transactions);
 						ReportCommand(Cut, ReportError);
 						if (Cut)
@@ -1119,7 +1119,7 @@ namespace Durin::Editor::Material
 					if (ImGui::MenuItem("Delete"))
 					{
 						const FGuid Id = HoveredNode->View->Node.Id;
-						ReportCommand(FMaterialGraphService::RemoveNodes(
+						ReportCommand(FMaterialGraphAuthoring::RemoveNodes(
 							Material, std::span(&Id, 1), &Transactions), ReportError);
 					}
 				}
@@ -1136,18 +1136,18 @@ namespace Durin::Editor::Material
 					};
 					if (Link.SourceNodeId.IsValid()
 						&& ImGui::MenuItem("Disconnect to Default"))
-						ReportCommand(FMaterialGraphService::DisconnectSurfaceOutput(
+						ReportCommand(FMaterialGraphAuthoring::DisconnectSurfaceOutput(
 							Material, *HoveredSurfaceOutput, &Transactions), ReportError);
 					if (ImGui::MenuItem("Reset Default"))
-						ReportCommand(FMaterialGraphService::ResetSurfaceDefault(
+						ReportCommand(FMaterialGraphAuthoring::ResetSurfaceDefault(
 							Material, *HoveredSurfaceOutput, &Transactions), ReportError);
 					if (!Link.SourceNodeId.IsValid()
 						&& ImGui::MenuItem("Promote to Parameter"))
 						ReportCommand(
-							FMaterialGraphService::PromoteSurfaceOutputToParameter(
+							FMaterialGraphAuthoring::PromoteSurfaceOutputToParameter(
 								Material, NodeRequest, &Transactions), ReportError);
 					if (ImGui::MenuItem("Add Texture"))
-						ReportCommand(FMaterialGraphService::AddTextureToSurfaceOutput(
+						ReportCommand(FMaterialGraphAuthoring::AddTextureToSurfaceOutput(
 							Material, NodeRequest, &Transactions), ReportError);
 				}
 				else
@@ -1155,7 +1155,7 @@ namespace Durin::Editor::Material
 					if (GraphClipboard && ImGui::MenuItem("Paste"))
 					{
 						const FMaterialGraphCommandResult Pasted =
-							FMaterialGraphService::Paste(Material, *GraphClipboard,
+							FMaterialGraphAuthoring::Paste(Material, *GraphClipboard,
 								static_cast<int32>(std::round(GraphPosition.x)),
 								static_cast<int32>(std::round(GraphPosition.y)),
 								&Transactions);
@@ -1168,7 +1168,7 @@ namespace Durin::Editor::Material
 						}
 					}
 					if (ImGui::MenuItem("Auto Layout"))
-						ReportCommand(FMaterialGraphService::Layout(
+						ReportCommand(FMaterialGraphAuthoring::Layout(
 							Material, {}, &Transactions), ReportError);
 					if (ImGui::BeginMenu("Create Node"))
 					{
@@ -1185,7 +1185,7 @@ namespace Durin::Editor::Material
 							if (Source != View.Nodes.end()) PaletteSourceType = Source->Node.ResultType;
 						}
 						const std::vector<FMaterialGraphCatalogEntry> Catalog =
-							FMaterialGraphService::SearchCatalog(Material,
+							FMaterialGraphAuthoring::SearchCatalog(Material,
 								PaletteSearch.data(), PaletteSourceType);
 						for (size_t EntryIndex = 0; EntryIndex < Catalog.size(); ++EntryIndex)
 						{
@@ -1223,7 +1223,7 @@ namespace Durin::Editor::Material
 									.Y = static_cast<int32>(std::round(PaletteGraphPosition.y)),
 								};
 								if (NextInput == Entry.AcceptedInputTypes.size())
-									ReportCommand(FMaterialGraphService::CreateNode(Material,
+									ReportCommand(FMaterialGraphAuthoring::CreateNode(Material,
 										std::move(Request), &Transactions), ReportError);
 								else
 								{

@@ -219,7 +219,7 @@ namespace Durin
 		DURINED_API auto Num() const -> size_t;
 
 	private:
-		friend class FAssetThumbnailScheduler;
+		friend class FRenderedThumbnailRequestQueue;
 		auto Capture(
 			const FAssetThumbnailRequest& Request,
 			uint64 ProviderGeneration,
@@ -229,6 +229,10 @@ namespace Durin
 
 		std::shared_ptr<Detail::FAssetThumbnailProviderRegistryState> State;
 	};
+
+	// Returns the process registry composed by MainFrame and shared by default caches.
+	DURINED_API auto GetDefaultAssetThumbnailProviderRegistry()
+		-> FAssetThumbnailProviderRegistry&;
 
 	} // namespace Editor
 } // namespace Durin

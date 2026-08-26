@@ -97,6 +97,12 @@ reconstruction lazy. Device invalidation releases every dependent payload
 before advancing the device generation, recreates only startup defaults, and
 leaves feature resources to rebuild on demand.
 
+`FRendererModule` is the explicit cross-module request and focused-test entry
+point. It forwards only while its composed `FSceneRenderer` exists; shutdown
+stops the scene renderer before destroying it. Consumers composed below the
+scene renderer receive the coordinator by reference. No active coordinator
+pointer or process service-locator path exists.
+
 The device-invalidation request is a tested internal seam, not a claim of
 Vulkan device-loss recovery. Renderer shutdown closes command admission,
 unregisters development commands, enqueues release, and flushes rendering work.

@@ -133,7 +133,7 @@ Additional required inputs are collected in index order by a canvas-local
 draft; only the complete node reaches `CreateNode`. Escape and every document
 lifecycle cancellation discard creation, reconnection, movement, and inline
 edit drafts without dirtying or compiling the material. Every mutation still
-routes to the graph service.
+routes to the stateless `FMaterialGraphAuthoring` operation boundary.
 
 `Promote to Parameter` is available on an unconnected Material Output input. It
 creates the compatible canonical Parameter node one column upstream, copies the

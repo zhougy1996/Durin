@@ -34,7 +34,7 @@ namespace
 		-> Durin::Editor::FAssetThumbnailProviderRegistrationHandle
 	{
 		std::string Error;
-		auto Handle = Durin::Editor::GetDefaultRenderedAssetThumbnailService().RegisterScoped(
+		auto Handle = Durin::Editor::GetDefaultAssetThumbnailProviderRegistry().RegisterScoped(
 			std::make_unique<Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailProvider>(), Error);
 		EXPECT_TRUE(Handle) << Error;
 		return Handle;
@@ -443,10 +443,10 @@ TEST(FStaticMeshAssetThumbnailTests,
 		Cache.Request(Fingerprint, Durin::Editor::EAssetThumbnailPriority::Visible);
 		Cache.EndFrame();
 		const Durin::Editor::FRenderedAssetThumbnailCacheStats Stats = Cache.GetStats();
-		EXPECT_EQ(Stats.Pipeline.DiskHits, 1u);
-		EXPECT_EQ(Stats.Pipeline.Loads, 0u);
-		EXPECT_EQ(Stats.Pipeline.Renders, 0u);
-		EXPECT_EQ(Stats.Pipeline.Readbacks, 0u);
+		EXPECT_EQ(Stats.Generation.DiskHits, 1u);
+		EXPECT_EQ(Stats.Generation.Loads, 0u);
+		EXPECT_EQ(Stats.Generation.Renders, 0u);
+		EXPECT_EQ(Stats.Generation.Readbacks, 0u);
 		EXPECT_EQ(Stats.PreviewSceneCreations, 0u);
 		EXPECT_EQ(Stats.PreviewSceneAssignments, 0u);
 		EXPECT_EQ(Stats.UploadsQueued, 1u);
@@ -505,13 +505,13 @@ TEST(FStaticMeshAssetThumbnailTests,
 		Cache.Request(Fingerprint, Durin::Editor::EAssetThumbnailPriority::Visible);
 		Cache.EndFrame();
 		EXPECT_EQ(Cache.Find(StaticMeshPath).State, Durin::Editor::EAssetThumbnailState::Queued);
-		EXPECT_EQ(Cache.GetStats().Pipeline.DiskHits, 1u);
-		EXPECT_EQ(Cache.GetStats().Pipeline.Retries, 1u);
-		EXPECT_EQ(Cache.GetStats().Pipeline.Loads, 0u);
+		EXPECT_EQ(Cache.GetStats().Generation.DiskHits, 1u);
+		EXPECT_EQ(Cache.GetStats().Generation.Retries, 1u);
+		EXPECT_EQ(Cache.GetStats().Generation.Loads, 0u);
 
 		Cache.BeginFrame();
 		Cache.EndFrame();
-		EXPECT_EQ(Cache.GetStats().Pipeline.Loads, 1u);
+		EXPECT_EQ(Cache.GetStats().Generation.Loads, 1u);
 		EXPECT_NE(Durin::Asset::FindResidentPackage(StaticMeshPath), nullptr);
 		{
 			Durin::Editor::FAssetThumbnailObjectStore Store({
@@ -608,10 +608,16 @@ TEST(FStaticMeshAssetThumbnailTests,
 		<< Error;
 
 	Durin::Editor::FWorkspaceManager Manager;
-	Durin::Editor::FRenderedAssetThumbnailService Service;
+	Durin::Editor::FAssetThumbnailProviderRegistry Service;
 	Durin::FMaterialEditorModule MaterialModule;
 	Durin::FTextureEditorModule TextureModule;
 	Durin::FStaticMeshEditorModule StaticMeshModule;
+	Durin::FModuleTestHarness MaterialHarness("MaterialEditor");
+	Durin::FModuleTestHarness TextureHarness("TextureEditor");
+	Durin::FModuleTestHarness StaticMeshHarness("StaticMeshEditor");
+	MaterialHarness.Start(MaterialModule);
+	TextureHarness.Start(TextureModule);
+	StaticMeshHarness.Start(StaticMeshModule);
 	ASSERT_TRUE(MaterialModule.RegisterMaterialEditor(Manager, Service));
 	ASSERT_TRUE(TextureModule.RegisterTextureEditor(Manager, Service));
 	ASSERT_TRUE(StaticMeshModule.RegisterStaticMeshEditor(Manager, Service));
@@ -684,4 +690,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	Cache.Clear();
 	Service.Shutdown();
 	EXPECT_FALSE(Service.Find(StaticMeshClass));
+	StaticMeshHarness.Shutdown();
+	TextureHarness.Shutdown();
+	MaterialHarness.Shutdown();
 }

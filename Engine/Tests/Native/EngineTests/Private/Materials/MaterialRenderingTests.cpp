@@ -12,7 +12,6 @@
 #include "AssetForgeBuiltinsAuthoringTestSupport.h"
 #include "AssetForgeBuiltinsProviderTestFixture.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
-#include "Thumbnail/RenderedAssetThumbnailPipeline.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
 #include "Thumbnail/MaterialAssetThumbnail.h"

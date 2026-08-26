@@ -59,7 +59,7 @@ TEST(FMaterialCompileLifecycleTests,
 		Durin::EMaterialCompileState::Running);
 	ASSERT_EQ(Second->GetMaterialCompileStatus().State,
 		Durin::EMaterialCompileState::Pending);
-	EXPECT_GE(Durin::GetMaterialCompileServiceDiagnostics()
+	EXPECT_GE(Durin::GetMaterialCompilationDiagnostics()
 		.SingleFlightConsumers, 1u);
 	ASSERT_TRUE(WaitForMaterialCompile(*First));
 	ASSERT_TRUE(WaitForMaterialCompile(*Second));
@@ -131,7 +131,7 @@ TEST(FMaterialCompileLifecycleTests,
 		.State = Durin::EMaterialCompileState::Failed,
 		.Category = Durin::EMaterialCompileResultCategory::Compile,
 	};
-	EXPECT_FALSE(Durin::Private::FMaterialCompileServiceAccess::Admit(
+	EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(
 		*First, std::move(Failed)));
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), LastKnownGood);
 	EXPECT_EQ(First->GetMaterialCompileStatus().State,
@@ -155,7 +155,7 @@ TEST(FMaterialCompileLifecycleTests,
 		.State = Durin::EMaterialCompileState::Ready,
 		.CompiledProgram = LastKnownGood,
 	};
-	EXPECT_FALSE(Durin::Private::FMaterialCompileServiceAccess::Admit(
+	EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(
 		*First, std::move(Stale)));
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), LastKnownGood);
 	Durin::FMaterialCompileResult WrongTarget{
@@ -168,7 +168,7 @@ TEST(FMaterialCompileLifecycleTests,
 		.State = Durin::EMaterialCompileState::Ready,
 		.CompiledProgram = LastKnownGood,
 	};
-	EXPECT_FALSE(Durin::Private::FMaterialCompileServiceAccess::Admit(
+	EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(
 		*First, std::move(WrongTarget)));
 	Durin::FMaterialCompileResult WrongDependency{
 		.Owner = Durin::MakeObjectHandle(First),
@@ -180,7 +180,7 @@ TEST(FMaterialCompileLifecycleTests,
 		.State = Durin::EMaterialCompileState::Ready,
 		.CompiledProgram = LastKnownGood,
 	};
-	EXPECT_FALSE(Durin::Private::FMaterialCompileServiceAccess::Admit(
+	EXPECT_FALSE(Durin::Private::FMaterialCompilationLifecycle::Admit(
 		*First, std::move(WrongDependency)));
 	EXPECT_EQ(First->GetAcceptedCompiledProgram(), LastKnownGood);
 
@@ -188,8 +188,8 @@ TEST(FMaterialCompileLifecycleTests,
 	Durin::MarkAsGarbage(First);
 	Durin::CollectGarbage();
 	Durin::ShutdownAssetCompilingManager();
-	const Durin::FMaterialCompileServiceDiagnostics Shutdown =
-		Durin::GetMaterialCompileServiceDiagnostics();
+	const Durin::FMaterialCompilationDiagnostics Shutdown =
+		Durin::GetMaterialCompilationDiagnostics();
 	EXPECT_FALSE(Shutdown.bAcceptingRequests);
 	EXPECT_EQ(Shutdown.InFlightCount, 0u);
 	EXPECT_EQ(Shutdown.OutstandingConsumerCount, 0u);

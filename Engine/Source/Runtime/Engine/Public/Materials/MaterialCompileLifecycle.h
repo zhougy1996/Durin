@@ -137,7 +137,7 @@ namespace Durin
 	};
 
 	// Fixed aggregate counters retain no per-request history.
-	struct FMaterialCompileServiceDiagnostics
+	struct FMaterialCompilationDiagnostics
 	{
 		bool bAcceptingRequests = false;
 		uint64 AcceptedRequests = 0;
@@ -155,9 +155,9 @@ namespace Durin
 		uint64 RetainedProgramBytes = 0;
 	};
 
-	ENGINE_API auto IsMaterialCompileServiceAcceptingRequests() -> bool;
-	ENGINE_API auto GetMaterialCompileServiceDiagnostics()
-		-> FMaterialCompileServiceDiagnostics;
+	ENGINE_API auto IsMaterialCompilationAcceptingRequests() -> bool;
+	ENGINE_API auto GetMaterialCompilationDiagnostics()
+		-> FMaterialCompilationDiagnostics;
 
 	// Thread-safe reload notification; object discovery and requests remain GameThread-only.
 	ENGINE_API auto NotifyMaterialShaderReload(bool bForceRecompile) -> void;
@@ -166,7 +166,7 @@ namespace Durin
 
 	namespace Private
 	{
-		struct FMaterialCompileServiceAccess
+		struct FMaterialCompilationLifecycle
 		{
 			ENGINE_API static auto Submit(
 				DMaterial& Material,

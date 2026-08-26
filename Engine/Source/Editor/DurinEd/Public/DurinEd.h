@@ -7,5 +7,4 @@
 #include "Thumbnail/AssetThumbnailTypes.h"
 #include "Thumbnail/AssetThumbnailKey.h"
 #include "Thumbnail/AssetThumbnailProvider.h"
-#include "Thumbnail/AssetThumbnailScheduler.h"
 #include "Thumbnail/AssetThumbnailObjectStore.h"

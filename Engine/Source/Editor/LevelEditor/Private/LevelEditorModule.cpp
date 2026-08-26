@@ -25,7 +25,7 @@
 #include "VolumetricCloudDetails.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "TerrainHeightmapAssetThumbnail.h"
-#include "Thumbnail/RenderedAssetThumbnailService.h"
+#include "Thumbnail/AssetThumbnailProvider.h"
 #include "GrayboxSceneAuthoring.h"
 #include "Misc/StartupCommand.h"
 #include "Asset/Load.h"
@@ -184,7 +184,7 @@ namespace Durin
 
 	LEVELEDITOR_API auto FLevelEditorModule::RegisterLevelEditorWorkspace(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-		::Durin::Editor::FRenderedAssetThumbnailService& ThumbnailService,
+		::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
 		std::function<void(AssetForge::FImportOperationHandle, std::string)>
 			NotifyImportStarted,
 		Editor::Level::FContentBrowserCallbacks ContentBrowserCallbacks) -> bool

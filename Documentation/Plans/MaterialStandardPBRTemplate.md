@@ -217,7 +217,7 @@ The completed workflow must provide:
   compile cache/single-flight, last-known-good publication, and cooked output.
 - The existing canonical builder precisely records the legacy 66-node
   parameter-by-texture behavior and remains useful as a compatibility fixture.
-- `FMaterialGraphService` owns candidate-validated commands, detached views,
+- `FMaterialGraphAuthoring` owns candidate-validated commands, detached views,
   transactions, layout, clipboard, and semantic mutation.
 - The graph-space Surface Outputs proxy already pans, zooms, frames, focuses,
   and renders eight typed target lanes; it can become Material Output without a
