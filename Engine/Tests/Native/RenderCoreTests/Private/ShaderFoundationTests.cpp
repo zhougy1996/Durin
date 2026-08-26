@@ -716,6 +716,43 @@ namespace Durin
 		EXPECT_TRUE(Bindings.empty());
 	}
 
+	TEST(FShaderFoundationTests, BuildShaderParameterBindingsAllowsMissingOptionalReflectionBinding)
+	{
+		struct FParameters
+		{
+			FRHIUniformBufferRange Material;
+			FRHITexture* OptimizedTexture = nullptr;
+		};
+
+		const std::array Metadata = {
+			MakeShaderParameterMemberMetadata<ERHIBindingType::UniformBufferDynamic,
+				decltype(FParameters::Material)>("Material",
+				static_cast<uint32>(offsetof(FParameters, Material))),
+			MakeShaderParameterMemberMetadata<ERHIBindingType::Texture,
+				decltype(FParameters::OptimizedTexture), true>("OptimizedTexture",
+				static_cast<uint32>(offsetof(FParameters, OptimizedTexture)))
+		};
+		FShaderReflectionData Reflection;
+		Reflection.ResourceBindings.push_back({
+			.Name = "Material",
+			.StageFlags = EShaderStageFlags::Fragment,
+			.SetIndex = 0,
+			.BindingIndex = 2,
+			.Type = ERHIBindingType::UniformBuffer,
+			.ArraySize = 1
+		});
+
+		std::vector<FShaderParameterBinding> Bindings;
+		std::string ErrorMessage;
+		const FShaderParametersMetadata ParametersMetadata =
+			MakeTestParametersMetadata<FParameters>(Metadata);
+		ASSERT_TRUE(BuildShaderParameterBindings(&ParametersMetadata, Reflection,
+			Bindings, ErrorMessage)) << ErrorMessage;
+		ASSERT_EQ(Bindings.size(), 1u);
+		EXPECT_STREQ(Bindings.front().Name, "Material");
+		EXPECT_EQ(Bindings.front().BindingIndex, 2u);
+	}
+
 	TEST(FShaderFoundationTests, BuildShaderParameterBindingsRejectsTypeMismatch)
 	{
 		struct FParameters

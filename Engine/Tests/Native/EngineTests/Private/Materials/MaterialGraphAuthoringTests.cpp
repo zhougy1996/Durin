@@ -330,7 +330,8 @@ TEST(FMaterialGraphAuthoringTests, LayoutReducesDenseCrossingsAndAvoidsSelectedC
 	CollectGarbage();
 }
 
-TEST(FMaterialGraphAuthoringTests, ClipboardPasteRemapsInternalIdentityAndRejectsAtomically)
+TEST(FMaterialGraphAuthoringTests,
+	ClipboardPasteRemapsIdentityPreservesExternalLinksAndRejectsAtomically)
 {
 	InitializeDObjectSystem();
 	DMaterial* Material = MakeExpandedGraphMaterial("ClipboardMaterial");
@@ -386,12 +387,28 @@ TEST(FMaterialGraphAuthoringTests, ClipboardPasteRemapsInternalIdentityAndReject
 		Material->GetMaterialProgram()->Nodes,
 		[](const FMaterialProgramNode& Node) { return !Node.Inputs.empty(); });
 	ASSERT_NE(Dependent, Material->GetMaterialProgram()->Nodes.end());
-	FMaterialGraphClipboardPayload Incomplete;
+	const FGuid RequiredSource = Dependent->Inputs.front().SourceNodeId;
+	const FMaterialGraphCommandResult RequiredRemoval =
+		FMaterialGraphAuthoring::RemoveNodes(
+			*Material, std::span(&RequiredSource, 1), &Transactions);
+	EXPECT_EQ(RequiredRemoval.Status, EMaterialGraphCommandStatus::Rejected);
+	EXPECT_EQ(*Material->GetMaterialProgram(), BeforeRejected);
+	const std::vector<FMaterialProgramLink> ExternalInputs = Dependent->Inputs;
+	FMaterialGraphClipboardPayload Partial;
 	ASSERT_TRUE(FMaterialGraphAuthoring::CopySelection(
-		*Material, std::span(&Dependent->Id, 1), Incomplete));
-	const FMaterialGraphCommandResult IncompletePaste =
-		FMaterialGraphAuthoring::Paste(*Material, Incomplete, 0, 0, &Transactions);
-	EXPECT_EQ(IncompletePaste.Status, EMaterialGraphCommandStatus::Rejected);
+		*Material, std::span(&Dependent->Id, 1), Partial));
+	ASSERT_EQ(Partial.Nodes.size(), 1u);
+	EXPECT_EQ(Partial.Nodes.front().Node.Inputs, ExternalInputs);
+	const FMaterialGraphCommandResult PartialPaste =
+		FMaterialGraphAuthoring::Paste(*Material, Partial, 0, 0, &Transactions);
+	ASSERT_TRUE(PartialPaste) << PartialPaste.Message;
+	ASSERT_EQ(PartialPaste.GeneratedNodeIds.size(), 1u);
+	const auto PastedDependent = std::ranges::find(
+		Material->GetMaterialProgram()->Nodes, PartialPaste.GeneratedNodeIds.front(),
+		&FMaterialProgramNode::Id);
+	ASSERT_NE(PastedDependent, Material->GetMaterialProgram()->Nodes.end());
+	EXPECT_EQ(PastedDependent->Inputs, ExternalInputs);
+	ASSERT_TRUE(Transactions.Undo());
 	EXPECT_EQ(*Material->GetMaterialProgram(), BeforeRejected);
 
 	FMaterialGraphCreateNodeRequest Standalone;

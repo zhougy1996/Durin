@@ -210,7 +210,7 @@ namespace Durin
 		static constexpr uint32 Size = static_cast<uint32>(ArraySize);
 	};
 
-	template<ERHIBindingType BindingType, typename MemberType>
+	template<ERHIBindingType BindingType, typename MemberType, bool bOptional = false>
 	consteval auto MakeShaderParameterMemberMetadata(const char* Name, uint32 Offset) -> FShaderParameterMemberMetadata
 	{
 		using FExpectedType = typename TShaderParameterCppType<BindingType>::Type;
@@ -227,7 +227,8 @@ namespace Durin
 			.Size = static_cast<uint32>(sizeof(MemberType)),
 			.ArraySize = ArraySize,
 			.Type = BindingType,
-			.Kind = EShaderParameterMemberKind::Resource
+			.Kind = EShaderParameterMemberKind::Resource,
+			.bOptional = bOptional
 		};
 	}
 
@@ -289,21 +290,21 @@ namespace Durin
 		const void* ParameterData
 	) -> void;
 
-	#define DURIN_PRIVATE_SHADER_PARAMETER(MemberType, MemberName, BindingTypeValue) \
+	#define DURIN_PRIVATE_SHADER_PARAMETER(MemberType, MemberName, BindingTypeValue, OptionalValue) \
 		MemberType MemberName = nullptr; \
 		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
 		{ \
-			return MakeShaderParameterMemberMetadata<BindingTypeValue, decltype(FParameters::MemberName)>( \
+			return MakeShaderParameterMemberMetadata<BindingTypeValue, decltype(FParameters::MemberName), OptionalValue>( \
 				#MemberName, \
 				static_cast<uint32>(offsetof(FParameters, MemberName)) \
 			); \
 		}
 
-	#define DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(MemberType, MemberName, ArrayCount, BindingTypeValue) \
+	#define DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(MemberType, MemberName, ArrayCount, BindingTypeValue, OptionalValue) \
 		std::array<MemberType, ArrayCount> MemberName{}; \
 		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
 		{ \
-			return MakeShaderParameterMemberMetadata<BindingTypeValue, decltype(FParameters::MemberName)>( \
+			return MakeShaderParameterMemberMetadata<BindingTypeValue, decltype(FParameters::MemberName), OptionalValue>( \
 				#MemberName, \
 				static_cast<uint32>(offsetof(FParameters, MemberName)) \
 			); \
@@ -318,22 +319,28 @@ namespace Durin
 		struct FParameters {
 
 	#define DURIN_SHADER_PARAMETER_TEXTURE(MemberName) \
-		DURIN_PRIVATE_SHADER_PARAMETER(FRHITexture*, MemberName, ERHIBindingType::Texture)
+		DURIN_PRIVATE_SHADER_PARAMETER(FRHITexture*, MemberName, ERHIBindingType::Texture, false)
+
+	#define DURIN_SHADER_PARAMETER_TEXTURE_OPTIONAL(MemberName) \
+		DURIN_PRIVATE_SHADER_PARAMETER(FRHITexture*, MemberName, ERHIBindingType::Texture, true)
 
 	#define DURIN_SHADER_PARAMETER_TEXTURE_ARRAY(MemberName, ArrayCount) \
-		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHITexture*, MemberName, ArrayCount, ERHIBindingType::Texture)
+		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHITexture*, MemberName, ArrayCount, ERHIBindingType::Texture, false)
 
 	#define DURIN_SHADER_PARAMETER_SAMPLER(MemberName) \
-		DURIN_PRIVATE_SHADER_PARAMETER(FRHISampler*, MemberName, ERHIBindingType::Sampler)
+		DURIN_PRIVATE_SHADER_PARAMETER(FRHISampler*, MemberName, ERHIBindingType::Sampler, false)
+
+	#define DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(MemberName) \
+		DURIN_PRIVATE_SHADER_PARAMETER(FRHISampler*, MemberName, ERHIBindingType::Sampler, true)
 
 	#define DURIN_SHADER_PARAMETER_SAMPLER_ARRAY(MemberName, ArrayCount) \
-		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHISampler*, MemberName, ArrayCount, ERHIBindingType::Sampler)
+		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHISampler*, MemberName, ArrayCount, ERHIBindingType::Sampler, false)
 
 	#define DURIN_SHADER_PARAMETER_STORAGE_IMAGE(MemberName) \
-		DURIN_PRIVATE_SHADER_PARAMETER(FRHITexture*, MemberName, ERHIBindingType::StorageImage)
+		DURIN_PRIVATE_SHADER_PARAMETER(FRHITexture*, MemberName, ERHIBindingType::StorageImage, false)
 
 	#define DURIN_SHADER_PARAMETER_STORAGE_IMAGE_ARRAY(MemberName, ArrayCount) \
-		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHITexture*, MemberName, ArrayCount, ERHIBindingType::StorageImage)
+		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHITexture*, MemberName, ArrayCount, ERHIBindingType::StorageImage, false)
 
 	#define DURIN_SHADER_PARAMETER_UNIFORM_BUFFER(MemberName) \
 		FRHIUniformBufferRange MemberName; \
@@ -346,7 +353,7 @@ namespace Durin
 		}
 
 	#define DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_ARRAY(MemberName, ArrayCount) \
-		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHIUniformBufferRange, MemberName, ArrayCount, ERHIBindingType::UniformBuffer)
+		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHIUniformBufferRange, MemberName, ArrayCount, ERHIBindingType::UniformBuffer, false)
 
 	#define DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(MemberName) \
 		FRHIUniformBufferRange MemberName; \
@@ -358,8 +365,18 @@ namespace Durin
 			); \
 		}
 
+	#define DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_OPTIONAL(MemberName) \
+		FRHIUniformBufferRange MemberName; \
+		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
+		{ \
+			return MakeShaderParameterMemberMetadata<ERHIBindingType::UniformBufferDynamic, decltype(FParameters::MemberName), true>( \
+				#MemberName, \
+				static_cast<uint32>(offsetof(FParameters, MemberName)) \
+			); \
+		}
+
 	#define DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC_ARRAY(MemberName, ArrayCount) \
-		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHIUniformBufferRange, MemberName, ArrayCount, ERHIBindingType::UniformBufferDynamic)
+		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHIUniformBufferRange, MemberName, ArrayCount, ERHIBindingType::UniformBufferDynamic, false)
 
 	#define DURIN_SHADER_PARAMETER_STORAGE_BUFFER(MemberName) \
 		FRHIStorageBufferRange MemberName; \
@@ -372,7 +389,7 @@ namespace Durin
 		}
 
 	#define DURIN_SHADER_PARAMETER_STORAGE_BUFFER_ARRAY(MemberName, ArrayCount) \
-		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHIStorageBufferRange, MemberName, ArrayCount, ERHIBindingType::StorageBuffer)
+		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHIStorageBufferRange, MemberName, ArrayCount, ERHIBindingType::StorageBuffer, false)
 
 	#define DURIN_END_SHADER_PARAMETERS() \
 		}; \

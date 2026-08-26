@@ -492,6 +492,10 @@ namespace Durin
 
 			if (FoundIt == Reflection.ResourceBindings.end())
 			{
+				if (Parameter.bOptional)
+				{
+					continue;
+				}
 				OutErrorMessage = std::format("Shader parameter '{}' was not found in shader reflection", Parameter.Name);
 				return false;
 			}

@@ -57,6 +57,9 @@ namespace Durin::Editor::Material
 		bool bPendingFrameSurface = false;
 		FGuid LinkSourceNode;
 		FGuid PaletteSourceNode;
+		FGuid ContextNode;
+		std::optional<uint32> ContextInputIndex;
+		std::optional<EMaterialSurfaceOutput> ContextSurfaceOutput;
 		ImVec2 PaletteGraphPosition{};
 		std::optional<FMaterialGraphCreateNodeRequest> CreationDraft;
 		std::vector<std::vector<EMaterialProgramValueType>> CreationDraftAcceptedTypes;

@@ -693,16 +693,25 @@ namespace Durin::Editor::Material
 			return MakeRejected("The material graph removal request exceeds the node bound.");
 		std::unordered_set<FGuid> Removed(NodeIds.begin(), NodeIds.end());
 		FMaterialProgram Candidate = *Material.GetMaterialProgram();
+		for (const FMaterialProgramNode& Node : Candidate.Nodes)
+		{
+			if (Removed.contains(Node.Id)) continue;
+			if (std::ranges::any_of(Node.Inputs,
+				[&](const FMaterialProgramLink& Link) {
+					return Removed.contains(Link.SourceNodeId);
+				}))
+			{
+				return MakeRejected(
+					"A material graph node still depends on the requested selection. "
+					"Reconnect or remove the dependent node first.");
+			}
+		}
 		const size_t BeforeCount = Candidate.Nodes.size();
 		std::erase_if(Candidate.Nodes, [&](const FMaterialProgramNode& Node) {
 			return Removed.contains(Node.Id);
 		});
 		if (Candidate.Nodes.size() == BeforeCount)
 			return {.Status = EMaterialGraphCommandStatus::NoChange};
-		for (FMaterialProgramNode& Node : Candidate.Nodes)
-			std::erase_if(Node.Inputs, [&](const FMaterialProgramLink& Link) {
-				return Removed.contains(Link.SourceNodeId);
-			});
 		for (EMaterialSurfaceOutput Output : {
 			EMaterialSurfaceOutput::BaseColor,
 			EMaterialSurfaceOutput::Normal,
@@ -1311,9 +1320,6 @@ namespace Durin::Editor::Material
 		for (const FGuid& Id : Ordered)
 		{
 			FMaterialProgramNode Node = *FindNode(Program, Id);
-			std::erase_if(Node.Inputs, [&](const FMaterialProgramLink& Link) {
-				return !Selected.contains(Link.SourceNodeId);
-			});
 			const FMaterialGraphNodePresentation& Position = Positions.at(Id);
 			OutPayload.Nodes.push_back({
 				.Node = std::move(Node),
@@ -1374,12 +1380,11 @@ namespace Durin::Editor::Material
 			for (FMaterialProgramLink& Input : Node.Inputs)
 			{
 				const auto It = Remap.find(Input.SourceNodeId);
-				if (It == Remap.end()) Input = {};
-				else Input.SourceNodeId = It->second;
+				if (It != Remap.end()) Input.SourceNodeId = It->second;
+				else if (!FindNode(Candidate, Input.SourceNodeId))
+					return MakeRejected(
+						"The material graph clipboard references an unavailable external input.");
 			}
-			std::erase_if(Node.Inputs, [](const FMaterialProgramLink& Input) {
-				return !Input.SourceNodeId.IsValid();
-			});
 			const int64 PositionX = static_cast<int64>(X) + ClipboardNode.RelativeX;
 			const int64 PositionY = static_cast<int64>(Y) + ClipboardNode.RelativeY;
 			if (PositionX < -MaterialGraphPresentationCoordinateLimit

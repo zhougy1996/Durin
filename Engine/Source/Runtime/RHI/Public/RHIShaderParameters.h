@@ -34,6 +34,7 @@ namespace Durin
 		uint32 ArraySize = 1;
 		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
 		EShaderParameterMemberKind Kind = EShaderParameterMemberKind::Resource;
+		bool bOptional = false;
 	};
 
 	// Describes a complete shader-parameter structure without owning its member storage.
