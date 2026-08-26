@@ -236,7 +236,7 @@ namespace Durin::Editor
 			FResolvedPropertyValue DraftValue;
 			if (!Draft.Resolve(Target, DraftValue.Property, DraftValue.Container, DraftValue.ArrayIndex, OutError)) return false;
 			WriteProposed(DraftValue, &Draft);
-			if (!ValidatePropertyAuthoringValue(
+			if (!ValidatePropertyEditValue(
 				Draft.GetRootProperty(), Draft.GetRootContainer(), Draft.GetRootArrayIndex(), OutError)) return false;
 			const bool bCaptured = Draft.Capture(OutSnapshot, OutError);
 			return bCaptured;

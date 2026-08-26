@@ -21,11 +21,11 @@ namespace Durin
 		{
 			if (Invocation.Status != EFeatureInvokeStatus::Invoked || !Invocation.Value)
 				return {Asset::EAssetError::StaleData,
-					"An asset authoring-readiness provider failed."};
+					"An asset save-readiness provider failed."};
 			if (!Invocation.Value->bHandled) continue;
 			if (Handled)
 				return {Asset::EAssetError::StaleData,
-					"Asset authoring-readiness ownership is ambiguous."};
+					"Asset save-readiness ownership is ambiguous."};
 			Handled = Invocation.Value->Result;
 		}
 		return Handled.value_or(Asset::FAssetResult{});

@@ -127,7 +127,7 @@ namespace Durin::Editor::Level
 		if (GIsGameThreadIdInitialized && !IsInGameThread())
 		{
 			Result.Diagnostic = MakeDiagnostic(ETerrainPlacementError::WrongThread,
-				"Terrain authoring must run on the game thread.");
+				"Terrain placement must run on the game thread.");
 			return Result;
 		}
 		if (!Request.Level || Request.ActorName.IsNone() || !Request.Heightmap)

@@ -62,7 +62,7 @@ namespace Durin
 				if ((Metadata.ClampMin.Kind != EPropertyMetadataNumericKind::None
 					|| Metadata.ClampMax.Kind != EPropertyMetadataNumericKind::None) && !std::isfinite(Current))
 				{
-					if (OutError) *OutError = "The proposed value is non-finite and violates its authoring bounds.";
+					if (OutError) *OutError = "The proposed value is non-finite and violates its property-edit bounds.";
 					return false;
 				}
 			}
@@ -113,7 +113,7 @@ namespace Durin
 		}
 	}
 
-	auto ValidatePropertyAuthoringValue(const FProperty* Property, const void* Container,
+	auto ValidatePropertyEditValue(const FProperty* Property, const void* Container,
 		uint32 ArrayIndex, std::string* OutError) -> bool
 	{
 		if (OutError) OutError->clear();

@@ -486,7 +486,7 @@ TEST(FTexture2DTests, CompilationPublishesLatestNormalizedProduct)
 	WriteTextureFixture(Source);
 	Durin::FTexture2DImportResult Imported =
 		Durin::AssetForge::Builtins::ImportTexture2DAsset(
-			Source.generic_string(), "/TextureImportTests/AuthoringDomain");
+			Source.generic_string(), "/TextureImportTests/SourceDomain");
 	ASSERT_TRUE(Imported) << Imported.Message;
 
 	Durin::FTextureSourceData SourceData;

@@ -361,7 +361,7 @@ namespace Durin::Asset
 					: ETextureDerivedDataStatus::Rebuilt,
 				.Key = DiagnosticKey,
 				.Message = Product.bLoadedFromDerivedDataCache
-					? "Loaded TextureCube authoring candidate from DDC."
+					? "Loaded TextureCube build candidate from DDC."
 					: bPanorama
 						? "Built TextureCube panorama candidate from normalized pixels."
 						: "Built six-face TextureCube candidate from normalized pixels.",

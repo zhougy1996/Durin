@@ -1602,7 +1602,7 @@ namespace Durin::Asset
 		if (!Result) return Result;
 		if (Inspection.Header.EntryKind != EAssetRegistryEntryKind::Asset)
 			return Error(EAssetError::InvalidPackageType,
-				"CookCanonicalizationRedirectorPackage: redirector packages are authoring-only.");
+				"CookCanonicalizationRedirectorPackage: redirector packages are uncooked-only.");
 		std::vector<FAssetReferenceEdge> References;
 		Result = Private::ExtractAssetReferencesForCook(
 			Inspection, References);

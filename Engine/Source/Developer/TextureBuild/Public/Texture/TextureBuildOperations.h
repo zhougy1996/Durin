@@ -77,7 +77,7 @@ namespace Durin::Asset
 		const FTexture2DPublicationContext& Context,
 		std::string& OutError) -> bool;
 
-	// Build-owned recipe identity and DDC value loading used by uncooked authoring
+	// Build-owned recipe identity and DDC value loading used by uncooked source processing
 	// loads. Source translation remains outside this module.
 	TEXTUREBUILD_API auto MakeTexture2DDerivedDataKey(
 		const DTexture2D& Texture,

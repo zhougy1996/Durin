@@ -257,7 +257,7 @@ namespace Durin::Editor::Level
 			bool bAccelerated = false;
 		};
 
-		// Intersects the immutable exact deformed LOD0 snapshot without reading mutable authoring data.
+		// Intersects the immutable exact deformed LOD0 snapshot without reading mutable source data.
 		class FSplineMeshViewportGeometryProvider final : public IViewportGeometryProvider
 		{
 		public:

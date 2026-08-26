@@ -649,9 +649,9 @@ are also mirrored into raw metadata lookup for compatibility, while first-party
 consumers use `GetTypedMetadata()`.
 
 `ClampMin` and `ClampMax` constrain new editor-authored proposals through
-`ValidatePropertyAuthoringValue()`. Validation happens on detached draft
+`ValidatePropertyEditValue()`. Validation happens on detached draft
 storage before an edit session or transaction mutates the object. Package
-loading deliberately does not call this authoring validator and therefore does
+loading deliberately does not call this property-edit validator and therefore does
 not clamp or repair historical data. `UIMin` and `UIMax` only configure editor
 presentation.
 

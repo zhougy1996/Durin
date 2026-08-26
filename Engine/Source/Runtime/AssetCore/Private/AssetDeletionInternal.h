@@ -12,7 +12,7 @@ namespace Durin::Asset
 	}
 
 	// Retains the exact catalog and external-reference state confirmed by an
-	// authoring deletion until its physical transition is committed or undone.
+	// asset deletion until its physical transition is committed or undone.
 	struct FAssetDeletionTransaction::FState
 	{
 		uint64 RegistryRevision = 0;

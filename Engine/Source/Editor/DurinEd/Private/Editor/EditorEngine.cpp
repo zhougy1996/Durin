@@ -46,7 +46,7 @@ namespace Durin
 		-> FEngineInitializationResult
 	{
 		// The registry extracts references before MainFrame activates the full
-		// authoring stack. Publish editor-authored package classes first so import
+		// editor stack. Publish editor-authored package classes first so import
 		// records participate in that initial, atomic catalog revision.
 		if (!FModuleManager::Get().LoadModule("AssetForge"))
 			return FEngineInitializationResult::Failure(

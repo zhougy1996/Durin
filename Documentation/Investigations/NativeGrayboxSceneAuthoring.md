@@ -33,7 +33,7 @@ qualified Sandbox smoke covered persistence, occupied-output refusal, ownership
 conflict, deterministic rerun refusal, cleanup, asset compatibility, and process
 shutdown.
 
-These shipped contracts are documented by Static Mesh Level Authoring and the
+These shipped contracts are documented by Static Mesh Level Mutations and the
 Create-Only Graybox Build guide. They remain supported independently of any
 future generalized scene-authoring design.
 
@@ -167,7 +167,7 @@ not sufficient triggers without those inputs.
 ## Related Documentation
 
 - [Viewport Editing Architecture](../Editor/Architecture/ViewportEditing.md)
-- [Static Mesh Level Authoring](../Editor/Architecture/StaticMeshLevelMutations.md)
+- [Static Mesh Level Mutations](../Editor/Architecture/StaticMeshLevelMutations.md)
 - [Create-Only Graybox Build](../Editor/Guides/GrayboxBuild.md)
 - [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
 - [Editor Workspace Framework](../Editor/Architecture/WorkspaceFramework.md)

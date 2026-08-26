@@ -146,7 +146,7 @@ namespace Durin::Editor::Level
 				DescribeMountOwner(SourceDiagnostic.Mount->Owner),
 				SourceDiagnostic.Mount->bContentWritable ? "writable" : "read-only");
 			if (bAllowEngineContentWrite)
-				ImGui::TextDisabled("Engine authoring: this import writes shared Engine content.");
+				ImGui::TextDisabled("Engine content write: this import writes shared Engine content.");
 		}
 
 		std::string ValidationMessage;
@@ -427,7 +427,7 @@ namespace Durin::Editor::Level
 					? "Scene source preparation did not complete." : std::move(Error));
 				return false;
 			}
-			// Source ingestion is an explicit authoring operation and remains even if
+			// Source ingestion is an explicit content-write operation and remains even if
 			// the subsequent asset publication is rejected or fails.
 			AssetForge::Builtins::CommitSceneSourceBundle(Sources);
 			AssetForge::FImportRequest Request;

@@ -51,18 +51,18 @@ namespace Durin
 			return true;
 		}
 
-		auto LoadAuthoringPayload(
+		auto LoadAuthoredPayload(
 			std::string_view VirtualPackagePath,
 			std::vector<std::byte>& OutBytes,
 			std::string& OutError) -> bool
 		{
 			const std::filesystem::path PayloadPath =
-				DEnvironmentLighting::GetAuthoringPayloadPath(VirtualPackagePath);
+				DEnvironmentLighting::GetAuthoredPayloadPath(VirtualPackagePath);
 			if (PayloadPath.empty()
 				|| !FFileHelper::LoadFileToArray(OutBytes, PayloadPath))
 			{
 				return Fail(std::format(
-					"Environment-lighting authoring payload is missing for '{}'.",
+					"Environment-lighting authored payload is missing for '{}'.",
 					VirtualPackagePath), &OutError);
 			}
 			return true;
@@ -236,7 +236,7 @@ namespace Durin
 	{
 	}
 
-	auto DEnvironmentLighting::GetAuthoringPayloadPath(std::string_view VirtualPackagePath)
+	auto DEnvironmentLighting::GetAuthoredPayloadPath(std::string_view VirtualPackagePath)
 		-> std::filesystem::path
 	{
 		const PathUtilities::FAssetPathResult Resolved = PathUtilities::ResolveAssetPath(
@@ -280,7 +280,7 @@ namespace Durin
 		else
 		{
 			if (!GetPackage()
-				|| !LoadAuthoringPayload(GetPackage()->GetPackagePath(), PayloadBytes, OutError))
+				|| !LoadAuthoredPayload(GetPackage()->GetPackagePath(), PayloadBytes, OutError))
 				return false;
 		}
 		auto Candidate = std::make_shared<FEnvironmentLightingData>();
@@ -307,7 +307,7 @@ namespace Durin
 		}
 		if (!GetPackage()) return Fail("Environment-lighting asset has no package.", &OutError);
 		std::vector<std::byte> PayloadBytes;
-		if (!LoadAuthoringPayload(GetPackage()->GetPackagePath(), PayloadBytes, OutError)) return false;
+		if (!LoadAuthoredPayload(GetPackage()->GetPackagePath(), PayloadBytes, OutError)) return false;
 		FEnvironmentLightingData Validated;
 		FCanonicalMemoryReader PayloadAr(PayloadBytes, EArchivePurpose::CookedPayload);
 		Validated.Serialize(PayloadAr);

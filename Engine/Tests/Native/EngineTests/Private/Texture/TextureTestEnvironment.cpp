@@ -6,7 +6,7 @@
 
 namespace
 {
-	// TextureTests is an authoring-process root: it selects the optional provider
+	// TextureTests is an editor-process root: it selects the optional provider
 	// explicitly so production submission never falls back to lazy ownership.
 	class FTextureTestEnvironment final : public testing::Environment
 	{

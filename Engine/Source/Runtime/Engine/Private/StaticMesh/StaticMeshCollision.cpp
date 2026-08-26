@@ -68,7 +68,7 @@ namespace Durin
 		}
 		if (!RenderData)
 		{
-			OutError = "Static-mesh collision authoring requires published CPU render data.";
+			OutError = "Static-mesh collision build requires published CPU render data.";
 			return false;
 		}
 		const EBodySetupCollisionQueryPolicy Policy = BodySetup

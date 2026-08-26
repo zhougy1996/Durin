@@ -84,7 +84,7 @@ auto main(int ArgumentCount, char** Arguments) -> int
 	}
 
 	const std::filesystem::path PayloadPath =
-		Durin::DEnvironmentLighting::GetAuthoringPayloadPath(DefaultAssetPath);
+		Durin::DEnvironmentLighting::GetAuthoredPayloadPath(DefaultAssetPath);
 	Durin::FFileHelper::FAtomicFileError FileError;
 	if (!Durin::FFileHelper::SaveArrayToFileAtomically(PayloadBytes, PayloadPath, &FileError))
 	{

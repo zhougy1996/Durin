@@ -3291,7 +3291,7 @@ TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedB
 		"/Game/RedirectorMustNotCook", AliasBytes, {}
 	));
 	EXPECT_FALSE(RedirectorCook.Publish(&CookError));
-	EXPECT_NE(CookError.find("redirector packages are authoring-only"), std::string::npos);
+	EXPECT_NE(CookError.find("redirector packages are uncooked-only"), std::string::npos);
 	EXPECT_FALSE(std::filesystem::exists(
 		RedirectorRoot / "CookManifest.bin"
 	));

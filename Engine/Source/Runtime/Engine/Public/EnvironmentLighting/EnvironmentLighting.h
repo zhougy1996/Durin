@@ -58,7 +58,7 @@ namespace Durin
 			std::string_view VirtualPackagePath,
 			std::string& OutError) -> bool;
 
-		ENGINE_API static auto GetAuthoringPayloadPath(std::string_view VirtualPackagePath)
+		ENGINE_API static auto GetAuthoredPayloadPath(std::string_view VirtualPackagePath)
 			-> std::filesystem::path;
 
 	private:

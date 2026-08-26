@@ -139,6 +139,12 @@ project descriptors and rejects entries containing both spellings. Schemas,
 checked-in descriptors, examples, and generated output use only the canonical
 key.
 
+An editor process acquires project edit ownership before workspace mutation and
+holds it until engine shutdown. The public API and diagnostics use project-edit
+vocabulary. The internal `DurinProjectAuthoring` mutex and lock-file literals
+remain unchanged only because they are stable cross-process identity strings;
+they are not C++ API vocabulary or descriptor keys.
+
 A declared root may be a directory, junction, or symbolic link. Canonical
 containment requires the effective content directory to remain beneath `Root`
 and rejects a nested link that escapes it. Effective content directories may

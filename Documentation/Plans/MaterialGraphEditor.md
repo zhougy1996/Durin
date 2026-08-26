@@ -1,6 +1,6 @@
 # Material Graph Editor Plan
 
-Summary: Build the command-driven material graph authoring workflow, canvas, diagnostics, preview integration, and structured automation surface.
+Summary: Build the command-driven material graph operations workflow, canvas, diagnostics, preview integration, and structured automation surface.
 
 Last reviewed: 2026-08-26
 
@@ -19,7 +19,7 @@ last-known-good preview behavior without changing the M5 program or M6 compiler
 lifecycle architecture.
 
 The lasting ownership and interaction contracts now live in
-[Material Graph Authoring](../Editor/Architecture/MaterialGraphOperations.md).
+[Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md).
 
 ## Goal
 
@@ -400,7 +400,7 @@ scalability remains deliberately evidence-gated in roadmap milestone 8.
 
 - [Material System Roadmap](../Roadmaps/MaterialSystem.md)
 - [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Material Graph Authoring](../Editor/Architecture/MaterialGraphOperations.md)
+- [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)
 - [Material Compile Lifecycle and Derived Data](MaterialCompileLifecycleAndDerivedData.md)
 - [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
 - [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)

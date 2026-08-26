@@ -53,7 +53,7 @@ namespace Durin
 	{
 		GENERATED_BODY()
 
-		// Complete portable path to an authoring file in a registered mount.
+		// Complete portable path to a source file in a registered mount.
 		DPROPERTY()
 		FSourcePath SourcePath;
 
@@ -149,7 +149,7 @@ namespace Durin
 	// Overrides usage-derived texture import defaults.
 	struct FTexture2DImportSettings
 	{
-		// Portable mount-relative copy destination for the authoring file.
+		// Portable mount-relative copy destination for the source file.
 		// Empty stores the source under Textures using the asset name.
 		std::string SourceDestination;
 		ETextureUsage Usage = ETextureUsage::Color;
@@ -164,7 +164,7 @@ namespace Durin
 	};
 
 	// Complete object-free imported state accepted by the Engine publication seam.
-	// Authoring modules construct this value after their detached build succeeds.
+	// Build modules construct this value after their detached build succeeds.
 	struct FTexture2DImportedState
 	{
 		FTexture2DSourceImportData SourceImportData;

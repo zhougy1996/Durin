@@ -289,9 +289,9 @@ persistent object formats remain unchanged.
 ### Stage 5: Clarify stateless authoring APIs
 
 - [x] Replace the former SkyBox static service container with an operation/domain name or
-  namespace consistent with the existing level authoring vocabulary.
+  namespace consistent with the existing level operation vocabulary.
 - [x] Name the material graph static container `FMaterialGraphOperations`, consistent
-  consistent with the material graph authoring contract.
+  consistent with the material graph operations contract.
 - [x] Apply the rename only to stateless static containers confirmed in Stage
   0; leave stateful services and independently owned managers unchanged.
 - [x] Update call sites, focused editor tests, and authoritative authoring docs.
@@ -330,7 +330,7 @@ persistent object formats remain unchanged.
 | Thumbnail registry/cache | `ThumbnailTests`, `MaterialThumbnailTests`, `TextureThumbnailTests`, `StaticMeshThumbnailTests` | registration lifetime, queue policy, warm/cold generation, stale rejection, upload |
 | Import ownership | `AssetForgeTests` plus affected import integration targets selected by the testing guide | isolated ownership, claims, cancellation, inline/async ordering, shutdown drain |
 | Renderer routing | `EditorRenderingTests` plus affected Vulkan targets selected by the testing guide | generation order, shader reload, retry, release/recreate, shutdown rejection |
-| Authoring API names | affected MaterialEditor and LevelEditor focused targets | unchanged editing and transaction behavior |
+| Editor operation API names | affected MaterialEditor and LevelEditor focused targets | unchanged editing and transaction behavior |
 | Cross-module completion | repository full build and applicable editor/game smoke checks | public dependency and composition integrity |
 | Documentation | changed-doc validation and all-plan validation | valid links, metadata, and lasting ownership statements |
 
@@ -398,7 +398,7 @@ stage-local success cannot hide a later cross-domain regression.
 - [Async Asset Operations](../Editor/Architecture/AsyncAssetOperations.md)
 - [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
 - [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Material Graph Authoring](../Editor/Architecture/MaterialGraphOperations.md)
+- [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)
 - [Testing](../Agents/Testing.md)
 - [Build And Run](../Agents/BuildAndRun.md)
 - [Asset Compiling Manager Refactor Plan](AssetCompilingManagerRefactor.md)

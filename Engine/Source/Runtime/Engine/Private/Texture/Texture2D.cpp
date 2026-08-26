@@ -465,7 +465,7 @@ namespace Durin
 			Asset::ReportAssetLoadMutation(
 				this,
 				"Engine.Texture2D.SourceIdentity",
-				"Texture source identity metadata was reconciled by an authoring load build.");
+				"Texture source identity metadata was reconciled by an uncooked post-load build.");
 		}
 		OutError.clear();
 		return true;

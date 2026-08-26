@@ -515,7 +515,7 @@ namespace Durin::Editor::Material
 			ScaledMinimumDetailsWidth,
 			SidebarRatio);
 		ImGui::SameLine();
-		if (ImGui::BeginChild("MaterialEditorAuthoring", ImVec2(0.0f, Available.y)))
+		if (ImGui::BeginChild("MaterialEditorGraph", ImVec2(0.0f, Available.y)))
 		{
 			const float GraphHeight = std::max(Available.y * 0.62f,
 				MonaImGui::ScaleUI(280.0f));

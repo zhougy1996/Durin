@@ -219,7 +219,7 @@ namespace Durin
 	};
 
 	// Validates an editor-authored value against hard typed metadata without modifying it.
-	COREDOBJECT_API auto ValidatePropertyAuthoringValue(
+	COREDOBJECT_API auto ValidatePropertyEditValue(
 		const FProperty* Property,
 		const void* Container,
 		uint32 ArrayIndex = 0,

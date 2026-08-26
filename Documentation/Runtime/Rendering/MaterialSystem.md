@@ -102,7 +102,7 @@ one integral position per live node GUID. It sanitizes independently from the
 program and never enters validation, normalized IR, compile snapshots, shader
 identity, derived data, or Cook. MaterialEditor's shared inspection, command,
 canvas, clipboard, transaction, and diagnostic-navigation boundary is defined
-by [Material Graph Authoring](../../Editor/Architecture/MaterialGraphOperations.md).
+by [Material Graph Operations](../../Editor/Architecture/MaterialGraphOperations.md).
 
 The persisted program is authored state, not a render artifact. GameThread can
 snapshot it, parameter declarations, code-affecting static properties, target,

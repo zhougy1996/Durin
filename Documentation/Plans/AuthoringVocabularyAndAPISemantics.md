@@ -4,12 +4,12 @@ Summary: Replace overloaded Authoring names with lifecycle-specific asset, load,
 
 Last reviewed: 2026-08-26
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-26
 
 ## Current Status
 
-Stages 0 through 4 are complete. StaticMesh build, post-load, and source mutation
+All five implementation stages are complete. StaticMesh build, post-load, and source mutation
 have independent modular features because their callers require independent
 availability; one AssetForgeBuiltins implementation object still implements
 all three contracts. TextureCube and VolumeTexture now use post-load feature
@@ -31,8 +31,18 @@ scene build, and removed the private `Authoring` directory. `LevelEditor` and
 `LevelMutationTests` build; `LevelMutationTests` passed 15/15 and `SkyBoxTests`
 passed 11/11. Stage 4 renamed the MaterialEditor stateless graph boundary,
 implementation, tests, and authoritative document to material graph operations.
-`MaterialEditor` builds and `MaterialTests` passed 99/99. Stage 5 is the next
-open stage.
+`MaterialEditor` builds and `MaterialTests` passed 99/99.
+
+The final audit removed stale environment-lighting payload, property-edit,
+post-load, save-readiness, collision-build, content-write, and test vocabulary.
+Remaining `Authoring` occurrences are limited to precise human-activity prose,
+the tested legacy `AuthoringWritable` descriptor input, and the unchanged
+`DurinProjectAuthoring` cross-process lock identity documented by Workspace
+Projects. Remaining `Authored` occurrences describe persisted intent or an
+explicit persisted-state baseline. No active Engine path contains `Authoring`.
+The final `all` build passed. Fourteen focused native targets passed 606 tests
+with 2 existing skips, and the DurinHeaderTool descriptor/configuration suite
+passed 57/57.
 
 ## Goal
 
@@ -159,7 +169,7 @@ The planned public direction is:
 | Terrain level authoring | Terrain placement |
 | SkyBox level authoring | SkyBox placement |
 | graybox scene authoring | graybox scene build |
-| material graph authoring facade | material graph operations |
+| material graph operations facade | material graph operations |
 
 Stage 1 must choose the smallest StaticMesh interface split that makes
 availability truthful: build, uncooked load, and source mutation may remain on
@@ -362,20 +372,20 @@ cleanup.”
 
 ### Stage 5: Complete the residual semantic audit
 
-- [ ] Audit active source and non-archive documentation for `Authoring` and
+- [x] Audit active source and non-archive documentation for `Authoring` and
   classify every remaining occurrence as precise human-activity prose,
   retained compatibility input, or a defect to rename.
-- [ ] Audit `Authored` occurrences and change only those that do not describe
+- [x] Audit `Authored` occurrences and change only those that do not describe
   authoritative persisted intent, such as temporary candidate or local count
   names.
-- [ ] Remove old headers, implementation paths, feature identifiers,
+- [x] Remove old headers, implementation paths, feature identifiers,
   operation-group labels, CMake entries, test sources, and obsolete fixtures.
-- [ ] Run all focused targets from the validation matrix after the final
+- [x] Run all focused targets from the validation matrix after the final
   rename stage.
-- [ ] Run the repository-required full build because public APIs and schema
+- [x] Run the repository-required full build because public APIs and schema
   declarations cross Runtime, Developer, Editor, Program, and test modules.
-- [ ] Run changed-document and all-plan validation and record final evidence.
-- [ ] Move lasting vocabulary and ownership rules into their authoritative
+- [x] Run changed-document and all-plan validation and record final evidence.
+- [x] Move lasting vocabulary and ownership rules into their authoritative
   Runtime, Editor, and Workspace documents, then complete this plan.
 
 #### Acceptance Gate
@@ -409,25 +419,25 @@ not be used to expand rendering behavior.
 
 ## Definition of Done
 
-- [ ] The vocabulary table is reflected in public code and authoritative
+- [x] The vocabulary table is reflected in public code and authoritative
   documentation.
-- [ ] `Authored` remains reserved for authoritative persisted intent.
-- [ ] No active C++ API uses `Authoring` for content write policy, edit
+- [x] `Authored` remains reserved for authoritative persisted intent.
+- [x] No active C++ API uses `Authoring` for content write policy, edit
   ownership, serialization, save readiness, build products, post-load,
   derived-data load, source mutation, level mutation/placement, or material
   graph operations.
-- [ ] No removed header, class, function, feature identifier, CMake source,
+- [x] No removed header, class, function, feature identifier, CMake source,
   test target, fixture, or documentation link remains.
-- [ ] No C++ compatibility aliases or forwarding headers preserve the old API.
-- [ ] Project descriptor compatibility is explicit and covered by schema and
+- [x] No C++ compatibility aliases or forwarding headers preserve the old API.
+- [x] Project descriptor compatibility is explicit and covered by schema and
   loader tests.
-- [ ] Test cleanup removes only obsolete scaffolding and preserves behavioral
+- [x] Test cleanup removes only obsolete scaffolding and preserves behavioral
   failure and lifecycle coverage.
-- [ ] Each implementation stage lands independently with its plan checklist
+- [x] Each implementation stage lands independently with its plan checklist
   and validation evidence updated in the same commit.
-- [ ] Focused validation, the final full build, and documentation validation
+- [x] Focused validation, the final full build, and documentation validation
   pass.
-- [ ] Lasting contracts are updated and the plan is marked completed.
+- [x] Lasting contracts are updated and the plan is marked completed.
 
 ## Deferred Follow-ups
 

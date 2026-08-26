@@ -105,7 +105,7 @@ different conditions and are reported separately. A package with valid warm
 derived data may remain usable while its source mount is unavailable.
 
 Restore a missing project-relative checkout or link at the path declared by the
-project descriptor, then retry or repair. Authoring sources belong beneath the
+project descriptor, then retry or repair. Source inputs belong beneath the
 selected mount's effective content directory; do not replace a committed mount
 with a workstation absolute path.
 For a read-only source, keep the no-copy reference or ingest into another

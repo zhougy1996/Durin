@@ -1,4 +1,4 @@
-# Static Mesh Level Authoring
+# Static Mesh Level Mutations
 
 Modules: LevelEditor, DurinEd, Engine
 
@@ -13,7 +13,7 @@ The first boundary accepts exact `AStaticMeshActor` objects with their default
 `DStaticMeshComponent`, no instance components, and no Actor attachment parent
 or children. Derived classes, additional component graphs, and attached Actors
 remain explicit unsupported cases; their legacy Outliner behavior is not
-presented as transaction-backed authoring.
+presented as transaction-backed structural editing.
 
 Each detached Actor state contains the exact name, StaticMesh reference,
 transform, and visibility. A request contains one or more create, update,

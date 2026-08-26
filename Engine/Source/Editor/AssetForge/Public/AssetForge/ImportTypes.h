@@ -344,7 +344,7 @@ namespace Durin::AssetForge
 			std::vector<FImportDiagnostic>& OutDiagnostics) -> bool;
 		// Captures caller-owned immutable bytes under a logical mounted identity.
 		// This supports explicit source ingestion workflows without reopening the
-		// external authoring file during provider planning.
+		// external source file during provider planning.
 		auto CaptureRootBytes(
 			const FSourcePath& RootSource,
 			std::span<const std::byte> Bytes,

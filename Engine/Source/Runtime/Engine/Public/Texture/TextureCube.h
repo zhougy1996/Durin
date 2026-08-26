@@ -121,7 +121,7 @@ namespace Durin
 			std::string& OutError) -> bool;
 		ENGINE_API auto RefreshBuildStatus() -> void;
 
-		// Atomically accepts a complete, validated authoring candidate. Engine owns
+		// Atomically accepts a complete, validated post-load candidate. Engine owns
 		// the live object and render-resource transition; production stays external.
 		ENGINE_API auto PublishBuildProduct(
 			ETextureCubeSourceLayout InSourceLayout,

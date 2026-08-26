@@ -42,7 +42,7 @@ durin_add_engine_functional_test(PhysicsSceneTests
 	MODULES physics engine static-mesh-build
 	STACKS editor
 	RUNTIME_STACK_RATIONALE
-		"Exercises editor-only StaticMesh collision authoring registration through StaticMeshBuild."
+		"Exercises editor-only StaticMesh collision-build registration through StaticMeshBuild."
 	SOURCES
 		Private/Physics/PhysicsSceneTests.cpp
 		Private/Physics/PhysicsQueryObservabilityTests.cpp

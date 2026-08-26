@@ -57,7 +57,7 @@ surface with actionable diagnostics.
   deterministic validation, and normalized compiler IR.
 - Generated shader source or modules, dependency-derived shader-map identity,
   pass/permutation integration, diagnostics, persistence, cooking, and reload.
-- Command-driven material graph authoring, a human canvas and structured
+- Command-driven material graph operations, a human canvas and structured
   automation surface, compiler feedback, preview, Undo/Redo, and asset lifecycle
   behavior in MaterialEditor.
 - Transient runtime material instances, update batching, bounded resource reuse,
@@ -251,7 +251,7 @@ targets, fixtures, profiles, budgets, and final evidence.
 - [Terrain Rendering](../Runtime/Rendering/TerrainRendering.md)
 - [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
 - [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
-- [Material Graph Authoring](../Editor/Architecture/MaterialGraphOperations.md)
+- [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)
 - [CPU Task System](../Runtime/Core/TaskSystem.md)
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)

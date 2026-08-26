@@ -8,7 +8,7 @@
 
 namespace Durin
 {
-	// Stores one portable authoring-file path in a registered mount.
+	// Stores one portable source-file path in a registered mount.
 	DSTRUCT()
 	struct FSourcePath
 	{

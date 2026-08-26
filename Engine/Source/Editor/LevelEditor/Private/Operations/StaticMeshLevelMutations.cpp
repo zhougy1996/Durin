@@ -398,7 +398,7 @@ namespace Durin::Editor::Level
 		if (GIsGameThreadIdInitialized && !IsInGameThread())
 		{
 			Result.Diagnostic = MakeDiagnostic(EStaticMeshLevelMutationError::WrongThread,
-				"Static mesh level authoring must run on the game thread.");
+				"Static mesh level mutation must run on the game thread.");
 			return Result;
 		}
 		if (!Request.Level || Request.Mutations.empty())
@@ -535,7 +535,7 @@ namespace Durin::Editor::Level
 		if (GIsGameThreadIdInitialized && !IsInGameThread())
 		{
 			Result.Diagnostic = MakeDiagnostic(EStaticMeshLevelMutationError::WrongThread,
-				"Static mesh level authoring must run on the game thread.");
+				"Static mesh level mutation must run on the game thread.");
 			return Result;
 		}
 		DLevel* Level = Plan.Level.Get();

@@ -6,7 +6,7 @@
 
 namespace Durin
 {
-	// Translates Engine-owned authoring intent into the frozen P1 value contract.
+	// Translates Engine-owned authored intent into the frozen P1 value contract.
 	RENDERER_API auto BuildVolumetricCloudParameters(
 		const FVolumetricCloudSceneData& Cloud,
 		const FPreparedLightView& Lights

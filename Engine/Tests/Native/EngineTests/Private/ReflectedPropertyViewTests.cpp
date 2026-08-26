@@ -132,7 +132,7 @@ namespace
 				[](void* Memory) { std::destroy_at(static_cast<int32*>(Memory)); });
 			const Durin::FPropertyMetadataParams Metadata{
 				.DisplayName = "Bounded Value",
-				.ToolTip = "A value with authoring bounds.",
+				.ToolTip = "A value with property-edit bounds.",
 				.Category = "Numbers",
 				.Step = Durin::FPropertyMetadataNumber::FromSigned(1),
 				.ClampMin = Durin::FPropertyMetadataNumber::FromSigned(0),

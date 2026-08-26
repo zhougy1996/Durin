@@ -61,7 +61,7 @@ if(DURIN_WITH_EDITOR)
 	)
 else()
 	durin_exclude_native_test_sources(
-		RATIONALE "Texture authoring and scene import require the editor TextureBuild and AssetForgeBuiltins modules."
+		RATIONALE "Texture source processing and scene import require the editor TextureBuild and AssetForgeBuiltins modules."
 		SOURCES
 			Private/Texture/TextureTestEnvironment.cpp
 			Private/Texture/TextureImportAndCacheTests.cpp

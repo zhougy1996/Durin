@@ -101,7 +101,7 @@ TEST(FEnvironmentLightingTests, CheckedInStudioPayloadIsValid)
 	EXPECT_TRUE(Data.IsValid());
 }
 
-TEST(FEnvironmentLightingTests, AssetCooksAuthoringPayloadDirectlyWithoutDdc)
+TEST(FEnvironmentLightingTests, AssetCooksAuthoredPayloadDirectlyWithoutDdc)
 {
 	InitializeDObjectSystem();
 	const std::filesystem::path Root =
@@ -125,7 +125,7 @@ TEST(FEnvironmentLightingTests, AssetCooksAuthoringPayloadDirectlyWithoutDdc)
 	Durin::FFileHelper::FAtomicFileError FileError;
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFileAtomically(
 		SourceBytes,
-		Durin::DEnvironmentLighting::GetAuthoringPayloadPath(AssetPath.ToString()),
+		Durin::DEnvironmentLighting::GetAuthoredPayloadPath(AssetPath.ToString()),
 		&FileError)) << FileError.ToString();
 
 	const std::filesystem::path CookRoot = std::filesystem::absolute(Root / "Cook");

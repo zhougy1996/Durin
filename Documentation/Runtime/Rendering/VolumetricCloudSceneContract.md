@@ -55,7 +55,7 @@ Scene release clears all entries and counted references on the render thread.
 three `FRHITextureReferenceRef` values. `FVolumetricCloudSceneProxy` owns one
 immutable value and `FVolumetricCloudSceneInfo` owns the proxy. No actor,
 component, reflected object, mutable container, raw backend handle, render
-target, shader, history, or pipeline crosses from Engine authoring to the
+target, shader, history, or pipeline crosses from Engine-authored state to the
 render thread.
 
 During view preparation Renderer copies the selected snapshot, resolves base

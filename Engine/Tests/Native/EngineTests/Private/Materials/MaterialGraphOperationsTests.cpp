@@ -34,7 +34,7 @@ namespace
 			Input.Parameters.push_back({Definition.Id, Definition.Type});
 		std::ranges::sort(Input.Parameters, {},
 			&FMaterialCompilerParameterDeclaration::Id);
-		Input.Environment.CompilerIdentity = "material-graph-authoring-test";
+		Input.Environment.CompilerIdentity = "material-graph-operations-test";
 		Input.Environment.Target = "vulkan-spirv-1.5";
 		return NormalizeMaterialProgram(Input);
 	}
@@ -566,7 +566,7 @@ TEST(FMaterialGraphOperationsTests, CanvasProducesBoundedEditingDrawData)
 TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSemanticAndPresentationState)
 {
 	InitializeDObjectSystem();
-	DMaterial* Material = NewObject<DMaterial>(nullptr, "GraphAuthoringMaterial");
+	DMaterial* Material = NewObject<DMaterial>(nullptr, "GraphOperationsMaterial");
 	ASSERT_NE(Material, nullptr);
 	const FMaterialProgram OriginalProgram = *Material->GetMaterialProgram();
 	const uint64 OriginalRevision =

@@ -1,4 +1,4 @@
-# Material Graph Authoring
+# Material Graph Operations
 
 Summary: Define the shared MaterialEditor command, presentation, canvas, transaction, clipboard, diagnostic, and document-lifecycle contracts for authored material programs.
 

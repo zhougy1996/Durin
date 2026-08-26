@@ -56,7 +56,7 @@ The physical filename is the resolved virtual path plus `.dasset`. Main assets u
 roots resident packages for garbage collection and caches one package instance
 per `FAssetPath`. Newly created and persistent packages share that store. Each
 resident entry is explicitly `NewlyCreated` or `Published`, while
-`DPackage::IsDirty()` independently records unsaved contents. Authoring code
+`DPackage::IsDirty()` independently records unsaved contents. Editor save code
 uses `FindResidentPackage` for either state; save promotes the same entry to
 `Published` after catalog publication.
 

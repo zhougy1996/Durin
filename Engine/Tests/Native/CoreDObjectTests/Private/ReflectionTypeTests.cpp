@@ -5551,7 +5551,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(*DefaultMatrix, Durin::FMatrix4f(1.0f));
 	}
 
-	TEST(FCoreDObjectReflectionTests, TypedMetadataPreservesExactNumericChannelsAndValidatesAuthoringBounds)
+	TEST(FCoreDObjectReflectionTests, TypedMetadataPreservesExactNumericChannelsAndValidatesPropertyEditBounds)
 	{
 		Durin::FNumericProperty UnsignedProperty(
 			Durin::FFieldVariant(), Durin::FName("Unsigned"), Durin::EObjectFlags::NoFlags,
@@ -5570,9 +5570,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		std::string Error;
 		uint64 Value = 9'007'199'254'740'993ULL;
-		EXPECT_TRUE(Durin::ValidatePropertyAuthoringValue(&UnsignedProperty, &Value, 0, &Error));
+		EXPECT_TRUE(Durin::ValidatePropertyEditValue(&UnsignedProperty, &Value, 0, &Error));
 		Value = 9'007'199'254'740'992ULL;
-		EXPECT_FALSE(Durin::ValidatePropertyAuthoringValue(&UnsignedProperty, &Value, 0, &Error));
+		EXPECT_FALSE(Durin::ValidatePropertyEditValue(&UnsignedProperty, &Value, 0, &Error));
 		EXPECT_EQ(Error, "The proposed value is below ClampMin.");
 
 		Durin::FNumericProperty FloatProperty(
@@ -5585,9 +5585,9 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			Durin::FPropertyMetadataNumber::FromFloat(1.0f)};
 		FloatProperty.SetTypedMetadata(&FloatMetadata);
 		float FloatValue = std::numeric_limits<float>::quiet_NaN();
-		EXPECT_FALSE(Durin::ValidatePropertyAuthoringValue(&FloatProperty, &FloatValue, 0, &Error));
+		EXPECT_FALSE(Durin::ValidatePropertyEditValue(&FloatProperty, &FloatValue, 0, &Error));
 		FloatValue = 1.0f;
-		EXPECT_TRUE(Durin::ValidatePropertyAuthoringValue(&FloatProperty, &FloatValue, 0, &Error));
+		EXPECT_TRUE(Durin::ValidatePropertyEditValue(&FloatProperty, &FloatValue, 0, &Error));
 	}
 
 	TEST(FCoreDObjectReflectionTests, StructDefaultsPublishAtomicallyAndRejectUnstableOrReentrantConstruction)

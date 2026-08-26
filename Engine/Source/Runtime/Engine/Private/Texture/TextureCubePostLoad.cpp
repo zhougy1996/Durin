@@ -13,8 +13,8 @@ namespace Durin
 			},
 			{
 				.Unavailable = "No uncooked TextureCube load policy is registered.",
-				.Ambiguous = "TextureCube authoring capability is ambiguous.",
-				.VisitorFailed = "TextureCube authoring provider failed."},
+				.Ambiguous = "TextureCube post-load capability is ambiguous.",
+				.VisitorFailed = "TextureCube post-load provider failed."},
 			OutError);
 	}
 }

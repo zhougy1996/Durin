@@ -11,8 +11,8 @@ namespace Durin
 			[&](IVolumeTexturePostLoadFeature& Feature) {
 				return Feature.PostLoadUncooked(Texture, OutError);
 			}, {.Unavailable = "No uncooked volume texture load policy is registered.",
-				.Ambiguous = "Volume texture authoring capability is ambiguous.",
-				.VisitorFailed = "Volume texture authoring provider failed."}, OutError);
+				.Ambiguous = "Volume texture post-load capability is ambiguous.",
+				.VisitorFailed = "Volume texture post-load provider failed."}, OutError);
 	}
 
 	auto TryInvokeVolumeTextureImportRecovery(

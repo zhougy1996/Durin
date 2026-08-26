@@ -163,7 +163,7 @@ namespace Durin::Editor::Material
 			EMaterialGraphDetailLevel Previous) -> EMaterialGraphDetailLevel;
 	};
 
-	// Provides candidate-validated graph authoring with no widget or viewport dependency.
+	// Provides candidate-validated graph editing with no widget or viewport dependency.
 	class FMaterialGraphOperations
 	{
 	public:

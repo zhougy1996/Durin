@@ -54,7 +54,7 @@ namespace Durin::Asset
 		EMountedSourceMutationContext MutationContext =
 			EMountedSourceMutationContext::DependencySafe) -> bool;
 	// Publishes an immutable byte payload at an explicit mounted source path. This
-	// is used for container-embedded authoring inputs that need an independently
+	// is used for container-embedded source inputs that need an independently
 	// reloadable source identity.
 	ASSETCORE_API auto PrepareMountedSourceBytes(
 		std::span<const std::byte> Bytes,

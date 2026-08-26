@@ -148,9 +148,9 @@ durin_add_engine_functional_test(LevelMutationTests
 	STACKS editor
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
-		"LevelEditor-owned authoring white-box coverage keeps structural transaction implementations private."
+		"LevelEditor-owned mutation white-box coverage keeps structural transaction implementations private."
 	COMPILE_DEFINITIONS DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION=1
-	RUNTIME_STACK_RATIONALE "Exercises transaction-backed LevelEditor structural authoring."
+	RUNTIME_STACK_RATIONALE "Exercises transaction-backed LevelEditor structural mutation."
 	SOURCES
 		Private/Editor/StaticMeshLevelMutationTests.cpp
 		Private/Editor/WorldOutlinerActorAttachmentTests.cpp
