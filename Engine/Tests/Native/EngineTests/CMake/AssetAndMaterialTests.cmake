@@ -141,7 +141,7 @@ durin_add_engine_functional_test(EditorHierarchyTests
 		${_durin_level_editor_private}/Panels/WorldOutlinerHierarchyModel.cpp
 )
 
-durin_add_engine_functional_test(LevelAuthoringTests
+durin_add_engine_functional_test(LevelMutationTests
 	KIND feature
 	DOMAINS world
 	MODULES durin-ed level-editor
@@ -152,12 +152,12 @@ durin_add_engine_functional_test(LevelAuthoringTests
 	COMPILE_DEFINITIONS DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION=1
 	RUNTIME_STACK_RATIONALE "Exercises transaction-backed LevelEditor structural authoring."
 	SOURCES
-		Private/Editor/StaticMeshLevelAuthoringTests.cpp
+		Private/Editor/StaticMeshLevelMutationTests.cpp
 		Private/Editor/WorldOutlinerActorAttachmentTests.cpp
 	PRIVATE_SOURCES
-		${_durin_level_editor_private}/Authoring/StaticMeshLevelAuthoring.cpp
-		${_durin_level_editor_private}/Authoring/TerrainLevelAuthoring.cpp
-		${_durin_level_editor_private}/Authoring/GrayboxSceneAuthoring.cpp
+		${_durin_level_editor_private}/Operations/StaticMeshLevelMutations.cpp
+		${_durin_level_editor_private}/Operations/TerrainPlacement.cpp
+		${_durin_level_editor_private}/Operations/GrayboxSceneBuild.cpp
 		${_durin_level_editor_private}/Panels/ActorAttachmentTransaction.cpp
 	LIBRARIES DurinEd
 )

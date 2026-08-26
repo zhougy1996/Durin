@@ -40,14 +40,14 @@ durin_add_engine_functional_test(SkyBoxTests
 	STACKS editor renderer
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
-		"LevelEditor-owned sky-box authoring white-box coverage avoids exporting private customization symbols."
+		"LevelEditor-owned sky-box placement white-box coverage avoids exporting private customization symbols."
 	RUNTIME_STACK_RATIONALE "Exercises renderer-backed sky-box editing and rendering contracts."
 	SOURCES
 		Private/SkyBox/SkyBoxRenderingTests.cpp
 		Private/SkyBox/SkyBoxComponentTests.cpp
 		Private/SkyBox/SkyBoxEditorTests.cpp
 	PRIVATE_SOURCES
-		${_durin_level_editor_private}/Authoring/SkyBoxLevelAuthoring.cpp
+		${_durin_level_editor_private}/Operations/SkyBoxPlacement.cpp
 		${_durin_level_editor_private}/Customizations/SkyBoxDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 	LIBRARIES StaticMeshBuild AssetForgeBuiltins RenderCore Renderer DurinEd

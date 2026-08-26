@@ -28,7 +28,7 @@
 #include "Components/VolumetricCloudComponent.h"
 #include "TerrainHeightmapAssetThumbnail.h"
 #include "Thumbnail/AssetThumbnailProvider.h"
-#include "GrayboxSceneAuthoring.h"
+#include "GrayboxSceneBuild.h"
 #include "Misc/StartupCommand.h"
 #include "Asset/Load.h"
 #include "AssetForge/Builtins/TerrainHeightmapImport.h"

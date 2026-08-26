@@ -416,7 +416,7 @@ stage-local success cannot hide a later cross-domain regression.
 - `Engine/Source/Editor/AssetForge/Private/AsyncImport.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Resources/RendererResourceCoordinator.h`
 - `Engine/Source/Runtime/Renderer/Private/Resources/RendererResourceCoordinator.cpp`
-- `Engine/Source/Editor/LevelEditor/Public/SkyBoxLevelAuthoring.h`
+- `Engine/Source/Editor/LevelEditor/Public/SkyBoxPlacement.h`
 - `Engine/Source/Editor/MaterialEditor/Public/MaterialGraphAuthoring.h`
 - `Engine/Tests/Native/EngineTests/Private/Materials/MaterialCompileLifecycleTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/AssetThumbnailContractTests.cpp`

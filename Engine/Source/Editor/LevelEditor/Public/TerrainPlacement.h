@@ -17,7 +17,7 @@ namespace Durin
 
 namespace Durin::Editor::Level
 {
-	enum class ETerrainLevelAuthoringError : uint8
+	enum class ETerrainPlacementError : uint8
 	{
 		None,
 		InvalidRequest,
@@ -48,11 +48,11 @@ namespace Durin::Editor::Level
 		std::string Description = "Place terrain actor";
 	};
 
-	struct FTerrainLevelAuthoringDiagnostic
+	struct FTerrainPlacementDiagnostic
 	{
-		ETerrainLevelAuthoringError Error = ETerrainLevelAuthoringError::None;
+		ETerrainPlacementError Error = ETerrainPlacementError::None;
 		std::string Message;
-		explicit operator bool() const { return Error == ETerrainLevelAuthoringError::None; }
+		explicit operator bool() const { return Error == ETerrainPlacementError::None; }
 	};
 
 	struct FTerrainPlacementPlan
@@ -72,19 +72,19 @@ namespace Durin::Editor::Level
 		double HeightOffset = 0.0;
 		bool bVisible = true;
 		std::string Description;
-		FTerrainLevelAuthoringDiagnostic Diagnostic;
+		FTerrainPlacementDiagnostic Diagnostic;
 		explicit operator bool() const { return static_cast<bool>(Diagnostic); }
 	};
 
 	struct FTerrainPlacementResult
 	{
-		FTerrainLevelAuthoringDiagnostic Diagnostic;
+		FTerrainPlacementDiagnostic Diagnostic;
 		TObjectPtr<ATerrainActor> Actor;
 		bool bChanged = false;
 		explicit operator bool() const { return static_cast<bool>(Diagnostic); }
 	};
 
-	struct FTerrainLevelExecutionContext
+	struct FTerrainPlacementExecutionContext
 	{
 		DLevel* OpenLevel = nullptr;
 		::Durin::Editor::FTransactionManager* Transactions = nullptr;
@@ -92,12 +92,12 @@ namespace Durin::Editor::Level
 	};
 
 	// Captures, validates, and atomically executes one finite Terrain placement.
-	class LEVELEDITOR_API FTerrainLevelAuthoringService
+	class LEVELEDITOR_API FTerrainPlacement
 	{
 	public:
 		static auto CaptureTarget(DLevel& Level) -> FTerrainPlacementRequest;
 		static auto Plan(const FTerrainPlacementRequest& Request) -> FTerrainPlacementPlan;
 		static auto Execute(const FTerrainPlacementPlan& Plan,
-			const FTerrainLevelExecutionContext& Context) -> FTerrainPlacementResult;
+			const FTerrainPlacementExecutionContext& Context) -> FTerrainPlacementResult;
 	};
 }

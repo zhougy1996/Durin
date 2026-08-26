@@ -31,9 +31,9 @@
 #include "Widgets/MWindow.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
-#include "StaticMeshLevelAuthoring.h"
-#include "TerrainLevelAuthoring.h"
-#include "SkyBoxLevelAuthoring.h"
+#include "StaticMeshLevelMutations.h"
+#include "TerrainPlacement.h"
+#include "SkyBoxPlacement.h"
 #include "Texture/TextureCube.h"
 #include "Terrain/TerrainHeightmap.h"
 
@@ -333,7 +333,7 @@ namespace Durin::Editor::Level
 							if (SceneViewProjection::BuildViewportRay(View, {Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction))
 								PlacementTransform.Translation = Origin + Direction * 5.0;
 
-							auto Request = FStaticMeshLevelAuthoringService::CaptureTarget(*Context.Level);
+							auto Request = FStaticMeshLevelMutations::CaptureTarget(*Context.Level);
 							Request.bReadOnly = Context.bReadOnly;
 							Request.Description = "Place static mesh actor";
 							Request.Mutations.push_back({
@@ -341,8 +341,8 @@ namespace Durin::Editor::Level
 								.TargetName = MakeUniqueActorName(*Context.Level, FName(AssetPath.GetAssetName())),
 								.Desired = {.StaticMesh = StaticMesh, .Transform = PlacementTransform},
 							});
-							const FStaticMeshLevelMutationPlan Plan = FStaticMeshLevelAuthoringService::Plan(Request);
-							const FStaticMeshLevelMutationResult ApplyResult = FStaticMeshLevelAuthoringService::Execute(Plan, {
+							const FStaticMeshLevelMutationPlan Plan = FStaticMeshLevelMutations::Plan(Request);
+							const FStaticMeshLevelMutationResult ApplyResult = FStaticMeshLevelMutations::Execute(Plan, {
 								.OpenLevel = Context.Level,
 								.Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr,
 								.bReadOnly = Context.bReadOnly,
@@ -381,14 +381,14 @@ namespace Durin::Editor::Level
 							if (SceneViewProjection::BuildViewportRay(View,
 								{Mouse.x - VpMin.x, Mouse.y - VpMin.y}, Origin, Direction))
 								PlacementTransform.Translation = Origin + Direction * 5.0;
-							auto Request = FTerrainLevelAuthoringService::CaptureTarget(*Context.Level);
+							auto Request = FTerrainPlacement::CaptureTarget(*Context.Level);
 							Request.bReadOnly = Context.bReadOnly;
 							Request.ActorName = MakeUniqueActorName(*Context.Level, FName(AssetPath.GetAssetName()));
 							Request.Heightmap = Heightmap;
 							Request.ExpectedHeightmapRevision = Heightmap->GetRevision();
 							Request.Transform = PlacementTransform;
-							const FTerrainPlacementResult Result = FTerrainLevelAuthoringService::Execute(
-								FTerrainLevelAuthoringService::Plan(Request), {
+							const FTerrainPlacementResult Result = FTerrainPlacement::Execute(
+								FTerrainPlacement::Plan(Request), {
 									.OpenLevel = Context.Level,
 									.Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr,
 									.bReadOnly = Context.bReadOnly});
@@ -397,7 +397,7 @@ namespace Durin::Editor::Level
 						}
 						else if (DTextureCube* TextureCube = Cast<DTextureCube>(Asset))
 						{
-							const FSkyBoxPlacementResult Result = FSkyBoxLevelAuthoring::PlaceTextureCube(
+							const FSkyBoxPlacementResult Result = FSkyBoxPlacement::PlaceTextureCube(
 								*Context.Level,
 								TextureCube,
 								FName(std::format("{}_SkyBox", AssetPath.GetAssetName())),

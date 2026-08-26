@@ -2,7 +2,7 @@
 
 Modules: LevelEditor, DurinEd, Engine
 
-`FStaticMeshLevelAuthoringService` is the reusable structural-editing boundary
+`FStaticMeshLevelMutations` is the reusable structural-editing boundary
 for ordinary `AStaticMeshActor` instances. The Scene Viewport and World
 Outliner use it instead of directly spawning, renaming, or destroying supported
 StaticMesh Actors.
@@ -63,8 +63,8 @@ or asset loading.
 
 ## Related code
 
-- `Engine/Source/Editor/LevelEditor/Public/StaticMeshLevelAuthoring.h`
-- `Engine/Source/Editor/LevelEditor/Private/Authoring/StaticMeshLevelAuthoring.cpp`
+- `Engine/Source/Editor/LevelEditor/Public/StaticMeshLevelMutations.h`
+- `Engine/Source/Editor/LevelEditor/Private/Operations/StaticMeshLevelMutations.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/SceneViewportPanel.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Panels/WorldOutlinerPanel.cpp`
-- `Engine/Tests/Native/EngineTests/Private/Editor/StaticMeshLevelAuthoringTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/Editor/StaticMeshLevelMutationTests.cpp`

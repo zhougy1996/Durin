@@ -48,6 +48,6 @@ is reported instead of allowing concurrent writes.
 
 ## Related code
 
-- `Engine/Source/Editor/LevelEditor/Public/GrayboxSceneAuthoring.h`
-- `Engine/Source/Editor/LevelEditor/Private/Authoring/GrayboxSceneAuthoring.cpp`
+- `Engine/Source/Editor/LevelEditor/Public/GrayboxSceneBuild.h`
+- `Engine/Source/Editor/LevelEditor/Private/Operations/GrayboxSceneBuild.cpp`
 - `Tools/DurinDevTool/durin_dev_tool/scene.py`

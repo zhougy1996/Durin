@@ -1,4 +1,4 @@
-#include "TerrainLevelAuthoring.h"
+#include "TerrainPlacement.h"
 
 #include "Actors/TerrainActor.h"
 #include "Components/TerrainComponent.h"
@@ -14,8 +14,8 @@ namespace Durin::Editor::Level
 {
 	namespace
 	{
-		auto MakeDiagnostic(ETerrainLevelAuthoringError Error, std::string Message)
-			-> FTerrainLevelAuthoringDiagnostic
+		auto MakeDiagnostic(ETerrainPlacementError Error, std::string Message)
+			-> FTerrainPlacementDiagnostic
 		{
 			return {.Error = Error, .Message = std::move(Message)};
 		}
@@ -112,7 +112,7 @@ namespace Durin::Editor::Level
 		};
 	}
 
-	auto FTerrainLevelAuthoringService::CaptureTarget(DLevel& Level) -> FTerrainPlacementRequest
+	auto FTerrainPlacement::CaptureTarget(DLevel& Level) -> FTerrainPlacementRequest
 	{
 		DPackage* Package = Level.GetPackage();
 		return {.Level = &Level,
@@ -120,25 +120,25 @@ namespace Durin::Editor::Level
 			.ExpectedPackageEditRevision = Package ? Package->GetEditRevision() : 0};
 	}
 
-	auto FTerrainLevelAuthoringService::Plan(const FTerrainPlacementRequest& Request)
+	auto FTerrainPlacement::Plan(const FTerrainPlacementRequest& Request)
 		-> FTerrainPlacementPlan
 	{
 		FTerrainPlacementPlan Result;
 		if (GIsGameThreadIdInitialized && !IsInGameThread())
 		{
-			Result.Diagnostic = MakeDiagnostic(ETerrainLevelAuthoringError::WrongThread,
+			Result.Diagnostic = MakeDiagnostic(ETerrainPlacementError::WrongThread,
 				"Terrain authoring must run on the game thread.");
 			return Result;
 		}
 		if (!Request.Level || Request.ActorName.IsNone() || !Request.Heightmap)
 		{
-			Result.Diagnostic = MakeDiagnostic(ETerrainLevelAuthoringError::InvalidRequest,
+			Result.Diagnostic = MakeDiagnostic(ETerrainPlacementError::InvalidRequest,
 				"A Level, actor name, and Terrain heightmap are required.");
 			return Result;
 		}
 		if (Request.bReadOnly)
 		{
-			Result.Diagnostic = MakeDiagnostic(ETerrainLevelAuthoringError::ReadOnly,
+			Result.Diagnostic = MakeDiagnostic(ETerrainPlacementError::ReadOnly,
 				"The target Level is read-only.");
 			return Result;
 		}
@@ -147,13 +147,13 @@ namespace Durin::Editor::Level
 			|| Package->GetPackagePath() != Request.ExpectedPackagePath
 			|| Package->GetEditRevision() != Request.ExpectedPackageEditRevision)
 		{
-			Result.Diagnostic = MakeDiagnostic(ETerrainLevelAuthoringError::StaleTarget,
+			Result.Diagnostic = MakeDiagnostic(ETerrainPlacementError::StaleTarget,
 				"The target Level package no longer matches the captured request.");
 			return Result;
 		}
 		if (Request.Level->FindActorByName(Request.ActorName))
 		{
-			Result.Diagnostic = MakeDiagnostic(ETerrainLevelAuthoringError::NameConflict,
+			Result.Diagnostic = MakeDiagnostic(ETerrainPlacementError::NameConflict,
 				std::format("Actor name '{}' is already occupied.", Request.ActorName.ToString()));
 			return Result;
 		}
@@ -162,7 +162,7 @@ namespace Durin::Editor::Level
 			|| !Request.Heightmap->GetPayload()
 			|| (Request.ExpectedHeightmapRevision != 0 && Request.ExpectedHeightmapRevision != HeightmapRevision))
 		{
-			Result.Diagnostic = MakeDiagnostic(ETerrainLevelAuthoringError::UnavailableHeightmap,
+			Result.Diagnostic = MakeDiagnostic(ETerrainPlacementError::UnavailableHeightmap,
 				"The Terrain heightmap is unavailable or changed before planning.");
 			return Result;
 		}
@@ -171,7 +171,7 @@ namespace Durin::Editor::Level
 			|| !std::isfinite(Request.SpacingY) || Request.SpacingY <= 0.0
 			|| !std::isfinite(Request.HeightScale) || !std::isfinite(Request.HeightOffset))
 		{
-			Result.Diagnostic = MakeDiagnostic(ETerrainLevelAuthoringError::InvalidProperties,
+			Result.Diagnostic = MakeDiagnostic(ETerrainPlacementError::InvalidProperties,
 				"Terrain transform and height properties must be finite; spacing must be positive.");
 			return Result;
 		}
@@ -193,8 +193,8 @@ namespace Durin::Editor::Level
 		return Result;
 	}
 
-	auto FTerrainLevelAuthoringService::Execute(const FTerrainPlacementPlan& Plan,
-		const FTerrainLevelExecutionContext& Context) -> FTerrainPlacementResult
+	auto FTerrainPlacement::Execute(const FTerrainPlacementPlan& Plan,
+		const FTerrainPlacementExecutionContext& Context) -> FTerrainPlacementResult
 	{
 		FTerrainPlacementResult Result;
 		if (!Plan) { Result.Diagnostic = Plan.Diagnostic; return Result; }
@@ -202,7 +202,7 @@ namespace Durin::Editor::Level
 		DPackage* Package = Plan.Package.Get();
 		if (Context.bReadOnly)
 		{
-			Result.Diagnostic = MakeDiagnostic(ETerrainLevelAuthoringError::ReadOnly,
+			Result.Diagnostic = MakeDiagnostic(ETerrainPlacementError::ReadOnly,
 				"The target Level became read-only before execution.");
 			return Result;
 		}
@@ -213,7 +213,7 @@ namespace Durin::Editor::Level
 			|| !Plan.Heightmap || Plan.Heightmap->GetRevision() != Plan.HeightmapRevision
 			|| Plan.Heightmap->GetStatus() != ETerrainHeightmapStatus::Ready)
 		{
-			Result.Diagnostic = MakeDiagnostic(ETerrainLevelAuthoringError::StaleTarget,
+			Result.Diagnostic = MakeDiagnostic(ETerrainPlacementError::StaleTarget,
 				"The Level or heightmap changed after Terrain placement was planned.");
 			return Result;
 		}
@@ -222,14 +222,14 @@ namespace Durin::Editor::Level
 			? Context.Transactions->Execute(std::move(Transaction)) : Transaction->Redo();
 		if (!bSucceeded)
 		{
-			Result.Diagnostic = MakeDiagnostic(ETerrainLevelAuthoringError::ExecutionFailed,
+			Result.Diagnostic = MakeDiagnostic(ETerrainPlacementError::ExecutionFailed,
 				"Terrain placement could not be applied.");
 			return Result;
 		}
 		Result.Actor = Cast<ATerrainActor>(Level->FindActorByName(Plan.ActorName));
 		Result.bChanged = Result.Actor != nullptr;
 		if (!Result.bChanged)
-			Result.Diagnostic = MakeDiagnostic(ETerrainLevelAuthoringError::ExecutionFailed,
+			Result.Diagnostic = MakeDiagnostic(ETerrainPlacementError::ExecutionFailed,
 				"Terrain placement completed without a live actor.");
 		return Result;
 	}

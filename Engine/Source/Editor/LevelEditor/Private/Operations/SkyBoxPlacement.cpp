@@ -1,4 +1,4 @@
-#include "SkyBoxLevelAuthoring.h"
+#include "SkyBoxPlacement.h"
 
 #include "Actors/SkyBoxActor.h"
 #include "Components/SkyBoxComponent.h"
@@ -127,7 +127,7 @@ namespace Durin::Editor::Level
 		};
 	}
 
-	auto FSkyBoxLevelAuthoring::PlaceTextureCube(
+	auto FSkyBoxPlacement::PlaceTextureCube(
 		DLevel& Level,
 		DTextureCube* TextureCube,
 		FName RequestedName,

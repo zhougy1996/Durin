@@ -2,7 +2,7 @@
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Editor/Transaction.h"
 #include "Math/Operations.h"
-#include "SkyBoxLevelAuthoring.h"
+#include "SkyBoxPlacement.h"
 
 TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConflicts)
 {
@@ -30,7 +30,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	ASSERT_TRUE(Durin::Asset::CreateAsset(LevelPath, Level));
 	Durin::Editor::FTransactionManager Transactions;
 	const Durin::Editor::Level::FSkyBoxPlacementResult Placement =
-		Durin::Editor::Level::FSkyBoxLevelAuthoring::PlaceTextureCube(
+		Durin::Editor::Level::FSkyBoxPlacement::PlaceTextureCube(
 			*Level, CubeResult.Asset, "Sky", &Transactions);
 	ASSERT_TRUE(Placement) << Placement.Message;
 	EXPECT_TRUE(Placement.bChanged);
@@ -84,7 +84,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	Durin::Editor::Level::FSkyBoxConflictModel ConflictModel(LoadedLevel);
 	ASSERT_TRUE(ConflictModel.HasConflict());
 	const Durin::Editor::Level::FSkyBoxPlacementResult ConflictPlacement =
-		Durin::Editor::Level::FSkyBoxLevelAuthoring::PlaceTextureCube(
+		Durin::Editor::Level::FSkyBoxPlacement::PlaceTextureCube(
 			*LoadedLevel, LoadedComponent->GetTextureCube(), "RejectedSky", nullptr);
 	EXPECT_FALSE(ConflictPlacement);
 	EXPECT_EQ(LoadedLevel->FindActorByName("RejectedSky"), nullptr);
@@ -150,7 +150,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	ASSERT_NE(Actor, nullptr);
 	Durin::Editor::FTransactionManager Transactions;
 	const Durin::Editor::Level::FSkyBoxPlacementResult Placement =
-		Durin::Editor::Level::FSkyBoxLevelAuthoring::PlaceTextureCube(
+		Durin::Editor::Level::FSkyBoxPlacement::PlaceTextureCube(
 			*Level, CubeResult.Asset, "UnusedName", &Transactions);
 	ASSERT_TRUE(Placement) << Placement.Message;
 	EXPECT_EQ(Placement.Actor, Actor);

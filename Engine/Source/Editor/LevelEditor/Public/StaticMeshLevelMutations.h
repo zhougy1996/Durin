@@ -29,7 +29,7 @@ namespace Durin::Editor::Level
 		Remove,
 	};
 
-	enum class EStaticMeshLevelAuthoringError : uint8
+	enum class EStaticMeshLevelMutationError : uint8
 	{
 		None,
 		InvalidRequest,
@@ -43,7 +43,7 @@ namespace Durin::Editor::Level
 		ExecutionFailed,
 	};
 
-	struct FStaticMeshActorAuthoringState
+	struct FStaticMeshActorMutationState
 	{
 		FName Name;
 		TObjectPtr<DStaticMesh> StaticMesh;
@@ -55,7 +55,7 @@ namespace Durin::Editor::Level
 	{
 		EStaticMeshLevelMutationKind Kind = EStaticMeshLevelMutationKind::Create;
 		FName TargetName;
-		FStaticMeshActorAuthoringState Desired;
+		FStaticMeshActorMutationState Desired;
 	};
 
 	struct FStaticMeshLevelMutationRequest
@@ -68,19 +68,19 @@ namespace Durin::Editor::Level
 		std::vector<FStaticMeshLevelMutation> Mutations;
 	};
 
-	struct FStaticMeshLevelAuthoringDiagnostic
+	struct FStaticMeshLevelMutationDiagnostic
 	{
-		EStaticMeshLevelAuthoringError Error = EStaticMeshLevelAuthoringError::None;
+		EStaticMeshLevelMutationError Error = EStaticMeshLevelMutationError::None;
 		size_t MutationIndex = std::numeric_limits<size_t>::max();
 		std::string Message;
 
-		explicit operator bool() const { return Error == EStaticMeshLevelAuthoringError::None; }
+		explicit operator bool() const { return Error == EStaticMeshLevelMutationError::None; }
 	};
 
-	struct FStaticMeshActorAuthoringDelta
+	struct FStaticMeshActorMutationDelta
 	{
-		std::optional<FStaticMeshActorAuthoringState> Before;
-		std::optional<FStaticMeshActorAuthoringState> After;
+		std::optional<FStaticMeshActorMutationState> Before;
+		std::optional<FStaticMeshActorMutationState> After;
 	};
 
 	struct FStaticMeshLevelMutationPlan
@@ -91,8 +91,8 @@ namespace Durin::Editor::Level
 		uint64 PackageEditRevision = 0;
 		uint64 ActorHierarchyRevision = 0;
 		std::string Description;
-		std::vector<FStaticMeshActorAuthoringDelta> Deltas;
-		FStaticMeshLevelAuthoringDiagnostic Diagnostic;
+		std::vector<FStaticMeshActorMutationDelta> Deltas;
+		FStaticMeshLevelMutationDiagnostic Diagnostic;
 		bool bHasChanges = false;
 
 		explicit operator bool() const { return static_cast<bool>(Diagnostic); }
@@ -100,7 +100,7 @@ namespace Durin::Editor::Level
 
 	struct FStaticMeshLevelMutationResult
 	{
-		FStaticMeshLevelAuthoringDiagnostic Diagnostic;
+		FStaticMeshLevelMutationDiagnostic Diagnostic;
 		std::vector<FName> ResultActorNames;
 		bool bChanged = false;
 
@@ -116,7 +116,7 @@ namespace Durin::Editor::Level
 
 	// Plans and applies bounded structural edits for ordinary, unattached
 	// AStaticMeshActor graphs. Planning never mutates the Level.
-	class LEVELEDITOR_API FStaticMeshLevelAuthoringService
+	class LEVELEDITOR_API FStaticMeshLevelMutations
 	{
 	public:
 		static auto CaptureTarget(DLevel& Level) -> FStaticMeshLevelMutationRequest;

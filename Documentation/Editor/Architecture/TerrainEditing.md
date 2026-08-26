@@ -15,7 +15,7 @@ component owns spacing, signed height scale/offset, transform, material,
 visibility, and collision policy. Renderer, collision, thumbnail, and picking
 resources are derived snapshots and may report unavailable state independently.
 
-LevelEditor owns `FTerrainLevelAuthoringService`, the Terrain Details
+LevelEditor owns `FTerrainPlacement`, the Terrain Details
 customization, and the canonical heightmap thumbnail provider. Engine owns the
 minimal `FTerrainPickingSnapshot` boundary. DurinEd owns provider registration,
 scheduling, cache identity, persistence, upload budgets, and cancellation.
@@ -99,7 +99,7 @@ registration change, mode exit, or shutdown.
 ## Related Code
 
 ```text
-Engine/Source/Editor/LevelEditor/Public/TerrainLevelAuthoring.h
+Engine/Source/Editor/LevelEditor/Public/TerrainPlacement.h
 Engine/Source/Editor/LevelEditor/Public/TerrainDetails.h
 Engine/Source/Editor/LevelEditor/Public/TerrainHeightmapAssetThumbnail.h
 Engine/Source/Editor/LevelEditor/Private/Viewport/ViewportPickingService.cpp

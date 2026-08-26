@@ -20,7 +20,7 @@
 #include "Workspace/LevelEditorWorkspace.h"
 #include "Misc/StringHelper.h"
 #include "MonaImGui.h"
-#include "StaticMeshLevelAuthoring.h"
+#include "StaticMeshLevelMutations.h"
 
 namespace Durin::Editor::Level
 {
@@ -67,8 +67,8 @@ namespace Durin::Editor::Level
 			FStaticMeshLevelMutationRequest Request) -> FStaticMeshLevelMutationResult
 		{
 			Request.bReadOnly = Context.bReadOnly;
-			const FStaticMeshLevelMutationPlan Plan = FStaticMeshLevelAuthoringService::Plan(Request);
-			return FStaticMeshLevelAuthoringService::Execute(Plan, {
+			const FStaticMeshLevelMutationPlan Plan = FStaticMeshLevelMutations::Plan(Request);
+			return FStaticMeshLevelMutations::Execute(Plan, {
 				.OpenLevel = Context.Level,
 				.Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr,
 				.bReadOnly = Context.bReadOnly,
@@ -492,7 +492,7 @@ namespace Durin::Editor::Level
 						AActor* Actor = nullptr;
 						if (Class == AStaticMeshActor::StaticClass())
 						{
-							auto Request = FStaticMeshLevelAuthoringService::CaptureTarget(*Context.Level);
+							auto Request = FStaticMeshLevelMutations::CaptureTarget(*Context.Level);
 							Request.Description = "Create static mesh actor";
 							const FName Name = MakeUniqueActorName(*Context.Level, FName(Class->GetDefaultObjectName()));
 							Request.Mutations.push_back({.Kind = EStaticMeshLevelMutationKind::Create, .TargetName = Name});
@@ -569,9 +569,9 @@ namespace Durin::Editor::Level
 			if (bRenameActor)
 			{
 				if (auto* StaticMeshActor = Cast<AStaticMeshActor>(RenamingActor.Get());
-					StaticMeshActor && FStaticMeshLevelAuthoringService::IsSupportedActor(*StaticMeshActor))
+					StaticMeshActor && FStaticMeshLevelMutations::IsSupportedActor(*StaticMeshActor))
 				{
-					auto Request = FStaticMeshLevelAuthoringService::CaptureTarget(*Context.Level);
+					auto Request = FStaticMeshLevelMutations::CaptureTarget(*Context.Level);
 					Request.Description = "Rename static mesh actor";
 					Request.Mutations.push_back({
 						.Kind = EStaticMeshLevelMutationKind::Rename,
@@ -605,7 +605,7 @@ namespace Durin::Editor::Level
 			const bool bAllSupportedStaticMeshes = !PendingDeleteActors.empty()
 				&& std::ranges::all_of(PendingDeleteActors, [](const TObjectPtr<AActor>& Actor) {
 					auto* StaticMeshActor = Cast<AStaticMeshActor>(Actor.Get());
-					return StaticMeshActor && FStaticMeshLevelAuthoringService::IsSupportedActor(*StaticMeshActor);
+					return StaticMeshActor && FStaticMeshLevelMutations::IsSupportedActor(*StaticMeshActor);
 				});
 			ImGui::Text("Delete %zu actor(s)?", PendingDeleteActors.size());
 			for (size_t Index = 0; Index < std::min<size_t>(PendingDeleteActors.size(), 5); ++Index)
@@ -618,7 +618,7 @@ namespace Durin::Editor::Level
 				bool bDestroyedAny = false;
 				if (bAllSupportedStaticMeshes)
 				{
-					auto Request = FStaticMeshLevelAuthoringService::CaptureTarget(*Context.Level);
+					auto Request = FStaticMeshLevelMutations::CaptureTarget(*Context.Level);
 					Request.Description = PendingDeleteActors.size() == 1 ? "Delete static mesh actor" : "Delete static mesh actors";
 					for (const TObjectPtr<AActor>& Actor : PendingDeleteActors)
 						Request.Mutations.push_back({.Kind = EStaticMeshLevelMutationKind::Remove, .TargetName = Actor->GetFName()});

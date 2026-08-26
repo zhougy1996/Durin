@@ -3,7 +3,7 @@
 #if DURIN_LEVEL_AUTHORING_TEST_FAILURE_INJECTION
 namespace Durin::Editor::Level::Testing
 {
-	enum class EStaticMeshLevelAuthoringFailurePoint : uint8
+	enum class EStaticMeshLevelMutationFailurePoint : uint8
 	{
 		None,
 		AfterTemporaryRename,
@@ -13,7 +13,7 @@ namespace Durin::Editor::Level::Testing
 		AfterUpdate,
 	};
 
-	auto SetStaticMeshLevelAuthoringFailurePoint(
-		EStaticMeshLevelAuthoringFailurePoint Point) -> void;
+	auto SetStaticMeshLevelMutationFailurePoint(
+		EStaticMeshLevelMutationFailurePoint Point) -> void;
 }
 #endif

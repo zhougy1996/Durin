@@ -1,4 +1,4 @@
-#include "GrayboxSceneAuthoring.h"
+#include "GrayboxSceneBuild.h"
 
 #include "Actors/DirectionalLightActor.h"
 #include "Actors/PlayerStart.h"
@@ -15,7 +15,7 @@
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "StaticMesh/StaticMesh.h"
-#include "StaticMeshLevelAuthoring.h"
+#include "StaticMeshLevelMutations.h"
 
 namespace Durin::Editor::Level
 {
@@ -363,7 +363,7 @@ namespace Durin::Editor::Level
 		};
 
 		FStaticMeshLevelMutationRequest Request =
-			FStaticMeshLevelAuthoringService::CaptureTarget(*Candidate);
+			FStaticMeshLevelMutations::CaptureTarget(*Candidate);
 		Request.Description = "Build open graybox arena";
 		for (const FGrayboxArenaPiece& Piece : Layout.Pieces)
 			Request.Mutations.push_back({
@@ -374,9 +374,9 @@ namespace Durin::Editor::Level
 					.StaticMesh = Box,
 					.Transform = Piece.Transform}});
 		const FStaticMeshLevelMutationPlan Plan =
-			FStaticMeshLevelAuthoringService::Plan(Request);
+			FStaticMeshLevelMutations::Plan(Request);
 		const FStaticMeshLevelMutationResult MutationResult =
-			FStaticMeshLevelAuthoringService::Execute(Plan, {.OpenLevel = Candidate});
+			FStaticMeshLevelMutations::Execute(Plan, {.OpenLevel = Candidate});
 		if (!MutationResult)
 			return FailCandidate(5, MutationResult.Diagnostic.Message);
 

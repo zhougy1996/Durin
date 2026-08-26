@@ -167,7 +167,7 @@ not sufficient triggers without those inputs.
 ## Related Documentation
 
 - [Viewport Editing Architecture](../Editor/Architecture/ViewportEditing.md)
-- [Static Mesh Level Authoring](../Editor/Architecture/StaticMeshLevelAuthoring.md)
+- [Static Mesh Level Authoring](../Editor/Architecture/StaticMeshLevelMutations.md)
 - [Create-Only Graybox Build](../Editor/Guides/GrayboxBuild.md)
 - [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
 - [Editor Workspace Framework](../Editor/Architecture/WorkspaceFramework.md)

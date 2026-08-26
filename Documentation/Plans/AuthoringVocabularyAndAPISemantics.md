@@ -9,7 +9,7 @@ Completed:
 
 ## Current Status
 
-Stages 0 through 2 are complete. StaticMesh build, post-load, and source mutation
+Stages 0 through 3 are complete. StaticMesh build, post-load, and source mutation
 have independent modular features because their callers require independent
 availability; one AssetForgeBuiltins implementation object still implements
 all three contracts. TextureCube and VolumeTexture now use post-load feature
@@ -25,7 +25,11 @@ Launch and all affected editor/program targets build. `CoreFileSystemTests`
 completed with 36 passes and 2 skips; `AssetMountedSourceTests` passed 4/4,
 `AssetSaveReadinessTests` 3/3, `AssetPackageTests` 123/123,
 `EditorAssetWorkflowTests` 35/35, and the focused DurinHeaderTool descriptor and
-configuration tests 57/57. Stage 3 is the next open stage.
+configuration tests 57/57. Stage 3 renamed the LevelEditor boundaries to
+StaticMesh level mutations, Terrain placement, SkyBox placement, and graybox
+scene build, and removed the private `Authoring` directory. `LevelEditor` and
+`LevelMutationTests` build; `LevelMutationTests` passed 15/15 and `SkyBoxTests`
+passed 11/11. Stage 4 is the next open stage.
 
 ## Goal
 
@@ -307,20 +311,20 @@ cleanup.”
 
 ### Stage 3: Rename LevelEditor APIs after their concrete operations
 
-- [ ] Rename StaticMesh level files, private directories/test hooks, error,
+- [x] Rename StaticMesh level files, private directories/test hooks, error,
   state, diagnostic, delta, facade, test source, and test cases to level
   mutation vocabulary while retaining request/plan/execute semantics.
-- [ ] Rename Terrain level files, diagnostics, facade, and tests to Terrain
+- [x] Rename Terrain level files, diagnostics, facade, and tests to Terrain
   placement vocabulary.
-- [ ] Rename SkyBox level files and stateless entry point to TextureCube/SkyBox
+- [x] Rename SkyBox level files and stateless entry point to TextureCube/SkyBox
   placement vocabulary.
-- [ ] Rename graybox scene files and startup handler context to scene-build
+- [x] Rename graybox scene files and startup handler context to scene-build
   vocabulary; retain its lowering through StaticMesh mutations.
-- [ ] Prefer namespace operations or a domain-named stateless facade where the
+- [x] Prefer namespace operations or a domain-named stateless facade where the
   current type has no identity or lifetime; do not introduce a service object.
-- [ ] Update Scene Viewport, World Outliner, Details, startup commands,
+- [x] Update Scene Viewport, World Outliner, Details, startup commands,
   transaction integrations, and authoritative LevelEditor documents.
-- [ ] Consolidate or delete only obsolete compatibility/name-only test support
+- [x] Consolidate or delete only obsolete compatibility/name-only test support
   while preserving planning, stale-state, rollback, undo/redo, selection, and
   read-only coverage.
 
@@ -444,7 +448,7 @@ not be used to expand rendering behavior.
 - [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
 - [Async Asset Operations](../Editor/Architecture/AsyncAssetOperations.md)
 - [Workspace Projects](../Workspace/WorkspaceProjects.md)
-- [Static Mesh Level Authoring](../Editor/Architecture/StaticMeshLevelAuthoring.md)
+- [Static Mesh Level Mutations](../Editor/Architecture/StaticMeshLevelMutations.md)
 - [Terrain Editing Architecture](../Editor/Architecture/TerrainEditing.md)
 - [Material Graph Authoring](../Editor/Architecture/MaterialGraphAuthoring.md)
 - [Volume Textures](../Runtime/Assets/VolumeTextures.md)
@@ -458,16 +462,18 @@ not be used to expand rendering behavior.
 - `Engine/Source/Runtime/AssetCore/Public/Asset/PackageSerialization.h`
 - `Engine/Source/Runtime/AssetCore/Public/Asset/MountedSource.h`
 - `Engine/Source/Runtime/Engine/Public/AssetSaveReadiness.h`
-- `Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshAuthoring.h`
+- `Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshBuild.h`
+- `Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshPostLoad.h`
+- `Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMeshSourceMutation.h`
 - `Engine/Source/Runtime/Engine/Public/Texture/Texture2DPostLoad.h`
 - `Engine/Source/Runtime/Engine/Public/Texture/TextureCubePostLoad.h`
 - `Engine/Source/Runtime/Engine/Public/Texture/VolumeTexturePostLoad.h`
 - `Engine/Source/Runtime/Engine/Public/Terrain/TerrainHeightmapPostLoad.h`
 - `Engine/Source/Editor/AssetForgeBuiltins/Public/AssetForgeBuiltinsAssetFeatures.h`
 - `Engine/Source/Editor/AssetForgeBuiltins/Public/TerrainHeightmapAssetFeatures.h`
-- `Engine/Source/Editor/LevelEditor/Public/StaticMeshLevelAuthoring.h`
-- `Engine/Source/Editor/LevelEditor/Public/TerrainLevelAuthoring.h`
-- `Engine/Source/Editor/LevelEditor/Public/SkyBoxLevelAuthoring.h`
-- `Engine/Source/Editor/LevelEditor/Public/GrayboxSceneAuthoring.h`
+- `Engine/Source/Editor/LevelEditor/Public/StaticMeshLevelMutations.h`
+- `Engine/Source/Editor/LevelEditor/Public/TerrainPlacement.h`
+- `Engine/Source/Editor/LevelEditor/Public/SkyBoxPlacement.h`
+- `Engine/Source/Editor/LevelEditor/Public/GrayboxSceneBuild.h`
 - `Engine/Source/Editor/MaterialEditor/Public/MaterialGraphAuthoring.h`
 - `Engine/Source/Programs/DurinHeaderTool/schemas/durin-project.schema.json`
