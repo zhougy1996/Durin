@@ -1,5 +1,5 @@
 #include "Modules/ModuleManager.h"
-#include "Texture/Texture2DCompilingDomain.h"
+#include "Texture/Texture2DCompilationDomain.h"
 #include "Texture/TextureBuildFunctionRegistry.h"
 #include "Texture/VolumeTextureBuildOperations.h"
 #include "Texture/VolumeTexturePostLoad.h"
@@ -48,10 +48,10 @@ namespace Durin
 			checkf(Asset::InitializeTextureBuildFunctions(
 				AssetCompilingCallbackRegistration.GetGate(), &Error),
 				"TextureBuild could not register its build functions: {}", Error);
-			Asset::FTexture2DBuildSchedulerConfig Config;
+			Asset::FTexture2DCompilationSchedulerConfig Config;
 			Config.OwnerCancellationToken = BuildOperations.GetCancellationToken();
 			Config.OwnerTaskScope = BuildOperations.GetTaskScope();
-			checkf(Asset::Private::InitializeTexture2DCompilingDomain(
+			checkf(Asset::Private::InitializeTexture2DCompilationDomain(
 				AssetCompilingCallbackRegistration.GetGate(), Config),
 				"TextureBuild could not register its compilation domain.");
 		}
@@ -64,7 +64,7 @@ namespace Durin
 
 		auto ShutdownModule() -> void override
 		{
-			Asset::Private::ShutdownTexture2DCompilingDomain();
+			Asset::Private::ShutdownTexture2DCompilationDomain();
 			Asset::ShutdownTextureBuildFunctions();
 		}
 	};

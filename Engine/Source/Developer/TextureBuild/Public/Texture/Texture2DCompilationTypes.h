@@ -4,8 +4,8 @@
 
 namespace Durin::Asset
 {
-	// Identifies the externally visible phase of one editor Texture2D CPU build.
-	enum class ETexture2DBuildPhase : uint8
+	// Identifies the externally visible phase of one object-level Texture2D compilation.
+	enum class ETexture2DCompilationPhase : uint8
 	{
 		None,
 		Queued,
@@ -18,14 +18,14 @@ namespace Durin::Asset
 		Cancelled,
 	};
 
-	enum class ETexture2DBuildPriority : uint8
+	enum class ETexture2DCompilationPriority : uint8
 	{
 		Background,
 		Interactive,
 	};
 
 	// Records worker timing and conservative versus observed retained bytes.
-	struct FTexture2DBuildMetrics
+	struct FTexture2DCompilationMetrics
 	{
 		uint64 PreparationNanoseconds = 0;
 		uint64 MipGenerationNanoseconds = 0;
@@ -40,17 +40,17 @@ namespace Durin::Asset
 	};
 
 	// Provides a thread-safe snapshot suitable for editor diagnostics.
-	struct FTexture2DBuildDiagnostic
+	struct FTexture2DCompilationDiagnostic
 	{
 		uint64 RequestId = 0;
 		uint64 Generation = 0;
 		std::string AssetIdentity;
 		std::string DerivedDataKey;
 		std::string Message;
-		FTexture2DBuildMetrics Metrics;
+		FTexture2DCompilationMetrics Metrics;
 		uint64 QueuedNanoseconds = 0;
 		uint64 WorkerNanoseconds = 0;
-		ETexture2DBuildPhase FailurePhase = ETexture2DBuildPhase::None;
-		ETexture2DBuildPhase Phase = ETexture2DBuildPhase::None;
+		ETexture2DCompilationPhase FailurePhase = ETexture2DCompilationPhase::None;
+		ETexture2DCompilationPhase Phase = ETexture2DCompilationPhase::None;
 	};
 }

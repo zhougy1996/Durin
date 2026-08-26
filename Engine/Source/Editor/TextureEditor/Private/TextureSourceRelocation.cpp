@@ -3,7 +3,7 @@
 #include "DObject/Object.h"
 #include "Source/MountedSourceRelocation.h"
 #include "Texture/Texture2D.h"
-#include "Texture/Texture2DAuthoring.h"
+#include "Texture/Texture2DCompilation.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 
@@ -32,9 +32,9 @@ namespace Durin::Editor::Texture
 				}
 				if (!AssetForge::Builtins::ChangeTexture2DSourceReference(*Texture, To, OutError))
 					return false;
-				if (Asset::WaitForTexture2DBuild(*Texture)) return true;
+				if (Asset::WaitForTexture2DCompilation(*Texture)) return true;
 				const std::string BuildError =
-					Asset::GetTexture2DBuildDiagnostic(*Texture).Message;
+					Asset::GetTexture2DCompilationDiagnostic(*Texture).Message;
 				OutError = BuildError.empty()
 					? "Texture2D source relocation build did not complete."
 					: BuildError;

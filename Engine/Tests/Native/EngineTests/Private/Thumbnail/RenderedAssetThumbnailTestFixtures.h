@@ -309,12 +309,12 @@ namespace Durin::Tests
 		static AssetForge::Builtins::FAssetForgeBuiltinsAuthoringFeatures AuthoringFeatures;
 		static auto StaticMeshAuthoring =
 			AuthoringContext.RegisterFeature<IStaticMeshAuthoringFeature>(AuthoringFeatures);
-		static auto Texture2DAuthoring =
-			AuthoringContext.RegisterFeature<ITexture2DAuthoringFeature>(AuthoringFeatures);
+		static auto Texture2DPostLoad =
+			AuthoringContext.RegisterFeature<ITexture2DPostLoadFeature>(AuthoringFeatures);
 		static auto TextureCubeAuthoring =
 			AuthoringContext.RegisterFeature<ITextureCubeAuthoringFeature>(AuthoringFeatures);
 		(void)StaticMeshAuthoring;
-		(void)Texture2DAuthoring;
+		(void)Texture2DPostLoad;
 		(void)TextureCubeAuthoring;
 		if (!AssetForge::Builtins::RegisterAssetForgeBuiltinsProviders(
 			OutError, GetEngineTestModuleCallbackGate())) return false;

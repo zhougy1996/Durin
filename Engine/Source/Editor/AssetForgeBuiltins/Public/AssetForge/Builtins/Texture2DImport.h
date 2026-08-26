@@ -4,7 +4,7 @@
 #include "AssetForge/ImportRequest.h"
 #include "AssetForge/Operations/ImportExecution.h"
 #include "Texture/Texture2D.h"
-#include "Texture/Texture2DAuthoring.h"
+#include "Texture/Texture2DCompilation.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -59,16 +59,16 @@ namespace Durin::AssetForge::Builtins
 		DTexture2D& Texture,
 		std::string_view FilePath,
 		std::string& OutError,
-		Asset::FTexture2DAuthoringCompletion Completion = {}) -> bool;
+		Asset::FTexture2DCompilationCompletion Completion = {}) -> bool;
 	// Rebuilds one packaged texture from its retained mounted source without
 	// publishing the proposed settings until asynchronous preparation succeeds.
 	ASSETFORGEBUILTINS_API auto RebuildTexture2DFromCurrentSource(
 		DTexture2D& Texture,
 		const Asset::FTexture2DBuildSettings& Settings,
 		std::string& OutError,
-		Asset::ETexture2DBuildPriority Priority =
-			Asset::ETexture2DBuildPriority::Interactive,
-		Asset::FTexture2DAuthoringCompletion Completion = {}) -> bool;
+		Asset::ETexture2DCompilationPriority Priority =
+			Asset::ETexture2DCompilationPriority::Interactive,
+		Asset::FTexture2DCompilationCompletion Completion = {}) -> bool;
 	ASSETFORGEBUILTINS_API auto ChangeTexture2DSourceReference(
 		DTexture2D& Texture,
 		std::string_view SourceVirtualPath,

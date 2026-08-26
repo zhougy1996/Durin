@@ -83,12 +83,12 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 	static Durin::AssetForge::Builtins::FAssetForgeBuiltinsAuthoringFeatures AuthoringFeatures;
 	static auto StaticMeshAuthoring =
 		AuthoringContext.RegisterFeature<Durin::IStaticMeshAuthoringFeature>(AuthoringFeatures);
-	static auto Texture2DAuthoring =
-		AuthoringContext.RegisterFeature<Durin::ITexture2DAuthoringFeature>(AuthoringFeatures);
+	static auto Texture2DPostLoad =
+		AuthoringContext.RegisterFeature<Durin::ITexture2DPostLoadFeature>(AuthoringFeatures);
 	static auto TextureCubeAuthoring =
 		AuthoringContext.RegisterFeature<Durin::ITextureCubeAuthoringFeature>(AuthoringFeatures);
 	(void)StaticMeshAuthoring;
-	(void)Texture2DAuthoring;
+	(void)Texture2DPostLoad;
 	(void)TextureCubeAuthoring;
 	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string ProviderError;
@@ -306,9 +306,9 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_TRUE(DataTextureResult) << DataTextureResult.Message;
 		ASSERT_TRUE(Durin::AssetForge::Builtins::SetTexture2DUsage(
 			*DataTextureResult.Asset, Durin::ETextureUsage::DataMask, Error)) << Error;
-		ASSERT_TRUE(Durin::Asset::WaitForTexture2DBuild(
+		ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(
 			*DataTextureResult.Asset, 10.0))
-			<< Durin::Asset::GetTexture2DBuildDiagnostic(*DataTextureResult.Asset).Message;
+			<< Durin::Asset::GetTexture2DCompilationDiagnostic(*DataTextureResult.Asset).Message;
 		ASSERT_NE(DataTextureResult.Asset->GetPlatformData(), nullptr);
 		EXPECT_FALSE(DataTextureResult.Asset->IsSRGB());
 		EXPECT_EQ(
@@ -323,9 +323,9 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_TRUE(NormalTextureResult) << NormalTextureResult.Message;
 		ASSERT_TRUE(Durin::AssetForge::Builtins::SetTexture2DUsage(
 			*NormalTextureResult.Asset, Durin::ETextureUsage::Normal, Error)) << Error;
-		ASSERT_TRUE(Durin::Asset::WaitForTexture2DBuild(
+		ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(
 			*NormalTextureResult.Asset, 10.0))
-			<< Durin::Asset::GetTexture2DBuildDiagnostic(*NormalTextureResult.Asset).Message;
+			<< Durin::Asset::GetTexture2DCompilationDiagnostic(*NormalTextureResult.Asset).Message;
 		ASSERT_NE(NormalTextureResult.Asset->GetPlatformData(), nullptr);
 		EXPECT_FALSE(NormalTextureResult.Asset->IsSRGB());
 		EXPECT_EQ(

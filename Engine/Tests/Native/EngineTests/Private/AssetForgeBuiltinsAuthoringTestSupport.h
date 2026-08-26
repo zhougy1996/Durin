@@ -11,7 +11,7 @@ namespace Durin::Tests
 		FAssetForgeBuiltinsAuthoringTestState()
 		{
 			StaticMesh = Context.RegisterFeature<IStaticMeshAuthoringFeature>(Features);
-			Texture2D = Context.RegisterFeature<ITexture2DAuthoringFeature>(Features);
+			Texture2D = Context.RegisterFeature<ITexture2DPostLoadFeature>(Features);
 			Texture2DRecovery = Context.RegisterFeature<
 				ITexture2DImportRecoveryFeature>(Features);
 			TextureCube = Context.RegisterFeature<ITextureCubeAuthoringFeature>(Features);

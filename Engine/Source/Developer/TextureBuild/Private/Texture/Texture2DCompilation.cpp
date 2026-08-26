@@ -1,9 +1,9 @@
-#include "Texture/Texture2DAuthoring.h"
+#include "Texture/Texture2DCompilation.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "DObject/DObjectGlobals.h"
 #include "Threading/RunnableThread.h"
-#include "Texture/Texture2DCompilingDomain.h"
+#include "Texture/Texture2DCompilationDomain.h"
 #include "Texture/TextureBuilder.h"
 #include "Texture/Texture2DPostLoad.h"
 
@@ -11,7 +11,7 @@ namespace Durin::Asset
 {
 	namespace
 	{
-		struct FTexture2DAuthoringState
+		struct FTexture2DCompilationState
 		{
 			TWeakObjectPtr<DTexture2D> Texture;
 			uint64 Generation = 0;
@@ -19,44 +19,44 @@ namespace Durin::Asset
 			uint64 LastRequestId = 0;
 			bool bLastRequestFailed = false;
 			FTexture2DPublicationContext PublicationContext;
-			FTexture2DAuthoringCompletion Completion;
+			FTexture2DCompilationCompletion Completion;
 		};
 
-		std::mutex GTexture2DAuthoringMutex;
-		std::unordered_map<std::string, FTexture2DAuthoringState> GTexture2DAuthoringStates;
+		std::mutex GTexture2DCompilationMutex;
+		std::unordered_map<std::string, FTexture2DCompilationState> GTexture2DCompilationStates;
 		uint64 GNextTexture2DGeneration = 1;
 		std::vector<FWeakObjectPtr> GSuccessfullyPublishedTextures;
-		std::mutex GTextureCompilingDomainMutex;
-		std::shared_ptr<FTexture2DBuildScheduler> GTextureBuildScheduler;
+		std::mutex GTextureCompilationDomainMutex;
+		std::shared_ptr<FTexture2DCompilationScheduler> GTextureCompilationScheduler;
 		FAssetCompilingManagerRegistration GTextureCompilingRegistration;
-		auto CancelTexture2DBuildDomain(DTexture2D& Texture) -> bool;
+		auto CancelTexture2DCompilation(DTexture2D& Texture) -> bool;
 
-		auto GetTexture2DBuildScheduler() -> std::shared_ptr<FTexture2DBuildScheduler>
+		auto GetTexture2DCompilationScheduler() -> std::shared_ptr<FTexture2DCompilationScheduler>
 		{
-			std::lock_guard Lock(GTextureCompilingDomainMutex);
-			return GTextureBuildScheduler;
+			std::lock_guard Lock(GTextureCompilationDomainMutex);
+			return GTextureCompilationScheduler;
 		}
 
-		auto FindStateLocked(std::string_view Identity) -> FTexture2DAuthoringState*
+		auto FindStateLocked(std::string_view Identity) -> FTexture2DCompilationState*
 		{
-			const auto It = GTexture2DAuthoringStates.find(std::string(Identity));
-			return It == GTexture2DAuthoringStates.end() ? nullptr : &It->second;
+			const auto It = GTexture2DCompilationStates.find(std::string(Identity));
+			return It == GTexture2DCompilationStates.end() ? nullptr : &It->second;
 		}
 
-		auto ApplyCompletion(FTexture2DQueuedBuildResult&& Result) -> void
+		auto ApplyCompletion(FTexture2DCompilationJobResult&& Result) -> void
 		{
 			CheckGameThread();
 			TWeakObjectPtr<DTexture2D> WeakTexture;
 			FTexture2DPublicationContext PublicationContext;
-			FTexture2DAuthoringCompletion Completion;
+			FTexture2DCompilationCompletion Completion;
 			{
-				std::lock_guard Lock(GTexture2DAuthoringMutex);
-				FTexture2DAuthoringState* State = FindStateLocked(Result.AssetIdentity);
+				std::lock_guard Lock(GTexture2DCompilationMutex);
+				FTexture2DCompilationState* State = FindStateLocked(Result.AssetIdentity);
 				if (!State || State->Generation != Result.Generation
 					|| State->ActiveRequestId != Result.RequestId) return;
 				State->ActiveRequestId = 0;
 				State->LastRequestId = Result.RequestId;
-				State->bLastRequestFailed = Result.Phase == ETexture2DBuildPhase::Failed;
+				State->bLastRequestFailed = Result.Phase == ETexture2DCompilationPhase::Failed;
 				WeakTexture = State->Texture;
 				PublicationContext = State->PublicationContext;
 				Completion = std::move(State->Completion);
@@ -65,18 +65,18 @@ namespace Durin::Asset
 			if (!Texture || Texture->GetObjectPath() != Result.AssetIdentity)
 			{
 				if (Completion) Completion({
-					.Status = ETexture2DAuthoringStatus::Failed,
-					.Diagnostic = "The Texture2D authoring target is unavailable."});
+					.Status = ETexture2DCompilationStatus::Failed,
+					.Diagnostic = "The Texture2D compilation target is unavailable."});
 				return;
 			}
-			if (Result.Phase != ETexture2DBuildPhase::UploadPending
+			if (Result.Phase != ETexture2DCompilationPhase::UploadPending
 				|| !Result.SourceData || !Result.PlatformData)
 			{
 				if (Completion) Completion({
-					.Status = Result.Phase == ETexture2DBuildPhase::Cancelled
-						? ETexture2DAuthoringStatus::Canceled : ETexture2DAuthoringStatus::Failed,
+					.Status = Result.Phase == ETexture2DCompilationPhase::Cancelled
+						? ETexture2DCompilationStatus::Canceled : ETexture2DCompilationStatus::Failed,
 					.Diagnostic = Result.Error.empty()
-						? "The Texture2D authoring build did not produce a publishable product."
+						? "The Texture2D compilation build did not produce a publishable product."
 						: std::move(Result.Error)});
 				return;
 			}
@@ -100,31 +100,31 @@ namespace Durin::Asset
 				*Texture, std::move(Product), PublicationContext, Error))
 			{
 				{
-					std::lock_guard Lock(GTexture2DAuthoringMutex);
-					if (FTexture2DAuthoringState* State = FindStateLocked(Result.AssetIdentity);
+					std::lock_guard Lock(GTexture2DCompilationMutex);
+					if (FTexture2DCompilationState* State = FindStateLocked(Result.AssetIdentity);
 						State && State->Generation == Result.Generation)
 						State->bLastRequestFailed = true;
 				}
-				DURIN_ERROR("Texture2D authoring publication failed for {}: {}",
+				DURIN_ERROR("Texture2D compilation publication failed for {}: {}",
 					Result.AssetIdentity, Error);
 				if (Completion) Completion({
-					.Status = ETexture2DAuthoringStatus::Failed,
+					.Status = ETexture2DCompilationStatus::Failed,
 					.Diagnostic = std::move(Error)});
 				return;
 			}
 			{
-				std::lock_guard Lock(GTexture2DAuthoringMutex);
+				std::lock_guard Lock(GTexture2DCompilationMutex);
 				GSuccessfullyPublishedTextures.emplace_back(Texture);
 			}
-			if (Completion) Completion({.Status = ETexture2DAuthoringStatus::Succeeded});
+			if (Completion) Completion({.Status = ETexture2DCompilationStatus::Succeeded});
 		}
 
 		auto PumpTextureCompletions(uint32 MaximumCount) -> FAssetCompileProcessResult
 		{
 			FAssetCompileProcessResult Result;
-			if (const auto Scheduler = GetTexture2DBuildScheduler())
+			if (const auto Scheduler = GetTexture2DCompilationScheduler())
 				Result.ProcessedCompletionCount = Scheduler->PumpCompletions(MaximumCount);
-			std::lock_guard Lock(GTexture2DAuthoringMutex);
+			std::lock_guard Lock(GTexture2DCompilationMutex);
 			Result.SuccessfullyCompiledAssets = std::move(GSuccessfullyPublishedTextures);
 			GSuccessfullyPublishedTextures.clear();
 			return Result;
@@ -134,7 +134,7 @@ namespace Durin::Asset
 		{
 		public:
 			explicit FTextureCompilingManager(
-				std::shared_ptr<FTexture2DBuildScheduler> InScheduler)
+				std::shared_ptr<FTexture2DCompilationScheduler> InScheduler)
 				: Scheduler(std::move(InScheduler))
 			{
 			}
@@ -159,9 +159,9 @@ namespace Durin::Asset
 			}
 			auto GetNumRemainingAssets() const -> uint64 override
 			{
-				std::lock_guard Lock(GTexture2DAuthoringMutex);
+				std::lock_guard Lock(GTexture2DCompilationMutex);
 				return static_cast<uint64>(std::ranges::count_if(
-					GTexture2DAuthoringStates, [](const auto& Item) {
+					GTexture2DCompilationStates, [](const auto& Item) {
 						return Item.second.ActiveRequestId != 0
 							&& Item.second.Texture.IsValid();
 					}));
@@ -181,8 +181,8 @@ namespace Durin::Asset
 					if (!IsValid(Texture)) continue;
 					uint64 RequestId = 0;
 					{
-						std::lock_guard Lock(GTexture2DAuthoringMutex);
-						if (FTexture2DAuthoringState* State = FindStateLocked(
+						std::lock_guard Lock(GTexture2DCompilationMutex);
+						if (FTexture2DCompilationState* State = FindStateLocked(
 							Texture->GetObjectPath()); State && State->Texture.Get() == Texture)
 							RequestId = State->ActiveRequestId;
 					}
@@ -202,7 +202,7 @@ namespace Durin::Asset
 			{
 				for (DObject* Object : Objects)
 					if (auto* Texture = Cast<DTexture2D>(Object); IsValid(Texture))
-						CancelTexture2DBuildDomain(*Texture);
+						CancelTexture2DCompilation(*Texture);
 			}
 			auto FinishAllCompilation() -> FAssetCompileProcessResult override
 			{
@@ -232,22 +232,22 @@ namespace Durin::Asset
 			}
 
 		private:
-			std::shared_ptr<FTexture2DBuildScheduler> Scheduler;
+			std::shared_ptr<FTexture2DCompilationScheduler> Scheduler;
 		};
 	}
 
 	namespace Private
 	{
-		auto InitializeTexture2DCompilingDomain(
+		auto InitializeTexture2DCompilationDomain(
 			FModuleOwnedCallbackGate OwnerGate,
-			const FTexture2DBuildSchedulerConfig& Config) -> bool
+			const FTexture2DCompilationSchedulerConfig& Config) -> bool
 		{
 			CheckGameThread();
 			if (GTextureCompilingRegistration.IsValid()) return true;
-			auto Scheduler = std::make_shared<FTexture2DBuildScheduler>(Config);
+			auto Scheduler = std::make_shared<FTexture2DCompilationScheduler>(Config);
 			{
-				std::lock_guard Lock(GTextureCompilingDomainMutex);
-				GTextureBuildScheduler = Scheduler;
+				std::lock_guard Lock(GTextureCompilationDomainMutex);
+				GTextureCompilationScheduler = Scheduler;
 			}
 			std::string Error;
 			GTextureCompilingRegistration = FAssetCompilingManager::Get().RegisterManager(
@@ -257,55 +257,57 @@ namespace Durin::Asset
 			{
 				DURIN_ERROR("Texture compilation manager registration failed: {}", Error);
 				Scheduler->Shutdown();
-				std::lock_guard Lock(GTextureCompilingDomainMutex);
-				GTextureBuildScheduler.reset();
+				std::lock_guard Lock(GTextureCompilationDomainMutex);
+				GTextureCompilationScheduler.reset();
 			}
 			return GTextureCompilingRegistration.IsValid();
 		}
 
-		auto ShutdownTexture2DCompilingDomain() -> void
+		auto ShutdownTexture2DCompilationDomain() -> void
 		{
 			CheckGameThread();
 			GTextureCompilingRegistration.Reset();
-			std::lock_guard Lock(GTextureCompilingDomainMutex);
-			GTextureBuildScheduler.reset();
+			std::lock_guard Lock(GTextureCompilationDomainMutex);
+			GTextureCompilationScheduler.reset();
 		}
 
-		auto SetTexture2DBuildPhaseHookForTests(
-			std::function<void(uint64, ETexture2DBuildPhase)> Hook) -> void
+		auto SetTexture2DCompilationPhaseHookForTests(
+			std::function<void(uint64, ETexture2DCompilationPhase)> Hook) -> void
 		{
-			if (const auto Scheduler = GetTexture2DBuildScheduler())
+			if (const auto Scheduler = GetTexture2DCompilationScheduler())
 				Scheduler->SetPhaseHookForTests(std::move(Hook));
 		}
 	}
 
-	auto SubmitTexture2DBuild(
+	auto SubmitTexture2DCompilation(
 		DTexture2D& Texture,
-		FTexture2DAuthoringRequest Request,
+		FTexture2DCompilationRequest Request,
 		std::string& OutError,
-		FTexture2DAuthoringCompletion Completion) -> bool
+		FTexture2DCompilationCompletion Completion) -> bool
 	{
 		CheckGameThread();
-		if (!Request.SourceData.IsValid() || Request.SourcePath.IsEmpty()
-			|| Request.DecoderId.empty())
+		if (!Request.Build.SourceData.IsValid()
+			|| Request.Publication.SourcePath.IsEmpty()
+			|| Request.Publication.DecoderId.empty())
 		{
-			OutError = "Texture2D authoring submission requires normalized source and provenance.";
+			OutError = "Texture2D compilation submission requires normalized source and provenance.";
 			return false;
 		}
-		const auto Scheduler = GetTexture2DBuildScheduler();
+		const auto Scheduler = GetTexture2DCompilationScheduler();
 		if (!Scheduler || !FAssetCompilingManager::Get().IsAcceptingRequests())
 		{
-			OutError = "The Texture2D authoring domain is unavailable.";
+			OutError = "The Texture2D compilation domain is unavailable.";
 			return false;
 		}
 
 		const std::string Identity = Texture.GetObjectPath();
+		const FSourcePath SourcePath = Request.Publication.SourcePath;
 		uint64 Generation = 0;
 		uint64 PreviousRequestId = 0;
-		FTexture2DAuthoringCompletion SupersededCompletion;
+		FTexture2DCompilationCompletion SupersededCompletion;
 		{
-			std::lock_guard Lock(GTexture2DAuthoringMutex);
-			FTexture2DAuthoringState& State = GTexture2DAuthoringStates[Identity];
+			std::lock_guard Lock(GTexture2DCompilationMutex);
+			FTexture2DCompilationState& State = GTexture2DCompilationStates[Identity];
 			PreviousRequestId = State.ActiveRequestId;
 			if (PreviousRequestId != 0)
 				SupersededCompletion = std::move(State.Completion);
@@ -313,30 +315,23 @@ namespace Durin::Asset
 			State = {
 				.Texture = TWeakObjectPtr<DTexture2D>(&Texture),
 				.Generation = Generation,
-				.PublicationContext = {
-					.SourcePath = Request.SourcePath,
-					.DecoderId = Request.DecoderId,
-					.DecoderVersion = Request.DecoderVersion,
-					.SourceFileSize = Request.SourceFileSize,
-					.SourceLastWriteTime = Request.SourceLastWriteTime,
-					.bMarkPackageDirty = Request.bMarkPackageDirty,
-					.bReportLoadMutation = Request.bReportLoadMutation},
+				.PublicationContext = std::move(Request.Publication),
 				.Completion = std::move(Completion)};
 		}
 		if (PreviousRequestId != 0) Scheduler->Cancel(PreviousRequestId);
 
-		const FTexture2DBuildSettings Settings = Request.Settings;
+		const FTexture2DBuildSettings Settings = Request.Build.Settings;
 		const bool bSRGB = Settings.bSRGB.value_or(
 			TextureBuilder::GetDefaultSRGB(Settings.Usage));
-		const uint32 Width = Request.SourceData.Width;
-		const uint32 Height = Request.SourceData.Height;
+		const uint32 Width = Request.Build.SourceData.Width;
+		const uint32 Height = Request.Build.SourceData.Height;
 		const uint64 RequestId = Scheduler->Submit({
 			.AssetIdentity = Identity,
-			.SourcePath = Request.SourcePath,
-			.SourceData = std::move(Request.SourceData),
+			.SourcePath = SourcePath,
+			.SourceData = std::move(Request.Build.SourceData),
 			.SourceHash = {
-				.HashLow = Request.SourceContentHashLow,
-				.HashHigh = Request.SourceContentHashHigh},
+				.HashLow = Request.Build.SourceContentHashLow,
+				.HashHigh = Request.Build.SourceContentHashHigh},
 			.Settings = {
 				.Usage = Settings.Usage,
 				.bSRGB = bSRGB,
@@ -348,24 +343,24 @@ namespace Durin::Asset
 			.EstimatedWidth = Width,
 			.EstimatedHeight = Height,
 			.Priority = Request.Priority,
-			.bPersistDerivedData = Request.bPersistDerivedData}, ApplyCompletion);
+			.bPersistDerivedData = Request.Build.bPersistDerivedData}, ApplyCompletion);
 		if (RequestId == 0)
 		{
 			{
-				std::lock_guard Lock(GTexture2DAuthoringMutex);
-				if (FTexture2DAuthoringState* State = FindStateLocked(Identity);
+				std::lock_guard Lock(GTexture2DCompilationMutex);
+				if (FTexture2DCompilationState* State = FindStateLocked(Identity);
 					State && State->Generation == Generation)
-					GTexture2DAuthoringStates.erase(Identity);
+					GTexture2DCompilationStates.erase(Identity);
 			}
 			if (SupersededCompletion) SupersededCompletion({
-				.Status = ETexture2DAuthoringStatus::Superseded,
-				.Diagnostic = "The Texture2D authoring build was superseded by a newer request."});
-			OutError = "The Texture2D authoring domain rejected the request.";
+				.Status = ETexture2DCompilationStatus::Superseded,
+				.Diagnostic = "The Texture2D compilation was superseded by a newer request."});
+			OutError = "The Texture2D compilation domain rejected the request.";
 			return false;
 		}
 		{
-			std::lock_guard Lock(GTexture2DAuthoringMutex);
-			FTexture2DAuthoringState* State = FindStateLocked(Identity);
+			std::lock_guard Lock(GTexture2DCompilationMutex);
+			FTexture2DCompilationState* State = FindStateLocked(Identity);
 			if (State && State->Generation == Generation)
 			{
 				State->ActiveRequestId = RequestId;
@@ -373,56 +368,56 @@ namespace Durin::Asset
 			}
 		}
 		if (SupersededCompletion) SupersededCompletion({
-			.Status = ETexture2DAuthoringStatus::Superseded,
-			.Diagnostic = "The Texture2D authoring build was superseded by a newer request."});
+			.Status = ETexture2DCompilationStatus::Superseded,
+			.Diagnostic = "The Texture2D compilation was superseded by a newer request."});
 		OutError.clear();
 		return true;
 	}
 
-	auto GetTexture2DBuildDiagnostic(const DTexture2D& Texture)
-		-> FTexture2DBuildDiagnostic
+	auto GetTexture2DCompilationDiagnostic(const DTexture2D& Texture)
+		-> FTexture2DCompilationDiagnostic
 	{
 		uint64 RequestId = 0;
 		{
-			std::lock_guard Lock(GTexture2DAuthoringMutex);
-			if (FTexture2DAuthoringState* State = FindStateLocked(Texture.GetObjectPath()))
+			std::lock_guard Lock(GTexture2DCompilationMutex);
+			if (FTexture2DCompilationState* State = FindStateLocked(Texture.GetObjectPath()))
 				RequestId = State->ActiveRequestId != 0
 					? State->ActiveRequestId : State->LastRequestId;
 		}
-		const auto Scheduler = GetTexture2DBuildScheduler();
+		const auto Scheduler = GetTexture2DCompilationScheduler();
 		return Scheduler && RequestId != 0
-			? Scheduler->GetDiagnostic(RequestId) : FTexture2DBuildDiagnostic{};
+			? Scheduler->GetDiagnostic(RequestId) : FTexture2DCompilationDiagnostic{};
 	}
 
-	auto HasPendingTexture2DBuild(const DTexture2D& Texture) -> bool
+	auto HasPendingTexture2DCompilation(const DTexture2D& Texture) -> bool
 	{
-		std::lock_guard Lock(GTexture2DAuthoringMutex);
-		const FTexture2DAuthoringState* State = FindStateLocked(Texture.GetObjectPath());
+		std::lock_guard Lock(GTexture2DCompilationMutex);
+		const FTexture2DCompilationState* State = FindStateLocked(Texture.GetObjectPath());
 		return State && State->Texture.Get() == &Texture && State->ActiveRequestId != 0;
 	}
 
 	namespace
 	{
-		auto CancelTexture2DBuildDomain(DTexture2D& Texture) -> bool
+		auto CancelTexture2DCompilation(DTexture2D& Texture) -> bool
 		{
 			uint64 RequestId = 0;
 			{
-				std::lock_guard Lock(GTexture2DAuthoringMutex);
-				FTexture2DAuthoringState* State = FindStateLocked(Texture.GetObjectPath());
+				std::lock_guard Lock(GTexture2DCompilationMutex);
+				FTexture2DCompilationState* State = FindStateLocked(Texture.GetObjectPath());
 				if (State && State->Texture.Get() == &Texture)
 					RequestId = State->ActiveRequestId;
 			}
-			const auto Scheduler = GetTexture2DBuildScheduler();
+			const auto Scheduler = GetTexture2DCompilationScheduler();
 			return Scheduler && RequestId != 0 && Scheduler->Cancel(RequestId);
 		}
 	}
 
-	auto WaitForTexture2DBuild(DTexture2D& Texture, double TimeoutSeconds) -> bool
+	auto WaitForTexture2DCompilation(DTexture2D& Texture, double TimeoutSeconds) -> bool
 	{
 		uint64 RequestId = 0;
 		{
-			std::lock_guard Lock(GTexture2DAuthoringMutex);
-			FTexture2DAuthoringState* State = FindStateLocked(Texture.GetObjectPath());
+			std::lock_guard Lock(GTexture2DCompilationMutex);
+			FTexture2DCompilationState* State = FindStateLocked(Texture.GetObjectPath());
 			if (State && State->Texture.Get() == &Texture) RequestId = State->ActiveRequestId;
 		}
 		if (RequestId == 0)
@@ -431,16 +426,16 @@ namespace Durin::Asset
 				Texture, TimeoutSeconds)) return *AssetForge;
 			return true;
 		}
-		const auto Scheduler = GetTexture2DBuildScheduler();
+		const auto Scheduler = GetTexture2DCompilationScheduler();
 		if (!Scheduler || !Scheduler->WaitForRequest(RequestId, TimeoutSeconds)) return false;
 		FAssetCompilingManager::Get().FinishCompilationForObject(Texture);
 		bool bFailed = false;
 		{
-			std::lock_guard Lock(GTexture2DAuthoringMutex);
-			if (FTexture2DAuthoringState* State = FindStateLocked(Texture.GetObjectPath()))
+			std::lock_guard Lock(GTexture2DCompilationMutex);
+			if (FTexture2DCompilationState* State = FindStateLocked(Texture.GetObjectPath()))
 				bFailed = State->bLastRequestFailed;
 		}
-		return !HasPendingTexture2DBuild(Texture) && !bFailed
+		return !HasPendingTexture2DCompilation(Texture) && !bFailed
 			&& Texture.GetBuildStatus() == ETextureBuildStatus::Ready;
 	}
 }

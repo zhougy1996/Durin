@@ -14,8 +14,8 @@
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureBuilder.h"
-#include "Texture/Texture2DAuthoring.h"
-#include "Texture/Texture2DCompilingDomain.h"
+#include "Texture/Texture2DCompilation.h"
+#include "Texture/Texture2DCompilationDomain.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "TexturePlatformDataTestFixtures.h"
 
@@ -41,7 +41,7 @@ inline auto EnsureTextureCompilingManager() -> bool
 {
 	if (!Durin::FAssetCompilingManager::Get().IsAcceptingRequests()
 		&& !Durin::InitializeAssetCompilingManager()) return false;
-	return Durin::Asset::Private::InitializeTexture2DCompilingDomain(
+	return Durin::Asset::Private::InitializeTexture2DCompilationDomain(
 		GetEngineTestModuleCallbackGate());
 }
 

@@ -23,12 +23,12 @@ inline requests through the same worker/editor phase machine. Asset families
 contribute source-translator, planning-pass, and asset-builder work rather than another import
 scheduler.
 
-## Build Completion Contract
+## Texture2D Compilation Completion Contract
 
-`FTexture2DAuthoringResult` identifies one terminal outcome as `Succeeded`, `Failed`,
-`Canceled`, or `Superseded` and carries a bounded diagnostic. An accepted build
-request invokes its `FTexture2DAuthoringCompletion` exactly once on the contributing
-service's completion thread. Rejection before acceptance is returned
+`FTexture2DCompilationResult` identifies one terminal outcome as `Succeeded`, `Failed`,
+`Canceled`, or `Superseded` and carries a bounded diagnostic. An accepted
+compilation request invokes its `FTexture2DCompilationCompletion` exactly once
+on the contributing service's completion thread. Rejection before acceptance is returned
 synchronously and does not invoke completion.
 
 Supersession is terminal, not silent callback disposal. When a family admits a

@@ -2,7 +2,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Texture/Texture2DRenderResource.h"
-#include "Texture/Texture2DBuildScheduler.h"
+#include "Texture/Texture2DCompilationScheduler.h"
 #include "Texture/TextureCube.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureRenderResource.h"
@@ -299,7 +299,7 @@ TEST(FTexture2DTests, MissingSourceUsesPersistedIdentityAndCanRecover)
 
 	WriteTextureFixture(CopiedSource);
 	ASSERT_TRUE(Texture->PostLoad(Error)) << Error;
-	ASSERT_TRUE(Durin::Asset::WaitForTexture2DBuild(*Texture))
+	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture))
 		<< Texture->GetLastBuildError();
 	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
 	EXPECT_NE(Texture->GetSourceData(), nullptr);

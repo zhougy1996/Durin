@@ -11,7 +11,7 @@ namespace Durin::AssetForge::Builtins
 {
 	class FAssetForgeBuiltinsAuthoringFeatures final
 		: public IStaticMeshAuthoringFeature
-		, public ITexture2DAuthoringFeature
+		, public ITexture2DPostLoadFeature
 		, public ITexture2DImportRecoveryFeature
 		, public ITextureCubeAuthoringFeature
 		, public IVolumeTextureImportRecoveryFeature

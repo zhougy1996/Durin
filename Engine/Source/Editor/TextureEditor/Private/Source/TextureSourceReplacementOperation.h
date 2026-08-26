@@ -15,7 +15,7 @@ namespace Durin::Editor::Texture
 		std::function<void(bool, std::string_view)> Finished;
 	};
 
-	// Adapts mounted-source and Texture2D authoring policy to DurinEd's generic
+	// Adapts mounted-source replacement and Texture2D compilation to DurinEd's generic
 	// compensating asynchronous operation.
 	auto MakeTextureSourceReplacementOperation(
 		FTextureSourceReplacementRequest Request)

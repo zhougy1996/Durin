@@ -100,24 +100,26 @@ namespace Durin::AssetForge::Builtins
 			const TMountedSource& Source,
 			const Asset::FTexture2DBuildSettings& Settings,
 			std::string& OutError,
-			Asset::ETexture2DBuildPriority Priority,
-			Asset::FTexture2DAuthoringCompletion Completion = {}) -> bool
+			Asset::ETexture2DCompilationPriority Priority,
+			Asset::FTexture2DCompilationCompletion Completion = {}) -> bool
 		{
 			FEncodedSourceSnapshot Snapshot;
 			if (!CaptureEncodedSource(
 				Source.SourcePath, Source.PhysicalPath, Snapshot, OutError)) return false;
 			FTextureSourceData SourceData;
 			if (!TranslateTexture2DSource(Snapshot.GetBytes(), SourceData, OutError)) return false;
-			return Asset::SubmitTexture2DBuild(Texture, {
-				.SourceData = std::move(SourceData),
-				.SourceContentHashLow = Snapshot.ContentHash.HashLow,
-				.SourceContentHashHigh = Snapshot.ContentHash.HashHigh,
-				.SourcePath = Snapshot.SourcePath,
-				.Settings = Settings,
-				.DecoderId = "DurinImage",
-				.DecoderVersion = 1,
-				.SourceFileSize = Snapshot.FileSize,
-				.SourceLastWriteTime = Snapshot.LastWriteTime,
+			return Asset::SubmitTexture2DCompilation(Texture, {
+				.Build = {
+					.SourceData = std::move(SourceData),
+					.SourceContentHashLow = Snapshot.ContentHash.HashLow,
+					.SourceContentHashHigh = Snapshot.ContentHash.HashHigh,
+					.Settings = Settings},
+				.Publication = {
+					.SourcePath = Snapshot.SourcePath,
+					.DecoderId = "DurinImage",
+					.DecoderVersion = 1,
+					.SourceFileSize = Snapshot.FileSize,
+					.SourceLastWriteTime = Snapshot.LastWriteTime},
 				.Priority = Priority}, OutError, std::move(Completion));
 		}
 
@@ -127,7 +129,7 @@ namespace Durin::AssetForge::Builtins
 			const Asset::FTexture2DBuildSettings& BuildSettings,
 			EImportMode Mode,
 			std::string& OutError,
-			Asset::FTexture2DAuthoringCompletion Completion = {}) -> bool
+			Asset::FTexture2DCompilationCompletion Completion = {}) -> bool
 		{
 			FAssetPath Destination;
 			if (!Texture.GetPackage() || !FAssetPath::TryCreate(
@@ -156,10 +158,10 @@ namespace Durin::AssetForge::Builtins
 			OutError = bSucceeded ? std::string{} : Result.Outcome.Diagnostic;
 			if (Completion)
 				Completion({
-					.Status = bSucceeded ? Asset::ETexture2DAuthoringStatus::Succeeded
+					.Status = bSucceeded ? Asset::ETexture2DCompilationStatus::Succeeded
 						: Result.Outcome.State == EImportOperationState::Canceled
-							? Asset::ETexture2DAuthoringStatus::Canceled
-							: Asset::ETexture2DAuthoringStatus::Failed,
+							? Asset::ETexture2DCompilationStatus::Canceled
+							: Asset::ETexture2DCompilationStatus::Failed,
 					.Diagnostic = OutError});
 			return bSucceeded;
 		}
@@ -170,7 +172,7 @@ namespace Durin::AssetForge::Builtins
 			const Asset::FTexture2DBuildSettings& BuildSettings,
 			EImportMode Mode,
 			std::string& OutError,
-			Asset::FTexture2DAuthoringCompletion Completion = {}) -> bool
+			Asset::FTexture2DCompilationCompletion Completion = {}) -> bool
 		{
 			FAssetPath Destination;
 			if (!Texture.GetPackage() || !FAssetPath::TryCreate(
@@ -199,10 +201,10 @@ namespace Durin::AssetForge::Builtins
 					if (!Completion) return;
 					Completion({
 						.Status = Result.Outcome.State == EImportOperationState::Succeeded
-							? Asset::ETexture2DAuthoringStatus::Succeeded
+							? Asset::ETexture2DCompilationStatus::Succeeded
 							: Result.Outcome.State == EImportOperationState::Canceled
-								? Asset::ETexture2DAuthoringStatus::Canceled
-								: Asset::ETexture2DAuthoringStatus::Failed,
+								? Asset::ETexture2DCompilationStatus::Canceled
+								: Asset::ETexture2DCompilationStatus::Failed,
 						.Diagnostic = Result.Outcome.Diagnostic});
 				});
 			if (!Handle)
@@ -461,8 +463,8 @@ namespace Durin::AssetForge::Builtins
 		DTexture2D& Texture,
 		const Asset::FTexture2DBuildSettings& Settings,
 		std::string& OutError,
-		Asset::ETexture2DBuildPriority Priority,
-		Asset::FTexture2DAuthoringCompletion Completion) -> bool
+		Asset::ETexture2DCompilationPriority Priority,
+		Asset::FTexture2DCompilationCompletion Completion) -> bool
 	{
 		if (!Texture.GetPackage() || !Texture.GetSourceImportData().HasSource())
 		{
@@ -490,7 +492,7 @@ namespace Durin::AssetForge::Builtins
 		DTexture2D& Texture,
 		std::string_view FilePath,
 		std::string& OutError,
-		Asset::FTexture2DAuthoringCompletion Completion) -> bool
+		Asset::FTexture2DCompilationCompletion Completion) -> bool
 	{
 		const FTextureSourceDiagnostic Source = Texture.InspectSource();
 		if (!FilePath.empty())

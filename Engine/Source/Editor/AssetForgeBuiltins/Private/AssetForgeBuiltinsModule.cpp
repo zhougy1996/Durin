@@ -14,7 +14,7 @@ namespace Durin
 				FModuleStartup::CreateOwnedCallbackRegistration("AssetForge.Registries");
 			require(ImportRegistryCallbackRegistration.IsValid());
 			StaticMeshRegistration = FModuleStartup::RegisterFeature<IStaticMeshAuthoringFeature>(AuthoringFeatures);
-			Texture2DRegistration = FModuleStartup::RegisterFeature<ITexture2DAuthoringFeature>(AuthoringFeatures);
+			Texture2DRegistration = FModuleStartup::RegisterFeature<ITexture2DPostLoadFeature>(AuthoringFeatures);
 			Texture2DRecoveryRegistration = FModuleStartup::RegisterFeature<
 				ITexture2DImportRecoveryFeature>(AuthoringFeatures);
 			TextureCubeRegistration = FModuleStartup::RegisterFeature<ITextureCubeAuthoringFeature>(AuthoringFeatures);

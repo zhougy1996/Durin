@@ -5,7 +5,7 @@
 #include "Asset/SourcePath.h"
 #include "Threading/Task.h"
 #include "Texture/Texture2D.h"
-#include "Texture/Texture2DAuthoringTypes.h"
+#include "Texture/Texture2DCompilationTypes.h"
 
 namespace Durin::Asset
 {
@@ -23,7 +23,7 @@ namespace Durin::Asset
 	};
 
 	// Immutable value snapshot consumed without reflected-object access on a worker.
-	struct FTexture2DQueuedBuildRequest
+	struct FTexture2DCompilationJob
 	{
 		std::string AssetIdentity;
 		FSourcePath SourcePath;
@@ -33,12 +33,12 @@ namespace Durin::Asset
 		uint64 Generation = 0;
 		uint32 EstimatedWidth = 0;
 		uint32 EstimatedHeight = 0;
-		ETexture2DBuildPriority Priority = ETexture2DBuildPriority::Background;
+		ETexture2DCompilationPriority Priority = ETexture2DCompilationPriority::Background;
 		bool bPersistDerivedData = true;
 	};
 
 	// Owns detached build output until a main-thread consumer accepts or discards it.
-	struct FTexture2DQueuedBuildResult
+	struct FTexture2DCompilationJobResult
 	{
 		uint64 RequestId = 0;
 		uint64 Generation = 0;
@@ -50,12 +50,12 @@ namespace Durin::Asset
 		std::unique_ptr<FTexturePlatformData> PlatformData;
 		std::string DerivedDataKey;
 		std::string Error;
-		FTexture2DBuildMetrics Metrics;
-		ETexture2DBuildPhase FailurePhase = ETexture2DBuildPhase::None;
-		ETexture2DBuildPhase Phase = ETexture2DBuildPhase::Failed;
+		FTexture2DCompilationMetrics Metrics;
+		ETexture2DCompilationPhase FailurePhase = ETexture2DCompilationPhase::None;
+		ETexture2DCompilationPhase Phase = ETexture2DCompilationPhase::Failed;
 	};
 
-	struct FTexture2DBuildSchedulerConfig
+	struct FTexture2DCompilationSchedulerConfig
 	{
 		uint32 MaxWorkers = 2;
 		uint32 InteractiveBurstLimit = 4;
@@ -64,29 +64,29 @@ namespace Durin::Asset
 		FTaskScopeToken OwnerTaskScope;
 	};
 
-	using FTexture2DBuildCompletion = std::function<void(FTexture2DQueuedBuildResult&&)>;
+	using FTexture2DCompilationJobCompletion = std::function<void(FTexture2DCompilationJobResult&&)>;
 
 	// Owns bounded Texture2D worker admission and a main-thread completion mailbox.
-	class FTexture2DBuildScheduler
+	class FTexture2DCompilationScheduler
 	{
 	public:
-		explicit FTexture2DBuildScheduler(
-			const FTexture2DBuildSchedulerConfig& Config = {});
-		~FTexture2DBuildScheduler();
-		FTexture2DBuildScheduler(const FTexture2DBuildScheduler&) = delete;
-		auto operator=(const FTexture2DBuildScheduler&)
-			-> FTexture2DBuildScheduler& = delete;
+		explicit FTexture2DCompilationScheduler(
+			const FTexture2DCompilationSchedulerConfig& Config = {});
+		~FTexture2DCompilationScheduler();
+		FTexture2DCompilationScheduler(const FTexture2DCompilationScheduler&) = delete;
+		auto operator=(const FTexture2DCompilationScheduler&)
+			-> FTexture2DCompilationScheduler& = delete;
 
 		auto Submit(
-			FTexture2DQueuedBuildRequest Request,
-			FTexture2DBuildCompletion Completion) -> uint64;
+			FTexture2DCompilationJob Request,
+			FTexture2DCompilationJobCompletion Completion) -> uint64;
 		auto Cancel(uint64 RequestId) -> bool;
 		auto GetDiagnostic(uint64 RequestId) const
-			-> FTexture2DBuildDiagnostic;
+			-> FTexture2DCompilationDiagnostic;
 		auto GetQueuedCount() const -> uint32;
 		auto GetRunningCount() const -> uint32;
 		auto SetPhaseHookForTests(
-			std::function<void(uint64, ETexture2DBuildPhase)> Hook) -> void;
+			std::function<void(uint64, ETexture2DCompilationPhase)> Hook) -> void;
 		auto Start() -> bool;
 		auto StopAdmission() -> void;
 		auto PumpCompletions(uint32 MaximumCount = 64) -> uint32;

@@ -47,7 +47,7 @@ workspace module documents.
 - Replace `AssetBuildCore::BuildHost` completely; do not retain two public
   process aggregators or a forwarding compatibility facade after migration.
 - Migrate both existing object compilation paths: the Runtime material compile
-  service and the Editor-selected asynchronous Texture2D authoring service.
+  service and the Editor-selected asynchronous Texture2D compilation service.
 - Preserve concrete-manager ownership of scheduling, detached worker values,
   DDC requests, validation, generation admission, asset publication,
   diagnostics, concurrency limits, retained values, and memory budgets.
@@ -73,9 +73,9 @@ workspace module documents.
   `FMaterialCompilingManager` implementation without changing material program
   identity, single-flight sharing, last-known-good visibility, compile results,
   renderer publication, Cook payloads, or reload semantics.
-- Refactor TextureBuild's compilation-domain and authoring state into an
+- Refactor TextureBuild's compilation-domain state into an
   `FTextureCompilingManager` implementation while keeping its private
-  `FTexture2DBuildScheduler` as the worker admission and completion mailbox.
+  `FTexture2DCompilationScheduler` as the worker admission and completion mailbox.
 - Route EngineLoop and MainFrame compilation lifecycle through the new global
   manager, with exactly one normal-frame pump.
 - Replace BuildHost-dependent tests and test environments, then remove
@@ -93,7 +93,7 @@ workspace module documents.
 - Moving TextureBuild or GeometryBuild recipe implementations into Engine, or
   adding an Engine dependency on `AssetBuildCore`, `DerivedDataCache`,
   `TextureBuild`, `GeometryBuild`, AssetForge, or an Editor module.
-- Rewriting the private `FTexture2DBuildScheduler`, changing its two-worker default,
+- Rewriting the private `FTexture2DCompilationScheduler`, changing its two-worker default,
   priority fairness, 1 GiB estimated in-flight budget, worker phases,
   cancellation polling, completion history, or DDC behavior except where its
   owner and pump entry point change.
@@ -322,7 +322,7 @@ identity, shader cache, Cook payload, or Renderer contract.
 ### Texture migration preserves the private scheduler
 
 `FTextureCompilingManager` lives in TextureBuild and owns the compilation-domain
-state and Texture2D authoring map around a private `FTexture2DBuildScheduler`.
+state and Texture2D compilation map around a private `FTexture2DCompilationScheduler`.
 TextureBuild registers it with Engine during module startup using the module's
 owner gate and async operation group.
 
@@ -472,11 +472,11 @@ The following behavior remains compatible:
 ### Stage 3: Migrate Texture2D compilation
 
 - [x] Add `FTextureCompilingManager` in TextureBuild and move the global
-  coordinator service state plus Texture2D authoring state under its ownership.
+  coordinator service state plus Texture2D compilation state under its ownership.
 - [x] Register the manager during TextureBuild module startup with the existing
   module callback gate and async operation group; reset registration before
   build functions and module-owned state retire.
-- [x] Preserve the private `FTexture2DBuildScheduler` worker admission, priorities,
+- [x] Preserve the private `FTexture2DCompilationScheduler` worker admission, priorities,
   fairness, memory budget, phases, metrics, mailbox, cancellation polling,
   result history, and test hooks.
 - [x] Route typed submit, diagnostic, pending, cancel, and wait APIs through the
@@ -624,10 +624,10 @@ The following behavior remains compatible:
 - [`DerivedDataBuild.cpp`](../../Engine/Source/Developer/DerivedDataCache/Private/DerivedDataBuild.cpp)
 - [`MaterialCompileLifecycle.h`](../../Engine/Source/Runtime/Engine/Public/Materials/MaterialCompileLifecycle.h)
 - [`MaterialCompileLifecycle.cpp`](../../Engine/Source/Runtime/Engine/Private/Materials/MaterialCompileLifecycle.cpp)
-- [`Texture2DAuthoring.h`](../../Engine/Source/Developer/TextureBuild/Public/Texture/Texture2DAuthoring.h)
-- [`Texture2DAuthoring.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DAuthoring.cpp)
-- [`Texture2DBuildScheduler.h`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DBuildScheduler.h)
-- [`Texture2DBuildScheduler.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DBuildScheduler.cpp)
+- [`Texture2DCompilation.h`](../../Engine/Source/Developer/TextureBuild/Public/Texture/Texture2DCompilation.h)
+- [`Texture2DCompilation.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DCompilation.cpp)
+- [`Texture2DCompilationScheduler.h`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DCompilationScheduler.h)
+- [`Texture2DCompilationScheduler.cpp`](../../Engine/Source/Developer/TextureBuild/Private/Texture/Texture2DCompilationScheduler.cpp)
 - [`EngineLoop.cpp`](../../Engine/Source/Runtime/Launch/Private/EngineLoop.cpp)
 - [`MainFrameModule.cpp`](../../Engine/Source/Editor/MainFrame/Private/MainFrameModule.cpp)
 - [`DerivedDataBuildTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/DerivedDataBuildTests.cpp)

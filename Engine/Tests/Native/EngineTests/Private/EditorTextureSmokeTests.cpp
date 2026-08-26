@@ -316,8 +316,8 @@ namespace Durin
 		std::string RebuildError;
 		ASSERT_TRUE(AssetForge::Builtins::SetTexture2DSRGB(
 			*TextureImport.Asset, !TextureImport.Asset->IsSRGB(), RebuildError)) << RebuildError;
-		ASSERT_TRUE(Asset::WaitForTexture2DBuild(*TextureImport.Asset, 10.0))
-			<< Asset::GetTexture2DBuildDiagnostic(*TextureImport.Asset).Message;
+		ASSERT_TRUE(Asset::WaitForTexture2DCompilation(*TextureImport.Asset, 10.0))
+			<< Asset::GetTexture2DCompilationDiagnostic(*TextureImport.Asset).Message;
 		FlushRenderingCommands();
 		EXPECT_EQ(
 			TextureImport.Asset->GetTextureReferenceRHI().GetReference(),

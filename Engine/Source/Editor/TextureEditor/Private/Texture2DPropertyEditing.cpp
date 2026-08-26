@@ -5,7 +5,7 @@
 #include "DObject/Property.h"
 #include "DObject/WeakObjectPtr.h"
 #include "Editor/PropertyEditing.h"
-#include "Texture/Texture2DAuthoring.h"
+#include "Texture/Texture2DCompilation.h"
 #include "Texture/TextureBuilder.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 
@@ -132,8 +132,8 @@ namespace Durin::Editor::Texture
 						*LiveTexture,
 						Settings,
 						Error,
-						Asset::ETexture2DBuildPriority::Interactive,
-						[DeferredCompletion](Asset::FTexture2DAuthoringResult Result) {
+						Asset::ETexture2DCompilationPriority::Interactive,
+						[DeferredCompletion](Asset::FTexture2DCompilationResult Result) {
 							(*DeferredCompletion)(
 								Result.Succeeded(), std::move(Result.Diagnostic));
 						}))

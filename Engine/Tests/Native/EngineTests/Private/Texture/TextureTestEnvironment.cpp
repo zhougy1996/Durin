@@ -28,7 +28,7 @@ namespace
 			Durin::Editor::Texture::UnregisterTextureSourceRelocation();
 			Durin::Editor::Texture::UnregisterTexture2DPropertyEditing();
 			Durin::AssetForge::Builtins::UnregisterAssetForgeBuiltinsProviders();
-			Durin::Asset::Private::ShutdownTexture2DCompilingDomain();
+			Durin::Asset::Private::ShutdownTexture2DCompilationDomain();
 			Durin::ShutdownAssetCompilingManager();
 		}
 	};

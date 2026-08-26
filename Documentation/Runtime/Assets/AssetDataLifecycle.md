@@ -65,12 +65,20 @@ calls but does not become a compilation domain. See
 [Asset Compilation](AssetCompilation.md).
 
 Accepted asynchronous Texture2D requests use TextureBuild's terminal
-`FTexture2DAuthoringResult` vocabulary and complete their observer exactly once,
+`FTexture2DCompilationResult` vocabulary and complete their observer exactly once,
 including cancellation and supersession. The family service still owns request
 identity, workers, typed publication, and the thread on which it pumps that
 completion. Editor-side commit and recovery sequencing is separately defined by
 [Async Asset Operations](../../Editor/Architecture/AsyncAssetOperations.md);
 it does not move scheduling or typed build policy into DurinEd.
+
+Texture2D uses three distinct terms at this boundary. Import translates an
+encoded mounted source into normalized pixels. Build is the detached
+`FTexture2DBuildRequest` to `FTexture2DBuildProduct` transformation and never
+observes an asset object. Compilation schedules that build for a specific
+`DTexture2D`, applies cancellation and supersession, and publishes the product
+on GameThread. Authored describes authoritative persisted package state; it is
+not the name of the compilation service or one of its requests.
 
 ## Storage Classes
 
@@ -194,7 +202,7 @@ payload bytes, but only an explicit cook places them under `Cooked/` ownership.
 
 Runtime Engine owns asset state and the six typed optional authoring contracts:
 `IStaticMeshAuthoringFeature`, `IStaticMeshCollisionBuildFeature`,
-`ITexture2DAuthoringFeature`, `ITextureCubeAuthoringFeature`,
+`ITexture2DPostLoadFeature`, `ITextureCubeAuthoringFeature`,
 `ITerrainHeightmapAuthoringFeature`, and `ISkeletalDerivedDataFeature`.
 Runtime consumers invoke exactly one provider through a bounded modular-feature
 visitor. No provider reference or provider-authored callable escapes that

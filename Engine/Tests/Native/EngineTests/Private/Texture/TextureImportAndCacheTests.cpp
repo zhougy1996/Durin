@@ -234,7 +234,7 @@ TEST(FTexture2DTests, DefaultsToFlatSourceRootAndAllowsCustomSourceDestination)
 	std::string RelocateError;
 	ASSERT_TRUE(Durin::AssetForge::Builtins::ChangeTexture2DSourceLocation(
 		*CustomResult.Asset, "UserLayout/MovedCopy.png", RelocateError)) << RelocateError;
-	ASSERT_TRUE(Durin::Asset::WaitForTexture2DBuild(*CustomResult.Asset, 10.0));
+	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*CustomResult.Asset, 10.0));
 	EXPECT_EQ(
 		CustomResult.Asset->GetSourceFile(),
 		"/TextureImportTests/UserLayout/MovedCopy.png");
@@ -335,7 +335,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	std::filesystem::last_write_time(
 		CachedAssetData->PhysicalPath, PackageTimeBeforeRecovery);
 	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
-	ASSERT_TRUE(Durin::Asset::WaitForTexture2DBuild(*Loaded))
+	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Loaded))
 		<< Loaded->GetLastBuildError();
 	EXPECT_FALSE(Loaded->WasLoadedFromDerivedDataCache());
 	EXPECT_TRUE(Loaded->GetDerivedDataDiagnostic().bSourceDecoderInvoked);
@@ -364,7 +364,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	std::filesystem::last_write_time(CopiedSource,
 		std::filesystem::last_write_time(CopiedSource) + std::chrono::seconds(1));
 	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
-	ASSERT_TRUE(Durin::Asset::WaitForTexture2DBuild(*Loaded))
+	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Loaded))
 		<< Loaded->GetLastBuildError();
 	EXPECT_FALSE(Loaded->WasLoadedFromDerivedDataCache());
 	EXPECT_NE(Loaded->GetDerivedDataKey(), OriginalKey);
@@ -539,8 +539,8 @@ TEST(FTexture2DTests, DerivedDataKeyCoversSourceContentAndBuildSettings)
 	std::string Error;
 	ASSERT_TRUE(Durin::AssetForge::Builtins::SetTexture2DMaxResolution(
 		*Loaded, 1, Error)) << Error;
-	ASSERT_TRUE(Durin::Asset::WaitForTexture2DBuild(*Loaded, 10.0))
-		<< Durin::Asset::GetTexture2DBuildDiagnostic(*Loaded).Message;
+	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Loaded, 10.0))
+		<< Durin::Asset::GetTexture2DCompilationDiagnostic(*Loaded).Message;
 	EXPECT_NE(Loaded->GetSourceData(), nullptr);
 	EXPECT_NE(Loaded->GetDerivedDataKey(), OriginalKey);
 	EXPECT_TRUE(std::filesystem::is_regular_file(GetTextureCachePath(*Loaded)));
