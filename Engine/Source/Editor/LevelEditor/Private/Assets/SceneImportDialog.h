@@ -18,7 +18,7 @@ namespace Durin::Editor::Level
 		auto operator=(const FSceneImportDialog&) -> FSceneImportDialog& = delete;
 
 		auto Open(std::string_view DestinationDirectory = {}) -> void;
-		auto Draw() -> void;
+		auto Draw(bool bAllowAssetMutation) -> void;
 
 	private:
 		auto BrowseSource() -> void;

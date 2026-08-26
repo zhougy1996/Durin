@@ -390,8 +390,9 @@ namespace Durin::Editor::Level
 		if (!Context || !DocumentController || !SceneImportDialog
 			|| !TerrainHeightmapImportDialog) return false;
 		DocumentController->DrawDialogs();
-		SceneImportDialog->Draw();
-		TerrainHeightmapImportDialog->Draw();
+		const bool bAllowAssetMutation = !GEditor || !GEditor->IsPlaying();
+		SceneImportDialog->Draw(bAllowAssetMutation);
+		TerrainHeightmapImportDialog->Draw(bAllowAssetMutation);
 		bWasActive = bActive;
 		const bool bDocumentOpen = std::ranges::any_of(WorkspaceManager.GetDocuments(), [](const ::Durin::Editor::FDocumentTab& Document) {
 			return Document.WorkspaceType == Workspace::Type;

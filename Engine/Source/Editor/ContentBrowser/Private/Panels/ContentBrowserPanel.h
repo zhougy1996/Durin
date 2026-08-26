@@ -52,7 +52,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		~FContentBrowserPanel() override;
 
 		auto TickWhenHidden() -> void override;
-		auto DrawContents() -> void override;
+		auto DrawContents(bool bAllowAssetMutation) -> void override;
+		auto DrawHostPresenters(bool bAllowAssetMutation) -> void override;
 		auto RevealAsset(std::string_view AssetPath) -> bool override;
 		auto RevealDirectory(std::string_view DirectoryPath) -> bool override;
 		auto RequestFocus() -> bool override;
@@ -179,5 +180,6 @@ namespace Durin::Editor::ContentBrowser::Private
 			TextureCubeDetailsSnapshot = nullptr;
 		::Durin::Editor::ContentBrowser::EAdmissionState AdmissionState =
 			::Durin::Editor::ContentBrowser::EAdmissionState::Accepting;
+		bool bAllowAssetMutation = true;
 	};
 } // namespace Durin::Editor::ContentBrowser::Private

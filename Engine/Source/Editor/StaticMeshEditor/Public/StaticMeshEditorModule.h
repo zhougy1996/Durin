@@ -2,7 +2,6 @@
 
 #include "Modules/ModuleManager.h"
 #include "StaticMeshEditorAPI.h"
-#include "ContentBrowser/ContentBrowserContracts.h"
 #include "Editor/Import/ImportDialogSupport.h"
 
 namespace Durin::Editor
@@ -12,8 +11,6 @@ namespace Durin::Editor
 	class FAssetThumbnailProviderRegistry;
 	class FAssetThumbnailProviderRegistrationHandle;
 }
-
-namespace Durin::Editor::StaticMesh { class FStaticMeshImportDialog; }
 
 namespace Durin
 {
@@ -30,16 +27,12 @@ namespace Durin
 			::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
 			::Durin::Editor::Import::FImportDialogCallbacks ImportCallbacks = {}) -> bool;
 		STATICMESHEDITOR_API auto UnregisterStaticMeshEditor() -> void;
-		STATICMESHEDITOR_API auto DrawImportDialogs() -> void;
 
 	private:
 		FModuleOwnedCallbackRegistration EditorExtensionCallbacks;
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle> ThumbnailRegistration;
-		Editor::ContentBrowser::FScopedExtensionRegistration
-			ContentBrowserImportExtension;
-		Editor::ContentBrowser::FScopedExtensionRegistration
-			ContentBrowserReimportExtension;
-		std::unique_ptr<Editor::StaticMesh::FStaticMeshImportDialog> ImportDialog;
+		struct FIntegrationState;
+		std::unique_ptr<FIntegrationState> Integration;
 	};
 }

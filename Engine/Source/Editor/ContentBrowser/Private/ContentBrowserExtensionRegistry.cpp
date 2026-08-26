@@ -70,17 +70,52 @@ namespace Durin::Editor::ContentBrowser
 		return Snapshot;
 	}
 
+	auto CaptureHostPresenters() -> std::vector<FExtensionDescriptor>
+	{
+		const std::shared_ptr<FRegistryState> State = GetRegistryState();
+		std::vector<FExtensionDescriptor> Snapshot;
+		{
+			std::scoped_lock Lock(State->Mutex);
+			for (const auto& [Id, Descriptor] : State->Entries)
+				if (Descriptor.DrawHostPresentation)
+					Snapshot.push_back(Descriptor);
+		}
+		std::ranges::sort(Snapshot, [](const FExtensionDescriptor& Left,
+			const FExtensionDescriptor& Right) {
+			return std::tie(Left.Order, Left.Id)
+				< std::tie(Right.Order, Right.Id);
+		});
+		return Snapshot;
+	}
+
 	auto InvokeExtension(
 		const FExtensionDescriptor& Descriptor,
 		const FExtensionInvocation& Invocation) -> bool
 	{
+		const bool bMutationExtension =
+			Descriptor.Category == EExtensionCategory::Create
+			|| Descriptor.Category == EExtensionCategory::Import
+			|| Descriptor.Category == EExtensionCategory::Reimport;
 		if (!Descriptor.IsApplicable || !Descriptor.Invoke
+			|| (bMutationExtension && !Invocation.bAllowAssetMutation)
 			|| !Descriptor.IsApplicable(Invocation.Context))
 			return false;
 		FModuleOwnedCallbackInvocation Admission =
 			Descriptor.OwnerGate.TryEnter();
 		if (!Admission) return false;
 		Descriptor.Invoke(Invocation);
+		return true;
+	}
+
+	auto DrawHostPresentation(
+		const FExtensionDescriptor& Descriptor,
+		bool bAllowAssetMutation) -> bool
+	{
+		if (!Descriptor.DrawHostPresentation) return false;
+		FModuleOwnedCallbackInvocation Admission =
+			Descriptor.OwnerGate.TryEnter();
+		if (!Admission) return false;
+		Descriptor.DrawHostPresentation(bAllowAssetMutation);
 		return true;
 	}
 } // namespace Durin::Editor::ContentBrowser

@@ -5,7 +5,7 @@
 #include "LevelEditorCustomizations.h"
 #include "LevelEditorViewportEditing.h"
 #include "LevelEditorContentBrowserCallbacks.h"
-#include "ContentBrowser/ContentBrowserContracts.h"
+#include "AssetForge/Operations/ImportOperation.h"
 
 namespace Durin
 {
@@ -34,6 +34,7 @@ namespace Durin
 	class FLevelEditorModule final : public IModuleInterface
 	{
 	public:
+		LEVELEDITOR_API FLevelEditorModule();
 		LEVELEDITOR_API ~FLevelEditorModule() override;
 		LEVELEDITOR_API auto StartupModule() -> void override;
 		LEVELEDITOR_API auto ShutdownModule() -> void override;
@@ -58,7 +59,7 @@ namespace Durin
 		uint64 GrayboxBuildStartupCommandHandle = 0;
 		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>
 			TerrainThumbnailRegistration;
-		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration>
-			ContentBrowserExtensions;
+		struct FIntegrationState;
+		std::unique_ptr<FIntegrationState> Integration;
 	};
 }

@@ -1,5 +1,7 @@
 #include "MaterialEditorModule.h"
 
+#include "ContentBrowser/ContentBrowserContracts.h"
+
 #include "Asset/AssetOperations.h"
 #include "Asset.h"
 #include "Editor/WorkspaceManager.h"
@@ -55,6 +57,17 @@ namespace Durin
 	}
 
 	IMPLEMENT_MODULE(FMaterialEditorModule, MaterialEditor)
+
+	struct FMaterialEditorModule::FIntegrationState
+	{
+		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration>
+			ContentBrowserExtensions;
+	};
+
+	FMaterialEditorModule::FMaterialEditorModule()
+		: Integration(std::make_unique<FIntegrationState>())
+	{
+	}
 
 	FMaterialEditorModule::~FMaterialEditorModule() = default;
 
@@ -183,14 +196,14 @@ namespace Durin
 				DURIN_ERROR("Could not register Content Browser material creation: {}", Error);
 				return false;
 			}
-			ContentBrowserExtensions.push_back(std::move(Handle));
+			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
 			return true;
 		};
 		if (!RegisterCreate("material.create-material", "Material", "NewMaterial", false)
 			|| !RegisterCreate("material.create-instance", "Material Instance",
 				"NewMaterialInstance", true))
 		{
-			ContentBrowserExtensions.clear();
+			Integration->ContentBrowserExtensions.clear();
 			MaterialInstanceThumbnailRegistration.reset();
 			MaterialThumbnailRegistration.reset();
 			WorkspaceRegistration.reset();
@@ -201,7 +214,7 @@ namespace Durin
 
 	auto FMaterialEditorModule::UnregisterMaterialEditor() -> void
 	{
-		ContentBrowserExtensions.clear();
+		Integration->ContentBrowserExtensions.clear();
 		MaterialInstanceThumbnailRegistration.reset();
 		MaterialThumbnailRegistration.reset();
 		WorkspaceRegistration.reset();

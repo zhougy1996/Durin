@@ -1,5 +1,7 @@
 #include "TextureEditorModule.h"
 
+#include "ContentBrowser/ContentBrowserContracts.h"
+
 #include "Editor/WorkspaceManager.h"
 #include "Texture2DPropertyEditing.h"
 #include "TextureSourceRelocation.h"
@@ -161,7 +163,17 @@ namespace Durin
 
 	IMPLEMENT_MODULE(FTextureEditorModule, TextureEditor)
 
-	FTextureEditorModule::FTextureEditorModule() = default;
+	struct FTextureEditorModule::FIntegrationState
+	{
+		Editor::ContentBrowser::FScopedExtensionRegistration ImportExtension;
+		Editor::ContentBrowser::FScopedExtensionRegistration ReimportExtension;
+		std::unique_ptr<Editor::Texture::FTextureImportDialog> ImportDialog;
+	};
+
+	FTextureEditorModule::FTextureEditorModule()
+		: Integration(std::make_unique<FIntegrationState>())
+	{
+	}
 	FTextureEditorModule::~FTextureEditorModule() = default;
 
 	auto FTextureEditorModule::StartupModule() -> void
@@ -193,7 +205,7 @@ namespace Durin
 		WorkspaceRegistration.reset();
 		Texture2DThumbnailRegistration.reset();
 		TextureCubeThumbnailRegistration.reset();
-		ImportDialog = std::make_unique<Editor::Texture::FTextureImportDialog>(
+		Integration->ImportDialog = std::make_unique<Editor::Texture::FTextureImportDialog>(
 			std::move(ImportCallbacks));
 		std::shared_ptr<MTextureEditor> Workspace = std::make_shared<MTextureEditor>(WorkspaceManager);
 		std::shared_ptr<MVolumeTextureEditor> VolumeEditor =
@@ -268,7 +280,7 @@ namespace Durin
 			std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(TextureCubeHandle));
 		if (!EditorExtensionCallbacks.IsValid()) return true;
-		ContentBrowserImportExtension =
+		Integration->ImportExtension =
 			::Durin::Editor::ContentBrowser::RegisterExtension({
 				.Id = "texture.import", .Label = "Texture...",
 				.Category = ::Durin::Editor::ContentBrowser::EExtensionCategory::Import,
@@ -277,18 +289,22 @@ namespace Durin
 					return !Context.VirtualDirectory.empty();
 				},
 				.Invoke = [this](const auto& Invocation) {
-					if (ImportDialog)
-						ImportDialog->Open(Invocation.Context.VirtualDirectory);
+					if (Integration->ImportDialog)
+						Integration->ImportDialog->Open(Invocation.Context.VirtualDirectory);
+				},
+				.DrawHostPresentation = [this](bool bAllowAssetMutation) {
+					if (Integration->ImportDialog)
+						Integration->ImportDialog->Draw(bAllowAssetMutation);
 				},
 				.OwnerGate = EditorExtensionCallbacks.GetGate(),
 			}, Error);
-		if (!ContentBrowserImportExtension.IsValid())
+		if (!Integration->ImportExtension.IsValid())
 		{
 			DURIN_ERROR("Could not register Content Browser texture import: {}", Error);
 			UnregisterTextureEditor();
 			return false;
 		}
-		ContentBrowserReimportExtension =
+		Integration->ReimportExtension =
 			::Durin::Editor::ContentBrowser::RegisterExtension({
 				.Id = "texture.reimport",
 				.Label = "Reimport from Current Source",
@@ -303,7 +319,7 @@ namespace Durin
 				.Invoke = ReimportTexture,
 				.OwnerGate = EditorExtensionCallbacks.GetGate(),
 			}, Error);
-		if (!ContentBrowserReimportExtension.IsValid())
+		if (!Integration->ReimportExtension.IsValid())
 		{
 			DURIN_ERROR("Could not register Content Browser texture reimport: {}", Error);
 			UnregisterTextureEditor();
@@ -314,16 +330,12 @@ namespace Durin
 
 	auto FTextureEditorModule::UnregisterTextureEditor() -> void
 	{
-		ContentBrowserReimportExtension.Reset();
-		ContentBrowserImportExtension.Reset();
-		ImportDialog.reset();
+		Integration->ReimportExtension.Reset();
+		Integration->ImportExtension.Reset();
+		Integration->ImportDialog.reset();
 		TextureCubeThumbnailRegistration.reset();
 		Texture2DThumbnailRegistration.reset();
 		WorkspaceRegistration.reset();
 	}
 
-	auto FTextureEditorModule::DrawImportDialogs() -> void
-	{
-		if (ImportDialog) ImportDialog->Draw();
-	}
 }

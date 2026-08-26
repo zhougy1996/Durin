@@ -408,8 +408,8 @@ stage-local success cannot hide a later cross-domain regression.
 - `Engine/Source/Runtime/Engine/Private/Materials/MaterialCompileLifecycle.cpp`
 - `Engine/Source/Runtime/Engine/Public/Materials/MaterialCompileLifecycle.h`
 - `Engine/Source/Editor/DurinEd/Public/Thumbnail/AssetThumbnailProvider.h`
-- `Engine/Source/Editor/DurinEd/Public/Thumbnail/AssetThumbnailScheduler.h`
-- `Engine/Source/Editor/DurinEd/Public/Thumbnail/RenderedAssetThumbnailPipeline.h`
+- `Engine/Source/Editor/DurinEd/Private/Thumbnail/RenderedThumbnailRequestQueue.h`
+- `Engine/Source/Editor/DurinEd/Private/Thumbnail/RenderedAssetThumbnailGeneration.h`
 - `Engine/Source/Editor/DurinEd/Public/Thumbnail/AssetThumbnailProvider.h`
 - `Engine/Source/Editor/DurinEd/Private/Thumbnail/RenderedAssetThumbnailCache.cpp`
 - `Engine/Source/Editor/AssetForge/Public/AssetForge/ImportService.h`

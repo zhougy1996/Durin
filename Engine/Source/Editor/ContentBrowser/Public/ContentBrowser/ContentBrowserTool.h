@@ -33,7 +33,8 @@ namespace Durin::Editor::ContentBrowser
 	{
 	public:
 		virtual auto TickWhenHidden() -> void = 0;
-		virtual auto DrawContents() -> void = 0;
+		virtual auto DrawContents(bool bAllowAssetMutation) -> void = 0;
+		virtual auto DrawHostPresenters(bool bAllowAssetMutation) -> void = 0;
 	};
 
 	CONTENTBROWSER_API auto CreateContentBrowserTool(

@@ -1,5 +1,7 @@
 #include "LevelEditorModule.h"
 
+#include "ContentBrowser/ContentBrowserContracts.h"
+
 #include "Asset/AssetOperations.h"
 #include "Asset/Mutation.h"
 #include "Asset.h"
@@ -120,6 +122,17 @@ namespace Durin
 	}
 
 	IMPLEMENT_MODULE(FLevelEditorModule, LevelEditor)
+
+	struct FLevelEditorModule::FIntegrationState
+	{
+		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration>
+			ContentBrowserExtensions;
+	};
+
+	FLevelEditorModule::FLevelEditorModule()
+		: Integration(std::make_unique<FIntegrationState>())
+	{
+	}
 
 	FLevelEditorModule::~FLevelEditorModule() = default;
 
@@ -275,7 +288,7 @@ namespace Durin
 				WorkspaceRegistration.reset();
 				return false;
 			}
-			ContentBrowserExtensions.push_back(std::move(Handle));
+			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
 		}
 		const auto RegisterImport = [this, WeakWorkspace = LevelEditorWorkspace](
 			std::string Id, std::string Label,
@@ -300,7 +313,7 @@ namespace Durin
 				DURIN_ERROR("Could not register Content Browser import extension: {}", Error);
 				return false;
 			}
-			ContentBrowserExtensions.push_back(std::move(Handle));
+			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
 			return true;
 		};
 		if (!RegisterImport("level.terrain-heightmap-import", "Terrain Heightmap...",
@@ -308,7 +321,7 @@ namespace Durin
 			|| !RegisterImport("level.scene-import", "Scene Source (FBX/glTF)...",
 				Editor::Level::EImportDialogType::Scene))
 		{
-			ContentBrowserExtensions.clear();
+			Integration->ContentBrowserExtensions.clear();
 			LevelEditorWorkspace.reset();
 			TerrainThumbnailRegistration.reset();
 			WorkspaceRegistration.reset();
@@ -331,20 +344,20 @@ namespace Durin
 			if (!Handle.IsValid())
 			{
 				DURIN_ERROR("Could not register Content Browser Terrain Heightmap reimport: {}", Error);
-				ContentBrowserExtensions.clear();
+				Integration->ContentBrowserExtensions.clear();
 				LevelEditorWorkspace.reset();
 				TerrainThumbnailRegistration.reset();
 				WorkspaceRegistration.reset();
 				return false;
 			}
-			ContentBrowserExtensions.push_back(std::move(Handle));
+			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
 		}
 		return true;
 	}
 
 	LEVELEDITOR_API auto FLevelEditorModule::UnregisterLevelEditorWorkspace() -> void
 	{
-		ContentBrowserExtensions.clear();
+		Integration->ContentBrowserExtensions.clear();
 		TerrainThumbnailRegistration.reset();
 		WorkspaceRegistration.reset();
 		LevelEditorWorkspace.reset();

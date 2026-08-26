@@ -114,7 +114,10 @@ the active drawer tool closes the drawer.
 `Ctrl+Space`, the status-bar actions, Content Browser reveal requests, and the
 application Window menu all route through MainFrame host state regardless of
 the active workspace. Content Browser mutations are disabled during Play while
-Console and Activity History remain usable. Console polling, unread counts,
+read-only navigation, search, reveal, and asset opening remain usable. The same
+host policy reaches feature-owned import presenters, so a dialog opened before
+Play cannot submit new work after Play starts. Console and Activity History
+remain usable. Console polling, unread counts,
 transaction feedback, notification aggregation, and toasts update once per host
 frame even when the Level workspace root is hidden. Reset Editor Host Layout
 restores global tool defaults without resetting any asset-editor layout.

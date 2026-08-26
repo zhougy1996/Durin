@@ -118,4 +118,50 @@ namespace Durin::Editor::ContentBrowser
 				Snapshot.end());
 		}
 	}
+
+	TEST(FContentBrowserExtensionRegistryTests,
+		RejectsMutatingInvocationsAndGatesHostPresenters)
+	{
+		FModuleTestOwner Owner("ContentBrowserExtensionRegistryTests.MutationPolicy");
+		auto Gate = Owner.CreateOwnedCallbackRegistration("ContentBrowser.Extensions");
+		int Invocations = 0;
+		int Presentations = 0;
+		bool bLastPresentationAllowedMutation = true;
+		std::string Error;
+		auto Registration = RegisterExtension({
+			.Id = "test.mutation-policy",
+			.Label = "Mutation Policy",
+			.Category = EExtensionCategory::Import,
+			.IsApplicable = [](const auto&) { return true; },
+			.Invoke = [&Invocations](const auto&) { ++Invocations; },
+			.DrawHostPresentation = [
+				&Presentations,
+				&bLastPresentationAllowedMutation](bool bAllowAssetMutation) {
+				++Presentations;
+				bLastPresentationAllowedMutation = bAllowAssetMutation;
+			},
+			.OwnerGate = Gate.GetGate()}, Error);
+		ASSERT_TRUE(Registration.IsValid()) << Error;
+
+		const auto Extensions = CaptureExtensions(EExtensionCategory::Import);
+		const auto Entry = std::ranges::find(
+			Extensions, "test.mutation-policy", &FExtensionDescriptor::Id);
+		ASSERT_NE(Entry, Extensions.end());
+		EXPECT_FALSE(InvokeExtension(*Entry, {.bAllowAssetMutation = false}));
+		EXPECT_EQ(Invocations, 0);
+		EXPECT_TRUE(InvokeExtension(*Entry, {.bAllowAssetMutation = true}));
+		EXPECT_EQ(Invocations, 1);
+
+		const auto Presenters = CaptureHostPresenters();
+		const auto Presenter = std::ranges::find(
+			Presenters, "test.mutation-policy", &FExtensionDescriptor::Id);
+		ASSERT_NE(Presenter, Presenters.end());
+		EXPECT_TRUE(DrawHostPresentation(*Presenter, false));
+		EXPECT_EQ(Presentations, 1);
+		EXPECT_FALSE(bLastPresentationAllowedMutation);
+
+		EXPECT_TRUE(Owner.BeginRetirement(std::chrono::milliseconds(0)).Succeeded());
+		EXPECT_FALSE(DrawHostPresentation(*Presenter, true));
+		EXPECT_EQ(Presentations, 1);
+	}
 } // namespace Durin::Editor::ContentBrowser

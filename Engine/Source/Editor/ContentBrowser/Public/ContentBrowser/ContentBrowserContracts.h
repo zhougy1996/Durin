@@ -38,6 +38,8 @@ namespace Durin::Editor::ContentBrowser
 	struct FExtensionInvocation
 	{
 		FExtensionContext Context;
+		// False while the host permits inspection but rejects asset mutations.
+		bool bAllowAssetMutation = true;
 		std::function<bool(std::string_view)> RevealAsset;
 		std::function<bool(std::string_view)> RevealDirectory;
 		std::function<bool(std::string_view, std::string_view)> OpenAsset;
@@ -55,6 +57,8 @@ namespace Durin::Editor::ContentBrowser
 		int32 Order = 0;
 		std::function<bool(const FExtensionContext&)> IsApplicable;
 		std::function<void(const FExtensionInvocation&)> Invoke;
+		// Draws feature-owned modal state without exposing its concrete module to the host.
+		std::function<void(bool)> DrawHostPresentation;
 		FModuleOwnedCallbackGate OwnerGate;
 	};
 
@@ -138,7 +142,12 @@ namespace Durin::Editor::ContentBrowser
 		-> FScopedExtensionRegistration;
 	CONTENTBROWSER_API auto CaptureExtensions(EExtensionCategory Category)
 		-> std::vector<FExtensionDescriptor>;
+	CONTENTBROWSER_API auto CaptureHostPresenters()
+		-> std::vector<FExtensionDescriptor>;
 	CONTENTBROWSER_API auto InvokeExtension(
 		const FExtensionDescriptor& Descriptor,
 		const FExtensionInvocation& Invocation) -> bool;
+	CONTENTBROWSER_API auto DrawHostPresentation(
+		const FExtensionDescriptor& Descriptor,
+		bool bAllowAssetMutation) -> bool;
 } // namespace Durin::Editor::ContentBrowser

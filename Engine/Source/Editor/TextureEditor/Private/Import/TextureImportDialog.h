@@ -16,7 +16,7 @@ namespace Durin::Editor::Texture
 		auto operator=(const FTextureImportDialog&) -> FTextureImportDialog& = delete;
 
 		auto Open(std::string_view DestinationDirectory = {}) -> void;
-		auto Draw() -> void;
+		auto Draw(bool bAllowAssetMutation) -> void;
 
 	private:
 		auto DrawSourceMode() -> void;

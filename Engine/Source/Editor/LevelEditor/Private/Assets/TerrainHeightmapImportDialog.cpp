@@ -26,7 +26,7 @@ namespace Durin::Editor::Level
 		ModalState.RequestOpen();
 	}
 
-	auto FTerrainHeightmapImportDialog::Draw() -> void
+	auto FTerrainHeightmapImportDialog::Draw(bool bAllowAssetMutation) -> void
 	{
 		ModalState.OpenPopupIfRequested("Import Terrain Heightmap");
 		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
@@ -76,7 +76,9 @@ namespace Durin::Editor::Level
 		}
 		DrawImportDialogWarning(ValidationMessage);
 		ImGui::Separator();
-		ImGui::BeginDisabled(!ValidationMessage.empty());
+		if (!bAllowAssetMutation)
+			DrawImportDialogWarning("Asset imports are unavailable during Play.");
+		ImGui::BeginDisabled(!bAllowAssetMutation || !ValidationMessage.empty());
 		if (ImGui::Button(
 			"Import Heightmap", ImVec2(MonaImGui::ScaleUI(160.0f), 0.0f)) && Import())
 			ImGui::CloseCurrentPopup();

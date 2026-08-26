@@ -13,9 +13,11 @@
         "AssetCore",
 		"AssetForge",
 		"AssetForgeBuiltins",
-		"ContentBrowser",
         "Mona",
-        "MonaImGui",
-        "DurinEd"
+		"MonaImGui",
+		"ContentBrowser"
+	],
+	"PublicDependencies": [
+		"DurinEd"
     ]
 }

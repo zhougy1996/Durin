@@ -38,7 +38,7 @@ namespace Durin::Editor::Level
 		ModalState.RequestOpen();
 	}
 
-	auto FSceneImportDialog::Draw() -> void
+	auto FSceneImportDialog::Draw(bool bAllowAssetMutation) -> void
 	{
 		ModalState.OpenPopupIfRequested("Import Scene Source");
 		const bool bImportFinished = PollImport();
@@ -219,7 +219,9 @@ namespace Durin::Editor::Level
 		}
 		else
 		{
-			ImGui::BeginDisabled(!ValidationMessage.empty());
+			if (!bAllowAssetMutation)
+				DrawImportDialogWarning("Asset imports are unavailable during Play.");
+			ImGui::BeginDisabled(!bAllowAssetMutation || !ValidationMessage.empty());
 			if (ImGui::Button("Import Scene", ImVec2(MonaImGui::ScaleUI(150.0f), 0.0f))
 				&& Import()) ImGui::CloseCurrentPopup();
 			ImGui::EndDisabled();

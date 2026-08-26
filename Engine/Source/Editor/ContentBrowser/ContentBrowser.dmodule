@@ -9,11 +9,13 @@
         "Engine",
         "ApplicationCore",
         "MonaCore",
-        "Mona",
+		"Mona",
         "MonaImGui",
-        "AssetCore",
-        "AssetForge",
-        "AssetForgeBuiltins",
-        "DurinEd"
+		"AssetCore",
+		"AssetForgeBuiltins"
+	],
+	"PublicDependencies": [
+		"AssetForge",
+		"DurinEd"
     ]
 }

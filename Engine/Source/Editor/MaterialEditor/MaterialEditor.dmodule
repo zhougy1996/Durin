@@ -8,9 +8,8 @@
         "Engine",
 		"Mona",
         "AssetCore",
-		"AssetForge",
         "MonaImGui",
 		"ContentBrowser",
-        "DurinEd"
+		"DurinEd"
     ]
 }

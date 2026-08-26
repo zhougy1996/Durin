@@ -883,9 +883,7 @@ namespace Durin::Editor::MainFrame
 			FAssetCompatibilityWindow& AssetCompatibilityWindow,
 			ContentBrowser::IContentBrowserTool& ContentBrowserTool,
 			FConsolePanel& Console,
-			FEditorNotificationOverlay& Activity,
-			::Durin::FTextureEditorModule& TextureEditorModule,
-			::Durin::FStaticMeshEditorModule& StaticMeshEditorModule
+			FEditorNotificationOverlay& Activity
 		) -> void
 		{
 			ImGuiViewport* Viewport = ImGui::GetMainViewport();
@@ -915,28 +913,29 @@ namespace Durin::Editor::MainFrame
 			const ImGuiIO& IO = ImGui::GetIO();
 			if (ActiveWorkspace && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S, false))
 				ActiveWorkspace->SaveActiveDocument();
+			if (IO.KeyCtrl && !IO.WantTextInput
+				&& ImGui::IsKeyPressed(ImGuiKey_Space, false))
+			{
+				if (ViewState.bContentBrowserOpen)
+				{
+					ImGui::SetWindowFocus(
+						"Content Browser###Durin.EditorHost.ContentBrowser");
+					ContentBrowserTool.RequestFocus();
+				}
+				else if (ViewState.Drawer.IsOpen()
+					&& ViewState.DrawerTool == EHostDrawerTool::ContentBrowser)
+					ViewState.Drawer.Close();
+				else
+				{
+					ViewState.DrawerTool = EHostDrawerTool::ContentBrowser;
+					ViewState.Drawer.Open();
+					ContentBrowserTool.RequestFocus();
+				}
+			}
 			if (ActiveWorkspace && IO.KeyCtrl && !IO.WantTextInput)
 			{
 				if (ImGui::IsKeyPressed(ImGuiKey_Z, false)) ActiveWorkspace->Undo();
 				if (ImGui::IsKeyPressed(ImGuiKey_Y, false)) ActiveWorkspace->Redo();
-				if (ImGui::IsKeyPressed(ImGuiKey_Space, false))
-				{
-					if (ViewState.bContentBrowserOpen)
-					{
-						ImGui::SetWindowFocus(
-							"Content Browser###Durin.EditorHost.ContentBrowser");
-						ContentBrowserTool.RequestFocus();
-					}
-					else if (ViewState.Drawer.IsOpen()
-						&& ViewState.DrawerTool == EHostDrawerTool::ContentBrowser)
-						ViewState.Drawer.Close();
-					else
-					{
-						ViewState.DrawerTool = EHostDrawerTool::ContentBrowser;
-						ViewState.Drawer.Open();
-						ContentBrowserTool.RequestFocus();
-					}
-				}
 			}
 			if (!bCustomTitleBar && ImGui::BeginMenuBar())
 			{
@@ -987,6 +986,7 @@ namespace Durin::Editor::MainFrame
 
 			bool bBrowserSubmitted = false;
 			bool bConsoleSubmitted = false;
+			const bool bAllowAssetMutation = !GEditor || !GEditor->IsPlaying();
 			if (ViewState.bContentBrowserOpen)
 			{
 				const bool bVisible = ImGui::Begin(
@@ -994,11 +994,8 @@ namespace Durin::Editor::MainFrame
 					&ViewState.bContentBrowserOpen);
 				if (bVisible)
 				{
-					const bool bDisableMutations = GEditor && GEditor->IsPlaying();
-					if (bDisableMutations) ImGui::BeginDisabled();
-					ContentBrowserTool.DrawContents();
+					ContentBrowserTool.DrawContents(bAllowAssetMutation);
 					bBrowserSubmitted = true;
-					if (bDisableMutations) ImGui::EndDisabled();
 				}
 				ImGui::End();
 			}
@@ -1109,10 +1106,7 @@ namespace Durin::Editor::MainFrame
 					}
 					else if (bDrawContent && !bConsole && !bBrowserSubmitted)
 					{
-						const bool bDisableMutations = GEditor && GEditor->IsPlaying();
-						if (bDisableMutations) ImGui::BeginDisabled();
-						ContentBrowserTool.DrawContents();
-						if (bDisableMutations) ImGui::EndDisabled();
+						ContentBrowserTool.DrawContents(bAllowAssetMutation);
 						bBrowserSubmitted = true;
 					}
 					ImGui::EndChild();
@@ -1128,8 +1122,7 @@ namespace Durin::Editor::MainFrame
 				ImGui::PopStyleVar();
 			}
 			if (!bBrowserSubmitted) ContentBrowserTool.TickWhenHidden();
-			TextureEditorModule.DrawImportDialogs();
-			StaticMeshEditorModule.DrawImportDialogs();
+			ContentBrowserTool.DrawHostPresenters(bAllowAssetMutation);
 
 			for (const std::shared_ptr<Editor::IWorkspace>& Workspace : WorkspaceManager.GetRegisteredWorkspaces())
 			{
@@ -1216,7 +1209,8 @@ namespace Durin
 				*Context->HostSettings, *Context->RootWindow);
 			const bool bReadyWorkspace = Context->State == EBootstrapState::Ready
 				&& Context->bHasProject && Context->LevelEditorModule
-				&& Context->TextureEditorModule && Context->StaticMeshEditorModule
+				&& Context->MaterialEditorModule && Context->TextureEditorModule
+				&& Context->StaticMeshEditorModule && Context->SkeletalMeshEditorModule
 				&& Context->ContentBrowserTool;
 			const FRHITexture* BrandTexture = Context->BrandTexture->UpdateAndGetTexture();
 			if (Context->RootWindow->GetEffectiveWindowDecorationMode() == EWindowDecorationMode::CustomTitleBar)
@@ -1240,9 +1234,7 @@ namespace Durin
 					*Context->AssetCompatibilityWindow,
 					*Context->ContentBrowserTool,
 					*Context->Console,
-					*Context->Activity,
-					*Context->TextureEditorModule,
-					*Context->StaticMeshEditorModule);
+					*Context->Activity);
 				return;
 			}
 			if (!Context->bHasProject

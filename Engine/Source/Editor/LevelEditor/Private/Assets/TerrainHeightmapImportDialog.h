@@ -12,7 +12,7 @@ namespace Durin::Editor::Level
 		explicit FTerrainHeightmapImportDialog(FImportDialogCallbacks InCallbacks);
 
 		auto Open(std::string_view DestinationDirectory = {}) -> void;
-		auto Draw() -> void;
+		auto Draw(bool bAllowAssetMutation) -> void;
 
 	private:
 		auto BrowseSource() -> void;

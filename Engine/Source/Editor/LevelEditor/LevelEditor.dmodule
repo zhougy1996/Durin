@@ -12,12 +12,12 @@
         "Mona",
         "MonaImGui",
         "AssetCore",
-        "AssetForge",
         "AssetForgeBuiltins",
-        "StaticMeshBuild",
-        "TerrainBuild",
-        "TextureBuild",
-        "ContentBrowser",
-        "DurinEd"
+		"TerrainBuild",
+		"DurinEd",
+		"ContentBrowser"
+	],
+	"PublicDependencies": [
+		"AssetForge"
     ]
 }

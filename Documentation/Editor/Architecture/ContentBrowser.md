@@ -25,7 +25,11 @@ geometry-only import. TextureEditor, StaticMeshEditor, and LevelEditor also
 construct their concrete reimport requests for textures, static meshes, and
 terrain heightmaps respectively; ContentBrowser only submits the resulting
 provider-neutral AssetForge request. Releasing a feature handle removes
-admission before its module callback gate retires.
+admission before its module callback gate retires. An extension may also
+contribute one host presenter for its feature-owned modal state. MainFrame
+draws those presenters through the browser tool without depending on concrete
+asset-editor modules, and supplies the current asset-mutation policy to both
+command invocation and modal submission.
 
 Presentation state lives in `ContentBrowserSettings.yaml`. When the file is
 absent, the browser uses defaults and writes the new file; the retired Level

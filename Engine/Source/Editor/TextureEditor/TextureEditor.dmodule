@@ -10,12 +10,14 @@
         "RenderCore",
         "Engine",
         "AssetCore",
-        "AssetForge",
+		"AssetForge",
         "AssetForgeBuiltins",
-		"ContentBrowser",
         "TextureBuild",
         "MonaImGui",
-        "MonaCore",
-        "DurinEd"
+		"MonaCore",
+		"ContentBrowser"
+	],
+	"PublicDependencies": [
+		"DurinEd"
     ]
 }

@@ -15,7 +15,7 @@ namespace Durin::Editor::StaticMesh
 		auto operator=(const FStaticMeshImportDialog&) -> FStaticMeshImportDialog& = delete;
 
 		auto Open(std::string_view DestinationDirectory = {}) -> void;
-		auto Draw() -> void;
+		auto Draw(bool bAllowAssetMutation) -> void;
 
 	private:
 		auto BrowseSource() -> void;

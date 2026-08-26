@@ -2,7 +2,6 @@
 
 #include "MaterialEditorAPI.h"
 #include "Modules/ModuleManager.h"
-#include "ContentBrowser/ContentBrowserContracts.h"
 
 namespace Durin::Editor
 {
@@ -18,6 +17,7 @@ namespace Durin
 	class FMaterialEditorModule final : public IModuleInterface
 	{
 	public:
+		MATERIALEDITOR_API FMaterialEditorModule();
 		MATERIALEDITOR_API ~FMaterialEditorModule() override;
 		MATERIALEDITOR_API auto StartupModule() -> void override;
 		MATERIALEDITOR_API auto ShutdownModule() -> void override;
@@ -31,7 +31,7 @@ namespace Durin
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
 		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle> MaterialThumbnailRegistration;
 		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle> MaterialInstanceThumbnailRegistration;
-		std::vector<Editor::ContentBrowser::FScopedExtensionRegistration>
-			ContentBrowserExtensions;
+		struct FIntegrationState;
+		std::unique_ptr<FIntegrationState> Integration;
 	};
 }

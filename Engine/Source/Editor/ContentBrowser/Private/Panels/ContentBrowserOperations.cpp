@@ -666,7 +666,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (!DirectoryMount.Mount->bContentWritable)
 			return Failure(
 				Asset::EAssetError::ReadOnlyMode,
-				"This content mount is not content-writable. Choose a writable mount before creating a folder.");
+				"This content mount is read-only. Choose a writable mount before creating a folder.");
 
 		for (int32 Suffix = 0; Suffix < 1000; ++Suffix)
 		{

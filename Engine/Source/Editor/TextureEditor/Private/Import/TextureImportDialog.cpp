@@ -80,7 +80,7 @@ namespace Durin::Editor::Texture
 		ModalState.RequestOpen();
 	}
 
-	auto FTextureImportDialog::Draw() -> void
+	auto FTextureImportDialog::Draw(bool bAllowAssetMutation) -> void
 	{
 		ModalState.OpenPopupIfRequested("Import Texture");
 
@@ -139,10 +139,12 @@ namespace Durin::Editor::Texture
 		DrawImportDialogWarning(ValidationMessage);
 		if (!SubmissionError.empty())
 			DrawImportDialogWarning(SubmissionError);
+		if (!bAllowAssetMutation)
+			DrawImportDialogWarning("Asset imports are unavailable during Play.");
 
 		ImGui::Spacing();
 		ImGui::Separator();
-		ImGui::BeginDisabled(!ValidationMessage.empty());
+		ImGui::BeginDisabled(!bAllowAssetMutation || !ValidationMessage.empty());
 		if (ImGui::Button(ImportButtonLabel(State.GetAssetType()),
 			ImVec2(MonaImGui::ScaleUI(180.0f), 0.0f)) &&
 			ImportSelectedTexture())

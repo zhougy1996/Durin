@@ -54,7 +54,7 @@ namespace Durin::Editor::StaticMesh
 		ModalState.RequestOpen();
 	}
 
-	auto FStaticMeshImportDialog::Draw() -> void
+	auto FStaticMeshImportDialog::Draw(bool bAllowAssetMutation) -> void
 	{
 		ModalState.OpenPopupIfRequested("Import Static Mesh");
 
@@ -148,9 +148,11 @@ namespace Durin::Editor::StaticMesh
 			ValidationMessage = "The source copy must keep the selected model's file extension.";
 
 		DrawImportDialogWarning(ValidationMessage);
+		if (!bAllowAssetMutation)
+			DrawImportDialogWarning("Asset imports are unavailable during Play.");
 		ImGui::Spacing();
 		ImGui::Separator();
-		ImGui::BeginDisabled(!ValidationMessage.empty());
+		ImGui::BeginDisabled(!bAllowAssetMutation || !ValidationMessage.empty());
 		if (ImGui::Button("Import Static Mesh",
 			ImVec2(MonaImGui::ScaleUI(150.0f), 0.0f)) && Import())
 			ImGui::CloseCurrentPopup();

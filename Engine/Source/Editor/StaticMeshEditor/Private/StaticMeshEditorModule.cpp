@@ -1,5 +1,7 @@
 #include "StaticMeshEditorModule.h"
 
+#include "ContentBrowser/ContentBrowserContracts.h"
+
 #include "Editor/WorkspaceManager.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Thumbnail/AssetThumbnailProvider.h"
@@ -74,7 +76,17 @@ namespace Durin
 
 	IMPLEMENT_MODULE(FStaticMeshEditorModule, StaticMeshEditor)
 
-	FStaticMeshEditorModule::FStaticMeshEditorModule() = default;
+	struct FStaticMeshEditorModule::FIntegrationState
+	{
+		Editor::ContentBrowser::FScopedExtensionRegistration ImportExtension;
+		Editor::ContentBrowser::FScopedExtensionRegistration ReimportExtension;
+		std::unique_ptr<Editor::StaticMesh::FStaticMeshImportDialog> ImportDialog;
+	};
+
+	FStaticMeshEditorModule::FStaticMeshEditorModule()
+		: Integration(std::make_unique<FIntegrationState>())
+	{
+	}
 	FStaticMeshEditorModule::~FStaticMeshEditorModule() = default;
 
 	auto FStaticMeshEditorModule::StartupModule() -> void
@@ -98,7 +110,7 @@ namespace Durin
 			|| (ThumbnailRegistration && ThumbnailRegistration->IsValid())) return false;
 		WorkspaceRegistration.reset();
 		ThumbnailRegistration.reset();
-		ImportDialog = std::make_unique<Editor::StaticMesh::FStaticMeshImportDialog>(
+		Integration->ImportDialog = std::make_unique<Editor::StaticMesh::FStaticMeshImportDialog>(
 			std::move(ImportCallbacks));
 		std::shared_ptr<MStaticMeshInspector> Workspace = std::make_shared<MStaticMeshInspector>(WorkspaceManager);
 		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
@@ -145,7 +157,7 @@ namespace Durin
 			std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(ThumbnailHandle));
 		if (!EditorExtensionCallbacks.IsValid()) return true;
-		ContentBrowserImportExtension =
+		Integration->ImportExtension =
 			::Durin::Editor::ContentBrowser::RegisterExtension({
 				.Id = "static-mesh.import",
 				.Label = "Static Mesh (Geometry Only)...",
@@ -155,18 +167,22 @@ namespace Durin
 					return !Context.VirtualDirectory.empty();
 				},
 				.Invoke = [this](const auto& Invocation) {
-					if (ImportDialog)
-						ImportDialog->Open(Invocation.Context.VirtualDirectory);
+					if (Integration->ImportDialog)
+						Integration->ImportDialog->Open(Invocation.Context.VirtualDirectory);
+				},
+				.DrawHostPresentation = [this](bool bAllowAssetMutation) {
+					if (Integration->ImportDialog)
+						Integration->ImportDialog->Draw(bAllowAssetMutation);
 				},
 				.OwnerGate = EditorExtensionCallbacks.GetGate(),
 			}, Error);
-		if (!ContentBrowserImportExtension.IsValid())
+		if (!Integration->ImportExtension.IsValid())
 		{
 			DURIN_ERROR("Could not register Content Browser StaticMesh import: {}", Error);
 			UnregisterStaticMeshEditor();
 			return false;
 		}
-		ContentBrowserReimportExtension =
+		Integration->ReimportExtension =
 			::Durin::Editor::ContentBrowser::RegisterExtension({
 				.Id = "static-mesh.reimport",
 				.Label = "Reimport from Current Source",
@@ -179,7 +195,7 @@ namespace Durin
 				.Invoke = ReimportStaticMesh,
 				.OwnerGate = EditorExtensionCallbacks.GetGate(),
 			}, Error);
-		if (!ContentBrowserReimportExtension.IsValid())
+		if (!Integration->ReimportExtension.IsValid())
 		{
 			DURIN_ERROR("Could not register Content Browser StaticMesh reimport: {}", Error);
 			UnregisterStaticMeshEditor();
@@ -190,15 +206,11 @@ namespace Durin
 
 	auto FStaticMeshEditorModule::UnregisterStaticMeshEditor() -> void
 	{
-		ContentBrowserReimportExtension.Reset();
-		ContentBrowserImportExtension.Reset();
-		ImportDialog.reset();
+		Integration->ReimportExtension.Reset();
+		Integration->ImportExtension.Reset();
+		Integration->ImportDialog.reset();
 		ThumbnailRegistration.reset();
 		WorkspaceRegistration.reset();
 	}
 
-	auto FStaticMeshEditorModule::DrawImportDialogs() -> void
-	{
-		if (ImportDialog) ImportDialog->Draw();
-	}
 }
