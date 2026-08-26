@@ -109,6 +109,15 @@ class TestReflectionSourceWriter:
 
 @pytest.mark.usefixtures("reflection_fixture")
 class TestReflectionWriterIntegration:
+    def test_referenced_helpers_share_one_namespace_declaration_block(self):
+        declaration_region = self.generated_cpp.split(
+            "Durin::FEnumRegistrationInfo", 1
+        )[0]
+        assert declaration_region.count("namespace Durin\n") == 1
+        assert "COREDOBJECT_API Durin::DClass* Z_Construct_DClass_DObject();" in declaration_region
+        assert "COREDOBJECT_API Durin::DStruct* Z_Construct_DStruct_FVector3();" in declaration_region
+        assert "COREDOBJECT_API Durin::DStruct* Z_Construct_DStruct_FLinearColor();" in declaration_region
+
     def test_abstract_class_emits_flag_without_object_constructor(self):
         abstract_class = next(
             class_info

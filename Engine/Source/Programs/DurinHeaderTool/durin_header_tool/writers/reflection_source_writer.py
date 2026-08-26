@@ -69,6 +69,7 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
         for prop in struct_info.properties:
             _collect_referenced_helpers(prop, symbols, referenced_class_helpers, referenced_enum_helpers, referenced_struct_helpers)
 
+    referenced_declarations_by_namespace: dict[tuple, list[tuple[str, str]]] = {}
     for referenced, return_type in (
         (referenced_class_helpers, "DClass"),
         (referenced_enum_helpers, "DEnum"),
@@ -79,7 +80,15 @@ def generate_cpp_content(header: ReflectedHeaderInfo, symbols: ExportedSymbols) 
                 f"{symbol.API} Durin::{return_type}* "
                 f"{symbol.generated_symbol.local_helper_name}();\n"
             )
-            builder.append(_wrap_in_namespace(declaration, symbol.NamespacePath))
+            referenced_declarations_by_namespace.setdefault(symbol.NamespacePath, []).append(
+                (symbol.generated_symbol.helper_reference, declaration)
+            )
+    for namespace_path in sorted(referenced_declarations_by_namespace):
+        declarations = "".join(
+            declaration
+            for _, declaration in sorted(referenced_declarations_by_namespace[namespace_path])
+        )
+        builder.append(_wrap_in_namespace(declarations, namespace_path))
     if referenced_class_helpers or referenced_enum_helpers or referenced_struct_helpers:
         builder.append("\n")
 
