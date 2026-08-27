@@ -58,7 +58,7 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto MakeStableOutputOrder(
-			const FSceneProviderPlanData& Data,
+			const FSceneImportPlan& Data,
 			std::vector<size_t>& OutOrder,
 			std::string& OutError) -> bool
 		{
@@ -245,8 +245,8 @@ namespace Durin::AssetForge::Builtins
 			return AddError(OutResult, EImportDiagnosticCategory::Canceled,
 				"scene-translation", "Scene import was canceled before translation.");
 
-		std::shared_ptr<const FSceneProviderPlanData> Data;
-		if (!BuildSceneImportPlanData(*Snapshot, DestinationDirectory, Settings,
+		FSceneImportPlan Data;
+		if (!BuildScenePlan(*Snapshot, DestinationDirectory, Settings,
 			Data, OutResult.Outputs, OutResult.Diagnostics, OutResult.Message))
 		{
 			if (!OutResult.Diagnostics.empty()
@@ -255,11 +255,11 @@ namespace Durin::AssetForge::Builtins
 			return false;
 		}
 		std::vector<size_t> OutputOrder;
-		if (!MakeStableOutputOrder(*Data, OutputOrder, OutResult.Message))
+		if (!MakeStableOutputOrder(Data, OutputOrder, OutResult.Message))
 			return AddError(OutResult, EImportDiagnosticCategory::DependencyCycle,
 				"scene-order", OutResult.Message);
 		std::vector<FPreparedSceneOutput> Prepared;
-		Prepared.reserve(Data->Outputs.size());
+		Prepared.reserve(Data.Outputs.size());
 		const FSourceSnapshotEntry* Root = Snapshot->FindSource("root");
 		if (!Root)
 			return AddError(OutResult, EImportDiagnosticCategory::InvalidSource,
@@ -269,7 +269,7 @@ namespace Durin::AssetForge::Builtins
 			if (IsCanceled(IsCancellationRequested))
 				return AddError(OutResult, EImportDiagnosticCategory::Canceled,
 					"scene-build", "Scene import was canceled during product construction.");
-			const FSceneOutputData& Descriptor = Data->Outputs[Index];
+			const FSceneOutputData& Descriptor = Data.Outputs[Index];
 			const auto Summary = std::ranges::find(
 				OutResult.Outputs, Descriptor.StableIdentity,
 				&FImportOutputSummary::StableIdentity);
@@ -282,7 +282,7 @@ namespace Durin::AssetForge::Builtins
 			std::string Error;
 			if (Descriptor.Kind == ESceneOutputKind::Texture2D)
 			{
-				if (!BuildSceneImportTextureProduct(*Snapshot, *Data, Descriptor,
+				if (!BuildSceneImportTextureProduct(*Snapshot, Data, Descriptor,
 					IsCancellationRequested, Output.Texture, Error))
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-build", std::move(Error), Descriptor.StableIdentity);
@@ -294,25 +294,25 @@ namespace Durin::AssetForge::Builtins
 					.SourceContentHash = Root->ContentHash.ToString(),
 					.ImporterId = std::string(SceneImporterId),
 					.ImporterVersion = 1,
-					.ImportSettings = Data->MeshSettings};
+					.ImportSettings = Data.MeshSettings};
 				if (!Asset::FStaticMeshBuildOperations::BuildImportedProduct(
 					{.StableObjectPath = Output.AssetPath.ToString()},
-					MakeStaticMeshImportedData(Data->Scene), std::move(Provenance),
+					MakeStaticMeshImportedData(Data.Scene), std::move(Provenance),
 					Root->Filename, Output.StaticMesh, Error))
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-build", std::move(Error), Descriptor.StableIdentity);
 			}
 			else if (Descriptor.Kind == ESceneOutputKind::SkeletalMesh)
 			{
-				if (Descriptor.SourceIndex >= Data->Scene.SkeletalMeshes.size())
+				if (Descriptor.SourceIndex >= Data.Scene.SkeletalMeshes.size())
 					return AddError(OutResult, EImportDiagnosticCategory::InvalidPlan,
 						"scene-build", "Scene SkeletalMesh mapping is invalid.", Descriptor.StableIdentity);
 				const FImportedSkeletalMeshData& Imported =
-					Data->Scene.SkeletalMeshes[Descriptor.SourceIndex];
-				if (Imported.SkeletonIndex >= Data->Scene.Skeletons.size())
+					Data.Scene.SkeletalMeshes[Descriptor.SourceIndex];
+				if (Imported.SkeletonIndex >= Data.Scene.Skeletons.size())
 					return AddError(OutResult, EImportDiagnosticCategory::InvalidPlan,
 						"scene-build", "Scene Skeleton mapping is invalid.", Descriptor.StableIdentity);
-				const FImportedSkeletonData& Skeleton = Data->Scene.Skeletons[Imported.SkeletonIndex];
+				const FImportedSkeletonData& Skeleton = Data.Scene.Skeletons[Imported.SkeletonIndex];
 				FSkeletalMeshImportedData Canonical;
 				if (!Canonical.Capture(*Imported.Payload,
 					static_cast<uint32>(Skeleton.Bones.size()),
@@ -340,15 +340,15 @@ namespace Durin::AssetForge::Builtins
 			}
 			else if (Descriptor.Kind == ESceneOutputKind::AnimationClip)
 			{
-				if (Descriptor.SourceIndex >= Data->Scene.AnimationClips.size())
+				if (Descriptor.SourceIndex >= Data.Scene.AnimationClips.size())
 					return AddError(OutResult, EImportDiagnosticCategory::InvalidPlan,
 						"scene-build", "Scene AnimationClip mapping is invalid.", Descriptor.StableIdentity);
 				const FImportedAnimationClipData& Imported =
-					Data->Scene.AnimationClips[Descriptor.SourceIndex];
-				if (Imported.SkeletonIndex >= Data->Scene.Skeletons.size())
+					Data.Scene.AnimationClips[Descriptor.SourceIndex];
+				if (Imported.SkeletonIndex >= Data.Scene.Skeletons.size())
 					return AddError(OutResult, EImportDiagnosticCategory::InvalidPlan,
 						"scene-build", "Scene Skeleton mapping is invalid.", Descriptor.StableIdentity);
-				const FImportedSkeletonData& Skeleton = Data->Scene.Skeletons[Imported.SkeletonIndex];
+				const FImportedSkeletonData& Skeleton = Data.Scene.Skeletons[Imported.SkeletonIndex];
 				FAnimationClipImportedData Canonical;
 				if (!Canonical.Capture(*Imported.Payload,
 					static_cast<uint32>(Skeleton.Bones.size()), Error))
@@ -397,9 +397,9 @@ namespace Durin::AssetForge::Builtins
 			const FSceneOutputData& Descriptor = *Output.Descriptor;
 			if (Descriptor.Kind == ESceneOutputKind::Skeleton)
 			{
-				if (Descriptor.SourceIndex >= Data->Scene.Skeletons.size()
+				if (Descriptor.SourceIndex >= Data.Scene.Skeletons.size()
 					|| !Cast<DSkeleton>(Output.Candidate)->InitializeCanonicalBones(
-						Data->Scene.Skeletons[Descriptor.SourceIndex].Bones, Error))
+						Data.Scene.Skeletons[Descriptor.SourceIndex].Bones, Error))
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
@@ -499,9 +499,9 @@ namespace Durin::AssetForge::Builtins
 			{
 				DMaterial* Standard = nullptr;
 				FAssetPath StandardPath;
-				const auto Imported = std::ranges::find(Data->Scene.Materials,
+				const auto Imported = std::ranges::find(Data.Scene.Materials,
 					Descriptor.SourceIndex, &FImportedMaterial::SourceMaterialIndex);
-				if (Imported == Data->Scene.Materials.end()
+				if (Imported == Data.Scene.Materials.end()
 					|| !FAssetPath::TryCreate(ImportedSurfaceMaterialPath, StandardPath, &Error)
 					|| !Asset::LoadAsset(StandardPath, Standard) || !Standard)
 				{
@@ -563,7 +563,7 @@ namespace Durin::AssetForge::Builtins
 			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh)
 			{
 				auto* Mesh = Cast<DStaticMesh>(Output.Candidate);
-				for (const FSceneOutputData& Candidate : Data->Outputs)
+				for (const FSceneOutputData& Candidate : Data.Outputs)
 					if (Candidate.Kind == ESceneOutputKind::MaterialInstance)
 					{
 						FPreparedSceneOutput* Material = FindOutput(Candidate.StableIdentity);
@@ -581,9 +581,9 @@ namespace Durin::AssetForge::Builtins
 			else if (Descriptor.Kind == ESceneOutputKind::SkeletalMesh)
 			{
 				const FImportedSkeletalMeshData& Imported =
-					Data->Scene.SkeletalMeshes[Descriptor.SourceIndex];
+					Data.Scene.SkeletalMeshes[Descriptor.SourceIndex];
 				const FImportedSkeletonData& Skeleton =
-					Data->Scene.Skeletons[Imported.SkeletonIndex];
+					Data.Scene.Skeletons[Imported.SkeletonIndex];
 				std::vector<FMeshMaterialSlotDefinition> Slots = Imported.MaterialSlots;
 				for (auto& Slot : Slots)
 					if (!(Slot.DefaultMaterial = FindMaterial(Slot.SourceMaterialIndex)))
@@ -613,9 +613,9 @@ namespace Durin::AssetForge::Builtins
 			else if (Descriptor.Kind == ESceneOutputKind::AnimationClip)
 			{
 				const FImportedAnimationClipData& Imported =
-					Data->Scene.AnimationClips[Descriptor.SourceIndex];
+					Data.Scene.AnimationClips[Descriptor.SourceIndex];
 				const FImportedSkeletonData& Skeleton =
-					Data->Scene.Skeletons[Imported.SkeletonIndex];
+					Data.Scene.Skeletons[Imported.SkeletonIndex];
 				FPreparedSceneOutput* SkeletonOutput = FindOutput(Descriptor.SkeletonIdentity);
 				if (!SkeletonOutput || !Cast<DAnimationClip>(Output.Candidate)->PublishBuiltProduct({
 					.Skeleton = SkeletonOutput ? Cast<DSkeleton>(SkeletonOutput->Candidate) : nullptr,

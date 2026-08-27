@@ -61,17 +61,6 @@ namespace Durin::AssetForge
 		std::string_view DefaultPhase,
 		std::string_view DefaultSourceIdentity = "root",
 		std::string_view DefaultOutputIdentity = "request") -> void;
-	struct FImportPayload
-	{
-		std::string SchemaId;
-		uint32 SchemaVersion = 0;
-		std::vector<std::byte> Bytes;
-		FXxHash128 ContentHash{};
-
-		ASSETFORGEBUILTINS_API auto Finalize(std::string& OutError) -> bool;
-		auto operator==(const FImportPayload&) const -> bool = default;
-	};
-
 	struct FSourceCaptureLimits
 	{
 		uint32 MaximumDependencyDepth = 32;
@@ -79,7 +68,6 @@ namespace Durin::AssetForge
 		uint64 MaximumBytesPerSource = 2ull * 1024ull * 1024ull * 1024ull;
 		uint64 MaximumAggregateBytes = 4ull * 1024ull * 1024ull * 1024ull;
 		uint64 MaximumEmbeddedBytes = 2ull * 1024ull * 1024ull * 1024ull;
-		uint64 MaximumSettingsBytes = 4ull * 1024ull * 1024ull;
 		uint64 RecognitionPrefixBytes = 64ull * 1024ull;
 	};
 

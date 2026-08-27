@@ -34,7 +34,8 @@ namespace Durin::AssetForge::Builtins
 		std::vector<FSceneMaterialTextureBinding> TextureBindings;
 		std::string SkeletonIdentity;
 	};
-	struct FSceneProviderPlanData
+	// Carries decoded scene data and stable output descriptors into product construction.
+	struct FSceneImportPlan
 	{
 		FImportedSceneData Scene;
 		FStaticMeshImportSettings MeshSettings;
@@ -49,11 +50,11 @@ namespace Durin::AssetForge::Builtins
 		uint64 SourceFileSize = 0;
 	};
 
-	auto BuildSceneImportPlanData(
+	auto BuildScenePlan(
 		const FSourceSnapshot& Snapshot,
 		const FAssetPath& DestinationDirectory,
 		const FStaticMeshImportSettings& Settings,
-		std::shared_ptr<const FSceneProviderPlanData>& OutData,
+		FSceneImportPlan& OutPlan,
 		std::vector<FImportOutputSummary>& OutOutputs,
 		std::vector<FImportDiagnostic>& OutDiagnostics,
 		std::string& OutError) -> bool;
@@ -68,7 +69,7 @@ namespace Durin::AssetForge::Builtins
 		std::string& OutError) -> bool;
 	auto BuildSceneImportTextureProduct(
 		const FSourceSnapshot& Snapshot,
-		const FSceneProviderPlanData& Data,
+		const FSceneImportPlan& Data,
 		const FSceneOutputData& Descriptor,
 		const std::function<bool()>& IsCancellationRequested,
 		FSceneTextureBuildProduct& OutProduct,

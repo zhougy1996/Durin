@@ -132,18 +132,6 @@ namespace Durin::AssetForge
 		}
 	}
 
-	auto FImportPayload::Finalize(std::string& OutError) -> bool
-	{
-		if (!IsStableIdentifier(SchemaId) || SchemaVersion == 0)
-		{
-			OutError = "Import payload schema identity or version is invalid.";
-			return false;
-		}
-		ContentHash = FXxHash128::HashBuffer(std::span<const std::byte>(Bytes));
-		OutError.clear();
-		return true;
-	}
-
 	auto FSourceSnapshotEntry::GetBytes() const -> std::span<const std::byte>
 	{
 		return Bytes ? std::span<const std::byte>(*Bytes) : std::span<const std::byte>{};
