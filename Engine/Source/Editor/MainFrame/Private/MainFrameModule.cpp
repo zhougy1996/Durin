@@ -1145,7 +1145,9 @@ namespace Durin::Editor::MainFrame
 				const ImVec2 DrawerPadding(
 					ImGui::GetStyle().WindowPadding.x, 0.0f);
 				ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, DrawerPadding);
-				if (MonaImGui::BeginBottomDrawer(Config, ViewState.Drawer))
+				const bool bDrawerVisible = MonaImGui::BeginBottomDrawer(Config, ViewState.Drawer);
+				ImGui::PopStyleVar();
+				if (bDrawerVisible)
 				{
 					const bool bConsole = ViewState.DrawerTool == EHostDrawerTool::Console;
 					ImGui::AlignTextToFramePadding();
@@ -1192,7 +1194,6 @@ namespace Durin::Editor::MainFrame
 						ViewState.Drawer.Reset();
 					}
 				}
-				ImGui::PopStyleVar();
 			}
 			if (!bBrowserSubmitted) ContentBrowserTool.TickWhenHidden();
 			ContentBrowserTool.DrawHostPresenters(bAllowAssetMutation);
