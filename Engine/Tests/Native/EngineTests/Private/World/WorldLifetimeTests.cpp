@@ -1,8 +1,8 @@
 #include "WorldTestSupport.h"
-#include "Engine/LightSceneProxy.h"
-#include "Engine/SplineMeshSceneProxy.h"
-#include "Engine/SkyBoxSceneProxy.h"
-#include "Engine/VolumetricCloudSceneProxy.h"
+#include "Rendering/LightSceneProxy.h"
+#include "Rendering/SplineMeshSceneProxy.h"
+#include "Rendering/SkyBoxSceneProxy.h"
+#include "Rendering/VolumetricCloudSceneProxy.h"
 
 namespace
 {

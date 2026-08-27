@@ -386,7 +386,7 @@ fixtures, commands, stage checklists, evidence, and commit provenance.
 
 - `Engine/Source/Runtime/Engine/Public/Terrain/TerrainHeightmap.h`
 - `Engine/Source/Runtime/Engine/Public/Components/TerrainComponent.h`
-- `Engine/Source/Runtime/Engine/Public/Engine/TerrainSceneProxy.h`
+- `Engine/Source/Runtime/Engine/Public/Rendering/TerrainSceneProxy.h`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/TerrainRenderer.cpp`
 - `Engine/Source/Runtime/Renderer/Public/Terrain/TerrainLOD.h`
 - `Engine/Source/Runtime/Renderer/Public/Terrain/TerrainTopology.h`

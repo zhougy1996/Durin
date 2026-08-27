@@ -51,6 +51,6 @@ eligibility bit.
 ## Related Code
 
 - `Engine/Source/Runtime/Engine/Public/Components/VolumetricCloudComponent.h`
-- `Engine/Source/Runtime/Engine/Public/Engine/VolumetricCloudSceneProxy.h`
+- `Engine/Source/Runtime/Engine/Public/Rendering/VolumetricCloudSceneProxy.h`
 - `Engine/Source/Runtime/Renderer/Private/Scene.cpp`
 - `Engine/Source/Editor/DurinEd/Private/Editor/PropertyView.cpp`

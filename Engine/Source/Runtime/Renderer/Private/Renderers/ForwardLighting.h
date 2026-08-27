@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Engine/LightSceneProxy.h"
+#include "Rendering/LightSceneProxy.h"
 #include "RHIResources.h"
 #include "RendererAPI.h"
 

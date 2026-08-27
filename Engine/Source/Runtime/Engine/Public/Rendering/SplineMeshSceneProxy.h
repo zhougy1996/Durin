@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Engine/FPrimitiveSceneProxy.h"
+#include "Rendering/FPrimitiveSceneProxy.h"
 #include "Spline/SplineTypes.h"
 
 namespace Durin

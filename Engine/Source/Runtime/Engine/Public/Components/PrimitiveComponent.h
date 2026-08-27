@@ -1,6 +1,6 @@
 #pragma once
 #include "Components/SceneComponent.h"
-#include "Engine/FPrimitiveSceneProxy.h"
+#include "Rendering/FPrimitiveSceneProxy.h"
 #include "IScene.h"
 #include "Physics/BodyInstance.h"
 

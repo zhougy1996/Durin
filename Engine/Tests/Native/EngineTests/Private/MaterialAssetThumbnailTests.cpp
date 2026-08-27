@@ -9,7 +9,7 @@
 
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Package.h"
-#include "Engine/StaticMeshSceneProxy.h"
+#include "Rendering/StaticMeshSceneProxy.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"

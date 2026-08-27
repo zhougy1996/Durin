@@ -1,6 +1,6 @@
 #include "CoreGlobals.h"
 #include "DynamicRHI.h"
-#include "Engine/StaticMeshSceneProxy.h"
+#include "Rendering/StaticMeshSceneProxy.h"
 #include "GBufferContract.h"
 #include "HAL/PlatformLTS.h"
 #include "Hash/XxHash.h"

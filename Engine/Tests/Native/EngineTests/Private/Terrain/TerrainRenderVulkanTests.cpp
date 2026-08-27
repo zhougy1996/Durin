@@ -2,7 +2,7 @@
 #include "DynamicRHI.h"
 #include "Asset/AssetCompilingManager.h"
 #include "EngineTestSupport.h"
-#include "Engine/TerrainSceneProxy.h"
+#include "Rendering/TerrainSceneProxy.h"
 #include "GBufferContract.h"
 #include "HAL/PlatformLTS.h"
 #include "Materials/Material.h"

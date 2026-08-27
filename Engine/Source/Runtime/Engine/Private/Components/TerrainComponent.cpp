@@ -3,7 +3,7 @@
 #include "Components/TerrainCollisionCoordinator.h"
 
 #include "DObject/DurinPropertyTypes.h"
-#include "Engine/TerrainSceneProxy.h"
+#include "Rendering/TerrainSceneProxy.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
 #include "Materials/DefaultMaterialService.h"

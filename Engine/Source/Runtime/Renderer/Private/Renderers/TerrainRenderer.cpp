@@ -4,7 +4,7 @@
 #include "Renderers/TerrainRenderPreparation.h"
 #include "Renderers/SurfaceMaterial.h"
 
-#include "Engine/TerrainSceneProxy.h"
+#include "Rendering/TerrainSceneProxy.h"
 #include "Math/Operations.h"
 #include "RHI.h"
 #include "RHICommandList.h"

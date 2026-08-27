@@ -1,4 +1,4 @@
-#include "Engine/TerrainSceneProxy.h"
+#include "Rendering/TerrainSceneProxy.h"
 
 #include "Threading/RunnableThread.h"
 

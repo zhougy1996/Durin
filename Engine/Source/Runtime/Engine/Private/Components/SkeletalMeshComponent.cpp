@@ -4,7 +4,7 @@
 #include "Components/ComponentMaterialOverride.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Engine/Level.h"
-#include "Engine/SkeletalMeshSceneProxy.h"
+#include "Rendering/SkeletalMeshSceneProxy.h"
 #include "Materials/MaterialInterface.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 

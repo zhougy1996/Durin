@@ -4,7 +4,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DynamicRHI.h"
 #include "Engine/Engine.h"
-#include "Engine/FPrimitiveSceneProxy.h"
+#include "Rendering/FPrimitiveSceneProxy.h"
 #include "EngineTestSupport.h"
 #include "Hash/XxHash.h"
 #include "Materials/Material.h"

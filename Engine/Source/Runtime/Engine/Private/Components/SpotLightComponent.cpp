@@ -1,6 +1,6 @@
 #include "Components/SpotLightComponent.h"
 
-#include "Engine/LightSceneProxy.h"
+#include "Rendering/LightSceneProxy.h"
 #include "Math/Operations.h"
 
 namespace Durin

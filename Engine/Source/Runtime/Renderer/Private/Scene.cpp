@@ -1,9 +1,9 @@
 #include "Scene.h"
 
-#include "Engine/SkeletalMeshSceneProxy.h"
-#include "Engine/SplineMeshSceneProxy.h"
-#include "Engine/StaticMeshSceneProxy.h"
-#include "Engine/TerrainSceneProxy.h"
+#include "Rendering/SkeletalMeshSceneProxy.h"
+#include "Rendering/SplineMeshSceneProxy.h"
+#include "Rendering/StaticMeshSceneProxy.h"
+#include "Rendering/TerrainSceneProxy.h"
 
 #include "Math/Operations.h"
 #include "RenderingThread.h"

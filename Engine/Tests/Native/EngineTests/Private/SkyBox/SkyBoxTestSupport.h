@@ -14,7 +14,7 @@
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
-#include "Engine/SkyBoxSceneProxy.h"
+#include "Rendering/SkyBoxSceneProxy.h"
 #include "Materials/Material.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"

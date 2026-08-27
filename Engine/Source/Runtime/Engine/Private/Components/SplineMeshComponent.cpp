@@ -3,7 +3,7 @@
 #include "Components/ComponentMaterialOverride.h"
 
 #include "DObject/DurinPropertyTypes.h"
-#include "Engine/SplineMeshSceneProxy.h"
+#include "Rendering/SplineMeshSceneProxy.h"
 #include "Engine/Level.h"
 #include "IScene.h"
 #include "Materials/MaterialInterface.h"

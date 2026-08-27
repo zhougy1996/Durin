@@ -1,4 +1,4 @@
-#include "Engine/StaticMeshSceneProxy.h"
+#include "Rendering/StaticMeshSceneProxy.h"
 
 #include "StaticMesh/StaticMeshResources.h"
 #include "Threading/RunnableThread.h"

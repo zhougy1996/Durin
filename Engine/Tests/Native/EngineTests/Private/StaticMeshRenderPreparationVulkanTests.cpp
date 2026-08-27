@@ -1,6 +1,6 @@
 #include "DynamicRHI.h"
-#include "Engine/SplineMeshSceneProxy.h"
-#include "Engine/StaticMeshSceneProxy.h"
+#include "Rendering/SplineMeshSceneProxy.h"
+#include "Rendering/StaticMeshSceneProxy.h"
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "Materials/Material.h"

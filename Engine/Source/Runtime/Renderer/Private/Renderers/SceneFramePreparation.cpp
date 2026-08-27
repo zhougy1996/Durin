@@ -2,7 +2,7 @@
 
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/SceneRendererProfiling.h"
-#include "Engine/TerrainSceneProxy.h"
+#include "Rendering/TerrainSceneProxy.h"
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/ForwardLighting.h"
 #include "Renderers/TerrainRenderPreparation.h"

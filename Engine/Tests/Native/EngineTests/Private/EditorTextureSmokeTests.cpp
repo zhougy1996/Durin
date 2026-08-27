@@ -10,7 +10,7 @@
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
-#include "Engine/StaticMeshSceneProxy.h"
+#include "Rendering/StaticMeshSceneProxy.h"
 #include "Editor/WorkspaceManager.h"
 #include "MaterialEditorModule.h"
 #include "Materials/Material.h"

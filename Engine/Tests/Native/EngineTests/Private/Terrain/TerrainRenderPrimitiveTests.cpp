@@ -3,7 +3,7 @@
 #include "CoreGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Engine/Level.h"
-#include "Engine/TerrainSceneProxy.h"
+#include "Rendering/TerrainSceneProxy.h"
 #include "HAL/PlatformLTS.h"
 #include "Materials/Material.h"
 #include "Terrain/TerrainHeightmap.h"

@@ -2,7 +2,7 @@
 
 #include "DObject/Property.h"
 #include "Engine/Actor.h"
-#include "Engine/SkyBoxSceneProxy.h"
+#include "Rendering/SkyBoxSceneProxy.h"
 #include "IScene.h"
 #include "Texture/TextureCube.h"
 

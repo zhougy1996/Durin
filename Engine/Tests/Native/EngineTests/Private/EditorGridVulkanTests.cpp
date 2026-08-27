@@ -5,7 +5,7 @@
 #include "Application/GenericApplication.h"
 #include "ApplicationCoreGlobals.h"
 #include "DynamicRHI.h"
-#include "Engine/TerrainSceneProxy.h"
+#include "Rendering/TerrainSceneProxy.h"
 #include "HAL/PlatformLTS.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialRenderProxy.h"

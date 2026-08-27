@@ -4,7 +4,7 @@
 
 #include "DObject/DurinPropertyTypes.h"
 #include "Engine/Level.h"
-#include "Engine/StaticMeshSceneProxy.h"
+#include "Rendering/StaticMeshSceneProxy.h"
 #include "Materials/MaterialInterface.h"
 #include "Physics/BodySetup.h"
 #include "StaticMesh/StaticMesh.h"

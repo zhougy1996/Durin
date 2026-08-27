@@ -1,6 +1,6 @@
 #include "Components/DirectionalLightComponent.h"
 
-#include "Engine/LightSceneProxy.h"
+#include "Rendering/LightSceneProxy.h"
 #include "IScene.h"
 #include "Math/Operations.h"
 

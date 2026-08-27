@@ -2,10 +2,10 @@
 
 #include "RendererAPI.h"
 
-#include "Engine/FPrimitiveSceneProxy.h"
-#include "Engine/LightSceneProxy.h"
-#include "Engine/SkyBoxSceneProxy.h"
-#include "Engine/VolumetricCloudSceneProxy.h"
+#include "Rendering/FPrimitiveSceneProxy.h"
+#include "Rendering/LightSceneProxy.h"
+#include "Rendering/SkyBoxSceneProxy.h"
+#include "Rendering/VolumetricCloudSceneProxy.h"
 #include "IScene.h"
 
 namespace Durin

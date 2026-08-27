@@ -4,7 +4,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Property.h"
-#include "Engine/VolumetricCloudSceneProxy.h"
+#include "Rendering/VolumetricCloudSceneProxy.h"
 #include "Engine/Engine.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"

@@ -1,28 +1,32 @@
-#include "Engine/SplineMeshSceneProxy.h"
+#include "Rendering/SkeletalMeshSceneProxy.h"
 
-#include "Math/Operations.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
 {
-	FSplineMeshSceneProxy::FSplineMeshSceneProxy(
-		const FStaticMeshRenderData* InRenderData,
+	FSkeletalMeshSceneProxy::FSkeletalMeshSceneProxy(
+		const FSkeletalMeshRenderData* InRenderData,
 		std::vector<FMaterialRenderProxyRef> InMaterialProxies,
 		uint64 InMaterialComponentRevision,
-		FSplineMeshRenderDynamicData InDynamicData)
+		std::shared_ptr<const FSkeletalPosePalette> InPose)
 		: RenderData(InRenderData), Materials(std::move(InMaterialProxies)),
-		  MaterialComponentRevision(InMaterialComponentRevision), DynamicData(std::move(InDynamicData))
+		  MaterialComponentRevision(InMaterialComponentRevision), Pose(std::move(InPose))
 	{
 	}
 
-	auto FSplineMeshSceneProxy::GetMaterialRenderProxy(uint32 SlotIndex) const
+	auto FSkeletalMeshSceneProxy::GetLocalBounds() const -> FBox
+	{
+		return Pose ? Pose->LocalBounds : FBox{};
+	}
+
+	auto FSkeletalMeshSceneProxy::GetMaterialRenderProxy(uint32 SlotIndex) const
 		-> const FMaterialRenderProxyRef&
 	{
 		static const FMaterialRenderProxyRef EmptyProxy;
 		return SlotIndex < Materials.size() ? Materials[SlotIndex] : EmptyProxy;
 	}
 
-	auto FSplineMeshSceneProxy::ResolveMaterialRenderData_RenderThread(uint32 SlotIndex) const
+	auto FSkeletalMeshSceneProxy::ResolveMaterialRenderData_RenderThread(uint32 SlotIndex) const
 		-> const FMaterialRenderData&
 	{
 		const FMaterialRenderProxyRef& Proxy = GetMaterialRenderProxy(SlotIndex);
@@ -31,7 +35,7 @@ namespace Durin
 		return GetErrorMaterialRenderData();
 	}
 
-	auto FSplineMeshSceneProxy::UpdateMaterialBinding_RenderThread(
+	auto FSkeletalMeshSceneProxy::UpdateMaterialBinding_RenderThread(
 		const FMaterialRenderProxyBindingUpdate& Update) -> bool
 	{
 		CheckRenderingThread();
@@ -43,15 +47,12 @@ namespace Durin
 		return true;
 	}
 
-	auto FSplineMeshSceneProxy::UpdateDynamicData_RenderThread(
-		FSplineMeshRenderDynamicData InDynamicData) -> bool
+	auto FSkeletalMeshSceneProxy::UpdateDynamicData_RenderThread(
+		std::shared_ptr<const FSkeletalPosePalette> InPose) -> bool
 	{
 		CheckRenderingThread();
-		if (InDynamicData.Revision <= DynamicData.Revision || !InDynamicData.LocalBounds.bIsValid
-			|| !Math::IsFinite(InDynamicData.LocalBounds.Min)
-			|| !Math::IsFinite(InDynamicData.LocalBounds.Max)) return false;
-		DynamicData = std::move(InDynamicData);
-		++AcceptedDynamicUpdateCount;
+		if (!InPose || !InPose->LocalBounds.bIsValid) return false;
+		Pose = std::move(InPose);
 		return true;
 	}
 }

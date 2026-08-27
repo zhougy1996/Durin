@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Engine/TerrainSceneProxy.h"
+#include "Rendering/TerrainSceneProxy.h"
 #include "RendererAPI.h"
 #include "SceneView.h"
 

@@ -10,7 +10,7 @@
 #include "Components/TerrainComponent.h"
 #include "Collision/CollisionGeometry.h"
 #include "Physics/PhysicsTypes.h"
-#include "Engine/TerrainSceneProxy.h"
+#include "Rendering/TerrainSceneProxy.h"
 
 #include <gtest/gtest.h>
 

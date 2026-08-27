@@ -4,7 +4,7 @@
 
 #include "Renderers/MeshRenderPreparationCommon.h"
 #include "Materials/MaterialRenderProxy.h"
-#include "Engine/SplineMeshSceneProxy.h"
+#include "Rendering/SplineMeshSceneProxy.h"
 #include "RHIResources.h"
 #include "Scene.h"
 #include "SceneView.h"
