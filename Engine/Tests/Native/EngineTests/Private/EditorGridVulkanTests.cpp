@@ -535,6 +535,9 @@ namespace Durin
 		)) << Error;
 		auto* MaterialObject = NewObject<DMaterial>(
 			nullptr, "EditorGridTerrainMaterial");
+		FMaterialProgramValidationResult MaterialValidation;
+		ASSERT_TRUE(MaterialObject->SetMaterialProgram(
+			MakeLegacyExpandedMaterialProgram(), MaterialValidation));
 		ASSERT_TRUE(MaterialObject->SetStaticProperties(FMaterialStaticProperties{
 			.BlendMode = EMaterialBlendMode::Opaque,
 			.ShadingModel = EMaterialShadingModel::Unlit,

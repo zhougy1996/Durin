@@ -1,5 +1,7 @@
 #include "CoreGlobals.h"
 #include "DynamicRHI.h"
+#include "Asset/AssetCompilingManager.h"
+#include "EngineTestSupport.h"
 #include "Engine/TerrainSceneProxy.h"
 #include "GBufferContract.h"
 #include "HAL/PlatformLTS.h"
@@ -101,6 +103,8 @@ namespace
 
 TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesTelemetry)
 {
+	InitializeDObjectSystem();
+	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	if (!Durin::GIsGameThreadIdInitialized)
 	{
 		Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
@@ -124,6 +128,9 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesTelemetry)
 	ASSERT_TRUE(Durin::BuildTerrainHeightmapPayload(3, 3, Samples, Payload, Error)) << Error;
 	auto* MaterialObject = Durin::NewObject<Durin::DMaterial>(
 		nullptr, "TerrainRenderVulkanMaterial");
+	Durin::FMaterialProgramValidationResult MaterialValidation;
+	ASSERT_TRUE(MaterialObject->SetMaterialProgram(
+		Durin::MakeLegacyExpandedMaterialProgram(), MaterialValidation));
 	ASSERT_TRUE(MaterialObject->SetStaticProperties(
 		Durin::FMaterialStaticProperties{
 		.BlendMode = Durin::EMaterialBlendMode::Opaque,
@@ -131,6 +138,21 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesTelemetry)
 		.bTwoSided = true}));
 	ASSERT_TRUE(MaterialObject->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), {0.8f, 0.2f, 0.1f}));
+	if (MaterialObject->GetMaterialCompileStatus().State
+		== Durin::EMaterialCompileState::NeverRequested)
+		ASSERT_TRUE(Durin::RequestMaterialRecompile(*MaterialObject));
+	Durin::DObject* MaterialCompilationObject = MaterialObject;
+	Durin::FAssetCompilingManager::Get().FinishCompilationForObjects(
+		std::span<Durin::DObject* const>(&MaterialCompilationObject, 1));
+	ASSERT_TRUE(MaterialObject->GetMaterialCompileStatus().IsCurrent())
+		<< "state=" << static_cast<uint32>(MaterialObject->GetMaterialCompileStatus().State)
+		<< " diagnostic=" << (MaterialObject->GetMaterialCompileDiagnostics().empty()
+			? std::string("<none>")
+			: MaterialObject->GetMaterialCompileDiagnostics().front().Source.Message);
+	const Durin::FMaterialRenderData MaterialData = MaterialObject->GetRenderData();
+	ASSERT_TRUE(MaterialData.CompiledProgram);
+	ASSERT_EQ(MaterialData.PlanningPassIdentity.ShaderMap.ShadingModel,
+		Durin::EMaterialShadingModel::Lit);
 	auto Material = MaterialObject->GetMaterialRenderProxy();
 	Durin::FlushRenderingCommands();
 	Durin::FTerrainPatchDescriptor Patch{
@@ -581,4 +603,5 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesTelemetry)
 	Durin::SetViewRenderTelemetrySink(nullptr);
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();
+	Durin::ShutdownAssetCompilingManager();
 }

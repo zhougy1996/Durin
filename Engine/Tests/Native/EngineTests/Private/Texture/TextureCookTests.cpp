@@ -424,10 +424,17 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	}
 	auto* SampleMaterial =
 		Durin::NewObject<Durin::DMaterial>(nullptr, "CookedTextureSampleMaterial");
+	Durin::FMaterialProgramValidationResult SampleMaterialValidation;
+	ASSERT_TRUE(SampleMaterial->SetMaterialProgram(
+		Durin::MakeLegacyExpandedMaterialProgram(), SampleMaterialValidation));
 	SampleMaterial->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(1.0));
 	SampleMaterial->SetTextureParameterValue(
 		Durin::MaterialParameters::BaseColorTextureName(), CookedTexture);
+	Durin::DObject* SampleMaterialCompilationObject = SampleMaterial;
+	Durin::FAssetCompilingManager::Get().FinishCompilationForObjects(
+		std::span<Durin::DObject* const>(&SampleMaterialCompilationObject, 1));
+	ASSERT_TRUE(SampleMaterial->GetMaterialCompileStatus().IsCurrent());
 	auto* SampleComponent =
 		Durin::NewObject<Durin::DStaticMeshComponent>(nullptr, "CookedTextureSampleMesh");
 	SampleComponent->SetStaticMesh(SampleMesh);

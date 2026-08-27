@@ -588,6 +588,13 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(ReloadedMaterial->GetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), ImportedFactor));
 	EXPECT_EQ(ImportedFactor, Durin::FVector3(0.5, 0.75, 0.25));
+	auto* ReloadedParentMaterial =
+		Durin::Cast<Durin::DMaterial>(ReloadedMaterial->GetParent());
+	ASSERT_NE(ReloadedParentMaterial, nullptr);
+	Durin::DObject* ReloadedParentCompilationObject = ReloadedParentMaterial;
+	Durin::FAssetCompilingManager::Get().FinishCompilationForObjects(
+		std::span<Durin::DObject* const>(&ReloadedParentCompilationObject, 1));
+	ASSERT_TRUE(ReloadedParentMaterial->GetMaterialCompileStatus().IsCurrent());
 
 	struct FBeginSceneImportFrame
 	{

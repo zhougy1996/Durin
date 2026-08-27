@@ -98,6 +98,14 @@ function(durin_add_engine_functional_test target_name)
 		${DURIN_ENGINE_TEST_SOURCES}
 		${DURIN_ENGINE_TEST_PRIVATE_SOURCES}
 	)
+	set(_durin_private_source_compile_definitions)
+	if(DURIN_ENGINE_TEST_PRIVATE_SOURCE_OWNER)
+		string(TOUPPER
+			"${DURIN_ENGINE_TEST_PRIVATE_SOURCE_OWNER}"
+			_durin_private_source_owner_upper)
+		list(APPEND _durin_private_source_compile_definitions
+			"${_durin_private_source_owner_upper}_EXPORTS")
+	endif()
 	if(DURIN_ENGINE_TEST_RUNTIME_STACK_RATIONALE)
 		set_target_properties(${target_name} PROPERTIES
 			DURIN_TEST_HEAVY_RUNTIME_RATIONALE
@@ -123,6 +131,7 @@ function(durin_add_engine_functional_test target_name)
 	)
 	target_compile_definitions(${target_name} PRIVATE
 		LEVELEDITOR_EXPORTS
+		${_durin_private_source_compile_definitions}
 		${DURIN_ENGINE_TEST_COMPILE_DEFINITIONS}
 	)
 	target_link_libraries(${target_name} PRIVATE

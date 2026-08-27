@@ -135,6 +135,7 @@ TEST(FWorldTests, AppliesOnlyEditableRuntimePropertiesBackToTheirEditorObjects)
 
 	std::unordered_map<Durin::DObject*, Durin::DObject*> PlayToEditor;
 	for (const auto& [EditorObject, PlayObject] : EditorToPlay) PlayToEditor.emplace(PlayObject, EditorObject);
+	std::string Error;
 	ASSERT_TRUE(Durin::CopyEditableObjectProperties(PlayCamera, EditorActor->GetCameraComponent(), PlayToEditor, &Error)) << Error;
 	EditorActor->GetRootComponent()->UpdateComponentToWorld();
 	ExpectVectorNear(EditorActor->GetActorTransform().Translation, {4.0, 5.0, 6.0});

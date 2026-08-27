@@ -302,7 +302,7 @@ namespace Durin
 		if (DMaterialInterface* Parent = GetParent();
 			IsValid(Parent) && Parent != this)
 		{
-			Publication.ParentProxy = Parent->MaterialRenderProxy;
+			Publication.ParentProxy = Parent->GetMaterialRenderProxy();
 		}
 
 		const uint64 SubmittedVersion = Publication.LocalVersion;
