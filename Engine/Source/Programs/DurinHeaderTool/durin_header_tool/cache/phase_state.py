@@ -237,8 +237,17 @@ def _load_phase_state(path: Path, kind: str, decoder):
     try:
         envelope = json.loads(path.read_text(encoding="utf-8"))
         _require_exact_fields(envelope, {"SchemaVersion", "Kind", "PayloadDigest", "Payload"}, "phase-state envelope")
-        if envelope["SchemaVersion"] != PHASE_STATE_ENVELOPE_SCHEMA_VERSION or envelope["Kind"] != kind:
-            raise ValueError("Phase-state envelope identity is incompatible.")
+        if envelope["SchemaVersion"] != PHASE_STATE_ENVELOPE_SCHEMA_VERSION:
+            logging.debug(
+                "[DHT] Ignoring incompatible %s phase-state schema in %s (found %r, expected %d)",
+                kind,
+                path,
+                envelope["SchemaVersion"],
+                PHASE_STATE_ENVELOPE_SCHEMA_VERSION,
+            )
+            return None
+        if envelope["Kind"] != kind:
+            raise ValueError("Phase-state envelope kind is incompatible.")
         if envelope["PayloadDigest"] != sha256_bytes(canonical_json_bytes(envelope["Payload"])):
             raise ValueError("Phase-state payload checksum disagreement.")
         return decoder(envelope["Payload"])

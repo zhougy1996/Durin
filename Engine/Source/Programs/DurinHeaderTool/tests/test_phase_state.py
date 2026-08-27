@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 import sys
 
@@ -168,6 +169,32 @@ def test_corrupt_bundle_is_a_typed_module_miss(isolated_state_dir, caplog):
 
     assert load_export_phase_state("Fixture") is None
     assert "Ignoring invalid export phase state" in caplog.text
+
+
+def test_incompatible_bundle_schema_is_a_quiet_module_miss(isolated_state_dir, caplog):
+    state = ReflectionPhaseState(module="Fixture")
+    save_reflection_phase_state(state)
+    path = reflection_state_path("Fixture")
+    envelope = json.loads(path.read_text(encoding="utf-8"))
+    envelope["SchemaVersion"] = 1
+    path.write_bytes(canonical_json_bytes(envelope))
+    caplog.set_level(logging.DEBUG)
+
+    assert load_reflection_phase_state("Fixture") is None
+    assert not any(record.levelno >= logging.WARNING for record in caplog.records)
+    assert "Ignoring incompatible reflection phase-state schema" in caplog.text
+
+
+def test_wrong_bundle_kind_remains_an_invalid_state_warning(isolated_state_dir, caplog):
+    state = ReflectionPhaseState(module="Fixture")
+    save_reflection_phase_state(state)
+    path = reflection_state_path("Fixture")
+    envelope = json.loads(path.read_text(encoding="utf-8"))
+    envelope["Kind"] = "export"
+    path.write_bytes(canonical_json_bytes(envelope))
+
+    assert load_reflection_phase_state("Fixture") is None
+    assert "Ignoring invalid reflection phase state" in caplog.text
 
 
 def test_invalid_reflection_header_record_only_invalidates_that_record(isolated_state_dir):

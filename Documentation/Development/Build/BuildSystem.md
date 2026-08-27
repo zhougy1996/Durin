@@ -106,7 +106,9 @@ DHT emits one INFO state summary per module export/reflection command with hit,
 miss, materialized-output, and parser counts plus aggregated miss reasons.
 Per-header timing, dependency-loading, and worker details are DEBUG-only. A
 malformed, truncated, checksum-invalid, or incompatible bundle is an ordinary
-miss; an invalid per-header record reparses only that header. If state publication
+miss; expected envelope-schema incompatibility is DEBUG-only, while structural
+corruption remains a warning. An invalid per-header record reparses only that
+header. If state publication
 or output materialization is interrupted, rerun the ordinary build: the previous
 complete bundle remains usable, or DHT reparses and replaces the incomplete
 latest result. Manual cache
