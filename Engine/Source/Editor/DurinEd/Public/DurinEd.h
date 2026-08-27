@@ -4,6 +4,7 @@
 #include "Editor/Notification.h"
 #include "Editor/PropertyEditing.h"
 #include "Editor/Transaction.h"
+#include "Factories/Factory.h"
 #include "Thumbnail/AssetThumbnailTypes.h"
 #include "Thumbnail/AssetThumbnailKey.h"
 #include "Thumbnail/AssetThumbnailProvider.h"

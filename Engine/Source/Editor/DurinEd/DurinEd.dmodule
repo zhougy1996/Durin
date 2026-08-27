@@ -17,6 +17,7 @@
         "MonaImGui"
     ],
     "ReflectHeaders": [
-        "Public/Editor/EditorEngine.h"
+        "Public/Editor/EditorEngine.h",
+        "Public/Factories/Factory.h"
     ]
 }

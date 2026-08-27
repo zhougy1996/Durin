@@ -53,6 +53,7 @@ durin_add_engine_functional_test(EditorOperationTests
 		"Exercises reusable DurinEd asynchronous operation orchestration without an application host."
 	SOURCES
 		Private/Editor/CompensatingAsyncOperationTests.cpp
+		Private/Editor/FactoryTests.cpp
 	LIBRARIES DurinEd
 )
 
