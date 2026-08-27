@@ -21,6 +21,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
+#include "StaticMesh/StaticMeshFactoryTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -333,7 +334,7 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 	ASSERT_TRUE(FAssetPath::TryCreate("/SplineMeshComponentTests/RoundTrip", Path));
 	DLevel* Level = nullptr;
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "Triangle.obj";
-	FStaticMeshImportResult MeshImport = AssetForge::Builtins::ImportStaticMeshAsset(
+	Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> MeshImport = AssetForge::Builtins::ImportStaticMeshForTest(
 		Source.generic_string(), "/SplineMeshComponentTests/SourceMesh");
 	ASSERT_TRUE(MeshImport) << MeshImport.Message;
 	ASSERT_TRUE(Asset::CreateAsset(Path, Level));

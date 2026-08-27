@@ -39,7 +39,7 @@ TEST(FSourceReferenceIndexTests, TracksSharedSourceFilesAcrossRegistryRevisions)
 		Durin::Testing::GetTestWorkDirectory() / "SourceReferenceIndex.png";
 	WriteTextureFixture(Input);
 
-	const Durin::FTexture2DImportResult First = Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> First = Durin::AssetForge::Builtins::ImportTexture2DForTest(
 		Input.generic_string(), "/TextureImportTests/SourceIndex/First");
 	ASSERT_TRUE(First) << First.Message;
 	ASSERT_NE(First.Asset, nullptr);
@@ -47,7 +47,7 @@ TEST(FSourceReferenceIndexTests, TracksSharedSourceFilesAcrossRegistryRevisions)
 	ASSERT_NE(FirstSource, nullptr);
 	const std::string SourceVirtualPath = FirstSource->Hint;
 
-	const Durin::FTexture2DImportResult Second = Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Second = Durin::AssetForge::Builtins::ImportTexture2DForTest(
 		Input.generic_string(), "/TextureImportTests/SourceIndex/Second");
 	ASSERT_TRUE(Second) << Second.Message;
 	const Durin::FSourceFile* SecondSource = FindImportedSource(*Second.Asset);
@@ -59,7 +59,7 @@ TEST(FSourceReferenceIndexTests, TracksSharedSourceFilesAcrossRegistryRevisions)
 	EXPECT_EQ(Index.FindReferences(SourceVirtualPath).size(), 2u);
 	const uint64 FirstRevision = Index.GetRegistryRevision();
 
-	const Durin::FTexture2DImportResult Third = Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Third = Durin::AssetForge::Builtins::ImportTexture2DForTest(
 		Input.generic_string(), "/TextureImportTests/SourceIndex/Third");
 	ASSERT_TRUE(Third) << Third.Message;
 	const Durin::FSourceFile* ThirdSource = FindImportedSource(*Third.Asset);

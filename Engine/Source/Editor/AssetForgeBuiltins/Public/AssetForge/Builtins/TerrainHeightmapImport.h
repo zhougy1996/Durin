@@ -36,11 +36,6 @@ namespace Durin::AssetForge::Builtins
 		std::span<const std::byte> EncodedBytes,
 		FTerrainHeightmapSourceData& OutSource,
 		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto ImportTerrainHeightmapAsset(
-		std::string_view FilePath,
-		std::string_view AssetPath,
-		const FTerrainHeightmapImportSettings& Settings = {})
-		-> FTerrainHeightmapImportResult;
 	ASSETFORGEBUILTINS_API auto ReimportTerrainHeightmap(
 		DTerrainHeightmap& Heightmap,
 		std::string& OutError,

@@ -42,15 +42,6 @@ namespace Durin::AssetForge::Builtins
 		explicit operator bool() const { return bValid; }
 	};
 
-	struct FTextureCubeImportResult
-	{
-		bool bSucceeded = false;
-		std::string Message;
-		DTextureCube* Asset = nullptr;
-
-		explicit operator bool() const { return bSucceeded; }
-	};
-
 	ASSETFORGEBUILTINS_API auto ValidateTextureCubeFaces(
 		const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 		const FTextureCubeImportSettings& Settings = {})
@@ -59,15 +50,6 @@ namespace Durin::AssetForge::Builtins
 		std::string_view PanoramaFile,
 		const FTextureCubePanoramaImportSettings& Settings = {})
 		-> FTextureCubeImportValidation;
-	ASSETFORGEBUILTINS_API auto ImportTextureCubeFaces(
-		const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
-		std::string_view AssetPath,
-		const FTextureCubeImportSettings& Settings = {}) -> FTextureCubeImportResult;
-	ASSETFORGEBUILTINS_API auto ImportTextureCubePanorama(
-		std::string_view PanoramaFile,
-		std::string_view AssetPath,
-		const FTextureCubePanoramaImportSettings& Settings = {})
-		-> FTextureCubeImportResult;
 	ASSETFORGEBUILTINS_API auto ReimportTextureCubePanorama(
 		DTextureCube& Texture,
 		const FTextureCubePanoramaImportSettings& Settings,

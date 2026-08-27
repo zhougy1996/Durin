@@ -29,6 +29,10 @@ namespace Durin
 		Transient = 1 << 1,
 		ClassDefaultObject = 1 << 2,
 		DefaultSubobject = 1 << 3,
+		// Object may be referenced from outside its owning package.
+		Public = 1 << 4,
+		// Object remains alive without an ordinary reflected reference.
+		Standalone = 1 << 5,
 	};
 
 	enum class EClassFlags

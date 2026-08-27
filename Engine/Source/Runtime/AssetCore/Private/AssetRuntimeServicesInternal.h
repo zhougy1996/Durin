@@ -109,6 +109,7 @@ namespace Durin::Asset
 			ESoftObjectNullPolicy NullPolicy,
 			FAssetLoadReport* OutReport) -> FAssetResult;
 		auto FindResidentPackage(const FAssetPath& Path) const -> DPackage*;
+		auto AdoptCreatedPackage(DPackage* Package) -> FAssetResult;
 		auto GetResidentPackagePublicationState(const FAssetPath& Path) const
 			-> std::optional<EAssetPackagePublicationState>;
 		auto UnloadPackage(

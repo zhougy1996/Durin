@@ -20,6 +20,7 @@
 #include "Renderers/SceneVisibility.h"
 #include "StaticMesh/StaticMesh.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
+#include "StaticMesh/StaticMeshFactoryTestSupport.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMeshTestAccess.h"
 #include "AssetForge/Builtins/SceneImport.h"
@@ -209,8 +210,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 
 	const Durin::FAssetPath LODContractPath =
 		MakeAssetPath("/SceneImportVulkan/LODContract");
-	const Durin::FStaticMeshImportResult LODContractImport =
-		Durin::AssetForge::Builtins::ImportStaticMeshAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> LODContractImport =
+		Durin::AssetForge::Builtins::ImportStaticMeshForTest(
 			(std::filesystem::path(DURIN_TEST_DATA_DIR)
 				/ "MultiSection.gltf").generic_string(),
 			LODContractPath.ToString());

@@ -1,6 +1,8 @@
 #include "MaterialTestSupport.h"
+#include "Texture/TextureFactoryTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
+#include "Texture/TextureCubeFactoryTestSupport.h"
 #include "Console/ConsoleCommand.h"
 #include "DefaultTextures.h"
 #include "DynamicRHI.h"
@@ -272,8 +274,8 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_TRUE(InheritedInstance->SetParent(CaptureMaterial));
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Preview", CaptureTexturePath));
-		const Durin::FTexture2DImportResult TextureResult =
-			Durin::AssetForge::Builtins::ImportTexture2DAsset(
+		const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> TextureResult =
+			Durin::AssetForge::Builtins::ImportTexture2DForTest(
 				TextureSource.generic_string(), CaptureTexturePath.ToString());
 		ASSERT_TRUE(TextureResult) << TextureResult.Message;
 		ASSERT_NE(TextureResult.Asset->GetPlatformData(), nullptr);
@@ -284,8 +286,8 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		EXPECT_GT(TextureResult.Asset->GetPlatformData()->Mips.size(), 1u);
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Data", DataTexturePath));
-		const Durin::FTexture2DImportResult DataTextureResult =
-			Durin::AssetForge::Builtins::ImportTexture2DAsset(
+		const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> DataTextureResult =
+			Durin::AssetForge::Builtins::ImportTexture2DForTest(
 				TextureSource.generic_string(), DataTexturePath.ToString());
 		ASSERT_TRUE(DataTextureResult) << DataTextureResult.Message;
 		ASSERT_TRUE(Durin::AssetForge::Builtins::SetTexture2DUsage(
@@ -301,8 +303,8 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		EXPECT_GT(DataTextureResult.Asset->GetPlatformData()->Mips.size(), 1u);
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Normal", NormalTexturePath));
-		const Durin::FTexture2DImportResult NormalTextureResult =
-			Durin::AssetForge::Builtins::ImportTexture2DAsset(
+		const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> NormalTextureResult =
+			Durin::AssetForge::Builtins::ImportTexture2DForTest(
 				TextureSource.generic_string(), NormalTexturePath.ToString());
 		ASSERT_TRUE(NormalTextureResult) << NormalTextureResult.Message;
 		ASSERT_TRUE(Durin::AssetForge::Builtins::SetTexture2DUsage(
@@ -840,8 +842,8 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Capture(CaptureMaterial);
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 			"/MaterialThumbnailVulkan/TC_Preview", CaptureCubePath));
-		const Durin::AssetForge::Builtins::FTextureCubeImportResult CubeResult =
-			Durin::AssetForge::Builtins::ImportTextureCubeFaces(
+		const Durin::Testing::TFactoryImportResult<Durin::DTextureCube> CubeResult =
+			Durin::AssetForge::Builtins::ImportTextureCubeFacesForTest(
 				Durin::Tests::GetRenderedThumbnailDirectionalCubeFaces(),
 				CaptureCubePath.ToString());
 		ASSERT_TRUE(CubeResult) << CubeResult.Message;

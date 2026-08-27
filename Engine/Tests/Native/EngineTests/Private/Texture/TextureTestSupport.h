@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetTools.h"
+#include "AssetTools/IAssetTools.h"
 #include "Asset/AssetCompilingManager.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -17,6 +17,8 @@
 #include "Texture/Texture2DCompilation.h"
 #include "Developer/TextureBuild/Private/Texture/Texture2DCompilationDomain.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
+#include "AssetForge/Builtins/Texture2DFactory.h"
+#include "Texture/TextureFactoryTestSupport.h"
 #include "TexturePlatformDataTestFixtures.h"
 
 #include <bc7decomp.h>

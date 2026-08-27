@@ -2,7 +2,8 @@
     "ModuleName": "TextureEditor",
     "LinkType": "Shared",
     "PCH": "SharedPCH_MonaEditor",
-    "PrivateDependencies": [
+	"PrivateDependencies": [
+		"AssetTools",
         "Core",
         "CoreDObject",
         "ApplicationCore",

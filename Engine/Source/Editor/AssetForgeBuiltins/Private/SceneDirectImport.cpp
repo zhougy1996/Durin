@@ -145,6 +145,9 @@ namespace Durin::AssetForge::Builtins
 				(void)Asset::UnloadPackage(*It, Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 		}
 
+		// Scene deliberately materializes each private candidate through AssetCore:
+		// single-object AssetTools would expose outputs before the complete peer set
+		// is dependency-bound, validated, and ready for one atomic bundle save.
 		auto CreateCandidate(FPreparedSceneOutput& Output, std::string& OutError) -> bool
 		{
 			Asset::FAssetResult Created;

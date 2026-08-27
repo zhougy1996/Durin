@@ -226,6 +226,9 @@ namespace Durin::Asset
 		FAssetLoadReport* OutReport = nullptr
 	) -> FAssetResult;
 	ASSETCORE_API auto FindResidentPackage(const FAssetPath& Path) -> DPackage*;
+	// Adopts a package created outside the legacy Asset::CreateAsset path into
+	// AssetCore residency so save, load, and unload observe one live owner.
+	ASSETCORE_API auto AdoptCreatedPackage(DPackage* Package) -> FAssetResult;
 	ASSETCORE_API auto GetResidentPackagePublicationState(const FAssetPath& Path)
 		-> std::optional<EAssetPackagePublicationState>;
 	ASSETCORE_API auto UnloadPackage(

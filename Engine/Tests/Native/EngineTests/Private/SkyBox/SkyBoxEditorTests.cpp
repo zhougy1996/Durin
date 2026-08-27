@@ -1,5 +1,6 @@
 #include "SkyBoxTestSupport.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
+#include "Texture/TextureCubeFactoryTestSupport.h"
 #include "Editor/Transaction.h"
 #include "Math/Operations.h"
 #include "SkyBoxPlacement.h"
@@ -18,7 +19,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	EXPECT_EQ(Validation.Dimension, 128u);
 	EXPECT_EQ(Validation.MipCount, 8u);
 
-	Durin::AssetForge::Builtins::FTextureCubeImportResult CubeResult = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
+	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> CubeResult = Durin::AssetForge::Builtins::ImportTextureCubeFacesForTest(
 		GetSkyBoxConventionFaces(), "/SkyBoxAssetTests/EditorWorkflowCube");
 	ASSERT_TRUE(CubeResult) << CubeResult.Message;
 	Durin::FAssetPath CubePath;
@@ -136,7 +137,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	EXPECT_EQ(Validation.SourceHeight, 4u);
 	EXPECT_EQ(Validation.Dimension, 2u);
 
-	Durin::AssetForge::Builtins::FTextureCubeImportResult CubeResult = Durin::AssetForge::Builtins::ImportTextureCubePanorama(
+	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> CubeResult = Durin::AssetForge::Builtins::ImportTextureCubePanoramaForTest(
 		Panorama.generic_string(), "/SkyBoxAssetTests/PanoramaWorkflowCube", Settings);
 	ASSERT_TRUE(CubeResult) << CubeResult.Message;
 	Durin::FAssetPath CubePath;

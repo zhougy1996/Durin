@@ -112,6 +112,18 @@ namespace Durin::Asset
 		return true;
 	}
 
+	auto BuildTerrainHeightmapInto(
+		DTerrainHeightmap& Heightmap,
+		FTerrainHeightmapBuildRequest Request,
+		const FTerrainHeightmapPublicationContext& Context,
+		std::string& OutError) -> bool
+	{
+		FTerrainHeightmapBuildProduct Product;
+		return BuildTerrainHeightmap(std::move(Request), Product, OutError)
+			&& PublishTerrainHeightmapProduct(
+				Heightmap, std::move(Product), Context, OutError);
+	}
+
 	auto MakeTerrainHeightmapDerivedDataKey(
 		const FTerrainHeightmapSourceImportData& Source,
 		std::string& OutError) -> std::string

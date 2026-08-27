@@ -21,9 +21,4 @@ namespace Durin::AssetForge::Builtins
 		std::string_view ObjectName,
 		std::string& OutError,
 		const FStaticMeshImportSettings& ImportSettings = {}) -> DStaticMesh*;
-	ASSETFORGEBUILTINS_API auto ImportStaticMeshAsset(
-		std::string_view FilePath,
-		std::string_view AssetPath,
-		const FStaticMeshImportSettings& ImportSettings = {})
-		-> FStaticMeshImportResult;
 }

@@ -508,8 +508,8 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		"/TextureImportTests/ExternalAuthoredBulk", AssetPath));
-	const Durin::FTexture2DImportResult Imported =
-		Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Imported =
+		Durin::AssetForge::Builtins::ImportTexture2DForTest(
 			Source.generic_string(), AssetPath.GetView());
 	ASSERT_TRUE(Imported) << Imported.Message;
 	ASSERT_NE(Imported.Asset, nullptr);
@@ -595,8 +595,8 @@ TEST(FTexture2DTests, CompilationPublishesLatestNormalizedProduct)
 	const std::filesystem::path Source =
 		Durin::Testing::GetTestWorkDirectory() / "Texture2DCompilation.png";
 	WriteTextureFixture(Source);
-	Durin::FTexture2DImportResult Imported =
-		Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Imported =
+		Durin::AssetForge::Builtins::ImportTexture2DForTest(
 			Source.generic_string(), "/TextureImportTests/SourceDomain");
 	ASSERT_TRUE(Imported) << Imported.Message;
 
@@ -643,8 +643,8 @@ TEST(FTexture2DTests, AsyncCompilationReportsFailureAndSupersessionOnce)
 	const std::filesystem::path Source =
 		Durin::Testing::GetTestWorkDirectory() / "Texture2DCompletion.png";
 	WriteTextureFixture(Source);
-	Durin::FTexture2DImportResult Imported =
-		Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Imported =
+		Durin::AssetForge::Builtins::ImportTexture2DForTest(
 			Source.generic_string(), "/TextureImportTests/CompletionContract");
 	ASSERT_TRUE(Imported) << Imported.Message;
 
@@ -734,7 +734,7 @@ TEST(FTexture2DTests, UsagePresetsChooseColorSpaceAndMipFilter)
 		Durin::FTexture2DImportSettings Settings;
 		Settings.Usage = Preset.Usage;
 		const std::string AssetPathString = std::format("/TextureImportTests/{}", Preset.AssetName);
-		Durin::FTexture2DImportResult Result = Durin::AssetForge::Builtins::ImportTexture2DAsset(Source.generic_string(), AssetPathString, Settings);
+		Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Result = Durin::AssetForge::Builtins::ImportTexture2DForTest(Source.generic_string(), AssetPathString, Settings);
 		ASSERT_TRUE(Result) << Result.Message;
 		ASSERT_NE(Result.Asset, nullptr);
 		EXPECT_EQ(Result.Asset->GetUsage(), Preset.Usage);
@@ -769,7 +769,7 @@ TEST(FTexture2DTests, BuildsCompleteNpotMipChainWithoutDroppingEdges)
 	WriteNpotTextureFixture(Source);
 	Durin::FTexture2DImportSettings Settings;
 	Settings.Usage = Durin::ETextureUsage::DataMask;
-	Durin::FTexture2DImportResult Result = Durin::AssetForge::Builtins::ImportTexture2DAsset(Source.generic_string(), "/TextureImportTests/Npot", Settings);
+	Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Result = Durin::AssetForge::Builtins::ImportTexture2DForTest(Source.generic_string(), "/TextureImportTests/Npot", Settings);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
 	const Durin::FTexturePlatformData* PlatformData = Result.Asset->GetPlatformData();
@@ -787,7 +787,7 @@ TEST(FTexture2DTests, BuildsCompleteNpotMipChainWithoutDroppingEdges)
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 
-	Durin::FTexture2DImportResult ColorResult = Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	Durin::Testing::TFactoryImportResult<Durin::DTexture2D> ColorResult = Durin::AssetForge::Builtins::ImportTexture2DForTest(
 		Source.generic_string(), "/TextureImportTests/NpotColor");
 	ASSERT_TRUE(ColorResult) << ColorResult.Message;
 	ASSERT_NE(ColorResult.Asset, nullptr);
@@ -810,7 +810,7 @@ TEST(FTexture2DTests, MaximumResolutionSelectsMipAlignedBaseLevel)
 	Settings.CompressionQuality = Durin::ETextureCompressionQuality::Low;
 	Settings.AlphaMipMode = Durin::ETextureAlphaMipMode::PreserveCoverage;
 	Settings.AlphaCoverageThreshold = 0.4f;
-	Durin::FTexture2DImportResult Result = Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Result = Durin::AssetForge::Builtins::ImportTexture2DForTest(
 		Source.generic_string(), "/TextureImportTests/Limited", Settings);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
@@ -971,7 +971,7 @@ TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 	WriteTextureFixture(Source);
 	Durin::FTexture2DImportSettings Settings;
 	Settings.bSRGB = false;
-	Durin::FTexture2DImportResult Result = Durin::AssetForge::Builtins::ImportTexture2DAsset(Source.generic_string(), "/TextureImportTests/Linear", Settings);
+	Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Result = Durin::AssetForge::Builtins::ImportTexture2DForTest(Source.generic_string(), "/TextureImportTests/Linear", Settings);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
 	EXPECT_FALSE(Result.Asset->IsSRGB());
@@ -1020,7 +1020,7 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	InitializeDObjectSystem();
 	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "TransactionalTextureSource.png";
 	WriteTextureFixture(Source);
-	Durin::FTexture2DImportResult Result = Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Result = Durin::AssetForge::Builtins::ImportTexture2DForTest(
 		Source.generic_string(), "/TextureImportTests/Transactional");
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTexture2D* Texture = Result.Asset;
@@ -1198,7 +1198,7 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	const std::filesystem::path Source =
 		Durin::Testing::GetTestWorkDirectory() / "AsyncTransactionalTextureSource.png";
 	WriteTextureFixture(Source);
-	const Durin::FTexture2DImportResult Imported = Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Imported = Durin::AssetForge::Builtins::ImportTexture2DForTest(
 		Source.generic_string(), "/TextureImportTests/AsyncTransactional");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	Durin::DTexture2D* Texture = Imported.Asset;

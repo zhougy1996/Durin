@@ -1,5 +1,7 @@
 #include "MaterialTestSupport.h"
+#include "Texture/TextureFactoryTestSupport.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
+#include "StaticMesh/StaticMeshFactoryTestSupport.h"
 #include "AssetForge/Builtins/StaticMeshImportData.h"
 #include "DObject/Package.h"
 #include "NativeTestSupport.h"
@@ -40,7 +42,7 @@ TEST(FStaticMeshMaterialTests, ImportedStaticMeshBuildsLODSectionsAndMaterialSlo
 	Durin::PathUtilities::RegisterMountPointForTests("/MeshImportTests/", Root.generic_string() + "/");
 
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-	Durin::FStaticMeshImportResult ImportResult = Durin::AssetForge::Builtins::ImportStaticMeshAsset(Source.generic_string(), "/MeshImportTests/MultiSection");
+	Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> ImportResult = Durin::AssetForge::Builtins::ImportStaticMeshForTest(Source.generic_string(), "/MeshImportTests/MultiSection");
 	ASSERT_TRUE(ImportResult) << ImportResult.Message;
 	ASSERT_NE(ImportResult.Asset, nullptr);
 	const Durin::FStaticMeshRenderData* RenderData = ImportResult.Asset->GetRenderData();
@@ -96,7 +98,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 		"/StaticMeshSourceProvenance/", (Root / "Content").generic_string() + "/");
 
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-	Durin::FStaticMeshImportResult Import = Durin::AssetForge::Builtins::ImportStaticMeshAsset(
+	Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> Import = Durin::AssetForge::Builtins::ImportStaticMeshForTest(
 		Source.generic_string(), "/StaticMeshSourceProvenance/Environment/Mesh");
 	ASSERT_TRUE(Import) << Import.Message;
 	ASSERT_NE(Import.Asset, nullptr);
@@ -144,7 +146,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotDefinitionsRoundTripWithDef
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotRoundTrip/Mesh", MeshPath));
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotRoundTrip/Default", MaterialPath));
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-	Durin::FStaticMeshImportResult Import = Durin::AssetForge::Builtins::ImportStaticMeshAsset(Source.generic_string(), MeshPath.ToString());
+	Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> Import = Durin::AssetForge::Builtins::ImportStaticMeshForTest(Source.generic_string(), MeshPath.ToString());
 	ASSERT_TRUE(Import) << Import.Message;
 	ASSERT_EQ(Import.Asset->GetNumMaterialSlots(), 2u);
 	EXPECT_EQ(Import.Asset->FindMaterialSlot(Durin::FName("Blue")), Import.Asset->GetMaterialSlot(1));
@@ -197,7 +199,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 		std::filesystem::create_directories(SourcePath.parent_path());
 		std::filesystem::copy_file(BaseSource, SourcePath,
 			std::filesystem::copy_options::overwrite_existing);
-		Durin::FStaticMeshImportResult Import = Durin::AssetForge::Builtins::ImportStaticMeshAsset(SourcePath.generic_string(), AssetPath);
+		Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> Import = Durin::AssetForge::Builtins::ImportStaticMeshForTest(SourcePath.generic_string(), AssetPath);
 		EXPECT_TRUE(Import) << Import.Message;
 		return Import.Asset;
 	};
@@ -303,7 +305,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	std::filesystem::create_directories(MutableSource.parent_path());
 	std::filesystem::copy_file(BaseSource, MutableSource,
 		std::filesystem::copy_options::overwrite_existing);
-	Durin::FStaticMeshImportResult Import = Durin::AssetForge::Builtins::ImportStaticMeshAsset(MutableSource.generic_string(), MeshPath.ToString());
+	Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> Import = Durin::AssetForge::Builtins::ImportStaticMeshForTest(MutableSource.generic_string(), MeshPath.ToString());
 	ASSERT_TRUE(Import) << Import.Message;
 	const Durin::FMeshMaterialSlotDefinition* RedSlot =
 		Import.Asset->FindMaterialSlot(Durin::FName("Red"));
@@ -401,7 +403,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshImportSettingsPersistAcrossSourceRebuil
 
 	const Durin::FStaticMeshImportSettings Settings = Durin::FStaticMeshImportSettings::MakeYUpNegativeZForward();
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "AsymmetricAxes.obj";
-	Durin::FStaticMeshImportResult ImportResult = Durin::AssetForge::Builtins::ImportStaticMeshAsset(
+	Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> ImportResult = Durin::AssetForge::Builtins::ImportStaticMeshForTest(
 		Source.generic_string(), "/MeshAxisImportTests/AsymmetricAxes", Settings);
 	ASSERT_TRUE(ImportResult) << ImportResult.Message;
 	ASSERT_NE(ImportResult.Asset, nullptr);
@@ -458,7 +460,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDep
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotOverrides/Component", ComponentPath));
 
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-	Durin::FStaticMeshImportResult MeshImport = Durin::AssetForge::Builtins::ImportStaticMeshAsset(Source.generic_string(), MeshPath.ToString());
+	Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> MeshImport = Durin::AssetForge::Builtins::ImportStaticMeshForTest(Source.generic_string(), MeshPath.ToString());
 	ASSERT_TRUE(MeshImport) << MeshImport.Message;
 	Durin::DMaterial* First = nullptr;
 	Durin::DMaterial* Second = nullptr;
@@ -528,7 +530,7 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	const std::filesystem::path TextureSource =
 		Durin::Testing::GetTestWorkDirectory() / "MaterialBaseColor.png";
 	WriteMaterialTextureFixture(TextureSource);
-	Durin::FTexture2DImportResult TextureImport = Durin::AssetForge::Builtins::ImportTexture2DAsset(TextureSource.generic_string(), TexturePath.ToString());
+	Durin::Testing::TFactoryImportResult<Durin::DTexture2D> TextureImport = Durin::AssetForge::Builtins::ImportTexture2DForTest(TextureSource.generic_string(), TexturePath.ToString());
 	ASSERT_TRUE(TextureImport) << TextureImport.Message;
 	ASSERT_NE(TextureImport.Asset, nullptr);
 

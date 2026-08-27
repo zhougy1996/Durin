@@ -116,13 +116,14 @@ namespace Durin
 
 	DObject::DObject(const FObjectInitializer& ObjectInitializer)
 		: NamePrivate(ObjectInitializer.Name)
-		, ObjectFlags(ObjectInitializer.Purpose == EObjectConstructionPurpose::ClassDefaultObject
+		, ObjectFlags(ObjectInitializer.Flags
+			| (ObjectInitializer.Purpose == EObjectConstructionPurpose::ClassDefaultObject
 			? EObjectFlags::ClassDefaultObject | EObjectFlags::Transient
 			: ObjectInitializer.Purpose == EObjectConstructionPurpose::ClassDefaultSubobject
 				? EObjectFlags::DefaultSubobject | EObjectFlags::Transient
 				: ObjectInitializer.Purpose == EObjectConstructionPurpose::Generated
 					? EObjectFlags::Transient
-				: EObjectFlags::NoFlags)
+				: EObjectFlags::NoFlags))
 		, ConstructionPurpose(ObjectInitializer.Purpose)
 		, OuterPrivate(ObjectInitializer.Outer)
 		, ClassPrivate(ObjectInitializer.Class)

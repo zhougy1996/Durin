@@ -1,6 +1,9 @@
 #include "AssetTools.h"
+#include "AssetTools/ReimportManager.h"
 #include "Asset/SourceHint.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
+#include "AssetForge/Builtins/TextureCubeFactory.h"
+#include "Texture/TextureCubeFactoryTestSupport.h"
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
@@ -18,6 +21,18 @@
 
 #include <gtest/gtest.h>
 #include <unordered_set>
+
+TEST(FTextureCubeFactoryTests, ClassLookupDisambiguatesOverlappingExtensions)
+{
+	InitializeDObjectSystem();
+	const std::vector<const Durin::DFactory*> CubeCandidates =
+		Durin::DFactory::FindFactories(Durin::DTextureCube::StaticClass(), ".PNG");
+	ASSERT_EQ(CubeCandidates.size(), 1u);
+	EXPECT_TRUE(CubeCandidates.front()->IsA(
+		Durin::AssetForge::Builtins::DTextureCubeFactory::StaticClass()));
+	EXPECT_GT(Durin::DFactory::FindFactoriesByExtension("png").size(), 1u);
+	EXPECT_EQ(Durin::DFactory::FindFactoryByExtension(".png"), nullptr);
+}
 
 namespace
 {
@@ -192,7 +207,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 {
 	const std::filesystem::path Root = InitializeCubeMount();
 	const auto Faces = GetConventionFaces();
-	Durin::AssetForge::Builtins::FTextureCubeImportResult Result = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
+	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> Result = Durin::AssetForge::Builtins::ImportTextureCubeFacesForTest(
 		Faces, "/TextureCubeTests/Convention");
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
@@ -251,7 +266,7 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 	const std::filesystem::path Root = InitializeCubeMount();
 	auto Faces = GetConventionFaces();
 	Faces[static_cast<size_t>(Durin::ETextureCubeFace::PositiveY)].clear();
-	Durin::AssetForge::Builtins::FTextureCubeImportResult Missing = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
+	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> Missing = Durin::AssetForge::Builtins::ImportTextureCubeFacesForTest(
 		Faces, "/TextureCubeTests/MissingFace");
 	EXPECT_FALSE(Missing);
 	EXPECT_NE(Missing.Message.find("PositiveY"), std::string::npos);
@@ -260,7 +275,7 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 	WriteSolidTga(Nonsquare, 4, 2);
 	Faces = GetConventionFaces();
 	Faces[0] = Nonsquare.generic_string();
-	Durin::AssetForge::Builtins::FTextureCubeImportResult InvalidShape = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
+	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> InvalidShape = Durin::AssetForge::Builtins::ImportTextureCubeFacesForTest(
 		Faces, "/TextureCubeTests/Nonsquare");
 	EXPECT_FALSE(InvalidShape);
 	EXPECT_NE(InvalidShape.Message.find("invalid"), std::string::npos)
@@ -270,7 +285,7 @@ TEST(FTextureCubeTests, RejectsMissingNonsquareAndMismatchedFacesWithoutArtifact
 	WriteSolidTga(DifferentSize, 4, 4);
 	Faces = GetConventionFaces();
 	Faces[0] = DifferentSize.generic_string();
-	Durin::AssetForge::Builtins::FTextureCubeImportResult Mismatch = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
+	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> Mismatch = Durin::AssetForge::Builtins::ImportTextureCubeFacesForTest(
 		Faces, "/TextureCubeTests/Mismatch");
 	EXPECT_FALSE(Mismatch);
 	EXPECT_NE(Mismatch.Message.find("invalid"), std::string::npos)
@@ -309,7 +324,7 @@ TEST(FTextureCubeTests, UsesOneCompressedFormatWhenOnlyOneFaceHasTransparency)
 	auto Faces = GetConventionFaces();
 	Faces[static_cast<size_t>(Durin::ETextureCubeFace::NegativeZ)] = TransparentFace.generic_string();
 
-	Durin::AssetForge::Builtins::FTextureCubeImportResult Result = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
+	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> Result = Durin::AssetForge::Builtins::ImportTextureCubeFacesForTest(
 		Faces, "/TextureCubeTests/Transparent");
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset->GetPlatformData(), nullptr);
@@ -328,7 +343,7 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 {
 	const std::filesystem::path Root = InitializeCubeMount();
 	auto Faces = GetConventionFaces();
-	Durin::AssetForge::Builtins::FTextureCubeImportResult Result = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
+	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> Result = Durin::AssetForge::Builtins::ImportTextureCubeFacesForTest(
 		Faces, "/TextureCubeTests/ReimportFaces");
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTextureCube* Texture = Result.Asset;
@@ -339,9 +354,12 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 	WriteSolidTga(Transparent, 128, 128, 128);
 	Faces[static_cast<size_t>(Durin::ETextureCubeFace::NegativeZ)] =
 		Transparent.generic_string();
-	std::string Error;
-	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportTextureCubeFacesFromFile(
-		*Texture, Faces, {.bSRGB = true}, Error)) << Error;
+	Durin::FReimportResult Reimported;
+	Durin::FReimportManager::ReimportFromFiles(*Texture, Faces, {},
+		[&](Durin::FReimportResult ResultValue) {
+			Reimported = std::move(ResultValue);
+		});
+	ASSERT_TRUE(Reimported) << Reimported.Message;
 	EXPECT_NE(Texture->GetDerivedDataKey(), InitialKey);
 	EXPECT_GT(Texture->GetBuildRevision(), InitialRevision);
 	EXPECT_EQ(Texture->GetBuiltPixelFormat(), Durin::EPixelFormat::BC3_UNORM_SRGB);
@@ -360,8 +378,11 @@ TEST(FTextureCubeTests, ReimportsSixFacesTransactionally)
 	}
 	Faces[static_cast<size_t>(Durin::ETextureCubeFace::PositiveY)] =
 		Corrupt.generic_string();
-	EXPECT_FALSE(Durin::AssetForge::Builtins::ReimportTextureCubeFacesFromFile(
-		*Texture, Faces, {.bSRGB = false}, Error));
+	Durin::FReimportManager::ReimportFromFiles(*Texture, Faces, {},
+		[&](Durin::FReimportResult ResultValue) {
+			Reimported = std::move(ResultValue);
+		});
+	EXPECT_EQ(Reimported.Status, Durin::EReimportStatus::SourceOrBuildFailure);
 	EXPECT_EQ(Texture->GetDerivedDataKey(), ValidKey);
 	EXPECT_EQ(Texture->GetBuildRevision(), ValidRevision);
 	EXPECT_TRUE(Texture->IsSRGB());
@@ -372,7 +393,7 @@ TEST(FTextureCubeTests, PostLoadIdentifiesTheMissingFaceAndInvalidatesDerivedDat
 {
 	const std::filesystem::path Root = InitializeCubeMount();
 	const auto Faces = CopyConventionFaces("MissingAfterImportSources");
-	Durin::AssetForge::Builtins::FTextureCubeImportResult Result = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
+	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> Result = Durin::AssetForge::Builtins::ImportTextureCubeFacesForTest(
 		Faces, "/TextureCubeTests/MissingAfterImport");
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTextureCube* Texture = Result.Asset;
@@ -409,7 +430,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	EXPECT_EQ(Validation.MipCount, 2u);
 	EXPECT_FALSE(Validation.bHDR);
 
-	Durin::AssetForge::Builtins::FTextureCubeImportResult Result = Durin::AssetForge::Builtins::ImportTextureCubePanorama(
+	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> Result = Durin::AssetForge::Builtins::ImportTextureCubePanoramaForTest(
 		Panorama.generic_string(), "/TextureCubeTests/Panorama");
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
@@ -505,7 +526,7 @@ TEST(FTextureCubeTests, RejectsInvalidPanoramaImportsWithoutArtifacts)
 	const std::filesystem::path Root = InitializeCubeMount();
 	const std::filesystem::path WrongAspect = Root / "WrongAspect.tga";
 	WriteSolidTga(WrongAspect, 4, 4);
-	Durin::AssetForge::Builtins::FTextureCubeImportResult Result = Durin::AssetForge::Builtins::ImportTextureCubePanorama(
+	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> Result = Durin::AssetForge::Builtins::ImportTextureCubePanoramaForTest(
 		WrongAspect.generic_string(), "/TextureCubeTests/InvalidPanorama");
 	EXPECT_FALSE(Result);
 	EXPECT_NE(Result.Message.find("2:1"), std::string::npos);
@@ -515,11 +536,11 @@ TEST(FTextureCubeTests, RejectsInvalidPanoramaImportsWithoutArtifacts)
 		std::ofstream Stream(Corrupt, std::ios::binary | std::ios::trunc);
 		Stream << "not radiance";
 	}
-	Result = Durin::AssetForge::Builtins::ImportTextureCubePanorama(
+	Result = Durin::AssetForge::Builtins::ImportTextureCubePanoramaForTest(
 		Corrupt.generic_string(), "/TextureCubeTests/InvalidPanorama");
 	EXPECT_FALSE(Result);
 	EXPECT_NE(Result.Message.find("decode failed"), std::string::npos);
-	Result = Durin::AssetForge::Builtins::ImportTextureCubePanorama(
+	Result = Durin::AssetForge::Builtins::ImportTextureCubePanoramaForTest(
 		GetPanoramaFixture("AnalyticalLDR.tga").generic_string(),
 		"/TextureCubeTests/InvalidPanorama", {.FaceDimension = 4097});
 	EXPECT_FALSE(Result);
@@ -536,7 +557,7 @@ TEST(FTextureCubeTests, RejectsInvalidPanoramaImportsWithoutArtifacts)
 TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailure)
 {
 	const std::filesystem::path Root = InitializeCubeMount();
-	Durin::AssetForge::Builtins::FTextureCubeImportResult Result = Durin::AssetForge::Builtins::ImportTextureCubePanorama(
+	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> Result = Durin::AssetForge::Builtins::ImportTextureCubePanoramaForTest(
 		GetPanoramaFixture("AnalyticalLDR.tga").generic_string(), "/TextureCubeTests/ReimportPanorama");
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTextureCube* Texture = Result.Asset;
@@ -600,7 +621,7 @@ TEST(FTextureCubeTests, PanoramaPostLoadReportsMissingAndCorruptAuthoritativeSou
 	const std::filesystem::path Root = InitializeCubeMount();
 	const std::filesystem::path CopiedSource =
 		CopyPanorama("AnalyticalHDR.hdr", "MissingPanorama.hdr");
-	Durin::AssetForge::Builtins::FTextureCubeImportResult Result = Durin::AssetForge::Builtins::ImportTextureCubePanorama(
+	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> Result = Durin::AssetForge::Builtins::ImportTextureCubePanoramaForTest(
 		CopiedSource.generic_string(), "/TextureCubeTests/MissingPanorama");
 	ASSERT_TRUE(Result) << Result.Message;
 	Durin::DTextureCube* Texture = Result.Asset;
@@ -636,7 +657,7 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 {
 	const std::filesystem::path Root = InitializeCubeMount();
 	const auto Faces = CopyConventionFaces("CookedCubeSources");
-	const Durin::AssetForge::Builtins::FTextureCubeImportResult Import = Durin::AssetForge::Builtins::ImportTextureCubeFaces(
+	const Durin::Testing::TFactoryImportResult<Durin::DTextureCube> Import = Durin::AssetForge::Builtins::ImportTextureCubeFacesForTest(
 		Faces, "/TextureCubeTests/CookedCube");
 	ASSERT_TRUE(Import) << Import.Message;
 	ASSERT_NE(Import.Asset, nullptr);

@@ -27,18 +27,4 @@ namespace Durin::Editor
 		FBuiltinImportDescriptor{EBuiltinImportFamily::StaticMesh,
 			"Static Mesh (Geometry Only)...", ".fbx;.gltf;.glb;.obj"},
 	};
-
-	enum class EBuiltinReimportFamily : uint8
-	{
-		None,
-		Texture,
-		TerrainHeightmap,
-		StaticMesh,
-	};
-
-	enum class EBuiltinReimportMode : uint8
-	{
-		RetainedHint,
-		FromFile,
-	};
 }

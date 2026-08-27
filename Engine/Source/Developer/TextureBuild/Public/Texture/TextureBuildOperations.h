@@ -74,6 +74,14 @@ namespace Durin::Asset
 		const FTexture2DPublicationContext& Context,
 		std::string& OutError) -> bool;
 
+	// Synchronous creation-side entrypoint. Detached product details remain an
+	// implementation concern for callers that only need to populate a new asset.
+	TEXTUREBUILD_API auto BuildTexture2DInto(
+		DTexture2D& Texture,
+		FTexture2DBuildRequest Request,
+		const FTexture2DPublicationContext& Context,
+		std::string& OutError) -> bool;
+
 	// Build-owned recipe identity and DDC value loading used by uncooked source processing
 	// loads. Source translation remains outside this module.
 	TEXTUREBUILD_API auto MakeTexture2DDerivedDataKey(

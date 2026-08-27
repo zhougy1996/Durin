@@ -1901,7 +1901,9 @@ namespace Durin::Asset::PackageObjectStream
 			}
 			if (!Object)
 			{
-				FStaticConstructObjectParameters Parameters{Class, Outer, FName(Descriptor.ObjectName), Class->PropertiesSize};
+				FStaticConstructObjectParameters Parameters{
+					Class, Outer, FName(Descriptor.ObjectName), Class->PropertiesSize,
+					Index == 0 ? EObjectFlags::Public : EObjectFlags::NoFlags};
 				Parameters.Purpose = EObjectConstructionPurpose::AssetLoad;
 				Object = StaticConstructObject(Parameters);
 				if (Object) DObjectForceRegistration(Object);

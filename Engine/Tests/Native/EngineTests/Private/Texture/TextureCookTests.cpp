@@ -7,6 +7,7 @@
 #include "DObject/Package.h"
 #include "DynamicRHI.h"
 #include "EngineTestSupport.h"
+#include "Texture/TextureFactoryTestSupport.h"
 #include "Hash/XxHash.h"
 #include "Materials/Material.h"
 #include "Misc/FileHelper.h"
@@ -154,8 +155,8 @@ TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		"/TextureColdCookTests/Texture", AssetPath));
-	const Durin::FTexture2DImportResult Imported =
-		Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Imported =
+		Durin::AssetForge::Builtins::ImportTexture2DForTest(
 			Source.generic_string(), AssetPath.GetView());
 	ASSERT_TRUE(Imported) << Imported.Message;
 	ASSERT_TRUE(Imported.Asset->GetImportedData().IsValid());
@@ -205,7 +206,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 
 	const std::filesystem::path Source = Root / "NpotTexture.tga";
 	WriteNpotTextureFixture(Source);
-	const Durin::FTexture2DImportResult Import = Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Import = Durin::AssetForge::Builtins::ImportTexture2DForTest(
 		Source.generic_string(), "/TextureCookTests/Texture");
 	ASSERT_TRUE(Import) << Import.Message;
 	ASSERT_NE(Import.Asset, nullptr);

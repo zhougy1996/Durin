@@ -1,5 +1,6 @@
 #include "AssetForge/Builtins/VolumeTextureImport.h"
 #include "AssetForge/Builtins/VolumeTextureImportData.h"
+#include "AssetForge/Builtins/VolumeTextureFactory.h"
 
 #include "Asset/AssetOperations.h"
 #include "Asset/PackageSerialization.h"
@@ -380,10 +381,8 @@ namespace Durin::AssetForge::Builtins
 			FVolumeTextureSourceData SourceData;
 			if (!TranslateVolumeTextureAtlasSource(
 				Captured, Settings, SourceData, OutError)) return false;
-			Asset::FVolumeTextureBuildProduct Product;
-			if (!Asset::BuildVolumeTexture(std::move(SourceData),
-				{.OutputFormat = Settings.GetOutputFormat()}, Product, OutError)) return false;
-			if (!Asset::PublishVolumeTextureProduct(Texture, std::move(Product), OutError)
+			if (!Asset::BuildVolumeTextureInto(Texture, std::move(SourceData),
+				{.OutputFormat = Settings.GetOutputFormat()}, OutError)
 				|| !PublishDirectVolumeImportData(Texture, std::move(Filename), HintBase,
 					PhysicalPath,
 					Snapshot, Settings, OutError)) return false;
@@ -397,41 +396,111 @@ namespace Durin::AssetForge::Builtins
 		}
 	}
 
-	auto ImportVolumeTextureAsset(std::string_view FilePath,
-		std::string_view AssetPath, const FVolumeTextureImportSettings& Settings)
-		-> FVolumeTextureImportResult
+	DVolumeTextureFactory::DVolumeTextureFactory(
+		const FObjectInitializer& ObjectInitializer)
+		: Super(ObjectInitializer)
 	{
-		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
-		if (!std::filesystem::is_regular_file(Input))
-			return {false, "Volume texture source image does not exist.", nullptr};
-		if (Lowercase(Input.extension().generic_string()) != ".png")
-			return {false, "Volume texture atlas source must use PNG encoding.", nullptr};
-		std::string Error;
-		if (!Settings.IsValid(&Error)) return {false, std::move(Error), nullptr};
-		FAssetPath ParsedAssetPath;
-		if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &Error))
-			return {false, std::move(Error), nullptr};
-		if (Asset::FindAssetExact(ParsedAssetPath) || Asset::FindResidentPackage(ParsedAssetPath))
-			return {false, std::format("Asset {} already exists.", ParsedAssetPath.ToString()), nullptr};
-		DVolumeTexture* Texture = nullptr;
-		const Asset::FAssetResult Created = Asset::CreateAsset(ParsedAssetPath, Texture);
-		if (!Created || !Texture)
-			return {false, Created.Message.empty()
-				? "VolumeTexture destination could not be created." : Created.Message, nullptr};
-		auto Abandon = [&] {
-			(void)Asset::UnloadPackage(
-				ParsedAssetPath, Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+		SupportedClass = DVolumeTexture::StaticClass();
+		Formats = {"png"};
+	}
+
+	auto DVolumeTextureFactory::FactoryCreateFromFile(
+		DClass* InClass,
+		DObject* InParent,
+		FName InName,
+		EObjectFlags Flags,
+		std::string_view Filename,
+		DObject*,
+		FFactoryDiagnostics* Diagnostics) const -> DObject*
+	{
+		auto Failed = [&](std::string Message) -> DObject* {
+			if (Diagnostics) Diagnostics->Report(Message);
+			return nullptr;
 		};
+		if (InClass != DVolumeTexture::StaticClass())
+			return Failed("Volume texture factory requires the exact VolumeTexture class.");
+		auto* Package = Cast<DPackage>(InParent);
+		if (!Package || !Package->IsAssetPackage())
+			return Failed("Volume texture factory requires an asset package parent.");
+		const std::filesystem::path Input =
+			std::filesystem::absolute(Filename).lexically_normal();
+		if (!std::filesystem::is_regular_file(Input))
+			return Failed("Volume texture source image does not exist.");
+		if (Lowercase(Input.extension().generic_string()) != ".png")
+			return Failed("Volume texture atlas source must use PNG encoding.");
+		std::string Error;
+		if (!Settings.IsValid(&Error)) return Failed(std::move(Error));
+		auto* Texture = NewObject<DVolumeTexture>(
+			InClass, Package, InName, Flags);
+		if (!Texture)
+			return Failed("Volume texture object could not be created.");
 		if (!RebuildVolumeFromFilename(
-			*Texture, {}, ESourceHintBase::AssetRelative,
-			Settings, Error, nullptr, Input))
+			*Texture, Input.generic_string(), ESourceHintBase::AssetRelative,
+			Settings, Error, nullptr, Input)) return Failed(std::move(Error));
+		return Texture;
+	}
+
+	auto DVolumeTextureFactory::GetReimportCapabilities(
+		const DObject& Object) const -> FReimportCapabilities
+	{
+		const auto* Texture = Cast<DVolumeTexture>(&Object);
+		const auto* Data = Texture ? dynamic_cast<const DVolumeTextureImportData*>(
+			Texture->GetAssetImportData()) : nullptr;
+		if (!Texture || !Texture->GetPackage() || !Data)
+			return {.Diagnostic = "VolumeTexture has no current family import data."};
+		const FSourceFile* Source =
+			Data->GetVolumeTextureState().SourceData.FindByRole("source");
+		const bool bHasSource = Source && !Source->Hint.empty();
+		return {.bCanReimport = bHasSource, .bCanReimportFromFile = true,
+			.Diagnostic = bHasSource ? std::string{}
+				: "VolumeTexture has no source hint to reimport."};
+	}
+
+	auto DVolumeTextureFactory::FactoryReimport(
+		DObject& Object, FReimportCompletion Completion) const -> void
+	{
+		auto* Texture = Cast<DVolumeTexture>(&Object);
+		const auto* Data = Texture ? dynamic_cast<const DVolumeTextureImportData*>(
+			Texture->GetAssetImportData()) : nullptr;
+		const FVolumeTextureImportDataState State = Data
+			? Data->GetVolumeTextureState() : FVolumeTextureImportDataState{};
+		const FSourceFile* Source = Data ? State.SourceData.FindByRole("source") : nullptr;
+		if (!Texture || !Data || !Source || Source->Hint.empty())
 		{
-			Abandon();
-			return {false, std::move(Error), nullptr};
+			if (Completion) Completion({EReimportStatus::MissingSource,
+				"VolumeTexture has no source hint to reimport."});
+			return;
 		}
-		const Asset::FAssetResult Saved = Asset::SavePackage(Texture->GetPackage());
-		if (!Saved) return {false, Saved.Message, Texture};
-		return {true, {}, Texture};
+		std::string Error;
+		const bool bSucceeded = RebuildVolumeFromFilename(*Texture,
+			Source->Hint, Source->HintBase, MakeImportSettings(State), Error, nullptr);
+		if (Completion) Completion(bSucceeded
+			? FReimportResult{EReimportStatus::Succeeded, {}}
+			: FReimportResult{EReimportStatus::SourceOrBuildFailure, std::move(Error)});
+	}
+
+	auto DVolumeTextureFactory::FactoryReimportFromFiles(DObject& Object,
+		std::span<const std::string> Filenames, FReimportCompletion Completion) const
+		-> void
+	{
+		auto* Texture = Cast<DVolumeTexture>(&Object);
+		const auto* Data = Texture ? dynamic_cast<const DVolumeTextureImportData*>(
+			Texture->GetAssetImportData()) : nullptr;
+		if (!Texture || !Data || Filenames.size() != 1 || Filenames.front().empty())
+		{
+			if (Completion) Completion({EReimportStatus::SourceOrBuildFailure,
+				"VolumeTexture reimport requires one source file and current import data."});
+			return;
+		}
+		const std::filesystem::path Requested =
+			std::filesystem::absolute(Filenames.front()).lexically_normal();
+		std::string Error;
+		const bool bSucceeded = RebuildVolumeFromFilename(*Texture, {},
+			ESourceHintBase::AssetRelative,
+			MakeImportSettings(Data->GetVolumeTextureState()), Error, nullptr, Requested);
+		if (Completion) Completion(bSucceeded
+			? FReimportResult{EReimportStatus::Succeeded, {}}
+			: FReimportResult{EReimportStatus::SourceOrBuildFailure, std::move(Error)});
 	}
 
 	auto ReimportVolumeTexture(DVolumeTexture& Texture, std::string& OutError,

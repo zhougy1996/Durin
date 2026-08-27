@@ -8,6 +8,7 @@
 #include "NativeTestSupport.h"
 #include "Texture/TextureCube.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
+#include "Texture/TextureCubeFactoryTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -105,8 +106,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		for (size_t Index = 0; Index < FaceFiles.size(); ++Index)
 			FaceFiles[Index] = (std::filesystem::path(DURIN_TEST_DATA_DIR)
 				/ "SkyBoxConvention" / std::format("{}.png", FaceNames[Index])).generic_string();
-		const AssetForge::Builtins::FTextureCubeImportResult Imported =
-			AssetForge::Builtins::ImportTextureCubeFaces(
+		const Durin::Testing::TFactoryImportResult<Durin::DTextureCube> Imported =
+			AssetForge::Builtins::ImportTextureCubeFacesForTest(
 				FaceFiles, CubePath.ToString());
 		ASSERT_TRUE(Imported) << Imported.Message;
 		const std::filesystem::path PackagePath = Root / "Content/Sky.dasset";

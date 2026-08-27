@@ -564,7 +564,8 @@ namespace Durin::Asset
 			ResidentPackages.erase(Entry.RegistryEntry.PackagePath);
 		for (DPackage* Package : Packages)
 		{
-			RemoveFromRoot(Package);
+			if (Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
+				RemoveFromRoot(Package);
 			MarkObjectHierarchyAsGarbage(Package);
 		}
 		if (!Packages.empty()) CollectGarbage();

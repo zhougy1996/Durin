@@ -60,6 +60,24 @@ namespace Durin::Asset
 		const FTextureCubeFacesBuildSettings& Settings,
 		FTextureCubeBuildProduct& OutProduct,
 		std::string& OutError) -> bool;
+	TEXTUREBUILD_API auto BuildTextureCubePanoramaInto(
+		DTextureCube& Texture,
+		TextureCubeBuilder::FTexturePanoramaImage Panorama,
+		const FXxHash128& SourceHash,
+		const FTextureCubePanoramaBuildSettings& Settings,
+		std::string& OutError) -> bool;
+	TEXTUREBUILD_API auto BuildTextureCubePanoramaInto(
+		DTextureCube& Texture,
+		TextureCubeBuilder::FTexturePanoramaFloatImage Panorama,
+		const FXxHash128& SourceHash,
+		const FTextureCubePanoramaBuildSettings& Settings,
+		std::string& OutError) -> bool;
+	TEXTUREBUILD_API auto BuildTextureCubeFacesInto(
+		DTextureCube& Texture,
+		FTextureCubeSourceData SourceData,
+		const std::array<FXxHash128, TextureCubeFaceCount>& SourceHashes,
+		const FTextureCubeFacesBuildSettings& Settings,
+		std::string& OutError) -> bool;
 	TEXTUREBUILD_API auto PublishTextureCubeProduct(
 		DTextureCube& Texture,
 		FTextureCubeBuildProduct Product,

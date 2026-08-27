@@ -46,6 +46,8 @@ namespace Durin
 
 		size_t Size = 0;
 
+		EObjectFlags Flags = EObjectFlags::NoFlags;
+
 		EObjectConstructionPurpose Purpose = EObjectConstructionPurpose::RuntimeObject;
 	};
 
@@ -64,6 +66,8 @@ namespace Durin
 		DObject* Outer = nullptr;
 
 		FName Name;
+
+		EObjectFlags Flags = EObjectFlags::NoFlags;
 
 		EObjectConstructionPurpose Purpose = EObjectConstructionPurpose::RuntimeObject;
 	};
@@ -143,7 +147,11 @@ namespace Durin
 	};
 
 	COREDOBJECT_API auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*;
-	COREDOBJECT_API auto NewObject(DClass* Class, DObject* Outer, FName Name) -> DObject*;
+	COREDOBJECT_API auto NewObject(
+		DClass* Class,
+		DObject* Outer,
+		FName Name,
+		EObjectFlags Flags = EObjectFlags::NoFlags) -> DObject*;
 	COREDOBJECT_API auto CanConstructObjectOfClass(const DClass* Class, const DClass* RequiredBaseClass) -> bool;
 
 	template<typename T>
@@ -169,10 +177,39 @@ namespace Durin
 	}
 
 	template<typename T>
-	auto NewObject(DClass* Class, DObject* Outer, FName Name) -> T*
+	auto NewObject(
+		DObject* Outer,
+		FName Name,
+		EObjectFlags Flags,
+		EObjectConstructionPurpose Purpose = EObjectConstructionPurpose::RuntimeObject
+	) -> T*
 	{
 		static_assert(std::is_base_of_v<DObject, T>, "T must be derived from DObject");
-		return CanConstructObjectOfClass(Class, T::StaticClass()) ? static_cast<T*>(NewObject(Class, Outer, Name)) : nullptr;
+
+		FStaticConstructObjectParameters Params;
+		Params.Class = T::StaticClass();
+		Params.Outer = Outer;
+		Params.Name = Name;
+		Params.Size = sizeof(T);
+		Params.Flags = Flags;
+		Params.Purpose = Purpose;
+
+		DObject* Obj = StaticConstructObject(Params);
+
+		DObjectForceRegistration(Obj);
+		return static_cast<T*>(Obj);
+	}
+
+	template<typename T>
+	auto NewObject(
+		DClass* Class,
+		DObject* Outer,
+		FName Name,
+		EObjectFlags Flags = EObjectFlags::NoFlags) -> T*
+	{
+		static_assert(std::is_base_of_v<DObject, T>, "T must be derived from DObject");
+		return CanConstructObjectOfClass(Class, T::StaticClass())
+			? static_cast<T*>(NewObject(Class, Outer, Name, Flags)) : nullptr;
 	}
 
 	namespace DurinCodeGen

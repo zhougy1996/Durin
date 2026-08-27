@@ -1,0 +1,14 @@
+{
+    "ModuleName": "AssetTools",
+    "LinkType": "Shared",
+    "PCH": "SharedPCH_DObject",
+    "PrivateDependencies": [],
+    "PublicDependencies": [
+        "AssetCore",
+        "Core",
+        "CoreDObject"
+    ],
+    "ReflectHeaders": [
+        "Public/Factories/Factory.h"
+    ]
+}

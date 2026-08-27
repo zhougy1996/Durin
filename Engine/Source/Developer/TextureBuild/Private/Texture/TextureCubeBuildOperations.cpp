@@ -309,4 +309,46 @@ namespace Durin::Asset
 		OutError.clear();
 		return true;
 	}
+
+	auto BuildTextureCubePanoramaInto(
+		DTextureCube& Texture,
+		TextureCubeBuilder::FTexturePanoramaImage Panorama,
+		const FXxHash128& SourceHash,
+		const FTextureCubePanoramaBuildSettings& Settings,
+		std::string& OutError) -> bool
+	{
+		FTextureCubeBuildProduct Product;
+		return BuildTextureCubePanorama(
+			std::move(Panorama), SourceHash, Settings, Product, OutError)
+			&& PublishTextureCubeProduct(
+				Texture, std::move(Product), {.PanoramaHash = SourceHash}, OutError);
+	}
+
+	auto BuildTextureCubePanoramaInto(
+		DTextureCube& Texture,
+		TextureCubeBuilder::FTexturePanoramaFloatImage Panorama,
+		const FXxHash128& SourceHash,
+		const FTextureCubePanoramaBuildSettings& Settings,
+		std::string& OutError) -> bool
+	{
+		FTextureCubeBuildProduct Product;
+		return BuildTextureCubePanorama(
+			std::move(Panorama), SourceHash, Settings, Product, OutError)
+			&& PublishTextureCubeProduct(
+				Texture, std::move(Product), {.PanoramaHash = SourceHash}, OutError);
+	}
+
+	auto BuildTextureCubeFacesInto(
+		DTextureCube& Texture,
+		FTextureCubeSourceData SourceData,
+		const std::array<FXxHash128, TextureCubeFaceCount>& SourceHashes,
+		const FTextureCubeFacesBuildSettings& Settings,
+		std::string& OutError) -> bool
+	{
+		FTextureCubeBuildProduct Product;
+		return BuildTextureCubeFaces(
+			std::move(SourceData), SourceHashes, Settings, Product, OutError)
+			&& PublishTextureCubeProduct(
+				Texture, std::move(Product), {.FaceHashes = SourceHashes}, OutError);
+	}
 }

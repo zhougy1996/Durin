@@ -90,6 +90,19 @@ namespace Durin::Asset
 			std::move(Product.PersistenceDiagnostic), OutError);
 	}
 
+	auto BuildVolumeTextureInto(
+		DVolumeTexture& Texture,
+		FVolumeTextureSourceData SourceData,
+		const FVolumeTextureBuildSettings& Settings,
+		std::string& OutError) -> bool
+	{
+		FVolumeTextureBuildProduct Product;
+		return BuildVolumeTexture(
+			std::move(SourceData), Settings, Product, OutError)
+			&& PublishVolumeTextureProduct(
+				Texture, std::move(Product), OutError);
+	}
+
 	auto MakeVolumeTextureDerivedDataKey(const DVolumeTexture& Texture,
 		std::string& OutError) -> std::string
 	{

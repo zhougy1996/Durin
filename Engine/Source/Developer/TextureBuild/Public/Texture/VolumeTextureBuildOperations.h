@@ -21,6 +21,11 @@ namespace Durin::Asset
 		const FVolumeTextureBuildSettings& Settings,
 		FVolumeTextureBuildProduct& OutProduct,
 		std::string& OutError) -> bool;
+	TEXTUREBUILD_API auto BuildVolumeTextureInto(
+		DVolumeTexture& Texture,
+		FVolumeTextureSourceData SourceData,
+		const FVolumeTextureBuildSettings& Settings,
+		std::string& OutError) -> bool;
 	TEXTUREBUILD_API auto PublishVolumeTextureProduct(
 		DVolumeTexture& Texture,
 		FVolumeTextureBuildProduct Product,

@@ -29,11 +29,6 @@ namespace Durin
 		STATICMESHEDITOR_API auto UnregisterStaticMeshEditor() -> void;
 		STATICMESHEDITOR_API auto OpenImportDialog(std::string_view Directory) -> void;
 		STATICMESHEDITOR_API auto DrawImportDialog(bool bAllowAssetMutation) -> void;
-		STATICMESHEDITOR_API auto ReimportAsset(std::string_view AssetPath,
-			std::function<void(std::string)> ReportError) -> void;
-		STATICMESHEDITOR_API auto ReimportAssetFromFile(std::string_view AssetPath,
-			std::function<void(std::string)> ReportError) -> void;
-
 	private:
 		FModuleOwnedCallbackRegistration EditorExtensionCallbacks;
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;

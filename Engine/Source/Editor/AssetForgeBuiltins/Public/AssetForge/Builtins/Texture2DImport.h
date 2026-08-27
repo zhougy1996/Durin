@@ -14,11 +14,6 @@ namespace Durin::AssetForge::Builtins
 		FTextureSourceData& OutSourceData,
 		std::string& OutError) -> bool;
 
-	ASSETFORGEBUILTINS_API auto ImportTexture2DAsset(
-		std::string_view FilePath,
-		std::string_view AssetPath,
-		const FTexture2DImportSettings& Settings = {}) -> FTexture2DImportResult;
-
 	// Reimports from the retained optional source hint. Completion runs on the
 	// game thread after the detached candidate is either published or rejected.
 	ASSETFORGEBUILTINS_API auto ReimportTexture2D(

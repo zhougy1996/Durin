@@ -32,10 +32,7 @@
 #include "Thumbnail/AssetThumbnailProvider.h"
 #include "GrayboxSceneBuild.h"
 #include "Misc/StartupCommand.h"
-#include "Asset/Load.h"
-#include "AssetForge/Builtins/TerrainHeightmapImport.h"
 #include "Terrain/TerrainHeightmap.h"
-#include "Dialogs/FileDialog.h"
 
 namespace Durin
 {
@@ -76,35 +73,6 @@ namespace Durin
 			return false;
 		}
 
-		auto ReimportTerrainHeightmapAsset(std::string_view AssetPath,
-			std::function<void(std::string)> ReportError) -> void
-		{
-			auto Report = [&ReportError](std::string Message) {
-				if (ReportError) ReportError(std::move(Message));
-			};
-			FAssetPath Path;
-			if (!FAssetPath::TryCreate(AssetPath, Path))
-			{
-				Report("The selected Terrain Heightmap path is invalid.");
-				return;
-			}
-			DTerrainHeightmap* Heightmap = nullptr;
-			const Asset::FAssetResult Load = Asset::LoadAsset(Path, Heightmap);
-			if (!Load || !Heightmap)
-			{
-				Report(Load ? "The selected Terrain Heightmap could not be loaded."
-					: Load.Message);
-				return;
-			}
-			std::string Error;
-			if (!AssetForge::Builtins::ReimportTerrainHeightmap(
-				*Heightmap, Error))
-			{
-				Report(std::move(Error));
-				return;
-			}
-			(void)Asset::UnloadPackage(Path);
-		}
 	}
 
 	IMPLEMENT_MODULE(FLevelEditorModule, LevelEditor)
@@ -297,48 +265,5 @@ namespace Durin
 		if (const std::shared_ptr<MLevelEditor> Workspace = LevelEditorWorkspace.lock())
 			Workspace->RequestContentBrowserImport(std::string(Directory), Type);
 	}
-
-	auto FLevelEditorModule::ReimportTerrainHeightmap(std::string_view AssetPath,
-		std::function<void(std::string)> ReportError) -> void
-	{
-		ReimportTerrainHeightmapAsset(AssetPath, std::move(ReportError));
-	}
-
-	auto FLevelEditorModule::ReimportTerrainHeightmapFromFile(std::string_view AssetPath,
-		std::function<void(std::string)> ReportError) -> void
-	{
-		auto Report = [&ReportError](std::string Message) {
-			if (ReportError) ReportError(std::move(Message));
-		};
-		FAssetPath Path;
-		if (!FAssetPath::TryCreate(AssetPath, Path))
-		{
-			Report("The selected Terrain Heightmap path is invalid.");
-			return;
-		}
-		DTerrainHeightmap* Heightmap = nullptr;
-		const Asset::FAssetResult Load = Asset::LoadAsset(Path, Heightmap);
-		if (!Load || !Heightmap)
-		{
-			Report(Load ? "The selected Terrain Heightmap could not be loaded." : Load.Message);
-			return;
-		}
-		FFileDialogRequest Request;
-		Request.Title = "Reimport Terrain Heightmap From File";
-		Request.Filters = {{"Supported Heightmaps", "*.png;*.r16;*.raw"},
-			{"PNG", "*.png"}, {"Raw 16-bit", "*.r16;*.raw"}};
-		const FFileDialogResult Selection = OpenFileDialog(Request);
-		if (Selection.Status == EFileDialogStatus::Cancelled) return;
-		if (Selection.Status == EFileDialogStatus::Error)
-		{
-			Report(Selection.ErrorMessage);
-			return;
-		}
-		std::string Error;
-		if (!AssetForge::Builtins::ReimportTerrainHeightmapFromFile(
-			*Heightmap, Selection.FilePath, Error)) Report(std::move(Error));
-		else (void)Asset::UnloadPackage(Path);
-	}
-
 
 }

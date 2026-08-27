@@ -33,6 +33,9 @@
 #include "Texture/VolumeTexture.h"
 #include "Asset.h"
 #include "Asset/AssetImportData.h"
+#include "AssetTools/ReimportManager.h"
+#include "Dialogs/FileDialog.h"
+#include "DObject/Package.h"
 
 #include "Widgets/MFunctionWidget.h"
 #include "Widgets/MWindow.h"
@@ -87,6 +90,132 @@ namespace Durin::Editor::MainFrame
 
 		namespace
 		{
+		auto LoadReimportObject(std::string_view AssetPath, FAssetPath& OutPath,
+			DObject*& OutObject, std::string& OutError) -> bool
+		{
+			if (!FAssetPath::TryCreate(AssetPath, OutPath))
+			{
+				OutError = "The selected asset path is invalid.";
+				return false;
+			}
+			const Asset::FAssetResult Loaded = Asset::LoadAsset(OutPath, OutObject);
+			if (!Loaded || !OutObject)
+			{
+				OutError = Loaded ? "The selected asset could not be loaded." : Loaded.Message;
+				return false;
+			}
+			return true;
+		}
+
+		auto SelectOneReimportFile(std::string Title,
+			std::vector<FFileDialogFilter> Filters, std::string& OutFile,
+			std::string& OutError) -> bool
+		{
+			FFileDialogRequest Request;
+			Request.Title = std::move(Title);
+			Request.Filters = std::move(Filters);
+			const FFileDialogResult Selection = OpenFileDialog(Request);
+			if (Selection.Status == EFileDialogStatus::Cancelled) return false;
+			if (Selection.Status == EFileDialogStatus::Error)
+			{
+				OutError = Selection.ErrorMessage;
+				return false;
+			}
+			OutFile = Selection.FilePath;
+			return true;
+		}
+
+		auto SelectReimportFiles(DObject& Object, std::vector<std::string>& OutFiles,
+			std::string& OutError) -> bool
+		{
+			if (Object.IsA(DTexture2D::StaticClass()))
+			{
+				OutFiles.resize(1);
+				return SelectOneReimportFile("Reimport Texture2D From File",
+					{{"Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"}},
+					OutFiles.front(), OutError);
+			}
+			if (auto* Cube = Cast<DTextureCube>(&Object))
+			{
+				const std::vector<FFileDialogFilter> Filters{
+					{"Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga;*.hdr"}};
+				if (Cube->GetSourceLayout()
+					== ETextureCubeSourceLayout::EquirectangularPanorama)
+				{
+					OutFiles.resize(1);
+					return SelectOneReimportFile("Reimport TextureCube Panorama From File",
+						Filters, OutFiles.front(), OutError);
+				}
+				constexpr std::array<std::string_view, TextureCubeFaceCount> FaceNames{
+					"Positive X", "Negative X", "Positive Y", "Negative Y",
+					"Positive Z", "Negative Z"};
+				OutFiles.resize(TextureCubeFaceCount);
+				for (size_t Index = 0; Index < OutFiles.size(); ++Index)
+					if (!SelectOneReimportFile(std::format(
+						"Reimport TextureCube {} Face From File", FaceNames[Index]),
+						Filters, OutFiles[Index], OutError)) return false;
+				return true;
+			}
+			if (Object.IsA(DVolumeTexture::StaticClass()))
+			{
+				OutFiles.resize(1);
+				return SelectOneReimportFile("Reimport VolumeTexture Atlas From File",
+					{{"PNG", "*.png"}}, OutFiles.front(), OutError);
+			}
+			if (Object.IsA(DTerrainHeightmap::StaticClass()))
+			{
+				OutFiles.resize(1);
+				return SelectOneReimportFile("Reimport Terrain Heightmap From File",
+					{{"Supported Heightmaps", "*.png;*.r16;*.raw"}},
+					OutFiles.front(), OutError);
+			}
+			if (Object.IsA(DStaticMesh::StaticClass()))
+			{
+				OutFiles.resize(1);
+				return SelectOneReimportFile("Reimport StaticMesh From File",
+					{{"Supported Geometry", "*.fbx;*.gltf;*.glb;*.obj;*.dae;*.3ds;*.ply;*.stl"}},
+					OutFiles.front(), OutError);
+			}
+			OutError = "The selected asset does not support reimport from file.";
+			return false;
+		}
+
+		auto ExecuteReimport(bool bFromFile, std::string AssetPath,
+			std::function<void(std::string)> ReportError) -> void
+		{
+			FAssetPath Path;
+			DObject* Object = nullptr;
+			std::string Error;
+			if (!LoadReimportObject(AssetPath, Path, Object, Error))
+			{
+				if (ReportError) ReportError(std::move(Error));
+				return;
+			}
+		auto Completion = [ReportError](
+				FReimportResult Result) mutable {
+				if (!Result)
+				{
+					if (ReportError) ReportError(Result.Message.empty()
+						? "Asset reimport failed." : std::move(Result.Message));
+					return;
+				}
+				if (GEditor) GEditor->GetTransactionManager().NotifyMountedContentMutation();
+			};
+			if (!bFromFile)
+			{
+				FReimportManager::Reimport(*Object, {}, std::move(Completion));
+				return;
+			}
+			std::vector<std::string> Files;
+			if (!SelectReimportFiles(*Object, Files, Error))
+			{
+				if (!Error.empty() && ReportError) ReportError(std::move(Error));
+				return;
+			}
+			FReimportManager::ReimportFromFiles(
+				*Object, Files, {}, std::move(Completion));
+		}
+
 		enum class EHostDrawerTool : uint8
 		{
 			ContentBrowser,
@@ -141,7 +270,7 @@ namespace Durin::Editor::MainFrame
 							.Type = Editor::ENotificationType::Error,
 							.Message = std::move(Message)});
 				},
-				.Imported = [&Context](std::string AssetPath) {
+				.AssetCreated = [&Context](std::string AssetPath) {
 					if (!Context.ContentBrowserTool) return;
 					Context.ContentBrowserTool->NotifyMountedContentChanged();
 					Context.ContentBrowserTool->RevealAsset(AssetPath);
@@ -299,65 +428,26 @@ namespace Durin::Editor::MainFrame
 								StaticMesh->OpenImportDialog(Directory); break;
 							}
 						},
-						.ClassifyReimport = [](std::string_view ClassName) {
-							if (ClassName == DTexture2D::StaticClass()->GetQualifiedName().ToString()
-								|| ClassName == DTextureCube::StaticClass()->GetQualifiedName().ToString()
-								|| ClassName == DVolumeTexture::StaticClass()->GetQualifiedName().ToString())
-								return Editor::EBuiltinReimportFamily::Texture;
-							if (ClassName == DTerrainHeightmap::StaticClass()->GetQualifiedName().ToString())
-								return Editor::EBuiltinReimportFamily::TerrainHeightmap;
-							if (ClassName == DStaticMesh::StaticClass()->GetQualifiedName().ToString())
-								return Editor::EBuiltinReimportFamily::StaticMesh;
-							return Editor::EBuiltinReimportFamily::None;
-						},
-						.CanReimport = [](std::string_view AssetPath) {
+						.QueryReimport = [](std::string_view AssetPath) {
 							FAssetPath Path;
-							if (!FAssetPath::TryCreate(AssetPath, Path)) return false;
-							const Asset::FAssetCatalogEntry Entry = Asset::FindAssetExact(Path);
-							if (!Entry) return false;
-							Asset::FAssetPackageInspection Inspection;
-							FAssetImportInfo ImportInfo;
+							if (!FAssetPath::TryCreate(AssetPath, Path))
+								return ContentBrowser::FReimportAvailability{};
+							DPackage* ExistingPackage = Asset::FindResidentPackage(Path);
+							DObject* Object = nullptr;
 							std::string Error;
-							return Asset::InspectAssetPackage(Entry->PhysicalPath, Inspection)
-								&& InspectAssetImportInfo(Inspection, ImportInfo, Error)
-								&& !ImportInfo.Sources.empty()
-								&& std::ranges::all_of(ImportInfo.Sources,
-									[](const FSourceFile& Source) {
-										return !Source.Hint.empty();
-									});
+							if (!LoadReimportObject(AssetPath, Path, Object, Error))
+								return ContentBrowser::FReimportAvailability{};
+							const FReimportCapabilities Capabilities =
+								FReimportManager::GetCapabilities(*Object);
+							if (!ExistingPackage) (void)Asset::UnloadPackage(Path);
+							return ContentBrowser::FReimportAvailability{
+								Capabilities.bCanReimport,
+								Capabilities.bCanReimportFromFile};
 						},
-						.Reimport = [Level = &LevelEditorModule,
-							Texture = &TextureEditorModule,
-							StaticMesh = &StaticMeshEditorModule](
-							Editor::EBuiltinReimportFamily Family,
-							Editor::EBuiltinReimportMode Mode,
-							std::string AssetPath,
+						.Reimport = [](bool bFromFile, std::string AssetPath,
 							std::function<void(std::string)> ReportError) {
-							switch (Family)
-							{
-							case Editor::EBuiltinReimportFamily::Texture:
-								if (Mode == Editor::EBuiltinReimportMode::FromFile)
-									Texture->ReimportAssetFromFile(
-										AssetPath, std::move(ReportError));
-								else Texture->ReimportAsset(
-									AssetPath, std::move(ReportError));
-								break;
-							case Editor::EBuiltinReimportFamily::TerrainHeightmap:
-								if (Mode == Editor::EBuiltinReimportMode::FromFile)
-									Level->ReimportTerrainHeightmapFromFile(
-										AssetPath, std::move(ReportError));
-								else Level->ReimportTerrainHeightmap(
-									AssetPath, std::move(ReportError));
-								break;
-							case Editor::EBuiltinReimportFamily::StaticMesh:
-								if (Mode == Editor::EBuiltinReimportMode::FromFile)
-									StaticMesh->ReimportAssetFromFile(
-										AssetPath, std::move(ReportError));
-								else StaticMesh->ReimportAsset(
-									AssetPath, std::move(ReportError));
-								break;
-							case Editor::EBuiltinReimportFamily::None: break;
-							}
+							ExecuteReimport(bFromFile, std::move(AssetPath),
+								std::move(ReportError));
 						},
 						.DrawImportDialogs = [Texture = &TextureEditorModule,
 							StaticMesh = &StaticMeshEditorModule](bool bAllowAssetMutation) {

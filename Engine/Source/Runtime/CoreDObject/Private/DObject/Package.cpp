@@ -84,6 +84,16 @@ namespace Durin
 		return true;
 	}
 
+	auto CreatePackage(const FAssetPath& Path) -> DPackage*
+	{
+		if (!Path.IsValid() || FindPackage(Path.GetView())) return nullptr;
+
+		DPackage* Package = NewObject<DPackage>(
+			nullptr, FName(Path.GetAssetName()), EObjectFlags::Standalone);
+		Package->InitializeAssetPackage(Path);
+		return Package;
+	}
+
 	auto FindPackage(std::string_view PackagePath) -> DPackage*
 	{
 		auto It = GetPackageRegistry().find(std::string(PackagePath));

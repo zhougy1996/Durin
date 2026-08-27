@@ -1,4 +1,5 @@
 #include "AssetForge/Builtins/Texture2DImport.h"
+#include "AssetForge/Builtins/Texture2DFactory.h"
 #include "Asset/AssetImportData.h"
 #include "DObject/Package.h"
 #include "EncodedSourceSnapshot.h"
@@ -15,6 +16,8 @@
 namespace Durin::AssetForge::Builtins
 {
 	using namespace Durin::Asset;
+	auto MakeTexture2DBuildSettings(const DTexture2D& Texture)
+		-> Asset::FTexture2DBuildSettings;
 	namespace
 	{
 		auto ResolveOwningPackagePhysicalPath(
@@ -71,6 +74,7 @@ namespace Durin::AssetForge::Builtins
 			Asset::ETexture2DCompilationPriority Priority,
 			Asset::FTexture2DCompilationCompletion Completion,
 			bool bPublishImportData,
+			bool bSave,
 			std::optional<std::filesystem::path> SelectedPhysicalPath = {}) -> bool
 		{
 			if (!Texture.GetPackage())
@@ -125,7 +129,7 @@ namespace Durin::AssetForge::Builtins
 				.Priority = Priority}, OutError,
 				[&Texture, Filename, HintBase, DisplayLabel,
 					ContentHash, ByteCount,
-					bPublishImportData,
+					bPublishImportData, bSave,
 					Completion = std::move(Completion)](
 						Asset::FTexture2DCompilationResult Result) mutable {
 					if (Result.Succeeded() && bPublishImportData)
@@ -137,16 +141,168 @@ namespace Durin::AssetForge::Builtins
 							Result.Status = Asset::ETexture2DCompilationStatus::Failed;
 							Result.Diagnostic = std::move(Error);
 						}
-						else if (const Asset::FAssetResult Saved =
-							Asset::SavePackage(Texture.GetPackage()); !Saved)
+						else if (bSave)
 						{
-							Result.Status = Asset::ETexture2DCompilationStatus::Failed;
-							Result.Diagnostic = Saved.Message;
+							const Asset::FAssetResult Saved =
+								Asset::SavePackage(Texture.GetPackage());
+							if (!Saved)
+							{
+								Result.Status = Asset::ETexture2DCompilationStatus::Failed;
+								Result.Diagnostic = Saved.Message;
+							}
 						}
 					}
 					if (Completion) Completion(std::move(Result));
 				});
 		}
+	}
+
+	DTexture2DFactory::DTexture2DFactory(
+		const FObjectInitializer& ObjectInitializer)
+		: Super(ObjectInitializer)
+	{
+		SupportedClass = DTexture2D::StaticClass();
+		Formats = {"png", "jpg", "jpeg", "bmp", "tga"};
+	}
+
+	auto DTexture2DFactory::FactoryCreateFromFile(
+		DClass* InClass,
+		DObject* InParent,
+		FName InName,
+		EObjectFlags Flags,
+		std::string_view Filename,
+		DObject*,
+		FFactoryDiagnostics* Diagnostics) const -> DObject*
+	{
+		auto Failed = [&](std::string Message) -> DObject* {
+			if (Diagnostics) Diagnostics->Report(Message);
+			return nullptr;
+		};
+		if (InClass != DTexture2D::StaticClass())
+			return Failed("Texture2D factory requires the exact Texture2D class.");
+		auto* Package = Cast<DPackage>(InParent);
+		if (!Package || !Package->IsAssetPackage())
+			return Failed("Texture2D factory requires an asset package parent.");
+		const std::filesystem::path Input =
+			std::filesystem::absolute(Filename).lexically_normal();
+		if (!std::filesystem::is_regular_file(Input))
+			return Failed("Source file does not exist.");
+		if (!IsTexture2DSourceExtension(Input.extension().generic_string()))
+			return Failed("Unsupported texture source format.");
+
+		std::string Error;
+		FEncodedSourceSnapshot Snapshot;
+		if (!CaptureEncodedSource(
+			Input.generic_string(), Input, Snapshot, Error,
+			64ull * 1'024ull * 1'024ull)) return Failed(std::move(Error));
+		std::filesystem::path OwningPackagePath;
+		if (!ResolveOwningPackagePhysicalPath(
+			Package->GetPackagePath(), OwningPackagePath, Error))
+			return Failed(std::move(Error));
+		std::string SourceHint;
+		ESourceHintBase HintBase;
+		if (!MakeSourceHint(
+			Input.generic_string(), OwningPackagePath.generic_string(),
+			HintBase, SourceHint, Error)) return Failed(std::move(Error));
+		FTextureSourceData SourceData;
+		if (!TranslateTexture2DSource(
+			Snapshot.GetBytes(), SourceData, Error)) return Failed(std::move(Error));
+
+		auto* Texture = NewObject<DTexture2D>(
+			InClass, Package, InName, Flags);
+		if (!Texture) return Failed("Texture2D object could not be created.");
+		if (!Asset::BuildTexture2DInto(*Texture, {
+			.SourceData = std::move(SourceData),
+			.SourceContentHashLow = Snapshot.ContentHash.HashLow,
+			.SourceContentHashHigh = Snapshot.ContentHash.HashHigh,
+			.Settings = {
+				.Usage = Settings.Usage,
+				.CompressionQuality = Settings.CompressionQuality,
+				.AlphaMipMode = Settings.AlphaMipMode,
+				.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
+				.MaxResolution = Settings.MaxResolution,
+				.bSRGB = Settings.bSRGB}}, {}, Error))
+			return Failed(std::move(Error));
+		if (!PublishTexture2DImportData(
+			*Texture, std::move(SourceHint), HintBase,
+			Input.filename().generic_string(), Snapshot.ContentHash,
+			Snapshot.FileSize, Error)) return Failed(std::move(Error));
+		return Texture;
+	}
+
+	auto DTexture2DFactory::GetReimportCapabilities(const DObject& Object) const
+		-> FReimportCapabilities
+	{
+		const auto* Texture = Cast<DTexture2D>(&Object);
+		if (!Texture || !Texture->GetPackage())
+			return {.Diagnostic = "Only packaged Texture2D assets can be reimported."};
+		const DAssetImportData* ImportData = Texture->GetAssetImportData();
+		const FSourceFile* Source = ImportData
+			? ImportData->GetSourceData().FindByRole("source") : nullptr;
+		const bool bHasSource = Source && !Source->Hint.empty();
+		return {
+			.bCanReimport = bHasSource,
+			.bCanReimportFromFile = true,
+			.Diagnostic = bHasSource ? std::string{}
+				: "Texture2D has no source hint to reimport."};
+	}
+
+	auto DTexture2DFactory::FactoryReimport(
+		DObject& Object, FReimportCompletion Completion) const -> void
+	{
+		auto* Texture = Cast<DTexture2D>(&Object);
+		const DAssetImportData* ImportData = Texture ? Texture->GetAssetImportData() : nullptr;
+		const FSourceFile* Source = ImportData
+			? ImportData->GetSourceData().FindByRole("source") : nullptr;
+		if (!Texture || !Source || Source->Hint.empty())
+		{
+			if (Completion) Completion({EReimportStatus::MissingSource,
+				"Texture2D has no source hint to reimport."});
+			return;
+		}
+		std::string Error;
+		const bool bSubmitted = SubmitTexture2DFromFilename(
+			*Texture, Source->Hint, Source->HintBase,
+			MakeTexture2DBuildSettings(*Texture), Error,
+			Asset::ETexture2DCompilationPriority::Interactive,
+			[Completion](Asset::FTexture2DCompilationResult Result) mutable {
+				if (Completion) Completion(Result.Succeeded()
+					? FReimportResult{EReimportStatus::Succeeded, {}}
+					: FReimportResult{EReimportStatus::SourceOrBuildFailure,
+						Result.Diagnostic.empty() ? "Texture2D reimport failed."
+							: std::move(Result.Diagnostic)});
+			}, true, false);
+		if (!bSubmitted && Completion)
+			Completion({EReimportStatus::SourceOrBuildFailure, std::move(Error)});
+	}
+
+	auto DTexture2DFactory::FactoryReimportFromFiles(DObject& Object,
+		std::span<const std::string> Filenames, FReimportCompletion Completion) const
+		-> void
+	{
+		auto* Texture = Cast<DTexture2D>(&Object);
+		if (!Texture || Filenames.size() != 1 || Filenames.front().empty())
+		{
+			if (Completion) Completion({EReimportStatus::SourceOrBuildFailure,
+				"Texture2D reimport requires exactly one source file."});
+			return;
+		}
+		const std::filesystem::path Requested =
+			std::filesystem::absolute(Filenames.front()).lexically_normal();
+		std::string Error;
+		const bool bSubmitted = SubmitTexture2DFromFilename(
+			*Texture, {}, ESourceHintBase::AssetRelative,
+			MakeTexture2DBuildSettings(*Texture), Error,
+			Asset::ETexture2DCompilationPriority::Interactive,
+			[Completion](Asset::FTexture2DCompilationResult Result) mutable {
+				if (Completion) Completion(Result.Succeeded()
+					? FReimportResult{EReimportStatus::Succeeded, {}}
+					: FReimportResult{EReimportStatus::SourceOrBuildFailure,
+						Result.Diagnostic.empty() ? "Texture2D reimport from file failed."
+							: std::move(Result.Diagnostic)});
+			}, true, false, Requested);
+		if (!bSubmitted && Completion)
+			Completion({EReimportStatus::SourceOrBuildFailure, std::move(Error)});
 	}
 
 	auto IsTexture2DSourceExtension(std::string_view Extension) -> bool
@@ -188,98 +344,6 @@ namespace Durin::AssetForge::Builtins
 		OutSourceData = {};
 		OutError = "Decoded texture source data is invalid.";
 		return false;
-	}
-
-	auto ImportTexture2DAsset(
-		std::string_view FilePath,
-		std::string_view AssetPath,
-		const FTexture2DImportSettings& Settings) -> FTexture2DImportResult
-	{
-		auto Failed = [](std::string Message, DTexture2D* Asset = nullptr) {
-			return FTexture2DImportResult{false, std::move(Message), Asset};
-		};
-		const std::filesystem::path Input =
-			std::filesystem::absolute(FilePath).lexically_normal();
-		if (!std::filesystem::is_regular_file(Input))
-			return Failed("Source file does not exist.");
-		if (!IsTexture2DSourceExtension(Input.extension().generic_string()))
-			return Failed("Unsupported texture source format.");
-		FAssetPath ParsedAssetPath;
-		std::string Error;
-		if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &Error))
-			return Failed(std::move(Error));
-		if (Asset::FindAssetExact(ParsedAssetPath)
-			|| Asset::FindResidentPackage(ParsedAssetPath))
-			return Failed(std::format(
-				"Asset {} already exists.", ParsedAssetPath.ToString()));
-		FEncodedSourceSnapshot Snapshot;
-		if (!CaptureEncodedSource(
-			Input.generic_string(), Input, Snapshot, Error,
-			64ull * 1'024ull * 1'024ull)) return Failed(std::move(Error));
-		std::filesystem::path OwningPackagePath;
-		if (!ResolveOwningPackagePhysicalPath(
-				ParsedAssetPath.GetView(), OwningPackagePath, Error))
-			return Failed(std::move(Error));
-		std::string Filename;
-		ESourceHintBase HintBase;
-		if (!MakeSourceHint(
-			Input.generic_string(), OwningPackagePath.generic_string(),
-			HintBase, Filename, Error))
-			return Failed(std::move(Error));
-		FTextureSourceData SourceData;
-		if (!TranslateTexture2DSource(
-			Snapshot.GetBytes(), SourceData, Error)) return Failed(std::move(Error));
-		Asset::FTexture2DBuildProduct Product;
-		if (!Asset::BuildTexture2D({
-			.SourceData = std::move(SourceData),
-			.SourceContentHashLow = Snapshot.ContentHash.HashLow,
-			.SourceContentHashHigh = Snapshot.ContentHash.HashHigh,
-			.Settings = {
-				.Usage = Settings.Usage,
-				.CompressionQuality = Settings.CompressionQuality,
-				.AlphaMipMode = Settings.AlphaMipMode,
-				.AlphaCoverageThreshold = Settings.AlphaCoverageThreshold,
-				.MaxResolution = Settings.MaxResolution,
-				.bSRGB = Settings.bSRGB}}, Product, Error))
-			return Failed(std::move(Error));
-
-		DTexture2D* Texture = nullptr;
-		const Asset::FAssetResult Created = Asset::CreateAsset(ParsedAssetPath, Texture);
-		if (!Created || !Texture)
-			return Failed(Created.Message.empty()
-				? "Texture2D destination could not be created." : Created.Message);
-		auto Abandon = [&] {
-			(void)Asset::UnloadPackage(
-				ParsedAssetPath, Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
-		};
-		if (!Asset::PublishTexture2DProduct(*Texture, std::move(Product), {}, Error))
-		{
-			Abandon();
-			return Failed(std::move(Error));
-		}
-		auto* ImportData = NewObject<DAssetImportData>(Texture, "AssetImportData");
-		FAssetImportDataState ImportState;
-		ImportState.SourceData.Sources.push_back({
-			.Role = "source",
-			.DisplayLabel = Input.filename().generic_string(),
-			.Hint = Filename,
-			.HintBase = HintBase,
-			.ContentHashLow = Snapshot.ContentHash.HashLow,
-			.ContentHashHigh = Snapshot.ContentHash.HashHigh,
-			.ByteCount = Snapshot.FileSize});
-		if (!ImportData || !ImportData->SetState(std::move(ImportState), Error)
-			|| !Texture->PublishAssetImportData(*ImportData, Error))
-		{
-			Abandon();
-			return Failed(Error.empty()
-				? "Texture2D import metadata could not be published." : std::move(Error));
-		}
-		const Asset::FAssetResult Saved = Asset::SavePackage(Texture->GetPackage());
-		if (!Saved)
-			return Failed(Saved.Message.empty()
-				? "Texture2D was published but its package could not be saved."
-				: Saved.Message, Texture);
-		return {true, {}, Texture};
 	}
 
 	auto MakeTexture2DBuildSettings(const DTexture2D& Texture)
@@ -337,7 +401,7 @@ namespace Durin::AssetForge::Builtins
 			Texture, Source->Hint, Source->HintBase,
 			MakeTexture2DBuildSettings(Texture),
 			OutError, Asset::ETexture2DCompilationPriority::Interactive,
-			std::move(Completion), true);
+			std::move(Completion), true, true);
 	}
 
 	auto ReimportTexture2DFromFile(
@@ -362,7 +426,7 @@ namespace Durin::AssetForge::Builtins
 			Texture, {}, ESourceHintBase::AssetRelative,
 			MakeTexture2DBuildSettings(Texture), OutError,
 			Asset::ETexture2DCompilationPriority::Interactive,
-			std::move(Completion), true, Requested);
+			std::move(Completion), true, true, Requested);
 	}
 
 	auto SetTexture2DUsage(

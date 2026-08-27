@@ -56,9 +56,21 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 
 	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "TextureSource.png";
 	WriteTextureFixture(Source);
-	Durin::FTexture2DImportResult Result = Durin::AssetForge::Builtins::ImportTexture2DAsset(Source.generic_string(), "/TextureImportTests/Transparent");
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TextureImportTests/Transparent", AssetPath));
+	auto* Factory = Durin::NewObject<Durin::AssetForge::Builtins::DTexture2DFactory>(
+		nullptr, "Texture2DFactoryImportTest", Durin::EObjectFlags::Transient);
+	const Durin::FAssetToolsResult Created = Durin::GetAssetTools().ImportAsset(
+		AssetPath, Durin::DTexture2D::StaticClass(), Source.generic_string(), Factory);
+	Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Result{
+		Created.Succeeded(), Created.Message, Durin::Cast<Durin::DTexture2D>(Created.Asset)};
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
+	EXPECT_TRUE(Result.Asset->GetPackage()->IsDirty());
+	Durin::CollectGarbage();
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(AssetPath), Result.Asset->GetPackage());
+	ASSERT_TRUE(Durin::Asset::SavePackage(Result.Asset->GetPackage()));
 	const Durin::FTextureSourceData* SourceData = Result.Asset->GetSourceData();
 	const Durin::FTexturePlatformData* PlatformData = Result.Asset->GetPlatformData();
 	ASSERT_NE(SourceData, nullptr);
@@ -103,8 +115,6 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	EXPECT_EQ(LiveDerived->State, Durin::ETexturePayloadState::Available);
 	EXPECT_EQ(LiveDecoded->State, Durin::ETexturePayloadState::Available);
 
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Transparent", AssetPath));
 	const Durin::Asset::FAssetCatalogEntry AssetData =
 		Durin::Asset::FindAssetExact(AssetPath);
 	ASSERT_TRUE(AssetData);
@@ -214,7 +224,7 @@ TEST(FTexture2DTests, RetainsSourceHintWithoutCopying)
 	const std::filesystem::path DefaultInput =
 		Durin::Testing::GetTestWorkDirectory() / "FlatDefault.png";
 	WriteTextureFixture(DefaultInput);
-	Durin::FTexture2DImportResult DefaultResult = Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	Durin::Testing::TFactoryImportResult<Durin::DTexture2D> DefaultResult = Durin::AssetForge::Builtins::ImportTexture2DForTest(
 		DefaultInput.generic_string(), "/TextureImportTests/Textures/FlatDefault");
 	ASSERT_TRUE(DefaultResult) << DefaultResult.Message;
 	ASSERT_NE(DefaultResult.Asset, nullptr);
@@ -246,7 +256,7 @@ TEST(FTexture2DTests, RetainsSourceHintWithoutCopying)
 	const std::filesystem::path CustomInput =
 		Durin::Testing::GetTestWorkDirectory() / "CustomInput.png";
 	WriteTextureFixture(CustomInput);
-	Durin::FTexture2DImportResult CustomResult = Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	Durin::Testing::TFactoryImportResult<Durin::DTexture2D> CustomResult = Durin::AssetForge::Builtins::ImportTexture2DForTest(
 		CustomInput.generic_string(), "/TextureImportTests/UI/CustomAsset");
 	ASSERT_TRUE(CustomResult) << CustomResult.Message;
 	ASSERT_NE(CustomResult.Asset, nullptr);
@@ -284,7 +294,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 
 	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "DerivedDataSource.png";
 	WriteTextureFixture(Source);
-	const Durin::FTexture2DImportResult Result = Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Result = Durin::AssetForge::Builtins::ImportTexture2DForTest(
 		Source.generic_string(), "/TextureDerivedDataTests/Cached");
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
@@ -384,7 +394,7 @@ TEST(FTexture2DTests, TimestampOnlySourceChangeUsesPersistedIdentityWithoutDirty
 	const std::filesystem::path Source =
 		Durin::Testing::GetTestWorkDirectory() / "TextureTimestampOnlySource.png";
 	WriteTextureFixture(Source);
-	const Durin::FTexture2DImportResult Result = Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Result = Durin::AssetForge::Builtins::ImportTexture2DForTest(
 		Source.generic_string(), "/TextureImportTests/Fingerprint");
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
@@ -423,7 +433,7 @@ TEST(FTexture2DTests, SourceFileCanBeReplacedAndRejectsTraversalMetadata)
 	const std::filesystem::path Source =
 		Durin::Testing::GetTestWorkDirectory() / "TextureSourceRepair.png";
 	WriteTextureFixture(Source);
-	const Durin::FTexture2DImportResult Result = Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Result = Durin::AssetForge::Builtins::ImportTexture2DForTest(
 		Source.generic_string(), "/TextureImportTests/Repair/Texture");
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
@@ -483,7 +493,7 @@ TEST(FTexture2DTests, SourceChangesRemainUnobservedUntilExplicitReimport)
 	const std::filesystem::path Input =
 		Durin::Testing::GetTestWorkDirectory() / "TextureChangedSource.png";
 	WriteTextureFixture(Input);
-	const Durin::FTexture2DImportResult Result = Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Result = Durin::AssetForge::Builtins::ImportTexture2DForTest(
 		Input.generic_string(), "/TextureImportTests/ChangedSource");
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
@@ -514,9 +524,9 @@ TEST(FTexture2DTests, DerivedDataKeyCoversSourceContentAndBuildSettings)
 	WriteTextureFixture(FirstSource);
 	WriteNpotTextureFixture(SecondSource);
 
-	const Durin::FTexture2DImportResult First = Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> First = Durin::AssetForge::Builtins::ImportTexture2DForTest(
 		FirstSource.generic_string(), "/TextureImportTests/DerivedKeyFirst");
-	const Durin::FTexture2DImportResult Second = Durin::AssetForge::Builtins::ImportTexture2DAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Second = Durin::AssetForge::Builtins::ImportTexture2DForTest(
 		SecondSource.generic_string(), "/TextureImportTests/DerivedKeySecond");
 	ASSERT_TRUE(First) << First.Message;
 	ASSERT_TRUE(Second) << Second.Message;

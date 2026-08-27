@@ -7,45 +7,10 @@
 #include "Widgets/MStaticMeshInspector.h"
 #include "Workspace/StaticMeshEditorWorkspace.h"
 #include "Import/StaticMeshImportDialog.h"
-#include "AssetForge/Builtins/StaticMeshImport.h"
-#include "Dialogs/FileDialog.h"
 
 namespace Durin
 {
 	using namespace Editor::StaticMesh;
-	namespace
-	{
-		auto ReimportStaticMesh(std::string_view AssetPath,
-			std::function<void(std::string)> ReportError) -> void
-		{
-			auto Report = [&ReportError](std::string Message) {
-				if (ReportError) ReportError(std::move(Message));
-			};
-			FAssetPath Path;
-			if (!FAssetPath::TryCreate(AssetPath, Path))
-			{
-				Report("The selected StaticMesh path is invalid.");
-				return;
-			}
-			DStaticMesh* Mesh = nullptr;
-			const Asset::FAssetResult Load = Asset::LoadAsset(Path, Mesh);
-			if (!Load || !Mesh)
-			{
-				Report(Load ? "The selected StaticMesh could not be loaded."
-					: Load.Message);
-				return;
-			}
-			std::string Error;
-			if (!AssetForge::Builtins::ReimportStaticMesh(
-				*Mesh, Error))
-			{
-				Report(std::move(Error));
-				return;
-			}
-			(void)Asset::UnloadPackage(Path);
-		}
-	}
-
 	IMPLEMENT_MODULE(FStaticMeshEditorModule, StaticMeshEditor)
 
 	struct FStaticMeshEditorModule::FIntegrationState
@@ -145,48 +110,6 @@ namespace Durin
 	{
 		if (Integration->ImportDialog)
 			Integration->ImportDialog->Draw(bAllowAssetMutation);
-	}
-
-	auto FStaticMeshEditorModule::ReimportAsset(std::string_view AssetPath,
-		std::function<void(std::string)> ReportError) -> void
-	{
-		ReimportStaticMesh(AssetPath, std::move(ReportError));
-	}
-
-	auto FStaticMeshEditorModule::ReimportAssetFromFile(std::string_view AssetPath,
-		std::function<void(std::string)> ReportError) -> void
-	{
-		auto Report = [&ReportError](std::string Message) {
-			if (ReportError) ReportError(std::move(Message));
-		};
-		FAssetPath Path;
-		if (!FAssetPath::TryCreate(AssetPath, Path))
-		{
-			Report("The selected StaticMesh path is invalid.");
-			return;
-		}
-		DStaticMesh* Mesh = nullptr;
-		const Asset::FAssetResult Load = Asset::LoadAsset(Path, Mesh);
-		if (!Load || !Mesh)
-		{
-			Report(Load ? "The selected StaticMesh could not be loaded." : Load.Message);
-			return;
-		}
-		FFileDialogRequest Request;
-		Request.Title = "Reimport StaticMesh From File";
-		Request.Filters = {{"Supported Meshes", "*.fbx;*.gltf;*.glb;*.obj"},
-			{"FBX", "*.fbx"}, {"glTF", "*.gltf;*.glb"}, {"OBJ", "*.obj"}};
-		const FFileDialogResult Selection = OpenFileDialog(Request);
-		if (Selection.Status == EFileDialogStatus::Cancelled) return;
-		if (Selection.Status == EFileDialogStatus::Error)
-		{
-			Report(Selection.ErrorMessage);
-			return;
-		}
-		std::string Error;
-		if (!AssetForge::Builtins::ReimportStaticMeshFromFile(
-			*Mesh, Selection.FilePath, Error)) Report(std::move(Error));
-		else (void)Asset::UnloadPackage(Path);
 	}
 
 }

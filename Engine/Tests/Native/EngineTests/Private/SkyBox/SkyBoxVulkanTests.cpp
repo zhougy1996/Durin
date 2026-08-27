@@ -6,6 +6,7 @@
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/SceneViewState.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
+#include "Texture/TextureCubeFactoryTestSupport.h"
 
 namespace
 {
@@ -103,7 +104,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 		[BackloggedViewport](Durin::FRHICommandListImmediate&) {});
 	BackloggedViewport.reset();
 
-	Durin::AssetForge::Builtins::FTextureCubeImportResult CubeResult = Durin::AssetForge::Builtins::ImportTextureCubePanorama(
+	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> CubeResult = Durin::AssetForge::Builtins::ImportTextureCubePanoramaForTest(
 		GetSkyBoxPanoramaFixture("AnalyticalLDR.tga").generic_string(),
 		"/SkyBoxAssetTests/VulkanPanoramaLdr",
 		{.FaceDimension = 64}
@@ -112,7 +113,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	auto CubeReference = CubeResult.Asset->GetTextureReferenceRHI();
 	ASSERT_NE(CubeReference, nullptr);
 	auto PlatformData = std::make_shared<Durin::FTextureCubePlatformData>(*CubeResult.Asset->GetPlatformData());
-	Durin::AssetForge::Builtins::FTextureCubeImportResult HdrCubeResult = Durin::AssetForge::Builtins::ImportTextureCubePanorama(
+	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> HdrCubeResult = Durin::AssetForge::Builtins::ImportTextureCubePanoramaForTest(
 		GetSkyBoxPanoramaFixture("AnalyticalHDR.hdr").generic_string(),
 		"/SkyBoxAssetTests/VulkanPanoramaHdr",
 		{.FaceDimension = 64, .ExposureEV = 1.0f}

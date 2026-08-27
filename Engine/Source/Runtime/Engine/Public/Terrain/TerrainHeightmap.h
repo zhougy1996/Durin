@@ -132,15 +132,6 @@ namespace Durin
 	class DTerrainHeightmap;
 	class FTerrainHeightmapRenderStateRecreateContext;
 
-	struct FTerrainHeightmapImportResult
-	{
-		bool bSucceeded = false;
-		std::string Message;
-		DTerrainHeightmap* Asset = nullptr;
-
-		explicit operator bool() const { return bSucceeded; }
-	};
-
 	struct FTerrainHeightmapImportSettings
 	{
 	};

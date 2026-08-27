@@ -1,5 +1,6 @@
 #pragma once
 #include "AssetForge/Builtins/TextureCubeImport.h"
+#include "Texture/TextureCubeFactoryTestSupport.h"
 
 #include "AssetTools.h"
 #include "Asset/AssetRetention.h"
@@ -8,6 +9,7 @@
 #include "Engine/Actor.h"
 #include "Engine/World.h"
 #include "EngineTestSupport.h"
+#include "Texture/TextureFactoryTestSupport.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
@@ -362,12 +364,12 @@ namespace Durin::Tests
 		}
 
 		const std::filesystem::path DataRoot = std::filesystem::path(DURIN_TEST_DATA_DIR) / "SkyBoxConvention";
-		const FTexture2DImportResult ParentTextureResult = AssetForge::Builtins::ImportTexture2DAsset(
+		const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> ParentTextureResult = AssetForge::Builtins::ImportTexture2DForTest(
 			(DataRoot / "PositiveX.png").generic_string(), ParentTexturePath.ToString());
 		if (!ParentTextureResult) return Fail(ParentTextureResult.Message);
 		OutFixtures.ParentTexture = ParentTextureResult.Asset;
 
-		const FTexture2DImportResult OverrideTextureResult = AssetForge::Builtins::ImportTexture2DAsset(
+		const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> OverrideTextureResult = AssetForge::Builtins::ImportTexture2DForTest(
 			(DataRoot / "NegativeX.png").generic_string(), OverrideTexturePath.ToString());
 		if (!OverrideTextureResult) return Fail(OverrideTextureResult.Message);
 		OutFixtures.OverrideTexture = OverrideTextureResult.Asset;
@@ -444,7 +446,7 @@ namespace Durin::Tests
 		Result = Asset::SavePackage(OutFixtures.InvalidMaterialInstance->GetPackage());
 		if (!Result) return Fail(Result.Message);
 
-		const AssetForge::Builtins::FTextureCubeImportResult CubeResult = AssetForge::Builtins::ImportTextureCubeFaces(
+		const Durin::Testing::TFactoryImportResult<Durin::DTextureCube> CubeResult = AssetForge::Builtins::ImportTextureCubeFacesForTest(
 			GetRenderedThumbnailDirectionalCubeFaces(),
 			FRenderedAssetThumbnailFixtureSet::DirectionalCubePath);
 		if (!CubeResult) return Fail(CubeResult.Message);

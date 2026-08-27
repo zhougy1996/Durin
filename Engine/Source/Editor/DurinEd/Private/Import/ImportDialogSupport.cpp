@@ -17,9 +17,9 @@ namespace Durin::Editor
 		if (ReportError) ReportError(std::move(Message));
 	}
 
-	auto FImportDialogCallbacks::NotifyImported(std::string_view AssetPath) const -> void
+	auto FImportDialogCallbacks::NotifyAssetCreated(std::string_view AssetPath) const -> void
 	{
-		if (Imported) Imported(std::string(AssetPath));
+		if (AssetCreated) AssetCreated(std::string(AssetPath));
 	}
 
 	auto FImportDialogCallbacks::NotifyImportedDirectory(

@@ -14,6 +14,7 @@
 #include "StaticMesh/StaticMeshDerivedData.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
+#include "StaticMesh/StaticMeshFactoryTestSupport.h"
 #include "AssetForge/Builtins/StaticMeshImportData.h"
 
 namespace
@@ -62,7 +63,7 @@ namespace
 		std::filesystem::create_directories(Fixture.SourcePath.parent_path());
 		std::filesystem::copy_file(Source, Fixture.SourcePath,
 			std::filesystem::copy_options::overwrite_existing);
-		const Durin::FStaticMeshImportResult Import = Durin::AssetForge::Builtins::ImportStaticMeshAsset(
+		const Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> Import = Durin::AssetForge::Builtins::ImportStaticMeshForTest(
 			Fixture.SourcePath.generic_string(), Fixture.AssetPath.ToString());
 		EXPECT_TRUE(Import) << Import.Message;
 		Fixture.Mesh = Import.Asset;

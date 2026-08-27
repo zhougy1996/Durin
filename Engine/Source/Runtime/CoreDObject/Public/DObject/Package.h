@@ -79,6 +79,9 @@ namespace Durin
 		uint64 EditRevision = 1;
 	};
 
+	// Creates a standalone asset package. Invalid paths and paths already owned
+	// by another live package are rejected.
+	COREDOBJECT_API auto CreatePackage(const FAssetPath& Path) -> DPackage*;
 	COREDOBJECT_API auto FindPackage(std::string_view PackagePath) -> DPackage*;
 	COREDOBJECT_API auto FindOrCreateCppPackage(FName ModuleName) -> DPackage*;
 	COREDOBJECT_API auto RegisterCompiledInPackage(const char* ModuleName) -> void;

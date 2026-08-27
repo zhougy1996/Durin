@@ -53,6 +53,11 @@ namespace Durin::Asset
 		FTerrainHeightmapBuildRequest Request,
 		FTerrainHeightmapBuildProduct& OutProduct,
 		std::string& OutError) -> bool;
+	TERRAINBUILD_API auto BuildTerrainHeightmapInto(
+		DTerrainHeightmap& Heightmap,
+		FTerrainHeightmapBuildRequest Request,
+		const FTerrainHeightmapPublicationContext& Context,
+		std::string& OutError) -> bool;
 	TERRAINBUILD_API auto PublishTerrainHeightmapProduct(
 		DTerrainHeightmap& Heightmap,
 		FTerrainHeightmapBuildProduct Product,

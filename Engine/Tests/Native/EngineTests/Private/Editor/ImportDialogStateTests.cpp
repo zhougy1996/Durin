@@ -30,7 +30,7 @@ TEST(FImportDialogCallbacksTests, RoutesWorkspaceOutcomes)
 		.ReportError = [&Error](std::string Message) {
 			Error = std::move(Message);
 		},
-		.Imported = [&ImportedPath](std::string AssetPath) {
+		.AssetCreated = [&ImportedPath](std::string AssetPath) {
 			ImportedPath = std::move(AssetPath);
 		},
 		.ImportedDirectory = [&ImportedDirectory](std::string DirectoryPath) {
@@ -40,7 +40,7 @@ TEST(FImportDialogCallbacksTests, RoutesWorkspaceOutcomes)
 
 	Callbacks.Clear();
 	Callbacks.Report("Import failed.");
-	Callbacks.NotifyImported("/Project/Textures/Stone");
+	Callbacks.NotifyAssetCreated("/Project/Textures/Stone");
 	Callbacks.NotifyImportedDirectory("/Project/Scenes/Robot");
 
 	EXPECT_TRUE(bCleared);

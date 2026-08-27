@@ -1,5 +1,8 @@
 #include "Assets/TerrainHeightmapImportDialog.h"
 
+#include "AssetTools/IAssetTools.h"
+#include "AssetForge/Builtins/TerrainHeightmapFactory.h"
+#include "Asset/AssetOperations.h"
 #include "Editor/Import/AssetDestinationValidation.h"
 #include "Asset.h"
 #include "Dialogs/FileDialog.h"
@@ -144,16 +147,25 @@ namespace Durin::Editor::Level
 			return false;
 		}
 		const FAssetPath& AssetPath = DestinationValidation.AssetPath;
-		const FTerrainHeightmapImportResult Result =
-			AssetForge::Builtins::ImportTerrainHeightmapAsset(
-				Source.generic_string(), AssetPath.ToString());
+		auto* Factory = NewObject<AssetForge::Builtins::DTerrainHeightmapFactory>(
+			nullptr, "TerrainHeightmapDialogFactory", EObjectFlags::Transient);
+		const FAssetToolsResult Result = GetAssetTools().ImportAsset(
+			AssetPath, DTerrainHeightmap::StaticClass(), Source.generic_string(), Factory);
 		if (!Result)
 		{
 			SetError(Result.Message.empty()
 				? "Terrain heightmap import failed." : Result.Message);
 			return false;
 		}
-		Callbacks.NotifyImported(AssetPath.ToString());
+		if (const Asset::FAssetResult Saved = Asset::SavePackage(Result.Package);
+			!Saved)
+		{
+			SetError(Saved.Message.empty()
+				? "Terrain heightmap was created but its package could not be saved."
+				: Saved.Message);
+			return false;
+		}
+		Callbacks.NotifyAssetCreated(AssetPath.ToString());
 		Asset::UnloadPackage(AssetPath);
 		return true;
 	}

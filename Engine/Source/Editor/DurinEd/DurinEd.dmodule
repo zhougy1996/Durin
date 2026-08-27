@@ -6,18 +6,17 @@
         "Core",
         "RHI",
         "ApplicationCore",
-		"AssetForgeBuiltins",
 		"MonaCore",
         "Mona"
     ],
-    "PublicDependencies": [
+	"PublicDependencies": [
+		"AssetTools",
 		"AssetCore",
         "Engine",
         "RenderCore",
         "MonaImGui"
     ],
     "ReflectHeaders": [
-        "Public/Editor/EditorEngine.h",
-        "Public/Factories/Factory.h"
+        "Public/Editor/EditorEngine.h"
     ]
 }

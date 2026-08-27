@@ -1,0 +1,36 @@
+#pragma once
+
+#include "Asset/AssetOperations.h"
+#include "AssetForge/Builtins/StaticMeshFactory.h"
+#include "AssetTools/IAssetTools.h"
+#include "DObject/DObjectGlobals.h"
+#include "FactoryImportTestSupport.h"
+
+namespace Durin::AssetForge::Builtins
+{
+	// Test-only result adapter that keeps existing assertions concise while
+	// exercising the production Factory/AssetTools creation path.
+	inline auto ImportStaticMeshForTest(
+		std::string_view FilePath,
+		std::string_view AssetPath,
+		const FStaticMeshImportSettings& Settings = {})
+		-> Durin::Testing::TFactoryImportResult<Durin::DStaticMesh>
+	{
+		FAssetPath ParsedPath;
+		std::string Error;
+		if (!FAssetPath::TryCreate(AssetPath, ParsedPath, &Error))
+			return {false, std::move(Error), nullptr};
+		auto* Factory = NewObject<DStaticMeshFactory>(
+			nullptr, "StaticMeshTestFactory", EObjectFlags::Transient);
+		Factory->SetImportSettings(Settings);
+		const FAssetToolsResult Imported = GetAssetTools().ImportAsset(
+			ParsedPath, DStaticMesh::StaticClass(), FilePath, Factory);
+		auto* Mesh = Cast<DStaticMesh>(Imported.Asset);
+		if (!Imported || !Mesh)
+			return {false, Imported.Message, Mesh};
+		const Asset::FAssetResult Saved = Asset::SavePackage(Imported.Package);
+		return Saved
+			? Durin::Testing::TFactoryImportResult<Durin::DStaticMesh>{true, {}, Mesh}
+			: Durin::Testing::TFactoryImportResult<Durin::DStaticMesh>{false, Saved.Message, Mesh};
+	}
+}

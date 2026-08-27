@@ -789,6 +789,7 @@ namespace Durin
 		ObjectInitializer.Class = InClass;
 		ObjectInitializer.Outer = Params.Outer;
 		ObjectInitializer.Name = Params.Name;
+		ObjectInitializer.Flags = Params.Flags;
 		ObjectInitializer.Purpose = Params.Purpose;
 
 		InClass->ClassConstructor(ObjectInitializer);
@@ -799,7 +800,11 @@ namespace Durin
 		return Obj;
 	}
 
-	auto NewObject(DClass* Class, DObject* Outer, FName Name) -> DObject*
+	auto NewObject(
+		DClass* Class,
+		DObject* Outer,
+		FName Name,
+		EObjectFlags Flags) -> DObject*
 	{
 		if (!CanConstructObjectOfClass(Class, DObject::StaticClass())) return nullptr;
 		FStaticConstructObjectParameters Params;
@@ -807,6 +812,7 @@ namespace Durin
 		Params.Outer = Outer;
 		Params.Name = Name;
 		Params.Size = Class->PropertiesSize;
+		Params.Flags = Flags;
 		DObject* Object = StaticConstructObject(Params);
 		DObjectForceRegistration(Object);
 		return Object;

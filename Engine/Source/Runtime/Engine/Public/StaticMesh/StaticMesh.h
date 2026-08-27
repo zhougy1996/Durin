@@ -137,7 +137,6 @@ namespace Durin
 
 	struct FStaticMeshBuildData;
 	struct FStaticMeshRenderData;
-	struct FStaticMeshImportResult;
 	struct FStaticMeshBuildProduct;
 	class FStaticMeshImportedStateExchange;
 
@@ -386,15 +385,6 @@ namespace Durin
 		friend class DStaticMesh;
 	};
 
-	// Reports static-mesh import success and the created asset, when available.
-	struct FStaticMeshImportResult
-	{
-		bool bSucceeded = false;
-		std::string Message;
-		DStaticMesh* Asset = nullptr;
-
-		explicit operator bool() const { return bSucceeded; }
-	};
 }
 
 namespace Durin::Asset

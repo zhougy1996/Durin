@@ -1,7 +1,10 @@
 #include "Import/TextureImportDialog.h"
 
 #include "AssetForge/Builtins/TextureCubeImport.h"
+#include "AssetForge/Builtins/TextureCubeFactory.h"
 
+#include "AssetTools/IAssetTools.h"
+#include "Asset/AssetOperations.h"
 #include "Editor/Import/AssetDestinationValidation.h"
 #include "Asset.h"
 #include "Dialogs/FileDialog.h"
@@ -345,18 +348,29 @@ namespace Durin::Editor::Texture
 					? Cube.PanoramaExposureEV : 0.0f};
 		}
 		const std::string Path = AssetPath.ToString();
-		const AssetForge::Builtins::FTextureCubeImportResult Result =
-			Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces
-			? AssetForge::Builtins::ImportTextureCubeFaces(Sources, Path)
-			: AssetForge::Builtins::ImportTextureCubePanorama(Sources[0], Path,
-				PanoramaSettings);
+		auto* Factory = NewObject<AssetForge::Builtins::DTextureCubeFactory>(
+			nullptr, "TextureCubeDialogFactory", EObjectFlags::Transient);
+		if (Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces)
+			Factory->ConfigureFaces(Sources);
+		else
+			Factory->ConfigurePanorama(PanoramaSettings);
+		const FAssetToolsResult Result = GetAssetTools().ImportAsset(
+			AssetPath, DTextureCube::StaticClass(), Sources[0], Factory);
 		if (!Result)
 		{
 			SetError(Result.Message.empty()
 				? "TextureCube import failed." : Result.Message);
 			return false;
 		}
-		Callbacks.NotifyImported(Path);
+		if (const Asset::FAssetResult Saved = Asset::SavePackage(Result.Package);
+			!Saved)
+		{
+			SetError(Saved.Message.empty()
+				? "TextureCube was created but its package could not be saved."
+				: Saved.Message);
+			return false;
+		}
+		Callbacks.NotifyAssetCreated(Path);
 		(void)Asset::UnloadPackage(AssetPath);
 		return true;
 	}

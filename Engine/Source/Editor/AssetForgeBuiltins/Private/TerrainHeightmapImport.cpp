@@ -1,4 +1,5 @@
 #include "AssetForge/Builtins/TerrainHeightmapImport.h"
+#include "AssetForge/Builtins/TerrainHeightmapFactory.h"
 #include "Asset/AssetImportData.h"
 
 #include "DObject/Package.h"
@@ -112,8 +113,7 @@ namespace Durin::AssetForge::Builtins
 			const FTerrainHeightmapSourceData ImportState = SourceData;
 			const std::shared_ptr<const FTerrainHeightmapPayload> Existing = Heightmap.GetPayload();
 			const bool bSamplesChanged = !Existing || Existing->Samples != SourceData.Samples;
-			Asset::FTerrainHeightmapBuildProduct Product;
-			if (!Asset::BuildTerrainHeightmap({
+			if (!Asset::BuildTerrainHeightmapInto(Heightmap, {
 					.Samples = std::move(SourceData.Samples),
 					.Width = SourceData.Width, .Height = SourceData.Height,
 					.SourceContentHashLow = Snapshot.ContentHash.HashLow,
@@ -121,10 +121,7 @@ namespace Durin::AssetForge::Builtins
 					.DecoderId = SourceData.DecoderId,
 					.DecoderVersion = SourceData.DecoderVersion,
 					.SourceFormat = SourceData.SourceFormat,
-					.SourceProfileVersion = SourceData.SourceProfileVersion},
-					Product, OutError)
-				|| !Asset::PublishTerrainHeightmapProduct(
-					Heightmap, std::move(Product), {
+					.SourceProfileVersion = SourceData.SourceProfileVersion}, {
 						.SourceFilename = Snapshot.Filename,
 						.DecoderId = ImportState.DecoderId,
 						.DecoderVersion = ImportState.DecoderVersion,
@@ -141,6 +138,107 @@ namespace Durin::AssetForge::Builtins
 			OutError = Saved.Message;
 			return false;
 		}
+	}
+
+	DTerrainHeightmapFactory::DTerrainHeightmapFactory(
+		const FObjectInitializer& ObjectInitializer)
+		: Super(ObjectInitializer)
+	{
+		SupportedClass = DTerrainHeightmap::StaticClass();
+		Formats = {"png", "raw"};
+	}
+
+	auto DTerrainHeightmapFactory::FactoryCreateFromFile(
+		DClass* InClass,
+		DObject* InParent,
+		FName InName,
+		EObjectFlags Flags,
+		std::string_view Filename,
+		DObject*,
+		FFactoryDiagnostics* Diagnostics) const -> DObject*
+	{
+		auto Failed = [&](std::string Message) -> DObject* {
+			if (Diagnostics) Diagnostics->Report(Message);
+			return nullptr;
+		};
+		if (InClass != DTerrainHeightmap::StaticClass())
+			return Failed("Terrain heightmap factory requires the exact TerrainHeightmap class.");
+		auto* Package = Cast<DPackage>(InParent);
+		if (!Package || !Package->IsAssetPackage())
+			return Failed("Terrain heightmap factory requires an asset package parent.");
+		const std::filesystem::path Input =
+			std::filesystem::absolute(Filename).lexically_normal();
+		if (!std::filesystem::is_regular_file(Input)
+			|| !IsTerrainHeightmapSourceExtension(Input.extension().generic_string()))
+			return Failed("Terrain heightmap import requires an existing .png or .raw source.");
+
+		(void)Settings;
+		auto* Heightmap = NewObject<DTerrainHeightmap>(
+			InClass, Package, InName, Flags);
+		if (!Heightmap)
+			return Failed("Terrain heightmap object could not be created.");
+		std::string Error;
+		if (!RebuildFromFilename(
+			*Heightmap, Input.generic_string(), ESourceHintBase::AssetRelative,
+			Error, nullptr, Input)) return Failed(std::move(Error));
+		return Heightmap;
+	}
+
+	auto DTerrainHeightmapFactory::GetReimportCapabilities(
+		const DObject& Object) const -> FReimportCapabilities
+	{
+		const auto* Heightmap = Cast<DTerrainHeightmap>(&Object);
+		if (!Heightmap || !Heightmap->GetPackage())
+			return {.Diagnostic = "Only packaged TerrainHeightmap assets can be reimported."};
+		const DAssetImportData* Data = Heightmap->GetAssetImportData();
+		const FSourceFile* Source = Data
+			? Data->GetSourceData().FindByRole("source") : nullptr;
+		const bool bHasSource = Source && !Source->Hint.empty();
+		return {.bCanReimport = bHasSource, .bCanReimportFromFile = true,
+			.Diagnostic = bHasSource ? std::string{}
+				: "TerrainHeightmap has no source hint to reimport."};
+	}
+
+	auto DTerrainHeightmapFactory::FactoryReimport(
+		DObject& Object, FReimportCompletion Completion) const -> void
+	{
+		auto* Heightmap = Cast<DTerrainHeightmap>(&Object);
+		const DAssetImportData* Data = Heightmap ? Heightmap->GetAssetImportData() : nullptr;
+		const FSourceFile* Source = Data
+			? Data->GetSourceData().FindByRole("source") : nullptr;
+		if (!Heightmap || !Source || Source->Hint.empty())
+		{
+			if (Completion) Completion({EReimportStatus::MissingSource,
+				"TerrainHeightmap has no source hint to reimport."});
+			return;
+		}
+		std::string Error;
+		const bool bSucceeded = RebuildFromFilename(
+			*Heightmap, Source->Hint, Source->HintBase, Error, nullptr);
+		if (Completion) Completion(bSucceeded
+			? FReimportResult{EReimportStatus::Succeeded, {}}
+			: FReimportResult{EReimportStatus::SourceOrBuildFailure, std::move(Error)});
+	}
+
+	auto DTerrainHeightmapFactory::FactoryReimportFromFiles(DObject& Object,
+		std::span<const std::string> Filenames, FReimportCompletion Completion) const
+		-> void
+	{
+		auto* Heightmap = Cast<DTerrainHeightmap>(&Object);
+		if (!Heightmap || Filenames.size() != 1 || Filenames.front().empty())
+		{
+			if (Completion) Completion({EReimportStatus::SourceOrBuildFailure,
+				"TerrainHeightmap reimport requires exactly one source file."});
+			return;
+		}
+		const std::filesystem::path Requested =
+			std::filesystem::absolute(Filenames.front()).lexically_normal();
+		std::string Error;
+		const bool bSucceeded = RebuildFromFilename(*Heightmap, {},
+			ESourceHintBase::AssetRelative, Error, nullptr, Requested);
+		if (Completion) Completion(bSucceeded
+			? FReimportResult{EReimportStatus::Succeeded, {}}
+			: FReimportResult{EReimportStatus::SourceOrBuildFailure, std::move(Error)});
 	}
 
 	auto IsTerrainHeightmapSourceExtension(std::string_view Extension) -> bool
@@ -239,45 +337,6 @@ namespace Durin::AssetForge::Builtins
 		OutError.clear();
 		return true;
 	}
-
-	auto ImportTerrainHeightmapAsset(
-		std::string_view FilePath,
-		std::string_view AssetPath,
-		const FTerrainHeightmapImportSettings& Settings) -> FTerrainHeightmapImportResult
-	{
-		(void)Settings;
-		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
-		std::string Extension = Input.extension().generic_string();
-		Extension = NormalizeExtension(Extension);
-		if (!std::filesystem::is_regular_file(Input) || !IsTerrainHeightmapSourceExtension(Extension))
-			return {false, "Terrain heightmap import requires an existing .png or .raw source.", nullptr};
-		FAssetPath ParsedPath;
-		std::string Error;
-		if (!FAssetPath::TryCreate(AssetPath, ParsedPath, &Error))
-			return {false, std::move(Error), nullptr};
-		if (Asset::FindAssetExact(ParsedPath)
-			|| Asset::FindResidentPackage(ParsedPath))
-			return {false, std::format("Asset {} already exists.", ParsedPath.ToString()), nullptr};
-		DTerrainHeightmap* Heightmap = nullptr;
-		const Asset::FAssetResult Created = Asset::CreateAsset(ParsedPath, Heightmap);
-		if (!Created || !Heightmap)
-			return {false, Created.Message.empty()
-				? "Terrain heightmap destination could not be created." : Created.Message, nullptr};
-		auto Abandon = [&] {
-			(void)Asset::UnloadPackage(
-				ParsedPath, Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
-		};
-		if (!RebuildFromFilename(*Heightmap, {},
-			ESourceHintBase::AssetRelative, Error, nullptr, Input))
-		{
-			Abandon();
-			return {false, std::move(Error), nullptr};
-		}
-		const Asset::FAssetResult Saved = Asset::SavePackage(Heightmap->GetPackage());
-		if (!Saved) return {false, Saved.Message, Heightmap};
-		return {true, {}, Heightmap};
-	}
-
 
 	auto ReimportTerrainHeightmap(
 		DTerrainHeightmap& Heightmap,

@@ -106,6 +106,12 @@ namespace Durin::Editor::ContentBrowser
 		std::string Message;
 	};
 
+	struct FReimportAvailability
+	{
+		bool bCanReimport = false;
+		bool bCanReimportFromFile = false;
+	};
+
 	// Supplies implementation-neutral services required to construct the browser.
 	struct FConstructionServices
 	{
@@ -115,13 +121,8 @@ namespace Durin::Editor::ContentBrowser
 		std::function<void()> NotifyMountedContentMutation;
 		std::function<FActionResult(std::span<const FAssetMove>)> MoveAssets;
 		std::function<void(EBuiltinImportFamily, std::string)> OpenImport;
-		std::function<EBuiltinReimportFamily(std::string_view)>
-			ClassifyReimport;
-		std::function<bool(std::string_view)> CanReimport;
-		std::function<void(
-			EBuiltinReimportFamily, EBuiltinReimportMode,
-			std::string, std::function<void(std::string)>)>
-			Reimport;
+		std::function<FReimportAvailability(std::string_view)> QueryReimport;
+		std::function<void(bool, std::string, std::function<void(std::string)>)> Reimport;
 		std::function<void(bool)> DrawImportDialogs;
 		FTaskScopeToken ThumbnailTaskScope;
 		FModuleOwnedCallbackGate OwnerGate;

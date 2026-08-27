@@ -369,7 +369,10 @@ namespace Durin
 		FMarkReferenceCollector Marker;
 		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
 		{
-			if (!Object->IsGarbage() && (Object->HasAnyInternalFlags(EObjectInternalFlags::RootSet) || IsPermanentObject(Object)))
+			if (!Object->IsGarbage()
+				&& (Object->HasAnyInternalFlags(EObjectInternalFlags::RootSet)
+					|| Object->HasAnyObjectFlags(EObjectFlags::Standalone)
+					|| IsPermanentObject(Object)))
 			{
 				Marker.Enqueue(Object);
 			}

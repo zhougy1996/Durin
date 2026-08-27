@@ -3,6 +3,7 @@
     "LinkType": "Shared",
     "PCH": "SharedPCH_MonaEditor",
     "PrivateDependencies": [
+		"AssetTools",
         "Core",
         "CoreDObject",
         "ApplicationCore",

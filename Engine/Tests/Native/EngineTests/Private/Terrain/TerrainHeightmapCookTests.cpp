@@ -5,6 +5,7 @@
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "Terrain/TerrainHeightmap.h"
+#include "Terrain/TerrainHeightmapFactoryTestSupport.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
 #include "AssetForge/Builtins/TerrainHeightmapImport.h"
 #include "Components/TerrainComponent.h"
@@ -39,7 +40,7 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 		Raw.push_back(static_cast<std::byte>(Sample >> 8));
 	}
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Raw)), Source));
-	const auto Imported = Durin::AssetForge::Builtins::ImportTerrainHeightmapAsset(
+	const auto Imported = Durin::AssetForge::Builtins::ImportTerrainHeightmapForTest(
 		Source.generic_string(), "/Game/Height");
 	ASSERT_TRUE(Imported) << Imported.Message;
 

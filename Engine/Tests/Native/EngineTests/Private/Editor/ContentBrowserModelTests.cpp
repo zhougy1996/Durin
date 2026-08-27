@@ -12,6 +12,7 @@
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
+#include "StaticMesh/StaticMeshFactoryTestSupport.h"
 #include "AssetForge/Builtins/StaticMeshImportData.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 
@@ -160,7 +161,7 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToRenderedThumbnails)
 	FAssetPath AssetPath;
 	ASSERT_TRUE(FAssetPath::TryCreate(
 		"/ContentBrowserTests/ThumbnailMesh", AssetPath));
-	const FStaticMeshImportResult Imported = AssetForge::Builtins::ImportStaticMeshAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> Imported = AssetForge::Builtins::ImportStaticMeshForTest(
 		(std::filesystem::path(DURIN_TEST_DATA_DIR)
 			/ "MultiSection.gltf").generic_string(), AssetPath.ToString());
 	ASSERT_TRUE(Imported) << Imported.Message;
@@ -198,7 +199,7 @@ TEST_F(FContentBrowserModelTests, SourceProviderWithoutUsableSourceKeepsAssetIco
 	FAssetPath AssetPath;
 	ASSERT_TRUE(FAssetPath::TryCreate(
 		"/ContentBrowserTests/SourceLessMesh", AssetPath));
-	const FStaticMeshImportResult Imported = AssetForge::Builtins::ImportStaticMeshAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> Imported = AssetForge::Builtins::ImportStaticMeshForTest(
 		(std::filesystem::path(DURIN_TEST_DATA_DIR)
 			/ "MultiSection.gltf").generic_string(), AssetPath.ToString());
 	ASSERT_TRUE(Imported) << Imported.Message;

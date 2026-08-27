@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "EngineTestSupport.h"
+#include "Texture/TextureFactoryTestSupport.h"
 
 #include "Asset/AssetCompilingManager.h"
 #include "Actors/StaticMeshActor.h"
@@ -25,6 +26,7 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
+#include "StaticMesh/StaticMeshFactoryTestSupport.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
@@ -84,12 +86,12 @@ namespace Durin
 		const std::filesystem::path TextureSource =
 			Root / "VisibleTexture.png";
 		WriteTextureSmokeFixture(TextureSource);
-		const FTexture2DImportResult TextureImport = AssetForge::Builtins::ImportTexture2DAsset(
+		const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> TextureImport = AssetForge::Builtins::ImportTexture2DForTest(
 			TextureSource.generic_string(), "/EditorMixedV4/Textures/BaseColor");
 		ASSERT_TRUE(TextureImport) << TextureImport.Message;
 		const std::filesystem::path MeshSource =
 			std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-		const FStaticMeshImportResult MeshImport = AssetForge::Builtins::ImportStaticMeshAsset(
+		const Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> MeshImport = AssetForge::Builtins::ImportStaticMeshForTest(
 			MeshSource.generic_string(), "/EditorMixedV4/Meshes/VisibleMesh");
 		ASSERT_TRUE(MeshImport) << MeshImport.Message;
 		FAssetPath MaterialPath;
@@ -249,7 +251,7 @@ namespace Durin
 
 		const std::filesystem::path TextureSource = Testing::GetTestWorkDirectory() / "EditorTextureSmoke.png";
 		WriteTextureSmokeFixture(TextureSource);
-		const FTexture2DImportResult TextureImport = AssetForge::Builtins::ImportTexture2DAsset(TextureSource.generic_string(), "/EditorTextureSmoke/Textures/BaseColor");
+		const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> TextureImport = AssetForge::Builtins::ImportTexture2DForTest(TextureSource.generic_string(), "/EditorTextureSmoke/Textures/BaseColor");
 		ASSERT_TRUE(TextureImport) << TextureImport.Message;
 		ASSERT_NE(TextureImport.Asset, nullptr);
 		ASSERT_NE(TextureImport.Asset->GetSourceData(), nullptr);
@@ -257,7 +259,7 @@ namespace Durin
 		ASSERT_TRUE(Asset::WaitForTexture2DCompilation(*TextureImport.Asset, 10.0));
 
 		const std::filesystem::path MeshSource = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-		const FStaticMeshImportResult MeshImport = AssetForge::Builtins::ImportStaticMeshAsset(MeshSource.generic_string(), "/EditorTextureSmoke/Meshes/VisibleMesh");
+		const Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> MeshImport = AssetForge::Builtins::ImportStaticMeshForTest(MeshSource.generic_string(), "/EditorTextureSmoke/Meshes/VisibleMesh");
 		ASSERT_TRUE(MeshImport) << MeshImport.Message;
 		ASSERT_NE(MeshImport.Asset, nullptr);
 
@@ -412,7 +414,7 @@ namespace Durin
 		const std::filesystem::path Source =
 			Testing::GetTestWorkDirectory() / "TextureOwnershipSmoke.png";
 		WriteTextureSmokeFixture(Source);
-		const FTexture2DImportResult Import = AssetForge::Builtins::ImportTexture2DAsset(
+		const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Import = AssetForge::Builtins::ImportTexture2DForTest(
 			Source.generic_string(), "/TextureOwnershipSmoke/Texture");
 		ASSERT_TRUE(Import) << Import.Message;
 		ASSERT_NE(Import.Asset, nullptr);

@@ -136,16 +136,6 @@ namespace Durin
 
 	class DTexture2D;
 
-	// Reports texture import success and the created asset, when available.
-	struct FTexture2DImportResult
-	{
-		bool bSucceeded = false;
-		std::string Message;
-		DTexture2D* Asset = nullptr;
-
-		explicit operator bool() const { return bSucceeded; }
-	};
-
 	// Overrides usage-derived texture import defaults.
 	struct FTexture2DImportSettings
 	{

@@ -898,37 +898,35 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
-			const ::Durin::Editor::EBuiltinReimportFamily Family =
-				ClassifyReimport
-					? ClassifyReimport(Item.AssetClassName)
-					: ::Durin::Editor::EBuiltinReimportFamily::None;
-			if (Family != ::Durin::Editor::EBuiltinReimportFamily::None)
+			const auto Availability = QueryReimport
+				? QueryReimport(Item.VirtualPath)
+				: ::Durin::Editor::ContentBrowser::FReimportAvailability{};
+			if (Availability.bCanReimport || Availability.bCanReimportFromFile)
 			{
-				if (CanReimport && CanReimport(Item.VirtualPath))
+				if (Availability.bCanReimport)
 				{
 					ImGui::BeginDisabled(!bAllowAssetMutation);
 					if (ImGui::MenuItem("Reimport"))
-						QueueContentAction([this, Family, Path = Item.VirtualPath] {
+						QueueContentAction([this, Path = Item.VirtualPath] {
 							if (Reimport)
-								Reimport(Family,
-									::Durin::Editor::EBuiltinReimportMode::RetainedHint,
-									Path, [this](std::string Message) {
+								Reimport(false, Path, [this](std::string Message) {
 										SetError(std::move(Message));
 									});
 						});
 					ImGui::EndDisabled();
 				}
-				ImGui::BeginDisabled(!bAllowAssetMutation);
-				if (ImGui::MenuItem("Reimport From File..."))
-					QueueContentAction([this, Family, Path = Item.VirtualPath] {
-						if (Reimport)
-							Reimport(Family,
-								::Durin::Editor::EBuiltinReimportMode::FromFile,
-								Path, [this](std::string Message) {
-								SetError(std::move(Message));
-							});
-					});
-				ImGui::EndDisabled();
+				if (Availability.bCanReimportFromFile)
+				{
+					ImGui::BeginDisabled(!bAllowAssetMutation);
+					if (ImGui::MenuItem("Reimport From File..."))
+						QueueContentAction([this, Path = Item.VirtualPath] {
+							if (Reimport)
+								Reimport(true, Path, [this](std::string Message) {
+									SetError(std::move(Message));
+								});
+						});
+					ImGui::EndDisabled();
+				}
 			}
 			ImGui::Separator();
 		}

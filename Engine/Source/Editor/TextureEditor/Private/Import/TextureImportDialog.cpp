@@ -1,7 +1,10 @@
 #include "Import/TextureImportDialog.h"
 
 #include "Editor/Import/AssetDestinationValidation.h"
+#include "AssetTools/IAssetTools.h"
 #include "Asset.h"
+#include "Asset/AssetOperations.h"
+#include "DObject/DObjectGlobals.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -9,7 +12,9 @@
 #include "MonaImGui.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
+#include "AssetForge/Builtins/Texture2DFactory.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
+#include "AssetForge/Builtins/VolumeTextureFactory.h"
 #include "AssetForge/Builtins/VolumeTextureImport.h"
 
 namespace Durin::Editor::Texture
@@ -463,31 +468,53 @@ namespace Durin::Editor::Texture
 			Settings.Depth = Volume.Depth;
 			Settings.TilesX = Volume.TilesX;
 			Settings.TilesY = Volume.TilesY;
-			const AssetForge::Builtins::FVolumeTextureImportResult Result =
-				AssetForge::Builtins::ImportVolumeTextureAsset(
-					SourcePathBuffer.data(), AssetPath.ToString(), Settings);
+			auto* Factory = NewObject<AssetForge::Builtins::DVolumeTextureFactory>(
+				nullptr, "VolumeTextureDialogFactory", EObjectFlags::Transient);
+			Factory->SetImportSettings(Settings);
+			const FAssetToolsResult Result = GetAssetTools().ImportAsset(
+				AssetPath, DVolumeTexture::StaticClass(),
+				SourcePathBuffer.data(), Factory);
 			if (!Result)
 			{
 				SetError(Result.Message.empty()
 					? "VolumeTexture import failed." : Result.Message);
 				return false;
 			}
-			CompletionCallbacks.NotifyImported(Path);
+			if (const Asset::FAssetResult Saved = Asset::SavePackage(Result.Package);
+				!Saved)
+			{
+				SetError(Saved.Message.empty()
+					? "VolumeTexture was created but its package could not be saved."
+					: Saved.Message);
+				return false;
+			}
+			CompletionCallbacks.NotifyAssetCreated(Path);
 			Asset::UnloadPackage(AssetPath);
 			return true;
 		}
 
 		FTexture2DImportSettings Settings;
 		Settings.Usage = State.GetTexture2D().Usage;
-		const FTexture2DImportResult Result = AssetForge::Builtins::ImportTexture2DAsset(
-			SourcePathBuffer.data(), AssetPath.ToString(), Settings);
+		auto* Factory = NewObject<AssetForge::Builtins::DTexture2DFactory>(
+			nullptr, "Texture2DDialogFactory", EObjectFlags::Transient);
+		Factory->SetImportSettings(Settings);
+		const FAssetToolsResult Result = GetAssetTools().ImportAsset(
+			AssetPath, DTexture2D::StaticClass(), SourcePathBuffer.data(), Factory);
 		if (!Result)
 		{
 			SetError(Result.Message.empty()
 				? "Texture2D import failed." : Result.Message);
 			return false;
 		}
-		CompletionCallbacks.NotifyImported(Path);
+		if (const Asset::FAssetResult Saved = Asset::SavePackage(Result.Package);
+			!Saved)
+		{
+			SetError(Saved.Message.empty()
+				? "Texture2D was created but its package could not be saved."
+				: Saved.Message);
+			return false;
+		}
+		CompletionCallbacks.NotifyAssetCreated(Path);
 		Asset::UnloadPackage(AssetPath);
 		return true;
 	}

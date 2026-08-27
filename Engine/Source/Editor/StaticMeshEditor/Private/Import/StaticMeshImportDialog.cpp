@@ -1,5 +1,7 @@
 #include "Import/StaticMeshImportDialog.h"
 
+#include "AssetTools/IAssetTools.h"
+#include "Asset/AssetOperations.h"
 #include "Editor/Import/AssetDestinationValidation.h"
 #include "Asset.h"
 #include "Dialogs/FileDialog.h"
@@ -8,6 +10,7 @@
 #include "Misc/StringConvert.h"
 #include "MonaImGui.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
+#include "AssetForge/Builtins/StaticMeshFactory.h"
 
 namespace Durin::Editor::StaticMesh
 {
@@ -197,16 +200,26 @@ namespace Durin::Editor::StaticMesh
 			return false;
 		}
 		const FAssetPath& AssetPath = DestinationValidation.AssetPath;
-		const FStaticMeshImportResult Result =
-			AssetForge::Builtins::ImportStaticMeshAsset(
-				SourcePathBuffer.data(), AssetPath.ToString(), Coordinates.GetSettings());
+		auto* Factory = NewObject<AssetForge::Builtins::DStaticMeshFactory>(
+			nullptr, "StaticMeshDialogFactory", EObjectFlags::Transient);
+		Factory->SetImportSettings(Coordinates.GetSettings());
+		const FAssetToolsResult Result = GetAssetTools().ImportAsset(
+			AssetPath, DStaticMesh::StaticClass(), SourcePathBuffer.data(), Factory);
 		if (!Result)
 		{
 			SetError(Result.Message.empty()
 				? "StaticMesh import failed." : Result.Message);
 			return false;
 		}
-		Callbacks.NotifyImported(AssetPath.ToString());
+		if (const Asset::FAssetResult Saved = Asset::SavePackage(Result.Package);
+			!Saved)
+		{
+			SetError(Saved.Message.empty()
+				? "StaticMesh was created but its package could not be saved."
+				: Saved.Message);
+			return false;
+		}
+		Callbacks.NotifyAssetCreated(AssetPath.ToString());
 		Asset::UnloadPackage(AssetPath);
 		return true;
 	}

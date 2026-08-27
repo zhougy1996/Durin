@@ -1,17 +1,18 @@
 # Asset Import Architecture
 
-Summary: Define direct built-in asset import, immutable source capture, family-owned builds, and private Scene orchestration.
+Summary: Define Factory-backed standalone import, immutable source capture, family-owned builds, and private Scene orchestration.
 
-Modules: AssetForgeBuiltins, DurinEd
+Modules: AssetTools, AssetForgeBuiltins, DurinEd
 
-Last reviewed: 2026-08-27
+Last reviewed: 2026-08-28
 
-Durin imports authored assets through explicit built-in family functions.
-Texture2D, TextureCube, VolumeTexture, StaticMesh, TerrainHeightmap, and Scene
-each own their accepted formats, settings, decode/build invocation,
-publication, diagnostics, and reimport policy. Production editor workflows do
-not select translators or builders from an importer registry and do not submit
-generic import requests or jobs.
+Durin creates standalone authored assets through `IAssetTools` and reflected
+concrete `DFactory` classes. Texture2D, TextureCube, VolumeTexture, StaticMesh,
+and TerrainHeightmap factories own accepted formats, typed invocation settings,
+immutable capture, decode/build invocation, diagnostics, and import-data
+publication. `FReimportManager` discovers the same factories by loaded-object
+class and is the editor-wide authority for standalone reimport. Scene remains a
+private multi-output transaction rather than a single-object factory.
 
 Shared capture, diagnostic, and publication values live in
 `AssetForgeBuiltins`. They are implementation helpers, not an extensibility or
@@ -23,18 +24,23 @@ requests/jobs, and mounted-source mutation have been physically removed by the
 
 The intended dependency direction is:
 
-`Core/CoreDObject -> AssetCore/Engine -> family build modules -> AssetForgeBuiltins -> editor hosts`
+`Core/CoreDObject -> AssetCore/Engine -> family build modules -> AssetTools/AssetForgeBuiltins -> editor hosts`
 
 - Runtime `Engine` owns the editor-only `DAssetImportData` base and lightweight
   `FSourceFile` / `FAssetImportInfo` values. Runtime assets do not know import
   dialogs, decoder selection, or source mutation workflows.
 - Family build modules own normalized build inputs, derived-data keys,
   compilation, and disposable-data reconstruction.
-- `AssetForgeBuiltins` owns concrete editor import data and direct family
-  import/reimport functions. Its implementation may share capture or decode
-  helpers where that removes duplication.
-- DurinEd and feature editor modules own file selection, destinations,
-  diagnostics, and explicit dispatch to the finite built-in family set.
+- `AssetTools` owns the generic `DFactory` descriptor/discovery contract,
+  `IAssetTools`, package creation/adoption, factory invocation, result
+  validation, failed-package discard, and `FReimportManager` capability,
+  routing, result, and optional persistence policy. It has no dependency on
+  concrete asset families.
+- `AssetForgeBuiltins` owns reflected concrete factories, concrete editor
+  import data, family capture/decode/build helpers, and safe candidate/swap
+  reimport implementations exposed through optional factory methods.
+- Editor hosts and feature modules own file selection, destinations, and
+  presentation diagnostics; they query and invoke reimport through the manager.
 - AssetCore owns package identities, resident publication state, dirty state,
   persistence, atomic package-bundle saves, and cooked data.
 
@@ -73,23 +79,44 @@ part of the same immutable closure.
 See [Source File Workflows](../Guides/SourceFileWorkflows.md) for the editor
 interaction and portability rules.
 
-## Direct Family Importers
+## Standalone Factory Import
 
-A family importer follows this boundary:
+A standalone first import follows this boundary:
 
-1. validate source and destination;
-2. capture required bytes once;
-3. decode into normalized owned values;
-4. complete failable build validation;
-5. atomically commit canonical imported data, build settings, derived result,
-   and optional source hints on the editor thread;
-6. mark the complete live candidate Dirty;
-7. save the package independently.
+1. the feature editor selects an asset class and a default or typed configured
+   concrete factory;
+2. `IAssetTools` validates the destination, creates a Public/Standalone package,
+   adopts it into AssetCore residency, and invokes the factory;
+3. the factory creates the formal object directly under that package, captures
+   required bytes once, decodes them, builds into the object, and publishes
+   concrete import data;
+4. `IAssetTools` validates the returned main asset and discards the complete
+   unsaved package on failure;
+5. the feature editor saves independently and sends the host-owned
+   `NotifyAssetCreated` presentation callback after success.
 
-Failure before live-state commit leaves an existing live and persisted asset
-unchanged. Live-state commit and package save are separate facts: if the save
-fails after valid state is committed, the complete new candidate remains Dirty
-for an explicit retry while the prior DAST/DABK bundle stays intact.
+Factories are discovered from reflected immutable CDO descriptors. A dialog
+with non-default settings creates a transient factory instance and configures
+typed fields. `SupportedClass` is authoritative; extension lookup only narrows
+candidates. Extension-only PNG lookup is intentionally ambiguous, while a
+requested Texture2D, TextureCube, VolumeTexture, or TerrainHeightmap class
+selects its concrete factory deterministically.
+
+First-import failure discards the disposable package, including a formal object
+that was created before decode/build completed. Reimport has a different safety
+boundary: failure before live-state commit leaves an existing live and
+persisted asset unchanged. Live-state commit and package save are separate
+facts in both flows.
+
+`FReimportManager` selects the unique reflected factory for the loaded exact
+class. Missing and ambiguous handlers fail deterministically. Capability
+queries distinguish retained-source Reimport from Reimport From File, including
+the one-file panorama and six-file face layouts of TextureCube. Terminal results
+distinguish unsupported classes, missing retained sources, source/build failure,
+successful live replacement, and persistence failure. Factory handlers publish
+only a complete successful candidate and leave the package Dirty; the manager
+then saves only when requested, so a save failure does not erase or misreport
+the valid live replacement.
 
 Texture and mesh compilation may remain asynchronous under their family build
 systems. The built-in import boundary does not provide a second operation state machine,
@@ -114,6 +141,13 @@ The importer:
 - binds material/texture and skeletal relationships in dependency order;
 - saves the complete output package set atomically.
 
+Scene deliberately calls the AssetCore `Asset::CreateAsset` materialization
+seam for its private candidate packages. It does not call single-object
+`IAssetTools`: doing so would assign independent acceptance semantics before
+the complete dependency-ordered peer set is bound, validated, and ready for
+one atomic bundle save. Static-mesh and texture preparation still reuse their
+family build adapters below that transaction boundary.
+
 Every generated output is an ordinary independent asset. There is no aggregate
 Scene asset, primary output, generated-output ownership record, reconciliation
 identity, tombstone, repair action, or whole-scene reimport. Importing a revised
@@ -134,13 +168,13 @@ roots receive a stable `$DurinRoot`.
 
 `BuiltinImportDispatch.h` is the finite Content Browser import menu authority.
 It contains four families: Texture, TerrainHeightmap, Scene, and standalone
-StaticMesh. MainFrame dispatches those values directly to the owning feature
-module. Reimport class routing is likewise a closed built-in switch for
-Texture2D/TextureCube/VolumeTexture, TerrainHeightmap, and StaticMesh. Each
-family exposes two modes: **Reimport** resolves a retained complete hint set,
-while **Reimport From File...** remains available for a loaded supported asset
-even when no hint exists. Selecting a new file can change hints only through a
-successful complete candidate commit.
+StaticMesh. MainFrame dispatches those import values directly to the owning
+feature module. Reimport has no family enum or host switch: Content Browser asks
+`FReimportManager` for loaded-object capabilities and sends Reimport or the
+complete selected replacement file set back to the same manager. **Reimport**
+resolves a retained complete hint set, while **Reimport From File...** remains
+available for a loaded supported asset even when no hint exists. Selecting a
+new file can change hints only through a successful complete candidate commit.
 
 Import and Reimport are deliberately not Content Browser extension categories.
 The remaining extension registry composes unrelated Create, Details, and
@@ -149,9 +183,10 @@ query import capabilities.
 
 Dialogs use ordinary read-only file pickers. Texture and standalone StaticMesh
 dialogs are host presentations owned by their feature modules. Scene and
-Terrain dialogs are owned by the Level Editor workspace. All call concrete
-family APIs directly and report terminal diagnostics through ordinary editor
-notifications.
+Terrain dialogs are owned by the Level Editor workspace. Standalone dialogs
+configure a concrete factory and call `IAssetTools`; Scene calls its private
+multi-output transaction. Terminal diagnostics and post-save Content Browser
+refresh/reveal remain host presentation concerns.
 
 ## Persistence, Cooking, And Runtime Closure
 
@@ -170,7 +205,9 @@ nor DDC fallback.
 
 ## Compatibility Boundary
 
-The supported authored baseline is the repository-owned asset corpus. Current
+The supported authored baseline is the repository-owned asset corpus. Old
+standalone first-import result wrappers and direct `Asset::CreateAsset` family
+entrypoints have no production compatibility route. Current
 standalone family import data is schema 2 and is read and written only through
 concrete family schemas. Scene outputs are ordinary independently rebuildable
 assets and do not persist an import replay record. Retired filename, generic
@@ -188,6 +225,9 @@ reader or dual-write route.
 ## Related Code
 
 - [`BuiltinImportDispatch.h`](../../../Engine/Source/Editor/DurinEd/Public/Editor/Import/BuiltinImportDispatch.h)
+- [`IAssetTools.h`](../../../Engine/Source/Editor/AssetTools/Public/AssetTools/IAssetTools.h)
+- [`ReimportManager.h`](../../../Engine/Source/Editor/AssetTools/Public/AssetTools/ReimportManager.h)
+- [`Factory.h`](../../../Engine/Source/Editor/AssetTools/Public/Factories/Factory.h)
 - [`SceneDirectImport.cpp`](../../../Engine/Source/Editor/AssetForgeBuiltins/Private/SceneDirectImport.cpp)
 - [`Texture2DImport.cpp`](../../../Engine/Source/Editor/AssetForgeBuiltins/Private/Texture2DImport.cpp)
 - [`StaticMeshImport.cpp`](../../../Engine/Source/Editor/AssetForgeBuiltins/Private/StaticMeshImport.cpp)

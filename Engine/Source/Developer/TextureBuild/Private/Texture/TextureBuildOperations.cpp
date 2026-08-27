@@ -135,6 +135,18 @@ namespace Durin::Asset
 			.bSourceDecoderInvoked = Context.bSourceDecoderInvoked}, OutError);
 	}
 
+	auto BuildTexture2DInto(
+		DTexture2D& Texture,
+		FTexture2DBuildRequest Request,
+		const FTexture2DPublicationContext& Context,
+		std::string& OutError) -> bool
+	{
+		FTexture2DBuildProduct Product;
+		return BuildTexture2D(std::move(Request), Product, OutError)
+			&& PublishTexture2DProduct(
+				Texture, std::move(Product), Context, OutError);
+	}
+
 	auto MakeTexture2DDerivedDataKey(
 		const DTexture2D& Texture,
 		std::string& OutKey,

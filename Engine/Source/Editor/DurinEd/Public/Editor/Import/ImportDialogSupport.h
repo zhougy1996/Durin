@@ -11,12 +11,14 @@ namespace Durin::Editor
 	{
 		std::function<void()> ClearError;
 		std::function<void(std::string)> ReportError;
-		std::function<void(std::string)> Imported;
+		// Host-owned post-save presentation hook. Refresh/reveal/open policy stays
+		// outside IAssetTools and the concrete factory.
+		std::function<void(std::string)> AssetCreated;
 		std::function<void(std::string)> ImportedDirectory;
 
 		DURINED_API auto Clear() const -> void;
 		DURINED_API auto Report(std::string Message) const -> void;
-		DURINED_API auto NotifyImported(std::string_view AssetPath) const -> void;
+		DURINED_API auto NotifyAssetCreated(std::string_view AssetPath) const -> void;
 		DURINED_API auto NotifyImportedDirectory(std::string_view DirectoryPath) const -> void;
 	};
 

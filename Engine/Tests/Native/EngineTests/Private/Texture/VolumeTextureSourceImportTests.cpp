@@ -1,4 +1,6 @@
 #include "TextureTestSupport.h"
+#include "Texture/VolumeTextureFactoryTestSupport.h"
+#include "AssetTools/ReimportManager.h"
 
 #include "AssetForge/Builtins/VolumeTextureImport.h"
 #include "AssetForge/Builtins/VolumeTextureImportData.h"
@@ -26,10 +28,11 @@ namespace
 		-> FReimportResult
 	{
 		(void)Settings;
-		std::string Error;
-		const bool bSucceeded = Durin::AssetForge::Builtins::ReimportVolumeTexture(
-			Texture, Error);
-		return {.bSucceeded = bSucceeded, .Diagnostic = std::move(Error)};
+		Durin::FReimportResult ManagerResult;
+		Durin::FReimportManager::Reimport(Texture, {},
+			[&](Durin::FReimportResult Result) { ManagerResult = std::move(Result); });
+		return {.bSucceeded = ManagerResult.Succeeded(),
+			.Diagnostic = std::move(ManagerResult.Message)};
 	}
 
 	void AppendBigEndian32(std::vector<std::byte>& Bytes, uint32 Value)
@@ -303,7 +306,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 		.Channels = EVolumeTextureSourceChannels::Red,
 		.SliceWidth = 1, .SliceHeight = 1, .Depth = 2, .TilesX = 2, .TilesY = 1};
 
-	const FVolumeTextureImportResult Imported = ImportVolumeTextureAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DVolumeTexture> Imported = ImportVolumeTextureForTest(
 		AtlasPath.generic_string(), "/TextureImportTests/ImportedVolume", Settings);
 	ASSERT_TRUE(Imported) << Imported.Message;
 	ASSERT_NE(Imported.Asset, nullptr);
@@ -355,7 +358,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 		"MovedVolume/Noise.png"));
 	ASSERT_TRUE(Asset::SavePackage(Imported.Asset->GetPackage()));
 
-	const FVolumeTextureImportResult Detail = ImportVolumeTextureAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DVolumeTexture> Detail = ImportVolumeTextureForTest(
 		MovedAtlas.generic_string(), "/TextureImportTests/ImportedDetailVolume", Settings);
 	ASSERT_TRUE(Detail) << Detail.Message;
 	FAssetPath BaseAssetPath;
@@ -425,7 +428,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 		.Channels = EVolumeTextureSourceChannels::Red,
 		.SliceWidth = 128, .SliceHeight = 128, .Depth = 128,
 		.TilesX = 128, .TilesY = 1};
-	const FVolumeTextureImportResult Imported = ImportVolumeTextureAsset(
+	const Durin::Testing::TFactoryImportResult<Durin::DVolumeTexture> Imported = ImportVolumeTextureForTest(
 		AtlasPath.generic_string(), "/TextureImportTests/ProductionVolume", Settings);
 	ASSERT_TRUE(Imported) << Imported.Message;
 	ASSERT_NE(Imported.Asset, nullptr);

@@ -16,6 +16,7 @@
         "Mona": "Source/Runtime/Mona",
         "MonaImGui": "Source/Runtime/MonaImGui",
         "Launch": "Source/Runtime/Launch",
+        "AssetTools": "Source/Editor/AssetTools",
         "DurinEd": "Source/Editor/DurinEd",
         "MainFrame": "Source/Editor/MainFrame",
         "ContentBrowser": "Source/Editor/ContentBrowser",
@@ -40,6 +41,7 @@
     "ExtraModules": {
         "DurinEditor": {
             "Modules": [
+                "AssetTools",
                 "DurinEd",
                 "MainFrame",
                 "ContentBrowser",

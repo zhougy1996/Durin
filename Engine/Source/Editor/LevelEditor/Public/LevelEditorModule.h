@@ -45,10 +45,6 @@ namespace Durin
 		LEVELEDITOR_API auto OpenDefaultDocument() -> bool;
 		LEVELEDITOR_API auto OpenImportDialog(
 			Editor::Level::EImportDialogType Type, std::string_view Directory) -> void;
-		LEVELEDITOR_API auto ReimportTerrainHeightmap(std::string_view AssetPath,
-			std::function<void(std::string)> ReportError) -> void;
-		LEVELEDITOR_API auto ReimportTerrainHeightmapFromFile(std::string_view AssetPath,
-			std::function<void(std::string)> ReportError) -> void;
 	private:
 		FModuleOwnedCallbackRegistration EditorExtensionCallbacks;
 		FAsyncOperationGroup ThumbnailOperations;

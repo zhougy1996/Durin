@@ -193,12 +193,15 @@ namespace Durin::Asset
 		DPackage* Package = NewObject<DPackage>(nullptr, FName(Path.GetAssetName()));
 		Package->InitializeAssetPackage(Path);
 		AddToRoot(Package);
-		FStaticConstructObjectParameters Params{Class, Package, FName(Path.GetAssetName()), Size};
+		FStaticConstructObjectParameters Params{
+			Class, Package, FName(Path.GetAssetName()), Size,
+			EObjectFlags::Public};
 		OutAsset = StaticConstructObject(Params);
 		DObjectForceRegistration(OutAsset);
 		if (!Package->SetAsset(OutAsset))
 		{
-			RemoveFromRoot(Package);
+			if (Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
+				RemoveFromRoot(Package);
 			MarkObjectHierarchyAsGarbage(Package);
 			CollectGarbage();
 			OutAsset = nullptr;
@@ -262,7 +265,8 @@ namespace Durin::Asset
 			FName(DestinationPath.GetAssetName()));
 		if (!OutAsset || !Package->SetAsset(OutAsset))
 		{
-			RemoveFromRoot(Package);
+			if (Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
+				RemoveFromRoot(Package);
 			MarkObjectHierarchyAsGarbage(Package);
 			CollectGarbage();
 			OutAsset = nullptr;
@@ -470,7 +474,9 @@ namespace Durin::Asset
 					DPackage* TransactionPackage = LoadedIt->second;
 					ResidentPackages.erase(LoadedIt);
 					LoadingPackages.erase(*It);
-					RemoveFromRoot(TransactionPackage);
+					if (TransactionPackage->HasAnyInternalFlags(
+						EObjectInternalFlags::RootSet))
+						RemoveFromRoot(TransactionPackage);
 					MarkObjectHierarchyAsGarbage(TransactionPackage);
 					bDiscardedPackage = true;
 				}
@@ -550,6 +556,34 @@ namespace Durin::Asset
 		return It == ResidentPackages.end() ? nullptr : It->second.Package;
 	}
 
+	auto FAssetLoadService::AdoptCreatedPackage(DPackage* Package) -> FAssetResult
+	{
+		if (!bAcceptingRequests)
+			return Error(EAssetError::ShuttingDown,
+				"Asset package adoption is closed while the asset manager is shutting down.");
+		if (RuntimeConfiguration.IsCooked())
+			return Error(EAssetError::ReadOnlyMode,
+				"Cooked runtime package mode does not permit package adoption.");
+		FAssetPath Path;
+		if (!Package || !Package->IsAssetPackage()
+			|| !FAssetPath::TryCreate(Package->GetPackagePath(), Path)
+			|| FindPackage(Path.GetView()) != Package)
+			return Error(EAssetError::InvalidPackageType,
+				"Only a live registered asset package can be adopted.");
+		if (Registry.FindAssetExactPointer(Path))
+			return Error(EAssetError::AlreadyExists,
+				"A catalog entry already occupies the package path.");
+		if (auto Existing = ResidentPackages.find(Path);
+			Existing != ResidentPackages.end())
+			return Existing->second.Package == Package
+				? FAssetResult{}
+				: Error(EAssetError::AlreadyExists,
+					"A different package is already resident at this path.");
+		ResidentPackages.emplace(
+			Path, Package, EAssetPackagePublicationState::NewlyCreated);
+		return {};
+	}
+
 	auto FAssetLoadService::GetResidentPackagePublicationState(
 		const FAssetPath& Path) const
 		-> std::optional<EAssetPackagePublicationState>
@@ -597,7 +631,8 @@ namespace Durin::Asset
 			return Error(EAssetError::InUse,
 				"Package has unsaved state; explicit discard policy is required.");
 		ResidentPackages.erase(It);
-		RemoveFromRoot(Package);
+		if (Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
+			RemoveFromRoot(Package);
 		MarkObjectHierarchyAsGarbage(Package);
 		CollectGarbage();
 		return {};
@@ -656,7 +691,8 @@ namespace Durin::Asset
 		}
 		for (DPackage* Package : ReleasedPackages)
 		{
-			RemoveFromRoot(Package);
+			if (Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
+				RemoveFromRoot(Package);
 			MarkObjectHierarchyAsGarbage(Package);
 		}
 		if (!ReleasedPackages.empty()) CollectGarbage();
@@ -677,7 +713,8 @@ namespace Durin::Asset
 		Loader.Reset();
 		for (DPackage* Package : Packages)
 		{
-			RemoveFromRoot(Package);
+			if (Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
+				RemoveFromRoot(Package);
 			MarkObjectHierarchyAsGarbage(Package);
 		}
 	}

@@ -3272,6 +3272,50 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::MarkObjectHierarchyAsGarbage(Package);
 	}
 
+	TEST(FCoreDObjectReflectionTests, CreatePackageInitializesStandaloneAndRejectsDuplicatePaths)
+	{
+		EnsureDObjectInitialized();
+		EnsurePackageTestMount();
+		Durin::FAssetPath Path;
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/CoreTests/CreatedPackage", Path));
+
+		Durin::DPackage* Package = Durin::CreatePackage(Path);
+		ASSERT_NE(Package, nullptr);
+		EXPECT_TRUE(Package->IsAssetPackage());
+		EXPECT_EQ(Package->GetPackagePath(), Path.ToString());
+		EXPECT_EQ(Package->GetFName(), Durin::FName("CreatedPackage"));
+		EXPECT_EQ(Durin::FindPackage(Path.GetView()), Package);
+		EXPECT_TRUE(Package->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
+		EXPECT_FALSE(Package->HasAnyInternalFlags(
+			Durin::EObjectInternalFlags::RootSet));
+		EXPECT_EQ(Durin::CreatePackage(Path), nullptr);
+		EXPECT_EQ(Durin::CreatePackage({}), nullptr);
+		Durin::CollectGarbage();
+		EXPECT_EQ(Durin::FindPackage(Path.GetView()), Package);
+
+		Durin::MarkObjectHierarchyAsGarbage(Package);
+		Durin::CollectGarbage();
+		EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
+	}
+
+	TEST(FCoreDObjectReflectionTests, NewObjectFlagsDrivePublicAndStandaloneLifetime)
+	{
+		EnsureDObjectInitialized();
+		Durin::DObject* Object = Durin::NewObject(
+			Durin::DObject::StaticClass(), nullptr, "FlaggedObject",
+			Durin::EObjectFlags::Public | Durin::EObjectFlags::Standalone);
+		ASSERT_NE(Object, nullptr);
+		EXPECT_TRUE(Object->HasAnyObjectFlags(Durin::EObjectFlags::Public));
+		EXPECT_TRUE(Object->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
+		EXPECT_FALSE(Object->HasAnyInternalFlags(Durin::EObjectInternalFlags::RootSet));
+
+		Durin::CollectGarbage();
+		EXPECT_TRUE(ObjectArrayContains(Object));
+		Durin::MarkAsGarbage(Object);
+		Durin::CollectGarbage();
+		EXPECT_FALSE(ObjectArrayContains(Object));
+	}
+
 	TEST(FCoreDObjectReflectionTests, CppPackagesOwnReflectedTypesAndAreStableRoots)
 	{
 		EnsureDObjectInitialized();

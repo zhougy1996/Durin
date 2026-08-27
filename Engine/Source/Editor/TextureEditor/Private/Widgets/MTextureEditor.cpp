@@ -18,7 +18,7 @@
 #include "Texture/TexturePayloadInspection.h"
 #include "Texture/Texture2DCompilation.h"
 #include "Texture/Texture2DRenderResource.h"
-#include "AssetForge/Builtins/Texture2DImport.h"
+#include "AssetTools/ReimportManager.h"
 #include "Widgets/TexturePreview.h"
 #include "Workspace/TextureEditorWorkspace.h"
 
@@ -808,9 +808,11 @@ namespace Durin::Editor::Texture
 	auto MTextureEditor::ReimportSource(DTexture2D* Texture) -> void
 	{
 		if (!Texture) return;
-		std::string Error;
-		if (!AssetForge::Builtins::ReimportTexture2D(*Texture, Error))
-			SetError(std::move(Error));
+		FReimportManager::Reimport(*Texture, {}, [this](FReimportResult Result) {
+			if (!Result) SetError(Result.Message.empty()
+				? "Texture2D reimport failed." : std::move(Result.Message));
+			else SourceReferenceIndex.Invalidate();
+		});
 	}
 
 	auto MTextureEditor::ReimportFromFile(DTexture2D* Texture) -> void
@@ -830,14 +832,14 @@ namespace Durin::Editor::Texture
 			SetError(Result.ErrorMessage);
 			return;
 		}
-		std::string Error;
-		if (!AssetForge::Builtins::ReimportTexture2DFromFile(
-			*Texture, Result.FilePath, Error))
-		{
-			SetError(std::move(Error));
-			return;
-		}
-		SourceReferenceIndex.Invalidate();
+		const std::array Files{Result.FilePath};
+		FReimportManager::ReimportFromFiles(*Texture, Files, {},
+			[this](FReimportResult Reimported) {
+				if (!Reimported) SetError(Reimported.Message.empty()
+					? "Texture2D reimport from file failed."
+					: std::move(Reimported.Message));
+				else SourceReferenceIndex.Invalidate();
+			});
 	}
 
 	auto MTextureEditor::DrawBuildSettings(DTexture2D* Texture) -> void

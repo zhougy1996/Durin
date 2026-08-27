@@ -33,15 +33,6 @@ namespace Durin::AssetForge::Builtins
 		}
 	};
 
-	struct FVolumeTextureImportResult
-	{
-		bool bSucceeded = false;
-		std::string Message;
-		DVolumeTexture* Asset = nullptr;
-
-		explicit operator bool() const { return bSucceeded; }
-	};
-
 	// Describes source-derived import suggestions without relying on file naming.
 	struct FVolumeTextureAtlasInspection
 	{
@@ -65,11 +56,6 @@ namespace Durin::AssetForge::Builtins
 		const FVolumeTextureImportSettings& Settings,
 		FVolumeTextureSourceData& OutSourceData,
 		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto ImportVolumeTextureAsset(
-		std::string_view FilePath,
-		std::string_view AssetPath,
-		const FVolumeTextureImportSettings& Settings = {})
-		-> FVolumeTextureImportResult;
 	ASSETFORGEBUILTINS_API auto ReimportVolumeTexture(
 		DVolumeTexture& Texture,
 		std::string& OutError,

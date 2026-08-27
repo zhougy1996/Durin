@@ -2,9 +2,9 @@
 
 Summary: Explain how built-in importers select, persist, reimport, and diagnose ordinary source files.
 
-Modules: DurinEd, AssetForgeBuiltins
+Modules: AssetTools, DurinEd, AssetForgeBuiltins
 
-Last reviewed: 2026-08-27
+Last reviewed: 2026-08-28
 
 Durin imports from ordinary files selected with the platform file chooser.
 Source files do not need to live beneath an Asset mount, and the editor does
@@ -24,6 +24,13 @@ Content Browser exposes a fixed built-in Import menu:
 Choose a physical file, then choose the asset path or output directory. The
 source row is read-only; selecting a different file uses the file chooser
 rather than editing a virtual source destination.
+
+For every single-output choice, the editor creates the final package and final
+asset object directly through the selected concrete Factory. Import is not a
+temporary-asset publish transaction. A capture, decode, or build failure
+discards that new unsaved package; a save failure leaves the complete live
+asset available for an explicit retry. Scene is the multi-output exception and
+retains its all-or-nothing package-set transaction.
 
 A successful import may retain an optional source hint. Project-local sources
 normally use `AssetRelative`, resolved from the physical parent of the owning
@@ -58,6 +65,13 @@ candidate, and commit canonical imported data, settings, derived result, and
 hints together. A resolution, decode, build, or cancellation failure leaves
 both live and persisted state unchanged. A later save failure preserves the
 prior DAST/DABK bundle and leaves the complete new live state Dirty for retry.
+
+These actions are class-aware capabilities supplied by the reflected factory
+for the loaded asset; the Content Browser does not maintain a separate family
+switch. Panorama TextureCube replacement selects one file, while a six-face
+TextureCube replacement selects all six faces before the manager invokes the
+handler. Unsupported or ambiguous handlers are reported without mutating the
+asset.
 
 Missing or corrupt disposable derived data is rebuilt through the owning
 family build system. It is not treated as source repair or generic import

@@ -173,7 +173,7 @@ namespace Durin::Editor::Level
 			.ClearError = [this] { EditorError.clear(); },
 			.ReportError =
 				[this](std::string Message) { SetError(std::move(Message)); },
-			.Imported = [this](std::string AssetPath) {
+			.AssetCreated = [this](std::string AssetPath) {
 				if (ContentBrowserCallbacks.NotifyMountedContentChanged)
 					ContentBrowserCallbacks.NotifyMountedContentChanged();
 				else if (GEditor)

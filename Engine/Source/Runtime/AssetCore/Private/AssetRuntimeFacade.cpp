@@ -127,6 +127,12 @@ namespace Durin::Asset
 		return FAssetRuntimeState::Get().GetLoadService().FindResidentPackage(Path);
 	}
 
+	auto AdoptCreatedPackage(DPackage* Package) -> FAssetResult
+	{
+		return FAssetRuntimeState::Get().GetLoadService()
+			.AdoptCreatedPackage(Package);
+	}
+
 	auto GetResidentPackagePublicationState(const FAssetPath& Path)
 		-> std::optional<EAssetPackagePublicationState>
 	{
