@@ -42,6 +42,7 @@ namespace Durin
 			bool bStore = true;
 			bool bPassManagedTransition = false;
 			ERHIAccess ResultAccess = ERHIAccess::None;
+			std::string ParameterPath;
 		};
 
 		struct FGraphPass
@@ -51,8 +52,73 @@ namespace Durin
 			std::vector<FGraphUse> Uses;
 			std::vector<uint32> Prerequisites;
 			FRenderGraphExecute Execute;
+			FRenderGraphParameterizedExecute ParameterizedExecute;
 			bool bRoot = false;
 			std::string RootReason;
+			bool bParameterized = false;
+			const FRenderGraphParametersMetadata* ParametersMetadata = nullptr;
+			const void* Parameters = nullptr;
+		};
+
+		struct FGraphParameterAllocation final
+		{
+			FGraphParameterAllocation(size_t Size, size_t Alignment,
+				void (*InDestroy)(void*))
+				: Data(::operator new(Size, std::align_val_t(Alignment))),
+				  Alignment(Alignment), Destroy(InDestroy)
+			{
+			}
+
+			~FGraphParameterAllocation()
+			{
+				if (bConstructed) Destroy(Data);
+				::operator delete(Data, std::align_val_t(Alignment));
+			}
+
+			FGraphParameterAllocation(const FGraphParameterAllocation&) = delete;
+			auto operator=(const FGraphParameterAllocation&)
+				-> FGraphParameterAllocation& = delete;
+
+			void* Data = nullptr;
+			size_t Alignment = 0;
+			void (*Destroy)(void*) = nullptr;
+			bool bConstructed = false;
+			bool bFrozen = false;
+		};
+
+		struct FGraphParameterStorage final
+		{
+			FGraphParameterStorage() = default;
+			FGraphParameterStorage(FGraphParameterStorage&& Other) noexcept
+				: Allocations(std::move(Other.Allocations))
+			{
+				Other.Allocations.clear();
+			}
+			auto operator=(FGraphParameterStorage&& Other) noexcept
+				-> FGraphParameterStorage&
+			{
+				if (this != &Other)
+				{
+					Reset();
+					Allocations = std::move(Other.Allocations);
+					Other.Allocations.clear();
+				}
+				return *this;
+			}
+			~FGraphParameterStorage() { Reset(); }
+
+			FGraphParameterStorage(const FGraphParameterStorage&) = delete;
+			auto operator=(const FGraphParameterStorage&)
+				-> FGraphParameterStorage& = delete;
+
+			auto Reset() -> void
+			{
+				for (auto It = Allocations.rbegin(); It != Allocations.rend(); ++It)
+					It->reset();
+				Allocations.clear();
+			}
+
+			std::vector<std::shared_ptr<FGraphParameterAllocation>> Allocations;
 		};
 
 		struct FRangeState
@@ -195,6 +261,314 @@ namespace Durin
 			}
 			return "unknown";
 		}
+
+		auto ValidateParameterMetadata(
+			const FRenderGraphParametersMetadata* Metadata,
+			uint32 ExpectedSize, uint32 ExpectedAlignment, std::string& OutError,
+			uint32 Depth = 0) -> bool
+		{
+			if (Metadata == nullptr)
+			{
+				OutError = "render graph parameter metadata is null";
+				return false;
+			}
+			if (Metadata->StructName == nullptr || Metadata->StructName[0] == '\0')
+			{
+				OutError = "render graph parameter metadata has an empty struct name";
+				return false;
+			}
+			if (Metadata->StructSize != ExpectedSize
+				|| Metadata->StructAlignment != ExpectedAlignment)
+			{
+				OutError = "render graph parameter metadata for '"
+					+ std::string(Metadata->StructName) + "' has a mismatched layout";
+				return false;
+			}
+			if (Depth >= 32)
+			{
+				OutError = "render graph parameter metadata nesting exceeds 32 levels";
+				return false;
+			}
+
+			uint64 PreviousEnd = 0;
+			std::vector<std::string_view> MemberNames;
+			MemberNames.reserve(Metadata->Members.size());
+			for (const auto& Member : Metadata->Members)
+			{
+				const std::string Prefix = "render graph parameter metadata for '"
+					+ std::string(Metadata->StructName) + "'";
+				if (Member.Name == nullptr || Member.Name[0] == '\0')
+				{
+					OutError = Prefix + " has an empty member name";
+					return false;
+				}
+				if (std::ranges::find(MemberNames, Member.Name)
+					!= MemberNames.end())
+				{
+					OutError = Prefix + " has duplicate member name '"
+						+ Member.Name + "'";
+					return false;
+				}
+				MemberNames.emplace_back(Member.Name);
+				if (Member.ElementSize == 0 || Member.ArraySize == 0)
+				{
+					OutError = Prefix + " member '" + Member.Name
+						+ "' has an empty layout";
+					return false;
+				}
+				const uint64 End = static_cast<uint64>(Member.Offset)
+					+ static_cast<uint64>(Member.ElementSize) * Member.ArraySize;
+				if (Member.Offset < PreviousEnd || End > Metadata->StructSize)
+				{
+					OutError = Prefix + " member '" + Member.Name
+						+ "' has an invalid or unstable offset";
+					return false;
+				}
+				PreviousEnd = End;
+
+				if (Member.Kind == ERenderGraphParameterMemberKind::Nested)
+				{
+					if (Member.bOptional || Member.NestedParameters == nullptr
+						|| Member.ElementSize != Member.NestedParameters->StructSize
+						|| !ValidateParameterMetadata(Member.NestedParameters,
+							Member.NestedParameters->StructSize,
+							Member.NestedParameters->StructAlignment, OutError, Depth + 1))
+					{
+						if (OutError.empty()) OutError = Prefix + " member '"
+							+ Member.Name + "' has invalid nested metadata";
+						return false;
+					}
+					continue;
+				}
+				if (Member.NestedParameters != nullptr)
+				{
+					OutError = Prefix + " member '" + Member.Name
+						+ "' unexpectedly has nested metadata";
+					return false;
+				}
+				uint32 ExpectedElementSize = 0;
+				switch (Member.Kind)
+				{
+				case ERenderGraphParameterMemberKind::Texture:
+					ExpectedElementSize = Member.bOptional
+						? sizeof(std::optional<FRenderGraphTextureParameter>)
+						: sizeof(FRenderGraphTextureParameter);
+					break;
+				case ERenderGraphParameterMemberKind::Buffer:
+					ExpectedElementSize = Member.bOptional
+						? sizeof(std::optional<FRenderGraphBufferParameter>)
+						: sizeof(FRenderGraphBufferParameter);
+					break;
+				case ERenderGraphParameterMemberKind::Token:
+					ExpectedElementSize = Member.bOptional
+						? sizeof(std::optional<FRenderGraphTokenParameter>)
+						: sizeof(FRenderGraphTokenParameter);
+					break;
+				case ERenderGraphParameterMemberKind::ColorAttachment:
+				case ERenderGraphParameterMemberKind::ManagedColorAttachment:
+					ExpectedElementSize = Member.bOptional
+						? sizeof(std::optional<FRenderGraphColorAttachmentParameter>)
+						: sizeof(FRenderGraphColorAttachmentParameter);
+					break;
+				case ERenderGraphParameterMemberKind::DepthStencilAttachment:
+				case ERenderGraphParameterMemberKind::ManagedDepthStencilAttachment:
+					ExpectedElementSize = Member.bOptional
+						? sizeof(std::optional<
+							FRenderGraphDepthStencilAttachmentParameter>)
+						: sizeof(FRenderGraphDepthStencilAttachmentParameter);
+					break;
+				case ERenderGraphParameterMemberKind::ManagedTexture:
+					ExpectedElementSize = Member.bOptional
+						? sizeof(std::optional<FRenderGraphManagedTextureParameter>)
+						: sizeof(FRenderGraphManagedTextureParameter);
+					break;
+				case ERenderGraphParameterMemberKind::Nested: break;
+				}
+				if (Member.ElementSize != ExpectedElementSize)
+				{
+					OutError = Prefix + " member '" + Member.Name
+						+ "' has a mismatched wrapper layout";
+					return false;
+				}
+
+				const bool bTextureKind = Member.ResourceKind
+					== ERenderGraphResourceKind::Texture;
+				const bool bBufferKind = Member.ResourceKind
+					== ERenderGraphResourceKind::Buffer;
+				const bool bTokenKind = Member.ResourceKind
+					== ERenderGraphResourceKind::Token;
+				bool bShapeValid = false;
+				switch (Member.Kind)
+				{
+				case ERenderGraphParameterMemberKind::Texture:
+					bShapeValid = bTextureKind
+						&& Member.RangeKind == ERenderGraphParameterRangeKind::TextureSubresource
+						&& !Member.bPassManagedTransition
+						&& Member.ResultAccess == ERHIAccess::None;
+					break;
+				case ERenderGraphParameterMemberKind::Buffer:
+					bShapeValid = bBufferKind
+						&& Member.RangeKind == ERenderGraphParameterRangeKind::BufferBytes
+						&& !Member.bPassManagedTransition
+						&& Member.ResultAccess == ERHIAccess::None;
+					break;
+				case ERenderGraphParameterMemberKind::Token:
+					bShapeValid = bTokenKind
+						&& Member.RangeKind == ERenderGraphParameterRangeKind::None
+						&& Member.Access == ERHIAccess::None
+						&& !Member.bPassManagedTransition
+						&& Member.ResultAccess == ERHIAccess::None;
+					break;
+				case ERenderGraphParameterMemberKind::ColorAttachment:
+					bShapeValid = bTextureKind
+						&& Member.RangeKind == ERenderGraphParameterRangeKind::TextureSubresource
+						&& Member.Use == ERenderGraphUse::ReadWrite
+						&& Member.Access == ERHIAccess::ColorAttachmentReadWrite
+						&& !Member.bPassManagedTransition
+						&& Member.ResultAccess == ERHIAccess::None;
+					break;
+				case ERenderGraphParameterMemberKind::DepthStencilAttachment:
+					bShapeValid = bTextureKind
+						&& Member.RangeKind == ERenderGraphParameterRangeKind::TextureSubresource
+						&& Member.Use == ERenderGraphUse::ReadWrite
+						&& Member.Access == ERHIAccess::DepthStencilReadWrite
+						&& !Member.bPassManagedTransition
+						&& Member.ResultAccess == ERHIAccess::None;
+					break;
+				case ERenderGraphParameterMemberKind::ManagedColorAttachment:
+					bShapeValid = bTextureKind
+						&& Member.RangeKind == ERenderGraphParameterRangeKind::TextureSubresource
+						&& Member.Use == ERenderGraphUse::ReadWrite
+						&& Member.Access == ERHIAccess::ColorAttachmentReadWrite
+						&& Member.bPassManagedTransition
+						&& Member.ResultAccess != ERHIAccess::None;
+					break;
+				case ERenderGraphParameterMemberKind::ManagedDepthStencilAttachment:
+					bShapeValid = bTextureKind
+						&& Member.RangeKind == ERenderGraphParameterRangeKind::TextureSubresource
+						&& Member.Use == ERenderGraphUse::ReadWrite
+						&& Member.Access == ERHIAccess::DepthStencilReadWrite
+						&& Member.bPassManagedTransition
+						&& Member.ResultAccess != ERHIAccess::None;
+					break;
+				case ERenderGraphParameterMemberKind::ManagedTexture:
+					bShapeValid = bTextureKind
+						&& Member.RangeKind == ERenderGraphParameterRangeKind::TextureSubresource
+						&& Member.bPassManagedTransition
+						&& Member.ResultAccess != ERHIAccess::None;
+					break;
+				case ERenderGraphParameterMemberKind::Nested: break;
+				}
+				if (!bShapeValid)
+				{
+					OutError = Prefix + " member '" + Member.Name
+						+ "' has inconsistent declaration semantics";
+					return false;
+				}
+			}
+			return true;
+		}
+
+		auto PassUsePrefix(const FGraphPass& Pass, const FGraphUse& Use)
+			-> std::string
+		{
+			std::string Prefix = "pass '" + Pass.Name + "'";
+			if (!Use.ParameterPath.empty())
+				Prefix += " parameter '" + Use.ParameterPath + "'";
+			return Prefix;
+		}
+
+		auto ValidatePassUses(const FGraphPass& Pass,
+			std::span<const FGraphResource> Resources, std::string& OutError)
+			-> bool
+		{
+			for (uint32 UseIndex = 0; UseIndex < Pass.Uses.size(); ++UseIndex)
+			{
+				const auto& Use = Pass.Uses[UseIndex];
+				const std::string Prefix = PassUsePrefix(Pass, Use);
+				if (Use.ResourceIndex >= Resources.size()
+					|| Resources[Use.ResourceIndex].Kind != Use.Kind)
+				{
+					OutError = Prefix + " has an invalid resource handle";
+					return false;
+				}
+				const auto& Resource = Resources[Use.ResourceIndex];
+				if (Use.Kind != ERenderGraphResourceKind::Token
+					&& (Use.Access == ERHIAccess::None
+						|| EnumHasAnyFlags(Use.Access, ERHIAccess::Discard)))
+				{
+					OutError = Prefix + " resource '" + Resource.Name
+						+ "' has invalid required access";
+					return false;
+				}
+				if (Use.Kind != ERenderGraphResourceKind::Token
+					&& !IsAccessAllowed(Pass.Type, Use.Access))
+				{
+					OutError = Prefix + " resource '" + Resource.Name
+						+ "' access is incompatible with pass domain";
+					return false;
+				}
+				if (Use.Kind != ERenderGraphResourceKind::Token
+					&& ((Use.Use == ERenderGraphUse::Read
+							&& AccessHasWrite(Use.Access))
+						|| (Use.Use == ERenderGraphUse::Write
+							&& !AccessHasWrite(Use.Access))))
+				{
+					OutError = Prefix + " resource '" + Resource.Name
+						+ "' access disagrees with use mode";
+					return false;
+				}
+				if (Use.bDiscard && Use.Use == ERenderGraphUse::Read)
+				{
+					OutError = Prefix + " cannot discard a read";
+					return false;
+				}
+				if (Use.bPassManagedTransition
+					&& (Use.ResultAccess == ERHIAccess::None
+						|| EnumHasAnyFlags(Use.ResultAccess, ERHIAccess::Discard)))
+				{
+					OutError = Prefix + " resource '" + Resource.Name
+						+ "' has invalid managed attachment result access";
+					return false;
+				}
+				if (Use.Kind == ERenderGraphResourceKind::Buffer
+					&& (Use.BufferSize == 0
+						|| Use.BufferOffset > Resource.BufferDesc.Size
+						|| Use.BufferSize > Resource.BufferDesc.Size
+							- Use.BufferOffset))
+				{
+					OutError = Prefix + " resource '" + Resource.Name
+						+ "' has invalid buffer range";
+					return false;
+				}
+				if (Use.Kind == ERenderGraphResourceKind::Texture
+					&& (Use.TextureRange.Aspects == ERHITextureAspect::None
+						|| Use.TextureRange.NumMips == 0
+						|| Use.TextureRange.NumArrayLayers == 0
+						|| Use.TextureRange.FirstMip + Use.TextureRange.NumMips
+							> Resource.TextureDesc.NumMips
+						|| Use.TextureRange.FirstArrayLayer
+							+ Use.TextureRange.NumArrayLayers
+							> Resource.TextureDesc.ArraySize
+						|| !EnumHasAnyFlags(
+							GetTextureAspects(Resource.TextureDesc.Format),
+							Use.TextureRange.Aspects)))
+				{
+					OutError = Prefix + " resource '" + Resource.Name
+						+ "' has invalid texture range";
+					return false;
+				}
+				for (uint32 OtherUse = 0; OtherUse < UseIndex; ++OtherUse)
+					if (RangesOverlap(Use, Pass.Uses[OtherUse]))
+					{
+						OutError = Prefix
+							+ " declares overlapping uses of resource '"
+							+ Resource.Name + "'";
+						return false;
+					}
+			}
+			return true;
+		}
 	} // namespace
 
 	struct FRenderGraphBuilder::FState
@@ -207,6 +581,8 @@ namespace Durin
 		FRenderGraphPrepare Prepare;
 		FRenderGraphBackingResolver Resolver;
 		FRenderGraphBudget Budget;
+		mutable FGraphParameterStorage ParameterStorage;
+		mutable bool bParameterStorageTransferred = false;
 	};
 
 	struct FCompiledRenderGraph::FState
@@ -220,6 +596,9 @@ namespace Durin
 		std::vector<FRHIBufferTransition> FinalBufferTransitions;
 		std::vector<FRHITextureTransition> FinalTextureTransitions;
 		std::vector<FRenderGraphExecute> ExecuteCallbacks;
+		std::vector<FRenderGraphParameterizedExecute> ParameterizedExecuteCallbacks;
+		std::vector<const FRenderGraphParametersMetadata*> PassParametersMetadata;
+		std::vector<const void*> PassParameters;
 		std::vector<std::vector<uint32>> PassResourceIndices;
 		std::vector<std::vector<uint32>> PassBufferTransitionResources;
 		std::vector<std::vector<uint32>> PassTextureTransitionResources;
@@ -232,6 +611,7 @@ namespace Durin
 		FRenderGraphPrepare Prepare;
 		FRenderGraphBackingResolver Resolver;
 		FRenderGraphBudget Budget;
+		FGraphParameterStorage ParameterStorage;
 		uint64 CompileMicroseconds = 0;
 		mutable std::atomic<uint64> ExecuteMicroseconds = 0;
 	};
@@ -244,6 +624,41 @@ namespace Durin
 	}
 
 	FRenderGraphBuilder::~FRenderGraphBuilder() = default;
+
+	auto FRenderGraphBuilder::AllocateParameterStorage(size_t Size,
+		size_t Alignment, const FRenderGraphParametersMetadata* Metadata,
+		void (*Destroy)(void*), std::weak_ptr<void>& OutLifetime) -> void*
+	{
+		if (State->bParameterStorageTransferred)
+		{
+			State->DeclarationErrors.emplace_back(
+				"render graph parameter storage was already transferred");
+			return nullptr;
+		}
+		std::string Error;
+		if (!ValidateParameterMetadata(Metadata, static_cast<uint32>(Size),
+			static_cast<uint32>(Alignment), Error))
+		{
+			State->DeclarationErrors.push_back(std::move(Error));
+			return nullptr;
+		}
+		auto Allocation = std::make_shared<FGraphParameterAllocation>(
+			Size, Alignment, Destroy);
+		void* Data = Allocation->Data;
+		OutLifetime = Allocation;
+		State->ParameterStorage.Allocations.push_back(std::move(Allocation));
+		return Data;
+	}
+
+	auto FRenderGraphBuilder::MarkParameterStorageConstructed(void* Storage)
+		-> void
+	{
+		auto Allocation = std::ranges::find_if(
+			State->ParameterStorage.Allocations,
+			[Storage](const auto& Candidate) { return Candidate->Data == Storage; });
+		if (Allocation != State->ParameterStorage.Allocations.end())
+			(*Allocation)->bConstructed = true;
+	}
 
 	auto FRenderGraphBuilder::ImportTexture(std::string_view Name,
 		FRHITexture* Texture, ERHIAccess InitialAccess, ERHIAccess FinalAccess)
@@ -359,9 +774,206 @@ namespace Durin
 		-> FRenderGraphPassHandle
 	{
 		const uint32 Index = static_cast<uint32>(State->Passes.size());
-		State->Passes.push_back({std::string(Name), Type, {}, {},
-			std::move(Execute), false, {}});
+		FGraphPass Pass;
+		Pass.Name = Name;
+		Pass.Type = Type;
+		Pass.Execute = std::move(Execute);
+		State->Passes.push_back(std::move(Pass));
 		return {State->Owner, Index};
+	}
+
+	auto FRenderGraphBuilder::AddParameterizedPass(std::string_view Name,
+		ERenderGraphPassType Type,
+		const FRenderGraphParametersMetadata* Metadata, void* Parameters,
+		std::shared_ptr<void> Lifetime, FRenderGraphExecute Execute,
+		FRenderGraphParameterizedExecute ParameterizedExecute)
+		-> FRenderGraphPassHandle
+	{
+		const std::string StructName = Metadata != nullptr
+			&& Metadata->StructName != nullptr ? Metadata->StructName : "FParameters";
+		const std::string RootPrefix = "pass '" + std::string(Name)
+			+ "' parameter '" + StructName + "'";
+		auto Allocation = std::ranges::find_if(
+			State->ParameterStorage.Allocations,
+			[&](const auto& Candidate) {
+				return Candidate.get() == Lifetime.get()
+					&& Candidate->Data == Parameters;
+			});
+		if (Parameters == nullptr || Lifetime == nullptr
+			|| Allocation == State->ParameterStorage.Allocations.end())
+		{
+			State->DeclarationErrors.push_back(
+				RootPrefix + " has an invalid or foreign parameter allocation");
+			return {};
+		}
+		if ((*Allocation)->bFrozen)
+		{
+			State->DeclarationErrors.push_back(
+				RootPrefix + " was already submitted");
+			return {};
+		}
+		(*Allocation)->bFrozen = true;
+
+		FGraphPass ParameterizedPass;
+		ParameterizedPass.Name = Name;
+		ParameterizedPass.Type = Type;
+		ParameterizedPass.Execute = std::move(Execute);
+		ParameterizedPass.ParameterizedExecute = std::move(ParameterizedExecute);
+		ParameterizedPass.bParameterized = true;
+		ParameterizedPass.ParametersMetadata = Metadata;
+		ParameterizedPass.Parameters = Parameters;
+
+		std::function<void(const void*, const FRenderGraphParametersMetadata*,
+			const std::string&)> Traverse;
+		Traverse = [&](const void* StructData,
+			const FRenderGraphParametersMetadata* StructMetadata,
+			const std::string& ParentPath) {
+			const auto* Bytes = static_cast<const std::byte*>(StructData);
+			for (const auto& Member : StructMetadata->Members)
+			{
+				for (uint32 ElementIndex = 0;
+					ElementIndex < Member.ArraySize; ++ElementIndex)
+				{
+					const void* ElementData = Bytes + Member.Offset
+						+ static_cast<size_t>(ElementIndex) * Member.ElementSize;
+					std::string FieldPath = ParentPath + "." + Member.Name;
+					if (Member.ArraySize > 1)
+						FieldPath += "[" + std::to_string(ElementIndex) + "]";
+					if (Member.Kind == ERenderGraphParameterMemberKind::Nested)
+					{
+						Traverse(ElementData, Member.NestedParameters, FieldPath);
+						continue;
+					}
+
+					FGraphUse DeclaredUse;
+					DeclaredUse.Kind = Member.ResourceKind;
+					DeclaredUse.Use = Member.Use;
+					DeclaredUse.Access = Member.Access;
+					DeclaredUse.bDiscard = Member.bDiscard;
+					DeclaredUse.bPassManagedTransition =
+						Member.bPassManagedTransition;
+					DeclaredUse.ResultAccess = Member.ResultAccess;
+					DeclaredUse.ParameterPath = FieldPath;
+
+					auto Visit = [&]<typename Wrapper>(auto&& ReadWrapper) {
+						if (Member.bOptional)
+						{
+							const auto& Optional = *static_cast<
+								const std::optional<Wrapper>*>(ElementData);
+							if (!Optional.has_value()) return false;
+							ReadWrapper(*Optional);
+						}
+						else ReadWrapper(*static_cast<const Wrapper*>(ElementData));
+						return true;
+					};
+
+					bool bPresent = false;
+					switch (Member.Kind)
+					{
+					case ERenderGraphParameterMemberKind::Texture:
+						bPresent = Visit.template operator()<
+							FRenderGraphTextureParameter>([&](const auto& Value) {
+								DeclaredUse.ResourceIndex = Value.Texture.Owner
+									== State->Owner ? Value.Texture.Index
+									: std::numeric_limits<uint32>::max();
+								DeclaredUse.TextureRange = Value.Range;
+							});
+						break;
+					case ERenderGraphParameterMemberKind::Buffer:
+						bPresent = Visit.template operator()<
+							FRenderGraphBufferParameter>([&](const auto& Value) {
+								DeclaredUse.ResourceIndex = Value.Buffer.Owner
+									== State->Owner ? Value.Buffer.Index
+									: std::numeric_limits<uint32>::max();
+								DeclaredUse.BufferOffset = Value.Offset;
+								DeclaredUse.BufferSize = Value.Size;
+							});
+						break;
+					case ERenderGraphParameterMemberKind::Token:
+						bPresent = Visit.template operator()<
+							FRenderGraphTokenParameter>([&](const auto& Value) {
+								DeclaredUse.ResourceIndex = Value.Token.Owner
+									== State->Owner ? Value.Token.Index
+									: std::numeric_limits<uint32>::max();
+								DeclaredUse.bDiscard = Member.Use
+									!= ERenderGraphUse::Read;
+							});
+						break;
+					case ERenderGraphParameterMemberKind::ColorAttachment:
+					case ERenderGraphParameterMemberKind::ManagedColorAttachment:
+						bPresent = Visit.template operator()<
+							FRenderGraphColorAttachmentParameter>(
+							[&](const auto& Value) {
+								DeclaredUse.ResourceIndex = Value.Texture.Owner
+									== State->Owner ? Value.Texture.Index
+									: std::numeric_limits<uint32>::max();
+								DeclaredUse.TextureRange = Value.Range;
+							});
+						DeclaredUse.bDiscard = Member.LoadAction
+							!= ERHIRenderTargetLoadAction::Load;
+						DeclaredUse.bStore = Member.StoreAction
+							== ERHIRenderTargetStoreAction::Store;
+						break;
+					case ERenderGraphParameterMemberKind::DepthStencilAttachment:
+					case ERenderGraphParameterMemberKind::ManagedDepthStencilAttachment:
+						bPresent = Visit.template operator()<
+							FRenderGraphDepthStencilAttachmentParameter>(
+							[&](const auto& Value) {
+								DeclaredUse.ResourceIndex = Value.Texture.Owner
+									== State->Owner ? Value.Texture.Index
+									: std::numeric_limits<uint32>::max();
+								DeclaredUse.TextureRange = Value.Range;
+							});
+						DeclaredUse.bDiscard = Member.LoadAction
+							!= ERHIRenderTargetLoadAction::Load;
+						DeclaredUse.bStore = Member.StoreAction
+							== ERHIRenderTargetStoreAction::Store;
+						break;
+					case ERenderGraphParameterMemberKind::ManagedTexture:
+						bPresent = Visit.template operator()<
+							FRenderGraphManagedTextureParameter>([&](const auto& Value) {
+								DeclaredUse.ResourceIndex = Value.Texture.Owner
+									== State->Owner ? Value.Texture.Index
+									: std::numeric_limits<uint32>::max();
+								DeclaredUse.TextureRange = Value.Range;
+							});
+						break;
+					case ERenderGraphParameterMemberKind::Nested: break;
+					}
+					if (bPresent)
+						ParameterizedPass.Uses.push_back(std::move(DeclaredUse));
+				}
+			}
+		};
+		Traverse(Parameters, Metadata, StructName);
+
+		std::string UseError;
+		if (!ValidatePassUses(ParameterizedPass, State->Resources, UseError))
+		{
+			State->DeclarationErrors.push_back(std::move(UseError));
+			return {};
+		}
+		const uint32 Index = static_cast<uint32>(State->Passes.size());
+		State->Passes.push_back(std::move(ParameterizedPass));
+		return {State->Owner, Index};
+	}
+
+	auto FRenderGraphBuilder::CanDeclareManualUse(FRenderGraphPassHandle Pass,
+		std::string_view InvalidHandleError) -> bool
+	{
+		if (Pass.Owner != State->Owner || Pass.Index >= State->Passes.size())
+		{
+			State->DeclarationErrors.emplace_back(InvalidHandleError);
+			return false;
+		}
+		if (State->Passes[Pass.Index].bParameterized)
+		{
+			State->DeclarationErrors.push_back("pass '"
+				+ State->Passes[Pass.Index].Name
+				+ "' uses parameter declarations and cannot accept manual uses");
+			return false;
+		}
+		return true;
 	}
 
 	auto FRenderGraphBuilder::MarkPassRoot(FRenderGraphPassHandle Pass,
@@ -417,12 +1029,8 @@ namespace Durin
 		const FRHITextureSubresourceRange& Range, ERenderGraphUse Use,
 		ERHIAccess Access, bool bDiscard) -> void
 	{
-		if (Pass.Owner != State->Owner || Pass.Index >= State->Passes.size())
-		{
-			State->DeclarationErrors.emplace_back(
-				"texture use has an invalid pass handle");
-			return;
-		}
+		if (!CanDeclareManualUse(Pass,
+			"texture use has an invalid pass handle")) return;
 		State->Passes[Pass.Index].Uses.push_back({
 			Texture.Owner == State->Owner ? Texture.Index
 				: std::numeric_limits<uint32>::max(),
@@ -433,12 +1041,8 @@ namespace Durin
 		FRenderGraphBufferHandle Buffer, uint64 Offset, uint64 Size,
 		ERenderGraphUse Use, ERHIAccess Access, bool bDiscard) -> void
 	{
-		if (Pass.Owner != State->Owner || Pass.Index >= State->Passes.size())
-		{
-			State->DeclarationErrors.emplace_back(
-				"buffer use has an invalid pass handle");
-			return;
-		}
+		if (!CanDeclareManualUse(Pass,
+			"buffer use has an invalid pass handle")) return;
 		FGraphUse DeclaredUse;
 		DeclaredUse.ResourceIndex = Buffer.Owner == State->Owner ? Buffer.Index
 			: std::numeric_limits<uint32>::max();
@@ -457,6 +1061,8 @@ namespace Durin
 		ERHIRenderTargetLoadAction LoadAction,
 		ERHIRenderTargetStoreAction StoreAction) -> void
 	{
+		if (!CanDeclareManualUse(Pass,
+			"texture use has an invalid pass handle")) return;
 		UseTexture(Pass, Texture, Range, ERenderGraphUse::ReadWrite,
 			ERHIAccess::ColorAttachmentReadWrite,
 			LoadAction != ERHIRenderTargetLoadAction::Load);
@@ -471,6 +1077,8 @@ namespace Durin
 		ERHIRenderTargetLoadAction LoadAction,
 		ERHIRenderTargetStoreAction StoreAction) -> void
 	{
+		if (!CanDeclareManualUse(Pass,
+			"texture use has an invalid pass handle")) return;
 		UseTexture(Pass, Texture, Range, ERenderGraphUse::ReadWrite,
 			ERHIAccess::DepthStencilReadWrite,
 			LoadAction != ERHIRenderTargetLoadAction::Load);
@@ -485,6 +1093,8 @@ namespace Durin
 		ERHIRenderTargetLoadAction LoadAction,
 		ERHIRenderTargetStoreAction StoreAction, ERHIAccess ResultAccess) -> void
 	{
+		if (!CanDeclareManualUse(Pass,
+			"texture use has an invalid pass handle")) return;
 		UseColorAttachment(Pass, Texture, Range, LoadAction, StoreAction);
 		if (Pass.Owner == State->Owner && Pass.Index < State->Passes.size())
 		{
@@ -500,6 +1110,8 @@ namespace Durin
 		ERHIRenderTargetLoadAction LoadAction,
 		ERHIRenderTargetStoreAction StoreAction, ERHIAccess ResultAccess) -> void
 	{
+		if (!CanDeclareManualUse(Pass,
+			"texture use has an invalid pass handle")) return;
 		UseDepthStencilAttachment(Pass, Texture, Range, LoadAction, StoreAction);
 		if (Pass.Owner == State->Owner && Pass.Index < State->Passes.size())
 		{
@@ -514,6 +1126,8 @@ namespace Durin
 		const FRHITextureSubresourceRange& Range, ERenderGraphUse Use,
 		ERHIAccess EntryAccess, ERHIAccess ResultAccess, bool bDiscard) -> void
 	{
+		if (!CanDeclareManualUse(Pass,
+			"texture use has an invalid pass handle")) return;
 		UseTexture(Pass, Texture, Range, Use, EntryAccess, bDiscard);
 		if (Pass.Owner == State->Owner && Pass.Index < State->Passes.size())
 		{
@@ -526,12 +1140,8 @@ namespace Durin
 	auto FRenderGraphBuilder::UseToken(FRenderGraphPassHandle Pass,
 		FRenderGraphTokenHandle Token, ERenderGraphUse Use) -> void
 	{
-		if (Pass.Owner != State->Owner || Pass.Index >= State->Passes.size())
-		{
-			State->DeclarationErrors.emplace_back(
-				"token use has an invalid pass handle");
-			return;
-		}
+		if (!CanDeclareManualUse(Pass,
+			"token use has an invalid pass handle")) return;
 		FGraphUse DeclaredUse;
 		DeclaredUse.ResourceIndex = Token.Owner == State->Owner ? Token.Index
 			: std::numeric_limits<uint32>::max();
@@ -549,6 +1159,8 @@ namespace Durin
 		};
 		if (!State->DeclarationErrors.empty())
 			return Fail(State->DeclarationErrors.front());
+		if (State->bParameterStorageTransferred)
+			return Fail("render graph parameter storage was already transferred");
 		for (uint32 ResourceIndex = 0; ResourceIndex < State->Resources.size(); ++ResourceIndex)
 		{
 			const auto& Resource = State->Resources[ResourceIndex];
@@ -628,52 +1240,9 @@ namespace Durin
 					return Fail("pass '" + Pass.Name + "' has an invalid prerequisite");
 				AddEdge(Prerequisite, PassIndex, "explicit", ERenderGraphDependencyKind::Explicit);
 			}
-			for (uint32 UseIndex = 0; UseIndex < Pass.Uses.size(); ++UseIndex)
-			{
-				const auto& Use = Pass.Uses[UseIndex];
-				if (Use.ResourceIndex >= State->Resources.size()
-					|| State->Resources[Use.ResourceIndex].Kind != Use.Kind)
-					return Fail("pass '" + Pass.Name + "' has an invalid resource handle");
-				const auto& Resource = State->Resources[Use.ResourceIndex];
-				if (Use.Kind != ERenderGraphResourceKind::Token
-					&& (Use.Access == ERHIAccess::None
-						|| EnumHasAnyFlags(Use.Access, ERHIAccess::Discard)))
-					return Fail("pass '" + Pass.Name + "' resource '" + Resource.Name
-						+ "' has invalid required access");
-				if (Use.Kind != ERenderGraphResourceKind::Token && !IsAccessAllowed(Pass.Type, Use.Access))
-					return Fail("pass '" + Pass.Name + "' resource '" + Resource.Name
-						+ "' access is incompatible with pass domain");
-				if (Use.Kind != ERenderGraphResourceKind::Token
-					&& ((Use.Use == ERenderGraphUse::Read && AccessHasWrite(Use.Access))
-						|| (Use.Use == ERenderGraphUse::Write && !AccessHasWrite(Use.Access))))
-					return Fail("pass '" + Pass.Name + "' resource '" + Resource.Name
-						+ "' access disagrees with use mode");
-				if (Use.bDiscard && Use.Use == ERenderGraphUse::Read)
-					return Fail("pass '" + Pass.Name + "' cannot discard a read");
-				if (Use.bPassManagedTransition
-					&& (Use.ResultAccess == ERHIAccess::None
-						|| EnumHasAnyFlags(Use.ResultAccess, ERHIAccess::Discard)))
-					return Fail("pass '" + Pass.Name + "' resource '" + Resource.Name
-						+ "' has invalid managed attachment result access");
-				if (Use.Kind == ERenderGraphResourceKind::Buffer
-					&& (Use.BufferSize == 0 || Use.BufferOffset > Resource.BufferDesc.Size
-						|| Use.BufferSize > Resource.BufferDesc.Size - Use.BufferOffset))
-					return Fail("pass '" + Pass.Name + "' resource '" + Resource.Name
-						+ "' has invalid buffer range");
-				if (Use.Kind == ERenderGraphResourceKind::Texture
-					&& (Use.TextureRange.Aspects == ERHITextureAspect::None
-						|| Use.TextureRange.NumMips == 0 || Use.TextureRange.NumArrayLayers == 0
-						|| Use.TextureRange.FirstMip + Use.TextureRange.NumMips > Resource.TextureDesc.NumMips
-						|| Use.TextureRange.FirstArrayLayer + Use.TextureRange.NumArrayLayers
-							> Resource.TextureDesc.ArraySize
-						|| !EnumHasAnyFlags(GetTextureAspects(Resource.TextureDesc.Format), Use.TextureRange.Aspects)))
-					return Fail("pass '" + Pass.Name + "' resource '" + Resource.Name
-						+ "' has invalid texture range");
-				for (uint32 OtherUse = 0; OtherUse < UseIndex; ++OtherUse)
-					if (RangesOverlap(Use, Pass.Uses[OtherUse]))
-						return Fail("pass '" + Pass.Name + "' declares overlapping uses of resource '"
-							+ Resource.Name + "'");
-			}
+			std::string UseError;
+			if (!ValidatePassUses(Pass, State->Resources, UseError))
+				return Fail(std::move(UseError));
 		}
 
 		std::vector<std::vector<const FGraphUse*>> ResourceUses(ResourceCount);
@@ -772,8 +1341,8 @@ namespace Durin
 					if (!ContainsRange(Use, Cell.Use)) continue;
 					const auto& Resource = State->Resources[Use.ResourceIndex];
 					if (Use.Use != ERenderGraphUse::Write && !Use.bDiscard && !Cell.bProduced)
-						return Fail("pass '" + State->Passes[PassIndex].Name
-							+ "' reads resource '" + Resource.Name + "' before its producer");
+						return Fail(PassUsePrefix(State->Passes[PassIndex], Use)
+							+ " reads resource '" + Resource.Name + "' before its producer");
 					if (Use.Use == ERenderGraphUse::Read)
 					{
 						if (Cell.Producer != std::numeric_limits<uint32>::max())
@@ -847,6 +1416,9 @@ namespace Durin
 		CompiledState->ResourceLifetimes.reserve(ResourceCount);
 		CompiledState->CullingDecisions.reserve(PassCount);
 		CompiledState->ExecuteCallbacks.reserve(PassCount);
+		CompiledState->ParameterizedExecuteCallbacks.reserve(PassCount);
+		CompiledState->PassParametersMetadata.reserve(PassCount);
+		CompiledState->PassParameters.reserve(PassCount);
 		CompiledState->PassResourceIndices.reserve(PassCount);
 		CompiledState->PassBufferTransitionResources.reserve(PassCount);
 		CompiledState->PassTextureTransitionResources.reserve(PassCount);
@@ -962,7 +1534,8 @@ namespace Durin
 					if (IsWriteUse(Use.Use)) ++Cell.Version;
 					CompiledState->UseCaptures.push_back({ScheduledIndex, Use.ResourceIndex,
 						Use.Use, Use.Access, Cell.Use.TextureRange, Cell.Use.BufferOffset,
-						Cell.Use.BufferSize, Cell.Version, Use.bDiscard, Use.bStore});
+						Cell.Use.BufferSize, Cell.Version, Use.bDiscard, Use.bStore,
+						Use.ParameterPath});
 					Cell.Access = Use.Kind == ERenderGraphResourceKind::Token
 						? ERHIAccess::None : (Use.bStore
 							? (Use.bPassManagedTransition ? Use.ResultAccess : Use.Access)
@@ -972,6 +1545,10 @@ namespace Durin
 			}
 			CompiledState->Passes.push_back(std::move(CompiledPass));
 			CompiledState->ExecuteCallbacks.push_back(Pass.Execute);
+			CompiledState->ParameterizedExecuteCallbacks.push_back(
+				Pass.ParameterizedExecute);
+			CompiledState->PassParametersMetadata.push_back(Pass.ParametersMetadata);
+			CompiledState->PassParameters.push_back(Pass.Parameters);
 			CompiledState->PassResourceIndices.push_back(std::move(DeclaredResources));
 			CompiledState->PassBufferTransitionResources.push_back(
 				std::move(BufferTransitionResources));
@@ -1063,6 +1640,11 @@ namespace Durin
 		if (TextureTransitionCount > State->Budget.MaxTextureTransitions)
 			return CheckLimit("texture-transitions", TextureTransitionCount,
 				State->Budget.MaxTextureTransitions);
+		if (!State->ParameterStorage.Allocations.empty())
+		{
+			CompiledState->ParameterStorage = std::move(State->ParameterStorage);
+			State->bParameterStorageTransferred = true;
+		}
 		return {std::unique_ptr<FCompiledRenderGraph>(
 			new FCompiledRenderGraph(std::move(CompiledState))), {}};
 	}
@@ -1198,6 +1780,7 @@ namespace Durin
 				<< static_cast<uint32>(Resource.TextureMips) << " buffer-size="
 				<< Resource.BufferSize << " stride=" << Resource.BufferStride << '\n';
 		for (const auto& Use : State->UseCaptures)
+		{
 			Output << "use pass=" << Use.PassDeclarationIndex << " resource="
 				<< Use.ResourceId << " version=" << Use.Version << " access="
 				<< static_cast<uint32>(Use.Access) << " aspects="
@@ -1206,7 +1789,11 @@ namespace Durin
 				<< " layer=" << Use.TextureRange.FirstArrayLayer << '+'
 				<< Use.TextureRange.NumArrayLayers << " offset=" << Use.BufferOffset
 				<< " size=" << Use.BufferSize << " discard=" << Use.bDiscard
-				<< " store=" << Use.bStore << '\n';
+				<< " store=" << Use.bStore;
+			if (!Use.ParameterPath.empty())
+				Output << " field=" << Use.ParameterPath;
+			Output << '\n';
+		}
 		for (const auto& Transition : State->TransitionCaptures)
 			Output << "transition resource=" << Transition.ResourceId << " pass="
 				<< Transition.PassIndex << " before="
@@ -1322,7 +1909,15 @@ namespace Durin
 				CommandList.TransitionBuffers(Pass.BufferTransitions);
 			if (!Pass.TextureTransitions.empty())
 				CommandList.TransitionTextures(Pass.TextureTransitions);
-			if (State->ExecuteCallbacks[Index])
+			if (State->ParameterizedExecuteCallbacks[Index])
+			{
+				const FRenderGraphPassResources Resources(*this, Index);
+				const FRenderGraphParameterResolver Resolver(Resources,
+					State->PassParametersMetadata[Index],
+					State->PassParameters[Index]);
+				State->ParameterizedExecuteCallbacks[Index](CommandList, Resolver);
+			}
+			else if (State->ExecuteCallbacks[Index])
 			{
 				const FRenderGraphPassResources Resources(*this, Index);
 				State->ExecuteCallbacks[Index](CommandList, Resources);
@@ -1383,6 +1978,195 @@ namespace Durin
 			&& Resource.Buffer != nullptr,
 			"Render graph callback resolved an unavailable buffer.");
 		return Resource.Buffer;
+	}
+
+	auto FRenderGraphParameterResolver::FindMember(const void* Address,
+		ERenderGraphParameterMemberKind ExpectedKind,
+		ERenderGraphParameterMemberKind AlternateKind, bool bOptional) const
+		-> const FRenderGraphParameterMemberMetadata&
+	{
+		const FRenderGraphParameterMemberMetadata* Found = nullptr;
+		std::function<void(const void*, const FRenderGraphParametersMetadata*)>
+			Traverse;
+		Traverse = [&](const void* StructData,
+			const FRenderGraphParametersMetadata* StructMetadata) {
+			if (Found != nullptr || StructData == nullptr || StructMetadata == nullptr)
+				return;
+			const auto* Bytes = static_cast<const std::byte*>(StructData);
+			for (const auto& Member : StructMetadata->Members)
+			{
+				for (uint32 ElementIndex = 0;
+					ElementIndex < Member.ArraySize; ++ElementIndex)
+				{
+					const void* ElementData = Bytes + Member.Offset
+						+ static_cast<size_t>(ElementIndex) * Member.ElementSize;
+					if (Member.Kind == ERenderGraphParameterMemberKind::Nested)
+					{
+						Traverse(ElementData, Member.NestedParameters);
+						continue;
+					}
+					if (Member.Kind != ExpectedKind && Member.Kind != AlternateKind)
+						continue;
+
+					const void* ValueAddress = ElementData;
+					if (Member.bOptional)
+					{
+						auto ReadOptionalAddress = [&]<typename Wrapper>() {
+							const auto& Optional = *static_cast<
+								const std::optional<Wrapper>*>(ElementData);
+							ValueAddress = Optional ? static_cast<const void*>(&*Optional)
+								: nullptr;
+						};
+						switch (Member.Kind)
+						{
+						case ERenderGraphParameterMemberKind::Texture:
+							ReadOptionalAddress.template operator()<
+								FRenderGraphTextureParameter>();
+							break;
+						case ERenderGraphParameterMemberKind::Buffer:
+							ReadOptionalAddress.template operator()<
+								FRenderGraphBufferParameter>();
+							break;
+						case ERenderGraphParameterMemberKind::ColorAttachment:
+						case ERenderGraphParameterMemberKind::ManagedColorAttachment:
+							ReadOptionalAddress.template operator()<
+								FRenderGraphColorAttachmentParameter>();
+							break;
+						case ERenderGraphParameterMemberKind::DepthStencilAttachment:
+						case ERenderGraphParameterMemberKind::ManagedDepthStencilAttachment:
+							ReadOptionalAddress.template operator()<
+								FRenderGraphDepthStencilAttachmentParameter>();
+							break;
+						case ERenderGraphParameterMemberKind::ManagedTexture:
+							ReadOptionalAddress.template operator()<
+								FRenderGraphManagedTextureParameter>();
+							break;
+						case ERenderGraphParameterMemberKind::Token:
+						case ERenderGraphParameterMemberKind::Nested: break;
+						}
+					}
+					const bool bAddressMatches = bOptional
+						? Member.bOptional && Address == ElementData
+						: Address == ValueAddress;
+					if (bAddressMatches)
+					{
+						Found = &Member;
+						return;
+					}
+				}
+			}
+		};
+		Traverse(Parameters, Metadata);
+		requiref(Found != nullptr,
+			"Render graph parameter resolver accessed a member that is not declared "
+			"by the executing pass parameters.");
+		return *Found;
+	}
+
+	auto FRenderGraphParameterResolver::GetTexture(
+		const FRenderGraphTextureParameter& Parameter) const -> FRHITexture*
+	{
+		FindMember(&Parameter, ERenderGraphParameterMemberKind::Texture,
+			ERenderGraphParameterMemberKind::Texture, false);
+		return Resources.GetTexture(Parameter.Texture);
+	}
+
+	auto FRenderGraphParameterResolver::GetTexture(const std::optional<
+		FRenderGraphTextureParameter>& Parameter) const -> FRHITexture*
+	{
+		FindMember(&Parameter, ERenderGraphParameterMemberKind::Texture,
+			ERenderGraphParameterMemberKind::Texture, true);
+		return Parameter ? Resources.GetTexture(Parameter->Texture) : nullptr;
+	}
+
+	auto FRenderGraphParameterResolver::GetTexture(
+		const FRenderGraphManagedTextureParameter& Parameter) const -> FRHITexture*
+	{
+		FindMember(&Parameter, ERenderGraphParameterMemberKind::ManagedTexture,
+			ERenderGraphParameterMemberKind::ManagedTexture, false);
+		return Resources.GetTexture(Parameter.Texture);
+	}
+
+	auto FRenderGraphParameterResolver::GetTexture(const std::optional<
+		FRenderGraphManagedTextureParameter>& Parameter) const -> FRHITexture*
+	{
+		FindMember(&Parameter, ERenderGraphParameterMemberKind::ManagedTexture,
+			ERenderGraphParameterMemberKind::ManagedTexture, true);
+		return Parameter ? Resources.GetTexture(Parameter->Texture) : nullptr;
+	}
+
+	auto FRenderGraphParameterResolver::GetBuffer(
+		const FRenderGraphBufferParameter& Parameter) const -> FRHIBuffer*
+	{
+		FindMember(&Parameter, ERenderGraphParameterMemberKind::Buffer,
+			ERenderGraphParameterMemberKind::Buffer, false);
+		return Resources.GetBuffer(Parameter.Buffer);
+	}
+
+	auto FRenderGraphParameterResolver::GetBuffer(const std::optional<
+		FRenderGraphBufferParameter>& Parameter) const -> FRHIBuffer*
+	{
+		FindMember(&Parameter, ERenderGraphParameterMemberKind::Buffer,
+			ERenderGraphParameterMemberKind::Buffer, true);
+		return Parameter ? Resources.GetBuffer(Parameter->Buffer) : nullptr;
+	}
+
+	namespace
+	{
+		auto MakeAttachmentView(const FRenderGraphPassResources& Resources,
+			FRenderGraphTextureHandle Texture,
+			const FRHITextureSubresourceRange& Range,
+			const FRenderGraphParameterMemberMetadata& Member)
+			-> FRenderGraphAttachmentView
+		{
+			return {Resources.GetTexture(Texture), Range, Member.LoadAction,
+				Member.StoreAction, Member.bPassManagedTransition,
+				Member.ResultAccess};
+		}
+	}
+
+	auto FRenderGraphParameterResolver::GetColorAttachment(
+		const FRenderGraphColorAttachmentParameter& Parameter) const
+		-> FRenderGraphAttachmentView
+	{
+		const auto& Member = FindMember(&Parameter,
+			ERenderGraphParameterMemberKind::ColorAttachment,
+			ERenderGraphParameterMemberKind::ManagedColorAttachment, false);
+		return MakeAttachmentView(Resources, Parameter.Texture, Parameter.Range,
+			Member);
+	}
+
+	auto FRenderGraphParameterResolver::GetColorAttachment(const std::optional<
+		FRenderGraphColorAttachmentParameter>& Parameter) const
+		-> FRenderGraphAttachmentView
+	{
+		const auto& Member = FindMember(&Parameter,
+			ERenderGraphParameterMemberKind::ColorAttachment,
+			ERenderGraphParameterMemberKind::ManagedColorAttachment, true);
+		return Parameter ? MakeAttachmentView(Resources, Parameter->Texture,
+			Parameter->Range, Member) : FRenderGraphAttachmentView{};
+	}
+
+	auto FRenderGraphParameterResolver::GetDepthStencilAttachment(
+		const FRenderGraphDepthStencilAttachmentParameter& Parameter) const
+		-> FRenderGraphAttachmentView
+	{
+		const auto& Member = FindMember(&Parameter,
+			ERenderGraphParameterMemberKind::DepthStencilAttachment,
+			ERenderGraphParameterMemberKind::ManagedDepthStencilAttachment, false);
+		return MakeAttachmentView(Resources, Parameter.Texture, Parameter.Range,
+			Member);
+	}
+
+	auto FRenderGraphParameterResolver::GetDepthStencilAttachment(
+		const std::optional<FRenderGraphDepthStencilAttachmentParameter>& Parameter)
+		const -> FRenderGraphAttachmentView
+	{
+		const auto& Member = FindMember(&Parameter,
+			ERenderGraphParameterMemberKind::DepthStencilAttachment,
+			ERenderGraphParameterMemberKind::ManagedDepthStencilAttachment, true);
+		return Parameter ? MakeAttachmentView(Resources, Parameter->Texture,
+			Parameter->Range, Member) : FRenderGraphAttachmentView{};
 	}
 
 	FRenderGraphResourceBackings::FRenderGraphResourceBackings(

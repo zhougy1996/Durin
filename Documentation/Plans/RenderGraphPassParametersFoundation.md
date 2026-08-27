@@ -9,21 +9,150 @@ Completed:
 
 ## Current Status
 
-Stage 0 is ready to begin. The completed Render Graph already compiles exact
-imperative `UseTexture`, `UseBuffer`, `UseToken`, attachment, and managed-use
-declarations into dependencies, lifetimes, culling, transition batches, and
-deterministic captures. Existing shader parameter infrastructure provides
-compile-time member metadata, typed parameter structures, reflected resource
-validation, and typed graphics/compute submission.
+Stages 0 through 4 are complete. Typed graph-local parameter storage now feeds
+an immutable parameterized `AddPass` path that traverses texture, buffer,
+token, attachment, managed-resource, optional, fixed-array, and nested fields
+into the existing canonical use model. Parameter declaration validation and
+legacy manual declarations share one pass-use validation path.
 
-The selected path adds graph-specific metadata and graph-owned parameter
-storage in RenderCore, lowers parameter fields to the existing canonical use
-model, and preserves the current explicit APIs for unmigrated callers. A
-GBuffer production pilot proves created textures, managed color/depth
-attachments, a typed logical token, optional topology, pass-scoped resolution,
-and exact scene capture parity without attempting the full scene migration.
+Submission consumes and freezes the mutable parameter reference. Invalid or
+foreign allocations, handles, ranges, access/domain combinations, overlapping
+fields, resubmission, and mixed manual/parameter authority fail atomically
+before a pass callback or canonical use is published. Compiled use captures and
+dumps own deterministic field paths while manual dump text remains unchanged.
+The complete synthetic parameter graph matches its manual oracle after field
+annotations are removed, including dependencies, versions, lifetimes, culling,
+and transitions. Parameterized callbacks now receive the immutable submitted
+object plus a non-copyable pass-scoped resolver. Resolution accepts only exact
+declared wrapper or optional-member addresses, returns typed texture, buffer,
+and attachment views, and rejects raw, copied, wrong-kind, foreign-optional,
+and cross-pass access before exposing a hidden resource. Culled and incomplete
+backing routes invoke no callback.
 
-No implementation work or validation evidence has been recorded yet.
+The GBuffer production pilot now owns `FGBufferPassParameters`: one completion
+token write, four optional managed clear/store color attachments, and one
+optional managed clear/store depth attachment. Its callback resolves only
+those exact parameter members, while the copied persistent-input helper and
+manual `UseToken`/managed-attachment block are gone. Unmigrated contributors
+continue through the compatibility overload. `RenderContractTests` passed
+81/81, `RendererSceneContractTests` passed 38/38,
+`VolumetricCloudSceneVulkanTests` passed 1/1, and `EditorGridVulkanTests`
+passed 7/7 on the Win64 Debug DurinEditor profile, including offscreen/present,
+resize, required-unavailable, and injected GBuffer target-failure recovery.
+The broader directional-shadow qualification produced one passing preparation
+fixture and two pre-existing rendered-baseline failures, while the monolithic
+GBuffer qualification was invalidated at startup by an unregistered built-in
+studio-environment virtual mount; Stage 5 retains both reruns in its complete
+validation gate. Foundation hardening and lasting documentation are ready to
+begin in Stage 5.
+
+## Stage 0 Frozen Contract
+
+### Declaration vocabulary and lowering
+
+Graph parameter structures use ordinary public wrapper fields plus static
+member metadata. The selected wrapper vocabulary is
+`FRenderGraphTextureParameter`, `FRenderGraphBufferParameter`,
+`FRenderGraphTokenParameter`, `FRenderGraphColorAttachmentParameter`,
+`FRenderGraphDepthStencilAttachmentParameter`, and
+`FRenderGraphManagedTextureParameter`. Managed color and depth attachments use
+their corresponding attachment wrapper with a managed metadata kind. A wrapper
+stores only its graph-local handle and exact runtime range; declaration intent
+that is invariant for the member is stored in metadata.
+
+| Existing declaration | Parameter member metadata | Canonical lowering |
+| --- | --- | --- |
+| `UseTexture` | texture, use, access, discard | exact texture `FGraphUse` |
+| `UseBuffer` | buffer, use, access, discard | exact buffer `FGraphUse` |
+| `UseToken` | token, use | token `FGraphUse`; writes discard the prior value |
+| `UseColorAttachment` | color attachment, load, store | read/write color use; non-load discards |
+| `UseDepthStencilAttachment` | depth/stencil attachment, load, store | read/write depth/stencil use; non-load discards |
+| `UseManagedColorAttachment` | managed color attachment, load, store, result access | color attachment use with pass-managed transition and result access |
+| `UseManagedDepthStencilAttachment` | managed depth/stencil attachment, load, store, result access | depth/stencil attachment use with pass-managed transition and result access |
+| `UseManagedTexture` | managed texture, use, entry access, result access, discard | texture use with pass-managed transition and result access |
+
+`std::optional<Wrapper>` is the only optional-resource form: disengaged means
+no use. `std::array<Wrapper, N>` and `std::array<std::optional<Wrapper>, N>`
+are traversed in increasing index order. A nested parameter structure is a
+metadata member with its own static layout and is traversed in declaration
+order. Raw graph handles, pointers to wrappers, dynamic containers, variants,
+unions, and runtime-polymorphic parameter members are unsupported in this
+foundation. No currently supported manual declaration is deferred.
+
+Static metadata records the owning structure name and size/alignment, then one
+entry per declaration with name, offset, element size/count, optionality,
+resource kind, use, access, discard, load/store, pass-managed disposition,
+result access, and nested metadata when applicable. Metadata uses the existing
+shader-parameter structural pattern but remains an independent RenderCore view;
+shader binding ABI and metadata do not change in this plan.
+
+### Ownership, freeze, and execution
+
+`AllocParameters<T>()` returns a move-only mutable graph-parameter reference
+backed by builder-owned aligned storage. `T` must be a complete, destructible,
+standard-layout type with registered graph metadata. Default construction and
+non-trivial destruction are supported; copying, moving, assignment, and byte
+relocation of `T` are not required. Each allocation is constructed exactly
+once and registered for reverse-order destruction exactly once.
+
+Parameterized `AddPass` consumes that mutable reference. Consumption freezes
+the allocation, associates exactly one metadata/object pair with the pass, and
+leaves the caller no mutable parameter capability. The callback receives a
+const parameter reference and a pass-scoped typed resolver. Builder destruction
+owns unsubmitted allocations; successful compile transfers all allocations and
+destructor records to the compiled graph. Declaration failure, compile failure,
+backing failure, callback failure, normal execution, culling, and destruction
+without execution all destroy the object only when the owning builder or
+compiled graph dies. Parameter storage is never released merely because a pass
+is culled or execution returns early.
+
+Nested structures and fixed arrays obey the outer allocation's lifetime and
+freeze. A mutable reference retained outside the consumed allocation is an
+invalid API use; the reference generation/frozen state must reject editing,
+resubmission, or attaching the same object to another pass before any canonical
+use is recorded.
+
+### Compatibility and diagnostics
+
+Legacy `AddPass` plus manual `Use*` remains unchanged for unmigrated callers.
+A parameterized pass accepts no manual `Use*` declaration and no second
+parameter object. Manual calls targeting it, parameter attachment to a legacy
+pass that already has uses, duplicate or overlapping parameter fields, foreign
+handles, unsupported layouts, and edits or resubmission after freeze are
+declaration errors. Failure is atomic and precedes callbacks and RHI transition
+recording.
+
+Canonical uses gain an optional owning parameter field path. Manual uses keep
+an empty path and retain byte-for-byte dump/capture output. Parameter paths are
+`<Struct>.<Member>`; nesting appends `.Member` and arrays append `[index]`, for
+example `FGBufferPassParameters.Attachments.Material[0]`. Errors use the exact
+text `pass '<Pass>' parameter '<Path>'` before the existing normalized-use
+reason. Parameterized dump lines append `field=<Path>`; capture use records own
+the same string. Paths contain no address, builder identity, allocator index,
+timestamp, or measured duration.
+
+### GBuffer parity oracle
+
+The pilot identity is `Scene.GBuffer`. Its optional created resources remain
+`Scene.GBuffer.Material`, `Scene.GBuffer.Normals`, `Scene.GBuffer.Surface`, and
+`Scene.GBuffer.Emissive`, with backing class `renderer.gbuffer` and final
+graphics-shader-read access. When enabled, the pass declares those four whole
+color subresources as managed clear/store color attachments, `Scene.Depth` as
+a managed clear/store depth attachment, and `Scene.GBuffer.Result` as one token
+write. All managed attachment result accesses are graphics-shader-read. When
+disabled, every optional attachment is absent while the pass and token write
+remain.
+
+The focused manual oracle in `RenderGraphTests` freezes the enabled pass's six
+uses in declaration order, zero local dependencies, zero emitted graph-owned
+transition batches, ten managed entry/exit capture records, six `[0, 0]`
+logical lifetimes, rooted culling disposition, one successful callback, and no
+callback on incomplete retained backing. Production scene capture parity
+additionally remains covered by
+`RendererSceneContractTests`, `VolumetricCloudSceneVulkanTests`, and
+`DirectionalShadowBaselineVulkanTests`; the last fixture freezes representative
+rendered GBuffer values, forward/deferred output parity, telemetry, resize, and
+failure behavior used again at Stage 4.
 
 ## Goal
 
@@ -158,26 +287,26 @@ UE-style Render Dependency Graph authoring:
 
 ### Stage 0: Freeze the parameter contract and parity oracle
 
-- [ ] Inventory every current `FRenderGraphBuilder::Use*` declaration form,
+- [x] Inventory every current `FRenderGraphBuilder::Use*` declaration form,
   normalized internal use record, compile diagnostic, dump/capture field, and
   `FRenderGraphPassResources` lookup rule that parameter lowering must preserve.
-- [ ] Freeze the GBuffer pilot's pass/resource/token identities, attachment
+- [x] Freeze the GBuffer pilot's pass/resource/token identities, attachment
   load/store and result access, dependencies, logical lifetimes, transition
   batches, culling disposition, budget statistics, callback result, failure
   behavior, and representative rendered output.
-- [ ] Select the public wrapper vocabulary and static metadata schema for
+- [x] Select the public wrapper vocabulary and static metadata schema for
   texture, buffer, token, color attachment, depth/stencil attachment, managed
   texture, optional member, and nested-parameter forms.
-- [ ] Specify builder-owned parameter construction, alignment, destruction,
+- [x] Specify builder-owned parameter construction, alignment, destruction,
   freeze, compile-transfer, callback capture, and graph-lifetime rules,
   including the initially supported C++ type traits.
-- [ ] Specify how parameter field paths enter canonical uses, compile errors,
+- [x] Specify how parameter field paths enter canonical uses, compile errors,
   dump/capture output, and equality fixtures without destabilizing existing
   pointer-free diagnostics.
-- [ ] Specify compatibility and rejection rules for legacy `AddPass`, manual
+- [x] Specify compatibility and rejection rules for legacy `AddPass`, manual
   `Use*`, parameterized `AddPass`, overlapping declarations, post-submission
   mutation, and unsupported parameter layouts.
-- [ ] Add or update focused contract fixtures that fail before implementation
+- [x] Add or update focused contract fixtures that fail before implementation
   when parameter lowering, lifetime, capability, or GBuffer parity is absent.
 
 #### Acceptance Gate
@@ -191,21 +320,21 @@ UE-style Render Dependency Graph authoring:
 
 ### Stage 1: Implement graph parameter metadata and storage
 
-- [ ] Add RenderCore graph parameter member metadata with stable declaration
+- [x] Add RenderCore graph parameter member metadata with stable declaration
   order, byte offset, field name, optionality, resource kind, use/access,
   range, discard, attachment load/store, and managed result access.
-- [ ] Add typed public parameter wrappers and declaration helpers that preserve
+- [x] Add typed public parameter wrappers and declaration helpers that preserve
   graph-local handle ownership and cannot be confused with resolved RHI
   resources.
-- [ ] Add compile-time/static validation for supported layouts and runtime
+- [x] Add compile-time/static validation for supported layouts and runtime
   validation for malformed dynamic conditions that cannot be rejected by the
   type system.
-- [ ] Add `FRenderGraphBuilder::AllocParameters<T>()` backed by aligned
+- [x] Add `FRenderGraphBuilder::AllocParameters<T>()` backed by aligned
   graph-owned storage with exactly-once construction and destruction.
-- [ ] Transfer parameter storage safely into a successful compiled graph and
+- [x] Transfer parameter storage safely into a successful compiled graph and
   release it correctly on builder destruction, compile failure, execution
   failure, and normal completion.
-- [ ] Cover trivial and non-trivial supported parameter lifetime, alignment,
+- [x] Cover trivial and non-trivial supported parameter lifetime, alignment,
   nesting, arrays, optionals, graph destruction, and compile-transfer cases.
 
 #### Acceptance Gate
@@ -219,20 +348,20 @@ UE-style Render Dependency Graph authoring:
 
 ### Stage 2: Lower parameterized passes into canonical graph uses
 
-- [ ] Add the immutable parameterized `AddPass` overload and attach one
+- [x] Add the immutable parameterized `AddPass` overload and attach one
   parameter metadata/object pair to its pass record.
-- [ ] Traverse texture, buffer, token, attachment, managed-resource, optional,
+- [x] Traverse texture, buffer, token, attachment, managed-resource, optional,
   array, and nested members into the existing canonical declaration functions
   without duplicating compiler semantics.
-- [ ] Reject foreign handles, invalid ranges, illegal use/access/domain pairs,
+- [x] Reject foreign handles, invalid ranges, illegal use/access/domain pairs,
   conflicting or duplicate fields, unsupported layouts, and mixed manual/
   parameter declaration authority before recording.
-- [ ] Preserve exact dependency, value-version, hazard-frontier, culling,
+- [x] Preserve exact dependency, value-version, hazard-frontier, culling,
   lifetime, final-state, and transition results for equivalent manual and
   parameterized synthetic graphs.
-- [ ] Extend use provenance, errors, dumps, and owning captures with stable
+- [x] Extend use provenance, errors, dumps, and owning captures with stable
   parameter field paths while retaining pointer-free deterministic output.
-- [ ] Measure parameter allocation and traversal against the RenderGraph
+- [x] Measure parameter allocation and traversal against the RenderGraph
   foundation compile budget and add a bounded regression fixture.
 
 #### Acceptance Gate
@@ -246,17 +375,17 @@ UE-style Render Dependency Graph authoring:
 
 ### Stage 3: Add typed pass-scoped parameter resolution
 
-- [ ] Add a typed resolution view over `FRenderGraphPassResources` that accepts
+- [x] Add a typed resolution view over `FRenderGraphPassResources` that accepts
   only members from the current pass parameter object and produces the
   corresponding RHI texture/buffer or attachment view.
-- [ ] Preserve null behavior only for declared optional members; unavailable
+- [x] Preserve null behavior only for declared optional members; unavailable
   required retained backing remains an execution-preparation failure rather
   than callback-visible absence.
-- [ ] Reject attempts to resolve a raw foreign handle, a parameter member from
+- [x] Reject attempts to resolve a raw foreign handle, a parameter member from
   another pass, a wrong resource kind, or a member not declared for execution.
-- [ ] Define callback signatures and captures so the immutable parameter object
+- [x] Define callback signatures and captures so the immutable parameter object
   and typed resolver outlive recording but cannot escape the compiled graph.
-- [ ] Extend tests for graphics, compute, copy, attachment, optional, culled,
+- [x] Extend tests for graphics, compute, copy, attachment, optional, culled,
   unavailable, and wrong-pass resolution.
 
 #### Acceptance Gate
@@ -270,19 +399,19 @@ UE-style Render Dependency Graph authoring:
 
 ### Stage 4: Migrate the GBuffer production pilot
 
-- [ ] Define feature-owned GBuffer pass parameters beside the contributor with
+- [x] Define feature-owned GBuffer pass parameters beside the contributor with
   four optional managed color attachments, managed depth, and completion-token
   write capability.
-- [ ] Convert `FGBufferGraphContributor` to parameterized `AddPass` and typed
+- [x] Convert `FGBufferGraphContributor` to parameterized `AddPass` and typed
   pass-scoped resolution while preserving feature-specific record inputs and
   callback behavior.
-- [ ] Remove the contributor's unused `DeclarePersistentGraphicsInputs` copy
+- [x] Remove the contributor's unused `DeclarePersistentGraphicsInputs` copy
   and its manual `UseToken`/managed-attachment declaration block.
-- [ ] Reject any remaining mixed declaration authority for the GBuffer pass and
+- [x] Reject any remaining mixed declaration authority for the GBuffer pass and
   verify its callback captures no undeclared graph resource handle.
-- [ ] Compare production captures for disabled, required, isolated-deferred,
+- [x] Compare production captures for disabled, required, isolated-deferred,
   present, offscreen, resize, and injected target-preparation failure routes.
-- [ ] Run focused Renderer and Vulkan integration/rendered-output validation
+- [x] Run focused Renderer and Vulkan integration/rendered-output validation
   selected under repository testing guidance.
 
 #### Acceptance Gate

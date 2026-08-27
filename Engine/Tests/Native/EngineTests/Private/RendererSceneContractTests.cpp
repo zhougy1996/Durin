@@ -155,6 +155,8 @@ static_assert(CAcceptsContributorInputs<
 	Durin::FDirectionalShadowRecordInputs>);
 static_assert(CAcceptsContributorInputs<
 	Durin::FGBufferGraphContributor, Durin::FGBufferRecordInputs>);
+static_assert(std::is_standard_layout_v<Durin::FGBufferPassParameters>);
+static_assert(Durin::CRenderGraphParameters<Durin::FGBufferPassParameters>);
 static_assert(CAcceptsContributorInputs<
 	Durin::FVolumetricCloudShadowGraphContributor,
 	Durin::FVolumetricCloudShadowRecordInputs>);
@@ -312,6 +314,57 @@ TEST(FRendererSceneContractTests, FeatureContributorOrderIsStableAndUnique)
 	for (size_t Index = 0; Index < Names.size(); ++Index)
 		for (size_t Other = Index + 1; Other < Names.size(); ++Other)
 			EXPECT_NE(Names[Index], Names[Other]);
+}
+
+TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
+{
+	const Durin::FRenderGraphParametersMetadata* Metadata =
+		Durin::FGBufferPassParameters::GetRenderGraphParametersMetadata();
+	ASSERT_NE(Metadata, nullptr);
+	EXPECT_STREQ(Metadata->StructName, "FGBufferPassParameters");
+	EXPECT_EQ(Metadata->StructSize, sizeof(Durin::FGBufferPassParameters));
+	ASSERT_EQ(Metadata->Members.size(), 3u);
+
+	const auto& Completion = Metadata->Members[0];
+	EXPECT_STREQ(Completion.Name, "Completion");
+	EXPECT_EQ(Completion.Kind,
+		Durin::ERenderGraphParameterMemberKind::Token);
+	EXPECT_EQ(Completion.ArraySize, 1u);
+	EXPECT_FALSE(Completion.bOptional);
+	EXPECT_EQ(Completion.Use, Durin::ERenderGraphUse::Write);
+	EXPECT_TRUE(Completion.bDiscard);
+
+	const auto& Colors = Metadata->Members[1];
+	EXPECT_STREQ(Colors.Name, "Colors");
+	EXPECT_EQ(Colors.Kind,
+		Durin::ERenderGraphParameterMemberKind::ManagedColorAttachment);
+	EXPECT_EQ(Colors.ArraySize, 4u);
+	EXPECT_TRUE(Colors.bOptional);
+	EXPECT_EQ(Colors.Use, Durin::ERenderGraphUse::ReadWrite);
+	EXPECT_EQ(Colors.Access, Durin::ERHIAccess::ColorAttachmentReadWrite);
+	EXPECT_TRUE(Colors.bDiscard);
+	EXPECT_EQ(Colors.LoadAction,
+		Durin::ERHIRenderTargetLoadAction::Clear);
+	EXPECT_EQ(Colors.StoreAction,
+		Durin::ERHIRenderTargetStoreAction::Store);
+	EXPECT_TRUE(Colors.bPassManagedTransition);
+	EXPECT_EQ(Colors.ResultAccess, Durin::ERHIAccess::GraphicsShaderRead);
+
+	const auto& Depth = Metadata->Members[2];
+	EXPECT_STREQ(Depth.Name, "Depth");
+	EXPECT_EQ(Depth.Kind,
+		Durin::ERenderGraphParameterMemberKind::ManagedDepthStencilAttachment);
+	EXPECT_EQ(Depth.ArraySize, 1u);
+	EXPECT_TRUE(Depth.bOptional);
+	EXPECT_EQ(Depth.Use, Durin::ERenderGraphUse::ReadWrite);
+	EXPECT_EQ(Depth.Access, Durin::ERHIAccess::DepthStencilReadWrite);
+	EXPECT_TRUE(Depth.bDiscard);
+	EXPECT_EQ(Depth.LoadAction,
+		Durin::ERHIRenderTargetLoadAction::Clear);
+	EXPECT_EQ(Depth.StoreAction,
+		Durin::ERHIRenderTargetStoreAction::Store);
+	EXPECT_TRUE(Depth.bPassManagedTransition);
+	EXPECT_EQ(Depth.ResultAccess, Durin::ERHIAccess::GraphicsShaderRead);
 }
 
 TEST(FRendererSceneContractTests, SurfaceMaterialUniformPreservesCanonicalBytes)

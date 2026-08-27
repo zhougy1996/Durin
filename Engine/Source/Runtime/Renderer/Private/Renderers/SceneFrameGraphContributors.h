@@ -10,6 +10,16 @@ namespace Durin
 	struct FSceneFrameGraphComposition;
 	struct FSceneFrameGraphServices;
 
+	struct FGBufferPassParameters final
+	{
+		FRenderGraphTokenParameter Completion;
+		std::array<std::optional<FRenderGraphColorAttachmentParameter>, 4> Colors;
+		std::optional<FRenderGraphDepthStencilAttachmentParameter> Depth;
+
+		static RENDERER_API auto GetRenderGraphParametersMetadata()
+			-> const FRenderGraphParametersMetadata*;
+	};
+
 	struct FSceneFrameGraphContributorContext final
 	{
 		FRenderGraphBuilder& Graph;
@@ -89,5 +99,17 @@ namespace Durin
 	{
 		return Graph.AddPass(TContributor::Name, Type,
 			std::forward<TCallback>(Callback));
+	}
+
+	template <typename TContributor, CRenderGraphParameters TParameters,
+		typename TCallback>
+	[[nodiscard]] auto AddSceneFrameFeaturePass(
+		FRenderGraphBuilder& Graph,
+		ERenderGraphPassType Type,
+		TRenderGraphParametersRef<TParameters>&& Parameters,
+		TCallback&& Callback) -> FRenderGraphPassHandle
+	{
+		return Graph.AddPass(TContributor::Name, Type,
+			std::move(Parameters), std::forward<TCallback>(Callback));
 	}
 } // namespace Durin

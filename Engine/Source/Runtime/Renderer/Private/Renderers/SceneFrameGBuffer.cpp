@@ -11,6 +11,49 @@
 
 namespace Durin
 {
+	auto FGBufferPassParameters::GetRenderGraphParametersMetadata()
+		-> const FRenderGraphParametersMetadata*
+	{
+		static const std::array Members{
+			MakeRenderGraphResourceParameterMemberMetadata<
+				FGBufferPassParameters, decltype(Completion),
+				FRenderGraphTokenParameter>("Completion",
+					offsetof(FGBufferPassParameters, Completion),
+					ERenderGraphParameterMemberKind::Token,
+					ERenderGraphResourceKind::Token,
+					ERenderGraphParameterRangeKind::None,
+					ERenderGraphUse::Write, ERHIAccess::None, true),
+			MakeRenderGraphResourceParameterMemberMetadata<
+				FGBufferPassParameters, decltype(Colors),
+				FRenderGraphColorAttachmentParameter>("Colors",
+					offsetof(FGBufferPassParameters, Colors),
+					ERenderGraphParameterMemberKind::ManagedColorAttachment,
+					ERenderGraphResourceKind::Texture,
+					ERenderGraphParameterRangeKind::TextureSubresource,
+					ERenderGraphUse::ReadWrite,
+					ERHIAccess::ColorAttachmentReadWrite, true,
+					ERHIRenderTargetLoadAction::Clear,
+					ERHIRenderTargetStoreAction::Store, true,
+					ERHIAccess::GraphicsShaderRead),
+			MakeRenderGraphResourceParameterMemberMetadata<
+				FGBufferPassParameters, decltype(Depth),
+				FRenderGraphDepthStencilAttachmentParameter>("Depth",
+					offsetof(FGBufferPassParameters, Depth),
+					ERenderGraphParameterMemberKind::ManagedDepthStencilAttachment,
+					ERenderGraphResourceKind::Texture,
+					ERenderGraphParameterRangeKind::TextureSubresource,
+					ERenderGraphUse::ReadWrite,
+					ERHIAccess::DepthStencilReadWrite, true,
+					ERHIRenderTargetLoadAction::Clear,
+					ERHIRenderTargetStoreAction::Store, true,
+					ERHIAccess::GraphicsShaderRead),
+		};
+		static const auto Metadata =
+			MakeInlineRenderGraphParametersMetadata<FGBufferPassParameters>(
+				"FGBufferPassParameters", Members);
+		return &Metadata;
+	}
+
 	auto FGBufferGraphContributor::AddPasses(
 		FSceneFrameGraphContributorContext& Context,
 		const FGBufferRecordInputs& RecordInputs) -> void
@@ -64,29 +107,6 @@ namespace Durin
 		auto& VolumetricCloudValue = Channels.VolumetricCloud;
 		auto& SceneColorValue = Channels.SceneColor;
 		auto& PostProcessValue = Channels.PostProcess;
-		auto DeclarePersistentGraphicsInputs = [&](auto Pass) {
-			std::vector<FRenderGraphTextureHandle> Declared;
-			auto Declare = [&](const auto& Handle, FRHITexture* Physical) {
-				if (!Handle || !Physical
-					|| std::ranges::find(Declared, *Handle) != Declared.end())
-					return;
-				Declared.push_back(*Handle);
-				Graph.UseTexture(Pass, *Handle,
-					{GetTextureAspects(Physical->GetFormat()), 0,
-						Physical->GetNumMips(), 0, Physical->GetArraySize()},
-					ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
-			};
-			Declare(GraphResources.DefaultWhite,
-				Services.DefaultTextures.Get_RenderThread(EDefaultTexture::White));
-			Declare(GraphResources.DefaultShadowArray,
-				Services.DefaultTextures.GetArray_RenderThread());
-			Declare(GraphResources.EnvironmentIrradiance,
-				Services.EnvironmentLighting.GetIrradiance_RenderThread());
-			Declare(GraphResources.EnvironmentPrefiltered,
-				Services.EnvironmentLighting.GetPrefiltered_RenderThread());
-			Declare(GraphResources.EnvironmentBrdfLut,
-				Services.EnvironmentLighting.GetBrdfLut_RenderThread());
-		};
 		if (Topology.bGBuffer)
 		{
 			const std::array Formats{EPixelFormat::RGBA8_UNORM,
@@ -105,43 +125,53 @@ namespace Durin
 							ESceneFrameBackingClass::GBuffer))},
 					ERHIAccess::GraphicsShaderRead);
 		}
-		const auto GBufferPass = AddSceneFrameFeaturePass<FGBufferGraphContributor>(
-			Graph, ERenderGraphPassType::Graphics,
-			[&Services, &Channels, RecordInputs, &GraphResources, &Options,
+		auto Parameters = Graph.AllocParameters<FGBufferPassParameters>();
+		Parameters->Completion = {GBufferValue.Handle};
+		if (GraphResources.GBuffer[0])
+		{
+			for (uint32 Index = 0; Index < GraphResources.GBuffer.size(); ++Index)
+			{
+				Parameters->Colors[Index] = FRenderGraphColorAttachmentParameter{
+					.Texture = *GraphResources.GBuffer[Index],
+					.Range = {ERHITextureAspect::Color, 0, 1, 0, 1}};
+			}
+			Parameters->Depth = FRenderGraphDepthStencilAttachmentParameter{
+				.Texture = GraphResources.SceneDepth,
+				.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
+		}
+		auto& GBufferResult = GBufferValue.Result;
+		AddSceneFrameFeaturePass<FGBufferGraphContributor>(
+			Graph, ERenderGraphPassType::Graphics, std::move(Parameters),
+			[&Services, &GBufferResult, RecordInputs, &Options,
 				Width, Height, bNeedsGBuffer, bWantsIsolatedDeferred](
 				FRHICommandListImmediate& Commands,
-				const FRenderGraphPassResources& Resources) {
+				const FGBufferPassParameters& PassParameters,
+				const FRenderGraphParameterResolver& Resolver) {
+				const FRenderGraphAttachmentView Depth =
+					Resolver.GetDepthStencilAttachment(PassParameters.Depth);
 				const FPostProcessRenderer::FSceneTargets SceneTargets{
 					.Color = nullptr,
-					.Depth = GraphResources.GBuffer[0]
-						? Resources.GetTexture(GraphResources.SceneDepth) : nullptr};
+					.Depth = Depth.Texture};
 				std::optional<FGBufferRenderer::FTargets> GBufferTargets;
-				if (GraphResources.GBuffer[0])
-					GBufferTargets = {.Material = Resources.GetTexture(*GraphResources.GBuffer[0]),
-						.Normals = Resources.GetTexture(*GraphResources.GBuffer[1]),
-						.Surface = Resources.GetTexture(*GraphResources.GBuffer[2]),
-						.Emissive = Resources.GetTexture(*GraphResources.GBuffer[3])};
-				Channels.GBuffer.Result = Services.Recorders.RenderGBuffer_RenderThread(
+				const FRenderGraphAttachmentView Material =
+					Resolver.GetColorAttachment(PassParameters.Colors[0]);
+				if (Material)
+				{
+					GBufferTargets = {
+						.Material = Material.Texture,
+						.Normals = Resolver.GetColorAttachment(
+							PassParameters.Colors[1]).Texture,
+						.Surface = Resolver.GetColorAttachment(
+							PassParameters.Colors[2]).Texture,
+						.Emissive = Resolver.GetColorAttachment(
+							PassParameters.Colors[3]).Texture};
+				}
+				GBufferResult = Services.Recorders.RenderGBuffer_RenderThread(
 					Commands, RecordInputs, SceneTargets,
 					GBufferTargets ? &*GBufferTargets : nullptr,
 					Options, Width, Height,
 					bNeedsGBuffer, bWantsIsolatedDeferred);
 			});
-		Graph.UseToken(GBufferPass, GBufferValue.Handle, ERenderGraphUse::Write);
-		if (GraphResources.GBuffer[0])
-		{
-			for (const auto& Texture : GraphResources.GBuffer)
-				Graph.UseManagedColorAttachment(GBufferPass, *Texture,
-					{ERHITextureAspect::Color, 0, 1, 0, 1},
-					ERHIRenderTargetLoadAction::Clear,
-					ERHIRenderTargetStoreAction::Store,
-					ERHIAccess::GraphicsShaderRead);
-			Graph.UseManagedDepthStencilAttachment(GBufferPass, GraphResources.SceneDepth,
-				{ERHITextureAspect::Depth, 0, 1, 0, 1},
-				ERHIRenderTargetLoadAction::Clear,
-				ERHIRenderTargetStoreAction::Store,
-				ERHIAccess::GraphicsShaderRead);
-		}
 	}
 
 	auto FSceneFrameFeatureRecorders::RenderGBuffer_RenderThread(

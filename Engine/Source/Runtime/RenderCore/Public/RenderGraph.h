@@ -3,12 +3,19 @@
 #include "RenderCoreAPI.h"
 #include "RHIResources.h"
 
+#include <array>
+#include <concepts>
+#include <cstddef>
 #include <functional>
 #include <limits>
 #include <memory>
+#include <new>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace Durin
@@ -17,6 +24,7 @@ namespace Durin
 	class FRenderGraphBuilder;
 	class FCompiledRenderGraph;
 	class FRenderGraphResourceBackings;
+	class FRenderGraphParameterResolver;
 
 	// Selects the command domain used by a declared graph pass.
 	enum class ERenderGraphPassType : uint8
@@ -40,6 +48,28 @@ namespace Durin
 		Texture,
 		Buffer,
 		Token,
+	};
+
+	// Selects how one graph-parameter member is lowered into a canonical use.
+	enum class ERenderGraphParameterMemberKind : uint8
+	{
+		Texture,
+		Buffer,
+		Token,
+		ColorAttachment,
+		DepthStencilAttachment,
+		ManagedColorAttachment,
+		ManagedDepthStencilAttachment,
+		ManagedTexture,
+		Nested,
+	};
+
+	// Identifies where an exact runtime range is stored by a parameter wrapper.
+	enum class ERenderGraphParameterRangeKind : uint8
+	{
+		None,
+		TextureSubresource,
+		BufferBytes,
 	};
 
 	// Distinguishes semantic value reachability from execution-only ordering.
@@ -134,6 +164,252 @@ namespace Durin
 		uint32 Index = 0;
 	};
 
+	// Carries a graph-local texture handle and its exact runtime subresource range.
+	struct FRenderGraphTextureParameter final
+	{
+		FRenderGraphTextureHandle Texture;
+		FRHITextureSubresourceRange Range{};
+	};
+
+	// Carries a graph-local buffer handle and its exact runtime byte range.
+	struct FRenderGraphBufferParameter final
+	{
+		FRenderGraphBufferHandle Buffer;
+		uint64 Offset = 0;
+		uint64 Size = 0;
+	};
+
+	// Carries one graph-local logical scheduling value.
+	struct FRenderGraphTokenParameter final
+	{
+		FRenderGraphTokenHandle Token;
+	};
+
+	// Carries a graph-local color attachment and its exact runtime range.
+	struct FRenderGraphColorAttachmentParameter final
+	{
+		FRenderGraphTextureHandle Texture;
+		FRHITextureSubresourceRange Range{};
+	};
+
+	// Carries a graph-local depth/stencil attachment and its runtime range.
+	struct FRenderGraphDepthStencilAttachmentParameter final
+	{
+		FRenderGraphTextureHandle Texture;
+		FRHITextureSubresourceRange Range{};
+	};
+
+	// Carries a graph-local texture whose entry/exit transitions are pass-managed.
+	struct FRenderGraphManagedTextureParameter final
+	{
+		FRenderGraphTextureHandle Texture;
+		FRHITextureSubresourceRange Range{};
+	};
+
+	struct FRenderGraphParametersMetadata;
+
+	// Describes one parameter field in stable declaration order.
+	struct FRenderGraphParameterMemberMetadata final
+	{
+		const char* Name = nullptr;
+		uint32 Offset = 0;
+		uint32 ElementSize = 0;
+		uint32 ArraySize = 1;
+		bool bOptional = false;
+		ERenderGraphParameterMemberKind Kind =
+			ERenderGraphParameterMemberKind::Texture;
+		ERenderGraphResourceKind ResourceKind = ERenderGraphResourceKind::Texture;
+		ERenderGraphParameterRangeKind RangeKind =
+			ERenderGraphParameterRangeKind::None;
+		ERenderGraphUse Use = ERenderGraphUse::Read;
+		ERHIAccess Access = ERHIAccess::None;
+		bool bDiscard = false;
+		ERHIRenderTargetLoadAction LoadAction =
+			ERHIRenderTargetLoadAction::Load;
+		ERHIRenderTargetStoreAction StoreAction =
+			ERHIRenderTargetStoreAction::Store;
+		bool bPassManagedTransition = false;
+		ERHIAccess ResultAccess = ERHIAccess::None;
+		const FRenderGraphParametersMetadata* NestedParameters = nullptr;
+	};
+
+	// Describes a complete graph-parameter structure without owning its members.
+	struct FRenderGraphParametersMetadata final
+	{
+		const char* StructName = nullptr;
+		uint32 StructSize = 0;
+		uint32 StructAlignment = 0;
+		std::span<const FRenderGraphParameterMemberMetadata> Members;
+	};
+
+	template<typename ParameterStruct, size_t N>
+	constexpr auto MakeInlineRenderGraphParametersMetadata(
+		std::string_view StructName,
+		const std::array<FRenderGraphParameterMemberMetadata, N>& Members)
+		-> FRenderGraphParametersMetadata
+	{
+		return {
+			.StructName = StructName.data(),
+			.StructSize = static_cast<uint32>(sizeof(ParameterStruct)),
+			.StructAlignment = static_cast<uint32>(alignof(ParameterStruct)),
+			.Members = Members,
+		};
+	}
+
+	template<typename ParameterStruct>
+	concept CRenderGraphParameters = requires
+	{
+		{ ParameterStruct::GetRenderGraphParametersMetadata() }
+			-> std::same_as<const FRenderGraphParametersMetadata*>;
+	};
+
+	template<typename MemberType>
+	struct TRenderGraphParameterMemberTraits
+	{
+		using ValueType = MemberType;
+		static constexpr bool bOptional = false;
+		static constexpr uint32 ArraySize = 1;
+		static constexpr uint32 ElementSize = sizeof(MemberType);
+	};
+
+	template<typename Value>
+	struct TRenderGraphParameterMemberTraits<std::optional<Value>>
+		: TRenderGraphParameterMemberTraits<Value>
+	{
+		using ValueType = Value;
+		static constexpr bool bOptional = true;
+		static constexpr uint32 ElementSize = sizeof(std::optional<Value>);
+	};
+
+	template<typename Value, size_t Count>
+	struct TRenderGraphParameterMemberTraits<std::array<Value, Count>>
+		: TRenderGraphParameterMemberTraits<Value>
+	{
+		static_assert(Count > 0, "Render graph parameter arrays cannot be empty");
+		using ValueType = typename TRenderGraphParameterMemberTraits<Value>::ValueType;
+		static constexpr uint32 ArraySize = static_cast<uint32>(Count);
+		static constexpr uint32 ElementSize = sizeof(Value);
+	};
+
+	template<typename ParameterStruct, typename MemberType, typename ExpectedType>
+	constexpr auto MakeRenderGraphResourceParameterMemberMetadata(
+		const char* Name, uint32 Offset, ERenderGraphParameterMemberKind Kind,
+		ERenderGraphResourceKind ResourceKind,
+		ERenderGraphParameterRangeKind RangeKind, ERenderGraphUse Use,
+		ERHIAccess Access, bool bDiscard = false,
+		ERHIRenderTargetLoadAction LoadAction =
+			ERHIRenderTargetLoadAction::Load,
+		ERHIRenderTargetStoreAction StoreAction =
+			ERHIRenderTargetStoreAction::Store,
+		bool bPassManagedTransition = false,
+		ERHIAccess ResultAccess = ERHIAccess::None)
+		-> FRenderGraphParameterMemberMetadata
+	{
+		using FTraits = TRenderGraphParameterMemberTraits<MemberType>;
+		constexpr bool bExpectedWrapper =
+			std::same_as<ExpectedType, FRenderGraphTextureParameter>
+			|| std::same_as<ExpectedType, FRenderGraphBufferParameter>
+			|| std::same_as<ExpectedType, FRenderGraphTokenParameter>
+			|| std::same_as<ExpectedType, FRenderGraphColorAttachmentParameter>
+			|| std::same_as<ExpectedType,
+				FRenderGraphDepthStencilAttachmentParameter>
+			|| std::same_as<ExpectedType, FRenderGraphManagedTextureParameter>;
+		static_assert(bExpectedWrapper,
+			"Render graph resource metadata requires a typed graph wrapper");
+		static_assert(std::same_as<typename FTraits::ValueType, ExpectedType>,
+			"Render graph parameter member type does not match its declaration");
+		static_assert(std::is_standard_layout_v<ParameterStruct>,
+			"Render graph parameter structs must use standard layout");
+		return {
+			.Name = Name,
+			.Offset = Offset,
+			.ElementSize = FTraits::ElementSize,
+			.ArraySize = FTraits::ArraySize,
+			.bOptional = FTraits::bOptional,
+			.Kind = Kind,
+			.ResourceKind = ResourceKind,
+			.RangeKind = RangeKind,
+			.Use = Use,
+			.Access = Access,
+			.bDiscard = bDiscard,
+			.LoadAction = LoadAction,
+			.StoreAction = StoreAction,
+			.bPassManagedTransition = bPassManagedTransition,
+			.ResultAccess = ResultAccess,
+		};
+	}
+
+	template<typename ParameterStruct, typename MemberType>
+	constexpr auto MakeRenderGraphNestedParameterMemberMetadata(
+		const char* Name, uint32 Offset,
+		const FRenderGraphParametersMetadata* NestedParameters)
+		-> FRenderGraphParameterMemberMetadata
+	{
+		using FTraits = TRenderGraphParameterMemberTraits<MemberType>;
+		static_assert(!FTraits::bOptional,
+			"Only graph resource wrappers can be optional");
+		static_assert(CRenderGraphParameters<typename FTraits::ValueType>,
+			"Nested graph parameter members must have registered metadata");
+		static_assert(std::is_standard_layout_v<ParameterStruct>,
+			"Render graph parameter structs must use standard layout");
+		return {
+			.Name = Name,
+			.Offset = Offset,
+			.ElementSize = FTraits::ElementSize,
+			.ArraySize = FTraits::ArraySize,
+			.Kind = ERenderGraphParameterMemberKind::Nested,
+			.NestedParameters = NestedParameters,
+		};
+	}
+
+	// A move-only mutable capability for one builder-owned parameter allocation.
+	template<typename ParameterStruct>
+	class TRenderGraphParametersRef final
+	{
+	public:
+		TRenderGraphParametersRef() = default;
+		TRenderGraphParametersRef(TRenderGraphParametersRef&& Other) noexcept
+			: Data(std::exchange(Other.Data, nullptr)),
+			  Lifetime(std::move(Other.Lifetime))
+		{
+		}
+		auto operator=(TRenderGraphParametersRef&& Other) noexcept
+			-> TRenderGraphParametersRef&
+		{
+			if (this != &Other)
+			{
+				Data = std::exchange(Other.Data, nullptr);
+				Lifetime = std::move(Other.Lifetime);
+			}
+			return *this;
+		}
+
+		TRenderGraphParametersRef(const TRenderGraphParametersRef&) = delete;
+		auto operator=(const TRenderGraphParametersRef&)
+			-> TRenderGraphParametersRef& = delete;
+
+		auto IsValid() const -> bool { return Data != nullptr && !Lifetime.expired(); }
+		explicit operator bool() const { return IsValid(); }
+		auto Get() -> ParameterStruct& { return *Data; }
+		auto Get() const -> const ParameterStruct& { return *Data; }
+		auto operator->() -> ParameterStruct* { return IsValid() ? Data : nullptr; }
+		auto operator->() const -> const ParameterStruct*
+		{
+			return IsValid() ? Data : nullptr;
+		}
+
+	private:
+		friend class FRenderGraphBuilder;
+		TRenderGraphParametersRef(ParameterStruct* InData,
+			std::weak_ptr<void> InLifetime)
+			: Data(InData), Lifetime(std::move(InLifetime))
+		{
+		}
+
+		ParameterStruct* Data = nullptr;
+		std::weak_ptr<void> Lifetime;
+	};
+
 	// Exposes only resources declared by the executing graph to pass callbacks.
 	class RENDERCORE_API FRenderGraphPassResources final
 	{
@@ -153,8 +429,85 @@ namespace Durin
 		uint32 PassIndex = 0;
 	};
 
+	// Carries the physical texture and immutable declaration details for one
+	// color or depth/stencil attachment parameter.
+	struct FRenderGraphAttachmentView final
+	{
+		FRHITexture* Texture = nullptr;
+		FRHITextureSubresourceRange Range{};
+		ERHIRenderTargetLoadAction LoadAction =
+			ERHIRenderTargetLoadAction::Load;
+		ERHIRenderTargetStoreAction StoreAction =
+			ERHIRenderTargetStoreAction::Store;
+		bool bPassManagedTransition = false;
+		ERHIAccess ResultAccess = ERHIAccess::None;
+
+		explicit operator bool() const { return Texture != nullptr; }
+	};
+
+	// Resolves only wrapper objects that are members of the executing pass's
+	// immutable parameter allocation. Raw graph handles are intentionally absent.
+	class RENDERCORE_API FRenderGraphParameterResolver final
+	{
+	public:
+		FRenderGraphParameterResolver(const FRenderGraphParameterResolver&) = delete;
+		auto operator=(const FRenderGraphParameterResolver&)
+			-> FRenderGraphParameterResolver& = delete;
+		FRenderGraphParameterResolver(FRenderGraphParameterResolver&&) = delete;
+		auto operator=(FRenderGraphParameterResolver&&)
+			-> FRenderGraphParameterResolver& = delete;
+
+		auto GetTexture(const FRenderGraphTextureParameter& Parameter) const
+			-> FRHITexture*;
+		auto GetTexture(
+			const std::optional<FRenderGraphTextureParameter>& Parameter) const
+			-> FRHITexture*;
+		auto GetTexture(const FRenderGraphManagedTextureParameter& Parameter) const
+			-> FRHITexture*;
+		auto GetTexture(
+			const std::optional<FRenderGraphManagedTextureParameter>& Parameter) const
+			-> FRHITexture*;
+		auto GetBuffer(const FRenderGraphBufferParameter& Parameter) const
+			-> FRHIBuffer*;
+		auto GetBuffer(
+			const std::optional<FRenderGraphBufferParameter>& Parameter) const
+			-> FRHIBuffer*;
+		auto GetColorAttachment(
+			const FRenderGraphColorAttachmentParameter& Parameter) const
+			-> FRenderGraphAttachmentView;
+		auto GetColorAttachment(const std::optional<
+			FRenderGraphColorAttachmentParameter>& Parameter) const
+			-> FRenderGraphAttachmentView;
+		auto GetDepthStencilAttachment(
+			const FRenderGraphDepthStencilAttachmentParameter& Parameter) const
+			-> FRenderGraphAttachmentView;
+		auto GetDepthStencilAttachment(const std::optional<
+			FRenderGraphDepthStencilAttachmentParameter>& Parameter) const
+			-> FRenderGraphAttachmentView;
+
+	private:
+		friend class FCompiledRenderGraph;
+		explicit FRenderGraphParameterResolver(
+			const FRenderGraphPassResources& InResources,
+			const FRenderGraphParametersMetadata* InMetadata,
+			const void* InParameters)
+			: Resources(InResources), Metadata(InMetadata), Parameters(InParameters)
+		{
+		}
+		auto FindMember(const void* Address,
+			ERenderGraphParameterMemberKind ExpectedKind,
+			ERenderGraphParameterMemberKind AlternateKind,
+			bool bOptional) const -> const FRenderGraphParameterMemberMetadata&;
+
+		const FRenderGraphPassResources& Resources;
+		const FRenderGraphParametersMetadata* Metadata = nullptr;
+		const void* Parameters = nullptr;
+	};
+
 	using FRenderGraphExecute = std::function<void(
 		FRHICommandListImmediate&, const FRenderGraphPassResources&)>;
+	using FRenderGraphParameterizedExecute = std::function<void(
+		FRHICommandListImmediate&, const FRenderGraphParameterResolver&)>;
 	using FRenderGraphPrepare = std::function<bool(std::string&)>;
 
 	// Names one retained logical resource that requires physical backing.
@@ -234,6 +587,7 @@ namespace Durin
 		uint32 Version = 0;
 		bool bDiscard = false;
 		bool bStore = true;
+		std::string ParameterPath;
 	};
 
 	// Records one exact pointer-free transition at a pass or graph boundary.
@@ -433,6 +787,42 @@ namespace Durin
 
 		auto AddPass(std::string_view Name, ERenderGraphPassType Type,
 			FRenderGraphExecute Execute = {}) -> FRenderGraphPassHandle;
+		template<typename ParameterStruct>
+		requires CRenderGraphParameters<ParameterStruct>
+		auto AddPass(std::string_view Name, ERenderGraphPassType Type,
+			TRenderGraphParametersRef<ParameterStruct>&& Parameters,
+			FRenderGraphExecute Execute = {}) -> FRenderGraphPassHandle
+		{
+			auto Lifetime = Parameters.Lifetime.lock();
+			void* Data = std::exchange(Parameters.Data, nullptr);
+			Parameters.Lifetime.reset();
+			return AddParameterizedPass(Name, Type,
+				ParameterStruct::GetRenderGraphParametersMetadata(), Data,
+				std::move(Lifetime), std::move(Execute), {});
+		}
+		template<typename ParameterStruct, typename Execute>
+		requires CRenderGraphParameters<ParameterStruct>
+			&& std::invocable<Execute&, FRHICommandListImmediate&,
+				const ParameterStruct&, const FRenderGraphParameterResolver&>
+		auto AddPass(std::string_view Name, ERenderGraphPassType Type,
+			TRenderGraphParametersRef<ParameterStruct>&& Parameters,
+			Execute&& ExecuteCallback) -> FRenderGraphPassHandle
+		{
+			ParameterStruct* TypedData = Parameters.Data;
+			FRenderGraphParameterizedExecute ErasedExecute =
+				[TypedData, Callback = std::forward<Execute>(ExecuteCallback)](
+					FRHICommandListImmediate& CommandList,
+					const FRenderGraphParameterResolver& Resolver) mutable {
+					std::invoke(Callback, CommandList,
+						static_cast<const ParameterStruct&>(*TypedData), Resolver);
+				};
+			auto Lifetime = Parameters.Lifetime.lock();
+			void* Data = std::exchange(Parameters.Data, nullptr);
+			Parameters.Lifetime.reset();
+			return AddParameterizedPass(Name, Type,
+				ParameterStruct::GetRenderGraphParametersMetadata(), Data,
+				std::move(Lifetime), {}, std::move(ErasedExecute));
+		}
 		auto AddDependency(FRenderGraphPassHandle Pass,
 			FRenderGraphPassHandle Prerequisite) -> void;
 		auto MarkPassRoot(FRenderGraphPassHandle Pass,
@@ -441,6 +831,29 @@ namespace Durin
 		auto SetExecutionPreparation(FRenderGraphPrepare Prepare) -> void;
 		auto SetBackingResolver(FRenderGraphBackingResolver Resolver) -> void;
 		auto SetBudget(const FRenderGraphBudget& Budget) -> void;
+
+		template<typename ParameterStruct>
+		requires CRenderGraphParameters<ParameterStruct>
+		auto AllocParameters() -> TRenderGraphParametersRef<ParameterStruct>
+		{
+			static_assert(std::is_standard_layout_v<ParameterStruct>,
+				"Render graph parameter structs must use standard layout");
+			static_assert(std::default_initializable<ParameterStruct>,
+				"Render graph parameter structs must be default constructible");
+			static_assert(std::destructible<ParameterStruct>,
+				"Render graph parameter structs must be destructible");
+			std::weak_ptr<void> Lifetime;
+			void* Storage = AllocateParameterStorage(sizeof(ParameterStruct),
+				alignof(ParameterStruct),
+				ParameterStruct::GetRenderGraphParametersMetadata(),
+				[](void* Value) { std::destroy_at(
+					static_cast<ParameterStruct*>(Value)); }, Lifetime);
+			if (Storage == nullptr) return {};
+			auto* Parameters = std::construct_at(
+				static_cast<ParameterStruct*>(Storage));
+			MarkParameterStorageConstructed(Storage);
+			return {Parameters, std::move(Lifetime)};
+		}
 
 		auto UseTexture(FRenderGraphPassHandle Pass,
 			FRenderGraphTextureHandle Texture,
@@ -485,6 +898,18 @@ namespace Durin
 		auto Compile() const -> FRenderGraphCompileResult;
 
 	private:
+		auto AddParameterizedPass(std::string_view Name,
+			ERenderGraphPassType Type,
+			const FRenderGraphParametersMetadata* Metadata, void* Parameters,
+			std::shared_ptr<void> Lifetime, FRenderGraphExecute Execute,
+			FRenderGraphParameterizedExecute ParameterizedExecute)
+			-> FRenderGraphPassHandle;
+		auto CanDeclareManualUse(FRenderGraphPassHandle Pass,
+			std::string_view InvalidHandleError) -> bool;
+		auto AllocateParameterStorage(size_t Size, size_t Alignment,
+			const FRenderGraphParametersMetadata* Metadata,
+			void (*Destroy)(void*), std::weak_ptr<void>& OutLifetime) -> void*;
+		auto MarkParameterStorageConstructed(void* Storage) -> void;
 		struct FState;
 		std::unique_ptr<FState> State;
 	};
