@@ -12,6 +12,9 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
 ## Repository Rules
 
 - Each checkout has one source/build writer; use separate worktrees for concurrency.
+- Run Git operations with the checkout's absolute path supplied command-locally,
+  for example `git -c safe.directory=<absolute-checkout-path> status`; do not
+  modify the user's global `safe.directory` configuration.
 - Before configuring, building, rebuilding, running, or recovering repository
   targets, read `Documentation/Agents/BuildAndRun.md`.
 - Before selecting or running native tests, read
