@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Rendering/FPrimitiveSceneProxy.h"
+#include "Rendering/PrimitiveSceneProxy.h"
 
 namespace Durin
 {

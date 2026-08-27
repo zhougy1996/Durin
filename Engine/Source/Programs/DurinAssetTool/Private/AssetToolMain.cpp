@@ -1,5 +1,5 @@
 #include "AssetTools.h"
-#include "AssetSaveReadiness.h"
+#include "Asset/AssetSaveReadiness.h"
 
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/AssetCompilingManager.h"
@@ -7,7 +7,6 @@
 
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
-#include "EngineAssetServices.h"
 #include "Engine/Level.h"
 #include "HAL/PlatformMisc.h"
 #include "Logging/Logger.h"
@@ -600,7 +599,6 @@ int main(int ArgC, char** ArgV)
 		return 1;
 	}
 	Durin::DObjectInit();
-	Durin::InitializeEngineAssetServices();
 	struct FScopedEditorServices final
 	{
 		bool bStarted = false;

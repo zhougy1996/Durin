@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Animation/SkeletalAnimation.h"
-#include "Rendering/FPrimitiveSceneProxy.h"
+#include "Rendering/PrimitiveSceneProxy.h"
 
 namespace Durin
 {

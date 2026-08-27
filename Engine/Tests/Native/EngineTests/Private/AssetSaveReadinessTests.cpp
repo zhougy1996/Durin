@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "AssetSaveReadiness.h"
+#include "Asset/AssetSaveReadiness.h"
 #include "DObject/Object.h"
 #include "Modules/ModuleTestSupport.h"
 

@@ -4,7 +4,6 @@
 #include "Asset/Testing.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
-#include "EngineAssetServices.h"
 #include "Misc/Name.h"
 #include "Modules/ModuleTestSupport.h"
 #include "NativeDObjectTestSupport.h"
@@ -18,7 +17,6 @@ inline auto InitializeDObjectSystem() -> void
 		// hardware thread count across every Engine test executable.
 		Durin::InitializeTaskScheduler(2);
 		Durin::Testing::InitializeDObjectSystemForTests();
-		Durin::InitializeEngineAssetServices();
 		return true;
 	}();
 	(void)bInitialized;

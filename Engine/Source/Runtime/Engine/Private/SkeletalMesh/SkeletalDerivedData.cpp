@@ -1,7 +1,7 @@
 #include "SkeletalMesh/SkeletalDerivedData.h"
 
 #include "Asset/ChunkedPayload.h"
-#include "PayloadDecodeResult.h"
+#include "Serialization/PayloadDecodeResult.h"
 #include "Serialization/Archive.h"
 #include "Serialization/BinaryFormat.h"
 #include "Serialization/BoundedPayloadSerialization.h"

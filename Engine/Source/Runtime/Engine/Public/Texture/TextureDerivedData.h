@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "PayloadDecodeResult.h"
+#include "Serialization/PayloadDecodeResult.h"
 #include "Texture/Texture2D.h"
 
 namespace Durin

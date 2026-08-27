@@ -25,8 +25,6 @@
 
 #include "Shader/ShaderPaths.h"
 #include "EngineGlobals.h"
-#include "EngineAssetServices.h"
-
 #include "EngineFrame.h"
 #include "EngineFramePhases.h"
 #include "RuntimeStorage.h"
@@ -127,7 +125,6 @@ namespace Durin
 			return false;
 		}
 		DObjectInit();
-		InitializeEngineAssetServices();
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::PreInitComplete);
 		State = EEngineLoopState::PreInitialized;
 		return true;

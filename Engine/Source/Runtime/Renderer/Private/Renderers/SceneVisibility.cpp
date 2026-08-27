@@ -2,7 +2,7 @@
 
 #include "Renderers/ViewPreparationMath.h"
 
-#include "Rendering/FPrimitiveSceneProxy.h"
+#include "Rendering/PrimitiveSceneProxy.h"
 #include "Scene.h"
 
 namespace Durin

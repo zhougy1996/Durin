@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetForgeBuiltinsAPI.h"
-#include "AssetSaveReadiness.h"
+#include "Asset/AssetSaveReadiness.h"
 #include "Texture/VolumeTexturePostLoad.h"
 
 namespace Durin::AssetForge::Builtins

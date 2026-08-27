@@ -1,6 +1,6 @@
 #pragma once
 
-#include "PayloadDecodeResult.h"
+#include "Serialization/PayloadDecodeResult.h"
 #include "Serialization/Archive.h"
 
 namespace Durin

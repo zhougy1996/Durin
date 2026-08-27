@@ -2,7 +2,7 @@
 
 #include "RendererAPI.h"
 
-#include "Rendering/FPrimitiveSceneProxy.h"
+#include "Rendering/PrimitiveSceneProxy.h"
 #include "Rendering/LightSceneProxy.h"
 #include "Rendering/SkyBoxSceneProxy.h"
 #include "Rendering/VolumetricCloudSceneProxy.h"
