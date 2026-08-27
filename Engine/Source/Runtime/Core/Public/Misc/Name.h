@@ -199,6 +199,8 @@ namespace Durin
 		friend struct FNameHelper;
 	};
 
+	extern CORE_API const FName NAME_None;
+
 	CORE_API auto FNameInit() -> void;
 	[[nodiscard]] CORE_API auto IsFNameInitialized() -> bool;
 }

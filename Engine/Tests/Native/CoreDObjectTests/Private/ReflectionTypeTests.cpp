@@ -2848,10 +2848,10 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_TRUE(Instance->ClearAuthoredOverride(RemovedNativePath));
 
 		auto* NewOuter = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("LedgerDuplicateOuter"));
-		std::string Error;
-		auto* Duplicate = Durin::Cast<DDefaultGraphOwnerForTest>(Durin::DuplicateObjectGraph(
-			Instance, NewOuter, Durin::FName("LedgerDuplicate"), &Error));
-		ASSERT_NE(Duplicate, nullptr) << Error;
+		const DDefaultGraphOwnerForTest* ConstInstance = Instance;
+		auto* Duplicate = Durin::DuplicateObject(ConstInstance, NewOuter);
+		ASSERT_NE(Duplicate, nullptr);
+		EXPECT_EQ(Duplicate->GetFName(), Instance->GetFName());
 		EXPECT_EQ(Duplicate->GetAuthoredOverrideEntries().size(), 2u);
 		std::atomic<bool> WorkerReadsSucceeded = true;
 		std::thread Worker([&] {

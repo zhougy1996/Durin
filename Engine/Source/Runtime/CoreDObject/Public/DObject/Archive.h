@@ -9,6 +9,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <unordered_set>
 #include <vector>
 
@@ -277,5 +278,20 @@ namespace Durin
 	COREDOBJECT_API auto SaveObjectGraphToMemory(DObject* RootObject, std::vector<std::byte>& OutBytes) -> bool;
 	COREDOBJECT_API auto LoadObjectGraphFromMemory(const std::vector<std::byte>& Bytes) -> DObject*;
 	COREDOBJECT_API auto DuplicateObjectGraph(DObject* RootObject, DObject* NewOuter, FName NewName = FName(), std::string* OutError = nullptr, std::unordered_map<DObject*, DObject*>* OutDuplicates = nullptr) -> DObject*;
+
+	template<class T>
+	auto DuplicateObject(
+		T const* SourceObject,
+		DObject* Outer,
+		const FName Name = NAME_None) -> T*
+	{
+		static_assert(std::is_base_of_v<DObject, T>,
+			"T must be derived from DObject");
+		// Serialize is a bidirectional non-const interface so loading can populate an
+		// object. The duplication save pass still treats its source as semantically const.
+		return static_cast<T*>(DuplicateObjectGraph(
+			const_cast<T*>(SourceObject), Outer, Name));
+	}
+
 	COREDOBJECT_API auto CopyEditableObjectProperties(DObject* Source, DObject* Destination, const std::unordered_map<DObject*, DObject*>& ReferenceMap, std::string* OutError = nullptr) -> bool;
 }

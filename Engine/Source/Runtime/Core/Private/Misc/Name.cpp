@@ -888,6 +888,8 @@ namespace Durin
 	};
 
 
+	const FName NAME_None;
+
 	FName::FName()
 	{
 	}

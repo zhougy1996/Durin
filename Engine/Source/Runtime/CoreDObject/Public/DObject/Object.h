@@ -114,6 +114,9 @@ namespace Durin
 			return IsA(T::StaticClass());
 		}
 
+		// Loading Archives may update object state. Saving, discovery, and duplication
+		// Archives must not modify persistent object semantics; transient diagnostics or
+		// caches may change only when they cannot affect emitted bytes or later passes.
 		COREDOBJECT_API virtual auto Serialize(FArchive& Ar) -> void;
 
 		COREDOBJECT_API virtual auto AddReferencedObjects(FReferenceCollector& Collector) -> void;
