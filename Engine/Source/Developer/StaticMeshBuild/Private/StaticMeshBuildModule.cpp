@@ -18,14 +18,13 @@ namespace Durin
 
 		auto BuildCollisionProduct(
 			const FStaticMeshRenderData& RenderData,
-			const FStaticMeshSourceImportData& SourceImportData,
 			EBodySetupCollisionSourceMode Mode,
 			EBodySetupCollisionQueryPolicy Policy,
 			FStaticMeshCollisionBuildProduct& OutProduct,
 			std::string& OutError) -> bool override
 		{
 			return Asset::FStaticMeshBuildOperations::BuildCollisionProduct(
-				RenderData, SourceImportData, Mode, Policy, OutProduct, OutError);
+				RenderData, Mode, Policy, OutProduct, OutError);
 		}
 
 		auto PostLoadUncooked(DStaticMesh& Mesh,
@@ -42,7 +41,7 @@ namespace Durin
 			FStaticMeshBuildProduct Product;
 			if (!Asset::FStaticMeshBuildOperations::BuildImportedProduct(
 				Asset::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
-				Decoded, {}, "canonical imported geometry", Product, OutError)) return false;
+				Decoded, "canonical imported geometry", Product, OutError)) return false;
 			Product.bMarkPackageDirty = false;
 			Product.bContainsImportedData = false;
 			Product.bSourceImporterInvoked = false;

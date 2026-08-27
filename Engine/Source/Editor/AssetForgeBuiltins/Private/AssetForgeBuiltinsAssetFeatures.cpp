@@ -1,8 +1,8 @@
-#include "BuiltinImportProviderCommon.h"
 #include "AssetForgeBuiltinsAssetFeatures.h"
 
 #include "DObject/Package.h"
 #include "SkeletalMesh/SkeletalMesh.h"
+#include "StaticMesh/StaticMesh.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"

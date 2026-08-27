@@ -9,17 +9,24 @@ namespace
 	auto MakeKeyInput() -> Durin::Asset::FStaticMeshBuildKeyInput
 	{
 		Durin::Asset::FStaticMeshBuildKeyInput Input;
-		Input.SourceContentHash = Durin::FXxHash128{
+		Input.ImportedDataHash = Durin::FXxHash128{
 			0x0123456789abcdefull,
 			0xfedcba9876543210ull};
 		Input.ReconciliationHash = Durin::FXxHash128{
 			0x1111111111111111ull,
 			0x2222222222222222ull};
-		Input.ImporterId = "Assimp";
-		Input.ImporterVersion = 602;
-		Input.ImportSettings = Durin::FStaticMeshImportSettings::MakeYUpNegativeZForward();
 		Input.TargetPlatform = Durin::EStaticMeshTargetPlatform::Win64;
 		return Input;
+	}
+
+	auto MakeCollisionKeyInput() -> Durin::Asset::FStaticMeshCollisionBuildKeyInput
+	{
+		return {
+			.GeometryHash = {0x0123456789abcdefull, 0xfedcba9876543210ull},
+			.SourceMode = Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
+			.QueryPolicy = Durin::EBodySetupCollisionQueryPolicy::SimpleAndComplex,
+			.WeldToleranceBits = 0x3a83126fu,
+			.TargetPlatform = Durin::EStaticMeshTargetPlatform::Win64};
 	}
 }
 
@@ -34,15 +41,11 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 		Durin::Asset::BuildStaticMeshDerivedDataKeyBytes(Input, Error);
 	const std::vector<std::byte> Expected = [] {
 		const uint8 Values[]{
-		0x03, 0x00, 0x00, 0x00,
+		0x04, 0x00, 0x00, 0x00,
 		0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
 		0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
 		0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x11,
 		0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
-		0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-		'A', 's', 's', 'i', 'm', 'p',
-		0x5a, 0x02, 0x00, 0x00,
-		0x05, 0x00, 0x02,
 		0x04, 0x00, 0x00, 0x00,
 		0x05, 0x00, 0x00, 0x00,
 		0x01, 0x00, 0x00, 0x00};
@@ -52,8 +55,6 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 
 	EXPECT_EQ(First, Second);
 	EXPECT_EQ(First, Expected);
-	EXPECT_EQ(Durin::Asset::BuildStaticMeshDerivedDataKey(Input, Error),
-		"91ec748883b0f5c56230c3f0b4c54f6b");
 	EXPECT_EQ(Durin::Asset::BuildStaticMeshDerivedDataKey(Input, Error).size(), 32u);
 }
 
@@ -71,16 +72,59 @@ TEST(FStaticMeshDerivedDataContractTests, EverySemanticInputChangesTheKey)
 		EXPECT_NE(Durin::Asset::BuildStaticMeshDerivedDataKey(Changed, Error), BaselineKey);
 	};
 
-	ExpectChanged([](auto& Value) { ++Value.SourceContentHash.HashLow; });
+	ExpectChanged([](auto& Value) { ++Value.ImportedDataHash.HashLow; });
 	ExpectChanged([](auto& Value) { ++Value.ReconciliationHash.HashLow; });
-	ExpectChanged([](auto& Value) { Value.ImporterId = "DurinFixtureImporter"; });
-	ExpectChanged([](auto& Value) { ++Value.ImporterVersion; });
-	ExpectChanged([](auto& Value) { Value.ImportSettings.ForwardAxis = Durin::EStaticMeshImportAxis::PositiveX; });
-	ExpectChanged([](auto& Value) { Value.ImportSettings.RightAxis = Durin::EStaticMeshImportAxis::NegativeX; });
-	ExpectChanged([](auto& Value) { Value.ImportSettings.UpAxis = Durin::EStaticMeshImportAxis::PositiveZ; });
 	ExpectChanged([](auto& Value) { ++Value.BuilderVersion; });
 	ExpectChanged([](auto& Value) { ++Value.PayloadSchemaVersion; });
 	ExpectChanged([](auto& Value) { Value.TargetPlatform = Durin::EStaticMeshTargetPlatform::Unknown; });
+}
+
+TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAndRecipe)
+{
+	const Durin::Asset::FStaticMeshCollisionBuildKeyInput Baseline =
+		MakeCollisionKeyInput();
+	std::string Error;
+	const std::vector<std::byte> Bytes =
+		Durin::Asset::BuildStaticMeshCollisionDerivedDataKeyBytes(Baseline, Error);
+	ASSERT_TRUE(Error.empty()) << Error;
+	const std::vector<std::byte> Expected = [] {
+		const uint8 Values[]{
+			0x03, 0x00, 0x00, 0x00,
+			0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
+			0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe,
+			0x02, 0x02,
+			0x6f, 0x12, 0x83, 0x3a,
+			0x02, 0x00, 0x00, 0x00,
+			0x02, 0x00, 0x00, 0x00,
+			0x01, 0x00, 0x00, 0x00};
+		const std::span<const std::byte> View = std::as_bytes(std::span{Values});
+		return std::vector<std::byte>(View.begin(), View.end());
+	}();
+	EXPECT_EQ(Bytes, Expected);
+	const std::string BaselineKey =
+		Durin::Asset::BuildStaticMeshCollisionDerivedDataKey(Baseline, Error);
+	EXPECT_EQ(BaselineKey.size(), 32u);
+
+	auto ExpectChanged = [&](auto Mutate)
+	{
+		Durin::Asset::FStaticMeshCollisionBuildKeyInput Changed = Baseline;
+		Mutate(Changed);
+		EXPECT_NE(Durin::Asset::BuildStaticMeshCollisionDerivedDataKey(Changed, Error),
+			BaselineKey);
+	};
+	ExpectChanged([](auto& Value) { ++Value.GeometryHash.HashLow; });
+	ExpectChanged([](auto& Value) {
+		Value.SourceMode = Durin::EBodySetupCollisionSourceMode::None;
+	});
+	ExpectChanged([](auto& Value) {
+		Value.QueryPolicy = Durin::EBodySetupCollisionQueryPolicy::ComplexOnly;
+	});
+	ExpectChanged([](auto& Value) { ++Value.WeldToleranceBits; });
+	ExpectChanged([](auto& Value) { ++Value.BuilderVersion; });
+	ExpectChanged([](auto& Value) { ++Value.PayloadSchemaVersion; });
+	ExpectChanged([](auto& Value) {
+		Value.TargetPlatform = Durin::EStaticMeshTargetPlatform::Unknown;
+	});
 }
 
 TEST(FStaticMeshDerivedDataContractTests, FormatConstantsRemainWithinReaderLimits)

@@ -289,15 +289,9 @@ namespace Durin::AssetForge::Builtins
 			}
 			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh)
 			{
-				FStaticMeshSourceImportData Provenance{
-					.SourceFilename = Root->Filename,
-					.SourceContentHash = Root->ContentHash.ToString(),
-					.ImporterId = std::string(SceneImporterId),
-					.ImporterVersion = 1,
-					.ImportSettings = Data.MeshSettings};
 				if (!Asset::FStaticMeshBuildOperations::BuildImportedProduct(
 					{.StableObjectPath = Output.AssetPath.ToString()},
-					MakeStaticMeshImportedData(Data.Scene), std::move(Provenance),
+					MakeStaticMeshImportedData(Data.Scene),
 					Root->Filename, Output.StaticMesh, Error))
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-build", std::move(Error), Descriptor.StableIdentity);

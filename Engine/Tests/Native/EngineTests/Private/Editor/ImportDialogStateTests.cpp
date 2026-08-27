@@ -10,7 +10,7 @@
 namespace
 {
 	using namespace Durin;
-	using namespace Durin::Editor::Import;
+	using namespace Durin::Editor;
 	using namespace Durin::Editor::Texture;
 
 	auto EmptyOccupancy(const FAssetPath&) -> FAssetDestinationOccupancy
@@ -185,8 +185,8 @@ TEST(FTextureImportDialogStateTests, PreservesInactiveFormsAcrossTypeSwitches)
 
 TEST(FMeshCoordinateImportModelTests, AppliesSharedPresets)
 {
-	Durin::Editor::Import::FMeshCoordinateImportModel Model;
-	Model.SetPreset(Durin::Editor::Import::FMeshCoordinateImportModel::EPreset::
+	Durin::Editor::FMeshCoordinateImportModel Model;
+	Model.SetPreset(Durin::Editor::FMeshCoordinateImportModel::EPreset::
 		YUpNegativeZForward);
 	const Durin::FStaticMeshImportSettings Expected =
 		Durin::FStaticMeshImportSettings::MakeYUpNegativeZForward();

@@ -33,13 +33,13 @@ namespace Durin::Editor::ContentBrowser::Private
 		using FGetMountedContentMutationRevision = std::function<uint64()>;
 		using FNotifyMountedContentMutation = std::function<void()>;
 		using FOpenImport = std::function<void(
-			::Durin::Editor::Import::EBuiltinImportFamily, std::string)>;
+			::Durin::Editor::EBuiltinImportFamily, std::string)>;
 		using FClassifyReimport = std::function<
-			::Durin::Editor::Import::EBuiltinReimportFamily(std::string_view)>;
+			::Durin::Editor::EBuiltinReimportFamily(std::string_view)>;
 		using FCanReimport = std::function<bool(std::string_view)>;
 		using FReimport = std::function<void(
-			::Durin::Editor::Import::EBuiltinReimportFamily,
-			::Durin::Editor::Import::EBuiltinReimportMode, std::string,
+			::Durin::Editor::EBuiltinReimportFamily,
+			::Durin::Editor::EBuiltinReimportMode, std::string,
 			std::function<void(std::string)>)>;
 		using FDrawImportDialogs = std::function<void(bool)>;
 

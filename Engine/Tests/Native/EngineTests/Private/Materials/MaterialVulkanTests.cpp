@@ -389,12 +389,6 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ImportedSection.SourceMaterialIndex = 0;
 		ASSERT_TRUE(Durin::Asset::FStaticMeshBuildOperations::BuildAndPublishImported(
 			*StaticMeshFixture, ImportedMesh,
-			{
-				.SourceFilename = "/MaterialThumbnailVulkan/SM_ThumbnailPreview.fixture",
-				.SourceContentHash = "0123456789abcdef0123456789abcdef",
-				.ImporterId = "MaterialThumbnailTest",
-				.ImporterVersion = 1,
-				.ImportSettings = Durin::FStaticMeshImportSettings::MakeDurin()},
 			"StaticMesh thumbnail preview test fixture",
 			Error)) << Error;
 		ASSERT_TRUE(StaticMeshFixture->SetImportedDefaultMaterial(

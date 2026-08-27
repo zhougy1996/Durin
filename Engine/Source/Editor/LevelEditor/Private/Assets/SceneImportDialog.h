@@ -6,7 +6,6 @@
 
 namespace Durin::Editor::Level
 {
-	using namespace ::Durin::Editor::Import;
 	// Imports one supported Scene source into a typed multi-asset directory.
 	class FSceneImportDialog
 	{

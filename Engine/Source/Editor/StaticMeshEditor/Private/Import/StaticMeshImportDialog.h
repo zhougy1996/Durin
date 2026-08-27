@@ -5,7 +5,6 @@
 
 namespace Durin::Editor::StaticMesh
 {
-	using namespace ::Durin::Editor::Import;
 	// Creates one geometry-only StaticMesh without Scene materials or textures.
 	class FStaticMeshImportDialog
 	{

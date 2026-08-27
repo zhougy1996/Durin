@@ -213,7 +213,7 @@ namespace Durin
 	auto FTextureEditorModule::RegisterTextureEditor(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
 		::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
-		::Durin::Editor::Import::FImportDialogCallbacks ImportCallbacks) -> bool
+		::Durin::Editor::FImportDialogCallbacks ImportCallbacks) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
 			|| (Texture2DThumbnailRegistration && Texture2DThumbnailRegistration->IsValid())

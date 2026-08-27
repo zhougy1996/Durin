@@ -898,11 +898,11 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
-			const ::Durin::Editor::Import::EBuiltinReimportFamily Family =
+			const ::Durin::Editor::EBuiltinReimportFamily Family =
 				ClassifyReimport
 					? ClassifyReimport(Item.AssetClassName)
-					: ::Durin::Editor::Import::EBuiltinReimportFamily::None;
-			if (Family != ::Durin::Editor::Import::EBuiltinReimportFamily::None)
+					: ::Durin::Editor::EBuiltinReimportFamily::None;
+			if (Family != ::Durin::Editor::EBuiltinReimportFamily::None)
 			{
 				if (CanReimport && CanReimport(Item.VirtualPath))
 				{
@@ -911,7 +911,7 @@ namespace Durin::Editor::ContentBrowser::Private
 						QueueContentAction([this, Family, Path = Item.VirtualPath] {
 							if (Reimport)
 								Reimport(Family,
-									::Durin::Editor::Import::EBuiltinReimportMode::RetainedHint,
+									::Durin::Editor::EBuiltinReimportMode::RetainedHint,
 									Path, [this](std::string Message) {
 										SetError(std::move(Message));
 									});
@@ -923,7 +923,7 @@ namespace Durin::Editor::ContentBrowser::Private
 					QueueContentAction([this, Family, Path = Item.VirtualPath] {
 						if (Reimport)
 							Reimport(Family,
-								::Durin::Editor::Import::EBuiltinReimportMode::FromFile,
+								::Durin::Editor::EBuiltinReimportMode::FromFile,
 								Path, [this](std::string Message) {
 								SetError(std::move(Message));
 							});
@@ -1077,7 +1077,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		ImGui::BeginDisabled(!bAllowAssetMutation);
 		for (const auto& Descriptor :
-			::Durin::Editor::Import::BuiltinImportDescriptors)
+			::Durin::Editor::BuiltinImportDescriptors)
 		{
 			if (ImGui::MenuItem(Descriptor.Label.data()))
 				QueueContentAction([this, Family = Descriptor.Family,

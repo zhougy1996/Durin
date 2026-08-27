@@ -1134,14 +1134,8 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	ImportedMesh.Positions = {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
 	ImportedMesh.Indices = {0, 2, 1, 0, 1, 3, 1, 2, 3, 2, 0, 3};
 	ImportedMesh.SourceMaterialIndex = 0;
-	Durin::FStaticMeshSourceImportData Provenance{
-		.SourceFilename = "/Tests/SceneCollisionFixture.gltf",
-		.SourceContentHash = "0123456789abcdef0123456789abcdef",
-		.ImporterId = "PhysicsSceneFixture",
-		.ImporterVersion = 1,
-		.ImportSettings = Durin::FStaticMeshImportSettings::MakeDurin()};
 	ASSERT_TRUE(Durin::Asset::FStaticMeshBuildOperations::BuildAndPublishImported(
-		*Mesh, Imported, Provenance, "Scene collision fixture", Error)) << Error;
+		*Mesh, Imported, "Scene collision fixture", Error)) << Error;
 	ASSERT_TRUE(Mesh->SetCollisionSourceMode(
 		Durin::EBodySetupCollisionSourceMode::TriangleMeshFromLOD0, Error)) << Error;
 	auto AddMesh = [&](Durin::DWorld& World, std::string_view Name) {

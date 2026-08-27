@@ -25,14 +25,12 @@ namespace Durin::Asset
 		static auto BuildAndPublishImported(
 			DStaticMesh& Mesh,
 			const FStaticMeshImportedData& ImportedData,
-			FStaticMeshSourceImportData SourceImportData,
 			std::string_view SourceLabel,
 			std::string& OutError) -> bool;
 
 		static auto BuildImportedProduct(
 			const FStaticMeshReconciliationSnapshot& Reconciliation,
 			const FStaticMeshImportedData& ImportedData,
-			FStaticMeshSourceImportData SourceImportData,
 			std::string_view SourceLabel,
 			FStaticMeshBuildProduct& OutProduct,
 			std::string& OutError) -> bool;
@@ -44,7 +42,6 @@ namespace Durin::Asset
 
 		static auto BuildCollisionProduct(
 			const FStaticMeshRenderData& RenderData,
-			const FStaticMeshSourceImportData& SourceImportData,
 			EBodySetupCollisionSourceMode Mode,
 			EBodySetupCollisionQueryPolicy Policy,
 			FStaticMeshCollisionBuildProduct& OutProduct,

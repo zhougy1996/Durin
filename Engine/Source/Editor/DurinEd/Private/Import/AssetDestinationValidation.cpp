@@ -2,7 +2,7 @@
 
 #include "Asset.h"
 
-namespace Durin::Editor::Import
+namespace Durin::Editor
 {
 	namespace
 	{
@@ -130,4 +130,4 @@ namespace Durin::Editor::Import
 		}
 		return InspectContentDirectory(Classified.NormalizedVirtualPath);
 	}
-} // namespace Durin::Editor::Import
+} // namespace Durin::Editor

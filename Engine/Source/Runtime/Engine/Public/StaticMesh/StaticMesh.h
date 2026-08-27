@@ -89,22 +89,6 @@ namespace Durin
 		auto operator==(const FStaticMeshImportSettings&) const -> bool = default;
 	};
 
-	// Carries source identity and settings transiently through mesh build operations.
-	struct FStaticMeshSourceImportData
-	{
-		// Empty means the transient build input has no source dependency.
-		std::string SourceFilename;
-
-		// Lowercase XXH3-128 of the exact source bytes.
-		std::string SourceContentHash;
-		std::string ImporterId;
-		uint32 ImporterVersion = 0;
-		FStaticMeshImportSettings ImportSettings;
-
-		auto HasSource() const -> bool { return !SourceFilename.empty(); }
-		auto operator==(const FStaticMeshSourceImportData&) const -> bool = default;
-	};
-
 	struct FStaticMeshImportedMaterialSlot
 	{
 		std::string Name;

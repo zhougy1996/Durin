@@ -390,6 +390,11 @@ TEST(FStaticMeshMaterialTests, StaticMeshImportSettingsValidateDistinctAxes)
 TEST(FStaticMeshMaterialTests, StaticMeshImportSettingsPersistAcrossSourceRebuild)
 {
 	InitializeDObjectSystem();
+	const Durin::DClass* ImportDataClass =
+		Durin::AssetForge::Builtins::DStaticMeshImportData::StaticClass();
+	ASSERT_NE(ImportDataClass->FindPropertyByName("ImportSettings"), nullptr);
+	EXPECT_EQ(ImportDataClass->FindPropertyByName("ImporterId"), nullptr);
+	EXPECT_EQ(ImportDataClass->FindPropertyByName("ImporterVersion"), nullptr);
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "StaticMeshAxisImports";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	Durin::PathUtilities::RegisterMountPointForTests("/MeshAxisImportTests/", Root.generic_string() + "/");

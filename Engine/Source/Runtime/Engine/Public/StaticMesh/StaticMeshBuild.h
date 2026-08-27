@@ -22,7 +22,6 @@ namespace Durin
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
 		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
 		FStaticMeshImportedData ImportedData;
-		FStaticMeshSourceImportData SourceImportData;
 		float NormalizedSize = 1.5f;
 		std::string DerivedDataKey;
 		bool bSlotMetadataChanged = false;
@@ -52,10 +51,9 @@ namespace Durin
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Engine.StaticMeshCollisionBuild";
-		static constexpr uint32 FeatureVersion = 1;
+		static constexpr uint32 FeatureVersion = 2;
 		virtual auto BuildCollisionProduct(
 			const FStaticMeshRenderData& RenderData,
-			const FStaticMeshSourceImportData& SourceImportData,
 			EBodySetupCollisionSourceMode Mode,
 			EBodySetupCollisionQueryPolicy Policy,
 			FStaticMeshCollisionBuildProduct& OutProduct,
@@ -64,7 +62,6 @@ namespace Durin
 
 	ENGINE_API auto InvokeStaticMeshCollisionBuildFeature(
 		const FStaticMeshRenderData& RenderData,
-		const FStaticMeshSourceImportData& SourceImportData,
 		EBodySetupCollisionSourceMode Mode,
 		EBodySetupCollisionQueryPolicy Policy,
 		FStaticMeshCollisionBuildProduct& OutProduct,

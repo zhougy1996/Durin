@@ -228,10 +228,6 @@ namespace
 		std::string Error;
 		if (!Durin::Asset::FStaticMeshBuildOperations::BuildAndPublishImported(
 			*Result, Imported,
-			{.SourceFilename = std::format("/Tests/PickingGrid{}.fixture", TriangleCount),
-				.SourceContentHash = "0123456789abcdef0123456789abcdef",
-				.ImporterId = "ViewportPickingFixture", .ImporterVersion = 1,
-				.ImportSettings = Durin::FStaticMeshImportSettings::MakeDurin()},
 			"viewport picking grid", Error)) throw std::runtime_error(Error);
 		return Result;
 	}

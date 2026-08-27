@@ -962,11 +962,7 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage0Tests, Fre
 DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, ProductionKeyAndPayloadMatchFrozenGoldenBytes)
 {
 	const Asset::FStaticMeshCollisionBuildKeyInput KeyInput{
-		.SourceContentHash = {0x0123456789abcdefull, 0xfedcba9876543210ull},
 		.GeometryHash = {0x1111222233334444ull, 0xaaaabbbbccccddddull},
-		.ImporterId = "Assimp",
-		.ImporterVersion = 602,
-		.ImportSettings = FStaticMeshImportSettings::MakeYUpNegativeZForward(),
 		.SourceMode = EBodySetupCollisionSourceMode::TriangleMeshFromLOD0,
 		.QueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex,
 		.WeldToleranceBits = std::bit_cast<uint32>(1.0e-5f),
@@ -975,10 +971,10 @@ DURIN_STATIC_MESH_COLLISION_ROUTINE_TEST(FPhysicsCookedCollisionStage3Tests, Pro
 	const std::vector<std::byte> KeyBytes =
 		Asset::BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput, Error);
 	ASSERT_TRUE(Error.empty()) << Error;
-	EXPECT_EQ(KeyBytes.size(), 75u);
-	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "90a7dc1e16f761812d2975e56988d120");
+	EXPECT_EQ(KeyBytes.size(), 38u);
+	EXPECT_EQ(FXxHash128::HashBuffer(KeyBytes).ToString(), "01a75c9d6203686e307cc52a38543a74");
 	EXPECT_EQ(Asset::BuildStaticMeshCollisionDerivedDataKey(KeyInput, Error),
-		"90a7dc1e16f761812d2975e56988d120");
+		"01a75c9d6203686e307cc52a38543a74");
 
 	const FCollisionSourceFixture Tetra = MakeTetrahedron();
 	std::vector<FVector3> Positions;

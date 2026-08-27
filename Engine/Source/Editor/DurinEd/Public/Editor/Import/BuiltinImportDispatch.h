@@ -1,6 +1,6 @@
 #pragma once
 
-namespace Durin::Editor::Import
+namespace Durin::Editor
 {
 	enum class EBuiltinImportFamily : uint8
 	{

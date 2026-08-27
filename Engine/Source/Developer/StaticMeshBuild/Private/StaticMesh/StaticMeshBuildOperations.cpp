@@ -40,15 +40,6 @@ namespace Durin::Asset
 
 		constexpr float VectorTolerance = 1.0e-10f;
 
-		auto IsCanonicalHash(std::string_view Hash) -> bool
-		{
-			return Hash.size() == 32
-				&& std::ranges::all_of(Hash, [](char Character) {
-					return Character >= '0' && Character <= '9'
-						|| Character >= 'a' && Character <= 'f';
-				});
-		}
-
 		auto RestoreRuntimeMetadata(
 			std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 			FStaticMeshRenderData& RenderData,
@@ -526,22 +517,19 @@ namespace Durin::Asset
 	auto FStaticMeshBuildOperations::BuildAndPublishImported(
 		DStaticMesh& Mesh,
 		const FStaticMeshImportedData& ImportedData,
-		FStaticMeshSourceImportData SourceImportData,
 		std::string_view SourceLabel,
 		std::string& OutError) -> bool
 	{
 		FStaticMeshBuildProduct Product;
 		return BuildImportedProduct(
 				CaptureReconciliationSnapshot(Mesh), ImportedData,
-				std::move(SourceImportData), SourceLabel,
-				Product, OutError)
+				SourceLabel, Product, OutError)
 			&& PublishImportedProduct(Mesh, std::move(Product), OutError);
 	}
 
 	auto FStaticMeshBuildOperations::BuildImportedProduct(
 		const FStaticMeshReconciliationSnapshot& Reconciliation,
 		const FStaticMeshImportedData& ImportedData,
-		FStaticMeshSourceImportData SourceImportData,
 		std::string_view SourceLabel,
 		FStaticMeshBuildProduct& OutProduct,
 		std::string& OutError) -> bool
@@ -580,12 +568,9 @@ namespace Durin::Asset
 		}
 
 		const FStaticMeshBuildKeyInput KeyInput{
-			.SourceContentHash = ImportedIdentity,
+			.ImportedDataHash = ImportedIdentity,
 			.ReconciliationHash = BuildReconciliationHash(
 				Product.MaterialSlots, Reconciliation.NormalizedSize),
-			.ImporterId = "CanonicalStaticMesh",
-			.ImporterVersion = StaticMeshImportedDataSchemaVersion,
-			.ImportSettings = FStaticMeshImportSettings::MakeDurin(),
 			.TargetPlatform = EStaticMeshTargetPlatform::Win64};
 		Product.DerivedDataKey = BuildStaticMeshDerivedDataKey(KeyInput, OutError);
 		if (Product.DerivedDataKey.empty())
@@ -631,7 +616,6 @@ namespace Durin::Asset
 		}
 		Product.RenderData = std::move(SelectedRenderData);
 
-		Product.SourceImportData = std::move(SourceImportData);
 		Product.NormalizedSize = Reconciliation.NormalizedSize;
 		Product.DerivedDataStatus = EStaticMeshDerivedDataStatus::Rebuilt;
 		Product.DiagnosticMessage = Output.StoreDiagnostic.empty()
@@ -653,7 +637,6 @@ namespace Durin::Asset
 
 	auto FStaticMeshBuildOperations::BuildCollisionProduct(
 		const FStaticMeshRenderData& RenderData,
-		const FStaticMeshSourceImportData& SourceImportData,
 		EBodySetupCollisionSourceMode Mode,
 		EBodySetupCollisionQueryPolicy Policy,
 		FStaticMeshCollisionBuildProduct& OutProduct,
@@ -680,20 +663,8 @@ namespace Durin::Asset
 			return false;
 		}
 		const FXxHash128 GeometryHash = Private::BuildCollisionGeometryHash(Positions, Indices);
-		const bool bHasSourceIdentity = IsCanonicalHash(SourceImportData.SourceContentHash);
-		const FXxHash128 SourceHash = bHasSourceIdentity
-			? FXxHash128::FromString(SourceImportData.SourceContentHash)
-			: GeometryHash;
-		FStaticMeshImportSettings Settings = SourceImportData.ImportSettings;
-		if (!Settings.IsValid()) Settings = FStaticMeshImportSettings::MakeDurin();
 		const FStaticMeshCollisionBuildKeyInput KeyInput{
-			.SourceContentHash = SourceHash,
 			.GeometryHash = GeometryHash,
-			.ImporterId = SourceImportData.ImporterId.empty()
-				? "CanonicalLOD0" : SourceImportData.ImporterId,
-			.ImporterVersion = SourceImportData.ImporterVersion == 0
-				? 1u : SourceImportData.ImporterVersion,
-			.ImportSettings = Settings,
 			.SourceMode = Mode,
 			.QueryPolicy = Policy,
 			.WeldToleranceBits = 0,

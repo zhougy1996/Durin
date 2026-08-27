@@ -74,7 +74,7 @@ namespace Durin
 	auto FStaticMeshEditorModule::RegisterStaticMeshEditor(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
 		::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
-		::Durin::Editor::Import::FImportDialogCallbacks ImportCallbacks) -> bool
+		::Durin::Editor::FImportDialogCallbacks ImportCallbacks) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
 			|| (ThumbnailRegistration && ThumbnailRegistration->IsValid())) return false;

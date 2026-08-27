@@ -11,8 +11,6 @@ namespace Durin
 
 namespace Durin::Editor::Texture
 {
-	using namespace ::Durin::Editor::Import;
-
 	// Selects the concrete texture asset created by the unified import workflow.
 	enum class ETextureImportAssetType : uint8
 	{

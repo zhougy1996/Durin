@@ -427,16 +427,8 @@ namespace Durin::Tests
 			1, 2, 3,
 			2, 0, 3};
 		Mesh.SourceMaterialIndex = 0;
-		FStaticMeshSourceImportData SourceImportData = {
-			.SourceFilename =
-				"/RenderedThumbnailFixtures/Sources/SM_Deterministic.fixture",
-			.SourceContentHash = "0123456789abcdef0123456789abcdef",
-			.ImporterId = "RenderedThumbnailFixture",
-			.ImporterVersion = 1,
-			.ImportSettings = FStaticMeshImportSettings::MakeDurin()};
 		if (!Asset::FStaticMeshBuildOperations::BuildAndPublishImported(
 				*OutFixtures.StaticMesh, ImportedMesh,
-				SourceImportData,
 				"Rendered thumbnail StaticMesh fixture",
 				OutError)
 			|| !OutFixtures.StaticMesh->SetImportedDefaultMaterial(

@@ -5,7 +5,7 @@
 #include "Misc/Project.h"
 #include "MonaImGui.h"
 
-namespace Durin::Editor::Import
+namespace Durin::Editor
 {
 	auto FImportDialogCallbacks::Clear() const -> void
 	{
@@ -293,4 +293,4 @@ namespace Durin::Editor::Import
 		ImGui::TextWrapped("%s", std::string(Message).c_str());
 		ImGui::PopStyleColor();
 	}
-} // namespace Durin::Editor::Import
+} // namespace Durin::Editor

@@ -46,10 +46,6 @@ namespace
 		std::string Error;
 		if (!Asset::FStaticMeshBuildOperations::BuildAndPublishImported(
 			*Mesh, Imported,
-			{.SourceFilename = "/Tests/SplineMeshDebugTriangle.fixture",
-				.SourceContentHash = "0123456789abcdef0123456789abcdef",
-				.ImporterId = "SplineMeshFixture", .ImporterVersion = 1,
-				.ImportSettings = FStaticMeshImportSettings::MakeDurin()},
 			"SplineMesh authored triangle fixture", Error))
 		{
 			ADD_FAILURE() << Error;

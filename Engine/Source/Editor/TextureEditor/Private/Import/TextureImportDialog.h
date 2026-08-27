@@ -6,7 +6,6 @@
 
 namespace Durin::Editor::Texture
 {
-	using namespace ::Durin::Editor::Import;
 	// Creates Texture2D, TextureCube, or VolumeTexture assets through one modal.
 	class FTextureImportDialog
 	{

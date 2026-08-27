@@ -37,12 +37,6 @@ namespace Durin::AssetForge::Builtins
 
 	private:
 		DPROPERTY()
-		std::string ImporterId;
-
-		DPROPERTY()
-		uint32 ImporterVersion = 0;
-
-		DPROPERTY()
 		FStaticMeshImportSettings ImportSettings;
 	};
 }

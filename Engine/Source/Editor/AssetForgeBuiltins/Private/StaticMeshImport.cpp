@@ -18,8 +18,6 @@ namespace Durin::AssetForge::Builtins
 	namespace
 	{
 		constexpr uint64 MaximumStaticMeshEncodedBytes = 512ull * 1024ull * 1024ull;
-		constexpr std::string_view StaticMeshImporterId = "Assimp";
-		constexpr uint32 StaticMeshAssimpImporterVersion = 3;
 
 		auto ResolveOwningPackagePhysicalPath(const DStaticMesh& Mesh,
 			std::filesystem::path& OutPath, std::string& OutError) -> bool
@@ -150,16 +148,10 @@ namespace Durin::AssetForge::Builtins
 				OutError = std::format("Failed to decode StaticMesh source {}.", Filename);
 				return false;
 			}
-			FStaticMeshSourceImportData Legacy{
-				.SourceFilename = Snapshot.Filename,
-				.SourceContentHash = Snapshot.ContentHash.ToString(),
-				.ImporterId = std::string(StaticMeshImporterId),
-				.ImporterVersion = StaticMeshAssimpImporterVersion,
-				.ImportSettings = Settings};
 			FStaticMeshBuildProduct Product;
 			if (!Asset::FStaticMeshBuildOperations::BuildImportedProduct(
 				Asset::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
-				MakeStaticMeshImportedData(Scene), Legacy, Filename, Product, OutError))
+				MakeStaticMeshImportedData(Scene), Filename, Product, OutError))
 				return false;
 			Product.bSourceImporterInvoked = true;
 			DStaticMeshImportData* ImportData = nullptr;

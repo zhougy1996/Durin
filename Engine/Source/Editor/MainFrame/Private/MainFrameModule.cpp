@@ -134,7 +134,7 @@ namespace Durin::Editor::MainFrame
 			Editor::FAssetThumbnailProviderRegistry& ThumbnailService
 		) -> bool
 		{
-			const Editor::Import::FImportDialogCallbacks ImportCallbacks{
+			const Editor::FImportDialogCallbacks ImportCallbacks{
 				.ReportError = [](std::string Message) {
 					if (GEditor)
 						GEditor->GetNotificationManager().Post({
@@ -283,19 +283,19 @@ namespace Durin::Editor::MainFrame
 						.OpenImport = [Level = &LevelEditorModule,
 							Texture = &TextureEditorModule,
 							StaticMesh = &StaticMeshEditorModule](
-							Editor::Import::EBuiltinImportFamily Family,
+							Editor::EBuiltinImportFamily Family,
 							std::string Directory) {
 							switch (Family)
 							{
-							case Editor::Import::EBuiltinImportFamily::Texture:
+							case Editor::EBuiltinImportFamily::Texture:
 								Texture->OpenImportDialog(Directory); break;
-							case Editor::Import::EBuiltinImportFamily::TerrainHeightmap:
+							case Editor::EBuiltinImportFamily::TerrainHeightmap:
 								Level->OpenImportDialog(
 									Editor::Level::EImportDialogType::TerrainHeightmap, Directory); break;
-							case Editor::Import::EBuiltinImportFamily::Scene:
+							case Editor::EBuiltinImportFamily::Scene:
 								Level->OpenImportDialog(
 									Editor::Level::EImportDialogType::Scene, Directory); break;
-							case Editor::Import::EBuiltinImportFamily::StaticMesh:
+							case Editor::EBuiltinImportFamily::StaticMesh:
 								StaticMesh->OpenImportDialog(Directory); break;
 							}
 						},
@@ -303,12 +303,12 @@ namespace Durin::Editor::MainFrame
 							if (ClassName == DTexture2D::StaticClass()->GetQualifiedName().ToString()
 								|| ClassName == DTextureCube::StaticClass()->GetQualifiedName().ToString()
 								|| ClassName == DVolumeTexture::StaticClass()->GetQualifiedName().ToString())
-								return Editor::Import::EBuiltinReimportFamily::Texture;
+								return Editor::EBuiltinReimportFamily::Texture;
 							if (ClassName == DTerrainHeightmap::StaticClass()->GetQualifiedName().ToString())
-								return Editor::Import::EBuiltinReimportFamily::TerrainHeightmap;
+								return Editor::EBuiltinReimportFamily::TerrainHeightmap;
 							if (ClassName == DStaticMesh::StaticClass()->GetQualifiedName().ToString())
-								return Editor::Import::EBuiltinReimportFamily::StaticMesh;
-							return Editor::Import::EBuiltinReimportFamily::None;
+								return Editor::EBuiltinReimportFamily::StaticMesh;
+							return Editor::EBuiltinReimportFamily::None;
 						},
 						.CanReimport = [](std::string_view AssetPath) {
 							FAssetPath Path;
@@ -329,34 +329,34 @@ namespace Durin::Editor::MainFrame
 						.Reimport = [Level = &LevelEditorModule,
 							Texture = &TextureEditorModule,
 							StaticMesh = &StaticMeshEditorModule](
-							Editor::Import::EBuiltinReimportFamily Family,
-							Editor::Import::EBuiltinReimportMode Mode,
+							Editor::EBuiltinReimportFamily Family,
+							Editor::EBuiltinReimportMode Mode,
 							std::string AssetPath,
 							std::function<void(std::string)> ReportError) {
 							switch (Family)
 							{
-							case Editor::Import::EBuiltinReimportFamily::Texture:
-								if (Mode == Editor::Import::EBuiltinReimportMode::FromFile)
+							case Editor::EBuiltinReimportFamily::Texture:
+								if (Mode == Editor::EBuiltinReimportMode::FromFile)
 									Texture->ReimportAssetFromFile(
 										AssetPath, std::move(ReportError));
 								else Texture->ReimportAsset(
 									AssetPath, std::move(ReportError));
 								break;
-							case Editor::Import::EBuiltinReimportFamily::TerrainHeightmap:
-								if (Mode == Editor::Import::EBuiltinReimportMode::FromFile)
+							case Editor::EBuiltinReimportFamily::TerrainHeightmap:
+								if (Mode == Editor::EBuiltinReimportMode::FromFile)
 									Level->ReimportTerrainHeightmapFromFile(
 										AssetPath, std::move(ReportError));
 								else Level->ReimportTerrainHeightmap(
 									AssetPath, std::move(ReportError));
 								break;
-							case Editor::Import::EBuiltinReimportFamily::StaticMesh:
-								if (Mode == Editor::Import::EBuiltinReimportMode::FromFile)
+							case Editor::EBuiltinReimportFamily::StaticMesh:
+								if (Mode == Editor::EBuiltinReimportMode::FromFile)
 									StaticMesh->ReimportAssetFromFile(
 										AssetPath, std::move(ReportError));
 								else StaticMesh->ReimportAsset(
 									AssetPath, std::move(ReportError));
 								break;
-							case Editor::Import::EBuiltinReimportFamily::None: break;
+							case Editor::EBuiltinReimportFamily::None: break;
 							}
 						},
 						.DrawImportDialogs = [Texture = &TextureEditorModule,

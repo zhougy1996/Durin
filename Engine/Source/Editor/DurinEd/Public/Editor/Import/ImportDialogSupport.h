@@ -4,7 +4,7 @@
 #include "DurinEdAPI.h"
 #include "StaticMesh/StaticMesh.h"
 
-namespace Durin::Editor::Import
+namespace Durin::Editor
 {
 	// Routes feature-owned import-dialog outcomes through host-owned services.
 	struct FImportDialogCallbacks
@@ -108,4 +108,4 @@ namespace Durin::Editor::Import
 	};
 
 	DURINED_API auto DrawImportDialogWarning(std::string_view Message) -> void;
-} // namespace Durin::Editor::Import
+} // namespace Durin::Editor

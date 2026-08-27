@@ -7,11 +7,8 @@ namespace Durin::Asset
 {
 	struct FStaticMeshBuildKeyInput
 	{
-		FXxHash128 SourceContentHash;
+		FXxHash128 ImportedDataHash;
 		FXxHash128 ReconciliationHash;
-		std::string ImporterId;
-		uint32 ImporterVersion = 0;
-		FStaticMeshImportSettings ImportSettings;
 		uint32 BuilderVersion = StaticMeshBuilderVersion;
 		uint32 PayloadSchemaVersion = StaticMeshPayloadSchemaVersion;
 		EStaticMeshTargetPlatform TargetPlatform = EStaticMeshTargetPlatform::Unknown;
@@ -21,11 +18,7 @@ namespace Durin::Asset
 
 	struct FStaticMeshCollisionBuildKeyInput
 	{
-		FXxHash128 SourceContentHash;
 		FXxHash128 GeometryHash;
-		std::string ImporterId;
-		uint32 ImporterVersion = 0;
-		FStaticMeshImportSettings ImportSettings;
 		EBodySetupCollisionSourceMode SourceMode = EBodySetupCollisionSourceMode::None;
 		EBodySetupCollisionQueryPolicy QueryPolicy = EBodySetupCollisionQueryPolicy::SimpleAndComplex;
 		uint32 WeldToleranceBits = 0;
