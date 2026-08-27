@@ -143,7 +143,7 @@ function(durin_add_engine_functional_test target_name)
 	)
 	if(DURIN_ENGINE_TEST_GPU)
 		set_target_properties(${target_name} PROPERTIES
-			DURIN_TEST_RESOURCE_LOCKS durin-gpu
+			DURIN_TEST_RESOURCE_LOCKS "durin-gpu;durin-rhi-lifecycle"
 		)
 	endif()
 	if(DURIN_ENGINE_TEST_TIMEOUT)

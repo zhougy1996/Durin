@@ -227,12 +227,12 @@ durin_resolve_native_test_discovery_policy(
 	explicit_labels
 	TextureCookIntegrationTests
 	TRUE
-	RESOURCE_LOCKS durin-gpu
+	RESOURCE_LOCKS durin-gpu durin-rhi-lifecycle
 	LABELS integration
 )
 assert_list_equals(
 	"${explicit_locks}"
-	"durin-gpu"
+	"durin-gpu;durin-rhi-lifecycle"
 	"explicit resource lock"
 )
 assert_list_equals(
@@ -242,7 +242,7 @@ assert_list_equals(
 )
 assert_list_equals(
 	"${DURIN_NATIVE_TEST_RESOURCE_LOCK_REGISTRY}"
-	"durin-gpu"
+	"durin-gpu;durin-rhi-lifecycle"
 	"documented explicit resource registry"
 )
 durin_resolve_native_test_execution_policy(

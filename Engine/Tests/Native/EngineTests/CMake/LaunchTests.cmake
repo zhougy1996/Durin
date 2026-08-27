@@ -67,7 +67,7 @@ target_compile_definitions(LaunchProcessBoundaryTests PRIVATE
 set_target_properties(LaunchProcessBoundaryTests PROPERTIES
 	DURIN_TEST_HEAVY_RUNTIME_RATIONALE
 		"Launches isolated runtime children to verify process exit and cleanup policy."
-	DURIN_TEST_RESOURCE_LOCKS durin-gpu
+	DURIN_TEST_RESOURCE_LOCKS "durin-gpu;durin-rhi-lifecycle"
 	DURIN_TEST_TARGET_LOCK_RATIONALE
 		"Serializes child processes that share the configured launcher binary."
 )

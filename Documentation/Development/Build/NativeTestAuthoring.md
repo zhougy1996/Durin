@@ -132,11 +132,12 @@ the runtime closure, and registers GoogleTest discovery. `KIND` is exactly one o
 Optional `MODULES`, `BACKENDS`, and `STACKS` aid discovery but never replace
 real link, runtime-only dependency, resource-lock, or timeout declarations.
 Targets are case-parallel by default. Add `SERIAL` only when cases from the
-same target cannot overlap. Add `EXCLUSIVE` only when the target must not
-overlap any other test in the same CTest invocation. Either option requires a
-concrete `DURIN_TEST_TARGET_LOCK_RATIONALE`. Use `TIMEOUT <seconds>` to override
-the 300-second default. Characterization kind automatically suppresses the
-direct whole-target lifecycle registration.
+same target cannot overlap, together with a concrete
+`DURIN_TEST_TARGET_LOCK_RATIONALE`. Use `TIMEOUT <seconds>` to override the
+300-second default. Use `PROCESSORS <slots>` to reserve CTest scheduling
+capacity for a resource-intensive target without blocking unrelated tests.
+Characterization kind automatically suppresses the direct whole-target
+lifecycle registration.
 
 `EXECUTION_HOST` on `durin_register_native_test(...)` declares the process
 lifecycle required by the target and is independent of serialization, labels,
@@ -251,8 +252,8 @@ a separately registered characterization target with a concrete rationale.
 Performance, scale, memory, and hardware-baseline measurements belong in a
 separately registered qualification target. Keep a bounded correctness case in
 the ordinary owning target, and run the qualification target explicitly. A
-physical-resource lock such as `durin-gpu` describes lifecycle ownership; it
-does not make a correctness target a performance test.
+physical-resource lock such as `durin-gpu` or `durin-rhi-lifecycle` describes
+lifecycle ownership; it does not make a correctness target a performance test.
 
 Case-level parallel safety is the default for explicit case diagnostic mode. If
 a target cannot run cases concurrently, add `SERIAL` to its registration and
@@ -262,19 +263,26 @@ shared resources must come from the central registry in
 `CMake/Project/ProjectTargets.cmake`:
 
 - `durin-gpu`: exclusive ownership of the physical GPU/device lifecycle.
+- `durin-rhi-lifecycle`: exclusive ownership of real RHI backend startup,
+  shutdown, or dynamic module replacement.
 
 Use `DURIN_TEST_RESOURCE_LOCKS durin-gpu` only when a target owns that physical
-resource. Do not invent lock names. Targets that directly link `Renderer`,
+resource. Add `durin-rhi-lifecycle` when it initializes or shuts down a real RHI
+backend. These locks still allow unrelated CPU-only tests to run concurrently.
+Do not invent lock names. Targets that directly link `Renderer`,
 `VulkanRHI`, `DurinEd`, `Mona`, or `MonaImGui` must also provide a
 `DURIN_TEST_HEAVY_RUNTIME_RATIONALE`; this keeps feature targets narrow and
 makes their dependency cost reviewable.
 
 `SERIAL` does not create a quiet machine lane: it only prevents discovered
-cases from the same target from overlapping. Use `EXCLUSIVE` when repeated
-process, driver, or device startup must run without any other CTest test in
-flight. CTest implements that contract with `RUN_SERIAL`; it still cannot
-coordinate independent CTest invocations, other worktrees, or external
+cases from the same target from overlapping. Named CTest resource locks also
+cannot coordinate independent CTest invocations, other worktrees, or external
 applications.
+
+`PROCESSORS` is a scheduling weight, not CPU affinity or an internal thread
+limit. Prefer it when unrestricted parallel load substantially extends a GPU or
+driver test's critical path but full global isolation would unnecessarily block
+CPU-only work.
 
 Tests should avoid editor startup or real window creation unless that behavior
 is under test. When it is, keep the target scoped to that lifecycle and declare

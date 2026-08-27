@@ -214,9 +214,11 @@ passed.
 
 The remaining aggregate critical path includes explicit physical-resource
 ownership. Vulkan-backed correctness targets use `durin-gpu` while they own the
-physical device, global RHI, or renderer lifecycle. Do not relax that lock
-without separating those lifecycles. Move performance-only work into explicit
-qualification targets so it does not extend the routine GPU lock chain.
+physical device and `durin-rhi-lifecycle` while they own real backend startup,
+shutdown, or module replacement. CPU-only tests may overlap both locks. Do not
+relax either lock without separating its lifecycle. Move performance-only work
+into explicit qualification targets so it does not extend the routine GPU lock
+chain.
 
 Incremental `all` dependency checks took 0.88-0.96 seconds in the qualification
 matrix. Whole-target startup and multi-case execution accounted for 34.36

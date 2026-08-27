@@ -878,6 +878,7 @@ endfunction()
 
 set(DURIN_NATIVE_TEST_RESOURCE_LOCK_REGISTRY
 	durin-gpu
+	durin-rhi-lifecycle
 )
 set(DURIN_NATIVE_TEST_HEAVY_RUNTIME_LIBRARIES
 	Renderer
@@ -1132,6 +1133,10 @@ function(_durin_discover_native_test target_name)
 	if(_durin_timeout MATCHES "-NOTFOUND$")
 		set(_durin_timeout 300)
 	endif()
+	get_target_property(_durin_processors ${target_name} DURIN_TEST_PROCESSORS)
+	if(_durin_processors MATCHES "-NOTFOUND$")
+		set(_durin_processors 1)
+	endif()
 	get_target_property(_durin_direct_lifecycle
 		${target_name} DURIN_TEST_DIRECT_LIFECYCLE)
 	if(_durin_direct_lifecycle MATCHES "-NOTFOUND$")
@@ -1141,14 +1146,6 @@ function(_durin_discover_native_test target_name)
 		message(FATAL_ERROR
 			"${target_name} DURIN_TEST_DIRECT_LIFECYCLE must be TRUE or FALSE.")
 	endif()
-	get_target_property(_durin_exclusive ${target_name} DURIN_TEST_EXCLUSIVE)
-	if(_durin_exclusive MATCHES "-NOTFOUND$")
-		set(_durin_exclusive FALSE)
-	elseif(NOT _durin_exclusive STREQUAL "TRUE"
-		AND NOT _durin_exclusive STREQUAL "FALSE")
-		message(FATAL_ERROR
-			"${target_name} DURIN_TEST_EXCLUSIVE must be TRUE or FALSE.")
-	endif()
 	get_target_property(_durin_resolved_execution_host
 		${target_name} DURIN_TEST_RESOLVED_EXECUTION_HOST)
 	get_target_property(_durin_target_lock_rationale ${target_name}
@@ -1156,14 +1153,13 @@ function(_durin_discover_native_test target_name)
 	if(_durin_target_lock_rationale MATCHES "-NOTFOUND$")
 		set(_durin_target_lock_rationale)
 	endif()
-	if(_durin_exclusive AND NOT _durin_target_lock_rationale)
-		message(FATAL_ERROR
-			"${target_name} requires DURIN_TEST_TARGET_LOCK_RATIONALE "
-			"before exclusive CTest execution can be enabled.")
-	endif()
 	if(NOT _durin_timeout MATCHES "^[1-9][0-9]*$")
 		message(FATAL_ERROR
 			"${target_name} DURIN_TEST_TIMEOUT must be a positive integer.")
+	endif()
+	if(NOT _durin_processors MATCHES "^[1-9][0-9]*$")
+		message(FATAL_ERROR
+			"${target_name} DURIN_TEST_PROCESSORS must be a positive integer.")
 	endif()
 
 	durin_resolve_native_test_discovery_policy(
@@ -1187,6 +1183,7 @@ function(_durin_discover_native_test target_name)
 		DURIN_TEST_DISCOVERY_RESOURCE_LOCKS "${_durin_resource_locks}"
 		DURIN_TEST_DISCOVERY_LABELS "${_durin_case_labels}"
 		DURIN_TEST_DIRECT_LIFECYCLE "${_durin_direct_lifecycle}"
+		DURIN_TEST_PROCESSORS "${_durin_processors}"
 		DURIN_TEST_TIMEOUT "${_durin_timeout}"
 		DURIN_TEST_DISCOVERED TRUE
 	)
@@ -1221,7 +1218,9 @@ function(_durin_discover_native_test target_name)
 	gtest_discover_tests(${target_name}
 		WORKING_DIRECTORY "${_durin_work_dir}"
 		DISCOVERY_TIMEOUT 30
-		PROPERTIES TIMEOUT "${_durin_timeout}"
+		PROPERTIES
+			PROCESSORS "${_durin_processors}"
+			TIMEOUT "${_durin_timeout}"
 		${_durin_discovery_args}
 	)
 
@@ -1237,10 +1236,6 @@ function(_durin_discover_native_test target_name)
 	if(_durin_resource_locks)
 		string(APPEND _durin_policy_content
 			"    RESOURCE_LOCK \"${_durin_resource_locks}\"\n")
-	endif()
-	if(_durin_exclusive)
-		string(APPEND _durin_policy_content
-			"    RUN_SERIAL TRUE\n")
 	endif()
 	string(APPEND _durin_policy_content
 		"  )\n"
@@ -1262,6 +1257,7 @@ function(_durin_discover_native_test target_name)
 			"Durin.NativeTestDirect.${target_name}"
 			PROPERTIES
 				TIMEOUT "${_durin_timeout}"
+				PROCESSORS "${_durin_processors}"
 				LABELS "${_durin_target_labels}"
 		)
 		if(_durin_resource_locks)
@@ -1271,11 +1267,6 @@ function(_durin_discover_native_test target_name)
 					RESOURCE_LOCK "${_durin_resource_locks}"
 			)
 		endif()
-		if(_durin_exclusive)
-			set_tests_properties(
-				"Durin.NativeTestDirect.${target_name}"
-				PROPERTIES RUN_SERIAL TRUE)
-		endif()
 	endif()
 endfunction()
 
@@ -1284,9 +1275,9 @@ function(durin_register_native_test target_name)
 		message(FATAL_ERROR "Cannot register missing native-test target ${target_name}.")
 	endif()
 
-	set(options SERIAL EXCLUSIVE)
+	set(options SERIAL)
 	set(one_value_args
-		KIND TIMEOUT EXECUTION_HOST PRIVATE_SOURCE_OWNER PRIVATE_SOURCE_RATIONALE)
+		KIND TIMEOUT PROCESSORS EXECUTION_HOST PRIVATE_SOURCE_OWNER PRIVATE_SOURCE_RATIONALE)
 	set(multi_value_args DOMAINS MODULES BACKENDS STACKS)
 	cmake_parse_arguments(
 		DURIN_REGISTER
@@ -1309,6 +1300,9 @@ function(durin_register_native_test target_name)
 	if(TIMEOUT IN_LIST DURIN_REGISTER_KEYWORDS_MISSING_VALUES)
 		message(FATAL_ERROR "${target_name} TIMEOUT requires a positive integer.")
 	endif()
+	if(PROCESSORS IN_LIST DURIN_REGISTER_KEYWORDS_MISSING_VALUES)
+		message(FATAL_ERROR "${target_name} PROCESSORS requires a positive integer.")
+	endif()
 	if(DEFINED DURIN_REGISTER_TIMEOUT)
 		set(_durin_timeout "${DURIN_REGISTER_TIMEOUT}")
 	else()
@@ -1317,16 +1311,24 @@ function(durin_register_native_test target_name)
 	if(NOT _durin_timeout MATCHES "^[1-9][0-9]*$")
 		message(FATAL_ERROR "${target_name} TIMEOUT must be a positive integer.")
 	endif()
+	if(DEFINED DURIN_REGISTER_PROCESSORS)
+		set(_durin_processors "${DURIN_REGISTER_PROCESSORS}")
+	else()
+		set(_durin_processors 1)
+	endif()
+	if(NOT _durin_processors MATCHES "^[1-9][0-9]*$")
+		message(FATAL_ERROR "${target_name} PROCESSORS must be a positive integer.")
+	endif()
 
 	foreach(_durin_owned_property IN ITEMS
 		DURIN_TEST_CASE_PARALLEL_SAFE DURIN_TEST_DIRECT_LIFECYCLE
-		DURIN_TEST_EXCLUSIVE DURIN_TEST_TIMEOUT)
+		DURIN_TEST_PROCESSORS DURIN_TEST_TIMEOUT)
 		get_property(_durin_property_set TARGET ${target_name}
 			PROPERTY ${_durin_owned_property} SET)
 		if(_durin_property_set)
 			message(FATAL_ERROR
 				"${target_name} ${_durin_owned_property} is registration-owned; "
-				"use SERIAL, EXCLUSIVE, KIND, or TIMEOUT on durin_register_native_test.")
+				"use SERIAL, KIND, PROCESSORS, or TIMEOUT on durin_register_native_test.")
 		endif()
 	endforeach()
 
@@ -1351,14 +1353,9 @@ function(durin_register_native_test target_name)
 	else()
 		set(_durin_case_parallel_safe TRUE)
 	endif()
-	if(DURIN_REGISTER_EXCLUSIVE)
-		set(_durin_exclusive TRUE)
-	else()
-		set(_durin_exclusive FALSE)
-	endif()
 	set_target_properties(${target_name} PROPERTIES
 		DURIN_TEST_CASE_PARALLEL_SAFE "${_durin_case_parallel_safe}"
-		DURIN_TEST_EXCLUSIVE "${_durin_exclusive}"
+		DURIN_TEST_PROCESSORS "${_durin_processors}"
 		DURIN_TEST_TIMEOUT "${_durin_timeout}"
 	)
 	_durin_discover_native_test(${target_name})
