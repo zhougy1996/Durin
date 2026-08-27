@@ -8,41 +8,15 @@
 
 namespace Durin::AssetForge::Builtins
 {
-	struct FTextureCubeImportDataState : FAssetImportDataState
-	{
-		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
-		std::string DecoderId;
-		uint32 DecoderVersion = 0;
-		uint32 ProjectionVersion = 0;
-
-		auto operator==(const FTextureCubeImportDataState&) const -> bool = default;
-	};
-
+	// Loads authored packages that predate common TextureCube import data.
 	DCLASS()
 	class DTextureCubeImportData final : public DAssetImportData
 	{
 		GENERATED_BODY()
 
 	public:
-		ASSETFORGEBUILTINS_API explicit DTextureCubeImportData(
-			const FObjectInitializer& ObjectInitializer);
-		auto GetSourceLayout() const -> ETextureCubeSourceLayout { return SourceLayout; }
-		auto GetDecoderId() const -> std::string_view { return DecoderId; }
-		auto GetDecoderVersion() const -> uint32 { return DecoderVersion; }
-		auto GetProjectionVersion() const -> uint32 { return ProjectionVersion; }
-		ASSETFORGEBUILTINS_API auto SetState(
-			FTextureCubeImportDataState State, std::string& OutError) -> bool;
-		ASSETFORGEBUILTINS_API auto GetTextureCubeState() const
-			-> FTextureCubeImportDataState;
-		auto GetState() const -> FAssetImportDataState override
-		{
-			return GetTextureCubeState();
-		}
-		ASSETFORGEBUILTINS_API auto Validate(std::string& OutError) const
-			-> bool override;
-		ASSETFORGEBUILTINS_API auto CloneToOwner(
-			DObject* Owner, FName Name, std::string& OutError) const
-			-> DAssetImportData* override;
+		explicit DTextureCubeImportData(const FObjectInitializer& ObjectInitializer)
+			: Super(ObjectInitializer) {}
 
 	private:
 		DPROPERTY()

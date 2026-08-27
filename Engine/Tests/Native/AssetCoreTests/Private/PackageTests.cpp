@@ -485,17 +485,6 @@ namespace
 			return Class;
 		}
 
-		auto CloneToOwner(Durin::DObject* Owner, Durin::FName Name) const
-			-> DReplayImportMetadataForTest*
-		{
-			auto* Clone = Durin::NewObject<DReplayImportMetadataForTest>(Owner, Name);
-			Clone->SchemaVersion = SchemaVersion;
-			Clone->SourcePath = SourcePath;
-			Clone->Translator = Translator;
-			Clone->Fingerprint = Fingerprint;
-			return Clone;
-		}
-
 		std::string Translator;
 		uint64 Fingerprint = 0;
 	};
@@ -555,56 +544,6 @@ namespace
 
 		Durin::TObjectPtr<DImportMetadataForTest> AssetImportData;
 		uint32 RuntimeValue = 0;
-	};
-
-	class FPreparedImportMetadataExchange
-	{
-	public:
-		static auto Prepare(
-			DImportMetadataOwnerForTest& Target,
-			const DImportMetadataOwnerForTest& Candidate,
-			FPreparedImportMetadataExchange& Out,
-			std::string& OutError) -> bool
-		{
-			auto* CandidateData = Durin::Cast<DReplayImportMetadataForTest>(
-				Candidate.AssetImportData.Get());
-			if (!CandidateData)
-			{
-				OutError = "Candidate import metadata is missing or has the wrong class.";
-				return false;
-			}
-			auto* Clone = CandidateData->CloneToOwner(&Target, "PreparedAssetImportData");
-			if (!Clone || Clone->GetOuter() != &Target)
-			{
-				OutError = "Prepared import metadata clone has the wrong owner.";
-				return false;
-			}
-			Out.Target = &Target;
-			Out.OldValue = Target.AssetImportData;
-			Out.NewValue = Clone;
-			return true;
-		}
-
-		auto Apply() -> void
-		{
-			Target->AssetImportData = NewValue;
-			bApplied = true;
-		}
-
-		auto Rollback() -> void
-		{
-			if (!bApplied) return;
-			Target->AssetImportData = OldValue;
-			bApplied = false;
-		}
-
-		auto Commit() -> void { bApplied = false; }
-
-	private:
-		DImportMetadataOwnerForTest* Target = nullptr;
-		Durin::TObjectPtr<DImportMetadataForTest> OldValue;
-		Durin::TObjectPtr<DImportMetadataForTest> NewValue;
-		bool bApplied = false;
 	};
 
 	class DPackageAssetForTest : public Durin::DObject
@@ -2943,77 +2882,6 @@ TEST(FPackageAssetTests, EditorOnlyInnerObjectPersistsInspectsAndPrunesForCook)
 	EXPECT_TRUE(Durin::GDObjectArray.GetObjectsWithOuter(
 		LoadedOwner, Durin::EObjectQueryScope::LiveOnly).empty());
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
-}
-
-TEST(FPackageAssetTests, PreparedInnerObjectExchangeClonesOwnershipAndRollsBack)
-{
-	InitializeAssetTests();
-	Durin::FAssetPath TargetPath;
-	Durin::FAssetPath CandidatePath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
-		"/TestAssets/InnerExchangeTarget", TargetPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
-		"/TestAssets/InnerExchangeCandidate", CandidatePath));
-	DImportMetadataOwnerForTest* Target = nullptr;
-	DImportMetadataOwnerForTest* Candidate = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(TargetPath, Target));
-	ASSERT_TRUE(Durin::Asset::CreateAsset(CandidatePath, Candidate));
-	auto* OldData = Durin::NewObject<DReplayImportMetadataForTest>(
-		Target, "OldAssetImportData");
-	OldData->SourcePath = "/TestSources/old.png";
-	OldData->Fingerprint = 11;
-	Target->AssetImportData = OldData;
-	auto* CandidateData = Durin::NewObject<DReplayImportMetadataForTest>(
-		Candidate, "CandidateAssetImportData");
-	CandidateData->SchemaVersion = 3;
-	CandidateData->SourcePath = "/TestSources/new.png";
-	CandidateData->Translator = "Tests.PreparedTranslator";
-	CandidateData->Fingerprint = 29;
-	Candidate->AssetImportData = CandidateData;
-	ASSERT_TRUE(Durin::Asset::SavePackage(Target->GetPackage()));
-
-	FPreparedImportMetadataExchange Exchange;
-	std::string Error;
-	ASSERT_TRUE(FPreparedImportMetadataExchange::Prepare(
-		*Target, *Candidate, Exchange, Error)) << Error;
-	Exchange.Apply();
-	auto* Prepared = Durin::Cast<DReplayImportMetadataForTest>(
-		Target->AssetImportData.Get());
-	ASSERT_NE(Prepared, nullptr);
-	EXPECT_NE(Prepared, CandidateData);
-	EXPECT_EQ(Prepared->GetOuter(), Target);
-	EXPECT_EQ(Prepared->SchemaVersion, CandidateData->SchemaVersion);
-	EXPECT_EQ(Prepared->SourcePath, CandidateData->SourcePath);
-	EXPECT_EQ(Prepared->Translator, CandidateData->Translator);
-	EXPECT_EQ(Prepared->Fingerprint, CandidateData->Fingerprint);
-	EXPECT_EQ(CandidateData->GetOuter(), Candidate);
-
-	Durin::DPackage* Packages[] = {Target->GetPackage()};
-	const Durin::Asset::FAssetResult FailedPublication =
-		Durin::Asset::SavePackagesAtomically(Packages,
-			{.RootPackage = Target->GetPackage(),
-				.ShouldFail = [](Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
-					return Phase == Durin::Asset::EAssetBundleSavePhase::PublishRegistry;
-				}});
-	EXPECT_EQ(FailedPublication.Error, Durin::Asset::EAssetError::IoError);
-	Exchange.Rollback();
-	EXPECT_EQ(Target->AssetImportData.Get(), OldData);
-	EXPECT_EQ(OldData->SourcePath, "/TestSources/old.png");
-	EXPECT_EQ(OldData->Fingerprint, 11u);
-	EXPECT_NE(Target->AssetImportData.Get(), CandidateData);
-
-	FPreparedImportMetadataExchange SuccessfulExchange;
-	ASSERT_TRUE(FPreparedImportMetadataExchange::Prepare(
-		*Target, *Candidate, SuccessfulExchange, Error)) << Error;
-	SuccessfulExchange.Apply();
-	auto* Published = Durin::Cast<DReplayImportMetadataForTest>(
-		Target->AssetImportData.Get());
-	ASSERT_NE(Published, nullptr);
-	SuccessfulExchange.Commit();
-	EXPECT_EQ(Published->GetOuter(), Target);
-	EXPECT_NE(Published, CandidateData);
-	EXPECT_EQ(Published->Fingerprint, 29u);
-	EXPECT_EQ(CandidateData->GetOuter(), Candidate);
 }
 
 TEST(FPackageAssetTests, SoftObjectResolveAndLoadPreservePathAcrossResidencyChanges)

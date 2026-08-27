@@ -164,7 +164,8 @@ namespace Durin::AssetForge::Builtins
 		auto MakeImportSettings(const FVolumeTextureImportDataState& State)
 			-> FVolumeTextureImportSettings
 		{
-			return {.ImportFormat = State.ImportFormat, .Channels = State.Channels,
+			return {.ImportFormat = EVolumeTextureImportFormat::PngRowMajorAtlas,
+				.Channels = State.Channels,
 				.SliceWidth = State.SliceWidth, .SliceHeight = State.SliceHeight,
 				.Depth = State.Depth, .TilesX = State.TilesX, .TilesY = State.TilesY};
 		}
@@ -330,15 +331,12 @@ namespace Durin::AssetForge::Builtins
 				.ContentHashLow = Snapshot.ContentHash.HashLow,
 				.ContentHashHigh = Snapshot.ContentHash.HashHigh,
 				.ByteCount = Snapshot.FileSize});
-			State.ImportFormat = Settings.ImportFormat;
 			State.Channels = Settings.Channels;
 			State.SliceWidth = Settings.SliceWidth;
 			State.SliceHeight = Settings.SliceHeight;
 			State.Depth = Settings.Depth;
 			State.TilesX = Settings.TilesX;
 			State.TilesY = Settings.TilesY;
-			State.DecoderId = VolumeTextureSourceProviderId;
-			State.DecoderVersion = VolumeTextureSourceProviderVersion;
 			auto* Data = dynamic_cast<DVolumeTextureImportData*>(
 				Texture.GetAssetImportData());
 			if (!Data) Data = NewObject<DVolumeTextureImportData>(

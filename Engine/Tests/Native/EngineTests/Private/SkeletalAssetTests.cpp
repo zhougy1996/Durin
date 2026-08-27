@@ -1200,10 +1200,9 @@ TEST(FSkeletalAssetTests, DuplicationPreservesAuthoredStateAndExternalReferences
 	auto* Clip = Durin::NewObject<Durin::DAnimationClip>(nullptr, "DuplicateClip");
 	InitializeClip(*Clip, *Skeleton);
 
-	std::string Error;
 	auto* MeshDuplicate = Durin::Cast<Durin::DSkeletalMesh>(
-		Durin::DuplicateObjectGraph(Mesh, nullptr, "MeshDuplicate", &Error));
-	ASSERT_NE(MeshDuplicate, nullptr) << Error;
+		Durin::DuplicateObject(Mesh, nullptr, "MeshDuplicate"));
+	ASSERT_NE(MeshDuplicate, nullptr);
 	EXPECT_EQ(MeshDuplicate->GetSkeleton(), Skeleton);
 	EXPECT_EQ(MeshDuplicate->GetSummary(), Mesh->GetSummary());
 	EXPECT_EQ(MeshDuplicate->GetCookedPayloadDescriptor(), Mesh->GetCookedPayloadDescriptor());
@@ -1211,8 +1210,8 @@ TEST(FSkeletalAssetTests, DuplicationPreservesAuthoredStateAndExternalReferences
 	EXPECT_EQ(MeshDuplicate->GetImportedData().GetIdentity(),
 		Mesh->GetImportedData().GetIdentity());
 	auto* ClipDuplicate = Durin::Cast<Durin::DAnimationClip>(
-		Durin::DuplicateObjectGraph(Clip, nullptr, "ClipDuplicate", &Error));
-	ASSERT_NE(ClipDuplicate, nullptr) << Error;
+		Durin::DuplicateObject(Clip, nullptr, "ClipDuplicate"));
+	ASSERT_NE(ClipDuplicate, nullptr);
 	EXPECT_EQ(ClipDuplicate->GetSkeleton(), Skeleton);
 	EXPECT_EQ(ClipDuplicate->GetSummary(), Clip->GetSummary());
 	EXPECT_EQ(ClipDuplicate->GetCookedPayloadDescriptor(), Clip->GetCookedPayloadDescriptor());

@@ -189,10 +189,9 @@ TEST(FSplineMeshComponentTests, DuplicateRebuildsIndependentEquivalentSnapshot)
 	FSplineMeshParams Params = Source->GetSplineMeshParams();
 	Params.EndPosition = {75.0, 25.0, 10.0};
 	ASSERT_TRUE(Source->SetSplineMeshParams(Params));
-	std::string Error;
 	auto* Duplicate = Cast<DSplineMeshComponent>(
-		DuplicateObjectGraph(Source, nullptr, "SplineMeshDuplicate", &Error));
-	ASSERT_NE(Duplicate, nullptr) << Error;
+		DuplicateObject(Source, nullptr, "SplineMeshDuplicate"));
+	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetStaticMesh(), Mesh);
 	EXPECT_EQ(Duplicate->GetSplineMeshParams(), Source->GetSplineMeshParams());
 	const auto SourceState = Source->GetDerivedState();
@@ -455,10 +454,9 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	EXPECT_FALSE(Level->GetPackage()->IsDirty());
 	EXPECT_EQ(Actor->FindComponentsByClass<DSplineMeshComponent>().size(), 2u);
 	std::unordered_map<DObject*, DObject*> Duplicates;
-	std::string DuplicateError;
-	auto* Duplicate = Cast<ASplineMeshActor>(DuplicateObjectGraph(
-		Actor, Level, "SplineMeshActorDuplicate", &DuplicateError, &Duplicates));
-	ASSERT_NE(Duplicate, nullptr) << DuplicateError;
+	auto* Duplicate = Cast<ASplineMeshActor>(DuplicateObject(
+		Actor, Level, "SplineMeshActorDuplicate", &Duplicates));
+	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetSplineComponent()->GetSplinePoints(),
 		Actor->GetSplineComponent()->GetSplinePoints());
 	const auto DuplicateSegments = Duplicate->FindComponentsByClass<DSplineMeshComponent>();

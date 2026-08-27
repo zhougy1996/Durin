@@ -81,26 +81,27 @@ namespace Durin
 		auto operator==(const FAssetImportDataState&) const -> bool = default;
 	};
 
-	DCLASS(Abstract)
+	// Stores editor-only source metadata shared by imported asset families.
+	DCLASS()
 	class DAssetImportData : public DObject
 	{
 		GENERATED_BODY()
 
 	public:
+		ENGINE_API explicit DAssetImportData(
+			const FObjectInitializer& ObjectInitializer);
+
 		auto GetSchemaVersion() const -> uint32 { return SchemaVersion; }
 		auto GetSourceData() const -> const FAssetImportInfo& { return SourceData; }
 
 		ENGINE_API virtual auto Validate(std::string& OutError) const -> bool;
-		virtual auto GetState() const -> FAssetImportDataState = 0;
-		virtual auto CloneToOwner(DObject* Owner, FName Name, std::string& OutError) const
-			-> DAssetImportData* = 0;
-		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
-
-	protected:
-		ENGINE_API explicit DAssetImportData(
-			const FObjectInitializer& ObjectInitializer);
-		ENGINE_API auto ApplyState(
+		ENGINE_API auto SetState(
 			FAssetImportDataState State, std::string& OutError) -> bool;
+		auto GetState() const -> FAssetImportDataState
+		{
+			return {.SchemaVersion = SchemaVersion, .SourceData = SourceData};
+		}
+		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 
 	private:
 		DPROPERTY()

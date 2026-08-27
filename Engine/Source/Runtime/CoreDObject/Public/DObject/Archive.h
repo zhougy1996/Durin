@@ -277,20 +277,24 @@ namespace Durin
 	COREDOBJECT_API auto SerializeDObjectProperties(FArchive& Ar, DObject& Object) -> void;
 	COREDOBJECT_API auto SaveObjectGraphToMemory(DObject* RootObject, std::vector<std::byte>& OutBytes) -> bool;
 	COREDOBJECT_API auto LoadObjectGraphFromMemory(const std::vector<std::byte>& Bytes) -> DObject*;
-	COREDOBJECT_API auto DuplicateObjectGraph(DObject* RootObject, DObject* NewOuter, FName NewName = FName(), std::string* OutError = nullptr, std::unordered_map<DObject*, DObject*>* OutDuplicates = nullptr) -> DObject*;
+	// Duplicates the source Outer tree and optionally returns its object mapping.
+	COREDOBJECT_API auto DuplicateObject(
+		const DObject* SourceObject,
+		DObject* NewOuter,
+		FName NewName = FName(),
+		std::unordered_map<DObject*, DObject*>* OutDuplicates = nullptr) -> DObject*;
 
 	template<class T>
 	auto DuplicateObject(
 		T const* SourceObject,
 		DObject* Outer,
-		const FName Name = NAME_None) -> T*
+		const FName Name = NAME_None,
+		std::unordered_map<DObject*, DObject*>* OutDuplicates = nullptr) -> T*
 	{
 		static_assert(std::is_base_of_v<DObject, T>,
 			"T must be derived from DObject");
-		// Serialize is a bidirectional non-const interface so loading can populate an
-		// object. The duplication save pass still treats its source as semantically const.
-		return static_cast<T*>(DuplicateObjectGraph(
-			const_cast<T*>(SourceObject), Outer, Name));
+		return static_cast<T*>(DuplicateObject(
+			static_cast<const DObject*>(SourceObject), Outer, Name, OutDuplicates));
 	}
 
 	COREDOBJECT_API auto CopyEditableObjectProperties(DObject* Source, DObject* Destination, const std::unordered_map<DObject*, DObject*>& ReferenceMap, std::string* OutError = nullptr) -> bool;

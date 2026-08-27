@@ -256,12 +256,10 @@ namespace Durin::Asset
 			nullptr, FName(DestinationPath.GetAssetName()));
 		Package->InitializeAssetPackage(DestinationPath);
 		AddToRoot(Package);
-		std::string DuplicateError;
-		OutAsset = DuplicateObjectGraph(
+		OutAsset = DuplicateObject(
 			SourceAsset,
 			Package,
-			FName(DestinationPath.GetAssetName()),
-			&DuplicateError);
+			FName(DestinationPath.GetAssetName()));
 		if (!OutAsset || !Package->SetAsset(OutAsset))
 		{
 			RemoveFromRoot(Package);
@@ -269,9 +267,7 @@ namespace Durin::Asset
 			CollectGarbage();
 			OutAsset = nullptr;
 			return Error(EAssetError::InvalidObjectGraph,
-				DuplicateError.empty()
-					? "Failed to assign the duplicated package asset."
-					: std::move(DuplicateError));
+				"Failed to assign the duplicated package asset.");
 		}
 		ResidentPackages.emplace(
 			DestinationPath,

@@ -704,11 +704,10 @@ TEST(FMaterialRenderProxyTests, PublishedStateOutlivesOwnersAndPostLoadDuplicati
 	ASSERT_TRUE(Source->SetScalarParameterValue(
 		Durin::MaterialParameters::OpacityName(), 0.45f));
 
-	std::string Error;
 	auto* Duplicate = Durin::Cast<Durin::DMaterialInstance>(
-		Durin::DuplicateObjectGraph(
-			Source, nullptr, "ProxyLifetimeDuplicate", &Error));
-	ASSERT_NE(Duplicate, nullptr) << Error;
+		Durin::DuplicateObject(
+			Source, nullptr, "ProxyLifetimeDuplicate"));
+	ASSERT_NE(Duplicate, nullptr);
 	Durin::FMaterialRenderProxyRef DuplicateProxy =
 		Duplicate->GetMaterialRenderProxy();
 	const FMaterialProxySnapshot BeforeDestruction =

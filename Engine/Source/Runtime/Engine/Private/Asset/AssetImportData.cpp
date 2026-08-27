@@ -290,7 +290,7 @@ namespace Durin
 		return ValidateBaseState(GetState(), OutError);
 	}
 
-	auto DAssetImportData::ApplyState(
+	auto DAssetImportData::SetState(
 		FAssetImportDataState State, std::string& OutError) -> bool
 	{
 		State.SourceData.Normalize();

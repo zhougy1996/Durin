@@ -108,8 +108,6 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 	ASSERT_NE(ImportedSource, nullptr);
 	EXPECT_TRUE(ImportedSource->Hint.ends_with("MultiSection.gltf"));
 	EXPECT_EQ(ImportedSource->GetContentHash().ToString().size(), 32u);
-	EXPECT_EQ(ImportData->GetImporterId(), "Assimp");
-	EXPECT_EQ(ImportData->GetImporterVersion(), 3u);
 	const std::string OriginalSourcePath = ImportedSource->Hint;
 	const std::filesystem::path StoredSource = Source;
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
@@ -636,11 +634,10 @@ TEST(FMaterialProgramPackageTests,
 	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, "Nodes"));
 	EXPECT_TRUE(ContainsSerializedField(FirstSerialization, "Outputs"));
 
-	std::string DuplicateError;
 	auto* Duplicate = Durin::Cast<Durin::DMaterial>(
-		Durin::DuplicateObjectGraph(
-			Material, nullptr, "DuplicatedMaterialProgram", &DuplicateError));
-	ASSERT_NE(Duplicate, nullptr) << DuplicateError;
+		Durin::DuplicateObject(
+			Material, nullptr, "DuplicatedMaterialProgram"));
+	ASSERT_NE(Duplicate, nullptr);
 	ASSERT_NE(Duplicate->GetMaterialProgram(), nullptr);
 	EXPECT_EQ(*Duplicate->GetMaterialProgram(), Authored);
 	EXPECT_NE(Duplicate->GetMaterialProgram(), Material->GetMaterialProgram());

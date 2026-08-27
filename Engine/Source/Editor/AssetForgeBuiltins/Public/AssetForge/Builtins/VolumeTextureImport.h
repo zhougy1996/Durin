@@ -7,9 +7,6 @@
 
 namespace Durin::AssetForge::Builtins
 {
-	inline constexpr std::string_view VolumeTextureSourceProviderId = "DurinImage";
-	inline constexpr uint32 VolumeTextureSourceProviderVersion = 1;
-
 	struct FVolumeTextureCapturedSource
 	{
 		std::string Filename;

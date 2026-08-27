@@ -93,10 +93,9 @@ TEST(FMaterialGraphOperationsTests, PresentationReachesMaximumNodeBoundAndDuplic
 	const FGuid NodeId = Material->GetMaterialProgram()->Nodes.front().Id;
 	ASSERT_TRUE(Material->SetMaterialGraphPresentation(
 		{.Nodes = {{NodeId, 100, -200}}}));
-	std::string Error;
-	DMaterial* Duplicate = Cast<DMaterial>(DuplicateObjectGraph(
-		Material, nullptr, "PresentationDuplicate", &Error));
-	ASSERT_NE(Duplicate, nullptr) << Error;
+	DMaterial* Duplicate = Cast<DMaterial>(DuplicateObject(
+		Material, nullptr, "PresentationDuplicate"));
+	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetMaterialGraphPresentation(),
 		Material->GetMaterialGraphPresentation());
 

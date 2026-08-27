@@ -10,13 +10,12 @@ namespace Durin::AssetForge::Builtins
 {
 	struct FStaticMeshImportDataState : FAssetImportDataState
 	{
-		std::string ImporterId;
-		uint32 ImporterVersion = 0;
 		FStaticMeshImportSettings ImportSettings;
 
 		auto operator==(const FStaticMeshImportDataState&) const -> bool = default;
 	};
 
+	// Retains the axis interpretation required to rebuild a StaticMesh source.
 	DCLASS()
 	class DStaticMeshImportData final : public DAssetImportData
 	{
@@ -25,8 +24,6 @@ namespace Durin::AssetForge::Builtins
 	public:
 		ASSETFORGEBUILTINS_API explicit DStaticMeshImportData(
 			const FObjectInitializer& ObjectInitializer);
-		auto GetImporterId() const -> std::string_view { return ImporterId; }
-		auto GetImporterVersion() const -> uint32 { return ImporterVersion; }
 		auto GetImportSettings() const -> const FStaticMeshImportSettings&
 		{
 			return ImportSettings;
@@ -35,15 +32,8 @@ namespace Durin::AssetForge::Builtins
 			FStaticMeshImportDataState State, std::string& OutError) -> bool;
 		ASSETFORGEBUILTINS_API auto GetStaticMeshState() const
 			-> FStaticMeshImportDataState;
-		auto GetState() const -> FAssetImportDataState override
-		{
-			return GetStaticMeshState();
-		}
 		ASSETFORGEBUILTINS_API auto Validate(std::string& OutError) const
 			-> bool override;
-		ASSETFORGEBUILTINS_API auto CloneToOwner(
-			DObject* Owner, FName Name, std::string& OutError) const
-			-> DAssetImportData* override;
 
 	private:
 		DPROPERTY()

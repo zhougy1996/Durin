@@ -10,19 +10,16 @@ namespace Durin::AssetForge::Builtins
 {
 	struct FVolumeTextureImportDataState : FAssetImportDataState
 	{
-		EVolumeTextureImportFormat ImportFormat = EVolumeTextureImportFormat::PngRowMajorAtlas;
 		EVolumeTextureSourceChannels Channels = EVolumeTextureSourceChannels::Red;
 		uint32 SliceWidth = 0;
 		uint32 SliceHeight = 0;
 		uint32 Depth = 0;
 		uint32 TilesX = 0;
 		uint32 TilesY = 0;
-		std::string DecoderId;
-		uint32 DecoderVersion = 0;
-
 		auto operator==(const FVolumeTextureImportDataState&) const -> bool = default;
 	};
 
+	// Retains the atlas interpretation required to rebuild a VolumeTexture source.
 	DCLASS()
 	class DVolumeTextureImportData final : public DAssetImportData
 	{
@@ -35,15 +32,8 @@ namespace Durin::AssetForge::Builtins
 			FVolumeTextureImportDataState State, std::string& OutError) -> bool;
 		ASSETFORGEBUILTINS_API auto GetVolumeTextureState() const
 			-> FVolumeTextureImportDataState;
-		auto GetState() const -> FAssetImportDataState override
-		{
-			return GetVolumeTextureState();
-		}
 		ASSETFORGEBUILTINS_API auto Validate(std::string& OutError) const
 			-> bool override;
-		ASSETFORGEBUILTINS_API auto CloneToOwner(
-			DObject* Owner, FName Name, std::string& OutError) const
-			-> DAssetImportData* override;
 
 	private:
 		DPROPERTY()

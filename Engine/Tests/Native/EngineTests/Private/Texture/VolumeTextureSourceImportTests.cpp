@@ -310,15 +310,12 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	const auto* ImportData = dynamic_cast<const DVolumeTextureImportData*>(
 		Imported.Asset->GetAssetImportData());
 	ASSERT_NE(ImportData, nullptr);
-	EXPECT_EQ(ImportData->GetVolumeTextureState().DecoderId,
-		VolumeTextureSourceProviderId);
 	EXPECT_EQ(Imported.Asset->GetSourceData().Depth, 2u);
 	const FVolumeTextureImportDataState ImportState = ImportData->GetVolumeTextureState();
 	const FSourceFile* ImportedSource =
 		ImportData->GetSourceData().FindByRole("source");
 	ASSERT_NE(ImportedSource, nullptr);
 	EXPECT_TRUE(ImportedSource->Hint.ends_with("VolumeSource/Noise.png"));
-	EXPECT_EQ(ImportState.ImportFormat, EVolumeTextureImportFormat::PngRowMajorAtlas);
 	EXPECT_EQ(ImportState.SliceWidth, 1u);
 	EXPECT_EQ(ImportState.TilesX, 2u);
 

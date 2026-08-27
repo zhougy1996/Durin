@@ -31,9 +31,9 @@ TEST(FWorldTests, DuplicatesLevelForPlayWithoutDuplicatingExternalAssets)
 	SourceActor->SetActorTransform(SourceTransform);
 
 	Durin::DWorld* PlayWorld = CreateEmptyWorld();
-	std::string Error;
-	auto* PlayLevel = Durin::Cast<Durin::DLevel>(Durin::DuplicateObjectGraph(EditorWorld->GetCurrentLevel(), PlayWorld, "PlayLevel", &Error));
-	ASSERT_NE(PlayLevel, nullptr) << Error;
+	auto* PlayLevel = Durin::DuplicateObject(
+		EditorWorld->GetCurrentLevel(), PlayWorld, "PlayLevel");
+	ASSERT_NE(PlayLevel, nullptr);
 	ASSERT_TRUE(PlayWorld->SetCurrentLevel(PlayLevel));
 	auto* PlayActor = Durin::Cast<Durin::AStaticMeshActor>(PlayLevel->FindActorByName("Mesh"));
 	ASSERT_NE(PlayActor, nullptr);
@@ -77,10 +77,9 @@ TEST(FNativeConstructionPIETests, SplineMeshActorRegeneratesTransientSegmentsAnd
 	Durin::DWorld* PlayWorld = CreateEmptyWorld();
 	PlayWorld->SetWorldType(Durin::EWorldType::PlayInEditor);
 	std::unordered_map<Durin::DObject*, Durin::DObject*> EditorToPlay;
-	std::string Error;
-	auto* PlayLevel = Durin::Cast<Durin::DLevel>(Durin::DuplicateObjectGraph(
-		EditorWorld->GetCurrentLevel(), PlayWorld, "PlayLevel", &Error, &EditorToPlay));
-	ASSERT_NE(PlayLevel, nullptr) << Error;
+	auto* PlayLevel = Durin::DuplicateObject(
+		EditorWorld->GetCurrentLevel(), PlayWorld, "PlayLevel", &EditorToPlay);
+	ASSERT_NE(PlayLevel, nullptr);
 	ASSERT_TRUE(PlayWorld->SetCurrentLevel(PlayLevel));
 	auto* PlayActor = Durin::Cast<Durin::ASplineMeshActor>(PlayLevel->FindActorByName("SplinePath"));
 	ASSERT_NE(PlayActor, nullptr);
@@ -123,9 +122,9 @@ TEST(FWorldTests, AppliesOnlyEditableRuntimePropertiesBackToTheirEditorObjects)
 
 	Durin::DWorld* PlayWorld = CreateEmptyWorld();
 	std::unordered_map<Durin::DObject*, Durin::DObject*> EditorToPlay;
-	std::string Error;
-	auto* PlayLevel = Durin::Cast<Durin::DLevel>(Durin::DuplicateObjectGraph(EditorWorld->GetCurrentLevel(), PlayWorld, "PlayLevel", &Error, &EditorToPlay));
-	ASSERT_NE(PlayLevel, nullptr) << Error;
+	auto* PlayLevel = Durin::DuplicateObject(
+		EditorWorld->GetCurrentLevel(), PlayWorld, "PlayLevel", &EditorToPlay);
+	ASSERT_NE(PlayLevel, nullptr);
 	ASSERT_TRUE(PlayWorld->SetCurrentLevel(PlayLevel));
 	auto* PlayActor = Durin::Cast<Durin::ACameraActor>(EditorToPlay.at(EditorActor));
 	auto* PlayCamera = Durin::Cast<Durin::DCameraComponent>(EditorToPlay.at(EditorActor->GetCameraComponent()));

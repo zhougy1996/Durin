@@ -1,5 +1,5 @@
 #include "AssetForge/Builtins/TerrainHeightmapImport.h"
-#include "AssetForge/Builtins/TerrainHeightmapImportData.h"
+#include "Asset/AssetImportData.h"
 
 #include "DObject/Package.h"
 #include "EncodedSourceSnapshot.h"
@@ -58,10 +58,9 @@ namespace Durin::AssetForge::Builtins
 			std::string Filename, ESourceHintBase HintBase,
 			const std::filesystem::path& PhysicalPath,
 			const FEncodedSourceSnapshot& Snapshot,
-			const FTerrainHeightmapSourceData& SourceData,
 			std::string& OutError) -> bool
 		{
-			FTerrainHeightmapImportDataState State;
+			FAssetImportDataState State;
 			State.SourceData.Sources.push_back({
 				.Role = "source",
 				.DisplayLabel = PhysicalPath.filename().generic_string(),
@@ -70,13 +69,8 @@ namespace Durin::AssetForge::Builtins
 				.ContentHashLow = Snapshot.ContentHash.HashLow,
 				.ContentHashHigh = Snapshot.ContentHash.HashHigh,
 				.ByteCount = Snapshot.FileSize});
-			State.DecoderId = SourceData.DecoderId;
-			State.DecoderVersion = SourceData.DecoderVersion;
-			State.SourceFormat = SourceData.SourceFormat;
-			State.SourceProfileVersion = SourceData.SourceProfileVersion;
-			auto* Data = dynamic_cast<DTerrainHeightmapImportData*>(
-				Heightmap.GetAssetImportData());
-			if (!Data) Data = NewObject<DTerrainHeightmapImportData>(
+			auto* Data = Heightmap.GetAssetImportData();
+			if (!Data) Data = NewObject<DAssetImportData>(
 				&Heightmap, "AssetImportData");
 			return Data && Data->SetState(std::move(State), OutError)
 				&& Heightmap.PublishAssetImportData(*Data, OutError);
@@ -138,7 +132,7 @@ namespace Durin::AssetForge::Builtins
 						.SourceProfileVersion = ImportState.SourceProfileVersion,
 						.bAdvanceRevision = bSamplesChanged}, OutError)
 				|| !PublishImportData(Heightmap, std::move(Filename), HintBase, PhysicalPath,
-					Snapshot, ImportState, OutError)) return false;
+					Snapshot, OutError)) return false;
 			if (!SaveOptions) return true;
 			DPackage* Package = Heightmap.GetPackage();
 			const Asset::FAssetResult Saved = Asset::SavePackagesAtomically(

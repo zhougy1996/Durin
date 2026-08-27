@@ -410,10 +410,9 @@ TEST(FMaterialTests, DuplicateInstancePreservesParentAndNestedTextureOverride)
 	ASSERT_TRUE(Source->SetParent(Base));
 	ASSERT_TRUE(Source->SetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), Texture));
 
-	std::string Error;
 	auto* Duplicate = Durin::Cast<Durin::DMaterialInstance>(
-		Durin::DuplicateObjectGraph(Source, nullptr, "DuplicateOverrideResult", &Error));
-	ASSERT_NE(Duplicate, nullptr) << Error;
+		Durin::DuplicateObject(Source, nullptr, "DuplicateOverrideResult"));
+	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetParent(), Base);
 	EXPECT_TRUE(Duplicate->HasLocalParameterOverride(Durin::MaterialParameters::BaseColorTextureId));
 	Durin::DTexture2D* DuplicateTexture = nullptr;

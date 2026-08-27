@@ -1,5 +1,5 @@
 #include "AssetForge/Builtins/Texture2DImport.h"
-#include "AssetForge/Builtins/Texture2DImportData.h"
+#include "Asset/AssetImportData.h"
 #include "DObject/Package.h"
 #include "EncodedSourceSnapshot.h"
 #include "Asset/AssetOperations.h"
@@ -45,7 +45,7 @@ namespace Durin::AssetForge::Builtins
 			uint64 ByteCount,
 			std::string& OutError) -> bool
 		{
-			FTexture2DImportDataState State;
+			FAssetImportDataState State;
 			State.SourceData.Sources.push_back({
 				.Role = "source",
 				.DisplayLabel = std::move(DisplayLabel),
@@ -54,13 +54,10 @@ namespace Durin::AssetForge::Builtins
 				.ContentHashLow = ContentHash.HashLow,
 				.ContentHashHigh = ContentHash.HashHigh,
 				.ByteCount = ByteCount});
-			State.DecoderId = "DurinImage";
-			State.DecoderVersion = 1;
-			auto* ImportData = dynamic_cast<DTexture2DImportData*>(
-				Texture.GetAssetImportData());
+			auto* ImportData = Texture.GetAssetImportData();
 			if (!ImportData)
-				ImportData = NewObject<DTexture2DImportData>(
-					&Texture, "Texture2DImportData");
+				ImportData = NewObject<DAssetImportData>(
+					&Texture, "AssetImportData");
 			return ImportData && ImportData->SetState(std::move(State), OutError)
 				&& Texture.PublishAssetImportData(*ImportData, OutError);
 		}
@@ -260,8 +257,8 @@ namespace Durin::AssetForge::Builtins
 			Abandon();
 			return Failed(std::move(Error));
 		}
-		auto* ImportData = NewObject<DTexture2DImportData>(Texture, "AssetImportData");
-		FTexture2DImportDataState ImportState;
+		auto* ImportData = NewObject<DAssetImportData>(Texture, "AssetImportData");
+		FAssetImportDataState ImportState;
 		ImportState.SourceData.Sources.push_back({
 			.Role = "source",
 			.DisplayLabel = Input.filename().generic_string(),
@@ -270,8 +267,6 @@ namespace Durin::AssetForge::Builtins
 			.ContentHashLow = Snapshot.ContentHash.HashLow,
 			.ContentHashHigh = Snapshot.ContentHash.HashHigh,
 			.ByteCount = Snapshot.FileSize});
-		ImportState.DecoderId = "DurinImage";
-		ImportState.DecoderVersion = 1;
 		if (!ImportData || !ImportData->SetState(std::move(ImportState), Error)
 			|| !Texture->PublishAssetImportData(*ImportData, Error))
 		{

@@ -1,5 +1,5 @@
 #include "AssetForge/Builtins/TextureCubeImport.h"
-#include "AssetForge/Builtins/TextureCubeImportData.h"
+#include "Asset/AssetImportData.h"
 
 #include "Asset/AssetOperations.h"
 #include "Asset/PackageSerialization.h"
@@ -25,9 +25,6 @@ namespace Durin::AssetForge::Builtins
 		constexpr std::array<std::string_view, TextureCubeFaceCount> FaceRoles = {
 			"positive-x", "negative-x", "positive-y", "negative-y", "positive-z", "negative-z"};
 		constexpr uint64 MaximumTextureCubeEncodedBytes = 256ull * 1024ull * 1024ull;
-		constexpr std::string_view TextureCubeDecoderId = "DurinImage";
-		constexpr uint32 TextureCubeDecoderVersion = 1;
-
 		auto ResolveOwningPackagePhysicalPath(const DTextureCube& Texture,
 			std::filesystem::path& OutPath, std::string& OutError) -> bool
 		{
@@ -88,11 +85,7 @@ namespace Durin::AssetForge::Builtins
 			const std::span<const FCapturedCubeSource> Sources,
 			ETextureCubeSourceLayout Layout, std::string& OutError) -> bool
 		{
-			FTextureCubeImportDataState State;
-			State.SourceLayout = Layout;
-			State.DecoderId = std::string(TextureCubeDecoderId);
-			State.DecoderVersion = TextureCubeDecoderVersion;
-			State.ProjectionVersion = TextureCubeProjectionVersion;
+			FAssetImportDataState State;
 			for (size_t Index = 0; Index < Sources.size(); ++Index)
 			{
 				const auto& Source = Sources[Index];
@@ -106,8 +99,8 @@ namespace Durin::AssetForge::Builtins
 					.ContentHashHigh = Source.Snapshot.ContentHash.HashHigh,
 					.ByteCount = Source.Snapshot.FileSize});
 			}
-			auto* Data = dynamic_cast<DTextureCubeImportData*>(Texture.GetAssetImportData());
-			if (!Data) Data = NewObject<DTextureCubeImportData>(&Texture, "AssetImportData");
+			auto* Data = Texture.GetAssetImportData();
+			if (!Data) Data = NewObject<DAssetImportData>(&Texture, "AssetImportData");
 			return Data && Data->SetState(std::move(State), OutError)
 				&& Texture.PublishAssetImportData(*Data, OutError);
 		}
@@ -368,8 +361,7 @@ namespace Durin::AssetForge::Builtins
 		std::filesystem::path OwningPackagePath;
 		if (!ResolveOwningPackagePhysicalPath(Texture, OwningPackagePath, OutError))
 			return false;
-		const auto* Data = dynamic_cast<const DTextureCubeImportData*>(
-			Texture.GetAssetImportData());
+		const auto* Data = Texture.GetAssetImportData();
 		const FSourceFile* Source = Data
 			? Data->GetSourceData().FindByRole("panorama") : nullptr;
 		std::string SourcePath;
@@ -406,8 +398,7 @@ namespace Durin::AssetForge::Builtins
 		if (!ResolveOwningPackagePhysicalPath(Texture, OwningPackagePath, OutError))
 			return false;
 		std::array<std::string, TextureCubeFaceCount> Sources;
-		const auto* Data = dynamic_cast<const DTextureCubeImportData*>(
-			Texture.GetAssetImportData());
+		const auto* Data = Texture.GetAssetImportData();
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
 			const FSourceFile* Source = Data

@@ -8,7 +8,7 @@
 #include "Asset/PackageSerialization.h"
 #include "DObject/Package.h"
 #include "DObject/DObjectGlobals.h"
-#include "AssetForge/Builtins/Texture2DImportData.h"
+#include "Asset/AssetImportData.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
@@ -441,7 +441,7 @@ namespace Durin::AssetForge::Builtins
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-materialization", std::move(Error), Descriptor.StableIdentity);
 				}
-				FTexture2DImportDataState ImportState;
+				FAssetImportDataState ImportState;
 				ImportState.SourceData.Sources.push_back({
 					.Role = "source",
 					.DisplayLabel = std::filesystem::path(SourcePhysicalPath).filename().generic_string(),
@@ -450,10 +450,8 @@ namespace Durin::AssetForge::Builtins
 					.ContentHashLow = SourceHash.HashLow,
 					.ContentHashHigh = SourceHash.HashHigh,
 					.ByteCount = Output.Texture.SourceFileSize});
-				ImportState.DecoderId = "DurinImage";
-				ImportState.DecoderVersion = 1;
-				auto* ImportData = NewObject<DTexture2DImportData>(
-					Output.Candidate, "Texture2DImportData");
+				auto* ImportData = NewObject<DAssetImportData>(
+					Output.Candidate, "AssetImportData");
 				if (!ImportData || !ImportData->SetState(std::move(ImportState), Error)
 					|| !Cast<DTexture2D>(Output.Candidate)->PublishAssetImportData(
 						*ImportData, Error))

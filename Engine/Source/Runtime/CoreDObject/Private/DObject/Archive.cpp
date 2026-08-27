@@ -1817,18 +1817,17 @@ namespace Durin
 		return LoadedRoot;
 	}
 
-	auto DuplicateObjectGraph(DObject* RootObject, DObject* NewOuter, FName NewName, std::string* OutError, std::unordered_map<DObject*, DObject*>* OutDuplicates) -> DObject*
+	static auto DuplicateObjectInternal(DObject* RootObject, DObject* NewOuter,
+		FName NewName,
+		std::unordered_map<DObject*, DObject*>* OutDuplicates) -> DObject*
 	{
-		if (OutError) OutError->clear();
 		if (OutDuplicates) OutDuplicates->clear();
 		if (!RootObject)
 		{
-			if (OutError) *OutError = "Cannot duplicate a null object graph.";
 			return nullptr;
 		}
 		if (RootObject->IsTemplateObject())
 		{
-			if (OutError) *OutError = "Cannot duplicate a class-default template as an ordinary object graph.";
 			return nullptr;
 		}
 
@@ -1851,7 +1850,6 @@ namespace Durin
 			DObject* DuplicateOuter = Source == RootObject ? NewOuter : Duplicates[Source->GetOuter()];
 			if (Source != RootObject && !DuplicateOuter)
 			{
-				if (OutError) *OutError = "Object graph contains an inner object whose outer was not duplicated.";
 				DiscardDuplicates();
 				return nullptr;
 			}
@@ -1877,7 +1875,6 @@ namespace Durin
 				DClass* Class = Source->GetClass();
 				if (!Class || !Class->ClassConstructor)
 				{
-					if (OutError) *OutError = std::format("Object '{}' has no constructible class.", Source->GetName());
 					DiscardDuplicates();
 					return nullptr;
 				}
@@ -2020,7 +2017,6 @@ namespace Durin
 			}
 			if (Writer.HasError())
 			{
-				if (OutError) *OutError = Writer.GetError();
 				DiscardDuplicates();
 				return nullptr;
 			}
@@ -2031,8 +2027,6 @@ namespace Durin
 			}
 			if (Reader.HasError() || Reader.GetRemainingPayloadBytes() != 0)
 			{
-				if (OutError) *OutError = Reader.HasError()
-					? std::string(Reader.GetError()) : "Duplicate stream contains trailing bytes.";
 				DiscardDuplicates();
 				return nullptr;
 			}
@@ -2043,9 +2037,6 @@ namespace Durin
 			FAuthoredOverrideDiagnostic LedgerDiagnostic;
 			if (!Duplicates[Source]->CopyAuthoredOverridesFrom(*Source, &LedgerDiagnostic))
 			{
-				if (OutError) *OutError = std::format(
-					"Duplicated authored override path failed validation (reason {}).",
-					static_cast<uint32>(LedgerDiagnostic.Reason));
 				DiscardDuplicates();
 				return nullptr;
 			}
@@ -2056,14 +2047,20 @@ namespace Durin
 			std::string PostLoadError;
 			if (!Duplicates[*It]->PostLoad(PostLoadError))
 			{
-				if (OutError) *OutError = PostLoadError.empty()
-					? "Duplicated object graph failed PostLoad." : std::move(PostLoadError);
 				DiscardDuplicates();
 				return nullptr;
 			}
 		}
 		if (OutDuplicates) *OutDuplicates = Duplicates;
 		return DuplicateRoot;
+	}
+
+	auto DuplicateObject(const DObject* SourceObject, DObject* NewOuter,
+		FName NewName,
+		std::unordered_map<DObject*, DObject*>* OutDuplicates) -> DObject*
+	{
+		return DuplicateObjectInternal(
+			const_cast<DObject*>(SourceObject), NewOuter, NewName, OutDuplicates);
 	}
 
 	auto CopyEditableObjectProperties(DObject* Source, DObject* Destination, const std::unordered_map<DObject*, DObject*>& ReferenceMap, std::string* OutError) -> bool

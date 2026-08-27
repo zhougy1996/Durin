@@ -92,8 +92,6 @@ namespace Durin::AssetForge::Builtins
 				.ContentHashLow = Snapshot.ContentHash.HashLow,
 				.ContentHashHigh = Snapshot.ContentHash.HashHigh,
 				.ByteCount = Snapshot.FileSize});
-			State.ImporterId = std::string(StaticMeshImporterId);
-			State.ImporterVersion = StaticMeshAssimpImporterVersion;
 			State.ImportSettings = Settings;
 			OutData = dynamic_cast<DStaticMeshImportData*>(Mesh.GetAssetImportData());
 			if (!OutData) OutData = NewObject<DStaticMeshImportData>(

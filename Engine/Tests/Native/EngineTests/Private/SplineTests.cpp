@@ -306,7 +306,7 @@ TEST(FSplineComponentTests, PublishesWorldSpaceSamplesAndRevisionFlags)
 	Durin::CollectGarbage();
 }
 
-TEST(FSplineComponentTests, DuplicateObjectGraphPreservesIdsAndPublishesSnapshot)
+TEST(FSplineComponentTests, DuplicateObjectPreservesIdsAndPublishesSnapshot)
 {
 	InitializeDObjectSystem();
 	auto* Source = Durin::NewObject<Durin::DSplineComponent>(nullptr, "SourceSpline");
@@ -319,9 +319,8 @@ TEST(FSplineComponentTests, DuplicateObjectGraphPreservesIdsAndPublishesSnapshot
 	Source->SetSplinePoints({First, Second});
 	Source->SetClosedLoop(true);
 
-	std::string Error;
-	auto* Duplicate = Durin::Cast<Durin::DSplineComponent>(Durin::DuplicateObjectGraph(Source, nullptr, "DuplicateSpline", &Error));
-	ASSERT_NE(Duplicate, nullptr) << Error;
+	auto* Duplicate = Durin::DuplicateObject(Source, nullptr, "DuplicateSpline");
+	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetSplinePoints(), Source->GetSplinePoints());
 	EXPECT_TRUE(Duplicate->IsClosedLoop());
 	EXPECT_NEAR(Duplicate->GetLocalSplineLength(), Source->GetLocalSplineLength(), 1.e-8);

@@ -222,7 +222,7 @@ Array positions and removed Map keys or fields are ignored during planning;
 incompatible surviving routes fail closed. Array marks are intentionally not
 remapped after structural edits, while Map marks survive iteration-order changes.
 
-`DuplicateObjectGraph(...)` copies ledger snapshots only after the destination
+`DuplicateObject(...)` copies ledger snapshots only after the destination
 graph exists and revalidates every path against the destination. GC ignores the
 pointer-free tokens, object destruction releases the snapshot, and class/Struct
 default teardown cannot invalidate it. Authored-package load creates no ledger
@@ -261,7 +261,8 @@ format is process-local engine plumbing and has no v1 reader or migration path;
 long-lived content uses the independently versioned, field-tagged `.dasset`
 contract documented in [Asset Packages](../Assets/AssetPackages.md).
 
-`DuplicateObjectGraph(...)` uses purpose-specific save and load Archives over
+`DuplicateObject(...)` is the public typed duplication entry and uses
+purpose-specific save and load Archives internally over
 the same virtual entry. Hard references inside the duplicated Outer tree remap
 to their duplicate, external hard references remain shared, and constructor-created
 inners may be reused. Weak references remap only when their targets are already

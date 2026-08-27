@@ -13,7 +13,6 @@
 #include "Terrain/TerrainHeightmapPostLoad.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
 #include "AssetForge/Builtins/TerrainHeightmapImport.h"
-#include "AssetForge/Builtins/TerrainHeightmapImportData.h"
 #include "Terrain/TerrainHeightmapBuildKey.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 #include "Texture/Texture2D.h"
@@ -494,12 +493,8 @@ TEST(FTerrainHeightmapImportTests, RawImportReimportRelocationAndWarmDdcPreserve
 	ASSERT_NE(Imported.Asset, nullptr);
 	EXPECT_EQ(Imported.Asset->GetPayload()->Samples,
 		std::vector<uint16>(Initial.begin(), Initial.end()));
-	const auto* ImportData = dynamic_cast<const Durin::AssetForge::Builtins::DTerrainHeightmapImportData*>(
-		Imported.Asset->GetAssetImportData());
+	const auto* ImportData = Imported.Asset->GetAssetImportData();
 	ASSERT_NE(ImportData, nullptr);
-	EXPECT_EQ(ImportData->GetDecoderId(), "DurinTerrainRaw16");
-	EXPECT_EQ(ImportData->GetSourceFormat(),
-		Durin::ETerrainHeightmapSourceFormat::Raw16);
 	const Durin::FSourceFile* ImportedSource =
 		ImportData->GetSourceData().FindByRole("source");
 	ASSERT_NE(ImportedSource, nullptr);
@@ -549,10 +544,8 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndFailedSavePreservePu
 			Source.generic_string(), "/TerrainHeightmap/Asymmetric");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	ASSERT_NE(Imported.Asset, nullptr);
-	const auto* ImportData = dynamic_cast<const Durin::AssetForge::Builtins::DTerrainHeightmapImportData*>(
-		Imported.Asset->GetAssetImportData());
+	const auto* ImportData = Imported.Asset->GetAssetImportData();
 	ASSERT_NE(ImportData, nullptr);
-	EXPECT_EQ(ImportData->GetDecoderId(), "DurinImage.Png16");
 	EXPECT_EQ(Imported.Asset->GetRevision(), 1);
 	EXPECT_FALSE(Imported.Asset->GetPackage()->IsDirty());
 	EXPECT_EQ(Imported.Asset->GetMinimum(), 0);
@@ -566,10 +559,9 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndFailedSavePreservePu
 		ImportedSource->Hint);
 	ASSERT_EQ(References.size(), 1);
 	EXPECT_EQ(References.front().AssetPath.ToString(), "/TerrainHeightmap/Asymmetric");
-	std::string DuplicateError;
-	auto* Duplicate = Durin::Cast<Durin::DTerrainHeightmap>(Durin::DuplicateObjectGraph(
-		Imported.Asset, nullptr, "AsymmetricDuplicate", &DuplicateError));
-	ASSERT_NE(Duplicate, nullptr) << DuplicateError;
+	auto* Duplicate = Durin::Cast<Durin::DTerrainHeightmap>(Durin::DuplicateObject(
+		Imported.Asset, nullptr, "AsymmetricDuplicate"));
+	ASSERT_NE(Duplicate, nullptr);
 	ASSERT_NE(Duplicate->GetPayload(), nullptr);
 	EXPECT_EQ(Duplicate->GetPayload()->Samples, Imported.Asset->GetPayload()->Samples);
 	EXPECT_EQ(Duplicate->GetRevision(), Imported.Asset->GetRevision());

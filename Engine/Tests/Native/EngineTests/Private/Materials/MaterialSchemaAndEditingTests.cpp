@@ -991,10 +991,9 @@ TEST(FMaterialTests, PositionalMaterialOverridesResolveDefaultsAndSurviveMeshSwi
 	EXPECT_EQ(Component->GetMaterialOverride(1), Second);
 	Component->SetStaticMesh(Mesh);
 	EXPECT_EQ(Component->GetMaterial(1), Second);
-	std::string DuplicateError;
 	auto* Duplicate = Durin::Cast<Durin::DStaticMeshComponent>(
-		Durin::DuplicateObjectGraph(Component, nullptr, "SparseOverrideDuplicate", &DuplicateError));
-	ASSERT_NE(Duplicate, nullptr) << DuplicateError;
+		Durin::DuplicateObject(Component, nullptr, "SparseOverrideDuplicate"));
+	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetStaticMesh(), Mesh);
 	EXPECT_EQ(Duplicate->GetMaterial(1), Second);
 	EXPECT_EQ(Duplicate->GetOverrideMaterials().size(), 2u);

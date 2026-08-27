@@ -270,14 +270,16 @@ namespace Durin
 		ClearGameInputWindow();
 		DWorld* NewPlayWorld = NewObject<DWorld>(this, "PlayWorld");
 		NewPlayWorld->SetWorldType(EWorldType::PlayInEditor);
-		std::string DuplicateError;
 		EditorToPlayObjects.clear();
-		DLevel* PlayLevel = Cast<DLevel>(DuplicateObjectGraph(SourceLevel, NewPlayWorld, FName(std::format("{}_PIE", SourceLevel->GetName())), &DuplicateError, &EditorToPlayObjects));
+		DLevel* PlayLevel = DuplicateObject(
+			SourceLevel, NewPlayWorld,
+			FName(std::format("{}_PIE", SourceLevel->GetName())),
+			&EditorToPlayObjects);
 		if (!PlayLevel)
 		{
 			MarkObjectHierarchyAsGarbage(NewPlayWorld);
 			PlayState = Editor::EPlayState::Stopped;
-			if (OutError) *OutError = DuplicateError.empty() ? "Could not duplicate the level for Play." : std::move(DuplicateError);
+			if (OutError) *OutError = "Could not duplicate the level for Play.";
 			return false;
 		}
 		DClass* GameModeClass = GameModeOverride.value_or(nullptr);

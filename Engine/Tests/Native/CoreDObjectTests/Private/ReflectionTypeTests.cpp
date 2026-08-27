@@ -2426,10 +2426,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_FALSE(DefaultObject->HasAnyInternalFlags(Durin::EObjectInternalFlags::RootSet));
 		std::vector<std::byte> SerializedDefault;
 		EXPECT_FALSE(Durin::SaveObjectGraphToMemory(MutableDefault, SerializedDefault));
-		std::string DuplicateError;
-		EXPECT_EQ(Durin::DuplicateObjectGraph(
-			MutableDefault, nullptr, Durin::FName("RejectedDefaultDuplicate"), &DuplicateError), nullptr);
-		EXPECT_NE(DuplicateError.find("class-default template"), std::string::npos);
+		EXPECT_EQ(Durin::DuplicateObject(
+			MutableDefault, nullptr, Durin::FName("RejectedDefaultDuplicate")), nullptr);
 		Durin::CollectGarbage();
 		EXPECT_TRUE(Durin::GDObjectArray.Contains(DefaultObject));
 		EXPECT_EQ(Class->GetDefaultObject(), DefaultObject);
@@ -4116,11 +4114,10 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Inner->SerializedNativeReference = External;
 
 		std::unordered_map<Durin::DObject*, Durin::DObject*> Duplicates;
-		std::string Error;
 		auto* Duplicate = Durin::Cast<DLifecycleReferenceOwnerForTest>(
-			Durin::DuplicateObjectGraph(Source, NewOuter, Durin::FName("DuplicateArchiveResult"),
-				&Error, &Duplicates));
-		ASSERT_NE(Duplicate, nullptr) << Error;
+			Durin::DuplicateObject(Source, NewOuter, Durin::FName("DuplicateArchiveResult"),
+				&Duplicates));
+		ASSERT_NE(Duplicate, nullptr);
 		ASSERT_TRUE(Duplicates.contains(Inner));
 		auto* DuplicateInner = Durin::Cast<DLifecycleReferenceOwnerForTest>(Duplicates[Inner]);
 		ASSERT_NE(DuplicateInner, nullptr);
@@ -4146,9 +4143,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		auto* FailingSource = Durin::NewObject<DLifecycleReferenceOwnerForTest>(
 			nullptr, Durin::FName("DuplicateArchiveFailingSource"));
 		FailingSource->bInjectSerializeFailure = true;
-		EXPECT_EQ(Durin::DuplicateObjectGraph(FailingSource, NewOuter,
-			Durin::FName("DuplicateArchiveFailedResult"), &Error), nullptr);
-		EXPECT_NE(Error.find("Injected test object serialization failure"), std::string::npos);
+		EXPECT_EQ(Durin::DuplicateObject(FailingSource, NewOuter,
+			Durin::FName("DuplicateArchiveFailedResult")), nullptr);
 		Durin::CollectGarbage();
 		auto RemainingInners = Durin::GDObjectArray.GetObjectsWithOuter(NewOuter, Durin::EObjectQueryScope::LiveOnly);
 		EXPECT_EQ(std::ranges::count_if(RemainingInners, [](Durin::DObject* Object) {

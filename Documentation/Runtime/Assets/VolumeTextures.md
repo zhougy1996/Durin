@@ -5,7 +5,7 @@ and revisioned GPU-resource contracts for package-backed volume textures.
 
 Modules: Engine, TextureBuild, AssetForgeBuiltins, RHI, VulkanRHI
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-27
 
 ## Asset boundary
 
@@ -43,10 +43,11 @@ produce `R8_UNORM`; `rgba` preserves all four channels as `RGBA8_UNORM`. Luminan
 
 The PNG dimensions must exactly equal `(slice width * columns) x (slice height *
 rows)`, the grid must contain at least `depth` cells, and decoded image and
-volume sizes are bounded before allocation. `DVolumeTextureImportData` schema 2
+volume sizes are bounded before allocation. `DVolumeTextureImportData`
 serializes an optional explicitly based source hint and XXH3-128 provenance
-together with the visible import format, channel selection, slice dimensions,
-depth, grid, and decoder version. Details may display the hint and
+together with channel selection, slice dimensions, depth, and grid. PNG
+row-major atlas interpretation and the decoder version are importer behavior,
+not persisted replay selectors. Details may display the hint and
 interpretation as read-only properties, but never probes the physical file.
 
 Import and Reimport From File capture the selected PNG without copying or
