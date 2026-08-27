@@ -16,15 +16,14 @@ namespace Durin::AssetForge::Builtins
 				OutError.clear();
 				return true;
 			}
-			if (State.SchemaVersion != AssetImport::AssetImportDataSchemaVersion
+			if (State.SchemaVersion != AssetImportDataSchemaVersion
 				|| !State.SourceData.Validate(OutError)) return false;
-			const AssetImport::FSourceFile* Source =
+			const FSourceFile* Source =
 				State.SourceData.FindByRole("source");
 			if (State.SourceData.Sources.size() != 1 || !Source
-				|| Source->StableIdentity != "root"
 				|| State.DecoderId != "DurinImage" || State.DecoderVersion != 1)
 			{
-				OutError = "Texture2D import data requires one root source and the supported decoder.";
+				OutError = "Texture2D import data requires exactly one source role and the supported decoder.";
 				return false;
 			}
 			OutError.clear();
@@ -43,7 +42,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		State.SourceData.Normalize();
 		if (!ValidateState(State, OutError)) return false;
-		AssetImport::FAssetImportDataState BaseState = State;
+		FAssetImportDataState BaseState = State;
 		if (!ApplyState(std::move(BaseState), OutError)) return false;
 		DecoderId = std::move(State.DecoderId);
 		DecoderVersion = State.DecoderVersion;
@@ -55,7 +54,7 @@ namespace Durin::AssetForge::Builtins
 		-> FTexture2DImportDataState
 	{
 		FTexture2DImportDataState State;
-		static_cast<AssetImport::FAssetImportDataState&>(State) = {
+		static_cast<FAssetImportDataState&>(State) = {
 			.SchemaVersion = GetSchemaVersion(), .SourceData = GetSourceData()};
 		State.DecoderId = DecoderId;
 		State.DecoderVersion = DecoderVersion;
@@ -69,7 +68,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto DTexture2DImportData::CloneToOwner(
 		DObject* Owner, FName Name, std::string& OutError) const
-		-> AssetImport::DAssetImportData*
+		-> DAssetImportData*
 	{
 		if (!Owner || Name.IsNone() || !Validate(OutError))
 		{

@@ -145,7 +145,7 @@ namespace Durin::AssetForge::Builtins::Private
 		Scene.Dependencies.push_back({
 			Role,
 			std::move(StableIdentity),
-			FSourcePath{std::move(SourcePath)},
+			std::move(SourcePath),
 			FXxHash128::HashBuffer(Bytes),
 			static_cast<uint64>(Bytes.size())});
 		return true;

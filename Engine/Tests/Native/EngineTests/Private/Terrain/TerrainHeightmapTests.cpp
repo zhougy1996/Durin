@@ -500,7 +500,10 @@ TEST(FTerrainHeightmapImportTests, RawImportReimportRelocationAndWarmDdcPreserve
 	EXPECT_EQ(ImportData->GetDecoderId(), "DurinTerrainRaw16");
 	EXPECT_EQ(ImportData->GetSourceFormat(),
 		Durin::ETerrainHeightmapSourceFormat::Raw16);
-	EXPECT_TRUE(Imported.Asset->GetSourceFile().ends_with(".raw"));
+	const Durin::FSourceFile* ImportedSource =
+		ImportData->GetSourceData().FindByRole("source");
+	ASSERT_NE(ImportedSource, nullptr);
+	EXPECT_TRUE(ImportedSource->Hint.ends_with(".raw"));
 
 	const uint64 InitialRevision = Imported.Asset->GetRevision();
 	const auto Noop = ReimportHeightmap(*Imported.Asset);
@@ -556,9 +559,11 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndFailedSavePreservePu
 	EXPECT_EQ(Imported.Asset->GetMaximum(), 65'535);
 	Durin::Editor::FSourceReferenceIndex SourceIndex;
 	SourceIndex.Refresh();
-	ASSERT_NE(Imported.Asset->GetImportedSource(), nullptr);
+	const Durin::FSourceFile* ImportedSource =
+		ImportData->GetSourceData().FindByRole("source");
+	ASSERT_NE(ImportedSource, nullptr);
 	const auto References = SourceIndex.FindReferences(
-		Imported.Asset->GetImportedSource()->Hint);
+		ImportedSource->Hint);
 	ASSERT_EQ(References.size(), 1);
 	EXPECT_EQ(References.front().AssetPath.ToString(), "/TerrainHeightmap/Asymmetric");
 	std::string DuplicateError;

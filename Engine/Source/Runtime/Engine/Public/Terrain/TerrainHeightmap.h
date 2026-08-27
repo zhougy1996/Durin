@@ -3,7 +3,6 @@
 #include "Asset/AssetImportData.h"
 #include "Asset/Cook.h"
 #include "Asset/EditorBulkData.h"
-#include "Asset/SourcePath.h"
 #include "DObject/Object.h"
 #include "EngineAPI.h"
 #include "Hash/XxHash.h"
@@ -39,7 +38,7 @@ namespace Durin
 	// Carries the source contract transiently through heightmap build and recovery.
 	struct FTerrainHeightmapSourceImportData
 	{
-		FSourcePath SourcePath;
+		std::string SourceFilename;
 		uint64 SourceContentHashLow = 0;
 		uint64 SourceContentHashHigh = 0;
 		std::string DecoderId;
@@ -47,7 +46,7 @@ namespace Durin
 		ETerrainHeightmapSourceFormat SourceFormat = ETerrainHeightmapSourceFormat::Unknown;
 		uint32 SourceProfileVersion = 0;
 
-		auto HasSource() const -> bool { return !SourcePath.IsEmpty(); }
+		auto HasSource() const -> bool { return !SourceFilename.empty(); }
 		auto HasContentHash() const -> bool
 		{
 			return SourceContentHashLow != 0 || SourceContentHashHigh != 0;
@@ -167,34 +166,16 @@ namespace Durin
 		auto GetMaximum() const -> uint16 { return Maximum; }
 		auto GetRevision() const -> uint64 { return Revision; }
 		auto GetStatus() const -> ETerrainHeightmapStatus { return Status; }
-		auto GetImportedSource() const -> const AssetImport::FSourceFile*
-		{
-			return AssetImportData
-				? AssetImportData->GetSourceData().FindByRole("source") : nullptr;
-		}
-		auto GetSourceFile() const -> const std::string&
-		{
-			if (const AssetImport::FSourceFile* Source = GetImportedSource())
-				return Source->Hint;
-			static const std::string Empty;
-			return Empty;
-		}
-		auto GetSourceHintBase() const -> AssetImport::ESourceHintBase
-		{
-			if (const AssetImport::FSourceFile* Source = GetImportedSource())
-				return Source->HintBase;
-			return AssetImport::ESourceHintBase::AssetRelative;
-		}
-		auto GetAssetImportData() const -> const AssetImport::DAssetImportData*
+		auto GetAssetImportData() const -> const DAssetImportData*
 		{
 			return AssetImportData.Get();
 		}
-		auto GetAssetImportData() -> AssetImport::DAssetImportData*
+		auto GetAssetImportData() -> DAssetImportData*
 		{
 			return AssetImportData.Get();
 		}
 		ENGINE_API auto PublishAssetImportData(
-			AssetImport::DAssetImportData& Value, std::string& OutError) -> bool;
+			DAssetImportData& Value, std::string& OutError) -> bool;
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
 		auto GetLastDiagnostic() const -> const std::string& { return LastDiagnostic; }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
@@ -237,7 +218,7 @@ namespace Durin
 			bool bAdvanceRevision) -> void;
 
 		DPROPERTY(EditorOnly)
-		TObjectPtr<AssetImport::DAssetImportData> AssetImportData;
+		TObjectPtr<DAssetImportData> AssetImportData;
 
 		DPROPERTY(EditorOnly)
 		FTerrainHeightmapImportedData ImportedData;

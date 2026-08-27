@@ -120,15 +120,11 @@ must not be inferred from nonempty source strings. Only the active layout owns
 source files; inactive-layout strings never participate in rebuild, move, or
 delete.
 
-Six-face imports retain the `<AssetName>_px`, `_nx`, `_py`, `_ny`, `_pz`, and
-`_nz` suffixes and their current extension behavior in complete mounted
-`FSourcePath` values. A panorama ingested into managed storage places its
-authoritative source at the explicitly selected writable destination, normally
-ending in `<AssetName>_panorama<extension>`, where `extension` is the accepted source
-extension normalized to lowercase, including its leading period. Provenance
-stores exact XXH3-128 source hashes plus decoder version 1 and projection
-version 1. Moving or deleting a package does not move or delete potentially
-shared source art. Legacy face and panorama filename fields are rejected.
+Six-face imports retain one normalized, explicitly based physical source hint
+for each canonical face role; panorama imports retain one panorama hint.
+Provenance stores exact XXH3-128 source hashes plus decoder version 1 and
+projection version 1. Import never copies, moves, or deletes source art, and
+moving or deleting a package does not affect potentially shared source files.
 
 ### Derived Data and Cooking
 

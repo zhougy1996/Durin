@@ -132,34 +132,16 @@ namespace Durin
 		ENGINE_API ~DVolumeTexture() override;
 
 		auto GetSourceData() const -> const FVolumeTextureSourceData& { return SourceData; }
-		auto GetImportedSource() const -> const AssetImport::FSourceFile*
-		{
-			return AssetImportData
-				? AssetImportData->GetSourceData().FindByRole("source") : nullptr;
-		}
-		auto GetSourceFile() const -> const std::string&
-		{
-			if (const AssetImport::FSourceFile* Source = GetImportedSource())
-				return Source->Hint;
-			static const std::string Empty;
-			return Empty;
-		}
-		auto GetSourceHintBase() const -> AssetImport::ESourceHintBase
-		{
-			if (const AssetImport::FSourceFile* Source = GetImportedSource())
-				return Source->HintBase;
-			return AssetImport::ESourceHintBase::AssetRelative;
-		}
-		auto GetAssetImportData() const -> const AssetImport::DAssetImportData*
+		auto GetAssetImportData() const -> const DAssetImportData*
 		{
 			return AssetImportData.Get();
 		}
-		auto GetAssetImportData() -> AssetImport::DAssetImportData*
+		auto GetAssetImportData() -> DAssetImportData*
 		{
 			return AssetImportData.Get();
 		}
 		ENGINE_API auto PublishAssetImportData(
-			AssetImport::DAssetImportData& Value, std::string& OutError) -> bool;
+			DAssetImportData& Value, std::string& OutError) -> bool;
 		auto GetBuildSettings() const -> const FVolumeTextureBuildSettings& { return BuildSettings; }
 		auto GetPlatformData() const -> const FVolumeTexturePlatformData* { return PlatformData.get(); }
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
@@ -197,7 +179,7 @@ namespace Durin
 
 	private:
 		DPROPERTY(EditorOnly)
-		TObjectPtr<AssetImport::DAssetImportData> AssetImportData;
+		TObjectPtr<DAssetImportData> AssetImportData;
 
 		DPROPERTY(EditorOnly)
 		FVolumeTextureSourceData SourceData;

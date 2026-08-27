@@ -103,7 +103,8 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 	const auto* ImportData = dynamic_cast<const Durin::AssetForge::Builtins::DStaticMeshImportData*>(
 		Import.Asset->GetAssetImportData());
 	ASSERT_NE(ImportData, nullptr);
-	const Durin::AssetImport::FSourceFile* ImportedSource = Import.Asset->GetImportedSource();
+	const Durin::FSourceFile* ImportedSource =
+		ImportData->GetSourceData().FindByRole("source");
 	ASSERT_NE(ImportedSource, nullptr);
 	EXPECT_TRUE(ImportedSource->Hint.ends_with("MultiSection.gltf"));
 	EXPECT_EQ(ImportedSource->GetContentHash().ToString().size(), 32u);
@@ -121,8 +122,10 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSourceProvenance/Moved/Mesh", NewPath));
 	ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
-	ASSERT_NE(Import.Asset->GetImportedSource(), nullptr);
-	EXPECT_EQ(Import.Asset->GetImportedSource()->Hint, OriginalSourcePath);
+	ASSERT_NE(Import.Asset->GetAssetImportData(), nullptr);
+	ImportedSource = Import.Asset->GetAssetImportData()->GetSourceData().FindByRole("source");
+	ASSERT_NE(ImportedSource, nullptr);
+	EXPECT_EQ(ImportedSource->Hint, OriginalSourcePath);
 
 	Durin::Asset::FAssetDeleteAnalysis Analysis;
 	ASSERT_TRUE(Durin::Asset::AnalyzeAssetDeletion(NewPath, Analysis));

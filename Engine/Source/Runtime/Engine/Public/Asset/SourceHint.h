@@ -2,7 +2,7 @@
 
 #include "EngineAPI.h"
 
-namespace Durin::AssetImport
+namespace Durin
 {
 	enum class ESourceHintBase : uint8;
 	inline constexpr size_t MaximumSourceHintBytes = 4'096;

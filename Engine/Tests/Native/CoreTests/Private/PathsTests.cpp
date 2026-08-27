@@ -216,7 +216,8 @@ TEST_F(FMountRegistryTests, ResolvesTypedPathsClassifiesRootsAndEnforcesPolicy)
 		EngineContent.PhysicalPath.lexically_normal(),
 		(Root / "Engine/Content/StaticMeshes/Box").lexically_normal());
 
-	const FSourcePathResult EngineSource = ResolveSourcePath("/engine/Textures/Stone.png");
+	const FAssetPathResult EngineSource = ResolveAssetPath(
+		"/engine/Textures/Stone.png", EPathExistence::RequireFile);
 	ASSERT_TRUE(EngineSource) << EngineSource.Message;
 	EXPECT_EQ(EngineSource.NormalizedVirtualPath, "/Engine/Textures/Stone.png");
 	EXPECT_EQ(EngineSource.PhysicalPath, Root / "Engine/Content/Textures/Stone.png");
@@ -224,7 +225,7 @@ TEST_F(FMountRegistryTests, ResolvesTypedPathsClassifiesRootsAndEnforcesPolicy)
 	ASSERT_TRUE(SamePhysicalPath) << SamePhysicalPath.Message;
 	EXPECT_EQ(SamePhysicalPath.PhysicalPath, EngineSource.PhysicalPath);
 
-	const FSourcePathResult Classified = ClassifySourcePath(EngineSource.PhysicalPath);
+	const FAssetPathResult Classified = ClassifyAssetPath(EngineSource.PhysicalPath);
 	ASSERT_TRUE(Classified) << Classified.Message;
 	EXPECT_EQ(Classified.NormalizedVirtualPath, "/Engine/Textures/Stone.png");
 	const FAssetPathResult ClassifiedGameRoot =
@@ -233,15 +234,15 @@ TEST_F(FMountRegistryTests, ResolvesTypedPathsClassifiesRootsAndEnforcesPolicy)
 	EXPECT_EQ(ClassifiedGameRoot.NormalizedVirtualPath, "/Game/");
 
 	EXPECT_TRUE(ResolveAssetPath("/Libraries/StudioArt/Texture"));
-	const FSourcePathResult ExternalSource =
-		ResolveSourcePath("/Libraries/StudioArt/Stone.png");
+	const FAssetPathResult ExternalSource = ResolveAssetPath(
+		"/Libraries/StudioArt/Stone.png", EPathExistence::RequireFile);
 	ASSERT_TRUE(ExternalSource) << ExternalSource.Message;
 	EXPECT_EQ(ExternalSource.PhysicalPath, Root / "StudioArt/Stone.png");
 	EXPECT_EQ(
-		ResolveSourcePath("/Libraries/Offline/Texture.png").Error,
+		ResolveAssetPath("/Libraries/Offline/Texture.png", EPathExistence::RequireFile).Error,
 		EMountPathError::UnavailableRoot);
-	const FSourcePathResult MissingSource =
-		ResolveSourcePath("/Engine/Textures/Missing.png");
+	const FAssetPathResult MissingSource = ResolveAssetPath(
+		"/Engine/Textures/Missing.png", EPathExistence::RequireFile);
 	EXPECT_EQ(MissingSource.Error, EMountPathError::MissingFile) << MissingSource.Message;
 	EXPECT_EQ(
 		FindMountForVirtualPath("/Game/../Engine/Stone").Error,
@@ -274,7 +275,7 @@ TEST_F(FMountRegistryTests, RejectsNestedLinkEscapesOverlappingRootsAndAcceptsLi
 	FScopedMountRegistryFixture Registry(MountDefinitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 	EXPECT_EQ(
-		ResolveSourcePath("/Game/Escape/Escape.png").Error,
+		ResolveAssetPath("/Game/Escape/Escape.png", EPathExistence::RequireFile).Error,
 		EMountPathError::EscapedRoot);
 
 	const std::filesystem::path LinkedRoot = Root / "StudioLink";
@@ -287,8 +288,8 @@ TEST_F(FMountRegistryTests, RejectsNestedLinkEscapesOverlappingRootsAndAcceptsLi
 			.Root = LinkedRoot}};
 	FScopedMountRegistryFixture LinkedRegistry(LinkedDefinitions);
 	ASSERT_TRUE(LinkedRegistry.IsValid()) << LinkedRegistry.GetError();
-	const FSourcePathResult Missing =
-		ResolveSourcePath("/Linked/New.png", EPathExistence::AllowMissing);
+	const FAssetPathResult Missing =
+		ResolveAssetPath("/Linked/New.png", EPathExistence::AllowMissing);
 	ASSERT_TRUE(Missing) << Missing.Message;
 	EXPECT_EQ(Missing.PhysicalPath.lexically_normal(), (LinkedRoot / "New.png").lexically_normal());
 
@@ -317,7 +318,7 @@ TEST_F(FMountRegistryTests, AllowsSharedOwnerRootsWithDistinctContentDirectories
 	FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 	EXPECT_EQ(
-		ResolveSourcePath("/First/File.bin", EPathExistence::AllowMissing).PhysicalPath,
+		ResolveAssetPath("/First/File.bin", EPathExistence::AllowMissing).PhysicalPath,
 		Root / "Shared/ContentA/File.bin");
 	EXPECT_EQ(
 		ResolveAssetPath("/Second/Asset").PhysicalPath,

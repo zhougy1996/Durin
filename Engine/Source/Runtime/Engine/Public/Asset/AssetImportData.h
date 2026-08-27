@@ -2,17 +2,17 @@
 
 #include "EngineAPI.h"
 #include "Asset/PackageInspection.h"
-#include "Asset/SourcePath.h"
 #include "DObject/Object.h"
 #include "Hash/XxHash.h"
 
 #include "AssetImportData.gen.h"
 
-namespace Durin::AssetImport
+namespace Durin
 {
-	inline constexpr uint32 AssetImportDataSchemaVersion = 2;
+	inline constexpr uint32 AssetImportDataSchemaVersion = 3;
 	inline constexpr uint32 MaximumAssetImportSources = 8'192;
 	inline constexpr size_t MaximumAssetImportStringBytes = 1'024;
+	inline constexpr size_t MaximumAssetImportRoleBytes = 128;
 
 	DENUM()
 	enum class ESourceHintBase : uint8
@@ -28,10 +28,7 @@ namespace Durin::AssetImport
 		GENERATED_BODY()
 
 		DPROPERTY()
-		std::string StableIdentity;
-
-		DPROPERTY()
-		std::string Role;
+		FName Role;
 
 		DPROPERTY()
 		std::string DisplayLabel;
@@ -70,9 +67,7 @@ namespace Durin::AssetImport
 
 		ENGINE_API auto Normalize() -> void;
 		ENGINE_API auto Validate(std::string& OutError) const -> bool;
-		ENGINE_API auto FindByStableIdentity(
-			std::string_view StableIdentity) const -> const FSourceFile*;
-		ENGINE_API auto FindByRole(std::string_view Role) const
+		ENGINE_API auto FindByRole(FName Role) const
 			-> const FSourceFile*;
 		ENGINE_API auto GetFingerprint() const -> FXxHash128;
 		auto operator==(const FAssetImportInfo&) const -> bool = default;

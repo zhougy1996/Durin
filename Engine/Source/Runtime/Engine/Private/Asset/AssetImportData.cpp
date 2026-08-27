@@ -6,7 +6,7 @@
 #include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
 
-namespace Durin::AssetImport
+namespace Durin
 {
 	namespace
 	{
@@ -18,6 +18,12 @@ namespace Durin::AssetImport
 						|| Character == '-' || Character == ':' || Character == '/'
 						|| Character == '+';
 				});
+		}
+
+		auto GetCanonicalRole(FName Role) -> std::string_view
+		{
+			return Role.IsNone()
+				? std::string_view{} : Role.GetComparisonNameEntry()->MakeView();
 		}
 
 		auto IsNormalizedSourceHint(
@@ -73,7 +79,7 @@ namespace Durin::AssetImport
 
 	auto FSourceFile::IsEmpty() const -> bool
 	{
-		return StableIdentity.empty() && Role.empty() && DisplayLabel.empty()
+		return Role.IsNone() && DisplayLabel.empty()
 			&& Hint.empty() && ContentHashLow == 0 && ContentHashHigh == 0
 			&& ByteCount == 0;
 	}
@@ -85,12 +91,14 @@ namespace Durin::AssetImport
 			OutError.clear();
 			return true;
 		}
-		if (!IsIdentifier(StableIdentity) || !IsIdentifier(Role)
+		const std::string_view CanonicalRole = GetCanonicalRole(Role);
+		if (Role.GetNumber() != 0 || CanonicalRole.size() > MaximumAssetImportRoleBytes
+			|| !IsIdentifier(CanonicalRole)
 			|| DisplayLabel.size() > MaximumAssetImportStringBytes
 			|| (!Hint.empty() && !IsNormalizedSourceHint(HintBase, Hint))
 			|| ContentHashLow == 0 || ContentHashHigh == 0 || ByteCount == 0)
 		{
-			OutError = "Source identity, role, hint, complete hash, size, or label is invalid.";
+			OutError = "Source role, hint, complete hash, size, or label is invalid.";
 			return false;
 		}
 		OutError.clear();
@@ -99,7 +107,9 @@ namespace Durin::AssetImport
 
 	auto FAssetImportInfo::Normalize() -> void
 	{
-		std::ranges::sort(Sources, {}, &FSourceFile::StableIdentity);
+		std::ranges::sort(Sources, [](const FSourceFile& A, const FSourceFile& B) {
+			return GetCanonicalRole(A.Role) < GetCanonicalRole(B.Role);
+		});
 	}
 
 	auto FAssetImportInfo::Validate(std::string& OutError) const -> bool
@@ -109,30 +119,23 @@ namespace Durin::AssetImport
 			OutError = "Asset import source count exceeds its bound.";
 			return false;
 		}
-		std::string_view Previous;
+		std::string_view PreviousRole;
 		for (const FSourceFile& Source : Sources)
 		{
 			if (Source.IsEmpty() || !Source.Validate(OutError)) return false;
-			if (!Previous.empty() && Previous >= Source.StableIdentity)
+			const std::string_view Role = GetCanonicalRole(Source.Role);
+			if (!PreviousRole.empty() && PreviousRole >= Role)
 			{
-				OutError = "Asset import sources are duplicated or not in canonical identity order.";
+				OutError = "Asset import source roles are duplicated or not in canonical order.";
 				return false;
 			}
-			Previous = Source.StableIdentity;
+			PreviousRole = Role;
 		}
 		OutError.clear();
 		return true;
 	}
 
-	auto FAssetImportInfo::FindByStableIdentity(
-		std::string_view StableIdentity) const -> const FSourceFile*
-	{
-		const auto It = std::ranges::lower_bound(Sources, StableIdentity, {},
-			&FSourceFile::StableIdentity);
-		return It != Sources.end() && It->StableIdentity == StableIdentity ? &*It : nullptr;
-	}
-
-	auto FAssetImportInfo::FindByRole(std::string_view Role) const -> const FSourceFile*
+	auto FAssetImportInfo::FindByRole(FName Role) const -> const FSourceFile*
 	{
 		const auto It = std::ranges::find(Sources, Role, &FSourceFile::Role);
 		return It == Sources.end() ? nullptr : &*It;
@@ -145,8 +148,7 @@ namespace Durin::AssetImport
 		Builder.UpdateValue(Count);
 		for (const FSourceFile& Source : Sources)
 		{
-			UpdateString(Builder, Source.StableIdentity);
-			UpdateString(Builder, Source.Role);
+			UpdateString(Builder, GetCanonicalRole(Source.Role));
 			UpdateString(Builder, Source.DisplayLabel);
 			Builder.UpdateValue(static_cast<uint8>(Source.HintBase));
 			UpdateString(Builder, Source.Hint);
@@ -302,6 +304,11 @@ namespace Durin::AssetImport
 	auto DAssetImportData::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
+		if (SchemaVersion == 2)
+		{
+			SourceData.Normalize();
+			SchemaVersion = AssetImportDataSchemaVersion;
+		}
 		return Validate(OutError);
 	}
 

@@ -3,7 +3,6 @@
 #include "Asset/AssetImportData.h"
 #include "Asset/Cook.h"
 #include "Asset/EditorBulkData.h"
-#include "Asset/SourcePath.h"
 #include "DObject/ObjectPtr.h"
 #include "EngineAPI.h"
 #include "PixelFormat.h"
@@ -190,36 +189,18 @@ namespace Durin
 		ENGINE_API ~DTexture2D() override;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
 
-		auto GetImportedSource() const -> const AssetImport::FSourceFile*
-		{
-			return AssetImportData
-				? AssetImportData->GetSourceData().FindByRole("source") : nullptr;
-		}
-		auto GetSourceFile() const -> const std::string&
-		{
-			if (const AssetImport::FSourceFile* Source = GetImportedSource())
-				return Source->Hint;
-			static const std::string Empty;
-			return Empty;
-		}
-		auto GetSourceHintBase() const -> AssetImport::ESourceHintBase
-		{
-			if (const AssetImport::FSourceFile* Source = GetImportedSource())
-				return Source->HintBase;
-			return AssetImport::ESourceHintBase::AssetRelative;
-		}
-		auto GetAssetImportData() const -> const AssetImport::DAssetImportData*
+		auto GetAssetImportData() const -> const DAssetImportData*
 		{
 			return AssetImportData.Get();
 		}
-		auto GetAssetImportData() -> AssetImport::DAssetImportData*
+		auto GetAssetImportData() -> DAssetImportData*
 		{
 			return AssetImportData.Get();
 		}
 		// Publishes a validated owner-compatible import-data object after the
 		// completed imported state has been applied on the editor thread.
 		ENGINE_API auto PublishAssetImportData(
-			AssetImport::DAssetImportData& Value, std::string& OutError) -> bool;
+			DAssetImportData& Value, std::string& OutError) -> bool;
 		auto GetSourceData() const -> const FTextureSourceData* { return SourceData.get(); }
 		auto GetImportedData() const -> const FTexture2DImportedData&
 		{
@@ -228,18 +209,6 @@ namespace Durin
 		auto GetImportedDataIdentity() const -> FXxHash128
 		{
 			return ImportedData.GetIdentity();
-		}
-		auto GetSourceContentHash() const -> std::string
-		{
-			if (const AssetImport::FSourceFile* Source = GetImportedSource())
-				return Source->GetContentHash().ToString();
-			return {};
-		}
-		auto GetSourceFileSize() const -> uint64
-		{
-			if (const AssetImport::FSourceFile* Source = GetImportedSource())
-				return Source->ByteCount;
-			return 0;
 		}
 		auto GetSourceWidth() const -> uint32 { return SourceWidth; }
 		auto GetSourceHeight() const -> uint32 { return SourceHeight; }
@@ -297,7 +266,7 @@ protected:
 		// Complete editor-only replay authority. The concrete class is supplied by
 		// the owning authoring framework and is absent from Cooked packages.
 		DPROPERTY(EditorOnly)
-		TObjectPtr<AssetImport::DAssetImportData> AssetImportData;
+		TObjectPtr<DAssetImportData> AssetImportData;
 
 		DPROPERTY(EditorOnly)
 		uint32 SourceWidth = 0;

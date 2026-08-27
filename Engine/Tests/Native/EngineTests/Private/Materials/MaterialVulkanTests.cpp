@@ -390,7 +390,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_TRUE(Durin::Asset::FStaticMeshBuildOperations::BuildAndPublishImported(
 			*StaticMeshFixture, ImportedMesh,
 			{
-				.SourcePath = {.Path = "/MaterialThumbnailVulkan/SM_ThumbnailPreview.fixture"},
+				.SourceFilename = "/MaterialThumbnailVulkan/SM_ThumbnailPreview.fixture",
 				.SourceContentHash = "0123456789abcdef0123456789abcdef",
 				.ImporterId = "MaterialThumbnailTest",
 				.ImporterVersion = 1,

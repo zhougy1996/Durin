@@ -126,21 +126,17 @@ DDC, `DTexture2D`, or zero height.
 ## Import, Reimport, and Inspection
 
 The Content Browser exposes an explicit **Terrain Heightmap** import action for
-`.png` and `.raw`. Ordinary PNG import remains `DTexture2D`, and generic import
-does not reinterpret arbitrary RAW files; the AssetForgeBuiltins heightmap
-planning pass and builder are selected only for a `DTerrainHeightmap` target. The copied mounted
-source preserves its admitted extension, and an explicit source destination
-with a different extension is rejected. Import builds and
-persists a detached candidate before package publication. Standard reimport
-uses a reversible whole-state exchange, preserves object identity, rolls back
-on save failure, and updates reflected `FSourcePath` provenance for the source
-reference index and relocation workflow.
+`.png` and `.raw`. Ordinary PNG import remains `DTexture2D`; the direct
+AssetForgeBuiltins heightmap importer is selected only for a
+`DTerrainHeightmap` target. It records a normalized source hint based on the
+asset package, captures the selected physical file once, and builds a detached
+candidate before publication. Reimport resolves that hint, prepares complete
+replacement state, preserves object identity, and leaves a valid Dirty package
+when saving fails.
 
-`TranslateTerrainHeightmapSource` is the sole encoded-PNG interpretation
-authority. Direct import, provider candidates, source changes, repair, and the
-independently reversible `TerrainHeightmapAssetFeatures` consume one immutable
-source capture and pass exact owned samples to TerrainBuild. Provider and
-PostLoad orchestration do not decode or hash the source themselves.
+`TranslateTerrainHeightmapSource` is the sole encoded-source interpretation
+authority. Direct import, reimport, and explicit source selection consume one
+immutable source capture and pass exact owned samples to TerrainBuild.
 
 Generic reflected inspection exposes source format facts, dimensions, global
 range, revision, sample/hierarchy/retained bytes, status, DDC identity, cooked

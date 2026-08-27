@@ -317,7 +317,7 @@ namespace Durin::Editor::Texture
 		}
 		const auto* Import = dynamic_cast<const AssetForge::Builtins::DVolumeTextureImportData*>(
 			Texture->GetAssetImportData());
-		const AssetImport::FSourceFile* ImportedSource = Import
+		const FSourceFile* ImportedSource = Import
 			? Import->GetSourceData().FindByRole("source") : nullptr;
 		DrawFact("Source file", ImportedSource
 			? ImportedSource->Hint : "No source hint");

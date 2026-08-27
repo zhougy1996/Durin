@@ -74,7 +74,7 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 	ASSERT_NE(Cooked->GetPayload(), nullptr);
 	EXPECT_EQ(Cooked->GetPayload()->Samples,
 		std::vector<uint16>(RawSamples.begin(), RawSamples.end()));
-	EXPECT_TRUE(Cooked->GetSourceFile().empty());
+	EXPECT_EQ(Cooked->GetAssetImportData(), nullptr);
 	EXPECT_TRUE(Cooked->GetDerivedDataKey().empty());
 	auto* Component = Durin::NewObject<Durin::DTerrainComponent>(nullptr, "CookedTerrainComponent");
 	Component->SetHeightmap(Cooked);

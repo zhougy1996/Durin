@@ -6,6 +6,15 @@
 
 namespace
 {
+	auto FindImportedSource(const Durin::DTexture2D& Texture)
+		-> const Durin::FSourceFile*
+	{
+		const Durin::DAssetImportData* ImportData =
+			Texture.GetAssetImportData();
+		return ImportData
+			? ImportData->GetSourceData().FindByRole("source") : nullptr;
+	}
+
 	auto MakeExpectedSourceHint(
 		const std::filesystem::path& Source,
 		std::string_view AssetPath) -> std::string
@@ -18,8 +27,8 @@ namespace
 		PackagePath += ".dasset";
 		std::string Hint;
 		std::string Error;
-		Durin::AssetImport::ESourceHintBase Base;
-		return Durin::AssetImport::MakeSourceHint(
+		Durin::ESourceHintBase Base;
+		return Durin::MakeSourceHint(
 			Source.generic_string(), PackagePath.generic_string(), Base, Hint, Error)
 			? Hint : std::string{};
 	}
@@ -165,16 +174,16 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	ASSERT_TRUE(PhysicalPackage) << PhysicalPackage.Message;
 	std::filesystem::path PhysicalPackagePath = PhysicalPackage.PhysicalPath;
 	PhysicalPackagePath += ".dasset";
-	Durin::AssetImport::ESourceHintBase ExpectedBase;
-	ASSERT_TRUE(Durin::AssetImport::MakeSourceHint(
+	Durin::ESourceHintBase ExpectedBase;
+	ASSERT_TRUE(Durin::MakeSourceHint(
 		Source.generic_string(), PhysicalPackagePath.generic_string(),
 		ExpectedBase, ExpectedFilename, FilenameError)) << FilenameError;
-	EXPECT_EQ(Loaded->GetSourceFile(), ExpectedFilename);
-	EXPECT_EQ(Loaded->GetSourceHintBase(), ExpectedBase);
-	ASSERT_NE(Loaded->GetImportedSource(), nullptr);
-	EXPECT_EQ(Loaded->GetImportedSource()->StableIdentity, "root");
-	EXPECT_EQ(Loaded->GetImportedSource()->Role, "source");
-	EXPECT_FALSE(Loaded->GetImportedSource()->GetContentHash().IsZero());
+	const Durin::FSourceFile* LoadedSource = FindImportedSource(*Loaded);
+	ASSERT_NE(LoadedSource, nullptr);
+	EXPECT_EQ(LoadedSource->Hint, ExpectedFilename);
+	EXPECT_EQ(LoadedSource->HintBase, ExpectedBase);
+	EXPECT_EQ(LoadedSource->Role, Durin::FName("source"));
+	EXPECT_FALSE(LoadedSource->GetContentHash().IsZero());
 	EXPECT_TRUE(Loaded->IsSRGB());
 	EXPECT_EQ(Loaded->GetUsage(), Durin::ETextureUsage::Color);
 	EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC3_UNORM_SRGB);
@@ -184,7 +193,9 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Renamed", RenamedPath));
 	ASSERT_TRUE(RelocateAssetForTest(AssetPath, RenamedPath));
 	ASSERT_TRUE(Durin::Asset::LoadAsset(RenamedPath, Loaded));
-	EXPECT_EQ(Loaded->GetSourceFile(), ExpectedFilename);
+	LoadedSource = FindImportedSource(*Loaded);
+	ASSERT_NE(LoadedSource, nullptr);
+	EXPECT_EQ(LoadedSource->Hint, ExpectedFilename);
 	EXPECT_TRUE(Loaded->GetPlatformData()->IsValid());
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(RenamedPath));
 	Durin::Asset::FAssetDeleteAnalysis DeleteAnalysis;
@@ -210,7 +221,10 @@ TEST(FTexture2DTests, RetainsSourceHintWithoutCopying)
 	const std::string DefaultFilename = MakeExpectedSourceHint(
 		DefaultInput, "/TextureImportTests/Textures/FlatDefault");
 	ASSERT_FALSE(DefaultFilename.empty());
-	EXPECT_EQ(DefaultResult.Asset->GetSourceFile(), DefaultFilename);
+	const Durin::FSourceFile* DefaultSource =
+		FindImportedSource(*DefaultResult.Asset);
+	ASSERT_NE(DefaultSource, nullptr);
+	EXPECT_EQ(DefaultSource->Hint, DefaultFilename);
 
 	Durin::FAssetPath DefaultAssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
@@ -221,13 +235,13 @@ TEST(FTexture2DTests, RetainsSourceHintWithoutCopying)
 	Durin::Asset::FAssetPackageInspection Inspection;
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
 		DefaultAssetData->PhysicalPath, Inspection));
-	Durin::AssetImport::FAssetImportInfo InspectedImportInfo;
+	Durin::FAssetImportInfo InspectedImportInfo;
 	std::string ImportInfoError;
-	ASSERT_TRUE(Durin::AssetImport::InspectAssetImportInfo(
+	ASSERT_TRUE(Durin::InspectAssetImportInfo(
 		Inspection, InspectedImportInfo, ImportInfoError)) << ImportInfoError;
 	ASSERT_NE(InspectedImportInfo.FindByRole("source"), nullptr);
 	EXPECT_EQ(InspectedImportInfo.FindByRole("source")->Hint,
-		DefaultResult.Asset->GetSourceFile());
+		DefaultSource->Hint);
 
 	const std::filesystem::path CustomInput =
 		Durin::Testing::GetTestWorkDirectory() / "CustomInput.png";
@@ -240,7 +254,10 @@ TEST(FTexture2DTests, RetainsSourceHintWithoutCopying)
 	CustomFilename = MakeExpectedSourceHint(
 		CustomInput, "/TextureImportTests/UI/CustomAsset");
 	ASSERT_FALSE(CustomFilename.empty());
-	EXPECT_EQ(CustomResult.Asset->GetSourceFile(), CustomFilename);
+	const Durin::FSourceFile* CustomSource =
+		FindImportedSource(*CustomResult.Asset);
+	ASSERT_NE(CustomSource, nullptr);
+	EXPECT_EQ(CustomSource->Hint, CustomFilename);
 	EXPECT_TRUE(std::filesystem::is_regular_file(CustomInput));
 
 	Durin::FAssetPath CustomAssetPath;
@@ -271,8 +288,10 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 		Source.generic_string(), "/TextureDerivedDataTests/Cached");
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
-	EXPECT_FALSE(Result.Asset->GetSourceContentHash().empty());
-	EXPECT_EQ(Result.Asset->GetSourceContentHash().size(), 32u);
+	const Durin::FSourceFile* ImportedSource =
+		FindImportedSource(*Result.Asset);
+	ASSERT_NE(ImportedSource, nullptr);
+	EXPECT_EQ(ImportedSource->GetContentHash().ToString().size(), 32u);
 	EXPECT_FALSE(Result.Asset->GetDerivedDataKey().empty());
 	EXPECT_FALSE(Result.Asset->WasLoadedFromDerivedDataCache());
 	EXPECT_TRUE(Result.Asset->GetDerivedDataDiagnostic().bSourceDecoderInvoked);
@@ -410,12 +429,12 @@ TEST(FTexture2DTests, SourceFileCanBeReplacedAndRejectsTraversalMetadata)
 	ASSERT_NE(Result.Asset, nullptr);
 	const Durin::FTexturePlatformData OriginalPlatformData = *Result.Asset->GetPlatformData();
 
-	auto* ImportData = const_cast<Durin::AssetImport::DAssetImportData*>(
+	auto* ImportData = const_cast<Durin::DAssetImportData*>(
 		Result.Asset->GetAssetImportData());
 	ASSERT_NE(ImportData, nullptr);
 	auto* SourceDataProperty = ImportData->GetClass()->FindPropertyByName("SourceData");
 	ASSERT_NE(SourceDataProperty, nullptr);
-	auto* ImportInfo = static_cast<Durin::AssetImport::FAssetImportInfo*>(
+	auto* ImportInfo = static_cast<Durin::FAssetImportInfo*>(
 		SourceDataProperty->GetValuePtr(ImportData));
 	ASSERT_NE(ImportInfo, nullptr);
 	ASSERT_EQ(ImportInfo->Sources.size(), 1u);
@@ -433,7 +452,10 @@ TEST(FTexture2DTests, SourceFileCanBeReplacedAndRejectsTraversalMetadata)
 	EXPECT_FALSE(Durin::AssetForge::Builtins::ReimportTexture2DFromFile(
 		*Result.Asset, Corrupt.generic_string(), Error));
 	ExpectPlatformDataEqual(*Result.Asset->GetPlatformData(), OriginalPlatformData);
-	EXPECT_EQ(Result.Asset->GetSourceFile(), "Invalid/./Outside.png");
+	const Durin::FSourceFile* ImportedSource =
+		FindImportedSource(*Result.Asset);
+	ASSERT_NE(ImportedSource, nullptr);
+	EXPECT_EQ(ImportedSource->Hint, "Invalid/./Outside.png");
 
 	const std::filesystem::path Replacement =
 		Durin::Testing::GetTestWorkDirectory() / "TextureSourceRepairReplacement.tga";
@@ -444,12 +466,12 @@ TEST(FTexture2DTests, SourceFileCanBeReplacedAndRejectsTraversalMetadata)
 	const std::string ReplacementFilename = MakeExpectedSourceHint(
 		Replacement, "/TextureImportTests/Repair/Texture");
 	ASSERT_FALSE(ReplacementFilename.empty());
-	EXPECT_EQ(Result.Asset->GetSourceFile(), ReplacementFilename);
+	ImportedSource = FindImportedSource(*Result.Asset);
+	ASSERT_NE(ImportedSource, nullptr);
+	EXPECT_EQ(ImportedSource->Hint, ReplacementFilename);
 	EXPECT_EQ(Result.Asset->GetSourceWidth(), 5u);
 	EXPECT_EQ(Result.Asset->GetSourceHeight(), 3u);
 	EXPECT_FALSE(Result.Asset->GetPackage()->IsDirty());
-	ASSERT_NE(Result.Asset->GetImportedSource(), nullptr);
-	EXPECT_EQ(Result.Asset->GetImportedSource()->Hint, ReplacementFilename);
 	EXPECT_TRUE(std::filesystem::is_regular_file(Replacement));
 }
 
@@ -465,8 +487,10 @@ TEST(FTexture2DTests, SourceChangesRemainUnobservedUntilExplicitReimport)
 		Input.generic_string(), "/TextureImportTests/ChangedSource");
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
-	const Durin::FXxHash128 ImportedHash =
-		Result.Asset->GetImportedSource()->GetContentHash();
+	const Durin::FSourceFile* ImportedSource =
+		FindImportedSource(*Result.Asset);
+	ASSERT_NE(ImportedSource, nullptr);
+	const Durin::FXxHash128 ImportedHash = ImportedSource->GetContentHash();
 	const Durin::FTexturePlatformData PlatformBefore = *Result.Asset->GetPlatformData();
 
 	{
@@ -474,7 +498,9 @@ TEST(FTexture2DTests, SourceChangesRemainUnobservedUntilExplicitReimport)
 		const char ExtraByte = '\0';
 		Stream.write(&ExtraByte, 1);
 	}
-	EXPECT_EQ(Result.Asset->GetImportedSource()->GetContentHash(), ImportedHash);
+	ImportedSource = FindImportedSource(*Result.Asset);
+	ASSERT_NE(ImportedSource, nullptr);
+	EXPECT_EQ(ImportedSource->GetContentHash(), ImportedHash);
 	ExpectPlatformDataEqual(*Result.Asset->GetPlatformData(), PlatformBefore);
 }
 
@@ -496,7 +522,13 @@ TEST(FTexture2DTests, DerivedDataKeyCoversSourceContentAndBuildSettings)
 	ASSERT_TRUE(Second) << Second.Message;
 	ASSERT_NE(First.Asset, nullptr);
 	ASSERT_NE(Second.Asset, nullptr);
-	EXPECT_NE(First.Asset->GetSourceContentHash(), Second.Asset->GetSourceContentHash());
+	const Durin::FSourceFile* FirstImportedSource =
+		FindImportedSource(*First.Asset);
+	const Durin::FSourceFile* SecondImportedSource =
+		FindImportedSource(*Second.Asset);
+	ASSERT_NE(FirstImportedSource, nullptr);
+	ASSERT_NE(SecondImportedSource, nullptr);
+	EXPECT_NE(FirstImportedSource->GetContentHash(), SecondImportedSource->GetContentHash());
 	EXPECT_NE(First.Asset->GetDerivedDataKey(), Second.Asset->GetDerivedDataKey());
 
 	Durin::FAssetPath FirstPath;

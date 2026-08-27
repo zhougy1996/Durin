@@ -63,8 +63,8 @@ namespace Durin::AssetForge::Builtins
 		struct FCapturedCubeSource
 		{
 			std::string Filename;
-			AssetImport::ESourceHintBase HintBase =
-				AssetImport::ESourceHintBase::AssetRelative;
+			ESourceHintBase HintBase =
+				ESourceHintBase::AssetRelative;
 			std::filesystem::path PhysicalPath;
 			FEncodedSourceSnapshot Snapshot;
 		};
@@ -77,10 +77,10 @@ namespace Durin::AssetForge::Builtins
 				return false;
 			OutSource.PhysicalPath = std::filesystem::absolute(FilePath).lexically_normal();
 			if (!std::filesystem::is_regular_file(OutSource.PhysicalPath)
-				|| !AssetImport::MakeSourceHint(
+				|| !MakeSourceHint(
 					OutSource.PhysicalPath.generic_string(), OwningPackagePath.generic_string(),
 					OutSource.HintBase, OutSource.Filename, OutError)) return false;
-			return CaptureEncodedSource({.Path = OutSource.Filename}, OutSource.PhysicalPath,
+			return CaptureEncodedSource(OutSource.Filename, OutSource.PhysicalPath,
 				OutSource.Snapshot, OutError, MaximumTextureCubeEncodedBytes);
 		}
 
@@ -97,7 +97,6 @@ namespace Durin::AssetForge::Builtins
 			{
 				const auto& Source = Sources[Index];
 				State.SourceData.Sources.push_back({
-					.StableIdentity = Index == 0 ? "root" : std::format("face:{}", Index),
 					.Role = Layout == ETextureCubeSourceLayout::EquirectangularPanorama
 						? "panorama" : std::string(FaceRoles[Index]),
 					.DisplayLabel = Source.PhysicalPath.filename().generic_string(),
@@ -377,10 +376,10 @@ namespace Durin::AssetForge::Builtins
 			return false;
 		const auto* Data = dynamic_cast<const DTextureCubeImportData*>(
 			Texture.GetAssetImportData());
-		const AssetImport::FSourceFile* Source = Data
+		const FSourceFile* Source = Data
 			? Data->GetSourceData().FindByRole("panorama") : nullptr;
 		std::string SourcePath;
-		if (!Source || !AssetImport::ResolveSourceHint(Source->HintBase, Source->Hint,
+		if (!Source || !ResolveSourceHint(Source->HintBase, Source->Hint,
 			OwningPackagePath.generic_string(), SourcePath, OutError)) return false;
 		const Asset::FAssetBundleSaveOptions SaveOptions;
 		return RebuildPanorama(Texture, SourcePath, Settings, OutError, &SaveOptions);
@@ -417,9 +416,9 @@ namespace Durin::AssetForge::Builtins
 			Texture.GetAssetImportData());
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
-			const AssetImport::FSourceFile* Source = Data
+			const FSourceFile* Source = Data
 				? Data->GetSourceData().FindByRole(FaceRoles[Index]) : nullptr;
-			if (!Source || !AssetImport::ResolveSourceHint(Source->HintBase, Source->Hint,
+			if (!Source || !ResolveSourceHint(Source->HintBase, Source->Hint,
 				OwningPackagePath.generic_string(), Sources[Index], OutError))
 			{
 				if (OutError.empty()) OutError = "TextureCube face import data is incomplete.";

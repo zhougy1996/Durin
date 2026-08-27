@@ -8,7 +8,7 @@
 
 namespace Durin::AssetForge::Builtins
 {
-	struct FTerrainHeightmapImportDataState : AssetImport::FAssetImportDataState
+	struct FTerrainHeightmapImportDataState : FAssetImportDataState
 	{
 		std::string DecoderId;
 		uint32 DecoderVersion = 0;
@@ -20,7 +20,7 @@ namespace Durin::AssetForge::Builtins
 	};
 
 	DCLASS()
-	class DTerrainHeightmapImportData final : public AssetImport::DAssetImportData
+	class DTerrainHeightmapImportData final : public DAssetImportData
 	{
 		GENERATED_BODY()
 
@@ -38,7 +38,7 @@ namespace Durin::AssetForge::Builtins
 			FTerrainHeightmapImportDataState State, std::string& OutError) -> bool;
 		ASSETFORGEBUILTINS_API auto GetTerrainHeightmapState() const
 			-> FTerrainHeightmapImportDataState;
-		auto GetState() const -> AssetImport::FAssetImportDataState override
+		auto GetState() const -> FAssetImportDataState override
 		{
 			return GetTerrainHeightmapState();
 		}
@@ -46,7 +46,7 @@ namespace Durin::AssetForge::Builtins
 			-> bool override;
 		ASSETFORGEBUILTINS_API auto CloneToOwner(
 			DObject* Owner, FName Name, std::string& OutError) const
-			-> AssetImport::DAssetImportData* override;
+			-> DAssetImportData* override;
 
 	private:
 		DPROPERTY()

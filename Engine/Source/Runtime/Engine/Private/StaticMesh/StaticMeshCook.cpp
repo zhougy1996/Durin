@@ -77,7 +77,10 @@ namespace Durin
 				return false;
 			}
 		}
-		if (!GetImportedData().IsValid() && !GetImportedSource())
+		const DAssetImportData* ImportData = GetAssetImportData();
+		const FSourceFile* Source = ImportData
+			? ImportData->GetSourceData().FindByRole("source") : nullptr;
+		if (!GetImportedData().IsValid() && !Source)
 		{
 			OutError.clear();
 			return true;

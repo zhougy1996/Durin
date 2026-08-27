@@ -290,7 +290,7 @@ namespace Durin::AssetForge::Builtins
 			else if (Descriptor.Kind == ESceneOutputKind::StaticMesh)
 			{
 				FStaticMeshSourceImportData Provenance{
-					.SourcePath = Root->SourcePath,
+					.SourceFilename = Root->Filename,
 					.SourceContentHash = Root->ContentHash.ToString(),
 					.ImporterId = std::string(SceneImporterId),
 					.ImporterVersion = 1,
@@ -298,7 +298,7 @@ namespace Durin::AssetForge::Builtins
 				if (!Asset::FStaticMeshBuildOperations::BuildImportedProduct(
 					{.StableObjectPath = Output.AssetPath.ToString()},
 					MakeStaticMeshImportedData(Data->Scene), std::move(Provenance),
-					Root->SourcePath.Path, Output.StaticMesh, Error))
+					Root->Filename, Output.StaticMesh, Error))
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
 						"scene-build", std::move(Error), Descriptor.StableIdentity);
 			}
@@ -411,7 +411,7 @@ namespace Durin::AssetForge::Builtins
 				const FXxHash128 SourceHash{
 					.HashLow = Output.Texture.Product.SourceContentHashLow,
 					.HashHigh = Output.Texture.Product.SourceContentHashHigh};
-				const std::string SourcePhysicalPath = Output.Texture.Source.Path;
+				const std::string SourcePhysicalPath = Output.Texture.SourceFilename;
 				const PathUtilities::FAssetPathResult PackageResolution =
 					PathUtilities::ResolveAssetPath(
 						Output.AssetPath.GetView(), PathUtilities::EPathExistence::AllowMissing);
@@ -425,8 +425,8 @@ namespace Durin::AssetForge::Builtins
 				std::filesystem::path PackagePath = PackageResolution.PhysicalPath;
 				PackagePath += ".dasset";
 				std::string SourceHint;
-				AssetImport::ESourceHintBase HintBase;
-				if (!AssetImport::MakeSourceHint(
+				ESourceHintBase HintBase;
+				if (!MakeSourceHint(
 					SourcePhysicalPath, PackagePath.generic_string(), HintBase,
 					SourceHint, Error))
 				{
@@ -443,7 +443,7 @@ namespace Durin::AssetForge::Builtins
 				}
 				FTexture2DImportDataState ImportState;
 				ImportState.SourceData.Sources.push_back({
-					.StableIdentity = "root", .Role = "source",
+					.Role = "source",
 					.DisplayLabel = std::filesystem::path(SourcePhysicalPath).filename().generic_string(),
 					.Hint = SourceHint,
 					.HintBase = HintBase,

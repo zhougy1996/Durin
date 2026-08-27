@@ -53,7 +53,9 @@ namespace Durin
 			if (!Property) return false;
 			if (Property->HasAnyPropertyFlags(EPropertyFlags::Transient)
 				&& !ShouldSerializeTransientWeakProperty(Ar, Property)) return false;
-			if (Ar.IsSaving() && Property->IsDeprecated()) return false;
+			if (Property->IsDeprecated()
+				&& (Ar.IsSaving()
+					|| !Ar.HasCapability(EArchiveCapability::CustomVersions))) return false;
 			return !Ar.IsFilterEditorOnly()
 				|| !Property->HasAnyPropertyFlags(EPropertyFlags::EditorOnly);
 		}

@@ -119,15 +119,15 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 			? "Equirectangular Panorama"
 			: "Six Faces";
 
-		AssetImport::FAssetImportInfo ImportInfo;
+		FAssetImportInfo ImportInfo;
 		std::string ImportError;
-		if (AssetImport::InspectAssetImportInfo(
+		if (InspectAssetImportInfo(
 			Inspection, ImportInfo, ImportError))
 		{
 			if (Snapshot.bPanorama)
 			{
 				const auto It = std::ranges::find(
-					ImportInfo.Sources, "panorama", &AssetImport::FSourceFile::Role);
+					ImportInfo.Sources, "panorama", &FSourceFile::Role);
 				Snapshot.Source = It == ImportInfo.Sources.end()
 					? "-"
 					: It->Hint;

@@ -26,31 +26,7 @@ namespace
 	}
 
 }
-TEST(FSourcePathContractTests, ReflectedValueHasOneCompleteVirtualPath)
-{
-	Durin::DStruct* SourcePathStruct = Durin::FSourcePath::StaticStruct();
-	ASSERT_NE(SourcePathStruct, nullptr);
-	EXPECT_EQ(SourcePathStruct->GetQualifiedName().ToString(), "Durin::FSourcePath");
-	ASSERT_NE(SourcePathStruct->GetOuter(), nullptr);
-	EXPECT_EQ(SourcePathStruct->GetOuter()->GetName(), "AssetCore");
-
-	size_t PropertyCount = 0;
-	SourcePathStruct->ForEachProperty([&PropertyCount](Durin::FProperty*) { ++PropertyCount; });
-	EXPECT_EQ(PropertyCount, 1u);
-	Durin::FProperty* PathProperty = SourcePathStruct->FindPropertyByName(Durin::FName("Path"));
-	ASSERT_NE(PathProperty, nullptr);
-	EXPECT_EQ(PathProperty->GetKind(), Durin::DurinCodeGen::EPropertyGenFlags::String);
-	EXPECT_EQ(SourcePathStruct->FindPropertyByName(Durin::FName("Library")), nullptr);
-	EXPECT_EQ(SourcePathStruct->FindPropertyByName(Durin::FName("RelativePath")), nullptr);
-
-	Durin::FSourcePath Empty;
-	EXPECT_TRUE(Empty.IsEmpty());
-	const Durin::FSourcePath EngineSource{.Path = "/Engine/Textures/Common/Stone.png"};
-	EXPECT_FALSE(EngineSource.IsEmpty());
-	EXPECT_EQ(EngineSource.Path, "/Engine/Textures/Common/Stone.png");
-}
-
-TEST(FSourcePathContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainStable)
+TEST(FSourceFileContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainStable)
 {
 	static_assert(std::is_base_of_v<Durin::DObject, Durin::DTexture2D>);
 	static_assert(std::is_base_of_v<Durin::DObject, Durin::DTextureCube>);
@@ -136,7 +112,7 @@ TEST(FSourcePathContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainS
 		EXPECT_EQ(TextureCubeClass->FindPropertyByName(RetiredField), nullptr);
 }
 
-TEST(FSourcePathContractTests, UnifiedMountFixtureFreezesSingleRootsCapabilitiesAndDependencyCases)
+TEST(FSourceFileContractTests, UnifiedMountFixtureFreezesSingleRootsCapabilitiesAndDependencyCases)
 {
 	const std::filesystem::path Path =
 		std::filesystem::path(DURIN_TEST_DATA_DIR) / "SourceLibraryReferences" / "UnifiedMountContract.json";

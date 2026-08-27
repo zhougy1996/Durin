@@ -68,12 +68,12 @@ namespace Durin::Editor
 		{
 			Asset::FAssetPackageInspection Inspection;
 			if (!Asset::InspectAssetPackage(Data.PhysicalPath, Inspection)) return false;
-			AssetImport::FAssetImportInfo ImportInfo;
+			FAssetImportInfo ImportInfo;
 			std::string ImportInfoError;
-			if (AssetImport::InspectAssetImportInfo(
+			if (InspectAssetImportInfo(
 				Inspection, ImportInfo, ImportInfoError))
 			{
-				for (const AssetImport::FSourceFile& Source : ImportInfo.Sources)
+				for (const FSourceFile& Source : ImportInfo.Sources)
 					AddReference(References, Data, Source.Hint);
 				return true;
 			}

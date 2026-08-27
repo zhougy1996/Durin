@@ -13,16 +13,14 @@ Milestones A through C have removed every production import caller of the
 generic AssetForge graph, component registry, request/job/operation, replay,
 and mounted-source workflow. Direct built-in importers own all supported
 families, Scene owns private ordering, and DurinEd uses a finite built-in
-dispatch table. `DurinAssetTool` and several tests still use `FImportService`
-only as an obsolete derived-data recovery pump; they are removal callers, not
-evidence for retaining the service.
-
-The remaining work is physical deletion and dependency closure. Obsolete code
-is concentrated in AssetForge's service/graph/operation implementation,
-AssetCore mounted-source management, unused provider adapters and replay data,
-their characterization tests, and authored/documentation compatibility debt.
-This plan begins with a repository-bounded inventory so shared capture and
-diagnostic helpers are moved before their former module is narrowed or removed.
+dispatch table. The final residue audit also deleted the reflected
+`FSourcePath` wrapper, its source-specific Core mount-resolution aliases, and
+the stale reflection tests. Scene capture and transient build provenance now
+carry ordinary normalized filename strings, so no virtualized source-path type
+or API remains. The default Editor `all` build passes, along with
+CoreFileSystemTests (36 passed, 2 environment skips), AssetImportTests 17/17,
+AssetPackageTests 125/125, SceneImportTests 4/4,
+EditorAssetWorkflowTests 31/31, and TextureTests 77/77.
 
 Stage 1 is complete. Generic orchestration, persistence, provider adapters, and
 their contract tests are physically deleted. Direct-family import support now

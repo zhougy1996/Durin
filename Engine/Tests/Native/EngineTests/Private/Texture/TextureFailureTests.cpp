@@ -379,7 +379,11 @@ TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
 	ASSERT_TRUE(Imported) << Imported.Message;
 	Durin::DTexture2D* Texture = Imported.Asset;
 	ASSERT_NE(Texture, nullptr);
-	const std::string PriorSource = Texture->GetSourceFile();
+	ASSERT_NE(Texture->GetAssetImportData(), nullptr);
+	const Durin::FSourceFile* ImportedSource =
+		Texture->GetAssetImportData()->GetSourceData().FindByRole("source");
+	ASSERT_NE(ImportedSource, nullptr);
+	const std::string PriorSource = ImportedSource->Hint;
 	const Durin::FTexturePlatformData PriorPlatform = *Texture->GetPlatformData();
 	const std::string PriorKey = Texture->GetDerivedDataKey();
 	std::string Error;
@@ -393,7 +397,10 @@ TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
 	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportTexture2D(
 		*Texture, Error)) << Error;
 	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
-	EXPECT_EQ(Texture->GetSourceFile(), PriorSource);
+	ASSERT_NE(Texture->GetAssetImportData(), nullptr);
+	ImportedSource = Texture->GetAssetImportData()->GetSourceData().FindByRole("source");
+	ASSERT_NE(ImportedSource, nullptr);
+	EXPECT_EQ(ImportedSource->Hint, PriorSource);
 	EXPECT_NE(Texture->GetPlatformData()->Mips.front().Pixels,
 		PriorPlatform.Mips.front().Pixels);
 	EXPECT_NE(Texture->GetDerivedDataKey(), PriorKey);

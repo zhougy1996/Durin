@@ -316,13 +316,13 @@ namespace Durin::Editor::MainFrame
 							const Asset::FAssetCatalogEntry Entry = Asset::FindAssetExact(Path);
 							if (!Entry) return false;
 							Asset::FAssetPackageInspection Inspection;
-							AssetImport::FAssetImportInfo ImportInfo;
+							FAssetImportInfo ImportInfo;
 							std::string Error;
 							return Asset::InspectAssetPackage(Entry->PhysicalPath, Inspection)
-								&& AssetImport::InspectAssetImportInfo(Inspection, ImportInfo, Error)
+								&& InspectAssetImportInfo(Inspection, ImportInfo, Error)
 								&& !ImportInfo.Sources.empty()
 								&& std::ranges::all_of(ImportInfo.Sources,
-									[](const AssetImport::FSourceFile& Source) {
+									[](const FSourceFile& Source) {
 										return !Source.Hint.empty();
 									});
 						},

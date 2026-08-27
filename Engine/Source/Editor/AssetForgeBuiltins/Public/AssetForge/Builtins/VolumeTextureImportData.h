@@ -8,7 +8,7 @@
 
 namespace Durin::AssetForge::Builtins
 {
-	struct FVolumeTextureImportDataState : AssetImport::FAssetImportDataState
+	struct FVolumeTextureImportDataState : FAssetImportDataState
 	{
 		EVolumeTextureImportFormat ImportFormat = EVolumeTextureImportFormat::PngRowMajorAtlas;
 		EVolumeTextureSourceChannels Channels = EVolumeTextureSourceChannels::Red;
@@ -24,7 +24,7 @@ namespace Durin::AssetForge::Builtins
 	};
 
 	DCLASS()
-	class DVolumeTextureImportData final : public AssetImport::DAssetImportData
+	class DVolumeTextureImportData final : public DAssetImportData
 	{
 		GENERATED_BODY()
 
@@ -35,7 +35,7 @@ namespace Durin::AssetForge::Builtins
 			FVolumeTextureImportDataState State, std::string& OutError) -> bool;
 		ASSETFORGEBUILTINS_API auto GetVolumeTextureState() const
 			-> FVolumeTextureImportDataState;
-		auto GetState() const -> AssetImport::FAssetImportDataState override
+		auto GetState() const -> FAssetImportDataState override
 		{
 			return GetVolumeTextureState();
 		}
@@ -43,7 +43,7 @@ namespace Durin::AssetForge::Builtins
 			-> bool override;
 		ASSETFORGEBUILTINS_API auto CloneToOwner(
 			DObject* Owner, FName Name, std::string& OutError) const
-			-> AssetImport::DAssetImportData* override;
+			-> DAssetImportData* override;
 
 	private:
 		DPROPERTY()

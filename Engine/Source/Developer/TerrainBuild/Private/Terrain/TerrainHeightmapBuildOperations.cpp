@@ -93,7 +93,7 @@ namespace Durin::Asset
 		std::string& OutError) -> bool
 	{
 		if (!Product.Payload || !Product.Payload->IsValid()
-			|| Product.DerivedDataKey.empty() || Context.SourcePath.IsEmpty()
+			|| Product.DerivedDataKey.empty() || Context.SourceFilename.empty()
 			|| Context.DecoderId.empty() || Context.DecoderVersion == 0
 			|| Context.SourceFormat == ETerrainHeightmapSourceFormat::Unknown
 			|| Context.SourceProfileVersion == 0)

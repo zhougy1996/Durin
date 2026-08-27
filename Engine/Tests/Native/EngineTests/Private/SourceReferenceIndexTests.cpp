@@ -8,6 +8,15 @@
 
 namespace
 {
+	auto FindImportedSource(const Durin::DTexture2D& Texture)
+		-> const Durin::FSourceFile*
+	{
+		const Durin::DAssetImportData* ImportData =
+			Texture.GetAssetImportData();
+		return ImportData
+			? ImportData->GetSourceData().FindByRole("source") : nullptr;
+	}
+
 	class FScopedTextureCompilingManager final
 	{
 	public:
@@ -34,12 +43,16 @@ TEST(FSourceReferenceIndexTests, TracksSharedSourceFilesAcrossRegistryRevisions)
 		Input.generic_string(), "/TextureImportTests/SourceIndex/First");
 	ASSERT_TRUE(First) << First.Message;
 	ASSERT_NE(First.Asset, nullptr);
-	const std::string SourceVirtualPath = First.Asset->GetSourceFile();
+	const Durin::FSourceFile* FirstSource = FindImportedSource(*First.Asset);
+	ASSERT_NE(FirstSource, nullptr);
+	const std::string SourceVirtualPath = FirstSource->Hint;
 
 	const Durin::FTexture2DImportResult Second = Durin::AssetForge::Builtins::ImportTexture2DAsset(
 		Input.generic_string(), "/TextureImportTests/SourceIndex/Second");
 	ASSERT_TRUE(Second) << Second.Message;
-	ASSERT_EQ(Second.Asset->GetSourceFile(), SourceVirtualPath);
+	const Durin::FSourceFile* SecondSource = FindImportedSource(*Second.Asset);
+	ASSERT_NE(SecondSource, nullptr);
+	ASSERT_EQ(SecondSource->Hint, SourceVirtualPath);
 
 	Durin::Editor::FSourceReferenceIndex Index;
 	Index.Refresh();
@@ -49,7 +62,9 @@ TEST(FSourceReferenceIndexTests, TracksSharedSourceFilesAcrossRegistryRevisions)
 	const Durin::FTexture2DImportResult Third = Durin::AssetForge::Builtins::ImportTexture2DAsset(
 		Input.generic_string(), "/TextureImportTests/SourceIndex/Third");
 	ASSERT_TRUE(Third) << Third.Message;
-	ASSERT_EQ(Third.Asset->GetSourceFile(), SourceVirtualPath);
+	const Durin::FSourceFile* ThirdSource = FindImportedSource(*Third.Asset);
+	ASSERT_NE(ThirdSource, nullptr);
+	ASSERT_EQ(ThirdSource->Hint, SourceVirtualPath);
 	Index.Refresh();
 	EXPECT_GT(Index.GetRegistryRevision(), FirstRevision);
 	EXPECT_EQ(Index.FindReferences(SourceVirtualPath).size(), 3u);

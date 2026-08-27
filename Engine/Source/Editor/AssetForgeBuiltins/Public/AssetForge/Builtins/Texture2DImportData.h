@@ -7,7 +7,7 @@
 
 namespace Durin::AssetForge::Builtins
 {
-	struct FTexture2DImportDataState : AssetImport::FAssetImportDataState
+	struct FTexture2DImportDataState : FAssetImportDataState
 	{
 		std::string DecoderId;
 		uint32 DecoderVersion = 0;
@@ -17,7 +17,7 @@ namespace Durin::AssetForge::Builtins
 
 	// Owns the editor-only source interpretation needed to reimport one Texture2D.
 	DCLASS()
-	class DTexture2DImportData final : public AssetImport::DAssetImportData
+	class DTexture2DImportData final : public DAssetImportData
 	{
 		GENERATED_BODY()
 
@@ -31,7 +31,7 @@ namespace Durin::AssetForge::Builtins
 			FTexture2DImportDataState State, std::string& OutError) -> bool;
 		ASSETFORGEBUILTINS_API auto GetTexture2DState() const
 			-> FTexture2DImportDataState;
-		auto GetState() const -> AssetImport::FAssetImportDataState override
+		auto GetState() const -> FAssetImportDataState override
 		{
 			return GetTexture2DState();
 		}
@@ -39,7 +39,7 @@ namespace Durin::AssetForge::Builtins
 			-> bool override;
 		ASSETFORGEBUILTINS_API auto CloneToOwner(
 			DObject* Owner, FName Name, std::string& OutError) const
-			-> AssetImport::DAssetImportData* override;
+			-> DAssetImportData* override;
 
 	private:
 		DPROPERTY()

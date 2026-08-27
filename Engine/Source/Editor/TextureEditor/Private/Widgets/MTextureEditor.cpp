@@ -744,17 +744,21 @@ namespace Durin::Editor::Texture
 	auto MTextureEditor::DrawSourceData(DTexture2D* Texture) -> void
 	{
 		SourceReferenceIndex.RequestRefresh();
+		const DAssetImportData* ImportData = Texture->GetAssetImportData();
+		const FSourceFile* ImportedSource = ImportData
+			? ImportData->GetSourceData().FindByRole("source") : nullptr;
+		const std::string_view SourceHint = ImportedSource
+			? std::string_view(ImportedSource->Hint) : std::string_view{};
 		if (!MonaImGui::PropertyEdit::BeginTable("TextureSourceData")) return;
 		DrawInfoRow("Asset Destination",
 			Texture->GetPackage() ? Texture->GetPackage()->GetPackagePath() : "");
-		DrawInfoRow("Reimport Hint", Texture->GetSourceFile().empty()
-			? "Not retained" : Texture->GetSourceFile());
-		if (!Texture->GetSourceFile().empty())
+		DrawInfoRow("Reimport Hint", SourceHint.empty() ? "Not retained" : SourceHint);
+		if (!SourceHint.empty())
 		{
 			if (SourceReferenceIndex.IsCurrent())
 			{
 				const std::span<const ::Durin::Editor::FSourceReference> References =
-					SourceReferenceIndex.FindReferences(Texture->GetSourceFile());
+					SourceReferenceIndex.FindReferences(SourceHint);
 				DrawInfoRow("Shared References", std::format("{} asset(s)", References.size()));
 			}
 			else
@@ -785,7 +789,7 @@ namespace Durin::Editor::Texture
 				DrawInfoRow("Status", "Source data unavailable");
 		}
 		MonaImGui::PropertyEdit::EndTable();
-		const bool bCanReimport = !Texture->GetSourceFile().empty();
+		const bool bCanReimport = !SourceHint.empty();
 		constexpr const char* ReimportLabel = "Reimport";
 		if (!bCanReimport) ImGui::BeginDisabled();
 		if (ImGui::Button(ReimportLabel))

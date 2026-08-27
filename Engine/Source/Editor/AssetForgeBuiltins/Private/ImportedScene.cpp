@@ -73,12 +73,12 @@ namespace Durin::AssetForge::Builtins
 		{
 			FSceneDecodeResult Result;
 			const std::filesystem::path RootPath = std::filesystem::path(std::string(FilePath));
-			if (!Private::IsValidSourcePath(Options.RootSource.Path))
+			if (!Private::IsValidSourcePath(Options.RootSourcePath))
 			{
 				Private::FailImport(
 					Result,
 					ESceneImportDiagnosticCategory::UnsafeDependencyPath,
-					Options.RootSource.Path,
+					Options.RootSourcePath,
 					"Root source path is not a normalized source filename.");
 				return Result;
 			}
@@ -101,7 +101,7 @@ namespace Durin::AssetForge::Builtins
 				Result.Scene,
 				EImportedDependencyRole::RootScene,
 				"root",
-				Options.RootSource.Path,
+				Options.RootSourcePath,
 				RootBytes))
 			{
 				Private::FailImport(
@@ -119,7 +119,7 @@ namespace Durin::AssetForge::Builtins
 			const bool bGltf = Extension == ".gltf";
 			const bool bGlb = Extension == ".glb";
 			const Private::FImportedSceneContext Context{
-				RootPath, Options.RootSource.Path, RootBytes, Options, Result};
+				RootPath, Options.RootSourcePath, RootBytes, Options, Result};
 			std::vector<uint32> SourcePrimitiveMaterialIndices;
 			std::vector<std::byte> AssimpProjection;
 			if ((bGltf || bGlb)
@@ -265,7 +265,7 @@ namespace Durin::AssetForge::Builtins
 		const FMeshImportOptions& Options) -> bool
 	{
 		FSceneDecodeResult Result;
-		if (!Private::IsValidSourcePath(Options.RootSource.Path)
+		if (!Private::IsValidSourcePath(Options.RootSourcePath)
 			|| EncodedBytes.empty() || EncodedBytes.size() > MaxImportedSceneSourceBytes)
 		{
 			Private::FailImport(Result,
@@ -277,7 +277,7 @@ namespace Durin::AssetForge::Builtins
 			return false;
 		}
 		if (!Private::AppendDependency(Result.Scene, EImportedDependencyRole::RootScene,
-			"root", Options.RootSource.Path, EncodedBytes))
+			"root", Options.RootSourcePath, EncodedBytes))
 		{
 			Private::FailImport(Result, ESceneImportDiagnosticCategory::ResourceLimitExceeded,
 				"dependencies", "Imported dependency count exceeds the limit.");

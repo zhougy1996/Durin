@@ -428,8 +428,8 @@ namespace Durin::Tests
 			2, 0, 3};
 		Mesh.SourceMaterialIndex = 0;
 		FStaticMeshSourceImportData SourceImportData = {
-			.SourcePath = {.Path =
-				"/RenderedThumbnailFixtures/Sources/SM_Deterministic.fixture"},
+			.SourceFilename =
+				"/RenderedThumbnailFixtures/Sources/SM_Deterministic.fixture",
 			.SourceContentHash = "0123456789abcdef0123456789abcdef",
 			.ImporterId = "RenderedThumbnailFixture",
 			.ImporterVersion = 1,

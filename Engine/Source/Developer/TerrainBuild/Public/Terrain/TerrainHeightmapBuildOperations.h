@@ -32,7 +32,7 @@ namespace Durin::Asset
 
 	struct FTerrainHeightmapPublicationContext
 	{
-		FSourcePath SourcePath;
+		std::string SourceFilename;
 		std::string DecoderId;
 		uint32 DecoderVersion = 0;
 		ETerrainHeightmapSourceFormat SourceFormat = ETerrainHeightmapSourceFormat::Unknown;

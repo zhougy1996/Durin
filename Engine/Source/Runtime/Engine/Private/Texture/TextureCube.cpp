@@ -155,20 +155,6 @@ namespace Durin
 
 	DTextureCube::~DTextureCube() = default;
 
-	auto DTextureCube::GetSourceFile(ETextureCubeFace Face) const -> const std::string&
-	{
-		static constexpr std::array Roles{
-			"positive-x", "negative-x", "positive-y",
-			"negative-y", "positive-z", "negative-z"};
-		const size_t FaceIndex = static_cast<size_t>(Face);
-		if (AssetImportData && FaceIndex < Roles.size())
-			if (const AssetImport::FSourceFile* Source =
-					AssetImportData->GetSourceData().FindByRole(Roles[FaceIndex]))
-				return Source->Hint;
-		static const std::string EmptySource;
-		return EmptySource;
-	}
-
 	auto DTextureCube::GetBuiltFaceDimension() const -> uint32
 	{
 		if (PlatformData && !PlatformData->Faces[0].Mips.empty())
@@ -404,7 +390,7 @@ namespace Durin
 	}
 
 	auto DTextureCube::PublishAssetImportData(
-		AssetImport::DAssetImportData& Value, std::string& OutError) -> bool
+		DAssetImportData& Value, std::string& OutError) -> bool
 	{
 		if (Value.GetOuter() != this)
 		{

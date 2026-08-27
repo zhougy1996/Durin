@@ -153,9 +153,9 @@ namespace Durin::AssetForge::Builtins
 			FVolumeTextureCapturedSource& Out,
 			std::string& OutError) -> bool
 		{
-			if (!CaptureEncodedSource({.Path = Filename}, PhysicalPath,
+			if (!CaptureEncodedSource(Filename, PhysicalPath,
 				OutSnapshot, OutError, MaximumTexturePayloadBytes)) return false;
-			Out = {.SourcePath = {.Path = std::move(Filename)},
+			Out = {.Filename = std::move(Filename),
 				.ContentHash = OutSnapshot.ContentHash,
 				.Bytes = OutSnapshot.GetBytes()};
 			return true;
@@ -267,7 +267,7 @@ namespace Durin::AssetForge::Builtins
 			{.MaximumDecodedPixels = ExpectedWidth * ExpectedHeight}))
 		{
 			OutError = std::format("Failed to decode volume atlas '{}': {}",
-				Source.SourcePath.Path, OutError);
+				Source.Filename, OutError);
 			return false;
 		}
 		if (Image.Width != ExpectedWidth || Image.Height != ExpectedHeight)
@@ -315,7 +315,7 @@ namespace Durin::AssetForge::Builtins
 	namespace
 	{
 		auto PublishDirectVolumeImportData(DVolumeTexture& Texture,
-			std::string Filename, AssetImport::ESourceHintBase HintBase,
+			std::string Filename, ESourceHintBase HintBase,
 			const std::filesystem::path& PhysicalPath,
 			const FEncodedSourceSnapshot& Snapshot,
 			const FVolumeTextureImportSettings& Settings,
@@ -323,7 +323,7 @@ namespace Durin::AssetForge::Builtins
 		{
 			FVolumeTextureImportDataState State;
 			State.SourceData.Sources.push_back({
-				.StableIdentity = "root", .Role = "source",
+				.Role = "source",
 				.DisplayLabel = PhysicalPath.filename().generic_string(),
 				.Hint = std::move(Filename),
 				.HintBase = HintBase,
@@ -348,7 +348,7 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto RebuildVolumeFromFilename(DVolumeTexture& Texture,
-			std::string Filename, AssetImport::ESourceHintBase HintBase,
+			std::string Filename, ESourceHintBase HintBase,
 			const FVolumeTextureImportSettings& Settings,
 			std::string& OutError,
 			const Asset::FAssetBundleSaveOptions* SaveOptions,
@@ -362,7 +362,7 @@ namespace Durin::AssetForge::Builtins
 			else
 			{
 				std::string PhysicalPathText;
-				if (!AssetImport::ResolveSourceHint(HintBase, Filename,
+				if (!ResolveSourceHint(HintBase, Filename,
 					OwningPackagePath.generic_string(), PhysicalPathText, OutError)) return false;
 				PhysicalPath = PhysicalPathText;
 			}
@@ -372,7 +372,7 @@ namespace Durin::AssetForge::Builtins
 				OutError = "VolumeTexture source must be an existing PNG file.";
 				return false;
 			}
-			if (SelectedPhysicalPath && !AssetImport::MakeSourceHint(
+			if (SelectedPhysicalPath && !MakeSourceHint(
 				PhysicalPath.generic_string(), OwningPackagePath.generic_string(),
 				HintBase, Filename, OutError)) return false;
 			FEncodedSourceSnapshot Snapshot;
@@ -427,7 +427,7 @@ namespace Durin::AssetForge::Builtins
 				ParsedAssetPath, Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 		};
 		if (!RebuildVolumeFromFilename(
-			*Texture, {}, AssetImport::ESourceHintBase::AssetRelative,
+			*Texture, {}, ESourceHintBase::AssetRelative,
 			Settings, Error, nullptr, Input))
 		{
 			Abandon();
@@ -450,7 +450,7 @@ namespace Durin::AssetForge::Builtins
 		}
 		const FVolumeTextureImportDataState State =
 			ImportData->GetVolumeTextureState();
-		const AssetImport::FSourceFile* Source =
+		const FSourceFile* Source =
 			State.SourceData.FindByRole("source");
 		if (!Source)
 		{
@@ -480,7 +480,7 @@ namespace Durin::AssetForge::Builtins
 			return false;
 		}
 		return RebuildVolumeFromFilename(Texture, {},
-			AssetImport::ESourceHintBase::AssetRelative,
+			ESourceHintBase::AssetRelative,
 			MakeImportSettings(ImportData->GetVolumeTextureState()), OutError,
 			&SaveOptions, Requested);
 	}

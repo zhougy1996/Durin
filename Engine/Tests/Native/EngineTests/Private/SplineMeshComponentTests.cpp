@@ -46,7 +46,7 @@ namespace
 		std::string Error;
 		if (!Asset::FStaticMeshBuildOperations::BuildAndPublishImported(
 			*Mesh, Imported,
-			{.SourcePath = {.Path = "/Tests/SplineMeshDebugTriangle.fixture"},
+			{.SourceFilename = "/Tests/SplineMeshDebugTriangle.fixture",
 				.SourceContentHash = "0123456789abcdef0123456789abcdef",
 				.ImporterId = "SplineMeshFixture", .ImporterVersion = 1,
 				.ImportSettings = FStaticMeshImportSettings::MakeDurin()},

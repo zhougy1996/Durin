@@ -8,7 +8,7 @@
 
 namespace Durin::AssetForge::Builtins
 {
-	struct FTextureCubeImportDataState : AssetImport::FAssetImportDataState
+	struct FTextureCubeImportDataState : FAssetImportDataState
 	{
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
 		std::string DecoderId;
@@ -19,7 +19,7 @@ namespace Durin::AssetForge::Builtins
 	};
 
 	DCLASS()
-	class DTextureCubeImportData final : public AssetImport::DAssetImportData
+	class DTextureCubeImportData final : public DAssetImportData
 	{
 		GENERATED_BODY()
 
@@ -34,7 +34,7 @@ namespace Durin::AssetForge::Builtins
 			FTextureCubeImportDataState State, std::string& OutError) -> bool;
 		ASSETFORGEBUILTINS_API auto GetTextureCubeState() const
 			-> FTextureCubeImportDataState;
-		auto GetState() const -> AssetImport::FAssetImportDataState override
+		auto GetState() const -> FAssetImportDataState override
 		{
 			return GetTextureCubeState();
 		}
@@ -42,7 +42,7 @@ namespace Durin::AssetForge::Builtins
 			-> bool override;
 		ASSETFORGEBUILTINS_API auto CloneToOwner(
 			DObject* Owner, FName Name, std::string& OutError) const
-			-> AssetImport::DAssetImportData* override;
+			-> DAssetImportData* override;
 
 	private:
 		DPROPERTY()

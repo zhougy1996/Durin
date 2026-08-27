@@ -78,7 +78,6 @@ namespace Durin
 		};
 
 		struct FAssetPathResult : FMountPathResult {};
-		struct FSourcePathResult : FMountPathResult {};
 
 		struct FMountPolicyResult
 		{
@@ -96,12 +95,7 @@ namespace Durin
 			std::string_view VirtualPath,
 			EPathExistence Existence = EPathExistence::AllowMissing
 		) -> FAssetPathResult;
-		CORE_API auto ResolveSourcePath(
-			std::string_view VirtualPath,
-			EPathExistence Existence = EPathExistence::RequireFile
-		) -> FSourcePathResult;
 		CORE_API auto ClassifyAssetPath(const std::filesystem::path& PhysicalPath) -> FAssetPathResult;
-		CORE_API auto ClassifySourcePath(const std::filesystem::path& PhysicalPath) -> FSourcePathResult;
 		CORE_API auto CheckMountDependency(
 			std::string_view ReferencingVirtualPath,
 			std::string_view ReferencedVirtualPath

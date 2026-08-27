@@ -247,7 +247,7 @@ TEST(FVolumeTextureSourceImportTests, UnpacksRowMajorAtlasAndChannels)
 	const std::span<const std::byte> TransparentPngData =
 		std::as_bytes(std::span{TransparentPngBytes});
 	const FVolumeTextureCapturedSource Atlas{
-		.SourcePath = {.Path = "/Test/Noise.png"},
+		.Filename = "/Test/Noise.png",
 		.ContentHash = FXxHash128::HashBuffer(TransparentPngData),
 		.Bytes = TransparentPngData};
 	FVolumeTextureImportSettings Settings{
@@ -314,7 +314,8 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 		VolumeTextureSourceProviderId);
 	EXPECT_EQ(Imported.Asset->GetSourceData().Depth, 2u);
 	const FVolumeTextureImportDataState ImportState = ImportData->GetVolumeTextureState();
-	const AssetImport::FSourceFile* ImportedSource = Imported.Asset->GetImportedSource();
+	const FSourceFile* ImportedSource =
+		ImportData->GetSourceData().FindByRole("source");
 	ASSERT_NE(ImportedSource, nullptr);
 	EXPECT_TRUE(ImportedSource->Hint.ends_with("VolumeSource/Noise.png"));
 	EXPECT_EQ(ImportState.ImportFormat, EVolumeTextureImportFormat::PngRowMajorAtlas);
@@ -350,8 +351,10 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	std::string RepairError;
 	ASSERT_TRUE(ReimportVolumeTextureFromFile(*Imported.Asset,
 		MovedAtlas.generic_string(), RepairError)) << RepairError;
-	ASSERT_NE(Imported.Asset->GetImportedSource(), nullptr);
-	EXPECT_TRUE(Imported.Asset->GetImportedSource()->Hint.ends_with(
+	ASSERT_NE(Imported.Asset->GetAssetImportData(), nullptr);
+	ImportedSource = Imported.Asset->GetAssetImportData()->GetSourceData().FindByRole("source");
+	ASSERT_NE(ImportedSource, nullptr);
+	EXPECT_TRUE(ImportedSource->Hint.ends_with(
 		"MovedVolume/Noise.png"));
 	ASSERT_TRUE(Asset::SavePackage(Imported.Asset->GetPackage()));
 
@@ -384,8 +387,11 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	ASSERT_TRUE(Asset::LoadAsset(DetailAssetPath, ReloadedDetail));
 	ASSERT_NE(ReloadedBase, nullptr);
 	ASSERT_NE(ReloadedDetail, nullptr);
-	ASSERT_NE(ReloadedBase->GetImportedSource(), nullptr);
-	EXPECT_TRUE(ReloadedBase->GetImportedSource()->Hint.ends_with(
+	ASSERT_NE(ReloadedBase->GetAssetImportData(), nullptr);
+	const FSourceFile* ReloadedSource =
+		ReloadedBase->GetAssetImportData()->GetSourceData().FindByRole("source");
+	ASSERT_NE(ReloadedSource, nullptr);
+	EXPECT_TRUE(ReloadedSource->Hint.ends_with(
 		"MovedVolume/Noise.png"));
 	auto* Component = NewObject<DVolumetricCloudComponent>(nullptr, "ImportedCloud");
 	Component->SetBaseDensityTexture(ReloadedBase);

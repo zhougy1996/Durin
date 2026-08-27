@@ -654,16 +654,11 @@ namespace
 			static const Durin::DurinCodeGen::FStringPropertyParams MapKeyProp = {"NamedScores_Key", Durin::EPropertyFlags::None, 1, 0};
 			static const Durin::DurinCodeGen::FInt32PropertyParams MapValueProp = {"NamedScores_Value", Durin::EPropertyFlags::None, 1, 0};
 			static const Durin::DurinCodeGen::FMapPropertyParams NamedScoresProp = {"NamedScores", Durin::EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DPackageAssetForTest, NamedScores), &MapKeyProp, &MapValueProp, &GScoreMapHelper};
-			static const Durin::DurinCodeGen::FStructPropertyParams SourcePathProp = {
-				"SourcePath", Durin::EPropertyFlags::None, 1,
-				STRUCT_OFFSET_UINT16(DPackageAssetForTest, SourcePath),
-				&Durin::FSourcePath::StaticStruct
-			};
 			static const Durin::DurinCodeGen::FObjectPropertyParams ChildProp = Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>("DefaultChild", Durin::EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DPackageAssetForTest, DefaultChild), &Durin::DObject::StaticClass);
 			static const Durin::DurinCodeGen::FObjectPropertyParams ExternalProp = Durin::DurinCodeGen::FObjectPropertyParams::ObjectPtr<Durin::DObject>("ExternalReference", Durin::EPropertyFlags::None, 1, STRUCT_OFFSET_UINT16(DPackageAssetForTest, ExternalReference), &Durin::DObject::StaticClass);
 			static const Durin::DurinCodeGen::FPropertyParamsBase* Properties[] = {
 				&ValueProp, &LabelProp, &DisplayNameProp, &GuidProp, &GuidsProp, &ScoresProp,
-				&NamedScoresProp, &SourcePathProp, &ChildProp, &ExternalProp
+				&NamedScoresProp, &ChildProp, &ExternalProp
 			};
 			static const Durin::DurinCodeGen::FClassParams Params = {&StaticClassNoRegister, "Tests::DPackageAssetForTest", "DPackageAssetForTest", Properties, std::size(Properties)};
 			static Durin::DClass* Class = Durin::DurinCodeGen::ConstructDClass(Params);
@@ -677,7 +672,6 @@ namespace
 		std::vector<Durin::FGuid> RelatedIds;
 		std::vector<int32> Scores;
 		FScoreMap NamedScores;
-		Durin::FSourcePath SourcePath;
 		Durin::TObjectPtr<Durin::DObject> DefaultChild;
 		Durin::TObjectPtr<Durin::DObject> ExternalReference;
 	};
@@ -2817,7 +2811,6 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 	Asset->RelatedIds = {Durin::FGuid(1, 2, 3, 4), Durin::FGuid(5, 6, 7, 8)};
 	Asset->Scores = {3, 5, 8};
 	Asset->NamedScores = {{"Alpha", 11}, {"Beta", 17}};
-	Asset->SourcePath.Path = "/TestAssets/Sources/RoundTrip.txt";
 	ASSERT_NE(Asset->DefaultChild.Get(), nullptr);
 	EXPECT_EQ(Asset->DefaultChild->GetObjectPath(), "/TestAssets/RoundTrip:DefaultChild");
 
@@ -2840,7 +2833,6 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 	EXPECT_EQ(Loaded->Scores, (std::vector<int32>{3, 5, 8}));
 	EXPECT_EQ(Loaded->NamedScores.at("Alpha"), 11);
 	EXPECT_EQ(Loaded->NamedScores.at("Beta"), 17);
-	EXPECT_EQ(Loaded->SourcePath.Path, "/TestAssets/Sources/RoundTrip.txt");
 	ASSERT_NE(Loaded->DefaultChild.Get(), nullptr);
 	EXPECT_EQ(Durin::GDObjectArray.GetObjectsWithOuter(Loaded, Durin::EObjectQueryScope::LiveOnly).size(), 1u);
 	EXPECT_EQ(Loaded->DefaultChild->GetObjectPath(), "/TestAssets/RoundTrip:DefaultChild");

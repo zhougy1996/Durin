@@ -8,7 +8,6 @@
     ],
     "ReflectHeaders": [
         "Public/Asset/CookedAsset.h",
-        "Public/Asset/Redirector.h",
-        "Public/Asset/SourcePath.h"
+        "Public/Asset/Redirector.h"
     ]
 }

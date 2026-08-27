@@ -270,7 +270,7 @@ namespace Durin::AssetForge
 		auto CaptureBytes(
 			std::string StableIdentity,
 			std::string Role,
-			FSourcePath SourcePath,
+			std::string Filename,
 			std::span<const std::byte> InputBytes,
 			std::string DeclaringIdentity,
 			uint32 Depth,
@@ -291,7 +291,7 @@ namespace Durin::AssetForge
 				Existing != SourceByIdentity.end())
 			{
 				const FSourceSnapshotEntry& Prior = Sources[Existing->second];
-				if (Prior.SourcePath != SourcePath
+				if (Prior.Filename != Filename
 					|| !std::ranges::equal(Prior.GetBytes(), InputBytes))
 				{
 					AddDiagnostic(Diagnostics, EImportDiagnosticSeverity::Error,
@@ -316,7 +316,7 @@ namespace Durin::AssetForge
 			FSourceSnapshotEntry Entry{
 				.StableIdentity = std::move(StableIdentity),
 				.Role = std::move(Role),
-				.SourcePath = std::move(SourcePath),
+				.Filename = std::move(Filename),
 				.DeclaringIdentity = std::move(DeclaringIdentity),
 				.ContentHash = ContentHash,
 				.ByteCount = Bytes->size(),
@@ -333,7 +333,7 @@ namespace Durin::AssetForge
 		auto CapturePhysical(
 			std::string StableIdentity,
 			std::string Role,
-			FSourcePath SourcePath,
+			std::string Filename,
 			const std::filesystem::path& PhysicalPath,
 			std::string DeclaringIdentity,
 			uint32 Depth,
@@ -426,7 +426,7 @@ namespace Durin::AssetForge
 				Existing != SourceByIdentity.end())
 			{
 				const FSourceSnapshotEntry& Prior = Sources[Existing->second];
-				if (Prior.SourcePath != SourcePath
+				if (Prior.Filename != Filename
 					|| !std::ranges::equal(Prior.GetBytes(), *Bytes))
 				{
 					AddDiagnostic(Diagnostics, EImportDiagnosticSeverity::Error,
@@ -441,7 +441,7 @@ namespace Durin::AssetForge
 			FSourceSnapshotEntry Entry{
 				.StableIdentity = std::move(StableIdentity),
 				.Role = std::move(Role),
-				.SourcePath = std::move(SourcePath),
+				.Filename = std::move(Filename),
 				.DeclaringIdentity = std::move(DeclaringIdentity),
 				.ContentHash = ContentHash,
 				.ByteCount = Bytes->size(),
@@ -466,7 +466,7 @@ namespace Durin::AssetForge
 			const std::filesystem::path PhysicalPath =
 				std::filesystem::absolute(Filename).lexically_normal();
 			return CapturePhysical(std::move(StableIdentity), std::move(Role),
-				FSourcePath{.Path = PhysicalPath.generic_string()}, PhysicalPath,
+				PhysicalPath.generic_string(), PhysicalPath,
 				std::move(DeclaringIdentity), Depth, bOptional, Diagnostics);
 		}
 	};
@@ -607,7 +607,7 @@ namespace Durin::AssetForge
 				}
 
 				const std::filesystem::path Relative(Request.RelativePath);
-				if (Declaring.SourcePath.IsEmpty() || Relative.is_absolute()
+				if (Declaring.Filename.empty() || Relative.is_absolute()
 					|| Relative.has_root_name()
 					|| Request.RelativePath.find(':') != std::string::npos
 					|| std::ranges::find(Relative, std::filesystem::path("..")) != Relative.end())
@@ -619,7 +619,7 @@ namespace Durin::AssetForge
 				}
 				const size_t CountBefore = Impl->Sources.size();
 				const std::filesystem::path DeclaringPhysical =
-					std::filesystem::absolute(Declaring.SourcePath.Path).lexically_normal();
+					std::filesystem::absolute(Declaring.Filename).lexically_normal();
 				const std::filesystem::path DependencyPhysical =
 					(DeclaringPhysical.parent_path()
 						/ Relative).lexically_normal();
@@ -656,8 +656,8 @@ namespace Durin::AssetForge
 		Snapshot->Sources = Impl->Sources;
 		std::ranges::sort(Snapshot->Sources, [](const FSourceSnapshotEntry& A,
 			const FSourceSnapshotEntry& B) {
-			return std::tie(A.StableIdentity, A.Role, A.SourcePath.Path)
-				< std::tie(B.StableIdentity, B.Role, B.SourcePath.Path);
+			return std::tie(A.StableIdentity, A.Role, A.Filename)
+				< std::tie(B.StableIdentity, B.Role, B.Filename);
 		});
 		Snapshot->AggregateByteCount = Impl->AggregateBytes;
 		Impl->bFrozen = true;

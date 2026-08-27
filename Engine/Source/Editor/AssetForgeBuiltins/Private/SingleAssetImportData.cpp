@@ -8,25 +8,24 @@ namespace Durin::AssetForge::Builtins
 {
 	namespace
 	{
-		auto IsEmpty(const AssetImport::FAssetImportDataState& State) -> bool
+		auto IsEmpty(const FAssetImportDataState& State) -> bool
 		{
 			return State.SourceData.Sources.empty();
 		}
 
 		auto ValidateSingleSource(
-			const AssetImport::FAssetImportDataState& State,
+			const FAssetImportDataState& State,
 			std::string_view Family,
 			std::string& OutError) -> bool
 		{
-			if (State.SchemaVersion != AssetImport::AssetImportDataSchemaVersion
+			if (State.SchemaVersion != AssetImportDataSchemaVersion
 				|| !State.SourceData.Validate(OutError)) return false;
-			const AssetImport::FSourceFile* Source =
+			const FSourceFile* Source =
 				State.SourceData.FindByRole("source");
-			if (State.SourceData.Sources.size() != 1 || !Source
-				|| Source->StableIdentity != "root")
+			if (State.SourceData.Sources.size() != 1 || !Source)
 			{
 				OutError = std::format(
-					"{} import data requires one root source.", Family);
+					"{} import data requires exactly one source role.", Family);
 				return false;
 			}
 			return true;
@@ -88,7 +87,7 @@ namespace Durin::AssetForge::Builtins
 				OutError.clear();
 				return true;
 			}
-			if (State.SchemaVersion != AssetImport::AssetImportDataSchemaVersion
+			if (State.SchemaVersion != AssetImportDataSchemaVersion
 				|| !State.SourceData.Validate(OutError)) return false;
 			if (State.DecoderId.empty() || State.DecoderVersion == 0
 				|| State.ProjectionVersion == 0)
@@ -98,12 +97,11 @@ namespace Durin::AssetForge::Builtins
 			}
 			if (State.SourceLayout == ETextureCubeSourceLayout::EquirectangularPanorama)
 			{
-				const AssetImport::FSourceFile* Panorama =
+				const FSourceFile* Panorama =
 					State.SourceData.FindByRole("panorama");
-				if (State.SourceData.Sources.size() != 1 || !Panorama
-					|| Panorama->StableIdentity != "root")
+				if (State.SourceData.Sources.size() != 1 || !Panorama)
 				{
-					OutError = "TextureCube panorama import data requires one root panorama and projection version.";
+					OutError = "TextureCube panorama import data requires exactly one panorama role and projection version.";
 					return false;
 				}
 			}
@@ -119,12 +117,11 @@ namespace Durin::AssetForge::Builtins
 				}
 				for (size_t Index = 0; Index < Roles.size(); ++Index)
 				{
-					const AssetImport::FSourceFile* Source =
+					const FSourceFile* Source =
 						State.SourceData.FindByRole(Roles[Index]);
-					if (!Source || Source->StableIdentity
-						!= (Index == 0 ? "root" : std::format("face:{}", Index)))
+					if (!Source)
 					{
-						OutError = "TextureCube face import-data identities are incomplete.";
+						OutError = "TextureCube face import-data roles are incomplete.";
 						return false;
 					}
 				}
@@ -169,7 +166,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		State.SourceData.Normalize();
 		if (!ValidateState(State, OutError)) return false;
-		AssetImport::FAssetImportDataState BaseState = State;
+		FAssetImportDataState BaseState = State;
 		if (!ApplyState(std::move(BaseState), OutError)) return false;
 		ImporterId = std::move(State.ImporterId);
 		ImporterVersion = State.ImporterVersion;
@@ -182,7 +179,7 @@ namespace Durin::AssetForge::Builtins
 		-> FStaticMeshImportDataState
 	{
 		FStaticMeshImportDataState State;
-		static_cast<AssetImport::FAssetImportDataState&>(State) = {
+		static_cast<FAssetImportDataState&>(State) = {
 			.SchemaVersion = GetSchemaVersion(), .SourceData = GetSourceData()};
 		State.ImporterId = ImporterId;
 		State.ImporterVersion = ImporterVersion;
@@ -197,7 +194,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto DStaticMeshImportData::CloneToOwner(
 		DObject* Owner, FName Name, std::string& OutError) const
-		-> AssetImport::DAssetImportData*
+		-> DAssetImportData*
 	{
 		if (!Owner || Name.IsNone() || !Validate(OutError))
 		{
@@ -217,7 +214,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		State.SourceData.Normalize();
 		if (!ValidateState(State, OutError)) return false;
-		AssetImport::FAssetImportDataState BaseState = State;
+		FAssetImportDataState BaseState = State;
 		if (!ApplyState(std::move(BaseState), OutError)) return false;
 		DecoderId = std::move(State.DecoderId);
 		DecoderVersion = State.DecoderVersion;
@@ -231,7 +228,7 @@ namespace Durin::AssetForge::Builtins
 		-> FTerrainHeightmapImportDataState
 	{
 		FTerrainHeightmapImportDataState State;
-		static_cast<AssetImport::FAssetImportDataState&>(State) = {
+		static_cast<FAssetImportDataState&>(State) = {
 			.SchemaVersion = GetSchemaVersion(), .SourceData = GetSourceData()};
 		State.DecoderId = DecoderId;
 		State.DecoderVersion = DecoderVersion;
@@ -247,7 +244,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto DTerrainHeightmapImportData::CloneToOwner(
 		DObject* Owner, FName Name, std::string& OutError) const
-		-> AssetImport::DAssetImportData*
+		-> DAssetImportData*
 	{
 		if (!Owner || Name.IsNone() || !Validate(OutError))
 		{
@@ -267,7 +264,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		State.SourceData.Normalize();
 		if (!ValidateState(State, OutError)) return false;
-		AssetImport::FAssetImportDataState BaseState = State;
+		FAssetImportDataState BaseState = State;
 		if (!ApplyState(std::move(BaseState), OutError)) return false;
 		SourceLayout = State.SourceLayout;
 		DecoderId = std::move(State.DecoderId);
@@ -281,7 +278,7 @@ namespace Durin::AssetForge::Builtins
 		-> FTextureCubeImportDataState
 	{
 		FTextureCubeImportDataState State;
-		static_cast<AssetImport::FAssetImportDataState&>(State) = {
+		static_cast<FAssetImportDataState&>(State) = {
 			.SchemaVersion = GetSchemaVersion(), .SourceData = GetSourceData()};
 		State.SourceLayout = SourceLayout;
 		State.DecoderId = DecoderId;
@@ -297,7 +294,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto DTextureCubeImportData::CloneToOwner(
 		DObject* Owner, FName Name, std::string& OutError) const
-		-> AssetImport::DAssetImportData*
+		-> DAssetImportData*
 	{
 		if (!Owner || Name.IsNone() || !Validate(OutError))
 		{
@@ -317,7 +314,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		State.SourceData.Normalize();
 		if (!ValidateState(State, OutError)) return false;
-		AssetImport::FAssetImportDataState BaseState = State;
+		FAssetImportDataState BaseState = State;
 		if (!ApplyState(std::move(BaseState), OutError)) return false;
 		ImportFormat = State.ImportFormat;
 		Channels = State.Channels;
@@ -336,7 +333,7 @@ namespace Durin::AssetForge::Builtins
 		-> FVolumeTextureImportDataState
 	{
 		FVolumeTextureImportDataState State;
-		static_cast<AssetImport::FAssetImportDataState&>(State) = {
+		static_cast<FAssetImportDataState&>(State) = {
 			.SchemaVersion = GetSchemaVersion(), .SourceData = GetSourceData()};
 		State.ImportFormat = ImportFormat;
 		State.Channels = Channels;
@@ -357,7 +354,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto DVolumeTextureImportData::CloneToOwner(
 		DObject* Owner, FName Name, std::string& OutError) const
-		-> AssetImport::DAssetImportData*
+		-> DAssetImportData*
 	{
 		if (!Owner || Name.IsNone() || !Validate(OutError))
 		{

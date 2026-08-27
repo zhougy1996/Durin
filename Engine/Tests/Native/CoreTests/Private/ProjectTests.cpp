@@ -236,7 +236,8 @@ TEST_F(FProjectHistoryTest, ValidatesAdditionalMountDescriptorSchema)
 	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints(&Error)) << Error;
 	EXPECT_TRUE(Durin::PathUtilities::ResolveAssetPath("/Game/Levels/Test"));
 	EXPECT_TRUE(Durin::PathUtilities::ResolveAssetPath("/Engine/StaticMeshes/Box"));
-	EXPECT_TRUE(Durin::PathUtilities::ResolveSourcePath("/Plugins/PCG/Noise.png"));
+	EXPECT_TRUE(Durin::PathUtilities::ResolveAssetPath(
+		"/Plugins/PCG/Noise.png", Durin::PathUtilities::EPathExistence::RequireFile));
 	EXPECT_TRUE(Durin::PathUtilities::ResolveAssetPath("/Libraries/StudioArt/Texture"));
 	EXPECT_TRUE(Durin::PathUtilities::CheckMountDependency("/Game/Asset", "/Engine/Source"));
 	EXPECT_TRUE(Durin::PathUtilities::CheckMountDependency("/Game/Asset", "/Plugins/PCG/Source"));

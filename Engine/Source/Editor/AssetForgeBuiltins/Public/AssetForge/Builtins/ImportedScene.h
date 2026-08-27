@@ -111,7 +111,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		EImportedDependencyRole Role = EImportedDependencyRole::RootScene;
 		std::string StableIdentity;
-		FSourcePath Source;
+		std::string SourcePath;
 		FXxHash128 ContentHash;
 		uint64 ByteCount = 0;
 	};
@@ -128,7 +128,7 @@ namespace Durin::AssetForge::Builtins
 	struct FMeshImportOptions
 	{
 		FMatrix4f SourceToEngine{1.0f};
-		FSourcePath RootSource;
+		std::string RootSourcePath;
 	};
 
 	struct FImportedMaterialSlot

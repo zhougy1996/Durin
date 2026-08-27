@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Asset/SourcePath.h"
 #include "AssetForge/Builtins/ImportSupport.h"
 #include "Hash/XxHash.h"
 
@@ -9,7 +8,7 @@ namespace Durin::AssetForge::Builtins
 	// Owns one immutable source capture used consistently for hashing, decoding, and build composition.
 	struct FEncodedSourceSnapshot
 	{
-		FSourcePath SourcePath;
+		std::string Filename;
 		std::filesystem::path PhysicalPath;
 		std::shared_ptr<const std::vector<std::byte>> Bytes;
 		FXxHash128 ContentHash{};
@@ -23,7 +22,7 @@ namespace Durin::AssetForge::Builtins
 	};
 
 	auto CaptureEncodedSource(
-		const FSourcePath& SourcePath,
+		std::string Filename,
 		const std::filesystem::path& PhysicalPath,
 		FEncodedSourceSnapshot& OutSnapshot,
 		std::string& OutError,

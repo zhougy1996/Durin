@@ -8,7 +8,7 @@ namespace Durin::AssetForge::Builtins
 {
 	using namespace Durin::Asset;
 	auto CaptureEncodedSource(
-		const FSourcePath& SourcePath,
+		std::string Filename,
 		const std::filesystem::path& PhysicalPath,
 		FEncodedSourceSnapshot& OutSnapshot,
 		std::string& OutError,
@@ -34,7 +34,7 @@ namespace Durin::AssetForge::Builtins
 		auto Bytes = std::make_shared<std::vector<std::byte>>();
 		if (!FFileHelper::LoadFileToArray(*Bytes, PhysicalPath))
 		{
-			OutError = std::format("Failed to read source file '{}'.", SourcePath.Path);
+			OutError = std::format("Failed to read source file '{}'.", Filename);
 			return false;
 		}
 		const uint64 SizeAfter = std::filesystem::file_size(PhysicalPath, Error);
@@ -47,7 +47,7 @@ namespace Durin::AssetForge::Builtins
 			return false;
 		}
 		OutSnapshot = {
-			.SourcePath = SourcePath,
+			.Filename = std::move(Filename),
 			.PhysicalPath = PhysicalPath,
 			.Bytes = std::move(Bytes),
 			.FileSize = FileSize,
@@ -61,7 +61,7 @@ namespace Durin::AssetForge::Builtins
 		FEncodedSourceSnapshot& OutSnapshot) -> void
 	{
 		OutSnapshot = {
-			.SourcePath = Source.SourcePath,
+			.Filename = Source.Filename,
 			.Bytes = Source.Bytes,
 			.ContentHash = Source.ContentHash,
 			.FileSize = Source.ByteCount};

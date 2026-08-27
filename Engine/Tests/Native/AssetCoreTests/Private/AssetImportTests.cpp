@@ -179,7 +179,8 @@ namespace Durin::AssetForge::Builtins
 			{
 				EXPECT_EQ(Expected.Dependencies[Index].Role, Actual.Dependencies[Index].Role);
 				EXPECT_EQ(Expected.Dependencies[Index].StableIdentity, Actual.Dependencies[Index].StableIdentity);
-				EXPECT_EQ(Expected.Dependencies[Index].Source, Actual.Dependencies[Index].Source);
+				EXPECT_EQ(Expected.Dependencies[Index].SourcePath,
+					Actual.Dependencies[Index].SourcePath);
 				EXPECT_EQ(Expected.Dependencies[Index].ContentHash, Actual.Dependencies[Index].ContentHash);
 				EXPECT_EQ(Expected.Dependencies[Index].ByteCount, Actual.Dependencies[Index].ByteCount);
 			}
@@ -735,20 +736,20 @@ namespace Durin::AssetForge::Builtins
 	{
 		FImportedSceneData Scene;
 		FMeshImportOptions Options;
-		Options.RootSource.Path = "/Game/Models/MaterialContract.gltf";
+		Options.RootSourcePath = "/Game/Models/MaterialContract.gltf";
 		ASSERT_TRUE(ImportFromFile(
 			TestDataPath("StaticModelMaterials/MaterialContract.gltf"), Scene, Options));
 
 		ASSERT_EQ(Scene.Dependencies.size(), 3u);
 		EXPECT_EQ(Scene.Dependencies[0].Role, EImportedDependencyRole::RootScene);
 		EXPECT_EQ(Scene.Dependencies[0].StableIdentity, "root");
-		EXPECT_EQ(Scene.Dependencies[0].Source.Path, "/Game/Models/MaterialContract.gltf");
+		EXPECT_EQ(Scene.Dependencies[0].SourcePath, "/Game/Models/MaterialContract.gltf");
 		EXPECT_EQ(Scene.Dependencies[1].Role, EImportedDependencyRole::GeometryBuffer);
 		EXPECT_EQ(Scene.Dependencies[1].StableIdentity, "buffer:Triangle.bin");
-		EXPECT_EQ(Scene.Dependencies[1].Source.Path, "/Game/Models/Triangle.bin");
+		EXPECT_EQ(Scene.Dependencies[1].SourcePath, "/Game/Models/Triangle.bin");
 		EXPECT_EQ(Scene.Dependencies[2].Role, EImportedDependencyRole::Image);
 		EXPECT_EQ(Scene.Dependencies[2].StableIdentity, "image:Red.png");
-		EXPECT_EQ(Scene.Dependencies[2].Source.Path, "/Game/Models/Red.png");
+		EXPECT_EQ(Scene.Dependencies[2].SourcePath, "/Game/Models/Red.png");
 		for (const FImportedDependency& Dependency : Scene.Dependencies)
 		{
 			EXPECT_GT(Dependency.ByteCount, 0u);

@@ -24,6 +24,13 @@ namespace Durin
 				? std::numeric_limits<uint64>::max() : A + B;
 		}
 
+		auto FindImportedSource(const DAssetImportData* ImportData)
+			-> const FSourceFile*
+		{
+			return ImportData
+				? ImportData->GetSourceData().FindByRole("source") : nullptr;
+		}
+
 		auto MipBytes(const FTexturePlatformData* Data) -> uint64
 		{
 			uint64 Bytes = 0;
@@ -158,12 +165,12 @@ namespace Durin
 			ReadScalar(Package, "SourceWidth", Width);
 			ReadScalar(Package, "SourceHeight", Height);
 			std::string SourcePath;
-			AssetImport::FAssetImportInfo CommonInfo;
+			FAssetImportInfo CommonInfo;
 			std::string CommonError;
 			bool bHasSource = false;
-			if (AssetImport::InspectAssetImportInfo(Package, CommonInfo, CommonError))
+			if (InspectAssetImportInfo(Package, CommonInfo, CommonError))
 			{
-				if (const AssetImport::FSourceFile* Source = CommonInfo.FindByRole("source"))
+				if (const FSourceFile* Source = CommonInfo.FindByRole("source"))
 				{
 					bHasSource = true;
 					SourceBytes = Source->ByteCount;
@@ -299,6 +306,8 @@ namespace Durin
 	{
 		FTexturePayloadInspection Result;
 		const bool bImportedDataValid = Texture.GetImportedData().IsValid();
+		const FSourceFile* ImportedSource =
+			FindImportedSource(Texture.GetAssetImportData());
 		Result.Entries.push_back({
 			.Domain = "Texture2D", .Stage = ETexturePayloadStage::Source,
 			.State = bImportedDataValid
@@ -307,10 +316,10 @@ namespace Durin
 				? ETexturePayloadRepairAction::None
 				: ETexturePayloadRepairAction::RestoreEditorCompanion,
 			.LogicalElementCount = Multiply(Texture.GetSourceWidth(), Texture.GetSourceHeight()),
-			.LogicalByteCount = Texture.GetSourceFileSize(),
-			.StoredByteCount = Texture.GetSourceFileSize(),
+			.LogicalByteCount = ImportedSource ? ImportedSource->ByteCount : 0,
+			.StoredByteCount = ImportedSource ? ImportedSource->ByteCount : 0,
 			.Placement = "EditorBulkData",
-			.Provenance = Texture.GetSourceFile(),
+			.Provenance = ImportedSource ? ImportedSource->Hint : std::string{},
 			.Diagnostic = bImportedDataValid
 				? "Canonical imported pixels are authored; the optional source hint was not probed."
 				: "Canonical imported pixels are missing or invalid."});
@@ -364,6 +373,8 @@ namespace Durin
 	{
 		FTexturePayloadInspection Result;
 		const FVolumeTextureSourceData& Source = Texture.GetSourceData();
+		const FSourceFile* ImportedSource =
+			FindImportedSource(Texture.GetAssetImportData());
 		const Asset::FBulkDataDescriptor& SourceDescriptor =
 			Source.Voxels.GetBulkData().GetDescriptor();
 		Result.Entries.push_back({
@@ -377,7 +388,7 @@ namespace Durin
 			.StoredByteCount = SourceDescriptor.LogicalByteCount,
 			.PayloadId = SourceDescriptor.PayloadId,
 			.Placement = "EditorPackage",
-			.Provenance = Texture.GetSourceFile()});
+			.Provenance = ImportedSource ? ImportedSource->Hint : std::string{}});
 		const bool bDerivedReady = Texture.GetPlatformData() && Texture.GetPlatformData()->IsValid()
 			&& !Texture.GetDerivedDataKey().empty();
 		Result.Entries.push_back({

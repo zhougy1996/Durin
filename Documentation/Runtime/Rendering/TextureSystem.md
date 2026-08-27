@@ -4,15 +4,15 @@ Summary: Define texture assets, derived platform data, cooking, GPU upload, mate
 
 Modules: Engine, TextureEditor, RenderCore, RHI
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-08-27
 
 Durin's Texture2D pipeline has explicit authored-source, derived platform,
 cooked-runtime, render-resource, editor, and material boundaries.
 
 ## Asset and Build Ownership
 
-- `DTexture2D` owns an optional complete `FSourcePath` in any allowed mount's
-  effective content directory plus the reflected `Usage`,
+- `DTexture2D` owns optional editor-only import data containing a normalized,
+  explicitly based physical source hint plus the reflected `Usage`,
   `bSRGB`, `MaxResolution`, `CompressionQuality`, `AlphaMipMode`, and
   `AlphaCoverageThreshold` build settings.
 - The package also retains the imported source-content hash, source file

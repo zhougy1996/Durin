@@ -75,13 +75,14 @@ references, filesystem existence, relative-path containment, canonical mount
 overlap, and mount dependency rules remain explicit semantic checks in the
 owning tool or runtime because they require workspace or filesystem context.
 
-## Mounted Content And Sources
+## Mounted Content And Source Files
 
 A logical mount has one owner `Root`, one configurable relative `ContentPath`,
-and one effective physical directory returned by `GetContentDir()`. Both
-extensionless `FAssetPath` package identities and complete `FSourcePath` file
-identities resolve relative to that same directory. The path types retain
-different validation and persistence rules, but never select different roots:
+and one effective physical directory returned by `GetContentDir()`.
+Extensionless `FAssetPath` package identities resolve relative to that
+directory. Import source files instead use normalized explicitly based
+physical filenames; they do not acquire package identities or resolve through
+the mount registry:
 
 ```text
 /Game/Textures/T_Stone

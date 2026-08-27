@@ -210,7 +210,7 @@ namespace Durin::AssetForge::Builtins
 
 		auto MakeMeshImportOptions(
 			const FStaticMeshImportSettings& Settings,
-			const FSourcePath& RootSource) -> FMeshImportOptions
+			std::string RootSourcePath) -> FMeshImportOptions
 		{
 			const FVector3f Forward = ImportAxisVector(Settings.ForwardAxis);
 			const FVector3f Right = ImportAxisVector(Settings.RightAxis);
@@ -222,7 +222,7 @@ namespace Durin::AssetForge::Builtins
 				Options.SourceToEngine[Component][1] = Right[Component];
 				Options.SourceToEngine[Component][2] = Up[Component];
 			}
-			Options.RootSource = RootSource;
+			Options.RootSourcePath = std::move(RootSourcePath);
 			return Options;
 		}
 
@@ -342,7 +342,7 @@ namespace Durin::AssetForge::Builtins
 			auto Stage(const FSourceSnapshot& Snapshot, std::string& OutError) -> bool
 			{
 				const FSourceSnapshotEntry* RootSource = Snapshot.FindSource("root");
-				if (!RootSource || RootSource->SourcePath.IsEmpty())
+				if (!RootSource || RootSource->Filename.empty())
 				{
 					OutError = "Scene snapshot has no logical root source.";
 					return false;
@@ -352,18 +352,18 @@ namespace Durin::AssetForge::Builtins
 					/ std::format("DurinSceneImport_{}_{}_{}",
 						RootSource->ContentHash.ToString(),
 						FPlatformProcess::CurrentProcessId(), ++Serial);
-				const std::filesystem::path VirtualRoot(RootSource->SourcePath.Path);
-				const std::filesystem::path VirtualParent = VirtualRoot.parent_path();
+				const std::filesystem::path SourceRoot(RootSource->Filename);
+				const std::filesystem::path SourceParent = SourceRoot.parent_path();
 				for (const FSourceSnapshotEntry& Source : Snapshot.GetSources())
 				{
-					if (Source.SourcePath.IsEmpty()) continue;
-					const std::filesystem::path Virtual(Source.SourcePath.Path);
-					std::filesystem::path Relative = Virtual.lexically_relative(VirtualParent);
+					if (Source.Filename.empty()) continue;
+					const std::filesystem::path SourcePath(Source.Filename);
+					std::filesystem::path Relative = SourcePath.lexically_relative(SourceParent);
 					if (Relative.empty() || Relative.is_absolute()
 						|| std::ranges::find(Relative, std::filesystem::path("..")) != Relative.end())
 					{
 						OutError = std::format(
-							"Scene source {} escapes its logical root.", Source.SourcePath.Path);
+							"Scene source {} escapes its logical root.", Source.Filename);
 						return false;
 					}
 					const std::filesystem::path Target = Root / Relative;
@@ -398,7 +398,7 @@ namespace Durin::AssetForge::Builtins
 			if (!Files.Stage(Snapshot, OutError)) return false;
 			const FSourceSnapshotEntry* Root = Snapshot.FindSource("root");
 			if (!ImportFromFile(Files.GetRoot().generic_string(), OutScene,
-				MakeMeshImportOptions(Settings, Root->SourcePath)))
+				MakeMeshImportOptions(Settings, Root->Filename)))
 			{
 				OutError = "Captured Scene sources could not be decoded.";
 				return false;
@@ -459,7 +459,7 @@ namespace Durin::AssetForge::Builtins
 					return false;
 				}
 				const std::string SceneName = SanitizeAssetName(
-					std::filesystem::path(RootSource->SourcePath.Path)
+					std::filesystem::path(RootSource->Filename)
 						.stem().generic_string(), "Scene");
 				std::unordered_set<std::string> SkeletonNames;
 				for (uint32 SkeletonIndex = 0;
@@ -712,27 +712,27 @@ namespace Durin::AssetForge::Builtins
 			const FImportedSceneData& Scene,
 			const FImportedImage& Image,
 			std::span<const std::byte>& OutBytes,
-			FSourcePath& OutSource) -> bool
+			std::string& OutFilename) -> bool
 		{
 			if (!Image.EmbeddedEncodedBytes.empty())
 			{
 				OutBytes = Image.EmbeddedEncodedBytes;
 				const FSourceSnapshotEntry* Root = Snapshot.FindSource("root");
 				if (!Root) return false;
-				OutSource = Root->SourcePath;
+				OutFilename = Root->Filename;
 				return true;
 			}
 			if (!Image.ExternalDependencyIndex
 				|| *Image.ExternalDependencyIndex >= Scene.Dependencies.size()) return false;
-			const FSourcePath& Dependency =
-				Scene.Dependencies[*Image.ExternalDependencyIndex].Source;
+			const std::string& Dependency =
+				Scene.Dependencies[*Image.ExternalDependencyIndex].SourcePath;
 			const auto Source = std::ranges::find_if(
 				Snapshot.GetSources(), [&](const FSourceSnapshotEntry& Entry) {
-					return Entry.SourcePath == Dependency;
+					return Entry.Filename == Dependency;
 				});
 			if (Source == Snapshot.GetSources().end()) return false;
 			OutBytes = Source->GetBytes();
-			OutSource = Source->SourcePath;
+			OutFilename = Source->Filename;
 			return true;
 		}
 
@@ -750,12 +750,12 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto MakeEmbeddedImageSourcePath(
-			const FSourcePath& RootSource,
+			std::string_view RootSource,
 			const FImportedImage& Image,
 			std::string_view TextureIdentity,
 			std::span<const std::byte> Bytes) -> std::string
 		{
-			const std::filesystem::path RootPath(RootSource.Path);
+			const std::filesystem::path RootPath(RootSource);
 			const std::string FileName = std::format(
 				"{}_{}{}",
 				StableSuffix(TextureIdentity),
@@ -847,11 +847,11 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto MakeDerivedImageSourcePath(
-			const FSourcePath& RootSource,
+			std::string_view RootSource,
 			std::string_view TextureIdentity,
 			std::span<const std::byte> Bytes) -> std::string
 		{
-			const std::filesystem::path RootPath(RootSource.Path);
+			const std::filesystem::path RootPath(RootSource);
 			return (RootPath.parent_path()
 				/ (RootPath.stem().generic_string() + "_Derived")
 				/ std::format("{}_{}.tga", StableSuffix(TextureIdentity),
@@ -868,7 +868,7 @@ namespace Durin::AssetForge::Builtins
 			Sources, std::string_view("root"), &FSourceSnapshotEntry::StableIdentity);
 		if (Root == Sources.end()) return false;
 		const std::string Extension = FoldAscii(
-			std::filesystem::path(Root->SourcePath.Path).extension().generic_string());
+			std::filesystem::path(Root->Filename).extension().generic_string());
 		if (Extension != ".gltf") return true;
 		if (DiscoverGltfUris(Root->GetBytes(), Sink)) return true;
 		AddDiagnostic(OutDiagnostics, EImportDiagnosticCategory::UnsafeDependency,
@@ -931,9 +931,9 @@ namespace Durin::AssetForge::Builtins
 		}
 		const FImportedImage& Image = Data.Scene.Images[Descriptor.SourceIndex];
 		std::span<const std::byte> Bytes;
-		FSourcePath Source;
+		std::string SourceFilename;
 		if (!IsSceneSurfaceImageEncodingSupported(Image.Encoding)
-			|| !FindSnapshotImageBytes(Snapshot, Data.Scene, Image, Bytes, Source))
+			|| !FindSnapshotImageBytes(Snapshot, Data.Scene, Image, Bytes, SourceFilename))
 		{
 			OutError = "Scene image snapshot mapping is invalid.";
 			return false;
@@ -943,22 +943,22 @@ namespace Durin::AssetForge::Builtins
 		{
 			if (!BuildDerivedTextureBytes(Bytes, Descriptor.TextureDerivation,
 				Descriptor.TextureDerivationScale, Descriptor.TextureDerivationColorScale,
-				OutProduct.SourceBytesToMount, OutError)) return false;
-			Bytes = OutProduct.SourceBytesToMount;
+				OutProduct.GeneratedSourceBytes, OutError)) return false;
+			Bytes = OutProduct.GeneratedSourceBytes;
 			const FSourceSnapshotEntry* Root = Snapshot.FindSource("root");
 			if (!Root) { OutError = "Scene root source is unavailable."; return false; }
-			OutProduct.Source.Path = MakeDerivedImageSourcePath(
-				Root->SourcePath, Descriptor.StableIdentity, Bytes);
+			OutProduct.SourceFilename = MakeDerivedImageSourcePath(
+				Root->Filename, Descriptor.StableIdentity, Bytes);
 		}
 		else if (!Image.EmbeddedEncodedBytes.empty())
 		{
-			OutProduct.SourceBytesToMount.assign(Bytes.begin(), Bytes.end());
+			OutProduct.GeneratedSourceBytes.assign(Bytes.begin(), Bytes.end());
 			const FSourceSnapshotEntry* Root = Snapshot.FindSource("root");
 			if (!Root) { OutError = "Scene root source is unavailable."; return false; }
-			OutProduct.Source.Path = MakeEmbeddedImageSourcePath(
-				Root->SourcePath, Image, Descriptor.StableIdentity, Bytes);
+			OutProduct.SourceFilename = MakeEmbeddedImageSourcePath(
+				Root->Filename, Image, Descriptor.StableIdentity, Bytes);
 		}
-		else OutProduct.Source = Source;
+		else OutProduct.SourceFilename = std::move(SourceFilename);
 		OutProduct.SourceFileSize = Bytes.size();
 		FTextureSourceData SourceData;
 		const FXxHash128 SourceHash = FXxHash128::HashBuffer(Bytes);

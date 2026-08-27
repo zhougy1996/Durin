@@ -47,7 +47,7 @@ namespace Durin::AssetForge::Builtins
 
 		auto MakeMeshImportOptions(
 			const FStaticMeshImportSettings& Settings,
-			const FSourcePath& RootSource) -> FMeshImportOptions
+			std::string RootSourcePath) -> FMeshImportOptions
 		{
 			const FVector3f Forward = ImportAxisVector(Settings.ForwardAxis);
 			const FVector3f Right = ImportAxisVector(Settings.RightAxis);
@@ -59,7 +59,7 @@ namespace Durin::AssetForge::Builtins
 				Options.SourceToEngine[Component][1] = Right[Component];
 				Options.SourceToEngine[Component][2] = Up[Component];
 			}
-			Options.RootSource = RootSource;
+			Options.RootSourcePath = std::move(RootSourcePath);
 			return Options;
 		}
 

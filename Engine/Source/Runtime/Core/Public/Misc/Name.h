@@ -85,7 +85,7 @@ namespace Durin
 
 		static constexpr auto GetDataOffset() -> int32 { return offsetof(FNameEntry, NameData); }
 
-		FORCEINLINE auto MakeView() const -> std::string_view;
+		[[nodiscard]] CORE_API auto MakeView() const -> std::string_view;
 
 		[[nodiscard]] FORCEINLINE auto GetComparisonId() const -> FNameEntryId { return ComparisonId; }
 

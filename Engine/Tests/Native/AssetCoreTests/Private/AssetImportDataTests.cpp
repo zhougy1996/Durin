@@ -9,18 +9,16 @@
 namespace
 {
 	auto MakeSource(
-		std::string Identity,
-		std::string Role,
+		Durin::FName Role,
 		std::string Hint,
 		std::string_view Bytes,
-		Durin::AssetImport::ESourceHintBase HintBase =
-			Durin::AssetImport::ESourceHintBase::ProjectRelative)
-		-> Durin::AssetImport::FSourceFile
+		Durin::ESourceHintBase HintBase =
+			Durin::ESourceHintBase::ProjectRelative)
+		-> Durin::FSourceFile
 	{
 		const Durin::FXxHash128 Hash = Durin::FXxHash128::HashBuffer(Bytes);
 		return {
-			.StableIdentity = std::move(Identity),
-			.Role = std::move(Role),
+			.Role = Role,
 			.DisplayLabel = "Source fixture",
 			.Hint = std::move(Hint),
 			.HintBase = HintBase,
@@ -35,26 +33,26 @@ namespace
 		void SetUp() override
 		{
 			Durin::Testing::InitializeDObjectSystemForTests();
-			(void)Durin::AssetImport::DAssetImportData::StaticClass();
+			(void)Durin::DAssetImportData::StaticClass();
 		}
 	};
 }
 
 TEST_F(FAssetImportDataTests, SourceInfoNormalizesValidatesLooksUpAndFingerprints)
 {
-	using namespace Durin::AssetImport;
+	using Durin::FAssetImportInfo;
+	using Durin::FSourceFile;
+	using Durin::MaximumAssetImportSources;
 	FAssetImportInfo Info;
 	Info.Sources = {
-		MakeSource("zeta", "dependency", "TestSources/zeta.bin", "zeta"),
-		MakeSource("root", "source", "TestSources/root.png", "root")};
+		MakeSource("source", "TestSources/root.png", "root"),
+		MakeSource("dependency", "TestSources/zeta.bin", "zeta")};
 	std::string Error;
 	EXPECT_FALSE(Info.Validate(Error));
 	Info.Normalize();
 	ASSERT_TRUE(Info.Validate(Error)) << Error;
-	ASSERT_NE(Info.FindByStableIdentity("root"), nullptr);
-	EXPECT_EQ(Info.FindByStableIdentity("root")->Role, "source");
 	ASSERT_NE(Info.FindByRole("dependency"), nullptr);
-	EXPECT_EQ(Info.FindByRole("dependency")->StableIdentity, "zeta");
+	EXPECT_EQ(Info.FindByRole("dependency")->Hint, "TestSources/zeta.bin");
 	EXPECT_FALSE(Info.GetFingerprint().IsZero());
 
 	FAssetImportInfo Same = Info;
@@ -65,8 +63,15 @@ TEST_F(FAssetImportDataTests, SourceInfoNormalizesValidatesLooksUpAndFingerprint
 	Same.Sources.push_back(Same.Sources.front());
 	EXPECT_FALSE(Same.Validate(Error));
 	FSourceFile Partial;
-	Partial.StableIdentity = "partial";
+	Partial.Role = "partial";
 	EXPECT_FALSE(Partial.Validate(Error));
+	FSourceFile UppercaseRole = Info.Sources.front();
+	UppercaseRole.Role = "Dependency";
+	EXPECT_TRUE(UppercaseRole.Validate(Error)) << Error;
+	EXPECT_EQ(UppercaseRole.Role, Durin::FName("dependency"));
+	FSourceFile NumberedRole = Info.Sources.front();
+	NumberedRole.Role = "dependency_1";
+	EXPECT_FALSE(NumberedRole.Validate(Error));
 	FSourceFile Empty;
 	EXPECT_TRUE(Empty.Validate(Error));
 	FAssetImportInfo TooMany;
@@ -76,7 +81,9 @@ TEST_F(FAssetImportDataTests, SourceInfoNormalizesValidatesLooksUpAndFingerprint
 
 TEST_F(FAssetImportDataTests, SourceHintsSupportAssetProjectAndAbsoluteBases)
 {
-	using namespace Durin::AssetImport;
+	using Durin::ESourceHintBase;
+	using Durin::MakeSourceHint;
+	using Durin::ResolveSourceHint;
 	const std::filesystem::path Project = Durin::FPaths::ProjectDir();
 	ASSERT_FALSE(Project.empty());
 	const std::filesystem::path Package =

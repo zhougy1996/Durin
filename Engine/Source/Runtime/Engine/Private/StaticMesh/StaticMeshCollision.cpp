@@ -35,9 +35,11 @@ namespace Durin
 		std::string& OutError) const -> bool
 	{
 		FStaticMeshSourceImportData SourceImportData;
-		if (const AssetImport::FSourceFile* Source = GetImportedSource())
+		const DAssetImportData* ImportData = GetAssetImportData();
+		if (const FSourceFile* Source = ImportData
+				? ImportData->GetSourceData().FindByRole("source") : nullptr)
 		{
-			SourceImportData.SourcePath.Path = Source->Hint;
+			SourceImportData.SourceFilename = Source->Hint;
 			SourceImportData.SourceContentHash = Source->GetContentHash().ToString();
 		}
 		FStaticMeshCollisionBuildProduct Product;

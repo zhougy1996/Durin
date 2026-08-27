@@ -79,27 +79,17 @@ namespace Durin
 		ENGINE_API explicit DTextureCube(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DTextureCube() override;
 
-		ENGINE_API auto GetSourceFile(ETextureCubeFace Face) const -> const std::string&;
 		auto GetSourceLayout() const -> ETextureCubeSourceLayout { return SourceLayout; }
-		auto GetPanoramaSourceFile() const -> const std::string&
-		{
-			if (AssetImportData)
-				if (const AssetImport::FSourceFile* Source =
-						AssetImportData->GetSourceData().FindByRole("panorama"))
-					return Source->Hint;
-			static const std::string Empty;
-			return Empty;
-		}
-		auto GetAssetImportData() const -> const AssetImport::DAssetImportData*
+		auto GetAssetImportData() const -> const DAssetImportData*
 		{
 			return AssetImportData.Get();
 		}
-		auto GetAssetImportData() -> AssetImport::DAssetImportData*
+		auto GetAssetImportData() -> DAssetImportData*
 		{
 			return AssetImportData.Get();
 		}
 		ENGINE_API auto PublishAssetImportData(
-			AssetImport::DAssetImportData& Value, std::string& OutError) -> bool;
+			DAssetImportData& Value, std::string& OutError) -> bool;
 		auto GetPanoramaFaceDimension() const -> uint32 { return PanoramaFaceDimension; }
 		auto GetPanoramaExposureEV() const -> float { return PanoramaExposureEV; }
 		auto GetOriginalSourceWidth() const -> uint32 { return OriginalSourceWidth; }
@@ -160,7 +150,7 @@ namespace Durin
 		ETextureCubeSourceLayout SourceLayout = ETextureCubeSourceLayout::SixFaces;
 
 		DPROPERTY(EditorOnly)
-		TObjectPtr<AssetImport::DAssetImportData> AssetImportData;
+		TObjectPtr<DAssetImportData> AssetImportData;
 
 		DPROPERTY(EditorOnly)
 		FTextureCubeImportedData ImportedData;

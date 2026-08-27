@@ -500,7 +500,7 @@ namespace Durin
 	}
 
 	auto DTexture2D::PublishAssetImportData(
-		AssetImport::DAssetImportData& Value, std::string& OutError) -> bool
+		DAssetImportData& Value, std::string& OutError) -> bool
 	{
 		if (Value.GetOuter() != this)
 		{

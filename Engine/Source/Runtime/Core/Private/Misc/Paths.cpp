@@ -514,19 +514,9 @@ namespace Durin
 			return ResolveMountPath<FAssetPathResult>(VirtualPath, Existence);
 		}
 
-		auto ResolveSourcePath(std::string_view VirtualPath, EPathExistence Existence) -> FSourcePathResult
-		{
-			return ResolveMountPath<FSourcePathResult>(VirtualPath, Existence);
-		}
-
 		auto ClassifyAssetPath(const std::filesystem::path& PhysicalPath) -> FAssetPathResult
 		{
 			return ClassifyMountPath<FAssetPathResult>(PhysicalPath);
-		}
-
-		auto ClassifySourcePath(const std::filesystem::path& PhysicalPath) -> FSourcePathResult
-		{
-			return ClassifyMountPath<FSourcePathResult>(PhysicalPath);
 		}
 
 		auto CheckMountDependency(

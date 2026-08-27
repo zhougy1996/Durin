@@ -8,7 +8,7 @@
 
 namespace Durin::AssetForge::Builtins
 {
-	struct FStaticMeshImportDataState : AssetImport::FAssetImportDataState
+	struct FStaticMeshImportDataState : FAssetImportDataState
 	{
 		std::string ImporterId;
 		uint32 ImporterVersion = 0;
@@ -18,7 +18,7 @@ namespace Durin::AssetForge::Builtins
 	};
 
 	DCLASS()
-	class DStaticMeshImportData final : public AssetImport::DAssetImportData
+	class DStaticMeshImportData final : public DAssetImportData
 	{
 		GENERATED_BODY()
 
@@ -35,7 +35,7 @@ namespace Durin::AssetForge::Builtins
 			FStaticMeshImportDataState State, std::string& OutError) -> bool;
 		ASSETFORGEBUILTINS_API auto GetStaticMeshState() const
 			-> FStaticMeshImportDataState;
-		auto GetState() const -> AssetImport::FAssetImportDataState override
+		auto GetState() const -> FAssetImportDataState override
 		{
 			return GetStaticMeshState();
 		}
@@ -43,7 +43,7 @@ namespace Durin::AssetForge::Builtins
 			-> bool override;
 		ASSETFORGEBUILTINS_API auto CloneToOwner(
 			DObject* Owner, FName Name, std::string& OutError) const
-			-> AssetImport::DAssetImportData* override;
+			-> DAssetImportData* override;
 
 	private:
 		DPROPERTY()

@@ -1135,7 +1135,7 @@ TEST(FPhysicsWorldTests, StaticMeshCollisionPolicyRepublishesSharedSceneGeometry
 	ImportedMesh.Indices = {0, 2, 1, 0, 1, 3, 1, 2, 3, 2, 0, 3};
 	ImportedMesh.SourceMaterialIndex = 0;
 	Durin::FStaticMeshSourceImportData Provenance{
-		.SourcePath = {.Path = "/Tests/SceneCollisionFixture.gltf"},
+		.SourceFilename = "/Tests/SceneCollisionFixture.gltf",
 		.SourceContentHash = "0123456789abcdef0123456789abcdef",
 		.ImporterId = "PhysicsSceneFixture",
 		.ImporterVersion = 1,

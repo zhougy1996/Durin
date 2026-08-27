@@ -213,10 +213,12 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	const Durin::FTexturePlatformData ExpectedPlatformData = *Import.Asset->GetPlatformData();
 	const Durin::FTextureDerivedDataDiagnostic DiagnosticBeforeCook =
 		Import.Asset->GetDerivedDataDiagnostic();
-	ASSERT_NE(Import.Asset->GetImportedSource(), nullptr);
-	const Durin::AssetImport::FSourceFile SourceBeforeCook =
-		*Import.Asset->GetImportedSource();
-	const std::string SourceHashBeforeCook = Import.Asset->GetSourceContentHash();
+	ASSERT_NE(Import.Asset->GetAssetImportData(), nullptr);
+	const Durin::FSourceFile* ImportedSource =
+		Import.Asset->GetAssetImportData()->GetSourceData().FindByRole("source");
+	ASSERT_NE(ImportedSource, nullptr);
+	const Durin::FSourceFile SourceBeforeCook =
+		*ImportedSource;
 	const Durin::Asset::FCookedPayloadDescriptor DescriptorBeforeCook =
 		Import.Asset->GetCookedPayloadDescriptor();
 	const bool bPackageDirtyBeforeCook = Import.Asset->GetPackage()->IsDirty();
@@ -245,9 +247,10 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		true);
 	ASSERT_TRUE(Import.Asset->AddToCook(Diagnostic, "/Game/CookedTexture", Error)) << Error;
 	ASSERT_TRUE(Diagnostic.Publish(&Error)) << Error;
-	ASSERT_NE(Import.Asset->GetImportedSource(), nullptr);
-	EXPECT_EQ(*Import.Asset->GetImportedSource(), SourceBeforeCook);
-	EXPECT_EQ(Import.Asset->GetSourceContentHash(), SourceHashBeforeCook);
+	ASSERT_NE(Import.Asset->GetAssetImportData(), nullptr);
+	ImportedSource = Import.Asset->GetAssetImportData()->GetSourceData().FindByRole("source");
+	ASSERT_NE(ImportedSource, nullptr);
+	EXPECT_EQ(*ImportedSource, SourceBeforeCook);
 	EXPECT_EQ(Import.Asset->GetCookedPayloadDescriptor(), DescriptorBeforeCook);
 	EXPECT_EQ(Import.Asset->GetPackage()->IsDirty(), bPackageDirtyBeforeCook);
 
@@ -397,7 +400,6 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		CookedTexture->GetDerivedDataDiagnostic().Status,
 		Durin::ETextureDerivedDataStatus::CookedLoaded);
 	EXPECT_EQ(CookedTexture->GetAssetImportData(), nullptr);
-	EXPECT_TRUE(CookedTexture->GetSourceContentHash().empty());
 	EXPECT_TRUE(CookedTexture->GetDerivedDataKey().empty());
 	EXPECT_EQ(
 		CookedTexture->GetCookedPayloadDescriptor().PayloadId,

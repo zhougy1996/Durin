@@ -4,7 +4,7 @@ Summary: Define asset identity, package serialization, runtime residency, loadin
 
 Modules: AssetCore, CoreDObject
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-27
 
 Durin object assets are stored as versioned `.dasset` packages. A package has one public main asset and may contain any number of `DObject` instances arranged through the ordinary Outer hierarchy. Outer defines structural containment and object paths, not a GC strong reference.
 
@@ -21,8 +21,8 @@ manifest publication. `AssetTools.h` adds offline inspection, compatibility, and
 canonical-resave workflows.
 
 Public Engine asset headers include narrow leaves such as
-`Asset/CookedAsset.h`, `Asset/Cook.h`, and `Asset/SourcePath.h` when their type
-layout or method signatures require those declarations. They do not include an
+`Asset/CookedAsset.h` and `Asset/Cook.h` when their type layout or method
+signatures require those declarations. They do not include an
 umbrella solely to obtain one value type. Callers select `PackageTypes.h`,
 `PackageInspection.h`, or `PackageSerialization.h` by capability; there is no
 package compatibility aggregate.

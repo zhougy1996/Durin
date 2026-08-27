@@ -854,7 +854,7 @@ namespace Durin
 	}
 
 	auto DStaticMesh::PublishAssetImportData(
-		AssetImport::DAssetImportData& Value, std::string& OutError) -> bool
+		DAssetImportData& Value, std::string& OutError) -> bool
 	{
 		if (Value.GetOuter() != this)
 		{

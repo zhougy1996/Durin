@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Asset/PackageSerialization.h"
-#include "Asset/SourcePath.h"
 #include "AssetForgeBuiltinsAPI.h"
 #include "DObject/AssetPath.h"
 #include "Hash/XxHash.h"
@@ -88,7 +87,7 @@ namespace Durin::AssetForge
 	{
 		std::string StableIdentity;
 		std::string Role;
-		FSourcePath SourcePath;
+		std::string Filename;
 		std::string DeclaringIdentity;
 		FXxHash128 ContentHash{};
 		uint64 ByteCount = 0;

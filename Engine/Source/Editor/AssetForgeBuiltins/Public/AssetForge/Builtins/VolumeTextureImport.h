@@ -12,7 +12,7 @@ namespace Durin::AssetForge::Builtins
 
 	struct FVolumeTextureCapturedSource
 	{
-		FSourcePath SourcePath;
+		std::string Filename;
 		FXxHash128 ContentHash{};
 		std::span<const std::byte> Bytes;
 	};
