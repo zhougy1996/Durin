@@ -189,7 +189,6 @@ durin_add_engine_functional_test(MaterialTests
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
 	LIBRARIES
 		ApplicationCore
-		AssetForge
 		RenderCore
 		Renderer
 		AssetForgeBuiltins
@@ -223,7 +222,6 @@ durin_add_engine_functional_test(MaterialVulkanTests
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
 	LIBRARIES
 		ApplicationCore
-		AssetForge
 		RenderCore
 		Renderer
 		AssetForgeBuiltins
@@ -264,7 +262,7 @@ durin_add_engine_functional_test(StaticMeshTests
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/StaticMeshMaterialSlotDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES AssetForge StaticMeshBuild AssetForgeBuiltins RenderCore Renderer DurinEd StaticMeshEditor
+	LIBRARIES StaticMeshBuild AssetForgeBuiltins RenderCore Renderer DurinEd StaticMeshEditor
 	INCLUDE_DIRECTORIES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
@@ -297,14 +295,14 @@ durin_add_engine_functional_test(SkeletalMeshEditorTests
 durin_add_engine_functional_test(SkeletalSceneLifecycleTests
 	KIND integration
 	DOMAINS asset-import skeletal-mesh
-	MODULES engine skeletal-mesh-editor asset-forge asset-forge-builtins
+	MODULES engine skeletal-mesh-editor asset-forge-builtins
 	STACKS editor renderer
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE
 		"Exercises editor skeletal Scene import, render-command publication, cook, and runtime-only load."
 	SOURCES
 		Private/SkeletalSceneLifecycleTests.cpp
-	LIBRARIES AssetForge AssetForgeBuiltins RenderCore DurinEd SkeletalMeshEditor
+	LIBRARIES AssetForgeBuiltins RenderCore DurinEd SkeletalMeshEditor
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
@@ -334,7 +332,6 @@ set(_durin_texture_test_libraries
 	CoreDObject
 	AssetCore
 	Engine
-	AssetForge
 	StaticMeshBuild
 	SkeletalBuild
 	TerrainBuild

@@ -1,7 +1,9 @@
 #include "AssetForge/Builtins/TextureCubeImport.h"
+#include "AssetForge/Builtins/TextureCubeImportData.h"
 
 #include "Asset/AssetOperations.h"
-#include "Asset/MountedSource.h"
+#include "Asset/PackageSerialization.h"
+#include "Asset/SourceFilename.h"
 #include "Asset.h"
 #include "DObject/Package.h"
 #include "DObject/DObjectGlobals.h"
@@ -10,8 +12,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Texture/TextureCubeBuilder.h"
-#include "TextureCubeBuildAdapter.h"
-#include "AssetForge/ImportService.h"
+#include "Texture/TextureDerivedData.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 
 namespace Durin::AssetForge::Builtins
@@ -21,16 +22,11 @@ namespace Durin::AssetForge::Builtins
 	{
 		constexpr std::array<std::string_view, TextureCubeFaceCount> FaceNames = {
 			"PositiveX", "NegativeX", "PositiveY", "NegativeY", "PositiveZ", "NegativeZ"};
-		constexpr std::array<std::string_view, TextureCubeFaceCount> FaceSuffixes = {
-			"px", "nx", "py", "ny", "pz", "nz"};
-
-		auto MutationContext(bool bAllowEngineContentWrite)
-			-> Asset::EMountedSourceMutationContext
-		{
-			return bAllowEngineContentWrite
-				? Asset::EMountedSourceMutationContext::EngineContentWrite
-				: Asset::EMountedSourceMutationContext::DependencySafe;
-		}
+		constexpr std::array<std::string_view, TextureCubeFaceCount> FaceRoles = {
+			"positive-x", "negative-x", "positive-y", "negative-y", "positive-z", "negative-z"};
+		constexpr uint64 MaximumTextureCubeEncodedBytes = 256ull * 1024ull * 1024ull;
+		constexpr std::string_view TextureCubeDecoderId = "DurinImage";
+		constexpr uint32 TextureCubeDecoderVersion = 1;
 
 		auto NormalizePanorama(Image::FDecodedImage&& Image)
 			-> Asset::TextureCubeBuilder::FTexturePanoramaImage
@@ -47,132 +43,152 @@ namespace Durin::AssetForge::Builtins
 				.Height = Image.Height};
 		}
 
-		auto MakeCanonicalSourceLocation(
-			const FAssetPath& AssetPath,
-			std::string_view Suffix,
-			std::string_view Extension,
-			std::string_view RequestedSourcePath,
-			std::string& OutStoredPath,
-			std::string& OutError) -> bool
+		struct FCapturedCubeSource
 		{
-			const PathUtilities::FMountLookupResult Lookup =
-				PathUtilities::FindMountForVirtualPath(AssetPath.ToString());
-			if (!Lookup)
+			std::string Filename;
+			std::filesystem::path PhysicalPath;
+			FEncodedSourceSnapshot Snapshot;
+		};
+
+		auto CaptureCubeSource(std::string_view FilePath,
+			FCapturedCubeSource& OutSource, std::string& OutError) -> bool
+		{
+			OutSource.PhysicalPath = std::filesystem::absolute(FilePath).lexically_normal();
+			if (!std::filesystem::is_regular_file(OutSource.PhysicalPath)
+				|| !AssetImport::MakeSourceFilename(
+					OutSource.PhysicalPath.generic_string(), OutSource.Filename, OutError)) return false;
+			return CaptureEncodedSource({.Path = OutSource.Filename}, OutSource.PhysicalPath,
+				OutSource.Snapshot, OutError, MaximumTextureCubeEncodedBytes);
+		}
+
+		auto PublishCubeImportData(DTextureCube& Texture,
+			const std::span<const FCapturedCubeSource> Sources,
+			ETextureCubeSourceLayout Layout, std::string& OutError) -> bool
+		{
+			FTextureCubeImportDataState State;
+			State.SourceLayout = Layout;
+			State.DecoderId = std::string(TextureCubeDecoderId);
+			State.DecoderVersion = TextureCubeDecoderVersion;
+			State.ProjectionVersion = TextureCubeProjectionVersion;
+			for (size_t Index = 0; Index < Sources.size(); ++Index)
 			{
-				OutError = std::format(
-					"TextureCube asset {} is not beneath a registered package mount.",
-					AssetPath.ToString());
-				return false;
+				const auto& Source = Sources[Index];
+				State.SourceData.Sources.push_back({
+					.StableIdentity = Index == 0 ? "root" : std::format("face:{}", Index),
+					.Role = Layout == ETextureCubeSourceLayout::EquirectangularPanorama
+						? "panorama" : std::string(FaceRoles[Index]),
+					.DisplayLabel = Source.PhysicalPath.filename().generic_string(),
+					.Filename = Source.Filename,
+					.ContentHashLow = Source.Snapshot.ContentHash.HashLow,
+					.ContentHashHigh = Source.Snapshot.ContentHash.HashHigh,
+					.ByteCount = Source.Snapshot.FileSize,
+					.LastWriteTime = Source.Snapshot.LastWriteTime});
 			}
-			if (RequestedSourcePath.empty())
-			{
-				std::filesystem::path RelativeAssetPath(
-					std::string(AssetPath.ToString().substr(Lookup.Mount->VirtualRoot.size())));
-				RelativeAssetPath.replace_filename(std::format("{}{}{}",
-					RelativeAssetPath.stem().generic_string(), Suffix, Extension));
-				OutStoredPath = Lookup.Mount->VirtualRoot
-					+ (std::filesystem::path("Textures") / RelativeAssetPath)
-						.lexically_normal().generic_string();
-			}
-			else
-			{
-				OutStoredPath = RequestedSourcePath;
-			}
-			const PathUtilities::FSourcePathResult Resolved =
-				PathUtilities::ResolveSourcePath(
-					OutStoredPath, PathUtilities::EPathExistence::AllowMissing);
-			if (Resolved) return true;
-			OutError = Resolved.Message;
+			auto* Data = dynamic_cast<DTextureCubeImportData*>(Texture.GetAssetImportData());
+			if (!Data) Data = NewObject<DTextureCubeImportData>(&Texture, "AssetImportData");
+			return Data && Data->SetState(std::move(State), OutError)
+				&& Texture.PublishAssetImportData(*Data, OutError);
+		}
+
+		auto SaveImportedCube(DTextureCube& Texture, std::string& OutError,
+			const Asset::FAssetBundleSaveOptions* SaveOptions) -> bool
+		{
+			if (!SaveOptions) return true;
+			DPackage* Package = Texture.GetPackage();
+			const Asset::FAssetResult Saved = Asset::SavePackagesAtomically(
+				std::span<DPackage* const>(&Package, 1), *SaveOptions);
+			if (Saved) return true;
+			OutError = Saved.Message;
 			return false;
 		}
 
-		auto LoadMountedSource(
-			const FSourcePath& SourcePath,
-			Asset::FMountedSourceResolution& OutSource,
-			std::string_view PackagePath,
-			std::string& OutError) -> bool
+		auto RebuildPanorama(DTextureCube& Texture, std::string_view FilePath,
+			const FTextureCubePanoramaImportSettings& Settings, std::string& OutError,
+			const Asset::FAssetBundleSaveOptions* SaveOptions,
+			bool bRequireUnchanged = false) -> bool
 		{
-			return Asset::ResolveMountedSourceReference(
-				PackagePath, SourcePath.Path,
-				Asset::EMountedSourceExistencePolicy::RequireFile, OutSource, OutError);
-		}
-
-		template<typename TMountedSource>
-		auto BuildPanorama(
-			DTextureCube& Texture,
-			const TMountedSource& Source,
-			const FTextureCubePanoramaImportSettings& Settings,
-			std::string& OutError) -> bool
-		{
-			FEncodedSourceSnapshot Snapshot;
-			if (!CaptureEncodedSource(
-				Source.SourcePath, Source.PhysicalPath, Snapshot, OutError)) return false;
+			FCapturedCubeSource Source;
+			if (!CaptureCubeSource(FilePath, Source, OutError)
+				|| !IsTextureCubePanoramaSourceExtension(
+					Source.PhysicalPath.extension().generic_string())) return false;
+			if (bRequireUnchanged)
+			{
+				const auto* Data = dynamic_cast<const DTextureCubeImportData*>(
+					Texture.GetAssetImportData());
+				const AssetImport::FSourceFile* Expected = Data
+					? Data->GetSourceData().FindByRole("panorama") : nullptr;
+				if (!Expected || Expected->ContentHashLow != Source.Snapshot.ContentHash.HashLow
+					|| Expected->ContentHashHigh != Source.Snapshot.ContentHash.HashHigh)
+				{
+					OutError = "TextureCube panorama changed; explicit reimport is required.";
+					return false;
+				}
+			}
 			FTextureCubePanoramaSourceData Panorama;
-			if (!TranslateTextureCubePanoramaSource(
-				Snapshot.GetBytes(), Snapshot.PhysicalPath.extension().generic_string(),
-				Panorama, OutError))
+			if (!TranslateTextureCubePanoramaSource(Source.Snapshot.GetBytes(),
+				Source.PhysicalPath.extension().generic_string(), Panorama, OutError))
 			{
 				OutError = std::format("TextureCube panorama decode failed: {}", OutError);
 				return false;
 			}
-			return BuildAndPublishTextureCubePanorama(Texture, std::move(Panorama),
-				Snapshot.ContentHash, Snapshot.SourcePath, Settings, OutError);
+			Asset::FTextureCubeBuildProduct Product;
+			if (!std::visit([&](auto&& Decoded) {
+					return Asset::BuildTextureCubePanorama(std::move(Decoded),
+						Source.Snapshot.ContentHash, Settings, Product, OutError);
+				}, std::move(Panorama))
+				|| !Asset::PublishTextureCubeProduct(Texture, std::move(Product), {
+					.PanoramaHash = Source.Snapshot.ContentHash}, OutError)
+				|| !PublishCubeImportData(Texture, std::span(&Source, 1),
+					ETextureCubeSourceLayout::EquirectangularPanorama, OutError)) return false;
+			return SaveImportedCube(Texture, OutError, SaveOptions);
 		}
 
-		template <typename TSource>
-		auto BuildFaces(
-			DTextureCube& Texture,
-			const std::array<TSource, TextureCubeFaceCount>& Sources,
-			const FTextureCubeImportSettings& Settings,
-			std::string& OutError) -> bool
+		auto RebuildFaces(DTextureCube& Texture,
+			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
+			const FTextureCubeImportSettings& Settings, std::string& OutError,
+			const Asset::FAssetBundleSaveOptions* SaveOptions,
+			bool bRequireUnchanged = false) -> bool
 		{
-			FTextureCubeSourceData SourceData;
+			std::array<FCapturedCubeSource, TextureCubeFaceCount> Sources;
+			std::array<std::span<const std::byte>, TextureCubeFaceCount> Encoded;
 			std::array<FXxHash128, TextureCubeFaceCount> Hashes;
-			std::array<FSourcePath, TextureCubeFaceCount> Paths;
-			std::array<FEncodedSourceSnapshot, TextureCubeFaceCount> Snapshots;
-			std::array<std::span<const std::byte>, TextureCubeFaceCount> EncodedFaces;
-			for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
+			for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 			{
-				if (!CaptureEncodedSource(
-					Sources[Index].SourcePath, Sources[Index].PhysicalPath,
-					Snapshots[Index], OutError))
+				if (!CaptureCubeSource(FaceFiles[Index], Sources[Index], OutError)
+					|| !IsTextureCubeFaceSourceExtension(
+						Sources[Index].PhysicalPath.extension().generic_string()))
 				{
-					OutError = std::format("Failed to capture {} TextureCube face: {}",
-						FaceNames[Index], OutError);
+					if (OutError.empty()) OutError = std::format(
+						"{} TextureCube face source is unsupported.", FaceNames[Index]);
 					return false;
 				}
-				EncodedFaces[Index] = Snapshots[Index].GetBytes();
-				Hashes[Index] = Snapshots[Index].ContentHash;
-				Paths[Index] = Snapshots[Index].SourcePath;
+				Encoded[Index] = Sources[Index].Snapshot.GetBytes();
+				Hashes[Index] = Sources[Index].Snapshot.ContentHash;
+				if (bRequireUnchanged)
+				{
+					const auto* Data = dynamic_cast<const DTextureCubeImportData*>(
+						Texture.GetAssetImportData());
+					const AssetImport::FSourceFile* Expected = Data
+						? Data->GetSourceData().FindByRole(FaceRoles[Index]) : nullptr;
+					if (!Expected || Expected->ContentHashLow != Hashes[Index].HashLow
+						|| Expected->ContentHashHigh != Hashes[Index].HashHigh)
+					{
+						OutError = std::format(
+							"{} TextureCube face changed; explicit reimport is required.", FaceNames[Index]);
+						return false;
+					}
+				}
 			}
-			if (!TranslateTextureCubeFaceSources(EncodedFaces, SourceData, OutError)) return false;
-			return BuildAndPublishTextureCubeFaces(
-				Texture, std::move(SourceData), Hashes, Paths, Settings, OutError);
-		}
-
-		template <typename Builder>
-		auto BuildAndSaveCandidate(
-			DTextureCube& Texture,
-			Builder&& Build,
-			std::string& OutError) -> bool
-		{
-			auto* Candidate = NewObject<DTextureCube>(nullptr, "TextureCubeImportCandidate");
-			if (!Build(*Candidate))
-			{
-				MarkAsGarbage(Candidate);
-				return false;
-			}
-			Texture.ExchangeImportedState(*Candidate);
-			const Asset::FAssetResult Saved = Asset::SavePackage(Texture.GetPackage());
-			if (!Saved)
-			{
-				Texture.ExchangeImportedState(*Candidate);
-				OutError = Saved.Message;
-				MarkAsGarbage(Candidate);
-				return false;
-			}
-			MarkAsGarbage(Candidate);
-			return true;
+			FTextureCubeSourceData SourceData;
+			Asset::FTextureCubeBuildProduct Product;
+			if (!TranslateTextureCubeFaceSources(Encoded, SourceData, OutError)
+				|| !Asset::BuildTextureCubeFaces(
+					std::move(SourceData), Hashes, Settings, Product, OutError)
+				|| !Asset::PublishTextureCubeProduct(Texture, std::move(Product), {
+					.FaceHashes = Hashes}, OutError)
+				|| !PublishCubeImportData(Texture, Sources,
+					ETextureCubeSourceLayout::SixFaces, OutError)) return false;
+			return SaveImportedCube(Texture, OutError, SaveOptions);
 		}
 
 		auto MakeValidation(const Asset::FTextureCubeBuildProduct& Product, bool bHDR)
@@ -303,14 +319,10 @@ namespace Durin::AssetForge::Builtins
 		std::string_view PanoramaFile,
 		std::string_view AssetPath,
 		const FTextureCubePanoramaImportSettings& Settings,
-		std::string_view SourceDestination,
+		std::string_view,
 		bool bAllowEngineContentWrite) -> FTextureCubeImportResult
 	{
-		const std::filesystem::path Input =
-			std::filesystem::absolute(PanoramaFile).lexically_normal();
-		if (!std::filesystem::is_regular_file(Input)
-			|| !IsTextureCubePanoramaSourceExtension(Input.extension().generic_string()))
-			return {false, "Panorama source is unavailable.", nullptr};
+		(void)bAllowEngineContentWrite;
 		FAssetPath ParsedAssetPath;
 		std::string Error;
 		if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &Error))
@@ -318,30 +330,17 @@ namespace Durin::AssetForge::Builtins
 		if (Asset::FindAssetExact(ParsedAssetPath)
 			|| Asset::FindResidentPackage(ParsedAssetPath))
 			return {false, std::format("Asset {} already exists.", ParsedAssetPath.ToString()), nullptr};
-		std::string StoredSourcePath;
-		if (!MakeCanonicalSourceLocation(ParsedAssetPath, "_panorama",
-			Input.extension().generic_string(), SourceDestination,
-			StoredSourcePath, Error)) return {false, std::move(Error), nullptr};
-		Asset::FScopedMountedSourceFile Source;
-		if (!Asset::PrepareMountedSourceFile(Input, ParsedAssetPath.ToString(),
-			StoredSourcePath, Source, Error, MutationContext(bAllowEngineContentWrite)))
+		DTextureCube* Texture = nullptr;
+		const Asset::FAssetResult Created = Asset::CreateAsset(ParsedAssetPath, Texture);
+		if (!Created || !Texture) return {false, Created.Message, nullptr};
+		if (!RebuildPanorama(*Texture, PanoramaFile, Settings, Error, nullptr))
+		{
+			(void)Asset::UnloadPackage(
+				ParsedAssetPath, Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return {false, std::move(Error), nullptr};
-		FImportRequest Request;
-		const std::array Mounted{Source.SourcePath};
-		if (!MakeTextureCubeImportRequest(Mounted,
-			ETextureCubeSourceLayout::EquirectangularPanorama, ParsedAssetPath, {}, Settings,
-			EImportMode::Import,
-			{.OwnerId = std::format("TextureCube.Import:{}", ParsedAssetPath.ToString())},
-			{}, Request, Error)) return {false, std::move(Error), nullptr};
-		const FImportResult Imported = GetImportService().RunImportInline(
-			std::move(Request), std::format("Import TextureCube {}", ParsedAssetPath.GetAssetName()));
-		if (Imported.Outcome.State != EImportOperationState::Succeeded)
-			return {false, Imported.Outcome.Diagnostic, nullptr};
-		DObject* Object = nullptr;
-		(void)Asset::LoadAsset(ParsedAssetPath, Object);
-		auto* Texture = Cast<DTextureCube>(Object);
-		if (!Texture) return {false, "TextureCube AssetForge published no asset.", nullptr};
-		Source.Commit();
+		}
+		const Asset::FAssetResult Saved = Asset::SavePackage(Texture->GetPackage());
+		if (!Saved) return {false, Saved.Message, Texture};
 		return {true, {}, Texture};
 	}
 
@@ -349,9 +348,10 @@ namespace Durin::AssetForge::Builtins
 		const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 		std::string_view AssetPath,
 		const FTextureCubeImportSettings& Settings,
-		const std::array<std::string, TextureCubeFaceCount>& SourceDestinations,
+		const std::array<std::string, TextureCubeFaceCount>&,
 		bool bAllowEngineContentWrite) -> FTextureCubeImportResult
 	{
+		(void)bAllowEngineContentWrite;
 		FAssetPath ParsedAssetPath;
 		std::string Error;
 		if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &Error))
@@ -359,101 +359,18 @@ namespace Durin::AssetForge::Builtins
 		if (Asset::FindAssetExact(ParsedAssetPath)
 			|| Asset::FindResidentPackage(ParsedAssetPath))
 			return {false, std::format("Asset {} already exists.", ParsedAssetPath.ToString()), nullptr};
-		std::array<Asset::FScopedMountedSourceFile, TextureCubeFaceCount> Sources;
-		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
+		DTextureCube* Texture = nullptr;
+		const Asset::FAssetResult Created = Asset::CreateAsset(ParsedAssetPath, Texture);
+		if (!Created || !Texture) return {false, Created.Message, nullptr};
+		if (!RebuildFaces(*Texture, FaceFiles, Settings, Error, nullptr))
 		{
-			const std::filesystem::path Input =
-				std::filesystem::absolute(FaceFiles[Index]).lexically_normal();
-			if (!std::filesystem::is_regular_file(Input)
-				|| !IsTextureCubeFaceSourceExtension(Input.extension().generic_string()))
-			{
-				return {false, std::format("{} face source is unavailable.", FaceNames[Index]), nullptr};
-			}
-			std::string StoredSourcePath;
-			if (!MakeCanonicalSourceLocation(ParsedAssetPath,
-				std::format("_{}", FaceSuffixes[Index]), Input.extension().generic_string(),
-				SourceDestinations[Index], StoredSourcePath, Error)
-				|| !Asset::PrepareMountedSourceFile(Input, ParsedAssetPath.ToString(),
-					StoredSourcePath, Sources[Index], Error,
-					MutationContext(bAllowEngineContentWrite)))
-			{
-				return {false, std::move(Error), nullptr};
-			}
+			(void)Asset::UnloadPackage(
+				ParsedAssetPath, Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+			return {false, std::move(Error), nullptr};
 		}
-		std::array<FSourcePath, TextureCubeFaceCount> Mounted;
-		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
-			Mounted[Index] = Sources[Index].SourcePath;
-		FImportRequest Request;
-		if (!MakeTextureCubeImportRequest(Mounted, ETextureCubeSourceLayout::SixFaces,
-			ParsedAssetPath, Settings, {}, EImportMode::Import,
-			{.OwnerId = std::format("TextureCube.Import:{}", ParsedAssetPath.ToString())},
-			{}, Request, Error)) return {false, std::move(Error), nullptr};
-		const FImportResult Imported = GetImportService().RunImportInline(
-			std::move(Request), std::format("Import TextureCube {}", ParsedAssetPath.GetAssetName()));
-		if (Imported.Outcome.State != EImportOperationState::Succeeded)
-			return {false, Imported.Outcome.Diagnostic, nullptr};
-		DObject* Object = nullptr;
-		(void)Asset::LoadAsset(ParsedAssetPath, Object);
-		auto* Texture = Cast<DTextureCube>(Object);
-		if (!Texture) return {false, "TextureCube AssetForge published no asset.", nullptr};
-		for (auto& Source : Sources) Source.Commit();
+		const Asset::FAssetResult Saved = Asset::SavePackage(Texture->GetPackage());
+		if (!Saved) return {false, Saved.Message, Texture};
 		return {true, {}, Texture};
-	}
-
-	auto SubmitTextureCubeImport(std::span<const std::string> SourceFiles,
-		std::span<const std::string> SourceDestinations, ETextureCubeSourceLayout Layout,
-		const FAssetPath& Destination, const FTextureCubeImportSettings& FaceSettings,
-		const FTextureCubePanoramaImportSettings& PanoramaSettings,
-		bool bAllowEngineContentWrite, FImportCompletion Completion,
-		std::string& OutError) -> FImportHandle
-	{
-		const size_t Required = Layout == ETextureCubeSourceLayout::SixFaces
-			? TextureCubeFaceCount : 1;
-		if (SourceFiles.size() != Required
-			|| (!SourceDestinations.empty() && SourceDestinations.size() != Required))
-		{
-			OutError = "TextureCube source set is incomplete.";
-			return {};
-		}
-		auto Mounted = std::make_shared<std::vector<FScopedMountedSourceFile>>(Required);
-		std::vector<FSourcePath> MountedPaths(Required);
-		for (size_t Index = 0; Index < Required; ++Index)
-		{
-			const std::filesystem::path Input =
-				std::filesystem::absolute(SourceFiles[Index]).lexically_normal();
-			if (!std::filesystem::is_regular_file(Input)
-				|| (Layout == ETextureCubeSourceLayout::SixFaces
-					? !IsTextureCubeFaceSourceExtension(Input.extension().generic_string())
-					: !IsTextureCubePanoramaSourceExtension(Input.extension().generic_string())))
-			{
-				OutError = "TextureCube source is unavailable or unsupported.";
-				return {};
-			}
-			const std::string_view RequestedDestination = SourceDestinations.empty()
-				? std::string_view{} : std::string_view(SourceDestinations[Index]);
-			const std::string Suffix = Layout == ETextureCubeSourceLayout::SixFaces
-				? std::format("_{}", FaceSuffixes[Index]) : "_panorama";
-			std::string StoredSourcePath;
-			if (!MakeCanonicalSourceLocation(Destination, Suffix,
-				Input.extension().generic_string(), RequestedDestination,
-				StoredSourcePath, OutError)
-				|| !PrepareMountedSourceFile(Input, Destination.ToString(), StoredSourcePath,
-					(*Mounted)[Index], OutError, MutationContext(bAllowEngineContentWrite))) return {};
-			MountedPaths[Index] = (*Mounted)[Index].SourcePath;
-		}
-		FImportRequest Request;
-		if (!MakeTextureCubeImportRequest(MountedPaths, Layout, Destination,
-			FaceSettings, PanoramaSettings, EImportMode::Import,
-			{.OwnerId = std::format("TextureCube.Import:{}", Destination.ToString()),
-				.ConflictIdentities = {Destination.ToString()}}, {}, Request, OutError)) return {};
-		OutError.clear();
-		return GetImportService().SubmitImport(std::move(Request),
-			std::format("Import TextureCube {}", Destination.GetAssetName()),
-			[Mounted, Completion = std::move(Completion)](const FImportResult& Result) {
-				if (Result.Outcome.State == EImportOperationState::Succeeded)
-					for (FScopedMountedSourceFile& Source : *Mounted) Source.Commit();
-				if (Completion) Completion(Result);
-			});
 	}
 
 	auto ReimportTextureCubePanorama(
@@ -462,39 +379,23 @@ namespace Durin::AssetForge::Builtins
 		const FTextureCubePanoramaImportSettings& Settings,
 		std::string& OutError) -> bool
 	{
-		if (Texture.GetSourceLayout() != ETextureCubeSourceLayout::EquirectangularPanorama
-			|| !Texture.GetPackage())
+		if (!Texture.GetPackage())
 		{
-			OutError = "Only packaged panorama-backed texture cubes can be reimported.";
+			OutError = "Only packaged texture cubes can be reimported.";
 			return false;
 		}
-		Asset::FMountedSourceResolution Source;
-		if (!LoadMountedSource(Texture.GetSourceImportData().Panorama.SourcePath,
-			Source, Texture.GetPackage()->GetPackagePath(), OutError)) return false;
-		std::error_code Error;
-		if (!std::filesystem::equivalent(Source.PhysicalPath,
-			std::filesystem::absolute(PanoramaFile).lexically_normal(), Error) || Error)
+		std::string SourcePath(PanoramaFile);
+		if (SourcePath.empty())
 		{
-			OutError =
-				"Reimport is read-only and must use the persisted mounted panorama source.";
-			return false;
+			const auto* Data = dynamic_cast<const DTextureCubeImportData*>(
+				Texture.GetAssetImportData());
+			const AssetImport::FSourceFile* Source = Data
+				? Data->GetSourceData().FindByRole("panorama") : nullptr;
+			if (!Source || !AssetImport::ResolveSourceFilename(
+				Source->Filename, SourcePath, OutError)) return false;
 		}
-		FAssetPath Destination;
-		FImportProvenance Existing;
-		if (!FAssetPath::TryCreate(Texture.GetPackage()->GetPackagePath(), Destination, &OutError)
-			|| !InspectTextureCubeImportProvenance(Texture, Existing, OutError)) return false;
-		const std::array Mounted{Source.SourcePath};
-		FImportRequest Request;
-		if (!MakeTextureCubeImportRequest(Mounted,
-			ETextureCubeSourceLayout::EquirectangularPanorama, Destination, {}, Settings,
-			EImportMode::Reimport,
-			{.OwnerId = std::format("TextureCube.Reimport:{}", Destination.ToString())},
-			Existing, Request, OutError)) return false;
-		const FImportResult Result = GetImportService().RunImportInline(
-			std::move(Request), std::format("Reimport TextureCube {}", Destination.GetAssetName()));
-		if (Result.Outcome.State == EImportOperationState::Succeeded) return true;
-		OutError = Result.Outcome.Diagnostic;
-		return false;
+		const Asset::FAssetBundleSaveOptions SaveOptions;
+		return RebuildPanorama(Texture, SourcePath, Settings, OutError, &SaveOptions);
 	}
 
 	auto ReimportTextureCubeFaces(
@@ -503,175 +404,112 @@ namespace Durin::AssetForge::Builtins
 		const FTextureCubeImportSettings& Settings,
 		std::string& OutError) -> bool
 	{
-		if (Texture.GetSourceLayout() != ETextureCubeSourceLayout::SixFaces
-			|| !Texture.GetPackage())
+		if (!Texture.GetPackage())
 		{
-			OutError = "Only packaged six-face texture cubes can be reimported.";
+			OutError = "Only packaged texture cubes can be reimported.";
 			return false;
 		}
-		std::array<Asset::FMountedSourceResolution, TextureCubeFaceCount> Sources;
-		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
+		std::array<std::string, TextureCubeFaceCount> Sources = FaceFiles;
+		const auto* Data = dynamic_cast<const DTextureCubeImportData*>(
+			Texture.GetAssetImportData());
+		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
-			if (!LoadMountedSource(Texture.GetSourceImportData().GetFace(
-					static_cast<ETextureCubeFace>(Index)).SourcePath,
-				Sources[Index], Texture.GetPackage()->GetPackagePath(), OutError)) return false;
-			std::error_code Error;
-			if (!std::filesystem::equivalent(Sources[Index].PhysicalPath,
-				std::filesystem::absolute(FaceFiles[Index]).lexically_normal(), Error) || Error)
+			if (!Sources[Index].empty()) continue;
+			const AssetImport::FSourceFile* Source = Data
+				? Data->GetSourceData().FindByRole(FaceRoles[Index]) : nullptr;
+			if (!Source || !AssetImport::ResolveSourceFilename(
+				Source->Filename, Sources[Index], OutError))
 			{
-				OutError =
-					"Reimport is read-only and must use every persisted mounted face source.";
+				if (OutError.empty()) OutError = "TextureCube face import data is incomplete.";
 				return false;
 			}
 		}
-		FAssetPath Destination;
-		FImportProvenance Existing;
-		if (!FAssetPath::TryCreate(Texture.GetPackage()->GetPackagePath(), Destination, &OutError)
-			|| !InspectTextureCubeImportProvenance(Texture, Existing, OutError)) return false;
-		std::array<FSourcePath, TextureCubeFaceCount> Mounted;
-		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
-			Mounted[Index] = Sources[Index].SourcePath;
-		FImportRequest Request;
-		if (!MakeTextureCubeImportRequest(Mounted, ETextureCubeSourceLayout::SixFaces,
-			Destination, Settings, {}, EImportMode::Reimport,
-			{.OwnerId = std::format("TextureCube.Reimport:{}", Destination.ToString())},
-			Existing, Request, OutError)) return false;
-		const FImportResult Result = GetImportService().RunImportInline(
-			std::move(Request), std::format("Reimport TextureCube {}", Destination.GetAssetName()));
-		if (Result.Outcome.State == EImportOperationState::Succeeded) return true;
-		OutError = Result.Outcome.Diagnostic;
-		return false;
+		const Asset::FAssetBundleSaveOptions SaveOptions;
+		return RebuildFaces(Texture, Sources, Settings, OutError, &SaveOptions);
+	}
+
+	auto RecoverTextureCubeDerivedData(
+		DTextureCube& Texture, std::string& OutError) -> bool
+	{
+		const auto* Data = dynamic_cast<const DTextureCubeImportData*>(
+			Texture.GetAssetImportData());
+		if (!Data)
+		{
+			OutError = "TextureCube has no current family import data.";
+			return false;
+		}
+		const bool bWasDirty = Texture.GetPackage() && Texture.GetPackage()->IsDirty();
+		const FTextureCubeImportDataState State = Data->GetTextureCubeState();
+		bool Rebuilt = false;
+		if (State.SourceLayout == ETextureCubeSourceLayout::EquirectangularPanorama)
+		{
+			const AssetImport::FSourceFile* Source = State.SourceData.FindByRole("panorama");
+			std::string PhysicalPath;
+			Rebuilt = Source && AssetImport::ResolveSourceFilename(
+				Source->Filename, PhysicalPath, OutError)
+				&& RebuildPanorama(Texture, PhysicalPath,
+					{.FaceDimension = Texture.GetPanoramaFaceDimension(),
+						.ExposureEV = Texture.GetPanoramaExposureEV()}, OutError, nullptr, true);
+		}
+		else
+		{
+			std::array<std::string, TextureCubeFaceCount> Sources;
+			Rebuilt = true;
+			for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
+			{
+				const AssetImport::FSourceFile* Source =
+					State.SourceData.FindByRole(FaceRoles[Index]);
+				if (!Source || !AssetImport::ResolveSourceFilename(
+					Source->Filename, Sources[Index], OutError))
+				{
+					Rebuilt = false;
+					break;
+				}
+			}
+			Rebuilt = Rebuilt && RebuildFaces(Texture, Sources,
+				{.bSRGB = Texture.IsSRGB()}, OutError, nullptr, true);
+		}
+		if (Rebuilt && !bWasDirty && Texture.GetPackage()) Texture.GetPackage()->ClearDirty();
+		return Rebuilt;
 	}
 
 	auto ChangeTextureCubePanoramaSourceReference(
 		DTextureCube& Texture,
-		std::string_view SourceVirtualPath,
+		std::string_view SourceFilename,
 		const FTextureCubePanoramaImportSettings& Settings,
 		std::string& OutError) -> bool
 	{
-		if (!Texture.GetPackage())
-		{
-			OutError = "Only packaged texture cubes can retain source provenance.";
-			return false;
-		}
-		Asset::FMountedSourceResolution Source;
-		if (!Asset::ResolveMountedSourceReference(Texture.GetPackage()->GetPackagePath(),
-			SourceVirtualPath, Asset::EMountedSourceExistencePolicy::RequireFile,
-			Source, OutError)) return false;
-		FAssetPath Destination;
-		if (!FAssetPath::TryCreate(Texture.GetPackage()->GetPackagePath(), Destination, &OutError))
-			return false;
-		std::optional<FImportProvenance> Existing;
-		FImportProvenance Persisted;
-		std::string ProvenanceError;
-		if (InspectTextureCubeImportProvenance(Texture, Persisted, ProvenanceError))
-			Existing = std::move(Persisted);
-		const std::array Mounted{Source.SourcePath};
-		FImportRequest Request;
-		if (!MakeTextureCubeImportRequest(Mounted,
-			ETextureCubeSourceLayout::EquirectangularPanorama, Destination, {}, Settings,
-			EImportMode::ReplaceSource,
-			{.OwnerId = std::format("TextureCube.ReplaceSource:{}", Destination.ToString())},
-			std::move(Existing), Request, OutError)) return false;
-		const FImportResult Result = GetImportService().RunImportInline(
-			std::move(Request), std::format("Replace TextureCube source {}", Destination.GetAssetName()));
-		if (Result.Outcome.State == EImportOperationState::Succeeded) return true;
-		OutError = Result.Outcome.Diagnostic;
-		return false;
+		return ReimportTextureCubePanorama(
+			Texture, SourceFilename, Settings, OutError);
 	}
 
 	auto ChangeTextureCubeFaceSourceReferences(
 		DTextureCube& Texture,
-		const std::array<std::string, TextureCubeFaceCount>& SourceVirtualPaths,
+		const std::array<std::string, TextureCubeFaceCount>& SourceFilenames,
 		const FTextureCubeImportSettings& Settings,
 		std::string& OutError) -> bool
 	{
-		if (!Texture.GetPackage())
-		{
-			OutError = "Only packaged texture cubes can retain source provenance.";
-			return false;
-		}
-		std::array<Asset::FMountedSourceResolution, TextureCubeFaceCount> Sources;
-		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
-			if (!Asset::ResolveMountedSourceReference(
-				Texture.GetPackage()->GetPackagePath(), SourceVirtualPaths[Index],
-				Asset::EMountedSourceExistencePolicy::RequireFile,
-				Sources[Index], OutError)) return false;
-		FAssetPath Destination;
-		if (!FAssetPath::TryCreate(Texture.GetPackage()->GetPackagePath(), Destination, &OutError))
-			return false;
-		std::optional<FImportProvenance> Existing;
-		FImportProvenance Persisted;
-		std::string ProvenanceError;
-		if (InspectTextureCubeImportProvenance(Texture, Persisted, ProvenanceError))
-			Existing = std::move(Persisted);
-		std::array<FSourcePath, TextureCubeFaceCount> Mounted;
-		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
-			Mounted[Index] = Sources[Index].SourcePath;
-		FImportRequest Request;
-		if (!MakeTextureCubeImportRequest(Mounted, ETextureCubeSourceLayout::SixFaces,
-			Destination, Settings, {}, EImportMode::ReplaceSource,
-			{.OwnerId = std::format("TextureCube.ReplaceSource:{}", Destination.ToString())},
-			std::move(Existing), Request, OutError)) return false;
-		const FImportResult Result = GetImportService().RunImportInline(
-			std::move(Request), std::format("Replace TextureCube sources {}", Destination.GetAssetName()));
-		if (Result.Outcome.State == EImportOperationState::Succeeded) return true;
-		OutError = Result.Outcome.Diagnostic;
-		return false;
+		return ReimportTextureCubeFaces(
+			Texture, SourceFilenames, Settings, OutError);
 	}
 
 	auto IngestAndChangeTextureCubePanoramaSource(
 		DTextureCube& Texture,
 		std::string_view FilePath,
-		std::string_view TargetSourceVirtualPath,
+		std::string_view,
 		const FTextureCubePanoramaImportSettings& Settings,
 		std::string& OutError) -> bool
 	{
-		if (!Texture.GetPackage())
-		{
-			OutError = "Only packaged texture cubes can retain source provenance.";
-			return false;
-		}
-		Asset::FScopedMountedSourceFile Source;
-		if (!Asset::PrepareMountedSourceFile(FilePath,
-			Texture.GetPackage()->GetPackagePath(), TargetSourceVirtualPath,
-			Source, OutError)) return false;
-		const bool bChanged = ChangeTextureCubePanoramaSourceReference(
-			Texture, Source.SourcePath.Path, Settings, OutError);
-		if (bChanged) Source.Commit();
-		return bChanged;
+		return ReimportTextureCubePanorama(Texture, FilePath, Settings, OutError);
 	}
 
 	auto IngestAndChangeTextureCubeFaceSources(
 		DTextureCube& Texture,
 		const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
-		const std::array<std::string, TextureCubeFaceCount>& TargetSourceVirtualPaths,
+		const std::array<std::string, TextureCubeFaceCount>&,
 		const FTextureCubeImportSettings& Settings,
 		std::string& OutError) -> bool
 	{
-		if (!Texture.GetPackage())
-		{
-			OutError = "Only packaged texture cubes can retain source provenance.";
-			return false;
-		}
-		std::array<Asset::FScopedMountedSourceFile, TextureCubeFaceCount> Sources;
-		std::array<std::string, TextureCubeFaceCount> VirtualPaths;
-		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
-		{
-			if (!Asset::PrepareMountedSourceFile(FaceFiles[Index],
-				Texture.GetPackage()->GetPackagePath(), TargetSourceVirtualPaths[Index],
-				Sources[Index], OutError))
-			{
-				return false;
-			}
-			VirtualPaths[Index] = Sources[Index].SourcePath.Path;
-		}
-		const bool bChanged = ChangeTextureCubeFaceSourceReferences(
-			Texture, VirtualPaths, Settings, OutError);
-		for (auto& Source : Sources)
-		{
-			if (bChanged) Source.Commit();
-		}
-		return bChanged;
+		return ReimportTextureCubeFaces(Texture, FaceFiles, Settings, OutError);
 	}
 }

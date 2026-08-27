@@ -3,10 +3,7 @@
 #include "AssetForge/Builtins/TextureCubeImport.h"
 
 #include "Editor/Import/AssetDestinationValidation.h"
-#include "Editor/Import/MountedSourceImport.h"
-#include "Asset/MountedSource.h"
 #include "Asset.h"
-#include "AssetForge/ImportService.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -26,8 +23,6 @@ namespace Durin::Editor::Texture
 			FaceOrientationHints = {
 				"top +Y, right -Z", "top +Y, right +Z", "top -Z, right +X",
 				"top +Z, right +X", "top +Y, right +X", "top +Y, right -X"};
-		constexpr std::array<std::string_view, TextureCubeFaceCount> FaceSuffixes = {
-			"px", "nx", "py", "ny", "pz", "nz"};
 
 		auto FaceIndex(ETextureCubeFace Face) -> size_t
 		{
@@ -45,18 +40,6 @@ namespace Durin::Editor::Texture
 			return Extension == ".hdr";
 		}
 
-		auto ApplySuggestedPath(std::array<char, 512>& Buffer,
-			std::string& LastSuggestedPath, std::string_view SuggestedPath) -> void
-		{
-			const std::string_view CurrentPath = Buffer.data();
-			if (CurrentPath.empty() || CurrentPath == LastSuggestedPath)
-			{
-				Buffer.fill(0);
-				std::memcpy(Buffer.data(), SuggestedPath.data(),
-					std::min(SuggestedPath.size(), Buffer.size() - 1));
-			}
-			LastSuggestedPath = SuggestedPath;
-		}
 	} // namespace
 
 	auto FTextureImportDialog::DrawTextureCubeSource() -> void
@@ -193,7 +176,7 @@ namespace Durin::Editor::Texture
 		}
 
 		if (Cube.bSourcesValid)
-			ImGui::TextDisabled("AssetForge verified the TextureCube source graph and output policy.");
+			ImGui::TextDisabled("The built-in importer verified the TextureCube sources and output policy.");
 		else
 		{
 			ImGui::PushStyleColor(ImGuiCol_Text,
@@ -204,93 +187,22 @@ namespace Durin::Editor::Texture
 		}
 	}
 
-	auto FTextureImportDialog::DrawTextureCubeSourceDestinations() -> void
-	{
-		if (State.GetSourceMode() != EMountedSourceImportMode::IngestExternal)
-			return;
-		FTextureCubeImportFormState& Cube = State.GetTextureCube();
-		ImGui::TextUnformatted(
-			Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces
-				? "Source virtual paths" : "Source virtual path");
-		if (Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces)
-		{
-			for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
-			{
-				ImGui::PushID(static_cast<int>(Index));
-				ImGui::SetNextItemWidth(-FLT_MIN);
-				ImGui::InputText(FaceLabels[Index].data(),
-					Cube.FaceDestinationBuffers[Index].data(),
-					Cube.FaceDestinationBuffers[Index].size());
-				ImGui::PopID();
-			}
-		}
-		else
-		{
-			ImGui::SetNextItemWidth(-FLT_MIN);
-			ImGui::InputTextWithHint("##TextureCubePanoramaDestination",
-				"/Project/Sources/Textures/Sky/Sky_panorama.hdr",
-				Cube.PanoramaDestinationBuffer.data(),
-				Cube.PanoramaDestinationBuffer.size());
-		}
-	}
-
 	auto FTextureImportDialog::ValidateAndDrawTextureCubeDestination()
 		-> std::string
 	{
 		FTextureCubeImportFormState& Cube = State.GetTextureCube();
 		const FAssetDestinationValidation DestinationValidation =
 			Destination.Inspect();
-		const bool bAllowEngineContentWrite = DestinationValidation.Mount &&
-			DestinationValidation.Mount->Owner ==
-				PathUtilities::EMountOwner::Engine;
-		std::array<FMountedSourceImportDiagnostic, TextureCubeFaceCount>
-			FaceDiagnostics;
-		FMountedSourceImportDiagnostic PanoramaDiagnostic;
-		if (DestinationValidation.bAssetPathValid)
-		{
-			if (Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces)
-			{
-				for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
-					FaceDiagnostics[Index] = InspectMountedSourceImport(
-						Cube.FacePathBuffers[Index].data(),
-						DestinationValidation.AssetPath.GetView(),
-						Cube.FaceDestinationBuffers[Index].data(),
-						State.GetSourceMode(), bAllowEngineContentWrite);
-			}
-			else
-			{
-				PanoramaDiagnostic = InspectMountedSourceImport(
-					Cube.PanoramaPathBuffer.data(),
-					DestinationValidation.AssetPath.GetView(),
-					Cube.PanoramaDestinationBuffer.data(),
-					State.GetSourceMode(), bAllowEngineContentWrite);
-			}
-		}
-		const auto FirstInvalidFace = std::ranges::find_if(
-			FaceDiagnostics,
-			[](const FMountedSourceImportDiagnostic& Diagnostic) {
-				return !Diagnostic.bValid;
-			});
-		const bool bMountedSourcesValid =
-			Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces
-				? FirstInvalidFace == FaceDiagnostics.end()
-				: PanoramaDiagnostic.bValid;
-
 		std::string ValidationMessage;
 		if (!DestinationValidation)
 			ValidationMessage = DestinationValidation.Message;
-		else if (!bMountedSourcesValid)
-			ValidationMessage =
-				Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces
-					? FirstInvalidFace->Message
-					: PanoramaDiagnostic.Message;
+		else if (!Cube.bSourcesValid)
+			ValidationMessage = Cube.SourceValidationMessage;
 
-		if (DestinationValidation.bMountedDestination && bMountedSourcesValid)
+		if (DestinationValidation.bMountedDestination && Cube.bSourcesValid)
 		{
 			ImGui::BeginChild("TextureCubeOutputPreview",
-				ImVec2(0.0f, MonaImGui::ScaleUI(
-					Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces
-						? 204.0f : 112.0f)),
+				ImVec2(0.0f, MonaImGui::ScaleUI(84.0f)),
 				ImGuiChildFlags_Borders);
 			ImGui::TextDisabled("Asset identity");
 			ImGui::TextUnformatted(
@@ -298,32 +210,8 @@ namespace Durin::Editor::Texture
 			ImGui::TextDisabled("Package file");
 			ImGui::TextUnformatted(std::format("{}.dasset",
 				DestinationValidation.AssetPath.ToString()).c_str());
-			ImGui::TextDisabled("Source virtual path%s",
-				Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces
-					? "s" : "");
-			if (Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces)
-			{
-				for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
-					ImGui::TextUnformatted(std::format("{}  {}",
-						FaceLabels[Index],
-						FaceDiagnostics[Index].VirtualPath).c_str());
-			}
-			else
-				ImGui::TextUnformatted(PanoramaDiagnostic.VirtualPath.c_str());
 			ImGui::EndChild();
-			const FMountedSourceImportDiagnostic& Summary =
-				Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces
-					? FaceDiagnostics.front() : PanoramaDiagnostic;
-			ImGui::TextDisabled("Mount: %s (%s)  |  %s  |  dependency allowed",
-				Summary.Mount->VirtualRoot.c_str(),
-				DescribeMountOwner(Summary.Mount->Owner),
-				Summary.Mount->bContentWritable ? "writable" : "read-only");
-			if (bAllowEngineContentWrite)
-				ImGui::TextDisabled(
-					"Engine content write: this import mutates shared Engine content.");
 		}
-		if (ValidationMessage.empty() && !Cube.bSourcesValid)
-			ValidationMessage = Cube.SourceValidationMessage;
 		return ValidationMessage;
 	}
 
@@ -341,15 +229,6 @@ namespace Durin::Editor::Texture
 			{"Bitmap", "*.bmp"}, {"Targa", "*.tga"}, {"All Files", "*.*"}};
 		if (const FProjectInfo* Project = GetCurrentProject())
 			Request.InitialDirectory = Project->ProjectDir;
-		if (State.GetSourceMode() ==
-			EMountedSourceImportMode::ReferenceExisting)
-		{
-			const PathUtilities::FMountLookupResult Lookup =
-				PathUtilities::FindMountForVirtualPath(Destination.GetPath());
-			if (Lookup)
-				Request.InitialDirectory =
-					Lookup.Mount->GetContentDir().generic_string();
-		}
 		if (Cube.FacePathBuffers[Index][0] != '\0')
 			Request.InitialDirectory = std::filesystem::path(
 				Cube.FacePathBuffers[Index].data())
@@ -372,7 +251,6 @@ namespace Durin::Editor::Texture
 			Result.FilePath.data(), Result.FilePath.size());
 		if (Destination.GetPath().empty())
 			SuggestTextureCubeAssetPath(Result.FilePath);
-		SuggestTextureCubeSourceDestinations();
 		RevalidateTextureCubeSources();
 	}
 
@@ -389,15 +267,6 @@ namespace Durin::Editor::Texture
 			{"Targa", "*.tga"}, {"All Files", "*.*"}};
 		if (const FProjectInfo* Project = GetCurrentProject())
 			Request.InitialDirectory = Project->ProjectDir;
-		if (State.GetSourceMode() ==
-			EMountedSourceImportMode::ReferenceExisting)
-		{
-			const PathUtilities::FMountLookupResult Lookup =
-				PathUtilities::FindMountForVirtualPath(Destination.GetPath());
-			if (Lookup)
-				Request.InitialDirectory =
-					Lookup.Mount->GetContentDir().generic_string();
-		}
 		if (Cube.PanoramaPathBuffer[0] != '\0')
 			Request.InitialDirectory = std::filesystem::path(
 				Cube.PanoramaPathBuffer.data())
@@ -420,7 +289,6 @@ namespace Durin::Editor::Texture
 			Result.FilePath.size());
 		if (Destination.GetPath().empty())
 			SuggestTextureCubeAssetPath(Result.FilePath);
-		SuggestTextureCubeSourceDestinations();
 		RevalidateTextureCubeSources();
 	}
 
@@ -459,19 +327,12 @@ namespace Durin::Editor::Texture
 			return false;
 		}
 		std::array<std::string, TextureCubeFaceCount> Sources;
-		std::array<std::string, TextureCubeFaceCount> Destinations;
-		size_t SourceCount = 1;
 		AssetForge::Builtins::FTextureCubePanoramaImportSettings PanoramaSettings;
 		if (Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces)
 		{
-			SourceCount = TextureCubeFaceCount;
 			for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 			{
 				Sources[Index] = Cube.FacePathBuffers[Index].data();
-				if (State.GetSourceMode() ==
-					EMountedSourceImportMode::IngestExternal)
-					Destinations[Index] =
-						Cube.FaceDestinationBuffers[Index].data();
 			}
 		}
 		else
@@ -481,33 +342,22 @@ namespace Durin::Editor::Texture
 				.FaceDimension = Cube.PanoramaFaceDimension,
 				.ExposureEV = IsRadianceHDRPath(Cube.PanoramaPathBuffer.data())
 					? Cube.PanoramaExposureEV : 0.0f};
-			if (State.GetSourceMode() ==
-					EMountedSourceImportMode::IngestExternal)
-				Destinations[0] = Cube.PanoramaDestinationBuffer.data();
 		}
 		const std::string Path = AssetPath.ToString();
-		const FImportDialogCallbacks CompletionCallbacks = Callbacks;
-		AssetForge::FImportHandle Handle = AssetForge::Builtins::SubmitTextureCubeImport(
-			std::span(Sources).first(SourceCount), std::span(Destinations).first(SourceCount),
-			Cube.SourceLayout, AssetPath, {}, PanoramaSettings,
-			IsEngineContentWriteDestination(Destination.GetPath()),
-			[CompletionCallbacks, Path](const AssetForge::FImportResult& Result) {
-				if (Result.Outcome.State == AssetForge::EImportOperationState::Succeeded)
-				{
-					CompletionCallbacks.NotifyImported(Path);
-					FAssetPath ImportedPath;
-					if (FAssetPath::TryCreate(Path, ImportedPath)) Asset::UnloadPackage(ImportedPath);
-				}
-				else CompletionCallbacks.Report(Result.Outcome.Diagnostic.empty()
-					? "TextureCube AssetForge import failed." : Result.Outcome.Diagnostic);
-			}, Error);
-		if (!Handle)
+		const AssetForge::Builtins::FTextureCubeImportResult Result =
+			Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces
+			? AssetForge::Builtins::ImportTextureCubeFaces(Sources, Path, {}, {},
+				IsEngineContentWriteDestination(Destination.GetPath()))
+			: AssetForge::Builtins::ImportTextureCubePanorama(Sources[0], Path,
+				PanoramaSettings, {}, IsEngineContentWriteDestination(Destination.GetPath()));
+		if (!Result)
 		{
-			SetError(std::move(Error));
+			SetError(Result.Message.empty()
+				? "TextureCube import failed." : Result.Message);
 			return false;
 		}
-		Callbacks.NotifyImportStarted(Handle.GetOperationHandle(),
-			std::format("Import TextureCube {}", AssetPath.GetAssetName()));
+		Callbacks.NotifyImported(Path);
+		(void)Asset::UnloadPackage(AssetPath);
 		return true;
 	}
 
@@ -520,36 +370,5 @@ namespace Durin::Editor::Texture
 		const FProjectInfo* Project = GetCurrentProject();
 		Destination.SuggestPath(Destination.MakeSuggestedPath(AssetName,
 			(Project ? Project->MountRoot : "/") + std::string("Textures/")));
-		SuggestTextureCubeSourceDestinations();
-	}
-
-	auto FTextureImportDialog::SuggestTextureCubeSourceDestinations() -> void
-	{
-		FTextureCubeImportFormState& Cube = State.GetTextureCube();
-		FAssetPath AssetPath;
-		if (!FAssetPath::TryCreate(Destination.GetPath(), AssetPath)) return;
-		const std::string AssetName(AssetPath.GetAssetName());
-		if (Cube.PanoramaPathBuffer[0] != '\0')
-		{
-			const std::string Suggested = MakeDefaultImportedSourceVirtualPath(
-				AssetPath.GetView(), "Textures",
-				AssetName + "_panorama" + std::filesystem::path(
-					Cube.PanoramaPathBuffer.data()).extension().generic_string(),
-				AssetName);
-			ApplySuggestedPath(Cube.PanoramaDestinationBuffer,
-				Cube.LastSuggestedPanoramaDestination, Suggested);
-		}
-		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
-		{
-			if (Cube.FacePathBuffers[Index][0] == '\0') continue;
-			const std::string Suggested = MakeDefaultImportedSourceVirtualPath(
-				AssetPath.GetView(), "Textures",
-				std::format("{}_{}{}", AssetName, FaceSuffixes[Index],
-					std::filesystem::path(Cube.FacePathBuffers[Index].data())
-						.extension().generic_string()),
-				AssetName);
-			ApplySuggestedPath(Cube.FaceDestinationBuffers[Index],
-				Cube.LastSuggestedFaceDestinations[Index], Suggested);
-		}
 	}
 } // namespace Durin::Editor::Texture

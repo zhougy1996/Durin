@@ -4,6 +4,7 @@
 
 #include "DerivedDataCache/DerivedDataBuildSession.h"
 #include "Asset.h"
+#include "Asset/SourceFilename.h"
 #include "Hash/XxHash.h"
 #include "Misc/Paths.h"
 #include "Texture/Texture2DDerivedData.h"
@@ -15,17 +16,6 @@
 namespace Durin::Asset
 {
 	using namespace ::Durin::DerivedData;
-
-	namespace
-	{
-		auto IsCanonicalTextureHash(std::string_view Hash) -> bool
-		{
-			return Hash.size() == 32 && std::ranges::all_of(Hash, [](char Character) {
-				return Character >= '0' && Character <= '9'
-					|| Character >= 'a' && Character <= 'f';
-			});
-		}
-	}
 
 	auto BuildTexture2D(
 		FTexture2DBuildRequest Request,
@@ -139,37 +129,17 @@ namespace Durin::Asset
 			OutError = "Texture2D product publication requires a complete detached product.";
 			return false;
 		}
-		const PathUtilities::FSourcePathResult Resolved =
-			PathUtilities::ResolveSourcePath(
-				Context.SourcePath.Path, PathUtilities::EPathExistence::AllowMissing);
-		if (!Resolved)
-		{
-			OutError = Resolved.Message;
-			return false;
-		}
-		const PathUtilities::FMountPolicyResult Dependency =
-			PathUtilities::CheckMountDependency(
-				Texture.GetPackage()->GetPackagePath(), Resolved.NormalizedVirtualPath);
-		if (!Dependency)
-		{
-			OutError = Dependency.Message;
-			return false;
-		}
+		std::string PhysicalPath;
+		if (!AssetImport::ResolveSourceFilename(
+			Context.SourceFilename, PhysicalPath, OutError)) return false;
 
 		const FXxHash128 SourceHash{
 			.HashLow = Product.SourceContentHashLow,
 			.HashHigh = Product.SourceContentHashHigh};
 		return Texture.PublishImportedState({
-			.SourceImportData = {
-				.Source = {
-					.SourcePath = {.Path = Resolved.NormalizedVirtualPath},
-					.SourceContentHashLow = SourceHash.HashLow,
-					.SourceContentHashHigh = SourceHash.HashHigh},
-				.DecoderId = Context.DecoderId,
-				.DecoderVersion = Context.DecoderVersion},
-			.SourceContentHash = SourceHash.ToString(),
-			.SourceFileSize = Context.SourceFileSize,
-			.SourceLastWriteTime = Context.SourceLastWriteTime,
+			.SourceFilename = Context.SourceFilename,
+			.SourceContentHashLow = SourceHash.HashLow,
+			.SourceContentHashHigh = SourceHash.HashHigh,
 			.SourceData = std::make_unique<FTextureSourceData>(std::move(Product.SourceData)),
 			.PlatformData = std::make_unique<FTexturePlatformData>(std::move(Product.PlatformData)),
 			.DerivedDataKey = std::move(Product.DerivedDataKey),
@@ -193,14 +163,6 @@ namespace Durin::Asset
 		{
 			SourceHash = Source->GetContentHash();
 		}
-		else if (Texture.GetSourceImportData().Source.HasContentHash())
-		{
-			const FTextureSourceFile& Source = Texture.GetSourceImportData().Source;
-			SourceHash.HashLow = Source.SourceContentHashLow;
-			SourceHash.HashHigh = Source.SourceContentHashHigh;
-		}
-		else if (IsCanonicalTextureHash(Texture.GetSourceContentHash()))
-			SourceHash = FXxHash128::FromString(Texture.GetSourceContentHash());
 		else
 		{
 			OutError = "Texture source content hash is missing or invalid.";

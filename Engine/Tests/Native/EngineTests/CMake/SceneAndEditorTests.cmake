@@ -22,7 +22,7 @@ durin_add_engine_functional_test(SplineTests
 		${_durin_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
 		${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd AssetForge AssetForgeBuiltins
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd AssetForgeBuiltins
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
@@ -36,7 +36,7 @@ durin_add_engine_functional_test(SplineQualificationTests
 durin_add_engine_functional_test(SkyBoxTests
 	KIND feature
 	DOMAINS sky-box
-	MODULES engine static-mesh-build level-editor renderer asset-forge asset-forge-builtins
+	MODULES engine static-mesh-build level-editor renderer asset-forge-builtins
 	STACKS editor renderer
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
@@ -57,7 +57,7 @@ durin_add_engine_functional_test(SkyBoxTests
 durin_add_engine_functional_test(SkyBoxVulkanIntegrationTests
 	KIND integration
 	DOMAINS sky-box
-	MODULES engine static-mesh-build renderer asset-forge asset-forge-builtins
+	MODULES engine static-mesh-build renderer asset-forge-builtins
 	BACKENDS vulkan
 	STACKS editor renderer
 	GPU
@@ -196,7 +196,7 @@ durin_add_engine_functional_test(EditorRenderingTests
 		Private/RendererSceneViewTests.cpp
 		Private/EditorTextureSmokeTests.cpp
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
-	LIBRARIES ApplicationCore AssetForge AssetForgeBuiltins RenderCore Renderer DurinEd MaterialEditor StaticMeshBuild
+	LIBRARIES ApplicationCore AssetForgeBuiltins RenderCore Renderer DurinEd MaterialEditor StaticMeshBuild
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -281,7 +281,7 @@ durin_add_engine_functional_test(EditorShellTests
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
 		${_durin_level_editor_private}/Viewport/ViewportPickingSceneIndex.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui AssetForge DurinEd
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd
 )
 
 durin_add_engine_functional_test(EditorHostToolTests
@@ -321,7 +321,7 @@ durin_add_engine_functional_test(ExternalToolTests
 durin_add_engine_functional_test(TextureCookIntegrationTests
 	KIND integration
 	DOMAINS asset-cook texture
-	MODULES engine static-mesh-build renderer asset-forge asset-forge-builtins
+	MODULES engine static-mesh-build renderer asset-forge-builtins
 	BACKENDS vulkan
 	STACKS editor renderer
 	EDITOR_ONLY

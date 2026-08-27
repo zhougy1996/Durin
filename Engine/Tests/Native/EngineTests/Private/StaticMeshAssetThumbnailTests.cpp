@@ -6,9 +6,7 @@
 #include "Thumbnail/AssetThumbnailObjectStore.h"
 
 #include "AssetTools.h"
-#include "AssetForge/ImportService.h"
 #include "AssetForgeBuiltinsAssetFeatures.h"
-#include "AssetForgeBuiltinsProviderTestFixture.h"
 #include "DObject/Class.h"
 #include "Editor/WorkspaceManager.h"
 #include "MaterialEditorModule.h"
@@ -25,8 +23,6 @@
 #include "TextureEditorModule.h"
 
 #include <gtest/gtest.h>
-#include <chrono>
-#include <thread>
 
 namespace
 {
@@ -136,7 +132,7 @@ namespace
 }
 
 TEST(FStaticMeshAssetThumbnailTests,
-	MissingDerivedDataWaitsForAsyncRecoveryBeforeBoundsValidation)
+	MissingDerivedDataRebuildsBeforeThumbnailReadiness)
 {
 	InitializeDObjectSystem();
 	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry;
@@ -147,9 +143,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	auto StaticMeshPostLoad =
 		AssetContext.RegisterFeature<Durin::IStaticMeshPostLoadFeature>(AssetFeatures);
 	ASSERT_TRUE(StaticMeshPostLoad.IsValid());
-	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string Error;
-	ASSERT_TRUE(Providers.Register(Error)) << Error;
 
 	Durin::FAssetPath SplineBoxPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
@@ -160,6 +154,13 @@ TEST(FStaticMeshAssetThumbnailTests,
 	const Durin::Asset::FAssetCatalogEntry Data =
 		Durin::Asset::FindAssetExact(SplineBoxPath);
 	ASSERT_NE(Data, nullptr);
+	Durin::DStaticMesh* Mesh = nullptr;
+	const Durin::Asset::FAssetResult LoadResult =
+		Durin::Asset::LoadAsset(SplineBoxPath, Mesh);
+	ASSERT_TRUE(LoadResult) << LoadResult.Message;
+	ASSERT_NE(Mesh, nullptr);
+	ASSERT_TRUE(Mesh->GetLOD0LocalBounds().has_value());
+	ASSERT_NE(Mesh->GetRenderData(), nullptr);
 
 	Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailProvider Provider;
 	Durin::Editor::FAssetThumbnailGenerationRequest Request;
@@ -169,31 +170,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 		Provider.CreateGenerationSession(Request, *Request.Input, Error);
 	ASSERT_NE(Session, nullptr) << Error;
 	const Durin::Editor::FRenderedAssetThumbnailSessionUpdate Initial = Session->Load();
-	EXPECT_EQ(Initial.State,
-		Durin::Editor::ERenderedAssetThumbnailSessionState::WaitingForResources);
-	EXPECT_TRUE(Initial.Diagnostic.empty());
-	EXPECT_TRUE(Durin::AssetForge::GetImportService().HasActiveImportClaim(
-		SplineBoxPath.ToString()));
-
-	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-	while (Durin::AssetForge::GetImportService().HasActiveImportClaim(
-			SplineBoxPath.ToString())
-		&& std::chrono::steady_clock::now() < Deadline)
-	{
-		(void)Durin::AssetForge::GetImportService().PumpImportOperations();
-		std::this_thread::sleep_for(std::chrono::milliseconds(1));
-	}
-	ASSERT_FALSE(Durin::AssetForge::GetImportService().HasActiveImportClaim(
-		SplineBoxPath.ToString()));
-	Durin::DStaticMesh* Mesh = nullptr;
-	const Durin::Asset::FAssetResult ReloadResult =
-		Durin::Asset::LoadAsset(SplineBoxPath, Mesh);
-	ASSERT_TRUE(ReloadResult) << ReloadResult.Message;
-	ASSERT_NE(Mesh, nullptr);
-	EXPECT_TRUE(Mesh->GetLOD0LocalBounds().has_value());
-	const Durin::Editor::FRenderedAssetThumbnailSessionUpdate AfterRecovery =
-		Session->PollResources();
-	EXPECT_EQ(AfterRecovery.Diagnostic.find("non-degenerate LOD 0 bounds"),
+	EXPECT_EQ(Initial.Diagnostic.find("non-degenerate LOD 0 bounds"),
 		std::string::npos);
 	Session.reset();
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(

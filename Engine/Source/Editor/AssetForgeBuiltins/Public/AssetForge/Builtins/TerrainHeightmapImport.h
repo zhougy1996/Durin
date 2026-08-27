@@ -1,9 +1,8 @@
 #pragma once
 
 #include "AssetForgeBuiltinsAPI.h"
+#include "Asset/PackageSerialization.h"
 #include "Terrain/TerrainHeightmap.h"
-#include "AssetForge/ImportRequest.h"
-#include "AssetForge/Operations/ImportExecution.h"
 
 namespace Durin
 {
@@ -42,28 +41,8 @@ namespace Durin::AssetForge::Builtins
 		std::string_view AssetPath,
 		const FTerrainHeightmapImportSettings& Settings = {},
 		bool bAllowEngineContentWrite = false) -> FTerrainHeightmapImportResult;
-	ASSETFORGEBUILTINS_API auto ChangeTerrainHeightmapSourceReference(
-		DTerrainHeightmap& Heightmap,
-		std::string_view SourceVirtualPath,
-		std::string& OutError) -> bool;
 	ASSETFORGEBUILTINS_API auto ReimportTerrainHeightmapSource(
 		DTerrainHeightmap& Heightmap,
-		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto MakeTerrainHeightmapImportRequest(
-		const FSourcePath& MountedSource,
-		const FAssetPath& Destination,
-		AssetForge::EImportMode Mode,
-		AssetForge::FImportOperationOwner Owner,
-		std::optional<AssetForge::FImportProvenance> ExistingProvenance,
-		AssetForge::FImportRequest& OutRequest,
-		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto InspectTerrainHeightmapImportProvenance(
-		const DTerrainHeightmap& Heightmap,
-		AssetForge::FImportProvenance& OutProvenance,
-		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto SubmitTerrainHeightmapImport(
-		std::string_view FilePath, const FAssetPath& Destination,
-		std::string_view SourceDestination, bool bAllowEngineContentWrite,
-		AssetForge::FImportCompletion Completion,
-		std::string& OutError) -> AssetForge::FImportHandle;
+		std::string& OutError,
+		const Asset::FAssetBundleSaveOptions& SaveOptions = {}) -> bool;
 }

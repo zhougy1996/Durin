@@ -156,7 +156,6 @@ if(DURIN_WITH_EDITOR)
 		Mona
 		MonaImGui
 		AssetCore
-		AssetForge
 		AssetForgeBuiltins
 		StaticMeshBuild
 		DurinEd
@@ -199,7 +198,6 @@ if(DURIN_WITH_EDITOR)
 		Mona
 		MonaImGui
 		AssetCore
-		AssetForge
 		AssetForgeBuiltins
 		StaticMeshBuild
 		DurinEd

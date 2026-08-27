@@ -2,7 +2,7 @@
 
 Summary: Define production GPU skinning, animated bounds, scene preparation, palette transport, passes, counters, and recovery.
 
-Modules: Engine, SkeletalBuild, AssetForge, Renderer, RenderCore, RHI, VulkanRHI
+Modules: Engine, SkeletalBuild, AssetForgeBuiltins, Renderer, RenderCore, RHI, VulkanRHI
 
 Last reviewed: 2026-08-26
 
@@ -16,8 +16,8 @@ SkeletalBuild registers the compatibility identity
 `Durin.GeometryBuild.SkeletalMesh@1`; its synchronous
 session validates complete skeletal-mesh payloads against Skeleton bone count, material
 slot count, target, and request identity. Scene parsing and detached candidate
-construction remain in AssetForge, which also owns the atomic asset
-graph publication and hard Skeleton relationship. A valid cache hit skips
+construction remain in AssetForgeBuiltins, which also owns private ordered peer
+publication and hard Skeleton relationships. A valid cache hit skips
 payload encoding and another store.
 
 ## Geometry and Skinning

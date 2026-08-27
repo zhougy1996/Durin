@@ -1,7 +1,8 @@
 #pragma once
 
-#include "AssetForge/ImportTypes.h"
+#include "AssetForge/Builtins/ImportSupport.h"
 #include "AssetForge/Builtins/ImportedScene.h"
+#include "ImportedSceneInternal.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
 

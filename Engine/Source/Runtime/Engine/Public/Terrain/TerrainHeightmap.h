@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Asset/AssetImportData.h"
 #include "Asset/Cook.h"
 #include "Asset/SourcePath.h"
 #include "DObject/Object.h"
@@ -30,31 +31,15 @@ namespace Durin
 		Raw16
 	};
 
-	// Stores portable source provenance for heightmap rebuild and reimport.
-	DSTRUCT()
+	// Carries the source contract transiently through heightmap build and recovery.
 	struct FTerrainHeightmapSourceImportData
 	{
-		GENERATED_BODY()
-
-		DPROPERTY()
 		FSourcePath SourcePath;
-
-		DPROPERTY()
 		uint64 SourceContentHashLow = 0;
-
-		DPROPERTY()
 		uint64 SourceContentHashHigh = 0;
-
-		DPROPERTY()
 		std::string DecoderId;
-
-		DPROPERTY()
 		uint32 DecoderVersion = 0;
-
-		DPROPERTY()
 		ETerrainHeightmapSourceFormat SourceFormat = ETerrainHeightmapSourceFormat::Unknown;
-
-		DPROPERTY()
 		uint32 SourceProfileVersion = 0;
 
 		auto HasSource() const -> bool { return !SourcePath.IsEmpty(); }
@@ -129,8 +114,6 @@ namespace Durin
 
 	struct FTerrainHeightmapImportSettings
 	{
-		// Empty stores external source under TerrainHeightmaps using the asset name.
-		std::string SourceDestination;
 	};
 
 	// Owns an exact revisioned uint16 height field without renderer or physics policy.
@@ -152,9 +135,28 @@ namespace Durin
 		auto GetMaximum() const -> uint16 { return Maximum; }
 		auto GetRevision() const -> uint64 { return Revision; }
 		auto GetStatus() const -> ETerrainHeightmapStatus { return Status; }
-		auto GetSourceImportData() const -> const FTerrainHeightmapSourceImportData& { return SourceImportData; }
-		auto GetImportProvenance() const -> std::string_view { return ImportProvenance; }
-		auto GetSourceFile() const -> const std::string& { return SourceImportData.SourcePath.Path; }
+		auto GetImportedSource() const -> const AssetImport::FSourceFile*
+		{
+			return AssetImportData
+				? AssetImportData->GetSourceData().FindByRole("source") : nullptr;
+		}
+		auto GetSourceFile() const -> const std::string&
+		{
+			if (const AssetImport::FSourceFile* Source = GetImportedSource())
+				return Source->Filename;
+			static const std::string Empty;
+			return Empty;
+		}
+		auto GetAssetImportData() const -> const AssetImport::DAssetImportData*
+		{
+			return AssetImportData.Get();
+		}
+		auto GetAssetImportData() -> AssetImport::DAssetImportData*
+		{
+			return AssetImportData.Get();
+		}
+		ENGINE_API auto PublishAssetImportData(
+			AssetImport::DAssetImportData& Value, std::string& OutError) -> bool;
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
 		auto GetLastDiagnostic() const -> const std::string& { return LastDiagnostic; }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
@@ -169,7 +171,6 @@ namespace Durin
 			uint32 MinX, uint32 MinY, uint32 MaxX, uint32 MaxY,
 			uint16& OutMinimum, uint16& OutMaximum) const -> bool;
 		ENGINE_API auto PublishDerivedDataLoadResult(
-			FTerrainHeightmapSourceImportData InSourceImportData,
 			uint64 InSourceFileSize,
 			int64 InSourceLastWriteTime,
 			std::shared_ptr<const FTerrainHeightmapPayload> InPayload,
@@ -187,7 +188,6 @@ namespace Durin
 		ENGINE_API auto IsSemanticImportNoOp(const DTerrainHeightmap& Candidate) const -> bool;
 		ENGINE_API auto PrepareCandidateRevision(DTerrainHeightmap& Candidate) const -> void;
 		ENGINE_API auto ExchangeImportedState(DTerrainHeightmap& Other) noexcept -> void;
-		ENGINE_API auto PublishImportProvenance(std::vector<std::byte> Provenance) -> void;
 		ENGINE_API auto AddToCook(
 			Asset::FCookContext& Context,
 			std::string_view VirtualPackagePath,
@@ -201,10 +201,7 @@ namespace Durin
 			bool bAdvanceRevision) -> void;
 
 		DPROPERTY(EditorOnly)
-		FTerrainHeightmapSourceImportData SourceImportData;
-
-		DPROPERTY(EditorOnly)
-		std::string ImportProvenance;
+		TObjectPtr<AssetImport::DAssetImportData> AssetImportData;
 
 		DPROPERTY(EditorOnly)
 		uint64 SourceFileSize = 0;

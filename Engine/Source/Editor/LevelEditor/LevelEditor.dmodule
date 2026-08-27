@@ -16,8 +16,5 @@
 		"TerrainBuild",
 		"DurinEd",
 		"ContentBrowser"
-	],
-	"PublicDependencies": [
-		"AssetForge"
-    ]
+	]
 }

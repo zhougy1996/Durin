@@ -119,24 +119,22 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 			? "Equirectangular Panorama"
 			: "Six Faces";
 
-		FTextureCubeSourceImportData ImportData;
-		const Asset::FAssetPackageField* ImportField =
-			Inspection.FindField("SourceImportData");
-		if (ImportField
-			&& ImportField->TryReadStruct(
-				FTextureCubeSourceImportData::StaticStruct(), &ImportData))
+		AssetImport::FAssetImportInfo ImportInfo;
+		std::string ImportError;
+		if (AssetImport::InspectAssetImportInfo(
+			Inspection, ImportInfo, ImportError))
 		{
 			if (Snapshot.bPanorama)
-				Snapshot.Source = ImportData.Panorama.SourcePath.Path.empty()
+			{
+				const auto It = std::ranges::find(
+					ImportInfo.Sources, "panorama", &AssetImport::FSourceFile::Role);
+				Snapshot.Source = It == ImportInfo.Sources.end()
 					? "-"
-					: ImportData.Panorama.SourcePath.Path;
+					: It->Filename;
+			}
 			else
 			{
-				size_t SourceCount = 0;
-				for (uint8 FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
-					if (ImportData.GetFace(
-						static_cast<ETextureCubeFace>(FaceIndex)).HasSource())
-						++SourceCount;
+				const size_t SourceCount = ImportInfo.Sources.size();
 				Snapshot.Source = SourceCount == 0
 					? "-"
 					: std::format("{} of {} face sources", SourceCount, TextureCubeFaceCount);

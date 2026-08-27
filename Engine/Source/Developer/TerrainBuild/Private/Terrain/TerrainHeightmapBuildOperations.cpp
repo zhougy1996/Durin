@@ -93,14 +93,7 @@ namespace Durin::Asset
 			OutError = "Terrain heightmap publication requires a complete product and provenance.";
 			return false;
 		}
-		Heightmap.PublishDerivedDataLoadResult({
-			.SourcePath = Context.SourcePath,
-			.SourceContentHashLow = Product.SourceContentHashLow,
-			.SourceContentHashHigh = Product.SourceContentHashHigh,
-			.DecoderId = Context.DecoderId,
-			.DecoderVersion = Context.DecoderVersion,
-			.SourceFormat = Context.SourceFormat,
-			.SourceProfileVersion = Context.SourceProfileVersion},
+		Heightmap.PublishDerivedDataLoadResult(
 			Context.SourceFileSize, Context.SourceLastWriteTime,
 			std::move(Product.Payload), std::move(Product.DerivedDataKey),
 			"Built canonical terrain heightmap payload from normalized height samples.",
@@ -110,10 +103,9 @@ namespace Durin::Asset
 	}
 
 	auto MakeTerrainHeightmapDerivedDataKey(
-		const DTerrainHeightmap& Heightmap,
+		const FTerrainHeightmapSourceImportData& Source,
 		std::string& OutError) -> std::string
 	{
-		const FTerrainHeightmapSourceImportData& Source = Heightmap.GetSourceImportData();
 		if (!Source.HasContentHash())
 		{
 			OutError = "Terrain heightmap source content identity is missing.";

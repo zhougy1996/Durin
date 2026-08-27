@@ -17,6 +17,22 @@ namespace Durin::AssetForge::Builtins
 
 namespace Durin::AssetForge::Builtins::Private
 {
+	class FScopedSceneImportCancellation final
+	{
+	public:
+		explicit FScopedSceneImportCancellation(
+			const std::function<bool()>& IsCancellationRequested) noexcept;
+		~FScopedSceneImportCancellation() noexcept;
+		FScopedSceneImportCancellation(const FScopedSceneImportCancellation&) = delete;
+		auto operator=(const FScopedSceneImportCancellation&)
+			-> FScopedSceneImportCancellation& = delete;
+
+	private:
+		const std::function<bool()>* Previous = nullptr;
+	};
+
+	auto IsSceneImportCancellationRequested() -> bool;
+
 	// Carries one authoritative source and result sink across a format adapter.
 	struct FImportedSceneContext
 	{

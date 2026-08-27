@@ -9,8 +9,9 @@ Last reviewed: 2026-08-26
 `SkeletalMeshEditor` owns one read-only workspace and exact asset routes for
 `DSkeleton`, `DSkeletalMesh`, and `DAnimationClip`. `DurinEd` continues to own
 workspace hosting, preview scenes, auxiliary viewports, and the bounded rendered
-thumbnail service. `AssetForge` owns Scene translation, planning, construction,
-and publication. Scene outputs are independent after the creation transaction.
+thumbnail service. `AssetForgeBuiltins` owns direct Scene translation, private
+ordering, construction, and publication. Scene outputs are independent after
+the creation transaction.
 
 Documents are keyed by the workspace manager's class-qualified document key and
 virtual asset path. Opening the same class and path focuses the existing tab;

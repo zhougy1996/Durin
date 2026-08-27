@@ -27,6 +27,10 @@ namespace Durin
 			::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
 			::Durin::Editor::Import::FImportDialogCallbacks ImportCallbacks = {}) -> bool;
 		TEXTUREEDITOR_API auto UnregisterTextureEditor() -> void;
+		TEXTUREEDITOR_API auto OpenImportDialog(std::string_view Directory) -> void;
+		TEXTUREEDITOR_API auto DrawImportDialog(bool bAllowAssetMutation) -> void;
+		TEXTUREEDITOR_API auto ReimportAsset(std::string_view AssetPath,
+			std::function<void(std::string)> ReportError) -> void;
 
 	private:
 		FModuleOwnedCallbackRegistration EditorExtensionCallbacks;

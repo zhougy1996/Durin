@@ -4,7 +4,6 @@
 #include "Editor/Workspace.h"
 #include "Editor/WorkspaceRootWindow.h"
 #include "Editor/PropertyView.h"
-#include "Editor/CompensatingAsyncOperation.h"
 #include "Source/SourceReferenceIndex.h"
 #include "TextureEditorAPI.h"
 #include "Widgets/TexturePreview.h"
@@ -54,14 +53,7 @@ namespace Durin::Editor::Texture
 		auto DrawSourceData(DTexture2D* Texture) -> void;
 		auto DrawBuildSettings(DTexture2D* Texture) -> void;
 		auto ReimportSource(DTexture2D* Texture) -> void;
-		auto ChangeSourceReference(DTexture2D* Texture) -> void;
-		auto IngestExternalSource(DTexture2D* Texture) -> void;
-		auto RepairSource(DTexture2D* Texture) -> void;
-		auto RequestSharedSourceReplacement(DTexture2D* Texture) -> void;
-		auto DrawSharedSourceReplacementConfirmation(DTexture2D* Texture) -> void;
-		auto RequestSharedSourceRelocation(DTexture2D* Texture) -> void;
-		auto DrawSharedSourceRelocationConfirmation(DTexture2D* Texture) -> void;
-		auto ChangeSourceLocation(DTexture2D* Texture) -> void;
+		auto SelectSourceFile(DTexture2D* Texture) -> void;
 		auto FinishActivePropertyEdit(bool bCancel) -> bool;
 		auto MakePropertyViewContext() -> ::Durin::Editor::FPropertyViewContext;
 		auto SetError(std::string Message) -> void;
@@ -72,24 +64,6 @@ namespace Durin::Editor::Texture
 		std::string ErrorMessage;
 		::Durin::Editor::FPropertyView PropertyView;
 		::Durin::Editor::FSourceReferenceIndex SourceReferenceIndex;
-		struct FPendingSourceReplacement
-		{
-			std::string SourceVirtualPath;
-			std::string ReplacementPhysicalPath;
-			std::vector<::Durin::Editor::FSourceReference> AffectedAssets;
-			bool bOpenRequested = false;
-		};
-		FPendingSourceReplacement PendingSourceReplacement;
-		::Durin::Editor::FCompensatingAsyncOperation SharedSourceReplacementOperation;
-		std::string ActiveSourceReplacementResourceId;
-		struct FPendingSourceRelocation
-		{
-			std::string OriginalSourceVirtualPath;
-			std::string DestinationSourceVirtualPath;
-			std::vector<::Durin::Editor::FSourceReference> AffectedAssets;
-			bool bOpenRequested = false;
-		};
-		FPendingSourceRelocation PendingSourceRelocation;
 		// Retains the preview selection independently for each open texture.
 		struct FTexturePreviewState
 		{

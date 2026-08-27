@@ -6,7 +6,6 @@ if(DURIN_WITH_EDITOR)
 		Private/Texture/TextureBuildTests.cpp
 		Private/Texture/VolumeTextureSourceImportTests.cpp
 		Private/Texture/TextureFailureTests.cpp
-		Private/Texture/TextureSourceRelocationTests.cpp
 		Private/Texture/SingleAssetImportTests.cpp
 		Private/Texture/EquirectangularTextureCubeTests.cpp
 		Private/TextureCubeTests.cpp
@@ -31,7 +30,7 @@ if(DURIN_WITH_EDITOR)
 	durin_register_native_test(TextureTests
 		KIND feature
 		DOMAINS asset-workflow texture
-		MODULES engine texture-build static-mesh-build skeletal-build terrain-build asset-forge asset-forge-builtins texture-editor
+		MODULES engine texture-build static-mesh-build skeletal-build terrain-build asset-forge-builtins texture-editor
 		STACKS editor
 		TIMEOUT 600
 	)
@@ -55,7 +54,7 @@ if(DURIN_WITH_EDITOR)
 	durin_register_native_test(SceneImportTests
 		KIND integration
 		DOMAINS asset-import
-		MODULES engine asset-forge asset-forge-builtins
+		MODULES engine asset-forge-builtins
 		STACKS editor
 		TIMEOUT 600
 	)
@@ -69,7 +68,6 @@ else()
 			Private/Texture/TextureBuildTests.cpp
 			Private/Texture/VolumeTextureSourceImportTests.cpp
 			Private/Texture/TextureFailureTests.cpp
-			Private/Texture/TextureSourceRelocationTests.cpp
 			Private/Texture/SceneImportTests.cpp
 			Private/Texture/SingleAssetImportTests.cpp
 			Private/Texture/EquirectangularTextureCubeTests.cpp
@@ -80,18 +78,18 @@ endif()
 durin_add_engine_functional_test(TerrainHeightmapTests
 	KIND feature
 	DOMAINS terrain
-	MODULES engine terrain-build asset-forge asset-forge-builtins
+	MODULES engine terrain-build asset-forge-builtins
 	STACKS editor
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises heightmap import, DDC, package, and source-index integration."
 	SOURCES Private/Terrain/TerrainHeightmapTests.cpp
-	LIBRARIES AssetForge AssetForgeBuiltins DurinEd TerrainBuild
+	LIBRARIES AssetForgeBuiltins DurinEd TerrainBuild
 )
 
 durin_add_engine_functional_test(TerrainHeightmapCookTests
 	KIND integration
 	DOMAINS asset-cook terrain
-	MODULES engine terrain-build asset-forge asset-forge-builtins
+	MODULES engine terrain-build asset-forge-builtins
 	STACKS editor
 	EDITOR_ONLY
 	TIMEOUT 600

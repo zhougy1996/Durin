@@ -253,7 +253,7 @@ namespace Durin::Asset
 	{
 		CheckGameThread();
 		if (!Request.Build.SourceData.IsValid()
-			|| Request.Publication.SourcePath.IsEmpty()
+			|| Request.Publication.SourceFilename.empty()
 			|| Request.Publication.DecoderId.empty())
 		{
 			OutError = "Texture2D compilation submission requires normalized source and provenance.";
@@ -271,7 +271,6 @@ namespace Durin::Asset
 		}
 
 		const std::string Identity = Texture.GetObjectPath();
-		const FSourcePath SourcePath = Request.Publication.SourcePath;
 		uint64 Generation = 0;
 		uint64 PreviousRequestId = 0;
 		FTexture2DCompilationCompletion SupersededCompletion;
@@ -296,7 +295,6 @@ namespace Durin::Asset
 		const uint32 Height = Request.Build.SourceData.Height;
 		const uint64 RequestId = SubmitWork({
 			.AssetIdentity = Identity,
-			.SourcePath = SourcePath,
 			.SourceData = std::move(Request.Build.SourceData),
 			.SourceHash = {
 				.HashLow = Request.Build.SourceContentHashLow,
@@ -396,11 +394,7 @@ namespace Durin::Asset
 			if (State && State->Texture.Get() == &Texture) RequestId = State->ActiveRequestId;
 		}
 		if (RequestId == 0)
-		{
-			if (const auto AssetForge = TryWaitForTexture2DImportRecovery(
-				Texture, TimeoutSeconds)) return *AssetForge;
-			return true;
-		}
+			return Texture.GetBuildStatus() == ETextureBuildStatus::Ready;
 		if (!WaitForWork(RequestId, TimeoutSeconds)) return false;
 		FAssetCompilingManager::Get().FinishCompilationForObject(Texture);
 		bool bFailed = false;
@@ -490,11 +484,7 @@ namespace Durin::Asset
 	{
 		const auto Domain = GetTexture2DCompilationDomain();
 		if (!Domain)
-		{
-			if (const auto AssetForge = TryWaitForTexture2DImportRecovery(
-				Texture, TimeoutSeconds)) return *AssetForge;
-			return true;
-		}
+			return Texture.GetBuildStatus() == ETextureBuildStatus::Ready;
 		return Domain->Wait(Texture, TimeoutSeconds);
 	}
 }

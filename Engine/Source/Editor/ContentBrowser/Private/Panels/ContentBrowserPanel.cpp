@@ -2,8 +2,6 @@
 #include "DObject/Package.h"
 #include "Panels/ContentBrowserFilesystem.h"
 
-#include "AssetForge/ImportTypes.h"
-#include "AssetForge/ImportService.h"
 #include "AssetTools.h"
 #include "AssetForge/Builtins/SceneImport.h"
 #include "Assets/ContentBrowserThumbnailCache.h"
@@ -92,7 +90,10 @@ namespace Durin::Editor::ContentBrowser::Private
 		FExecuteTransaction InExecuteTransaction,
 		FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
 		FNotifyMountedContentMutation InNotifyMountedContentMutation,
-		FNotifyImportStarted InNotifyImportStarted,
+		FOpenImport InOpenImport,
+		FClassifyReimport InClassifyReimport,
+		FReimport InReimport,
+		FDrawImportDialogs InDrawImportDialogs,
 		std::shared_ptr<FMountedContentReconciliationState>
 			InMountedContentReconciliationState,
 		FTaskScopeToken InThumbnailTaskScope)
@@ -103,7 +104,10 @@ namespace Durin::Editor::ContentBrowser::Private
 		, GetMountedContentMutationRevision(
 			std::move(InGetMountedContentMutationRevision))
 		, NotifyMountedContentMutation(std::move(InNotifyMountedContentMutation))
-		, NotifyImportStarted(std::move(InNotifyImportStarted))
+		, OpenImport(std::move(InOpenImport))
+		, ClassifyReimport(std::move(InClassifyReimport))
+		, Reimport(std::move(InReimport))
+		, DrawImportDialogs(std::move(InDrawImportDialogs))
 		, RefreshCoordinator(
 			GetMountedContentMutationRevision
 				? GetMountedContentMutationRevision()
@@ -135,12 +139,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 	}
 
-	FContentBrowserPanel::~FContentBrowserPanel()
-	{
-		if (PendingSingleAssetReimport && PendingSingleAssetReimport->AssetForge)
-			AssetForge::GetImportService().CancelAndDrainImportOperation(
-				PendingSingleAssetReimport->AssetForge->GetOperationHandle());
-	}
+	FContentBrowserPanel::~FContentBrowserPanel() = default;
 
 	auto FContentBrowserPanel::NotifyMountedContentChanged() -> bool
 	{
@@ -362,7 +361,6 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::BeginRename(const FContentBrowserItem& Item) -> void
 	{
-		if (PendingSingleAssetReimport) return;
 		RenameTarget = Item.StableId();
 		RenameBuffer.fill(0);
 		std::memcpy(
@@ -375,7 +373,6 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserPanel::CommitRename(const FContentBrowserItem& Item)
 		-> bool
 	{
-		if (PendingSingleAssetReimport) return false;
 		const std::string NewName = RenameBuffer.data();
 		if (NewName == Item.Name)
 		{
@@ -402,7 +399,6 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserPanel::DuplicateAsset(
 		const FContentBrowserItem& Item) -> void
 	{
-		if (PendingSingleAssetReimport) return;
 		const FContentBrowserOperationResult Result = Operations.Duplicate(Item);
 		if (!Result)
 		{
@@ -430,7 +426,6 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserPanel::PasteAsset(
 		std::string_view DestinationDirectory) -> void
 	{
-		if (PendingSingleAssetReimport) return;
 		FAssetPath SourcePath;
 		if (!ReadAssetClipboard(SourcePath)) return;
 		const std::string_view Directory = DestinationDirectory.empty()
@@ -485,46 +480,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		Selection.clear();
 		Selection.insert(It->StableId());
 		BeginRename(*It);
-	}
-
-	auto FContentBrowserPanel::SubmitSingleAssetImport(FAssetPath AssetPath,
-		AssetForge::FImportRequest Request, std::string Title) -> bool
-	{
-		if (PendingSingleAssetReimport)
-		{
-			SetError("Another single-asset reimport is already active in this Content Browser.");
-			return false;
-		}
-		AssetForge::FImportHandle Handle =
-			AssetForge::GetImportService().SubmitImport(std::move(Request), Title);
-		if (!Handle)
-		{
-			SetError(std::format("{} could not be submitted.", Title));
-			return false;
-		}
-		if (NotifyImportStarted)
-			NotifyImportStarted(Handle.GetOperationHandle(), Title);
-		PendingSingleAssetReimport = FPendingSingleAssetReimport{
-			.AssetForge = std::move(Handle), .AssetPath = std::move(AssetPath)};
-		return true;
-	}
-
-	auto FContentBrowserPanel::PollSingleAssetReimport() -> void
-	{
-		if (!PendingSingleAssetReimport || !PendingSingleAssetReimport->AssetForge) return;
-		AssetForge::FImportResult Result;
-		if (!PendingSingleAssetReimport->AssetForge->TryGetResult(Result)) return;
-		const FAssetPath AssetPath = PendingSingleAssetReimport->AssetPath;
-		PendingSingleAssetReimport.reset();
-		if (Result.Outcome.State != AssetForge::EImportOperationState::Succeeded)
-		{
-			if (Result.Outcome.State != AssetForge::EImportOperationState::Canceled)
-				SetError(Result.Outcome.Diagnostic.empty()
-					? "AssetForge reimport failed." : Result.Outcome.Diagnostic);
-			return;
-		}
-		PublishMountedContentMutation();
-		RevealAsset(AssetPath.ToString());
 	}
 
 	auto FContentBrowserPanel::FixUpRedirector(
@@ -621,7 +576,6 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::RequestDeleteSelection() -> void
 	{
-		if (PendingSingleAssetReimport) return;
 		if (Selection.empty()) return;
 		PendingDeletionPlan = Operations.BuildDeletionPlan(
 			Model.GetItems(), Selection);
@@ -631,7 +585,6 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::DeleteSelection() -> void
 	{
-		if (PendingSingleAssetReimport) return;
 		if (!PendingDeletionPlan || !ExecuteTransaction)
 		{
 			SetError("Content deletion is unavailable because editor history is not active.");

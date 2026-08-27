@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Asset/AssetOperations.h"
-#include "Asset/MountedSource.h"
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "Asset/SourcePath.h"

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetForge/ImportTypes.h"
+#include "AssetForge/Builtins/ImportSupport.h"
 #include "AssetForgeBuiltinsAPI.h"
 #include "CoreFwd.h"
 #include "Hash/XxHash.h"

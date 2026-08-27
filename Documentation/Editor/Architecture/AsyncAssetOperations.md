@@ -2,26 +2,24 @@
 
 Summary: Define completion, compensation, and UI ownership for nonblocking editor asset mutations.
 
-Modules: TextureBuild, AssetForge, AssetForgeBuiltins, DurinEd, TextureEditor, AssetCore
+Modules: TextureBuild, AssetForgeBuiltins, DurinEd, TextureEditor, AssetCore
 
-Last reviewed: 2026-08-24
+Last reviewed: 2026-08-27
 
 ## Ownership Layers
 
 Asynchronous asset work crosses three independent concerns:
 
 1. Asset-family compilation domains schedule typed work and publish typed products.
-2. DurinEd coordinates editor mutations that commit after success or compensate
-   after failure.
-3. Asset editors adapt their family and source policy to those generic
-   contracts and present progress.
+2. A family editor adapts typed completion to package save and diagnostics.
+3. DurinEd's optional compensating utility remains available for a mutation
+   that actually needs external rollback and asynchronous repair.
 
-Typed compilation domains retain their own workers, priorities, cancellation, and
-metrics. Asset import is the exception at the authoring-workflow layer:
-`AssetForge` owns one `FImportJob` and runs both scheduled and
-inline requests through the same worker/editor phase machine. Asset families
-contribute source-translator, planning-pass, and asset-builder work rather than another import
-scheduler.
+Typed compilation domains retain their own workers, priorities, cancellation,
+and metrics. Direct standalone-family import performs synchronous detached
+preparation and publication or delegates only build work to its typed family
+domain. Scene performs direct synchronous orchestration around private captured
+values and does not create a generic import job or operation handle.
 
 ## Texture2D Compilation Completion Contract
 
@@ -72,49 +70,24 @@ compensation start, cancellation, and final notification callables. The adapter
 may use typed weak object references but cannot make the generic coordinator
 retain a reflected object implicitly.
 
-For Texture2D shared-source replacement:
+For direct Texture2D source selection:
 
-- AssetCore stages and owns rollback for replacement source bytes.
-- TextureBuild and AssetForgeBuiltins rebuild and publish the Texture2D candidate.
-- TextureEditor saves the package before committing the mounted-source
-  replacement.
-- A build or save failure restores the source bytes, then asynchronously
-  rebuilds from the restored source.
+- AssetForgeBuiltins captures the selected file without mutating it.
+- TextureBuild prepares and publishes the Texture2D candidate.
+- TextureEditor saves the package after successful publication.
+- A pre-publication failure preserves the live asset; save failure leaves the
+  valid published state Dirty for retry.
 - The Widget owns only the active asset identity, phase label, conflicting
   control state, close rejection, and final diagnostic presentation.
 
-Other asset families can reuse the compensating operation without adopting
-Texture2D's terminal result, source, or package policy. A shared result contract
-belongs in Engine only after multiple compilation domains have a real common
-consumer.
-
-AssetForge import uses the same ownership split. Worker rounds capture/hash sources,
-discover dependencies, translate, execute worker-safe planning passes, and build
-detached products. Editor rounds materialize candidates, resolve dependencies,
-revalidate, publish, save, and reverse failure. Preview can cache a detached
-product only under complete source/settings/stack/graph/destination/target
-fingerprints; asset-builder component leases remain alive until cached products are
-destroyed.
-
-AssetForge publishes immutable-by-copy operation snapshots; a LevelEditor presenter adapts
-those values to one `HistoryOnly` notification per operation and one aggregate
-`StatusBar` notification that is deliberately excluded from history. The
-status surface is determinate only for a single operation with a meaningful
-total; otherwise it uses an indeterminate indicator and reports the active
-operation count. Canceling, canceled, and failed remain distinct states.
-
-The initiating import dialog reads the same snapshot through
-`FImportDialogProgressModel`. Running in background closes only the modal and
-sets presentation state on the handle; the central editor owner continues the
-operation. The model retains no Widget and disables cancellation at
-`Finalizing` or any terminal state. Activity History remains the durable
-session surface for individual terminal results, while the aggregate entry
-never duplicates that history. Project switch, workspace teardown, component
-retirement, and process shutdown close admission and cancel or drain through
-the same operation ownership boundary.
+Other asset families can reuse the compensating operation only when they have a
+real prepare/rollback/compensate transaction. Direct import itself does not use
+this utility: each family captures and validates detached state before its
+narrow publication seam, then reports synchronous rejection or typed build
+completion through its owning module.
 
 ## Related Documentation
 
 - [Asset Data Lifecycle and Storage](../../Runtime/Assets/AssetDataLifecycle.md)
 - [CPU Task System](../../Runtime/Core/TaskSystem.md)
-- [Mounted Source Workflows](../Guides/MountedSourceWorkflows.md)
+- [Source File Workflows](../Guides/SourceFileWorkflows.md)

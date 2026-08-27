@@ -1,8 +1,7 @@
 #include "TextureTestSupport.h"
 
 #include "AssetForge/Builtins/VolumeTextureImport.h"
-#include "AssetForgeBuiltinsProviderTestFixture.h"
-#include "AssetForge/ImportService.h"
+#include "AssetForge/Builtins/VolumeTextureImportData.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "Modules/ModuleManager.h"
 #include "Texture/TextureDerivedData.h"
@@ -16,30 +15,20 @@ using namespace Durin::AssetForge::Builtins;
 
 namespace
 {
+	struct FReimportResult
+	{
+		bool bSucceeded = false;
+		std::string Diagnostic;
+	};
+
 	auto ReimportVolumeTexture(DVolumeTexture& Texture,
 		const FVolumeTextureImportSettings& Settings)
-		-> AssetForge::FImportResult
+		-> FReimportResult
 	{
-		FAssetPath Destination;
+		(void)Settings;
 		std::string Error;
-		if (!Texture.GetPackage() || !FAssetPath::TryCreate(
-			Texture.GetPackage()->GetPackagePath(), Destination, &Error))
-			return {.Outcome = {.State = AssetForge::EImportOperationState::Failed,
-				.Diagnostic = std::move(Error)}};
-		AssetForge::FImportProvenance Provenance;
-		if (!InspectVolumeTextureImportProvenance(Texture, Provenance, Error))
-			return {.Outcome = {.State = AssetForge::EImportOperationState::Failed,
-				.Diagnostic = std::move(Error)}};
-		AssetForge::FImportRequest Request;
-		if (!MakeVolumeTextureImportRequest(
-			Texture.GetSourceImportData().Source.SourcePath, Destination, Settings,
-			AssetForge::EImportMode::Reimport,
-			{.OwnerId = "Tests.VolumeTexture.ImportReimport"}, Provenance,
-			Request, Error))
-			return {.Outcome = {.State = AssetForge::EImportOperationState::Failed,
-				.Diagnostic = std::move(Error)}};
-		return AssetForge::GetImportService().RunImportInline(
-			std::move(Request), "Reimport VolumeTexture");
+		const bool bSucceeded = ReimportVolumeTextureSource(Texture, {}, Error);
+		return {.bSucceeded = bSucceeded, .Diagnostic = std::move(Error)};
 	}
 
 	void AppendBigEndian32(std::vector<std::byte>& Bytes, uint32 Value)
@@ -304,9 +293,6 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	InitializeTextureImportMount();
 	FModuleManager::Get().LoadModuleChecked("TextureBuild");
 	ASSERT_TRUE(EnsureTextureCompilingManager());
-	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
-	std::string ProviderError;
-	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	const std::filesystem::path SourceDirectory =
 		Testing::GetTestWorkDirectory() / "TextureImports/Content/VolumeSource";
 	std::filesystem::create_directories(SourceDirectory);
@@ -320,28 +306,28 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 		AtlasPath.generic_string(), "/TextureImportTests/ImportedVolume", Settings);
 	ASSERT_TRUE(Imported) << Imported.Message;
 	ASSERT_NE(Imported.Asset, nullptr);
+	const auto* ImportData = dynamic_cast<const DVolumeTextureImportData*>(
+		Imported.Asset->GetAssetImportData());
+	ASSERT_NE(ImportData, nullptr);
+	EXPECT_EQ(ImportData->GetVolumeTextureState().DecoderId,
+		VolumeTextureSourceProviderId);
 	EXPECT_EQ(Imported.Asset->GetSourceData().Depth, 2u);
-	const auto& Provenance = Imported.Asset->GetSourceImportData();
-	EXPECT_TRUE(Provenance.Source.SourcePath.Path.ends_with("/VolumeSource/Noise.png"));
-	EXPECT_EQ(Provenance.SourceFile, Provenance.Source.SourcePath.Path);
-	EXPECT_EQ(Provenance.ImportFormat, EVolumeTextureImportFormat::PngRowMajorAtlas);
-	EXPECT_EQ(Provenance.SliceWidth, 1u);
-	EXPECT_EQ(Provenance.TilesX, 2u);
+	const FVolumeTextureImportDataState ImportState = ImportData->GetVolumeTextureState();
+	const AssetImport::FSourceFile* ImportedSource = Imported.Asset->GetImportedSource();
+	ASSERT_NE(ImportedSource, nullptr);
+	EXPECT_TRUE(ImportedSource->Filename.ends_with("/VolumeSource/Noise.png"));
+	EXPECT_EQ(ImportState.ImportFormat, EVolumeTextureImportFormat::PngRowMajorAtlas);
+	EXPECT_EQ(ImportState.SliceWidth, 1u);
+	EXPECT_EQ(ImportState.TilesX, 2u);
 
-	FProperty* ImportProperty = Imported.Asset->GetClass()->FindPropertyByName("SourceImportData");
+	FProperty* ImportProperty = Imported.Asset->GetClass()->FindPropertyByName("AssetImportData");
 	ASSERT_NE(ImportProperty, nullptr);
-	EXPECT_TRUE(ImportProperty->HasAnyPropertyFlags(EPropertyFlags::Edit));
-	EXPECT_TRUE(ImportProperty->HasAnyPropertyFlags(EPropertyFlags::ReadOnly));
 	EXPECT_TRUE(ImportProperty->HasAnyPropertyFlags(EPropertyFlags::EditorOnly));
-	FProperty* SourceFileProperty = FVolumeTextureSourceImportData::StaticStruct()
-		->FindPropertyByName("SourceFile", false);
-	ASSERT_NE(SourceFileProperty, nullptr);
-	EXPECT_TRUE(SourceFileProperty->HasAnyPropertyFlags(EPropertyFlags::Edit));
-	EXPECT_TRUE(SourceFileProperty->HasAnyPropertyFlags(EPropertyFlags::ReadOnly));
+	EXPECT_NE(DVolumeTextureImportData::StaticClass()->FindPropertyByName("SliceWidth"), nullptr);
+	EXPECT_EQ(Imported.Asset->GetClass()->FindPropertyByName("SourceImportData"), nullptr);
 
 	auto Executed = ReimportVolumeTexture(*Imported.Asset, Settings);
-	ASSERT_EQ(Executed.Outcome.State, AssetForge::EImportOperationState::Succeeded)
-		<< Executed.Outcome.Diagnostic;
+	ASSERT_TRUE(Executed.bSucceeded) << Executed.Diagnostic;
 	const std::string LastKnownGoodKey = Imported.Asset->GetDerivedDataKey();
 
 	{
@@ -349,7 +335,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 		Corrupt << "not a png";
 	}
 	Executed = ReimportVolumeTexture(*Imported.Asset, Settings);
-	EXPECT_EQ(Executed.Outcome.State, AssetForge::EImportOperationState::Failed);
+	EXPECT_FALSE(Executed.bSucceeded);
 	EXPECT_EQ(Imported.Asset->GetDerivedDataKey(), LastKnownGoodKey);
 	EXPECT_EQ(Imported.Asset->GetBuildStatus(), ETextureBuildStatus::Ready);
 
@@ -362,9 +348,10 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 		std::filesystem::copy_options::overwrite_existing);
 	std::string RepairError;
 	ASSERT_TRUE(RepairVolumeTextureSource(*Imported.Asset,
-		"/TextureImportTests/MovedVolume/Noise.png", RepairError)) << RepairError;
-	EXPECT_EQ(Imported.Asset->GetSourceImportData().SourceFile,
-		"/TextureImportTests/MovedVolume/Noise.png");
+		MovedAtlas.generic_string(), RepairError)) << RepairError;
+	ASSERT_NE(Imported.Asset->GetImportedSource(), nullptr);
+	EXPECT_TRUE(Imported.Asset->GetImportedSource()->Filename.ends_with(
+		"MovedVolume/Noise.png"));
 	ASSERT_TRUE(Asset::SavePackage(Imported.Asset->GetPackage()));
 
 	const FVolumeTextureImportResult Detail = ImportVolumeTextureAsset(
@@ -396,8 +383,9 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	ASSERT_TRUE(Asset::LoadAsset(DetailAssetPath, ReloadedDetail));
 	ASSERT_NE(ReloadedBase, nullptr);
 	ASSERT_NE(ReloadedDetail, nullptr);
-	EXPECT_EQ(ReloadedBase->GetSourceImportData().SourceFile,
-		"/TextureImportTests/MovedVolume/Noise.png");
+	ASSERT_NE(ReloadedBase->GetImportedSource(), nullptr);
+	EXPECT_TRUE(ReloadedBase->GetImportedSource()->Filename.ends_with(
+		"MovedVolume/Noise.png"));
 	auto* Component = NewObject<DVolumetricCloudComponent>(nullptr, "ImportedCloud");
 	Component->SetBaseDensityTexture(ReloadedBase);
 	Component->SetDetailDensityTexture(ReloadedDetail);
@@ -416,9 +404,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	InitializeTextureImportMount();
 	FModuleManager::Get().LoadModuleChecked("TextureBuild");
 	ASSERT_TRUE(EnsureTextureCompilingManager());
-	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string Error;
-	ASSERT_TRUE(Providers.Register(Error)) << Error;
 	FScopedDerivedDataCacheRoot CacheRoot(
 		Testing::GetTestWorkDirectory() / "VolumeTextureProductionAtlasDdc");
 	const std::filesystem::path SourceDirectory =
@@ -469,8 +455,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	ASSERT_EQ(V6Companions.size(), 1u);
 
 	const auto Reimported = ReimportVolumeTexture(*Imported.Asset, Settings);
-	ASSERT_EQ(Reimported.Outcome.State, AssetForge::EImportOperationState::Succeeded)
-		<< Reimported.Outcome.Diagnostic;
+	ASSERT_TRUE(Reimported.bSucceeded) << Reimported.Diagnostic;
 	EXPECT_EQ(Imported.Asset->GetDerivedDataKey(), V6DerivedDataKey);
 
 	const std::filesystem::path CookRoot = std::filesystem::absolute(

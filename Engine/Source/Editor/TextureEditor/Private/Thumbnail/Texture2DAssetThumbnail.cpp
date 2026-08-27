@@ -1,7 +1,9 @@
 #include "Thumbnail/Texture2DAssetThumbnail.h"
 
 #include "Asset.h"
+#include "Asset/AssetImportData.h"
 #include "Asset/PackageInspection.h"
+#include "Asset/SourceFilename.h"
 #include "Image/ImageDecoder.h"
 #include "Misc/Paths.h"
 #include "Texture/Texture2D.h"
@@ -42,21 +44,21 @@ namespace Durin::Editor::Texture
 			Asset::FAssetPackageInspection Inspection;
 			if (Asset::InspectAssetPackage(Data.PhysicalPath, Inspection))
 			{
-				const Asset::FAssetPackageField* SourceField =
-					Inspection.FindField("SourceImportData");
-				FTexture2DSourceImportData SourceImportData;
-				if (SourceField
-					&& SourceField->TryReadStruct(
-						FTexture2DSourceImportData::StaticStruct(), &SourceImportData)
-					&& SourceImportData.HasSource())
+				AssetImport::FAssetImportInfo ImportInfo;
+				std::string ImportError;
+				if (AssetImport::InspectAssetImportInfo(
+						Inspection, ImportInfo, ImportError))
 				{
-					const PathUtilities::FSourcePathResult Resolved =
-						PathUtilities::ResolveSourcePath(
-							SourceImportData.Source.SourcePath.Path);
-					if (Resolved
-						&& Image::IsSupportedImageExtension(
-							Resolved.PhysicalPath.extension().generic_string()))
-						return Resolved.PhysicalPath;
+					if (const AssetImport::FSourceFile* Source =
+							ImportInfo.FindByRole("source"))
+					{
+						std::string PhysicalPath;
+						if (AssetImport::ResolveSourceFilename(
+								Source->Filename, PhysicalPath, ImportError)
+							&& Image::IsSupportedImageExtension(
+								std::filesystem::path(PhysicalPath).extension().generic_string()))
+							return PhysicalPath;
+					}
 				}
 			}
 

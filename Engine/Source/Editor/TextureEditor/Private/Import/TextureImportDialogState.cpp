@@ -7,13 +7,13 @@ namespace Durin::Editor::Texture
 {
 	auto FTexture2DImportFormState::Reset() -> void
 	{
-		Source.Reset();
+		SourcePathBuffer.fill(0);
 		Usage = ETextureUsage::Color;
 	}
 
 	auto FVolumeTextureImportFormState::Reset() -> void
 	{
-		Source.Reset();
+		SourcePathBuffer.fill(0);
 		Channels = EVolumeTextureSourceChannels::Red;
 		SliceWidth = 128;
 		SliceHeight = 128;
@@ -25,11 +25,7 @@ namespace Durin::Editor::Texture
 	auto FTextureCubeImportFormState::Reset() -> void
 	{
 		for (auto& Buffer : FacePathBuffers) Buffer.fill(0);
-		for (auto& Buffer : FaceDestinationBuffers) Buffer.fill(0);
-		for (std::string& Path : LastSuggestedFaceDestinations) Path.clear();
 		PanoramaPathBuffer.fill(0);
-		PanoramaDestinationBuffer.fill(0);
-		LastSuggestedPanoramaDestination.clear();
 		SourceValidationMessage = "Select a 2:1 panorama to continue.";
 		SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama;
 		PanoramaFaceDimension = 0;
@@ -47,7 +43,6 @@ namespace Durin::Editor::Texture
 	auto FTextureImportDialogState::Reset() -> void
 	{
 		AssetType = ETextureImportAssetType::Texture2D;
-		SourceMode = EMountedSourceImportMode::IngestExternal;
 		Texture2D.Reset();
 		TextureCube.Reset();
 		VolumeTexture.Reset();

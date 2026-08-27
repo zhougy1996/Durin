@@ -13,12 +13,6 @@ namespace Durin::Asset
 
 	namespace
 	{
-		auto MakeSourceFile(std::string_view Path, const FXxHash128& Hash)
-			-> FTextureSourceFile
-		{
-			return {{.Path = std::string(Path)}, Hash.HashLow, Hash.HashHigh};
-		}
-
 		auto TryLoadCubeBuild(
 			const FTextureCubeBuildKeyInput& KeyInput,
 			std::string& OutKey,
@@ -170,14 +164,14 @@ namespace Durin::Asset
 		const DTextureCube& Texture,
 		std::string& OutError) -> std::string
 	{
-		const FTextureCubeSourceImportData& Source = Texture.GetSourceImportData();
-		if (!Source.HasSource())
+		const AssetImport::DAssetImportData* ImportData = Texture.GetAssetImportData();
+		if (!ImportData)
 		{
 			OutError = "TextureCube has no persisted source identity.";
 			return {};
 		}
 		FTextureCubeBuildKeyInput Input{
-			.SourceLayout = Source.SourceLayout == ETextureCubeSourceLayout::SixFaces
+			.SourceLayout = Texture.GetSourceLayout() == ETextureCubeSourceLayout::SixFaces
 				? ETextureCubeBuildSourceLayout::SixFaces
 				: ETextureCubeBuildSourceLayout::EquirectangularPanorama,
 			.FaceDimension = Texture.GetPanoramaFaceDimension(),
@@ -185,32 +179,38 @@ namespace Durin::Asset
 			.bSRGB = Texture.IsSRGB(),
 			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 			.TargetProfile = Asset::ECookTargetProfile::Game};
-		if (Source.SourceLayout == ETextureCubeSourceLayout::SixFaces)
+		if (Texture.GetSourceLayout() == ETextureCubeSourceLayout::SixFaces)
 		{
+			static constexpr std::array Roles{
+				"positive-x", "negative-x", "positive-y",
+				"negative-y", "positive-z", "negative-z"};
 			for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
 			{
-				const FTextureSourceFile& Face =
-					Source.GetFace(static_cast<ETextureCubeFace>(Index));
-				if (!Face.HasSource() || !Face.HasContentHash())
+				const AssetImport::FSourceFile* Face =
+					ImportData->GetSourceData().FindByRole(Roles[Index]);
+				if (!Face || (Face->ContentHashLow == 0 && Face->ContentHashHigh == 0))
 				{
 					OutError = "TextureCube face source provenance is incomplete.";
 					return {};
 				}
 				Input.FaceContentHashes[Index] = {
-					.HashLow = Face.SourceContentHashLow,
-					.HashHigh = Face.SourceContentHashHigh};
+					.HashLow = Face->ContentHashLow,
+					.HashHigh = Face->ContentHashHigh};
 			}
 		}
 		else
 		{
-			if (!Source.Panorama.HasSource() || !Source.Panorama.HasContentHash())
+			const AssetImport::FSourceFile* Panorama =
+				ImportData->GetSourceData().FindByRole("panorama");
+			if (!Panorama || (Panorama->ContentHashLow == 0
+				&& Panorama->ContentHashHigh == 0))
 			{
 				OutError = "TextureCube panorama source provenance is incomplete.";
 				return {};
 			}
 			Input.PanoramaContentHash = {
-				.HashLow = Source.Panorama.SourceContentHashLow,
-				.HashHigh = Source.Panorama.SourceContentHashHigh};
+				.HashLow = Panorama->ContentHashLow,
+				.HashHigh = Panorama->ContentHashHigh};
 		}
 		return BuildTextureCubeDerivedDataKey(Input, OutError);
 	}
@@ -319,6 +319,7 @@ namespace Durin::Asset
 		const FTextureCubePublicationContext& Context,
 		std::string& OutError) -> bool
 	{
+		(void)Context;
 		if (!Product.PlatformData || !Product.PlatformData->IsValid()
 			|| (!Product.bLoadedFromDerivedDataCache
 				&& !Product.SourceData.Faces[0].IsValid())
@@ -326,22 +327,6 @@ namespace Durin::Asset
 		{
 			OutError = "TextureCube publication product is incomplete.";
 			return false;
-		}
-		FTextureCubeSourceImportData Provenance;
-		Provenance.SourceLayout = Product.SourceLayout;
-		Provenance.DecoderId = Context.DecoderId;
-		Provenance.DecoderVersion = Context.DecoderVersion;
-		Provenance.ProjectionVersion = TextureCubeProjectionVersion;
-		if (Product.SourceLayout == ETextureCubeSourceLayout::SixFaces)
-		{
-			for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
-				Provenance.GetMutableFace(static_cast<ETextureCubeFace>(Index)) =
-					MakeSourceFile(Context.FacePaths[Index].Path, Context.FaceHashes[Index]);
-		}
-		else
-		{
-			Provenance.Panorama = MakeSourceFile(
-				Context.PanoramaPath.Path, Context.PanoramaHash);
 		}
 		const std::string DiagnosticKey = Product.DerivedDataKey;
 		const bool bPanorama = Product.SourceLayout
@@ -351,7 +336,7 @@ namespace Durin::Asset
 			SourceData = std::make_unique<FTextureCubeSourceData>(
 				std::move(Product.SourceData));
 		Texture.PublishBuildProduct(
-			Product.SourceLayout, std::move(Provenance), Product.PanoramaFaceDimension,
+			Product.SourceLayout, Product.PanoramaFaceDimension,
 			Product.PanoramaExposureEV, Product.SourceWidth, Product.SourceHeight,
 			Product.bSRGB,
 			std::move(SourceData),

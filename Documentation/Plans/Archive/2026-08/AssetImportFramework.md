@@ -1302,7 +1302,7 @@ Dependencies: Stage 6.
 
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Mounted Source Workflows](../../../Editor/Guides/MountedSourceWorkflows.md)
+- [Mounted Source Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
 - [Material System](../../../Runtime/Rendering/MaterialSystem.md)
 - [Texture System](../../../Runtime/Rendering/TextureSystem.md)
 - [Multithreading V1 Plan](MultithreadingV1.md)

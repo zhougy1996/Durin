@@ -38,9 +38,9 @@ Scene persistence stores the actor list, primary camera, component relative tran
 The Level Editor exposes New, Open, and Save using virtual asset paths and the
 Asset Registry. Dirty package switches require Save, Discard, or Cancel.
 Static-mesh components persist cross-package references to `DStaticMesh`
-assets. A static-mesh asset serializes an optional mounted `FSourcePath`, exact
+assets. A static-mesh asset serializes an optional normalized source filename, exact
 source identity, and build settings; CPU/GPU render data is restored from DDC or
-rebuilt from its mounted source file and is never serialized in the authored
+rebuilt from its source file and is never serialized in the authored
 package. Version one intentionally supports a single active level and does not
 include sub-level streaming, PIE cloning, or Save As.
 

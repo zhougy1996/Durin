@@ -2,7 +2,7 @@
 
 #include "DObject/Package.h"
 
-#include "Asset/MountedSource.h"
+#include "Asset/SourceFilename.h"
 #include "AssetCook.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Hash/XxHash.h"
@@ -19,8 +19,11 @@ namespace Durin
 	namespace
 	{
 		constexpr uint32 TextureSourceChannelCount = 4;
-		constexpr std::string_view TextureDecoderId = "DurinImage";
-		constexpr uint32 TextureDecoderVersion = 1;
+		struct FResolvedTextureSource
+		{
+			std::filesystem::path PhysicalPath;
+			bool bExists = false;
+		};
 
 		auto IsValidUsage(ETextureUsage Usage) -> bool
 		{
@@ -48,44 +51,30 @@ namespace Durin
 
 		auto ResolveTextureSource(
 			const DTexture2D& Texture,
-			Asset::FMountedSourceResolution& OutResolution,
+			FResolvedTextureSource& OutResolution,
 			std::string& OutError) -> bool
 		{
 			if (const AssetImport::FSourceFile* Source = Texture.GetImportedSource())
 			{
-				if (!Texture.GetPackage())
+				std::string PhysicalPathText;
+				if (!AssetImport::ResolveSourceFilename(
+					Source->Filename, PhysicalPathText, OutError)) return false;
+				const std::filesystem::path PhysicalPath(PhysicalPathText);
+				std::error_code Error;
+				const bool bExists = std::filesystem::is_regular_file(PhysicalPath, Error);
+				if (Error == std::errc::no_such_file_or_directory)
+					Error.clear();
+				OutResolution = {
+					.PhysicalPath = PhysicalPath,
+					.bExists = bExists};
+				if (Error)
 				{
-					OutError = "Texture source cannot be resolved without an owning package.";
+					OutError = Error.message();
 					return false;
 				}
-				return Asset::ResolveMountedSourceReference(
-					Texture.GetPackage()->GetPackagePath(), Source->SourcePath.Path,
-					Asset::EMountedSourceExistencePolicy::AllowMissing,
-					OutResolution, OutError);
+				return true;
 			}
-			const FTexture2DSourceImportData& Provenance = Texture.GetSourceImportData();
-			if (Provenance.HasSource())
-			{
-				if (Provenance.DecoderId != TextureDecoderId
-					|| Provenance.DecoderVersion != TextureDecoderVersion)
-				{
-					OutError = std::format(
-						"Texture source decoder {} version {} is unsupported.",
-						Provenance.DecoderId, Provenance.DecoderVersion);
-					return false;
-				}
-				if (!Texture.GetPackage())
-				{
-					OutError = "Texture source cannot be resolved without an owning package.";
-					return false;
-				}
-				return Asset::ResolveMountedSourceReference(
-					Texture.GetPackage()->GetPackagePath(),
-					Provenance.Source.SourcePath.Path,
-					Asset::EMountedSourceExistencePolicy::AllowMissing,
-					OutResolution, OutError);
-			}
-			OutError = "Texture asset has no normalized mounted-source provenance.";
+			OutError = "Texture asset has no source filename import data.";
 			return false;
 		}
 
@@ -180,9 +169,9 @@ namespace Durin
 	auto DTexture2D::InspectSource() const -> FTextureSourceDiagnostic
 	{
 		const AssetImport::FSourceFile* ImportedSource = GetImportedSource();
-		if (!ImportedSource && !SourceImportData.HasSource())
+		if (!ImportedSource)
 			return {};
-		Asset::FMountedSourceResolution Resolution;
+		FResolvedTextureSource Resolution;
 		std::string Error;
 		if (!ResolveTextureSource(*this, Resolution, Error))
 			return {ETextureSourceStatus::Invalid, {}, std::move(Error)};
@@ -192,7 +181,7 @@ namespace Durin
 				ETextureSourceStatus::Missing,
 				Resolution.PhysicalPath.generic_string(),
 				std::format(
-					"Texture source is missing: {}. Use source-path repair to select its replacement.",
+					"Texture source is missing: {}. Select a replacement source file to continue.",
 					GetSourceFile())};
 		}
 		FXxHash128 CurrentHash;
@@ -201,16 +190,13 @@ namespace Durin
 				ETextureSourceStatus::Invalid,
 				Resolution.PhysicalPath.generic_string(),
 				std::move(Error)};
-		const FXxHash128 PersistedHash = ImportedSource
-			? ImportedSource->GetContentHash()
-			: FXxHash128{SourceImportData.Source.SourceContentHashLow,
-				SourceImportData.Source.SourceContentHashHigh};
+		const FXxHash128 PersistedHash = ImportedSource->GetContentHash();
 		if (!PersistedHash.IsZero() && CurrentHash != PersistedHash)
 		{
 			return {
 				ETextureSourceStatus::Changed,
 				Resolution.PhysicalPath.generic_string(),
-				"The mounted source bytes changed since this asset was last imported. "
+				"The source bytes changed since this asset was last imported. "
 				"Reimport updates this asset from the persisted source."};
 		}
 		return {ETextureSourceStatus::Available, Resolution.PhysicalPath.generic_string(), {}};
@@ -431,9 +417,9 @@ namespace Durin
 			OutError = "Texture2D imported state must be published on the game thread.";
 			return false;
 		}
-		if (!State.SourceImportData.HasSource()
-			|| !State.SourceImportData.Source.HasContentHash()
-			|| State.SourceContentHash.empty()
+		if (State.SourceFilename.empty()
+			|| (State.SourceContentHashLow == 0
+				&& State.SourceContentHashHigh == 0)
 			|| !State.SourceData || !State.SourceData->IsValid()
 			|| !State.PlatformData || !State.PlatformData->IsValid()
 			|| State.DerivedDataKey.empty()
@@ -450,10 +436,6 @@ namespace Durin
 		SourceHeight = State.SourceData->Height;
 		SourceChannelCount = State.SourceData->SourceChannelCount;
 		bSourceHasTransparency = State.SourceData->bHasTransparency;
-		SourceImportData = std::move(State.SourceImportData);
-		SourceContentHash = std::move(State.SourceContentHash);
-		SourceFileSize = State.SourceFileSize;
-		SourceLastWriteTime = State.SourceLastWriteTime;
 		SourceData = std::move(State.SourceData);
 		PlatformData = std::move(State.PlatformData);
 		DerivedDataKey = std::move(State.DerivedDataKey);
@@ -533,28 +515,6 @@ namespace Durin
 		return false;
 	}
 
-	auto DTexture2D::PublishSourceFingerprint(
-		uint64 FileSize, int64 LastWriteTime) -> void
-	{
-		if (GetImportedSource()) return;
-		SourceFileSize = FileSize;
-		SourceLastWriteTime = LastWriteTime;
-	}
-
-	auto DTexture2D::PublishImportProvenance(
-		std::vector<std::byte> Provenance) -> void
-	{
-		static constexpr char Hex[] = "0123456789abcdef";
-		ImportProvenance.resize(Provenance.size() * 2);
-		for (size_t Index = 0; Index < Provenance.size(); ++Index)
-		{
-			const uint8 Value = static_cast<uint8>(Provenance[Index]);
-			ImportProvenance[Index * 2] = Hex[Value >> 4];
-			ImportProvenance[Index * 2 + 1] = Hex[Value & 0x0f];
-		}
-		MarkPackageDirty();
-	}
-
 	auto DTexture2D::PublishAssetImportData(
 		AssetImport::DAssetImportData& Value, std::string& OutError) -> bool
 	{
@@ -565,11 +525,6 @@ namespace Durin
 		}
 		if (!Value.Validate(OutError)) return false;
 		AssetImportData = &Value;
-		SourceImportData = {};
-		ImportProvenance.clear();
-		SourceContentHash.clear();
-		SourceFileSize = 0;
-		SourceLastWriteTime = 0;
 		MarkPackageDirty();
 		OutError.clear();
 		return true;
@@ -578,11 +533,6 @@ namespace Durin
 	auto DTexture2D::ExchangeImportedState(DTexture2D& Other) -> void
 	{
 		if (&Other == this) return;
-		std::swap(SourceImportData, Other.SourceImportData);
-		std::swap(ImportProvenance, Other.ImportProvenance);
-		std::swap(SourceContentHash, Other.SourceContentHash);
-		std::swap(SourceFileSize, Other.SourceFileSize);
-		std::swap(SourceLastWriteTime, Other.SourceLastWriteTime);
 		std::swap(SourceWidth, Other.SourceWidth);
 		std::swap(SourceHeight, Other.SourceHeight);
 		std::swap(SourceChannelCount, Other.SourceChannelCount);

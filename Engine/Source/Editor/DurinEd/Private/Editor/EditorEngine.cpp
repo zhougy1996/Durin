@@ -4,7 +4,6 @@
 
 #include "Asset/Mutation.h"
 #include "Asset.h"
-#include "AssetForge/ImportService.h"
 #include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Actors/CameraActor.h"
@@ -48,9 +47,9 @@ namespace Durin
 		// The registry extracts references before MainFrame activates the full
 		// editor stack. Publish editor-authored package classes first so import
 		// records participate in that initial, atomic catalog revision.
-		if (!FModuleManager::Get().LoadModule("AssetForge"))
+		if (!FModuleManager::Get().LoadModule("AssetForgeBuiltins"))
 			return FEngineInitializationResult::Failure(
-				"Editor initialization requires AssetForge before the asset catalog scan.");
+				"Editor initialization requires AssetForgeBuiltins before the asset catalog scan.");
 		if (FEngineInitializationResult Result = DEngine::Init(InitContext); !Result)
 			return Result;
 		EditorWorld = GetWorld();
@@ -200,13 +199,10 @@ namespace Durin
 			}
 		}
 		DEngine::Tick(DeltaSeconds, bIdleMode);
-		(void)AssetForge::GetImportService().PumpImportOperations();
 	}
 
 	auto DEditorEngine::PrepareForShutdown() -> void
 	{
-		AssetForge::GetImportService().CloseAsyncAdmission();
-		AssetForge::GetImportService().CancelAndDrainAllAsyncImports();
 		if (EditorHost) EditorHost->DestroyEditorHost();
 	}
 

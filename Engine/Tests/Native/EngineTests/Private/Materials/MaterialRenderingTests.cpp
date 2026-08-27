@@ -2,15 +2,12 @@
 #include "Console/ConsoleCommand.h"
 #include "DefaultTextures.h"
 #include "DynamicRHI.h"
-#include "AssetForge/ImportService.h"
 #include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 #include "PBRLighting.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
-#include "AssetForgeBuiltinsProviders.h"
 #include "AssetForgeBuiltinsAssetTestSupport.h"
-#include "AssetForgeBuiltinsProviderTestFixture.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
@@ -41,21 +38,6 @@ namespace
 		return Material;
 	}
 
-	auto WaitForMaterialPreviewMeshRecovery(
-		const Durin::FAssetPath& AssetPath,
-		double TimeoutSeconds = 10.0) -> bool
-	{
-		auto& Service = Durin::AssetForge::GetImportService();
-		const auto Deadline = std::chrono::steady_clock::now()
-			+ std::chrono::duration<double>(TimeoutSeconds);
-		while (Service.HasActiveImportClaim(AssetPath.ToString())
-			&& std::chrono::steady_clock::now() < Deadline)
-		{
-			(void)Service.PumpImportOperations();
-			std::this_thread::sleep_for(std::chrono::milliseconds(1));
-		}
-		return !Service.HasActiveImportClaim(AssetPath.ToString());
-	}
 }
 
 TEST(FMaterialRenderingTests, LocalLightAttenuationHasFiniteExactBoundaries)
@@ -589,9 +571,6 @@ TEST(FMaterialTests, DebugStaticMeshProvidesCompleteSplitVertexAttributes)
 TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 {
 	ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAssetFeatures());
-	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
-	std::string ProviderError;
-	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	InitializeDObjectSystem();
 	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();
@@ -607,7 +586,6 @@ TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 		std::string Error;
 		ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(Path, First, Error)) << Error;
 		ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(Path, Second, Error)) << Error;
-		ASSERT_TRUE(WaitForMaterialPreviewMeshRecovery(Path));
 		EXPECT_EQ(First.Get(), Second.Get());
 		auto* Mesh = Durin::Cast<Durin::DStaticMesh>(First.Get());
 		ASSERT_NE(Mesh, nullptr) << Error;
@@ -630,9 +608,6 @@ TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionAndTeardown)
 {
 	ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAssetFeatures());
-	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
-	std::string ProviderError;
-	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	FMaterialPreviewHarness Harness;
 	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();
@@ -654,8 +629,6 @@ TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionA
 		Durin::FAssetPath BoxPath;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Engine/Models/Sphere", SpherePath));
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Engine/Models/Box", BoxPath));
-		ASSERT_TRUE(WaitForMaterialPreviewMeshRecovery(SpherePath));
-		ASSERT_TRUE(WaitForMaterialPreviewMeshRecovery(BoxPath));
 		Durin::Editor::FRetainedAsset SphereAsset;
 		Durin::Editor::FRetainedAsset BoxAsset;
 		std::string Error;

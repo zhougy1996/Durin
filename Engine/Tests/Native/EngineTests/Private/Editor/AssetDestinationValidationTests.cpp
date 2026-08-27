@@ -1,5 +1,4 @@
 #include "Editor/Import/AssetDestinationValidation.h"
-#include "Editor/Import/MountedSourceImport.h"
 
 #include "EngineTestSupport.h"
 #include "NativeTestSupport.h"
@@ -210,30 +209,4 @@ TEST_F(FAssetDestinationValidationTests, ResolvesVirtualContentDirectories)
 		Root / "Project/ContentLookalike/Scenes/Robot");
 	EXPECT_FALSE(Outside);
 	EXPECT_FALSE(Outside.Message.empty());
-}
-
-TEST_F(FAssetDestinationValidationTests, SuggestsImportedSourcesByKindAndBundleShape)
-{
-	EXPECT_EQ(
-		MakeDefaultImportedSourceVirtualPath(
-			"/Project/StaticMeshes/Box", "Models", "Box.obj"),
-		"/Project/Sources/Models/Box.obj");
-	EXPECT_EQ(
-		MakeDefaultImportedSourceVirtualPath(
-			"/Engine/Textures/Grid", "Textures", "Grid.png"),
-		"/Engine/Sources/Textures/Grid.png");
-	EXPECT_EQ(
-		MakeDefaultImportedSourceVirtualPath(
-			"/Project/Textures/CloudDensity", "VolumeTextures", "CloudDensity.png"),
-		"/Project/Sources/VolumeTextures/CloudDensity.png");
-	EXPECT_EQ(
-		MakeDefaultImportedSourceVirtualPath(
-			"/Project/Imported/Robot", "Models", "Robot.gltf", "Robot"),
-		"/Project/Sources/Models/Robot/Robot.gltf");
-	EXPECT_EQ(
-		MakeDefaultImportedSourceVirtualPath(
-			"/Engine/Textures/Sky", "Textures", "Sky_px.hdr", "Sky"),
-		"/Engine/Sources/Textures/Sky/Sky_px.hdr");
-	EXPECT_TRUE(MakeDefaultImportedSourceVirtualPath(
-		"/Unknown/Imported/Robot", "Models", "Robot.gltf", "Robot").empty());
 }

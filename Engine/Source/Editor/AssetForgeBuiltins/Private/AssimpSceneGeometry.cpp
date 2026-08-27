@@ -1,6 +1,5 @@
 #include "ImportedSceneInternal.h"
 
-#include "AssetForge/Operations/ImportOperation.h"
 #include "Logging/LogMacros.h"
 
 #include <assimp/matrix3x3.h>
@@ -82,7 +81,7 @@ namespace Durin::AssetForge::Builtins::Private
 		for (unsigned int VertexIndex = 0; VertexIndex < Mesh.mNumVertices; ++VertexIndex)
 		{
 			if ((VertexIndex & 0xfffu) == 0
-				&& IsImportCancellationRequested())
+				&& Private::IsSceneImportCancellationRequested())
 			{
 				OutError = "Scene geometry decoding was canceled.";
 				return false;
@@ -143,7 +142,7 @@ namespace Durin::AssetForge::Builtins::Private
 		for (unsigned int FaceIndex = 0; FaceIndex < Mesh.mNumFaces; ++FaceIndex)
 		{
 			if ((FaceIndex & 0xfffu) == 0
-				&& IsImportCancellationRequested())
+				&& Private::IsSceneImportCancellationRequested())
 			{
 				OutError = "Scene geometry decoding was canceled.";
 				return false;
@@ -177,7 +176,7 @@ namespace Durin::AssetForge::Builtins::Private
 		FImportedSceneData& OutScene,
 		std::string& OutError) -> bool
 	{
-		if (IsImportCancellationRequested())
+		if (Private::IsSceneImportCancellationRequested())
 		{
 			OutError = "Scene geometry decoding was canceled.";
 			return false;

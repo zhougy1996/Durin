@@ -38,11 +38,7 @@ namespace Durin::Asset
 	struct FTextureCubePublicationContext
 	{
 		FXxHash128 PanoramaHash;
-		FSourcePath PanoramaPath;
 		std::array<FXxHash128, TextureCubeFaceCount> FaceHashes{};
-		std::array<FSourcePath, TextureCubeFaceCount> FacePaths{};
-		std::string DecoderId = "DurinImage";
-		uint32 DecoderVersion = 1;
 	};
 
 	TEXTUREBUILD_API auto BuildTextureCubePanorama(

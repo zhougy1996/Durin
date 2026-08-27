@@ -60,7 +60,7 @@ namespace Durin::Asset
 		const FTerrainHeightmapPublicationContext& Context,
 		std::string& OutError) -> bool;
 	TERRAINBUILD_API auto MakeTerrainHeightmapDerivedDataKey(
-		const DTerrainHeightmap& Heightmap,
+		const FTerrainHeightmapSourceImportData& Source,
 		std::string& OutError) -> std::string;
 	TERRAINBUILD_API auto LoadTerrainHeightmapDerivedData(
 		std::string_view Key,

@@ -1,22 +1,24 @@
 #include "AssetForge/Builtins/TerrainHeightmapImport.h"
+#include "AssetForge/Builtins/TerrainHeightmapImportData.h"
 
 #include "DObject/Package.h"
 #include "EncodedSourceSnapshot.h"
 #include "Image/ImageDecoder.h"
-#include "Asset/MountedSource.h"
+#include "Asset/AssetOperations.h"
+#include "Asset/SourceFilename.h"
+#include "Asset/PackageSerialization.h"
 #include "Asset.h"
+#include "DObject/DObjectGlobals.h"
 #include "Misc/Paths.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
-#include "TerrainHeightmapBuildAdapter.h"
-#include "AssetForge/ImportService.h"
+#include "Terrain/TerrainHeightmapBuildOperations.h"
 
 namespace Durin::AssetForge::Builtins
 {
 	using namespace Durin::Asset;
 	namespace
 	{
-		constexpr std::string_view DefaultHeightmapSourceRoot = "TerrainHeightmaps";
 		constexpr std::string_view Png16DecoderId = "DurinImage.Png16";
 		constexpr std::string_view Raw16DecoderId = "DurinTerrainRaw16";
 		constexpr uint32 TerrainSourceProfileVersion = 1;
@@ -35,72 +37,86 @@ namespace Durin::AssetForge::Builtins
 			return Extension == ".png" || Extension == ".raw";
 		}
 
-		auto MakeCanonicalSourceLocation(
-			const FAssetPath& AssetPath,
-			std::string_view RequestedSourcePath,
-			std::string_view SourceExtension,
-			std::string& OutStoredPath,
+		auto PublishImportData(DTerrainHeightmap& Heightmap,
+			std::string Filename, const std::filesystem::path& PhysicalPath,
+			const FEncodedSourceSnapshot& Snapshot,
+			const FTerrainHeightmapSourceData& SourceData,
 			std::string& OutError) -> bool
 		{
-			const PathUtilities::FMountLookupResult Lookup =
-				PathUtilities::FindMountForVirtualPath(AssetPath.ToString());
-			if (!Lookup)
-			{
-				OutError = std::format("Terrain heightmap asset {} is outside a registered mount.",
-					AssetPath.ToString());
-				return false;
-			}
-			std::filesystem::path Relative = RequestedSourcePath.empty()
-				? std::filesystem::path(DefaultHeightmapSourceRoot)
-					/ (std::string(AssetPath.GetAssetName()) + std::string(SourceExtension))
-				: std::filesystem::path(RequestedSourcePath);
-			if (RequestedSourcePath.starts_with('/'))
-			{
-				const PathUtilities::FSourcePathResult Requested = PathUtilities::ResolveSourcePath(
-					RequestedSourcePath, PathUtilities::EPathExistence::AllowMissing);
-				if (!Requested || Requested.Mount != Lookup.Mount)
-				{
-					OutError = Requested ? "Heightmap source must remain in the asset mount."
-						: Requested.Message;
-					return false;
-				}
-				Relative = Requested.RelativePath;
-			}
-			Relative = Relative.lexically_normal();
-			std::string Extension = Relative.extension().generic_string();
-			Extension = NormalizeExtension(Extension);
-			const std::string RelativeText = Relative.generic_string();
-			if (Relative.empty() || Relative.is_absolute() || RelativeText == ".."
-				|| RelativeText.starts_with("../") || Extension != SourceExtension)
-			{
-				OutError = std::format(
-					"Heightmap source destination must be a normalized mount-relative {} path matching the source format.",
-					SourceExtension);
-				return false;
-			}
-			OutStoredPath = Lookup.Mount->VirtualRoot + RelativeText;
-			return true;
+			FTerrainHeightmapImportDataState State;
+			State.SourceData.Sources.push_back({
+				.StableIdentity = "root", .Role = "source",
+				.DisplayLabel = PhysicalPath.filename().generic_string(),
+				.Filename = std::move(Filename),
+				.ContentHashLow = Snapshot.ContentHash.HashLow,
+				.ContentHashHigh = Snapshot.ContentHash.HashHigh,
+				.ByteCount = Snapshot.FileSize,
+				.LastWriteTime = Snapshot.LastWriteTime});
+			State.DecoderId = SourceData.DecoderId;
+			State.DecoderVersion = SourceData.DecoderVersion;
+			State.SourceFormat = SourceData.SourceFormat;
+			State.SourceProfileVersion = SourceData.SourceProfileVersion;
+			auto* Data = dynamic_cast<DTerrainHeightmapImportData*>(
+				Heightmap.GetAssetImportData());
+			if (!Data) Data = NewObject<DTerrainHeightmapImportData>(
+				&Heightmap, "AssetImportData");
+			return Data && Data->SetState(std::move(State), OutError)
+				&& Heightmap.PublishAssetImportData(*Data, OutError);
 		}
 
-		template<typename TMountedSource>
-		auto BuildFromMountedSource(
-			DTerrainHeightmap& Heightmap,
-			const TMountedSource& Source,
-			std::string& OutError) -> bool
+		auto RebuildFromFilename(DTerrainHeightmap& Heightmap,
+			std::string Filename, std::string& OutError,
+			const Asset::FAssetBundleSaveOptions* SaveOptions) -> bool
 		{
+			std::string PhysicalPathText;
+			if (!AssetImport::ResolveSourceFilename(
+				Filename, PhysicalPathText, OutError)) return false;
+			const std::filesystem::path PhysicalPath(PhysicalPathText);
+			if (!std::filesystem::is_regular_file(PhysicalPath))
+			{
+				OutError = std::format("Terrain heightmap source file is missing: {}.", Filename);
+				return false;
+			}
 			FEncodedSourceSnapshot Snapshot;
-			if (!CaptureEncodedSource(
-				Source.SourcePath, Source.PhysicalPath, Snapshot, OutError,
-				MaximumTerrainHeightmapEncodedBytes)) return false;
+			if (!CaptureEncodedSource({.Path = Filename}, PhysicalPath, Snapshot,
+				OutError, MaximumTerrainHeightmapEncodedBytes)) return false;
 			FTerrainHeightmapSourceData SourceData;
 			if (!TranslateTerrainHeightmapSource(
-				Source.PhysicalPath.extension().generic_string(), Snapshot.GetBytes(),
+				PhysicalPath.extension().generic_string(), Snapshot.GetBytes(),
 				SourceData, OutError)) return false;
-			const std::shared_ptr<const FTerrainHeightmapPayload> ExistingPayload = Heightmap.GetPayload();
-			const bool bSamplesChanged = !ExistingPayload
-				|| ExistingPayload->Samples != SourceData.Samples;
-			return BuildTerrainHeightmapFromSource(
-				Heightmap, std::move(SourceData), Snapshot, OutError, bSamplesChanged);
+			const FTerrainHeightmapSourceData ImportState = SourceData;
+			const std::shared_ptr<const FTerrainHeightmapPayload> Existing = Heightmap.GetPayload();
+			const bool bSamplesChanged = !Existing || Existing->Samples != SourceData.Samples;
+			Asset::FTerrainHeightmapBuildProduct Product;
+			if (!Asset::BuildTerrainHeightmap({
+					.Samples = std::move(SourceData.Samples),
+					.Width = SourceData.Width, .Height = SourceData.Height,
+					.SourceContentHashLow = Snapshot.ContentHash.HashLow,
+					.SourceContentHashHigh = Snapshot.ContentHash.HashHigh,
+					.DecoderId = SourceData.DecoderId,
+					.DecoderVersion = SourceData.DecoderVersion,
+					.SourceFormat = SourceData.SourceFormat,
+					.SourceProfileVersion = SourceData.SourceProfileVersion},
+					Product, OutError)
+				|| !Asset::PublishTerrainHeightmapProduct(
+					Heightmap, std::move(Product), {
+						.SourcePath = Snapshot.SourcePath,
+						.DecoderId = ImportState.DecoderId,
+						.DecoderVersion = ImportState.DecoderVersion,
+						.SourceFormat = ImportState.SourceFormat,
+						.SourceProfileVersion = ImportState.SourceProfileVersion,
+						.SourceFileSize = Snapshot.FileSize,
+						.SourceLastWriteTime = Snapshot.LastWriteTime,
+						.bAdvanceRevision = bSamplesChanged}, OutError)
+				|| !PublishImportData(Heightmap, std::move(Filename), PhysicalPath,
+					Snapshot, ImportState, OutError)) return false;
+			if (!SaveOptions) return true;
+			DPackage* Package = Heightmap.GetPackage();
+			const Asset::FAssetResult Saved = Asset::SavePackagesAtomically(
+				std::span<DPackage* const>(&Package, 1), *SaveOptions);
+			if (Saved) return true;
+			OutError = Saved.Message;
+			return false;
 		}
 	}
 
@@ -207,6 +223,8 @@ namespace Durin::AssetForge::Builtins
 		const FTerrainHeightmapImportSettings& Settings,
 		bool bAllowEngineContentWrite) -> FTerrainHeightmapImportResult
 	{
+		(void)bAllowEngineContentWrite;
+		(void)Settings;
 		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
 		std::string Extension = Input.extension().generic_string();
 		Extension = NormalizeExtension(Extension);
@@ -219,107 +237,42 @@ namespace Durin::AssetForge::Builtins
 		if (Asset::FindAssetExact(ParsedPath)
 			|| Asset::FindResidentPackage(ParsedPath))
 			return {false, std::format("Asset {} already exists.", ParsedPath.ToString()), nullptr};
-		std::string StoredSourcePath;
-		if (!MakeCanonicalSourceLocation(
-			ParsedPath, Settings.SourceDestination, Extension, StoredSourcePath, Error))
+		std::string Filename;
+		if (!AssetImport::MakeSourceFilename(
+			Input.generic_string(), Filename, Error))
 			return {false, std::move(Error), nullptr};
-		FScopedMountedSourceFile MountedSource;
-		if (!PrepareMountedSourceFile(Input, ParsedPath.ToString(), StoredSourcePath,
-			MountedSource, Error,
-			bAllowEngineContentWrite
-				? EMountedSourceMutationContext::EngineContentWrite
-				: EMountedSourceMutationContext::DependencySafe))
+		DTerrainHeightmap* Heightmap = nullptr;
+		const Asset::FAssetResult Created = Asset::CreateAsset(ParsedPath, Heightmap);
+		if (!Created || !Heightmap)
+			return {false, Created.Message.empty()
+				? "Terrain heightmap destination could not be created." : Created.Message, nullptr};
+		auto Abandon = [&] {
+			(void)Asset::UnloadPackage(
+				ParsedPath, Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+		};
+		if (!RebuildFromFilename(*Heightmap, std::move(Filename), Error, nullptr))
+		{
+			Abandon();
 			return {false, std::move(Error), nullptr};
-		FImportRequest Request;
-		if (!MakeTerrainHeightmapImportRequest(MountedSource.SourcePath, ParsedPath,
-			EImportMode::Import,
-			{.OwnerId = std::format("TerrainHeightmap.Import:{}", ParsedPath.ToString())},
-			{}, Request, Error)) return {false, std::move(Error), nullptr};
-		const FImportResult Imported = GetImportService().RunImportInline(
-			std::move(Request), std::format("Import Terrain Heightmap {}", ParsedPath.GetAssetName()));
-		if (Imported.Outcome.State != EImportOperationState::Succeeded)
-			return {false, Imported.Outcome.Diagnostic, nullptr};
-		DObject* Object = nullptr;
-		(void)Asset::LoadAsset(ParsedPath, Object);
-		auto* Heightmap = Cast<DTerrainHeightmap>(Object);
-		if (!Heightmap) return {false, "Terrain AssetForge published no asset.", nullptr};
-		MountedSource.Commit();
+		}
+		const Asset::FAssetResult Saved = Asset::SavePackage(Heightmap->GetPackage());
+		if (!Saved) return {false, Saved.Message, Heightmap};
 		return {true, {}, Heightmap};
 	}
 
-	auto SubmitTerrainHeightmapImport(std::string_view FilePath,
-		const FAssetPath& Destination, std::string_view SourceDestination,
-		bool bAllowEngineContentWrite, FImportCompletion Completion,
-		std::string& OutError) -> FImportHandle
-	{
-		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
-		const std::string Extension = NormalizeExtension(Input.extension().generic_string());
-		if (!std::filesystem::is_regular_file(Input) || !IsTerrainHeightmapSourceExtension(Extension))
-		{
-			OutError = "Terrain heightmap source is unavailable or unsupported.";
-			return {};
-		}
-		std::string StoredSourcePath;
-		if (!MakeCanonicalSourceLocation(Destination, SourceDestination, Extension,
-			StoredSourcePath, OutError)) return {};
-		auto Mounted = std::make_shared<FScopedMountedSourceFile>();
-		if (!PrepareMountedSourceFile(Input, Destination.ToString(), StoredSourcePath,
-			*Mounted, OutError, bAllowEngineContentWrite
-				? EMountedSourceMutationContext::EngineContentWrite
-				: EMountedSourceMutationContext::DependencySafe)) return {};
-		FImportRequest Request;
-		if (!MakeTerrainHeightmapImportRequest(Mounted->SourcePath, Destination,
-			EImportMode::Import,
-			{.OwnerId = std::format("TerrainHeightmap.Import:{}", Destination.ToString()),
-				.ConflictIdentities = {Destination.ToString()}}, {}, Request, OutError)) return {};
-		OutError.clear();
-		return GetImportService().SubmitImport(std::move(Request),
-			std::format("Import Terrain Heightmap {}", Destination.GetAssetName()),
-			[Mounted, Completion = std::move(Completion)](const FImportResult& Result) {
-				if (Result.Outcome.State == EImportOperationState::Succeeded) Mounted->Commit();
-				if (Completion) Completion(Result);
-			});
-	}
-
-	auto ChangeTerrainHeightmapSourceReference(
-		DTerrainHeightmap& Heightmap,
-		std::string_view SourceVirtualPath,
-		std::string& OutError) -> bool
-	{
-		if (!Heightmap.GetPackage())
-		{
-			OutError = "Terrain heightmap source changes require an owning package.";
-			return false;
-		}
-		FMountedSourceResolution Source;
-		if (!ResolveMountedSourceReference(
-			Heightmap.GetPackage()->GetPackagePath(), SourceVirtualPath,
-			EMountedSourceExistencePolicy::RequireFile, Source, OutError)) return false;
-		FAssetPath Destination;
-		if (!FAssetPath::TryCreate(Heightmap.GetPackage()->GetPackagePath(), Destination, &OutError))
-			return false;
-		std::optional<FImportProvenance> Existing;
-		FImportProvenance Persisted;
-		std::string ProvenanceError;
-		if (InspectTerrainHeightmapImportProvenance(Heightmap, Persisted, ProvenanceError))
-			Existing = std::move(Persisted);
-		FImportRequest Request;
-		if (!MakeTerrainHeightmapImportRequest(Source.SourcePath, Destination,
-			EImportMode::Repair,
-			{.OwnerId = std::format("TerrainHeightmap.Repair:{}", Destination.ToString())},
-			std::move(Existing), Request, OutError)) return false;
-		const FImportResult Result = GetImportService().RunImportInline(
-			std::move(Request), std::format("Repair Terrain Heightmap {}", Destination.GetAssetName()));
-		if (Result.Outcome.State == EImportOperationState::Succeeded) return true;
-		OutError = Result.Outcome.Diagnostic;
-		return false;
-	}
 
 	auto ReimportTerrainHeightmapSource(
 		DTerrainHeightmap& Heightmap,
-		std::string& OutError) -> bool
+		std::string& OutError,
+		const Asset::FAssetBundleSaveOptions& SaveOptions) -> bool
 	{
-		return ChangeTerrainHeightmapSourceReference(
-			Heightmap, Heightmap.GetSourceImportData().SourcePath.Path, OutError);
+		const AssetImport::FSourceFile* Source = Heightmap.GetImportedSource();
+		if (!Source)
+		{
+			OutError = "Terrain heightmap has no source filename to reimport.";
+			return false;
+		}
+		return RebuildFromFilename(
+			Heightmap, Source->Filename, OutError, &SaveOptions);
 	}
 }

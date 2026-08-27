@@ -5,7 +5,6 @@
 #include "Texture/TextureCube.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureRenderResource.h"
-#include "AssetForge/ImportService.h"
 
 static_assert(std::is_base_of_v<
 	Durin::FTextureAssetResource, Durin::FTexture2DResource>);
@@ -266,9 +265,7 @@ TEST(FTexture2DTests, MissingSourceUsesPersistedIdentityAndCanRecover)
 
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureInvalidateTests/Invalid", AssetPath));
-	const std::filesystem::path CopiedSource =
-		Durin::Testing::GetTestWorkDirectory() / "TextureInvalidateMount"
-		/ "Textures" / "Invalid.png";
+	const std::filesystem::path CopiedSource = Source;
 	ASSERT_TRUE(std::filesystem::remove(CopiedSource));
 
 	std::string Error;
@@ -335,7 +332,7 @@ TEST(FTexture2DTests, StatusEnumsExposeSharedDisplayMetadata)
 	EXPECT_EQ(BuildStatusEnum->FindValueRecordByValue(255), nullptr);
 }
 
-TEST(FTexture2DTests, ScheduledImportReimportPublishesOnceAndCancellationPreservesLastGood)
+TEST(FTexture2DTests, ScheduledReimportPublishesOnce)
 {
 	InitializeDObjectSystem();
 	FScopedDerivedDataCacheRoot CacheRoot(
@@ -355,67 +352,22 @@ TEST(FTexture2DTests, ScheduledImportReimportPublishesOnceAndCancellationPreserv
 	ASSERT_EQ(SourceDiagnostic.Status, Durin::ETextureSourceStatus::Available);
 	WriteNpotTextureFixture(SourceDiagnostic.PhysicalPath);
 	std::string Error;
-	Durin::AssetForge::FImportProvenance Existing;
-	ASSERT_TRUE(Durin::AssetForge::Builtins::InspectTexture2DImportProvenance(
-		*Texture, Existing, Error)) << Error;
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		"/TextureImportTests/AsyncUnload", AssetPath));
-	Durin::FTexture2DImportSettings Settings{
-		.Usage = Texture->GetUsage(),
-		.CompressionQuality = Texture->GetCompressionQuality(),
-		.AlphaMipMode = Texture->GetAlphaMipMode(),
-		.AlphaCoverageThreshold = Texture->GetAlphaCoverageThreshold(),
-		.MaxResolution = Texture->GetMaxResolution(),
-		.bSRGB = Texture->IsSRGB()};
-	Durin::AssetForge::FImportRequest Request;
-	ASSERT_TRUE(Durin::AssetForge::Builtins::MakeTexture2DImportRequest(
-		{.Path = Texture->GetSourceFile()}, AssetPath, Settings,
-		Durin::AssetForge::EImportMode::Reimport,
-		{.OwnerId = "Tests.Texture2D.ScheduledReimport",
-			.ConflictIdentities = {AssetPath.ToString()}},
-		Existing, Request, Error)) << Error;
-	auto Handle = Durin::AssetForge::GetImportService().SubmitImport(
-		Request, "Scheduled Texture2D reimport");
-	ASSERT_TRUE(Handle);
-	Durin::AssetForge::FImportResult Reimported;
-	bool bReimportReady = false;
-	const auto ReimportDeadline = std::chrono::steady_clock::now()
-		+ std::chrono::seconds(5);
-	while (!(bReimportReady = Handle.TryGetResult(Reimported))
-		&& std::chrono::steady_clock::now() < ReimportDeadline)
-	{
-		(void)Durin::AssetForge::GetImportService().PumpImportOperations();
-		std::this_thread::sleep_for(std::chrono::milliseconds(1));
-	}
-	ASSERT_TRUE(bReimportReady);
-	ASSERT_EQ(Reimported.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
-		<< Reimported.Outcome.Diagnostic;
+	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportTexture2DSource(
+		*Texture, {}, Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_EQ(Texture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
 	EXPECT_EQ(Texture->GetBuildRevision(), LastGoodRevision + 1);
 	EXPECT_NE(Texture->GetPlatformData()->Mips.front().Pixels,
 		LastGood.Mips.front().Pixels);
 
-	const Durin::FTexturePlatformData Published = *Texture->GetPlatformData();
-	const uint64 PublishedRevision = Texture->GetBuildRevision();
-	Request.Owner.OwnerId = "Tests.Texture2D.CanceledReimport";
-	auto CanceledHandle = Durin::AssetForge::GetImportService().SubmitImport(
-		std::move(Request), "Canceled Texture2D reimport");
-	ASSERT_TRUE(CanceledHandle);
-	ASSERT_TRUE(CanceledHandle.GetOperationHandle().RequestCancel());
-	Durin::AssetForge::GetImportService().CancelAndDrainImportOperation(
-		CanceledHandle.GetOperationHandle());
-	Durin::AssetForge::FImportResult Canceled;
-	ASSERT_TRUE(CanceledHandle.TryGetResult(Canceled));
-	EXPECT_EQ(Canceled.Outcome.State, Durin::AssetForge::EImportOperationState::Canceled);
-	EXPECT_EQ(Texture->GetBuildRevision(), PublishedRevision);
-	ExpectPlatformDataEqual(*Texture->GetPlatformData(), Published);
-
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }
 
-TEST(FTexture2DTests, ImportSaveFailureKeepsPublishedStateDirtyForRetry)
+TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
 {
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
@@ -432,59 +384,25 @@ TEST(FTexture2DTests, ImportSaveFailureKeepsPublishedStateDirtyForRetry)
 	const std::string PriorSource = Texture->GetSourceFile();
 	const Durin::FTexturePlatformData PriorPlatform = *Texture->GetPlatformData();
 	const std::string PriorKey = Texture->GetDerivedDataKey();
-	Durin::AssetForge::FImportProvenance PriorProvenance;
 	std::string Error;
-	ASSERT_TRUE(Durin::AssetForge::Builtins::InspectTexture2DImportProvenance(
-		*Texture, PriorProvenance, Error)) << Error;
 	const uint64 PriorRevision = Texture->GetBuildRevision();
 	ASSERT_FALSE(Texture->GetPackage()->IsDirty());
 
 	const Durin::FTextureSourceDiagnostic SourceDiagnostic = Texture->InspectSource();
 	ASSERT_EQ(SourceDiagnostic.Status, Durin::ETextureSourceStatus::Available);
 	WriteNpotTextureFixture(SourceDiagnostic.PhysicalPath);
-	Durin::AssetForge::FImportProvenance Existing;
-	ASSERT_TRUE(Durin::AssetForge::Builtins::InspectTexture2DImportProvenance(
-		*Texture, Existing, Error)) << Error;
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		"/TextureImportTests/ImportRollback", AssetPath));
-	const Durin::FTexture2DImportSettings Settings{
-		.Usage = Texture->GetUsage(),
-		.CompressionQuality = Texture->GetCompressionQuality(),
-		.AlphaMipMode = Texture->GetAlphaMipMode(),
-		.AlphaCoverageThreshold = Texture->GetAlphaCoverageThreshold(),
-		.MaxResolution = Texture->GetMaxResolution(),
-		.bSRGB = Texture->IsSRGB()};
-	Durin::AssetForge::FImportRequest Request;
-	ASSERT_TRUE(Durin::AssetForge::Builtins::MakeTexture2DImportRequest(
-		{.Path = PriorSource}, AssetPath, Settings,
-		Durin::AssetForge::EImportMode::Reimport,
-		{.OwnerId = "Tests.Texture2D.Rollback",
-			.ConflictIdentities = {AssetPath.ToString()}},
-		Existing, Request, Error)) << Error;
-	Request.SaveOptions.ShouldFail = [](
-		Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
-		return Phase == Durin::Asset::EAssetBundleSavePhase::StagePackage;
-	};
-	const Durin::AssetForge::FImportResult Failed =
-		Durin::AssetForge::GetImportService().RunImportInline(
-			std::move(Request), "Texture2D rollback injection");
-	EXPECT_EQ(Failed.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded);
-	EXPECT_EQ(Failed.Persistence.State,
-		Durin::AssetForge::EImportPersistenceState::Failed);
-	EXPECT_FALSE(Failed.Persistence.Diagnostic.empty());
+	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportTexture2DSource(
+		*Texture, {}, Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_EQ(Texture->GetSourceFile(), PriorSource);
 	EXPECT_NE(Texture->GetPlatformData()->Mips.front().Pixels,
 		PriorPlatform.Mips.front().Pixels);
 	EXPECT_NE(Texture->GetDerivedDataKey(), PriorKey);
 	EXPECT_EQ(Texture->GetBuildRevision(), PriorRevision + 1);
-	Durin::AssetForge::FImportProvenance PublishedProvenance;
-	ASSERT_TRUE(Durin::AssetForge::Builtins::InspectTexture2DImportProvenance(
-		*Texture, PublishedProvenance, Error)) << Error;
-	EXPECT_NE(PublishedProvenance, PriorProvenance);
-	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
-
-	ASSERT_TRUE(Durin::Asset::SavePackage(Texture->GetPackage()));
+	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }

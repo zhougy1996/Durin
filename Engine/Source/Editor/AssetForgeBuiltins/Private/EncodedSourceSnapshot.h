@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Asset/SourcePath.h"
-#include "AssetForge/ImportTypes.h"
+#include "AssetForge/Builtins/ImportSupport.h"
 #include "Hash/XxHash.h"
 
 namespace Durin::AssetForge::Builtins
@@ -25,11 +25,6 @@ namespace Durin::AssetForge::Builtins
 	auto CaptureEncodedSource(
 		const FSourcePath& SourcePath,
 		const std::filesystem::path& PhysicalPath,
-		FEncodedSourceSnapshot& OutSnapshot,
-		std::string& OutError,
-		uint64 MaximumEncodedBytes = std::numeric_limits<uint64>::max()) -> bool;
-	auto CaptureEncodedSource(
-		const FSourcePath& SourcePath,
 		FEncodedSourceSnapshot& OutSnapshot,
 		std::string& OutError,
 		uint64 MaximumEncodedBytes = std::numeric_limits<uint64>::max()) -> bool;

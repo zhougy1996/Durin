@@ -204,7 +204,6 @@ namespace Durin::Asset
 				.RequestId = Job.Diagnostic.RequestId,
 				.Generation = Job.Request.Generation,
 				.AssetIdentity = Job.Request.AssetIdentity,
-				.SourcePath = Job.Request.SourcePath,
 				.Settings = Job.Request.Settings,
 				.Error = std::move(Error),
 				.Metrics = {.EstimatedBytes = Job.EstimatedBytes},

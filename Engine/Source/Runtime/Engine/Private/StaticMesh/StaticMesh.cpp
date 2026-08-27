@@ -632,7 +632,6 @@ namespace Durin
 		const DStaticMesh& Previous) -> void
 	{
 		MaterialSlots = Previous.MaterialSlots;
-		SourceImportData = Previous.SourceImportData;
 		if (Previous.BodySetup
 			&& Previous.BodySetup->GetCollisionSourceMode() != EBodySetupCollisionSourceMode::None)
 		{
@@ -652,9 +651,7 @@ namespace Durin
 		FStaticMeshBuildProduct Product,
 		std::string& OutError) -> bool
 	{
-		const FStaticMeshSourceImportData PreviousSource = SourceImportData;
 		const float PreviousNormalizedSize = NormalizedSize;
-		SourceImportData = std::move(Product.SourceImportData);
 		NormalizedSize = Product.NormalizedSize;
 		if (!PublishRenderData(
 			std::move(Product.RenderData),
@@ -662,7 +659,6 @@ namespace Durin
 			Product.bSlotMetadataChanged,
 			OutError))
 		{
-			SourceImportData = PreviousSource;
 			NormalizedSize = PreviousNormalizedSize;
 			return false;
 		}
@@ -676,18 +672,19 @@ namespace Durin
 		return true;
 	}
 
-	auto DStaticMesh::PublishImportProvenance(
-		std::vector<std::byte> Provenance) -> void
+	auto DStaticMesh::PublishAssetImportData(
+		AssetImport::DAssetImportData& Value, std::string& OutError) -> bool
 	{
-		static constexpr char Hex[] = "0123456789abcdef";
-		ImportProvenance.resize(Provenance.size() * 2);
-		for (size_t Index = 0; Index < Provenance.size(); ++Index)
+		if (Value.GetOuter() != this)
 		{
-			const uint8 Value = static_cast<uint8>(Provenance[Index]);
-			ImportProvenance[Index * 2] = Hex[Value >> 4];
-			ImportProvenance[Index * 2 + 1] = Hex[Value & 0x0f];
+			OutError = "StaticMesh import data must be an owned inner object.";
+			return false;
 		}
+		if (!Value.Validate(OutError)) return false;
+		AssetImportData = &Value;
 		MarkPackageDirty();
+		OutError.clear();
+		return true;
 	}
 
 	auto DStaticMesh::SetImportedDefaultMaterial(
@@ -783,8 +780,6 @@ namespace Durin
 			std::unique_ptr<FStaticMeshRenderData> IncomingRenderData =
 				std::move(Other.RenderData);
 
-		std::swap(SourceImportData, Other.SourceImportData);
-		std::swap(ImportProvenance, Other.ImportProvenance);
 			std::swap(NormalizedSize, Other.NormalizedSize);
 			std::swap(MaterialSlots, Other.MaterialSlots);
 			std::swap(CookedPayload, Other.CookedPayload);
@@ -860,7 +855,6 @@ namespace Durin
 		check(Target && Candidate && Target != Candidate);
 		CheckStaticMeshUpdateThread();
 		FStaticMeshRenderStateRecreateContext RecreateContext(Target);
-		std::swap(Target->SourceImportData, Candidate->SourceImportData);
 		std::swap(Target->NormalizedSize, Candidate->NormalizedSize);
 		std::swap(Target->MaterialSlots, Candidate->MaterialSlots);
 		std::swap(Target->CookedPayload, Candidate->CookedPayload);

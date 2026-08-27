@@ -2,9 +2,9 @@
 
 Summary: Define authored, derived, cooked, and runtime asset-data ownership and transitions.
 
-Modules: AssetCore, DerivedDataCache, Engine, StaticMeshBuild, SkeletalBuild, TerrainBuild, TextureBuild, AssetForge, AssetForgeBuiltins
+Modules: AssetCore, DerivedDataCache, Engine, StaticMeshBuild, SkeletalBuild, TerrainBuild, TextureBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-08-27
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -52,8 +52,8 @@ identity rather than the selectable module name, so this ownership extraction
 does not invalidate otherwise compatible disposable cache entries.
 TextureBuild's Texture2D compilation domain calls the synchronous session from
 its workers and directly owns admission, cancellation, supersession, metrics,
-the completion mailbox, and main-thread publication. AssetForgeBuiltins likewise retains TextureCube source
-normalization, scene parsing, Terrain source decoding/coalescing, and GameThread
+the completion mailbox, and main-thread publication. AssetForgeBuiltins retains TextureCube source
+normalization, private Scene parsing/orchestration, Terrain source decoding/coalescing, and GameThread
 publication. Shader and other unrelated DDC paths remain direct family clients.
 
 Engine's object-aware compilation aggregate owns asynchronous domain
@@ -72,8 +72,8 @@ completion. Editor-side commit and recovery sequencing is separately defined by
 [Async Asset Operations](../../Editor/Architecture/AsyncAssetOperations.md);
 it does not move scheduling or typed build policy into DurinEd.
 
-Texture2D uses three distinct terms at this boundary. Import translates an
-encoded mounted source into normalized pixels. Build is the detached
+Texture2D uses three distinct terms at this boundary. Import captures one
+physical source filename and translates its immutable encoded bytes into normalized pixels. Build is the detached
 `FTexture2DBuildRequest` to `FTexture2DBuildProduct` transformation and never
 observes an asset object. Compilation schedules that build for a specific
 `DTexture2D`, applies cancellation and supersession, and publishes the product
@@ -84,17 +84,18 @@ not the name of the compilation domain or one of its requests.
 
 | Class | Typical location | Suffix | Authoritative for | May be deleted locally |
 | --- | --- | --- | --- | --- |
-| Source input | Mounted content directory | Source-specific | Supported single-asset reimport and rebuilding; initial Scene import | No |
+| Source input | Project-relative or external physical filename; mounted content for Scene | Source-specific | Standalone-family reimport and rebuilding; initial Scene import | No |
 | Object package | Mounted content directory | `.dasset` | Asset identity and editable object state | No |
 | Derived data | `DerivedDataCache/` | `.bin` | Nothing; it accelerates editor and cook work | Yes |
 | Cooked package | `Cooked/<Platform>/...` | `.dasset` | Runtime object metadata for that cook | No |
 | Cooked bulk data | Beside its cooked package initially | `.dbulk` | Runtime payload bytes for that cook | No |
 | Local state | `Saved/` | Format-specific | Diagnostics, sessions, and user-local state | Yes |
 
-Persistent asset and source identity is defined by
-[Asset Packages](AssetPackages.md#paths-and-mounts). Neither path type
-identifies a DDC key, `.bin` object, `.dbulk` file, byte offset, or physical
-workstation path, and the two path types are not interchangeable.
+Persistent asset identity is defined by
+[Asset Packages](AssetPackages.md#paths-and-mounts). A standalone-family source is
+instead a normalized project-relative or absolute physical filename. Neither
+kind identifies a DDC key, `.bin` object, `.dbulk` file, or byte offset, and
+asset paths and source filenames are not interchangeable.
 
 ## Runtime Data Domain
 
@@ -125,31 +126,21 @@ An editor `.dasset` contains compact, review-worthy object state:
 
 Large platform render payloads do not belong in the authored package. Keeping
 them external avoids rewriting source-controlled packages when a builder,
-platform, or quality policy changes. Persistent source paths are complete
-normalized virtual file paths such as `/Engine/Models/Box.obj` or
-`/Game/Textures/Stone.png`. Absolute workstation paths and physical domain
-directory names are invalid.
+platform, or quality policy changes. Standalone families persist normalized filenames:
+files below the project directory use a project-relative generic path and
+external files use a normalized absolute path. Resolution never consults an
+asset mount. Scene uses the same filename policy for its creation-only captured
+source closure and resolves relative dependencies from the root filename.
 
 The source input is authoritative for rebuilding but is not a runtime asset.
-New shared source art belongs in a registered mount's effective content
-directory. Source organization remains independent of package organization
-even though both share one physical namespace. StaticMesh, Texture2D, and
-TextureCube persist mounted `FSourcePath` provenance plus exact hashes; their
-former package-relative strings are rejected rather than resolved.
+Texture2D, StaticMesh, TextureCube, VolumeTexture, and TerrainHeightmap store
+common `FSourceFile` metadata plus required decode interpretation in concrete
+editor-only import-data objects. Runtime build settings remain on their assets;
+no asset also persists generic replay provenance or a mounted `FSourcePath`.
 
-Selecting a file already inside an allowed mounted content directory records a
-no-copy reference. Selecting an external file requires an explicit writable
-mount and destination and ingests one transactional copy. Reimport only reads
-the persisted source. Changing one asset's reference, replacing shared source
-bytes, and relocating a shared source are separate operations; shared mutation
-requires complete impact discovery and rolls source and packages back together
-on failure. See [Mounted Source Workflows](../../Editor/Guides/MountedSourceWorkflows.md).
-
-AssetCore owns these generic operations in `Asset/MountedSource.h`: mounted
-reference resolution, file/byte staging, replacement, relocation, commit, and
-rollback. Transaction results own their physical paths and publication state
-until the caller explicitly commits or rolls back. Asset-family import policy,
-translation, package mutation, and build publication remain outside AssetCore.
+Import and reimport only read selected or persisted physical filenames and
+never mutate them. See
+[Source File Workflows](../../Editor/Guides/SourceFileWorkflows.md).
 
 ### Import-Time Build Policy
 
@@ -165,21 +156,18 @@ state, editor diagnostics, and extension-module identities do not enter cooked
 runtime ownership. See
 [Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md).
 
-Editor import extensions register source translators, ordered planning passes, and typed
-asset builders with AssetForge's `FImportService`. One
-`FImportRequest` and framework-owned job serve initial import, supported
-single-asset reimport and repair, and implemented editor recovery. Callers never
-coordinate a parallel provider or single-asset-handler workflow. There is no
-general preview execution mode; dialogs defer complete parsing and building
-until confirmation.
+Every standalone family is a direct importer: it validates the destination,
+captures each selected file once, decodes and builds a detached product,
+publishes asset state and concrete family import data, then saves independently.
+Reimport and explicit source selection repeat that sequence without a graph,
+provider, generic job, replay provenance, or mounted-source mutation.
 
-The source graph records source semantics and explicit dependencies. The
-build graph records output class, destination policy, and
-cross-output dependencies. Both are immutable, bounded, canonically ordered,
-and fingerprinted. Detached products remain ordinary CPU-owned values while
-the operation reports preparation progress. The editor thread then enters a
-non-cancelable finalization phase and publishes completed candidate state once;
-the live asset retains its previous usable state until that point.
+Scene captures one immutable source closure and owns a private stable
+topological order for its peer outputs. It performs complete decode, build,
+relationship, resource-limit, and collision validation before the
+non-cancelable publication boundary, then binds and saves the package set
+atomically. Its transient nodes are neither public framework graphs nor
+persisted replay data.
 
 Package persistence is a subsequent operation, not a reversible part of the
 asset-state transition. A save failure leaves the newly published package
@@ -209,17 +197,17 @@ payload bytes, but only an explicit cook places them under `Cooked/` ownership.
 
 Runtime Engine owns asset state and typed optional operation contracts:
 `IStaticMeshBuildFeature`, `IStaticMeshPostLoadFeature`,
-`IStaticMeshSourceMutationFeature`, `IStaticMeshCollisionBuildFeature`,
+`IStaticMeshCollisionBuildFeature`,
 `ITexture2DPostLoadFeature`, `ITextureCubePostLoadFeature`,
 `ITerrainHeightmapDerivedDataLoadFeature`,
-`ITerrainHeightmapSourceMutationFeature`, and `ISkeletalDerivedDataFeature`.
+and `ISkeletalDerivedDataFeature`.
 Runtime consumers invoke exactly one provider through a bounded modular-feature
 visitor. No provider reference or provider-authored callable escapes that
 visitor; zero providers is an explicit unavailable result and multiple
 providers is an explicit ambiguity rather than registration-order selection.
 
-`AssetForgeBuiltins` owns the static-mesh build, post-load, source-mutation,
-texture post-load, and Terrain derived-data/source-mutation providers.
+`AssetForgeBuiltins` owns the static-mesh build and post-load, texture
+post-load, and Terrain derived-data providers.
 `StaticMeshBuild` owns collision construction and `SkeletalBuild`
 owns skeletal/animation derived-data loading. Each module instance owns its provider objects and
 generation-bound registration tokens, so owner retirement rejects new calls
@@ -228,11 +216,10 @@ and waits for admitted visitors before provider state is destroyed.
 Terrain post-load is the asynchronous exception to the otherwise synchronous
 boundary. Its coalesced workers and Game Thread publishers belong to the
 AssetForgeBuiltins-owned `TerrainDerivedDataLoads` operation group before the
-feature visitor returns. Source-reference mutation cancels only superseded
-per-asset publication and an unshared worker; module retirement closes the
-whole group with module-shutdown cancellation. Unload may proceed only after
-the group reports no active tasks, retained results, or deferred/worker
-callables. Cooked loads never invoke these editor-only operation features.
+feature visitor returns. Module retirement closes the whole group with
+module-shutdown cancellation. Unload may proceed only after the group reports
+no active tasks, retained results, or deferred/worker callables. Cooked loads
+never invoke these editor-only operation features.
 
 ### Skeletal Authored State
 
@@ -261,9 +248,11 @@ handle, playback clock, evaluated pose, or palette state.
 
 Authored editor packages may retain a content-addressed rebuild key and compact
 source/import metadata. A loaded package first attempts a validated DDC object.
-Where a single-asset editor recovery policy exists, missing disposable data
-reconstructs a `SessionCritical` AssetForge request from that asset's persisted
-provenance; it does not enter a separate decoder or publication path. Scene
+Texture2D missing or corrupt disposable data submits its family compilation
+from retained normalized pixels and current settings; it does not issue an
+import request or rewrite source metadata. Other families invoke their own
+direct build or PostLoad policy from retained concrete settings and never
+reconstruct a generic import request. Scene
 outputs retain no aggregate source recipe, so a missing skeletal Scene payload
 is reported rather than silently rebuilding the whole Scene. `DSkeleton` has no
 external payload and therefore no DDC object or DBLK companion.
@@ -389,9 +378,8 @@ StaticMesh, texture, SkeletalMesh, and AnimationClip cooked packages also omit
 import source provenance, rebuild keys, and editor diagnostics. SkeletalMesh
 and AnimationClip retain exact hard Skeleton dependencies and compatibility
 identities; their logical payload descriptors select fixed type payload IDs in
-the package companion. Runtime targets do not deploy `AssetForge`,
-`AssetForgeBuiltins`, Assimp, or
-editor image decoders.
+the package companion. Runtime targets do not deploy `AssetForgeBuiltins`,
+Assimp, or editor image decoders.
 
 Cook package construction is a read-only projection of the authored object
 graph. Stable source provenance and editor diagnostics are declared
@@ -673,8 +661,8 @@ as one mutation participant.
 Texture payload inspection reports source, derived, cooked, decoded CPU, and
 GPU stages without creating a shared authority descriptor. Construct-free
 inspection reads package field trees and storage descriptors; live inspection
-joins source mounts, DDC diagnostics, decoded data, and render-resource state.
-Placement labels are capability descriptions such as `MountedSource`,
+joins source-file diagnostics, DDC diagnostics, decoded data, and
+render-resource state. Placement labels are capability descriptions such as `SourceFile`,
 `EditorPackageCompanion`, `DerivedDataCache`, and `CookedPackageCompanion`, not
 backend paths supplied to domain callers.
 
@@ -682,7 +670,7 @@ Repair classifications name the owning explicit workflow:
 
 | Finding | Action owner |
 | --- | --- |
-| Missing/changed/malformed mounted source | Reimport or source repair. |
+| Missing/changed/malformed standalone source | Reimport or select a replacement file. |
 | Missing/corrupt editor companion | Restore the descriptor-matching stable DABK or reimport. |
 | Unreferenced editor companion | Explicit package cleanup; inspection never deletes it. |
 | Missing/corrupt/incompatible DDC | Domain rebuild; cache data is disposable. |

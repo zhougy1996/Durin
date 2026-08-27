@@ -465,14 +465,11 @@ boundary are defined in [Static Mesh Rendering](StaticMeshRendering.md).
 
 ## Static Mesh Derived Data and Cooking
 
-StaticMesh source provenance is an optional complete `FSourcePath` in any
-allowed mount content directory and records the exact source hash, Assimp
-importer version, and import axes. Source organization is independent of the
-StaticMesh package path. Existing mounted sources are referenced without a
-copy; external files require an explicit writable destination. Reimport reads
-only the persisted source, while changing one reference, replacing shared
-bytes, repair, and relocation are separate editor operations. Legacy
-package-relative source fields are rejected. The
+StaticMesh source provenance stores one normalized project-relative or external
+absolute filename plus the exact source hash, Assimp importer version, and
+import axes. Source organization is independent of the StaticMesh package
+path. Reimport reads the persisted file without copying, replacing, relocating,
+or deleting it. Legacy package-relative source fields are rejected. The
 canonical DDC key also includes builder version 4, render-payload schema 5, and target
 platform. A valid warm DDC object can load from persisted identity while source
 and Assimp are unavailable.

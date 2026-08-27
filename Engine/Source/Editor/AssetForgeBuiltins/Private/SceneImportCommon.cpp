@@ -1,10 +1,33 @@
 #include "ImportedSceneInternal.h"
 
-#include "AssetForge/Operations/ImportOperation.h"
+#include "Asset/SourceFilename.h"
 
 namespace Durin::AssetForge::Builtins::Private
 {
 	using namespace Durin::Asset;
+	namespace
+	{
+		thread_local const std::function<bool()>* GSceneImportCancellation = nullptr;
+	}
+
+	FScopedSceneImportCancellation::FScopedSceneImportCancellation(
+		const std::function<bool()>& IsCancellationRequested) noexcept
+		: Previous(GSceneImportCancellation)
+	{
+		GSceneImportCancellation = IsCancellationRequested
+			? &IsCancellationRequested : nullptr;
+	}
+
+	FScopedSceneImportCancellation::~FScopedSceneImportCancellation() noexcept
+	{
+		GSceneImportCancellation = Previous;
+	}
+
+	auto IsSceneImportCancellationRequested() -> bool
+	{
+		return GSceneImportCancellation && (*GSceneImportCancellation)();
+	}
+
 	auto AddDiagnostic(
 		FImportedSceneData& Scene,
 		EImportDiagnosticSeverity Severity,
@@ -52,7 +75,7 @@ namespace Durin::AssetForge::Builtins::Private
 		FSceneDecodeResult& Result,
 		std::string_view Subject) -> bool
 	{
-		if (!IsImportCancellationRequested()) return false;
+		if (!IsSceneImportCancellationRequested()) return false;
 		(void)FailImport(Result, ESceneImportDiagnosticCategory::InvalidValue,
 			std::string(Subject), "Scene decoding was canceled.");
 		return true;
@@ -88,7 +111,7 @@ namespace Durin::AssetForge::Builtins::Private
 		for (size_t Offset = 0; Offset < OutBytes.size();
 			Offset += CancellationChunkBytes)
 		{
-			if (IsImportCancellationRequested())
+			if (IsSceneImportCancellationRequested())
 			{
 				OutError = "Scene source read was canceled.";
 				OutBytes.clear();
@@ -142,15 +165,10 @@ namespace Durin::AssetForge::Builtins::Private
 	auto IsValidSourcePath(std::string_view SourcePath) -> bool
 	{
 		if (SourcePath.empty()) return true;
-		if (!SourcePath.starts_with('/') || SourcePath.starts_with("//") ||
-			SourcePath.find('\\') != std::string_view::npos) return false;
-		const std::filesystem::path Path(SourcePath);
-		if (Path.lexically_normal().generic_string() != SourcePath) return false;
-		for (const auto& Part : Path)
-		{
-			if (Part == "..") return false;
-		}
-		return true;
+		std::string PhysicalPath;
+		std::string Error;
+		return AssetImport::ResolveSourceFilename(
+			SourcePath, PhysicalPath, Error);
 	}
 
 	auto NormalizeRelativeUri(std::string Uri, std::string& OutNormalized) -> bool

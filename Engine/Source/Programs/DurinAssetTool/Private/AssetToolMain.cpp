@@ -2,13 +2,13 @@
 #include "AssetSaveReadiness.h"
 
 #include "Asset/EditorBulkDataStorage.h"
+#include "Asset/AssetCompilingManager.h"
 #include "Asset/PackageInspection.h"
 
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "EngineAssetServices.h"
 #include "Engine/Level.h"
-#include "AssetForge/ImportService.h"
 #include "HAL/PlatformMisc.h"
 #include "Logging/Logger.h"
 #include "Misc/Name.h"
@@ -19,35 +19,20 @@
 
 #include <chrono>
 #include <csignal>
-#include <thread>
 
 namespace
 {
 	std::atomic_bool GCancelled = false;
-	constexpr auto CanonicalResaveRecoveryTimeout = std::chrono::seconds(60);
-
 	auto HandleInterrupt(int) -> void { GCancelled.store(true, std::memory_order_relaxed); }
 
 	auto PrepareCanonicalResaveAsset(
 		const Durin::FAssetPath& Path, Durin::DObject* Asset)
 		-> Durin::Asset::FAssetResult
 	{
-		auto& Service = Durin::AssetForge::GetImportService();
-		const auto Deadline = std::chrono::steady_clock::now()
-			+ CanonicalResaveRecoveryTimeout;
-		while (Service.HasActiveImportClaim(Path.ToString()))
-		{
-			if (GCancelled.load(std::memory_order_relaxed))
-				return {Durin::Asset::EAssetError::ShuttingDown,
-					"Canonical resave was cancelled while waiting for post-load recovery."};
-			if (std::chrono::steady_clock::now() >= Deadline)
-				return {Durin::Asset::EAssetError::StaleData,
-					std::format("Timed out waiting for post-load recovery of {}.",
-						Path.ToString())};
-			(void)Service.PumpImportOperations();
-			std::this_thread::sleep_for(std::chrono::milliseconds(1));
-		}
-		(void)Service.PumpImportOperations();
+		if (GCancelled.load(std::memory_order_relaxed))
+			return {Durin::Asset::EAssetError::ShuttingDown,
+				"Canonical resave was cancelled before asset compilation completed."};
+		(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Asset);
 		return Durin::ValidateAssetSaveReadiness(Asset);
 	}
 
@@ -603,20 +588,33 @@ int main(int ArgC, char** ArgV)
 	}
 	Durin::DObjectInit();
 	Durin::InitializeEngineAssetServices();
-	if (Options.Operation == EOperation::CanonicalResave && Options.bApply)
+	struct FScopedEditorServices final
 	{
-		if (!Durin::InitializeTaskScheduler(2)
-			|| !Durin::InitializeGameThreadDeferredExecutor())
+		bool bStarted = false;
+		~FScopedEditorServices()
 		{
-			std::cerr << "Error: canonical-resave apply could not initialize task services.\n";
-			return 1;
+			if (!bStarted) return;
+			Durin::ShutdownAssetCompilingManager();
+			Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
 		}
+	} EditorServices;
+#if DURIN_WITH_EDITOR
+	if (!Durin::InitializeTaskScheduler(2)
+		|| !Durin::InitializeGameThreadDeferredExecutor()
+		|| !Durin::InitializeAssetCompilingManager())
+	{
+		std::cerr << "Error: asset inspection could not initialize editor task services.\n";
+		return 1;
+	}
+	EditorServices.bStarted = true;
+	{
 		Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("TerrainBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	}
+#endif
 	(void)Durin::DLevel::StaticClass(); // Force the Engine reflection module into this process.
 	const Durin::Asset::FReflectionCompatibilityCatalog Catalog =
 		Durin::Asset::FReflectionCompatibilityCatalog::Capture();

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Asset/AssetImportData.h"
 #include "Asset/Cook.h"
 #include "Asset/EditorBulkData.h"
 #include "EngineAPI.h"
@@ -95,50 +96,6 @@ namespace Durin
 		auto operator==(const FVolumeTextureBuildSettings&) const -> bool = default;
 	};
 
-	// Stores the mounted source image and its atlas interpretation for editor
-	// rebuild and reimport. Runtime and cooked sampling remain source-format agnostic.
-	DSTRUCT()
-	struct FVolumeTextureSourceImportData
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		FTextureSourceFile Source;
-
-		DPROPERTY(Edit, ReadOnly, DisplayName = "Source File")
-		std::string SourceFile;
-
-		DPROPERTY(Edit, ReadOnly, DisplayName = "Import Format")
-		EVolumeTextureImportFormat ImportFormat = EVolumeTextureImportFormat::PngRowMajorAtlas;
-
-		DPROPERTY(Edit, ReadOnly)
-		EVolumeTextureSourceChannels Channels = EVolumeTextureSourceChannels::Red;
-
-		DPROPERTY(Edit, ReadOnly, DisplayName = "Slice Width")
-		uint32 SliceWidth = 0;
-
-		DPROPERTY(Edit, ReadOnly, DisplayName = "Slice Height")
-		uint32 SliceHeight = 0;
-
-		DPROPERTY(Edit, ReadOnly)
-		uint32 Depth = 0;
-
-		DPROPERTY(Edit, ReadOnly, DisplayName = "Tile Columns")
-		uint32 TilesX = 0;
-
-		DPROPERTY(Edit, ReadOnly, DisplayName = "Tile Rows")
-		uint32 TilesY = 0;
-
-		DPROPERTY()
-		std::string DecoderId;
-
-		DPROPERTY()
-		uint32 DecoderVersion = 0;
-
-		auto HasSource() const -> bool { return Source.HasSource(); }
-		auto operator==(const FVolumeTextureSourceImportData&) const -> bool = default;
-	};
-
 	// Owns one exact volume mip with explicit row and depth pitches.
 	struct FVolumeTextureMipData
 	{
@@ -175,8 +132,28 @@ namespace Durin
 		ENGINE_API ~DVolumeTexture() override;
 
 		auto GetSourceData() const -> const FVolumeTextureSourceData& { return SourceData; }
-		auto GetSourceImportData() const -> const FVolumeTextureSourceImportData& { return SourceImportData; }
-		auto GetImportProvenance() const -> std::string_view { return ImportProvenance; }
+		auto GetImportedSource() const -> const AssetImport::FSourceFile*
+		{
+			return AssetImportData
+				? AssetImportData->GetSourceData().FindByRole("source") : nullptr;
+		}
+		auto GetSourceFile() const -> const std::string&
+		{
+			if (const AssetImport::FSourceFile* Source = GetImportedSource())
+				return Source->Filename;
+			static const std::string Empty;
+			return Empty;
+		}
+		auto GetAssetImportData() const -> const AssetImport::DAssetImportData*
+		{
+			return AssetImportData.Get();
+		}
+		auto GetAssetImportData() -> AssetImport::DAssetImportData*
+		{
+			return AssetImportData.Get();
+		}
+		ENGINE_API auto PublishAssetImportData(
+			AssetImport::DAssetImportData& Value, std::string& OutError) -> bool;
 		auto GetBuildSettings() const -> const FVolumeTextureBuildSettings& { return BuildSettings; }
 		auto GetPlatformData() const -> const FVolumeTexturePlatformData* { return PlatformData.get(); }
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
@@ -191,10 +168,6 @@ namespace Durin
 			FVolumeTextureBuildSettings InBuildSettings,
 			std::unique_ptr<FVolumeTexturePlatformData> InPlatformData,
 			std::string InDerivedDataKey, std::string& OutError) -> bool;
-		ENGINE_API auto PublishSourceImportData(
-			FVolumeTextureSourceImportData InSourceImportData,
-			std::string& OutError) -> bool;
-		ENGINE_API auto PublishImportProvenance(std::vector<std::byte> Provenance) -> void;
 		ENGINE_API auto PublishDerivedDataLoad(
 			std::unique_ptr<FVolumeTexturePlatformData> InPlatformData,
 			std::string InDerivedDataKey, std::string& OutError) -> bool;
@@ -213,13 +186,10 @@ namespace Durin
 
 	private:
 		DPROPERTY(EditorOnly)
-		FVolumeTextureSourceData SourceData;
-
-		DPROPERTY(Edit, ReadOnly, EditorOnly, DisplayName = "Import")
-		FVolumeTextureSourceImportData SourceImportData;
+		TObjectPtr<AssetImport::DAssetImportData> AssetImportData;
 
 		DPROPERTY(EditorOnly)
-		std::string ImportProvenance;
+		FVolumeTextureSourceData SourceData;
 
 		DPROPERTY()
 		FVolumeTextureBuildSettings BuildSettings;

@@ -26,7 +26,6 @@ namespace
 	}
 
 }
-
 TEST(FSourcePathContractTests, ReflectedValueHasOneCompleteVirtualPath)
 {
 	Durin::DStruct* SourcePathStruct = Durin::FSourcePath::StaticStruct();
@@ -88,10 +87,7 @@ TEST(FSourcePathContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainS
 	EXPECT_EQ(Durin::Cast<Durin::DTexture>(TextureCubeObject), TextureCubeObject);
 
 	static constexpr std::array Texture2DProperties = {
-		std::string_view("SourceImportData"),
-		std::string_view("SourceContentHash"),
-		std::string_view("SourceFileSize"),
-		std::string_view("SourceLastWriteTime"),
+		std::string_view("AssetImportData"),
 		std::string_view("SourceWidth"),
 		std::string_view("SourceHeight"),
 		std::string_view("SourceChannelCount"),
@@ -105,7 +101,7 @@ TEST(FSourcePathContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainS
 		std::string_view("CookedPayload")};
 	static constexpr std::array TextureCubeProperties = {
 		std::string_view("SourceLayout"),
-		std::string_view("SourceImportData"),
+		std::string_view("AssetImportData"),
 		std::string_view("PanoramaFaceDimension"),
 		std::string_view("PanoramaExposureEV"),
 		std::string_view("OriginalSourceWidth"),
@@ -176,100 +172,4 @@ TEST(FSourcePathContractTests, UnifiedMountFixtureFreezesSingleRootsCapabilities
 	EXPECT_EQ(FindNamedEntry(Cases, "GameToPluginSource").GetView("ExpectedError").GetString(), "None");
 	EXPECT_EQ(FindNamedEntry(Cases, "ManualScanAsset").GetView("ExpectedError").GetString(), "None");
 	EXPECT_EQ(FindNamedEntry(Cases, "ManualScanSource").GetView("ExpectedError").GetString(), "None");
-}
-
-TEST(FSourcePathContractTests, SharedSourceOperationsClassifyIngestAndRollback)
-{
-	const std::filesystem::path Root =
-		Durin::Testing::GetTestWorkDirectory() / "MountedSourceOperations";
-	Durin::Testing::RemoveTestWorkDirectory(Root);
-	const std::filesystem::path EngineSource =
-		Root / "Engine" / "Content" / "Textures" / "Shared.bin";
-	const std::filesystem::path ExternalSource = Root / "External" / "Input.bin";
-	std::filesystem::create_directories(EngineSource.parent_path());
-	std::filesystem::create_directories(ExternalSource.parent_path());
-	std::filesystem::create_directories(Root / "Game" / "Content");
-	{
-		std::ofstream Stream(EngineSource, std::ios::binary);
-		Stream << "engine-bytes";
-	}
-	{
-		std::ofstream Stream(ExternalSource, std::ios::binary);
-		Stream << "external-bytes";
-	}
-	const std::array Mounts = {
-		Durin::PathUtilities::FMountPoint{
-			.VirtualRoot = "/Engine/",
-			.Owner = Durin::PathUtilities::EMountOwner::Engine,
-			.Root = Root / "Engine",
-			.ContentPath = "Content",
-			.bAutoScan = true,
-			.bContentWritable = true},
-		Durin::PathUtilities::FMountPoint{
-			.VirtualRoot = "/Game/",
-			.Owner = Durin::PathUtilities::EMountOwner::ActiveProject,
-			.Root = Root / "Game",
-			.ContentPath = "Content",
-			.bAutoScan = true,
-			.bContentWritable = true,
-			.Dependencies = {"/Engine/"}}};
-	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Mounts);
-	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
-
-	Durin::Asset::FMountedSourceFile Prepared;
-	std::string Error;
-	ASSERT_TRUE(Durin::Asset::PrepareMountedSourceFile(
-		EngineSource, "/Game/Textures/Asset", "/Game/Unused.bin", Prepared, Error)) << Error;
-	EXPECT_EQ(Prepared.SourcePath.Path, "/Engine/Textures/Shared.bin");
-	EXPECT_EQ(Prepared.Disposition, Durin::Asset::ESourceFileDisposition::ReferenceExisting);
-	EXPECT_FALSE(Prepared.bCreatedFile);
-	EXPECT_FALSE(std::filesystem::exists(Root / "Game" / "Content" / "Unused.bin"));
-
-	ASSERT_TRUE(Durin::Asset::PrepareMountedSourceFile(
-		ExternalSource, "/Game/Textures/Asset", "/Game/Textures/Ingested.bin",
-		Prepared, Error)) << Error;
-	EXPECT_EQ(Prepared.SourcePath.Path, "/Game/Textures/Ingested.bin");
-	EXPECT_EQ(Prepared.Disposition, Durin::Asset::ESourceFileDisposition::IngestedExternal);
-	ASSERT_TRUE(std::filesystem::is_regular_file(Prepared.PhysicalPath));
-	Durin::Asset::RollbackMountedSourceFile(Prepared);
-	EXPECT_FALSE(std::filesystem::exists(
-		Root / "Game" / "Content" / "Textures" / "Ingested.bin"));
-
-	ASSERT_TRUE(Durin::Asset::PrepareMountedSourceFile(
-		ExternalSource, "/Game/Textures/Asset", "/Game/Textures/Ingested.bin",
-		Prepared, Error)) << Error;
-	Durin::Asset::CommitMountedSourceFile(Prepared);
-	ASSERT_TRUE(Durin::Asset::PrepareMountedSourceFile(
-		ExternalSource, "/Game/Textures/Other", "/Game/Textures/Ingested.bin",
-		Prepared, Error)) << Error;
-	EXPECT_EQ(Prepared.Disposition, Durin::Asset::ESourceFileDisposition::ReusedIdentical);
-
-	EXPECT_FALSE(Durin::Asset::PrepareMountedSourceFile(
-		ExternalSource, "/Engine/Models/Asset", "/Engine/Models/Ingested.bin",
-		Prepared, Error));
-	ASSERT_TRUE(Durin::Asset::PrepareMountedSourceFile(
-		ExternalSource, "/Engine/Models/Asset", "/Engine/Models/Ingested.bin",
-		Prepared, Error,
-		Durin::Asset::EMountedSourceMutationContext::EngineContentWrite)) << Error;
-	EXPECT_EQ(Prepared.SourcePath.Path, "/Engine/Models/Ingested.bin");
-	EXPECT_EQ(Prepared.Disposition, Durin::Asset::ESourceFileDisposition::IngestedExternal);
-	Durin::Asset::RollbackMountedSourceFile(Prepared);
-	EXPECT_FALSE(std::filesystem::exists(
-		Root / "Engine" / "Content" / "Models" / "Ingested.bin"));
-
-	Durin::Asset::FMountedSourceReplacement Replacement;
-	EXPECT_FALSE(Durin::Asset::PrepareMountedSourceReplacement(
-		ExternalSource, "/Game/Textures/Asset", "/Engine/Textures/Shared.bin",
-		Replacement, Error));
-	ASSERT_TRUE(Durin::Asset::PrepareMountedSourceReplacement(
-		EngineSource, "/Game/Textures/Asset", "/Game/Textures/Ingested.bin",
-		Replacement, Error)) << Error;
-	EXPECT_TRUE(Replacement.bPublished);
-	Durin::Asset::RollbackMountedSourceReplacement(Replacement);
-	std::ifstream Restored(
-		Root / "Game" / "Content" / "Textures" / "Ingested.bin",
-		std::ios::binary);
-	std::string RestoredBytes(
-		(std::istreambuf_iterator<char>(Restored)), std::istreambuf_iterator<char>());
-	EXPECT_EQ(RestoredBytes, "external-bytes");
 }

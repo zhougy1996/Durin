@@ -7,7 +7,6 @@
 #include "Editor/WorkspaceRootWindow.h"
 #include "Modules/ModularFeature.h"
 #include "Threading/Task.h"
-#include "AssetForge/Operations/ImportOperation.h"
 
 namespace Durin
 {
@@ -44,8 +43,6 @@ namespace Durin::Editor::Level
 			::Durin::Editor::FWorkspaceManager& InWorkspaceManager,
 			FModuleOwnedCallbackGate InOwnerGate,
 			FTaskScopeToken InThumbnailTaskScope,
-			std::function<void(AssetForge::FImportOperationHandle, std::string)>
-				InNotifyImportStarted,
 			FContentBrowserCallbacks InContentBrowserCallbacks);
 		LEVELEDITOR_API ~MLevelEditor() override;
 		LEVELEDITOR_API auto Construct() -> void;
@@ -99,8 +96,6 @@ namespace Durin::Editor::Level
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager;
 		FModuleOwnedCallbackGate OwnerGate;
 		FTaskScopeToken ThumbnailTaskScope;
-		std::function<void(AssetForge::FImportOperationHandle, std::string)>
-			NotifyImportStarted;
 		FContentBrowserCallbacks ContentBrowserCallbacks;
 		std::unique_ptr<FLevelDocumentController> DocumentController;
 		std::unique_ptr<FEditorAssetMoveCoordinator> AssetMoveCoordinator;

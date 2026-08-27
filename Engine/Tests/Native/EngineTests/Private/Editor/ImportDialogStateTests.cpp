@@ -1,4 +1,5 @@
 #include "Editor/Import/ImportDialogSupport.h"
+#include "Editor/Import/BuiltinImportDispatch.h"
 #include "Import/TextureImportDialogState.h"
 
 #include "EngineTestSupport.h"
@@ -48,39 +49,19 @@ TEST(FImportDialogCallbacksTests, RoutesWorkspaceOutcomes)
 	EXPECT_EQ(ImportedDirectory, "/Project/Scenes/Robot");
 }
 
-TEST(FImportDialogProgressModelTests, MapsOperationSnapshotsWithoutOwningAWidget)
+TEST(FBuiltinImportDispatchTests, ExposesOnlyTheFiniteBuiltInFamilies)
 {
-	FImportDialogProgressModel Model;
-	EXPECT_EQ(Model.GetState(), EImportDialogOperationState::Editing);
-
-	Model.ApplySnapshot({
-		.OperationId = 7,
-		.Phase = AssetForge::EImportPhase::Parse,
-		.State = AssetForge::EImportOperationState::Pending,
-		.bCancelable = true});
-	EXPECT_EQ(Model.GetState(), EImportDialogOperationState::Preparing);
-	EXPECT_TRUE(Model.CanCancel());
-	EXPECT_FALSE(Model.GetSnapshot().Progress.has_value());
-
-	Model.ApplySnapshot({
-		.OperationId = 7,
-		.Phase = AssetForge::EImportPhase::Publication,
-		.State = AssetForge::EImportOperationState::Finalizing,
-		.bCancelable = false});
-	EXPECT_EQ(Model.GetState(), EImportDialogOperationState::Finalizing);
-	EXPECT_FALSE(Model.CanCancel());
-
-	Model.ApplySnapshot({
-		.OperationId = 7,
-		.State = AssetForge::EImportOperationState::Failed,
-		.bCancelable = false,
-		.Diagnostic = "Candidate validation failed."});
-	EXPECT_EQ(Model.GetState(), EImportDialogOperationState::Failed);
-	EXPECT_FALSE(Model.CanCancel());
-	EXPECT_EQ(Model.GetSnapshot().Diagnostic, "Candidate validation failed.");
-
-	Model.Reset();
-	EXPECT_EQ(Model.GetState(), EImportDialogOperationState::Editing);
+	ASSERT_EQ(BuiltinImportDescriptors.size(), 4u);
+	EXPECT_EQ(BuiltinImportDescriptors[0].Family, EBuiltinImportFamily::Texture);
+	EXPECT_EQ(BuiltinImportDescriptors[1].Family,
+		EBuiltinImportFamily::TerrainHeightmap);
+	EXPECT_EQ(BuiltinImportDescriptors[2].Family, EBuiltinImportFamily::Scene);
+	EXPECT_EQ(BuiltinImportDescriptors[3].Family, EBuiltinImportFamily::StaticMesh);
+	for (const FBuiltinImportDescriptor& Descriptor : BuiltinImportDescriptors)
+	{
+		EXPECT_FALSE(Descriptor.Label.empty());
+		EXPECT_FALSE(Descriptor.Extensions.empty());
+	}
 }
 
 TEST(FImportDialogDestinationModelTests, PreservesManualPathAcrossSuggestions)
@@ -150,58 +131,30 @@ TEST(FImportDialogDestinationModelTests, DelegatesValidationToAssetDestination)
 		(Root / "Project/Content/Textures/Stone.dasset").lexically_normal());
 }
 
-TEST(FMountedSourceImportFormModelTests, PreservesManualDestinationAndResetsMode)
-{
-	Durin::Editor::Import::FMountedSourceImportFormModel Model;
-	Model.Reset();
-	EXPECT_EQ(Model.GetMode(),
-		Durin::Editor::Import::EMountedSourceImportMode::IngestExternal);
-	Model.SuggestDestination("/Project/Sources/Textures/First.png");
-	EXPECT_STREQ(Model.GetDestinationBuffer().data(),
-		"/Project/Sources/Textures/First.png");
-	Model.SuggestDestination("/Project/Sources/Textures/Second.png");
-	EXPECT_STREQ(Model.GetDestinationBuffer().data(),
-		"/Project/Sources/Textures/Second.png");
-	ASSERT_TRUE(Model.SetDestination("/Project/Sources/Manual.png"));
-	Model.SuggestDestination("/Project/Sources/Textures/Third.png");
-	EXPECT_STREQ(Model.GetDestinationBuffer().data(),
-		"/Project/Sources/Manual.png");
-	Model.GetMode() = Durin::Editor::Import::EMountedSourceImportMode::ReferenceExisting;
-	Model.Reset();
-	EXPECT_EQ(Model.GetMode(),
-		Durin::Editor::Import::EMountedSourceImportMode::IngestExternal);
-	EXPECT_EQ(Model.GetDestinationBuffer()[0], '\0');
-}
-
 TEST(FTextureImportDialogStateTests, DefaultsToTexture2DAndResetsEveryForm)
 {
 	FTextureImportDialogState State;
 	State.Reset();
 	EXPECT_EQ(State.GetAssetType(), ETextureImportAssetType::Texture2D);
-	EXPECT_EQ(State.GetSourceMode(),
-		EMountedSourceImportMode::IngestExternal);
 	EXPECT_EQ(State.GetTextureCube().SourceLayout,
 		ETextureCubeSourceLayout::EquirectangularPanorama);
 	EXPECT_EQ(State.GetVolumeTexture().SliceWidth, 128u);
 	EXPECT_EQ(State.GetVolumeTexture().Depth, 128u);
 
 	State.SetAssetType(ETextureImportAssetType::VolumeTexture);
-	State.SetSourceMode(EMountedSourceImportMode::ReferenceExisting);
-	State.GetTexture2D().Source.GetSourcePathBuffer()[0] = '2';
+	State.GetTexture2D().SourcePathBuffer[0] = '2';
 	State.GetTextureCube().PanoramaPathBuffer[0] = 'c';
 	State.GetTextureCube().SourceLayout = ETextureCubeSourceLayout::SixFaces;
-	State.GetVolumeTexture().Source.GetSourcePathBuffer()[0] = 'v';
+	State.GetVolumeTexture().SourcePathBuffer[0] = 'v';
 	State.GetVolumeTexture().Depth = 17;
 
 	State.Reset();
 	EXPECT_EQ(State.GetAssetType(), ETextureImportAssetType::Texture2D);
-	EXPECT_EQ(State.GetSourceMode(),
-		EMountedSourceImportMode::IngestExternal);
-	EXPECT_EQ(State.GetTexture2D().Source.GetSourcePathBuffer()[0], '\0');
+	EXPECT_EQ(State.GetTexture2D().SourcePathBuffer[0], '\0');
 	EXPECT_EQ(State.GetTextureCube().PanoramaPathBuffer[0], '\0');
 	EXPECT_EQ(State.GetTextureCube().SourceLayout,
 		ETextureCubeSourceLayout::EquirectangularPanorama);
-	EXPECT_EQ(State.GetVolumeTexture().Source.GetSourcePathBuffer()[0], '\0');
+	EXPECT_EQ(State.GetVolumeTexture().SourcePathBuffer[0], '\0');
 	EXPECT_EQ(State.GetVolumeTexture().Depth, 128u);
 }
 
@@ -209,23 +162,23 @@ TEST(FTextureImportDialogStateTests, PreservesInactiveFormsAcrossTypeSwitches)
 {
 	FTextureImportDialogState State;
 	State.Reset();
-	State.GetTexture2D().Source.GetSourcePathBuffer()[0] = '2';
+	State.GetTexture2D().SourcePathBuffer[0] = '2';
 	State.GetTextureCube().PanoramaPathBuffer[0] = 'p';
 	State.GetTextureCube().FacePathBuffers[0][0] = 'f';
 	State.GetTextureCube().SourceLayout = ETextureCubeSourceLayout::SixFaces;
-	State.GetVolumeTexture().Source.GetSourcePathBuffer()[0] = 'v';
+	State.GetVolumeTexture().SourcePathBuffer[0] = 'v';
 	State.GetVolumeTexture().TilesX = 7;
 
 	State.SetAssetType(ETextureImportAssetType::TextureCube);
 	State.SetAssetType(ETextureImportAssetType::VolumeTexture);
 	State.SetAssetType(ETextureImportAssetType::Texture2D);
 
-	EXPECT_EQ(State.GetTexture2D().Source.GetSourcePathBuffer()[0], '2');
+	EXPECT_EQ(State.GetTexture2D().SourcePathBuffer[0], '2');
 	EXPECT_EQ(State.GetTextureCube().PanoramaPathBuffer[0], 'p');
 	EXPECT_EQ(State.GetTextureCube().FacePathBuffers[0][0], 'f');
 	EXPECT_EQ(State.GetTextureCube().SourceLayout,
 		ETextureCubeSourceLayout::SixFaces);
-	EXPECT_EQ(State.GetVolumeTexture().Source.GetSourcePathBuffer()[0], 'v');
+	EXPECT_EQ(State.GetVolumeTexture().SourcePathBuffer[0], 'v');
 	EXPECT_EQ(State.GetVolumeTexture().TilesX, 7u);
 }
 

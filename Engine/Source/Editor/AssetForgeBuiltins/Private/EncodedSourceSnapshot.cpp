@@ -34,7 +34,7 @@ namespace Durin::AssetForge::Builtins
 		auto Bytes = std::make_shared<std::vector<std::byte>>();
 		if (!FFileHelper::LoadFileToArray(*Bytes, PhysicalPath))
 		{
-			OutError = std::format("Failed to read mounted source '{}'.", SourcePath.Path);
+			OutError = std::format("Failed to read source file '{}'.", SourcePath.Path);
 			return false;
 		}
 		const uint64 SizeAfter = std::filesystem::file_size(PhysicalPath, Error);
@@ -43,7 +43,7 @@ namespace Durin::AssetForge::Builtins
 		if (Error || SizeAfter != FileSize || TimeAfter != LastWriteTime
 			|| Bytes->size() != FileSize)
 		{
-			OutError = "Mounted source changed while its snapshot was captured.";
+			OutError = "Source file changed while its snapshot was captured.";
 			return false;
 		}
 		OutSnapshot = {
@@ -54,24 +54,6 @@ namespace Durin::AssetForge::Builtins
 			.LastWriteTime = FileTime::ToStableTicks(LastWriteTime)};
 		OutSnapshot.ContentHash = FXxHash128::HashBuffer(OutSnapshot.GetBytes());
 		return true;
-	}
-
-	auto CaptureEncodedSource(
-		const FSourcePath& SourcePath,
-		FEncodedSourceSnapshot& OutSnapshot,
-		std::string& OutError,
-		uint64 MaximumEncodedBytes) -> bool
-	{
-		const PathUtilities::FSourcePathResult Resolved = PathUtilities::ResolveSourcePath(
-			SourcePath.Path, PathUtilities::EPathExistence::RequireFile);
-		if (!Resolved)
-		{
-			OutError = Resolved.Message;
-			return false;
-		}
-		return CaptureEncodedSource(
-			{.Path = Resolved.NormalizedVirtualPath}, Resolved.PhysicalPath,
-			OutSnapshot, OutError, MaximumEncodedBytes);
 	}
 
 	auto UseCapturedSource(

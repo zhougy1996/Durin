@@ -67,7 +67,7 @@ persists 15 bounded reflected source/build/domain descriptor fields. Neither
 `FTextureSourceData::Pixels` nor platform mip vectors are reflected or stored in
 the authored package.
 
-Source image encoding belongs to the mounted source file and decoder. Texture
+Source image encoding belongs to the ordinary source file and decoder. Texture
 payload schema 2 belongs to the owning asset, DDC values are rebuildable
 canonical platform data, and cooked DBLK bytes are immutable deployment data loaded through
 `LoadCookedPackagePayload`. Decoded source, platform mip, and RHI resource
@@ -331,14 +331,12 @@ so simultaneously visible documents cannot reuse or overwrite one another's
 image. Missing or invalid platform data falls back to decoded source data when
 available; otherwise the preview is released.
 Persistent source, decode, build, upload, and format status is shown with retry
-and explicit repair controls. Pending diagnostics show phase, request,
-generation, elapsed queue/worker time, and memory estimates, with Cancel Build
-and Wait for Build controls. Reference Existing Source performs no copy;
-Ingest External Source requires a writable destination. Reimport is read-only.
-Changing one reference and replacing or relocating shared source are distinct
-commands, and shared mutation previews every known affected asset. Content
-Browser thumbnails use mounted source identity rather than inferring a source
-directory from Content.
+controls. Pending diagnostics show phase, request, generation, elapsed
+queue/worker time, and memory estimates, with Cancel Build and Wait for Build
+controls. Reimport reads the persisted project-relative or external absolute
+filename without copying or mutating it. Content Browser thumbnail keys use
+the same normalized filename identity rather than inferring a source directory
+from Content.
 
 ## Current Limitations
 

@@ -40,19 +40,4 @@ namespace Durin
 			OutError);
 	}
 
-	auto InvokeTerrainHeightmapSourceChangeHandler(
-		DTerrainHeightmap& Heightmap,
-		std::string_view SourceVirtualPath,
-		std::string& OutError) -> bool
-	{
-		return Private::InvokeSingleModularFeature<ITerrainHeightmapSourceMutationFeature>(
-			[&](ITerrainHeightmapSourceMutationFeature& Feature) {
-				return Feature.ChangeSourceReference(Heightmap, SourceVirtualPath, OutError);
-			},
-			{
-				.Unavailable = "No TerrainHeightmap source-change policy is registered.",
-				.Ambiguous = "TerrainHeightmap source mutation capability is ambiguous.",
-				.VisitorFailed = "TerrainHeightmap source mutation provider failed."},
-			OutError);
-	}
 }

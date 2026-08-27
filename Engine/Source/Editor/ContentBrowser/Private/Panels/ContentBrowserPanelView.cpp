@@ -2,8 +2,6 @@
 #include "Panels/ContentBrowserFilesystem.h"
 
 #include "DObject/Package.h"
-#include "AssetForge/ImportTypes.h"
-#include "AssetForge/ImportService.h"
 #include "Panels/ContentBrowserItemView.h"
 
 #include "Asset/AssetOperations.h"
@@ -116,6 +114,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		if (AdmissionState != ::Durin::Editor::ContentBrowser::EAdmissionState::Accepting)
 			return;
+		if (DrawImportDialogs) DrawImportDialogs(bInAllowAssetMutation);
 		for (const auto& Extension :
 			::Durin::Editor::ContentBrowser::CaptureHostPresenters())
 			(void)::Durin::Editor::ContentBrowser::DrawHostPresentation(
@@ -124,7 +123,6 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::PrepareForDraw() -> void
 	{
-		PollSingleAssetReimport();
 		// The host browser is constructed after workspace modules register their
 		// thumbnail providers. Rebuild the restored directory snapshot once
 		// those registrations have completed and the panel is first submitted.
@@ -900,47 +898,18 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
-			const ::Durin::Editor::ContentBrowser::FExtensionContext Context{
-				.AssetPath = Item.VirtualPath,
-				.AssetClassName = Item.AssetClassName};
-			for (const auto& Extension :
-				::Durin::Editor::ContentBrowser::CaptureExtensions(
-					::Durin::Editor::ContentBrowser::EExtensionCategory::Reimport))
+			const ::Durin::Editor::Import::EBuiltinReimportFamily Family =
+				ClassifyReimport
+					? ClassifyReimport(Item.AssetClassName)
+					: ::Durin::Editor::Import::EBuiltinReimportFamily::None;
+			if (Family != ::Durin::Editor::Import::EBuiltinReimportFamily::None)
 			{
-				if (!Extension.IsApplicable || !Extension.IsApplicable(Context)) continue;
 				ImGui::BeginDisabled(!bAllowAssetMutation);
-				if (ImGui::MenuItem(Extension.Label.c_str()))
-					QueueContentAction([this, Extension, Context] {
-						::Durin::Editor::ContentBrowser::InvokeExtension(
-							Extension, {
-								.Context = Context,
-								.bAllowAssetMutation = bAllowAssetMutation,
-								.RevealAsset = [this](std::string_view Path) {
-									return RevealAsset(Path);
-								},
-								.RevealDirectory = [this](std::string_view Path) {
-									return RevealDirectory(Path);
-								},
-								.OpenAsset = [this](std::string_view Path, std::string_view Class) {
-									return OpenAsset && OpenAsset(std::string(Path), std::string(Class));
-								},
-								.NotifyMountedContentChanged = [this] {
-									PublishMountedContentMutation();
-								},
-								.ReportError = [this](std::string Message) {
-									SetError(std::move(Message));
-								},
-								.SubmitImport = [this, Context](
-									AssetForge::FImportRequest Request, std::string Title) {
-									FAssetPath Path;
-									if (!FAssetPath::TryCreate(Context.AssetPath, Path))
-									{
-										SetError("The reimport asset path is invalid.");
-										return false;
-									}
-									return SubmitSingleAssetImport(
-										std::move(Path), std::move(Request), std::move(Title));
-								},
+				if (ImGui::MenuItem("Reimport from Current Source"))
+					QueueContentAction([this, Family, Path = Item.VirtualPath] {
+						if (Reimport)
+							Reimport(Family, Path, [this](std::string Message) {
+								SetError(std::move(Message));
 							});
 					});
 				ImGui::EndDisabled();
@@ -1091,35 +1060,13 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserPanel::DrawImportMenu(std::string_view VirtualDirectory) -> void
 	{
 		ImGui::BeginDisabled(!bAllowAssetMutation);
-		const ::Durin::Editor::ContentBrowser::FExtensionContext Context{
-			.VirtualDirectory = std::string(VirtualDirectory)};
-		for (const auto& Extension :
-			::Durin::Editor::ContentBrowser::CaptureExtensions(
-				::Durin::Editor::ContentBrowser::EExtensionCategory::Import))
+		for (const auto& Descriptor :
+			::Durin::Editor::Import::BuiltinImportDescriptors)
 		{
-			if (!Extension.IsApplicable || !Extension.IsApplicable(Context)) continue;
-			if (ImGui::MenuItem(Extension.Label.c_str()))
-				QueueContentAction([this, Extension, Context] {
-					::Durin::Editor::ContentBrowser::InvokeExtension(
-						Extension, {
-							.Context = Context,
-							.bAllowAssetMutation = bAllowAssetMutation,
-							.RevealAsset = [this](std::string_view Path) {
-								return RevealAsset(Path);
-							},
-							.RevealDirectory = [this](std::string_view Path) {
-								return RevealDirectory(Path);
-							},
-							.OpenAsset = [this](std::string_view Path, std::string_view Class) {
-								return OpenAsset && OpenAsset(std::string(Path), std::string(Class));
-							},
-							.NotifyMountedContentChanged = [this] {
-								PublishMountedContentMutation();
-							},
-							.ReportError = [this](std::string Message) {
-								SetError(std::move(Message));
-							},
-						});
+			if (ImGui::MenuItem(Descriptor.Label.data()))
+				QueueContentAction([this, Family = Descriptor.Family,
+					Directory = std::string(VirtualDirectory)] {
+					if (OpenImport) OpenImport(Family, Directory);
 				});
 		}
 		ImGui::EndDisabled();
@@ -1184,7 +1131,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::AcceptAssetDrop(std::string_view DestinationDirectory, bool bPhysicalDirectory) -> void
 	{
-		if (!bAllowAssetMutation || PendingSingleAssetReimport) return;
+		if (!bAllowAssetMutation) return;
 		if (!ImGui::BeginDragDropTarget()) return;
 		if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(::Durin::Editor::AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(::Durin::Editor::FAssetDragDropPayload))
 		{

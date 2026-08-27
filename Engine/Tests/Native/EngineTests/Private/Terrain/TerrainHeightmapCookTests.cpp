@@ -1,5 +1,4 @@
 #include "AssetTools.h"
-#include "AssetForgeBuiltinsProviderTestFixture.h"
 #include "DObject/ObjectLifecycle.h"
 #include "EngineTestSupport.h"
 #include "Misc/FileHelper.h"
@@ -18,9 +17,7 @@
 TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDdc)
 {
 	InitializeDObjectSystem();
-	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string Error;
-	ASSERT_TRUE(Providers.Register(Error)) << Error;
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "TerrainHeightmapCook";
 	Durin::Testing::RemoveTestWorkDirectory(Root);

@@ -5,7 +5,6 @@
 #include "LevelEditorCustomizations.h"
 #include "LevelEditorViewportEditing.h"
 #include "LevelEditorContentBrowserCallbacks.h"
-#include "AssetForge/Operations/ImportOperation.h"
 
 namespace Durin
 {
@@ -24,6 +23,7 @@ namespace Durin::Editor
 
 namespace Durin::Editor::Level
 {
+	enum class EImportDialogType : uint8;
 	class FLevelEditorSessionSettings;
 	class MLevelEditor;
 }
@@ -40,11 +40,13 @@ namespace Durin
 		LEVELEDITOR_API auto ShutdownModule() -> void override;
 		LEVELEDITOR_API auto RegisterLevelEditorWorkspace(::Durin::Editor::FWorkspaceManager& WorkspaceManager,
 			::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
-			std::function<void(AssetForge::FImportOperationHandle, std::string)>
-				NotifyImportStarted,
 			Editor::Level::FContentBrowserCallbacks ContentBrowserCallbacks) -> bool;
 		LEVELEDITOR_API auto UnregisterLevelEditorWorkspace() -> void;
 		LEVELEDITOR_API auto OpenDefaultDocument() -> bool;
+		LEVELEDITOR_API auto OpenImportDialog(
+			Editor::Level::EImportDialogType Type, std::string_view Directory) -> void;
+		LEVELEDITOR_API auto ReimportTerrainHeightmap(std::string_view AssetPath,
+			std::function<void(std::string)> ReportError) -> void;
 	private:
 		FModuleOwnedCallbackRegistration EditorExtensionCallbacks;
 		FAsyncOperationGroup ThumbnailOperations;

@@ -40,8 +40,6 @@ namespace Durin::Asset
 		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
 		float NormalizedSize = 1.5f;
 		std::string StableObjectPath;
-		FStaticMeshSourceImportData Provenance;
-		FStaticMeshImportSettings ImportSettings;
 	};
 
 	class STATICMESHBUILD_API FStaticMeshBuildOperations

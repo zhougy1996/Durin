@@ -1,10 +1,7 @@
 #include "TextureEditorModule.h"
 
-#include "ContentBrowser/ContentBrowserContracts.h"
-
 #include "Editor/WorkspaceManager.h"
 #include "Texture2DPropertyEditing.h"
-#include "TextureSourceRelocation.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
@@ -27,137 +24,70 @@ namespace Durin
 	using namespace Editor::Texture;
 	namespace
 	{
-		auto ReimportTexture(
-			const Editor::ContentBrowser::FExtensionInvocation& Invocation) -> void
+		auto ReimportTexture(std::string_view AssetPath,
+			std::function<void(std::string)> ReportError) -> void
 		{
-			auto ReportError = [&Invocation](std::string Message) {
-				if (Invocation.ReportError)
-					Invocation.ReportError(std::move(Message));
+			auto Report = [&ReportError](std::string Message) {
+				if (ReportError) ReportError(std::move(Message));
 			};
 			FAssetPath Path;
-			if (!FAssetPath::TryCreate(Invocation.Context.AssetPath, Path))
+			if (!FAssetPath::TryCreate(AssetPath, Path))
 			{
-				ReportError("The selected texture path is invalid.");
+				Report("The selected texture path is invalid.");
 				return;
 			}
 			DObject* Object = nullptr;
 			const Asset::FAssetResult Load = Asset::LoadAsset(Path, Object);
 			if (!Load || !Object)
 			{
-				ReportError(Load ? "The selected texture could not be loaded."
+				Report(Load ? "The selected texture could not be loaded."
 					: Load.Message);
 				return;
 			}
-			AssetForge::FImportRequest Request;
 			std::string Error;
 			if (auto* Texture = Cast<DTexture2D>(Object))
 			{
-				AssetForge::FImportProvenance Existing;
-				if (!AssetForge::Builtins::InspectTexture2DImportProvenance(
-					*Texture, Existing, Error))
+				auto AsyncErrorReporter = ReportError;
+				if (!AssetForge::Builtins::ReimportTexture2DSource(
+					*Texture, {}, Error,
+					[AsyncErrorReporter = std::move(AsyncErrorReporter)](
+						Asset::FTexture2DCompilationResult Result) {
+						if (!Result.Succeeded() && AsyncErrorReporter)
+							AsyncErrorReporter(Result.Diagnostic.empty()
+								? "Texture2D reimport failed." : std::move(Result.Diagnostic));
+					}))
 				{
-					ReportError(std::move(Error));
-					return;
+					Report(std::move(Error));
 				}
-				const FTextureSourceDiagnostic Source = Texture->InspectSource();
-				if (Source.Status != ETextureSourceStatus::Available)
-				{
-					ReportError(Source.Message.empty()
-						? "The Texture2D source is unavailable." : Source.Message);
-					return;
-				}
-				const FTexture2DImportSettings Settings{
-					.Usage = Texture->GetUsage(),
-					.CompressionQuality = Texture->GetCompressionQuality(),
-					.AlphaMipMode = Texture->GetAlphaMipMode(),
-					.AlphaCoverageThreshold = Texture->GetAlphaCoverageThreshold(),
-					.MaxResolution = Texture->GetMaxResolution(),
-					.bSRGB = Texture->IsSRGB()};
-				if (!AssetForge::Builtins::MakeTexture2DImportRequest(
-					Texture->GetSourceImportData().Source.SourcePath, Path, Settings,
-					AssetForge::EImportMode::Reimport,
-					{.OwnerId = std::format("TextureEditor.Reimport:{}", Path.ToString()),
-						.ConflictIdentities = {Path.ToString()}},
-					std::move(Existing), Request, Error))
-				{
-					ReportError(std::move(Error));
-					return;
-				}
+				return;
 			}
 			else if (auto* Cube = Cast<DTextureCube>(Object))
 			{
-				AssetForge::FImportProvenance Existing;
-				if (!AssetForge::Builtins::InspectTextureCubeImportProvenance(
-					*Cube, Existing, Error))
-				{
-					ReportError(std::move(Error));
-					return;
-				}
-				std::array<FSourcePath, TextureCubeFaceCount> Sources;
-				const size_t SourceCount = Cube->GetSourceLayout()
-					== ETextureCubeSourceLayout::SixFaces ? TextureCubeFaceCount : 1;
-				if (SourceCount == 1)
-					Sources[0] = Cube->GetSourceImportData().Panorama.SourcePath;
+				bool Reimported = false;
+				if (Cube->GetSourceLayout()
+					== ETextureCubeSourceLayout::EquirectangularPanorama)
+					Reimported = AssetForge::Builtins::ReimportTextureCubePanorama(
+						*Cube, {}, {.FaceDimension = Cube->GetPanoramaFaceDimension(),
+							.ExposureEV = Cube->GetPanoramaExposureEV()}, Error);
 				else
-					for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
-						Sources[Index] = Cube->GetSourceImportData().GetFace(
-							static_cast<ETextureCubeFace>(Index)).SourcePath;
-				if (!AssetForge::Builtins::MakeTextureCubeImportRequest(
-					std::span(Sources).first(SourceCount), Cube->GetSourceLayout(), Path,
-					{.bSRGB = Cube->IsSRGB()},
-					{.FaceDimension = Cube->GetPanoramaFaceDimension(),
-						.ExposureEV = Cube->GetPanoramaExposureEV()},
-					AssetForge::EImportMode::Reimport,
-					{.OwnerId = std::format("TextureEditor.Reimport:{}", Path.ToString()),
-						.ConflictIdentities = {Path.ToString()}},
-					std::move(Existing), Request, Error))
-				{
-					ReportError(std::move(Error));
-					return;
-				}
+					Reimported = AssetForge::Builtins::ReimportTextureCubeFaces(
+						*Cube, {}, {.bSRGB = Cube->IsSRGB()}, Error);
+				if (!Reimported) Report(std::move(Error));
+				else (void)Asset::UnloadPackage(Path);
+				return;
 			}
 			else if (auto* Volume = Cast<DVolumeTexture>(Object))
 			{
-				AssetForge::FImportProvenance Existing;
-				if (!AssetForge::Builtins::InspectVolumeTextureImportProvenance(
-					*Volume, Existing, Error))
-				{
-					ReportError(std::move(Error));
-					return;
-				}
-				const FVolumeTextureSourceImportData& Source =
-					Volume->GetSourceImportData();
-				const AssetForge::Builtins::FVolumeTextureImportSettings Settings{
-					.ImportFormat = Source.ImportFormat,
-					.Channels = Source.Channels,
-					.SliceWidth = Source.SliceWidth,
-					.SliceHeight = Source.SliceHeight,
-					.Depth = Source.Depth,
-					.TilesX = Source.TilesX,
-					.TilesY = Source.TilesY};
-				if (!AssetForge::Builtins::MakeVolumeTextureImportRequest(
-					Source.Source.SourcePath, Path, Settings,
-					AssetForge::EImportMode::Reimport,
-					{.OwnerId = std::format("TextureEditor.Reimport:{}", Path.ToString()),
-						.ConflictIdentities = {Path.ToString()}},
-					std::move(Existing), Request, Error))
-				{
-					ReportError(std::move(Error));
-					return;
-				}
+				if (!AssetForge::Builtins::ReimportVolumeTextureSource(
+					*Volume, {}, Error)) Report(std::move(Error));
+				else (void)Asset::UnloadPackage(Path);
+				return;
 			}
 			else
 			{
-				ReportError("The selected asset is not a supported texture type.");
+				Report("The selected asset is not a supported texture type.");
 				return;
 			}
-			if (!Invocation.SubmitImport)
-			{
-				ReportError("The Content Browser import submitter is unavailable.");
-				return;
-			}
-			(void)Invocation.SubmitImport(std::move(Request),
-				std::format("Reimport {}", Path.GetAssetName()));
 		}
 	}
 
@@ -165,8 +95,6 @@ namespace Durin
 
 	struct FTextureEditorModule::FIntegrationState
 	{
-		Editor::ContentBrowser::FScopedExtensionRegistration ImportExtension;
-		Editor::ContentBrowser::FScopedExtensionRegistration ReimportExtension;
 		std::unique_ptr<Editor::Texture::FTextureImportDialog> ImportDialog;
 	};
 
@@ -182,13 +110,11 @@ namespace Durin
 			FModuleStartup::CreateOwnedCallbackRegistration("Editor.ExtensionRegistries");
 		require(EditorExtensionCallbacks.IsValid());
 		require(Editor::Texture::RegisterTexture2DPropertyEditing());
-		require(Editor::Texture::RegisterTextureSourceRelocation());
 	}
 
 	auto FTextureEditorModule::ShutdownModule() -> void
 	{
 		UnregisterTextureEditor();
-		Editor::Texture::UnregisterTextureSourceRelocation();
 		Editor::Texture::UnregisterTexture2DPropertyEditing();
 		FTexturePreview::ReleaseSharedResources();
 	}
@@ -279,63 +205,32 @@ namespace Durin
 		TextureCubeThumbnailRegistration =
 			std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(TextureCubeHandle));
-		if (!EditorExtensionCallbacks.IsValid()) return true;
-		Integration->ImportExtension =
-			::Durin::Editor::ContentBrowser::RegisterExtension({
-				.Id = "texture.import", .Label = "Texture...",
-				.Category = ::Durin::Editor::ContentBrowser::EExtensionCategory::Import,
-				.Order = 100,
-				.IsApplicable = [](const auto& Context) {
-					return !Context.VirtualDirectory.empty();
-				},
-				.Invoke = [this](const auto& Invocation) {
-					if (Integration->ImportDialog)
-						Integration->ImportDialog->Open(Invocation.Context.VirtualDirectory);
-				},
-				.DrawHostPresentation = [this](bool bAllowAssetMutation) {
-					if (Integration->ImportDialog)
-						Integration->ImportDialog->Draw(bAllowAssetMutation);
-				},
-				.OwnerGate = EditorExtensionCallbacks.GetGate(),
-			}, Error);
-		if (!Integration->ImportExtension.IsValid())
-		{
-			DURIN_ERROR("Could not register Content Browser texture import: {}", Error);
-			UnregisterTextureEditor();
-			return false;
-		}
-		Integration->ReimportExtension =
-			::Durin::Editor::ContentBrowser::RegisterExtension({
-				.Id = "texture.reimport",
-				.Label = "Reimport from Current Source",
-				.Category = ::Durin::Editor::ContentBrowser::EExtensionCategory::Reimport,
-				.Order = 200,
-				.IsApplicable = [](const auto& Context) {
-					const std::string& Class = Context.AssetClassName;
-					return Class == DTexture2D::StaticClass()->GetQualifiedName().ToString()
-						|| Class == DTextureCube::StaticClass()->GetQualifiedName().ToString()
-						|| Class == DVolumeTexture::StaticClass()->GetQualifiedName().ToString();
-				},
-				.Invoke = ReimportTexture,
-				.OwnerGate = EditorExtensionCallbacks.GetGate(),
-			}, Error);
-		if (!Integration->ReimportExtension.IsValid())
-		{
-			DURIN_ERROR("Could not register Content Browser texture reimport: {}", Error);
-			UnregisterTextureEditor();
-			return false;
-		}
 		return true;
 	}
 
 	auto FTextureEditorModule::UnregisterTextureEditor() -> void
 	{
-		Integration->ReimportExtension.Reset();
-		Integration->ImportExtension.Reset();
 		Integration->ImportDialog.reset();
 		TextureCubeThumbnailRegistration.reset();
 		Texture2DThumbnailRegistration.reset();
 		WorkspaceRegistration.reset();
+	}
+
+	auto FTextureEditorModule::OpenImportDialog(std::string_view Directory) -> void
+	{
+		if (Integration->ImportDialog) Integration->ImportDialog->Open(Directory);
+	}
+
+	auto FTextureEditorModule::DrawImportDialog(bool bAllowAssetMutation) -> void
+	{
+		if (Integration->ImportDialog)
+			Integration->ImportDialog->Draw(bAllowAssetMutation);
+	}
+
+	auto FTextureEditorModule::ReimportAsset(std::string_view AssetPath,
+		std::function<void(std::string)> ReportError) -> void
+	{
+		ReimportTexture(AssetPath, std::move(ReportError));
 	}
 
 }

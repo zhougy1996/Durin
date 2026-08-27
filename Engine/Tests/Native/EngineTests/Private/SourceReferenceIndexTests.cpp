@@ -5,7 +5,6 @@
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "AssetForgeBuiltinsAssetTestSupport.h"
-#include "AssetForgeBuiltinsProviderTestFixture.h"
 
 namespace
 {
@@ -19,13 +18,10 @@ namespace
 	};
 }
 
-TEST(FSourceReferenceIndexTests, TracksSharedMountedSourcesAcrossRegistryRevisions)
+TEST(FSourceReferenceIndexTests, TracksSharedSourceFilesAcrossRegistryRevisions)
 {
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAssetFeatures());
-	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
-	std::string ProviderError;
-	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	FScopedTextureCompilingManager CompilingManager;
 	ASSERT_TRUE(EnsureTextureCompilingManager());
 	FScopedDerivedDataCacheRoot CacheRoot(

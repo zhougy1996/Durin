@@ -49,49 +49,6 @@ namespace Durin
 		PreserveCoverage DMETA(DisplayName = "Preserve Coverage")
 	};
 
-	// Identifies one portable editor source file without retaining a workstation path.
-	DSTRUCT()
-	struct FTextureSourceFile
-	{
-		GENERATED_BODY()
-
-		// Complete portable path to a source file in a registered mount.
-		DPROPERTY()
-		FSourcePath SourcePath;
-
-		DPROPERTY()
-		uint64 SourceContentHashLow = 0;
-
-		DPROPERTY()
-		uint64 SourceContentHashHigh = 0;
-
-		auto HasSource() const -> bool { return !SourcePath.IsEmpty(); }
-		auto HasContentHash() const -> bool
-		{
-			return SourceContentHashLow != 0 || SourceContentHashHigh != 0;
-		}
-		auto operator==(const FTextureSourceFile&) const -> bool = default;
-	};
-
-	// Stores optional Texture2D source provenance used only for editor rebuild and reimport.
-	DSTRUCT()
-	struct FTexture2DSourceImportData
-	{
-		GENERATED_BODY()
-
-		DPROPERTY()
-		FTextureSourceFile Source;
-
-		DPROPERTY()
-		std::string DecoderId;
-
-		DPROPERTY()
-		uint32 DecoderVersion = 0;
-
-		auto HasSource() const -> bool { return Source.HasSource(); }
-		auto operator==(const FTexture2DSourceImportData&) const -> bool = default;
-	};
-
 	// Owns decoded source pixels before platform-specific conversion.
 	struct FTextureSourceData
 	{
@@ -151,9 +108,6 @@ namespace Durin
 	// Overrides usage-derived texture import defaults.
 	struct FTexture2DImportSettings
 	{
-		// Portable mount-relative copy destination for the source file.
-		// Empty stores the source under Textures using the asset name.
-		std::string SourceDestination;
 		ETextureUsage Usage = ETextureUsage::Color;
 		ETextureCompressionQuality CompressionQuality = ETextureCompressionQuality::Normal;
 		ETextureAlphaMipMode AlphaMipMode = ETextureAlphaMipMode::Average;
@@ -169,10 +123,9 @@ namespace Durin
 	// Build modules construct this value after their detached build succeeds.
 	struct FTexture2DImportedState
 	{
-		FTexture2DSourceImportData SourceImportData;
-		std::string SourceContentHash;
-		uint64 SourceFileSize = 0;
-		int64 SourceLastWriteTime = 0;
+		std::string SourceFilename;
+		uint64 SourceContentHashLow = 0;
+		uint64 SourceContentHashHigh = 0;
 		std::unique_ptr<FTextureSourceData> SourceData;
 		std::unique_ptr<FTexturePlatformData> PlatformData;
 		std::string DerivedDataKey;
@@ -204,13 +157,9 @@ namespace Durin
 		auto GetSourceFile() const -> const std::string&
 		{
 			if (const AssetImport::FSourceFile* Source = GetImportedSource())
-				return Source->SourcePath.Path;
-			return SourceImportData.Source.SourcePath.Path;
-		}
-		auto GetSourceImportData() const -> const FTexture2DSourceImportData& { return SourceImportData; }
-		auto GetImportProvenance() const -> std::string_view
-		{
-			return ImportProvenance;
+				return Source->Filename;
+			static const std::string Empty;
+			return Empty;
 		}
 		auto GetAssetImportData() const -> const AssetImport::DAssetImportData*
 		{
@@ -229,19 +178,19 @@ namespace Durin
 		{
 			if (const AssetImport::FSourceFile* Source = GetImportedSource())
 				return Source->GetContentHash().ToString();
-			return SourceContentHash;
+			return {};
 		}
 		auto GetSourceFileSize() const -> uint64
 		{
 			if (const AssetImport::FSourceFile* Source = GetImportedSource())
 				return Source->ByteCount;
-			return SourceFileSize;
+			return 0;
 		}
 		auto GetSourceLastWriteTime() const -> int64
 		{
 			if (const AssetImport::FSourceFile* Source = GetImportedSource())
 				return Source->LastWriteTime;
-			return SourceLastWriteTime;
+			return 0;
 		}
 		auto GetSourceWidth() const -> uint32 { return SourceWidth; }
 		auto GetSourceHeight() const -> uint32 { return SourceHeight; }
@@ -284,11 +233,6 @@ namespace Durin
 			ETextureBuildStatus InBuildStatus,
 			std::string Message,
 			std::string DerivedDataKey = {}) -> bool;
-		ENGINE_API auto PublishSourceFingerprint(
-			uint64 FileSize, int64 LastWriteTime) -> void;
-		ENGINE_API auto PublishImportProvenance(
-			std::vector<std::byte> Provenance) -> void;
-
 		// Exchanges persisted and derived import state while preserving object
 		// identity. Render resources are rebuilt for both objects.
 		ENGINE_API auto ExchangeImportedState(DTexture2D& Other) -> void;
@@ -303,29 +247,10 @@ protected:
 	private:
 		auto InvalidatePlatformData() -> void;
 		auto LoadCookedPlatformData(std::string& OutError) -> bool;
-		DPROPERTY(EditorOnly)
-		FTexture2DSourceImportData SourceImportData;
-
 		// Complete editor-only replay authority. The concrete class is supplied by
 		// the owning authoring framework and is absent from Cooked packages.
 		DPROPERTY(EditorOnly)
 		TObjectPtr<AssetImport::DAssetImportData> AssetImportData;
-
-		// Opaque editor-framework reproduction metadata. Runtime Engine keeps the
-		// bytes without depending on the editor AssetForge schema.
-		DPROPERTY(EditorOnly)
-		std::string ImportProvenance;
-
-		// Imported content identity and lightweight diagnostics remain in the package
-		// so a warm derived-data load does not need to decode the source image.
-		DPROPERTY(EditorOnly)
-		std::string SourceContentHash;
-
-		DPROPERTY(EditorOnly)
-		uint64 SourceFileSize = 0;
-
-		DPROPERTY(EditorOnly)
-		int64 SourceLastWriteTime = 0;
 
 		DPROPERTY(EditorOnly)
 		uint32 SourceWidth = 0;

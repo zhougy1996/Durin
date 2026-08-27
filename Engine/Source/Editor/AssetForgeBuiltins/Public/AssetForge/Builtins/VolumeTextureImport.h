@@ -1,10 +1,9 @@
 #pragma once
 
 #include "AssetForgeBuiltinsAPI.h"
+#include "Asset/PackageSerialization.h"
 #include "Hash/XxHash.h"
 #include "Texture/VolumeTexture.h"
-#include "AssetForge/ImportRequest.h"
-#include "AssetForge/Operations/ImportExecution.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -20,8 +19,6 @@ namespace Durin::AssetForge::Builtins
 
 	struct FVolumeTextureImportSettings
 	{
-		// Empty stores the PNG beneath the asset mount.
-		std::string SourceDestination;
 		EVolumeTextureImportFormat ImportFormat = EVolumeTextureImportFormat::PngRowMajorAtlas;
 		EVolumeTextureSourceChannels Channels = EVolumeTextureSourceChannels::Red;
 		uint32 SliceWidth = 128;
@@ -71,11 +68,6 @@ namespace Durin::AssetForge::Builtins
 		const FVolumeTextureImportSettings& Settings,
 		FVolumeTextureSourceData& OutSourceData,
 		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto BuildVolumeTextureCandidate(
-		DVolumeTexture& Texture,
-		const FVolumeTextureCapturedSource& Source,
-		const FVolumeTextureImportSettings& Settings,
-		std::string& OutError) -> bool;
 	ASSETFORGEBUILTINS_API auto ImportVolumeTextureAsset(
 		std::string_view FilePath,
 		std::string_view AssetPath,
@@ -86,23 +78,9 @@ namespace Durin::AssetForge::Builtins
 		DVolumeTexture& Texture,
 		std::string_view SourcePath,
 		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto MakeVolumeTextureImportRequest(
-		const FSourcePath& MountedSource,
-		const FAssetPath& Destination,
-		const FVolumeTextureImportSettings& Settings,
-		AssetForge::EImportMode Mode,
-		AssetForge::FImportOperationOwner Owner,
-		std::optional<AssetForge::FImportProvenance> ExistingProvenance,
-		AssetForge::FImportRequest& OutRequest,
-		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto InspectVolumeTextureImportProvenance(
-		const DVolumeTexture& Texture,
-		AssetForge::FImportProvenance& OutProvenance,
-		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto SubmitVolumeTextureImport(
-		std::string_view FilePath, const FAssetPath& Destination,
-		const FVolumeTextureImportSettings& Settings, bool bAllowEngineContentWrite,
-		AssetForge::FImportCompletion Completion,
-		std::string& OutError)
-		-> AssetForge::FImportHandle;
+	ASSETFORGEBUILTINS_API auto ReimportVolumeTextureSource(
+		DVolumeTexture& Texture,
+		std::string_view FilePath,
+		std::string& OutError,
+		const Asset::FAssetBundleSaveOptions& SaveOptions = {}) -> bool;
 }

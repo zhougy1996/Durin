@@ -17,18 +17,4 @@ namespace Durin
 				.VisitorFailed = "Texture2D uncooked post-load handler failed."},
 			OutError);
 	}
-
-	auto TryWaitForTexture2DImportRecovery(
-		DTexture2D& Texture, double TimeoutSeconds) -> std::optional<bool>
-	{
-		const auto Result = FModularFeatureRegistry::Get().InvokeSingle<
-			ITexture2DImportRecoveryFeature>(
-			[&](ITexture2DImportRecoveryFeature& Feature) {
-				return Feature.WaitForRecovery(Texture, TimeoutSeconds);
-			});
-		if (Result.Status == EFeatureInvokeStatus::Unavailable) return std::nullopt;
-		if (Result.Status == EFeatureInvokeStatus::Invoked && Result.Value)
-			return *Result.Value;
-		return false;
-	}
 }

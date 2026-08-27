@@ -8,14 +8,19 @@
 		"TerrainBuild"
 	],
     "PublicDependencies": [
-		"AssetForge",
         "AssetCore",
         "Core",
         "CoreDObject",
 		"Engine",
 		"TextureBuild"
     ],
-	"ReflectHeaders": [],
+	"ReflectHeaders": [
+		"Public/AssetForge/Builtins/StaticMeshImportData.h",
+		"Public/AssetForge/Builtins/TerrainHeightmapImportData.h",
+		"Public/AssetForge/Builtins/Texture2DImportData.h",
+		"Public/AssetForge/Builtins/TextureCubeImportData.h",
+		"Public/AssetForge/Builtins/VolumeTextureImportData.h"
+	],
     "OptionalPrivateDependencies": [],
     "OptionalPublicDependencies": []
 }

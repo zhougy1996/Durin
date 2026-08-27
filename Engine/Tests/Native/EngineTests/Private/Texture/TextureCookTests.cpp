@@ -1,5 +1,4 @@
 #include "AssetTools.h"
-#include "AssetForgeBuiltinsProviderTestFixture.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -136,9 +135,7 @@ namespace
 TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 {
 	InitializeDObjectSystem();
-	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
 	std::string Error;
-	ASSERT_TRUE(Providers.Register(Error)) << Error;
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "TextureCookedConsumer";
 	const std::filesystem::path CacheRoot = Root / "DerivedDataCache";
@@ -222,8 +219,10 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	EXPECT_FALSE(ContainsText(FirstPackage, "SourceImportData"));
 	EXPECT_FALSE(ContainsText(FirstPackage, "SourceContentHash"));
 	EXPECT_FALSE(ContainsText(FirstPackage, "SourceWidth"));
-	EXPECT_TRUE(ContainsText(DiagnosticPackage, "SourceImportData"));
-	EXPECT_TRUE(ContainsText(DiagnosticPackage, "SourceContentHash"));
+	EXPECT_TRUE(ContainsText(DiagnosticPackage, "AssetImportData"));
+	EXPECT_TRUE(ContainsText(DiagnosticPackage, "Filename"));
+	EXPECT_FALSE(ContainsText(DiagnosticPackage, "SourceImportData"));
+	EXPECT_FALSE(ContainsText(DiagnosticPackage, "SourceContentHash"));
 
 	Durin::Asset::FCookedBulkContainer DecodedBulk;
 	ASSERT_TRUE(Durin::Asset::DecodeCookedBulk(

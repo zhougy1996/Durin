@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Asset/AssetImportData.h"
 #include "Asset/Cook.h"
 #include "Asset/SourcePath.h"
 #include "EngineAPI.h"
@@ -80,27 +81,16 @@ namespace Durin
 		auto operator==(const FStaticMeshImportSettings&) const -> bool = default;
 	};
 
-	// Stores optional portable source provenance used only for editor rebuild and reimport.
-	DSTRUCT()
+	// Carries source identity and settings transiently through mesh build operations.
 	struct FStaticMeshSourceImportData
 	{
-		GENERATED_BODY()
-
-		// Empty means the asset has no source dependency; otherwise this is a complete mounted source path.
-		DPROPERTY()
+		// Empty means the transient build input has no source dependency.
 		FSourcePath SourcePath;
 
 		// Lowercase XXH3-128 of the exact source bytes.
-		DPROPERTY()
 		std::string SourceContentHash;
-
-		DPROPERTY()
 		std::string ImporterId;
-
-		DPROPERTY()
 		uint32 ImporterVersion = 0;
-
-		DPROPERTY()
 		FStaticMeshImportSettings ImportSettings;
 
 		auto HasSource() const -> bool { return !SourcePath.IsEmpty(); }
@@ -209,13 +199,28 @@ namespace Durin
 		// Creates the qualified built-in Box setup from verified CPU bounds; arbitrary meshes remain collision-free.
 		ENGINE_API auto EnsureQualifiedBoxBodySetup() -> DBodySetup*;
 		ENGINE_API auto InitResources() -> void;
-		auto GetSourceFile() const -> const std::string& { return SourceImportData.SourcePath.Path; }
-		auto GetImportSettings() const -> const FStaticMeshImportSettings& { return SourceImportData.ImportSettings; }
-		auto GetSourceImportData() const -> const FStaticMeshSourceImportData& { return SourceImportData; }
-		auto GetImportProvenance() const -> std::string_view
+		auto GetImportedSource() const -> const AssetImport::FSourceFile*
 		{
-			return ImportProvenance;
+			return AssetImportData
+				? AssetImportData->GetSourceData().FindByRole("source") : nullptr;
 		}
+		auto GetSourceFile() const -> const std::string&
+		{
+			if (const AssetImport::FSourceFile* Source = GetImportedSource())
+				return Source->Filename;
+			static const std::string Empty;
+			return Empty;
+		}
+		auto GetAssetImportData() const -> const AssetImport::DAssetImportData*
+		{
+			return AssetImportData.Get();
+		}
+		auto GetAssetImportData() -> AssetImport::DAssetImportData*
+		{
+			return AssetImportData.Get();
+		}
+		ENGINE_API auto PublishAssetImportData(
+			AssetImport::DAssetImportData& Value, std::string& OutError) -> bool;
 		auto GetNumMaterialSlots() const -> uint32 { return static_cast<uint32>(MaterialSlots.size()); }
 		auto GetMaterialSlots() const -> std::span<const FMeshMaterialSlotDefinition> { return MaterialSlots; }
 		ENGINE_API auto GetMaterialSlot(uint32 SlotIndex) const -> const FMeshMaterialSlotDefinition*;
@@ -241,8 +246,6 @@ namespace Durin
 		ENGINE_API auto PublishImportedProduct(
 			FStaticMeshBuildProduct Product,
 			std::string& OutError) -> bool;
-		ENGINE_API auto PublishImportProvenance(
-			std::vector<std::byte> Provenance) -> void;
 		ENGINE_API auto SetImportedDefaultMaterial(
 			uint32 SourceMaterialIndex,
 			DMaterialInterface* Material,
@@ -330,10 +333,7 @@ namespace Durin
 			std::string& OutError) const -> bool;
 
 		DPROPERTY(EditorOnly)
-		FStaticMeshSourceImportData SourceImportData;
-
-		DPROPERTY(EditorOnly)
-		std::string ImportProvenance;
+		TObjectPtr<AssetImport::DAssetImportData> AssetImportData;
 
 		DPROPERTY()
 		float NormalizedSize = 1.5f;

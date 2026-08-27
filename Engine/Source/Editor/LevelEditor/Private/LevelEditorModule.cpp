@@ -75,49 +75,34 @@ namespace Durin
 			return false;
 		}
 
-		auto ReimportTerrainHeightmap(
-			const Editor::ContentBrowser::FExtensionInvocation& Invocation) -> void
+		auto ReimportTerrainHeightmapAsset(std::string_view AssetPath,
+			std::function<void(std::string)> ReportError) -> void
 		{
-			auto ReportError = [&Invocation](std::string Message) {
-				if (Invocation.ReportError)
-					Invocation.ReportError(std::move(Message));
+			auto Report = [&ReportError](std::string Message) {
+				if (ReportError) ReportError(std::move(Message));
 			};
 			FAssetPath Path;
-			if (!FAssetPath::TryCreate(Invocation.Context.AssetPath, Path))
+			if (!FAssetPath::TryCreate(AssetPath, Path))
 			{
-				ReportError("The selected Terrain Heightmap path is invalid.");
+				Report("The selected Terrain Heightmap path is invalid.");
 				return;
 			}
 			DTerrainHeightmap* Heightmap = nullptr;
 			const Asset::FAssetResult Load = Asset::LoadAsset(Path, Heightmap);
 			if (!Load || !Heightmap)
 			{
-				ReportError(Load ? "The selected Terrain Heightmap could not be loaded."
+				Report(Load ? "The selected Terrain Heightmap could not be loaded."
 					: Load.Message);
 				return;
 			}
-			AssetForge::FImportProvenance Existing;
-			AssetForge::FImportRequest Request;
 			std::string Error;
-			if (!AssetForge::Builtins::InspectTerrainHeightmapImportProvenance(
-				*Heightmap, Existing, Error)
-				|| !AssetForge::Builtins::MakeTerrainHeightmapImportRequest(
-					Heightmap->GetSourceImportData().SourcePath, Path,
-					AssetForge::EImportMode::Reimport,
-					{.OwnerId = std::format("LevelEditor.Reimport:{}", Path.ToString()),
-						.ConflictIdentities = {Path.ToString()}},
-					std::move(Existing), Request, Error))
+			if (!AssetForge::Builtins::ReimportTerrainHeightmapSource(
+				*Heightmap, Error))
 			{
-				ReportError(std::move(Error));
+				Report(std::move(Error));
 				return;
 			}
-			if (!Invocation.SubmitImport)
-			{
-				ReportError("The Content Browser import submitter is unavailable.");
-				return;
-			}
-			(void)Invocation.SubmitImport(std::move(Request),
-				std::format("Reimport {}", Path.GetAssetName()));
+			(void)Asset::UnloadPackage(Path);
 		}
 	}
 
@@ -200,8 +185,6 @@ namespace Durin
 	LEVELEDITOR_API auto FLevelEditorModule::RegisterLevelEditorWorkspace(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
 		::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
-		std::function<void(AssetForge::FImportOperationHandle, std::string)>
-			NotifyImportStarted,
 		Editor::Level::FContentBrowserCallbacks ContentBrowserCallbacks) -> bool
 	{
 		if (WorkspaceRegistration && WorkspaceRegistration->IsValid()) return false;
@@ -217,7 +200,7 @@ namespace Durin
 		// so feature-owned providers must already be visible to the shared service.
 		std::shared_ptr<MLevelEditor> Workspace = std::make_shared<MLevelEditor>(
 			*SessionSettings, WorkspaceManager, EditorExtensionCallbacks.GetGate(),
-			ThumbnailOperations.GetTaskScope(), std::move(NotifyImportStarted),
+			ThumbnailOperations.GetTaskScope(),
 			std::move(ContentBrowserCallbacks));
 		Workspace->Construct();
 		::Durin::Editor::FWorkspaceRegistrationHandle Registration = WorkspaceManager.RegisterBatch({
@@ -290,68 +273,6 @@ namespace Durin
 			}
 			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
 		}
-		const auto RegisterImport = [this, WeakWorkspace = LevelEditorWorkspace](
-			std::string Id, std::string Label,
-			Editor::Level::EImportDialogType Type) {
-			std::string Error;
-			auto Handle = Editor::ContentBrowser::RegisterExtension({
-				.Id = std::move(Id),
-				.Label = std::move(Label),
-				.Category = Editor::ContentBrowser::EExtensionCategory::Import,
-				.IsApplicable = [](const auto& Context) {
-					return !Context.VirtualDirectory.empty();
-				},
-				.Invoke = [WeakWorkspace, Type](const auto& Invocation) {
-					if (const std::shared_ptr<MLevelEditor> Pinned = WeakWorkspace.lock())
-						Pinned->RequestContentBrowserImport(
-							Invocation.Context.VirtualDirectory, Type);
-				},
-				.OwnerGate = EditorExtensionCallbacks.GetGate(),
-			}, Error);
-			if (!Handle.IsValid())
-			{
-				DURIN_ERROR("Could not register Content Browser import extension: {}", Error);
-				return false;
-			}
-			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
-			return true;
-		};
-		if (!RegisterImport("level.terrain-heightmap-import", "Terrain Heightmap...",
-				Editor::Level::EImportDialogType::TerrainHeightmap)
-			|| !RegisterImport("level.scene-import", "Scene Source (FBX/glTF)...",
-				Editor::Level::EImportDialogType::Scene))
-		{
-			Integration->ContentBrowserExtensions.clear();
-			LevelEditorWorkspace.reset();
-			TerrainThumbnailRegistration.reset();
-			WorkspaceRegistration.reset();
-			return false;
-		}
-		{
-			std::string Error;
-			auto Handle = Editor::ContentBrowser::RegisterExtension({
-				.Id = "level.terrain-heightmap-reimport",
-				.Label = "Reimport from Current Source",
-				.Category = Editor::ContentBrowser::EExtensionCategory::Reimport,
-				.Order = 100,
-				.IsApplicable = [](const auto& Context) {
-					return Context.AssetClassName
-						== DTerrainHeightmap::StaticClass()->GetQualifiedName().ToString();
-				},
-				.Invoke = ReimportTerrainHeightmap,
-				.OwnerGate = EditorExtensionCallbacks.GetGate(),
-			}, Error);
-			if (!Handle.IsValid())
-			{
-				DURIN_ERROR("Could not register Content Browser Terrain Heightmap reimport: {}", Error);
-				Integration->ContentBrowserExtensions.clear();
-				LevelEditorWorkspace.reset();
-				TerrainThumbnailRegistration.reset();
-				WorkspaceRegistration.reset();
-				return false;
-			}
-			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
-		}
 		return true;
 	}
 
@@ -367,6 +288,19 @@ namespace Durin
 	{
 		const std::shared_ptr<MLevelEditor> Workspace = LevelEditorWorkspace.lock();
 		return Workspace && Workspace->OpenDefaultDocument();
+	}
+
+	auto FLevelEditorModule::OpenImportDialog(
+		Editor::Level::EImportDialogType Type, std::string_view Directory) -> void
+	{
+		if (const std::shared_ptr<MLevelEditor> Workspace = LevelEditorWorkspace.lock())
+			Workspace->RequestContentBrowserImport(std::string(Directory), Type);
+	}
+
+	auto FLevelEditorModule::ReimportTerrainHeightmap(std::string_view AssetPath,
+		std::function<void(std::string)> ReportError) -> void
+	{
+		ReimportTerrainHeightmapAsset(AssetPath, std::move(ReportError));
 	}
 
 

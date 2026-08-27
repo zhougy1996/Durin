@@ -34,6 +34,12 @@ namespace Durin
 		uint64& OutPayloadBytes,
 		std::string& OutError) const -> bool
 	{
+		FStaticMeshSourceImportData SourceImportData;
+		if (const AssetImport::FSourceFile* Source = GetImportedSource())
+		{
+			SourceImportData.SourcePath.Path = Source->Filename;
+			SourceImportData.SourceContentHash = Source->GetContentHash().ToString();
+		}
 		FStaticMeshCollisionBuildProduct Product;
 		if (!InvokeStaticMeshCollisionBuildFeature(
 			SourceRenderData, SourceImportData, Mode, Policy, Product, OutError))

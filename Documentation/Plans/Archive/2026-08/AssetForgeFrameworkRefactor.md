@@ -603,7 +603,7 @@ Dependencies: Stages 1 through 4 complete.
 - [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
 - [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
-- [Mounted Source Workflows](../../../Editor/Guides/MountedSourceWorkflows.md)
+- [Mounted Source Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Asset Interchange Framework Plan](AssetInterchangeFramework.md)
 - [Asset Import Framework Plan](AssetImportFramework.md)

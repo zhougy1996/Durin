@@ -340,7 +340,7 @@ removing duplicated cleanup paths and pass-through glue.
 - [Editor Workspace Framework](../../../Editor/Architecture/WorkspaceFramework.md)
 - [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
 - [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
-- [Mounted Source Workflows](../../../Editor/Guides/MountedSourceWorkflows.md)
+- [Mounted Source Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
 - [Agent Testing Workflow](../../../Agents/Testing.md)

@@ -4,24 +4,26 @@ Summary: Define the thin AssetForge boundary and prove direct per-family import 
 
 Last reviewed: 2026-08-27
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-27
 
 ## Current Status
 
-This plan activates Milestone A of the [Asset Import Simplification
-Roadmap](../Roadmaps/AssetImportSimplification.md). The current implementation
-has a complete generic `FImportService` coordinating registered source
-translators, planning passes, builders, immutable source/build graphs, generic
-jobs, progress operations, and persisted `DAssetForgeImportData`. Texture2D
-also already exposes direct capture, decode, build, compilation, and
-publication functions, making it the smallest representative family with which
-to prove the replacement boundary.
+All four stages and the Milestone A exit gate are complete. Engine common
+metadata now persists normalized source filenames, and Texture2D imports,
+reimports, replaces sources, and rebuilds disposable data through direct
+family code. Its provider/schema/adapter, generic request and provenance API,
+mounted-source mutation UI, and `Recover` path are removed.
 
-The former `AssetImportDataRefactor` plan has been removed. No work should
-continue toward expanding its generic replay model. Until this plan's cutover
-gate passes, existing framework code remains a compatibility baseline for
-unmigrated families only and must receive no new capabilities.
+The six repository Texture2D packages were canonically migrated to
+`DTexture2DImportData`. The final audit reports 25 compatible packages and no
+errors or resave recommendations; a project-scope canonical-resave plan reports
+0 ready, 0 blocked, and 25 skipped. The default Editor target builds and its
+hidden-window 8-tick startup/shutdown smoke exits successfully.
+
+The remaining generic framework is a compatibility baseline only for
+TerrainHeightmap, standalone StaticMesh, TextureCube, VolumeTexture, and Scene.
+The next roadmap child plan owns their single-asset cutover.
 
 ## Goal
 
@@ -164,38 +166,120 @@ or `Recover` mode.
 | Editor workflow | Dialog and Content Browser actions can submit/observe Texture2D work | Replace mounted-source destination and generic-handle assumptions with direct family calls and existing compilation observation |
 | Tests/content | Broad import, cache, source relocation, async, package, and Cook coverage exists | Reclassify tests by retained product behavior versus deliberately deleted mounted/framework behavior and migrate repository fixtures |
 
+## Stage 0 Cutover Record
+
+- Baseline on 2026-08-27: `AssetForge` contains 30 files, 6,124 lines, 17
+  public files, 11 private files, and 461 declaration-like symbols;
+  `AssetForgeBuiltins` contains 61 files, 13,689 lines, 11 public files, 48
+  private files, and 588 declaration-like symbols. `AssetForge` publicly
+  depends on `AssetCore` and `Engine`; `AssetForgeBuiltins` publicly depends on
+  `AssetForge`, `AssetCore`, `Core`, `CoreDObject`, `Engine`, and `TextureBuild`,
+  and privately on the mesh, skeletal, and terrain build modules.
+- Texture2D's removable framework surface is
+  `Texture2DImportProvider.cpp`, `Texture2DImportProviderSchema.h`, the
+  Texture2D registrations in `AssetForgeBuiltinsProviders.cpp`, generic
+  request/provenance APIs in `Texture2DImport.h`, and the `FImportHandle`
+  recovery map in `Texture2DPostLoad.cpp`. Direct callers are the texture
+  import dialog, texture editor module/widget/property extension, source
+  relocation/replacement code, source-reference inspection, and the focused
+  texture, package, Content Browser, and editor smoke tests.
+- Six repository-authored Texture2D packages contain the legacy
+  `FTexture2DSourceImportData`/`FSourcePath` schema: `TEX_StoneHead` and the five
+  Vintage Lighter textures. Their encoded sources are present under
+  `Sandbox/Content/Textures/Textures` and
+  `Sandbox/Content/Sources/Models/vintage_lighter_1k`; they are regenerable and
+  require no general compatibility reader. Other authored packages only
+  reference Texture2D assets.
+- `FSourceFile::Filename` is a bounded normalized generic string. Files below
+  `FPaths::ProjectDir()` persist as project-relative paths; other files persist
+  as normalized absolute paths. Relative values may not be empty, absolute,
+  dot, or escape through `..`; resolution is only against the project
+  directory. Hash is the change authority, while size and timestamp are hints.
+- `DTexture2DImportData` stores only the common single `source` entry and the
+  decoder id/version. Usage, color space, resolution, compression, alpha-mip
+  mode, and coverage threshold remain solely on `DTexture2D`; destination and
+  cancellation are transient call state.
+- Direct import performs destination validation, one immutable file capture,
+  decode, detached TextureBuild, new-asset creation/publication, family import
+  data attachment, then package save. Direct replacement and reimport prepare
+  a complete candidate before exchanging live state. Publication is the
+  non-cancelable boundary; save failure leaves the published package Dirty.
+- Settings changes and missing/corrupt DDC use
+  `SubmitTexture2DCompilation`; Texture2D post-load no longer submits
+  `EImportMode::Recover`. Source repair is replaced by explicit source-file
+  selection and is not a derived-data operation.
+- During Milestone A, `AssetForgeBuiltins` continues to depend on `AssetForge`
+  for unmigrated families, but Texture2D public and private code may not include
+  or call its requests, graphs, registries, jobs, operations, or replay types.
+- Retained tests cover decode/build/DDC/cook, import/reimport, atomic failure,
+  package persistence, family compilation, source inspection, and editor
+  dispatch. Tests specifying mounted-source ingest, relocation, shared
+  replacement, repair, provider selection, generic handles, or Texture2D
+  replay are rewritten to the filename/direct-family contract or removed;
+  unrelated family framework tests remain for later milestones.
+
+## Completion Evidence
+
+- The final implementation removes 2,239 lines while adding 766 across the
+  complete change. `AssetForgeBuiltins` falls from 61 files and 13,689 lines to
+  59 files and 12,931 lines. Its Texture2D provider, provider schema, and build
+  adapter are deleted; the new family import-data class accounts for the one
+  added public header. `AssetForge` remains 29 files and 6,155 lines because
+  its generic implementation is still required by the five unmigrated
+  families and Scene.
+- Boundary searches find no generic request, service, graph, job, operation,
+  provenance, provider, mounted-source mutation, or `EImportMode` dependency
+  in the direct Texture2D importer and its Engine publication/post-load code.
+  Residual occurrences in TextureEditor belong to TextureCube and
+  VolumeTexture, and residual Texture2D mentions in generic provider code are
+  Scene output construction rather than standalone Texture2D import.
+- Focused validation passes: `AssetImportDataTests` 4/4,
+  `TextureTests` 77/77, `AssetPackageTests` 125/125,
+  `TextureThumbnailTests` 9/9, and `EditorAssetWorkflowTests` 35/35. The
+  default `all` Editor build passes, as does a non-sandbox hidden-window
+  startup/shutdown smoke using 8 ticks.
+- Cook stripping and runtime closure are covered by the Texture2D deterministic
+  Cook/load tests: cooked packages contain neither `AssetImportData` nor source
+  filenames/hashes and load without source files, DDC, AssetForge, or offline
+  image decoding.
+- AssetForge and AssetForgeBuiltins both remain required by multiple
+  unmigrated families; no shared helper was introduced solely to replace a
+  deleted Texture2D abstraction. AssetForgeBuiltins is loaded before the first
+  editor catalog scan so its concrete editor-only import-data class is present
+  for construct-free reference indexing.
+
 ## Implementation Stages
 
 ### Stage 0: Define the implementation boundary
 
-- [ ] Inventory every Texture2D production/test include, public entrypoint,
+- [x] Inventory every Texture2D production/test include, public entrypoint,
   provider registration, graph node/payload, planning pass, builder adapter,
   component identity, generic job/operation call, mounted-source operation,
   recovery feature, provenance field, import-data object, module dependency,
   and editor caller.
-- [ ] Inventory repository-authored Texture2D packages and fixtures; record
+- [x] Inventory repository-authored Texture2D packages and fixtures; record
   which current source/provenance schemas they contain and whether each can be
   regenerated or canonical-resaved.
-- [ ] Measure the current AssetForge/AssetForgeBuiltins public and private file,
+- [x] Measure the current AssetForge/AssetForgeBuiltins public and private file,
   line, symbol, and target-dependency baseline so later milestones can prove a
   real reduction rather than a vocabulary move.
-- [ ] Finalize the exact Engine `FSourceFile` filename representation,
+- [x] Finalize the exact Engine `FSourceFile` filename representation,
   project-relative conversion, absolute-path handling, normalization,
   resolution, hash/timestamp semantics, validation bounds, serialization, and
   construct-free inspection behavior.
-- [ ] Finalize `DTexture2DImportData` fields and ownership; map every retained
+- [x] Finalize `DTexture2DImportData` fields and ownership; map every retained
   setting to either the asset, family import data, or transient request and
   reject duplicate authorities.
-- [ ] Specify the direct Texture2D synchronous import/reimport sequence,
+- [x] Specify the direct Texture2D synchronous import/reimport sequence,
   family-compilation asynchronous seam, cancellation boundary, publication,
   save result, and source-change diagnostics.
-- [ ] Map every Texture2D `Recover` caller and test to family Build/DDC behavior
+- [x] Map every Texture2D `Recover` caller and test to family Build/DDC behavior
   or explicitly remove unsupported behavior; distinguish source repair from
   disposable-data reconstruction.
-- [ ] Select the exact temporary build direction that allows Texture2D to
+- [x] Select the exact temporary build direction that allows Texture2D to
   bypass the framework while other families continue to compile, without
   introducing a replacement service or registry.
-- [ ] Classify existing tests as retained, rewritten, moved to a later child
+- [x] Classify existing tests as retained, rewritten, moved to a later child
   plan, or deleted because they exclusively specify retired mounted-source or
   generic-framework behavior.
 
@@ -210,21 +294,21 @@ or `Recover` mode.
 
 Dependencies: Stage 0 complete.
 
-- [ ] Change Engine common import metadata from mounted `FSourcePath` to the
+- [x] Change Engine common import metadata from mounted `FSourcePath` to the
   selected filename value while preserving reflected ownership, validation,
   cloning, authored round trip, editor-only stripping, and construct-free
   source inspection.
-- [ ] Implement deterministic project-relative persistence, normalized absolute
+- [x] Implement deterministic project-relative persistence, normalized absolute
   fallback, resolution, missing-file classification, changed-hash diagnostics,
   and bounded capture without any mount lookup or source mutation.
-- [ ] Adapt source-reference inspection/indexing only to the minimum needed to
+- [x] Adapt source-reference inspection/indexing only to the minimum needed to
   read common filenames; do not retain relocation, reverse mutation, or shared
   source transaction semantics under a new name.
-- [ ] Add focused common-metadata tests for project relocation, external
+- [x] Add focused common-metadata tests for project relocation, external
   absolute sources, traversal rejection, missing files, changed content,
   multiple labeled sources, clone-to-owner, authored save/load, inspection,
   and Cook stripping.
-- [ ] Update or regenerate repository fixtures selected by Stage 0 and prove a
+- [x] Update or regenerate repository fixtures selected by Stage 0 and prove a
   second canonical load/save requires no mutation.
 
 #### Acceptance Gate
@@ -238,24 +322,24 @@ Dependencies: Stage 0 complete.
 
 Dependencies: Stage 1 complete and common filename behavior qualified.
 
-- [ ] Add `DTexture2DImportData` and its bounded value conversion, validation,
+- [x] Add `DTexture2DImportData` and its bounded value conversion, validation,
   clone-to-owner, legacy disposition, and editor-only persistence tests.
-- [ ] Implement one direct Texture2D import path that validates an input file
+- [x] Implement one direct Texture2D import path that validates an input file
   and destination, captures immutable bytes, decodes once, invokes TextureBuild,
   publishes content plus import data on the editor thread, and reports package
   persistence independently.
-- [ ] Implement direct Texture2D reimport and explicit source-file replacement
+- [x] Implement direct Texture2D reimport and explicit source-file replacement
   from the persisted filename and current asset settings, with no source copy,
   move, relocation, or mount dependency behavior.
-- [ ] Route settings-driven rebuild and missing/corrupt DDC reconstruction
+- [x] Route settings-driven rebuild and missing/corrupt DDC reconstruction
   through Texture2D compilation; remove Texture2D `EImportMode::Recover`,
   generic request, operation, and framework progress ownership.
-- [ ] Convert DurinEd Texture2D dialog and Content Browser actions to explicit
+- [x] Convert DurinEd Texture2D dialog and Content Browser actions to explicit
   family entrypoints and observe only the retained family compilation state.
-- [ ] Remove Texture2D provider registration, provider schema, generic build
+- [x] Remove Texture2D provider registration, provider schema, generic build
   adapter, graph/planning payload construction, generic provenance conversion,
   mounted-source mutation entrypoints, and now-dead recovery feature adapters.
-- [ ] Update or delete tests according to the Stage 0 classification and add
+- [x] Update or delete tests according to the Stage 0 classification and add
   failure-injection coverage for decode/build failure, cancellation before
   publication, save failure after publication, missing source, changed source,
   and corrupt/missing DDC.
@@ -274,28 +358,28 @@ Dependencies: Stage 1 complete and common filename behavior qualified.
 
 Dependencies: Stage 2 complete.
 
-- [ ] Run the focused common import-data, Asset package/inspection/Cook,
+- [x] Run the focused common import-data, Asset package/inspection/Cook,
   TextureBuild, Texture2D import/reimport, compilation, DDC corruption,
   Content Browser, dialog, and source-index selections using the repository
   testing workflow.
-- [ ] Build the affected standalone modules and default Editor target, then run
+- [x] Build the affected standalone modules and default Editor target, then run
   the selected hidden-window startup/shutdown smoke after focused tests pass.
-- [ ] Qualify Cook and runtime-only target closure: source filenames, concrete
+- [x] Qualify Cook and runtime-only target closure: source filenames, concrete
   editor import data, AssetForge/AssetForgeBuiltins, and offline image import
   code must not become runtime requirements.
-- [ ] Audit public headers, module descriptors, generated reflected code,
+- [x] Audit public headers, module descriptors, generated reflected code,
   startup/shutdown ownership, and target closure for the selected dependency
   direction and absence of a replacement generic framework.
-- [ ] Record before/after files, lines, symbols, dependencies, and Texture2D
+- [x] Record before/after files, lines, symbols, dependencies, and Texture2D
   framework references; explain any retained AssetForge helper with at least
   two concrete consumers or remove it.
-- [ ] Update lasting source-data, asset-import, Texture2D, editor workflow, and
+- [x] Update lasting source-data, asset-import, Texture2D, editor workflow, and
   module documentation only with implemented contracts. Leave generic
   architecture and mounted-source documents in place only for unmigrated
   families and mark their narrowed applicability accurately.
-- [ ] Update the roadmap status and create the next child plan only after this
+- [x] Update the roadmap status and create the next child plan only after this
   plan's exit gate is satisfied.
-- [ ] Run changed/all documentation, all-plan, and all-roadmap validation and
+- [x] Run changed/all documentation, all-plan, and all-roadmap validation and
   record exact validation evidence before completion.
 
 #### Acceptance Gate
@@ -369,7 +453,7 @@ not overlap build process trees.
 
 - [Asset Import Simplification Roadmap](../Roadmaps/AssetImportSimplification.md)
 - [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Mounted Source Workflows](../Editor/Guides/MountedSourceWorkflows.md)
+- [Source File Workflows](../Editor/Guides/SourceFileWorkflows.md)
 - [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
 - [Async Asset Operations](../Editor/Architecture/AsyncAssetOperations.md)
@@ -380,12 +464,10 @@ not overlap build process trees.
 ## Related Code
 
 - [`AssetImportData.h`](../../Engine/Source/Runtime/Engine/Public/Asset/AssetImportData.h)
-- [`AssetForgeImportData.h`](../../Engine/Source/Editor/AssetForge/Public/AssetForge/Persistence/AssetForgeImportData.h)
-- [`ImportService.h`](../../Engine/Source/Editor/AssetForge/Public/AssetForge/ImportService.h)
-- [`ImportRequest.h`](../../Engine/Source/Editor/AssetForge/Public/AssetForge/ImportRequest.h)
+- [`SourceFilename.h`](../../Engine/Source/Runtime/Engine/Public/Asset/SourceFilename.h)
 - [`Texture2DImport.h`](../../Engine/Source/Editor/AssetForgeBuiltins/Public/AssetForge/Builtins/Texture2DImport.h)
+- [`Texture2DImportData.h`](../../Engine/Source/Editor/AssetForgeBuiltins/Public/AssetForge/Builtins/Texture2DImportData.h)
 - [`Texture2DImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/Texture2DImport.cpp)
-- [`Texture2DImportProvider.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/Texture2DImportProvider.cpp)
 - [`Texture2DPostLoad.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/Texture2DPostLoad.cpp)
 - [`ImportDialogSupport.cpp`](../../Engine/Source/Editor/DurinEd/Private/Import/ImportDialogSupport.cpp)
 - [`SourceReferenceIndex.cpp`](../../Engine/Source/Editor/DurinEd/Private/Source/SourceReferenceIndex.cpp)

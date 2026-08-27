@@ -1,8 +1,6 @@
 #pragma once
 
 #include "AssetForgeBuiltinsAPI.h"
-#include "AssetForge/ImportRequest.h"
-#include "AssetForge/Operations/ImportExecution.h"
 #include "Texture/Texture2D.h"
 #include "Texture/Texture2DCompilation.h"
 
@@ -15,37 +13,6 @@ namespace Durin::AssetForge::Builtins
 		std::span<const std::byte> EncodedBytes,
 		FTextureSourceData& OutSourceData,
 		std::string& OutError) -> bool;
-
-	// Builds the generic framework request used by Texture2D import, reimport,
-	// replacement, repair, and recovery entrypoints.
-	ASSETFORGEBUILTINS_API auto MakeTexture2DImportRequest(
-		const FSourcePath& MountedSource,
-		const FAssetPath& Destination,
-		const FTexture2DImportSettings& Settings,
-		EImportMode Mode,
-		FImportOperationOwner Owner,
-		std::optional<FImportProvenance> ExistingProvenance,
-		FImportRequest& OutRequest,
-		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto InspectTexture2DImportProvenance(
-		const DTexture2D& Texture,
-		FImportProvenance& OutProvenance,
-		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto SubmitTexture2DImport(
-		std::string_view FilePath, const FAssetPath& Destination,
-		const FTexture2DImportSettings& Settings, bool bAllowEngineContentWrite,
-		FImportCompletion Completion,
-		std::string& OutError) -> FImportHandle;
-	// Ingests an external source and executes the generic request inline. The
-	// returned framework outcome is the UI-facing submission contract.
-	ASSETFORGEBUILTINS_API auto ImportTexture2D(
-		std::string_view FilePath,
-		std::string_view AssetPath,
-		const FTexture2DImportSettings& Settings = {},
-		bool bAllowEngineContentWrite = false) -> FImportResult;
-
-	// Standard image-provider adapter: translate, build a detached product, then
-	// publish it to a main-thread candidate object.
 
 	ASSETFORGEBUILTINS_API auto ImportTexture2DAsset(
 		std::string_view FilePath,
@@ -60,7 +27,7 @@ namespace Durin::AssetForge::Builtins
 		std::string_view FilePath,
 		std::string& OutError,
 		Asset::FTexture2DCompilationCompletion Completion = {}) -> bool;
-	// Rebuilds one packaged texture from its retained mounted source without
+	// Rebuilds one packaged texture from its retained source filename without
 	// publishing the proposed settings until asynchronous preparation succeeds.
 	ASSETFORGEBUILTINS_API auto RebuildTexture2DFromCurrentSource(
 		DTexture2D& Texture,
@@ -69,22 +36,10 @@ namespace Durin::AssetForge::Builtins
 		Asset::ETexture2DCompilationPriority Priority =
 			Asset::ETexture2DCompilationPriority::Interactive,
 		Asset::FTexture2DCompilationCompletion Completion = {}) -> bool;
-	ASSETFORGEBUILTINS_API auto ChangeTexture2DSourceReference(
+	// Reconstructs missing or corrupt derived data without changing authored
+	// import metadata or saving the package.
+	ASSETFORGEBUILTINS_API auto RecoverTexture2DDerivedData(
 		DTexture2D& Texture,
-		std::string_view SourceVirtualPath,
-		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto IngestAndChangeTexture2DSource(
-		DTexture2D& Texture,
-		std::string_view FilePath,
-		std::string_view TargetSourceVirtualPath,
-		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto RepairTexture2DSourcePath(
-		DTexture2D& Texture,
-		std::string_view FilePath,
-		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto ChangeTexture2DSourceLocation(
-		DTexture2D& Texture,
-		std::string_view SourceDestination,
 		std::string& OutError) -> bool;
 	ASSETFORGEBUILTINS_API auto SetTexture2DUsage(
 		DTexture2D& Texture, ETextureUsage Usage, std::string& OutError) -> bool;

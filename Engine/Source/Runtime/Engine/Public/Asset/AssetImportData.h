@@ -29,7 +29,7 @@ namespace Durin::AssetImport
 		std::string DisplayLabel;
 
 		DPROPERTY()
-		FSourcePath SourcePath;
+		std::string Filename;
 
 		DPROPERTY()
 		uint64 ContentHashLow = 0;

@@ -1,5 +1,4 @@
 #include "Texture2DPostLoad.h"
-#include "Texture2DBuildAdapter.h"
 #include "DObject/Package.h"
 
 #include "Hash/XxHash.h"
@@ -9,24 +8,12 @@
 #include "Texture/Texture2DPostLoad.h"
 #include "Texture/TextureBuildOperations.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
-#include "AssetForge/ImportService.h"
 
 namespace Durin::AssetForge::Builtins
 {
 	using namespace Durin::Asset;
 	namespace
 	{
-		std::mutex GRecoveryMutex;
-		std::unordered_map<std::string, FImportHandle> GRecoveries;
-
-		auto IsCanonicalTextureHash(std::string_view Hash) -> bool
-		{
-			return Hash.size() == 32 && std::ranges::all_of(Hash, [](char Character) {
-				return Character >= '0' && Character <= '9'
-					|| Character >= 'a' && Character <= 'f';
-			});
-		}
-
 		auto FailLoad(
 			DTexture2D& Texture,
 			ETextureDerivedDataStatus DerivedDataStatus,
@@ -50,43 +37,7 @@ namespace Durin::AssetForge::Builtins
 			bool,
 			std::string& OutError) -> bool
 		{
-			FAssetPath Destination;
-			if (!Texture.GetPackage()
-				|| !FAssetPath::TryCreate(Texture.GetPackage()->GetPackagePath(), Destination, &OutError))
-				return false;
-			FImportProvenance Existing;
-			std::optional<FImportProvenance> Provenance;
-			if (InspectTexture2DImportProvenance(Texture, Existing, OutError))
-				Provenance = std::move(Existing);
-			else OutError.clear();
-			FImportRequest Request;
-			const FTexture2DImportSettings Settings{
-				.Usage = Texture.GetUsage(),
-				.CompressionQuality = Texture.GetCompressionQuality(),
-				.AlphaMipMode = Texture.GetAlphaMipMode(),
-				.AlphaCoverageThreshold = Texture.GetAlphaCoverageThreshold(),
-				.MaxResolution = Texture.GetMaxResolution(),
-				.bSRGB = Texture.IsSRGB()};
-			if (!MakeTexture2DImportRequest(
-				{.Path = Texture.GetSourceFile()}, Destination,
-				Settings, EImportMode::Recover,
-				{.OwnerId = std::format("Texture2D.Recovery:{}", Destination.ToString()),
-					.ConflictIdentities = {Destination.ToString()}},
-				std::move(Provenance), Request, OutError)) return false;
-			Request.Lifetime = EImportOperationLifetime::SessionCritical;
-			const FImportHandle Handle = GetImportService().SubmitImport(
-				std::move(Request), std::format("Recover Texture2D {}", Destination.GetAssetName()));
-			if (!Handle)
-			{
-				OutError = "Texture2D AssetForge recovery could not be submitted.";
-				return false;
-			}
-			{
-				std::lock_guard Lock(GRecoveryMutex);
-				GRecoveries.insert_or_assign(Texture.GetObjectPath(), Handle);
-			}
-			OutError.clear();
-			return true;
+			return RecoverTexture2DDerivedData(Texture, OutError);
 		}
 
 		auto PostLoadTexture2DImpl(DTexture2D& Texture, std::string& OutError) -> bool
@@ -123,15 +74,9 @@ namespace Durin::AssetForge::Builtins
 						std::format("Failed to inspect texture source file: {}", Error.message()),
 						OutError);
 				CurrentLastWriteTime = FileTime::ToStableTicks(LastWriteTime);
-				if (bSourceContentMatches)
-				{
-					Texture.PublishSourceFingerprint(CurrentFileSize, CurrentLastWriteTime);
-				}
 			}
 
-			const bool bHasPersistedIdentity = Texture.GetImportedSource()
-				|| Texture.GetSourceImportData().Source.HasContentHash()
-				|| IsCanonicalTextureHash(Texture.GetSourceContentHash());
+			const bool bHasPersistedIdentity = Texture.GetImportedSource() != nullptr;
 			if (bHasPersistedIdentity && (!bSourceAvailable || bSourceContentMatches))
 			{
 				std::string Key;
@@ -179,33 +124,5 @@ namespace Durin::AssetForge::Builtins
 	auto PostLoadTexture2DFeature(DTexture2D& Texture, std::string& OutError) -> bool
 	{
 		return PostLoadTexture2DImpl(Texture, OutError);
-	}
-
-	auto WaitForTexture2DImportRecovery(
-		DTexture2D& Texture, double TimeoutSeconds) -> bool
-	{
-		FImportHandle Handle;
-		{
-			std::lock_guard Lock(GRecoveryMutex);
-			const auto Found = GRecoveries.find(Texture.GetObjectPath());
-			if (Found == GRecoveries.end())
-				return Texture.GetBuildStatus() == ETextureBuildStatus::Ready;
-			Handle = Found->second;
-		}
-		const auto Deadline = std::chrono::steady_clock::now()
-			+ std::chrono::duration<double>(TimeoutSeconds);
-		FImportResult Result;
-		while (!Handle.TryGetResult(Result) && std::chrono::steady_clock::now() < Deadline)
-		{
-			(void)GetImportService().PumpImportOperations();
-			std::this_thread::sleep_for(std::chrono::milliseconds(1));
-		}
-		if (!Handle.TryGetResult(Result)) return false;
-		{
-			std::lock_guard Lock(GRecoveryMutex);
-			GRecoveries.erase(Texture.GetObjectPath());
-		}
-		return Result.Outcome.State == EImportOperationState::Succeeded
-			&& Texture.GetBuildStatus() == ETextureBuildStatus::Ready;
 	}
 }

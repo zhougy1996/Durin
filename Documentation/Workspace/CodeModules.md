@@ -25,7 +25,6 @@ direction.
 | `CoreDObject` | Managed objects, reflection, properties, garbage collection, and object serialization foundations | [source](../../Engine/Source/Runtime/CoreDObject) |
 | `ApplicationCore` | Native application, window, input-message, GLFW, and file-dialog integration | [source](../../Engine/Source/Runtime/ApplicationCore) |
 | `AssetCore` | Asset paths, registry, packages, DAST serialization, dependencies, redirectors, derived data, cooking, and mutation transactions | [source](../../Engine/Source/Runtime/AssetCore) |
-| `AssetImportCore` | Persistent editor-only import source and replay schemas, validation, cloning, and construct-free inspection | [source](../../Engine/Source/Runtime/AssetImportCore) |
 | `Engine` | World, actors, components, levels, runtime assets, object-aware asset-compilation aggregation, materials, meshes, textures, input, and render-facing engine objects | [source](../../Engine/Source/Runtime/Engine) |
 | `RHI` | Backend-neutral GPU resources, command lists, contexts, feature levels, shader parameters, and RHI-thread contracts | [source](../../Engine/Source/Runtime/RHI) |
 | `VulkanRHI` | Vulkan instance/device selection, queues, resources, pipelines, descriptors, swapchains, and backend diagnostics | [source](../../Engine/Source/Runtime/VulkanRHI) |
@@ -47,8 +46,7 @@ direction.
 | `MaterialEditor` | Material asset editor and material-specific editing UI | [source](../../Engine/Source/Editor/MaterialEditor) |
 | `TextureEditor` | Texture asset editor, import/build-setting UI, preview, and texture-specific diagnostics | [source](../../Engine/Source/Editor/TextureEditor) |
 | `StaticMeshEditor` | Static-mesh inspector, preview, material overrides, and mesh-specific editor tools | [source](../../Engine/Source/Editor/StaticMeshEditor) |
-| `AssetForge` | Format-neutral asset-import graphs, requests, results, operations, persistence, and extension contracts | [source](../../Engine/Source/Editor/AssetForge) |
-| `AssetForgeBuiltins` | Built-in image, mesh, material, texture, Terrain, Scene, skeletal, and animation import implementations | [source](../../Engine/Source/Editor/AssetForgeBuiltins) |
+| `AssetForgeBuiltins` | Direct built-in texture, mesh, Terrain, Scene, skeletal, animation, and material import implementations | [source](../../Engine/Source/Editor/AssetForgeBuiltins) |
 | `DurinLauncher` | Minimal executable entrypoint for the configured editor or game runtime variant | [source](../../Engine/Source/Editor/DurinLauncher) |
 
 ## Developer Modules
@@ -81,9 +79,9 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | render pass, visibility, draw preparation, renderer scene | `Renderer` | `RenderCore`, `Engine`, then `RHI` |
 | Vulkan capability, device, pipeline, descriptor, swapchain | `VulkanRHI` | `RHI` for backend-neutral contract; `Renderer` only for consumer behavior |
 | editor workspace, reflected details, thumbnail service | `DurinEd` | The owning feature editor or `LevelEditor` |
-| Content Browser | `ContentBrowser`, `MainFrame`, `DurinEd`, `AssetCore`, `AssetForge` | `LevelEditor`, `MaterialEditor`, `TextureEditor`, and `StaticMeshEditor` for scoped create/import/reimport extensions |
-| importing assets | `AssetForge`, `AssetForgeBuiltins` | `DerivedDataCache` for generic mechanics; `TextureBuild`, `StaticMeshBuild`, `SkeletalBuild`, or `TerrainBuild` for typed recipes; plus `AssetCore` and the destination runtime asset type |
-| local asset DDC request flow for StaticMesh, Texture2D/TextureCube/VolumeTexture, skeletal/animation, or Terrain | `DerivedDataCache` | `StaticMeshBuild`, `SkeletalBuild`, `TextureBuild`, or `TerrainBuild` for function inputs, recipe execution, payload validation, and typed result reconstruction; `AssetForge` for source normalization and publication |
+| Content Browser | `ContentBrowser`, `MainFrame`, `DurinEd`, `AssetCore` | `LevelEditor`, `TextureEditor`, and `StaticMeshEditor` for finite built-in import dispatch; feature modules for scoped create/details/context extensions |
+| importing assets | `AssetForgeBuiltins`, `DurinEd` | `TextureBuild`, `StaticMeshBuild`, `SkeletalBuild`, or `TerrainBuild` for typed recipes; plus `AssetCore` and the destination runtime asset type |
+| local asset DDC request flow for StaticMesh, Texture2D/TextureCube/VolumeTexture, skeletal/animation, or Terrain | `DerivedDataCache` | `StaticMeshBuild`, `SkeletalBuild`, `TextureBuild`, or `TerrainBuild` for function inputs, recipe execution, payload validation, typed result reconstruction, and family-owned publication |
 
 Engine public headers are a repository-owned module contract rather than an
 installed external SDK. They must include what they use and resolve through

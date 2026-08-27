@@ -16,15 +16,15 @@ instance and its docked/drawer presentation. Shared asset
 registries, picker contracts, and thumbnail services remain in the flat
 `Durin::Editor` boundary or their runtime modules.
 
-Create, import, and asset-family reimport menu entries are deterministic scoped
-extensions ordered by `(Order, Id)`. LevelEditor contributes
-Level/Scene/Terrain actions,
-MaterialEditor contributes Material and Material Instance creation,
-TextureEditor contributes texture import, and StaticMeshEditor contributes
-geometry-only import. TextureEditor, StaticMeshEditor, and LevelEditor also
-construct their concrete reimport requests for textures, static meshes, and
-terrain heightmaps respectively; ContentBrowser only submits the resulting
-provider-neutral AssetForge request. Releasing a feature handle removes
+Import and asset-family reimport use DurinEd's finite built-in descriptor table
+and direct MainFrame dispatch. TextureEditor, StaticMeshEditor, and LevelEditor
+own the concrete dialogs and direct family calls for textures, geometry,
+Terrain, and Scene. Import and Reimport are not dynamic extension categories.
+
+Create, Details, and Context Menu entries remain deterministic scoped
+extensions ordered by `(Order, Id)`. LevelEditor contributes Level creation,
+and MaterialEditor contributes Material and Material Instance creation.
+Releasing a feature handle removes
 admission before its module callback gate retires. An extension may also
 contribute one host presenter for its feature-owned modal state. MainFrame
 draws those presenters through the browser tool without depending on concrete
@@ -85,7 +85,8 @@ an item is an asset or an ordinary file.
 Texture asset creation enters through the `Import > Texture...` action. Its
 explicit asset-type selection creates Texture2D, TextureCube, or VolumeTexture
 without inferring asset identity from a source extension; each type retains
-its own source-layout and validation contract. VolumeTexture inspects selected
+its own source-layout and validation contract. Texture2D accepts a direct
+physical filename without a source-mount destination. VolumeTexture inspects selected
 PNG content to suggest an atlas interpretation, while ambiguous layouts remain
 explicit choices and advanced fields stay editable. Import submission failures
 remain inline in the open modal so the complete form can be corrected and
@@ -282,8 +283,8 @@ unrelated global history commands do not steal Content Browser focus.
 
 ## Related Documentation
 
-- [Asset Import Framework](AssetImportFramework.md)
+- [Asset Import Architecture](AssetImportFramework.md)
 - [Asset Thumbnails](AssetThumbnails.md)
-- [Mounted Source Workflows](../Guides/MountedSourceWorkflows.md)
+- [Source File Workflows](../Guides/SourceFileWorkflows.md)
 - [Canonical Resave](../Guides/CanonicalResave.md)
 - [StaticMesh Inspector](../Guides/StaticMeshInspector.md)

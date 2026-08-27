@@ -1,8 +1,6 @@
 #include "Import/TextureImportDialog.h"
 
 #include "Editor/Import/AssetDestinationValidation.h"
-#include "Editor/Import/MountedSourceImport.h"
-#include "Asset/MountedSource.h"
 #include "Asset.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
@@ -18,14 +16,6 @@ namespace Durin::Editor::Texture
 {
 	namespace
 	{
-		auto FindOwningMount(std::string_view VirtualPath)
-			-> const PathUtilities::FMountPoint*
-		{
-			const PathUtilities::FMountLookupResult Lookup =
-				PathUtilities::FindMountForVirtualPath(VirtualPath);
-			return Lookup ? Lookup.Mount : nullptr;
-		}
-
 		auto Lowercase(std::string Value) -> std::string
 		{
 			std::ranges::transform(Value, Value.begin(), [](char Character) {
@@ -92,7 +82,7 @@ namespace Durin::Editor::Texture
 		const ETextureImportAssetType AssetType = State.GetAssetType();
 		ImGui::TextUnformatted(DescribeAssetType(AssetType));
 		ImGui::TextDisabled(
-			"Reference mounted sources in place, or ingest external sources into a writable mount.");
+			"The selected image remains in place and is retained as a source filename.");
 		const char* AssetTypeNames[] = {
 			"Texture2D", "Texture Cube", "Volume Texture"};
 		int AssetTypeIndex = static_cast<int>(AssetType);
@@ -102,14 +92,12 @@ namespace Durin::Editor::Texture
 			State.SetAssetType(
 				static_cast<ETextureImportAssetType>(AssetTypeIndex));
 			SubmissionError.clear();
-			SuggestSelectedSourceDestinations();
 			if (State.GetAssetType() == ETextureImportAssetType::VolumeTexture)
 				InspectVolumeTextureSource();
 		}
 
 		ImGui::Spacing();
 		ImGui::SeparatorText("Source");
-		DrawSourceMode();
 		const float BrowseButtonWidth = Metrics.StandardButtonWidth;
 		if (State.GetAssetType() == ETextureImportAssetType::TextureCube)
 			DrawTextureCubeSource();
@@ -122,10 +110,6 @@ namespace Durin::Editor::Texture
 			"##TextureImportAssetPath", "/Project/Textures/AssetName",
 			"Choose...", BrowseButtonWidth))
 			BrowseDestination();
-		if (State.GetAssetType() == ETextureImportAssetType::TextureCube)
-			DrawTextureCubeSourceDestinations();
-		else
-			DrawSingleSourceDestination(BrowseButtonWidth);
 		if (State.GetAssetType() != ETextureImportAssetType::TextureCube)
 			DrawSingleSettings();
 
@@ -152,57 +136,32 @@ namespace Durin::Editor::Texture
 		ImGui::EndPopup();
 	}
 
-	auto FTextureImportDialog::DrawSourceMode() -> void
-	{
-		if (ImGui::RadioButton("Reference Existing Source",
-			State.GetSourceMode() ==
-				EMountedSourceImportMode::ReferenceExisting))
-			State.SetSourceMode(EMountedSourceImportMode::ReferenceExisting);
-		ImGui::SameLine();
-		if (ImGui::RadioButton("Ingest External Source",
-			State.GetSourceMode() == EMountedSourceImportMode::IngestExternal))
-			State.SetSourceMode(EMountedSourceImportMode::IngestExternal);
-		ImGui::TextDisabled(
-			State.GetSourceMode() == EMountedSourceImportMode::ReferenceExisting
-				? "Keeps images in allowed mounts; no copies are created."
-				: "Copies external images transactionally to explicit mounted source paths.");
-	}
-
-	auto FTextureImportDialog::GetSelectedSingleSource()
-		-> FMountedSourceImportFormModel&
+	auto FTextureImportDialog::GetSelectedSingleSourcePath()
+		-> std::array<char, 512>&
 	{
 		return State.GetAssetType() == ETextureImportAssetType::VolumeTexture
-			? State.GetVolumeTexture().Source
-			: State.GetTexture2D().Source;
+			? State.GetVolumeTexture().SourcePathBuffer
+			: State.GetTexture2D().SourcePathBuffer;
 	}
 
 	auto FTextureImportDialog::DrawSingleSource(float BrowseButtonWidth) -> void
 	{
-		FMountedSourceImportFormModel& Source = GetSelectedSingleSource();
-		if (Source.DrawSourceRow("##TextureImportSource",
+		auto& SourcePathBuffer = GetSelectedSingleSourcePath();
+		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth
+			- ImGui::GetStyle().ItemSpacing.x);
+		ImGui::InputTextWithHint("##TextureImportSource",
 			State.GetAssetType() == ETextureImportAssetType::VolumeTexture
-				? "Choose a PNG slice atlas..."
-				: "Choose an image file...",
-			BrowseButtonWidth))
+				? "Choose a PNG slice atlas..." : "Choose an image file...",
+			SourcePathBuffer.data(), SourcePathBuffer.size(),
+			ImGuiInputTextFlags_ReadOnly);
+		ImGui::SameLine();
+		if (ImGui::Button("Browse...", ImVec2(BrowseButtonWidth, 0.0f)))
 			BrowseSingleSource();
 
-		const char* SourcePath = Source.GetSourcePathBuffer().data();
+		const char* SourcePath = SourcePathBuffer.data();
 		if (SourcePath[0] != '\0')
 			ImGui::TextDisabled("%s", std::filesystem::path(SourcePath)
 				.filename().generic_string().c_str());
-	}
-
-	auto FTextureImportDialog::DrawSingleSourceDestination(
-		float BrowseButtonWidth) -> void
-	{
-		if (State.GetSourceMode() != EMountedSourceImportMode::IngestExternal)
-			return;
-		FMountedSourceImportFormModel& Source = GetSelectedSingleSource();
-		Source.GetMode() = State.GetSourceMode();
-		if (Source.DrawDestinationRow(
-			"##TextureImportSourceDestination",
-			"/Project/Sources/Textures/AssetName.png", BrowseButtonWidth))
-			BrowseSingleSourceDestination();
 	}
 
 	auto FTextureImportDialog::DrawSingleSettings() -> void
@@ -228,7 +187,7 @@ namespace Durin::Editor::Texture
 		ImGui::SeparatorText("Volume atlas interpretation");
 		FVolumeTextureImportFormState& Volume = State.GetVolumeTexture();
 		if (VolumeInspection &&
-			InspectedVolumeSourcePath == Volume.Source.GetSourcePathBuffer().data())
+			InspectedVolumeSourcePath == Volume.SourcePathBuffer.data())
 		{
 			ImGui::Text("PNG: %u x %u, %u source channel%s",
 				VolumeInspection.AtlasWidth, VolumeInspection.AtlasHeight,
@@ -298,10 +257,9 @@ namespace Durin::Editor::Texture
 
 	auto FTextureImportDialog::ValidateAndDrawSingleDestination() -> std::string
 	{
-		FMountedSourceImportFormModel& Source = GetSelectedSingleSource();
-		Source.GetMode() = State.GetSourceMode();
-		const std::filesystem::path SourcePath(Source.GetSourcePathBuffer().data());
-		const bool bHasSource = Source.GetSourcePathBuffer()[0] != '\0';
+		const auto& SourcePathBuffer = GetSelectedSingleSourcePath();
+		const std::filesystem::path SourcePath(SourcePathBuffer.data());
+		const bool bHasSource = SourcePathBuffer[0] != '\0';
 		const bool bSourceExists = bHasSource &&
 			std::filesystem::is_regular_file(SourcePath);
 		const std::string SourceExtension =
@@ -314,47 +272,18 @@ namespace Durin::Editor::Texture
 
 		const FAssetDestinationValidation DestinationValidation =
 			Destination.Inspect();
-		const bool bAllowEngineContentWrite = DestinationValidation.Mount &&
-			DestinationValidation.Mount->Owner ==
-				PathUtilities::EMountOwner::Engine;
-		const FMountedSourceImportDiagnostic SourceDiagnostic =
-			DestinationValidation.bAssetPathValid
-				? Source.Inspect(DestinationValidation.AssetPath.GetView(),
-					bAllowEngineContentWrite)
-				: FMountedSourceImportDiagnostic{};
-		const std::filesystem::path SourceDestination(
-			SourceDiagnostic.VirtualPath.empty()
-				? Source.GetDestinationBuffer().data()
-				: SourceDiagnostic.VirtualPath);
-		const bool bSourceExtensionMatches = bHasSource &&
-			State.GetSourceMode() == EMountedSourceImportMode::IngestExternal &&
-			Lowercase(SourceDestination.extension().generic_string()) ==
-				SourceExtension;
-
-		if (DestinationValidation.bAssetPathValid &&
-			DestinationValidation.bMountedDestination && bHasSource &&
-			SourceDiagnostic.bValid)
+		if (DestinationValidation.bAssetPathValid
+			&& DestinationValidation.bMountedDestination && bSourceExists
+			&& bSupportedSource)
 		{
 			ImGui::BeginChild("TextureImportOutputPreview",
-				ImVec2(0.0f, MonaImGui::ScaleUI(112.0f)),
-				ImGuiChildFlags_Borders);
+				ImVec2(0.0f, MonaImGui::ScaleUI(88.0f)), ImGuiChildFlags_Borders);
 			ImGui::TextDisabled("Asset identity");
 			ImGui::TextUnformatted(
 				DestinationValidation.AssetPath.ToString().c_str());
-			ImGui::TextDisabled("Package file");
-			ImGui::TextUnformatted(std::format("{}.dasset",
-				DestinationValidation.AssetPath.ToString()).c_str());
-			ImGui::TextDisabled("Source virtual path");
-			ImGui::TextUnformatted(SourceDiagnostic.VirtualPath.c_str());
+			ImGui::TextDisabled("Source filename");
+			ImGui::TextUnformatted(SourcePath.generic_string().c_str());
 			ImGui::EndChild();
-			ImGui::TextDisabled("Mount: %s (%s)  |  %s  |  dependency allowed",
-				SourceDiagnostic.Mount->VirtualRoot.c_str(),
-				DescribeMountOwner(SourceDiagnostic.Mount->Owner),
-				SourceDiagnostic.Mount->bContentWritable
-					? "writable" : "read-only");
-			if (bAllowEngineContentWrite)
-				ImGui::TextDisabled(
-					"Engine content write: this import mutates shared Engine content.");
 		}
 
 		std::string ValidationMessage;
@@ -368,18 +297,11 @@ namespace Durin::Editor::Texture
 				: "Supported Texture2D formats are PNG, JPEG, BMP, and TGA.";
 		else if (!DestinationValidation)
 			ValidationMessage = DestinationValidation.Message;
-		else if (!SourceDiagnostic.bValid)
-			ValidationMessage = SourceDiagnostic.Message;
-		else if (State.GetSourceMode() ==
-			EMountedSourceImportMode::IngestExternal &&
-			!bSourceExtensionMatches)
-			ValidationMessage =
-				"The source copy must keep the selected image's file extension.";
 		else if (bVolume)
 		{
 			const FVolumeTextureImportFormState& Volume =
 				State.GetVolumeTexture();
-			if (InspectedVolumeSourcePath == Source.GetSourcePathBuffer().data()
+			if (InspectedVolumeSourcePath == SourcePathBuffer.data()
 				&& !VolumeInspection)
 			{
 				return VolumeInspection.Message;
@@ -392,7 +314,7 @@ namespace Durin::Editor::Texture
 				.TilesX = Volume.TilesX,
 				.TilesY = Volume.TilesY};
 			if (Settings.IsValid(&ValidationMessage) && VolumeInspection &&
-				InspectedVolumeSourcePath == Source.GetSourcePathBuffer().data())
+				InspectedVolumeSourcePath == SourcePathBuffer.data())
 			{
 				const uint64 ExpectedWidth =
 					static_cast<uint64>(Volume.SliceWidth) * Volume.TilesX;
@@ -411,8 +333,7 @@ namespace Durin::Editor::Texture
 
 	auto FTextureImportDialog::BrowseSingleSource() -> void
 	{
-		FMountedSourceImportFormModel& Source = GetSelectedSingleSource();
-		auto& SourcePathBuffer = Source.GetSourcePathBuffer();
+		auto& SourcePathBuffer = GetSelectedSingleSourcePath();
 		FFileDialogRequest Request;
 		Request.ParentWindowHandle =
 			ImGui::GetMainViewport()->PlatformHandleRaw;
@@ -426,15 +347,6 @@ namespace Durin::Editor::Texture
 			{"Bitmap", "*.bmp"}, {"Targa", "*.tga"}, {"All Files", "*.*"}};
 		if (const FProjectInfo* Project = GetCurrentProject())
 			Request.InitialDirectory = Project->ProjectDir;
-		if (State.GetSourceMode() ==
-			EMountedSourceImportMode::ReferenceExisting)
-		{
-			const PathUtilities::FMountLookupResult Lookup =
-				PathUtilities::FindMountForVirtualPath(Destination.GetPath());
-			if (Lookup)
-				Request.InitialDirectory =
-					Lookup.Mount->GetContentDir().generic_string();
-		}
 		if (SourcePathBuffer[0] != '\0')
 			Request.InitialDirectory = std::filesystem::path(
 				SourcePathBuffer.data()).parent_path().generic_string();
@@ -460,32 +372,16 @@ namespace Durin::Editor::Texture
 		const FProjectInfo* Project = GetCurrentProject();
 		Destination.SuggestPath(Destination.MakeSuggestedPath(AssetName,
 			(Project ? Project->MountRoot : "/") + std::string("Textures/")));
-		SuggestSingleSourceDestination();
 		SubmissionError.clear();
 		if (State.GetAssetType() == ETextureImportAssetType::VolumeTexture)
 			InspectVolumeTextureSource();
-	}
-
-	auto FTextureImportDialog::SuggestSingleSourceDestination() -> void
-	{
-		FMountedSourceImportFormModel& Source = GetSelectedSingleSource();
-		const char* SourcePathText = Source.GetSourcePathBuffer().data();
-		if (SourcePathText[0] == '\0') return;
-		const std::filesystem::path SourcePath(SourcePathText);
-		const std::string AssetName = StringUtils::SanitizeFileName(
-			SourcePath.stem().generic_string(), "Texture");
-		const bool bVolume =
-			State.GetAssetType() == ETextureImportAssetType::VolumeTexture;
-		Source.SuggestDestination(MakeDefaultImportedSourceVirtualPath(
-			Destination.GetPath(), bVolume ? "VolumeTextures" : "Textures",
-			AssetName + SourcePath.extension().generic_string()));
 	}
 
 	auto FTextureImportDialog::InspectVolumeTextureSource() -> void
 	{
 		if (State.GetAssetType() != ETextureImportAssetType::VolumeTexture) return;
 		FVolumeTextureImportFormState& Volume = State.GetVolumeTexture();
-		const std::string SourcePath = Volume.Source.GetSourcePathBuffer().data();
+		const std::string SourcePath = Volume.SourcePathBuffer.data();
 		if (SourcePath.empty()
 			|| (SourcePath == InspectedVolumeSourcePath && VolumeInspection)) return;
 
@@ -519,14 +415,6 @@ namespace Durin::Editor::Texture
 		SubmissionError.clear();
 	}
 
-	auto FTextureImportDialog::SuggestSelectedSourceDestinations() -> void
-	{
-		if (State.GetAssetType() == ETextureImportAssetType::TextureCube)
-			SuggestTextureCubeSourceDestinations();
-		else
-			SuggestSingleSourceDestination();
-	}
-
 	auto FTextureImportDialog::BrowseDestination() -> void
 	{
 		FAssetPath CurrentAssetPath;
@@ -534,68 +422,10 @@ namespace Durin::Editor::Texture
 			FAssetPath::TryCreate(Destination.GetPath(), CurrentAssetPath)
 				? std::string(CurrentAssetPath.GetAssetName()) + ".dasset"
 				: "Texture.dasset";
-		if (Destination.Browse("Choose a Texture Asset Path", DefaultFileName,
+		Destination.Browse("Choose a Texture Asset Path", DefaultFileName,
 			"The selected asset path is too long for the import form.",
 			"Texture assets must be saved inside a package-enabled mount.",
-			Callbacks))
-			SuggestSelectedSourceDestinations();
-	}
-
-	auto FTextureImportDialog::BrowseSingleSourceDestination() -> void
-	{
-		FAssetPath AssetPath;
-		std::string Error;
-		if (!FAssetPath::TryCreate(Destination.GetPath(), AssetPath, &Error))
-		{
-			SetError(
-				"Choose a valid asset path before selecting the source copy destination.");
-			return;
-		}
-		const PathUtilities::FMountPoint* Mount =
-			FindOwningMount(AssetPath.GetView());
-		if (!Mount)
-		{
-			SetError(
-				"Choose an asset destination inside a package-enabled mount first.");
-			return;
-		}
-
-		FMountedSourceImportFormModel& Source = GetSelectedSingleSource();
-		FFileDialogRequest Request;
-		Request.ParentWindowHandle =
-			ImGui::GetMainViewport()->PlatformHandleRaw;
-		Request.Title = "Choose Texture Source Copy Destination";
-		Request.Filters = {
-			{"All Supported Textures", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"},
-			{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"},
-			{"Bitmap", "*.bmp"}, {"Targa", "*.tga"}};
-		Request.InitialDirectory = Mount->GetContentDir().generic_string();
-		Request.DefaultFileName = Source.GetDestinationBuffer()[0] != '\0'
-			? std::filesystem::path(Source.GetDestinationBuffer().data())
-				.filename().generic_string()
-			: Source.GetSourcePathBuffer()[0] != '\0'
-				? std::filesystem::path(Source.GetSourcePathBuffer().data())
-					.filename().generic_string()
-				: "Texture.png";
-
-		const FFileDialogResult Result = SaveFileDialog(Request);
-		if (Result.Status == EFileDialogStatus::Cancelled) return;
-		if (Result.Status == EFileDialogStatus::Error)
-		{
-			SetError(Result.ErrorMessage);
-			return;
-		}
-		const PathUtilities::FSourcePathResult Classified =
-			PathUtilities::ClassifySourcePath(Result.FilePath);
-		if (!Classified || Classified.Mount != Mount)
-		{
-			SetError(
-				"Texture source copies must stay inside the selected mount.");
-			return;
-		}
-		if (!Source.SetDestination(Classified.NormalizedVirtualPath))
-			SetError(
-				"The selected source destination is too long for the import form.");
+			Callbacks);
 	}
 
 	auto FTextureImportDialog::ImportSelectedTexture() -> bool
@@ -611,7 +441,7 @@ namespace Durin::Editor::Texture
 
 	auto FTextureImportDialog::ImportSingleTexture() -> bool
 	{
-		FMountedSourceImportFormModel& Source = GetSelectedSingleSource();
+		const auto& SourcePathBuffer = GetSelectedSingleSourcePath();
 		FAssetPath AssetPath;
 		std::string Error;
 		if (!FAssetPath::TryCreate(Destination.GetPath(), AssetPath, &Error))
@@ -621,59 +451,45 @@ namespace Durin::Editor::Texture
 		}
 		const std::string Path = AssetPath.ToString();
 		const FImportDialogCallbacks CompletionCallbacks = Callbacks;
-		auto Completion = [CompletionCallbacks, Path](const AssetForge::FImportResult& Result) {
-			if (Result.Outcome.State == AssetForge::EImportOperationState::Succeeded)
-			{
-				CompletionCallbacks.NotifyImported(Path);
-				FAssetPath ImportedPath;
-				if (FAssetPath::TryCreate(Path, ImportedPath)) Asset::UnloadPackage(ImportedPath);
-			}
-			else CompletionCallbacks.Report(Result.Outcome.Diagnostic.empty()
-				? "Texture AssetForge import failed." : Result.Outcome.Diagnostic);
-		};
 		if (State.GetAssetType() == ETextureImportAssetType::VolumeTexture)
 		{
 			const FVolumeTextureImportFormState& Volume =
 				State.GetVolumeTexture();
 			AssetForge::Builtins::FVolumeTextureImportSettings Settings;
-			if (State.GetSourceMode() ==
-				EMountedSourceImportMode::IngestExternal)
-				Settings.SourceDestination =
-					Source.GetDestinationBuffer().data();
 			Settings.Channels = Volume.Channels;
 			Settings.SliceWidth = Volume.SliceWidth;
 			Settings.SliceHeight = Volume.SliceHeight;
 			Settings.Depth = Volume.Depth;
 			Settings.TilesX = Volume.TilesX;
 			Settings.TilesY = Volume.TilesY;
-			AssetForge::FImportHandle Handle =
-				AssetForge::Builtins::SubmitVolumeTextureImport(
-					Source.GetSourcePathBuffer().data(), AssetPath, Settings,
-					IsEngineContentWriteDestination(Destination.GetPath()), Completion, Error);
-			if (!Handle)
+			const AssetForge::Builtins::FVolumeTextureImportResult Result =
+				AssetForge::Builtins::ImportVolumeTextureAsset(
+					SourcePathBuffer.data(), AssetPath.ToString(), Settings,
+					IsEngineContentWriteDestination(Destination.GetPath()));
+			if (!Result)
 			{
-				SetError(std::move(Error));
+				SetError(Result.Message.empty()
+					? "VolumeTexture import failed." : Result.Message);
 				return false;
 			}
-			Callbacks.NotifyImportStarted(Handle.GetOperationHandle(),
-				std::format("Import VolumeTexture {}", AssetPath.GetAssetName()));
+			CompletionCallbacks.NotifyImported(Path);
+			Asset::UnloadPackage(AssetPath);
 			return true;
 		}
 
 		FTexture2DImportSettings Settings;
-		if (State.GetSourceMode() == EMountedSourceImportMode::IngestExternal)
-			Settings.SourceDestination = Source.GetDestinationBuffer().data();
 		Settings.Usage = State.GetTexture2D().Usage;
-		AssetForge::FImportHandle Handle = AssetForge::Builtins::SubmitTexture2DImport(
-			Source.GetSourcePathBuffer().data(), AssetPath, Settings,
-			IsEngineContentWriteDestination(Destination.GetPath()), Completion, Error);
-		if (!Handle)
+		const FTexture2DImportResult Result = AssetForge::Builtins::ImportTexture2DAsset(
+			SourcePathBuffer.data(), AssetPath.ToString(), Settings,
+			IsEngineContentWriteDestination(Destination.GetPath()));
+		if (!Result)
 		{
-			SetError(std::move(Error));
+			SetError(Result.Message.empty()
+				? "Texture2D import failed." : Result.Message);
 			return false;
 		}
-		Callbacks.NotifyImportStarted(Handle.GetOperationHandle(),
-			std::format("Import Texture2D {}", AssetPath.GetAssetName()));
+		CompletionCallbacks.NotifyImported(Path);
+		Asset::UnloadPackage(AssetPath);
 		return true;
 	}
 

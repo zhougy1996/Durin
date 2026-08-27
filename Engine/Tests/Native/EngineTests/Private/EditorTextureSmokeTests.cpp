@@ -23,7 +23,6 @@
 #include "RenderingThread.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
-#include "AssetForgeBuiltinsProviders.h"
 #include "AssetForgeBuiltinsAssetTestSupport.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "Texture/Texture2D.h"
@@ -63,10 +62,6 @@ namespace Durin
 	{
 		InitializeDObjectSystem();
 		ASSERT_TRUE(Tests::InstallAssetForgeBuiltinsAssetFeatures());
-		std::string ProviderError;
-		ASSERT_TRUE(AssetForge::Builtins::RegisterAssetForgeBuiltinsProviders(
-			ProviderError, GetEngineTestModuleCallbackGate()))
-			<< ProviderError;
 		InitRenderingThread();
 		const std::filesystem::path Root =
 			Testing::GetTestWorkDirectory() / "EditorMixedV4Rendering";
@@ -241,12 +236,6 @@ namespace Durin
 	{
 		InitializeDObjectSystem();
 		ASSERT_TRUE(Tests::InstallAssetForgeBuiltinsAssetFeatures());
-		std::string ProviderError;
-		ASSERT_TRUE(AssetForge::Builtins::RegisterAssetForgeBuiltinsProviders(
-			ProviderError, GetEngineTestModuleCallbackGate())) << ProviderError;
-		ASSERT_TRUE(AssetForge::Builtins::RegisterAssetForgeBuiltinsProviders(
-			ProviderError, GetEngineTestModuleCallbackGate())) << ProviderError;
-		EXPECT_TRUE(ProviderError.empty());
 		InitRenderingThread();
 		const std::filesystem::path Root = Testing::GetTestWorkDirectory() / "EditorTextureSmoke";
 		static std::unordered_set<std::filesystem::path> InitializedRoots;

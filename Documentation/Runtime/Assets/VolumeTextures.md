@@ -192,6 +192,6 @@ for every exact format and usage combination.
 - `Engine/Source/Runtime/Engine/Private/Texture/VolumeTextureDerivedData.cpp`
 - `Engine/Source/Runtime/Engine/Private/Texture/VolumeTextureRenderResource.cpp`
 - `Engine/Source/Developer/TextureBuild/Private/Texture/VolumeTextureBuilder.cpp`
-- `Engine/Source/Editor/AssetForgeBuiltins/Private/VolumeTextureImportProvider.cpp`
+- `Engine/Source/Editor/AssetForgeBuiltins/Private/VolumeTextureImport.cpp`
 - `Engine/Source/Runtime/RHI/Public/RHIResources.h`
 - `Engine/Source/Runtime/VulkanRHI/Private/VulkanTexture.cpp`

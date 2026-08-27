@@ -2,16 +2,16 @@
     "ModuleName": "DurinEd",
     "LinkType": "Shared",
     "PCH": "SharedPCH_DObject",
-    "PrivateDependencies": [
+	"PrivateDependencies": [
         "Core",
         "RHI",
         "ApplicationCore",
+		"AssetForgeBuiltins",
 		"MonaCore",
         "Mona"
     ],
     "PublicDependencies": [
 		"AssetCore",
-		"AssetForge",
         "Engine",
         "RenderCore",
         "MonaImGui"

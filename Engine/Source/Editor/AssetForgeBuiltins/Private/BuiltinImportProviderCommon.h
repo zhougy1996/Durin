@@ -1,34 +1,21 @@
 #pragma once
 
-#include "BuiltinImportSchema.h"
 #include "DObject/Package.h"
-#include "BuiltinSingleAssetImport.h"
-#include "AssetForgeBuiltinsProviders.h"
-#include "AssetForge/ImportService.h"
 #include "AssetForgeBuiltinsAssetFeatures.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
-#include "AssetForge/Builtins/Texture2DImport.h"
-#include "Texture2DBuildAdapter.h"
-#include "AssetForge/Builtins/TextureCubeImport.h"
-#include "AssetForge/Builtins/VolumeTextureImport.h"
-#include "Texture2DPostLoad.h"
-#include "TextureCubePostLoadPolicy.h"
-#include "AssetForge/Builtins/TerrainHeightmapImport.h"
+#include "AssetForge/Builtins/StaticMeshImportData.h"
 
 #include "Animation/AnimationClip.h"
 #include "AssetForge/Builtins/ImportedScene.h"
-#include "Asset/MountedSource.h"
-#include "AssetForge/ImportTypes.h"
+#include "AssetForge/Builtins/ImportSupport.h"
 #include "DObject/ObjectLifecycle.h"
 #include "EncodedSourceSnapshot.h"
 #include "Hash/XxHash.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/Material.h"
 #include "Misc/FileHelper.h"
-#include "Misc/Paths.h"
 #include "AssetForge/Builtins/SceneImport.h"
 #include "SceneImportInternal.h"
-#include "AssetForge/Operations/ImportOperation.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/Skeleton.h"
 #include "Skeletal/SkeletalBuildOperations.h"
@@ -36,18 +23,6 @@
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuild.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
-#include "Texture/Texture2D.h"
-#include "Texture/TextureBuildOperations.h"
-#include "Texture/TextureCube.h"
-#include "Texture/TextureCubeBuildOperations.h"
-#include "Texture/TextureCubeBuilder.h"
-#include "Texture/VolumeTexture.h"
-#include "Texture/VolumeTextureBuildOperations.h"
-#include "TextureCubeBuildAdapter.h"
-#include "Terrain/TerrainHeightmap.h"
-#include "Terrain/TerrainHeightmapDerivedData.h"
-#include "TerrainHeightmapBuildAdapter.h"
-#include "ImageFamilyImports.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -57,82 +32,6 @@ namespace Durin::AssetForge::Builtins
 
 		inline constexpr uint32 StaticMeshAssimpImporterVersion = 3;
 		inline constexpr std::string_view StaticMeshImporterId = "Assimp";
-		inline constexpr std::string_view StaticMeshSourceRoot = "Models";
-
-		auto FindOwningMount(std::string_view AssetPath) -> const PathUtilities::FMountPoint*
-		{
-			const PathUtilities::FMountLookupResult Lookup =
-				PathUtilities::FindMountForVirtualPath(AssetPath);
-			return Lookup ? Lookup.Mount : nullptr;
-		}
-
-		auto MakeCanonicalStaticMeshSourceLocation(
-			const FAssetPath& AssetPath,
-			std::string_view Extension,
-			std::string_view RequestedSourcePath,
-			std::filesystem::path& OutPhysicalPath,
-			std::string& OutStoredPath,
-			std::string& OutError) -> bool
-		{
-			const PathUtilities::FMountPoint* Mount = FindOwningMount(AssetPath.ToString());
-			if (!Mount)
-			{
-				OutError = std::format(
-					"Static mesh asset {} is not beneath a registered package mount.",
-					AssetPath.ToString());
-				return false;
-			}
-			if (RequestedSourcePath.empty())
-			{
-				std::filesystem::path RelativeAssetPath(
-					std::string(AssetPath.ToString().substr(Mount->VirtualRoot.size())));
-				RelativeAssetPath.replace_extension(Extension);
-				const std::filesystem::path StoredPath =
-					std::filesystem::path(StaticMeshSourceRoot) / RelativeAssetPath;
-				OutStoredPath = Mount->VirtualRoot
-					+ StoredPath.lexically_normal().generic_string();
-			}
-			else
-			{
-				OutStoredPath = RequestedSourcePath;
-			}
-			const PathUtilities::FSourcePathResult Resolved =
-				PathUtilities::ResolveSourcePath(
-					OutStoredPath, PathUtilities::EPathExistence::AllowMissing);
-			if (!Resolved)
-			{
-				OutError = Resolved.Message;
-				return false;
-			}
-			OutPhysicalPath = Resolved.PhysicalPath;
-			return true;
-		}
-
-		auto HashStaticMeshSource(
-			const std::filesystem::path& Path,
-			std::string& OutHash,
-			std::string& OutError) -> bool
-		{
-			std::vector<std::byte> Bytes;
-			if (!FFileHelper::LoadFileToArray(Bytes, Path))
-			{
-				OutError = std::format(
-					"Failed to read static mesh source file: {}", Path.generic_string());
-				return false;
-			}
-			OutHash = FXxHash128::HashBuffer(Bytes).ToString();
-			return true;
-		}
-
-		auto MakeStaticMeshSettings(const FStaticMeshImportSettings& Settings) -> FImportPayload
-		{
-			std::vector<std::byte> Bytes;
-			AppendValue(Bytes, Settings.ForwardAxis);
-			AppendValue(Bytes, Settings.RightAxis);
-			AppendValue(Bytes, Settings.UpAxis);
-			return MakeImportPayload("Durin.StaticMesh.ImportSettings", 1, std::move(Bytes));
-		}
-
 		auto ImportAxisVector(EStaticMeshImportAxis Axis) -> FVector3f
 		{
 			switch (Axis)
@@ -220,7 +119,30 @@ namespace Durin::AssetForge::Builtins
 				return false;
 			}
 
-			FStaticMeshSourceImportData Source = Mesh.GetSourceImportData();
+			const auto* ImportData = dynamic_cast<const DStaticMeshImportData*>(
+				Mesh.GetAssetImportData());
+			if (!ImportData)
+			{
+				OutError = "StaticMesh has no current family import data.";
+				return false;
+			}
+			const FStaticMeshImportDataState ImportState =
+				ImportData->GetStaticMeshState();
+			const AssetImport::FSourceFile* ImportedSource =
+				ImportState.SourceData.FindByRole("source");
+			if (!ImportedSource)
+			{
+				OutError = "StaticMesh family import data has no source.";
+				return false;
+			}
+			FStaticMeshSourceImportData Source{
+				.SourcePath = {.Path = ImportedSource->Filename},
+				.SourceContentHash = FXxHash128{
+					.HashLow = ImportedSource->ContentHashLow,
+					.HashHigh = ImportedSource->ContentHashHigh}.ToString(),
+				.ImporterId = ImportState.ImporterId,
+				.ImporterVersion = ImportState.ImporterVersion,
+				.ImportSettings = ImportState.ImportSettings};
 			const bool bSourceAvailable = SourceDiagnostic.IsAvailable();
 			if (bSourceAvailable)
 			{
@@ -252,8 +174,10 @@ namespace Durin::AssetForge::Builtins
 			}
 
 			const bool bSourceMetadataStale = bSourceAvailable
-				&& Mesh.GetSourceImportData().SourceContentHash
-					!= Source.SourceContentHash;
+				&& (ImportedSource->ContentHashLow != FXxHash128::FromString(
+						Source.SourceContentHash).HashLow
+					|| ImportedSource->ContentHashHigh != FXxHash128::FromString(
+						Source.SourceContentHash).HashHigh);
 			FStaticMeshBuildProduct Product;
 			EStaticMeshDerivedDataStatus CacheStatus =
 				EStaticMeshDerivedDataStatus::Missing;
@@ -275,75 +199,17 @@ namespace Durin::AssetForge::Builtins
 				OutError = OutDiagnostic.Message;
 				return false;
 			}
-
-			FAssetPath Destination;
-			if (!Mesh.GetPackage()
-				|| !FAssetPath::TryCreate(Mesh.GetPackage()->GetPackagePath(), Destination, &OutError))
-				return false;
-			FImportProvenance Existing;
-			std::optional<FImportProvenance> Provenance;
-			if (InspectStaticMeshImportProvenance(Mesh, Existing, OutError))
-				Provenance = std::move(Existing);
-			else OutError.clear();
-			FImportRequest Request;
-			if (!MakeStaticMeshImportRequest(Source.SourcePath, Destination,
-				Source.ImportSettings, EImportMode::Recover,
-				{.OwnerId = std::format("StaticMesh.Recovery:{}", Destination.ToString()),
-					.ConflictIdentities = {Destination.ToString()}},
-				std::move(Provenance), Request, OutError)) return false;
-			Request.Lifetime = EImportOperationLifetime::SessionCritical;
-			const FImportHandle Handle = GetImportService().SubmitImport(
-				std::move(Request), std::format("Recover StaticMesh {}", Destination.GetAssetName()));
-			if (!Handle)
+			if (bSourceMetadataStale)
 			{
-				OutError = "StaticMesh AssetForge recovery could not be submitted.";
+				OutError = "StaticMesh source changed; explicit reimport is required before derived-data recovery.";
 				return false;
 			}
-			OutDiagnostic = {
-				.Status = EStaticMeshDerivedDataStatus::Missing,
-				.Message = "Scheduled SessionCritical StaticMesh AssetForge recovery.",
-				.bSourceImporterInvoked = true};
+			if (!BuildStaticMeshFileProduct(Mesh, SourceDiagnostic.ResolvedPath,
+				Source, Source.SourcePath.Path, Product, OutError)) return false;
+			Product.bMarkPackageDirty = false;
+			if (!Mesh.PublishImportedProduct(std::move(Product), OutError)) return false;
 			OutError.clear();
 			return true;
 		}
-
-
-		auto MakeTexture2DSettings(const DTexture2D& Texture) -> FImportPayload
-		{
-			std::vector<std::byte> Bytes;
-			AppendValue(Bytes, Texture.GetUsage());
-			AppendValue(Bytes, Texture.GetCompressionQuality());
-			AppendValue(Bytes, Texture.GetAlphaMipMode());
-			AppendValue(Bytes, Texture.GetAlphaCoverageThreshold());
-			AppendValue(Bytes, Texture.GetMaxResolution());
-			const bool bSRGB = Texture.IsSRGB();
-			AppendValue(Bytes, bSRGB);
-			return MakeImportPayload("Durin.Texture2D.ImportSettings", 1, std::move(Bytes));
-		}
-
-		auto MakeTextureCubeSettings(const DTextureCube& Texture) -> FImportPayload
-		{
-			std::vector<std::byte> Bytes;
-			AppendValue(Bytes, Texture.GetSourceLayout());
-			AppendValue(Bytes, Texture.GetPanoramaFaceDimension());
-			AppendValue(Bytes, Texture.GetPanoramaExposureEV());
-			const bool bSRGB = Texture.IsSRGB();
-			AppendValue(Bytes, bSRGB);
-			return MakeImportPayload("Durin.TextureCube.ImportSettings", 1, std::move(Bytes));
-		}
-
-		auto MakeTerrainHeightmapSettings() -> FImportPayload
-		{
-			return MakeImportPayload("Durin.TerrainHeightmap.ImportSettings", 1, {});
-		}
-
-		auto MakeSourceHash(const FTextureSourceFile& Source) -> FXxHash128
-		{
-			FXxHash128 Hash;
-			Hash.HashLow = Source.SourceContentHashLow;
-			Hash.HashHigh = Source.SourceContentHashHigh;
-			return Hash;
-		}
-
 		}
 }

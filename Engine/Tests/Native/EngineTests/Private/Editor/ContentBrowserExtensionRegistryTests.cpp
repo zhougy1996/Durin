@@ -46,7 +46,7 @@ namespace Durin::Editor::ContentBrowser
 		std::string Error;
 		auto Registration = RegisterExtension({
 			.Id = "test.lifetime", .Label = "Lifetime",
-			.Category = EExtensionCategory::Import,
+			.Category = EExtensionCategory::Details,
 			.IsApplicable = [](const auto& Context) {
 				return !Context.VirtualDirectory.empty();
 			},
@@ -55,13 +55,13 @@ namespace Durin::Editor::ContentBrowser
 		ASSERT_TRUE(Registration.IsValid());
 		auto Duplicate = RegisterExtension({
 			.Id = "test.lifetime", .Label = "Duplicate",
-			.Category = EExtensionCategory::Import,
+			.Category = EExtensionCategory::Details,
 			.IsApplicable = [](const auto&) { return true; },
 			.Invoke = [](const auto&) {}, .OwnerGate = Gate.GetGate()}, Error);
 		EXPECT_FALSE(Duplicate.IsValid());
 		EXPECT_FALSE(Error.empty());
 
-		const auto Snapshot = CaptureExtensions(EExtensionCategory::Import);
+		const auto Snapshot = CaptureExtensions(EExtensionCategory::Details);
 		const auto Entry = std::ranges::find(
 			Snapshot, "test.lifetime", &FExtensionDescriptor::Id);
 		ASSERT_NE(Entry, Snapshot.end());
@@ -81,8 +81,6 @@ namespace Durin::Editor::ContentBrowser
 		auto Gate = Owner.CreateOwnedCallbackRegistration("ContentBrowser.Extensions");
 		const std::array Categories{
 			EExtensionCategory::Create,
-			EExtensionCategory::Import,
-			EExtensionCategory::Reimport,
 			EExtensionCategory::Details,
 			EExtensionCategory::ContextMenu};
 		std::vector<FScopedExtensionRegistration> Registrations;
@@ -131,7 +129,7 @@ namespace Durin::Editor::ContentBrowser
 		auto Registration = RegisterExtension({
 			.Id = "test.mutation-policy",
 			.Label = "Mutation Policy",
-			.Category = EExtensionCategory::Import,
+			.Category = EExtensionCategory::Create,
 			.IsApplicable = [](const auto&) { return true; },
 			.Invoke = [&Invocations](const auto&) { ++Invocations; },
 			.DrawHostPresentation = [
@@ -143,7 +141,7 @@ namespace Durin::Editor::ContentBrowser
 			.OwnerGate = Gate.GetGate()}, Error);
 		ASSERT_TRUE(Registration.IsValid()) << Error;
 
-		const auto Extensions = CaptureExtensions(EExtensionCategory::Import);
+		const auto Extensions = CaptureExtensions(EExtensionCategory::Create);
 		const auto Entry = std::ranges::find(
 			Extensions, "test.mutation-policy", &FExtensionDescriptor::Id);
 		ASSERT_NE(Entry, Extensions.end());

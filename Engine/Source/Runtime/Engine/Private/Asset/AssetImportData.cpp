@@ -1,7 +1,10 @@
 #include "Asset/AssetImportData.h"
+#include "Asset/SourceFilename.h"
 
 #include "DObject/AssetPath.h"
 #include "DObject/DObjectGlobals.h"
+#include "Misc/LexicalPath.h"
+#include "Misc/Paths.h"
 
 namespace Durin::AssetImport
 {
@@ -17,20 +20,18 @@ namespace Durin::AssetImport
 				});
 		}
 
-		auto IsNormalizedMountedPath(std::string_view Path) -> bool
+		auto IsNormalizedSourceFilename(std::string_view Filename) -> bool
 		{
-			if (Path.size() < 2 || Path.size() > MaximumAssetImportStringBytes * 4
-				|| Path.front() != '/' || Path.back() == '/'
-				|| Path.find('\\') != std::string_view::npos
-				|| Path.find("//") != std::string_view::npos) return false;
-			for (size_t Begin = 1; Begin < Path.size();)
+			if (Filename.empty() || Filename.size() > MaximumSourceFilenameBytes
+				|| Filename.back() == '/' || Filename.find('\\') != std::string_view::npos
+				|| Filename.find('\0') != std::string_view::npos
+				|| Filename.find("//") != std::string_view::npos) return false;
+			const std::filesystem::path Path(Filename);
+			if (Path == "." || Path.lexically_normal().generic_string() != Filename)
+				return false;
+			for (const std::filesystem::path& Segment : Path)
 			{
-				const size_t End = Path.find('/', Begin);
-				const std::string_view Segment = Path.substr(
-					Begin, End == std::string_view::npos ? Path.size() - Begin : End - Begin);
-				if (Segment.empty() || Segment == "." || Segment == "..") return false;
-				if (End == std::string_view::npos) break;
-				Begin = End + 1;
+				if (Segment == "." || Segment == "..") return false;
 			}
 			return true;
 		}
@@ -59,7 +60,7 @@ namespace Durin::AssetImport
 	auto FSourceFile::IsEmpty() const -> bool
 	{
 		return StableIdentity.empty() && Role.empty() && DisplayLabel.empty()
-			&& SourcePath.IsEmpty() && ContentHashLow == 0 && ContentHashHigh == 0
+			&& Filename.empty() && ContentHashLow == 0 && ContentHashHigh == 0
 			&& ByteCount == 0 && LastWriteTime == 0;
 	}
 
@@ -72,10 +73,10 @@ namespace Durin::AssetImport
 		}
 		if (!IsIdentifier(StableIdentity) || !IsIdentifier(Role)
 			|| DisplayLabel.size() > MaximumAssetImportStringBytes
-			|| !IsNormalizedMountedPath(SourcePath.Path)
+			|| !IsNormalizedSourceFilename(Filename)
 			|| ContentHashLow == 0 || ContentHashHigh == 0 || ByteCount == 0)
 		{
-			OutError = "Source identity, role, mounted path, complete hash, size, or label is invalid.";
+			OutError = "Source identity, role, filename, complete hash, size, or label is invalid.";
 			return false;
 		}
 		OutError.clear();
@@ -133,13 +134,90 @@ namespace Durin::AssetImport
 			UpdateString(Builder, Source.StableIdentity);
 			UpdateString(Builder, Source.Role);
 			UpdateString(Builder, Source.DisplayLabel);
-			UpdateString(Builder, Source.SourcePath.Path);
+			UpdateString(Builder, Source.Filename);
 			Builder.UpdateValue(Source.ContentHashLow);
 			Builder.UpdateValue(Source.ContentHashHigh);
 			Builder.UpdateValue(Source.ByteCount);
 			Builder.UpdateValue(Source.LastWriteTime);
 		}
 		return Builder.Finalize();
+	}
+
+	auto MakeSourceFilename(
+		std::string_view PhysicalPath,
+		std::string& OutFilename,
+		std::string& OutError) -> bool
+	{
+		OutFilename.clear();
+		if (PhysicalPath.empty())
+		{
+			OutError = "Source filename is empty.";
+			return false;
+		}
+		std::error_code Error;
+		const std::filesystem::path Absolute = std::filesystem::absolute(
+			std::filesystem::path(PhysicalPath), Error).lexically_normal();
+		if (Error || !Absolute.is_absolute())
+		{
+			OutError = Error ? Error.message() : "Source filename is not absolute.";
+			return false;
+		}
+		std::filesystem::path Stored = Absolute;
+		const std::filesystem::path Project = std::filesystem::path(
+			FPaths::ProjectDir()).lexically_normal();
+		std::filesystem::path Relative;
+		if (!Project.empty()
+			&& PathUtilities::TryMakeLexicalRelativePath(Absolute, Project, Relative)
+			&& !Relative.empty())
+			Stored = std::move(Relative);
+		const std::string Candidate = Stored.generic_string();
+		if (!IsNormalizedSourceFilename(Candidate))
+		{
+			OutError = "Source filename is not a bounded normalized platform path.";
+			return false;
+		}
+		OutFilename = Candidate;
+		OutError.clear();
+		return true;
+	}
+
+	auto ResolveSourceFilename(
+		std::string_view Filename,
+		std::string& OutPhysicalPath,
+		std::string& OutError) -> bool
+	{
+		OutPhysicalPath.clear();
+		if (!IsNormalizedSourceFilename(Filename))
+		{
+			OutError = "Source filename is not a bounded normalized platform path.";
+			return false;
+		}
+		const std::filesystem::path Stored(Filename);
+		std::filesystem::path Resolved;
+		if (Stored.is_absolute())
+			Resolved = Stored;
+		else
+		{
+			const std::filesystem::path Project = std::filesystem::path(
+				FPaths::ProjectDir()).lexically_normal();
+			if (Project.empty() || !Project.is_absolute())
+			{
+				OutError = "Project directory is unavailable for relative source filename resolution.";
+				return false;
+			}
+			Resolved = (Project / Stored).lexically_normal();
+			std::filesystem::path Relative;
+			if (!PathUtilities::TryMakeLexicalRelativePath(
+				Resolved, Project, Relative) || Relative.empty())
+			{
+				OutPhysicalPath.clear();
+				OutError = "Relative source filename escapes the project directory.";
+				return false;
+			}
+		}
+		OutPhysicalPath = Resolved.generic_string();
+		OutError.clear();
+		return true;
 	}
 
 	DAssetImportData::DAssetImportData(const FObjectInitializer& ObjectInitializer)

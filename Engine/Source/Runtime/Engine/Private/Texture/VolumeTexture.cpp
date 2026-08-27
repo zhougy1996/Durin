@@ -261,47 +261,25 @@ namespace Durin
 		return true;
 	}
 
-	auto DVolumeTexture::PublishSourceImportData(
-		FVolumeTextureSourceImportData InSourceImportData,
-		std::string& OutError) -> bool
+	auto DVolumeTexture::PublishAssetImportData(
+		AssetImport::DAssetImportData& Value, std::string& OutError) -> bool
 	{
-		if (!InSourceImportData.HasSource()
-			|| !InSourceImportData.Source.HasContentHash()
-			|| InSourceImportData.SourceFile != InSourceImportData.Source.SourcePath.Path
-			|| InSourceImportData.SliceWidth == 0 || InSourceImportData.SliceHeight == 0
-			|| InSourceImportData.Depth == 0 || InSourceImportData.TilesX == 0
-			|| InSourceImportData.TilesY == 0
-			|| InSourceImportData.DecoderId.empty()
-			|| InSourceImportData.DecoderVersion == 0)
+		if (Value.GetOuter() != this)
 		{
-			OutError = "Volume texture source provenance requires one hashed source image, valid atlas settings, and decoder identity.";
+			OutError = "VolumeTexture import data must be an owned inner object.";
 			return false;
 		}
-		SourceImportData = std::move(InSourceImportData);
+		if (!Value.Validate(OutError)) return false;
+		AssetImportData = &Value;
 		MarkPackageDirty();
 		OutError.clear();
 		return true;
-	}
-
-	auto DVolumeTexture::PublishImportProvenance(
-		std::vector<std::byte> Provenance) -> void
-	{
-		static constexpr char Hex[] = "0123456789abcdef";
-		ImportProvenance.resize(Provenance.size() * 2);
-		for (size_t Index = 0; Index < Provenance.size(); ++Index)
-		{
-			const uint8 Value = std::to_integer<uint8>(Provenance[Index]);
-			ImportProvenance[Index * 2] = Hex[Value >> 4];
-			ImportProvenance[Index * 2 + 1] = Hex[Value & 0x0f];
-		}
 	}
 
 	auto DVolumeTexture::ExchangeBuiltState(DVolumeTexture& Other) noexcept -> void
 	{
 		if (&Other == this) return;
 		std::swap(SourceData, Other.SourceData);
-		std::swap(SourceImportData, Other.SourceImportData);
-		std::swap(ImportProvenance, Other.ImportProvenance);
 		std::swap(BuildSettings, Other.BuildSettings);
 		std::swap(CookedPayload, Other.CookedPayload);
 		std::swap(PlatformData, Other.PlatformData);

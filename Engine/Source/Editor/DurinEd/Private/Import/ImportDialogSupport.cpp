@@ -1,7 +1,5 @@
 #include "Editor/Import/ImportDialogSupport.h"
 
-#include "AssetForge/ImportService.h"
-
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
@@ -9,70 +7,6 @@
 
 namespace Durin::Editor::Import
 {
-	auto FImportDialogProgressModel::Begin(
-		AssetForge::FImportOperationHandle InHandle) -> void
-	{
-		Handle = std::move(InHandle);
-		Refresh();
-	}
-
-	auto FImportDialogProgressModel::ApplySnapshot(
-		AssetForge::FImportOperationSnapshot InSnapshot) -> void
-	{
-		Snapshot = std::move(InSnapshot);
-	}
-
-	auto FImportDialogProgressModel::Refresh() -> void
-	{
-		if (Handle) ApplySnapshot(Handle.GetSnapshot());
-	}
-
-	auto FImportDialogProgressModel::Reset() -> void
-	{
-		Handle = {};
-		Snapshot = {};
-	}
-
-	auto FImportDialogProgressModel::RequestCancel() -> bool
-	{
-		if (!Handle || !CanCancel()) return false;
-		const bool bRequested = Handle.RequestCancel();
-		Refresh();
-		return bRequested;
-	}
-
-	auto FImportDialogProgressModel::RunInBackground() -> bool
-	{
-		if (!Handle || Snapshot.IsTerminal()) return false;
-		const bool bBackgrounded = Handle.SetRunningInBackground();
-		Refresh();
-		return bBackgrounded;
-	}
-
-	auto FImportDialogProgressModel::GetState() const -> EImportDialogOperationState
-	{
-		switch (Snapshot.State)
-		{
-		case AssetForge::EImportOperationState::Finalizing:
-			return EImportDialogOperationState::Finalizing;
-		case AssetForge::EImportOperationState::Succeeded:
-			return EImportDialogOperationState::Succeeded;
-		case AssetForge::EImportOperationState::Failed:
-		case AssetForge::EImportOperationState::Rejected:
-			return EImportDialogOperationState::Failed;
-		case AssetForge::EImportOperationState::Canceled:
-		case AssetForge::EImportOperationState::Superseded:
-			return EImportDialogOperationState::Canceled;
-		case AssetForge::EImportOperationState::Queued:
-		case AssetForge::EImportOperationState::Pending:
-		case AssetForge::EImportOperationState::Canceling:
-			return (Handle || Snapshot.OperationId != 0)
-				? EImportDialogOperationState::Preparing
-				: EImportDialogOperationState::Editing;
-		}
-		return EImportDialogOperationState::Editing;
-	}
-
 	auto FImportDialogCallbacks::Clear() const -> void
 	{
 		if (ClearError) ClearError();
@@ -92,12 +26,6 @@ namespace Durin::Editor::Import
 		std::string_view DirectoryPath) const -> void
 	{
 		if (ImportedDirectory) ImportedDirectory(std::string(DirectoryPath));
-	}
-
-	auto FImportDialogCallbacks::NotifyImportStarted(
-		AssetForge::FImportOperationHandle Handle, std::string_view Title) const -> void
-	{
-		if (ImportStarted) ImportStarted(std::move(Handle), std::string(Title));
 	}
 
 	auto FImportDialogDestinationModel::Reset(std::string_view InPreferredDirectory)
@@ -355,84 +283,6 @@ namespace Durin::Editor::Import
 			ImGui::TextDisabled(
 				"Source axes are baked into Durin's +X Forward / +Y Right / +Z Up basis.");
 		}
-	}
-
-	auto FMountedSourceImportFormModel::Reset() -> void
-	{
-		SourcePath.fill(0);
-		Destination.fill(0);
-		LastSuggestion.clear();
-		Mode = EMountedSourceImportMode::IngestExternal;
-	}
-
-	auto FMountedSourceImportFormModel::SuggestDestination(
-		std::string_view SuggestedPath) -> void
-	{
-		const std::string_view Current = Destination.data();
-		if (Current.empty() || Current == LastSuggestion)
-		{
-			Destination.fill(0);
-			std::memcpy(Destination.data(), SuggestedPath.data(),
-				std::min(SuggestedPath.size(), Destination.size() - 1));
-		}
-		LastSuggestion = SuggestedPath;
-	}
-
-	auto FMountedSourceImportFormModel::SetDestination(
-		std::string_view VirtualPath) -> bool
-	{
-		if (VirtualPath.size() >= Destination.size()) return false;
-		Destination.fill(0);
-		std::memcpy(Destination.data(), VirtualPath.data(), VirtualPath.size());
-		LastSuggestion.clear();
-		return true;
-	}
-
-	auto FMountedSourceImportFormModel::Inspect(std::string_view ReferencingPath,
-		bool bAllowEngineContentWrite) const -> FMountedSourceImportDiagnostic
-	{
-		return InspectMountedSourceImport(SourcePath.data(), ReferencingPath,
-			Destination.data(), Mode, bAllowEngineContentWrite);
-	}
-
-	auto FMountedSourceImportFormModel::DrawMode(
-		std::string_view ExternalDescription) -> void
-	{
-		if (ImGui::RadioButton("Reference Existing Source",
-			Mode == EMountedSourceImportMode::ReferenceExisting))
-			Mode = EMountedSourceImportMode::ReferenceExisting;
-		ImGui::SameLine();
-		if (ImGui::RadioButton("Ingest External Source",
-			Mode == EMountedSourceImportMode::IngestExternal))
-			Mode = EMountedSourceImportMode::IngestExternal;
-		if (Mode == EMountedSourceImportMode::ReferenceExisting)
-			ImGui::TextDisabled(
-				"Keeps a source already inside an allowed mount; no copy is created.");
-		else
-			ImGui::TextDisabled("%s", std::string(ExternalDescription).c_str());
-	}
-
-	auto FMountedSourceImportFormModel::DrawSourceRow(const char* InputId,
-		const char* Hint, float BrowseButtonWidth) -> bool
-	{
-		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth
-			- ImGui::GetStyle().ItemSpacing.x);
-		ImGui::InputTextWithHint(InputId, Hint, SourcePath.data(), SourcePath.size(),
-			ImGuiInputTextFlags_ReadOnly);
-		ImGui::SameLine();
-		return ImGui::Button("Browse...", ImVec2(BrowseButtonWidth, 0.0f));
-	}
-
-	auto FMountedSourceImportFormModel::DrawDestinationRow(const char* InputId,
-		const char* Hint, float BrowseButtonWidth) -> bool
-	{
-		if (Mode != EMountedSourceImportMode::IngestExternal) return false;
-		ImGui::TextUnformatted("Source virtual path");
-		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - BrowseButtonWidth
-			- ImGui::GetStyle().ItemSpacing.x);
-		ImGui::InputTextWithHint(InputId, Hint, Destination.data(), Destination.size());
-		ImGui::SameLine();
-		return ImGui::Button("Choose source...", ImVec2(BrowseButtonWidth, 0.0f));
 	}
 
 	auto DrawImportDialogWarning(std::string_view Message) -> void

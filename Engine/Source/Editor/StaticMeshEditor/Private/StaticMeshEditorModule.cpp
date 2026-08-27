@@ -1,7 +1,5 @@
 #include "StaticMeshEditorModule.h"
 
-#include "ContentBrowser/ContentBrowserContracts.h"
-
 #include "Editor/WorkspaceManager.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Thumbnail/AssetThumbnailProvider.h"
@@ -16,61 +14,42 @@ namespace Durin
 	using namespace Editor::StaticMesh;
 	namespace
 	{
-		auto ReimportStaticMesh(
-			const Editor::ContentBrowser::FExtensionInvocation& Invocation) -> void
+		auto ReimportStaticMesh(std::string_view AssetPath,
+			std::function<void(std::string)> ReportError) -> void
 		{
-			auto ReportError = [&Invocation](std::string Message) {
-				if (Invocation.ReportError)
-					Invocation.ReportError(std::move(Message));
+			auto Report = [&ReportError](std::string Message) {
+				if (ReportError) ReportError(std::move(Message));
 			};
 			FAssetPath Path;
-			if (!FAssetPath::TryCreate(Invocation.Context.AssetPath, Path))
+			if (!FAssetPath::TryCreate(AssetPath, Path))
 			{
-				ReportError("The selected StaticMesh path is invalid.");
+				Report("The selected StaticMesh path is invalid.");
 				return;
 			}
 			DStaticMesh* Mesh = nullptr;
 			const Asset::FAssetResult Load = Asset::LoadAsset(Path, Mesh);
 			if (!Load || !Mesh)
 			{
-				ReportError(Load ? "The selected StaticMesh could not be loaded."
+				Report(Load ? "The selected StaticMesh could not be loaded."
 					: Load.Message);
 				return;
 			}
-			AssetForge::FImportProvenance Existing;
 			std::string Error;
-			if (!AssetForge::Builtins::InspectStaticMeshImportProvenance(
-				*Mesh, Existing, Error))
-			{
-				ReportError(std::move(Error));
-				return;
-			}
 			const FStaticMeshSourceDiagnostic Source =
 				AssetForge::Builtins::InspectStaticMeshSource(*Mesh);
 			if (Source.Status != EStaticMeshSourceStatus::Available)
 			{
-				ReportError(Source.Message.empty()
+				Report(Source.Message.empty()
 					? "The StaticMesh source is unavailable." : Source.Message);
 				return;
 			}
-			AssetForge::FImportRequest Request;
-			if (!AssetForge::Builtins::MakeStaticMeshImportRequest(
-				Mesh->GetSourceImportData().SourcePath, Path, Mesh->GetImportSettings(),
-				AssetForge::EImportMode::Reimport,
-				{.OwnerId = std::format("StaticMeshEditor.Reimport:{}", Path.ToString()),
-					.ConflictIdentities = {Path.ToString()}},
-				std::move(Existing), Request, Error))
+			if (!AssetForge::Builtins::ReimportStaticMeshSource(
+				*Mesh, {}, Error))
 			{
-				ReportError(std::move(Error));
+				Report(std::move(Error));
 				return;
 			}
-			if (!Invocation.SubmitImport)
-			{
-				ReportError("The Content Browser import submitter is unavailable.");
-				return;
-			}
-			(void)Invocation.SubmitImport(std::move(Request),
-				std::format("Reimport {}", Path.GetAssetName()));
+			(void)Asset::UnloadPackage(Path);
 		}
 	}
 
@@ -78,8 +57,6 @@ namespace Durin
 
 	struct FStaticMeshEditorModule::FIntegrationState
 	{
-		Editor::ContentBrowser::FScopedExtensionRegistration ImportExtension;
-		Editor::ContentBrowser::FScopedExtensionRegistration ReimportExtension;
 		std::unique_ptr<Editor::StaticMesh::FStaticMeshImportDialog> ImportDialog;
 	};
 
@@ -156,61 +133,31 @@ namespace Durin
 		ThumbnailRegistration =
 			std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
 				std::move(ThumbnailHandle));
-		if (!EditorExtensionCallbacks.IsValid()) return true;
-		Integration->ImportExtension =
-			::Durin::Editor::ContentBrowser::RegisterExtension({
-				.Id = "static-mesh.import",
-				.Label = "Static Mesh (Geometry Only)...",
-				.Category = ::Durin::Editor::ContentBrowser::EExtensionCategory::Import,
-				.Order = 300,
-				.IsApplicable = [](const auto& Context) {
-					return !Context.VirtualDirectory.empty();
-				},
-				.Invoke = [this](const auto& Invocation) {
-					if (Integration->ImportDialog)
-						Integration->ImportDialog->Open(Invocation.Context.VirtualDirectory);
-				},
-				.DrawHostPresentation = [this](bool bAllowAssetMutation) {
-					if (Integration->ImportDialog)
-						Integration->ImportDialog->Draw(bAllowAssetMutation);
-				},
-				.OwnerGate = EditorExtensionCallbacks.GetGate(),
-			}, Error);
-		if (!Integration->ImportExtension.IsValid())
-		{
-			DURIN_ERROR("Could not register Content Browser StaticMesh import: {}", Error);
-			UnregisterStaticMeshEditor();
-			return false;
-		}
-		Integration->ReimportExtension =
-			::Durin::Editor::ContentBrowser::RegisterExtension({
-				.Id = "static-mesh.reimport",
-				.Label = "Reimport from Current Source",
-				.Category = ::Durin::Editor::ContentBrowser::EExtensionCategory::Reimport,
-				.Order = 300,
-				.IsApplicable = [](const auto& Context) {
-					return Context.AssetClassName
-						== DStaticMesh::StaticClass()->GetQualifiedName().ToString();
-				},
-				.Invoke = ReimportStaticMesh,
-				.OwnerGate = EditorExtensionCallbacks.GetGate(),
-			}, Error);
-		if (!Integration->ReimportExtension.IsValid())
-		{
-			DURIN_ERROR("Could not register Content Browser StaticMesh reimport: {}", Error);
-			UnregisterStaticMeshEditor();
-			return false;
-		}
 		return true;
 	}
 
 	auto FStaticMeshEditorModule::UnregisterStaticMeshEditor() -> void
 	{
-		Integration->ReimportExtension.Reset();
-		Integration->ImportExtension.Reset();
 		Integration->ImportDialog.reset();
 		ThumbnailRegistration.reset();
 		WorkspaceRegistration.reset();
+	}
+
+	auto FStaticMeshEditorModule::OpenImportDialog(std::string_view Directory) -> void
+	{
+		if (Integration->ImportDialog) Integration->ImportDialog->Open(Directory);
+	}
+
+	auto FStaticMeshEditorModule::DrawImportDialog(bool bAllowAssetMutation) -> void
+	{
+		if (Integration->ImportDialog)
+			Integration->ImportDialog->Draw(bAllowAssetMutation);
+	}
+
+	auto FStaticMeshEditorModule::ReimportAsset(std::string_view AssetPath,
+		std::function<void(std::string)> ReportError) -> void
+	{
+		ReimportStaticMesh(AssetPath, std::move(ReportError));
 	}
 
 }

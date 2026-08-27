@@ -2,7 +2,6 @@
 
 #include "DObject/Package.h"
 
-#include "Asset/MountedSource.h"
 #include "AssetCook.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -20,115 +19,6 @@ namespace Durin
 	{
 		constexpr std::array<std::string_view, TextureCubeFaceCount> FaceNames = {
 			"PositiveX", "NegativeX", "PositiveY", "NegativeY", "PositiveZ", "NegativeZ"};
-		constexpr std::string_view TextureDecoderId = "DurinImage";
-		constexpr uint32 TextureDecoderVersion = 1;
-
-		auto FaceToIndex(ETextureCubeFace Face) -> size_t
-		{
-			const size_t Index = static_cast<size_t>(Face);
-			check(Index < TextureCubeFaceCount);
-			return Index;
-		}
-
-		auto ResolveCubeSource(const DTextureCube& Texture, ETextureCubeFace Face) -> std::filesystem::path
-		{
-			const FTextureCubeSourceImportData& Provenance = Texture.GetSourceImportData();
-			if (Provenance.SourceLayout == ETextureCubeSourceLayout::SixFaces
-				&& Provenance.GetFace(Face).HasSource())
-			{
-				const PathUtilities::FSourcePathResult Resolved =
-					PathUtilities::ResolveSourcePath(
-						Provenance.GetFace(Face).SourcePath.Path,
-						PathUtilities::EPathExistence::RequireFile);
-				if (Resolved) return Resolved.PhysicalPath;
-			}
-			return {};
-		}
-
-		auto ResolvePanoramaSource(const DTextureCube& Texture) -> std::filesystem::path
-		{
-			const FTextureCubeSourceImportData& Provenance = Texture.GetSourceImportData();
-			if (Provenance.SourceLayout == ETextureCubeSourceLayout::EquirectangularPanorama
-				&& Provenance.Panorama.HasSource())
-			{
-				const PathUtilities::FSourcePathResult Resolved =
-					PathUtilities::ResolveSourcePath(
-						Provenance.Panorama.SourcePath.Path,
-						PathUtilities::EPathExistence::RequireFile);
-				if (Resolved) return Resolved.PhysicalPath;
-			}
-			return {};
-		}
-
-		auto ValidateCubeProvenance(const DTextureCube& Texture, std::string& OutError) -> bool
-		{
-			const FTextureCubeSourceImportData& Provenance = Texture.GetSourceImportData();
-			if (!Provenance.HasSource()) return true;
-			if (!Texture.GetPackage())
-			{
-				OutError = "TextureCube source cannot be validated without an owning package.";
-				return false;
-			}
-			auto ValidateSourcePath = [&](std::string_view SourcePath) -> bool {
-				Asset::FMountedSourceResolution Resolution;
-				return Asset::ResolveMountedSourceReference(
-					Texture.GetPackage()->GetPackagePath(), SourcePath,
-					Asset::EMountedSourceExistencePolicy::AllowMissing,
-					Resolution, OutError);
-			};
-			if (Provenance.DecoderId != TextureDecoderId
-				|| Provenance.DecoderVersion != TextureDecoderVersion
-				|| Provenance.ProjectionVersion != TextureCubeProjectionVersion)
-			{
-				OutError = "TextureCube source decoder or projection version is unsupported.";
-				return false;
-			}
-			if (Provenance.SourceLayout != Texture.GetSourceLayout())
-			{
-				OutError = "TextureCube source provenance layout does not match its authored layout.";
-				return false;
-			}
-			if (Provenance.SourceLayout == ETextureCubeSourceLayout::SixFaces)
-			{
-				if (Provenance.Panorama.HasSource())
-				{
-					OutError = "Six-face TextureCube provenance contains an inactive panorama source.";
-					return false;
-				}
-				for (uint32 FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
-				{
-					const FTextureSourceFile& Source =
-						Provenance.GetFace(static_cast<ETextureCubeFace>(FaceIndex));
-					if (!Source.HasSource() || !Source.HasContentHash())
-					{
-						OutError = "TextureCube face source provenance is incomplete.";
-						return false;
-					}
-					if (!ValidateSourcePath(Source.SourcePath.Path)) return false;
-				}
-				return true;
-			}
-			if (Provenance.SourceLayout == ETextureCubeSourceLayout::EquirectangularPanorama)
-			{
-				if (!Provenance.Panorama.HasSource() || !Provenance.Panorama.HasContentHash())
-				{
-					OutError = "TextureCube panorama source provenance is incomplete.";
-					return false;
-				}
-				if (!ValidateSourcePath(Provenance.Panorama.SourcePath.Path)) return false;
-				for (uint32 FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
-					if (Provenance.GetFace(static_cast<ETextureCubeFace>(FaceIndex)).HasSource())
-					{
-						OutError = "Panorama TextureCube provenance contains inactive face sources.";
-						return false;
-					}
-				return true;
-			}
-			OutError = "TextureCube source provenance layout is invalid.";
-			return false;
-		}
-
-
 		auto ValidateCubeSourceData(const FTextureCubeSourceData& SourceData, std::string& OutError) -> bool
 		{
 			const FTextureSourceData& Reference = SourceData.Faces[0];
@@ -164,35 +54,6 @@ namespace Durin
 
 	}
 
-	auto FTextureCubeSourceImportData::GetFace(ETextureCubeFace Face) const -> const FTextureSourceFile&
-	{
-		switch (Face)
-		{
-		case ETextureCubeFace::PositiveX: return PositiveX;
-		case ETextureCubeFace::NegativeX: return NegativeX;
-		case ETextureCubeFace::PositiveY: return PositiveY;
-		case ETextureCubeFace::NegativeY: return NegativeY;
-		case ETextureCubeFace::PositiveZ: return PositiveZ;
-		case ETextureCubeFace::NegativeZ: return NegativeZ;
-		}
-		checkf(false, "Invalid cube face");
-		return PositiveX;
-	}
-
-	auto FTextureCubeSourceImportData::GetMutableFace(ETextureCubeFace Face) -> FTextureSourceFile&
-	{
-		return const_cast<FTextureSourceFile&>(std::as_const(*this).GetFace(Face));
-	}
-
-	auto FTextureCubeSourceImportData::HasSource() const -> bool
-	{
-		if (SourceLayout == ETextureCubeSourceLayout::EquirectangularPanorama)
-			return Panorama.HasSource();
-		for (uint32 FaceIndex = 0; FaceIndex < TextureCubeFaceCount; ++FaceIndex)
-			if (GetFace(static_cast<ETextureCubeFace>(FaceIndex)).HasSource()) return true;
-		return false;
-	}
-
 	auto FTextureCubeSourceData::IsValid() const -> bool
 	{
 		std::string Error;
@@ -226,18 +87,16 @@ namespace Durin
 
 	auto DTextureCube::GetSourceFile(ETextureCubeFace Face) const -> const std::string&
 	{
-		if (SourceImportData.SourceLayout == ETextureCubeSourceLayout::SixFaces)
-		{
-			const FTextureSourceFile& Source = SourceImportData.GetFace(Face);
-			if (Source.HasSource()) return Source.SourcePath.Path;
-		}
+		static constexpr std::array Roles{
+			"positive-x", "negative-x", "positive-y",
+			"negative-y", "positive-z", "negative-z"};
+		const size_t FaceIndex = static_cast<size_t>(Face);
+		if (AssetImportData && FaceIndex < Roles.size())
+			if (const AssetImport::FSourceFile* Source =
+					AssetImportData->GetSourceData().FindByRole(Roles[FaceIndex]))
+				return Source->Filename;
 		static const std::string EmptySource;
 		return EmptySource;
-	}
-
-	auto DTextureCube::ResolvePanoramaSource() const -> std::filesystem::path
-	{
-		return Durin::ResolvePanoramaSource(*this);
 	}
 
 	auto DTextureCube::GetBuiltFaceDimension() const -> uint32
@@ -451,8 +310,6 @@ namespace Durin
 	{
 		if (&Other == this) return;
 		std::swap(SourceLayout, Other.SourceLayout);
-		std::swap(SourceImportData, Other.SourceImportData);
-		std::swap(ImportProvenance, Other.ImportProvenance);
 		std::swap(PanoramaFaceDimension, Other.PanoramaFaceDimension);
 		std::swap(PanoramaExposureEV, Other.PanoramaExposureEV);
 		std::swap(OriginalSourceWidth, Other.OriginalSourceWidth);
@@ -475,22 +332,23 @@ namespace Durin
 		Other.MarkPackageDirty();
 	}
 
-	auto DTextureCube::PublishImportProvenance(
-		std::vector<std::byte> Provenance) -> void
+	auto DTextureCube::PublishAssetImportData(
+		AssetImport::DAssetImportData& Value, std::string& OutError) -> bool
 	{
-		static constexpr char Hex[] = "0123456789abcdef";
-		ImportProvenance.resize(Provenance.size() * 2);
-		for (size_t Index = 0; Index < Provenance.size(); ++Index)
+		if (Value.GetOuter() != this)
 		{
-			const uint8 Value = std::to_integer<uint8>(Provenance[Index]);
-			ImportProvenance[Index * 2] = Hex[Value >> 4];
-			ImportProvenance[Index * 2 + 1] = Hex[Value & 0x0f];
+			OutError = "TextureCube import data must be an owned inner object.";
+			return false;
 		}
+		if (!Value.Validate(OutError)) return false;
+		AssetImportData = &Value;
+		MarkPackageDirty();
+		OutError.clear();
+		return true;
 	}
 
 	auto DTextureCube::PublishBuildProduct(
 		ETextureCubeSourceLayout InSourceLayout,
-		FTextureCubeSourceImportData InSourceImportData,
 		uint32 InPanoramaFaceDimension,
 		float InPanoramaExposureEV,
 		uint32 InOriginalSourceWidth,
@@ -503,7 +361,6 @@ namespace Durin
 	{
 		check(InPlatformData && InPlatformData->IsValid());
 		SourceLayout = InSourceLayout;
-		SourceImportData = std::move(InSourceImportData);
 		PanoramaFaceDimension = InPanoramaFaceDimension;
 		PanoramaExposureEV = InPanoramaExposureEV;
 		OriginalSourceWidth = InOriginalSourceWidth;

@@ -2,7 +2,6 @@
 #include "Modules/ModuleManager.h"
 #include "RenderingThread.h"
 #include "AssetForgeBuiltinsAssetTestSupport.h"
-#include "AssetForgeBuiltinsProviders.h"
 
 #include <gtest/gtest.h>
 
@@ -16,10 +15,7 @@ namespace
 		{
 			InitializeDObjectSystem();
 			Durin::FModuleManager::Get().LoadModule("StaticMeshBuild");
-			std::string Error;
 			ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAssetFeatures());
-			ASSERT_TRUE(Durin::AssetForge::Builtins::RegisterAssetForgeBuiltinsProviders(
-				Error, GetEngineTestModuleCallbackGate())) << Error;
 			ASSERT_EQ(
 				Durin::GetRenderCommandAdmissionState(),
 				Durin::ERenderCommandAdmissionState::Stopped);
@@ -33,7 +29,6 @@ namespace
 				Durin::ERenderCommandAdmissionState::Running);
 			Durin::FlushRenderingCommands();
 			Durin::ShutdownRenderingThread();
-			Durin::AssetForge::Builtins::UnregisterAssetForgeBuiltinsProviders();
 		}
 	};
 

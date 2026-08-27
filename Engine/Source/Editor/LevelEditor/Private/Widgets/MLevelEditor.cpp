@@ -50,14 +50,11 @@ namespace Durin::Editor::Level
 		::Durin::Editor::FWorkspaceManager& InWorkspaceManager,
 		FModuleOwnedCallbackGate InOwnerGate,
 		FTaskScopeToken InThumbnailTaskScope,
-		std::function<void(AssetForge::FImportOperationHandle, std::string)>
-			InNotifyImportStarted,
 		FContentBrowserCallbacks InContentBrowserCallbacks)
 		: SessionSettings(InSessionSettings)
 		, WorkspaceManager(InWorkspaceManager)
 		, OwnerGate(std::move(InOwnerGate))
 		, ThumbnailTaskScope(std::move(InThumbnailTaskScope))
-		, NotifyImportStarted(std::move(InNotifyImportStarted))
 		, ContentBrowserCallbacks(std::move(InContentBrowserCallbacks))
 	{
 	}
@@ -191,11 +188,6 @@ namespace Durin::Editor::Level
 					GEditor->GetTransactionManager().NotifyMountedContentMutation();
 				if (ContentBrowserCallbacks.RevealDirectory)
 					ContentBrowserCallbacks.RevealDirectory(DirectoryPath);
-			},
-			.ImportStarted = [this](
-				AssetForge::FImportOperationHandle Handle, std::string Title) {
-				if (NotifyImportStarted)
-					NotifyImportStarted(std::move(Handle), std::move(Title));
 			},
 		};
 		SceneImportDialog =

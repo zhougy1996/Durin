@@ -77,7 +77,7 @@ namespace Durin
 				return false;
 			}
 		}
-		if (!SourceImportData.HasSource())
+		if (!GetImportedSource())
 		{
 			OutError.clear();
 			return true;

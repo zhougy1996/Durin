@@ -56,7 +56,7 @@ namespace Durin::Asset
 
 	struct FTexture2DPublicationContext
 	{
-		FSourcePath SourcePath;
+		std::string SourceFilename;
 		std::string DecoderId;
 		uint32 DecoderVersion = 0;
 		uint64 SourceFileSize = 0;

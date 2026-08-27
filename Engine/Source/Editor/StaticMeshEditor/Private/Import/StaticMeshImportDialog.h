@@ -20,18 +20,13 @@ namespace Durin::Editor::StaticMesh
 	private:
 		auto BrowseSource() -> void;
 		auto BrowseDestination() -> void;
-		auto BrowseSourceDestination() -> void;
-		auto SuggestSourceDestination() -> void;
 		auto Import() -> bool;
 		auto SetError(std::string Message) const -> void;
 
 		FImportDialogCallbacks Callbacks;
 		FImportDialogDestinationModel Destination;
 		FImportDialogModalState ModalState;
-		FMountedSourceImportFormModel SourceForm;
-		std::array<char, 512>& SourcePathBuffer = SourceForm.GetSourcePathBuffer();
-		std::array<char, 512>& SourceDestinationBuffer = SourceForm.GetDestinationBuffer();
+		std::array<char, 512> SourcePathBuffer{};
 		FMeshCoordinateImportModel Coordinates;
-		EMountedSourceImportMode& SourceMode = SourceForm.GetMode();
 	};
 } // namespace Durin::Editor::StaticMesh

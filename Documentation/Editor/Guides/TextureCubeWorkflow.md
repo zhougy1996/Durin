@@ -7,14 +7,14 @@ Summary: Import, inspect, and use six-face or equirectangular TextureCube assets
 Open the Content Browser `Import` menu, choose `Texture...`, and select
 `Texture Cube` as the asset type. Then select one source layout:
 
-- `Six Faces` accepts one mounted source for each face in
+- `Six Faces` accepts one ordinary source file for each face in
   `+X/-X/+Y/-Y/+Z/-Z` order.
 - `Equirectangular Panorama` accepts one PNG, JPEG, BMP, TGA, or Radiance HDR
   source.
 
-Switching layouts retains the current inputs for both modes. Each layout lets
-you reference an existing mounted source without copying it or ingest an
-external source into an explicitly selected writable content destination.
+Switching layouts retains the current inputs for both modes. Sources may be
+project-relative or external absolute files; the editor reads them in place
+and does not copy them into Content.
 
 For a panorama, face dimension zero selects the `Width / 4` default. Explicit
 dimensions must be in `[1, 4096]`. Exposure is available only for HDR input and
@@ -30,9 +30,8 @@ mip count, projection convention, and the resulting LDR format.
 Content Browser cards label the asset as `Texture Cube`. Selection details show
 the active layout, authoritative source, original panorama dimensions when
 applicable, face override, exposure, output dimensions, mip count, and format.
-Reimport reads the persisted sources without rewriting them. Source-reference
-changes, repair, shared replacement, and multi-package relocation remain
-explicit operations with impact preview and transactional rollback.
+Reimport reads the persisted sources without rewriting them. Moving,
+duplicating, or deleting the asset never mutates those source files.
 
 ## Use A Sky Box
 

@@ -1,6 +1,6 @@
 #include "MaterialTestSupport.h"
-#include "AssetForge/ImportService.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
+#include "AssetForge/Builtins/StaticMeshImportData.h"
 #include "DObject/Package.h"
 #include "NativeTestSupport.h"
 #include "Texture/TextureBuildOperations.h"
@@ -13,22 +13,6 @@ namespace
 		Durin::FMaterialProgramValidationResult Validation;
 		return Material.SetMaterialProgram(
 			Durin::MakeLegacyExpandedMaterialProgram(), Validation);
-	}
-
-	auto WaitForStaticMeshRecovery(
-		const Durin::FAssetPath& AssetPath,
-		double TimeoutSeconds = 10.0) -> bool
-	{
-		auto& Service = Durin::AssetForge::GetImportService();
-		const auto Deadline = std::chrono::steady_clock::now()
-			+ std::chrono::duration<double>(TimeoutSeconds);
-		while (Service.HasActiveImportClaim(AssetPath.ToString())
-			&& std::chrono::steady_clock::now() < Deadline)
-		{
-			(void)Service.PumpImportOperations();
-			std::this_thread::sleep_for(std::chrono::milliseconds(1));
-		}
-		return !Service.HasActiveImportClaim(AssetPath.ToString());
 	}
 
 	auto RelocateAssetForTest(
@@ -114,17 +98,20 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 		Source.generic_string(), "/StaticMeshSourceProvenance/Environment/Mesh");
 	ASSERT_TRUE(Import) << Import.Message;
 	ASSERT_NE(Import.Asset, nullptr);
-	const Durin::FStaticMeshSourceImportData& Provenance = Import.Asset->GetSourceImportData();
-	EXPECT_EQ(Provenance.SourcePath.Path,
-		"/StaticMeshSourceProvenance/Models/Environment/Mesh.gltf");
-	EXPECT_EQ(Provenance.SourceContentHash.size(), 32u);
-	EXPECT_EQ(Provenance.ImporterId, "Assimp");
-	EXPECT_EQ(Provenance.ImporterVersion, 3u);
-	const std::string OriginalSourcePath = Provenance.SourcePath.Path;
-	const std::filesystem::path StoredSource =
-		Root / "Content/Models/Environment/Mesh.gltf";
+	const auto* ImportData = dynamic_cast<const Durin::AssetForge::Builtins::DStaticMeshImportData*>(
+		Import.Asset->GetAssetImportData());
+	ASSERT_NE(ImportData, nullptr);
+	const Durin::AssetImport::FSourceFile* ImportedSource = Import.Asset->GetImportedSource();
+	ASSERT_NE(ImportedSource, nullptr);
+	EXPECT_TRUE(ImportedSource->Filename.ends_with("MultiSection.gltf"));
+	EXPECT_EQ(ImportedSource->GetContentHash().ToString().size(), 32u);
+	EXPECT_EQ(ImportData->GetImporterId(), "Assimp");
+	EXPECT_EQ(ImportData->GetImporterVersion(), 3u);
+	const std::string OriginalSourcePath = ImportedSource->Filename;
+	const std::filesystem::path StoredSource = Source;
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
-	EXPECT_FALSE(std::filesystem::exists(Root / "Content" / "Environment" / "Mesh.gltf"));
+	EXPECT_FALSE(std::filesystem::exists(
+		Root / "Content/Models/Environment/Mesh.gltf"));
 	EXPECT_EQ(Durin::AssetForge::Builtins::InspectStaticMeshSource(*Import.Asset).Status,
 		Durin::EStaticMeshSourceStatus::Available);
 
@@ -134,7 +121,8 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSourceProvenance/Moved/Mesh", NewPath));
 	ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
-	EXPECT_EQ(Import.Asset->GetSourceImportData().SourcePath.Path, OriginalSourcePath);
+	ASSERT_NE(Import.Asset->GetImportedSource(), nullptr);
+	EXPECT_EQ(Import.Asset->GetImportedSource()->Filename, OriginalSourcePath);
 	EXPECT_EQ(Durin::AssetForge::Builtins::InspectStaticMeshSource(*Import.Asset).Status,
 		Durin::EStaticMeshSourceStatus::Available);
 
@@ -143,69 +131,6 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 	EXPECT_TRUE(Analysis.CompanionFiles.empty());
 	ASSERT_TRUE(DeleteAssetClosureForTest({OldPath, NewPath}));
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
-}
-
-TEST(FStaticMeshMaterialTests, StaticMeshWithoutSourceMetadataLoadsAndMissingSourceCanBeRepaired)
-{
-	InitializeDObjectSystem();
-	const std::filesystem::path Root =
-		Durin::Testing::GetTestWorkDirectory() / "StaticMeshSourceRepair";
-	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::PathUtilities::RegisterMountPointForTests(
-		"/StaticMeshSourceRepair/", (Root / "Content").generic_string() + "/");
-
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSourceRepair/Mesh", AssetPath));
-	Durin::DStaticMesh* Mesh = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(AssetPath, Mesh));
-	ASSERT_EQ(Durin::AssetForge::Builtins::InspectStaticMeshSource(*Mesh).Status,
-		Durin::EStaticMeshSourceStatus::NoSource);
-	ASSERT_TRUE(Durin::Asset::SavePackage(Mesh->GetPackage()));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
-
-	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Mesh));
-	ASSERT_NE(Mesh, nullptr);
-	EXPECT_EQ(Mesh->GetRenderData(), nullptr);
-	auto* SourceImportProperty = Mesh->GetClass()->FindPropertyByName("SourceImportData");
-	ASSERT_NE(SourceImportProperty, nullptr);
-	auto* SourceImportData = static_cast<Durin::FStaticMeshSourceImportData*>(
-		SourceImportProperty->GetValuePtr(Mesh));
-	SourceImportData->SourcePath.Path = "../Outside.gltf";
-	EXPECT_EQ(Durin::AssetForge::Builtins::InspectStaticMeshSource(*Mesh).Status,
-		Durin::EStaticMeshSourceStatus::Invalid);
-	*SourceImportData = {};
-	std::string RepairError;
-	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-	ASSERT_TRUE(Durin::AssetForge::Builtins::IngestAndChangeStaticMeshSource(*Mesh,
-		Source.generic_string(), "/StaticMeshSourceRepair/Models/Mesh.gltf",
-		RepairError)) << RepairError;
-	ASSERT_NE(Mesh->GetRenderData(), nullptr);
-	EXPECT_EQ(Durin::AssetForge::Builtins::InspectStaticMeshSource(*Mesh).Status,
-		Durin::EStaticMeshSourceStatus::Available);
-	EXPECT_EQ(Mesh->GetSourceImportData().SourcePath.Path,
-		"/StaticMeshSourceRepair/Models/Mesh.gltf");
-	ASSERT_TRUE(Durin::Asset::SavePackage(Mesh->GetPackage()));
-
-	const std::filesystem::path StoredSource = Root / "Content/Models/Mesh.gltf";
-	const std::string OriginalHash = Mesh->GetSourceImportData().SourceContentHash;
-	WriteStaticMeshSlotVariant(StoredSource, R"({ "name": "Blue" }, { "name": "Red" })");
-	ASSERT_TRUE(Mesh->PostLoad(RepairError)) << RepairError;
-	ASSERT_TRUE(WaitForStaticMeshRecovery(AssetPath));
-	EXPECT_NE(Mesh->GetSourceImportData().SourceContentHash, OriginalHash);
-	EXPECT_TRUE(Mesh->GetPackage()->IsDirty());
-	ASSERT_TRUE(std::filesystem::remove(StoredSource));
-	const Durin::FStaticMeshSourceDiagnostic Missing =
-		Durin::AssetForge::Builtins::InspectStaticMeshSource(*Mesh);
-	EXPECT_EQ(Missing.Status, Durin::EStaticMeshSourceStatus::Missing);
-	EXPECT_NE(Missing.Message.find("source-path repair"), std::string::npos);
-	ASSERT_TRUE(Durin::AssetForge::Builtins::IngestAndChangeStaticMeshSource(*Mesh,
-		Source.generic_string(), "/StaticMeshSourceRepair/Models/Mesh.gltf",
-		RepairError)) << RepairError;
-	EXPECT_EQ(Durin::AssetForge::Builtins::InspectStaticMeshSource(*Mesh).Status,
-		Durin::EStaticMeshSourceStatus::Available);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(
-		AssetPath,
-		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 
 TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotDefinitionsRoundTripWithDefaults)
@@ -268,7 +193,12 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 
 	auto ImportBase = [&](std::string_view Name) -> Durin::DStaticMesh* {
 		const std::string AssetPath = std::format("/StaticMeshSlotReimport/{}", Name);
-		Durin::FStaticMeshImportResult Import = Durin::AssetForge::Builtins::ImportStaticMeshAsset(BaseSource.generic_string(), AssetPath);
+		const std::filesystem::path SourcePath =
+			Root / "Models" / (std::string(Name) + ".gltf");
+		std::filesystem::create_directories(SourcePath.parent_path());
+		std::filesystem::copy_file(BaseSource, SourcePath,
+			std::filesystem::copy_options::overwrite_existing);
+		Durin::FStaticMeshImportResult Import = Durin::AssetForge::Builtins::ImportStaticMeshAsset(SourcePath.generic_string(), AssetPath);
 		EXPECT_TRUE(Import) << Import.Message;
 		return Import.Asset;
 	};
@@ -278,11 +208,8 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 		const std::filesystem::path SourcePath = Root / "Models" / (std::string(Name) + ".gltf");
 		WriteStaticMeshSlotVariant(SourcePath, Materials, Replacement, LastOnly, AppendedMaterialIndex);
 		std::string Error;
-		ASSERT_TRUE(Mesh->PostLoad(Error)) << Error;
-		Durin::FAssetPath AssetPath;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
-			Mesh->GetPackage()->GetPackagePath(), AssetPath));
-		ASSERT_TRUE(WaitForStaticMeshRecovery(AssetPath));
+		ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMeshSource(
+			*Mesh, {}, Error)) << Error;
 	};
 
 	Durin::DStaticMesh* Reordered = ImportBase("Reordered");
@@ -310,7 +237,12 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 	Durin::DStaticMesh* Renamed = ImportBase("Renamed");
 	ASSERT_NE(Renamed, nullptr);
 	std::string RenameError;
-	auto* PreservedDefault = Durin::NewObject<Durin::DMaterial>(nullptr, "PreservedSlotDefault");
+	Durin::FAssetPath PreservedDefaultPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/StaticMeshSlotReimport/PreservedSlotDefault", PreservedDefaultPath));
+	Durin::DMaterial* PreservedDefault = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(PreservedDefaultPath, PreservedDefault));
+	ASSERT_TRUE(Durin::Asset::SavePackage(PreservedDefault->GetPackage()));
 	ASSERT_TRUE(Renamed->SetImportedDefaultMaterial(0, PreservedDefault, RenameError)) << RenameError;
 	ASSERT_TRUE(Renamed->RenameMaterialSlot(0, Durin::FName("Body"), RenameError)) << RenameError;
 	Rebuild(Renamed, "Renamed", R"({ "name": "Crimson" }, { "name": "Blue" })");
@@ -368,7 +300,11 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotEndToEnd/RedOverride", MaterialPath));
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotEndToEnd/Component", ComponentPath));
 	const std::filesystem::path BaseSource = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
-	Durin::FStaticMeshImportResult Import = Durin::AssetForge::Builtins::ImportStaticMeshAsset(BaseSource.generic_string(), MeshPath.ToString());
+	const std::filesystem::path MutableSource = Root / "Models/Mesh.gltf";
+	std::filesystem::create_directories(MutableSource.parent_path());
+	std::filesystem::copy_file(BaseSource, MutableSource,
+		std::filesystem::copy_options::overwrite_existing);
+	Durin::FStaticMeshImportResult Import = Durin::AssetForge::Builtins::ImportStaticMeshAsset(MutableSource.generic_string(), MeshPath.ToString());
 	ASSERT_TRUE(Import) << Import.Message;
 	const Durin::FMeshMaterialSlotDefinition* RedSlot =
 		Import.Asset->FindMaterialSlot(Durin::FName("Red"));
@@ -408,10 +344,10 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	ASSERT_NE(Component->GetStaticMesh(), nullptr);
 	ASSERT_EQ(Component->GetMaterial(RedIndex)->GetPackage()->GetPackagePath(), MaterialPath.ToString());
 	WriteStaticMeshSlotVariant(
-		Root / "Models/Mesh.gltf", R"({ "name": "Blue" }, { "name": "Red" })");
+		MutableSource, R"({ "name": "Blue" }, { "name": "Red" })");
 	std::string ReimportError;
-	ASSERT_TRUE(Component->GetStaticMesh()->PostLoad(ReimportError)) << ReimportError;
-	ASSERT_TRUE(WaitForStaticMeshRecovery(MeshPath));
+	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMeshSource(
+		*Component->GetStaticMesh(), {}, ReimportError)) << ReimportError;
 	ASSERT_EQ(Component->GetStaticMesh()->GetMaterialIndex(Durin::FName("Red")), RedIndex);
 	EXPECT_EQ(Component->GetStaticMesh()->GetMaterialSlot(RedIndex)->SourceMaterialIndex, 1u);
 	const auto& ReimportedSections =
@@ -463,7 +399,10 @@ TEST(FStaticMeshMaterialTests, StaticMeshImportSettingsPersistAcrossSourceRebuil
 		Source.generic_string(), "/MeshAxisImportTests/AsymmetricAxes", Settings);
 	ASSERT_TRUE(ImportResult) << ImportResult.Message;
 	ASSERT_NE(ImportResult.Asset, nullptr);
-	EXPECT_EQ(ImportResult.Asset->GetImportSettings(), Settings);
+	const auto* ImportData = dynamic_cast<const Durin::AssetForge::Builtins::DStaticMeshImportData*>(
+		ImportResult.Asset->GetAssetImportData());
+	ASSERT_NE(ImportData, nullptr);
+	EXPECT_EQ(ImportData->GetImportSettings(), Settings);
 	ASSERT_NE(ImportResult.Asset->GetRenderData(), nullptr);
 	ASSERT_EQ(ImportResult.Asset->GetRenderData()->LODResources.size(), 1u);
 	const std::vector<Durin::FVector3f> ImportedPositions =
@@ -477,7 +416,10 @@ TEST(FStaticMeshMaterialTests, StaticMeshImportSettingsPersistAcrossSourceRebuil
 	Durin::DStaticMesh* Loaded = nullptr;
 	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
 	ASSERT_NE(Loaded, nullptr);
-	EXPECT_EQ(Loaded->GetImportSettings(), Settings);
+	const auto* LoadedImportData = dynamic_cast<const Durin::AssetForge::Builtins::DStaticMeshImportData*>(
+		Loaded->GetAssetImportData());
+	ASSERT_NE(LoadedImportData, nullptr);
+	EXPECT_EQ(LoadedImportData->GetImportSettings(), Settings);
 	ASSERT_NE(Loaded->GetRenderData(), nullptr);
 	ASSERT_EQ(Loaded->GetRenderData()->LODResources.size(), 1u);
 	const auto& ReloadedPositions =

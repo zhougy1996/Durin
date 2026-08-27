@@ -3,8 +3,6 @@
 #include "Animation/AnimationClip.h"
 #include "DObject/Package.h"
 #include "AssetForge/Builtins/ImportedScene.h"
-#include "AssetForge/ImportService.h"
-#include "Asset/MountedSource.h"
 #include "Asset.h"
 #include "Image/ImageDecoder.h"
 #include "HAL/PlatformProcess.h"
@@ -18,14 +16,11 @@
 #include "SkeletalMesh/SkeletalDerivedData.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/Skeleton.h"
-#include "AssetForgeBuiltinsProviders.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
-#include "Texture2DBuildAdapter.h"
 #include "StaticMeshImportAdapter.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
-#include "Threading/Task.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -432,7 +427,8 @@ namespace Durin::AssetForge::Builtins
 				std::vector<FImportDiagnostic>& OutDiagnostics) const -> bool
 			{
 				auto CheckCanceled = [&]() -> bool {
-					if (!IsImportCancellationRequested()) return false;
+					if (!::Durin::AssetForge::Builtins::Private::IsSceneImportCancellationRequested())
+						return false;
 					AddDiagnostic(OutDiagnostics, EImportDiagnosticCategory::Canceled,
 						"scene-parse", "Scene import preparation was canceled.", "root");
 					return true;
@@ -905,14 +901,14 @@ namespace Durin::AssetForge::Builtins
 		FSceneGraphPlanner Planner;
 		if (!Planner.Plan(Snapshot, Payload, Result, OutDiagnostics))
 		{
-			if (OutError.empty()) OutError = "Scene AssetForge translation failed.";
+			if (OutError.empty()) OutError = "Scene translation failed.";
 			return false;
 		}
 		OutData = std::move(Result.Data);
 		OutOutputs = std::move(Result.Outputs);
 		if (!OutData)
 		{
-			OutError = "Scene AssetForge translation produced no immutable plan data.";
+			OutError = "Scene translation produced no immutable plan data.";
 			return false;
 		}
 		OutError.clear();
@@ -979,237 +975,6 @@ namespace Durin::AssetForge::Builtins
 			return false;
 		OutError.clear();
 		return true;
-	}
-
-	auto RollbackSceneSourceBundle(FPreparedSceneSourceBundle& Bundle) -> void
-	{
-		for (auto It = Bundle.Sources.rbegin(); It != Bundle.Sources.rend(); ++It)
-			RollbackMountedSourceFile(*It);
-		Bundle = {};
-	}
-
-	auto CommitSceneSourceBundle(FPreparedSceneSourceBundle& Bundle) -> void
-	{
-		for (FMountedSourceFile& Source : Bundle.Sources)
-			CommitMountedSourceFile(Source);
-	}
-
-	auto PrepareSceneSourceBundleImpl(
-		const std::filesystem::path& InputRoot,
-		std::string_view ReferencingContentPath,
-		std::string_view ExternalIngestDestination,
-		FPreparedSceneSourceBundle& OutBundle,
-		std::string& OutError,
-		bool bAllowEngineContentWrite,
-		const std::function<bool()>& IsCancellationRequested) -> bool
-	{
-		OutBundle = {};
-		if (IsCancellationRequested && IsCancellationRequested())
-		{
-			OutError = "Scene source preparation was canceled.";
-			return false;
-		}
-		FScopedMountedSourceFile Root;
-		if (!PrepareMountedSourceFile(InputRoot, ReferencingContentPath,
-			ExternalIngestDestination, Root, OutError,
-			bAllowEngineContentWrite
-				? EMountedSourceMutationContext::EngineContentWrite
-				: EMountedSourceMutationContext::DependencySafe)) return false;
-		OutBundle.RootSource = Root.SourcePath;
-		OutBundle.Sources.push_back(std::move(Root));
-		if (IsCancellationRequested && IsCancellationRequested())
-		{
-			RollbackSceneSourceBundle(OutBundle);
-			OutError = "Scene source preparation was canceled.";
-			return false;
-		}
-		const std::string Extension = FoldAscii(
-			InputRoot.extension().generic_string());
-		if (Extension != ".gltf") return true;
-
-		std::vector<std::byte> RootBytes;
-		if (!FFileHelper::LoadFileToArray(RootBytes, InputRoot)
-			|| RootBytes.size() > MaxImportedSceneSourceBytes)
-		{
-			RollbackSceneSourceBundle(OutBundle);
-			OutError = "The glTF root source cannot be read or exceeds the source limit.";
-			return false;
-		}
-		const std::filesystem::path InputParent =
-			std::filesystem::absolute(InputRoot).lexically_normal().parent_path();
-		const std::filesystem::path TargetParent =
-			std::filesystem::path(OutBundle.RootSource.Path).parent_path();
-		const bool bVisited = VisitGltfUris(RootBytes,
-			[&](std::string_view Uri, uint32) {
-				if (IsCancellationRequested && IsCancellationRequested())
-				{
-					OutError = "Scene source preparation was canceled.";
-					return false;
-				}
-				const std::filesystem::path Relative =
-					std::filesystem::path(Uri).lexically_normal();
-				if (Relative.empty() || Relative.is_absolute()
-					|| std::ranges::find(Relative, std::filesystem::path(".."))
-						!= Relative.end())
-				{
-					OutError = std::format(
-						"glTF dependency '{}' escapes the source document directory.", Uri);
-					return false;
-				}
-				FScopedMountedSourceFile Dependency;
-				if (!PrepareMountedSourceFile(
-					InputParent / Relative, ReferencingContentPath,
-					(TargetParent / Relative).generic_string(), Dependency, OutError,
-					bAllowEngineContentWrite
-						? EMountedSourceMutationContext::EngineContentWrite
-						: EMountedSourceMutationContext::DependencySafe))
-					return false;
-				OutBundle.Sources.push_back(std::move(Dependency));
-				return true;
-			});
-		if (!bVisited)
-		{
-			RollbackSceneSourceBundle(OutBundle);
-			if (OutError.empty())
-				OutError = "glTF dependency discovery found an unsafe or unsupported URI.";
-			return false;
-		}
-		return true;
-	}
-
-	auto PrepareSceneSourceBundle(
-		const std::filesystem::path& InputRoot,
-		std::string_view ReferencingContentPath,
-		std::string_view ExternalIngestDestination,
-		FPreparedSceneSourceBundle& OutBundle,
-		std::string& OutError,
-		bool bAllowEngineContentWrite) -> bool
-	{
-		return PrepareSceneSourceBundleImpl(
-			InputRoot, ReferencingContentPath, ExternalIngestDestination,
-			OutBundle, OutError, bAllowEngineContentWrite, {});
-	}
-
-	struct FSceneSourceBundleAsyncState
-	{
-		struct FResult
-		{
-			bool bSucceeded = false;
-			FPreparedSceneSourceBundle Bundle;
-			std::string Error;
-		};
-
-		mutable std::mutex Mutex;
-		FTaskCancellationSource Cancellation;
-		FTaskScope Scope;
-		FTaskHandle Task;
-		EAsyncImportPlanStatus Status = EAsyncImportPlanStatus::Pending;
-		std::optional<FResult> Result;
-		bool bConsumed = false;
-	};
-
-	auto BeginSceneSourceBundlePreparation(
-		std::filesystem::path InputRoot,
-		std::string ReferencingContentPath,
-		std::string ExternalIngestDestination,
-		bool bAllowEngineContentWrite) -> FSceneSourceBundleAsyncHandle
-	{
-		auto State = std::make_shared<FSceneSourceBundleAsyncState>();
-		State->Scope = CreateTaskScope();
-		FTaskLaunchOptions LaunchOptions;
-		LaunchOptions.CancellationToken = State->Cancellation.GetToken();
-		LaunchOptions.Scope = State->Scope.GetToken();
-		static const FTaskAttribution Attribution =
-			RegisterTaskAttribution("AssetImport", "SceneSourceCapture");
-		LaunchOptions.Attribution = Attribution;
-		auto Producer = LaunchUniqueCancelableTask<FSceneSourceBundleAsyncState::FResult>(
-			"AssetImport.SceneSourceCapture",
-			[State, InputRoot = std::move(InputRoot),
-				ReferencingContentPath = std::move(ReferencingContentPath),
-				ExternalIngestDestination = std::move(ExternalIngestDestination),
-				bAllowEngineContentWrite](const FTaskCancellationToken&) mutable {
-				const FScopedImportWorkerPreparation WorkerPreparation;
-				FSceneSourceBundleAsyncState::FResult Result;
-				Result.bSucceeded = PrepareSceneSourceBundleImpl(
-					InputRoot, ReferencingContentPath, ExternalIngestDestination,
-					Result.Bundle, Result.Error, bAllowEngineContentWrite,
-					[State] { return State->Cancellation.IsCancellationRequested(); });
-				return Result;
-			}, LaunchOptions, 4ull * 1'024ull * 1'024ull);
-		if (!Producer.IsValid())
-		{
-			(void)State->Scope.Close(ETaskScopeCloseMode::Cancel);
-			State->Status = EAsyncImportPlanStatus::Rejected;
-			State->Result = FSceneSourceBundleAsyncState::FResult{
-				.Error = "The task scheduler rejected Scene source preparation."};
-			return FSceneSourceBundleAsyncHandle(std::move(State));
-		}
-		const FTaskHandle ProducerTask = Producer.GetTaskHandle();
-		State->Task = ConsumeThenOutcome(
-			std::move(Producer), "AssetImport.PublishSceneSourceCapture",
-			[State](FUniqueTaskOutcome<FSceneSourceBundleAsyncState::FResult>&& Outcome) {
-				std::lock_guard Lock(State->Mutex);
-				if (Outcome.State == ETaskState::Succeeded && Outcome.Result)
-				{
-					State->Result = std::move(*Outcome.Result);
-					State->Status = State->Result->bSucceeded
-						? EAsyncImportPlanStatus::Succeeded
-						: State->Cancellation.IsCancellationRequested()
-							? EAsyncImportPlanStatus::Canceled
-							: EAsyncImportPlanStatus::Failed;
-				}
-				else
-				{
-					State->Status = Outcome.State == ETaskState::Canceled
-						? EAsyncImportPlanStatus::Canceled : EAsyncImportPlanStatus::Failed;
-					State->Result = FSceneSourceBundleAsyncState::FResult{.Error =
-						Outcome.Diagnostic.empty()
-							? "Scene source preparation did not produce a result."
-							: std::move(Outcome.Diagnostic)};
-				}
-				(void)State->Scope.Close(ETaskScopeCloseMode::Drain);
-			});
-		if (!State->Task.IsValid())
-		{
-			State->Cancellation.RequestCancellation();
-			(void)CancelTask(ProducerTask);
-			(void)State->Scope.Close(ETaskScopeCloseMode::Cancel);
-			State->Status = EAsyncImportPlanStatus::Rejected;
-			State->Result = FSceneSourceBundleAsyncState::FResult{
-				.Error = "The task scheduler rejected Scene source result publication."};
-		}
-		return FSceneSourceBundleAsyncHandle(std::move(State));
-	}
-
-	auto PollSceneSourceBundlePreparation(
-		FSceneSourceBundleAsyncHandle& Handle,
-		FPreparedSceneSourceBundle& OutBundle,
-		std::string& OutError) -> EAsyncImportPlanStatus
-	{
-		if (!Handle.State) return EAsyncImportPlanStatus::Invalid;
-		std::lock_guard Lock(Handle.State->Mutex);
-		const EAsyncImportPlanStatus Status = Handle.State->Status;
-		if (Status == EAsyncImportPlanStatus::Pending || Handle.State->bConsumed)
-			return Status;
-		if (Handle.State->Result)
-		{
-			OutBundle = std::move(Handle.State->Result->Bundle);
-			OutError = std::move(Handle.State->Result->Error);
-		}
-		Handle.State->Result.reset();
-		Handle.State->bConsumed = true;
-		return Status;
-	}
-
-	auto CancelAndDrainSceneSourceBundlePreparation(
-		FSceneSourceBundleAsyncHandle& Handle) -> void
-	{
-		if (!Handle.State) return;
-		Handle.State->Cancellation.RequestCancellation();
-		if (Handle.State->Task.IsValid()) (void)CancelTask(Handle.State->Task);
-		(void)Handle.State->Scope.Close(ETaskScopeCloseMode::Cancel);
-		(void)Handle.State->Scope.Wait();
-		Handle.State.reset();
 	}
 
 }

@@ -1,8 +1,6 @@
 #include "Assets/TerrainHeightmapImportDialog.h"
 
 #include "Editor/Import/AssetDestinationValidation.h"
-#include "Editor/Import/MountedSourceImport.h"
-#include "Asset/MountedSource.h"
 #include "Asset.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Project.h"
@@ -138,8 +136,6 @@ namespace Durin::Editor::Level
 	{
 		Callbacks.Clear();
 		const std::filesystem::path Source(SourcePathBuffer.data());
-		const std::string SourceDestination = MakeDefaultImportedSourceVirtualPath(
-			Destination.GetPath(), "TerrainHeightmaps", Source.filename().generic_string());
 		FAssetPath AssetPath;
 		std::string Error;
 		if (!FAssetPath::TryCreate(Destination.GetPath(), AssetPath, &Error))
@@ -147,28 +143,17 @@ namespace Durin::Editor::Level
 			SetError(std::move(Error));
 			return false;
 		}
-		const std::string Path = AssetPath.ToString();
-		const FImportDialogCallbacks CompletionCallbacks = Callbacks;
-		AssetForge::FImportHandle Handle = AssetForge::Builtins::SubmitTerrainHeightmapImport(
-			Source.generic_string(), AssetPath, SourceDestination,
-			IsEngineContentWriteDestination(Destination.GetPath()),
-			[CompletionCallbacks, Path](const AssetForge::FImportResult& Result) {
-				if (Result.Outcome.State == AssetForge::EImportOperationState::Succeeded)
-				{
-					CompletionCallbacks.NotifyImported(Path);
-					FAssetPath ImportedPath;
-					if (FAssetPath::TryCreate(Path, ImportedPath)) Asset::UnloadPackage(ImportedPath);
-				}
-				else CompletionCallbacks.Report(Result.Outcome.Diagnostic.empty()
-					? "Terrain heightmap AssetForge import failed." : Result.Outcome.Diagnostic);
-			}, Error);
-		if (!Handle)
+		const FTerrainHeightmapImportResult Result =
+			AssetForge::Builtins::ImportTerrainHeightmapAsset(
+				Source.generic_string(), AssetPath.ToString());
+		if (!Result)
 		{
-			SetError(std::move(Error));
+			SetError(Result.Message.empty()
+				? "Terrain heightmap import failed." : Result.Message);
 			return false;
 		}
-		Callbacks.NotifyImportStarted(Handle.GetOperationHandle(),
-			std::format("Import Terrain Heightmap {}", AssetPath.GetAssetName()));
+		Callbacks.NotifyImported(AssetPath.ToString());
+		Asset::UnloadPackage(AssetPath);
 		return true;
 	}
 

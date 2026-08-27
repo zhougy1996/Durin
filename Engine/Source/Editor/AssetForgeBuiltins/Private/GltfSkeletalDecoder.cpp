@@ -1,6 +1,5 @@
 #include "GltfSkeletalDecoder.h"
 
-#include "AssetForge/Operations/ImportOperation.h"
 #include "Math/Operations.h"
 
 namespace Durin::AssetForge::Builtins::Private

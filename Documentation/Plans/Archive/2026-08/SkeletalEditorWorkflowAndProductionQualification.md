@@ -452,7 +452,7 @@ Implementation commit: `e17ea057` (`feat(skeletal-editor): add production asset 
 - [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
 - [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
 - [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
-- [Mounted Source Workflows](../../../Editor/Guides/MountedSourceWorkflows.md)
+- [Mounted Source Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
 - [StaticMesh Inspector](../../../Editor/Guides/StaticMeshInspector.md)
 - [Skeletal Animation Playback](../../../Runtime/Animation/SkeletalAnimationPlayback.md)
 - [Skeletal Mesh Rendering](../../../Runtime/Rendering/SkeletalMeshRendering.md)

@@ -1207,7 +1207,7 @@ Dependencies: Stage 5 complete authoring workflow.
 - [Workspace Projects](../../../Workspace/WorkspaceProjects.md)
 - [Level System](../../../Runtime/World/LevelSystem.md)
 - [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
-- [Mounted Source Workflows](../../../Editor/Guides/MountedSourceWorkflows.md)
+- [Mounted Source Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
 - [Soft Asset References Plan](SoftAssetReferences.md) — completed historical
   implementation evidence only; its move contract is replaced by this plan.
 - [Compact Asset Serialization Roadmap](../../../Roadmaps/Archive/2026-08/CompactAssetSerialization.md)

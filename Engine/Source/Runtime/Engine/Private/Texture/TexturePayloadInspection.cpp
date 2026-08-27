@@ -182,18 +182,8 @@ namespace Durin
 				{
 					bHasSource = true;
 					SourceBytes = Source->ByteCount;
-					SourcePath = Source->SourcePath.Path;
+					SourcePath = Source->Filename;
 				}
-			}
-			else
-			{
-				ReadScalar(Package, "SourceFileSize", SourceBytes);
-				FTexture2DSourceImportData ImportData;
-				const Asset::FAssetPackageField* ImportField = Package.FindField("SourceImportData");
-				bHasSource = ImportField && ImportField->TryReadStruct(
-					FTexture2DSourceImportData::StaticStruct(), &ImportData)
-					&& ImportData.HasSource();
-				if (bHasSource) SourcePath = ImportData.Source.SourcePath.Path;
 			}
 			OutInspection.Entries.push_back({
 				.Domain = "Texture2D", .Stage = ETexturePayloadStage::Source,
@@ -203,11 +193,11 @@ namespace Durin
 				.LogicalElementCount = Multiply(Width, Height),
 				.LogicalByteCount = SourceBytes,
 				.StoredByteCount = SourceBytes,
-				.Placement = "MountedSource",
+				.Placement = "SourceFile",
 				.Provenance = std::move(SourcePath),
 				.Diagnostic = bHasSource
-					? "Source identity is present; availability requires a live source mount."
-					: "No mounted source identity is present."});
+					? "Source identity is present; availability requires resolving its filename."
+					: "No source-file identity is present."});
 			OutInspection.Entries.push_back({
 				.Domain = "Texture2D", .Stage = ETexturePayloadStage::DerivedData,
 				.State = ETexturePayloadState::Unknown,
@@ -332,7 +322,7 @@ namespace Durin
 			.LogicalElementCount = Multiply(Texture.GetSourceWidth(), Texture.GetSourceHeight()),
 			.LogicalByteCount = Texture.GetSourceFileSize(),
 			.StoredByteCount = Texture.GetSourceFileSize(),
-			.Placement = "MountedSource",
+			.Placement = "SourceFile",
 			.Provenance = Texture.GetSourceFile(),
 			.Diagnostic = SourceDiagnostic.Message});
 		const FTextureDerivedDataDiagnostic& Derived = Texture.GetDerivedDataDiagnostic();
@@ -398,7 +388,7 @@ namespace Durin
 			.StoredByteCount = SourceDescriptor.LogicalByteCount,
 			.PayloadId = SourceDescriptor.PayloadId,
 			.Placement = "EditorPackage",
-			.Provenance = Texture.GetSourceImportData().SourceFile});
+			.Provenance = Texture.GetSourceFile()});
 		const bool bDerivedReady = Texture.GetPlatformData() && Texture.GetPlatformData()->IsValid()
 			&& !Texture.GetDerivedDataKey().empty();
 		Result.Entries.push_back({

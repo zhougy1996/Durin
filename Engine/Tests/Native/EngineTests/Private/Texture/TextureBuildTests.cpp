@@ -506,7 +506,7 @@ TEST(FTexture2DTests, CompilationPublishesLatestNormalizedProduct)
 			.SourceContentHashHigh = SourceHash.HashHigh,
 			.Settings = {.MaxResolution = 1}},
 		.Publication = {
-			.SourcePath = {.Path = Imported.Asset->GetSourceFile()},
+			.SourceFilename = Imported.Asset->GetSourceFile(),
 			.DecoderId = "DurinImage",
 			.DecoderVersion = 1,
 			.SourceFileSize = sizeof(TransparentPngBytes)},
@@ -551,7 +551,7 @@ TEST(FTexture2DTests, AsyncCompilationReportsFailureAndSupersessionOnce)
 				.SourceContentHashHigh = SourceHash.HashHigh,
 				.Settings = {.MaxResolution = 1}},
 			.Publication = {
-				.SourcePath = {.Path = Imported.Asset->GetSourceFile()},
+				.SourceFilename = Imported.Asset->GetSourceFile(),
 				.DecoderId = "DurinImage",
 				.DecoderVersion = 1,
 				.SourceFileSize = sizeof(TransparentPngBytes)},

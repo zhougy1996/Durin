@@ -23,7 +23,6 @@ namespace Durin::Asset
 	struct FTexture2DCompilationWork
 	{
 		std::string AssetIdentity;
-		FSourcePath SourcePath;
 		FTextureSourceData SourceData;
 		FXxHash128 SourceHash;
 		FTexture2DBuildSettingsSnapshot Settings;
@@ -39,7 +38,6 @@ namespace Durin::Asset
 		uint64 RequestId = 0;
 		uint64 Generation = 0;
 		std::string AssetIdentity;
-		FSourcePath SourcePath;
 		FXxHash128 SourceHash;
 		FTexture2DBuildSettingsSnapshot Settings;
 		std::unique_ptr<FTextureSourceData> SourceData;

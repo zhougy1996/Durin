@@ -4,7 +4,6 @@
     "PCH": "SharedPCH_MonaEditor",
     "PrivateDependencies": [
         "Core", "CoreDObject", "ApplicationCore", "RHI", "RenderCore",
-        "Renderer", "Engine", "AssetCore", "Mona", "MonaImGui", "DurinEd",
-        "AssetForge"
+        "Renderer", "Engine", "AssetCore", "Mona", "MonaImGui", "DurinEd"
     ]
 }

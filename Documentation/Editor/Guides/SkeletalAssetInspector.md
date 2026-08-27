@@ -8,8 +8,8 @@ Last reviewed: 2026-08-26
 
 1. In the Content Browser, open the destination directory and choose **Import >
    Scene Source (FBX/glTF)**.
-2. Select a mounted `.gltf`/`.glb` source, or ingest an external source and its
-   external buffers into a mounted source destination.
+2. Select a `.gltf`/`.glb` file. Project-relative and external absolute files
+   are read in place; contained relative buffers are captured with the root.
 3. Review the static settings and destination. Complete parsing, output
    discovery, collision checks, and construction start only after confirmation.
 4. Confirm the import. The Content Browser reveals the published output
@@ -58,6 +58,6 @@ editor module, source files, or DDC fallback.
 ## Related documentation
 
 - [Skeletal Asset Editor architecture](../Architecture/SkeletalAssetEditor.md)
-- [Mounted Source Workflows](MountedSourceWorkflows.md)
-- [Asset Import Framework](../Architecture/AssetImportFramework.md)
+- [Source File Workflows](SourceFileWorkflows.md)
+- [Asset Import Architecture](../Architecture/AssetImportFramework.md)
 - [Skeletal Animation Playback](../../Runtime/Animation/SkeletalAnimationPlayback.md)

@@ -23,7 +23,6 @@
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMeshTestAccess.h"
 #include "AssetForge/Builtins/SceneImport.h"
-#include "AssetForge/ImportService.h"
 #include "Thumbnail/AssetThumbnailProvider.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
@@ -171,24 +170,17 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			/ "StaticModelMaterials/RenderedOpaqueDataUri.gltf",
 		MountedScene,
 		std::filesystem::copy_options::overwrite_existing);
-	Durin::AssetForge::FImportRequest SceneRequest;
-	std::string SceneError;
-	ASSERT_TRUE(Durin::AssetForge::Builtins::MakeSceneImportRequest(
-		{.Path = "/SceneImportVulkan/Models/RenderedOpaqueDataUri.gltf"},
-		DestinationDirectory, Durin::FStaticMeshImportSettings::MakeDurin(),
-		{.OwnerId = "SceneImportVulkan.AssetForge"}, SceneRequest, SceneError))
-		<< SceneError;
-	const Durin::AssetForge::FImportResult Executed =
-		Durin::AssetForge::GetImportService().RunImportInline(
-			std::move(SceneRequest), "Scene Vulkan AssetForge import");
-	ASSERT_EQ(Executed.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
-		<< Executed.Outcome.Diagnostic;
-	ASSERT_EQ(Executed.Inspection.Outputs.size(), 3u);
+	Durin::AssetForge::Builtins::FSceneImportResult Executed;
+	ASSERT_TRUE(Durin::AssetForge::Builtins::ImportSceneAssets(
+		MountedScene.generic_string(),
+		DestinationDirectory, Durin::FStaticMeshImportSettings::MakeDurin(), Executed))
+		<< Executed.Message;
+	ASSERT_EQ(Executed.Outputs.size(), 3u);
 	Durin::FAssetPath MeshPath;
 	Durin::FAssetPath TexturePath;
 	Durin::FAssetPath MaterialPath;
 	for (const Durin::AssetForge::FImportOutputSummary& Output
-		: Executed.Inspection.Outputs)
+		: Executed.Outputs)
 	{
 		if (Output.AssetClassName
 			== Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString())
@@ -203,6 +195,13 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(MeshPath.IsValid());
 	ASSERT_TRUE(TexturePath.IsValid());
 	ASSERT_TRUE(MaterialPath.IsValid());
+	Durin::DMaterialInstance* LiveMaterial = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(MaterialPath, LiveMaterial));
+	ASSERT_NE(LiveMaterial, nullptr);
+	Durin::DTexture2D* LiveTexture = nullptr;
+	ASSERT_TRUE(LiveMaterial->GetTextureParameterValue(
+		Durin::MaterialParameters::BaseColorTextureName(), LiveTexture));
+	ASSERT_NE(LiveTexture, nullptr);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MaterialPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));

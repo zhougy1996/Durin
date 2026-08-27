@@ -79,7 +79,7 @@ namespace Durin::AssetForge::Builtins
 					Result,
 					ESceneImportDiagnosticCategory::UnsafeDependencyPath,
 					Options.RootSource.Path,
-					"Root source path is not a normalized mounted virtual path.");
+					"Root source path is not a normalized source filename.");
 				return Result;
 			}
 
@@ -272,7 +272,7 @@ namespace Durin::AssetForge::Builtins
 				EncodedBytes.size() > MaxImportedSceneSourceBytes
 					? ESceneImportDiagnosticCategory::ResourceLimitExceeded
 					: ESceneImportDiagnosticCategory::UnsafeDependencyPath,
-				"root", "Captured static-mesh source or mounted identity is invalid.");
+				"root", "Captured static-mesh source or filename is invalid.");
 			OutData = std::move(Result.Scene);
 			return false;
 		}

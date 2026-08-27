@@ -10,7 +10,6 @@ namespace Durin::AssetForge::Builtins
 
 	class FTerrainHeightmapAssetFeatures final
 		: public ITerrainHeightmapDerivedDataLoadFeature
-		, public ITerrainHeightmapSourceMutationFeature
 	{
 	public:
 		ASSETFORGEBUILTINS_API FTerrainHeightmapAssetFeatures();
@@ -24,11 +23,6 @@ namespace Durin::AssetForge::Builtins
 			DTerrainHeightmap& Heightmap, std::string& OutError) -> bool override;
 		ASSETFORGEBUILTINS_API auto WaitForDerivedDataLoad(
 			DTerrainHeightmap& Heightmap, std::string& OutError) -> bool override;
-		ASSETFORGEBUILTINS_API auto ChangeSourceReference(
-			DTerrainHeightmap& Heightmap,
-			std::string_view SourceVirtualPath,
-			std::string& OutError) -> bool override;
-
 	private:
 		std::unique_ptr<FTerrainHeightmapDerivedDataLoadState> State;
 	};

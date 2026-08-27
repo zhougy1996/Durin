@@ -3,7 +3,6 @@
 #include "Editor/EditorEngine.h"
 #include "Editor/Notification.h"
 #include "Editor/Transaction.h"
-#include "AssetForge/ImportService.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "MonaImGui.h"
 #include "Profiling/Profiling.h"
@@ -97,12 +96,6 @@ namespace Durin::Editor::MainFrame
 		}
 	}
 
-	FEditorNotificationOverlay::~FEditorNotificationOverlay()
-	{
-		if (ImportAggregateNotificationId && GEditor)
-			GEditor->GetNotificationManager().Dismiss(ImportAggregateNotificationId);
-	}
-
 	auto FEditorNotificationOverlay::DrawHistoryWindow() -> void
 	{
 		if (!bHistoryOpen || !GEditor) return;
@@ -113,113 +106,8 @@ namespace Durin::Editor::MainFrame
 
 	auto FEditorNotificationOverlay::UpdateNotifications(::Durin::Editor::FNotificationManager& Notifications, ::Durin::Editor::FTransactionManager& Transactions) -> void
 	{
-		UpdateImportOperations(Notifications);
 		PublishTransactionEvents(Notifications, Transactions);
 		Notifications.Tick(ImGui::GetIO().DeltaTime);
-	}
-
-	auto FEditorNotificationOverlay::RegisterImportOperation(
-		AssetForge::FImportOperationHandle Handle, std::string Title) -> void
-	{
-		if (!Handle) return;
-		const uint64 OperationId = Handle.GetOperationId();
-		if (std::ranges::any_of(ImportOperations,
-			[OperationId](const FPresentedImportOperation& Operation) {
-				return Operation.Handle.GetOperationId() == OperationId;
-			})) return;
-		ImportOperations.push_back({
-			.Handle = std::move(Handle),
-			.Title = std::move(Title)});
-	}
-
-	auto FEditorNotificationOverlay::UpdateImportOperations(
-		::Durin::Editor::FNotificationManager& Notifications) -> void
-	{
-		DURIN_PROFILE_CPU_ZONE_NAMED("AssetImport.NotificationProjection");
-		for (FPresentedImportOperation& Operation : ImportOperations)
-		{
-			DURIN_PROFILE_CPU_ZONE_NAMED("AssetImport.UIPolling");
-			const AssetForge::FImportOperationSnapshot Snapshot =
-				Operation.Handle.GetSnapshot();
-			if (!Operation.NotificationId)
-			{
-				const AssetForge::FImportOperationHandle CancelHandle = Operation.Handle;
-				Operation.NotificationId = Notifications.BeginProgress({
-					.Message = std::format("{}: {}", Operation.Title,
-						AssetForge::GetImportPhaseLabel(Snapshot.Phase)),
-					.Progress = Snapshot.Progress,
-					.Cancel = [CancelHandle] { (void)CancelHandle.RequestCancel(); },
-					.Presentation = ::Durin::Editor::ENotificationPresentation::HistoryOnly});
-			}
-			if (Operation.LastRevision == Snapshot.Revision) continue;
-			Operation.LastRevision = Snapshot.Revision;
-			const std::string Message = std::format("{}: {}", Operation.Title,
-				AssetForge::GetImportPhaseLabel(Snapshot.Phase));
-			if (!Snapshot.IsTerminal())
-			{
-				Notifications.UpdateProgress(
-					Operation.NotificationId, Snapshot.Progress, Message);
-				continue;
-			}
-			switch (Snapshot.State)
-			{
-			case AssetForge::EImportOperationState::Succeeded:
-				Notifications.CompleteProgress(Operation.NotificationId,
-					std::format("{} completed", Operation.Title));
-				break;
-			case AssetForge::EImportOperationState::Canceled:
-			case AssetForge::EImportOperationState::Superseded:
-				Notifications.CancelProgress(Operation.NotificationId,
-					Snapshot.State == AssetForge::EImportOperationState::Superseded
-						? std::format("{} superseded", Operation.Title)
-						: std::format("{} canceled", Operation.Title));
-				break;
-			case AssetForge::EImportOperationState::Failed:
-			case AssetForge::EImportOperationState::Rejected:
-				Notifications.FailProgress(Operation.NotificationId,
-					Snapshot.Diagnostic.empty()
-						? std::format("{} failed", Operation.Title)
-						: Snapshot.Diagnostic);
-				break;
-			default: break;
-			}
-		}
-
-		std::erase_if(ImportOperations, [](const FPresentedImportOperation& Operation) {
-			return Operation.Handle.GetSnapshot().IsTerminal();
-		});
-		if (ImportOperations.empty())
-		{
-			if (ImportAggregateNotificationId)
-			{
-				Notifications.Dismiss(ImportAggregateNotificationId);
-				ImportAggregateNotificationId = 0;
-			}
-			return;
-		}
-
-		const AssetForge::FImportOperationSnapshot Primary =
-			ImportOperations.front().Handle.GetSnapshot();
-		const std::string AggregateMessage = ImportOperations.size() == 1
-			? std::format("{}: {}", ImportOperations.front().Title,
-				AssetForge::GetImportPhaseLabel(Primary.Phase))
-			: std::format("{}: {} ({} active)", ImportOperations.front().Title,
-				AssetForge::GetImportPhaseLabel(Primary.Phase), ImportOperations.size());
-		std::optional<float> AggregateProgress = Primary.Progress;
-		if (ImportOperations.size() > 1) AggregateProgress.reset();
-		if (!ImportAggregateNotificationId)
-		{
-			ImportAggregateNotificationId = Notifications.BeginProgress({
-				.Message = AggregateMessage,
-				.Progress = AggregateProgress,
-				.Action = ::Durin::Editor::FNotificationAction{
-					.Label = "Details",
-					.Invoke = [this] { OpenHistory(); }},
-				.Presentation = ::Durin::Editor::ENotificationPresentation::StatusBar,
-				.bRecordInHistory = false});
-		}
-		else Notifications.UpdateProgress(
-			ImportAggregateNotificationId, AggregateProgress, AggregateMessage);
 	}
 
 	auto FEditorNotificationOverlay::GetStatusBarHeight() const -> float

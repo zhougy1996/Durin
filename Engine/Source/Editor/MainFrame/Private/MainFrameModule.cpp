@@ -26,6 +26,11 @@
 #include "Settings/HostSettings.h"
 #include "Panels/ConsolePanel.h"
 #include "Widgets/EditorNotificationOverlay.h"
+#include "StaticMesh/StaticMesh.h"
+#include "Terrain/TerrainHeightmap.h"
+#include "Texture/Texture2D.h"
+#include "Texture/TextureCube.h"
+#include "Texture/VolumeTexture.h"
 
 #include "Widgets/MFunctionWidget.h"
 #include "Widgets/MWindow.h"
@@ -124,8 +129,7 @@ namespace Durin::Editor::MainFrame
 			::Durin::FTextureEditorModule& TextureEditorModule,
 			::Durin::FStaticMeshEditorModule& StaticMeshEditorModule,
 			::Durin::FSkeletalMeshEditorModule& SkeletalMeshEditorModule,
-			Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
-			FEditorNotificationOverlay& Activity
+			Editor::FAssetThumbnailProviderRegistry& ThumbnailService
 		) -> bool
 		{
 			const Editor::Import::FImportDialogCallbacks ImportCallbacks{
@@ -145,19 +149,9 @@ namespace Durin::Editor::MainFrame
 					Context.ContentBrowserTool->NotifyMountedContentChanged();
 					Context.ContentBrowserTool->RevealDirectory(Directory);
 				},
-				.ImportStarted = [&Activity](
-					AssetForge::FImportOperationHandle Handle, std::string Title) {
-					Activity.RegisterImportOperation(
-						std::move(Handle), std::move(Title));
-				},
 			};
 			if (!LevelEditorModule.RegisterLevelEditorWorkspace(
 				WorkspaceManager, ThumbnailService,
-				[&Activity](AssetForge::FImportOperationHandle Handle,
-					std::string Title) {
-					Activity.RegisterImportOperation(
-						std::move(Handle), std::move(Title));
-				},
 				{
 					.RevealAsset = [&Context](std::string_view Path) {
 						return Context.ContentBrowserTool
@@ -252,8 +246,7 @@ namespace Durin::Editor::MainFrame
 					TextureEditorModule,
 					StaticMeshEditorModule,
 					SkeletalMeshEditorModule,
-					ThumbnailService,
-					*Context.Activity);
+					ThumbnailService);
 				if (bWorkspaceReady)
 				{
 					ContentBrowser::FConstructionServices Services{
@@ -285,11 +278,60 @@ namespace Durin::Editor::MainFrame
 								: ContentBrowser::FActionResult{
 									false, "The editor transaction manager is unavailable."};
 						},
-						.NotifyImportStarted = [&Context](
-							AssetForge::FImportOperationHandle Handle,
-							std::string Title) {
-							Context.Activity->RegisterImportOperation(
-								std::move(Handle), std::move(Title));
+						.OpenImport = [Level = &LevelEditorModule,
+							Texture = &TextureEditorModule,
+							StaticMesh = &StaticMeshEditorModule](
+							Editor::Import::EBuiltinImportFamily Family,
+							std::string Directory) {
+							switch (Family)
+							{
+							case Editor::Import::EBuiltinImportFamily::Texture:
+								Texture->OpenImportDialog(Directory); break;
+							case Editor::Import::EBuiltinImportFamily::TerrainHeightmap:
+								Level->OpenImportDialog(
+									Editor::Level::EImportDialogType::TerrainHeightmap, Directory); break;
+							case Editor::Import::EBuiltinImportFamily::Scene:
+								Level->OpenImportDialog(
+									Editor::Level::EImportDialogType::Scene, Directory); break;
+							case Editor::Import::EBuiltinImportFamily::StaticMesh:
+								StaticMesh->OpenImportDialog(Directory); break;
+							}
+						},
+						.ClassifyReimport = [](std::string_view ClassName) {
+							if (ClassName == DTexture2D::StaticClass()->GetQualifiedName().ToString()
+								|| ClassName == DTextureCube::StaticClass()->GetQualifiedName().ToString()
+								|| ClassName == DVolumeTexture::StaticClass()->GetQualifiedName().ToString())
+								return Editor::Import::EBuiltinReimportFamily::Texture;
+							if (ClassName == DTerrainHeightmap::StaticClass()->GetQualifiedName().ToString())
+								return Editor::Import::EBuiltinReimportFamily::TerrainHeightmap;
+							if (ClassName == DStaticMesh::StaticClass()->GetQualifiedName().ToString())
+								return Editor::Import::EBuiltinReimportFamily::StaticMesh;
+							return Editor::Import::EBuiltinReimportFamily::None;
+						},
+						.Reimport = [Level = &LevelEditorModule,
+							Texture = &TextureEditorModule,
+							StaticMesh = &StaticMeshEditorModule](
+							Editor::Import::EBuiltinReimportFamily Family,
+							std::string AssetPath,
+							std::function<void(std::string)> ReportError) {
+							switch (Family)
+							{
+							case Editor::Import::EBuiltinReimportFamily::Texture:
+								Texture->ReimportAsset(
+									AssetPath, std::move(ReportError)); break;
+							case Editor::Import::EBuiltinReimportFamily::TerrainHeightmap:
+								Level->ReimportTerrainHeightmap(
+									AssetPath, std::move(ReportError)); break;
+							case Editor::Import::EBuiltinReimportFamily::StaticMesh:
+								StaticMesh->ReimportAsset(
+									AssetPath, std::move(ReportError)); break;
+							case Editor::Import::EBuiltinReimportFamily::None: break;
+							}
+						},
+						.DrawImportDialogs = [Texture = &TextureEditorModule,
+							StaticMesh = &StaticMeshEditorModule](bool bAllowAssetMutation) {
+							Texture->DrawImportDialog(bAllowAssetMutation);
+							StaticMesh->DrawImportDialog(bAllowAssetMutation);
 						},
 					};
 					ContentBrowser::FPresentationSettings BrowserSettings;

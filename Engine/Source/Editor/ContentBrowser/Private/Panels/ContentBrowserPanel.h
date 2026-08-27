@@ -5,7 +5,6 @@
 #include "Panels/ContentBrowserOperations.h"
 #include "Panels/ContentBrowserItemView.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
-#include "AssetForge/ImportService.h"
 #include "Threading/Task.h"
 
 #include <array>
@@ -33,8 +32,14 @@ namespace Durin::Editor::ContentBrowser::Private
 			std::function<bool(std::unique_ptr<::Durin::Editor::ITransaction>)>;
 		using FGetMountedContentMutationRevision = std::function<uint64()>;
 		using FNotifyMountedContentMutation = std::function<void()>;
-		using FNotifyImportStarted = std::function<void(
-			AssetForge::FImportOperationHandle, std::string)>;
+		using FOpenImport = std::function<void(
+			::Durin::Editor::Import::EBuiltinImportFamily, std::string)>;
+		using FClassifyReimport = std::function<
+			::Durin::Editor::Import::EBuiltinReimportFamily(std::string_view)>;
+		using FReimport = std::function<void(
+			::Durin::Editor::Import::EBuiltinReimportFamily, std::string,
+			std::function<void(std::string)>)>;
+		using FDrawImportDialogs = std::function<void(bool)>;
 
 		FContentBrowserPanel(
 			::Durin::Editor::ContentBrowser::FPresentationSettings InSettings,
@@ -44,7 +49,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			FExecuteTransaction InExecuteTransaction,
 			FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
 			FNotifyMountedContentMutation InNotifyMountedContentMutation,
-			FNotifyImportStarted InNotifyImportStarted,
+			FOpenImport InOpenImport,
+			FClassifyReimport InClassifyReimport,
+			FReimport InReimport,
+			FDrawImportDialogs InDrawImportDialogs,
 			std::shared_ptr<FMountedContentReconciliationState>
 				InMountedContentReconciliationState,
 			FTaskScopeToken InThumbnailTaskScope);
@@ -108,11 +116,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto PasteAsset(std::string_view DestinationDirectory = {}) -> void;
 		auto HasAssetClipboard() const -> bool;
 		auto CreateFolder(std::string_view PhysicalDirectory) -> void;
-		auto SubmitSingleAssetImport(FAssetPath AssetPath,
-			AssetForge::FImportRequest Request, std::string Title)
-			-> bool;
 		auto SaveAssetPackage(const FAssetPath& Path) -> void;
-		auto PollSingleAssetReimport() -> void;
 		auto ResaveAssetPackages(std::vector<FAssetPath> Paths) -> void;
 		auto FixUpRedirector(const FContentBrowserItem& Item) -> void;
 		auto FixUpFolder(std::string_view VirtualDirectory) -> void;
@@ -134,7 +138,10 @@ namespace Durin::Editor::ContentBrowser::Private
 		FExecuteTransaction ExecuteTransaction;
 		FGetMountedContentMutationRevision GetMountedContentMutationRevision;
 		FNotifyMountedContentMutation NotifyMountedContentMutation;
-		FNotifyImportStarted NotifyImportStarted;
+		FOpenImport OpenImport;
+		FClassifyReimport ClassifyReimport;
+		FReimport Reimport;
+		FDrawImportDialogs DrawImportDialogs;
 		FContentBrowserRefreshCoordinator RefreshCoordinator;
 		FContentBrowserModel Model;
 		FContentBrowserOperations Operations;
@@ -161,12 +168,6 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::function<void()> DeferredContentAction;
 		std::string ErrorMessage;
 		std::string WarningMessage;
-		struct FPendingSingleAssetReimport
-		{
-			std::optional<AssetForge::FImportHandle> AssetForge;
-			FAssetPath AssetPath;
-		};
-		std::optional<FPendingSingleAssetReimport> PendingSingleAssetReimport;
 		std::unique_ptr<FContentBrowserThumbnailCache> ThumbnailCache;
 		ContentBrowserItemView::FTextureCubeDetailsCache TextureCubeDetailsCache;
 		const ContentBrowserItemView::FTextureCubeDetailsSnapshot*

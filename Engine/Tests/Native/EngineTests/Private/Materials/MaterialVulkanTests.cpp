@@ -13,8 +13,6 @@
 #include "PBRLighting.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
-#include "AssetForgeBuiltinsProviders.h"
-#include "AssetForgeBuiltinsProviderTestFixture.h"
 #include "AssetForgeBuiltinsAssetFeatures.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
@@ -89,9 +87,6 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 	(void)StaticMeshPostLoad;
 	(void)Texture2DPostLoad;
 	(void)TextureCubePostLoad;
-	Durin::Tests::FScopedAssetForgeBuiltinsProviders Providers;
-	std::string ProviderError;
-	ASSERT_TRUE(Providers.Register(ProviderError)) << ProviderError;
 	InitializeDObjectSystem();
 	std::string StaticMeshProviderError;
 	Durin::Editor::FAssetThumbnailProviderRegistrationHandle StaticMeshProvider =

@@ -6,6 +6,13 @@
 
 namespace Durin::Editor::Import
 {
+	inline auto IsEngineContentWriteDestination(std::string_view VirtualPath) -> bool
+	{
+		const PathUtilities::FMountLookupResult Lookup =
+			PathUtilities::FindMountForVirtualPath(VirtualPath);
+		return Lookup && Lookup.Mount->Owner == PathUtilities::EMountOwner::Engine;
+	}
+
 	enum class EAssetDestinationOccupantKind : uint8
 	{
 		None,

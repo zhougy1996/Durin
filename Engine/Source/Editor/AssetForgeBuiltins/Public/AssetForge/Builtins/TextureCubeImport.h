@@ -3,8 +3,6 @@
 #include "AssetForgeBuiltinsAPI.h"
 #include "Texture/TextureCube.h"
 #include "Texture/TextureCubeBuildOperations.h"
-#include "AssetForge/ImportRequest.h"
-#include "AssetForge/Operations/ImportExecution.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -83,6 +81,8 @@ namespace Durin::AssetForge::Builtins
 		const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 		const FTextureCubeImportSettings& Settings,
 		std::string& OutError) -> bool;
+	ASSETFORGEBUILTINS_API auto RecoverTextureCubeDerivedData(
+		DTextureCube& Texture, std::string& OutError) -> bool;
 	ASSETFORGEBUILTINS_API auto ChangeTextureCubePanoramaSourceReference(
 		DTextureCube& Texture,
 		std::string_view SourceVirtualPath,
@@ -105,29 +105,4 @@ namespace Durin::AssetForge::Builtins
 		const std::array<std::string, TextureCubeFaceCount>& TargetSourceVirtualPaths,
 		const FTextureCubeImportSettings& Settings,
 		std::string& OutError) -> bool;
-
-	ASSETFORGEBUILTINS_API auto MakeTextureCubeImportRequest(
-		std::span<const FSourcePath> MountedSources,
-		ETextureCubeSourceLayout Layout,
-		const FAssetPath& Destination,
-		const FTextureCubeImportSettings& FaceSettings,
-		const FTextureCubePanoramaImportSettings& PanoramaSettings,
-		AssetForge::EImportMode Mode,
-		AssetForge::FImportOperationOwner Owner,
-		std::optional<AssetForge::FImportProvenance> ExistingProvenance,
-		AssetForge::FImportRequest& OutRequest,
-		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto InspectTextureCubeImportProvenance(
-		const DTextureCube& Texture,
-		AssetForge::FImportProvenance& OutProvenance,
-		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto SubmitTextureCubeImport(
-		std::span<const std::string> SourceFiles,
-		std::span<const std::string> SourceDestinations,
-		ETextureCubeSourceLayout Layout, const FAssetPath& Destination,
-		const FTextureCubeImportSettings& FaceSettings,
-		const FTextureCubePanoramaImportSettings& PanoramaSettings,
-		bool bAllowEngineContentWrite,
-		AssetForge::FImportCompletion Completion,
-		std::string& OutError) -> AssetForge::FImportHandle;
 }

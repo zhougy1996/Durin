@@ -128,10 +128,10 @@ produces an actionable startup error and leaves the World stopped.
 
 `DEditorEngine::Init()` constructs the production MainFrame shell and drives
 workspace activation plus default-Level opening to a terminal result before it
-returns. It loads `AssetForge` before the base Engine performs its atomic
-catalog scan, ensuring editor-authored package classes such as import records
-are available to reference extraction; the remaining built-in authoring extensions still
-start with workspace activation. Visible startup first pumps a real Mona/ImGui frame and waits for the
+returns. The Editor loads `AssetForgeBuiltins` before the base Engine performs
+its atomic catalog scan so concrete editor-only import data classes are
+registered. Built-in
+authoring UI starts with workspace activation. Visible startup first pumps a real Mona/ImGui frame and waits for the
 Vulkan presentation path to publish `FirstPresent`; hidden startup skips that
 presentation gate. Project Browser initialization completes after its visible
 host frame, or immediately after shell construction in headless mode, without

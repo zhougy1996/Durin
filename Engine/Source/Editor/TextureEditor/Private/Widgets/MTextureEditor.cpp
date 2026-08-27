@@ -1,9 +1,6 @@
 #include "Widgets/MTextureEditor.h"
 
 #include "Asset/AssetCompilingManager.h"
-#include "AssetForge/ImportTypes.h"
-#include "AssetForge/ImportService.h"
-#include "Asset/MountedSource.h"
 #include "Asset.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
@@ -11,15 +8,12 @@
 #include "Editor/EditorEngine.h"
 #include "Editor/WorkspaceManager.h"
 #include "Editor/WorkspaceUI.h"
-#include "Misc/Paths.h"
 #include "MonaImGui.h"
 #include "MonaImGuiPropertyTable.h"
 #include "MonaImGuiWidgets.h"
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
 #include "PixelFormat.h"
-#include "Source/MountedSourceRelocation.h"
-#include "Source/TextureSourceReplacementOperation.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TexturePayloadInspection.h"
 #include "Texture/Texture2DCompilation.h"
@@ -38,30 +32,9 @@ namespace Durin::Editor::Texture
 		constexpr float MinimumDetailsWidth = 340.0f;
 		constexpr float NarrowPreviewHeight = 430.0f;
 
-		auto FindOwningMount(std::string_view VirtualPath)
-			-> const PathUtilities::FMountPoint*
-		{
-			const PathUtilities::FMountLookupResult Lookup =
-				PathUtilities::FindMountForVirtualPath(VirtualPath);
-			return Lookup ? Lookup.Mount : nullptr;
-		}
-
 		auto FormatDimensions(uint32 Width, uint32 Height) -> std::string
 		{
 			return std::format("{} x {}", Width, Height);
-		}
-
-		auto DescribeMountOwner(PathUtilities::EMountOwner Owner) -> const char*
-		{
-			switch (Owner)
-			{
-			case PathUtilities::EMountOwner::Engine: return "Engine";
-			case PathUtilities::EMountOwner::ActiveProject: return "Project";
-			case PathUtilities::EMountOwner::Extension: return "Extension";
-			case PathUtilities::EMountOwner::ExternalSources: return "External sources";
-			case PathUtilities::EMountOwner::Test: return "Test";
-			}
-			return "Unknown";
 		}
 
 		auto FormatByteCount(uint64 Bytes) -> std::string
@@ -183,7 +156,6 @@ namespace Durin::Editor::Texture
 			if (Texture)
 				FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 		}
-		SharedSourceReplacementOperation.Abort();
 	}
 
 	auto MTextureEditor::GetWorkspaceType() const -> const ::Durin::Editor::FWorkspaceTypeId&
@@ -228,12 +200,6 @@ namespace Durin::Editor::Texture
 
 	auto MTextureEditor::RequestCloseDocument(const ::Durin::Editor::FDocumentTab& Document) -> ::Durin::Editor::EDocumentCloseResult
 	{
-		if (SharedSourceReplacementOperation.IsBusy()
-			&& ActiveSourceReplacementResourceId == Document.ResourceId)
-		{
-			SetError("Wait for the shared source replacement to finish before closing this texture.");
-			return ::Durin::Editor::EDocumentCloseResult::Rejected;
-		}
 		if (PropertyView.IsEditingObject(FindOpenTexture(Document.ResourceId)) && !FinishActivePropertyEdit(true))
 			return ::Durin::Editor::EDocumentCloseResult::Rejected;
 		if (IsDocumentDirty(Document)) return ::Durin::Editor::EDocumentCloseResult::PendingConfirmation;
@@ -786,40 +752,30 @@ namespace Durin::Editor::Texture
 		if (!MonaImGui::PropertyEdit::BeginTable("TextureSourceData")) return;
 		DrawInfoRow("Asset Destination",
 			Texture->GetPackage() ? Texture->GetPackage()->GetPackagePath() : "");
-		DrawInfoRow("Source Virtual Path", Texture->GetSourceFile());
+		DrawInfoRow("Source Filename", Texture->GetSourceFile());
 		const FTextureSourceDiagnostic SourceDiagnostic = Texture->InspectSource();
 		switch (SourceDiagnostic.Status)
 		{
 		case ETextureSourceStatus::Available:
-			DrawInfoRow("Provenance", "Portable source available");
+			DrawInfoRow("Source", "Available");
 			break;
 		case ETextureSourceStatus::Changed:
-			DrawInfoRow("Provenance", "Mounted source bytes changed");
+			DrawInfoRow("Source", "Bytes changed since import");
 			break;
 		case ETextureSourceStatus::Missing:
-			DrawInfoRow("Provenance", "Portable source missing");
+			DrawInfoRow("Source", "Missing");
 			break;
 		case ETextureSourceStatus::Invalid:
-			DrawInfoRow("Provenance", "Invalid or unsupported source metadata");
+			DrawInfoRow("Source", "Invalid or unsupported metadata");
 			break;
 		case ETextureSourceStatus::NoSource:
-			DrawInfoRow("Provenance", "No source dependency");
+			DrawInfoRow("Source", "No source dependency");
 			break;
 		}
 		if (!Texture->GetSourceFile().empty())
 		{
-			const PathUtilities::FSourcePathResult Resolved =
-				PathUtilities::ResolveSourcePath(
-					Texture->GetSourceFile(),
-					PathUtilities::EPathExistence::AllowMissing);
-			if (Resolved)
-			{
-				DrawInfoRow("Source Mount", std::format(
-					"{} ({})  |  {}",
-					Resolved.Mount->VirtualRoot,
-					DescribeMountOwner(Resolved.Mount->Owner),
-					Resolved.Mount->bContentWritable ? "writable" : "read-only"));
-			}
+			if (!SourceDiagnostic.PhysicalPath.empty())
+				DrawInfoRow("Resolved Path", SourceDiagnostic.PhysicalPath);
 			if (SourceReferenceIndex.IsCurrent())
 			{
 				const std::span<const ::Durin::Editor::FSourceReference> References =
@@ -858,20 +814,7 @@ namespace Durin::Editor::Texture
 				DrawInfoRow("Status", "Source data unavailable");
 		}
 		MonaImGui::PropertyEdit::EndTable();
-		const bool bReplacingThisSource = SharedSourceReplacementOperation.IsBusy()
-			&& ActiveSourceReplacementResourceId == Texture->GetObjectPath();
-		if (bReplacingThisSource)
-		{
-			const char* Phase = SharedSourceReplacementOperation.GetPhase()
-				== FCompensatingAsyncOperation::EPhase::Applying
-				? "Building replacement texture..." : "Restoring original texture...";
-			ImGui::TextDisabled("%s", Phase);
-		}
-		ImGui::BeginDisabled(bReplacingThisSource);
-		AssetForge::FImportProvenance ReimportProvenance;
-		std::string ReimportDiagnostic;
-		const bool bCanReimport = AssetForge::Builtins::InspectTexture2DImportProvenance(
-			*Texture, ReimportProvenance, ReimportDiagnostic);
+		const bool bCanReimport = !Texture->GetSourceFile().empty();
 		constexpr const char* ReimportLabel = "Reimport from Current Source";
 		if (!bCanReimport) ImGui::BeginDisabled();
 		if (ImGui::Button(ReimportLabel))
@@ -879,45 +822,12 @@ namespace Durin::Editor::Texture
 		if (!bCanReimport) ImGui::EndDisabled();
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("%s", bCanReimport
-				? "Replaces decoded source, provenance, import settings, derived data, and the render resource while retaining object identity."
-				: (ReimportDiagnostic.empty()
-					? "Reimport is unavailable."
-					: ReimportDiagnostic.c_str()));
+				? "Rebuilds the texture from its retained source filename."
+				: "Reimport is unavailable because no source filename is retained.");
 		ImGui::SameLine();
-		if (ImGui::Button("Reference Existing...")) ChangeSourceReference(Texture);
+		if (ImGui::Button("Select Source...")) SelectSourceFile(Texture);
 		if (ImGui::IsItemHovered())
-			ImGui::SetTooltip(
-				"Changes this asset to an existing mounted source without copying it.");
-		ImGui::SameLine();
-		if (ImGui::Button("Ingest External...")) IngestExternalSource(Texture);
-		if (SourceDiagnostic.Status == ETextureSourceStatus::Missing
-			|| SourceDiagnostic.Status == ETextureSourceStatus::Invalid)
-		{
-			ImGui::SameLine();
-			if (ImGui::Button("Repair Source...")) RepairSource(Texture);
-		}
-		if (!Texture->GetSourceFile().empty())
-		{
-			ImGui::BeginDisabled(!SourceReferenceIndex.IsCurrent());
-			if (ImGui::Button("Replace Shared Source..."))
-				RequestSharedSourceReplacement(Texture);
-			ImGui::EndDisabled();
-			ImGui::SameLine();
-			if (ImGui::Button("Create Private Copy..."))
-				ChangeSourceLocation(Texture);
-			if (ImGui::IsItemHovered())
-				ImGui::SetTooltip(
-					"Copies the current source to a new mounted path and changes only this asset. "
-					"The old shared source remains in place.");
-			ImGui::SameLine();
-			ImGui::BeginDisabled(!SourceReferenceIndex.IsCurrent());
-			if (ImGui::Button("Relocate Shared Source..."))
-				RequestSharedSourceRelocation(Texture);
-			ImGui::EndDisabled();
-		}
-		DrawSharedSourceReplacementConfirmation(Texture);
-		DrawSharedSourceRelocationConfirmation(Texture);
-		ImGui::EndDisabled();
+			ImGui::SetTooltip("Selects a new source filename and reimports without copying or relocating it.");
 	}
 
 	auto MTextureEditor::ReimportSource(DTexture2D* Texture) -> void
@@ -928,12 +838,12 @@ namespace Durin::Editor::Texture
 			SetError(std::move(Error));
 	}
 
-	auto MTextureEditor::ChangeSourceReference(DTexture2D* Texture) -> void
+	auto MTextureEditor::SelectSourceFile(DTexture2D* Texture) -> void
 	{
 		if (!Texture || !Texture->GetPackage()) return;
 		FFileDialogRequest Request;
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
-		Request.Title = "Reference Existing Mounted Texture Source";
+		Request.Title = "Select Texture Source";
 		Request.Filters = {
 			{"All Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"},
 			{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"}, {"Bitmap", "*.bmp"},
@@ -949,388 +859,14 @@ namespace Durin::Editor::Texture
 			SetError(Result.ErrorMessage);
 			return;
 		}
-		const PathUtilities::FSourcePathResult Classified =
-			PathUtilities::ClassifySourcePath(Result.FilePath);
-		if (!Classified)
-		{
-			SetError(Classified.Error == PathUtilities::EMountPathError::UnknownMount
-				? "The selected file is external. Use Ingest External Source instead."
-				: Classified.Message);
-			return;
-		}
 		std::string Error;
-		if (!AssetForge::Builtins::ChangeTexture2DSourceReference(
-			*Texture, Classified.NormalizedVirtualPath, Error))
-		{
-			SetError(std::move(Error));
-			return;
-		}
-		SourceReferenceIndex.Invalidate();
-	}
-
-	auto MTextureEditor::IngestExternalSource(DTexture2D* Texture) -> void
-	{
-		if (!Texture || !Texture->GetPackage()) return;
-		const PathUtilities::FMountPoint* Mount =
-			FindOwningMount(Texture->GetPackage()->GetPackagePath());
-		if (!Mount)
-		{
-			SetError("The texture does not use a registered mount.");
-			return;
-		}
-
-		FFileDialogRequest InputRequest;
-		InputRequest.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
-		InputRequest.Title = "Select External Texture Source";
-		InputRequest.Filters = {
-			{"All Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"},
-			{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"}, {"Bitmap", "*.bmp"},
-			{"Targa", "*.tga"}};
-		const FFileDialogResult Input = OpenFileDialog(InputRequest);
-		if (Input.Status == EFileDialogStatus::Cancelled) return;
-		if (Input.Status == EFileDialogStatus::Error)
-		{
-			SetError(Input.ErrorMessage);
-			return;
-		}
-		if (PathUtilities::ClassifySourcePath(Input.FilePath))
-		{
-			SetError("The selected source is already mounted. Use Reference Existing Source instead.");
-			return;
-		}
-
-		FFileDialogRequest DestinationRequest;
-		DestinationRequest.ParentWindowHandle =
-			ImGui::GetMainViewport()->PlatformHandleRaw;
-		DestinationRequest.Title = "Choose Mounted Texture Source Destination";
-		DestinationRequest.Filters = InputRequest.Filters;
-		DestinationRequest.InitialDirectory =
-			(Mount->GetContentDir() / "Textures").generic_string();
-		DestinationRequest.DefaultFileName =
-			std::filesystem::path(Input.FilePath).filename().generic_string();
-		const FFileDialogResult Destination = SaveFileDialog(DestinationRequest);
-		if (Destination.Status == EFileDialogStatus::Cancelled) return;
-		if (Destination.Status == EFileDialogStatus::Error)
-		{
-			SetError(Destination.ErrorMessage);
-			return;
-		}
-		const PathUtilities::FSourcePathResult ClassifiedDestination =
-			PathUtilities::ClassifySourcePath(Destination.FilePath);
-		if (!ClassifiedDestination)
-		{
-			SetError(ClassifiedDestination.Message);
-			return;
-		}
-		std::string Error;
-		if (!AssetForge::Builtins::IngestAndChangeTexture2DSource(
-			*Texture, Input.FilePath, ClassifiedDestination.NormalizedVirtualPath, Error))
-		{
-			SetError(std::move(Error));
-			return;
-		}
-		SourceReferenceIndex.Invalidate();
-	}
-
-	auto MTextureEditor::RepairSource(DTexture2D* Texture) -> void
-	{
-		if (!Texture) return;
-		FFileDialogRequest Request;
-		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
-		Request.Title = "Repair Texture Source Reference";
-		Request.Filters = {
-			{"All Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"},
-			{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"}, {"Bitmap", "*.bmp"},
-			{"Targa", "*.tga"}};
-		const FFileDialogResult Result = OpenFileDialog(Request);
-		if (Result.Status == EFileDialogStatus::Cancelled) return;
-		if (Result.Status == EFileDialogStatus::Error)
-		{
-			SetError(Result.ErrorMessage);
-			return;
-		}
-		std::string Error;
-		if (!AssetForge::Builtins::RepairTexture2DSourcePath(
+		if (!AssetForge::Builtins::ReimportTexture2DSource(
 			*Texture, Result.FilePath, Error))
 		{
 			SetError(std::move(Error));
 			return;
 		}
 		SourceReferenceIndex.Invalidate();
-	}
-
-	auto MTextureEditor::RequestSharedSourceReplacement(DTexture2D* Texture) -> void
-	{
-		if (!Texture || !Texture->GetPackage() || Texture->GetSourceFile().empty()) return;
-		FFileDialogRequest Request;
-		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
-		Request.Title = "Select Replacement Bytes for Shared Texture Source";
-		Request.Filters = {
-			{"All Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"},
-			{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"}, {"Bitmap", "*.bmp"},
-			{"Targa", "*.tga"}};
-		const FFileDialogResult Result = OpenFileDialog(Request);
-		if (Result.Status == EFileDialogStatus::Cancelled) return;
-		if (Result.Status == EFileDialogStatus::Error)
-		{
-			SetError(Result.ErrorMessage);
-			return;
-		}
-		SourceReferenceIndex.RequestRefresh();
-		if (!SourceReferenceIndex.IsCurrent())
-		{
-			SetError("The shared source reference index is still building. Try again when the source details are ready.");
-			return;
-		}
-		const std::span<const ::Durin::Editor::FSourceReference> References =
-			SourceReferenceIndex.FindReferences(Texture->GetSourceFile());
-		PendingSourceReplacement = {
-			.SourceVirtualPath = Texture->GetSourceFile(),
-			.ReplacementPhysicalPath = Result.FilePath,
-			.AffectedAssets = {References.begin(), References.end()},
-			.bOpenRequested = true};
-	}
-
-	auto MTextureEditor::DrawSharedSourceReplacementConfirmation(
-		DTexture2D* Texture) -> void
-	{
-		if (PendingSourceReplacement.bOpenRequested)
-		{
-			ImGui::OpenPopup("Replace Shared Source");
-			PendingSourceReplacement.bOpenRequested = false;
-		}
-		if (!ImGui::BeginPopupModal("Replace Shared Source", nullptr,
-			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
-			return;
-		ImGui::TextWrapped(
-			"This mutates the shared mounted source. The current texture is reimported and saved immediately.");
-		ImGui::TextUnformatted("Source virtual path");
-		ImGui::TextDisabled("%s", PendingSourceReplacement.SourceVirtualPath.c_str());
-		ImGui::TextUnformatted(std::format(
-			"Affected assets ({})", PendingSourceReplacement.AffectedAssets.size()).c_str());
-		ImGui::BeginChild("AffectedMountedSources",
-			ImVec2(MonaImGui::ScaleUI(520.0f), MonaImGui::ScaleUI(130.0f)),
-			ImGuiChildFlags_Borders);
-		for (const ::Durin::Editor::FSourceReference& Reference :
-			PendingSourceReplacement.AffectedAssets)
-			ImGui::TextUnformatted(Reference.AssetPath.ToString().c_str());
-		ImGui::EndChild();
-		if (PendingSourceReplacement.AffectedAssets.size() > 1)
-		{
-			ImGui::TextWrapped(
-				"Other assets retain their previous import hash and will report Changed Source until reimported.");
-		}
-		if (!SourceReferenceIndex.GetWarning().empty())
-			ImGui::TextWrapped("%s", SourceReferenceIndex.GetWarning().c_str());
-		const bool bImpactComplete = SourceReferenceIndex.GetWarning().empty();
-		ImGui::BeginDisabled(!bImpactComplete);
-		if (ImGui::Button("Replace and Reimport Current",
-			ImVec2(MonaImGui::ScaleUI(220.0f), 0.0f)))
-		{
-			ActiveSourceReplacementResourceId = Texture->GetObjectPath();
-			SharedSourceReplacementOperation.Begin(
-				MakeTextureSourceReplacementOperation({
-					.Texture = Texture,
-					.ReplacementPhysicalPath =
-						PendingSourceReplacement.ReplacementPhysicalPath,
-					.SourceVirtualPath = PendingSourceReplacement.SourceVirtualPath,
-					.Save = [this](DTexture2D& TextureToSave, std::string& OutError) {
-						return Documents.Save(
-							&TextureToSave, {}, [&OutError](std::string Message) {
-								OutError = std::move(Message);
-							});
-					},
-					.Finished = [this](bool bSucceeded, std::string_view Error) {
-						if (bSucceeded) SourceReferenceIndex.Invalidate();
-						else if (!Error.empty()) SetError(std::string(Error));
-						ActiveSourceReplacementResourceId.clear();
-					},
-				}));
-			PendingSourceReplacement = {};
-			ImGui::CloseCurrentPopup();
-		}
-		ImGui::EndDisabled();
-		ImGui::SameLine();
-		if (MonaImGui::DialogButton("Cancel", true))
-		{
-			PendingSourceReplacement = {};
-			ImGui::CloseCurrentPopup();
-		}
-		ImGui::EndPopup();
-	}
-
-	auto MTextureEditor::RequestSharedSourceRelocation(
-		DTexture2D* Texture) -> void
-	{
-		if (!Texture || !Texture->GetPackage() || Texture->GetSourceFile().empty()) return;
-		const PathUtilities::FSourcePathResult Existing =
-			PathUtilities::ResolveSourcePath(
-				Texture->GetSourceFile(),
-				PathUtilities::EPathExistence::RequireFile);
-		if (!Existing)
-		{
-			SetError(Existing.Message);
-			return;
-		}
-		FFileDialogRequest Request;
-		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
-		Request.Title = "Choose Shared Texture Source Relocation";
-		Request.Filters = {
-			{"All Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"},
-			{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"}, {"Bitmap", "*.bmp"},
-			{"Targa", "*.tga"}};
-		Request.InitialDirectory =
-			Existing.PhysicalPath.parent_path().generic_string();
-		Request.DefaultFileName =
-			Existing.PhysicalPath.filename().generic_string();
-		const FFileDialogResult Result = SaveFileDialog(Request);
-		if (Result.Status == EFileDialogStatus::Cancelled) return;
-		if (Result.Status == EFileDialogStatus::Error)
-		{
-			SetError(Result.ErrorMessage);
-			return;
-		}
-		const PathUtilities::FSourcePathResult Destination =
-			PathUtilities::ClassifySourcePath(Result.FilePath);
-		if (!Destination)
-		{
-			SetError(Destination.Message);
-			return;
-		}
-		if (Existing.PhysicalPath.extension() != Destination.PhysicalPath.extension())
-		{
-			SetError("Source relocation must preserve the file extension.");
-			return;
-		}
-		SourceReferenceIndex.RequestRefresh();
-		if (!SourceReferenceIndex.IsCurrent())
-		{
-			SetError("The shared source reference index is still building. Try again when the source details are ready.");
-			return;
-		}
-		const std::span<const ::Durin::Editor::FSourceReference> References =
-			SourceReferenceIndex.FindReferences(Texture->GetSourceFile());
-		PendingSourceRelocation = {
-			.OriginalSourceVirtualPath = Texture->GetSourceFile(),
-			.DestinationSourceVirtualPath = Destination.NormalizedVirtualPath,
-			.AffectedAssets = {References.begin(), References.end()},
-			.bOpenRequested = true};
-	}
-
-	auto MTextureEditor::DrawSharedSourceRelocationConfirmation(
-		DTexture2D* Texture) -> void
-	{
-		if (PendingSourceRelocation.bOpenRequested)
-		{
-			ImGui::OpenPopup("Relocate Shared Source");
-			PendingSourceRelocation.bOpenRequested = false;
-		}
-		if (!ImGui::BeginPopupModal("Relocate Shared Source", nullptr,
-			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
-			return;
-		ImGui::TextWrapped(
-			"The source is copied first, every affected package is updated and saved, "
-			"then the original is removed. Any failure restores package bytes and removes the staged copy.");
-		ImGui::TextUnformatted("Original");
-		ImGui::TextDisabled("%s",
-			PendingSourceRelocation.OriginalSourceVirtualPath.c_str());
-		ImGui::TextUnformatted("Destination");
-		ImGui::TextDisabled("%s",
-			PendingSourceRelocation.DestinationSourceVirtualPath.c_str());
-		ImGui::TextUnformatted(std::format(
-			"Affected assets ({})",
-			PendingSourceRelocation.AffectedAssets.size()).c_str());
-		ImGui::BeginChild("RelocatedMountedSources",
-			ImVec2(MonaImGui::ScaleUI(520.0f), MonaImGui::ScaleUI(130.0f)),
-			ImGuiChildFlags_Borders);
-		for (const ::Durin::Editor::FSourceReference& Reference :
-			PendingSourceRelocation.AffectedAssets)
-			ImGui::TextUnformatted(Reference.AssetPath.ToString().c_str());
-		ImGui::EndChild();
-		if (!SourceReferenceIndex.GetWarning().empty())
-			ImGui::TextWrapped("%s", SourceReferenceIndex.GetWarning().c_str());
-		const bool bCanRelocate =
-			!PendingSourceRelocation.AffectedAssets.empty()
-			&& SourceReferenceIndex.GetWarning().empty();
-		ImGui::BeginDisabled(!bCanRelocate);
-		if (ImGui::Button("Relocate All References",
-			ImVec2(MonaImGui::ScaleUI(210.0f), 0.0f)))
-		{
-			std::string Error;
-			if (!::Durin::Editor::RelocateMountedSourceAcrossPackages({
-					.ReferencingAssetPath =
-						Texture && Texture->GetPackage()
-							? Texture->GetPackage()->GetPackagePath() : "",
-					.OriginalSourceVirtualPath =
-						PendingSourceRelocation.OriginalSourceVirtualPath,
-					.DestinationSourceVirtualPath =
-						PendingSourceRelocation.DestinationSourceVirtualPath,
-					.AffectedAssets = PendingSourceRelocation.AffectedAssets},
-				Error))
-			{
-				SetError(std::move(Error));
-			}
-			else
-			{
-				SourceReferenceIndex.Invalidate();
-			}
-			PendingSourceRelocation = {};
-			ImGui::CloseCurrentPopup();
-		}
-		ImGui::EndDisabled();
-		ImGui::SameLine();
-		if (MonaImGui::DialogButton("Cancel", true))
-		{
-			PendingSourceRelocation = {};
-			ImGui::CloseCurrentPopup();
-		}
-		ImGui::EndPopup();
-	}
-
-	auto MTextureEditor::ChangeSourceLocation(DTexture2D* Texture) -> void
-	{
-		if (!Texture || !Texture->GetPackage()) return;
-		const PathUtilities::FMountPoint* Mount =
-			FindOwningMount(Texture->GetPackage()->GetPackagePath());
-		if (!Mount)
-		{
-			SetError("The texture is not inside a package-enabled mount.");
-			return;
-		}
-		const FTextureSourceDiagnostic Diagnostic = Texture->InspectSource();
-		FFileDialogRequest Request;
-		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
-		Request.Title = "Choose Texture Source Location";
-		Request.Filters = {
-			{"All Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"},
-			{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"}, {"Bitmap", "*.bmp"},
-			{"Targa", "*.tga"}
-		};
-		Request.InitialDirectory = !Diagnostic.PhysicalPath.empty()
-			? std::filesystem::path(Diagnostic.PhysicalPath).parent_path().generic_string()
-			: (Mount->GetContentDir() / "Textures").generic_string();
-		Request.DefaultFileName = !Texture->GetSourceFile().empty()
-			? std::filesystem::path(Texture->GetSourceFile()).filename().generic_string()
-			: "Texture.png";
-		const FFileDialogResult Result = SaveFileDialog(Request);
-		if (Result.Status == EFileDialogStatus::Cancelled) return;
-		if (Result.Status == EFileDialogStatus::Error)
-		{
-			SetError(Result.ErrorMessage);
-			return;
-		}
-		const PathUtilities::FSourcePathResult Classified =
-			PathUtilities::ClassifySourcePath(Result.FilePath);
-		if (!Classified || Classified.Mount != Mount)
-		{
-			SetError("Texture source must stay inside its owning mount.");
-			return;
-		}
-		const std::string SourceDestination = Classified.RelativePath.generic_string();
-		std::string Error;
-		if (!AssetForge::Builtins::ChangeTexture2DSourceLocation(
-			*Texture, SourceDestination, Error))
-			SetError(std::move(Error));
 	}
 
 	auto MTextureEditor::DrawBuildSettings(DTexture2D* Texture) -> void

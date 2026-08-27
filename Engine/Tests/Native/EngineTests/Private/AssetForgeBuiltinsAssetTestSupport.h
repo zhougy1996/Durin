@@ -12,15 +12,10 @@ namespace Durin::Tests
 		{
 			StaticMeshBuild = Context.RegisterFeature<IStaticMeshBuildFeature>(Features);
 			StaticMeshPostLoad = Context.RegisterFeature<IStaticMeshPostLoadFeature>(Features);
-			StaticMeshSourceMutation = Context.RegisterFeature<IStaticMeshSourceMutationFeature>(Features);
 			Texture2D = Context.RegisterFeature<ITexture2DPostLoadFeature>(Features);
-			Texture2DRecovery = Context.RegisterFeature<
-				ITexture2DImportRecoveryFeature>(Features);
 			TextureCube = Context.RegisterFeature<ITextureCubePostLoadFeature>(Features);
 			TerrainDerivedDataLoad = Context.RegisterFeature<
 				ITerrainHeightmapDerivedDataLoadFeature>(TerrainFeatures);
-			TerrainSourceMutation = Context.RegisterFeature<
-				ITerrainHeightmapSourceMutationFeature>(TerrainFeatures);
 		}
 
 		FModuleTestOwner Context{"EngineTests.AssetForgeBuiltinsAssets"};
@@ -28,12 +23,9 @@ namespace Durin::Tests
 		AssetForge::Builtins::FTerrainHeightmapAssetFeatures TerrainFeatures;
 		FModularFeatureRegistration StaticMeshBuild;
 		FModularFeatureRegistration StaticMeshPostLoad;
-		FModularFeatureRegistration StaticMeshSourceMutation;
 		FModularFeatureRegistration Texture2D;
-		FModularFeatureRegistration Texture2DRecovery;
 		FModularFeatureRegistration TextureCube;
 		FModularFeatureRegistration TerrainDerivedDataLoad;
-		FModularFeatureRegistration TerrainSourceMutation;
 	};
 
 	inline auto GetAssetForgeBuiltinsAssetTestState() -> FAssetForgeBuiltinsAssetTestState&
@@ -47,12 +39,9 @@ namespace Durin::Tests
 		auto& State = GetAssetForgeBuiltinsAssetTestState();
 		return State.StaticMeshBuild.IsValid()
 			&& State.StaticMeshPostLoad.IsValid()
-			&& State.StaticMeshSourceMutation.IsValid()
 			&& State.Texture2D.IsValid()
-			&& State.Texture2DRecovery.IsValid()
 			&& State.TextureCube.IsValid()
-			&& State.TerrainDerivedDataLoad.IsValid()
-			&& State.TerrainSourceMutation.IsValid();
+			&& State.TerrainDerivedDataLoad.IsValid();
 	}
 
 	inline auto EnsureTerrainDerivedDataOperationGroup() -> bool

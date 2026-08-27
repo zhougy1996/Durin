@@ -156,6 +156,16 @@ the preset's explicit `OFF` value. External-volume checkouts may enable the
 option after the one-time interactive macOS permission is approved; unattended
 validation should prefer an already authorized checkout.
 
+The same LaunchServices boundary applies to `DevTool run`, including
+`--hidden-window`: that flag suppresses native windows but does not bypass
+macOS application services. In a restricted automation sandbox the process may
+stall during early module loading and report `com.apple.hiservices-xpcservice`
+or `Connection invalid` before it reaches the requested tick count. Treat that
+as a host-authorization failure, stop the tracked process, and rerun the exact
+smoke in an approved non-sandbox application context. A successful hidden run
+is intentionally invisible and is evidenced by DurinDevTool's zero exit and
+normal elapsed-time receipt.
+
 The current native baseline qualifies setup, dependency preparation, fresh
 configuration, and the complete Debug Editor link closure. The generated
 executables and dylibs are arm64, and shared libraries retain `@rpath` install

@@ -25,7 +25,7 @@ namespace Durin::Editor::Texture
 	{
 		auto Reset() -> void;
 
-		FMountedSourceImportFormModel Source;
+		std::array<char, 512> SourcePathBuffer{};
 		ETextureUsage Usage = static_cast<ETextureUsage>(0);
 	};
 
@@ -33,7 +33,7 @@ namespace Durin::Editor::Texture
 	{
 		auto Reset() -> void;
 
-		FMountedSourceImportFormModel Source;
+		std::array<char, 512> SourcePathBuffer{};
 		EVolumeTextureSourceChannels Channels =
 			static_cast<EVolumeTextureSourceChannels>(0);
 		uint32 SliceWidth = 128;
@@ -48,11 +48,7 @@ namespace Durin::Editor::Texture
 		auto Reset() -> void;
 
 		std::array<std::array<char, 512>, TextureCubeFaceCount> FacePathBuffers{};
-		std::array<std::array<char, 512>, TextureCubeFaceCount> FaceDestinationBuffers{};
-		std::array<std::string, TextureCubeFaceCount> LastSuggestedFaceDestinations;
 		std::array<char, 512> PanoramaPathBuffer{};
-		std::array<char, 512> PanoramaDestinationBuffer{};
-		std::string LastSuggestedPanoramaDestination;
 		std::string SourceValidationMessage;
 		ETextureCubeSourceLayout SourceLayout =
 			ETextureCubeSourceLayout::EquirectangularPanorama;
@@ -79,11 +75,6 @@ namespace Durin::Editor::Texture
 		{
 			AssetType = InAssetType;
 		}
-		auto GetSourceMode() const -> EMountedSourceImportMode { return SourceMode; }
-		auto SetSourceMode(EMountedSourceImportMode InSourceMode) -> void
-		{
-			SourceMode = InSourceMode;
-		}
 		auto GetTexture2D() -> FTexture2DImportFormState& { return Texture2D; }
 		auto GetTexture2D() const -> const FTexture2DImportFormState& { return Texture2D; }
 		auto GetTextureCube() -> FTextureCubeImportFormState& { return TextureCube; }
@@ -93,8 +84,6 @@ namespace Durin::Editor::Texture
 
 	private:
 		ETextureImportAssetType AssetType = ETextureImportAssetType::Texture2D;
-		EMountedSourceImportMode SourceMode =
-			EMountedSourceImportMode::IngestExternal;
 		FTexture2DImportFormState Texture2D;
 		FTextureCubeImportFormState TextureCube;
 		FVolumeTextureImportFormState VolumeTexture;

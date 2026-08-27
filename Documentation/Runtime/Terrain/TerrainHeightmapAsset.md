@@ -2,9 +2,9 @@
 
 Summary: Defines the exact unsigned 16-bit terrain-height authority, regional extrema, source import, DDC, package, and cooked-runtime contracts.
 
-Modules: AssetCore, Engine, AssetForge, AssetForgeBuiltins, DurinEd, LevelEditor
+Modules: AssetCore, Engine, AssetForgeBuiltins, DurinEd, LevelEditor
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-27
 
 ## Asset Contract
 
@@ -72,7 +72,7 @@ partial boundary regions, returning exact extrema.
 
 ## Authored Package and DDC
 
-The authored package retains mounted `FSourcePath` provenance, XXH3-128 source
+The authored package retains normalized filename provenance, XXH3-128 source
 identity, file-size/time fingerprint, source format facts, dimensions, global
 range, revision, retained-byte facts, and the cooked descriptor field. Decoder
 identity/version plus a source-format enum and fixed profile version distinguish
@@ -86,7 +86,7 @@ top-left row-major orientation, 64-sample base region, builder and payload
 versions, and target platform/profile. The version bump deliberately misses
 version-1 PNG entries. A warm hit validates and restores the immutable payload
 without opening source. A missing, corrupt, or incompatible object rebuilds
-only when mounted source is available; otherwise PostLoad reports
+only when the persisted source filename is available; otherwise PostLoad reports
 `SourceUnavailable` and does not invent a flat payload.
 
 Uncooked PostLoad publishes the reflected object graph immediately in `Loading`

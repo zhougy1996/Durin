@@ -35,26 +35,11 @@ include("${DURIN_CMAKE_DIR}/DurinWorkspaceSetup.cmake")
 add_subdirectory(Engine)
 add_subdirectory(Sandbox)
 
-# Keep the asset boundary executable while the implementation migrates. Runtime
-# values and generic storage are allowed below authoring modules; source
-# translators and offline build tools may not flow in the opposite direction.
+# Runtime values and generic storage are allowed below authoring modules;
+# source translators and offline build tools may not flow in the opposite direction.
 if(TARGET AssetCore)
 	durin_assert_target_dependency_closure_excludes(AssetCore
 		Engine
-		AssetForge
-		StaticMeshBuild
-		SkeletalBuild
-		TerrainBuild
-		TextureBuild
-		AssetForgeBuiltins
-		assimp::assimp
-		bc7enc_rdo::bc7enc_rdo
-		rgbcx
-	)
-endif()
-
-if(TARGET AssetForge)
-	durin_assert_target_dependency_closure_excludes(AssetForge
 		StaticMeshBuild
 		SkeletalBuild
 		TerrainBuild
@@ -68,7 +53,6 @@ endif()
 
 if(TARGET Engine)
 	durin_assert_target_dependency_closure_excludes(Engine
-		AssetForge
 		StaticMeshBuild
 		SkeletalBuild
 		TerrainBuild
@@ -85,7 +69,6 @@ if(TARGET TextureBuild)
 		bc7enc_rdo::bc7enc_rdo
 	)
 	durin_assert_target_dependency_closure_excludes(TextureBuild
-		AssetForge
 		StaticMeshBuild
 		SkeletalBuild
 		TerrainBuild
@@ -100,7 +83,6 @@ if(TARGET StaticMeshBuild)
 		Engine
 	)
 	durin_assert_target_dependency_closure_excludes(StaticMeshBuild
-		AssetForge
 		SkeletalBuild
 		TerrainBuild
 		TextureBuild
@@ -117,7 +99,6 @@ if(TARGET SkeletalBuild)
 		Engine
 	)
 	durin_assert_target_dependency_closure_excludes(SkeletalBuild
-		AssetForge
 		StaticMeshBuild
 		TerrainBuild
 		TextureBuild
@@ -134,7 +115,6 @@ if(TARGET TerrainBuild)
 		Engine
 	)
 	durin_assert_target_dependency_closure_excludes(TerrainBuild
-		AssetForge
 		StaticMeshBuild
 		SkeletalBuild
 		TextureBuild
@@ -166,7 +146,6 @@ endif()
 
 if(TARGET AssetForgeBuiltins)
 	durin_assert_target_dependency_closure_includes(AssetForgeBuiltins
-		AssetForge
 		StaticMeshBuild
 		SkeletalBuild
 		TerrainBuild
@@ -185,7 +164,6 @@ if(DURIN_PROFILE_NAME STREQUAL "DurinGame")
 	durin_assert_target_dependency_closure_excludes(DurinLauncher
 		# Authoring frameworks and hosts.
 		AssetImport
-		AssetForge
 		# Derived builders and offline compressors.
 		StaticMeshBuild
 		SkeletalBuild

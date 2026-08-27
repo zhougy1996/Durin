@@ -19,28 +19,21 @@ namespace Durin::Editor::Texture
 		auto Draw(bool bAllowAssetMutation) -> void;
 
 	private:
-		auto DrawSourceMode() -> void;
 		auto DrawSingleSource(float BrowseButtonWidth) -> void;
 		auto DrawSingleSettings() -> void;
-		auto DrawSingleSourceDestination(float BrowseButtonWidth) -> void;
 		auto ValidateAndDrawSingleDestination() -> std::string;
 
 		auto DrawTextureCubeSource() -> void;
-		auto DrawTextureCubeSourceDestinations() -> void;
 		auto ValidateAndDrawTextureCubeDestination() -> std::string;
 		auto BrowseFace(ETextureCubeFace Face) -> void;
 		auto BrowsePanorama() -> void;
 		auto RevalidateTextureCubeSources() -> bool;
 		auto ImportTextureCube() -> bool;
 		auto SuggestTextureCubeAssetPath(std::string_view SourceFile) -> void;
-		auto SuggestTextureCubeSourceDestinations() -> void;
 
-		auto GetSelectedSingleSource() -> FMountedSourceImportFormModel&;
+		auto GetSelectedSingleSourcePath() -> std::array<char, 512>&;
 		auto BrowseSingleSource() -> void;
 		auto BrowseDestination() -> void;
-		auto BrowseSingleSourceDestination() -> void;
-		auto SuggestSelectedSourceDestinations() -> void;
-		auto SuggestSingleSourceDestination() -> void;
 		auto InspectVolumeTextureSource() -> void;
 		auto ApplyVolumeTextureLayoutSuggestion(size_t Index) -> void;
 		auto ImportSelectedTexture() -> bool;

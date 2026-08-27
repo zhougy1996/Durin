@@ -9,6 +9,7 @@
 #include "MonaUIBackend.h"
 #include "Texture/TexturePayloadInspection.h"
 #include "Texture/VolumeTexture.h"
+#include "AssetForge/Builtins/VolumeTextureImportData.h"
 #include "Workspace/VolumeTextureEditorWorkspace.h"
 
 namespace Durin::Editor::Texture
@@ -314,11 +315,19 @@ namespace Durin::Editor::Texture
 			DrawFact("Source dimensions", std::format("{} x {} x {}", Source.Width, Source.Height, Source.Depth));
 			DrawFact("Source voxels", FormatBytes(Source.GetVoxelBytes().size()));
 		}
-		const auto& Import = Texture->GetSourceImportData();
-		DrawFact("Source file", Import.SourceFile.empty() ? "No source provenance" : Import.SourceFile);
-		if (Import.HasSource())
+		const auto* Import = dynamic_cast<const AssetForge::Builtins::DVolumeTextureImportData*>(
+			Texture->GetAssetImportData());
+		const AssetImport::FSourceFile* ImportedSource = Import
+			? Import->GetSourceData().FindByRole("source") : nullptr;
+		DrawFact("Source file", ImportedSource
+			? ImportedSource->Filename : "No source filename");
+		if (Import)
+		{
+			const AssetForge::Builtins::FVolumeTextureImportDataState State =
+				Import->GetVolumeTextureState();
 			DrawFact("Atlas layout", std::format("{} x {} slices | {} x {} tiles | depth {}",
-				Import.SliceWidth, Import.SliceHeight, Import.TilesX, Import.TilesY, Import.Depth));
+				State.SliceWidth, State.SliceHeight, State.TilesX, State.TilesY, State.Depth));
+		}
 		if (!Texture->GetLastBuildError().empty()) DrawFact("Diagnostic", Texture->GetLastBuildError());
 		MonaImGui::PropertyEdit::EndTable();
 		ImGui::Spacing();

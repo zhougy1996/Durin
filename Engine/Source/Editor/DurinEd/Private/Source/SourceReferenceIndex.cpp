@@ -74,72 +74,10 @@ namespace Durin::Editor
 				Inspection, ImportInfo, ImportInfoError))
 			{
 				for (const AssetImport::FSourceFile& Source : ImportInfo.Sources)
-					AddReference(References, Data, Source.SourcePath.Path);
+					AddReference(References, Data, Source.Filename);
 				return true;
 			}
 
-			// Temporary read-only fallback for authored packages that have not yet
-			// been canonically resaved with the common import-data reference.
-			const Asset::FAssetPackageField* SourceField =
-				Inspection.FindField("SourceImportData");
-			if (!SourceField) return true;
-
-			FTexture2DSourceImportData Texture2DSource;
-			if (SourceField->TryReadStruct(
-				FTexture2DSourceImportData::StaticStruct(), &Texture2DSource))
-			{
-				AddReference(
-					References, Data, Texture2DSource.Source.SourcePath.Path);
-				return true;
-			}
-
-			FVolumeTextureSourceImportData VolumeTextureSource;
-			if (SourceField->TryReadStruct(
-				FVolumeTextureSourceImportData::StaticStruct(), &VolumeTextureSource))
-			{
-				AddReference(References, Data,
-					VolumeTextureSource.Source.SourcePath.Path);
-				return true;
-			}
-
-			FTerrainHeightmapSourceImportData HeightmapSource;
-			if (SourceField->TryReadStruct(
-				FTerrainHeightmapSourceImportData::StaticStruct(), &HeightmapSource))
-			{
-				AddReference(References, Data, HeightmapSource.SourcePath.Path);
-				return true;
-			}
-
-			FStaticMeshSourceImportData StaticMeshSource;
-			if (SourceField->TryReadStruct(
-				FStaticMeshSourceImportData::StaticStruct(), &StaticMeshSource))
-			{
-				AddReference(References, Data, StaticMeshSource.SourcePath.Path);
-				return true;
-			}
-
-			FTextureCubeSourceImportData TextureCubeSource;
-			if (SourceField->TryReadStruct(
-				FTextureCubeSourceImportData::StaticStruct(), &TextureCubeSource))
-			{
-				if (TextureCubeSource.SourceLayout
-					== ETextureCubeSourceLayout::EquirectangularPanorama)
-				{
-					AddReference(
-						References, Data,
-						TextureCubeSource.Panorama.SourcePath.Path);
-				}
-				else
-				{
-					for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
-						AddReference(
-							References, Data,
-							TextureCubeSource.GetFace(
-								static_cast<ETextureCubeFace>(Index))
-								.SourcePath.Path);
-				}
-				return true;
-			}
 			return true;
 		}
 

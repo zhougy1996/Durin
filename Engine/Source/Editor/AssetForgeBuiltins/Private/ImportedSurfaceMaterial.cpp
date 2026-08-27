@@ -4,6 +4,7 @@
 #include "Asset.h"
 #include "DObject/Package.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialProgramTypes.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -68,6 +69,17 @@ namespace Durin::AssetForge::Builtins
 			Created->GetParameterDefinitions(), OutError))
 		{
 			Asset::UnloadPackage(Created->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+			return nullptr;
+		}
+		FMaterialProgramValidationResult ProgramValidation;
+		if (!Created->SetMaterialProgram(
+			MakeLegacyExpandedMaterialProgram(), ProgramValidation))
+		{
+			OutError = ProgramValidation.Diagnostics.empty()
+				? "Failed to initialize the standard imported-surface material program."
+				: ProgramValidation.Diagnostics.front().Message;
+			Asset::UnloadPackage(Created->GetPackage(),
+				Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return nullptr;
 		}
 		const Asset::FAssetResult SaveResult = Asset::SavePackage(Created->GetPackage());

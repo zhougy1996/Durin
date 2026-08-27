@@ -1,5 +1,4 @@
-#include "AssetForge/ImportTypes.h"
-#include "AssetForge/ImportService.h"
+#include "AssetForge/Builtins/ImportSupport.h"
 #include "AssetTools.h"
 #include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"
@@ -9,13 +8,13 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
-#include "AssetForgeBuiltinsProviders.h"
 #include "Source/SourceReferenceIndex.h"
 #include "AssetForgeBuiltinsAssetTestSupport.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapPostLoad.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
 #include "AssetForge/Builtins/TerrainHeightmapImport.h"
+#include "AssetForge/Builtins/TerrainHeightmapImportData.h"
 #include "Terrain/TerrainHeightmapBuildKey.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 #include "Texture/Texture2D.h"
@@ -27,6 +26,13 @@
 
 namespace
 {
+	struct FReimportResult
+	{
+		bool bSucceeded = false;
+		bool bPersistenceFailed = false;
+		std::string Diagnostic;
+	};
+
 	class FTerrainHeightmapTestEnvironment final : public testing::Environment
 	{
 	public:
@@ -34,14 +40,6 @@ namespace
 		{
 			InitializeDObjectSystem();
 			ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAssetFeatures());
-			std::string Error;
-			ASSERT_TRUE(Durin::AssetForge::Builtins::RegisterAssetForgeBuiltinsProviders(
-				Error, GetEngineTestModuleCallbackGate())) << Error;
-		}
-
-		auto TearDown() -> void override
-		{
-			Durin::AssetForge::Builtins::UnregisterAssetForgeBuiltinsProviders();
 		}
 	};
 
@@ -213,26 +211,16 @@ namespace
 
 	auto ReimportHeightmap(Durin::DTerrainHeightmap& Heightmap,
 		Durin::Asset::FAssetBundleSaveOptions SaveOptions = {})
-		-> Durin::AssetForge::FImportResult
+		-> FReimportResult
 	{
-		Durin::FAssetPath Destination;
-		Durin::AssetForge::FImportProvenance Provenance;
-		Durin::AssetForge::FImportRequest Request;
 		std::string Error;
-		if (!Heightmap.GetPackage() || !Durin::FAssetPath::TryCreate(
-			Heightmap.GetPackage()->GetPackagePath(), Destination, &Error)
-			|| !Durin::AssetForge::Builtins::InspectTerrainHeightmapImportProvenance(
-				Heightmap, Provenance, Error)
-			|| !Durin::AssetForge::Builtins::MakeTerrainHeightmapImportRequest(
-				Heightmap.GetSourceImportData().SourcePath, Destination,
-				Durin::AssetForge::EImportMode::Reimport,
-				{.OwnerId = "TerrainHeightmapTests.AssetForgeReimport"}, Provenance,
-				Request, Error))
-			return {.Outcome = {.State = Durin::AssetForge::EImportOperationState::Failed,
-				.Diagnostic = std::move(Error)}};
-		Request.SaveOptions = std::move(SaveOptions);
-		return Durin::AssetForge::GetImportService().RunImportInline(
-			std::move(Request), "Reimport Terrain Heightmap");
+		if (Durin::AssetForge::Builtins::ReimportTerrainHeightmapSource(
+			Heightmap, Error, SaveOptions))
+			return {.bSucceeded = true};
+		if (Heightmap.GetPackage() && Heightmap.GetPackage()->IsDirty())
+			return {.bSucceeded = true, .bPersistenceFailed = true,
+				.Diagnostic = std::move(Error)};
+		return {.Diagnostic = std::move(Error)};
 	}
 }
 
@@ -505,15 +493,17 @@ TEST(FTerrainHeightmapImportTests, RawImportReimportRelocationAndWarmDdcPreserve
 	ASSERT_NE(Imported.Asset, nullptr);
 	EXPECT_EQ(Imported.Asset->GetPayload()->Samples,
 		std::vector<uint16>(Initial.begin(), Initial.end()));
-	EXPECT_EQ(Imported.Asset->GetSourceImportData().DecoderId, "DurinTerrainRaw16");
-	EXPECT_EQ(Imported.Asset->GetSourceImportData().SourceFormat,
+	const auto* ImportData = dynamic_cast<const Durin::AssetForge::Builtins::DTerrainHeightmapImportData*>(
+		Imported.Asset->GetAssetImportData());
+	ASSERT_NE(ImportData, nullptr);
+	EXPECT_EQ(ImportData->GetDecoderId(), "DurinTerrainRaw16");
+	EXPECT_EQ(ImportData->GetSourceFormat(),
 		Durin::ETerrainHeightmapSourceFormat::Raw16);
 	EXPECT_TRUE(Imported.Asset->GetSourceFile().ends_with(".raw"));
 
 	const uint64 InitialRevision = Imported.Asset->GetRevision();
 	const auto Noop = ReimportHeightmap(*Imported.Asset);
-	ASSERT_EQ(Noop.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
-		<< Noop.Outcome.Diagnostic;
+	ASSERT_TRUE(Noop.bSucceeded) << Noop.Diagnostic;
 	EXPECT_EQ(Imported.Asset->GetRevision(), InitialRevision);
 	const std::array<uint16, 9> Changed{
 		9, 8, 7,
@@ -521,26 +511,10 @@ TEST(FTerrainHeightmapImportTests, RawImportReimportRelocationAndWarmDdcPreserve
 		3, 2, 1};
 	WriteRaw16(Source, Changed);
 	const auto Updated = ReimportHeightmap(*Imported.Asset);
-	ASSERT_EQ(Updated.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
-		<< Updated.Outcome.Diagnostic;
+	ASSERT_TRUE(Updated.bSucceeded) << Updated.Diagnostic;
 	EXPECT_EQ(Imported.Asset->GetRevision(), InitialRevision + 1);
 	EXPECT_EQ(Imported.Asset->GetPayload()->Samples,
 		std::vector<uint16>(Changed.begin(), Changed.end()));
-
-	const std::filesystem::path Relocated = Root / "Relocated/Asymmetric.raw";
-	WriteRaw16(Relocated, Changed);
-	std::string Error;
-	const uint64 BeforeRelocationRevision = Imported.Asset->GetRevision();
-	ASSERT_TRUE(Durin::AssetForge::Builtins::ChangeTerrainHeightmapSourceReference(
-		*Imported.Asset, "/TerrainHeightmap/Relocated/Asymmetric.raw", Error)) << Error;
-	EXPECT_EQ(Imported.Asset->GetSourceFile(),
-		"/TerrainHeightmap/Relocated/Asymmetric.raw");
-	EXPECT_EQ(Imported.Asset->GetRevision(), BeforeRelocationRevision);
-
-	const auto WrongDestination = Durin::AssetForge::Builtins::ImportTerrainHeightmapAsset(
-		Source.generic_string(), "/TerrainHeightmap/RawWrongDestination",
-		{.SourceDestination = "TerrainHeightmaps/Wrong.png"});
-	EXPECT_FALSE(WrongDestination);
 
 	const std::string Key = Imported.Asset->GetDerivedDataKey();
 	Durin::FAssetPath Path;
@@ -548,7 +522,7 @@ TEST(FTerrainHeightmapImportTests, RawImportReimportRelocationAndWarmDdcPreserve
 	ASSERT_TRUE(Durin::Asset::SavePackage(Imported.Asset->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 	std::error_code ErrorCode;
-	std::filesystem::remove(Relocated, ErrorCode);
+	std::filesystem::remove(Source, ErrorCode);
 	Durin::DTerrainHeightmap* Reloaded = nullptr;
 	const Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadAsset(Path, Reloaded);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
@@ -563,8 +537,6 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndFailedSavePreservePu
 	const std::filesystem::path Root = InitializeHeightmapTests();
 	FScopedDdcRoot Ddc(Root / "DDC");
 	std::string Error;
-	ASSERT_TRUE(Durin::AssetForge::Builtins::RegisterAssetForgeBuiltinsProviders(
-		Error, GetEngineTestModuleCallbackGate())) << Error;
 	const std::filesystem::path Source = Root / "Sources/Asymmetric.png";
 	const std::array<uint16, 6> Initial{0, 100, 200, 300, 400, 65'535};
 	WritePng(Source, 3, 2, Initial);
@@ -573,13 +545,19 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndFailedSavePreservePu
 			Source.generic_string(), "/TerrainHeightmap/Asymmetric");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	ASSERT_NE(Imported.Asset, nullptr);
+	const auto* ImportData = dynamic_cast<const Durin::AssetForge::Builtins::DTerrainHeightmapImportData*>(
+		Imported.Asset->GetAssetImportData());
+	ASSERT_NE(ImportData, nullptr);
+	EXPECT_EQ(ImportData->GetDecoderId(), "DurinImage.Png16");
 	EXPECT_EQ(Imported.Asset->GetRevision(), 1);
 	EXPECT_FALSE(Imported.Asset->GetPackage()->IsDirty());
 	EXPECT_EQ(Imported.Asset->GetMinimum(), 0);
 	EXPECT_EQ(Imported.Asset->GetMaximum(), 65'535);
 	Durin::Editor::FSourceReferenceIndex SourceIndex;
 	SourceIndex.Refresh();
-	const auto References = SourceIndex.FindReferences(Imported.Asset->GetSourceFile());
+	ASSERT_NE(Imported.Asset->GetImportedSource(), nullptr);
+	const auto References = SourceIndex.FindReferences(
+		Imported.Asset->GetImportedSource()->Filename);
 	ASSERT_EQ(References.size(), 1);
 	EXPECT_EQ(References.front().AssetPath.ToString(), "/TerrainHeightmap/Asymmetric");
 	std::string DuplicateError;
@@ -601,16 +579,14 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndFailedSavePreservePu
 
 	const uint64 InitialRevision = Imported.Asset->GetRevision();
 	const auto Noop = ReimportHeightmap(*Imported.Asset);
-	ASSERT_EQ(Noop.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
-		<< Noop.Outcome.Diagnostic;
+	ASSERT_TRUE(Noop.bSucceeded) << Noop.Diagnostic;
 	EXPECT_EQ(Imported.Asset->GetRevision(), InitialRevision);
 	EXPECT_FALSE(Imported.Asset->GetPackage()->IsDirty());
 
 	const std::array<uint16, 6> Changed{1, 2, 3, 4, 5, 6};
 	WritePng(Source, 3, 2, Changed);
 	const auto Updated = ReimportHeightmap(*Imported.Asset);
-	ASSERT_EQ(Updated.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded)
-		<< Updated.Outcome.Diagnostic;
+	ASSERT_TRUE(Updated.bSucceeded) << Updated.Diagnostic;
 	EXPECT_EQ(Imported.Asset->GetRevision(), InitialRevision + 1);
 	EXPECT_EQ(Imported.Asset->GetMinimum(), 1);
 	EXPECT_EQ(Imported.Asset->GetMaximum(), 6);
@@ -623,10 +599,9 @@ TEST(FTerrainHeightmapImportTests, ExplicitImportReimportAndFailedSavePreservePu
 		{.ShouldFail = [](Durin::Asset::EAssetBundleSavePhase Phase, size_t) {
 			return Phase == Durin::Asset::EAssetBundleSavePhase::StagePackage;
 		}});
-	EXPECT_EQ(Failed.Outcome.State, Durin::AssetForge::EImportOperationState::Succeeded);
-	EXPECT_EQ(Failed.Persistence.State,
-		Durin::AssetForge::EImportPersistenceState::Failed);
-	EXPECT_FALSE(Failed.Persistence.Diagnostic.empty());
+	EXPECT_TRUE(Failed.bSucceeded);
+	EXPECT_TRUE(Failed.bPersistenceFailed);
+	EXPECT_FALSE(Failed.Diagnostic.empty());
 	EXPECT_EQ(Imported.Asset->GetRevision(), BeforeFailureRevision + 1);
 	EXPECT_EQ(Imported.Asset->GetPayload()->Samples,
 		std::vector<uint16>(FailedChange.begin(), FailedChange.end()));

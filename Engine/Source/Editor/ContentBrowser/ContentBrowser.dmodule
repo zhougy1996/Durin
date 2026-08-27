@@ -15,7 +15,6 @@
 		"AssetForgeBuiltins"
 	],
 	"PublicDependencies": [
-		"AssetForge",
 		"DurinEd"
     ]
 }

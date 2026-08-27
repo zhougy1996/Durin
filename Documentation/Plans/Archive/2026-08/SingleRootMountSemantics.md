@@ -589,7 +589,7 @@ machine-local commands.
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
-- [Mounted Source Workflows](../../../Editor/Guides/MountedSourceWorkflows.md)
+- [Mounted Source Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
 - [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
 - [Build and Run](../../../Development/Build/BuildAndRun.md)
 

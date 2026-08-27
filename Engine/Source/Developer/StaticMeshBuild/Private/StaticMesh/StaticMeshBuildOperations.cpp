@@ -520,9 +520,7 @@ namespace Durin::Asset
 			.MaterialSlots = std::vector<FMeshMaterialSlotDefinition>(
 				Mesh.MaterialSlots.begin(), Mesh.MaterialSlots.end()),
 			.NormalizedSize = Mesh.NormalizedSize,
-			.StableObjectPath = Mesh.GetObjectPath(),
-			.Provenance = Mesh.SourceImportData,
-			.ImportSettings = Mesh.SourceImportData.ImportSettings};
+			.StableObjectPath = Mesh.GetObjectPath()};
 	}
 
 	auto FStaticMeshBuildOperations::BuildAndPublishImported(

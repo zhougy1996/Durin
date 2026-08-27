@@ -1,8 +1,7 @@
 #pragma once
 
-#include "AssetForge/Operations/ImportOperation.h"
-#include "AssetForge/ImportRequest.h"
 #include "DObject/AssetPath.h"
+#include "Editor/Import/BuiltinImportDispatch.h"
 #include "Editor/Transaction.h"
 #include "Modules/ModularFeature.h"
 #include "Threading/Task.h"
@@ -14,8 +13,6 @@ namespace Durin::Editor::ContentBrowser
 	enum class EExtensionCategory : uint8
 	{
 		Create,
-		Import,
-		Reimport,
 		Details,
 		ContextMenu,
 	};
@@ -45,7 +42,6 @@ namespace Durin::Editor::ContentBrowser
 		std::function<bool(std::string_view, std::string_view)> OpenAsset;
 		std::function<void()> NotifyMountedContentChanged;
 		std::function<void(std::string)> ReportError;
-		std::function<bool(AssetForge::FImportRequest, std::string)> SubmitImport;
 	};
 
 	// Defines one deterministically ordered, unload-gated browser contribution.
@@ -118,8 +114,13 @@ namespace Durin::Editor::ContentBrowser
 		std::function<uint64()> GetMountedContentMutationRevision;
 		std::function<void()> NotifyMountedContentMutation;
 		std::function<FActionResult(std::span<const FAssetMove>)> MoveAssets;
-		std::function<void(AssetForge::FImportOperationHandle, std::string)>
-			NotifyImportStarted;
+		std::function<void(Import::EBuiltinImportFamily, std::string)> OpenImport;
+		std::function<Import::EBuiltinReimportFamily(std::string_view)>
+			ClassifyReimport;
+		std::function<void(
+			Import::EBuiltinReimportFamily, std::string, std::function<void(std::string)>)>
+			Reimport;
+		std::function<void(bool)> DrawImportDialogs;
 		FTaskScopeToken ThumbnailTaskScope;
 		FModuleOwnedCallbackGate OwnerGate;
 	};

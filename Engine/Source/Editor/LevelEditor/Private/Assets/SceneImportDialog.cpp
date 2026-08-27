@@ -1,198 +1,102 @@
 #include "Assets/SceneImportDialog.h"
 
 #include "Editor/Import/AssetDestinationValidation.h"
-#include "Editor/Import/MountedSourceImport.h"
-#include "Asset/MountedSource.h"
 #include "Asset.h"
-#include "AssetForge/ImportService.h"
 #include "Dialogs/FileDialog.h"
-#include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "Misc/StringConvert.h"
 #include "MonaImGui.h"
-#include "StaticMesh/StaticMesh.h"
 
 namespace Durin::Editor::Level
 {
-	FSceneImportDialog::FSceneImportDialog(
-		FImportDialogCallbacks InCallbacks)
-		: Callbacks(std::move(InCallbacks))
-	{
-	}
-
-	FSceneImportDialog::~FSceneImportDialog()
-	{
-		CancelRequests();
-	}
+	FSceneImportDialog::FSceneImportDialog(FImportDialogCallbacks InCallbacks)
+		: Callbacks(std::move(InCallbacks)) {}
 
 	auto FSceneImportDialog::Open(std::string_view InDestinationDirectory) -> void
 	{
-		CancelRequests();
-		SourceForm.Reset();
+		SourcePathBuffer.fill(0);
 		Coordinates.Reset();
 		DestinationDirectory.Reset(InDestinationDirectory);
 		std::string Error;
-		if (!AssetForge::Builtins::EnsureImportedSurfaceMaterial(Error)) SetError(std::move(Error));
+		if (!AssetForge::Builtins::EnsureImportedSurfaceMaterial(Error))
+			SetError(std::move(Error));
 		ModalState.RequestOpen();
 	}
 
 	auto FSceneImportDialog::Draw(bool bAllowAssetMutation) -> void
 	{
 		ModalState.OpenPopupIfRequested("Import Scene Source");
-		const bool bImportFinished = PollImport();
-
 		const MonaImGui::FUIStyleMetrics Metrics = MonaImGui::GetUIStyleMetrics();
 		ImGui::SetNextWindowSize(ImVec2(Metrics.WidePopupWidth, 0.0f), ImGuiCond_Appearing);
-		if (!ImGui::BeginPopupModal(
-			"Import Scene Source",
-			nullptr,
-			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings
-		))
-			return;
-		if (bImportFinished)
-		{
-			ImGui::CloseCurrentPopup();
-			ImGui::EndPopup();
-			return;
-		}
-		const bool bImportPending = SourceRequest.has_value()
-			|| ImportRequestHandle.has_value();
-		if (ImportRequestHandle) ImportProgress.Refresh();
-		ImGui::BeginDisabled(bImportPending);
+		if (!ImGui::BeginPopupModal("Import Scene Source", nullptr,
+			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize
+				| ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings)) return;
 
 		ImGui::TextUnformatted("Import the assets described by an FBX or glTF Scene source.");
 		ImGui::TextDisabled("Outputs are peer assets grouped by type inside one destination directory.");
 		ImGui::Spacing();
 		ImGui::SeparatorText("Source model");
-		SourceForm.DrawMode(
-			"Copies an external model transactionally to the explicit mounted source path.");
+		ImGui::TextDisabled("The selected source and its relative dependencies remain in place.");
 		const float BrowseButtonWidth = Metrics.StandardButtonWidth;
-		if (SourceForm.DrawSourceRow("##ImportSource",
-			"Choose an FBX, glTF, or GLB Scene source...", BrowseButtonWidth)) BrowseSource();
+		ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x
+			- BrowseButtonWidth - ImGui::GetStyle().ItemSpacing.x);
+		ImGui::InputTextWithHint("##SceneImportSource",
+			"Choose an FBX, glTF, or GLB Scene source...", SourcePathBuffer.data(),
+			SourcePathBuffer.size(), ImGuiInputTextFlags_ReadOnly);
+		ImGui::SameLine();
+		if (ImGui::Button("Browse...", ImVec2(BrowseButtonWidth, 0.0f))) BrowseSource();
 
 		const std::filesystem::path SourcePath(SourcePathBuffer.data());
 		const bool bHasSource = SourcePathBuffer[0] != '\0';
 		const bool bSourceExists = bHasSource && std::filesystem::is_regular_file(SourcePath);
-		if (bHasSource)
-			ImGui::TextDisabled("%s", std::format("{}  |  {}", SourcePath.extension().generic_string(), SourcePath.filename().generic_string()).c_str());
+		std::string Extension = SourcePath.extension().generic_string();
+		std::ranges::transform(Extension, Extension.begin(), [](unsigned char Value) {
+			return static_cast<char>(std::tolower(Value)); });
+		const bool bSupportedSource = Extension == ".fbx"
+			|| Extension == ".gltf" || Extension == ".glb";
+		if (bHasSource) ImGui::TextDisabled("%s", SourcePath.filename().generic_string().c_str());
 
 		ImGui::Spacing();
 		ImGui::SeparatorText("Coordinate system");
 		Coordinates.Draw();
-
 		ImGui::Spacing();
 		ImGui::SeparatorText("Destination");
 		if (DestinationDirectory.DrawRow("Output directory", "##SceneImportDirectory",
 			"/Project/Imported/SceneName", "Choose...", BrowseButtonWidth))
 			BrowseDestinationDirectory();
-		if (SourceForm.DrawDestinationRow("##SceneSourceDestination",
-			"/Project/Sources/Models/SceneName/SceneName.fbx", BrowseButtonWidth))
-			BrowseSourceDestination();
-
-		const FContentDirectoryValidation DestinationValidation =
-			DestinationDirectory.Inspect();
-		const bool bAllowEngineContentWrite = DestinationValidation.Mount
-			&& DestinationValidation.Mount->Owner == PathUtilities::EMountOwner::Engine;
+		const FContentDirectoryValidation DestinationValidation = DestinationDirectory.Inspect();
 		std::string ImportSettingsError;
 		const bool bImportSettingsValid = Coordinates.GetSettings().IsValid(&ImportSettingsError);
-		const FMountedSourceImportDiagnostic SourceDiagnostic =
-			DestinationValidation.bDirectoryPathValid
-			? SourceForm.Inspect(
-				DestinationValidation.DirectoryPath.GetView(), bAllowEngineContentWrite)
-			: FMountedSourceImportDiagnostic{};
+
 		if (DestinationValidation.bDirectoryPathValid
-			&& DestinationValidation.bMountedDestination && bHasSource
-			&& SourceDiagnostic.bValid)
+			&& DestinationValidation.bMountedDestination && bSourceExists && bSupportedSource)
 		{
-			ImGui::TextDisabled("Source: %s", SourcePath.filename().generic_string().c_str());
-			ImGui::TextDisabled("Outputs will be created by type under: %s",
-				DestinationValidation.DirectoryPath.ToString().c_str());
-			ImGui::TextDisabled("Mount: %s (%s)  |  %s  |  dependency allowed",
-				SourceDiagnostic.Mount->VirtualRoot.c_str(),
-				DescribeMountOwner(SourceDiagnostic.Mount->Owner),
-				SourceDiagnostic.Mount->bContentWritable ? "writable" : "read-only");
-			if (bAllowEngineContentWrite)
-				ImGui::TextDisabled("Engine content write: this import writes shared Engine content.");
+			ImGui::BeginChild("SceneImportOutputPreview",
+				ImVec2(0.0f, MonaImGui::ScaleUI(112.0f)), ImGuiChildFlags_Borders);
+			ImGui::TextDisabled("Source filename");
+			ImGui::TextUnformatted(SourcePath.generic_string().c_str());
+			ImGui::TextDisabled("Output directory");
+			ImGui::TextUnformatted(DestinationValidation.DirectoryPath.ToString().c_str());
+			ImGui::EndChild();
 		}
 
 		std::string ValidationMessage;
-		if (!bHasSource)
-			ValidationMessage = "Select a source model to continue.";
-		else if (!bSourceExists)
-			ValidationMessage = "The selected source file no longer exists.";
-		else if (!bImportSettingsValid)
-			ValidationMessage = ImportSettingsError;
-		else if (!DestinationValidation)
-			ValidationMessage = DestinationValidation.Message;
-		else if (!SourceDiagnostic.bValid)
-			ValidationMessage = SourceDiagnostic.Message;
-		else if (SourceRequest)
-			ValidationMessage = "Capturing Scene sources in the background...";
-		else if (ImportRequestHandle)
-			ValidationMessage = "Scene AssetForge import is running...";
-
+		if (!bHasSource) ValidationMessage = "Select a source model to continue.";
+		else if (!bSourceExists) ValidationMessage = "The selected source file no longer exists.";
+		else if (!bSupportedSource) ValidationMessage = "Scene import supports FBX, glTF, and GLB files.";
+		else if (!bImportSettingsValid) ValidationMessage = ImportSettingsError;
+		else if (!DestinationValidation) ValidationMessage = DestinationValidation.Message;
 		DrawImportDialogWarning(ValidationMessage);
 
 		ImGui::Spacing();
 		ImGui::Separator();
+		if (!bAllowAssetMutation) DrawImportDialogWarning("Asset imports are unavailable during Play.");
+		ImGui::BeginDisabled(!bAllowAssetMutation || !ValidationMessage.empty());
+		if (ImGui::Button("Import Scene", ImVec2(MonaImGui::ScaleUI(150.0f), 0.0f))
+			&& Import()) ImGui::CloseCurrentPopup();
 		ImGui::EndDisabled();
-		if (bImportPending)
-		{
-			if (SourceRequest)
-			{
-				ImGui::TextUnformatted("Capturing Scene sources");
-				const float Progress = static_cast<float>(
-					std::fmod(ImGui::GetTime() * 0.65, 1.0));
-				ImGui::ProgressBar(
-					Progress, ImVec2(-std::numeric_limits<float>::min(), 0.0f));
-				if (ImGui::Button("Run in Background")) ImGui::CloseCurrentPopup();
-				ImGui::SameLine();
-				if (ImGui::Button("Cancel"))
-				{
-					AssetForge::Builtins::CancelAndDrainSceneSourceBundlePreparation(*SourceRequest);
-					SourceRequest.reset();
-					PendingImportDirectory.reset();
-				}
-				ImGui::EndPopup();
-				return;
-			}
-			const AssetForge::FImportOperationSnapshot& Snapshot = ImportProgress.GetSnapshot();
-			const std::string Overlay = Snapshot.Progress
-				? std::format("{}%", static_cast<int>(*Snapshot.Progress * 100.0f))
-				: std::string{};
-			ImGui::TextUnformatted(AssetForge::GetImportPhaseLabel(Snapshot.Phase).data());
-			if (!Snapshot.SourceIdentity.empty() && Snapshot.SourceIdentity != "root")
-				ImGui::TextDisabled("Current source: %s", Snapshot.SourceIdentity.c_str());
-			const float Progress = Snapshot.Progress.value_or(
-				static_cast<float>(std::fmod(ImGui::GetTime() * 0.65, 1.0)));
-			ImGui::ProgressBar(Progress, ImVec2(-std::numeric_limits<float>::min(), 0.0f),
-				Overlay.empty() ? nullptr : Overlay.c_str());
-			if (ImGui::Button("Run in Background"))
-			{
-				ImportProgress.RunInBackground();
-				ImGui::CloseCurrentPopup();
-			}
-			ImGui::SameLine();
-			ImGui::BeginDisabled(!ImportProgress.CanCancel());
-			if (ImGui::Button(Snapshot.State == AssetForge::EImportOperationState::Canceling
-				? "Canceling..." : "Cancel")) ImportProgress.RequestCancel();
-			ImGui::EndDisabled();
-		}
-		else
-		{
-			if (!bAllowAssetMutation)
-				DrawImportDialogWarning("Asset imports are unavailable during Play.");
-			ImGui::BeginDisabled(!bAllowAssetMutation || !ValidationMessage.empty());
-			if (ImGui::Button("Import Scene", ImVec2(MonaImGui::ScaleUI(150.0f), 0.0f))
-				&& Import()) ImGui::CloseCurrentPopup();
-			ImGui::EndDisabled();
-			ImGui::SameLine();
-			if (MonaImGui::DialogButton("Cancel", true))
-			{
-				CancelRequests();
-				ImGui::CloseCurrentPopup();
-			}
-		}
+		ImGui::SameLine();
+		if (MonaImGui::DialogButton("Cancel", true)) ImGui::CloseCurrentPopup();
 		ImGui::EndPopup();
 	}
 
@@ -201,205 +105,59 @@ namespace Durin::Editor::Level
 		FFileDialogRequest Request;
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
 		Request.Title = "Select an FBX or glTF Scene Source";
-		Request.Filters = {
-			{"Supported Scene Sources", "*.fbx;*.gltf;*.glb"},
-			{"Autodesk FBX", "*.fbx"},
-			{"glTF", "*.gltf;*.glb"},
-			{"All Files", "*.*"}
-		};
-		if (const FProjectInfo* Project = GetCurrentProject()) Request.InitialDirectory = Project->ProjectDir;
-		if (SourceMode == EMountedSourceImportMode::ReferenceExisting)
-		{
-			const PathUtilities::FMountLookupResult Lookup =
-				PathUtilities::FindMountForVirtualPath(DestinationDirectory.GetPath());
-			if (Lookup)
-				Request.InitialDirectory = Lookup.Mount->GetContentDir().generic_string();
-		}
-		if (SourcePathBuffer[0] != '\0') Request.InitialDirectory = std::filesystem::path(SourcePathBuffer.data()).parent_path().generic_string();
-
-		FFileDialogResult Result = OpenFileDialog(Request);
+		Request.Filters = {{"Supported Scene Sources", "*.fbx;*.gltf;*.glb"},
+			{"Autodesk FBX", "*.fbx"}, {"glTF", "*.gltf;*.glb"}, {"All Files", "*.*"}};
+		if (const FProjectInfo* Project = GetCurrentProject())
+			Request.InitialDirectory = Project->ProjectDir;
+		if (SourcePathBuffer[0] != '\0')
+			Request.InitialDirectory = std::filesystem::path(
+				SourcePathBuffer.data()).parent_path().generic_string();
+		const FFileDialogResult Result = OpenFileDialog(Request);
 		if (Result.Status == EFileDialogStatus::Cancelled) return;
-		if (Result.Status == EFileDialogStatus::Error)
-		{
-			SetError(Result.ErrorMessage);
-			return;
-		}
+		if (Result.Status == EFileDialogStatus::Error) { SetError(Result.ErrorMessage); return; }
 		if (Result.FilePath.size() >= SourcePathBuffer.size())
 		{
 			SetError("The selected file path is too long for the import form.");
 			return;
 		}
-
 		SourcePathBuffer.fill(0);
-		std::memcpy(SourcePathBuffer.data(), Result.FilePath.data(), std::min(Result.FilePath.size(), SourcePathBuffer.size() - 1));
+		std::memcpy(SourcePathBuffer.data(), Result.FilePath.data(),
+			std::min(Result.FilePath.size(), SourcePathBuffer.size() - 1));
 		Coordinates.Reset();
 		const std::string SceneName = StringUtils::SanitizeFileName(
 			std::filesystem::path(Result.FilePath).stem().generic_string(), "Scene");
 		const FProjectInfo* Project = GetCurrentProject();
-		DestinationDirectory.SuggestPath(DestinationDirectory.MakeSuggestedPath(SceneName,
-			(Project ? Project->MountRoot : "/")
-				+ std::string("Imported/")));
-		SuggestSourceDestination();
-	}
-
-	auto FSceneImportDialog::SuggestSourceDestination() -> void
-	{
-		if (SourcePathBuffer[0] == '\0') return;
-		const std::filesystem::path SourcePath(SourcePathBuffer.data());
-		const std::string SceneName = StringUtils::SanitizeFileName(
-			SourcePath.stem().generic_string(), "Scene");
-		const std::string SuggestedSourceDestination =
-			MakeDefaultImportedSourceVirtualPath(
-				DestinationDirectory.GetPath(), "Models",
-				SourcePath.filename().generic_string(), SceneName);
-		SourceForm.SuggestDestination(SuggestedSourceDestination);
+		DestinationDirectory.SuggestPath(DestinationDirectory.MakeSuggestedPath(
+			SceneName, (Project ? Project->MountRoot : "/") + std::string("Imported/")));
 	}
 
 	auto FSceneImportDialog::BrowseDestinationDirectory() -> void
 	{
-		if (DestinationDirectory.Browse("Choose a Scene Output Directory",
+		(void)DestinationDirectory.Browse("Choose a Scene Output Directory",
 			"The selected directory path is too long for the import form.",
-			"Scene outputs must be saved inside a package-enabled mount.",
-			Callbacks))
-			SuggestSourceDestination();
-	}
-
-	auto FSceneImportDialog::BrowseSourceDestination() -> void
-	{
-		FAssetPath AssetPath;
-		std::string Error;
-		if (!FAssetPath::TryCreate(DestinationDirectory.GetPath(), AssetPath, &Error))
-		{
-			SetError("Choose a valid output directory before selecting the source destination.");
-			return;
-		}
-		const PathUtilities::FMountLookupResult Lookup =
-			PathUtilities::FindMountForVirtualPath(AssetPath.GetView());
-		if (!Lookup)
-		{
-			SetError("The selected asset path does not use a registered mount.");
-			return;
-		}
-		FFileDialogRequest Request;
-		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
-		Request.Title = "Choose Scene Source Destination";
-		Request.Filters = {{"All Files", "*.*"}};
-		Request.InitialDirectory = Lookup.Mount->GetContentDir().generic_string();
-		Request.DefaultFileName = SourcePathBuffer[0] != '\0'
-			? std::filesystem::path(SourcePathBuffer.data()).filename().generic_string()
-			: "Scene.fbx";
-		const FFileDialogResult Result = SaveFileDialog(Request);
-		if (Result.Status == EFileDialogStatus::Cancelled) return;
-		if (Result.Status == EFileDialogStatus::Error) { SetError(Result.ErrorMessage); return; }
-		const PathUtilities::FSourcePathResult Classified =
-			PathUtilities::ClassifySourcePath(Result.FilePath);
-		if (!Classified)
-		{
-			SetError(Classified.Message);
-			return;
-		}
-		if (Classified.NormalizedVirtualPath.size() >= SourceDestinationBuffer.size())
-		{
-			SetError("The selected source destination is too long for the import form.");
-			return;
-		}
-		SourceForm.SetDestination(Classified.NormalizedVirtualPath);
+			"Scene outputs must be saved inside a package-enabled mount.", Callbacks);
 	}
 
 	auto FSceneImportDialog::Import() -> bool
 	{
-		if (SourceRequest || ImportRequestHandle) return false;
-		Callbacks.Clear();
 		FAssetPath OutputDirectory;
 		std::string Error;
-		if (!FAssetPath::TryCreate(
-			DestinationDirectory.GetPath(), OutputDirectory, &Error))
+		if (!FAssetPath::TryCreate(DestinationDirectory.GetPath(), OutputDirectory, &Error))
 		{
 			SetError(std::move(Error));
 			return false;
 		}
-		PendingImportDirectory = OutputDirectory;
-		SourceRequest = AssetForge::Builtins::BeginSceneSourceBundlePreparation(
-			SourcePathBuffer.data(), OutputDirectory.ToString(),
-			SourceMode == EMountedSourceImportMode::IngestExternal
-				? std::string(SourceDestinationBuffer.data()) : std::string{},
-			IsEngineContentWriteDestination(OutputDirectory.GetView()));
-		return false;
-	}
-
-	auto FSceneImportDialog::PollImport() -> bool
-	{
-		if (SourceRequest)
+		AssetForge::Builtins::FSceneImportResult Result;
+		if (!AssetForge::Builtins::ImportSceneAssets(SourcePathBuffer.data(), OutputDirectory,
+			Coordinates.GetSettings(), Result))
 		{
-			AssetForge::Builtins::FPreparedSceneSourceBundle Sources;
-			std::string Error;
-			const AssetForge::EAsyncImportPlanStatus Status =
-				AssetForge::Builtins::PollSceneSourceBundlePreparation(
-					*SourceRequest, Sources, Error);
-			if (Status == AssetForge::EAsyncImportPlanStatus::Pending) return false;
-			SourceRequest.reset();
-			if (Status != AssetForge::EAsyncImportPlanStatus::Succeeded
-				|| !PendingImportDirectory)
-			{
-				PendingImportDirectory.reset();
-				SetError(Error.empty()
-					? "Scene source preparation did not complete." : std::move(Error));
-				return false;
-			}
-			// Source ingestion is an explicit content-write operation and remains even if
-			// the subsequent asset publication is rejected or fails.
-			AssetForge::Builtins::CommitSceneSourceBundle(Sources);
-			AssetForge::FImportRequest Request;
-			if (!AssetForge::Builtins::MakeSceneImportRequest(
-				Sources.RootSource, *PendingImportDirectory, Coordinates.GetSettings(),
-				{.OwnerId = "LevelEditor.SceneImportDialog.Execute",
-					.ConflictIdentities = {PendingImportDirectory->ToString()}},
-				Request, Error))
-			{
-				PendingImportDirectory.reset();
-				SetError(std::move(Error));
-				return false;
-			}
-			ImportRequestHandle = AssetForge::GetImportService().SubmitImport(
-				std::move(Request), "Importing Scene");
-			PendingImportDirectory.reset();
-			if (ImportRequestHandle && *ImportRequestHandle)
-			{
-				ImportProgress.Begin(ImportRequestHandle->GetOperationHandle());
-				Callbacks.NotifyImportStarted(
-					ImportRequestHandle->GetOperationHandle(), "Importing Scene");
-			}
-			else SetError("Scene AssetForge import could not be submitted.");
-			return false;
-		}
-		if (!ImportRequestHandle) return false;
-		AssetForge::FImportResult Result;
-		if (!ImportRequestHandle->TryGetResult(Result)) return false;
-		ImportRequestHandle.reset();
-		ImportProgress.Reset();
-		if (Result.Outcome.State != AssetForge::EImportOperationState::Succeeded)
-		{
-			SetError(Result.Outcome.Diagnostic.empty()
-				? "Scene AssetForge import failed." : Result.Outcome.Diagnostic);
+			SetError(Result.Message.empty() ? "Scene import failed." : std::move(Result.Message));
 			return false;
 		}
 		Callbacks.NotifyImportedDirectory(DestinationDirectory.GetPath());
-		for (const AssetForge::FOutputMapping& Output : Result.Provenance.OutputMappings)
+		for (const AssetForge::FImportOutputSummary& Output : Result.Outputs)
 			Asset::UnloadPackage(Output.AssetPath);
 		return true;
-	}
-
-	auto FSceneImportDialog::CancelRequests() -> void
-	{
-		if (SourceRequest)
-			AssetForge::Builtins::CancelAndDrainSceneSourceBundlePreparation(*SourceRequest);
-		if (ImportRequestHandle)
-			AssetForge::GetImportService().CancelAndDrainImportOperation(
-				ImportRequestHandle->GetOperationHandle());
-		SourceRequest.reset();
-		PendingImportDirectory.reset();
-		ImportRequestHandle.reset();
-		ImportProgress.Reset();
 	}
 
 	auto FSceneImportDialog::SetError(std::string Message) const -> void

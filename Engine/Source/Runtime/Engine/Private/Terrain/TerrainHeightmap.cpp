@@ -324,7 +324,6 @@ namespace Durin
 	}
 
 	auto DTerrainHeightmap::PublishDerivedDataLoadResult(
-		FTerrainHeightmapSourceImportData InSourceImportData,
 		uint64 InSourceFileSize,
 		int64 InSourceLastWriteTime,
 		std::shared_ptr<const FTerrainHeightmapPayload> InPayload,
@@ -335,7 +334,6 @@ namespace Durin
 		bool bInLoadedFromDerivedDataCache) -> void
 	{
 		++DerivedDataLoadGeneration;
-		SourceImportData = std::move(InSourceImportData);
 		SourceFileSize = InSourceFileSize;
 		SourceLastWriteTime = InSourceLastWriteTime;
 		SourceBitDepth = 16;
@@ -520,8 +518,7 @@ namespace Durin
 	auto DTerrainHeightmap::IsSemanticImportNoOp(
 		const DTerrainHeightmap& Candidate) const -> bool
 	{
-		return SourceImportData == Candidate.SourceImportData
-			&& DerivedDataKey == Candidate.DerivedDataKey
+		return DerivedDataKey == Candidate.DerivedDataKey
 			&& Payload && Candidate.Payload
 			&& Payload->Samples == Candidate.Payload->Samples;
 	}
@@ -536,8 +533,6 @@ namespace Durin
 	auto DTerrainHeightmap::ExchangeImportedState(DTerrainHeightmap& Other) noexcept -> void
 	{
 		if (&Other == this) return;
-		std::swap(SourceImportData, Other.SourceImportData);
-		std::swap(ImportProvenance, Other.ImportProvenance);
 		std::swap(SourceFileSize, Other.SourceFileSize);
 		std::swap(SourceLastWriteTime, Other.SourceLastWriteTime);
 		std::swap(SourceBitDepth, Other.SourceBitDepth);
@@ -560,17 +555,19 @@ namespace Durin
 		Other.MarkPackageDirty();
 	}
 
-	auto DTerrainHeightmap::PublishImportProvenance(
-		std::vector<std::byte> Provenance) -> void
+	auto DTerrainHeightmap::PublishAssetImportData(
+		AssetImport::DAssetImportData& Value, std::string& OutError) -> bool
 	{
-		static constexpr char Hex[] = "0123456789abcdef";
-		ImportProvenance.resize(Provenance.size() * 2);
-		for (size_t Index = 0; Index < Provenance.size(); ++Index)
+		if (Value.GetOuter() != this)
 		{
-			const uint8 Value = std::to_integer<uint8>(Provenance[Index]);
-			ImportProvenance[Index * 2] = Hex[Value >> 4];
-			ImportProvenance[Index * 2 + 1] = Hex[Value & 0x0f];
+			OutError = "TerrainHeightmap import data must be an owned inner object.";
+			return false;
 		}
+		if (!Value.Validate(OutError)) return false;
+		AssetImportData = &Value;
+		MarkPackageDirty();
+		OutError.clear();
+		return true;
 	}
 
 }

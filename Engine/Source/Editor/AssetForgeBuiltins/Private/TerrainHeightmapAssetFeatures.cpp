@@ -1,6 +1,6 @@
 #include "TerrainHeightmapAssetFeatures.h"
 
-#include "Asset/MountedSource.h"
+#include "Asset/SourceFilename.h"
 #include "DObject/Package.h"
 #include "DObject/ObjectHandle.h"
 #include "EncodedSourceSnapshot.h"
@@ -8,10 +8,9 @@
 #include "Terrain/TerrainHeightmapBuildOperations.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 #include "Terrain/TerrainHeightmapPostLoad.h"
-#include "TerrainHeightmapBuildAdapter.h"
 #include "AssetForge/Builtins/TerrainHeightmapImport.h"
+#include "AssetForge/Builtins/TerrainHeightmapImportData.h"
 #include "Threading/Task.h"
-#include "AssetForge/ImportService.h"
 
 namespace Durin::AssetForge::Builtins
 {
@@ -56,7 +55,6 @@ namespace Durin::AssetForge::Builtins
 		std::mutex Mutex;
 		std::unordered_map<std::string, std::weak_ptr<FTerrainDerivedDataLoadWork>> LoadsByKey;
 		std::unordered_map<uint64, FTerrainDerivedDataLoadPending> PendingByObject;
-		std::unordered_map<uint64, FImportHandle> PendingImportByObject;
 		FAsyncOperationGroup OperationGroup;
 	};
 
@@ -68,8 +66,34 @@ namespace Durin::AssetForge::Builtins
 			return static_cast<uint64>(Handle.Generation) << 32 | Handle.Index;
 		}
 
+		auto GetTerrainSourceContract(
+			const DTerrainHeightmap& Heightmap,
+			FTerrainHeightmapSourceImportData& OutSource,
+			std::string& OutError) -> bool
+		{
+			const auto* ImportData = dynamic_cast<const DTerrainHeightmapImportData*>(
+				Heightmap.GetAssetImportData());
+			const AssetImport::FSourceFile* Source = Heightmap.GetImportedSource();
+			if (!ImportData || !Source)
+			{
+				OutError = "Terrain heightmap import data is missing its source contract.";
+				return false;
+			}
+			OutSource = {
+				.SourcePath = {.Path = Source->Filename},
+				.SourceContentHashLow = Source->ContentHashLow,
+				.SourceContentHashHigh = Source->ContentHashHigh,
+				.DecoderId = std::string(ImportData->GetDecoderId()),
+				.DecoderVersion = ImportData->GetDecoderVersion(),
+				.SourceFormat = ImportData->GetSourceFormat(),
+				.SourceProfileVersion = ImportData->GetSourceProfileVersion()};
+			OutError.clear();
+			return true;
+		}
+
 		auto BuildTerrainLoadResult(
-			FTerrainHeightmapSourceImportData Source, std::string Key,
+			FTerrainHeightmapSourceImportData Source, std::string Filename,
+			std::string Key,
 			const FTaskCancellationToken& Token) -> FTerrainDerivedDataLoadResult
 		{
 			FTerrainDerivedDataLoadResult Result;
@@ -97,7 +121,9 @@ namespace Durin::AssetForge::Builtins
 			const auto CaptureStart = std::chrono::steady_clock::now();
 			FEncodedSourceSnapshot Snapshot;
 			std::string Error;
-			if (!CaptureEncodedSource(Source.SourcePath, Snapshot, Error,
+			std::string PhysicalPath;
+			if (!AssetImport::ResolveSourceFilename(Filename, PhysicalPath, Error)
+				|| !CaptureEncodedSource({.Path = Filename}, PhysicalPath, Snapshot, Error,
 				MaximumTerrainHeightmapEncodedBytes))
 			{
 				Result.FailureStatus = ETerrainHeightmapStatus::SourceUnavailable;
@@ -191,7 +217,7 @@ namespace Durin::AssetForge::Builtins
 			if (Result.bSucceeded && Result.Payload)
 			{
 				Heightmap->PublishDerivedDataLoadResult(
-					std::move(Result.Source), Result.SourceFileSize, Result.SourceLastWriteTime,
+					Result.SourceFileSize, Result.SourceLastWriteTime,
 					std::move(Result.Payload), std::move(Result.DerivedDataKey),
 					std::move(Result.Diagnostic), false, false, Result.bLoadedFromDdc);
 				bPublished = true;
@@ -216,8 +242,15 @@ namespace Durin::AssetForge::Builtins
 		{
 			const FObjectHandle Handle = MakeObjectHandle(&Heightmap);
 			if (IsObjectHandleNull(Handle)) return false;
+			const AssetImport::FSourceFile* ImportedSource = Heightmap.GetImportedSource();
+			if (!ImportedSource)
+			{
+				OutError = "Terrain heightmap has no source filename for derived-data recovery.";
+				return false;
+			}
+			const std::string Filename = ImportedSource->Filename;
 			const std::string CoalescingKey = Key.empty()
-				? std::format("source:{}", Heightmap.GetSourceImportData().SourcePath.Path) : Key;
+				? std::format("source:{}", Filename) : Key;
 			const uint64 Generation = Heightmap.BeginDerivedDataLoad(
 				Key.empty(), Key.empty()
 					? "Terrain heightmap payload is rebuilding asynchronously from source."
@@ -238,7 +271,13 @@ namespace Durin::AssetForge::Builtins
 					}
 					Work = std::make_shared<FTerrainDerivedDataLoadWork>();
 					Work->CoalescingKey = CoalescingKey;
-					const FTerrainHeightmapSourceImportData Source = Heightmap.GetSourceImportData();
+					FTerrainHeightmapSourceImportData Source;
+					if (!GetTerrainSourceContract(Heightmap, Source, OutError))
+					{
+						(void)Heightmap.FailDerivedDataLoad(Generation,
+							ETerrainHeightmapStatus::Failed, OutError);
+						return false;
+					}
 					FTaskLaunchOptions Options;
 					Options.CancellationToken = State.OperationGroup.GetCancellationToken();
 					Options.Scope = State.OperationGroup.GetTaskScope();
@@ -246,8 +285,9 @@ namespace Durin::AssetForge::Builtins
 						RegisterTaskAttribution("TerrainHeightmap", "LoadPayload");
 					Options.Attribution = Attribution;
 					Work->Worker = LaunchCancelableTask("TerrainHeightmap.LoadPayload",
-						[Work, Source, Key](const FTaskCancellationToken& Token) {
-							FTerrainDerivedDataLoadResult Result = BuildTerrainLoadResult(Source, Key, Token);
+						[Work, Source, Filename, Key](const FTaskCancellationToken& Token) {
+							FTerrainDerivedDataLoadResult Result = BuildTerrainLoadResult(
+								Source, Filename, Key, Token);
 							std::lock_guard ResultLock(Work->Mutex);
 							Work->Result = std::move(Result);
 						}, Options);
@@ -297,7 +337,9 @@ namespace Durin::AssetForge::Builtins
 			FTerrainHeightmapDerivedDataLoadState& State,
 			DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
 		{
-			std::string Key = Asset::MakeTerrainHeightmapDerivedDataKey(Heightmap, OutError);
+			FTerrainHeightmapSourceImportData Source;
+			if (!GetTerrainSourceContract(Heightmap, Source, OutError)) return false;
+			std::string Key = Asset::MakeTerrainHeightmapDerivedDataKey(Source, OutError);
 			const FGameThreadDeferredWorkQueueDiagnostics Deferred =
 				GetGameThreadDeferredWorkQueueDiagnostics();
 			if (State.OperationGroup.IsValid()
@@ -309,66 +351,34 @@ namespace Durin::AssetForge::Builtins
 				std::shared_ptr<const FTerrainHeightmapPayload> Payload;
 				if (Asset::LoadTerrainHeightmapDerivedData(Key, Payload, OutError))
 				{
-					const auto& Source = Heightmap.GetSourceImportData();
-					Heightmap.PublishDerivedDataLoadResult(Source, 0, 0, std::move(Payload),
+					Heightmap.PublishDerivedDataLoadResult(0, 0, std::move(Payload),
 						std::move(Key), "Loaded terrain heightmap payload from DDC.",
 						false, false, true);
 					return true;
 				}
 			}
-			FAssetPath Destination;
-			if (!Heightmap.GetPackage()
-				|| !FAssetPath::TryCreate(Heightmap.GetPackage()->GetPackagePath(),
-					Destination, &OutError)) return false;
-			FMountedSourceResolution SourceResolution;
-			if (!ResolveMountedSourceReference(
-				Destination.ToString(), Heightmap.GetSourceImportData().SourcePath.Path,
-				EMountedSourceExistencePolicy::AllowMissing,
-				SourceResolution, OutError))
+			const AssetImport::FSourceFile* ImportedSource = Heightmap.GetImportedSource();
+			if (!ImportedSource)
 			{
-				const uint64 Generation = Heightmap.BeginDerivedDataLoad(
-					true, "Validating terrain heightmap recovery source.");
+				OutError = "Terrain heightmap has no source filename for derived-data recovery.";
+				return false;
+			}
+			FTerrainDerivedDataLoadResult Result = BuildTerrainLoadResult(
+				Source, ImportedSource->Filename,
+				std::move(Key), FTaskCancellationToken{});
+			const uint64 Generation = Heightmap.BeginDerivedDataLoad(
+				true, "Rebuilding terrain heightmap payload from source.");
+			if (!Result.bSucceeded || !Result.Payload)
+			{
+				OutError = Result.Diagnostic;
 				(void)Heightmap.FailDerivedDataLoad(
-					Generation, ETerrainHeightmapStatus::Failed, OutError);
+					Generation, Result.FailureStatus, std::move(Result.Diagnostic));
 				return false;
 			}
-			if (!SourceResolution.bExists)
-			{
-				OutError = std::format(
-					"Terrain heightmap recovery source '{}' is unavailable.",
-					Heightmap.GetSourceImportData().SourcePath.Path);
-				const uint64 Generation = Heightmap.BeginDerivedDataLoad(
-					true, "Validating terrain heightmap recovery source.");
-				(void)Heightmap.FailDerivedDataLoad(
-					Generation, ETerrainHeightmapStatus::SourceUnavailable, OutError);
-				return false;
-			}
-			FImportProvenance Existing;
-			std::optional<FImportProvenance> Provenance;
-			if (InspectTerrainHeightmapImportProvenance(Heightmap, Existing, OutError))
-				Provenance = std::move(Existing);
-			else OutError.clear();
-			FImportRequest Request;
-			if (!MakeTerrainHeightmapImportRequest(
-				Heightmap.GetSourceImportData().SourcePath, Destination,
-				EImportMode::Recover,
-				{.OwnerId = std::format("TerrainHeightmap.Recovery:{}", Destination.ToString()),
-					.ConflictIdentities = {Destination.ToString()}},
-				std::move(Provenance), Request, OutError)) return false;
-			Request.Lifetime = EImportOperationLifetime::SessionCritical;
-			FImportHandle Import = GetImportService().SubmitImport(
-				std::move(Request),
-				std::format("Recover TerrainHeightmap {}", Destination.GetAssetName()));
-			if (!Import)
-			{
-				OutError = "TerrainHeightmap AssetForge recovery could not be submitted.";
-				return false;
-			}
-			{
-				std::lock_guard Lock(State.Mutex);
-				State.PendingImportByObject[ObjectKey(MakeObjectHandle(&Heightmap))] =
-					std::move(Import);
-			}
+			Heightmap.PublishDerivedDataLoadResult(
+				Result.SourceFileSize, Result.SourceLastWriteTime,
+				std::move(Result.Payload), std::move(Result.DerivedDataKey),
+				std::move(Result.Diagnostic), false, false, false);
 			OutError.clear();
 			return true;
 		}
@@ -378,35 +388,6 @@ namespace Durin::AssetForge::Builtins
 			DTerrainHeightmap& Heightmap, std::string& OutError) -> bool
 		{
 			const FObjectHandle Handle = MakeObjectHandle(&Heightmap);
-			FImportHandle Import;
-			{
-				std::lock_guard Lock(State.Mutex);
-				if (const auto Found = State.PendingImportByObject.find(ObjectKey(Handle));
-					Found != State.PendingImportByObject.end())
-					Import = Found->second;
-			}
-			if (Import)
-			{
-				while (!Import.GetOperationHandle().GetSnapshot().IsTerminal())
-				{
-					GetImportService().PumpImportOperations();
-					std::this_thread::yield();
-				}
-				FImportResult Result;
-				const bool bHasResult = Import.TryGetResult(Result);
-				{
-					std::lock_guard Lock(State.Mutex);
-					State.PendingImportByObject.erase(ObjectKey(Handle));
-				}
-				if (bHasResult && Result.Outcome.State == EImportOperationState::Succeeded)
-				{
-					OutError.clear();
-					return true;
-				}
-				OutError = bHasResult ? Result.Outcome.Diagnostic
-					: "TerrainHeightmap AssetForge recovery produced no result.";
-				return false;
-			}
 			FTerrainDerivedDataLoadPending Pending;
 			{
 				std::lock_guard Lock(State.Mutex);
@@ -455,24 +436,18 @@ namespace Durin::AssetForge::Builtins
 	{
 		std::vector<std::shared_ptr<FTerrainDerivedDataLoadWork>> Works;
 		std::vector<FTaskHandle> Publishers;
-		std::vector<FImportOperationHandle> ImportOperations;
 		{
 			std::lock_guard Lock(State->Mutex);
 			for (auto& [Key, Weak] : State->LoadsByKey)
 				if (auto Work = Weak.lock()) Works.push_back(std::move(Work));
 			for (auto& [Key, Pending] : State->PendingByObject)
 				Publishers.push_back(Pending.Publisher);
-			for (auto& [Key, Pending] : State->PendingImportByObject)
-				ImportOperations.push_back(Pending.GetOperationHandle());
 			State->PendingByObject.clear();
-			State->PendingImportByObject.clear();
 			State->LoadsByKey.clear();
 		}
 		for (const auto& Work : Works)
 			(void)CancelTask(Work->Worker);
 		for (const FTaskHandle& Publisher : Publishers) (void)CancelTask(Publisher);
-		for (const FImportOperationHandle& Operation : ImportOperations)
-			GetImportService().CancelAndDrainImportOperation(Operation);
 	}
 
 	auto FTerrainHeightmapAssetFeatures::PostLoadUncooked(
@@ -487,45 +462,4 @@ namespace Durin::AssetForge::Builtins
 		return WaitForTerrainLoad(*State, Heightmap, OutError);
 	}
 
-	auto FTerrainHeightmapAssetFeatures::ChangeSourceReference(
-		DTerrainHeightmap& Heightmap,
-		std::string_view SourceVirtualPath,
-		std::string& OutError) -> bool
-	{
-		const FObjectHandle Handle = MakeObjectHandle(&Heightmap);
-		std::shared_ptr<FTerrainDerivedDataLoadWork> Work;
-		FTaskHandle Publisher;
-		FImportOperationHandle ImportOperation;
-		bool bWorkHasOtherSubscribers = false;
-		{
-			std::lock_guard Lock(State->Mutex);
-			if (const auto Found = State->PendingByObject.find(ObjectKey(Handle));
-				Found != State->PendingByObject.end())
-			{
-				Work = Found->second.Work;
-				Publisher = Found->second.Publisher;
-				State->PendingByObject.erase(Found);
-				if (auto KeyFound = State->LoadsByKey.find(Work->CoalescingKey);
-					KeyFound != State->LoadsByKey.end() && KeyFound->second.lock() == Work)
-				{
-					bWorkHasOtherSubscribers = std::ranges::any_of(
-						State->PendingByObject, [&](const auto& Entry) {
-							return Entry.second.Work == Work;
-						});
-					if (!bWorkHasOtherSubscribers) State->LoadsByKey.erase(KeyFound);
-				}
-			}
-			if (const auto Found = State->PendingImportByObject.find(ObjectKey(Handle));
-				Found != State->PendingImportByObject.end())
-			{
-				ImportOperation = Found->second.GetOperationHandle();
-				State->PendingImportByObject.erase(Found);
-			}
-		}
-		if (Work && !bWorkHasOtherSubscribers) (void)CancelTask(Work->Worker);
-		if (Publisher.IsValid()) (void)CancelTask(Publisher);
-		if (ImportOperation.IsValid())
-			GetImportService().CancelAndDrainImportOperation(ImportOperation);
-		return ChangeTerrainHeightmapSourceReference(Heightmap, SourceVirtualPath, OutError);
-	}
 }

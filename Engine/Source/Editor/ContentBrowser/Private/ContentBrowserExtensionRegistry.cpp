@@ -93,9 +93,7 @@ namespace Durin::Editor::ContentBrowser
 		const FExtensionInvocation& Invocation) -> bool
 	{
 		const bool bMutationExtension =
-			Descriptor.Category == EExtensionCategory::Create
-			|| Descriptor.Category == EExtensionCategory::Import
-			|| Descriptor.Category == EExtensionCategory::Reimport;
+			Descriptor.Category == EExtensionCategory::Create;
 		if (!Descriptor.IsApplicable || !Descriptor.Invoke
 			|| (bMutationExtension && !Invocation.bAllowAssetMutation)
 			|| !Descriptor.IsApplicable(Invocation.Context))

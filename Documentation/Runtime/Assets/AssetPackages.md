@@ -13,9 +13,9 @@ Durin object assets are stored as versioned `.dasset` packages. A package has on
 AssetCore exposes capability-named entry points rather than one complete public
 surface. `Asset.h` is the ordinary runtime entry point for catalog lookup,
 redirect resolution, package residency, asset loading, and cooked-payload
-reading. Callers include `Asset/AssetOperations.h`, `Asset/MountedSource.h`,
-`Asset/Mutation.h`, or `Asset/PackageSerialization.h` for the exact create/save,
-source-mutation, asset-mutation, or serialization capability. `AssetCook.h` adds Cook
+reading. Callers include `Asset/AssetOperations.h`, `Asset/Mutation.h`, or
+`Asset/PackageSerialization.h` for the exact create/save, asset-mutation, or
+serialization capability. `AssetCook.h` adds Cook
 reachability, cooked-container construction, package serialization for Cook, and
 manifest publication. `AssetTools.h` adds offline inspection, compatibility, and
 canonical-resave workflows.
@@ -33,9 +33,10 @@ implementation details.
 
 Asset identities use extensionless `FAssetPath` values such as
 `/Engine/Materials/Default` or `/Game/Levels/TestLevel`. The first path segment
-must match a registered mount. `FSourcePath` uses the same logical mount and
-retains the filename extension. Both types resolve relative to the mount's
-single `GetContentDir()`; neither virtual path includes `Root` or `ContentPath`.
+must match a registered mount and resolves relative to the mount's single
+`GetContentDir()`; the virtual path includes neither `Root` nor `ContentPath`.
+Importer source filenames use the separate project-relative-or-absolute file
+contract and never resolve through these package mounts.
 
 The immutable Core mount registry publishes `/Engine/` and `/Game/` plus
 validated project-declared extension and external-source mounts. Every mount
@@ -566,9 +567,9 @@ family-owned derived-data recovery; apply alone loads the required build and
 built-in asset-operation modules, drains the asset's active recovery claim, and asks
 the registered `IAssetSaveReadinessFeature` provider to validate transient
 domain state. The generic tool does not enumerate concrete asset classes.
-Recovery may read a mounted source or DDC entry, but recovery-mode AssetForge
-does not publish an authored package; an authored mutation or Dirty package
-blocks the subsequent canonical save.
+Recovery may read a persisted source filename or DDC entry, but family-owned
+rebuild does not publish an authored package; an authored mutation or Dirty
+package blocks the subsequent canonical save.
 
 The ready package is published as one bounded atomic unit through
 `SavePackagesAtomically`. Published bytes are reread through the compatibility
@@ -747,9 +748,9 @@ of being silently omitted.
   function, policy, value, and synchronous session contracts; it does not own
   typed asset recipes or object-aware compilation lifecycle.
 - `Engine` owns asset-specific source provenance, import/build policy, derived-data keys and codecs, and cook contributions.
-- Editor modules invoke the descriptor-based `FImportService` for initial
-  import, single-asset reimport/repair, and record-backed multi-output actions,
-  as documented in [Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md).
+- Editor modules dispatch a finite built-in family table to direct import and
+  reimport functions, as documented in
+  [Asset Import Architecture](../../Editor/Architecture/AssetImportFramework.md).
 - `DLevel` objects are main assets inside packages; a `DWorld` remains a runtime/editor session container and activates one level at a time.
 
 Asset-level cooking and deterministic cooked publication are implemented for

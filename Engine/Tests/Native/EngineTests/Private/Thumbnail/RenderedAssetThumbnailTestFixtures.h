@@ -15,7 +15,6 @@
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
-#include "AssetForgeBuiltinsProviders.h"
 #include "AssetForgeBuiltinsAssetFeatures.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 #include "Thumbnail/StaticMeshAssetThumbnail.h"
@@ -316,8 +315,6 @@ namespace Durin::Tests
 		(void)StaticMeshPostLoad;
 		(void)Texture2DPostLoad;
 		(void)TextureCubePostLoad;
-		if (!AssetForge::Builtins::RegisterAssetForgeBuiltinsProviders(
-			OutError, GetEngineTestModuleCallbackGate())) return false;
 		const std::filesystem::path Root = GetRenderedAssetThumbnailFixtureRoot();
 		static std::unordered_map<std::filesystem::path, FRenderedAssetThumbnailFixtureSet> CachedFixtures;
 		if (auto It = CachedFixtures.find(Root); It != CachedFixtures.end())
