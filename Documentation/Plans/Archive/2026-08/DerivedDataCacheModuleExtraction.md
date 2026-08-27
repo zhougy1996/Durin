@@ -2,46 +2,39 @@
 
 Summary: Extract a backend-neutral `DerivedDataCache` module and move cache contracts and local filesystem storage out of `AssetBuildCore` without changing derived-data behavior.
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-08-28
 
-Status: Active
-Completed:
+Status: Archived
+Completed: 2026-08-28
 
 ## Current Status
 
-Stages 0-2 are implemented. `DerivedDataCache` is a target-selected Developer
+All four stages are complete. `DerivedDataCache` is a target-selected Developer
 module with a public synchronous Bucket/Key/Get/Put/Trim contract over Core's
 immutable `FSharedByteBuffer` and a private filesystem backend. The backend
 preserves the historical two-character sharding and `.bin` layout, atomic
 replacement, bounded reads, deterministic trim, dynamic test directory, and
 contained-path checks. A process facade serializes get, put, and trim without
-exposing locks or backend state.
+exposing locks or backend state. `FDerivedDataObjectStore`, `FBuildCacheClient`,
+their duplicate statuses, and the logical `CacheRoot` field are removed.
 
-`AssetBuildCore` now privately depends on DDC, no longer depends on `AssetCore`,
-and retains the complete query/validate/build/validate/store policy machine.
-`FDerivedDataObjectStore`, `FBuildCacheClient`, their duplicate statuses, and
-the logical `CacheRoot` field are removed. Direct DDC tests pass 5/5 and
-AssetBuildCore policy/host tests pass 8/8.
+Focused DDC, Build policy, Texture, StaticMesh/collision, skeletal/animation,
+Terrain, AssetImport, Cook, renderer, and lifecycle coverage passes. The Editor
+all build, hidden-window smoke, DurinGame build, module closure assertions,
+deployment exclusion checks, and documentation validators pass. The final
+2026-08-28 ordinary native aggregate passed all 83 registered targets in 36.35
+seconds, including `DerivedDataCacheTests`, `DerivedDataBuildTests`,
+`SkyBoxVulkanIntegrationTests`, and the affected family integration targets.
+Two preceding aggregate attempts exposed unrelated, non-reproducing failures
+in `MaterialTests` and `VulkanRHIIntegrationTests`; both complete targets passed
+when isolated before the successful aggregate rerun.
 
-Stage 3 focused coverage passes for Texture (87), StaticMesh/collision (74),
-skeletal/animation (34), TerrainHeightmap (11), TerrainWorld (15), AssetImport
-(17), TerrainHeightmap Cook (1), and Texture Cook (1). The Editor all build,
-hidden-window smoke, DurinGame build, module closure assertions, and deployment
-exclusion checks pass. Stale renderer test calls were updated for the current
-render-policy signatures; `VolumetricCloudVulkanTests` passes 1/1 and
-`EditorGridVulkanTests` passes 7/7. Skeletal Scene lifecycle now passes 1/1
-after owning a rendering-thread admission scope and cooking its Material through
-the required DMAT descriptor path. `SceneImportVulkanTests` passes 1/1 after
-refreshing two stable renderer golden hashes; its injected sampler-creation
-failure remains an expected recovery assertion. The native aggregate builds and
-executes all 82 registered targets, with these DDC qualification cases passing,
-but its previous run remained red on `SkyBoxVulkanIntegrationTests`. That
-access violation came from the test dereferencing transient TextureCube source
-pixels that cache-hit publication intentionally omits; its reference colors now
-come from a fixture projection independent of the cached asset, and the exact
-Vulkan integration target passes 1/1. The native aggregate has not been rerun.
-All changed/all documentation, all-plan, and all-roadmap validators pass. The
-plan remains active until the external native aggregate runtime gate passes.
+The extraction originally left family-neutral Build orchestration in
+`AssetBuildCore`. The completed and archived Derived Data Build Framework
+Consolidation follow-up subsequently moved that framework into
+`DerivedDataCache` and removed `AssetBuildCore`; that later ownership is the
+current lasting architecture and supersedes this plan's extraction-era module
+boundary without changing its cache compatibility result.
 
 ## Goal
 
@@ -396,7 +389,7 @@ Dependencies: Stage 2 complete.
 - [x] Verify exact cache directories and bytes for representative texture,
   mesh, skeletal, animation, and Terrain entries without making those paths
   part of a production API.
-- [ ] Build the default Editor target and complete native aggregate after
+- [x] Build the default Editor target and complete native aggregate after
   focused tests pass; run the hidden-window Editor startup/shutdown smoke to
   qualify module load and unload ordering.
 - [x] Build or otherwise qualify the configured Game closure and deployment
@@ -423,8 +416,8 @@ Dependencies: Stage 2 complete.
 
 ## Validation Matrix
 
-Follow [Agent Build And Run](../Agents/BuildAndRun.md) and
-[Agent Testing](../Agents/Testing.md); select focused targets first and never
+Follow [Agent Build And Run](../../../Agents/BuildAndRun.md) and
+[Agent Testing](../../../Agents/Testing.md); select focused targets first and never
 overlap build process trees.
 
 | Concern | Required evidence |
@@ -490,25 +483,25 @@ overlap build process trees.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Workspace Projects](../Workspace/WorkspaceProjects.md)
-- [Build System](../Development/Build/BuildSystem.md)
-- [File I/O](../Runtime/Core/FileIO.md)
-- [Asset Build Recipe Internal Consolidation Plan](Archive/2026-08/AssetBuildRecipeInternalConsolidation.md)
-- [Agent Build And Run](../Agents/BuildAndRun.md)
-- [Agent Testing](../Agents/Testing.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Workspace Projects](../../../Workspace/WorkspaceProjects.md)
+- [Build System](../../../Development/Build/BuildSystem.md)
+- [File I/O](../../../Runtime/Core/FileIO.md)
+- [Asset Build Recipe Internal Consolidation Plan](AssetBuildRecipeInternalConsolidation.md)
+- [Agent Build And Run](../../../Agents/BuildAndRun.md)
+- [Agent Testing](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`DerivedDataCache.dmodule`](../../Engine/Source/Developer/DerivedDataCache/DerivedDataCache.dmodule)
-- [`DerivedDataBuildTypes.h`](../../Engine/Source/Developer/DerivedDataCache/Public/DerivedDataCache/DerivedDataBuildTypes.h)
-- [`DerivedDataBuildFunction.h`](../../Engine/Source/Developer/DerivedDataCache/Public/DerivedDataCache/DerivedDataBuildFunction.h)
-- [`DerivedDataBuildSession.h`](../../Engine/Source/Developer/DerivedDataCache/Public/DerivedDataCache/DerivedDataBuildSession.h)
-- [`DerivedDataBuild.cpp`](../../Engine/Source/Developer/DerivedDataCache/Private/DerivedDataBuild.cpp)
-- [`DerivedDataCache.h`](../../Engine/Source/Developer/DerivedDataCache/Public/DerivedDataCache/DerivedDataCache.h)
-- [`FileSystemCacheBackend.cpp`](../../Engine/Source/Developer/DerivedDataCache/Private/FileSystemCacheBackend.cpp)
-- [`DerivedDataBuildTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/DerivedDataBuildTests.cpp)
-- [`DerivedDataCacheTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/DerivedDataCacheTests.cpp)
-- [`Engine.dproject`](../../Engine/Engine.dproject)
-- [`CMakeLists.txt`](../../CMakeLists.txt)
+- [`DerivedDataCache.dmodule`](../../../../Engine/Source/Developer/DerivedDataCache/DerivedDataCache.dmodule)
+- [`DerivedDataBuildTypes.h`](../../../../Engine/Source/Developer/DerivedDataCache/Public/DerivedDataCache/DerivedDataBuildTypes.h)
+- [`DerivedDataBuildFunction.h`](../../../../Engine/Source/Developer/DerivedDataCache/Public/DerivedDataCache/DerivedDataBuildFunction.h)
+- [`DerivedDataBuildSession.h`](../../../../Engine/Source/Developer/DerivedDataCache/Public/DerivedDataCache/DerivedDataBuildSession.h)
+- [`DerivedDataBuild.cpp`](../../../../Engine/Source/Developer/DerivedDataCache/Private/DerivedDataBuild.cpp)
+- [`DerivedDataCache.h`](../../../../Engine/Source/Developer/DerivedDataCache/Public/DerivedDataCache/DerivedDataCache.h)
+- [`FileSystemCacheBackend.cpp`](../../../../Engine/Source/Developer/DerivedDataCache/Private/FileSystemCacheBackend.cpp)
+- [`DerivedDataBuildTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/DerivedDataBuildTests.cpp)
+- [`DerivedDataCacheTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/DerivedDataCacheTests.cpp)
+- [`Engine.dproject`](../../../../Engine/Engine.dproject)
+- [`CMakeLists.txt`](../../../../CMakeLists.txt)

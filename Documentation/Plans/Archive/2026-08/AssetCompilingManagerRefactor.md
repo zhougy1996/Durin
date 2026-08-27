@@ -613,7 +613,7 @@ The following behavior remains compatible:
 - [Code Modules](../../../Workspace/CodeModules.md)
 - [Build and Run](../../../Agents/BuildAndRun.md)
 - [Testing](../../../Agents/Testing.md)
-- [Derived Data Cache Module Extraction Plan](../../DerivedDataCacheModuleExtraction.md)
+- [Derived Data Cache Module Extraction Plan](DerivedDataCacheModuleExtraction.md)
 - [Material Compile Lifecycle and Derived Data Plan](MaterialCompileLifecycleAndDerivedData.md)
 
 ## Related Code
