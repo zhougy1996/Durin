@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetForge/Builtins/ImportSupport.h"
+#include "SceneSourceSnapshot.h"
 #include "AssetForge/Builtins/ImportedScene.h"
 #include "ImportedSceneInternal.h"
 #include "Texture/Texture2D.h"

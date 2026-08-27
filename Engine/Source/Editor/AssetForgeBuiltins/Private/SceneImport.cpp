@@ -81,7 +81,7 @@ namespace Durin::AssetForge::Builtins
 			~FSceneDiagnosticScope()
 			{
 				if (!bSucceeded && Diagnostics.empty() && !Message.empty())
-					AddDiagnostic(Diagnostics, EImportDiagnosticCategory::ProviderFailure,
+					AddDiagnostic(Diagnostics, EImportDiagnosticCategory::TranslationFailure,
 						Phase, Message, "root");
 				FinalizeImportDiagnostics(Diagnostics, Phase, "root", "request");
 			}
@@ -222,8 +222,7 @@ namespace Durin::AssetForge::Builtins
 			return VisitGltfUris(Bytes,
 				[&](std::string_view Uri, uint32 Index) {
 					return Sink.AddRelative("root",
-						std::format("scene-dependency:{}", Index),
-						"SceneDependency", Uri);
+						std::format("scene-dependency:{}", Index), Uri);
 				});
 		}
 
@@ -336,7 +335,7 @@ namespace Durin::AssetForge::Builtins
 		OutPlan.MeshSettings = Settings;
 		if (!DecodeSceneSnapshot(Snapshot, Settings, OutPlan.Scene, Error))
 		{
-			AddDiagnostic(OutDiagnostics, EImportDiagnosticCategory::ProviderFailure,
+			AddDiagnostic(OutDiagnostics, EImportDiagnosticCategory::TranslationFailure,
 				"scene-parse", Error, "root");
 			return false;
 		}
@@ -367,8 +366,7 @@ namespace Durin::AssetForge::Builtins
 				.StableIdentity = Skeleton.StableIdentity,
 				.Role = "Skeleton",
 				.AssetPath = SkeletonPath,
-				.AssetClassName = "Durin::DSkeleton",
-				.Policy = EImportOutputPolicy::Create});
+				.AssetClassName = "Durin::DSkeleton"});
 			OutPlan.Outputs.push_back({
 				.StableIdentity = Skeleton.StableIdentity,
 				.Kind = ESceneOutputKind::Skeleton,
@@ -381,8 +379,7 @@ namespace Durin::AssetForge::Builtins
 			.StableIdentity = "scene:mesh:combined",
 			.Role = "StaticMesh",
 			.AssetPath = MeshPath,
-			.AssetClassName = "Durin::DStaticMesh",
-			.Policy = EImportOutputPolicy::Create});
+			.AssetClassName = "Durin::DStaticMesh"});
 		OutPlan.Outputs.push_back({
 			.StableIdentity = "scene:mesh:combined",
 			.Kind = ESceneOutputKind::StaticMesh});
@@ -449,8 +446,7 @@ namespace Durin::AssetForge::Builtins
 						.StableIdentity = TextureIdentity,
 						.Role = "Texture2D." + std::string(Role),
 						.AssetPath = TexturePath,
-						.AssetClassName = "Durin::DTexture2D",
-						.Policy = EImportOutputPolicy::Create});
+						.AssetClassName = "Durin::DTexture2D"});
 					OutPlan.Outputs.push_back({
 						.StableIdentity = TextureIdentity,
 						.Kind = ESceneOutputKind::Texture2D,
@@ -508,8 +504,7 @@ namespace Durin::AssetForge::Builtins
 				.StableIdentity = MaterialIdentity,
 				.Role = "MaterialInstance",
 				.AssetPath = MaterialPath,
-				.AssetClassName = "Durin::DMaterialInstance",
-				.Policy = EImportOutputPolicy::Create});
+				.AssetClassName = "Durin::DMaterialInstance"});
 			OutPlan.Outputs.push_back(std::move(MaterialOutput));
 		}
 
@@ -533,8 +528,7 @@ namespace Durin::AssetForge::Builtins
 				.StableIdentity = Mesh.StableIdentity,
 				.Role = "SkeletalMesh",
 				.AssetPath = MeshPath,
-				.AssetClassName = "Durin::DSkeletalMesh",
-				.Policy = EImportOutputPolicy::Create});
+				.AssetClassName = "Durin::DSkeletalMesh"});
 			OutPlan.Outputs.push_back({
 				.StableIdentity = Mesh.StableIdentity,
 				.Kind = ESceneOutputKind::SkeletalMesh,
@@ -562,8 +556,7 @@ namespace Durin::AssetForge::Builtins
 				.StableIdentity = Clip.StableIdentity,
 				.Role = std::format("AnimationClip.{:.6g}s", Clip.Payload->DurationSeconds),
 				.AssetPath = ClipPath,
-				.AssetClassName = "Durin::DAnimationClip",
-				.Policy = EImportOutputPolicy::Create});
+				.AssetClassName = "Durin::DAnimationClip"});
 			OutPlan.Outputs.push_back({
 				.StableIdentity = Clip.StableIdentity,
 				.Kind = ESceneOutputKind::AnimationClip,
@@ -574,7 +567,7 @@ namespace Durin::AssetForge::Builtins
 		{
 			if (Diagnostic.Severity != EImportDiagnosticSeverity::Warning) continue;
 			OutPlan.Warnings.push_back(Diagnostic.Message);
-			EImportDiagnosticCategory Category = EImportDiagnosticCategory::ProviderFailure;
+			EImportDiagnosticCategory Category = EImportDiagnosticCategory::TranslationFailure;
 			if (Diagnostic.Category == ESceneImportDiagnosticCategory::MissingDependency)
 				Category = EImportDiagnosticCategory::MissingDependency;
 			else if (Diagnostic.Category == ESceneImportDiagnosticCategory::UnsafeDependencyPath)

@@ -26,6 +26,12 @@ namespace Durin::AssetForge::Builtins
 {
 	namespace
 	{
+		auto GetScenePublicationMutex() -> std::mutex&
+		{
+			static std::mutex Mutex;
+			return Mutex;
+		}
+
 		struct FPreparedSceneOutput
 		{
 			const FSceneOutputData* Descriptor = nullptr;
@@ -370,7 +376,7 @@ namespace Durin::AssetForge::Builtins
 		if (IsCanceled(IsCancellationRequested))
 			return AddError(OutResult, EImportDiagnosticCategory::Canceled,
 				"scene-publication", "Scene import was canceled before publication.");
-		std::lock_guard PublicationLock(GetImportPublicationMutex());
+		std::lock_guard PublicationLock(GetScenePublicationMutex());
 		for (const FPreparedSceneOutput& Output : Prepared)
 			if (Asset::FindAssetExact(Output.AssetPath)
 				|| Asset::FindResidentPackage(Output.AssetPath))

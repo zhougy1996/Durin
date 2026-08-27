@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetForge/Builtins/ImportSupport.h"
+#include "AssetForge/Builtins/SceneImportTypes.h"
 #include "AssetForgeBuiltinsAPI.h"
 #include "StaticMesh/StaticMesh.h"
 

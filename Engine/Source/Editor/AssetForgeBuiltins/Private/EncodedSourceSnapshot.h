@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetForge/Builtins/ImportSupport.h"
+#include "SceneSourceSnapshot.h"
 #include "Hash/XxHash.h"
 
 namespace Durin::AssetForge::Builtins

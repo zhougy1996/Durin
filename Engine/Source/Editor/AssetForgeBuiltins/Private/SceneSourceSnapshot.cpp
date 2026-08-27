@@ -1,8 +1,7 @@
-#include "AssetForge/Builtins/ImportSupport.h"
+#include "SceneSourceSnapshot.h"
 #include "Asset/Load.h"
 
 #include "Misc/Paths.h"
-#include "Misc/FileTime.h"
 #include "Profiling/Profiling.h"
 
 namespace Durin::AssetForge
@@ -59,25 +58,6 @@ namespace Durin::AssetForge
 			return FoldAscii((Error ? Path.lexically_normal() : Canonical).generic_string());
 		}
 
-		auto UpdateFingerprint(FXxHash128Builder& Builder, std::string_view Value) -> void
-		{
-			const uint64 Size = Value.size();
-			Builder.Update(&Size, sizeof(Size));
-			Builder.Update(Value.data(), Value.size());
-		}
-
-		auto UpdateFingerprint(FXxHash128Builder& Builder, const std::string& Value) -> void
-		{
-			UpdateFingerprint(Builder, std::string_view(Value));
-		}
-
-		template<typename T>
-		auto UpdateFingerprint(FXxHash128Builder& Builder, const T& Value) -> void
-		{
-			static_assert(std::is_trivially_copyable_v<T>);
-			Builder.Update(&Value, sizeof(Value));
-		}
-
 		class FDiagnosticFinalizer
 		{
 		public:
@@ -101,19 +81,6 @@ namespace Durin::AssetForge
 		};
 	}
 
-	auto GetImportDiagnosticIdentity(const FImportDiagnostic& Diagnostic) -> std::string
-	{
-		if (!Diagnostic.Identity.empty()) return Diagnostic.Identity;
-		FXxHash128Builder Builder;
-		UpdateFingerprint(Builder, Diagnostic.Severity);
-		UpdateFingerprint(Builder, Diagnostic.Category);
-		UpdateFingerprint(Builder, Diagnostic.Phase);
-		UpdateFingerprint(Builder, Diagnostic.SourceIdentity);
-		UpdateFingerprint(Builder, Diagnostic.OutputIdentity);
-		UpdateFingerprint(Builder, Diagnostic.Message);
-		return Builder.Finalize().ToString();
-	}
-
 	auto FinalizeImportDiagnostics(
 		std::vector<FImportDiagnostic>& Diagnostics,
 		std::string_view DefaultPhase,
@@ -127,8 +94,6 @@ namespace Durin::AssetForge
 				Diagnostic.SourceIdentity = DefaultSourceIdentity;
 			if (Diagnostic.OutputIdentity.empty())
 				Diagnostic.OutputIdentity = DefaultOutputIdentity;
-			if (Diagnostic.Identity.empty())
-				Diagnostic.Identity = GetImportDiagnosticIdentity(Diagnostic);
 		}
 	}
 
@@ -146,69 +111,30 @@ namespace Durin::AssetForge
 	auto FDependencyRequestSink::AddRelative(
 		std::string_view DeclaringIdentity,
 		std::string_view StableIdentity,
-		std::string_view Role,
 		std::string_view RelativePath,
 		bool bOptional) -> bool
 	{
 		if (!IsStableIdentifier(DeclaringIdentity) || !IsStableIdentifier(StableIdentity)
-			|| Role.empty() || RelativePath.empty())
+			|| RelativePath.empty())
 		{
 			AddDiagnostic(Diagnostics, EImportDiagnosticSeverity::Error,
 				EImportDiagnosticCategory::InvalidRequest, "dependency-discovery",
-				StableIdentity, "Provider emitted an invalid relative dependency request.");
+				StableIdentity, "Scene discovery emitted an invalid relative dependency request.");
 			return false;
 		}
 		if (Requests.size() >= MaximumRequests)
 		{
 			AddDiagnostic(Diagnostics, EImportDiagnosticSeverity::Error,
 				EImportDiagnosticCategory::ResourceLimitExceeded, "dependency-discovery",
-				StableIdentity, "Provider dependency-request count limit was exceeded.");
+				StableIdentity, "Scene dependency-request count limit was exceeded.");
 			return false;
 		}
 		Requests.push_back({
 			.DeclaringIdentity = std::string(DeclaringIdentity),
 			.StableIdentity = std::string(StableIdentity),
-			.Role = std::string(Role),
 			.RelativePath = std::string(RelativePath),
 			.bOptional = bOptional});
 		return true;
-	}
-
-	auto FDependencyRequestSink::AddEmbedded(
-		std::string_view DeclaringIdentity,
-		std::string_view StableIdentity,
-		std::string_view Role,
-		std::span<const std::byte> Bytes) -> bool
-	{
-		if (!IsStableIdentifier(DeclaringIdentity) || !IsStableIdentifier(StableIdentity)
-			|| Role.empty() || Bytes.empty())
-		{
-			AddDiagnostic(Diagnostics, EImportDiagnosticSeverity::Error,
-				EImportDiagnosticCategory::InvalidRequest, "dependency-discovery",
-				StableIdentity, "Provider emitted an invalid embedded dependency request.");
-			return false;
-		}
-		if (Requests.size() >= MaximumRequests || Bytes.size() > MaximumBytesPerSource
-			|| Bytes.size() > MaximumEmbeddedBytes - RequestedEmbeddedBytes)
-		{
-			AddDiagnostic(Diagnostics, EImportDiagnosticSeverity::Error,
-				EImportDiagnosticCategory::ResourceLimitExceeded, "dependency-discovery",
-				StableIdentity, "Provider embedded dependency budget was exceeded.");
-			return false;
-		}
-		RequestedEmbeddedBytes += Bytes.size();
-		Requests.push_back({
-			.DeclaringIdentity = std::string(DeclaringIdentity),
-			.StableIdentity = std::string(StableIdentity),
-			.Role = std::string(Role),
-			.EmbeddedBytes = std::vector<std::byte>(Bytes.begin(), Bytes.end())});
-		return true;
-	}
-
-	auto GetImportPublicationMutex() -> std::mutex&
-	{
-		static std::mutex Mutex;
-		return Mutex;
 	}
 
 	struct FSourceSnapshotBuilder::FImpl
@@ -219,7 +145,6 @@ namespace Durin::AssetForge
 		std::unordered_map<std::string, std::shared_ptr<const std::vector<std::byte>>> PhysicalBytes;
 		std::unordered_set<std::string> ProcessedRequests;
 		uint64 AggregateBytes = 0;
-		uint64 EmbeddedBytes = 0;
 		bool bRootCaptured = false;
 		bool bDiscoveryComplete = false;
 		bool bFrozen = false;
@@ -255,75 +180,10 @@ namespace Durin::AssetForge
 			return true;
 		}
 
-		auto CaptureBytes(
-			std::string StableIdentity,
-			std::string Role,
-			std::string Filename,
-			std::span<const std::byte> InputBytes,
-			std::string DeclaringIdentity,
-			uint32 Depth,
-			bool bEmbedded,
-			std::vector<FImportDiagnostic>& Diagnostics) -> bool
-		{
-			if (InputBytes.empty() || InputBytes.size() > Limits.MaximumBytesPerSource
-				|| InputBytes.size() > Limits.MaximumAggregateBytes - AggregateBytes
-				|| (bEmbedded && InputBytes.size() > Limits.MaximumEmbeddedBytes - EmbeddedBytes)
-				|| Sources.size() >= Limits.MaximumSourceCount)
-			{
-				AddDiagnostic(Diagnostics, EImportDiagnosticSeverity::Error,
-					EImportDiagnosticCategory::ResourceLimitExceeded, "source-capture",
-					StableIdentity, "Captured source byte limit was exceeded.");
-				return false;
-			}
-			if (const auto Existing = SourceByIdentity.find(StableIdentity);
-				Existing != SourceByIdentity.end())
-			{
-				const FSourceSnapshotEntry& Prior = Sources[Existing->second];
-				if (Prior.Filename != Filename
-					|| !std::ranges::equal(Prior.GetBytes(), InputBytes))
-				{
-					AddDiagnostic(Diagnostics, EImportDiagnosticSeverity::Error,
-						EImportDiagnosticCategory::DuplicateSource, "source-capture",
-						StableIdentity, "One stable source identity resolved to different bytes.");
-					return false;
-				}
-				return true;
-			}
-			auto MutableBytes = std::make_shared<std::vector<std::byte>>(InputBytes.size());
-			for (size_t Offset = 0; Offset < InputBytes.size();
-				Offset += CancellationChunkBytes)
-			{
-				if (CheckCanceled(StableIdentity, Diagnostics)) return false;
-				const size_t Count = std::min(
-					CancellationChunkBytes, InputBytes.size() - Offset);
-				std::memcpy(MutableBytes->data() + Offset, InputBytes.data() + Offset, Count);
-			}
-			std::shared_ptr<const std::vector<std::byte>> Bytes = std::move(MutableBytes);
-			FXxHash128 ContentHash;
-			if (!HashBytes(*Bytes, StableIdentity, Diagnostics, ContentHash)) return false;
-			FSourceSnapshotEntry Entry{
-				.StableIdentity = std::move(StableIdentity),
-				.Role = std::move(Role),
-				.Filename = std::move(Filename),
-				.DeclaringIdentity = std::move(DeclaringIdentity),
-				.ContentHash = ContentHash,
-				.ByteCount = Bytes->size(),
-				.Depth = Depth,
-				.bEmbedded = bEmbedded};
-			Entry.Bytes = std::move(Bytes);
-			AggregateBytes += Entry.ByteCount;
-			if (bEmbedded) EmbeddedBytes += Entry.ByteCount;
-			SourceByIdentity.emplace(Entry.StableIdentity, Sources.size());
-			Sources.push_back(std::move(Entry));
-			return true;
-		}
-
 		auto CapturePhysical(
 			std::string StableIdentity,
-			std::string Role,
 			std::string Filename,
 			const std::filesystem::path& PhysicalPath,
-			std::string DeclaringIdentity,
 			uint32 Depth,
 			bool bOptional,
 			std::vector<FImportDiagnostic>& Diagnostics) -> bool
@@ -339,7 +199,7 @@ namespace Durin::AssetForge
 			{
 				AddDiagnostic(Diagnostics,
 					bOptional ? EImportDiagnosticSeverity::Warning : EImportDiagnosticSeverity::Error,
-					bOptional || !DeclaringIdentity.empty()
+					bOptional || Depth != 0
 						? EImportDiagnosticCategory::MissingDependency
 						: EImportDiagnosticCategory::InvalidSource,
 					"source-capture", StableIdentity,
@@ -428,14 +288,10 @@ namespace Durin::AssetForge
 			if (!HashBytes(*Bytes, StableIdentity, Diagnostics, ContentHash)) return false;
 			FSourceSnapshotEntry Entry{
 				.StableIdentity = std::move(StableIdentity),
-				.Role = std::move(Role),
 				.Filename = std::move(Filename),
-				.DeclaringIdentity = std::move(DeclaringIdentity),
 				.ContentHash = ContentHash,
 				.ByteCount = Bytes->size(),
-				.LastWriteTime = FileTime::ToStableTicks(CapturedLastWriteTime),
-				.Depth = Depth,
-				.bEmbedded = false};
+				.Depth = Depth};
 			Entry.Bytes = std::move(Bytes);
 			SourceByIdentity.emplace(Entry.StableIdentity, Sources.size());
 			Sources.push_back(std::move(Entry));
@@ -444,18 +300,15 @@ namespace Durin::AssetForge
 
 		auto CaptureFilename(
 			std::string StableIdentity,
-			std::string Role,
 			std::string Filename,
-			std::string DeclaringIdentity,
 			uint32 Depth,
 			bool bOptional,
 			std::vector<FImportDiagnostic>& Diagnostics) -> bool
 		{
 			const std::filesystem::path PhysicalPath =
 				std::filesystem::absolute(Filename).lexically_normal();
-			return CapturePhysical(std::move(StableIdentity), std::move(Role),
-				PhysicalPath.generic_string(), PhysicalPath,
-				std::move(DeclaringIdentity), Depth, bOptional, Diagnostics);
+			return CapturePhysical(std::move(StableIdentity),
+				PhysicalPath.generic_string(), PhysicalPath, Depth, bOptional, Diagnostics);
 		}
 	};
 
@@ -493,8 +346,8 @@ namespace Durin::AssetForge
 				"Source capture limits must be non-zero.");
 			return false;
 		}
-		if (!Impl->CaptureFilename("root", "source", std::string(RootFilename),
-			{}, 0, false, OutDiagnostics)) return false;
+		if (!Impl->CaptureFilename(
+			"root", std::string(RootFilename), 0, false, OutDiagnostics)) return false;
 		Impl->bRootCaptured = true;
 		return true;
 	}
@@ -516,11 +369,7 @@ namespace Durin::AssetForge
 		{
 			std::vector<FDependencyRequest> Requests;
 			FDependencyRequestSink Sink(
-				Requests,
-				OutDiagnostics,
-				Impl->Limits.MaximumSourceCount,
-				Impl->Limits.MaximumBytesPerSource,
-				Impl->Limits.MaximumEmbeddedBytes - Impl->EmbeddedBytes);
+				Requests, OutDiagnostics, Impl->Limits.MaximumSourceCount);
 			if (!Discovery(Impl->Sources, Sink, OutDiagnostics)
 				|| HasError(OutDiagnostics)) return false;
 			bool bCapturedNewSource = false;
@@ -543,56 +392,10 @@ namespace Durin::AssetForge
 						Request.StableIdentity, "Import dependency depth limit was exceeded.");
 					return false;
 				}
-				const std::string RequestKey = std::format("{}|{}|{}|{}|{}|{}", Request.DeclaringIdentity,
-					Request.StableIdentity, Request.Role, Request.RelativePath, Request.bOptional,
-					FXxHash128::HashBuffer(std::span<const std::byte>(Request.EmbeddedBytes)).ToString());
+				const std::string RequestKey = std::format("{}|{}|{}|{}",
+					Request.DeclaringIdentity, Request.StableIdentity,
+					Request.RelativePath, Request.bOptional);
 				if (!Impl->ProcessedRequests.insert(RequestKey).second) continue;
-
-				if (Request.IsEmbedded())
-				{
-					if (Impl->Sources.size() >= Impl->Limits.MaximumSourceCount
-						|| Request.EmbeddedBytes.size() > Impl->Limits.MaximumBytesPerSource
-						|| Request.EmbeddedBytes.size()
-							> Impl->Limits.MaximumAggregateBytes - Impl->AggregateBytes
-						|| Request.EmbeddedBytes.size()
-							> Impl->Limits.MaximumEmbeddedBytes - Impl->EmbeddedBytes)
-					{
-						AddDiagnostic(OutDiagnostics, EImportDiagnosticSeverity::Error,
-							EImportDiagnosticCategory::ResourceLimitExceeded, "dependency-capture",
-							Request.StableIdentity, "Embedded source byte limit was exceeded.");
-						return false;
-					}
-					if (const auto Existing = Impl->SourceByIdentity.find(Request.StableIdentity);
-						Existing != Impl->SourceByIdentity.end())
-					{
-						if (!std::ranges::equal(
-							Impl->Sources[Existing->second].GetBytes(), Request.EmbeddedBytes))
-						{
-							AddDiagnostic(OutDiagnostics, EImportDiagnosticSeverity::Error,
-								EImportDiagnosticCategory::DuplicateSource, "dependency-capture",
-								Request.StableIdentity, "Embedded stable identity changed bytes.");
-							return false;
-						}
-						continue;
-					}
-					auto Bytes = std::make_shared<const std::vector<std::byte>>(
-						std::move(Request.EmbeddedBytes));
-					FSourceSnapshotEntry Entry{
-						.StableIdentity = std::move(Request.StableIdentity),
-						.Role = std::move(Request.Role),
-						.DeclaringIdentity = Request.DeclaringIdentity,
-						.ContentHash = FXxHash128::HashBuffer(std::span<const std::byte>(*Bytes)),
-						.ByteCount = Bytes->size(),
-						.Depth = Depth,
-						.bEmbedded = true};
-					Entry.Bytes = std::move(Bytes);
-					Impl->AggregateBytes += Entry.ByteCount;
-					Impl->EmbeddedBytes += Entry.ByteCount;
-					Impl->SourceByIdentity.emplace(Entry.StableIdentity, Impl->Sources.size());
-					Impl->Sources.push_back(std::move(Entry));
-					bCapturedNewSource = true;
-					continue;
-				}
 
 				const std::filesystem::path Relative(Request.RelativePath);
 				if (Declaring.Filename.empty() || Relative.is_absolute()
@@ -613,8 +416,7 @@ namespace Durin::AssetForge
 						/ Relative).lexically_normal();
 				std::string Filename = DependencyPhysical.generic_string();
 				if (!Impl->CaptureFilename(std::move(Request.StableIdentity),
-					std::move(Request.Role), std::move(Filename),
-					Request.DeclaringIdentity, Depth, Request.bOptional,
+					std::move(Filename), Depth, Request.bOptional,
 					OutDiagnostics)) return false;
 				bCapturedNewSource = bCapturedNewSource || Impl->Sources.size() != CountBefore;
 			}
@@ -644,23 +446,11 @@ namespace Durin::AssetForge
 		Snapshot->Sources = Impl->Sources;
 		std::ranges::sort(Snapshot->Sources, [](const FSourceSnapshotEntry& A,
 			const FSourceSnapshotEntry& B) {
-			return std::tie(A.StableIdentity, A.Role, A.Filename)
-				< std::tie(B.StableIdentity, B.Role, B.Filename);
+			return std::tie(A.StableIdentity, A.Filename)
+				< std::tie(B.StableIdentity, B.Filename);
 		});
-		Snapshot->AggregateByteCount = Impl->AggregateBytes;
 		Impl->bFrozen = true;
 		return Snapshot;
-	}
-
-	auto FSourceSnapshotBuilder::GetCapturedSources() const
-		-> std::span<const FSourceSnapshotEntry>
-	{
-		return Impl->Sources;
-	}
-
-	auto FSourceSnapshotBuilder::GetLimits() const -> const FSourceCaptureLimits&
-	{
-		return Impl->Limits;
 	}
 
 

@@ -1,4 +1,3 @@
-#include "AssetForge/Builtins/ImportSupport.h"
 #include "AssetForge/Builtins/ImportedScene.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "AssetTools.h"
