@@ -88,11 +88,11 @@ play space without a ceiling. Its interior contains a broad raised platform, a
 rotated-box ramp, return stairs, shoulder-height cover, a slalom lane, low cover,
 and four tall corner landmarks for movement and camera checks.
 
-The pawn loads Sandbox-owned `/Game/Models/GrayboxPawn`, imported from
-`/Game/Sources/Models/GrayboxPawn.obj`. The unit box is scaled to
-`(0.5, 0.5, 1.0)` and offset to `(0, 0, 1)` so its base rests on the ground
-plane. If the asset cannot load, the pawn logs the exact path and asset error;
-possession, Capsule movement, and camera operation remain valid.
+The pawn loads Sandbox-owned `/Game/Models/GrayboxPawn`. Its persisted unit-box
+geometry is scaled to `(0.5, 0.5, 1.0)` and offset to `(0, 0, 1)` so its base
+rests on the ground plane. If the asset cannot load, the pawn logs the exact
+path and asset error; possession, Capsule movement, and camera operation remain
+valid.
 
 `DSimpleGroundMovementComponent` collides only against supported simple World
 bodies. The current Box-authored arena therefore supplies its floor, walls,
