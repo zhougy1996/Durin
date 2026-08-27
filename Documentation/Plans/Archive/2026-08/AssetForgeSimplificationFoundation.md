@@ -4,7 +4,7 @@ Summary: Define the thin AssetForge boundary and prove direct per-family import 
 
 Last reviewed: 2026-08-27
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-27
 
 ## Current Status
@@ -392,7 +392,7 @@ Dependencies: Stage 2 complete.
 
 ## Validation Matrix
 
-Follow [Agent Build And Run](../Agents/BuildAndRun.md) and [Agent
+Follow [Agent Build And Run](../../../Agents/BuildAndRun.md) and [Agent
 Testing](../Agents/Testing.md); run focused validation before aggregates and do
 not overlap build process trees.
 
@@ -451,23 +451,23 @@ not overlap build process trees.
 
 ## Related Documentation
 
-- [Asset Import Simplification Roadmap](../Roadmaps/AssetImportSimplification.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Source File Workflows](../Editor/Guides/SourceFileWorkflows.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
-- [Async Asset Operations](../Editor/Architecture/AsyncAssetOperations.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Agent Build And Run](../Agents/BuildAndRun.md)
-- [Agent Testing](../Agents/Testing.md)
+- [Asset Import Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetImportSimplification.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Source File Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Agent Build And Run](../../../Agents/BuildAndRun.md)
+- [Agent Testing](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`AssetImportData.h`](../../Engine/Source/Runtime/Engine/Public/Asset/AssetImportData.h)
-- [`SourceHint.h`](../../Engine/Source/Runtime/Engine/Public/Asset/SourceHint.h)
-- [`Texture2DImport.h`](../../Engine/Source/Editor/AssetForgeBuiltins/Public/AssetForge/Builtins/Texture2DImport.h)
-- [`Texture2DImportData.h`](../../Engine/Source/Editor/AssetForgeBuiltins/Public/AssetForge/Builtins/Texture2DImportData.h)
-- [`Texture2DImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/Texture2DImport.cpp)
-- [`Texture2D.cpp`](../../Engine/Source/Runtime/Engine/Private/Texture/Texture2D.cpp)
-- [`ImportDialogSupport.cpp`](../../Engine/Source/Editor/DurinEd/Private/Import/ImportDialogSupport.cpp)
-- [`SourceReferenceIndex.cpp`](../../Engine/Source/Editor/DurinEd/Private/Source/SourceReferenceIndex.cpp)
+- [`AssetImportData.h`](../../../../Engine/Source/Runtime/Engine/Public/Asset/AssetImportData.h)
+- [`SourceHint.h`](../../../../Engine/Source/Runtime/Engine/Public/Asset/SourceHint.h)
+- [`Texture2DImport.h`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Public/AssetForge/Builtins/Texture2DImport.h)
+- [`Texture2DImportData.h`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Public/AssetForge/Builtins/Texture2DImportData.h)
+- [`Texture2DImport.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/Texture2DImport.cpp)
+- [`Texture2D.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Texture/Texture2D.cpp)
+- [`ImportDialogSupport.cpp`](../../../../Engine/Source/Editor/DurinEd/Private/Import/ImportDialogSupport.cpp)
+- [`SourceReferenceIndex.cpp`](../../../../Engine/Source/Editor/DurinEd/Private/Source/SourceReferenceIndex.cpp)

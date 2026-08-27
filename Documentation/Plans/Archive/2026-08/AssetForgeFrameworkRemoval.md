@@ -4,7 +4,7 @@ Summary: Delete obsolete generic import infrastructure and qualify the final thi
 
 Last reviewed: 2026-08-27
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-27
 
 ## Current Status
@@ -236,16 +236,16 @@ Dependencies: Stage 2 complete.
 
 ## Related Documentation
 
-- [Asset Import Simplification Roadmap](../Roadmaps/AssetImportSimplification.md)
-- [Asset Import Architecture](../Editor/Architecture/AssetImportFramework.md)
-- [Source File Workflows](../Editor/Guides/SourceFileWorkflows.md)
-- [Asset Data Lifecycle And Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Agent Build And Run](../Agents/BuildAndRun.md)
-- [Agent Testing](../Agents/Testing.md)
+- [Asset Import Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetImportSimplification.md)
+- [Asset Import Architecture](../../../Editor/Architecture/AssetImportFramework.md)
+- [Source File Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
+- [Asset Data Lifecycle And Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Agent Build And Run](../../../Agents/BuildAndRun.md)
+- [Agent Testing](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`AssetForgeBuiltins`](../../Engine/Source/Editor/AssetForgeBuiltins)
-- [`AssetImportData.h`](../../Engine/Source/Runtime/Engine/Public/Asset/AssetImportData.h)
-- [`SourceHint.h`](../../Engine/Source/Runtime/Engine/Public/Asset/SourceHint.h)
-- [`SceneDirectImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/SceneDirectImport.cpp)
+- [`AssetForgeBuiltins`](../../../../Engine/Source/Editor/AssetForgeBuiltins)
+- [`AssetImportData.h`](../../../../Engine/Source/Runtime/Engine/Public/Asset/AssetImportData.h)
+- [`SourceHint.h`](../../../../Engine/Source/Runtime/Engine/Public/Asset/SourceHint.h)
+- [`SceneDirectImport.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/SceneDirectImport.cpp)

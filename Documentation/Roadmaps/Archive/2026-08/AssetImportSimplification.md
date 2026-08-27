@@ -4,7 +4,7 @@ Summary: Replace AssetForge's generic import platform with a thin shared module,
 
 Last reviewed: 2026-08-27
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-27
 
 ## Current Status
@@ -24,19 +24,19 @@ Git history and in the current codebase only until the milestones below remove
 or replace it.
 
 Milestones A and B are complete. The [AssetForge Simplification Foundation
-Plan](../Plans/AssetForgeSimplificationFoundation.md) established common
+Plan](../../../Plans/Archive/2026-08/AssetForgeSimplificationFoundation.md) established common
 filename metadata and direct Texture2D import; the [Direct Single-Asset
-Importers Plan](../Plans/DirectSingleAssetImporters.md) applied that pattern to
+Importers Plan](../../../Plans/Archive/2026-08/DirectSingleAssetImporters.md) applied that pattern to
 TerrainHeightmap, StaticMesh, TextureCube, and VolumeTexture and migrated the
 repository corpus. Compatibility/no-op resave, focused tests, the complete
 Editor build, and hidden-window smoke pass.
 
 Milestone C is complete through the [Scene And Import Workflow Simplification
-Plan](../Plans/SceneAndImportWorkflowSimplification.md). Scene now uses private
+Plan](../../../Plans/Archive/2026-08/SceneAndImportWorkflowSimplification.md). Scene now uses private
 ordering and direct filename capture, and DurinEd uses finite built-in
 Import/Reimport dispatch without generic operation or mounted-source workflow
 presentation. Milestone D is complete through the
-[AssetForge Framework Removal Plan](../Plans/AssetForgeFrameworkRemoval.md):
+[AssetForge Framework Removal Plan](../../../Plans/Archive/2026-08/AssetForgeFrameworkRemoval.md):
 the generic framework, mounted-source management, recovery pumps, obsolete
 schemas/tests, and the physical `AssetForge` module are gone. The final program
 changes 204 files with 2,089 additions and 13,102 deletions from its
@@ -150,10 +150,10 @@ generic `Recover` import mode.
 
 | Plan | Status | Owned result |
 | --- | --- | --- |
-| [AssetForge Simplification Foundation](../Plans/AssetForgeSimplificationFoundation.md) | Completed | Final thin boundary, source filename contract, Texture2D vertical slice, and migration evidence for later families |
-| [Direct Single-Asset Importers](../Plans/DirectSingleAssetImporters.md) | Completed | TerrainHeightmap, StaticMesh, TextureCube, and VolumeTexture cutover |
-| [Scene And Import Workflow Simplification](../Plans/SceneAndImportWorkflowSimplification.md) | Completed | Scene-private ordering, direct UI dispatch, source inspection, and removal of mounted-source user workflows |
-| [AssetForge Framework Removal](../Plans/AssetForgeFrameworkRemoval.md) | Completed | Physical deletion, authored corpus cleanup, dependency closure, full qualification, and lasting documentation |
+| [AssetForge Simplification Foundation](../../../Plans/Archive/2026-08/AssetForgeSimplificationFoundation.md) | Completed | Final thin boundary, source filename contract, Texture2D vertical slice, and migration evidence for later families |
+| [Direct Single-Asset Importers](../../../Plans/Archive/2026-08/DirectSingleAssetImporters.md) | Completed | TerrainHeightmap, StaticMesh, TextureCube, and VolumeTexture cutover |
+| [Scene And Import Workflow Simplification](../../../Plans/Archive/2026-08/SceneAndImportWorkflowSimplification.md) | Completed | Scene-private ordering, direct UI dispatch, source inspection, and removal of mounted-source user workflows |
+| [AssetForge Framework Removal](../../../Plans/Archive/2026-08/AssetForgeFrameworkRemoval.md) | Completed | Physical deletion, authored corpus cleanup, dependency closure, full qualification, and lasting documentation |
 
 ## Program Validation Matrix
 
@@ -209,20 +209,20 @@ generic `Recover` import mode.
 
 ## Related Documentation
 
-- [Asset Import Architecture](../Editor/Architecture/AssetImportFramework.md)
-- [Source File Workflows](../Editor/Guides/SourceFileWorkflows.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
-- [Async Asset Operations](../Editor/Architecture/AsyncAssetOperations.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Agent Build And Run](../Agents/BuildAndRun.md)
-- [Agent Testing](../Agents/Testing.md)
+- [Asset Import Architecture](../../../Editor/Architecture/AssetImportFramework.md)
+- [Source File Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Agent Build And Run](../../../Agents/BuildAndRun.md)
+- [Agent Testing](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`AssetForgeBuiltins`](../../Engine/Source/Editor/AssetForgeBuiltins)
-- [`AssetImportData.h`](../../Engine/Source/Runtime/Engine/Public/Asset/AssetImportData.h)
-- [`Texture2DImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/Texture2DImport.cpp)
-- [`SceneImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/SceneImport.cpp)
-- [`ImportDialogSupport.cpp`](../../Engine/Source/Editor/DurinEd/Private/Import/ImportDialogSupport.cpp)
-- [`SourceHint.h`](../../Engine/Source/Runtime/Engine/Public/Asset/SourceHint.h)
+- [`AssetForgeBuiltins`](../../../../Engine/Source/Editor/AssetForgeBuiltins)
+- [`AssetImportData.h`](../../../../Engine/Source/Runtime/Engine/Public/Asset/AssetImportData.h)
+- [`Texture2DImport.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/Texture2DImport.cpp)
+- [`SceneImport.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/SceneImport.cpp)
+- [`ImportDialogSupport.cpp`](../../../../Engine/Source/Editor/DurinEd/Private/Import/ImportDialogSupport.cpp)
+- [`SourceHint.h`](../../../../Engine/Source/Runtime/Engine/Public/Asset/SourceHint.h)

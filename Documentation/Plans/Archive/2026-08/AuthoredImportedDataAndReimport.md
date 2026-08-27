@@ -4,7 +4,7 @@ Summary: Make authored assets self-sufficient for derived-data rebuilds and redu
 
 Last reviewed: 2026-08-27
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-27
 
 ## Current Status
@@ -994,8 +994,8 @@ Dependencies: corpus migration and removal complete.
 
 ## Validation Matrix
 
-Follow [Agent Build And Run](../Agents/BuildAndRun.md) and
-[Agent Testing](../Agents/Testing.md); use focused targets before aggregates and
+Follow [Agent Build And Run](../../../Agents/BuildAndRun.md) and
+[Agent Testing](../../../Agents/Testing.md); use focused targets before aggregates and
 never overlap native build process trees.
 
 | Concern | Required evidence |
@@ -1057,34 +1057,34 @@ never overlap native build process trees.
 
 ## Related Documentation
 
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Import Architecture](../Editor/Architecture/AssetImportFramework.md)
-- [Source File Workflows](../Editor/Guides/SourceFileWorkflows.md)
-- [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
-- [Volume Textures](../Runtime/Assets/VolumeTextures.md)
-- [Asset Import Simplification Roadmap](../Roadmaps/AssetImportSimplification.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Agent Build And Run](../Agents/BuildAndRun.md)
-- [Agent Testing](../Agents/Testing.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Import Architecture](../../../Editor/Architecture/AssetImportFramework.md)
+- [Source File Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
+- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Volume Textures](../../../Runtime/Assets/VolumeTextures.md)
+- [Asset Import Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetImportSimplification.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Agent Build And Run](../../../Agents/BuildAndRun.md)
+- [Agent Testing](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`AssetImportData.h`](../../Engine/Source/Runtime/Engine/Public/Asset/AssetImportData.h)
-- [`SourceHint.h`](../../Engine/Source/Runtime/Engine/Public/Asset/SourceHint.h)
-- [`EditorBulkData.h`](../../Engine/Source/Runtime/AssetCore/Public/Asset/EditorBulkData.h)
-- [`EditorBulkDataStorage.cpp`](../../Engine/Source/Runtime/AssetCore/Private/EditorBulkDataStorage.cpp)
-- [`AssetPackageOperations.cpp`](../../Engine/Source/Runtime/AssetCore/Private/AssetPackageOperations.cpp)
-- [`Texture2D.h`](../../Engine/Source/Runtime/Engine/Public/Texture/Texture2D.h)
-- [`TextureCube.h`](../../Engine/Source/Runtime/Engine/Public/Texture/TextureCube.h)
-- [`VolumeTexture.h`](../../Engine/Source/Runtime/Engine/Public/Texture/VolumeTexture.h)
-- [`TerrainHeightmap.h`](../../Engine/Source/Runtime/Engine/Public/Terrain/TerrainHeightmap.h)
-- [`StaticMesh.h`](../../Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMesh.h)
-- [`SkeletalMesh.h`](../../Engine/Source/Runtime/Engine/Public/SkeletalMesh/SkeletalMesh.h)
-- [`AnimationClip.h`](../../Engine/Source/Runtime/Engine/Public/Animation/AnimationClip.h)
-- [`TextureBuildModule.cpp`](../../Engine/Source/Developer/TextureBuild/Private/TextureBuildModule.cpp)
-- [`AssetForgeBuiltinsAssetFeatures.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/AssetForgeBuiltinsAssetFeatures.cpp)
-- [`BuiltinImportProviderCommon.h`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/BuiltinImportProviderCommon.h)
-- [`Texture2DImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/Texture2DImport.cpp)
-- [`TextureCubeImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/TextureCubeImport.cpp)
-- [`StaticMeshImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/StaticMeshImport.cpp)
+- [`AssetImportData.h`](../../../../Engine/Source/Runtime/Engine/Public/Asset/AssetImportData.h)
+- [`SourceHint.h`](../../../../Engine/Source/Runtime/Engine/Public/Asset/SourceHint.h)
+- [`EditorBulkData.h`](../../../../Engine/Source/Runtime/AssetCore/Public/Asset/EditorBulkData.h)
+- [`EditorBulkDataStorage.cpp`](../../../../Engine/Source/Runtime/AssetCore/Private/EditorBulkDataStorage.cpp)
+- [`AssetPackageOperations.cpp`](../../../../Engine/Source/Runtime/AssetCore/Private/AssetPackageOperations.cpp)
+- [`Texture2D.h`](../../../../Engine/Source/Runtime/Engine/Public/Texture/Texture2D.h)
+- [`TextureCube.h`](../../../../Engine/Source/Runtime/Engine/Public/Texture/TextureCube.h)
+- [`VolumeTexture.h`](../../../../Engine/Source/Runtime/Engine/Public/Texture/VolumeTexture.h)
+- [`TerrainHeightmap.h`](../../../../Engine/Source/Runtime/Engine/Public/Terrain/TerrainHeightmap.h)
+- [`StaticMesh.h`](../../../../Engine/Source/Runtime/Engine/Public/StaticMesh/StaticMesh.h)
+- [`SkeletalMesh.h`](../../../../Engine/Source/Runtime/Engine/Public/SkeletalMesh/SkeletalMesh.h)
+- [`AnimationClip.h`](../../../../Engine/Source/Runtime/Engine/Public/Animation/AnimationClip.h)
+- [`TextureBuildModule.cpp`](../../../../Engine/Source/Developer/TextureBuild/Private/TextureBuildModule.cpp)
+- [`AssetForgeBuiltinsAssetFeatures.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/AssetForgeBuiltinsAssetFeatures.cpp)
+- [`BuiltinImportProviderCommon.h`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/BuiltinImportProviderCommon.h)
+- [`Texture2DImport.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/Texture2DImport.cpp)
+- [`TextureCubeImport.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/TextureCubeImport.cpp)
+- [`StaticMeshImport.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/StaticMeshImport.cpp)

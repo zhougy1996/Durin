@@ -4,7 +4,7 @@ Summary: Migrate TerrainHeightmap, StaticMesh, TextureCube, and VolumeTexture to
 
 Last reviewed: 2026-08-27
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-27
 
 ## Current Status
@@ -226,17 +226,17 @@ Dependencies: Stage 3 complete.
 
 ## Related Documentation
 
-- [Asset Import Simplification Roadmap](../Roadmaps/AssetImportSimplification.md)
+- [Asset Import Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetImportSimplification.md)
 - [AssetForge Simplification Foundation](AssetForgeSimplificationFoundation.md)
-- [Asset Import Framework](../Editor/Architecture/AssetImportFramework.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Agent Build And Run](../Agents/BuildAndRun.md)
-- [Agent Testing](../Agents/Testing.md)
+- [Asset Import Framework](../../../Editor/Architecture/AssetImportFramework.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Agent Build And Run](../../../Agents/BuildAndRun.md)
+- [Agent Testing](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`StaticMeshImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/StaticMeshImport.cpp)
-- [`TerrainHeightmapImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/TerrainHeightmapImport.cpp)
-- [`TextureCubeImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/TextureCubeImport.cpp)
-- [`VolumeTextureImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/VolumeTextureImport.cpp)
-- [`AssetForgeBuiltinsModule.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/AssetForgeBuiltinsModule.cpp)
+- [`StaticMeshImport.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/StaticMeshImport.cpp)
+- [`TerrainHeightmapImport.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/TerrainHeightmapImport.cpp)
+- [`TextureCubeImport.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/TextureCubeImport.cpp)
+- [`VolumeTextureImport.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/VolumeTextureImport.cpp)
+- [`AssetForgeBuiltinsModule.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/AssetForgeBuiltinsModule.cpp)

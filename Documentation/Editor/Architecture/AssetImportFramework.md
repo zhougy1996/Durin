@@ -17,7 +17,7 @@ Shared capture, diagnostic, and publication values live in
 `AssetForgeBuiltins`. They are implementation helpers, not an extensibility or
 orchestration contract. Generic graphs, registries, replay schemas, import
 requests/jobs, and mounted-source mutation have been physically removed by the
-[AssetForge Framework Removal Plan](../../Plans/AssetForgeFrameworkRemoval.md).
+[AssetForge Framework Removal Plan](../../Plans/Archive/2026-08/AssetForgeFrameworkRemoval.md).
 
 ## Ownership And Layering
 
@@ -179,7 +179,7 @@ reader or dual-write route.
 
 ## Related Documentation
 
-- [Asset Import Simplification Roadmap](../../Roadmaps/AssetImportSimplification.md)
+- [Asset Import Simplification Roadmap](../../Roadmaps/Archive/2026-08/AssetImportSimplification.md)
 - [Source File Workflows](../Guides/SourceFileWorkflows.md)
 - [Asset Data Lifecycle And Storage](../../Runtime/Assets/AssetDataLifecycle.md)
 - [Asset Compilation](../../Runtime/Assets/AssetCompilation.md)
