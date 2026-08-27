@@ -131,11 +131,12 @@ the runtime closure, and registers GoogleTest discovery. `KIND` is exactly one o
 `qualification`; `DOMAINS` contains at least one stable selection slice.
 Optional `MODULES`, `BACKENDS`, and `STACKS` aid discovery but never replace
 real link, runtime-only dependency, resource-lock, or timeout declarations.
-Targets are case-parallel by default. Add `SERIAL` only when the target requires
-broad target serialization, together with a concrete
-`DURIN_TEST_TARGET_LOCK_RATIONALE`. Use `TIMEOUT <seconds>` to override the
-300-second default. Characterization kind automatically suppresses the direct
-whole-target lifecycle registration.
+Targets are case-parallel by default. Add `SERIAL` only when cases from the
+same target cannot overlap. Add `EXCLUSIVE` only when the target must not
+overlap any other test in the same CTest invocation. Either option requires a
+concrete `DURIN_TEST_TARGET_LOCK_RATIONALE`. Use `TIMEOUT <seconds>` to override
+the 300-second default. Characterization kind automatically suppresses the
+direct whole-target lifecycle registration.
 
 `EXECUTION_HOST` on `durin_register_native_test(...)` declares the process
 lifecycle required by the target and is independent of serialization, labels,
@@ -267,6 +268,13 @@ resource. Do not invent lock names. Targets that directly link `Renderer`,
 `VulkanRHI`, `DurinEd`, `Mona`, or `MonaImGui` must also provide a
 `DURIN_TEST_HEAVY_RUNTIME_RATIONALE`; this keeps feature targets narrow and
 makes their dependency cost reviewable.
+
+`SERIAL` does not create a quiet machine lane: it only prevents discovered
+cases from the same target from overlapping. Use `EXCLUSIVE` when repeated
+process, driver, or device startup must run without any other CTest test in
+flight. CTest implements that contract with `RUN_SERIAL`; it still cannot
+coordinate independent CTest invocations, other worktrees, or external
+applications.
 
 Tests should avoid editor startup or real window creation unless that behavior
 is under test. When it is, keep the target scoped to that lifecycle and declare

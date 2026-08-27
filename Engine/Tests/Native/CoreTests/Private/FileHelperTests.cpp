@@ -35,9 +35,11 @@ namespace
 		return Bytes;
 	}
 
-	auto IsCompleteWriterPayload(const std::vector<std::byte>& Bytes, size_t ExpectedSize) -> bool
+	auto IsCompleteWriterPayload(
+		const std::vector<std::byte>& Bytes,
+		std::span<const size_t> ExpectedSizes) -> bool
 	{
-		return Bytes.size() == ExpectedSize
+		return std::ranges::find(ExpectedSizes, Bytes.size()) != ExpectedSizes.end()
 			&& !Bytes.empty()
 			&& std::ranges::all_of(Bytes, [Value = Bytes.front()](std::byte Byte) { return Byte == Value; });
 	}
@@ -139,10 +141,12 @@ TEST(FFileHelperTests, LoadsExactTextBytesAndPreservesResultsOnFailure)
 TEST(FFileHelperTests, ConcurrentWritersNeverExposePartialBytes)
 {
 	const std::filesystem::path Destination = TestRoot("Concurrent") / "Value.bin";
-	constexpr size_t PayloadSize = 128 * 1024;
 	constexpr size_t WriterCount = 6;
-	constexpr size_t PublicationsPerWriter = 8;
-	const std::vector Initial(PayloadSize, std::byte{0x01});
+	constexpr size_t PublicationsPerWriter = 16;
+	std::array<size_t, WriterCount + 1> PayloadSizes{};
+	for (size_t Index = 0; Index < PayloadSizes.size(); ++Index)
+		PayloadSizes[Index] = 64 * 1024 + Index * 4093;
+	const std::vector Initial(PayloadSizes.front(), std::byte{0x01});
 	Durin::FFileHelper::FAtomicFileError InitialError;
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFileAtomically(Initial, Destination, &InitialError))
 		<< InitialError.ToString();
@@ -157,7 +161,9 @@ TEST(FFileHelperTests, ConcurrentWritersNeverExposePartialBytes)
 	for (size_t WriterIndex = 0; WriterIndex < WriterCount; ++WriterIndex)
 	{
 		Writers.emplace_back([&, WriterIndex] {
-			const std::vector Payload(PayloadSize, static_cast<std::byte>(WriterIndex + 2));
+			const std::vector Payload(
+				PayloadSizes[WriterIndex + 1],
+				static_cast<std::byte>(WriterIndex + 2));
 			while (!bStart.load(std::memory_order_acquire)) std::this_thread::yield();
 			for (size_t Publication = 0; Publication < PublicationsPerWriter; ++Publication)
 			{
@@ -178,7 +184,8 @@ TEST(FFileHelperTests, ConcurrentWritersNeverExposePartialBytes)
 		while (!bStopReader.load(std::memory_order_acquire))
 		{
 			std::vector<std::byte> Bytes;
-			if (TryReadBytes(Destination, Bytes) && !IsCompleteWriterPayload(Bytes, PayloadSize))
+			if (!Durin::FFileHelper::LoadFileToArray(Bytes, Destination)
+				|| !IsCompleteWriterPayload(Bytes, PayloadSizes))
 			{
 				bObservedPartial.store(true, std::memory_order_release);
 				return;
@@ -194,7 +201,7 @@ TEST(FFileHelperTests, ConcurrentWritersNeverExposePartialBytes)
 	EXPECT_FALSE(bPublicationFailed.load())
 		<< "operation " << PublicationOperation.load() << ", native error " << PublicationErrorCode.load();
 	EXPECT_FALSE(bObservedPartial.load());
-	EXPECT_TRUE(IsCompleteWriterPayload(ReadBytes(Destination), PayloadSize));
+	EXPECT_TRUE(IsCompleteWriterPayload(ReadBytes(Destination), PayloadSizes));
 }
 
 TEST(FFileHelperTests, FailedReplacementPreservesDestinationAndCleansTemporaryFile)

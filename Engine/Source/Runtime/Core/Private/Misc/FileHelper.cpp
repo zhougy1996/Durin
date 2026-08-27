@@ -223,45 +223,54 @@ namespace Durin
 			std::vector<ElementType>& Result,
 			const std::filesystem::path& FilePath) -> bool
 		{
-			if (!std::filesystem::exists(FilePath))
+			for (uint32 Attempt = 0; Attempt < 64; ++Attempt)
 			{
-				DURIN_WARN("Failed to load file. File {} does not exist.", FilePath.generic_string());
-				return false;
-			}
-
-			std::ifstream File(FilePath, std::ios::binary);
-			if (!File.is_open())
-			{
-				return false;
-			}
-
-			std::error_code ErrorCode;
-			const uintmax_t FileSize = std::filesystem::file_size(FilePath, ErrorCode);
-			if (ErrorCode || FileSize > static_cast<uintmax_t>(std::numeric_limits<std::streamsize>::max()))
-			{
-				return false;
-			}
-
-			const uintmax_t ElementCount = FileSize / sizeof(ElementType) + (FileSize % sizeof(ElementType) != 0);
-			std::vector<ElementType> Loaded;
-			if (ElementCount > Loaded.max_size())
-			{
-				return false;
-			}
-			Loaded.resize(static_cast<size_t>(ElementCount));
-
-			if (FileSize > 0)
-			{
-				const std::streamsize ReadSize = static_cast<std::streamsize>(FileSize);
-				File.read(reinterpret_cast<char*>(Loaded.data()), ReadSize);
-				if (!File || File.gcount() != ReadSize)
+				std::ifstream File(FilePath, std::ios::binary | std::ios::ate);
+				if (File.is_open())
 				{
-					return false;
+					// Query the size through the opened handle. Atomic publishers may
+					// replace FilePath after this stream opens; a separate path-based
+					// file_size call could describe a different generation.
+					const std::streamoff End = static_cast<std::streamoff>(File.tellg());
+					if (End >= 0
+						&& static_cast<uintmax_t>(End)
+							<= static_cast<uintmax_t>(std::numeric_limits<std::streamsize>::max()))
+					{
+						const uintmax_t FileSize = static_cast<uintmax_t>(End);
+						File.seekg(0, std::ios::beg);
+						const uintmax_t ElementCount = FileSize / sizeof(ElementType)
+							+ (FileSize % sizeof(ElementType) != 0);
+						std::vector<ElementType> Loaded;
+						if (File && ElementCount <= Loaded.max_size())
+						{
+							Loaded.resize(static_cast<size_t>(ElementCount));
+							if (FileSize == 0)
+							{
+								Result = std::move(Loaded);
+								return true;
+							}
+							const std::streamsize ReadSize =
+								static_cast<std::streamsize>(FileSize);
+							File.read(reinterpret_cast<char*>(Loaded.data()), ReadSize);
+							if (File && File.gcount() == ReadSize)
+							{
+								Result = std::move(Loaded);
+								return true;
+							}
+						}
+					}
 				}
-			}
 
-			Result = std::move(Loaded);
-			return true;
+				std::error_code ExistsError;
+				if (!std::filesystem::exists(FilePath, ExistsError) || ExistsError)
+				{
+					DURIN_WARN("Failed to load file. File {} does not exist.", FilePath.generic_string());
+					break;
+				}
+				if (Attempt < 8) std::this_thread::yield();
+				else std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			}
+			return false;
 		};
 
 		bool LoadFileToArray(std::vector<std::byte>& Result, const std::filesystem::path& FilePath)

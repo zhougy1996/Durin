@@ -54,6 +54,8 @@ set_target_properties(VulkanRHIIntegrationTests PROPERTIES
 	DURIN_TEST_RESOURCE_LOCKS durin-gpu
 	DURIN_TEST_HEAVY_RUNTIME_RATIONALE
 		"Failure-injection tests must share the test-only state compiled into VulkanRHI."
+	DURIN_TEST_TARGET_LOCK_RATIONALE
+		"Repeated Vulkan failure-injection startup and teardown requires a quiet CTest process lane."
 )
 set(_durin_vulkan_rhi_test_kind integration)
 if(APPLE)
@@ -65,6 +67,7 @@ endif()
 durin_test_deploy_directory_to_data(VulkanRHIIntegrationTests "${CMAKE_CURRENT_SOURCE_DIR}/Data")
 
 durin_register_native_test(VulkanRHIIntegrationTests
+	EXCLUSIVE
 	KIND ${_durin_vulkan_rhi_test_kind}
 	${_durin_vulkan_rhi_execution_host}
 	DOMAINS renderer viewport

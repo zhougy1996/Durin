@@ -1141,12 +1141,25 @@ function(_durin_discover_native_test target_name)
 		message(FATAL_ERROR
 			"${target_name} DURIN_TEST_DIRECT_LIFECYCLE must be TRUE or FALSE.")
 	endif()
+	get_target_property(_durin_exclusive ${target_name} DURIN_TEST_EXCLUSIVE)
+	if(_durin_exclusive MATCHES "-NOTFOUND$")
+		set(_durin_exclusive FALSE)
+	elseif(NOT _durin_exclusive STREQUAL "TRUE"
+		AND NOT _durin_exclusive STREQUAL "FALSE")
+		message(FATAL_ERROR
+			"${target_name} DURIN_TEST_EXCLUSIVE must be TRUE or FALSE.")
+	endif()
 	get_target_property(_durin_resolved_execution_host
 		${target_name} DURIN_TEST_RESOLVED_EXECUTION_HOST)
 	get_target_property(_durin_target_lock_rationale ${target_name}
 		DURIN_TEST_TARGET_LOCK_RATIONALE)
 	if(_durin_target_lock_rationale MATCHES "-NOTFOUND$")
 		set(_durin_target_lock_rationale)
+	endif()
+	if(_durin_exclusive AND NOT _durin_target_lock_rationale)
+		message(FATAL_ERROR
+			"${target_name} requires DURIN_TEST_TARGET_LOCK_RATIONALE "
+			"before exclusive CTest execution can be enabled.")
 	endif()
 	if(NOT _durin_timeout MATCHES "^[1-9][0-9]*$")
 		message(FATAL_ERROR
@@ -1225,6 +1238,10 @@ function(_durin_discover_native_test target_name)
 		string(APPEND _durin_policy_content
 			"    RESOURCE_LOCK \"${_durin_resource_locks}\"\n")
 	endif()
+	if(_durin_exclusive)
+		string(APPEND _durin_policy_content
+			"    RUN_SERIAL TRUE\n")
+	endif()
 	string(APPEND _durin_policy_content
 		"  )\n"
 		"endforeach()\n")
@@ -1254,6 +1271,11 @@ function(_durin_discover_native_test target_name)
 					RESOURCE_LOCK "${_durin_resource_locks}"
 			)
 		endif()
+		if(_durin_exclusive)
+			set_tests_properties(
+				"Durin.NativeTestDirect.${target_name}"
+				PROPERTIES RUN_SERIAL TRUE)
+		endif()
 	endif()
 endfunction()
 
@@ -1262,7 +1284,7 @@ function(durin_register_native_test target_name)
 		message(FATAL_ERROR "Cannot register missing native-test target ${target_name}.")
 	endif()
 
-	set(options SERIAL)
+	set(options SERIAL EXCLUSIVE)
 	set(one_value_args
 		KIND TIMEOUT EXECUTION_HOST PRIVATE_SOURCE_OWNER PRIVATE_SOURCE_RATIONALE)
 	set(multi_value_args DOMAINS MODULES BACKENDS STACKS)
@@ -1297,13 +1319,14 @@ function(durin_register_native_test target_name)
 	endif()
 
 	foreach(_durin_owned_property IN ITEMS
-		DURIN_TEST_CASE_PARALLEL_SAFE DURIN_TEST_DIRECT_LIFECYCLE DURIN_TEST_TIMEOUT)
+		DURIN_TEST_CASE_PARALLEL_SAFE DURIN_TEST_DIRECT_LIFECYCLE
+		DURIN_TEST_EXCLUSIVE DURIN_TEST_TIMEOUT)
 		get_property(_durin_property_set TARGET ${target_name}
 			PROPERTY ${_durin_owned_property} SET)
 		if(_durin_property_set)
 			message(FATAL_ERROR
 				"${target_name} ${_durin_owned_property} is registration-owned; "
-				"use SERIAL, KIND, or TIMEOUT on durin_register_native_test.")
+				"use SERIAL, EXCLUSIVE, KIND, or TIMEOUT on durin_register_native_test.")
 		endif()
 	endforeach()
 
@@ -1328,8 +1351,14 @@ function(durin_register_native_test target_name)
 	else()
 		set(_durin_case_parallel_safe TRUE)
 	endif()
+	if(DURIN_REGISTER_EXCLUSIVE)
+		set(_durin_exclusive TRUE)
+	else()
+		set(_durin_exclusive FALSE)
+	endif()
 	set_target_properties(${target_name} PROPERTIES
 		DURIN_TEST_CASE_PARALLEL_SAFE "${_durin_case_parallel_safe}"
+		DURIN_TEST_EXCLUSIVE "${_durin_exclusive}"
 		DURIN_TEST_TIMEOUT "${_durin_timeout}"
 	)
 	_durin_discover_native_test(${target_name})
