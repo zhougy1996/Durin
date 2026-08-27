@@ -140,7 +140,7 @@ namespace Durin
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		}
 		auto& GBufferResult = GBufferValue.Result;
-		AddSceneFrameFeaturePass<FGBufferGraphContributor>(
+		(void)AddSceneFrameFeaturePass<FGBufferGraphContributor>(
 			Graph, ERenderGraphPassType::Graphics, std::move(Parameters),
 			[&Services, &GBufferResult, RecordInputs, &Options,
 				Width, Height, bNeedsGBuffer, bWantsIsolatedDeferred](
