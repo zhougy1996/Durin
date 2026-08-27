@@ -43,7 +43,13 @@ namespace Durin::Editor::Import
 		}
 
 		Result.bMountedDestination = true;
+		Result.bContentWritable = Result.Mount->bContentWritable;
 		Result.PhysicalPath = Resolved.PhysicalPath.generic_string() + ".dasset";
+		if (!Result.bContentWritable)
+		{
+			Result.Message = "Choose a destination inside a content-writable mount.";
+			return Result;
+		}
 		const FAssetDestinationOccupancy Occupancy =
 			(OccupancyQuery != nullptr ? OccupancyQuery : QueryAssetDestinationOccupancy)(Result.AssetPath);
 		Result.bRegistryAssetExists = Occupancy.bRegistryAssetExists;
@@ -104,7 +110,10 @@ namespace Durin::Editor::Import
 		}
 
 		Result.bMountedDestination = true;
+		Result.bContentWritable = Result.Mount->bContentWritable;
 		Result.PhysicalPath = Resolved.PhysicalPath;
+		if (!Result.bContentWritable)
+			Result.Message = "Choose a directory inside a content-writable mount.";
 		return Result;
 	}
 

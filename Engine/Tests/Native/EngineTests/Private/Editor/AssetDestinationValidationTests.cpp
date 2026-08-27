@@ -58,7 +58,8 @@ namespace
 					.VirtualRoot = "/Project/",
 					.Owner = PathUtilities::EMountOwner::ActiveProject,
 					.Root = Root / "Project/Content",
-					.bAutoScan = true},
+					.bAutoScan = true,
+					.bContentWritable = true},
 				PathUtilities::FMountPoint{
 					.VirtualRoot = "/Engine/",
 					.Owner = PathUtilities::EMountOwner::Engine,
@@ -72,7 +73,8 @@ namespace
 					.VirtualRoot = "/NonNormalized/",
 					.Owner = PathUtilities::EMountOwner::Extension,
 					.Root = Root / "Project/../CanonicalContent",
-					.bAutoScan = true}};
+					.bAutoScan = true,
+					.bContentWritable = true}};
 			Registry = std::make_unique<PathUtilities::FScopedMountRegistryFixture>(Definitions);
 			ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
 		}
@@ -119,11 +121,20 @@ TEST_F(FAssetDestinationValidationTests, RejectsInvalidUnknownAndLookalikePaths)
 	EXPECT_FALSE(Lookalike.bMountedDestination);
 	EXPECT_EQ(Lookalike.Message, "Virtual path does not use a registered mount.");
 
-	const FAssetDestinationValidation ManualScan =
+	const FAssetDestinationValidation ReadOnlySource =
 		InspectAssetDestination("/Sources/Textures/Stone", EmptyOccupancy);
-	EXPECT_TRUE(ManualScan.bAssetPathValid);
-	EXPECT_TRUE(ManualScan.bMountedDestination);
-	EXPECT_TRUE(ManualScan);
+	EXPECT_TRUE(ReadOnlySource.bAssetPathValid);
+	EXPECT_TRUE(ReadOnlySource.bMountedDestination);
+	EXPECT_FALSE(ReadOnlySource.bContentWritable);
+	EXPECT_FALSE(ReadOnlySource);
+	EXPECT_EQ(ReadOnlySource.Message,
+		"Choose a destination inside a content-writable mount.");
+
+	const FAssetDestinationValidation ReadOnlyEngine =
+		InspectAssetDestination("/Engine/Textures/Stone", EmptyOccupancy);
+	EXPECT_TRUE(ReadOnlyEngine.bMountedDestination);
+	EXPECT_FALSE(ReadOnlyEngine.bContentWritable);
+	EXPECT_FALSE(ReadOnlyEngine);
 }
 
 TEST_F(FAssetDestinationValidationTests, ReportsRegistryAndLoadedPackageCollisions)
@@ -209,4 +220,12 @@ TEST_F(FAssetDestinationValidationTests, ResolvesVirtualContentDirectories)
 		Root / "Project/ContentLookalike/Scenes/Robot");
 	EXPECT_FALSE(Outside);
 	EXPECT_FALSE(Outside.Message.empty());
+
+	const FContentDirectoryValidation ReadOnly =
+		InspectContentDirectory("/Sources/Scenes/Robot");
+	EXPECT_TRUE(ReadOnly.bMountedDestination);
+	EXPECT_FALSE(ReadOnly.bContentWritable);
+	EXPECT_FALSE(ReadOnly);
+	EXPECT_EQ(ReadOnly.Message,
+		"Choose a directory inside a content-writable mount.");
 }

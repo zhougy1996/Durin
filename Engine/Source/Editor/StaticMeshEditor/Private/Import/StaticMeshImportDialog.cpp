@@ -189,13 +189,14 @@ namespace Durin::Editor::StaticMesh
 	auto FStaticMeshImportDialog::Import() -> bool
 	{
 		Callbacks.Clear();
-		FAssetPath AssetPath;
-		std::string Error;
-		if (!FAssetPath::TryCreate(Destination.GetPath(), AssetPath, &Error))
+		const FAssetDestinationValidation DestinationValidation =
+			Destination.Inspect();
+		if (!DestinationValidation)
 		{
-			SetError(std::move(Error));
+			SetError(DestinationValidation.Message);
 			return false;
 		}
+		const FAssetPath& AssetPath = DestinationValidation.AssetPath;
 		const FStaticMeshImportResult Result =
 			AssetForge::Builtins::ImportStaticMeshAsset(
 				SourcePathBuffer.data(), AssetPath.ToString(), Coordinates.GetSettings());

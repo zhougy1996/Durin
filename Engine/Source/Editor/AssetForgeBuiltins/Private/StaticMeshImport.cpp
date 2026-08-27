@@ -240,10 +240,9 @@ namespace Durin::AssetForge::Builtins
 	}
 
 	auto ImportStaticMeshAsset(std::string_view FilePath,
-		std::string_view AssetPath, const FStaticMeshImportSettings& ImportSettings,
-		std::string_view, bool bAllowEngineContentWrite) -> FStaticMeshImportResult
+		std::string_view AssetPath, const FStaticMeshImportSettings& ImportSettings)
+		-> FStaticMeshImportResult
 	{
-		(void)bAllowEngineContentWrite;
 		const std::filesystem::path Input =
 			std::filesystem::absolute(FilePath).lexically_normal();
 		if (!std::filesystem::is_regular_file(Input))

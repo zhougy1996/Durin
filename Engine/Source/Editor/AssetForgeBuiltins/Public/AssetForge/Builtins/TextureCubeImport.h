@@ -62,15 +62,12 @@ namespace Durin::AssetForge::Builtins
 	ASSETFORGEBUILTINS_API auto ImportTextureCubeFaces(
 		const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 		std::string_view AssetPath,
-		const FTextureCubeImportSettings& Settings = {},
-		const std::array<std::string, TextureCubeFaceCount>& SourceDestinations = {},
-		bool bAllowEngineContentWrite = false) -> FTextureCubeImportResult;
+		const FTextureCubeImportSettings& Settings = {}) -> FTextureCubeImportResult;
 	ASSETFORGEBUILTINS_API auto ImportTextureCubePanorama(
 		std::string_view PanoramaFile,
 		std::string_view AssetPath,
-		const FTextureCubePanoramaImportSettings& Settings = {},
-		std::string_view SourceDestination = {},
-		bool bAllowEngineContentWrite = false) -> FTextureCubeImportResult;
+		const FTextureCubePanoramaImportSettings& Settings = {})
+		-> FTextureCubeImportResult;
 	ASSETFORGEBUILTINS_API auto ReimportTextureCubePanorama(
 		DTextureCube& Texture,
 		const FTextureCubePanoramaImportSettings& Settings,

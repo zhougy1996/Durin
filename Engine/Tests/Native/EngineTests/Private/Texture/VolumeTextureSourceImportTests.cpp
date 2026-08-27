@@ -359,8 +359,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	ASSERT_TRUE(Asset::SavePackage(Imported.Asset->GetPackage()));
 
 	const FVolumeTextureImportResult Detail = ImportVolumeTextureAsset(
-		MovedAtlas.generic_string(), "/TextureImportTests/ImportedDetailVolume", Settings,
-		false);
+		MovedAtlas.generic_string(), "/TextureImportTests/ImportedDetailVolume", Settings);
 	ASSERT_TRUE(Detail) << Detail.Message;
 	FAssetPath BaseAssetPath;
 	FAssetPath DetailAssetPath;
@@ -430,8 +429,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 		.SliceWidth = 128, .SliceHeight = 128, .Depth = 128,
 		.TilesX = 128, .TilesY = 1};
 	const FVolumeTextureImportResult Imported = ImportVolumeTextureAsset(
-		AtlasPath.generic_string(), "/TextureImportTests/ProductionVolume", Settings,
-		false);
+		AtlasPath.generic_string(), "/TextureImportTests/ProductionVolume", Settings);
 	ASSERT_TRUE(Imported) << Imported.Message;
 	ASSERT_NE(Imported.Asset, nullptr);
 	ASSERT_EQ(Imported.Asset->GetSourceData().GetVoxelBytes().size(), 128ull * 128 * 128);

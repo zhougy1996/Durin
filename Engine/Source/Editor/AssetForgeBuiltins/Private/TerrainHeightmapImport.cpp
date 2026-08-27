@@ -249,10 +249,8 @@ namespace Durin::AssetForge::Builtins
 	auto ImportTerrainHeightmapAsset(
 		std::string_view FilePath,
 		std::string_view AssetPath,
-		const FTerrainHeightmapImportSettings& Settings,
-		bool bAllowEngineContentWrite) -> FTerrainHeightmapImportResult
+		const FTerrainHeightmapImportSettings& Settings) -> FTerrainHeightmapImportResult
 	{
-		(void)bAllowEngineContentWrite;
 		(void)Settings;
 		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
 		std::string Extension = Input.extension().generic_string();

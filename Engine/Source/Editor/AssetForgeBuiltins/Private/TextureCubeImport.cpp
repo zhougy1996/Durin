@@ -311,11 +311,8 @@ namespace Durin::AssetForge::Builtins
 	auto ImportTextureCubePanorama(
 		std::string_view PanoramaFile,
 		std::string_view AssetPath,
-		const FTextureCubePanoramaImportSettings& Settings,
-		std::string_view,
-		bool bAllowEngineContentWrite) -> FTextureCubeImportResult
+		const FTextureCubePanoramaImportSettings& Settings) -> FTextureCubeImportResult
 	{
-		(void)bAllowEngineContentWrite;
 		FAssetPath ParsedAssetPath;
 		std::string Error;
 		if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &Error))
@@ -340,11 +337,8 @@ namespace Durin::AssetForge::Builtins
 	auto ImportTextureCubeFaces(
 		const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 		std::string_view AssetPath,
-		const FTextureCubeImportSettings& Settings,
-		const std::array<std::string, TextureCubeFaceCount>&,
-		bool bAllowEngineContentWrite) -> FTextureCubeImportResult
+		const FTextureCubeImportSettings& Settings) -> FTextureCubeImportResult
 	{
-		(void)bAllowEngineContentWrite;
 		FAssetPath ParsedAssetPath;
 		std::string Error;
 		if (!FAssetPath::TryCreate(AssetPath, ParsedAssetPath, &Error))

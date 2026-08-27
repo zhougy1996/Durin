@@ -253,10 +253,6 @@ TEST_F(FMountRegistryTests, ResolvesTypedPathsClassifiesRootsAndEnforcesPolicy)
 	EXPECT_EQ(
 		CheckMountDependency("/Engine/Asset", "/Game/Source").Error,
 		EMountPathError::ForbiddenDependency);
-	EXPECT_TRUE(CheckContentWriteAdmission("/Game/Asset", "/Game/Textures/New.png"));
-	EXPECT_EQ(
-		CheckContentWriteAdmission("/Game/Asset", "/Engine/Textures/Stone.png").Error,
-		EMountPathError::ReadOnlyMount);
 
 	std::string PublishError;
 	EXPECT_FALSE(PublishMountRegistry(MountDefinitions, &PublishError));

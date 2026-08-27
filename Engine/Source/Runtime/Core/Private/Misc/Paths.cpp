@@ -545,24 +545,6 @@ namespace Durin
 			return Result;
 		}
 
-		auto CheckContentWriteAdmission(
-			std::string_view ReferencingVirtualPath,
-			std::string_view SourceVirtualPath,
-			bool bAllowEngineContentWrite
-		) -> FMountPolicyResult
-		{
-			FMountPolicyResult Result = CheckMountDependency(ReferencingVirtualPath, SourceVirtualPath);
-			if (!Result) return Result;
-			if (!Result.ReferencedMount->bContentWritable
-				|| Result.ReferencingMount != Result.ReferencedMount
-				|| (Result.ReferencedMount->Owner == EMountOwner::Engine && !bAllowEngineContentWrite))
-			{
-				Result.Error = EMountPathError::ReadOnlyMount;
-				Result.Message = "Engine-content write permission does not admit mutation of this mount.";
-			}
-			return Result;
-		}
-
 		auto PublishMountRegistry(std::span<const FMountPoint> Definitions, std::string* OutError) -> bool
 		{
 			if (bRegistryPublished)

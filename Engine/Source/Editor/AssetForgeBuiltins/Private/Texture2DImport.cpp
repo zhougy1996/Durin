@@ -196,10 +196,8 @@ namespace Durin::AssetForge::Builtins
 	auto ImportTexture2DAsset(
 		std::string_view FilePath,
 		std::string_view AssetPath,
-		const FTexture2DImportSettings& Settings,
-		bool bAllowEngineContentWrite) -> FTexture2DImportResult
+		const FTexture2DImportSettings& Settings) -> FTexture2DImportResult
 	{
-		(void)bAllowEngineContentWrite;
 		auto Failed = [](std::string Message, DTexture2D* Asset = nullptr) {
 			return FTexture2DImportResult{false, std::move(Message), Asset};
 		};

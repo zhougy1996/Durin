@@ -442,13 +442,14 @@ namespace Durin::Editor::Texture
 	auto FTextureImportDialog::ImportSingleTexture() -> bool
 	{
 		const auto& SourcePathBuffer = GetSelectedSingleSourcePath();
-		FAssetPath AssetPath;
-		std::string Error;
-		if (!FAssetPath::TryCreate(Destination.GetPath(), AssetPath, &Error))
+		const FAssetDestinationValidation DestinationValidation =
+			Destination.Inspect();
+		if (!DestinationValidation)
 		{
-			SetError(std::move(Error));
+			SetError(DestinationValidation.Message);
 			return false;
 		}
+		const FAssetPath& AssetPath = DestinationValidation.AssetPath;
 		const std::string Path = AssetPath.ToString();
 		const FImportDialogCallbacks CompletionCallbacks = Callbacks;
 		if (State.GetAssetType() == ETextureImportAssetType::VolumeTexture)
@@ -464,8 +465,7 @@ namespace Durin::Editor::Texture
 			Settings.TilesY = Volume.TilesY;
 			const AssetForge::Builtins::FVolumeTextureImportResult Result =
 				AssetForge::Builtins::ImportVolumeTextureAsset(
-					SourcePathBuffer.data(), AssetPath.ToString(), Settings,
-					IsEngineContentWriteDestination(Destination.GetPath()));
+					SourcePathBuffer.data(), AssetPath.ToString(), Settings);
 			if (!Result)
 			{
 				SetError(Result.Message.empty()
@@ -480,8 +480,7 @@ namespace Durin::Editor::Texture
 		FTexture2DImportSettings Settings;
 		Settings.Usage = State.GetTexture2D().Usage;
 		const FTexture2DImportResult Result = AssetForge::Builtins::ImportTexture2DAsset(
-			SourcePathBuffer.data(), AssetPath.ToString(), Settings,
-			IsEngineContentWriteDestination(Destination.GetPath()));
+			SourcePathBuffer.data(), AssetPath.ToString(), Settings);
 		if (!Result)
 		{
 			SetError(Result.Message.empty()

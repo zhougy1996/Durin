@@ -400,11 +400,9 @@ namespace Durin::AssetForge::Builtins
 	}
 
 	auto ImportVolumeTextureAsset(std::string_view FilePath,
-		std::string_view AssetPath, const FVolumeTextureImportSettings& Settings,
-		bool bAllowEngineContentWrite)
+		std::string_view AssetPath, const FVolumeTextureImportSettings& Settings)
 		-> FVolumeTextureImportResult
 	{
-		(void)bAllowEngineContentWrite;
 		const std::filesystem::path Input = std::filesystem::absolute(FilePath).lexically_normal();
 		if (!std::filesystem::is_regular_file(Input))
 			return {false, "Volume texture source image does not exist.", nullptr};

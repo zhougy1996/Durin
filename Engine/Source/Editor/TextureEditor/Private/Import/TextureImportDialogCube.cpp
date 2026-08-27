@@ -319,13 +319,14 @@ namespace Durin::Editor::Texture
 	{
 		FTextureCubeImportFormState& Cube = State.GetTextureCube();
 		if (!RevalidateTextureCubeSources()) return false;
-		FAssetPath AssetPath;
-		std::string Error;
-		if (!FAssetPath::TryCreate(Destination.GetPath(), AssetPath, &Error))
+		const FAssetDestinationValidation DestinationValidation =
+			Destination.Inspect();
+		if (!DestinationValidation)
 		{
-			SetError(std::move(Error));
+			SetError(DestinationValidation.Message);
 			return false;
 		}
+		const FAssetPath& AssetPath = DestinationValidation.AssetPath;
 		std::array<std::string, TextureCubeFaceCount> Sources;
 		AssetForge::Builtins::FTextureCubePanoramaImportSettings PanoramaSettings;
 		if (Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces)
@@ -346,10 +347,9 @@ namespace Durin::Editor::Texture
 		const std::string Path = AssetPath.ToString();
 		const AssetForge::Builtins::FTextureCubeImportResult Result =
 			Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces
-			? AssetForge::Builtins::ImportTextureCubeFaces(Sources, Path, {}, {},
-				IsEngineContentWriteDestination(Destination.GetPath()))
+			? AssetForge::Builtins::ImportTextureCubeFaces(Sources, Path)
 			: AssetForge::Builtins::ImportTextureCubePanorama(Sources[0], Path,
-				PanoramaSettings, {}, IsEngineContentWriteDestination(Destination.GetPath()));
+				PanoramaSettings);
 		if (!Result)
 		{
 			SetError(Result.Message.empty()

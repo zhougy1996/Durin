@@ -140,13 +140,14 @@ namespace Durin::Editor::Level
 
 	auto FSceneImportDialog::Import() -> bool
 	{
-		FAssetPath OutputDirectory;
-		std::string Error;
-		if (!FAssetPath::TryCreate(DestinationDirectory.GetPath(), OutputDirectory, &Error))
+		const FContentDirectoryValidation DestinationValidation =
+			DestinationDirectory.Inspect();
+		if (!DestinationValidation)
 		{
-			SetError(std::move(Error));
+			SetError(DestinationValidation.Message);
 			return false;
 		}
+		const FAssetPath& OutputDirectory = DestinationValidation.DirectoryPath;
 		AssetForge::Builtins::FSceneImportResult Result;
 		if (!AssetForge::Builtins::ImportSceneAssets(SourcePathBuffer.data(), OutputDirectory,
 			Coordinates.GetSettings(), Result))

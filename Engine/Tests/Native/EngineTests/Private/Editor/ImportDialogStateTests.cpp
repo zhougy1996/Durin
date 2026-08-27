@@ -115,7 +115,8 @@ TEST(FImportDialogDestinationModelTests, DelegatesValidationToAssetDestination)
 			.VirtualRoot = "/Project/",
 			.Owner = PathUtilities::EMountOwner::ActiveProject,
 			.Root = Root / "Project/Content",
-			.bAutoScan = true}};
+			.bAutoScan = true,
+			.bContentWritable = true}};
 	const PathUtilities::FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 

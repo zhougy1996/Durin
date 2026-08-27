@@ -291,6 +291,21 @@ namespace Durin::Asset
 
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult { return {Code, std::move(Message)}; }
 
+		auto ValidatePackageWriteAdmission(const FAssetPath& Path) -> FAssetResult
+		{
+			const PathUtilities::FMountLookupResult Mount =
+				PathUtilities::FindMountForVirtualPath(Path.GetView());
+			if (!Mount)
+				return Error(EAssetError::InvalidPath,
+					std::format("Package {} does not use a registered content mount.",
+						Path.ToString()));
+			if (!Mount.Mount->bContentWritable)
+				return Error(EAssetError::ReadOnlyMode,
+					std::format("Content mount {} is read-only.",
+						Mount.Mount->VirtualRoot));
+			return {};
+		}
+
 		auto CorruptRedirector(std::string Message) -> FAssetResult
 		{
 			return Error(EAssetError::CorruptFile, std::format("CorruptRedirector: {}", Message));
@@ -1111,7 +1126,9 @@ namespace Durin::Asset
 			if (!Paths.insert(Path).second)
 				return Error(EAssetError::AlreadyExists, std::format(
 					"The asset bundle contains duplicate package {}.", Path.ToString()));
-			FAssetResult Result = ValidateSaveVersion(Registry, Path);
+			FAssetResult Result = ValidatePackageWriteAdmission(Path);
+			if (!Result) return Result;
+			Result = ValidateSaveVersion(Registry, Path);
 			if (!Result) return Result;
 			FStagedPackage& Staged = StagedPackages.emplace_back();
 			Staged.Package = Package;
@@ -1669,10 +1686,14 @@ namespace Durin::Asset
 	{
 		if (RuntimeConfiguration.IsCooked())
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit package saves.");
+		if (!Package || !Package->IsAssetPackage())
+			return Error(EAssetError::InvalidPackageType,
+				"Only asset packages can be saved as asset files.");
 		FAssetPath Path;
-		if (Package && Package->IsAssetPackage()
-			&& !FAssetPath::TryCreate(Package->GetPackagePath(), Path))
+		if (!FAssetPath::TryCreate(Package->GetPackagePath(), Path))
 			return Error(EAssetError::InvalidPath, "Package path is invalid.");
+		FAssetResult WriteAdmission = ValidatePackageWriteAdmission(Path);
+		if (!WriteAdmission) return WriteAdmission;
 		FAssetResult VersionResult = ValidateSaveVersion(Registry, Path);
 		if (!VersionResult) return VersionResult;
 		const std::filesystem::path Destination(GetPhysicalPath(Path));

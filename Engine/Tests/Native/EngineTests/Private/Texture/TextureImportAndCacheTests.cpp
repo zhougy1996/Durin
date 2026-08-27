@@ -209,7 +209,7 @@ TEST(FTexture2DTests, RetainsSourceHintWithoutCopying)
 {
 	InitializeDObjectSystem();
 	FScopedDerivedDataCacheRoot CacheRoot(
-		Durin::Testing::GetTestWorkDirectory() / "TextureSourceDestinationCache");
+		Durin::Testing::GetTestWorkDirectory() / "TextureSourceHintCache");
 
 	const std::filesystem::path DefaultInput =
 		Durin::Testing::GetTestWorkDirectory() / "FlatDefault.png";

@@ -100,11 +100,6 @@ namespace Durin
 			std::string_view ReferencingVirtualPath,
 			std::string_view ReferencedVirtualPath
 		) -> FMountPolicyResult;
-		CORE_API auto CheckContentWriteAdmission(
-			std::string_view ReferencingVirtualPath,
-			std::string_view SourceVirtualPath,
-			bool bAllowEngineContentWrite = false
-		) -> FMountPolicyResult;
 
 		CORE_API auto PublishMountRegistry(std::span<const FMountPoint> Definitions, std::string* OutError = nullptr) -> bool;
 		CORE_API auto ValidateDefaultMountPoints(std::string* OutError = nullptr) -> bool;

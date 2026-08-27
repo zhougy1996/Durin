@@ -136,13 +136,14 @@ namespace Durin::Editor::Level
 	{
 		Callbacks.Clear();
 		const std::filesystem::path Source(SourcePathBuffer.data());
-		FAssetPath AssetPath;
-		std::string Error;
-		if (!FAssetPath::TryCreate(Destination.GetPath(), AssetPath, &Error))
+		const FAssetDestinationValidation DestinationValidation =
+			Destination.Inspect();
+		if (!DestinationValidation)
 		{
-			SetError(std::move(Error));
+			SetError(DestinationValidation.Message);
 			return false;
 		}
+		const FAssetPath& AssetPath = DestinationValidation.AssetPath;
 		const FTerrainHeightmapImportResult Result =
 			AssetForge::Builtins::ImportTerrainHeightmapAsset(
 				Source.generic_string(), AssetPath.ToString());

@@ -6,13 +6,6 @@
 
 namespace Durin::Editor::Import
 {
-	inline auto IsEngineContentWriteDestination(std::string_view VirtualPath) -> bool
-	{
-		const PathUtilities::FMountLookupResult Lookup =
-			PathUtilities::FindMountForVirtualPath(VirtualPath);
-		return Lookup && Lookup.Mount->Owner == PathUtilities::EMountOwner::Engine;
-	}
-
 	enum class EAssetDestinationOccupantKind : uint8
 	{
 		None,
@@ -41,6 +34,7 @@ namespace Durin::Editor::Import
 		std::filesystem::path PhysicalPath;
 		bool bAssetPathValid = false;
 		bool bMountedDestination = false;
+		bool bContentWritable = false;
 		bool bRegistryAssetExists = false;
 		std::optional<Asset::EAssetPackagePublicationState>
 			ResidentPublicationState;
@@ -55,7 +49,8 @@ namespace Durin::Editor::Import
 		}
 		explicit operator bool() const
 		{
-			return bAssetPathValid && bMountedDestination && !AssetExists() && Message.empty();
+			return bAssetPathValid && bMountedDestination && bContentWritable
+				&& !AssetExists() && Message.empty();
 		}
 	};
 
@@ -67,11 +62,13 @@ namespace Durin::Editor::Import
 		std::filesystem::path PhysicalPath;
 		bool bDirectoryPathValid = false;
 		bool bMountedDestination = false;
+		bool bContentWritable = false;
 		std::string Message;
 
 		explicit operator bool() const
 		{
-			return bDirectoryPathValid && bMountedDestination && Message.empty();
+			return bDirectoryPathValid && bMountedDestination
+				&& bContentWritable && Message.empty();
 		}
 	};
 

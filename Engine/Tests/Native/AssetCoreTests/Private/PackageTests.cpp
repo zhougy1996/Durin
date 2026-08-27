@@ -4717,6 +4717,44 @@ TEST(FPackageAssetTests, MountedPackageSnapshotIsDeterministicHashedAndReadOnly)
 	EXPECT_TRUE(Cancelled.Packages.empty());
 }
 
+TEST(FPackageAssetTests, PackageSavesRejectReadOnlyContentMounts)
+{
+	InitializeAssetTests();
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "ReadOnlyPackageSave";
+	Durin::Testing::RemoveTestWorkDirectory(Root);
+	std::filesystem::create_directories(Root);
+	const std::array Definitions{
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/ReadOnly/",
+			.Owner = Durin::PathUtilities::EMountOwner::Extension,
+			.Root = Root,
+			.ContentPath = ".",
+			.bAutoScan = true,
+			.bContentWritable = false}};
+	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(Definitions);
+	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/ReadOnly/Blocked", Path));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
+	Durin::DPackage* Package = Asset->GetPackage();
+	const Durin::Asset::FAssetResult BundleSaved =
+		Durin::Asset::SavePackagesAtomically(
+			std::span<Durin::DPackage* const>(&Package, 1), {});
+	EXPECT_EQ(BundleSaved.Error, Durin::Asset::EAssetError::ReadOnlyMode);
+	EXPECT_EQ(BundleSaved.Message, "Content mount /ReadOnly/ is read-only.");
+	const Durin::Asset::FAssetResult Saved =
+		Durin::Asset::SavePackage(Package);
+	EXPECT_EQ(Saved.Error, Durin::Asset::EAssetError::ReadOnlyMode);
+	EXPECT_EQ(Saved.Message, "Content mount /ReadOnly/ is read-only.");
+	EXPECT_FALSE(std::filesystem::exists(Root / "Blocked.dasset"));
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(
+		Package,
+		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+}
+
 TEST(FPackageAssetTests, V4NoDeltaWriterAssociatesObjectPlansIndependentOfDiscoveryOrder)
 {
 	InitializeAssetTests();

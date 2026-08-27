@@ -71,8 +71,7 @@ namespace Durin::AssetForge::Builtins
 	ASSETFORGEBUILTINS_API auto ImportVolumeTextureAsset(
 		std::string_view FilePath,
 		std::string_view AssetPath,
-		const FVolumeTextureImportSettings& Settings = {},
-		bool bAllowEngineContentWrite = false)
+		const FVolumeTextureImportSettings& Settings = {})
 		-> FVolumeTextureImportResult;
 	ASSETFORGEBUILTINS_API auto ReimportVolumeTexture(
 		DVolumeTexture& Texture,

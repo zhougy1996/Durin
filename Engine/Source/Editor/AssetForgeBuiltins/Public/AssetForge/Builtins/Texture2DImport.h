@@ -17,8 +17,7 @@ namespace Durin::AssetForge::Builtins
 	ASSETFORGEBUILTINS_API auto ImportTexture2DAsset(
 		std::string_view FilePath,
 		std::string_view AssetPath,
-		const FTexture2DImportSettings& Settings = {},
-		bool bAllowEngineContentWrite = false) -> FTexture2DImportResult;
+		const FTexture2DImportSettings& Settings = {}) -> FTexture2DImportResult;
 
 	// Reimports from the retained optional source hint. Completion runs on the
 	// game thread after the detached candidate is either published or rejected.
