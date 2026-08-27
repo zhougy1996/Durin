@@ -2,29 +2,20 @@
 
 Summary: Extract Content Browser from LevelEditor into an independent editor feature module and host its shared surfaces in MainFrame.
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-08-28
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-28
 
 ## Current Status
 
-Stage 0 is complete. The public boundary, settings reset behavior, responsibility
-inventory, and source/test move map below are frozen. Existing native coverage
-already characterizes browser reveal/refresh, drawer focus and drag dismissal,
-Console record/unread behavior, notification history, and transaction feedback.
-The remaining known gap is also characterized by the current call path:
-`MLevelEditor::DrawWorkspace` returns before Console polling, notification
-updates, transaction-event projection, status-bar drawing, and toasts whenever
-the Level workspace root is not visible.
-
-Stages 1 and 3 were implemented together following the user's direction that a
+All implementation stages and acceptance gates are complete. Stages 1 and 3
+were implemented together following the user's direction that a
 project-wide browser should never remain Level-owned as a transitional step.
 MainFrame now owns the singleton browser and shared host tools directly. Stage
 2 is complete: concrete import dialogs and reimport request construction live in
 their asset-family modules, while ContentBrowser submits only provider-neutral
-requests. Stage 4 automated qualification is complete. The remaining gate is
-interactive validation of every global tool in every workspace.
+requests.
 
 Automated qualification on 2026-08-26 passed `ContentBrowserWorkflowTests`
 (59), `EditorAssetWorkflowTests` (35), `TextureTests` (87),
@@ -32,6 +23,9 @@ Automated qualification on 2026-08-26 passed `ContentBrowserWorkflowTests`
 for 304 passing tests. `./DevTool build` completed the full `all` target, and a
 hidden-window Sandbox launch reached Ready, loaded the default document, ran
 eight ticks, and shut down cleanly with no error, assertion, or leaked worker.
+On 2026-08-28, the user confirmed the prescribed interactive validation passed
+for the global tools across the registered workspaces, closing the final Stage 4
+gate.
 
 ## Stage 0 Frozen Baseline
 
@@ -426,7 +420,7 @@ and visibility do not depend on whether the Level Editor dock tab is submitted.
   providers/caches, workspaces, and concrete modules.
 - [x] Verify pending deletion recovery and reachable Undo/Redo entries survive
   the ownership move without retaining unloaded module callbacks.
-- [ ] Run the repository-prescribed targeted native tests, editor-module builds,
+- [x] Run the repository-prescribed targeted native tests, editor-module builds,
   full editor build, and interactive editor scenarios from the standard agent
   build/test workflows.
 - [x] Update the Content Browser and Workspace Framework architecture documents
