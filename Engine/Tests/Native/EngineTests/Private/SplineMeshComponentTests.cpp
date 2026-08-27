@@ -16,9 +16,10 @@
 #include "EngineTestSupport.h"
 #include "Materials/Material.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
-#include "AssetForgeBuiltinsAssetTestSupport.h"
+#include "StaticMesh/StaticMeshBuildOperations.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 
 #include <gtest/gtest.h>
@@ -26,6 +27,36 @@
 namespace
 {
 	using namespace Durin;
+
+	auto CreateAuthoredDebugTriangle(DObject* Outer, std::string_view Name)
+		-> DStaticMesh*
+	{
+		auto* Mesh = NewObject<DStaticMesh>(Outer, FName(Name));
+		Asset::FStaticMeshImportedData Imported;
+		Imported.MaterialSlots.push_back({
+			.Name = "Default", .SourceMaterialIndex = 0, .SourceName = "Default"});
+		Asset::FStaticMeshImportedMesh& Section = Imported.Meshes.emplace_back();
+		Section.Name = "Triangle";
+		Section.Positions = {
+			FVector3f(-0.5f, -0.5f, 0.0f),
+			FVector3f(0.5f, -0.5f, 0.0f),
+			FVector3f(0.0f, 0.5f, 0.0f)};
+		Section.Indices = {0, 1, 2};
+		Section.SourceMaterialIndex = 0;
+		std::string Error;
+		if (!Asset::FStaticMeshBuildOperations::BuildAndPublishImported(
+			*Mesh, Imported,
+			{.SourcePath = {.Path = "/Tests/SplineMeshDebugTriangle.fixture"},
+				.SourceContentHash = "0123456789abcdef0123456789abcdef",
+				.ImporterId = "SplineMeshFixture", .ImporterVersion = 1,
+				.ImportSettings = FStaticMeshImportSettings::MakeDurin()},
+			"SplineMesh authored triangle fixture", Error))
+		{
+			ADD_FAILURE() << Error;
+			return nullptr;
+		}
+		return Mesh;
+	}
 
 	auto MakeComponentWithMesh() -> std::pair<DSplineMeshComponent*, DStaticMesh*>
 	{
@@ -57,7 +88,8 @@ TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationS
 	PathUtilities::FScopedMountRegistryFixture MountRegistry;
 	PathUtilities::InitDefaultMountPoints();
 	ASSERT_TRUE(Asset::RefreshAssetCatalog());
-	ASSERT_TRUE(Tests::InstallAssetForgeBuiltinsAssetFeatures());
+	FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	FAssetPath Path;
 	ASSERT_TRUE(FAssetPath::TryCreate("/Engine/Models/SplineBox", Path));
 	DStaticMesh* Mesh = nullptr;
@@ -356,7 +388,8 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	ASSERT_TRUE(Asset::CreateAsset(Path, Level));
 	auto* Actor = Level->SpawnActor<ASplineMeshActor>("SplineMeshActor");
 	ASSERT_NE(Actor, nullptr);
-	auto* InitialMesh = DStaticMesh::CreateDebugTriangle(Level);
+	auto* InitialMesh = CreateAuthoredDebugTriangle(Level, "InitialStaticMesh");
+	ASSERT_NE(InitialMesh, nullptr);
 	Actor->SetPathMesh(InitialMesh);
 	FSplinePoint A({0.0, 0.0, 0.0});
 	FSplinePoint B({100.0, 0.0, 0.0});
@@ -402,7 +435,8 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 		FTransform Transform;
 		EXPECT_TRUE(Segment->BuildCollisionGeometry(Geometry, Transform));
 	}
-	auto* ReplacementMesh = DStaticMesh::CreateDebugTriangle(Level);
+	auto* ReplacementMesh = CreateAuthoredDebugTriangle(Level, "ReplacementStaticMesh");
+	ASSERT_NE(ReplacementMesh, nullptr);
 	Actor->SetPathMesh(ReplacementMesh);
 	MarkAsGarbage(InitialMesh);
 	CollectGarbage();

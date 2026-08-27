@@ -20,27 +20,27 @@ namespace Durin::AssetForge::Builtins
 		const FTexture2DImportSettings& Settings = {},
 		bool bAllowEngineContentWrite = false) -> FTexture2DImportResult;
 
-	// Submits a rebuild from retained source; completion runs on the game thread
-	// after the candidate state is either published or rejected.
-	ASSETFORGEBUILTINS_API auto ReimportTexture2DSource(
+	// Reimports from the retained optional source hint. Completion runs on the
+	// game thread after the detached candidate is either published or rejected.
+	ASSETFORGEBUILTINS_API auto ReimportTexture2D(
+		DTexture2D& Texture,
+		std::string& OutError,
+		Asset::FTexture2DCompilationCompletion Completion = {}) -> bool;
+	// Selects and captures a new source, then atomically publishes canonical
+	// imported data and the new hint only after the detached build succeeds.
+	ASSETFORGEBUILTINS_API auto ReimportTexture2DFromFile(
 		DTexture2D& Texture,
 		std::string_view FilePath,
 		std::string& OutError,
 		Asset::FTexture2DCompilationCompletion Completion = {}) -> bool;
-	// Rebuilds one packaged texture from its retained source filename without
-	// publishing the proposed settings until asynchronous preparation succeeds.
-	ASSETFORGEBUILTINS_API auto RebuildTexture2DFromCurrentSource(
+	// Rebuilds one packaged texture from its resident canonical imported data.
+	ASSETFORGEBUILTINS_API auto RebuildTexture2DFromImportedData(
 		DTexture2D& Texture,
 		const Asset::FTexture2DBuildSettings& Settings,
 		std::string& OutError,
 		Asset::ETexture2DCompilationPriority Priority =
 			Asset::ETexture2DCompilationPriority::Interactive,
 		Asset::FTexture2DCompilationCompletion Completion = {}) -> bool;
-	// Reconstructs missing or corrupt derived data without changing authored
-	// import metadata or saving the package.
-	ASSETFORGEBUILTINS_API auto RecoverTexture2DDerivedData(
-		DTexture2D& Texture,
-		std::string& OutError) -> bool;
 	ASSETFORGEBUILTINS_API auto SetTexture2DUsage(
 		DTexture2D& Texture, ETextureUsage Usage, std::string& OutError) -> bool;
 	ASSETFORGEBUILTINS_API auto SetTexture2DSRGB(

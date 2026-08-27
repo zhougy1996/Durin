@@ -4,7 +4,9 @@
 #include "DObject/Package.h"
 #include "NativeTestSupport.h"
 #include "Texture/TextureBuildOperations.h"
+#include "Texture/Texture2DCompilation.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
+#include "Asset/AssetCompilingManager.h"
 
 namespace
 {
@@ -103,17 +105,15 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 	ASSERT_NE(ImportData, nullptr);
 	const Durin::AssetImport::FSourceFile* ImportedSource = Import.Asset->GetImportedSource();
 	ASSERT_NE(ImportedSource, nullptr);
-	EXPECT_TRUE(ImportedSource->Filename.ends_with("MultiSection.gltf"));
+	EXPECT_TRUE(ImportedSource->Hint.ends_with("MultiSection.gltf"));
 	EXPECT_EQ(ImportedSource->GetContentHash().ToString().size(), 32u);
 	EXPECT_EQ(ImportData->GetImporterId(), "Assimp");
 	EXPECT_EQ(ImportData->GetImporterVersion(), 3u);
-	const std::string OriginalSourcePath = ImportedSource->Filename;
+	const std::string OriginalSourcePath = ImportedSource->Hint;
 	const std::filesystem::path StoredSource = Source;
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
 	EXPECT_FALSE(std::filesystem::exists(
 		Root / "Content/Models/Environment/Mesh.gltf"));
-	EXPECT_EQ(Durin::AssetForge::Builtins::InspectStaticMeshSource(*Import.Asset).Status,
-		Durin::EStaticMeshSourceStatus::Available);
 
 	Durin::FAssetPath OldPath;
 	Durin::FAssetPath NewPath;
@@ -122,9 +122,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 	ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
 	ASSERT_NE(Import.Asset->GetImportedSource(), nullptr);
-	EXPECT_EQ(Import.Asset->GetImportedSource()->Filename, OriginalSourcePath);
-	EXPECT_EQ(Durin::AssetForge::Builtins::InspectStaticMeshSource(*Import.Asset).Status,
-		Durin::EStaticMeshSourceStatus::Available);
+	EXPECT_EQ(Import.Asset->GetImportedSource()->Hint, OriginalSourcePath);
 
 	Durin::Asset::FAssetDeleteAnalysis Analysis;
 	ASSERT_TRUE(Durin::Asset::AnalyzeAssetDeletion(NewPath, Analysis));
@@ -208,8 +206,8 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 		const std::filesystem::path SourcePath = Root / "Models" / (std::string(Name) + ".gltf");
 		WriteStaticMeshSlotVariant(SourcePath, Materials, Replacement, LastOnly, AppendedMaterialIndex);
 		std::string Error;
-		ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMeshSource(
-			*Mesh, {}, Error)) << Error;
+		ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMesh(
+			*Mesh, Error)) << Error;
 	};
 
 	Durin::DStaticMesh* Reordered = ImportBase("Reordered");
@@ -317,6 +315,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	ASSERT_TRUE(SetExpandedProgram(*Material));
 	Material->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.85, 0.15, 0.1));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Material->GetPackage()));
+	(void)Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	Durin::DStaticMeshComponent* Component = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(ComponentPath, Component));
 	Component->SetStaticMesh(Import.Asset);
@@ -342,12 +341,13 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	ASSERT_TRUE(Durin::Asset::LoadAsset(ComponentPath, Component));
 	ASSERT_NE(Component, nullptr);
 	ASSERT_NE(Component->GetStaticMesh(), nullptr);
+	(void)Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	ASSERT_EQ(Component->GetMaterial(RedIndex)->GetPackage()->GetPackagePath(), MaterialPath.ToString());
 	WriteStaticMeshSlotVariant(
 		MutableSource, R"({ "name": "Blue" }, { "name": "Red" })");
 	std::string ReimportError;
-	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMeshSource(
-		*Component->GetStaticMesh(), {}, ReimportError)) << ReimportError;
+	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMesh(
+		*Component->GetStaticMesh(), ReimportError)) << ReimportError;
 	ASSERT_EQ(Component->GetStaticMesh()->GetMaterialIndex(Durin::FName("Red")), RedIndex);
 	EXPECT_EQ(Component->GetStaticMesh()->GetMaterialSlot(RedIndex)->SourceMaterialIndex, 1u);
 	const auto& ReimportedSections =
@@ -569,6 +569,12 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	Durin::DMaterialInstance* Loaded = nullptr;
 	ASSERT_TRUE(Durin::Asset::LoadAsset(InstancePath, Loaded));
 	ASSERT_NE(Loaded->GetParent(), nullptr);
+	Durin::DTexture2D* LoadedTexture = nullptr;
+	ASSERT_TRUE(Loaded->GetTextureParameterValue(
+		Durin::MaterialParameters::BaseColorTextureName(), LoadedTexture));
+	ASSERT_NE(LoadedTexture, nullptr);
+	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*LoadedTexture, 10.0));
+	(void)Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	EXPECT_EQ(Loaded->GetStaticProperties(), StaticProperties);
 	ExpectColorNear(GetMaterialBinding(Loaded->GetRenderData()).BaseColor, Durin::FVector4f(0.2f, 0.4f, 0.6f, 0.35f));
 	const Durin::FMaterialRenderBinding LoadedBinding = GetMaterialBinding(Loaded->GetRenderData());
@@ -577,9 +583,6 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	EXPECT_FLOAT_EQ(LoadedBinding.UVChannels[0], 2.0f);
 	EXPECT_EQ(LoadedBinding.UVScales[0], Durin::FVector2f(2.0f, -1.0f));
 	EXPECT_EQ(LoadedBinding.UVOffsets[0], Durin::FVector2f(0.25f, 0.5f));
-	Durin::DTexture2D* LoadedTexture = nullptr;
-	ASSERT_TRUE(Loaded->GetTextureParameterValue(Durin::MaterialParameters::BaseColorTextureName(), LoadedTexture));
-	ASSERT_NE(LoadedTexture, nullptr);
 	EXPECT_EQ(
 		GetMaterialBinding(Loaded->GetRenderData()).Textures[0],
 		LoadedTexture->GetTextureReferenceRHI());

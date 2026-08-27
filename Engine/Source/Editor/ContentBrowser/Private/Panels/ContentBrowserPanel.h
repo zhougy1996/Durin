@@ -36,8 +36,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			::Durin::Editor::Import::EBuiltinImportFamily, std::string)>;
 		using FClassifyReimport = std::function<
 			::Durin::Editor::Import::EBuiltinReimportFamily(std::string_view)>;
+		using FCanReimport = std::function<bool(std::string_view)>;
 		using FReimport = std::function<void(
-			::Durin::Editor::Import::EBuiltinReimportFamily, std::string,
+			::Durin::Editor::Import::EBuiltinReimportFamily,
+			::Durin::Editor::Import::EBuiltinReimportMode, std::string,
 			std::function<void(std::string)>)>;
 		using FDrawImportDialogs = std::function<void(bool)>;
 
@@ -51,6 +53,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			FNotifyMountedContentMutation InNotifyMountedContentMutation,
 			FOpenImport InOpenImport,
 			FClassifyReimport InClassifyReimport,
+			FCanReimport InCanReimport,
 			FReimport InReimport,
 			FDrawImportDialogs InDrawImportDialogs,
 			std::shared_ptr<FMountedContentReconciliationState>
@@ -140,6 +143,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		FNotifyMountedContentMutation NotifyMountedContentMutation;
 		FOpenImport OpenImport;
 		FClassifyReimport ClassifyReimport;
+		FCanReimport CanReimport;
 		FReimport Reimport;
 		FDrawImportDialogs DrawImportDialogs;
 		FContentBrowserRefreshCoordinator RefreshCoordinator;

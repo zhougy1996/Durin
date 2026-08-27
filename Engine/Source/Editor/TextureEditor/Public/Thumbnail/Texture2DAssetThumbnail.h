@@ -5,8 +5,8 @@
 
 namespace Durin::Editor::Texture
 {
-	// Resolves an authored Texture2D package to its supported source-image preview.
-	// Decode, persistence, upload, and card presentation remain provider-neutral.
+	// Keeps Texture2D thumbnail routing source-independent. Until canonical-pixel
+	// generation is implemented, the browser falls back to the asset icon.
 	class FTexture2DAssetThumbnailProvider final : public ::Durin::Editor::IAssetThumbnailProvider
 	{
 	public:
@@ -17,7 +17,7 @@ namespace Durin::Editor::Texture
 			uint64 ProviderGeneration,
 			::Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest,
 			std::string& OutError) -> bool override;
-		auto UsesSourceImage() const -> bool override { return true; }
+		auto UsesSourceImage() const -> bool override { return false; }
 		TEXTUREEDITOR_API auto CaptureSourceImage(
 			const Asset::FAssetData& Asset,
 			::Durin::Editor::FAssetThumbnailSourceImage& OutSource,

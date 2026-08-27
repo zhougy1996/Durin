@@ -92,6 +92,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		FNotifyMountedContentMutation InNotifyMountedContentMutation,
 		FOpenImport InOpenImport,
 		FClassifyReimport InClassifyReimport,
+		FCanReimport InCanReimport,
 		FReimport InReimport,
 		FDrawImportDialogs InDrawImportDialogs,
 		std::shared_ptr<FMountedContentReconciliationState>
@@ -106,6 +107,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		, NotifyMountedContentMutation(std::move(InNotifyMountedContentMutation))
 		, OpenImport(std::move(InOpenImport))
 		, ClassifyReimport(std::move(InClassifyReimport))
+		, CanReimport(std::move(InCanReimport))
 		, Reimport(std::move(InReimport))
 		, DrawImportDialogs(std::move(InDrawImportDialogs))
 		, RefreshCoordinator(

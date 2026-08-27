@@ -1,6 +1,5 @@
 #include "ImportedSceneInternal.h"
 
-#include "Asset/SourceFilename.h"
 
 namespace Durin::AssetForge::Builtins::Private
 {
@@ -165,10 +164,17 @@ namespace Durin::AssetForge::Builtins::Private
 	auto IsValidSourcePath(std::string_view SourcePath) -> bool
 	{
 		if (SourcePath.empty()) return true;
-		std::string PhysicalPath;
-		std::string Error;
-		return AssetImport::ResolveSourceFilename(
-			SourcePath, PhysicalPath, Error);
+		if (SourcePath.size() > 4'096 || SourcePath.back() == '/'
+			|| SourcePath.find('\\') != std::string_view::npos
+			|| SourcePath.find('\0') != std::string_view::npos
+			|| SourcePath.find("//") != std::string_view::npos)
+			return false;
+		const std::filesystem::path Path(SourcePath);
+		if (Path == "." || Path.lexically_normal().generic_string() != SourcePath)
+			return false;
+		return std::ranges::none_of(Path, [](const std::filesystem::path& Segment) {
+			return Segment == ".";
+		});
 	}
 
 	auto NormalizeRelativeUri(std::string Uri, std::string& OutNormalized) -> bool

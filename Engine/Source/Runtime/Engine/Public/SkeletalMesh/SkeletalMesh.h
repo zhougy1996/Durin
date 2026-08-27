@@ -1,7 +1,9 @@
 #pragma once
 
 #include "Asset/Cook.h"
+#include "Asset/EditorBulkData.h"
 #include "EngineAPI.h"
+#include "Hash/XxHash.h"
 #include "DObject/ObjectPtr.h"
 #include "Math/Box.h"
 #include "Materials/MeshMaterialSlot.h"
@@ -43,6 +45,9 @@ namespace Durin
 	inline constexpr uint32 MaximumSkeletalMeshUVChannels = 4;
 	inline constexpr uint32 MaximumSkeletalMeshInfluences = 4;
 	inline constexpr uint64 MaximumSkeletalMeshPayloadBytes = 8ull * 1024ull * 1024ull * 1024ull;
+	inline constexpr uint64 MaximumSkeletalMeshImportedDataBytes = 1073700000ull;
+	inline constexpr uint32 SkeletalMeshImportedDataSchemaVersion = 1;
+	extern ENGINE_API const FGuid SkeletalMeshImportedDataPayloadId;
 
 	DSTRUCT()
 	struct FSkeletalMeshBounds
@@ -148,6 +153,34 @@ namespace Durin
 		}
 	};
 
+	// Owns the canonical geometry, influences, palette, and inverse-bind data
+	// required to rebuild this independently loadable asset.
+	DSTRUCT()
+	struct FSkeletalMeshImportedData
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		Asset::FEditorBulkData Geometry;
+
+		DPROPERTY()
+		uint32 SchemaVersion = SkeletalMeshImportedDataSchemaVersion;
+
+		ENGINE_API auto Capture(
+			const FSkeletalMeshPayloadData& Payload,
+			uint32 SkeletonBoneCount,
+			uint32 MaterialSlotCount,
+			std::string& OutError) -> bool;
+		ENGINE_API auto Decode(
+			uint32 SkeletonBoneCount,
+			uint32 MaterialSlotCount,
+			std::string& OutError) const -> FSkeletalMeshPayloadData;
+		ENGINE_API auto IsValid(
+			uint32 SkeletonBoneCount,
+			uint32 MaterialSlotCount) const -> bool;
+		ENGINE_API auto GetIdentity() const -> FXxHash128;
+	};
+
 	// Complete main-thread candidate accepted by the Runtime publication seam.
 	struct FSkeletalMeshPublicationCandidate
 	{
@@ -161,6 +194,9 @@ namespace Durin
 		Asset::FCookedPayloadDescriptor CookedPayload;
 		std::string DerivedDataKey;
 		std::string DiagnosticMessage;
+		bool bLoadedFromDerivedDataCache = false;
+		bool bReplaceImportedData = true;
+		bool bMarkPackageDirty = true;
 	};
 
 	ENGINE_API auto ValidateSkeletalMeshPayload(
@@ -196,6 +232,7 @@ namespace Durin
 		auto GetSummary() const -> const FSkeletalMeshSummary& { return Summary; }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
 		auto GetPayloadData() const -> std::shared_ptr<const FSkeletalMeshPayloadData> { return PayloadData; }
+		auto GetImportedData() const -> const FSkeletalMeshImportedData& { return ImportedData; }
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
 		auto GetPayloadStorageDiagnostic() const -> const std::string& { return PayloadStorageDiagnostic; }
@@ -249,6 +286,9 @@ namespace Durin
 		DPROPERTY(EditorOnly)
 		std::string DerivedDataKey;
 
+		DPROPERTY(EditorOnly)
+		FSkeletalMeshImportedData ImportedData;
+
 		std::shared_ptr<const FSkeletalMeshPayloadData> PayloadData;
 		std::unique_ptr<FSkeletalMeshRenderData> RenderData;
 		bool bLoadedFromDerivedDataCache = false;
@@ -268,7 +308,6 @@ namespace Durin
 		std::atomic<uint64> RenderResourceRevision{1};
 		FRenderCommandFence ReleaseResourcesFence;
 
-		auto LoadDerivedDataPayload(std::string& OutError) -> bool;
 		auto LoadCookedPayload(std::string& OutError) -> bool;
 		auto BuildRenderData(std::string& OutError) -> bool;
 		auto ReleaseResources() -> void;

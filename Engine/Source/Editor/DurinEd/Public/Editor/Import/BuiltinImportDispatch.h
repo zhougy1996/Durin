@@ -35,4 +35,10 @@ namespace Durin::Editor::Import
 		TerrainHeightmap,
 		StaticMesh,
 	};
+
+	enum class EBuiltinReimportMode : uint8
+	{
+		RetainedHint,
+		FromFile,
+	};
 }

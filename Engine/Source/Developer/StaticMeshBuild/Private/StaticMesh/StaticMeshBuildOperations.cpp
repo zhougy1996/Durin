@@ -548,19 +548,22 @@ namespace Durin::Asset
 	{
 		OutProduct = {};
 		if (!EnsureStaticMeshBuildFunctions(&OutError)) return false;
-		if (!SourceImportData.HasSource()
-			|| !IsCanonicalHash(SourceImportData.SourceContentHash)
-			|| SourceImportData.ImporterId.empty()
-			|| SourceImportData.ImporterVersion == 0
-			|| !SourceImportData.ImportSettings.IsValid(&OutError))
+		FStaticMeshBuildProduct& Product = OutProduct;
+		if (ImportedData.MaterialSlots.empty() || ImportedData.Meshes.empty())
 		{
 			OutProduct.FailureStage = EStaticMeshBuildFailureStage::Request;
-			if (OutError.empty())
-				OutError = "Imported StaticMesh build requires complete source provenance.";
+			OutError = "Imported StaticMesh build requires canonical geometry.";
 			return false;
 		}
+		Product.ImportedData = ImportedData;
+		if (!Product.ImportedData.CaptureDecodedData(OutError))
+		{
+			Product.FailureStage = EStaticMeshBuildFailureStage::Request;
+			return false;
+		}
+		Product.bContainsImportedData = true;
+		const FXxHash128 ImportedIdentity = Product.ImportedData.GetIdentity();
 
-		FStaticMeshBuildProduct& Product = OutProduct;
 		if (!BuildRenderDataCandidate(
 			Reconciliation.MaterialSlots,
 			Reconciliation.NormalizedSize,
@@ -577,13 +580,12 @@ namespace Durin::Asset
 		}
 
 		const FStaticMeshBuildKeyInput KeyInput{
-			.SourceContentHash = FXxHash128::FromString(
-				SourceImportData.SourceContentHash),
+			.SourceContentHash = ImportedIdentity,
 			.ReconciliationHash = BuildReconciliationHash(
 				Product.MaterialSlots, Reconciliation.NormalizedSize),
-			.ImporterId = SourceImportData.ImporterId,
-			.ImporterVersion = SourceImportData.ImporterVersion,
-			.ImportSettings = SourceImportData.ImportSettings,
+			.ImporterId = "CanonicalStaticMesh",
+			.ImporterVersion = StaticMeshImportedDataSchemaVersion,
+			.ImportSettings = FStaticMeshImportSettings::MakeDurin(),
 			.TargetPlatform = EStaticMeshTargetPlatform::Win64};
 		Product.DerivedDataKey = BuildStaticMeshDerivedDataKey(KeyInput, OutError);
 		if (Product.DerivedDataKey.empty())
@@ -611,7 +613,7 @@ namespace Durin::Asset
 		}
 		const FBuildOutput Output = FBuildSession().Build(Definition, {
 			.bQueryCache = true, .bAllowLocalBuild = true,
-			.bStoreBuildResult = true, .bRequireStoreSuccess = true});
+			.bStoreBuildResult = true, .bRequireStoreSuccess = false});
 		if (!Output.Succeeded())
 		{
 			Product.FailureStage = Output.FailurePhase == EBuildFailurePhase::CacheStore
@@ -631,6 +633,11 @@ namespace Durin::Asset
 
 		Product.SourceImportData = std::move(SourceImportData);
 		Product.NormalizedSize = Reconciliation.NormalizedSize;
+		Product.DerivedDataStatus = EStaticMeshDerivedDataStatus::Rebuilt;
+		Product.DiagnosticMessage = Output.StoreDiagnostic.empty()
+			? "Built StaticMesh from canonical imported geometry."
+			: std::format("Built StaticMesh from canonical imported geometry; DDC persistence was best effort: {}",
+				Output.StoreDiagnostic);
 		Product.FailureStage = EStaticMeshBuildFailureStage::None;
 		OutError.clear();
 		return true;
@@ -642,89 +649,6 @@ namespace Durin::Asset
 		std::string& OutError) -> bool
 	{
 		return Mesh.PublishImportedProduct(std::move(Product), OutError);
-	}
-
-	auto FStaticMeshBuildOperations::LoadDerivedDataProduct(
-		const FStaticMeshReconciliationSnapshot& Reconciliation,
-		FStaticMeshSourceImportData SourceImportData,
-		bool bSourceAvailable,
-		FStaticMeshBuildProduct& OutProduct,
-		EStaticMeshDerivedDataStatus& OutStatus,
-		std::string& OutMessage,
-		std::string& OutError) -> bool
-	{
-		OutProduct = {};
-		if (!EnsureStaticMeshBuildFunctions(&OutError))
-		{
-			OutStatus = EStaticMeshDerivedDataStatus::Corrupt;
-			OutMessage = OutError;
-			return false;
-		}
-		const FStaticMeshBuildKeyInput KeyInput{
-			.SourceContentHash = FXxHash128::FromString(
-				SourceImportData.SourceContentHash),
-			.ReconciliationHash = BuildReconciliationHash(
-				Reconciliation.MaterialSlots, Reconciliation.NormalizedSize),
-			.ImporterId = SourceImportData.ImporterId,
-			.ImporterVersion = SourceImportData.ImporterVersion,
-			.ImportSettings = SourceImportData.ImportSettings,
-			.TargetPlatform = EStaticMeshTargetPlatform::Win64};
-		const std::string Key = BuildStaticMeshDerivedDataKey(KeyInput, OutError);
-		if (Key.empty())
-		{
-			OutStatus = EStaticMeshDerivedDataStatus::Incompatible;
-			OutMessage = OutError;
-			return false;
-		}
-		FBuildDefinition Definition;
-		FBuildDefinitionBuilder Builder(Private::StaticMeshFunctionIdentity, std::string(Private::StaticMeshValueName));
-		Builder.SetKey(FBuildKey::FromString(Key)).AddTargetFact("Platform", "Win64");
-		if (!Builder.Build(Definition, &OutError))
-		{
-			OutStatus = EStaticMeshDerivedDataStatus::Incompatible;
-			OutMessage = OutError;
-			return false;
-		}
-		const FBuildOutput Output = FBuildSession().Build(Definition, {
-			.bQueryCache = true, .bAllowLocalBuild = false,
-			.bStoreBuildResult = false, .bReturnData = true});
-		if (!Output.Succeeded())
-		{
-			OutStatus = Output.Status == EBuildStatus::CacheMiss
-				? EStaticMeshDerivedDataStatus::Missing : EStaticMeshDerivedDataStatus::Corrupt;
-			OutMessage = Output.Diagnostic;
-			OutError = OutMessage;
-			return false;
-		}
-		std::unique_ptr<FStaticMeshRenderData> RenderData;
-		if (!Private::DecodeStaticMeshRenderData(Output.Value, RenderData, OutError)
-			|| !RestoreRuntimeMetadata(Reconciliation.MaterialSlots, *RenderData, OutError))
-		{
-			OutStatus = EStaticMeshDerivedDataStatus::Corrupt;
-			OutMessage = OutError;
-			return false;
-		}
-		OutProduct.RenderData = std::move(RenderData);
-		OutProduct.MaterialSlots.assign(
-			Reconciliation.MaterialSlots.begin(), Reconciliation.MaterialSlots.end());
-		OutProduct.SourceImportData = std::move(SourceImportData);
-		OutProduct.NormalizedSize = Reconciliation.NormalizedSize;
-		OutProduct.DerivedDataKey = Key;
-		OutProduct.DerivedDataStatus = bSourceAvailable
-			? EStaticMeshDerivedDataStatus::Hit
-			: EStaticMeshDerivedDataStatus::SourceUnavailableCached;
-		OutProduct.DiagnosticMessage = bSourceAvailable
-			? std::format("StaticMesh DDC hit for key {}.", Key)
-			: std::format(
-				"StaticMesh source is unavailable; cached key {} loaded. Reimport and cache regeneration are unavailable.",
-				Key);
-		OutProduct.bSourceImporterInvoked = false;
-		OutProduct.bMarkPackageDirty = false;
-		OutProduct.FailureStage = EStaticMeshBuildFailureStage::None;
-		OutStatus = OutProduct.DerivedDataStatus;
-		OutMessage = OutProduct.DiagnosticMessage;
-		OutError.clear();
-		return true;
 	}
 
 	auto FStaticMeshBuildOperations::BuildCollisionProduct(
@@ -792,7 +716,7 @@ namespace Durin::Asset
 		if (!Builder.Build(Definition, &OutError)) return false;
 		const FBuildOutput Output = FBuildSession().Build(Definition, {
 			.bQueryCache = true, .bAllowLocalBuild = true,
-			.bStoreBuildResult = true, .bRequireStoreSuccess = true});
+			.bStoreBuildResult = true, .bRequireStoreSuccess = false});
 		if (!Output.Succeeded())
 		{
 			OutError = Output.Diagnostic;

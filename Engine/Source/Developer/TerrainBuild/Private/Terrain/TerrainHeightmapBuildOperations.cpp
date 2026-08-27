@@ -27,21 +27,19 @@ namespace Durin::Asset
 	{
 		OutProduct = {};
 		if (!EnsureTerrainBuildFunctions(&OutError)) return false;
-		if (Request.DecoderId.empty() || Request.DecoderVersion == 0
-			|| Request.SourceFormat == ETerrainHeightmapSourceFormat::Unknown
-			|| Request.SourceProfileVersion == 0)
+		FTerrainHeightmapImportedData Imported;
+		if (!Imported.SetSamples(Request.Width, Request.Height, Request.Samples))
 		{
-			OutError = "Terrain heightmap build requires an explicit source decoder profile.";
+			OutError = "Terrain heightmap build requires valid canonical uint16 samples.";
 			return false;
 		}
+		const FXxHash128 CanonicalIdentity = Imported.GetIdentity();
 		const FTerrainHeightmapBuildKeyInput KeyInput{
-			.SourceContentHash = {
-				.HashLow = Request.SourceContentHashLow,
-				.HashHigh = Request.SourceContentHashHigh},
-			.DecoderId = Request.DecoderId,
-			.DecoderVersion = Request.DecoderVersion,
-			.SourceFormat = Request.SourceFormat,
-			.SourceProfileVersion = Request.SourceProfileVersion,
+			.SourceContentHash = CanonicalIdentity,
+			.DecoderId = "canonical-u16",
+			.DecoderVersion = TerrainHeightmapImportedDataSchemaVersion,
+			.SourceFormat = ETerrainHeightmapSourceFormat::Raw16,
+			.SourceProfileVersion = TerrainHeightmapImportedDataSchemaVersion,
 			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 			.TargetProfile = Asset::ECookTargetProfile::Game};
 		const std::vector<std::byte> KeyBytes = BuildTerrainHeightmapDerivedDataKeyBytes(KeyInput, OutError);
@@ -49,22 +47,31 @@ namespace Durin::Asset
 		if (Key.empty()) return false;
 		FBuildDefinition Definition;
 		FBuildDefinitionBuilder Builder(Private::TerrainHeightmapFunctionIdentity, std::string(Private::TerrainHeightmapValueName));
+		FTerrainHeightmapBuildRequest CanonicalRequest = Request;
+		CanonicalRequest.DecoderId = "canonical-u16";
+		CanonicalRequest.DecoderVersion = TerrainHeightmapImportedDataSchemaVersion;
+		CanonicalRequest.SourceFormat = ETerrainHeightmapSourceFormat::Raw16;
+		CanonicalRequest.SourceProfileVersion = TerrainHeightmapImportedDataSchemaVersion;
 		Builder.SetKey(FBuildKey::FromString(Key), KeyBytes)
 			.AddTargetFact("Platform", "Win64").AddTargetFact("Profile", "Game")
 			.AddTargetFact("Width", std::to_string(Request.Width))
 			.AddTargetFact("Height", std::to_string(Request.Height))
-			.AddTargetFact("DecoderId", Request.DecoderId)
-			.AddTargetFact("DecoderVersion", std::to_string(Request.DecoderVersion))
-			.AddTargetFact("SourceFormat", std::to_string(static_cast<uint32>(Request.SourceFormat)))
-			.AddTargetFact("SourceProfile", std::to_string(Request.SourceProfileVersion))
-			.AddInput(FBuildValue::FromOwned(std::string(Private::TerrainHeightmapInputName), Private::EncodeTerrainHeightmapLocalInput(Request)));
+			.AddTargetFact("DecoderId", CanonicalRequest.DecoderId)
+			.AddTargetFact("DecoderVersion", std::to_string(CanonicalRequest.DecoderVersion))
+			.AddTargetFact("SourceFormat", std::to_string(
+				static_cast<uint32>(CanonicalRequest.SourceFormat)))
+			.AddTargetFact("SourceProfile", std::to_string(
+				CanonicalRequest.SourceProfileVersion))
+			.AddTargetFact("ImportedSchema", std::to_string(TerrainHeightmapImportedDataSchemaVersion))
+			.AddInput(FBuildValue::FromOwned(std::string(Private::TerrainHeightmapInputName),
+				Private::EncodeTerrainHeightmapLocalInput(CanonicalRequest)));
 		if (!Builder.Build(Definition, &OutError)) return false;
 		const FBuildCancellationToken Cancellation(Request.ShouldCancel);
 		const FBuildOutput Output = FBuildSession().Build(Definition, {
 			.bQueryCache = Request.bPersistDerivedData && Request.bQueryDerivedData,
 			.bAllowLocalBuild = true,
 			.bStoreBuildResult = Request.bPersistDerivedData,
-			.bRequireStoreSuccess = Request.bPersistDerivedData,
+			.bRequireStoreSuccess = false,
 			.bReturnData = true}, Request.ShouldCancel ? &Cancellation : nullptr);
 		if (!Output.Succeeded()) { OutError = Output.Diagnostic; return false; }
 		std::shared_ptr<const FTerrainHeightmapPayload> Payload;
@@ -72,8 +79,9 @@ namespace Durin::Asset
 		OutProduct = {
 			.Payload = std::move(Payload),
 			.DerivedDataKey = std::move(Key),
-			.SourceContentHashLow = Request.SourceContentHashLow,
-			.SourceContentHashHigh = Request.SourceContentHashHigh};
+			.SourceContentHashLow = CanonicalIdentity.HashLow,
+			.SourceContentHashHigh = CanonicalIdentity.HashHigh,
+			.PersistenceDiagnostic = Output.StoreDiagnostic};
 		OutError.clear();
 		return true;
 	}
@@ -94,9 +102,11 @@ namespace Durin::Asset
 			return false;
 		}
 		Heightmap.PublishDerivedDataLoadResult(
-			Context.SourceFileSize, Context.SourceLastWriteTime,
 			std::move(Product.Payload), std::move(Product.DerivedDataKey),
-			"Built canonical terrain heightmap payload from normalized height samples.",
+			Product.PersistenceDiagnostic.empty()
+				? "Built terrain heightmap payload from canonical height samples."
+				: std::format("Built terrain heightmap payload from canonical height samples; DDC persistence was best effort: {}",
+					Product.PersistenceDiagnostic),
 			Context.bAdvanceRevision, Context.bMarkPackageDirty);
 		OutError.clear();
 		return true;
@@ -119,6 +129,25 @@ namespace Durin::Asset
 			.DecoderVersion = Source.DecoderVersion,
 			.SourceFormat = Source.SourceFormat,
 			.SourceProfileVersion = Source.SourceProfileVersion,
+			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
+			.TargetProfile = Asset::ECookTargetProfile::Game}, OutError);
+	}
+
+	auto MakeTerrainHeightmapDerivedDataKey(
+		const DTerrainHeightmap& Heightmap, std::string& OutError) -> std::string
+	{
+		const FXxHash128 Identity = Heightmap.GetImportedDataIdentity();
+		if (Identity.IsZero())
+		{
+			OutError = "Terrain heightmap canonical imported data is missing or invalid.";
+			return {};
+		}
+		return BuildTerrainHeightmapDerivedDataKey({
+			.SourceContentHash = Identity,
+			.DecoderId = "canonical-u16",
+			.DecoderVersion = TerrainHeightmapImportedDataSchemaVersion,
+			.SourceFormat = ETerrainHeightmapSourceFormat::Raw16,
+			.SourceProfileVersion = TerrainHeightmapImportedDataSchemaVersion,
 			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 			.TargetProfile = Asset::ECookTargetProfile::Game}, OutError);
 	}

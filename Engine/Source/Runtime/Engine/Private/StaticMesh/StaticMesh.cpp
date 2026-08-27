@@ -28,6 +28,111 @@ namespace Durin
 {
 	namespace
 	{
+		auto SerializeImportedString(FArchive& Ar, std::string& Value) -> void
+		{
+			Ar << Value;
+			if (!Ar.HasError() && Value.size() > 4096)
+				Ar.Fail(EArchiveFailureCode::LimitExceeded,
+					"StaticMesh imported name exceeds the 4096-byte limit.");
+		}
+
+		template<typename TValue, typename FSerializeValue>
+		auto SerializeImportedArray(FArchive& Ar, std::vector<TValue>& Values,
+			uint64 MaximumCount, FSerializeValue&& SerializeValue) -> void
+		{
+			uint64 Count = Values.size();
+			Ar << Count;
+			if (Ar.IsLoading() && !Ar.HasError())
+			{
+				if (Count > MaximumCount)
+				{
+					Ar.Fail(EArchiveFailureCode::LimitExceeded,
+						"StaticMesh imported array exceeds its element limit.");
+					return;
+				}
+				Values.resize(static_cast<size_t>(Count));
+			}
+			for (TValue& Value : Values)
+			{
+				SerializeValue(Ar, Value);
+				if (Ar.HasError()) return;
+			}
+		}
+
+		auto SerializeStaticMeshImportedValue(
+			FArchive& Ar, FStaticMeshImportedData& Value) -> void
+		{
+			uint32 Schema = StaticMeshImportedDataSchemaVersion;
+			Ar << Schema;
+			if (Ar.IsLoading() && Schema != StaticMeshImportedDataSchemaVersion)
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData,
+					"StaticMesh imported-data schema is incompatible.");
+				return;
+			}
+			SerializeImportedArray(Ar, Value.MaterialSlots, MaximumMeshMaterialSlots,
+				[](FArchive& Inner, FStaticMeshImportedMaterialSlot& Slot) {
+					SerializeImportedString(Inner, Slot.Name);
+					Inner << Slot.SourceMaterialIndex;
+					SerializeImportedString(Inner, Slot.SourceName);
+				});
+			SerializeImportedArray(Ar, Value.Meshes, 65536,
+				[](FArchive& Inner, FStaticMeshImportedMesh& Mesh) {
+					SerializeImportedString(Inner, Mesh.Name);
+					Inner << Mesh.SourceMaterialIndex;
+					auto Vector2 = [](FArchive& A, FVector2f& V) { A << V.x << V.y; };
+					auto Vector3 = [](FArchive& A, FVector3f& V) { A << V.x << V.y << V.z; };
+					auto Vector4 = [](FArchive& A, FVector4f& V) { A << V.x << V.y << V.z << V.w; };
+					SerializeImportedArray(Inner, Mesh.Positions, 50'000'000, Vector3);
+					SerializeImportedArray(Inner, Mesh.Normals, 50'000'000, Vector3);
+					SerializeImportedArray(Inner, Mesh.Tangents, 50'000'000, Vector4);
+					for (auto& UVs : Mesh.UVChannels)
+						SerializeImportedArray(Inner, UVs, 50'000'000, Vector2);
+					SerializeImportedArray(Inner, Mesh.Colors, 50'000'000, Vector4);
+					SerializeImportedArray(Inner, Mesh.Indices, 150'000'000,
+						[](FArchive& A, uint32& Index) { A << Index; });
+				});
+		}
+
+		auto ValidateDecodedStaticMeshImportedData(
+			const FStaticMeshImportedData& Value, std::string& OutError) -> bool
+		{
+			if (Value.MaterialSlots.empty() || Value.MaterialSlots.size() > MaximumMeshMaterialSlots
+				|| Value.Meshes.empty() || Value.Meshes.size() > 65536)
+			{
+				OutError = "StaticMesh canonical geometry has invalid slot or mesh counts.";
+				return false;
+			}
+			std::unordered_set<uint32> SourceMaterials;
+			for (const FStaticMeshImportedMaterialSlot& Slot : Value.MaterialSlots)
+			{
+				if (!SourceMaterials.insert(Slot.SourceMaterialIndex).second)
+				{
+					OutError = "StaticMesh canonical material source indices must be unique.";
+					return false;
+				}
+			}
+			for (const FStaticMeshImportedMesh& Mesh : Value.Meshes)
+			{
+				if (!SourceMaterials.contains(Mesh.SourceMaterialIndex)
+					|| Mesh.Positions.empty() || Mesh.Indices.empty()
+					|| Mesh.Indices.size() % 3 != 0
+					|| !std::ranges::all_of(Mesh.Positions,
+						[](const FVector3f& Position) { return Math::IsFinite(Position); }))
+				{
+					OutError = "StaticMesh canonical geometry is malformed.";
+					return false;
+				}
+				for (uint32 Index : Mesh.Indices)
+					if (Index >= Mesh.Positions.size())
+					{
+						OutError = "StaticMesh canonical geometry contains an out-of-range index.";
+						return false;
+					}
+			}
+			OutError.clear();
+			return true;
+		}
 
 		auto CheckStaticMeshUpdateThread() -> void
 		{
@@ -117,6 +222,77 @@ namespace Durin
 		}
 
 
+	}
+
+	auto FStaticMeshImportedData::CaptureDecodedData(std::string& OutError) -> bool
+	{
+		if (!ValidateDecodedStaticMeshImportedData(*this, OutError)) return false;
+		std::vector<std::byte> Bytes;
+		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::BulkData);
+		SerializeStaticMeshImportedValue(Ar, *this);
+		if (Ar.HasError() || Bytes.size() > MaximumStaticMeshImportedDataBytes)
+		{
+			OutError = Ar.HasError() ? Ar.GetFailure()->Message
+				: "StaticMesh canonical geometry exceeds the 1 GiB authored limit.";
+			return false;
+		}
+		if (!Geometry.ReplaceBytes(StaticMeshImportedGeometryPayloadId, Bytes))
+		{
+			OutError = "StaticMesh canonical geometry could not be retained as authored bulk.";
+			return false;
+		}
+		MaterialSlotCount = static_cast<uint32>(MaterialSlots.size());
+		MeshCount = static_cast<uint32>(Meshes.size());
+		SchemaVersion = StaticMeshImportedDataSchemaVersion;
+		OutError.clear();
+		return true;
+	}
+
+	auto FStaticMeshImportedData::Decode(std::string& OutError) const
+		-> FStaticMeshImportedData
+	{
+		FStaticMeshImportedData Result;
+		const Asset::FBulkData& Bulk = Geometry.GetBulkData();
+		if (SchemaVersion != StaticMeshImportedDataSchemaVersion
+			|| Bulk.GetDescriptor().PayloadId != StaticMeshImportedGeometryPayloadId
+			|| Bulk.GetBytes().empty()
+			|| Bulk.GetBytes().size() > MaximumStaticMeshImportedDataBytes)
+		{
+			OutError = "StaticMesh canonical imported-data header is missing or invalid.";
+			return Result;
+		}
+		FCanonicalMemoryReader Ar(Bulk.GetBytes(), EArchivePurpose::BulkData);
+		SerializeStaticMeshImportedValue(Ar, Result);
+		if (Ar.HasError() || !RequireArchiveEnd(Ar)
+			|| Result.MaterialSlots.size() != MaterialSlotCount
+			|| Result.Meshes.size() != MeshCount
+			|| !ValidateDecodedStaticMeshImportedData(Result, OutError))
+		{
+			if (OutError.empty()) OutError = Ar.HasError()
+				? Ar.GetFailure()->Message
+				: "StaticMesh canonical imported-data counts or payload are invalid.";
+			return {};
+		}
+		OutError.clear();
+		return Result;
+	}
+
+	auto FStaticMeshImportedData::IsValid() const -> bool
+	{
+		std::string Error;
+		const FStaticMeshImportedData Decoded = Decode(Error);
+		return Error.empty() && !Decoded.Meshes.empty();
+	}
+
+	auto FStaticMeshImportedData::GetIdentity() const -> FXxHash128
+	{
+		if (!IsValid()) return {};
+		FXxHash128Builder Builder;
+		Builder.UpdateValue(SchemaVersion);
+		Builder.UpdateValue(MaterialSlotCount);
+		Builder.UpdateValue(MeshCount);
+		Builder.Update(Geometry.GetBulkData().GetBytes());
+		return Builder.Finalize();
 	}
 
 	auto FStaticMeshImportSettings::IsValid(std::string* OutError) const -> bool
@@ -667,6 +843,11 @@ namespace Durin
 			.Key = std::move(Product.DerivedDataKey),
 			.Message = std::move(Product.DiagnosticMessage),
 			.bSourceImporterInvoked = Product.bSourceImporterInvoked};
+		if (Product.bContainsImportedData)
+		{
+			check(Product.ImportedData.IsValid());
+			ImportedData = std::move(Product.ImportedData);
+		}
 		if (Product.bMarkPackageDirty) MarkPackageDirty();
 		OutError.clear();
 		return true;
@@ -781,6 +962,7 @@ namespace Durin
 				std::move(Other.RenderData);
 
 			std::swap(NormalizedSize, Other.NormalizedSize);
+			std::swap(ImportedData, Other.ImportedData);
 			std::swap(MaterialSlots, Other.MaterialSlots);
 			std::swap(CookedPayload, Other.CookedPayload);
 			if (BodySetup && Other.BodySetup)

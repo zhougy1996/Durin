@@ -165,7 +165,7 @@ durin_add_engine_functional_test(LevelMutationTests
 durin_add_engine_functional_test(MaterialTests
 	KIND feature
 	DOMAINS material
-	MODULES engine material-editor renderer
+	MODULES engine material-editor renderer static-mesh-build asset-forge-builtins
 	STACKS editor renderer
 	PRIVATE_SOURCE_OWNER MaterialEditor
 	PRIVATE_SOURCE_RATIONALE
@@ -208,7 +208,7 @@ durin_add_engine_functional_test(MaterialTests
 durin_add_engine_functional_test(MaterialVulkanTests
 	KIND integration
 	DOMAINS material thumbnail
-	MODULES engine material-editor renderer static-mesh-editor texture-editor
+	MODULES engine material-editor renderer static-mesh-build static-mesh-editor texture-build texture-editor
 	BACKENDS vulkan
 	STACKS editor renderer
 	GPU
@@ -233,6 +233,7 @@ durin_add_engine_functional_test(MaterialVulkanTests
 		StaticMeshEditor
 		TextureEditor
 		StaticMeshBuild
+		TextureBuild
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -262,7 +263,7 @@ durin_add_engine_functional_test(StaticMeshTests
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/StaticMeshMaterialSlotDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES StaticMeshBuild AssetForgeBuiltins RenderCore Renderer DurinEd StaticMeshEditor
+	LIBRARIES StaticMeshBuild TextureBuild AssetForgeBuiltins RenderCore Renderer DurinEd StaticMeshEditor
 	INCLUDE_DIRECTORIES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private

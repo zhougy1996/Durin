@@ -57,8 +57,9 @@ The maximum canonical sample plane is 536,870,912 bytes. Its 64×64 hierarchy
 contains 87,381 nodes (349,524 bytes) plus nine in-memory level records. The
 maximum retained canonical payload is 537,220,652 bytes. Direct import and
 reimport build inside a detached candidate. Uncooked package reload instead
-stages DDC and source recovery through the CPU task system; no worker accesses a
-DObject and no Texture2D scheduler is involved.
+stages DDC query and canonical-sample recovery through the CPU task system; no
+worker accesses a DObject or physical source, and no Texture2D scheduler is
+involved.
 
 ## Regional Min/Max Hierarchy
 
@@ -72,27 +73,25 @@ partial boundary regions, returning exact extrema.
 
 ## Authored Package and DDC
 
-The authored package retains normalized filename provenance, XXH3-128 source
-identity, file-size/time fingerprint, source format facts, dimensions, global
-range, revision, retained-byte facts, and the cooked descriptor field. Decoder
-identity/version plus a source-format enum and fixed profile version distinguish
-PNG16 from RAW16. It does not retain encoded source bytes or decoded proposal
-storage.
+The authored package retains canonical row-major uint16 samples, dimensions,
+global range, revision, retained-byte facts, and the cooked descriptor field.
+Schema-2 editor import data carries an optional explicitly based hint,
+XXH3-128 provenance, source format facts, and decoder/profile interpretation
+for explicit Reimport. It does not retain encoded source bytes.
 
 DDC objects live under `TerrainHeightmap/Objects`. Version-2 keys hash the
-builder identity `Durin.TerrainHeightmap.Builder.V2`, source hash, decoder ID
-and version, source-format enum and profile version, unsigned 16-bit format,
+builder identity `Durin.TerrainHeightmap.Builder.V2`, canonical imported-data
+identity, unsigned 16-bit format,
 top-left row-major orientation, 64-sample base region, builder and payload
 versions, and target platform/profile. The version bump deliberately misses
-version-1 PNG entries. A warm hit validates and restores the immutable payload
-without opening source. A missing, corrupt, or incompatible object rebuilds
-only when the persisted source filename is available; otherwise PostLoad reports
-`SourceUnavailable` and does not invent a flat payload.
+version-1 PNG entries. A warm hit validates and restores the immutable payload.
+A missing, corrupt, or incompatible object rebuilds from resident canonical
+samples without resolving a source hint.
 
 Uncooked PostLoad publishes the reflected object graph immediately in `Loading`
-and moves DDC query, object read, payload decode, source capture/decode, canonical
-build, and DDC store to worker execution. Query, read, decode, capture, and
-build/store timings remain separate in the bounded diagnostic. Publication is
+and moves DDC query, object read, payload decode, canonical build, and DDC store
+to worker execution. Query, read, decode, and build/store timings remain
+separate in the bounded diagnostic. Publication is
 always deferred to GameThread and revalidates the object handle and derived-data
 load generation. A normal publication drives the existing payload revision
 context, so registered render and collision consumers rebuild through their

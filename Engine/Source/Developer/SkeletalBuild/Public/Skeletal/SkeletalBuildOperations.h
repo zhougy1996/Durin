@@ -7,7 +7,7 @@
 
 namespace Durin::Asset
 {
-	inline constexpr uint32 SkeletalPayloadKeySchemaVersion = 1;
+	inline constexpr uint32 SkeletalPayloadKeySchemaVersion = 2;
 	inline constexpr uint32 SkeletalMeshBuilderVersion = 1;
 	inline constexpr uint32 AnimationClipBuilderVersion = 1;
 	inline constexpr std::string_view SkeletalMeshBuilderIdentity =
@@ -20,9 +20,7 @@ namespace Durin::Asset
 	{
 		std::string ProviderIdentity;
 		uint32 ProviderVersion = 0;
-		FXxHash128 SourceClosureHash;
-		FXxHash128 SettingsHash;
-		FXxHash128 ProviderStateHash;
+		FXxHash128 ImportedDataIdentity;
 		FXxHash128 PayloadInputFingerprint;
 		std::string StableOutputIdentity;
 		std::string SkeletonCompatibilityIdentity;
@@ -70,6 +68,7 @@ namespace Durin::Asset
 		std::string SkeletonCompatibilityIdentity;
 		std::string DerivedDataKey;
 		std::string Diagnostic;
+		bool bLoadedFromDerivedDataCache = false;
 	};
 
 	struct FAnimationClipBuildProduct
@@ -79,6 +78,7 @@ namespace Durin::Asset
 		std::string SkeletonCompatibilityIdentity;
 		std::string DerivedDataKey;
 		std::string Diagnostic;
+		bool bLoadedFromDerivedDataCache = false;
 	};
 
 	SKELETALBUILD_API auto BuildSkeletalMeshDerivedDataKeyBytes(
@@ -103,14 +103,11 @@ namespace Durin::Asset
 		FAnimationClipBuildProduct& OutProduct,
 		std::string& OutError) -> bool;
 
-	SKELETALBUILD_API auto LoadSkeletalMeshDerivedData(
-		std::string_view Key,
-		const FSkeletalPayloadSerializationContext& Context,
-		FSkeletalMeshPayloadData& OutPayload,
-		std::string& OutMessage) -> bool;
-	SKELETALBUILD_API auto LoadAnimationClipDerivedData(
-		std::string_view Key,
-		const FSkeletalPayloadSerializationContext& Context,
-		FAnimationClipPayloadData& OutPayload,
-		std::string& OutMessage) -> bool;
+	SKELETALBUILD_API auto RebuildSkeletalMeshFromImportedData(
+		DSkeletalMesh& Mesh,
+		std::string& OutError) -> bool;
+	SKELETALBUILD_API auto RebuildAnimationClipFromImportedData(
+		DAnimationClip& Clip,
+		std::string& OutError) -> bool;
+
 }

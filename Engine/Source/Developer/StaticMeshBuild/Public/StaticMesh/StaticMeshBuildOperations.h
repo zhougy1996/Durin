@@ -7,33 +7,6 @@
 
 namespace Durin::Asset
 {
-	inline constexpr uint32 MaximumStaticMeshImportedUVChannels = 4;
-
-	struct FStaticMeshImportedMaterialSlot
-	{
-		std::string Name;
-		uint32 SourceMaterialIndex = 0;
-		std::string SourceName;
-	};
-
-	struct FStaticMeshImportedMesh
-	{
-		std::string Name;
-		std::vector<FVector3f> Positions;
-		std::vector<FVector3f> Normals;
-		std::vector<FVector4f> Tangents;
-		std::array<std::vector<FVector2f>, MaximumStaticMeshImportedUVChannels> UVChannels;
-		std::vector<FVector4f> Colors;
-		std::vector<uint32> Indices;
-		uint32 SourceMaterialIndex = 0;
-	};
-
-	struct FStaticMeshImportedData
-	{
-		std::vector<FStaticMeshImportedMaterialSlot> MaterialSlots;
-		std::vector<FStaticMeshImportedMesh> Meshes;
-	};
-
 	// Immutable GameThread capture consumed by pure StaticMesh recipe work.
 	struct FStaticMeshReconciliationSnapshot
 	{
@@ -67,15 +40,6 @@ namespace Durin::Asset
 		static auto PublishImportedProduct(
 			DStaticMesh& Mesh,
 			FStaticMeshBuildProduct Product,
-			std::string& OutError) -> bool;
-
-		static auto LoadDerivedDataProduct(
-			const FStaticMeshReconciliationSnapshot& Reconciliation,
-			FStaticMeshSourceImportData SourceImportData,
-			bool bSourceAvailable,
-			FStaticMeshBuildProduct& OutProduct,
-			EStaticMeshDerivedDataStatus& OutStatus,
-			std::string& OutMessage,
 			std::string& OutError) -> bool;
 
 		static auto BuildCollisionProduct(

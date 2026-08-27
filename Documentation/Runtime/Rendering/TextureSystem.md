@@ -309,13 +309,13 @@ domain fields with AssetCore storage inspection; they do not open DDC or build
 runtime resources.
 
 Texture editors render this summary as a read-only Payload Lifecycle section.
-Buttons remain attached to existing explicit reimport, source repair, build,
-and save workflows; the summary itself performs no mutation.
+Buttons remain attached to explicit Reimport, Reimport From File, build, and
+save workflows; the summary itself performs no mutation or source probing.
 
 `TextureEditor` registers a per-resource workspace for `DTexture2D`. It exposes:
 
-- source virtual path, owning mount, availability/dependency/write diagnostics,
-  dimensions, source channel count, transparency, and decoded format;
+- optional reimport hint, canonical imported dimensions/channel semantics,
+  transparency, and decoded format, without filesystem availability probing;
 - transactional Usage, sRGB, maximum-resolution, and compression-quality
   controls, plus alpha mip mode and coverage threshold;
 - platform format, mip count and range, byte size, residency policy, build
@@ -328,15 +328,15 @@ R, G, B, or A channel as opaque grayscale. Channel filtering renders into an
 offscreen RGBA8 texture and does not alter the shared ImGui shader. Every open
 texture document owns independent preview state and registered preview textures,
 so simultaneously visible documents cannot reuse or overwrite one another's
-image. Missing or invalid platform data falls back to decoded source data when
-available; otherwise the preview is released.
-Persistent source, decode, build, upload, and format status is shown with retry
+image. Missing or invalid platform data falls back to canonical imported pixels
+when available; otherwise the preview is released.
+Persistent canonical-data, build, upload, and format status is shown with retry
 controls. Pending diagnostics show phase, request, generation, elapsed
 queue/worker time, and memory estimates, with Cancel Build and Wait for Build
-controls. Reimport reads the persisted project-relative or external absolute
-filename without copying or mutating it. Content Browser thumbnail keys use
-the same normalized filename identity rather than inferring a source directory
-from Content.
+controls. Reimport resolves the persisted explicit hint only when invoked;
+Reimport From File adopts a newly selected hint after a successful candidate
+commit. Content Browser thumbnail keys use authored package and canonical
+content identity and never inspect a physical source.
 
 ## Current Limitations
 

@@ -140,9 +140,15 @@ namespace Durin
 		auto GetSourceFile() const -> const std::string&
 		{
 			if (const AssetImport::FSourceFile* Source = GetImportedSource())
-				return Source->Filename;
+				return Source->Hint;
 			static const std::string Empty;
 			return Empty;
+		}
+		auto GetSourceHintBase() const -> AssetImport::ESourceHintBase
+		{
+			if (const AssetImport::FSourceFile* Source = GetImportedSource())
+				return Source->HintBase;
+			return AssetImport::ESourceHintBase::AssetRelative;
 		}
 		auto GetAssetImportData() const -> const AssetImport::DAssetImportData*
 		{
@@ -160,6 +166,10 @@ namespace Durin
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
 		auto GetBuildStatus() const -> ETextureBuildStatus { return BuildStatus; }
 		auto GetLastBuildError() const -> const std::string& { return LastBuildError; }
+		auto GetDerivedDataDiagnostic() const -> const FTextureDerivedDataDiagnostic&
+		{
+			return DerivedDataDiagnostic;
+		}
 
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		ENGINE_API auto AddToCook(Asset::FCookContext& Context,
@@ -167,7 +177,8 @@ namespace Durin
 		ENGINE_API auto PublishBuiltData(FVolumeTextureSourceData InSourceData,
 			FVolumeTextureBuildSettings InBuildSettings,
 			std::unique_ptr<FVolumeTexturePlatformData> InPlatformData,
-			std::string InDerivedDataKey, std::string& OutError) -> bool;
+			std::string InDerivedDataKey, std::string InPersistenceDiagnostic,
+			std::string& OutError) -> bool;
 		ENGINE_API auto PublishDerivedDataLoad(
 			std::unique_ptr<FVolumeTexturePlatformData> InPlatformData,
 			std::string InDerivedDataKey, std::string& OutError) -> bool;
@@ -199,6 +210,7 @@ namespace Durin
 
 		std::unique_ptr<FVolumeTexturePlatformData> PlatformData;
 		std::string DerivedDataKey;
+		FTextureDerivedDataDiagnostic DerivedDataDiagnostic;
 		ETextureBuildStatus BuildStatus = ETextureBuildStatus::Unbuilt;
 		std::string LastBuildError;
 

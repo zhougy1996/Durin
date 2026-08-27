@@ -53,7 +53,7 @@ namespace Durin::Editor::Texture
 		auto DrawSourceData(DTexture2D* Texture) -> void;
 		auto DrawBuildSettings(DTexture2D* Texture) -> void;
 		auto ReimportSource(DTexture2D* Texture) -> void;
-		auto SelectSourceFile(DTexture2D* Texture) -> void;
+		auto ReimportFromFile(DTexture2D* Texture) -> void;
 		auto FinishActivePropertyEdit(bool bCancel) -> bool;
 		auto MakePropertyViewContext() -> ::Durin::Editor::FPropertyViewContext;
 		auto SetError(std::string Message) -> void;

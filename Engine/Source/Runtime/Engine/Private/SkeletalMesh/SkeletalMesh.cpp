@@ -15,6 +15,9 @@
 
 namespace Durin
 {
+	const FGuid SkeletalMeshImportedDataPayloadId{
+		0xe1246757, 0xfac3498d, 0xa4ec5161, 0x5d956391};
+
 	namespace
 	{
 		auto IsFinite(const FBox& Bounds) -> bool
@@ -212,6 +215,89 @@ namespace Durin
 			Payload, Skeleton.GetBoneCount(), MaterialSlotCount, OutError);
 	}
 
+	auto FSkeletalMeshImportedData::Capture(
+		const FSkeletalMeshPayloadData& Payload,
+		uint32 SkeletonBoneCount,
+		uint32 MaterialSlotCount,
+		std::string& OutError) -> bool
+	{
+		if (!ValidateSkeletalMeshPayload(
+			Payload, SkeletonBoneCount, MaterialSlotCount, OutError)) return false;
+		std::vector<std::byte> Bytes;
+		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::BulkData);
+		const_cast<FSkeletalMeshPayloadData&>(Payload).Serialize(Ar, {
+			.SkeletonBoneCount = SkeletonBoneCount,
+			.MaterialSlotCount = MaterialSlotCount,
+			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
+			.TargetProfile = ESkeletalPayloadTargetProfile::Game});
+		if (Ar.HasError() || Bytes.empty()
+			|| Bytes.size() > MaximumSkeletalMeshImportedDataBytes)
+			return Fail(Ar.HasError() ? Ar.GetFailure()->Message
+				: "SkeletalMesh canonical imported data exceeds its authored bound.",
+				&OutError);
+		if (!Geometry.ReplaceBytes(SkeletalMeshImportedDataPayloadId, Bytes))
+			return Fail("SkeletalMesh canonical imported data could not be retained.", &OutError);
+		SchemaVersion = SkeletalMeshImportedDataSchemaVersion;
+		OutError.clear();
+		return true;
+	}
+
+	auto FSkeletalMeshImportedData::Decode(
+		uint32 SkeletonBoneCount,
+		uint32 MaterialSlotCount,
+		std::string& OutError) const -> FSkeletalMeshPayloadData
+	{
+		FSkeletalMeshPayloadData Result;
+		const Asset::FBulkData& Bulk = Geometry.GetBulkData();
+		if (SchemaVersion != SkeletalMeshImportedDataSchemaVersion
+			|| Bulk.GetDescriptor().PayloadId != SkeletalMeshImportedDataPayloadId
+			|| Bulk.GetBytes().empty()
+			|| Bulk.GetBytes().size() > MaximumSkeletalMeshImportedDataBytes)
+		{
+			OutError = "SkeletalMesh canonical imported-data header is missing or invalid.";
+			return Result;
+		}
+		FCanonicalMemoryReader Ar(Bulk.GetBytes(), EArchivePurpose::BulkData);
+		Result.Serialize(Ar, {
+			.SkeletonBoneCount = SkeletonBoneCount,
+			.MaterialSlotCount = MaterialSlotCount,
+			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
+			.TargetProfile = ESkeletalPayloadTargetProfile::Game});
+		if (Ar.HasError() || !RequireArchiveEnd(Ar)
+			|| !ValidateSkeletalMeshPayload(
+				Result, SkeletonBoneCount, MaterialSlotCount, OutError))
+		{
+			if (OutError.empty()) OutError = Ar.HasError()
+				? Ar.GetFailure()->Message
+				: "SkeletalMesh canonical imported data is invalid.";
+			return {};
+		}
+		OutError.clear();
+		return Result;
+	}
+
+	auto FSkeletalMeshImportedData::IsValid(
+		uint32 SkeletonBoneCount,
+		uint32 MaterialSlotCount) const -> bool
+	{
+		std::string Error;
+		const FSkeletalMeshPayloadData Value = Decode(
+			SkeletonBoneCount, MaterialSlotCount, Error);
+		return Error.empty() && !Value.Positions.empty();
+	}
+
+	auto FSkeletalMeshImportedData::GetIdentity() const -> FXxHash128
+	{
+		const Asset::FBulkData& Bulk = Geometry.GetBulkData();
+		if (SchemaVersion != SkeletalMeshImportedDataSchemaVersion
+			|| Bulk.GetDescriptor().PayloadId != SkeletalMeshImportedDataPayloadId
+			|| Bulk.GetBytes().empty()) return {};
+		FXxHash128Builder Builder;
+		Builder.UpdateValue(SchemaVersion);
+		Builder.Update(Bulk.GetBytes());
+		return Builder.Finalize();
+	}
+
 	DSkeletalMesh::DSkeletalMesh(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer) {}
 
@@ -350,6 +436,15 @@ namespace Durin
 		if (!ValidateSkeletalMeshPayload(
 			*InData.Payload, *ValidationSkeleton,
 			static_cast<uint32>(InData.MaterialSlots.size()), OutError)) return false;
+		FSkeletalMeshImportedData ImportedCandidate;
+		if (InData.bReplaceImportedData
+			&& !ImportedCandidate.Capture(*InData.Payload,
+				ValidationSkeleton->GetBoneCount(),
+				static_cast<uint32>(InData.MaterialSlots.size()), OutError)) return false;
+		if (!InData.bReplaceImportedData
+			&& !ImportedData.IsValid(ValidationSkeleton->GetBoneCount(),
+				static_cast<uint32>(InData.MaterialSlots.size())))
+			return Fail("SkeletalMesh canonical imported data is missing or invalid.", &OutError);
 
 		std::unique_ptr<FSkeletalMeshRenderData> RenderDataCandidate;
 		if (!BuildSkeletalMeshRenderData(*InData.Payload, *ValidationSkeleton,
@@ -369,15 +464,16 @@ namespace Durin
 			.LocalBounds = FSkeletalMeshBounds::FromBox(InData.Payload->LocalBounds)};
 		CookedPayload = InData.CookedPayload;
 		DerivedDataKey = std::move(InData.DerivedDataKey);
+		if (InData.bReplaceImportedData) ImportedData = std::move(ImportedCandidate);
 		PayloadData = std::move(InData.Payload);
 		RenderData = std::move(RenderDataCandidate);
 		RenderResourceState.store(ERenderResourceState::Uninitialized, std::memory_order_release);
-		bLoadedFromDerivedDataCache = false;
+		bLoadedFromDerivedDataCache = InData.bLoadedFromDerivedDataCache;
 		PayloadStorageDiagnostic = std::move(InData.DiagnosticMessage);
 		if (PayloadStorageDiagnostic.empty() && !DerivedDataKey.empty())
 			PayloadStorageDiagnostic = std::format(
 				"Published built SkeletalMesh key {}.", DerivedDataKey);
-		MarkPackageDirty();
+		if (InData.bMarkPackageDirty) MarkPackageDirty();
 		OutError.clear();
 		return true;
 	}
@@ -449,43 +545,9 @@ namespace Durin
 			{
 				if (!LoadCookedPayload(OutError)) return false;
 			}
-			else if (!DerivedDataKey.empty() && !LoadDerivedDataPayload(OutError))
-			{
-				if (!IsSkeletalDerivedDataRepairLoadActive()) return false;
-				ReportMissingSkeletalDerivedDataAsset(this);
-				OutError.clear();
-			}
+			else if (!InvokeSkeletalMeshUncookedPostLoad(*this, OutError)) return false;
 		}
-		return !PayloadData || BuildRenderData(OutError);
-	}
-
-	auto DSkeletalMesh::LoadDerivedDataPayload(std::string& OutError) -> bool
-	{
-		std::string CacheMessage;
-		FSkeletalMeshPayloadData Candidate;
-		const FSkeletalPayloadSerializationContext SerializationContext{
-			.SkeletonBoneCount = Skeleton->GetBoneCount(),
-			.MaterialSlotCount = static_cast<uint32>(MaterialSlots.size()),
-			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
-			.TargetProfile = ESkeletalPayloadTargetProfile::Game};
-		if (!InvokeSkeletalMeshUncookedPayloadLoader(
-			DerivedDataKey, SerializationContext, Candidate, CacheMessage))
-		{
-			PayloadStorageDiagnostic = std::format(
-				"SkeletalMesh DDC miss for key {}: {}", DerivedDataKey, CacheMessage);
-			return Fail(PayloadStorageDiagnostic, &OutError);
-		}
-		if (Candidate.Positions.size() != Summary.VertexCount
-			|| Candidate.Indices.size() != Summary.IndexCount
-			|| Candidate.Sections.size() != Summary.SectionCount
-			|| FSkeletalMeshBounds::FromBox(Candidate.LocalBounds) != Summary.LocalBounds)
-			return Fail("SkeletalMesh DDC payload does not match authored summary.", &OutError);
-		PayloadData = std::make_shared<const FSkeletalMeshPayloadData>(std::move(Candidate));
-		bLoadedFromDerivedDataCache = true;
-		PayloadStorageDiagnostic = std::format(
-			"Loaded SkeletalMesh DDC key {}.", DerivedDataKey);
-		OutError.clear();
-		return true;
+		return PayloadData && (RenderData || BuildRenderData(OutError));
 	}
 
 	auto DSkeletalMesh::LoadCookedPayload(std::string& OutError) -> bool
@@ -686,6 +748,7 @@ namespace Durin
 		std::swap(Target->Summary, Candidate->Summary);
 		std::swap(Target->CookedPayload, Candidate->CookedPayload);
 		std::swap(Target->DerivedDataKey, Candidate->DerivedDataKey);
+		std::swap(Target->ImportedData, Candidate->ImportedData);
 		std::swap(Target->PayloadData, Candidate->PayloadData);
 		std::swap(Target->RenderData, Candidate->RenderData);
 		const DSkeletalMesh::ERenderResourceState TargetState =

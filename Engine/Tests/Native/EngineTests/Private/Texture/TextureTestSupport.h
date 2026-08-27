@@ -83,6 +83,30 @@ namespace
 		}
 	}
 
+	auto WriteLargeTextureFixture(const std::filesystem::path& Path) -> void
+	{
+		InitializeTextureImportMount();
+		constexpr uint16 Width = 257;
+		constexpr uint16 Height = 257;
+		std::array<uint8, 18> Header{};
+		Header[2] = 2;
+		Header[12] = static_cast<uint8>(Width & 0xff);
+		Header[13] = static_cast<uint8>(Width >> 8);
+		Header[14] = static_cast<uint8>(Height & 0xff);
+		Header[15] = static_cast<uint8>(Height >> 8);
+		Header[16] = 32;
+		Header[17] = 0x28;
+		std::ofstream Stream(Path, std::ios::binary | std::ios::trunc);
+		Stream.write(reinterpret_cast<const char*>(Header.data()), Header.size());
+		for (uint32 Index = 0; Index < static_cast<uint32>(Width) * Height; ++Index)
+		{
+			const std::array<uint8, 4> Pixel = {
+				static_cast<uint8>(Index), static_cast<uint8>(Index >> 3),
+				static_cast<uint8>(Index >> 7), 255};
+			Stream.write(reinterpret_cast<const char*>(Pixel.data()), Pixel.size());
+		}
+	}
+
 	auto DecodeFirstCompressedPixel(Durin::EPixelFormat Format, const std::vector<std::byte>& Block)
 		-> std::array<uint8, 4>
 	{

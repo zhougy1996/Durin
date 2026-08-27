@@ -1,12 +1,8 @@
 #include "Texture/TextureBuildOperations.h"
 
-#include "DObject/Package.h"
-
 #include "DerivedDataCache/DerivedDataBuildSession.h"
 #include "Asset.h"
-#include "Asset/SourceFilename.h"
 #include "Hash/XxHash.h"
-#include "Misc/Paths.h"
 #include "Texture/Texture2DDerivedData.h"
 #include "Texture/TextureBuildFunctionRegistry.h"
 #include "Texture/TextureBuildFunctions.h"
@@ -31,11 +27,6 @@ namespace Durin::Asset
 			OutError = "Texture2D build requires valid normalized RGBA8 source data.";
 			return false;
 		}
-		if (Request.SourceContentHashLow == 0 && Request.SourceContentHashHigh == 0)
-		{
-			OutError = "Texture2D build requires a captured source-content identity.";
-			return false;
-		}
 		if (!TextureBuilder::IsValidUsage(Settings.Usage)
 			|| !TextureBuilder::IsValidCompressionQuality(Settings.CompressionQuality)
 			|| !TextureBuilder::IsValidAlphaMipMode(Settings.AlphaMipMode)
@@ -47,9 +38,7 @@ namespace Durin::Asset
 
 		const bool bSRGB = Settings.bSRGB.value_or(
 			TextureBuilder::GetDefaultSRGB(Settings.Usage));
-		const FXxHash128 SourceHash{
-			.HashLow = Request.SourceContentHashLow,
-			.HashHigh = Request.SourceContentHashHigh};
+		const FXxHash128 SourceHash = Request.SourceData.GetImportedDataIdentity();
 		const FTexture2DBuildKeyInput KeyInput{
 			.SourceContentHash = SourceHash,
 			.Usage = Settings.Usage,
@@ -80,7 +69,7 @@ namespace Durin::Asset
 			.bQueryCache = true,
 			.bAllowLocalBuild = true,
 			.bStoreBuildResult = Request.bPersistDerivedData,
-			.bRequireStoreSuccess = Request.bPersistDerivedData,
+			.bRequireStoreSuccess = false,
 			.bReturnData = true}, ExecutionControl ? &Cancellation : nullptr);
 		if (ExecutionControl && ExecutionControl->Metrics && Request.bPersistDerivedData)
 		{
@@ -104,6 +93,7 @@ namespace Durin::Asset
 			.SourceData = std::move(Request.SourceData),
 			.PlatformData = std::move(PlatformData),
 			.DerivedDataKey = Key,
+			.PersistenceDiagnostic = Output.StoreDiagnostic,
 			.SourceContentHashLow = SourceHash.HashLow,
 			.SourceContentHashHigh = SourceHash.HashHigh,
 			.Settings = Settings,
@@ -129,20 +119,11 @@ namespace Durin::Asset
 			OutError = "Texture2D product publication requires a complete detached product.";
 			return false;
 		}
-		std::string PhysicalPath;
-		if (!AssetImport::ResolveSourceFilename(
-			Context.SourceFilename, PhysicalPath, OutError)) return false;
-
-		const FXxHash128 SourceHash{
-			.HashLow = Product.SourceContentHashLow,
-			.HashHigh = Product.SourceContentHashHigh};
 		return Texture.PublishImportedState({
-			.SourceFilename = Context.SourceFilename,
-			.SourceContentHashLow = SourceHash.HashLow,
-			.SourceContentHashHigh = SourceHash.HashHigh,
 			.SourceData = std::make_unique<FTextureSourceData>(std::move(Product.SourceData)),
 			.PlatformData = std::make_unique<FTexturePlatformData>(std::move(Product.PlatformData)),
 			.DerivedDataKey = std::move(Product.DerivedDataKey),
+			.BuildDiagnostic = std::move(Product.PersistenceDiagnostic),
 			.Usage = Product.Settings.Usage,
 			.bSRGB = Product.bSRGB,
 			.MaxResolution = Product.Settings.MaxResolution,
@@ -150,7 +131,8 @@ namespace Durin::Asset
 			.AlphaMipMode = Product.Settings.AlphaMipMode,
 			.AlphaCoverageThreshold = Product.Settings.AlphaCoverageThreshold,
 			.bMarkPackageDirty = Context.bMarkPackageDirty,
-			.bReportLoadMutation = Context.bReportLoadMutation}, OutError);
+			.bReportLoadMutation = Context.bReportLoadMutation,
+			.bSourceDecoderInvoked = Context.bSourceDecoderInvoked}, OutError);
 	}
 
 	auto MakeTexture2DDerivedDataKey(
@@ -158,14 +140,10 @@ namespace Durin::Asset
 		std::string& OutKey,
 		std::string& OutError) -> bool
 	{
-		FXxHash128 SourceHash;
-		if (const AssetImport::FSourceFile* Source = Texture.GetImportedSource())
+		const FXxHash128 SourceHash = Texture.GetImportedDataIdentity();
+		if (SourceHash.IsZero())
 		{
-			SourceHash = Source->GetContentHash();
-		}
-		else
-		{
-			OutError = "Texture source content hash is missing or invalid.";
+			OutError = "Texture canonical imported-data identity is missing or invalid.";
 			return false;
 		}
 		OutKey = BuildTexture2DDerivedDataKey({

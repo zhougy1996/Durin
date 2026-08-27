@@ -3,7 +3,7 @@
 
 #include "Asset/AssetOperations.h"
 #include "Asset/PackageSerialization.h"
-#include "Asset/SourceFilename.h"
+#include "Asset/SourceHint.h"
 #include "Asset.h"
 #include "DObject/Package.h"
 #include "DObject/DObjectGlobals.h"
@@ -28,6 +28,23 @@ namespace Durin::AssetForge::Builtins
 		constexpr std::string_view TextureCubeDecoderId = "DurinImage";
 		constexpr uint32 TextureCubeDecoderVersion = 1;
 
+		auto ResolveOwningPackagePhysicalPath(const DTextureCube& Texture,
+			std::filesystem::path& OutPath, std::string& OutError) -> bool
+		{
+			if (!Texture.GetPackage())
+			{
+				OutError = "TextureCube source capture requires an owning package.";
+				return false;
+			}
+			const PathUtilities::FAssetPathResult Resolved =
+				PathUtilities::ResolveAssetPath(Texture.GetPackage()->GetPackagePath(),
+					PathUtilities::EPathExistence::AllowMissing);
+			if (!Resolved) { OutError = Resolved.Message; return false; }
+			OutPath = Resolved.PhysicalPath;
+			OutPath += ".dasset";
+			return true;
+		}
+
 		auto NormalizePanorama(Image::FDecodedImage&& Image)
 			-> Asset::TextureCubeBuilder::FTexturePanoramaImage
 		{
@@ -46,17 +63,23 @@ namespace Durin::AssetForge::Builtins
 		struct FCapturedCubeSource
 		{
 			std::string Filename;
+			AssetImport::ESourceHintBase HintBase =
+				AssetImport::ESourceHintBase::AssetRelative;
 			std::filesystem::path PhysicalPath;
 			FEncodedSourceSnapshot Snapshot;
 		};
 
-		auto CaptureCubeSource(std::string_view FilePath,
+		auto CaptureCubeSource(const DTextureCube& Texture, std::string_view FilePath,
 			FCapturedCubeSource& OutSource, std::string& OutError) -> bool
 		{
+			std::filesystem::path OwningPackagePath;
+			if (!ResolveOwningPackagePhysicalPath(Texture, OwningPackagePath, OutError))
+				return false;
 			OutSource.PhysicalPath = std::filesystem::absolute(FilePath).lexically_normal();
 			if (!std::filesystem::is_regular_file(OutSource.PhysicalPath)
-				|| !AssetImport::MakeSourceFilename(
-					OutSource.PhysicalPath.generic_string(), OutSource.Filename, OutError)) return false;
+				|| !AssetImport::MakeSourceHint(
+					OutSource.PhysicalPath.generic_string(), OwningPackagePath.generic_string(),
+					OutSource.HintBase, OutSource.Filename, OutError)) return false;
 			return CaptureEncodedSource({.Path = OutSource.Filename}, OutSource.PhysicalPath,
 				OutSource.Snapshot, OutError, MaximumTextureCubeEncodedBytes);
 		}
@@ -78,11 +101,11 @@ namespace Durin::AssetForge::Builtins
 					.Role = Layout == ETextureCubeSourceLayout::EquirectangularPanorama
 						? "panorama" : std::string(FaceRoles[Index]),
 					.DisplayLabel = Source.PhysicalPath.filename().generic_string(),
-					.Filename = Source.Filename,
+					.Hint = Source.Filename,
+					.HintBase = Source.HintBase,
 					.ContentHashLow = Source.Snapshot.ContentHash.HashLow,
 					.ContentHashHigh = Source.Snapshot.ContentHash.HashHigh,
-					.ByteCount = Source.Snapshot.FileSize,
-					.LastWriteTime = Source.Snapshot.LastWriteTime});
+					.ByteCount = Source.Snapshot.FileSize});
 			}
 			auto* Data = dynamic_cast<DTextureCubeImportData*>(Texture.GetAssetImportData());
 			if (!Data) Data = NewObject<DTextureCubeImportData>(&Texture, "AssetImportData");
@@ -104,26 +127,12 @@ namespace Durin::AssetForge::Builtins
 
 		auto RebuildPanorama(DTextureCube& Texture, std::string_view FilePath,
 			const FTextureCubePanoramaImportSettings& Settings, std::string& OutError,
-			const Asset::FAssetBundleSaveOptions* SaveOptions,
-			bool bRequireUnchanged = false) -> bool
+			const Asset::FAssetBundleSaveOptions* SaveOptions) -> bool
 		{
 			FCapturedCubeSource Source;
-			if (!CaptureCubeSource(FilePath, Source, OutError)
+			if (!CaptureCubeSource(Texture, FilePath, Source, OutError)
 				|| !IsTextureCubePanoramaSourceExtension(
 					Source.PhysicalPath.extension().generic_string())) return false;
-			if (bRequireUnchanged)
-			{
-				const auto* Data = dynamic_cast<const DTextureCubeImportData*>(
-					Texture.GetAssetImportData());
-				const AssetImport::FSourceFile* Expected = Data
-					? Data->GetSourceData().FindByRole("panorama") : nullptr;
-				if (!Expected || Expected->ContentHashLow != Source.Snapshot.ContentHash.HashLow
-					|| Expected->ContentHashHigh != Source.Snapshot.ContentHash.HashHigh)
-				{
-					OutError = "TextureCube panorama changed; explicit reimport is required.";
-					return false;
-				}
-			}
 			FTextureCubePanoramaSourceData Panorama;
 			if (!TranslateTextureCubePanoramaSource(Source.Snapshot.GetBytes(),
 				Source.PhysicalPath.extension().generic_string(), Panorama, OutError))
@@ -146,15 +155,14 @@ namespace Durin::AssetForge::Builtins
 		auto RebuildFaces(DTextureCube& Texture,
 			const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 			const FTextureCubeImportSettings& Settings, std::string& OutError,
-			const Asset::FAssetBundleSaveOptions* SaveOptions,
-			bool bRequireUnchanged = false) -> bool
+			const Asset::FAssetBundleSaveOptions* SaveOptions) -> bool
 		{
 			std::array<FCapturedCubeSource, TextureCubeFaceCount> Sources;
 			std::array<std::span<const std::byte>, TextureCubeFaceCount> Encoded;
 			std::array<FXxHash128, TextureCubeFaceCount> Hashes;
 			for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 			{
-				if (!CaptureCubeSource(FaceFiles[Index], Sources[Index], OutError)
+				if (!CaptureCubeSource(Texture, FaceFiles[Index], Sources[Index], OutError)
 					|| !IsTextureCubeFaceSourceExtension(
 						Sources[Index].PhysicalPath.extension().generic_string()))
 				{
@@ -164,20 +172,6 @@ namespace Durin::AssetForge::Builtins
 				}
 				Encoded[Index] = Sources[Index].Snapshot.GetBytes();
 				Hashes[Index] = Sources[Index].Snapshot.ContentHash;
-				if (bRequireUnchanged)
-				{
-					const auto* Data = dynamic_cast<const DTextureCubeImportData*>(
-						Texture.GetAssetImportData());
-					const AssetImport::FSourceFile* Expected = Data
-						? Data->GetSourceData().FindByRole(FaceRoles[Index]) : nullptr;
-					if (!Expected || Expected->ContentHashLow != Hashes[Index].HashLow
-						|| Expected->ContentHashHigh != Hashes[Index].HashHigh)
-					{
-						OutError = std::format(
-							"{} TextureCube face changed; explicit reimport is required.", FaceNames[Index]);
-						return false;
-					}
-				}
 			}
 			FTextureCubeSourceData SourceData;
 			Asset::FTextureCubeBuildProduct Product;
@@ -375,6 +369,25 @@ namespace Durin::AssetForge::Builtins
 
 	auto ReimportTextureCubePanorama(
 		DTextureCube& Texture,
+		const FTextureCubePanoramaImportSettings& Settings,
+		std::string& OutError) -> bool
+	{
+		std::filesystem::path OwningPackagePath;
+		if (!ResolveOwningPackagePhysicalPath(Texture, OwningPackagePath, OutError))
+			return false;
+		const auto* Data = dynamic_cast<const DTextureCubeImportData*>(
+			Texture.GetAssetImportData());
+		const AssetImport::FSourceFile* Source = Data
+			? Data->GetSourceData().FindByRole("panorama") : nullptr;
+		std::string SourcePath;
+		if (!Source || !AssetImport::ResolveSourceHint(Source->HintBase, Source->Hint,
+			OwningPackagePath.generic_string(), SourcePath, OutError)) return false;
+		const Asset::FAssetBundleSaveOptions SaveOptions;
+		return RebuildPanorama(Texture, SourcePath, Settings, OutError, &SaveOptions);
+	}
+
+	auto ReimportTextureCubePanoramaFromFile(
+		DTextureCube& Texture,
 		std::string_view PanoramaFile,
 		const FTextureCubePanoramaImportSettings& Settings,
 		std::string& OutError) -> bool
@@ -384,21 +397,40 @@ namespace Durin::AssetForge::Builtins
 			OutError = "Only packaged texture cubes can be reimported.";
 			return false;
 		}
-		std::string SourcePath(PanoramaFile);
-		if (SourcePath.empty())
-		{
-			const auto* Data = dynamic_cast<const DTextureCubeImportData*>(
-				Texture.GetAssetImportData());
-			const AssetImport::FSourceFile* Source = Data
-				? Data->GetSourceData().FindByRole("panorama") : nullptr;
-			if (!Source || !AssetImport::ResolveSourceFilename(
-				Source->Filename, SourcePath, OutError)) return false;
-		}
+		const std::filesystem::path SourcePath =
+			std::filesystem::absolute(PanoramaFile).lexically_normal();
 		const Asset::FAssetBundleSaveOptions SaveOptions;
-		return RebuildPanorama(Texture, SourcePath, Settings, OutError, &SaveOptions);
+		return RebuildPanorama(Texture, SourcePath.generic_string(),
+			Settings, OutError, &SaveOptions);
 	}
 
 	auto ReimportTextureCubeFaces(
+		DTextureCube& Texture,
+		const FTextureCubeImportSettings& Settings,
+		std::string& OutError) -> bool
+	{
+		std::filesystem::path OwningPackagePath;
+		if (!ResolveOwningPackagePhysicalPath(Texture, OwningPackagePath, OutError))
+			return false;
+		std::array<std::string, TextureCubeFaceCount> Sources;
+		const auto* Data = dynamic_cast<const DTextureCubeImportData*>(
+			Texture.GetAssetImportData());
+		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
+		{
+			const AssetImport::FSourceFile* Source = Data
+				? Data->GetSourceData().FindByRole(FaceRoles[Index]) : nullptr;
+			if (!Source || !AssetImport::ResolveSourceHint(Source->HintBase, Source->Hint,
+				OwningPackagePath.generic_string(), Sources[Index], OutError))
+			{
+				if (OutError.empty()) OutError = "TextureCube face import data is incomplete.";
+				return false;
+			}
+		}
+		const Asset::FAssetBundleSaveOptions SaveOptions;
+		return RebuildFaces(Texture, Sources, Settings, OutError, &SaveOptions);
+	}
+
+	auto ReimportTextureCubeFacesFromFile(
 		DTextureCube& Texture,
 		const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 		const FTextureCubeImportSettings& Settings,
@@ -409,107 +441,11 @@ namespace Durin::AssetForge::Builtins
 			OutError = "Only packaged texture cubes can be reimported.";
 			return false;
 		}
-		std::array<std::string, TextureCubeFaceCount> Sources = FaceFiles;
-		const auto* Data = dynamic_cast<const DTextureCubeImportData*>(
-			Texture.GetAssetImportData());
+		std::array<std::string, TextureCubeFaceCount> Sources;
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
-		{
-			if (!Sources[Index].empty()) continue;
-			const AssetImport::FSourceFile* Source = Data
-				? Data->GetSourceData().FindByRole(FaceRoles[Index]) : nullptr;
-			if (!Source || !AssetImport::ResolveSourceFilename(
-				Source->Filename, Sources[Index], OutError))
-			{
-				if (OutError.empty()) OutError = "TextureCube face import data is incomplete.";
-				return false;
-			}
-		}
+			Sources[Index] = std::filesystem::absolute(FaceFiles[Index])
+				.lexically_normal().generic_string();
 		const Asset::FAssetBundleSaveOptions SaveOptions;
 		return RebuildFaces(Texture, Sources, Settings, OutError, &SaveOptions);
-	}
-
-	auto RecoverTextureCubeDerivedData(
-		DTextureCube& Texture, std::string& OutError) -> bool
-	{
-		const auto* Data = dynamic_cast<const DTextureCubeImportData*>(
-			Texture.GetAssetImportData());
-		if (!Data)
-		{
-			OutError = "TextureCube has no current family import data.";
-			return false;
-		}
-		const bool bWasDirty = Texture.GetPackage() && Texture.GetPackage()->IsDirty();
-		const FTextureCubeImportDataState State = Data->GetTextureCubeState();
-		bool Rebuilt = false;
-		if (State.SourceLayout == ETextureCubeSourceLayout::EquirectangularPanorama)
-		{
-			const AssetImport::FSourceFile* Source = State.SourceData.FindByRole("panorama");
-			std::string PhysicalPath;
-			Rebuilt = Source && AssetImport::ResolveSourceFilename(
-				Source->Filename, PhysicalPath, OutError)
-				&& RebuildPanorama(Texture, PhysicalPath,
-					{.FaceDimension = Texture.GetPanoramaFaceDimension(),
-						.ExposureEV = Texture.GetPanoramaExposureEV()}, OutError, nullptr, true);
-		}
-		else
-		{
-			std::array<std::string, TextureCubeFaceCount> Sources;
-			Rebuilt = true;
-			for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
-			{
-				const AssetImport::FSourceFile* Source =
-					State.SourceData.FindByRole(FaceRoles[Index]);
-				if (!Source || !AssetImport::ResolveSourceFilename(
-					Source->Filename, Sources[Index], OutError))
-				{
-					Rebuilt = false;
-					break;
-				}
-			}
-			Rebuilt = Rebuilt && RebuildFaces(Texture, Sources,
-				{.bSRGB = Texture.IsSRGB()}, OutError, nullptr, true);
-		}
-		if (Rebuilt && !bWasDirty && Texture.GetPackage()) Texture.GetPackage()->ClearDirty();
-		return Rebuilt;
-	}
-
-	auto ChangeTextureCubePanoramaSourceReference(
-		DTextureCube& Texture,
-		std::string_view SourceFilename,
-		const FTextureCubePanoramaImportSettings& Settings,
-		std::string& OutError) -> bool
-	{
-		return ReimportTextureCubePanorama(
-			Texture, SourceFilename, Settings, OutError);
-	}
-
-	auto ChangeTextureCubeFaceSourceReferences(
-		DTextureCube& Texture,
-		const std::array<std::string, TextureCubeFaceCount>& SourceFilenames,
-		const FTextureCubeImportSettings& Settings,
-		std::string& OutError) -> bool
-	{
-		return ReimportTextureCubeFaces(
-			Texture, SourceFilenames, Settings, OutError);
-	}
-
-	auto IngestAndChangeTextureCubePanoramaSource(
-		DTextureCube& Texture,
-		std::string_view FilePath,
-		std::string_view,
-		const FTextureCubePanoramaImportSettings& Settings,
-		std::string& OutError) -> bool
-	{
-		return ReimportTextureCubePanorama(Texture, FilePath, Settings, OutError);
-	}
-
-	auto IngestAndChangeTextureCubeFaceSources(
-		DTextureCube& Texture,
-		const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
-		const std::array<std::string, TextureCubeFaceCount>&,
-		const FTextureCubeImportSettings& Settings,
-		std::string& OutError) -> bool
-	{
-		return ReimportTextureCubeFaces(Texture, FaceFiles, Settings, OutError);
 	}
 }

@@ -5,6 +5,8 @@
 
 namespace Durin
 {
+	class DAnimationClip;
+	class DSkeletalMesh;
 	struct FAnimationClipPayloadData;
 	struct FSkeletalMeshPayloadData;
 	struct FSkeletalPayloadSerializationContext;
@@ -13,26 +15,18 @@ namespace Durin
 	{
 	public:
 		static constexpr std::string_view FeatureName = "Engine.SkeletalDerivedData";
-		static constexpr uint32 FeatureVersion = 1;
-		virtual auto LoadSkeletalMeshPayload(
-			std::string_view Key,
-			const FSkeletalPayloadSerializationContext& Context,
-			FSkeletalMeshPayloadData& OutPayload,
+		static constexpr uint32 FeatureVersion = 2;
+		virtual auto PostLoadUncooked(
+			DSkeletalMesh& Mesh,
 			std::string& OutMessage) -> bool = 0;
-		virtual auto LoadAnimationClipPayload(
-			std::string_view Key,
-			const FSkeletalPayloadSerializationContext& Context,
-			FAnimationClipPayloadData& OutPayload,
+		virtual auto PostLoadUncooked(
+			DAnimationClip& Clip,
 			std::string& OutMessage) -> bool = 0;
 	};
-	ENGINE_API auto InvokeSkeletalMeshUncookedPayloadLoader(
-		std::string_view Key,
-		const FSkeletalPayloadSerializationContext& Context,
-		FSkeletalMeshPayloadData& OutPayload,
+	ENGINE_API auto InvokeSkeletalMeshUncookedPostLoad(
+		DSkeletalMesh& Mesh,
 		std::string& OutMessage) -> bool;
-	ENGINE_API auto InvokeAnimationClipUncookedPayloadLoader(
-		std::string_view Key,
-		const FSkeletalPayloadSerializationContext& Context,
-		FAnimationClipPayloadData& OutPayload,
+	ENGINE_API auto InvokeAnimationClipUncookedPostLoad(
+		DAnimationClip& Clip,
 		std::string& OutMessage) -> bool;
 }

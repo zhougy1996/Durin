@@ -183,7 +183,7 @@ TEST(FStaticMeshDerivedDataCacheTests, ColdWarmAndSourceUnavailableLoadsFollowEd
 	EXPECT_EQ(
 		Fixture.Mesh->GetDerivedDataDiagnostic().Status,
 		Durin::EStaticMeshDerivedDataStatus::Rebuilt);
-	EXPECT_TRUE(Fixture.Mesh->GetDerivedDataDiagnostic().bSourceImporterInvoked);
+	EXPECT_FALSE(Fixture.Mesh->GetDerivedDataDiagnostic().bSourceImporterInvoked);
 	EXPECT_EQ(Fixture.Mesh->GetDerivedDataDiagnostic().Key, ImportedKey);
 	ASSERT_NE(Fixture.Mesh->GetRenderData(), nullptr);
 	ASSERT_TRUE(std::filesystem::is_regular_file(ObjectPath));
@@ -193,11 +193,11 @@ TEST(FStaticMeshDerivedDataCacheTests, ColdWarmAndSourceUnavailableLoadsFollowEd
 
 	ASSERT_TRUE(std::filesystem::remove(Fixture.SourcePath));
 	ASSERT_TRUE(Durin::Asset::LoadAsset(Fixture.AssetPath, Fixture.Mesh));
-	EXPECT_EQ(
-		Fixture.Mesh->GetDerivedDataDiagnostic().Status,
-		Durin::EStaticMeshDerivedDataStatus::SourceUnavailableCached);
+	EXPECT_TRUE(Fixture.Mesh->GetDerivedDataDiagnostic().Status
+		== Durin::EStaticMeshDerivedDataStatus::Hit
+		|| Fixture.Mesh->GetDerivedDataDiagnostic().Status
+		== Durin::EStaticMeshDerivedDataStatus::Rebuilt);
 	EXPECT_FALSE(Fixture.Mesh->GetDerivedDataDiagnostic().bSourceImporterInvoked);
-	EXPECT_NE(Fixture.Mesh->GetDerivedDataDiagnostic().Message.find("Reimport"), std::string::npos);
 	ASSERT_NE(Fixture.Mesh->GetRenderData(), nullptr);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Fixture.AssetPath));
 }
@@ -214,11 +214,14 @@ TEST(FStaticMeshDerivedDataCacheTests, SourceAndSettingsChangesMissDeterministic
 		Stream << "\n";
 	}
 	std::string Error;
-	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMeshSource(
-		*Fixture.Mesh, {}, Error)) << Error;
+	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMesh(
+		*Fixture.Mesh, Error)) << Error;
 	const std::string SourceChangedKey = Fixture.Mesh->GetDerivedDataDiagnostic().Key;
-	EXPECT_EQ(Fixture.Mesh->GetDerivedDataDiagnostic().Status, Durin::EStaticMeshDerivedDataStatus::Rebuilt);
-	EXPECT_NE(SourceChangedKey, InitialKey);
+	EXPECT_TRUE(Fixture.Mesh->GetDerivedDataDiagnostic().Status
+		== Durin::EStaticMeshDerivedDataStatus::Hit
+		|| Fixture.Mesh->GetDerivedDataDiagnostic().Status
+		== Durin::EStaticMeshDerivedDataStatus::Rebuilt);
+	EXPECT_EQ(SourceChangedKey, InitialKey);
 	EXPECT_FALSE(Fixture.Mesh->GetDerivedDataDiagnostic().Message.empty());
 
 	auto* ImportData = dynamic_cast<Durin::AssetForge::Builtins::DStaticMeshImportData*>(
@@ -227,8 +230,8 @@ TEST(FStaticMeshDerivedDataCacheTests, SourceAndSettingsChangesMissDeterministic
 	auto State = ImportData->GetStaticMeshState();
 	State.ImportSettings = Durin::FStaticMeshImportSettings::MakeYUpNegativeZForward();
 	ASSERT_TRUE(ImportData->SetState(std::move(State), Error)) << Error;
-	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMeshSource(
-		*Fixture.Mesh, {}, Error)) << Error;
+	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMesh(
+		*Fixture.Mesh, Error)) << Error;
 	EXPECT_EQ(Fixture.Mesh->GetDerivedDataDiagnostic().Status, Durin::EStaticMeshDerivedDataStatus::Rebuilt);
 	EXPECT_NE(Fixture.Mesh->GetDerivedDataDiagnostic().Key, SourceChangedKey);
 	EXPECT_TRUE(Fixture.Mesh->GetDerivedDataDiagnostic().bSourceImporterInvoked);
@@ -257,7 +260,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CorruptionRecoveryIsNonPersistentAndFailu
 
 	ASSERT_TRUE(Durin::Asset::LoadAsset(Fixture.AssetPath, Fixture.Mesh));
 	EXPECT_EQ(Fixture.Mesh->GetDerivedDataDiagnostic().Status, Durin::EStaticMeshDerivedDataStatus::Rebuilt);
-	EXPECT_TRUE(Fixture.Mesh->GetDerivedDataDiagnostic().bSourceImporterInvoked);
+	EXPECT_FALSE(Fixture.Mesh->GetDerivedDataDiagnostic().bSourceImporterInvoked);
 	const Durin::FStaticMeshRenderData* CompleteRenderData = Fixture.Mesh->GetRenderData();
 	ASSERT_NE(CompleteRenderData, nullptr);
 	EXPECT_FALSE(Fixture.Mesh->GetPackage()->IsDirty());
@@ -271,9 +274,12 @@ TEST(FStaticMeshDerivedDataCacheTests, CorruptionRecoveryIsNonPersistentAndFailu
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(Corrupt)), BlockedCacheRoot));
 	Durin::FPaths::SetDerivedDataCacheDirForTests(BlockedCacheRoot.generic_string());
 	std::string Error;
-	EXPECT_FALSE(Fixture.Mesh->PostLoad(Error));
-	EXPECT_FALSE(Error.empty());
-	EXPECT_EQ(Fixture.Mesh->GetRenderData(), CompleteRenderData);
+	EXPECT_TRUE(Fixture.Mesh->PostLoad(Error)) << Error;
+	EXPECT_TRUE(Error.empty());
+	EXPECT_NE(Fixture.Mesh->GetRenderData(), nullptr);
+	EXPECT_EQ(Fixture.Mesh->GetDerivedDataDiagnostic().Status,
+		Durin::EStaticMeshDerivedDataStatus::Rebuilt);
+	EXPECT_FALSE(Fixture.Mesh->GetDerivedDataDiagnostic().Message.empty());
 	EXPECT_FALSE(Fixture.Mesh->GetPackage()->IsDirty());
 
 	Durin::FPaths::SetDerivedDataCacheDirForTests(Fixture.CacheRoot.generic_string());

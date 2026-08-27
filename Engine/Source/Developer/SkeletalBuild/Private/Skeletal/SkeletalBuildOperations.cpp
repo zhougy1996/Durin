@@ -94,7 +94,8 @@ namespace Durin::Asset
 				? std::format("{} SkeletalMesh DDC key {}.",
 					Output.Status == EBuildStatus::CacheHit ? "Loaded" : "Stored", Key)
 				: std::format("SkeletalMesh DDC write failed for key {}: {}",
-					Key, Output.StoreDiagnostic)};
+					Key, Output.StoreDiagnostic),
+			.bLoadedFromDerivedDataCache = Output.Status == EBuildStatus::CacheHit};
 		OutError.clear();
 		return true;
 	}
@@ -138,39 +139,98 @@ namespace Durin::Asset
 				? std::format("{} AnimationClip DDC key {}.",
 					Output.Status == EBuildStatus::CacheHit ? "Loaded" : "Stored", Key)
 				: std::format("AnimationClip DDC write failed for key {}: {}",
-					Key, Output.StoreDiagnostic)};
+					Key, Output.StoreDiagnostic),
+			.bLoadedFromDerivedDataCache = Output.Status == EBuildStatus::CacheHit};
 		OutError.clear();
 		return true;
 	}
 
-	auto LoadSkeletalMeshDerivedData(
-		std::string_view Key,
-		const FSkeletalPayloadSerializationContext& Context,
-		FSkeletalMeshPayloadData& OutPayload,
-		std::string& OutMessage) -> bool
+	auto RebuildSkeletalMeshFromImportedData(
+		DSkeletalMesh& Mesh,
+		std::string& OutError) -> bool
 	{
-		FBuildOutput Output;
-		std::string Error;
-		const bool bLoaded = ExecuteSkeletalSession(Private::SkeletalMeshFunctionIdentity,
-			Private::SkeletalMeshInputName, Key, {}, {}, Context, {}, false,
-			Output, OutPayload, Error);
-		OutMessage = bLoaded ? Output.Diagnostic : std::move(Error);
-		return bLoaded;
+		DSkeleton* Skeleton = Mesh.GetSkeleton();
+		if (!Skeleton)
+		{
+			OutError = "SkeletalMesh canonical build requires a Skeleton.";
+			return false;
+		}
+		FSkeletalMeshPayloadData Payload = Mesh.GetImportedData().Decode(
+			Skeleton->GetBoneCount(), Mesh.GetNumMaterialSlots(), OutError);
+		if (!OutError.empty()) return false;
+		FSkeletalMeshBuildKeyInput Key;
+		static_cast<FSkeletalBuildKeyFields&>(Key) = {
+			.ProviderIdentity = "CanonicalSkeletalMesh",
+			.ProviderVersion = SkeletalMeshImportedDataSchemaVersion,
+			.ImportedDataIdentity = Mesh.GetImportedData().GetIdentity(),
+			.StableOutputIdentity = Mesh.GetObjectPath(),
+			.SkeletonCompatibilityIdentity = Mesh.GetSkeletonCompatibilityIdentity(),
+			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
+			.TargetProfile = ESkeletalPayloadTargetProfile::Game};
+		FSkeletalMeshBuildProduct Product;
+		if (!BuildSkeletalMeshProduct({
+			.SkeletonBoneCount = Skeleton->GetBoneCount(),
+			.SkeletonCompatibilityIdentity = Mesh.GetSkeletonCompatibilityIdentity(),
+			.MeshNodeBindTransform = Mesh.GetMeshNodeBindTransform(),
+			.MaterialSlotCount = Mesh.GetNumMaterialSlots(),
+			.Payload = std::make_shared<const FSkeletalMeshPayloadData>(std::move(Payload)),
+			.KeyInput = std::move(Key)}, Product, OutError)) return false;
+		return Mesh.PublishBuiltProduct({
+			.Skeleton = Skeleton,
+			.ValidationSkeleton = Skeleton,
+			.SkeletonCompatibilityIdentity = Product.SkeletonCompatibilityIdentity,
+			.MeshNodeBindTransform = Product.MeshNodeBindTransform,
+			.MaterialSlots = {Mesh.GetMaterialSlots().begin(), Mesh.GetMaterialSlots().end()},
+			.Payload = std::move(Product.Payload),
+			.CookedPayload = Mesh.GetCookedPayloadDescriptor(),
+			.DerivedDataKey = std::move(Product.DerivedDataKey),
+			.DiagnosticMessage = std::move(Product.Diagnostic),
+			.bLoadedFromDerivedDataCache = Product.bLoadedFromDerivedDataCache,
+			.bReplaceImportedData = false,
+			.bMarkPackageDirty = false}, OutError);
 	}
 
-	auto LoadAnimationClipDerivedData(
-		std::string_view Key,
-		const FSkeletalPayloadSerializationContext& Context,
-		FAnimationClipPayloadData& OutPayload,
-		std::string& OutMessage) -> bool
+	auto RebuildAnimationClipFromImportedData(
+		DAnimationClip& Clip,
+		std::string& OutError) -> bool
 	{
-		FBuildOutput Output;
-		std::string Error;
-		const bool bLoaded = ExecuteSkeletalSession(Private::AnimationClipFunctionIdentity,
-			Private::AnimationClipInputName, Key, {}, {}, Context, {}, false,
-			Output, OutPayload, Error);
-		OutMessage = bLoaded ? Output.Diagnostic : std::move(Error);
-		return bLoaded;
+		DSkeleton* Skeleton = Clip.GetSkeleton();
+		if (!Skeleton)
+		{
+			OutError = "AnimationClip canonical build requires a Skeleton.";
+			return false;
+		}
+		FAnimationClipPayloadData Payload = Clip.GetImportedData().Decode(
+			Skeleton->GetBoneCount(), OutError);
+		if (!OutError.empty()) return false;
+		FAnimationClipBuildKeyInput Key;
+		static_cast<FSkeletalBuildKeyFields&>(Key) = {
+			.ProviderIdentity = "CanonicalAnimationClip",
+			.ProviderVersion = AnimationClipImportedDataSchemaVersion,
+			.ImportedDataIdentity = Clip.GetImportedData().GetIdentity(),
+			.StableOutputIdentity = Clip.GetObjectPath(),
+			.SkeletonCompatibilityIdentity = Clip.GetSkeletonCompatibilityIdentity(),
+			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
+			.TargetProfile = ESkeletalPayloadTargetProfile::Game};
+		FAnimationClipBuildProduct Product;
+		if (!BuildAnimationClipProduct({
+			.SkeletonBoneCount = Skeleton->GetBoneCount(),
+			.SkeletonCompatibilityIdentity = Clip.GetSkeletonCompatibilityIdentity(),
+			.ClipName = Clip.GetClipName(),
+			.Payload = std::make_shared<const FAnimationClipPayloadData>(std::move(Payload)),
+			.KeyInput = std::move(Key)}, Product, OutError)) return false;
+		return Clip.PublishBuiltProduct({
+			.Skeleton = Skeleton,
+			.ValidationSkeleton = Skeleton,
+			.SkeletonCompatibilityIdentity = Product.SkeletonCompatibilityIdentity,
+			.ClipName = Product.ClipName,
+			.Payload = std::move(Product.Payload),
+			.CookedPayload = Clip.GetCookedPayloadDescriptor(),
+			.DerivedDataKey = std::move(Product.DerivedDataKey),
+			.DiagnosticMessage = std::move(Product.Diagnostic),
+			.bLoadedFromDerivedDataCache = Product.bLoadedFromDerivedDataCache,
+			.bReplaceImportedData = false,
+			.bMarkPackageDirty = false}, OutError);
 	}
 
 }

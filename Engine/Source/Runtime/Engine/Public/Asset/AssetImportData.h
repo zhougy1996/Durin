@@ -10,9 +10,17 @@
 
 namespace Durin::AssetImport
 {
-	inline constexpr uint32 AssetImportDataSchemaVersion = 1;
+	inline constexpr uint32 AssetImportDataSchemaVersion = 2;
 	inline constexpr uint32 MaximumAssetImportSources = 8'192;
 	inline constexpr size_t MaximumAssetImportStringBytes = 1'024;
+
+	DENUM()
+	enum class ESourceHintBase : uint8
+	{
+		AssetRelative,
+		ProjectRelative,
+		Absolute
+	};
 
 	DSTRUCT()
 	struct FSourceFile
@@ -29,7 +37,10 @@ namespace Durin::AssetImport
 		std::string DisplayLabel;
 
 		DPROPERTY()
-		std::string Filename;
+		std::string Hint;
+
+		DPROPERTY()
+		ESourceHintBase HintBase = ESourceHintBase::AssetRelative;
 
 		DPROPERTY()
 		uint64 ContentHashLow = 0;
@@ -39,9 +50,6 @@ namespace Durin::AssetImport
 
 		DPROPERTY()
 		uint64 ByteCount = 0;
-
-		DPROPERTY()
-		int64 LastWriteTime = 0;
 
 		ENGINE_API auto IsEmpty() const -> bool;
 		auto GetContentHash() const -> FXxHash128

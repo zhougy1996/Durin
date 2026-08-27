@@ -72,7 +72,7 @@ TEST(FSingleAssetImportTests, Texture2DPersistsFamilyImportData)
 	EXPECT_EQ(ImportData->GetDecoderId(), "DurinImage");
 	EXPECT_EQ(ImportData->GetDecoderVersion(), 1u);
 	ASSERT_NE(Imported.Asset->GetImportedSource(), nullptr);
-	EXPECT_EQ(Imported.Asset->GetImportedSource()->Filename,
+	EXPECT_EQ(Imported.Asset->GetImportedSource()->Hint,
 		Imported.Asset->GetSourceFile());
 }
 
@@ -91,10 +91,10 @@ TEST(FSingleAssetImportTests, ReimportsGeometryDirectlyFromFamilyImportData)
 	ASSERT_NE(ImportData, nullptr);
 	EXPECT_EQ(ImportData->GetImporterId(), "Assimp");
 	ASSERT_NE(Imported.Asset->GetImportedSource(), nullptr);
-	EXPECT_FALSE(Imported.Asset->GetImportedSource()->Filename.empty());
+	EXPECT_FALSE(Imported.Asset->GetImportedSource()->Hint.empty());
 	std::string Error;
-	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMeshSource(
-		*Imported.Asset, {}, Error)) << Error;
+	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportStaticMesh(
+		*Imported.Asset, Error)) << Error;
 	EXPECT_NE(Imported.Asset->GetRenderData(), nullptr);
 	ASSERT_NE(Imported.Asset->GetImportedSource(), nullptr);
 }
@@ -117,7 +117,7 @@ TEST(FSingleAssetImportTests, ReimportsPanoramaTextureCubeFromCapturedBytes)
 	ASSERT_NE(ImportData->GetSourceData().FindByRole("panorama"), nullptr);
 	std::string Error;
 	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportTextureCubePanorama(
-		*Imported.Asset, {},
+		*Imported.Asset,
 		{.FaceDimension = Imported.Asset->GetPanoramaFaceDimension(),
 			.ExposureEV = Imported.Asset->GetPanoramaExposureEV()},
 		Error)) << Error;

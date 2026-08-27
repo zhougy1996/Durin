@@ -41,8 +41,13 @@ namespace Durin::AssetForge::Builtins
 		std::string_view AssetPath,
 		const FTerrainHeightmapImportSettings& Settings = {},
 		bool bAllowEngineContentWrite = false) -> FTerrainHeightmapImportResult;
-	ASSETFORGEBUILTINS_API auto ReimportTerrainHeightmapSource(
+	ASSETFORGEBUILTINS_API auto ReimportTerrainHeightmap(
 		DTerrainHeightmap& Heightmap,
+		std::string& OutError,
+		const Asset::FAssetBundleSaveOptions& SaveOptions = {}) -> bool;
+	ASSETFORGEBUILTINS_API auto ReimportTerrainHeightmapFromFile(
+		DTerrainHeightmap& Heightmap,
+		std::string_view FilePath,
 		std::string& OutError,
 		const Asset::FAssetBundleSaveOptions& SaveOptions = {}) -> bool;
 }

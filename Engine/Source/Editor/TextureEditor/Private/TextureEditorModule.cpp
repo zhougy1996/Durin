@@ -18,6 +18,7 @@
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "AssetForge/Builtins/VolumeTextureImport.h"
+#include "Dialogs/FileDialog.h"
 
 namespace Durin
 {
@@ -48,8 +49,8 @@ namespace Durin
 			if (auto* Texture = Cast<DTexture2D>(Object))
 			{
 				auto AsyncErrorReporter = ReportError;
-				if (!AssetForge::Builtins::ReimportTexture2DSource(
-					*Texture, {}, Error,
+				if (!AssetForge::Builtins::ReimportTexture2D(
+					*Texture, Error,
 					[AsyncErrorReporter = std::move(AsyncErrorReporter)](
 						Asset::FTexture2DCompilationResult Result) {
 						if (!Result.Succeeded() && AsyncErrorReporter)
@@ -67,19 +68,19 @@ namespace Durin
 				if (Cube->GetSourceLayout()
 					== ETextureCubeSourceLayout::EquirectangularPanorama)
 					Reimported = AssetForge::Builtins::ReimportTextureCubePanorama(
-						*Cube, {}, {.FaceDimension = Cube->GetPanoramaFaceDimension(),
+						*Cube, {.FaceDimension = Cube->GetPanoramaFaceDimension(),
 							.ExposureEV = Cube->GetPanoramaExposureEV()}, Error);
 				else
 					Reimported = AssetForge::Builtins::ReimportTextureCubeFaces(
-						*Cube, {}, {.bSRGB = Cube->IsSRGB()}, Error);
+						*Cube, {.bSRGB = Cube->IsSRGB()}, Error);
 				if (!Reimported) Report(std::move(Error));
 				else (void)Asset::UnloadPackage(Path);
 				return;
 			}
 			else if (auto* Volume = Cast<DVolumeTexture>(Object))
 			{
-				if (!AssetForge::Builtins::ReimportVolumeTextureSource(
-					*Volume, {}, Error)) Report(std::move(Error));
+				if (!AssetForge::Builtins::ReimportVolumeTexture(
+					*Volume, Error)) Report(std::move(Error));
 				else (void)Asset::UnloadPackage(Path);
 				return;
 			}
@@ -88,6 +89,96 @@ namespace Durin
 				Report("The selected asset is not a supported texture type.");
 				return;
 			}
+		}
+
+		auto ReimportTextureFromFile(std::string_view AssetPath,
+			std::function<void(std::string)> ReportError) -> void
+		{
+			auto Report = [&ReportError](std::string Message) {
+				if (ReportError) ReportError(std::move(Message));
+			};
+			FAssetPath Path;
+			if (!FAssetPath::TryCreate(AssetPath, Path))
+			{
+				Report("The selected texture path is invalid.");
+				return;
+			}
+			DObject* Object = nullptr;
+			const Asset::FAssetResult Load = Asset::LoadAsset(Path, Object);
+			if (!Load || !Object)
+			{
+				Report(Load ? "The selected texture could not be loaded." : Load.Message);
+				return;
+			}
+			auto SelectImage = [&](std::string Title, std::string& OutFile) -> bool {
+				FFileDialogRequest Request;
+				Request.Title = std::move(Title);
+				Request.Filters = {{"Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga;*.hdr"},
+					{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"}, {"Targa", "*.tga"},
+					{"HDR", "*.hdr"}};
+				const FFileDialogResult Selection = OpenFileDialog(Request);
+				if (Selection.Status == EFileDialogStatus::Cancelled) return false;
+				if (Selection.Status == EFileDialogStatus::Error)
+				{
+					Report(Selection.ErrorMessage);
+					return false;
+				}
+				OutFile = Selection.FilePath;
+				return true;
+			};
+			std::string Error;
+			if (auto* Texture = Cast<DTexture2D>(Object))
+			{
+				std::string File;
+				if (!SelectImage("Reimport Texture2D From File", File)) return;
+				auto AsyncErrorReporter = ReportError;
+				if (!AssetForge::Builtins::ReimportTexture2DFromFile(*Texture, File, Error,
+					[AsyncErrorReporter = std::move(AsyncErrorReporter)](
+						Asset::FTexture2DCompilationResult Result) {
+						if (!Result.Succeeded() && AsyncErrorReporter)
+							AsyncErrorReporter(Result.Diagnostic.empty()
+								? "Texture2D reimport from file failed."
+								: std::move(Result.Diagnostic));
+					})) Report(std::move(Error));
+				return;
+			}
+			if (auto* Cube = Cast<DTextureCube>(Object))
+			{
+				bool bSucceeded = false;
+				if (Cube->GetSourceLayout() == ETextureCubeSourceLayout::EquirectangularPanorama)
+				{
+					std::string File;
+					if (!SelectImage("Reimport TextureCube Panorama From File", File)) return;
+					bSucceeded = AssetForge::Builtins::ReimportTextureCubePanoramaFromFile(
+						*Cube, File, {.FaceDimension = Cube->GetPanoramaFaceDimension(),
+							.ExposureEV = Cube->GetPanoramaExposureEV()}, Error);
+				}
+				else
+				{
+					constexpr std::array<std::string_view, TextureCubeFaceCount> FaceNames{
+						"Positive X", "Negative X", "Positive Y", "Negative Y",
+						"Positive Z", "Negative Z"};
+					std::array<std::string, TextureCubeFaceCount> Files;
+					for (size_t Index = 0; Index < Files.size(); ++Index)
+						if (!SelectImage(std::format("Reimport TextureCube {} Face From File",
+							FaceNames[Index]), Files[Index])) return;
+					bSucceeded = AssetForge::Builtins::ReimportTextureCubeFacesFromFile(
+						*Cube, Files, {.bSRGB = Cube->IsSRGB()}, Error);
+				}
+				if (!bSucceeded) Report(std::move(Error));
+				else (void)Asset::UnloadPackage(Path);
+				return;
+			}
+			if (auto* Volume = Cast<DVolumeTexture>(Object))
+			{
+				std::string File;
+				if (!SelectImage("Reimport VolumeTexture Atlas From File", File)) return;
+				if (!AssetForge::Builtins::ReimportVolumeTextureFromFile(
+					*Volume, File, Error)) Report(std::move(Error));
+				else (void)Asset::UnloadPackage(Path);
+				return;
+			}
+			Report("The selected asset is not a supported texture type.");
 		}
 	}
 
@@ -231,6 +322,12 @@ namespace Durin
 		std::function<void(std::string)> ReportError) -> void
 	{
 		ReimportTexture(AssetPath, std::move(ReportError));
+	}
+
+	auto FTextureEditorModule::ReimportAssetFromFile(std::string_view AssetPath,
+		std::function<void(std::string)> ReportError) -> void
+	{
+		ReimportTextureFromFile(AssetPath, std::move(ReportError));
 	}
 
 }

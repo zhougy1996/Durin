@@ -109,30 +109,15 @@ namespace Durin
 			return Entry;
 		}
 
-		auto MapSourceState(ETextureSourceStatus Status) -> ETexturePayloadState
-		{
-			switch (Status)
-			{
-			case ETextureSourceStatus::NoSource: return ETexturePayloadState::NotPresent;
-			case ETextureSourceStatus::Available: return ETexturePayloadState::Available;
-			case ETextureSourceStatus::Changed: return ETexturePayloadState::Stale;
-			case ETextureSourceStatus::Missing: return ETexturePayloadState::Missing;
-			case ETextureSourceStatus::Invalid: return ETexturePayloadState::Corrupt;
-			}
-			return ETexturePayloadState::Unknown;
-		}
-
 		auto MapDerivedState(ETextureDerivedDataStatus Status) -> ETexturePayloadState
 		{
 			switch (Status)
 			{
 			case ETextureDerivedDataStatus::Hit:
 			case ETextureDerivedDataStatus::Rebuilt:
-			case ETextureDerivedDataStatus::SourceUnavailableCached:
 			case ETextureDerivedDataStatus::CookedLoaded:
 				return ETexturePayloadState::Available;
 			case ETextureDerivedDataStatus::Missing:
-			case ETextureDerivedDataStatus::SourceUnavailable:
 				return ETexturePayloadState::Missing;
 			case ETextureDerivedDataStatus::Corrupt: return ETexturePayloadState::Corrupt;
 			case ETextureDerivedDataStatus::Incompatible: return ETexturePayloadState::Unsupported;
@@ -182,7 +167,7 @@ namespace Durin
 				{
 					bHasSource = true;
 					SourceBytes = Source->ByteCount;
-					SourcePath = Source->Filename;
+					SourcePath = Source->Hint;
 				}
 			}
 			OutInspection.Entries.push_back({
@@ -313,18 +298,22 @@ namespace Durin
 	auto InspectTexturePayloads(const DTexture2D& Texture) -> FTexturePayloadInspection
 	{
 		FTexturePayloadInspection Result;
-		const FTextureSourceDiagnostic SourceDiagnostic = Texture.InspectSource();
+		const bool bImportedDataValid = Texture.GetImportedData().IsValid();
 		Result.Entries.push_back({
 			.Domain = "Texture2D", .Stage = ETexturePayloadStage::Source,
-			.State = MapSourceState(SourceDiagnostic.Status),
-			.Repair = SourceDiagnostic.Status == ETextureSourceStatus::Available
-				? ETexturePayloadRepairAction::None : ETexturePayloadRepairAction::ReimportSource,
+			.State = bImportedDataValid
+				? ETexturePayloadState::Available : ETexturePayloadState::Missing,
+			.Repair = bImportedDataValid
+				? ETexturePayloadRepairAction::None
+				: ETexturePayloadRepairAction::RestoreEditorCompanion,
 			.LogicalElementCount = Multiply(Texture.GetSourceWidth(), Texture.GetSourceHeight()),
 			.LogicalByteCount = Texture.GetSourceFileSize(),
 			.StoredByteCount = Texture.GetSourceFileSize(),
-			.Placement = "SourceFile",
+			.Placement = "EditorBulkData",
 			.Provenance = Texture.GetSourceFile(),
-			.Diagnostic = SourceDiagnostic.Message});
+			.Diagnostic = bImportedDataValid
+				? "Canonical imported pixels are authored; the optional source hint was not probed."
+				: "Canonical imported pixels are missing or invalid."});
 		const FTextureDerivedDataDiagnostic& Derived = Texture.GetDerivedDataDiagnostic();
 		Result.Entries.push_back({
 			.Domain = "Texture2D", .Stage = ETexturePayloadStage::DerivedData,

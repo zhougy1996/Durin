@@ -17,13 +17,13 @@
 #include "Materials/MaterialTypes.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "NativeTestSupport.h"
 #include "RenderResource.h"
 #include "RenderingThread.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
-#include "AssetForgeBuiltinsAssetTestSupport.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
@@ -61,7 +61,8 @@ namespace Durin
 		OrdinaryGraphRendersReloadsAndResavesDeterministically)
 	{
 		InitializeDObjectSystem();
-		ASSERT_TRUE(Tests::InstallAssetForgeBuiltinsAssetFeatures());
+		FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+		FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 		InitRenderingThread();
 		const std::filesystem::path Root =
 			Testing::GetTestWorkDirectory() / "EditorMixedV4Rendering";
@@ -235,7 +236,8 @@ namespace Durin
 		MaterialSnapshotSurvivesTextureReplacementProxyClosureAndAssetUnload)
 	{
 		InitializeDObjectSystem();
-		ASSERT_TRUE(Tests::InstallAssetForgeBuiltinsAssetFeatures());
+		FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+		FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 		InitRenderingThread();
 		const std::filesystem::path Root = Testing::GetTestWorkDirectory() / "EditorTextureSmoke";
 		static std::unordered_set<std::filesystem::path> InitializedRoots;

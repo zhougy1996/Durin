@@ -15,7 +15,6 @@
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
-#include "AssetForgeBuiltinsAssetFeatures.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 #include "Thumbnail/StaticMeshAssetThumbnail.h"
 #include "Thumbnail/TextureCubeAssetThumbnail.h"
@@ -304,17 +303,6 @@ namespace Durin::Tests
 	) -> bool
 	{
 		InitializeDObjectSystem();
-		static FModuleTestOwner AssetContext("RenderedAssetThumbnailFixtures.Assets");
-		static AssetForge::Builtins::FAssetForgeBuiltinsAssetFeatures AssetFeatures;
-		static auto StaticMeshPostLoad =
-			AssetContext.RegisterFeature<IStaticMeshPostLoadFeature>(AssetFeatures);
-		static auto Texture2DPostLoad =
-			AssetContext.RegisterFeature<ITexture2DPostLoadFeature>(AssetFeatures);
-		static auto TextureCubePostLoad =
-			AssetContext.RegisterFeature<ITextureCubePostLoadFeature>(AssetFeatures);
-		(void)StaticMeshPostLoad;
-		(void)Texture2DPostLoad;
-		(void)TextureCubePostLoad;
 		const std::filesystem::path Root = GetRenderedAssetThumbnailFixtureRoot();
 		static std::unordered_map<std::filesystem::path, FRenderedAssetThumbnailFixtureSet> CachedFixtures;
 		if (auto It = CachedFixtures.find(Root); It != CachedFixtures.end())

@@ -2,14 +2,20 @@
 
 #include "Asset/AssetImportData.h"
 #include "Asset/Cook.h"
+#include "Asset/EditorBulkData.h"
 #include "Asset/SourcePath.h"
 #include "DObject/Object.h"
 #include "EngineAPI.h"
+#include "Hash/XxHash.h"
 
 #include "TerrainHeightmap.gen.h"
 
 namespace Durin
 {
+	inline constexpr FGuid TerrainHeightmapImportedSamplesPayloadId{
+		0x5a7a7583, 0x8bb74d51, 0xa0df56f5, 0x2cd48376};
+	inline constexpr uint32 TerrainHeightmapImportedDataSchemaVersion = 1;
+
 	// Identifies the publication state of the immutable heightmap CPU payload.
 	DENUM(DisplayName = "Terrain Heightmap Status")
 	enum class ETerrainHeightmapStatus : uint8
@@ -18,7 +24,6 @@ namespace Durin
 		Loading,
 		Rebuilding,
 		Ready,
-		SourceUnavailable,
 		Failed
 	};
 
@@ -48,6 +53,31 @@ namespace Durin
 			return SourceContentHashLow != 0 || SourceContentHashHigh != 0;
 		}
 		auto operator==(const FTerrainHeightmapSourceImportData&) const -> bool = default;
+	};
+
+	// Owns the decoder-free row-major uint16 samples used by every Terrain build.
+	DSTRUCT()
+	struct FTerrainHeightmapImportedData
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		Asset::FEditorBulkData Samples;
+
+		DPROPERTY()
+		uint32 Width = 0;
+
+		DPROPERTY()
+		uint32 Height = 0;
+
+		DPROPERTY()
+		uint32 SchemaVersion = TerrainHeightmapImportedDataSchemaVersion;
+
+		ENGINE_API auto IsValid() const -> bool;
+		ENGINE_API auto SetSamples(uint32 InWidth, uint32 InHeight,
+			std::span<const uint16> InSamples) -> bool;
+		ENGINE_API auto GetSamples() const -> std::vector<uint16>;
+		ENGINE_API auto GetIdentity() const -> FXxHash128;
 	};
 
 	// Stores one exact min/max node in level-major, row-major order.
@@ -129,6 +159,8 @@ namespace Durin
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 
 		auto GetPayload() const -> std::shared_ptr<const FTerrainHeightmapPayload> { return Payload; }
+		auto GetImportedData() const -> const FTerrainHeightmapImportedData& { return ImportedData; }
+		auto GetImportedDataIdentity() const -> FXxHash128 { return ImportedData.GetIdentity(); }
 		auto GetWidth() const -> uint32 { return Width; }
 		auto GetHeight() const -> uint32 { return Height; }
 		auto GetMinimum() const -> uint16 { return Minimum; }
@@ -143,9 +175,15 @@ namespace Durin
 		auto GetSourceFile() const -> const std::string&
 		{
 			if (const AssetImport::FSourceFile* Source = GetImportedSource())
-				return Source->Filename;
+				return Source->Hint;
 			static const std::string Empty;
 			return Empty;
+		}
+		auto GetSourceHintBase() const -> AssetImport::ESourceHintBase
+		{
+			if (const AssetImport::FSourceFile* Source = GetImportedSource())
+				return Source->HintBase;
+			return AssetImport::ESourceHintBase::AssetRelative;
 		}
 		auto GetAssetImportData() const -> const AssetImport::DAssetImportData*
 		{
@@ -171,8 +209,6 @@ namespace Durin
 			uint32 MinX, uint32 MinY, uint32 MaxX, uint32 MaxY,
 			uint16& OutMinimum, uint16& OutMaximum) const -> bool;
 		ENGINE_API auto PublishDerivedDataLoadResult(
-			uint64 InSourceFileSize,
-			int64 InSourceLastWriteTime,
 			std::shared_ptr<const FTerrainHeightmapPayload> InPayload,
 			std::string InDerivedDataKey,
 			std::string InDiagnostic,
@@ -204,10 +240,7 @@ namespace Durin
 		TObjectPtr<AssetImport::DAssetImportData> AssetImportData;
 
 		DPROPERTY(EditorOnly)
-		uint64 SourceFileSize = 0;
-
-		DPROPERTY(EditorOnly)
-		int64 SourceLastWriteTime = 0;
+		FTerrainHeightmapImportedData ImportedData;
 
 		DPROPERTY(EditorOnly)
 		uint32 SourceBitDepth = 0;

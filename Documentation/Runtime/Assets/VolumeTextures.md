@@ -42,21 +42,21 @@ produce `R8_UNORM`; `rgba` preserves all four channels as `RGBA8_UNORM`. Luminan
 `(54R + 183G + 19B + 128) / 256` using integer arithmetic.
 
 The PNG dimensions must exactly equal `(slice width * columns) x (slice height *
-rows)`, the grid must contain at least `depth` cells, and decoded image and volume
-sizes are bounded before allocation. `FVolumeTextureSourceImportData` serializes
-the mounted PNG path and XXH3-128 hash together with the visible import format,
-channel selection, slice dimensions, depth, grid, and decoder version. Generic
-Details exposes the source path and interpretation as read-only asset properties.
+rows)`, the grid must contain at least `depth` cells, and decoded image and
+volume sizes are bounded before allocation. `DVolumeTextureImportData` schema 2
+serializes an optional explicitly based source hint and XXH3-128 provenance
+together with the visible import format, channel selection, slice dimensions,
+depth, grid, and decoder version. Details may display the hint and
+interpretation as read-only properties, but never probes the physical file.
 
-External single-PNG imports default to the flat mounted path
-`Sources/VolumeTextures/<source>.png`; they do not create a redundant
-asset-named source directory. Imports copy the PNG beneath the selected mounted
-source location, save the `.dasset`, and only then commit the source copy. The shared `DurinImage`
-source translator supplies immutable snapshots, reimport, and source repair. A missing or
-malformed PNG, extent mismatch, build failure, stale publication, or save failure
-leaves the previous asset and render resource intact. Cook excludes normalized
-authoring source and provenance by default and never loads a PNG decoder at
-runtime.
+Import and Reimport From File capture the selected PNG without copying or
+moving it. The shared `DurinImage` decoder translates that immutable capture
+into canonical voxels before live-state commit. Reimport resolves the retained
+hint only after explicit invocation. A missing or malformed PNG, extent
+mismatch, build failure, or cancellation leaves the previous asset and render
+resource intact; a save failure preserves the prior disk bundle and leaves the
+complete new live state Dirty. Cook excludes normalized authoring data and
+provenance by default and never loads a PNG decoder at runtime.
 
 Runtime platform data owns the selected `EPixelFormat` and a complete mip chain.
 Every `FVolumeTextureMipData` records width, height, depth, exact row pitch,
@@ -75,9 +75,10 @@ floating inputs must be finite. Numeric filtering explicitly converts at the
 `std::byte` boundary; cached, cooked, mip, and RHI upload bytes retain their
 `uint8` platform representation and byte identity.
 
-The canonical DDC key includes source bytes and dimensions, source/output
-format, mip filter, builder and payload schema versions, and Win64/Game target
-identity. A validated cache hit and a rebuild publish the same platform value.
+The canonical DDC key includes the canonical voxel identity and dimensions,
+source/output format, mip filter, builder and payload schema versions, and
+Win64/Game target identity. It excludes source hints and physical files. A
+validated cache hit and a rebuild publish the same platform value.
 Corrupt or incompatible entries are misses; a failed candidate never replaces
 the asset's last-known-good CPU or GPU result. Engine reaches the uncooked
 post-load policy through `IVolumeTexturePostLoadFeature`, preserving the
@@ -101,8 +102,8 @@ placement and replacement remain authored-only capabilities.
 Ordinary and explicit saves emit DURF/DAST v6 and only the authored BulkData
 field. Small voxel values stay
 inline. External values produce one matching Payload Directory entry and the
-stable `<package-stem>.dabulk` DURF/DABK v2 companion. Reimport, repair, and
-canonical resave use the same writer; there is no legacy rollback route.
+stable `<package-stem>.dabulk` DURF/DABK v2 companion. Reimport and canonical
+resave use the same writer; there is no legacy rollback route.
 
 The 256 KiB authoring threshold changes placement,
 not reflection identity, DDC key input, platform payload, cooked DBLK, or upload

@@ -15,6 +15,8 @@ namespace Durin::Asset
 				return false;
 			}
 			if (Input.ProviderIdentity.empty() || Input.ProviderVersion == 0
+				|| Input.ImportedDataIdentity.IsZero()
+				|| Input.PayloadInputFingerprint.IsZero()
 				|| Input.StableOutputIdentity.empty()
 				|| Input.SkeletonCompatibilityIdentity.empty()
 				|| Input.TargetPlatform != ESkeletalPayloadTargetPlatform::Win64
@@ -52,9 +54,8 @@ namespace Durin::Asset
 			Ar << BuilderVersion << PayloadVersion << Platform << Profile;
 			SerializeVersionOneString(Input.ProviderIdentity);
 			Ar << Input.ProviderVersion
-				<< Input.SourceClosureHash.HashLow << Input.SourceClosureHash.HashHigh
-				<< Input.SettingsHash.HashLow << Input.SettingsHash.HashHigh
-				<< Input.ProviderStateHash.HashLow << Input.ProviderStateHash.HashHigh
+				<< Input.ImportedDataIdentity.HashLow
+				<< Input.ImportedDataIdentity.HashHigh
 				<< Input.PayloadInputFingerprint.HashLow
 				<< Input.PayloadInputFingerprint.HashHigh;
 			SerializeVersionOneString(Input.StableOutputIdentity);

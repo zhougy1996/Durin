@@ -23,6 +23,57 @@ namespace Durin
 
 	}
 
+	auto FTerrainHeightmapImportedData::IsValid() const -> bool
+	{
+		const Asset::FBulkData& Bulk = Samples.GetBulkData();
+		const uint64 Count = static_cast<uint64>(Width) * Height;
+		return SchemaVersion == TerrainHeightmapImportedDataSchemaVersion
+			&& Width >= 2 && Height >= 2
+			&& Width <= MaximumTerrainHeightmapDimension
+			&& Height <= MaximumTerrainHeightmapDimension
+			&& Count <= MaximumTerrainHeightmapSamples
+			&& Bulk.GetDescriptor().PayloadId == TerrainHeightmapImportedSamplesPayloadId
+			&& Bulk.GetBytes().size() == Count * sizeof(uint16);
+	}
+
+	auto FTerrainHeightmapImportedData::SetSamples(uint32 InWidth, uint32 InHeight,
+		std::span<const uint16> InSamples) -> bool
+	{
+		const uint64 Count = static_cast<uint64>(InWidth) * InHeight;
+		if (InWidth < 2 || InHeight < 2
+			|| InWidth > MaximumTerrainHeightmapDimension
+			|| InHeight > MaximumTerrainHeightmapDimension
+			|| Count > MaximumTerrainHeightmapSamples || Count != InSamples.size())
+			return false;
+		const std::span<const std::byte> Bytes = std::as_bytes(InSamples);
+		if (!Samples.ReplaceBytes(TerrainHeightmapImportedSamplesPayloadId, Bytes))
+			return false;
+		Width = InWidth;
+		Height = InHeight;
+		SchemaVersion = TerrainHeightmapImportedDataSchemaVersion;
+		return IsValid();
+	}
+
+	auto FTerrainHeightmapImportedData::GetSamples() const -> std::vector<uint16>
+	{
+		if (!IsValid()) return {};
+		const std::span<const std::byte> Bytes = Samples.GetBulkData().GetBytes();
+		std::vector<uint16> Result(Bytes.size() / sizeof(uint16));
+		std::memcpy(Result.data(), Bytes.data(), Bytes.size());
+		return Result;
+	}
+
+	auto FTerrainHeightmapImportedData::GetIdentity() const -> FXxHash128
+	{
+		if (!IsValid()) return {};
+		FXxHash128Builder Builder;
+		Builder.UpdateValue(SchemaVersion);
+		Builder.UpdateValue(Width);
+		Builder.UpdateValue(Height);
+		Builder.Update(Samples.GetBulkData().GetBytes());
+		return Builder.Finalize();
+	}
+
 	auto BuildTerrainHeightmapPayload(
 		uint32 Width,
 		uint32 Height,
@@ -324,8 +375,6 @@ namespace Durin
 	}
 
 	auto DTerrainHeightmap::PublishDerivedDataLoadResult(
-		uint64 InSourceFileSize,
-		int64 InSourceLastWriteTime,
 		std::shared_ptr<const FTerrainHeightmapPayload> InPayload,
 		std::string InDerivedDataKey,
 		std::string InDiagnostic,
@@ -334,12 +383,17 @@ namespace Durin
 		bool bInLoadedFromDerivedDataCache) -> void
 	{
 		++DerivedDataLoadGeneration;
-		SourceFileSize = InSourceFileSize;
-		SourceLastWriteTime = InSourceLastWriteTime;
 		SourceBitDepth = 16;
 		SourceChannelCount = 1;
 		DerivedDataKey = std::move(InDerivedDataKey);
 		bLoadedFromDerivedDataCache = bInLoadedFromDerivedDataCache;
+		if (bMarkPackageDirty && InPayload && InPayload->IsValid())
+		{
+			FTerrainHeightmapImportedData Candidate;
+			check(Candidate.SetSamples(
+				InPayload->Width, InPayload->Height, InPayload->Samples));
+			ImportedData = std::move(Candidate);
+		}
 		PublishPayload(std::move(InPayload), bAdvanceRevision);
 		SetBoundedDiagnostic(LastDiagnostic, std::move(InDiagnostic));
 		if (bMarkPackageDirty) MarkPackageDirty();
@@ -364,8 +418,7 @@ namespace Durin
 		uint64 Generation, ETerrainHeightmapStatus FailureStatus, std::string Diagnostic) -> bool
 	{
 		if (!IsDerivedDataLoadCurrent(Generation)
-			|| (FailureStatus != ETerrainHeightmapStatus::SourceUnavailable
-				&& FailureStatus != ETerrainHeightmapStatus::Failed)) return false;
+			|| FailureStatus != ETerrainHeightmapStatus::Failed) return false;
 		++DerivedDataLoadGeneration;
 		Status = FailureStatus;
 		SetBoundedDiagnostic(LastDiagnostic, std::move(Diagnostic));
@@ -386,6 +439,11 @@ namespace Durin
 			return false;
 		}
 		PublishPayload(std::move(Candidate), true);
+		if (!ImportedData.SetSamples(InWidth, InHeight, InSamples))
+		{
+			OutError = "Terrain heightmap canonical imported samples could not be retained.";
+			return false;
+		}
 		DerivedDataKey.clear();
 		bLoadedFromDerivedDataCache = false;
 		LastDiagnostic = "Built canonical terrain heightmap payload from exact samples.";
@@ -455,13 +513,13 @@ namespace Durin
 		std::string& OutError) -> bool
 	{
 		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64
-			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game
-			|| !Payload || !Payload->IsValid())
+			|| Context.GetTargetProfile() != Asset::ECookTargetProfile::Game)
 		{
 			OutError = std::format(
 				"Terrain heightmap '{}' is not ready for a Win64 game cook.", GetObjectPath());
 			return false;
 		}
+		if ((!Payload || !Payload->IsValid()) && !PostLoad(OutError)) return false;
 		std::vector<std::byte> PayloadBytes;
 		FCanonicalMemoryWriter CookAr(PayloadBytes, EArchivePurpose::CookedPayload);
 		const_cast<FTerrainHeightmapPayload&>(*Payload).Serialize(
@@ -533,8 +591,7 @@ namespace Durin
 	auto DTerrainHeightmap::ExchangeImportedState(DTerrainHeightmap& Other) noexcept -> void
 	{
 		if (&Other == this) return;
-		std::swap(SourceFileSize, Other.SourceFileSize);
-		std::swap(SourceLastWriteTime, Other.SourceLastWriteTime);
+		std::swap(ImportedData, Other.ImportedData);
 		std::swap(SourceBitDepth, Other.SourceBitDepth);
 		std::swap(SourceChannelCount, Other.SourceChannelCount);
 		std::swap(Width, Other.Width);

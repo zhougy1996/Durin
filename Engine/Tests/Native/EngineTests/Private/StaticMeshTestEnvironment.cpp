@@ -1,7 +1,7 @@
 #include "EngineTestSupport.h"
+#include "Asset/AssetCompilingManager.h"
 #include "Modules/ModuleManager.h"
 #include "RenderingThread.h"
-#include "AssetForgeBuiltinsAssetTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -14,8 +14,10 @@ namespace
 		auto SetUp() -> void override
 		{
 			InitializeDObjectSystem();
+			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 			Durin::FModuleManager::Get().LoadModule("StaticMeshBuild");
-			ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAssetFeatures());
+			Durin::FModuleManager::Get().LoadModule("TextureBuild");
+			Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 			ASSERT_EQ(
 				Durin::GetRenderCommandAdmissionState(),
 				Durin::ERenderCommandAdmissionState::Stopped);
@@ -29,6 +31,7 @@ namespace
 				Durin::ERenderCommandAdmissionState::Running);
 			Durin::FlushRenderingCommands();
 			Durin::ShutdownRenderingThread();
+			Durin::ShutdownAssetCompilingManager();
 		}
 	};
 

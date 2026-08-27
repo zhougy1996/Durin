@@ -64,7 +64,7 @@ namespace Durin::Asset
 			Definition, OutError)) return false;
 		const FBuildOutput Output = FBuildSession().Build(Definition, {
 			.bQueryCache = true, .bAllowLocalBuild = true,
-			.bStoreBuildResult = true, .bRequireStoreSuccess = true,
+			.bStoreBuildResult = true, .bRequireStoreSuccess = false,
 			.bReturnData = true});
 		if (!Output.Succeeded())
 		{
@@ -76,7 +76,8 @@ namespace Durin::Asset
 			Output.Value, *PlatformData, OutError)) return false;
 		OutProduct = {.SourceData = std::move(SourceData), .Settings = Settings,
 			.PlatformData = std::move(PlatformData), .DerivedDataKey = Key,
-			.bCacheHit = Output.Status == EBuildStatus::CacheHit};
+			.bCacheHit = Output.Status == EBuildStatus::CacheHit,
+			.PersistenceDiagnostic = Output.StoreDiagnostic};
 		OutError.clear();
 		return true;
 	}
@@ -85,7 +86,8 @@ namespace Durin::Asset
 		FVolumeTextureBuildProduct Product, std::string& OutError) -> bool
 	{
 		return Texture.PublishBuiltData(std::move(Product.SourceData), Product.Settings,
-			std::move(Product.PlatformData), std::move(Product.DerivedDataKey), OutError);
+			std::move(Product.PlatformData), std::move(Product.DerivedDataKey),
+			std::move(Product.PersistenceDiagnostic), OutError);
 	}
 
 	auto MakeVolumeTextureDerivedDataKey(const DVolumeTexture& Texture,

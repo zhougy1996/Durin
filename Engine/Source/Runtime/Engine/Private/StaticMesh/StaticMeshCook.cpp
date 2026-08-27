@@ -77,12 +77,16 @@ namespace Durin
 				return false;
 			}
 		}
-		if (!GetImportedSource())
+		if (!GetImportedData().IsValid() && !GetImportedSource())
 		{
 			OutError.clear();
 			return true;
 		}
-
+		if (!GetImportedData().IsValid())
+		{
+			OutError = "StaticMesh canonical imported geometry is missing or invalid.";
+			return false;
+		}
 		return InvokeStaticMeshPostLoadFeature(*this, DerivedDataDiagnostic, OutError);
 	}
 	auto DStaticMesh::LoadCookedRenderData(std::string& OutError) -> bool

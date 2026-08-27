@@ -904,11 +904,27 @@ namespace Durin::Editor::ContentBrowser::Private
 					: ::Durin::Editor::Import::EBuiltinReimportFamily::None;
 			if (Family != ::Durin::Editor::Import::EBuiltinReimportFamily::None)
 			{
+				if (CanReimport && CanReimport(Item.VirtualPath))
+				{
+					ImGui::BeginDisabled(!bAllowAssetMutation);
+					if (ImGui::MenuItem("Reimport"))
+						QueueContentAction([this, Family, Path = Item.VirtualPath] {
+							if (Reimport)
+								Reimport(Family,
+									::Durin::Editor::Import::EBuiltinReimportMode::RetainedHint,
+									Path, [this](std::string Message) {
+										SetError(std::move(Message));
+									});
+						});
+					ImGui::EndDisabled();
+				}
 				ImGui::BeginDisabled(!bAllowAssetMutation);
-				if (ImGui::MenuItem("Reimport from Current Source"))
+				if (ImGui::MenuItem("Reimport From File..."))
 					QueueContentAction([this, Family, Path = Item.VirtualPath] {
 						if (Reimport)
-							Reimport(Family, Path, [this](std::string Message) {
+							Reimport(Family,
+								::Durin::Editor::Import::EBuiltinReimportMode::FromFile,
+								Path, [this](std::string Message) {
 								SetError(std::move(Message));
 							});
 					});

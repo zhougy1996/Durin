@@ -21,6 +21,7 @@ namespace Durin
 	{
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
 		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
+		FStaticMeshImportedData ImportedData;
 		FStaticMeshSourceImportData SourceImportData;
 		float NormalizedSize = 1.5f;
 		std::string DerivedDataKey;
@@ -31,6 +32,7 @@ namespace Durin
 			"Built imported StaticMesh and populated the DDC.";
 		bool bSourceImporterInvoked = true;
 		bool bMarkPackageDirty = true;
+		bool bContainsImportedData = false;
 		EStaticMeshBuildFailureStage FailureStage =
 			EStaticMeshBuildFailureStage::None;
 	};
@@ -44,20 +46,6 @@ namespace Durin
 		std::string DerivedDataKey;
 		std::string Diagnostic;
 		uint64 PayloadBytes = 0;
-	};
-
-	class IStaticMeshBuildFeature : public IModularFeature
-	{
-	public:
-		static constexpr std::string_view FeatureName = "Engine.StaticMeshBuild";
-		static constexpr uint32 FeatureVersion = 1;
-		virtual auto BuildFileProduct(
-			DStaticMesh& Mesh,
-			std::string_view SourcePath,
-			FStaticMeshSourceImportData SourceImportData,
-			std::string_view SourceContentHash,
-			FStaticMeshBuildProduct& OutProduct,
-			std::string& OutError) -> bool = 0;
 	};
 
 	class IStaticMeshCollisionBuildFeature : public IModularFeature

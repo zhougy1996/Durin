@@ -13,6 +13,7 @@ namespace Durin::Asset
 		std::unique_ptr<FVolumeTexturePlatformData> PlatformData;
 		std::string DerivedDataKey;
 		bool bCacheHit = false;
+		std::string PersistenceDiagnostic;
 	};
 
 	TEXTUREBUILD_API auto BuildVolumeTexture(

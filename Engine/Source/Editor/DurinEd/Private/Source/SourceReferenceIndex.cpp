@@ -74,7 +74,7 @@ namespace Durin::Editor
 				Inspection, ImportInfo, ImportInfoError))
 			{
 				for (const AssetImport::FSourceFile& Source : ImportInfo.Sources)
-					AddReference(References, Data, Source.Filename);
+					AddReference(References, Data, Source.Hint);
 				return true;
 			}
 

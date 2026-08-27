@@ -66,7 +66,7 @@ public:
 	std::optional<Durin::FViewEnvironmentOverride> LastEnvironment;
 };
 
-TEST(FTextureAssetThumbnailTests, Texture2DProviderCapturesAuthoredSourceImage)
+TEST(FTextureAssetThumbnailTests, Texture2DProviderNeverCapturesReimportSource)
 {
 	Durin::Tests::FRenderedAssetThumbnailFixtureSet Fixtures;
 	std::string Error;
@@ -81,10 +81,10 @@ TEST(FTextureAssetThumbnailTests, Texture2DProviderCapturesAuthoredSourceImage)
 	ASSERT_NE(Data, nullptr);
 	Durin::Editor::Texture::FTexture2DAssetThumbnailProvider Provider;
 	Durin::Editor::FAssetThumbnailSourceImage Source;
-	ASSERT_TRUE(Provider.CaptureSourceImage(*Data, Source, Error)) << Error;
-	EXPECT_FALSE(Source.PhysicalPath.empty());
-	EXPECT_GT(Source.FileSize, 0u);
-	EXPECT_TRUE(std::filesystem::exists(Source.PhysicalPath));
+	EXPECT_FALSE(Provider.UsesSourceImage());
+	EXPECT_FALSE(Provider.CaptureSourceImage(*Data, Source, Error));
+	EXPECT_TRUE(Source.PhysicalPath.empty());
+	EXPECT_FALSE(Error.empty());
 }
 
 TEST(FTextureAssetThumbnailTests, ModuleOwnsBothExactProvidersAndWorkspaceLifecycle)
@@ -99,7 +99,7 @@ TEST(FTextureAssetThumbnailTests, ModuleOwnsBothExactProvidersAndWorkspaceLifecy
 		Durin::DTextureCube::StaticClass()->GetQualifiedName().ToString();
 	ASSERT_TRUE(Module.RegisterTextureEditor(Manager, Service));
 	EXPECT_TRUE(Service.Find(Texture2DClass));
-	EXPECT_TRUE(Service.UsesSourceImage(Texture2DClass));
+	EXPECT_FALSE(Service.UsesSourceImage(Texture2DClass));
 	EXPECT_TRUE(Service.Find(TextureCubeClass));
 	EXPECT_NE(Manager.FindWorkspace(
 		Durin::Editor::FWorkspaceTypeId("TextureEditor")), nullptr);

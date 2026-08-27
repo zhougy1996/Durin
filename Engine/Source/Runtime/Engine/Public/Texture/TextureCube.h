@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Asset/AssetImportData.h"
+#include "Asset/EditorBulkData.h"
 #include "EngineAPI.h"
 #include "RHIDefinitions.h"
 #include "RHIResources.h"
@@ -11,6 +12,12 @@
 
 namespace Durin
 {
+	inline constexpr FGuid TextureCubeImportedFacesPayloadId{
+		0x8b2cd073, 0x19654a69, 0x8730d84e, 0x54fd72e1};
+	inline constexpr uint32 TextureCubeImportedDataSchemaVersion = 1;
+	inline constexpr uint64 MaximumTextureCubeImportedPixelBytes =
+		512ull * 1024ull * 1024ull;
+
 	DENUM(DisplayName = "Texture Cube Source Layout")
 	enum class ETextureCubeSourceLayout : uint8
 	{
@@ -23,6 +30,33 @@ namespace Durin
 		std::array<FTextureSourceData, TextureCubeFaceCount> Faces;
 
 		ENGINE_API auto IsValid() const -> bool;
+	};
+
+	// Owns the six decoder-free RGBA8 faces used by every cube build.
+	DSTRUCT()
+	struct FTextureCubeImportedData
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		Asset::FEditorBulkData Pixels;
+
+		DPROPERTY()
+		uint32 FaceDimension = 0;
+
+		DPROPERTY()
+		uint8 SourceChannelCount = 0;
+
+		DPROPERTY()
+		uint8 TransparencyMask = 0;
+
+		DPROPERTY()
+		uint32 SchemaVersion = TextureCubeImportedDataSchemaVersion;
+
+		ENGINE_API auto IsValid() const -> bool;
+		ENGINE_API auto SetSourceData(const FTextureCubeSourceData& Source) -> bool;
+		ENGINE_API auto ToSourceData() const -> FTextureCubeSourceData;
+		ENGINE_API auto GetIdentity() const -> FXxHash128;
 	};
 
 	struct FTextureCubePlatformData
@@ -52,7 +86,7 @@ namespace Durin
 			if (AssetImportData)
 				if (const AssetImport::FSourceFile* Source =
 						AssetImportData->GetSourceData().FindByRole("panorama"))
-					return Source->Filename;
+					return Source->Hint;
 			static const std::string Empty;
 			return Empty;
 		}
@@ -74,6 +108,8 @@ namespace Durin
 		ENGINE_API auto GetBuiltMipCount() const -> uint32;
 		ENGINE_API auto GetBuiltPixelFormat() const -> EPixelFormat;
 		auto GetSourceData() const -> const FTextureCubeSourceData* { return SourceData.get(); }
+		auto GetImportedData() const -> const FTextureCubeImportedData& { return ImportedData; }
+		auto GetImportedDataIdentity() const -> FXxHash128 { return ImportedData.GetIdentity(); }
 		auto GetPlatformData() const -> const FTextureCubePlatformData* { return PlatformData.get(); }
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
 		auto GetDerivedDataDiagnostic() const -> const FTextureDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
@@ -125,6 +161,9 @@ namespace Durin
 
 		DPROPERTY(EditorOnly)
 		TObjectPtr<AssetImport::DAssetImportData> AssetImportData;
+
+		DPROPERTY(EditorOnly)
+		FTextureCubeImportedData ImportedData;
 
 		DPROPERTY(DisplayName = "Panorama Face Dimension")
 		uint32 PanoramaFaceDimension = 0;

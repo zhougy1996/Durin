@@ -320,7 +320,7 @@ namespace Durin::Editor::Texture
 		const AssetImport::FSourceFile* ImportedSource = Import
 			? Import->GetSourceData().FindByRole("source") : nullptr;
 		DrawFact("Source file", ImportedSource
-			? ImportedSource->Filename : "No source filename");
+			? ImportedSource->Hint : "No source hint");
 		if (Import)
 		{
 			const AssetForge::Builtins::FVolumeTextureImportDataState State =

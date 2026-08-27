@@ -10,13 +10,13 @@
 #include "Materials/MaterialInstance.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 #include "RenderingThread.h"
 #include "AssetForge/Builtins/SceneImport.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 #include "SkeletalMesh/Skeleton.h"
-#include "AssetForgeBuiltinsAssetTestSupport.h"
 #include "Thumbnail/SkeletalMeshAssetThumbnail.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 
@@ -174,7 +174,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 		ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));
 		std::string Error;
-		ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAssetFeatures());
+		Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 		Durin::DMaterial* StandardMaterial =
 			Durin::AssetForge::Builtins::EnsureImportedSurfaceMaterial(Error);
 		ASSERT_NE(StandardMaterial, nullptr) << Error;

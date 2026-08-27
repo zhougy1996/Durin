@@ -13,7 +13,6 @@
 #include "PBRLighting.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
-#include "AssetForgeBuiltinsAssetFeatures.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
@@ -76,17 +75,8 @@ namespace
 
 TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDifferences)
 {
-	static Durin::FModuleTestOwner AssetContext("MaterialVulkanTests.Assets");
-	static Durin::AssetForge::Builtins::FAssetForgeBuiltinsAssetFeatures AssetFeatures;
-	static auto StaticMeshPostLoad =
-		AssetContext.RegisterFeature<Durin::IStaticMeshPostLoadFeature>(AssetFeatures);
-	static auto Texture2DPostLoad =
-		AssetContext.RegisterFeature<Durin::ITexture2DPostLoadFeature>(AssetFeatures);
-	static auto TextureCubePostLoad =
-		AssetContext.RegisterFeature<Durin::ITextureCubePostLoadFeature>(AssetFeatures);
-	(void)StaticMeshPostLoad;
-	(void)Texture2DPostLoad;
-	(void)TextureCubePostLoad;
+	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 	InitializeDObjectSystem();
 	std::string StaticMeshProviderError;
 	Durin::Editor::FAssetThumbnailProviderRegistrationHandle StaticMeshProvider =

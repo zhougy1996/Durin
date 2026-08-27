@@ -60,6 +60,76 @@ namespace Durin
 		return ValidateCubeSourceData(*this, Error);
 	}
 
+	auto FTextureCubeImportedData::IsValid() const -> bool
+	{
+		const Asset::FBulkData& BulkData = Pixels.GetBulkData();
+		const uint64 ExpectedByteCount = static_cast<uint64>(FaceDimension)
+			* FaceDimension * 4ull * TextureCubeFaceCount;
+		return SchemaVersion == TextureCubeImportedDataSchemaVersion
+			&& BulkData.GetDescriptor().PayloadId == TextureCubeImportedFacesPayloadId
+			&& FaceDimension > 0 && FaceDimension <= 16384
+			&& SourceChannelCount > 0 && SourceChannelCount <= 4
+			&& ExpectedByteCount == BulkData.GetBytes().size()
+			&& ExpectedByteCount <= MaximumTextureCubeImportedPixelBytes
+			&& (TransparencyMask & ~0x3fu) == 0;
+	}
+
+	auto FTextureCubeImportedData::SetSourceData(
+		const FTextureCubeSourceData& Source) -> bool
+	{
+		if (!Source.IsValid()) return false;
+		std::vector<std::byte> Bytes;
+		const uint64 TotalBytes = static_cast<uint64>(Source.Faces[0].Pixels.size())
+			* TextureCubeFaceCount;
+		if (TotalBytes > MaximumTextureCubeImportedPixelBytes) return false;
+		Bytes.reserve(static_cast<size_t>(TotalBytes));
+		uint8 NewTransparencyMask = 0;
+		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
+		{
+			const FTextureSourceData& Face = Source.Faces[Index];
+			Bytes.insert(Bytes.end(), Face.Pixels.begin(), Face.Pixels.end());
+			if (Face.bHasTransparency) NewTransparencyMask |= static_cast<uint8>(1u << Index);
+		}
+		if (!Pixels.ReplaceBytes(TextureCubeImportedFacesPayloadId, Bytes)) return false;
+		FaceDimension = Source.Faces[0].Width;
+		SourceChannelCount = Source.Faces[0].SourceChannelCount;
+		TransparencyMask = NewTransparencyMask;
+		SchemaVersion = TextureCubeImportedDataSchemaVersion;
+		return IsValid();
+	}
+
+	auto FTextureCubeImportedData::ToSourceData() const -> FTextureCubeSourceData
+	{
+		FTextureCubeSourceData Result;
+		if (!IsValid()) return Result;
+		const std::span<const std::byte> Bytes = Pixels.GetBulkData().GetBytes();
+		const size_t FaceBytes = static_cast<size_t>(FaceDimension) * FaceDimension * 4;
+		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
+		{
+			const auto Face = Bytes.subspan(Index * FaceBytes, FaceBytes);
+			Result.Faces[Index] = {
+				.Pixels = std::vector<std::byte>(Face.begin(), Face.end()),
+				.Width = FaceDimension,
+				.Height = FaceDimension,
+				.SourceChannelCount = SourceChannelCount,
+				.Format = ETextureSourceFormat::RGBA8,
+				.bHasTransparency = (TransparencyMask & (1u << Index)) != 0};
+		}
+		return Result;
+	}
+
+	auto FTextureCubeImportedData::GetIdentity() const -> FXxHash128
+	{
+		if (!IsValid()) return {};
+		FXxHash128Builder Builder;
+		Builder.UpdateValue(SchemaVersion);
+		Builder.UpdateValue(FaceDimension);
+		Builder.UpdateValue(SourceChannelCount);
+		Builder.UpdateValue(TransparencyMask);
+		Builder.Update(Pixels.GetBulkData().GetBytes());
+		return Builder.Finalize();
+	}
+
 	auto FTextureCubePlatformData::IsValid() const -> bool
 	{
 		if (PixelFormat == EPixelFormat::Unknown) return false;
@@ -94,7 +164,7 @@ namespace Durin
 		if (AssetImportData && FaceIndex < Roles.size())
 			if (const AssetImport::FSourceFile* Source =
 					AssetImportData->GetSourceData().FindByRole(Roles[FaceIndex]))
-				return Source->Filename;
+				return Source->Hint;
 		static const std::string EmptySource;
 		return EmptySource;
 	}
@@ -310,6 +380,7 @@ namespace Durin
 	{
 		if (&Other == this) return;
 		std::swap(SourceLayout, Other.SourceLayout);
+		std::swap(ImportedData, Other.ImportedData);
 		std::swap(PanoramaFaceDimension, Other.PanoramaFaceDimension);
 		std::swap(PanoramaExposureEV, Other.PanoramaExposureEV);
 		std::swap(OriginalSourceWidth, Other.OriginalSourceWidth);
@@ -360,6 +431,13 @@ namespace Durin
 		FTextureDerivedDataDiagnostic InDiagnostic) -> void
 	{
 		check(InPlatformData && InPlatformData->IsValid());
+		if (InSourceData)
+		{
+			FTextureCubeImportedData Candidate;
+			check(Candidate.SetSourceData(*InSourceData));
+			ImportedData = std::move(Candidate);
+		}
+		check(ImportedData.IsValid());
 		SourceLayout = InSourceLayout;
 		PanoramaFaceDimension = InPanoramaFaceDimension;
 		PanoramaExposureEV = InPanoramaExposureEV;

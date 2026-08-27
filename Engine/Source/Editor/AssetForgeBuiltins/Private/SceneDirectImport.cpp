@@ -4,13 +4,14 @@
 #include "Asset.h"
 #include "Asset/AssetOperations.h"
 #include "Asset/AssetCompilingManager.h"
-#include "Asset/SourceFilename.h"
+#include "Asset/SourceHint.h"
 #include "Asset/PackageSerialization.h"
 #include "DObject/Package.h"
 #include "DObject/DObjectGlobals.h"
 #include "AssetForge/Builtins/Texture2DImportData.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
+#include "Misc/Paths.h"
 #include "SceneImportInternal.h"
 #include "Skeletal/SkeletalBuildOperations.h"
 #include "SkeletalMesh/SkeletalMesh.h"
@@ -54,35 +55,6 @@ namespace Durin::AssetForge::Builtins
 		auto IsCanceled(const std::function<bool()>& Predicate) -> bool
 		{
 			return Predicate && Predicate();
-		}
-
-		auto MakeSettingsHash(const FStaticMeshImportSettings& Settings) -> FXxHash128
-		{
-			std::array Values{Settings.ForwardAxis, Settings.RightAxis, Settings.UpAxis};
-			return FXxHash128::HashBuffer(std::as_bytes(std::span(Values)));
-		}
-
-		auto MakeClosureHash(const FSourceSnapshot& Snapshot) -> FXxHash128
-		{
-			FXxHash128Builder Builder;
-			for (const FSourceSnapshotEntry& Source : Snapshot.GetSources())
-			{
-				Builder.UpdateValue(static_cast<uint64>(Source.StableIdentity.size()));
-				Builder.Update(Source.StableIdentity);
-				Builder.UpdateValue(Source.ContentHash.HashLow);
-				Builder.UpdateValue(Source.ContentHash.HashHigh);
-			}
-			return Builder.Finalize();
-		}
-
-		auto MakeOutputStateHash(const FSceneOutputData& Output) -> FXxHash128
-		{
-			FXxHash128Builder Builder;
-			Builder.UpdateValue(Output.Kind);
-			Builder.UpdateValue(Output.SourceIndex);
-			Builder.UpdateValue(static_cast<uint64>(Output.StableIdentity.size()));
-			Builder.Update(Output.StableIdentity);
-			return Builder.Finalize();
 		}
 
 		auto MakeStableOutputOrder(
@@ -253,11 +225,8 @@ namespace Durin::AssetForge::Builtins
 			return AddError(OutResult, EImportDiagnosticCategory::Canceled,
 				"scene-capture", "Scene import was canceled before source capture.");
 
-		std::string RootFilename;
-		if (!AssetImport::MakeSourceFilename(
-			SourceFile, RootFilename, OutResult.Message))
-			return AddError(OutResult, EImportDiagnosticCategory::InvalidSource,
-				"scene-capture", OutResult.Message);
+		const std::string RootFilename = std::filesystem::absolute(
+			SourceFile).lexically_normal().generic_string();
 		FSourceSnapshotBuilder SnapshotBuilder(IsCancellationRequested);
 		if (!SnapshotBuilder.CaptureRootFilename(RootFilename, OutResult.Diagnostics)
 			|| !SnapshotBuilder.DiscoverSourceDependencies(
@@ -295,9 +264,6 @@ namespace Durin::AssetForge::Builtins
 		if (!Root)
 			return AddError(OutResult, EImportDiagnosticCategory::InvalidSource,
 				"scene-build", "Scene root source is unavailable.");
-		const FXxHash128 ClosureHash = MakeClosureHash(*Snapshot);
-		const FXxHash128 SettingsHash = MakeSettingsHash(Settings);
-
 		for (const size_t Index : OutputOrder)
 		{
 			if (IsCanceled(IsCancellationRequested))
@@ -347,12 +313,18 @@ namespace Durin::AssetForge::Builtins
 					return AddError(OutResult, EImportDiagnosticCategory::InvalidPlan,
 						"scene-build", "Scene Skeleton mapping is invalid.", Descriptor.StableIdentity);
 				const FImportedSkeletonData& Skeleton = Data->Scene.Skeletons[Imported.SkeletonIndex];
+				FSkeletalMeshImportedData Canonical;
+				if (!Canonical.Capture(*Imported.Payload,
+					static_cast<uint32>(Skeleton.Bones.size()),
+					static_cast<uint32>(Imported.MaterialSlots.size()), Error))
+					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
+						"scene-build", std::move(Error), Descriptor.StableIdentity);
 				Asset::FSkeletalMeshBuildKeyInput Key;
 				static_cast<Asset::FSkeletalBuildKeyFields&>(Key) = {
-					.ProviderIdentity = std::string(SceneImporterId), .ProviderVersion = 1,
-					.SourceClosureHash = ClosureHash, .SettingsHash = SettingsHash,
-					.ProviderStateHash = MakeOutputStateHash(Descriptor),
-					.StableOutputIdentity = Descriptor.StableIdentity,
+					.ProviderIdentity = "CanonicalSkeletalMesh",
+					.ProviderVersion = SkeletalMeshImportedDataSchemaVersion,
+					.ImportedDataIdentity = Canonical.GetIdentity(),
+					.StableOutputIdentity = Output.AssetPath.ToString(),
 					.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
 					.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
 					.TargetProfile = ESkeletalPayloadTargetProfile::Game};
@@ -377,12 +349,17 @@ namespace Durin::AssetForge::Builtins
 					return AddError(OutResult, EImportDiagnosticCategory::InvalidPlan,
 						"scene-build", "Scene Skeleton mapping is invalid.", Descriptor.StableIdentity);
 				const FImportedSkeletonData& Skeleton = Data->Scene.Skeletons[Imported.SkeletonIndex];
+				FAnimationClipImportedData Canonical;
+				if (!Canonical.Capture(*Imported.Payload,
+					static_cast<uint32>(Skeleton.Bones.size()), Error))
+					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
+						"scene-build", std::move(Error), Descriptor.StableIdentity);
 				Asset::FAnimationClipBuildKeyInput Key;
 				static_cast<Asset::FSkeletalBuildKeyFields&>(Key) = {
-					.ProviderIdentity = std::string(SceneImporterId), .ProviderVersion = 1,
-					.SourceClosureHash = ClosureHash, .SettingsHash = SettingsHash,
-					.ProviderStateHash = MakeOutputStateHash(Descriptor),
-					.StableOutputIdentity = Descriptor.StableIdentity,
+					.ProviderIdentity = "CanonicalAnimationClip",
+					.ProviderVersion = AnimationClipImportedDataSchemaVersion,
+					.ImportedDataIdentity = Canonical.GetIdentity(),
+					.StableOutputIdentity = Output.AssetPath.ToString(),
 					.SkeletonCompatibilityIdentity = Skeleton.CompatibilityIdentity,
 					.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
 					.TargetProfile = ESkeletalPayloadTargetProfile::Game};
@@ -434,11 +411,31 @@ namespace Durin::AssetForge::Builtins
 				const FXxHash128 SourceHash{
 					.HashLow = Output.Texture.Product.SourceContentHashLow,
 					.HashHigh = Output.Texture.Product.SourceContentHashHigh};
-				const std::string SourceFilename = Output.Texture.Source.Path;
+				const std::string SourcePhysicalPath = Output.Texture.Source.Path;
+				const PathUtilities::FAssetPathResult PackageResolution =
+					PathUtilities::ResolveAssetPath(
+						Output.AssetPath.GetView(), PathUtilities::EPathExistence::AllowMissing);
+				if (!PackageResolution)
+				{
+					Abandon(Prepared);
+					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
+						"scene-materialization", PackageResolution.Message,
+						Descriptor.StableIdentity);
+				}
+				std::filesystem::path PackagePath = PackageResolution.PhysicalPath;
+				PackagePath += ".dasset";
+				std::string SourceHint;
+				AssetImport::ESourceHintBase HintBase;
+				if (!AssetImport::MakeSourceHint(
+					SourcePhysicalPath, PackagePath.generic_string(), HintBase,
+					SourceHint, Error))
+				{
+					Abandon(Prepared);
+					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
+						"scene-materialization", std::move(Error), Descriptor.StableIdentity);
+				}
 				if (!Asset::PublishTexture2DProduct(*Cast<DTexture2D>(Output.Candidate),
-					std::move(Output.Texture.Product), {.SourceFilename = SourceFilename,
-						.DecoderId = "DurinImage", .DecoderVersion = 1,
-						.SourceFileSize = Output.Texture.SourceFileSize}, Error))
+					std::move(Output.Texture.Product), {}, Error))
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::CandidateFailure,
@@ -447,8 +444,9 @@ namespace Durin::AssetForge::Builtins
 				FTexture2DImportDataState ImportState;
 				ImportState.SourceData.Sources.push_back({
 					.StableIdentity = "root", .Role = "source",
-					.DisplayLabel = std::filesystem::path(SourceFilename).filename().generic_string(),
-					.Filename = SourceFilename,
+					.DisplayLabel = std::filesystem::path(SourcePhysicalPath).filename().generic_string(),
+					.Hint = SourceHint,
+					.HintBase = HintBase,
 					.ContentHashLow = SourceHash.HashLow,
 					.ContentHashHigh = SourceHash.HashHigh,
 					.ByteCount = Output.Texture.SourceFileSize});
@@ -603,7 +601,9 @@ namespace Durin::AssetForge::Builtins
 					.MeshNodeBindTransform = Output.SkeletalMesh.MeshNodeBindTransform,
 					.MaterialSlots = std::move(Slots), .Payload = std::move(Output.SkeletalMesh.Payload),
 					.DerivedDataKey = std::move(Output.SkeletalMesh.DerivedDataKey),
-					.DiagnosticMessage = std::move(Output.SkeletalMesh.Diagnostic)}, Error))
+					.DiagnosticMessage = std::move(Output.SkeletalMesh.Diagnostic),
+					.bLoadedFromDerivedDataCache =
+						Output.SkeletalMesh.bLoadedFromDerivedDataCache}, Error))
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::MissingDependency,
@@ -624,7 +624,9 @@ namespace Durin::AssetForge::Builtins
 					.ClipName = Output.Animation.ClipName,
 					.Payload = std::move(Output.Animation.Payload),
 					.DerivedDataKey = std::move(Output.Animation.DerivedDataKey),
-					.DiagnosticMessage = std::move(Output.Animation.Diagnostic)}, Error))
+					.DiagnosticMessage = std::move(Output.Animation.Diagnostic),
+					.bLoadedFromDerivedDataCache =
+						Output.Animation.bLoadedFromDerivedDataCache}, Error))
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::MissingDependency,

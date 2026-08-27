@@ -1,4 +1,5 @@
 #include "SkyBoxTestSupport.h"
+#include "Asset/AssetCompilingManager.h"
 #include "Client/SceneViewport.h"
 #include "Modules/ModuleTestSupport.h"
 #include "Misc/FileHelper.h"
@@ -44,6 +45,7 @@ namespace
 TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax)
 {
 	InitializeDObjectSystem();
+	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
 	std::vector<Durin::PathUtilities::FMountPoint> MountDefinitions(
@@ -614,4 +616,5 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::FlushRenderingCommands();
 	Durin::ShutdownRenderingThread();
 	Durin::RHIExit();
+	Durin::ShutdownAssetCompilingManager();
 }

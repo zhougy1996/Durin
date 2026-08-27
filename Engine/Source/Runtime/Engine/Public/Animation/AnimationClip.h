@@ -1,7 +1,9 @@
 #pragma once
 
 #include "Asset/Cook.h"
+#include "Asset/EditorBulkData.h"
 #include "EngineAPI.h"
+#include "Hash/XxHash.h"
 #include "DObject/ObjectPtr.h"
 #include "SkeletalMesh/Skeleton.h"
 
@@ -15,6 +17,9 @@ namespace Durin
 	inline constexpr uint32 MaximumAnimationKeysPerTrack = 16777216;
 	inline constexpr uint32 MaximumAnimationKeysPerClip = 100000000;
 	inline constexpr uint64 MaximumAnimationClipPayloadBytes = 8ull * 1024ull * 1024ull * 1024ull;
+	inline constexpr uint64 MaximumAnimationClipImportedDataBytes = 1073700000ull;
+	inline constexpr uint32 AnimationClipImportedDataSchemaVersion = 1;
+	extern ENGINE_API const FGuid AnimationClipImportedDataPayloadId;
 
 	DENUM()
 	enum class EAnimationTrackPath : uint8
@@ -73,6 +78,29 @@ namespace Durin
 		auto operator==(const FAnimationClipPayloadData&) const -> bool = default;
 	};
 
+	// Owns the canonical tracks and typed keys required to rebuild this clip.
+	DSTRUCT()
+	struct FAnimationClipImportedData
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		Asset::FEditorBulkData Tracks;
+
+		DPROPERTY()
+		uint32 SchemaVersion = AnimationClipImportedDataSchemaVersion;
+
+		ENGINE_API auto Capture(
+			const FAnimationClipPayloadData& Payload,
+			uint32 SkeletonBoneCount,
+			std::string& OutError) -> bool;
+		ENGINE_API auto Decode(
+			uint32 SkeletonBoneCount,
+			std::string& OutError) const -> FAnimationClipPayloadData;
+		ENGINE_API auto IsValid(uint32 SkeletonBoneCount) const -> bool;
+		ENGINE_API auto GetIdentity() const -> FXxHash128;
+	};
+
 	// Complete main-thread candidate accepted by the Runtime publication seam.
 	struct FAnimationClipPublicationCandidate
 	{
@@ -85,6 +113,9 @@ namespace Durin
 		Asset::FCookedPayloadDescriptor CookedPayload;
 		std::string DerivedDataKey;
 		std::string DiagnosticMessage;
+		bool bLoadedFromDerivedDataCache = false;
+		bool bReplaceImportedData = true;
+		bool bMarkPackageDirty = true;
 	};
 
 	ENGINE_API auto ValidateAnimationClipPayload(
@@ -111,6 +142,7 @@ namespace Durin
 		auto GetSummary() const -> const FAnimationClipSummary& { return Summary; }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
 		auto GetPayloadData() const -> std::shared_ptr<const FAnimationClipPayloadData> { return PayloadData; }
+		auto GetImportedData() const -> const FAnimationClipImportedData& { return ImportedData; }
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
 		auto GetPayloadStorageDiagnostic() const -> const std::string& { return PayloadStorageDiagnostic; }
@@ -154,11 +186,13 @@ namespace Durin
 		DPROPERTY(EditorOnly)
 		std::string DerivedDataKey;
 
+		DPROPERTY(EditorOnly)
+		FAnimationClipImportedData ImportedData;
+
 		std::shared_ptr<const FAnimationClipPayloadData> PayloadData;
 		bool bLoadedFromDerivedDataCache = false;
 		std::string PayloadStorageDiagnostic;
 
-		auto LoadDerivedDataPayload(std::string& OutError) -> bool;
 		auto LoadCookedPayload(std::string& OutError) -> bool;
 
 		friend class FAnimationClipImportedStateExchange;

@@ -6,9 +6,11 @@
 
 namespace Durin::AssetForge::Builtins
 {
-	ASSETFORGEBUILTINS_API auto InspectStaticMeshSource(
-		const DStaticMesh& Mesh) -> FStaticMeshSourceDiagnostic;
-	ASSETFORGEBUILTINS_API auto ReimportStaticMeshSource(
+	ASSETFORGEBUILTINS_API auto ReimportStaticMesh(
+		DStaticMesh& Mesh,
+		std::string& OutError,
+		const Asset::FAssetBundleSaveOptions& SaveOptions = {}) -> bool;
+	ASSETFORGEBUILTINS_API auto ReimportStaticMeshFromFile(
 		DStaticMesh& Mesh,
 		std::string_view FilePath,
 		std::string& OutError,

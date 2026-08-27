@@ -1,7 +1,7 @@
 durin_add_engine_functional_test(SplineTests
 	KIND feature
 	DOMAINS spline
-	MODULES engine level-editor
+	MODULES engine level-editor static-mesh-build asset-forge-builtins
 	STACKS editor
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
@@ -22,7 +22,7 @@ durin_add_engine_functional_test(SplineTests
 		${_durin_level_editor_private}/Viewport/LevelEditorViewportEditing.cpp
 		${_durin_level_editor_private}/Viewport/TransformGizmo.cpp
 		${_durin_level_editor_private}/Workspace/LevelEditorContext.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd AssetForgeBuiltins
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd StaticMeshBuild AssetForgeBuiltins
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 
@@ -184,7 +184,7 @@ durin_add_engine_functional_test(VolumetricCloudQualificationTests
 durin_add_engine_functional_test(EditorRenderingTests
 	KIND feature
 	DOMAINS renderer
-	MODULES durin-ed engine renderer
+	MODULES durin-ed engine renderer static-mesh-build asset-forge-builtins
 	STACKS editor renderer
 	RUNTIME_STACK_RATIONALE "Exercises renderer-backed editor assistance and grid rendering."
 	SOURCES

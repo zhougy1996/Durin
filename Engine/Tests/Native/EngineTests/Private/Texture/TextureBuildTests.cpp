@@ -160,10 +160,10 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	ASSERT_NE(Texture, nullptr);
 	ASSERT_TRUE(Texture->PublishBuiltData(Source, {},
 		std::make_unique<Durin::FVolumeTexturePlatformData>(*Product.PlatformData),
-		Product.DerivedDataKey, Error)) << Error;
+		Product.DerivedDataKey, {}, Error)) << Error;
 	const uint64 ValidRevision = Texture->GetBuildRevision();
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
-	EXPECT_FALSE(Texture->PublishBuiltData({}, {}, nullptr, "invalid", Error));
+	EXPECT_FALSE(Texture->PublishBuiltData({}, {}, nullptr, "invalid", {}, Error));
 	EXPECT_EQ(Texture->GetBuildRevision(), ValidRevision);
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
 	EXPECT_EQ(Texture->GetPlatformData()->Mips.front().Voxels,
@@ -257,7 +257,7 @@ TEST(FVolumeTextureTests, ExchangeWithUnbuiltAssetInvalidatesEmptyRenderState)
 		nullptr, "VolumeExchangeCandidate");
 	const std::string DerivedDataKey = Product.DerivedDataKey;
 	ASSERT_TRUE(Candidate->PublishBuiltData(Source, {},
-		std::move(Product.PlatformData), DerivedDataKey, Error)) << Error;
+		std::move(Product.PlatformData), DerivedDataKey, {}, Error)) << Error;
 
 	Target->ExchangeBuiltState(*Candidate);
 	ASSERT_NE(Target->GetPlatformData(), nullptr);
@@ -299,7 +299,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	ASSERT_TRUE(Durin::Asset::CreateAsset(AssetPath, Texture));
 	ASSERT_TRUE(Texture->PublishBuiltData(Source, {},
 		std::make_unique<Durin::FVolumeTexturePlatformData>(Platform),
-		"large-volume-blob", Error)) << Error;
+		"large-volume-blob", {}, Error)) << Error;
 
 	Durin::FDefaultDeltaPlan Plan;
 	Durin::FDefaultDeltaDiagnostic Diagnostic;
@@ -476,6 +476,117 @@ TEST(FTexture2DTests, StandardTranslationFeedsDetachedNormalizedBuildProduct)
 	EXPECT_TRUE(Product.DerivedDataKey.empty());
 }
 
+TEST(FTexture2DTests, DdcStoreFailureKeepsCompleteProductAndReportsDiagnostic)
+{
+	InitializeDObjectSystem();
+	const std::filesystem::path BlockedRoot =
+		Durin::Testing::GetTestWorkDirectory() / "Texture2DBlockedDdcRoot";
+	FScopedDerivedDataCacheRoot CacheRoot(BlockedRoot);
+	const std::array<std::byte, 1> BlockingFile{std::byte{0xff}};
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(BlockingFile, BlockedRoot));
+	Durin::FTextureSourceData SourceData;
+	std::string Error;
+	ASSERT_TRUE(Durin::AssetForge::Builtins::TranslateTexture2DSource(
+		std::as_bytes(std::span{TransparentPngBytes}), SourceData, Error)) << Error;
+	Durin::Asset::FTexture2DBuildProduct Product;
+	ASSERT_TRUE(Durin::Asset::BuildTexture2D({
+		.SourceData = std::move(SourceData)}, Product, Error)) << Error;
+	EXPECT_TRUE(Product.SourceData.IsValid());
+	EXPECT_TRUE(Product.PlatformData.IsValid());
+	EXPECT_FALSE(Product.DerivedDataKey.empty());
+	EXPECT_FALSE(Product.PersistenceDiagnostic.empty());
+}
+
+TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBulk)
+{
+	InitializeDObjectSystem();
+	FScopedDerivedDataCacheRoot CacheRoot(
+		Durin::Testing::GetTestWorkDirectory() / "Texture2DExternalAuthoredBulkDdc");
+	const std::filesystem::path Source =
+		Durin::Testing::GetTestWorkDirectory() / "Texture2DExternalAuthoredBulk.tga";
+	WriteLargeTextureFixture(Source);
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TextureImportTests/ExternalAuthoredBulk", AssetPath));
+	const Durin::FTexture2DImportResult Imported =
+		Durin::AssetForge::Builtins::ImportTexture2DAsset(
+			Source.generic_string(), AssetPath.GetView());
+	ASSERT_TRUE(Imported) << Imported.Message;
+	ASSERT_NE(Imported.Asset, nullptr);
+	ASSERT_TRUE(Imported.Asset->GetImportedData().IsValid());
+	const Durin::FXxHash128 ImportedIdentity =
+		Imported.Asset->GetImportedDataIdentity();
+	EXPECT_FALSE(ImportedIdentity.IsZero());
+	EXPECT_EQ(Imported.Asset->GetImportedData().Pixels.GetBulkData()
+		.GetDescriptor().PayloadId, Durin::Texture2DImportedPixelsPayloadId);
+
+	const Durin::Asset::FAssetCatalogEntry Entry =
+		Durin::Asset::FindAssetExact(AssetPath);
+	ASSERT_TRUE(Entry);
+	Durin::Asset::FAssetPackageInspection Inspection;
+	std::string Error;
+	const Durin::Asset::FAssetResult Inspected =
+		Durin::Asset::InspectAssetPackage(Entry->PhysicalPath, Inspection);
+	ASSERT_TRUE(Inspected) << Inspected.Message;
+	std::vector<Durin::Asset::FEditorBulkDataStorageDescriptor> Descriptors;
+	ASSERT_TRUE(Durin::Asset::InspectEditorBulkDataStorageDescriptors(
+		Inspection, Descriptors, &Error)) << Error;
+	ASSERT_EQ(Descriptors.size(), 1u);
+	EXPECT_EQ(Descriptors.front().StorageKind,
+		Durin::Asset::EEditorBulkDataStorageKind::External);
+	EXPECT_EQ(Descriptors.front().PayloadId,
+		Durin::Texture2DImportedPixelsPayloadId);
+	std::vector<std::filesystem::path> Companions;
+	ASSERT_TRUE(Durin::Asset::InspectEditorBulkDataCompanionPaths(
+		Entry->PhysicalPath, Inspection, Companions, &Error)) << Error;
+	ASSERT_EQ(Companions.size(), 1u);
+	ASSERT_TRUE(std::filesystem::is_regular_file(Companions.front()));
+	std::vector<std::byte> CompanionBytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		CompanionBytes, Companions.front()));
+
+	const std::filesystem::path CachePath = GetTextureCachePath(*Imported.Asset);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(std::filesystem::remove(Source));
+	std::error_code IgnoredError;
+	std::filesystem::remove(CachePath, IgnoredError);
+	Durin::DTexture2D* LoadedTexture = nullptr;
+	const Durin::Asset::FAssetResult Loaded =
+		Durin::Asset::LoadAsset(AssetPath, LoadedTexture);
+	ASSERT_TRUE(Loaded) << Loaded.Message;
+	ASSERT_NE(LoadedTexture, nullptr);
+	EXPECT_EQ(LoadedTexture->GetImportedDataIdentity(), ImportedIdentity);
+	EXPECT_EQ(LoadedTexture->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
+	EXPECT_FALSE(LoadedTexture->GetDerivedDataDiagnostic().bSourceDecoderInvoked);
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	std::filesystem::path Backup = Companions.front();
+	Backup += Durin::Asset::EditorBulkDataCompanionBackupSuffix;
+	std::filesystem::copy_file(Companions.front(), Backup,
+		std::filesystem::copy_options::overwrite_existing);
+	auto CorruptBytes = CompanionBytes;
+	CorruptBytes.back() ^= std::byte{1};
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
+		CorruptBytes, Companions.front()));
+	LoadedTexture = nullptr;
+	const Durin::Asset::FAssetResult Recovered =
+		Durin::Asset::LoadAsset(AssetPath, LoadedTexture);
+	ASSERT_TRUE(Recovered) << Recovered.Message;
+	EXPECT_EQ(LoadedTexture->GetImportedDataIdentity(), ImportedIdentity);
+	EXPECT_FALSE(std::filesystem::exists(Backup));
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(std::filesystem::remove(Companions.front()));
+	LoadedTexture = nullptr;
+	const Durin::Asset::FAssetResult Missing =
+		Durin::Asset::LoadAsset(AssetPath, LoadedTexture);
+	EXPECT_FALSE(Missing);
+	EXPECT_EQ(LoadedTexture, nullptr);
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
+		CompanionBytes, Companions.front()));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
+}
+
 TEST(FTexture2DTests, CompilationPublishesLatestNormalizedProduct)
 {
 	InitializeDObjectSystem();
@@ -506,10 +617,7 @@ TEST(FTexture2DTests, CompilationPublishesLatestNormalizedProduct)
 			.SourceContentHashHigh = SourceHash.HashHigh,
 			.Settings = {.MaxResolution = 1}},
 		.Publication = {
-			.SourceFilename = Imported.Asset->GetSourceFile(),
-			.DecoderId = "DurinImage",
-			.DecoderVersion = 1,
-			.SourceFileSize = sizeof(TransparentPngBytes)},
+			},
 		.Priority = Durin::Asset::ETexture2DCompilationPriority::Interactive}, Error,
 		[&](Durin::Asset::FTexture2DCompilationResult Result) {
 			++CompletionCount;
@@ -551,10 +659,7 @@ TEST(FTexture2DTests, AsyncCompilationReportsFailureAndSupersessionOnce)
 				.SourceContentHashHigh = SourceHash.HashHigh,
 				.Settings = {.MaxResolution = 1}},
 			.Publication = {
-				.SourceFilename = Imported.Asset->GetSourceFile(),
-				.DecoderId = "DurinImage",
-				.DecoderVersion = 1,
-				.SourceFileSize = sizeof(TransparentPngBytes)},
+				},
 			.Priority = Durin::Asset::ETexture2DCompilationPriority::Interactive};
 	};
 

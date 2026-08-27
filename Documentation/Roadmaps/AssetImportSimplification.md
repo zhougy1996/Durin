@@ -225,4 +225,4 @@ generic `Recover` import mode.
 - [`Texture2DImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/Texture2DImport.cpp)
 - [`SceneImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/SceneImport.cpp)
 - [`ImportDialogSupport.cpp`](../../Engine/Source/Editor/DurinEd/Private/Import/ImportDialogSupport.cpp)
-- [`SourceFilename.h`](../../Engine/Source/Runtime/Engine/Public/Asset/SourceFilename.h)
+- [`SourceHint.h`](../../Engine/Source/Runtime/Engine/Public/Asset/SourceHint.h)

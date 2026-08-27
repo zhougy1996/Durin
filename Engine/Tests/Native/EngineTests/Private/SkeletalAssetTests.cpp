@@ -2,6 +2,8 @@
 
 #include "Animation/AnimationClip.h"
 #include "Actors/SkeletalMeshActor.h"
+#include "Asset/EditorBulkDataStorage.h"
+#include "Asset/Mutation.h"
 #include "AssetTools.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DObject/Class.h"
@@ -25,23 +27,20 @@ namespace
 	class FTestSkeletalDerivedDataFeature final : public Durin::ISkeletalDerivedDataFeature
 	{
 	public:
-		auto LoadSkeletalMeshPayload(
-			std::string_view Key,
-			const Durin::FSkeletalPayloadSerializationContext& Context,
-			Durin::FSkeletalMeshPayloadData& OutPayload,
+		auto PostLoadUncooked(
+			Durin::DSkeletalMesh& Mesh,
 			std::string& OutMessage) -> bool override
 		{
-			return Durin::Asset::LoadSkeletalMeshDerivedData(Key, Context, OutPayload, OutMessage);
+			return Durin::Asset::RebuildSkeletalMeshFromImportedData(Mesh, OutMessage);
 		}
 
-		auto LoadAnimationClipPayload(
-			std::string_view Key,
-			const Durin::FSkeletalPayloadSerializationContext& Context,
-			Durin::FAnimationClipPayloadData& OutPayload,
+		auto PostLoadUncooked(
+			Durin::DAnimationClip& Clip,
 			std::string& OutMessage) -> bool override
 		{
-			return Durin::Asset::LoadAnimationClipDerivedData(Key, Context, OutPayload, OutMessage);
+			return Durin::Asset::RebuildAnimationClipFromImportedData(Clip, OutMessage);
 		}
+
 	};
 
 	auto SerializeMeshPayload(
@@ -212,9 +211,8 @@ namespace
 			auto& Fields = static_cast<Durin::Asset::FSkeletalBuildKeyFields&>(KeyInput);
 			Fields.ProviderIdentity = "Durin.Tests";
 			Fields.ProviderVersion = 1;
-			Fields.SourceClosureHash = Durin::FXxHash128::HashBuffer(DerivedDataKey);
-			Fields.SettingsHash = Durin::FXxHash128::HashBuffer("settings");
-			Fields.ProviderStateHash = Durin::FXxHash128::HashBuffer("state");
+			Fields.ImportedDataIdentity =
+				Durin::FXxHash128::HashBuffer(DerivedDataKey);
 			Fields.StableOutputIdentity = DerivedDataKey;
 			Fields.SkeletonCompatibilityIdentity = Skeleton.GetCompatibilityIdentity();
 			Fields.TargetPlatform = Durin::ESkeletalPayloadTargetPlatform::Win64;
@@ -259,6 +257,27 @@ namespace
 		return Payload;
 	}
 
+	auto MakeLargeClipPayload() -> std::shared_ptr<const Durin::FAnimationClipPayloadData>
+	{
+		constexpr uint32 KeyCount = 20'000;
+		auto Payload = std::make_shared<Durin::FAnimationClipPayloadData>();
+		Payload->DurationSeconds = static_cast<float>(KeyCount - 1);
+		Durin::FAnimationTrackData Track{
+			.BoneIndex = 1,
+			.Path = Durin::EAnimationTrackPath::Translation,
+			.Interpolation = Durin::EAnimationInterpolation::Linear};
+		Track.Times.reserve(KeyCount);
+		Track.VectorValues.reserve(KeyCount);
+		for (uint32 KeyIndex = 0; KeyIndex < KeyCount; ++KeyIndex)
+		{
+			Track.Times.push_back(static_cast<float>(KeyIndex));
+			Track.VectorValues.emplace_back(
+				static_cast<float>(KeyIndex), 0.0f, 1.0f);
+		}
+		Payload->Tracks.push_back(std::move(Track));
+		return Payload;
+	}
+
 	auto InitializeClip(
 		Durin::DAnimationClip& Clip,
 		Durin::DSkeleton& Skeleton,
@@ -281,9 +300,8 @@ namespace
 			auto& Fields = static_cast<Durin::Asset::FSkeletalBuildKeyFields&>(KeyInput);
 			Fields.ProviderIdentity = "Durin.Tests";
 			Fields.ProviderVersion = 1;
-			Fields.SourceClosureHash = Durin::FXxHash128::HashBuffer(DerivedDataKey);
-			Fields.SettingsHash = Durin::FXxHash128::HashBuffer("settings");
-			Fields.ProviderStateHash = Durin::FXxHash128::HashBuffer("state");
+			Fields.ImportedDataIdentity =
+				Durin::FXxHash128::HashBuffer(DerivedDataKey);
 			Fields.StableOutputIdentity = DerivedDataKey;
 			Fields.SkeletonCompatibilityIdentity = Skeleton.GetCompatibilityIdentity();
 			Fields.TargetPlatform = Durin::ESkeletalPayloadTargetPlatform::Win64;
@@ -714,9 +732,7 @@ TEST(FSkeletalAssetTests, PayloadCodecsAreDeterministicAndRoundTripExactValues)
 	auto& KeyInput = static_cast<Durin::Asset::FSkeletalBuildKeyFields&>(MeshKeyInput);
 	KeyInput.ProviderIdentity = "Durin.Scene";
 	KeyInput.ProviderVersion = 3;
-	KeyInput.SourceClosureHash = Durin::FXxHash128::HashBuffer("sources");
-	KeyInput.SettingsHash = Durin::FXxHash128::HashBuffer("settings");
-	KeyInput.ProviderStateHash = Durin::FXxHash128::HashBuffer("state");
+	KeyInput.ImportedDataIdentity = Durin::FXxHash128::HashBuffer("imported-data");
 	KeyInput.PayloadInputFingerprint = MeshFingerprint;
 	KeyInput.StableOutputIdentity = "skeletal-mesh:node/1/mesh/0";
 	KeyInput.SkeletonCompatibilityIdentity = Skeleton->GetCompatibilityIdentity();
@@ -724,7 +740,7 @@ TEST(FSkeletalAssetTests, PayloadCodecsAreDeterministicAndRoundTripExactValues)
 	KeyInput.TargetProfile = Durin::ESkeletalPayloadTargetProfile::Game;
 	const std::string MeshKey = Durin::Asset::BuildSkeletalMeshDerivedDataKey(
 		MeshKeyInput, Error);
-	EXPECT_EQ(MeshKey, "52c09bf719453d299c5525d2ea1dda6d");
+	EXPECT_EQ(MeshKey, "da0d52b7a2d042d9f1a5c43ca80b77d1");
 	EXPECT_EQ(MeshKey.size(), 32u);
 	EXPECT_EQ(Durin::Asset::BuildSkeletalMeshDerivedDataKey(MeshKeyInput, Error), MeshKey);
 	Durin::Asset::FAnimationClipBuildKeyInput ClipKeyInput;
@@ -733,7 +749,7 @@ TEST(FSkeletalAssetTests, PayloadCodecsAreDeterministicAndRoundTripExactValues)
 	ClipKeyInput.StableOutputIdentity = "animation-clip:animation/0/skin/0";
 	const std::string ClipKey = Durin::Asset::BuildAnimationClipDerivedDataKey(
 		ClipKeyInput, Error);
-	EXPECT_EQ(ClipKey, "683755735a794db9d991a4c83e733839");
+	EXPECT_EQ(ClipKey, "11a65acba0f9f01c50b74ea09cfcb6fa");
 	EXPECT_EQ(ClipKey.size(), 32u);
 	EXPECT_NE(ClipKey, MeshKey);
 }
@@ -821,7 +837,7 @@ TEST(FSkeletalAssetTests, PayloadDecodersRejectMalformedContainersTransactionall
 	ExpectClipFailure(std::move(DuplicateTrackTarget));
 }
 
-TEST(FSkeletalAssetTests, AuthoredReloadConsumesValidatedDerivedDataObjects)
+TEST(FSkeletalAssetTests, AuthoredReloadRekeysAndRecoversMissingOrCorruptDerivedData)
 {
 	const std::filesystem::path Root = InitializeAssetMount();
 	const std::filesystem::path CacheRoot = Root / "DerivedDataCache";
@@ -862,6 +878,12 @@ TEST(FSkeletalAssetTests, AuthoredReloadConsumesValidatedDerivedDataObjects)
 	ASSERT_NE(Mesh, nullptr);
 	ASSERT_NE(Mesh->GetPayloadData(), nullptr);
 	EXPECT_EQ(*Mesh->GetPayloadData(), ExpectedMesh);
+	EXPECT_FALSE(Mesh->WasLoadedFromDerivedDataCache());
+	EXPECT_NE(Mesh->GetDerivedDataKey(), MeshKey);
+	MeshKey = Mesh->GetDerivedDataKey();
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
+	ASSERT_TRUE(Durin::Asset::LoadAsset(MeshPath, Mesh));
 	EXPECT_TRUE(Mesh->WasLoadedFromDerivedDataCache());
 	EXPECT_EQ(Mesh->GetDerivedDataKey(), MeshKey);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
@@ -870,6 +892,12 @@ TEST(FSkeletalAssetTests, AuthoredReloadConsumesValidatedDerivedDataObjects)
 	ASSERT_NE(Clip, nullptr);
 	ASSERT_NE(Clip->GetPayloadData(), nullptr);
 	EXPECT_EQ(*Clip->GetPayloadData(), ExpectedClip);
+	EXPECT_FALSE(Clip->WasLoadedFromDerivedDataCache());
+	EXPECT_NE(Clip->GetDerivedDataKey(), ClipKey);
+	ClipKey = Clip->GetDerivedDataKey();
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(ClipPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
+	ASSERT_TRUE(Durin::Asset::LoadAsset(ClipPath, Clip));
 	EXPECT_TRUE(Clip->WasLoadedFromDerivedDataCache());
 	EXPECT_EQ(Clip->GetDerivedDataKey(), ClipKey);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ClipPath));
@@ -877,14 +905,11 @@ TEST(FSkeletalAssetTests, AuthoredReloadConsumesValidatedDerivedDataObjects)
 	const std::filesystem::path ClipObject = CacheRoot / "AnimationClip/Objects"
 		/ ClipKey.substr(0, 2) / (ClipKey + ".bin");
 	ASSERT_TRUE(std::filesystem::remove(ClipObject));
-	{
-		const Durin::FScopedSkeletalDerivedDataRepairLoad RepairLoad;
-		ASSERT_TRUE(Durin::Asset::LoadAsset(ClipPath, Clip));
-		ASSERT_NE(Clip, nullptr);
-		EXPECT_EQ(Clip->GetPayloadData(), nullptr);
-		ASSERT_EQ(RepairLoad.GetMissingAssets().size(), 1);
-		EXPECT_EQ(RepairLoad.GetMissingAssets().front(), Clip);
-	}
+	ASSERT_TRUE(Durin::Asset::LoadAsset(ClipPath, Clip));
+	ASSERT_NE(Clip, nullptr);
+	ASSERT_NE(Clip->GetPayloadData(), nullptr);
+	EXPECT_EQ(*Clip->GetPayloadData(), ExpectedClip);
+	EXPECT_FALSE(Clip->WasLoadedFromDerivedDataCache());
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ClipPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
 
@@ -898,13 +923,130 @@ TEST(FSkeletalAssetTests, AuthoredReloadConsumesValidatedDerivedDataObjects)
 		std::as_bytes(std::span(CorruptBytes)), MeshObject));
 	Mesh = nullptr;
 	const Durin::Asset::FAssetResult CorruptLoad = Durin::Asset::LoadAsset(MeshPath, Mesh);
-	EXPECT_FALSE(CorruptLoad);
-	EXPECT_EQ(Mesh, nullptr);
-	EXPECT_NE(CorruptLoad.Message.find("checksum"), std::string::npos) << CorruptLoad.Message;
+	ASSERT_TRUE(CorruptLoad) << CorruptLoad.Message;
+	ASSERT_NE(Mesh, nullptr);
+	ASSERT_NE(Mesh->GetPayloadData(), nullptr);
+	EXPECT_EQ(*Mesh->GetPayloadData(), ExpectedMesh);
+	EXPECT_FALSE(Mesh->WasLoadedFromDerivedDataCache());
 	Durin::FPaths::SetDerivedDataCacheDirForTests({});
 }
 
-TEST(FSkeletalAssetTests, AuthoredLoadFailsClosedWithoutRequiredDerivedData)
+TEST(FSkeletalAssetTests, RelocationRekeysIndependentOutputsAndMissingAuthoredBulkFailsLoad)
+{
+	const std::filesystem::path Root = InitializeAssetMount();
+	Durin::FPaths::SetDerivedDataCacheDirForTests(
+		(Root / "RelocationDerivedDataCache").generic_string());
+	Durin::FAssetPath SkeletonPath;
+	Durin::FAssetPath MeshPath;
+	Durin::FAssetPath ClipPath;
+	Durin::FAssetPath RelocatedMeshPath;
+	Durin::FAssetPath RelocatedClipPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/SkeletalAssetTests/RelocationSkeleton", SkeletonPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/SkeletalAssetTests/RelocationMesh", MeshPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/SkeletalAssetTests/RelocationClip", ClipPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/SkeletalAssetTests/Moved/RelocationMesh", RelocatedMeshPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/SkeletalAssetTests/Moved/RelocationClip", RelocatedClipPath));
+
+	Durin::DSkeleton* Skeleton = nullptr;
+	Durin::DSkeletalMesh* Mesh = nullptr;
+	Durin::DAnimationClip* Clip = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(SkeletonPath, Skeleton));
+	InitializeSkeleton(*Skeleton);
+	ASSERT_TRUE(Durin::Asset::CreateAsset(MeshPath, Mesh));
+	InitializeMesh(*Mesh, *Skeleton);
+	ASSERT_TRUE(Durin::Asset::CreateAsset(ClipPath, Clip));
+	Durin::FAnimationClipPublicationCandidate ClipCandidate{
+		.Skeleton = Skeleton,
+		.SkeletonCompatibilityIdentity = Skeleton->GetCompatibilityIdentity(),
+		.ClipName = Durin::FName("LargeClip"),
+		.Payload = MakeLargeClipPayload()};
+	std::string Error;
+	ASSERT_TRUE(Clip->PublishBuiltProduct(std::move(ClipCandidate), Error)) << Error;
+	const Durin::FXxHash128 MeshImportedIdentity =
+		Mesh->GetImportedData().GetIdentity();
+	const Durin::FXxHash128 ClipImportedIdentity =
+		Clip->GetImportedData().GetIdentity();
+	ASSERT_TRUE(Durin::Asset::SavePackage(Skeleton->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Mesh->GetPackage()));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Clip->GetPackage()));
+	const Durin::Asset::FAssetCatalogEntry ClipEntry =
+		Durin::Asset::FindAssetExact(ClipPath);
+	ASSERT_TRUE(ClipEntry);
+	Durin::Asset::FAssetPackageInspection Inspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		ClipEntry->PhysicalPath, Inspection));
+	std::vector<std::filesystem::path> Companions;
+	ASSERT_TRUE(Durin::Asset::InspectEditorBulkDataCompanionPaths(
+		ClipEntry->PhysicalPath, Inspection, Companions, &Error)) << Error;
+	ASSERT_EQ(Companions.size(), 1u);
+	EXPECT_TRUE(std::filesystem::is_regular_file(Companions.front()));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(ClipPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
+
+	ASSERT_TRUE(Durin::Asset::LoadAsset(MeshPath, Mesh));
+	const std::string OriginalMeshKey = Mesh->GetDerivedDataKey();
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
+	ASSERT_TRUE(Durin::Asset::LoadAsset(ClipPath, Clip));
+	const std::string OriginalClipKey = Clip->GetDerivedDataKey();
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(ClipPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
+
+	const std::array Mappings{
+		Durin::Asset::FAssetRelocationMapping{MeshPath, RelocatedMeshPath},
+		Durin::Asset::FAssetRelocationMapping{ClipPath, RelocatedClipPath}};
+	Durin::Asset::FAssetMutationSummary Summary;
+	Durin::Asset::FAssetMutationTransaction Transaction;
+	ASSERT_TRUE(Durin::Asset::PrepareAssetRelocationTransaction(
+		Mappings, Summary, Transaction));
+	ASSERT_TRUE(Transaction.Commit());
+
+	ASSERT_TRUE(Durin::Asset::LoadAsset(RelocatedMeshPath, Mesh));
+	EXPECT_EQ(Mesh->GetImportedData().GetIdentity(), MeshImportedIdentity);
+	EXPECT_NE(Mesh->GetDerivedDataKey(), OriginalMeshKey);
+	EXPECT_FALSE(Mesh->WasLoadedFromDerivedDataCache());
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(RelocatedMeshPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
+	ASSERT_TRUE(Durin::Asset::LoadAsset(RelocatedClipPath, Clip));
+	EXPECT_EQ(Clip->GetImportedData().GetIdentity(), ClipImportedIdentity);
+	EXPECT_NE(Clip->GetDerivedDataKey(), OriginalClipKey);
+	EXPECT_FALSE(Clip->WasLoadedFromDerivedDataCache());
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(RelocatedClipPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
+
+	const Durin::Asset::FAssetCatalogEntry RelocatedClipEntry =
+		Durin::Asset::FindAssetExact(RelocatedClipPath);
+	ASSERT_TRUE(RelocatedClipEntry);
+	Inspection = {};
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		RelocatedClipEntry->PhysicalPath, Inspection));
+	Companions.clear();
+	ASSERT_TRUE(Durin::Asset::InspectEditorBulkDataCompanionPaths(
+		RelocatedClipEntry->PhysicalPath, Inspection, Companions, &Error)) << Error;
+	ASSERT_EQ(Companions.size(), 1u);
+	std::filesystem::path HeldCompanion = Companions.front();
+	HeldCompanion += ".held";
+	std::filesystem::rename(Companions.front(), HeldCompanion);
+	Clip = nullptr;
+	const Durin::Asset::FAssetResult MissingBulk =
+		Durin::Asset::LoadAsset(RelocatedClipPath, Clip);
+	EXPECT_FALSE(MissingBulk);
+	EXPECT_EQ(Clip, nullptr);
+	std::filesystem::rename(HeldCompanion, Companions.front());
+	ASSERT_TRUE(Durin::Asset::LoadAsset(RelocatedClipPath, Clip));
+	EXPECT_EQ(Clip->GetImportedData().GetIdentity(), ClipImportedIdentity);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(RelocatedClipPath));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
+	Durin::FPaths::SetDerivedDataCacheDirForTests({});
+}
+
+TEST(FSkeletalAssetTests, AuthoredLoadRebuildsCompleteDependencyGraphWithoutDerivedData)
 {
 	const std::filesystem::path Root = InitializeAssetMount();
 	const std::filesystem::path CacheRoot = Root / "MigrationDerivedDataCache";
@@ -954,12 +1096,15 @@ TEST(FSkeletalAssetTests, AuthoredLoadFailsClosedWithoutRequiredDerivedData)
 	Durin::DLevel* ReloadedLevel = nullptr;
 	const Durin::Asset::FAssetResult Load =
 		Durin::Asset::LoadAsset(LevelPath, ReloadedLevel);
-	EXPECT_FALSE(Load);
-	EXPECT_EQ(ReloadedLevel, nullptr);
-	EXPECT_EQ(Durin::Asset::FindResidentPackage(LevelPath), nullptr);
-	EXPECT_EQ(Durin::Asset::FindResidentPackage(ClipPath), nullptr);
-	EXPECT_EQ(Durin::Asset::FindResidentPackage(MeshPath), nullptr);
-	EXPECT_EQ(Durin::Asset::FindResidentPackage(SkeletonPath), nullptr);
+	ASSERT_TRUE(Load) << Load.Message;
+	ASSERT_NE(ReloadedLevel, nullptr);
+	auto* ReloadedActor = Durin::Cast<Durin::ASkeletalMeshActor>(
+		ReloadedLevel->FindActorByName(Durin::FName("AnimatedActor")));
+	ASSERT_NE(ReloadedActor, nullptr);
+	ASSERT_NE(ReloadedActor->GetSkeletalMeshComponent()->GetSkeletalMesh(), nullptr);
+	ASSERT_NE(ReloadedActor->GetSkeletalMeshComponent()->GetAnimationClip(), nullptr);
+	EXPECT_NE(ReloadedActor->GetSkeletalMeshComponent()->GetSkeletalMesh()->GetPayloadData(), nullptr);
+	EXPECT_NE(ReloadedActor->GetSkeletalMeshComponent()->GetAnimationClip()->GetPayloadData(), nullptr);
 	Durin::FPaths::SetDerivedDataCacheDirForTests({});
 }
 
@@ -1026,7 +1171,7 @@ TEST(FSkeletalAssetTests, AuthoredPackagesRoundTripHardReferencesAndSummaries)
 	EXPECT_EQ(Mesh->GetCookedPayloadDescriptor(), MeshCooked);
 	ASSERT_EQ(Mesh->GetMaterialSlots().size(), 1u);
 	EXPECT_EQ(Mesh->GetMaterialSlots()[0].SourceName, "Body");
-	EXPECT_EQ(Mesh->GetPayloadData(), nullptr);
+	EXPECT_NE(Mesh->GetPayloadData(), nullptr);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
 
@@ -1037,7 +1182,7 @@ TEST(FSkeletalAssetTests, AuthoredPackagesRoundTripHardReferencesAndSummaries)
 	EXPECT_EQ(Clip->GetCookedPayloadDescriptor(), ClipCooked);
 	ASSERT_EQ(Clip->GetSkeleton()->GetBones().size(), 5u);
 	EXPECT_EQ(Clip->GetSkeleton()->GetBones()[4].Name, Durin::FName("Hand"));
-	EXPECT_EQ(Clip->GetPayloadData(), nullptr);
+	EXPECT_NE(Clip->GetPayloadData(), nullptr);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ClipPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(ClipPath));
@@ -1062,14 +1207,18 @@ TEST(FSkeletalAssetTests, DuplicationPreservesAuthoredStateAndExternalReferences
 	EXPECT_EQ(MeshDuplicate->GetSkeleton(), Skeleton);
 	EXPECT_EQ(MeshDuplicate->GetSummary(), Mesh->GetSummary());
 	EXPECT_EQ(MeshDuplicate->GetCookedPayloadDescriptor(), Mesh->GetCookedPayloadDescriptor());
-	EXPECT_EQ(MeshDuplicate->GetPayloadData(), nullptr);
+	EXPECT_NE(MeshDuplicate->GetPayloadData(), nullptr);
+	EXPECT_EQ(MeshDuplicate->GetImportedData().GetIdentity(),
+		Mesh->GetImportedData().GetIdentity());
 	auto* ClipDuplicate = Durin::Cast<Durin::DAnimationClip>(
 		Durin::DuplicateObjectGraph(Clip, nullptr, "ClipDuplicate", &Error));
 	ASSERT_NE(ClipDuplicate, nullptr) << Error;
 	EXPECT_EQ(ClipDuplicate->GetSkeleton(), Skeleton);
 	EXPECT_EQ(ClipDuplicate->GetSummary(), Clip->GetSummary());
 	EXPECT_EQ(ClipDuplicate->GetCookedPayloadDescriptor(), Clip->GetCookedPayloadDescriptor());
-	EXPECT_EQ(ClipDuplicate->GetPayloadData(), nullptr);
+	EXPECT_NE(ClipDuplicate->GetPayloadData(), nullptr);
+	EXPECT_EQ(ClipDuplicate->GetImportedData().GetIdentity(),
+		Clip->GetImportedData().GetIdentity());
 }
 
 TEST(FSkeletalAssetTests, RuntimeTypesExposeOnlySourceIndependentAuthoredFields)

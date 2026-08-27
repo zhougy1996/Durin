@@ -5,7 +5,7 @@
 
 namespace Durin
 {
-	// Owns skeletal build-function and uncooked-payload provider registration.
+	// Owns skeletal build-function and canonical authored-data rebuild registration.
 	class FSkeletalBuildModule final
 		: public IModuleInterface
 		, public ISkeletalDerivedDataFeature
@@ -13,24 +13,18 @@ namespace Durin
 		FModularFeatureRegistration SkeletalFeatureRegistration;
 		FModuleOwnedCallbackRegistration BuildFunctionCallbackRegistration;
 
-		auto LoadSkeletalMeshPayload(
-			std::string_view Key,
-			const FSkeletalPayloadSerializationContext& Context,
-			FSkeletalMeshPayloadData& OutPayload,
+		auto PostLoadUncooked(
+			DSkeletalMesh& Mesh,
 			std::string& OutMessage) -> bool override
 		{
-			return Asset::LoadSkeletalMeshDerivedData(
-				Key, Context, OutPayload, OutMessage);
+			return Asset::RebuildSkeletalMeshFromImportedData(Mesh, OutMessage);
 		}
 
-		auto LoadAnimationClipPayload(
-			std::string_view Key,
-			const FSkeletalPayloadSerializationContext& Context,
-			FAnimationClipPayloadData& OutPayload,
+		auto PostLoadUncooked(
+			DAnimationClip& Clip,
 			std::string& OutMessage) -> bool override
 		{
-			return Asset::LoadAnimationClipDerivedData(
-				Key, Context, OutPayload, OutMessage);
+			return Asset::RebuildAnimationClipFromImportedData(Clip, OutMessage);
 		}
 
 		auto StartupModule() -> void override

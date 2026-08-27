@@ -73,36 +73,20 @@ namespace Durin::AssetForge::Builtins
 		bool bAllowEngineContentWrite = false) -> FTextureCubeImportResult;
 	ASSETFORGEBUILTINS_API auto ReimportTextureCubePanorama(
 		DTextureCube& Texture,
+		const FTextureCubePanoramaImportSettings& Settings,
+		std::string& OutError) -> bool;
+	ASSETFORGEBUILTINS_API auto ReimportTextureCubePanoramaFromFile(
+		DTextureCube& Texture,
 		std::string_view PanoramaFile,
 		const FTextureCubePanoramaImportSettings& Settings,
 		std::string& OutError) -> bool;
 	ASSETFORGEBUILTINS_API auto ReimportTextureCubeFaces(
 		DTextureCube& Texture,
-		const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
 		const FTextureCubeImportSettings& Settings,
 		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto RecoverTextureCubeDerivedData(
-		DTextureCube& Texture, std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto ChangeTextureCubePanoramaSourceReference(
-		DTextureCube& Texture,
-		std::string_view SourceVirtualPath,
-		const FTextureCubePanoramaImportSettings& Settings,
-		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto ChangeTextureCubeFaceSourceReferences(
-		DTextureCube& Texture,
-		const std::array<std::string, TextureCubeFaceCount>& SourceVirtualPaths,
-		const FTextureCubeImportSettings& Settings,
-		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto IngestAndChangeTextureCubePanoramaSource(
-		DTextureCube& Texture,
-		std::string_view FilePath,
-		std::string_view TargetSourceVirtualPath,
-		const FTextureCubePanoramaImportSettings& Settings,
-		std::string& OutError) -> bool;
-	ASSETFORGEBUILTINS_API auto IngestAndChangeTextureCubeFaceSources(
+	ASSETFORGEBUILTINS_API auto ReimportTextureCubeFacesFromFile(
 		DTextureCube& Texture,
 		const std::array<std::string, TextureCubeFaceCount>& FaceFiles,
-		const std::array<std::string, TextureCubeFaceCount>& TargetSourceVirtualPaths,
 		const FTextureCubeImportSettings& Settings,
 		std::string& OutError) -> bool;
 }

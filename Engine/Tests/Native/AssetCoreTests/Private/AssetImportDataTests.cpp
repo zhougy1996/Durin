@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Asset/AssetImportData.h"
-#include "Asset/SourceFilename.h"
+#include "Asset/SourceHint.h"
 #include "Hash/XxHash.h"
 #include "Misc/Paths.h"
 #include "NativeDObjectTestSupport.h"
@@ -11,19 +11,22 @@ namespace
 	auto MakeSource(
 		std::string Identity,
 		std::string Role,
-		std::string Filename,
-		std::string_view Bytes) -> Durin::AssetImport::FSourceFile
+		std::string Hint,
+		std::string_view Bytes,
+		Durin::AssetImport::ESourceHintBase HintBase =
+			Durin::AssetImport::ESourceHintBase::ProjectRelative)
+		-> Durin::AssetImport::FSourceFile
 	{
 		const Durin::FXxHash128 Hash = Durin::FXxHash128::HashBuffer(Bytes);
 		return {
 			.StableIdentity = std::move(Identity),
 			.Role = std::move(Role),
 			.DisplayLabel = "Source fixture",
-			.Filename = std::move(Filename),
+			.Hint = std::move(Hint),
+			.HintBase = HintBase,
 			.ContentHashLow = Hash.HashLow,
 			.ContentHashHigh = Hash.HashHigh,
-			.ByteCount = Bytes.size(),
-			.LastWriteTime = 123};
+			.ByteCount = Bytes.size()};
 	}
 
 	class FAssetImportDataTests : public testing::Test
@@ -42,8 +45,8 @@ TEST_F(FAssetImportDataTests, SourceInfoNormalizesValidatesLooksUpAndFingerprint
 	using namespace Durin::AssetImport;
 	FAssetImportInfo Info;
 	Info.Sources = {
-		MakeSource("zeta", "dependency", "/TestSources/zeta.bin", "zeta"),
-		MakeSource("root", "source", "/TestSources/root.png", "root")};
+		MakeSource("zeta", "dependency", "TestSources/zeta.bin", "zeta"),
+		MakeSource("root", "source", "TestSources/root.png", "root")};
 	std::string Error;
 	EXPECT_FALSE(Info.Validate(Error));
 	Info.Normalize();
@@ -71,31 +74,77 @@ TEST_F(FAssetImportDataTests, SourceInfoNormalizesValidatesLooksUpAndFingerprint
 	EXPECT_FALSE(TooMany.Validate(Error));
 }
 
-TEST_F(FAssetImportDataTests, SourceFilenamesUseProjectRelativeAndExternalAbsoluteForms)
+TEST_F(FAssetImportDataTests, SourceHintsSupportAssetProjectAndAbsoluteBases)
 {
 	using namespace Durin::AssetImport;
 	const std::filesystem::path Project = Durin::FPaths::ProjectDir();
 	ASSERT_FALSE(Project.empty());
+	const std::filesystem::path Package =
+		(Project / "Sandbox" / "Content" / "Textures" / "UI" / "Icon.dasset")
+		.lexically_normal();
 	std::string Error;
-	std::string Filename;
-	ASSERT_TRUE(MakeSourceFilename(
-		(Project / "Sources" / "Textures" / "Albedo.png").generic_string(),
-		Filename, Error)) << Error;
-	EXPECT_EQ(Filename, "Sources/Textures/Albedo.png");
+	std::string Hint;
 	std::string Resolved;
-	ASSERT_TRUE(ResolveSourceFilename(Filename, Resolved, Error)) << Error;
-	EXPECT_EQ(std::filesystem::path(Resolved),
-		(Project / "Sources" / "Textures" / "Albedo.png").lexically_normal());
+	ESourceHintBase Base = ESourceHintBase::Absolute;
+
+	const std::filesystem::path SameDirectory =
+		(Package.parent_path() / "Icon.png").lexically_normal();
+	ASSERT_TRUE(MakeSourceHint(
+		SameDirectory.generic_string(), Package.generic_string(), Base, Hint, Error)) << Error;
+	EXPECT_EQ(Base, ESourceHintBase::AssetRelative);
+	EXPECT_EQ(Hint, "Icon.png");
+	ASSERT_TRUE(ResolveSourceHint(
+		Base, Hint, Package.generic_string(), Resolved, Error)) << Error;
+	EXPECT_EQ(std::filesystem::path(Resolved), SameDirectory);
+
+	const std::filesystem::path ParentRelative =
+		(Project / "Sandbox" / "Sources" / "Albedo.png").lexically_normal();
+	ASSERT_TRUE(MakeSourceHint(ParentRelative.generic_string(), Package.generic_string(),
+		Base, Hint, Error, ESourceHintBase::ProjectRelative)) << Error;
+	EXPECT_EQ(Base, ESourceHintBase::ProjectRelative);
+	EXPECT_EQ(Hint, "Sandbox/Sources/Albedo.png");
+	ASSERT_TRUE(ResolveSourceHint(
+		Base, Hint, Package.generic_string(), Resolved, Error)) << Error;
+	EXPECT_EQ(std::filesystem::path(Resolved), ParentRelative);
+
+	ASSERT_TRUE(MakeSourceHint(SameDirectory.generic_string(), Package.generic_string(),
+		Base, Hint, Error, ESourceHintBase::Absolute)) << Error;
+	EXPECT_EQ(Base, ESourceHintBase::Absolute);
+	EXPECT_EQ(Hint, SameDirectory.generic_string());
 
 	const std::filesystem::path External =
-		(std::filesystem::temp_directory_path() / "DurinExternalSource.png")
+		(std::filesystem::temp_directory_path() / "DurinExternalHint.png")
 		.lexically_normal();
-	ASSERT_TRUE(MakeSourceFilename(External.generic_string(), Filename, Error)) << Error;
-	EXPECT_EQ(Filename, External.generic_string());
-	ASSERT_TRUE(ResolveSourceFilename(Filename, Resolved, Error)) << Error;
+	ASSERT_TRUE(MakeSourceHint(
+		External.generic_string(), Package.generic_string(), Base, Hint, Error)) << Error;
+	EXPECT_EQ(Base, ESourceHintBase::Absolute);
+	EXPECT_EQ(Hint, External.generic_string());
+	ASSERT_TRUE(ResolveSourceHint(
+		Base, Hint, Package.generic_string(), Resolved, Error)) << Error;
 	EXPECT_EQ(std::filesystem::path(Resolved), External);
 
-	EXPECT_FALSE(ResolveSourceFilename("../Escapes.png", Resolved, Error));
-	EXPECT_FALSE(ResolveSourceFilename("Sources/./Invalid.png", Resolved, Error));
-	EXPECT_FALSE(ResolveSourceFilename({}, Resolved, Error));
+	// Moving or duplicating a package copies the hint bytes. Relative hints are
+	// intentionally rebound against the destination package directory.
+	const std::filesystem::path MovedPackage =
+		(Project / "Sandbox" / "Content" / "Moved" / "Icon.dasset")
+		.lexically_normal();
+	ASSERT_TRUE(ResolveSourceHint(ESourceHintBase::AssetRelative,
+		"Icon.png", MovedPackage.generic_string(), Resolved, Error)) << Error;
+	EXPECT_EQ(std::filesystem::path(Resolved),
+		MovedPackage.parent_path() / "Icon.png");
+	ASSERT_TRUE(ResolveSourceHint(ESourceHintBase::ProjectRelative,
+		"Sandbox/Sources/Albedo.png", MovedPackage.generic_string(), Resolved, Error)) << Error;
+	EXPECT_EQ(std::filesystem::path(Resolved), ParentRelative);
+	ASSERT_TRUE(ResolveSourceHint(ESourceHintBase::Absolute,
+		External.generic_string(), MovedPackage.generic_string(), Resolved, Error)) << Error;
+	EXPECT_EQ(std::filesystem::path(Resolved), External);
+
+	EXPECT_FALSE(ResolveSourceHint(ESourceHintBase::ProjectRelative,
+		"../Escapes.png", Package.generic_string(), Resolved, Error));
+	EXPECT_FALSE(ResolveSourceHint(ESourceHintBase::AssetRelative,
+		SameDirectory.generic_string(), Package.generic_string(), Resolved, Error));
+	EXPECT_FALSE(ResolveSourceHint(ESourceHintBase::AssetRelative,
+		"Icon/./Invalid.png", Package.generic_string(), Resolved, Error));
+	EXPECT_FALSE(MakeSourceHint(External.generic_string(), Package.generic_string(),
+		Base, Hint, Error, ESourceHintBase::ProjectRelative));
 }

@@ -18,18 +18,18 @@ not be treated like disposable DDC entries while that build is installed or
 running. See [Asset Data Lifecycle and Storage](../../Runtime/Assets/AssetDataLifecycle.md)
 for the `.dasset`, DDC `.bin`, and cooked `.dbulk` boundaries.
 
-StaticMesh, Texture2D, and TextureCube `.dasset` files record complete mounted
-source paths such as `/Game/Models/Chair.fbx` or
-`/Libraries/StudioArt/Textures/Stone.png`. The mount maps both source and asset
-identities through one configured content directory; no package stores a
-physical directory prefix, absolute checkout path, or link target. Source art
-is authoring input rather than a runtime object asset. Moving or
-deleting a package does not implicitly move or delete potentially shared source
-art.
+Standalone imported assets store their decoder-free canonical imported data in
+the `.dasset`/`.dabulk` bundle. Optional schema-2 source hints are explicitly
+`AssetRelative`, `ProjectRelative`, or `Absolute` physical paths used only by
+explicit Reimport. They are not asset identities, DDC keys, or rebuild
+authority. Source art is optional authoring input after a successful package
+save. Moving, duplicating, or deleting a package never moves or deletes
+potentially shared source art.
 
-Repository packages use only reflected `FSourcePath` provenance. Packages that
-retain the former string carrier are rejected; migrate them with an engine
-revision that still supports the old format before upgrading.
+Repository packages use concrete family import-data schema 2. Retired mounted
+source, filename-only, and source-backed recovery schemas have no current
+reader; the repository corpus must remain canonical-resaved before those
+compatibility routes are removed.
 
 ## Directory Convention
 
@@ -52,12 +52,11 @@ directory name. Plugin and manually scanned external mounts apply the same
 policy in their own repositories: `.dasset` stays in ordinary Git, while large
 model, image, audio, and font inputs use the matching LFS rules.
 
-Project-relative junctions or symbolic links may provide a declared mount root
-whose checkout location differs by workstation. Commit the descriptor path and
-the source repository revision or submodule ownership, never the resolved
-absolute target. Git does not version the contents behind an arbitrary local
-link, so the team must define which repository owns those files and how its
-revision is acquired.
+Project-relative junctions or symbolic links may provide a source checkout
+whose location differs by workstation. Commit the source repository revision
+or submodule ownership, never an arbitrary resolved link target. Git does not
+version the contents behind a local link, so the team must define which
+repository owns those files and how its revision is acquired.
 
 ## Workstation Setup
 
@@ -138,12 +137,12 @@ and the
 [Git LFS `lfs.storage` reference](https://github.com/git-lfs/git-lfs/blob/main/docs/man/git-lfs-config.adoc)
 for the underlying constraints.
 
-If an optional source checkout is absent, the mount remains unavailable and
-warm DDC-backed editor loading may still succeed. Restore the declared checkout
-or link and fetch its LFS objects; do not edit the descriptor to a workstation
-absolute path. Read-only mounts remain valid
-reference and reimport sources. Ingest, replacement, and relocation must target
-an authorized writable mount instead.
+If an optional source checkout is absent, authored assets still load, edit,
+rebuild after a cold DDC, and Cook from their DAST/DABK closure. Only explicit
+Reimport through a hint becomes unavailable. Restore the checkout and its LFS
+objects or use Reimport From File to select a replacement. Read-only physical
+sources remain valid import and reimport inputs because Durin never writes
+them.
 
 Before committing, use these checks:
 

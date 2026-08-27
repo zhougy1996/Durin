@@ -1,7 +1,6 @@
 #pragma once
 
 #include "DObject/Package.h"
-#include "AssetForgeBuiltinsAssetFeatures.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "AssetForge/Builtins/StaticMeshImportData.h"
 
@@ -94,122 +93,13 @@ namespace Durin::AssetForge::Builtins
 			if (!DecodeStaticMeshSource(
 				FilePath, SourceImportData.ImportSettings, ImportedData, OutError))
 				return false;
-			return Asset::FStaticMeshBuildOperations::BuildImportedProduct(
+			if (!Asset::FStaticMeshBuildOperations::BuildImportedProduct(
 				Asset::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
 				ImportedData, std::move(SourceImportData), SourceLabel,
-				OutProduct, OutError);
-		}
-
-		auto PostLoadStaticMesh(
-			DStaticMesh& Mesh,
-			FStaticMeshDerivedDataDiagnostic& OutDiagnostic,
-			std::string& OutError) -> bool
-		{
-			const FStaticMeshSourceDiagnostic SourceDiagnostic =
-				InspectStaticMeshSource(Mesh);
-			if (SourceDiagnostic.Status == EStaticMeshSourceStatus::NoSource)
-			{
-				OutDiagnostic = {};
-				OutError.clear();
-				return true;
-			}
-			if (Mesh.GetMaterialSlots().empty())
-			{
-				OutError = "StaticMesh with source metadata must contain a material slot.";
-				return false;
-			}
-
-			const auto* ImportData = dynamic_cast<const DStaticMeshImportData*>(
-				Mesh.GetAssetImportData());
-			if (!ImportData)
-			{
-				OutError = "StaticMesh has no current family import data.";
-				return false;
-			}
-			const FStaticMeshImportDataState ImportState =
-				ImportData->GetStaticMeshState();
-			const AssetImport::FSourceFile* ImportedSource =
-				ImportState.SourceData.FindByRole("source");
-			if (!ImportedSource)
-			{
-				OutError = "StaticMesh family import data has no source.";
-				return false;
-			}
-			FStaticMeshSourceImportData Source{
-				.SourcePath = {.Path = ImportedSource->Filename},
-				.SourceContentHash = FXxHash128{
-					.HashLow = ImportedSource->ContentHashLow,
-					.HashHigh = ImportedSource->ContentHashHigh}.ToString(),
-				.ImporterId = ImportState.ImporterId,
-				.ImporterVersion = ImportState.ImporterVersion,
-				.ImportSettings = ImportState.ImportSettings};
-			const bool bSourceAvailable = SourceDiagnostic.IsAvailable();
-			if (bSourceAvailable)
-			{
-				std::vector<std::byte> Bytes;
-				if (!FFileHelper::LoadFileToArray(Bytes, SourceDiagnostic.ResolvedPath))
-				{
-					OutDiagnostic.Status = EStaticMeshDerivedDataStatus::SourceUnavailable;
-					OutError = std::format(
-						"Failed to read StaticMesh source file: {}",
-						SourceDiagnostic.ResolvedPath);
-					OutDiagnostic.Message = OutError;
-					return false;
-				}
-				Source.SourceContentHash = FXxHash128::HashBuffer(Bytes).ToString();
-			}
-			const bool bSourceHashValid = Source.SourceContentHash.size() == 32
-				&& std::ranges::all_of(Source.SourceContentHash, [](char Character) {
-					return Character >= '0' && Character <= '9'
-						|| Character >= 'a' && Character <= 'f';
-				});
-			if (!bSourceHashValid)
-			{
-				OutDiagnostic.Status = EStaticMeshDerivedDataStatus::SourceUnavailable;
-				OutError = SourceDiagnostic.Message.empty()
-					? "StaticMesh source hash is unavailable."
-					: SourceDiagnostic.Message;
-				OutDiagnostic.Message = OutError;
-				return false;
-			}
-
-			const bool bSourceMetadataStale = bSourceAvailable
-				&& (ImportedSource->ContentHashLow != FXxHash128::FromString(
-						Source.SourceContentHash).HashLow
-					|| ImportedSource->ContentHashHigh != FXxHash128::FromString(
-						Source.SourceContentHash).HashHigh);
-			FStaticMeshBuildProduct Product;
-			EStaticMeshDerivedDataStatus CacheStatus =
-				EStaticMeshDerivedDataStatus::Missing;
-			std::string CacheMessage;
-			if (!bSourceMetadataStale
-				&& Asset::FStaticMeshBuildOperations::LoadDerivedDataProduct(
-					Asset::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
-					Source, bSourceAvailable, Product, CacheStatus,
-					CacheMessage, OutError))
-			{
-				return Mesh.PublishImportedProduct(std::move(Product), OutError);
-			}
-			if (!bSourceAvailable)
-			{
-				OutDiagnostic.Status = EStaticMeshDerivedDataStatus::SourceUnavailable;
-				OutDiagnostic.Message = std::format(
-					"{}. Cached payload was unavailable: {} Reimport and cache regeneration are unavailable.",
-					SourceDiagnostic.Message, CacheMessage);
-				OutError = OutDiagnostic.Message;
-				return false;
-			}
-			if (bSourceMetadataStale)
-			{
-				OutError = "StaticMesh source changed; explicit reimport is required before derived-data recovery.";
-				return false;
-			}
-			if (!BuildStaticMeshFileProduct(Mesh, SourceDiagnostic.ResolvedPath,
-				Source, Source.SourcePath.Path, Product, OutError)) return false;
-			Product.bMarkPackageDirty = false;
-			if (!Mesh.PublishImportedProduct(std::move(Product), OutError)) return false;
-			OutError.clear();
+				OutProduct, OutError)) return false;
+			OutProduct.bSourceImporterInvoked = true;
 			return true;
 		}
+
 		}
 }

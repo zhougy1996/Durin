@@ -2,8 +2,10 @@
 
 #include "Asset/AssetImportData.h"
 #include "Asset/Cook.h"
+#include "Asset/EditorBulkData.h"
 #include "Asset/SourcePath.h"
 #include "EngineAPI.h"
+#include "Hash/XxHash.h"
 #include "DObject/ObjectPtr.h"
 #include "Materials/MeshMaterialSlot.h"
 #include "RenderingThread.h"
@@ -12,6 +14,13 @@
 
 namespace Durin
 {
+	inline constexpr FGuid StaticMeshImportedGeometryPayloadId{
+		0x442898cd, 0x801d49ed, 0x93459533, 0x4531fc1d};
+	inline constexpr uint32 StaticMeshImportedDataSchemaVersion = 1;
+	inline constexpr uint64 MaximumStaticMeshImportedDataBytes =
+		1024ull * 1024ull * 1024ull;
+	inline constexpr uint32 MaximumStaticMeshImportedUVChannels = 4;
+
 	namespace Asset { class FStaticMeshBuildOperations; }
 	class DBodySetup;
 	class FCollisionGeometryRef;
@@ -97,34 +106,57 @@ namespace Durin
 		auto operator==(const FStaticMeshSourceImportData&) const -> bool = default;
 	};
 
+	struct FStaticMeshImportedMaterialSlot
+	{
+		std::string Name;
+		uint32 SourceMaterialIndex = 0;
+		std::string SourceName;
+	};
+
+	struct FStaticMeshImportedMesh
+	{
+		std::string Name;
+		std::vector<FVector3f> Positions;
+		std::vector<FVector3f> Normals;
+		std::vector<FVector4f> Tangents;
+		std::array<std::vector<FVector2f>, MaximumStaticMeshImportedUVChannels> UVChannels;
+		std::vector<FVector4f> Colors;
+		std::vector<uint32> Indices;
+		uint32 SourceMaterialIndex = 0;
+	};
+
+	// Owns canonical imported geometry and material-source mapping in authored bulk.
+	DSTRUCT()
+	struct FStaticMeshImportedData
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		Asset::FEditorBulkData Geometry;
+
+		DPROPERTY()
+		uint32 MaterialSlotCount = 0;
+
+		DPROPERTY()
+		uint32 MeshCount = 0;
+
+		DPROPERTY()
+		uint32 SchemaVersion = StaticMeshImportedDataSchemaVersion;
+
+		std::vector<FStaticMeshImportedMaterialSlot> MaterialSlots;
+		std::vector<FStaticMeshImportedMesh> Meshes;
+
+		ENGINE_API auto CaptureDecodedData(std::string& OutError) -> bool;
+		ENGINE_API auto Decode(std::string& OutError) const -> FStaticMeshImportedData;
+		ENGINE_API auto IsValid() const -> bool;
+		ENGINE_API auto GetIdentity() const -> FXxHash128;
+	};
+
 	struct FStaticMeshBuildData;
 	struct FStaticMeshRenderData;
 	struct FStaticMeshImportResult;
 	struct FStaticMeshBuildProduct;
 	class FStaticMeshImportedStateExchange;
-
-	enum class EStaticMeshSourceStatus : uint8
-	{
-		NoSource,
-		Available,
-		Changed,
-		Missing,
-		Invalid
-	};
-
-	// Describes editor-facing source availability without making source data a runtime requirement.
-	struct FStaticMeshSourceDiagnostic
-	{
-		EStaticMeshSourceStatus Status = EStaticMeshSourceStatus::NoSource;
-		std::string ResolvedPath;
-		std::string Message;
-
-		auto IsAvailable() const -> bool
-		{
-			return Status == EStaticMeshSourceStatus::Available
-				|| Status == EStaticMeshSourceStatus::Changed;
-		}
-	};
 
 	enum class EStaticMeshDerivedDataStatus : uint8
 	{
@@ -135,8 +167,6 @@ namespace Durin
 		Incompatible,
 		Rebuilt,
 		WriteFailure,
-		SourceUnavailableCached,
-		SourceUnavailable,
 		CookedLoaded,
 		CookedFailure
 	};
@@ -207,9 +237,15 @@ namespace Durin
 		auto GetSourceFile() const -> const std::string&
 		{
 			if (const AssetImport::FSourceFile* Source = GetImportedSource())
-				return Source->Filename;
+				return Source->Hint;
 			static const std::string Empty;
 			return Empty;
+		}
+		auto GetSourceHintBase() const -> AssetImport::ESourceHintBase
+		{
+			if (const AssetImport::FSourceFile* Source = GetImportedSource())
+				return Source->HintBase;
+			return AssetImport::ESourceHintBase::AssetRelative;
 		}
 		auto GetAssetImportData() const -> const AssetImport::DAssetImportData*
 		{
@@ -230,6 +266,8 @@ namespace Durin
 
 		ENGINE_API auto InspectCollision() const -> FStaticMeshCollisionInspection;
 		auto GetDerivedDataDiagnostic() const -> const FStaticMeshDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
+		auto GetImportedData() const -> const FStaticMeshImportedData& { return ImportedData; }
+		auto GetImportedDataIdentity() const -> FXxHash128 { return ImportedData.GetIdentity(); }
 		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		// Contributes deterministic DMSH data and descriptor-bearing runtime metadata to a cook.
@@ -335,6 +373,9 @@ namespace Durin
 		DPROPERTY(EditorOnly)
 		TObjectPtr<AssetImport::DAssetImportData> AssetImportData;
 
+		DPROPERTY(EditorOnly)
+		FStaticMeshImportedData ImportedData;
+
 		DPROPERTY()
 		float NormalizedSize = 1.5f;
 
@@ -389,4 +430,13 @@ namespace Durin
 
 		explicit operator bool() const { return bSucceeded; }
 	};
+}
+
+namespace Durin::Asset
+{
+	inline constexpr uint32 MaximumStaticMeshImportedUVChannels =
+		::Durin::MaximumStaticMeshImportedUVChannels;
+	using FStaticMeshImportedMaterialSlot = ::Durin::FStaticMeshImportedMaterialSlot;
+	using FStaticMeshImportedMesh = ::Durin::FStaticMeshImportedMesh;
+	using FStaticMeshImportedData = ::Durin::FStaticMeshImportedData;
 }

@@ -25,7 +25,7 @@ direction.
 | `CoreDObject` | Managed objects, reflection, properties, garbage collection, and object serialization foundations | [source](../../Engine/Source/Runtime/CoreDObject) |
 | `ApplicationCore` | Native application, window, input-message, GLFW, and file-dialog integration | [source](../../Engine/Source/Runtime/ApplicationCore) |
 | `AssetCore` | Asset paths, registry, packages, DAST serialization, dependencies, redirectors, derived data, cooking, and mutation transactions | [source](../../Engine/Source/Runtime/AssetCore) |
-| `Engine` | World, actors, components, levels, runtime assets, object-aware asset-compilation aggregation, materials, meshes, textures, input, and render-facing engine objects | [source](../../Engine/Source/Runtime/Engine) |
+| `Engine` | World, actors, components, levels, runtime assets and canonical imported data, optional source hints, object-aware asset-compilation aggregation, materials, meshes, textures, input, and render-facing engine objects | [source](../../Engine/Source/Runtime/Engine) |
 | `RHI` | Backend-neutral GPU resources, command lists, contexts, feature levels, shader parameters, and RHI-thread contracts | [source](../../Engine/Source/Runtime/RHI) |
 | `VulkanRHI` | Vulkan instance/device selection, queues, resources, pipelines, descriptors, swapchains, and backend diagnostics | [source](../../Engine/Source/Runtime/VulkanRHI) |
 | `RenderCore` | Rendering thread, render resources, shaders, vertex factories, scene views, and renderer-module interfaces | [source](../../Engine/Source/Runtime/RenderCore) |
@@ -41,7 +41,7 @@ direction.
 | --- | --- | --- |
 | `DurinEd` | Shared editor services: workspaces, reflected property editing, transactions, previews, thumbnails, source references, and editor UI infrastructure | [source](../../Engine/Source/Editor/DurinEd) |
 | `MainFrame` | Editor host frame, project browser, profiling integration, compatibility tools, and top-level editor startup UI | [source](../../Engine/Source/Editor/MainFrame) |
-| `ContentBrowser` | Project-wide browser model, presentation, operations, settings, extensions, and source thumbnails | [source](../../Engine/Source/Editor/ContentBrowser) |
+| `ContentBrowser` | Project-wide browser model, presentation, operations, settings, extensions, and asset thumbnails | [source](../../Engine/Source/Editor/ContentBrowser) |
 | `LevelEditor` | Level workspace, scene viewport, panels, documents, selection, and Level settings | [source](../../Engine/Source/Editor/LevelEditor) |
 | `MaterialEditor` | Material asset editor and material-specific editing UI | [source](../../Engine/Source/Editor/MaterialEditor) |
 | `TextureEditor` | Texture asset editor, import/build-setting UI, preview, and texture-specific diagnostics | [source](../../Engine/Source/Editor/TextureEditor) |
@@ -57,10 +57,10 @@ physical root communicates ownership but does not select them for a target.
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
 | `DerivedDataCache` | Backend-neutral synchronous bucket/key cache, local filesystem persistence, and the family-neutral Build Framework: immutable definitions/values/policy, synchronous local sessions, cache-status adaptation, and build-function registration; depends only on `Core` | [source](../../Engine/Source/Developer/DerivedDataCache) |
-| `TextureBuild` | Texture2D/TextureCube keys, private codecs/functions, one module-owned build-function transaction, typed recipes, offline compression, diagnostics, and the optional Texture2D compilation domain | [source](../../Engine/Source/Developer/TextureBuild) |
-| `StaticMeshBuild` | StaticMesh render/collision keys, private codecs/functions, one module-owned two-function registration transaction, typed recipes, DDC policy, diagnostics, and collision Runtime adapter | [source](../../Engine/Source/Developer/StaticMeshBuild) |
-| `SkeletalBuild` | SkeletalMesh/AnimationClip keys, private codecs/functions, one module-owned two-function registration transaction, typed recipes, DDC policy, diagnostics, and uncooked-payload Runtime adapter | [source](../../Engine/Source/Developer/SkeletalBuild) |
-| `TerrainBuild` | TerrainHeightmap and Terrain World keys, private codecs/functions, one six-function registration transaction, typed recipes, DDC policy, Cook production, manifests, diagnostics, and Runtime loading adapters | [source](../../Engine/Source/Developer/TerrainBuild) |
+| `TextureBuild` | Texture2D/TextureCube/VolumeTexture keys, canonical-data recipes, private codecs/functions, one module-owned build-function transaction, offline compression, diagnostics, and the optional Texture2D compilation domain | [source](../../Engine/Source/Developer/TextureBuild) |
+| `StaticMeshBuild` | StaticMesh render/collision keys, canonical-geometry recipes, private codecs/functions, one module-owned two-function registration transaction, DDC policy, diagnostics, and collision Runtime adapter | [source](../../Engine/Source/Developer/StaticMeshBuild) |
+| `SkeletalBuild` | SkeletalMesh/AnimationClip keys, canonical-payload recipes, private codecs/functions, one module-owned two-function registration transaction, DDC policy, diagnostics, and uncooked-payload Runtime adapter | [source](../../Engine/Source/Developer/SkeletalBuild) |
+| `TerrainBuild` | TerrainHeightmap canonical-sample and Terrain World keys, private codecs/functions, one six-function registration transaction, typed recipes, DDC policy, Cook production, manifests, diagnostics, and Runtime loading adapters | [source](../../Engine/Source/Developer/TerrainBuild) |
 
 ## Project Modules
 

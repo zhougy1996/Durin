@@ -1,5 +1,5 @@
 #include "TextureTestSupport.h"
-#include "AssetForgeBuiltinsAssetTestSupport.h"
+#include "Modules/ModuleManager.h"
 #include "Texture2DPropertyEditing.h"
 
 namespace
@@ -12,7 +12,7 @@ namespace
 		{
 			InitializeDObjectSystem();
 			ASSERT_TRUE(EnsureTextureCompilingManager());
-			ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAssetFeatures());
+			Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 			ASSERT_TRUE(Durin::Editor::Texture::RegisterTexture2DPropertyEditing());
 		}
 

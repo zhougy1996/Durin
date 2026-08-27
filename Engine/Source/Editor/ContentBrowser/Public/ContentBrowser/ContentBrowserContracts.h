@@ -117,8 +117,10 @@ namespace Durin::Editor::ContentBrowser
 		std::function<void(Import::EBuiltinImportFamily, std::string)> OpenImport;
 		std::function<Import::EBuiltinReimportFamily(std::string_view)>
 			ClassifyReimport;
+		std::function<bool(std::string_view)> CanReimport;
 		std::function<void(
-			Import::EBuiltinReimportFamily, std::string, std::function<void(std::string)>)>
+			Import::EBuiltinReimportFamily, Import::EBuiltinReimportMode,
+			std::string, std::function<void(std::string)>)>
 			Reimport;
 		std::function<void(bool)> DrawImportDialogs;
 		FTaskScopeToken ThumbnailTaskScope;

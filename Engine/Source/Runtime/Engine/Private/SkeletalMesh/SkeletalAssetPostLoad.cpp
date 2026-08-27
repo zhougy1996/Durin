@@ -12,37 +12,34 @@ namespace Durin
 			"Skeletal derived-data provider failed.";
 	}
 
-	auto InvokeSkeletalMeshUncookedPayloadLoader(
-		std::string_view Key,
-		const FSkeletalPayloadSerializationContext& Context,
-		FSkeletalMeshPayloadData& OutPayload,
+	auto InvokeSkeletalMeshUncookedPostLoad(
+		DSkeletalMesh& Mesh,
 		std::string& OutMessage) -> bool
 	{
 		return Private::InvokeSingleModularFeature<ISkeletalDerivedDataFeature>(
 			[&](ISkeletalDerivedDataFeature& Feature) {
-				return Feature.LoadSkeletalMeshPayload(Key, Context, OutPayload, OutMessage);
+				return Feature.PostLoadUncooked(Mesh, OutMessage);
 			},
 			{
-				.Unavailable = "No uncooked SkeletalMesh payload policy is registered.",
+				.Unavailable = "No uncooked SkeletalMesh build policy is registered.",
 				.Ambiguous = SkeletalDerivedDataAmbiguousMessage,
 				.VisitorFailed = SkeletalDerivedDataVisitorFailedMessage},
 			OutMessage);
 	}
 
-	auto InvokeAnimationClipUncookedPayloadLoader(
-		std::string_view Key,
-		const FSkeletalPayloadSerializationContext& Context,
-		FAnimationClipPayloadData& OutPayload,
+	auto InvokeAnimationClipUncookedPostLoad(
+		DAnimationClip& Clip,
 		std::string& OutMessage) -> bool
 	{
 		return Private::InvokeSingleModularFeature<ISkeletalDerivedDataFeature>(
 			[&](ISkeletalDerivedDataFeature& Feature) {
-				return Feature.LoadAnimationClipPayload(Key, Context, OutPayload, OutMessage);
+				return Feature.PostLoadUncooked(Clip, OutMessage);
 			},
 			{
-				.Unavailable = "No uncooked AnimationClip payload policy is registered.",
+				.Unavailable = "No uncooked AnimationClip build policy is registered.",
 				.Ambiguous = SkeletalDerivedDataAmbiguousMessage,
 				.VisitorFailed = SkeletalDerivedDataVisitorFailedMessage},
 			OutMessage);
 	}
+
 }

@@ -11,6 +11,8 @@
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
+#include "AssetForge/Builtins/StaticMeshImport.h"
+#include "AssetForge/Builtins/StaticMeshImportData.h"
 #include "Thumbnail/RenderedAssetThumbnailCache.h"
 
 #include <gtest/gtest.h>
@@ -158,9 +160,11 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToRenderedThumbnails)
 	FAssetPath AssetPath;
 	ASSERT_TRUE(FAssetPath::TryCreate(
 		"/ContentBrowserTests/ThumbnailMesh", AssetPath));
-	DStaticMesh* StaticMesh = nullptr;
-	ASSERT_TRUE(Asset::CreateAsset(AssetPath, StaticMesh));
-	ASSERT_TRUE(Asset::SavePackage(StaticMesh->GetPackage()));
+	const FStaticMeshImportResult Imported = AssetForge::Builtins::ImportStaticMeshAsset(
+		(std::filesystem::path(DURIN_TEST_DATA_DIR)
+			/ "MultiSection.gltf").generic_string(), AssetPath.ToString());
+	ASSERT_TRUE(Imported) << Imported.Message;
+	DStaticMesh* StaticMesh = Imported.Asset;
 	const Asset::FAssetCatalogEntry AssetData =
 		Asset::FindAssetExact(AssetPath);
 	ASSERT_NE(AssetData, nullptr);
@@ -194,8 +198,20 @@ TEST_F(FContentBrowserModelTests, SourceProviderWithoutUsableSourceKeepsAssetIco
 	FAssetPath AssetPath;
 	ASSERT_TRUE(FAssetPath::TryCreate(
 		"/ContentBrowserTests/SourceLessMesh", AssetPath));
-	DStaticMesh* StaticMesh = nullptr;
-	ASSERT_TRUE(Asset::CreateAsset(AssetPath, StaticMesh));
+	const FStaticMeshImportResult Imported = AssetForge::Builtins::ImportStaticMeshAsset(
+		(std::filesystem::path(DURIN_TEST_DATA_DIR)
+			/ "MultiSection.gltf").generic_string(), AssetPath.ToString());
+	ASSERT_TRUE(Imported) << Imported.Message;
+	DStaticMesh* StaticMesh = Imported.Asset;
+	auto* ImportData = dynamic_cast<AssetForge::Builtins::DStaticMeshImportData*>(
+		StaticMesh->GetAssetImportData());
+	ASSERT_NE(ImportData, nullptr);
+	auto ImportState = ImportData->GetStaticMeshState();
+	ASSERT_FALSE(ImportState.SourceData.Sources.empty());
+	ImportState.SourceData.Sources.front().Hint.clear();
+	std::string ImportError;
+	ASSERT_TRUE(ImportData->SetState(std::move(ImportState), ImportError)) << ImportError;
+	ASSERT_TRUE(StaticMesh->PublishAssetImportData(*ImportData, ImportError)) << ImportError;
 	ASSERT_TRUE(Asset::SavePackage(StaticMesh->GetPackage()));
 	const Asset::FAssetCatalogEntry AssetData =
 		Asset::FindAssetExact(AssetPath);

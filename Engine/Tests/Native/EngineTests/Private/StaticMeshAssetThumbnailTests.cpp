@@ -6,7 +6,6 @@
 #include "Thumbnail/AssetThumbnailObjectStore.h"
 
 #include "AssetTools.h"
-#include "AssetForgeBuiltinsAssetFeatures.h"
 #include "DObject/Class.h"
 #include "Editor/WorkspaceManager.h"
 #include "MaterialEditorModule.h"
@@ -14,7 +13,7 @@
 #include "Materials/MaterialInstance.h"
 #include "NativeTestSupport.h"
 #include "Misc/Paths.h"
-#include "Modules/ModuleTestSupport.h"
+#include "Modules/ModuleManager.h"
 #include "RenderingThread.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMeshEditorModule.h"
@@ -138,11 +137,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
-	Durin::FModuleTestOwner AssetContext("StaticMeshThumbnailTests.Recovery");
-	Durin::AssetForge::Builtins::FAssetForgeBuiltinsAssetFeatures AssetFeatures;
-	auto StaticMeshPostLoad =
-		AssetContext.RegisterFeature<Durin::IStaticMeshPostLoadFeature>(AssetFeatures);
-	ASSERT_TRUE(StaticMeshPostLoad.IsValid());
+	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	std::string Error;
 
 	Durin::FAssetPath SplineBoxPath;
@@ -612,7 +607,7 @@ TEST(FStaticMeshAssetThumbnailTests,
 	EXPECT_TRUE(Service.Find(MaterialClass));
 	EXPECT_TRUE(Service.Find(MaterialInstanceClass));
 	EXPECT_TRUE(Service.Find(Texture2DClass));
-	EXPECT_TRUE(Service.UsesSourceImage(Texture2DClass));
+	EXPECT_FALSE(Service.UsesSourceImage(Texture2DClass));
 	EXPECT_TRUE(Service.Find(TextureCubeClass));
 	EXPECT_TRUE(Service.Find(StaticMeshClass));
 

@@ -73,7 +73,8 @@ completion. Editor-side commit and recovery sequencing is separately defined by
 it does not move scheduling or typed build policy into DurinEd.
 
 Texture2D uses three distinct terms at this boundary. Import captures one
-physical source filename and translates its immutable encoded bytes into normalized pixels. Build is the detached
+physical source file and translates its immutable encoded bytes into canonical
+RGBA8 pixels. Build is the detached
 `FTexture2DBuildRequest` to `FTexture2DBuildProduct` transformation and never
 observes an asset object. Compilation schedules that build for a specific
 `DTexture2D`, applies cancellation and supersession, and publishes the product
@@ -84,24 +85,27 @@ not the name of the compilation domain or one of its requests.
 
 | Class | Typical location | Suffix | Authoritative for | May be deleted locally |
 | --- | --- | --- | --- | --- |
-| Source input | Project-relative or external physical filename; mounted content for Scene | Source-specific | Standalone-family reimport and rebuilding; initial Scene import | No |
-| Object package | Mounted content directory | `.dasset` | Asset identity and editable object state | No |
+| Physical source input | User-selected physical file closure | Source-specific | Explicit Import, Reimport, or Reimport From File only | Yes, after a successful authored save if reimport is not needed |
+| Object package | Mounted content directory | `.dasset` | Asset identity, editable object state, and inline canonical imported data | No |
+| Authored bulk data | Beside its object package | `.dabulk` | External canonical imported data selected by the DAST descriptor | No |
 | Derived data | `DerivedDataCache/` | `.bin` | Nothing; it accelerates editor and cook work | Yes |
 | Cooked package | `Cooked/<Platform>/...` | `.dasset` | Runtime object metadata for that cook | No |
 | Cooked bulk data | Beside its cooked package initially | `.dbulk` | Runtime payload bytes for that cook | No |
 | Local state | `Saved/` | Format-specific | Diagnostics, sessions, and user-local state | Yes |
 
 Persistent asset identity is defined by
-[Asset Packages](AssetPackages.md#paths-and-mounts). A standalone-family source is
-instead a normalized project-relative or absolute physical filename. Neither
-kind identifies a DDC key, `.bin` object, `.dbulk` file, or byte offset, and
-asset paths and source filenames are not interchangeable.
+[Asset Packages](AssetPackages.md#paths-and-mounts). A standalone-family source
+hint is instead an optional explicitly based asset-relative,
+project-relative, or absolute physical path used only by explicit Reimport.
+Neither kind identifies a DDC key, `.bin` object, `.dabulk`/`.dbulk` file, or
+byte offset, and asset paths and source hints are not interchangeable.
 
 ## Runtime Data Domain
 
 AssetCore has one immutable `FAssetRuntimeConfiguration` for each initialized
 runtime lifetime. `Authored()` selects the authored execution domain with
-source and DDC fallback allowed. The validated `Cooked(...)` factory requires
+canonical imported data and disposable DDC available. The validated
+`Cooked(...)` factory requires
 an absolute normalized cook root and fixes the payload policy to
 `CookedPayloadRequired`. `InitializeAssetManager` may reopen a shut-down
 runtime with a new configuration, but it rejects replacement while a different
@@ -117,29 +121,28 @@ policy.
 
 ## Authored Packages
 
-An editor `.dasset` contains compact, review-worthy object state:
+An editor DAST/DABK bundle contains authoritative object and imported state:
 
 - reflected properties and cross-package asset references;
-- portable source provenance needed for reimport;
-- source content identity and lightweight diagnostics;
+- bounded decoder-free canonical imported data, inline or in authored bulk;
+- optional source hints and provenance used only by explicit Reimport;
 - build settings that contribute to derived-data keys.
 
-Large platform render payloads do not belong in the authored package. Keeping
-them external avoids rewriting source-controlled packages when a builder,
-platform, or quality policy changes. Standalone families persist normalized filenames:
-files below the project directory use a project-relative generic path and
-external files use a normalized absolute path. Resolution never consults an
-asset mount. Scene uses the same filename policy for its creation-only captured
-source closure and resolves relative dependencies from the root filename.
+Large platform render payloads do not belong in authored storage. Canonical
+imported arrays use `FEditorBulkData`, allowing AssetCore to keep small values
+inline and place large values in the descriptor-selected DABK companion.
+Standalone family import data stores an explicit `AssetRelative`,
+`ProjectRelative`, or `Absolute` hint base beside each optional hint. Resolution
+never consults an asset mount and occurs only after the user invokes Reimport.
 
-The source input is authoritative for rebuilding but is not a runtime asset.
-Texture2D, StaticMesh, TextureCube, VolumeTexture, and TerrainHeightmap store
-common `FSourceFile` metadata plus required decode interpretation in concrete
-editor-only import-data objects. Runtime build settings remain on their assets;
-no asset also persists generic replay provenance or a mounted `FSourcePath`.
+Physical source input is not rebuild authority and is not a runtime asset.
+Texture2D, StaticMesh, TextureCube, VolumeTexture, TerrainHeightmap,
+SkeletalMesh, and AnimationClip persist the canonical imported data required by
+their builders. Runtime build settings remain on their assets; no asset also
+persists a generic replay graph or mounted-source request.
 
-Import and reimport only read selected or persisted physical filenames and
-never mutate them. See
+Import, Reimport, and Reimport From File are the only paths that read physical
+sources, and none mutates them. See
 [Source File Workflows](../../Editor/Guides/SourceFileWorkflows.md).
 
 ### Import-Time Build Policy
@@ -157,10 +160,11 @@ runtime ownership. See
 [Asset Import Framework](../../Editor/Architecture/AssetImportFramework.md).
 
 Every standalone family is a direct importer: it validates the destination,
-captures each selected file once, decodes and builds a detached product,
-publishes asset state and concrete family import data, then saves independently.
-Reimport and explicit source selection repeat that sequence without a graph,
-provider, generic job, replay provenance, or mounted-source mutation.
+captures each selected file once, decodes canonical imported data, builds a
+detached product, atomically commits asset state and concrete family import
+data, then saves independently. Reimport and Reimport From File repeat that
+sequence without a graph, provider, generic job, replay provenance, or
+mounted-source mutation.
 
 Scene captures one immutable source closure and owns a private stable
 topological order for its peer outputs. It performs complete decode, build,
@@ -178,13 +182,15 @@ The current import behavior is:
 
 | Asset | Import-time build | Persistent outputs |
 | --- | --- | --- |
-| StaticMesh | Import geometry and build the render payload | Authored `.dasset`, normalized source file, DDC `.bin` |
-| Texture2D | Decode source pixels, generate mips, and select/compress the platform format | Authored `.dasset`, normalized source file, DDC `.bin` |
-| TextureCube, six-face | Decode six sources, validate a common layout, and build platform faces | Authored `.dasset`, six normalized source files, DDC `.bin` |
-| TextureCube, panorama | Decode and project the panorama, then build platform faces | Authored `.dasset`, normalized panorama source, DDC `.bin` |
+| StaticMesh | Import canonical geometry and build render/collision payloads | Authored `.dasset` plus optional DABK, DDC `.bin` |
+| Texture2D | Decode canonical pixels, then generate mips and platform format | Authored `.dasset` plus optional DABK, DDC `.bin` |
+| TextureCube, six-face | Decode and validate six canonical faces, then build platform faces | Authored `.dasset` plus optional DABK, DDC `.bin` |
+| TextureCube, panorama | Decode and project the panorama into canonical faces, then build platform faces | Authored `.dasset` plus optional DABK, DDC `.bin` |
+| VolumeTexture | Decode a canonical voxel volume and build its platform mip chain | Authored `.dasset` plus optional DABK, DDC `.bin` |
+| TerrainHeightmap | Decode canonical uint16 samples and build the terrain payload | Authored `.dasset` plus optional DABK, DDC `.bin` |
 | Skeleton | Validate and persist the canonical reference hierarchy and structural compatibility identity | Authored `.dasset` |
-| SkeletalMesh | Validate the Skeleton relationship and build the detached LOD0 CPU payload | Authored `.dasset`, DDC `.bin` |
-| AnimationClip | Validate the Skeleton relationship and build detached track/key data | Authored `.dasset`, DDC `.bin` |
+| SkeletalMesh | Persist canonical geometry/influences, validate Skeleton compatibility, and build LOD0 | Authored `.dasset` plus optional DABK, DDC `.bin` |
+| AnimationClip | Persist canonical tracks/keys, validate Skeleton compatibility, and build clip data | Authored `.dasset` plus optional DABK, DDC `.bin` |
 | Assets without an external platform payload | Construct and save reflected authoring state | Authored `.dasset` |
 
 StaticMesh, texture, SkeletalMesh, and AnimationClip import currently build the
@@ -196,8 +202,7 @@ payload bytes, but only an explicit cook places them under `Cooked/` ownership.
 ### Optional Asset Operation Boundaries
 
 Runtime Engine owns asset state and typed optional operation contracts:
-`IStaticMeshBuildFeature`, `IStaticMeshPostLoadFeature`,
-`IStaticMeshCollisionBuildFeature`,
+`IStaticMeshPostLoadFeature`, `IStaticMeshCollisionBuildFeature`,
 `ITexture2DPostLoadFeature`, `ITextureCubePostLoadFeature`,
 `ITerrainHeightmapDerivedDataLoadFeature`,
 and `ISkeletalDerivedDataFeature`.
@@ -206,16 +211,18 @@ visitor. No provider reference or provider-authored callable escapes that
 visitor; zero providers is an explicit unavailable result and multiple
 providers is an explicit ambiguity rather than registration-order selection.
 
-`AssetForgeBuiltins` owns the static-mesh build and post-load, texture
-post-load, and Terrain derived-data providers.
-`StaticMeshBuild` owns collision construction and `SkeletalBuild`
-owns skeletal/animation derived-data loading. Each module instance owns its provider objects and
+`StaticMeshBuild` owns static-mesh post-load and collision construction,
+`TextureBuild` owns texture post-load, `TerrainBuild` owns Terrain derived-data
+loading, and `SkeletalBuild` owns skeletal/animation derived-data loading.
+`AssetForgeBuiltins` owns only explicit import/reimport providers and editor
+save-readiness policy; Engine, Build, and Cook consumers do not acquire an
+importer dependency. Each build module instance owns its provider objects and
 generation-bound registration tokens, so owner retirement rejects new calls
 and waits for admitted visitors before provider state is destroyed.
 
 Terrain post-load is the asynchronous exception to the otherwise synchronous
 boundary. Its coalesced workers and Game Thread publishers belong to the
-AssetForgeBuiltins-owned `TerrainDerivedDataLoads` operation group before the
+`TerrainBuild`-owned `TerrainDerivedDataLoads` operation group before the
 feature visitor returns. Module retirement closes the whole group with
 module-shutdown cancellation. Unload may proceed only after the group reports
 no active tasks, retained results, or deferred/worker callables. Cooked loads
@@ -247,15 +254,14 @@ immutable CPU payloads: they contain no source token, reflected object, RHI
 handle, playback clock, evaluated pose, or palette state.
 
 Authored editor packages may retain a content-addressed rebuild key and compact
-source/import metadata. A loaded package first attempts a validated DDC object.
-Texture2D missing or corrupt disposable data submits its family compilation
-from retained normalized pixels and current settings; it does not issue an
-import request or rewrite source metadata. Other families invoke their own
-direct build or PostLoad policy from retained concrete settings and never
-reconstruct a generic import request. Scene
-outputs retain no aggregate source recipe, so a missing skeletal Scene payload
-is reported rather than silently rebuilding the whole Scene. `DSkeleton` has no
-external payload and therefore no DDC object or DBLK companion.
+source-hint/import metadata. A loaded package first attempts a validated DDC
+object. Missing or corrupt disposable data invokes the owning family build from
+resident canonical imported data and current settings; it never issues an
+import request, resolves a hint, or rewrites source metadata. Scene outputs
+retain no aggregate recipe, but each SkeletalMesh and AnimationClip rebuilds
+independently from its own canonical data plus referenced Skeleton.
+`DSkeleton` has no external payload and therefore no DDC object or DBLK
+companion.
 
 ## Derived Data Cache Objects
 
@@ -274,15 +280,15 @@ remain authoritative.
 A DDC key must be built from a canonical byte encoding of every input that can
 change the output, including:
 
-- source content hash;
+- canonical imported-data identity and payload fingerprint;
 - normalized build and import settings;
 - payload schema and builder versions;
 - target platform and any relevant feature profile.
 
-File timestamps and absolute paths can be used to avoid rehashing an unchanged
-source, but they are not content identity. DDC paths are derived from keys and
-must never be serialized into `.dasset`. Missing, incompatible, truncated, or
-corrupt objects are safe cache misses when rebuild inputs are available.
+Source hints, timestamps, and physical paths do not enter build keys. DDC paths
+are derived from keys and must never be serialized into `.dasset`. Missing,
+incompatible, truncated, or corrupt objects are safe cache misses because the
+authored package closure retains every local rebuild input.
 
 DDC writes use Core's shared atomic byte-publication API: a fixed-length
 same-directory temporary file is flushed and closed before replacement. The
@@ -293,57 +299,51 @@ Owners validate reserved fields, versions, declared sizes, allocation limits,
 structural invariants, and checksums before publishing data. A cache write failure does not
 invalidate a complete in-memory build result.
 
-For migrated StaticMesh render/collision, Texture2D/TextureCube,
-SkeletalMesh/AnimationClip, and TerrainHeightmap requests, invalid cached
-bytes are validated by the registered family function and become rebuildable
-misses only when authoritative local inputs are present. Authored cache-only
-loads disable local build and preserve missing, incompatible, and corrupt
-outcomes. Texture and Terrain builds require successful persistence;
-skeletal scene products retain their complete detached value after a
-best-effort store failure and surface the store diagnostic.
+For StaticMesh render/collision, Texture2D/TextureCube/VolumeTexture,
+SkeletalMesh/AnimationClip, and TerrainHeightmap requests, invalid cached bytes
+are validated by the registered family function and become rebuildable misses
+from canonical imported data. Every family retains a complete local result
+after a successful build even when best-effort DDC storage fails, and surfaces
+the bounded store diagnostic separately.
 
 TextureCube uses `Durin.TextureBuild.TextureCube@1` with value
-`TextureCubePayload` under `TextureCube/Objects`. Source decode and panorama
-metadata capture precede the immutable request. Panorama builds query the
-content-addressed payload before projection, so a valid cached payload skips
-projection, mip generation, compression, encoding, and store. Cache-only
-authored load carries no local input and never captures source.
+`TextureCubePayload` under `TextureCube/Objects`. Explicit import or reimport
+decodes and projects a panorama into six canonical authored RGBA8 faces before
+the immutable request. Ordinary build, PostLoad, DDC recovery, and Cook consume
+those faces and never decode or capture a physical source.
 
 ### Skeletal Derived Data
 
-SkeletalMesh objects live under `SkeletalMesh/Objects` with builder identity
-`Durin.SkeletalMesh.Builder.V1`; AnimationClip objects live under
-`AnimationClip/Objects` with `Durin.AnimationClip.Builder.V1`. Their version-1
-keys are XXH3-128 over an explicit canonical encoding of builder and payload
-versions, target platform/profile, provider identity/version, the exact ordered
-captured source-closure hash, normalized settings and typed provider-state
-hashes, stable output identity, Skeleton compatibility, and the canonical
-payload-input fingerprint.
+SkeletalMesh objects live under `SkeletalMesh/Objects`; AnimationClip objects
+live under `AnimationClip/Objects`. Their schema-2 keys are XXH3-128 over an
+explicit canonical encoding of builder and payload versions, target
+platform/profile, the owning canonical imported-data identity and payload
+fingerprint, current output identity, normalized settings, and Skeleton
+compatibility.
 
 The key is an editor rebuild locator, not runtime identity. Import stores a
 complete in-memory candidate even when its best-effort DDC write fails. A
-missing or corrupt object is a safe miss only while authoritative import inputs
-are available to the import operation; ordinary authored package load does not
-invent those inputs or silently reimport.
+missing or corrupt object is always a safe authored miss: ordinary package load
+decodes the owning asset's canonical bulk and never replays Scene import.
 
 The registered functions are `Durin.GeometryBuild.SkeletalMesh@1` and
 `Durin.GeometryBuild.AnimationClip@1`, both returning `SkeletalPayload`.
-Definitions carry the exact Skeleton/count/material target context. Cache-only
-post-load validates the complete owner-selected value without mutating the asset;
-scene import owns the detached publication transaction and hard Skeleton edges.
+Definitions carry the exact Skeleton/count/material target context. PostLoad
+validates the complete owner-selected value and rebuilds it from the owning
+canonical bulk when necessary; Scene import owns only the initial detached
+multi-package transaction and hard Skeleton edges.
 
 ### Terrain Heightmap Derived Data
 
 TerrainHeightmap uses `Durin.GeometryBuild.TerrainHeightmap@1`, value
 `TerrainHeightmapPayload`, and `TerrainHeightmap/Objects`. Persisting direct
 builds query/build/store; explicit non-persisting builds disable both query and
-store. Authored load first performs one cache-only session request. Only after
-a miss or invalid value does its existing worker capture and decode source and
-issue a query-disabled build request. The worker adapts its cancellation token
-to the session while AssetForgeBuiltins retains coalescing, admission,
-generation checks, and deferred GameThread publication. Diagnostics map the
-session's cache-query and cached-validation phase durations and never expose a
-physical DDC path.
+store. Authored load first performs a cache query, then its family worker builds
+from resident row-major uint16 canonical samples after a miss or invalid value.
+The worker adapts its cancellation token to the session while TerrainBuild
+retains coalescing, admission, generation checks, and deferred GameThread
+publication. Diagnostics map the session phases and never expose a physical
+DDC path or probe a source hint.
 
 ## Cooked Packages and Bulk Payloads
 

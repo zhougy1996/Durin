@@ -6,7 +6,6 @@
 #include "Engine/Level.h"
 #include "Engine/SkeletalMeshSceneProxy.h"
 #include "Materials/MaterialInterface.h"
-#include "SkeletalMesh/SkeletalDerivedData.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 
 namespace Durin
@@ -248,25 +247,6 @@ namespace Durin
 		{
 			OutError = "Skeletal-mesh component play rate must be finite and non-negative.";
 			return false;
-		}
-		if (IsSkeletalDerivedDataRepairLoadActive()
-			&& SkeletalMesh
-			&& (!SkeletalMesh->GetPayloadData()
-				|| (AnimationClip && !AnimationClip->GetPayloadData())))
-		{
-			if (!SkeletalMesh->Validate(OutError)) return false;
-			if (AnimationClip)
-			{
-				if (!AnimationClip->Validate(OutError)) return false;
-				if (AnimationClip->GetSkeletonCompatibilityIdentity()
-					!= SkeletalMesh->GetSkeletonCompatibilityIdentity())
-				{
-					OutError = "Animation clip is structurally incompatible with the skeletal mesh.";
-					return false;
-				}
-			}
-			OutError.clear();
-			return true;
 		}
 		return ValidateProspectiveBinding(SkeletalMesh.Get(), AnimationClip.Get(), OutError);
 	}

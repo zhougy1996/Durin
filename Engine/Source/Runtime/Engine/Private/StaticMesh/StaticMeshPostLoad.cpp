@@ -20,7 +20,7 @@ namespace Durin
 			OutError);
 		if (!bSucceeded && OutError == "StaticMesh uncooked load policy is unavailable.")
 		{
-			OutDiagnostic.Status = EStaticMeshDerivedDataStatus::SourceUnavailable;
+			OutDiagnostic.Status = EStaticMeshDerivedDataStatus::Incompatible;
 			OutDiagnostic.Message = OutError;
 		}
 		return bSucceeded;

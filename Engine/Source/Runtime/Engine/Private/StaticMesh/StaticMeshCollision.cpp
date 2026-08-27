@@ -37,7 +37,7 @@ namespace Durin
 		FStaticMeshSourceImportData SourceImportData;
 		if (const AssetImport::FSourceFile* Source = GetImportedSource())
 		{
-			SourceImportData.SourcePath.Path = Source->Filename;
+			SourceImportData.SourcePath.Path = Source->Hint;
 			SourceImportData.SourceContentHash = Source->GetContentHash().ToString();
 		}
 		FStaticMeshCollisionBuildProduct Product;

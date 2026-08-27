@@ -315,7 +315,11 @@ namespace Durin::Asset
 			Result.Metrics.PersistenceNanoseconds = RecipeMetrics.PersistenceNanoseconds;
 			Result.Metrics.PeakIntermediateBytes = RecipeMetrics.PeakIntermediateBytes;
 			Result.Metrics.ResultBytes = PlatformDataBytes(Product.PlatformData);
+			Result.SourceHash = {
+				.HashLow = Product.SourceContentHashLow,
+				.HashHigh = Product.SourceContentHashHigh};
 			Result.DerivedDataKey = std::move(Product.DerivedDataKey);
+			Result.PersistenceDiagnostic = std::move(Product.PersistenceDiagnostic);
 			Result.SourceData = std::make_unique<FTextureSourceData>(std::move(Product.SourceData));
 			Result.PlatformData = std::make_unique<FTexturePlatformData>(std::move(Product.PlatformData));
 			Result.Error.clear();

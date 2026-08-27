@@ -2,6 +2,7 @@
 
 #include "Asset/AssetImportData.h"
 #include "Asset/Cook.h"
+#include "Asset/EditorBulkData.h"
 #include "Asset/SourcePath.h"
 #include "DObject/ObjectPtr.h"
 #include "EngineAPI.h"
@@ -16,7 +17,14 @@ namespace Durin
 	class FArchive;
 	struct FTextureBuildOperations;
 
+	inline constexpr FGuid Texture2DImportedPixelsPayloadId{
+		0x7f3301ba, 0x7c9f45c6, 0x8a8ab67c, 0xc85dc65e};
+	inline constexpr uint32 Texture2DImportedDataSchemaVersion = 1;
+	inline constexpr uint64 MaximumTexture2DImportedPixelBytes =
+		512ull * 1024ull * 1024ull;
+
 	// Identifies the decoded pixel layout retained as editable texture source data.
+	DENUM()
 	enum class ETextureSourceFormat : uint8
 	{
 		Invalid,
@@ -60,6 +68,40 @@ namespace Durin
 		bool bHasTransparency = false;
 
 		ENGINE_API auto IsValid() const -> bool;
+		ENGINE_API auto GetImportedDataIdentity() const -> FXxHash128;
+	};
+
+	// Owns the decoder-free RGBA8 value from which every Texture2D build is reconstructed.
+	DSTRUCT()
+	struct FTexture2DImportedData
+	{
+		GENERATED_BODY()
+
+		DPROPERTY()
+		Asset::FEditorBulkData Pixels;
+
+		DPROPERTY()
+		uint32 Width = 0;
+
+		DPROPERTY()
+		uint32 Height = 0;
+
+		DPROPERTY()
+		uint8 SourceChannelCount = 0;
+
+		DPROPERTY()
+		ETextureSourceFormat Format = ETextureSourceFormat::Invalid;
+
+		DPROPERTY()
+		bool bHasTransparency = false;
+
+		DPROPERTY()
+		uint32 SchemaVersion = Texture2DImportedDataSchemaVersion;
+
+		ENGINE_API auto IsValid() const -> bool;
+		ENGINE_API auto SetSourceData(const FTextureSourceData& Source) -> bool;
+		ENGINE_API auto ToSourceData() const -> FTextureSourceData;
+		ENGINE_API auto GetIdentity() const -> FXxHash128;
 	};
 
 	// Owns one tightly described platform mip and its byte row pitch.
@@ -123,12 +165,10 @@ namespace Durin
 	// Build modules construct this value after their detached build succeeds.
 	struct FTexture2DImportedState
 	{
-		std::string SourceFilename;
-		uint64 SourceContentHashLow = 0;
-		uint64 SourceContentHashHigh = 0;
 		std::unique_ptr<FTextureSourceData> SourceData;
 		std::unique_ptr<FTexturePlatformData> PlatformData;
 		std::string DerivedDataKey;
+		std::string BuildDiagnostic;
 		ETextureUsage Usage = ETextureUsage::Color;
 		bool bSRGB = true;
 		uint32 MaxResolution = 0;
@@ -137,6 +177,7 @@ namespace Durin
 		float AlphaCoverageThreshold = 0.5f;
 		bool bMarkPackageDirty = true;
 		bool bReportLoadMutation = false;
+		bool bSourceDecoderInvoked = true;
 	};
 
 	// Owns imported texture source, derived platform data, and its render resources.
@@ -157,9 +198,15 @@ namespace Durin
 		auto GetSourceFile() const -> const std::string&
 		{
 			if (const AssetImport::FSourceFile* Source = GetImportedSource())
-				return Source->Filename;
+				return Source->Hint;
 			static const std::string Empty;
 			return Empty;
+		}
+		auto GetSourceHintBase() const -> AssetImport::ESourceHintBase
+		{
+			if (const AssetImport::FSourceFile* Source = GetImportedSource())
+				return Source->HintBase;
+			return AssetImport::ESourceHintBase::AssetRelative;
 		}
 		auto GetAssetImportData() const -> const AssetImport::DAssetImportData*
 		{
@@ -174,6 +221,14 @@ namespace Durin
 		ENGINE_API auto PublishAssetImportData(
 			AssetImport::DAssetImportData& Value, std::string& OutError) -> bool;
 		auto GetSourceData() const -> const FTextureSourceData* { return SourceData.get(); }
+		auto GetImportedData() const -> const FTexture2DImportedData&
+		{
+			return ImportedData;
+		}
+		auto GetImportedDataIdentity() const -> FXxHash128
+		{
+			return ImportedData.GetIdentity();
+		}
 		auto GetSourceContentHash() const -> std::string
 		{
 			if (const AssetImport::FSourceFile* Source = GetImportedSource())
@@ -184,12 +239,6 @@ namespace Durin
 		{
 			if (const AssetImport::FSourceFile* Source = GetImportedSource())
 				return Source->ByteCount;
-			return 0;
-		}
-		auto GetSourceLastWriteTime() const -> int64
-		{
-			if (const AssetImport::FSourceFile* Source = GetImportedSource())
-				return Source->LastWriteTime;
 			return 0;
 		}
 		auto GetSourceWidth() const -> uint32 { return SourceWidth; }
@@ -209,7 +258,6 @@ namespace Durin
 		auto GetAlphaCoverageThreshold() const -> float { return AlphaCoverageThreshold; }
 		auto GetBuildStatus() const -> ETextureBuildStatus { return BuildStatus; }
 		auto GetLastBuildError() const -> const std::string& { return LastBuildError; }
-		ENGINE_API auto InspectSource() const -> FTextureSourceDiagnostic;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		// Contributes a validated TXPL object and descriptor-bearing runtime metadata to a cook.
 		ENGINE_API auto AddToCook(
@@ -226,7 +274,6 @@ namespace Durin
 		ENGINE_API auto PublishDerivedDataLoad(
 			std::unique_ptr<FTexturePlatformData> InPlatformData,
 			std::string InDerivedDataKey,
-			bool bSourceAvailable,
 			std::string& OutError) -> bool;
 		ENGINE_API auto PublishUncookedLoadFailure(
 			ETextureDerivedDataStatus DerivedDataStatus,
@@ -263,6 +310,9 @@ protected:
 
 		DPROPERTY(EditorOnly)
 		bool bSourceHasTransparency = false;
+
+		DPROPERTY(EditorOnly)
+		FTexture2DImportedData ImportedData;
 
 		DPROPERTY()
 		ETextureUsage Usage = ETextureUsage::Color;

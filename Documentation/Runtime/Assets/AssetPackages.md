@@ -35,8 +35,9 @@ Asset identities use extensionless `FAssetPath` values such as
 `/Engine/Materials/Default` or `/Game/Levels/TestLevel`. The first path segment
 must match a registered mount and resolves relative to the mount's single
 `GetContentDir()`; the virtual path includes neither `Root` nor `ContentPath`.
-Importer source filenames use the separate project-relative-or-absolute file
-contract and never resolve through these package mounts.
+Optional importer source hints use the separate explicitly based
+asset-relative, project-relative, or absolute physical-path contract and never
+resolve through these package mounts.
 
 The immutable Core mount registry publishes `/Engine/` and `/Game/` plus
 validated project-declared extension and external-source mounts. Every mount
@@ -567,9 +568,10 @@ family-owned derived-data recovery; apply alone loads the required build and
 built-in asset-operation modules, drains the asset's active recovery claim, and asks
 the registered `IAssetSaveReadinessFeature` provider to validate transient
 domain state. The generic tool does not enumerate concrete asset classes.
-Recovery may read a persisted source filename or DDC entry, but family-owned
-rebuild does not publish an authored package; an authored mutation or Dirty
-package blocks the subsequent canonical save.
+Recovery may read a DDC entry and resident canonical imported data, but it
+never resolves a persisted source hint. Family-owned rebuild does not publish
+an authored package; an authored mutation or Dirty package blocks the
+subsequent canonical save.
 
 The ready package is published as one bounded atomic unit through
 `SavePackagesAtomically`. Published bytes are reread through the compatibility
@@ -747,14 +749,17 @@ of being silently omitted.
 - `DerivedDataCache` owns opaque cache access and the family-neutral definition,
   function, policy, value, and synchronous session contracts; it does not own
   typed asset recipes or object-aware compilation lifecycle.
-- `Engine` owns asset-specific source provenance, import/build policy, derived-data keys and codecs, and cook contributions.
+- `Engine` owns asset-specific canonical imported data, optional source-hint
+  provenance, import/build policy, derived-data keys and codecs, and Cook
+  contributions.
 - Editor modules dispatch a finite built-in family table to direct import and
   reimport functions, as documented in
   [Asset Import Architecture](../../Editor/Architecture/AssetImportFramework.md).
 - `DLevel` objects are main assets inside packages; a `DWorld` remains a runtime/editor session container and activates one level at a time.
 
 Asset-level cooking and deterministic cooked publication are implemented for
-StaticMesh, Texture2D, TextureCube, and ordinary package-only assets. Engine
+StaticMesh, Texture2D, TextureCube, VolumeTexture, TerrainHeightmap,
+SkeletalMesh, AnimationClip, and ordinary package-only assets. Engine
 owns a fixed built-in Cook-root list; it currently contains
 `/Engine/Materials/DefaultMaterial`, whose package is published without an
 empty bulk companion. Complete project discovery, editor or DurinDevTool
@@ -833,7 +838,7 @@ Cleanup runs only after package, companion, and catalog publication verify.
 Relocation journals the stable companion as owned payload, and deletion
 discovers it from package descriptors. Generation-named authored companions are
 unsupported after corpus migration. Referenced `.dabulk` files are authored
-source and must be submitted with their `.dasset`; repositories must not ignore
+data and must be submitted with their `.dasset`; repositories must not ignore
 the suffix wholesale.
 
 ## Related Asset Data Contracts

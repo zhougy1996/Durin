@@ -500,11 +500,6 @@ namespace Durin::Editor::Texture
 
 		switch (Status)
 		{
-		case ETextureBuildStatus::MissingSource:
-			Title = "Missing Source";
-			TitleColor = ImVec4(1.0f, 0.5f, 0.3f, 1.0f);
-			Message = std::format("The source file could not be found:\n{}", Texture->GetLastBuildError());
-			break;
 		case ETextureBuildStatus::DecodeFailure:
 			Title = "Decode Failure";
 			TitleColor = ImVec4(1.0f, 0.5f, 0.3f, 1.0f);
@@ -752,30 +747,10 @@ namespace Durin::Editor::Texture
 		if (!MonaImGui::PropertyEdit::BeginTable("TextureSourceData")) return;
 		DrawInfoRow("Asset Destination",
 			Texture->GetPackage() ? Texture->GetPackage()->GetPackagePath() : "");
-		DrawInfoRow("Source Filename", Texture->GetSourceFile());
-		const FTextureSourceDiagnostic SourceDiagnostic = Texture->InspectSource();
-		switch (SourceDiagnostic.Status)
-		{
-		case ETextureSourceStatus::Available:
-			DrawInfoRow("Source", "Available");
-			break;
-		case ETextureSourceStatus::Changed:
-			DrawInfoRow("Source", "Bytes changed since import");
-			break;
-		case ETextureSourceStatus::Missing:
-			DrawInfoRow("Source", "Missing");
-			break;
-		case ETextureSourceStatus::Invalid:
-			DrawInfoRow("Source", "Invalid or unsupported metadata");
-			break;
-		case ETextureSourceStatus::NoSource:
-			DrawInfoRow("Source", "No source dependency");
-			break;
-		}
+		DrawInfoRow("Reimport Hint", Texture->GetSourceFile().empty()
+			? "Not retained" : Texture->GetSourceFile());
 		if (!Texture->GetSourceFile().empty())
 		{
-			if (!SourceDiagnostic.PhysicalPath.empty())
-				DrawInfoRow("Resolved Path", SourceDiagnostic.PhysicalPath);
 			if (SourceReferenceIndex.IsCurrent())
 			{
 				const std::span<const ::Durin::Editor::FSourceReference> References =
@@ -787,8 +762,6 @@ namespace Durin::Editor::Texture
 				DrawInfoRow("Shared References", "Building source reference index...");
 			}
 		}
-		if (!SourceDiagnostic.Message.empty())
-			DrawInfoRow("Diagnostic", SourceDiagnostic.Message);
 		if (const FTextureSourceData* Source = Texture->GetSourceData())
 		{
 			DrawInfoRow("Dimensions", FormatDimensions(Source->Width, Source->Height));
@@ -808,50 +781,44 @@ namespace Durin::Editor::Texture
 			const ETextureBuildStatus Status = Texture->GetBuildStatus();
 			if (Status == ETextureBuildStatus::DecodeFailure)
 				DrawInfoRow("Status", "Source data unavailable (Decode failure)");
-			else if (Status == ETextureBuildStatus::MissingSource)
-				DrawInfoRow("Status", "Source data unavailable (Source file missing)");
 			else
 				DrawInfoRow("Status", "Source data unavailable");
 		}
 		MonaImGui::PropertyEdit::EndTable();
 		const bool bCanReimport = !Texture->GetSourceFile().empty();
-		constexpr const char* ReimportLabel = "Reimport from Current Source";
+		constexpr const char* ReimportLabel = "Reimport";
 		if (!bCanReimport) ImGui::BeginDisabled();
 		if (ImGui::Button(ReimportLabel))
 			ReimportSource(Texture);
 		if (!bCanReimport) ImGui::EndDisabled();
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("%s", bCanReimport
-				? "Rebuilds the texture from its retained source filename."
-				: "Reimport is unavailable because no source filename is retained.");
+				? "Captures and reimports the retained optional source hint."
+				: "Reimport is unavailable because no source hint is retained.");
 		ImGui::SameLine();
-		if (ImGui::Button("Select Source...")) SelectSourceFile(Texture);
+		if (ImGui::Button("Reimport From File...")) ReimportFromFile(Texture);
 		if (ImGui::IsItemHovered())
-			ImGui::SetTooltip("Selects a new source filename and reimports without copying or relocating it.");
+			ImGui::SetTooltip("Captures a selected file and commits it only after decode and Build succeed.");
 	}
 
 	auto MTextureEditor::ReimportSource(DTexture2D* Texture) -> void
 	{
 		if (!Texture) return;
 		std::string Error;
-		if (!AssetForge::Builtins::ReimportTexture2DSource(*Texture, {}, Error))
+		if (!AssetForge::Builtins::ReimportTexture2D(*Texture, Error))
 			SetError(std::move(Error));
 	}
 
-	auto MTextureEditor::SelectSourceFile(DTexture2D* Texture) -> void
+	auto MTextureEditor::ReimportFromFile(DTexture2D* Texture) -> void
 	{
 		if (!Texture || !Texture->GetPackage()) return;
 		FFileDialogRequest Request;
 		Request.ParentWindowHandle = ImGui::GetMainViewport()->PlatformHandleRaw;
-		Request.Title = "Select Texture Source";
+		Request.Title = "Reimport Texture From File";
 		Request.Filters = {
 			{"All Supported Images", "*.png;*.jpg;*.jpeg;*.bmp;*.tga"},
 			{"PNG", "*.png"}, {"JPEG", "*.jpg;*.jpeg"}, {"Bitmap", "*.bmp"},
 			{"Targa", "*.tga"}};
-		const FTextureSourceDiagnostic Existing = Texture->InspectSource();
-		if (!Existing.PhysicalPath.empty())
-			Request.InitialDirectory =
-				std::filesystem::path(Existing.PhysicalPath).parent_path().generic_string();
 		const FFileDialogResult Result = OpenFileDialog(Request);
 		if (Result.Status == EFileDialogStatus::Cancelled) return;
 		if (Result.Status == EFileDialogStatus::Error)
@@ -860,7 +827,7 @@ namespace Durin::Editor::Texture
 			return;
 		}
 		std::string Error;
-		if (!AssetForge::Builtins::ReimportTexture2DSource(
+		if (!AssetForge::Builtins::ReimportTexture2DFromFile(
 			*Texture, Result.FilePath, Error))
 		{
 			SetError(std::move(Error));

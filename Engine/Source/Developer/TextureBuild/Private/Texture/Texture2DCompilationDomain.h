@@ -43,6 +43,7 @@ namespace Durin::Asset
 		std::unique_ptr<FTextureSourceData> SourceData;
 		std::unique_ptr<FTexturePlatformData> PlatformData;
 		std::string DerivedDataKey;
+		std::string PersistenceDiagnostic;
 		std::string Error;
 		FTexture2DCompilationMetrics Metrics;
 		ETexture2DCompilationPhase FailurePhase = ETexture2DCompilationPhase::None;

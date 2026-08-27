@@ -166,8 +166,7 @@ namespace Durin
 		}
 		if (!PlatformData || !PlatformData->IsValid())
 		{
-			OutError = "Volume texture cook requires validated built platform data.";
-			return false;
+			if (!PostLoad(OutError)) return false;
 		}
 		std::vector<std::byte> PayloadBytes;
 		FCanonicalMemoryWriter Ar(PayloadBytes, EArchivePurpose::CookedPayload);
@@ -220,7 +219,8 @@ namespace Durin
 	auto DVolumeTexture::PublishBuiltData(FVolumeTextureSourceData InSourceData,
 		FVolumeTextureBuildSettings InBuildSettings,
 		std::unique_ptr<FVolumeTexturePlatformData> InPlatformData,
-		std::string InDerivedDataKey, std::string& OutError) -> bool
+		std::string InDerivedDataKey, std::string InPersistenceDiagnostic,
+		std::string& OutError) -> bool
 	{
 		if (!InSourceData.IsValid() || !InPlatformData || !InPlatformData->IsValid()
 			|| InDerivedDataKey.empty()
@@ -235,6 +235,14 @@ namespace Durin
 		BuildSettings = InBuildSettings;
 		PlatformData = std::move(InPlatformData);
 		DerivedDataKey = std::move(InDerivedDataKey);
+		DerivedDataDiagnostic = {
+			.Status = ETextureDerivedDataStatus::Rebuilt,
+			.Key = DerivedDataKey,
+			.Message = InPersistenceDiagnostic.empty()
+				? "Built VolumeTexture from canonical voxels."
+				: std::format("Built VolumeTexture from canonical voxels; DDC persistence was best effort: {}",
+					InPersistenceDiagnostic),
+			.bSourceDecoderInvoked = false};
 		BuildStatus = ETextureBuildStatus::Ready;
 		LastBuildError.clear();
 		QueueRenderResourceBuild();
@@ -254,6 +262,9 @@ namespace Durin
 		}
 		PlatformData = std::move(InPlatformData);
 		DerivedDataKey = std::move(InDerivedDataKey);
+		DerivedDataDiagnostic = {.Status = ETextureDerivedDataStatus::Hit,
+			.Key = DerivedDataKey,
+			.Message = "Loaded VolumeTexture platform data from DDC."};
 		BuildStatus = ETextureBuildStatus::Ready;
 		LastBuildError.clear();
 		QueueRenderResourceBuild();
@@ -284,6 +295,7 @@ namespace Durin
 		std::swap(CookedPayload, Other.CookedPayload);
 		std::swap(PlatformData, Other.PlatformData);
 		std::swap(DerivedDataKey, Other.DerivedDataKey);
+		std::swap(DerivedDataDiagnostic, Other.DerivedDataDiagnostic);
 		std::swap(BuildStatus, Other.BuildStatus);
 		std::swap(LastBuildError, Other.LastBuildError);
 		auto RefreshRenderResource = [](DVolumeTexture& Texture) {

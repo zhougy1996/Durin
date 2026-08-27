@@ -31,6 +31,8 @@ namespace Durin
 		TEXTUREEDITOR_API auto DrawImportDialog(bool bAllowAssetMutation) -> void;
 		TEXTUREEDITOR_API auto ReimportAsset(std::string_view AssetPath,
 			std::function<void(std::string)> ReportError) -> void;
+		TEXTUREEDITOR_API auto ReimportAssetFromFile(std::string_view AssetPath,
+			std::function<void(std::string)> ReportError) -> void;
 
 	private:
 		FModuleOwnedCallbackRegistration EditorExtensionCallbacks;

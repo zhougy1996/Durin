@@ -27,7 +27,8 @@ namespace
 	{
 		(void)Settings;
 		std::string Error;
-		const bool bSucceeded = ReimportVolumeTextureSource(Texture, {}, Error);
+		const bool bSucceeded = Durin::AssetForge::Builtins::ReimportVolumeTexture(
+			Texture, Error);
 		return {.bSucceeded = bSucceeded, .Diagnostic = std::move(Error)};
 	}
 
@@ -315,7 +316,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	const FVolumeTextureImportDataState ImportState = ImportData->GetVolumeTextureState();
 	const AssetImport::FSourceFile* ImportedSource = Imported.Asset->GetImportedSource();
 	ASSERT_NE(ImportedSource, nullptr);
-	EXPECT_TRUE(ImportedSource->Filename.ends_with("/VolumeSource/Noise.png"));
+	EXPECT_TRUE(ImportedSource->Hint.ends_with("VolumeSource/Noise.png"));
 	EXPECT_EQ(ImportState.ImportFormat, EVolumeTextureImportFormat::PngRowMajorAtlas);
 	EXPECT_EQ(ImportState.SliceWidth, 1u);
 	EXPECT_EQ(ImportState.TilesX, 2u);
@@ -347,10 +348,10 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	std::filesystem::copy_file(AtlasPath, MovedAtlas,
 		std::filesystem::copy_options::overwrite_existing);
 	std::string RepairError;
-	ASSERT_TRUE(RepairVolumeTextureSource(*Imported.Asset,
+	ASSERT_TRUE(ReimportVolumeTextureFromFile(*Imported.Asset,
 		MovedAtlas.generic_string(), RepairError)) << RepairError;
 	ASSERT_NE(Imported.Asset->GetImportedSource(), nullptr);
-	EXPECT_TRUE(Imported.Asset->GetImportedSource()->Filename.ends_with(
+	EXPECT_TRUE(Imported.Asset->GetImportedSource()->Hint.ends_with(
 		"MovedVolume/Noise.png"));
 	ASSERT_TRUE(Asset::SavePackage(Imported.Asset->GetPackage()));
 
@@ -384,7 +385,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	ASSERT_NE(ReloadedBase, nullptr);
 	ASSERT_NE(ReloadedDetail, nullptr);
 	ASSERT_NE(ReloadedBase->GetImportedSource(), nullptr);
-	EXPECT_TRUE(ReloadedBase->GetImportedSource()->Filename.ends_with(
+	EXPECT_TRUE(ReloadedBase->GetImportedSource()->Hint.ends_with(
 		"MovedVolume/Noise.png"));
 	auto* Component = NewObject<DVolumetricCloudComponent>(nullptr, "ImportedCloud");
 	Component->SetBaseDensityTexture(ReloadedBase);

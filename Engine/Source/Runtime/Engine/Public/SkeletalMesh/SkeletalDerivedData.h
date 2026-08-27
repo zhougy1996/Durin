@@ -45,30 +45,4 @@ namespace Durin
 			ESkeletalPayloadTargetProfile::Unknown;
 	};
 
-	// Records a load-time DDC failure for every active repair scope.
-	ENGINE_API auto ReportMissingSkeletalDerivedDataAsset(DObject* Asset) -> void;
-
-	// Allows an authoritative reimport transaction to materialize authored skeletal
-	// metadata and identify payloads whose disposable DDC objects must be rebuilt.
-	class ENGINE_API FScopedSkeletalDerivedDataRepairLoad
-	{
-	public:
-		FScopedSkeletalDerivedDataRepairLoad();
-		~FScopedSkeletalDerivedDataRepairLoad();
-		FScopedSkeletalDerivedDataRepairLoad(
-			const FScopedSkeletalDerivedDataRepairLoad&) = delete;
-		auto operator=(const FScopedSkeletalDerivedDataRepairLoad&)
-			-> FScopedSkeletalDerivedDataRepairLoad& = delete;
-
-		// Returns skeletal assets whose disposable payload could not be loaded while
-		// this scope was active. The pointers remain owned by their packages.
-		auto GetMissingAssets() const -> std::span<DObject* const> { return MissingAssets; }
-
-	private:
-		std::vector<DObject*> MissingAssets;
-		friend ENGINE_API auto ReportMissingSkeletalDerivedDataAsset(DObject*) -> void;
-	};
-
-	ENGINE_API auto IsSkeletalDerivedDataRepairLoadActive() -> bool;
-
 }

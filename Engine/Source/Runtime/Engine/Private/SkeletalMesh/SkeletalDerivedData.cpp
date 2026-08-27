@@ -8,33 +8,6 @@
 
 namespace Durin
 {
-	thread_local std::vector<FScopedSkeletalDerivedDataRepairLoad*> GSkeletalDerivedDataRepairLoads;
-
-	FScopedSkeletalDerivedDataRepairLoad::FScopedSkeletalDerivedDataRepairLoad()
-	{
-		GSkeletalDerivedDataRepairLoads.push_back(this);
-	}
-
-	FScopedSkeletalDerivedDataRepairLoad::~FScopedSkeletalDerivedDataRepairLoad()
-	{
-		check(!GSkeletalDerivedDataRepairLoads.empty()
-			&& GSkeletalDerivedDataRepairLoads.back() == this);
-		GSkeletalDerivedDataRepairLoads.pop_back();
-	}
-
-	auto IsSkeletalDerivedDataRepairLoadActive() -> bool
-	{
-		return !GSkeletalDerivedDataRepairLoads.empty();
-	}
-
-	auto ReportMissingSkeletalDerivedDataAsset(DObject* Asset) -> void
-	{
-		if (!Asset) return;
-		for (FScopedSkeletalDerivedDataRepairLoad* Scope : GSkeletalDerivedDataRepairLoads)
-			if (std::ranges::find(Scope->MissingAssets, Asset) == Scope->MissingAssets.end())
-				Scope->MissingAssets.push_back(Asset);
-	}
-
 	namespace
 	{
 		inline constexpr uint32 ChunkRequired = 1;

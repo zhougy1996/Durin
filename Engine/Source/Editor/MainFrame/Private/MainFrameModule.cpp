@@ -31,6 +31,8 @@
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
+#include "Asset.h"
+#include "Asset/AssetImportData.h"
 
 #include "Widgets/MFunctionWidget.h"
 #include "Widgets/MWindow.h"
@@ -308,23 +310,52 @@ namespace Durin::Editor::MainFrame
 								return Editor::Import::EBuiltinReimportFamily::StaticMesh;
 							return Editor::Import::EBuiltinReimportFamily::None;
 						},
+						.CanReimport = [](std::string_view AssetPath) {
+							FAssetPath Path;
+							if (!FAssetPath::TryCreate(AssetPath, Path)) return false;
+							const Asset::FAssetCatalogEntry Entry = Asset::FindAssetExact(Path);
+							if (!Entry) return false;
+							Asset::FAssetPackageInspection Inspection;
+							AssetImport::FAssetImportInfo ImportInfo;
+							std::string Error;
+							return Asset::InspectAssetPackage(Entry->PhysicalPath, Inspection)
+								&& AssetImport::InspectAssetImportInfo(Inspection, ImportInfo, Error)
+								&& !ImportInfo.Sources.empty()
+								&& std::ranges::all_of(ImportInfo.Sources,
+									[](const AssetImport::FSourceFile& Source) {
+										return !Source.Hint.empty();
+									});
+						},
 						.Reimport = [Level = &LevelEditorModule,
 							Texture = &TextureEditorModule,
 							StaticMesh = &StaticMeshEditorModule](
 							Editor::Import::EBuiltinReimportFamily Family,
+							Editor::Import::EBuiltinReimportMode Mode,
 							std::string AssetPath,
 							std::function<void(std::string)> ReportError) {
 							switch (Family)
 							{
 							case Editor::Import::EBuiltinReimportFamily::Texture:
-								Texture->ReimportAsset(
-									AssetPath, std::move(ReportError)); break;
+								if (Mode == Editor::Import::EBuiltinReimportMode::FromFile)
+									Texture->ReimportAssetFromFile(
+										AssetPath, std::move(ReportError));
+								else Texture->ReimportAsset(
+									AssetPath, std::move(ReportError));
+								break;
 							case Editor::Import::EBuiltinReimportFamily::TerrainHeightmap:
-								Level->ReimportTerrainHeightmap(
-									AssetPath, std::move(ReportError)); break;
+								if (Mode == Editor::Import::EBuiltinReimportMode::FromFile)
+									Level->ReimportTerrainHeightmapFromFile(
+										AssetPath, std::move(ReportError));
+								else Level->ReimportTerrainHeightmap(
+									AssetPath, std::move(ReportError));
+								break;
 							case Editor::Import::EBuiltinReimportFamily::StaticMesh:
-								StaticMesh->ReimportAsset(
-									AssetPath, std::move(ReportError)); break;
+								if (Mode == Editor::Import::EBuiltinReimportMode::FromFile)
+									StaticMesh->ReimportAssetFromFile(
+										AssetPath, std::move(ReportError));
+								else StaticMesh->ReimportAsset(
+									AssetPath, std::move(ReportError));
+								break;
 							case Editor::Import::EBuiltinReimportFamily::None: break;
 							}
 						},

@@ -1,6 +1,5 @@
 #include "BuiltinImportProviderCommon.h"
-#include "Texture2DPostLoad.h"
-#include "TextureCubePostLoadPolicy.h"
+#include "AssetForgeBuiltinsAssetFeatures.h"
 
 #include "DObject/Package.h"
 #include "SkeletalMesh/SkeletalMesh.h"
@@ -50,38 +49,6 @@ namespace Durin::AssetForge::Builtins
 				? FAssetSaveReadinessFeatureResult{.bHandled = true}
 				: NotReady("TerrainHeightmap");
 		return {};
-	}
-
-	auto FAssetForgeBuiltinsAssetFeatures::BuildFileProduct(
-		DStaticMesh& Mesh,
-		std::string_view SourcePath,
-		FStaticMeshSourceImportData SourceImportData,
-		std::string_view SourceContentHash,
-		FStaticMeshBuildProduct& OutProduct,
-		std::string& OutError) -> bool
-	{
-		return BuildStaticMeshFileProduct(
-			Mesh, SourcePath, std::move(SourceImportData), SourceContentHash, OutProduct, OutError);
-	}
-
-	auto FAssetForgeBuiltinsAssetFeatures::PostLoadUncooked(
-		DStaticMesh& Mesh,
-		FStaticMeshDerivedDataDiagnostic& OutDiagnostic,
-		std::string& OutError) -> bool
-	{
-		return PostLoadStaticMesh(Mesh, OutDiagnostic, OutError);
-	}
-
-	auto FAssetForgeBuiltinsAssetFeatures::PostLoadUncooked(
-		DTexture2D& Texture, std::string& OutError) -> bool
-	{
-		return PostLoadTexture2DFeature(Texture, OutError);
-	}
-
-	auto FAssetForgeBuiltinsAssetFeatures::PostLoadUncooked(
-		DTextureCube& Texture, std::string& OutError) -> bool
-	{
-		return PostLoadTextureCubeFeature(Texture, OutError);
 	}
 
 }

@@ -140,6 +140,7 @@ namespace Durin::Asset
 			.SourceData = std::move(*Result.SourceData),
 			.PlatformData = std::move(*Result.PlatformData),
 			.DerivedDataKey = std::move(Result.DerivedDataKey),
+			.PersistenceDiagnostic = std::move(Result.PersistenceDiagnostic),
 			.SourceContentHashLow = Result.SourceHash.HashLow,
 			.SourceContentHashHigh = Result.SourceHash.HashHigh,
 			.Settings = {
@@ -252,11 +253,9 @@ namespace Durin::Asset
 		FTexture2DCompilationCompletion Completion) -> bool
 	{
 		CheckGameThread();
-		if (!Request.Build.SourceData.IsValid()
-			|| Request.Publication.SourceFilename.empty()
-			|| Request.Publication.DecoderId.empty())
+		if (!Request.Build.SourceData.IsValid())
 		{
-			OutError = "Texture2D compilation submission requires normalized source and provenance.";
+			OutError = "Texture2D compilation submission requires valid normalized source pixels.";
 			return false;
 		}
 		if (!FAssetCompilingManager::Get().IsAcceptingRequests())

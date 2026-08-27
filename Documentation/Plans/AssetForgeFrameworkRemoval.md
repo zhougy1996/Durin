@@ -249,5 +249,5 @@ Dependencies: Stage 2 complete.
 
 - [`AssetForgeBuiltins`](../../Engine/Source/Editor/AssetForgeBuiltins)
 - [`AssetImportData.h`](../../Engine/Source/Runtime/Engine/Public/Asset/AssetImportData.h)
-- [`SourceFilename.h`](../../Engine/Source/Runtime/Engine/Public/Asset/SourceFilename.h)
+- [`SourceHint.h`](../../Engine/Source/Runtime/Engine/Public/Asset/SourceHint.h)
 - [`SceneDirectImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/SceneDirectImport.cpp)

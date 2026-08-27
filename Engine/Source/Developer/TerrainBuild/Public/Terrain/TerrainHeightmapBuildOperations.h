@@ -27,6 +27,7 @@ namespace Durin::Asset
 		std::string DerivedDataKey;
 		uint64 SourceContentHashLow = 0;
 		uint64 SourceContentHashHigh = 0;
+		std::string PersistenceDiagnostic;
 	};
 
 	struct FTerrainHeightmapPublicationContext
@@ -36,8 +37,6 @@ namespace Durin::Asset
 		uint32 DecoderVersion = 0;
 		ETerrainHeightmapSourceFormat SourceFormat = ETerrainHeightmapSourceFormat::Unknown;
 		uint32 SourceProfileVersion = 0;
-		uint64 SourceFileSize = 0;
-		int64 SourceLastWriteTime = 0;
 		bool bAdvanceRevision = true;
 		bool bMarkPackageDirty = true;
 	};
@@ -61,6 +60,9 @@ namespace Durin::Asset
 		std::string& OutError) -> bool;
 	TERRAINBUILD_API auto MakeTerrainHeightmapDerivedDataKey(
 		const FTerrainHeightmapSourceImportData& Source,
+		std::string& OutError) -> std::string;
+	TERRAINBUILD_API auto MakeTerrainHeightmapDerivedDataKey(
+		const DTerrainHeightmap& Heightmap,
 		std::string& OutError) -> std::string;
 	TERRAINBUILD_API auto LoadTerrainHeightmapDerivedData(
 		std::string_view Key,

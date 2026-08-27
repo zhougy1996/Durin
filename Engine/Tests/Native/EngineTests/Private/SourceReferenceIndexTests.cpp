@@ -3,8 +3,8 @@
 #include "Texture/TextureBuildOperations.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
-#include "AssetForgeBuiltinsAssetTestSupport.h"
 
 namespace
 {
@@ -21,9 +21,9 @@ namespace
 TEST(FSourceReferenceIndexTests, TracksSharedSourceFilesAcrossRegistryRevisions)
 {
 	InitializeDObjectSystem();
-	ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAssetFeatures());
 	FScopedTextureCompilingManager CompilingManager;
 	ASSERT_TRUE(EnsureTextureCompilingManager());
+	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	FScopedDerivedDataCacheRoot CacheRoot(
 		Durin::Testing::GetTestWorkDirectory() / "SourceReferenceIndexCache");
 	const std::filesystem::path Input =
@@ -35,11 +35,9 @@ TEST(FSourceReferenceIndexTests, TracksSharedSourceFilesAcrossRegistryRevisions)
 	ASSERT_TRUE(First) << First.Message;
 	ASSERT_NE(First.Asset, nullptr);
 	const std::string SourceVirtualPath = First.Asset->GetSourceFile();
-	const Durin::FTextureSourceDiagnostic Source = First.Asset->InspectSource();
-	ASSERT_EQ(Source.Status, Durin::ETextureSourceStatus::Available);
 
 	const Durin::FTexture2DImportResult Second = Durin::AssetForge::Builtins::ImportTexture2DAsset(
-		Source.PhysicalPath, "/TextureImportTests/SourceIndex/Second");
+		Input.generic_string(), "/TextureImportTests/SourceIndex/Second");
 	ASSERT_TRUE(Second) << Second.Message;
 	ASSERT_EQ(Second.Asset->GetSourceFile(), SourceVirtualPath);
 
@@ -49,7 +47,7 @@ TEST(FSourceReferenceIndexTests, TracksSharedSourceFilesAcrossRegistryRevisions)
 	const uint64 FirstRevision = Index.GetRegistryRevision();
 
 	const Durin::FTexture2DImportResult Third = Durin::AssetForge::Builtins::ImportTexture2DAsset(
-		Source.PhysicalPath, "/TextureImportTests/SourceIndex/Third");
+		Input.generic_string(), "/TextureImportTests/SourceIndex/Third");
 	ASSERT_TRUE(Third) << Third.Message;
 	ASSERT_EQ(Third.Asset->GetSourceFile(), SourceVirtualPath);
 	Index.Refresh();

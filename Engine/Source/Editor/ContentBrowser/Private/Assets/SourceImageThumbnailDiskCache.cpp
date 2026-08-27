@@ -1,6 +1,5 @@
 #include "Assets/SourceImageThumbnailDiskCache.h"
 
-#include "Asset/SourceFilename.h"
 #include "Hash/XxHash.h"
 #include "Image/ImageDecoder.h"
 #include "Serialization/BinaryFormat.h"
@@ -48,11 +47,7 @@ namespace Durin::Editor::ContentBrowser::Private
 					return std::string("$Test/") + Absolute.lexically_relative(Root).generic_string();
 				return {};
 			}
-			std::string Filename;
-			std::string ErrorMessage;
-			return AssetImport::MakeSourceFilename(
-				Absolute.generic_string(), Filename, ErrorMessage)
-				? Filename : std::string{};
+			return Absolute.generic_string();
 		}
 
 		auto AppendBigEndian(std::vector<std::byte>& Bytes, uint32 Value) -> void

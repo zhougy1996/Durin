@@ -7,6 +7,7 @@
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "Texture/TextureCube.h"
+#include "AssetForge/Builtins/TextureCubeImport.h"
 
 #include <gtest/gtest.h>
 
@@ -98,9 +99,16 @@ namespace Durin::Editor::ContentBrowser::Private
 		FAssetPath CubePath;
 		ASSERT_TRUE(FAssetPath::TryCreate(
 			"/ContentBrowserTextureCubeDetails/Sky", CubePath));
-		DTextureCube* Cube = nullptr;
-		ASSERT_TRUE(Asset::CreateAsset(CubePath, Cube));
-		ASSERT_TRUE(Asset::SavePackage(Cube->GetPackage()));
+		constexpr std::array<std::string_view, TextureCubeFaceCount> FaceNames{
+			"PositiveX", "NegativeX", "PositiveY", "NegativeY", "PositiveZ", "NegativeZ"};
+		std::array<std::string, TextureCubeFaceCount> FaceFiles;
+		for (size_t Index = 0; Index < FaceFiles.size(); ++Index)
+			FaceFiles[Index] = (std::filesystem::path(DURIN_TEST_DATA_DIR)
+				/ "SkyBoxConvention" / std::format("{}.png", FaceNames[Index])).generic_string();
+		const AssetForge::Builtins::FTextureCubeImportResult Imported =
+			AssetForge::Builtins::ImportTextureCubeFaces(
+				FaceFiles, CubePath.ToString());
+		ASSERT_TRUE(Imported) << Imported.Message;
 		const std::filesystem::path PackagePath = Root / "Content/Sky.dasset";
 		ASSERT_TRUE(Asset::UnloadPackage(CubePath));
 		ASSERT_EQ(Asset::FindResidentPackage(CubePath), nullptr);
@@ -111,11 +119,10 @@ namespace Durin::Editor::ContentBrowser::Private
 				Asset::GetAssetCatalogRevision());
 		EXPECT_TRUE(Details.bAvailable);
 		EXPECT_EQ(Details.SourceLayout, "Six Faces");
-		EXPECT_EQ(Details.Source, "-");
-		EXPECT_EQ(Details.SourceSize, "-");
+		EXPECT_EQ(Details.Source, "6 of 6 face sources");
+		EXPECT_NE(Details.SourceSize, "-");
 		EXPECT_EQ(Details.Dimensions, "-");
-		EXPECT_TRUE(Details.BuildDiagnostic.find("not serialized")
-			!= std::string::npos);
+		EXPECT_FALSE(Details.BuildDiagnostic.empty());
 		EXPECT_EQ(Asset::FindResidentPackage(CubePath), nullptr);
 		Cache.Get(PackagePath.generic_string(),
 			Asset::GetAssetCatalogRevision());

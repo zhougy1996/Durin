@@ -5,7 +5,7 @@
 #include "EncodedSourceSnapshot.h"
 #include "Image/ImageDecoder.h"
 #include "Asset/AssetOperations.h"
-#include "Asset/SourceFilename.h"
+#include "Asset/SourceHint.h"
 #include "Asset/PackageSerialization.h"
 #include "Asset.h"
 #include "DObject/DObjectGlobals.h"
@@ -23,6 +23,23 @@ namespace Durin::AssetForge::Builtins
 		constexpr std::string_view Raw16DecoderId = "DurinTerrainRaw16";
 		constexpr uint32 TerrainSourceProfileVersion = 1;
 
+		auto ResolveOwningPackagePhysicalPath(const DTerrainHeightmap& Heightmap,
+			std::filesystem::path& OutPath, std::string& OutError) -> bool
+		{
+			if (!Heightmap.GetPackage())
+			{
+				OutError = "Terrain heightmap source capture requires an owning package.";
+				return false;
+			}
+			const PathUtilities::FAssetPathResult Resolved =
+				PathUtilities::ResolveAssetPath(Heightmap.GetPackage()->GetPackagePath(),
+					PathUtilities::EPathExistence::AllowMissing);
+			if (!Resolved) { OutError = Resolved.Message; return false; }
+			OutPath = Resolved.PhysicalPath;
+			OutPath += ".dasset";
+			return true;
+		}
+
 		auto NormalizeExtension(std::string_view Extension) -> std::string
 		{
 			std::string Result(Extension);
@@ -38,7 +55,8 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto PublishImportData(DTerrainHeightmap& Heightmap,
-			std::string Filename, const std::filesystem::path& PhysicalPath,
+			std::string Filename, AssetImport::ESourceHintBase HintBase,
+			const std::filesystem::path& PhysicalPath,
 			const FEncodedSourceSnapshot& Snapshot,
 			const FTerrainHeightmapSourceData& SourceData,
 			std::string& OutError) -> bool
@@ -47,11 +65,11 @@ namespace Durin::AssetForge::Builtins
 			State.SourceData.Sources.push_back({
 				.StableIdentity = "root", .Role = "source",
 				.DisplayLabel = PhysicalPath.filename().generic_string(),
-				.Filename = std::move(Filename),
+				.Hint = std::move(Filename),
+				.HintBase = HintBase,
 				.ContentHashLow = Snapshot.ContentHash.HashLow,
 				.ContentHashHigh = Snapshot.ContentHash.HashHigh,
-				.ByteCount = Snapshot.FileSize,
-				.LastWriteTime = Snapshot.LastWriteTime});
+				.ByteCount = Snapshot.FileSize});
 			State.DecoderId = SourceData.DecoderId;
 			State.DecoderVersion = SourceData.DecoderVersion;
 			State.SourceFormat = SourceData.SourceFormat;
@@ -65,18 +83,31 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto RebuildFromFilename(DTerrainHeightmap& Heightmap,
-			std::string Filename, std::string& OutError,
-			const Asset::FAssetBundleSaveOptions* SaveOptions) -> bool
+			std::string Filename, AssetImport::ESourceHintBase HintBase,
+			std::string& OutError,
+			const Asset::FAssetBundleSaveOptions* SaveOptions,
+			std::optional<std::filesystem::path> SelectedPhysicalPath = {}) -> bool
 		{
-			std::string PhysicalPathText;
-			if (!AssetImport::ResolveSourceFilename(
-				Filename, PhysicalPathText, OutError)) return false;
-			const std::filesystem::path PhysicalPath(PhysicalPathText);
+			std::filesystem::path OwningPackagePath;
+			if (!ResolveOwningPackagePhysicalPath(Heightmap, OwningPackagePath, OutError))
+				return false;
+			std::filesystem::path PhysicalPath;
+			if (SelectedPhysicalPath) PhysicalPath = std::move(*SelectedPhysicalPath);
+			else
+			{
+				std::string PhysicalPathText;
+				if (!AssetImport::ResolveSourceHint(HintBase, Filename,
+					OwningPackagePath.generic_string(), PhysicalPathText, OutError)) return false;
+				PhysicalPath = PhysicalPathText;
+			}
 			if (!std::filesystem::is_regular_file(PhysicalPath))
 			{
 				OutError = std::format("Terrain heightmap source file is missing: {}.", Filename);
 				return false;
 			}
+			if (SelectedPhysicalPath && !AssetImport::MakeSourceHint(
+				PhysicalPath.generic_string(), OwningPackagePath.generic_string(),
+				HintBase, Filename, OutError)) return false;
 			FEncodedSourceSnapshot Snapshot;
 			if (!CaptureEncodedSource({.Path = Filename}, PhysicalPath, Snapshot,
 				OutError, MaximumTerrainHeightmapEncodedBytes)) return false;
@@ -105,10 +136,8 @@ namespace Durin::AssetForge::Builtins
 						.DecoderVersion = ImportState.DecoderVersion,
 						.SourceFormat = ImportState.SourceFormat,
 						.SourceProfileVersion = ImportState.SourceProfileVersion,
-						.SourceFileSize = Snapshot.FileSize,
-						.SourceLastWriteTime = Snapshot.LastWriteTime,
 						.bAdvanceRevision = bSamplesChanged}, OutError)
-				|| !PublishImportData(Heightmap, std::move(Filename), PhysicalPath,
+				|| !PublishImportData(Heightmap, std::move(Filename), HintBase, PhysicalPath,
 					Snapshot, ImportState, OutError)) return false;
 			if (!SaveOptions) return true;
 			DPackage* Package = Heightmap.GetPackage();
@@ -237,10 +266,6 @@ namespace Durin::AssetForge::Builtins
 		if (Asset::FindAssetExact(ParsedPath)
 			|| Asset::FindResidentPackage(ParsedPath))
 			return {false, std::format("Asset {} already exists.", ParsedPath.ToString()), nullptr};
-		std::string Filename;
-		if (!AssetImport::MakeSourceFilename(
-			Input.generic_string(), Filename, Error))
-			return {false, std::move(Error), nullptr};
 		DTerrainHeightmap* Heightmap = nullptr;
 		const Asset::FAssetResult Created = Asset::CreateAsset(ParsedPath, Heightmap);
 		if (!Created || !Heightmap)
@@ -250,7 +275,8 @@ namespace Durin::AssetForge::Builtins
 			(void)Asset::UnloadPackage(
 				ParsedPath, Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 		};
-		if (!RebuildFromFilename(*Heightmap, std::move(Filename), Error, nullptr))
+		if (!RebuildFromFilename(*Heightmap, {},
+			AssetImport::ESourceHintBase::AssetRelative, Error, nullptr, Input))
 		{
 			Abandon();
 			return {false, std::move(Error), nullptr};
@@ -261,7 +287,7 @@ namespace Durin::AssetForge::Builtins
 	}
 
 
-	auto ReimportTerrainHeightmapSource(
+	auto ReimportTerrainHeightmap(
 		DTerrainHeightmap& Heightmap,
 		std::string& OutError,
 		const Asset::FAssetBundleSaveOptions& SaveOptions) -> bool
@@ -273,6 +299,22 @@ namespace Durin::AssetForge::Builtins
 			return false;
 		}
 		return RebuildFromFilename(
-			Heightmap, Source->Filename, OutError, &SaveOptions);
+			Heightmap, Source->Hint, Source->HintBase, OutError, &SaveOptions);
+	}
+
+	auto ReimportTerrainHeightmapFromFile(DTerrainHeightmap& Heightmap,
+		std::string_view FilePath, std::string& OutError,
+		const Asset::FAssetBundleSaveOptions& SaveOptions) -> bool
+	{
+		const std::filesystem::path Requested =
+			std::filesystem::absolute(FilePath).lexically_normal();
+		if (!std::filesystem::is_regular_file(Requested))
+		{
+			OutError = "The selected Terrain heightmap source file does not exist.";
+			return false;
+		}
+		return RebuildFromFilename(
+			Heightmap, {}, AssetImport::ESourceHintBase::AssetRelative,
+			OutError, &SaveOptions, Requested);
 	}
 }

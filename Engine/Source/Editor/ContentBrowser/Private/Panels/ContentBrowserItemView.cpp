@@ -130,7 +130,7 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 					ImportInfo.Sources, "panorama", &AssetImport::FSourceFile::Role);
 				Snapshot.Source = It == ImportInfo.Sources.end()
 					? "-"
-					: It->Filename;
+					: It->Hint;
 			}
 			else
 			{

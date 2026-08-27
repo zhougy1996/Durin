@@ -1,7 +1,7 @@
 #include "WorldTestSupport.h"
 
-#include "AssetForgeBuiltinsAssetTestSupport.h"
 #include "DObject/Package.h"
+#include "Modules/ModuleManager.h"
 
 namespace
 {
@@ -98,7 +98,8 @@ namespace
 TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 {
 	InitializeDObjectSystem();
-	ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAssetFeatures());
+	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "LevelReconstruction";
 	Durin::Testing::RemoveTestWorkDirectory(Root);

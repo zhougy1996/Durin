@@ -48,6 +48,7 @@ namespace Durin::Asset
 		FTextureSourceData SourceData;
 		FTexturePlatformData PlatformData;
 		std::string DerivedDataKey;
+		std::string PersistenceDiagnostic;
 		uint64 SourceContentHashLow = 0;
 		uint64 SourceContentHashHigh = 0;
 		FTexture2DBuildSettings Settings;
@@ -56,13 +57,9 @@ namespace Durin::Asset
 
 	struct FTexture2DPublicationContext
 	{
-		std::string SourceFilename;
-		std::string DecoderId;
-		uint32 DecoderVersion = 0;
-		uint64 SourceFileSize = 0;
-		int64 SourceLastWriteTime = 0;
 		bool bMarkPackageDirty = true;
 		bool bReportLoadMutation = false;
+		bool bSourceDecoderInvoked = true;
 	};
 
 	TEXTUREBUILD_API auto BuildTexture2D(

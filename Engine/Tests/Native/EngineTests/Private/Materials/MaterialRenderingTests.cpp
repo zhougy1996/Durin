@@ -7,7 +7,6 @@
 #include "PBRLighting.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
-#include "AssetForgeBuiltinsAssetTestSupport.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 #include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
 #include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
@@ -570,7 +569,8 @@ TEST(FMaterialTests, DebugStaticMeshProvidesCompleteSplitVertexAttributes)
 
 TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 {
-	ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAssetFeatures());
+	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	InitializeDObjectSystem();
 	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();
@@ -607,7 +607,8 @@ TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 
 TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionAndTeardown)
 {
-	ASSERT_TRUE(Durin::Tests::InstallAssetForgeBuiltinsAssetFeatures());
+	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	FMaterialPreviewHarness Harness;
 	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();

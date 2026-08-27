@@ -33,42 +33,10 @@ namespace Durin::Asset
 			return false;
 		}
 
-		template<typename TPanorama>
-		auto TryLoadPanoramaBuild(
-			const TPanorama& Panorama,
-			const FXxHash128& SourceHash,
-			const FTextureCubePanoramaBuildSettings& Settings,
-			FTextureCubeBuildProduct& OutProduct,
-			std::string& OutError) -> bool
-		{
-			const FTextureCubeBuildKeyInput KeyInput{
-				.SourceLayout = ETextureCubeBuildSourceLayout::EquirectangularPanorama,
-				.PanoramaContentHash = SourceHash,
-				.FaceDimension = Settings.FaceDimension,
-				.ExposureEV = Settings.ExposureEV,
-				.bSRGB = true,
-				.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-				.TargetProfile = Asset::ECookTargetProfile::Game};
-			std::string Key;
-			std::unique_ptr<FTextureCubePlatformData> PlatformData;
-			if (!TryLoadCubeBuild(KeyInput, Key, PlatformData, OutError)) return false;
-			OutProduct = {
-				.SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama,
-				.PlatformData = std::move(PlatformData),
-				.DerivedDataKey = std::move(Key),
-				.SourceWidth = Panorama.Width,
-				.SourceHeight = Panorama.Height,
-				.PanoramaFaceDimension = Settings.FaceDimension,
-				.PanoramaExposureEV = Settings.ExposureEV,
-				.bSRGB = true,
-				.bLoadedFromDerivedDataCache = true};
-			return true;
-		}
-
 		auto ExecuteCubeBuild(FTextureCubeSourceData& SourceData,
 			const FTextureCubeBuildKeyInput& KeyInput, std::string& OutKey,
 			std::unique_ptr<FTextureCubePlatformData>& OutPlatformData,
-			bool bQueryCache,
+			bool bQueryCache, bool& OutCacheHit,
 			std::string& OutError) -> bool
 		{
 			if (!EnsureTextureBuildFunctions(&OutError)) return false;
@@ -92,7 +60,7 @@ namespace Durin::Asset
 			if (!Builder.Build(Definition, &OutError)) return false;
 			const FBuildOutput Output = FBuildSession().Build(Definition, {
 				.bQueryCache = bQueryCache, .bAllowLocalBuild = true,
-				.bStoreBuildResult = true, .bRequireStoreSuccess = true,
+				.bStoreBuildResult = true, .bRequireStoreSuccess = false,
 				.bReturnData = true});
 			if (!Output.Succeeded())
 			{
@@ -103,6 +71,8 @@ namespace Durin::Asset
 			if (!Private::DecodeTextureCubePlatformValue(
 				Output.Value, *Candidate, OutError)) return false;
 			OutPlatformData = std::move(Candidate);
+			OutCacheHit = Output.Status == EBuildStatus::CacheHit;
+			OutError = Output.StoreDiagnostic;
 			return true;
 		}
 
@@ -115,19 +85,28 @@ namespace Durin::Asset
 			FTextureCubeBuildProduct& OutProduct,
 			std::string& OutError) -> bool
 		{
+			(void)Hash;
+			FTextureCubeImportedData Imported;
+			if (!Imported.SetSourceData(SourceData))
+			{
+				OutError = "TextureCube canonical imported faces are invalid.";
+				return false;
+			}
+			const FXxHash128 CanonicalHash = Imported.GetIdentity();
 			const FTextureCubeBuildKeyInput KeyInput{
-				.SourceLayout = ETextureCubeBuildSourceLayout::EquirectangularPanorama,
-				.PanoramaContentHash = Hash,
-				.FaceDimension = Settings.FaceDimension,
-				.ExposureEV = Settings.ExposureEV,
+				.SourceLayout = ETextureCubeBuildSourceLayout::SixFaces,
+				.FaceContentHashes = {CanonicalHash, CanonicalHash, CanonicalHash,
+					CanonicalHash, CanonicalHash, CanonicalHash},
 				.bSRGB = true,
 				.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 				.TargetProfile = Asset::ECookTargetProfile::Game};
 			std::string Key;
 			std::unique_ptr<FTextureCubePlatformData> PlatformData;
+			bool bCacheHit = false;
 			if (!ExecuteCubeBuild(
-				SourceData, KeyInput, Key, PlatformData, false, OutError))
+				SourceData, KeyInput, Key, PlatformData, true, bCacheHit, OutError))
 				return false;
+			const std::string PersistenceDiagnostic = OutError;
 			OutProduct = {
 				.SourceLayout = ETextureCubeSourceLayout::EquirectangularPanorama,
 				.SourceData = std::move(SourceData),
@@ -137,7 +116,9 @@ namespace Durin::Asset
 				.SourceHeight = SourceHeight,
 				.PanoramaFaceDimension = Settings.FaceDimension,
 				.PanoramaExposureEV = Settings.ExposureEV,
-				.bSRGB = true};
+				.bSRGB = true,
+				.bLoadedFromDerivedDataCache = bCacheHit,
+				.PersistenceDiagnostic = PersistenceDiagnostic};
 			OutError.clear();
 			return true;
 		}
@@ -150,8 +131,6 @@ namespace Durin::Asset
 		FTextureCubeBuildProduct& OutProduct,
 		std::string& OutError) -> bool
 	{
-		if (TryLoadPanoramaBuild(
-			Panorama, SourceHash, Settings, OutProduct, OutError)) return true;
 		FTextureCubeSourceData SourceData;
 		if (!TextureCubeBuilder::ProjectEquirectangularTextureCube(
 			Panorama, {Settings.FaceDimension, Settings.ExposureEV}, SourceData, OutError))
@@ -164,54 +143,19 @@ namespace Durin::Asset
 		const DTextureCube& Texture,
 		std::string& OutError) -> std::string
 	{
-		const AssetImport::DAssetImportData* ImportData = Texture.GetAssetImportData();
-		if (!ImportData)
+		const FXxHash128 CanonicalHash = Texture.GetImportedDataIdentity();
+		if (CanonicalHash.IsZero())
 		{
-			OutError = "TextureCube has no persisted source identity.";
+			OutError = "TextureCube canonical imported-data identity is missing or invalid.";
 			return {};
 		}
 		FTextureCubeBuildKeyInput Input{
-			.SourceLayout = Texture.GetSourceLayout() == ETextureCubeSourceLayout::SixFaces
-				? ETextureCubeBuildSourceLayout::SixFaces
-				: ETextureCubeBuildSourceLayout::EquirectangularPanorama,
-			.FaceDimension = Texture.GetPanoramaFaceDimension(),
-			.ExposureEV = Texture.GetPanoramaExposureEV(),
+			.SourceLayout = ETextureCubeBuildSourceLayout::SixFaces,
+			.FaceContentHashes = {CanonicalHash, CanonicalHash, CanonicalHash,
+				CanonicalHash, CanonicalHash, CanonicalHash},
 			.bSRGB = Texture.IsSRGB(),
 			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 			.TargetProfile = Asset::ECookTargetProfile::Game};
-		if (Texture.GetSourceLayout() == ETextureCubeSourceLayout::SixFaces)
-		{
-			static constexpr std::array Roles{
-				"positive-x", "negative-x", "positive-y",
-				"negative-y", "positive-z", "negative-z"};
-			for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
-			{
-				const AssetImport::FSourceFile* Face =
-					ImportData->GetSourceData().FindByRole(Roles[Index]);
-				if (!Face || (Face->ContentHashLow == 0 && Face->ContentHashHigh == 0))
-				{
-					OutError = "TextureCube face source provenance is incomplete.";
-					return {};
-				}
-				Input.FaceContentHashes[Index] = {
-					.HashLow = Face->ContentHashLow,
-					.HashHigh = Face->ContentHashHigh};
-			}
-		}
-		else
-		{
-			const AssetImport::FSourceFile* Panorama =
-				ImportData->GetSourceData().FindByRole("panorama");
-			if (!Panorama || (Panorama->ContentHashLow == 0
-				&& Panorama->ContentHashHigh == 0))
-			{
-				OutError = "TextureCube panorama source provenance is incomplete.";
-				return {};
-			}
-			Input.PanoramaContentHash = {
-				.HashLow = Panorama->ContentHashLow,
-				.HashHigh = Panorama->ContentHashHigh};
-		}
 		return BuildTextureCubeDerivedDataKey(Input, OutError);
 	}
 
@@ -271,8 +215,6 @@ namespace Durin::Asset
 		FTextureCubeBuildProduct& OutProduct,
 		std::string& OutError) -> bool
 	{
-		if (TryLoadPanoramaBuild(
-			Panorama, SourceHash, Settings, OutProduct, OutError)) return true;
 		FTextureCubeSourceData SourceData;
 		if (!TextureCubeBuilder::ProjectEquirectangularTextureCube(
 			Panorama, {Settings.FaceDimension, Settings.ExposureEV}, SourceData, OutError))
@@ -288,17 +230,28 @@ namespace Durin::Asset
 		FTextureCubeBuildProduct& OutProduct,
 		std::string& OutError) -> bool
 	{
+		(void)Hashes;
+		FTextureCubeImportedData Imported;
+		if (!Imported.SetSourceData(SourceData))
+		{
+			OutError = "TextureCube canonical imported faces are invalid.";
+			return false;
+		}
+		const FXxHash128 CanonicalHash = Imported.GetIdentity();
 		const FTextureCubeBuildKeyInput KeyInput{
 			.SourceLayout = ETextureCubeBuildSourceLayout::SixFaces,
-			.FaceContentHashes = Hashes,
+			.FaceContentHashes = {CanonicalHash, CanonicalHash, CanonicalHash,
+				CanonicalHash, CanonicalHash, CanonicalHash},
 			.bSRGB = Settings.bSRGB,
 			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 			.TargetProfile = Asset::ECookTargetProfile::Game};
 		std::string Key;
 		std::unique_ptr<FTextureCubePlatformData> PlatformData;
+		bool bCacheHit = false;
 		if (!ExecuteCubeBuild(
-			SourceData, KeyInput, Key, PlatformData, true, OutError))
+			SourceData, KeyInput, Key, PlatformData, true, bCacheHit, OutError))
 			return false;
+		const std::string PersistenceDiagnostic = OutError;
 		const uint32 SourceWidth = SourceData.Faces[0].Width;
 		const uint32 SourceHeight = SourceData.Faces[0].Height;
 		OutProduct = {
@@ -308,7 +261,9 @@ namespace Durin::Asset
 			.DerivedDataKey = std::move(Key),
 			.SourceWidth = SourceWidth,
 			.SourceHeight = SourceHeight,
-			.bSRGB = Settings.bSRGB};
+			.bSRGB = Settings.bSRGB,
+			.bLoadedFromDerivedDataCache = bCacheHit,
+			.PersistenceDiagnostic = PersistenceDiagnostic};
 		OutError.clear();
 		return true;
 	}
@@ -321,8 +276,7 @@ namespace Durin::Asset
 	{
 		(void)Context;
 		if (!Product.PlatformData || !Product.PlatformData->IsValid()
-			|| (!Product.bLoadedFromDerivedDataCache
-				&& !Product.SourceData.Faces[0].IsValid())
+			|| !Product.SourceData.IsValid()
 			|| Product.DerivedDataKey.empty())
 		{
 			OutError = "TextureCube publication product is incomplete.";
@@ -331,10 +285,8 @@ namespace Durin::Asset
 		const std::string DiagnosticKey = Product.DerivedDataKey;
 		const bool bPanorama = Product.SourceLayout
 			== ETextureCubeSourceLayout::EquirectangularPanorama;
-		std::unique_ptr<FTextureCubeSourceData> SourceData;
-		if (!Product.bLoadedFromDerivedDataCache)
-			SourceData = std::make_unique<FTextureCubeSourceData>(
-				std::move(Product.SourceData));
+		auto SourceData = std::make_unique<FTextureCubeSourceData>(
+			std::move(Product.SourceData));
 		Texture.PublishBuildProduct(
 			Product.SourceLayout, Product.PanoramaFaceDimension,
 			Product.PanoramaExposureEV, Product.SourceWidth, Product.SourceHeight,
@@ -347,6 +299,9 @@ namespace Durin::Asset
 				.Key = DiagnosticKey,
 				.Message = Product.bLoadedFromDerivedDataCache
 					? "Loaded TextureCube build candidate from DDC."
+					: !Product.PersistenceDiagnostic.empty()
+						? std::format("Built TextureCube from canonical faces; DDC persistence was best effort: {}",
+							Product.PersistenceDiagnostic)
 					: bPanorama
 						? "Built TextureCube panorama candidate from normalized pixels."
 						: "Built six-face TextureCube candidate from normalized pixels.",

@@ -32,6 +32,7 @@ namespace Durin::Editor::ContentBrowser
 			std::move(Services.NotifyMountedContentMutation),
 			std::move(Services.OpenImport),
 			std::move(Services.ClassifyReimport),
+			std::move(Services.CanReimport),
 			std::move(Services.Reimport),
 			std::move(Services.DrawImportDialogs),
 			std::make_shared<::Durin::Editor::ContentBrowser::Private::FMountedContentReconciliationState>(),

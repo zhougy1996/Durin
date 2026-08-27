@@ -18,7 +18,6 @@ namespace Durin
 	{
 		Unbuilt DMETA(DisplayName = "Not Built"), // No valid platform data is installed.
 		Ready,             // Platform data is valid and its render build is queued.
-		MissingSource,     // The copied source path is empty or missing.
 		DecodeFailure,     // Source bytes could not be decoded.
 		BuildFailure,      // Platform-data construction failed.
 		UploadFailure,     // The current render-resource revision failed.
@@ -54,8 +53,6 @@ namespace Durin
 		Incompatible,
 		Rebuilt,
 		WriteFailure,
-		SourceUnavailableCached,
-		SourceUnavailable,
 		CookedLoaded,
 		CookedFailure
 	};
@@ -66,22 +63,6 @@ namespace Durin
 		std::string Key;
 		std::string Message;
 		bool bSourceDecoderInvoked = false;
-	};
-
-	enum class ETextureSourceStatus : uint8
-	{
-		NoSource,
-		Available,
-		Changed,
-		Missing,
-		Invalid
-	};
-
-	struct FTextureSourceDiagnostic
-	{
-		ETextureSourceStatus Status = ETextureSourceStatus::NoSource;
-		std::string PhysicalPath;
-		std::string Message;
 	};
 
 	// Common reflected boundary and render-resource lifecycle owner for texture assets.

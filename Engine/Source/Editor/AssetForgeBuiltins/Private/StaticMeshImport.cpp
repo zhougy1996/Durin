@@ -3,12 +3,13 @@
 
 #include "Asset/AssetOperations.h"
 #include "Asset/PackageSerialization.h"
-#include "Asset/SourceFilename.h"
+#include "Asset/SourceHint.h"
 #include "Asset.h"
 #include "AssetForge/Builtins/ImportedScene.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"
 #include "EncodedSourceSnapshot.h"
+#include "Misc/Paths.h"
 #include "StaticMeshImportAdapter.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 
@@ -19,6 +20,19 @@ namespace Durin::AssetForge::Builtins
 		constexpr uint64 MaximumStaticMeshEncodedBytes = 512ull * 1024ull * 1024ull;
 		constexpr std::string_view StaticMeshImporterId = "Assimp";
 		constexpr uint32 StaticMeshAssimpImporterVersion = 3;
+
+		auto ResolveOwningPackagePhysicalPath(const DStaticMesh& Mesh,
+			std::filesystem::path& OutPath, std::string& OutError) -> bool
+		{
+			if (!Mesh.GetPackage()) return false;
+			const PathUtilities::FAssetPathResult Resolved =
+				PathUtilities::ResolveAssetPath(Mesh.GetPackage()->GetPackagePath(),
+					PathUtilities::EPathExistence::AllowMissing);
+			if (!Resolved) { OutError = Resolved.Message; return false; }
+			OutPath = Resolved.PhysicalPath;
+			OutPath += ".dasset";
+			return true;
+		}
 
 		auto IsSupportedExtension(std::string_view Extension) -> bool
 		{
@@ -63,6 +77,7 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto PrepareImportData(DStaticMesh& Mesh, std::string Filename,
+			AssetImport::ESourceHintBase HintBase,
 			const std::filesystem::path& PhysicalPath,
 			const FEncodedSourceSnapshot& Snapshot,
 			const FStaticMeshImportSettings& Settings,
@@ -72,11 +87,11 @@ namespace Durin::AssetForge::Builtins
 			State.SourceData.Sources.push_back({
 				.StableIdentity = "root", .Role = "source",
 				.DisplayLabel = PhysicalPath.filename().generic_string(),
-				.Filename = std::move(Filename),
+				.Hint = std::move(Filename),
+				.HintBase = HintBase,
 				.ContentHashLow = Snapshot.ContentHash.HashLow,
 				.ContentHashHigh = Snapshot.ContentHash.HashHigh,
-				.ByteCount = Snapshot.FileSize,
-				.LastWriteTime = Snapshot.LastWriteTime});
+				.ByteCount = Snapshot.FileSize});
 			State.ImporterId = std::string(StaticMeshImporterId);
 			State.ImporterVersion = StaticMeshAssimpImporterVersion;
 			State.ImportSettings = Settings;
@@ -87,19 +102,44 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto RebuildFromFilename(DStaticMesh& Mesh, std::string Filename,
+			AssetImport::ESourceHintBase HintBase,
 			const FStaticMeshImportSettings& Settings, std::string& OutError,
-			const Asset::FAssetBundleSaveOptions* SaveOptions) -> bool
+			const Asset::FAssetBundleSaveOptions* SaveOptions,
+			std::optional<std::filesystem::path> SelectedPhysicalPath = {}) -> bool
 		{
 			if (!Settings.IsValid(&OutError)) return false;
-			std::string PhysicalPathText;
-			if (!AssetImport::ResolveSourceFilename(
-				Filename, PhysicalPathText, OutError)) return false;
-			const std::filesystem::path PhysicalPath(PhysicalPathText);
+			std::filesystem::path OwningPackagePath;
+			const bool bPackaged = ResolveOwningPackagePhysicalPath(
+				Mesh, OwningPackagePath, OutError);
+			if (!SelectedPhysicalPath && !bPackaged) return false;
+			std::filesystem::path PhysicalPath;
+			if (SelectedPhysicalPath) PhysicalPath = std::move(*SelectedPhysicalPath);
+			else
+			{
+				std::string PhysicalPathText;
+				if (!AssetImport::ResolveSourceHint(HintBase, Filename,
+					OwningPackagePath.generic_string(), PhysicalPathText, OutError)) return false;
+				PhysicalPath = PhysicalPathText;
+			}
 			if (!std::filesystem::is_regular_file(PhysicalPath)
 				|| !IsSupportedExtension(PhysicalPath.extension().generic_string()))
 			{
 				OutError = "StaticMesh source is missing or uses an unsupported format.";
 				return false;
+			}
+			if (SelectedPhysicalPath)
+			{
+				if (bPackaged)
+				{
+					if (!AssetImport::MakeSourceHint(PhysicalPath.generic_string(),
+						OwningPackagePath.generic_string(), HintBase, Filename, OutError))
+						return false;
+				}
+				else
+				{
+					HintBase = AssetImport::ESourceHintBase::Absolute;
+					Filename = PhysicalPath.generic_string();
+				}
 			}
 			FEncodedSourceSnapshot Snapshot;
 			if (!CaptureEncodedSource({.Path = Filename}, PhysicalPath, Snapshot,
@@ -123,8 +163,9 @@ namespace Durin::AssetForge::Builtins
 				Asset::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
 				MakeStaticMeshImportedData(Scene), Legacy, Filename, Product, OutError))
 				return false;
+			Product.bSourceImporterInvoked = true;
 			DStaticMeshImportData* ImportData = nullptr;
-			if (!PrepareImportData(Mesh, Filename, PhysicalPath, Snapshot,
+			if (!PrepareImportData(Mesh, Filename, HintBase, PhysicalPath, Snapshot,
 				Settings, ImportData, OutError)
 				|| !Asset::FStaticMeshBuildOperations::PublishImportedProduct(
 					Mesh, std::move(Product), OutError)
@@ -139,33 +180,7 @@ namespace Durin::AssetForge::Builtins
 		}
 	}
 
-	auto InspectStaticMeshSource(const DStaticMesh& Mesh)
-		-> FStaticMeshSourceDiagnostic
-	{
-		const AssetImport::FSourceFile* Source = Mesh.GetImportedSource();
-		if (!Source) return {};
-		std::string PhysicalPath;
-		std::string Error;
-		if (!AssetImport::ResolveSourceFilename(
-			Source->Filename, PhysicalPath, Error))
-			return {EStaticMeshSourceStatus::Invalid, {}, std::move(Error)};
-		if (!std::filesystem::is_regular_file(PhysicalPath))
-			return {EStaticMeshSourceStatus::Missing, PhysicalPath,
-				std::format("Static mesh source is missing: {}.", Source->Filename)};
-		FEncodedSourceSnapshot Snapshot;
-		if (!CaptureEncodedSource({.Path = Source->Filename}, PhysicalPath,
-			Snapshot, Error, MaximumStaticMeshEncodedBytes))
-			return {EStaticMeshSourceStatus::Invalid, PhysicalPath, std::move(Error)};
-		if ((Source->ContentHashLow != 0 || Source->ContentHashHigh != 0)
-			&& (Source->ContentHashLow != Snapshot.ContentHash.HashLow
-				|| Source->ContentHashHigh != Snapshot.ContentHash.HashHigh))
-			return {EStaticMeshSourceStatus::Changed, PhysicalPath,
-				"The StaticMesh source bytes changed since this asset was imported."};
-		return {EStaticMeshSourceStatus::Available, PhysicalPath, {}};
-	}
-
-	auto ReimportStaticMeshSource(DStaticMesh& Mesh, std::string_view FilePath,
-		std::string& OutError,
+	auto ReimportStaticMesh(DStaticMesh& Mesh, std::string& OutError,
 		const Asset::FAssetBundleSaveOptions& SaveOptions) -> bool
 	{
 		const auto* Data = dynamic_cast<const DStaticMeshImportData*>(
@@ -182,17 +197,31 @@ namespace Durin::AssetForge::Builtins
 			OutError = "StaticMesh has no source filename to reimport.";
 			return false;
 		}
-		std::string Filename = Source->Filename;
-		if (!FilePath.empty())
-		{
-			const std::filesystem::path Requested =
-				std::filesystem::absolute(FilePath).lexically_normal();
-			if (!std::filesystem::is_regular_file(Requested)
-				|| !AssetImport::MakeSourceFilename(
-					Requested.generic_string(), Filename, OutError)) return false;
-		}
 		return RebuildFromFilename(
-			Mesh, std::move(Filename), State.ImportSettings, OutError, &SaveOptions);
+			Mesh, Source->Hint, Source->HintBase,
+			State.ImportSettings, OutError, &SaveOptions);
+	}
+
+	auto ReimportStaticMeshFromFile(DStaticMesh& Mesh, std::string_view FilePath,
+		std::string& OutError,
+		const Asset::FAssetBundleSaveOptions& SaveOptions) -> bool
+	{
+		const auto* Data = dynamic_cast<const DStaticMeshImportData*>(
+			Mesh.GetAssetImportData());
+		if (!Data)
+		{
+			OutError = "StaticMesh has no current family import parameters.";
+			return false;
+		}
+		const std::filesystem::path Requested =
+			std::filesystem::absolute(FilePath).lexically_normal();
+		if (!std::filesystem::is_regular_file(Requested))
+		{
+			OutError = "The selected StaticMesh source file does not exist.";
+			return false;
+		}
+		return RebuildFromFilename(Mesh, {}, AssetImport::ESourceHintBase::Absolute,
+			Data->GetStaticMeshState().ImportSettings, OutError, &SaveOptions, Requested);
 	}
 
 	auto CreateTransientStaticMeshFromFile(std::string_view FilePath,
@@ -201,13 +230,11 @@ namespace Durin::AssetForge::Builtins
 	{
 		const std::filesystem::path Input =
 			std::filesystem::absolute(FilePath).lexically_normal();
-		std::string Filename;
-		if (!std::filesystem::is_regular_file(Input)
-			|| !AssetImport::MakeSourceFilename(
-				Input.generic_string(), Filename, OutError)) return nullptr;
+		if (!std::filesystem::is_regular_file(Input)) return nullptr;
 		auto* Mesh = NewObject<DStaticMesh>(Outer, ObjectName);
 		if (Mesh && RebuildFromFilename(
-			*Mesh, std::move(Filename), ImportSettings, OutError, nullptr)) return Mesh;
+			*Mesh, {}, AssetImport::ESourceHintBase::Absolute,
+			ImportSettings, OutError, nullptr, Input)) return Mesh;
 		if (Mesh) MarkAsGarbage(Mesh);
 		return nullptr;
 	}
@@ -228,9 +255,6 @@ namespace Durin::AssetForge::Builtins
 			return {false, std::move(Error), nullptr};
 		if (Asset::FindAssetExact(ParsedPath) || Asset::FindResidentPackage(ParsedPath))
 			return {false, std::format("Asset {} already exists.", ParsedPath.ToString()), nullptr};
-		std::string Filename;
-		if (!AssetImport::MakeSourceFilename(Input.generic_string(), Filename, Error))
-			return {false, std::move(Error), nullptr};
 		DStaticMesh* Mesh = nullptr;
 		const Asset::FAssetResult Created = Asset::CreateAsset(ParsedPath, Mesh);
 		if (!Created || !Mesh)
@@ -241,7 +265,8 @@ namespace Durin::AssetForge::Builtins
 				ParsedPath, Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 		};
 		if (!RebuildFromFilename(
-			*Mesh, std::move(Filename), ImportSettings, Error, nullptr))
+			*Mesh, {}, AssetImport::ESourceHintBase::AssetRelative,
+			ImportSettings, Error, nullptr, Input))
 		{
 			Abandon();
 			return {false, std::move(Error), nullptr};

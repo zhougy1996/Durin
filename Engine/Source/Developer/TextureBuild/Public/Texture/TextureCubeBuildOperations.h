@@ -32,6 +32,7 @@ namespace Durin::Asset
 		bool bSRGB = true;
 		// Cache hits intentionally omit transient normalized source pixels.
 		bool bLoadedFromDerivedDataCache = false;
+		std::string PersistenceDiagnostic;
 	};
 
 	// GameThread provenance captured outside the pure TextureCube recipe.

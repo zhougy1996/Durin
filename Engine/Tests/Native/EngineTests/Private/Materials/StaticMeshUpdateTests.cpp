@@ -2,6 +2,7 @@
 #include "DynamicRHI.h"
 #include "Components/SplineMeshComponent.h"
 #include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
+#include "Asset/AssetCompilingManager.h"
 
 #include <chrono>
 #include <iostream>
@@ -197,6 +198,7 @@ TEST(FStaticMeshUpdateTests, CurrentAssignmentsAndDefaultsDriveLoadedComponentSc
 	auto* Second = MakeExpandedMaterial("StaticMeshScanSecond");
 	First->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.3, 0.4));
 	Second->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.7, 0.6, 0.5));
+	(void)Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	auto* FirstMesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* SecondMesh = Durin::DStaticMesh::CreateDebugTriangle();
 	SetDefaultMaterial(FirstMesh, 0, First);

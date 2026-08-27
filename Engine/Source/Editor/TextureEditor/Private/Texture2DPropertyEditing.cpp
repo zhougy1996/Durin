@@ -128,7 +128,7 @@ namespace Durin::Editor::Texture
 					std::string Error;
 					const auto DeferredCompletion =
 						std::make_shared<FPropertyEditDeferredCompletion>(std::move(Completion));
-					if (!AssetForge::Builtins::RebuildTexture2DFromCurrentSource(
+					if (!AssetForge::Builtins::RebuildTexture2DFromImportedData(
 						*LiveTexture,
 						Settings,
 						Error,

@@ -1,4 +1,5 @@
 #include "AssetTools.h"
+#include "Asset/AssetCompilingManager.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
@@ -132,6 +133,58 @@ namespace
 	}
 }
 
+TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
+{
+	InitializeDObjectSystem();
+	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
+	std::string Error;
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "TextureColdAuthoredCook";
+	Durin::Testing::RemoveTestWorkDirectory(Root);
+	const std::filesystem::path ContentRoot = Root / "Content";
+	const std::filesystem::path CacheRoot = Root / "DerivedDataCache";
+	const std::filesystem::path CookRoot = std::filesystem::absolute(Root / "Cook");
+	std::filesystem::create_directories(ContentRoot);
+	Durin::PathUtilities::RegisterMountPointForTests(
+		"/TextureColdCookTests/", ContentRoot.generic_string() + "/");
+	FScopedDerivedDataCacheRoot ScopedCache(CacheRoot);
+	const std::filesystem::path Source = Root / "ColdCook.tga";
+	WriteNpotTextureFixture(Source);
+	Durin::FAssetPath AssetPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TextureColdCookTests/Texture", AssetPath));
+	const Durin::FTexture2DImportResult Imported =
+		Durin::AssetForge::Builtins::ImportTexture2DAsset(
+			Source.generic_string(), AssetPath.GetView());
+	ASSERT_TRUE(Imported) << Imported.Message;
+	ASSERT_TRUE(Imported.Asset->GetImportedData().IsValid());
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(std::filesystem::remove(Source));
+	Durin::Testing::RemoveTestWorkDirectory(CacheRoot / "Textures");
+
+	Durin::DTexture2D* Loaded = nullptr;
+	const Durin::Asset::FAssetResult Load =
+		Durin::Asset::LoadAsset(AssetPath, Loaded);
+	ASSERT_TRUE(Load) << Load.Message;
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_EQ(Loaded->GetDerivedDataDiagnostic().Status,
+		Durin::ETextureDerivedDataStatus::Rebuilt);
+	EXPECT_FALSE(Loaded->GetDerivedDataDiagnostic().bSourceDecoderInvoked);
+	Durin::Asset::FCookContext Cook(
+		CookRoot,
+		Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game);
+	ASSERT_TRUE(Loaded->AddToCook(Cook, "/Game/ColdTexture", Error)) << Error;
+	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
+	EXPECT_TRUE(std::filesystem::is_regular_file(
+		CookRoot / "Game/ColdTexture.dasset"));
+	EXPECT_TRUE(std::filesystem::is_regular_file(
+		CookRoot / "Game/ColdTexture.dbulk"));
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
+}
+
 TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 {
 	InitializeDObjectSystem();
@@ -220,7 +273,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	EXPECT_FALSE(ContainsText(FirstPackage, "SourceContentHash"));
 	EXPECT_FALSE(ContainsText(FirstPackage, "SourceWidth"));
 	EXPECT_TRUE(ContainsText(DiagnosticPackage, "AssetImportData"));
-	EXPECT_TRUE(ContainsText(DiagnosticPackage, "Filename"));
+	EXPECT_TRUE(ContainsText(DiagnosticPackage, "Hint"));
 	EXPECT_FALSE(ContainsText(DiagnosticPackage, "SourceImportData"));
 	EXPECT_FALSE(ContainsText(DiagnosticPackage, "SourceContentHash"));
 

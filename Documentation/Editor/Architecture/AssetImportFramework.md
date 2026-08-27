@@ -41,14 +41,24 @@ The intended dependency direction is:
 Third-party import providers, hot-unloadable importer registration, runtime
 import, and user-composed translation/planning stacks are not supported.
 
-## Source Filename Contract
+## Optional Source Hint Contract
 
-Every selected source is represented by a normalized filename:
+Every standalone output may retain a schema-2 `HintBase + Hint` pair solely for
+an explicit Reimport action. `HintBase` is never inferred from the text:
 
-- files beneath the active project directory persist project-relative paths;
-- other files persist normalized absolute paths;
-- resolution does not consult package mounts;
-- import and reimport never copy, move, rename, replace, or delete the source.
+- `AssetRelative` resolves from the physical parent of the owning `.dasset`;
+- `ProjectRelative` resolves from the active project directory and may not
+  escape it;
+- `Absolute` is a normalized physical path, normally used outside the project.
+
+Default classification uses `AssetRelative` for a project-local source and
+project-local owner, `ProjectRelative` for a project-local source whose owner is
+outside the project, and `Absolute` otherwise. Resolution does not consult
+package mounts. Move and duplication copy the base and hint bytes unchanged;
+therefore an asset-relative hint intentionally rebinds at the destination.
+Display, load, inspection, thumbnail, build, DDC recovery, and Cook paths never
+resolve or probe a hint. Import and reimport never copy, move, rename, replace,
+or delete the source.
 
 One import attempt captures its complete required source closure into immutable
 owned bytes. Recognition, hashing, dependency discovery, decoding, and build
@@ -71,14 +81,15 @@ A family importer follows this boundary:
 2. capture required bytes once;
 3. decode into normalized owned values;
 4. complete failable build validation;
-5. create or update the narrow runtime asset state on the editor thread;
-6. publish editor-only source metadata;
+5. atomically commit canonical imported data, build settings, derived result,
+   and optional source hints on the editor thread;
+6. mark the complete live candidate Dirty;
 7. save the package independently.
 
-Failure before publication leaves an existing live and persisted asset
-unchanged. Successful publication and persistence are separate facts: if the
-save fails after valid state is published, the package remains Dirty for an
-explicit retry.
+Failure before live-state commit leaves an existing live and persisted asset
+unchanged. Live-state commit and package save are separate facts: if the save
+fails after valid state is committed, the complete new candidate remains Dirty
+for an explicit retry while the prior DAST/DABK bundle stays intact.
 
 Texture and mesh compilation may remain asynchronous under their family build
 systems. The built-in import boundary does not provide a second operation state machine,
@@ -125,7 +136,11 @@ roots receive a stable `$DurinRoot`.
 It contains four families: Texture, TerrainHeightmap, Scene, and standalone
 StaticMesh. MainFrame dispatches those values directly to the owning feature
 module. Reimport class routing is likewise a closed built-in switch for
-Texture2D/TextureCube/VolumeTexture, TerrainHeightmap, and StaticMesh.
+Texture2D/TextureCube/VolumeTexture, TerrainHeightmap, and StaticMesh. Each
+family exposes two modes: **Reimport** resolves a retained complete hint set,
+while **Reimport From File...** remains available for a loaded supported asset
+even when no hint exists. Selecting a new file can change hints only through a
+successful complete candidate commit.
 
 Import and Reimport are deliberately not Content Browser extension categories.
 The remaining extension registry composes unrelated Create, Details, and
@@ -140,11 +155,14 @@ notifications.
 
 ## Persistence, Cooking, And Runtime Closure
 
-Concrete editor-only import data stores common source filenames plus only the
-family interpretation settings needed for reimport. It carries no generic
-provider, translator, builder, graph, planning-pass, or replay provenance.
+Concrete editor-only import data stores optional common source hints plus only
+the family interpretation settings needed for reimport. Runtime assets own the
+bounded, decoder-free canonical imported data required by their builds, using
+`FEditorBulkData` when the payload crosses the authored bulk threshold. Import
+data carries no generic provider, translator, builder, graph, planning-pass,
+or replay provenance.
 
-Cook strips source filenames, editor settings, diagnostics, and derived-data
+Cook strips source hints, editor-only import data, diagnostics, and derived-data
 identities selected as editor-only. Cooked packages contain validated runtime
 payloads and ordinary asset references. Runtime-only loading requires neither
 AssetForgeBuiltins, Assimp, offline image/model decoders, authored source files,
@@ -153,11 +171,11 @@ nor DDC fallback.
 ## Compatibility Boundary
 
 The supported authored baseline is the repository-owned asset corpus. Current
-standalone family import data is read and written through concrete family
-schemas. Scene outputs are ordinary assets and do not persist an import replay
-record. Compatibility for retired generic replay and mounted-source schemas is
-repository-bounded; the framework-removal milestone audits or regenerates the
-remaining corpus instead of adding an indefinite dual-write layer.
+standalone family import data is schema 2 and is read and written only through
+concrete family schemas. Scene outputs are ordinary independently rebuildable
+assets and do not persist an import replay record. Retired filename, generic
+replay, mounted-source, and source-backed recovery schemas have no production
+reader or dual-write route.
 
 ## Related Documentation
 
@@ -173,4 +191,4 @@ remaining corpus instead of adding an indefinite dual-write layer.
 - [`SceneDirectImport.cpp`](../../../Engine/Source/Editor/AssetForgeBuiltins/Private/SceneDirectImport.cpp)
 - [`Texture2DImport.cpp`](../../../Engine/Source/Editor/AssetForgeBuiltins/Private/Texture2DImport.cpp)
 - [`StaticMeshImport.cpp`](../../../Engine/Source/Editor/AssetForgeBuiltins/Private/StaticMeshImport.cpp)
-- [`SourceFilename.h`](../../../Engine/Source/Runtime/Engine/Public/Asset/SourceFilename.h)
+- [`SourceHint.h`](../../../Engine/Source/Runtime/Engine/Public/Asset/SourceHint.h)

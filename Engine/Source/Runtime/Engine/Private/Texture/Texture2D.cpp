@@ -2,11 +2,9 @@
 
 #include "DObject/Package.h"
 
-#include "Asset/SourceFilename.h"
 #include "AssetCook.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Hash/XxHash.h"
-#include "Misc/FileHelper.h"
 #include "Serialization/Archive.h"
 #include "DynamicRHI.h"
 #include "Texture/Texture2DRenderResource.h"
@@ -19,12 +17,6 @@ namespace Durin
 	namespace
 	{
 		constexpr uint32 TextureSourceChannelCount = 4;
-		struct FResolvedTextureSource
-		{
-			std::filesystem::path PhysicalPath;
-			bool bExists = false;
-		};
-
 		auto IsValidUsage(ETextureUsage Usage) -> bool
 		{
 			return Usage == ETextureUsage::Color || Usage == ETextureUsage::Normal
@@ -49,51 +41,6 @@ namespace Durin
 			return std::isfinite(Threshold) && Threshold > 0.0f && Threshold < 1.0f;
 		}
 
-		auto ResolveTextureSource(
-			const DTexture2D& Texture,
-			FResolvedTextureSource& OutResolution,
-			std::string& OutError) -> bool
-		{
-			if (const AssetImport::FSourceFile* Source = Texture.GetImportedSource())
-			{
-				std::string PhysicalPathText;
-				if (!AssetImport::ResolveSourceFilename(
-					Source->Filename, PhysicalPathText, OutError)) return false;
-				const std::filesystem::path PhysicalPath(PhysicalPathText);
-				std::error_code Error;
-				const bool bExists = std::filesystem::is_regular_file(PhysicalPath, Error);
-				if (Error == std::errc::no_such_file_or_directory)
-					Error.clear();
-				OutResolution = {
-					.PhysicalPath = PhysicalPath,
-					.bExists = bExists};
-				if (Error)
-				{
-					OutError = Error.message();
-					return false;
-				}
-				return true;
-			}
-			OutError = "Texture asset has no source filename import data.";
-			return false;
-		}
-
-		auto HashTextureSource(
-			const std::filesystem::path& Path,
-			FXxHash128& OutHash,
-			std::string& OutError) -> bool
-		{
-			std::vector<std::byte> Bytes;
-			if (!FFileHelper::LoadFileToArray(Bytes, Path))
-			{
-				OutError = std::format("Failed to read texture source file: {}", Path.generic_string());
-				return false;
-			}
-			OutHash = FXxHash128::HashBuffer(Bytes);
-			OutError.clear();
-			return true;
-		}
-
 	} // namespace
 
 	auto FTextureSourceData::IsValid() const -> bool
@@ -101,7 +48,78 @@ namespace Durin
 		return Format == ETextureSourceFormat::RGBA8
 			&& Width > 0
 			&& Height > 0
-			&& static_cast<uint64>(Width) * Height * TextureSourceChannelCount == Pixels.size();
+			&& Width <= 16384 && Height <= 16384
+			&& static_cast<uint64>(Width) * Height * TextureSourceChannelCount == Pixels.size()
+			&& Pixels.size() <= MaximumTexture2DImportedPixelBytes;
+	}
+
+	auto FTextureSourceData::GetImportedDataIdentity() const -> FXxHash128
+	{
+		if (!IsValid()) return {};
+		FXxHash128Builder Builder;
+		Builder.UpdateValue(Texture2DImportedDataSchemaVersion);
+		Builder.UpdateValue(Width);
+		Builder.UpdateValue(Height);
+		Builder.UpdateValue(SourceChannelCount);
+		Builder.UpdateValue(static_cast<uint8>(Format));
+		Builder.UpdateValue(bHasTransparency);
+		Builder.Update(std::span<const std::byte>(Pixels));
+		return Builder.Finalize();
+	}
+
+	auto FTexture2DImportedData::IsValid() const -> bool
+	{
+		const Asset::FBulkData& BulkData = Pixels.GetBulkData();
+		const uint64 ExpectedByteCount = static_cast<uint64>(Width)
+			* Height * ::Durin::TextureSourceChannelCount;
+		return SchemaVersion == Texture2DImportedDataSchemaVersion
+			&& BulkData.GetDescriptor().PayloadId == Texture2DImportedPixelsPayloadId
+			&& Format == ETextureSourceFormat::RGBA8
+			&& Width > 0 && Height > 0 && Width <= 16384 && Height <= 16384
+			&& SourceChannelCount > 0 && SourceChannelCount <= TextureSourceChannelCount
+			&& ExpectedByteCount == BulkData.GetBytes().size()
+			&& ExpectedByteCount <= MaximumTexture2DImportedPixelBytes;
+	}
+
+	auto FTexture2DImportedData::SetSourceData(
+		const FTextureSourceData& Source) -> bool
+	{
+		if (!Source.IsValid()
+			|| !Pixels.ReplaceBytes(Texture2DImportedPixelsPayloadId, Source.Pixels))
+			return false;
+		Width = Source.Width;
+		Height = Source.Height;
+		SourceChannelCount = Source.SourceChannelCount;
+		Format = Source.Format;
+		bHasTransparency = Source.bHasTransparency;
+		SchemaVersion = Texture2DImportedDataSchemaVersion;
+		return IsValid();
+	}
+
+	auto FTexture2DImportedData::ToSourceData() const -> FTextureSourceData
+	{
+		const std::span<const std::byte> Bytes = Pixels.GetBulkData().GetBytes();
+		return {
+			.Pixels = std::vector<std::byte>(Bytes.begin(), Bytes.end()),
+			.Width = Width,
+			.Height = Height,
+			.SourceChannelCount = SourceChannelCount,
+			.Format = Format,
+			.bHasTransparency = bHasTransparency};
+	}
+
+	auto FTexture2DImportedData::GetIdentity() const -> FXxHash128
+	{
+		if (!IsValid()) return {};
+		FXxHash128Builder Builder;
+		Builder.UpdateValue(SchemaVersion);
+		Builder.UpdateValue(Width);
+		Builder.UpdateValue(Height);
+		Builder.UpdateValue(SourceChannelCount);
+		Builder.UpdateValue(static_cast<uint8>(Format));
+		Builder.UpdateValue(bHasTransparency);
+		Builder.Update(Pixels.GetBulkData().GetBytes());
+		return Builder.Finalize();
 	}
 
 	auto FTexture2DMipData::IsValid(EPixelFormat PixelFormat) const -> bool
@@ -166,42 +184,6 @@ namespace Durin
 			Completion);
 	}
 
-	auto DTexture2D::InspectSource() const -> FTextureSourceDiagnostic
-	{
-		const AssetImport::FSourceFile* ImportedSource = GetImportedSource();
-		if (!ImportedSource)
-			return {};
-		FResolvedTextureSource Resolution;
-		std::string Error;
-		if (!ResolveTextureSource(*this, Resolution, Error))
-			return {ETextureSourceStatus::Invalid, {}, std::move(Error)};
-		if (!Resolution.bExists)
-		{
-			return {
-				ETextureSourceStatus::Missing,
-				Resolution.PhysicalPath.generic_string(),
-				std::format(
-					"Texture source is missing: {}. Select a replacement source file to continue.",
-					GetSourceFile())};
-		}
-		FXxHash128 CurrentHash;
-		if (!HashTextureSource(Resolution.PhysicalPath, CurrentHash, Error))
-			return {
-				ETextureSourceStatus::Invalid,
-				Resolution.PhysicalPath.generic_string(),
-				std::move(Error)};
-		const FXxHash128 PersistedHash = ImportedSource->GetContentHash();
-		if (!PersistedHash.IsZero() && CurrentHash != PersistedHash)
-		{
-			return {
-				ETextureSourceStatus::Changed,
-				Resolution.PhysicalPath.generic_string(),
-				"The source bytes changed since this asset was last imported. "
-				"Reimport updates this asset from the persisted source."};
-		}
-		return {ETextureSourceStatus::Available, Resolution.PhysicalPath.generic_string(), {}};
-	}
-
 	auto DTexture2D::PostLoad(std::string& OutError) -> bool
 	{
 		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
@@ -215,7 +197,7 @@ namespace Durin
 		if (BuildStatus == ETextureBuildStatus::Unbuilt)
 			PublishUncookedLoadFailure(
 				ETextureDerivedDataStatus::Incompatible,
-				ETextureBuildStatus::MissingSource,
+				ETextureBuildStatus::BuildFailure,
 				OutError);
 		return false;
 	}
@@ -417,10 +399,7 @@ namespace Durin
 			OutError = "Texture2D imported state must be published on the game thread.";
 			return false;
 		}
-		if (State.SourceFilename.empty()
-			|| (State.SourceContentHashLow == 0
-				&& State.SourceContentHashHigh == 0)
-			|| !State.SourceData || !State.SourceData->IsValid()
+		if (!State.SourceData || !State.SourceData->IsValid()
 			|| !State.PlatformData || !State.PlatformData->IsValid()
 			|| State.DerivedDataKey.empty()
 			|| !IsValidUsage(State.Usage)
@@ -432,10 +411,18 @@ namespace Durin
 			return false;
 		}
 
+		FTexture2DImportedData ImportedCandidate;
+		if (!ImportedCandidate.SetSourceData(*State.SourceData))
+		{
+			OutError = "Texture2D canonical imported data could not be captured.";
+			return false;
+		}
+
 		SourceWidth = State.SourceData->Width;
 		SourceHeight = State.SourceData->Height;
 		SourceChannelCount = State.SourceData->SourceChannelCount;
 		bSourceHasTransparency = State.SourceData->bHasTransparency;
+		ImportedData = std::move(ImportedCandidate);
 		SourceData = std::move(State.SourceData);
 		PlatformData = std::move(State.PlatformData);
 		DerivedDataKey = std::move(State.DerivedDataKey);
@@ -449,8 +436,12 @@ namespace Durin
 		DerivedDataDiagnostic = {
 			.Status = ETextureDerivedDataStatus::Rebuilt,
 			.Key = DerivedDataKey,
-			.Message = "Published normalized Texture2D build product.",
-			.bSourceDecoderInvoked = true};
+			.Message = State.BuildDiagnostic.empty()
+				? "Published normalized Texture2D build product."
+				: std::format(
+					"Published normalized Texture2D build product; DDC persistence was best effort: {}",
+					State.BuildDiagnostic),
+			.bSourceDecoderInvoked = State.bSourceDecoderInvoked};
 		BuildStatus = ETextureBuildStatus::Ready;
 		LastBuildError.clear();
 		QueueRenderResourceBuild();
@@ -469,7 +460,6 @@ namespace Durin
 	auto DTexture2D::PublishDerivedDataLoad(
 		std::unique_ptr<FTexturePlatformData> InPlatformData,
 		std::string InDerivedDataKey,
-		bool bSourceAvailable,
 		std::string& OutError) -> bool
 	{
 		if (!IsInGameThread() || !InPlatformData || !InPlatformData->IsValid()
@@ -485,15 +475,9 @@ namespace Durin
 		LastBuildError.clear();
 		bLoadedFromDerivedDataCache = true;
 		DerivedDataDiagnostic = {
-			.Status = bSourceAvailable
-				? ETextureDerivedDataStatus::Hit
-				: ETextureDerivedDataStatus::SourceUnavailableCached,
+			.Status = ETextureDerivedDataStatus::Hit,
 			.Key = DerivedDataKey,
-			.Message = bSourceAvailable
-				? std::format("Texture2D DDC hit for key {}.", DerivedDataKey)
-				: std::format(
-					"Texture2D source is unavailable, but cached key {} loaded successfully.",
-					DerivedDataKey)};
+			.Message = std::format("Texture2D DDC hit for key {}.", DerivedDataKey)};
 		QueueRenderResourceBuild();
 		OutError.clear();
 		return true;
@@ -537,6 +521,7 @@ namespace Durin
 		std::swap(SourceHeight, Other.SourceHeight);
 		std::swap(SourceChannelCount, Other.SourceChannelCount);
 		std::swap(bSourceHasTransparency, Other.bSourceHasTransparency);
+		std::swap(ImportedData, Other.ImportedData);
 		std::swap(Usage, Other.Usage);
 		std::swap(bSRGB, Other.bSRGB);
 		std::swap(MaxResolution, Other.MaxResolution);

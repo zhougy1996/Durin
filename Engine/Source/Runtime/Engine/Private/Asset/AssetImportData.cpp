@@ -1,5 +1,5 @@
 #include "Asset/AssetImportData.h"
-#include "Asset/SourceFilename.h"
+#include "Asset/SourceHint.h"
 
 #include "DObject/AssetPath.h"
 #include "DObject/DObjectGlobals.h"
@@ -20,20 +20,34 @@ namespace Durin::AssetImport
 				});
 		}
 
-		auto IsNormalizedSourceFilename(std::string_view Filename) -> bool
+		auto IsNormalizedSourceHint(
+			ESourceHintBase Base, std::string_view Hint) -> bool
 		{
-			if (Filename.empty() || Filename.size() > MaximumSourceFilenameBytes
-				|| Filename.back() == '/' || Filename.find('\\') != std::string_view::npos
-				|| Filename.find('\0') != std::string_view::npos
-				|| Filename.find("//") != std::string_view::npos) return false;
-			const std::filesystem::path Path(Filename);
-			if (Path == "." || Path.lexically_normal().generic_string() != Filename)
+			if (Hint.empty() || Hint.size() > MaximumSourceHintBytes
+				|| Hint.back() == '/' || Hint.find('\\') != std::string_view::npos
+				|| Hint.find('\0') != std::string_view::npos
+				|| Hint.find("//") != std::string_view::npos
+				|| Hint.find("://") != std::string_view::npos) return false;
+			const std::filesystem::path Path(Hint);
+			if (Path == "." || Path.lexically_normal().generic_string() != Hint)
 				return false;
 			for (const std::filesystem::path& Segment : Path)
-			{
-				if (Segment == "." || Segment == "..") return false;
-			}
-			return true;
+				if (Segment == ".") return false;
+			if (Base == ESourceHintBase::Absolute) return Path.is_absolute();
+			if (Path.is_absolute() || Path.has_root_name()) return false;
+			return Base == ESourceHintBase::AssetRelative
+				|| Base == ESourceHintBase::ProjectRelative;
+		}
+
+		auto IsWithinProject(
+			const std::filesystem::path& Path,
+			const std::filesystem::path& Project) -> bool
+		{
+			std::filesystem::path Relative;
+			if (!PathUtilities::TryMakeLexicalRelativePath(Path, Project, Relative)
+				|| Relative.empty() || Relative.is_absolute()) return false;
+			const auto First = Relative.begin();
+			return First != Relative.end() && *First != "..";
 		}
 
 		auto UpdateString(FXxHash128Builder& Builder, std::string_view Value) -> void
@@ -60,8 +74,8 @@ namespace Durin::AssetImport
 	auto FSourceFile::IsEmpty() const -> bool
 	{
 		return StableIdentity.empty() && Role.empty() && DisplayLabel.empty()
-			&& Filename.empty() && ContentHashLow == 0 && ContentHashHigh == 0
-			&& ByteCount == 0 && LastWriteTime == 0;
+			&& Hint.empty() && ContentHashLow == 0 && ContentHashHigh == 0
+			&& ByteCount == 0;
 	}
 
 	auto FSourceFile::Validate(std::string& OutError) const -> bool
@@ -73,10 +87,10 @@ namespace Durin::AssetImport
 		}
 		if (!IsIdentifier(StableIdentity) || !IsIdentifier(Role)
 			|| DisplayLabel.size() > MaximumAssetImportStringBytes
-			|| !IsNormalizedSourceFilename(Filename)
+			|| (!Hint.empty() && !IsNormalizedSourceHint(HintBase, Hint))
 			|| ContentHashLow == 0 || ContentHashHigh == 0 || ByteCount == 0)
 		{
-			OutError = "Source identity, role, filename, complete hash, size, or label is invalid.";
+			OutError = "Source identity, role, hint, complete hash, size, or label is invalid.";
 			return false;
 		}
 		OutError.clear();
@@ -134,86 +148,130 @@ namespace Durin::AssetImport
 			UpdateString(Builder, Source.StableIdentity);
 			UpdateString(Builder, Source.Role);
 			UpdateString(Builder, Source.DisplayLabel);
-			UpdateString(Builder, Source.Filename);
+			Builder.UpdateValue(static_cast<uint8>(Source.HintBase));
+			UpdateString(Builder, Source.Hint);
 			Builder.UpdateValue(Source.ContentHashLow);
 			Builder.UpdateValue(Source.ContentHashHigh);
 			Builder.UpdateValue(Source.ByteCount);
-			Builder.UpdateValue(Source.LastWriteTime);
 		}
 		return Builder.Finalize();
 	}
 
-	auto MakeSourceFilename(
+	auto MakeSourceHint(
 		std::string_view PhysicalPath,
-		std::string& OutFilename,
-		std::string& OutError) -> bool
+		std::string_view OwningPackagePhysicalPath,
+		ESourceHintBase& OutBase,
+		std::string& OutHint,
+		std::string& OutError,
+		std::optional<ESourceHintBase> RequestedBase) -> bool
 	{
-		OutFilename.clear();
-		if (PhysicalPath.empty())
+		OutHint.clear();
+		if (PhysicalPath.empty() || OwningPackagePhysicalPath.empty())
 		{
-			OutError = "Source filename is empty.";
+			OutError = "Source or owning package filename is empty.";
 			return false;
 		}
 		std::error_code Error;
 		const std::filesystem::path Absolute = std::filesystem::absolute(
 			std::filesystem::path(PhysicalPath), Error).lexically_normal();
-		if (Error || !Absolute.is_absolute())
+		const std::filesystem::path Package = std::filesystem::absolute(
+			std::filesystem::path(OwningPackagePhysicalPath), Error).lexically_normal();
+		const std::filesystem::path Project = std::filesystem::absolute(
+			std::filesystem::path(FPaths::ProjectDir()), Error).lexically_normal();
+		if (Error || !Absolute.is_absolute() || !Package.is_absolute()
+			|| !Project.is_absolute() || Package.extension() != ".dasset")
 		{
-			OutError = Error ? Error.message() : "Source filename is not absolute.";
+			OutError = Error ? Error.message()
+				: "Source hint classification requires absolute source, project, and .dasset paths.";
 			return false;
 		}
-		std::filesystem::path Stored = Absolute;
-		const std::filesystem::path Project = std::filesystem::path(
-			FPaths::ProjectDir()).lexically_normal();
-		std::filesystem::path Relative;
-		if (!Project.empty()
-			&& PathUtilities::TryMakeLexicalRelativePath(Absolute, Project, Relative)
-			&& !Relative.empty())
-			Stored = std::move(Relative);
-		const std::string Candidate = Stored.generic_string();
-		if (!IsNormalizedSourceFilename(Candidate))
+		const bool bSourceInsideProject = IsWithinProject(Absolute, Project);
+		OutBase = RequestedBase.value_or(
+			bSourceInsideProject
+				? (IsWithinProject(Package, Project)
+					? ESourceHintBase::AssetRelative
+					: ESourceHintBase::ProjectRelative)
+				: ESourceHintBase::Absolute);
+		std::filesystem::path Stored;
+		if (OutBase == ESourceHintBase::AssetRelative)
 		{
-			OutError = "Source filename is not a bounded normalized platform path.";
+			Stored = Absolute.lexically_relative(Package.parent_path());
+			if (Stored.empty() || Stored.is_absolute())
+			{
+				OutError = "Project-local source could not be made package-relative.";
+				return false;
+			}
+		}
+		else if (OutBase == ESourceHintBase::ProjectRelative)
+		{
+			if (!bSourceInsideProject)
+			{
+				OutError = "Project-relative source hint requires a source inside the project.";
+				return false;
+			}
+			Stored = Absolute.lexically_relative(Project);
+		}
+		else if (OutBase == ESourceHintBase::Absolute) Stored = Absolute;
+		else
+		{
+			OutError = "Source hint base is invalid.";
 			return false;
 		}
-		OutFilename = Candidate;
+		const std::string Candidate = Stored.lexically_normal().generic_string();
+		if (!IsNormalizedSourceHint(OutBase, Candidate))
+		{
+			OutError = "Source hint is not a bounded normalized platform path.";
+			return false;
+		}
+		OutHint = Candidate;
 		OutError.clear();
 		return true;
 	}
 
-	auto ResolveSourceFilename(
-		std::string_view Filename,
+	auto ResolveSourceHint(
+		ESourceHintBase Base,
+		std::string_view Hint,
+		std::string_view OwningPackagePhysicalPath,
 		std::string& OutPhysicalPath,
 		std::string& OutError) -> bool
 	{
 		OutPhysicalPath.clear();
-		if (!IsNormalizedSourceFilename(Filename))
+		if (!IsNormalizedSourceHint(Base, Hint))
 		{
-			OutError = "Source filename is not a bounded normalized platform path.";
+			OutError = "Source hint is not a bounded normalized platform path.";
 			return false;
 		}
-		const std::filesystem::path Stored(Filename);
+		std::error_code Error;
+		const std::filesystem::path Package = std::filesystem::absolute(
+			std::filesystem::path(OwningPackagePhysicalPath), Error).lexically_normal();
+		const std::filesystem::path Project = std::filesystem::absolute(
+			std::filesystem::path(FPaths::ProjectDir()), Error).lexically_normal();
+		if (Error || !Package.is_absolute() || Package.extension() != ".dasset"
+			|| !Project.is_absolute())
+		{
+			OutError = Error ? Error.message()
+				: "Source hint resolution requires an absolute owning .dasset and project path.";
+			return false;
+		}
+		const std::filesystem::path Stored(Hint);
 		std::filesystem::path Resolved;
-		if (Stored.is_absolute())
-			Resolved = Stored;
+		if (Base == ESourceHintBase::AssetRelative)
+			Resolved = (Package.parent_path() / Stored).lexically_normal();
+		else if (Base == ESourceHintBase::ProjectRelative)
+		{
+			Resolved = (Project / Stored).lexically_normal();
+			if (!IsWithinProject(Resolved, Project))
+			{
+				OutError = "Project-relative source hint escapes the project directory.";
+				return false;
+			}
+		}
+		else if (Base == ESourceHintBase::Absolute)
+			Resolved = Stored.lexically_normal();
 		else
 		{
-			const std::filesystem::path Project = std::filesystem::path(
-				FPaths::ProjectDir()).lexically_normal();
-			if (Project.empty() || !Project.is_absolute())
-			{
-				OutError = "Project directory is unavailable for relative source filename resolution.";
-				return false;
-			}
-			Resolved = (Project / Stored).lexically_normal();
-			std::filesystem::path Relative;
-			if (!PathUtilities::TryMakeLexicalRelativePath(
-				Resolved, Project, Relative) || Relative.empty())
-			{
-				OutPhysicalPath.clear();
-				OutError = "Relative source filename escapes the project directory.";
-				return false;
-			}
+			OutError = "Source hint base is invalid.";
+			return false;
 		}
 		OutPhysicalPath = Resolved.generic_string();
 		OutError.clear();

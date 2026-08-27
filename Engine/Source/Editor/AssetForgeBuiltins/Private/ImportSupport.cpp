@@ -1,6 +1,5 @@
 #include "AssetForge/Builtins/ImportSupport.h"
 #include "Asset/Load.h"
-#include "Asset/SourceFilename.h"
 
 #include "Misc/Paths.h"
 #include "Misc/FileTime.h"
@@ -464,20 +463,10 @@ namespace Durin::AssetForge
 			bool bOptional,
 			std::vector<FImportDiagnostic>& Diagnostics) -> bool
 		{
-			std::string PhysicalPath;
-			std::string Error;
-			if (!AssetImport::ResolveSourceFilename(Filename, PhysicalPath, Error))
-			{
-				AddDiagnostic(Diagnostics,
-					bOptional ? EImportDiagnosticSeverity::Warning : EImportDiagnosticSeverity::Error,
-					bOptional || !DeclaringIdentity.empty()
-						? EImportDiagnosticCategory::MissingDependency
-						: EImportDiagnosticCategory::InvalidSource,
-					"source-capture", StableIdentity, Error);
-				return bOptional;
-			}
+			const std::filesystem::path PhysicalPath =
+				std::filesystem::absolute(Filename).lexically_normal();
 			return CapturePhysical(std::move(StableIdentity), std::move(Role),
-				FSourcePath{.Path = std::move(Filename)}, PhysicalPath,
+				FSourcePath{.Path = PhysicalPath.generic_string()}, PhysicalPath,
 				std::move(DeclaringIdentity), Depth, bOptional, Diagnostics);
 		}
 	};
@@ -629,28 +618,12 @@ namespace Durin::AssetForge
 					return false;
 				}
 				const size_t CountBefore = Impl->Sources.size();
-				std::string DeclaringPhysical;
-				std::string Error;
-				if (!AssetImport::ResolveSourceFilename(
-					Declaring.SourcePath.Path, DeclaringPhysical, Error))
-				{
-					AddDiagnostic(OutDiagnostics, EImportDiagnosticSeverity::Error,
-						EImportDiagnosticCategory::InvalidSource, "dependency-capture",
-						Request.StableIdentity, Error);
-					return false;
-				}
+				const std::filesystem::path DeclaringPhysical =
+					std::filesystem::absolute(Declaring.SourcePath.Path).lexically_normal();
 				const std::filesystem::path DependencyPhysical =
-					(std::filesystem::path(DeclaringPhysical).parent_path()
+					(DeclaringPhysical.parent_path()
 						/ Relative).lexically_normal();
-				std::string Filename;
-				if (!AssetImport::MakeSourceFilename(
-					DependencyPhysical.generic_string(), Filename, Error))
-				{
-					AddDiagnostic(OutDiagnostics, EImportDiagnosticSeverity::Error,
-						EImportDiagnosticCategory::InvalidSource, "dependency-capture",
-						Request.StableIdentity, Error);
-					return false;
-				}
+				std::string Filename = DependencyPhysical.generic_string();
 				if (!Impl->CaptureFilename(std::move(Request.StableIdentity),
 					std::move(Request.Role), std::move(Filename),
 					Request.DeclaringIdentity, Depth, Request.bOptional,
