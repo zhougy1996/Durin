@@ -3,6 +3,7 @@
 #include "Asset/AssetRetention.h"
 #include "Asset.h"
 #include "Components/StaticMeshComponent.h"
+#include "DObject/Package.h"
 #include "Engine/Actor.h"
 #include "Engine/World.h"
 #include "Materials/Material.h"
@@ -15,7 +16,7 @@ namespace Durin::Editor::Material
 {
 	namespace
 	{
-		constexpr uint32 MaterialThumbnailGeneratorSchema = 4;
+		constexpr uint32 MaterialThumbnailGeneratorSchema = 5;
 		constexpr uint32 MaterialThumbnailShaderContract = 3;
 		constexpr float MaterialThumbnailSphereScale = 1.65f;
 
@@ -87,6 +88,20 @@ namespace Durin::Editor::Material
 			Revision ^= Texture->GetBuildRevision() + 0x9e3779b97f4a7c15ull
 				+ (Revision << 6) + (Revision >> 2);
 			return Revision == 0 ? 1 : Revision;
+		}
+
+		auto GetMaterialAssetRevision(
+			DMaterialInterface* Material,
+			std::string& OutError) -> uint64
+		{
+			OutError.clear();
+			const DPackage* Package = Material ? Material->GetPackage() : nullptr;
+			if (Package == nullptr)
+			{
+				OutError = "The material asset package is unavailable.";
+				return 0;
+			}
+			return Package->GetEditRevision();
 		}
 
 		auto CombineResourceRevision(uint64 MaterialRevision, uint64 MeshRevision)
@@ -180,7 +195,13 @@ namespace Durin::Editor::Material
 				if (Sphere->GetRenderResourceStatus().Readiness
 					== EStaticMeshRenderResourceReadiness::Unavailable)
 					Sphere->InitResources();
-				AssetRevision = Material->GetRenderStateVersion();
+				AssetRevision = GetMaterialAssetRevision(Material, SphereError);
+				if (!SphereError.empty())
+				{
+					return {
+						.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::Failed,
+						.Diagnostic = std::move(SphereError)};
+				}
 				return {
 					.State = ::Durin::Editor::ERenderedAssetThumbnailSessionState::WaitingForResources,
 					.AssetRevision = AssetRevision};
@@ -265,6 +286,9 @@ namespace Durin::Editor::Material
 				uint64 ExpectedResourceRevision,
 				std::string& OutError) const -> bool override
 			{
+				const uint64 MaterialAssetRevision = GetMaterialAssetRevision(
+					Material, OutError);
+				if (!OutError.empty()) return false;
 				bool bReady = false;
 				const uint64 MaterialRevision = GetMaterialResourceRevision(
 					Material, bReady, OutError);
@@ -276,7 +300,7 @@ namespace Durin::Editor::Material
 					MaterialRevision, SphereStatus.Revision);
 				if (!bReady || Material == nullptr
 					|| SphereStatus.Readiness != EStaticMeshRenderResourceReadiness::Ready
-					|| Material->GetRenderStateVersion() != ExpectedAssetRevision
+					|| MaterialAssetRevision != ExpectedAssetRevision
 					|| Revision != ExpectedResourceRevision)
 				{
 					OutError = "The material changed while its thumbnail was being generated.";
