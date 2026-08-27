@@ -2,7 +2,7 @@
 
 Summary: Canonicalize reflected identities without reimporting source data.
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-08-27
 
 Use canonical resave when the Asset Compatibility window or a package context
 menu says **Resave recommended**. This is maintenance of serialized type names;
@@ -18,17 +18,23 @@ apply the recommended set. The apply is a sequence of bounded atomic package
 units, so cancellation or failure can leave earlier packages complete; the
 terminal report is the authority for the outcome.
 
-The command-line host is dry-run by default:
+DurinDevTool uses the configured game project by default and previews without
+writing:
 
-```text
-DurinAssetTool --project=<project.dproject> --operation=canonical-resave --mount=/Game --format=human
-DurinAssetTool --project=<project.dproject> --operation=canonical-resave --package=/Game/Example --apply
-DurinAssetTool --project=<project.dproject> --operation=canonical-resave --project-scope --ci
+```powershell
+.\DevTool.bat asset resave /Game
+.\DevTool.bat asset resave /Game/Example --apply
+.\DevTool.bat asset resave --all
 ```
 
-Selection must name packages, folders, mounts, or the explicit project scope.
+Each positional scope selects an exact package when one exists and every package
+below that path. Use `--all` instead of scopes for the complete project, and
+`--project <descriptor>` only to override the configured default. Add `--json`
+for automation. The lower-level host accepts the corresponding
+`DurinAssetTool resave --project=<project.dproject> <scope>...` grammar.
+
 Canonical resave always writes DURF/DAST v6; no format-selection or rollback
-option exists.
+option exists. `--apply` is the only option that authorizes writes.
 Before apply, check out the reported authored files in source control. After
 apply, review the package diffs and rerun the same dry-run; a successful second
 scan is empty and a second apply is a no-op.

@@ -108,7 +108,10 @@ def _native_inventory(
         if executable_resolver
         else locate_executable(selection, PROGRAM)
     )
-    project = resolve_project(repository, Path(getattr(namespace, "project_path")))
+    project_value = getattr(namespace, "project_path", None)
+    if project_value is None:
+        project_value = repository.config.paths.default_game_project
+    project = resolve_project(repository, Path(project_value))
     process_output = BuildOutput(
         plain=True, output_mode=OutputMode.COMPACT, stdout=io.StringIO(), stderr=stderr
     )
@@ -117,9 +120,8 @@ def _native_inventory(
             selection,
             PROGRAM,
             [
+                "storage-inventory",
                 f"--project={project}",
-                "--operation=storage-qualification-inventory",
-                "--format=json",
             ],
             output=process_output,
             policy=RuntimeProcessPolicy(

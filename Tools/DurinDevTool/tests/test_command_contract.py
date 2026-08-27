@@ -39,12 +39,9 @@ COMMAND_CASES = (
     (("rebuild",), "rebuild"),
     (("test",), "test"),
     (("run",), "run"),
-    (("asset", "baseline"), "asset baseline --project Sandbox/Sandbox.dproject"),
-    (("asset", "audit"), "asset audit --project Sandbox/Sandbox.dproject"),
-    (
-        ("asset", "qualify-storage"),
-        "asset qualify-storage --project Sandbox/Sandbox.dproject",
-    ),
+    (("asset", "check"), "asset check --baseline --json"),
+    (("asset", "resave"), "asset resave /Game/Characters --apply"),
+    (("asset", "storage"), "asset storage"),
     (
         ("scene", "graybox-build"),
         "scene graybox-build --project Sandbox/Sandbox.dproject --output /Game/Test",
@@ -105,9 +102,9 @@ EXPECTED_COMMAND_PATHS = {
     ("test",),
     ("run",),
     ("asset",),
-    ("asset", "baseline"),
-    ("asset", "audit"),
-    ("asset", "qualify-storage"),
+    ("asset", "check"),
+    ("asset", "resave"),
+    ("asset", "storage"),
     ("scene",),
     ("scene", "graybox-build"),
     ("create",),
@@ -201,7 +198,7 @@ class TestCommandGrammarContract:
         parser = registry.parser()
 
         registry.parse(["help"])
-        registry.parse(["asset", "audit", "--project", "Examples/Sandbox"])
+        registry.parse(["asset", "check", "--project", "Examples/Sandbox.dproject"])
 
         assert registry.parser() is parser
 
@@ -231,10 +228,10 @@ class TestCommandGrammarContract:
             f"{' '.join(path)}\n{registry.format_command_help(path)}" for path in paths
         )
         assert hashlib.sha256(snapshot.encode()).hexdigest() == (
-            "d1ad0618db1aa3327c98bd6f564b3484df473fe013b46f248f7455095b1761b7"
+            "bdf7f82e1bd25792e8b877c247ec47992446d0d72073e51e8d7377a257f05fc5"
         )
         assert hashlib.sha256(registry.format_help().encode()).hexdigest() == (
-            "8765234499a12475560aa47c4eef12b10f96ea759b7629cd36910d817bced09c"
+            "bed2de189231812d3488daae530af21293b82a5a4c9ac8c062870ddf599280dc"
         )
 
 

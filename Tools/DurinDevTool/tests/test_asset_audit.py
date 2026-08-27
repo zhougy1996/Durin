@@ -87,15 +87,16 @@ def with_deprecated_route_evidence(value: dict[str, object]) -> dict[str, object
     return value
 
 
-def run_handler(tmp_path: Path, report_text: str, *fail_on: str, format_name: str = "json") -> tuple[int, str, str]:
+def run_handler(tmp_path: Path, report_text: str, format_name: str = "json") -> tuple[int, str, str]:
     executable = tmp_path / "DurinAssetTool.exe"
     executable.touch()
     project = tmp_path / "Test.dproject"
     project.write_text("{}", encoding="utf-8")
     namespace = type("Namespace", (), {
+        "asset_command": "check",
         "project_path": project,
         "format_name": format_name,
-        "fail_on": fail_on,
+        "baseline": False,
     })()
     output = io.StringIO()
     errors = io.StringIO()
@@ -116,10 +117,10 @@ def test_asset_production_path_uses_runtime_program_service(tmp_path: Path) -> N
     project = tmp_path / "Test.dproject"
     project.write_text("{}", encoding="utf-8")
     namespace = type("Namespace", (), {
-        "asset_command": "audit",
+        "asset_command": "check",
         "project_path": project,
         "format_name": "json",
-        "fail_on": (),
+        "baseline": False,
     })()
     with mock.patch.object(asset, "invoke_runtime_program", return_value=report()) as invoke:
         assert asset.run(
@@ -129,42 +130,136 @@ def test_asset_production_path_uses_runtime_program_service(tmp_path: Path) -> N
             stderr=io.StringIO(),
             executable_resolver=lambda *_args: executable,
         ) == 0
-    assert invoke.call_args.args[2] == [f"--project={project.resolve()}", "--format=json"]
+    assert invoke.call_args.args[2] == ["check", f"--project={project.resolve()}", "--json"]
 
 
-def test_registry_requires_project_and_validates_format() -> None:
-    with pytest.raises(DevToolError, match="required"):
-        cli.run(["asset", "audit"], stdout=io.StringIO(), stderr=io.StringIO())
+def test_registry_defaults_to_check_and_rejects_removed_commands() -> None:
+    registry = CommandRegistry()
+    _, namespace = registry.parse(["asset"])
+    assert namespace.asset_command == "check"
+    assert namespace.project_path is None
+    _, option_namespace = registry.parse(["asset", "--json"])
+    assert option_namespace.asset_command == "check"
+    assert option_namespace.format_name == "json"
     with pytest.raises(DevToolError, match="invalid choice"):
-        cli.run(
-            ["asset", "audit", "--project", "Test.dproject", "--format", "xml"],
-            stdout=io.StringIO(), stderr=io.StringIO(),
-        )
+        registry.parse(["asset", "audit"])
 
 
 def test_selected_asset_command_grammar_is_frozen() -> None:
     registry = CommandRegistry()
-    _, baseline_namespace = registry.parse(
-        ["asset", "baseline", "--project", "Sandbox/Sandbox.dproject", "--format", "json"]
+    _, check_namespace = registry.parse(
+        ["asset", "check", "--project", "Sandbox/Sandbox.dproject", "--baseline", "--json"]
     )
-    assert baseline_namespace.asset_command == "baseline"
+    assert check_namespace.asset_command == "check"
+    assert check_namespace.baseline
+    assert check_namespace.format_name == "json"
 
-    _, audit_namespace = registry.parse(
+    _, resave_namespace = registry.parse(
         [
-            "asset", "audit", "--project", "Sandbox/Sandbox.dproject",
-            "--fail-on", "incompatible", "--fail-on", "unsupported",
-            "--fail-on", "error", "--format", "json",
+            "asset", "resave", "/Game/Characters", "/Engine/Materials",
+            "--apply", "--json",
         ]
     )
-    assert audit_namespace.asset_command == "audit"
-    assert audit_namespace.fail_on == ["incompatible", "unsupported", "error"]
+    assert resave_namespace.asset_command == "resave"
+    assert resave_namespace.scopes == ["/Game/Characters", "/Engine/Materials"]
+    assert resave_namespace.apply
 
-    _, qualification_namespace = registry.parse(
-        ["asset", "qualify-storage", "--project", "Sandbox/Sandbox.dproject"]
+    _, storage_namespace = registry.parse(
+        ["asset", "storage", "--project", "Sandbox/Sandbox.dproject"]
     )
-    assert qualification_namespace.output_path == Path(
+    assert storage_namespace.output_path == Path(
         "Saved/AuthoredPackageStorageQualification/latest"
     )
+
+
+def test_asset_check_uses_configured_default_project(tmp_path: Path) -> None:
+    executable = tmp_path / "DurinAssetTool.exe"
+    executable.touch()
+    project = tmp_path / "Sandbox" / "Sandbox.dproject"
+    project.parent.mkdir()
+    project.write_text("{}", encoding="utf-8")
+    namespace = type("Namespace", (), {
+        "asset_command": "check",
+        "project_path": None,
+        "format_name": "json",
+        "baseline": False,
+    })()
+    calls: list[list[str]] = []
+
+    def process_runner(arguments: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(arguments)
+        return subprocess.CompletedProcess(arguments, 0, report(), "")
+
+    assert asset.run(
+        namespace,
+        repository_root=tmp_path,
+        stdout=io.StringIO(),
+        stderr=io.StringIO(),
+        executable_resolver=lambda *_args: executable,
+        process_runner=process_runner,
+    ) == 0
+    assert calls == [[str(executable), "check", f"--project={project}", "--json"]]
+
+
+def test_asset_resave_maps_scopes_and_write_intent_to_native_command(tmp_path: Path) -> None:
+    executable = tmp_path / "DurinAssetTool.exe"
+    executable.touch()
+    project = tmp_path / "Test.dproject"
+    project.write_text("{}", encoding="utf-8")
+    namespace = type("Namespace", (), {
+        "asset_command": "resave",
+        "project_path": project,
+        "scopes": ["/Game/Characters", "/Engine/Materials/Default"],
+        "whole_project": False,
+        "apply": True,
+        "format_name": "json",
+    })()
+    calls: list[list[str]] = []
+
+    def process_runner(arguments: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(arguments)
+        return subprocess.CompletedProcess(arguments, 0, '{"status":"Succeeded"}\n', "")
+
+    output = io.StringIO()
+    assert asset.run(
+        namespace,
+        repository_root=tmp_path,
+        stdout=output,
+        stderr=io.StringIO(),
+        executable_resolver=lambda *_args: executable,
+        process_runner=process_runner,
+    ) == 0
+    assert calls == [[
+        str(executable), "resave", f"--project={project}",
+        "/Game/Characters", "/Engine/Materials/Default", "--apply", "--json",
+    ]]
+    assert json.loads(output.getvalue()) == {"status": "Succeeded"}
+
+
+def test_asset_resave_requires_exactly_one_selection_style(tmp_path: Path) -> None:
+    executable = tmp_path / "DurinAssetTool.exe"
+    executable.touch()
+    project = tmp_path / "Test.dproject"
+    project.write_text("{}", encoding="utf-8")
+
+    for scopes, whole_project in (([], False), (["/Game"], True)):
+        namespace = type("Namespace", (), {
+            "asset_command": "resave",
+            "project_path": project,
+            "scopes": scopes,
+            "whole_project": whole_project,
+            "apply": False,
+            "format_name": "human",
+        })()
+        with pytest.raises(DevToolError, match="scope|--all"):
+            asset.run(
+                namespace,
+                repository_root=tmp_path,
+                stdout=io.StringIO(),
+                stderr=io.StringIO(),
+                executable_resolver=lambda *_args: executable,
+                process_runner=lambda *_args, **_kwargs: pytest.fail("invalid selection must not launch"),
+            )
 
 
 def test_storage_qualification_protocol_and_decision_match_current_v6_baseline() -> None:
@@ -300,9 +395,10 @@ def test_asset_baseline_requires_current_format_and_schema(
     project = tmp_path / "Test.dproject"
     project.write_text("{}", encoding="utf-8")
     namespace = type("Namespace", (), {
-        "asset_command": "baseline",
+        "asset_command": "check",
         "project_path": project,
         "format_name": "human",
+        "baseline": True,
     })()
     calls: list[list[str]] = []
 
@@ -319,7 +415,7 @@ def test_asset_baseline_requires_current_format_and_schema(
         executable_resolver=lambda *_args: executable,
         process_runner=process_runner,
     ) == expected
-    assert calls == [[str(executable), f"--project={project}", "--format=json"]]
+    assert calls == [[str(executable), "check", f"--project={project}", "--json"]]
     assert ("Asset baseline:" in output.getvalue()) == (expected == 0)
 
 
@@ -373,26 +469,6 @@ def test_checked_in_report_fixtures_match_their_schemas() -> None:
     validate(json.loads((FIXTURE_ROOT / "asset-audit-v3.json").read_text(encoding="utf-8")), audit_schema)
 
 
-@pytest.mark.parametrize(
-    ("policies", "expected"),
-    [
-        ((), 0),
-        (("incompatible",), 3),
-        (("unsupported",), 3),
-        (("error",), 3),
-        (("incompatible", "unsupported", "error"), 3),
-    ],
-)
-def test_failure_policies_combine_by_logical_or(tmp_path: Path, policies: tuple[str, ...], expected: int) -> None:
-    text = report(
-        package("/Game/A", compatibility="Incompatible", code="UnknownField"),
-        package("/Game/B", compatibility="Unsupported", code="UnsupportedPackageFormat"),
-        package("/Game/C", inspection="Failed", compatibility="Unsupported", code="CorruptPackage"),
-    )
-    result, _, _ = run_handler(tmp_path, text, *policies)
-    assert result == expected
-
-
 def test_human_output_groups_orthogonal_states(tmp_path: Path) -> None:
     result, output, _ = run_handler(
         tmp_path,
@@ -433,7 +509,10 @@ def test_cancel_and_process_failure_are_distinct(tmp_path: Path) -> None:
     executable.touch()
     project = tmp_path / "Test.dproject"
     project.touch()
-    namespace = type("Namespace", (), {"project_path": project, "format_name": "json", "fail_on": ()})()
+    namespace = type("Namespace", (), {
+        "asset_command": "check", "project_path": project,
+        "format_name": "json", "baseline": False,
+    })()
     errors = io.StringIO()
     result = asset.run(
         namespace, repository_root=tmp_path, stdout=io.StringIO(), stderr=errors,
@@ -450,7 +529,7 @@ def test_cancel_and_process_failure_are_distinct(tmp_path: Path) -> None:
         )
 
 
-def test_audit_invocation_is_read_only_and_missing_project_fails_before_launch(tmp_path: Path) -> None:
+def test_check_invocation_is_read_only_and_missing_project_fails_before_launch(tmp_path: Path) -> None:
     executable = tmp_path / "DurinAssetTool.exe"
     executable.touch()
     project = tmp_path / "Test.dproject"
@@ -460,7 +539,7 @@ def test_audit_invocation_is_read_only_and_missing_project_fails_before_launch(t
     authored.write_bytes(b"DAST authored bytes")
     namespace = type(
         "Namespace", (),
-        {"asset_command": "audit", "project_path": project, "format_name": "json", "fail_on": []},
+        {"asset_command": "check", "project_path": project, "format_name": "json", "baseline": False},
     )()
     before = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
     calls: list[tuple[list[str], Path]] = []
@@ -480,7 +559,7 @@ def test_audit_invocation_is_read_only_and_missing_project_fails_before_launch(t
     after = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
     assert before == after
     assert calls == [
-        ([str(executable), f"--project={project}", "--format=json"], tmp_path)
+        ([str(executable), "check", f"--project={project}", "--json"], tmp_path)
     ]
 
     project.unlink()

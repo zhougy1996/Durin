@@ -120,6 +120,18 @@ class CommandRegistry:
                         ),
                         None,
                     )
+                    if (
+                        child is None
+                        and current.default_subcommand
+                        and normalized[index].startswith("-")
+                    ):
+                        normalized.insert(index, current.default_subcommand)
+                        child_name = current.default_subcommand
+                        child = next(
+                            candidate
+                            for candidate in current.subcommands
+                            if candidate.name == child_name
+                        )
                     if child is None:
                         break
                     normalized[index] = child_name

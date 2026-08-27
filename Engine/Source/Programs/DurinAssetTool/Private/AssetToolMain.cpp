@@ -38,9 +38,9 @@ namespace
 
 	enum class EOperation : uint8
 	{
-		Audit,
-		CanonicalResave,
-		StorageQualificationInventory
+		Check,
+		Resave,
+		StorageInventory
 	};
 
 	enum class EOutputFormat : uint8 { Json, Human };
@@ -48,14 +48,10 @@ namespace
 	enum class EOption : uint16
 	{
 		Project = 1 << 0,
-		Operation = 1 << 1,
-		Format = 1 << 2,
-		Ci = 1 << 3,
-		ProjectScope = 1 << 4,
-		Apply = 1 << 5,
-		Mount = 1 << 6,
-		Folder = 1 << 7,
-		Package = 1 << 8
+		Json = 1 << 1,
+		All = 1 << 2,
+		Apply = 1 << 3,
+		Scope = 1 << 4
 	};
 
 	constexpr auto OptionBit(EOption Option) -> uint16
@@ -67,12 +63,11 @@ namespace
 	{
 		switch (Operation)
 		{
-		case EOperation::Audit: return "audit";
-		case EOperation::CanonicalResave: return "canonical-resave";
-		case EOperation::StorageQualificationInventory:
-			return "storage-qualification-inventory";
+		case EOperation::Check: return "check";
+		case EOperation::Resave: return "resave";
+		case EOperation::StorageInventory: return "storage-inventory";
 		}
-		return "audit";
+		return "check";
 	}
 
 	auto OptionName(EOption Option) -> std::string_view
@@ -80,14 +75,10 @@ namespace
 		switch (Option)
 		{
 		case EOption::Project: return "--project";
-		case EOption::Operation: return "--operation";
-		case EOption::Format: return "--format";
-		case EOption::Ci: return "--ci";
-		case EOption::ProjectScope: return "--project-scope";
+		case EOption::Json: return "--json";
+		case EOption::All: return "--all";
 		case EOption::Apply: return "--apply";
-		case EOption::Mount: return "--mount";
-		case EOption::Folder: return "--folder";
-		case EOption::Package: return "--package";
+		case EOption::Scope: return "scope";
 		}
 		return "option";
 	}
@@ -95,16 +86,24 @@ namespace
 	struct FOptions
 	{
 		std::string Project;
-		EOperation Operation = EOperation::Audit;
-		EOutputFormat Format = EOutputFormat::Json;
-		bool bCi = false;
-		bool bProjectScope = false;
+		EOperation Operation = EOperation::Check;
+		EOutputFormat Format = EOutputFormat::Human;
+		bool bHelp = false;
+		bool bWholeProject = false;
 		bool bApply = false;
-		std::vector<std::string> Mounts;
-		std::vector<std::string> Folders;
-		std::vector<std::string> Packages;
+		std::vector<std::string> Scopes;
 		uint16 SpecifiedOptions = 0;
 	};
+
+	auto PrintUsage() -> void
+	{
+		std::cout
+			<< "Usage:\n"
+			<< "  DurinAssetTool check --project=<project.dproject> [--json]\n"
+			<< "  DurinAssetTool resave --project=<project.dproject> <scope>... [--apply] [--json]\n"
+			<< "  DurinAssetTool resave --project=<project.dproject> --all [--apply] [--json]\n"
+			<< "  DurinAssetTool storage-inventory --project=<project.dproject>\n";
+	}
 
 	auto MarkOptionOnce(FOptions& Options, EOption Option, std::string& OutError) -> bool
 	{
@@ -120,24 +119,23 @@ namespace
 
 	auto ValidateOptions(const FOptions& Options, std::string& OutError) -> bool
 	{
+		if (Options.bHelp) return true;
 		if (Options.Project.empty())
 		{
 			OutError = "--project=<path-to-project.dproject> is required.";
 			return false;
 		}
 
-		constexpr uint16 Common = OptionBit(EOption::Project)
-			| OptionBit(EOption::Operation) | OptionBit(EOption::Format);
-		constexpr uint16 Canonical = Common | OptionBit(EOption::Ci)
-			| OptionBit(EOption::ProjectScope) | OptionBit(EOption::Apply)
-			| OptionBit(EOption::Mount) | OptionBit(EOption::Folder)
-			| OptionBit(EOption::Package);
-		const uint16 Allowed = Options.Operation == EOperation::CanonicalResave
-			? Canonical : Common;
+		constexpr uint16 Check = OptionBit(EOption::Project) | OptionBit(EOption::Json);
+		constexpr uint16 Resave = Check | OptionBit(EOption::All)
+			| OptionBit(EOption::Apply) | OptionBit(EOption::Scope);
+		constexpr uint16 Storage = OptionBit(EOption::Project);
+		const uint16 Allowed = Options.Operation == EOperation::Resave
+			? Resave
+			: Options.Operation == EOperation::Check ? Check : Storage;
 		const uint16 Unexpected = Options.SpecifiedOptions & ~Allowed;
 		constexpr EOption OrderedOptions[] = {
-			EOption::Ci, EOption::ProjectScope, EOption::Apply, EOption::Mount,
-			EOption::Folder, EOption::Package};
+			EOption::Json, EOption::All, EOption::Apply, EOption::Scope};
 		for (const EOption Option : OrderedOptions)
 			if ((Unexpected & OptionBit(Option)) != 0)
 			{
@@ -145,30 +143,15 @@ namespace
 					OptionName(Option), OperationName(Options.Operation));
 				return false;
 			}
-		if (Options.Operation != EOperation::CanonicalResave
-			&& Options.Format == EOutputFormat::Human)
+		if (Options.Operation != EOperation::Resave) return true;
+		if (Options.Scopes.empty() && !Options.bWholeProject)
 		{
-			OutError = std::format(
-				"--format=human is not supported by operation {}.",
-				OperationName(Options.Operation));
+			OutError = "resave requires at least one scope or --all.";
 			return false;
 		}
-		if (Options.Operation != EOperation::CanonicalResave) return true;
-		if (Options.bCi && Options.bApply)
+		if (Options.bWholeProject && !Options.Scopes.empty())
 		{
-			OutError = "--ci is read-only and cannot be combined with --apply.";
-			return false;
-		}
-		if (Options.Mounts.empty() && Options.Folders.empty()
-			&& Options.Packages.empty() && !Options.bProjectScope)
-		{
-			OutError = "Canonical resave requires --package, --folder, --mount, or explicit --project-scope.";
-			return false;
-		}
-		if (Options.bProjectScope && (!Options.Mounts.empty()
-			|| !Options.Folders.empty() || !Options.Packages.empty()))
-		{
-			OutError = "--project-scope cannot be combined with narrower selectors.";
+			OutError = "resave accepts either scopes or --all, not both.";
 			return false;
 		}
 		return true;
@@ -176,59 +159,59 @@ namespace
 
 	auto ParseOptions(int ArgC, char** ArgV, FOptions& OutOptions, std::string& OutError) -> bool
 	{
-		for (int Index = 1; Index < ArgC; ++Index)
+		if (ArgC < 2)
+		{
+			OutError = "a command is required; use --help for usage.";
+			return false;
+		}
+		const std::string_view Command = ArgV[1];
+		if (Command == "--help" || Command == "-h")
+		{
+			OutOptions.bHelp = true;
+			return true;
+		}
+		if (Command == "check") OutOptions.Operation = EOperation::Check;
+		else if (Command == "resave") OutOptions.Operation = EOperation::Resave;
+		else if (Command == "storage-inventory")
+			OutOptions.Operation = EOperation::StorageInventory;
+		else
+		{
+			OutError = std::format("unknown command: {}", Command);
+			return false;
+		}
+
+		for (int Index = 2; Index < ArgC; ++Index)
 		{
 			const std::string_view Argument = ArgV[Index];
+			if (Argument == "--help" || Argument == "-h")
+			{
+				OutOptions.bHelp = true;
+				continue;
+			}
 			if (Argument.starts_with("--project="))
 			{
 				if (!MarkOptionOnce(OutOptions, EOption::Project, OutError)) return false;
 				OutOptions.Project = Argument.substr(std::string_view("--project=").size());
 			}
-			else if (Argument == "--operation=audit"
-				|| Argument == "--operation=canonical-resave"
-				|| Argument == "--operation=storage-qualification-inventory")
+			else if (Argument == "--all")
 			{
-				if (!MarkOptionOnce(OutOptions, EOption::Operation, OutError)) return false;
-				if (Argument == "--operation=canonical-resave")
-					OutOptions.Operation = EOperation::CanonicalResave;
-				else if (Argument == "--operation=storage-qualification-inventory")
-					OutOptions.Operation = EOperation::StorageQualificationInventory;
-			}
-			else if (Argument == "--ci")
-			{
-				if (!MarkOptionOnce(OutOptions, EOption::Ci, OutError)) return false;
-				OutOptions.bCi = true;
-			}
-			else if (Argument == "--project-scope")
-			{
-				if (!MarkOptionOnce(OutOptions, EOption::ProjectScope, OutError)) return false;
-				OutOptions.bProjectScope = true;
+				if (!MarkOptionOnce(OutOptions, EOption::All, OutError)) return false;
+				OutOptions.bWholeProject = true;
 			}
 			else if (Argument == "--apply")
 			{
 				if (!MarkOptionOnce(OutOptions, EOption::Apply, OutError)) return false;
 				OutOptions.bApply = true;
 			}
-			else if (Argument.starts_with("--mount="))
+			else if (Argument == "--json")
 			{
-				OutOptions.SpecifiedOptions |= OptionBit(EOption::Mount);
-				OutOptions.Mounts.emplace_back(Argument.substr(std::string_view("--mount=").size()));
+				if (!MarkOptionOnce(OutOptions, EOption::Json, OutError)) return false;
+				OutOptions.Format = EOutputFormat::Json;
 			}
-			else if (Argument.starts_with("--folder="))
+			else if (!Argument.starts_with("-"))
 			{
-				OutOptions.SpecifiedOptions |= OptionBit(EOption::Folder);
-				OutOptions.Folders.emplace_back(Argument.substr(std::string_view("--folder=").size()));
-			}
-			else if (Argument.starts_with("--package="))
-			{
-				OutOptions.SpecifiedOptions |= OptionBit(EOption::Package);
-				OutOptions.Packages.emplace_back(Argument.substr(std::string_view("--package=").size()));
-			}
-			else if (Argument == "--format=human" || Argument == "--format=json")
-			{
-				if (!MarkOptionOnce(OutOptions, EOption::Format, OutError)) return false;
-				OutOptions.Format = Argument == "--format=human"
-					? EOutputFormat::Human : EOutputFormat::Json;
+				OutOptions.SpecifiedOptions |= OptionBit(EOption::Scope);
+				OutOptions.Scopes.emplace_back(Argument);
 			}
 			else
 			{
@@ -432,54 +415,38 @@ namespace
 		std::string& OutError) -> int
 	{
 		OutSelection = {
-			.Mounts = Options.Mounts,
-			.Folders = Options.Folders,
-			.bWholeProject = Options.bProjectScope,
+			.bWholeProject = Options.bWholeProject,
 			.bAllowPlainResave = true};
-		for (const std::string& Value : Options.Packages)
+		for (const std::string& Value : Options.Scopes)
 		{
-			Durin::FAssetPath Path;
-			if (!Durin::FAssetPath::TryCreate(Value, Path, &OutError))
+			if (!IsValidVirtualPrefix(Value))
 			{
-				OutError = std::format(
-					"invalid --package value '{}': {}", Value, OutError);
+				OutError = std::format("invalid scope '{}'.", Value);
 				return 2;
 			}
-			OutSelection.Packages.push_back(std::move(Path));
-		}
-
-		auto ValidatePrefixes = [&](std::span<const std::string> Values,
-			std::string_view OptionName) -> int {
-			for (const std::string& Value : Values)
+			const bool bExact = std::ranges::any_of(Records, [&](const auto& Record) {
+				return Record.PackagePath.ToString() == Value;
+			});
+			const bool bDescendant = std::ranges::any_of(Records, [&](const auto& Record) {
+				return MatchesVirtualPrefix(Record, Value);
+			});
+			if (!bExact && !bDescendant)
 			{
-				if (!IsValidVirtualPrefix(Value))
-				{
-					OutError = std::format("invalid {} value '{}'.", OptionName, Value);
-					return 2;
-				}
-				if (std::ranges::none_of(Records, [&](const auto& Record) {
-					return MatchesVirtualPrefix(Record, Value);
-				}))
-				{
-					OutError = std::format(
-						"{} selector '{}' matched no discovered package.", OptionName, Value);
-					return 1;
-				}
-			}
-			return 0;
-		};
-		if (const int Result = ValidatePrefixes(OutSelection.Mounts, "--mount"))
-			return Result;
-		if (const int Result = ValidatePrefixes(OutSelection.Folders, "--folder"))
-			return Result;
-		for (const Durin::FAssetPath& Package : OutSelection.Packages)
-			if (std::ranges::find(Records, Package,
-				&Durin::Asset::FAssetPackageCompatibilityRecord::PackagePath) == Records.end())
-			{
-				OutError = std::format("--package selector '{}' matched no discovered package.",
-					Package.ToString());
+				OutError = std::format("scope '{}' matched no discovered package.", Value);
 				return 1;
 			}
+			if (bExact)
+			{
+				Durin::FAssetPath Path;
+				if (!Durin::FAssetPath::TryCreate(Value, Path, &OutError))
+				{
+					OutError = std::format("invalid scope '{}': {}", Value, OutError);
+					return 2;
+				}
+				OutSelection.Packages.push_back(std::move(Path));
+			}
+			if (bDescendant) OutSelection.Folders.push_back(Value);
+		}
 		return 0;
 	}
 
@@ -542,10 +509,51 @@ namespace
 		}
 		else
 			std::cout << Durin::Asset::SerializeAssetCanonicalResavePlanReport(Plan) << '\n';
-		if (Options.bCi && std::ranges::any_of(Plan.Packages, [](const auto& Package) {
-			return Package.Status != Durin::Asset::EAssetCanonicalResavePackageStatus::Skipped;
-		})) return 3;
 		return 0;
+	}
+
+	auto PrintCompatibilityCheck(
+		std::span<const Durin::Asset::FAssetPackageCompatibilityRecord> Records) -> void
+	{
+		using namespace Durin::Asset;
+		const auto Compatible = std::ranges::count(Records,
+			EAssetPackageCompatibility::Compatible,
+			&FAssetPackageCompatibilityRecord::Compatibility);
+		const auto Incompatible = std::ranges::count(Records,
+			EAssetPackageCompatibility::Incompatible,
+			&FAssetPackageCompatibilityRecord::Compatibility);
+		const auto Unsupported = std::ranges::count(Records,
+			EAssetPackageCompatibility::Unsupported,
+			&FAssetPackageCompatibilityRecord::Compatibility);
+		const auto Failed = std::ranges::count(Records,
+			EAssetCompatibilityInspection::Failed,
+			&FAssetPackageCompatibilityRecord::Inspection);
+		const auto Stale = std::ranges::count(Records,
+			EAssetCompatibilityFreshness::Stale,
+			&FAssetPackageCompatibilityRecord::Freshness);
+		const auto ResaveRecommended = std::ranges::count_if(Records, [](const auto& Record) {
+			return !Record.CanonicalizationEvidence.empty()
+				|| !Record.DeprecatedRouteEvidence.empty();
+		});
+		std::cout << "asset check: " << Records.size() << " package(s); "
+			<< Compatible << " compatible, " << Incompatible << " incompatible, "
+			<< Unsupported << " unsupported, " << Failed << " failed, "
+			<< Stale << " stale, " << ResaveRecommended << " resave recommended.\n";
+		for (const FAssetPackageCompatibilityRecord& Record : Records)
+		{
+			const bool bNeedsAttention = Record.Compatibility != EAssetPackageCompatibility::Compatible
+				|| Record.Inspection == EAssetCompatibilityInspection::Failed
+				|| Record.Freshness == EAssetCompatibilityFreshness::Stale
+				|| !Record.CanonicalizationEvidence.empty()
+				|| !Record.DeprecatedRouteEvidence.empty();
+			if (!bNeedsAttention) continue;
+			std::cout << "  " << Record.PackagePath.ToString() << '\n';
+			for (const FAssetCompatibilityFinding& Finding : Record.Findings)
+				std::cout << "    " << Finding.Diagnostic << '\n';
+			if (!Record.CanonicalizationEvidence.empty()
+				|| !Record.DeprecatedRouteEvidence.empty())
+				std::cout << "    canonical resave recommended\n";
+		}
 	}
 }
 
@@ -558,6 +566,11 @@ int main(int ArgC, char** ArgV)
 	{
 		std::cerr << "Error: " << Error << '\n';
 		return 2;
+	}
+	if (Options.bHelp)
+	{
+		PrintUsage();
+		return 0;
 	}
 
 	Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
@@ -573,8 +586,8 @@ int main(int ArgC, char** ArgV)
 	Durin::FPlatformMisc::EnableUserBinaryDirectoriesSearch();
 	Durin::FPlatformMisc::AddRuntimeBinaryDirectory(
 		Durin::FPaths::EngineThirdPartyRuntimeBinariesDir().c_str());
-	// Project initialization configures logging. From this point stdout is the
-	// machine-readable report channel consumed by DurinDevTool.
+	// Project initialization configures logging. Keep stdout reserved for the
+	// selected human or machine-readable report.
 	Durin::LoggerInit();
 	struct FScopedLoggerShutdown final
 	{
@@ -627,12 +640,12 @@ int main(int ArgC, char** ArgV)
 		std::cerr << "Error: " << Snapshot.Error << '\n';
 		return 1;
 	}
-	if (Options.Operation == EOperation::StorageQualificationInventory)
+	if (Options.Operation == EOperation::StorageInventory)
 	{
 		std::cout << SerializeStorageQualificationInventory(Snapshot.Packages) << '\n';
 		return 0;
 	}
-	if (Options.Operation == EOperation::CanonicalResave && Options.bApply)
+	if (Options.Operation == EOperation::Resave && Options.bApply)
 	{
 		const Durin::Asset::FAssetCatalogRefreshResult Refresh =
 			Durin::Asset::RefreshAssetCatalog(
@@ -654,9 +667,12 @@ int main(int ArgC, char** ArgV)
 		if (Result.Status == Durin::Asset::EAssetCompatibilityProbeStatus::Cancelled) return 130;
 		if (Result.Record) Records.push_back(std::move(*Result.Record));
 	}
-	if (Options.Operation == EOperation::Audit)
+	if (Options.Operation == EOperation::Check)
 	{
-		std::cout << Durin::Asset::SerializeAssetCompatibilityReportV1(Records) << '\n';
+		if (Options.Format == EOutputFormat::Json)
+			std::cout << Durin::Asset::SerializeAssetCompatibilityReportV1(Records) << '\n';
+		else
+			PrintCompatibilityCheck(Records);
 		return 0;
 	}
 

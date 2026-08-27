@@ -486,11 +486,40 @@ IDE indexing.
 
 ## Asset Maintenance
 
-The compatibility audit is read-only and exposes the same package inspection
-model through the editor and DurinDevTool. Package compatibility semantics are
-defined by [Asset Packages](../../Runtime/Assets/AssetPackages.md); the
-user-facing rewrite procedure is
-[Canonical Resave](../../Editor/Guides/CanonicalResave.md).
+`asset` is the developer-facing entry point for authored package maintenance.
+It defaults to the configured game project and to the safe, read-only `check`
+command:
+
+```powershell
+.\DevTool.bat asset
+.\DevTool.bat asset check --baseline
+.\DevTool.bat asset resave /Game/Characters
+.\DevTool.bat asset resave /Game/Characters --apply
+.\DevTool.bat asset resave --all --apply
+.\DevTool.bat asset storage
+```
+
+Pass `--project <descriptor>` only to override the configured default. `check`
+never writes; `--baseline` returns policy status `3` unless every discovered
+package is current, compatible, fresh, and free of findings or resave evidence.
+`resave` accepts one or more virtual scopes, each matching both an exact package
+and descendants, or the mutually exclusive `--all`. It is a preview unless
+`--apply` is explicit. Human output is the default; `--json` selects stable
+machine-readable output. `storage` writes its detailed qualification artifacts
+below `Saved/AuthoredPackageStorageQualification`.
+
+`DurinAssetTool` is the lower-level host and uses the same compact grammar:
+
+```text
+DurinAssetTool check --project=<project.dproject> [--json]
+DurinAssetTool resave --project=<project.dproject> <scope>... [--apply] [--json]
+DurinAssetTool resave --project=<project.dproject> --all [--apply] [--json]
+DurinAssetTool storage-inventory --project=<project.dproject>
+```
+
+Package compatibility semantics are defined by [Asset
+Packages](../../Runtime/Assets/AssetPackages.md); the user-facing rewrite
+procedure is [Canonical Resave](../../Editor/Guides/CanonicalResave.md).
 
 ## DurinDevTool Command Reference
 

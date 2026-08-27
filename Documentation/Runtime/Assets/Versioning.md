@@ -100,7 +100,7 @@ keeps one authored `.dasset` format and schema baseline. A format change first
 inventories real source content and gets a separately scoped child plan. If
 conversion is required, that plan adds the smallest exact, lossless offline
 converter needed for the proven source format, rewrites the complete tracked
-corpus explicitly, verifies it with `DevTool asset baseline`, and removes the
+corpus explicitly, verifies it with `DevTool asset check --baseline`, and removes the
 converter and obsolete reader in the same bounded effort. AssetCore does not
 retain a general migration graph, structure-upgrader registry, partial
 compatibility objects, or data-loss save permission between transitions.

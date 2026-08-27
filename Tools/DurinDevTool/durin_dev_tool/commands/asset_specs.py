@@ -7,57 +7,89 @@ from .specification import CommandSpec, argument
 
 
 HANDLER = "durin_dev_tool.asset:run"
-QUALIFICATION_HANDLER = "durin_dev_tool.storage_qualification:run"
+STORAGE_HANDLER = "durin_dev_tool.storage_qualification:run"
+
+PROJECT_ARGUMENT = argument(
+    "--project",
+    dest="project_path",
+    type=Path,
+    default=None,
+    help="project descriptor (defaults to the configured game project)",
+)
+JSON_ARGUMENT = argument(
+    "--json",
+    dest="format_name",
+    action="store_const",
+    const="json",
+    default="human",
+    help="write stable machine-readable JSON",
+)
 
 COMMAND_SPEC = CommandSpec(
     "asset",
-    "inspect or enforce authored asset package compatibility",
+    "check, resave, or inspect authored assets",
     subcommands=(
         CommandSpec(
-            "baseline",
-            "require every authored package to match the current baseline",
+            "check",
+            "inspect authored packages without changing them",
             HANDLER,
             required_modules=("rich", "jsonschema"),
             arguments=CONTEXT_ARGUMENTS
             + (
-                argument("--project", dest="project_path", type=Path, required=True),
-                argument("--format", dest="format_name", choices=("human", "json"), default="human"),
-            ),
-        ),
-        CommandSpec(
-            "audit",
-            "run a deterministic read-only compatibility audit",
-            HANDLER,
-            required_modules=("rich", "jsonschema"),
-            arguments=CONTEXT_ARGUMENTS
-            + (
-                argument("--project", dest="project_path", type=Path, required=True),
-                argument("--format", dest="format_name", choices=("human", "json"), default="human"),
+                PROJECT_ARGUMENT,
                 argument(
-                    "--fail-on",
-                    dest="fail_on",
-                    choices=("incompatible", "unsupported", "error"),
-                    action="append",
-                    default=[],
+                    "--baseline",
+                    action="store_true",
+                    help="fail unless every package is current and clean",
                 ),
+                JSON_ARGUMENT,
             ),
         ),
         CommandSpec(
-            "qualify-storage",
-            "measure authored package storage and record a Retain or Defer recommendation",
-            QUALIFICATION_HANDLER,
+            "resave",
+            "preview or apply canonical resaves",
+            HANDLER,
+            required_modules=("rich",),
+            arguments=CONTEXT_ARGUMENTS
+            + (
+                argument(
+                    "scopes",
+                    nargs="*",
+                    metavar="SCOPE",
+                    help="package or package-tree path such as /Game/Characters",
+                ),
+                PROJECT_ARGUMENT,
+                argument(
+                    "--all",
+                    dest="whole_project",
+                    action="store_true",
+                    help="select the whole project",
+                ),
+                argument(
+                    "--apply",
+                    action="store_true",
+                    help="write the previewed resaves",
+                ),
+                JSON_ARGUMENT,
+            ),
+        ),
+        CommandSpec(
+            "storage",
+            "measure authored package storage",
+            STORAGE_HANDLER,
             required_modules=("rich", "jsonschema"),
             arguments=CONTEXT_ARGUMENTS
             + (
-                argument("--project", dest="project_path", type=Path, required=True),
+                PROJECT_ARGUMENT,
                 argument(
                     "--output",
                     dest="output_path",
                     type=Path,
                     default=Path("Saved/AuthoredPackageStorageQualification/latest"),
                 ),
-                argument("--format", dest="format_name", choices=("human", "json"), default="human"),
+                JSON_ARGUMENT,
             ),
         ),
     ),
+    default_subcommand="check",
 )

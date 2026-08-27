@@ -1,4 +1,4 @@
-"""Asset compatibility audit and current-format baseline enforcement."""
+"""Authored asset checking and canonical resave commands."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from .json_contract import JsonContractError, parse_json_contract
 from .runtime_program import (
     ExecutableDescription,
     RuntimeProcessPolicy,
+    RuntimeSelection,
     invoke_runtime_program,
     locate_executable,
     resolve_project,
@@ -41,7 +42,7 @@ def _runtime_executable(
     )
     return locate_executable(
         selection,
-        ExecutableDescription("Asset audit", "DurinAssetTool", "DurinAssetTool"),
+        ExecutableDescription("Asset maintenance", "DurinAssetTool", "DurinAssetTool"),
     )
 
 
@@ -131,16 +132,6 @@ def _render_human(report: Mapping[str, Any], stdout: TextIO) -> None:
                 )
 
 
-def _policy_failed(report: Mapping[str, Any], policies: set[str]) -> bool:
-    packages: Sequence[Mapping[str, Any]] = report["packages"]
-    return any(
-        ("incompatible" in policies and p["compatibility"] == "Incompatible")
-        or ("unsupported" in policies and p["compatibility"] == "Unsupported")
-        or ("error" in policies and p["inspection"] == "Failed")
-        for p in packages
-    )
-
-
 def _baseline_failed(report: Mapping[str, Any]) -> bool:
     packages: Sequence[Mapping[str, Any]] = report["packages"]
     return (
@@ -158,29 +149,30 @@ def _baseline_failed(report: Mapping[str, Any]) -> bool:
     )
 
 
-def run(
+def _project_from_namespace(
+    namespace: argparse.Namespace,
+    repository: RepositoryContext,
+) -> Path:
+    value = getattr(namespace, "project_path", None)
+    if value is None:
+        value = repository.config.paths.default_game_project
+    return resolve_project(repository, Path(value))
+
+
+def _run_check(
     namespace: argparse.Namespace,
     *,
+    selection: RuntimeSelection,
+    repository: RepositoryContext,
+    executable: Path,
     repository_root: Path,
     stdout: TextIO,
     stderr: TextIO,
-    process_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
-    executable_resolver: Callable[[argparse.Namespace, Path], Path] = _runtime_executable,
-    **_kwargs: object,
+    process_runner: Callable[..., subprocess.CompletedProcess[str]],
 ) -> int:
-    asset_command = getattr(namespace, "asset_command", "audit")
-    is_baseline = asset_command == "baseline"
-    base_repository = RepositoryContext.load()
-    repository = base_repository.at_root(repository_root)
-    selection = select_runtime(
-        base_repository,
-        profile_name=str(getattr(namespace, "profile", "") or ""),
-        preset_name=str(getattr(namespace, "preset", "") or ""),
-    )
-    selection = replace(selection, repository=repository)
-    executable = executable_resolver(namespace, repository_root)
-    project = resolve_project(repository, Path(namespace.project_path))
-    arguments = [f"--project={project}", "--format=json"]
+    is_baseline = bool(getattr(namespace, "baseline", False))
+    project = _project_from_namespace(namespace, repository)
+    arguments = ["check", f"--project={project}", "--json"]
     if process_runner is subprocess.run:
         process_output = BuildOutput(
             plain=True,
@@ -191,7 +183,7 @@ def run(
         try:
             native_output = invoke_runtime_program(
                 selection,
-                ExecutableDescription("Asset audit", "DurinAssetTool", "DurinAssetTool"),
+                ExecutableDescription("Asset maintenance", "DurinAssetTool", "DurinAssetTool"),
                 arguments,
                 output=process_output,
                 policy=RuntimeProcessPolicy(
@@ -238,4 +230,121 @@ def run(
         _render_human(report, stdout)
     if is_baseline:
         return POLICY_EXIT_CODE if _baseline_failed(report) else 0
-    return POLICY_EXIT_CODE if _policy_failed(report, set(namespace.fail_on)) else 0
+    return 0
+
+
+def _run_resave(
+    namespace: argparse.Namespace,
+    *,
+    selection: RuntimeSelection,
+    repository: RepositoryContext,
+    executable: Path,
+    repository_root: Path,
+    stdout: TextIO,
+    stderr: TextIO,
+    process_runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> int:
+    scopes = tuple(getattr(namespace, "scopes", ()) or ())
+    whole_project = bool(getattr(namespace, "whole_project", False))
+    if whole_project and scopes:
+        raise DevToolError("Asset resave accepts either scopes or --all, not both.")
+    if not whole_project and not scopes:
+        raise DevToolError("Asset resave requires at least one scope or --all.")
+
+    project = _project_from_namespace(namespace, repository)
+    arguments = ["resave", f"--project={project}"]
+    arguments.extend(scopes)
+    if whole_project:
+        arguments.append("--all")
+    if bool(getattr(namespace, "apply", False)):
+        arguments.append("--apply")
+    if getattr(namespace, "format_name", "human") == "json":
+        arguments.append("--json")
+
+    if process_runner is subprocess.run:
+        process_output = BuildOutput(
+            plain=True,
+            output_mode=OutputMode.COMPACT,
+            stdout=io.StringIO(),
+            stderr=stderr,
+        )
+        try:
+            native_output = invoke_runtime_program(
+                selection,
+                ExecutableDescription("Asset maintenance", "DurinAssetTool", "DurinAssetTool"),
+                arguments,
+                output=process_output,
+                policy=RuntimeProcessPolicy(
+                    interruption_message="Asset canonical resave cancelled.",
+                    show_heartbeat=True,
+                    capture_output=True,
+                ),
+                executable_override=executable,
+            )
+        except BuildToolError as error:
+            if error.exit_code == 130:
+                print("Asset canonical resave cancelled.", file=stderr)
+                return 130
+            raise
+    else:
+        completed = process_runner(
+            [str(executable), *arguments],
+            cwd=repository_root,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode == 130:
+            print("Asset canonical resave cancelled.", file=stderr)
+            return 130
+        if completed.returncode != 0:
+            diagnostic = completed.stderr.strip() or "native resave process failed"
+            raise DevToolError(f"Asset canonical resave failed: {diagnostic}")
+        native_output = completed.stdout
+    print(native_output, end="" if native_output.endswith("\n") else "\n", file=stdout)
+    return 0
+
+
+def run(
+    namespace: argparse.Namespace,
+    *,
+    repository_root: Path,
+    stdout: TextIO,
+    stderr: TextIO,
+    process_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+    executable_resolver: Callable[[argparse.Namespace, Path], Path] = _runtime_executable,
+    **_kwargs: object,
+) -> int:
+    base_repository = RepositoryContext.load()
+    repository = base_repository.at_root(repository_root)
+    selection = select_runtime(
+        base_repository,
+        profile_name=str(getattr(namespace, "profile", "") or ""),
+        preset_name=str(getattr(namespace, "preset", "") or ""),
+    )
+    selection = replace(selection, repository=repository)
+    executable = executable_resolver(namespace, repository_root)
+    command = getattr(namespace, "asset_command", "check")
+    if command == "check":
+        return _run_check(
+            namespace,
+            selection=selection,
+            repository=repository,
+            executable=executable,
+            repository_root=repository_root,
+            stdout=stdout,
+            stderr=stderr,
+            process_runner=process_runner,
+        )
+    if command == "resave":
+        return _run_resave(
+            namespace,
+            selection=selection,
+            repository=repository,
+            executable=executable,
+            repository_root=repository_root,
+            stdout=stdout,
+            stderr=stderr,
+            process_runner=process_runner,
+        )
+    raise DevToolError(f"Unsupported asset command: {command}")

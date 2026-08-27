@@ -581,15 +581,14 @@ restores the prior authored bytes. Batch admission stops at cancellation and
 retains terminal results for completed units; project maintenance does not
 claim project-wide atomicity.
 
-`DurinAssetTool --operation=canonical-resave` is dry-run by default. Selection
-uses `--package`, `--folder`, `--mount`, or explicit `--project-scope`; `--apply`
-writes, `--format=human` selects a compact human report, and the default is a
-deterministic JSON report. Canonical resave always targets v6; no format-selection
-or legacy rollback option exists.
-The plan records the target format and rejects stale fingerprints before each
-atomic unit. `--ci` is read-only, cannot be combined with apply,
-and fails when selected compatible content still has registered legacy
-identities.
+`DurinAssetTool resave --project=<descriptor> <scope>...` is dry-run by default.
+A scope selects an exact package when present and all descendant packages, so
+callers do not distinguish mount, folder, and package selectors. `--all`
+selects the project and cannot be combined with scopes; `--apply` writes, and
+`--json` replaces the default compact human report with deterministic JSON.
+Canonical resave always targets v6; no format-selection or legacy rollback
+option exists. The plan records the target format and rejects stale
+fingerprints before each atomic unit.
 
 There is no general package migration command or registered migration graph.
 If real non-current content requires conversion, its owning plan must introduce
@@ -637,16 +636,17 @@ disappear, and project changes or shutdown cancel and drain the worker before
 editor-owned state is released. The window offers no save, rewrite, discard, or
 other data-loss action.
 
-DurinDevTool exposes the same AssetCore probe as the explicit read-only
-`asset audit --project <project.dproject>` command. Its native host enumerates
+DurinDevTool exposes the same AssetCore probe through the read-only `asset`
+default and explicit `asset check` command. The configured game project is the
+default; `--project <descriptor>` overrides it. Its native host enumerates
 auto-scan mount contents without publishing or persisting an asset-registry
 snapshot, captures the same value-only reflection catalog, and serializes the
 same schema-v1 package records and finding codes in virtual-path order. Human
-output groups the orthogonal states; `--format json` preserves the shared model
-for CI. Independently repeatable `--fail-on incompatible`, `--fail-on
-unsupported`, and `--fail-on error` policies affect only process status and
-never authorize a content write. The command does not initialize an editor
-workspace, renderer, GPU, source/import service, or DDC service.
+output groups the orthogonal states; `--json` preserves the shared model for
+automation. `--baseline` returns policy status `3` unless the complete report
+is current and clean. Neither form authorizes a content write. The command does
+not initialize an editor workspace, renderer, GPU, source/import service, or
+DDC service.
 
 Internal references use object ids. Cross-package strong references target the other package's main asset by `FAssetPath` and synchronously load that dependency. Circular dependencies work because object skeletons are constructed before dependency fields are applied.
 
