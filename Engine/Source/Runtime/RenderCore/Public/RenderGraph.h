@@ -25,6 +25,7 @@ namespace Durin
 	class FCompiledRenderGraph;
 	class FRenderGraphResourceBackings;
 	class FRenderGraphParameterResolver;
+	class FRenderGraphShaderParameters;
 
 	// Selects the command domain used by a declared graph pass.
 	enum class ERenderGraphPassType : uint8
@@ -276,6 +277,11 @@ namespace Durin
 		const FRenderGraphParametersMetadata* NestedParameters = nullptr;
 		const void* ValueTypeIdentity = nullptr;
 		bool (*ReadValueHandle)(const void*, uint64&, uint32&) = nullptr;
+		// When enabled, this exact graph member also supplies one reflected
+		// shader resource binding. Reflection still owns descriptor coordinates.
+		bool bShaderBinding = false;
+		const char* ShaderBindingName = nullptr;
+		ERHIBindingType ShaderBindingType = ERHIBindingType::Texture;
 	};
 
 	// Describes a complete graph-parameter structure without owning its members.
@@ -382,6 +388,26 @@ namespace Durin
 			.bPassManagedTransition = bPassManagedTransition,
 			.ResultAccess = ResultAccess,
 		};
+	}
+
+	// Composes a shader SRV/UAV role onto the exact graph resource declaration.
+	template<typename ParameterStruct, typename MemberType, typename ExpectedType>
+	constexpr auto MakeRenderGraphShaderResourceParameterMemberMetadata(
+		const char* Name, uint32 Offset, ERenderGraphParameterMemberKind Kind,
+		ERenderGraphResourceKind ResourceKind,
+		ERenderGraphParameterRangeKind RangeKind, ERenderGraphUse Use,
+		ERHIAccess Access, ERHIBindingType BindingType,
+		const char* ShaderBindingName = nullptr, bool bDiscard = false)
+		-> FRenderGraphParameterMemberMetadata
+	{
+		auto Metadata = MakeRenderGraphResourceParameterMemberMetadata<
+			ParameterStruct, MemberType, ExpectedType>(Name, Offset, Kind,
+			ResourceKind, RangeKind, Use, Access, bDiscard);
+		Metadata.bShaderBinding = true;
+		Metadata.ShaderBindingName = ShaderBindingName != nullptr
+			? ShaderBindingName : Name;
+		Metadata.ShaderBindingType = BindingType;
+		return Metadata;
 	}
 
 	template<typename ParameterStruct, typename MemberType>
@@ -589,6 +615,11 @@ namespace Durin
 		auto GetDepthStencilAttachment(const std::optional<
 			FRenderGraphDepthStencilAttachmentParameter>& Parameter) const
 			-> FRenderGraphAttachmentView;
+		auto GetPassName() const -> std::string_view { return PassName; }
+		auto GetPassType() const -> ERenderGraphPassType { return PassType; }
+		template<CRenderGraphParameters ParameterStruct>
+		auto GetShaderParameters(const ParameterStruct& InParameters) const
+			-> FRenderGraphShaderParameters;
 		template<typename T>
 		auto ReadValue(const TRenderGraphValueRead<T>& Parameter) const -> const T&
 		{
@@ -622,13 +653,18 @@ namespace Durin
 
 	private:
 		friend class FCompiledRenderGraph;
+		friend class FRenderGraphShaderParameters;
 		explicit FRenderGraphParameterResolver(
 			const FRenderGraphPassResources& InResources,
 			const FRenderGraphParametersMetadata* InMetadata,
-			const void* InParameters)
-			: Resources(InResources), Metadata(InMetadata), Parameters(InParameters)
+			const void* InParameters, std::string_view InPassName,
+			ERenderGraphPassType InPassType)
+			: Resources(InResources), Metadata(InMetadata), Parameters(InParameters),
+			  PassName(InPassName), PassType(InPassType)
 		{
 		}
+		auto ValidateShaderParametersIdentity(const void* Data,
+			const FRenderGraphParametersMetadata* InMetadata) const -> void;
 		auto FindMember(const void* Address,
 			ERenderGraphParameterMemberKind ExpectedKind,
 			ERenderGraphParameterMemberKind AlternateKind,
@@ -637,7 +673,55 @@ namespace Durin
 		const FRenderGraphPassResources& Resources;
 		const FRenderGraphParametersMetadata* Metadata = nullptr;
 		const void* Parameters = nullptr;
+		std::string_view PassName;
+		ERenderGraphPassType PassType = ERenderGraphPassType::Graphics;
 	};
+
+	// A non-copyable callback-lifetime view of the exact immutable pass object.
+	// It is the only object accepted by composed shader submission.
+	class RENDERCORE_API FRenderGraphShaderParameters final
+	{
+	public:
+		FRenderGraphShaderParameters(const FRenderGraphShaderParameters&) = delete;
+		auto operator=(const FRenderGraphShaderParameters&)
+			-> FRenderGraphShaderParameters& = delete;
+		FRenderGraphShaderParameters(FRenderGraphShaderParameters&&) = delete;
+		auto operator=(FRenderGraphShaderParameters&&)
+			-> FRenderGraphShaderParameters& = delete;
+
+		auto GetResolver() const -> const FRenderGraphParameterResolver&
+		{
+			return Resolver;
+		}
+		auto GetData() const -> const void* { return Data; }
+		auto GetMetadata() const -> const FRenderGraphParametersMetadata*
+		{
+			return Metadata;
+		}
+
+	private:
+		friend class FRenderGraphParameterResolver;
+		FRenderGraphShaderParameters(const FRenderGraphParameterResolver& InResolver,
+			const void* InData, const FRenderGraphParametersMetadata* InMetadata)
+			: Resolver(InResolver), Data(InData), Metadata(InMetadata)
+		{
+		}
+
+		const FRenderGraphParameterResolver& Resolver;
+		const void* Data = nullptr;
+		const FRenderGraphParametersMetadata* Metadata = nullptr;
+	};
+
+	template<CRenderGraphParameters ParameterStruct>
+	auto FRenderGraphParameterResolver::GetShaderParameters(
+		const ParameterStruct& InParameters) const
+		-> FRenderGraphShaderParameters
+	{
+		const auto* InMetadata =
+			ParameterStruct::GetRenderGraphParametersMetadata();
+		ValidateShaderParametersIdentity(&InParameters, InMetadata);
+		return FRenderGraphShaderParameters(*this, &InParameters, InMetadata);
+	}
 
 	using FRenderGraphExecute = std::function<void(
 		FRHICommandListImmediate&, const FRenderGraphPassResources&)>;
@@ -724,6 +808,8 @@ namespace Durin
 		bool bDiscard = false;
 		bool bStore = true;
 		std::string ParameterPath;
+		std::string ShaderBindingName;
+		ERHIBindingType ShaderBindingType = ERHIBindingType::Texture;
 	};
 
 	// Records one exact pointer-free transition at a pass or graph boundary.

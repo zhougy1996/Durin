@@ -23,6 +23,7 @@ namespace Durin
 		uint32 BindingIndex = 0;
 		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
 		uint32 ArraySize = 1;
+		bool bGraphResource = false;
 	};
 
 	// Describes the layout and binding semantics of one C++ shader-parameter member.
@@ -35,6 +36,7 @@ namespace Durin
 		ERHIBindingType Type = ERHIBindingType::UniformBuffer;
 		EShaderParameterMemberKind Kind = EShaderParameterMemberKind::Resource;
 		bool bOptional = false;
+		bool bGraphResource = false;
 	};
 
 	// Describes a complete shader-parameter structure without owning its member storage.

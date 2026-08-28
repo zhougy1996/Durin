@@ -11,6 +11,156 @@
 
 namespace Durin
 {
+	auto FContactShadowGraphicsPassParameters::GetRenderGraphParametersMetadata()
+		-> const FRenderGraphParametersMetadata*
+	{
+		using FParameters = FContactShadowGraphicsPassParameters;
+		static const std::array Members = {
+			MakeRenderGraphValueParameterMemberMetadata<FParameters,
+				decltype(FParameters::DirectionalShadow),
+				FDirectionalShadowPassResult>("DirectionalShadow",
+					offsetof(FParameters, DirectionalShadow)),
+			MakeRenderGraphValueParameterMemberMetadata<FParameters,
+				decltype(FParameters::GBufferCompletion), FGBufferPassResult>(
+				"GBufferCompletion", offsetof(FParameters, GBufferCompletion)),
+			MakeRenderGraphValueParameterMemberMetadata<FParameters,
+				decltype(FParameters::Completion),
+				FContactShadowVisibilityPassResult>("Completion",
+					offsetof(FParameters, Completion)),
+			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::GBufferMaterial),
+				FRenderGraphTextureParameter>("GBufferMaterial",
+					offsetof(FParameters, GBufferMaterial),
+				ERenderGraphParameterMemberKind::Texture,
+				ERenderGraphResourceKind::Texture,
+				ERenderGraphParameterRangeKind::TextureSubresource,
+				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead,
+				ERHIBindingType::Texture),
+			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::GBufferNormals),
+				FRenderGraphTextureParameter>("GBufferNormals",
+					offsetof(FParameters, GBufferNormals),
+				ERenderGraphParameterMemberKind::Texture,
+				ERenderGraphResourceKind::Texture,
+				ERenderGraphParameterRangeKind::TextureSubresource,
+				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead,
+				ERHIBindingType::Texture),
+			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::GBufferSurface),
+				FRenderGraphTextureParameter>("GBufferSurface",
+					offsetof(FParameters, GBufferSurface),
+				ERenderGraphParameterMemberKind::Texture,
+				ERenderGraphResourceKind::Texture,
+				ERenderGraphParameterRangeKind::TextureSubresource,
+				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead,
+				ERHIBindingType::Texture),
+			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::GBufferEmissive),
+				FRenderGraphTextureParameter>("GBufferEmissive",
+					offsetof(FParameters, GBufferEmissive),
+				ERenderGraphParameterMemberKind::Texture,
+				ERenderGraphResourceKind::Texture,
+				ERenderGraphParameterRangeKind::TextureSubresource,
+				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead,
+				ERHIBindingType::Texture),
+			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::SceneDepth), FRenderGraphTextureParameter>(
+				"SceneDepth", offsetof(FParameters, SceneDepth),
+				ERenderGraphParameterMemberKind::Texture,
+				ERenderGraphResourceKind::Texture,
+				ERenderGraphParameterRangeKind::TextureSubresource,
+				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead,
+				ERHIBindingType::Texture),
+			MakeRenderGraphResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::Output),
+				FRenderGraphColorAttachmentParameter>("Output",
+					offsetof(FParameters, Output),
+				ERenderGraphParameterMemberKind::ColorAttachment,
+				ERenderGraphResourceKind::Texture,
+				ERenderGraphParameterRangeKind::TextureSubresource,
+				ERenderGraphUse::ReadWrite,
+				ERHIAccess::ColorAttachmentReadWrite, true,
+				ERHIRenderTargetLoadAction::Clear,
+				ERHIRenderTargetStoreAction::Store)};
+		static const auto Metadata = MakeInlineRenderGraphParametersMetadata<
+			FParameters>("FContactShadowGraphicsPassParameters", Members);
+		return &Metadata;
+	}
+
+	auto FContactShadowComputePassParameters::GetRenderGraphParametersMetadata()
+		-> const FRenderGraphParametersMetadata*
+	{
+		using FParameters = FContactShadowComputePassParameters;
+		static const std::array Members = {
+			MakeRenderGraphValueParameterMemberMetadata<FParameters,
+				decltype(FParameters::DirectionalShadow),
+				FDirectionalShadowPassResult>("DirectionalShadow",
+					offsetof(FParameters, DirectionalShadow)),
+			MakeRenderGraphValueParameterMemberMetadata<FParameters,
+				decltype(FParameters::GBufferCompletion), FGBufferPassResult>(
+				"GBufferCompletion", offsetof(FParameters, GBufferCompletion)),
+			MakeRenderGraphValueParameterMemberMetadata<FParameters,
+				decltype(FParameters::Completion),
+				FContactShadowVisibilityPassResult>("Completion",
+					offsetof(FParameters, Completion)),
+			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::GBufferMaterial),
+				FRenderGraphTextureParameter>("GBufferMaterial",
+					offsetof(FParameters, GBufferMaterial),
+				ERenderGraphParameterMemberKind::Texture,
+				ERenderGraphResourceKind::Texture,
+				ERenderGraphParameterRangeKind::TextureSubresource,
+				ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead,
+				ERHIBindingType::Texture),
+			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::GBufferNormals),
+				FRenderGraphTextureParameter>("GBufferNormals",
+					offsetof(FParameters, GBufferNormals),
+				ERenderGraphParameterMemberKind::Texture,
+				ERenderGraphResourceKind::Texture,
+				ERenderGraphParameterRangeKind::TextureSubresource,
+				ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead,
+				ERHIBindingType::Texture),
+			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::GBufferSurface),
+				FRenderGraphTextureParameter>("GBufferSurface",
+					offsetof(FParameters, GBufferSurface),
+				ERenderGraphParameterMemberKind::Texture,
+				ERenderGraphResourceKind::Texture,
+				ERenderGraphParameterRangeKind::TextureSubresource,
+				ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead,
+				ERHIBindingType::Texture),
+			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::GBufferEmissive),
+				FRenderGraphTextureParameter>("GBufferEmissive",
+					offsetof(FParameters, GBufferEmissive),
+				ERenderGraphParameterMemberKind::Texture,
+				ERenderGraphResourceKind::Texture,
+				ERenderGraphParameterRangeKind::TextureSubresource,
+				ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead,
+				ERHIBindingType::Texture),
+			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::SceneDepth), FRenderGraphTextureParameter>(
+				"SceneDepth", offsetof(FParameters, SceneDepth),
+				ERenderGraphParameterMemberKind::Texture,
+				ERenderGraphResourceKind::Texture,
+				ERenderGraphParameterRangeKind::TextureSubresource,
+				ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead,
+				ERHIBindingType::Texture),
+			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::ContactVisibilityOutput),
+				FRenderGraphTextureParameter>("ContactVisibilityOutput",
+					offsetof(FParameters, ContactVisibilityOutput),
+				ERenderGraphParameterMemberKind::Texture,
+				ERenderGraphResourceKind::Texture,
+				ERenderGraphParameterRangeKind::TextureSubresource,
+				ERenderGraphUse::Write, ERHIAccess::ComputeShaderReadWrite,
+				ERHIBindingType::StorageImage, nullptr, true)};
+		static const auto Metadata = MakeInlineRenderGraphParametersMetadata<
+			FParameters>("FContactShadowComputePassParameters", Members);
+		return &Metadata;
+	}
+
 	auto FContactShadowVisibilityGraphContributor::AddPasses(
 		FSceneFrameGraphContributorContext& Context,
 		const FContactShadowVisibilityRecordInputs& RecordInputs) -> void
@@ -112,80 +262,98 @@ namespace Durin
 					.BackingClass = std::string(GetSceneFrameBackingClassName(
 						ESceneFrameBackingClass::ContactShadowVisibilityCompute))},
 				ERHIAccess::GraphicsShaderRead);
-		const auto ContactShadowVisibilityPass =
-			AddSceneFrameFeaturePass<FContactShadowVisibilityGraphContributor>(Graph,
-			PreparedContactRoute.Route
-					== FContactShadowVisibilityRenderer::ERoute::Compute
-				? ERenderGraphPassType::Compute : ERenderGraphPassType::Graphics,
-			[&Services, &Channels, RecordInputs, &GraphResources, &Topology,
-				&Options, Width, Height, bWantsProductionDeferred](
-				FRHICommandListImmediate& Commands,
-				const FRenderGraphPassResources& Resources) {
-				std::optional<FGBufferRenderer::FTargets> GBufferTargets;
-				if (GraphResources.GBuffer[0]
-					&& Topology.ContactShadowVisibility != ESceneFrameRoute::Disabled)
-					GBufferTargets = {
-						.Material = Resources.GetTexture(*GraphResources.GBuffer[0]),
-						.Normals = Resources.GetTexture(*GraphResources.GBuffer[1]),
-						.Surface = Resources.GetTexture(*GraphResources.GBuffer[2]),
-						.Emissive = Resources.GetTexture(*GraphResources.GBuffer[3])};
-				const FPostProcessRenderer::FSceneTargets SceneTargets{
-					.Color = nullptr,
-					.Depth = GBufferTargets
-						? Resources.GetTexture(GraphResources.SceneDepth) : nullptr};
-				std::optional<FContactShadowVisibilityRenderer::FTargets>
-					FragmentContactTargets;
-				if (GraphResources.ContactShadowVisibilityFragment)
-					FragmentContactTargets = {.Visibility = Resources.GetTexture(
-						*GraphResources.ContactShadowVisibilityFragment)};
-				std::optional<FContactShadowVisibilityRenderer::FComputeTargets>
-					ComputeContactTargets;
-				if (GraphResources.ContactShadowVisibilityCompute)
-					ComputeContactTargets = {.Visibility = Resources.GetTexture(
-						*GraphResources.ContactShadowVisibilityCompute)};
-				Resources.WriteValue(Channels.ContactShadowVisibility.Handle) = Services.Recorders.RenderContactShadowVisibility_RenderThread(
-					Commands,
-					RecordInputs,
+		auto FillCommonParameters = [&](auto& Parameters) {
+			Parameters.DirectionalShadow = {.Value = DirectionalShadowValue.Handle};
+			Parameters.GBufferCompletion = {.Value = GBufferValue.Handle};
+			Parameters.Completion = {.Value = ContactShadowVisibilityValue.Handle};
+			if (GraphResources.GBuffer[0])
+			{
+				const FRHITextureSubresourceRange ColorRange{
+					ERHITextureAspect::Color, 0, 1, 0, 1};
+				Parameters.GBufferMaterial = FRenderGraphTextureParameter{
+					*GraphResources.GBuffer[0], ColorRange};
+				Parameters.GBufferNormals = FRenderGraphTextureParameter{
+					*GraphResources.GBuffer[1], ColorRange};
+				Parameters.GBufferSurface = FRenderGraphTextureParameter{
+					*GraphResources.GBuffer[2], ColorRange};
+				Parameters.GBufferEmissive = FRenderGraphTextureParameter{
+					*GraphResources.GBuffer[3], ColorRange};
+				Parameters.SceneDepth = FRenderGraphTextureParameter{
+					GraphResources.SceneDepth,
+					{ERHITextureAspect::Depth, 0, 1, 0, 1}};
+			}
+		};
+		auto Execute = [&Services, RecordInputs, &Options, Width, Height,
+			bWantsProductionDeferred](FRHICommandListImmediate& Commands,
+			const auto& Parameters,
+			const FRenderGraphParameterResolver& Resolver) {
+			std::optional<FGBufferRenderer::FTargets> GBufferTargets;
+			if (Parameters.GBufferMaterial)
+				GBufferTargets = {
+					.Material = Resolver.GetTexture(Parameters.GBufferMaterial),
+					.Normals = Resolver.GetTexture(Parameters.GBufferNormals),
+					.Surface = Resolver.GetTexture(Parameters.GBufferSurface),
+					.Emissive = Resolver.GetTexture(Parameters.GBufferEmissive)};
+			const FPostProcessRenderer::FSceneTargets SceneTargets{
+				.Color = nullptr,
+				.Depth = Resolver.GetTexture(Parameters.SceneDepth)};
+			std::optional<FContactShadowVisibilityRenderer::FTargets>
+				FragmentContactTargets;
+			std::optional<FContactShadowVisibilityRenderer::FComputeTargets>
+				ComputeContactTargets;
+			if constexpr (std::same_as<std::remove_cvref_t<decltype(Parameters)>,
+				FContactShadowGraphicsPassParameters>)
+			{
+				const auto Output = Resolver.GetColorAttachment(Parameters.Output);
+				if (Output) FragmentContactTargets = {.Visibility = Output.Texture};
+			}
+			else
+			{
+				if (FRHITexture* Output = Resolver.GetTexture(
+					Parameters.ContactVisibilityOutput))
+					ComputeContactTargets = {.Visibility = Output};
+			}
+			const auto ShaderParameters = Resolver.GetShaderParameters(Parameters);
+			const auto& GBufferResult = Resolver.ReadValue(
+				Parameters.GBufferCompletion);
+			Resolver.WriteValue(Parameters.Completion) =
+				Services.Recorders.RenderContactShadowVisibility_RenderThread(
+					Commands, RecordInputs,
 					GBufferTargets ? &*GBufferTargets : nullptr,
 					FragmentContactTargets ? &*FragmentContactTargets : nullptr,
 					ComputeContactTargets ? &*ComputeContactTargets : nullptr,
-					SceneTargets, Options, Width, Height,
-					bWantsProductionDeferred,
-					Resources.ReadValue(Channels.GBuffer.Handle).IsComplete(),
-					Resources.ReadValue(Channels.GBuffer.Handle).bRenderedGeometry);
-			});
-		Graph.UseValue(ContactShadowVisibilityPass, DirectionalShadowValue.Handle,
-			ERenderGraphUse::Read);
-		Graph.UseValue(ContactShadowVisibilityPass, GBufferValue.Handle, ERenderGraphUse::Read);
-		Graph.UseValue(ContactShadowVisibilityPass, ContactShadowVisibilityValue.Handle,
-			ERenderGraphUse::Write);
-		if (GraphResources.GBuffer[0])
+					SceneTargets, &ShaderParameters, Options, Width, Height,
+					bWantsProductionDeferred, GBufferResult.IsComplete(),
+					GBufferResult.bRenderedGeometry);
+		};
+
+		if (PreparedContactRoute.Route
+			== FContactShadowVisibilityRenderer::ERoute::Compute)
 		{
-			for (const auto& Texture : GraphResources.GBuffer)
-				Graph.UseTexture(ContactShadowVisibilityPass, *Texture,
-					{ERHITextureAspect::Color, 0, 1, 0, 1}, ERenderGraphUse::Read,
-					PreparedContactRoute.Route
-							== FContactShadowVisibilityRenderer::ERoute::Compute
-						? ERHIAccess::ComputeShaderRead
-						: ERHIAccess::GraphicsShaderRead);
-			Graph.UseTexture(ContactShadowVisibilityPass, GraphResources.SceneDepth,
-				{ERHITextureAspect::Depth, 0, 1, 0, 1}, ERenderGraphUse::Read,
-				PreparedContactRoute.Route
-						== FContactShadowVisibilityRenderer::ERoute::Compute
-					? ERHIAccess::ComputeShaderRead
-					: ERHIAccess::GraphicsShaderRead);
+			auto Parameters = Graph.AllocParameters<
+				FContactShadowComputePassParameters>();
+			FillCommonParameters(Parameters.Get());
+			if (GraphResources.ContactShadowVisibilityCompute)
+				Parameters->ContactVisibilityOutput = FRenderGraphTextureParameter{
+					*GraphResources.ContactShadowVisibilityCompute,
+					{ERHITextureAspect::Color, 0, 1, 0, 1}};
+			(void)AddSceneFrameFeaturePass<
+				FContactShadowVisibilityGraphContributor>(Graph,
+				ERenderGraphPassType::Compute, std::move(Parameters), Execute);
 		}
-		if (GraphResources.ContactShadowVisibilityFragment)
-			Graph.UseColorAttachment(ContactShadowVisibilityPass,
-				*GraphResources.ContactShadowVisibilityFragment,
-				{ERHITextureAspect::Color, 0, 1, 0, 1},
-				ERHIRenderTargetLoadAction::Clear,
-				ERHIRenderTargetStoreAction::Store);
-		if (GraphResources.ContactShadowVisibilityCompute)
-			Graph.UseTexture(ContactShadowVisibilityPass,
-				*GraphResources.ContactShadowVisibilityCompute,
-				{ERHITextureAspect::Color, 0, 1, 0, 1},
-				ERenderGraphUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		else
+		{
+			auto Parameters = Graph.AllocParameters<
+				FContactShadowGraphicsPassParameters>();
+			FillCommonParameters(Parameters.Get());
+			if (GraphResources.ContactShadowVisibilityFragment)
+				Parameters->Output = FRenderGraphColorAttachmentParameter{
+					*GraphResources.ContactShadowVisibilityFragment,
+					{ERHITextureAspect::Color, 0, 1, 0, 1}};
+			(void)AddSceneFrameFeaturePass<
+				FContactShadowVisibilityGraphContributor>(Graph,
+				ERenderGraphPassType::Graphics, std::move(Parameters), Execute);
+		}
 	}
 
 	auto FSceneFrameFeatureRecorders::RenderContactShadowVisibility_RenderThread(
@@ -197,6 +365,7 @@ namespace Durin
 		const FContactShadowVisibilityRenderer::FComputeTargets*
 			ComputeContactTargets,
 		const FPostProcessRenderer::FSceneTargets& SceneTargets,
+		const FRenderGraphShaderParameters* ShaderParameters,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
 		uint32 Height,
@@ -233,7 +402,8 @@ namespace Durin
 				GBufferTargets->Surface, GBufferTargets->Emissive,
 				SceneTargets.Depth, RenderView,
 				Inputs.Shadow->View.LightDirection, Width, Height,
-				{.bGraphManagedTextureAccess = true}
+				{.bGraphManagedTextureAccess = true,
+				 .GraphShaderParameters = ShaderParameters}
 			);
 			const size_t ReasonIndex = static_cast<size_t>(ContactResult.Reason);
 			if (ReasonIndex < Telemetry.View.ContactShadow.ContactShadowRouteReasons.size())

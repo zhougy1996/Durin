@@ -53,6 +53,21 @@ namespace Durin
 				"computeMain");
 		};
 
+		class FGraphComposedFixtureShader : public FShader
+		{
+		public:
+			DURIN_BEGIN_SHADER_PARAMETERS(FGraphComposedFixtureShader)
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(SampledInput);
+				DURIN_SHADER_PARAMETER_GRAPH_STORAGE_IMAGE(OutputImage);
+				DURIN_SHADER_PARAMETER_GRAPH_STORAGE_BUFFER(DataBuffer);
+				DURIN_SHADER_PARAMETER_SAMPLER(InputSampler);
+			DURIN_END_SHADER_PARAMETERS();
+
+			DURIN_DECLARE_SHADER(FGraphComposedFixtureShader, FShader,
+				"/Unit/GraphComposedFixture", EShaderFrequency::Compute,
+				"computeMain");
+		};
+
 		class FArrayFragmentShader : public FShader
 		{
 		public:
@@ -233,6 +248,42 @@ namespace Durin
 			ERHIBindingType::Texture);
 		EXPECT_EQ(Metadata->Members[3].Type,
 			ERHIBindingType::UniformBuffer);
+	}
+
+	TEST(FShaderFoundationTests,
+		GraphShaderMacrosMarkOnlyReflectedGraphResourceBindings)
+	{
+		const auto* Metadata =
+			FGraphComposedFixtureShader::GetOwnParametersMetadata();
+		ASSERT_NE(Metadata, nullptr);
+		ASSERT_EQ(Metadata->Members.size(), 4u);
+		EXPECT_TRUE(Metadata->Members[0].bGraphResource);
+		EXPECT_TRUE(Metadata->Members[1].bGraphResource);
+		EXPECT_TRUE(Metadata->Members[2].bGraphResource);
+		EXPECT_FALSE(Metadata->Members[3].bGraphResource);
+		FShaderReflectionData Reflection;
+		Reflection.ResourceBindings = {
+			{.Name = "SampledInput", .StageFlags = EShaderStageFlags::Compute,
+				.SetIndex = 0, .BindingIndex = 0,
+				.Type = ERHIBindingType::Texture, .ArraySize = 1},
+			{.Name = "OutputImage", .StageFlags = EShaderStageFlags::Compute,
+				.SetIndex = 0, .BindingIndex = 1,
+				.Type = ERHIBindingType::StorageImage, .ArraySize = 1},
+			{.Name = "DataBuffer", .StageFlags = EShaderStageFlags::Compute,
+				.SetIndex = 0, .BindingIndex = 2,
+				.Type = ERHIBindingType::StorageBuffer, .ArraySize = 1},
+			{.Name = "InputSampler", .StageFlags = EShaderStageFlags::Compute,
+				.SetIndex = 0, .BindingIndex = 3,
+				.Type = ERHIBindingType::Sampler, .ArraySize = 1}};
+		std::vector<FShaderParameterBinding> Bindings;
+		std::string Error;
+		ASSERT_TRUE(BuildShaderParameterBindings(Metadata, Reflection, Bindings,
+			Error)) << Error;
+		ASSERT_EQ(Bindings.size(), 4u);
+		EXPECT_TRUE(Bindings[0].bGraphResource);
+		EXPECT_TRUE(Bindings[1].bGraphResource);
+		EXPECT_TRUE(Bindings[2].bGraphResource);
+		EXPECT_FALSE(Bindings[3].bGraphResource);
 	}
 
 	TEST(FShaderFoundationTests, ShaderMapInitializeReusesCachedResourcesForEquivalentIdentity)

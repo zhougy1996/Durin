@@ -20,6 +20,38 @@ namespace Durin
 			-> const FRenderGraphParametersMetadata*;
 	};
 
+	struct FContactShadowGraphicsPassParameters final
+	{
+		TRenderGraphValueRead<FDirectionalShadowPassResult> DirectionalShadow;
+		TRenderGraphValueRead<FGBufferPassResult> GBufferCompletion;
+		TRenderGraphValueWrite<FContactShadowVisibilityPassResult> Completion;
+		std::optional<FRenderGraphTextureParameter> GBufferMaterial;
+		std::optional<FRenderGraphTextureParameter> GBufferNormals;
+		std::optional<FRenderGraphTextureParameter> GBufferSurface;
+		std::optional<FRenderGraphTextureParameter> GBufferEmissive;
+		std::optional<FRenderGraphTextureParameter> SceneDepth;
+		std::optional<FRenderGraphColorAttachmentParameter> Output;
+
+		static RENDERER_API auto GetRenderGraphParametersMetadata()
+			-> const FRenderGraphParametersMetadata*;
+	};
+
+	struct FContactShadowComputePassParameters final
+	{
+		TRenderGraphValueRead<FDirectionalShadowPassResult> DirectionalShadow;
+		TRenderGraphValueRead<FGBufferPassResult> GBufferCompletion;
+		TRenderGraphValueWrite<FContactShadowVisibilityPassResult> Completion;
+		std::optional<FRenderGraphTextureParameter> GBufferMaterial;
+		std::optional<FRenderGraphTextureParameter> GBufferNormals;
+		std::optional<FRenderGraphTextureParameter> GBufferSurface;
+		std::optional<FRenderGraphTextureParameter> GBufferEmissive;
+		std::optional<FRenderGraphTextureParameter> SceneDepth;
+		std::optional<FRenderGraphTextureParameter> ContactVisibilityOutput;
+
+		static RENDERER_API auto GetRenderGraphParametersMetadata()
+			-> const FRenderGraphParametersMetadata*;
+	};
+
 	struct FSceneFrameGraphContributorContext final
 	{
 		FRenderGraphBuilder& Graph;

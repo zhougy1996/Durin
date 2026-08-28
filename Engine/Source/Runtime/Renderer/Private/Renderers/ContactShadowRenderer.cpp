@@ -30,11 +30,11 @@ namespace Durin
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FContactVisibilityFragmentShader)
-				DURIN_SHADER_PARAMETER_TEXTURE(GBufferMaterial);
-				DURIN_SHADER_PARAMETER_TEXTURE(GBufferNormals);
-				DURIN_SHADER_PARAMETER_TEXTURE(GBufferSurface);
-				DURIN_SHADER_PARAMETER_TEXTURE(GBufferEmissive);
-				DURIN_SHADER_PARAMETER_TEXTURE(SceneDepth);
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferMaterial);
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferNormals);
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferSurface);
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferEmissive);
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(SceneDepth);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Params);
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_SHADER(FContactVisibilityFragmentShader, FShader,
@@ -46,13 +46,13 @@ namespace Durin
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FContactVisibilityComputeShader)
-				DURIN_SHADER_PARAMETER_TEXTURE(GBufferMaterial);
-				DURIN_SHADER_PARAMETER_TEXTURE(GBufferNormals);
-				DURIN_SHADER_PARAMETER_TEXTURE(GBufferSurface);
-				DURIN_SHADER_PARAMETER_TEXTURE(GBufferEmissive);
-				DURIN_SHADER_PARAMETER_TEXTURE(SceneDepth);
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferMaterial);
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferNormals);
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferSurface);
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(GBufferEmissive);
+				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(SceneDepth);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER(Params);
-				DURIN_SHADER_PARAMETER_STORAGE_IMAGE(ContactVisibilityOutput);
+				DURIN_SHADER_PARAMETER_GRAPH_STORAGE_IMAGE(ContactVisibilityOutput);
 			DURIN_END_SHADER_PARAMETERS();
 			DURIN_DECLARE_SHADER(FContactVisibilityComputeShader, FShader,
 				"/Engine/ContactShadow", EShaderFrequency::Compute,
@@ -429,14 +429,21 @@ namespace Durin
 			CommandList.SwitchPipeline(ERHIPipeline::Compute);
 			CommandList.SetComputePipelineState(*ComputePayload->PipelineState);
 			FContactVisibilityComputeShader::FParameters Parameters;
-			Parameters.GBufferMaterial = Material;
-			Parameters.GBufferNormals = Normals;
-			Parameters.GBufferSurface = Surface;
-			Parameters.GBufferEmissive = Emissive;
-			Parameters.SceneDepth = SceneDepth;
 			Parameters.Params = UniformBuffer;
-			Parameters.ContactVisibilityOutput = ComputeTargets->Visibility;
-			SetShaderParameters(CommandList, ComputePayload->ComputeShader, Parameters);
+			if (Policy.GraphShaderParameters)
+				SetShaderParameters(CommandList, ComputePayload->ComputeShader,
+					*Policy.GraphShaderParameters, Parameters);
+			else
+			{
+				Parameters.GBufferMaterial = Material;
+				Parameters.GBufferNormals = Normals;
+				Parameters.GBufferSurface = Surface;
+				Parameters.GBufferEmissive = Emissive;
+				Parameters.SceneDepth = SceneDepth;
+				Parameters.ContactVisibilityOutput = ComputeTargets->Visibility;
+				SetShaderParameters(CommandList, ComputePayload->ComputeShader,
+					Parameters);
+			}
 			CommandList.Dispatch(CalculateGroupCount(Width),
 				CalculateGroupCount(Height), 1);
 			CommandList.SwitchPipeline(ERHIPipeline::Graphics);
@@ -499,13 +506,20 @@ namespace Durin
 		CommandList.BindVertexBuffer(0, VertexBuffer, 0);
 		CommandList.BindIndexBuffer(IndexBuffer, 0);
 		FContactVisibilityFragmentShader::FParameters Parameters;
-		Parameters.GBufferMaterial = Material;
-		Parameters.GBufferNormals = Normals;
-		Parameters.GBufferSurface = Surface;
-		Parameters.GBufferEmissive = Emissive;
-		Parameters.SceneDepth = SceneDepth;
 		Parameters.Params = UniformBuffer;
-		SetShaderParameters(CommandList, FragmentPayload->FragmentShader, Parameters);
+		if (Policy.GraphShaderParameters)
+			SetShaderParameters(CommandList, FragmentPayload->FragmentShader,
+				*Policy.GraphShaderParameters, Parameters);
+		else
+		{
+			Parameters.GBufferMaterial = Material;
+			Parameters.GBufferNormals = Normals;
+			Parameters.GBufferSurface = Surface;
+			Parameters.GBufferEmissive = Emissive;
+			Parameters.SceneDepth = SceneDepth;
+			SetShaderParameters(CommandList, FragmentPayload->FragmentShader,
+				Parameters);
+		}
 		CommandList.DrawIndexed(3, 0, 0);
 		CommandList.EndRenderPass();
 		if (TimingQuery)

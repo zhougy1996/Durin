@@ -231,6 +231,41 @@ TEST(FRendererSceneContractTests, TypedPassResultsSeparateGraphOwnedResources)
 	EXPECT_TRUE(CloudShadow.IsComplete());
 }
 
+TEST(FRendererSceneContractTests,
+	ContactShadowPilotsComposeExactGraphicsAndComputeShaderAuthority)
+{
+	const auto* Graphics = Durin::FContactShadowGraphicsPassParameters::
+		GetRenderGraphParametersMetadata();
+	const auto* Compute = Durin::FContactShadowComputePassParameters::
+		GetRenderGraphParametersMetadata();
+	ASSERT_NE(Graphics, nullptr);
+	ASSERT_NE(Compute, nullptr);
+	ASSERT_EQ(Graphics->Members.size(), 9u);
+	ASSERT_EQ(Compute->Members.size(), 9u);
+	for (size_t Index = 3; Index < 8; ++Index)
+	{
+		EXPECT_TRUE(Graphics->Members[Index].bShaderBinding);
+		EXPECT_TRUE(Compute->Members[Index].bShaderBinding);
+		EXPECT_EQ(Graphics->Members[Index].ShaderBindingType,
+			Durin::ERHIBindingType::Texture);
+		EXPECT_EQ(Compute->Members[Index].ShaderBindingType,
+			Durin::ERHIBindingType::Texture);
+		EXPECT_EQ(Graphics->Members[Index].Access,
+			Durin::ERHIAccess::GraphicsShaderRead);
+		EXPECT_EQ(Compute->Members[Index].Access,
+			Durin::ERHIAccess::ComputeShaderRead);
+	}
+	EXPECT_FALSE(Graphics->Members.back().bShaderBinding);
+	EXPECT_EQ(Graphics->Members.back().Kind,
+		Durin::ERenderGraphParameterMemberKind::ColorAttachment);
+	EXPECT_TRUE(Compute->Members.back().bShaderBinding);
+	EXPECT_STREQ(Compute->Members.back().ShaderBindingName,
+		"ContactVisibilityOutput");
+	EXPECT_EQ(Compute->Members.back().ShaderBindingType,
+		Durin::ERHIBindingType::StorageImage);
+	EXPECT_EQ(Compute->Members.back().Use, Durin::ERenderGraphUse::Write);
+}
+
 TEST(FRendererSceneContractTests, SceneFrameTopologyUsesExclusiveRoutes)
 {
 	Durin::FSceneFrameTopology Topology;

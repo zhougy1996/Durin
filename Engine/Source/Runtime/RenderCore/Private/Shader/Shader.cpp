@@ -519,6 +519,7 @@ namespace Durin
 			Binding.BindingIndex = FoundIt->BindingIndex;
 			Binding.Type = Parameter.Type;
 			Binding.ArraySize = FoundIt->ArraySize;
+			Binding.bGraphResource = Parameter.bGraphResource;
 			OutBindings.push_back(Binding);
 		}
 
@@ -636,6 +637,241 @@ namespace Durin
 		}
 
 		RHICmdList.SetShaderParameters(RHIShader, ResourceParameters);
+	}
+
+	auto SetRenderGraphShaderParametersImpl(
+		FRHICommandListBase& RHICmdList,
+		FRHIShader* RHIShader,
+		std::string_view ShaderName,
+		EShaderFrequency ShaderFrequency,
+		std::span<const FShaderParameterBinding> ParameterBindings,
+		const FRenderGraphShaderParameters& GraphParameters,
+		const FShaderParametersMetadata* OrdinaryParametersMetadata,
+		const void* OrdinaryParameterData) -> void
+	{
+		const FRenderGraphParameterResolver& Resolver =
+			GraphParameters.GetResolver();
+		const bool bComputeShader = ShaderFrequency == EShaderFrequency::Compute;
+		const bool bGraphicsShader = ShaderFrequency == EShaderFrequency::Vertex
+			|| ShaderFrequency == EShaderFrequency::Fragment;
+		checkf((bComputeShader
+			&& Resolver.GetPassType() == ERenderGraphPassType::Compute)
+			|| (bGraphicsShader
+				&& Resolver.GetPassType() == ERenderGraphPassType::Graphics),
+			"Render graph pass '{}' domain is incompatible with shader '{}' frequency",
+			Resolver.GetPassName(), ShaderName);
+		checkf(GraphParameters.GetData() != nullptr
+			&& GraphParameters.GetMetadata() != nullptr,
+			"Render graph pass '{}' has unavailable composed shader parameters",
+			Resolver.GetPassName());
+
+		struct FComposedMember
+		{
+			const FRenderGraphParameterMemberMetadata* Metadata = nullptr;
+			const void* Data = nullptr;
+			std::string Path;
+		};
+		std::vector<FComposedMember> ComposedMembers;
+		std::function<void(const void*, const FRenderGraphParametersMetadata*,
+			const std::string&)> Traverse;
+		Traverse = [&](const void* StructData,
+			const FRenderGraphParametersMetadata* Metadata,
+			const std::string& ParentPath) {
+			const auto* Bytes = static_cast<const std::byte*>(StructData);
+			for (const FRenderGraphParameterMemberMetadata& Member : Metadata->Members)
+			{
+				const std::string Path = ParentPath.empty()
+					? std::string(Member.Name) : ParentPath + "." + Member.Name;
+				if (Member.Kind == ERenderGraphParameterMemberKind::Nested)
+				{
+					for (uint32 Index = 0; Index < Member.ArraySize; ++Index)
+					{
+						std::string ElementPath = Path;
+						if (Member.ArraySize > 1)
+							ElementPath += "[" + std::to_string(Index) + "]";
+						Traverse(Bytes + Member.Offset
+							+ static_cast<size_t>(Index) * Member.ElementSize,
+							Member.NestedParameters, ElementPath);
+					}
+					continue;
+				}
+				if (Member.bShaderBinding)
+					ComposedMembers.push_back({&Member, Bytes + Member.Offset, Path});
+			}
+		};
+		Traverse(GraphParameters.GetData(), GraphParameters.GetMetadata(), {});
+
+		size_t ResolvedCount = 0;
+		for (const FShaderParameterBinding& Binding : ParameterBindings)
+			ResolvedCount += Binding.ArraySize;
+		std::vector<FRHIShaderParameterResource> Resources;
+		Resources.reserve(ResolvedCount);
+		std::vector<TRefCountPtr<FRHIResource>> ExactViews;
+		ExactViews.reserve(ResolvedCount);
+		const auto* OrdinaryBytes = static_cast<const std::byte*>(
+			OrdinaryParameterData);
+
+		for (const FShaderParameterBinding& Binding : ParameterBindings)
+		{
+			const auto MatchesBinding = [&](const FComposedMember& Candidate) {
+				return Candidate.Metadata->ShaderBindingName != nullptr
+					&& std::string_view(Candidate.Metadata->ShaderBindingName)
+						== Binding.Name;
+			};
+			const auto Found = std::ranges::find_if(ComposedMembers, MatchesBinding);
+			if (Found != ComposedMembers.end())
+			{
+				checkf(std::ranges::count_if(ComposedMembers, MatchesBinding) == 1,
+					"Render graph pass '{}' has duplicate composed shader binding '{}'",
+					Resolver.GetPassName(), Binding.Name);
+				const FRenderGraphParameterMemberMetadata& Member = *Found->Metadata;
+				checkf(Member.ShaderBindingType == Binding.Type,
+					"Render graph pass '{}' parameter '{}' shader binding '{}' type "
+					"does not match shader '{}'",
+					Resolver.GetPassName(), Found->Path, Binding.Name, ShaderName);
+				checkf(Member.ArraySize == Binding.ArraySize,
+					"Render graph pass '{}' parameter '{}' shader binding '{}' array "
+					"extent does not match shader '{}'",
+					Resolver.GetPassName(), Found->Path, Binding.Name, ShaderName);
+
+				for (uint32 ArrayElement = 0; ArrayElement < Binding.ArraySize;
+					++ArrayElement)
+				{
+					const void* ElementData = static_cast<const std::byte*>(Found->Data)
+						+ static_cast<size_t>(ArrayElement) * Member.ElementSize;
+					FRHIShaderParameterResource Parameter{
+						.SetIndex = Binding.SetIndex,
+						.BindingIndex = Binding.BindingIndex,
+						.ArrayElement = ArrayElement,
+						.Type = Binding.Type};
+					if (Member.Kind == ERenderGraphParameterMemberKind::Texture)
+					{
+						const FRenderGraphTextureParameter* GraphTexture = nullptr;
+						if (Member.bOptional)
+						{
+							const auto& Optional = *static_cast<const std::optional<
+								FRenderGraphTextureParameter>*>(ElementData);
+							checkf(Optional.has_value(),
+								"Render graph pass '{}' parameter '{}[{}]' is unavailable "
+								"for required shader '{}' binding '{}'",
+								Resolver.GetPassName(), Found->Path, ArrayElement,
+								ShaderName, Binding.Name);
+							GraphTexture = &*Optional;
+						}
+						else GraphTexture = static_cast<const
+							FRenderGraphTextureParameter*>(ElementData);
+						FRHITexture* Texture = Resolver.GetTexture(*GraphTexture);
+						if (Texture->GetResourceType()
+							== ERHIResourceType::TextureReference)
+							Texture = static_cast<FRHITextureReference*>(Texture)
+								->GetReferencedTexture_RenderThread();
+						checkf(Texture != nullptr && Texture->GetResourceType()
+							== ERHIResourceType::Texture,
+							"Render graph pass '{}' parameter '{}' resolved an unavailable "
+							"texture backing", Resolver.GetPassName(), Found->Path);
+						FRHITextureViewDesc Desc = MakeDefaultTextureViewDesc(*Texture,
+							Binding.Type == ERHIBindingType::StorageImage
+								? ERHITextureViewUsage::Storage
+								: ERHITextureViewUsage::Sampled);
+						Desc.Range = GraphTexture->Range;
+						FTextureViewRHIRef View;
+						if (GDynamicRHI)
+							View = GDynamicRHI->RHIGetOrCreateTextureView(Texture, Desc);
+						else
+						{
+							std::string Error;
+							if (ValidateTextureViewDesc(Texture, Desc, Error))
+								View = new FRHITextureView(Texture, Desc);
+						}
+						checkf(View,
+							"Render graph pass '{}' parameter '{}' could not create "
+							"an exact view for shader '{}' binding '{}'",
+							Resolver.GetPassName(), Found->Path, ShaderName, Binding.Name);
+						Parameter.Resource = View.GetReference();
+						ExactViews.emplace_back(View.GetReference());
+					}
+					else
+					{
+						const FRenderGraphBufferParameter* GraphBuffer = nullptr;
+						if (Member.bOptional)
+						{
+							const auto& Optional = *static_cast<const std::optional<
+								FRenderGraphBufferParameter>*>(ElementData);
+							checkf(Optional.has_value(),
+								"Render graph pass '{}' parameter '{}[{}]' is unavailable "
+								"for required shader '{}' binding '{}'",
+								Resolver.GetPassName(), Found->Path, ArrayElement,
+								ShaderName, Binding.Name);
+							GraphBuffer = &*Optional;
+						}
+						else GraphBuffer = static_cast<const
+							FRenderGraphBufferParameter*>(ElementData);
+						Parameter.Resource = Resolver.GetBuffer(*GraphBuffer);
+						Parameter.Offset = static_cast<uint32>(GraphBuffer->Offset);
+						Parameter.Size = static_cast<uint32>(GraphBuffer->Size);
+						checkf(Parameter.Offset == GraphBuffer->Offset
+							&& Parameter.Size == GraphBuffer->Size,
+							"Render graph pass '{}' parameter '{}' buffer range exceeds "
+							"shader submission limits", Resolver.GetPassName(), Found->Path);
+					}
+					Resources.push_back(Parameter);
+				}
+				continue;
+			}
+
+			checkf(!Binding.bGraphResource,
+				"Render graph pass '{}' shader '{}' binding '{}' is declared as a "
+				"graph resource but has no composed graph member",
+				Resolver.GetPassName(), ShaderName, Binding.Name);
+			checkf(OrdinaryParametersMetadata != nullptr
+				&& OrdinaryBytes != nullptr,
+				"Render graph pass '{}' shader '{}' binding '{}' has no composed "
+				"graph member or ordinary parameter source",
+				Resolver.GetPassName(), ShaderName, Binding.Name);
+			const size_t ElementSize = Binding.Type == ERHIBindingType::UniformBuffer
+				|| Binding.Type == ERHIBindingType::UniformBufferDynamic
+					? sizeof(FRHIUniformBufferRange)
+					: Binding.Type == ERHIBindingType::StorageBuffer
+						? sizeof(FRHIStorageBufferRange) : sizeof(FRHIResource*);
+			checkf(Binding.Offset <= OrdinaryParametersMetadata->StructSize
+				&& static_cast<size_t>(Binding.ArraySize) * ElementSize
+					<= OrdinaryParametersMetadata->StructSize - Binding.Offset,
+				"Shader '{}' ordinary parameter binding '{}' is out of bounds",
+				ShaderName, Binding.Name);
+			for (uint32 ArrayElement = 0; ArrayElement < Binding.ArraySize;
+				++ArrayElement)
+			{
+				FRHIShaderParameterResource Parameter{
+					.SetIndex = Binding.SetIndex,
+					.BindingIndex = Binding.BindingIndex,
+					.ArrayElement = ArrayElement,
+					.Type = Binding.Type};
+				const std::byte* ElementBytes = OrdinaryBytes + Binding.Offset
+					+ static_cast<size_t>(ArrayElement) * ElementSize;
+				if (Binding.Type == ERHIBindingType::UniformBuffer
+					|| Binding.Type == ERHIBindingType::UniformBufferDynamic)
+				{
+					const auto& Range = *reinterpret_cast<const
+						FRHIUniformBufferRange*>(ElementBytes);
+					Parameter.Resource = Range.Buffer;
+					Parameter.Offset = Range.Offset;
+					Parameter.Size = Range.Size;
+				}
+				else if (Binding.Type == ERHIBindingType::StorageBuffer)
+				{
+					const auto& Range = *reinterpret_cast<const
+						FRHIStorageBufferRange*>(ElementBytes);
+					Parameter.Resource = Range.Buffer;
+					Parameter.Offset = Range.Offset;
+					Parameter.Size = Range.Size;
+				}
+				else Parameter.Resource =
+					*reinterpret_cast<FRHIResource* const*>(ElementBytes);
+				Resources.push_back(Parameter);
+			}
+		}
+
+		RHICmdList.SetShaderParameters(RHIShader, Resources);
 	}
 
 	auto MakeShaderCreateDesc(const FCompiledShader& CompiledShader) -> FRHIShaderCreateDesc

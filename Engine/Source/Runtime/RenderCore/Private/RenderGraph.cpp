@@ -47,6 +47,8 @@ namespace Durin
 			bool bPassManagedTransition = false;
 			ERHIAccess ResultAccess = ERHIAccess::None;
 			std::string ParameterPath;
+			std::string ShaderBindingName;
+			ERHIBindingType ShaderBindingType = ERHIBindingType::Texture;
 		};
 
 		struct FGraphPass
@@ -372,7 +374,9 @@ namespace Durin
 
 			uint64 PreviousEnd = 0;
 			std::vector<std::string_view> MemberNames;
+			std::vector<std::string_view> ShaderBindingNames;
 			MemberNames.reserve(Metadata->Members.size());
+			ShaderBindingNames.reserve(Metadata->Members.size());
 			for (const auto& Member : Metadata->Members)
 			{
 				const std::string Prefix = "render graph parameter metadata for '"
@@ -568,6 +572,63 @@ namespace Durin
 						+ "' has inconsistent declaration semantics";
 					return false;
 				}
+
+				if (Member.bShaderBinding)
+				{
+					if (Member.ShaderBindingName == nullptr
+						|| Member.ShaderBindingName[0] == '\0')
+					{
+						OutError = Prefix + " member '" + Member.Name
+							+ "' has an empty shader binding name";
+						return false;
+					}
+					if (std::ranges::find(ShaderBindingNames,
+						Member.ShaderBindingName) != ShaderBindingNames.end())
+					{
+						OutError = Prefix + " has duplicate shader binding '"
+							+ Member.ShaderBindingName + "'";
+						return false;
+					}
+					ShaderBindingNames.emplace_back(Member.ShaderBindingName);
+
+					const bool bTextureBinding = Member.Kind
+						== ERenderGraphParameterMemberKind::Texture
+						&& (Member.ShaderBindingType == ERHIBindingType::Texture
+							|| Member.ShaderBindingType
+								== ERHIBindingType::StorageImage);
+					const bool bBufferBinding = Member.Kind
+						== ERenderGraphParameterMemberKind::Buffer
+						&& Member.ShaderBindingType
+							== ERHIBindingType::StorageBuffer;
+					const bool bUav = Member.ShaderBindingType
+						== ERHIBindingType::StorageImage
+						|| (Member.ShaderBindingType == ERHIBindingType::StorageBuffer
+							&& Member.Use != ERenderGraphUse::Read);
+					const ERHIAccess ShaderRead = ERHIAccess::GraphicsShaderRead
+						| ERHIAccess::ComputeShaderRead;
+					const ERHIAccess ShaderReadWrite =
+						ERHIAccess::GraphicsShaderReadWrite
+						| ERHIAccess::ComputeShaderReadWrite;
+					const bool bAccessCompatible = bUav
+						? Member.Use != ERenderGraphUse::Read
+							&& EnumHasAnyFlags(Member.Access, ShaderReadWrite)
+						: Member.Use != ERenderGraphUse::Write
+							&& EnumHasAnyFlags(Member.Access,
+								ShaderRead | ShaderReadWrite);
+					if ((!bTextureBinding && !bBufferBinding)
+						|| !bAccessCompatible)
+					{
+						OutError = Prefix + " member '" + Member.Name
+							+ "' has an incompatible graph/shader declaration";
+						return false;
+					}
+				}
+				else if (Member.ShaderBindingName != nullptr)
+				{
+					OutError = Prefix + " member '" + Member.Name
+						+ "' has shader metadata without binding authority";
+					return false;
+				}
 			}
 			return true;
 		}
@@ -579,6 +640,46 @@ namespace Durin
 			if (!Use.ParameterPath.empty())
 				Prefix += " parameter '" + Use.ParameterPath + "'";
 			return Prefix;
+		}
+
+		auto ValidateShaderCompositionMetadata(
+			const FRenderGraphParametersMetadata* Metadata, std::string& OutError)
+			-> bool
+		{
+			std::vector<std::pair<std::string_view, std::string>> Bindings;
+			std::function<bool(const FRenderGraphParametersMetadata*,
+				const std::string&)> Traverse;
+			Traverse = [&](const FRenderGraphParametersMetadata* StructMetadata,
+				const std::string& ParentPath) {
+				for (const auto& Member : StructMetadata->Members)
+				{
+					const std::string Path = ParentPath.empty()
+						? std::string(StructMetadata->StructName) + "." + Member.Name
+						: ParentPath + "." + Member.Name;
+					if (Member.Kind == ERenderGraphParameterMemberKind::Nested)
+					{
+						if (!Traverse(Member.NestedParameters, Path)) return false;
+						continue;
+					}
+					if (!Member.bShaderBinding) continue;
+					const auto Existing = std::ranges::find_if(Bindings,
+						[&](const auto& Binding) {
+							return Binding.first == Member.ShaderBindingName;
+						});
+					if (Existing != Bindings.end())
+					{
+						OutError = "render graph parameter metadata for '"
+							+ std::string(Metadata->StructName)
+							+ "' has duplicate shader binding '"
+							+ Member.ShaderBindingName + "' at '" + Existing->second
+							+ "' and '" + Path + "'";
+						return false;
+					}
+					Bindings.emplace_back(Member.ShaderBindingName, Path);
+				}
+				return true;
+			};
+			return Traverse(Metadata, {});
 		}
 
 		auto ValidatePassUses(const FGraphPass& Pass,
@@ -746,7 +847,8 @@ namespace Durin
 		}
 		std::string Error;
 		if (!ValidateParameterMetadata(Metadata, static_cast<uint32>(Size),
-			static_cast<uint32>(Alignment), Error))
+			static_cast<uint32>(Alignment), Error)
+			|| !ValidateShaderCompositionMetadata(Metadata, Error))
 		{
 			State->DeclarationErrors.push_back(std::move(Error));
 			return nullptr;
@@ -1065,6 +1167,11 @@ namespace Durin
 						Member.bPassManagedTransition;
 					DeclaredUse.ResultAccess = Member.ResultAccess;
 					DeclaredUse.ParameterPath = FieldPath;
+					if (Member.bShaderBinding)
+					{
+						DeclaredUse.ShaderBindingName = Member.ShaderBindingName;
+						DeclaredUse.ShaderBindingType = Member.ShaderBindingType;
+					}
 
 					auto Visit = [&]<typename Wrapper>(auto&& ReadWrapper) {
 						if (Member.bOptional)
@@ -1814,7 +1921,8 @@ namespace Durin
 					CompiledState->UseCaptures.push_back({ScheduledIndex, Use.ResourceIndex,
 						Use.Use, Use.Access, Cell.Use.TextureRange, Cell.Use.BufferOffset,
 						Cell.Use.BufferSize, Cell.Version, Use.bDiscard, Use.bStore,
-						Use.ParameterPath});
+						Use.ParameterPath, Use.ShaderBindingName,
+						Use.ShaderBindingType});
 					Cell.Access = Use.Kind == ERenderGraphResourceKind::Token
 						? ERHIAccess::None : (Use.bStore
 							? (Use.bPassManagedTransition ? Use.ResultAccess : Use.Access)
@@ -2079,6 +2187,10 @@ namespace Durin
 				<< " store=" << Use.bStore;
 			if (!Use.ParameterPath.empty())
 				Output << " field=" << Use.ParameterPath;
+			if (!Use.ShaderBindingName.empty())
+				Output << " shader-binding=" << Use.ShaderBindingName
+					<< " binding-type="
+					<< static_cast<uint32>(Use.ShaderBindingType);
 			Output << '\n';
 		}
 		for (const auto& Transition : State->TransitionCaptures)
@@ -2201,7 +2313,7 @@ namespace Durin
 				const FRenderGraphPassResources Resources(*this, Index);
 				const FRenderGraphParameterResolver Resolver(Resources,
 					State->PassParametersMetadata[Index],
-					State->PassParameters[Index]);
+					State->PassParameters[Index], Pass.Name, Pass.Type);
 				State->ParameterizedExecuteCallbacks[Index](CommandList, Resolver);
 			}
 			else if (State->ExecuteCallbacks[Index])
@@ -2377,6 +2489,15 @@ namespace Durin
 			"Render graph parameter resolver accessed a member that is not declared "
 			"by the executing pass parameters.");
 		return *Found;
+	}
+
+	auto FRenderGraphParameterResolver::ValidateShaderParametersIdentity(
+		const void* Data, const FRenderGraphParametersMetadata* InMetadata) const
+		-> void
+	{
+		requiref(Data == Parameters && InMetadata == Metadata,
+			"Render graph pass '{}' attempted composed shader submission from a "
+			"copied or foreign parameter object.", PassName);
 	}
 
 	auto FRenderGraphParameterResolver::GetTexture(

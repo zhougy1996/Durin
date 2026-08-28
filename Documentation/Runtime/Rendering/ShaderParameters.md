@@ -156,6 +156,33 @@ This helper:
 
 The helper intentionally keeps the public callsite free from descriptor set and binding knowledge.
 
+### Render Graph Composed Submission
+
+Shaders used by a composed graph pass mark graph-backed declarations with
+`DURIN_SHADER_PARAMETER_GRAPH_TEXTURE`,
+`DURIN_SHADER_PARAMETER_GRAPH_STORAGE_IMAGE`, or
+`DURIN_SHADER_PARAMETER_GRAPH_STORAGE_BUFFER`. The marker is cached on
+`FShaderParameterBinding`; it does not change reflection, shader bytecode, or
+the compatibility manual submission path.
+
+The pass calls the overload that accepts its callback-lifetime
+`FRenderGraphShaderParameters` scope. For every reflected binding marked as a
+graph resource, RenderCore locates the uniquely named composed graph member,
+validates binding type and array extent, checks graphics/compute domain and
+graph access, and resolves the member through the active pass resolver. It
+creates an exact counted texture view or supplies the exact buffer range only
+after all structural checks have succeeded. Samplers, uniform-buffer ranges,
+and other ordinary fields can be supplied from the existing typed shader
+parameter struct in the same call; graph-backed fields in that compatibility
+struct are not read.
+
+Selected shaders may consume subsets of a pass object. An optional graph field
+may therefore be absent when its binding is not present in active reflection.
+Once reflection requires the binding, absence is an initialization error rather
+than a null or partially bound descriptor. The complete resolved resource list
+is forwarded to RHI atomically, preserving the existing pipeline-ownership,
+descriptor-occupancy, replay-retention, and Vulkan snapshot contracts.
+
 ## RHI Responsibilities
 
 RHI now exposes a single low-level resource-submission path:
@@ -301,6 +328,9 @@ No descriptor set index or binding index appears at the callsite.
 - missing reflection binding rejection
 - reflected type mismatch rejection
 - shader instance caching of resolved parameter bindings
+- composed owner identity, graph access/type validation, exact texture views
+  and buffer ranges, required optionals, arrays, shader subsets, and domains
+- stable graph field-to-shader binding capture evidence
 
 These tests live in:
 
@@ -313,9 +343,7 @@ This remains a staged design rather than the final compute/bindless end-state.
 - parameter structs currently model resource bindings only
 - uniform bytes are not yet modeled as a typed parameter block
 - push constants remain a separate manual path
-- compute pipeline support has not been wired into this submission model
 - bindless and partially-bound arrays are not supported
-- compute pipelines have not yet consumed the shared reflected snapshot model
 - descriptor snapshot invalidation remains frame-local while native pool reuse
   follows the completed-token contract
 
@@ -324,9 +352,11 @@ This remains a staged design rather than the final compute/bindless end-state.
 When adding a new shader to this system:
 
 1. create a shader subclass with an `FParameters` struct
-2. declare metadata with `DURIN_SHADER_PARAMETER(...)`
+2. declare metadata with the typed `DURIN_SHADER_PARAMETER_*` macros; use a
+   `*_GRAPH_*` macro when a migrated graph pass must supply that binding
 3. pass that metadata into the `FShaderType` constructor
 4. make sure the field names match reflected shader resource names
-5. call the typed `SetShaderParameters(...)` helper from rendering code
+5. call the typed `SetShaderParameters(...)` helper, passing the exact graph
+   shader scope for a composed pass
 
 If binding resolution fails during shader-map initialization, treat it as a contract mismatch between shader code reflection and the declared `FParameters` struct.

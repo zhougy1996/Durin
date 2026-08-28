@@ -1,6 +1,7 @@
 #include "RenderGraph.h"
 
 #include "RHICommandList.h"
+#include "Shader/Shader.h"
 
 #include <gtest/gtest.h>
 
@@ -383,6 +384,97 @@ namespace Durin
 			}
 		};
 
+		struct FComposedTextureArrayParameters final
+		{
+			std::array<std::optional<FRenderGraphTextureParameter>, 2> Textures;
+
+			static auto GetRenderGraphParametersMetadata()
+				-> const FRenderGraphParametersMetadata*
+			{
+				static const std::array Members{
+					MakeRenderGraphShaderResourceParameterMemberMetadata<
+						FComposedTextureArrayParameters, decltype(Textures),
+						FRenderGraphTextureParameter>("Textures",
+							offsetof(FComposedTextureArrayParameters, Textures),
+							ERenderGraphParameterMemberKind::Texture,
+							ERenderGraphResourceKind::Texture,
+							ERenderGraphParameterRangeKind::TextureSubresource,
+							ERenderGraphUse::Read,
+							ERHIAccess::GraphicsShaderRead,
+							ERHIBindingType::Texture),
+				};
+				static const auto Metadata =
+					MakeInlineRenderGraphParametersMetadata<
+						FComposedTextureArrayParameters>(
+							"FComposedTextureArrayParameters", Members);
+				return &Metadata;
+			}
+		};
+
+		struct FMalformedComposedAccessParameters final
+		{
+			FRenderGraphTextureParameter Texture;
+
+			static auto GetRenderGraphParametersMetadata()
+				-> const FRenderGraphParametersMetadata*
+			{
+				static const std::array Members{
+					MakeRenderGraphShaderResourceParameterMemberMetadata<
+						FMalformedComposedAccessParameters, decltype(Texture),
+						FRenderGraphTextureParameter>("Texture",
+							offsetof(FMalformedComposedAccessParameters, Texture),
+							ERenderGraphParameterMemberKind::Texture,
+							ERenderGraphResourceKind::Texture,
+							ERenderGraphParameterRangeKind::TextureSubresource,
+							ERenderGraphUse::Read,
+							ERHIAccess::GraphicsShaderRead,
+							ERHIBindingType::StorageImage),
+				};
+				static const auto Metadata =
+					MakeInlineRenderGraphParametersMetadata<
+						FMalformedComposedAccessParameters>(
+							"FMalformedComposedAccessParameters", Members);
+				return &Metadata;
+			}
+		};
+
+		struct FComposedComputeBufferParameters final
+		{
+			FRenderGraphBufferParameter InputBuffer;
+			FRenderGraphBufferParameter OutputBuffer;
+
+			static auto GetRenderGraphParametersMetadata()
+				-> const FRenderGraphParametersMetadata*
+			{
+				static const std::array Members{
+					MakeRenderGraphShaderResourceParameterMemberMetadata<
+						FComposedComputeBufferParameters, decltype(InputBuffer),
+						FRenderGraphBufferParameter>("InputBuffer",
+							offsetof(FComposedComputeBufferParameters, InputBuffer),
+							ERenderGraphParameterMemberKind::Buffer,
+							ERenderGraphResourceKind::Buffer,
+							ERenderGraphParameterRangeKind::BufferBytes,
+							ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead,
+							ERHIBindingType::StorageBuffer),
+					MakeRenderGraphShaderResourceParameterMemberMetadata<
+						FComposedComputeBufferParameters, decltype(OutputBuffer),
+						FRenderGraphBufferParameter>("OutputBuffer",
+							offsetof(FComposedComputeBufferParameters, OutputBuffer),
+							ERenderGraphParameterMemberKind::Buffer,
+							ERenderGraphResourceKind::Buffer,
+							ERenderGraphParameterRangeKind::BufferBytes,
+							ERenderGraphUse::Write,
+							ERHIAccess::ComputeShaderReadWrite,
+							ERHIBindingType::StorageBuffer, nullptr, true),
+				};
+				static const auto Metadata =
+					MakeInlineRenderGraphParametersMetadata<
+						FComposedComputeBufferParameters>(
+							"FComposedComputeBufferParameters", Members);
+				return &Metadata;
+			}
+		};
+
 		struct FLargeTokenGraphParameters final
 		{
 			std::array<FRenderGraphTokenParameter, 128> Tokens;
@@ -537,6 +629,214 @@ namespace Durin
 		ASSERT_NE(Metadata->Members[5].NestedParameters, nullptr);
 		EXPECT_STREQ(Metadata->Members[5].NestedParameters->Members[0].Name,
 			"Completion");
+	}
+
+	TEST(FRenderGraphTests,
+		ComposedGraphMetadataCapturesStableBindingAndExactArrayElements)
+	{
+		FRHITexture TextureA = MakeGraphTexture("ComposedA", 2);
+		FRHITexture TextureB = MakeGraphTexture("ComposedB", 2);
+		FRenderGraphBuilder Builder;
+		const auto HandleA = Builder.ImportTexture("A", &TextureA,
+			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto HandleB = Builder.ImportTexture("B", &TextureB,
+			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		auto Parameters = Builder.AllocParameters<
+			FComposedTextureArrayParameters>();
+		Parameters->Textures[0] = FRenderGraphTextureParameter{
+			HandleA, {ERHITextureAspect::Color, 0, 1, 0, 1}};
+		Parameters->Textures[1] = FRenderGraphTextureParameter{
+			HandleB, {ERHITextureAspect::Color, 1, 1, 0, 1}};
+		bool bExecuted = false;
+		Builder.AddPass("Composed", ERenderGraphPassType::Graphics,
+			std::move(Parameters),
+			[&](FRHICommandListImmediate&,
+				const FComposedTextureArrayParameters& Values,
+				const FRenderGraphParameterResolver& Resolver) {
+				const auto ShaderParameters = Resolver.GetShaderParameters(Values);
+				EXPECT_EQ(ShaderParameters.GetData(), &Values);
+				EXPECT_EQ(Resolver.GetTexture(*Values.Textures[0]), &TextureA);
+				EXPECT_EQ(Resolver.GetTexture(*Values.Textures[1]), &TextureB);
+				bExecuted = true;
+			});
+
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		const auto Capture = Result.Graph->Capture();
+		ASSERT_EQ(Capture.Uses.size(), 2u);
+		EXPECT_EQ(Capture.Uses[0].ParameterPath,
+			"FComposedTextureArrayParameters.Textures[0]");
+		EXPECT_EQ(Capture.Uses[1].ParameterPath,
+			"FComposedTextureArrayParameters.Textures[1]");
+		for (const auto& Use : Capture.Uses)
+		{
+			EXPECT_EQ(Use.ShaderBindingName, "Textures");
+			EXPECT_EQ(Use.ShaderBindingType, ERHIBindingType::Texture);
+		}
+		EXPECT_NE(Capture.Dump.find("shader-binding=Textures"),
+			std::string::npos);
+		EXPECT_TRUE(Result.Graph->Execute(FRHICommandListImmediate::Get()));
+		EXPECT_TRUE(bExecuted);
+	}
+
+	TEST(FRenderGraphTests,
+		ComposedGraphMetadataRejectsAccessWeakeningBeforePassPublication)
+	{
+		FRenderGraphBuilder Builder;
+		auto Parameters = Builder.AllocParameters<
+			FMalformedComposedAccessParameters>();
+		EXPECT_FALSE(Parameters);
+		auto Result = Builder.Compile();
+		EXPECT_FALSE(Result.IsSuccess());
+		EXPECT_NE(Result.Error.find("incompatible graph/shader declaration"),
+			std::string::npos);
+	}
+
+	TEST(FRenderGraphTests,
+		ComposedShaderSubmissionRejectsReflectionArrayExtentBeforeRecording)
+	{
+		FRHITexture TextureA = MakeGraphTexture("BindingExtentA");
+		FRHITexture TextureB = MakeGraphTexture("BindingExtentB");
+		FRenderGraphBuilder Builder;
+		const auto HandleA = Builder.ImportTexture("TextureA", &TextureA,
+			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto HandleB = Builder.ImportTexture("TextureB", &TextureB,
+			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		auto Parameters = Builder.AllocParameters<
+			FComposedTextureArrayParameters>();
+		Parameters->Textures[0] = FRenderGraphTextureParameter{
+			HandleA, WholeColor()};
+		Parameters->Textures[1] = FRenderGraphTextureParameter{
+			HandleB, WholeColor()};
+		Builder.AddPass("ComposedExtent", ERenderGraphPassType::Graphics,
+			std::move(Parameters),
+			[](FRHICommandListImmediate&,
+				const FComposedTextureArrayParameters& Values,
+				const FRenderGraphParameterResolver& Resolver) {
+				FRHICommandList Commands;
+				Commands.SwitchPipeline(ERHIPipeline::Graphics);
+				auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(
+					EShaderFrequency::Fragment, FXxHash128{}));
+				const std::array Bindings{FShaderParameterBinding{
+					.Name = "Textures", .Type = ERHIBindingType::Texture,
+					.ArraySize = 1}};
+				const auto GraphShaderParameters =
+					Resolver.GetShaderParameters(Values);
+				SetRenderGraphShaderParametersImpl(Commands, Shader.GetReference(),
+					"FExtentFixture", EShaderFrequency::Fragment, Bindings,
+					GraphShaderParameters, nullptr, nullptr);
+			});
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		EXPECT_DEATH(Result.Graph->Execute(FRHICommandListImmediate::Get()),
+			"array extent does not match");
+	}
+
+	TEST(FRenderGraphTests,
+		ComposedShaderSubmissionRejectsUnavailableRequiredOptional)
+	{
+		FRenderGraphBuilder Builder;
+		auto Parameters = Builder.AllocParameters<
+			FComposedTextureArrayParameters>();
+		Builder.AddPass("ComposedOptional", ERenderGraphPassType::Graphics,
+			std::move(Parameters),
+			[](FRHICommandListImmediate&,
+				const FComposedTextureArrayParameters& Values,
+				const FRenderGraphParameterResolver& Resolver) {
+				FRHICommandList Commands;
+				Commands.SwitchPipeline(ERHIPipeline::Graphics);
+				auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(
+					EShaderFrequency::Fragment, FXxHash128{}));
+				const std::array Bindings{FShaderParameterBinding{
+					.Name = "Textures", .Type = ERHIBindingType::Texture,
+					.ArraySize = 2, .bGraphResource = true}};
+				const auto GraphShaderParameters =
+					Resolver.GetShaderParameters(Values);
+				SetRenderGraphShaderParametersImpl(Commands, Shader.GetReference(),
+					"FOptionalFixture", EShaderFrequency::Fragment, Bindings,
+					GraphShaderParameters, nullptr, nullptr);
+			});
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		EXPECT_DEATH(Result.Graph->Execute(FRHICommandListImmediate::Get()),
+			"is unavailable for required shader");
+	}
+
+	TEST(FRenderGraphTests,
+		ComposedShaderSubmissionRejectsMissingGraphAuthorityAndWrongDomain)
+	{
+		auto MakeResult = [](bool bWrongDomain) {
+			FRenderGraphBuilder Builder;
+			auto Parameters = Builder.AllocParameters<
+				FComposedTextureArrayParameters>();
+			Builder.AddPass("ComposedAuthority", ERenderGraphPassType::Graphics,
+				std::move(Parameters),
+				[bWrongDomain](FRHICommandListImmediate&,
+					const FComposedTextureArrayParameters& Values,
+					const FRenderGraphParameterResolver& Resolver) {
+					FRHICommandList Commands;
+					Commands.SwitchPipeline(ERHIPipeline::Graphics);
+					auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(
+						bWrongDomain ? EShaderFrequency::Compute
+							: EShaderFrequency::Fragment, FXxHash128{}));
+					const std::array Bindings{FShaderParameterBinding{
+						.Name = "MissingGraph", .Type = ERHIBindingType::Texture,
+						.bGraphResource = true}};
+					const auto GraphShaderParameters =
+						Resolver.GetShaderParameters(Values);
+					SetRenderGraphShaderParametersImpl(Commands,
+						Shader.GetReference(), "FAuthorityFixture",
+						bWrongDomain ? EShaderFrequency::Compute
+							: EShaderFrequency::Fragment,
+						Bindings, GraphShaderParameters, nullptr, nullptr);
+				});
+			return Builder.Compile();
+		};
+		auto Missing = MakeResult(false);
+		ASSERT_TRUE(Missing.IsSuccess()) << Missing.Error;
+		EXPECT_DEATH(Missing.Graph->Execute(FRHICommandListImmediate::Get()),
+			"has no composed graph member");
+		auto WrongDomain = MakeResult(true);
+		ASSERT_TRUE(WrongDomain.IsSuccess()) << WrongDomain.Error;
+		EXPECT_DEATH(WrongDomain.Graph->Execute(FRHICommandListImmediate::Get()),
+			"domain is incompatible");
+	}
+
+	TEST(FRenderGraphTests,
+		ComposedComputeCapturePreservesExactBufferRangesAndWriteAuthority)
+	{
+		static const auto InputBuffer = MakeRefCount<FRHIBuffer>(
+			FRHIBufferCreateDesc::Create("ComposedInput", 128, 4,
+				EBufferUsageFlags::StructuredBuffer
+					| EBufferUsageFlags::UnorderedAccess));
+		static const auto OutputBuffer = MakeRefCount<FRHIBuffer>(
+			FRHIBufferCreateDesc::Create("ComposedOutput", 128, 4,
+				EBufferUsageFlags::StructuredBuffer
+					| EBufferUsageFlags::UnorderedAccess));
+		FRenderGraphBuilder Builder;
+		const auto Input = Builder.ImportBuffer("Input",
+			InputBuffer.GetReference(), ERHIAccess::ComputeShaderRead,
+			ERHIAccess::ComputeShaderRead);
+		const auto Output = Builder.ImportBuffer("Output",
+			OutputBuffer.GetReference(), ERHIAccess::ComputeShaderReadWrite,
+			ERHIAccess::ComputeShaderReadWrite);
+		auto Parameters = Builder.AllocParameters<
+			FComposedComputeBufferParameters>();
+		Parameters->InputBuffer = {Input, 16, 32};
+		Parameters->OutputBuffer = {Output, 32, 64};
+		Builder.AddPass("ComposedBuffers", ERenderGraphPassType::Compute,
+			std::move(Parameters),
+			[](FRHICommandListImmediate&,
+				const FComposedComputeBufferParameters&,
+				const FRenderGraphParameterResolver&) {});
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		const auto Capture = Result.Graph->Capture();
+		ASSERT_EQ(Capture.Uses.size(), 2u);
+		EXPECT_EQ(Capture.Uses[0].BufferOffset, 16u);
+		EXPECT_EQ(Capture.Uses[0].BufferSize, 32u);
+		EXPECT_EQ(Capture.Uses[1].BufferOffset, 32u);
+		EXPECT_EQ(Capture.Uses[1].BufferSize, 64u);
 	}
 
 	TEST(FRenderGraphTests, AllocatesAlignedParametersWithExactRuntimeValues)

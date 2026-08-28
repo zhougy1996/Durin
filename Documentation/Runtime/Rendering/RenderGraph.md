@@ -175,6 +175,40 @@ captures preserve the same string. Manual uses keep an empty path and retain
 their previous dump text. Paths never contain allocation identity, addresses,
 timestamps, or measured duration.
 
+### Reflected Shader Composition
+
+A texture or buffer parameter member may additionally declare one reflected
+shader binding role with
+`MakeRenderGraphShaderResourceParameterMemberMetadata`. That annotation names
+the binding and its `Texture`, `StorageImage`, or `StorageBuffer` type on the
+same member that owns graph use, access, range, optionality, and array extent.
+It never appends a hidden graph use: graph lowering remains authoritative for
+dependencies and transitions, while cached shader reflection remains
+authoritative for set, binding, and descriptor-array coordinates.
+
+During its callback, a pass obtains a non-copyable
+`FRenderGraphShaderParameters` scope from the exact submitted object and
+resolver. Composed `SetShaderParameters` resolves only those exact members,
+creates counted texture views for their declared subresources, carries exact
+buffer byte ranges, and submits all selected graph and ordinary shader fields
+in one RHI parameter command. A graphics shader requires a graphics pass and a
+compute shader requires a compute pass. SRVs require graph read authority and
+the matching shader-readable access; storage images and writable storage
+buffers require graph write authority and the matching read/write access.
+
+Fixed arrays bind in element order and must match reflection extent. A
+disengaged optional is legal when the selected shader does not reflect its
+binding, but fails before RHI recording when active reflection requires it.
+Missing graph authority, copied or foreign owner objects, duplicate aliases,
+wrong binding type, wrong pass domain, missing backing, or an incomplete array
+also fail before an affected parameter command, draw, or dispatch. Attachments,
+tokens, managed-transition wrappers, dynamic arrays, null descriptors, and
+partially bound arrays cannot be shader-composed.
+
+Use captures preserve `ShaderBindingName` and `ShaderBindingType`; dumps append
+`shader-binding=<Name>` and `binding-type=<Type>` beside the stable graph field
+path. Uncomposed and manual uses retain their previous capture form.
+
 ## Diagnostics and Budgets
 
 `Dump()` reports stable scheduled pass identities, declaration indices,

@@ -3,6 +3,7 @@
 #include "RenderCoreAPI.h"
 #include "RHICommandList.h"
 #include "RHIResources.h"
+#include "RenderGraph.h"
 
 #include "ShaderCompilerCore.h"
 
@@ -210,7 +211,8 @@ namespace Durin
 		static constexpr uint32 Size = static_cast<uint32>(ArraySize);
 	};
 
-	template<ERHIBindingType BindingType, typename MemberType, bool bOptional = false>
+	template<ERHIBindingType BindingType, typename MemberType,
+		bool bOptional = false, bool bGraphResource = false>
 	consteval auto MakeShaderParameterMemberMetadata(const char* Name, uint32 Offset) -> FShaderParameterMemberMetadata
 	{
 		using FExpectedType = typename TShaderParameterCppType<BindingType>::Type;
@@ -228,7 +230,8 @@ namespace Durin
 			.ArraySize = ArraySize,
 			.Type = BindingType,
 			.Kind = EShaderParameterMemberKind::Resource,
-			.bOptional = bOptional
+			.bOptional = bOptional,
+			.bGraphResource = bGraphResource
 		};
 	}
 
@@ -290,6 +293,17 @@ namespace Durin
 		const void* ParameterData
 	) -> void;
 
+	RENDERCORE_API auto SetRenderGraphShaderParametersImpl(
+		FRHICommandListBase& RHICmdList,
+		FRHIShader* RHIShader,
+		std::string_view ShaderName,
+		EShaderFrequency ShaderFrequency,
+		std::span<const FShaderParameterBinding> ParameterBindings,
+		const FRenderGraphShaderParameters& GraphParameters,
+		const FShaderParametersMetadata* OrdinaryParametersMetadata,
+		const void* OrdinaryParameterData
+	) -> void;
+
 	#define DURIN_PRIVATE_SHADER_PARAMETER(MemberType, MemberName, BindingTypeValue, OptionalValue) \
 		MemberType MemberName = nullptr; \
 		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
@@ -327,6 +341,22 @@ namespace Durin
 	#define DURIN_SHADER_PARAMETER_TEXTURE_ARRAY(MemberName, ArrayCount) \
 		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHITexture*, MemberName, ArrayCount, ERHIBindingType::Texture, false)
 
+	#define DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(MemberName) \
+		FRHITexture* MemberName = nullptr; \
+		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
+		{ \
+			return MakeShaderParameterMemberMetadata<ERHIBindingType::Texture, decltype(FParameters::MemberName), false, true>( \
+				#MemberName, static_cast<uint32>(offsetof(FParameters, MemberName))); \
+		}
+
+	#define DURIN_SHADER_PARAMETER_GRAPH_TEXTURE_ARRAY(MemberName, ArrayCount) \
+		std::array<FRHITexture*, ArrayCount> MemberName{}; \
+		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
+		{ \
+			return MakeShaderParameterMemberMetadata<ERHIBindingType::Texture, decltype(FParameters::MemberName), false, true>( \
+				#MemberName, static_cast<uint32>(offsetof(FParameters, MemberName))); \
+		}
+
 	#define DURIN_SHADER_PARAMETER_SAMPLER(MemberName) \
 		DURIN_PRIVATE_SHADER_PARAMETER(FRHISampler*, MemberName, ERHIBindingType::Sampler, false)
 
@@ -341,6 +371,14 @@ namespace Durin
 
 	#define DURIN_SHADER_PARAMETER_STORAGE_IMAGE_ARRAY(MemberName, ArrayCount) \
 		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHITexture*, MemberName, ArrayCount, ERHIBindingType::StorageImage, false)
+
+	#define DURIN_SHADER_PARAMETER_GRAPH_STORAGE_IMAGE(MemberName) \
+		FRHITexture* MemberName = nullptr; \
+		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
+		{ \
+			return MakeShaderParameterMemberMetadata<ERHIBindingType::StorageImage, decltype(FParameters::MemberName), false, true>( \
+				#MemberName, static_cast<uint32>(offsetof(FParameters, MemberName))); \
+		}
 
 	#define DURIN_SHADER_PARAMETER_UNIFORM_BUFFER(MemberName) \
 		FRHIUniformBufferRange MemberName; \
@@ -390,6 +428,14 @@ namespace Durin
 
 	#define DURIN_SHADER_PARAMETER_STORAGE_BUFFER_ARRAY(MemberName, ArrayCount) \
 		DURIN_PRIVATE_SHADER_PARAMETER_ARRAY(FRHIStorageBufferRange, MemberName, ArrayCount, ERHIBindingType::StorageBuffer, false)
+
+	#define DURIN_SHADER_PARAMETER_GRAPH_STORAGE_BUFFER(MemberName) \
+		FRHIStorageBufferRange MemberName; \
+		static auto GetShaderParameterMemberMetadata(TShaderParameterTag<__COUNTER__>) -> FShaderParameterMemberMetadata \
+		{ \
+			return MakeShaderParameterMemberMetadata<ERHIBindingType::StorageBuffer, decltype(FParameters::MemberName), false, true>( \
+				#MemberName, static_cast<uint32>(offsetof(FParameters, MemberName))); \
+		}
 
 	#define DURIN_END_SHADER_PARAMETERS() \
 		}; \
@@ -619,5 +665,43 @@ namespace Durin
 			ShaderContent->GetType() ? ShaderContent->GetType()->GetName() : "<unknown>"
 		);
 		SetShaderParametersImpl(RHICmdList, Shader.GetRHIShader(), *ParametersMetadata, ShaderContent->GetParameterBindings(), &Parameters);
+	}
+
+	// Binds every composed graph field from the exact immutable pass object.
+	// Ordinary sampler/uniform fields may be supplied by the existing typed
+	// shader struct; graph-backed entries in that struct are never read.
+	template<typename ShaderType>
+	auto SetShaderParameters(FRHICommandListBase& RHICmdList,
+		const TShaderRef<ShaderType>& Shader,
+		const FRenderGraphShaderParameters& GraphParameters,
+		const typename ShaderType::FParameters& OrdinaryParameters) -> void
+	{
+		const ShaderType* ShaderContent = Shader.GetShader();
+		check(ShaderContent);
+		const FShaderType* ShaderTypeContent = ShaderContent->GetType();
+		checkf(ShaderTypeContent, "Composed shader submission requires a shader type");
+		const FShaderParametersMetadata* ParametersMetadata =
+			ShaderTypeContent->GetParametersMetadata();
+		checkf(ParametersMetadata,
+			"Shader '{}' must provide parameter metadata",
+			ShaderTypeContent->GetName());
+		SetRenderGraphShaderParametersImpl(RHICmdList, Shader.GetRHIShader(),
+			ShaderTypeContent->GetName(), ShaderTypeContent->GetFrequency(),
+			ShaderContent->GetParameterBindings(), GraphParameters,
+			ParametersMetadata, &OrdinaryParameters);
+	}
+
+	template<typename ShaderType>
+	auto SetShaderParameters(FRHICommandListBase& RHICmdList,
+		const TShaderRef<ShaderType>& Shader,
+		const FRenderGraphShaderParameters& GraphParameters) -> void
+	{
+		const ShaderType* ShaderContent = Shader.GetShader();
+		check(ShaderContent);
+		const FShaderType* ShaderTypeContent = ShaderContent->GetType();
+		checkf(ShaderTypeContent, "Composed shader submission requires a shader type");
+		SetRenderGraphShaderParametersImpl(RHICmdList, Shader.GetRHIShader(),
+			ShaderTypeContent->GetName(), ShaderTypeContent->GetFrequency(),
+			ShaderContent->GetParameterBindings(), GraphParameters, nullptr, nullptr);
 	}
 } // namespace Durin
