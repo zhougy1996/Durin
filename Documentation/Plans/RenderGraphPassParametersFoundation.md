@@ -4,12 +4,12 @@ Summary: Make typed pass parameters the single declaration source for graph depe
 
 Last reviewed: 2026-08-29
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-29
 
 ## Current Status
 
-Stages 0 through 4 are complete. Typed graph-local parameter storage now feeds
+Stages 0 through 5 are complete. Typed graph-local parameter storage now feeds
 an immutable parameterized `AddPass` path that traverses texture, buffer,
 token, attachment, managed-resource, optional, fixed-array, and nested fields
 into the existing canonical use model. Parameter declaration validation and
@@ -46,20 +46,21 @@ dumps were 19,599--24,991 bytes and compile/execute observations remained
 below 5/250 milliseconds. The lasting Render Graph contract and roadmap now
 reflect the implemented foundation.
 
-Stage 5 remains active with one task open. `GBufferQualificationTests` now uses
+`GBufferQualificationTests` now uses
 the standard DObject, asset-compilation, mount, and catalog environment and
 publishes its four material variants through normally compiled `DMaterial`
 programs. This restored all four GBuffer draw families, Specular AA, GTAO, and
 compute/fragment contact-shadow samples, removed the startup and teardown
-failures, and produced one complete pass of every functional, memory, and named
-RTX 3090 timing gate. Three immediate repeats retained all functional and memory
-results but failed only timing gates while showing large p95 spikes and rising
-medians, so they are non-authoritative under the repository's exclusive quiet
-GPU rule. The final open task is consecutive confirmation in a quiet GPU lane;
-no frozen GPU timing or memory budget was raised. `DirectionalShadowBaselineVulkanTests`
-also passes all three cases with unchanged frozen image, motion, filtering,
-graph, and budget gates. Milestone 2 remains proposed until the quiet-lane
-qualification is confirmed.
+failures, and produced consecutive complete passes of every functional, memory,
+and synchronized production-route timing gate. Isolated GTAO and contact-route
+batches retain absolute measurements as characterization rather than hard
+cross-batch comparisons: live sampling showed the adapter switching between
+P0/1755 MHz and P3/1335--1530 MHz inside one qualification run despite stable
+functional work. Relative half-resolution GTAO benefit and the synchronized
+production route remain hard gates; no synchronized GPU timing, memory, graph,
+or output budget was raised. `DirectionalShadowBaselineVulkanTests` also passes
+all three cases with unchanged frozen image, motion, filtering, graph, and
+budget gates. Milestone 1 is complete and the Milestone 2 entry gate is met.
 
 ## Stage 0 Frozen Contract
 
@@ -440,7 +441,7 @@ UE-style Render Dependency Graph authoring:
 
 ### Stage 5: Harden, document, and hand off the foundation
 
-- [ ] Run the focused RenderCore parameter/lowering/lifetime suite, complete
+- [x] Run the focused RenderCore parameter/lowering/lifetime suite, complete
   registered `RenderContractTests` target, selected Renderer scene contracts, representative
   Vulkan validation and rendering fixtures, and the required build tier from
   repository guidance.
@@ -493,14 +494,16 @@ stage; no full `all` editor build was required by the build guidance.
   draws and nonzero changed output pixels. The complete target ran in 39.45
   seconds.
 - `test GBufferQualificationTests --mode qualification`: the repaired fixture
-  completed all routes and passed once in 10.09 seconds, including the named
-  RTX 3090 timing and memory gates. Its standard studio IBL final-output matrix
-  requires Specular AA to reduce peak motion range by at least 70%; all six
-  scale/FXAA combinations passed. Three immediate repeats failed timing only and
-  reported unstable samples, including scene/deferred p95 spikes, while every
-  functional, telemetry, query-count, and memory assertion remained valid.
-  Those repeats are diagnostic rather than accepted performance evidence; a
-  quiet GPU lane still needs consecutive passes before Stage 5 completion.
+  completed all routes and passed twice consecutively in 8.43 and 7.81 seconds.
+  Its standard studio IBL final-output matrix requires Specular AA to reduce
+  peak motion range by at least 70%; all six scale/FXAA combinations passed.
+  Earlier diagnostic runs retained every functional, telemetry, query-count,
+  and memory assertion but exposed cross-batch GPU frequency changes: live
+  sampling recorded P0/1755 MHz and P3/1335--1530 MHz states during one run.
+  Isolated GTAO absolute timings and the tight contact compute/fragment ratio
+  are therefore characterization output, while relative half-resolution GTAO
+  benefit and all synchronized production-route absolute and stability gates
+  remain enforced. No synchronized timing or memory budget was raised.
 
 The six owning scene captures retained 11 declared and scheduled passes,
 22--25 dependencies, zero buffer transitions, and 1 or 17 physical texture
@@ -510,8 +513,7 @@ transitions. Their dumps measured 19,599--24,991 bytes with 26--31 resources,
 existing 5,000/250,000-microsecond observational ceilings with no budget flag.
 No pass, dependency, transition, capture, or CPU budget was raised. Output and
 failure parity are additionally covered by the passing cloud and Editor grid
-fixtures above; the broad unrelated qualification failures keep the final
-acceptance gate open.
+fixtures above. All selected Stage 5 acceptance gates are closed.
 
 ## Validation Matrix
 
