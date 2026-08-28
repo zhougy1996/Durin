@@ -2,7 +2,7 @@
 
 Summary: Make typed pass parameters the single declaration source for graph dependencies, access, attachments, and pass-scoped resource resolution.
 
-Last reviewed: 2026-08-28
+Last reviewed: 2026-08-29
 
 Status: Active
 Completed:
@@ -34,17 +34,29 @@ token write, four optional managed clear/store color attachments, and one
 optional managed clear/store depth attachment. Its callback resolves only
 those exact parameter members, while the copied persistent-input helper and
 manual `UseToken`/managed-attachment block are gone. Unmigrated contributors
-continue through the compatibility overload. `RenderContractTests` passed
-81/81, `RendererSceneContractTests` passed 38/38,
-`VolumetricCloudSceneVulkanTests` passed 1/1, and `EditorGridVulkanTests`
-passed 7/7 on the Win64 Debug DurinEditor profile, including offscreen/present,
-resize, required-unavailable, and injected GBuffer target-failure recovery.
-The broader directional-shadow qualification produced one passing preparation
-fixture and two pre-existing rendered-baseline failures, while the monolithic
-GBuffer qualification was invalidated at startup by an unregistered built-in
-studio-environment virtual mount; Stage 5 retains both reruns in its complete
-validation gate. Foundation hardening and lasting documentation are ready to
-begin in Stage 5.
+continue through the compatibility overload.
+
+Stage 5 hardening has passed the 17-test parameter filter, all 81
+`RenderContractTests`, all 38 `RendererSceneContractTests`, all 7
+`VolumetricCloudSceneContractTests`, 64 `VulkanRHIIntegrationTests`, the
+one-case `VolumetricCloudSceneVulkanTests`, and all 7 `EditorGridVulkanTests`
+on the Win64 Debug DurinEditor profile. Six production scene routes retained
+the 11-pass, 22--25-dependency, 1-or-17 physical-transition budgets; capture
+dumps were 19,599--24,991 bytes and compile/execute observations remained
+below 5/250 milliseconds. The lasting Render Graph contract and roadmap now
+reflect the implemented foundation.
+
+Stage 5 remains active with one task open. The monolithic
+`GBufferQualificationTests` still starts without registered asset mounts and
+therefore cannot load `/Engine/Renderer/DefaultStudioEnvironment`; a diagnostic
+run with the standard DObject/mount/catalog setup advanced past that failure
+but exposed pre-existing zero-draw and empty-query failures in the broader
+qualification. `DirectionalShadowBaselineVulkanTests` still passes one of
+three cases and fails the two previously recorded contact-shadow rendered
+baselines. Neither failure originates in parameter lowering, graph structure,
+transitions, recovery, or the GBuffer pilot, so their repair remains outside
+this plan rather than weakening or raising a frozen gate. Milestone 2 remains
+proposed until this qualification disposition is completed.
 
 ## Stage 0 Frozen Contract
 
@@ -426,18 +438,18 @@ UE-style Render Dependency Graph authoring:
 ### Stage 5: Harden, document, and hand off the foundation
 
 - [ ] Run the focused RenderCore parameter/lowering/lifetime suite, complete
-  RenderCoreTests target, selected Renderer scene contracts, representative
+  registered `RenderContractTests` target, selected Renderer scene contracts, representative
   Vulkan validation and rendering fixtures, and the required build tier from
   repository guidance.
-- [ ] Record compile/execute CPU, capture size, graph statistics, transition,
+- [x] Record compile/execute CPU, capture size, graph statistics, transition,
   and output evidence against frozen budgets; resolve any regression rather
   than silently raising the scene budget.
-- [ ] Update the lasting Render Graph contract with parameter ownership,
+- [x] Update the lasting Render Graph contract with parameter ownership,
   metadata, lowering, immutability, execution capability, compatibility, and
   diagnostic rules.
-- [ ] Update the roadmap current status, Milestone 1 state, and next child-plan
+- [x] Update the roadmap current status, Milestone 1 state, and next child-plan
   entry-gate disposition from actual validation evidence.
-- [ ] Record exact validation and any deliberately non-standard coverage in
+- [x] Record exact validation and any deliberately non-standard coverage in
   this plan, complete all passed checklists, and prepare the required plan/stage
   commit provenance.
 
@@ -449,6 +461,48 @@ UE-style Render Dependency Graph authoring:
   parameter foundation behavior.
 - Milestone 2 is either ready for a newly created bounded plan or remains
   proposed with its missing entry evidence stated explicitly.
+
+## Stage 5 Validation Evidence
+
+Validation ran on 2026-08-29 with the Win64 Debug DurinEditor profile. Each
+native-test command built its selected target first, satisfying the repository's
+smallest-sufficient build tier for this non-user-visible hardening/documentation
+stage; no full `all` editor build was required by the build guidance.
+
+- `test RenderContractTests 'FRenderGraphTests.*Parameter*'`: 17/17 passed,
+  covering metadata, storage, lifetime, lowering, immutability, diagnostics,
+  resolver capability, culling/backing atomicity, and the traversal budget.
+- `test RenderContractTests`: 81/81 passed across all RenderCore/RHI contract
+  suites, including manual compatibility and shader-adjacent foundations.
+- `test RendererSceneContractTests`: 38/38 passed, including the exact
+  `FGBufferPassParameters` metadata contract.
+- `test VolumetricCloudSceneContractTests`: 7/7 passed.
+- `test VulkanRHIIntegrationTests`: 64/64 passed with Vulkan validation.
+- `test VolumetricCloudSceneVulkanTests`: 1/1 passed. Disabled, invalid-input,
+  compute, fragment, offscreen/present, and resize routes all succeeded.
+- `test EditorGridVulkanTests`: 7/7 passed, covering rendered output, required
+  unavailable behavior, and injected GBuffer target recovery.
+- `test DirectionalShadowBaselineVulkanTests --mode qualification`: 1/3 passed.
+  The preparation case passed; the two pre-existing rendered cases failed in
+  contact-shadow pixels/telemetry, including zero changed pixels. The test ran
+  94.710 seconds and preserved its work directory for diagnosis.
+- `test GBufferQualificationTests --mode qualification`: failed before useful
+  qualification because the built-in studio-environment virtual path had no
+  registered mount. A diagnostic-only standard asset initialization advanced
+  the fixture to its existing zero GBuffer draws and empty GTAO/contact timing
+  queries; that exploratory edit was reverted and no result from the invalid
+  timing lane is accepted as performance evidence.
+
+The six owning scene captures retained 11 declared and scheduled passes,
+22--25 dependencies, zero buffer transitions, and 1 or 17 physical texture
+transitions. Their dumps measured 19,599--24,991 bytes with 26--31 resources,
+71--91 uses, and 30--48 owning transition records. Observed compile time was
+592--912 microseconds and execute time was 566--62,352 microseconds, below the
+existing 5,000/250,000-microsecond observational ceilings with no budget flag.
+No pass, dependency, transition, capture, or CPU budget was raised. Output and
+failure parity are additionally covered by the passing cloud and Editor grid
+fixtures above; the broad unrelated qualification failures keep the final
+acceptance gate open.
 
 ## Validation Matrix
 

@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-08-24
+Last reviewed: 2026-08-29
 
 ## Ownership Boundary
 
@@ -98,6 +98,50 @@ intent and exit access, emits only an entry handoff needed for a load, and
 continues state tracking from the render pass's declared final access. This
 avoids a second explicit barrier competing with RHI render-pass state.
 
+## Typed Pass Parameters
+
+`AllocParameters<T>()` constructs one registered standard-layout parameter
+object in builder-owned aligned storage. The metadata for `T` owns its stable
+structure name, size, alignment, and ordered member descriptions. Supported
+members are texture, buffer, token, color attachment, depth/stencil attachment,
+and managed-texture wrappers; a member may be a fixed array, an
+`std::optional` wrapper, or a nested registered parameter structure. Wrappers
+store only graph-local handles and exact runtime ranges. Metadata stores the
+invariant use, access, discard, attachment action, managed-transition, and
+result-access intent.
+
+The parameterized `AddPass` consumes the mutable reference, freezes the
+allocation, and lowers its engaged fields in metadata order into the same
+canonical use model as the manual `Use*` APIs. Submission is atomic: malformed
+metadata, a foreign allocation or handle, an invalid range or access/domain
+combination, overlapping fields, or a reused reference publishes neither a
+pass callback nor a partial use set. A parameterized pass cannot accept manual
+uses or a second parameter object. The legacy `AddPass` and `Use*` surface
+remains a compatibility path only for passes not yet migrated.
+
+Successful compilation transfers parameter storage and destructor records to
+the compiled graph. Objects are destroyed in reverse allocation order when the
+owning builder or compiled graph dies, not when a pass is culled or execution
+returns early. Compile, retained-backing, callback, and normal execution paths
+therefore observe one stable immutable parameter object for its complete graph
+lifetime.
+
+A parameterized callback receives the const submitted object and a non-copyable
+`FRenderGraphParameterResolver`. The resolver accepts only the exact wrapper or
+optional-member address declared by that pass and returns typed texture,
+buffer, color-attachment, or depth/stencil-attachment views. Raw handles,
+copied wrappers, wrong-kind fields, foreign optionals, and fields from another
+pass are authoring failures. A disengaged optional resolves to absence only
+when that exact optional is a declared member. Cull or incomplete retained
+backing prevents the callback from running.
+
+Each lowered use owns a deterministic parameter path such as
+`FGBufferPassParameters.Colors[0]`. Validation prefixes the existing normalized
+reason with the pass and field path, dumps append `field=<Path>`, and owning
+captures preserve the same string. Manual uses keep an empty path and retain
+their previous dump text. Paths never contain allocation identity, addresses,
+timestamps, or measured duration.
+
 ## Diagnostics and Budgets
 
 `Dump()` reports stable scheduled pass identities, declaration indices,
@@ -127,6 +171,9 @@ production acceptance gate.
 
 New renderer work that crosses pass boundaries must use the graph path:
 
+- Prefer one typed parameter object as the declaration and callback capability
+  for a new pass. Use the manual surface only while migrating an existing
+  contributor, and never mix both authorities on one pass.
 - Declare every cross-pass texture/buffer range with exact access and use a
   typed logical token only for a non-RHI outcome.
 - Declare external effects such as presentation, offscreen output, readback,
