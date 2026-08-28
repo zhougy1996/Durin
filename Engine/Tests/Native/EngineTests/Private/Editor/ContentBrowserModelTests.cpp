@@ -151,6 +151,24 @@ TEST_F(FContentBrowserModelTests, RepeatedNavigationToCurrentDirectoryKeepsPubli
 	EXPECT_EQ(Model.GetHistory().size(), 1);
 }
 
+TEST_F(FContentBrowserModelTests, DirectoryNavigationPreservesTreeChildrenSnapshots)
+{
+	FContentBrowserModel Model;
+	const std::string TreeRoot =
+		std::filesystem::absolute(Root / "Content")
+			.lexically_normal()
+			.generic_string();
+	Model.RefreshMountSnapshot();
+	Model.RequestDirectoryChildrenSnapshot(TreeRoot);
+	Model.RefreshRequestedDirectoryChildrenSnapshots();
+	ASSERT_TRUE(Model.HasDirectoryChildrenSnapshot(TreeRoot));
+	ASSERT_EQ(Model.GetDirectoryChildren(TreeRoot).size(), 2);
+
+	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content/A").generic_string()));
+	EXPECT_TRUE(Model.HasDirectoryChildrenSnapshot(TreeRoot));
+	EXPECT_EQ(Model.GetDirectoryChildren(TreeRoot).size(), 2);
+}
+
 TEST_F(FContentBrowserModelTests, RejectsUnavailableDirectoryWithoutFilesystemException)
 {
 	const std::filesystem::path Unavailable = Root / "Content/B";

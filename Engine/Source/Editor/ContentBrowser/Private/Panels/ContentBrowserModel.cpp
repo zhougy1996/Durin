@@ -172,7 +172,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				HistoryIndex = static_cast<int32>(NavigationHistory.size() - 1);
 			}
 		}
-		RefreshItemsSnapshot();
+		RefreshItemsSnapshot(false);
 		return true;
 	}
 
@@ -218,11 +218,15 @@ namespace Durin::Editor::ContentBrowser::Private
 		return NormalizePath(Data->PhysicalPath);
 	}
 
-	auto FContentBrowserModel::RefreshItemsSnapshot() -> void
+	auto FContentBrowserModel::RefreshItemsSnapshot(
+		bool bInvalidateDirectoryTree) -> void
 	{
 		bSnapshotInjectedForTesting = false;
-		DirectoryChildrenCache.clear();
-		RequestedDirectoryChildrenSnapshots.clear();
+		if (bInvalidateDirectoryTree)
+		{
+			DirectoryChildrenCache.clear();
+			RequestedDirectoryChildrenSnapshots.clear();
+		}
 		ItemsSnapshot.clear();
 		EnumerationDiagnostics.clear();
 		SuppressedEnumerationDiagnosticCount = 0;
@@ -525,7 +529,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		Search = InSearch;
 		if (bScopeChanged && !bSnapshotInjectedForTesting)
 		{
-			RefreshItemsSnapshot();
+			RefreshItemsSnapshot(false);
 			return;
 		}
 		RebuildItems();

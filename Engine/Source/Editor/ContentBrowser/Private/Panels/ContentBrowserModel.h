@@ -113,7 +113,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 		auto RefreshMountSnapshot() -> void;
 		auto RescanRegistry() -> Asset::FAssetResult;
-		auto RefreshItemsSnapshot() -> void;
+		auto RefreshItemsSnapshot(bool bInvalidateDirectoryTree = true) -> void;
 		auto RebuildItems() -> void;
 		auto NavigateToPhysical(std::string_view PhysicalPath, bool bAddHistory = true) -> bool;
 		auto NavigateHistory(int32 Delta) -> bool;
