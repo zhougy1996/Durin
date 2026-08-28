@@ -18,7 +18,10 @@ namespace Durin::MonaImGui
 	{
 		auto Open() -> void
 		{
-			if (!bOpen) bReceivedFocus = false;
+			// An explicit open request may also replace the contents of an already-open
+			// drawer. Let the replacement acquire focus before focus-loss dismissal is
+			// armed again.
+			bReceivedFocus = false;
 			bOpen = true;
 		}
 		auto Close() -> void { bOpen = false; }

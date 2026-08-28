@@ -237,6 +237,44 @@ namespace Durin::Editor::Level
 		ImGui::DestroyContext(Context);
 	}
 
+	TEST(FMonaImGuiStyleTests, OpenBottomDrawerRearmsFocusForReplacementContents)
+	{
+		ImGuiContext* Context = ImGui::CreateContext();
+		ASSERT_NE(Context, nullptr);
+		ImGuiIO& IO = ImGui::GetIO();
+		IO.IniFilename = nullptr;
+		IO.DisplaySize = ImVec2(1280.0f, 720.0f);
+		IO.DeltaTime = 1.0f / 60.0f;
+		IO.Fonts->Build();
+		MonaImGui::FBottomDrawerState State;
+		State.Open();
+		const MonaImGui::FBottomDrawerConfig Config{
+			.Id = "ReplacementDrawerTest",
+			.AnchorMin = ImVec2(0.0f, 0.0f),
+			.AnchorMax = ImVec2(1000.0f, 600.0f),
+			.AnimationDuration = 0.0f,
+			.bDismissOnFocusLoss = true,
+		};
+
+		ImGui::NewFrame();
+		ASSERT_TRUE(MonaImGui::BeginBottomDrawer(Config, State));
+		ImGui::TextUnformatted("Initial contents");
+		MonaImGui::EndBottomDrawer(State);
+		ImGui::Render();
+
+		State.Open();
+		ImGui::NewFrame();
+		ImGui::Begin("DrawerSwitcher");
+		ImGui::SetWindowFocus();
+		ImGui::End();
+		ASSERT_TRUE(MonaImGui::BeginBottomDrawer(Config, State));
+		ImGui::TextUnformatted("Replacement contents");
+		MonaImGui::EndBottomDrawer(State);
+		ImGui::Render();
+		EXPECT_TRUE(State.IsOpen());
+		ImGui::DestroyContext(Context);
+	}
+
 	TEST(FMonaImGuiStyleTests, VectorDragDirectInputRejectsNonNumericCharacters)
 	{
 		ImGuiContext* Context = ImGui::CreateContext();
