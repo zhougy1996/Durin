@@ -1,8 +1,11 @@
 #include "CoreGlobals.h"
 #include "DynamicRHI.h"
+#include "Asset/AssetCompilingManager.h"
+#include "EngineTestSupport.h"
 #include "Rendering/StaticMeshSceneProxy.h"
 #include "GBufferContract.h"
 #include "HAL/PlatformLTS.h"
+#include "Materials/Material.h"
 #include "Hash/XxHash.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "Math/Operations.h"
@@ -41,6 +44,27 @@ namespace
 {
 	constexpr uint32 CaptureWidth = 257;
 	constexpr uint32 CaptureHeight = 257;
+
+	class FDirectionalShadowAssetCompilingEnvironment final
+		: public testing::Environment
+	{
+	public:
+		auto SetUp() -> void override
+		{
+			InitializeDObjectSystem();
+			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+		}
+
+		auto TearDown() -> void override
+		{
+			Durin::ShutdownAssetCompilingManager();
+		}
+	};
+
+	[[maybe_unused]] testing::Environment*
+		GDirectionalShadowAssetCompilingEnvironment =
+			testing::AddGlobalTestEnvironment(
+				new FDirectionalShadowAssetCompilingEnvironment);
 
 	constexpr auto ByteValue(std::byte Value) -> uint8
 	{
@@ -293,27 +317,50 @@ namespace
 	auto MakeMaterial(Durin::EMaterialBlendMode BlendMode, const Durin::FVector3& BaseColor, Durin::EMaterialShadingModel ShadingModel = Durin::EMaterialShadingModel::Lit, const Durin::FVector3& Emissive = Durin::FVector3(0.0), float Opacity = 1.0f)
 		-> Durin::FMaterialRenderProxyRef
 	{
-		auto Proxy = Durin::MakeRefCount<Durin::FMaterialRenderProxy>();
-		Durin::FMaterialRenderProxyPublication Publication;
-		Publication.LocalVersion = 1;
-		Publication.LocalLayer.StaticProperties = Durin::FMaterialStaticProperties{
+		static uint64 MaterialIndex = 0;
+		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr,
+			std::format("DirectionalShadowMaterial{}", ++MaterialIndex));
+		if (Material == nullptr)
+		{
+			ADD_FAILURE() << "Failed to create the directional-shadow test material.";
+			return {};
+		}
+		Durin::FMaterialProgramValidationResult Validation;
+		if (!Material->SetMaterialProgram(
+				Durin::MakeLegacyExpandedMaterialProgram(), Validation))
+		{
+			ADD_FAILURE() << "Failed to install the directional-shadow material program.";
+			return {};
+		}
+		EXPECT_TRUE(Material->SetStaticProperties(Durin::FMaterialStaticProperties{
 			.BlendMode = BlendMode,
 			.ShadingModel = ShadingModel,
 			.bTwoSided = true,
 			.OpacityMaskThreshold = 0.4f
-		};
-		Publication.LocalLayer.Parameters.push_back({.Id = Durin::MaterialParameters::EmissiveId, .Type = Durin::EMaterialParameterType::Vector, .VectorValue = Emissive});
-		Publication.LocalLayer.Parameters.push_back({.Id = Durin::MaterialParameters::BaseColorId, .Type = Durin::EMaterialParameterType::Vector, .VectorValue = BaseColor});
+		}));
+		EXPECT_TRUE(Material->SetVectorParameterValue(
+			Durin::MaterialParameters::EmissiveName(), Emissive));
+		EXPECT_TRUE(Material->SetVectorParameterValue(
+			Durin::MaterialParameters::BaseColorName(), BaseColor));
 		if (BlendMode == Durin::EMaterialBlendMode::Translucent)
-		{
-			Publication.LocalLayer.Parameters.push_back({.Id = Durin::MaterialParameters::OpacityId, .Type = Durin::EMaterialParameterType::Scalar, .ScalarValue = Opacity});
-		}
+			EXPECT_TRUE(Material->SetScalarParameterValue(
+				Durin::MaterialParameters::OpacityName(), Opacity));
 		if (BlendMode == Durin::EMaterialBlendMode::Masked)
+			EXPECT_TRUE(Material->SetScalarParameterValue(
+				Durin::MaterialParameters::OpacityMaskName(), 1.0f));
+		if (Material->GetMaterialCompileStatus().State
+			== Durin::EMaterialCompileState::NeverRequested)
+			EXPECT_TRUE(Durin::RequestMaterialRecompile(*Material));
+		Durin::DObject* Object = Material;
+		Durin::FAssetCompilingManager::Get().FinishCompilationForObjects(
+			std::span<Durin::DObject* const>(&Object, 1));
+		if (!Material->GetMaterialCompileStatus().IsCurrent()
+			|| !Material->GetAcceptedCompiledProgram())
 		{
-			Publication.LocalLayer.Parameters.push_back({.Id = Durin::MaterialParameters::OpacityMaskId, .Type = Durin::EMaterialParameterType::Scalar, .ScalarValue = 1.0f});
+			ADD_FAILURE() << "Directional-shadow test material compilation failed.";
+			return {};
 		}
-		EXPECT_TRUE(Proxy->QueuePublication_GameThread(std::move(Publication)));
-		return Proxy;
+		return Material->GetMaterialRenderProxy();
 	}
 
 	auto MakeTransform(const FPrimitivePlacement& Placement) -> Durin::FMatrix

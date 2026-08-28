@@ -51,12 +51,15 @@ Stage 5 remains active with one task open. The monolithic
 therefore cannot load `/Engine/Renderer/DefaultStudioEnvironment`; a diagnostic
 run with the standard DObject/mount/catalog setup advanced past that failure
 but exposed pre-existing zero-draw and empty-query failures in the broader
-qualification. `DirectionalShadowBaselineVulkanTests` still passes one of
-three cases and fails the two previously recorded contact-shadow rendered
-baselines. Neither failure originates in parameter lowering, graph structure,
-transitions, recovery, or the GBuffer pilot, so their repair remains outside
-this plan rather than weakening or raising a frozen gate. Milestone 2 remains
-proposed until this qualification disposition is completed.
+qualification. `DirectionalShadowBaselineVulkanTests` now passes all three
+cases after its hand-authored proxy publications were replaced by normally
+compiled test materials. This restored Lit GBuffer draws and the contact-shadow
+route without changing any frozen image hash, motion, filtering, graph, or
+budget gate. The remaining GBuffer qualification failure does not originate in
+parameter lowering, graph structure, transitions, recovery, or the GBuffer
+pilot, so its repair remains outside this plan rather than weakening or raising
+a frozen gate. Milestone 2 remains proposed until this qualification
+disposition is completed.
 
 ## Stage 0 Frozen Contract
 
@@ -482,10 +485,13 @@ stage; no full `all` editor build was required by the build guidance.
   compute, fragment, offscreen/present, and resize routes all succeeded.
 - `test EditorGridVulkanTests`: 7/7 passed, covering rendered output, required
   unavailable behavior, and injected GBuffer target recovery.
-- `test DirectionalShadowBaselineVulkanTests --mode qualification`: 1/3 passed.
-  The preparation case passed; the two pre-existing rendered cases failed in
-  contact-shadow pixels/telemetry, including zero changed pixels. The test ran
-  94.710 seconds and preserved its work directory for diagnosis.
+- `test DirectionalShadowBaselineVulkanTests --mode qualification`: 3/3 passed
+  after the fixture began publishing material compiler output through the
+  standard `DMaterial` path. The frozen image hashes, motion pixels, filter
+  quality, graph statistics, transition budget, and preparation qualification
+  remained unchanged; the contact-shadow case again recorded real GBuffer
+  draws and nonzero changed output pixels. The complete target ran in 39.45
+  seconds.
 - `test GBufferQualificationTests --mode qualification`: failed before useful
   qualification because the built-in studio-environment virtual path had no
   registered mount. A diagnostic-only standard asset initialization advanced
