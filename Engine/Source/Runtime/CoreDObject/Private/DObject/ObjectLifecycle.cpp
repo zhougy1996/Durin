@@ -16,6 +16,23 @@ namespace Durin
 	namespace
 	{
 		FGarbageCollectionStats GLastGarbageCollectionStats;
+		bool GIsGarbageCollecting = false;
+
+		// Keeps the collector single-entry while object lifecycle callbacks run.
+		class FGarbageCollectionScope
+		{
+		public:
+			FGarbageCollectionScope()
+			{
+				requiref(!GIsGarbageCollecting, "Garbage collection cannot be entered recursively.");
+				GIsGarbageCollecting = true;
+			}
+
+			~FGarbageCollectionScope()
+			{
+				GIsGarbageCollecting = false;
+			}
+		};
 
 		auto CheckObjectThread() -> void
 		{
@@ -359,6 +376,7 @@ namespace Durin
 	auto CollectGarbage() -> void
 	{
 		CheckObjectThread();
+		const FGarbageCollectionScope CollectionScope;
 		GLastGarbageCollectionStats = {};
 		const uint64 ObjectCountBeforeCollection = GDObjectArray.GetNum();
 		const uint64 PendingKillCountBeforeCollection = GetGarbageObjectCount();

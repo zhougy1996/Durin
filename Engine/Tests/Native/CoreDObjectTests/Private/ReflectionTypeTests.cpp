@@ -533,6 +533,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		inline static uint64 FinishDestroyCount = 0;
 		inline static uint64 DestructorCount = 0;
 		bool bReadyForFinishDestroy = true;
+		bool bCollectGarbageInBeginDestroy = false;
 		FShutdownDestroyScheduler* ShutdownDestroyScheduler = nullptr;
 
 		explicit DLifecycleTestObject(const Durin::FObjectInitializer& ObjectInitializer = Durin::FObjectInitializer::Get())
@@ -552,6 +553,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		auto BeginDestroy() -> void override
 		{
 			++BeginDestroyCount;
+			if (bCollectGarbageInBeginDestroy) Durin::CollectGarbage();
 			if (ShutdownDestroyScheduler)
 			{
 				ShutdownDestroyScheduler->Record(EShutdownDestroyCheckpoint::BeforeRelease);
@@ -3372,6 +3374,21 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(DLifecycleTestObject::BeginDestroyCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::FinishDestroyCount, 1u);
 		EXPECT_EQ(DLifecycleTestObject::DestructorCount, 1u);
+	}
+
+	TEST(FCoreDObjectReflectionTests, GarbageCollectionRejectsRecursiveEntryFromLifecycleCallbacks)
+	{
+		EXPECT_DEATH(
+			([] {
+				EnsureDObjectInitialized();
+				auto* Object = Durin::NewObject<DLifecycleTestObject>(
+					nullptr, Durin::FName("RecursiveGarbageCollectionObject"));
+				Object->bCollectGarbageInBeginDestroy = true;
+				Durin::MarkAsGarbage(Object);
+				Durin::CollectGarbage();
+			}()),
+			""
+		);
 	}
 
 	TEST(FCoreDObjectReflectionTests, GarbageCollectionWaitsForFinishReadinessWithoutRepeatingCallbacks)
