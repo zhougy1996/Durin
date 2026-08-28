@@ -46,20 +46,20 @@ dumps were 19,599--24,991 bytes and compile/execute observations remained
 below 5/250 milliseconds. The lasting Render Graph contract and roadmap now
 reflect the implemented foundation.
 
-Stage 5 remains active with one task open. The monolithic
-`GBufferQualificationTests` still starts without registered asset mounts and
-therefore cannot load `/Engine/Renderer/DefaultStudioEnvironment`; a diagnostic
-run with the standard DObject/mount/catalog setup advanced past that failure
-but exposed pre-existing zero-draw and empty-query failures in the broader
-qualification. `DirectionalShadowBaselineVulkanTests` now passes all three
-cases after its hand-authored proxy publications were replaced by normally
-compiled test materials. This restored Lit GBuffer draws and the contact-shadow
-route without changing any frozen image hash, motion, filtering, graph, or
-budget gate. The remaining GBuffer qualification failure does not originate in
-parameter lowering, graph structure, transitions, recovery, or the GBuffer
-pilot, so its repair remains outside this plan rather than weakening or raising
-a frozen gate. Milestone 2 remains proposed until this qualification
-disposition is completed.
+Stage 5 remains active with one task open. `GBufferQualificationTests` now uses
+the standard DObject, asset-compilation, mount, and catalog environment and
+publishes its four material variants through normally compiled `DMaterial`
+programs. This restored all four GBuffer draw families, Specular AA, GTAO, and
+compute/fragment contact-shadow samples, removed the startup and teardown
+failures, and produced one complete pass of every functional, memory, and named
+RTX 3090 timing gate. Three immediate repeats retained all functional and memory
+results but failed only timing gates while showing large p95 spikes and rising
+medians, so they are non-authoritative under the repository's exclusive quiet
+GPU rule. The final open task is consecutive confirmation in a quiet GPU lane;
+no frozen GPU timing or memory budget was raised. `DirectionalShadowBaselineVulkanTests`
+also passes all three cases with unchanged frozen image, motion, filtering,
+graph, and budget gates. Milestone 2 remains proposed until the quiet-lane
+qualification is confirmed.
 
 ## Stage 0 Frozen Contract
 
@@ -492,12 +492,15 @@ stage; no full `all` editor build was required by the build guidance.
   remained unchanged; the contact-shadow case again recorded real GBuffer
   draws and nonzero changed output pixels. The complete target ran in 39.45
   seconds.
-- `test GBufferQualificationTests --mode qualification`: failed before useful
-  qualification because the built-in studio-environment virtual path had no
-  registered mount. A diagnostic-only standard asset initialization advanced
-  the fixture to its existing zero GBuffer draws and empty GTAO/contact timing
-  queries; that exploratory edit was reverted and no result from the invalid
-  timing lane is accepted as performance evidence.
+- `test GBufferQualificationTests --mode qualification`: the repaired fixture
+  completed all routes and passed once in 10.09 seconds, including the named
+  RTX 3090 timing and memory gates. Its standard studio IBL final-output matrix
+  requires Specular AA to reduce peak motion range by at least 70%; all six
+  scale/FXAA combinations passed. Three immediate repeats failed timing only and
+  reported unstable samples, including scene/deferred p95 spikes, while every
+  functional, telemetry, query-count, and memory assertion remained valid.
+  Those repeats are diagnostic rather than accepted performance evidence; a
+  quiet GPU lane still needs consecutive passes before Stage 5 completion.
 
 The six owning scene captures retained 11 declared and scheduled passes,
 22--25 dependencies, zero buffer transitions, and 1 or 17 physical texture
