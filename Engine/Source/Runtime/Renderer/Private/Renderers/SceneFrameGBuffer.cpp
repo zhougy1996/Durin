@@ -15,14 +15,10 @@ namespace Durin
 		-> const FRenderGraphParametersMetadata*
 	{
 		static const std::array Members{
-			MakeRenderGraphResourceParameterMemberMetadata<
+			MakeRenderGraphValueParameterMemberMetadata<
 				FGBufferPassParameters, decltype(Completion),
-				FRenderGraphTokenParameter>("Completion",
-					offsetof(FGBufferPassParameters, Completion),
-					ERenderGraphParameterMemberKind::Token,
-					ERenderGraphResourceKind::Token,
-					ERenderGraphParameterRangeKind::None,
-					ERenderGraphUse::Write, ERHIAccess::None, true),
+				FGBufferPassResult>("Completion",
+					offsetof(FGBufferPassParameters, Completion)),
 			MakeRenderGraphResourceParameterMemberMetadata<
 				FGBufferPassParameters, decltype(Colors),
 				FRenderGraphColorAttachmentParameter>("Colors",
@@ -139,10 +135,9 @@ namespace Durin
 				.Texture = GraphResources.SceneDepth,
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		}
-		auto& GBufferResult = GBufferValue.Result;
 		(void)AddSceneFrameFeaturePass<FGBufferGraphContributor>(
 			Graph, ERenderGraphPassType::Graphics, std::move(Parameters),
-			[&Services, &GBufferResult, RecordInputs, &Options,
+			[&Services, RecordInputs, &Options,
 				Width, Height, bNeedsGBuffer, bWantsIsolatedDeferred](
 				FRHICommandListImmediate& Commands,
 				const FGBufferPassParameters& PassParameters,
@@ -166,7 +161,8 @@ namespace Durin
 						.Emissive = Resolver.GetColorAttachment(
 							PassParameters.Colors[3]).Texture};
 				}
-				GBufferResult = Services.Recorders.RenderGBuffer_RenderThread(
+				Resolver.WriteValue(PassParameters.Completion) =
+					Services.Recorders.RenderGBuffer_RenderThread(
 					Commands, RecordInputs, SceneTargets,
 					GBufferTargets ? &*GBufferTargets : nullptr,
 					Options, Width, Height,

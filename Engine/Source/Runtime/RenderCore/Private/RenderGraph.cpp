@@ -9,6 +9,7 @@
 #include <ranges>
 #include <sstream>
 #include <tuple>
+#include <unordered_map>
 
 namespace Durin
 {
@@ -27,6 +28,9 @@ namespace Durin
 			ERHIAccess FinalAccess = ERHIAccess::None;
 			bool bImported = false;
 			bool bRequiresBacking = false;
+			const void* ValueTypeIdentity = nullptr;
+			std::string ValueTypeName;
+			uint32 ValueStorageIndex = std::numeric_limits<uint32>::max();
 		};
 
 		struct FGraphUse
@@ -160,6 +164,71 @@ namespace Durin
 			return Desc;
 		}
 
+		auto TextureDescriptionsEqual(const FRHITextureDesc& Left,
+			const FRHITextureDesc& Right) -> bool
+		{
+			return Left.Dimension == Right.Dimension
+				&& Left.Flags == Right.Flags && Left.Format == Right.Format
+				&& Left.Extent == Right.Extent && Left.Depth == Right.Depth
+				&& Left.ArraySize == Right.ArraySize
+				&& Left.NumMips == Right.NumMips
+				&& Left.NumSamples == Right.NumSamples;
+		}
+
+		auto BufferDescriptionsEqual(const FRHIBufferDesc& Left,
+			const FRHIBufferDesc& Right) -> bool
+		{
+			return Left.Size == Right.Size && Left.Stride == Right.Stride
+				&& Left.Usage == Right.Usage;
+		}
+
+		auto DescribeImportContract(const FGraphResource& Resource) -> std::string
+		{
+			std::ostringstream Stream;
+			Stream << "kind=";
+			switch (Resource.Kind)
+			{
+			case ERenderGraphResourceKind::Texture:
+				Stream << "texture desc=(dimension="
+					<< static_cast<uint32>(Resource.TextureDesc.Dimension)
+					<< ",extent=" << Resource.TextureDesc.Extent.x << 'x'
+					<< Resource.TextureDesc.Extent.y << ",depth="
+					<< Resource.TextureDesc.Depth << ",array="
+					<< Resource.TextureDesc.ArraySize << ",mips="
+					<< static_cast<uint32>(Resource.TextureDesc.NumMips)
+					<< ",samples="
+					<< static_cast<uint32>(Resource.TextureDesc.NumSamples)
+					<< ",format="
+					<< static_cast<uint32>(Resource.TextureDesc.Format)
+					<< ",flags="
+					<< static_cast<uint64>(Resource.TextureDesc.Flags) << ')';
+				break;
+			case ERenderGraphResourceKind::Buffer:
+				Stream << "buffer desc=(size=" << Resource.BufferDesc.Size
+					<< ",stride=" << Resource.BufferDesc.Stride << ",usage="
+					<< static_cast<uint64>(Resource.BufferDesc.Usage) << ')';
+				break;
+			case ERenderGraphResourceKind::Token: Stream << "token"; break;
+			}
+			Stream << " initial=" << static_cast<uint64>(Resource.InitialAccess)
+				<< " final=" << static_cast<uint64>(Resource.FinalAccess);
+			return Stream.str();
+		}
+
+		auto ImportContractsEqual(const FGraphResource& Left,
+			const FGraphResource& Right) -> bool
+		{
+			if (Left.Kind != Right.Kind
+				|| Left.InitialAccess != Right.InitialAccess
+				|| Left.FinalAccess != Right.FinalAccess)
+				return false;
+			if (Left.Kind == ERenderGraphResourceKind::Texture)
+				return TextureDescriptionsEqual(Left.TextureDesc, Right.TextureDesc);
+			if (Left.Kind == ERenderGraphResourceKind::Buffer)
+				return BufferDescriptionsEqual(Left.BufferDesc, Right.BufferDesc);
+			return false;
+		}
+
 		auto IsAccessAllowed(ERenderGraphPassType Type, ERHIAccess Access) -> bool
 		{
 			ERHIAccess Allowed = ERHIAccess::None;
@@ -258,6 +327,17 @@ namespace Durin
 			case ERenderGraphPassType::Graphics: return "graphics";
 			case ERenderGraphPassType::Compute: return "compute";
 			case ERenderGraphPassType::Copy: return "copy";
+			}
+			return "unknown";
+		}
+
+		auto GraphUseName(ERenderGraphUse Use) -> const char*
+		{
+			switch (Use)
+			{
+			case ERenderGraphUse::Read: return "read";
+			case ERenderGraphUse::Write: return "write";
+			case ERenderGraphUse::ReadWrite: return "read-write";
 			}
 			return "unknown";
 		}
@@ -382,6 +462,16 @@ namespace Durin
 						? sizeof(std::optional<FRenderGraphManagedTextureParameter>)
 						: sizeof(FRenderGraphManagedTextureParameter);
 					break;
+				case ERenderGraphParameterMemberKind::ValueRead:
+					ExpectedElementSize = Member.bOptional
+						? sizeof(std::optional<TRenderGraphValueRead<std::byte>>)
+						: sizeof(TRenderGraphValueRead<std::byte>);
+					break;
+				case ERenderGraphParameterMemberKind::ValueWrite:
+					ExpectedElementSize = Member.bOptional
+						? sizeof(std::optional<TRenderGraphValueWrite<std::byte>>)
+						: sizeof(TRenderGraphValueWrite<std::byte>);
+					break;
 				case ERenderGraphParameterMemberKind::Nested: break;
 				}
 				if (Member.ElementSize != ExpectedElementSize)
@@ -456,6 +546,19 @@ namespace Durin
 						&& Member.RangeKind == ERenderGraphParameterRangeKind::TextureSubresource
 						&& Member.bPassManagedTransition
 						&& Member.ResultAccess != ERHIAccess::None;
+					break;
+				case ERenderGraphParameterMemberKind::ValueRead:
+				case ERenderGraphParameterMemberKind::ValueWrite:
+					bShapeValid = bTokenKind
+						&& Member.RangeKind == ERenderGraphParameterRangeKind::None
+						&& Member.Access == ERHIAccess::None
+						&& !Member.bPassManagedTransition
+						&& Member.ResultAccess == ERHIAccess::None
+						&& Member.ValueTypeIdentity != nullptr
+						&& Member.ReadValueHandle != nullptr
+						&& Member.Use == (Member.Kind
+							== ERenderGraphParameterMemberKind::ValueRead
+							? ERenderGraphUse::Read : ERenderGraphUse::Write);
 					break;
 				case ERenderGraphParameterMemberKind::Nested: break;
 				}
@@ -575,6 +678,7 @@ namespace Durin
 	{
 		uint64 Owner = 0;
 		std::vector<FGraphResource> Resources;
+		std::unordered_map<const void*, uint32> ImportedResources;
 		std::vector<FGraphPass> Passes;
 		std::vector<std::string> DeclarationErrors;
 		bool bEnableCulling = false;
@@ -583,6 +687,8 @@ namespace Durin
 		FRenderGraphBudget Budget;
 		mutable FGraphParameterStorage ParameterStorage;
 		mutable bool bParameterStorageTransferred = false;
+		mutable FGraphParameterStorage ValueStorage;
+		mutable bool bValueStorageTransferred = false;
 	};
 
 	struct FCompiledRenderGraph::FState
@@ -600,6 +706,8 @@ namespace Durin
 		std::vector<const FRenderGraphParametersMetadata*> PassParametersMetadata;
 		std::vector<const void*> PassParameters;
 		std::vector<std::vector<uint32>> PassResourceIndices;
+		std::vector<std::vector<std::pair<uint32, ERenderGraphUse>>>
+			PassValueUses;
 		std::vector<std::vector<uint32>> PassBufferTransitionResources;
 		std::vector<std::vector<uint32>> PassTextureTransitionResources;
 		std::vector<uint32> FinalBufferTransitionResources;
@@ -612,6 +720,7 @@ namespace Durin
 		FRenderGraphBackingResolver Resolver;
 		FRenderGraphBudget Budget;
 		FGraphParameterStorage ParameterStorage;
+		FGraphParameterStorage ValueStorage;
 		uint64 CompileMicroseconds = 0;
 		mutable std::atomic<uint64> ExecuteMicroseconds = 0;
 	};
@@ -660,11 +769,78 @@ namespace Durin
 			(*Allocation)->bConstructed = true;
 	}
 
+	auto FRenderGraphBuilder::StateOwner() const -> uint64
+	{
+		return State->Owner;
+	}
+
+	auto FRenderGraphBuilder::AllocateValueStorage(std::string_view Name,
+		std::string_view StableTypeName, const void* TypeIdentity, size_t Size,
+		size_t Alignment, void (*Destroy)(void*), uint32& OutIndex) -> void*
+	{
+		if (State->bValueStorageTransferred)
+		{
+			State->DeclarationErrors.emplace_back(
+				"render graph value storage was already transferred");
+			return nullptr;
+		}
+		if (Name.empty() || StableTypeName.empty() || TypeIdentity == nullptr
+			|| Size == 0 || Alignment == 0 || Destroy == nullptr)
+		{
+			State->DeclarationErrors.emplace_back(
+				"render graph value has invalid storage metadata");
+			return nullptr;
+		}
+		for (const auto& Existing : State->Resources)
+		{
+			if (Existing.ValueTypeIdentity == nullptr) continue;
+			if (Existing.ValueTypeIdentity == TypeIdentity
+				&& Existing.ValueTypeName != StableTypeName)
+			{
+				State->DeclarationErrors.push_back("typed value '"
+					+ std::string(Name) + "' changes stable type name from '"
+					+ Existing.ValueTypeName + "' to '"
+					+ std::string(StableTypeName) + "'");
+				return nullptr;
+			}
+			if (Existing.ValueTypeIdentity != TypeIdentity
+				&& Existing.ValueTypeName == StableTypeName)
+			{
+				State->DeclarationErrors.push_back("typed value '"
+					+ std::string(Name) + "' reuses stable type name '"
+					+ std::string(StableTypeName) + "' for a different C++ type");
+				return nullptr;
+			}
+		}
+		auto Allocation = std::make_shared<FGraphParameterAllocation>(
+			Size, Alignment, Destroy);
+		FGraphResource Resource;
+		Resource.Name = Name;
+		Resource.Kind = ERenderGraphResourceKind::Token;
+		Resource.ValueTypeIdentity = TypeIdentity;
+		Resource.ValueTypeName = StableTypeName;
+		Resource.ValueStorageIndex = static_cast<uint32>(
+			State->ValueStorage.Allocations.size());
+		OutIndex = static_cast<uint32>(State->Resources.size());
+		State->Resources.push_back(std::move(Resource));
+		void* Data = Allocation->Data;
+		State->ValueStorage.Allocations.push_back(std::move(Allocation));
+		return Data;
+	}
+
+	auto FRenderGraphBuilder::MarkValueStorageConstructed(uint32 ResourceIndex)
+		-> void
+	{
+		if (ResourceIndex >= State->Resources.size()) return;
+		const uint32 StorageIndex = State->Resources[ResourceIndex].ValueStorageIndex;
+		if (StorageIndex < State->ValueStorage.Allocations.size())
+			State->ValueStorage.Allocations[StorageIndex]->bConstructed = true;
+	}
+
 	auto FRenderGraphBuilder::ImportTexture(std::string_view Name,
 		FRHITexture* Texture, ERHIAccess InitialAccess, ERHIAccess FinalAccess)
 		-> FRenderGraphTextureHandle
 	{
-		const uint32 Index = static_cast<uint32>(State->Resources.size());
 		FGraphResource Resource;
 		Resource.Name = Name;
 		Resource.Kind = ERenderGraphResourceKind::Texture;
@@ -673,7 +849,25 @@ namespace Durin
 		Resource.InitialAccess = InitialAccess;
 		Resource.FinalAccess = FinalAccess;
 		Resource.bImported = true;
+		if (Texture != nullptr)
+		{
+			const auto Existing = State->ImportedResources.find(Texture);
+			if (Existing != State->ImportedResources.end())
+			{
+				const uint32 ExistingIndex = Existing->second;
+				const auto& Canonical = State->Resources[ExistingIndex];
+				if (!ImportContractsEqual(Canonical, Resource))
+					State->DeclarationErrors.emplace_back(
+						"conflicting imported physical resource: canonical '"
+						+ Canonical.Name + "' (" + DescribeImportContract(Canonical)
+						+ ") conflicts with '" + std::string(Name) + "' ("
+						+ DescribeImportContract(Resource) + ")");
+				return {State->Owner, ExistingIndex};
+			}
+		}
+		const uint32 Index = static_cast<uint32>(State->Resources.size());
 		State->Resources.push_back(std::move(Resource));
+		if (Texture != nullptr) State->ImportedResources.emplace(Texture, Index);
 		return {State->Owner, Index};
 	}
 
@@ -713,7 +907,6 @@ namespace Durin
 		FRHIBuffer* Buffer, ERHIAccess InitialAccess, ERHIAccess FinalAccess)
 		-> FRenderGraphBufferHandle
 	{
-		const uint32 Index = static_cast<uint32>(State->Resources.size());
 		FGraphResource Resource;
 		Resource.Name = Name;
 		Resource.Kind = ERenderGraphResourceKind::Buffer;
@@ -722,7 +915,25 @@ namespace Durin
 		Resource.InitialAccess = InitialAccess;
 		Resource.FinalAccess = FinalAccess;
 		Resource.bImported = true;
+		if (Buffer != nullptr)
+		{
+			const auto Existing = State->ImportedResources.find(Buffer);
+			if (Existing != State->ImportedResources.end())
+			{
+				const uint32 ExistingIndex = Existing->second;
+				const auto& Canonical = State->Resources[ExistingIndex];
+				if (!ImportContractsEqual(Canonical, Resource))
+					State->DeclarationErrors.emplace_back(
+						"conflicting imported physical resource: canonical '"
+						+ Canonical.Name + "' (" + DescribeImportContract(Canonical)
+						+ ") conflicts with '" + std::string(Name) + "' ("
+						+ DescribeImportContract(Resource) + ")");
+				return {State->Owner, ExistingIndex};
+			}
+		}
+		const uint32 Index = static_cast<uint32>(State->Resources.size());
 		State->Resources.push_back(std::move(Resource));
+		if (Buffer != nullptr) State->ImportedResources.emplace(Buffer, Index);
 		return {State->Owner, Index};
 	}
 
@@ -938,6 +1149,23 @@ namespace Durin
 								DeclaredUse.TextureRange = Value.Range;
 							});
 						break;
+					case ERenderGraphParameterMemberKind::ValueRead:
+					case ERenderGraphParameterMemberKind::ValueWrite:
+					{
+						uint64 Owner = 0;
+						uint32 Index = 0;
+						bPresent = Member.ReadValueHandle != nullptr
+							&& Member.ReadValueHandle(ElementData, Owner, Index);
+						DeclaredUse.ResourceIndex = Owner == State->Owner
+							? Index : std::numeric_limits<uint32>::max();
+						DeclaredUse.bDiscard = Member.Use == ERenderGraphUse::Write;
+						if (bPresent && (Index >= State->Resources.size()
+							|| State->Resources[Index].ValueTypeIdentity
+								!= Member.ValueTypeIdentity))
+							DeclaredUse.ResourceIndex =
+								std::numeric_limits<uint32>::max();
+						break;
+					}
 					case ERenderGraphParameterMemberKind::Nested: break;
 					}
 					if (bPresent)
@@ -1151,6 +1379,36 @@ namespace Durin
 		State->Passes[Pass.Index].Uses.push_back(DeclaredUse);
 	}
 
+	auto FRenderGraphBuilder::UseValueErased(FRenderGraphPassHandle Pass,
+		uint64 Owner, uint32 Index, const void* TypeIdentity,
+		ERenderGraphUse Use) -> void
+	{
+		if (!CanDeclareManualUse(Pass,
+			"typed value use has an invalid pass handle")) return;
+		if (Use != ERenderGraphUse::Read && Use != ERenderGraphUse::Write)
+		{
+			State->DeclarationErrors.push_back("pass '"
+				+ State->Passes[Pass.Index].Name
+				+ "' declares a typed value with invalid read/write direction");
+			return;
+		}
+		if (Owner != State->Owner || Index >= State->Resources.size()
+			|| State->Resources[Index].ValueTypeIdentity == nullptr
+			|| State->Resources[Index].ValueTypeIdentity != TypeIdentity)
+		{
+			State->DeclarationErrors.push_back("pass '"
+				+ State->Passes[Pass.Index].Name
+				+ "' declares an invalid, foreign, or wrongly typed graph value");
+			return;
+		}
+		FGraphUse DeclaredUse;
+		DeclaredUse.ResourceIndex = Index;
+		DeclaredUse.Kind = ERenderGraphResourceKind::Token;
+		DeclaredUse.Use = Use;
+		DeclaredUse.bDiscard = Use == ERenderGraphUse::Write;
+		State->Passes[Pass.Index].Uses.push_back(std::move(DeclaredUse));
+	}
+
 	auto FRenderGraphBuilder::Compile() const -> FRenderGraphCompileResult
 	{
 		const auto Started = std::chrono::steady_clock::now();
@@ -1161,6 +1419,8 @@ namespace Durin
 			return Fail(State->DeclarationErrors.front());
 		if (State->bParameterStorageTransferred)
 			return Fail("render graph parameter storage was already transferred");
+		if (State->bValueStorageTransferred)
+			return Fail("render graph value storage was already transferred");
 		for (uint32 ResourceIndex = 0; ResourceIndex < State->Resources.size(); ++ResourceIndex)
 		{
 			const auto& Resource = State->Resources[ResourceIndex];
@@ -1255,6 +1515,20 @@ namespace Durin
 		for (const auto& Pass : State->Passes)
 			for (const auto& Use : Pass.Uses)
 				ResourceUses[Use.ResourceIndex].push_back(&Use);
+		for (uint32 ResourceIndex = 0; ResourceIndex < ResourceCount;
+			++ResourceIndex)
+		{
+			const auto& Resource = State->Resources[ResourceIndex];
+			if (Resource.ValueTypeIdentity == nullptr) continue;
+			const size_t Writers = std::ranges::count_if(
+				ResourceUses[ResourceIndex], [](const FGraphUse* Use) {
+					return Use->Use == ERenderGraphUse::Write;
+				});
+			if (Writers != 1)
+				return Fail("typed value '" + Resource.Name + "' type '"
+					+ Resource.ValueTypeName + "' requires exactly one writer; actual="
+					+ std::to_string(Writers));
+		}
 
 		std::vector<FRangeState> Cells;
 		Cells.reserve(DeclaredUseCount);
@@ -1420,6 +1694,7 @@ namespace Durin
 		CompiledState->PassParametersMetadata.reserve(PassCount);
 		CompiledState->PassParameters.reserve(PassCount);
 		CompiledState->PassResourceIndices.reserve(PassCount);
+		CompiledState->PassValueUses.reserve(PassCount);
 		CompiledState->PassBufferTransitionResources.reserve(PassCount);
 		CompiledState->PassTextureTransitionResources.reserve(PassCount);
 		CompiledState->ResourceCaptures.reserve(ResourceCount);
@@ -1437,6 +1712,7 @@ namespace Durin
 			CompiledState->ResourceCaptures.push_back({ResourceIndex, Resource.Name,
 				Resource.Kind, Resource.bImported, Resource.BackingClass, "unused"});
 			auto& Capture = CompiledState->ResourceCaptures.back();
+			Capture.ValueType = Resource.ValueTypeName;
 			Capture.TextureFormat = Resource.TextureDesc.Format;
 			Capture.TextureExtent = Resource.TextureDesc.Extent;
 			Capture.TextureArraySize = Resource.TextureDesc.ArraySize;
@@ -1466,6 +1742,7 @@ namespace Durin
 			FCompiledRenderGraphPass CompiledPass{.Name = Pass.Name, .Type = Pass.Type,
 				.DeclarationIndex = ScheduledIndex};
 			std::vector<uint32> DeclaredResources;
+			std::vector<std::pair<uint32, ERenderGraphUse>> DeclaredValueUses;
 			std::vector<uint32> BufferTransitionResources;
 			std::vector<uint32> TextureTransitionResources;
 			DeclaredResources.reserve(Pass.Uses.size());
@@ -1477,6 +1754,8 @@ namespace Durin
 			{
 				if (std::ranges::find(DeclaredResources, Use.ResourceIndex) == DeclaredResources.end())
 					DeclaredResources.push_back(Use.ResourceIndex);
+				if (State->Resources[Use.ResourceIndex].ValueTypeIdentity != nullptr)
+					DeclaredValueUses.emplace_back(Use.ResourceIndex, Use.Use);
 				auto& Lifetime = CompiledState->ResourceLifetimes[Use.ResourceIndex];
 				Lifetime.FirstPass = std::min(Lifetime.FirstPass, CompiledPassIndex);
 				Lifetime.LastPass = CompiledPassIndex;
@@ -1550,6 +1829,7 @@ namespace Durin
 			CompiledState->PassParametersMetadata.push_back(Pass.ParametersMetadata);
 			CompiledState->PassParameters.push_back(Pass.Parameters);
 			CompiledState->PassResourceIndices.push_back(std::move(DeclaredResources));
+			CompiledState->PassValueUses.push_back(std::move(DeclaredValueUses));
 			CompiledState->PassBufferTransitionResources.push_back(
 				std::move(BufferTransitionResources));
 			CompiledState->PassTextureTransitionResources.push_back(
@@ -1644,6 +1924,11 @@ namespace Durin
 		{
 			CompiledState->ParameterStorage = std::move(State->ParameterStorage);
 			State->bParameterStorageTransferred = true;
+		}
+		if (!State->ValueStorage.Allocations.empty())
+		{
+			CompiledState->ValueStorage = std::move(State->ValueStorage);
+			State->bValueStorageTransferred = true;
 		}
 		return {std::unique_ptr<FCompiledRenderGraph>(
 			new FCompiledRenderGraph(std::move(CompiledState))), {}};
@@ -1773,7 +2058,8 @@ namespace Durin
 				<< Resource.Name << " kind=" << static_cast<uint32>(Resource.Kind)
 				<< " imported=" << Resource.bImported << " backing="
 				<< Resource.BackingClass << " preparation="
-				<< Resource.Preparation << " format="
+				<< Resource.Preparation << " value-type="
+				<< Resource.ValueType << " format="
 				<< static_cast<uint32>(Resource.TextureFormat) << " extent="
 				<< Resource.TextureExtent.x << 'x' << Resource.TextureExtent.y
 				<< " layers=" << Resource.TextureArraySize << " mips="
@@ -1782,7 +2068,8 @@ namespace Durin
 		for (const auto& Use : State->UseCaptures)
 		{
 			Output << "use pass=" << Use.PassDeclarationIndex << " resource="
-				<< Use.ResourceId << " version=" << Use.Version << " access="
+				<< Use.ResourceId << " direction=" << GraphUseName(Use.Use)
+				<< " version=" << Use.Version << " access="
 				<< static_cast<uint32>(Use.Access) << " aspects="
 				<< static_cast<uint32>(Use.TextureRange.Aspects) << " mip="
 				<< Use.TextureRange.FirstMip << '+' << Use.TextureRange.NumMips
@@ -1980,6 +2267,33 @@ namespace Durin
 		return Resource.Buffer;
 	}
 
+	auto FRenderGraphPassResources::ResolveValue(uint64 Owner, uint32 Index,
+		const void* TypeIdentity, bool bWrite) const -> void*
+	{
+		requiref(Owner == Graph.State->Owner
+			&& Index < Graph.State->Resources.size(),
+			"Render graph callback used an invalid typed value handle.");
+		const auto& Resource = Graph.State->Resources[Index];
+		requiref(Resource.ValueTypeIdentity != nullptr
+			&& Resource.ValueTypeIdentity == TypeIdentity,
+			"Render graph callback used a wrongly typed value handle.");
+		requiref(PassIndex < Graph.State->PassValueUses.size()
+			&& std::ranges::any_of(Graph.State->PassValueUses[PassIndex],
+				[&](const auto& Use) {
+					return Use.first == Index && Use.second == (bWrite
+						? ERenderGraphUse::Write : ERenderGraphUse::Read);
+				}),
+			"Render graph pass '{}' accessed typed value '{}' with an undeclared "
+			"or wrong-direction capability.",
+			PassIndex < Graph.State->Passes.size()
+				? Graph.State->Passes[PassIndex].Name : "<invalid>", Resource.Name);
+		requiref(Resource.ValueStorageIndex
+			< Graph.State->ValueStorage.Allocations.size(),
+			"Render graph callback resolved unavailable typed value storage.");
+		return Graph.State->ValueStorage.Allocations[
+			Resource.ValueStorageIndex]->Data;
+	}
+
 	auto FRenderGraphParameterResolver::FindMember(const void* Address,
 		ERenderGraphParameterMemberKind ExpectedKind,
 		ERenderGraphParameterMemberKind AlternateKind, bool bOptional) const
@@ -2041,6 +2355,8 @@ namespace Durin
 							ReadOptionalAddress.template operator()<
 								FRenderGraphManagedTextureParameter>();
 							break;
+						case ERenderGraphParameterMemberKind::ValueRead:
+						case ERenderGraphParameterMemberKind::ValueWrite:
 						case ERenderGraphParameterMemberKind::Token:
 						case ERenderGraphParameterMemberKind::Nested: break;
 						}

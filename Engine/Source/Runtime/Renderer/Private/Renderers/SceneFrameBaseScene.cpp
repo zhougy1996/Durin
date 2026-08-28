@@ -81,11 +81,11 @@ namespace Durin
 			Declare(GraphResources.DefaultShadowArray,
 				Services.DefaultTextures.GetArray_RenderThread());
 			Declare(GraphResources.EnvironmentIrradiance,
-				Services.EnvironmentLighting.GetIrradiance_RenderThread());
+				GraphResources.SelectedEnvironmentIrradiance);
 			Declare(GraphResources.EnvironmentPrefiltered,
-				Services.EnvironmentLighting.GetPrefiltered_RenderThread());
+				GraphResources.SelectedEnvironmentPrefiltered);
 			Declare(GraphResources.EnvironmentBrdfLut,
-				Services.EnvironmentLighting.GetBrdfLut_RenderThread());
+				GraphResources.SelectedEnvironmentBrdfLut);
 		};
 		const auto BaseScenePass =
 			AddSceneFrameFeaturePass<FBaseSceneGraphContributor>(
@@ -99,7 +99,7 @@ namespace Durin
 				const FSceneColorTimingQuerySink TimingSink =
 					GetSceneColorTimingQuerySink();
 				TScopedRendererGPUTimingQuery Timing(Commands, TimingSink);
-				Channels.BaseScene.Result = Services.Recorders.RenderBaseScene_RenderThread(
+				Resources.WriteValue(Channels.BaseScene.Handle) = Services.Recorders.RenderBaseScene_RenderThread(
 					Commands,
 					RecordInputs,
 					SceneTargets.Color, SceneTargets.Depth,
@@ -107,8 +107,8 @@ namespace Durin
 						? &*ProductionDeferredParameters : nullptr);
 				Timing.Commit();
 			});
-		Graph.UseToken(BaseScenePass, DeferredDirectionalLightingValue.Handle, ERenderGraphUse::Read);
-		Graph.UseToken(BaseScenePass, BaseSceneValue.Handle,
+		Graph.UseValue(BaseScenePass, DeferredDirectionalLightingValue.Handle, ERenderGraphUse::Read);
+		Graph.UseValue(BaseScenePass, BaseSceneValue.Handle,
 			ERenderGraphUse::Write);
 		if (GraphResources.DirectionalShadow)
 			Graph.UseTexture(BaseScenePass, *GraphResources.DirectionalShadow,

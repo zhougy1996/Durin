@@ -81,39 +81,47 @@ namespace Durin
 			Declare(GraphResources.DefaultShadowArray,
 				Services.DefaultTextures.GetArray_RenderThread());
 			Declare(GraphResources.EnvironmentIrradiance,
-				Services.EnvironmentLighting.GetIrradiance_RenderThread());
+				GraphResources.SelectedEnvironmentIrradiance);
 			Declare(GraphResources.EnvironmentPrefiltered,
-				Services.EnvironmentLighting.GetPrefiltered_RenderThread());
+				GraphResources.SelectedEnvironmentPrefiltered);
 			Declare(GraphResources.EnvironmentBrdfLut,
-				Services.EnvironmentLighting.GetBrdfLut_RenderThread());
+				GraphResources.SelectedEnvironmentBrdfLut);
 		};
 		const auto SceneColorPass =
 			AddSceneFrameFeaturePass<FSceneColorGraphContributor>(
 				Graph, ERenderGraphPassType::Graphics,
-			[&Services, &Channels, RecordInputs, &GraphResources, &Topology,
+			[&Services, &Channels, &Composition = Context.Composition,
+				RecordInputs, &GraphResources, &Topology,
 				bRequiresDeferredOpaque](FRHICommandListImmediate& Commands,
 				const FRenderGraphPassResources& Resources) {
+				auto& SceneColorResult = Resources.WriteValue(
+					Channels.SceneColor.Handle);
+				const auto& BaseSceneResult = Resources.ReadValue(
+					Channels.BaseScene.Handle);
+				const auto& VolumetricCloudResult = Resources.ReadValue(
+					Channels.VolumetricCloud.Handle);
 				if (!bRequiresDeferredOpaque)
-					Channels.SceneColor.Result = Channels.BaseScene.Result;
+					SceneColorResult = BaseSceneResult;
 				else
 				{
-					FSceneColorPassResult Input = Channels.BaseScene.Result;
+					FSceneColorPassResult Input = BaseSceneResult;
 					if (Topology.bVolumetricCloudComposite
-						&& !Channels.VolumetricCloud.Result.bCompositeOutputValid)
+						&& !VolumetricCloudResult.bCompositeOutputValid)
 						Input.Result = ERenderViewResult::RendererResourcesUnavailable;
 					FRHITexture* Color = Topology.bVolumetricCloudComposite
 						&& GraphResources.VolumetricCloudComposite
 						? Resources.GetTexture(
 							*GraphResources.VolumetricCloudComposite)
 						: Resources.GetTexture(GraphResources.SceneColor);
-					Channels.SceneColor.Result = Services.Recorders.RenderSceneTranslucency_RenderThread(
+					SceneColorResult = Services.Recorders.RenderSceneTranslucency_RenderThread(
 						Commands,
 						RecordInputs,
 						Color,
 						Resources.GetTexture(GraphResources.SceneDepth), Input,
-						Channels.VolumetricCloud.Result);
+						VolumetricCloudResult);
 				}
-				if (!Channels.SceneColor.Result.IsSuccess()) return;
+				Composition.SceneColorPublication = SceneColorResult;
+				if (!SceneColorResult.IsSuccess()) return;
 				ReduceStaticMeshTelemetry(RecordInputs.Receiver.StaticMeshes,
 					Services.ResolvedFrame.Receiver.StaticMeshes, Services.Telemetry.View);
 				ReduceSkeletalMeshTelemetry(RecordInputs.Receiver.SkeletalMeshes,
@@ -122,11 +130,11 @@ namespace Durin
 				ReduceTerrainTelemetry(RecordInputs.Receiver.Terrains,
 					Services.ResolvedFrame.Receiver.Terrains, Services.Telemetry.View);
 			});
-		Graph.UseToken(SceneColorPass, BaseSceneValue.Handle,
+		Graph.UseValue(SceneColorPass, BaseSceneValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(SceneColorPass, VolumetricCloudValue.Handle,
+		Graph.UseValue(SceneColorPass, VolumetricCloudValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(SceneColorPass, SceneColorValue.Handle,
+		Graph.UseValue(SceneColorPass, SceneColorValue.Handle,
 			ERenderGraphUse::Write);
 		if (bRequiresDeferredOpaque)
 		{

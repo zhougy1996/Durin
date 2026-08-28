@@ -28,6 +28,7 @@ namespace Durin
 		const auto PreparedCloudRoute = Context.CloudRoute;
 		auto* CloudWeatherTexture = Context.CloudWeatherTexture;
 		auto* DirectionalShadowTexture = Context.DirectionalShadowTexture;
+		auto* EnvironmentSampler = Context.EnvironmentSampler;
 		const uint32 Width = Context.Width;
 		const uint32 Height = Context.Height;
 		const bool bPresentOutput = Context.bPresentOutput;
@@ -81,11 +82,11 @@ namespace Durin
 			Declare(GraphResources.DefaultShadowArray,
 				Services.DefaultTextures.GetArray_RenderThread());
 			Declare(GraphResources.EnvironmentIrradiance,
-				Services.EnvironmentLighting.GetIrradiance_RenderThread());
+				GraphResources.SelectedEnvironmentIrradiance);
 			Declare(GraphResources.EnvironmentPrefiltered,
-				Services.EnvironmentLighting.GetPrefiltered_RenderThread());
+				GraphResources.SelectedEnvironmentPrefiltered);
 			Declare(GraphResources.EnvironmentBrdfLut,
-				Services.EnvironmentLighting.GetBrdfLut_RenderThread());
+				GraphResources.SelectedEnvironmentBrdfLut);
 		};
 		if (Topology.bIsolatedDeferred)
 			GraphResources.IsolatedDeferred = Graph.CreateTexture(
@@ -105,7 +106,8 @@ namespace Durin
 			[&Services, &Channels, RecordView = &RecordView, &GraphResources, &Topology,
 				&Options, &DeferredParameters, &ProductionDeferredParameters,
 				Width, Height, bWantsDeferredInputs, bWantsIsolatedDeferred,
-				bWantsProductionDeferred, bHybridRetainedResourcesReady](
+				bWantsProductionDeferred, bHybridRetainedResourcesReady,
+				EnvironmentSampler](
 				FRHICommandListImmediate& Commands,
 				const FRenderGraphPassResources& Resources) {
 				std::optional<FGBufferRenderer::FTargets> GBufferTargets;
@@ -156,20 +158,41 @@ namespace Durin
 				if (GraphResources.VolumetricCloudShadowCompute)
 					ComputeCloudShadowTargets = {.Visibility = Resources.GetTexture(
 						*GraphResources.VolumetricCloudShadowCompute)};
+				const auto& DirectionalShadowResult = Resources.ReadValue(
+					Channels.DirectionalShadow.Handle);
+				const auto& GBufferResult = Resources.ReadValue(Channels.GBuffer.Handle);
+				const auto& AmbientOcclusionResult = Resources.ReadValue(
+					Channels.AmbientOcclusion.Handle);
+				const auto& ContactShadowResult = Resources.ReadValue(
+					Channels.ContactShadowVisibility.Handle);
+				const auto& CloudShadowResult = Resources.ReadValue(
+					Channels.CloudShadow.Handle);
+				auto& DeferredResult = Resources.WriteValue(
+					Channels.DeferredDirectionalLighting.Handle);
 				DeferredParameters = bWantsDeferredInputs
 					? Services.Recorders.BuildDeferredParameters(
-						*RecordView, Channels.DirectionalShadow.Result,
+						*RecordView,
+						GraphResources.EnvironmentIrradiance
+							? Resources.GetTexture(
+								*GraphResources.EnvironmentIrradiance) : nullptr,
+						GraphResources.EnvironmentPrefiltered
+							? Resources.GetTexture(
+								*GraphResources.EnvironmentPrefiltered) : nullptr,
+						GraphResources.EnvironmentBrdfLut
+							? Resources.GetTexture(
+								*GraphResources.EnvironmentBrdfLut) : nullptr,
+						EnvironmentSampler, DirectionalShadowResult,
 						GraphResources.DirectionalShadow
 							? Resources.GetTexture(*GraphResources.DirectionalShadow)
 							: nullptr,
-						Channels.GBuffer.Result,
+						GBufferResult,
 						GBufferTargets ? &*GBufferTargets : nullptr,
-						Channels.AmbientOcclusion.Result,
+						AmbientOcclusionResult,
 						AmbientOcclusionTargets ? &*AmbientOcclusionTargets : nullptr,
-						Channels.ContactShadowVisibility.Result,
+						ContactShadowResult,
 						FragmentContactTargets ? &*FragmentContactTargets : nullptr,
 						ComputeContactTargets ? &*ComputeContactTargets : nullptr,
-						Channels.CloudShadow.Result,
+						CloudShadowResult,
 						FragmentCloudShadowTargets
 							? &*FragmentCloudShadowTargets : nullptr,
 						ComputeCloudShadowTargets
@@ -183,19 +206,19 @@ namespace Durin
 					if (GraphResources.IsolatedDeferred)
 						IsolatedTargets = {.Color = Resources.GetTexture(
 							*GraphResources.IsolatedDeferred)};
-					Channels.DeferredDirectionalLighting.Result = Services.Recorders.RenderIsolatedDeferred_RenderThread(
+					DeferredResult = Services.Recorders.RenderIsolatedDeferred_RenderThread(
 						Commands, IsolatedTargets ? &*IsolatedTargets : nullptr,
 						*DeferredParameters, Options, Width, Height,
 						bWantsIsolatedDeferred);
 				}
 				else if (bWantsIsolatedDeferred)
 				{
-					Channels.DeferredDirectionalLighting.Result.Status = EScenePassStatus::Failed;
+					DeferredResult.Status = EScenePassStatus::Failed;
 					++Services.Telemetry.View.Deferred.DeferredDirectionalUnavailableViews;
 				}
 				const bool bProductionResourcesReady =
 					!bWantsProductionDeferred
-					|| (Channels.GBuffer.Result.IsComplete()
+					|| (GBufferResult.IsComplete()
 						&& bHybridRetainedResourcesReady
 						&& DeferredParameters.has_value());
 				if (bWantsProductionDeferred && bProductionResourcesReady)
@@ -204,18 +227,18 @@ namespace Durin
 					ProductionDeferredParameters->DiagnosticMode = 0;
 				}
 			});
-		Graph.UseToken(DeferredDirectionalLightingPass, DirectionalShadowValue.Handle,
+		Graph.UseValue(DeferredDirectionalLightingPass, DirectionalShadowValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(DeferredDirectionalLightingPass, GBufferValue.Handle,
+		Graph.UseValue(DeferredDirectionalLightingPass, GBufferValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(DeferredDirectionalLightingPass, AmbientOcclusionValue.Handle,
+		Graph.UseValue(DeferredDirectionalLightingPass, AmbientOcclusionValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(DeferredDirectionalLightingPass,
+		Graph.UseValue(DeferredDirectionalLightingPass,
 			ContactShadowVisibilityValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(DeferredDirectionalLightingPass, CloudShadowValue.Handle,
+		Graph.UseValue(DeferredDirectionalLightingPass, CloudShadowValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(DeferredDirectionalLightingPass,
+		Graph.UseValue(DeferredDirectionalLightingPass,
 			DeferredDirectionalLightingValue.Handle, ERenderGraphUse::Write);
 		if (GraphResources.DirectionalShadow)
 			Graph.UseTexture(DeferredDirectionalLightingPass,
@@ -273,6 +296,10 @@ namespace Durin
 
 	auto FSceneFrameFeatureRecorders::BuildDeferredParameters(
 		const FSceneView& RenderView,
+		FRHITexture* EnvironmentIrradiance,
+		FRHITexture* EnvironmentPrefiltered,
+		FRHITexture* EnvironmentBrdfLut,
+		FRHISampler* EnvironmentSampler,
 		const FDirectionalShadowPassResult& DirectionalShadow,
 		FRHITexture* DirectionalShadowTexture,
 		const FGBufferPassResult& GBuffer,
@@ -296,25 +323,6 @@ namespace Durin
 		FDeferredDirectionalLightingRenderer::FRenderParameters>
 	{
 		if (!GBuffer.IsComplete() || GBufferTargets == nullptr) return std::nullopt;
-		FRHITexture* EnvironmentIrradiance =
-			EnvironmentLighting.GetIrradiance_RenderThread();
-		FRHITexture* EnvironmentPrefiltered =
-			EnvironmentLighting.GetPrefiltered_RenderThread();
-		FRHITexture* EnvironmentBrdfLut =
-			EnvironmentLighting.GetBrdfLut_RenderThread();
-		FRHISampler* EnvironmentSampler =
-			EnvironmentLighting.GetSampler_RenderThread();
-		if (EnvironmentIrradiance == nullptr
-			|| EnvironmentPrefiltered == nullptr
-			|| EnvironmentBrdfLut == nullptr
-			|| EnvironmentSampler == nullptr)
-		{
-			EnvironmentIrradiance = DefaultTextures.GetCube_RenderThread();
-			EnvironmentPrefiltered = DefaultTextures.GetCube_RenderThread();
-			EnvironmentBrdfLut = DefaultTextures.Get_RenderThread(
-				EDefaultTexture::Black);
-			EnvironmentSampler = nullptr;
-		}
 		FRHITexture* White =
 			DefaultTextures.Get_RenderThread(EDefaultTexture::White);
 		const bool bAmbientOcclusionComplete = AmbientOcclusion.IsComplete()

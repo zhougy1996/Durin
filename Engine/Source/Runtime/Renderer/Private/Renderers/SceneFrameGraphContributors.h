@@ -12,7 +12,7 @@ namespace Durin
 
 	struct FGBufferPassParameters final
 	{
-		FRenderGraphTokenParameter Completion;
+		TRenderGraphValueWrite<FGBufferPassResult> Completion;
 		std::array<std::optional<FRenderGraphColorAttachmentParameter>, 4> Colors;
 		std::optional<FRenderGraphDepthStencilAttachmentParameter> Depth;
 
@@ -35,6 +35,7 @@ namespace Durin
 		FVolumetricCloudRenderer::ERoute CloudRoute;
 		FRHITexture* CloudWeatherTexture = nullptr;
 		FRHITexture* DirectionalShadowTexture = nullptr;
+		FRHISampler* EnvironmentSampler = nullptr;
 		uint32 Width = 0;
 		uint32 Height = 0;
 		bool bPresentOutput = false;

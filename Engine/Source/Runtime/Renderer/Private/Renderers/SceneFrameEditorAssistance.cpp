@@ -38,19 +38,23 @@ namespace Durin
 			const auto EditorAssistancePass =
 				AddSceneFrameFeaturePass<FEditorAssistanceGraphContributor>(
 					Graph, ERenderGraphPassType::Graphics,
-				[&Services, &Channels, RecordView = &RecordView, &GraphResources,
+				[&Services, &Channels, &Composition = Context.Composition,
+					RecordView = &RecordView, &GraphResources,
 					&PreparedEditorAssistance, bPresentOutput](
 					FRHICommandListImmediate& Commands,
 					const FRenderGraphPassResources& Resources) {
-					if (Channels.PostProcess.Result.Result != ERenderViewResult::Success) return;
-					Channels.PostProcess.Result.bEditorAssistance =
+					Composition.PostProcessPublication = Resources.ReadValue(
+						Channels.PostProcess.Handle);
+					if (Composition.PostProcessPublication.Result
+						!= ERenderViewResult::Success) return;
+					Composition.PostProcessPublication.bEditorAssistance =
 						Services.Recorders.RenderEditorAssistance_RenderThread(
 							Commands, *RecordView,
 							Resources.GetTexture(GraphResources.Output),
 							Resources.GetTexture(GraphResources.SceneDepth),
 							bPresentOutput, PreparedEditorAssistance);
 				});
-			Graph.UseToken(EditorAssistancePass, PostProcessValue.Handle,
+			Graph.UseValue(EditorAssistancePass, PostProcessValue.Handle,
 				ERenderGraphUse::Read);
 			Graph.UseToken(EditorAssistancePass, Channels.OutputCompletion,
 				ERenderGraphUse::Write);

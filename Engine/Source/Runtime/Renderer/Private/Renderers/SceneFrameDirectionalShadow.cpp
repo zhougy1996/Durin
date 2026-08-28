@@ -81,11 +81,11 @@ namespace Durin
 			Declare(GraphResources.DefaultShadowArray,
 				Services.DefaultTextures.GetArray_RenderThread());
 			Declare(GraphResources.EnvironmentIrradiance,
-				Services.EnvironmentLighting.GetIrradiance_RenderThread());
+				GraphResources.SelectedEnvironmentIrradiance);
 			Declare(GraphResources.EnvironmentPrefiltered,
-				Services.EnvironmentLighting.GetPrefiltered_RenderThread());
+				GraphResources.SelectedEnvironmentPrefiltered);
 			Declare(GraphResources.EnvironmentBrdfLut,
-				Services.EnvironmentLighting.GetBrdfLut_RenderThread());
+				GraphResources.SelectedEnvironmentBrdfLut);
 		};
 		const auto DirectionalShadowPass =
 			AddSceneFrameFeaturePass<FDirectionalShadowGraphContributor>(
@@ -93,14 +93,14 @@ namespace Durin
 			[&Services, &Channels, RecordInputs, &GraphResources](
 				FRHICommandListImmediate& Commands,
 				const FRenderGraphPassResources& Resources) {
-				Channels.DirectionalShadow.Result =
+				Resources.WriteValue(Channels.DirectionalShadow.Handle) =
 					Services.Recorders.RenderDirectionalShadow_RenderThread(Commands,
 						RecordInputs,
 						GraphResources.DirectionalShadow
 							? Resources.GetTexture(*GraphResources.DirectionalShadow)
 							: nullptr);
 			});
-		Graph.UseToken(DirectionalShadowPass, DirectionalShadowValue.Handle,
+		Graph.UseValue(DirectionalShadowPass, DirectionalShadowValue.Handle,
 			ERenderGraphUse::Write);
 		if (GraphResources.DirectionalShadow)
 			Graph.UseManagedDepthStencilAttachment(DirectionalShadowPass,

@@ -416,14 +416,14 @@ namespace Durin
 				? Composition.TargetResolutionResult
 				: ERenderViewResult::RendererResourcesUnavailable;
 		}
-		if (!Composition.Channels.SceneColor.Result.IsSuccess())
-			return Composition.Channels.SceneColor.Result.Result;
-		if (Composition.Channels.PostProcess.Result.Result
+		if (!Composition.SceneColorPublication.IsSuccess())
+			return Composition.SceneColorPublication.Result;
+		if (Composition.PostProcessPublication.Result
 			== ERenderViewResult::Success)
 		{
 			ViewStateSubmission.Commit();
 			TelemetryPublication.Commit();
 		}
-		return Composition.Channels.PostProcess.Result.Result;
+		return Composition.PostProcessPublication.Result;
 	}
 } // namespace Durin

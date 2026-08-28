@@ -57,20 +57,12 @@ namespace Durin
 		};
 		Graph.SetBudget(SceneFrameBudget);
 		Graph.EnablePassCulling();
-		std::vector<std::pair<FRHITexture*, FRenderGraphTextureHandle>>
-			PersistentTextureImports;
 		auto ImportPersistentTexture = [&](std::string_view Name,
 			FRHITexture* Texture) -> std::optional<FRenderGraphTextureHandle> {
 			if (!Texture) return std::nullopt;
-			const auto Existing = std::ranges::find(PersistentTextureImports,
-				Texture,
-				&std::pair<FRHITexture*, FRenderGraphTextureHandle>::first);
-			if (Existing != PersistentTextureImports.end()) return Existing->second;
-			const auto Handle = Graph.ImportTexture(Name, Texture,
+			return Graph.ImportTexture(Name, Texture,
 				ERHIAccess::GraphicsShaderRead,
 				ERHIAccess::GraphicsShaderRead);
-			PersistentTextureImports.emplace_back(Texture, Handle);
-			return Handle;
 		};
 		FRHITexture* DirectionalShadowTexture =
 			Services.DirectionalShadowRenderer.GetTexture_RenderThread();
@@ -95,15 +87,39 @@ namespace Durin
 			Services.DefaultTextures.Get_RenderThread(EDefaultTexture::White));
 		GraphResources.DefaultShadowArray = ImportPersistentTexture(
 			"Scene.Default.ShadowArray", Services.DefaultTextures.GetArray_RenderThread());
-		GraphResources.EnvironmentIrradiance = ImportPersistentTexture(
-			"Scene.Environment.Irradiance",
-			Services.EnvironmentLighting.GetIrradiance_RenderThread());
-		GraphResources.EnvironmentPrefiltered = ImportPersistentTexture(
-			"Scene.Environment.Prefiltered",
-			Services.EnvironmentLighting.GetPrefiltered_RenderThread());
-		GraphResources.EnvironmentBrdfLut = ImportPersistentTexture(
-			"Scene.Environment.BrdfLut",
-			Services.EnvironmentLighting.GetBrdfLut_RenderThread());
+		FRHISampler* SelectedEnvironmentSampler = nullptr;
+		if (bWantsDeferredInputs)
+		{
+			FRHITexture* Irradiance =
+				Services.EnvironmentLighting.GetIrradiance_RenderThread();
+			FRHITexture* Prefiltered =
+				Services.EnvironmentLighting.GetPrefiltered_RenderThread();
+			FRHITexture* BrdfLut =
+				Services.EnvironmentLighting.GetBrdfLut_RenderThread();
+			SelectedEnvironmentSampler =
+				Services.EnvironmentLighting.GetSampler_RenderThread();
+			if (Irradiance == nullptr || Prefiltered == nullptr
+				|| BrdfLut == nullptr || SelectedEnvironmentSampler == nullptr)
+			{
+				Irradiance = Services.DefaultTextures.GetCube_RenderThread();
+				Prefiltered = Services.DefaultTextures.GetCube_RenderThread();
+				BrdfLut = Services.DefaultTextures.Get_RenderThread(
+					EDefaultTexture::Black);
+				SelectedEnvironmentSampler = nullptr;
+			}
+			GraphResources.EnvironmentIrradiance = Graph.ImportTexture(
+				"Scene.Environment.Irradiance", Irradiance,
+				ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+			GraphResources.EnvironmentPrefiltered = Graph.ImportTexture(
+				"Scene.Environment.Prefiltered", Prefiltered,
+				ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+			GraphResources.EnvironmentBrdfLut = Graph.ImportTexture(
+				"Scene.Environment.BrdfLut", BrdfLut,
+				ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+			GraphResources.SelectedEnvironmentIrradiance = Irradiance;
+			GraphResources.SelectedEnvironmentPrefiltered = Prefiltered;
+			GraphResources.SelectedEnvironmentBrdfLut = BrdfLut;
+		}
 		GraphResources.SceneColor = Graph.CreateTexture("Scene.Color",
 			FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 				"SceneColor", Width, Height, EPixelFormat::RGBA16_FLOAT)
@@ -139,20 +155,35 @@ namespace Durin
 				GraphResources, Services.ResolvedFrame.Targets, Error);
 		});
 		Channels = {
-			.DirectionalShadow = {Graph.CreateToken("Scene.DirectionalShadowValue")},
-			.GBuffer = {Graph.CreateToken("Scene.GBufferValue")},
-			.AmbientOcclusion = {Graph.CreateToken("Scene.AmbientOcclusionValue")},
+			.DirectionalShadow = {Graph.CreateValue<FDirectionalShadowPassResult>(
+				"Scene.DirectionalShadowValue", "directional-shadow-result")},
+			.GBuffer = {Graph.CreateValue<FGBufferPassResult>(
+				"Scene.GBufferValue", "gbuffer-result")},
+			.AmbientOcclusion = {Graph.CreateValue<
+				FGroundTruthAmbientOcclusionPassResult>(
+					"Scene.AmbientOcclusionValue", "ambient-occlusion-result")},
 			.ContactShadowVisibility = {
-				Graph.CreateToken("Scene.ContactShadowVisibilityValue")},
-			.CloudShadow = {Graph.CreateToken("Scene.CloudShadowValue")},
+				Graph.CreateValue<FContactShadowVisibilityPassResult>(
+					"Scene.ContactShadowVisibilityValue",
+					"contact-shadow-visibility-result")},
+			.CloudShadow = {Graph.CreateValue<FVolumetricCloudShadowPassResult>(
+				"Scene.CloudShadowValue", "cloud-shadow-result")},
 			.DeferredDirectionalLighting = {
-				Graph.CreateToken("Scene.DeferredDirectionalLightingValue")},
-			.BaseScene = {Graph.CreateToken("Scene.BaseValue")},
+				Graph.CreateValue<FIsolatedDeferredPassResult>(
+					"Scene.DeferredDirectionalLightingValue",
+					"deferred-directional-lighting-result")},
+			.BaseScene = {Graph.CreateValue<FSceneColorPassResult>(
+				"Scene.BaseValue", "scene-color-result")},
 			.VolumetricCloudSpatial = {
-				Graph.CreateToken("Scene.VolumetricCloudSpatialValue")},
-			.VolumetricCloud = {Graph.CreateToken("Scene.VolumetricCloudValue")},
-			.SceneColor = {Graph.CreateToken("Scene.ColorValue")},
-			.PostProcess = {Graph.CreateToken("Scene.PostProcessValue")},
+				Graph.CreateValue<FVolumetricCloudSpatialPassResult>(
+					"Scene.VolumetricCloudSpatialValue",
+					"volumetric-cloud-spatial-result")},
+			.VolumetricCloud = {Graph.CreateValue<FVolumetricCloudPassResult>(
+				"Scene.VolumetricCloudValue", "volumetric-cloud-result")},
+			.SceneColor = {Graph.CreateValue<FSceneColorPassResult>(
+				"Scene.ColorValue", "scene-color-result")},
+			.PostProcess = {Graph.CreateValue<FPostProcessPassResult>(
+				"Scene.PostProcessValue", "post-process-result")},
 			.OutputCompletion = Graph.CreateToken("Scene.OutputCompletion")};
 		FSceneFrameGraphContributorContext Context{
 			.Graph = Graph,
@@ -168,6 +199,7 @@ namespace Durin
 			.CloudRoute = PreparedCloudRoute,
 			.CloudWeatherTexture = CloudWeatherTexture,
 			.DirectionalShadowTexture = DirectionalShadowTexture,
+			.EnvironmentSampler = SelectedEnvironmentSampler,
 			.Width = Width,
 			.Height = Height,
 			.bPresentOutput = bPresentOutput,

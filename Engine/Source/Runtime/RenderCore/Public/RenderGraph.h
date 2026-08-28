@@ -61,6 +61,8 @@ namespace Durin
 		ManagedColorAttachment,
 		ManagedDepthStencilAttachment,
 		ManagedTexture,
+		ValueRead,
+		ValueWrite,
 		Nested,
 	};
 
@@ -164,6 +166,33 @@ namespace Durin
 		uint32 Index = 0;
 	};
 
+	namespace RenderGraphPrivate
+	{
+		template<typename T>
+		inline constexpr uint8 GValueTypeIdentity = 0;
+	}
+
+	// Identifies one graph-owned payload with a compile-time C++ type.
+	template<typename T>
+	class TRenderGraphValueHandle final
+	{
+	public:
+		TRenderGraphValueHandle() = default;
+		auto IsValid() const -> bool { return Owner != 0; }
+		auto operator==(const TRenderGraphValueHandle&) const -> bool = default;
+		auto OwnerForValidation() const -> uint64 { return Owner; }
+		auto IndexForValidation() const -> uint32 { return Index; }
+
+	private:
+		friend class FRenderGraphBuilder;
+		friend class FRenderGraphPassResources;
+		friend class FRenderGraphParameterResolver;
+		TRenderGraphValueHandle(uint64 InOwner, uint32 InIndex)
+			: Owner(InOwner), Index(InIndex) {}
+		uint64 Owner = 0;
+		uint32 Index = 0;
+	};
+
 	// Carries a graph-local texture handle and its exact runtime subresource range.
 	struct FRenderGraphTextureParameter final
 	{
@@ -183,6 +212,20 @@ namespace Durin
 	struct FRenderGraphTokenParameter final
 	{
 		FRenderGraphTokenHandle Token;
+	};
+
+	// Declares const read access to one graph-owned typed value.
+	template<typename T>
+	struct TRenderGraphValueRead final
+	{
+		TRenderGraphValueHandle<T> Value;
+	};
+
+	// Declares mutable write access to one graph-owned typed value.
+	template<typename T>
+	struct TRenderGraphValueWrite final
+	{
+		TRenderGraphValueHandle<T> Value;
 	};
 
 	// Carries a graph-local color attachment and its exact runtime range.
@@ -231,6 +274,8 @@ namespace Durin
 		bool bPassManagedTransition = false;
 		ERHIAccess ResultAccess = ERHIAccess::None;
 		const FRenderGraphParametersMetadata* NestedParameters = nullptr;
+		const void* ValueTypeIdentity = nullptr;
+		bool (*ReadValueHandle)(const void*, uint64&, uint32&) = nullptr;
 	};
 
 	// Describes a complete graph-parameter structure without owning its members.
@@ -362,6 +407,52 @@ namespace Durin
 		};
 	}
 
+	template<typename ParameterStruct, typename MemberType, typename T>
+	constexpr auto MakeRenderGraphValueParameterMemberMetadata(
+		const char* Name, uint32 Offset)
+		-> FRenderGraphParameterMemberMetadata
+	{
+		using FTraits = TRenderGraphParameterMemberTraits<MemberType>;
+		constexpr bool bRead = std::same_as<typename FTraits::ValueType,
+			TRenderGraphValueRead<T>>;
+		constexpr bool bWrite = std::same_as<typename FTraits::ValueType,
+			TRenderGraphValueWrite<T>>;
+		static_assert(bRead || bWrite,
+			"Render graph value member type does not match its declaration");
+		static_assert(std::is_standard_layout_v<ParameterStruct>,
+			"Render graph parameter structs must use standard layout");
+		return {
+			.Name = Name,
+			.Offset = Offset,
+			.ElementSize = FTraits::ElementSize,
+			.ArraySize = FTraits::ArraySize,
+			.bOptional = FTraits::bOptional,
+			.Kind = bRead
+				? ERenderGraphParameterMemberKind::ValueRead
+				: ERenderGraphParameterMemberKind::ValueWrite,
+			.ResourceKind = ERenderGraphResourceKind::Token,
+			.Use = bRead ? ERenderGraphUse::Read : ERenderGraphUse::Write,
+			.bDiscard = bWrite,
+			.ValueTypeIdentity =
+				&RenderGraphPrivate::GValueTypeIdentity<std::remove_cv_t<T>>,
+			.ReadValueHandle = [](const void* Element, uint64& Owner,
+				uint32& Index) -> bool {
+				const typename FTraits::ValueType* Wrapper = nullptr;
+				if constexpr (FTraits::bOptional)
+				{
+					const auto& Optional = *static_cast<const std::optional<
+						typename FTraits::ValueType>*>(Element);
+					if (!Optional) return false;
+					Wrapper = &*Optional;
+				}
+				else Wrapper = static_cast<const typename FTraits::ValueType*>(Element);
+				Owner = Wrapper->Value.OwnerForValidation();
+				Index = Wrapper->Value.IndexForValidation();
+				return true;
+			},
+		};
+	}
+
 	// A move-only mutable capability for one builder-owned parameter allocation.
 	template<typename ParameterStruct>
 	class TRenderGraphParametersRef final
@@ -416,6 +507,18 @@ namespace Durin
 	public:
 		auto GetTexture(FRenderGraphTextureHandle Handle) const -> FRHITexture*;
 		auto GetBuffer(FRenderGraphBufferHandle Handle) const -> FRHIBuffer*;
+		template<typename T>
+		auto ReadValue(TRenderGraphValueHandle<T> Handle) const -> const T&
+		{
+			return *static_cast<const T*>(ResolveValue(Handle.Owner, Handle.Index,
+				&RenderGraphPrivate::GValueTypeIdentity<std::remove_cv_t<T>>, false));
+		}
+		template<typename T>
+		auto WriteValue(TRenderGraphValueHandle<T> Handle) const -> T&
+		{
+			return *static_cast<T*>(ResolveValue(Handle.Owner, Handle.Index,
+				&RenderGraphPrivate::GValueTypeIdentity<std::remove_cv_t<T>>, true));
+		}
 
 	private:
 		friend class FCompiledRenderGraph;
@@ -424,6 +527,8 @@ namespace Durin
 			: Graph(InGraph), PassIndex(InPassIndex)
 		{
 		}
+		auto ResolveValue(uint64 Owner, uint32 Index, const void* TypeIdentity,
+			bool bWrite) const -> void*;
 
 		const FCompiledRenderGraph& Graph;
 		uint32 PassIndex = 0;
@@ -484,6 +589,36 @@ namespace Durin
 		auto GetDepthStencilAttachment(const std::optional<
 			FRenderGraphDepthStencilAttachmentParameter>& Parameter) const
 			-> FRenderGraphAttachmentView;
+		template<typename T>
+		auto ReadValue(const TRenderGraphValueRead<T>& Parameter) const -> const T&
+		{
+			FindMember(&Parameter, ERenderGraphParameterMemberKind::ValueRead,
+				ERenderGraphParameterMemberKind::ValueRead, false);
+			return Resources.ReadValue(Parameter.Value);
+		}
+		template<typename T>
+		auto WriteValue(const TRenderGraphValueWrite<T>& Parameter) const -> T&
+		{
+			FindMember(&Parameter, ERenderGraphParameterMemberKind::ValueWrite,
+				ERenderGraphParameterMemberKind::ValueWrite, false);
+			return Resources.WriteValue(Parameter.Value);
+		}
+		template<typename T>
+		auto ReadValue(const std::optional<TRenderGraphValueRead<T>>& Parameter) const
+			-> const T*
+		{
+			FindMember(&Parameter, ERenderGraphParameterMemberKind::ValueRead,
+				ERenderGraphParameterMemberKind::ValueRead, true);
+			return Parameter ? &Resources.ReadValue(Parameter->Value) : nullptr;
+		}
+		template<typename T>
+		auto WriteValue(
+			const std::optional<TRenderGraphValueWrite<T>>& Parameter) const -> T*
+		{
+			FindMember(&Parameter, ERenderGraphParameterMemberKind::ValueWrite,
+				ERenderGraphParameterMemberKind::ValueWrite, true);
+			return Parameter ? &Resources.WriteValue(Parameter->Value) : nullptr;
+		}
 
 	private:
 		friend class FCompiledRenderGraph;
@@ -566,6 +701,7 @@ namespace Durin
 		bool bImported = false;
 		std::string BackingClass;
 		std::string Preparation;
+		std::string ValueType;
 		EPixelFormat TextureFormat = EPixelFormat::Unknown;
 		FIntPoint TextureExtent{0, 0};
 		uint16 TextureArraySize = 0;
@@ -784,6 +920,24 @@ namespace Durin
 			ERHIAccess FinalAccess = ERHIAccess::None)
 			-> FRenderGraphBufferHandle;
 		auto CreateToken(std::string_view Name) -> FRenderGraphTokenHandle;
+		template<typename T, typename... Args>
+		requires std::constructible_from<T, Args...> && std::destructible<T>
+		auto CreateValue(std::string_view Name, std::string_view StableTypeName,
+			Args&&... ConstructorArgs) -> TRenderGraphValueHandle<T>
+		{
+			static_assert(std::is_object_v<T> && !std::is_const_v<T>
+				&& !std::is_volatile_v<T>,
+				"Render graph values require an unqualified object type");
+			uint32 Index = 0;
+			void* Storage = AllocateValueStorage(Name, StableTypeName,
+				&RenderGraphPrivate::GValueTypeIdentity<T>, sizeof(T), alignof(T),
+				[](void* Value) { std::destroy_at(static_cast<T*>(Value)); }, Index);
+			if (Storage == nullptr) return {};
+			std::construct_at(static_cast<T*>(Storage),
+				std::forward<Args>(ConstructorArgs)...);
+			MarkValueStorageConstructed(Index);
+			return {StateOwner(), Index};
+		}
 
 		auto AddPass(std::string_view Name, ERenderGraphPassType Type,
 			FRenderGraphExecute Execute = {}) -> FRenderGraphPassHandle;
@@ -894,6 +1048,13 @@ namespace Durin
 			bool bDiscard = false) -> void;
 		auto UseToken(FRenderGraphPassHandle Pass, FRenderGraphTokenHandle Token,
 			ERenderGraphUse Use) -> void;
+		template<typename T>
+		auto UseValue(FRenderGraphPassHandle Pass,
+			TRenderGraphValueHandle<T> Value, ERenderGraphUse Use) -> void
+		{
+			UseValueErased(Pass, Value.Owner, Value.Index,
+				&RenderGraphPrivate::GValueTypeIdentity<std::remove_cv_t<T>>, Use);
+		}
 
 		auto Compile() const -> FRenderGraphCompileResult;
 
@@ -910,6 +1071,13 @@ namespace Durin
 			const FRenderGraphParametersMetadata* Metadata,
 			void (*Destroy)(void*), std::weak_ptr<void>& OutLifetime) -> void*;
 		auto MarkParameterStorageConstructed(void* Storage) -> void;
+		auto AllocateValueStorage(std::string_view Name,
+			std::string_view StableTypeName, const void* TypeIdentity, size_t Size,
+			size_t Alignment, void (*Destroy)(void*), uint32& OutIndex) -> void*;
+		auto MarkValueStorageConstructed(uint32 ResourceIndex) -> void;
+		auto UseValueErased(FRenderGraphPassHandle Pass, uint64 Owner,
+			uint32 Index, const void* TypeIdentity, ERenderGraphUse Use) -> void;
+		auto StateOwner() const -> uint64;
 		struct FState;
 		std::unique_ptr<FState> State;
 	};

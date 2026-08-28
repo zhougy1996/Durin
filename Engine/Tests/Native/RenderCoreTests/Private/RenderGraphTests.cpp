@@ -5,11 +5,66 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <bit>
 
 namespace Durin
 {
 	namespace
 	{
+		struct alignas(64) FTypedValuePayload final
+		{
+			explicit FTypedValuePayload(int* InDestructions = nullptr)
+				: Destructions(InDestructions) {}
+			int Value = 0;
+			int* Destructions = nullptr;
+			~FTypedValuePayload()
+			{
+				if (Destructions != nullptr) ++*Destructions;
+			}
+		};
+
+		struct FTypedValueWriteParameters final
+		{
+			TRenderGraphValueWrite<FTypedValuePayload> Output;
+
+			static auto GetRenderGraphParametersMetadata()
+				-> const FRenderGraphParametersMetadata*
+			{
+				static const std::array Members{
+					MakeRenderGraphValueParameterMemberMetadata<
+						FTypedValueWriteParameters, decltype(Output),
+						FTypedValuePayload>("Output", offsetof(
+							FTypedValueWriteParameters, Output)),
+				};
+				static const auto Metadata =
+					MakeInlineRenderGraphParametersMetadata<
+						FTypedValueWriteParameters>(
+							"FTypedValueWriteParameters", Members);
+				return &Metadata;
+			}
+		};
+
+		struct FTypedValueReadParameters final
+		{
+			TRenderGraphValueRead<FTypedValuePayload> Input;
+
+			static auto GetRenderGraphParametersMetadata()
+				-> const FRenderGraphParametersMetadata*
+			{
+				static const std::array Members{
+					MakeRenderGraphValueParameterMemberMetadata<
+						FTypedValueReadParameters, decltype(Input),
+						FTypedValuePayload>("Input", offsetof(
+							FTypedValueReadParameters, Input)),
+				};
+				static const auto Metadata =
+					MakeInlineRenderGraphParametersMetadata<
+						FTypedValueReadParameters>(
+							"FTypedValueReadParameters", Members);
+				return &Metadata;
+			}
+		};
+
 		auto WholeColor(uint32 Mips = 1) -> FRHITextureSubresourceRange
 		{
 			return {ERHITextureAspect::Color, 0, Mips, 0, 1};
@@ -1358,18 +1413,72 @@ namespace Durin
 		EXPECT_TRUE(Result.Graph->GetCullingDecisions()[2].bCulled);
 	}
 
-	TEST(FRenderGraphTests, RejectsDuplicateImportedIdentityAndDomainMismatch)
+	TEST(FRenderGraphTests, CanonicalizesEquivalentImportedIdentity)
 	{
 		FRHITexture Texture = MakeGraphTexture("Shared");
+		FRHIBuffer Buffer(FRHIBufferCreateDesc::Create(
+			"SharedBuffer", 64, 4, EBufferUsageFlags::UnorderedAccess));
+		FRenderGraphBuilder Builder;
+		const auto FirstTexture = Builder.ImportTexture("First", &Texture,
+			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto SecondTexture = Builder.ImportTexture("Second", &Texture,
+			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto FirstBuffer = Builder.ImportBuffer("FirstBuffer", &Buffer,
+			ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
+		const auto SecondBuffer = Builder.ImportBuffer("SecondBuffer", &Buffer,
+			ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
+		EXPECT_EQ(FirstTexture, SecondTexture);
+		EXPECT_EQ(FirstBuffer, SecondBuffer);
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		const auto Capture = Result.Graph->Capture();
+		ASSERT_EQ(Capture.Resources.size(), 2u);
+		EXPECT_EQ(Capture.Resources[0].Name, "First");
+		EXPECT_EQ(Capture.Resources[1].Name, "FirstBuffer");
+
+		FRenderGraphBuilder OtherBuilder;
+		const auto Other = OtherBuilder.ImportTexture("Other", &Texture,
+			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		EXPECT_NE(FirstTexture, Other);
+	}
+
+	TEST(FRenderGraphTests, RejectsConflictingImportedIdentityAndDomainMismatch)
+	{
+		FRHITexture Texture = MakeGraphTexture("Shared");
+		FRHIBuffer Buffer(FRHIBufferCreateDesc::Create(
+			"SharedBuffer", 64, 4, EBufferUsageFlags::UnorderedAccess));
 		FRenderGraphBuilder Duplicate;
 		Duplicate.ImportTexture("First", &Texture, ERHIAccess::GraphicsShaderRead,
 			ERHIAccess::GraphicsShaderRead);
-		Duplicate.ImportTexture("Second", &Texture, ERHIAccess::GraphicsShaderRead,
+		Duplicate.ImportTexture("Second", &Texture, ERHIAccess::ComputeShaderRead,
 			ERHIAccess::GraphicsShaderRead);
 		auto DuplicateResult = Duplicate.Compile();
 		EXPECT_FALSE(DuplicateResult.IsSuccess());
-		EXPECT_NE(DuplicateResult.Error.find("duplicate imported physical"),
+		EXPECT_NE(DuplicateResult.Error.find(
+			"conflicting imported physical resource: canonical 'First'"),
 			std::string::npos);
+		EXPECT_NE(DuplicateResult.Error.find("conflicts with 'Second'"),
+			std::string::npos);
+
+		FRenderGraphBuilder BufferConflict;
+		BufferConflict.ImportBuffer("CanonicalBuffer", &Buffer,
+			ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
+		BufferConflict.ImportBuffer("ConflictingBuffer", &Buffer,
+			ERHIAccess::ComputeShaderRead, ERHIAccess::TransferRead);
+		auto BufferConflictResult = BufferConflict.Compile();
+		EXPECT_FALSE(BufferConflictResult.IsSuccess());
+		EXPECT_NE(BufferConflictResult.Error.find(
+			"canonical 'CanonicalBuffer' (kind=buffer"), std::string::npos);
+		EXPECT_NE(BufferConflictResult.Error.find(
+			"conflicts with 'ConflictingBuffer'"), std::string::npos);
+
+		FRenderGraphBuilder NullImport;
+		const auto NullHandle = NullImport.ImportTexture("Null", nullptr,
+			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		EXPECT_TRUE(NullHandle.IsValid());
+		auto NullResult = NullImport.Compile();
+		EXPECT_FALSE(NullResult.IsSuccess());
+		EXPECT_EQ(NullResult.Error, "resource 'Null' has no physical resource");
 
 		FRenderGraphBuilder Domain;
 		const auto Imported = Domain.ImportTexture("Shared", &Texture,
@@ -1727,5 +1836,273 @@ namespace Durin
 		EXPECT_EQ(Capture.Statistics.Dependencies, 1u);
 		EXPECT_EQ(Capture.Dependencies[0].Cause, "Value");
 		EXPECT_NE(Capture.Dump.find("name=Consume"), std::string::npos);
+	}
+
+	TEST(FRenderGraphTests, TypedValuesReuseTokenDependencyAndCullingSemantics)
+	{
+		FRenderGraphBuilder Builder;
+		Builder.EnablePassCulling();
+		const auto Value = Builder.CreateValue<FTypedValuePayload>(
+			"Scene.Result", "scene-result");
+		bool bProduced = false;
+		bool bConsumed = false;
+		const auto Produce = Builder.AddPass("Produce",
+			ERenderGraphPassType::Compute,
+			[Value, &bProduced](FRHICommandListImmediate&,
+				const FRenderGraphPassResources& Resources) {
+				auto& Payload = Resources.WriteValue(Value);
+				EXPECT_EQ(reinterpret_cast<uintptr_t>(&Payload) % alignof(
+					FTypedValuePayload), 0u);
+				Payload.Value = 41;
+				bProduced = true;
+			});
+		Builder.UseValue(Produce, Value, ERenderGraphUse::Write);
+		const auto Consume = Builder.AddPass("Consume",
+			ERenderGraphPassType::Graphics,
+			[Value, &bConsumed](FRHICommandListImmediate&,
+				const FRenderGraphPassResources& Resources) {
+				EXPECT_EQ(Resources.ReadValue(Value).Value, 41);
+				bConsumed = true;
+			});
+		Builder.UseValue(Consume, Value, ERenderGraphUse::Read);
+		Builder.MarkPassRoot(Consume, "publish");
+
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		ASSERT_EQ(Result.Graph->GetDependencies().size(), 1u);
+		EXPECT_EQ(Result.Graph->GetDependencies()[0].Kind,
+			ERenderGraphDependencyKind::Value);
+		EXPECT_EQ(Result.Graph->GetDependencies()[0].Cause, "Scene.Result");
+		const auto Capture = Result.Graph->Capture();
+		ASSERT_EQ(Capture.Resources.size(), 1u);
+		EXPECT_EQ(Capture.Resources[0].ValueType, "scene-result");
+		EXPECT_EQ(Capture.Uses.size(), 2u);
+		EXPECT_TRUE(Result.Graph->Execute(FRHICommandListImmediate::Get()));
+		EXPECT_TRUE(bProduced);
+		EXPECT_TRUE(bConsumed);
+	}
+
+	TEST(FRenderGraphTests, ParameterizedTypedValuesExposeExactCapabilities)
+	{
+		FRenderGraphBuilder Builder;
+		const auto Value = Builder.CreateValue<FTypedValuePayload>(
+			"Scene.ParameterResult", "scene-result");
+		auto Write = Builder.AllocParameters<FTypedValueWriteParameters>();
+		Write->Output = {Value};
+		Builder.AddPass("Write", ERenderGraphPassType::Compute,
+			std::move(Write), [](FRHICommandListImmediate&,
+				const FTypedValueWriteParameters& Parameters,
+				const FRenderGraphParameterResolver& Resolver) {
+				Resolver.WriteValue(Parameters.Output).Value = 73;
+			});
+		auto Read = Builder.AllocParameters<FTypedValueReadParameters>();
+		Read->Input = {Value};
+		const auto ReadPass = Builder.AddPass("Read",
+			ERenderGraphPassType::Graphics, std::move(Read),
+			[](FRHICommandListImmediate&,
+				const FTypedValueReadParameters& Parameters,
+				const FRenderGraphParameterResolver& Resolver) {
+				EXPECT_EQ(Resolver.ReadValue(Parameters.Input).Value, 73);
+			});
+		Builder.MarkPassRoot(ReadPass, "publish");
+
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		const auto Capture = Result.Graph->Capture();
+		ASSERT_EQ(Capture.Uses.size(), 2u);
+		EXPECT_EQ(Capture.Uses[0].ParameterPath,
+			"FTypedValueWriteParameters.Output");
+		EXPECT_EQ(Capture.Uses[1].ParameterPath,
+			"FTypedValueReadParameters.Input");
+		EXPECT_TRUE(Result.Graph->Execute(FRHICommandListImmediate::Get()));
+	}
+
+	TEST(FRenderGraphTests, TypedValuesRejectInvalidWriterAndTypeContracts)
+	{
+		{
+			FRenderGraphBuilder Builder;
+			const auto Value = Builder.CreateValue<int>(
+				"MissingWriter", "signed-int", 0);
+			const auto Read = Builder.AddPass("Read",
+				ERenderGraphPassType::Graphics);
+			Builder.UseValue(Read, Value, ERenderGraphUse::Read);
+			auto Result = Builder.Compile();
+			EXPECT_FALSE(Result.IsSuccess());
+			EXPECT_EQ(Result.Error, "typed value 'MissingWriter' type 'signed-int' "
+				"requires exactly one writer; actual=0");
+		}
+		{
+			FRenderGraphBuilder Builder;
+			const auto Value = Builder.CreateValue<int>(
+				"DuplicateWriter", "signed-int", 0);
+			for (const char* Name : {"First", "Second"})
+			{
+				const auto Pass = Builder.AddPass(Name,
+					ERenderGraphPassType::Compute);
+				Builder.UseValue(Pass, Value, ERenderGraphUse::Write);
+			}
+			auto Result = Builder.Compile();
+			EXPECT_FALSE(Result.IsSuccess());
+			EXPECT_EQ(Result.Error, "typed value 'DuplicateWriter' type 'signed-int' "
+				"requires exactly one writer; actual=2");
+		}
+		{
+			FRenderGraphBuilder Builder;
+			const auto Value = Builder.CreateValue<int>(
+				"WrongType", "signed-int", 0);
+			const auto Wrong = std::bit_cast<TRenderGraphValueHandle<float>>(Value);
+			const auto Pass = Builder.AddPass("Write",
+				ERenderGraphPassType::Compute);
+			Builder.UseValue(Pass, Wrong, ERenderGraphUse::Write);
+			auto Result = Builder.Compile();
+			EXPECT_FALSE(Result.IsSuccess());
+			EXPECT_EQ(Result.Error, "pass 'Write' declares an invalid, foreign, or "
+				"wrongly typed graph value");
+		}
+	}
+
+	TEST(FRenderGraphTests, TypedValueStorageTransfersAndDestroysExactlyOnce)
+	{
+		int BuilderDestructions = 0;
+		{
+			FRenderGraphBuilder Builder;
+			Builder.CreateValue<FTypedValuePayload>("BuilderOwned", "tracked",
+				&BuilderDestructions);
+		}
+		EXPECT_EQ(BuilderDestructions, 1);
+
+		int CompileFailureDestructions = 0;
+		{
+			FRenderGraphBuilder Builder;
+			Builder.CreateValue<FTypedValuePayload>("CompileFailure", "tracked",
+				&CompileFailureDestructions);
+			EXPECT_FALSE(Builder.Compile().IsSuccess());
+			EXPECT_EQ(CompileFailureDestructions, 0);
+		}
+		EXPECT_EQ(CompileFailureDestructions, 1);
+
+		int GraphDestructions = 0;
+		{
+			FRenderGraphBuilder Builder;
+			const auto Value = Builder.CreateValue<FTypedValuePayload>(
+				"GraphOwned", "tracked",
+				&GraphDestructions);
+			const auto Write = Builder.AddPass("Write",
+				ERenderGraphPassType::Compute);
+			Builder.UseValue(Write, Value, ERenderGraphUse::Write);
+			auto Result = Builder.Compile();
+			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+			EXPECT_EQ(GraphDestructions, 0);
+			Result.Graph.reset();
+			EXPECT_EQ(GraphDestructions, 1);
+		}
+		EXPECT_EQ(GraphDestructions, 1);
+
+		int CulledDestructions = 0;
+		{
+			FRenderGraphBuilder Builder;
+			Builder.EnablePassCulling();
+			const auto Value = Builder.CreateValue<FTypedValuePayload>(
+				"Culled", "tracked", &CulledDestructions);
+			const auto Write = Builder.AddPass("CulledWrite",
+				ERenderGraphPassType::Compute);
+			Builder.UseValue(Write, Value, ERenderGraphUse::Write);
+			auto Result = Builder.Compile();
+			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+			EXPECT_TRUE(Result.Graph->GetPasses().empty());
+			EXPECT_EQ(CulledDestructions, 0);
+		}
+		EXPECT_EQ(CulledDestructions, 1);
+
+		int PreparationFailureDestructions = 0;
+		{
+			FRenderGraphBuilder Builder;
+			const auto Value = Builder.CreateValue<FTypedValuePayload>(
+				"PreparationFailure", "tracked",
+				&PreparationFailureDestructions);
+			const auto Write = Builder.AddPass("Write",
+				ERenderGraphPassType::Compute);
+			Builder.UseValue(Write, Value, ERenderGraphUse::Write);
+			Builder.MarkPassRoot(Write, "publish");
+			Builder.SetExecutionPreparation([](std::string& Error) {
+				Error = "injected preparation failure";
+				return false;
+			});
+			auto Result = Builder.Compile();
+			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+			std::string Error;
+			EXPECT_FALSE(Result.Graph->Execute(
+				FRHICommandListImmediate::Get(), &Error));
+			EXPECT_EQ(Error, "injected preparation failure");
+			EXPECT_EQ(PreparationFailureDestructions, 0);
+		}
+		EXPECT_EQ(PreparationFailureDestructions, 1);
+	}
+
+	TEST(FRenderGraphTests, TypedValueResolutionRejectsWrongDirectionAndCopies)
+	{
+		{
+			FRenderGraphBuilder Builder;
+			const auto Value = Builder.CreateValue<int>(
+				"WrongDirection", "signed-int", 0);
+			const auto Write = Builder.AddPass("Write",
+				ERenderGraphPassType::Compute,
+				[Value](FRHICommandListImmediate&,
+					const FRenderGraphPassResources& Resources) {
+					(void)Resources.ReadValue(Value);
+				});
+			Builder.UseValue(Write, Value, ERenderGraphUse::Write);
+			Builder.MarkPassRoot(Write, "publish");
+			auto Result = Builder.Compile();
+			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+			EXPECT_DEATH(Result.Graph->Execute(FRHICommandListImmediate::Get()),
+				"wrong-direction capability");
+		}
+		{
+			FRenderGraphBuilder Builder;
+			const auto Value = Builder.CreateValue<FTypedValuePayload>(
+				"CopiedParameter", "scene-result");
+			auto Parameters =
+				Builder.AllocParameters<FTypedValueWriteParameters>();
+			Parameters->Output = {Value};
+			const auto Write = Builder.AddPass("Write",
+				ERenderGraphPassType::Compute, std::move(Parameters),
+				[](FRHICommandListImmediate&,
+					const FTypedValueWriteParameters& Submitted,
+					const FRenderGraphParameterResolver& Resolver) {
+					auto Copy = Submitted.Output;
+					(void)Resolver.WriteValue(Copy);
+				});
+			Builder.MarkPassRoot(Write, "publish");
+			auto Result = Builder.Compile();
+			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+			EXPECT_DEATH(Result.Graph->Execute(FRHICommandListImmediate::Get()),
+				"not declared by the executing pass parameters");
+		}
+	}
+
+	TEST(FRenderGraphTests, PrecompileFallbackSelectionCapturesOnlyChosenImport)
+	{
+		for (const bool bCandidateReady : {false, true})
+		{
+			auto Candidate = MakeGraphTexture("Candidate");
+			auto Fallback = MakeGraphTexture("Fallback");
+			FRHITexture* Selected = bCandidateReady ? &Candidate : &Fallback;
+			FRenderGraphBuilder Builder;
+			const auto Input = Builder.ImportTexture("Selected.Environment",
+				Selected, ERHIAccess::GraphicsShaderRead,
+				ERHIAccess::GraphicsShaderRead);
+			const auto Pass = Builder.AddPass("Consume",
+				ERenderGraphPassType::Graphics);
+			Builder.UseTexture(Pass, Input, WholeColor(), ERenderGraphUse::Read,
+				ERHIAccess::GraphicsShaderRead);
+			Builder.MarkPassRoot(Pass, "publish");
+			auto Result = Builder.Compile();
+			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+			const auto Capture = Result.Graph->Capture();
+			ASSERT_EQ(Capture.Resources.size(), 1u);
+			EXPECT_EQ(Capture.Resources[0].Name, "Selected.Environment");
+			EXPECT_EQ(Capture.Uses.size(), 1u);
+		}
 	}
 } // namespace Durin

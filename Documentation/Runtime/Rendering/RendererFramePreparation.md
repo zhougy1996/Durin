@@ -138,12 +138,14 @@ execute an alternate production scheduler.
 
 ## Typed Results and Failure Policy
 
-`FSceneFrameGraphExecutionChannels` owns the submission's typed
+`FSceneFrameGraphExecutionChannels` carries the submission's typed graph
 directional-shadow, GBuffer, GTAO, contact-shadow, cloud-shadow,
 isolated-deferred, Scene Color/cloud, and post-process results. Each channel is
-a `TSceneFrameGraphValue<TResult>` containing both its graph token and its
-execution-lifetime result, so distinct non-RHI results cannot be interchanged
-and callbacks do not communicate through unrelated external locals. Each
+a `TSceneFrameGraphValue<TResult>` containing only a graph-owned
+`TRenderGraphValueHandle<TResult>`; payload storage, one writer, declared
+readers, dependency lifetime, and callback access are owned by RenderCore.
+Distinct non-RHI results cannot be interchanged, and callbacks do not
+communicate through mutable side payloads. Each
 fallible producer publishes `NotRequested`,
 `Complete`, or `Failed`. Graph-owned directional shadow, GBuffer, GTAO,
 contact/cloud visibility, isolated-deferred, Scene Color/cloud, debug, and
@@ -163,11 +165,24 @@ shadow visibility explicitly rather than through executor member state. Scene
 Color and post process return explicit output/result values instead of
 rewriting caller-owned texture variables.
 
+Scene Color and post-process callbacks copy only their final transactional
+publication into `FSceneFrameGraphComposition`; intermediate payloads never
+leave graph storage. Editor assistance reads the post-process value and
+publishes its adjusted final result without becoming a second writer. The
+pipeline commits view state and telemetry only from these final publications
+after successful graph execution.
+
 Required output, Scene targets, required environment, or required production
 resources fail the view. Optional compute routes may fall back to fragment;
 missing optional cloud inputs disable that feature; unavailable optional debug
 targets do not publish a partially valid output. Directional-shadow and
-environment bindings use their documented complete fallback resources.
+environment bindings use their documented complete fallback resources. The
+environment irradiance, prefiltered, and BRDF selection is completed by the
+composer before registration: either the complete candidate set and sampler or
+the complete cube/cube/black fallback set is selected. Only those selected
+physical textures receive the stable `Scene.Environment.*` graph identities;
+the deferred callback resolves those handles and cannot query or switch to the
+unselected set.
 
 The render graph is the inter-pass declaration and transition-planning
 authority. Typed pass boundaries use backend-neutral RHI resources and preserve
@@ -197,8 +212,8 @@ retained logical target descriptions, and non-RHI pass results described above.
 
 Each stable pass identity is owned by one named contributor type in
 `SceneFrameGraphContributors.h`; contributors add passes only to the
-caller-owned builder and never compile or execute a graph. The composer wires
-their handles, declared resources, and typed channels. It converts the complete
+  caller-owned builder and never compile or execute a graph. The composer wires
+  their handles, declared resources, and typed value handles. It converts the complete
 prepared plan into feature-specific shadow, geometry, visibility, cloud, or
 view inputs; neither contributors nor their callbacks can discover the whole
 plan or the execution pipeline. `FSceneFrameFeatureRecorders` owns command

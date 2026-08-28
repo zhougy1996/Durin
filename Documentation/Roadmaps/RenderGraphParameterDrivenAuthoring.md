@@ -34,9 +34,14 @@ repaired GBuffer qualification, and parameter budget evidence. Isolated GPU
 feature sweeps retain absolute timings as characterization because live adapter
 sampling demonstrated cross-batch P0/P3 clock changes; relative feature
 benefits and synchronized production-route budgets remain hard gates and pass
-consecutively. Milestone 1 is complete, so Milestone 2 is ready for a bounded
-plan when selected; its child plan remains proposed rather than being created
-as part of this foundation.
+consecutively. Milestone 1 is complete. The
+[Render Graph External Registration and Typed Values](../Plans/RenderGraphExternalRegistrationAndTypedValues.md)
+plan has completed Milestone 2. RenderCore now canonicalizes external imports,
+owns typed value payloads and exact read/write capabilities, and lowers typed
+parameter members into the existing compiler. The scene graph contains no
+mutable token-plus-result payload channels, and its environment candidate or
+fallback set is selected before registration. Milestone 3 has its entry
+evidence and remains Proposed pending a newly created bounded plan.
 
 ## Outcome
 
@@ -168,10 +173,10 @@ Durin's RHI and workloads require a different contract.
 | Graph compiler | Exact texture subresources and buffer ranges, value versions, hazard frontiers, culling, lifetimes, transitions, budgets, and deterministic capture | Pass declarations are assembled by independent imperative `Use*` calls |
 | Pass execution | Compiled callbacks receive `FRenderGraphPassResources`; undeclared lookup is rejected | The callback captures frame-wide handles and manually resolves each resource instead of receiving one typed capability object |
 | Shader parameters | Compile-time `FShaderParametersMetadata`, reflected binding validation, typed `SetShaderParameters`, counted views, graphics/compute support | Shader resource fields and graph resource declarations are separate structures and call-site operations |
-| Resource creation | Graph-local handles, logical descriptions, retained-backing resolver, complete atomic publication | External registration and physical-identity deduplication are implemented in the scene composer rather than the builder |
-| Logical results | Graph tokens share value-version dependency semantics; Renderer owns typed result storage | All contributors can reach the frame-wide channel aggregate; type and writer ownership are not carried in contributor signatures |
+| Resource creation | Graph-local handles, logical descriptions, retained-backing resolver, complete atomic publication, and builder-owned canonical external registration | Shader binding metadata does not yet compose with graph resource declarations |
+| Logical results | Graph-owned typed values share compiler value versions, enforce one writer and declared readers, and own payload lifetime | Contributors still receive typed handles through the broad frame context rather than narrow signatures |
 | Scene authoring | One graph, one composer, twelve named contributors, topology fixed before compile, feature recorders isolated from graph lifecycle | One broad contributor context exposes all services, topology flags, resources, and channels; declarations repeat and actual inputs are hard to audit |
-| Fallback | Renderer prepares routes and resources before compile; complete failure policies already exist | Some callbacks still choose physical alternatives after declarations, allowing declared and bound resources to diverge |
+| Fallback | Renderer prepares routes and resources before compile; the environment pilot registers only its selected complete candidate or fallback set | Remaining contributor-specific fallback selections migrate with their parameter objects in Milestones 3 and 4 |
 | Diagnostics | Pointer-free graph capture, dependency causes, transitions, lifetimes, culling, budgets, scene inspection | Captures cannot name the pass parameter field that produced a use or compare graph and shader declarations |
 | Optimization | Logical lifetimes and timings exist; RHI/Vulkan state and completion contracts are established | Current evidence does not independently justify aliasing, queue expansion, split barriers, parallel recording, or graph reuse |
 
@@ -180,7 +185,7 @@ Durin's RHI and workloads require a different contract.
 | Milestone | Dependencies | Deliverable | Entry gate | Exit gate | State |
 | --- | --- | --- | --- | --- | --- |
 | 1. Pass parameters foundation | Completed Render Graph consolidation and shader parameter metadata | Graph-owned typed parameter storage, metadata traversal, automatic lowering to current uses, immutable parameterized `AddPass`, pass-scoped resolution, capture field paths, and one production pilot | Current RenderCore graph tests and representative scene capture establish exact manual declarations and behavior | Synthetic coverage proves all supported resource/use forms and invalid metadata; the pilot has no manual `Use*` calls and preserves capture, transition, failure, and output behavior | Completed 2026-08-29 |
-| 2. External registration and typed graph values | Milestone 1 | Builder-owned deduplicated external texture/buffer registration, typed logical value references, exact fallback selection, and removal of scene-local import/channel infrastructure | Parameterized passes can express imported resources and tokens without semantic loss | Duplicate/conflicting imports fail deterministically; fallback declares only the bound handle; every migrated logical value has one writer and explicit readers | Proposed |
+| 2. External registration and typed graph values | Milestone 1 | Builder-owned deduplicated external texture/buffer registration, typed logical value references, exact fallback selection, and removal of scene-local import/channel infrastructure | Parameterized passes can express imported resources and tokens without semantic loss | Duplicate/conflicting imports fail deterministically; fallback declares only the bound handle; every migrated logical value has one writer and explicit readers | Completed 2026-08-29 ([plan](../Plans/RenderGraphExternalRegistrationAndTypedValues.md)) |
 | 3. Graph and shader parameter composition | Milestones 1 and 2; stable shader parameter metadata | One pass parameter object supplies graph dependency metadata and shader binding fields for graphics and compute, including optional SRV/UAV and arrays | A migrated production pass demonstrates the current declaration/binding duplication with stable reflection fixtures | Graph declarations and shader binding share fields; validation rejects missing or inconsistent graph/shader capabilities; no duplicate RHI texture table remains in migrated passes | Proposed |
 | 4. Scene contributor migration | Milestones 2 and 3 | All scene contributors accept narrow typed inputs, return typed outputs, use parameterized passes, and remove the broad contributor context, channel bag, and persistent-input helper copies | Foundation APIs cover GBuffer, attachments, compute/graphics routes, clouds, post process, output roots, and failure results | Directional shadow through output uses one parameter-driven graph; captures, images/readbacks, telemetry, fallback, recovery, resize, multi-view, and CPU/GPU budgets pass; legacy scene declarations are removed | Proposed |
 | 5. Authoring contract and diagnostics completion | Milestone 4 plus at least one new or materially changed rendering feature | Lasting public guidance, parameter-aware capture/inspection, migration enforcement, compatibility API disposition, and qualified regression budgets | Full scene migration exposes real parameter layouts and diagnostic needs | New inter-pass work uses the parameter path; actionable errors name pass/field/resource; obsolete compatibility paths are removed or explicitly bounded; lasting contracts are authoritative | Proposed |
@@ -193,7 +198,7 @@ Durin's RHI and workloads require a different contract.
 | Child plan | State | Owns | Must not own |
 | --- | --- | --- | --- |
 | [Render Graph Pass Parameters Foundation](../Plans/RenderGraphPassParametersFoundation.md) | Completed 2026-08-29 | Milestone 1 metadata, allocation, lowering, immutable parameterized pass API, pass-scoped resolution, capture paths, and one bounded production pilot | External registry redesign, shader binding unification, all-scene migration, allocator aliasing, queue scheduling, or feature algorithm changes |
-| Render Graph External Registration and Typed Values | Proposed; entry gate satisfied | Milestone 2 import identity/access contract, typed value storage/references, fallback resolution boundary, and scene infrastructure replacement | Shader descriptor architecture or full contributor migration |
+| [Render Graph External Registration and Typed Values](../Plans/RenderGraphExternalRegistrationAndTypedValues.md) | Completed 2026-08-29 | Milestone 2 import identity/access contract, typed value storage/references, fallback resolution boundary, and scene infrastructure replacement | Shader descriptor architecture or full contributor migration |
 | Render Graph and Shader Parameter Composition | Proposed after Milestone 2 | Milestone 3 shared parameter-object declaration/binding, reflection validation, SRV/UAV/array coverage, and graphics/compute pilots | Whole-scene migration or backend descriptor redesign unrelated to the shared object |
 | Render Graph Scene Parameter Migration | Proposed after Milestone 3 | Milestone 4 contributor-by-contributor migration, typed signatures/outputs, broad-context removal, parity and qualification | Compiler optimization, public plugin injection, or feature redesign |
 | Render Graph Authoring Contract and Diagnostics | Proposed after Milestone 4 | Milestone 5 lasting docs, enforcement, inspection, compatibility retirement, and new-feature proof | Speculative execution optimization |

@@ -91,11 +91,11 @@ namespace Durin
 			Declare(GraphResources.DefaultShadowArray,
 				Services.DefaultTextures.GetArray_RenderThread());
 			Declare(GraphResources.EnvironmentIrradiance,
-				Services.EnvironmentLighting.GetIrradiance_RenderThread());
+				GraphResources.SelectedEnvironmentIrradiance);
 			Declare(GraphResources.EnvironmentPrefiltered,
-				Services.EnvironmentLighting.GetPrefiltered_RenderThread());
+				GraphResources.SelectedEnvironmentPrefiltered);
 			Declare(GraphResources.EnvironmentBrdfLut,
-				Services.EnvironmentLighting.GetBrdfLut_RenderThread());
+				GraphResources.SelectedEnvironmentBrdfLut);
 		};
 		if (Topology.UsesCloudShadowFragment())
 			GraphResources.VolumetricCloudShadowFragment = Graph.CreateTexture(
@@ -148,7 +148,7 @@ namespace Durin
 					.Depth = Topology.VolumetricCloudShadow
 							!= ESceneFrameRoute::Disabled
 						? Resources.GetTexture(GraphResources.SceneDepth) : nullptr};
-				Channels.CloudShadow.Result =
+				Resources.WriteValue(Channels.CloudShadow.Handle) =
 					Services.Recorders.RenderVolumetricCloudShadows_RenderThread(
 						Commands,
 						RecordInputs,
@@ -165,10 +165,10 @@ namespace Durin
 							? Resources.GetTexture(
 								*GraphResources.VolumetricCloudWeather) : nullptr,
 						Width, Height, bWantsProductionDeferred,
-						Channels.GBuffer.Result.IsComplete());
+						Resources.ReadValue(Channels.GBuffer.Handle).IsComplete());
 			});
-		Graph.UseToken(CloudShadowPass, GBufferValue.Handle, ERenderGraphUse::Read);
-		Graph.UseToken(CloudShadowPass, CloudShadowValue.Handle,
+		Graph.UseValue(CloudShadowPass, GBufferValue.Handle, ERenderGraphUse::Read);
+		Graph.UseValue(CloudShadowPass, CloudShadowValue.Handle,
 			ERenderGraphUse::Write);
 		if (Topology.VolumetricCloudShadow != ESceneFrameRoute::Disabled)
 			Graph.UseTexture(CloudShadowPass, GraphResources.SceneDepth,
@@ -280,11 +280,11 @@ namespace Durin
 			Declare(GraphResources.DefaultShadowArray,
 				Services.DefaultTextures.GetArray_RenderThread());
 			Declare(GraphResources.EnvironmentIrradiance,
-				Services.EnvironmentLighting.GetIrradiance_RenderThread());
+				GraphResources.SelectedEnvironmentIrradiance);
 			Declare(GraphResources.EnvironmentPrefiltered,
-				Services.EnvironmentLighting.GetPrefiltered_RenderThread());
+				GraphResources.SelectedEnvironmentPrefiltered);
 			Declare(GraphResources.EnvironmentBrdfLut,
-				Services.EnvironmentLighting.GetBrdfLut_RenderThread());
+				GraphResources.SelectedEnvironmentBrdfLut);
 		};
 		const uint32 CloudWidth = static_cast<uint32>(
 			std::max(Topology.VolumetricCloudExtent.x, 0));
@@ -349,7 +349,7 @@ namespace Durin
 				const FVolumetricCloudTimingQuerySink TimingSink =
 					GetVolumetricCloudTimingQuerySink();
 				TScopedRendererGPUTimingQuery Timing(Commands, TimingSink);
-				Channels.VolumetricCloudSpatial.Result =
+				Resources.WriteValue(Channels.VolumetricCloudSpatial.Handle) =
 					Services.Recorders.RenderVolumetricCloudSpatial_RenderThread(
 						Commands,
 						RecordInputs,
@@ -368,9 +368,9 @@ namespace Durin
 							? Resources.GetTexture(GraphResources.SceneDepth) : nullptr);
 				Timing.Commit();
 			});
-		Graph.UseToken(VolumetricCloudSpatialPass, BaseSceneValue.Handle,
+		Graph.UseValue(VolumetricCloudSpatialPass, BaseSceneValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(VolumetricCloudSpatialPass,
+		Graph.UseValue(VolumetricCloudSpatialPass,
 			VolumetricCloudSpatialValue.Handle, ERenderGraphUse::Write);
 		auto DeclareCloudSpatialInput = [&](const auto& Texture,
 			FRHITexture* Physical) {
@@ -483,11 +483,11 @@ namespace Durin
 			Declare(GraphResources.DefaultShadowArray,
 				Services.DefaultTextures.GetArray_RenderThread());
 			Declare(GraphResources.EnvironmentIrradiance,
-				Services.EnvironmentLighting.GetIrradiance_RenderThread());
+				GraphResources.SelectedEnvironmentIrradiance);
 			Declare(GraphResources.EnvironmentPrefiltered,
-				Services.EnvironmentLighting.GetPrefiltered_RenderThread());
+				GraphResources.SelectedEnvironmentPrefiltered);
 			Declare(GraphResources.EnvironmentBrdfLut,
-				Services.EnvironmentLighting.GetBrdfLut_RenderThread());
+				GraphResources.SelectedEnvironmentBrdfLut);
 		};
 		const auto VolumetricCloudPass =
 			AddSceneFrameFeaturePass<FVolumetricCloudCompositeGraphContributor>(
@@ -509,21 +509,23 @@ namespace Durin
 					CompositeTargets = {.Cloud = Resources.GetTexture(
 						*GraphResources.VolumetricCloudComposite)};
 				FRHITexture* ShadowVisibility = nullptr;
-				if (Channels.CloudShadow.Result.Route
+				const auto& CloudShadowResult = Resources.ReadValue(
+					Channels.CloudShadow.Handle);
+				if (CloudShadowResult.Route
 					== EVolumetricCloudShadowPassRoute::Compute
 					&& GraphResources.VolumetricCloudShadowCompute)
 					ShadowVisibility = Resources.GetTexture(
 						*GraphResources.VolumetricCloudShadowCompute);
-				else if (Channels.CloudShadow.Result.Route
+				else if (CloudShadowResult.Route
 					== EVolumetricCloudShadowPassRoute::Fragment
 					&& GraphResources.VolumetricCloudShadowFragment)
 					ShadowVisibility = Resources.GetTexture(
 						*GraphResources.VolumetricCloudShadowFragment);
-				Channels.VolumetricCloud.Result =
+				Resources.WriteValue(Channels.VolumetricCloud.Handle) =
 					Services.Recorders.RenderVolumetricCloudComposite_RenderThread(
 						Commands,
 						RecordInputs,
-						Channels.VolumetricCloudSpatial.Result,
+						Resources.ReadValue(Channels.VolumetricCloudSpatial.Handle),
 						FragmentTargets ? &*FragmentTargets : nullptr,
 						ComputeTargets ? &*ComputeTargets : nullptr,
 						CompositeTargets ? &*CompositeTargets : nullptr,
@@ -531,13 +533,13 @@ namespace Durin
 						Resources.GetTexture(GraphResources.SceneDepth),
 						ShadowVisibility);
 			});
-		Graph.UseToken(VolumetricCloudPass, BaseSceneValue.Handle,
+		Graph.UseValue(VolumetricCloudPass, BaseSceneValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(VolumetricCloudPass, VolumetricCloudSpatialValue.Handle,
+		Graph.UseValue(VolumetricCloudPass, VolumetricCloudSpatialValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(VolumetricCloudPass, CloudShadowValue.Handle,
+		Graph.UseValue(VolumetricCloudPass, CloudShadowValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(VolumetricCloudPass, VolumetricCloudValue.Handle,
+		Graph.UseValue(VolumetricCloudPass, VolumetricCloudValue.Handle,
 			ERenderGraphUse::Write);
 		if (Topology.bVolumetricCloudComposite)
 		{

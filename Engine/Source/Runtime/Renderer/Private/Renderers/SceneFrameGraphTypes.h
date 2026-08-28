@@ -167,6 +167,9 @@ namespace Durin
 		std::optional<FRenderGraphTextureHandle> EnvironmentIrradiance;
 		std::optional<FRenderGraphTextureHandle> EnvironmentPrefiltered;
 		std::optional<FRenderGraphTextureHandle> EnvironmentBrdfLut;
+		FRHITexture* SelectedEnvironmentIrradiance = nullptr;
+		FRHITexture* SelectedEnvironmentPrefiltered = nullptr;
+		FRHITexture* SelectedEnvironmentBrdfLut = nullptr;
 		std::optional<FRenderGraphTextureHandle> VolumetricCloudFragment;
 		std::optional<FRenderGraphTextureHandle> VolumetricCloudCompute;
 		std::optional<FRenderGraphTextureHandle> VolumetricCloudComposite;
@@ -177,8 +180,7 @@ namespace Durin
 	template <typename TResult>
 	struct TSceneFrameGraphValue
 	{
-		FRenderGraphTokenHandle Handle;
-		TResult Result{};
+		TRenderGraphValueHandle<TResult> Handle;
 	};
 
 	struct FSceneFrameGraphExecutionChannels

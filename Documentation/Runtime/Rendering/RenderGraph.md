@@ -26,8 +26,13 @@ execution state. Compilation never mutates a command list.
 ## Resource Contract
 
 - Imported resources declare their exact initial and final access and remain
-  externally owned. A missing final access is a compile error. The same
-  physical texture or buffer cannot be imported twice into one graph.
+  externally owned. A missing final access is a compile error. Repeated import
+  of the same non-null physical texture or buffer returns the first graph
+  handle when kind, physical description, initial access, and final access all
+  agree. The first name and declaration order remain canonical. A conflicting
+  repeat records one deterministic declaration error naming both stable
+  contracts; null imports retain the ordinary missing-resource failure and do
+  not become identity keys.
 - Graph-created resources begin at `ERHIAccess::Discard`, require a stored
   producer before any read or load, and may omit a final state when their
   contents do not cross the graph boundary.
@@ -57,9 +62,10 @@ overlapping declarations within a pass, invalid normalized ranges or usage,
 pass-domain/access mismatch, and dependency cycles. No pass callback runs and
 no transition records when compilation fails.
 
-Logical tokens express producer/consumer ordering and lifetimes for typed
-non-RHI outcomes. They use the same value-version and execution-frontier rules
-without inventing transitions or backend state.
+Logical tokens express compatibility-only ordering edges without transitions
+or backend state. Graph-owned typed values use those same value versions,
+producer/consumer edges, execution frontiers, culling closure, and logical
+lifetimes for non-RHI outcomes.
 
 Pass culling is opt-in and root-driven. Present, offscreen output, temporal
 publication, readback, capture, timestamps, and other external effects mark an
@@ -98,13 +104,40 @@ intent and exit access, emits only an entry handoff needed for a load, and
 continues state tracking from the render pass's declared final access. This
 avoids a second explicit barrier competing with RHI render-pass state.
 
+## Graph-Owned Typed Values
+
+`CreateValue<T>(Name, StableTypeName, ConstructorArguments...)` constructs one
+payload in aligned builder-owned storage and returns a graph-local
+`TRenderGraphValueHandle<T>`. The stable type name is explicit diagnostic
+metadata rather than RTTI text. One graph cannot assign different stable names
+to the same C++ type or reuse one stable name for different C++ types.
+
+Each typed value requires exactly one declared writer; all consumers declare
+reads. `UseValue` is the bounded manual compatibility declaration. Typed
+parameter members use `TRenderGraphValueWrite<T>` or
+`TRenderGraphValueRead<T>`. Missing or duplicate writers, foreign handles,
+wrong C++ types, reads before the producer, and invalid directions fail
+deterministically before recording. Values lower to token-shaped compiler uses
+and therefore do not create a second dependency scheduler.
+
+Successful compilation transfers value payloads and destructor records to the
+compiled graph. Builder destruction and every compile/execute exit path destroy
+each constructed payload exactly once. Culling does not shorten storage
+lifetime, and no payload may outlive its builder or compiled graph.
+`FRenderGraphPassResources::ReadValue`/`WriteValue` and the corresponding
+parameter-resolver methods enforce the executing pass's exact declared
+direction. Parameter resolution additionally requires the exact submitted
+wrapper address; copied, wrong-pass, wrong-direction, foreign, or wrongly typed
+members are rejected. Captures expose the stable value type and parameter field
+path without addresses or compiler-specific type spelling.
+
 ## Typed Pass Parameters
 
 `AllocParameters<T>()` constructs one registered standard-layout parameter
 object in builder-owned aligned storage. The metadata for `T` owns its stable
 structure name, size, alignment, and ordered member descriptions. Supported
-members are texture, buffer, token, color attachment, depth/stencil attachment,
-and managed-texture wrappers; a member may be a fixed array, an
+members are texture, buffer, token, typed-value read/write, color attachment,
+depth/stencil attachment, and managed-texture wrappers; a member may be a fixed array, an
 `std::optional` wrapper, or a nested registered parameter structure. Wrappers
 store only graph-local handles and exact runtime ranges. Metadata stores the
 invariant use, access, discard, attachment action, managed-transition, and
@@ -175,7 +208,8 @@ New renderer work that crosses pass boundaries must use the graph path:
   for a new pass. Use the manual surface only while migrating an existing
   contributor, and never mix both authorities on one pass.
 - Declare every cross-pass texture/buffer range with exact access and use a
-  typed logical token only for a non-RHI outcome.
+  graph-owned typed value for a non-RHI outcome. Tokens remain for unmigrated
+  execution-only compatibility edges.
 - Declare external effects such as presentation, offscreen output, readback,
   capture, publication, and timestamps as explicit roots when culling is on.
 - Put graph-created resource acquisition in the retained-backing resolver; do

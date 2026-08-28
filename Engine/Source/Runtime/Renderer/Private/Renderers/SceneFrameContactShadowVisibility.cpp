@@ -81,11 +81,11 @@ namespace Durin
 			Declare(GraphResources.DefaultShadowArray,
 				Services.DefaultTextures.GetArray_RenderThread());
 			Declare(GraphResources.EnvironmentIrradiance,
-				Services.EnvironmentLighting.GetIrradiance_RenderThread());
+				GraphResources.SelectedEnvironmentIrradiance);
 			Declare(GraphResources.EnvironmentPrefiltered,
-				Services.EnvironmentLighting.GetPrefiltered_RenderThread());
+				GraphResources.SelectedEnvironmentPrefiltered);
 			Declare(GraphResources.EnvironmentBrdfLut,
-				Services.EnvironmentLighting.GetBrdfLut_RenderThread());
+				GraphResources.SelectedEnvironmentBrdfLut);
 		};
 		if (Topology.UsesContactShadowVisibilityFragment())
 			GraphResources.ContactShadowVisibilityFragment = Graph.CreateTexture(
@@ -143,20 +143,21 @@ namespace Durin
 				if (GraphResources.ContactShadowVisibilityCompute)
 					ComputeContactTargets = {.Visibility = Resources.GetTexture(
 						*GraphResources.ContactShadowVisibilityCompute)};
-				Channels.ContactShadowVisibility.Result = Services.Recorders.RenderContactShadowVisibility_RenderThread(
+				Resources.WriteValue(Channels.ContactShadowVisibility.Handle) = Services.Recorders.RenderContactShadowVisibility_RenderThread(
 					Commands,
 					RecordInputs,
 					GBufferTargets ? &*GBufferTargets : nullptr,
 					FragmentContactTargets ? &*FragmentContactTargets : nullptr,
 					ComputeContactTargets ? &*ComputeContactTargets : nullptr,
 					SceneTargets, Options, Width, Height,
-					bWantsProductionDeferred, Channels.GBuffer.Result.IsComplete(),
-					Channels.GBuffer.Result.bRenderedGeometry);
+					bWantsProductionDeferred,
+					Resources.ReadValue(Channels.GBuffer.Handle).IsComplete(),
+					Resources.ReadValue(Channels.GBuffer.Handle).bRenderedGeometry);
 			});
-		Graph.UseToken(ContactShadowVisibilityPass, DirectionalShadowValue.Handle,
+		Graph.UseValue(ContactShadowVisibilityPass, DirectionalShadowValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(ContactShadowVisibilityPass, GBufferValue.Handle, ERenderGraphUse::Read);
-		Graph.UseToken(ContactShadowVisibilityPass, ContactShadowVisibilityValue.Handle,
+		Graph.UseValue(ContactShadowVisibilityPass, GBufferValue.Handle, ERenderGraphUse::Read);
+		Graph.UseValue(ContactShadowVisibilityPass, ContactShadowVisibilityValue.Handle,
 			ERenderGraphUse::Write);
 		if (GraphResources.GBuffer[0])
 		{

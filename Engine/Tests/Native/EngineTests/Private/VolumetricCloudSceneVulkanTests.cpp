@@ -324,7 +324,9 @@ namespace Durin
 		EXPECT_EQ(RenderPresent(128, 72, true), ERenderViewResult::Success);
 		EXPECT_EQ(GSceneCloudTelemetry.VolumetricCloud.VolumetricCloudFragmentViews, 1u);
 		ASSERT_EQ(GSceneCloudGraphCaptures.size(), 6u);
-		const std::array<uint32, 6> ExpectedDependencies{22, 22, 25, 25, 25, 25};
+		// Post process now declares its typed isolated-deferred result read; the
+		// former side-channel lookup carried no graph edge.
+		const std::array<uint32, 6> ExpectedDependencies{23, 23, 26, 26, 26, 26};
 		const std::array<uint32, 6> ExpectedTextureTransitions{1, 1, 17, 1, 17, 1};
 		for (size_t Index = 0; Index < GSceneCloudGraphCaptures.size(); ++Index)
 		{

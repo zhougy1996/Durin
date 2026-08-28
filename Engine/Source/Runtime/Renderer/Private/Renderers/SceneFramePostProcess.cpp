@@ -91,11 +91,11 @@ namespace Durin
 			Declare(GraphResources.DefaultShadowArray,
 				Services.DefaultTextures.GetArray_RenderThread());
 			Declare(GraphResources.EnvironmentIrradiance,
-				Services.EnvironmentLighting.GetIrradiance_RenderThread());
+				GraphResources.SelectedEnvironmentIrradiance);
 			Declare(GraphResources.EnvironmentPrefiltered,
-				Services.EnvironmentLighting.GetPrefiltered_RenderThread());
+				GraphResources.SelectedEnvironmentPrefiltered);
 			Declare(GraphResources.EnvironmentBrdfLut,
-				Services.EnvironmentLighting.GetBrdfLut_RenderThread());
+				GraphResources.SelectedEnvironmentBrdfLut);
 		};
 		if (Topology.bGBufferDebug)
 			GraphResources.GBufferDebug = Graph.CreateTexture(
@@ -112,18 +112,23 @@ namespace Durin
 		const auto PostProcessPass =
 			AddSceneFrameFeaturePass<FPostProcessGraphContributor>(
 				Graph, ERenderGraphPassType::Graphics,
-			[&Services, &Channels, RecordView = &RecordView, &View, &GraphResources,
+			[&Services, &Channels, &Composition = Context.Composition,
+				RecordView = &RecordView, &View, &GraphResources,
 				&Topology, &Options, bPresentOutput,
 				bHasEditorAssistance](FRHICommandListImmediate& Commands,
 				const FRenderGraphPassResources& Resources) {
-				if (!Channels.SceneColor.Result.IsSuccess()) return;
+				const auto& SceneColorResult = Resources.ReadValue(
+					Channels.SceneColor.Handle);
+				auto& PostProcessResult = Resources.WriteValue(
+					Channels.PostProcess.Handle);
+				if (!SceneColorResult.IsSuccess()) return;
 				const FPostProcessRenderer::FSceneTargets SceneTargets{
 					.Color = Resources.GetTexture(GraphResources.SceneColor),
 					.Depth = Topology.bGBufferDebug
 						? Resources.GetTexture(GraphResources.SceneDepth)
 						: nullptr};
 				FRHITexture* SceneColorInput = SceneTargets.Color;
-				if (Channels.SceneColor.Result.bUsesVolumetricCloudComposite
+				if (SceneColorResult.bUsesVolumetricCloudComposite
 					&& GraphResources.VolumetricCloudComposite)
 					SceneColorInput = Resources.GetTexture(
 						*GraphResources.VolumetricCloudComposite);
@@ -140,10 +145,11 @@ namespace Durin
 						.Emissive = Resources.GetTexture(*GraphResources.GBuffer[3])};
 				FRHITexture* IsolatedDeferredOutput = nullptr;
 				if (GraphResources.IsolatedDeferred
-					&& Channels.DeferredDirectionalLighting.Result.bOutputValid)
+					&& Resources.ReadValue(
+						Channels.DeferredDirectionalLighting.Handle).bOutputValid)
 					IsolatedDeferredOutput = Resources.GetTexture(
 						*GraphResources.IsolatedDeferred);
-				Channels.PostProcess.Result = Services.Recorders.RenderPostProcess_RenderThread(
+				PostProcessResult = Services.Recorders.RenderPostProcess_RenderThread(
 					Commands, *RecordView, View,
 					Resources.GetTexture(GraphResources.Output),
 					bPresentOutput, Options, SceneTargets,
@@ -151,10 +157,14 @@ namespace Durin
 					DebugTargets ? &*DebugTargets : nullptr,
 					SceneColorInput, IsolatedDeferredOutput,
 					bHasEditorAssistance);
+				if (!bHasEditorAssistance)
+					Composition.PostProcessPublication = PostProcessResult;
 			});
-		Graph.UseToken(PostProcessPass, SceneColorValue.Handle, ERenderGraphUse::Read);
-		Graph.UseToken(PostProcessPass, GBufferValue.Handle, ERenderGraphUse::Read);
-		Graph.UseToken(PostProcessPass, PostProcessValue.Handle,
+		Graph.UseValue(PostProcessPass, SceneColorValue.Handle, ERenderGraphUse::Read);
+		Graph.UseValue(PostProcessPass, GBufferValue.Handle, ERenderGraphUse::Read);
+		Graph.UseValue(PostProcessPass, DeferredDirectionalLightingValue.Handle,
+			ERenderGraphUse::Read);
+		Graph.UseValue(PostProcessPass, PostProcessValue.Handle,
 			ERenderGraphUse::Write);
 		Graph.UseTexture(PostProcessPass, GraphResources.SceneColor,
 			{ERHITextureAspect::Color, 0, 1, 0, 1}, ERenderGraphUse::Read,

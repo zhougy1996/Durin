@@ -328,7 +328,7 @@ TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
 	const auto& Completion = Metadata->Members[0];
 	EXPECT_STREQ(Completion.Name, "Completion");
 	EXPECT_EQ(Completion.Kind,
-		Durin::ERenderGraphParameterMemberKind::Token);
+		Durin::ERenderGraphParameterMemberKind::ValueWrite);
 	EXPECT_EQ(Completion.ArraySize, 1u);
 	EXPECT_FALSE(Completion.bOptional);
 	EXPECT_EQ(Completion.Use, Durin::ERenderGraphUse::Write);

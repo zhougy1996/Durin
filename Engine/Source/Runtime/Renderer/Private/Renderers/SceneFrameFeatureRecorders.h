@@ -117,6 +117,10 @@ namespace Durin
 	) -> FVolumetricCloudShadowPassResult;
 	auto BuildDeferredParameters(
 		const FSceneView& RenderView,
+		FRHITexture* EnvironmentIrradiance,
+		FRHITexture* EnvironmentPrefiltered,
+		FRHITexture* EnvironmentBrdfLut,
+		FRHISampler* EnvironmentSampler,
 		const FDirectionalShadowPassResult& DirectionalShadow,
 		FRHITexture* DirectionalShadowTexture,
 		const FGBufferPassResult& GBuffer,

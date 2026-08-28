@@ -81,11 +81,11 @@ namespace Durin
 			Declare(GraphResources.DefaultShadowArray,
 				Services.DefaultTextures.GetArray_RenderThread());
 			Declare(GraphResources.EnvironmentIrradiance,
-				Services.EnvironmentLighting.GetIrradiance_RenderThread());
+				GraphResources.SelectedEnvironmentIrradiance);
 			Declare(GraphResources.EnvironmentPrefiltered,
-				Services.EnvironmentLighting.GetPrefiltered_RenderThread());
+				GraphResources.SelectedEnvironmentPrefiltered);
 			Declare(GraphResources.EnvironmentBrdfLut,
-				Services.EnvironmentLighting.GetBrdfLut_RenderThread());
+				GraphResources.SelectedEnvironmentBrdfLut);
 		};
 		if (Topology.bGroundTruthAmbientOcclusion)
 		{
@@ -181,18 +181,18 @@ namespace Durin
 								*GraphResources.GroundTruthAmbientOcclusion[3])
 							: nullptr,
 						.Quality = Topology.AmbientOcclusionQuality};
-				Channels.AmbientOcclusion.Result =
+				Resources.WriteValue(Channels.AmbientOcclusion.Handle) =
 					Services.Recorders.RenderGroundTruthAmbientOcclusion_RenderThread(
 						Commands, *RecordView,
 						GBufferTargets ? &*GBufferTargets : nullptr,
 						AmbientOcclusionTargets ? &*AmbientOcclusionTargets : nullptr,
 						SceneTargets, Options, Width, Height,
 						bWantsGroundTruthAmbientOcclusion,
-						Channels.GBuffer.Result.IsComplete());
+						Resources.ReadValue(Channels.GBuffer.Handle).IsComplete());
 			});
-		Graph.UseToken(AmbientOcclusionPass, GBufferValue.Handle,
+		Graph.UseValue(AmbientOcclusionPass, GBufferValue.Handle,
 			ERenderGraphUse::Read);
-		Graph.UseToken(AmbientOcclusionPass, AmbientOcclusionValue.Handle,
+		Graph.UseValue(AmbientOcclusionPass, AmbientOcclusionValue.Handle,
 			ERenderGraphUse::Write);
 		if (GraphResources.GBuffer[0] && Topology.bGroundTruthAmbientOcclusion)
 		{

@@ -56,6 +56,8 @@ namespace Durin
 		ERenderViewResult TargetResolutionResult = ERenderViewResult::Success;
 		FSceneFrameGraphResources Resources;
 		FSceneFrameGraphExecutionChannels Channels;
+		FSceneColorPassResult SceneColorPublication;
+		FPostProcessPassResult PostProcessPublication;
 	};
 
 	// Wires feature contributions into the caller-owned parent graph.
