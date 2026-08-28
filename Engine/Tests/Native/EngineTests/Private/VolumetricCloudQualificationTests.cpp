@@ -424,7 +424,7 @@ namespace Durin
 							++GRenderFrameCounterRenderThread;
 							GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 							const auto Result = Clouds.Render_RenderThread(
-								CommandList, &*FragmentTargets, SelectedCompute, Input
+								CommandList, &*FragmentTargets, SelectedCompute, Input, {}
 							);
 							Route.Counters = Result.Counters;
 							GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
@@ -511,7 +511,7 @@ namespace Durin
 							LowInput.OutputWidth = Extent.Width;
 							LowInput.OutputHeight = Extent.Height;
 							const auto Spatial = Clouds.Render_RenderThread(
-								CommandList, &*LowFragment, &*LowCompute, LowInput
+								CommandList, &*LowFragment, &*LowCompute, LowInput, {}
 							);
 							const auto Temporal = Clouds.ReconstructTemporal_RenderThread(
 								CommandList, {.CurrentCloud = Spatial.Cloud,
@@ -690,7 +690,7 @@ namespace Durin
 						const auto Shadow = TierShadows.Render_RenderThread(
 							CommandList, &*ShadowFragmentTargets,
 							&*ShadowComputeTargets,
-							{.bRequested = true, .BaseDensity = Base, .DetailDensity = Detail, .Weather = Weather, .SceneDepth = ShadowDepth, .DensitySampler = TierSampler, .View = &View, .QualityTier = Profile.Tier, .Width = OutputWidth, .Height = OutputHeight}
+							{.bRequested = true, .BaseDensity = Base, .DetailDensity = Detail, .Weather = Weather, .SceneDepth = ShadowDepth, .DensitySampler = TierSampler, .View = &View, .QualityTier = Profile.Tier, .Width = OutputWidth, .Height = OutputHeight}, {}
 						);
 						const auto Spatial = TierClouds.Render_RenderThread(
 							CommandList, &*FragmentTargets, &*ComputeTargets,
@@ -702,7 +702,7 @@ namespace Durin
 							 .Width = CloudExtent.Width,
 							 .Height = CloudExtent.Height,
 							 .OutputWidth = OutputWidth,
-							 .OutputHeight = OutputHeight}
+							 .OutputHeight = OutputHeight}, {}
 						);
 						const auto Temporal = TierClouds.ReconstructTemporal_RenderThread(
 							CommandList,

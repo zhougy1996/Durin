@@ -162,81 +162,42 @@ namespace Durin
 	}
 
 	auto FContactShadowVisibilityGraphContributor::AddPasses(
-		FSceneFrameGraphContributorContext& Context,
-		const FContactShadowVisibilityRecordInputs& RecordInputs) -> void
+		const FContactShadowGraphInputs& Inputs) -> FContactShadowGraphOutput
 	{
-		auto& Graph = Context.Graph;
-		auto& Services = Context.Services;
-		const auto& View = Context.View;
-		auto* OutputTarget = Context.OutputTarget;
-		const auto& Options = Context.Options;
-		auto& Topology = Context.Topology;
-		const auto& PreparedEditorAssistance =
-			Context.EditorAssistance;
-		const auto PreparedContactRoute = Context.ContactRoute;
-		const auto PreparedCloudShadowRoute = Context.CloudShadowRoute;
-		const auto PreparedCloudRoute = Context.CloudRoute;
-		auto* CloudWeatherTexture = Context.CloudWeatherTexture;
-		auto* DirectionalShadowTexture = Context.DirectionalShadowTexture;
-		const uint32 Width = Context.Width;
-		const uint32 Height = Context.Height;
-		const bool bPresentOutput = Context.bPresentOutput;
-		const bool bHasEditorAssistance =
-			Context.bHasEditorAssistance;
-		const bool bRequiresDeferredOpaque =
-			Context.bRequiresDeferredOpaque;
-		const bool bWantsIsolatedDeferred =
-			Context.bWantsIsolatedDeferred;
-		const bool bWantsGroundTruthAmbientOcclusion =
-			Context.bWantsGroundTruthAmbientOcclusion;
-		const bool bWantsDeferredInputs =
-			Context.bWantsDeferredInputs;
-		const bool bWantsProductionDeferred =
-			Context.bWantsProductionDeferred;
-		const bool bHybridRetainedResourcesReady =
-			Context.bHybridRetainedResourcesReady;
-		const bool bNeedsGBuffer = Context.bNeedsGBuffer;
-		auto& DeferredParameters =
-			Context.Composition.DeferredParameters;
-		auto& ProductionDeferredParameters =
-			Context.Composition.ProductionDeferredParameters;
-		auto& GraphResources = Context.Composition.Resources;
-		auto& Channels = Context.Composition.Channels;
-		auto& DirectionalShadowValue = Channels.DirectionalShadow;
-		auto& GBufferValue = Channels.GBuffer;
-		auto& AmbientOcclusionValue = Channels.AmbientOcclusion;
-		auto& ContactShadowVisibilityValue = Channels.ContactShadowVisibility;
-		auto& CloudShadowValue = Channels.CloudShadow;
-		auto& DeferredDirectionalLightingValue = Channels.DeferredDirectionalLighting;
-		auto& BaseSceneValue = Channels.BaseScene;
-		auto& VolumetricCloudSpatialValue =
-			Channels.VolumetricCloudSpatial;
-		auto& VolumetricCloudValue = Channels.VolumetricCloud;
-		auto& SceneColorValue = Channels.SceneColor;
-		auto& PostProcessValue = Channels.PostProcess;
-		auto DeclarePersistentGraphicsInputs = [&](auto Pass) {
-			std::vector<FRenderGraphTextureHandle> Declared;
-			auto Declare = [&](const auto& Handle, FRHITexture* Physical) {
-				if (!Handle || !Physical
-					|| std::ranges::find(Declared, *Handle) != Declared.end())
-					return;
-				Declared.push_back(*Handle);
-				Graph.UseTexture(Pass, *Handle,
-					{GetTextureAspects(Physical->GetFormat()), 0,
-						Physical->GetNumMips(), 0, Physical->GetArraySize()},
-					ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
-			};
-			Declare(GraphResources.DefaultWhite,
-				Services.DefaultTextures.Get_RenderThread(EDefaultTexture::White));
-			Declare(GraphResources.DefaultShadowArray,
-				Services.DefaultTextures.GetArray_RenderThread());
-			Declare(GraphResources.EnvironmentIrradiance,
-				GraphResources.SelectedEnvironmentIrradiance);
-			Declare(GraphResources.EnvironmentPrefiltered,
-				GraphResources.SelectedEnvironmentPrefiltered);
-			Declare(GraphResources.EnvironmentBrdfLut,
-				GraphResources.SelectedEnvironmentBrdfLut);
-		};
+		auto& Graph = Inputs.Graph;
+		auto& Services = Inputs.Services;
+		const auto RecordInputs = Inputs.Record;
+		const auto& Options = Inputs.Options;
+		const auto PreparedContactRoute = Inputs.Route;
+		const uint32 Width = Inputs.Width;
+		const uint32 Height = Inputs.Height;
+		const bool bWantsProductionDeferred = Inputs.bProductionDeferred;
+		FSceneFrameTopology Topology;
+		Topology.ContactShadowVisibility = Inputs.GraphRoute;
+		struct {
+			std::optional<FRenderGraphTextureHandle> DirectionalShadow;
+			FRenderGraphTextureHandle SceneDepth;
+			std::array<std::optional<FRenderGraphTextureHandle>, 4> GBuffer;
+			std::optional<FRenderGraphTextureHandle>
+				ContactShadowVisibilityFragment;
+			std::optional<FRenderGraphTextureHandle>
+				ContactShadowVisibilityCompute;
+		} GraphResources;
+		GraphResources.DirectionalShadow = Inputs.DirectionalShadow.Shadow;
+		GraphResources.GBuffer = Inputs.GBuffer.Textures;
+		GraphResources.SceneDepth = Inputs.GBuffer.Depth;
+		struct {
+			TSceneFrameGraphValue<FDirectionalShadowPassResult> DirectionalShadow;
+			TSceneFrameGraphValue<FGBufferPassResult> GBuffer;
+			TSceneFrameGraphValue<FContactShadowVisibilityPassResult>
+				ContactShadowVisibility;
+		} Channels;
+		Channels.DirectionalShadow.Handle = Inputs.DirectionalShadow.Completion;
+		Channels.GBuffer.Handle = Inputs.GBuffer.Completion;
+		Channels.ContactShadowVisibility.Handle = Graph.CreateValue<
+			FContactShadowVisibilityPassResult>(
+				"Scene.ContactShadowVisibilityValue",
+				"contact-shadow-visibility-result");
 		if (Topology.UsesContactShadowVisibilityFragment())
 			GraphResources.ContactShadowVisibilityFragment = Graph.CreateTexture(
 				"Scene.ContactShadowVisibility.Fragment",
@@ -263,9 +224,11 @@ namespace Durin
 						ESceneFrameBackingClass::ContactShadowVisibilityCompute))},
 				ERHIAccess::GraphicsShaderRead);
 		auto FillCommonParameters = [&](auto& Parameters) {
-			Parameters.DirectionalShadow = {.Value = DirectionalShadowValue.Handle};
-			Parameters.GBufferCompletion = {.Value = GBufferValue.Handle};
-			Parameters.Completion = {.Value = ContactShadowVisibilityValue.Handle};
+			Parameters.DirectionalShadow = {
+				.Value = Channels.DirectionalShadow.Handle};
+			Parameters.GBufferCompletion = {.Value = Channels.GBuffer.Handle};
+			Parameters.Completion = {
+				.Value = Channels.ContactShadowVisibility.Handle};
 			if (GraphResources.GBuffer[0])
 			{
 				const FRHITextureSubresourceRange ColorRange{
@@ -354,6 +317,9 @@ namespace Durin
 				FContactShadowVisibilityGraphContributor>(Graph,
 				ERenderGraphPassType::Graphics, std::move(Parameters), Execute);
 		}
+		return {.Completion = Channels.ContactShadowVisibility.Handle,
+			.Fragment = GraphResources.ContactShadowVisibilityFragment,
+			.Compute = GraphResources.ContactShadowVisibilityCompute};
 	}
 
 	auto FSceneFrameFeatureRecorders::RenderContactShadowVisibility_RenderThread(

@@ -17,7 +17,6 @@ namespace Durin
 		[[nodiscard]] static auto Publish(
 			std::span<const FRenderGraphPreparationRequest> Requests,
 			FRenderGraphResourceBackings& Backings,
-			const FSceneFrameGraphResources& Resources,
 			const FResolvedSceneFrameTargets& Targets,
 			std::string& Error) -> bool;
 	};

@@ -138,14 +138,13 @@ execute an alternate production scheduler.
 
 ## Typed Results and Failure Policy
 
-`FSceneFrameGraphExecutionChannels` carries the submission's typed graph
-directional-shadow, GBuffer, GTAO, contact-shadow, cloud-shadow,
-isolated-deferred, Scene Color/cloud, and post-process results. Each channel is
-a `TSceneFrameGraphValue<TResult>` containing only a graph-owned
-`TRenderGraphValueHandle<TResult>`; payload storage, one writer, declared
-readers, dependency lifetime, and callback access are owned by RenderCore.
-Distinct non-RHI results cannot be interchanged, and callbacks do not
-communicate through mutable side payloads. Each
+Each producer creates its own graph-owned typed completion value and returns
+its `TRenderGraphValueHandle<TResult>` in a feature-specific output. The
+composer passes that output directly to the exact downstream input; there is
+no frame-wide execution-channel lookup or mutable channel bag. Payload
+storage, one writer, declared readers, dependency lifetime, and callback
+access are owned by RenderCore. Distinct non-RHI results cannot be
+interchanged, and callbacks do not communicate through mutable side payloads. Each
 fallible producer publishes `NotRequested`,
 `Complete`, or `Failed`. Graph-owned directional shadow, GBuffer, GTAO,
 contact/cloud visibility, isolated-deferred, Scene Color/cloud, debug, and
@@ -211,9 +210,11 @@ partitions, resolved geometry values, imported/persistent graph handles,
 retained logical target descriptions, and non-RHI pass results described above.
 
 Each stable pass identity is owned by one named contributor type in
-`SceneFrameGraphContributors.h`; contributors add passes only to the
-  caller-owned builder and never compile or execute a graph. The composer wires
-  their handles, declared resources, and typed value handles. It converts the complete
+`SceneFrameGraphContributors.h`; contributors add parameterized passes only to
+the caller-owned builder and never compile or execute a graph. The composer
+wires returned typed outputs into narrow downstream inputs. Each pass owns one
+feature-local parameter schema whose assigned fields are its sole graph
+declaration and callback capability. It converts the complete
 prepared plan into feature-specific shadow, geometry, visibility, cloud, or
 view inputs; neither contributors nor their callbacks can discover the whole
 plan or the execution pipeline. `FSceneFrameFeatureRecorders` owns command

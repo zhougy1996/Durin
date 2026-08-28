@@ -12,104 +12,39 @@
 namespace Durin
 {
 	auto FDirectionalShadowGraphContributor::AddPasses(
-		FSceneFrameGraphContributorContext& Context,
-		const FDirectionalShadowRecordInputs& RecordInputs) -> void
+		const FDirectionalShadowGraphInputs& Inputs)
+		-> FDirectionalShadowGraphOutput
 	{
-		auto& Graph = Context.Graph;
-		auto& Services = Context.Services;
-		const auto& View = Context.View;
-		auto* OutputTarget = Context.OutputTarget;
-		const auto& Options = Context.Options;
-		auto& Topology = Context.Topology;
-		const auto& PreparedEditorAssistance =
-			Context.EditorAssistance;
-		const auto PreparedContactRoute = Context.ContactRoute;
-		const auto PreparedCloudShadowRoute = Context.CloudShadowRoute;
-		const auto PreparedCloudRoute = Context.CloudRoute;
-		auto* CloudWeatherTexture = Context.CloudWeatherTexture;
-		auto* DirectionalShadowTexture = Context.DirectionalShadowTexture;
-		const uint32 Width = Context.Width;
-		const uint32 Height = Context.Height;
-		const bool bPresentOutput = Context.bPresentOutput;
-		const bool bHasEditorAssistance =
-			Context.bHasEditorAssistance;
-		const bool bRequiresDeferredOpaque =
-			Context.bRequiresDeferredOpaque;
-		const bool bWantsIsolatedDeferred =
-			Context.bWantsIsolatedDeferred;
-		const bool bWantsGroundTruthAmbientOcclusion =
-			Context.bWantsGroundTruthAmbientOcclusion;
-		const bool bWantsDeferredInputs =
-			Context.bWantsDeferredInputs;
-		const bool bWantsProductionDeferred =
-			Context.bWantsProductionDeferred;
-		const bool bHybridRetainedResourcesReady =
-			Context.bHybridRetainedResourcesReady;
-		const bool bNeedsGBuffer = Context.bNeedsGBuffer;
-		auto& DeferredParameters =
-			Context.Composition.DeferredParameters;
-		auto& ProductionDeferredParameters =
-			Context.Composition.ProductionDeferredParameters;
-		auto& GraphResources = Context.Composition.Resources;
-		auto& Channels = Context.Composition.Channels;
-		auto& DirectionalShadowValue = Channels.DirectionalShadow;
-		auto& GBufferValue = Channels.GBuffer;
-		auto& AmbientOcclusionValue = Channels.AmbientOcclusion;
-		auto& ContactShadowVisibilityValue = Channels.ContactShadowVisibility;
-		auto& CloudShadowValue = Channels.CloudShadow;
-		auto& DeferredDirectionalLightingValue = Channels.DeferredDirectionalLighting;
-		auto& BaseSceneValue = Channels.BaseScene;
-		auto& VolumetricCloudSpatialValue =
-			Channels.VolumetricCloudSpatial;
-		auto& VolumetricCloudValue = Channels.VolumetricCloud;
-		auto& SceneColorValue = Channels.SceneColor;
-		auto& PostProcessValue = Channels.PostProcess;
-		auto DeclarePersistentGraphicsInputs = [&](auto Pass) {
-			std::vector<FRenderGraphTextureHandle> Declared;
-			auto Declare = [&](const auto& Handle, FRHITexture* Physical) {
-				if (!Handle || !Physical
-					|| std::ranges::find(Declared, *Handle) != Declared.end())
-					return;
-				Declared.push_back(*Handle);
-				Graph.UseTexture(Pass, *Handle,
-					{GetTextureAspects(Physical->GetFormat()), 0,
-						Physical->GetNumMips(), 0, Physical->GetArraySize()},
-					ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
-			};
-			Declare(GraphResources.DefaultWhite,
-				Services.DefaultTextures.Get_RenderThread(EDefaultTexture::White));
-			Declare(GraphResources.DefaultShadowArray,
-				Services.DefaultTextures.GetArray_RenderThread());
-			Declare(GraphResources.EnvironmentIrradiance,
-				GraphResources.SelectedEnvironmentIrradiance);
-			Declare(GraphResources.EnvironmentPrefiltered,
-				GraphResources.SelectedEnvironmentPrefiltered);
-			Declare(GraphResources.EnvironmentBrdfLut,
-				GraphResources.SelectedEnvironmentBrdfLut);
-		};
-		const auto DirectionalShadowPass =
-			AddSceneFrameFeaturePass<FDirectionalShadowGraphContributor>(
-				Graph, ERenderGraphPassType::Graphics,
-			[&Services, &Channels, RecordInputs, &GraphResources](
-				FRHICommandListImmediate& Commands,
-				const FRenderGraphPassResources& Resources) {
-				Resources.WriteValue(Channels.DirectionalShadow.Handle) =
-					Services.Recorders.RenderDirectionalShadow_RenderThread(Commands,
-						RecordInputs,
-						GraphResources.DirectionalShadow
-							? Resources.GetTexture(*GraphResources.DirectionalShadow)
-							: nullptr);
-			});
-		Graph.UseValue(DirectionalShadowPass, DirectionalShadowValue.Handle,
-			ERenderGraphUse::Write);
+		auto& Graph = Inputs.Graph;
+		auto& Services = Inputs.Services;
+		const auto RecordInputs = Inputs.Record;
+		struct { std::optional<FRenderGraphTextureHandle> DirectionalShadow; }
+			GraphResources;
+		GraphResources.DirectionalShadow = Inputs.Shadow;
+		struct { TSceneFrameGraphValue<FDirectionalShadowPassResult>
+			DirectionalShadow; } Channels;
+		Channels.DirectionalShadow.Handle =
+			Graph.CreateValue<FDirectionalShadowPassResult>(
+				"Scene.DirectionalShadowValue", "directional-shadow-result");
+		auto Parameters = Graph.AllocParameters<FDirectionalShadowPassParameters>();
+		Parameters->Completion = {.Value = Channels.DirectionalShadow.Handle};
 		if (GraphResources.DirectionalShadow)
-			Graph.UseManagedDepthStencilAttachment(DirectionalShadowPass,
-				*GraphResources.DirectionalShadow,
-				{ERHITextureAspect::Depth, 0, 1, 0,
-					DirectionalShadowCascadeCount},
-				ERHIRenderTargetLoadAction::Clear,
-				ERHIRenderTargetStoreAction::Store,
-				ERHIAccess::GraphicsShaderRead);
+			Parameters->Resources.DirectionalShadowOutput = {
+				.Texture = *GraphResources.DirectionalShadow,
+				.Range = {ERHITextureAspect::Depth, 0, 1, 0,
+					DirectionalShadowCascadeCount}};
+		(void)AddSceneFrameFeaturePass<FDirectionalShadowGraphContributor>(
+			Graph, ERenderGraphPassType::Graphics, std::move(Parameters),
+			[&Services, RecordInputs](FRHICommandListImmediate& Commands,
+				const FDirectionalShadowPassParameters& PassParameters,
+				const FRenderGraphParameterResolver& Resolver) {
+				Resolver.WriteValue(PassParameters.Completion) =
+					Services.Recorders.RenderDirectionalShadow_RenderThread(Commands,
+						RecordInputs, Resolver.GetDepthStencilAttachment(
+							PassParameters.Resources.DirectionalShadowOutput).Texture);
+			});
+		return {.Completion = Channels.DirectionalShadow.Handle,
+			.Shadow = GraphResources.DirectionalShadow};
 	}
 
 	auto FSceneFrameFeatureRecorders::RenderDirectionalShadow_RenderThread(

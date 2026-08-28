@@ -146,61 +146,10 @@ namespace Durin
 		FResolvedSceneFrameTargets Targets;
 	};
 
-	struct FSceneFrameGraphResources
-	{
-		std::optional<FRenderGraphTextureHandle> DirectionalShadow;
-		FRenderGraphTextureHandle SceneColor;
-		FRenderGraphTextureHandle SceneDepth;
-		FRenderGraphTextureHandle Output;
-		std::array<std::optional<FRenderGraphTextureHandle>, 4> GBuffer;
-		std::array<std::optional<FRenderGraphTextureHandle>, 4>
-			GroundTruthAmbientOcclusion;
-		std::optional<FRenderGraphTextureHandle> ContactShadowVisibilityFragment;
-		std::optional<FRenderGraphTextureHandle> ContactShadowVisibilityCompute;
-		std::optional<FRenderGraphTextureHandle> VolumetricCloudShadowFragment;
-		std::optional<FRenderGraphTextureHandle> VolumetricCloudShadowCompute;
-		std::optional<FRenderGraphTextureHandle> VolumetricCloudBaseDensity;
-		std::optional<FRenderGraphTextureHandle> VolumetricCloudDetailDensity;
-		std::optional<FRenderGraphTextureHandle> VolumetricCloudWeather;
-		std::optional<FRenderGraphTextureHandle> DefaultWhite;
-		std::optional<FRenderGraphTextureHandle> DefaultShadowArray;
-		std::optional<FRenderGraphTextureHandle> EnvironmentIrradiance;
-		std::optional<FRenderGraphTextureHandle> EnvironmentPrefiltered;
-		std::optional<FRenderGraphTextureHandle> EnvironmentBrdfLut;
-		FRHITexture* SelectedEnvironmentIrradiance = nullptr;
-		FRHITexture* SelectedEnvironmentPrefiltered = nullptr;
-		FRHITexture* SelectedEnvironmentBrdfLut = nullptr;
-		std::optional<FRenderGraphTextureHandle> VolumetricCloudFragment;
-		std::optional<FRenderGraphTextureHandle> VolumetricCloudCompute;
-		std::optional<FRenderGraphTextureHandle> VolumetricCloudComposite;
-		std::optional<FRenderGraphTextureHandle> IsolatedDeferred;
-		std::optional<FRenderGraphTextureHandle> GBufferDebug;
-	};
-
 	template <typename TResult>
 	struct TSceneFrameGraphValue
 	{
 		TRenderGraphValueHandle<TResult> Handle;
-	};
-
-	struct FSceneFrameGraphExecutionChannels
-	{
-		TSceneFrameGraphValue<FDirectionalShadowPassResult> DirectionalShadow;
-		TSceneFrameGraphValue<FGBufferPassResult> GBuffer;
-		TSceneFrameGraphValue<FGroundTruthAmbientOcclusionPassResult>
-			AmbientOcclusion;
-		TSceneFrameGraphValue<FContactShadowVisibilityPassResult>
-			ContactShadowVisibility;
-		TSceneFrameGraphValue<FVolumetricCloudShadowPassResult> CloudShadow;
-		TSceneFrameGraphValue<FIsolatedDeferredPassResult>
-			DeferredDirectionalLighting;
-		TSceneFrameGraphValue<FSceneColorPassResult> BaseScene;
-		TSceneFrameGraphValue<FVolumetricCloudSpatialPassResult>
-			VolumetricCloudSpatial;
-		TSceneFrameGraphValue<FVolumetricCloudPassResult> VolumetricCloud;
-		TSceneFrameGraphValue<FSceneColorPassResult> SceneColor;
-		TSceneFrameGraphValue<FPostProcessPassResult> PostProcess;
-		FRenderGraphTokenHandle OutputCompletion;
 	};
 
 	enum class ESceneFrameGraphExecutionStatus : uint8

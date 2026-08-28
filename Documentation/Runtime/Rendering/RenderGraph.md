@@ -275,10 +275,14 @@ owns ordering against GBuffer, depth, deferred lighting, and final output.
 compile/execute/capture boundary. `FSceneFrameExecutionPipeline` owns frame
 preparation, topology selection, and commit or abort, while
 `FSceneFrameGraphComposer` wires renderer-private feature contributors in a
-fixed order. Each contributor owns its pass declarations, exclusive logical
-textures, uses, and bounded callback. Present or offscreen output is the
-explicit root. Stable compilation preserves declaration order between
-independent optional producers.
+fixed order. Each contributor accepts a feature-specific immutable input,
+creates its own typed completion value and logical textures, then returns a
+narrow typed output for the next contributor. Every production scene pass is
+parameterized: one graph-owned parameter object supplies its exact texture,
+attachment, value, token, and selected-route declarations to both compilation
+and the bounded callback. Present or offscreen output is the explicit typed
+root. Stable compilation preserves declaration order between independent
+optional producers.
 
 The composer is the only boundary allowed to see the complete immutable
 `FSceneRenderPlan`; it slices that plan into feature-specific recorder inputs
@@ -286,6 +290,12 @@ before invoking contributors. Contributors and their callbacks cannot receive
 the complete plan or execution pipeline. `FSceneFrameFeatureRecorders` owns
 feature command semantics and renderer services, but does not author, compile,
 or execute graph structure.
+
+Production scene authoring has no frame-wide resource/channel bag, repeated
+persistent-input declaration helper, or manual `Graph.Use*` supplement. A pass
+may resolve only fields present in its immutable parameter object. Route and
+fallback selection finishes before that object is assigned, so absent optional
+fields mean the route cannot access those capabilities.
 
 Persistent geometry and feature pipeline preparation complete before graph
 compile. Compute, fragment, disabled, and factor-one routes are therefore part

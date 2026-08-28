@@ -54,72 +54,66 @@ namespace Durin
 	auto FSceneFrameGraphBackingProvider::Publish(
 		std::span<const FRenderGraphPreparationRequest> Requests,
 		FRenderGraphResourceBackings& Backings,
-		const FSceneFrameGraphResources& Resources,
 		const FResolvedSceneFrameTargets& Targets,
 		std::string& Error) -> bool
 	{
-		if (!Targets.Scene) return false;
-		auto IsRequested = [&](FRenderGraphTextureHandle Handle) {
-			return std::ranges::any_of(Requests,
-				[&](const FRenderGraphPreparationRequest& Request) {
-					return Request.Kind == ERenderGraphResourceKind::Texture
-						&& Request.Texture == Handle;
-				});
-		};
-		bool Complete = Backings.SetTexture(Resources.SceneColor, Targets.Scene->Color)
-			&& Backings.SetTexture(Resources.SceneDepth, Targets.Scene->Depth);
-		auto SetOptional = [&](const auto& Logical, FRHITexture* Physical) {
-			if (!Logical || !IsRequested(*Logical)) return true;
-			return Physical != nullptr && Backings.SetTexture(*Logical, Physical);
-		};
-		if (Resources.GBuffer[0] && IsRequested(*Resources.GBuffer[0]))
+		bool Complete = true;
+		for (const FRenderGraphPreparationRequest& Request : Requests)
 		{
-			if (!Targets.GBuffer) return false;
-			const std::array Physical{Targets.GBuffer->Material, Targets.GBuffer->Normals,
-				Targets.GBuffer->Surface, Targets.GBuffer->Emissive};
-			for (uint32 Index = 0; Index < Resources.GBuffer.size(); ++Index)
-				Complete = SetOptional(Resources.GBuffer[Index], Physical[Index]) && Complete;
+			FRHITexture* Physical = nullptr;
+			if (Request.Name == "Scene.Color")
+				Physical = Targets.Scene ? Targets.Scene->Color : nullptr;
+			else if (Request.Name == "Scene.Depth")
+				Physical = Targets.Scene ? Targets.Scene->Depth : nullptr;
+			else if (Request.Name == "Scene.GBuffer.Debug")
+				Physical = Targets.GBufferDebug ? Targets.GBufferDebug->Color : nullptr;
+			else if (Request.Name.starts_with("Scene.GBuffer."))
+			{
+				if (Targets.GBuffer)
+				{
+					if (Request.Name.ends_with("Material")) Physical = Targets.GBuffer->Material;
+					else if (Request.Name.ends_with("Normals")) Physical = Targets.GBuffer->Normals;
+					else if (Request.Name.ends_with("Surface")) Physical = Targets.GBuffer->Surface;
+					else if (Request.Name.ends_with("Emissive")) Physical = Targets.GBuffer->Emissive;
+				}
+			}
+			else if (Request.Name.starts_with("Scene.AmbientOcclusion."))
+			{
+				if (Targets.GroundTruthAmbientOcclusion)
+				{
+					if (Request.Name.ends_with("Raw")) Physical = Targets.GroundTruthAmbientOcclusion->Raw;
+					else if (Request.Name.ends_with("Scratch")) Physical = Targets.GroundTruthAmbientOcclusion->Scratch;
+					else if (Request.Name.ends_with("Selector")) Physical = Targets.GroundTruthAmbientOcclusion->Selector;
+					else if (Request.Name.ends_with("Resolved")) Physical = Targets.GroundTruthAmbientOcclusion->Resolved;
+				}
+			}
+			else if (Request.Name == "Scene.ContactShadowVisibility.Fragment")
+				Physical = Targets.ContactShadowVisibilityFragment
+					? Targets.ContactShadowVisibilityFragment->Visibility : nullptr;
+			else if (Request.Name == "Scene.ContactShadowVisibility.Compute")
+				Physical = Targets.ContactShadowVisibilityCompute
+					? Targets.ContactShadowVisibilityCompute->Visibility : nullptr;
+			else if (Request.Name == "Scene.VolumetricCloudShadow.Fragment")
+				Physical = Targets.VolumetricCloudShadowFragment
+					? Targets.VolumetricCloudShadowFragment->Visibility : nullptr;
+			else if (Request.Name == "Scene.VolumetricCloudShadow.Compute")
+				Physical = Targets.VolumetricCloudShadowCompute
+					? Targets.VolumetricCloudShadowCompute->Visibility : nullptr;
+			else if (Request.Name == "Scene.VolumetricCloud.Fragment")
+				Physical = Targets.VolumetricCloudFragment
+					? Targets.VolumetricCloudFragment->Cloud : nullptr;
+			else if (Request.Name == "Scene.VolumetricCloud.Compute")
+				Physical = Targets.VolumetricCloudCompute
+					? Targets.VolumetricCloudCompute->Cloud : nullptr;
+			else if (Request.Name == "Scene.VolumetricCloud.Composite")
+				Physical = Targets.VolumetricCloudComposite
+					? Targets.VolumetricCloudComposite->Cloud : nullptr;
+			else if (Request.Name == "Scene.DeferredDirectionalLighting.Isolated")
+				Physical = Targets.IsolatedDeferred
+					? Targets.IsolatedDeferred->Color : nullptr;
+			Complete = Physical != nullptr
+				&& Backings.SetTexture(Request.Texture, Physical) && Complete;
 		}
-		if (Resources.GroundTruthAmbientOcclusion[0]
-			&& IsRequested(*Resources.GroundTruthAmbientOcclusion[0]))
-		{
-			if (!Targets.GroundTruthAmbientOcclusion) return false;
-			const std::array<FRHITexture*, 4> Physical{
-				Targets.GroundTruthAmbientOcclusion->Raw,
-				Targets.GroundTruthAmbientOcclusion->Scratch,
-				Targets.GroundTruthAmbientOcclusion->Selector,
-				Targets.GroundTruthAmbientOcclusion->Resolved};
-			for (uint32 Index = 0;
-				Index < Resources.GroundTruthAmbientOcclusion.size(); ++Index)
-				Complete = SetOptional(Resources.GroundTruthAmbientOcclusion[Index],
-					Physical[Index]) && Complete;
-		}
-		Complete = SetOptional(Resources.ContactShadowVisibilityFragment,
-			Targets.ContactShadowVisibilityFragment ? Targets.ContactShadowVisibilityFragment->Visibility : nullptr)
-			&& Complete;
-		Complete = SetOptional(Resources.ContactShadowVisibilityCompute,
-			Targets.ContactShadowVisibilityCompute ? Targets.ContactShadowVisibilityCompute->Visibility : nullptr)
-			&& Complete;
-		Complete = SetOptional(Resources.VolumetricCloudShadowFragment,
-			Targets.VolumetricCloudShadowFragment
-				? Targets.VolumetricCloudShadowFragment->Visibility : nullptr) && Complete;
-		Complete = SetOptional(Resources.VolumetricCloudShadowCompute,
-			Targets.VolumetricCloudShadowCompute
-				? Targets.VolumetricCloudShadowCompute->Visibility : nullptr) && Complete;
-		Complete = SetOptional(Resources.VolumetricCloudFragment,
-			Targets.VolumetricCloudFragment
-				? Targets.VolumetricCloudFragment->Cloud : nullptr) && Complete;
-		Complete = SetOptional(Resources.VolumetricCloudCompute,
-			Targets.VolumetricCloudCompute
-				? Targets.VolumetricCloudCompute->Cloud : nullptr) && Complete;
-		Complete = SetOptional(Resources.VolumetricCloudComposite,
-			Targets.VolumetricCloudComposite
-				? Targets.VolumetricCloudComposite->Cloud : nullptr) && Complete;
-		Complete = SetOptional(Resources.IsolatedDeferred,
-			Targets.IsolatedDeferred ? Targets.IsolatedDeferred->Color : nullptr)
-			&& Complete;
-		Complete = SetOptional(Resources.GBufferDebug,
-			Targets.GBufferDebug ? Targets.GBufferDebug->Color : nullptr) && Complete;
 		if (!Complete) Error = "renderer graph backing publication was incomplete";
 		return Complete;
 	}

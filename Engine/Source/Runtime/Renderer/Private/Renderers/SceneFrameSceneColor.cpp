@@ -12,94 +12,62 @@
 namespace Durin
 {
 	auto FSceneColorGraphContributor::AddPasses(
-		FSceneFrameGraphContributorContext& Context,
-		const FSceneGeometryRecordInputs& RecordInputs) -> void
+		const FSceneColorGraphInputs& Inputs) -> FSceneColorGraphOutput
 	{
-		auto& Graph = Context.Graph;
-		auto& Services = Context.Services;
-		const auto& View = Context.View;
-		auto* OutputTarget = Context.OutputTarget;
-		const auto& Options = Context.Options;
-		auto& Topology = Context.Topology;
-		const auto& PreparedEditorAssistance =
-			Context.EditorAssistance;
-		const auto PreparedContactRoute = Context.ContactRoute;
-		const auto PreparedCloudShadowRoute = Context.CloudShadowRoute;
-		const auto PreparedCloudRoute = Context.CloudRoute;
-		auto* CloudWeatherTexture = Context.CloudWeatherTexture;
-		auto* DirectionalShadowTexture = Context.DirectionalShadowTexture;
-		const uint32 Width = Context.Width;
-		const uint32 Height = Context.Height;
-		const bool bPresentOutput = Context.bPresentOutput;
-		const bool bHasEditorAssistance =
-			Context.bHasEditorAssistance;
-		const bool bRequiresDeferredOpaque =
-			Context.bRequiresDeferredOpaque;
-		const bool bWantsIsolatedDeferred =
-			Context.bWantsIsolatedDeferred;
-		const bool bWantsGroundTruthAmbientOcclusion =
-			Context.bWantsGroundTruthAmbientOcclusion;
-		const bool bWantsDeferredInputs =
-			Context.bWantsDeferredInputs;
-		const bool bWantsProductionDeferred =
-			Context.bWantsProductionDeferred;
-		const bool bHybridRetainedResourcesReady =
-			Context.bHybridRetainedResourcesReady;
-		const bool bNeedsGBuffer = Context.bNeedsGBuffer;
-		auto& DeferredParameters =
-			Context.Composition.DeferredParameters;
-		auto& ProductionDeferredParameters =
-			Context.Composition.ProductionDeferredParameters;
-		auto& GraphResources = Context.Composition.Resources;
-		auto& Channels = Context.Composition.Channels;
-		auto& DirectionalShadowValue = Channels.DirectionalShadow;
-		auto& GBufferValue = Channels.GBuffer;
-		auto& AmbientOcclusionValue = Channels.AmbientOcclusion;
-		auto& ContactShadowVisibilityValue = Channels.ContactShadowVisibility;
-		auto& CloudShadowValue = Channels.CloudShadow;
-		auto& DeferredDirectionalLightingValue = Channels.DeferredDirectionalLighting;
-		auto& BaseSceneValue = Channels.BaseScene;
-		auto& VolumetricCloudSpatialValue =
-			Channels.VolumetricCloudSpatial;
-		auto& VolumetricCloudValue = Channels.VolumetricCloud;
-		auto& SceneColorValue = Channels.SceneColor;
-		auto& PostProcessValue = Channels.PostProcess;
-		auto DeclarePersistentGraphicsInputs = [&](auto Pass) {
-			std::vector<FRenderGraphTextureHandle> Declared;
-			auto Declare = [&](const auto& Handle, FRHITexture* Physical) {
-				if (!Handle || !Physical
-					|| std::ranges::find(Declared, *Handle) != Declared.end())
-					return;
-				Declared.push_back(*Handle);
-				Graph.UseTexture(Pass, *Handle,
-					{GetTextureAspects(Physical->GetFormat()), 0,
-						Physical->GetNumMips(), 0, Physical->GetArraySize()},
-					ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
-			};
-			Declare(GraphResources.DefaultWhite,
-				Services.DefaultTextures.Get_RenderThread(EDefaultTexture::White));
-			Declare(GraphResources.DefaultShadowArray,
-				Services.DefaultTextures.GetArray_RenderThread());
-			Declare(GraphResources.EnvironmentIrradiance,
-				GraphResources.SelectedEnvironmentIrradiance);
-			Declare(GraphResources.EnvironmentPrefiltered,
-				GraphResources.SelectedEnvironmentPrefiltered);
-			Declare(GraphResources.EnvironmentBrdfLut,
-				GraphResources.SelectedEnvironmentBrdfLut);
-		};
-		const auto SceneColorPass =
-			AddSceneFrameFeaturePass<FSceneColorGraphContributor>(
-				Graph, ERenderGraphPassType::Graphics,
-			[&Services, &Channels, &Composition = Context.Composition,
-				RecordInputs, &GraphResources, &Topology,
-				bRequiresDeferredOpaque](FRHICommandListImmediate& Commands,
-				const FRenderGraphPassResources& Resources) {
-				auto& SceneColorResult = Resources.WriteValue(
-					Channels.SceneColor.Handle);
-				const auto& BaseSceneResult = Resources.ReadValue(
-					Channels.BaseScene.Handle);
-				const auto& VolumetricCloudResult = Resources.ReadValue(
-					Channels.VolumetricCloud.Handle);
+		auto& Graph = Inputs.Graph;
+		auto& Services = Inputs.Services;
+		const auto RecordInputs = Inputs.Record;
+		const bool bRequiresDeferredOpaque = Inputs.bRequiresDeferredOpaque;
+		FSceneFrameTopology Topology;
+		Topology.bVolumetricCloudComposite = Inputs.bVolumetricCloudComposite;
+		struct {
+			FRenderGraphTextureHandle SceneColor;
+			FRenderGraphTextureHandle SceneDepth;
+			std::optional<FRenderGraphTextureHandle> VolumetricCloudComposite;
+		} GraphResources;
+		GraphResources.SceneColor = Inputs.BaseScene.Color;
+		GraphResources.SceneDepth = Inputs.BaseScene.Depth;
+		GraphResources.VolumetricCloudComposite = Inputs.VolumetricCloud.Composite;
+		struct {
+			TSceneFrameGraphValue<FSceneColorPassResult> BaseScene;
+			TSceneFrameGraphValue<FVolumetricCloudPassResult> VolumetricCloud;
+			TSceneFrameGraphValue<FSceneColorPassResult> SceneColor;
+		} Channels;
+		Channels.BaseScene.Handle = Inputs.BaseScene.Completion;
+		Channels.VolumetricCloud.Handle = Inputs.VolumetricCloud.Completion;
+		Channels.SceneColor.Handle = Graph.CreateValue<FSceneColorPassResult>(
+			"Scene.ColorValue", "scene-color-result");
+		auto Parameters = Graph.AllocParameters<FSceneColorPassParameters>();
+		Parameters->BaseScene = {.Value = Channels.BaseScene.Handle};
+		Parameters->VolumetricCloud = {.Value = Channels.VolumetricCloud.Handle};
+		Parameters->Completion = {.Value = Channels.SceneColor.Handle};
+		if (bRequiresDeferredOpaque)
+		{
+			const FRenderGraphTextureHandle Color =
+				Topology.bVolumetricCloudComposite
+					&& GraphResources.VolumetricCloudComposite
+				? *GraphResources.VolumetricCloudComposite
+				: GraphResources.SceneColor;
+			Parameters->Resources.SceneColorManaged = {
+				.Texture = Color,
+				.Range = {ERHITextureAspect::Color, 0, 1, 0, 1}};
+			Parameters->Resources.SceneDepthManaged = {
+				.Texture = GraphResources.SceneDepth,
+				.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
+		}
+		(void)AddSceneFrameFeaturePass<FSceneColorGraphContributor>(
+			Graph, ERenderGraphPassType::Graphics, std::move(Parameters),
+			[&Services, &Publication = Inputs.Publication,
+				RecordInputs, Topology, bRequiresDeferredOpaque](
+				FRHICommandListImmediate& Commands,
+				const FSceneColorPassParameters& PassParameters,
+				const FRenderGraphParameterResolver& Resolver) {
+				auto& SceneColorResult = Resolver.WriteValue(
+					PassParameters.Completion);
+				const auto& BaseSceneResult = Resolver.ReadValue(
+					PassParameters.BaseScene);
+				const auto& VolumetricCloudResult = Resolver.ReadValue(
+					PassParameters.VolumetricCloud);
 				if (!bRequiresDeferredOpaque)
 					SceneColorResult = BaseSceneResult;
 				else
@@ -108,19 +76,17 @@ namespace Durin
 					if (Topology.bVolumetricCloudComposite
 						&& !VolumetricCloudResult.bCompositeOutputValid)
 						Input.Result = ERenderViewResult::RendererResourcesUnavailable;
-					FRHITexture* Color = Topology.bVolumetricCloudComposite
-						&& GraphResources.VolumetricCloudComposite
-						? Resources.GetTexture(
-							*GraphResources.VolumetricCloudComposite)
-						: Resources.GetTexture(GraphResources.SceneColor);
+					FRHITexture* Color = Resolver.GetTexture(
+						PassParameters.Resources.SceneColorManaged);
 					SceneColorResult = Services.Recorders.RenderSceneTranslucency_RenderThread(
 						Commands,
 						RecordInputs,
 						Color,
-						Resources.GetTexture(GraphResources.SceneDepth), Input,
+						Resolver.GetTexture(
+							PassParameters.Resources.SceneDepthManaged), Input,
 						VolumetricCloudResult);
 				}
-				Composition.SceneColorPublication = SceneColorResult;
+				Publication = SceneColorResult;
 				if (!SceneColorResult.IsSuccess()) return;
 				ReduceStaticMeshTelemetry(RecordInputs.Receiver.StaticMeshes,
 					Services.ResolvedFrame.Receiver.StaticMeshes, Services.Telemetry.View);
@@ -130,29 +96,9 @@ namespace Durin
 				ReduceTerrainTelemetry(RecordInputs.Receiver.Terrains,
 					Services.ResolvedFrame.Receiver.Terrains, Services.Telemetry.View);
 			});
-		Graph.UseValue(SceneColorPass, BaseSceneValue.Handle,
-			ERenderGraphUse::Read);
-		Graph.UseValue(SceneColorPass, VolumetricCloudValue.Handle,
-			ERenderGraphUse::Read);
-		Graph.UseValue(SceneColorPass, SceneColorValue.Handle,
-			ERenderGraphUse::Write);
-		if (bRequiresDeferredOpaque)
-		{
-			const FRenderGraphTextureHandle Color =
-				Topology.bVolumetricCloudComposite
-					&& GraphResources.VolumetricCloudComposite
-				? *GraphResources.VolumetricCloudComposite
-				: GraphResources.SceneColor;
-			Graph.UseManagedTexture(SceneColorPass, Color,
-				{ERHITextureAspect::Color, 0, 1, 0, 1},
-				ERenderGraphUse::ReadWrite,
-				ERHIAccess::ColorAttachmentReadWrite,
-				ERHIAccess::GraphicsShaderRead);
-			Graph.UseManagedTexture(SceneColorPass, GraphResources.SceneDepth,
-				{ERHITextureAspect::Depth, 0, 1, 0, 1},
-				ERenderGraphUse::ReadWrite, ERHIAccess::GraphicsShaderRead,
-				ERHIAccess::DepthStencilReadWrite);
-		}
+		return {.Completion = Channels.SceneColor.Handle,
+			.Color = GraphResources.SceneColor, .Depth = GraphResources.SceneDepth,
+			.CloudComposite = GraphResources.VolumetricCloudComposite};
 	}
 
 	auto FSceneFrameFeatureRecorders::RenderSceneTranslucency_RenderThread(

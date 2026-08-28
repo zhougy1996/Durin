@@ -12,81 +12,36 @@
 namespace Durin
 {
 	auto FAmbientOcclusionGraphContributor::AddPasses(
-		FSceneFrameGraphContributorContext& Context,
-		const FSceneView& RecordView) -> void
+		const FAmbientOcclusionGraphInputs& Inputs)
+		-> FAmbientOcclusionGraphOutput
 	{
-		auto& Graph = Context.Graph;
-		auto& Services = Context.Services;
-		const auto& View = Context.View;
-		auto* OutputTarget = Context.OutputTarget;
-		const auto& Options = Context.Options;
-		auto& Topology = Context.Topology;
-		const auto& PreparedEditorAssistance =
-			Context.EditorAssistance;
-		const auto PreparedContactRoute = Context.ContactRoute;
-		const auto PreparedCloudShadowRoute = Context.CloudShadowRoute;
-		const auto PreparedCloudRoute = Context.CloudRoute;
-		auto* CloudWeatherTexture = Context.CloudWeatherTexture;
-		auto* DirectionalShadowTexture = Context.DirectionalShadowTexture;
-		const uint32 Width = Context.Width;
-		const uint32 Height = Context.Height;
-		const bool bPresentOutput = Context.bPresentOutput;
-		const bool bHasEditorAssistance =
-			Context.bHasEditorAssistance;
-		const bool bRequiresDeferredOpaque =
-			Context.bRequiresDeferredOpaque;
-		const bool bWantsIsolatedDeferred =
-			Context.bWantsIsolatedDeferred;
-		const bool bWantsGroundTruthAmbientOcclusion =
-			Context.bWantsGroundTruthAmbientOcclusion;
-		const bool bWantsDeferredInputs =
-			Context.bWantsDeferredInputs;
-		const bool bWantsProductionDeferred =
-			Context.bWantsProductionDeferred;
-		const bool bHybridRetainedResourcesReady =
-			Context.bHybridRetainedResourcesReady;
-		const bool bNeedsGBuffer = Context.bNeedsGBuffer;
-		auto& DeferredParameters =
-			Context.Composition.DeferredParameters;
-		auto& ProductionDeferredParameters =
-			Context.Composition.ProductionDeferredParameters;
-		auto& GraphResources = Context.Composition.Resources;
-		auto& Channels = Context.Composition.Channels;
-		auto& DirectionalShadowValue = Channels.DirectionalShadow;
-		auto& GBufferValue = Channels.GBuffer;
-		auto& AmbientOcclusionValue = Channels.AmbientOcclusion;
-		auto& ContactShadowVisibilityValue = Channels.ContactShadowVisibility;
-		auto& CloudShadowValue = Channels.CloudShadow;
-		auto& DeferredDirectionalLightingValue = Channels.DeferredDirectionalLighting;
-		auto& BaseSceneValue = Channels.BaseScene;
-		auto& VolumetricCloudSpatialValue =
-			Channels.VolumetricCloudSpatial;
-		auto& VolumetricCloudValue = Channels.VolumetricCloud;
-		auto& SceneColorValue = Channels.SceneColor;
-		auto& PostProcessValue = Channels.PostProcess;
-		auto DeclarePersistentGraphicsInputs = [&](auto Pass) {
-			std::vector<FRenderGraphTextureHandle> Declared;
-			auto Declare = [&](const auto& Handle, FRHITexture* Physical) {
-				if (!Handle || !Physical
-					|| std::ranges::find(Declared, *Handle) != Declared.end())
-					return;
-				Declared.push_back(*Handle);
-				Graph.UseTexture(Pass, *Handle,
-					{GetTextureAspects(Physical->GetFormat()), 0,
-						Physical->GetNumMips(), 0, Physical->GetArraySize()},
-					ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
-			};
-			Declare(GraphResources.DefaultWhite,
-				Services.DefaultTextures.Get_RenderThread(EDefaultTexture::White));
-			Declare(GraphResources.DefaultShadowArray,
-				Services.DefaultTextures.GetArray_RenderThread());
-			Declare(GraphResources.EnvironmentIrradiance,
-				GraphResources.SelectedEnvironmentIrradiance);
-			Declare(GraphResources.EnvironmentPrefiltered,
-				GraphResources.SelectedEnvironmentPrefiltered);
-			Declare(GraphResources.EnvironmentBrdfLut,
-				GraphResources.SelectedEnvironmentBrdfLut);
-		};
+		auto& Graph = Inputs.Graph;
+		auto& Services = Inputs.Services;
+		const auto& RecordView = Inputs.View;
+		const auto& Options = Inputs.Options;
+		const uint32 Width = Inputs.Width;
+		const uint32 Height = Inputs.Height;
+		const bool bWantsGroundTruthAmbientOcclusion = Inputs.bRequested;
+		FSceneFrameTopology Topology;
+		Topology.bGroundTruthAmbientOcclusion = Inputs.bEnabled;
+		Topology.AmbientOcclusionQuality = Inputs.Quality;
+		struct {
+			FRenderGraphTextureHandle SceneDepth;
+			std::array<std::optional<FRenderGraphTextureHandle>, 4> GBuffer;
+			std::array<std::optional<FRenderGraphTextureHandle>, 4>
+				GroundTruthAmbientOcclusion;
+		} GraphResources;
+		GraphResources.GBuffer = Inputs.GBuffer.Textures;
+		GraphResources.SceneDepth = Inputs.GBuffer.Depth;
+		struct {
+			TSceneFrameGraphValue<FGBufferPassResult> GBuffer;
+			TSceneFrameGraphValue<FGroundTruthAmbientOcclusionPassResult>
+				AmbientOcclusion;
+		} Channels;
+		Channels.GBuffer.Handle = Inputs.GBuffer.Completion;
+		Channels.AmbientOcclusion.Handle = Graph.CreateValue<
+			FGroundTruthAmbientOcclusionPassResult>(
+				"Scene.AmbientOcclusionValue", "ambient-occlusion-result");
 		if (Topology.bGroundTruthAmbientOcclusion)
 		{
 			const bool bHalfResolution = Topology.AmbientOcclusionQuality
@@ -145,75 +100,72 @@ namespace Durin
 						ERHIAccess::GraphicsShaderRead);
 			}
 		}
-		const auto AmbientOcclusionPass =
-			AddSceneFrameFeaturePass<FAmbientOcclusionGraphContributor>(
-				Graph, ERenderGraphPassType::Graphics,
-			[&Services, &Channels, RecordView = &RecordView, &GraphResources, &Topology,
+		auto Parameters = Graph.AllocParameters<FAmbientOcclusionPassParameters>();
+		Parameters->GBufferCompletion = {.Value = Channels.GBuffer.Handle};
+		Parameters->Completion = {.Value = Channels.AmbientOcclusion.Handle};
+		if (GraphResources.GBuffer[0] && Topology.bGroundTruthAmbientOcclusion)
+		{
+			for (uint32 Index = 0; Index < GraphResources.GBuffer.size(); ++Index)
+				Parameters->Resources.GBuffer[Index] = {
+					*GraphResources.GBuffer[Index],
+					{ERHITextureAspect::Color, 0, 1, 0, 1}};
+			Parameters->Resources.SceneDepth = {GraphResources.SceneDepth,
+				{ERHITextureAspect::Depth, 0, 1, 0, 1}};
+			for (uint32 Index = 0;
+				Index < GraphResources.GroundTruthAmbientOcclusion.size(); ++Index)
+				if (GraphResources.GroundTruthAmbientOcclusion[Index])
+					Parameters->Resources.AmbientOcclusionManaged[Index] = {
+						*GraphResources.GroundTruthAmbientOcclusion[Index],
+						{ERHITextureAspect::Color, 0, 1, 0, 1}};
+		}
+		(void)AddSceneFrameFeaturePass<FAmbientOcclusionGraphContributor>(
+			Graph, ERenderGraphPassType::Graphics, std::move(Parameters),
+			[&Services, RecordView = &RecordView, Topology,
 				&Options, Width, Height, bWantsGroundTruthAmbientOcclusion](
 				FRHICommandListImmediate& Commands,
-				const FRenderGraphPassResources& Resources) {
+				const FAmbientOcclusionPassParameters& PassParameters,
+				const FRenderGraphParameterResolver& Resolver) {
 				std::optional<FGBufferRenderer::FTargets> GBufferTargets;
-				if (GraphResources.GBuffer[0]
+				if (PassParameters.Resources.GBuffer[0]
 					&& Topology.bGroundTruthAmbientOcclusion)
 					GBufferTargets = {
-						.Material = Resources.GetTexture(*GraphResources.GBuffer[0]),
-						.Normals = Resources.GetTexture(*GraphResources.GBuffer[1]),
-						.Surface = Resources.GetTexture(*GraphResources.GBuffer[2]),
-						.Emissive = Resources.GetTexture(*GraphResources.GBuffer[3])};
+						.Material = Resolver.GetTexture(PassParameters.Resources.GBuffer[0]),
+						.Normals = Resolver.GetTexture(PassParameters.Resources.GBuffer[1]),
+						.Surface = Resolver.GetTexture(PassParameters.Resources.GBuffer[2]),
+						.Emissive = Resolver.GetTexture(PassParameters.Resources.GBuffer[3])};
 				const FPostProcessRenderer::FSceneTargets SceneTargets{
 					.Color = nullptr,
 					.Depth = GBufferTargets
-						? Resources.GetTexture(GraphResources.SceneDepth) : nullptr};
+						? Resolver.GetTexture(PassParameters.Resources.SceneDepth) : nullptr};
 				std::optional<FGroundTruthAmbientOcclusionRenderer::FTargets>
 					AmbientOcclusionTargets;
-				if (GraphResources.GroundTruthAmbientOcclusion[0])
+				if (PassParameters.Resources.AmbientOcclusionManaged[0])
 					AmbientOcclusionTargets = {
-						.Raw = Resources.GetTexture(
-							*GraphResources.GroundTruthAmbientOcclusion[0]),
-						.Scratch = Resources.GetTexture(
-							*GraphResources.GroundTruthAmbientOcclusion[1]),
-						.Selector = GraphResources.GroundTruthAmbientOcclusion[2]
-							? Resources.GetTexture(
-								*GraphResources.GroundTruthAmbientOcclusion[2])
+						.Raw = Resolver.GetTexture(
+							PassParameters.Resources.AmbientOcclusionManaged[0]),
+						.Scratch = Resolver.GetTexture(
+							PassParameters.Resources.AmbientOcclusionManaged[1]),
+						.Selector = PassParameters.Resources.AmbientOcclusionManaged[2]
+							? Resolver.GetTexture(
+								PassParameters.Resources.AmbientOcclusionManaged[2])
 							: nullptr,
-						.Resolved = GraphResources.GroundTruthAmbientOcclusion[3]
-							? Resources.GetTexture(
-								*GraphResources.GroundTruthAmbientOcclusion[3])
+						.Resolved = PassParameters.Resources.AmbientOcclusionManaged[3]
+							? Resolver.GetTexture(
+								PassParameters.Resources.AmbientOcclusionManaged[3])
 							: nullptr,
 						.Quality = Topology.AmbientOcclusionQuality};
-				Resources.WriteValue(Channels.AmbientOcclusion.Handle) =
+				Resolver.WriteValue(PassParameters.Completion) =
 					Services.Recorders.RenderGroundTruthAmbientOcclusion_RenderThread(
 						Commands, *RecordView,
 						GBufferTargets ? &*GBufferTargets : nullptr,
 						AmbientOcclusionTargets ? &*AmbientOcclusionTargets : nullptr,
 						SceneTargets, Options, Width, Height,
 						bWantsGroundTruthAmbientOcclusion,
-						Resources.ReadValue(Channels.GBuffer.Handle).IsComplete());
+						Resolver.ReadValue(PassParameters.GBufferCompletion).IsComplete());
 			});
-		Graph.UseValue(AmbientOcclusionPass, GBufferValue.Handle,
-			ERenderGraphUse::Read);
-		Graph.UseValue(AmbientOcclusionPass, AmbientOcclusionValue.Handle,
-			ERenderGraphUse::Write);
-		if (GraphResources.GBuffer[0] && Topology.bGroundTruthAmbientOcclusion)
-		{
-			for (const auto& Texture : GraphResources.GBuffer)
-				Graph.UseTexture(AmbientOcclusionPass, *Texture,
-					{ERHITextureAspect::Color, 0, 1, 0, 1}, ERenderGraphUse::Read,
-					ERHIAccess::GraphicsShaderRead);
-			Graph.UseTexture(AmbientOcclusionPass, GraphResources.SceneDepth,
-				{ERHITextureAspect::Depth, 0, 1, 0, 1}, ERenderGraphUse::Read,
-				ERHIAccess::GraphicsShaderRead);
-			for (const auto& Texture :
-				GraphResources.GroundTruthAmbientOcclusion)
-			{
-				if (!Texture) continue;
-				Graph.UseManagedTexture(AmbientOcclusionPass, *Texture,
-					{ERHITextureAspect::Color, 0, 1, 0, 1},
-					ERenderGraphUse::ReadWrite,
-					ERHIAccess::GraphicsShaderRead,
-					ERHIAccess::GraphicsShaderRead, true);
-			}
-		}
+		return {.Completion = Channels.AmbientOcclusion.Handle,
+			.Textures = GraphResources.GroundTruthAmbientOcclusion,
+			.Quality = Topology.AmbientOcclusionQuality};
 	}
 
 	auto FSceneFrameFeatureRecorders::RenderGroundTruthAmbientOcclusion_RenderThread(

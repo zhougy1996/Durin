@@ -42,8 +42,23 @@ namespace Durin
 		auto& ProductionDeferredParameters =
 			Composition.ProductionDeferredParameters;
 		auto& TargetResolutionResult = Composition.TargetResolutionResult;
-		auto& GraphResources = Composition.Resources;
-		auto& Channels = Composition.Channels;
+		struct {
+			std::optional<FRenderGraphTextureHandle> DirectionalShadow;
+			FRenderGraphTextureHandle SceneColor;
+			FRenderGraphTextureHandle SceneDepth;
+			FRenderGraphTextureHandle Output;
+			std::optional<FRenderGraphTextureHandle> VolumetricCloudBaseDensity;
+			std::optional<FRenderGraphTextureHandle> VolumetricCloudDetailDensity;
+			std::optional<FRenderGraphTextureHandle> VolumetricCloudWeather;
+			std::optional<FRenderGraphTextureHandle> DefaultWhite;
+			std::optional<FRenderGraphTextureHandle> DefaultShadowArray;
+			std::optional<FRenderGraphTextureHandle> EnvironmentIrradiance;
+			std::optional<FRenderGraphTextureHandle> EnvironmentPrefiltered;
+			std::optional<FRenderGraphTextureHandle> EnvironmentBrdfLut;
+			FRHITexture* SelectedEnvironmentIrradiance = nullptr;
+			FRHITexture* SelectedEnvironmentPrefiltered = nullptr;
+			FRHITexture* SelectedEnvironmentBrdfLut = nullptr;
+		} GraphResources;
 		constexpr FRenderGraphBudget SceneFrameBudget{
 			.MaxPasses = 256,
 			.MaxDependencies = 4096,
@@ -138,8 +153,8 @@ namespace Durin
 		GraphResources.Output = Graph.ImportTexture("Scene.Output", OutputTarget,
 			ERHIAccess::Discard,
 			bPresentOutput ? ERHIAccess::Present : ERHIAccess::GraphicsShaderRead);
-		Graph.SetBackingResolver([&Services, &Topology, &TargetResolutionResult,
-			&GraphResources](auto Requests, auto& Backings,
+		Graph.SetBackingResolver([&Services, &Topology, &TargetResolutionResult](
+			auto Requests, auto& Backings,
 			std::string& Error) {
 			const auto Retained =
 				FSceneFrameGraphBackingProvider::BuildRetainedTopology(
@@ -152,65 +167,8 @@ namespace Durin
 				return false;
 			}
 			return FSceneFrameGraphBackingProvider::Publish(Requests, Backings,
-				GraphResources, Services.ResolvedFrame.Targets, Error);
+				Services.ResolvedFrame.Targets, Error);
 		});
-		Channels = {
-			.DirectionalShadow = {Graph.CreateValue<FDirectionalShadowPassResult>(
-				"Scene.DirectionalShadowValue", "directional-shadow-result")},
-			.GBuffer = {Graph.CreateValue<FGBufferPassResult>(
-				"Scene.GBufferValue", "gbuffer-result")},
-			.AmbientOcclusion = {Graph.CreateValue<
-				FGroundTruthAmbientOcclusionPassResult>(
-					"Scene.AmbientOcclusionValue", "ambient-occlusion-result")},
-			.ContactShadowVisibility = {
-				Graph.CreateValue<FContactShadowVisibilityPassResult>(
-					"Scene.ContactShadowVisibilityValue",
-					"contact-shadow-visibility-result")},
-			.CloudShadow = {Graph.CreateValue<FVolumetricCloudShadowPassResult>(
-				"Scene.CloudShadowValue", "cloud-shadow-result")},
-			.DeferredDirectionalLighting = {
-				Graph.CreateValue<FIsolatedDeferredPassResult>(
-					"Scene.DeferredDirectionalLightingValue",
-					"deferred-directional-lighting-result")},
-			.BaseScene = {Graph.CreateValue<FSceneColorPassResult>(
-				"Scene.BaseValue", "scene-color-result")},
-			.VolumetricCloudSpatial = {
-				Graph.CreateValue<FVolumetricCloudSpatialPassResult>(
-					"Scene.VolumetricCloudSpatialValue",
-					"volumetric-cloud-spatial-result")},
-			.VolumetricCloud = {Graph.CreateValue<FVolumetricCloudPassResult>(
-				"Scene.VolumetricCloudValue", "volumetric-cloud-result")},
-			.SceneColor = {Graph.CreateValue<FSceneColorPassResult>(
-				"Scene.ColorValue", "scene-color-result")},
-			.PostProcess = {Graph.CreateValue<FPostProcessPassResult>(
-				"Scene.PostProcessValue", "post-process-result")},
-			.OutputCompletion = Graph.CreateToken("Scene.OutputCompletion")};
-		FSceneFrameGraphContributorContext Context{
-			.Graph = Graph,
-			.Services = Services,
-			.Composition = Composition,
-			.View = View,
-			.OutputTarget = OutputTarget,
-			.Options = Options,
-			.Topology = Topology,
-			.EditorAssistance = PreparedEditorAssistance,
-			.ContactRoute = PreparedContactRoute,
-			.CloudShadowRoute = PreparedCloudShadowRoute,
-			.CloudRoute = PreparedCloudRoute,
-			.CloudWeatherTexture = CloudWeatherTexture,
-			.DirectionalShadowTexture = DirectionalShadowTexture,
-			.EnvironmentSampler = SelectedEnvironmentSampler,
-			.Width = Width,
-			.Height = Height,
-			.bPresentOutput = bPresentOutput,
-			.bHasEditorAssistance = bHasEditorAssistance,
-			.bRequiresDeferredOpaque = bRequiresDeferredOpaque,
-			.bWantsIsolatedDeferred = bWantsIsolatedDeferred,
-			.bWantsGroundTruthAmbientOcclusion = bWantsGroundTruthAmbientOcclusion,
-			.bWantsDeferredInputs = bWantsDeferredInputs,
-			.bWantsProductionDeferred = bWantsProductionDeferred,
-			.bHybridRetainedResourcesReady = bHybridRetainedResourcesReady,
-			.bNeedsGBuffer = bNeedsGBuffer};
 		const FSceneView& PreparedRenderView = PreparedView.Context.View;
 		const FPreparedDirectionalShadow* DirectionalShadow =
 			PreparedView.DirectionalShadow ? &*PreparedView.DirectionalShadow : nullptr;
@@ -218,26 +176,133 @@ namespace Durin
 			PreparedView.VolumetricCloud ? &*PreparedView.VolumetricCloud : nullptr;
 		const FPreparedEnvironment* Environment =
 			PreparedView.Environment ? &*PreparedView.Environment : nullptr;
-		FDirectionalShadowGraphContributor::AddPasses(Context,
-			{DirectionalShadow});
-		FGBufferGraphContributor::AddPasses(Context,
-			{PreparedRenderView, PreparedView.Receiver});
-		FAmbientOcclusionGraphContributor::AddPasses(Context, PreparedRenderView);
-		FContactShadowVisibilityGraphContributor::AddPasses(Context,
-			{PreparedRenderView, DirectionalShadow});
-		FVolumetricCloudShadowGraphContributor::AddPasses(Context,
-			{PreparedRenderView, VolumetricCloud, PreparedView.Lighting});
-		FDeferredDirectionalLightingGraphContributor::AddPasses(
-			Context, PreparedRenderView);
+		const auto DirectionalShadowOutput =
+			FDirectionalShadowGraphContributor::AddPasses({
+				.Graph = Graph, .Services = Services,
+				.Record = {DirectionalShadow}, .Shadow = GraphResources.DirectionalShadow});
+		const auto GBufferOutput = FGBufferGraphContributor::AddPasses({
+			.Graph = Graph, .Services = Services,
+			.Record = {PreparedRenderView, PreparedView.Receiver},
+			.Depth = GraphResources.SceneDepth, .Options = Options,
+			.Width = Width, .Height = Height, .bEnabled = Topology.bGBuffer,
+			.bNeedsGBuffer = bNeedsGBuffer,
+			.bWantsIsolatedDeferred = bWantsIsolatedDeferred});
+		const auto AmbientOcclusionOutput =
+			FAmbientOcclusionGraphContributor::AddPasses({
+				.Graph = Graph, .Services = Services, .View = PreparedRenderView,
+				.Options = Options, .GBuffer = GBufferOutput,
+				.Width = Width, .Height = Height,
+				.bEnabled = Topology.bGroundTruthAmbientOcclusion,
+				.bRequested = bWantsGroundTruthAmbientOcclusion,
+				.Quality = Topology.AmbientOcclusionQuality});
+		const auto ContactShadowOutput =
+			FContactShadowVisibilityGraphContributor::AddPasses({
+				.Graph = Graph, .Services = Services,
+				.Record = {PreparedRenderView, DirectionalShadow},
+				.Options = Options, .DirectionalShadow = DirectionalShadowOutput,
+				.GBuffer = GBufferOutput, .Route = PreparedContactRoute,
+				.GraphRoute = Topology.ContactShadowVisibility,
+				.Width = Width, .Height = Height,
+				.bProductionDeferred = bWantsProductionDeferred});
+		const auto CloudShadowOutput =
+			FVolumetricCloudShadowGraphContributor::AddPasses({
+				.Graph = Graph, .Services = Services,
+				.Record = {PreparedRenderView, VolumetricCloud, PreparedView.Lighting},
+				.GBuffer = GBufferOutput, .SceneDepth = GraphResources.SceneDepth,
+				.BaseDensity = GraphResources.VolumetricCloudBaseDensity,
+				.DetailDensity = GraphResources.VolumetricCloudDetailDensity,
+				.Weather = GraphResources.VolumetricCloudWeather,
+				.WeatherTexture = CloudWeatherTexture,
+				.Route = PreparedCloudShadowRoute,
+				.GraphRoute = Topology.VolumetricCloudShadow,
+				.Width = Width, .Height = Height,
+				.bProductionDeferred = bWantsProductionDeferred});
+		const auto DeferredOutput =
+			FDeferredDirectionalLightingGraphContributor::AddPasses({
+				.Graph = Graph, .Services = Services, .View = PreparedRenderView,
+				.Options = Options, .DirectionalShadow = DirectionalShadowOutput,
+				.GBuffer = GBufferOutput, .AmbientOcclusion = AmbientOcclusionOutput,
+				.ContactShadow = ContactShadowOutput, .CloudShadow = CloudShadowOutput,
+				.DefaultWhite = GraphResources.DefaultWhite,
+				.DefaultShadowArray = GraphResources.DefaultShadowArray,
+				.EnvironmentIrradiance = GraphResources.EnvironmentIrradiance,
+				.EnvironmentPrefiltered = GraphResources.EnvironmentPrefiltered,
+				.EnvironmentBrdfLut = GraphResources.EnvironmentBrdfLut,
+				.SelectedEnvironmentIrradiance = GraphResources.SelectedEnvironmentIrradiance,
+				.SelectedEnvironmentPrefiltered = GraphResources.SelectedEnvironmentPrefiltered,
+				.SelectedEnvironmentBrdfLut = GraphResources.SelectedEnvironmentBrdfLut,
+				.EnvironmentSampler = SelectedEnvironmentSampler,
+				.DeferredParameters = DeferredParameters,
+				.ProductionDeferredParameters = ProductionDeferredParameters,
+				.Width = Width, .Height = Height,
+				.bIsolated = Topology.bIsolatedDeferred,
+				.bWantsDeferredInputs = bWantsDeferredInputs,
+				.bWantsIsolatedDeferred = bWantsIsolatedDeferred,
+				.bWantsProductionDeferred = bWantsProductionDeferred,
+				.bHybridRetainedResourcesReady = bHybridRetainedResourcesReady});
 		const FSceneGeometryRecordInputs GeometryInputs{
 			PreparedRenderView, Environment, PreparedView.Receiver};
-		FBaseSceneGraphContributor::AddPasses(Context, GeometryInputs);
+		const auto BaseSceneOutput = FBaseSceneGraphContributor::AddPasses({
+			.Graph = Graph, .Services = Services, .Record = GeometryInputs,
+			.Deferred = DeferredOutput, .SceneColor = GraphResources.SceneColor,
+			.SceneDepth = GraphResources.SceneDepth,
+			.DirectionalShadow = DirectionalShadowOutput,
+			.DefaultWhite = GraphResources.DefaultWhite,
+			.DefaultShadowArray = GraphResources.DefaultShadowArray,
+			.EnvironmentIrradiance = GraphResources.EnvironmentIrradiance,
+			.EnvironmentPrefiltered = GraphResources.EnvironmentPrefiltered,
+			.EnvironmentBrdfLut = GraphResources.EnvironmentBrdfLut,
+			.SelectedEnvironmentIrradiance = GraphResources.SelectedEnvironmentIrradiance,
+			.SelectedEnvironmentPrefiltered = GraphResources.SelectedEnvironmentPrefiltered,
+			.SelectedEnvironmentBrdfLut = GraphResources.SelectedEnvironmentBrdfLut,
+			.ProductionDeferredParameters = ProductionDeferredParameters,
+			.bRequiresDeferredOpaque = bRequiresDeferredOpaque,
+			.bNeedsGBuffer = bNeedsGBuffer});
 		const FVolumetricCloudRecordInputs CloudInputs{
 			PreparedRenderView, VolumetricCloud};
-		FVolumetricCloudSpatialGraphContributor::AddPasses(Context, CloudInputs);
-		FVolumetricCloudCompositeGraphContributor::AddPasses(Context, CloudInputs);
-		FSceneColorGraphContributor::AddPasses(Context, GeometryInputs);
-		FPostProcessGraphContributor::AddPasses(Context, PreparedRenderView);
-		FEditorAssistanceGraphContributor::AddPasses(Context, PreparedRenderView);
+		const auto CloudSpatialOutput =
+			FVolumetricCloudSpatialGraphContributor::AddPasses({
+				.Graph = Graph, .Services = Services, .Record = CloudInputs,
+				.BaseScene = BaseSceneOutput,
+				.BaseDensity = GraphResources.VolumetricCloudBaseDensity,
+				.DetailDensity = GraphResources.VolumetricCloudDetailDensity,
+				.Weather = GraphResources.VolumetricCloudWeather,
+				.WeatherTexture = CloudWeatherTexture, .Route = PreparedCloudRoute,
+				.GraphRoute = Topology.VolumetricCloud,
+				.Extent = Topology.VolumetricCloudExtent,
+				.Width = Width, .Height = Height,
+				.bComposite = Topology.bVolumetricCloudComposite});
+		const auto CloudCompositeOutput =
+			FVolumetricCloudCompositeGraphContributor::AddPasses({
+				.Graph = Graph, .Services = Services, .Record = CloudInputs,
+				.BaseScene = BaseSceneOutput, .Spatial = CloudSpatialOutput,
+				.CloudShadow = CloudShadowOutput,
+				.BaseDensity = GraphResources.VolumetricCloudBaseDensity,
+				.DetailDensity = GraphResources.VolumetricCloudDetailDensity,
+				.Weather = GraphResources.VolumetricCloudWeather,
+				.WeatherTexture = CloudWeatherTexture,
+				.bEnabled = Topology.bVolumetricCloudComposite});
+		const auto SceneColorOutput = FSceneColorGraphContributor::AddPasses({
+			.Graph = Graph, .Services = Services, .Record = GeometryInputs,
+			.BaseScene = BaseSceneOutput, .VolumetricCloud = CloudCompositeOutput,
+			.Publication = Composition.SceneColorPublication,
+			.bRequiresDeferredOpaque = bRequiresDeferredOpaque,
+			.bVolumetricCloudComposite = Topology.bVolumetricCloudComposite});
+		const auto PostProcessOutput = FPostProcessGraphContributor::AddPasses({
+			.Graph = Graph, .Services = Services, .RecordView = PreparedRenderView,
+			.View = View, .Options = Options, .SceneColor = SceneColorOutput,
+			.GBuffer = GBufferOutput, .Deferred = DeferredOutput,
+			.Output = GraphResources.Output, .OutputTarget = OutputTarget,
+			.Publication = Composition.PostProcessPublication,
+			.Width = Width, .Height = Height,
+			.bGBufferDebug = Topology.bGBufferDebug,
+			.bPresentOutput = bPresentOutput,
+			.bHasEditorAssistance = bHasEditorAssistance});
+		(void)FEditorAssistanceGraphContributor::AddPasses({
+			.Graph = Graph, .Services = Services, .View = PreparedRenderView,
+			.Prepared = PreparedEditorAssistance, .PostProcess = PostProcessOutput,
+			.SceneDepth = GraphResources.SceneDepth, .OutputTarget = OutputTarget,
+			.Publication = Composition.PostProcessPublication,
+			.bPresentOutput = bPresentOutput, .bEnabled = bHasEditorAssistance});
 	}
 } // namespace Durin

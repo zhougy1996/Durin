@@ -22,58 +22,70 @@ namespace Durin
 	} // namespace
 
 	auto FEditorAssistanceGraphContributor::AddPasses(
-		FSceneFrameGraphContributorContext& Context,
-		const FSceneView& RecordView) -> void
+		const FEditorAssistanceGraphInputs& Inputs)
+		-> FEditorAssistanceGraphOutput
 	{
-		if (!Context.bHasEditorAssistance) return;
-		auto& Graph = Context.Graph;
-		auto& Services = Context.Services;
-		auto* OutputTarget = Context.OutputTarget;
-		const bool bPresentOutput = Context.bPresentOutput;
-		const auto& PreparedEditorAssistance =
-			Context.EditorAssistance;
-		auto& GraphResources = Context.Composition.Resources;
-		auto& Channels = Context.Composition.Channels;
-		auto& PostProcessValue = Channels.PostProcess;
-			const auto EditorAssistancePass =
-				AddSceneFrameFeaturePass<FEditorAssistanceGraphContributor>(
-					Graph, ERenderGraphPassType::Graphics,
-				[&Services, &Channels, &Composition = Context.Composition,
-					RecordView = &RecordView, &GraphResources,
-					&PreparedEditorAssistance, bPresentOutput](
-					FRHICommandListImmediate& Commands,
-					const FRenderGraphPassResources& Resources) {
-					Composition.PostProcessPublication = Resources.ReadValue(
-						Channels.PostProcess.Handle);
-					if (Composition.PostProcessPublication.Result
+		if (!Inputs.bEnabled)
+			return {.OutputCompletion = Inputs.PostProcess.OutputCompletion};
+		auto& Graph = Inputs.Graph;
+		auto& Services = Inputs.Services;
+		const auto& RecordView = Inputs.View;
+		auto* OutputTarget = Inputs.OutputTarget;
+		const bool bPresentOutput = Inputs.bPresentOutput;
+		const auto& PreparedEditorAssistance = Inputs.Prepared;
+		struct {
+			FRenderGraphTextureHandle Output;
+			FRenderGraphTextureHandle SceneDepth;
+		} GraphResources;
+		GraphResources.Output = Inputs.PostProcess.Output;
+		GraphResources.SceneDepth = Inputs.SceneDepth;
+		struct {
+			TSceneFrameGraphValue<FPostProcessPassResult> PostProcess;
+			FRenderGraphTokenHandle OutputCompletion;
+		} Channels;
+		Channels.PostProcess.Handle = Inputs.PostProcess.Completion;
+		Channels.OutputCompletion = Inputs.PostProcess.OutputCompletion;
+		auto Parameters = Graph.AllocParameters<FEditorAssistancePassParameters>();
+		Parameters->PostProcess = {.Value = Channels.PostProcess.Handle};
+		Parameters->OutputCompletion = {.Token = Channels.OutputCompletion};
+		const FRenderGraphColorAttachmentParameter Output{
+			.Texture = GraphResources.Output,
+			.Range = {GetTextureAspects(OutputTarget->GetFormat()), 0,
+				OutputTarget->GetNumMips(), 0, OutputTarget->GetArraySize()}};
+		if (bPresentOutput)
+			Parameters->Resources.EditorOutputPresent = Output;
+		else
+			Parameters->Resources.EditorOutputOffscreen = Output;
+		Parameters->Resources.EditorDepth = {
+			.Texture = GraphResources.SceneDepth,
+			.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
+		const auto EditorAssistancePass =
+			AddSceneFrameFeaturePass<FEditorAssistanceGraphContributor>(
+				Graph, ERenderGraphPassType::Graphics, std::move(Parameters),
+				[&Services, &Publication = Inputs.Publication,
+					RecordView = &RecordView, &PreparedEditorAssistance,
+					bPresentOutput](FRHICommandListImmediate& Commands,
+					const FEditorAssistancePassParameters& PassParameters,
+					const FRenderGraphParameterResolver& Resolver) {
+					Publication = Resolver.ReadValue(
+						PassParameters.PostProcess);
+					if (Publication.Result
 						!= ERenderViewResult::Success) return;
-					Composition.PostProcessPublication.bEditorAssistance =
+					FRHITexture* Output = Resolver.GetColorAttachment(
+						PassParameters.Resources.EditorOutputPresent).Texture;
+					if (Output == nullptr)
+						Output = Resolver.GetColorAttachment(
+							PassParameters.Resources.EditorOutputOffscreen).Texture;
+					Publication.bEditorAssistance =
 						Services.Recorders.RenderEditorAssistance_RenderThread(
 							Commands, *RecordView,
-							Resources.GetTexture(GraphResources.Output),
-							Resources.GetTexture(GraphResources.SceneDepth),
+							Output, Resolver.GetDepthStencilAttachment(
+								PassParameters.Resources.EditorDepth).Texture,
 							bPresentOutput, PreparedEditorAssistance);
 				});
-			Graph.UseValue(EditorAssistancePass, PostProcessValue.Handle,
-				ERenderGraphUse::Read);
-			Graph.UseToken(EditorAssistancePass, Channels.OutputCompletion,
-				ERenderGraphUse::Write);
-			Graph.UseManagedColorAttachment(EditorAssistancePass,
-				GraphResources.Output,
-				{GetTextureAspects(OutputTarget->GetFormat()), 0,
-					OutputTarget->GetNumMips(), 0, OutputTarget->GetArraySize()},
-				ERHIRenderTargetLoadAction::Load,
-				ERHIRenderTargetStoreAction::Store,
-				bPresentOutput ? ERHIAccess::Present
-								 : ERHIAccess::GraphicsShaderRead);
-			Graph.UseManagedDepthStencilAttachment(EditorAssistancePass,
-				GraphResources.SceneDepth,
-				{ERHITextureAspect::Depth, 0, 1, 0, 1},
-				ERHIRenderTargetLoadAction::Load,
-				ERHIRenderTargetStoreAction::Store,
-				ERHIAccess::DepthStencilReadWrite);
-			Graph.MarkPassRoot(EditorAssistancePass,
-				bPresentOutput ? "present" : "offscreen-output");
+		Graph.MarkPassRoot(EditorAssistancePass,
+			bPresentOutput ? "present" : "offscreen-output");
+		return {.OutputCompletion = Channels.OutputCompletion};
 	}
 
 	auto FSceneFrameFeatureRecorders::RenderEditorAssistance_RenderThread(

@@ -51,59 +51,25 @@ namespace Durin
 	}
 
 	auto FGBufferGraphContributor::AddPasses(
-		FSceneFrameGraphContributorContext& Context,
-		const FGBufferRecordInputs& RecordInputs) -> void
+		const FGBufferGraphInputs& Inputs) -> FGBufferGraphOutput
 	{
-		auto& Graph = Context.Graph;
-		auto& Services = Context.Services;
-		const auto& View = Context.View;
-		auto* OutputTarget = Context.OutputTarget;
-		const auto& Options = Context.Options;
-		auto& Topology = Context.Topology;
-		const auto& PreparedEditorAssistance =
-			Context.EditorAssistance;
-		const auto PreparedContactRoute = Context.ContactRoute;
-		const auto PreparedCloudShadowRoute = Context.CloudShadowRoute;
-		const auto PreparedCloudRoute = Context.CloudRoute;
-		auto* CloudWeatherTexture = Context.CloudWeatherTexture;
-		auto* DirectionalShadowTexture = Context.DirectionalShadowTexture;
-		const uint32 Width = Context.Width;
-		const uint32 Height = Context.Height;
-		const bool bPresentOutput = Context.bPresentOutput;
-		const bool bHasEditorAssistance =
-			Context.bHasEditorAssistance;
-		const bool bRequiresDeferredOpaque =
-			Context.bRequiresDeferredOpaque;
-		const bool bWantsIsolatedDeferred =
-			Context.bWantsIsolatedDeferred;
-		const bool bWantsGroundTruthAmbientOcclusion =
-			Context.bWantsGroundTruthAmbientOcclusion;
-		const bool bWantsDeferredInputs =
-			Context.bWantsDeferredInputs;
-		const bool bWantsProductionDeferred =
-			Context.bWantsProductionDeferred;
-		const bool bHybridRetainedResourcesReady =
-			Context.bHybridRetainedResourcesReady;
-		const bool bNeedsGBuffer = Context.bNeedsGBuffer;
-		auto& DeferredParameters =
-			Context.Composition.DeferredParameters;
-		auto& ProductionDeferredParameters =
-			Context.Composition.ProductionDeferredParameters;
-		auto& GraphResources = Context.Composition.Resources;
-		auto& Channels = Context.Composition.Channels;
-		auto& DirectionalShadowValue = Channels.DirectionalShadow;
-		auto& GBufferValue = Channels.GBuffer;
-		auto& AmbientOcclusionValue = Channels.AmbientOcclusion;
-		auto& ContactShadowVisibilityValue = Channels.ContactShadowVisibility;
-		auto& CloudShadowValue = Channels.CloudShadow;
-		auto& DeferredDirectionalLightingValue = Channels.DeferredDirectionalLighting;
-		auto& BaseSceneValue = Channels.BaseScene;
-		auto& VolumetricCloudSpatialValue =
-			Channels.VolumetricCloudSpatial;
-		auto& VolumetricCloudValue = Channels.VolumetricCloud;
-		auto& SceneColorValue = Channels.SceneColor;
-		auto& PostProcessValue = Channels.PostProcess;
-		if (Topology.bGBuffer)
+		auto& Graph = Inputs.Graph;
+		auto& Services = Inputs.Services;
+		const auto RecordInputs = Inputs.Record;
+		const auto& Options = Inputs.Options;
+		const uint32 Width = Inputs.Width;
+		const uint32 Height = Inputs.Height;
+		const bool bNeedsGBuffer = Inputs.bNeedsGBuffer;
+		const bool bWantsIsolatedDeferred = Inputs.bWantsIsolatedDeferred;
+		struct {
+			FRenderGraphTextureHandle SceneDepth;
+			std::array<std::optional<FRenderGraphTextureHandle>, 4> GBuffer;
+		} GraphResources;
+		GraphResources.SceneDepth = Inputs.Depth;
+		struct { TSceneFrameGraphValue<FGBufferPassResult> GBuffer; } Channels;
+		Channels.GBuffer.Handle = Graph.CreateValue<FGBufferPassResult>(
+			"Scene.GBufferValue", "gbuffer-result");
+		if (Inputs.bEnabled)
 		{
 			const std::array Formats{EPixelFormat::RGBA8_UNORM,
 				EPixelFormat::RGBA8_UNORM, EPixelFormat::RGBA8_UNORM,
@@ -122,7 +88,7 @@ namespace Durin
 					ERHIAccess::GraphicsShaderRead);
 		}
 		auto Parameters = Graph.AllocParameters<FGBufferPassParameters>();
-		Parameters->Completion = {GBufferValue.Handle};
+		Parameters->Completion = {Channels.GBuffer.Handle};
 		if (GraphResources.GBuffer[0])
 		{
 			for (uint32 Index = 0; Index < GraphResources.GBuffer.size(); ++Index)
@@ -168,6 +134,9 @@ namespace Durin
 					Options, Width, Height,
 					bNeedsGBuffer, bWantsIsolatedDeferred);
 			});
+		return {.Completion = Channels.GBuffer.Handle,
+			.Textures = GraphResources.GBuffer,
+			.Depth = GraphResources.SceneDepth};
 	}
 
 	auto FSceneFrameFeatureRecorders::RenderGBuffer_RenderThread(

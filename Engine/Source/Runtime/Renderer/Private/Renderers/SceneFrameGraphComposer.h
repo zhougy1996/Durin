@@ -54,8 +54,6 @@ namespace Durin
 		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>
 			ProductionDeferredParameters;
 		ERenderViewResult TargetResolutionResult = ERenderViewResult::Success;
-		FSceneFrameGraphResources Resources;
-		FSceneFrameGraphExecutionChannels Channels;
 		FSceneColorPassResult SceneColorPublication;
 		FPostProcessPassResult PostProcessPublication;
 	};
