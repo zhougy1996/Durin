@@ -18,7 +18,7 @@
 #include "Texture/TexturePayloadInspection.h"
 #include "Texture/Texture2DCompilation.h"
 #include "Texture/Texture2DRenderResource.h"
-#include "AssetTools/ReimportManager.h"
+#include "EditorReimportHandler.h"
 #include "Widgets/TexturePreview.h"
 #include "Workspace/TextureEditorWorkspace.h"
 

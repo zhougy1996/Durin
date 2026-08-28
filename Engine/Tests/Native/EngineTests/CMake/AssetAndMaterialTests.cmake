@@ -47,14 +47,14 @@ durin_add_engine_functional_test(EditorPropertyTests
 durin_add_engine_functional_test(EditorOperationTests
 	KIND contract
 	DOMAINS editor-operation
-	MODULES durin-ed
+	MODULES asset-tools durin-ed
 	STACKS editor
 	RUNTIME_STACK_RATIONALE
 		"Exercises reusable DurinEd asynchronous operation orchestration without an application host."
 	SOURCES
 		Private/Editor/CompensatingAsyncOperationTests.cpp
 		Private/Editor/FactoryTests.cpp
-	LIBRARIES DurinEd
+	LIBRARIES AssetTools DurinEd
 )
 
 durin_add_engine_functional_test(EditorAssetWorkflowTests
@@ -243,7 +243,7 @@ durin_add_engine_functional_test(MaterialVulkanTests
 durin_add_engine_functional_test(StaticMeshTests
 	KIND feature
 	DOMAINS static-mesh
-	MODULES engine static-mesh-build level-editor static-mesh-editor
+	MODULES asset-tools engine static-mesh-build level-editor static-mesh-editor
 	STACKS editor renderer
 	PRIVATE_SOURCE_OWNER LevelEditor
 	PRIVATE_SOURCE_RATIONALE
@@ -264,7 +264,7 @@ durin_add_engine_functional_test(StaticMeshTests
 	PRIVATE_SOURCES
 		${_durin_level_editor_private}/Customizations/StaticMeshMaterialSlotDetails.cpp
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
-	LIBRARIES StaticMeshBuild TextureBuild AssetForgeBuiltins RenderCore Renderer DurinEd StaticMeshEditor
+	LIBRARIES AssetTools StaticMeshBuild TextureBuild AssetForgeBuiltins RenderCore Renderer DurinEd StaticMeshEditor
 	INCLUDE_DIRECTORIES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
@@ -333,6 +333,7 @@ set(_durin_texture_test_libraries
 	Core
 	CoreDObject
 	AssetCore
+	AssetTools
 	Engine
 	StaticMeshBuild
 	SkeletalBuild

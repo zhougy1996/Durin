@@ -199,7 +199,7 @@ namespace Durin::AssetForge::Builtins
 				: "TerrainHeightmap has no source hint to reimport."};
 	}
 
-	auto DTerrainHeightmapFactory::FactoryReimport(
+	auto DTerrainHeightmapFactory::Reimport(
 		DObject& Object, FReimportCompletion Completion) const -> void
 	{
 		auto* Heightmap = Cast<DTerrainHeightmap>(&Object);
@@ -220,7 +220,7 @@ namespace Durin::AssetForge::Builtins
 			: FReimportResult{EReimportStatus::SourceOrBuildFailure, std::move(Error)});
 	}
 
-	auto DTerrainHeightmapFactory::FactoryReimportFromFiles(DObject& Object,
+	auto DTerrainHeightmapFactory::ReimportFromFiles(DObject& Object,
 		std::span<const std::string> Filenames, FReimportCompletion Completion) const
 		-> void
 	{

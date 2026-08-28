@@ -8,10 +8,10 @@
 		"TerrainBuild"
 	],
     "PublicDependencies": [
-		"AssetTools",
-        "AssetCore",
-        "Core",
-        "CoreDObject",
+		"AssetCore",
+		"Core",
+		"CoreDObject",
+		"DurinEd",
 		"Engine",
 		"TextureBuild"
     ],

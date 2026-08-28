@@ -14,7 +14,7 @@
 #include "Terrain/TerrainHeightmapPostLoad.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
 #include "AssetForge/Builtins/TerrainHeightmapImport.h"
-#include "AssetTools/ReimportManager.h"
+#include "EditorReimportHandler.h"
 #include "Terrain/TerrainHeightmapBuildKey.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 #include "Texture/Texture2D.h"

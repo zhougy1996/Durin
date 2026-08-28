@@ -1,5 +1,5 @@
 #include "TextureTestSupport.h"
-#include "AssetTools/ReimportManager.h"
+#include "EditorReimportHandler.h"
 #include "Misc/FileHelper.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"

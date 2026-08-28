@@ -12,9 +12,10 @@ Completed: 2026-08-28
 Stages 0 through 5 are complete. The repository now has standalone creation
 and reimport authorities for every supported production family:
 
-- The lightweight `AssetTools` editor module owns `DFactory`, `IAssetTools`,
-  reflected discovery, bounded per-invocation diagnostics, explicit candidate
-  lookup, and safe package discard; DurinEd no longer links AssetForgeBuiltins.
+- `DurinEd` owns `DFactory`, reflected discovery, bounded per-invocation
+  diagnostics, and self-registering reimport handlers. The lightweight
+  `AssetTools` editor module depends on DurinEd and owns `IAssetTools` plus safe
+  package discard; DurinEd does not link AssetForgeBuiltins.
 - `CreatePackage` creates a live `Standalone` asset package without using
   `Asset::CreateAsset` or `AddToRoot`.
 - `IAssetTools` creates and adopts a package into AssetCore residency, invokes
@@ -110,12 +111,11 @@ assets without weakening failed-reimport safety.
 
 ## Design Decisions and Invariants
 
-- A new lightweight editor `AssetTools` module will own `DFactory`,
-  `IAssetTools`, factory discovery, and creation results. It depends on
-  Core/CoreDObject/AssetCore, not on concrete asset families. DurinEd,
-  AssetForgeBuiltins, feature editors, and command-line editor tools consume
-  it. This removes the current reverse dependency pressure caused by DurinEd
-  privately depending on AssetForgeBuiltins.
+- `DurinEd` owns generic `DFactory` discovery and reimport handlers. The
+  lightweight editor `AssetTools` module depends on DurinEd and owns
+  `IAssetTools` plus package-backed creation results; neither depends on
+  concrete asset families. AssetForgeBuiltins, feature editors, and
+  command-line editor tools consume the required layer directly.
 - Concrete built-in factories live with family import code in
   `AssetForgeBuiltins`; feature editor modules own dialogs and configure an
   invocation, but do not own decode/build behavior.
@@ -176,6 +176,10 @@ assets without weakening failed-reimport safety.
 ## Implementation Stages
 
 ### Stage 0: Stabilize the Factory and AssetTools boundary
+
+The checked work below records the original migration. A later ownership
+refinement moved the generic Factory and reimport contracts back to DurinEd and
+reversed the dependency so AssetTools consumes them.
 
 - [x] Create the `AssetTools` editor module and move `DFactory`, `IAssetTools`,
   their implementation, reflection registration, tests, and public umbrella
@@ -411,7 +415,7 @@ assets without weakening failed-reimport safety.
 
 ## Related Code
 
-- [`DFactory`](../../Engine/Source/Editor/AssetTools/Public/Factories/Factory.h)
+- [`DFactory`](../../Engine/Source/Editor/DurinEd/Public/Factories/Factory.h)
 - [`IAssetTools`](../../Engine/Source/Editor/AssetTools/Public/AssetTools/IAssetTools.h)
 - [`CreatePackage`](../../Engine/Source/Runtime/CoreDObject/Public/DObject/Package.h)
 - [`AssetForgeBuiltins`](../../Engine/Source/Editor/AssetForgeBuiltins)

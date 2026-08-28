@@ -456,7 +456,7 @@ namespace Durin::AssetForge::Builtins
 				: "VolumeTexture has no source hint to reimport."};
 	}
 
-	auto DVolumeTextureFactory::FactoryReimport(
+	auto DVolumeTextureFactory::Reimport(
 		DObject& Object, FReimportCompletion Completion) const -> void
 	{
 		auto* Texture = Cast<DVolumeTexture>(&Object);
@@ -479,7 +479,7 @@ namespace Durin::AssetForge::Builtins
 			: FReimportResult{EReimportStatus::SourceOrBuildFailure, std::move(Error)});
 	}
 
-	auto DVolumeTextureFactory::FactoryReimportFromFiles(DObject& Object,
+	auto DVolumeTextureFactory::ReimportFromFiles(DObject& Object,
 		std::span<const std::string> Filenames, FReimportCompletion Completion) const
 		-> void
 	{

@@ -229,7 +229,7 @@ namespace Durin::AssetForge::Builtins
 				: "StaticMesh has no source hint to reimport."};
 	}
 
-	auto DStaticMeshFactory::FactoryReimport(
+	auto DStaticMeshFactory::Reimport(
 		DObject& Object, FReimportCompletion Completion) const -> void
 	{
 		auto* Mesh = Cast<DStaticMesh>(&Object);
@@ -252,7 +252,7 @@ namespace Durin::AssetForge::Builtins
 			: FReimportResult{EReimportStatus::SourceOrBuildFailure, std::move(Error)});
 	}
 
-	auto DStaticMeshFactory::FactoryReimportFromFiles(DObject& Object,
+	auto DStaticMeshFactory::ReimportFromFiles(DObject& Object,
 		std::span<const std::string> Filenames, FReimportCompletion Completion) const
 		-> void
 	{

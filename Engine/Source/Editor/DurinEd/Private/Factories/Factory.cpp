@@ -182,24 +182,4 @@ namespace Durin
 		return nullptr;
 	}
 
-	auto DFactory::GetReimportCapabilities(const DObject&) const
-		-> FReimportCapabilities
-	{
-		return {};
-	}
-
-	auto DFactory::FactoryReimport(
-		DObject&, FReimportCompletion Completion) const -> void
-	{
-		if (Completion) Completion({EReimportStatus::Unsupported,
-			"The selected factory does not support reimport."});
-	}
-
-	auto DFactory::FactoryReimportFromFiles(
-		DObject&, std::span<const std::string>, FReimportCompletion Completion) const
-		-> void
-	{
-		if (Completion) Completion({EReimportStatus::Unsupported,
-			"The selected factory does not support reimport from file."});
-	}
 }

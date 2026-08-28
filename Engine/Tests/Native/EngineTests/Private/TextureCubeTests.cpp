@@ -1,5 +1,5 @@
 #include "AssetTools.h"
-#include "AssetTools/ReimportManager.h"
+#include "EditorReimportHandler.h"
 #include "Asset/SourceHint.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "AssetForge/Builtins/TextureCubeFactory.h"

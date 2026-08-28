@@ -39,7 +39,8 @@ direction.
 
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
-| `DurinEd` | Shared editor services: workspaces, reflected property editing, transactions, previews, thumbnails, source references, and editor UI infrastructure | [source](../../Engine/Source/Editor/DurinEd) |
+| `DurinEd` | Shared editor services: generic object factories, reimport handlers, workspaces, reflected property editing, transactions, previews, thumbnails, source references, and editor UI infrastructure | [source](../../Engine/Source/Editor/DurinEd) |
+| `AssetTools` | Package-backed asset creation, import orchestration, result validation, and failed-package discard built on DurinEd factories | [source](../../Engine/Source/Editor/AssetTools) |
 | `MainFrame` | Editor host frame, project browser, profiling integration, compatibility tools, and top-level editor startup UI | [source](../../Engine/Source/Editor/MainFrame) |
 | `ContentBrowser` | Project-wide browser model, presentation, operations, settings, extensions, and asset thumbnails | [source](../../Engine/Source/Editor/ContentBrowser) |
 | `LevelEditor` | Level workspace, scene viewport, panels, documents, selection, and Level settings | [source](../../Engine/Source/Editor/LevelEditor) |
@@ -80,7 +81,7 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | Vulkan capability, device, pipeline, descriptor, swapchain | `VulkanRHI` | `RHI` for backend-neutral contract; `Renderer` only for consumer behavior |
 | editor workspace, reflected details, thumbnail service | `DurinEd` | The owning feature editor or `LevelEditor` |
 | Content Browser | `ContentBrowser`, `MainFrame`, `DurinEd`, `AssetCore` | `LevelEditor`, `TextureEditor`, and `StaticMeshEditor` for finite built-in import dispatch; feature modules for scoped create/details/context extensions |
-| importing assets | `AssetForgeBuiltins`, `DurinEd` | `TextureBuild`, `StaticMeshBuild`, `SkeletalBuild`, or `TerrainBuild` for typed recipes; plus `AssetCore` and the destination runtime asset type |
+| importing assets | `AssetForgeBuiltins`, `AssetTools`, `DurinEd` | `TextureBuild`, `StaticMeshBuild`, `SkeletalBuild`, or `TerrainBuild` for typed recipes; plus `AssetCore` and the destination runtime asset type |
 | local asset DDC request flow for StaticMesh, Texture2D/TextureCube/VolumeTexture, skeletal/animation, or Terrain | `DerivedDataCache` | `StaticMeshBuild`, `SkeletalBuild`, `TextureBuild`, or `TerrainBuild` for function inputs, recipe execution, payload validation, typed result reconstruction, and family-owned publication |
 
 Engine public headers are a repository-owned module contract rather than an

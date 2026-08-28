@@ -10,9 +10,10 @@ Durin creates standalone authored assets through `IAssetTools` and reflected
 concrete `DFactory` classes. Texture2D, TextureCube, VolumeTexture, StaticMesh,
 and TerrainHeightmap factories own accepted formats, typed invocation settings,
 immutable capture, decode/build invocation, diagnostics, and import-data
-publication. `FReimportManager` discovers the same factories by loaded-object
-class and is the editor-wide authority for standalone reimport. Scene remains a
-private multi-output transaction rather than a single-object factory.
+publication. Independently registered `FReimportHandler` implementations and
+`FReimportManager` provide the editor-wide authority for standalone reimport.
+Scene remains a private multi-output transaction rather than a single-object
+factory.
 
 Shared capture, diagnostic, and publication values live in
 `AssetForgeBuiltins`. They are implementation helpers, not an extensibility or
@@ -24,21 +25,22 @@ requests/jobs, and mounted-source mutation have been physically removed by the
 
 The intended dependency direction is:
 
-`Core/CoreDObject -> AssetCore/Engine -> family build modules -> AssetTools/AssetForgeBuiltins -> editor hosts`
+`Core/CoreDObject -> AssetCore/Engine -> family build modules -> DurinEd -> AssetTools/AssetForgeBuiltins -> editor hosts`
 
 - Runtime `Engine` owns the editor-only `DAssetImportData` base and lightweight
   `FSourceFile` / `FAssetImportInfo` values. Runtime assets do not know import
   dialogs, decoder selection, or source mutation workflows.
 - Family build modules own normalized build inputs, derived-data keys,
   compilation, and disposable-data reconstruction.
-- `AssetTools` owns the generic `DFactory` descriptor/discovery contract,
-  `IAssetTools`, package creation/adoption, factory invocation, result
-  validation, failed-package discard, and `FReimportManager` capability,
-  routing, result, and optional persistence policy. It has no dependency on
-  concrete asset families.
+- `DurinEd` owns the generic `DFactory` descriptor/discovery contract and the
+  self-registering `FReimportHandler` / `FReimportManager` capability, routing,
+  priority, result, and optional persistence policy.
+- `AssetTools` depends on DurinEd and owns `IAssetTools`, package
+  creation/adoption, factory invocation, result validation, and failed-package
+  discard. It has no dependency on concrete asset families.
 - `AssetForgeBuiltins` owns reflected concrete factories, concrete editor
   import data, family capture/decode/build helpers, and safe candidate/swap
-  reimport implementations exposed through optional factory methods.
+  reimport implementations exposed through `FReimportHandler`.
 - Editor hosts and feature modules own file selection, destinations, and
   presentation diagnostics; they query and invoke reimport through the manager.
 - AssetCore owns package identities, resident publication state, dirty state,
@@ -108,8 +110,9 @@ boundary: failure before live-state commit leaves an existing live and
 persisted asset unchanged. Live-state commit and package save are separate
 facts in both flows.
 
-`FReimportManager` selects the unique reflected factory for the loaded exact
-class. Missing and ambiguous handlers fail deterministically. Capability
+`FReimportHandler` registers itself with `FReimportManager` for its lifetime.
+The manager evaluates handlers in descending priority order; reflected Factory
+CDOs are preferred over transient instances at equal priority. Capability
 queries distinguish retained-source Reimport from Reimport From File, including
 the one-file panorama and six-file face layouts of TextureCube. Terminal results
 distinguish unsupported classes, missing retained sources, source/build failure,
@@ -226,8 +229,8 @@ reader or dual-write route.
 
 - [`BuiltinImportDispatch.h`](../../../Engine/Source/Editor/DurinEd/Public/Editor/Import/BuiltinImportDispatch.h)
 - [`IAssetTools.h`](../../../Engine/Source/Editor/AssetTools/Public/AssetTools/IAssetTools.h)
-- [`ReimportManager.h`](../../../Engine/Source/Editor/AssetTools/Public/AssetTools/ReimportManager.h)
-- [`Factory.h`](../../../Engine/Source/Editor/AssetTools/Public/Factories/Factory.h)
+- [`EditorReimportHandler.h`](../../../Engine/Source/Editor/DurinEd/Public/EditorReimportHandler.h)
+- [`Factory.h`](../../../Engine/Source/Editor/DurinEd/Public/Factories/Factory.h)
 - [`SceneDirectImport.cpp`](../../../Engine/Source/Editor/AssetForgeBuiltins/Private/SceneDirectImport.cpp)
 - [`Texture2DImport.cpp`](../../../Engine/Source/Editor/AssetForgeBuiltins/Private/Texture2DImport.cpp)
 - [`StaticMeshImport.cpp`](../../../Engine/Source/Editor/AssetForgeBuiltins/Private/StaticMeshImport.cpp)

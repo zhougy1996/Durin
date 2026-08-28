@@ -33,7 +33,7 @@
 #include "Texture/VolumeTexture.h"
 #include "Asset.h"
 #include "Asset/AssetImportData.h"
-#include "AssetTools/ReimportManager.h"
+#include "EditorReimportHandler.h"
 #include "Dialogs/FileDialog.h"
 #include "DObject/Package.h"
 

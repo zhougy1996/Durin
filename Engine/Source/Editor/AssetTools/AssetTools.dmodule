@@ -6,9 +6,8 @@
     "PublicDependencies": [
         "AssetCore",
         "Core",
-        "CoreDObject"
+        "CoreDObject",
+        "DurinEd"
     ],
-    "ReflectHeaders": [
-        "Public/Factories/Factory.h"
-    ]
+    "ReflectHeaders": []
 }

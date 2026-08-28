@@ -247,7 +247,7 @@ namespace Durin::AssetForge::Builtins
 				: "Texture2D has no source hint to reimport."};
 	}
 
-	auto DTexture2DFactory::FactoryReimport(
+	auto DTexture2DFactory::Reimport(
 		DObject& Object, FReimportCompletion Completion) const -> void
 	{
 		auto* Texture = Cast<DTexture2D>(&Object);
@@ -276,7 +276,7 @@ namespace Durin::AssetForge::Builtins
 			Completion({EReimportStatus::SourceOrBuildFailure, std::move(Error)});
 	}
 
-	auto DTexture2DFactory::FactoryReimportFromFiles(DObject& Object,
+	auto DTexture2DFactory::ReimportFromFiles(DObject& Object,
 		std::span<const std::string> Filenames, FReimportCompletion Completion) const
 		-> void
 	{

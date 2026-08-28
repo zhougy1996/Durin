@@ -264,7 +264,7 @@ namespace Durin::AssetForge::Builtins
 				: "TextureCube source import data is incomplete."};
 	}
 
-	auto DTextureCubeFactory::FactoryReimport(
+	auto DTextureCubeFactory::Reimport(
 		DObject& Object, FReimportCompletion Completion) const -> void
 	{
 		auto* Texture = Cast<DTextureCube>(&Object);
@@ -308,7 +308,7 @@ namespace Durin::AssetForge::Builtins
 			: FReimportResult{EReimportStatus::SourceOrBuildFailure, std::move(Error)});
 	}
 
-	auto DTextureCubeFactory::FactoryReimportFromFiles(DObject& Object,
+	auto DTextureCubeFactory::ReimportFromFiles(DObject& Object,
 		std::span<const std::string> Filenames, FReimportCompletion Completion) const
 		-> void
 	{

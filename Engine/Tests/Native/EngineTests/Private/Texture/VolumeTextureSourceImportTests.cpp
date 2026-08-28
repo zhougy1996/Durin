@@ -1,6 +1,6 @@
 #include "TextureTestSupport.h"
 #include "Texture/VolumeTextureFactoryTestSupport.h"
-#include "AssetTools/ReimportManager.h"
+#include "EditorReimportHandler.h"
 
 #include "AssetForge/Builtins/VolumeTextureImport.h"
 #include "AssetForge/Builtins/VolumeTextureImportData.h"

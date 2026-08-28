@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetForgeBuiltinsAPI.h"
+#include "EditorReimportHandler.h"
 #include "Factories/Factory.h"
 #include "StaticMesh/StaticMesh.h"
 
@@ -9,7 +10,7 @@
 namespace Durin::AssetForge::Builtins
 {
 	DCLASS()
-	class DStaticMeshFactory final : public DFactory
+	class DStaticMeshFactory final : public DFactory, public FReimportHandler
 	{
 		GENERATED_BODY()
 
@@ -30,12 +31,12 @@ namespace Durin::AssetForge::Builtins
 			EObjectFlags Flags,
 			std::string_view Filename,
 			DObject* Context,
-			FFactoryDiagnostics* Diagnostics = nullptr) const -> DObject* override;
+			FFactoryDiagnostics* Diagnostics) const -> DObject* override;
 		ASSETFORGEBUILTINS_API auto GetReimportCapabilities(
 			const DObject& Object) const -> FReimportCapabilities override;
-		ASSETFORGEBUILTINS_API auto FactoryReimport(
+		ASSETFORGEBUILTINS_API auto Reimport(
 			DObject& Object, FReimportCompletion Completion) const -> void override;
-		ASSETFORGEBUILTINS_API auto FactoryReimportFromFiles(
+		ASSETFORGEBUILTINS_API auto ReimportFromFiles(
 			DObject& Object, std::span<const std::string> Filenames,
 			FReimportCompletion Completion) const -> void override;
 

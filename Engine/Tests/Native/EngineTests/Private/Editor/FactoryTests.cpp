@@ -1,5 +1,6 @@
 #include "Factories/Factory.h"
 #include "AssetTools/IAssetTools.h"
+#include "EditorReimportHandler.h"
 
 #include "Asset/AssetOperations.h"
 #include "Asset/Load.h"
@@ -142,6 +143,41 @@ namespace
 		EMode Mode = EMode::Success;
 	};
 
+	class FStandaloneReimportHandlerForTest final : public Durin::FReimportHandler
+	{
+	public:
+		explicit FStandaloneReimportHandlerForTest(int32 InPriority)
+			: Priority(InPriority)
+		{
+		}
+
+		auto GetPriority() const -> int32 override { return Priority; }
+
+		auto GetReimportCapabilities(const Durin::DObject& Object) const
+			-> Durin::FReimportCapabilities override
+		{
+			if (Object.GetClass() != DFactoryAssetForTest::StaticClass()) return {};
+			return {.bCanReimport = true, .bCanReimportFromFile = true};
+		}
+
+		auto Reimport(Durin::DObject&, Durin::FReimportCompletion Completion) const
+			-> void override
+		{
+			if (Completion) Completion({Durin::EReimportStatus::Succeeded,
+				std::to_string(Priority)});
+		}
+
+		auto ReimportFromFiles(Durin::DObject&, std::span<const std::string>,
+			Durin::FReimportCompletion Completion) const -> void override
+		{
+			if (Completion) Completion({Durin::EReimportStatus::Succeeded,
+				std::to_string(Priority)});
+		}
+
+	private:
+		int32 Priority = 0;
+	};
+
 	using FFactoryCreateNewSignature = Durin::DObject* (Durin::DFactory::*)(
 		Durin::DClass*,
 		Durin::DObject*,
@@ -269,6 +305,35 @@ TEST(DFactoryTests, KeepsConfiguredStateOnTransientInvocationInstance)
 	auto* Configured = MakeFactory(DAssetToolsFactoryForTest::EMode::Fail);
 	EXPECT_FALSE(Configured->IsClassDefaultObject());
 	EXPECT_EQ(Configured->Mode, DAssetToolsFactoryForTest::EMode::Fail);
+}
+
+TEST(DFactoryTests, ReimportHandlersRegisterIndependentlyAndUsePriority)
+{
+	InitializeFactoryTestGameThread();
+	auto* Object = Durin::NewObject<DFactoryAssetForTest>(
+		nullptr, Durin::FName("StandaloneReimportObject"),
+		Durin::EObjectFlags::Transient);
+
+	{
+		FStandaloneReimportHandlerForTest LowerPriority(10);
+		FStandaloneReimportHandlerForTest HigherPriority(20);
+		const Durin::FReimportCapabilities Capabilities =
+			Durin::FReimportManager::GetCapabilities(*Object);
+		EXPECT_TRUE(Capabilities.bCanReimport);
+
+		Durin::FReimportResult Result;
+		Durin::FReimportManager::Reimport(*Object, {.bSave = false},
+			[&Result](Durin::FReimportResult Completed) {
+				Result = std::move(Completed);
+			});
+		EXPECT_TRUE(Result);
+		EXPECT_EQ(Result.Message, "20");
+	}
+
+	const Durin::FReimportCapabilities Capabilities =
+		Durin::FReimportManager::GetCapabilities(*Object);
+	EXPECT_FALSE(Capabilities.bCanReimport);
+	EXPECT_FALSE(Capabilities.bCanReimportFromFile);
 }
 
 TEST(DFactoryTests, FactoryFailureReportsDiagnosticAndDiscardsPackage)
