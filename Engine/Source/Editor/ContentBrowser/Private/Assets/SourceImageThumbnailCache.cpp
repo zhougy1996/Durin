@@ -8,7 +8,7 @@
 #include "MonaUIBackend.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
-#include "Thumbnail/AssetThumbnailObjectStore.h"
+#include "Thumbnail/ThumbnailStorage.h"
 #include "Threading/Task.h"
 
 namespace Durin::Editor::ContentBrowser::Private
@@ -252,7 +252,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 		auto EvictToBudget() -> void
 		{
-			std::vector<::Durin::Editor::FAssetThumbnailBudgetEntry> BudgetEntries;
+			std::vector<::Durin::Editor::FThumbnailBudgetEntry> BudgetEntries;
 			BudgetEntries.reserve(Entries.size());
 			for (const auto& [Path, Entry] : Entries)
 			{
@@ -262,7 +262,7 @@ namespace Durin::Editor::ContentBrowser::Private
 					.LastUsed = Entry.LastUsedFrame,
 					.bPinned = Entry.bVisible});
 			}
-			for (const std::string& Key : ::Durin::Editor::SelectAssetThumbnailBudgetEvictions(BudgetEntries, ThumbnailMemoryBudget))
+			for (const std::string& Key : ::Durin::Editor::SelectThumbnailBudgetEvictions(BudgetEntries, ThumbnailMemoryBudget))
 				if (auto It = Entries.find(Key); It != Entries.end())
 				{
 					UnregisterTexture(It->second);

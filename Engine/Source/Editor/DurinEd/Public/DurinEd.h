@@ -8,5 +8,5 @@
 #include "Factories/Factory.h"
 #include "Thumbnail/AssetThumbnailTypes.h"
 #include "Thumbnail/AssetThumbnailKey.h"
-#include "Thumbnail/AssetThumbnailProvider.h"
-#include "Thumbnail/AssetThumbnailObjectStore.h"
+#include "Thumbnail/ThumbnailManager.h"
+#include "AssetThumbnail.h"

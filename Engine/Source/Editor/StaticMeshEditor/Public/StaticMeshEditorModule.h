@@ -8,8 +8,8 @@ namespace Durin::Editor
 {
 	class FWorkspaceManager;
 	class FWorkspaceRegistrationHandle;
-	class FAssetThumbnailProviderRegistry;
-	class FAssetThumbnailProviderRegistrationHandle;
+	class DThumbnailManager;
+	class FThumbnailRendererRegistrationHandle;
 }
 
 namespace Durin
@@ -24,7 +24,7 @@ namespace Durin
 		STATICMESHEDITOR_API auto ShutdownModule() -> void override;
 		STATICMESHEDITOR_API auto RegisterStaticMeshEditor(
 			::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-			::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
+			::Durin::Editor::DThumbnailManager& ThumbnailManager,
 			::Durin::Editor::FImportDialogCallbacks ImportCallbacks = {}) -> bool;
 		STATICMESHEDITOR_API auto UnregisterStaticMeshEditor() -> void;
 		STATICMESHEDITOR_API auto OpenImportDialog(std::string_view Directory) -> void;
@@ -32,7 +32,7 @@ namespace Durin
 	private:
 		FModuleOwnedCallbackRegistration EditorExtensionCallbacks;
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
-		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle> ThumbnailRegistration;
+		std::unique_ptr<::Durin::Editor::FThumbnailRendererRegistrationHandle> ThumbnailRegistration;
 		struct FIntegrationState;
 		std::unique_ptr<FIntegrationState> Integration;
 	};

@@ -14,7 +14,7 @@
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "StaticMesh/StaticMeshFactoryTestSupport.h"
 #include "AssetForge/Builtins/StaticMeshImportData.h"
-#include "Thumbnail/RenderedAssetThumbnailCache.h"
+#include "Thumbnail/AssetThumbnailPool.h"
 
 #include <gtest/gtest.h>
 
@@ -75,10 +75,10 @@ namespace
 		auto Redo() -> bool override { return true; }
 	};
 
-	class FRouteOnlyThumbnailProvider final : public Editor::IAssetThumbnailProvider
+	class FRouteOnlyThumbnailRenderer final : public Editor::DThumbnailRenderer
 	{
 	public:
-		explicit FRouteOnlyThumbnailProvider(
+		explicit FRouteOnlyThumbnailRenderer(
 			std::string InAssetClassName,
 			bool bInUsesSourceImage = false)
 			: AssetClassName(std::move(InAssetClassName))
@@ -87,11 +87,11 @@ namespace
 		}
 		auto UsesSourceImage() const -> bool override { return bUsesSourceImage; }
 
-		auto GetRegistration() const -> Editor::FAssetThumbnailProviderRegistration override
+		auto GetRegistration() const -> Editor::FThumbnailRenderingInfo override
 		{
 			return {
 				.AssetClassName = AssetClassName,
-				.ProviderName = "ContentBrowserRouteTest",
+				.RendererName = "ContentBrowserRouteTest",
 				.GeneratorSchemaVersion = 1};
 		}
 
@@ -102,7 +102,7 @@ namespace
 			std::string& OutError) -> bool override
 		{
 			OutRequest = {};
-			OutError = "Route-only test provider.";
+			OutError = "Route-only test renderer.";
 			return false;
 		}
 
@@ -192,7 +192,7 @@ TEST_F(FContentBrowserModelTests, RejectsUnavailableDirectoryWithoutFilesystemEx
 			.generic_string());
 }
 
-TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToRenderedThumbnails)
+TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToThumbnails)
 {
 	InitializeDObjectSystem();
 	FAssetPath AssetPath;
@@ -208,8 +208,8 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToRenderedThumbnails)
 	ASSERT_NE(AssetData, nullptr);
 	std::string RegistrationError;
 	auto ThumbnailRegistration =
-		Editor::GetDefaultAssetThumbnailProviderRegistry().RegisterScoped(
-			std::make_unique<FRouteOnlyThumbnailProvider>(AssetData->AssetClassName),
+		Editor::GetDefaultThumbnailManager().RegisterScoped(
+			std::make_unique<FRouteOnlyThumbnailRenderer>(AssetData->AssetClassName),
 			RegistrationError);
 	ASSERT_TRUE(ThumbnailRegistration) << RegistrationError;
 
@@ -230,7 +230,7 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToRenderedThumbnails)
 	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
 }
 
-TEST_F(FContentBrowserModelTests, SourceProviderWithoutUsableSourceKeepsAssetIcon)
+TEST_F(FContentBrowserModelTests, SourceRendererWithoutUsableSourceKeepsAssetIcon)
 {
 	InitializeDObjectSystem();
 	FAssetPath AssetPath;
@@ -256,8 +256,8 @@ TEST_F(FContentBrowserModelTests, SourceProviderWithoutUsableSourceKeepsAssetIco
 	ASSERT_NE(AssetData, nullptr);
 	std::string Error;
 	auto Registration =
-		Editor::GetDefaultAssetThumbnailProviderRegistry().RegisterScoped(
-			std::make_unique<FRouteOnlyThumbnailProvider>(
+		Editor::GetDefaultThumbnailManager().RegisterScoped(
+			std::make_unique<FRouteOnlyThumbnailRenderer>(
 				AssetData->AssetClassName, true),
 			Error);
 	ASSERT_TRUE(Registration) << Error;

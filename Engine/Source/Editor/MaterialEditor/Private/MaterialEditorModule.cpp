@@ -8,8 +8,8 @@
 #include "Workspace/MaterialEditorWorkspace.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
-#include "Thumbnail/MaterialAssetThumbnail.h"
-#include "Thumbnail/AssetThumbnailProvider.h"
+#include "Thumbnail/MaterialThumbnailRenderer.h"
+#include "Thumbnail/ThumbnailManager.h"
 #include "Widgets/MMaterialEditor.h"
 
 namespace Durin
@@ -85,7 +85,7 @@ namespace Durin
 
 	auto FMaterialEditorModule::RegisterMaterialEditor(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-		::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService) -> bool
+		::Durin::Editor::DThumbnailManager& ThumbnailManager) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
 			|| (MaterialThumbnailRegistration && MaterialThumbnailRegistration->IsValid())
@@ -128,8 +128,8 @@ namespace Durin
 		if (!Registration) return false;
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 		std::string Error;
-		auto MaterialHandle = ThumbnailService.RegisterScoped(
-			std::make_unique<FMaterialAssetThumbnailProvider>(
+		auto MaterialHandle = ThumbnailManager.RegisterScoped(
+			std::make_unique<DMaterialThumbnailRenderer>(
 				DMaterial::StaticClass()->GetQualifiedName().ToString()),
 			EditorExtensionCallbacks.GetGate(), Error);
 		if (!MaterialHandle)
@@ -138,10 +138,10 @@ namespace Durin
 			return false;
 		}
 		MaterialThumbnailRegistration =
-			std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
+			std::make_unique<::Durin::Editor::FThumbnailRendererRegistrationHandle>(
 				std::move(MaterialHandle));
-		auto InstanceHandle = ThumbnailService.RegisterScoped(
-			std::make_unique<FMaterialAssetThumbnailProvider>(
+		auto InstanceHandle = ThumbnailManager.RegisterScoped(
+			std::make_unique<DMaterialThumbnailRenderer>(
 				DMaterialInstance::StaticClass()->GetQualifiedName().ToString()),
 			EditorExtensionCallbacks.GetGate(), Error);
 		if (!InstanceHandle)
@@ -151,7 +151,7 @@ namespace Durin
 			return false;
 		}
 		MaterialInstanceThumbnailRegistration =
-			std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
+			std::make_unique<::Durin::Editor::FThumbnailRendererRegistrationHandle>(
 				std::move(InstanceHandle));
 		const auto RegisterCreate = [this](std::string Id, std::string Label,
 			std::string BaseName, bool bInstance) {

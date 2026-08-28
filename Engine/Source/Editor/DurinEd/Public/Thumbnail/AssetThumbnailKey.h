@@ -11,11 +11,11 @@ namespace Durin::Editor
 		std::vector<FAssetPath> Dependencies;
 	};
 
-	// Contains every provider-neutral field used to derive one persistent cache key.
+	// Contains every renderer-neutral field used to derive one persistent cache key.
 	struct FAssetThumbnailKeyInput
 	{
 		FAssetThumbnailPackageFingerprint Asset;
-		std::string ProviderName;
+		std::string RendererName;
 		uint32 GeneratorSchemaVersion = 0;
 		FAssetThumbnailOutputSettings Output;
 		std::string PreviewFixtureIdentity;

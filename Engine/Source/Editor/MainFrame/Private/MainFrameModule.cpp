@@ -16,7 +16,7 @@
 #include "TextureEditorModule.h"
 #include "StaticMeshEditorModule.h"
 #include "SkeletalMeshEditorModule.h"
-#include "Thumbnail/AssetThumbnailProvider.h"
+#include "Thumbnail/ThumbnailManager.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "MonaImGui.h"
 #include "Misc/Paths.h"
@@ -50,6 +50,9 @@ namespace Durin::Editor::MainFrame
 		{
 			if (ContentBrowserTool)
 				ContentBrowserTool->StopRequestAdmission();
+			// Release every UI-held FAssetThumbnail reference before renderer
+			// registrations and their owning modules begin retirement.
+			ContentBrowserTool.reset();
 			if (SkeletalMeshEditorModule)
 				SkeletalMeshEditorModule->UnregisterSkeletalMeshEditor();
 			if (StaticMeshEditorModule)
@@ -60,7 +63,7 @@ namespace Durin::Editor::MainFrame
 				MaterialEditorModule->UnregisterMaterialEditor();
 			if (LevelEditorModule)
 				LevelEditorModule->UnregisterLevelEditorWorkspace();
-			ContentBrowserTool.reset();
+			Editor::GetDefaultThumbnailManager().ResetSharedPool();
 			WorkspaceManager.reset();
 			Activity.reset();
 			Console.reset();
@@ -260,7 +263,7 @@ namespace Durin::Editor::MainFrame
 			::Durin::FTextureEditorModule& TextureEditorModule,
 			::Durin::FStaticMeshEditorModule& StaticMeshEditorModule,
 			::Durin::FSkeletalMeshEditorModule& SkeletalMeshEditorModule,
-			Editor::FAssetThumbnailProviderRegistry& ThumbnailService
+			Editor::DThumbnailManager& ThumbnailManager
 		) -> bool
 		{
 			const Editor::FImportDialogCallbacks ImportCallbacks{
@@ -282,7 +285,7 @@ namespace Durin::Editor::MainFrame
 				},
 			};
 			if (!LevelEditorModule.RegisterLevelEditorWorkspace(
-				WorkspaceManager, ThumbnailService,
+				WorkspaceManager, ThumbnailManager,
 				{
 					.RevealAsset = [&Context](std::string_view Path) {
 						return Context.ContentBrowserTool
@@ -298,20 +301,20 @@ namespace Durin::Editor::MainFrame
 					},
 				})) return false;
 			if (!MaterialEditorModule.RegisterMaterialEditor(
-				WorkspaceManager, ThumbnailService))
+				WorkspaceManager, ThumbnailManager))
 			{
 				LevelEditorModule.UnregisterLevelEditorWorkspace();
 				return false;
 			}
 			if (!TextureEditorModule.RegisterTextureEditor(
-				WorkspaceManager, ThumbnailService, ImportCallbacks))
+				WorkspaceManager, ThumbnailManager, ImportCallbacks))
 			{
 				MaterialEditorModule.UnregisterMaterialEditor();
 				LevelEditorModule.UnregisterLevelEditorWorkspace();
 				return false;
 			}
 			if (!StaticMeshEditorModule.RegisterStaticMeshEditor(
-				WorkspaceManager, ThumbnailService, ImportCallbacks))
+				WorkspaceManager, ThumbnailManager, ImportCallbacks))
 			{
 				TextureEditorModule.UnregisterTextureEditor();
 				MaterialEditorModule.UnregisterMaterialEditor();
@@ -319,7 +322,7 @@ namespace Durin::Editor::MainFrame
 				return false;
 			}
 			if (!SkeletalMeshEditorModule.RegisterSkeletalMeshEditor(
-				WorkspaceManager, ThumbnailService))
+				WorkspaceManager, ThumbnailManager))
 			{
 				StaticMeshEditorModule.UnregisterStaticMeshEditor();
 				TextureEditorModule.UnregisterTextureEditor();
@@ -352,8 +355,8 @@ namespace Durin::Editor::MainFrame
 				FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
 				FModuleManager::Get().LoadModuleChecked("TerrainBuild");
 				FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
-				Editor::FAssetThumbnailProviderRegistry& ThumbnailService =
-					Editor::GetDefaultAssetThumbnailProviderRegistry();
+				Editor::DThumbnailManager& ThumbnailManager =
+					Editor::GetDefaultThumbnailManager();
 				::Durin::FLevelEditorModule& LevelEditorModule =
 					FModuleManager::LoadModuleChecked<::Durin::FLevelEditorModule>("LevelEditor");
 				::Durin::FMaterialEditorModule& MaterialEditorModule =
@@ -377,7 +380,7 @@ namespace Durin::Editor::MainFrame
 					TextureEditorModule,
 					StaticMeshEditorModule,
 					SkeletalMeshEditorModule,
-					ThumbnailService);
+					ThumbnailManager);
 				if (bWorkspaceReady)
 				{
 					ContentBrowser::FConstructionServices Services{

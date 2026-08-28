@@ -8,8 +8,8 @@ namespace Durin::Editor
 {
 	class FWorkspaceRegistrationHandle;
 	class FWorkspaceManager;
-	class FAssetThumbnailProviderRegistry;
-	class FAssetThumbnailProviderRegistrationHandle;
+	class DThumbnailManager;
+	class FThumbnailRendererRegistrationHandle;
 }
 
 namespace Durin
@@ -24,7 +24,7 @@ namespace Durin
 		TEXTUREEDITOR_API auto ShutdownModule() -> void override;
 		TEXTUREEDITOR_API auto RegisterTextureEditor(
 			::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-			::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
+			::Durin::Editor::DThumbnailManager& ThumbnailManager,
 			::Durin::Editor::FImportDialogCallbacks ImportCallbacks = {}) -> bool;
 		TEXTUREEDITOR_API auto UnregisterTextureEditor() -> void;
 		TEXTUREEDITOR_API auto OpenImportDialog(std::string_view Directory) -> void;
@@ -32,8 +32,8 @@ namespace Durin
 	private:
 		FModuleOwnedCallbackRegistration EditorExtensionCallbacks;
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
-		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle> Texture2DThumbnailRegistration;
-		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle> TextureCubeThumbnailRegistration;
+		std::unique_ptr<::Durin::Editor::FThumbnailRendererRegistrationHandle> Texture2DThumbnailRegistration;
+		std::unique_ptr<::Durin::Editor::FThumbnailRendererRegistrationHandle> TextureCubeThumbnailRegistration;
 		struct FIntegrationState;
 		std::unique_ptr<FIntegrationState> Integration;
 	};

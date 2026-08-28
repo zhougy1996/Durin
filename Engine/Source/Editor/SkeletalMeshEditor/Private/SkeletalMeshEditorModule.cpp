@@ -6,8 +6,8 @@
 #include "SkeletalMesh/Skeleton.h"
 #include "Widgets/MSkeletalAssetInspector.h"
 #include "Workspace/SkeletalMeshEditorWorkspace.h"
-#include "Thumbnail/AssetThumbnailProvider.h"
-#include "Thumbnail/SkeletalMeshAssetThumbnail.h"
+#include "Thumbnail/ThumbnailManager.h"
+#include "Thumbnail/SkeletalMeshThumbnailRenderer.h"
 
 namespace Durin
 {
@@ -26,7 +26,7 @@ namespace Durin
 
 	auto FSkeletalMeshEditorModule::RegisterSkeletalMeshEditor(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-		::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService) -> bool
+		::Durin::Editor::DThumbnailManager& ThumbnailManager) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
 			|| (ThumbnailRegistration && ThumbnailRegistration->IsValid())) return false;
@@ -56,15 +56,15 @@ namespace Durin
 		if (!Registration) return false;
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 		std::string Error;
-		::Durin::Editor::FAssetThumbnailProviderRegistrationHandle ThumbnailHandle =
-			ThumbnailService.RegisterScoped(
-				std::make_unique<FSkeletalMeshAssetThumbnailProvider>(),
+		::Durin::Editor::FThumbnailRendererRegistrationHandle ThumbnailHandle =
+			ThumbnailManager.RegisterScoped(
+				std::make_unique<DSkeletalMeshThumbnailRenderer>(),
 				EditorExtensionCallbacks.GetGate(), Error);
 		if (!ThumbnailHandle)
 		{
 			WorkspaceRegistration.reset(); return false;
 		}
-		ThumbnailRegistration = std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
+		ThumbnailRegistration = std::make_unique<::Durin::Editor::FThumbnailRendererRegistrationHandle>(
 			std::move(ThumbnailHandle));
 		return true;
 	}

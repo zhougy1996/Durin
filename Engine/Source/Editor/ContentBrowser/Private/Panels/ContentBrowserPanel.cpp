@@ -4,7 +4,7 @@
 
 #include "AssetTools.h"
 #include "AssetForge/Builtins/SceneImport.h"
-#include "Assets/ContentBrowserThumbnailCache.h"
+#include "Assets/ContentBrowserThumbnailReferences.h"
 #include "Misc/Paths.h"
 #include "Panels/ContentBrowserItemView.h"
 
@@ -120,7 +120,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		, DirectoryTreeWidth(PresentationSettings.TreeWidth)
 	{
 		Model.RefreshMountSnapshot();
-		ThumbnailCache = std::make_unique<FContentBrowserThumbnailCache>(
+		ThumbnailReferences = std::make_unique<FContentBrowserThumbnailReferences>(
 			std::move(InThumbnailTaskScope));
 		ViewMode = static_cast<EContentBrowserViewMode>(
 			PresentationSettings.ViewMode);
@@ -188,7 +188,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
 		if (!Model.NavigateToPhysical(PhysicalPath, bAddHistory)) return false;
 		if (Model.GetCurrentPhysicalPath() == PreviousDirectory) return true;
-		ThumbnailCache->CancelPendingRequests();
+		ThumbnailReferences->CancelPendingRequests();
 		Selection.clear();
 		SelectionAnchor.clear();
 		bResetContentScroll = true;
@@ -202,7 +202,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (Model.NavigateHistory(Delta))
 		{
 			if (Model.GetCurrentPhysicalPath() == PreviousDirectory) return;
-			ThumbnailCache->CancelPendingRequests();
+			ThumbnailReferences->CancelPendingRequests();
 			Selection.clear();
 			SelectionAnchor.clear();
 			bResetContentScroll = true;
@@ -233,7 +233,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::RefreshPublishedContent() -> void
 	{
-		ThumbnailCache->CancelPendingRequests();
+		ThumbnailReferences->CancelPendingRequests();
 		const std::string AvailableDirectory =
 			Model.FindNearestAvailableDirectory(Model.GetCurrentPhysicalPath());
 		Model.RefreshMountSnapshot();
@@ -260,7 +260,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::RefreshItemsSnapshot() -> void
 	{
-		ThumbnailCache->CancelPendingRequests();
+		ThumbnailReferences->CancelPendingRequests();
 		Model.RefreshItemsSnapshot();
 		RepairSelection();
 	}
@@ -638,7 +638,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (PhysicalPath.empty()) return false;
 		if (Model.GetCurrentPhysicalPath() != PreviousDirectory)
 		{
-			ThumbnailCache->CancelPendingRequests();
+			ThumbnailReferences->CancelPendingRequests();
 			bResetContentScroll = true;
 		}
 		Selection.clear();
@@ -660,7 +660,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (AdmissionState == ::Durin::Editor::ContentBrowser::EAdmissionState::Stopped)
 			return;
 		AdmissionState = ::Durin::Editor::ContentBrowser::EAdmissionState::Stopping;
-		if (ThumbnailCache) ThumbnailCache->CancelPendingRequests();
+		if (ThumbnailReferences) ThumbnailReferences->CancelPendingRequests();
 		AdmissionState = ::Durin::Editor::ContentBrowser::EAdmissionState::Stopped;
 	}
 

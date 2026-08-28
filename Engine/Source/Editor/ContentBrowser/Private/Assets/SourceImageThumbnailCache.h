@@ -1,11 +1,11 @@
 #pragma once
 
-#include "Thumbnail/AssetThumbnailProvider.h"
+#include "Thumbnail/ThumbnailManager.h"
 #include "Threading/Task.h"
 
 namespace Durin::Editor::ContentBrowser::Private
 {
-	// Supplies source-image provider input while keeping public lookup keyed by the requesting item.
+	// Supplies source-image renderer input while keeping public lookup keyed by the requesting item.
 	struct FSourceImageThumbnailRequest
 	{
 		std::string_view Identity;

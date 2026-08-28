@@ -105,7 +105,7 @@ durin_add_engine_functional_test(ContentBrowserWorkflowTests
 		${_durin_content_browser_private}/Panels/ContentBrowserOperations.cpp
 		${_durin_content_browser_private}/Panels/ContentBrowserRefreshCoordinator.cpp
 		${_durin_content_browser_private}/Panels/ContentDeletionTransaction.cpp
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd StaticMeshBuild AssetForgeBuiltins bc7enc_rdo::bc7enc_rdo
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd AssetTools StaticMeshBuild AssetForgeBuiltins bc7enc_rdo::bc7enc_rdo
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -209,7 +209,7 @@ durin_add_engine_functional_test(MaterialTests
 durin_add_engine_functional_test(MaterialVulkanTests
 	KIND integration
 	DOMAINS material thumbnail
-	MODULES engine material-editor renderer static-mesh-build static-mesh-editor texture-build texture-editor
+	MODULES asset-tools engine material-editor renderer static-mesh-build static-mesh-editor texture-build texture-editor
 	BACKENDS vulkan
 	STACKS editor renderer
 	GPU
@@ -225,6 +225,7 @@ durin_add_engine_functional_test(MaterialVulkanTests
 		ApplicationCore
 		RenderCore
 		Renderer
+		AssetTools
 		AssetForgeBuiltins
 		MonaCore
 		Mona

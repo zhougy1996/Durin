@@ -17,6 +17,7 @@
     ],
 	"ReflectHeaders": [
 		"Public/Factories/Factory.h",
-		"Public/Editor/EditorEngine.h"
-    ]
+		"Public/Editor/EditorEngine.h",
+		"Public/Thumbnail/ThumbnailManager.h"
+	]
 }

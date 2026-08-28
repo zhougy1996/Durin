@@ -1,238 +1,169 @@
 # Asset Thumbnails
 
-Summary: Define thumbnail requests, providers, caches, rendering, invalidation, and Content Browser consumption.
+Summary: Define the shared Thumbnail Manager, renderer, asset-thumbnail, pool, persistence, and presentation contracts.
 
-Modules: DurinEd, LevelEditor, RenderCore, Renderer, TextureEditor
+Modules: DurinEd, ContentBrowser, MainFrame, MaterialEditor, TextureEditor, StaticMeshEditor, SkeletalMeshEditor, LevelEditor
 
-Content Browser thumbnails are optional editor derivatives. They never replace
-authored packages or source files, and deleting the thumbnail cache cannot lose
-project content.
+Last reviewed: 2026-08-29
 
-## Ownership And Request Boundary
+Asset thumbnails are optional editor-derived data. They never replace authored
+packages or source files, and deleting the thumbnail cache cannot lose project
+content.
 
-- `DurinEd` owns the provider-neutral request, view, provider registry,
-  rendered-thumbnail cache, persistent object store, preview scene pool, and
-  resource budgets. Every shared contract lives in the flat
-  `Durin::Editor` namespace; concrete feature-editor providers remain in their
-  owning modules under `Durin::Editor::<Feature>`.
-- `Editor::FAssetThumbnailProviderRegistry` owns the one long-lived registration
-  boundary. A rendered cache receives that registry and resolves providers when capturing each
-  request, so cache construction order does not snapshot or fork provider state.
-- `Editor::FRenderedAssetThumbnailCache` is the sole generation/cache owner.
-  Request coalescing, priority admission, state transitions, persistence, preview
-  sessions, upload, and eviction are private implementation mechanics and are not
-  module extension surfaces.
-- Rendered providers may register a module-owned generation extension through a
-  move-only scoped handle. A persistent hit remains entirely in the shared core;
-  a cold miss receives one provider-owned session for load, readiness, preview
-  setup, revision validation, and diagnostics.
-- Providers register by exact asset class on the game thread. A request
-  captures an immutable provider input, provider generation, and request serial
-  before asynchronous work begins. Asset and resource revisions are captured
-  as the job loads and reaches resource-dependent transitions.
-- `MaterialEditor` registers two exact classes that share the material provider.
-  `TextureEditor` registers authored Texture2D source selection and the TextureCube
-  provider with its wide view-environment presentation. Texture2D and
-  supported source files retain their source-image decode path behind the same
-  Content Browser request/view lifecycle.
-- Material and texture ordinary C++ implementation types live in
-  `Durin::Editor::Material` and `Durin::Editor::Texture`.
-- `StaticMeshEditor` owns the StaticMesh rendered extension and immutable LOD 0
-  framing inputs. Its unified module integration installs the exact-class asset
-  route and thumbnail provider together. The provider never stores a mesh
-  pointer in queued work; loading, resource readiness, and revision capture
-  begin only after a persistent miss.
-- LevelEditor owns Content Browser item presentation, its facade, and the
-  exact-class canonical `DTerrainHeightmap` provider. That provider generates
-  fixed 256x256 grayscale pixels from the immutable payload, includes revision
-  and generator schema in identity, and uses no source image or Renderer state.
-  LevelEditor otherwise asks the live registry for a source-image request or
-  rendered authored-asset
-  fingerprint. Unsupported
-  classes issue no thumbnail job and retain their normal asset icon.
+## Public Model And Ownership
 
-Material and MaterialInstance provider code, sessions, dependency closure, and
-diagnostics live in `MaterialEditor`. Texture2D authored-source selection plus
-TextureCube provider code, sessions, orientation, wide-environment contract,
-and diagnostics live in `TextureEditor`. StaticMesh provider code, generation
-sessions, visual contracts, and diagnostics live in `StaticMeshEditor`. The
-default registry constructs no concrete provider. Moving ownership did not change
-any rendered provider name, key field, schema, fixture, shader, or output policy.
+- `DurinEd` owns `DThumbnailManager`, `DThumbnailRenderer`,
+  `DDefaultSizedThumbnailRenderer`, `FThumbnailRenderingInfo`,
+  `FAssetThumbnail`, `FAssetThumbnailPool`, and `FObjectThumbnail`.
+- `DThumbnailManager` maps one exact asset class to one renderer generation.
+  It rejects duplicate registration, publishes a monotonic dirty revision,
+  owns the shared default pool, and performs explicit shutdown.
+- Feature editor modules own their concrete renderer objects and move-only
+  `FThumbnailRendererRegistrationHandle` values. Material/MaterialInstance,
+  Texture2D/TextureCube, StaticMesh, SkeletalMesh, and Terrain Heightmap logic
+  remains in the corresponding feature module.
+- `FAssetThumbnail` is the UI-facing reference for one canonical asset identity,
+  requested presentation size, and pool. It owns no asset, task, preview world,
+  render target, or RHI resource.
+- `FAssetThumbnailPool` owns coalescing, priority, state, generation, preview
+  leasing, readback, encoding, persistence, upload, pinning, LRU retention,
+  cancellation, diagnostics, and statistics.
+- `FObjectThumbnail` is the bounded CPU RGBA8/encoded output contract. Persistent
+  object-store and queue/index types remain private to `DurinEd`.
 
-The public headers follow responsibility rather than one broad thumbnail facade:
-`AssetThumbnailTypes.h`, `AssetThumbnailKey.h`, and
-`AssetThumbnailProvider.h` own core contracts;
-`AssetThumbnailObjectStore.h` owns persistence and budget selection; rendered
-extension, preview-scene, and cache contracts retain public headers. Queue and
-generation state-machine types are private to the cache implementation.
-The former `AssetThumbnail.h` and `AssetThumbnailCache.h` paths no longer
-exist.
+The process manager lazily creates one shared pool. Tests and isolated editor
+tools may inject a local manager into a local pool. Manager and renderer public
+contracts do not expose a parallel registry, cache facade, or generation
+extension hierarchy.
 
-The shared preview pool owns its world, provider-neutral camera/view, optional
-RenderCore view environment, lighting, output target, render command, and
-readback. Scene-backed cold sessions such as Material and StaticMesh attach
-their own Actor/Components to the leased world and remove them in
-`ResetPreview`. TextureCube installs no world content: it supplies a counted
-stable RHI texture reference as one submission-local environment value. The
-core cache therefore has no concrete asset includes, casts, active pointers,
-readiness branches, framing branches, or diagnostics. Material and StaticMesh
-retain transparent-black capture while TextureCube retains opaque output.
+## Identity And Output Size
 
-## Extension Registration And Unload
+Production output is fixed at 256 by 256 pixels. Requested `FAssetThumbnail`
+dimensions are presentation-only: Content Browser scales the shared output and
+requested width/height never enter the cache key, CPU/GPU budget accounting, or
+persistent object identity. This avoids an unbounded output-size key space.
 
-The registry owns one live exact-class registration set. Request clients created before
-or after a provider registration resolve that registry when they capture work;
-they do not snapshot provider objects. Duplicate exact-class registration fails
-without replacing the current provider. Replacement requires resetting the old
-handle and registering again, which assigns a later provider generation.
+Persistent keys retain the established little-endian field order and values:
+canonical virtual path, exact class, package fingerprint, stable renderer name,
+generator schema, fixed output settings, preview fixture identity/version,
+shader contract, and sorted dependency fingerprints. The refactor does not
+change the project-local `DerivedDataCache/Thumbnails` root, object/index format,
+PNG encoding, or stable renderer strings. A C++ type rename alone is therefore
+not a cache invalidation.
 
-Scoped registration accepts unique ownership. Reset first removes the exact
-class from admission and invalidates its generation. It then cancels every
-captured core lease, calls the provider session's idempotent preview reset on the
-game thread, and destroys the session, immutable generation input, and extension
-before returning. A queued or in-flight job retains only a cancelled DurinEd
-lease. Loading, resource wait, render, readback, encode, upload, and publication
-all reject that lease or its stale generation.
+Material keys include the sorted parent-material and texture dependency closure.
+StaticMesh keys include LOD 0 framing and default-material closure. TextureCube
+keys preserve wide environment orientation and visual-contract versions.
+Texture2D derives fixed output from canonical pixels stored in the asset rather
+than following an external reimport hint. Terrain Heightmap derives fixed
+grayscale pixels from its immutable payload and revision.
 
-GPU upload tickets copy only core-owned cancellation, provider generation,
-request serial, and asset identity. The game-thread drain re-resolves the live
-registry registration before exposing the texture to the UI backend, preventing
-an upload queued by an unloaded or replaced extension from publishing.
+Every completion revalidates asset identity, request serial, renderer generation,
+key, and captured asset/resource revisions. Save, move, delete, reimport,
+dependency change, resource rebuild, explicit dirty refresh, renderer
+replacement, and corruption either produce a new key or reject stale work.
 
-The extension owns exact-class capture, deterministic key fields, immutable
-input, asset load and type checks, readiness and revision polling, scene-backed
-content or value-only environment selection, validation, and asset-qualified
-diagnostics. Its session may configure only the preview scene leased to that
-cold job and must detach its own scene content during reset. `DurinEd` retains
-scheduling, coalescing, cache lookup,
-scene leasing, capture, readback, encode/decode, persistence, UI upload, budgets,
-and publication. Provider objects never cross module unload.
+## Renderer Lifetime And State
 
-## Identity And Invalidation
+Renderers capture immutable generation input on the game thread. A cold miss may
+then use one renderer-owned session with these hooks:
 
-Rendered keys include the normalized virtual asset path, exact class, package
-fingerprint, provider and generator schema, fixed output settings, preview
-fixture identity, and shader/visual-contract version. Material keys also
-include a sorted, cycle-guarded Asset Registry closure of parent-material and
-texture package fingerprints. TextureCube keys include the authored cube
-package fingerprint; its ready build/resource revision is revalidated across
-the in-flight capture rather than persisted as a separate key field.
-StaticMesh keys include the mesh package plus the sorted transitive fingerprints
-of default materials and their texture dependencies, as well as the fixed
-bounds-framing, transparent-output, preview-fixture, and shader contracts.
+1. load the exact asset and capture its revision;
+2. poll bounded resource readiness without retaining the capture slot;
+3. prepare the leased preview scene or provide canonical pixels directly;
+4. validate revisions before render, readback, encoding, and publication;
+5. reset preview state idempotently.
 
-Every asynchronous completion revalidates the key, provider generation,
-request serial, asset identity, and asset/resource revisions. Save, move,
-delete, import, dependency edits, resource rebuilds, generator changes, and
-cache corruption therefore become cancellation, a safe miss, or a new key;
-stale work cannot replace a newer result.
+A renderer registration is qualified by a monotonically increasing generation
+and the feature module's callback gate. Reset closes admission, cancels all
+captured leases, resets and destroys sessions on the game thread, releases
+immutable feature-owned input, and drains callbacks before returning. Queued,
+waiting, rendering, readback, encoding, and already-enqueued upload completions
+all reject the retired generation.
 
-## Scheduling And Lifetime
+The shared preview pool owns its world, camera/view, environment value, light,
+output target, capture, and readback. Scene renderers attach only session-owned
+content and detach it in reset. TextureCube supplies a stable counted RHI
+environment value and creates no world content. `DurinEd` contains no concrete
+asset casts, readiness rules, framing rules, or feature diagnostics.
 
-Only requested cards enter the scheduler. Visible requests outrank prefetch
-requests, duplicate keys coalesce, and a newer serial cancels replaced work.
-The default limits are:
+## Pool Scheduling And Budgets
 
-| Resource | Default limit |
+Visible requests outrank prefetch, duplicate keys coalesce, and different
+`FAssetThumbnail` instances for one identity share one entry and one admitted
+job. Each reference increments the entry's pin count. Releasing the final
+reference makes the entry evictable without synchronously releasing an in-use
+RHI resource or affecting a reference held by another panel.
+
+The default limits remain:
+
+| Resource | Limit |
 | --- | ---: |
 | Queued jobs | 512 |
-| Concurrent source decodes | 4 |
-| UI uploads per frame | 2 |
-| Rendered captures per frame | 1 |
-| Live rendered preview scenes | 1 |
-| Parked rendered resource waits | 64 |
-| Parked resource poll interval | 4 frames |
-| Parked resource wait timeout | 600 frames |
+| Concurrent source/file decodes | 4 |
+| Uploads per frame | 2 |
+| Render captures per frame | 1 |
+| Live preview scenes | 1 |
+| Parked resource waits | 64 |
+| Resource poll interval | 4 frames |
+| Resource wait timeout | 600 frames |
 | CPU pixels | 64 MiB |
-| GPU thumbnail textures | 64 MiB |
+| GPU textures | 64 MiB |
 | One encoded object | 16 MiB |
-| Persistent thumbnail objects | 256 MiB |
+| Persistent objects | 256 MiB |
 
-Rendered jobs move through queued, loading, resource-wait, rendering, readback,
-encoding, and ready states. A resource-waiting job is parked without retaining
-the active render slot or preview scene, so another rendered request can load
-or capture while the parked session remains generation-qualified. Parked jobs
-are polled at a bounded interval, visible ready jobs resume first, and a bounded
-wait becomes one stable failure rather than monopolizing the queue.
-Preview-scene mutation and asset loading occur on the game thread; rendering and
-readback occur on the rendering thread; encoding and atomic publication may run
-on workers. Completed CPU/GPU entries and disk objects use least-recently-used
-eviction, while active or pinned entries are not selected. Closing Content
-Browser or unloading a provider cancels active and parked work and rejects
-stale completion before releasing scenes and GPU resources on their owning
-threads.
+Jobs move through queued, loading, waiting-for-resources, rendering, readback,
+encoding, uploading, and ready states. A waiting rendered job is parked and
+releases the capture slot, allowing canonical-pixel or another ready rendered
+job to progress. Timeout and failure are stable until identity changes or the
+caller explicitly refreshes.
 
-The pool snapshots the view and optional environment independently when a
-capture is accepted. Reset advances the cancellation generation, clears pixel
-and diagnostic state, restores the default view, and releases the environment
-reference. Success, failed preparation, failed render, cancellation, provider
-removal, pool replacement, and shutdown all converge on this idempotent reset,
-so a later scene-backed job cannot inherit an earlier TextureCube environment.
+Pool statistics expose jobs, loads, waits, renders, readbacks, disk hits,
+failures, retries, cancellations, evictions, uploads, live textures, queued
+jobs, pinned entries, and reference count. Statistics are observations and do
+not alter scheduling or cache identity.
 
-Refresh, navigation, rename, move, reimport, delete, panel close, and editor
-shutdown cancel the current request generation. Cancellation advances the UI
-upload serial too, so an already-enqueued render-thread upload cannot register a
-stale texture when it returns to the game thread. Existing ready textures remain
-bounded by the GPU LRU until their identity changes, they are evicted, or the
-cache is cleared.
+## Content Browser And Ordinary Files
 
-MainFrame owns shutdown sequencing rather than any provider. It stops Content
-Browser admission, unregisters StaticMeshEditor, TextureEditor, MaterialEditor,
-and LevelEditor integrations in reverse composition order, then drains and
-destroys the shared caches and service before concrete module unload. Each
-module removes its thumbnail handles before its workspace handle, making queued,
-loading, waiting, rendering, readback, encoding, and uploading work incapable of
-calling provider code after removal. Removing one module does not shut down the
-service or registrations owned by the others.
+Content Browser asset cards hold `FAssetThumbnail` references and submit only
+identity, visible/prefetch priority, refresh, and presentation requests. They do
+not choose a renderer or generation path. Navigation, filtering, replacement,
+refresh, panel close, and shutdown deterministically release references.
 
-## Persistence And Recovery
+Ordinary PNG/JPEG/BMP/TGA files are not assets. Their physical-path decode,
+disk reuse, upload, and view remain in the Content Browser-private
+`FSourceImageThumbnailCache`. Physical file identity never enters the manager,
+asset pool, or asset DDC key. Texture2D assets use canonical package pixels in
+`DTextureThumbnailRenderer`; an external source hint is never probed implicitly.
 
-Both source and rendered outputs use the project-local
-`DerivedDataCache/Thumbnails` object/index domain documented in
-[Asset Packages](../../Runtime/Assets/AssetPackages.md). A rendered cold request
-loads its asset, captures once, reads back once, encodes PNG, and atomically
-publishes the object. A warm request decodes that PNG and uploads it without
-loading the authored asset, creating a preview scene, rendering, or reading
-back.
+Pending and failed assets retain the asset icon. Ready output preserves its
+transparency policy and diagnostic. Unsupported exact classes create no pool
+job and remain icon-only.
 
-Missing, incompatible, oversized, truncated, or corrupt indexes and objects
-are ordinary misses. Invalid entries are removed only after their resolved
-paths are proven to remain beneath the thumbnail cache root. The next request
-regenerates from mounted authored content; persistence failure does not turn
-valid in-memory pixels into a failed thumbnail. A size-valid object whose PNG
-payload fails decoding is invalidated and requeued once through the cold path;
-the corrupt object cannot become a per-frame retry loop.
+## Persistence, Corruption, And Shutdown
 
-## Presentation And Failure
+Warm requests load compatible PNG objects and upload them without loading the
+authored asset or creating a preview scene. Missing, incompatible, oversized,
+truncated, corrupt, or decode-invalid objects are safe misses. Removal first
+proves the resolved path remains beneath the cache root; regeneration then uses
+mounted authored content. A decode-invalid warm object is invalidated and
+requeued once, never retried every frame.
 
-Grid view scales the fixed 256-by-256 output to the current card size. Pending
-states retain the asset icon with nonblocking progress. Invalid material data,
-missing dependencies, failed texture builds, render failures, and readback
-failures retain the icon and expose one stable asset-qualified diagnostic.
-Failures are not persisted as successful output and do not retry every frame;
-retry requires a changed key, refresh, or explicit retry.
+MainFrame shutdown order is:
 
-A required TextureCube environment is resolved on the rendering thread. A null
-target, incompatible dimension, or unavailable renderer resource fails the
-render result before readback; a clear image or black fallback is never
-persisted as a successful TextureCube thumbnail.
+1. stop Content Browser request admission;
+2. release panel `FAssetThumbnail` references;
+3. unregister feature renderers in reverse composition order;
+4. clear and destroy the manager-owned pool;
+5. destroy the manager and unload feature/rendering modules.
 
-Material and MaterialInstance previews load and retain the shared
-`/Engine/Models/Sphere` mesh before resource polling, wait for both that mesh
-and referenced textures to become render-ready, and use the resolved runtime
-material values. A scene-backed capture with visible geometry but no successful
-geometry draw is rejected before readback publication, so a transparent clear
-caused by unavailable shader, pipeline, or mesh resources cannot enter the
-thumbnail object store. TextureCube previews use an opaque 100-degree wide
-environment view and the orientation contract in
-[Cube Textures](../../Runtime/Rendering/CubeTextures.md).
-They create no Actor, Component, StaticMesh, primitive proxy, bounds, or
-visibility record. Content Browser cards never own live viewports, worlds, or
-per-card preview meshes.
+All completion, cancellation, retirement, refresh, pool destruction, and
+shutdown paths converge on idempotent preview reset and owning-thread RHI
+release.
 
-StaticMesh previews use the asset's validated LOD 0 bounds, a deterministic
-elevated three-quarter camera, a compact image margin, the asset's default
-positional material slots, and transparent output that blends with the active
-Content Browser theme. Invalid bounds, unavailable or failed render
-resources, and revision changes during render, readback, encoding, or
-publication preserve the StaticMesh icon and publish no persistent success.
+## Related Documentation
+
+- [Content Browser](ContentBrowser.md)
+- [Asset Packages](../../Runtime/Assets/AssetPackages.md)
+- [Core Task System](../../Runtime/Core/TaskSystem.md)
+- [Modular Features And Module Retirement](../../Runtime/Core/ModularFeaturesAndModuleRetirement.md)

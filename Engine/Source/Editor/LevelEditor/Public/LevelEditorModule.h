@@ -17,8 +17,8 @@ namespace Durin::Editor
 {
 	class FWorkspaceRegistrationHandle;
 	class FWorkspaceManager;
-	class FAssetThumbnailProviderRegistry;
-	class FAssetThumbnailProviderRegistrationHandle;
+	class DThumbnailManager;
+	class FThumbnailRendererRegistrationHandle;
 }
 
 namespace Durin::Editor::Level
@@ -39,7 +39,7 @@ namespace Durin
 		LEVELEDITOR_API auto StartupModule() -> void override;
 		LEVELEDITOR_API auto ShutdownModule() -> void override;
 		LEVELEDITOR_API auto RegisterLevelEditorWorkspace(::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-			::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
+			::Durin::Editor::DThumbnailManager& ThumbnailManager,
 			Editor::Level::FContentBrowserCallbacks ContentBrowserCallbacks) -> bool;
 		LEVELEDITOR_API auto UnregisterLevelEditorWorkspace() -> void;
 		LEVELEDITOR_API auto OpenDefaultDocument() -> bool;
@@ -57,7 +57,7 @@ namespace Durin
 			ProjectDefaultLevelReferenceStore;
 		uint64 ProjectDefaultLevelReferenceStoreHandle = 0;
 		uint64 GrayboxBuildStartupCommandHandle = 0;
-		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>
+		std::unique_ptr<::Durin::Editor::FThumbnailRendererRegistrationHandle>
 			TerrainThumbnailRegistration;
 		struct FIntegrationState;
 		std::unique_ptr<FIntegrationState> Integration;

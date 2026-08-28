@@ -14,7 +14,7 @@ namespace Durin
 
 	namespace Editor
 	{
-	// Identifies the public lifecycle state of one provider-neutral thumbnail request.
+	// Identifies the public lifecycle state of one renderer-neutral thumbnail request.
 	enum class EAssetThumbnailState : uint8
 	{
 		NotRequested,
@@ -67,7 +67,7 @@ namespace Durin
 	};
 
 	// Freezes the initial rendered-thumbnail visual fixture behind one schema version.
-	struct FRenderedAssetThumbnailVisualContract
+	struct FThumbnailVisualContract
 	{
 		static constexpr uint32 SchemaVersion = 1;
 		static constexpr std::string_view SphereVirtualPath = "/Engine/Models/Sphere";
@@ -125,7 +125,7 @@ namespace Durin
 		uint64 DiskBudgetBytes = 256ull * 1024ull * 1024ull;
 	};
 
-	// Identifies one request independently from provider-owned generation data.
+	// Identifies one request independently from renderer-owned generation data.
 	struct FAssetThumbnailRequest
 	{
 		FAssetThumbnailPackageFingerprint Asset;
@@ -133,7 +133,7 @@ namespace Durin
 		uint64 RequestSerial = 0;
 	};
 
-	// Describes a provider-selected source image for one authored asset. The
+	// Describes a renderer-selected source image for one authored asset. The
 	// Content Browser keeps decoding, persistence, upload, and presentation generic.
 	struct FAssetThumbnailSourceImage
 	{

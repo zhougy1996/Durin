@@ -2,8 +2,8 @@
 
 #include "Editor/WorkspaceManager.h"
 #include "StaticMesh/StaticMesh.h"
-#include "Thumbnail/AssetThumbnailProvider.h"
-#include "Thumbnail/StaticMeshAssetThumbnail.h"
+#include "Thumbnail/ThumbnailManager.h"
+#include "Thumbnail/StaticMeshThumbnailRenderer.h"
 #include "Widgets/MStaticMeshInspector.h"
 #include "Workspace/StaticMeshEditorWorkspace.h"
 #include "Import/StaticMeshImportDialog.h"
@@ -38,7 +38,7 @@ namespace Durin
 
 	auto FStaticMeshEditorModule::RegisterStaticMeshEditor(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-		::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
+		::Durin::Editor::DThumbnailManager& ThumbnailManager,
 		::Durin::Editor::FImportDialogCallbacks ImportCallbacks) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
@@ -79,9 +79,9 @@ namespace Durin
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 
 		std::string Error;
-		::Durin::Editor::FAssetThumbnailProviderRegistrationHandle ThumbnailHandle =
-			ThumbnailService.RegisterScoped(
-				std::make_unique<FStaticMeshAssetThumbnailProvider>(),
+		::Durin::Editor::FThumbnailRendererRegistrationHandle ThumbnailHandle =
+			ThumbnailManager.RegisterScoped(
+				std::make_unique<DStaticMeshThumbnailRenderer>(),
 				EditorExtensionCallbacks.GetGate(), Error);
 		if (!ThumbnailHandle)
 		{
@@ -89,7 +89,7 @@ namespace Durin
 			return false;
 		}
 		ThumbnailRegistration =
-			std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
+			std::make_unique<::Durin::Editor::FThumbnailRendererRegistrationHandle>(
 				std::move(ThumbnailHandle));
 		return true;
 	}

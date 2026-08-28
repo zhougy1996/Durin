@@ -5,9 +5,9 @@
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
-#include "Thumbnail/AssetThumbnailProvider.h"
-#include "Thumbnail/Texture2DAssetThumbnail.h"
-#include "Thumbnail/TextureCubeAssetThumbnail.h"
+#include "Thumbnail/ThumbnailManager.h"
+#include "Thumbnail/TextureThumbnailRenderer.h"
+#include "Thumbnail/TextureCubeThumbnailRenderer.h"
 #include "Widgets/MTextureEditor.h"
 #include "Widgets/MVolumeTextureEditor.h"
 #include "Widgets/TexturePreview.h"
@@ -48,7 +48,7 @@ namespace Durin
 
 	auto FTextureEditorModule::RegisterTextureEditor(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-		::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
+		::Durin::Editor::DThumbnailManager& ThumbnailManager,
 		::Durin::Editor::FImportDialogCallbacks ImportCallbacks) -> bool
 	{
 		if ((WorkspaceRegistration && WorkspaceRegistration->IsValid())
@@ -110,8 +110,8 @@ namespace Durin
 		}
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 		std::string Error;
-		auto Texture2DHandle = ThumbnailService.RegisterScoped(
-			std::make_unique<FTexture2DAssetThumbnailProvider>(),
+		auto Texture2DHandle = ThumbnailManager.RegisterScoped(
+			std::make_unique<DTextureThumbnailRenderer>(),
 			EditorExtensionCallbacks.GetGate(), Error);
 		if (!Texture2DHandle)
 		{
@@ -119,10 +119,10 @@ namespace Durin
 			return false;
 		}
 		Texture2DThumbnailRegistration =
-			std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
+			std::make_unique<::Durin::Editor::FThumbnailRendererRegistrationHandle>(
 				std::move(Texture2DHandle));
-		auto TextureCubeHandle = ThumbnailService.RegisterScoped(
-			std::make_unique<FTextureCubeAssetThumbnailProvider>(),
+		auto TextureCubeHandle = ThumbnailManager.RegisterScoped(
+			std::make_unique<DTextureCubeThumbnailRenderer>(),
 			EditorExtensionCallbacks.GetGate(), Error);
 		if (!TextureCubeHandle)
 		{
@@ -130,7 +130,7 @@ namespace Durin
 			return false;
 		}
 		TextureCubeThumbnailRegistration =
-			std::make_unique<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
+			std::make_unique<::Durin::Editor::FThumbnailRendererRegistrationHandle>(
 				std::move(TextureCubeHandle));
 		return true;
 	}

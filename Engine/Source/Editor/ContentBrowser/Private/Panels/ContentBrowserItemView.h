@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Panels/ContentBrowserModel.h"
-#include "Thumbnail/AssetThumbnailProvider.h"
+#include "Thumbnail/ThumbnailManager.h"
 
 #include "MonaImGui.h"
 
@@ -10,7 +10,7 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 	// Returns the unqualified engine class name without its Durin type prefix.
 	auto ClassLeaf(std::string_view QualifiedName) -> std::string;
 
-	// Describes the visual fallback selected for a thumbnail provider state.
+	// Describes the visual fallback selected for a thumbnail renderer state.
 	enum class EThumbnailPresentation : uint8
 	{
 		Icon,

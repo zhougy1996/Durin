@@ -8,8 +8,8 @@
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "StaticMesh/StaticMeshFactoryTestSupport.h"
 #include "StaticMeshEditorModule.h"
-#include "Thumbnail/RenderedAssetThumbnailCache.h"
-#include "Thumbnail/StaticMeshAssetThumbnail.h"
+#include "Thumbnail/AssetThumbnailPool.h"
+#include "Thumbnail/StaticMeshThumbnailRenderer.h"
 #include "Widgets/StaticMeshPreview.h"
 
 #include <gtest/gtest.h>
@@ -50,11 +50,11 @@ TEST(FStaticMeshEditorTests, PreviewControllerFramesAndNavigatesDeterministicall
 TEST(FStaticMeshEditorTests, RegistrationIsExactReadOnlyAndScoped)
 {
 	Durin::Editor::FWorkspaceManager Manager;
-	Durin::Editor::FAssetThumbnailProviderRegistry ThumbnailService;
+	Durin::Editor::DThumbnailManager ThumbnailManager;
 	Durin::FStaticMeshEditorModule Module;
-	ASSERT_TRUE(Module.RegisterStaticMeshEditor(Manager, ThumbnailService));
-	EXPECT_FALSE(Module.RegisterStaticMeshEditor(Manager, ThumbnailService));
-	EXPECT_TRUE(ThumbnailService.Find(
+	ASSERT_TRUE(Module.RegisterStaticMeshEditor(Manager, ThumbnailManager));
+	EXPECT_FALSE(Module.RegisterStaticMeshEditor(Manager, ThumbnailManager));
+	EXPECT_TRUE(ThumbnailManager.Find(
 		Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString()));
 
 	auto Workspace = Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("StaticMeshEditor"));
@@ -66,9 +66,9 @@ TEST(FStaticMeshEditorTests, RegistrationIsExactReadOnlyAndScoped)
 
 	Module.UnregisterStaticMeshEditor();
 	EXPECT_EQ(Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("StaticMeshEditor")), nullptr);
-	EXPECT_FALSE(ThumbnailService.Find(
+	EXPECT_FALSE(ThumbnailManager.Find(
 		Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString()));
-	EXPECT_TRUE(Module.RegisterStaticMeshEditor(Manager, ThumbnailService));
+	EXPECT_TRUE(Module.RegisterStaticMeshEditor(Manager, ThumbnailManager));
 }
 
 TEST(FStaticMeshEditorTests, PreviewSceneOwnsAndReleasesItsViewportComponents)
@@ -95,21 +95,21 @@ TEST(FStaticMeshEditorTests, PreviewSceneOwnsAndReleasesItsViewportComponents)
 TEST(FStaticMeshEditorTests, ThumbnailConflictRollsBackWorkspaceRegistration)
 {
 	Durin::Editor::FWorkspaceManager Manager;
-	Durin::Editor::FAssetThumbnailProviderRegistry ThumbnailService;
+	Durin::Editor::DThumbnailManager ThumbnailManager;
 	std::string Error;
-	auto Existing = ThumbnailService.RegisterScoped(
-		std::make_unique<Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailProvider>(), Error);
+	auto Existing = ThumbnailManager.RegisterScoped(
+		std::make_unique<Durin::Editor::StaticMesh::DStaticMeshThumbnailRenderer>(), Error);
 	ASSERT_TRUE(Existing) << Error;
 	const std::string ClassName =
 		Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString();
-	const uint64 ExistingGeneration = ThumbnailService.Find(ClassName).Generation;
+	const uint64 ExistingGeneration = ThumbnailManager.Find(ClassName).Generation;
 
 	Durin::FStaticMeshEditorModule Module;
-	EXPECT_FALSE(Module.RegisterStaticMeshEditor(Manager, ThumbnailService));
+	EXPECT_FALSE(Module.RegisterStaticMeshEditor(Manager, ThumbnailManager));
 	EXPECT_EQ(
 		Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("StaticMeshEditor")),
 		nullptr);
-	EXPECT_EQ(ThumbnailService.Find(ClassName).Generation, ExistingGeneration);
+	EXPECT_EQ(ThumbnailManager.Find(ClassName).Generation, ExistingGeneration);
 }
 
 TEST(FStaticMeshEditorTests, ReusesOneDocumentPerMeshAndSupportsCloseReopen)
@@ -129,9 +129,9 @@ TEST(FStaticMeshEditorTests, ReusesOneDocumentPerMeshAndSupportsCloseReopen)
 	ASSERT_TRUE(Second) << Second.Message;
 
 	Durin::Editor::FWorkspaceManager Manager;
-	Durin::Editor::FAssetThumbnailProviderRegistry ThumbnailService;
+	Durin::Editor::DThumbnailManager ThumbnailManager;
 	Durin::FStaticMeshEditorModule Module;
-	ASSERT_TRUE(Module.RegisterStaticMeshEditor(Manager, ThumbnailService));
+	ASSERT_TRUE(Module.RegisterStaticMeshEditor(Manager, ThumbnailManager));
 	const std::string ClassName = Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString();
 	ASSERT_TRUE(Manager.OpenAsset("/StaticMeshEditorTests/First", ClassName));
 	ASSERT_TRUE(Manager.OpenAsset("/StaticMeshEditorTests/First", ClassName));

@@ -128,26 +128,26 @@ not name or construct a concrete asset editor.
 
 ## Thumbnail Requests And Refresh
 
-ContentBrowser owns item presentation, source-image decode/cache, and request
-admission. `DurinEd` owns the provider-neutral thumbnail service,
-scheduler, persistence, render/readback/upload pipeline, preview-scene pool,
-and budgets. MaterialEditor owns Material and MaterialInstance providers;
-TextureEditor owns authored Texture2D source selection and TextureCube rendering;
-StaticMeshEditor owns StaticMesh rendering. Unsupported classes keep their
-ordinary asset icon and create no thumbnail job. Raw source-file images use the
-generic Content Browser path and are not owned by TextureEditor.
+ContentBrowser owns item presentation, ordinary-file image decode/cache, and
+request admission. Asset cards retain lightweight `FAssetThumbnail` values and
+submit canonical identity plus visible/prefetch priority to the
+`DThumbnailManager`-owned shared `FAssetThumbnailPool`. Cards do not select a
+renderer or production path. `DurinEd` owns scheduling, persistence,
+render/readback/upload, preview scenes, reference pinning, texture reuse, and
+budgets. Feature editor modules own their exact-class renderers. Unsupported
+classes keep their ordinary asset icon and create no pool job.
 
 Refresh, navigation, move, delete, reimport, panel close, and editor shutdown
 cancel obsolete request generations before rebinding the visible snapshot.
 Visible work outranks prefetch, duplicate keys coalesce, and all concrete asset
 types share the same bounded scheduler and one-rendered-capture-per-frame limit.
-Provider removal stops admission and drains that provider's queued or in-flight
-leases without affecting providers registered by other modules. During editor
+Renderer removal stops admission and drains that renderer generation's queued
+or in-flight leases without affecting renderers registered by other modules. During editor
 shutdown MainFrame first stops Content Browser admission, then unregisters
 feature integrations in reverse composition order. That retires extension
-callbacks and cancels feature-owned dialogs and thumbnail-provider leases. The
-browser has already cancelled thumbnail requests; destruction then drains any
-admitted import and releases its caches before workspace state and host
+callbacks and cancels feature-owned dialogs and thumbnail renderer leases. The
+browser has already released its asset-thumbnail references; destruction then
+drains any admitted import and ordinary-file cache before workspace state and host
 notification surfaces disappear. Concrete modules unload only after this
 host-owned teardown.
 

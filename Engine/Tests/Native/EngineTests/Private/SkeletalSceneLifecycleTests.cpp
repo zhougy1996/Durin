@@ -17,8 +17,8 @@
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 #include "SkeletalMesh/Skeleton.h"
-#include "Thumbnail/SkeletalMeshAssetThumbnail.h"
-#include "Thumbnail/RenderedAssetThumbnailCache.h"
+#include "Thumbnail/SkeletalMeshThumbnailRenderer.h"
+#include "Thumbnail/AssetThumbnailPool.h"
 
 namespace
 {
@@ -211,7 +211,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 				const Durin::Asset::FAssetCatalogEntry MeshData =
 					Durin::Asset::FindAssetExact(MeshPath);
 				ASSERT_NE(MeshData, nullptr);
-				Durin::Editor::SkeletalMesh::FSkeletalMeshAssetThumbnailProvider Provider;
+				Durin::Editor::SkeletalMesh::DSkeletalMeshThumbnailRenderer Renderer;
 				Durin::Editor::FAssetThumbnailGenerationRequest ThumbnailRequest;
 				const Durin::Editor::FAssetThumbnailPackageFingerprint Fingerprint{
 					.VirtualPath = MeshData->PackagePath,
@@ -219,7 +219,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 					.PackageFormatVersion = MeshData->FormatVersion,
 					.FileSize = static_cast<uint64>(MeshData->FileSize),
 					.LastWriteTimeTicks = MeshData->LastWriteTimeTicks};
-				ASSERT_TRUE(Provider.CaptureGenerationRequest({
+				ASSERT_TRUE(Renderer.CaptureGenerationRequest({
 					.Asset = Fingerprint,
 					.Priority = Durin::Editor::EAssetThumbnailPriority::Visible,
 					.RequestSerial = 1}, 7, ThumbnailRequest, Error)) << Error;
@@ -231,7 +231,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 								== Mesh->GetSkeleton()->GetPackage()->GetPackagePath();
 					}));
 				EXPECT_FALSE(std::static_pointer_cast<const
-					Durin::Editor::SkeletalMesh::FSkeletalMeshAssetThumbnailGenerationInput>(
+					Durin::Editor::SkeletalMesh::FSkeletalMeshThumbnailGenerationInput>(
 						ThumbnailRequest.Input)->Visual.bOutputOpaque);
 			}
 

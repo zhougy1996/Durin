@@ -16,12 +16,12 @@
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
-#include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
-#include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
-#include "Thumbnail/MaterialAssetThumbnail.h"
-#include "Thumbnail/RenderedAssetThumbnailCache.h"
-#include "Thumbnail/StaticMeshAssetThumbnail.h"
-#include "Thumbnail/TextureCubeAssetThumbnail.h"
+#include "Thumbnail/ThumbnailPreviewScene.h"
+#include "Thumbnail/AssetThumbnailTestFixtures.h"
+#include "Thumbnail/MaterialThumbnailRenderer.h"
+#include "Thumbnail/AssetThumbnailPool.h"
+#include "Thumbnail/StaticMeshThumbnailRenderer.h"
+#include "Thumbnail/TextureCubeThumbnailRenderer.h"
 #include "Texture/TextureCubeRenderResource.h"
 #include "Texture/TextureBuildOperations.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
@@ -75,29 +75,29 @@ namespace
 
 }
 
-TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterialDifferences)
+TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferences)
 {
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 	InitializeDObjectSystem();
-	std::string StaticMeshProviderError;
-	Durin::Editor::FAssetThumbnailProviderRegistrationHandle StaticMeshProvider =
-		Durin::Editor::GetDefaultAssetThumbnailProviderRegistry().RegisterScoped(
-			std::make_unique<Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailProvider>(),
-			StaticMeshProviderError);
-	ASSERT_TRUE(StaticMeshProvider) << StaticMeshProviderError;
-	Durin::Editor::FAssetThumbnailProviderRegistrationHandle MaterialProvider =
-		Durin::Editor::GetDefaultAssetThumbnailProviderRegistry().RegisterScoped(
-			std::make_unique<Durin::Editor::Material::FMaterialAssetThumbnailProvider>(
+	std::string StaticMeshRendererError;
+	Durin::Editor::FThumbnailRendererRegistrationHandle StaticMeshRenderer =
+		Durin::Editor::GetDefaultThumbnailManager().RegisterScoped(
+			std::make_unique<Durin::Editor::StaticMesh::DStaticMeshThumbnailRenderer>(),
+			StaticMeshRendererError);
+	ASSERT_TRUE(StaticMeshRenderer) << StaticMeshRendererError;
+	Durin::Editor::FThumbnailRendererRegistrationHandle MaterialRenderer =
+		Durin::Editor::GetDefaultThumbnailManager().RegisterScoped(
+			std::make_unique<Durin::Editor::Material::DMaterialThumbnailRenderer>(
 				Durin::DMaterial::StaticClass()->GetQualifiedName().ToString()),
-			StaticMeshProviderError);
-	ASSERT_TRUE(MaterialProvider) << StaticMeshProviderError;
-	Durin::Editor::FAssetThumbnailProviderRegistrationHandle MaterialInstanceProvider =
-		Durin::Editor::GetDefaultAssetThumbnailProviderRegistry().RegisterScoped(
-			std::make_unique<Durin::Editor::Material::FMaterialAssetThumbnailProvider>(
+			StaticMeshRendererError);
+	ASSERT_TRUE(MaterialRenderer) << StaticMeshRendererError;
+	Durin::Editor::FThumbnailRendererRegistrationHandle MaterialInstanceRenderer =
+		Durin::Editor::GetDefaultThumbnailManager().RegisterScoped(
+			std::make_unique<Durin::Editor::Material::DMaterialThumbnailRenderer>(
 				Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString()),
-			StaticMeshProviderError);
-	ASSERT_TRUE(MaterialInstanceProvider) << StaticMeshProviderError;
+			StaticMeshRendererError);
+	ASSERT_TRUE(MaterialInstanceRenderer) << StaticMeshRendererError;
 	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
@@ -121,7 +121,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 	ASSERT_TRUE(MountRegistry.IsValid()) << MountRegistry.GetError();
 	Durin::FAssetPath SpherePath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
-		Durin::Editor::FRenderedAssetThumbnailVisualContract::SphereVirtualPath, SpherePath));
+		Durin::Editor::FThumbnailVisualContract::SphereVirtualPath, SpherePath));
 	Durin::Editor::FRetainedAsset PreloadedSphere;
 	std::string Error;
 	ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(
@@ -139,11 +139,11 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 
-	struct FBeginRenderedThumbnailFrame
+	struct FBeginThumbnailFrame
 	{
-		static constexpr auto GetName() -> const char* { return "BeginRenderedThumbnailFrame"; }
+		static constexpr auto GetName() -> const char* { return "BeginThumbnailFrame"; }
 	};
-	Durin::EnqueueRenderCommand<FBeginRenderedThumbnailFrame>(
+	Durin::EnqueueRenderCommand<FBeginThumbnailFrame>(
 		[](Durin::FRHICommandListImmediate& CommandList) {
 			CommandList.SwitchPipeline(Durin::ERHIPipeline::Graphics);
 			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
@@ -156,7 +156,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 	Engine.SetTestRendererModule(&Renderer);
 	Durin::GEngine = &Engine;
 
-	Durin::Editor::FRenderedAssetThumbnailVisualContract Contract;
+	Durin::Editor::FThumbnailVisualContract Contract;
 	Contract.Output.Width = 64;
 	Contract.Output.Height = 64;
 	Durin::DStaticMesh* CaptureMesh = nullptr;
@@ -184,7 +184,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 	ASSERT_TRUE(LowRoughnessMaterial->SetScalarParameterValue(
 		Durin::MaterialParameters::MetallicName(), 0.0f));
 	FinishMaterialCompilation(LowRoughnessMaterial);
-	Durin::Editor::FRenderedAssetThumbnailVisualContract AlignedContract = Contract;
+	Durin::Editor::FThumbnailVisualContract AlignedContract = Contract;
 	AlignedContract.CameraDirectionX = 0.001f;
 	AlignedContract.CameraDirectionY = 0.0f;
 	AlignedContract.CameraDirectionZ = 1.0f;
@@ -192,7 +192,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 	AlignedContract.KeyLightDirectionY = 0.0f;
 	AlignedContract.KeyLightDirectionZ = -1.0f;
 	{
-		Durin::Tests::FRenderedAssetThumbnailTestPool AlignedPool(
+		Durin::Tests::FAssetThumbnailTestPool AlignedPool(
 			AlignedContract);
 		ASSERT_TRUE(AlignedPool.IsAvailable()) << AlignedPool.GetDiagnostic();
 		auto CaptureAligned = [&](float Roughness) {
@@ -208,7 +208,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Durin::FlushRenderingCommands();
 			EXPECT_EQ(
 				AlignedPool.PollCapture(Pixels, Error),
-				Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+				Durin::Editor::EThumbnailCaptureState::Ready) << Error;
 			AlignedPool.Reset();
 			return Pixels;
 		};
@@ -244,7 +244,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		EXPECT_EQ(SaturatedPixelCounts[4], 0u);
 	}
 	{
-		Durin::Tests::FRenderedAssetThumbnailTestPool Pool(Contract);
+		Durin::Tests::FAssetThumbnailTestPool Pool(Contract);
 		ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
 		Durin::DStaticMesh* Sphere = Pool.GetSphereMesh();
 		ASSERT_NE(Sphere, nullptr);
@@ -253,13 +253,13 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		CaptureMesh = Durin::DStaticMesh::CreateDebugTriangle();
 		ASSERT_NE(CaptureMesh, nullptr);
 		CaptureMaterial = MakeExpandedMaterial(
-			"RenderedThumbnailCaptureMaterial");
+			"ThumbnailCaptureMaterial");
 		ErrorFallbackMaterial = Durin::NewObject<Durin::DMaterialInterface>(
-			nullptr, "RenderedThumbnailErrorFallbackMaterial");
+			nullptr, "ThumbnailErrorFallbackMaterial");
 		CaptureInstance = Durin::NewObject<Durin::DMaterialInstance>(
-			nullptr, "RenderedThumbnailCaptureInstance");
+			nullptr, "ThumbnailCaptureInstance");
 		InheritedInstance = Durin::NewObject<Durin::DMaterialInstance>(
-			nullptr, "RenderedThumbnailInheritedInstance");
+			nullptr, "ThumbnailInheritedInstance");
 		ASSERT_TRUE(CaptureMaterial->SetVectorParameterValue(
 			Durin::MaterialParameters::BaseColorName(),
 			Durin::FVector3(0.8, 0.15, 0.05)));
@@ -333,7 +333,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			Durin::FlushRenderingCommands();
 			EXPECT_EQ(
 				Pool.PollCapture(Pixels, Error),
-				Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+				Durin::Editor::EThumbnailCaptureState::Ready) << Error;
 			Pool.Reset();
 			return Pixels;
 		};
@@ -403,12 +403,12 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		const std::optional<Durin::FBox> StaticMeshBounds =
 			StaticMeshFixture->GetLOD0LocalBounds();
 		ASSERT_TRUE(StaticMeshBounds.has_value());
-		Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailView StaticMeshView;
-		ASSERT_TRUE(Durin::Editor::StaticMesh::CalculateStaticMeshAssetThumbnailView({
+		Durin::Editor::StaticMesh::FStaticMeshThumbnailRendererView StaticMeshView;
+		ASSERT_TRUE(Durin::Editor::StaticMesh::CalculateStaticMeshThumbnailRendererView({
 			.LocalBounds = *StaticMeshBounds,
 			.OutputAspectRatio = 1.0,
 			.VerticalFieldOfViewDegrees = Contract.VerticalFieldOfViewDegrees,
-			.CameraDirection = Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailViewInput{}
+			.CameraDirection = Durin::Editor::StaticMesh::FStaticMeshThumbnailRendererViewInput{}
 				.CameraDirection},
 			StaticMeshView,
 			Error)) << Error;
@@ -417,12 +417,12 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			EXPECT_TRUE(Pool.SetStaticMesh(
 				StaticMeshFixture, StaticMeshView, Error)) << Error;
 			EXPECT_TRUE(Pool.BeginCapture(
-				Error, Durin::Editor::StaticMesh::FStaticMeshAssetThumbnailContract::bOutputOpaque))
+				Error, Durin::Editor::StaticMesh::FStaticMeshThumbnailRendererContract::bOutputOpaque))
 				<< Error;
 			Durin::FlushRenderingCommands();
 			EXPECT_EQ(
 				Pool.PollCapture(Pixels, Error),
-				Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+				Durin::Editor::EThumbnailCaptureState::Ready) << Error;
 			Pool.Reset();
 			return Pixels;
 		};
@@ -480,7 +480,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		ASSERT_EQ(Durin::Mona::GetActiveUIBackend(), nullptr);
 		Durin::Tests::FThumbnailTestUIBackend ThumbnailUIBackend;
 		Durin::Tests::FScopedActiveUIBackend ThumbnailBackendScope(ThumbnailUIBackend);
-		auto PumpCacheToReady = [&](Durin::Editor::FRenderedAssetThumbnailCache& Cache) {
+		auto PumpCacheToReady = [&](Durin::Editor::FAssetThumbnailPool& Cache) {
 			Durin::Editor::FAssetThumbnailView View;
 			for (uint32 Attempt = 0; Attempt < 16; ++Attempt)
 			{
@@ -498,7 +498,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			return View;
 		};
 		{
-			Durin::Editor::FRenderedAssetThumbnailCache Cache({}, {
+			Durin::Editor::FAssetThumbnailPool Cache({}, {
 				.CacheRoot = ThumbnailCacheRoot,
 				.ObjectExtension = ".png"});
 			const Durin::Editor::FAssetThumbnailView Ready = PumpCacheToReady(Cache);
@@ -506,7 +506,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 				<< Ready.Diagnostic;
 			ASSERT_NE(Ready.Texture, nullptr);
 			EXPECT_TRUE(Ready.bHasTransparency);
-			const Durin::Editor::FRenderedAssetThumbnailCacheStats Stats = Cache.GetStats();
+			const Durin::Editor::FAssetThumbnailPoolStats Stats = Cache.GetStats();
 			EXPECT_EQ(Stats.Generation.Loads, 1u);
 			EXPECT_EQ(Stats.Generation.Renders, 1u);
 			EXPECT_EQ(Stats.Generation.Readbacks, 1u);
@@ -521,13 +521,13 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			EXPECT_EQ(ThumbnailUIBackend.NumRegistered(), 0u);
 		}
 		{
-			Durin::Editor::FRenderedAssetThumbnailCache WarmCache({}, {
+			Durin::Editor::FAssetThumbnailPool WarmCache({}, {
 				.CacheRoot = ThumbnailCacheRoot,
 				.ObjectExtension = ".png"});
 			const Durin::Editor::FAssetThumbnailView Ready = PumpCacheToReady(WarmCache);
 			ASSERT_EQ(Ready.State, Durin::Editor::EAssetThumbnailState::Ready)
 				<< Ready.Diagnostic;
-			const Durin::Editor::FRenderedAssetThumbnailCacheStats Stats = WarmCache.GetStats();
+			const Durin::Editor::FAssetThumbnailPoolStats Stats = WarmCache.GetStats();
 			EXPECT_EQ(Stats.Generation.DiskHits, 1u);
 			EXPECT_EQ(Stats.Generation.Loads, 0u);
 			EXPECT_EQ(Stats.Generation.Renders, 0u);
@@ -550,7 +550,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			WarmCache.EndFrame();
 			EXPECT_EQ(Revisited.State, Durin::Editor::EAssetThumbnailState::Ready);
 			EXPECT_EQ(Revisited.Texture, Ready.Texture);
-			const Durin::Editor::FRenderedAssetThumbnailCacheStats RevisitedStats =
+			const Durin::Editor::FAssetThumbnailPoolStats RevisitedStats =
 				WarmCache.GetStats();
 			EXPECT_EQ(RevisitedStats.Generation.DiskHits, Stats.Generation.DiskHits);
 			EXPECT_EQ(RevisitedStats.UploadsQueued, Stats.UploadsQueued);
@@ -844,7 +844,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 			"/MaterialThumbnailVulkan/TC_Preview", CaptureCubePath));
 		const Durin::Testing::TFactoryImportResult<Durin::DTextureCube> CubeResult =
 			Durin::AssetForge::Builtins::ImportTextureCubeFacesForTest(
-				Durin::Tests::GetRenderedThumbnailDirectionalCubeFaces(),
+				Durin::Tests::GetThumbnailDirectionalCubeFaces(),
 				CaptureCubePath.ToString());
 		ASSERT_TRUE(CubeResult) << CubeResult.Message;
 		CaptureCube = CubeResult.Asset;
@@ -888,20 +888,20 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		std::vector<std::byte> DirectEnvironmentPixels;
 		ASSERT_EQ(
 			Pool.PollCapture(DirectEnvironmentPixels, Error),
-			Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+			Durin::Editor::EThumbnailCaptureState::Ready) << Error;
 		ASSERT_FALSE(DirectEnvironmentPixels.empty());
 		Pool.Reset();
 
 		Durin::FTextureRHIRef OriginalCubeTarget;
-		struct FRetargetRenderedThumbnailEnvironment
+		struct FRetargetThumbnailEnvironment
 		{
 			static constexpr auto GetName() -> const char*
 			{
-				return "RetargetRenderedThumbnailEnvironment";
+				return "RetargetThumbnailEnvironment";
 			}
 		};
 		ASSERT_TRUE(Pool.SetViewEnvironment(CubeEnvironment, Error)) << Error;
-		Durin::EnqueueRenderCommand<FRetargetRenderedThumbnailEnvironment>(
+		Durin::EnqueueRenderCommand<FRetargetThumbnailEnvironment>(
 			[Reference = CaptureCubeReference, &OriginalCubeTarget](
 				Durin::FRHICommandListImmediate&) {
 				OriginalCubeTarget =
@@ -917,19 +917,19 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		std::vector<std::byte> RetargetedEnvironmentPixels;
 		EXPECT_EQ(
 			Pool.PollCapture(RetargetedEnvironmentPixels, Error),
-			Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+			Durin::Editor::EThumbnailCaptureState::Ready) << Error;
 		EXPECT_NE(RetargetedEnvironmentPixels, DirectEnvironmentPixels);
 		Pool.Reset();
 
-		struct FRestoreRenderedThumbnailEnvironment
+		struct FRestoreThumbnailEnvironment
 		{
 			static constexpr auto GetName() -> const char*
 			{
-				return "RestoreRenderedThumbnailEnvironment";
+				return "RestoreThumbnailEnvironment";
 			}
 		};
 		auto RestoreCubeTarget = [&] {
-			Durin::EnqueueRenderCommand<FRestoreRenderedThumbnailEnvironment>(
+			Durin::EnqueueRenderCommand<FRestoreThumbnailEnvironment>(
 				[Reference = CaptureCubeReference, OriginalCubeTarget](
 					Durin::FRHICommandListImmediate&) {
 					Durin::GDynamicRHI->RHIUpdateTextureReference(
@@ -940,14 +940,14 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		RestoreCubeTarget();
 
 		ASSERT_TRUE(Pool.SetViewEnvironment(CubeEnvironment, Error)) << Error;
-		struct FClearRenderedThumbnailEnvironment
+		struct FClearThumbnailEnvironment
 		{
 			static constexpr auto GetName() -> const char*
 			{
-				return "ClearRenderedThumbnailEnvironment";
+				return "ClearThumbnailEnvironment";
 			}
 		};
-		Durin::EnqueueRenderCommand<FClearRenderedThumbnailEnvironment>(
+		Durin::EnqueueRenderCommand<FClearThumbnailEnvironment>(
 			[Reference = CaptureCubeReference](
 				Durin::FRHICommandListImmediate&) {
 				Durin::GDynamicRHI->RHIUpdateTextureReference(
@@ -959,7 +959,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		std::vector<std::byte> UnavailableEnvironmentPixels;
 		EXPECT_EQ(
 			Pool.PollCapture(UnavailableEnvironmentPixels, Error),
-			Durin::Editor::ERenderedAssetThumbnailCaptureState::Failed);
+			Durin::Editor::EThumbnailCaptureState::Failed);
 		EXPECT_TRUE(UnavailableEnvironmentPixels.empty());
 		EXPECT_NE(Error.find("view environment"), std::string::npos);
 		Pool.Reset();
@@ -970,7 +970,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		std::vector<std::byte> EmptyScenePixels;
 		ASSERT_EQ(
 			Pool.PollCapture(EmptyScenePixels, Error),
-			Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+			Durin::Editor::EThumbnailCaptureState::Ready) << Error;
 		EXPECT_EQ(EmptyScenePixels.size(), DirectEnvironmentPixels.size());
 		EXPECT_NE(EmptyScenePixels, DirectEnvironmentPixels);
 		Pool.Reset();
@@ -981,28 +981,28 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		std::vector<std::byte> FailedEnvironmentPixels;
 		EXPECT_EQ(
 			Pool.PollCapture(FailedEnvironmentPixels, Error),
-			Durin::Editor::ERenderedAssetThumbnailCaptureState::Failed);
+			Durin::Editor::EThumbnailCaptureState::Failed);
 		EXPECT_TRUE(FailedEnvironmentPixels.empty());
 		EXPECT_NE(Error.find("view environment"), std::string::npos);
 		Pool.Reset();
 
 		ASSERT_TRUE(Pool.SetViewEnvironment(CubeEnvironment, Error)) << Error;
-		struct FRenderedThumbnailCancellationGate
+		struct FThumbnailCancellationGate
 		{
 			std::mutex Mutex;
 			std::condition_variable Condition;
 			bool bEntered = false;
 			bool bReleased = false;
 		};
-		struct FBlockRenderedThumbnailCaptureForCancellation
+		struct FBlockThumbnailCaptureForCancellation
 		{
 			static constexpr auto GetName() -> const char*
 			{
-				return "BlockRenderedThumbnailCaptureForCancellation";
+				return "BlockThumbnailCaptureForCancellation";
 			}
 		};
-		const auto Gate = std::make_shared<FRenderedThumbnailCancellationGate>();
-		Durin::EnqueueRenderCommand<FBlockRenderedThumbnailCaptureForCancellation>(
+		const auto Gate = std::make_shared<FThumbnailCancellationGate>();
+		Durin::EnqueueRenderCommand<FBlockThumbnailCaptureForCancellation>(
 			[Gate](Durin::FRHICommandListImmediate&) {
 				std::unique_lock Lock(Gate->Mutex);
 				Gate->bEntered = true;
@@ -1029,7 +1029,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		std::vector<std::byte> CancelledPixels;
 		EXPECT_EQ(
 			Pool.PollCapture(CancelledPixels, Error),
-			Durin::Editor::ERenderedAssetThumbnailCaptureState::Idle);
+			Durin::Editor::EThumbnailCaptureState::Idle);
 		EXPECT_TRUE(CancelledPixels.empty());
 		EXPECT_TRUE(Error.empty());
 
@@ -1039,7 +1039,7 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		Durin::FlushRenderingCommands();
 		ASSERT_EQ(
 			Pool.PollCapture(CubePixels, Error),
-			Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) << Error;
+			Durin::Editor::EThumbnailCaptureState::Ready) << Error;
 		Pool.Reset();
 		ASSERT_EQ(MaterialPixels.size(), 64u * 64u * 4u);
 		EXPECT_EQ(TwoSidedBackPixels, TwoSidedFrontPixels);
@@ -1112,11 +1112,11 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 		}
 		EXPECT_GT(CubeColors.size(), 8u);
 
-		struct FEndRenderedThumbnailFrame
+		struct FEndThumbnailFrame
 		{
-			static constexpr auto GetName() -> const char* { return "EndRenderedThumbnailFrame"; }
+			static constexpr auto GetName() -> const char* { return "EndThumbnailFrame"; }
 		};
-		Durin::EnqueueRenderCommand<FEndRenderedThumbnailFrame>(
+		Durin::EnqueueRenderCommand<FEndThumbnailFrame>(
 			[](Durin::FRHICommandListImmediate& CommandList) {
 				Durin::GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 			});
@@ -1150,14 +1150,14 @@ TEST(FMaterialVulkanTests, RenderedThumbnailPreviewSceneCapturesResolvedMaterial
 	PreloadedSphere = {};
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(SpherePath));
 	Durin::CollectGarbage();
-	struct FRetireRenderedThumbnailCubeResource
+	struct FRetireThumbnailCubeResource
 	{
 		static constexpr auto GetName() -> const char*
 		{
-			return "RetireRenderedThumbnailCubeResource";
+			return "RetireThumbnailCubeResource";
 		}
 	};
-	Durin::EnqueueRenderCommand<FRetireRenderedThumbnailCubeResource>(
+	Durin::EnqueueRenderCommand<FRetireThumbnailCubeResource>(
 		[Reference = std::move(CaptureCubeReference)](
 			Durin::FRHICommandListImmediate&) {});
 	Durin::FlushRenderingCommands();

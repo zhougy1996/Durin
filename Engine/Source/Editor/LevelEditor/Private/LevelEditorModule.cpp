@@ -28,8 +28,8 @@
 #include "TerrainDetails.h"
 #include "VolumetricCloudDetails.h"
 #include "Components/VolumetricCloudComponent.h"
-#include "TerrainHeightmapAssetThumbnail.h"
-#include "Thumbnail/AssetThumbnailProvider.h"
+#include "TerrainHeightmapThumbnailRenderer.h"
+#include "Thumbnail/ThumbnailManager.h"
 #include "GrayboxSceneBuild.h"
 #include "Misc/StartupCommand.h"
 #include "Terrain/TerrainHeightmap.h"
@@ -153,20 +153,20 @@ namespace Durin
 
 	LEVELEDITOR_API auto FLevelEditorModule::RegisterLevelEditorWorkspace(
 		::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-		::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService,
+		::Durin::Editor::DThumbnailManager& ThumbnailManager,
 		Editor::Level::FContentBrowserCallbacks ContentBrowserCallbacks) -> bool
 	{
 		if (WorkspaceRegistration && WorkspaceRegistration->IsValid()) return false;
 		WorkspaceRegistration.reset();
 		TerrainThumbnailRegistration.reset();
 		std::string Error;
-		auto ThumbnailHandle = ThumbnailService.RegisterScoped(
-			std::make_unique<FTerrainHeightmapAssetThumbnailProvider>(),
+		auto ThumbnailHandle = ThumbnailManager.RegisterScoped(
+			std::make_unique<DTerrainHeightmapThumbnailRenderer>(),
 			EditorExtensionCallbacks.GetGate(), Error);
 		if (!ThumbnailHandle) return false;
 
 		// Content Browser captures thumbnail routing while the workspace is constructed,
-		// so feature-owned providers must already be visible to the shared service.
+		// so feature-owned renderers must already be visible to the shared service.
 		std::shared_ptr<MLevelEditor> Workspace = std::make_shared<MLevelEditor>(
 			*SessionSettings, WorkspaceManager, EditorExtensionCallbacks.GetGate(),
 			ThumbnailOperations.GetTaskScope(),
@@ -203,7 +203,7 @@ namespace Durin
 		if (!Registration) return false;
 		WorkspaceRegistration = std::make_unique<::Durin::Editor::FWorkspaceRegistrationHandle>(std::move(Registration));
 		TerrainThumbnailRegistration = std::make_unique<
-			::Durin::Editor::FAssetThumbnailProviderRegistrationHandle>(
+			::Durin::Editor::FThumbnailRendererRegistrationHandle>(
 				std::move(ThumbnailHandle));
 		LevelEditorWorkspace = Workspace;
 		{

@@ -7,7 +7,7 @@
 #include "Asset/AssetOperations.h"
 #include "Asset.h"
 #include "Asset/References.h"
-#include "Assets/ContentBrowserThumbnailCache.h"
+#include "Assets/ContentBrowserThumbnailReferences.h"
 #include "Editor/AssetDragDrop.h"
 #include "Editor/WorkspaceUI.h"
 #include "Icons/FontAwesomeIcons.h"
@@ -49,7 +49,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			return EToolbarLayout::Narrow;
 		}
 
-		auto MakeRenderedThumbnailFingerprint(const FContentBrowserItem& Item)
+		auto MakeThumbnailFingerprint(const FContentBrowserItem& Item)
 			-> std::optional<::Durin::Editor::FAssetThumbnailPackageFingerprint>
 		{
 			if (!Item.ThumbnailSourcePath.empty()) return std::nullopt;
@@ -124,7 +124,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserPanel::PrepareForDraw() -> void
 	{
 		// The host browser is constructed after workspace modules register their
-		// thumbnail providers. Rebuild the restored directory snapshot once
+		// thumbnail renderers. Rebuild the restored directory snapshot once
 		// those registrations have completed and the panel is first submitted.
 		if (bRefreshItemsOnFirstDraw)
 		{
@@ -425,7 +425,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::DrawContentArea() -> void
 	{
-		ThumbnailCache->BeginFrame();
+		ThumbnailReferences->BeginFrame();
 		const ImGuiIO& IO = ImGui::GetIO();
 		if (ViewMode == EContentBrowserViewMode::Grid && !bIconSizeLocked && ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && IO.KeyCtrl && IO.MouseWheel != 0.0f)
 			IconSize = std::clamp(IconSize + IO.MouseWheel * MonaImGui::ScaleUI(8.0f),
@@ -441,7 +441,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		else
 			DrawDetails();
 		bResetContentScroll = false;
-		ThumbnailCache->EndFrame();
+		ThumbnailReferences->EndFrame();
 		// Resolve outside clicks after every item has been drawn so the result does not depend on whether
 		// the clicked item appears before or after the active rename editor in ImGui's submission order.
 		if (!RenameTarget.empty() && !bFocusRename && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !bRenameEditorHovered)
@@ -641,12 +641,12 @@ namespace Durin::Editor::ContentBrowser::Private
 					if (Index >= Model.GetItems().size()) break;
 					const FContentBrowserItem& Item = Model.GetItems()[Index];
 					if (!Item.ThumbnailIdentity.empty())
-						ThumbnailCache->Request({
+						ThumbnailReferences->Request({
 							.Identity = Item.ThumbnailIdentity,
 							.SourcePhysicalPath = Item.ThumbnailSourcePath,
 							.SourceFileSize = Item.ThumbnailFileSize,
 							.SourceLastWriteTime = Item.ThumbnailLastWriteTime,
-							.Asset = MakeRenderedThumbnailFingerprint(Item),
+							.Asset = MakeThumbnailFingerprint(Item),
 							.Priority = Row >= Clipper.DisplayStart && Row < Clipper.DisplayEnd
 								? ::Durin::Editor::EAssetThumbnailPriority::Visible
 								: ::Durin::Editor::EAssetThumbnailPriority::Prefetch});
@@ -711,7 +711,7 @@ namespace Durin::Editor::ContentBrowser::Private
 								MonaImGui::ScaleUI(1.0f));
 					}
 
-					const ::Durin::Editor::FAssetThumbnailView Thumbnail = ThumbnailCache->Find(Item.ThumbnailIdentity);
+					const ::Durin::Editor::FAssetThumbnailView Thumbnail = ThumbnailReferences->Find(Item.ThumbnailIdentity);
 					const ContentBrowserItemView::EThumbnailPresentation ThumbnailPresentation =
 						ContentBrowserItemView::ResolveThumbnailPresentation(Thumbnail);
 					const bool bDrewThumbnail = ContentBrowserItemView::DrawThumbnail(

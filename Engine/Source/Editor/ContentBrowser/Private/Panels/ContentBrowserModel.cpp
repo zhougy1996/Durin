@@ -6,7 +6,7 @@
 #include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
 #include "Misc/StringHelper.h"
-#include "Thumbnail/AssetThumbnailProvider.h"
+#include "Thumbnail/ThumbnailManager.h"
 
 namespace Durin::Editor::ContentBrowser::Private
 {
@@ -399,11 +399,11 @@ namespace Durin::Editor::ContentBrowser::Private
 		Item.LastWriteTime = Data.LastWriteTime;
 		::Durin::Editor::FAssetThumbnailSourceImage SourceImage;
 		std::string ThumbnailError;
-		::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService =
-			::Durin::Editor::GetDefaultAssetThumbnailProviderRegistry();
-		if (ThumbnailService.UsesSourceImage(Data.AssetClassName))
+		::Durin::Editor::DThumbnailManager& ThumbnailManager =
+			::Durin::Editor::GetDefaultThumbnailManager();
+		if (ThumbnailManager.UsesSourceImage(Data.AssetClassName))
 		{
-			if (ThumbnailService.CaptureSourceImage(Data, SourceImage, ThumbnailError))
+			if (ThumbnailManager.CaptureSourceImage(Data, SourceImage, ThumbnailError))
 			{
 				Item.ThumbnailIdentity = Item.VirtualPath;
 				Item.ThumbnailSourcePath = SourceImage.PhysicalPath;
@@ -411,7 +411,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				Item.ThumbnailLastWriteTime = SourceImage.LastWriteTime;
 			}
 		}
-		else if (ThumbnailService.Find(Data.AssetClassName))
+		else if (ThumbnailManager.Find(Data.AssetClassName))
 		{
 			Item.ThumbnailIdentity = Item.VirtualPath;
 			Item.ThumbnailFileSize = Data.FileSize;

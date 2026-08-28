@@ -7,8 +7,8 @@ namespace Durin::Editor
 {
 	class FWorkspaceRegistrationHandle;
 	class FWorkspaceManager;
-	class FAssetThumbnailProviderRegistry;
-	class FAssetThumbnailProviderRegistrationHandle;
+	class DThumbnailManager;
+	class FThumbnailRendererRegistrationHandle;
 }
 
 namespace Durin
@@ -23,14 +23,14 @@ namespace Durin
 		MATERIALEDITOR_API auto ShutdownModule() -> void override;
 		MATERIALEDITOR_API auto RegisterMaterialEditor(
 			::Durin::Editor::FWorkspaceManager& WorkspaceManager,
-			::Durin::Editor::FAssetThumbnailProviderRegistry& ThumbnailService) -> bool;
+			::Durin::Editor::DThumbnailManager& ThumbnailManager) -> bool;
 		MATERIALEDITOR_API auto UnregisterMaterialEditor() -> void;
 
 	private:
 		FModuleOwnedCallbackRegistration EditorExtensionCallbacks;
 		std::unique_ptr<::Durin::Editor::FWorkspaceRegistrationHandle> WorkspaceRegistration;
-		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle> MaterialThumbnailRegistration;
-		std::unique_ptr<::Durin::Editor::FAssetThumbnailProviderRegistrationHandle> MaterialInstanceThumbnailRegistration;
+		std::unique_ptr<::Durin::Editor::FThumbnailRendererRegistrationHandle> MaterialThumbnailRegistration;
+		std::unique_ptr<::Durin::Editor::FThumbnailRendererRegistrationHandle> MaterialInstanceThumbnailRegistration;
 		struct FIntegrationState;
 		std::unique_ptr<FIntegrationState> Integration;
 	};

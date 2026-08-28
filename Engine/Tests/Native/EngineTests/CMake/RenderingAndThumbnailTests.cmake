@@ -48,13 +48,13 @@ durin_add_engine_functional_test(ThumbnailTests
 	SOURCES
 		Private/SourceImageThumbnailTests.cpp
 		Private/AssetThumbnailContractTests.cpp
-		Private/RenderedAssetThumbnailFixtureTests.cpp
+		Private/AssetThumbnailFixtureTests.cpp
 	PRIVATE_SOURCES
 		${_durin_content_browser_private}/Assets/SourceImageThumbnailCache.cpp
-		${_durin_content_browser_private}/Assets/ContentBrowserThumbnailCache.cpp
+		${_durin_content_browser_private}/Assets/ContentBrowserThumbnailReferences.cpp
 		${_durin_content_browser_private}/Assets/SourceImageThumbnailDecoder.cpp
 		${_durin_content_browser_private}/Assets/SourceImageThumbnailDiskCache.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd StaticMeshBuild AssetForgeBuiltins StaticMeshEditor TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd AssetTools StaticMeshBuild AssetForgeBuiltins StaticMeshEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -67,9 +67,9 @@ durin_add_engine_functional_test(MaterialThumbnailTests
 	STACKS editor renderer
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises the MaterialEditor-owned Material and MaterialInstance thumbnail extensions."
-	SOURCES Private/MaterialAssetThumbnailTests.cpp
+	SOURCES Private/MaterialThumbnailRendererTests.cpp
 	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd StaticMeshBuild AssetForgeBuiltins MaterialEditor TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd AssetTools StaticMeshBuild AssetForgeBuiltins MaterialEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -83,7 +83,7 @@ durin_add_engine_functional_test(TextureThumbnailTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises the TextureEditor-owned Texture2D and TextureCube thumbnail extensions."
 	SOURCES Private/TextureAssetThumbnailTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd StaticMeshBuild AssetForgeBuiltins TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd AssetTools StaticMeshBuild AssetForgeBuiltins TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -99,13 +99,13 @@ durin_add_engine_functional_test(StaticMeshThumbnailTests
 		"ContentBrowser-owned thumbnail cache white-box coverage accompanies the StaticMeshEditor extension without exporting private symbols."
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises the StaticMeshEditor-owned thumbnail extension and cache lifecycle."
-	SOURCES Private/StaticMeshAssetThumbnailTests.cpp
+	SOURCES Private/StaticMeshThumbnailRendererTests.cpp
 	PRIVATE_SOURCES
 		${_durin_content_browser_private}/Assets/SourceImageThumbnailCache.cpp
-		${_durin_content_browser_private}/Assets/ContentBrowserThumbnailCache.cpp
+		${_durin_content_browser_private}/Assets/ContentBrowserThumbnailReferences.cpp
 		${_durin_content_browser_private}/Assets/SourceImageThumbnailDecoder.cpp
 		${_durin_content_browser_private}/Assets/SourceImageThumbnailDiskCache.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer DurinEd StaticMeshBuild AssetForgeBuiltins MaterialEditor StaticMeshEditor TextureEditor
+	LIBRARIES ApplicationCore RenderCore Renderer DurinEd AssetTools StaticMeshBuild AssetForgeBuiltins MaterialEditor StaticMeshEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data

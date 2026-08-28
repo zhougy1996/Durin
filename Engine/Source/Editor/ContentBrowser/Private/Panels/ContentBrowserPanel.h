@@ -12,7 +12,7 @@
 
 namespace Durin::Editor::ContentBrowser::Private
 {
-	class FContentBrowserThumbnailCache;
+	class FContentBrowserThumbnailReferences;
 
 	// Selects grid or list presentation for content-browser items.
 	enum class EContentBrowserViewMode : uint8
@@ -168,7 +168,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::function<void()> DeferredContentAction;
 		std::string ErrorMessage;
 		std::string WarningMessage;
-		std::unique_ptr<FContentBrowserThumbnailCache> ThumbnailCache;
+		std::unique_ptr<FContentBrowserThumbnailReferences> ThumbnailReferences;
 		ContentBrowserItemView::FTextureCubeDetailsCache TextureCubeDetailsCache;
 		const ContentBrowserItemView::FTextureCubeDetailsSnapshot*
 			TextureCubeDetailsSnapshot = nullptr;

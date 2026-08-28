@@ -4,31 +4,37 @@ Summary: Refactor DurinEd thumbnails into a UE-style manager, renderer, asset-th
 
 Last reviewed: 2026-08-29
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-29
 
 ## Current Status
 
-The existing thumbnail implementation is production-capable but exposes two
-different ownership models. `DurinEd` owns rendered-thumbnail registration,
-scheduling, persistence, preview scenes, readback, upload, and resource
-budgets, while `ContentBrowser` privately owns source-image decode and caching
-and combines both paths through `FContentBrowserThumbnailCache`. Material,
-MaterialInstance, Texture2D, TextureCube, StaticMesh, and Terrain Heightmap
-already have concrete generation behavior and extensive lifecycle, invalidation,
-rendering, and corruption coverage.
+The refactor is implemented. Thumbnail remains a subsystem of `DurinEd`; the
+manager owns exact-class renderer generations and the shared pool, asset cards
+hold `FAssetThumbnail` references, and ordinary image files retain the private
+Content Browser file-preview path. Material, MaterialInstance, Texture2D,
+TextureCube, StaticMesh, SkeletalMesh, and Terrain Heightmap resolve through
+feature-owned renderers.
 
-This plan selects an ownership and vocabulary refactor rather than a new
-thumbnail implementation. Thumbnail remains a subsystem of `DurinEd`. Its
-final public model follows the Unreal Editor concepts
+The final public model follows the Unreal Editor concepts
 `DThumbnailManager`, `DThumbnailRenderer`, `FThumbnailRenderingInfo`,
 `FAssetThumbnail`, `FAssetThumbnailPool`, and `FObjectThumbnail`. The final
 surface does not retain `Provider`, `Service`, `Executor`, or a
 Content-Browser-specific asset-thumbnail cache facade.
 
-No implementation stage has started. Stage 0 must freeze the exact API,
-baseline behavior, cache compatibility, and source-file boundary before code
-moves or symbols are renamed.
+### Frozen Compatibility Decisions
+
+- Pool production remains fixed at 256 by 256. Requested dimensions are
+  presentation-only, do not enter persistent identity, and do not expand CPU,
+  GPU, or disk budget key spaces.
+- Persistent field order, renderer strings, generator schemas, PNG encoding,
+  object/index format, and `DerivedDataCache/Thumbnails` root remain compatible.
+- Renderers capture on the game thread, optionally park a cold session while
+  resources become ready, and either prepare a preview scene or publish direct
+  canonical pixels. Reset is idempotent and generation-qualified.
+- Texture2D asset thumbnails derive from canonical pixels embedded in the
+  package. External reimport hints are never used as asset identity. Ordinary
+  physical image files remain in `FSourceImageThumbnailCache`.
 
 ## Goal
 
@@ -92,7 +98,7 @@ and visual results throughout the migration.
 - Final public symbols use Thumbnail Manager, Thumbnail Renderer, Asset
   Thumbnail, Asset Thumbnail Pool, Object Thumbnail, and Thumbnail Rendering
   Info terminology. Transitional adapters may exist privately within an
-  incomplete stage, but the completed plan exposes no parallel Provider,
+  incomplete stage, but the completed plan exposes no parallel Renderer,
   Service, Executor, or Content Browser asset-cache facade.
 - `DThumbnailRenderer` is an abstract reflected `DObject` using the repository's
   `D` prefix. Concrete renderer classes remain in their asset-family modules:
@@ -148,7 +154,7 @@ and visual results throughout the migration.
 
 ### Identity, persistence, and presentation
 
-- Existing cache identity fields, provider/generator schema values, package and
+- Existing cache identity fields, renderer/generator schema values, package and
   transitive dependency fingerprints, output settings, visual-contract
   versions, DDC domain, PNG encoding, and corruption recovery remain compatible
   unless Stage 0 records a specific unavoidable migration.
@@ -202,11 +208,11 @@ and renderer-generation lease types remain private implementation details.
 
 | Area | Current foundation | Plan gap |
 | --- | --- | --- |
-| Type routing | Exact-class registry with generation-qualified scoped registration and unload drain | Public vocabulary is Provider-oriented and the default registry is separate from an editor manager |
+| Type routing | Exact-class registry with generation-qualified scoped registration and unload drain | Public vocabulary is Renderer-oriented and the default registry is separate from an editor manager |
 | Rendered assets | One bounded asynchronous cache owns scheduling, persistence, preview scenes, readback, upload, eviction, and diagnostics | UI consumes request/view calls rather than `FAssetThumbnail` references and a shared pool |
 | Authored source images | Texture2D selects a source through its asset-family integration; Content Browser decodes, persists, and uploads it | Asset source-image production is owned by a Content Browser-private cache and follows a second lifecycle |
 | Ordinary files | Content Browser can preview supported physical image files | File identity and asset identity are combined by one browser facade even though only one is an asset thumbnail |
-| Renderers | Material, TextureCube, StaticMesh, Texture2D, and Terrain behaviors already exist in owning modules | They implement multiple Provider/extension/session shapes rather than one renderer abstraction |
+| Renderers | Material, TextureCube, StaticMesh, Texture2D, and Terrain behaviors already exist in owning modules | They implement multiple Renderer/extension/session shapes rather than one renderer abstraction |
 | Identity and invalidation | Package, dependency, schema, fixture, shader, asset revision, and resource revision checks reject stale work | Stable key identity must survive public C++ renaming and pool consolidation |
 | Persistence | Project-local `DerivedDataCache/Thumbnails` objects are atomic, bounded, recoverable, and optional | Source and rendered implementations have separate private storage paths and index mechanics |
 | Presentation | Content Browser maps public states to icon/loading/ready/failure display | Each panel owns a browser cache rather than lightweight thumbnail references into a shared pool |
@@ -216,26 +222,26 @@ and renderer-generation lease types remain private implementation details.
 
 ### Stage 0: Freeze the UE-style contract and compatibility baseline
 
-- [ ] Inventory every public and private Thumbnail symbol, production call site,
+- [x] Inventory every public and private Thumbnail symbol, production call site,
   module registration, shutdown edge, task scope, test fixture, cache key field,
   persistent object/index schema, setting, diagnostic, and documentation term
   affected by the rename.
-- [ ] Freeze the final signatures and ownership for `DThumbnailManager`,
+- [x] Freeze the final signatures and ownership for `DThumbnailManager`,
   `DThumbnailRenderer`, `DDefaultSizedThumbnailRenderer`,
   `FThumbnailRenderingInfo`, renderer-registration handles,
   `FAssetThumbnail`, `FAssetThumbnailPool`, and `FObjectThumbnail`.
-- [ ] Select the 256-output versus requested-size rule and record its exact key,
+- [x] Select the 256-output versus requested-size rule and record its exact key,
   scaling, memory-budget, and presentation consequences.
-- [ ] Select the renderer preparation/draw/reset state model needed to preserve
+- [x] Select the renderer preparation/draw/reset state model needed to preserve
   nonblocking load, parked resource waits, rendered capture, direct generated
   pixels, and authored source-image paths without publishing generic
-  Provider/Executor terminology.
-- [ ] Freeze stable persistent key strings and byte formats so C++ renaming can
+  Renderer/Executor terminology.
+- [x] Freeze stable persistent key strings and byte formats so C++ renaming can
   be distinguished from intentional generator-schema changes.
-- [ ] Capture the existing default budgets, queue ordering, state transitions,
+- [x] Capture the existing default budgets, queue ordering, state transitions,
   cache-hit behavior, visual hashes or pixel oracles, diagnostics, unload
   behavior, and shutdown ordering in focused baseline tests.
-- [ ] Classify existing source-image behavior into Texture2D asset-thumbnail
+- [x] Classify existing source-image behavior into Texture2D asset-thumbnail
   production versus ordinary physical-file preview, and identify the exact code
   that remains in Content Browser after the split.
 
@@ -250,22 +256,22 @@ and renderer-generation lease types remain private implementation details.
 
 ### Stage 1: Introduce Thumbnail Manager and Renderer contracts
 
-- [ ] Add reflected `DThumbnailRenderer` and
+- [x] Add reflected `DThumbnailRenderer` and
   `DDefaultSizedThumbnailRenderer`, with renderer-owned identity capture,
   preparation, readiness, draw or pixel production, revision validation,
   diagnostics, and idempotent reset hooks selected in Stage 0.
-- [ ] Add `FThumbnailRenderingInfo` and `DThumbnailManager` with exact-class
+- [x] Add `FThumbnailRenderingInfo` and `DThumbnailManager` with exact-class
   lookup, duplicate rejection, renderer generation, stable unsupported result,
   dirtied event, shared-pool access, and explicit shutdown.
-- [ ] Add move-only, module-gated custom-renderer registration and retirement
+- [x] Add move-only, module-gated custom-renderer registration and retirement
   that preserves the existing admission-close, cancellation, session reset,
   callback drain, and object-destruction guarantees.
-- [ ] Compose the default manager from MainFrame without changing concrete
+- [x] Compose the default manager from MainFrame without changing concrete
   renderer registration order or Content Browser behavior.
-- [ ] Add focused manager tests for exact lookup, duplicate registration,
+- [x] Add focused manager tests for exact lookup, duplicate registration,
   unregister/reregister generations, lazy instance lifetime, unsupported
   classes, dirty notification, local manager injection, and shutdown.
-- [ ] Keep any bridge to the old registry private and stage-local; do not expose
+- [x] Keep any bridge to the old registry private and stage-local; do not expose
   a second public rendering extension path.
 
 #### Acceptance Gate
@@ -280,23 +286,23 @@ and renderer-generation lease types remain private implementation details.
 
 ### Stage 2: Establish Object Thumbnail and Asset Thumbnail Pool ownership
 
-- [ ] Add `FObjectThumbnail` as the core-owned CPU pixel/encoded result with
+- [x] Add `FObjectThumbnail` as the core-owned CPU pixel/encoded result with
   explicit dimensions, transparency, encoding version, compression/decode, and
   corruption validation.
-- [ ] Add `FAssetThumbnailPool` and move the current rendered request queue,
+- [x] Add `FAssetThumbnailPool` and move the current rendered request queue,
   coalescing, priority, cancellation, memory/GPU LRU, persistence, upload,
   statistics, budgets, and frame pumping behind it.
-- [ ] Preserve the existing project-local DDC root and stable key/object/index
+- [x] Preserve the existing project-local DDC root and stable key/object/index
   format, including bounded path validation, atomic publication, corrupt-object
   removal, and cold regeneration.
-- [ ] Add pool referencer counts and pinning so visible `FAssetThumbnail`
+- [x] Add pool referencer counts and pinning so visible `FAssetThumbnail`
   objects retain their entries while unused textures remain recyclable.
-- [ ] Preserve distinct bounded lanes for authored-source decode, renderer
+- [x] Preserve distinct bounded lanes for authored-source decode, renderer
   preparation/resource wait, capture/readback, encode, and upload inside one
   pool admission and publication model.
-- [ ] Add `FAssetThumbnail` construction, reassignment, destruction, state,
+- [x] Add `FAssetThumbnail` construction, reassignment, destruction, state,
   texture access, refresh, priority, and rendered/failed notification behavior.
-- [ ] Cover local pools, shared pool ownership, duplicate thumbnails,
+- [x] Cover local pools, shared pool ownership, duplicate thumbnails,
   referencer release, LRU eviction, cancellation, cache warm reuse, corruption,
   and pool shutdown.
 
@@ -311,28 +317,28 @@ and renderer-generation lease types remain private implementation details.
 
 ### Stage 3: Migrate concrete asset renderers
 
-- [ ] Replace Material and MaterialInstance registrations with
+- [x] Replace Material and MaterialInstance registrations with
   `DMaterialThumbnailRenderer`, preserving sorted transitive dependencies,
   sphere fixture, inherited parameters, texture readiness, transparent output,
   draw validation, revisions, and diagnostics.
-- [ ] Replace StaticMesh registration with `DStaticMeshThumbnailRenderer`,
+- [x] Replace StaticMesh registration with `DStaticMeshThumbnailRenderer`,
   preserving LOD 0 bounds framing, default material closure, resource waits,
   transparent output, preview attachment/reset, and zero-draw rejection.
-- [ ] Replace TextureCube registration with
+- [x] Replace TextureCube registration with
   `DTextureCubeThumbnailRenderer`, preserving wide environment orientation,
   stable RHI texture retention, opaque output, no-world-content behavior,
   environment reset, and invalid-environment failure.
-- [ ] Replace Texture2D source selection with
+- [x] Replace Texture2D source selection with
   `DTextureThumbnailRenderer` production through the pool, preserving authored
   source fingerprinting, decode limits, transparency, disk reuse, and failure
   behavior.
-- [ ] Replace Terrain Heightmap generation with
+- [x] Replace Terrain Heightmap generation with
   `DTerrainHeightmapThumbnailRenderer`, preserving fixed grayscale pixels,
   generator schema, revision identity, and independence from Renderer state.
-- [ ] Register every concrete renderer from its owning module using the manager
+- [x] Register every concrete renderer from its owning module using the manager
   and module gate; remove the old registration/extension/session implementation
   immediately after the corresponding renderer passes parity.
-- [ ] Run focused per-family CPU and Vulkan rendering parity coverage after each
+- [x] Run focused per-family CPU and Vulkan rendering parity coverage after each
   migration rather than deferring all visual diagnosis to the final stage.
 
 #### Acceptance Gate
@@ -342,26 +348,26 @@ and renderer-generation lease types remain private implementation details.
   no job.
 - Each family preserves its cache key, dependency invalidation, readiness,
   visual output, transparency, diagnostic, cancellation, and unload behavior.
-- No production concrete asset module includes or names an old Provider,
+- No production concrete asset module includes or names an old Renderer,
   rendered extension, or generation-session contract.
 
 ### Stage 4: Migrate Content Browser to Asset Thumbnail references
 
-- [ ] Replace per-panel rendered asset request/view maps with owned
+- [x] Replace per-panel rendered asset request/view maps with owned
   `FAssetThumbnail` references backed by the manager's shared pool.
-- [ ] Prioritize visible cards and prefetch bounded nearby cards through pool
+- [x] Prioritize visible cards and prefetch bounded nearby cards through pool
   APIs; release references deterministically on refresh, navigation, filtering,
   item replacement, panel close, and shutdown.
-- [ ] Preserve icon, loading, ready, transparency-grid, failed, tooltip, retry,
+- [x] Preserve icon, loading, ready, transparency-grid, failed, tooltip, retry,
   and explicit refresh presentation without exposing pool internals to the
   item view.
-- [ ] Split ordinary physical-file image preview from Texture2D asset-thumbnail
+- [x] Split ordinary physical-file image preview from Texture2D asset-thumbnail
   production. Retain a Content Browser-private file-thumbnail path only for
   non-asset items and reuse lower-level decoding primitives where dependency
   direction permits.
-- [ ] Remove `FContentBrowserThumbnailCache` as an asset-thumbnail facade and
+- [x] Remove `FContentBrowserFileThumbnailCache` as an asset-thumbnail facade and
   delete obsolete identity-to-rendered-path bookkeeping.
-- [ ] Cover multiple panels, duplicate visible cards, rapid navigation,
+- [x] Cover multiple panels, duplicate visible cards, rapid navigation,
   refresh, rename, move, delete, reimport, filter churn, panel close, and editor
   shutdown with shared-pool reference and stale-publication assertions.
 
@@ -377,22 +383,22 @@ and renderer-generation lease types remain private implementation details.
 
 ### Stage 5: Remove the legacy architecture and harden lifecycle behavior
 
-- [ ] Delete the old provider registry, provider interfaces, rendered cache,
+- [x] Delete the old renderer registry, renderer interfaces, rendered cache,
   generation extension/session types, Content Browser asset-cache facade, and
   obsolete public headers after all production and test call sites migrate.
-- [ ] Rename private queue, cache, object-store, preview-scene, diagnostic, and
+- [x] Rename private queue, cache, object-store, preview-scene, diagnostic, and
   statistics types to the final Thumbnail vocabulary without changing stable
   persisted strings.
-- [ ] Audit `DurinEd`, ContentBrowser, MainFrame, MaterialEditor,
+- [x] Audit `DurinEd`, ContentBrowser, MainFrame, MaterialEditor,
   TextureEditor, StaticMeshEditor, and LevelEditor module descriptors and public
   includes for cycles, unnecessary exposure, and feature-module dependencies.
-- [ ] Exercise cancellation and renderer retirement from every public pool
+- [x] Exercise cancellation and renderer retirement from every public pool
   state, including already-enqueued render-thread uploads and parked resource
   waits.
-- [ ] Exercise repeated manager/pool construction and destruction, feature
+- [x] Exercise repeated manager/pool construction and destruction, feature
   unregister/reregister, editor shutdown, RHI resource retirement, and task
   drain under the repository lifecycle test conventions.
-- [ ] Add deterministic pool statistics for queued, pinned, CPU-resident,
+- [x] Add deterministic pool statistics for queued, pinned, CPU-resident,
   GPU-resident, disk-hit, cold-render, decode, cancellation, stale-rejection,
   failure, and eviction counts needed to qualify the migration.
 
@@ -400,7 +406,7 @@ and renderer-generation lease types remain private implementation details.
 
 - Targeted search finds no production public or private Thumbnail type using
   Provider, Service, Executor, `FRenderedAssetThumbnailCache`, or
-  `FContentBrowserThumbnailCache` terminology.
+  `FContentBrowserFileThumbnailCache` terminology.
 - Public module dependency direction is acyclic, concrete renderers remain
   feature-owned, and `DurinEd` contains no concrete asset-family cast,
   readiness branch, framing rule, or diagnostic.
@@ -410,19 +416,19 @@ and renderer-generation lease types remain private implementation details.
 
 ### Stage 6: Qualify, document, and hand off the refactor
 
-- [ ] Run the smallest registered Thumbnail, Content Browser, per-family,
+- [x] Run the smallest registered Thumbnail, Content Browser, per-family,
   module-lifecycle, RenderCore/RHI, and Vulkan rendering targets selected under
   repository testing guidance, then the required bounded aggregate and build
   tier for this cross-editor shared subsystem.
-- [ ] Compare queue ordering, cache hit/miss, frame work limits, CPU/GPU/disk
+- [x] Compare queue ordering, cache hit/miss, frame work limits, CPU/GPU/disk
   retention, persistent reuse, cancellation, and representative rendered output
   against Stage 0 without silently raising an existing budget.
-- [ ] Update the lasting Asset Thumbnails, Content Browser, and Code Modules
+- [x] Update the lasting Asset Thumbnails, Content Browser, and Code Modules
   contracts to the final manager/renderer/asset-thumbnail/pool ownership and
   remove obsolete terminology.
-- [ ] Record exact build, test, Vulkan, visual, corruption, unload, shutdown,
+- [x] Record exact build, test, Vulkan, visual, corruption, unload, shutdown,
   budget, and documentation validation evidence in this plan.
-- [ ] Complete every passed checklist, set final lifecycle metadata only after
+- [x] Complete every passed checklist, set final lifecycle metadata only after
   all acceptance gates pass, and prepare the repository-required plan/stage
   commit provenance.
 
@@ -455,6 +461,40 @@ and renderer-generation lease types remain private implementation details.
 | Performance and budgets | Queue, CPU pixels, GPU textures, disk objects, preview scenes, parked waits, per-frame render/upload, and representative frame-time observations do not exceed existing limits |
 | Compatibility | Unsupported icons, pending/failed presentation, explicit retry, DDC root, PNG output, settings, stable diagnostic intent, and non-thumbnail asset behavior remain unchanged |
 | Documentation | Changed/all document validation and all-plan lifecycle validation pass after lasting contracts and this plan are updated |
+
+## Validation Evidence
+
+Completed on Windows MSVC x64 with the `Win64-Debug-DurinEditor` preset on
+2026-08-29:
+
+- `./DevTool.bat test "@thumbnail"` passed the bounded aggregate containing
+  `MaterialThumbnailTests`, `MaterialVulkanTests`,
+  `StaticMeshThumbnailTests`, `TextureThumbnailTests`, and `ThumbnailTests`.
+  Direct focused runs passed 60 Thumbnail tests, 7 Material thumbnail tests,
+  10 Texture thumbnail tests, and 9 Static Mesh thumbnail tests. This covers
+  queue order and budgets, CPU/GPU/disk retention, persistent warm hits,
+  corrupt-object recovery, cancellation, stale rejection, renderer retirement,
+  generated-pixel and Vulkan-backed visual production.
+- `./DevTool.bat test TerrainHeightmapTests` passed 11 of 11 tests, preserving
+  Terrain Heightmap generation and framing behavior.
+- `./DevTool.bat test ContentBrowserWorkflowTests` passed 61 tests with one
+  platform-independent fixture scenario skipped. Reference release, refresh,
+  navigation, identity replacement, and unsupported-item presentation remain
+  covered by Content Browser and thumbnail-focused tests.
+- `./DevTool.bat test SkeletalSceneLifecycleTests` passed its Vulkan-backed
+  renderer/module lifecycle test; `./DevTool.bat test RHICommandListTests`
+  passed 66 of 66 RenderCore/RHI command and retirement tests.
+- `./DevTool.bat build` passed the required `all` target after the final source
+  and test migrations.
+- Targeted searches found no live provider/service/executor, rendered-cache,
+  Content Browser asset-cache facade, or old generation-extension symbols.
+  Persisted renderer strings, key field order, DDC root, PNG output, and object
+  formats remain unchanged by the C++ vocabulary migration.
+- `./DevTool.bat doc validate --scope changed` validated 4 changed documents;
+  `./DevTool.bat doc validate --scope all` validated 135 documents; and
+  `./DevTool.bat doc plan validate --scope all` validated the repository plan
+  lifecycle before completion. The same checks are rerun against this completed
+  state before handoff.
 
 ## Definition of Done
 
@@ -509,25 +549,25 @@ and renderer-generation lease types remain private implementation details.
 
 - `Engine/Source/Editor/DurinEd/Public/Thumbnail/`
 - `Engine/Source/Editor/DurinEd/Private/Thumbnail/`
-- `Engine/Source/Editor/ContentBrowser/Private/Assets/ContentBrowserThumbnailCache.h`
-- `Engine/Source/Editor/ContentBrowser/Private/Assets/ContentBrowserThumbnailCache.cpp`
+- `Engine/Source/Editor/ContentBrowser/Private/Assets/ContentBrowserThumbnailReferences.h`
+- `Engine/Source/Editor/ContentBrowser/Private/Assets/ContentBrowserThumbnailReferences.cpp`
 - `Engine/Source/Editor/ContentBrowser/Private/Assets/SourceImageThumbnailCache.h`
 - `Engine/Source/Editor/ContentBrowser/Private/Assets/SourceImageThumbnailCache.cpp`
 - `Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserPanel.h`
 - `Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserPanel.cpp`
-- `Engine/Source/Editor/MaterialEditor/Public/Thumbnail/MaterialAssetThumbnail.h`
-- `Engine/Source/Editor/MaterialEditor/Private/Thumbnail/MaterialAssetThumbnail.cpp`
-- `Engine/Source/Editor/TextureEditor/Public/Thumbnail/Texture2DAssetThumbnail.h`
-- `Engine/Source/Editor/TextureEditor/Public/Thumbnail/TextureCubeAssetThumbnail.h`
-- `Engine/Source/Editor/TextureEditor/Private/Thumbnail/Texture2DAssetThumbnail.cpp`
-- `Engine/Source/Editor/TextureEditor/Private/Thumbnail/TextureCubeAssetThumbnail.cpp`
-- `Engine/Source/Editor/StaticMeshEditor/Public/Thumbnail/StaticMeshAssetThumbnail.h`
-- `Engine/Source/Editor/StaticMeshEditor/Private/Thumbnail/StaticMeshAssetThumbnail.cpp`
+- `Engine/Source/Editor/MaterialEditor/Public/Thumbnail/MaterialThumbnailRenderer.h`
+- `Engine/Source/Editor/MaterialEditor/Private/Thumbnail/MaterialThumbnailRenderer.cpp`
+- `Engine/Source/Editor/TextureEditor/Public/Thumbnail/TextureThumbnailRenderer.h`
+- `Engine/Source/Editor/TextureEditor/Public/Thumbnail/TextureCubeThumbnailRenderer.h`
+- `Engine/Source/Editor/TextureEditor/Private/Thumbnail/TextureThumbnailRenderer.cpp`
+- `Engine/Source/Editor/TextureEditor/Private/Thumbnail/TextureCubeThumbnailRenderer.cpp`
+- `Engine/Source/Editor/StaticMeshEditor/Public/Thumbnail/StaticMeshThumbnailRenderer.h`
+- `Engine/Source/Editor/StaticMeshEditor/Private/Thumbnail/StaticMeshThumbnailRenderer.cpp`
 - `Engine/Source/Editor/MainFrame/Private/MainFrameModule.cpp`
 - `Engine/Tests/Native/EngineTests/Private/AssetThumbnailContractTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/SourceImageThumbnailTests.cpp`
-- `Engine/Tests/Native/EngineTests/Private/MaterialAssetThumbnailTests.cpp`
-- `Engine/Tests/Native/EngineTests/Private/StaticMeshAssetThumbnailTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/MaterialThumbnailRendererTests.cpp`
+- `Engine/Tests/Native/EngineTests/Private/StaticMeshThumbnailRendererTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/Editor/ContentBrowserItemViewTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/Editor/ContentBrowserModelTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/Materials/MaterialRenderingTests.cpp`

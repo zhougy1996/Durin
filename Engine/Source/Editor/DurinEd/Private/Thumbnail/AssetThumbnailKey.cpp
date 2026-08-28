@@ -96,7 +96,7 @@ namespace Durin::Editor
 		Writer.WriteString("DurinAssetThumbnailKey");
 		Writer.WriteU32(1);
 		WritePackageFingerprint(Writer, Input.Asset);
-		Writer.WriteString(Input.ProviderName);
+		Writer.WriteString(Input.RendererName);
 		Writer.WriteU32(Input.GeneratorSchemaVersion);
 		Writer.WriteU32(Input.Output.Width);
 		Writer.WriteU32(Input.Output.Height);

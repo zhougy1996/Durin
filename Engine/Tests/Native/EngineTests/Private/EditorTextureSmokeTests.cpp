@@ -30,7 +30,7 @@
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
-#include "Thumbnail/RenderedAssetThumbnailCache.h"
+#include "Thumbnail/AssetThumbnailPool.h"
 
 namespace Durin
 {
@@ -205,12 +205,12 @@ namespace Durin
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(
 			BeforeSave, MaterialFile));
 		Editor::FWorkspaceManager WorkspaceManager;
-		Editor::FAssetThumbnailProviderRegistry ThumbnailService;
+		Editor::DThumbnailManager ThumbnailManager;
 		Durin::FMaterialEditorModule MaterialEditorModule;
 		Durin::FModuleTestHarness MaterialEditorHarness("MaterialEditor");
 		MaterialEditorHarness.Start(MaterialEditorModule);
 		ASSERT_TRUE(MaterialEditorModule.RegisterMaterialEditor(
-			WorkspaceManager, ThumbnailService));
+			WorkspaceManager, ThumbnailManager));
 		ASSERT_TRUE(WorkspaceManager.OpenAsset(
 			MaterialPath.ToString(),
 			DMaterial::StaticClass()->GetQualifiedName().ToString()));

@@ -24,10 +24,10 @@
 #include "StaticMesh/StaticMeshResources.h"
 #include "StaticMeshTestAccess.h"
 #include "AssetForge/Builtins/SceneImport.h"
-#include "Thumbnail/AssetThumbnailProvider.h"
-#include "Thumbnail/RenderedAssetThumbnailCache.h"
-#include "Thumbnail/RenderedAssetThumbnailPreviewScene.h"
-#include "Thumbnail/RenderedAssetThumbnailTestFixtures.h"
+#include "Thumbnail/ThumbnailManager.h"
+#include "Thumbnail/AssetThumbnailPool.h"
+#include "Thumbnail/ThumbnailPreviewScene.h"
+#include "Thumbnail/AssetThumbnailTestFixtures.h"
 #include "Texture/Texture2D.h"
 #include "TextureTestSupport.h"
 #include <vulkan/vulkan.hpp>
@@ -103,7 +103,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
 	Durin::FAssetPath SpherePath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
-		Durin::Editor::FRenderedAssetThumbnailVisualContract::SphereVirtualPath, SpherePath));
+		Durin::Editor::FThumbnailVisualContract::SphereVirtualPath, SpherePath));
 	Durin::Editor::FRetainedAsset PreloadedSphere;
 	std::string Error;
 	ASSERT_TRUE(Durin::Editor::FAssetRetentionService::Acquire(
@@ -640,11 +640,11 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		Durin::EncodeMaterialSamplerState(FailedSampler)));
 	Durin::FlushRenderingCommands();
 
-	Durin::Editor::FRenderedAssetThumbnailVisualContract Contract;
+	Durin::Editor::FThumbnailVisualContract Contract;
 	Contract.Output.Width = 64;
 	Contract.Output.Height = 64;
 	{
-		Durin::Tests::FRenderedAssetThumbnailTestPool Pool(Contract);
+		Durin::Tests::FAssetThumbnailTestPool Pool(Contract);
 		ASSERT_TRUE(Pool.IsAvailable()) << Pool.GetDiagnostic();
 		std::vector<Durin::FViewRenderTelemetry> TelemetrySnapshots;
 		FScopedSceneImportTelemetrySink TelemetrySink(TelemetrySnapshots);
@@ -652,8 +652,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			Durin::DStaticMesh* Mesh,
 			Durin::DMaterialInterface* Material,
 			bool bForceLOD0 = false,
-			Durin::Editor::ERenderedAssetThumbnailCaptureState ExpectedState =
-				Durin::Editor::ERenderedAssetThumbnailCaptureState::Ready) {
+			Durin::Editor::EThumbnailCaptureState ExpectedState =
+				Durin::Editor::EThumbnailCaptureState::Ready) {
 			std::vector<std::byte> Pixels;
 			Pool.SetForceLOD0(bForceLOD0);
 			EXPECT_TRUE(Pool.SetMaterial(
@@ -704,7 +704,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			Durin::VulkanRHI::EVulkanCreateFailurePoint::Sampler);
 		const std::vector<std::byte> FailedResourcePixels =
 			Capture(ReloadedMesh, FailedResourceMaterial, false,
-				Durin::Editor::ERenderedAssetThumbnailCaptureState::Failed);
+				Durin::Editor::EThumbnailCaptureState::Failed);
 		EXPECT_TRUE(FailedResourcePixels.empty());
 		// Failed views publish neither public statistics nor a private snapshot.
 		ASSERT_EQ(TelemetrySnapshots.size(), 5u);

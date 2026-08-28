@@ -8,7 +8,7 @@
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "SkeletalMesh/Skeleton.h"
 #include "SkeletalMeshEditorModule.h"
-#include "Thumbnail/RenderedAssetThumbnailCache.h"
+#include "Thumbnail/AssetThumbnailPool.h"
 #include "Widgets/SkeletalAssetPreview.h"
 
 #include <gtest/gtest.h>
@@ -37,18 +37,18 @@ TEST(FSkeletalMeshEditorTests, PreviewControllerFramesAndNavigatesDeterministica
 TEST(FSkeletalMeshEditorTests, RegistrationIsExactReadOnlyAndScoped)
 {
 	Durin::Editor::FWorkspaceManager Manager;
-	Durin::Editor::FAssetThumbnailProviderRegistry ThumbnailService;
+	Durin::Editor::DThumbnailManager ThumbnailManager;
 	Durin::FSkeletalMeshEditorModule Module;
-	ASSERT_TRUE(Module.RegisterSkeletalMeshEditor(Manager, ThumbnailService));
-	EXPECT_FALSE(Module.RegisterSkeletalMeshEditor(Manager, ThumbnailService));
+	ASSERT_TRUE(Module.RegisterSkeletalMeshEditor(Manager, ThumbnailManager));
+	EXPECT_FALSE(Module.RegisterSkeletalMeshEditor(Manager, ThumbnailManager));
 	auto Workspace = Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("SkeletalMeshEditor"));
 	ASSERT_NE(Workspace, nullptr);
 	EXPECT_FALSE(Workspace->CanSaveActiveDocument());
 	EXPECT_FALSE(Workspace->SaveActiveDocument());
 	EXPECT_EQ(Manager.GetWorkspaceDescriptors().front().DisplayName, "Skeletal Asset Inspector");
-	EXPECT_TRUE(ThumbnailService.Find(
+	EXPECT_TRUE(ThumbnailManager.Find(
 		Durin::DSkeletalMesh::StaticClass()->GetQualifiedName().ToString()));
-	EXPECT_FALSE(ThumbnailService.Find(
+	EXPECT_FALSE(ThumbnailManager.Find(
 		Durin::DSkeleton::StaticClass()->GetQualifiedName().ToString()));
 
 	const std::array Classes{
@@ -60,9 +60,9 @@ TEST(FSkeletalMeshEditorTests, RegistrationIsExactReadOnlyAndScoped)
 
 	Module.UnregisterSkeletalMeshEditor();
 	EXPECT_EQ(Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("SkeletalMeshEditor")), nullptr);
-	EXPECT_FALSE(ThumbnailService.Find(
+	EXPECT_FALSE(ThumbnailManager.Find(
 		Durin::DSkeletalMesh::StaticClass()->GetQualifiedName().ToString()));
-	EXPECT_TRUE(Module.RegisterSkeletalMeshEditor(Manager, ThumbnailService));
+	EXPECT_TRUE(Module.RegisterSkeletalMeshEditor(Manager, ThumbnailManager));
 }
 
 TEST(FSkeletalMeshEditorTests, PreviewSceneOwnsAndReleasesProductionComponents)
