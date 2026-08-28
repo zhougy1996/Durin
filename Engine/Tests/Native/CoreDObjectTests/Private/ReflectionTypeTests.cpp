@@ -3300,7 +3300,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 	}
 
-	TEST(FCoreDObjectReflectionTests, NewObjectFlagsDrivePublicAndStandaloneLifetime)
+	TEST(FCoreDObjectReflectionTests, NewObjectFlagsDrivePublicAndConfigurableStandaloneLifetime)
 	{
 		EnsureDObjectInitialized();
 		Durin::DObject* Object = Durin::NewObject(
@@ -3313,9 +3313,15 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 
 		Durin::CollectGarbage();
 		EXPECT_TRUE(ObjectArrayContains(Object));
-		Durin::MarkAsGarbage(Object);
-		Durin::CollectGarbage();
+		Durin::CollectGarbage({.KeepFlags = Durin::EObjectFlags::NoFlags});
 		EXPECT_FALSE(ObjectArrayContains(Object));
+
+		Durin::DObject* ExplicitGarbage = Durin::NewObject(
+			Durin::DObject::StaticClass(), nullptr, "StandaloneGarbageObject",
+			Durin::EObjectFlags::Standalone);
+		Durin::MarkAsGarbage(ExplicitGarbage);
+		Durin::CollectGarbage();
+		EXPECT_FALSE(ObjectArrayContains(ExplicitGarbage));
 	}
 
 	TEST(FCoreDObjectReflectionTests, CppPackagesOwnReflectedTypesAndAreStableRoots)

@@ -2,6 +2,7 @@
 
 #include "CoreDObjectAPI.h"
 #include "DObjectFwd.h"
+#include "ObjectMacros.h"
 #include "Misc/Name.h"
 
 namespace Durin
@@ -40,6 +41,12 @@ namespace Durin
 		double SweepMilliseconds = 0.0;
 	};
 
+	// Selects object flags that retain otherwise unreachable objects for one collection.
+	struct FGarbageCollectionOptions
+	{
+		EObjectFlags KeepFlags = EObjectFlags::Standalone;
+	};
+
 	COREDOBJECT_API auto AddToRoot(DObject* Object) -> void;
 	COREDOBJECT_API auto RemoveFromRoot(DObject* Object) -> void;
 	COREDOBJECT_API auto IsValid(const DObject* Object) -> bool;
@@ -52,7 +59,8 @@ namespace Durin
 	COREDOBJECT_API auto ReleaseClassDefaultObjectsForModule(FName ModuleName) -> bool;
 	COREDOBJECT_API auto ReleaseDStructDefaults() -> void;
 	COREDOBJECT_API auto ReleaseDStructDefaultsForModule(FName ModuleName) -> void;
-	COREDOBJECT_API auto CollectGarbage() -> void;
+	COREDOBJECT_API auto CollectGarbage(
+		const FGarbageCollectionOptions& Options = {}) -> void;
 	COREDOBJECT_API auto GetGarbageObjectCount() -> uint64;
 	COREDOBJECT_API auto GetLastGarbageCollectionStats() -> const FGarbageCollectionStats&;
 	// Reports deferred objects and fails when the latest collection did not finish their destruction.

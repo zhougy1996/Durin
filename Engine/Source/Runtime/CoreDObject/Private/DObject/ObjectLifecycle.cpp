@@ -373,7 +373,7 @@ namespace Durin
 		Private::FGCReferenceSchemaRegistry::Visit(Object->GetClass(), Object, Collector);
 	}
 
-	auto CollectGarbage() -> void
+	auto CollectGarbage(const FGarbageCollectionOptions& Options) -> void
 	{
 		CheckObjectThread();
 		const FGarbageCollectionScope CollectionScope;
@@ -389,7 +389,7 @@ namespace Durin
 		{
 			if (!Object->IsGarbage()
 				&& (Object->HasAnyInternalFlags(EObjectInternalFlags::RootSet)
-					|| Object->HasAnyObjectFlags(EObjectFlags::Standalone)
+					|| Object->HasAnyObjectFlags(Options.KeepFlags)
 					|| IsPermanentObject(Object)))
 			{
 				Marker.Enqueue(Object);
