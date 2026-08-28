@@ -224,11 +224,11 @@ namespace Durin::Editor::Material
 		LinkSourceNode = {};
 		PaletteSourceNode = {};
 		ContextNode = {};
-		ContextInputIndex.reset();
 		ContextSurfaceOutput.reset();
 		bPaletteOpenRequested = false;
 		PaletteSelection = 0;
 		ReconnectDestinationNode = {};
+		ReconnectSurfaceOutput.reset();
 		InlineEditNode = {};
 		bSurfaceDefaultDraftInitialized.fill(false);
 		bMarqueeActive = false;
@@ -615,7 +615,12 @@ namespace Durin::Editor::Material
 							Visual.View->Node.ResultType, InlineConstantDraft.data());
 						bEmbeddedControlHoveredOrActive |=
 							ImGui::IsItemHovered() || ImGui::IsItemActive();
-						if (ImGui::IsItemDeactivatedAfterEdit())
+						const bool bInlineActive = ImGui::IsItemActive();
+						const bool bCancelInline = ImGui::IsKeyPressed(ImGuiKey_Escape)
+							&& (bInlineActive || ImGui::IsItemFocused());
+						if (bCancelInline)
+							InlineEditNode = {};
+						else if (ImGui::IsItemDeactivatedAfterEdit())
 						{
 							FMaterialProgramNode Edited = Visual.View->Node;
 							Edited.Literal = {InlineConstantDraft[0], InlineConstantDraft[1],
@@ -623,8 +628,7 @@ namespace Durin::Editor::Material
 							ReportCommand(FMaterialGraphOperations::ReplaceNode(
 								Material, std::move(Edited), &Transactions), ReportError);
 						}
-						if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape))
-							InlineEditNode = {};
+						if (!bInlineActive) InlineEditNode = {};
 						ImGui::PopID();
 						ImGui::SetCursorScreenPos(SavedCursor);
 					}
@@ -668,7 +672,12 @@ namespace Durin::Editor::Material
 								Visual.View->Node.ResultType, InlineConstantDraft.data());
 							bEmbeddedControlHoveredOrActive |=
 								ImGui::IsItemHovered() || ImGui::IsItemActive();
-							if (ImGui::IsItemDeactivatedAfterEdit())
+							const bool bInlineActive = ImGui::IsItemActive();
+							const bool bCancelInline = ImGui::IsKeyPressed(ImGuiKey_Escape)
+								&& (bInlineActive || ImGui::IsItemFocused());
+							if (bCancelInline)
+								InlineEditNode = {};
+							else if (ImGui::IsItemDeactivatedAfterEdit())
 							{
 								FMaterialParameterValue Value = Resolved.Value;
 								if (Visual.View->Node.ResultType
@@ -685,6 +694,7 @@ namespace Durin::Editor::Material
 									std::move(Value), &Transactions), ReportError);
 								InlineEditNode = {};
 							}
+							if (!bInlineActive) InlineEditNode = {};
 						}
 						else
 						{
@@ -734,7 +744,12 @@ namespace Durin::Editor::Material
 						ImGui::DragInt4("##InlineSwizzle", InlineSwizzleDraft.data(), 0.1f, 0, 3);
 						bEmbeddedControlHoveredOrActive |=
 							ImGui::IsItemHovered() || ImGui::IsItemActive();
-						if (ImGui::IsItemDeactivatedAfterEdit())
+						const bool bInlineActive = ImGui::IsItemActive();
+						const bool bCancelInline = ImGui::IsKeyPressed(ImGuiKey_Escape)
+							&& (bInlineActive || ImGui::IsItemFocused());
+						if (bCancelInline)
+							InlineEditNode = {};
+						else if (ImGui::IsItemDeactivatedAfterEdit())
 						{
 							FMaterialProgramNode Edited = Visual.View->Node;
 							Edited.SwizzleX = static_cast<uint8>(std::clamp(InlineSwizzleDraft[0], 0, 3));
@@ -744,6 +759,7 @@ namespace Durin::Editor::Material
 							ReportCommand(FMaterialGraphOperations::ReplaceNode(
 								Material, std::move(Edited), &Transactions), ReportError);
 						}
+						if (!bInlineActive) InlineEditNode = {};
 						ImGui::PopID();
 						ImGui::SetCursorScreenPos(SavedCursor);
 					}
@@ -802,7 +818,12 @@ namespace Durin::Editor::Material
 							SurfaceDefaultDrafts[Index].data());
 						bEmbeddedControlHoveredOrActive |=
 							ImGui::IsItemHovered() || ImGui::IsItemActive();
-						if (ImGui::IsItemDeactivatedAfterEdit())
+						const bool bInlineActive = ImGui::IsItemActive();
+						const bool bCancelInline = ImGui::IsKeyPressed(ImGuiKey_Escape)
+							&& (bInlineActive || ImGui::IsItemFocused());
+						if (bCancelInline)
+							bSurfaceDefaultDraftInitialized[Index] = false;
+						else if (ImGui::IsItemDeactivatedAfterEdit())
 						{
 							ReportCommand(FMaterialGraphOperations::SetSurfaceDefault(
 								Material, {.Output = Output, .Value = {
@@ -813,8 +834,7 @@ namespace Durin::Editor::Material
 								&Transactions), ReportError);
 							bSurfaceDefaultDraftInitialized[Index] = false;
 						}
-						if (ImGui::IsItemActive()
-							&& ImGui::IsKeyPressed(ImGuiKey_Escape))
+						if (!bInlineActive)
 							bSurfaceDefaultDraftInitialized[Index] = false;
 						ImGui::PopID();
 						ImGui::SetCursorScreenPos(SavedCursor);
@@ -842,8 +862,13 @@ namespace Durin::Editor::Material
 			}
 			if (bCanvasInteractionAvailable && ImGui::IsKeyPressed(ImGuiKey_Escape))
 			{
+				if (MoveSession.IsActive())
+					ReportCommand(MoveSession.Cancel(), ReportError);
 				ReconnectDestinationNode = {};
+				ReconnectSurfaceOutput.reset();
 				LinkSourceNode = {};
+				bMarqueeActive = false;
+				DragStartPositions.clear();
 			}
 
 			if (bCanvasInteractionAvailable && !bOpenPaletteByDoubleClick
@@ -858,32 +883,48 @@ namespace Durin::Editor::Material
 				{
 					LinkSourceNode = HoveredOutput->View->Node.Id;
 				}
+				else if (HoveredSurfaceOutput)
+				{
+					SelectedNodes.clear();
+					SelectedSurfaceOutput = HoveredSurfaceOutput;
+					ReconnectSurfaceOutput = HoveredSurfaceOutput;
+				}
 				else if (HoveredNode)
 				{
 					const FGuid Id = HoveredNode->View->Node.Id;
+					SelectedSurfaceOutput.reset();
+					bool bRemovedFromSelection = false;
 					if (ImGui::GetIO().KeyCtrl)
 					{
-						if (!SelectedNodes.erase(Id)) SelectedNodes.insert(Id);
+						bRemovedFromSelection = SelectedNodes.erase(Id) != 0;
+						if (!bRemovedFromSelection) SelectedNodes.insert(Id);
 					}
 					else if (!SelectedNodes.contains(Id)) SelectedNodes = {Id};
-					std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
-					const FMaterialGraphCommandResult Begun = MoveSession.Begin(
-						Material, Selection, &Transactions);
-					ReportCommand(Begun, ReportError);
-					if (Begun)
+					if (!bRemovedFromSelection)
 					{
-						DragStartMouse = Mouse;
-						DragStartPositions.clear();
-						for (const FVisualNode& Visual : VisualNodes)
-							if (SelectedNodes.contains(Visual.View->Node.Id)
-								&& Visual.View->Presentation)
-								DragStartPositions.emplace(
-									Visual.View->Node.Id, *Visual.View->Presentation);
+						std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
+						const FMaterialGraphCommandResult Begun = MoveSession.Begin(
+							Material, Selection, &Transactions);
+						ReportCommand(Begun, ReportError);
+						if (Begun)
+						{
+							DragStartMouse = Mouse;
+							DragStartPositions.clear();
+							for (const FVisualNode& Visual : VisualNodes)
+								if (SelectedNodes.contains(Visual.View->Node.Id)
+									&& Visual.View->Presentation)
+									DragStartPositions.emplace(
+										Visual.View->Node.Id, *Visual.View->Presentation);
+						}
 					}
 				}
 				else
 				{
-					if (!ImGui::GetIO().KeyShift) SelectedNodes.clear();
+					if (!ImGui::GetIO().KeyShift)
+					{
+						SelectedNodes.clear();
+						SelectedSurfaceOutput.reset();
+					}
 					MarqueeStart = Mouse;
 					bMarqueeActive = true;
 				}
@@ -978,6 +1019,26 @@ namespace Durin::Editor::Material
 					ReconnectDestinationNode = {};
 				}
 			}
+			if (ReconnectSurfaceOutput)
+			{
+				const size_t OutputIndex = static_cast<size_t>(*ReconnectSurfaceOutput);
+				if (OutputIndex < SurfacePins.size())
+				{
+					const ImVec2 A = SurfacePins[OutputIndex];
+					DrawList->AddBezierCubic(A, Subtract(A, {60.0f, 0.0f}),
+						Add(Mouse, {60.0f, 0.0f}), Mouse,
+						IM_COL32(240, 210, 105, 255), 2.5f);
+				}
+				if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+				{
+					if (HoveredOutput)
+						ReportCommand(FMaterialGraphOperations::AssignSurfaceOutput(Material, {
+							.Output = *ReconnectSurfaceOutput,
+							.SourceNodeId = HoveredOutput->View->Node.Id,
+						}, &Transactions), ReportError);
+					ReconnectSurfaceOutput.reset();
+				}
+			}
 
 			if (bCanvasInteractionAvailable && ImGui::GetIO().KeyCtrl
 				&& ImGui::IsKeyPressed(ImGuiKey_A))
@@ -1053,7 +1114,8 @@ namespace Durin::Editor::Material
 			}
 			if (bCanvasInteractionAvailable && ImGui::IsKeyPressed(ImGuiKey_F))
 				FrameNodes(View, CanvasSize);
-			if (bFrameSelectionRequested && !SelectedNodes.empty())
+			if (bFrameSelectionRequested
+				&& (!SelectedNodes.empty() || SelectedSurfaceOutput))
 				FrameNodes(View, CanvasSize);
 			if (bFrameAllRequested)
 			{
@@ -1082,9 +1144,8 @@ namespace Durin::Editor::Material
 			{
 				PaletteSourceNode = HoveredOutput
 					? HoveredOutput->View->Node.Id : FGuid{};
-				ContextNode = HoveredNode ? HoveredNode->View->Node.Id : FGuid{};
-				ContextInputIndex = HoveredInputNode == HoveredNode
-					? std::optional<uint32>(HoveredInputIndex) : std::nullopt;
+				ContextNode = HoveredNode ? HoveredNode->View->Node.Id
+					: HoveredInputNode ? HoveredInputNode->View->Node.Id : FGuid{};
 				ContextSurfaceOutput = HoveredSurfaceOutput;
 				PaletteGraphPosition = Multiply(
 					Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom);
@@ -1094,7 +1155,6 @@ namespace Durin::Editor::Material
 			{
 				PaletteSourceNode = {};
 				ContextNode = {};
-				ContextInputIndex.reset();
 				ContextSurfaceOutput.reset();
 				PaletteGraphPosition = Multiply(
 					Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom);
@@ -1134,12 +1194,6 @@ namespace Durin::Editor::Material
 						}
 						ImGui::EndMenu();
 					}
-					if (ContextInputIndex
-						&& ImGui::MenuItem(std::format(
-							"Disconnect Input {}", *ContextInputIndex).c_str()))
-						ReportCommand(FMaterialGraphOperations::DisconnectInput(
-							Material, ContextNodeView->Node.Id,
-							*ContextInputIndex, &Transactions), ReportError);
 					if (ImGui::MenuItem("Copy"))
 					{
 						FMaterialGraphClipboardPayload Payload;
@@ -1177,9 +1231,11 @@ namespace Durin::Editor::Material
 					}
 					if (ImGui::MenuItem("Delete"))
 					{
-						const FGuid Id = ContextNodeView->Node.Id;
-						ReportCommand(FMaterialGraphOperations::RemoveNodes(
-							Material, std::span(&Id, 1), &Transactions), ReportError);
+						const FMaterialGraphCommandResult Removed =
+							FMaterialGraphOperations::RemoveNodes(
+								Material, ContextSelection, &Transactions);
+						ReportCommand(Removed, ReportError);
+						if (Removed) SelectedNodes.clear();
 					}
 				}
 				else if (ContextSurfaceOutput)

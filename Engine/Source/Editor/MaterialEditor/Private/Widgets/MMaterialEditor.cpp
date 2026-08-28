@@ -457,13 +457,9 @@ namespace Durin::Editor::Material
 			ImGui::TextDisabled("%s%s", FormatCompileState(Status.State),
 				Status.bLastKnownGoodDisplayed ? " (showing last known good)" : "");
 		}
-		ImGui::SameLine();
 		ImGui::TextDisabled("Material");
 		ImGui::SameLine();
-		ImGui::TextUnformatted(Document.ResourceId.c_str());
-		ImGui::SameLine();
-		ImGui::TextDisabled("|");
-		ImGui::SameLine();
+		ImGui::TextWrapped("%s", Document.ResourceId.c_str());
 		if (ImGui::Button(bGraphMaximized ? "Restore Panels" : "Maximize Graph"))
 			bGraphMaximized = !bGraphMaximized;
 		if (!bGraphMaximized)
@@ -700,6 +696,7 @@ namespace Durin::Editor::Material
 			return;
 		}
 		const FMaterialCompileStatus& Status = Base->GetMaterialCompileStatus();
+		const bool bCanNavigateGraph = Cast<DMaterial>(Material) != nullptr;
 		ImGui::Text("Compile: %s", FormatCompileState(Status.State));
 		ImGui::Text("Freshness: %s", Status.IsCurrent() ? "current" : "stale");
 		ImGui::Text("Cache: %s", FormatCacheOutcome(Status.CacheOutcome));
@@ -733,7 +730,7 @@ namespace Durin::Editor::Material
 				break;
 			}
 			const bool bStale = Diagnostic.Generation != Status.RequestGeneration;
-			if (bLocated && !bStale)
+			if (bCanNavigateGraph && bLocated && !bStale)
 			{
 				if (ImGui::SmallButton("Go"))
 				{

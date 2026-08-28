@@ -59,7 +59,6 @@ namespace Durin::Editor::Material
 		FGuid LinkSourceNode;
 		FGuid PaletteSourceNode;
 		FGuid ContextNode;
-		std::optional<uint32> ContextInputIndex;
 		std::optional<EMaterialSurfaceOutput> ContextSurfaceOutput;
 		ImVec2 PaletteGraphPosition{};
 		bool bPaletteOpenRequested = false;
@@ -69,6 +68,7 @@ namespace Durin::Editor::Material
 		std::array<char, 96> PaletteSearch{};
 		FGuid ReconnectDestinationNode;
 		uint32 ReconnectDestinationInputIndex = 0;
+		std::optional<EMaterialSurfaceOutput> ReconnectSurfaceOutput;
 		FGuid InlineEditNode;
 		std::array<float, 4> InlineConstantDraft{};
 		std::array<int, 4> InlineSwizzleDraft{};

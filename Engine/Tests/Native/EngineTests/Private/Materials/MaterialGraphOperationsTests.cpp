@@ -611,6 +611,115 @@ TEST(FMaterialGraphOperationsTests, CanvasProducesBoundedEditingDrawData)
 	CollectGarbage();
 }
 
+TEST(FMaterialGraphOperationsTests, CanvasPointerGesturesCancelDeselectAndReconnect)
+{
+	InitializeDObjectSystem();
+	DMaterial* Material = NewObject<DMaterial>(nullptr, "CanvasInteractionMaterial");
+	ASSERT_NE(Material, nullptr);
+	FTransactionManager Transactions;
+	FMaterialGraphCreateNodeRequest Create;
+	Create.Node.Opcode = EMaterialProgramOpcode::Constant;
+	Create.Node.ResultType = EMaterialProgramValueType::Float3;
+	Create.Node.Literal.X = 0.5f;
+	Create.X = 120;
+	Create.Y = 120;
+	const FMaterialGraphCommandResult Created =
+		FMaterialGraphOperations::CreateNode(*Material, Create, &Transactions);
+	ASSERT_TRUE(Created) << Created.Message;
+	ASSERT_EQ(Created.GeneratedNodeIds.size(), 1u);
+	const FGuid NodeId = Created.GeneratedNodeIds.front();
+	Transactions.Clear();
+
+	ImGuiContext* Context = ImGui::CreateContext();
+	ASSERT_NE(Context, nullptr);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.DisplaySize = {1200.0f, 720.0f};
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.IniFilename = nullptr;
+	IO.Fonts->AddFontDefault();
+	IO.Fonts->Build();
+	FMaterialGraphCanvas Canvas;
+	Canvas.SetViewport(1.0f, {40.0f, 40.0f});
+	std::vector<std::string> Errors;
+	const auto DrawFrame = [&] {
+		ImGui::NewFrame();
+		ImGui::SetNextWindowPos({0.0f, 0.0f});
+		ImGui::SetNextWindowSize({1200.0f, 720.0f});
+		ImGui::Begin("Material Graph Interaction Test", nullptr,
+			ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
+		Canvas.Draw(*Material, Transactions, 660.0f,
+			[&Errors](std::string Message) { Errors.push_back(std::move(Message)); });
+		ImGui::End();
+		ImGui::Render();
+	};
+	const auto Position = [&]() {
+		const FMaterialGraphView View = FMaterialGraphOperations::Inspect(*Material);
+		const FMaterialGraphNodeView* Node = FindViewNode(View, NodeId);
+		EXPECT_NE(Node, nullptr);
+		EXPECT_TRUE(Node && Node->Presentation);
+		return Node && Node->Presentation
+			? *Node->Presentation : FMaterialGraphNodePresentation{};
+	};
+
+	IO.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+	DrawFrame();
+	const FMaterialGraphNodePresentation AuthoredPosition{NodeId, 120, 120};
+	ASSERT_TRUE(FMaterialGraphOperations::MoveNodes(
+		*Material, std::span(&AuthoredPosition, 1)));
+	const FMaterialGraphNodePresentation Before = Position();
+	// With the default ImGui style, this is the center of the authored node header:
+	// child content origin + canvas toolbar + viewport pan + graph position.
+	constexpr ImVec2 NodeHeaderPoint{288.0f, 230.0f};
+	IO.AddMousePosEvent(NodeHeaderPoint.x, NodeHeaderPoint.y);
+	DrawFrame();
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	DrawFrame();
+	ASSERT_TRUE(Canvas.GetSelection().contains(NodeId));
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	DrawFrame();
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	DrawFrame();
+	IO.AddMousePosEvent(NodeHeaderPoint.x + 80.0f, NodeHeaderPoint.y + 40.0f);
+	DrawFrame();
+	EXPECT_NE(Position(), Before);
+	IO.AddKeyEvent(ImGuiKey_Escape, true);
+	DrawFrame();
+	EXPECT_EQ(Position(), Before);
+	IO.AddKeyEvent(ImGuiKey_Escape, false);
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	DrawFrame();
+	EXPECT_FALSE(Transactions.CanUndo());
+
+	IO.AddMousePosEvent(NodeHeaderPoint.x, NodeHeaderPoint.y);
+	DrawFrame();
+	IO.AddKeyEvent(ImGuiMod_Ctrl, true);
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	DrawFrame();
+	EXPECT_TRUE(Canvas.GetSelection().empty());
+	EXPECT_TRUE(Errors.empty());
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	IO.AddKeyEvent(ImGuiMod_Ctrl, false);
+	DrawFrame();
+
+	constexpr ImVec2 SurfaceBaseColorPin{496.0f, 157.0f};
+	constexpr ImVec2 NodeOutputPin{400.0f, 254.0f};
+	IO.AddMousePosEvent(SurfaceBaseColorPin.x, SurfaceBaseColorPin.y);
+	DrawFrame();
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	DrawFrame();
+	EXPECT_EQ(Canvas.GetSelectedSurfaceOutput(), EMaterialSurfaceOutput::BaseColor);
+	IO.AddMousePosEvent(NodeOutputPin.x, NodeOutputPin.y);
+	DrawFrame();
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	DrawFrame();
+	EXPECT_EQ(Material->GetMaterialProgram()->Outputs.BaseColor.SourceNodeId, NodeId);
+
+	Transactions.Clear();
+	ImGui::DestroyContext(Context);
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
 TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSemanticAndPresentationState)
 {
 	InitializeDObjectSystem();
