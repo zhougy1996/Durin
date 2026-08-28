@@ -27,7 +27,7 @@ read-only transitions, unsupported graphs, saved state, and history behavior.
 At revision `a89f7087`, `DevTool scene graybox-build` added a narrower create-only
 workflow. A bounded hidden DurinEditor process builds an open Box arena in an
 unpublished candidate Level, saves and reloads it, verifies its Actors, and
-publishes it through AssetCore relocation only when the requested output path
+publishes it through Engine relocation only when the requested output path
 is absent. It refuses replacement and concurrent project editing. The
 qualified Sandbox smoke covered persistence, occupied-output refusal, ownership
 conflict, deterministic rerun refusal, cleanup, asset compatibility, and process

@@ -5,7 +5,12 @@
 #include "Thumbnail/AssetThumbnailTestFixtures.h"
 #include "Thumbnail/ThumbnailStorage.h"
 
-#include "AssetTools.h"
+#include "Asset/AssetOperations.h"
+#include "Asset/Mutation.h"
+#include "Asset/PackageSerialization.h"
+#include "AssetCook.h"
+#include "Asset/CanonicalResave.h"
+#include "Asset/Compatibility.h"
 #include "DObject/Class.h"
 #include "Editor/WorkspaceManager.h"
 #include "MaterialEditorModule.h"

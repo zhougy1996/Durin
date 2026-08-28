@@ -2,7 +2,7 @@
 
 Summary: Define asset presentation, operations, thumbnails, deletion, undo, and recovery in the Content Browser.
 
-Modules: ContentBrowser, MainFrame, DurinEd, AssetCore
+Modules: ContentBrowser, MainFrame, AssetTools, DurinEd, Engine
 
 The Content Browser presents the contents of automatically scanned mounted
 content roots. It combines registered engine assets and ordinary files in one
@@ -92,8 +92,11 @@ explicit choices and advanced fields stay editable. Import submission failures
 remain inline in the open modal so the complete form can be corrected and
 retried without re-entry.
 
-Assets open through registered asset editors and use asset-aware rename, move,
-duplication, and deletion workflows. **Duplicate** and `Ctrl+D` clone one
+Assets open through registered asset editors. ContentBrowser owns selection,
+dialogs, clipboard, mixed ordinary-file coordination, physical deletion
+staging, refresh, and reveal; it sends package-backed duplicate, save,
+relocation, deletion-preflight, and Fix Up requests to `IAssetTools` rather
+than sequencing Engine mutation phases. **Duplicate** and `Ctrl+D` clone one
 selected real asset into the same writable folder, choosing `_Copy`, `_Copy2`,
 and later suffixes until both catalog and physical destinations are free. The
   complete persistent object graph is copied and published as a clean package.
@@ -104,11 +107,12 @@ sequence. A folder context menu can paste directly into that folder. Opening a
 redirector resolves and opens its final real asset; redirectors are excluded
 from ordinary pickers, rename, and drag-move.
 Ordinary files open through the operating system and use filesystem operations.
-Files reported as owned by AssetCore's registered companion contributors cannot
+Files reported as owned by Engine's registered companion contributors cannot
 be renamed or deleted independently; the owning asset operation must be used.
 A shared filename stem alone does not establish companion ownership.
 
-Every authorable asset uses AssetCore's package-level save actions. `Save
+Every authorable asset uses AssetTools editor save actions over Engine's sole
+package persistence authority. `Save
 Package` is enabled only for a resident Dirty package, whether newly created or
 already published. Closing or rolling back unsaved work must explicitly select
 the discard-unsaved unload policy. `Resave Package` may be
@@ -160,27 +164,27 @@ serialized.
 Redirector details show the direct and final targets, complete chain and
 terminal state, hard/soft/redirect referencer counts, and reference-index
 completeness. Referencer navigation reveals the selected owner. Selection,
-folder, and project-wide Fix Up commands call the shared AssetCore transaction;
+folder, and project-wide Fix Up commands call the shared AssetTools operation;
 an empty virtual directory never falls through to project-wide scope. Failed
 analysis/publication retains every alias and reports the blocking participant.
-The Content Browser prepares an immutable Fix Up summary and calls only
-`Commit`; it cannot invoke package/store rewrite, alias deletion, verification,
-or compensation phases separately.
+AssetTools prepares and commits the opaque Engine transaction and retains it in
+global editor history; ContentBrowser cannot invoke package/store rewrite,
+alias deletion, verification, or compensation phases separately.
 
 Create, import/reimport, duplicate, rename, move, and folder relocation
 through the shared publication seam reject a redirector-occupied destination.
 The error names the final destination and directs the user to Fix Up or remove
 the alias closure rather than treating the path as vacant.
 
-Asset and folder moves retain one opaque AssetCore mutation transaction in the
-global editor history. The coordinator prepares and commits it once; the editor
-history calls only `Undo` and `Redo`, never AssetCore revalidation, publication,
+Asset and folder moves retain one opaque Engine mutation transaction in the
+global editor history. AssetTools prepares and commits it once; the editor
+history calls only `Undo` and `Redo`, never Engine revalidation, publication,
 restore, or compensation phases directly.
 
 The Content Browser enumerates and navigates only automatically scanned mounts.
 Filesystem-backed creation and rename operations additionally require the owning
 mount to be content-writable. These browsing constraints do not change the
-validity of typed source paths or AssetCore's authoring policy.
+validity of typed source paths or Engine's authoring policy.
 
 Its asset rows are derived from owned `FAssetCatalogSnapshot` values. Manual or
 automatic reconciliation consumes the single `FAssetCatalogRefreshResult`,
@@ -212,10 +216,11 @@ displays the updated scope, and requires a second confirmation.
 The complete operation is blocked before mutation when any target is outside a
 single writable authoring mount, is the mount root, requires cross-volume
 staging, traverses a reparse point, violates source-control policy, or cannot be
-inspected. AssetCore deletion preparation also blocks loading or dirty packages,
+inspected. AssetTools deletion preflight over Engine safety mechanisms also
+blocks loading or dirty packages,
 references from outside the deletion set, and ambiguous or externally owned
 companions. References between assets inside the same deletion set are allowed.
-AssetCore assigns each companion to one owner and includes an owned companion
+Engine assigns each companion to one owner and includes an owned companion
 outside a selected folder once as a standalone root.
 
 Deletion never rewrites soft or external-store paths, but it reports them as
@@ -232,16 +237,16 @@ notification actions, the Edit menu, and keyboard Undo/Redo operate on the same
 history entry. The Content Browser transaction is the sole owner of physical
 staging. It renames maximal roots into a collision-safe, marked operation
 directory under `Saved/ContentBrowserUndo` on the same volume and supplies only
-that reversible stage/restore transition to its retained opaque AssetCore
-deletion transaction. AssetCore orders revalidation, package unload, catalog
+that reversible stage/restore transition to the opaque deletion operation
+retained by AssetTools. Engine orders revalidation, package unload, catalog
 removal/restoration, and compensation around that transition; the editor cannot
-sequence those phases and AssetCore never stages the bytes a second time. Undo
+sequence those phases and Engine never stages the bytes a second time. Undo
 restores persisted content and catalog visibility without restoring package
 residency.
 
 Each transition revalidates its inputs: Execute checks the captured plan, Undo
 requires every original destination to be free, and Redo requires unchanged
-staged fingerprints plus current AssetCore safety. A conflict performs no
+staged fingerprints plus current Engine safety. A conflict performs no
 mutation and leaves the transaction at its current history head. A later edit
 after Undo invalidates Redo through the normal shared history rules.
 
@@ -266,13 +271,13 @@ one incremental reconciliation, then refreshes mount and item snapshots and
 repairs selection. Reconciliation acknowledgement and failure suppression are
 shared across open panels, so later observers refresh their local snapshots but
 do not repeat the scan. A registry-only revision refreshes those derived
-snapshots without scanning, because AssetCore has already published the
+snapshots without scanning, because Engine has already published the
 metadata change.
 The initiating panel acknowledges a successful self-originating reconciliation,
 so the next draw cannot repeat it. Manual Refresh remains an explicit scan of
 all auto-scan mounts and is also the retry path for external filesystem changes.
 
-Failed automatic reconciliation reports the AssetCore error and retains the
+Failed automatic reconciliation reports the Engine error and retains the
 unacknowledged mounted-content revision. That exact failed revision is
 suppressed on later frames to avoid a scan loop; manual Refresh or a later
 mounted-content revision retries it. Snapshot refresh happens only after a

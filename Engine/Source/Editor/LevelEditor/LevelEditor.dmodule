@@ -12,7 +12,6 @@
         "MonaCore",
         "Mona",
         "MonaImGui",
-        "AssetCore",
         "AssetForgeBuiltins",
 		"TerrainBuild",
 		"DurinEd",

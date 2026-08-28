@@ -362,7 +362,11 @@ namespace Durin::Editor::Texture
 				? "TextureCube import failed." : Result.Message);
 			return false;
 		}
-		if (const Asset::FAssetResult Saved = Asset::SavePackage(Result.Package);
+		if (const FAssetOperationResult Saved = GetAssetTools().SaveAssets({
+				.AssetPaths = {AssetPath},
+				.Publish = [this, &Path](const FAssetOperationNotification&) {
+					Callbacks.NotifyAssetCreated(Path);
+				}});
 			!Saved)
 		{
 			SetError(Saved.Message.empty()
@@ -370,7 +374,6 @@ namespace Durin::Editor::Texture
 				: Saved.Message);
 			return false;
 		}
-		Callbacks.NotifyAssetCreated(Path);
 		(void)Asset::UnloadPackage(AssetPath);
 		return true;
 	}

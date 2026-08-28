@@ -1,5 +1,9 @@
 #include "Panels/ConsolePanel.h"
 
+#include "Asset/Catalog.h"
+#include "AssetTools/IAssetTools.h"
+#include "Editor/EditorEngine.h"
+
 #include "Panels/ConsolePanelLayout.h"
 #include "Panels/ConsoleRecordModel.h"
 
@@ -217,11 +221,42 @@ namespace Durin::Editor::MainFrame
 																					 SharedState->bClearRequested.store(true, std::memory_order_release);
 																				 }
 																				 return FConsoleCommandResult::Success();
-														 }}, std::move(OwnerGate));
+											 }}, std::move(OwnerGate));
+		AssetFixUpCommandHandle = FConsoleCommandRegistry::Get().RegisterCommand({
+			"asset.fixup_redirectors",
+			"Fixes every project redirector without source-control automation.",
+			"asset.fixup_redirectors [rewrite-only|rewrite-and-delete]",
+			[](std::span<const std::string> Args) {
+				if (Args.size() > 1 || (!Args.empty() && Args[0] != "rewrite-only"
+					&& Args[0] != "rewrite-and-delete"))
+					return FConsoleCommandResult::Failure(
+						"Usage: asset.fixup_redirectors [rewrite-only|rewrite-and-delete]");
+				if (!GEditor)
+					return FConsoleCommandResult::Failure(
+						"The editor transaction manager is unavailable.");
+				std::vector<FAssetPath> Redirectors;
+				for (const auto& [Path, Data] : Asset::CaptureAssetCatalogSnapshot().Assets)
+					if (Data.EntryKind == Asset::EAssetRegistryEntryKind::Redirector)
+						Redirectors.push_back(Path);
+				std::ranges::sort(Redirectors,
+					[](const FAssetPath& Left, const FAssetPath& Right) {
+						return Left.GetView() < Right.GetView();
+					});
+				const bool bDelete = Args.empty() || Args[0] == "rewrite-and-delete";
+				const FAssetOperationResult Result = GetAssetTools().FixUpRedirectors({
+					.Redirectors = Redirectors,
+					.bDeleteRedirectors = bDelete,
+					.Transactions = &GEditor->GetTransactionManager()});
+				return Result ? FConsoleCommandResult::Success(std::format(
+					"Fixed up {} redirector(s) in {} mode.", Redirectors.size(),
+					bDelete ? "rewrite-and-delete" : "rewrite-only"))
+					: FConsoleCommandResult::Failure(Result.Message);
+			}});
 	}
 
 	FConsolePanel::~FConsolePanel()
 	{
+		FConsoleCommandRegistry::Get().UnregisterCommand(AssetFixUpCommandHandle);
 		FConsoleCommandRegistry::Get().UnregisterCommand(ClearCommandHandle);
 		State.reset();
 	}

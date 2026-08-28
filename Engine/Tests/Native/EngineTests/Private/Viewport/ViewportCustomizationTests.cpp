@@ -11,7 +11,7 @@
 #include "Terrain/TerrainHeightmap.h"
 #include "TerrainDetails.h"
 #include "VolumetricCloudDetails.h"
-#include "TerrainHeightmapAssetThumbnail.h"
+#include "TerrainHeightmapThumbnailRenderer.h"
 
 TEST(FSplineComponentVisualizerTests, EmitsSelectableCurveLinesAndControlPointBoxes)
 {

@@ -1,6 +1,11 @@
 #include "StaticMeshMaterialSlotDetails.h"
 
-#include "AssetTools.h"
+#include "Asset/AssetOperations.h"
+#include "Asset/Mutation.h"
+#include "Asset/PackageSerialization.h"
+#include "AssetCook.h"
+#include "Asset/CanonicalResave.h"
+#include "Asset/Compatibility.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"

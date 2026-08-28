@@ -28,6 +28,8 @@ namespace Durin::Editor::ContentBrowser::Private
 	public:
 		using FOpenAsset = std::function<bool(const std::string&, const std::string&)>;
 		using FMoveAssets = std::function<Asset::FAssetResult(std::span<const FEditorAssetMove>)>;
+		using FFixUpAssets =
+			std::function<Asset::FAssetResult(std::span<const FAssetPath>)>;
 		using FExecuteTransaction =
 			std::function<bool(std::unique_ptr<::Durin::Editor::ITransaction>)>;
 		using FGetMountedContentMutationRevision = std::function<uint64()>;
@@ -45,6 +47,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			::Durin::Editor::ContentBrowser::FSavePresentationSettings InSaveSettings,
 			FOpenAsset InOpenAsset,
 			FMoveAssets InMoveAssets,
+			FFixUpAssets InFixUpRedirectors,
 			FExecuteTransaction InExecuteTransaction,
 			FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
 			FNotifyMountedContentMutation InNotifyMountedContentMutation,

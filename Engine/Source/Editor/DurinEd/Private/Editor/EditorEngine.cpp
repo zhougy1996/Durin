@@ -141,47 +141,6 @@ namespace Durin
 			if (!GEditor || !GEditor->IsPlaying()) return FConsoleCommandResult::Success("Stopped");
 			return FConsoleCommandResult::Success(GEditor->IsPlaySessionPaused() ? "Paused" : "Playing");
 		}});
-		RegisterCommand({
-			"asset.fixup_redirectors",
-			"Fixes every project redirector without source-control automation.",
-			"asset.fixup_redirectors [rewrite-only|rewrite-and-delete]",
-			[](std::span<const std::string> Args) {
-				if (Args.size() > 1
-					|| (!Args.empty() && Args[0] != "rewrite-only"
-						&& Args[0] != "rewrite-and-delete"))
-					return FConsoleCommandResult::Failure(
-						"Usage: asset.fixup_redirectors [rewrite-only|rewrite-and-delete]");
-				const Asset::EAssetRedirectorFixupMode Mode =
-					!Args.empty() && Args[0] == "rewrite-only"
-					? Asset::EAssetRedirectorFixupMode::RewriteOnly
-					: Asset::EAssetRedirectorFixupMode::RewriteAndDelete;
-				std::vector<FAssetPath> Redirectors;
-				for (const auto& [Path, Data]
-					: Asset::CaptureAssetCatalogSnapshot().Assets)
-					if (Data.EntryKind
-						== Asset::EAssetRegistryEntryKind::Redirector)
-						Redirectors.push_back(Path);
-				std::ranges::sort(Redirectors,
-					[](const FAssetPath& Left, const FAssetPath& Right) {
-						return Left.GetView() < Right.GetView();
-					});
-				Asset::FAssetRedirectorFixupSummary Summary;
-				Asset::FAssetMutationTransaction Transaction;
-				Asset::FAssetResult Result;
-				if (!Redirectors.empty())
-				{
-					Result = Asset::PrepareRedirectorFixupTransaction(
-						Redirectors, Mode, Summary, Transaction);
-					if (Result) Result = Transaction.Commit();
-				}
-				return Result
-					? FConsoleCommandResult::Success(std::format(
-						"Fixed up {} redirector(s) in {} mode.",
-						Redirectors.size(),
-						Mode == Asset::EAssetRedirectorFixupMode::RewriteOnly
-							? "rewrite-only" : "rewrite-and-delete"))
-					: FConsoleCommandResult::Failure(Result.Message);
-		}});
 		DURIN_DEBUG("Editor initialized successfully");
 		return FEngineInitializationResult::Success();
 	}

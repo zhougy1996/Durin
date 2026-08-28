@@ -89,19 +89,19 @@ durin_add_engine_functional_test(TerrainHeightmapTests
 durin_add_engine_functional_test(TerrainHeightmapCookTests
 	KIND integration
 	DOMAINS asset-cook terrain
-	MODULES engine terrain-build asset-forge-builtins
+	MODULES asset-tools engine terrain-build asset-forge-builtins
 	STACKS editor
 	EDITOR_ONLY
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises source-free cooked heightmap package loading."
 	SOURCES Private/Terrain/TerrainHeightmapCookTests.cpp
-	LIBRARIES TerrainBuild AssetForgeBuiltins
+	LIBRARIES AssetTools TerrainBuild AssetForgeBuiltins
 )
 
 durin_add_engine_functional_test(TerrainWorldBuildTests
 	KIND integration
 	DOMAINS asset-build asset-cook terrain
-	MODULES terrain-build derived-data-cache asset-core
+	MODULES terrain-build derived-data-cache engine
 	STACKS editor
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises offline Terrain World tile codecs, build identities, generation publication, and Cook contracts."

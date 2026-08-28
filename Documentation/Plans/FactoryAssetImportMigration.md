@@ -18,7 +18,7 @@ and reimport authorities for every supported production family:
   package discard; DurinEd does not link AssetForgeBuiltins.
 - `CreatePackage` creates a live `Standalone` asset package without using
   `Asset::CreateAsset` or `AddToRoot`.
-- `IAssetTools` creates and adopts a package into AssetCore residency, invokes
+- `IAssetTools` creates and adopts a package into Engine residency, invokes
   `FactoryCreateNew` or `FactoryCreateFromFile`, validates the returned main
   asset, and discards a failed unsaved package.
 - `Public` and `Standalone` object flags flow through `NewObject`; GC retains
@@ -50,7 +50,7 @@ Content Browser no longer owns reimport family enums or a closed host switch;
 Scene advertises no reimport capability. Family free functions remain only as
 focused seams for family tests and non-host helpers.
 
-Stage 6 confirmed that Scene deliberately retains its private AssetCore
+Stage 6 confirmed that Scene deliberately retains its private Engine
 materialization seam, family build adapters, dependency binding, rollback, and
 atomic package-set save without calling single-object AssetTools. Obsolete
 feature-module reimport entrypoints, helpers, includes, and closed routing types
@@ -96,7 +96,7 @@ assets without weakening failed-reimport safety.
 ## Non-Goals
 
 - Removing `Asset::CreateAsset` from unrelated Material, Level, test-fixture,
-  duplication, redirector, or general AssetCore workflows; that repository-
+  duplication, redirector, or general Engine workflows; that repository-
   wide removal requires separate ownership and validation.
 - Routing runtime import or cooked builds through editor factories.
 - Third-party importer plugins, hot-unloadable providers, asynchronous generic
@@ -164,7 +164,7 @@ assets without weakening failed-reimport safety.
 
 | Area | Foundation | Gap |
 | --- | --- | --- |
-| Object lifecycle | `Public`/`Standalone`, flagged `NewObject`, and standalone `CreatePackage` are implemented | Old AssetCore residency still uses a separate rooted-package path; Factory migration must not create duplicate live package identities |
+| Object lifecycle | `Public`/`Standalone`, flagged `NewObject`, and standalone `CreatePackage` are implemented | Old Engine residency still uses a separate rooted-package path; Factory migration must not create duplicate live package identities |
 | Factory discovery | Reflected CDO discovery, `SupportedClass`, formats, cached lookup, and invalidation exist | No concrete production factory exists; duplicate/ambiguous format diagnostics and invocation-instance conventions need qualification |
 | Asset tools | `IAssetTools::CreateAsset` and `ImportAsset` own package creation and failed-package discard | No creation notification, typed settings convention, family diagnostic channel, or successful production caller exists |
 | Family import | Direct family functions have qualified capture, decode, build, import-data, save, and reimport behavior | Creation, population, persistence, and result reporting are combined around `Asset::CreateAsset` |
@@ -196,7 +196,7 @@ reversed the dependency so AssetTools consumes them.
 - [x] Make class-plus-extension lookup explicit and return all candidates for
   ambiguous extension-only selection.
 - [x] Add a single safe package discard operation and reconcile
-  `FindPackage`, AssetCore residency, save, reload, and unload behavior for a
+  `FindPackage`, Engine residency, save, reload, and unload behavior for a
   Factory-created package.
 - [x] Add lifecycle tests covering creation success, Factory failure, wrong
   class/Outer, GC, save failure, save/reload, and explicit unsaved discard.

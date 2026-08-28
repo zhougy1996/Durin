@@ -1,4 +1,9 @@
-#include "AssetTools.h"
+#include "Asset/AssetOperations.h"
+#include "Asset/Mutation.h"
+#include "Asset/PackageSerialization.h"
+#include "AssetCook.h"
+#include "Asset/CanonicalResave.h"
+#include "Asset/Compatibility.h"
 #include "Asset/AssetSaveReadiness.h"
 
 #include "Asset/EditorBulkDataStorage.h"

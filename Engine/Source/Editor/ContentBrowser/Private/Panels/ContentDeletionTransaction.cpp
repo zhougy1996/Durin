@@ -321,21 +321,18 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (!EnsureStagingRoot()) return false;
 		State = EContentDeletionTransactionState::Applying;
 		Journal.clear();
-		const Asset::EAssetMutationTransactionState AssetState =
-			Plan->AssetTransaction.GetState();
-		const Asset::FAssetResult AssetResult =
-			AssetState == Asset::EAssetMutationTransactionState::Prepared
-			? Plan->AssetTransaction.Commit(MakePhysicalTransition())
-			: Plan->AssetTransaction.Redo(MakePhysicalTransition());
+		const FAssetOperationResult AssetResult = bCommittedOnce
+			? Plan->AssetOperation.Redo(MakePhysicalTransition())
+			: Plan->AssetOperation.Commit(MakePhysicalTransition());
 		if (!AssetResult)
 		{
-			if (Plan->AssetTransaction.GetState()
-				== Asset::EAssetMutationTransactionState::RecoveryRequired)
+			if (AssetResult.State == EAssetOperationTerminalState::RecoveryRequired)
 				State = EContentDeletionTransactionState::RecoveryRequired;
 			else
 				State = EContentDeletionTransactionState::Restored;
 			return Fail(AssetResult.Message);
 		}
+		bCommittedOnce = true;
 		State = EContentDeletionTransactionState::Applied;
 		Details = std::format("Staged {} deletion root(s).", Moves.size());
 		return true;
@@ -348,12 +345,11 @@ namespace Durin::Editor::ContentBrowser::Private
 			return Fail("The deletion transaction is not applied.");
 		State = EContentDeletionTransactionState::Restoring;
 		Journal.clear();
-		const Asset::FAssetResult Restore =
-			Plan->AssetTransaction.Undo(MakePhysicalTransition());
+		const FAssetOperationResult Restore =
+			Plan->AssetOperation.Undo(MakePhysicalTransition());
 		if (!Restore)
 		{
-			if (Plan->AssetTransaction.GetState()
-				== Asset::EAssetMutationTransactionState::RecoveryRequired)
+			if (Restore.State == EAssetOperationTerminalState::RecoveryRequired)
 				State = EContentDeletionTransactionState::RecoveryRequired;
 			else
 				State = EContentDeletionTransactionState::Applied;

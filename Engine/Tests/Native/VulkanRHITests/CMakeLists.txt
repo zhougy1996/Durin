@@ -39,7 +39,6 @@ target_include_directories(VulkanRHIIntegrationTests PRIVATE
 target_link_libraries(VulkanRHIIntegrationTests PRIVATE
 	Core
 	CoreDObject
-	AssetCore
 	Engine
 	RHI
 	RenderCore

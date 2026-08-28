@@ -60,7 +60,7 @@ durin_add_engine_functional_test(EditorOperationTests
 durin_add_engine_functional_test(EditorAssetWorkflowTests
 	KIND feature
 	DOMAINS asset-workflow
-	MODULES durin-ed texture-editor
+	MODULES asset-tools durin-ed texture-editor
 	STACKS editor
 	PRIVATE_SOURCE_OWNER TextureEditor
 	PRIVATE_SOURCE_RATIONALE
@@ -76,7 +76,7 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private/Import/TextureImportDialogState.cpp
 	INCLUDE_DIRECTORIES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui DurinEd StaticMeshBuild AssetForgeBuiltins bc7enc_rdo::bc7enc_rdo
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui AssetTools DurinEd StaticMeshBuild AssetForgeBuiltins bc7enc_rdo::bc7enc_rdo
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data
@@ -91,7 +91,7 @@ durin_add_engine_functional_test(ContentBrowserWorkflowTests
 	PRIVATE_SOURCE_RATIONALE
 		"ContentBrowser-owned workflow white-box coverage avoids exporting model and operation implementations."
 	RUNTIME_STACK_RATIONALE
-		"Exercises ContentBrowser asset workflows across AssetCore, DurinEd, and Mona UI models."
+		"Exercises ContentBrowser asset workflows across Engine Asset, DurinEd, and Mona UI models."
 	SOURCES
 		Private/Editor/ContentBrowserExtensionRegistryTests.cpp
 		Private/Editor/ContentBrowserItemViewTests.cpp
@@ -166,7 +166,7 @@ durin_add_engine_functional_test(LevelMutationTests
 durin_add_engine_functional_test(MaterialTests
 	KIND feature
 	DOMAINS material
-	MODULES engine material-editor renderer static-mesh-build asset-forge-builtins
+	MODULES asset-tools engine material-editor renderer static-mesh-build asset-forge-builtins
 	STACKS editor renderer
 	PRIVATE_SOURCE_OWNER MaterialEditor
 	PRIVATE_SOURCE_RATIONALE
@@ -187,11 +187,12 @@ durin_add_engine_functional_test(MaterialTests
 		${_durin_material_editor_private}/Graph/MaterialGraphCanvas.cpp
 		${_durin_material_editor_private}/Widgets/MaterialPreview.cpp
 		${_durin_material_editor_private}/Widgets/MaterialParameterPanelModel.cpp
-	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private/Asset
 	LIBRARIES
 		ApplicationCore
 		RenderCore
 		Renderer
+		AssetTools
 		AssetForgeBuiltins
 		MonaCore
 		Mona
@@ -220,7 +221,7 @@ durin_add_engine_functional_test(MaterialVulkanTests
 		"RHIInit selects VulkanRHI dynamically for the rendered material fixture."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/Materials/MaterialVulkanTests.cpp
-	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private/Asset
 	LIBRARIES
 		ApplicationCore
 		RenderCore
@@ -267,7 +268,7 @@ durin_add_engine_functional_test(StaticMeshTests
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 	LIBRARIES AssetTools StaticMeshBuild TextureBuild AssetForgeBuiltins RenderCore Renderer DurinEd StaticMeshEditor
 	INCLUDE_DIRECTORIES
-		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private/Asset
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
@@ -291,7 +292,7 @@ durin_add_engine_functional_test(SkeletalMeshEditorTests
 	STACKS editor renderer
 	RUNTIME_STACK_RATIONALE "Exercises exact skeletal asset editor registration and read-only ownership."
 	SOURCES Private/SkeletalMeshEditorTests.cpp
-	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private/Asset
 	LIBRARIES ApplicationCore RenderCore Renderer DurinEd SkeletalMeshEditor
 )
 
@@ -333,7 +334,6 @@ set(_durin_texture_test_include_directories
 set(_durin_texture_test_libraries
 	Core
 	CoreDObject
-	AssetCore
 	AssetTools
 	Engine
 	StaticMeshBuild

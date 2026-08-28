@@ -8,7 +8,6 @@
 		"TerrainBuild"
 	],
     "PublicDependencies": [
-		"AssetCore",
 		"Core",
 		"CoreDObject",
 		"DurinEd",

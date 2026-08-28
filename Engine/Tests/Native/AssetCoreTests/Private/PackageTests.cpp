@@ -1,6 +1,11 @@
 #include <gtest/gtest.h>
 
-#include "AssetTools.h"
+#include "Asset/AssetOperations.h"
+#include "Asset/Mutation.h"
+#include "Asset/PackageSerialization.h"
+#include "AssetCook.h"
+#include "Asset/CanonicalResave.h"
+#include "Asset/Compatibility.h"
 #include "AssetPackageV6Codec.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/PackageObjectStreamReader.h"
@@ -192,7 +197,7 @@ namespace
 	}
 
 	// Test cleanup follows the production target-plus-alias closure contract while
-	// avoiding a second editor-level filesystem transaction in AssetCore tests.
+	// avoiding a second editor-level filesystem transaction in asset tests.
 	auto DeleteAssetClosureForTest(
 		std::initializer_list<Durin::FAssetPath> Paths
 	)

@@ -307,7 +307,7 @@ ready, before world or scene-proxy creation. It synchronously loads the exact
 base `DMaterial` at `/Engine/Materials/DefaultMaterial`, roots that asset, and
 retains one counted proxy for level, preview, and thumbnail consumers. Engine
 destruction detaches world, scene, viewport, preview, and thumbnail consumers,
-then shuts the service down before AssetCore and rendering shutdown. Loading is
+then shuts the service down before Engine and rendering shutdown. Loading is
 never lazy and never occurs on the render thread.
 
 The authored default is opaque, lit, one-sided, automatic-depth-write neutral
@@ -320,7 +320,7 @@ Invalid representation construction, material compilation, structural missing
 proxies, Renderer layout rejection, and unavailable default content converge
 on `GetErrorMaterialRenderData()`. This asset-independent exact-v3 terminal is
 opaque, unlit, two-sided, depth-writing magenta with no texture, package, DDC,
-Cook, AssetCore, or RHI dependency. Whole-material diagnostics use the distinct
+Cook, Engine, or RHI dependency. Whole-material diagnostics use the distinct
 reasons `UnassignedDefault`, `DefaultAssetUnavailable`, `MaterialDataInvalid`,
 `UnsupportedLayout`, and `MissingProxy`; normal default selection increments a
 counter without per-component logging, while default-asset failure logs once

@@ -6,7 +6,6 @@
         "Core",
         "PhysicsCore",
         "Physics",
-        "AssetCore",
         "CoreDObject",
         "MonaCore",
         "RenderCore",
@@ -79,6 +78,8 @@
         "Public/Materials/MaterialInterface.h",
         "Public/Materials/Material.h",
         "Public/Materials/MaterialInstance.h",
+        "Public/Asset/CookedAsset.h",
+        "Public/Asset/Redirector.h",
         "Public/Spline/SplineTypes.h",
         "Public/Spline/SplineCurve.h"
     ]

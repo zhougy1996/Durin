@@ -55,7 +55,7 @@ bounded deterministic reference path.
 
 ## Current Foundations and Gaps
 
-`TerrainBuild` and `AssetCore` now provide the complete source-free tile.
+`TerrainBuild` and `Engine` now provide the complete source-free tile.
 Renderer already provides indexed Terrain topology, shared material passes,
 camera-relative anchors, and resource recovery for the old finite family;
 Physics provides immutable heightfield geometry. Missing work is new Engine
@@ -171,6 +171,6 @@ object, component, scene proxy, key, or package path.
 - `Engine/Source/Runtime/Engine/Public/Collision`
 - `Engine/Source/Runtime/Renderer`
 - `Engine/Source/Runtime/RenderCore`
-- `Engine/Source/Runtime/AssetCore`
+- `Engine/Source/Runtime/Engine`
 - `Engine/Source/Developer/TerrainBuild`
 - `Engine/Tests/Native/EngineTests/Private/Terrain`

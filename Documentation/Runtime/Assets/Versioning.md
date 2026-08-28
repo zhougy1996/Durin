@@ -2,7 +2,7 @@
 
 Summary: Define serialized type, object, package, and compatibility version contracts.
 
-Modules: Core, CoreDObject, AssetCore
+Modules: Core, CoreDObject, Engine
 
 Durin's engine release version is defined once in `Engine/Build/Build.version`. The current development version is `0.1.0-dev`. CMake validates that file, exposes the numeric core as the workspace project version, and generates the header consumed by Core's public version API.
 
@@ -58,7 +58,7 @@ Supported readers and the ordinary writer are separate policies backed by one
 private, statically composed codec table. Each codec has an immutable string
 identity, permanent nonzero `FormatId`, wire version, and complete reader,
 writer, and mutation capability set. Shared code validates the `DURF` preamble
-through Core's bounded two-phase envelope validation and AssetCore's explicit
+through Core's bounded two-phase envelope validation and Engine's explicit
 immutable descriptor registry. Once that registry has selected DAST, the
 package codec table resolves only its format version. It fails closed before
 codec parsing when no reader exists. Header
@@ -101,7 +101,7 @@ inventories real source content and gets a separately scoped child plan. If
 conversion is required, that plan adds the smallest exact, lossless offline
 converter needed for the proven source format, rewrites the complete tracked
 corpus explicitly, verifies it with `DevTool asset check --baseline`, and removes the
-converter and obsolete reader in the same bounded effort. AssetCore does not
+converter and obsolete reader in the same bounded effort. Engine does not
 retain a general migration graph, structure-upgrader registry, partial
 compatibility objects, or data-loss save permission between transitions.
 Audit, registry discovery, ordinary loading, and editor startup never rewrite

@@ -2,7 +2,12 @@
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Texture/TextureCubeFactoryTestSupport.h"
 
-#include "AssetTools.h"
+#include "Asset/AssetOperations.h"
+#include "Asset/Mutation.h"
+#include "Asset/PackageSerialization.h"
+#include "AssetCook.h"
+#include "Asset/CanonicalResave.h"
+#include "Asset/Compatibility.h"
 #include "Asset/AssetRetention.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/ObjectLifecycle.h"

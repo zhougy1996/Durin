@@ -10,9 +10,9 @@
         "ApplicationCore",
         "MonaCore",
 		"Mona",
-        "MonaImGui",
-		"AssetCore",
-		"AssetForgeBuiltins"
+		"MonaImGui",
+		"AssetForgeBuiltins",
+		"AssetTools"
 	],
 	"PublicDependencies": [
 		"DurinEd"

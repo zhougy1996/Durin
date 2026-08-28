@@ -2,7 +2,7 @@
 
 Summary: Define authored, derived, cooked, and runtime asset-data ownership and transitions.
 
-Modules: AssetCore, DerivedDataCache, Engine, StaticMeshBuild, SkeletalBuild, TerrainBuild, TextureBuild, AssetForgeBuiltins
+Modules: Engine, DerivedDataCache, StaticMeshBuild, SkeletalBuild, TerrainBuild, TextureBuild, AssetForgeBuiltins
 
 Last reviewed: 2026-08-27
 
@@ -22,7 +22,7 @@ normalized values. `DerivedDataCache` owns the backend-neutral
 `bucket + key -> opaque immutable bytes` contract, the private local filesystem
 backend, and the family-neutral Build Framework that adapts cache results inside
 `FBuildSession`; recipe modules reach cache query/store only through that
-session. `AssetCore` owns package, descriptor, container, manifest, and
+session. `Engine` owns package, descriptor, container, manifest, and
 atomic-publication formats without interpreting Engine payloads.
 
 Builder and translator versions invalidate production identity. Payload schema
@@ -102,7 +102,7 @@ byte offset, and asset paths and source hints are not interchangeable.
 
 ## Runtime Data Domain
 
-AssetCore has one immutable `FAssetRuntimeConfiguration` for each initialized
+Engine has one immutable `FAssetRuntimeConfiguration` for each initialized
 runtime lifetime. `Authored()` selects the authored execution domain with
 canonical imported data and disposable DDC available. The validated
 `Cooked(...)` factory requires
@@ -129,7 +129,7 @@ An editor DAST/DABK bundle contains authoritative object and imported state:
 - build settings that contribute to derived-data keys.
 
 Large platform render payloads do not belong in authored storage. Canonical
-imported arrays use `FEditorBulkData`, allowing AssetCore to keep small values
+imported arrays use `FEditorBulkData`, allowing Engine to keep small values
 inline and place large values in the descriptor-selected DABK companion.
 Standalone family import data stores an explicit `AssetRelative`,
 `ProjectRelative`, or `Absolute` hint base beside each optional hint. Resolution
@@ -442,13 +442,13 @@ records target/profile and a bounded payload table. Ranges are aligned,
 non-overlapping, file-contained, and independently checksummed so failures can
 name the owning asset and `PayloadId`.
 
-DBLK and DABK share AssetCore's bounded little-endian container primitives, but
+DBLK and DABK share Engine's bounded little-endian container primitives, but
 remain separate formats and authority services. CMNF reuses only lower-level
 codec primitives; it remains a Cook manifest, not a payload container.
 
 The reflected asset class and payload slot select exactly one codec before
 lookup. That codec owns its schema and bytes—for example texture mip records or
-static-mesh vertex/index streams. AssetCore owns container lookup, bounded I/O,
+static-mesh vertex/index streams. Engine owns container lookup, bounded I/O,
 and descriptor validation, but neither dispatches from payload bytes nor
 interprets them. C++ object memory, STL layouts, pointers, and RHI handles are
 never serialized.

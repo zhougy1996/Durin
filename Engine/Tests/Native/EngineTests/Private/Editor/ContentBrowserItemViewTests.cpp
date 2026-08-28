@@ -1,7 +1,12 @@
 #include "Panels/ContentBrowserItemView.h"
 #include "Settings/LevelEditorSessionSettings.h"
 
-#include "AssetTools.h"
+#include "Asset/AssetOperations.h"
+#include "Asset/Mutation.h"
+#include "Asset/PackageSerialization.h"
+#include "AssetCook.h"
+#include "Asset/CanonicalResave.h"
+#include "Asset/Compatibility.h"
 #include "EngineTestSupport.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Misc/Paths.h"

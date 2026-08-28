@@ -10,7 +10,6 @@
         "Mona"
     ],
 	"PublicDependencies": [
-		"AssetCore",
         "Engine",
         "RenderCore",
         "MonaImGui"

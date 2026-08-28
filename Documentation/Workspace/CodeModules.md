@@ -24,8 +24,7 @@ direction.
 | `Physics` | World-independent physics scene body storage and synchronous query orchestration | [source](../../Engine/Source/Runtime/Physics) |
 | `CoreDObject` | Managed objects, reflection, properties, garbage collection, and object serialization foundations | [source](../../Engine/Source/Runtime/CoreDObject) |
 | `ApplicationCore` | Native application, window, input-message, GLFW, and file-dialog integration | [source](../../Engine/Source/Runtime/ApplicationCore) |
-| `AssetCore` | Asset paths, registry, packages, DAST serialization, dependencies, redirectors, derived data, cooking, and mutation transactions | [source](../../Engine/Source/Runtime/AssetCore) |
-| `Engine` | World, actors, components, levels, runtime assets and canonical imported data, optional source hints, object-aware asset-compilation aggregation, materials, meshes, textures, input, and render-facing engine objects | [source](../../Engine/Source/Runtime/Engine) |
+| `Engine` | Asset registry, packages, serialization, loading, cooking, and mutation; plus worlds, actors, components, levels, runtime asset types, asset compilation, input, and render-facing engine objects | [source](../../Engine/Source/Runtime/Engine) |
 | `RHI` | Backend-neutral GPU resources, command lists, contexts, feature levels, shader parameters, and RHI-thread contracts | [source](../../Engine/Source/Runtime/RHI) |
 | `VulkanRHI` | Vulkan instance/device selection, queues, resources, pipelines, descriptors, swapchains, and backend diagnostics | [source](../../Engine/Source/Runtime/VulkanRHI) |
 | `RenderCore` | Rendering thread, render resources, shaders, vertex factories, scene views, and renderer-module interfaces | [source](../../Engine/Source/Runtime/RenderCore) |
@@ -40,7 +39,7 @@ direction.
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
 | `DurinEd` | Shared editor services: generic object factories, reimport handlers, workspaces, reflected property editing, transactions, previews, thumbnails, source references, and editor UI infrastructure | [source](../../Engine/Source/Editor/DurinEd) |
-| `AssetTools` | Package-backed asset creation, import orchestration, result validation, and failed-package discard built on DurinEd factories | [source](../../Engine/Source/Editor/AssetTools) |
+| `AssetTools` | Reusable editor policy and orchestration for package-backed creation, import, duplicate, save/resave, relocation, deletion, and redirector fix-up; built on Engine mechanisms and DurinEd factories/history | [source](../../Engine/Source/Editor/AssetTools) |
 | `MainFrame` | Editor host frame, project browser, profiling integration, compatibility tools, and top-level editor startup UI | [source](../../Engine/Source/Editor/MainFrame) |
 | `ContentBrowser` | Project-wide browser model, presentation, operations, settings, extensions, and asset thumbnails | [source](../../Engine/Source/Editor/ContentBrowser) |
 | `LevelEditor` | Level workspace, scene viewport, panels, documents, selection, and Level settings | [source](../../Engine/Source/Editor/LevelEditor) |
@@ -74,14 +73,14 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | Task language | Start with | Expand only when needed |
 | --- | --- | --- |
 | generic DDC bucket/key get, put, bounded trim, Build policy, or recipe orchestration | `DerivedDataCache` | Recipe modules only for typed inputs, execution, and validation |
-| asset package, registry, redirector, cook | `AssetCore` | `Engine` for asset-type policy; editor modules for UI |
-| actor, component, level, world, runtime asset type | `Engine` | `CoreDObject`, `AssetCore`, or rendering modules at their owned boundary |
+| asset package, registry, redirector, cook | `Engine` | `CoreDObject` for object identity; editor modules for UI |
+| actor, component, level, world, runtime asset type | `Engine` | `CoreDObject` or rendering modules at their owned boundary |
 | shader, render resource, vertex factory, scene view | `RenderCore` | `RHI` for GPU abstraction; `Renderer` for frame use |
 | render pass, visibility, draw preparation, renderer scene | `Renderer` | `RenderCore`, `Engine`, then `RHI` |
 | Vulkan capability, device, pipeline, descriptor, swapchain | `VulkanRHI` | `RHI` for backend-neutral contract; `Renderer` only for consumer behavior |
 | editor workspace, reflected details, thumbnail manager/pool | `DurinEd` | The owning feature editor for concrete renderers; `ContentBrowser` for presentation |
-| Content Browser | `ContentBrowser`, `MainFrame`, `DurinEd`, `AssetCore` | `LevelEditor`, `TextureEditor`, and `StaticMeshEditor` for finite built-in import dispatch; feature modules for scoped create/details/context extensions |
-| importing assets | `AssetForgeBuiltins`, `AssetTools`, `DurinEd` | `TextureBuild`, `StaticMeshBuild`, `SkeletalBuild`, or `TerrainBuild` for typed recipes; plus `AssetCore` and the destination runtime asset type |
+| Content Browser | `ContentBrowser`, `MainFrame`, `DurinEd`, `Engine` | `LevelEditor`, `TextureEditor`, and `StaticMeshEditor` for finite built-in import dispatch; feature modules for scoped create/details/context extensions |
+| importing assets | `AssetForgeBuiltins`, `AssetTools`, `DurinEd` | `TextureBuild`, `StaticMeshBuild`, `SkeletalBuild`, or `TerrainBuild` for typed recipes; plus `Engine` and the destination runtime asset type |
 | local asset DDC request flow for StaticMesh, Texture2D/TextureCube/VolumeTexture, skeletal/animation, or Terrain | `DerivedDataCache` | `StaticMeshBuild`, `SkeletalBuild`, `TextureBuild`, or `TerrainBuild` for function inputs, recipe execution, payload validation, typed result reconstruction, and family-owned publication |
 
 Engine public headers are a repository-owned module contract rather than an
@@ -97,7 +96,7 @@ public surface.
 After selecting modules, prefer targeted symbol searches such as:
 
 ```powershell
-rg -n "FAssetRegistry|ContentBrowser" Engine/Source/Runtime/AssetCore Engine/Source/Editor/ContentBrowser
+rg -n "FAssetRegistry|ContentBrowser" Engine/Source/Runtime/Engine Engine/Source/Editor/ContentBrowser
 ```
 
 Do not read every module descriptor or scan every source root merely to confirm

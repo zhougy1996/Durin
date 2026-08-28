@@ -2,7 +2,7 @@
 
 Summary: Defines the exact unsigned 16-bit terrain-height authority, regional extrema, source import, DDC, package, and cooked-runtime contracts.
 
-Modules: AssetCore, Engine, AssetForgeBuiltins, DurinEd, LevelEditor
+Modules: Engine, AssetForgeBuiltins, DurinEd, LevelEditor
 
 Last reviewed: 2026-08-27
 

@@ -305,7 +305,7 @@ by Texture2D and VolumeTexture. Live summaries cover source, derived, cooked,
 decoded CPU, and GPU stages with schema version, texel count, logical/stored
 bytes, placement capability, provenance, state, diagnostic, and an explicit
 repair classification. Package summaries are construct-free and join reflected
-domain fields with AssetCore storage inspection; they do not open DDC or build
+domain fields with Engine storage inspection; they do not open DDC or build
 runtime resources.
 
 Texture editors render this summary as a read-only Payload Lifecycle section.

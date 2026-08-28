@@ -137,7 +137,6 @@ function(durin_add_engine_functional_test target_name)
 	target_link_libraries(${target_name} PRIVATE
 		Core
 		CoreDObject
-		AssetCore
 		Engine
 		${DURIN_ENGINE_TEST_LIBRARIES}
 	)

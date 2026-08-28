@@ -2,7 +2,12 @@
 
 #include "Animation/AnimationClip.h"
 #include "Components/SkeletalMeshComponent.h"
-#include "AssetTools.h"
+#include "Asset/AssetOperations.h"
+#include "Asset/Mutation.h"
+#include "Asset/PackageSerialization.h"
+#include "AssetCook.h"
+#include "Asset/CanonicalResave.h"
+#include "Asset/Compatibility.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "EngineTestSupport.h"

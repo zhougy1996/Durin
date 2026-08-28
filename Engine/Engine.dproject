@@ -6,7 +6,6 @@
         "Physics": "Source/Runtime/Physics",
         "CoreDObject": "Source/Runtime/CoreDObject",
         "ApplicationCore": "Source/Runtime/ApplicationCore",
-        "AssetCore": "Source/Runtime/AssetCore",
         "Engine": "Source/Runtime/Engine",
         "RHI": "Source/Runtime/RHI",
         "VulkanRHI": "Source/Runtime/VulkanRHI",

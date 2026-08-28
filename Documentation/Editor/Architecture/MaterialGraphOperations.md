@@ -184,7 +184,7 @@ resource. Closing a document destroys its controller; reopening restores only
 that material's viewport while authored positions continue to come from the
 package.
 
-MaterialEditor registers the authoritative AssetCore move observer with its
+MaterialEditor registers the authoritative Engine move observer with its
 module callback gate. A relocation moves the loaded-material entry and asks
 `FWorkspaceManager` to remap the existing document resource ID, per-resource
 document key, and label without changing document identity. There is no local

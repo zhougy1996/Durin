@@ -4,16 +4,25 @@ Summary: Remove the AssetCore module boundary by consolidating its asset runtime
 
 Last reviewed: 2026-08-29
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-29
 
 ## Current Status
 
-Planning is selected. No source, module metadata, public API, package format,
-or runtime behavior has changed yet. The first implementation stage is an
-atomic module-boundary migration because partially moving implementation
-cohorts would introduce either duplicate symbols or an `Engine`/`AssetCore`
-dependency cycle.
+All stages are complete. Engine now owns the public and private Asset
+subsystem, reflected Asset headers, runtime implementation, Cook/tooling
+services, and native-test private seams. The AssetCore project mapping,
+descriptor, target, link dependencies, generated ownership, export macro, and
+source directory are removed while `Durin::Asset`, public include spelling,
+package formats, fixtures, and CoreDObject ownership remain unchanged.
+
+Validation completed on `Win64-Debug-DurinEditor`: the configured `all` graph
+and `DurinAssetTool` built; the five focused Asset/Cook/import/Terrain targets
+passed with 181 tests; `test all` passed all 83 non-application native targets;
+and DurinEditor completed a hidden-window 10-tick startup/shutdown smoke run.
+Changed-document and all-plan lifecycle validation also passed.
+The final stale-reference audit retains only the intentionally deferred
+`AssetCoreTests` directory/fixture identity and historical archive text.
 
 ## Goal
 
@@ -106,17 +115,17 @@ for later package-loading work without taking that redesign into this plan.
 
 ### Stage 0: Define the implementation boundary
 
-- [ ] Capture the complete `AssetCore` source, reflected-header, public-header,
+- [x] Capture the complete `AssetCore` source, reflected-header, public-header,
   module-dependency, executable-link, test-private-include, generated-code, and
   documentation reference inventory.
-- [ ] Classify every file into `Engine/Public/Asset`, `Engine/Private/Asset`, or
+- [x] Classify every file into `Engine/Public/Asset`, `Engine/Private/Asset`, or
   unchanged `CoreDObject` ownership; record any ambiguous item before moving it.
-- [ ] Confirm that no supported executable or module consumes `AssetCore`
+- [x] Confirm that no supported executable or module consumes `AssetCore`
   without already linking or publicly receiving `Engine`.
-- [ ] Establish the pre-move validation baseline and confirm the configured
+- [x] Establish the pre-move validation baseline and confirm the configured
   test registry entries for `AssetBulkContainerTests`, `AssetCookTests`,
   `AssetPackageTests`, `AssetImportTests`, and `TerrainWorldBuildTests`.
-- [ ] Freeze format and fixture expectations: no baseline regeneration and no
+- [x] Freeze format and fixture expectations: no baseline regeneration and no
   accepted canonical-byte changes are part of this plan.
 
 #### Acceptance Gate
@@ -127,20 +136,20 @@ for later package-loading work without taking that redesign into this plan.
 
 ### Stage 1: Consolidate the module boundary atomically
 
-- [ ] Move public AssetCore headers into `Engine/Public/Asset`, resolving the
+- [x] Move public AssetCore headers into `Engine/Public/Asset`, resolving the
   existing shared include subtree without changing include spelling.
-- [ ] Move codecs, object-stream adapters, runtime services, catalog storage,
+- [x] Move codecs, object-stream adapters, runtime services, catalog storage,
   bulk containers, Cook support, mutation transactions, and tooling
   implementation into structured `Engine/Private/Asset` subdirectories.
-- [ ] Replace `ASSETCORE_API` with `ENGINE_API` only where a declaration remains
+- [x] Replace `ASSETCORE_API` with `ENGINE_API` only where a declaration remains
   a public cross-module API; remove export decoration from Engine-private types.
-- [ ] Transfer `Asset/CookedAsset.h` and `Asset/Redirector.h` reflection inputs
+- [x] Transfer `Asset/CookedAsset.h` and `Asset/Redirector.h` reflection inputs
   to `Engine.dmodule` and verify generated-header ownership.
-- [ ] Update Engine, editor, developer, program, and test build metadata to link
+- [x] Update Engine, editor, developer, program, and test build metadata to link
   only the new owner; retarget AssetCore test private include paths to Engine.
-- [ ] Remove `AssetCore` from `Engine.dproject`, delete its `.dmodule` and CMake
+- [x] Remove `AssetCore` from `Engine.dproject`, delete its `.dmodule` and CMake
   target, and remove the Engine-to-AssetCore dependency.
-- [ ] Keep `Durin::Asset`, public function signatures, initialization order,
+- [x] Keep `Durin::Asset`, public function signatures, initialization order,
   package fixtures, and command-line behavior unchanged.
 
 #### Acceptance Gate
@@ -155,18 +164,18 @@ for later package-loading work without taking that redesign into this plan.
 
 ### Stage 2: Contract the in-Engine implementation surface
 
-- [ ] Audit the migrated public headers and move codec registries, V6 policy,
+- [x] Audit the migrated public headers and move codec registries, V6 policy,
   logical object-stream readers/writers, catalog persistence, runtime state,
   and mutation journal internals behind `Engine/Private/Asset`.
-- [ ] Remove module-boundary-only forwarding and export plumbing where direct
+- [x] Remove module-boundary-only forwarding and export plumbing where direct
   Engine-internal calls are clearer, while retaining capability-named public
   entry points used by editor, build, and program modules.
-- [ ] Keep the explicit Asset subsystem structure; do not collapse catalog,
+- [x] Keep the explicit Asset subsystem structure; do not collapse catalog,
   package serialization, residency, Cook, and mutation into one implementation
   file or global facade.
-- [ ] Verify that public Engine asset headers include their direct requirements
+- [x] Verify that public Engine asset headers include their direct requirements
   and do not rely on the removed module's former transitive include behavior.
-- [ ] Audit runtime-variant linkage so authored tooling remains unavailable by
+- [x] Audit runtime-variant linkage so authored tooling remains unavailable by
   policy where required, without introducing a new module split in this plan.
 
 #### Acceptance Gate
@@ -180,20 +189,20 @@ for later package-loading work without taking that redesign into this plan.
 
 ### Stage 3: Validate integration and publish ownership
 
-- [ ] Run changed-document validation after the final documentation edits.
-- [ ] Build the complete configured non-application editor target graph,
+- [x] Run changed-document validation after the final documentation edits.
+- [x] Build the complete configured non-application editor target graph,
   including `DurinAssetTool` and all modules that previously linked AssetCore.
-- [ ] Run the focused Asset package/Cook/integration targets, then `test all`
+- [x] Run the focused Asset package/Cook/integration targets, then `test all`
   because this changes a shared runtime and build-module boundary. Application-
   hosted tests remain excluded unless separately authorized by their gate.
-- [ ] Run the documented editor startup smoke test to cover module discovery,
+- [x] Run the documented editor startup smoke test to cover module discovery,
   reflection registration, Asset runtime initialization, and shutdown.
-- [ ] Confirm targeted searches find no active `AssetCore` source directory,
+- [x] Confirm targeted searches find no active `AssetCore` source directory,
   module mapping, dependency, link target, API macro, or generated ownership;
   historical archive text is not rewritten solely for this migration.
-- [ ] Update module routing and lasting Asset package/data-lifecycle ownership
+- [x] Update module routing and lasting Asset package/data-lifecycle ownership
   documents from `AssetCore` to the Engine Asset subsystem.
-- [ ] Record validation evidence and complete every stage checklist in the same
+- [x] Record validation evidence and complete every stage checklist in the same
   isolated commit as the implementation.
 
 #### Acceptance Gate
@@ -265,11 +274,9 @@ for later package-loading work without taking that redesign into this plan.
 
 ## Related Code
 
-- [`AssetCore` module descriptor](../../Engine/Source/Runtime/AssetCore/AssetCore.dmodule)
 - [`Engine` module descriptor](../../Engine/Source/Runtime/Engine/Engine.dmodule)
 - [`DPackage`](../../Engine/Source/Runtime/CoreDObject/Public/DObject/Package.h)
-- [AssetCore public surface](../../Engine/Source/Runtime/AssetCore/Public)
-- [AssetCore implementation](../../Engine/Source/Runtime/AssetCore/Private)
 - [Engine Asset public surface](../../Engine/Source/Runtime/Engine/Public/Asset)
+- [Engine Asset implementation](../../Engine/Source/Runtime/Engine/Private/Asset)
 - [`DurinAssetTool` build composition](../../Engine/Source/Programs/DurinAssetTool/CMakeLists.txt)
 - [AssetCore native-test build composition](../../Engine/Tests/Native/AssetCoreTests/CMakeLists.txt)

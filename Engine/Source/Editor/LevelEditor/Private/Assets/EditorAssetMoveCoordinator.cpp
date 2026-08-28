@@ -2,7 +2,7 @@
 
 #include "DObject/Package.h"
 
-#include "Editor/AssetRelocation.h"
+#include "AssetTools/IAssetTools.h"
 #include "Editor/Transaction.h"
 #include "Engine/Level.h"
 #include "Settings/LevelEditorSessionSettings.h"
@@ -41,7 +41,14 @@ namespace Durin::Editor::Level
 				SessionSettings.CaptureViewportState(Context, SceneViewportPanel);
 		}
 
-		return ::Durin::Editor::ExecuteAssetRelocations(Transactions, Moves);
+		std::vector<FAssetRelocation> Mappings;
+		Mappings.reserve(Moves.size());
+		for (const Asset::FAssetRelocationMapping& Move : Moves)
+			Mappings.push_back({Move.SourcePath, Move.DestinationPath});
+		const FAssetOperationResult Result = GetAssetTools().RelocateAssets({
+			.Mappings = std::move(Mappings), .Transactions = &Transactions});
+		return Result ? Asset::FAssetResult{}
+			: Asset::FAssetResult{Asset::EAssetError::IoError, Result.Message};
 	}
 
 	auto FEditorAssetMoveCoordinator::OnAssetsRelocated(

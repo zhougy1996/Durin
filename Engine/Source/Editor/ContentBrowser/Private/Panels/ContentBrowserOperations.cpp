@@ -2,8 +2,10 @@
 #include "Panels/ContentBrowserFilesystem.h"
 
 #include "Asset/AssetOperations.h"
+#include "Asset/Deletion.h"
 #include "Asset/Mutation.h"
 #include "Asset.h"
+#include "AssetTools/IAssetTools.h"
 #include "DObject/Class.h"
 #include "Misc/LexicalPath.h"
 #include "Misc/FileHelper.h"
@@ -26,20 +28,6 @@ namespace Durin::Editor::ContentBrowser::Private
 			-> FContentBrowserOperationResult
 		{
 			return {{Error, std::move(Message)}};
-		}
-
-		auto ExecuteRedirectorFixup(
-			std::span<const FAssetPath> Redirectors) -> Asset::FAssetResult
-		{
-			Asset::FAssetRedirectorFixupSummary Summary;
-			Asset::FAssetMutationTransaction Transaction;
-			Asset::FAssetResult Result =
-				Asset::PrepareRedirectorFixupTransaction(
-					Redirectors,
-					Asset::EAssetRedirectorFixupMode::RewriteAndDelete,
-					Summary,
-					Transaction);
-			return Result ? Transaction.Commit() : Result;
 		}
 
 		auto HashAppend(uint64 Hash, std::string_view Value) -> uint64
@@ -159,9 +147,13 @@ namespace Durin::Editor::ContentBrowser::Private
 	FContentBrowserOperations::FContentBrowserOperations(
 		FContentBrowserModel& InModel,
 		FMoveAssets InMoveAssets,
-		FRemoveDirectory InRemoveDirectory)
+		FRemoveDirectory InRemoveDirectory,
+		FFixUpAssets InFixUpAssets,
+		std::function<void()> InNotifyMountedContentMutation)
 		: Model(InModel)
 		, MoveAssets(std::move(InMoveAssets))
+		, FixUpAssets(std::move(InFixUpAssets))
+		, NotifyMountedContentMutation(std::move(InNotifyMountedContentMutation))
 		, RemoveDirectory(std::move(InRemoveDirectory))
 	{
 		if (!RemoveDirectory)
@@ -333,66 +325,21 @@ namespace Durin::Editor::ContentBrowser::Private
 				Asset::EAssetError::ReadOnlyMode,
 				"This content mount is not content-writable. Choose a writable mount before pasting the asset.");
 
-		const std::string AssetName(SourcePath.GetAssetName());
-		FAssetPath DestinationPath;
-		std::string DestinationPhysicalPath;
-		for (uint32 Suffix = 0; Suffix <= 10000; ++Suffix)
-		{
-			const std::string CandidateName = Suffix == 0
-				? AssetName
-				: Suffix == 1
-					? AssetName + "_Copy"
-					: std::format("{}_Copy{}", AssetName, Suffix);
-			FAssetPath CandidatePath;
-			if (!FAssetPath::TryCreate(Directory + CandidateName, CandidatePath))
-				continue;
-			const std::string CandidatePhysical =
-				Model.VirtualToPhysical(CandidatePath.ToString() + ".dasset");
-			if (CandidatePhysical.empty()
-				|| Asset::FindAssetExact(CandidatePath)
-				|| Asset::FindResidentPackage(CandidatePath))
-				continue;
-			const ContentBrowserFilesystem::FPathProbe Probe =
-				ContentBrowserFilesystem::Probe(CandidatePhysical);
-			if (Probe.Error)
-				return Failure(
-					Asset::EAssetError::IoError,
-					std::format(
-						"Could not inspect the duplicate destination: {}",
-						Probe.Error.message()));
-			if (Probe.Exists()) continue;
-			DestinationPath = std::move(CandidatePath);
-			DestinationPhysicalPath = std::move(CandidatePhysical);
-			break;
-		}
-		if (!DestinationPath.IsValid())
-			return Failure(
-				Asset::EAssetError::AlreadyExists,
-				"Could not find an available copy name in this folder.");
-
-		DObject* DuplicatedAsset = nullptr;
-		Asset::FAssetResult Result = Asset::DuplicateAsset(
-			SourcePath, DestinationPath, DuplicatedAsset);
-		if (!Result) return {Result};
-		auto DiscardDuplicate = [&] {
-			return Asset::UnloadPackage(
-				DestinationPath,
-				Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
-		};
-		Result = Asset::SavePackage(DuplicatedAsset->GetPackage());
+		const FAssetOperationResult Result = GetAssetTools().DuplicateAsset({
+			.SourcePath = SourcePath,
+			.DestinationDirectory = Directory,
+			.ResolvePhysicalPackagePath = [this](const FAssetPath& Path) {
+				return Model.VirtualToPhysical(Path.ToString() + ".dasset");
+			},
+			.Publish = [this](const FAssetOperationNotification&) {
+				if (NotifyMountedContentMutation) NotifyMountedContentMutation();
+			}});
 		if (!Result)
-		{
-			const Asset::FAssetResult Cleanup = DiscardDuplicate();
-			if (!Cleanup && !Cleanup.Message.empty())
-				Result.Message += std::format(
-					" The unsaved duplicate could not be discarded: {}",
-					Cleanup.Message);
-			return {Result};
-		}
+			return Failure(Asset::EAssetError::IoError, Result.Message);
 
 		FContentBrowserOperationResult Outcome;
-		Outcome.FocusPhysicalPath = std::move(DestinationPhysicalPath);
-		Outcome.RevealAssetPath = DestinationPath.ToString();
+		Outcome.FocusPhysicalPath = Result.PhysicalPath;
+		Outcome.RevealAssetPath = Result.AffectedAssets.front().ToString();
 		Outcome.OpenAssetClassName = SourceData->AssetClassName;
 		return Outcome;
 	}
@@ -726,13 +673,15 @@ namespace Durin::Editor::ContentBrowser::Private
 		const std::vector<FAssetPath> Redirectors =
 			CollectRedirectors(VirtualDirectory);
 		if (Redirectors.empty()) return {};
-		return ExecuteRedirectorFixup(Redirectors);
+		return FixUpAssets ? FixUpAssets(Redirectors) : Asset::FAssetResult{
+			Asset::EAssetError::ShuttingDown, "Redirector fix-up is unavailable."};
 	}
 
 	auto FContentBrowserOperations::FixUpRedirectors(
 		std::span<const FAssetPath> Redirectors) -> Asset::FAssetResult
 	{
-		return ExecuteRedirectorFixup(Redirectors);
+		return FixUpAssets ? FixUpAssets(Redirectors) : Asset::FAssetResult{
+			Asset::EAssetError::ShuttingDown, "Redirector fix-up is unavailable."};
 	}
 
 	auto FContentBrowserOperations::FixUpAllRedirectors()
@@ -740,42 +689,8 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		const std::vector<FAssetPath> Redirectors = CollectRedirectors("/");
 		return Redirectors.empty() ? Asset::FAssetResult{}
-			: ExecuteRedirectorFixup(Redirectors);
-	}
-
-	auto FContentBrowserOperations::AnalyzeDeletion(
-		std::span<const FContentBrowserItem> Items,
-		const std::unordered_set<std::string>& Selection,
-		std::vector<std::pair<std::string, Asset::FAssetDeleteAnalysis>>& Analyses,
-		std::vector<std::pair<std::string, Asset::FAssetResult>>& Errors) const
-		-> void
-	{
-		Analyses.clear();
-		Errors.clear();
-		for (const FContentBrowserItem& Item : Items)
-		{
-			if (!Selection.contains(Item.StableId())
-				|| (Item.Kind != EContentBrowserItemKind::Asset
-					&& Item.Kind != EContentBrowserItemKind::Redirector))
-				continue;
-			FAssetPath Path;
-			if (!FAssetPath::TryCreate(Item.VirtualPath, Path))
-			{
-				Errors.emplace_back(
-					Item.StableId(),
-					Asset::FAssetResult{
-						Asset::EAssetError::InvalidPath,
-						"Asset path is invalid."});
-				continue;
-			}
-			Asset::FAssetDeleteAnalysis Analysis;
-			Asset::FAssetResult Result =
-				Asset::AnalyzeAssetDeletion(Path, Analysis);
-			if (Result)
-				Analyses.emplace_back(Item.StableId(), std::move(Analysis));
-			else
-				Errors.emplace_back(Item.StableId(), std::move(Result));
-		}
+			: FixUpAssets ? FixUpAssets(Redirectors) : Asset::FAssetResult{
+				Asset::EAssetError::ShuttingDown, "Redirector fix-up is unavailable."};
 	}
 
 	auto FContentBrowserOperations::BuildDeletionPlan(
@@ -1044,17 +959,16 @@ namespace Durin::Editor::ContentBrowser::Private
 			return A.GetView() < B.GetView();
 		});
 		AssetPaths.erase(std::unique(AssetPaths.begin(), AssetPaths.end()), AssetPaths.end());
-		std::vector<Asset::FAssetDeletionBatchBlocker> AssetBlockers;
-		const Asset::FAssetResult AssetResult = Asset::PrepareAssetDeletionTransaction(
-			AssetPaths, PhysicalRoots, Plan->AssetTransaction, AssetBlockers);
-		if (!AssetResult)
+		const FAssetOperationResult AssetResult = GetAssetTools().PrepareDeletion({
+			.AssetPaths = AssetPaths, .PhysicalRoots = PhysicalRoots},
+			Plan->AssetOperation);
+		if (!AssetResult && Plan->AssetOperation.GetBlockers().empty())
 			AddBlocker(
 				EContentDeletionBlocker::InspectionFailed,
 				"Assets", {}, {}, AssetResult.Message);
 
 		std::unordered_set<std::string> CompanionPaths;
-		for (const Asset::FAssetDeletionBatchEntry& Entry :
-			Plan->AssetTransaction.GetEntries())
+		for (const FAssetDeletionEntry& Entry : Plan->AssetOperation.GetEntries())
 			for (const std::filesystem::path& Companion : Entry.CompanionFiles)
 				CompanionPaths.insert(NormalizePath(Companion.generic_string()));
 		for (FContentDeletionFingerprint& Entry : Plan->Entries)
@@ -1094,37 +1008,37 @@ namespace Durin::Editor::ContentBrowser::Private
 				.Fingerprint = Fingerprint});
 		}
 
-		for (const Asset::FAssetDeletionBatchBlocker& Blocker : AssetBlockers)
+		for (const FAssetDeletionBlocker& Blocker : Plan->AssetOperation.GetBlockers())
 		{
 			EContentDeletionBlocker Kind = EContentDeletionBlocker::InspectionFailed;
 			switch (Blocker.Kind)
 			{
-			case Asset::EAssetDeletionBatchBlocker::ExternalPersistentReference:
-			case Asset::EAssetDeletionBatchBlocker::ExternalLoadedReference:
+			case EAssetDeletionBlocker::ExternalPersistentReference:
+			case EAssetDeletionBlocker::ExternalLoadedReference:
 				Kind = EContentDeletionBlocker::ExternalReference;
 				break;
-			case Asset::EAssetDeletionBatchBlocker::RedirectorTargetNotSelected:
+			case EAssetDeletionBlocker::RedirectorTargetNotSelected:
 				Kind = EContentDeletionBlocker::RedirectorTargetNotSelected;
 				break;
-			case Asset::EAssetDeletionBatchBlocker::TargetRedirectorsNotSelected:
+			case EAssetDeletionBlocker::TargetRedirectorsNotSelected:
 				Kind = EContentDeletionBlocker::TargetRedirectorsNotSelected;
 				break;
-			case Asset::EAssetDeletionBatchBlocker::LoadingPackage:
+			case EAssetDeletionBlocker::LoadingPackage:
 				Kind = EContentDeletionBlocker::LoadingPackage;
 				break;
-			case Asset::EAssetDeletionBatchBlocker::DirtyPackage:
+			case EAssetDeletionBlocker::DirtyPackage:
 				Kind = EContentDeletionBlocker::DirtyPackage;
 				break;
-			case Asset::EAssetDeletionBatchBlocker::ReferenceStoreInspectionFailed:
+			case EAssetDeletionBlocker::ReferenceStoreInspectionFailed:
 				Kind = EContentDeletionBlocker::ReferenceStoreInspectionFailed;
 				break;
-			case Asset::EAssetDeletionBatchBlocker::CompanionInspectionFailed:
+			case EAssetDeletionBlocker::CompanionInspectionFailed:
 				Kind = EContentDeletionBlocker::CompanionInspectionFailed;
 				break;
-			case Asset::EAssetDeletionBatchBlocker::CompanionOwnershipConflict:
+			case EAssetDeletionBlocker::CompanionOwnershipConflict:
 				Kind = EContentDeletionBlocker::CompanionOwnershipConflict;
 				break;
-			case Asset::EAssetDeletionBatchBlocker::ExternalCompanionOwner:
+			case EAssetDeletionBlocker::ExternalCompanionOwner:
 				Kind = EContentDeletionBlocker::ExternalCompanionOwner;
 				break;
 			default:
@@ -1137,10 +1051,9 @@ namespace Durin::Editor::ContentBrowser::Private
 				Blocker.RelatedAssetPath.ToString(),
 				Blocker.Details);
 		}
-		for (const Asset::FAssetDeletionBatchWarning& Warning :
-			 Plan->AssetTransaction.GetWarnings())
+		for (const FAssetOperationWarning& Warning : Plan->AssetOperation.GetWarnings())
 			Plan->Warnings.push_back({
-				.DisplayName = Warning.TargetPath.ToString(),
+				.DisplayName = Warning.AssetPath.ToString(),
 				.Details = Warning.Details});
 
 		std::ranges::sort(

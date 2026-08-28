@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Asset/Deletion.h"
+#include "AssetTools/AssetDeletion.h"
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "Editor/Transaction.h"
 #include "Panels/ContentBrowserModel.h"
@@ -97,7 +98,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::vector<FContentDeletionFingerprint> Entries;
 		std::vector<FContentDeletionBlocker> Blockers;
 		std::vector<FContentDeletionWarning> Warnings;
-		mutable Asset::FAssetDeletionTransaction AssetTransaction;
+		mutable FAssetDeletionOperation AssetOperation;
 
 		auto CanExecute() const -> bool { return Blockers.empty(); }
 	};
@@ -207,6 +208,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::vector<FContentDeletionJournalEntry> Journal;
 		EContentDeletionTransactionState State =
 			EContentDeletionTransactionState::Restored;
+		bool bCommittedOnce = false;
 	};
 
 	// Reports the post-operation focus requested by a successful content mutation.
@@ -227,13 +229,17 @@ namespace Durin::Editor::ContentBrowser::Private
 	public:
 		using FMoveAssets =
 			std::function<Asset::FAssetResult(std::span<const FEditorAssetMove>)>;
+		using FFixUpAssets =
+			std::function<Asset::FAssetResult(std::span<const FAssetPath>)>;
 		using FRemoveDirectory = std::function<bool(
 			const std::filesystem::path&, std::error_code&)>;
 
 		FContentBrowserOperations(
 			FContentBrowserModel& InModel,
 			FMoveAssets InMoveAssets,
-			FRemoveDirectory InRemoveDirectory = {}
+			FRemoveDirectory InRemoveDirectory = {},
+			FFixUpAssets InFixUpAssets = {},
+			std::function<void()> InNotifyMountedContentMutation = {}
 		);
 
 		auto Rename(const FContentBrowserItem& Item, std::string_view NewName)
@@ -253,12 +259,6 @@ namespace Durin::Editor::ContentBrowser::Private
 			-> Asset::FAssetResult;
 		auto FixUpAllRedirectors() -> Asset::FAssetResult;
 
-		auto AnalyzeDeletion(
-			std::span<const FContentBrowserItem> Items,
-			const std::unordered_set<std::string>& Selection,
-			std::vector<std::pair<std::string, Asset::FAssetDeleteAnalysis>>& Analyses,
-			std::vector<std::pair<std::string, Asset::FAssetResult>>& Errors
-		) const -> void;
 		auto BuildDeletionPlan(
 			std::span<const FContentBrowserItem> Items,
 			const std::unordered_set<std::string>& Selection
@@ -279,6 +279,8 @@ namespace Durin::Editor::ContentBrowser::Private
 
 		FContentBrowserModel& Model;
 		FMoveAssets MoveAssets;
+		FFixUpAssets FixUpAssets;
+		std::function<void()> NotifyMountedContentMutation;
 		FRemoveDirectory RemoveDirectory;
 	};
 } // namespace Durin::Editor::ContentBrowser::Private

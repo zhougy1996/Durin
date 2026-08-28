@@ -416,7 +416,7 @@ for the supported underlying kind and size. Object records use
 resolver. Those factories install exact `T*` or `TObjectPtr<T>` size,
 alignment, value operations, and logical get/set callbacks. Consequently
 `FObjectProperty` never interprets `TObjectPtr<T>` storage as `FObjectPtr`;
-Archive, AssetCore, and GC still use `IsObjectPtrWrapper()` to preserve the
+Archive, Engine, and GC still use `IsObjectPtrWrapper()` to preserve the
 intentional raw-versus-strong-reference policy distinction.
 
 Every built-in leaf property supports default construction, destruction, copy
@@ -837,7 +837,7 @@ Array/Map loading uses `FDetachedContainerStorage`: input is decoded into a
 managed temporary container, counts are bounded before allocation, duplicate
 logical Map keys are rejected, and the destination is committed only after all
 nested values and post-deserialize work succeed. Failure leaves the destination
-logically unchanged. GC, runtime Archive, snapshots, AssetCore, and editor
+logically unchanged. GC, runtime Archive, snapshots, Engine, and editor
 property access all use the same checked operations.
 
 Containers may be nested up to `MAX_CONTAINER_PROPERTY_DEPTH` in DurinHeaderTool, currently 4. For example:

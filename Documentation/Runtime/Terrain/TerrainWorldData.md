@@ -2,7 +2,7 @@
 
 Summary: Define the canonical Terrain World lattice, tile products, packages, budgets, and spatial-interest boundary.
 
-Modules: Engine, TerrainBuild, DerivedDataCache, AssetCore
+Modules: Engine, TerrainBuild, DerivedDataCache
 
 Last reviewed: 2026-08-26
 
@@ -288,7 +288,7 @@ tokens, and retains the previous complete generation on every failure.
 ## DDC, Cook, manifests, and compatibility
 
 Authored intent remains `.dasset`; rebuildable product values remain DDC; Cook
-places deployable values in AssetCore cooked bulk. The world manifest package
+places deployable values in Engine cooked bulk. The world manifest package
 maps `(WorldId, TileKey, Generation, ProductClass)` to a region-package asset,
 bulk entry, exact logical/stored range, XXH3-128, dependencies, and compatibility
 tuple. Entries are sorted by tile Y, tile X, product class. Physical paths and
@@ -314,10 +314,10 @@ legacy cooked payload IDs, and old component/actor fields return
 `UnsupportedLegacySchema`; no partial decode, alias, or dependency lookup occurs.
 
 `TerrainBuild` materializes this contract through a sorted `TWMF` world
-manifest stored as an AssetCore cooked-bulk value. Installed region packages
+manifest stored as an Engine cooked-bulk value. Installed region packages
 contain five independently addressable DBLK entries per complete tile;
 uninstalled occupied regions remain explicit manifest records with no product
-directory. Each installed record carries the exact AssetCore descriptor
+directory. Each installed record carries the exact Engine descriptor
 (offset, stored/logical range, alignment, target, compression, and checksum),
 the full product checksum, and ordered dependencies. Runtime loading first
 validates DBLK and `TWMF`, then the selected descriptor, manifest checksum,

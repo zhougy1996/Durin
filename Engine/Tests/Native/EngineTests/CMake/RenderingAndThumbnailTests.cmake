@@ -19,14 +19,14 @@ durin_add_engine_functional_test(RendererSceneContractTests
 durin_add_engine_functional_test(SceneImportVulkanTests
 	KIND integration
 	DOMAINS asset-import
-	MODULES engine renderer asset-forge-builtins vulkan-rhi
+	MODULES asset-tools engine renderer asset-forge-builtins vulkan-rhi
 	BACKENDS vulkan
 	STACKS editor renderer
 	GPU
 	TIMEOUT 900
 	RUNTIME_STACK_RATIONALE "Owns the Vulkan-backed static-model import acceptance lifecycle."
 	SOURCES Private/Texture/SceneImportVulkanTests.cpp
-	LIBRARIES ApplicationCore StaticMeshBuild SkeletalBuild AssetForgeBuiltins RenderCore Renderer DurinEd TextureEditor VulkanRHI Vulkan::Vulkan bc7enc_rdo::bc7enc_rdo
+	LIBRARIES ApplicationCore AssetTools StaticMeshBuild SkeletalBuild AssetForgeBuiltins RenderCore Renderer DurinEd TextureEditor VulkanRHI Vulkan::Vulkan bc7enc_rdo::bc7enc_rdo
 	INCLUDE_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Source/Editor/AssetForgeBuiltins/Private
 		${DURIN_PROJECT_SOURCE_DIR}/Runtime/VulkanRHI/Private
@@ -68,7 +68,7 @@ durin_add_engine_functional_test(MaterialThumbnailTests
 	TIMEOUT 600
 	RUNTIME_STACK_RATIONALE "Exercises the MaterialEditor-owned Material and MaterialInstance thumbnail extensions."
 	SOURCES Private/MaterialThumbnailRendererTests.cpp
-	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private/Asset
 	LIBRARIES ApplicationCore RenderCore Renderer DurinEd AssetTools StaticMeshBuild AssetForgeBuiltins MaterialEditor TextureEditor
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport

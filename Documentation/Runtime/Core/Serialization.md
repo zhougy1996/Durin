@@ -52,7 +52,7 @@ and validation replace caller outputs or destination bytes only on success.
 Core never interprets format-owned sections, asset paths, schemas, codecs, or
 publication policy.
 
-AssetCore currently consumes this envelope through three sibling identities:
+Engine currently consumes this envelope through three sibling identities:
 DAST v6 object packages, DABK v2 authored bulk companions, and DBLK v2 cooked
 bulk companions. Embedded domain payloads and raw DDC `.bin` values do not nest
 another DURF envelope; their owning asset slot supplies the codec and schema.
@@ -176,7 +176,7 @@ Payload Directory entry before any logical value is decoded or constructed.
 Section extents, placement, and container generation therefore remain physical
 package concerns rather than reflected semantics.
 
-AssetCore's private bounded container codec is not an Archive implementation.
+Engine's private bounded container codec is not an Archive implementation.
 It serializes only explicit little-endian fixed-width integers, GUID words, and
 exact byte spans for DABK, DBLK, and CMNF physical framing. Archive continues to
 own semantic object/value serialization, purposes, defaults, and reflected
@@ -213,7 +213,7 @@ publication. Bulk replacement sorts complete paths and rejects duplicates
 without changing the prior ledger.
 
 Known intent is exactly `LoadedExplicit` or `Forced`; absence means no known
-intent, while retained unknown object-stream values remain separate AssetCore state.
+intent, while retained unknown object-stream values remain separate Engine state.
 Enabled planning applies `Forced`, then `LoadedExplicit`, then logical
 difference, then omission. Nested intent emits every required parent record.
 Forced state cannot be downgraded by a loaded-explicit update. Exact clear,

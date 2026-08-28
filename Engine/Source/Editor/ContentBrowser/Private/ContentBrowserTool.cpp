@@ -1,7 +1,7 @@
 #include "ContentBrowser/ContentBrowserTool.h"
 
 #include "Asset/Result.h"
-#include "Editor/AssetRelocation.h"
+#include "AssetTools/IAssetTools.h"
 #include "Panels/ContentBrowserPanel.h"
 
 namespace Durin::Editor::ContentBrowser
@@ -24,10 +24,20 @@ namespace Durin::Editor::ContentBrowser
 				: Asset::FAssetResult{
 					Asset::EAssetError::IoError, Result.Message};
 		};
+		auto FixUpRedirectors = [FixUp = std::move(Services.FixUpRedirectors)](
+			std::span<const FAssetPath> Redirectors) {
+			if (!FixUp)
+				return Asset::FAssetResult{
+					Asset::EAssetError::ShuttingDown,
+					"Redirector fix-up is unavailable."};
+			const FActionResult Result = FixUp(Redirectors);
+			return Result.bSucceeded ? Asset::FAssetResult{}
+				: Asset::FAssetResult{Asset::EAssetError::IoError, Result.Message};
+		};
 		return std::make_unique<::Durin::Editor::ContentBrowser::Private::FContentBrowserPanel>(
 			std::move(Settings), std::move(SaveSettings),
-			std::move(Services.OpenAsset),
-			std::move(MoveAssets), std::move(Services.ExecuteTransaction),
+			std::move(Services.OpenAsset), std::move(MoveAssets),
+			std::move(FixUpRedirectors), std::move(Services.ExecuteTransaction),
 			std::move(Services.GetMountedContentMutationRevision),
 			std::move(Services.NotifyMountedContentMutation),
 			std::move(Services.OpenImport),
@@ -42,12 +52,12 @@ namespace Durin::Editor::ContentBrowser
 		FTransactionManager& Transactions, std::span<const FAssetMove> Moves)
 		-> FActionResult
 	{
-		std::vector<Asset::FAssetRelocationMapping> Mappings;
+		std::vector<FAssetRelocation> Mappings;
 		Mappings.reserve(Moves.size());
 		for (const FAssetMove& Move : Moves)
 			Mappings.push_back({Move.OldPath, Move.NewPath});
-		const Asset::FAssetResult Result =
-			ExecuteAssetRelocations(Transactions, Mappings);
+		const FAssetOperationResult Result = GetAssetTools().RelocateAssets({
+			.Mappings = std::move(Mappings), .Transactions = &Transactions});
 		return {
 			.bSucceeded = static_cast<bool>(Result),
 			.Message = Result.Message};

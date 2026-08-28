@@ -16,7 +16,7 @@ function(durin_add_asset_functional_test target_name)
 	target_link_libraries(${target_name} PRIVATE
 		Core
 		CoreDObject
-		AssetCore
+		Engine
 		${DURIN_ASSET_TEST_LIBRARIES}
 	)
 
@@ -42,8 +42,7 @@ endfunction()
 durin_add_asset_functional_test(AssetPackageTests
 	KIND feature
 	DOMAINS asset-package
-	MODULES asset-core engine
-	LIBRARIES Engine
+	MODULES engine
 	SOURCES
 		Private/BulkDataTests.cpp
 		Private/PackageTests.cpp
@@ -56,7 +55,7 @@ durin_add_asset_functional_test(AssetPackageTests
 		Private/PackageObjectStreamReaderTests.cpp
 )
 target_include_directories(AssetPackageTests PRIVATE
-	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
+	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private/Asset
 )
 durin_test_deploy_directory_to_data(
 	AssetPackageTests
@@ -66,22 +65,22 @@ durin_test_deploy_directory_to_data(
 durin_add_asset_functional_test(AssetCookTests
 	KIND feature
 	DOMAINS asset-cook
-	MODULES asset-core
+	MODULES engine
 	TIMEOUT 600
 	SOURCES Private/CookedAssetTests.cpp
 )
 target_include_directories(AssetCookTests PRIVATE
-	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
+	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private/Asset
 )
 
 durin_add_asset_functional_test(AssetBulkContainerTests
 	KIND contract
 	DOMAINS asset-cook asset-package
-	MODULES asset-core
+	MODULES engine
 	SOURCES Private/BulkContainerInfrastructureTests.cpp
 )
 target_include_directories(AssetBulkContainerTests PRIVATE
-	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/AssetCore/Private
+	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private/Asset
 )
 
 if(DURIN_WITH_EDITOR)
@@ -96,7 +95,7 @@ if(DURIN_WITH_EDITOR)
 	durin_add_asset_functional_test(AssetImportTests
 		KIND integration
 		DOMAINS asset-import
-		MODULES asset-core asset-forge asset-forge-builtins
+		MODULES engine asset-forge asset-forge-builtins
 		IMPORT_RUNTIME
 		TIMEOUT 600
 		SOURCES Private/AssetImportTests.cpp

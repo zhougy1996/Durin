@@ -2,7 +2,7 @@
 
 Summary: Define completion, compensation, and UI ownership for nonblocking editor asset mutations.
 
-Modules: TextureBuild, AssetForgeBuiltins, DurinEd, TextureEditor, AssetCore
+Modules: TextureBuild, AssetForgeBuiltins, DurinEd, TextureEditor, Engine
 
 Last reviewed: 2026-08-27
 

@@ -52,7 +52,7 @@ This API publishes one file. Multi-file transactions, asset move/delete
 rollback, and cook ordering retain their owning subsystem's coordination rules.
 DURF/DAST v6 publication uses the same primitive for the complete package;
 sections and their front directory are never updated in place. When authored
-bulk is external, AssetCore first backs up, publishes, and validates the stable
+bulk is external, Engine first backs up, publishes, and validates the stable
 DURF/DABK v2 companion, then atomically replaces the package and publishes
 catalog state. Failure before catalog publication restores the previous package
 and companion bytes. The backup is removed only after the new descriptor/hash

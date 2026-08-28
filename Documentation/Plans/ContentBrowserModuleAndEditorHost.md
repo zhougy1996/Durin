@@ -86,9 +86,9 @@ contributing feature module.
 ### Dependency audit
 
 The frozen descriptor graph is `MainFrame -> ContentBrowser -> DurinEd,
-AssetCore, AssetForge` plus contribution-only edges from concrete editor
+Engine, AssetForge` plus contribution-only edges from concrete editor
 modules to `ContentBrowser`. `ContentBrowser` has no dependency on `MainFrame`
-or a concrete editor module. `DurinEd`, `AssetCore`, and `AssetForge` do not
+or a concrete editor module. `DurinEd`, `Engine`, and `AssetForge` do not
 depend on `ContentBrowser`.
 
 ## Goal
@@ -128,7 +128,7 @@ and visibility do not depend on whether the Level Editor dock tab is submitted.
 
 ## Non-Goals
 
-- Replacing AssetCore catalog, package, redirector, deletion, or relocation
+- Replacing Engine catalog, package, redirector, deletion, or relocation
   transactions.
 - Replacing AssetForge import execution or changing import/build formats.
 - Adding multiple independent Content Browser instances, saved browser tabs, or
@@ -161,7 +161,7 @@ and visibility do not depend on whether the Level Editor dock tab is submitted.
   removes admission before the contributing module can unload.
 - The required dependency direction is:
 
-  `MainFrame -> ContentBrowser -> DurinEd/AssetCore/AssetForge`
+  `MainFrame -> ContentBrowser -> DurinEd/Engine/AssetForge`
 
   and
 
@@ -201,7 +201,7 @@ and visibility do not depend on whether the Level Editor dock tab is submitted.
   applicability predicate, and an invocation callback protected by the
   contributing module's callback gate. Duplicate IDs and invalid registrations
   fail before mutating the registry.
-- Generic folder creation and AssetCore-backed package/file operations remain
+- Generic folder creation and Engine-backed package/file operations remain
   in `ContentBrowser`. Asset-family creation and import forms move to their
   semantic owner:
   - Level and Scene/Terrain contributions: `LevelEditor`.
@@ -226,10 +226,10 @@ and visibility do not depend on whether the Level Editor dock tab is submitted.
   Details state and never read or write browser presentation state.
 - Browser navigation, selection, search, refresh coordination, and thumbnail
   cache survive workspace switches because the singleton instance survives.
-- Content Browser prepares and commits AssetCore mutation transactions through
+- Content Browser prepares and commits Engine mutation transactions through
   the global editor transaction manager. It does not call back into a Level
   context to repair state.
-- Generic relocation publishes AssetCore mappings. `FWorkspaceManager` observes
+- Generic relocation publishes Engine mappings. `FWorkspaceManager` observes
   them to remap open document resource IDs, while `LevelEditor` separately
   observes them to move viewport-session keys and capture current-Level state.
 - Mounted-content mutation revision and reconciliation acknowledgement remain
@@ -263,7 +263,7 @@ and visibility do not depend on whether the Level Editor dock tab is submitted.
   manager, so transaction ownership is not actually Level-specific.
 - Content Browser already opens assets through an injected callback backed by
   `FWorkspaceManager`; the concrete panel does not construct asset editors.
-- AssetCore already exposes catalog snapshots, reversible deletion/relocation
+- Engine already exposes catalog snapshots, reversible deletion/relocation
   transactions, mounted-content mutation signals, and asset-move observation.
 - The browser implementation is nevertheless physically private to
   `LevelEditor`, inherits `ILevelEditorPanel`, accepts `FLevelEditorContext` in
@@ -472,7 +472,7 @@ Build and native-test selection/execution follow the repository workflows in
   scoped, unload-safe registrations.
 - Browser settings are independent; retired Level browser state is ignored and
   the new state persists without repeated writes.
-- Asset operations retain their AssetCore and global transaction semantics;
+- Asset operations retain their Engine and global transaction semantics;
   document and Level viewport state remain coherent through separate observers.
 - Cross-workspace behavior, async lifetime, shutdown, and recovery satisfy every
   stage acceptance gate and validation-matrix row.

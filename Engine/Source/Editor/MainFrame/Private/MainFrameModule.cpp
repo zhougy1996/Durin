@@ -33,6 +33,7 @@
 #include "Texture/VolumeTexture.h"
 #include "Asset.h"
 #include "Asset/AssetImportData.h"
+#include "AssetTools/IAssetTools.h"
 #include "EditorReimportHandler.h"
 #include "Dialogs/FileDialog.h"
 #include "DObject/Package.h"
@@ -411,6 +412,18 @@ namespace Durin::Editor::MainFrame
 									GEditor->GetTransactionManager(), Moves)
 								: ContentBrowser::FActionResult{
 									false, "The editor transaction manager is unavailable."};
+						},
+						.FixUpRedirectors = [](
+							std::span<const FAssetPath> Redirectors) {
+							if (!GEditor)
+								return ContentBrowser::FActionResult{
+									false, "The editor transaction manager is unavailable."};
+							const FAssetOperationResult Result =
+								GetAssetTools().FixUpRedirectors({
+									.Redirectors = {Redirectors.begin(), Redirectors.end()},
+									.Transactions = &GEditor->GetTransactionManager()});
+							return ContentBrowser::FActionResult{
+								static_cast<bool>(Result), Result.Message};
 						},
 						.OpenImport = [Level = &LevelEditorModule,
 							Texture = &TextureEditorModule,

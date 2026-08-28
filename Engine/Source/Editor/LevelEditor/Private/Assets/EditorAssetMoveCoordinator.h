@@ -15,7 +15,7 @@ namespace Durin::Editor::Level
 
 	using FEditorAssetMove = Asset::FAssetRelocationMapping;
 
-	// Extends an AssetCore move with the editor-owned state keyed by asset path.
+	// Extends an Engine Asset move with editor-owned state keyed by asset path.
 	// Applies asset moves while keeping open documents and scene references coherent.
 	class FEditorAssetMoveCoordinator final : public Asset::IAssetMoveObserver
 	{

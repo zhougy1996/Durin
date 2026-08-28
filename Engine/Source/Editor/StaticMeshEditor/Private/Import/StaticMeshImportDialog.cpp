@@ -211,7 +211,11 @@ namespace Durin::Editor::StaticMesh
 				? "StaticMesh import failed." : Result.Message);
 			return false;
 		}
-		if (const Asset::FAssetResult Saved = Asset::SavePackage(Result.Package);
+		if (const FAssetOperationResult Saved = GetAssetTools().SaveAssets({
+				.AssetPaths = {AssetPath},
+				.Publish = [this, &AssetPath](const FAssetOperationNotification&) {
+					Callbacks.NotifyAssetCreated(AssetPath.ToString());
+				}});
 			!Saved)
 		{
 			SetError(Saved.Message.empty()
@@ -219,7 +223,6 @@ namespace Durin::Editor::StaticMesh
 				: Saved.Message);
 			return false;
 		}
-		Callbacks.NotifyAssetCreated(AssetPath.ToString());
 		Asset::UnloadPackage(AssetPath);
 		return true;
 	}

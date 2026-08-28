@@ -393,7 +393,7 @@ fixtures, commands, stage checklists, evidence, and commit provenance.
 - `Engine/Source/Runtime/RenderCore/Public/Terrain/TerrainVertexFactory.h`
 - `Engine/Shaders/Slang/StaticMeshBasePass.slang`
 - `Engine/Source/Runtime/Engine/Public/Materials/MaterialInterface.h`
-- `Engine/Source/Runtime/AssetCore`
+- `Engine/Source/Runtime/Engine`
 - `Engine/Source/Developer/DerivedDataCache`
 - `Engine/Source/Developer/TerrainBuild`
 - `Engine/Source/Runtime/PhysicsCore`

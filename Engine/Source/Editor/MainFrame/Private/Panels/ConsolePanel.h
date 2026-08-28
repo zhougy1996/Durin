@@ -40,6 +40,7 @@ namespace Durin::Editor::MainFrame
 
 		std::shared_ptr<FConsolePanelState> State;
 		FConsoleCommandHandle ClearCommandHandle = 0;
+		FConsoleCommandHandle AssetFixUpCommandHandle = 0;
 		uint64 NextLogSequence = 1;
 		uint64 EvictedLogRecordCount = 0;
 		std::array<char, 128> SearchText{};

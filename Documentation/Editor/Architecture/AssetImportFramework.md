@@ -25,7 +25,7 @@ requests/jobs, and mounted-source mutation have been physically removed by the
 
 The intended dependency direction is:
 
-`Core/CoreDObject -> AssetCore/Engine -> family build modules -> DurinEd -> AssetTools/AssetForgeBuiltins -> editor hosts`
+`Core/CoreDObject -> Engine -> family build modules -> DurinEd -> AssetTools/AssetForgeBuiltins -> editor hosts`
 
 - Runtime `Engine` owns the editor-only `DAssetImportData` base and lightweight
   `FSourceFile` / `FAssetImportInfo` values. Runtime assets do not know import
@@ -35,15 +35,17 @@ The intended dependency direction is:
 - `DurinEd` owns the generic `DFactory` descriptor/discovery contract and the
   self-registering `FReimportHandler` / `FReimportManager` capability, routing,
   priority, result, and optional persistence policy.
-- `AssetTools` depends on DurinEd and owns `IAssetTools`, package
-  creation/adoption, factory invocation, result validation, and failed-package
-  discard. It has no dependency on concrete asset families.
+- `AssetTools` depends on DurinEd and owns the single `IAssetTools` service,
+  typed operation terminal/persistence/warning values, package
+  creation/adoption, factory invocation, result validation, failed-package
+  discard, and reusable editor duplicate/save/mutation orchestration. It has
+  no dependency on UI or concrete asset families.
 - `AssetForgeBuiltins` owns reflected concrete factories, concrete editor
   import data, family capture/decode/build helpers, and safe candidate/swap
   reimport implementations exposed through `FReimportHandler`.
 - Editor hosts and feature modules own file selection, destinations, and
   presentation diagnostics; they query and invoke reimport through the manager.
-- AssetCore owns package identities, resident publication state, dirty state,
+- Engine owns package identities, resident publication state, dirty state,
   persistence, atomic package-bundle saves, and cooked data.
 
 Third-party import providers, hot-unloadable importer registration, runtime
@@ -88,14 +90,15 @@ A standalone first import follows this boundary:
 1. the feature editor selects an asset class and a default or typed configured
    concrete factory;
 2. `IAssetTools` validates the destination, creates a Public/Standalone package,
-   adopts it into AssetCore residency, and invokes the factory;
+   adopts it into Engine residency, and invokes the factory;
 3. the factory creates the formal object directly under that package, captures
    required bytes once, decodes them, builds into the object, and publishes
    concrete import data;
 4. `IAssetTools` validates the returned main asset and discards the complete
    unsaved package on failure;
-5. the feature editor saves independently and sends the host-owned
-   `NotifyAssetCreated` presentation callback after success.
+5. the feature editor requests save through the same AssetTools service and
+   supplies the host publication callback; AssetTools publishes one structured
+   completion only after Engine persistence succeeds.
 
 Factories are discovered from reflected immutable CDO descriptors. A dialog
 with non-default settings creates a transient factory instance and configures
@@ -144,7 +147,7 @@ The importer:
 - binds material/texture and skeletal relationships in dependency order;
 - saves the complete output package set atomically.
 
-Scene deliberately calls the AssetCore `Asset::CreateAsset` materialization
+Scene deliberately calls the Engine `Asset::CreateAsset` materialization
 seam for its private candidate packages. It does not call single-object
 `IAssetTools`: doing so would assign independent acceptance semantics before
 the complete dependency-ordered peer set is bound, validated, and ready for

@@ -115,7 +115,7 @@ A close request while the editor is initializing is cancellation, uses the same
 exact-once unwind, and maps to a clean process result.
 
 `DEngine::Init()` places the default-material service after Engine Content,
-AssetCore, RHI, and render-command admission but before scene proxies can be
+Engine, RHI, and render-command admission but before scene proxies can be
 created. Material loading, fallback, and render-proxy semantics are defined by
 [Material System](../Rendering/MaterialSystem.md).
 
@@ -260,7 +260,7 @@ shutdown order directly:
 | Step | Boundary |
 | --- | --- |
 | Detach render consumers | Unload the selected UI backend, then shut down Mona to destroy windows and viewports and detach world, preview, thumbnail, and scene consumers. |
-| Release Engine defaults | After Engine consumer detachment, stop default-material bindings and release the retained asset/proxy before AssetCore shutdown. |
+| Release Engine defaults | After Engine consumer detachment, stop default-material bindings and release the retained asset/proxy before Engine shutdown. |
 | Release class defaults | Clear `DClass` ownership derived-first before the first GC; the later module pre-shutdown hooks normally validate an already-empty batch. |
 | Stop asset compilation | Close every compile domain, finish accepted object publication in reverse dependency order, and release provider values before Core task admission closes. |
 | Stop CPU work | After CPU producers close domain admission and publication, shut down the process [task system](TaskSystem.md) in `Drain` mode. |

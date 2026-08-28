@@ -37,20 +37,6 @@ add_subdirectory(Sandbox)
 
 # Runtime values and generic storage are allowed below authoring modules;
 # source translators and offline build tools may not flow in the opposite direction.
-if(TARGET AssetCore)
-	durin_assert_target_dependency_closure_excludes(AssetCore
-		Engine
-		StaticMeshBuild
-		SkeletalBuild
-		TerrainBuild
-		TextureBuild
-		AssetForgeBuiltins
-		assimp::assimp
-		bc7enc_rdo::bc7enc_rdo
-		rgbcx
-	)
-endif()
-
 if(TARGET Engine)
 	durin_assert_target_dependency_closure_excludes(Engine
 		StaticMeshBuild
@@ -130,7 +116,6 @@ if(TARGET DerivedDataCache)
 		Core
 	)
 	durin_assert_target_dependency_closure_excludes(DerivedDataCache
-		AssetCore
 		Engine
 		StaticMeshBuild
 		SkeletalBuild

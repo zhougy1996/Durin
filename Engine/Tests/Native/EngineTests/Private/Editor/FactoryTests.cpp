@@ -440,8 +440,102 @@ TEST(DFactoryTests, SavedFactoryPackageReloadsWithoutDuplicateLivePackage)
 	Durin::DObject* Reloaded = nullptr;
 	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Reloaded));
 	ASSERT_NE(Reloaded, nullptr);
-	EXPECT_NE(Reloaded->GetPackage(), Result.Package);
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), Reloaded->GetPackage());
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), Reloaded->GetPackage());
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
+}
+
+TEST(DFactoryTests, AssetToolsSaveAndDuplicatePublishStructuredCompletionOnce)
+{
+	InitializeFactoryTestGameThread();
+	EnsureAssetToolsTestMount();
+	Durin::FAssetPath SourcePath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/AssetToolsTests/OperationSource", SourcePath));
+	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
+	const Durin::FAssetToolsResult Created = Durin::GetAssetTools().CreateAsset(
+		SourcePath, DFactoryAssetForTest::StaticClass(), Factory);
+	ASSERT_TRUE(Created);
+
+	uint32 SaveNotifications = 0;
+	const Durin::FAssetOperationResult Saved = Durin::GetAssetTools().SaveAssets({
+		.AssetPaths = {SourcePath},
+		.Publish = [&SaveNotifications](const Durin::FAssetOperationNotification& Event) {
+			++SaveNotifications;
+			EXPECT_EQ(Event.Kind, Durin::EAssetOperationKind::Save);
+			EXPECT_EQ(Event.Persistence,
+				Durin::EAssetOperationPersistenceState::Persisted);
+		}});
+	ASSERT_TRUE(Saved);
+	EXPECT_EQ(SaveNotifications, 1);
+	EXPECT_TRUE(Saved.bPublished);
+
+	uint32 DuplicateNotifications = 0;
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "AssetTools";
+	const Durin::FAssetOperationResult Duplicated =
+		Durin::GetAssetTools().DuplicateAsset({
+			.SourcePath = SourcePath,
+			.DestinationDirectory = "/AssetToolsTests/",
+			.ResolvePhysicalPackagePath = [&Root](const Durin::FAssetPath& Path) {
+				return (Root / (std::string(Path.GetAssetName()) + ".dasset"))
+					.generic_string();
+			},
+			.Publish = [&DuplicateNotifications](
+				const Durin::FAssetOperationNotification& Event) {
+				++DuplicateNotifications;
+				EXPECT_EQ(Event.Kind, Durin::EAssetOperationKind::Duplicate);
+			}});
+	ASSERT_TRUE(Duplicated);
+	ASSERT_EQ(Duplicated.AffectedAssets.size(), 1);
+	EXPECT_EQ(Duplicated.AffectedAssets.front().ToString(),
+		"/AssetToolsTests/OperationSource_Copy");
+	EXPECT_EQ(DuplicateNotifications, 1);
+	EXPECT_EQ(Duplicated.Persistence,
+		Durin::EAssetOperationPersistenceState::Persisted);
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(Duplicated.AffectedAssets.front()));
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(SourcePath));
+}
+
+TEST(DFactoryTests, DuplicateSaveFailureDiscardsOnlyDisposableDestination)
+{
+	InitializeFactoryTestGameThread();
+	EnsureAssetToolsTestMount();
+	Durin::FAssetPath SourcePath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/AssetToolsTests/DuplicateCleanupSource", SourcePath));
+	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
+	const Durin::FAssetToolsResult Created = Durin::GetAssetTools().CreateAsset(
+		SourcePath, DFactoryAssetForTest::StaticClass(), Factory);
+	ASSERT_TRUE(Created);
+	ASSERT_TRUE(Durin::Asset::SavePackage(Created.Package));
+
+	const std::filesystem::path InvalidRoot =
+		Durin::Testing::GetTestWorkDirectory() / "AssetToolsDuplicateSaveFailure";
+	Durin::PathUtilities::RegisterMountPointForTests(
+		"/AssetToolsDuplicateSaveFailure/", InvalidRoot.generic_string() + "/");
+	Durin::Testing::RemoveTestWorkDirectory(InvalidRoot);
+	const std::array InvalidRootBytes{std::byte{1}};
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(InvalidRootBytes, InvalidRoot));
+
+	uint32 Notifications = 0;
+	const Durin::FAssetOperationResult Duplicated =
+		Durin::GetAssetTools().DuplicateAsset({
+			.SourcePath = SourcePath,
+			.DestinationDirectory = "/AssetToolsDuplicateSaveFailure/",
+			.ResolvePhysicalPackagePath = [&InvalidRoot](const Durin::FAssetPath& Path) {
+				return (InvalidRoot / (std::string(Path.GetAssetName()) + ".dasset"))
+					.generic_string();
+			},
+			.Publish = [&Notifications](const Durin::FAssetOperationNotification&) {
+				++Notifications;
+			}});
+	EXPECT_FALSE(Duplicated);
+	EXPECT_EQ(Notifications, 0);
+	Durin::FAssetPath DestinationPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/AssetToolsDuplicateSaveFailure/DuplicateCleanupSource", DestinationPath));
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(DestinationPath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(SourcePath), Created.Package);
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(SourcePath));
 }

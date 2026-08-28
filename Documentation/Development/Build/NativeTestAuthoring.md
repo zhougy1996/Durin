@@ -113,13 +113,13 @@ add_durin_test(PackageRoundTripTests
 )
 
 target_link_libraries(PackageRoundTripTests PRIVATE
-    AssetCore
+    Engine
 )
 
 durin_register_native_test(PackageRoundTripTests
     KIND feature
     DOMAINS asset-package
-    MODULES asset-core
+    MODULES engine
 )
 ```
 

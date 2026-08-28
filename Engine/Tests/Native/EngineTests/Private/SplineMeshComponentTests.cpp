@@ -1,7 +1,12 @@
 #include "Components/SplineMeshComponent.h"
 #include "Components/SplineComponent.h"
 
-#include "AssetTools.h"
+#include "Asset/AssetOperations.h"
+#include "Asset/Mutation.h"
+#include "Asset/PackageSerialization.h"
+#include "AssetCook.h"
+#include "Asset/CanonicalResave.h"
+#include "Asset/Compatibility.h"
 #include "Actors/SplineMeshActor.h"
 #include "CoreGlobals.h"
 #include "DObject/Class.h"

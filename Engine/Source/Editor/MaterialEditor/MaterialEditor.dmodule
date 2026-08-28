@@ -7,7 +7,6 @@
 		"RenderCore",
         "Engine",
 		"Mona",
-        "AssetCore",
         "MonaImGui",
 		"ContentBrowser",
 		"DurinEd"

@@ -2,7 +2,7 @@
 
 Summary: Define asset identity, package serialization, runtime residency, loading, and compatibility inspection.
 
-Modules: AssetCore, CoreDObject
+Modules: Engine, CoreDObject
 
 Last reviewed: 2026-08-27
 
@@ -10,14 +10,14 @@ Durin object assets are stored as versioned `.dasset` packages. A package has on
 
 ## Public Capability Boundary
 
-AssetCore exposes capability-named entry points rather than one complete public
+Engine exposes capability-named entry points rather than one complete public
 surface. `Asset.h` is the ordinary runtime entry point for catalog lookup,
 redirect resolution, package residency, asset loading, and cooked-payload
 reading. Callers include `Asset/AssetOperations.h`, `Asset/Mutation.h`, or
 `Asset/PackageSerialization.h` for the exact create/save, asset-mutation, or
 serialization capability. `AssetCook.h` adds Cook
 reachability, cooked-container construction, package serialization for Cook, and
-manifest publication. `AssetTools.h` adds offline inspection, compatibility, and
+manifest publication. Explicit `Asset/...` capability headers add offline inspection, compatibility, and
 canonical-resave workflows.
 
 Public Engine asset headers include narrow leaves such as
@@ -26,7 +26,7 @@ signatures require those declarations. They do not include an
 umbrella solely to obtain one value type. Callers select `PackageTypes.h`,
 `PackageInspection.h`, or `PackageSerialization.h` by capability; there is no
 package compatibility aggregate.
-The V4 reader, writer, archive adapter, and version policy remain AssetCore
+The V4 reader, writer, archive adapter, and version policy remain Engine
 implementation details.
 
 ## Paths And Mounts
@@ -54,7 +54,7 @@ The physical filename is the resolved virtual path plus `.dasset`. Main assets u
 
 ## Runtime Lifetime
 
-`DPackage` is an Outer-less object graph root. AssetCore's private runtime state
+`DPackage` is an Outer-less object graph root. Engine's private runtime state
 roots resident packages for garbage collection and caches one package instance
 per `FAssetPath`. Newly created and persistent packages share that store. Each
 resident entry is explicitly `NewlyCreated` or `Published`, while
@@ -65,7 +65,7 @@ uses `FindResidentPackage` for either state; save promotes the same entry to
 Public asset load first accepts an already resident non-redirector package,
 including a newly created package, without file I/O. Otherwise it resolves the
 persistent catalog and caches only the final real package; redirector packages
-are constructed only through AssetCore's internal exact tooling seam. A catalog
+are constructed only through Engine's internal exact tooling seam. A catalog
 miss never guesses a physical filename or discovers an unindexed file. Unload
 rejects newly created or dirty packages by default. A caller that intentionally
 abandons unsaved work passes `EAssetPackageUnloadPolicy::DiscardUnsaved` to the
@@ -126,7 +126,7 @@ of its main asset class. It is the repository baseline, ordinary writer, and
 only supported package format. DAST has the permanent format identity
 `3c59d1a9-6ceb-4e4c-b059-452db0a5af56` and canonical diagnostic name
 `Durin.BinaryFormat.DAST`. DURF carries `(FormatId, FormatVersion)` and common
-integrity facts; AssetCore resolves that pair through an immutable codec
+integrity facts; Engine resolves that pair through an immutable codec
 registry before DAST parses package sections. Unknown identities, unsupported
 features or versions, legacy prefixes, and corrupt envelopes fail before object
 construction, mutation, or publication.
@@ -159,7 +159,7 @@ payload bytes or carry a codec tag. A cooked `.dbulk` is DURF/DBLK v2; the
 
 ### DAST v6 Envelope Route
 
-AssetCore implements DAST v6 under `DURF` v1 as its capability-complete
+Engine implements DAST v6 under `DURF` v1 as its capability-complete
 production codec. Its 32-byte format header
 records package kind, zero flags, absolute directory offset, section count,
 48-byte entry size, and zero reserved word. The canonical required sections are
@@ -190,7 +190,7 @@ available. V6 is the supported-reader route and ordinary writer.
 
 ### DAST v6 Ordinary Route
 
-AssetCore registers one reader-, writer-, and mutation-complete DAST v6 codec
+Engine registers one reader-, writer-, and mutation-complete DAST v6 codec
 and selects it for ordinary single-package and bundle saves. Existing file,
 asset type, payload size, or environment values never change that policy.
 Legacy DAST prefixes have no production reader, writer, migration, or rollback
@@ -200,7 +200,7 @@ Directory; v6 has no EOF trailer or footer.
 ### DAST Logical Object-Stream Wire Contract
 
 The logical object stream is an internal canonical grammar carried by DAST v6
-sections. AssetCore exposes production-owned low-level writer and reader
+sections. Engine exposes production-owned low-level writer and reader
 boundaries, while package policy routes header, inspection, compatibility,
 reference, registry/cache, and live-load operations only through v6. Its
 internal grammar version is 5 and does not identify a supported standalone
@@ -397,7 +397,7 @@ omitted object must not remain reachable through a non-omitted hard reference,
 and the package root cannot be omitted.
 
 Live graph discovery, override validation, and logical value capture end at an
-AssetCore-private captured-package boundary. That value owns the object
+Engine-private captured-package boundary. That value owns the object
 topology, effective field nodes, strings, descriptors, references,
 dependencies, retained unknown values, custom versions, and default-delta plan
 needed by DAST encoding. Encoding receives only that captured state plus frozen
@@ -636,7 +636,7 @@ disappear, and project changes or shutdown cancel and drain the worker before
 editor-owned state is released. The window offers no save, rewrite, discard, or
 other data-loss action.
 
-DurinDevTool exposes the same AssetCore probe through the read-only `asset`
+DurinDevTool exposes the same Engine probe through the read-only `asset`
 default and explicit `asset check` command. The configured game project is the
 default; `--project <descriptor>` overrides it. Its native host enumerates
 auto-scan mount contents without publishing or persisting an asset-registry
@@ -662,7 +662,7 @@ Missing fields keep the constructor's null/default value.
 Soft-object serialization never writes the weak loaded-object cache and never
 adds its target to the package header dependency table. Loading stores the path
 with an empty cache and succeeds when the target is unloaded or missing;
-resolution and loading remain explicit typed AssetCore operations. Therefore a
+resolution and loading remain explicit typed Engine operations. Therefore a
 soft path neither eagerly loads its target nor prevents target-package unload.
 Archive property serialization and snapshots use the same bounded null/path
 identity rule and likewise ignore loaded state.
@@ -678,10 +678,10 @@ Authored struct persistence is allowed only when its immutable `FDStructOps`
 table advertises `AuthoredFieldsComplete`, unless the struct declares one
 universal Archive serializer for its complete durable representation. Otherwise
 save, package load, and typed inspection fail closed with
-`CustomStructCodecRequired`. AssetCore never silently omits durable unreflected
+`CustomStructCodecRequired`. Engine never silently omits durable unreflected
 state. A custom serializer still enters stable named nested fields and uses the
 same logical types, so tagged DAST compatibility inspection remains possible.
-No current production struct requires a separate AssetCore-only custom codec.
+No current production struct requires a separate Engine-only custom codec.
 
 DAST retains the logical `Array<...>` and `Map<...,...>` signatures, count
 fields, and entry payload grammar. New Map saves order entries by the canonical
@@ -698,7 +698,7 @@ allocation, truncation, duplicate, type, or repair failures unwind temporary
 values and leave the original destination unchanged. Diagnostics identify the
 array element or Map entry key/value path that failed.
 
-AssetCore decodes each struct into default-constructed managed temporary
+Engine decodes each struct into default-constructed managed temporary
 storage and requires copy assignment before reading the payload. After every
 known nested field has loaded successfully, an optional `PostDeserialize`
 callback receives `AuthoredAsset` plus the DAST format version. Only successful
@@ -712,7 +712,7 @@ their parsed `FAssetPath` caches from authored path text.
 ### Construct-Free Package Tooling
 
 Complete live save/load and byte-only tooling deliberately meet at the DAST
-logical value grammar rather than at object construction. AssetCore's package
+logical value grammar rather than at object construction. Engine's package
 Archives and tooling share the bounded scalar, container, struct, hard/soft
 reference, type-signature, native-field, and canonical Map-key rules. There is
 no second live-object serializer outside the Archive adapters.
@@ -745,7 +745,7 @@ of being silently omitted.
 ## Subsystem Boundary
 
 - `CoreDObject` owns `DPackage`, `FAssetPath`, object paths, qualified reflected class identities, and type-erased container access.
-- `AssetCore` owns `.dasset` I/O, the synchronous asset registry, package caching, dependency loading, construct-free compatibility reports, strict schema preflight, DDC storage, and cooked container/publication primitives.
+- `Engine` owns `.dasset` I/O, the synchronous asset registry, package caching, dependency loading, construct-free compatibility reports, strict schema preflight, DDC storage, and cooked container/publication primitives.
 - `DerivedDataCache` owns opaque cache access and the family-neutral definition,
   function, policy, value, and synchronous session contracts; it does not own
   typed asset recipes or object-aware compilation lifecycle.
@@ -785,7 +785,7 @@ well as external identity. `EditorBulkDataStorage` can enumerate descriptors,
 referenced companions, and unreferenced same-package companions read-only.
 
 The texture domain composes these physical facts through
-`InspectTexturePayloadPackage`. AssetCore does not interpret dimensions, pixel
+`InspectTexturePayloadPackage`. Engine does not interpret dimensions, pixel
 formats, voxel counts, domain schema versions, or repair policy. Inspection may read and
 validate a referenced companion, but it never publishes, restores, removes, or
 rewrites a file; those remain explicit package/source/Cook workflows.
@@ -799,7 +799,7 @@ resave is the supported migration without changing the opcode layout.
 Values below 256 KiB carry a normal bounded inline Blob after the descriptor;
 values at or above 256 KiB carry no payload bytes in DAST.
 
-The reflected UE-style `FEditorBulkData` value composes AssetCore's
+The reflected UE-style `FEditorBulkData` value composes Engine's
 storage-neutral `FBulkData` with editor-side atomic replacement. The value
 contains only payload id, logical byte count, content hash, and immutable
 resident bytes; it has no semantic format, authority, provider, residency,
@@ -820,7 +820,7 @@ duplicate or unordered ids,
 misalignment, overlap, gaps, nonzero padding, bounds overflow, size/hash
 mismatch, wrong container identity, and trailing bytes.
 
-AssetCore's bounded container mechanism supplies DURF discovery,
+Engine's bounded container mechanism supplies DURF discovery,
 little-endian IO, checked alignment, canonical ordering, zero padding, safe
 range projection, and layout validation. DABK owns its descriptors, suffix,
 recovery, and publication transaction; the reflected asset owns payload meaning

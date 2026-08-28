@@ -10,7 +10,6 @@
         "RHI",
         "RenderCore",
         "Engine",
-        "AssetCore",
         "AssetForgeBuiltins",
         "TextureBuild",
         "MonaImGui",

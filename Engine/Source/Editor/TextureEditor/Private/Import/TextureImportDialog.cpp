@@ -480,7 +480,11 @@ namespace Durin::Editor::Texture
 					? "VolumeTexture import failed." : Result.Message);
 				return false;
 			}
-			if (const Asset::FAssetResult Saved = Asset::SavePackage(Result.Package);
+			if (const FAssetOperationResult Saved = GetAssetTools().SaveAssets({
+					.AssetPaths = {AssetPath},
+					.Publish = [CompletionCallbacks, Path](const FAssetOperationNotification&) {
+						CompletionCallbacks.NotifyAssetCreated(Path);
+					}});
 				!Saved)
 			{
 				SetError(Saved.Message.empty()
@@ -488,7 +492,6 @@ namespace Durin::Editor::Texture
 					: Saved.Message);
 				return false;
 			}
-			CompletionCallbacks.NotifyAssetCreated(Path);
 			Asset::UnloadPackage(AssetPath);
 			return true;
 		}
@@ -506,7 +509,11 @@ namespace Durin::Editor::Texture
 				? "Texture2D import failed." : Result.Message);
 			return false;
 		}
-		if (const Asset::FAssetResult Saved = Asset::SavePackage(Result.Package);
+		if (const FAssetOperationResult Saved = GetAssetTools().SaveAssets({
+				.AssetPaths = {AssetPath},
+				.Publish = [CompletionCallbacks, Path](const FAssetOperationNotification&) {
+					CompletionCallbacks.NotifyAssetCreated(Path);
+				}});
 			!Saved)
 		{
 			SetError(Saved.Message.empty()
@@ -514,7 +521,6 @@ namespace Durin::Editor::Texture
 				: Saved.Message);
 			return false;
 		}
-		CompletionCallbacks.NotifyAssetCreated(Path);
 		Asset::UnloadPackage(AssetPath);
 		return true;
 	}

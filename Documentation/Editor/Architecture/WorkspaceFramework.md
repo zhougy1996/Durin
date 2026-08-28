@@ -200,7 +200,7 @@ introduced by that request; packages that were already loaded remain owned by
 their existing users.
 
 Workspaces expose no save, discard, repair, open-without-saving, or data-loss
-action for an incompatible package. AssetCore's ordinary-save guard remains the
+action for an incompatible package. Engine's ordinary-save guard remains the
 final persistence boundary if another caller bypasses the workspace policy.
 
 The `StaticMeshEditor` workspace is presented as **StaticMesh Inspector** and is

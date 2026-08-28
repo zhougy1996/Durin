@@ -2,7 +2,11 @@
 #include "DObject/Package.h"
 #include "Panels/ContentBrowserFilesystem.h"
 
-#include "AssetTools.h"
+#include "Asset/CanonicalResave.h"
+#include "Asset/Catalog.h"
+#include "Asset/Compatibility.h"
+#include "Asset/Load.h"
+#include "AssetTools/IAssetTools.h"
 #include "AssetForge/Builtins/SceneImport.h"
 #include "Assets/ContentBrowserThumbnailReferences.h"
 #include "Misc/Paths.h"
@@ -27,59 +31,25 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::SaveAssetPackage(const FAssetPath& Path) -> void
 	{
-		DPackage* Package = Asset::FindResidentPackage(Path);
-		if (!Package || !Package->IsDirty())
-		{
-			SetError("Save Package is available only for a loaded package with authored changes.");
-			return;
-		}
-		const Asset::FAssetResult Save = Asset::SavePackage(Package);
-		if (!Save) { SetError(Save.Message); return; }
-		PublishMountedContentMutation();
+		const FAssetOperationResult Save = GetAssetTools().SaveAssets({
+			.AssetPaths = {Path},
+			.Publish = [this](const FAssetOperationNotification&) {
+				PublishMountedContentMutation();
+			}});
+		if (!Save) SetError(Save.Message);
 	}
 
 	auto FContentBrowserPanel::ResaveAssetPackages(std::vector<FAssetPath> Paths) -> void
 	{
 		std::ranges::sort(Paths, {}, &FAssetPath::ToString);
 		Paths.erase(std::unique(Paths.begin(), Paths.end()), Paths.end());
-		const Asset::FAssetPackageDiscoverySnapshot Snapshot =
-			Asset::CaptureMountedAssetPackageSnapshot();
-		if (Snapshot.Status != Asset::EAssetPackageSnapshotStatus::Completed)
-		{
-			SetError(Snapshot.Error.empty() ? "Canonical-resave discovery did not complete." : Snapshot.Error);
-			return;
-		}
-		const Asset::FReflectionCompatibilityCatalog Catalog =
-			Asset::FReflectionCompatibilityCatalog::Capture();
-		std::vector<Asset::FAssetPackageCompatibilityRecord> Records;
-		for (const FAssetPath& Path : Paths)
-		{
-			const auto Input = std::ranges::find(Snapshot.Packages, Path,
-				&Asset::FAssetPackageCompatibilityProbeInput::PackagePath);
-			if (Input == Snapshot.Packages.end())
-			{
-				SetError(std::format("Package {} is not in an content-writable mounted snapshot.", Path.ToString()));
-				return;
-			}
-			auto Probe = Asset::ProbeAssetPackageCompatibility(*Input, Catalog);
-			if (!Probe.Record)
-			{
-				SetError(std::format("Package {} could not be inspected.", Path.ToString()));
-				return;
-			}
-			Records.push_back(std::move(*Probe.Record));
-		}
-		Asset::FAssetCanonicalResaveSelection Selection{
-			.Packages = std::move(Paths), .bAllowPlainResave = true};
-		auto Plan = Asset::PlanAssetCanonicalResaves(Records, Selection);
-		auto Applied = Asset::ApplyAssetCanonicalResaves(std::move(Plan), Catalog);
-		if (Applied.Status != Asset::EAssetCanonicalResaveApplyStatus::Succeeded)
-		{
-			SetError(Applied.Diagnostic.empty()
-				? Asset::SerializeAssetCanonicalResaveApplyReport(Applied) : Applied.Diagnostic);
-			return;
-		}
-		PublishMountedContentMutation();
+		const FAssetOperationResult Result = GetAssetTools().SaveAssets({
+			.AssetPaths = std::move(Paths),
+			.Mode = EAssetSaveMode::CanonicalResave,
+			.Publish = [this](const FAssetOperationNotification&) {
+				PublishMountedContentMutation();
+			}});
+		if (!Result) SetError(Result.Message);
 	}
 
 	FContentBrowserPanel::FContentBrowserPanel(
@@ -87,6 +57,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		::Durin::Editor::ContentBrowser::FSavePresentationSettings InSaveSettings,
 		FOpenAsset InOpenAsset,
 		FMoveAssets InMoveAssets,
+		FFixUpAssets InFixUpRedirectors,
 		FExecuteTransaction InExecuteTransaction,
 		FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
 		FNotifyMountedContentMutation InNotifyMountedContentMutation,
@@ -103,7 +74,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		, ExecuteTransaction(std::move(InExecuteTransaction))
 		, GetMountedContentMutationRevision(
 			std::move(InGetMountedContentMutationRevision))
-		, NotifyMountedContentMutation(std::move(InNotifyMountedContentMutation))
+		, NotifyMountedContentMutation(InNotifyMountedContentMutation)
 		, OpenImport(std::move(InOpenImport))
 		, QueryReimport(std::move(InQueryReimport))
 		, Reimport(std::move(InReimport))
@@ -115,7 +86,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			Asset::GetAssetCatalogRevision(),
 			std::move(InMountedContentReconciliationState))
 		, Model()
-		, Operations(Model, std::move(InMoveAssets))
+		, Operations(Model, std::move(InMoveAssets), {},
+			std::move(InFixUpRedirectors), std::move(InNotifyMountedContentMutation))
 		, IconSize(PresentationSettings.IconSize)
 		, DirectoryTreeWidth(PresentationSettings.TreeWidth)
 	{
@@ -411,7 +383,6 @@ namespace Durin::Editor::ContentBrowser::Private
 			SetError(Result.Status.Message);
 			return;
 		}
-		PublishMountedContentMutation();
 		RevealAsset(Result.RevealAssetPath);
 	}
 
@@ -444,7 +415,6 @@ namespace Durin::Editor::ContentBrowser::Private
 			SetError(Result.Status.Message);
 			return;
 		}
-		PublishMountedContentMutation();
 		RevealAsset(Result.RevealAssetPath);
 	}
 
@@ -469,7 +439,6 @@ namespace Durin::Editor::ContentBrowser::Private
 			SetError(Result.Status.Message);
 			return;
 		}
-		PublishMountedContentMutation();
 		const std::string NormalizedDirectory =
 			std::filesystem::path(Result.FocusPhysicalPath)
 				.parent_path()
@@ -522,7 +491,6 @@ namespace Durin::Editor::ContentBrowser::Private
 			SetError(Result.Message);
 			return;
 		}
-		PublishMountedContentMutation();
 	}
 
 	auto FContentBrowserPanel::FixUpFolder(
@@ -535,7 +503,6 @@ namespace Durin::Editor::ContentBrowser::Private
 			SetError(Result.Message);
 			return;
 		}
-		PublishMountedContentMutation();
 	}
 
 	auto FContentBrowserPanel::FixUpProject() -> void

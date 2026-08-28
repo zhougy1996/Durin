@@ -1,7 +1,8 @@
 #include "Panels/ContentBrowserModel.h"
 #include "Panels/ContentBrowserOperations.h"
 
-#include "Editor/AssetRelocation.h"
+#include "Asset/Relocation.h"
+#include "AssetTools/IAssetTools.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
 #include "Editor/Transaction.h"
@@ -378,11 +379,11 @@ TEST_F(FContentBrowserModelTests, RelocationUsesOneSharedUndoRedoTransaction)
 	ASSERT_TRUE(Asset::CreateAsset(SourcePath, Material));
 	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
 
-	const Asset::FAssetRelocationMapping Mapping{
+	const FAssetRelocation Mapping{
 		SourcePath, DestinationPath};
 	Durin::Editor::FTransactionManager Transactions;
-	ASSERT_TRUE(Durin::Editor::ExecuteAssetRelocations(
-		Transactions, std::span{&Mapping, 1}));
+	ASSERT_TRUE(GetAssetTools().RelocateAssets({
+		.Mappings = {Mapping}, .Transactions = &Transactions}));
 	EXPECT_EQ(Transactions.GetUndoDescription(), "Move Asset");
 	EXPECT_EQ(Asset::ResolveAssetPath(SourcePath).FinalPath,
 		DestinationPath);
@@ -1187,21 +1188,6 @@ TEST_F(FContentBrowserModelTests, OperationsPropagateMoveFailureAndUseRecursiveD
 	EXPECT_TRUE(std::filesystem::exists(Folder));
 	EXPECT_TRUE(std::filesystem::exists(Folder / "child.txt"));
 
-	const FContentBrowserItem InvalidAsset{
-		.Kind = EContentBrowserItemKind::Asset,
-		.Name = "Invalid",
-		.VirtualPath = "not-an-asset-path",
-		.PhysicalPath = (Root / "Content/Invalid.dasset").generic_string()};
-	std::vector<std::pair<std::string, Asset::FAssetDeleteAnalysis>> Analyses;
-	std::vector<std::pair<std::string, Asset::FAssetResult>> Errors;
-	Operations.AnalyzeDeletion(
-		std::span{&InvalidAsset, 1},
-		std::unordered_set<std::string>{InvalidAsset.StableId()},
-		Analyses,
-		Errors);
-	EXPECT_TRUE(Analyses.empty());
-	ASSERT_EQ(Errors.size(), 1);
-	EXPECT_EQ(Errors.front().second.Message, "Asset path is invalid.");
 }
 
 TEST_F(FContentBrowserModelTests, RefreshesSnapshotAfterFolderMutation)

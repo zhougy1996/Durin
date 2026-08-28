@@ -1,7 +1,10 @@
 #pragma once
 
 #include "AssetToolsAPI.h"
-#include "DObject/AssetPath.h"
+#include "AssetTools/AssetDeletion.h"
+#include "AssetTools/AssetDuplicate.h"
+#include "AssetTools/AssetMutation.h"
+#include "AssetTools/AssetSave.h"
 #include "DObject/Object.h"
 
 namespace Durin
@@ -10,15 +13,7 @@ namespace Durin
 	class DFactory;
 	class DPackage;
 
-	struct FAssetToolsResult
-	{
-		DObject* Asset = nullptr;
-		DPackage* Package = nullptr;
-		std::string Message;
-
-		auto Succeeded() const -> bool { return Asset != nullptr; }
-		explicit operator bool() const { return Succeeded(); }
-	};
+	using FAssetToolsResult = FAssetOperationResult;
 
 	// Coordinates editor asset construction while factories own object-specific
 	// initialization. Returned assets are live and unsaved; the package is kept
@@ -48,6 +43,26 @@ namespace Durin
 		// Discards a package created through this service. Unsaved state is
 		// intentionally abandoned and the full object hierarchy is collected.
 		virtual auto DiscardPackage(DPackage* Package) -> bool = 0;
+
+		// Chooses a collision-free copy identity, clones the persistent graph, and
+		// applies the request's dirty-versus-persisted publication policy.
+		virtual auto DuplicateAsset(const FAssetDuplicateRequest& Request)
+			-> FAssetOperationResult = 0;
+		// Persists loaded dirty packages or executes canonical resave policy.
+		virtual auto SaveAssets(const FAssetSaveRequest& Request)
+			-> FAssetOperationResult = 0;
+		// Commits one opaque relocation transaction into global editor history.
+		virtual auto RelocateAssets(const FAssetRelocationRequest& Request)
+			-> FAssetOperationResult = 0;
+		// Rewrites redirect references through one reversible Engine transaction.
+		virtual auto FixUpRedirectors(
+			const FAssetRedirectorFixupRequest& Request)
+			-> FAssetOperationResult = 0;
+		// Captures asset safety and the opaque transaction without staging bytes.
+		virtual auto PrepareDeletion(
+			const FAssetDeletionRequest& Request,
+			FAssetDeletionOperation& OutOperation)
+			-> FAssetOperationResult = 0;
 	};
 
 	ASSETTOOLS_API auto GetAssetTools() -> IAssetTools&;

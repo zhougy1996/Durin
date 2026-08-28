@@ -2,7 +2,7 @@
 
 Summary: Define mounted package discovery, immutable catalog and reference projections, and transactional asset relocation, deletion, and path fix-up.
 
-Modules: AssetCore, DurinEd, LevelEditor
+Modules: Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
 Last reviewed: 2026-08-23
 
@@ -40,7 +40,9 @@ Public headers remain split by responsibility: `Asset/Catalog.h` owns discovery
 values, `Asset/References.h` owns the immutable reference projection,
 `Asset/Load.h` owns runtime resolution and residency, `Asset/Mutation.h` owns
 asset-mutation transactions, and `Asset/Testing.h` owns deterministic failure seams.
-The supported aggregate entry points are defined by
+Runtime and offline consumers include these capability headers directly; the
+former ambiguous root `AssetTools.h` aggregate no longer exists. The supported
+aggregate entry points are defined by
 [Asset Packages](AssetPackages.md#public-capability-boundary). There is no
 public mutable catalog manager.
 
@@ -78,6 +80,24 @@ targets. The result remains unsaved so class-owning editor code can replace
 clone-specific identity before publishing it through the ordinary package-save
 seam. Redirectors and occupied catalog or resident destinations are rejected;
 failure discards every partially constructed clone.
+
+Editor callers do not compose that seam directly. AssetTools selects the
+deterministic `_Copy`, `_Copy2`, and later destination against catalog,
+residency, and physical occupancy, invokes graph duplication, applies the
+requested dirty-versus-persisted policy, and discards only the disposable
+destination if persistence fails.
+
+## Editor Orchestration Boundary
+
+Engine remains the sole owner of package identity, bytes, catalog/residency,
+graph copying, reference analysis, and opaque mutation transactions.
+`IAssetTools` owns reusable editor acceptance, typed terminal and persistence
+results, history retention, cleanup, and one completion publication. Editor
+hosts own UI and presentation; ContentBrowser additionally owns recursive
+ordinary-file planning and physical stage/restore for mixed deletion.
+Successful transaction Execute, Undo, and Redo each advance DurinEd's
+mounted-content mutation revision exactly once; rejected or compensated
+attempts publish none.
 
 ## Relocation Transactions
 

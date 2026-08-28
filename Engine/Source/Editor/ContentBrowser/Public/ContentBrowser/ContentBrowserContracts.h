@@ -120,6 +120,7 @@ namespace Durin::Editor::ContentBrowser
 		std::function<uint64()> GetMountedContentMutationRevision;
 		std::function<void()> NotifyMountedContentMutation;
 		std::function<FActionResult(std::span<const FAssetMove>)> MoveAssets;
+		std::function<FActionResult(std::span<const FAssetPath>)> FixUpRedirectors;
 		std::function<void(EBuiltinImportFamily, std::string)> OpenImport;
 		std::function<FReimportAvailability(std::string_view)> QueryReimport;
 		std::function<void(bool, std::string, std::function<void(std::string)>)> Reimport;

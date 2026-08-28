@@ -90,7 +90,7 @@ class TestModuleDependency:
                     "LinkType": "Static",
                     "PCH": "SharedPCH_Core",
                     "PrivateDependencies": ["Core"],
-                    "PublicDependencies": ["AssetCore"],
+                    "PublicDependencies": ["ExampleRuntime"],
                     "OptionalPrivateDependencies": ["DurinEd"],
                     "OptionalPublicDependencies": ["MonaImGui"],
                     "ReflectHeaders": ["Public/Fixture.h"],
@@ -129,7 +129,7 @@ class TestModuleDependency:
         assert module_config.link_type == "Static"
         assert module_config.pch == "SharedPCH_Core"
         assert module_config.private_dependencies == ["Core"]
-        assert module_config.public_dependencies == ["AssetCore"]
+        assert module_config.public_dependencies == ["ExampleRuntime"]
         assert module_config.optional_private_dependencies == ["DurinEd"]
         assert module_config.optional_public_dependencies == ["MonaImGui"]
         assert module_config.reflect_headers == ["Public/Fixture.h"]

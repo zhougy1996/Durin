@@ -4,7 +4,6 @@
     "PCH": "SharedPCH_DObject",
     "PrivateDependencies": [
         "Core",
-		"AssetCore",
         "RHI",
         "Engine",
         "RenderCore",
