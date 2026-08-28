@@ -749,13 +749,14 @@ namespace Durin::Editor::Material
 		const FGuid NodeId = Request.Node.Id;
 		std::vector<FGuid> Generated{NodeId};
 		FMaterialGraphPresentation Presentation = Material.GetMaterialGraphPresentation();
+		const FMaterialGraphCanvasMetrics& Metrics = FMaterialGraphGeometry::GetMetrics();
 		for (size_t Index = 0; Index < Defaults.size(); ++Index)
 		{
 			Generated.push_back(Defaults[Index].Id);
 			Presentation.Nodes.push_back({Defaults[Index].Id,
-				Request.X - static_cast<int32>(FMaterialGraphGeometry::GetMetrics().NodeWidth
-					+ FMaterialGraphGeometry::GetMetrics().ColumnGap),
-				Request.Y + static_cast<int32>(Index * FMaterialGraphGeometry::GetMetrics().PinRowHeight * 2.0f)});
+				Request.X - static_cast<int32>(Metrics.NodeWidth + Metrics.ColumnGap),
+				Request.Y + static_cast<int32>(Index
+					* (FMaterialGraphGeometry::GetNodeHeight(0) + Metrics.RowGap))});
 			Candidate.Nodes.push_back(std::move(Defaults[Index]));
 		}
 		Candidate.Nodes.push_back(std::move(Request.Node));

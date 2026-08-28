@@ -268,7 +268,8 @@ namespace Durin::Editor::Material
 		}
 		if (SelectedNodes.empty())
 		{
-			const ImVec2 SurfaceMinimum = SurfaceGraphMinimum(View);
+			const ImVec2 SurfaceMinimum = SurfaceGraphPosition.value_or(
+				SurfaceGraphMinimum(View));
 			const ImVec2 SurfaceMaximum = Add(SurfaceMinimum,
 				{Metrics.SurfaceWidth, Metrics.SurfaceHeaderHeight
 					+ Metrics.PinRowHeight * 8.0f + Metrics.BodyPadding});
@@ -306,8 +307,12 @@ namespace Durin::Editor::Material
 			const bool bFrameSelectionRequested = ImGui::Button("Frame Selection");
 			ImGui::SameLine();
 			if (ImGui::Button("Auto Layout"))
-				ReportCommand(FMaterialGraphOperations::Layout(
-					Material, {}, &Transactions), ReportError);
+			{
+				const FMaterialGraphCommandResult Layout = FMaterialGraphOperations::Layout(
+					Material, {}, &Transactions);
+				ReportCommand(Layout, ReportError);
+				if (Layout) SurfaceGraphPosition.reset();
+			}
 			ImGui::SameLine();
 			const char* DetailName = DetailLevel == EMaterialGraphDetailLevel::Overview
 				? "Overview" : DetailLevel == EMaterialGraphDetailLevel::Editing
@@ -322,7 +327,18 @@ namespace Durin::Editor::Material
 				const FMaterialGraphCommandResult Layout =
 					FMaterialGraphOperations::Layout(Material, {}, &Transactions);
 				ReportCommand(Layout, ReportError);
-				if (Layout) View = FMaterialGraphOperations::Inspect(Material);
+				if (Layout)
+				{
+					View = FMaterialGraphOperations::Inspect(Material);
+					SurfaceGraphPosition.reset();
+				}
+			}
+			const uint64 AuthoredRevision =
+				Material.GetMaterialCompileStatus().AuthoredRevision;
+			if (!SurfaceGraphPosition || SurfaceGraphRevision != AuthoredRevision)
+			{
+				SurfaceGraphPosition = SurfaceGraphMinimum(View);
+				SurfaceGraphRevision = AuthoredRevision;
 			}
 			const std::vector<FMaterialGraphCatalogEntry> Catalog =
 				FMaterialGraphOperations::EnumerateCatalog(Material);
@@ -374,8 +390,7 @@ namespace Durin::Editor::Material
 				Pan = Subtract(Subtract(Mouse, CanvasMinimum),
 					Multiply(GraphUnderMouse, Zoom));
 			}
-			if (bHovered && !ImGui::IsAnyItemActive()
-				&& ImGui::IsMouseDragging(ImGuiMouseButton_Middle))
+			if (bHovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle))
 				Pan = Add(Pan, ImGui::GetIO().MouseDelta);
 
 			const float GridStep = 32.0f * Zoom;
@@ -452,9 +467,9 @@ namespace Durin::Editor::Material
 				EMaterialProgramValueType::Float3,
 				EMaterialProgramValueType::Float,
 				EMaterialProgramValueType::Float};
-			const ImVec2 SurfaceGraphPosition = SurfaceGraphMinimum(View);
+			const ImVec2 CurrentSurfaceGraphPosition = *SurfaceGraphPosition;
 			const ImVec2 SurfaceMinimum = Add(CanvasMinimum,
-				Add(Pan, Multiply(SurfaceGraphPosition, Zoom)));
+				Add(Pan, Multiply(CurrentSurfaceGraphPosition, Zoom)));
 			const ImVec2 SurfaceMaximum = Add(SurfaceMinimum, Multiply({
 				Metrics.SurfaceWidth,
 				Metrics.SurfaceHeaderHeight + PinSpacing * SurfaceNames.size()
@@ -1242,7 +1257,8 @@ namespace Durin::Editor::Material
 				{
 					const FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(
 						View.Outputs, *ContextSurfaceOutput);
-					const ImVec2 SurfacePosition = SurfaceGraphMinimum(View);
+					const ImVec2 SurfacePosition = SurfaceGraphPosition.value_or(
+						SurfaceGraphMinimum(View));
 					const FMaterialGraphSurfaceNodeRequest NodeRequest{
 						.Output = *ContextSurfaceOutput,
 						.X = static_cast<int32>(std::round(SurfacePosition.x
@@ -1283,8 +1299,13 @@ namespace Durin::Editor::Material
 						}
 					}
 					if (ImGui::MenuItem("Auto Layout"))
-						ReportCommand(FMaterialGraphOperations::Layout(
-							Material, {}, &Transactions), ReportError);
+					{
+						const FMaterialGraphCommandResult Layout =
+							FMaterialGraphOperations::Layout(
+								Material, {}, &Transactions);
+						ReportCommand(Layout, ReportError);
+						if (Layout) SurfaceGraphPosition.reset();
+					}
 					if (ImGui::MenuItem("Create Node...", "Space"))
 						bPaletteOpenRequested = true;
 				}

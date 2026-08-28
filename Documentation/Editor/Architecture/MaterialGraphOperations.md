@@ -4,7 +4,7 @@ Summary: Define the shared MaterialEditor command, presentation, canvas, transac
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-08-27
+Last reviewed: 2026-08-29
 
 ## Ownership
 
@@ -113,9 +113,11 @@ keeps silhouettes, selection, focus, pan, and framing while disabling pin
 mutation. Readable mode adds clipped operation titles. Editing mode adds
 secondary identity, named pins, output type, tooltips, and inline constant
 controls. Frame All includes the derived surface proxy; Frame Selection uses
-only the selection. The derived `Material Output` terminal lives one logical
-column after the rightmost node, pans and zooms with the graph, participates in
-bounds and diagnostic framing, and is never persisted. It owns fixed Base
+only the selection. The derived `Material Output` terminal is initially placed
+one logical column after the rightmost node and remains stable during manual
+node arrangement; semantic graph changes and automatic layout derive a fresh
+position. It pans and zooms with the graph, participates in bounds and
+diagnostic framing, and is never persisted. It owns fixed Base
 Color, Normal, Metallic, Roughness, Ambient Occlusion, Emissive, Opacity, and
 Opacity Mask input rows. Editing mode exposes inline fallback controls for
 unconnected rows; each completed gesture is one validated transaction, while

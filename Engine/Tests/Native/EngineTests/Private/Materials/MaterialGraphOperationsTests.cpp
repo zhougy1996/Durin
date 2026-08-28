@@ -225,6 +225,19 @@ TEST(FMaterialGraphOperationsTests, PaletteCreationAddsVisibleDefaultsInOneTrans
 		EXPECT_EQ(Default->Node.ResultType, EMaterialProgramValueType::Float3);
 		EXPECT_TRUE(Default->Presentation.has_value());
 	}
+	const float DefaultHeight = FMaterialGraphGeometry::GetNodeHeight(0);
+	const float DefaultGap = FMaterialGraphGeometry::GetMetrics().RowGap;
+	std::vector<int32> DefaultRows;
+	for (const FMaterialProgramLink& Link : Node->Node.Inputs)
+	{
+		const FMaterialGraphNodeView* Default = FindViewNode(View, Link.SourceNodeId);
+		ASSERT_TRUE(Default && Default->Presentation);
+		DefaultRows.push_back(Default->Presentation->Y);
+	}
+	std::ranges::sort(DefaultRows);
+	for (size_t Index = 1; Index < DefaultRows.size(); ++Index)
+		EXPECT_GE(DefaultRows[Index] - DefaultRows[Index - 1],
+			static_cast<int32>(DefaultHeight + DefaultGap));
 	const FMaterialGraphNodeView* IdentityDefault =
 		FindViewNode(View, Node->Node.Inputs[1].SourceNodeId);
 	ASSERT_NE(IdentityDefault, nullptr);
@@ -663,6 +676,20 @@ TEST(FMaterialGraphOperationsTests, CanvasPointerGesturesCancelDeselectAndReconn
 
 	IO.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
 	DrawFrame();
+	constexpr ImVec2 EmptyCanvasPoint{1000.0f, 600.0f};
+	IO.AddMousePosEvent(EmptyCanvasPoint.x, EmptyCanvasPoint.y);
+	DrawFrame();
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Middle, true);
+	DrawFrame();
+	IO.AddMousePosEvent(EmptyCanvasPoint.x + 60.0f, EmptyCanvasPoint.y + 30.0f);
+	DrawFrame();
+	const auto [PannedZoom, PannedOffset] = Canvas.GetViewport();
+	EXPECT_FLOAT_EQ(PannedZoom, 1.0f);
+	EXPECT_GT(PannedOffset.x, 40.0f);
+	EXPECT_GT(PannedOffset.y, 40.0f);
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Middle, false);
+	DrawFrame();
+	Canvas.SetViewport(1.0f, {40.0f, 40.0f});
 	const FMaterialGraphNodePresentation AuthoredPosition{NodeId, 120, 120};
 	ASSERT_TRUE(FMaterialGraphOperations::MoveNodes(
 		*Material, std::span(&AuthoredPosition, 1)));
@@ -701,8 +728,20 @@ TEST(FMaterialGraphOperationsTests, CanvasPointerGesturesCancelDeselectAndReconn
 	IO.AddKeyEvent(ImGuiMod_Ctrl, false);
 	DrawFrame();
 
+	// Material Output is a derived terminal, but manual node movement must not drag
+	// the terminal along with the node while editing the authored presentation.
+	IO.AddMousePosEvent(NodeHeaderPoint.x, NodeHeaderPoint.y);
+	DrawFrame();
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	DrawFrame();
+	IO.AddMousePosEvent(NodeHeaderPoint.x + 40.0f, NodeHeaderPoint.y);
+	DrawFrame();
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	DrawFrame();
+	EXPECT_EQ(Position().X, Before.X + 40);
+
 	constexpr ImVec2 SurfaceBaseColorPin{496.0f, 157.0f};
-	constexpr ImVec2 NodeOutputPin{400.0f, 254.0f};
+	constexpr ImVec2 NodeOutputPin{440.0f, 254.0f};
 	IO.AddMousePosEvent(SurfaceBaseColorPin.x, SurfaceBaseColorPin.y);
 	DrawFrame();
 	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
