@@ -132,6 +132,25 @@ TEST_F(FContentBrowserModelTests, MaintainsHistoryAndTruncatesForwardBranch)
 	EXPECT_FALSE(Model.NavigateHistory(1));
 }
 
+TEST_F(FContentBrowserModelTests, RepeatedNavigationToCurrentDirectoryKeepsPublishedSnapshot)
+{
+	FContentBrowserModel Model;
+	const std::string Directory =
+		std::filesystem::absolute(Root / "Content/A")
+			.lexically_normal()
+			.generic_string();
+	ASSERT_TRUE(Model.NavigateToPhysical(Directory));
+	Model.SetSnapshotForTesting(Directory, {
+		{EContentBrowserItemKind::File,
+			"Stable.txt", {}, Directory + "/Stable.txt", {}, ".txt"},
+	});
+
+	ASSERT_TRUE(Model.NavigateToPhysical(Directory));
+	ASSERT_EQ(Model.GetItems().size(), 1);
+	EXPECT_EQ(Model.GetItems().front().Name, "Stable.txt");
+	EXPECT_EQ(Model.GetHistory().size(), 1);
+}
+
 TEST_F(FContentBrowserModelTests, RejectsUnavailableDirectoryWithoutFilesystemException)
 {
 	const std::filesystem::path Unavailable = Root / "Content/B";

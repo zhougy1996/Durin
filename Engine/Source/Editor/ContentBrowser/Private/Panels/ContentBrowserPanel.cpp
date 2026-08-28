@@ -185,21 +185,27 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::string_view PhysicalPath,
 		bool bAddHistory) -> bool
 	{
-		ThumbnailCache->CancelPendingRequests();
+		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
 		if (!Model.NavigateToPhysical(PhysicalPath, bAddHistory)) return false;
+		if (Model.GetCurrentPhysicalPath() == PreviousDirectory) return true;
+		ThumbnailCache->CancelPendingRequests();
 		Selection.clear();
 		SelectionAnchor.clear();
+		bResetContentScroll = true;
 		RepairSelection();
 		return true;
 	}
 
 	auto FContentBrowserPanel::NavigateHistory(int32 Delta) -> void
 	{
-		ThumbnailCache->CancelPendingRequests();
+		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
 		if (Model.NavigateHistory(Delta))
 		{
+			if (Model.GetCurrentPhysicalPath() == PreviousDirectory) return;
+			ThumbnailCache->CancelPendingRequests();
 			Selection.clear();
 			SelectionAnchor.clear();
+			bResetContentScroll = true;
 			RepairSelection();
 		}
 	}
@@ -627,9 +633,14 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		if (AdmissionState != ::Durin::Editor::ContentBrowser::EAdmissionState::Accepting)
 			return false;
-		ThumbnailCache->CancelPendingRequests();
+		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
 		const std::string PhysicalPath = Model.RevealAsset(AssetPath);
 		if (PhysicalPath.empty()) return false;
+		if (Model.GetCurrentPhysicalPath() != PreviousDirectory)
+		{
+			ThumbnailCache->CancelPendingRequests();
+			bResetContentScroll = true;
+		}
 		Selection.clear();
 		Selection.insert(PhysicalPath);
 		SelectionAnchor.clear();

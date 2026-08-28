@@ -153,6 +153,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		const FMountPath Resolved = ResolveMountPath(PhysicalPath);
 		if (!Resolved || !IsDirectoryAvailable(Resolved.NormalizedPhysicalPath))
 			return false;
+		if (Resolved.NormalizedPhysicalPath == CurrentPhysicalPath)
+			return true;
 		std::string Virtual = Resolved.VirtualPath;
 		if (!Virtual.ends_with('/')) Virtual += '/';
 

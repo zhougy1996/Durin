@@ -162,6 +162,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		bool bDeletePopupRequested = false;
 		bool bDeletionPlanRefreshed = false;
 		bool bRefreshItemsOnFirstDraw = true;
+		bool bResetContentScroll = false;
 		FContentDeletionPlanPtr PendingDeletionPlan;
 		std::function<void()> DeferredTreeAction;
 		std::function<void()> DeferredContentAction;

@@ -433,12 +433,14 @@ namespace Durin::Editor::ContentBrowser::Private
 				::Durin::Editor::ContentBrowser::FPresentationSettings::MaximumIconSize);
 		const bool bReserveDetails = bShowSelectionDetails && Selection.size() == 1;
 		if (bReserveDetails) ImGui::BeginChild("ContentBrowserMainView", ImVec2(0.0f, -132.0f));
+		if (bResetContentScroll) ImGui::SetScrollY(0.0f);
 		bContentItemHovered = false;
 		bRenameEditorHovered = false;
 		if (ViewMode == EContentBrowserViewMode::Grid)
 			DrawGrid();
 		else
 			DrawDetails();
+		bResetContentScroll = false;
 		ThumbnailCache->EndFrame();
 		// Resolve outside clicks after every item has been drawn so the result does not depend on whether
 		// the clicked item appears before or after the active rename editor in ImGui's submission order.
@@ -622,6 +624,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			1,
 			static_cast<int32>(ImGui::GetContentRegionAvail().x / Metrics.CellWidth));
 		const int32 RowCount = static_cast<int32>((Model.GetItems().size() + static_cast<size_t>(Columns) - 1) / static_cast<size_t>(Columns));
+		if (bResetContentScroll)
+			ImGui::SetNextWindowScroll(ImVec2(0.0f, 0.0f));
 		if (!ImGui::BeginTable("ContentBrowserGrid", Columns, ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_ScrollY)) return;
 
 		ImGuiListClipper Clipper;
@@ -785,6 +789,8 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		const ImVec2 CellPadding(MonaImGui::ScaleUI(10.0f), ImGui::GetStyle().CellPadding.y);
 		ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, CellPadding);
+		if (bResetContentScroll)
+			ImGui::SetNextWindowScroll(ImVec2(0.0f, 0.0f));
 		if (!ImGui::BeginTable("ContentBrowserDetails", 4, DetailsTableFlags))
 		{
 			ImGui::PopStyleVar();
