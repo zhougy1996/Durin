@@ -91,7 +91,7 @@ namespace Durin
 			FName InName,
 			EObjectFlags Flags,
 			DObject* Context,
-			FFactoryDiagnostics* Diagnostics = nullptr) const -> DObject*;
+			FFactoryDiagnostics* Diagnostics) const -> DObject*;
 
 		ASSETTOOLS_API virtual auto FactoryCreateFromFile(
 			DClass* InClass,
@@ -100,7 +100,7 @@ namespace Durin
 			EObjectFlags Flags,
 			std::string_view Filename,
 			DObject* Context,
-			FFactoryDiagnostics* Diagnostics = nullptr) const -> DObject*;
+			FFactoryDiagnostics* Diagnostics) const -> DObject*;
 
 		ASSETTOOLS_API virtual auto GetReimportCapabilities(
 			const DObject& Object) const -> FReimportCapabilities;
