@@ -139,7 +139,7 @@ namespace Durin
 			FMaterialParameterValue ConstantValue;
 			float Minimum = 0.0f;
 			float Maximum = 1.0f;
-			if (Role == 0) ConstantValue = FMaterialParameterValue::MakeVector({0.95, 0.62, 0.22});
+			if (Role == 0) ConstantValue = FMaterialParameterValue::MakeVector({0.5, 0.5, 0.5});
 			else if (Role == 1) { ConstantValue = FMaterialParameterValue::MakeVector({0.0, 0.0, 1.0}); Minimum = -1.0f; }
 			else if (Role == 3) ConstantValue = FMaterialParameterValue::MakeScalar(0.5f);
 			else if (Role == 5) { ConstantValue = FMaterialParameterValue::MakeVector(FVector3(0.0)); Maximum = 64.0f; }

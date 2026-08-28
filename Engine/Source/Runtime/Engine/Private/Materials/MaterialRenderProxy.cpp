@@ -234,8 +234,16 @@ namespace Durin
 		}
 		GMaterialRenderProxyCounters.ResolutionCacheMissCount.fetch_add(1);
 
-		CachedResolvedData =
-			ParentData ? *ParentData : GetErrorMaterialRenderData();
+		if (ParentData)
+		{
+			CachedResolvedData = *ParentData;
+		}
+		else
+		{
+			CachedResolvedData = {};
+			CachedResolvedData.Representation =
+				MakeCanonicalMaterialRenderRepresentation();
+		}
 		FMaterialRenderRepresentationBuilder RepresentationBuilder(
 			CachedResolvedData.Representation);
 		bool bRepresentationValid = true;

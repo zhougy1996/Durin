@@ -88,9 +88,9 @@ namespace Durin
 		auto MakeCanonicalUniformPayload() -> std::vector<std::byte>
 		{
 			std::vector<std::byte> Result = MakeErrorUniformPayload();
-			WriteFloat(Result, 0, 0.95f);
-			WriteFloat(Result, 4, 0.62f);
-			WriteFloat(Result, 8, 0.22f);
+			WriteFloat(Result, 0, 0.5f);
+			WriteFloat(Result, 4, 0.5f);
+			WriteFloat(Result, 8, 0.5f);
 			return Result;
 		}
 

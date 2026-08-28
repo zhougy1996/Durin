@@ -196,7 +196,7 @@ namespace Durin
 		FMaterialProgramLink OpacityMask;
 
 		DPROPERTY()
-		FMaterialProgramLiteral BaseColorDefault{0.95f, 0.62f, 0.22f, 0.0f};
+		FMaterialProgramLiteral BaseColorDefault{0.5f, 0.5f, 0.5f, 0.0f};
 
 		DPROPERTY()
 		FMaterialProgramLiteral NormalDefault{0.0f, 0.0f, 1.0f, 0.0f};

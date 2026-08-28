@@ -175,7 +175,7 @@ namespace Durin
 
 	struct FMaterialRenderBinding
 	{
-		FVector4f BaseColor{0.95f, 0.62f, 0.22f, 1.0f};
+		FVector4f BaseColor{0.5f, 0.5f, 0.5f, 1.0f};
 		FVector3f Emissive{0.0f};
 		FVector3f Normal{0.0f, 0.0f, 1.0f};
 		float Metallic = 0.0f;

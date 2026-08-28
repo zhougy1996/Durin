@@ -760,7 +760,7 @@ TEST(FMaterialGraphOperationsTests,
 	EXPECT_TRUE(Material->GetMaterialProgram()->Nodes.empty());
 	ASSERT_TRUE(Material->GetVectorParameterValue(
 		MaterialParameters::BaseColorName(), BaseColor));
-	EXPECT_EQ(BaseColor, FVector3(0.95, 0.62, 0.22));
+	EXPECT_EQ(BaseColor, FVector3(0.5));
 	ASSERT_TRUE(Transactions.Redo());
 	ASSERT_TRUE(FMaterialGraphOperations::DisconnectSurfaceOutput(
 		*Material, EMaterialSurfaceOutput::BaseColor, &Transactions));

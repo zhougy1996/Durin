@@ -82,7 +82,7 @@ stores no graph and resolves the root base program through its existing parent
 chain, so dynamic GUID overrides remain independent of authored node order.
 
 Fresh materials own zero expression nodes and eight unconnected defaults:
-BaseColor `(0.95, 0.62, 0.22)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
+BaseColor `(0.5, 0.5, 0.5)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
 `0.5`, AmbientOcclusion `1`, Emissive `(0, 0, 0)`, Opacity `1`, and
 OpacityMask `1`. Asset-load construction retains the explicitly named legacy
 expanded program so packages written before `Program` existed preserve their

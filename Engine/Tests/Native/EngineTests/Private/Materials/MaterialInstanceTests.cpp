@@ -243,7 +243,7 @@ TEST(FMaterialTests, ParentRemovalPreservesOrphansAndExcludesThemFromRendering)
 	EXPECT_TRUE(Instance->IsParameterOverrideOrphan(Durin::MaterialParameters::BaseColorId));
 	Durin::FResolvedMaterialParameter Resolved;
 	EXPECT_FALSE(Instance->ResolveParameterValue(Durin::MaterialParameters::BaseColorId, Resolved));
-	ExpectColorNear(GetMaterialBinding(Instance->GetRenderData()).BaseColor, Durin::FVector4f(0.95f, 0.62f, 0.22f, 1.0f));
+	ExpectColorNear(GetMaterialBinding(Instance->GetRenderData()).BaseColor, Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
 
 	ASSERT_TRUE(Instance->SetParent(Base));
 	EXPECT_FALSE(Instance->IsParameterOverrideOrphan(Durin::MaterialParameters::BaseColorId));

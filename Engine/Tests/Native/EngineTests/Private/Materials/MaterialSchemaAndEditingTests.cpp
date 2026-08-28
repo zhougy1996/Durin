@@ -555,7 +555,7 @@ TEST(FMaterialProgramNormalizationTests,
 	ASSERT_EQ(Normalized.IR.Nodes.size(), 8u);
 	ASSERT_EQ(Normalized.IR.SurfaceOutputs.size(), 8u);
 	EXPECT_EQ(Normalized.IR.Nodes[0].Literal,
-		(Durin::FMaterialProgramLiteral{0.95f, 0.62f, 0.22f, 0.0f}));
+		(Durin::FMaterialProgramLiteral{0.5f, 0.5f, 0.5f, 0.0f}));
 	EXPECT_EQ(Normalized.IR.Nodes[1].Literal,
 		(Durin::FMaterialProgramLiteral{0.0f, 0.0f, 1.0f, 0.0f}));
 	std::string Source;

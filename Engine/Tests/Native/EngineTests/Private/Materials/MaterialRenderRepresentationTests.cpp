@@ -6,6 +6,7 @@
 #include "Asset/CanonicalResave.h"
 #include "Asset/Compatibility.h"
 #include "Materials/MaterialTypes.h"
+#include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 
 #include <cstring>
@@ -171,8 +172,13 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 {
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
-	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
+	const Durin::Asset::FAssetCatalogRefreshResult Refresh =
+		Durin::Asset::RefreshAssetCatalog(
+			Durin::Asset::EAssetRegistryScanMode::FullValidation);
+	ASSERT_TRUE(Refresh) << (Refresh.Errors.empty()
+		? "Asset catalog refresh failed without a diagnostic."
+		: Refresh.Errors.front().Message);
 	const bool bOwnsRenderingThread =
 		Durin::GetRenderCommandAdmissionState()
 			== Durin::ERenderCommandAdmissionState::Stopped;
@@ -598,7 +604,7 @@ TEST(FMaterialRenderRepresentationTests, V3CompilationCanonicalizesEveryInputCla
 	ASSERT_TRUE(Material->SetTextureParameterValue(Durin::MaterialParameters::NormalTextureName(), WrongUsageTexture));
 
 	const Durin::FMaterialRenderBinding Binding = GetMaterialBinding(Material->GetRenderData());
-	EXPECT_EQ(Binding.BaseColor, Durin::FVector4f(0.95f, 0.62f, 0.22f, 1.0f));
+	EXPECT_EQ(Binding.BaseColor, Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
 	EXPECT_EQ(Binding.Normal, Durin::FVector3f(0.0f, 0.0f, 1.0f));
 	EXPECT_FLOAT_EQ(Binding.Metallic, 1.0f);
 	EXPECT_FLOAT_EQ(Binding.Roughness, 0.5f);

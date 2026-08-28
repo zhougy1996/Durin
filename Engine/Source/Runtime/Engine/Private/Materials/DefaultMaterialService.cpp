@@ -1,5 +1,6 @@
 #include "Materials/DefaultMaterialService.h"
 
+#include "Asset/AssetCompilingManager.h"
 #include "Asset.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
@@ -63,6 +64,18 @@ namespace Durin
 				LoadResult.Message.empty()
 					? "asset type or object was invalid"
 					: LoadResult.Message);
+			return false;
+		}
+
+		(void)FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+		if (!Material->GetAcceptedCompiledProgram())
+		{
+			RecordMaterialFallbackReason(
+				EMaterialFallbackReason::DefaultAssetUnavailable);
+			DURIN_ERROR_CATEGORY(
+				"Material",
+				"DefaultAssetUnavailable: material '{}' did not produce a compiled program; ErrorMaterial will be used.",
+				DefaultMaterialAssetPath);
 			return false;
 		}
 
