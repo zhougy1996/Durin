@@ -203,7 +203,7 @@ namespace Durin::Editor::StaticMesh
 		auto* Factory = NewObject<AssetForge::Builtins::DStaticMeshFactory>(
 			nullptr, "StaticMeshDialogFactory", EObjectFlags::Transient);
 		Factory->SetImportSettings(Coordinates.GetSettings());
-		const FAssetToolsResult Result = GetAssetTools().ImportAsset(
+		const FAssetToolsResult Result = IAssetTools::Get().ImportAsset(
 			AssetPath, DStaticMesh::StaticClass(), SourcePathBuffer.data(), Factory);
 		if (!Result)
 		{
@@ -211,7 +211,7 @@ namespace Durin::Editor::StaticMesh
 				? "StaticMesh import failed." : Result.Message);
 			return false;
 		}
-		if (const FAssetOperationResult Saved = GetAssetTools().SaveAssets({
+		if (const FAssetOperationResult Saved = IAssetTools::Get().SaveAssets({
 				.AssetPaths = {AssetPath},
 				.Publish = [this, &AssetPath](const FAssetOperationNotification&) {
 					Callbacks.NotifyAssetCreated(AssetPath.ToString());

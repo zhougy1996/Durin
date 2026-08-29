@@ -22,6 +22,7 @@ namespace Durin
 	{
 	public:
 		virtual ~IAssetTools() = default;
+		ASSETTOOLS_API static auto Get() -> IAssetTools&;
 
 		virtual auto CreateAsset(
 			const FAssetPath& AssetPath,
@@ -65,5 +66,4 @@ namespace Durin
 			-> FAssetOperationResult = 0;
 	};
 
-	ASSETTOOLS_API auto GetAssetTools() -> IAssetTools&;
 }

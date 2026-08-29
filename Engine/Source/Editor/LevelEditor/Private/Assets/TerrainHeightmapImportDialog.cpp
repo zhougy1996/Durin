@@ -149,7 +149,7 @@ namespace Durin::Editor::Level
 		const FAssetPath& AssetPath = DestinationValidation.AssetPath;
 		auto* Factory = NewObject<AssetForge::Builtins::DTerrainHeightmapFactory>(
 			nullptr, "TerrainHeightmapDialogFactory", EObjectFlags::Transient);
-		const FAssetToolsResult Result = GetAssetTools().ImportAsset(
+		const FAssetToolsResult Result = IAssetTools::Get().ImportAsset(
 			AssetPath, DTerrainHeightmap::StaticClass(), Source.generic_string(), Factory);
 		if (!Result)
 		{
@@ -157,7 +157,7 @@ namespace Durin::Editor::Level
 				? "Terrain heightmap import failed." : Result.Message);
 			return false;
 		}
-		if (const FAssetOperationResult Saved = GetAssetTools().SaveAssets({
+		if (const FAssetOperationResult Saved = IAssetTools::Get().SaveAssets({
 				.AssetPaths = {AssetPath},
 				.Publish = [this, &AssetPath](const FAssetOperationNotification&) {
 					Callbacks.NotifyAssetCreated(AssetPath.ToString());

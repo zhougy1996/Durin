@@ -61,7 +61,7 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 		"/TextureImportTests/Transparent", AssetPath));
 	auto* Factory = Durin::NewObject<Durin::AssetForge::Builtins::DTexture2DFactory>(
 		nullptr, "Texture2DFactoryImportTest", Durin::EObjectFlags::Transient);
-	const Durin::FAssetToolsResult Created = Durin::GetAssetTools().ImportAsset(
+	const Durin::FAssetToolsResult Created = Durin::IAssetTools::Get().ImportAsset(
 		AssetPath, Durin::DTexture2D::StaticClass(), Source.generic_string(), Factory);
 	Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Result{
 		Created.Succeeded(), Created.Message, Durin::Cast<Durin::DTexture2D>(Created.Asset)};

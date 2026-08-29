@@ -23,7 +23,7 @@ namespace Durin::AssetForge::Builtins
 		auto* Factory = NewObject<DStaticMeshFactory>(
 			nullptr, "StaticMeshTestFactory", EObjectFlags::Transient);
 		Factory->SetImportSettings(Settings);
-		const FAssetToolsResult Imported = GetAssetTools().ImportAsset(
+		const FAssetToolsResult Imported = IAssetTools::Get().ImportAsset(
 			ParsedPath, DStaticMesh::StaticClass(), FilePath, Factory);
 		auto* Mesh = Cast<DStaticMesh>(Imported.Asset);
 		if (!Imported || !Mesh)

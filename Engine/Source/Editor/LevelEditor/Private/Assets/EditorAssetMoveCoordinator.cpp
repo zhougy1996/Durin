@@ -45,7 +45,7 @@ namespace Durin::Editor::Level
 		Mappings.reserve(Moves.size());
 		for (const Asset::FAssetRelocationMapping& Move : Moves)
 			Mappings.push_back({Move.SourcePath, Move.DestinationPath});
-		const FAssetOperationResult Result = GetAssetTools().RelocateAssets({
+		const FAssetOperationResult Result = IAssetTools::Get().RelocateAssets({
 			.Mappings = std::move(Mappings), .Transactions = &Transactions});
 		return Result ? Asset::FAssetResult{}
 			: Asset::FAssetResult{Asset::EAssetError::IoError, Result.Message};

@@ -419,7 +419,7 @@ namespace Durin::Editor::MainFrame
 								return ContentBrowser::FActionResult{
 									false, "The editor transaction manager is unavailable."};
 							const FAssetOperationResult Result =
-								GetAssetTools().FixUpRedirectors({
+								IAssetTools::Get().FixUpRedirectors({
 									.Redirectors = {Redirectors.begin(), Redirectors.end()},
 									.Transactions = &GEditor->GetTransactionManager()});
 							return ContentBrowser::FActionResult{

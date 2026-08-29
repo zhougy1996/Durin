@@ -325,7 +325,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				Asset::EAssetError::ReadOnlyMode,
 				"This content mount is not content-writable. Choose a writable mount before pasting the asset.");
 
-		const FAssetOperationResult Result = GetAssetTools().DuplicateAsset({
+		const FAssetOperationResult Result = IAssetTools::Get().DuplicateAsset({
 			.SourcePath = SourcePath,
 			.DestinationDirectory = Directory,
 			.ResolvePhysicalPackagePath = [this](const FAssetPath& Path) {
@@ -959,7 +959,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			return A.GetView() < B.GetView();
 		});
 		AssetPaths.erase(std::unique(AssetPaths.begin(), AssetPaths.end()), AssetPaths.end());
-		const FAssetOperationResult AssetResult = GetAssetTools().PrepareDeletion({
+		const FAssetOperationResult AssetResult = IAssetTools::Get().PrepareDeletion({
 			.AssetPaths = AssetPaths, .PhysicalRoots = PhysicalRoots},
 			Plan->AssetOperation);
 		if (!AssetResult && Plan->AssetOperation.GetBlockers().empty())

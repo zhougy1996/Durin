@@ -354,7 +354,7 @@ namespace Durin::Editor::Texture
 			Factory->ConfigureFaces(Sources);
 		else
 			Factory->ConfigurePanorama(PanoramaSettings);
-		const FAssetToolsResult Result = GetAssetTools().ImportAsset(
+		const FAssetToolsResult Result = IAssetTools::Get().ImportAsset(
 			AssetPath, DTextureCube::StaticClass(), Sources[0], Factory);
 		if (!Result)
 		{
@@ -362,7 +362,7 @@ namespace Durin::Editor::Texture
 				? "TextureCube import failed." : Result.Message);
 			return false;
 		}
-		if (const FAssetOperationResult Saved = GetAssetTools().SaveAssets({
+		if (const FAssetOperationResult Saved = IAssetTools::Get().SaveAssets({
 				.AssetPaths = {AssetPath},
 				.Publish = [this, &Path](const FAssetOperationNotification&) {
 					Callbacks.NotifyAssetCreated(Path);

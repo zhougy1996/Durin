@@ -471,7 +471,7 @@ namespace Durin::Editor::Texture
 			auto* Factory = NewObject<AssetForge::Builtins::DVolumeTextureFactory>(
 				nullptr, "VolumeTextureDialogFactory", EObjectFlags::Transient);
 			Factory->SetImportSettings(Settings);
-			const FAssetToolsResult Result = GetAssetTools().ImportAsset(
+			const FAssetToolsResult Result = IAssetTools::Get().ImportAsset(
 				AssetPath, DVolumeTexture::StaticClass(),
 				SourcePathBuffer.data(), Factory);
 			if (!Result)
@@ -480,7 +480,7 @@ namespace Durin::Editor::Texture
 					? "VolumeTexture import failed." : Result.Message);
 				return false;
 			}
-			if (const FAssetOperationResult Saved = GetAssetTools().SaveAssets({
+			if (const FAssetOperationResult Saved = IAssetTools::Get().SaveAssets({
 					.AssetPaths = {AssetPath},
 					.Publish = [CompletionCallbacks, Path](const FAssetOperationNotification&) {
 						CompletionCallbacks.NotifyAssetCreated(Path);
@@ -501,7 +501,7 @@ namespace Durin::Editor::Texture
 		auto* Factory = NewObject<AssetForge::Builtins::DTexture2DFactory>(
 			nullptr, "Texture2DDialogFactory", EObjectFlags::Transient);
 		Factory->SetImportSettings(Settings);
-		const FAssetToolsResult Result = GetAssetTools().ImportAsset(
+		const FAssetToolsResult Result = IAssetTools::Get().ImportAsset(
 			AssetPath, DTexture2D::StaticClass(), SourcePathBuffer.data(), Factory);
 		if (!Result)
 		{
@@ -509,7 +509,7 @@ namespace Durin::Editor::Texture
 				? "Texture2D import failed." : Result.Message);
 			return false;
 		}
-		if (const FAssetOperationResult Saved = GetAssetTools().SaveAssets({
+		if (const FAssetOperationResult Saved = IAssetTools::Get().SaveAssets({
 				.AssetPaths = {AssetPath},
 				.Publish = [CompletionCallbacks, Path](const FAssetOperationNotification&) {
 					CompletionCallbacks.NotifyAssetCreated(Path);

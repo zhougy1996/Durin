@@ -56,7 +56,7 @@ namespace Durin::Editor::ContentBrowser
 		Mappings.reserve(Moves.size());
 		for (const FAssetMove& Move : Moves)
 			Mappings.push_back({Move.OldPath, Move.NewPath});
-		const FAssetOperationResult Result = GetAssetTools().RelocateAssets({
+		const FAssetOperationResult Result = IAssetTools::Get().RelocateAssets({
 			.Mappings = std::move(Mappings), .Transactions = &Transactions});
 		return {
 			.bSucceeded = static_cast<bool>(Result),

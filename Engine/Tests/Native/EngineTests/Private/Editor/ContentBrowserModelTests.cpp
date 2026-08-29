@@ -382,7 +382,7 @@ TEST_F(FContentBrowserModelTests, RelocationUsesOneSharedUndoRedoTransaction)
 	const FAssetRelocation Mapping{
 		SourcePath, DestinationPath};
 	Durin::Editor::FTransactionManager Transactions;
-	ASSERT_TRUE(GetAssetTools().RelocateAssets({
+	ASSERT_TRUE(IAssetTools::Get().RelocateAssets({
 		.Mappings = {Mapping}, .Transactions = &Transactions}));
 	EXPECT_EQ(Transactions.GetUndoDescription(), "Move Asset");
 	EXPECT_EQ(Asset::ResolveAssetPath(SourcePath).FinalPath,

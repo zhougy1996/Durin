@@ -32,7 +32,7 @@ namespace Durin::AssetForge::Builtins
 		auto* Factory = NewObject<DTextureCubeFactory>(
 			nullptr, "TextureCubeFacesTestFactory", EObjectFlags::Transient);
 		Factory->ConfigureFaces(FaceFiles, Settings);
-		return SaveTextureCubeFactoryResult(GetAssetTools().ImportAsset(
+		return SaveTextureCubeFactoryResult(IAssetTools::Get().ImportAsset(
 			ParsedPath, DTextureCube::StaticClass(), FaceFiles[0], Factory));
 	}
 
@@ -49,7 +49,7 @@ namespace Durin::AssetForge::Builtins
 		auto* Factory = NewObject<DTextureCubeFactory>(
 			nullptr, "TextureCubePanoramaTestFactory", EObjectFlags::Transient);
 		Factory->ConfigurePanorama(Settings);
-		return SaveTextureCubeFactoryResult(GetAssetTools().ImportAsset(
+		return SaveTextureCubeFactoryResult(IAssetTools::Get().ImportAsset(
 			ParsedPath, DTextureCube::StaticClass(), PanoramaFile, Factory));
 	}
 }

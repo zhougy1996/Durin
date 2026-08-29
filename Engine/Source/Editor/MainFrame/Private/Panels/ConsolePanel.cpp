@@ -243,7 +243,7 @@ namespace Durin::Editor::MainFrame
 						return Left.GetView() < Right.GetView();
 					});
 				const bool bDelete = Args.empty() || Args[0] == "rewrite-and-delete";
-				const FAssetOperationResult Result = GetAssetTools().FixUpRedirectors({
+				const FAssetOperationResult Result = IAssetTools::Get().FixUpRedirectors({
 					.Redirectors = Redirectors,
 					.bDeleteRedirectors = bDelete,
 					.Transactions = &GEditor->GetTransactionManager()});

@@ -31,7 +31,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::SaveAssetPackage(const FAssetPath& Path) -> void
 	{
-		const FAssetOperationResult Save = GetAssetTools().SaveAssets({
+		const FAssetOperationResult Save = IAssetTools::Get().SaveAssets({
 			.AssetPaths = {Path},
 			.Publish = [this](const FAssetOperationNotification&) {
 				PublishMountedContentMutation();
@@ -43,7 +43,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		std::ranges::sort(Paths, {}, &FAssetPath::ToString);
 		Paths.erase(std::unique(Paths.begin(), Paths.end()), Paths.end());
-		const FAssetOperationResult Result = GetAssetTools().SaveAssets({
+		const FAssetOperationResult Result = IAssetTools::Get().SaveAssets({
 			.AssetPaths = std::move(Paths),
 			.Mode = EAssetSaveMode::CanonicalResave,
 			.Publish = [this](const FAssetOperationNotification&) {

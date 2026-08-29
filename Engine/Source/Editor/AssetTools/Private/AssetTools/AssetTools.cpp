@@ -1,4 +1,4 @@
-#include "AssetTools/IAssetTools.h"
+#include "AssetTools/AssetToolsModule.h"
 
 #include "Asset/AssetOperations.h"
 #include "Asset/Catalog.h"
@@ -11,6 +11,8 @@
 
 namespace Durin
 {
+	IMPLEMENT_MODULE(FAssetToolsModule, AssetTools)
+
 	auto MakeRejectedAssetOperation(
 		EAssetOperationKind Kind, std::string Message) -> FAssetOperationResult;
 	auto DuplicateAssetWithEditorPolicy(const FAssetDuplicateRequest& Request)
@@ -47,7 +49,7 @@ namespace Durin
 		}
 	}
 
-	class FAssetToolsImplementation final : public IAssetTools
+	class FAssetTools final : public IAssetTools
 	{
 	public:
 		auto CreateAsset(
@@ -112,7 +114,7 @@ namespace Durin
 		}
 
 	private:
-		static auto CreateWithFactory(
+		auto CreateWithFactory(
 			const FAssetPath& AssetPath,
 			DClass* AssetClass,
 			const DFactory* RequestedFactory,
@@ -175,7 +177,7 @@ namespace Durin
 					AssetClass, Package, AssetName, Flags, Context, &Diagnostics);
 			if (!Asset)
 			{
-				GetAssetTools().DiscardPackage(Package);
+				DiscardPackage(Package);
 				std::string Message = Diagnostics.ToString();
 				if (Message.empty()) Message = bFromFile
 					? "The factory could not import the asset."
@@ -184,7 +186,7 @@ namespace Durin
 			}
 			if (!Asset->IsA(AssetClass) || !Package->SetAsset(Asset))
 			{
-				GetAssetTools().DiscardPackage(Package);
+				DiscardPackage(Package);
 				return MakeRejectedAssetOperation(
 					Kind, "The factory returned an invalid package main asset.");
 			}
@@ -198,9 +200,25 @@ namespace Durin
 		}
 	};
 
-	auto GetAssetTools() -> IAssetTools&
+	auto FAssetToolsModule::StartupModule() -> void
 	{
-		static FAssetToolsImplementation AssetTools;
-		return AssetTools;
+		check(!AssetTools);
+		AssetTools = std::make_unique<FAssetTools>();
+	}
+
+	auto FAssetToolsModule::ShutdownModule() -> void
+	{
+		AssetTools.reset();
+	}
+
+	auto FAssetToolsModule::Get() -> IAssetTools&
+	{
+		check(AssetTools);
+		return *AssetTools;
+	}
+
+	auto IAssetTools::Get() -> IAssetTools&
+	{
+		return FAssetToolsModule::GetModule().Get();
 	}
 }
