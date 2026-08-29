@@ -561,8 +561,6 @@ namespace Durin::Asset
 		}
 		for (DPackage* Package : Packages)
 		{
-			if (Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
-				RemoveFromRoot(Package);
 			MarkObjectHierarchyAsGarbage(Package);
 		}
 		if (!Packages.empty()) CollectGarbage();

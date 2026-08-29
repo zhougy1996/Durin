@@ -66,8 +66,11 @@ Engine does not duplicate package paths or pointers in a resident-package map.
 passes the returned package to its factory as the asset Outer, and a successful
 creation marks the package `NewlyCreated`. Disk-loaded packages begin published,
 and a successful first save clears `NewlyCreated` after catalog publication.
-`DPackage::IsDirty()` independently records unsaved contents. Root or Standalone
-object state retains live packages under ordinary GC rules.
+`DPackage::IsDirty()` independently records unsaved contents. Every ordinary
+asset package is `Standalone`, so ordinary GC retains its registered residency
+without a manual root. Asset creation and disk loading use the same lifetime
+model; `AddToRoot` is reserved for process-lifetime infrastructure such as C++
+metadata packages.
 
 Public asset load first accepts an already resident non-redirector package,
 including a newly created package, without file I/O. Otherwise it resolves the
@@ -76,7 +79,8 @@ are constructed only through Engine's internal exact tooling seam. A catalog
 miss never guesses a physical filename or discovers an unindexed file. Unload
 rejects newly created or dirty packages by default. A caller that intentionally
 abandons unsaved work passes `EAssetPackageUnloadPolicy::DiscardUnsaved` to the
-same `UnloadPackage` operation. Successful unload removes residency, calls
+same `UnloadPackage` operation. Successful unload explicitly retires the
+`Standalone` residency, calls
 `MarkObjectHierarchyAsGarbage()` for the package tree, and runs GC so the path
 can be loaded again only after GC-controlled physical removal. Objects that
 must survive unload must be reparented out of that package first.

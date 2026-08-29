@@ -199,7 +199,6 @@ namespace Durin::Asset
 		if (!Package)
 			return Error(EAssetError::AlreadyExists,
 				"A live package already occupies the asset path.");
-		AddToRoot(Package);
 		FStaticConstructObjectParameters Params{
 			Class, Package, FName(Path.GetAssetName()), Size,
 			EObjectFlags::Public};
@@ -207,8 +206,6 @@ namespace Durin::Asset
 		DObjectForceRegistration(OutAsset);
 		if (!Package->SetAsset(OutAsset))
 		{
-			if (Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
-				RemoveFromRoot(Package);
 			MarkObjectHierarchyAsGarbage(Package);
 			CollectGarbage();
 			OutAsset = nullptr;
@@ -265,15 +262,12 @@ namespace Durin::Asset
 		if (!Package)
 			return Error(EAssetError::AlreadyExists,
 				"A live package already occupies the duplication destination.");
-		AddToRoot(Package);
 		OutAsset = DuplicateObject(
 			SourceAsset,
 			Package,
 			FName(DestinationPath.GetAssetName()));
 		if (!OutAsset || !Package->SetAsset(OutAsset))
 		{
-			if (Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
-				RemoveFromRoot(Package);
 			MarkObjectHierarchyAsGarbage(Package);
 			CollectGarbage();
 			OutAsset = nullptr;
@@ -476,9 +470,6 @@ namespace Durin::Asset
 					DPackage* TransactionPackage = FindResidentPackage(*It);
 					if (!TransactionPackage) continue;
 					LoadingPackages.erase(*It);
-					if (TransactionPackage->HasAnyInternalFlags(
-						EObjectInternalFlags::RootSet))
-						RemoveFromRoot(TransactionPackage);
 					MarkObjectHierarchyAsGarbage(TransactionPackage);
 					bDiscardedPackage = true;
 				}
@@ -599,8 +590,6 @@ namespace Durin::Asset
 			&& Policy == EAssetPackageUnloadPolicy::RejectUnsaved)
 			return Error(EAssetError::InUse,
 				"Package has unsaved state; explicit discard policy is required.");
-		if (Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
-			RemoveFromRoot(Package);
 		MarkObjectHierarchyAsGarbage(Package);
 		CollectGarbage();
 		return {};
@@ -660,8 +649,6 @@ namespace Durin::Asset
 		}
 		for (DPackage* Package : ReleasedPackages)
 		{
-			if (Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
-				RemoveFromRoot(Package);
 			MarkObjectHierarchyAsGarbage(Package);
 		}
 		if (!ReleasedPackages.empty()) CollectGarbage();
@@ -676,8 +663,6 @@ namespace Durin::Asset
 		Loader.Reset();
 		for (DPackage* Package : Packages)
 		{
-			if (Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
-				RemoveFromRoot(Package);
 			MarkObjectHierarchyAsGarbage(Package);
 		}
 	}

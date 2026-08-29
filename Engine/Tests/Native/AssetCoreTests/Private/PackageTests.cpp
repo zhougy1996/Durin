@@ -2301,11 +2301,12 @@ TEST(FPackageAssetTests, V6CodecMatchesLiveWriteInspectReferenceMutationAndLoadS
 	FAssetLoadReport Report;
 	ASSERT_TRUE(Codec.Load(V6, SourcePath, Loaded, &Report, {}, {}));
 	ASSERT_NE(Loaded, nullptr);
+	EXPECT_TRUE(Loaded->HasAnyObjectFlags(EObjectFlags::Standalone));
+	EXPECT_FALSE(Loaded->HasAnyInternalFlags(EObjectInternalFlags::RootSet));
 	auto* LoadedAsset = static_cast<DPackageAssetForTest*>(Loaded->GetAsset());
 	ASSERT_NE(LoadedAsset, nullptr);
 	EXPECT_EQ(LoadedAsset->Value, 417);
 	EXPECT_EQ(LoadedAsset->ExternalReference, Target);
-	RemoveFromRoot(Loaded);
 	MarkObjectHierarchyAsGarbage(Loaded);
 	CollectGarbage();
 	ASSERT_TRUE(DeleteAssetClosureForTest({SourcePath, TargetPath}));
@@ -2760,6 +2761,11 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 
 	Durin::DPackage* Package = Asset->GetPackage();
 	ASSERT_NE(Package, nullptr);
+	EXPECT_TRUE(Package->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
+	EXPECT_FALSE(Package->HasAnyInternalFlags(
+		Durin::EObjectInternalFlags::RootSet));
+	Durin::CollectGarbage();
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), Package);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Package));
 	ASSERT_TRUE(Durin::Asset::FindAssetExact(Path));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
@@ -2769,6 +2775,12 @@ TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded, &LoadReport));
 	EXPECT_EQ(LoadReport.PackageFileReadCount, 1u);
 	ASSERT_NE(Loaded, nullptr);
+	EXPECT_TRUE(Loaded->GetPackage()->HasAnyObjectFlags(
+		Durin::EObjectFlags::Standalone));
+	EXPECT_FALSE(Loaded->GetPackage()->HasAnyInternalFlags(
+		Durin::EObjectInternalFlags::RootSet));
+	Durin::CollectGarbage();
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), Loaded->GetPackage());
 	EXPECT_EQ(Loaded->Value, 42);
 	EXPECT_EQ(Loaded->Label, "RoundTrip");
 	EXPECT_EQ(Loaded->DisplayName, Durin::FName("RoundTripName"));

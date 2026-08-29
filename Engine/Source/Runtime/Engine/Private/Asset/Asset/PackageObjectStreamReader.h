@@ -54,7 +54,7 @@ namespace Durin::Asset::PackageObjectStream
 	};
 
 	// Explicit bytes-only object-stream live-load boundary. The returned handle owns the
-	// rooted graph and is replaced only after dependencies, values, ledgers, and
+	// standalone graph and is replaced only after dependencies, values, ledgers, and
 	// PostLoad all succeed. It does not publish registry or ordinary-load policy.
 	ENGINE_API auto LoadAssetPackage(
 		std::span<const std::byte> Bytes,

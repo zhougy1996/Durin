@@ -1700,7 +1700,6 @@ namespace Durin::Asset::PackageObjectStream
 	auto FLoadedAssetPackage::Reset() -> void
 	{
 		if (!Package) return;
-		RemoveFromRoot(Package);
 		MarkObjectHierarchyAsGarbage(Package);
 		Package = nullptr;
 		CollectGarbage();
@@ -1782,7 +1781,10 @@ namespace Durin::Asset::PackageObjectStream
 			return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 		}
 
-		DPackage* Package = NewObject<DPackage>(nullptr, FName(PackagePath.GetAssetName()));
+		DPackage* Package = NewObject<DPackage>(
+			nullptr,
+			FName(PackagePath.GetAssetName()),
+			EObjectFlags::Standalone);
 		if (!Package)
 		{
 			Fail(Diagnostic, EReaderFailure::PublicationFailure, "Could not allocate the package skeleton.");
@@ -2014,7 +2016,6 @@ namespace Durin::Asset::PackageObjectStream
 			Fail(Diagnostic, EReaderFailure::PublicationFailure, "Injected graph publication failure."); Rollback();
 			return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 		}
-		AddToRoot(Package);
 		OutPackage = FLoadedAssetPackage(Package);
 		Package->SetCanonicalResaveRecommended(!Report.CanonicalizationEvidence.empty()
 			|| !Report.DeprecatedRouteEvidence.empty());
