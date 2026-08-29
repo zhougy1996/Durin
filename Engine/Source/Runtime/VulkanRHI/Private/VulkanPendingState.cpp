@@ -572,7 +572,8 @@ namespace Durin::VulkanRHI
 						checkf(ValidateVulkanTextureDescriptorState(
 							VulkanTexture->GetStateTracker(), View->GetDesc().Range,
 							Binding.Type, TrackedAccess),
-							"Image descriptor binding state mismatch: set={}, binding={}, element={}, type={}, expectedAccess={}, trackedAccess={}.",
+							"Image descriptor binding state mismatch: texture='{}', set={}, binding={}, element={}, type={}, expectedAccess={}, trackedAccess={}.",
+							VulkanTexture->GetDebugName(),
 							Element.SetIndex, Binding.Slot, Element.ArrayElement,
 							static_cast<uint32>(Binding.Type), static_cast<uint32>(ExpectedAccess),
 							static_cast<uint32>(TrackedAccess));

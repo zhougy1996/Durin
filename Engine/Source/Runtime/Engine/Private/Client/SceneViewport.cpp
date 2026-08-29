@@ -94,6 +94,13 @@ namespace Durin
 				"SceneViewportRenderTarget", Width, Height, EPixelFormat::SRGBA8_UNORM);
 			Desc.AddFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource);
 			RenderTargetRHI = RHICreateTexture(Desc);
+			if (RenderTargetRHI != nullptr)
+			{
+				const std::array Transition{FRHITextureTransition::Whole(
+					RenderTargetRHI, ERHIAccess::Discard,
+					ERHIAccess::GraphicsShaderRead)};
+				FRHICommandListImmediate::Get().TransitionTextures(Transition);
+			}
 		}
 		ViewportRHI = nullptr;
 	}
