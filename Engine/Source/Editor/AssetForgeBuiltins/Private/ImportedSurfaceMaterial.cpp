@@ -73,7 +73,7 @@ namespace Durin::AssetForge::Builtins
 		}
 		FMaterialProgramValidationResult ProgramValidation;
 		if (!Created->SetMaterialProgram(
-			MakeLegacyExpandedMaterialProgram(), ProgramValidation))
+			MakeCanonicalMaterialProgram(), ProgramValidation))
 		{
 			OutError = ProgramValidation.Diagnostics.empty()
 				? "Failed to initialize the standard imported-surface material program."

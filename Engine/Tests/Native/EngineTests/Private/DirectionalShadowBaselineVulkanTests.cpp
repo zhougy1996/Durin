@@ -327,7 +327,7 @@ namespace
 		}
 		Durin::FMaterialProgramValidationResult Validation;
 		if (!Material->SetMaterialProgram(
-				Durin::MakeLegacyExpandedMaterialProgram(), Validation))
+				Durin::MakeCanonicalMaterialProgram(), Validation))
 		{
 			ADD_FAILURE() << "Failed to install the directional-shadow material program.";
 			return {};

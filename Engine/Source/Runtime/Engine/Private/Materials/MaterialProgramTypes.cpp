@@ -90,8 +90,9 @@ namespace Durin
 
 		auto IsCanonicalTextureParameter(const FGuid& Id) -> bool
 		{
-			return std::ranges::find(MaterialParameters::TextureIds, Id)
-				!= MaterialParameters::TextureIds.end();
+			return MaterialParameters::FindBuiltinParameterRole(Id,
+				MaterialParameters::EMaterialBuiltinParameterKind::Texture)
+				!= MaterialParameters::EMaterialBuiltinParameterRole::Count;
 		}
 
 		auto FindParameter(
@@ -352,8 +353,17 @@ namespace Durin
 		return {};
 	}
 
-	auto MakeLegacyExpandedMaterialProgram() -> FMaterialProgram
+	auto MakeCanonicalMaterialProgram() -> FMaterialProgram
 	{
+		using Role = MaterialParameters::EMaterialBuiltinParameterRole;
+		const auto& BaseIds = MaterialParameters::GetBuiltinParameterIds(Role::BaseColor);
+		const auto& NormalIds = MaterialParameters::GetBuiltinParameterIds(Role::Normal);
+		const auto& MetallicIds = MaterialParameters::GetBuiltinParameterIds(Role::Metallic);
+		const auto& RoughnessIds = MaterialParameters::GetBuiltinParameterIds(Role::Roughness);
+		const auto& AmbientOcclusionIds = MaterialParameters::GetBuiltinParameterIds(Role::AmbientOcclusion);
+		const auto& EmissiveIds = MaterialParameters::GetBuiltinParameterIds(Role::Emissive);
+		const auto& OpacityIds = MaterialParameters::GetBuiltinParameterIds(Role::Opacity);
+		const auto& OpacityMaskIds = MaterialParameters::GetBuiltinParameterIds(Role::OpacityMask);
 		FMaterialProgram Program;
 		Program.Nodes.reserve(MaterialProgramMaxNodeCount);
 		auto AddNode = [&](EMaterialProgramOpcode Opcode,
@@ -419,9 +429,9 @@ namespace Durin
 		};
 
 		auto& BaseParameter = Parameter(
-			MaterialParameters::BaseColorId,
+			BaseIds.Value,
 			EMaterialProgramValueType::Float3);
-		auto& BaseSample = Sample(MaterialParameters::BaseColorTextureId);
+		auto& BaseSample = Sample(BaseIds.Texture);
 		auto& BaseRgb = Swizzle(
 			BaseSample, EMaterialProgramValueType::Float3, {0, 1, 2});
 		auto& BaseSaturated = Unary(
@@ -430,9 +440,9 @@ namespace Durin
 			EMaterialProgramOpcode::Multiply, BaseSaturated, BaseRgb);
 
 		auto& NormalParameter = Parameter(
-			MaterialParameters::NormalId,
+			NormalIds.Value,
 			EMaterialProgramValueType::Float3);
-		auto& NormalSample = Sample(MaterialParameters::NormalTextureId);
+		auto& NormalSample = Sample(NormalIds.Texture);
 		auto& NormalRg = Swizzle(
 			NormalSample, EMaterialProgramValueType::Float2, {0, 1});
 		auto& DecodedNormal = AddNode(
@@ -459,11 +469,9 @@ namespace Durin
 		};
 
 		auto& Metallic = MakeScalarProduct(
-			MaterialParameters::MetallicId,
-			MaterialParameters::MetallicTextureId, 2);
+			MetallicIds.Value, MetallicIds.Texture, 2);
 		auto& RoughnessProduct = MakeScalarProduct(
-			MaterialParameters::RoughnessId,
-			MaterialParameters::RoughnessTextureId, 1);
+			RoughnessIds.Value, RoughnessIds.Texture, 1);
 		auto& RoughnessMinimum = Constant(
 			EMaterialProgramValueType::Float, 0.045f);
 		auto& RoughnessMaximum = Constant(
@@ -474,14 +482,12 @@ namespace Durin
 			{MakeLink(RoughnessProduct), MakeLink(RoughnessMinimum),
 				MakeLink(RoughnessMaximum)});
 		auto& AmbientOcclusion = MakeScalarProduct(
-			MaterialParameters::AmbientOcclusionId,
-			MaterialParameters::AmbientOcclusionTextureId, 0);
+			AmbientOcclusionIds.Value, AmbientOcclusionIds.Texture, 0);
 
 		auto& EmissiveParameter = Parameter(
-			MaterialParameters::EmissiveId,
+			EmissiveIds.Value,
 			EMaterialProgramValueType::Float3);
-		auto& EmissiveSample = Sample(
-			MaterialParameters::EmissiveTextureId);
+		auto& EmissiveSample = Sample(EmissiveIds.Texture);
 		auto& EmissiveRgb = Swizzle(
 			EmissiveSample, EMaterialProgramValueType::Float3, {0, 1, 2});
 		auto& Zero3 = Constant(
@@ -495,11 +501,9 @@ namespace Durin
 			PositiveEmissive, PositiveEmissiveSample);
 
 		auto& Opacity = MakeScalarProduct(
-			MaterialParameters::OpacityId,
-			MaterialParameters::OpacityTextureId, 3);
+			OpacityIds.Value, OpacityIds.Texture, 3);
 		auto& OpacityMask = MakeScalarProduct(
-			MaterialParameters::OpacityMaskId,
-			MaterialParameters::OpacityMaskTextureId, 0);
+			OpacityMaskIds.Value, OpacityMaskIds.Texture, 0);
 
 		Program.Outputs = {
 			.BaseColor = MakeLink(BaseColor),
@@ -511,21 +515,6 @@ namespace Durin
 			.Opacity = MakeLink(Opacity),
 			.OpacityMask = MakeLink(OpacityMask)};
 		return Program;
-	}
-
-	auto MakeCanonicalMaterialProgram() -> FMaterialProgram
-	{
-		return MakeLegacyExpandedMaterialProgram();
-	}
-
-	auto UpgradeMaterialProgramSchema(FMaterialProgram& Program) -> bool
-	{
-		if (Program.SchemaVersion == CurrentMaterialProgramSchemaVersion)
-			return true;
-		if (Program.SchemaVersion != LegacyMaterialProgramSchemaVersion)
-			return false;
-		Program.SchemaVersion = CurrentMaterialProgramSchemaVersion;
-		return true;
 	}
 
 	auto GetMaterialSurfaceOutputType(EMaterialSurfaceOutput Output)
@@ -913,16 +902,16 @@ namespace Durin
 				Add(Node.Id, Node.ParameterId, false);
 			if (Node.Opcode == EMaterialProgramOpcode::TextureCoordinate)
 			{
-				const auto Role = std::ranges::find(
-					MaterialParameters::TextureIds, Node.ParameterId);
-				if (Role != MaterialParameters::TextureIds.end())
+				const auto Role = MaterialParameters::FindBuiltinParameterRole(
+					Node.ParameterId,
+					MaterialParameters::EMaterialBuiltinParameterKind::Texture);
+				if (Role != MaterialParameters::EMaterialBuiltinParameterRole::Count)
 				{
-					const size_t Index = static_cast<size_t>(
-						Role - MaterialParameters::TextureIds.begin());
-					Add(Node.Id, MaterialParameters::UVChannelIds[Index], true);
-					Add(Node.Id, MaterialParameters::UVScaleIds[Index], true);
-					Add(Node.Id, MaterialParameters::UVOffsetIds[Index], true);
-					Add(Node.Id, MaterialParameters::UVRotationIds[Index], true);
+					const auto& Ids = MaterialParameters::GetBuiltinParameterIds(Role);
+					Add(Node.Id, Ids.UVChannel, true);
+					Add(Node.Id, Ids.UVScale, true);
+					Add(Node.Id, Ids.UVOffset, true);
+					Add(Node.Id, Ids.UVRotation, true);
 				}
 			}
 			if (Node.Opcode == EMaterialProgramOpcode::TextureSample2D
@@ -931,13 +920,12 @@ namespace Durin
 				const auto TextureIt = Nodes.find(Node.Inputs.front().SourceNodeId);
 				if (TextureIt != Nodes.end())
 				{
-					const auto Role = std::ranges::find(
-						MaterialParameters::TextureIds,
-						TextureIt->second->ParameterId);
-					if (Role != MaterialParameters::TextureIds.end())
-						Add(Node.Id, MaterialParameters::SamplerStateIds[
-							static_cast<size_t>(Role
-								- MaterialParameters::TextureIds.begin())], true);
+					const auto Role = MaterialParameters::FindBuiltinParameterRole(
+						TextureIt->second->ParameterId,
+						MaterialParameters::EMaterialBuiltinParameterKind::Texture);
+					if (Role != MaterialParameters::EMaterialBuiltinParameterRole::Count)
+						Add(Node.Id, MaterialParameters::GetBuiltinParameterIds(
+							Role).SamplerState, true);
 				}
 			}
 		};

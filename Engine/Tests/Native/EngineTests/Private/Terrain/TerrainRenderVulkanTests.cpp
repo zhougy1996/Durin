@@ -130,7 +130,7 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesTelemetry)
 		nullptr, "TerrainRenderVulkanMaterial");
 	Durin::FMaterialProgramValidationResult MaterialValidation;
 	ASSERT_TRUE(MaterialObject->SetMaterialProgram(
-		Durin::MakeLegacyExpandedMaterialProgram(), MaterialValidation));
+		Durin::MakeCanonicalMaterialProgram(), MaterialValidation));
 	ASSERT_TRUE(MaterialObject->SetStaticProperties(
 		Durin::FMaterialStaticProperties{
 		.BlendMode = Durin::EMaterialBlendMode::Opaque,

@@ -8,7 +8,7 @@ namespace
 		auto* Material = Durin::NewObject<Durin::DMaterial>(Outer, Name);
 		Durin::FMaterialProgramValidationResult Validation;
 		if (!Material || !Material->SetMaterialProgram(
-			Durin::MakeLegacyExpandedMaterialProgram(), Validation)) return nullptr;
+			Durin::MakeCanonicalMaterialProgram(), Validation)) return nullptr;
 		return Material;
 	}
 }
@@ -203,19 +203,19 @@ TEST(FMaterialTests, MultiLevelResolutionReportsSupplyingSourceAndCurrentOverrid
 	ASSERT_TRUE(Child->SetParent(Parent));
 
 	Durin::FResolvedMaterialParameter Resolved;
-	ASSERT_TRUE(Child->ResolveParameterValue(Durin::MaterialParameters::OpacityId, Resolved));
+	ASSERT_TRUE(Child->ResolveParameterValue(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value, Resolved));
 	EXPECT_EQ(Resolved.Source, Base);
 	EXPECT_FALSE(Resolved.bHasLocalOverride);
 	EXPECT_FLOAT_EQ(Resolved.Value.ScalarValue, 1.0f);
 
 	ASSERT_TRUE(Parent->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.6f));
-	ASSERT_TRUE(Child->ResolveParameterValue(Durin::MaterialParameters::OpacityId, Resolved));
+	ASSERT_TRUE(Child->ResolveParameterValue(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value, Resolved));
 	EXPECT_EQ(Resolved.Source, Parent);
 	EXPECT_FALSE(Resolved.bHasLocalOverride);
 	EXPECT_FLOAT_EQ(Resolved.Value.ScalarValue, 0.6f);
 
 	ASSERT_TRUE(Child->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.25f));
-	ASSERT_TRUE(Child->ResolveParameterValue(Durin::MaterialParameters::OpacityId, Resolved));
+	ASSERT_TRUE(Child->ResolveParameterValue(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value, Resolved));
 	EXPECT_EQ(Resolved.Source, Child);
 	EXPECT_TRUE(Resolved.bHasLocalOverride);
 	EXPECT_FLOAT_EQ(Resolved.Value.ScalarValue, 0.25f);
@@ -234,21 +234,21 @@ TEST(FMaterialTests, ParentRemovalPreservesOrphansAndExcludesThemFromRendering)
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Instance->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.2, 0.3)));
-	ASSERT_TRUE(Instance->HasLocalParameterOverride(Durin::MaterialParameters::BaseColorId));
-	EXPECT_FALSE(Instance->IsParameterOverrideOrphan(Durin::MaterialParameters::BaseColorId));
+	ASSERT_TRUE(Instance->HasLocalParameterOverride(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
+	EXPECT_FALSE(Instance->IsParameterOverrideOrphan(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
 
 	ASSERT_TRUE(Instance->SetParent(nullptr));
 	ASSERT_EQ(Instance->GetParameterOverrides().size(), 1u);
-	EXPECT_TRUE(Instance->HasLocalParameterOverride(Durin::MaterialParameters::BaseColorId));
-	EXPECT_TRUE(Instance->IsParameterOverrideOrphan(Durin::MaterialParameters::BaseColorId));
+	EXPECT_TRUE(Instance->HasLocalParameterOverride(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
+	EXPECT_TRUE(Instance->IsParameterOverrideOrphan(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
 	Durin::FResolvedMaterialParameter Resolved;
-	EXPECT_FALSE(Instance->ResolveParameterValue(Durin::MaterialParameters::BaseColorId, Resolved));
+	EXPECT_FALSE(Instance->ResolveParameterValue(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value, Resolved));
 	ExpectColorNear(GetMaterialBinding(Instance->GetRenderData()).BaseColor, Durin::FVector4f(0.5f, 0.5f, 0.5f, 1.0f));
 
 	ASSERT_TRUE(Instance->SetParent(Base));
-	EXPECT_FALSE(Instance->IsParameterOverrideOrphan(Durin::MaterialParameters::BaseColorId));
+	EXPECT_FALSE(Instance->IsParameterOverrideOrphan(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
 	ExpectColorNear(GetMaterialBinding(Instance->GetRenderData()).BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
-	ASSERT_TRUE(Instance->ClearParameterOverride(Durin::MaterialParameters::BaseColorId));
+	ASSERT_TRUE(Instance->ClearParameterOverride(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value));
 	EXPECT_TRUE(Instance->GetParameterOverrides().empty());
 
 	Durin::MarkAsGarbage(Instance);
@@ -267,21 +267,21 @@ TEST(FMaterialTests, GuidOverrideRejectsUnknownAndPreservesVersionOnNoOp)
 	EXPECT_FALSE(Instance->SetParameterOverride(
 		Unknown, Durin::EMaterialParameterType::Scalar, Durin::FMaterialParameterValue::MakeScalar(0.5f)));
 	EXPECT_FALSE(Instance->SetParameterOverride(
-		Durin::MaterialParameters::BaseColorId,
+		Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value,
 		Durin::EMaterialParameterType::Scalar,
 		Durin::FMaterialParameterValue::MakeScalar(0.5f)));
 	EXPECT_EQ(Instance->GetRenderStateVersion(), InitialVersion);
 	EXPECT_TRUE(Instance->GetParameterOverrides().empty());
 
 	ASSERT_TRUE(Instance->SetParameterOverride(
-		Durin::MaterialParameters::OpacityId,
+		Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value,
 		Durin::EMaterialParameterType::Scalar,
 		Durin::FMaterialParameterValue::MakeScalar(0.5f)));
 	const uint64 OverriddenVersion = Instance->GetRenderStateVersion();
 	Durin::FMaterialParameterValue SameActiveValue = Durin::FMaterialParameterValue::MakeScalar(0.5f);
 	SameActiveValue.VectorValue = Durin::FVector3(9.0);
 	ASSERT_TRUE(Instance->SetParameterOverride(
-		Durin::MaterialParameters::OpacityId,
+		Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value,
 		Durin::EMaterialParameterType::Scalar,
 		SameActiveValue));
 	EXPECT_EQ(Instance->GetRenderStateVersion(), OverriddenVersion);
@@ -414,7 +414,7 @@ TEST(FMaterialTests, DuplicateInstancePreservesParentAndNestedTextureOverride)
 		Durin::DuplicateObject(Source, nullptr, "DuplicateOverrideResult"));
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_EQ(Duplicate->GetParent(), Base);
-	EXPECT_TRUE(Duplicate->HasLocalParameterOverride(Durin::MaterialParameters::BaseColorTextureId));
+	EXPECT_TRUE(Duplicate->HasLocalParameterOverride(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Texture));
 	Durin::DTexture2D* DuplicateTexture = nullptr;
 	ASSERT_TRUE(Duplicate->GetTextureParameterValue(
 		Durin::MaterialParameters::BaseColorTextureName(), DuplicateTexture));

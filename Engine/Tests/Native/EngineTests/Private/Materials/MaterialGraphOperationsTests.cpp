@@ -44,7 +44,7 @@ namespace
 		DMaterial* Material = NewObject<DMaterial>(nullptr, Name);
 		FMaterialProgramValidationResult Validation;
 		if (!Material || !Material->SetMaterialProgram(
-			MakeLegacyExpandedMaterialProgram(), Validation)) return nullptr;
+			MakeCanonicalMaterialProgram(), Validation)) return nullptr;
 		return Material;
 	}
 }
@@ -883,11 +883,11 @@ TEST(FMaterialGraphOperationsTests,
 		*Material->GetMaterialProgram(), Material->GetParameterDefinitions());
 	ASSERT_EQ(PromotedDependencies.size(), 1u);
 	EXPECT_EQ(PromotedDependencies.front().ParameterId,
-		MaterialParameters::BaseColorId);
+		MaterialParameters::GetBuiltinParameterIds(MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value);
 	const uint64 CompileGeneration =
 		Material->GetMaterialCompileStatus().RequestGeneration;
 	ASSERT_TRUE(FMaterialGraphOperations::SetParameterValue(
-		*Material, MaterialParameters::BaseColorId,
+		*Material, MaterialParameters::GetBuiltinParameterIds(MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value,
 		FMaterialParameterValue::MakeVector({0.7, 0.6, 0.5}),
 		&Transactions));
 	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
@@ -930,9 +930,9 @@ TEST(FMaterialGraphOperationsTests,
 		*Material->GetMaterialProgram(), Material->GetParameterDefinitions());
 	ASSERT_EQ(TextureDependencies.size(), 6u);
 	EXPECT_EQ(TextureDependencies.front().ParameterId,
-		MaterialParameters::NormalTextureId);
+		MaterialParameters::GetBuiltinParameterIds(MaterialParameters::EMaterialBuiltinParameterRole::Normal).Texture);
 	EXPECT_EQ(TextureDependencies.back().ParameterId,
-		MaterialParameters::SamplerStateIds[1]);
+		MaterialParameters::GetBuiltinParameterIds(MaterialParameters::EMaterialBuiltinParameterRole::Normal).SamplerState);
 	const FMaterialNormalizationResult Normalized = Normalize(*Material);
 	ASSERT_TRUE(Normalized);
 	EXPECT_EQ(Normalized.IR.Nodes.size(), 12u);

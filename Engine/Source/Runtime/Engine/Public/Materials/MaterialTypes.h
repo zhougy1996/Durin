@@ -249,6 +249,13 @@ namespace Durin
 			FGuid SamplerState;
 		};
 
+		// Maps one surface role to its complete persistent parameter identity group.
+		struct FMaterialBuiltinParameterEntry
+		{
+			EMaterialBuiltinParameterRole Role;
+			FMaterialBuiltinParameterIds Parameters;
+		};
+
 		inline constexpr size_t BuiltinParameterRoleCount =
 			static_cast<size_t>(EMaterialBuiltinParameterRole::Count);
 		inline constexpr size_t BuiltinParameterKindCount =
@@ -256,25 +263,111 @@ namespace Durin
 
 		// The only authored copy of persistent built-in parameter identities.
 		// Existing values must never be regenerated because instances serialize them.
-		inline constexpr std::array<FMaterialBuiltinParameterIds,
-			BuiltinParameterRoleCount> BuiltinParameterIds{{
-			{FGuid{0x6c4d841a,0x88e14c35,0xa428910e,0xa8338339}, FGuid{0xe0588f9f,0x2cb64c17,0x9e4823fd,0xbc71e936}, FGuid{0x672ac603,0xe3b849d3,0xa0bd40a7,0x808f40d9}, FGuid{0xefb7f324,0x0be949d7,0xb5e2aaf5,0xfb4e6805}, FGuid{0x7f06899b,0x33f5416d,0x9d07e4b0,0x86d9f512}, FGuid{0x35f1f695,0xc8bb4c59,0x89f55c74,0x8e297b22}, FGuid{0xc907df56,0x6d4c440b,0xa6dd53c9,0x6333f11d}},
-			{FGuid{0xa21d2ef5,0x01bc40af,0x8912265f,0x401a1013}, FGuid{0x5555fb8e,0xc41041d9,0xb9090b80,0x60e5897d}, FGuid{0x5bd333c3,0x4f7b4794,0x8719fbbc,0xf6c55aa5}, FGuid{0xa5a9c83b,0x4eb44263,0x83a69589,0xbc5c51fa}, FGuid{0xd8f1ff6d,0x0da845d3,0xb263bf33,0x6b268992}, FGuid{0xef2664e3,0xf45b4f20,0xaad6baa4,0x6486f63f}, FGuid{0xd378b044,0x9d8b439d,0xaf82bac2,0x3476970b}},
-			{FGuid{0x86355aae,0x5820462d,0xbc3690b8,0x402a06d4}, FGuid{0xef53c105,0x25e141e2,0x97cc521f,0xffaa7c62}, FGuid{0x4555094e,0x5e2146f8,0x8fa5461c,0x2855e779}, FGuid{0xd24b6330,0xa6b94232,0xb929e02e,0xee5eb8cb}, FGuid{0x823917fc,0x577e4492,0xaee15bf5,0x1f7f99c9}, FGuid{0x3c598714,0x16174535,0x936eb4db,0xe5a210cd}, FGuid{0x44ef5b74,0xbdcb4fae,0xb233f499,0xcc99814e}},
-			{FGuid{0xec8d8285,0xab4549b3,0xaf1321be,0xcd490348}, FGuid{0xb2a36b19,0xefbd433d,0xa4ff5687,0x02ebc864}, FGuid{0x5f31c554,0x120d438c,0xac871567,0xea3dfb2c}, FGuid{0x52b3dde0,0x3355417b,0xbf05eb11,0xa4d57d74}, FGuid{0xe8c9892e,0xfe2c471b,0xb76eeef3,0xd38a0eab}, FGuid{0x682ca789,0x18bd4ec4,0xa00f271a,0xd7527e59}, FGuid{0x71086444,0x963c4638,0x98d929c1,0xaaab3dc2}},
-			{FGuid{0x4ff53bc5,0x0c1c47a8,0x8453e4b2,0xa6be893c}, FGuid{0x88e38c97,0x44ac4b15,0xa203c18f,0x4e2b7d6e}, FGuid{0x22268e45,0x22ea4186,0x8c8032ae,0xbf3563a6}, FGuid{0x8cd74420,0x60764ea4,0x88fb76ac,0xc08804d4}, FGuid{0xfcc40232,0xb6604de4,0x95123d02,0xe05dde5e}, FGuid{0x82b3fdc3,0x0f8840ad,0xbe12abdb,0xbc5732b1}, FGuid{0x6075e231,0x6c8647db,0x815a4575,0xa72a06ca}},
-			{FGuid{0x0f059660,0xe75b4f74,0x934095ee,0x0dad4764}, FGuid{0xe544e53b,0x699b4f83,0x8f0b29f7,0x18aa9d02}, FGuid{0xe3da1eb1,0xb9374251,0xb671d414,0x3589b22a}, FGuid{0xb9e82178,0x3fcd43e7,0x94aa7826,0x15b81866}, FGuid{0x165e8be8,0x46a44106,0xb22d3a0f,0x25bd23cb}, FGuid{0x76c5afe3,0xd08148cb,0x86c9125d,0x8accbce1}, FGuid{0xa89564f2,0xd936422a,0xa48871f7,0x21873f76}},
-			{FGuid{0x76c3ab5f,0x5de94104,0xaa6d0fb6,0xb44ab8a1}, FGuid{0xd6e3072e,0xc97146de,0xb699855e,0x6f96c767}, FGuid{0x9390003c,0x799e47e6,0x8aa7085f,0x02682928}, FGuid{0x15e6d53d,0x890241ca,0x915eb4d1,0x32b0caa0}, FGuid{0xad888dbb,0x10934047,0x82901991,0x3f0ea763}, FGuid{0x5751ef57,0xf71d45e4,0x906ce613,0x9d22b2c4}, FGuid{0xc98a80bb,0x03cb4ed9,0x80fe2dfc,0xb6a89821}},
-			{FGuid{0x6cd33852,0x373a4803,0xb2847fd3,0x319add4d}, FGuid{0xc4b39494,0xac194da8,0xb9b9beef,0x69c94797}, FGuid{0xfe9b13ed,0x48be4534,0xae1d9f02,0x4e56aed0}, FGuid{0x89485eda,0xbf1d448a,0x8142d9b3,0xcc7705d1}, FGuid{0xefb2320e,0x8b514460,0xb3e92d3a,0x973d358a}, FGuid{0x4a40ca6b,0xa7fe48ae,0xb2af647a,0x7027f949}, FGuid{0x666771a5,0x71034a00,0xaf2a479d,0x097947b8}},
+		inline constexpr std::array<FMaterialBuiltinParameterEntry,
+			BuiltinParameterRoleCount> BuiltinParameters{{
+			{
+				.Role = EMaterialBuiltinParameterRole::BaseColor,
+				.Parameters = {
+				.Value = {0x6c4d841a,0x88e14c35,0xa428910e,0xa8338339},
+				.Texture = {0xe0588f9f,0x2cb64c17,0x9e4823fd,0xbc71e936},
+				.UVChannel = {0x672ac603,0xe3b849d3,0xa0bd40a7,0x808f40d9},
+				.UVScale = {0xefb7f324,0x0be949d7,0xb5e2aaf5,0xfb4e6805},
+				.UVOffset = {0x7f06899b,0x33f5416d,0x9d07e4b0,0x86d9f512},
+				.UVRotation = {0x35f1f695,0xc8bb4c59,0x89f55c74,0x8e297b22},
+				.SamplerState = {0xc907df56,0x6d4c440b,0xa6dd53c9,0x6333f11d}},
+			},
+			{
+				.Role = EMaterialBuiltinParameterRole::Normal,
+				.Parameters = {
+				.Value = {0xa21d2ef5,0x01bc40af,0x8912265f,0x401a1013},
+				.Texture = {0x5555fb8e,0xc41041d9,0xb9090b80,0x60e5897d},
+				.UVChannel = {0x5bd333c3,0x4f7b4794,0x8719fbbc,0xf6c55aa5},
+				.UVScale = {0xa5a9c83b,0x4eb44263,0x83a69589,0xbc5c51fa},
+				.UVOffset = {0xd8f1ff6d,0x0da845d3,0xb263bf33,0x6b268992},
+				.UVRotation = {0xef2664e3,0xf45b4f20,0xaad6baa4,0x6486f63f},
+				.SamplerState = {0xd378b044,0x9d8b439d,0xaf82bac2,0x3476970b}},
+			},
+			{
+				.Role = EMaterialBuiltinParameterRole::Metallic,
+				.Parameters = {
+				.Value = {0x86355aae,0x5820462d,0xbc3690b8,0x402a06d4},
+				.Texture = {0xef53c105,0x25e141e2,0x97cc521f,0xffaa7c62},
+				.UVChannel = {0x4555094e,0x5e2146f8,0x8fa5461c,0x2855e779},
+				.UVScale = {0xd24b6330,0xa6b94232,0xb929e02e,0xee5eb8cb},
+				.UVOffset = {0x823917fc,0x577e4492,0xaee15bf5,0x1f7f99c9},
+				.UVRotation = {0x3c598714,0x16174535,0x936eb4db,0xe5a210cd},
+				.SamplerState = {0x44ef5b74,0xbdcb4fae,0xb233f499,0xcc99814e}},
+			},
+			{
+				.Role = EMaterialBuiltinParameterRole::Roughness,
+				.Parameters = {
+				.Value = {0xec8d8285,0xab4549b3,0xaf1321be,0xcd490348},
+				.Texture = {0xb2a36b19,0xefbd433d,0xa4ff5687,0x02ebc864},
+				.UVChannel = {0x5f31c554,0x120d438c,0xac871567,0xea3dfb2c},
+				.UVScale = {0x52b3dde0,0x3355417b,0xbf05eb11,0xa4d57d74},
+				.UVOffset = {0xe8c9892e,0xfe2c471b,0xb76eeef3,0xd38a0eab},
+				.UVRotation = {0x682ca789,0x18bd4ec4,0xa00f271a,0xd7527e59},
+				.SamplerState = {0x71086444,0x963c4638,0x98d929c1,0xaaab3dc2}},
+			},
+			{
+				.Role = EMaterialBuiltinParameterRole::AmbientOcclusion,
+				.Parameters = {
+				.Value = {0x4ff53bc5,0x0c1c47a8,0x8453e4b2,0xa6be893c},
+				.Texture = {0x88e38c97,0x44ac4b15,0xa203c18f,0x4e2b7d6e},
+				.UVChannel = {0x22268e45,0x22ea4186,0x8c8032ae,0xbf3563a6},
+				.UVScale = {0x8cd74420,0x60764ea4,0x88fb76ac,0xc08804d4},
+				.UVOffset = {0xfcc40232,0xb6604de4,0x95123d02,0xe05dde5e},
+				.UVRotation = {0x82b3fdc3,0x0f8840ad,0xbe12abdb,0xbc5732b1},
+				.SamplerState = {0x6075e231,0x6c8647db,0x815a4575,0xa72a06ca}},
+			},
+			{
+				.Role = EMaterialBuiltinParameterRole::Emissive,
+				.Parameters = {
+				.Value = {0x0f059660,0xe75b4f74,0x934095ee,0x0dad4764},
+				.Texture = {0xe544e53b,0x699b4f83,0x8f0b29f7,0x18aa9d02},
+				.UVChannel = {0xe3da1eb1,0xb9374251,0xb671d414,0x3589b22a},
+				.UVScale = {0xb9e82178,0x3fcd43e7,0x94aa7826,0x15b81866},
+				.UVOffset = {0x165e8be8,0x46a44106,0xb22d3a0f,0x25bd23cb},
+				.UVRotation = {0x76c5afe3,0xd08148cb,0x86c9125d,0x8accbce1},
+				.SamplerState = {0xa89564f2,0xd936422a,0xa48871f7,0x21873f76}},
+			},
+			{
+				.Role = EMaterialBuiltinParameterRole::Opacity,
+				.Parameters = {
+				.Value = {0x76c3ab5f,0x5de94104,0xaa6d0fb6,0xb44ab8a1},
+				.Texture = {0xd6e3072e,0xc97146de,0xb699855e,0x6f96c767},
+				.UVChannel = {0x9390003c,0x799e47e6,0x8aa7085f,0x02682928},
+				.UVScale = {0x15e6d53d,0x890241ca,0x915eb4d1,0x32b0caa0},
+				.UVOffset = {0xad888dbb,0x10934047,0x82901991,0x3f0ea763},
+				.UVRotation = {0x5751ef57,0xf71d45e4,0x906ce613,0x9d22b2c4},
+				.SamplerState = {0xc98a80bb,0x03cb4ed9,0x80fe2dfc,0xb6a89821}},
+			},
+			{
+				.Role = EMaterialBuiltinParameterRole::OpacityMask,
+				.Parameters = {
+				.Value = {0x6cd33852,0x373a4803,0xb2847fd3,0x319add4d},
+				.Texture = {0xc4b39494,0xac194da8,0xb9b9beef,0x69c94797},
+				.UVChannel = {0xfe9b13ed,0x48be4534,0xae1d9f02,0x4e56aed0},
+				.UVScale = {0x89485eda,0xbf1d448a,0x8142d9b3,0xcc7705d1},
+				.UVOffset = {0xefb2320e,0x8b514460,0xb3e92d3a,0x973d358a},
+				.UVRotation = {0x4a40ca6b,0xa7fe48ae,0xb2af647a,0x7027f949},
+				.SamplerState = {0x666771a5,0x71034a00,0xaf2a479d,0x097947b8}},
+			},
 		}};
+
+		constexpr auto GetBuiltinParameterIds(EMaterialBuiltinParameterRole Role)
+			-> FMaterialBuiltinParameterIds
+		{
+			for (const FMaterialBuiltinParameterEntry& Entry : BuiltinParameters)
+				if (Entry.Role == Role) return Entry.Parameters;
+			return {};
+		}
 
 		constexpr auto GetBuiltinParameterId(
 			EMaterialBuiltinParameterRole Role,
 			EMaterialBuiltinParameterKind Kind) -> FGuid
 		{
-			const size_t RoleIndex = static_cast<size_t>(Role);
-			if (RoleIndex >= BuiltinParameterRoleCount) return {};
-			const FMaterialBuiltinParameterIds& Ids = BuiltinParameterIds[RoleIndex];
+			const FMaterialBuiltinParameterIds Ids = GetBuiltinParameterIds(Role);
 			switch (Kind)
 			{
 			case EMaterialBuiltinParameterKind::Value: return Ids.Value;
@@ -288,41 +381,25 @@ namespace Durin
 			}
 		}
 
-		template <FGuid FMaterialBuiltinParameterIds::* Member>
-		constexpr auto SelectBuiltinParameterIds()
-			-> std::array<FGuid, BuiltinParameterRoleCount>
+		constexpr auto FindBuiltinParameterRole(
+			const FGuid& Id,
+			EMaterialBuiltinParameterKind Kind) -> EMaterialBuiltinParameterRole
 		{
-			std::array<FGuid, BuiltinParameterRoleCount> Result{};
-			for (size_t Role = 0; Role < Result.size(); ++Role)
-				Result[Role] = BuiltinParameterIds[Role].*Member;
-			return Result;
+			for (const FMaterialBuiltinParameterEntry& Entry : BuiltinParameters)
+			{
+				if (GetBuiltinParameterId(Entry.Role, Kind) == Id)
+					return Entry.Role;
+			}
+			return EMaterialBuiltinParameterRole::Count;
 		}
 
-		inline constexpr FGuid BaseColorId = GetBuiltinParameterId(EMaterialBuiltinParameterRole::BaseColor, EMaterialBuiltinParameterKind::Value);
-		inline constexpr FGuid BaseColorTextureId = GetBuiltinParameterId(EMaterialBuiltinParameterRole::BaseColor, EMaterialBuiltinParameterKind::Texture);
-		inline constexpr FGuid OpacityId = GetBuiltinParameterId(EMaterialBuiltinParameterRole::Opacity, EMaterialBuiltinParameterKind::Value);
-		inline constexpr FGuid SpecularStrengthId{0xcf101cf0, 0x3ac84098, 0x9408d956, 0xe0832827};
-		inline constexpr FGuid ShininessId{0x6826b694, 0xb7e84b0b, 0xa38f6f29, 0xdb804d4c};
-		inline constexpr FGuid NormalId = GetBuiltinParameterId(EMaterialBuiltinParameterRole::Normal, EMaterialBuiltinParameterKind::Value);
-		inline constexpr FGuid NormalTextureId = GetBuiltinParameterId(EMaterialBuiltinParameterRole::Normal, EMaterialBuiltinParameterKind::Texture);
-		inline constexpr FGuid MetallicId = GetBuiltinParameterId(EMaterialBuiltinParameterRole::Metallic, EMaterialBuiltinParameterKind::Value);
-		inline constexpr FGuid MetallicTextureId = GetBuiltinParameterId(EMaterialBuiltinParameterRole::Metallic, EMaterialBuiltinParameterKind::Texture);
-		inline constexpr FGuid RoughnessId = GetBuiltinParameterId(EMaterialBuiltinParameterRole::Roughness, EMaterialBuiltinParameterKind::Value);
-		inline constexpr FGuid RoughnessTextureId = GetBuiltinParameterId(EMaterialBuiltinParameterRole::Roughness, EMaterialBuiltinParameterKind::Texture);
-		inline constexpr FGuid AmbientOcclusionId = GetBuiltinParameterId(EMaterialBuiltinParameterRole::AmbientOcclusion, EMaterialBuiltinParameterKind::Value);
-		inline constexpr FGuid AmbientOcclusionTextureId = GetBuiltinParameterId(EMaterialBuiltinParameterRole::AmbientOcclusion, EMaterialBuiltinParameterKind::Texture);
-		inline constexpr FGuid EmissiveId = GetBuiltinParameterId(EMaterialBuiltinParameterRole::Emissive, EMaterialBuiltinParameterKind::Value);
-		inline constexpr FGuid EmissiveTextureId = GetBuiltinParameterId(EMaterialBuiltinParameterRole::Emissive, EMaterialBuiltinParameterKind::Texture);
-		inline constexpr FGuid OpacityTextureId = GetBuiltinParameterId(EMaterialBuiltinParameterRole::Opacity, EMaterialBuiltinParameterKind::Texture);
-		inline constexpr FGuid OpacityMaskId = GetBuiltinParameterId(EMaterialBuiltinParameterRole::OpacityMask, EMaterialBuiltinParameterKind::Value);
-		inline constexpr FGuid OpacityMaskTextureId = GetBuiltinParameterId(EMaterialBuiltinParameterRole::OpacityMask, EMaterialBuiltinParameterKind::Texture);
-
-		inline constexpr auto TextureIds = SelectBuiltinParameterIds<&FMaterialBuiltinParameterIds::Texture>();
-		inline constexpr auto UVChannelIds = SelectBuiltinParameterIds<&FMaterialBuiltinParameterIds::UVChannel>();
-		inline constexpr auto UVScaleIds = SelectBuiltinParameterIds<&FMaterialBuiltinParameterIds::UVScale>();
-		inline constexpr auto UVOffsetIds = SelectBuiltinParameterIds<&FMaterialBuiltinParameterIds::UVOffset>();
-		inline constexpr auto UVRotationIds = SelectBuiltinParameterIds<&FMaterialBuiltinParameterIds::UVRotation>();
-		inline constexpr auto SamplerStateIds = SelectBuiltinParameterIds<&FMaterialBuiltinParameterIds::SamplerState>();
+		constexpr auto IsBuiltinParameter(
+			const FGuid& Id,
+			EMaterialBuiltinParameterKind Kind) -> bool
+		{
+			return FindBuiltinParameterRole(Id, Kind)
+				!= EMaterialBuiltinParameterRole::Count;
+		}
 
 		// FName cannot be safely initialized before the name pool, so canonical names
 		// are exposed as function-local constants rather than namespace globals.

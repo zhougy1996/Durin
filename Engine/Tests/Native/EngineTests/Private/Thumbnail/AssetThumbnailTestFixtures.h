@@ -383,7 +383,7 @@ namespace Durin::Tests
 		if (!Result) return Fail(Result.Message);
 		FMaterialProgramValidationResult ProgramValidation;
 		if (!OutFixtures.Material->SetMaterialProgram(
-			MakeLegacyExpandedMaterialProgram(), ProgramValidation))
+			MakeCanonicalMaterialProgram(), ProgramValidation))
 			return Fail("Could not assign the expanded material fixture program.");
 		if (!OutFixtures.Material->SetVectorParameterValue(
 				MaterialParameters::BaseColorName(), FVector3(0.35, 0.55, 0.75))

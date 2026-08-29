@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-08-29
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -14,9 +14,9 @@ property surface. Renderer-facing layout, compatibility, immutable
 representation, builder, pipeline identity, and fallback declarations live in
 `Materials/MaterialRenderTypes.h`; `MaterialRenderProxy.h` includes that narrow
 surface directly. Their implementations are separated into canonical authored
-schema, layout compatibility, representation/builder, and diagnostics files.
-This split retains the current v3 table and identity, the isolated v1 decoder,
-the error material, and diagnostic counters.
+schema, representation/builder, and diagnostics files. The render boundary
+retains only the current v3 table and identity, the error material, and
+diagnostic counters.
 
 ## Parameter Domain
 
@@ -66,10 +66,9 @@ Every texture role also owns UV-channel, UV-scale, UV-offset, UV-rotation, and
 packed sampler-state parameters. The sampler state preserves glTF minification,
 magnification, mip filtering, and independent U/V addressing.
 Their GUIDs are permanent because serialized overrides must survive renames.
-The built-in identities are maintained by one role-by-kind registry; named
-legacy constants and field arrays are compatibility views over that registry,
-and callers resolve surface-output identities through the shared lookup rather
-than duplicating GUID switches or parallel-array knowledge.
+The built-in identities are maintained by one explicit role-to-parameter-group
+registry. Callers use its shared role/kind lookup rather than duplicating GUID
+switches, individual aliases, or parallel-array knowledge.
 Engine resolution compiles the declarations into the versioned v3 render
 layout identified by `MaterialRenderLayoutV3Id`; the layout owns compact
 uniform offsets and eight resource indices. User-authored parameter
@@ -88,11 +87,10 @@ chain, so dynamic GUID overrides remain independent of authored node order.
 Fresh materials own zero expression nodes and eight unconnected defaults:
 BaseColor `(0.5, 0.5, 0.5)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
 `0.5`, AmbientOcclusion `1`, Emissive `(0, 0, 0)`, Opacity `1`, and
-OpacityMask `1`. Asset-load construction retains the explicitly named legacy
-expanded program so packages written before `Program` existed preserve their
-old behavior. Present version-1 mandatory links upgrade in place to version 2
-without changing nodes, links, parameter GUIDs, or rendering. An unknown-version
-or malformed program does not take the legacy transition: bounded validation
+OpacityMask `1`. Repository material packages persist the current program
+schema, and load accepts only `CurrentMaterialProgramSchemaVersion`; the former
+version-1 upgrade path is intentionally not retained. An unknown-version or
+malformed program fails bounded validation, which
 rejects invalid enums and GUIDs, count/string/byte/input/depth limits, dangling
 links, cycles, non-finite constants, bad parameter references, input types, and
 incompatible connected surface outputs before residency. Unconnected outputs
@@ -343,10 +341,9 @@ bytes; eight rotations and eight packed per-role sampler states occupy the v3
 suffix. Material assets persist authored parameters rather than this transient
 render representation, and every production builder starts from the canonical
 v3 seed. No asset load or cook path deserializes a prior render layout, so the
-v2 factory, validator, decoder, binding type, and renderer upgrade branches do
-not form a content compatibility boundary and have been removed. The isolated
-v1 factory and decoder remain for their separate compact-layout contract, but
-production renderers accept only v3.
+v1/v2 factories, validators, decoders, binding types, and renderer upgrade
+branches do not form a content compatibility boundary and have been removed.
+Only v3 is accepted.
 
 Construction validates the version and identity, field counts, compact-index
 contiguity, types, sizes, alignment, non-overlapping ranges, finite values,

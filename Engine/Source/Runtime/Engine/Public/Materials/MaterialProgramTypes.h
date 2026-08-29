@@ -20,7 +20,6 @@ namespace Durin
 	}
 
 	inline constexpr uint32 CurrentMaterialProgramSchemaVersion = 2;
-	inline constexpr uint32 LegacyMaterialProgramSchemaVersion = 1;
 	inline constexpr uint32 MaterialProgramMaxNodeCount = 256;
 	inline constexpr uint32 MaterialProgramMaxLinkCount = 1024;
 	inline constexpr uint32 MaterialProgramMaxReferencedParameterCount = 128;
@@ -325,10 +324,7 @@ namespace Durin
 	};
 
 	ENGINE_API auto MakeDefaultMaterialProgram() -> FMaterialProgram;
-	ENGINE_API auto MakeLegacyExpandedMaterialProgram() -> FMaterialProgram;
 	ENGINE_API auto MakeCanonicalMaterialProgram() -> FMaterialProgram;
-	ENGINE_API auto UpgradeMaterialProgramSchema(FMaterialProgram& Program)
-		-> bool;
 	ENGINE_API auto GetMaterialSurfaceOutputType(EMaterialSurfaceOutput Output)
 		-> EMaterialProgramValueType;
 	ENGINE_API auto GetMaterialSurfaceOutputLink(

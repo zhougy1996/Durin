@@ -537,7 +537,7 @@ namespace Durin
 			nullptr, "EditorGridTerrainMaterial");
 		FMaterialProgramValidationResult MaterialValidation;
 		ASSERT_TRUE(MaterialObject->SetMaterialProgram(
-			MakeLegacyExpandedMaterialProgram(), MaterialValidation));
+			MakeCanonicalMaterialProgram(), MaterialValidation));
 		ASSERT_TRUE(MaterialObject->SetStaticProperties(FMaterialStaticProperties{
 			.BlendMode = EMaterialBlendMode::Opaque,
 			.ShadingModel = EMaterialShadingModel::Unlit,

@@ -14,7 +14,7 @@ namespace
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
 		Durin::FMaterialProgramValidationResult Validation;
 		if (!Material || !Material->SetMaterialProgram(
-			Durin::MakeLegacyExpandedMaterialProgram(), Validation)) return nullptr;
+			Durin::MakeCanonicalMaterialProgram(), Validation)) return nullptr;
 		return Material;
 	}
 

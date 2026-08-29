@@ -13,9 +13,7 @@ namespace Durin
 	DMaterial::DMaterial(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 		, ParameterDefinitions(MakeCanonicalMaterialParameterDefinitions())
-		, Program(ObjectInitializer.Purpose == EObjectConstructionPurpose::AssetLoad
-			? MakeLegacyExpandedMaterialProgram()
-			: MakeDefaultMaterialProgram())
+		, Program(MakeDefaultMaterialProgram())
 	{
 		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose))
 		{
@@ -290,11 +288,6 @@ namespace Durin
 		}
 		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
 			return LoadCookedProgram(OutError);
-		if (!UpgradeMaterialProgramSchema(Program))
-		{
-			OutError = "Material program schema version is unsupported.";
-			return false;
-		}
 		const FMaterialProgramValidationResult ProgramValidation =
 			ValidateMaterialProgram(Program, ParameterDefinitions);
 		if (!ProgramValidation)

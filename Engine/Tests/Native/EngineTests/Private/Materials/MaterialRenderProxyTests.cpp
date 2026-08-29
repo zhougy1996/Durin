@@ -16,7 +16,7 @@ namespace
 			Outer, std::forward<TName>(Name));
 		Durin::FMaterialProgramValidationResult Validation;
 		if (!Material || !Material->SetMaterialProgram(
-			Durin::MakeLegacyExpandedMaterialProgram(), Validation)) return nullptr;
+			Durin::MakeCanonicalMaterialProgram(), Validation)) return nullptr;
 		return Material;
 	}
 
@@ -146,7 +146,7 @@ TEST(FMaterialRenderProxyTests, StableIdentityPublishesVersionsAndRejectsStaleSt
 	Durin::FMaterialRenderProxyPublication StalePublication;
 	StalePublication.LocalVersion = Updated.LocalVersion;
 	StalePublication.LocalLayer.Parameters.push_back({
-		.Id = Durin::MaterialParameters::BaseColorId,
+		.Id = Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value,
 		.Type = Durin::EMaterialParameterType::Vector,
 		.VectorValue = Durin::FVector3(0.0),
 	});
@@ -237,36 +237,36 @@ TEST(FMaterialRenderProxyTests, CanonicalV3ValuesMatchDirectCompilationForBasesA
 				Definition.Name,
 				TextureForUsage(Definition.TextureUsage, false)));
 		}
-		else if (std::ranges::find(
-			Durin::MaterialParameters::UVChannelIds, Definition.Id)
-			!= Durin::MaterialParameters::UVChannelIds.end())
+		else if (Durin::MaterialParameters::IsBuiltinParameter(
+			Definition.Id,
+			Durin::MaterialParameters::EMaterialBuiltinParameterKind::UVChannel))
 		{
 			ASSERT_TRUE(Base->SetScalarParameterValue(
 				Definition.Name, 2.6f));
 		}
-		else if (std::ranges::find(
-			Durin::MaterialParameters::UVScaleIds, Definition.Id)
-			!= Durin::MaterialParameters::UVScaleIds.end())
+		else if (Durin::MaterialParameters::IsBuiltinParameter(
+			Definition.Id,
+			Durin::MaterialParameters::EMaterialBuiltinParameterKind::UVScale))
 		{
 			ASSERT_TRUE(Base->SetVector2ParameterValue(
 				Definition.Name, Durin::FVector2(2.0, -3.0)));
 		}
-		else if (std::ranges::find(
-			Durin::MaterialParameters::UVOffsetIds, Definition.Id)
-			!= Durin::MaterialParameters::UVOffsetIds.end())
+		else if (Durin::MaterialParameters::IsBuiltinParameter(
+			Definition.Id,
+			Durin::MaterialParameters::EMaterialBuiltinParameterKind::UVOffset))
 		{
 			ASSERT_TRUE(Base->SetVector2ParameterValue(
 				Definition.Name, Durin::FVector2(7.0, -11.0)));
 		}
-		else if (std::ranges::find(
-			Durin::MaterialParameters::UVRotationIds, Definition.Id)
-			!= Durin::MaterialParameters::UVRotationIds.end())
+		else if (Durin::MaterialParameters::IsBuiltinParameter(
+			Definition.Id,
+			Durin::MaterialParameters::EMaterialBuiltinParameterKind::UVRotation))
 		{
 			ASSERT_TRUE(Base->SetScalarParameterValue(Definition.Name, 0.75f));
 		}
-		else if (std::ranges::find(
-			Durin::MaterialParameters::SamplerStateIds, Definition.Id)
-			!= Durin::MaterialParameters::SamplerStateIds.end())
+		else if (Durin::MaterialParameters::IsBuiltinParameter(
+			Definition.Id,
+			Durin::MaterialParameters::EMaterialBuiltinParameterKind::SamplerState))
 		{
 			Durin::FMaterialSamplerState Sampler;
 			Sampler.AddressU = Durin::EMaterialSamplerAddressMode::ClampToEdge;

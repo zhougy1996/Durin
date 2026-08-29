@@ -274,7 +274,7 @@ namespace Durin
 		ASSERT_TRUE(Asset::CreateAsset(MaterialPath, Material));
 		FMaterialProgramValidationResult ProgramValidation;
 		ASSERT_TRUE(Material->SetMaterialProgram(
-			MakeLegacyExpandedMaterialProgram(), ProgramValidation));
+			MakeCanonicalMaterialProgram(), ProgramValidation));
 		Material->SetTextureParameterValue(MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
 		FinishMaterialCompilation(*Material);
 

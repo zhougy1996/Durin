@@ -158,73 +158,6 @@ namespace Durin
 		return bError;
 	}
 
-	auto TryGetMaterialRenderV1Binding(
-		const FMaterialRenderRepresentation& Representation,
-		FMaterialRenderV1Binding& OutBinding,
-		FMaterialRenderValidationDiagnostic& OutDiagnostic
-	) -> bool
-	{
-		OutBinding = FMaterialRenderV1Binding{};
-		OutDiagnostic = {};
-
-		static const FMaterialRenderLayout ExpectedLayout =
-			MakeMaterialRenderLayoutV1();
-		const FMaterialRenderLayout& Layout = Representation.GetLayout();
-		if (Layout.Identity != ExpectedLayout.Identity)
-		{
-			return SetValidationFailure(
-				OutDiagnostic,
-				EMaterialRenderValidationFailure::UnsupportedIdentity,
-				0,
-				"Material render binding layout identity is unsupported.");
-		}
-		if (Layout != ExpectedLayout)
-		{
-			return SetValidationFailure(
-				OutDiagnostic,
-				EMaterialRenderValidationFailure::InvalidField,
-				0,
-				"Material render binding layout does not match the v1 contract.");
-		}
-
-		const std::span<const std::byte> Payload =
-			Representation.GetUniformPayload();
-		if (Payload.size() != ExpectedLayout.UniformPayloadSize)
-		{
-			return SetValidationFailure(
-				OutDiagnostic,
-				EMaterialRenderValidationFailure::InvalidPayloadSize,
-				0,
-				"Material render binding payload size is invalid.");
-		}
-		const std::span<const FRHITextureReferenceRef> Resources =
-			Representation.GetResources();
-		if (Resources.size() != ExpectedLayout.ResourceFieldCount)
-		{
-			return SetValidationFailure(
-				OutDiagnostic,
-				EMaterialRenderValidationFailure::InvalidResource,
-				0,
-				"Material render binding resource count is invalid.");
-		}
-
-		auto ReadFloat = [&Payload](uint32 Offset) {
-			float Value = 0.0f;
-			std::memcpy(&Value, Payload.data() + Offset, sizeof(Value));
-			return Value;
-		};
-		OutBinding.BaseColor = FVector4f(
-			ReadFloat(ExpectedLayout.Fields[0].Offset),
-			ReadFloat(ExpectedLayout.Fields[0].Offset + 4),
-			ReadFloat(ExpectedLayout.Fields[0].Offset + 8),
-			ReadFloat(ExpectedLayout.Fields[1].Offset));
-		OutBinding.SpecularStrength =
-			ReadFloat(ExpectedLayout.Fields[2].Offset);
-		OutBinding.Shininess = ReadFloat(ExpectedLayout.Fields[3].Offset);
-		OutBinding.BaseColorTexture = Resources[0];
-		return true;
-	}
-
 	auto EncodeMaterialSamplerState(const FMaterialSamplerState& State) -> float
 	{
 		const uint32 Packed = static_cast<uint32>(State.MinFilter)
@@ -378,9 +311,9 @@ namespace Durin
 		{
 			return RejectField(ParameterId);
 		}
-		if (std::ranges::find(
-				MaterialParameters::SamplerStateIds, ParameterId)
-			!= MaterialParameters::SamplerStateIds.end())
+		if (MaterialParameters::FindBuiltinParameterRole(ParameterId,
+				MaterialParameters::EMaterialBuiltinParameterKind::SamplerState)
+				!= MaterialParameters::EMaterialBuiltinParameterRole::Count)
 		{
 			FMaterialSamplerState State;
 			if (!TryDecodeMaterialSamplerState(Value, State))

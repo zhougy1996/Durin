@@ -63,7 +63,7 @@ namespace
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
 		Durin::FMaterialProgramValidationResult Validation;
 		if (!Material || !Material->SetMaterialProgram(
-			Durin::MakeLegacyExpandedMaterialProgram(), Validation)) return nullptr;
+			Durin::MakeCanonicalMaterialProgram(), Validation)) return nullptr;
 		return Material;
 	}
 }
@@ -222,8 +222,9 @@ TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 			EXPECT_FLOAT_EQ(Definition.MinimumValue, 0.0f);
 			EXPECT_FLOAT_EQ(
 				Definition.MaximumValue,
-				std::ranges::find(Durin::MaterialParameters::UVChannelIds, Definition.Id)
-					!= Durin::MaterialParameters::UVChannelIds.end()
+				Durin::MaterialParameters::IsBuiltinParameter(
+					Definition.Id,
+					Durin::MaterialParameters::EMaterialBuiltinParameterKind::UVChannel)
 					? 3.0f : 255.0f);
 			break;
 		case Durin::EMaterialParameterPresentation::Color:
@@ -235,7 +236,7 @@ TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 		case Durin::EMaterialParameterPresentation::Default: FAIL() << "Built-in parameters require an explicit presentation."; break;
 		}
 	}
-	EXPECT_EQ(Material->FindParameterDefinition(Durin::MaterialParameters::OpacityId), &Definitions[42]);
+	EXPECT_EQ(Material->FindParameterDefinition(Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value), &Definitions[42]);
 	EXPECT_EQ(Material->FindParameterDefinition(Durin::FName("oPaCiTy")), &Definitions[42]);
 	EXPECT_FALSE(Material->SetScalarParameterValue(Durin::MaterialParameters::BaseColorName(), 0.5f));
 	EXPECT_FALSE(Material->SetVectorParameterValue(
@@ -327,26 +328,6 @@ TEST(FMaterialProgramSchemaTests,
 	EXPECT_EQ(
 		Durin::DMaterialInstance::StaticClass()->FindPropertyByName("Program"),
 		nullptr);
-}
-
-TEST(FMaterialProgramSchemaTests,
-	LegacySurfaceLinksUpgradeWithoutChangingExpandedSemantics)
-{
-	Durin::FMaterialProgram Legacy =
-		Durin::MakeLegacyExpandedMaterialProgram();
-	Legacy.SchemaVersion = Durin::LegacyMaterialProgramSchemaVersion;
-	const Durin::FMaterialProgram Before = Legacy;
-	EXPECT_FALSE(Durin::ValidateMaterialProgram(
-		Legacy, Durin::GetCanonicalMaterialParameterDefinitions()));
-	ASSERT_TRUE(Durin::UpgradeMaterialProgramSchema(Legacy));
-	EXPECT_EQ(Legacy.SchemaVersion,
-		Durin::CurrentMaterialProgramSchemaVersion);
-	EXPECT_EQ(Legacy.Nodes, Before.Nodes);
-	EXPECT_EQ(Legacy.Outputs, Before.Outputs);
-	EXPECT_TRUE(Durin::ValidateMaterialProgram(
-		Legacy, Durin::GetCanonicalMaterialParameterDefinitions()));
-	Legacy.SchemaVersion = 99;
-	EXPECT_FALSE(Durin::UpgradeMaterialProgramSchema(Legacy));
 }
 
 TEST(FMaterialProgramSchemaTests,
@@ -1087,7 +1068,7 @@ TEST(FMaterialTests, ReflectedParameterEditCoalescesAndInvalidatesRenderDataAcro
 {
 	InitializeDObjectSystem();
 	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "TransactionalMaterial");
-	const auto Target = MakeMaterialValueTarget(Material, Durin::MaterialParameters::OpacityId, Durin::FName("ScalarValue"));
+	const auto Target = MakeMaterialValueTarget(Material, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value, Durin::FName("ScalarValue"));
 	ASSERT_TRUE(Target.has_value());
 	Durin::Editor::FTransactionManager Transactions;
 	Durin::Editor::FPropertyView PropertyView;
@@ -1127,7 +1108,7 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksPresentedOwnerSeparatelyFromEdit
 	InitializeDObjectSystem();
 	Durin::DMaterialInstance* Owner = Durin::NewObject<Durin::DMaterialInstance>(nullptr, "PropertyViewOwner");
 	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "PropertyViewTarget");
-	const auto Target = MakeMaterialValueTarget(Material, Durin::MaterialParameters::OpacityId, Durin::FName("ScalarValue"));
+	const auto Target = MakeMaterialValueTarget(Material, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value, Durin::FName("ScalarValue"));
 	ASSERT_TRUE(Target.has_value());
 	Durin::Editor::FTransactionManager Transactions;
 	Durin::Editor::FPropertyView PropertyView;

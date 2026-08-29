@@ -400,7 +400,8 @@ namespace Durin
 				Result.VectorValue.z,
 				static_cast<double>(Definition->MinimumValue),
 				static_cast<double>(Definition->MaximumValue));
-			if (Id == MaterialParameters::NormalId)
+			if (Id == MaterialParameters::GetBuiltinParameterIds(
+				MaterialParameters::EMaterialBuiltinParameterRole::Normal).Value)
 			{
 				const double LengthSquared =
 					Math::LengthSquared(Result.VectorValue);

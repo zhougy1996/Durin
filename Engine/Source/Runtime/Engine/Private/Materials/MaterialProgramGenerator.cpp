@@ -37,20 +37,13 @@ namespace Durin
 
 		auto FindRole(FGuid ParameterId, bool bTexture) -> int32
 		{
-			const auto& Ids = bTexture
-				? MaterialParameters::TextureIds
-				: std::array<FGuid, 8>{
-					MaterialParameters::BaseColorId,
-					MaterialParameters::NormalId,
-					MaterialParameters::MetallicId,
-					MaterialParameters::RoughnessId,
-					MaterialParameters::AmbientOcclusionId,
-					MaterialParameters::EmissiveId,
-					MaterialParameters::OpacityId,
-					MaterialParameters::OpacityMaskId};
-			const auto Found = std::ranges::find(Ids, ParameterId);
-			return Found == Ids.end()
-				? -1 : static_cast<int32>(std::distance(Ids.begin(), Found));
+			const auto Kind = bTexture
+				? MaterialParameters::EMaterialBuiltinParameterKind::Texture
+				: MaterialParameters::EMaterialBuiltinParameterKind::Value;
+			const auto Role = MaterialParameters::FindBuiltinParameterRole(
+				ParameterId, Kind);
+			return Role == MaterialParameters::EMaterialBuiltinParameterRole::Count
+				? -1 : static_cast<int32>(Role);
 		}
 
 		auto ParameterExpression(FGuid Id) -> std::string

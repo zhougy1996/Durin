@@ -33,9 +33,7 @@ namespace Durin
 	inline constexpr uint32 MaterialRenderMaxResourceCount = 64;
 	inline constexpr uint32 MaterialRenderMaxUniformPayloadBytes = 16 * 1024;
 
-	// The Id identifies the exact v1 field table and shader binding contract.
-	inline constexpr FGuid MaterialRenderLayoutV1Id{
-		0x4a6f4c01, 0x27d140b2, 0x8a52cc39, 0x6d4f9a77};
+	// Identifies the exact current field table and shader binding contract.
 	inline constexpr FGuid MaterialRenderLayoutV3Id{
 		0xd71bc1d4, 0xa5894f47, 0x9b5c08b5, 0xf42d75b2};
 
@@ -134,16 +132,6 @@ namespace Durin
 		bool bError = false;
 	};
 
-	// Decodes the supported v1 compact binding without exposing parameter GUIDs
-	// or reflected objects to Renderer.
-	struct FMaterialRenderV1Binding
-	{
-		FVector4f BaseColor{0.95f, 0.62f, 0.22f, 1.0f};
-		float SpecularStrength = 0.35f;
-		float Shininess = 32.0f;
-		FRHITextureReferenceRef BaseColorTexture;
-	};
-
 	// glTF-compatible sampling state retained independently for every texture role.
 	enum class EMaterialSamplerMinFilter : uint8
 	{
@@ -195,11 +183,6 @@ namespace Durin
 		}
 	};
 
-	ENGINE_API auto TryGetMaterialRenderV1Binding(
-		const FMaterialRenderRepresentation& Representation,
-		FMaterialRenderV1Binding& OutBinding,
-		FMaterialRenderValidationDiagnostic& OutDiagnostic
-	) -> bool;
 	ENGINE_API auto TryGetMaterialRenderBinding(
 		const FMaterialRenderRepresentation& Representation,
 		FMaterialRenderBinding& OutBinding,
@@ -245,7 +228,6 @@ namespace Durin
 	};
 
 	ENGINE_API auto MakeDefaultMaterialRenderLayout() -> FMaterialRenderLayout;
-	ENGINE_API auto MakeMaterialRenderLayoutV1() -> FMaterialRenderLayout;
 	ENGINE_API auto MakeCanonicalMaterialRenderRepresentation()
 		-> FMaterialRenderRepresentation;
 	ENGINE_API auto ValidateMaterialRenderLayout(

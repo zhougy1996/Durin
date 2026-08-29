@@ -106,62 +106,10 @@ namespace Durin
 		}
 	}
 
-	auto MakeMaterialRenderLayoutV1() -> FMaterialRenderLayout
-	{
-		using namespace MaterialParameters;
-		FMaterialRenderLayout Result;
-		Result.Identity = {.Version = 1, .Id = MaterialRenderLayoutV1Id};
-		Result.UniformPayloadSize = 32;
-		Result.UniformFieldCount = 4;
-		Result.ResourceFieldCount = 1;
-		Result.Fields = {
-			{
-				.ParameterId = BaseColorId,
-				.Storage = EMaterialRenderFieldStorage::Uniform,
-				.Type = EMaterialRenderValueType::Vector3,
-				.CompactIndex = 0,
-				.Offset = 0,
-				.Size = 12,
-			},
-			{
-				.ParameterId = OpacityId,
-				.Storage = EMaterialRenderFieldStorage::Uniform,
-				.Type = EMaterialRenderValueType::Scalar,
-				.CompactIndex = 1,
-				.Offset = 12,
-				.Size = 4,
-			},
-			{
-				.ParameterId = SpecularStrengthId,
-				.Storage = EMaterialRenderFieldStorage::Uniform,
-				.Type = EMaterialRenderValueType::Scalar,
-				.CompactIndex = 2,
-				.Offset = 16,
-				.Size = 4,
-			},
-			{
-				.ParameterId = ShininessId,
-				.Storage = EMaterialRenderFieldStorage::Uniform,
-				.Type = EMaterialRenderValueType::Scalar,
-				.CompactIndex = 3,
-				.Offset = 20,
-				.Size = 4,
-			},
-			{
-				.ParameterId = BaseColorTextureId,
-				.Storage = EMaterialRenderFieldStorage::Resource,
-				.Type = EMaterialRenderValueType::Texture2D,
-				.CompactIndex = 0,
-				.Offset = 0,
-				.Size = 0,
-			},
-		};
-		return Result;
-	}
-
 	auto MakeDefaultMaterialRenderLayout() -> FMaterialRenderLayout
 	{
 		using namespace MaterialParameters;
+		using BuiltinRole = EMaterialBuiltinParameterRole;
 		FMaterialRenderLayout Result;
 		Result.Identity = {.Version = 3, .Id = MaterialRenderLayoutV3Id};
 		Result.UniformPayloadSize = 416;
@@ -171,35 +119,44 @@ namespace Durin
 			Result.Fields.push_back({.ParameterId = Id, .Storage = EMaterialRenderFieldStorage::Uniform,
 				.Type = Type, .CompactIndex = Index, .Offset = Offset, .Size = GetUniformFieldSize(Type)});
 		};
-		AddUniform(BaseColorId, EMaterialRenderValueType::Vector3, 0, 0);
-		AddUniform(OpacityId, EMaterialRenderValueType::Scalar, 1, 12);
-		AddUniform(EmissiveId, EMaterialRenderValueType::Vector3, 2, 16);
-		AddUniform(MetallicId, EMaterialRenderValueType::Scalar, 3, 28);
-		AddUniform(NormalId, EMaterialRenderValueType::Vector3, 4, 32);
-		AddUniform(RoughnessId, EMaterialRenderValueType::Scalar, 5, 44);
-		AddUniform(AmbientOcclusionId, EMaterialRenderValueType::Scalar, 6, 48);
-		AddUniform(OpacityMaskId, EMaterialRenderValueType::Scalar, 7, 52);
+		AddUniform(GetBuiltinParameterIds(BuiltinRole::BaseColor).Value, EMaterialRenderValueType::Vector3, 0, 0);
+		AddUniform(GetBuiltinParameterIds(BuiltinRole::Opacity).Value, EMaterialRenderValueType::Scalar, 1, 12);
+		AddUniform(GetBuiltinParameterIds(BuiltinRole::Emissive).Value, EMaterialRenderValueType::Vector3, 2, 16);
+		AddUniform(GetBuiltinParameterIds(BuiltinRole::Metallic).Value, EMaterialRenderValueType::Scalar, 3, 28);
+		AddUniform(GetBuiltinParameterIds(BuiltinRole::Normal).Value, EMaterialRenderValueType::Vector3, 4, 32);
+		AddUniform(GetBuiltinParameterIds(BuiltinRole::Roughness).Value, EMaterialRenderValueType::Scalar, 5, 44);
+		AddUniform(GetBuiltinParameterIds(BuiltinRole::AmbientOcclusion).Value, EMaterialRenderValueType::Scalar, 6, 48);
+		AddUniform(GetBuiltinParameterIds(BuiltinRole::OpacityMask).Value, EMaterialRenderValueType::Scalar, 7, 52);
 		for (uint16 Role = 0; Role < 8; ++Role)
 		{
-			AddUniform(UVChannelIds[Role], EMaterialRenderValueType::Scalar, 8 + Role, 64 + Role * 4);
+			const auto& Ids = GetBuiltinParameterIds(
+				static_cast<EMaterialBuiltinParameterRole>(Role));
+			AddUniform(Ids.UVChannel, EMaterialRenderValueType::Scalar, 8 + Role, 64 + Role * 4);
 		}
 		for (uint16 Role = 0; Role < 8; ++Role)
 		{
-			AddUniform(UVScaleIds[Role], EMaterialRenderValueType::Vector3, 16 + Role, 96 + Role * 16);
+			const auto& Ids = GetBuiltinParameterIds(
+				static_cast<EMaterialBuiltinParameterRole>(Role));
+			AddUniform(Ids.UVScale, EMaterialRenderValueType::Vector3, 16 + Role, 96 + Role * 16);
 		}
 		for (uint16 Role = 0; Role < 8; ++Role)
 		{
-			AddUniform(UVOffsetIds[Role], EMaterialRenderValueType::Vector3, 24 + Role, 224 + Role * 16);
+			const auto& Ids = GetBuiltinParameterIds(
+				static_cast<EMaterialBuiltinParameterRole>(Role));
+			AddUniform(Ids.UVOffset, EMaterialRenderValueType::Vector3, 24 + Role, 224 + Role * 16);
 		}
 		for (uint16 Role = 0; Role < 8; ++Role)
 		{
-			Result.Fields.push_back({.ParameterId = TextureIds[Role], .Storage = EMaterialRenderFieldStorage::Resource,
+			const auto& Ids = GetBuiltinParameterIds(
+				static_cast<EMaterialBuiltinParameterRole>(Role));
+			Result.Fields.push_back({.ParameterId = Ids.Texture, .Storage = EMaterialRenderFieldStorage::Resource,
 				.Type = EMaterialRenderValueType::Texture2D, .CompactIndex = Role});
 		}
 		for (uint16 Role = 0; Role < 8; ++Role)
 		{
 			Result.Fields.insert(Result.Fields.begin() + 32 + Role, {
-				.ParameterId = UVRotationIds[Role],
+				.ParameterId = GetBuiltinParameterIds(
+					static_cast<EMaterialBuiltinParameterRole>(Role)).UVRotation,
 				.Storage = EMaterialRenderFieldStorage::Uniform,
 				.Type = EMaterialRenderValueType::Scalar,
 				.CompactIndex = static_cast<uint16>(32 + Role),
@@ -210,7 +167,8 @@ namespace Durin
 		for (uint16 Role = 0; Role < 8; ++Role)
 		{
 			Result.Fields.insert(Result.Fields.begin() + 40 + Role, {
-				.ParameterId = SamplerStateIds[Role],
+				.ParameterId = GetBuiltinParameterIds(
+					static_cast<EMaterialBuiltinParameterRole>(Role)).SamplerState,
 				.Storage = EMaterialRenderFieldStorage::Uniform,
 				.Type = EMaterialRenderValueType::Scalar,
 				.CompactIndex = static_cast<uint16>(40 + Role),
@@ -245,7 +203,7 @@ namespace Durin
 	) -> bool
 	{
 		OutDiagnostic = {};
-		if (Layout.Identity.Version != 1 && Layout.Identity.Version != 3)
+		if (Layout.Identity.Version != CurrentMaterialRenderLayoutVersion)
 		{
 			return SetValidationFailure(
 				OutDiagnostic,
@@ -256,10 +214,7 @@ namespace Durin
 					Layout.Identity.Version,
 					CurrentMaterialRenderLayoutVersion));
 		}
-		const FGuid ExpectedIdentity = Layout.Identity.Version == 1
-			? MaterialRenderLayoutV1Id
-			: MaterialRenderLayoutV3Id;
-		if (Layout.Identity.Id != ExpectedIdentity)
+		if (Layout.Identity.Id != MaterialRenderLayoutV3Id)
 		{
 			return SetValidationFailure(OutDiagnostic, EMaterialRenderValidationFailure::UnsupportedIdentity, 0,
 				"Material render layout identity is unsupported for its version.");

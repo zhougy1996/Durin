@@ -16,7 +16,7 @@ namespace
 	{
 		Durin::FMaterialProgramValidationResult Validation;
 		return Material.SetMaterialProgram(
-			Durin::MakeLegacyExpandedMaterialProgram(), Validation);
+			Durin::MakeCanonicalMaterialProgram(), Validation);
 	}
 
 	auto RelocateAssetForTest(
@@ -606,7 +606,7 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 }
 
 TEST(FMaterialProgramPackageTests,
-	ProgramRoundTripsDuplicatesTransitionsLegacyAndRejectsMalformedPresentData)
+	ProgramRoundTripsDuplicatesAndRejectsMalformedPresentData)
 {
 	InitializeDObjectSystem();
 	const std::filesystem::path Root =
@@ -663,28 +663,18 @@ TEST(FMaterialProgramPackageTests,
 	EXPECT_TRUE(CatalogEntry->Dependencies.empty());
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 
-	std::vector<std::byte> LegacyBytes = FirstSerialization;
-	ASSERT_TRUE(RemoveSerializedField(LegacyBytes, "Program"));
-	ASSERT_FALSE(ContainsSerializedField(LegacyBytes, "Program"));
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
-		LegacyBytes, Root / "Base.dasset"));
-	Durin::DMaterial* LegacyLoaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, LegacyLoaded));
-	ASSERT_NE(LegacyLoaded->GetMaterialProgram(), nullptr);
-	EXPECT_EQ(
-		*LegacyLoaded->GetMaterialProgram(),
-		Durin::MakeCanonicalMaterialProgram());
-
-	auto* ProgramProperty = LegacyLoaded->GetClass()->FindPropertyByName(
+	Durin::DMaterial* MalformedLoaded = nullptr;
+	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, MalformedLoaded));
+	auto* ProgramProperty = MalformedLoaded->GetClass()->FindPropertyByName(
 		"Program");
 	ASSERT_NE(ProgramProperty, nullptr);
 	auto* MutableProgram =
 		ProgramProperty->ContainerPtrToValuePtr<Durin::FMaterialProgram>(
-			LegacyLoaded);
+			MalformedLoaded);
 	ASSERT_NE(MutableProgram, nullptr);
 	MutableProgram->Nodes.clear();
-	LegacyLoaded->MarkPackageDirty();
-	ASSERT_TRUE(Durin::Asset::SavePackage(LegacyLoaded->GetPackage()));
+	MalformedLoaded->MarkPackageDirty();
+	ASSERT_TRUE(Durin::Asset::SavePackage(MalformedLoaded->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 	Durin::DMaterial* Rejected = nullptr;
 	const Durin::Asset::FAssetResult RejectedResult =

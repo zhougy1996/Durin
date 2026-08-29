@@ -68,7 +68,7 @@ namespace
 		if (!Durin::IsValid(Material)) return nullptr;
 		Durin::FMaterialProgramValidationResult Validation;
 		if (!Material->SetMaterialProgram(
-			Durin::MakeLegacyExpandedMaterialProgram(), Validation))
+			Durin::MakeCanonicalMaterialProgram(), Validation))
 			return nullptr;
 		return Material;
 	}
