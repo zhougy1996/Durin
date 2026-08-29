@@ -11,7 +11,6 @@
         "MonaCore",
 		"Mona",
 		"MonaImGui",
-		"AssetForgeBuiltins",
 		"AssetTools"
 	],
 	"PublicDependencies": [

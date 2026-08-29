@@ -7,7 +7,6 @@
 #include "Asset/Compatibility.h"
 #include "Asset/Load.h"
 #include "AssetTools/IAssetTools.h"
-#include "AssetForge/Builtins/SceneImport.h"
 #include "Assets/ContentBrowserThumbnailReferences.h"
 #include "Misc/Paths.h"
 #include "Panels/ContentBrowserItemView.h"

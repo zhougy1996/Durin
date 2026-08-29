@@ -2,12 +2,13 @@
     "ModuleName": "AssetTools",
     "LinkType": "Shared",
     "PCH": "SharedPCH_DObject",
-    "PrivateDependencies": [],
+    "PrivateDependencies": [
+        "DurinEd"
+    ],
     "PublicDependencies": [
         "Engine",
         "Core",
-        "CoreDObject",
-        "DurinEd"
+        "CoreDObject"
     ],
     "ReflectHeaders": []
 }
