@@ -15,6 +15,8 @@ namespace Durin
 		None = 0,
 		Asset = 1 << 0,
 		Cpp = 1 << 1,
+		// The live asset package has not completed its first persistent save.
+		NewlyCreated = 1 << 2,
 	};
 	ENUM_CLASS_FLAGS(EPackageFlags);
 
@@ -35,6 +37,11 @@ namespace Durin
 		auto GetPackageFlags() const -> EPackageFlags { return PackageFlags; }
 		auto IsAssetPackage() const -> bool { return EnumHasAnyFlags(PackageFlags, EPackageFlags::Asset); }
 		auto IsCppPackage() const -> bool { return EnumHasAnyFlags(PackageFlags, EPackageFlags::Cpp); }
+		auto IsNewlyCreated() const -> bool
+		{
+			return IsAssetPackage()
+				&& EnumHasAnyFlags(PackageFlags, EPackageFlags::NewlyCreated);
+		}
 
 		// Initialization is one-shot and requires an unparented package with no existing kind.
 		COREDOBJECT_API auto InitializeAssetPackage(const FAssetPath& InPath) -> void;
@@ -43,6 +50,14 @@ namespace Durin
 
 		// Asset packages accept only an asset whose Outer is this package.
 		COREDOBJECT_API auto SetAsset(DObject* InAsset) -> bool;
+		auto MarkAsNewlyCreated() -> void
+		{
+			if (IsAssetPackage()) PackageFlags |= EPackageFlags::NewlyCreated;
+		}
+		auto MarkAsPublished() -> void
+		{
+			PackageFlags &= ~EPackageFlags::NewlyCreated;
+		}
 		auto MarkDirty() -> void
 		{
 			if (!IsAssetPackage()) return;

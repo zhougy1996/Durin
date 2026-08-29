@@ -115,7 +115,7 @@ namespace Durin::Asset
 		uint64 ExpectedRegistryRevision = 0;
 		std::vector<FAssetRelocationMapping> Mappings;
 		FAssetMutationJournal Journal;
-		std::vector<FLoadedRelocationState> ResidentPackages;
+		std::vector<FLoadedRelocationState> LoadedPackages;
 		std::vector<FAssetOwnedPayloadRelocation> OwnedPayloads;
 		std::unordered_map<FAssetPath, FAssetData> PreAssets;
 		std::unordered_map<FAssetPath, FAssetData> PostAssets;
@@ -303,7 +303,7 @@ namespace Durin::Asset
 				if (Loaded->IsDirty())
 					return Error(EAssetError::InUse,
 						"A dirty loaded asset must be saved before relocation.");
-				State->ResidentPackages.push_back({
+				State->LoadedPackages.push_back({
 					.Mapping = Mapping,
 					.Package = Loaded,
 					.PrePackageName = Loaded->GetName(),
@@ -326,7 +326,7 @@ namespace Durin::Asset
 						"The destination {} is occupied by a redirector to {}. Run Fix Up Redirectors or choose another destination.",
 						Mapping.DestinationPath.ToString(),
 						DestinationData->RedirectDestination.ToString()));
-				if (ResidentPackages.contains(Mapping.DestinationPath))
+				if (FindResidentPackage(Mapping.DestinationPath))
 					return Error(EAssetError::InUse,
 						"A loaded destination redirector cannot be reclaimed.");
 				bReclaimDestinationRedirector = true;
@@ -435,7 +435,7 @@ namespace Durin::Asset
 				if (!AliasResolution
 					|| AliasResolution.FinalPath != Mapping.SourcePath)
 					continue;
-				if (ResidentPackages.contains(AliasPath))
+				if (FindResidentPackage(AliasPath))
 					return Error(EAssetError::InUse,
 						"A loaded upstream redirector cannot be retargeted.");
 				std::vector<std::byte> AliasPreBytes;
@@ -483,14 +483,14 @@ namespace Durin::Asset
 				Result = LoadAsset(Mapping.SourcePath, AssetObject);
 				if (!Result) return Result;
 				if (std::ranges::none_of(
-						State->ResidentPackages,
+						State->LoadedPackages,
 						[&](const FLoadedRelocationState& Loaded) {
 							return Loaded.Mapping.SourcePath
 								== Mapping.SourcePath;
 						}))
 				{
 					DPackage* LoadedPackage = AssetObject->GetPackage();
-					State->ResidentPackages.push_back({
+					State->LoadedPackages.push_back({
 						.Mapping = Mapping,
 						.Package = LoadedPackage,
 						.PrePackageName = LoadedPackage->GetName(),
@@ -643,7 +643,7 @@ namespace Durin::Asset
 						"A staged relocation output changed.");
 			}
 		}
-		for (const FLoadedRelocationState& Loaded : State.ResidentPackages)
+		for (const FLoadedRelocationState& Loaded : State.LoadedPackages)
 		{
 			const FAssetPath& ExpectedPath = bExpectPost
 				? Loaded.Mapping.DestinationPath
@@ -731,7 +731,7 @@ namespace Durin::Asset
 						EAssetRelocationFailurePoint::CompensateLoadedPackage))
 					return EnterRecovery(
 						"loaded-package compensation was interrupted.");
-				FLoadedRelocationState& Loaded = State.ResidentPackages[Count - 1];
+				FLoadedRelocationState& Loaded = State.LoadedPackages[Count - 1];
 				if (!Loaded.Package->RelocateAssetPackage(
 						Loaded.Mapping.SourcePath))
 					return EnterRecovery(
@@ -739,8 +739,6 @@ namespace Durin::Asset
 				Loaded.Package->Rename(FName(Loaded.PrePackageName));
 				Loaded.Package->GetAsset()->Rename(FName(Loaded.PreAssetName));
 				Loaded.Package->ClearDirty();
-				ResidentPackages.erase(Loaded.Mapping.DestinationPath);
-				ResidentPackages.emplace(Loaded.Mapping.SourcePath, Loaded.Package);
 			}
 			for (auto It = Published.rbegin(); It != Published.rend(); ++It)
 			{
@@ -782,7 +780,7 @@ namespace Durin::Asset
 			WriteMutationJournalState(State.Journal);
 		}
 
-		for (FLoadedRelocationState& Loaded : State.ResidentPackages)
+		for (FLoadedRelocationState& Loaded : State.LoadedPackages)
 		{
 			if (Private::ConsumeAssetRelocationFailure(
 					EAssetRelocationFailurePoint::UpdateLoadedPackage))
@@ -797,9 +795,6 @@ namespace Durin::Asset
 			Loaded.Package->GetAsset()->Rename(FName(
 				Loaded.Mapping.DestinationPath.GetAssetName()));
 			Loaded.Package->ClearDirty();
-			ResidentPackages.erase(Loaded.Mapping.SourcePath);
-			ResidentPackages.emplace(
-				Loaded.Mapping.DestinationPath, Loaded.Package);
 			++RelocatedLoadedCount;
 		}
 		for (FAssetOwnedPayloadRelocation& Payload : State.OwnedPayloads)
@@ -912,9 +907,9 @@ namespace Durin::Asset
 		for (size_t Count = State.OwnedPayloads.size(); Count > 0; --Count)
 			if (State.OwnedPayloads[Count - 1].Restore)
 				State.OwnedPayloads[Count - 1].Restore();
-		for (size_t Count = State.ResidentPackages.size(); Count > 0; --Count)
+		for (size_t Count = State.LoadedPackages.size(); Count > 0; --Count)
 		{
-			FLoadedRelocationState& Loaded = State.ResidentPackages[Count - 1];
+			FLoadedRelocationState& Loaded = State.LoadedPackages[Count - 1];
 			if (!Loaded.Package->RelocateAssetPackage(
 					Loaded.Mapping.SourcePath))
 			{
@@ -926,8 +921,6 @@ namespace Durin::Asset
 			Loaded.Package->Rename(FName(Loaded.PrePackageName));
 			Loaded.Package->GetAsset()->Rename(FName(Loaded.PreAssetName));
 			Loaded.Package->ClearDirty();
-			ResidentPackages.erase(Loaded.Mapping.DestinationPath);
-			ResidentPackages.emplace(Loaded.Mapping.SourcePath, Loaded.Package);
 		}
 
 		for (FAssetMutationJournalEntry& Entry : State.Journal.Entries)

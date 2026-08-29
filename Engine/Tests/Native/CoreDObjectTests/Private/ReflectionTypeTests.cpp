@@ -3284,6 +3284,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::DPackage* Package = Durin::CreatePackage(Path);
 		ASSERT_NE(Package, nullptr);
 		EXPECT_TRUE(Package->IsAssetPackage());
+		EXPECT_FALSE(Package->IsNewlyCreated());
 		EXPECT_EQ(Package->GetPackagePath(), Path.ToString());
 		EXPECT_EQ(Package->GetFName(), Durin::FName("CreatedPackage"));
 		EXPECT_EQ(Durin::FindPackage(Path.GetView()), Package);
@@ -3292,6 +3293,10 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 			Durin::EObjectInternalFlags::RootSet));
 		EXPECT_EQ(Durin::CreatePackage(Path), nullptr);
 		EXPECT_EQ(Durin::CreatePackage({}), nullptr);
+		Package->MarkAsNewlyCreated();
+		EXPECT_TRUE(Package->IsNewlyCreated());
+		Package->MarkAsPublished();
+		EXPECT_FALSE(Package->IsNewlyCreated());
 		Durin::CollectGarbage();
 		EXPECT_EQ(Durin::FindPackage(Path.GetView()), Package);
 

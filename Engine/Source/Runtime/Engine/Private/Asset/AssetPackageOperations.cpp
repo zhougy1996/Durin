@@ -1313,11 +1313,8 @@ namespace Durin::Asset
 
 		for (FStagedPackage& Staged : StagedPackages)
 		{
-			if (auto Resident = ResidentPackages.find(Staged.Path);
-				Resident != ResidentPackages.end()
-				&& Resident->second.Package == Staged.Package)
-				Resident->second.PublicationState =
-					EAssetPackagePublicationState::Published;
+			if (FindResidentPackage(Staged.Path) == Staged.Package)
+				Staged.Package->MarkAsPublished();
 			Staged.Package->ClearDirty();
 			std::error_code Ec;
 			std::filesystem::remove(Staged.Backup, Ec);
@@ -1736,11 +1733,8 @@ namespace Durin::Asset
 			return RegistryResult;
 		}
 		Package->ClearDirty();
-		if (auto Resident = ResidentPackages.find(Path);
-			Resident != ResidentPackages.end()
-			&& Resident->second.Package == Package)
-			Resident->second.PublicationState =
-				EAssetPackagePublicationState::Published;
+		if (FindResidentPackage(Path) == Package)
+			Package->MarkAsPublished();
 		CommitEditorBulkDataCompanion(CompanionTransaction);
 		CleanupStaleEditorBulkDataCompanions(Destination, PublishedCompanion);
 		return {};

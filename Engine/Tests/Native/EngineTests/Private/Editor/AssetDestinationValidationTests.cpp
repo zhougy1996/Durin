@@ -22,15 +22,15 @@ namespace
 
 	auto PublishedPackageOccupancy(const FAssetPath&) -> FAssetDestinationOccupancy
 	{
-		return {.ResidentPublicationState =
-			Asset::EAssetPackagePublicationState::Published};
+		return {.bResidentPackageExists = true};
 	}
 
 	auto NewlyCreatedPackageOccupancy(const FAssetPath&)
 		-> FAssetDestinationOccupancy
 	{
-		return {.ResidentPublicationState =
-			Asset::EAssetPackagePublicationState::NewlyCreated};
+		return {
+			.bResidentPackageExists = true,
+			.bResidentPackageNewlyCreated = true};
 	}
 
 	auto RedirectorOccupancy(const FAssetPath&) -> FAssetDestinationOccupancy
@@ -142,7 +142,7 @@ TEST_F(FAssetDestinationValidationTests, ReportsRegistryAndLoadedPackageCollisio
 	const FAssetDestinationValidation RegistryResult =
 		InspectAssetDestination("/Project/Textures/Registered", RegistryOccupancy);
 	EXPECT_TRUE(RegistryResult.bRegistryAssetExists);
-	EXPECT_FALSE(RegistryResult.ResidentPublicationState.has_value());
+	EXPECT_FALSE(RegistryResult.bResidentPackageExists);
 	EXPECT_FALSE(RegistryResult);
 	EXPECT_EQ(
 		RegistryResult.Message,
@@ -151,9 +151,8 @@ TEST_F(FAssetDestinationValidationTests, ReportsRegistryAndLoadedPackageCollisio
 	const FAssetDestinationValidation LoadedResult =
 		InspectAssetDestination("/Project/Textures/Loaded", PublishedPackageOccupancy);
 	EXPECT_FALSE(LoadedResult.bRegistryAssetExists);
-	EXPECT_EQ(
-		LoadedResult.ResidentPublicationState,
-		Asset::EAssetPackagePublicationState::Published);
+	EXPECT_TRUE(LoadedResult.bResidentPackageExists);
+	EXPECT_FALSE(LoadedResult.bResidentPackageNewlyCreated);
 	EXPECT_FALSE(LoadedResult);
 	EXPECT_EQ(
 		LoadedResult.Message,
@@ -163,9 +162,8 @@ TEST_F(FAssetDestinationValidationTests, ReportsRegistryAndLoadedPackageCollisio
 		InspectAssetDestination(
 			"/Project/Textures/Draft", NewlyCreatedPackageOccupancy);
 	EXPECT_FALSE(DraftResult.bRegistryAssetExists);
-	EXPECT_EQ(
-		DraftResult.ResidentPublicationState,
-		Asset::EAssetPackagePublicationState::NewlyCreated);
+	EXPECT_TRUE(DraftResult.bResidentPackageExists);
+	EXPECT_TRUE(DraftResult.bResidentPackageNewlyCreated);
 	EXPECT_FALSE(DraftResult);
 	EXPECT_EQ(
 		DraftResult.Message,

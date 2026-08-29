@@ -260,7 +260,7 @@ namespace Durin::Asset
 				return Error(EAssetError::InUse,
 					"A selected redirector is currently loading.");
 			if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete
-				&& ResidentPackages.contains(Alias))
+				&& FindResidentPackage(Alias))
 				return Error(EAssetError::InUse,
 					"A loaded redirector must be unloaded before Fix Up deletion.");
 			for (FAssetPath Upstream : Durin::Asset::FindRedirectorsTo(Alias))

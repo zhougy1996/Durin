@@ -114,6 +114,20 @@ namespace Durin::Asset
 		}
 
 		constexpr uint32 MaximumRedirectDepth = 32;
+
+		auto GetResidentAssetPackages() -> std::vector<DPackage*>
+		{
+			std::vector<DPackage*> Packages;
+			for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::LiveOnly))
+			{
+				DPackage* Package = Cast<DPackage>(Object);
+				if (!Package || Package->IsGarbage() || !Package->IsAssetPackage())
+					continue;
+				if (FindPackage(Package->GetPackagePath()) == Package)
+					Packages.push_back(Package);
+			}
+			return Packages;
+		}
 	}
 
 	auto FAssetLoadReport::HasNonUpgradeMutations() const -> bool
@@ -151,10 +165,9 @@ namespace Durin::Asset
 	}
 
 	FAssetRuntimeState::FAssetRuntimeState()
-		: Loader(GetAssetPublicationCoordinator(), Residency, RuntimeConfiguration, bAcceptingRequests)
+		: Loader(GetAssetPublicationCoordinator(), RuntimeConfiguration, bAcceptingRequests)
 		, Mutations(
 			GetAssetPublicationCoordinator(),
-			Residency,
 			Loader,
 			RuntimeConfiguration,
 			bAcceptingRequests)
@@ -177,13 +190,15 @@ namespace Durin::Asset
 				: Error(EAssetError::AlreadyExists, std::format(
 					"Asset {} already exists. Choose another destination or delete the existing asset.",
 					Path.ToString()));
-		if (ResidentPackages.contains(Path))
+		if (FindResidentPackage(Path))
 			return Error(EAssetError::AlreadyExists, std::format(
 				"A loaded package already uses {}. Close it or choose another destination.",
 				Path.ToString()));
 
-		DPackage* Package = NewObject<DPackage>(nullptr, FName(Path.GetAssetName()));
-		Package->InitializeAssetPackage(Path);
+		DPackage* Package = CreatePackage(Path);
+		if (!Package)
+			return Error(EAssetError::AlreadyExists,
+				"A live package already occupies the asset path.");
 		AddToRoot(Package);
 		FStaticConstructObjectParameters Params{
 			Class, Package, FName(Path.GetAssetName()), Size,
@@ -199,8 +214,7 @@ namespace Durin::Asset
 			OutAsset = nullptr;
 			return Error(EAssetError::InvalidObjectGraph, "Failed to assign package asset.");
 		}
-		ResidentPackages.emplace(
-			Path, Package, EAssetPackagePublicationState::NewlyCreated);
+		Package->MarkAsNewlyCreated();
 		return {};
 	}
 
@@ -235,7 +249,7 @@ namespace Durin::Asset
 				: Error(EAssetError::AlreadyExists, std::format(
 					"Asset {} already exists. Choose another destination or delete the existing asset.",
 					DestinationPath.ToString()));
-		if (ResidentPackages.contains(DestinationPath))
+		if (FindResidentPackage(DestinationPath))
 			return Error(EAssetError::AlreadyExists, std::format(
 				"A loaded package already uses {}. Close it or choose another destination.",
 				DestinationPath.ToString()));
@@ -247,9 +261,10 @@ namespace Durin::Asset
 			return Error(EAssetError::InvalidObjectGraph,
 				"The source package has no main asset to duplicate.");
 
-		DPackage* Package = NewObject<DPackage>(
-			nullptr, FName(DestinationPath.GetAssetName()));
-		Package->InitializeAssetPackage(DestinationPath);
+		DPackage* Package = CreatePackage(DestinationPath);
+		if (!Package)
+			return Error(EAssetError::AlreadyExists,
+				"A live package already occupies the duplication destination.");
 		AddToRoot(Package);
 		OutAsset = DuplicateObject(
 			SourceAsset,
@@ -265,10 +280,7 @@ namespace Durin::Asset
 			return Error(EAssetError::InvalidObjectGraph,
 				"Failed to assign the duplicated package asset.");
 		}
-		ResidentPackages.emplace(
-			DestinationPath,
-			Package,
-			EAssetPackagePublicationState::NewlyCreated);
+		Package->MarkAsNewlyCreated();
 		return {};
 	}
 
@@ -461,10 +473,8 @@ namespace Durin::Asset
 				bool bDiscardedPackage = false;
 				for (auto It = TransactionPackages.rbegin(); It != TransactionPackages.rend(); ++It)
 				{
-					auto LoadedIt = ResidentPackages.find(*It);
-					if (LoadedIt == ResidentPackages.end()) continue;
-					DPackage* TransactionPackage = LoadedIt->second;
-					ResidentPackages.erase(LoadedIt);
+					DPackage* TransactionPackage = FindResidentPackage(*It);
+					if (!TransactionPackage) continue;
 					LoadingPackages.erase(*It);
 					if (TransactionPackage->HasAnyInternalFlags(
 						EObjectInternalFlags::RootSet))
@@ -488,9 +498,12 @@ namespace Durin::Asset
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Asset.LoadPackage");
-		if (auto It = ResidentPackages.find(Path); It != ResidentPackages.end())
+		if (DPackage* Resident = FindResidentPackage(Path))
 		{
-			OutPackage = It->second;
+			if (!Resident->GetAsset() && !LoadingPackages.contains(Path))
+				return Error(EAssetError::InvalidObjectGraph,
+					"A live asset package has no main asset.");
+			OutPackage = Resident;
 			return {};
 		}
 		FAssetLoadReport LocalReport{.PackagePath = Path};
@@ -522,17 +535,17 @@ namespace Durin::Asset
 			Result = Codec->Load(
 				Bytes, Path, Package, CodecReport,
 				[&](DPackage* LoadedPackage) -> FAssetResult {
-					if (!LoadedPackage || ResidentPackages.contains(Path))
+					if (!LoadedPackage
+						|| FindPackage(Path.GetView()) != LoadedPackage
+						|| LoadingPackages.contains(Path))
 						return Error(EAssetError::AlreadyExists,
 							"The package skeleton is already resident.");
-					ResidentPackages.emplace(Path, LoadedPackage);
 					LoadingPackages.insert(Path);
 					if (LoadDepth > 0) TransactionPackages.push_back(Path);
 					return {};
 				},
 				[&](DPackage* LoadedPackage) {
 					LoadingPackages.erase(Path);
-					ResidentPackages.erase(Path);
 				});
 			CodecReport->PackageFileReadCount = GActivePackageFileReadCount;
 			if (!Result) return Result;
@@ -544,46 +557,9 @@ namespace Durin::Asset
 
 	auto FAssetLoadService::FindResidentPackage(const FAssetPath& Path) const -> DPackage*
 	{
-		auto It = ResidentPackages.find(Path);
-		return It == ResidentPackages.end() ? nullptr : It->second.Package;
-	}
-
-	auto FAssetLoadService::AdoptCreatedPackage(DPackage* Package) -> FAssetResult
-	{
-		if (!bAcceptingRequests)
-			return Error(EAssetError::ShuttingDown,
-				"Asset package adoption is closed while the asset manager is shutting down.");
-		if (RuntimeConfiguration.IsCooked())
-			return Error(EAssetError::ReadOnlyMode,
-				"Cooked runtime package mode does not permit package adoption.");
-		FAssetPath Path;
-		if (!Package || !Package->IsAssetPackage()
-			|| !FAssetPath::TryCreate(Package->GetPackagePath(), Path)
-			|| FindPackage(Path.GetView()) != Package)
-			return Error(EAssetError::InvalidPackageType,
-				"Only a live registered asset package can be adopted.");
-		if (FindAssetExact(Path))
-			return Error(EAssetError::AlreadyExists,
-				"A catalog entry already occupies the package path.");
-		if (auto Existing = ResidentPackages.find(Path);
-			Existing != ResidentPackages.end())
-			return Existing->second.Package == Package
-				? FAssetResult{}
-				: Error(EAssetError::AlreadyExists,
-					"A different package is already resident at this path.");
-		ResidentPackages.emplace(
-			Path, Package, EAssetPackagePublicationState::NewlyCreated);
-		return {};
-	}
-
-	auto FAssetLoadService::GetResidentPackagePublicationState(
-		const FAssetPath& Path) const
-		-> std::optional<EAssetPackagePublicationState>
-	{
-		const auto It = ResidentPackages.find(Path);
-		return It == ResidentPackages.end()
-			? std::nullopt
-			: std::optional{It->second.PublicationState};
+		DPackage* Package = FindPackage(Path.GetView());
+		return Package && !Package->IsGarbage() && Package->IsAssetPackage()
+			? Package : nullptr;
 	}
 
 	auto FAssetLoadService::IsPackageReferenced(const DPackage* Package) const -> bool
@@ -591,9 +567,12 @@ namespace Durin::Asset
 		if (!Package) return false;
 		FAssetPath Path;
 		if (!FAssetPath::TryCreate(Package->GetPackagePath(), Path)) return false;
-		for (const auto& [OtherPath, OtherPackage] : ResidentPackages)
+		for (DPackage* OtherPackage : GetResidentAssetPackages())
 		{
 			if (OtherPackage == Package) continue;
+			FAssetPath OtherPath;
+			if (!FAssetPath::TryCreate(OtherPackage->GetPackagePath(), OtherPath))
+				continue;
 			const FAssetCatalogEntry Data = FindAssetExact(OtherPath);
 			if (!Data) continue;
 			for (const FAssetPath& Dependency : Data->Dependencies)
@@ -609,20 +588,17 @@ namespace Durin::Asset
 		const FAssetPath& Path,
 		EAssetPackageUnloadPolicy Policy) -> FAssetResult
 	{
-		auto It = ResidentPackages.find(Path);
-		if (It == ResidentPackages.end())
+		DPackage* Package = FindResidentPackage(Path);
+		if (!Package)
 			return Error(EAssetError::NotFound, "Package is not resident.");
-		if (LoadingPackages.contains(Path) || IsPackageReferenced(It->second)) return Error(EAssetError::InUse, "Package is still referenced.");
-		DPackage* Package = It->second.Package;
+		if (LoadingPackages.contains(Path) || IsPackageReferenced(Package))
+			return Error(EAssetError::InUse, "Package is still referenced.");
 		const bool bHasUnsavedState =
-			It->second.PublicationState
-				== EAssetPackagePublicationState::NewlyCreated
-			|| (Package && Package->IsDirty());
+			Package->IsNewlyCreated() || Package->IsDirty();
 		if (bHasUnsavedState
 			&& Policy == EAssetPackageUnloadPolicy::RejectUnsaved)
 			return Error(EAssetError::InUse,
 				"Package has unsaved state; explicit discard policy is required.");
-		ResidentPackages.erase(It);
 		if (Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
 			RemoveFromRoot(Package);
 		MarkObjectHierarchyAsGarbage(Package);
@@ -633,8 +609,12 @@ namespace Durin::Asset
 	auto FAssetLoadService::CapturePackageLoadSnapshot() const -> FAssetPackageLoadSnapshot
 	{
 		FAssetPackageLoadSnapshot Snapshot;
-		Snapshot.ResidentPackages.reserve(ResidentPackages.size());
-		for (const auto& [Path, Package] : ResidentPackages) Snapshot.ResidentPackages.push_back(Path);
+		for (DPackage* Package : GetResidentAssetPackages())
+		{
+			FAssetPath Path;
+			if (FAssetPath::TryCreate(Package->GetPackagePath(), Path))
+				Snapshot.ResidentPackages.push_back(std::move(Path));
+		}
 		std::ranges::sort(Snapshot.ResidentPackages, {}, [](const FAssetPath& Path) {
 			return Path.ToString();
 		});
@@ -653,8 +633,10 @@ namespace Durin::Asset
 		while (bChanged)
 		{
 			bChanged = false;
-			for (const auto& [Path, Package] : ResidentPackages)
+			for (DPackage* Package : GetResidentAssetPackages())
 			{
+				FAssetPath Path;
+				if (!FAssetPath::TryCreate(Package->GetPackagePath(), Path)) continue;
 				if (!Protected.contains(Path)) continue;
 				const FAssetCatalogEntry Data = FindAssetExact(Path);
 				if (!Data) continue;
@@ -667,19 +649,14 @@ namespace Durin::Asset
 		}
 
 		std::vector<DPackage*> ReleasedPackages;
-		for (auto It = ResidentPackages.begin(); It != ResidentPackages.end();)
+		for (DPackage* Package : GetResidentAssetPackages())
 		{
-			if (Protected.contains(It->first)
-				|| It->second.PublicationState
-					== EAssetPackagePublicationState::NewlyCreated
-				|| (It->second.Package && It->second.Package->IsDirty()))
-			{
-				++It;
-				continue;
-			}
-			DPackage* Package = It->second;
+			FAssetPath Path;
+			if (!FAssetPath::TryCreate(Package->GetPackagePath(), Path)
+				|| Protected.contains(Path)
+				|| Package->IsNewlyCreated()
+				|| Package->IsDirty()) continue;
 			ReleasedPackages.push_back(Package);
-			It = ResidentPackages.erase(It);
 		}
 		for (DPackage* Package : ReleasedPackages)
 		{
@@ -695,13 +672,7 @@ namespace Durin::Asset
 	{
 		StopAcceptingRequests();
 		FlushAssetRegistryCaches();
-		std::vector<DPackage*> Packages;
-		Packages.reserve(Residency.size());
-		for (const auto& [Path, Package] : Residency)
-		{
-			if (Package) Packages.push_back(Package);
-		}
-		Residency.clear();
+		std::vector<DPackage*> Packages = GetResidentAssetPackages();
 		Loader.Reset();
 		for (DPackage* Package : Packages)
 		{
@@ -720,7 +691,7 @@ namespace Durin::Asset
 			return Error(EAssetError::InUse,
 				"Asset runtime configuration cannot be replaced while Engine Asset is initialized.");
 		}
-		check(Residency.empty());
+		check(GetResidentAssetPackages().empty());
 		check(Loader.IsIdle());
 		RuntimeConfiguration = std::move(Configuration);
 		bAcceptingRequests = true;

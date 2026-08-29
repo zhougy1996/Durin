@@ -1,6 +1,7 @@
 #include "Editor/Import/AssetDestinationValidation.h"
 
 #include "Asset.h"
+#include "DObject/Package.h"
 
 namespace Durin::Editor
 {
@@ -9,10 +10,12 @@ namespace Durin::Editor
 		auto QueryAssetDestinationOccupancy(const FAssetPath& AssetPath) -> FAssetDestinationOccupancy
 		{
 			const Asset::FAssetCatalogEntry Entry = Asset::FindAssetExact(AssetPath);
+			DPackage* ResidentPackage = Asset::FindResidentPackage(AssetPath);
 			return {
 				.bRegistryAssetExists = Entry.Succeeded(),
-				.ResidentPublicationState =
-					Asset::GetResidentPackagePublicationState(AssetPath),
+				.bResidentPackageExists = ResidentPackage != nullptr,
+				.bResidentPackageNewlyCreated =
+					ResidentPackage && ResidentPackage->IsNewlyCreated(),
 				.OccupantKind = !Entry
 					? EAssetDestinationOccupantKind::None
 					: Entry->EntryKind == Asset::EAssetRegistryEntryKind::Redirector
@@ -53,7 +56,9 @@ namespace Durin::Editor
 		const FAssetDestinationOccupancy Occupancy =
 			(OccupancyQuery != nullptr ? OccupancyQuery : QueryAssetDestinationOccupancy)(Result.AssetPath);
 		Result.bRegistryAssetExists = Occupancy.bRegistryAssetExists;
-		Result.ResidentPublicationState = Occupancy.ResidentPublicationState;
+		Result.bResidentPackageExists = Occupancy.bResidentPackageExists;
+		Result.bResidentPackageNewlyCreated =
+			Occupancy.bResidentPackageNewlyCreated;
 		Result.OccupantKind = Occupancy.OccupantKind;
 		Result.RedirectDestination = Occupancy.RedirectDestination;
 		if (Result.bRegistryAssetExists
@@ -65,10 +70,9 @@ namespace Durin::Editor
 				: "A redirector already occupies this path. Repair or Fix Up the redirector before reusing the destination.";
 		else if (Result.bRegistryAssetExists)
 			Result.Message = "An asset already exists at this path. Choose another destination or delete the existing asset first.";
-		else if (Result.ResidentPublicationState
-			== Asset::EAssetPackagePublicationState::NewlyCreated)
+		else if (Result.bResidentPackageNewlyCreated)
 			Result.Message = "A newly created unsaved package already uses this path. Save or explicitly discard it before reusing the destination.";
-		else if (Result.ResidentPublicationState.has_value())
+		else if (Result.bResidentPackageExists)
 			Result.Message = "A resident package already uses this path. Close it or choose another destination.";
 		return Result;
 	}

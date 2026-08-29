@@ -137,12 +137,6 @@ namespace Durin::Asset
 		std::vector<FAssetPath> ResidentPackages;
 	};
 
-	enum class EAssetPackagePublicationState : uint8
-	{
-		NewlyCreated,
-		Published,
-	};
-
 	enum class EAssetPackageUnloadPolicy : uint8
 	{
 		RejectUnsaved,
@@ -227,11 +221,6 @@ namespace Durin::Asset
 		FAssetLoadReport* OutReport = nullptr
 	) -> FAssetResult;
 	ENGINE_API auto FindResidentPackage(const FAssetPath& Path) -> DPackage*;
-	// Adopts a package created outside the legacy Asset::CreateAsset path into
-	// Engine Asset residency so save, load, and unload observe one live owner.
-	ENGINE_API auto AdoptCreatedPackage(DPackage* Package) -> FAssetResult;
-	ENGINE_API auto GetResidentPackagePublicationState(const FAssetPath& Path)
-		-> std::optional<EAssetPackagePublicationState>;
 	ENGINE_API auto UnloadPackage(
 		const FAssetPath& Path,
 		EAssetPackageUnloadPolicy Policy = EAssetPackageUnloadPolicy::RejectUnsaved

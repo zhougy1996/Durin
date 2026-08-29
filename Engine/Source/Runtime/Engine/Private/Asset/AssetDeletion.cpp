@@ -69,7 +69,7 @@ namespace Durin::Asset
 			[](const FAssetPath& A, const FAssetPath& B) {
 				return A.GetView() < B.GetView();
 			});
-		OutAnalysis.bLoaded = ResidentPackages.contains(Path);
+		OutAnalysis.bLoaded = FindResidentPackage(Path) != nullptr;
 		OutAnalysis.bLoading = LoadingPackages.contains(Path);
 
 		const FAssetResult CompanionResult =
@@ -236,7 +236,7 @@ namespace Durin::Asset
 
 			FAssetDeletionBatchEntry Entry{
 				.RegistryEntry = *Data,
-				.bLoaded = ResidentPackages.contains(Path)};
+				.bLoaded = FindResidentPackage(Path) != nullptr};
 			if (LoadingPackages.contains(Path))
 				AddBlocker(
 					EAssetDeletionBatchBlocker::LoadingPackage,
@@ -244,9 +244,8 @@ namespace Durin::Asset
 					{},
 					Data->PhysicalPath,
 					"Asset is currently loading.");
-			if (const auto Loaded = ResidentPackages.find(Path);
-				Loaded != ResidentPackages.end() && Loaded->second
-				&& Loaded->second->IsDirty())
+			if (DPackage* Loaded = FindResidentPackage(Path);
+				Loaded && Loaded->IsDirty())
 				AddBlocker(
 					EAssetDeletionBatchBlocker::DirtyPackage,
 					Path,
@@ -406,7 +405,7 @@ namespace Durin::Asset
 				// Redirect hard blockers have dedicated actionable closure diagnostics.
 				if (OtherData.EntryKind == EAssetRegistryEntryKind::Redirector)
 					continue;
-				const bool bLoadedReference = ResidentPackages.contains(OtherPath);
+				const bool bLoadedReference = FindResidentPackage(OtherPath) != nullptr;
 				AddBlocker(
 					bLoadedReference
 						? EAssetDeletionBatchBlocker::ExternalLoadedReference
@@ -553,15 +552,13 @@ namespace Durin::Asset
 			if (LoadingPackages.contains(Path))
 				return Error(EAssetError::InUse, std::format(
 					"Asset {} is currently loading.", Path.ToString()));
-			const auto Loaded = ResidentPackages.find(Path);
-			if (Loaded == ResidentPackages.end()) continue;
-			if (Loaded->second && Loaded->second->IsDirty())
+			DPackage* Loaded = FindResidentPackage(Path);
+			if (!Loaded) continue;
+			if (Loaded->IsDirty())
 				return Error(EAssetError::InUse, std::format(
 					"Asset {} has unsaved changes.", Path.ToString()));
-			if (Loaded->second) Packages.push_back(Loaded->second);
+			Packages.push_back(Loaded);
 		}
-		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
-			ResidentPackages.erase(Entry.RegistryEntry.PackagePath);
 		for (DPackage* Package : Packages)
 		{
 			if (Package->HasAnyInternalFlags(EObjectInternalFlags::RootSet))
@@ -620,7 +617,7 @@ namespace Durin::Asset
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
 		{
 			const FAssetPath& Path = Entry.RegistryEntry.PackagePath;
-			if (Prepared.Assets.contains(Path) || ResidentPackages.contains(Path))
+			if (Prepared.Assets.contains(Path) || FindResidentPackage(Path))
 				return Error(EAssetError::AlreadyExists, std::format(
 					"Asset {} already exists and cannot be restored.",
 					Path.ToString()));
@@ -676,8 +673,8 @@ namespace Durin::Asset
 			return Error(EAssetError::InUse, "Asset is currently loading.");
 		if (Analysis.bLoaded)
 		{
-			// ResidentPackages is a residency cache. Once persistent package
-			// references are gone, keeping it must not require a restart.
+			// Once persistent package references are gone, keeping the live
+			// package must not require a restart.
 			Result = UnloadPackage(Path);
 			if (!Result) return Result;
 		}

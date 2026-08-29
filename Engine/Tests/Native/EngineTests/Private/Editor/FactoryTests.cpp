@@ -393,6 +393,7 @@ TEST(DFactoryTests, CreatedPackageSurvivesGcAndCanBeExplicitlyDiscarded)
 	const Durin::FAssetToolsResult Result = Durin::IAssetTools::Get().CreateAsset(
 		Path, DFactoryAssetForTest::StaticClass(), Factory);
 	ASSERT_TRUE(Result);
+	EXPECT_TRUE(Result.Package->IsNewlyCreated());
 	Durin::CollectGarbage();
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), Result.Package);
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), Result.Package);
@@ -433,7 +434,9 @@ TEST(DFactoryTests, SavedFactoryPackageReloadsWithoutDuplicateLivePackage)
 	const Durin::FAssetToolsResult Result = Durin::IAssetTools::Get().CreateAsset(
 		Path, DFactoryAssetForTest::StaticClass(), Factory);
 	ASSERT_TRUE(Result);
+	EXPECT_TRUE(Result.Package->IsNewlyCreated());
 	ASSERT_TRUE(Durin::Asset::SavePackage(Result.Package));
+	EXPECT_FALSE(Result.Package->IsNewlyCreated());
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), Result.Package);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);

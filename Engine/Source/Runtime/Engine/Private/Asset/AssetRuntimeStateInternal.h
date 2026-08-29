@@ -30,7 +30,6 @@ namespace Durin::Asset
 		FAssetRuntimeConfiguration RuntimeConfiguration =
 			FAssetRuntimeConfiguration::Authored();
 		bool bAcceptingRequests = true;
-		FAssetResidencyStore Residency;
 		FAssetLoadService Loader;
 		FAssetMutationCoordinator Mutations;
 	};

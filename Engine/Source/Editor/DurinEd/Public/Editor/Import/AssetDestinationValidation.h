@@ -17,8 +17,8 @@ namespace Durin::Editor
 	struct FAssetDestinationOccupancy
 	{
 		bool bRegistryAssetExists = false;
-		std::optional<Asset::EAssetPackagePublicationState>
-			ResidentPublicationState;
+		bool bResidentPackageExists = false;
+		bool bResidentPackageNewlyCreated = false;
 		EAssetDestinationOccupantKind OccupantKind =
 			EAssetDestinationOccupantKind::None;
 		FAssetPath RedirectDestination;
@@ -36,8 +36,8 @@ namespace Durin::Editor
 		bool bMountedDestination = false;
 		bool bContentWritable = false;
 		bool bRegistryAssetExists = false;
-		std::optional<Asset::EAssetPackagePublicationState>
-			ResidentPublicationState;
+		bool bResidentPackageExists = false;
+		bool bResidentPackageNewlyCreated = false;
 		EAssetDestinationOccupantKind OccupantKind =
 			EAssetDestinationOccupantKind::None;
 		FAssetPath RedirectDestination;
@@ -45,7 +45,7 @@ namespace Durin::Editor
 
 		auto AssetExists() const -> bool
 		{
-			return bRegistryAssetExists || ResidentPublicationState.has_value();
+			return bRegistryAssetExists || bResidentPackageExists;
 		}
 		explicit operator bool() const
 		{

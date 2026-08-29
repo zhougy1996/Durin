@@ -59,17 +59,19 @@ The physical filename is the resolved virtual path plus `.dasset`. Main assets u
 
 ## Runtime Lifetime
 
-`DPackage` is an Outer-less object graph root. Engine's private runtime state
-roots resident packages for garbage collection and caches one package instance
-per `FAssetPath`. Newly created and persistent packages share that store. Each
-resident entry is explicitly `NewlyCreated` or `Published`, while
-`DPackage::IsDirty()` independently records unsaved contents. Editor save code
-uses `FindResidentPackage` for either state; save promotes the same entry to
-`Published` after catalog publication.
+`DPackage` is an Outer-less object graph root. CoreDObject's global object and
+package registration is the only live package identity and residency lookup;
+Engine does not duplicate package paths or pointers in a resident-package map.
+`CreatePackage` finds path collisions through that registration, AssetTools
+passes the returned package to its factory as the asset Outer, and a successful
+creation marks the package `NewlyCreated`. Disk-loaded packages begin published,
+and a successful first save clears `NewlyCreated` after catalog publication.
+`DPackage::IsDirty()` independently records unsaved contents. Root or Standalone
+object state retains live packages under ordinary GC rules.
 
 Public asset load first accepts an already resident non-redirector package,
 including a newly created package, without file I/O. Otherwise it resolves the
-persistent catalog and caches only the final real package; redirector packages
+persistent catalog and constructs only the final real package; redirector packages
 are constructed only through Engine's internal exact tooling seam. A catalog
 miss never guesses a physical filename or discovers an unindexed file. Unload
 rejects newly created or dirty packages by default. A caller that intentionally

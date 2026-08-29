@@ -160,13 +160,6 @@ namespace Durin
 			if (!Package)
 				return MakeRejectedAssetOperation(
 					Kind, "The destination package could not be created.");
-			if (Asset::FAssetResult AdoptResult = Asset::AdoptCreatedPackage(Package);
-				!AdoptResult)
-			{
-				MarkObjectHierarchyAsGarbage(Package);
-				CollectGarbage();
-				return MakeRejectedAssetOperation(Kind, AdoptResult.Message);
-			}
 
 			FFactoryDiagnostics Diagnostics;
 			const FName AssetName(AssetPath.GetAssetName());
@@ -190,6 +183,7 @@ namespace Durin
 				return MakeRejectedAssetOperation(
 					Kind, "The factory returned an invalid package main asset.");
 			}
+			Package->MarkAsNewlyCreated();
 			return {
 				.Kind = Kind,
 				.Persistence = EAssetOperationPersistenceState::Dirty,

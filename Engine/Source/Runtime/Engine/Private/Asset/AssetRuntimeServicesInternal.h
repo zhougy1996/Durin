@@ -6,71 +6,15 @@
 
 namespace Durin::Asset
 {
-	// Owns the runtime package roots and their publication state.
-	class FAssetResidencyStore
-	{
-	public:
-		struct FEntry
-		{
-			DPackage* Package = nullptr;
-			EAssetPackagePublicationState PublicationState =
-				EAssetPackagePublicationState::Published;
-
-			FEntry() = default;
-			FEntry(
-				DPackage* InPackage,
-				EAssetPackagePublicationState InPublicationState =
-					EAssetPackagePublicationState::Published)
-				: Package(InPackage)
-				, PublicationState(InPublicationState)
-			{
-			}
-
-			auto operator->() const -> DPackage* { return Package; }
-			operator DPackage*() const { return Package; }
-			explicit operator bool() const { return Package != nullptr; }
-		};
-
-		using FMap = std::unordered_map<FAssetPath, FEntry>;
-		auto begin() { return Packages.begin(); }
-		auto begin() const { return Packages.begin(); }
-		auto end() { return Packages.end(); }
-		auto end() const { return Packages.end(); }
-		auto find(const FAssetPath& Path) { return Packages.find(Path); }
-		auto find(const FAssetPath& Path) const { return Packages.find(Path); }
-		auto contains(const FAssetPath& Path) const -> bool
-		{
-			return Packages.contains(Path);
-		}
-		auto emplace(
-			const FAssetPath& Path,
-			DPackage* Package,
-			EAssetPackagePublicationState PublicationState =
-				EAssetPackagePublicationState::Published)
-		{
-			return Packages.emplace(Path, FEntry{Package, PublicationState});
-		}
-		auto erase(const FAssetPath& Path) { return Packages.erase(Path); }
-		auto erase(FMap::iterator It) { return Packages.erase(It); }
-		auto empty() const -> bool { return Packages.empty(); }
-		auto size() const -> size_t { return Packages.size(); }
-		auto clear() -> void { Packages.clear(); }
-
-	private:
-		FMap Packages;
-	};
-
 	// Owns load transactions and coordinates package construction and residency.
 	class FAssetLoadService
 	{
 	public:
 		FAssetLoadService(
 			FAssetPublicationCoordinator& InCatalog,
-			FAssetResidencyStore& InResidency,
 			FAssetRuntimeConfiguration& InRuntimeConfiguration,
 			bool& bInAcceptingRequests)
 			: Registry(InCatalog)
-			, ResidentPackages(InResidency)
 			, RuntimeConfiguration(InRuntimeConfiguration)
 			, bAcceptingRequests(bInAcceptingRequests)
 		{
@@ -109,9 +53,6 @@ namespace Durin::Asset
 			ESoftObjectNullPolicy NullPolicy,
 			FAssetLoadReport* OutReport) -> FAssetResult;
 		auto FindResidentPackage(const FAssetPath& Path) const -> DPackage*;
-		auto AdoptCreatedPackage(DPackage* Package) -> FAssetResult;
-		auto GetResidentPackagePublicationState(const FAssetPath& Path) const
-			-> std::optional<EAssetPackagePublicationState>;
 		auto UnloadPackage(
 			const FAssetPath& Path,
 			EAssetPackageUnloadPolicy Policy =
@@ -151,7 +92,6 @@ namespace Durin::Asset
 		auto IsPackageReferenced(const DPackage* Package) const -> bool;
 
 		FAssetPublicationCoordinator& Registry;
-		FAssetResidencyStore& ResidentPackages;
 		FAssetRuntimeConfiguration& RuntimeConfiguration;
 		bool& bAcceptingRequests;
 		std::unordered_set<FAssetPath> LoadingPackages;
@@ -167,12 +107,10 @@ namespace Durin::Asset
 	public:
 		FAssetMutationCoordinator(
 			FAssetPublicationCoordinator& InCatalog,
-			FAssetResidencyStore& InResidency,
 			FAssetLoadService& InLoader,
 			FAssetRuntimeConfiguration& InRuntimeConfiguration,
 			bool& bInAcceptingRequests)
 			: Registry(InCatalog)
-			, ResidentPackages(InResidency)
 			, Loader(InLoader)
 			, LoadingPackages(InLoader.LoadingPackages)
 			, RuntimeConfiguration(InRuntimeConfiguration)
@@ -242,7 +180,6 @@ namespace Durin::Asset
 		}
 
 		FAssetPublicationCoordinator& Registry;
-		FAssetResidencyStore& ResidentPackages;
 		FAssetLoadService& Loader;
 		std::unordered_set<FAssetPath>& LoadingPackages;
 		FAssetRuntimeConfiguration& RuntimeConfiguration;

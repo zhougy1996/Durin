@@ -2889,6 +2889,21 @@ TEST(FPackageAssetTests, EditorOnlyInnerObjectPersistsInspectsAndPrunesForCook)
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
+TEST(FPackageAssetTests, CoreRegisteredPackageIsResidentWithoutAssetLayerAdoption)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TestAssets/CoreRegisteredPackage", Path));
+	Durin::DPackage* Package = Durin::CreatePackage(Path);
+	ASSERT_NE(Package, nullptr);
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), Package);
+	EXPECT_FALSE(Package->IsNewlyCreated());
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		Package, Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
+}
+
 TEST(FPackageAssetTests, SoftObjectResolveAndLoadPreservePathAcrossResidencyChanges)
 {
 	InitializeAssetTests();
@@ -2903,9 +2918,7 @@ TEST(FPackageAssetTests, SoftObjectResolveAndLoadPreservePathAcrossResidencyChan
 	EXPECT_EQ(Durin::Asset::GetAssetCatalogRevision(), CatalogRevisionBeforeDraft);
 	EXPECT_FALSE(Durin::Asset::FindAssetExact(Path));
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), Created->GetPackage());
-	EXPECT_EQ(
-		Durin::Asset::GetResidentPackagePublicationState(Path),
-		Durin::Asset::EAssetPackagePublicationState::NewlyCreated);
+	EXPECT_TRUE(Created->GetPackage()->IsNewlyCreated());
 	DPackageAssetForTest* DraftLoad = nullptr;
 	const Durin::Asset::FAssetResult DraftLoadResult =
 		Durin::Asset::LoadAsset(Path, DraftLoad);
@@ -2920,9 +2933,7 @@ TEST(FPackageAssetTests, SoftObjectResolveAndLoadPreservePathAcrossResidencyChan
 	EXPECT_EQ(UnpublishedResolve.Object, Created);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Created->GetPackage()));
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), Created->GetPackage());
-	EXPECT_EQ(
-		Durin::Asset::GetResidentPackagePublicationState(Path),
-		Durin::Asset::EAssetPackagePublicationState::Published);
+	EXPECT_FALSE(Created->GetPackage()->IsNewlyCreated());
 	EXPECT_TRUE(Durin::Asset::FindAssetExact(Path));
 	EXPECT_GT(Durin::Asset::GetAssetCatalogRevision(), CatalogRevisionBeforeDraft);
 	Durin::Asset::DAssetRedirector* Redirector = nullptr;
@@ -5148,25 +5159,19 @@ TEST(FPackageAssetTests, SequentialPackageSavesPublishEarlierPackagesBeforeLater
 	EXPECT_TRUE(std::filesystem::is_regular_file(Root / "Stage0First.dasset"));
 	EXPECT_NE(Durin::Asset::FindAssetExact(FirstPath), nullptr);
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(FirstPath), First->GetPackage());
-	EXPECT_EQ(
-		Durin::Asset::GetResidentPackagePublicationState(FirstPath),
-		Durin::Asset::EAssetPackagePublicationState::Published);
+	EXPECT_FALSE(First->GetPackage()->IsNewlyCreated());
 	EXPECT_FALSE(First->GetPackage()->IsDirty());
 
 	EXPECT_FALSE(std::filesystem::exists(Root / "Stage0Blocked" / "Second.dasset"));
 	EXPECT_EQ(Durin::Asset::FindAssetExact(BlockedPath), nullptr);
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(BlockedPath), Second->GetPackage());
-	EXPECT_EQ(
-		Durin::Asset::GetResidentPackagePublicationState(BlockedPath),
-		Durin::Asset::EAssetPackagePublicationState::NewlyCreated);
+	EXPECT_TRUE(Second->GetPackage()->IsNewlyCreated());
 	EXPECT_TRUE(Second->GetPackage()->IsDirty());
 
 	ASSERT_TRUE(std::filesystem::remove(Blocker));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Second->GetPackage()));
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(BlockedPath), Second->GetPackage());
-	EXPECT_EQ(
-		Durin::Asset::GetResidentPackagePublicationState(BlockedPath),
-		Durin::Asset::EAssetPackagePublicationState::Published);
+	EXPECT_FALSE(Second->GetPackage()->IsNewlyCreated());
 	EXPECT_TRUE(Durin::Asset::FindAssetExact(BlockedPath));
 }
 
@@ -5220,9 +5225,7 @@ TEST(FPackageAssetTests, AtomicBundleSaveRestoresFilesRegistryAndDirtyStateOnFai
 	EXPECT_TRUE(Existing->GetPackage()->IsDirty());
 	EXPECT_TRUE(Added->GetPackage()->IsDirty());
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(NewPath), Added->GetPackage());
-	EXPECT_EQ(
-		Durin::Asset::GetResidentPackagePublicationState(NewPath),
-		Durin::Asset::EAssetPackagePublicationState::NewlyCreated);
+	EXPECT_TRUE(Added->GetPackage()->IsNewlyCreated());
 	const uint64 RevisionBeforeCommit = Durin::Asset::GetAssetCatalogRevision();
 	ASSERT_TRUE(Durin::Asset::SavePackagesAtomically(
 		Packages, {.RootPackage = Added->GetPackage()}));
