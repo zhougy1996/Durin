@@ -780,7 +780,7 @@ namespace Durin
 						|| Use.TextureRange.FirstArrayLayer
 							+ Use.TextureRange.NumArrayLayers
 							> Resource.TextureDesc.ArraySize
-						|| !EnumHasAnyFlags(
+						|| !EnumHasAllFlags(
 							GetTextureAspects(Resource.TextureDesc.Format),
 							Use.TextureRange.Aspects)))
 				{
@@ -1627,7 +1627,6 @@ namespace Durin
 		Dependencies.reserve(ExplicitDependencyCount + DeclaredUseCount);
 		auto AddEdge = [&](uint32 Before, uint32 After, const std::string& Cause,
 			ERenderGraphDependencyKind Kind) {
-			if (Before == After) return;
 			auto Existing = std::ranges::find_if(Dependencies, [&](const auto& Edge) {
 				return Edge.BeforePass == Before && Edge.AfterPass == After;
 			});
@@ -2348,13 +2347,7 @@ namespace Durin
 				{
 					const FRHITextureDesc Actual = DescribeTexture(
 						*Candidate.Textures[Request.ResourceId]);
-					if (Actual.Dimension != Request.TextureDesc.Dimension
-						|| Actual.Extent != Request.TextureDesc.Extent
-						|| Actual.Depth != Request.TextureDesc.Depth
-						|| Actual.ArraySize != Request.TextureDesc.ArraySize
-						|| Actual.NumMips != Request.TextureDesc.NumMips
-						|| Actual.NumSamples != Request.TextureDesc.NumSamples
-						|| Actual.Format != Request.TextureDesc.Format)
+					if (!TextureDescriptionsEqual(Actual, Request.TextureDesc))
 					{
 						if (OutError != nullptr) *OutError =
 							"backing resolver returned incompatible texture '"
@@ -2366,8 +2359,7 @@ namespace Durin
 				else
 				{
 					const auto& Actual = Candidate.Buffers[Request.ResourceId]->GetDesc();
-					if (Actual.Size != Request.BufferDesc.Size
-						|| Actual.Stride != Request.BufferDesc.Stride)
+					if (!BufferDescriptionsEqual(Actual, Request.BufferDesc))
 					{
 						if (OutError != nullptr) *OutError =
 							"backing resolver returned incompatible buffer '"

@@ -1613,6 +1613,30 @@ namespace Durin
 		auto Cycle = Cyclic.Compile();
 		EXPECT_FALSE(Cycle.IsSuccess());
 		EXPECT_EQ(Cycle.Error, "graph contains a dependency cycle");
+
+		FRenderGraphBuilder SelfDependent;
+		const auto Self = SelfDependent.AddPass(
+			"Self", ERenderGraphPassType::Compute);
+		SelfDependent.AddDependency(Self, Self);
+		auto SelfCycle = SelfDependent.Compile();
+		EXPECT_FALSE(SelfCycle.IsSuccess());
+		EXPECT_EQ(SelfCycle.Error, "graph contains a dependency cycle");
+	}
+
+	TEST(FRenderGraphTests, RejectsTextureAspectsOutsideResourceFormat)
+	{
+		FRHITexture Texture = MakeGraphTexture("ColorOnly");
+		FRenderGraphBuilder Builder;
+		const auto Resource = Builder.CreateTexture("ColorOnly", &Texture);
+		const auto Pass = Builder.AddPass("InvalidAspects",
+			ERenderGraphPassType::Compute);
+		Builder.UseTexture(Pass, Resource,
+			{ERHITextureAspect::Color | ERHITextureAspect::Depth, 0, 1, 0, 1},
+			ERenderGraphUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+
+		auto Result = Builder.Compile();
+		EXPECT_FALSE(Result.IsSuccess());
+		EXPECT_NE(Result.Error.find("invalid texture range"), std::string::npos);
 	}
 
 	TEST(FRenderGraphTests, NormalizesDisjointAndPartiallyOverlappingSubresources)
@@ -1956,6 +1980,58 @@ namespace Durin
 		EXPECT_FALSE(Result.Graph->Execute(FRHICommandListImmediate::Get(), &Error));
 		EXPECT_FALSE(bExecuted);
 		EXPECT_NE(Error.find("omitted retained resource"), std::string::npos);
+	}
+
+	TEST(FRenderGraphTests, RejectsBackingWithIncompatibleUsageFlags)
+	{
+		FRHITexture TextureBacking(FRHITextureCreateDesc::Create2D(
+			"TextureBacking", 16, 16, EPixelFormat::RGBA8_UNORM)
+			.SetFlags(ETextureCreateFlags::ShaderResource));
+		FRenderGraphBuilder TextureBuilder;
+		TextureBuilder.SetBackingResolver(
+			[&](auto Requests, auto& Backings, std::string&) {
+				return Backings.SetTexture(Requests.front().Texture,
+					&TextureBacking);
+			});
+		const auto Texture = TextureBuilder.CreateTexture("LogicalTexture",
+			FRenderGraphTextureDesc{
+				.Texture = FRHITextureCreateDesc::Create2D(
+					"LogicalTexture", 16, 16, EPixelFormat::RGBA8_UNORM)
+					.SetFlags(ETextureCreateFlags::RenderTargetable),
+				.BackingClass = "test"});
+		const auto TexturePass = TextureBuilder.AddPass(
+			"TextureWrite", ERenderGraphPassType::Graphics);
+		TextureBuilder.UseColorAttachment(TexturePass, Texture, WholeColor(),
+			ERHIRenderTargetLoadAction::Clear,
+			ERHIRenderTargetStoreAction::Store);
+		auto TextureResult = TextureBuilder.Compile();
+		ASSERT_TRUE(TextureResult.IsSuccess()) << TextureResult.Error;
+		std::string Error;
+		EXPECT_FALSE(TextureResult.Graph->Execute(
+			FRHICommandListImmediate::Get(), &Error));
+		EXPECT_NE(Error.find("incompatible texture"), std::string::npos);
+
+		FRHIBuffer BufferBacking(FRHIBufferCreateDesc::Create(
+			"BufferBacking", 64, 4, EBufferUsageFlags::StructuredBuffer));
+		FRenderGraphBuilder BufferBuilder;
+		BufferBuilder.SetBackingResolver(
+			[&](auto Requests, auto& Backings, std::string&) {
+				return Backings.SetBuffer(Requests.front().Buffer, &BufferBacking);
+			});
+		const auto Buffer = BufferBuilder.CreateBuffer("LogicalBuffer",
+			FRenderGraphBufferDesc{
+				.Buffer = FRHIBufferDesc(
+					64, 4, EBufferUsageFlags::UnorderedAccess),
+				.BackingClass = "test"});
+		const auto BufferPass = BufferBuilder.AddPass(
+			"BufferWrite", ERenderGraphPassType::Compute);
+		BufferBuilder.UseBuffer(BufferPass, Buffer, 0, 64,
+			ERenderGraphUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		auto BufferResult = BufferBuilder.Compile();
+		ASSERT_TRUE(BufferResult.IsSuccess()) << BufferResult.Error;
+		EXPECT_FALSE(BufferResult.Graph->Execute(
+			FRHICommandListImmediate::Get(), &Error));
+		EXPECT_NE(Error.find("incompatible buffer"), std::string::npos);
 	}
 
 	TEST(FRenderGraphTests, ExplicitEffectRootSurvivesWithoutResourceOutputs)
