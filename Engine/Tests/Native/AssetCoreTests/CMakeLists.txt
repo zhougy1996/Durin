@@ -55,7 +55,7 @@ durin_add_asset_functional_test(AssetPackageTests
 		Private/PackageObjectStreamReaderTests.cpp
 )
 target_include_directories(AssetPackageTests PRIVATE
-	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private/Asset
+	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 )
 durin_test_deploy_directory_to_data(
 	AssetPackageTests
@@ -70,7 +70,7 @@ durin_add_asset_functional_test(AssetCookTests
 	SOURCES Private/CookedAssetTests.cpp
 )
 target_include_directories(AssetCookTests PRIVATE
-	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private/Asset
+	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 )
 
 durin_add_asset_functional_test(AssetBulkContainerTests
@@ -80,7 +80,7 @@ durin_add_asset_functional_test(AssetBulkContainerTests
 	SOURCES Private/BulkContainerInfrastructureTests.cpp
 )
 target_include_directories(AssetBulkContainerTests PRIVATE
-	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private/Asset
+	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 )
 
 if(DURIN_WITH_EDITOR)

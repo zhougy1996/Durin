@@ -1,4 +1,5 @@
 #include "DObject/DObjectGlobals.h"
+#include "DObject/PropertyKindTraits.h"
 #include "QualifiedTypeRegistry.h"
 #include "Misc/Name.h"
 
@@ -161,18 +162,13 @@ namespace Durin
 		auto ExpectedMetadataNumericKind(const FProperty* Property) -> EPropertyMetadataNumericKind
 		{
 			if (!Property) return EPropertyMetadataNumericKind::None;
-			switch (Property->GetKind())
+			const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
+			if (DurinCodeGen::IsSignedIntegralKind(Kind)) return EPropertyMetadataNumericKind::Signed;
+			if (DurinCodeGen::IsUnsignedIntegralKind(Kind)) return EPropertyMetadataNumericKind::Unsigned;
+			if (Kind == DurinCodeGen::EPropertyGenFlags::Float) return EPropertyMetadataNumericKind::Float;
+			if (Kind == DurinCodeGen::EPropertyGenFlags::Double) return EPropertyMetadataNumericKind::Double;
+			switch (Kind)
 			{
-			case DurinCodeGen::EPropertyGenFlags::Int8:
-			case DurinCodeGen::EPropertyGenFlags::Int16:
-			case DurinCodeGen::EPropertyGenFlags::Int32:
-			case DurinCodeGen::EPropertyGenFlags::Int64: return EPropertyMetadataNumericKind::Signed;
-			case DurinCodeGen::EPropertyGenFlags::UInt8:
-			case DurinCodeGen::EPropertyGenFlags::UInt16:
-			case DurinCodeGen::EPropertyGenFlags::UInt32:
-			case DurinCodeGen::EPropertyGenFlags::UInt64: return EPropertyMetadataNumericKind::Unsigned;
-			case DurinCodeGen::EPropertyGenFlags::Float: return EPropertyMetadataNumericKind::Float;
-			case DurinCodeGen::EPropertyGenFlags::Double: return EPropertyMetadataNumericKind::Double;
 			case DurinCodeGen::EPropertyGenFlags::Struct:
 			{
 				const DStruct* Struct = static_cast<const FStructProperty*>(Property)->GetStruct();

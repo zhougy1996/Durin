@@ -6,7 +6,8 @@
 #include "AssetCook.h"
 #include "Asset/CanonicalResave.h"
 #include "Asset/Compatibility.h"
-#include "AssetPackageV6Codec.h"
+#include "Asset/AssetPackageV6Codec.h"
+#include "Asset/AssetPropertyKindTraits.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/PackageObjectStreamReader.h"
 #include "Asset/PackageObjectStreamWriter.h"
@@ -22,6 +23,7 @@
 #include "DObject/MathStructs.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
+#include "DObject/PropertyKindTraits.h"
 #include "DObject/WeakObjectPtr.h"
 #include "Misc/FileTime.h"
 #include "Misc/Paths.h"
@@ -1628,6 +1630,26 @@ namespace
 	auto RunRedirectorFixupPublicationFailuresRestoreAllParticipantsTest()
 		-> void;
 } // namespace
+
+TEST(FPackageAssetTests, ByteToolRawScalarKindsMatchThePayloadContract)
+{
+	using enum Durin::DurinCodeGen::EPropertyGenFlags;
+	constexpr std::array RawScalarKinds{
+		Bool,
+		Int8, Int16, Int32, Int64,
+		UInt8, UInt16, UInt32, UInt64,
+		Float, Double,
+		Enum,
+		Byte,
+	};
+
+	for (const auto Kind : Durin::DurinCodeGen::AllPropertyKinds)
+	{
+		const bool bExpected = std::ranges::find(RawScalarKinds, Kind) != RawScalarKinds.end();
+		EXPECT_EQ(Durin::Asset::Private::IsByteToolRawScalarKind(Kind), bExpected);
+	}
+	EXPECT_FALSE(Durin::Asset::Private::IsByteToolRawScalarKind(Count));
+}
 
 TEST(FPackageAssetTests, RedirectorFixupRewritesHardSoftAndExternalOccurrencesBeforeDeletion)
 {

@@ -253,7 +253,9 @@ namespace Durin
 			WeakObject,
 			Byte,
 			Blob,
-			BulkData
+			BulkData,
+			// Sentinel for exhaustive classification; not a property kind.
+			Count
 		};
 
 		enum class EPropertyParamLayout : uint8

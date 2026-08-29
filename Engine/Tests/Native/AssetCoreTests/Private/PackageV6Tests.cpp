@@ -1,4 +1,4 @@
-#include "AssetPackageV6Codec.h"
+#include "Asset/AssetPackageV6Codec.h"
 #include "Asset/PackageInspection.h"
 #include "Asset/PackageObjectStreamWriter.h"
 #include "Misc/FileHelper.h"

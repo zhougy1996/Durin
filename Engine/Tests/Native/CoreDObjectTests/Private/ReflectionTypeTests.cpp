@@ -14,6 +14,7 @@
 #include "DObject/GarbageCollectionScheduler.h"
 #include "DObject/AssetPath.h"
 #include "DObject/Package.h"
+#include "DObject/PropertyKindTraits.h"
 #include "CoreGlobals.h"
 #include "Misc/Paths.h"
 #include "Math/Color.h"
@@ -322,6 +323,77 @@ namespace
 		);
 		return Enum;
 	}
+
+TEST(FCoreDObjectReflectionTests, PropertyKindTraitsClassifyKinds)
+{
+	using enum Durin::DurinCodeGen::EPropertyGenFlags;
+	using Durin::DurinCodeGen::AllPropertyKinds;
+	using Durin::DurinCodeGen::IsBitwiseIdentityKind;
+	using Durin::DurinCodeGen::IsFixedWidthScalarKind;
+	using Durin::DurinCodeGen::IsFloatingPointKind;
+	using Durin::DurinCodeGen::IsIntegralKind;
+	using Durin::DurinCodeGen::IsNumericKind;
+	using Durin::DurinCodeGen::IsSignedIntegralKind;
+	using Durin::DurinCodeGen::IsUnsignedIntegralKind;
+
+	constexpr std::array SignedIntegralKinds{Int8, Int16, Int32, Int64};
+	constexpr std::array UnsignedIntegralKinds{UInt8, UInt16, UInt32, UInt64};
+	constexpr std::array FloatingPointKinds{Float, Double};
+	constexpr std::array FixedWidthScalarKinds{
+		Bool,
+		Int8, Int16, Int32, Int64,
+		UInt8, UInt16, UInt32, UInt64,
+		Float, Double,
+		Enum,
+		Byte,
+	};
+	constexpr std::array BitwiseIdentityKinds{
+		Bool,
+		Int8, Int16, Int32, Int64,
+		UInt8, UInt16, UInt32, UInt64,
+		Float, Double,
+		Enum,
+		Byte,
+	};
+	auto Contains = [](const auto& Kinds, const auto Kind) {
+		return std::ranges::find(Kinds, Kind) != Kinds.end();
+	};
+
+	for (const auto Kind : AllPropertyKinds)
+	{
+		const bool bSignedIntegral = Contains(SignedIntegralKinds, Kind);
+		const bool bUnsignedIntegral = Contains(UnsignedIntegralKinds, Kind);
+		const bool bFloatingPoint = Contains(FloatingPointKinds, Kind);
+		EXPECT_EQ(IsSignedIntegralKind(Kind), bSignedIntegral);
+		EXPECT_EQ(IsUnsignedIntegralKind(Kind), bUnsignedIntegral);
+		EXPECT_EQ(IsIntegralKind(Kind), bSignedIntegral || bUnsignedIntegral);
+		EXPECT_EQ(IsFloatingPointKind(Kind), bFloatingPoint);
+		EXPECT_EQ(IsNumericKind(Kind), bSignedIntegral || bUnsignedIntegral || bFloatingPoint);
+		EXPECT_EQ(IsFixedWidthScalarKind(Kind), Contains(FixedWidthScalarKinds, Kind));
+		EXPECT_EQ(IsBitwiseIdentityKind(Kind), Contains(BitwiseIdentityKinds, Kind));
+	}
+}
+
+TEST(FCoreDObjectReflectionTests, BitwiseIdentityDistinguishesFloatingPointRepresentations)
+{
+	Durin::FNumericProperty Property(
+		Durin::FFieldVariant(), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
+		Durin::EPropertyFlags::None, 1, 0, sizeof(float),
+		Durin::DurinCodeGen::EPropertyGenFlags::Float, nullptr
+	);
+	const float PositiveZero = 0.0f;
+	const float NegativeZero = -0.0f;
+	EXPECT_EQ(PositiveZero, NegativeZero);
+
+	Durin::FPropertyIdentityDiagnostic Diagnostic;
+	EXPECT_EQ(
+		Durin::ComparePropertyValues(
+			&Property, &PositiveZero, 0, &NegativeZero, 0, &Diagnostic),
+		Durin::EPropertyIdentityResult::Different
+	);
+	EXPECT_EQ(Diagnostic.LogicalKind, Durin::DurinCodeGen::EPropertyGenFlags::Float);
+	EXPECT_EQ(Diagnostic.Reason, Durin::EPropertyIdentityReason::ValueMismatch);
+}
 
 TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationTransactionally)
 {

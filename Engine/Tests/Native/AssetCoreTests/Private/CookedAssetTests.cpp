@@ -6,7 +6,7 @@
 #include "AssetCook.h"
 #include "Asset/CanonicalResave.h"
 #include "Asset/Compatibility.h"
-#include "AssetPackageV6Codec.h"
+#include "Asset/AssetPackageV6Codec.h"
 #include "Asset/PackageObjectStreamWriter.h"
 #include "CoreGlobals.h"
 #include "DObject/Class.h"

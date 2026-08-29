@@ -4,6 +4,7 @@
 #include "DObject/DefaultObjectGraph.h"
 #include "DObject/Object.h"
 #include "DObject/ObjectPtr.h"
+#include "DObject/PropertyKindTraits.h"
 
 namespace Durin
 {
@@ -327,27 +328,18 @@ namespace Durin
 			if (Depth > PropertyIdentityMaxDepth)
 				return SetIdentityDiagnostic(Context, Path, Kind, DepthLimit, Unsupported);
 
-			switch (Kind)
+			if (DurinCodeGen::IsBitwiseIdentityKind(Kind))
 			{
-			case DurinCodeGen::EPropertyGenFlags::Bool:
-			case DurinCodeGen::EPropertyGenFlags::Int8:
-			case DurinCodeGen::EPropertyGenFlags::Int16:
-			case DurinCodeGen::EPropertyGenFlags::Int32:
-			case DurinCodeGen::EPropertyGenFlags::Int64:
-			case DurinCodeGen::EPropertyGenFlags::UInt8:
-			case DurinCodeGen::EPropertyGenFlags::UInt16:
-			case DurinCodeGen::EPropertyGenFlags::UInt32:
-			case DurinCodeGen::EPropertyGenFlags::UInt64:
-			case DurinCodeGen::EPropertyGenFlags::Float:
-			case DurinCodeGen::EPropertyGenFlags::Double:
-			case DurinCodeGen::EPropertyGenFlags::Enum:
-			case DurinCodeGen::EPropertyGenFlags::Byte:
 				return std::memcmp(
 						   Property->GetValuePtr(LeftContainer, LeftArrayIndex),
 						   Property->GetValuePtr(RightContainer, RightArrayIndex),
 						   Property->GetElementSize()
 					   )
 					   == 0 ? Identical : SetIdentityDiagnostic(Context, Path, Kind, ValueMismatch, Different);
+			}
+
+			switch (Kind)
+			{
 			case DurinCodeGen::EPropertyGenFlags::String:
 				{
 					const auto* StringProperty = static_cast<const FStringProperty*>(Property);

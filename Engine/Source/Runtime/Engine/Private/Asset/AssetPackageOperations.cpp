@@ -11,6 +11,7 @@
 #include "Asset/Redirector.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "AssetPackageArchive.h"
+#include "AssetPropertyKindTraits.h"
 #include "AssetPackageValueCodec.h"
 #include "Profiling/Profiling.h"
 #include "Serialization/BinaryEnvelope.h"
@@ -572,21 +573,11 @@ namespace Durin::Asset
 			const std::vector<DObject*>& Objects,
 			uint32 SourceVersion = AssetPackageObjectStreamVersion) -> FAssetResult
 		{
-			switch (Property->GetKind())
-			{
-			case DurinCodeGen::EPropertyGenFlags::Bool:
-			case DurinCodeGen::EPropertyGenFlags::Int8:
-			case DurinCodeGen::EPropertyGenFlags::Int16:
-			case DurinCodeGen::EPropertyGenFlags::Int32:
-			case DurinCodeGen::EPropertyGenFlags::Int64:
-			case DurinCodeGen::EPropertyGenFlags::UInt8:
-			case DurinCodeGen::EPropertyGenFlags::UInt16:
-			case DurinCodeGen::EPropertyGenFlags::UInt32:
-			case DurinCodeGen::EPropertyGenFlags::UInt64:
-			case DurinCodeGen::EPropertyGenFlags::Float:
-			case DurinCodeGen::EPropertyGenFlags::Double:
-			case DurinCodeGen::EPropertyGenFlags::Enum:
+			const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
+			if (Private::IsByteToolRawScalarKind(Kind))
 				return Reader.ReadBytes(Property->GetValuePtr(Container, ArrayIndex), Property->GetElementSize()) ? FAssetResult{} : Error(EAssetError::CorruptFile, "Truncated property payload.");
+			switch (Kind)
+			{
 			case DurinCodeGen::EPropertyGenFlags::String:
 			{
 				std::string Value;

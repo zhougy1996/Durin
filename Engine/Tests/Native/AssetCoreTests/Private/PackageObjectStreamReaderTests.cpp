@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Asset/PackageObjectStreamReader.h"
-#include "AssetPackageV6Codec.h"
+#include "Asset/AssetPackageV6Codec.h"
 #include "Asset/Testing.h"
 #include "Asset/AssetOperations.h"
 #include "Asset/Mutation.h"

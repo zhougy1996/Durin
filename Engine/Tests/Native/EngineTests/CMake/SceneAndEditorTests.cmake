@@ -197,7 +197,7 @@ durin_add_engine_functional_test(EditorRenderingTests
 		Private/RendererRenderTargetLayoutTests.cpp
 		Private/RendererSceneViewTests.cpp
 		Private/EditorTextureSmokeTests.cpp
-	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private/Asset
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	LIBRARIES ApplicationCore AssetTools AssetForgeBuiltins RenderCore Renderer DurinEd MaterialEditor StaticMeshBuild
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport

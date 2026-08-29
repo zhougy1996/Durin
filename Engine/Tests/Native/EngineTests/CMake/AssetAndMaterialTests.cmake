@@ -187,7 +187,7 @@ durin_add_engine_functional_test(MaterialTests
 		${_durin_material_editor_private}/Graph/MaterialGraphCanvas.cpp
 		${_durin_material_editor_private}/Widgets/MaterialPreview.cpp
 		${_durin_material_editor_private}/Widgets/MaterialParameterPanelModel.cpp
-	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private/Asset
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	LIBRARIES
 		ApplicationCore
 		RenderCore
@@ -221,7 +221,7 @@ durin_add_engine_functional_test(MaterialVulkanTests
 		"RHIInit selects VulkanRHI dynamically for the rendered material fixture."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/Materials/MaterialVulkanTests.cpp
-	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private/Asset
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	LIBRARIES
 		ApplicationCore
 		RenderCore
@@ -268,7 +268,6 @@ durin_add_engine_functional_test(StaticMeshTests
 		${_durin_level_editor_private}/Customizations/LevelEditorCustomizations.cpp
 	LIBRARIES AssetTools StaticMeshBuild TextureBuild AssetForgeBuiltins RenderCore Renderer DurinEd StaticMeshEditor
 	INCLUDE_DIRECTORIES
-		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private/Asset
 		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
@@ -292,7 +291,7 @@ durin_add_engine_functional_test(SkeletalMeshEditorTests
 	STACKS editor renderer
 	RUNTIME_STACK_RATIONALE "Exercises exact skeletal asset editor registration and read-only ownership."
 	SOURCES Private/SkeletalMeshEditorTests.cpp
-	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private/Asset
+	INCLUDE_DIRECTORIES ${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 	LIBRARIES ApplicationCore RenderCore Renderer DurinEd SkeletalMeshEditor
 )
 
