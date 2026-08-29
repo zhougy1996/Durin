@@ -812,6 +812,31 @@ namespace Durin
 		ERHIBindingType ShaderBindingType = ERHIBindingType::Texture;
 	};
 
+	// Records one submitted leaf parameter capability, including optional absence.
+	struct FRenderGraphParameterCapture final
+	{
+		uint32 PassDeclarationIndex = 0;
+		std::string FieldPath;
+		ERenderGraphParameterMemberKind Kind =
+			ERenderGraphParameterMemberKind::Texture;
+		ERenderGraphResourceKind ResourceKind =
+			ERenderGraphResourceKind::Texture;
+		bool bPresent = false;
+		// Absent optional fields use max uint32 and never name a synthetic resource.
+		uint32 ResourceId = std::numeric_limits<uint32>::max();
+		ERenderGraphUse Use = ERenderGraphUse::Read;
+		ERHIAccess Access = ERHIAccess::None;
+		FRHITextureSubresourceRange TextureRange{};
+		uint64 BufferOffset = 0;
+		uint64 BufferSize = 0;
+		bool bDiscard = false;
+		bool bStore = true;
+		bool bPassManagedTransition = false;
+		ERHIAccess ResultAccess = ERHIAccess::None;
+		std::string ShaderBindingName;
+		ERHIBindingType ShaderBindingType = ERHIBindingType::Texture;
+	};
+
 	// Records one exact pointer-free transition at a pass or graph boundary.
 	struct FRenderGraphTransitionCapture final
 	{
@@ -893,6 +918,7 @@ namespace Durin
 		std::string Name;
 		ERenderGraphPassType Type = ERenderGraphPassType::Graphics;
 		uint32 DeclarationIndex = 0;
+		std::string ParameterStructName;
 		uint32 BufferTransitions = 0;
 		uint32 TextureTransitions = 0;
 	};
@@ -904,6 +930,7 @@ namespace Durin
 		FRenderGraphStatistics Statistics;
 		std::vector<FRenderGraphPassCapture> Passes;
 		std::vector<FRenderGraphResourceCapture> Resources;
+		std::vector<FRenderGraphParameterCapture> Parameters;
 		std::vector<FRenderGraphUseCapture> Uses;
 		std::vector<FRenderGraphTransitionCapture> Transitions;
 		std::vector<FRenderGraphDependency> Dependencies;
@@ -918,6 +945,7 @@ namespace Durin
 		std::string Name;
 		ERenderGraphPassType Type = ERenderGraphPassType::Graphics;
 		uint32 DeclarationIndex = 0;
+		std::string ParameterStructName;
 		std::vector<FRHIBufferTransition> BufferTransitions;
 		std::vector<FRHITextureTransition> TextureTransitions;
 	};

@@ -14,6 +14,8 @@ durin_add_engine_functional_test(RendererSceneContractTests
 	RUNTIME_STACK_RATIONALE "Exercises renderer-owned SceneProxy and SceneInfo lifetime contracts."
 	SOURCES Private/RendererSceneContractTests.cpp
 	LIBRARIES RenderCore Renderer
+	COMPILE_DEFINITIONS
+		DURIN_RENDERER_SOURCE_DIR="${DURIN_PROJECT_SOURCE_DIR}/Runtime/Renderer"
 )
 
 durin_add_engine_functional_test(SceneImportVulkanTests

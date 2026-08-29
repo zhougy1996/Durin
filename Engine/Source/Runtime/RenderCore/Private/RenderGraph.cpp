@@ -64,6 +64,7 @@ namespace Durin
 			bool bParameterized = false;
 			const FRenderGraphParametersMetadata* ParametersMetadata = nullptr;
 			const void* Parameters = nullptr;
+			std::vector<FRenderGraphParameterCapture> ParameterCaptures;
 		};
 
 		struct FGraphParameterAllocation final
@@ -340,6 +341,31 @@ namespace Durin
 			case ERenderGraphUse::Read: return "read";
 			case ERenderGraphUse::Write: return "write";
 			case ERenderGraphUse::ReadWrite: return "read-write";
+			}
+			return "unknown";
+		}
+
+		auto ParameterMemberKindName(ERenderGraphParameterMemberKind Kind)
+			-> const char*
+		{
+			switch (Kind)
+			{
+			case ERenderGraphParameterMemberKind::Texture: return "texture";
+			case ERenderGraphParameterMemberKind::Buffer: return "buffer";
+			case ERenderGraphParameterMemberKind::Token: return "token";
+			case ERenderGraphParameterMemberKind::ColorAttachment:
+				return "color-attachment";
+			case ERenderGraphParameterMemberKind::DepthStencilAttachment:
+				return "depth-stencil-attachment";
+			case ERenderGraphParameterMemberKind::ManagedColorAttachment:
+				return "managed-color-attachment";
+			case ERenderGraphParameterMemberKind::ManagedDepthStencilAttachment:
+				return "managed-depth-stencil-attachment";
+			case ERenderGraphParameterMemberKind::ManagedTexture:
+				return "managed-texture";
+			case ERenderGraphParameterMemberKind::ValueRead: return "value-read";
+			case ERenderGraphParameterMemberKind::ValueWrite: return "value-write";
+			case ERenderGraphParameterMemberKind::Nested: return "nested";
 			}
 			return "unknown";
 		}
@@ -767,7 +793,11 @@ namespace Durin
 					{
 						OutError = Prefix
 							+ " declares overlapping uses of resource '"
-							+ Resource.Name + "'";
+							+ Resource.Name + "' with ";
+						if (!Pass.Uses[OtherUse].ParameterPath.empty())
+							OutError += "parameter '"
+								+ Pass.Uses[OtherUse].ParameterPath + "'";
+						else OutError += "an earlier manual declaration";
 						return false;
 					}
 			}
@@ -814,6 +844,7 @@ namespace Durin
 		std::vector<uint32> FinalBufferTransitionResources;
 		std::vector<uint32> FinalTextureTransitionResources;
 		std::vector<FRenderGraphResourceCapture> ResourceCaptures;
+		std::vector<FRenderGraphParameterCapture> ParameterCaptures;
 		std::vector<FRenderGraphUseCapture> UseCaptures;
 		std::vector<FRenderGraphTransitionCapture> TransitionCaptures;
 		std::vector<FRenderGraphPreparationRequest> PreparationRequests;
@@ -1275,6 +1306,26 @@ namespace Durin
 					}
 					case ERenderGraphParameterMemberKind::Nested: break;
 					}
+					ParameterizedPass.ParameterCaptures.push_back({
+						.FieldPath = FieldPath,
+						.Kind = Member.Kind,
+						.ResourceKind = Member.ResourceKind,
+						.bPresent = bPresent,
+						.ResourceId = bPresent ? DeclaredUse.ResourceIndex
+							: std::numeric_limits<uint32>::max(),
+						.Use = DeclaredUse.Use,
+						.Access = DeclaredUse.Access,
+						.TextureRange = DeclaredUse.TextureRange,
+						.BufferOffset = DeclaredUse.BufferOffset,
+						.BufferSize = DeclaredUse.BufferSize,
+						.bDiscard = DeclaredUse.bDiscard,
+						.bStore = DeclaredUse.bStore,
+						.bPassManagedTransition =
+							DeclaredUse.bPassManagedTransition,
+						.ResultAccess = DeclaredUse.ResultAccess,
+						.ShaderBindingName = DeclaredUse.ShaderBindingName,
+						.ShaderBindingType = DeclaredUse.ShaderBindingType,
+					});
 					if (bPresent)
 						ParameterizedPass.Uses.push_back(std::move(DeclaredUse));
 				}
@@ -1289,6 +1340,8 @@ namespace Durin
 			return {};
 		}
 		const uint32 Index = static_cast<uint32>(State->Passes.size());
+		for (auto& Capture : ParameterizedPass.ParameterCaptures)
+			Capture.PassDeclarationIndex = Index;
 		State->Passes.push_back(std::move(ParameterizedPass));
 		return {State->Owner, Index};
 	}
@@ -1805,6 +1858,10 @@ namespace Durin
 		CompiledState->PassBufferTransitionResources.reserve(PassCount);
 		CompiledState->PassTextureTransitionResources.reserve(PassCount);
 		CompiledState->ResourceCaptures.reserve(ResourceCount);
+		for (const auto& Pass : State->Passes)
+			CompiledState->ParameterCaptures.insert(
+				CompiledState->ParameterCaptures.end(),
+				Pass.ParameterCaptures.begin(), Pass.ParameterCaptures.end());
 		CompiledState->UseCaptures.reserve(DeclaredUseCount);
 		CompiledState->TransitionCaptures.reserve(DeclaredUseCount * 2);
 		CompiledState->PreparationRequests.reserve(ResourceCount);
@@ -1847,7 +1904,10 @@ namespace Durin
 			const auto& Pass = State->Passes[ScheduledIndex];
 			const uint32 CompiledPassIndex = static_cast<uint32>(CompiledState->Passes.size());
 			FCompiledRenderGraphPass CompiledPass{.Name = Pass.Name, .Type = Pass.Type,
-				.DeclarationIndex = ScheduledIndex};
+				.DeclarationIndex = ScheduledIndex,
+				.ParameterStructName = Pass.ParametersMetadata != nullptr
+					&& Pass.ParametersMetadata->StructName != nullptr
+					? Pass.ParametersMetadata->StructName : ""};
 			std::vector<uint32> DeclaredResources;
 			std::vector<std::pair<uint32, ERenderGraphUse>> DeclaredValueUses;
 			std::vector<uint32> BufferTransitionResources;
@@ -2120,6 +2180,7 @@ namespace Durin
 		Result.Budget = State->Budget;
 		Result.Statistics = GetStatistics();
 		Result.Resources = State->ResourceCaptures;
+		Result.Parameters = State->ParameterCaptures;
 		Result.Uses = State->UseCaptures;
 		Result.Transitions = State->TransitionCaptures;
 		Result.Dependencies = State->Dependencies;
@@ -2129,6 +2190,7 @@ namespace Durin
 		Result.Passes.reserve(State->Passes.size());
 		for (const auto& Pass : State->Passes)
 			Result.Passes.push_back({Pass.Name, Pass.Type, Pass.DeclarationIndex,
+				Pass.ParameterStructName,
 				static_cast<uint32>(Pass.BufferTransitions.size()),
 				static_cast<uint32>(Pass.TextureTransitions.size())});
 		return Result;
@@ -2145,7 +2207,10 @@ namespace Durin
 			Output << "pass " << Index << " decl=" << Pass.DeclarationIndex
 				<< " type=" << PassTypeName(Pass.Type) << " name=" << Pass.Name
 				<< " buffers=" << Pass.BufferTransitions.size()
-				<< " textures=" << Pass.TextureTransitions.size() << '\n';
+				<< " textures=" << Pass.TextureTransitions.size();
+			if (!Pass.ParameterStructName.empty())
+				Output << " parameters=" << Pass.ParameterStructName;
+			Output << '\n';
 		}
 		for (const auto& Edge : State->Dependencies)
 			Output << "edge " << Edge.BeforePass << "->" << Edge.AfterPass
@@ -2173,6 +2238,33 @@ namespace Durin
 				<< " layers=" << Resource.TextureArraySize << " mips="
 				<< static_cast<uint32>(Resource.TextureMips) << " buffer-size="
 				<< Resource.BufferSize << " stride=" << Resource.BufferStride << '\n';
+		for (const auto& Parameter : State->ParameterCaptures)
+		{
+			Output << "parameter pass=" << Parameter.PassDeclarationIndex
+				<< " field=" << Parameter.FieldPath << " kind="
+				<< ParameterMemberKindName(Parameter.Kind) << " present="
+				<< Parameter.bPresent << " resource=";
+			if (Parameter.bPresent) Output << Parameter.ResourceId;
+			else Output << "none";
+			Output << " direction=" << GraphUseName(Parameter.Use)
+				<< " access=" << static_cast<uint32>(Parameter.Access)
+				<< " aspects="
+				<< static_cast<uint32>(Parameter.TextureRange.Aspects) << " mip="
+				<< Parameter.TextureRange.FirstMip << '+'
+				<< Parameter.TextureRange.NumMips << " layer="
+				<< Parameter.TextureRange.FirstArrayLayer << '+'
+				<< Parameter.TextureRange.NumArrayLayers << " offset="
+				<< Parameter.BufferOffset << " size=" << Parameter.BufferSize
+				<< " discard=" << Parameter.bDiscard << " store="
+				<< Parameter.bStore << " managed="
+				<< Parameter.bPassManagedTransition << " result-access="
+				<< static_cast<uint32>(Parameter.ResultAccess);
+			if (!Parameter.ShaderBindingName.empty())
+				Output << " shader-binding=" << Parameter.ShaderBindingName
+					<< " binding-type="
+					<< static_cast<uint32>(Parameter.ShaderBindingType);
+			Output << '\n';
+		}
 		for (const auto& Use : State->UseCaptures)
 		{
 			Output << "use pass=" << Use.PassDeclarationIndex << " resource="
@@ -2486,8 +2578,9 @@ namespace Durin
 		};
 		Traverse(Parameters, Metadata);
 		requiref(Found != nullptr,
-			"Render graph parameter resolver accessed a member that is not declared "
-			"by the executing pass parameters.");
+			"Render graph pass '{}' parameter resolver accessed a member that is not "
+			"declared by the executing pass parameters (requested capability '{}', "
+			"optional={}).", PassName, ParameterMemberKindName(ExpectedKind), bOptional);
 		return *Found;
 	}
 

@@ -587,6 +587,22 @@ namespace Durin
 
 		auto StripParameterFields(std::string Dump) -> std::string
 		{
+			size_t ParameterLine = Dump.find("parameter ");
+			while (ParameterLine != std::string::npos)
+			{
+				const size_t End = Dump.find('\n', ParameterLine);
+				Dump.erase(ParameterLine, End == std::string::npos
+					? std::string::npos : End - ParameterLine + 1);
+				ParameterLine = Dump.find("parameter ", ParameterLine);
+			}
+			size_t ParameterStruct = Dump.find(" parameters=");
+			while (ParameterStruct != std::string::npos)
+			{
+				const size_t End = Dump.find('\n', ParameterStruct);
+				Dump.erase(ParameterStruct, End == std::string::npos
+					? std::string::npos : End - ParameterStruct);
+				ParameterStruct = Dump.find(" parameters=", ParameterStruct);
+			}
 			size_t Field = Dump.find(" field=");
 			while (Field != std::string::npos)
 			{
@@ -1058,6 +1074,23 @@ namespace Durin
 		const auto ParameterizedAgain = BuildCapture(true);
 		EXPECT_EQ(StripParameterFields(Parameterized.Dump), Manual.Dump);
 		EXPECT_EQ(Parameterized.Dump, ParameterizedAgain.Dump);
+		ASSERT_EQ(Parameterized.Passes.size(), 1u);
+		EXPECT_EQ(Parameterized.Passes[0].ParameterStructName,
+			"FAllGraphUseParameters");
+		EXPECT_TRUE(Manual.Passes[0].ParameterStructName.empty());
+		ASSERT_EQ(Parameterized.Parameters.size(), 9u);
+		EXPECT_EQ(Parameterized.Parameters[0].FieldPath,
+			"FAllGraphUseParameters.Inputs[0]");
+		EXPECT_TRUE(Parameterized.Parameters[0].bPresent);
+		EXPECT_EQ(Parameterized.Parameters[0].ResourceId,
+			Parameterized.Uses[0].ResourceId);
+		EXPECT_EQ(Parameterized.Parameters[1].FieldPath,
+			"FAllGraphUseParameters.Inputs[1]");
+		EXPECT_FALSE(Parameterized.Parameters[1].bPresent);
+		EXPECT_EQ(Parameterized.Parameters[1].ResourceId,
+			std::numeric_limits<uint32>::max());
+		EXPECT_EQ(Parameterized.Parameters.back().Kind,
+			ERenderGraphParameterMemberKind::Token);
 		ASSERT_EQ(Parameterized.Uses.size(), 8u);
 		const std::array ExpectedPaths{
 			"FAllGraphUseParameters.Inputs[0]",
@@ -1075,6 +1108,9 @@ namespace Durin
 		EXPECT_TRUE(Manual.Uses[0].ParameterPath.empty());
 		EXPECT_NE(Parameterized.Dump.find(
 			"field=FAllGraphUseParameters.Nested.Completion"), std::string::npos);
+		EXPECT_NE(Parameterized.Dump.find(
+			"parameter pass=0 field=FAllGraphUseParameters.Inputs[1] kind=texture "
+			"present=0 resource=none"), std::string::npos);
 	}
 
 	TEST(FRenderGraphTests, ParameterizedPassRejectsExactInvalidFieldPaths)
@@ -1119,19 +1155,26 @@ namespace Durin
 		}
 
 		{
-			FRenderGraphBuilder Builder;
-			const auto Local = Builder.ImportTexture("Texture", &Texture,
-				ERHIAccess::GraphicsShaderRead,
-				ERHIAccess::GraphicsShaderRead);
-			auto Parameters = Builder.AllocParameters<FTwoTextureGraphParameters>();
-			Parameters->Textures = {{{Local, WholeColor()},
-				{Local, {ERHITextureAspect::Color, 0, 1, 0, 1}}}};
-			EXPECT_FALSE(Builder.AddPass("Overlap",
-				ERenderGraphPassType::Graphics, std::move(Parameters)).IsValid());
-			auto Result = Builder.Compile();
-			EXPECT_EQ(Result.Error,
+			auto BuildOverlapError = [&] {
+				FRenderGraphBuilder Builder;
+				const auto Local = Builder.ImportTexture("Texture", &Texture,
+					ERHIAccess::GraphicsShaderRead,
+					ERHIAccess::GraphicsShaderRead);
+				auto Parameters =
+					Builder.AllocParameters<FTwoTextureGraphParameters>();
+				Parameters->Textures = {{{Local, WholeColor()},
+					{Local, {ERHITextureAspect::Color, 0, 1, 0, 1}}}};
+				EXPECT_FALSE(Builder.AddPass("Overlap",
+					ERenderGraphPassType::Graphics,
+					std::move(Parameters)).IsValid());
+				return Builder.Compile().Error;
+			};
+			const std::string Error = BuildOverlapError();
+			EXPECT_EQ(Error,
 				"pass 'Overlap' parameter 'FTwoTextureGraphParameters.Textures[1]' "
-				"declares overlapping uses of resource 'Texture'");
+				"declares overlapping uses of resource 'Texture' with parameter "
+				"'FTwoTextureGraphParameters.Textures[0]'");
+			EXPECT_EQ(BuildOverlapError(), Error);
 		}
 
 		{
@@ -1365,7 +1408,7 @@ namespace Durin
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 		EXPECT_DEATH(Result.Graph->Execute(FRHICommandListImmediate::Get()),
-			"not declared by the executing pass parameters");
+			"pass 'FirstPass'.*requested capability 'texture'");
 	}
 
 	TEST(FRenderGraphTests, ParameterResolverRejectsCopiedAndForeignOptionalMembers)
@@ -1431,6 +1474,12 @@ namespace Durin
 					const FRenderGraphParameterResolver&) { bExecuted = true; });
 			auto Result = Builder.Compile();
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+			const auto Capture = Result.Graph->Capture();
+			EXPECT_TRUE(Capture.Passes.empty());
+			ASSERT_EQ(Capture.Parameters.size(), 1u);
+			EXPECT_EQ(Capture.Parameters[0].PassDeclarationIndex, 0u);
+			EXPECT_EQ(Capture.Parameters[0].FieldPath,
+				"FNestedGraphParameters.Completion");
 			EXPECT_TRUE(Result.Graph->Execute(FRHICommandListImmediate::Get()));
 			EXPECT_FALSE(bExecuted);
 		}
@@ -2116,13 +2165,16 @@ namespace Durin
 		{
 			FRenderGraphBuilder Builder;
 			Builder.EnablePassCulling();
-			const auto Value = Builder.CreateToken("Value");
-			const auto Produce = Builder.AddPass(
-				"Produce", ERenderGraphPassType::Compute);
-			Builder.UseToken(Produce, Value, ERenderGraphUse::Write);
-			const auto Consume = Builder.AddPass(
-				"Consume", ERenderGraphPassType::Graphics);
-			Builder.UseToken(Consume, Value, ERenderGraphUse::Read);
+			const auto Value = Builder.CreateValue<FTypedValuePayload>(
+				"Value", "scene-result");
+			auto Write = Builder.AllocParameters<FTypedValueWriteParameters>();
+			Write->Output = {Value};
+			Builder.AddPass("Produce", ERenderGraphPassType::Compute,
+				std::move(Write));
+			auto Read = Builder.AllocParameters<FTypedValueReadParameters>();
+			Read->Input = {Value};
+			const auto Consume = Builder.AddPass("Consume",
+				ERenderGraphPassType::Graphics, std::move(Read));
 			Builder.MarkPassRoot(Consume, "present");
 			auto Result = Builder.Compile();
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
@@ -2135,6 +2187,13 @@ namespace Durin
 		EXPECT_EQ(Capture.Statistics.ScheduledPasses, 2u);
 		EXPECT_EQ(Capture.Statistics.Dependencies, 1u);
 		EXPECT_EQ(Capture.Dependencies[0].Cause, "Value");
+		ASSERT_EQ(Capture.Parameters.size(), 2u);
+		EXPECT_EQ(Capture.Parameters[0].FieldPath,
+			"FTypedValueWriteParameters.Output");
+		EXPECT_EQ(Capture.Parameters[0].Kind,
+			ERenderGraphParameterMemberKind::ValueWrite);
+		EXPECT_EQ(Capture.Parameters[1].FieldPath,
+			"FTypedValueReadParameters.Input");
 		EXPECT_NE(Capture.Dump.find("name=Consume"), std::string::npos);
 	}
 
@@ -2210,6 +2269,12 @@ namespace Durin
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 		const auto Capture = Result.Graph->Capture();
 		ASSERT_EQ(Capture.Uses.size(), 2u);
+		ASSERT_EQ(Capture.Parameters.size(), 2u);
+		EXPECT_EQ(Capture.Parameters[0].Kind,
+			ERenderGraphParameterMemberKind::ValueWrite);
+		EXPECT_EQ(Capture.Parameters[0].ResourceId, Capture.Uses[0].ResourceId);
+		EXPECT_EQ(Capture.Parameters[1].Kind,
+			ERenderGraphParameterMemberKind::ValueRead);
 		EXPECT_EQ(Capture.Uses[0].ParameterPath,
 			"FTypedValueWriteParameters.Output");
 		EXPECT_EQ(Capture.Uses[1].ParameterPath,
@@ -2392,10 +2457,13 @@ namespace Durin
 			const auto Input = Builder.ImportTexture("Selected.Environment",
 				Selected, ERHIAccess::GraphicsShaderRead,
 				ERHIAccess::GraphicsShaderRead);
+			auto Parameters = Builder.AllocParameters<
+				FComposedTextureArrayParameters>();
+			Parameters->Textures[0] = FRenderGraphTextureParameter{
+				Input, WholeColor()};
+			Parameters->Textures[1] = std::nullopt;
 			const auto Pass = Builder.AddPass("Consume",
-				ERenderGraphPassType::Graphics);
-			Builder.UseTexture(Pass, Input, WholeColor(), ERenderGraphUse::Read,
-				ERHIAccess::GraphicsShaderRead);
+				ERenderGraphPassType::Graphics, std::move(Parameters));
 			Builder.MarkPassRoot(Pass, "publish");
 			auto Result = Builder.Compile();
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
@@ -2403,6 +2471,11 @@ namespace Durin
 			ASSERT_EQ(Capture.Resources.size(), 1u);
 			EXPECT_EQ(Capture.Resources[0].Name, "Selected.Environment");
 			EXPECT_EQ(Capture.Uses.size(), 1u);
+			ASSERT_EQ(Capture.Parameters.size(), 2u);
+			EXPECT_TRUE(Capture.Parameters[0].bPresent);
+			EXPECT_EQ(Capture.Parameters[0].ResourceId, 0u);
+			EXPECT_EQ(Capture.Parameters[0].ShaderBindingName, "Textures");
+			EXPECT_FALSE(Capture.Parameters[1].bPresent);
 		}
 	}
 } // namespace Durin

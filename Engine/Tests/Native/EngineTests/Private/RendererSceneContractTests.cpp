@@ -32,11 +32,156 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <mutex>
 #include <thread>
 
+namespace
+{
+	struct FInspectionOutputParameters final
+	{
+		Durin::FRenderGraphTokenParameter Output;
+
+		static auto GetRenderGraphParametersMetadata()
+			-> const Durin::FRenderGraphParametersMetadata*
+		{
+			static const std::array Members{
+				Durin::MakeRenderGraphResourceParameterMemberMetadata<
+					FInspectionOutputParameters, decltype(Output),
+					Durin::FRenderGraphTokenParameter>("Output",
+						offsetof(FInspectionOutputParameters, Output),
+						Durin::ERenderGraphParameterMemberKind::Token,
+						Durin::ERenderGraphResourceKind::Token,
+						Durin::ERenderGraphParameterRangeKind::None,
+						Durin::ERenderGraphUse::Write,
+						Durin::ERHIAccess::None, true),
+			};
+			static const auto Metadata =
+				Durin::MakeInlineRenderGraphParametersMetadata<
+					FInspectionOutputParameters>(
+						"FInspectionOutputParameters", Members);
+			return &Metadata;
+		}
+	};
+
+	auto HasMovedParameterArgument(std::string_view Source, size_t OpenParenthesis)
+		-> bool
+	{
+		uint32 Depth = 1;
+		uint32 TopLevelCommas = 0;
+		char Quote = '\0';
+		bool bEscaped = false;
+		for (size_t Index = OpenParenthesis + 1; Index < Source.size(); ++Index)
+		{
+			const char Character = Source[Index];
+			if (Quote != '\0')
+			{
+				if (bEscaped) bEscaped = false;
+				else if (Character == '\\') bEscaped = true;
+				else if (Character == Quote) Quote = '\0';
+				continue;
+			}
+			if (Character == '"' || Character == '\'')
+			{
+				Quote = Character;
+				continue;
+			}
+			if (Character == '(') ++Depth;
+			else if (Character == ')')
+			{
+				if (--Depth == 0) return false;
+			}
+			else if (Character == ',' && Depth == 1)
+			{
+				++TopLevelCommas;
+				if (TopLevelCommas != 2) continue;
+				const size_t Argument = Source.find_first_not_of(" \t\r\n", Index + 1);
+				return Argument != std::string_view::npos
+					&& Source.substr(Argument).starts_with("std::move(");
+			}
+		}
+		return false;
+	}
+
+	auto FindManualRenderGraphAuthoring(std::string_view Source,
+		std::string_view DisplayPath) -> std::vector<std::string>
+	{
+		std::vector<std::string> Violations;
+		constexpr std::array ManualUses{
+			"UseTexture", "UseBuffer", "UseToken", "UseValue",
+			"UseColorAttachment", "UseDepthStencilAttachment",
+			"UseManagedColorAttachment", "UseManagedDepthStencilAttachment",
+			"UseManagedTexture",
+		};
+		for (const std::string_view Method : ManualUses)
+		{
+			for (const std::string_view Access : {".", "->"})
+			{
+				const std::string MemberCall = std::string(Access)
+					+ std::string(Method) + "(";
+				if (Source.find(MemberCall) != std::string_view::npos)
+					Violations.push_back(std::string(DisplayPath) + ": manual "
+						+ std::string(Method));
+			}
+		}
+
+		for (const std::string_view AddPass : {".AddPass(", "->AddPass("})
+		{
+			size_t Position = Source.find(AddPass);
+			while (Position != std::string_view::npos)
+			{
+				const size_t OpenParenthesis = Position + AddPass.size() - 1;
+				if (!HasMovedParameterArgument(Source, OpenParenthesis))
+					Violations.push_back(std::string(DisplayPath)
+						+ ": AddPass without a moved parameter object");
+				Position = Source.find(AddPass, OpenParenthesis + 1);
+			}
+		}
+		return Violations;
+	}
+}
+
 template <typename T>
 concept CHasResolvedReceiver = requires(T Value) { Value.ResolvedReceiver; };
+
+TEST(FRendererSceneContractTests,
+	ProductionRendererRequiresParameterizedRenderGraphAuthoring)
+{
+	EXPECT_TRUE(FindManualRenderGraphAuthoring(
+		"Graph.AddPass(\"Parameterized\", Type, std::move(Parameters), Callback);",
+		"seeded-valid").empty());
+	const auto SeededViolations = FindManualRenderGraphAuthoring(
+		"Graph.AddPass(\"Manual\", Type); Graph.UseTexture(Pass, Texture);",
+		"seeded-invalid");
+	ASSERT_EQ(SeededViolations.size(), 2u);
+
+	const std::filesystem::path SourceRoot(DURIN_RENDERER_SOURCE_DIR);
+	ASSERT_TRUE(std::filesystem::is_directory(SourceRoot));
+	std::vector<std::filesystem::path> Sources;
+	for (const auto& Entry : std::filesystem::recursive_directory_iterator(
+		SourceRoot))
+	{
+		if (!Entry.is_regular_file()) continue;
+		const auto Extension = Entry.path().extension();
+		if (Extension == ".cpp" || Extension == ".h")
+			Sources.push_back(Entry.path());
+	}
+	std::ranges::sort(Sources);
+	std::vector<std::string> Violations;
+	for (const auto& Path : Sources)
+	{
+		std::ifstream Stream(Path, std::ios::binary);
+		ASSERT_TRUE(Stream) << Path;
+		const std::string Source((std::istreambuf_iterator<char>(Stream)), {});
+		const auto Relative = std::filesystem::relative(Path, SourceRoot)
+			.generic_string();
+		auto FileViolations = FindManualRenderGraphAuthoring(Source, Relative);
+		Violations.insert(Violations.end(), FileViolations.begin(),
+			FileViolations.end());
+	}
+	EXPECT_TRUE(Violations.empty()) << ::testing::PrintToString(Violations);
+}
 
 template <typename T>
 concept CHasResolvedDirectionalShadow = requires(T Value) {
@@ -1114,9 +1259,11 @@ TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesOwningSnaps
 		Durin::FRenderGraphBuilder Builder;
 		Builder.EnablePassCulling();
 		const auto Output = Builder.CreateToken("Scene.Output");
+		auto Parameters = Builder.AllocParameters<FInspectionOutputParameters>();
+		Parameters->Output = {Output};
 		const auto Final = Builder.AddPass(
-			"Scene.FinalOutput", Durin::ERenderGraphPassType::Graphics);
-		Builder.UseToken(Final, Output, Durin::ERenderGraphUse::Write);
+			"Scene.FinalOutput", Durin::ERenderGraphPassType::Graphics,
+			std::move(Parameters));
 		Builder.MarkPassRoot(Final, "offscreen-output");
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
@@ -1127,6 +1274,11 @@ TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesOwningSnaps
 	ASSERT_EQ(Captures.size(), 1u);
 	ASSERT_EQ(Captures[0].Passes.size(), 1u);
 	EXPECT_EQ(Captures[0].Passes[0].Name, "Scene.FinalOutput");
+	EXPECT_EQ(Captures[0].Passes[0].ParameterStructName,
+		"FInspectionOutputParameters");
+	ASSERT_EQ(Captures[0].Parameters.size(), 1u);
+	EXPECT_EQ(Captures[0].Parameters[0].FieldPath,
+		"FInspectionOutputParameters.Output");
 	EXPECT_EQ(Captures[0].CullingDecisions[0].Reason, "offscreen-output");
 	EXPECT_NE(Captures[0].Dump.find("Scene.FinalOutput"), std::string::npos);
 }

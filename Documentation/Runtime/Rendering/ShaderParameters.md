@@ -183,6 +183,16 @@ than a null or partially bound descriptor. The complete resolved resource list
 is forwarded to RHI atomically, preserving the existing pipeline-ownership,
 descriptor-occupancy, replay-retention, and Vulkan snapshot contracts.
 
+Render Graph captures expose composed authoring before descriptor publication.
+Each submitted graph field records its full parameter path, engagement,
+canonical resource ID when present, shader binding name/type, and declared
+graph capability. The normalized use record carries the same pass declaration
+index and field path after compiler range partitioning. Inspect these records
+together when diagnosing reflection drift: the field record answers what the
+pass granted, while the use and dependency records answer what the compiler
+scheduled. Descriptor coordinates remain shader-reflection evidence and are
+not copied into graph identity.
+
 ## RHI Responsibilities
 
 RHI now exposes a single low-level resource-submission path:
@@ -358,5 +368,8 @@ When adding a new shader to this system:
 4. make sure the field names match reflected shader resource names
 5. call the typed `SetShaderParameters(...)` helper, passing the exact graph
    shader scope for a composed pass
+6. assert capture correlation for the graph field, canonical resource,
+   normalized use, and reflected binding in the owning RenderCore or Renderer
+   contract test
 
 If binding resolution fails during shader-map initialization, treat it as a contract mismatch between shader code reflection and the declared `FParameters` struct.

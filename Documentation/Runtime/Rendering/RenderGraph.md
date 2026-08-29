@@ -212,12 +212,32 @@ path. Uncomposed and manual uses retain their previous capture form.
 ## Diagnostics and Budgets
 
 `Dump()` reports stable scheduled pass identities, declaration indices,
-domains, dependency kinds/causes, logical resources, normalized uses and
-versions, transition counts, preparation disposition, and final-batch counts. The
-dump omits builder identities, addresses, timestamps, and measured duration so
-equal declarations produce equal text. `Capture()` copies that dump plus
-pointer-free pass/resource/use/transition records, dependencies, lifetimes, culling decisions, and
-statistics into an owning value that remains valid after graph destruction.
+parameter-structure names, domains, dependency kinds/causes, logical resources,
+submitted parameter fields, normalized uses and versions, transition counts,
+preparation disposition, and final-batch counts. The dump omits builder
+identities, addresses, timestamps, and measured duration so equal declarations
+produce equal text. `Capture()` copies that dump plus pointer-free
+pass/resource/parameter/use/transition records, dependencies, lifetimes,
+culling decisions, and statistics into an owning value that remains valid after
+graph destruction.
+
+`FRenderGraphCapture::Parameters` contains one record for every submitted leaf
+field of every parameterized pass, including fields on a culled pass and a
+disengaged optional. The pass declaration index and full field path form its
+stable identity. A present field names the canonical resource ID and preserves
+its declared member kind, use/access, exact range, discard/store intent,
+managed-transition result, and optional shader binding. An absent field sets
+`bPresent` false and uses no synthetic resource ID. `Uses` remains the
+compiler-normalized evidence and may contain multiple exact cells for one
+field; correlate it with `Parameters` by pass declaration index and field path.
+`Dependencies` and `Transitions` remain compiler output and are never inferred
+again by inspection tooling.
+
+For an authoring investigation, first select the pass record and its parameter
+structure, then inspect all matching field records, correlate present fields
+with resources and normalized uses, and finally follow dependency causes and
+transitions. This order makes a route-selected absent fallback distinguishable
+from a missing compiler use and preserves the declaration/compiler boundary.
 
 `FRenderGraphBudget` separates structural safety limits from regression budgets.
 The `Max*` structural limits are deliberately broad deterministic compile gates
@@ -261,6 +281,24 @@ New renderer work that crosses pass boundaries must use the graph path:
 
 Bypass scheduling, hidden inter-pass resources, mutable string blackboards,
 and observer-controlled execution are not supported authoring patterns.
+
+### Low-Level Compatibility Boundary
+
+The non-parameterized `AddPass` overload and manual `UseTexture`, `UseBuffer`,
+attachment, managed-resource, token, and typed-value declarations remain only
+as an independent oracle for canonical compiler semantics and backend
+transition qualification. Their bounded repository consumers are
+`RenderGraphTests.cpp` and `VulkanResourceTransitionTests.cpp`. They are not a
+production Renderer or Renderer contract-fixture authoring option.
+
+`RendererSceneContractTests` scans all production Renderer C++ source and
+rejects a manual `Use*` call or an `AddPass` whose third argument is not a moved
+parameter object. This allows new parameter structures and contributors without
+maintaining a filename allowlist while making the production prohibition
+executable. The compatibility surface may be removed only when these compiler
+and RHI transition oracles have parameterized replacements that remain
+independent of the lowering behavior they validate and no external low-level
+consumer has been admitted.
 
 ## Production Pilot Boundary
 
