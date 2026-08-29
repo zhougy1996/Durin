@@ -105,16 +105,17 @@ namespace Durin::Editor::Material
 		auto DrawNumericValueEditor(const char* Label,
 			EMaterialProgramValueType Type, float* Value) -> bool
 		{
+			constexpr float DragSpeed = 0.01f;
 			switch (Type)
 			{
 			case EMaterialProgramValueType::Float:
-				return ImGui::InputFloat(Label, Value, 0.0f, 0.0f, "%.3f");
+				return ImGui::DragFloat(Label, Value, DragSpeed, 0.0f, 0.0f, "%.3f");
 			case EMaterialProgramValueType::Float2:
-				return ImGui::InputFloat2(Label, Value, "%.3f");
+				return ImGui::DragFloat2(Label, Value, DragSpeed, 0.0f, 0.0f, "%.3f");
 			case EMaterialProgramValueType::Float3:
-				return ImGui::InputFloat3(Label, Value, "%.3f");
+				return ImGui::DragFloat3(Label, Value, DragSpeed, 0.0f, 0.0f, "%.3f");
 			case EMaterialProgramValueType::Float4:
-				return ImGui::InputFloat4(Label, Value, "%.3f");
+				return ImGui::DragFloat4(Label, Value, DragSpeed, 0.0f, 0.0f, "%.3f");
 			case EMaterialProgramValueType::Texture2D:
 				return false;
 			}
@@ -817,6 +818,7 @@ namespace Durin::Editor::Material
 			if (DetailLevel != EMaterialGraphDetailLevel::Overview)
 			{
 				const float FontSize = std::max(9.0f, ImGui::GetFontSize() * Zoom);
+				const float SecondaryFontSize = std::max(8.0f, FontSize * 0.82f);
 				const std::string MaterialName = Ellipsize(Material.GetName(),
 					(Metrics.SurfaceWidth - 20.0f) * Zoom
 						* ImGui::GetFontSize() / FontSize);
@@ -824,10 +826,11 @@ namespace Durin::Editor::Material
 					SurfaceMaximum.x - 5.0f,
 					SurfaceMinimum.y + Metrics.SurfaceHeaderHeight * Zoom);
 				DrawList->AddText(ImGui::GetFont(), FontSize,
-					Add(SurfaceMinimum, {10.0f * Zoom, 2.0f * Zoom}),
+					Add(SurfaceMinimum, {10.0f * Zoom, 4.0f * Zoom}),
 					IM_COL32(235, 238, 242, 255), MaterialName.c_str(), nullptr, 0.0f, &Clip);
-				DrawList->AddText(ImGui::GetFont(), std::max(8.0f, FontSize * 0.82f),
-					Add(SurfaceMinimum, {10.0f * Zoom, 17.0f * Zoom}),
+				DrawList->AddText(ImGui::GetFont(), SecondaryFontSize,
+					Add(SurfaceMinimum,
+						{10.0f * Zoom, 5.0f * Zoom + FontSize}),
 					IM_COL32(165, 172, 186, 255), "Material Output", nullptr, 0.0f, &Clip);
 			}
 			for (size_t Index = 0; Index < SurfacePins.size(); ++Index)
@@ -842,8 +845,16 @@ namespace Durin::Editor::Material
 					TypeColor(SurfaceTypes[Index]));
 				if (DetailLevel == EMaterialGraphDetailLevel::Editing)
 				{
-					DrawList->AddText(Add(SurfacePins[Index], {10.0f, -7.0f}),
-						IM_COL32(210, 214, 222, 255), SurfaceNames[Index]);
+					const ImVec4 LabelClip(
+						SurfaceMinimum.x + NodePadding * Zoom,
+						SurfacePins[Index].y - PinSpacing * 0.5f * Zoom,
+						SurfaceMinimum.x
+							+ (NodePadding + Metrics.SurfaceLabelWidth) * Zoom,
+						SurfacePins[Index].y + PinSpacing * 0.5f * Zoom);
+					DrawList->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
+						Add(SurfacePins[Index], {NodePadding * Zoom, -7.0f}),
+						IM_COL32(210, 214, 222, 255), SurfaceNames[Index],
+						nullptr, 0.0f, &LabelClip);
 					if (!OutputLinks[Index]->SourceNodeId.IsValid())
 					{
 						const EMaterialSurfaceOutput Output =
@@ -858,10 +869,12 @@ namespace Durin::Editor::Material
 						}
 						const ImVec2 SavedCursor = ImGui::GetCursorScreenPos();
 						ImGui::SetCursorScreenPos(
-							{SurfaceMinimum.x + 118.0f * Zoom,
+							{SurfaceMinimum.x + (NodePadding
+								+ Metrics.SurfaceLabelWidth
+								+ Metrics.SurfaceValueGap) * Zoom,
 								SurfacePins[Index].y - 10.0f * Zoom});
 						ImGui::PushID(static_cast<int>(Index) + 9000);
-						ImGui::SetNextItemWidth(170.0f * Zoom);
+						ImGui::SetNextItemWidth(Metrics.SurfaceValueWidth * Zoom);
 						DrawNumericValueEditor("##SurfaceDefault", SurfaceTypes[Index],
 							SurfaceDefaultDrafts[Index].data());
 						bEmbeddedControlHoveredOrActive |=

@@ -211,6 +211,10 @@ TEST(FMaterialGraphOperationsTests, CanvasGeometryUsesStableMetricsAndZoomHyster
 	const FMaterialGraphCanvasMetrics& Metrics = FMaterialGraphGeometry::GetMetrics();
 	EXPECT_FLOAT_EQ(Metrics.NodeWidth, 224.0f);
 	EXPECT_FLOAT_EQ(Metrics.MinimumHitDiameter, 16.0f);
+	EXPECT_GE(Metrics.SurfaceHeaderHeight, 48.0f);
+	EXPECT_LE(Metrics.BodyPadding + Metrics.SurfaceLabelWidth
+		+ Metrics.SurfaceValueGap + Metrics.SurfaceValueWidth + Metrics.BodyPadding,
+		Metrics.SurfaceWidth);
 	EXPECT_FLOAT_EQ(FMaterialGraphGeometry::GetNodeHeight(0), 94.0f);
 	EXPECT_FLOAT_EQ(FMaterialGraphGeometry::GetNodeHeight(3), 142.0f);
 
@@ -786,7 +790,7 @@ TEST(FMaterialGraphOperationsTests, CanvasPointerGesturesCancelDeselectAndReconn
 	DrawFrame();
 	EXPECT_EQ(Position().X, Before.X + 40);
 
-	constexpr ImVec2 SurfaceBaseColorPin{496.0f, 157.0f};
+	constexpr ImVec2 SurfaceBaseColorPin{496.0f, 164.0f};
 	constexpr ImVec2 NodeOutputPin{440.0f, 254.0f};
 	IO.AddMousePosEvent(SurfaceBaseColorPin.x, SurfaceBaseColorPin.y);
 	DrawFrame();
