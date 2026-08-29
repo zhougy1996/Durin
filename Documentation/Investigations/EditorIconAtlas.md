@@ -9,12 +9,14 @@ Summary: Determine when editor viewport visualization icons should move from det
 ## Verified Current Behavior
 
 The editor viewport uses a small runtime-generated icon atlas for component
-visualizers. Camera and directional-light glyphs are built as deterministic
-supersampled masks in `RendererModule.cpp`, uploaded once during overlay-icon
-resource initialization, and selected through `EViewOverlayIcon`.
+visualizers. Camera, directional-light, and player-start glyphs are built as
+deterministic supersampled masks by the Renderer-private `EditorIconAtlas`
+owner. LevelEditor resolves its local visualization meaning to normalized UVs
+and submits a retained atlas identity through `FPrimitiveDrawInterface`;
+`FSimpleElementRenderer` owns upload and drawing.
 
 The current implementation has no editor asset-loading dependency, introduces
-no separately licensed source images, and keeps startup deterministic. Only two
+no separately licensed source images, and keeps startup deterministic. Only three
 component visualizers consume the atlas today, so replacing it now would add a
 source-art format, rasterizer, packer, generated metadata, packaging rules, and
 licensing workflow without resolving a demonstrated maintenance or rendering
@@ -48,9 +50,10 @@ If a trigger is met, investigate a canonical editor-only SVG source directory,
 deterministic offline rasterization and packing, generated stable identifiers
 and normalized UV rectangles, transparent cell padding and UV inset, and
 editor-resource packaging that excludes SVG inputs from game/runtime builds.
-`EViewOverlayIcon` should remain the renderer-facing identity unless a concrete
-consumer proves that contract insufficient. Missing or invalid generated data
-would need a visible deterministic fallback.
+Generated metadata should resolve editor-local identifiers to texture/UV values
+before PDI submission; closed icon semantics must not enter RenderCore or
+Renderer. Missing or invalid generated data would need a visible deterministic
+fallback.
 
 This is a candidate direction, not an adopted architecture. Toolchain choice,
 source-art ownership, generated-file policy, resolution/DPI strategy, and
@@ -82,8 +85,9 @@ plan.
 
 ## Related Code
 
-- `Engine/Source/Runtime/RenderCore/Public/IRendererModule.h`
-- `Engine/Source/Runtime/Renderer/Private/RendererModule.cpp`
+- `Engine/Source/Runtime/RenderCore/Public/SimpleElement.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/SimpleElement/EditorIconAtlas.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/SimpleElement/SimpleElementRenderer.cpp`
 - `Engine/Source/Editor/LevelEditor/Public/LevelEditorCustomizations.h`
 - `Engine/Source/Editor/LevelEditor/Private/Customizations/CameraEditorCustomizations.cpp`
 - `Engine/Source/Editor/LevelEditor/Private/Customizations/DirectionalLightEditorCustomizations.cpp`

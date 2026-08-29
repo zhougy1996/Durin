@@ -2,8 +2,7 @@
 
 #include "Renderers/EditorAssistance/EditorGridRenderer.h"
 #include "Renderers/EditorAssistance/GizmoRenderer.h"
-#include "Renderers/EditorAssistance/OverlayIconRenderer.h"
-#include "Renderers/EditorAssistance/OverlayLineRenderer.h"
+#include "Renderers/SimpleElement/SimpleElementRenderer.h"
 #include "Misc/AssertionMacros.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
@@ -44,10 +43,8 @@ namespace Durin
 		: EditorGridRenderer(std::make_unique<FEditorGridRenderer>(
 			InCoordinator, InFullscreenGeometry))
 		, GizmoRenderer(std::make_unique<FGizmoRenderer>(InCoordinator))
-		, OverlayLineRenderer(
-			std::make_unique<FOverlayLineRenderer>(InCoordinator))
-		, OverlayIconRenderer(
-			std::make_unique<FOverlayIconRenderer>(InCoordinator))
+		, SimpleElementRenderer(
+			std::make_unique<FSimpleElementRenderer>(InCoordinator))
 	{
 	}
 
@@ -55,21 +52,17 @@ namespace Durin
 
 	auto FEditorAssistanceRenderer::AnalyzeRequest(
 		const FSceneView& View,
-		RenderTargetLayouts::EViewportOutput Output) -> FRequest
+		RenderTargetLayouts::EViewportOutput Output,
+		std::span<const FSimpleElement> AdditionalElements) -> FRequest
 	{
 		FRequest Request;
 		Request.Output = Output;
 		Request.DepthConvention = View.DepthConvention;
 		Request.bEditorGrid = View.EditorGrid.bVisible;
-		Request.bOverlayLines = !View.OverlayLines.empty();
-		Request.bOverlayIcons = !View.OverlayIcons.empty();
+		Request.bSimpleElements = !View.SimpleElements.GetElements().empty()
+			|| !AdditionalElements.empty();
 		for (const FViewOverlayPrimitive& Primitive : View.OverlayPrimitives)
-		{
-			if (Primitive.Shape == EViewOverlayShape::WireBox)
-				Request.bWireGizmos = true;
-			else
-				Request.bSolidGizmos = true;
-		}
+			Request.bSolidGizmos = true;
 		return Request;
 	}
 
@@ -92,12 +85,6 @@ namespace Durin
 		};
 		if (Request.bSolidGizmos)
 			AddDepthVariants(EFeature::Gizmo, EGizmoTopology::Solid);
-		if (Request.bWireGizmos)
-			AddDepthVariants(EFeature::Gizmo, EGizmoTopology::Wire);
-		if (Request.bOverlayLines)
-			AddDepthVariants(EFeature::OverlayLine);
-		if (Request.bOverlayIcons)
-			AddDepthVariants(EFeature::OverlayIcon);
 		return Keys;
 	}
 
@@ -116,12 +103,9 @@ namespace Durin
 		};
 		auto HasGizmoPipeline = [&Request, &HasFeaturePipeline](
 			EDepthMode DepthMode) {
-			return (Request.bSolidGizmos
+			return Request.bSolidGizmos
 					&& HasFeaturePipeline(
-						EFeature::Gizmo, DepthMode, EGizmoTopology::Solid))
-				|| (Request.bWireGizmos
-					&& HasFeaturePipeline(
-						EFeature::Gizmo, DepthMode, EGizmoTopology::Wire));
+						EFeature::Gizmo, DepthMode, EGizmoTopology::Solid);
 		};
 
 		std::vector<EDrawOperation> Operations;
@@ -138,28 +122,14 @@ namespace Durin
 			case EDrawOperation::XRayGizmos:
 				bDrawable = HasGizmoPipeline(EDepthMode::XRay);
 				break;
-			case EDrawOperation::XRayOverlayLines:
-				bDrawable = Request.bOverlayLines
-					&& HasFeaturePipeline(
-						EFeature::OverlayLine, EDepthMode::XRay);
-				break;
-			case EDrawOperation::XRayOverlayIcons:
-				bDrawable = Request.bOverlayIcons
-					&& HasFeaturePipeline(
-						EFeature::OverlayIcon, EDepthMode::XRay);
+			case EDrawOperation::ForegroundSimpleElements:
+				bDrawable = Request.bSimpleElements;
 				break;
 			case EDrawOperation::VisibleGizmos:
 				bDrawable = HasGizmoPipeline(EDepthMode::Visible);
 				break;
-			case EDrawOperation::VisibleOverlayLines:
-				bDrawable = Request.bOverlayLines
-					&& HasFeaturePipeline(
-						EFeature::OverlayLine, EDepthMode::Visible);
-				break;
-			case EDrawOperation::VisibleOverlayIcons:
-				bDrawable = Request.bOverlayIcons
-					&& HasFeaturePipeline(
-						EFeature::OverlayIcon, EDepthMode::Visible);
+			case EDrawOperation::WorldSimpleElements:
+				bDrawable = Request.bSimpleElements;
 				break;
 			}
 			if (bDrawable)
@@ -174,11 +144,9 @@ namespace Durin
 		static constexpr std::array DrawOrder{
 			EDrawOperation::EditorGrid,
 			EDrawOperation::XRayGizmos,
-			EDrawOperation::XRayOverlayLines,
-			EDrawOperation::XRayOverlayIcons,
+			EDrawOperation::ForegroundSimpleElements,
 			EDrawOperation::VisibleGizmos,
-			EDrawOperation::VisibleOverlayLines,
-			EDrawOperation::VisibleOverlayIcons,
+			EDrawOperation::WorldSimpleElements,
 		};
 		return DrawOrder;
 	}
@@ -186,7 +154,8 @@ namespace Durin
 	auto FEditorAssistanceRenderer::Prepare_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& View,
-		const FRequest& Request) -> FPrepared
+		const FRequest& Request,
+		std::span<const FSimpleElement> AdditionalElements) -> FPrepared
 	{
 		check(IsInRenderingThread());
 		FPrepared Prepared;
@@ -195,20 +164,15 @@ namespace Durin
 			EditorGridRenderer->Prepare_RenderThread(
 				CommandList, View, Request.Output, Prepared);
 		}
-		if (Request.bSolidGizmos || Request.bWireGizmos)
+		if (Request.bSolidGizmos)
 		{
 			GizmoRenderer->Prepare_RenderThread(
 				CommandList, Request, Prepared);
 		}
-		if (Request.bOverlayLines)
+		if (Request.bSimpleElements)
 		{
-			OverlayLineRenderer->Prepare_RenderThread(
-				CommandList, View, Request.Output, Prepared);
-		}
-		if (Request.bOverlayIcons)
-		{
-			OverlayIconRenderer->Prepare_RenderThread(
-				CommandList, View, Request.Output, Prepared);
+			Prepared.SimpleElements = SimpleElementRenderer->Prepare_RenderThread(
+				CommandList, View, Request.Output, AdditionalElements);
 		}
 		return Prepared;
 	}
@@ -243,25 +207,19 @@ namespace Durin
 				GizmoRenderer->Draw_RenderThread(
 					CommandList, View, Prepared, EDepthMode::XRay);
 				break;
-			case EDrawOperation::XRayOverlayLines:
-				OverlayLineRenderer->Draw_RenderThread(
-					CommandList, Prepared, EDepthMode::XRay);
-				break;
-			case EDrawOperation::XRayOverlayIcons:
-				OverlayIconRenderer->Draw_RenderThread(
-					CommandList, Prepared, EDepthMode::XRay);
+			case EDrawOperation::ForegroundSimpleElements:
+				SimpleElementRenderer->Draw_RenderThread(CommandList,
+					Prepared.SimpleElements,
+					ESceneDepthPriorityGroup::Foreground);
 				break;
 			case EDrawOperation::VisibleGizmos:
 				GizmoRenderer->Draw_RenderThread(
 					CommandList, View, Prepared, EDepthMode::Visible);
 				break;
-			case EDrawOperation::VisibleOverlayLines:
-				OverlayLineRenderer->Draw_RenderThread(
-					CommandList, Prepared, EDepthMode::Visible);
-				break;
-			case EDrawOperation::VisibleOverlayIcons:
-				OverlayIconRenderer->Draw_RenderThread(
-					CommandList, Prepared, EDepthMode::Visible);
+			case EDrawOperation::WorldSimpleElements:
+				SimpleElementRenderer->Draw_RenderThread(CommandList,
+					Prepared.SimpleElements,
+					ESceneDepthPriorityGroup::World);
 				break;
 			}
 		}
@@ -272,7 +230,6 @@ namespace Durin
 		check(IsInRenderingThread());
 		EditorGridRenderer->ReleaseResources_RenderThread();
 		GizmoRenderer->ReleaseResources_RenderThread();
-		OverlayLineRenderer->ReleaseResources_RenderThread();
-		OverlayIconRenderer->ReleaseResources_RenderThread();
+		SimpleElementRenderer->ReleaseResources_RenderThread();
 	}
 } // namespace Durin

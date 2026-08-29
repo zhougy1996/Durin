@@ -327,7 +327,7 @@ namespace Durin
 			);
 			if (RenderView.Settings.Terrain.bShowLODOverlay)
 			{
-				auto AddTerrainDrawOverlay = [&RenderView](const FPreparedTerrainDraw& Draw) {
+				auto AddTerrainDrawOverlay = [&PreparedView](const FPreparedTerrainDraw& Draw) {
 					if (!Draw.SceneInfo || !Draw.Patch) return;
 					const FBox& Bounds = Draw.Patch->LocalBounds;
 					const FMatrix& Transform = Draw.SceneInfo->GetTransform();
@@ -346,7 +346,30 @@ namespace Durin
 					for (uint8 Edge = 0; Edge < 4; ++Edge)
 					{
 						const bool bStitched = (Draw.StitchMask & (1u << Edge)) != 0;
-						RenderView.OverlayLines.push_back({.Start = World[Edge], .End = World[(Edge + 1) % 4], .Color = bStitched ? FVector4f{1.0f, 0.1f, 0.1f, 1.0f} : LevelColor, .WidthPixels = bStitched ? 3.0f : 2.0f});
+						const FVector4f Color = bStitched
+							? FVector4f{1.0f, 0.1f, 0.1f, 1.0f} : LevelColor;
+						const FSimpleElementLineStyle Style{
+							.WidthPixels = bStitched ? 3.0f : 2.0f};
+						auto AppendLine = [&](ESceneDepthPriorityGroup Depth,
+							ESimpleElementBlendMode Blend, FVector4f DrawColor) {
+							auto& Elements =
+								PreparedView.Context.RendererSimpleElements;
+							Elements.push_back({
+								.Type = ESimpleElementType::Line,
+								.BlendMode = Blend,
+								.DepthPriorityGroup = Depth,
+								.SubmissionOrder = static_cast<uint64>(Elements.size()),
+								.Value = FSimpleElementLine{World[Edge],
+									World[(Edge + 1) % 4], DrawColor, Style},
+							});
+						};
+						FVector4f ForegroundColor = Color;
+						ForegroundColor.w *= 0.32f;
+						AppendLine(ESceneDepthPriorityGroup::Foreground,
+							ESimpleElementBlendMode::Translucent, ForegroundColor);
+						AppendLine(ESceneDepthPriorityGroup::World,
+							Color.w < 1.0f ? ESimpleElementBlendMode::Translucent
+								: ESimpleElementBlendMode::Opaque, Color);
 					}
 				};
 				for (const auto* Bucket : {&PreparedView.Receiver.Terrains.Opaque, &PreparedView.Receiver.Terrains.Masked, &PreparedView.Receiver.Terrains.Translucent})

@@ -9,6 +9,7 @@
 #include "HAL/PlatformLTS.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialRenderProxy.h"
+#include "PrimitiveDrawInterface.h"
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "RHI.h"
@@ -205,12 +206,13 @@ namespace Durin
 			FRendererModule& Renderer,
 			FScene* Scene,
 			const FVector3& Forward,
-			bool bLit = false
+			bool bLit = false,
+			bool bSimpleElements = false
 		) -> std::vector<std::byte>
 		{
 			auto Pixels = std::make_shared<std::vector<std::byte>>();
 			EnqueueRenderCommand<FRenderEditorGridCapture>(
-				[&Renderer, Scene, Forward, Pixels, bLit](
+				[&Renderer, Scene, Forward, Pixels, bLit, bSimpleElements](
 					FRHICommandListImmediate& CommandList
 				) {
 					GRenderFrameCounterRenderThread++;
@@ -226,6 +228,25 @@ namespace Durin
 
 					FSceneView View = MakeGridView(Forward);
 					if (bLit) View.Settings.Mode.RenderMode = ERenderMode::Lit;
+					if (bSimpleElements)
+					{
+						View.EditorGrid.bVisible = false;
+						const FVector3 Center = View.ViewLocation
+							+ Math::Normalize(Forward) * 5.0;
+						FViewPrimitiveDrawInterface PDI(View);
+						PDI.DrawPoint(Center, {1.0f, 0.0f, 0.0f, 1.0f}, 18.0f,
+							ESceneDepthPriorityGroup::Foreground);
+						PDI.DrawLine(Center - FVector3(0.5, 0.0, 0.0),
+							Center + FVector3(0.5, 0.0, 0.0),
+							{0.0f, 1.0f, 0.0f, 1.0f},
+							ESceneDepthPriorityGroup::Foreground,
+							{.WidthPixels = 4.0f});
+						PDI.DrawSprite(Center + FVector3(0.0, 0.0, 0.75),
+							FVector2f(24.0f), FSimpleElementTexture::EditorIconAtlas(),
+							{0.0f, 0.0f}, {1.0f / 3.0f, 1.0f}, FVector4f(1.0f),
+							ESceneDepthPriorityGroup::Foreground);
+						PDI.Seal();
+					}
 					FSceneViewRenderOptions Options;
 					EXPECT_EQ(Renderer.RenderView(CommandList, Scene, View, Target, false, Options), ERenderViewResult::Success);
 					ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
@@ -609,6 +630,17 @@ namespace Durin
 		EXPECT_EQ(TerrainHybridLit.size(), 129u * 129u * 4u);
 		EXPECT_EQ(GLastViewTelemetry.Deferred.HybridDeferredEnabledViews, 1u);
 		EXPECT_EQ(GLastViewTelemetry.GBuffer.GBufferTerrainSkippedDraws, 1u);
+		const std::vector<std::byte> SimpleElementPixels = RenderGridCapture(
+			Renderer, nullptr, CameraDirections.front(), false, true);
+		ASSERT_EQ(SimpleElementPixels.size(), 129u * 129u * 4u);
+		EXPECT_GT(CountVisiblePixels(SimpleElementPixels), 100u);
+		ASSERT_TRUE(Renderer.RequestResourceInvalidation(
+			ERendererResourceInvalidationCause::Device).bSuccess);
+		FlushRenderingCommands();
+		const std::vector<std::byte> RecoveredSimpleElementPixels =
+			RenderGridCapture(Renderer, nullptr, CameraDirections.front(),
+				false, true);
+		EXPECT_EQ(RecoveredSimpleElementPixels, SimpleElementPixels);
 
 		RendererLifecycle.Shutdown();
 		ShutdownRenderingThread();

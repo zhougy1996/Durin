@@ -221,13 +221,16 @@ namespace Durin
 	} // namespace
 
 	auto FSimpleElementCollector::Collect(const FSceneView& View,
-		RenderTargetLayouts::EViewportOutput Output)
+		RenderTargetLayouts::EViewportOutput Output,
+		std::span<const FSimpleElement> AdditionalElements)
 		-> FPreparedSimpleElements
 	{
 		FPreparedSimpleElements Prepared;
 		std::vector<FSimpleElement> Elements(
 			View.SimpleElements.GetElements().begin(),
 			View.SimpleElements.GetElements().end());
+		Elements.insert(Elements.end(), AdditionalElements.begin(),
+			AdditionalElements.end());
 		Prepared.Statistics.SubmittedElementCount =
 			static_cast<uint32>(Elements.size());
 

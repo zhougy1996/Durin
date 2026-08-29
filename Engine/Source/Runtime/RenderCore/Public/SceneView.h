@@ -244,23 +244,7 @@ namespace Durin
 		Axis,
 		Plane,
 		Ring,
-		Box,
-		WireBox
-	};
-
-	// Identifies a screen-sized editor icon anchored in world space.
-	enum class EViewOverlayIcon : uint8
-	{
-		Camera,
-		DirectionalLight,
-		PlayerStart
-	};
-
-	// Selects solid or distance-patterned rendering for an overlay line.
-	enum class EViewOverlayLinePattern : uint8
-	{
-		Solid,
-		Dashed
+		Box
 	};
 
 	// Describes a transformed procedural overlay primitive in world space.
@@ -269,26 +253,6 @@ namespace Durin
 		EViewOverlayShape Shape = EViewOverlayShape::Box;
 		FMatrix LocalToWorld{1.0};
 		FVector4f Color{1.0f};
-	};
-
-	// Describes a world-space overlay segment with screen-space width and pattern.
-	struct FViewOverlayLine
-	{
-		FVector3 Start{0.0};
-		FVector3 End{0.0};
-		FVector4f Color{1.0f};
-		float WidthPixels = 1.0f;
-		EViewOverlayLinePattern Pattern = EViewOverlayLinePattern::Solid;
-		float PatternPeriodPixels = 12.0f;
-	};
-
-	// Describes a world-space icon whose visual size is fixed in pixels.
-	struct FViewOverlayIcon
-	{
-		EViewOverlayIcon Icon = EViewOverlayIcon::Camera;
-		FVector3 WorldPosition{0.0};
-		FVector4f Color{1.0f};
-		float SizePixels = 30.0f;
 	};
 
 	// Configures the editor grid plane and its distance-based presentation.
@@ -330,8 +294,6 @@ namespace Durin
 		FSceneViewSettings Settings;
 		FViewEditorGrid EditorGrid;
 		std::vector<FViewOverlayPrimitive> OverlayPrimitives;
-		std::vector<FViewOverlayLine> OverlayLines;
-		std::vector<FViewOverlayIcon> OverlayIcons;
 		FSimpleElementViewSubmission SimpleElements;
 	};
 } // namespace Durin

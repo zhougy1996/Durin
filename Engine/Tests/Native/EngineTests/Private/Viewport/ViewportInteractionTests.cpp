@@ -471,21 +471,37 @@ TEST(FLevelEditorViewportClientTests, BuildsComponentOrientedSelectionBounds)
 	Client.SetSelectedActors(Selection, Actor);
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
-	const auto It = std::ranges::find_if(View.OverlayPrimitives, [](const Durin::FViewOverlayPrimitive& Primitive) {
-		return Primitive.Shape == Durin::EViewOverlayShape::WireBox;
-	});
-	ASSERT_NE(It, View.OverlayPrimitives.end());
+	std::vector<const Durin::FSimpleElementLine*> BoundsLines;
+	for (const Durin::FSimpleElement& Element : View.SimpleElements.GetElements())
+	{
+		if (Element.Type == Durin::ESimpleElementType::Line
+			&& Element.DepthPriorityGroup
+				== Durin::ESceneDepthPriorityGroup::World)
+		{
+			BoundsLines.push_back(
+				&std::get<Durin::FSimpleElementLine>(Element.Value));
+		}
+	}
+	// Flat debug geometry collapses four box edges; PDI rejects those zero-length lines.
+	ASSERT_GE(BoundsLines.size(), 8u);
 	const Durin::FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
 	ASSERT_NE(RenderData, nullptr);
-	const Durin::FVector3 ActualMin = Durin::FVector3(It->LocalToWorld * Durin::FVector4(-0.5, -0.5, -0.5, 1.0));
-	const Durin::FVector3 ActualMax = Durin::FVector3(It->LocalToWorld * Durin::FVector4(0.5, 0.5, 0.5, 1.0));
 	const Durin::FMatrix LocalToWorld = Component->GetRenderMatrix();
-	ExpectVectorNear(ActualMin, Durin::FVector3(LocalToWorld * Durin::FVector4(RenderData->LocalBounds.Min, 1.0)));
-	ExpectVectorNear(ActualMax, Durin::FVector3(LocalToWorld * Durin::FVector4(RenderData->LocalBounds.Max, 1.0)));
-	EXPECT_FLOAT_EQ(It->Color.r, 1.0f);
-	EXPECT_FLOAT_EQ(It->Color.g, 0.72f);
-	EXPECT_FLOAT_EQ(It->Color.b, 0.19f);
-	EXPECT_FLOAT_EQ(It->Color.a, 1.0f);
+	const Durin::FVector3 ExpectedMin = Durin::FVector3(
+		LocalToWorld * Durin::FVector4(RenderData->LocalBounds.Min, 1.0));
+	const Durin::FVector3 ExpectedMax = Durin::FVector3(
+		LocalToWorld * Durin::FVector4(RenderData->LocalBounds.Max, 1.0));
+	const auto ContainsPoint = [&BoundsLines](const Durin::FVector3& Expected) {
+		return std::ranges::any_of(BoundsLines, [&Expected](const auto* Line) {
+			return Durin::Math::Length(Line->Start - Expected) < 1.e-6
+				|| Durin::Math::Length(Line->End - Expected) < 1.e-6;
+		});
+	};
+	EXPECT_TRUE(ContainsPoint(ExpectedMin));
+	EXPECT_TRUE(ContainsPoint(ExpectedMax));
+	EXPECT_TRUE(std::ranges::all_of(BoundsLines, [](const auto* Line) {
+		return Line->Color == Durin::FVector4f(1.0f, 0.72f, 0.19f, 1.0f);
+	}));
 }
 
 TEST(FLevelEditorViewportClientTests, PicksClosestTriangleAndRejectsBoundsOnlyHit)

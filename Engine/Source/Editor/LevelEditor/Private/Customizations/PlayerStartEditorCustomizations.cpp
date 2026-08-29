@@ -37,7 +37,7 @@ namespace Durin::Editor::Level
 				const FVector3 Right = Math::Normalize(Rotation * FVectorConstants::Right);
 				const FVector3 Up = Math::Normalize(Rotation * FVectorConstants::Up);
 				Collector.AddIcon({
-					.Icon = EViewOverlayIcon::PlayerStart,
+					.Icon = EEditorVisualizationIcon::PlayerStart,
 					.WorldPosition = Origin,
 					.Color = Color,
 					.SizePixels = MonaImGui::ScaleUI(Context.bSelected ? 40.0f : 36.0f),
@@ -58,7 +58,7 @@ namespace Durin::Editor::Level
 				auto AddLine = [&](const FVector3& Start, const FVector3& End, float Width = 0.0f, int32 Priority = 80) {
 					Collector.AddLine({Start, End, Color, Width > 0.0f ? Width : OutlineWidth,
 						MonaImGui::ScaleUI(6.0f), Priority, PlayerStart, Root,
-						EViewOverlayLinePattern::Solid, 12.0f, HoverColor});
+						ESimpleElementLinePattern::Solid, 12.0f, HoverColor});
 				};
 
 				for (uint32 Index = 0; Index < RingSegmentCount; ++Index)

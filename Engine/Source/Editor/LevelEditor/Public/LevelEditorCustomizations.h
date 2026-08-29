@@ -18,6 +18,13 @@ namespace Durin
 
 namespace Durin::Editor::Level
 {
+	enum class EEditorVisualizationIcon : uint8
+	{
+		Camera,
+		DirectionalLight,
+		PlayerStart,
+	};
+
 	struct FLevelEditorContext;
 
 	// Supplies scene and selection state to component visualization extensions.
@@ -42,7 +49,7 @@ namespace Durin::Editor::Level
 		int32 HitPriority = 0;
 		TWeakObjectPtr<AActor> Actor;
 		TWeakObjectPtr<DActorComponent> Component;
-		EViewOverlayLinePattern Pattern = EViewOverlayLinePattern::Solid;
+		ESimpleElementLinePattern Pattern = ESimpleElementLinePattern::Solid;
 		float PatternPeriodPixels = 12.0f;
 		// Applied only when this primitive's actor is hovered; absence preserves its base color.
 		std::optional<FVector4f> HoverColor;
@@ -52,7 +59,7 @@ namespace Durin::Editor::Level
 	// Describes a world-space icon and its screen-space hit-test policy.
 	struct FEditorVisualizationIcon
 	{
-		EViewOverlayIcon Icon = EViewOverlayIcon::Camera;
+		EEditorVisualizationIcon Icon = EEditorVisualizationIcon::Camera;
 		FVector3 WorldPosition{0.0};
 		FVector4f Color{1.0f};
 		float SizePixels = 30.0f;

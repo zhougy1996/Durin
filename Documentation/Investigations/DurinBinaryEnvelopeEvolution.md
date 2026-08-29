@@ -441,9 +441,9 @@ package magic.
 
 ## Relevant Implementation
 
-- [DAST version policy](../../Engine/Source/Runtime/Engine/Private/Asset/Asset/PackageVersionPolicy.h)
+- [DAST version policy](../../Engine/Source/Runtime/Engine/Private/Asset/PackageVersionPolicy.h)
 - [DAST v6 codec](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageV6Codec.cpp)
-- [DAST object-stream writer contract](../../Engine/Source/Runtime/Engine/Private/Asset/Asset/PackageObjectStreamWriter.h)
+- [DAST object-stream writer contract](../../Engine/Source/Runtime/Engine/Private/Asset/PackageObjectStreamWriter.h)
 - [Common DURF envelope](../../Engine/Source/Runtime/Core/Public/Serialization/BinaryEnvelope.h)
 - [Public package-header projection](../../Engine/Source/Runtime/Engine/Public/Asset/PackageInspection.h)
 - [Cooked payload descriptor](../../Engine/Source/Runtime/Engine/Public/Asset/CookedAsset.h)

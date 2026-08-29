@@ -71,8 +71,7 @@ FRendererModule
     `-- FEditorAssistanceRenderer
         |-- FEditorGridRenderer
         |-- FGizmoRenderer
-        |-- FOverlayLineRenderer
-        `-- FOverlayIconRenderer
+        `-- FSimpleElementRenderer
 ```
 
 RenderCore owns fixed non-Material shader maps as bounded atomic
@@ -125,6 +124,31 @@ a later UI change cannot alter an
 already-enqueued view. Renderer-global state remains limited to shared GPU
 resources and size-keyed intermediate caches rather than semantic view policy.
 
+### Primitive Draw Submission
+
+Runtime, project, and editor producers submit bounded debug and visualization
+geometry through Engine's `FPrimitiveDrawInterface`. `DrawLine`,
+`DrawTranslucentLine`, `DrawPoint`, and `DrawSprite` copy world-space positions,
+pixel styles, colors, UVs, depth priority, and a retained texture identity into
+the current view. Calls are admitted only on the interface's creating thread.
+The Level Editor seals the submission after all visualizers finish; later calls
+are rejected, and queued render work retains no producer, Actor, Component, or
+temporary-memory pointer.
+
+Each view owns its submission. It accepts at most 65,536 elements and 8 MiB of
+copied payload, records rejected elements, and never shares elements with
+another viewport. Renderer collection clips and expands the copied values into
+immutable batches with a separate 32 MiB prepared-geometry limit. Producers
+select only `World` or `Foreground` depth priority and opaque or translucent
+submission; they do not select shaders, pipelines, or render passes.
+
+`FPrimitiveDrawInterface` is an Engine/RenderCore boundary and has no editor
+module dependency. The Renderer-private `FSimpleElementCollector` owns CPU
+classification and geometry, while `FSimpleElementRenderer` owns Global Shader
+refs, pipelines, dynamic upload buffers, drawing, invalidation, and release.
+Procedural fullscreen Grid and solid Gizmo meshes remain specialized because
+they are not simple line/point/sprite batches.
+
 The Level Editor View menu mirrors that ownership. Features with subordinate
 quality or route policy own one submenu containing their boolean `Enabled`
 checkbox and mutually exclusive radio choices. Independent visibility toggles
@@ -160,7 +184,10 @@ For each valid non-zero output, `FSceneRenderer` preserves this order:
 4. Apply manual exposure and the ACES fitted display transform, with optional
    FXAA in bounded display-linear space, into the final SDR output.
 5. When assistance has drawable work, load the preserved color and depth and
-   draw Grid, X-Ray Gizmo/Line/Icon, then visible Gizmo/Line/Icon.
+   draw Grid, X-Ray Gizmos, Foreground simple elements, visible solid Gizmos,
+   then World simple elements. XRay+Visible helpers preserve their historical
+   appearance by submitting a low-alpha Foreground element before the matching
+   World element.
 6. Transition only the final pass to Present for a window-backed output or
    ShaderReadOnly for an offscreen output.
 

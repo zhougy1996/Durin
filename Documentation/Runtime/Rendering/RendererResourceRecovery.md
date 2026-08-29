@@ -38,6 +38,16 @@ used by their PSO; they do not allocate, cast, or own private global
 `FShaderMapBase` instances. Material and vertex-factory/mesh combinations keep
 their existing private identities.
 
+`FSimpleElementRenderer` follows the same contract. Its line and sprite Global
+Shader sets are independently demandable, so one unavailable class skips only
+dependent batches. Output/depth/blend/shader-class pipeline keys retain the
+exact typed shader refs used to create them. Persistent vertex and index upload
+buffers grow to bounded power-of-two capacities; a failed allocation publishes
+no partial batch, reports once for the current device generation, and becomes
+eligible again on the next frame. Device invalidation releases pipelines,
+declarations, atlas resources, and upload buffers before lazy reconstruction;
+shutdown performs the same ordered release.
+
 Each owner tracks independent shader, device, and manual generations. A failed
 attempt records its generation, error category, context, identity, diagnostic,
 retry dependencies, and fallback state. Repeated lookup in the same relevant

@@ -219,11 +219,13 @@ namespace Durin
 		const RenderTargetLayouts::EViewportOutput ViewportOutput =
 			GetViewportOutput(bPresentOutput);
 		const RendererEditorAssistance::FRequest EditorAssistanceRequest =
-			FEditorAssistanceRenderer::AnalyzeRequest(RenderView, ViewportOutput);
+			FEditorAssistanceRenderer::AnalyzeRequest(RenderView, ViewportOutput,
+				PreparedView.Context.RendererSimpleElements);
 		RendererEditorAssistance::FPrepared PreparedEditorAssistance;
 		if (!EditorAssistanceRequest.IsEmpty())
 			PreparedEditorAssistance = EditorAssistanceRenderer.Prepare_RenderThread(
-				CommandList, RenderView, EditorAssistanceRequest);
+				CommandList, RenderView, EditorAssistanceRequest,
+				PreparedView.Context.RendererSimpleElements);
 		const bool bHasEditorAssistance =
 			PreparedEditorAssistance.HasDrawableOperation();
 		const bool bRequiresDeferredOpaque =

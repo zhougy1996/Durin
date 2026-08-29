@@ -13,6 +13,25 @@
 #include "VolumetricCloudDetails.h"
 #include "TerrainHeightmapThumbnailRenderer.h"
 
+namespace
+{
+	auto GetWorldSimpleElements(const Durin::FSceneView& View,
+		Durin::ESimpleElementType Type)
+		-> std::vector<const Durin::FSimpleElement*>
+	{
+		std::vector<const Durin::FSimpleElement*> Result;
+		for (const Durin::FSimpleElement& Element :
+			View.SimpleElements.GetElements())
+		{
+			if (Element.Type == Type
+				&& Element.DepthPriorityGroup
+					== Durin::ESceneDepthPriorityGroup::World)
+				Result.push_back(&Element);
+		}
+		return Result;
+	}
+}
+
 TEST(FSplineComponentVisualizerTests, EmitsSelectableCurveLinesAndControlPointBoxes)
 {
 	InitializeDObjectSystem();
@@ -473,9 +492,13 @@ TEST(FEditorVisualizationCollectorTests, UsesTheSameLinesForRenderingAndPicking)
 	const Durin::FVector3 Center = Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0;
 	Durin::Editor::Level::FEditorVisualizationCollector Collector;
 	Collector.AddLine({Center - Client.GetCameraTransform().GetRightVector(), Center + Client.GetCameraTransform().GetRightVector(), {1.0f, 0.5f, 0.25f, 1.0f}, 3.0f, 7.0f, 4, Actor, Actor->GetCameraComponent()});
+	View.SimpleElements = {};
 	Collector.AppendToView(View);
-	ASSERT_EQ(View.OverlayLines.size(), 1u);
-	EXPECT_FLOAT_EQ(View.OverlayLines.front().WidthPixels, 3.0f);
+	const auto WorldLines = GetWorldSimpleElements(
+		View, Durin::ESimpleElementType::Line);
+	ASSERT_EQ(WorldLines.size(), 1u);
+	EXPECT_FLOAT_EQ(std::get<Durin::FSimpleElementLine>(
+		WorldLines.front()->Value).Style.WidthPixels, 3.0f);
 	Durin::FVector2f ScreenCenter;
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, Center, ScreenCenter));
 	const Durin::Editor::Level::FEditorVisualizationHit Hit = Collector.HitTest(View, ScreenCenter);
@@ -506,30 +529,23 @@ TEST(FLevelEditorViewportClientTests, AppendsBoundedHeightFieldCollisionTriangle
 	Client.InitializeForLevel(Level);
 	Durin::FSceneView View;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
-	const size_t BaselinePrimitives = View.OverlayPrimitives.size();
-	const auto CountWireBoxes = [](const Durin::FSceneView& Candidate) {
-		return std::ranges::count(Candidate.OverlayPrimitives,
-			Durin::EViewOverlayShape::WireBox, &Durin::FViewOverlayPrimitive::Shape);
-	};
-	const auto BaselineWireBoxes = CountWireBoxes(View);
-	EXPECT_TRUE(View.OverlayLines.empty());
+	EXPECT_TRUE(View.SimpleElements.GetElements().empty());
 	World->SetCollisionDebugDrawEnabled(true);
 	ASSERT_TRUE(Component->RequestPhysicsStateCreation(true));
 	EXPECT_EQ(Component->GetCollisionStatus(),
 		Durin::ETerrainCollisionStatus::Ready);
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
-	EXPECT_EQ(View.OverlayLines.size(), 6u);
-	ASSERT_EQ(View.OverlayPrimitives.size(), BaselinePrimitives + 1u);
-	EXPECT_EQ(CountWireBoxes(View), BaselineWireBoxes + 1);
-	EXPECT_TRUE(std::ranges::all_of(View.OverlayLines, [](const auto& Line) {
-		return Line.WidthPixels == 1.5f;
-	}));
+	const auto CollisionLines = GetWorldSimpleElements(
+		View, Durin::ESimpleElementType::Line);
+	EXPECT_EQ(CollisionLines.size(), 18u);
+	EXPECT_EQ(std::ranges::count_if(CollisionLines, [](const auto* Element) {
+		return std::get<Durin::FSimpleElementLine>(Element->Value)
+			.Style.WidthPixels == 1.5f;
+	}), 6);
 
 	World->SetCollisionDebugDrawEnabled(false);
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
-	EXPECT_TRUE(View.OverlayLines.empty());
-	EXPECT_EQ(View.OverlayPrimitives.size(), BaselinePrimitives);
-	EXPECT_EQ(CountWireBoxes(View), BaselineWireBoxes);
+	EXPECT_TRUE(View.SimpleElements.GetElements().empty());
 	Durin::MarkObjectHierarchyAsGarbage(World);
 	Durin::CollectGarbage();
 }
@@ -563,10 +579,14 @@ TEST(FEditorVisualizationCollectorTests, UsesTheSameIconsForRenderingAndDepthInd
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
 	const Durin::FVector3 Center = Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0;
 	Durin::Editor::Level::FEditorVisualizationCollector Collector;
-	Collector.AddIcon({Durin::EViewOverlayIcon::Camera, Center, Durin::FVector4f(1.0f), 30.0f, 3.0f, 100, Actor, Actor->GetCameraComponent(), true});
+	Collector.AddIcon({Durin::Editor::Level::EEditorVisualizationIcon::Camera, Center, Durin::FVector4f(1.0f), 30.0f, 3.0f, 100, Actor, Actor->GetCameraComponent(), true});
+	View.SimpleElements = {};
 	Collector.AppendToView(View);
-	ASSERT_EQ(View.OverlayIcons.size(), 1u);
-	EXPECT_FLOAT_EQ(View.OverlayIcons.front().SizePixels, 30.0f);
+	const auto WorldSprites = GetWorldSimpleElements(
+		View, Durin::ESimpleElementType::Sprite);
+	ASSERT_EQ(WorldSprites.size(), 1u);
+	EXPECT_FLOAT_EQ(std::get<Durin::FSimpleElementSprite>(
+		WorldSprites.front()->Value).SizePixels.x, 30.0f);
 	Durin::FVector2f ScreenCenter;
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, Center, ScreenCenter));
 	const Durin::Editor::Level::FEditorVisualizationHit Hit = Collector.HitTest(View, ScreenCenter + Durin::FVector2f(14.0f, 0.0f));
@@ -620,24 +640,30 @@ TEST(FEditorVisualizationCollectorTests, AppliesOptionalHoverColorWithoutRegener
 	Durin::Editor::Level::FEditorVisualizationCollector Collector;
 	const Durin::FVector4f BaseColor{1.0f, 0.0f, 0.0f, 1.0f};
 	const Durin::FVector4f HoverColor{0.0f, 1.0f, 0.0f, 1.0f};
-	Collector.AddIcon({Durin::EViewOverlayIcon::Camera, {0.0, 0.0, 5.0}, BaseColor, 30.0f, 3.0f, 100,
+	Collector.AddIcon({Durin::Editor::Level::EEditorVisualizationIcon::Camera, {0.0, 0.0, 5.0}, BaseColor, 30.0f, 3.0f, 100,
 		Actor, Actor->GetCameraComponent(), true, HoverColor});
 
 	Durin::FSceneView BaseView;
 	Collector.AppendToView(BaseView);
 	Durin::FSceneView HoveredView;
 	Collector.AppendToView(HoveredView, Actor);
-	ASSERT_EQ(BaseView.OverlayIcons.size(), 1u);
-	ASSERT_EQ(HoveredView.OverlayIcons.size(), 1u);
-	EXPECT_EQ(BaseView.OverlayIcons.front().Color, BaseColor);
-	EXPECT_EQ(HoveredView.OverlayIcons.front().Color, HoverColor);
+	const auto BaseSprites = GetWorldSimpleElements(
+		BaseView, Durin::ESimpleElementType::Sprite);
+	const auto HoveredSprites = GetWorldSimpleElements(
+		HoveredView, Durin::ESimpleElementType::Sprite);
+	ASSERT_EQ(BaseSprites.size(), 1u);
+	ASSERT_EQ(HoveredSprites.size(), 1u);
+	EXPECT_EQ(std::get<Durin::FSimpleElementSprite>(
+		BaseSprites.front()->Value).Color, BaseColor);
+	EXPECT_EQ(std::get<Durin::FSimpleElementSprite>(
+		HoveredSprites.front()->Value).Color, HoverColor);
 	EXPECT_EQ(Collector.GetIcons().front().Color, BaseColor);
 
 	Durin::MarkObjectHierarchyAsGarbage(Actor);
 	Durin::CollectGarbage();
 	Durin::FSceneView ExpiredView;
 	Collector.AppendToView(ExpiredView);
-	EXPECT_TRUE(ExpiredView.OverlayIcons.empty());
+	EXPECT_TRUE(ExpiredView.SimpleElements.GetElements().empty());
 	EXPECT_EQ(Collector.HitTest(HoveredView, {0.0f, 0.0f}).Actor, nullptr);
 }
 
@@ -654,7 +680,7 @@ TEST(FEditorVisualizationCollectorTests, PreservesExactComponentAndSubElementHit
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
 	const Durin::FVector3 Center = Client.GetCameraTransform().GetLocation() + Client.GetCameraTransform().GetForwardVector() * 5.0;
 	const Durin::Editor::Level::FEditorSubElementSelection Element{Durin::Editor::Level::EEditorSubElementKind::Point, Durin::FGuid::NewGuid()};
-	Durin::Editor::Level::FEditorVisualizationIcon Icon{Durin::EViewOverlayIcon::Camera, Center, Durin::FVector4f(1.0f), 30.0f, 3.0f, 100,
+	Durin::Editor::Level::FEditorVisualizationIcon Icon{Durin::Editor::Level::EEditorVisualizationIcon::Camera, Center, Durin::FVector4f(1.0f), 30.0f, 3.0f, 100,
 		Actor, Actor->GetCameraComponent(), true};
 	Icon.Element = Element;
 	Durin::Editor::Level::FEditorVisualizationCollector Collector;
@@ -742,7 +768,7 @@ TEST(FCameraComponentVisualizerTests, DrawsOnlyAnIconUntilSelected)
 	const Durin::FVector3 Origin = Actor->GetCameraComponent()->GetWorldLocation();
 	EXPECT_NEAR(Durin::Math::Dot(Selected.GetLines()[0].Start - Origin, Forward), 0.25, 1.e-5);
 	EXPECT_NEAR(Durin::Math::Dot(Selected.GetLines()[0].End - Origin, Forward), 0.25, 1.e-5);
-	EXPECT_EQ(Selected.GetLines()[2].Pattern, Durin::EViewOverlayLinePattern::Solid);
+	EXPECT_EQ(Selected.GetLines()[2].Pattern, Durin::ESimpleElementLinePattern::Solid);
 	const ImVec4& ExpectedForwardColor = Durin::MonaImGui::GetThemeColor(Durin::MonaImGui::EUIThemeColor::AxisX);
 	EXPECT_FLOAT_EQ(Selected.GetLines().back().Color.r, ExpectedForwardColor.x);
 	EXPECT_FLOAT_EQ(Selected.GetLines().back().Color.g, ExpectedForwardColor.y);
@@ -768,7 +794,7 @@ TEST(FCameraComponentVisualizerTests, UsesTheActualFarPlaneAtExtremeFieldOfView)
 	Visualizer->DrawVisualization(Actor->GetCameraComponent(), {View, Level, true, true}, Collector);
 	ASSERT_EQ(Collector.GetLines().size(), 13u);
 	EXPECT_EQ(std::ranges::count_if(Collector.GetLines(), [](const Durin::Editor::Level::FEditorVisualizationLine& Line) {
-		return Line.Pattern == Durin::EViewOverlayLinePattern::Dashed;
+		return Line.Pattern == Durin::ESimpleElementLinePattern::Dashed;
 	}), 0);
 	const Durin::FVector3 Forward = Actor->GetCameraComponent()->GetWorldRotation() * Durin::FVectorConstants::Forward;
 	const Durin::FVector3 Origin = Actor->GetCameraComponent()->GetWorldLocation();
@@ -798,7 +824,7 @@ TEST(FDirectionalLightComponentVisualizerTests, DrawsSelectableIconAndSelectedDi
 	Durin::Editor::Level::FEditorVisualizationCollector Unselected;
 	Visualizer->DrawVisualization(Actor->GetLightComponent(), {View, Level, false, false}, Unselected);
 	ASSERT_EQ(Unselected.GetIcons().size(), 1u);
-	EXPECT_EQ(Unselected.GetIcons().front().Icon, Durin::EViewOverlayIcon::DirectionalLight);
+	EXPECT_EQ(Unselected.GetIcons().front().Icon, Durin::Editor::Level::EEditorVisualizationIcon::DirectionalLight);
 	EXPECT_TRUE(Unselected.GetLines().empty());
 
 	Durin::Editor::Level::FEditorVisualizationCollector Selected;
@@ -840,7 +866,7 @@ TEST(FPlayerStartActorVisualizerTests, DrawsSelectableSpawnShapeAndFacingCue)
 	Durin::Editor::Level::FEditorVisualizationCollector Unselected;
 	Visualizer->DrawVisualization(PlayerStart, {View, Level, false, false}, Unselected);
 	ASSERT_EQ(Unselected.GetIcons().size(), 1u);
-	EXPECT_EQ(Unselected.GetIcons().front().Icon, Durin::EViewOverlayIcon::PlayerStart);
+	EXPECT_EQ(Unselected.GetIcons().front().Icon, Durin::Editor::Level::EEditorVisualizationIcon::PlayerStart);
 	EXPECT_FLOAT_EQ(Unselected.GetIcons().front().SizePixels, Durin::MonaImGui::ScaleUI(36.0f));
 	EXPECT_TRUE(Unselected.GetIcons().front().HoverColor.has_value());
 	EXPECT_TRUE(Unselected.GetLines().empty());

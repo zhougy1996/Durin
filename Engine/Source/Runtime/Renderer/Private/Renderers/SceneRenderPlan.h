@@ -42,6 +42,7 @@ namespace Durin
 	struct FPreparedViewContext
 	{
 		FSceneView View;
+		std::vector<FSimpleElement> RendererSimpleElements;
 	};
 
 	// Represents one complete optional sky/environment input.

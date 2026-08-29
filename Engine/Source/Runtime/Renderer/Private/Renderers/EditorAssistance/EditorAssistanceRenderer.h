@@ -5,6 +5,7 @@
 #include "RHIResources.h"
 #include "RendererAPI.h"
 #include "Resources/RenderTargetLayouts.h"
+#include "Renderers/SimpleElement/SimpleElementRenderer.h"
 #include "SceneView.h"
 #include "Shader/GlobalShader.h"
 
@@ -12,8 +13,7 @@ namespace Durin
 {
 	class FEditorGridRenderer;
 	class FGizmoRenderer;
-	class FOverlayIconRenderer;
-	class FOverlayLineRenderer;
+	class FSimpleElementRenderer;
 	class FRendererResourceCoordinator;
 	class FFullscreenGeometryResources;
 	class FRHICommandListImmediate;
@@ -25,8 +25,7 @@ namespace Durin::RendererEditorAssistance
 	{
 		EditorGrid,
 		Gizmo,
-		OverlayLine,
-		OverlayIcon,
+		SimpleElement,
 	};
 
 	enum class EDepthMode : uint8
@@ -39,7 +38,6 @@ namespace Durin::RendererEditorAssistance
 	{
 		NotApplicable,
 		Solid,
-		Wire,
 	};
 
 	struct FPipelineKey
@@ -63,14 +61,12 @@ namespace Durin::RendererEditorAssistance
 			ESceneDepthConvention::ForwardZ;
 		bool bEditorGrid = false;
 		bool bSolidGizmos = false;
-		bool bWireGizmos = false;
-		bool bOverlayLines = false;
-		bool bOverlayIcons = false;
+		bool bSimpleElements = false;
 
 		auto IsEmpty() const -> bool
 		{
-			return !bEditorGrid && !bSolidGizmos && !bWireGizmos
-				&& !bOverlayLines && !bOverlayIcons;
+			return !bEditorGrid && !bSolidGizmos
+				&& !bSimpleElements;
 		}
 	};
 
@@ -86,11 +82,9 @@ namespace Durin::RendererEditorAssistance
 	{
 		EditorGrid,
 		XRayGizmos,
-		XRayOverlayLines,
-		XRayOverlayIcons,
+		ForegroundSimpleElements,
 		VisibleGizmos,
-		VisibleOverlayLines,
-		VisibleOverlayIcons,
+		WorldSimpleElements,
 	};
 
 	struct FPreparedPipeline
@@ -103,15 +97,13 @@ namespace Durin::RendererEditorAssistance
 	struct FPrepared
 	{
 		std::optional<EditorGridRendering::FEditorGridUniform> EditorGridUniform;
-		uint32 OverlayLineIndexCount = 0;
-		uint32 OverlayIconIndexCount = 0;
 		bool bSolidGizmos = false;
-		bool bWireGizmos = false;
 		std::vector<FPreparedPipeline> Pipelines;
+		FPreparedSimpleElementRendering SimpleElements;
 
 		auto HasDrawableOperation() const -> bool
 		{
-			return !Pipelines.empty();
+			return !Pipelines.empty() || !SimpleElements.IsEmpty();
 		}
 	};
 } // namespace Durin::RendererEditorAssistance
@@ -139,7 +131,8 @@ namespace Durin
 
 		RENDERER_API static auto AnalyzeRequest(
 			const FSceneView& View,
-			RenderTargetLayouts::EViewportOutput Output) -> FRequest;
+			RenderTargetLayouts::EViewportOutput Output,
+			std::span<const FSimpleElement> AdditionalElements = {}) -> FRequest;
 		RENDERER_API static auto GetRequiredPipelineKeys(
 			const FRequest& Request) -> std::vector<FPipelineKey>;
 		RENDERER_API static auto BuildDrawableOperations(
@@ -152,7 +145,8 @@ namespace Durin
 		auto Prepare_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
-			const FRequest& Request) -> FPrepared;
+			const FRequest& Request,
+			std::span<const FSimpleElement> AdditionalElements = {}) -> FPrepared;
 		auto Draw_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneView& View,
@@ -162,7 +156,6 @@ namespace Durin
 	private:
 		std::unique_ptr<FEditorGridRenderer> EditorGridRenderer;
 		std::unique_ptr<FGizmoRenderer> GizmoRenderer;
-		std::unique_ptr<FOverlayLineRenderer> OverlayLineRenderer;
-		std::unique_ptr<FOverlayIconRenderer> OverlayIconRenderer;
+		std::unique_ptr<FSimpleElementRenderer> SimpleElementRenderer;
 	};
 } // namespace Durin

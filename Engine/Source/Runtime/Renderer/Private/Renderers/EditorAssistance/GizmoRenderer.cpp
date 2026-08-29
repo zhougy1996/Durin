@@ -154,25 +154,6 @@ namespace Durin
 				Indices.push_back(Base + Index);
 		}
 
-		auto AppendWireBox(
-			std::vector<FVector3f>& Vertices,
-			std::vector<uint32>& Indices) -> void
-		{
-			const uint32 Base = static_cast<uint32>(Vertices.size());
-			for (uint32 Corner = 0; Corner < 8; ++Corner)
-			{
-				Vertices.emplace_back(
-					(Corner & 1) ? 0.5f : -0.5f,
-					(Corner & 2) ? 0.5f : -0.5f,
-					(Corner & 4) ? 0.5f : -0.5f);
-			}
-			static constexpr uint32 BoxEdgeIndices[] = {
-				0,1,0,2,0,4,1,3,1,5,2,3,2,6,3,7,4,5,4,6,5,7,6,7,
-			};
-			for (const uint32 Index : BoxEdgeIndices)
-				Indices.push_back(Base + Index);
-		}
-
 		auto AppendPlane(
 			std::vector<FVector3f>& Vertices,
 			std::vector<uint32>& Indices) -> void
@@ -243,7 +224,7 @@ namespace Durin
 
 		auto GetTopologyName(EGizmoTopology Topology) -> std::string_view
 		{
-			return Topology == EGizmoTopology::Wire ? "Wire" : "Solid";
+			return "Solid";
 		}
 
 		auto GetOutputName(RenderTargetLayouts::EViewportOutput Output)
@@ -280,7 +261,7 @@ namespace Durin
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FBufferRHIRef VertexBuffer;
 			FBufferRHIRef IndexBuffer;
-			std::array<FGizmoMeshRange, 6> MeshRanges{};
+			std::array<FGizmoMeshRange, 5> MeshRanges{};
 		};
 
 		struct FPipelinePayload
@@ -382,13 +363,6 @@ namespace Durin
 				EndMesh(
 					Ranges[static_cast<size_t>(EViewOverlayShape::Box)],
 					Indices);
-				Ranges[static_cast<size_t>(EViewOverlayShape::WireBox)] =
-					BeginMesh(Indices);
-				AppendWireBox(Vertices, Indices);
-				EndMesh(
-					Ranges[static_cast<size_t>(EViewOverlayShape::WireBox)],
-					Indices);
-
 				FRHIBufferCreateDesc VertexDesc =
 					FRHIBufferCreateDesc::CreateVertex(
 						"GizmoVertexBuffer",
@@ -434,14 +408,10 @@ namespace Durin
 			return;
 
 		Prepared.bSolidGizmos = Request.bSolidGizmos;
-		Prepared.bWireGizmos = Request.bWireGizmos;
 		for (const EGizmoTopology Topology : {
-				EGizmoTopology::Solid,
-				EGizmoTopology::Wire})
+				EGizmoTopology::Solid})
 		{
-			const bool bRequested = Topology == EGizmoTopology::Solid
-				? Request.bSolidGizmos
-				: Request.bWireGizmos;
+			const bool bRequested = Request.bSolidGizmos;
 			if (!bRequested)
 				continue;
 			for (const EDepthMode DepthMode : {
@@ -483,12 +453,6 @@ namespace Durin
 							Base->FragmentShader.GetRHIShader();
 						Initializer.VertexDeclaration =
 							Base->VertexDeclaration;
-						if (Key.GizmoTopology == EGizmoTopology::Wire)
-						{
-							Initializer.PrimitiveTopology =
-								FGraphicsPipelineStateInitializer::
-									EPrimitiveTopology::LineList;
-						}
 						Initializer.ColorBlendStates[0] =
 							FRHIColorBlendState::StraightAlpha();
 						Initializer.RasterizerState.CullMode =
@@ -552,10 +516,7 @@ namespace Durin
 		CommandList.BindIndexBuffer(Base->IndexBuffer, 0);
 		for (const FViewOverlayPrimitive& Primitive : View.OverlayPrimitives)
 		{
-			const EGizmoTopology Topology =
-				Primitive.Shape == EViewOverlayShape::WireBox
-				? EGizmoTopology::Wire
-				: EGizmoTopology::Solid;
+			const EGizmoTopology Topology = EGizmoTopology::Solid;
 			const FGraphicsPipelineStateRHIRef Pipeline =
 				FindPreparedPipeline(Prepared, DepthMode, Topology);
 			if (Pipeline == nullptr)

@@ -1,4 +1,5 @@
 #include "LevelEditorCustomizations.h"
+#include "Viewport/EditorPrimitiveDrawing.h"
 
 #include "DObject/Class.h"
 #include "DObject/Property.h"
@@ -185,23 +186,24 @@ namespace Durin::Editor::Level
 
 	auto FEditorVisualizationCollector::AppendToView(FSceneView& View, const FEditorVisualizationHit* Hovered) const -> void
 	{
-		View.OverlayLines.reserve(View.OverlayLines.size() + Lines.size());
 		for (const FEditorVisualizationLine& Line : Lines)
 		{
 			const AActor* Actor = Line.Actor.Get();
 			if (!Actor || !Line.Component.IsValid()) continue;
 			const bool bHovered = Hovered && Actor == Hovered->Actor && Line.Component.Get() == Hovered->Component && Line.Element == Hovered->Element;
 			const FVector4f& Color = bHovered && Line.HoverColor ? *Line.HoverColor : Line.Color;
-			View.OverlayLines.push_back({Line.Start, Line.End, Color, Line.WidthPixels, Line.Pattern, Line.PatternPeriodPixels});
+			SubmitXRayVisibleLine(View, Line.Start, Line.End, Color,
+				{.WidthPixels = Line.WidthPixels, .Pattern = Line.Pattern,
+					.PatternPeriodPixels = Line.PatternPeriodPixels});
 		}
-		View.OverlayIcons.reserve(View.OverlayIcons.size() + Icons.size());
 		for (const FEditorVisualizationIcon& Icon : Icons)
 		{
 			const AActor* Actor = Icon.Actor.Get();
 			if (!Actor || !Icon.Component.IsValid()) continue;
 			const bool bHovered = Hovered && Actor == Hovered->Actor && Icon.Component.Get() == Hovered->Component && Icon.Element == Hovered->Element;
 			const FVector4f& Color = bHovered && Icon.HoverColor ? *Icon.HoverColor : Icon.Color;
-			View.OverlayIcons.push_back({Icon.Icon, Icon.WorldPosition, Color, Icon.SizePixels});
+			SubmitXRayVisibleIcon(View, Icon.Icon, Icon.WorldPosition,
+				Color, Icon.SizePixels);
 		}
 		View.OverlayPrimitives.reserve(
 			View.OverlayPrimitives.size() + Primitives.size() + Boxes.size());
@@ -233,21 +235,22 @@ namespace Durin::Editor::Level
 	{
 		FEditorVisualizationHit Hit;
 		Hit.Actor = const_cast<AActor*>(HoveredActor);
-		View.OverlayLines.reserve(View.OverlayLines.size() + Lines.size());
 		for (const FEditorVisualizationLine& Line : Lines)
 		{
 			const AActor* Actor = Line.Actor.Get();
 			if (!Actor || !Line.Component.IsValid()) continue;
 			const FVector4f& Color = Actor == Hit.Actor && Line.HoverColor ? *Line.HoverColor : Line.Color;
-			View.OverlayLines.push_back({Line.Start, Line.End, Color, Line.WidthPixels, Line.Pattern, Line.PatternPeriodPixels});
+			SubmitXRayVisibleLine(View, Line.Start, Line.End, Color,
+				{.WidthPixels = Line.WidthPixels, .Pattern = Line.Pattern,
+					.PatternPeriodPixels = Line.PatternPeriodPixels});
 		}
-		View.OverlayIcons.reserve(View.OverlayIcons.size() + Icons.size());
 		for (const FEditorVisualizationIcon& Icon : Icons)
 		{
 			const AActor* Actor = Icon.Actor.Get();
 			if (!Actor || !Icon.Component.IsValid()) continue;
 			const FVector4f& Color = Actor == Hit.Actor && Icon.HoverColor ? *Icon.HoverColor : Icon.Color;
-			View.OverlayIcons.push_back({Icon.Icon, Icon.WorldPosition, Color, Icon.SizePixels});
+			SubmitXRayVisibleIcon(View, Icon.Icon, Icon.WorldPosition,
+				Color, Icon.SizePixels);
 		}
 		View.OverlayPrimitives.reserve(
 			View.OverlayPrimitives.size() + Primitives.size() + Boxes.size());

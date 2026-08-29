@@ -40,7 +40,7 @@ namespace Durin::Editor::Level
 
 				const FVector3 Origin = Camera->GetWorldLocation();
 				Collector.AddIcon({
-					.Icon = EViewOverlayIcon::Camera,
+					.Icon = EEditorVisualizationIcon::Camera,
 					.WorldPosition = Origin,
 					.Color = Color,
 					.SizePixels = MonaImGui::ScaleUI(Context.bSelected ? 40.0f : 36.0f),
@@ -79,7 +79,7 @@ namespace Durin::Editor::Level
 				const std::array<FVector3, 4> FarCorners = MakePlaneCorners(FarDistance);
 				const float Width = 2.5f;
 
-				auto AddLine = [&](const FVector3& Start, const FVector3& End, EViewOverlayLinePattern Pattern = EViewOverlayLinePattern::Solid, int32 Priority = 10) {
+				auto AddLine = [&](const FVector3& Start, const FVector3& End, ESimpleElementLinePattern Pattern = ESimpleElementLinePattern::Solid, int32 Priority = 10) {
 					Collector.AddLine({Start, End, Color, Width, 7.0f, Priority, Actor, Camera, Pattern, 12.0f});
 				};
 				for (size_t Index = 0; Index < NearCorners.size(); ++Index)

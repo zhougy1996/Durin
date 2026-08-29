@@ -170,6 +170,21 @@ the exact Actor, component, and optional typed sub-element handle. Hover and
 hit-testing preserve that identity through viewport presentation and mode
 dispatch.
 
+Render visualization is submitted through the Engine-owned
+`FPrimitiveDrawInterface`. Visualizers copy lines, translucent lines, points,
+and sprites into their viewport's bounded submission and retain no interface or
+submission pointer after the traversal. Built-in camera, light, player-start,
+spline, selection-bound, collision, and Terrain-LOD visuals use the same
+contract. Their icon meaning is resolved to atlas UVs before submission, and
+XRay+Visible helpers emit an explicit translucent `Foreground` primitive
+followed by its `World` primitive. The viewport seals the list when traversal
+ends, so later tool callbacks cannot mutate an enqueued frame.
+
+Picking remains a separate prepared visualization contract: render PDI values
+do not carry Actor/component identity and are not retained for hit testing.
+Solid transform Gizmos remain in their specialized mesh and interaction path;
+wire boxes and eligible debug geometry are emitted as PDI lines.
+
 Select mode may use a visualization hit to select the owning Actor and exact
 component/element, but a normal visualization click never activates a
 contextual mode. Spline mode accepts hits only from its selected spline

@@ -1,5 +1,6 @@
 #include "Viewport/LevelEditorViewportClient.h"
 #include "Viewport/ViewportPickingService.h"
+#include "Viewport/EditorPrimitiveDrawing.h"
 #include "MonaImGui.h"
 
 #include "Editor/EditorEngine.h"
@@ -58,11 +59,10 @@ namespace Durin::Editor::Level
 
 		auto AddCollisionLine(FSceneView& View, const FMatrix& Transform, const FVector3& Start, const FVector3& End) -> void
 		{
-			View.OverlayLines.push_back({
+			SubmitXRayVisibleLine(View,
 				TransformCollisionPoint(Transform, Start),
 				TransformCollisionPoint(Transform, End),
-				kCollisionBodyColor,
-				1.5f});
+				kCollisionBodyColor, {.WidthPixels = 1.5f});
 		}
 
 		template<typename PointFactory>
@@ -88,9 +88,9 @@ namespace Durin::Editor::Level
 				{
 					const FVector3 Center = (Bounds[0] + Bounds[1]) * 0.5;
 					const FVector3 Size = Bounds[1] - Bounds[0];
-					View.OverlayPrimitives.push_back({EViewOverlayShape::WireBox,
-						Transform * Math::TranslationMatrix(Center) * Math::ScaleMatrix(Size),
-						kCollisionBodyColor});
+					SubmitXRayVisibleWireBox(View,
+						Transform * Math::TranslationMatrix(Center)
+							* Math::ScaleMatrix(Size), kCollisionBodyColor);
 				}
 				for (const std::array<FVector3, 3>& Triangle : Body.TriangleSample)
 				{
@@ -102,10 +102,10 @@ namespace Durin::Editor::Level
 				switch (Body.Shape.GetType())
 				{
 				case ECollisionShapeType::Box:
-					View.OverlayPrimitives.push_back({
-						EViewOverlayShape::WireBox,
-						Transform * Math::ScaleMatrix(Body.Shape.GetBoxHalfExtent() * 2.0),
-						kCollisionBodyColor});
+					SubmitXRayVisibleWireBox(View,
+						Transform
+							* Math::ScaleMatrix(Body.Shape.GetBoxHalfExtent() * 2.0),
+						kCollisionBodyColor);
 					break;
 				case ECollisionShapeType::Sphere:
 				{
@@ -137,7 +137,9 @@ namespace Durin::Editor::Level
 			if (Snapshot.LastBlockingHit)
 			{
 				const FHitResult& Hit = *Snapshot.LastBlockingHit;
-				View.OverlayLines.push_back({Hit.ImpactPoint, Hit.ImpactPoint + Hit.ImpactNormal, kCollisionHitColor, 3.0f});
+				SubmitXRayVisibleLine(View, Hit.ImpactPoint,
+					Hit.ImpactPoint + Hit.ImpactNormal, kCollisionHitColor,
+					{.WidthPixels = 3.0f});
 			}
 		}
 
@@ -216,6 +218,7 @@ namespace Durin::Editor::Level
 		AppendSelectionBounds(View);
 		Visualizations.AppendToView(View, HoveredVisualization.Actor ? &HoveredVisualization : nullptr);
 		TransformGizmo.AppendOverlayPrimitives(View);
+		FViewPrimitiveDrawInterface(View).Seal();
 		OutFrame.View = std::move(View);
 		OutFrame.Visualizations = std::move(Visualizations);
 		OutFrame.Level = Level;
@@ -387,7 +390,8 @@ namespace Durin::Editor::Level
 				const FVector3 Center = Data->LocalBounds.GetCenter();
 				const FVector3 Size = Data->LocalBounds.Max - Data->LocalBounds.Min;
 				const FMatrix BoundsToLocal = Math::TranslationMatrix(Center) * Math::ScaleMatrix(Size);
-				View.OverlayPrimitives.push_back({EViewOverlayShape::WireBox, Component->GetRenderMatrix() * BoundsToLocal, Color});
+				SubmitXRayVisibleWireBox(View,
+					Component->GetRenderMatrix() * BoundsToLocal, Color);
 			}
 		}
 	}

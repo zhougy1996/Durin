@@ -54,11 +54,17 @@ dedicated grid vertex or index mesh.
 
 The scene and post-process phases complete before editor assistance. The final
 assistance pass loads final color and preserved D32 scene depth, restores the
-view's fitted viewport and scissor, then draws the grid before gizmos, overlay
-lines, and overlay icons. The grid pipeline uses straight-alpha blending, no
+view's fitted viewport and scissor, then draws Grid, X-Ray solid Gizmos,
+Foreground simple elements, visible solid Gizmos, and World simple elements.
+The grid pipeline uses straight-alpha blending, no
 culling, the main view's `GreaterOrEqual` reversed-Z comparison, and disabled depth writes. The grid therefore
 participates in scene occlusion but never changes the depth observed by later
 editor assistance.
+
+Grid deliberately remains a specialized fullscreen procedural renderer. It
+does not enter `FPrimitiveDrawInterface` or consume the simple-element upload
+budget: one fullscreen triangle plus ray/plane reconstruction is materially
+different from copied line, point, and sprite geometry.
 
 An `FSceneView` with `EditorGrid.bVisible == false` creates no grid demand.
 Invalid uniform construction or unavailable shader, pipeline, or fullscreen
@@ -280,8 +286,8 @@ allowing it to pass genuinely closer geometry.
 
 The grid renders after scene post-processing, so FXAA does not blur the editor
 reference lines. Loading preserved scene depth retains mesh occlusion, while
-drawing the grid before other assistance leaves gizmos, icons, and overlay
-lines readable over it.
+drawing the grid before other assistance leaves gizmos and simple line, point,
+and sprite batches readable over it.
 
 ## Limits and extension rules
 
@@ -334,7 +340,10 @@ Focused CPU tests verify mutually inverse camera-relative transforms, relative
 height, finite failure behavior, and positive decimal phases at million-scale
 positive and negative camera coordinates. The hardware-backed Vulkan regression
 compares empty and coplanar-Terrain captures across rotated reversed-Z views,
-then verifies that meaningfully closer Terrain still occludes the grid. A full
+then verifies that meaningfully closer Terrain still occludes the grid. The
+same Vulkan suite renders simple points, lines, and atlas sprites over the
+preserved output and verifies exact recovery after Renderer device
+invalidation. A full
 editor build verifies the C++ uniform layout. Real Vulkan startup must compile
 `/Engine/EditorGrid`, create the demanded pipeline, render a first frame, and
 produce no Shader, Pipeline, or Validation error.

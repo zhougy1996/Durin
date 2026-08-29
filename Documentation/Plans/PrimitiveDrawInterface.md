@@ -4,18 +4,19 @@ Summary: Introduce a UE-aligned primitive draw submission and simple-element ren
 
 Last reviewed: 2026-08-29
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-29
 
 ## Current Status
 
-Editor and debug producers currently append Renderer-specific overlay values
-directly to `FSceneView`. `FEditorAssistanceRenderer` then dispatches separate
-EditorGrid, Gizmo, OverlayLine, and OverlayIcon renderers. Line and icon paths
-duplicate shader/pipeline slots, depth/output variants, diagnostics, dynamic
-vertex/index buffer growth, upload, and release. Producers also depend on
-closed overlay enums such as `EViewOverlayIcon`, preventing general project or
-plugin drawing without expanding RenderCore vocabulary.
+The CPU submission foundation and Global Shader dependency are complete. Editor
+and debug line, point, sprite, icon, wire-box, selection, collision, spline, and
+Terrain-LOD producers now submit copied values through
+`FPrimitiveDrawInterface`. Renderer collection produces bounded immutable
+batches, and one `FSimpleElementRenderer` draws them with typed Global Shader
+refs and shared resource lifecycle. The legacy OverlayLine/OverlayIcon view
+values and renderer implementations have been removed. Procedural fullscreen
+Grid and solid Gizmo mesh rendering remain specialized by design.
 
 This plan introduces the Unreal Engine concepts `FPrimitiveDrawInterface`,
 `FSimpleElementCollector`, and `FSimpleElementRenderer`. The first migration
@@ -29,13 +30,12 @@ may register as bounded global sets, retain typed refs in pipeline payloads,
 and consume explicit Renderer generation fan-out without an
 EditorAssistance-private helper.
 
-### Merge Boundary: CPU submission foundation
+### Merge Boundary: Complete initial simple-element path
 
-The 2026-08-29 foundation change intentionally stops before Stage 3. It adds
-the Engine-public producer contract, sealed per-view value ownership, and the
-Renderer-private RHI-free CPU collector. Existing `OverlayLine`, `OverlayIcon`,
-and Gizmo producers and renderers remain authoritative, so merging this change
-does not switch editor rendering or remove a compatibility path.
+The 2026-08-29 implementation completes Stages 0-5 as one coherent initial
+path. It includes the Engine-public producer contract, sealed per-view value
+ownership, Renderer-private RHI-free CPU collection, Global Shader rendering,
+editor/debug producer migration, and deletion of the compatibility renderers.
 
 The selected producer semantics are world-space double-precision positions,
 screen-pixel widths and sizes, copied colors/styles/UVs, counted texture
@@ -43,9 +43,10 @@ references, and finite/positive validation. Opaque lines force alpha to one;
 translucent lines preserve alpha. The explicit legacy XRay+Visible mapping is a
 translucent `Foreground` element followed by an opaque `World` element. View
 submission is capped at 65,536 elements and 8 MiB of copied payload; CPU
-prepared geometry is capped at 32 MiB. GPU upload ownership and the temporary
-legacy conversion remain deliberately unresolved until the accepted Global
-Shader Framework dependency allows Stage 3 to begin.
+prepared geometry is capped at 32 MiB. Persistent GPU upload buffers grow to
+bounded power-of-two capacities, retry an allocation failure on the next frame,
+and are released on device invalidation and shutdown. There is no legacy
+conversion path.
 
 ## Goal
 
@@ -166,7 +167,7 @@ interface.
 
 ### Stage 0: Freeze producer semantics, ownership, and visual baseline
 
-- [ ] Inventory every writer and reader of overlay line, icon, point-like,
+- [x] Inventory every writer and reader of overlay line, icon, point-like,
   wire-gizmo, collision/debug, and sprite data; classify unsupported solid mesh
   and fullscreen cases explicitly.
 - [x] Select exact signatures and value types for `DrawLine`,
@@ -176,10 +177,10 @@ interface.
 - [x] Define `ESceneDepthPriorityGroup` ordering and the two-element conversion
   for existing XRay+Visible visuals across forward/reversed depth and
   Present/Offscreen output.
-- [ ] Select persistent-capacity versus frame-local pooled upload for initial
+- [x] Select persistent-capacity versus frame-local pooled upload for initial
   simple elements, with overflow, allocation failure, retry, and byte-budget
   behavior.
-- [ ] Capture current line clipping, pixel width, dash phase, icon atlas/UV,
+- [x] Capture current line clipping, pixel width, dash phase, icon atlas/UV,
   hover color, occlusion, draw order, batch counts, upload bytes, failure
   isolation, Vulkan captures, and shutdown behavior.
 
@@ -200,13 +201,13 @@ interface.
 - [x] Implement copy-based `DrawLine`, `DrawTranslucentLine`, `DrawPoint`, and
   `DrawSprite` admission with finite-value, size, UV, resource, and per-view
   count/byte validation.
-- [ ] Add a sealed value-owned simple-element list to the view submission
+- [x] Add a sealed value-owned simple-element list to the view submission
   boundary; keep a temporary private conversion from existing overlay arrays
   only while individual producers migrate.
 - [x] Assert producer-thread use, reject calls after sealing, and prove queued
   render work retains no PDI, module callback, actor/component pointer, or
   transient caller memory.
-- [ ] Add focused interface tests for call mapping, ordering, copies, invalid
+- [x] Add focused interface tests for call mapping, ordering, copies, invalid
   inputs, limits, texture retention, sealing, two-view isolation, and destruction.
 
 #### Acceptance Gate
@@ -219,7 +220,7 @@ interface.
 
 ### Stage 2: Add simple-element collection, batching, and CPU geometry
 
-- [ ] Add `FSimpleElementCollector` to classify elements by topology, blend,
+- [x] Add `FSimpleElementCollector` to classify elements by topology, blend,
   depth priority, depth convention, output, texture/sampler, and compatible
   style while retaining stable cross-class draw order.
 - [x] Move homogeneous line clipping, screen-space width expansion, dash
@@ -231,7 +232,7 @@ interface.
 - [x] Preserve camera-relative/double-precision calculations where current
   world-space overlays require them and define behavior for near-plane,
   behind-camera, zero-length, oversized, and partially clipped elements.
-- [ ] Add deterministic tests for topology, winding, clipping, dash continuity,
+- [x] Add deterministic tests for topology, winding, clipping, dash continuity,
   pixel size, UVs, batching compatibility, stable ordering, overflow, and
   independent invalid-element rejection.
 
@@ -245,19 +246,19 @@ interface.
 
 ### Stage 3: Implement `FSimpleElementRenderer` on Global Shader infrastructure
 
-- [ ] Register simple line/point/sprite vertex and fragment shaders through the
+- [x] Register simple line/point/sprite vertex and fragment shaders through the
   accepted Global Shader Framework and use typed global refs for every batch.
-- [ ] Add simple-element vertex declarations and Renderer-owned keyed pipeline
+- [x] Add simple-element vertex declarations and Renderer-owned keyed pipeline
   slots for topology, blend, depth priority, convention, output layout, and
   exact shader-set generation while keeping concrete initializer construction
   local.
-- [ ] Implement the selected dynamic upload path with bounded growth/allocation,
+- [x] Implement the selected dynamic upload path with bounded growth/allocation,
   full-batch publication, next-frame retry after failure, counters, device
   invalidation, and explicit release.
-- [ ] Integrate prepared simple batches into the existing editor-assistance
+- [x] Integrate prepared simple batches into the existing editor-assistance
   render-target load and ordering boundary after Grid and in the selected
   Foreground/World sequence.
-- [ ] Add resource failure injection, same-generation suppression where slots
+- [x] Add resource failure injection, same-generation suppression where slots
   apply, Manual retry, global-shader fallback coupling, device invalidation,
   Vulkan output, and shutdown tests.
 
@@ -271,19 +272,19 @@ interface.
 
 ### Stage 4: Migrate editor and debug producers and remove overlay-specific paths
 
-- [ ] Migrate LevelEditor overlay line and icon producers to PDI calls,
+- [x] Migrate LevelEditor overlay line and icon producers to PDI calls,
   resolving built-in icon atlas/UV data before `DrawSprite` and submitting
   explicit Foreground plus World elements for current XRay+Visible behavior.
-- [ ] Migrate wire Gizmo shapes and eligible collision/debug visualization to
+- [x] Migrate wire Gizmo shapes and eligible collision/debug visualization to
   `DrawLine`/`DrawTranslucentLine`; retain solid Gizmo geometry and interaction
   ownership in its specialized path.
-- [ ] Replace `FOverlayLineRenderer` and `FOverlayIconRenderer` with
+- [x] Replace `FOverlayLineRenderer` and `FOverlayIconRenderer` with
   `FSimpleElementRenderer`, then remove their state, shaders, pipeline entries,
   dynamic buffers, depth/output naming helpers, and release paths.
-- [ ] Remove `FViewOverlayLine`, `FViewOverlayIcon`, closed icon enums, and
+- [x] Remove `FViewOverlayLine`, `FViewOverlayIcon`, closed icon enums, and
   temporary conversion adapters after targeted search finds no producer or
   test call site; retain only explicitly justified solid primitive values.
-- [ ] Run LevelEditor interaction, selection/hover, camera/light/player icon,
+- [x] Run LevelEditor interaction, selection/hover, camera/light/player icon,
   dashed line, collision visualization, draw-order, multi-viewport, reload,
   device-recovery, and representative Vulkan parity coverage after each slice.
 
@@ -298,20 +299,20 @@ interface.
 
 ### Stage 5: Qualify extension boundaries, budgets, documentation, and handoff
 
-- [ ] Prove project/runtime callers can submit supported primitives without an
+- [x] Prove project/runtime callers can submit supported primitives without an
   editor module dependency and that unsupported raw shader, raw RHI, mesh, and
   post-seal operations fail at the intended boundary.
-- [ ] Measure calls, accepted/dropped elements, batches, draws, vertices,
+- [x] Measure calls, accepted/dropped elements, batches, draws, vertices,
   indices, upload bytes, retained capacity, pipeline variants, allocation time,
   and frame time against Stage 0 without silently raising budgets.
-- [ ] Run the smallest registered interface, collector, EditorAssistance,
+- [x] Run the smallest registered interface, collector, EditorAssistance,
   LevelEditor, RenderCore, Renderer, RHI, Vulkan, module-lifecycle, and
   application targets selected through repository guidance, followed by the
   required bounded aggregate and build tier.
-- [ ] Update Viewport Rendering, Editor Grid boundary, Renderer Resource
+- [x] Update Viewport Rendering, Editor Grid boundary, Renderer Resource
   Recovery, Code Modules, and editor visualization contracts; document the
   implemented PDI extension and thread/lifetime rules.
-- [ ] Record exact visual, interaction, failure, device, lifecycle, budget,
+- [x] Record exact visual, interaction, failure, device, lifecycle, budget,
   build, test, and documentation evidence before completing lifecycle metadata
   and repository-required plan/stage commit provenance.
 
@@ -324,6 +325,28 @@ interface.
   device invalidation, producer destruction, module retirement, and shutdown
   leave no stale pointer, cross-view element, partial batch, live RHI resource,
   or unbounded retained allocation.
+
+### Completion Evidence
+
+- Interface and collector coverage verifies copied ownership, producer-thread
+  and seal rejection, invalid values, count/payload/prepared-byte limits,
+  clipping, width, dash, UV, ordering, two-view isolation, and statistics for
+  submitted/accepted/dropped elements, batches, vertices, indices, and bytes.
+- Prepared drawing records exact draw counts and upload spans. Persistent vertex
+  and index capacities are reported with the prepared result and grow by
+  power-of-two only; the existing per-view Renderer statistics remain the
+  authoritative frame/allocation timing rather than adding a second timer.
+- `EditorRenderingTests` passed 74 tests, `ViewportTests` passed 105 tests, and
+  `RenderShaderContractTests` passed 43 tests on 2026-08-29.
+- `EditorGridVulkanTests` passed 7 tests, including visible simple line, point,
+  and atlas-sprite output plus byte-identical output after Renderer device
+  invalidation and lazy recreation.
+- The registered `fast-all` contract/feature/infrastructure selection passed,
+  followed by the complete `Win64-Debug-DurinEditor` `all` build.
+- Changed and all-scope documentation validation plus all-scope plan validation
+  passed. Targeted source/test search found no legacy overlay submission,
+  closed icon/line enum, wire-Gizmo topology, or OverlayLine/OverlayIcon
+  renderer implementation.
 
 ## Validation Matrix
 

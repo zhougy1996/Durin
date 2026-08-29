@@ -221,7 +221,7 @@ namespace Durin::Editor::Level
 					{
 						const FVector3 Current = Spline->GetSampleAtParameter({SegmentIndex, SampleParameters[SampleIndex]}, ESplineCoordinateSpace::World).Position;
 						FEditorVisualizationLine Line{Previous, Current, CurveColor, Context.bSelected ? 3.0f : 2.0f, 7.0f, 20, Actor, Spline,
-							EViewOverlayLinePattern::Solid, 12.0f, HoverColor};
+							ESimpleElementLinePattern::Solid, 12.0f, HoverColor};
 						Line.Element = Element;
 						Collector.AddLine(Line);
 						Previous = Current;

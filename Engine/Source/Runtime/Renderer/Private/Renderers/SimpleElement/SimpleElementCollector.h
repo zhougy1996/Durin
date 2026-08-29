@@ -76,7 +76,8 @@ namespace Durin
 			32ull * 1024ull * 1024ull;
 
 		RENDERER_API static auto Collect(const FSceneView& View,
-			RenderTargetLayouts::EViewportOutput Output)
+			RenderTargetLayouts::EViewportOutput Output,
+			std::span<const FSimpleElement> AdditionalElements = {})
 			-> FPreparedSimpleElements;
 	};
 } // namespace Durin

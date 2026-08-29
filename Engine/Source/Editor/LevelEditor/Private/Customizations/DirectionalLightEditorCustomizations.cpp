@@ -27,7 +27,7 @@ namespace Durin::Editor::Level
 					: std::optional<FVector4f>{{ImHoverColor.x, ImHoverColor.y, ImHoverColor.z, ImHoverColor.w}};
 				const FVector3 Origin = Light->GetWorldLocation();
 				Collector.AddIcon({
-					.Icon = EViewOverlayIcon::DirectionalLight,
+					.Icon = EEditorVisualizationIcon::DirectionalLight,
 					.WorldPosition = Origin,
 					.Color = Color,
 					.SizePixels = MonaImGui::ScaleUI(Context.bSelected ? 40.0f : 36.0f),
