@@ -3,6 +3,7 @@
 #include "Math/DurinMath.h"
 #include "RHIResources.h"
 #include "SceneViewState.h"
+#include "SimpleElement.h"
 #include "VolumetricCloudView.h"
 
 namespace Durin
@@ -331,5 +332,6 @@ namespace Durin
 		std::vector<FViewOverlayPrimitive> OverlayPrimitives;
 		std::vector<FViewOverlayLine> OverlayLines;
 		std::vector<FViewOverlayIcon> OverlayIcons;
+		FSimpleElementViewSubmission SimpleElements;
 	};
 } // namespace Durin

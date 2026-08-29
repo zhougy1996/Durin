@@ -29,6 +29,24 @@ may register as bounded global sets, retain typed refs in pipeline payloads,
 and consume explicit Renderer generation fan-out without an
 EditorAssistance-private helper.
 
+### Merge Boundary: CPU submission foundation
+
+The 2026-08-29 foundation change intentionally stops before Stage 3. It adds
+the Engine-public producer contract, sealed per-view value ownership, and the
+Renderer-private RHI-free CPU collector. Existing `OverlayLine`, `OverlayIcon`,
+and Gizmo producers and renderers remain authoritative, so merging this change
+does not switch editor rendering or remove a compatibility path.
+
+The selected producer semantics are world-space double-precision positions,
+screen-pixel widths and sizes, copied colors/styles/UVs, counted texture
+references, and finite/positive validation. Opaque lines force alpha to one;
+translucent lines preserve alpha. The explicit legacy XRay+Visible mapping is a
+translucent `Foreground` element followed by an opaque `World` element. View
+submission is capped at 65,536 elements and 8 MiB of copied payload; CPU
+prepared geometry is capped at 32 MiB. GPU upload ownership and the temporary
+legacy conversion remain deliberately unresolved until the accepted Global
+Shader Framework dependency allows Stage 3 to begin.
+
 ## Goal
 
 Let editor, engine, project, and debug producers describe simple visual
@@ -151,11 +169,11 @@ interface.
 - [ ] Inventory every writer and reader of overlay line, icon, point-like,
   wire-gizmo, collision/debug, and sprite data; classify unsupported solid mesh
   and fullscreen cases explicitly.
-- [ ] Select exact signatures and value types for `DrawLine`,
+- [x] Select exact signatures and value types for `DrawLine`,
   `DrawTranslucentLine`, `DrawPoint`, and `DrawSprite`, including coordinate
   space, color/alpha, width, dash period, UVs, texture retention, depth bias,
   screen-space behavior, and invalid-input policy.
-- [ ] Define `ESceneDepthPriorityGroup` ordering and the two-element conversion
+- [x] Define `ESceneDepthPriorityGroup` ordering and the two-element conversion
   for existing XRay+Visible visuals across forward/reversed depth and
   Present/Offscreen output.
 - [ ] Select persistent-capacity versus frame-local pooled upload for initial
@@ -176,16 +194,16 @@ interface.
 
 ### Stage 1: Introduce `FPrimitiveDrawInterface` and immutable view submission
 
-- [ ] Add Engine-public `FPrimitiveDrawInterface`,
+- [x] Add Engine-public `FPrimitiveDrawInterface`,
   `FViewPrimitiveDrawInterface`, `ESceneDepthPriorityGroup`, and selected simple
   element values with UE-aligned names and repository API/export conventions.
-- [ ] Implement copy-based `DrawLine`, `DrawTranslucentLine`, `DrawPoint`, and
+- [x] Implement copy-based `DrawLine`, `DrawTranslucentLine`, `DrawPoint`, and
   `DrawSprite` admission with finite-value, size, UV, resource, and per-view
   count/byte validation.
 - [ ] Add a sealed value-owned simple-element list to the view submission
   boundary; keep a temporary private conversion from existing overlay arrays
   only while individual producers migrate.
-- [ ] Assert producer-thread use, reject calls after sealing, and prove queued
+- [x] Assert producer-thread use, reject calls after sealing, and prove queued
   render work retains no PDI, module callback, actor/component pointer, or
   transient caller memory.
 - [ ] Add focused interface tests for call mapping, ordering, copies, invalid
@@ -204,13 +222,13 @@ interface.
 - [ ] Add `FSimpleElementCollector` to classify elements by topology, blend,
   depth priority, depth convention, output, texture/sampler, and compatible
   style while retaining stable cross-class draw order.
-- [ ] Move homogeneous line clipping, screen-space width expansion, dash
+- [x] Move homogeneous line clipping, screen-space width expansion, dash
   coordinates, point quad generation, sprite billboard/UV generation, and
   finite rejection into shared CPU geometry utilities.
-- [ ] Produce immutable prepared batches with exact vertex/index spans,
+- [x] Produce immutable prepared batches with exact vertex/index spans,
   pipeline keys, texture bindings, source counts, dropped counts, and byte
   accounting; no RHI creation occurs during collection.
-- [ ] Preserve camera-relative/double-precision calculations where current
+- [x] Preserve camera-relative/double-precision calculations where current
   world-space overlays require them and define behavior for near-plane,
   behind-camera, zero-length, oversized, and partially clipped elements.
 - [ ] Add deterministic tests for topology, winding, clipping, dash continuity,

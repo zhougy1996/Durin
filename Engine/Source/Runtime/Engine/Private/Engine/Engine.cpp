@@ -1,4 +1,5 @@
 #include "Engine/Engine.h"
+#include "PrimitiveDrawInterface.h"
 #include "Engine/World.h"
 #include "Engine/Level.h"
 #include "CoreGlobals.h"
@@ -430,6 +431,7 @@ namespace Durin
 		OutView.ViewportWidth = Width;
 		OutView.ViewportHeight = Height;
 		auto FinalizePersistentState = [&] {
+			FViewPrimitiveDrawInterface(OutView).Seal();
 			if (SceneViewport != nullptr)
 			{
 				OutView.ViewStateId = SceneViewport->GetViewStateId();

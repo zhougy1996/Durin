@@ -189,6 +189,8 @@ durin_add_engine_functional_test(EditorRenderingTests
 	RUNTIME_STACK_RATIONALE "Exercises renderer-backed editor assistance and grid rendering."
 	SOURCES
 		Private/EditorGridRenderingTests.cpp
+		Private/PrimitiveDrawInterfaceTests.cpp
+		Private/SimpleElementCollectorTests.cpp
 		Private/RendererEditorAssistanceTests.cpp
 		Private/RendererResourceInvalidationTests.cpp
 		Private/RendererResourceSlotCacheTests.cpp
