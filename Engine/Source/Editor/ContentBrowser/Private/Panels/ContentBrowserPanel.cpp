@@ -598,6 +598,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
 		const std::string PhysicalPath = Model.RevealAsset(AssetPath);
 		if (PhysicalPath.empty()) return false;
+		SearchBuffer.fill('\0');
 		if (Model.GetCurrentPhysicalPath() != PreviousDirectory)
 		{
 			ThumbnailReferences->CancelPendingRequests();

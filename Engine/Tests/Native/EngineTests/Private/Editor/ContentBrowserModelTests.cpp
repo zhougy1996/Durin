@@ -423,6 +423,35 @@ TEST_F(FContentBrowserModelTests, SearchesRecursivelyButBrowsesImmediateChildren
 	EXPECT_EQ(Model.GetItems().front().Name, "Stone");
 }
 
+TEST_F(FContentBrowserModelTests, RevealAssetClearsFiltersAndPublishesTarget)
+{
+	InitializeDObjectSystem();
+	FAssetPath AssetPath;
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/ContentBrowserTests/A/RevealTarget", AssetPath));
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(Asset::CreateAsset(AssetPath, Material));
+	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+
+	FContentBrowserModel Model;
+	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content/A").generic_string()));
+	Model.SetTypeFilter(EContentBrowserTypeFilter::Files);
+	Model.SetSearch("does-not-match");
+	ASSERT_TRUE(Model.GetItems().empty());
+
+	const std::string Revealed = Model.RevealAsset(AssetPath.ToString());
+
+	EXPECT_FALSE(Revealed.empty());
+	EXPECT_TRUE(Model.GetSearch().empty());
+	EXPECT_EQ(Model.GetTypeFilter(), EContentBrowserTypeFilter::All);
+	EXPECT_TRUE(std::ranges::any_of(
+		Model.GetItems(),
+		[&](const FContentBrowserItem& Item) {
+			return Item.StableId() == Revealed;
+		}));
+	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
+}
+
 TEST_F(FContentBrowserModelTests, DefersRecursiveEnumerationUntilSearchStarts)
 {
 	const std::filesystem::path ScanRoot = Root / "Content/DeferredSearch";

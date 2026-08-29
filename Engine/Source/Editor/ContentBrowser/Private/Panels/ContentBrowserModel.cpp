@@ -215,7 +215,19 @@ namespace Durin::Editor::ContentBrowser::Private
 					.parent_path()
 					.generic_string()))
 			return {};
-		return NormalizePath(Data->PhysicalPath);
+
+		Search.clear();
+		TypeFilter = EContentBrowserTypeFilter::All;
+		RebuildItems();
+
+		const std::string PhysicalPath = NormalizePath(Data->PhysicalPath);
+		if (std::ranges::none_of(
+				Items,
+				[&](const FContentBrowserItem& Item) {
+					return Item.StableId() == PhysicalPath;
+				}))
+			return {};
+		return PhysicalPath;
 	}
 
 	auto FContentBrowserModel::RefreshItemsSnapshot(
