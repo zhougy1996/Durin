@@ -36,6 +36,7 @@ namespace Durin
 	auto FStaticMeshEditorModule::ShutdownModule() -> void
 	{
 		UnregisterStaticMeshEditor();
+		require(EditorExtensionCallbacks.Reset().Succeeded());
 	}
 
 	auto FStaticMeshEditorModule::RegisterStaticMeshEditor(

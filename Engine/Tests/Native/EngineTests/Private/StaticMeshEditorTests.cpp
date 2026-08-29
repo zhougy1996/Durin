@@ -2,6 +2,7 @@
 #include "EngineTestSupport.h"
 #include "Materials/MaterialTestSupport.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Preview/OrbitAssetPreview.h"
 #include "StaticMesh/StaticMesh.h"
@@ -52,6 +53,8 @@ TEST(FStaticMeshEditorTests, RegistrationIsExactReadOnlyAndScoped)
 	Durin::Editor::FWorkspaceManager Manager;
 	Durin::Editor::DThumbnailManager ThumbnailManager;
 	Durin::FStaticMeshEditorModule Module;
+	Durin::FModuleTestHarness ModuleHarness("StaticMeshEditor");
+	ModuleHarness.Start(Module);
 	ASSERT_TRUE(Module.RegisterStaticMeshEditor(Manager, ThumbnailManager));
 	EXPECT_FALSE(Module.RegisterStaticMeshEditor(Manager, ThumbnailManager));
 	EXPECT_TRUE(ThumbnailManager.Find(
@@ -69,6 +72,8 @@ TEST(FStaticMeshEditorTests, RegistrationIsExactReadOnlyAndScoped)
 	EXPECT_FALSE(ThumbnailManager.Find(
 		Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_TRUE(Module.RegisterStaticMeshEditor(Manager, ThumbnailManager));
+	Workspace.reset();
+	ModuleHarness.Shutdown();
 }
 
 TEST(FStaticMeshEditorTests, PreviewSceneOwnsAndReleasesItsViewportComponents)
@@ -105,11 +110,14 @@ TEST(FStaticMeshEditorTests, ThumbnailConflictRollsBackWorkspaceRegistration)
 	const uint64 ExistingGeneration = ThumbnailManager.Find(ClassName).Generation;
 
 	Durin::FStaticMeshEditorModule Module;
+	Durin::FModuleTestHarness ModuleHarness("StaticMeshEditor");
+	ModuleHarness.Start(Module);
 	EXPECT_FALSE(Module.RegisterStaticMeshEditor(Manager, ThumbnailManager));
 	EXPECT_EQ(
 		Manager.FindWorkspace(Durin::Editor::FWorkspaceTypeId("StaticMeshEditor")),
 		nullptr);
 	EXPECT_EQ(ThumbnailManager.Find(ClassName).Generation, ExistingGeneration);
+	ModuleHarness.Shutdown();
 }
 
 TEST(FStaticMeshEditorTests, ReusesOneDocumentPerMeshAndSupportsCloseReopen)
@@ -131,6 +139,8 @@ TEST(FStaticMeshEditorTests, ReusesOneDocumentPerMeshAndSupportsCloseReopen)
 	Durin::Editor::FWorkspaceManager Manager;
 	Durin::Editor::DThumbnailManager ThumbnailManager;
 	Durin::FStaticMeshEditorModule Module;
+	Durin::FModuleTestHarness ModuleHarness("StaticMeshEditor");
+	ModuleHarness.Start(Module);
 	ASSERT_TRUE(Module.RegisterStaticMeshEditor(Manager, ThumbnailManager));
 	const std::string ClassName = Durin::DStaticMesh::StaticClass()->GetQualifiedName().ToString();
 	ASSERT_TRUE(Manager.OpenAsset("/StaticMeshEditorTests/First", ClassName));
@@ -154,4 +164,9 @@ TEST(FStaticMeshEditorTests, ReusesOneDocumentPerMeshAndSupportsCloseReopen)
 	ASSERT_NE(Workspace, nullptr);
 	for (const Durin::Editor::FDocumentTab& Document : Manager.GetDocuments())
 		EXPECT_FALSE(Workspace->IsDocumentDirty(Document));
+	while (!Manager.GetDocuments().empty())
+		ASSERT_EQ(Manager.RequestCloseDocument(Manager.GetDocuments().front().Id),
+			Durin::Editor::EDocumentCloseResult::Closed);
+	Workspace.reset();
+	ModuleHarness.Shutdown();
 }

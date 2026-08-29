@@ -338,7 +338,10 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	Transactions.Clear();
 
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ComponentPath));
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(MaterialPath));
+	Material = nullptr;
+	const Durin::Asset::FAssetResult MaterialUnload =
+		Durin::Asset::UnloadPackage(MaterialPath);
+	ASSERT_TRUE(MaterialUnload) << MaterialUnload.Message;
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
 	Component = nullptr;
 	ASSERT_TRUE(Durin::Asset::LoadAsset(ComponentPath, Component));
@@ -368,6 +371,8 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 		GetMaterialBinding(Rendered.Materials[RedIndex]).BaseColor,
 		Durin::FVector4f(0.85f, 0.15f, 0.1f, 1.0f));
 	RenderComponent->UnregisterComponent();
+	ASSERT_TRUE(RenderComponent->ResetMaterial(RedIndex));
+	RenderComponent->SetStaticMesh(nullptr);
 	WaitForRenderingThread();
 
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ComponentPath));

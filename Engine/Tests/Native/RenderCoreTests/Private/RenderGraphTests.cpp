@@ -12,6 +12,18 @@ namespace Durin
 {
 	namespace
 	{
+		class FRenderGraphTests : public testing::Test
+		{
+		protected:
+			auto GetCommandList() -> FRHICommandListImmediate&
+			{
+				return Executor.GetImmediateCommandList();
+			}
+
+		private:
+			FRHICommandListExecutor Executor;
+		};
+
 		struct alignas(64) FTypedValuePayload final
 		{
 			explicit FTypedValuePayload(int* InDestructions = nullptr)
@@ -615,7 +627,7 @@ namespace Durin
 		}
 	} // namespace
 
-	TEST(FRenderGraphTests, GraphParameterMetadataPreservesStableCompleteLayout)
+	TEST_F(FRenderGraphTests, GraphParameterMetadataPreservesStableCompleteLayout)
 	{
 		const auto* Metadata =
 			FGraphParameterLayoutFixture::GetRenderGraphParametersMetadata();
@@ -647,7 +659,7 @@ namespace Durin
 			"Completion");
 	}
 
-	TEST(FRenderGraphTests,
+	TEST_F(FRenderGraphTests,
 		ComposedGraphMetadataCapturesStableBindingAndExactArrayElements)
 	{
 		FRHITexture TextureA = MakeGraphTexture("ComposedA", 2);
@@ -691,11 +703,11 @@ namespace Durin
 		}
 		EXPECT_NE(Capture.Dump.find("shader-binding=Textures"),
 			std::string::npos);
-		EXPECT_TRUE(Result.Graph->Execute(FRHICommandListImmediate::Get()));
+		EXPECT_TRUE(Result.Graph->Execute(GetCommandList()));
 		EXPECT_TRUE(bExecuted);
 	}
 
-	TEST(FRenderGraphTests,
+	TEST_F(FRenderGraphTests,
 		ComposedGraphMetadataRejectsAccessWeakeningBeforePassPublication)
 	{
 		FRenderGraphBuilder Builder;
@@ -708,7 +720,7 @@ namespace Durin
 			std::string::npos);
 	}
 
-	TEST(FRenderGraphTests,
+	TEST_F(FRenderGraphTests,
 		ComposedShaderSubmissionRejectsReflectionArrayExtentBeforeRecording)
 	{
 		FRHITexture TextureA = MakeGraphTexture("BindingExtentA");
@@ -744,11 +756,11 @@ namespace Durin
 			});
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-		EXPECT_DEATH(Result.Graph->Execute(FRHICommandListImmediate::Get()),
+		EXPECT_DEATH(Result.Graph->Execute(GetCommandList()),
 			"array extent does not match");
 	}
 
-	TEST(FRenderGraphTests,
+	TEST_F(FRenderGraphTests,
 		ComposedShaderSubmissionRejectsUnavailableRequiredOptional)
 	{
 		FRenderGraphBuilder Builder;
@@ -774,11 +786,11 @@ namespace Durin
 			});
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-		EXPECT_DEATH(Result.Graph->Execute(FRHICommandListImmediate::Get()),
+		EXPECT_DEATH(Result.Graph->Execute(GetCommandList()),
 			"is unavailable for required shader");
 	}
 
-	TEST(FRenderGraphTests,
+	TEST_F(FRenderGraphTests,
 		ComposedShaderSubmissionRejectsMissingGraphAuthorityAndWrongDomain)
 	{
 		auto MakeResult = [](bool bWrongDomain) {
@@ -810,15 +822,15 @@ namespace Durin
 		};
 		auto Missing = MakeResult(false);
 		ASSERT_TRUE(Missing.IsSuccess()) << Missing.Error;
-		EXPECT_DEATH(Missing.Graph->Execute(FRHICommandListImmediate::Get()),
+		EXPECT_DEATH(Missing.Graph->Execute(GetCommandList()),
 			"has no composed graph member");
 		auto WrongDomain = MakeResult(true);
 		ASSERT_TRUE(WrongDomain.IsSuccess()) << WrongDomain.Error;
-		EXPECT_DEATH(WrongDomain.Graph->Execute(FRHICommandListImmediate::Get()),
+		EXPECT_DEATH(WrongDomain.Graph->Execute(GetCommandList()),
 			"domain is incompatible");
 	}
 
-	TEST(FRenderGraphTests,
+	TEST_F(FRenderGraphTests,
 		ComposedComputeCapturePreservesExactBufferRangesAndWriteAuthority)
 	{
 		static const auto InputBuffer = MakeRefCount<FRHIBuffer>(
@@ -855,7 +867,7 @@ namespace Durin
 		EXPECT_EQ(Capture.Uses[1].BufferSize, 64u);
 	}
 
-	TEST(FRenderGraphTests, AllocatesAlignedParametersWithExactRuntimeValues)
+	TEST_F(FRenderGraphTests, AllocatesAlignedParametersWithExactRuntimeValues)
 	{
 		FRenderGraphBuilder Builder;
 		auto Parameters = Builder.AllocParameters<FGraphParameterLayoutFixture>();
@@ -880,7 +892,7 @@ namespace Durin
 		EXPECT_EQ(Parameters->Nested.Completion.Token, TokenHandle);
 	}
 
-	TEST(FRenderGraphTests, RejectsMalformedGraphParameterMetadataAtomically)
+	TEST_F(FRenderGraphTests, RejectsMalformedGraphParameterMetadataAtomically)
 	{
 		FRenderGraphBuilder Builder;
 		auto Parameters = Builder.AllocParameters<FMalformedGraphParameters>();
@@ -892,7 +904,7 @@ namespace Durin
 			"'Texture' has an invalid or unstable offset");
 	}
 
-	TEST(FRenderGraphTests, DestroysUncompiledParametersExactlyOnceInReverseOrder)
+	TEST_F(FRenderGraphTests, DestroysUncompiledParametersExactlyOnceInReverseOrder)
 	{
 		std::vector<int> DestructionOrder;
 		GParameterDestructionOrder = &DestructionOrder;
@@ -907,7 +919,7 @@ namespace Durin
 		EXPECT_EQ(DestructionOrder, (std::vector<int>{2, 1}));
 	}
 
-	TEST(FRenderGraphTests, KeepsParametersWithBuilderAcrossCompileFailure)
+	TEST_F(FRenderGraphTests, KeepsParametersWithBuilderAcrossCompileFailure)
 	{
 		std::vector<int> DestructionOrder;
 		GParameterDestructionOrder = &DestructionOrder;
@@ -926,7 +938,7 @@ namespace Durin
 		EXPECT_EQ(DestructionOrder, (std::vector<int>{1}));
 	}
 
-	TEST(FRenderGraphTests, TransfersParametersToCompiledGraphLifetime)
+	TEST_F(FRenderGraphTests, TransfersParametersToCompiledGraphLifetime)
 	{
 		std::vector<int> DestructionOrder;
 		GParameterDestructionOrder = &DestructionOrder;
@@ -941,7 +953,7 @@ namespace Durin
 		}
 		EXPECT_TRUE(Parameters.IsValid());
 		EXPECT_TRUE(DestructionOrder.empty());
-		EXPECT_TRUE(Graph->Execute(FRHICommandListImmediate::Get()));
+		EXPECT_TRUE(Graph->Execute(GetCommandList()));
 		EXPECT_TRUE(DestructionOrder.empty());
 		Graph.reset();
 		EXPECT_FALSE(Parameters.IsValid());
@@ -949,7 +961,7 @@ namespace Durin
 		EXPECT_EQ(DestructionOrder, (std::vector<int>{1}));
 	}
 
-	TEST(FRenderGraphTests, KeepsTransferredParametersAcrossExecutionFailure)
+	TEST_F(FRenderGraphTests, KeepsTransferredParametersAcrossExecutionFailure)
 	{
 		std::vector<int> DestructionOrder;
 		GParameterDestructionOrder = &DestructionOrder;
@@ -968,7 +980,7 @@ namespace Durin
 			ERHIRenderTargetStoreAction::Store);
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-		EXPECT_FALSE(Result.Graph->Execute(FRHICommandListImmediate::Get()));
+		EXPECT_FALSE(Result.Graph->Execute(GetCommandList()));
 		EXPECT_TRUE(Parameters.IsValid());
 		EXPECT_TRUE(DestructionOrder.empty());
 		Result.Graph.reset();
@@ -977,7 +989,7 @@ namespace Durin
 		EXPECT_EQ(DestructionOrder, (std::vector<int>{1}));
 	}
 
-	TEST(FRenderGraphTests, ParameterizedPassMatchesEveryManualUseKind)
+	TEST_F(FRenderGraphTests, ParameterizedPassMatchesEveryManualUseKind)
 	{
 		auto BuildCapture = [](bool bParameterized) {
 			FRHITexture InputTexture = MakeGraphTexture("Input");
@@ -1113,7 +1125,7 @@ namespace Durin
 			"present=0 resource=none"), std::string::npos);
 	}
 
-	TEST(FRenderGraphTests, ParameterizedPassRejectsExactInvalidFieldPaths)
+	TEST_F(FRenderGraphTests, ParameterizedPassRejectsExactInvalidFieldPaths)
 	{
 		FRHITexture Texture = MakeGraphTexture("Texture");
 		FRHITexture ForeignTexture = MakeGraphTexture("ForeignTexture");
@@ -1194,7 +1206,7 @@ namespace Durin
 		}
 	}
 
-	TEST(FRenderGraphTests, ParameterizedPassRejectsMixedAndConsumedAuthority)
+	TEST_F(FRenderGraphTests, ParameterizedPassRejectsMixedAndConsumedAuthority)
 	{
 		{
 			FRenderGraphBuilder Builder;
@@ -1239,7 +1251,7 @@ namespace Durin
 		}
 	}
 
-	TEST(FRenderGraphTests, ParameterizedDeclarationFailureIsCallbackAtomic)
+	TEST_F(FRenderGraphTests, ParameterizedDeclarationFailureIsCallbackAtomic)
 	{
 		FRHITexture Texture = MakeGraphTexture("Texture");
 		FRenderGraphBuilder Builder;
@@ -1260,7 +1272,7 @@ namespace Durin
 		EXPECT_FALSE(bExecuted);
 	}
 
-	TEST(FRenderGraphTests, ParameterTraversalStaysWithinFoundationBudget)
+	TEST_F(FRenderGraphTests, ParameterTraversalStaysWithinFoundationBudget)
 	{
 		FRenderGraphBuilder Builder;
 		Builder.SetBudget({.MaxCompileMicroseconds = 1'000'000});
@@ -1284,7 +1296,7 @@ namespace Durin
 			"FLargeTokenGraphParameters.Tokens[127]");
 	}
 
-	TEST(FRenderGraphTests, ParameterResolverResolvesDeclaredGraphicsResources)
+	TEST_F(FRenderGraphTests, ParameterResolverResolvesDeclaredGraphicsResources)
 	{
 		FRHITexture InputTexture = MakeGraphTexture("Input");
 		FRHITexture ColorTexture = MakeGraphTexture("Color");
@@ -1331,11 +1343,11 @@ namespace Durin
 			});
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-		EXPECT_TRUE(Result.Graph->Execute(FRHICommandListImmediate::Get()));
+		EXPECT_TRUE(Result.Graph->Execute(GetCommandList()));
 		EXPECT_EQ(CallbackCount, 1u);
 	}
 
-	TEST(FRenderGraphTests, ParameterResolverSupportsComputeAndCopyDomains)
+	TEST_F(FRenderGraphTests, ParameterResolverSupportsComputeAndCopyDomains)
 	{
 		FRHITexture ComputeTexture = MakeGraphTexture("Compute");
 		FRHITexture CopyTexture = MakeGraphTexture("Copy");
@@ -1372,11 +1384,11 @@ namespace Durin
 			});
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-		EXPECT_TRUE(Result.Graph->Execute(FRHICommandListImmediate::Get()));
+		EXPECT_TRUE(Result.Graph->Execute(GetCommandList()));
 		EXPECT_EQ(CallbackCount, 2u);
 	}
 
-	TEST(FRenderGraphTests, ParameterResolverRejectsRawWrongKindAndWrongPassAccess)
+	TEST_F(FRenderGraphTests, ParameterResolverRejectsRawWrongKindAndWrongPassAccess)
 	{
 		static_assert(!CTextureResolverArgument<FRenderGraphTextureHandle>);
 		static_assert(!CTextureResolverArgument<FRenderGraphBufferParameter>);
@@ -1407,11 +1419,11 @@ namespace Durin
 			std::move(SecondParameters));
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-		EXPECT_DEATH(Result.Graph->Execute(FRHICommandListImmediate::Get()),
+		EXPECT_DEATH(Result.Graph->Execute(GetCommandList()),
 			"pass 'FirstPass'.*requested capability 'texture'");
 	}
 
-	TEST(FRenderGraphTests, ParameterResolverRejectsCopiedAndForeignOptionalMembers)
+	TEST_F(FRenderGraphTests, ParameterResolverRejectsCopiedAndForeignOptionalMembers)
 	{
 		FRHITexture Texture = MakeGraphTexture("Declared", 2);
 		FRenderGraphBuilder Builder;
@@ -1432,7 +1444,7 @@ namespace Durin
 			});
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-		EXPECT_DEATH(Result.Graph->Execute(FRHICommandListImmediate::Get()),
+		EXPECT_DEATH(Result.Graph->Execute(GetCommandList()),
 			"not declared by the executing pass parameters");
 
 		// An empty optional is nullable only when that exact optional object is a
@@ -1455,11 +1467,11 @@ namespace Durin
 		auto OptionalResult = OptionalBuilder.Compile();
 		ASSERT_TRUE(OptionalResult.IsSuccess()) << OptionalResult.Error;
 		EXPECT_DEATH(OptionalResult.Graph->Execute(
-			FRHICommandListImmediate::Get()),
+			GetCommandList()),
 			"not declared by the executing pass parameters");
 	}
 
-	TEST(FRenderGraphTests, ParameterizedCallbacksStayAtomicWhenCulledOrUnavailable)
+	TEST_F(FRenderGraphTests, ParameterizedCallbacksStayAtomicWhenCulledOrUnavailable)
 	{
 		{
 			FRenderGraphBuilder Builder;
@@ -1480,7 +1492,7 @@ namespace Durin
 			EXPECT_EQ(Capture.Parameters[0].PassDeclarationIndex, 0u);
 			EXPECT_EQ(Capture.Parameters[0].FieldPath,
 				"FNestedGraphParameters.Completion");
-			EXPECT_TRUE(Result.Graph->Execute(FRHICommandListImmediate::Get()));
+			EXPECT_TRUE(Result.Graph->Execute(GetCommandList()));
 			EXPECT_FALSE(bExecuted);
 		}
 		{
@@ -1500,14 +1512,14 @@ namespace Durin
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 			std::string Error;
 			EXPECT_FALSE(Result.Graph->Execute(
-				FRHICommandListImmediate::Get(), &Error));
+				GetCommandList(), &Error));
 			EXPECT_NE(Error.find("omitted retained resource 'Unavailable'"),
 				std::string::npos);
 			EXPECT_FALSE(bExecuted);
 		}
 	}
 
-	TEST(FRenderGraphTests, CompilesStableHazardOrderAndExactTextureTransitions)
+	TEST_F(FRenderGraphTests, CompilesStableHazardOrderAndExactTextureTransitions)
 	{
 		FRHITexture Texture = MakeGraphTexture("SceneColor");
 		FRenderGraphBuilder Builder;
@@ -1551,7 +1563,7 @@ namespace Durin
 				ERHIAccess::GraphicsShaderRead}));
 	}
 
-	TEST(FRenderGraphTests, CompilesBufferRawWarAndWawDependencies)
+	TEST_F(FRenderGraphTests, CompilesBufferRawWarAndWawDependencies)
 	{
 		FRHIBuffer Buffer(FRHIBufferCreateDesc::Create(
 			"Work", 64, 4, EBufferUsageFlags::UnorderedAccess
@@ -1583,7 +1595,7 @@ namespace Durin
 			ERHIAccess::TransferRead);
 	}
 
-	TEST(FRenderGraphTests, RejectsMissingProducerForeignHandleAndCycle)
+	TEST_F(FRenderGraphTests, RejectsMissingProducerForeignHandleAndCycle)
 	{
 		FRHITexture Texture = MakeGraphTexture("Missing");
 		FRenderGraphBuilder MissingProducer;
@@ -1623,7 +1635,7 @@ namespace Durin
 		EXPECT_EQ(SelfCycle.Error, "graph contains a dependency cycle");
 	}
 
-	TEST(FRenderGraphTests, RejectsTextureAspectsOutsideResourceFormat)
+	TEST_F(FRenderGraphTests, RejectsTextureAspectsOutsideResourceFormat)
 	{
 		FRHITexture Texture = MakeGraphTexture("ColorOnly");
 		FRenderGraphBuilder Builder;
@@ -1639,7 +1651,7 @@ namespace Durin
 		EXPECT_NE(Result.Error.find("invalid texture range"), std::string::npos);
 	}
 
-	TEST(FRenderGraphTests, NormalizesDisjointAndPartiallyOverlappingSubresources)
+	TEST_F(FRenderGraphTests, NormalizesDisjointAndPartiallyOverlappingSubresources)
 	{
 		FRHITexture Texture = MakeGraphTexture("MipChain", 4);
 		FRenderGraphBuilder Builder;
@@ -1672,7 +1684,7 @@ namespace Durin
 		EXPECT_EQ(Overlap.Graph->GetPasses()[1].TextureTransitions.size(), 1u);
 	}
 
-	TEST(FRenderGraphTests, DiscardedAttachmentStoreCannotBecomeAProducer)
+	TEST_F(FRenderGraphTests, DiscardedAttachmentStoreCannotBecomeAProducer)
 	{
 		FRHITexture Texture = MakeGraphTexture("Discarded");
 		FRenderGraphBuilder Builder;
@@ -1689,7 +1701,7 @@ namespace Durin
 		EXPECT_NE(Result.Error.find("before its producer"), std::string::npos);
 	}
 
-	TEST(FRenderGraphTests, PreservesImportedInitialAndFinalStates)
+	TEST_F(FRenderGraphTests, PreservesImportedInitialAndFinalStates)
 	{
 		FRHITexture Texture = MakeGraphTexture("Imported");
 		FRenderGraphBuilder Builder;
@@ -1708,7 +1720,7 @@ namespace Durin
 			ERHIAccess::GraphicsShaderRead);
 	}
 
-	TEST(FRenderGraphTests, RejectsAttachmentLoadWithoutPriorContents)
+	TEST_F(FRenderGraphTests, RejectsAttachmentLoadWithoutPriorContents)
 	{
 		FRHITexture Texture = MakeGraphTexture("Load");
 		FRenderGraphBuilder Builder;
@@ -1722,7 +1734,7 @@ namespace Durin
 		EXPECT_NE(Result.Error.find("before its producer"), std::string::npos);
 	}
 
-	TEST(FRenderGraphTests, DumpIsDeterministicAndSyntheticCompileCostIsBounded)
+	TEST_F(FRenderGraphTests, DumpIsDeterministicAndSyntheticCompileCostIsBounded)
 	{
 		auto CompileFixture = [] {
 			static FRHIBuffer Buffer(FRHIBufferCreateDesc::Create(
@@ -1748,7 +1760,7 @@ namespace Durin
 		EXPECT_EQ(First.Graph->GetDependencies().size(), 127u);
 	}
 
-	TEST(FRenderGraphTests, CullsUnreachableBranchesAndReportsExactLifetimes)
+	TEST_F(FRenderGraphTests, CullsUnreachableBranchesAndReportsExactLifetimes)
 	{
 		FRHIBuffer RetainedBuffer(FRHIBufferCreateDesc::Create(
 			"Retained", 64, 4, EBufferUsageFlags::UnorderedAccess));
@@ -1786,7 +1798,7 @@ namespace Durin
 		EXPECT_TRUE(Result.Graph->GetCullingDecisions()[2].bCulled);
 	}
 
-	TEST(FRenderGraphTests, CanonicalizesEquivalentImportedIdentity)
+	TEST_F(FRenderGraphTests, CanonicalizesEquivalentImportedIdentity)
 	{
 		FRHITexture Texture = MakeGraphTexture("Shared");
 		FRHIBuffer Buffer(FRHIBufferCreateDesc::Create(
@@ -1815,7 +1827,7 @@ namespace Durin
 		EXPECT_NE(FirstTexture, Other);
 	}
 
-	TEST(FRenderGraphTests, RejectsConflictingImportedIdentityAndDomainMismatch)
+	TEST_F(FRenderGraphTests, RejectsConflictingImportedIdentityAndDomainMismatch)
 	{
 		FRHITexture Texture = MakeGraphTexture("Shared");
 		FRHIBuffer Buffer(FRHIBufferCreateDesc::Create(
@@ -1865,7 +1877,7 @@ namespace Durin
 			std::string::npos);
 	}
 
-	TEST(FRenderGraphTests, DiscardValueCullingDoesNotRetainOverwrittenProducer)
+	TEST_F(FRenderGraphTests, DiscardValueCullingDoesNotRetainOverwrittenProducer)
 	{
 		FRHITexture Texture = MakeGraphTexture("Versioned");
 		FRenderGraphBuilder Builder;
@@ -1889,7 +1901,7 @@ namespace Durin
 		EXPECT_TRUE(Result.Graph->GetCullingDecisions()[0].bCulled);
 	}
 
-	TEST(FRenderGraphTests, RetainedLogicalResourcesPublishExactPreparationCapture)
+	TEST_F(FRenderGraphTests, RetainedLogicalResourcesPublishExactPreparationCapture)
 	{
 		FRenderGraphBuilder Builder;
 		Builder.EnablePassCulling();
@@ -1917,7 +1929,7 @@ namespace Durin
 		EXPECT_EQ(Capture.Uses[0].Version, 1u);
 	}
 
-	TEST(FRenderGraphTests, PassResourceViewRejectsUndeclaredLookup)
+	TEST_F(FRenderGraphTests, PassResourceViewRejectsUndeclaredLookup)
 	{
 		FRHITexture DeclaredTexture = MakeGraphTexture("Declared");
 		FRHITexture HiddenTexture = MakeGraphTexture("Hidden");
@@ -1934,11 +1946,11 @@ namespace Durin
 			ERHIAccess::GraphicsShaderRead);
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-		EXPECT_DEATH(Result.Graph->Execute(FRHICommandListImmediate::Get()),
+		EXPECT_DEATH(Result.Graph->Execute(GetCommandList()),
 			"undeclared texture");
 	}
 
-	TEST(FRenderGraphTests, ManagedAttachmentExitStateDrivesFollowingTransition)
+	TEST_F(FRenderGraphTests, ManagedAttachmentExitStateDrivesFollowingTransition)
 	{
 		FRHITexture Texture = MakeGraphTexture("Managed");
 		FRenderGraphBuilder Builder;
@@ -1960,7 +1972,7 @@ namespace Durin
 		EXPECT_EQ(Result.Graph->Capture().Transitions.size(), 3u);
 	}
 
-	TEST(FRenderGraphTests, IncompleteBackingPublicationRecordsNoCallback)
+	TEST_F(FRenderGraphTests, IncompleteBackingPublicationRecordsNoCallback)
 	{
 		bool bExecuted = false;
 		FRenderGraphBuilder Builder;
@@ -1977,12 +1989,12 @@ namespace Durin
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 		std::string Error;
-		EXPECT_FALSE(Result.Graph->Execute(FRHICommandListImmediate::Get(), &Error));
+		EXPECT_FALSE(Result.Graph->Execute(GetCommandList(), &Error));
 		EXPECT_FALSE(bExecuted);
 		EXPECT_NE(Error.find("omitted retained resource"), std::string::npos);
 	}
 
-	TEST(FRenderGraphTests, RejectsBackingWithIncompatibleUsageFlags)
+	TEST_F(FRenderGraphTests, RejectsBackingWithIncompatibleUsageFlags)
 	{
 		FRHITexture TextureBacking(FRHITextureCreateDesc::Create2D(
 			"TextureBacking", 16, 16, EPixelFormat::RGBA8_UNORM)
@@ -2008,7 +2020,7 @@ namespace Durin
 		ASSERT_TRUE(TextureResult.IsSuccess()) << TextureResult.Error;
 		std::string Error;
 		EXPECT_FALSE(TextureResult.Graph->Execute(
-			FRHICommandListImmediate::Get(), &Error));
+			GetCommandList(), &Error));
 		EXPECT_NE(Error.find("incompatible texture"), std::string::npos);
 
 		FRHIBuffer BufferBacking(FRHIBufferCreateDesc::Create(
@@ -2030,11 +2042,11 @@ namespace Durin
 		auto BufferResult = BufferBuilder.Compile();
 		ASSERT_TRUE(BufferResult.IsSuccess()) << BufferResult.Error;
 		EXPECT_FALSE(BufferResult.Graph->Execute(
-			FRHICommandListImmediate::Get(), &Error));
+			GetCommandList(), &Error));
 		EXPECT_NE(Error.find("incompatible buffer"), std::string::npos);
 	}
 
-	TEST(FRenderGraphTests, AcceptsBackingWithSupersetUsageFlags)
+	TEST_F(FRenderGraphTests, AcceptsBackingWithSupersetUsageFlags)
 	{
 		static const auto TextureBacking = MakeRefCount<FRHITexture>(
 			FRHITextureCreateDesc::Create2D(
@@ -2062,7 +2074,7 @@ namespace Durin
 		ASSERT_TRUE(TextureResult.IsSuccess()) << TextureResult.Error;
 		std::string Error;
 		EXPECT_TRUE(TextureResult.Graph->Execute(
-			FRHICommandListImmediate::Get(), &Error)) << Error;
+			GetCommandList(), &Error)) << Error;
 
 		static const auto BufferBacking = MakeRefCount<FRHIBuffer>(
 			FRHIBufferCreateDesc::Create(
@@ -2086,10 +2098,10 @@ namespace Durin
 		auto BufferResult = BufferBuilder.Compile();
 		ASSERT_TRUE(BufferResult.IsSuccess()) << BufferResult.Error;
 		EXPECT_TRUE(BufferResult.Graph->Execute(
-			FRHICommandListImmediate::Get(), &Error)) << Error;
+			GetCommandList(), &Error)) << Error;
 	}
 
-	TEST(FRenderGraphTests, ExplicitEffectRootSurvivesWithoutResourceOutputs)
+	TEST_F(FRenderGraphTests, ExplicitEffectRootSurvivesWithoutResourceOutputs)
 	{
 		FRenderGraphBuilder Builder;
 		Builder.EnablePassCulling();
@@ -2103,7 +2115,7 @@ namespace Durin
 		EXPECT_EQ(Result.Graph->GetPasses()[0].Name, "Timestamp");
 	}
 
-	TEST(FRenderGraphTests, LogicalTokensDriveDependenciesAndLifetimesWithoutRHIState)
+	TEST_F(FRenderGraphTests, LogicalTokensDriveDependenciesAndLifetimesWithoutRHIState)
 	{
 		FRenderGraphBuilder Builder;
 		Builder.EnablePassCulling();
@@ -2126,7 +2138,7 @@ namespace Durin
 		EXPECT_EQ(Result.Graph->GetResourceLifetimes()[0].LastPass, 1u);
 	}
 
-	TEST(FRenderGraphTests, GBufferManualDeclarationOracleFreezesCompletePassShape)
+	TEST_F(FRenderGraphTests, GBufferManualDeclarationOracleFreezesCompletePassShape)
 	{
 		std::array<FRHITexture, 4> ColorTextures{
 			MakeGraphTexture("Scene.GBuffer.Material"),
@@ -2227,11 +2239,11 @@ namespace Durin
 		}
 		ASSERT_EQ(Capture.CullingDecisions.size(), 1u);
 		EXPECT_EQ(Capture.CullingDecisions[0].Reason, "gbuffer-pilot");
-		EXPECT_TRUE(Result.Graph->Execute(FRHICommandListImmediate::Get()));
+		EXPECT_TRUE(Result.Graph->Execute(GetCommandList()));
 		EXPECT_EQ(CallbackCount, 1u);
 	}
 
-	TEST(FRenderGraphTests, GBufferManualDeclarationOracleKeepsBackingFailureAtomic)
+	TEST_F(FRenderGraphTests, GBufferManualDeclarationOracleKeepsBackingFailureAtomic)
 	{
 		FRenderGraphBuilder Builder;
 		Builder.SetBackingResolver([](auto, auto&, std::string&) { return true; });
@@ -2255,13 +2267,13 @@ namespace Durin
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 		std::string Error;
-		EXPECT_FALSE(Result.Graph->Execute(FRHICommandListImmediate::Get(), &Error));
+		EXPECT_FALSE(Result.Graph->Execute(GetCommandList(), &Error));
 		EXPECT_FALSE(bExecuted);
 		EXPECT_NE(Error.find("omitted retained resource 'Scene.GBuffer.Material'"),
 			std::string::npos);
 	}
 
-	TEST(FRenderGraphTests, EnforcesDeterministicStructuralBudgets)
+	TEST_F(FRenderGraphTests, EnforcesDeterministicStructuralBudgets)
 	{
 		FRenderGraphBuilder Builder;
 		Builder.SetBudget({.MaxPasses = 1});
@@ -2273,7 +2285,7 @@ namespace Durin
 			"render graph safety limit exceeded: passes actual=2 limit=1");
 	}
 
-	TEST(FRenderGraphTests, ReportsStructuralRegressionBudgetsWithoutRejectingGraph)
+	TEST_F(FRenderGraphTests, ReportsStructuralRegressionBudgetsWithoutRejectingGraph)
 	{
 		FRenderGraphBuilder Builder;
 		Builder.SetBudget({
@@ -2290,7 +2302,7 @@ namespace Durin
 		EXPECT_EQ(Result.Graph->Capture().Budget.RegressionMaxPasses, 1u);
 	}
 
-	TEST(FRenderGraphTests, CaptureOwnsPointerFreeDiagnosticsBeyondGraphLifetime)
+	TEST_F(FRenderGraphTests, CaptureOwnsPointerFreeDiagnosticsBeyondGraphLifetime)
 	{
 		FRenderGraphCapture Capture;
 		{
@@ -2328,7 +2340,7 @@ namespace Durin
 		EXPECT_NE(Capture.Dump.find("name=Consume"), std::string::npos);
 	}
 
-	TEST(FRenderGraphTests, TypedValuesReuseTokenDependencyAndCullingSemantics)
+	TEST_F(FRenderGraphTests, TypedValuesReuseTokenDependencyAndCullingSemantics)
 	{
 		FRenderGraphBuilder Builder;
 		Builder.EnablePassCulling();
@@ -2367,12 +2379,12 @@ namespace Durin
 		ASSERT_EQ(Capture.Resources.size(), 1u);
 		EXPECT_EQ(Capture.Resources[0].ValueType, "scene-result");
 		EXPECT_EQ(Capture.Uses.size(), 2u);
-		EXPECT_TRUE(Result.Graph->Execute(FRHICommandListImmediate::Get()));
+		EXPECT_TRUE(Result.Graph->Execute(GetCommandList()));
 		EXPECT_TRUE(bProduced);
 		EXPECT_TRUE(bConsumed);
 	}
 
-	TEST(FRenderGraphTests, ParameterizedTypedValuesExposeExactCapabilities)
+	TEST_F(FRenderGraphTests, ParameterizedTypedValuesExposeExactCapabilities)
 	{
 		FRenderGraphBuilder Builder;
 		const auto Value = Builder.CreateValue<FTypedValuePayload>(
@@ -2410,10 +2422,10 @@ namespace Durin
 			"FTypedValueWriteParameters.Output");
 		EXPECT_EQ(Capture.Uses[1].ParameterPath,
 			"FTypedValueReadParameters.Input");
-		EXPECT_TRUE(Result.Graph->Execute(FRHICommandListImmediate::Get()));
+		EXPECT_TRUE(Result.Graph->Execute(GetCommandList()));
 	}
 
-	TEST(FRenderGraphTests, TypedValuesRejectInvalidWriterAndTypeContracts)
+	TEST_F(FRenderGraphTests, TypedValuesRejectInvalidWriterAndTypeContracts)
 	{
 		{
 			FRenderGraphBuilder Builder;
@@ -2457,7 +2469,7 @@ namespace Durin
 		}
 	}
 
-	TEST(FRenderGraphTests, TypedValueStorageTransfersAndDestroysExactlyOnce)
+	TEST_F(FRenderGraphTests, TypedValueStorageTransfersAndDestroysExactlyOnce)
 	{
 		int BuilderDestructions = 0;
 		{
@@ -2528,14 +2540,14 @@ namespace Durin
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 			std::string Error;
 			EXPECT_FALSE(Result.Graph->Execute(
-				FRHICommandListImmediate::Get(), &Error));
+				GetCommandList(), &Error));
 			EXPECT_EQ(Error, "injected preparation failure");
 			EXPECT_EQ(PreparationFailureDestructions, 0);
 		}
 		EXPECT_EQ(PreparationFailureDestructions, 1);
 	}
 
-	TEST(FRenderGraphTests, TypedValueResolutionRejectsWrongDirectionAndCopies)
+	TEST_F(FRenderGraphTests, TypedValueResolutionRejectsWrongDirectionAndCopies)
 	{
 		{
 			FRenderGraphBuilder Builder;
@@ -2551,7 +2563,7 @@ namespace Durin
 			Builder.MarkPassRoot(Write, "publish");
 			auto Result = Builder.Compile();
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-			EXPECT_DEATH(Result.Graph->Execute(FRHICommandListImmediate::Get()),
+			EXPECT_DEATH(Result.Graph->Execute(GetCommandList()),
 				"wrong-direction capability");
 		}
 		{
@@ -2572,12 +2584,12 @@ namespace Durin
 			Builder.MarkPassRoot(Write, "publish");
 			auto Result = Builder.Compile();
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-			EXPECT_DEATH(Result.Graph->Execute(FRHICommandListImmediate::Get()),
+			EXPECT_DEATH(Result.Graph->Execute(GetCommandList()),
 				"not declared by the executing pass parameters");
 		}
 	}
 
-	TEST(FRenderGraphTests, PrecompileFallbackSelectionCapturesOnlyChosenImport)
+	TEST_F(FRenderGraphTests, PrecompileFallbackSelectionCapturesOnlyChosenImport)
 	{
 		for (const bool bCandidateReady : {false, true})
 		{

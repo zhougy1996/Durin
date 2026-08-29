@@ -46,6 +46,7 @@ namespace Durin
 		UnregisterTextureEditor();
 		Editor::Texture::UnregisterTexture2DPropertyEditing();
 		FTexturePreview::ReleaseSharedResources();
+		require(EditorExtensionCallbacks.Reset().Succeeded());
 	}
 
 	auto FTextureEditorModule::RegisterTextureEditor(

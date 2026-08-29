@@ -14,6 +14,7 @@
 #include "Asset/CanonicalResave.h"
 #include "Asset/Compatibility.h"
 #include "DObject/Class.h"
+#include "Modules/ModuleTestSupport.h"
 #include "Texture/TextureCube.h"
 #include "Texture/Texture2D.h"
 #include "Texture/VolumeTexture.h"
@@ -129,6 +130,8 @@ TEST(FTextureAssetThumbnailTests, ModuleOwnsBothExactRenderersAndWorkspaceLifecy
 	Durin::Editor::FWorkspaceManager Manager;
 	Durin::Editor::DThumbnailManager ThumbnailManager;
 	Durin::FTextureEditorModule Module;
+	Durin::FModuleTestHarness ModuleHarness("TextureEditor");
+	ModuleHarness.Start(Module);
 	const std::string Texture2DClass =
 		Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString();
 	const std::string TextureCubeClass =
@@ -150,6 +153,7 @@ TEST(FTextureAssetThumbnailTests, ModuleOwnsBothExactRenderersAndWorkspaceLifecy
 		Durin::Editor::FWorkspaceTypeId("TextureEditor")), nullptr);
 	EXPECT_EQ(Manager.FindWorkspace(
 		Durin::Editor::FWorkspaceTypeId("VolumeTextureEditor")), nullptr);
+	ModuleHarness.Shutdown();
 }
 
 TEST(FTextureAssetThumbnailTests, VolumePreviewExtractsFrozenR8AxisOrientation)
@@ -216,6 +220,8 @@ TEST(FTextureAssetThumbnailTests, RendererConflictRollsBackWholeIntegration)
 		std::make_unique<Durin::Editor::Texture::DTextureCubeThumbnailRenderer>(), Error);
 	ASSERT_TRUE(Existing) << Error;
 	Durin::FTextureEditorModule Module;
+	Durin::FModuleTestHarness ModuleHarness("TextureEditor");
+	ModuleHarness.Start(Module);
 	EXPECT_FALSE(Module.RegisterTextureEditor(Manager, ThumbnailManager));
 	EXPECT_FALSE(ThumbnailManager.Find(
 		Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString()));
@@ -223,6 +229,7 @@ TEST(FTextureAssetThumbnailTests, RendererConflictRollsBackWholeIntegration)
 		Durin::DTextureCube::StaticClass()->GetQualifiedName().ToString()));
 	EXPECT_EQ(Manager.FindWorkspace(
 		Durin::Editor::FWorkspaceTypeId("TextureEditor")), nullptr);
+	ModuleHarness.Shutdown();
 }
 
 TEST(FTextureAssetThumbnailTests,
@@ -235,6 +242,8 @@ TEST(FTextureAssetThumbnailTests,
 	Durin::Editor::FWorkspaceManager Manager;
 	Durin::Editor::DThumbnailManager ThumbnailManager;
 	Durin::FTextureEditorModule Module;
+	Durin::FModuleTestHarness ModuleHarness("TextureEditor");
+	ModuleHarness.Start(Module);
 	ASSERT_TRUE(Module.RegisterTextureEditor(Manager, ThumbnailManager));
 	ASSERT_TRUE(Manager.OpenAsset(
 		std::string(Durin::Tests::FAssetThumbnailFixtureSet::ParentTexturePath),
@@ -254,7 +263,10 @@ TEST(FTextureAssetThumbnailTests,
 	EXPECT_NO_FATAL_FAILURE(Workspace->DrawWorkspace(true));
 	ImGui::EndFrame();
 	ImGui::DestroyContext(Context);
-	Module.UnregisterTextureEditor();
+	ASSERT_EQ(Manager.RequestCloseDocument(Manager.GetDocuments().front().Id),
+		Durin::Editor::EDocumentCloseResult::Closed);
+	Workspace.reset();
+	ModuleHarness.Shutdown();
 }
 
 TEST(FTextureCubeThumbnailRendererTests, RendererCapturesPackageAndCubeVisualContract)
