@@ -400,7 +400,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (!bHasChildren) Flags |= ImGuiTreeNodeFlags_Leaf;
 		if (Model.GetCurrentPhysicalPath() == Physical) Flags |= ImGuiTreeNodeFlags_Selected;
 		if (bMountRoot) Flags |= ImGuiTreeNodeFlags_DefaultOpen;
-		const std::string NodeLabel = std::format("{} {}##{}", Model.GetCurrentPhysicalPath() == Physical ? Icons::FolderOpen : Icons::Folder, Label, Physical);
+		const std::string NodeLabel = std::format("{} {}###{}", Model.GetCurrentPhysicalPath() == Physical ? Icons::FolderOpen : Icons::Folder, Label, Physical);
 		const bool bOpen = ImGui::TreeNodeEx(NodeLabel.c_str(), Flags);
 		if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
 			QueueTreeAction([this, Physical] { NavigateToPhysical(Physical); });
