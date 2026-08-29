@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetRegistry/State.h"
+#include "AssetRegistry/Publication.h"
 
 #define DURIN_ENGINE_ASSET_INTERNAL 1
 #include "Asset/Redirector.h"
@@ -32,7 +32,8 @@ namespace Durin::Asset
 		auto CapturePreparedState() const -> FAssetPublicationState;
 		auto PublishPreparedState(uint64 ExpectedRevision,
 			FAssetPublicationState State) -> FAssetResult;
-		auto PublishAssetMetadata(FAssetData Data) -> void;
+		auto PublishAssetMetadata(FAssetData Data) -> FAssetResult;
+		auto PublishAssetMetadataBatch(std::vector<FAssetData> Assets) -> FAssetResult;
 
 	};
 

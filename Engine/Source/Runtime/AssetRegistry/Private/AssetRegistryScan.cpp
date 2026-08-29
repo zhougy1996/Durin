@@ -1,9 +1,9 @@
-#include "AssetRegistry/Scan.h"
+#include "AssetRegistryScanInternal.h"
 
 #include "Misc/FileTime.h"
 #include "Misc/Paths.h"
 
-namespace Durin::Asset
+namespace Durin::Asset::Private
 {
 	namespace
 	{
@@ -37,10 +37,10 @@ namespace Durin::Asset
 		FAssetRegistryScanCandidate& OutCandidate) -> void
 	{
 		FAssetRegistryScanCandidate Result;
-		std::unordered_map<std::string, Private::FRegistryCacheEntry> CachedEntries;
+		std::unordered_map<std::string, FRegistryCacheEntry> CachedEntries;
 		std::unordered_set<std::string> SeenCachedIdentities;
-		const std::vector<std::string> MountManifest = Private::GetMountManifest();
-		const bool bCacheLoaded = Private::LoadRegistryCache(
+		const std::vector<std::string> MountManifest = GetMountManifest();
+		const bool bCacheLoaded = LoadRegistryCache(
 			MountManifest, CachedEntries, Result.CacheWarning);
 
 		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
@@ -71,7 +71,7 @@ namespace Durin::Asset
 					++Result.Stats.Failed;
 					continue;
 				}
-				const std::string Identity = Private::MakeRegistryIdentity(
+				const std::string Identity = MakeRegistryIdentity(
 					Mount.VirtualRoot, RelativeString);
 				if (CachedEntries.contains(Identity)) SeenCachedIdentities.insert(Identity);
 				const auto LastWriteTime = It->last_write_time(FileEc);
@@ -134,7 +134,7 @@ namespace Durin::Asset
 					++Result.Stats.Failed;
 					continue;
 				}
-				Result.CacheEntries.push_back(Private::FRegistryCacheEntry{
+				Result.CacheEntries.push_back(FRegistryCacheEntry{
 					.MountRoot = Mount.VirtualRoot,
 					.RelativePath = RelativeString,
 					.AssetClassName = Header.AssetClassName,

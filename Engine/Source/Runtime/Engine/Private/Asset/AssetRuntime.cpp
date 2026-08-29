@@ -1,7 +1,7 @@
 #include "AssetRuntimeStateInternal.h"
 #include "AssetRegistry/Scan.h"
 #include "AssetDeletionInternal.h"
-#include "AssetRegistry/RegistryCache.h"
+#include "AssetRegistry/Publication.h"
 #include "AssetMutationJournalInternal.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetRelocationExtensionsInternal.h"
@@ -46,15 +46,6 @@ namespace Durin::Asset
 	using Private::SaveRelocationBytes;
 	using Private::WriteMutationJournalState;
 	using Private::AssetReferenceLess;
-	using Private::BuildRegistryCacheEntries;
-	using Private::FReferenceCacheSource;
-	using Private::FRegistryCacheEntry;
-	using Private::GetMountManifest;
-	using Private::LoadReferenceCache;
-	using Private::LoadRegistryCache;
-	using Private::MakeRegistryIdentity;
-	using Private::WriteReferenceCache;
-	using Private::WriteRegistryCache;
 
 	namespace
 	{

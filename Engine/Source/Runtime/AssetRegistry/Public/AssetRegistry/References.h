@@ -6,6 +6,11 @@
 
 namespace Durin::Asset
 {
+	namespace Private
+	{
+		class FAssetRegistryState;
+	}
+
 	enum class EAssetReferenceKind : uint8
 	{
 		HardObject,
@@ -52,6 +57,7 @@ namespace Durin::Asset
 	class FAssetReferenceIndex
 	{
 	public:
+		auto GetRevision() const -> uint64 { return Revision; }
 		auto GetEdges() const -> std::span<const FAssetReferenceEdge> { return Edges; }
 		auto GetSourceFingerprints() const
 			-> const std::unordered_map<FAssetPath, FAssetPackageFingerprint>&
@@ -68,18 +74,31 @@ namespace Durin::Asset
 		auto GetCacheWarning() const -> const std::string& { return CacheWarning; }
 
 	private:
+		uint64 Revision = 0;
 		std::vector<FAssetReferenceEdge> Edges;
 		std::unordered_map<FAssetPath, FAssetPackageFingerprint> SourceFingerprints;
 		std::vector<FAssetResult> Errors;
 		FAssetReferenceIndexStats Stats;
 		std::string CacheWarning;
-		bool bComplete = false;
-		bool bSnapshotDirty = false;
+		bool bComplete = true;
 
-		friend class FAssetRegistryState;
+		friend class Private::FAssetRegistryState;
+	};
+
+	struct FAssetRegistrySnapshot
+	{
+		uint64 Revision = 0;
+		FAssetCatalogSnapshot Catalog;
+		FAssetReferenceIndex References;
+
+		ASSETREGISTRY_API auto ResolveAssetPath(
+			const FAssetPath& Path,
+			const FAssetPathResolveOptions& Options = {}) const
+			-> FAssetPathResolveResult;
 	};
 
 	ASSETREGISTRY_API auto CaptureAssetReferenceIndex() -> FAssetReferenceIndex;
+	ASSETREGISTRY_API auto CaptureAssetRegistrySnapshot() -> FAssetRegistrySnapshot;
 	ASSETREGISTRY_API auto FindRedirectorsTo(const FAssetPath& Destination)
 		-> std::vector<FAssetPath>;
 }

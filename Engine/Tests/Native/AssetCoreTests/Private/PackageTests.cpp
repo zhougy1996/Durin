@@ -5223,6 +5223,12 @@ TEST(FPackageAssetTests, AtomicBundleSaveRestoresFilesRegistryAndDirtyStateOnFai
 	EXPECT_EQ(
 		Durin::Asset::GetResidentPackagePublicationState(NewPath),
 		Durin::Asset::EAssetPackagePublicationState::NewlyCreated);
+	const uint64 RevisionBeforeCommit = Durin::Asset::GetAssetCatalogRevision();
+	ASSERT_TRUE(Durin::Asset::SavePackagesAtomically(
+		Packages, {.RootPackage = Added->GetPackage()}));
+	EXPECT_EQ(Durin::Asset::GetAssetCatalogRevision(), RevisionBeforeCommit + 1);
+	EXPECT_TRUE(Durin::Asset::FindAssetExact(ExistingPath));
+	EXPECT_TRUE(Durin::Asset::FindAssetExact(NewPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Added->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 

@@ -23,26 +23,26 @@ namespace Durin::Asset::Private
 		std::vector<FAssetReferenceEdge> References;
 	};
 
-	ASSETREGISTRY_API auto GetMountManifest() -> std::vector<std::string>;
-	ASSETREGISTRY_API auto MakeRegistryIdentity(
+	auto GetMountManifest() -> std::vector<std::string>;
+	auto MakeRegistryIdentity(
 		std::string_view MountRoot,
 		std::string_view RelativePath) -> std::string;
-	ASSETREGISTRY_API auto LoadRegistryCache(
+	auto LoadRegistryCache(
 		const std::vector<std::string>& ExpectedMounts,
 		std::unordered_map<std::string, FRegistryCacheEntry>& OutEntries,
 		std::string& OutWarning) -> bool;
-	ASSETREGISTRY_API auto WriteRegistryCache(
+	auto WriteRegistryCache(
 		const std::vector<std::string>& Mounts,
 		std::vector<FRegistryCacheEntry> Entries,
 		std::string& OutWarning) -> bool;
-	ASSETREGISTRY_API auto BuildRegistryCacheEntries(
+	auto BuildRegistryCacheEntries(
 		const std::unordered_map<FAssetPath, FAssetData>& Assets,
 		std::vector<FRegistryCacheEntry>& OutEntries,
 		std::string& OutWarning) -> bool;
-	ASSETREGISTRY_API auto LoadReferenceCache(
+	auto LoadReferenceCache(
 		std::unordered_map<FAssetPath, FReferenceCacheSource>& OutSources,
 		std::string& OutWarning) -> bool;
-	ASSETREGISTRY_API auto WriteReferenceCache(
+	auto WriteReferenceCache(
 		const std::unordered_map<FAssetPath, FAssetPackageFingerprint>& Fingerprints,
 		std::span<const FAssetReferenceEdge> References,
 		std::string& OutWarning) -> bool;

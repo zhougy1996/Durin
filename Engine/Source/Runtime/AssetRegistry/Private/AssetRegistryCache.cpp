@@ -1,4 +1,4 @@
-#include "AssetRegistry/RegistryCache.h"
+#include "AssetRegistryCacheInternal.h"
 #include "AssetRegistry/PackageFormat.h"
 
 #include "Misc/FileHelper.h"

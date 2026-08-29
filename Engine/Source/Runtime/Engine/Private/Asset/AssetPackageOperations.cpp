@@ -1,6 +1,5 @@
 #include "AssetRuntimeStateInternal.h"
 #include "AssetDeletionInternal.h"
-#include "AssetRegistry/RegistryCache.h"
 #include "AssetMutationJournalInternal.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetRelocationExtensionsInternal.h"
@@ -164,15 +163,6 @@ namespace Durin::Asset
 	using Private::SaveRelocationBytes;
 	using Private::WriteMutationJournalState;
 	using Private::AssetReferenceLess;
-	using Private::BuildRegistryCacheEntries;
-	using Private::FReferenceCacheSource;
-	using Private::FRegistryCacheEntry;
-	using Private::GetMountManifest;
-	using Private::LoadReferenceCache;
-	using Private::LoadRegistryCache;
-	using Private::MakeRegistryIdentity;
-	using Private::WriteReferenceCache;
-	using Private::WriteRegistryCache;
 
 	namespace
 	{
@@ -1297,9 +1287,11 @@ namespace Durin::Asset
 			return Error(EAssetError::IoError, "Injected asset-bundle registry publication failure.");
 		}
 
-		for (FStagedPackage& Staged : StagedPackages)
+		std::vector<FAssetData> PublishedMetadata;
+		PublishedMetadata.reserve(StagedPackages.size());
+		for (const FStagedPackage& Staged : StagedPackages)
 		{
-			Registry.PublishAssetMetadata(FAssetData{
+			PublishedMetadata.push_back(FAssetData{
 				.PackagePath = Staged.Path,
 				.PhysicalPath = Staged.Destination.generic_string(),
 				.AssetClassName = Staged.File.AssetClassName,
@@ -1311,6 +1303,16 @@ namespace Durin::Asset
 				.LastWriteTime = Staged.PublishedLastWriteTime,
 				.LastWriteTimeTicks = FileTime::ToStableTicks(
 					Staged.PublishedLastWriteTime)});
+		}
+		if (FAssetResult RegistryResult = Registry.PublishAssetMetadataBatch(
+			std::move(PublishedMetadata)); !RegistryResult)
+		{
+			RollbackPublication();
+			return RegistryResult;
+		}
+
+		for (FStagedPackage& Staged : StagedPackages)
+		{
 			if (auto Resident = ResidentPackages.find(Staged.Path);
 				Resident != ResidentPackages.end()
 				&& Resident->second.Package == Staged.Package)
@@ -1363,7 +1365,7 @@ namespace Durin::Asset
 		if (ErrorCode)
 			return Error(EAssetError::IoError,
 				"The asset package size could not be read for admission.");
-		Registry.PublishAssetMetadata(FAssetData{
+		return Registry.PublishAssetMetadata(FAssetData{
 			.PackagePath = Path,
 			.PhysicalPath = PhysicalPath,
 			.AssetClassName = Header.AssetClassName,
@@ -1374,7 +1376,6 @@ namespace Durin::Asset
 			.FileSize = FileSize,
 			.LastWriteTime = LastWriteTime,
 			.LastWriteTimeTicks = FileTime::ToStableTicks(LastWriteTime)});
-		return {};
 	}
 
 	auto FAssetPackageField::TryReadString(std::string& OutValue) const -> bool
@@ -1711,9 +1712,8 @@ namespace Durin::Asset
 					? "Published authored bulk companion failed verification."
 					: std::move(CompanionVerificationError));
 		}
-		Package->ClearDirty();
 		const auto LastWriteTime = std::filesystem::last_write_time(Destination);
-		Registry.PublishAssetMetadata(FAssetData{
+		FAssetResult RegistryResult = Registry.PublishAssetMetadata(FAssetData{
 			.PackagePath = Path,
 			.PhysicalPath = Destination.generic_string(),
 			.AssetClassName = File.AssetClassName,
@@ -1724,6 +1724,18 @@ namespace Durin::Asset
 			.FileSize = std::filesystem::file_size(Destination),
 			.LastWriteTime = LastWriteTime,
 			.LastWriteTimeTicks = FileTime::ToStableTicks(LastWriteTime)});
+		if (!RegistryResult)
+		{
+			if (bHadPriorPackage)
+				FFileHelper::SaveArrayToFileAtomically(
+					PriorPackageBytes, Destination, nullptr);
+			else
+				std::filesystem::remove(Destination, PackageErrorCode);
+			std::string RollbackError;
+			RollbackEditorBulkDataCompanion(CompanionTransaction, RollbackError);
+			return RegistryResult;
+		}
+		Package->ClearDirty();
 		if (auto Resident = ResidentPackages.find(Path);
 			Resident != ResidentPackages.end()
 			&& Resident->second.Package == Package)

@@ -3,7 +3,7 @@
 #include "AssetRegistry/PackageHeader.h"
 #include "AssetRegistry/PackageTypes.h"
 #include "AssetRegistry/ObjectStream.h"
-#include "AssetRegistry/State.h"
+#include "AssetRegistry/Publication.h"
 #include "Misc/Paths.h"
 #include "NativeDObjectTestSupport.h"
 
@@ -69,20 +69,29 @@ namespace
 		Durin::FAssetPath Path;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MetadataTests/Published", Path));
 
-		FAssetRegistryState State;
-		FAssetRegistryPublication First{
-			.ExpectedRevision = State.GetRevision(),
-			.Assets = {{Path, FAssetData{
-				.PackagePath = Path,
-				.AssetClassName = "Durin::DTexture2D",
-				.FormatVersion = AssetPackageV6FormatVersion}}}};
-		ASSERT_TRUE(State.Publish(std::move(First)));
-		EXPECT_EQ(State.GetRevision(), 2u);
-		ASSERT_TRUE(State.FindAssetExact(Path));
+		FAssetRegistryPublication First = CaptureAssetRegistryPublication();
+		const uint64 Revision = First.ExpectedRevision;
+		First.Assets.insert_or_assign(Path, FAssetData{
+			.PackagePath = Path,
+			.AssetClassName = "Durin::DTexture2D",
+			.FormatVersion = AssetPackageV6FormatVersion});
+		First.ReferenceFingerprints.insert_or_assign(Path, FAssetPackageFingerprint{});
+		First.ReferenceErrors.clear();
+		First.bReferenceIndexComplete = true;
+		ASSERT_TRUE(PublishAssetRegistryPublication(std::move(First)));
+		EXPECT_EQ(GetAssetCatalogRevision(), Revision + 1);
+		ASSERT_TRUE(FindAssetExact(Path));
 
-		FAssetRegistryPublication Stale{.ExpectedRevision = 1};
-		EXPECT_EQ(State.Publish(std::move(Stale)).Error, EAssetError::StaleData);
-		EXPECT_TRUE(State.FindAssetExact(Path));
+		FAssetRegistryPublication Stale = CaptureAssetRegistryPublication();
+		Stale.ExpectedRevision = Revision;
+		EXPECT_EQ(PublishAssetRegistryPublication(std::move(Stale)).Error,
+			EAssetError::StaleData);
+		EXPECT_TRUE(FindAssetExact(Path));
+
+		FAssetRegistryPublication Incomplete = CaptureAssetRegistryPublication();
+		Incomplete.bReferenceIndexComplete = false;
+		EXPECT_EQ(PublishAssetRegistryPublication(std::move(Incomplete)).Error,
+			EAssetError::StaleData);
 	}
 
 	TEST(FAssetMetadataQueryTests, ConcurrentExpectedRevisionPublishesAtMostOnce)
@@ -93,24 +102,33 @@ namespace
 		Durin::FAssetPath FirstPath, SecondPath;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MetadataTests/ConcurrentA", FirstPath));
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MetadataTests/ConcurrentB", SecondPath));
-		FAssetRegistryState State;
-		const uint64 Revision = State.GetRevision();
+		const FAssetRegistryPublication Base = CaptureAssetRegistryPublication();
+		const uint64 Revision = Base.ExpectedRevision;
 		std::atomic<uint32> Successes = 0;
 		auto Publish = [&](const Durin::FAssetPath& InAssetPathValue) {
-			FAssetRegistryPublication Publication{.ExpectedRevision = Revision};
+			FAssetRegistryPublication Publication = Base;
 			FAssetData Data;
 			Data.PackagePath = InAssetPathValue;
-			Publication.Assets.emplace(InAssetPathValue, std::move(Data));
-			if (State.Publish(std::move(Publication))) ++Successes;
+			Publication.Assets.insert_or_assign(InAssetPathValue, std::move(Data));
+			Publication.ReferenceFingerprints.insert_or_assign(
+				InAssetPathValue, FAssetPackageFingerprint{});
+			Publication.bReferenceIndexComplete = true;
+			if (PublishAssetRegistryPublication(std::move(Publication))) ++Successes;
 		};
 		std::thread First([&] { Publish(FirstPath); });
 		std::thread Second([&] { Publish(SecondPath); });
 		First.join();
 		Second.join();
 		EXPECT_EQ(Successes.load(), 1u);
-		EXPECT_EQ(State.GetRevision(), Revision + 1);
-		FAssetRegistryPublication Stale{.ExpectedRevision = Revision};
-		EXPECT_EQ(State.Publish(std::move(Stale)).Error, EAssetError::StaleData);
+		EXPECT_EQ(GetAssetCatalogRevision(), Revision + 1);
+		FAssetRegistryPublication Stale = CaptureAssetRegistryPublication();
+		Stale.ExpectedRevision = Revision;
+		EXPECT_EQ(PublishAssetRegistryPublication(std::move(Stale)).Error,
+			EAssetError::StaleData);
+
+		const FAssetRegistrySnapshot Snapshot = CaptureAssetRegistrySnapshot();
+		EXPECT_EQ(Snapshot.Revision, Snapshot.Catalog.Revision);
+		EXPECT_EQ(Snapshot.Revision, Snapshot.References.GetRevision());
 	}
 
 	TEST(FAssetMetadataQueryTests, ExtractsCanonicalObjectStreamReferencesWithoutEngine)
@@ -173,12 +191,24 @@ namespace
 			.Kind = EAssetReferenceKind::Redirect,
 			.TargetPath = TargetPath,
 			.DisplayRoute = "RedirectDestination"});
-		FAssetRegistryState State;
-		ASSERT_TRUE(State.Publish({
-			.ExpectedRevision = State.GetRevision(),
-			.ReferenceEdges = References,
-			.bReferenceIndexComplete = true}));
-		const FAssetReferenceIndex Index = State.CaptureReferences();
+		FAssetRegistryPublication Publication = CaptureAssetRegistryPublication();
+		for (const Durin::FAssetPath& Source : std::array{SourcePath, RedirectPath})
+		{
+			Publication.Assets.insert_or_assign(Source, FAssetData{
+				.PackagePath = Source,
+				.AssetClassName = "Example::MetadataAsset",
+				.FormatVersion = AssetPackageV6FormatVersion});
+			Publication.ReferenceFingerprints.insert_or_assign(
+				Source, FAssetPackageFingerprint{});
+		}
+		for (FAssetReferenceEdge& Reference : References)
+			Reference.SourceFingerprint = FAssetPackageFingerprint{};
+		Publication.ReferenceEdges.insert(Publication.ReferenceEdges.end(),
+			References.begin(), References.end());
+		Publication.ReferenceErrors.clear();
+		Publication.bReferenceIndexComplete = true;
+		ASSERT_TRUE(PublishAssetRegistryPublication(std::move(Publication)));
+		const FAssetReferenceIndex Index = CaptureAssetReferenceIndex();
 		EXPECT_EQ(Index.FindTargets(SourcePath),
 			(std::vector<Durin::FAssetPath>{TargetPath, SoftPath}));
 		const auto Referencers = Index.FindReferencers(TargetPath);

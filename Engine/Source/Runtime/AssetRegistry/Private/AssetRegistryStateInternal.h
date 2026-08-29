@@ -1,24 +1,10 @@
 #pragma once
 
-#include "AssetRegistry/References.h"
+#include "AssetRegistry/Publication.h"
 
-namespace Durin::Asset
+namespace Durin::Asset::Private
 {
-	struct FAssetRegistryPublication
-	{
-		uint64 ExpectedRevision = 0;
-		std::unordered_map<FAssetPath, FAssetData> Assets;
-		std::vector<FAssetReferenceEdge> ReferenceEdges;
-		std::unordered_map<FAssetPath, FAssetPackageFingerprint> ReferenceFingerprints;
-		std::vector<FAssetResult> ReferenceErrors;
-		FAssetReferenceIndexStats ReferenceStats;
-		std::string ReferenceCacheWarning;
-		bool bReferenceIndexComplete = false;
-	};
-
-	// Owns one process-local immutable metadata state. Writers replace the whole
-	// validated projection against an expected revision; readers receive values.
-	class ASSETREGISTRY_API FAssetRegistryState
+	class FAssetRegistryState
 	{
 	public:
 		FAssetRegistryState();
@@ -30,6 +16,7 @@ namespace Durin::Asset
 			-> std::vector<FAssetPath>;
 		auto CaptureCatalog() const -> FAssetCatalogSnapshot;
 		auto CaptureReferences() const -> FAssetReferenceIndex;
+		auto CaptureSnapshot() const -> FAssetRegistrySnapshot;
 		auto CapturePublication() const -> FAssetRegistryPublication;
 		auto GetRevision() const -> uint64;
 		auto Publish(FAssetRegistryPublication Publication) -> FAssetResult;
@@ -41,5 +28,6 @@ namespace Durin::Asset
 		FAssetReferenceIndex References;
 	};
 
-	ASSETREGISTRY_API auto GetAssetRegistryState() -> FAssetRegistryState&;
+	auto GetAssetRegistryState() -> FAssetRegistryState&;
+	auto MarkAssetRegistryCachesDirty() -> void;
 }

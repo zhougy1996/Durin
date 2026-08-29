@@ -1,5 +1,6 @@
 #include "AssetRuntimeStateInternal.h"
 #include "AssetRegistry/Scan.h"
+#include "AssetRegistry/Publication.h"
 
 namespace Durin::Asset
 {

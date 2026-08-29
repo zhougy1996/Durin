@@ -1,9 +1,120 @@
-#include "AssetRegistry/State.h"
+#include "AssetRegistryStateInternal.h"
 
 #include "DObject/Class.h"
 
 namespace Durin::Asset
 {
+	namespace
+	{
+		constexpr uint32 MaximumRedirectDepth = 64;
+		constexpr std::string_view RedirectorClassName =
+			"Durin::Asset::DAssetRedirector";
+
+		auto ResolveAssetPathInCatalog(
+			const std::unordered_map<FAssetPath, FAssetData>& Assets,
+			uint64 Revision,
+			const FAssetPath& Path,
+			const FAssetPathResolveOptions& Options) -> FAssetPathResolveResult
+		{
+			FAssetPathResolveResult Result;
+			Result.CatalogRevision = Revision;
+			Result.RequestedPath = Path;
+			FAssetPath Current = Path;
+			std::unordered_set<FAssetPath> Visited;
+			while (true)
+			{
+				const auto It = Assets.find(Current);
+				if (It == Assets.end())
+				{
+					Result.FinalPath = Current;
+					Result.State = Result.RedirectChain.empty()
+						? EAssetPathResolveState::NotFound
+						: EAssetPathResolveState::MissingRedirectTarget;
+					return Result;
+				}
+				const FAssetData& Data = It->second;
+				if (Data.EntryKind == EAssetRegistryEntryKind::Asset)
+				{
+					if (Data.RedirectDestination.IsValid()
+						|| Data.AssetClassName == RedirectorClassName)
+					{
+						Result.FinalPath = Current;
+						Result.State = EAssetPathResolveState::CorruptRedirector;
+						return Result;
+					}
+					DClass* TargetClass = FindClassByQualifiedName(FName(Data.AssetClassName));
+					if (!TargetClass)
+					{
+						Result.FinalPath = Current;
+						Result.State = EAssetPathResolveState::UnknownTargetClass;
+						return Result;
+					}
+					if (Options.ExpectedClass && !TargetClass->IsChildOf(Options.ExpectedClass))
+					{
+						Result.FinalPath = Current;
+						Result.State = EAssetPathResolveState::RedirectTypeMismatch;
+						return Result;
+					}
+					Result.FinalPath = Current;
+					Result.FinalAssetData = Data;
+					Result.State = EAssetPathResolveState::Resolved;
+					return Result;
+				}
+				if (Data.EntryKind != EAssetRegistryEntryKind::Redirector
+					|| Data.AssetClassName != RedirectorClassName
+					|| !Data.RedirectDestination.IsValid()
+					|| Data.RedirectDestination == Current
+					|| Data.Dependencies.size() != 1
+					|| Data.Dependencies.front() != Data.RedirectDestination)
+				{
+					Result.FinalPath = Current;
+					Result.State = EAssetPathResolveState::CorruptRedirector;
+					return Result;
+				}
+				if (!Visited.insert(Current).second)
+				{
+					Result.FinalPath = Current;
+					Result.State = EAssetPathResolveState::RedirectCycle;
+					return Result;
+				}
+				if (Result.RedirectChain.size() == MaximumRedirectDepth)
+				{
+					Result.FinalPath = Current;
+					Result.State = EAssetPathResolveState::RedirectDepthExceeded;
+					return Result;
+				}
+				Result.RedirectChain.push_back(Current);
+				Current = Data.RedirectDestination;
+			}
+		}
+
+		auto ValidatePublication(
+			const FAssetRegistryPublication& Publication) -> FAssetResult
+		{
+			if (!Publication.bReferenceIndexComplete
+				|| !Publication.ReferenceErrors.empty()
+				|| Publication.ReferenceFingerprints.size() != Publication.Assets.size())
+				return {EAssetError::StaleData,
+					"Asset registry publication requires a complete catalog/reference projection."};
+			for (const auto& [Path, Data] : Publication.Assets)
+				if (Path != Data.PackagePath
+					|| !Publication.ReferenceFingerprints.contains(Path))
+					return {EAssetError::CorruptFile,
+						"Asset registry publication contains inconsistent package metadata."};
+			for (const FAssetReferenceEdge& Edge : Publication.ReferenceEdges)
+			{
+				const auto Fingerprint = Publication.ReferenceFingerprints.find(
+					Edge.SourcePackage);
+				if (!Publication.Assets.contains(Edge.SourcePackage)
+					|| Fingerprint == Publication.ReferenceFingerprints.end()
+					|| Fingerprint->second != Edge.SourceFingerprint)
+					return {EAssetError::CorruptFile,
+						"Asset registry publication contains an invalid reference source."};
+			}
+			return {};
+		}
+	}
+
 	auto FAssetReferenceIndex::FindReferencers(
 		const FAssetPath& Target) const -> std::vector<FAssetReferenceEdge>
 	{
@@ -26,6 +137,15 @@ namespace Durin::Asset
 		return Result;
 	}
 
+	auto FAssetRegistrySnapshot::ResolveAssetPath(
+		const FAssetPath& Path,
+		const FAssetPathResolveOptions& Options) const -> FAssetPathResolveResult
+	{
+		return ResolveAssetPathInCatalog(Catalog.Assets, Revision, Path, Options);
+	}
+
+	namespace Private
+	{
 	FAssetRegistryState::FAssetRegistryState() = default;
 
 	auto FAssetRegistryState::FindAssetExact(
@@ -42,78 +162,7 @@ namespace Durin::Asset
 		const FAssetPathResolveOptions& Options) const -> FAssetPathResolveResult
 	{
 		std::shared_lock Lock(Mutex);
-		constexpr uint32 MaximumRedirectDepth = 64;
-		constexpr std::string_view RedirectorClassName = "Durin::Asset::DAssetRedirector";
-		FAssetPathResolveResult Result;
-		Result.CatalogRevision = Revision;
-		Result.RequestedPath = Path;
-		FAssetPath Current = Path;
-		std::unordered_set<FAssetPath> Visited;
-		while (true)
-		{
-			const auto It = Assets.find(Current);
-			if (It == Assets.end())
-			{
-				Result.FinalPath = Current;
-				Result.State = Result.RedirectChain.empty()
-					? EAssetPathResolveState::NotFound
-					: EAssetPathResolveState::MissingRedirectTarget;
-				return Result;
-			}
-			const FAssetData& Data = It->second;
-			if (Data.EntryKind == EAssetRegistryEntryKind::Asset)
-			{
-				if (Data.RedirectDestination.IsValid()
-					|| Data.AssetClassName == RedirectorClassName)
-				{
-					Result.FinalPath = Current;
-					Result.State = EAssetPathResolveState::CorruptRedirector;
-					return Result;
-				}
-				DClass* TargetClass = FindClassByQualifiedName(FName(Data.AssetClassName));
-				if (!TargetClass)
-				{
-					Result.FinalPath = Current;
-					Result.State = EAssetPathResolveState::UnknownTargetClass;
-					return Result;
-				}
-				if (Options.ExpectedClass && !TargetClass->IsChildOf(Options.ExpectedClass))
-				{
-					Result.FinalPath = Current;
-					Result.State = EAssetPathResolveState::RedirectTypeMismatch;
-					return Result;
-				}
-				Result.FinalPath = Current;
-				Result.FinalAssetData = Data;
-				Result.State = EAssetPathResolveState::Resolved;
-				return Result;
-			}
-			if (Data.EntryKind != EAssetRegistryEntryKind::Redirector
-				|| Data.AssetClassName != RedirectorClassName
-				|| !Data.RedirectDestination.IsValid()
-				|| Data.RedirectDestination == Current
-				|| Data.Dependencies.size() != 1
-				|| Data.Dependencies.front() != Data.RedirectDestination)
-			{
-				Result.FinalPath = Current;
-				Result.State = EAssetPathResolveState::CorruptRedirector;
-				return Result;
-			}
-			if (!Visited.insert(Current).second)
-			{
-				Result.FinalPath = Current;
-				Result.State = EAssetPathResolveState::RedirectCycle;
-				return Result;
-			}
-			if (Result.RedirectChain.size() == MaximumRedirectDepth)
-			{
-				Result.FinalPath = Current;
-				Result.State = EAssetPathResolveState::RedirectDepthExceeded;
-				return Result;
-			}
-			Result.RedirectChain.push_back(Current);
-			Current = Data.RedirectDestination;
-		}
+		return ResolveAssetPathInCatalog(Assets, Revision, Path, Options);
 	}
 
 	auto FAssetRegistryState::FindRedirectorsTo(
@@ -140,7 +189,20 @@ namespace Durin::Asset
 	auto FAssetRegistryState::CaptureReferences() const -> FAssetReferenceIndex
 	{
 		std::shared_lock Lock(Mutex);
-		return References;
+		FAssetReferenceIndex Result = References;
+		Result.Revision = Revision;
+		return Result;
+	}
+
+	auto FAssetRegistryState::CaptureSnapshot() const -> FAssetRegistrySnapshot
+	{
+		std::shared_lock Lock(Mutex);
+		FAssetRegistrySnapshot Result{
+			.Revision = Revision,
+			.Catalog = {.Revision = Revision, .Assets = Assets},
+			.References = References};
+		Result.References.Revision = Revision;
+		return Result;
 	}
 
 	auto FAssetRegistryState::CapturePublication() const -> FAssetRegistryPublication
@@ -169,6 +231,8 @@ namespace Durin::Asset
 			return {EAssetError::StaleData, std::format(
 				"Asset registry publication expected revision {} but current revision is {}.",
 				Publication.ExpectedRevision, Revision)};
+		if (FAssetResult Validation = ValidatePublication(Publication); !Validation)
+			return Validation;
 		if (Assets == Publication.Assets
 			&& References.Edges == Publication.ReferenceEdges
 			&& References.SourceFingerprints == Publication.ReferenceFingerprints
@@ -195,35 +259,55 @@ namespace Durin::Asset
 		static FAssetRegistryState State;
 		return State;
 	}
+	}
 
 	auto FindAssetExact(const FAssetPath& Path) -> FAssetCatalogEntry
 	{
-		return GetAssetRegistryState().FindAssetExact(Path);
+		return Private::GetAssetRegistryState().FindAssetExact(Path);
 	}
 
 	auto ResolveAssetPath(const FAssetPath& Path,
 		const FAssetPathResolveOptions& Options) -> FAssetPathResolveResult
 	{
-		return GetAssetRegistryState().ResolveAssetPath(Path, Options);
+		return Private::GetAssetRegistryState().ResolveAssetPath(Path, Options);
 	}
 
 	auto CaptureAssetCatalogSnapshot() -> FAssetCatalogSnapshot
 	{
-		return GetAssetRegistryState().CaptureCatalog();
+		return Private::GetAssetRegistryState().CaptureCatalog();
 	}
 
 	auto GetAssetCatalogRevision() -> uint64
 	{
-		return GetAssetRegistryState().GetRevision();
+		return Private::GetAssetRegistryState().GetRevision();
 	}
 
 	auto CaptureAssetReferenceIndex() -> FAssetReferenceIndex
 	{
-		return GetAssetRegistryState().CaptureReferences();
+		return Private::GetAssetRegistryState().CaptureReferences();
+	}
+
+	auto CaptureAssetRegistrySnapshot() -> FAssetRegistrySnapshot
+	{
+		return Private::GetAssetRegistryState().CaptureSnapshot();
+	}
+
+	auto CaptureAssetRegistryPublication() -> FAssetRegistryPublication
+	{
+		return Private::GetAssetRegistryState().CapturePublication();
+	}
+
+	auto PublishAssetRegistryPublication(
+		FAssetRegistryPublication Publication) -> FAssetResult
+	{
+		FAssetResult Result = Private::GetAssetRegistryState().Publish(
+			std::move(Publication));
+		if (Result) Private::MarkAssetRegistryCachesDirty();
+		return Result;
 	}
 
 	auto FindRedirectorsTo(const FAssetPath& Destination) -> std::vector<FAssetPath>
 	{
-		return GetAssetRegistryState().FindRedirectorsTo(Destination);
+		return Private::GetAssetRegistryState().FindRedirectorsTo(Destination);
 	}
 }

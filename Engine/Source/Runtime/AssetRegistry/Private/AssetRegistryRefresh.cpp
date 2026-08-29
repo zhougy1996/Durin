@@ -1,6 +1,8 @@
 #include "AssetRegistry/ObjectStream.h"
+#include "AssetRegistry/Publication.h"
 #include "AssetRegistry/Scan.h"
-#include "AssetRegistry/State.h"
+#include "AssetRegistryStateInternal.h"
+#include "AssetRegistryScanInternal.h"
 
 #include "Misc/FileHelper.h"
 
@@ -46,9 +48,9 @@ namespace Durin::Asset
 		-> FAssetCatalogRefreshResult
 	{
 		const auto Started = std::chrono::steady_clock::now();
-		const uint64 PriorRevision = GetAssetRegistryState().GetRevision();
-		FAssetRegistryScanCandidate Candidate;
-		ScanMountedAssetMetadata(Mode, Candidate);
+		const uint64 PriorRevision = Private::GetAssetRegistryState().GetRevision();
+		Private::FAssetRegistryScanCandidate Candidate;
+		Private::ScanMountedAssetMetadata(Mode, Candidate);
 		const std::vector<std::string> MountManifest = Private::GetMountManifest();
 
 		std::unordered_map<FAssetPath, Private::FReferenceCacheSource> CachedSources;
@@ -109,6 +111,8 @@ namespace Durin::Asset
 				Result = PackageObjectStream::ExtractAssetPackageReferences(
 					Bytes, Data->PackagePath, SourceReferences, &Fingerprint);
 				Fingerprint.LastWriteTimeTicks = Data->LastWriteTimeTicks;
+				for (FAssetReferenceEdge& Reference : SourceReferences)
+					Reference.SourceFingerprint = Fingerprint;
 			}
 			++ReferenceStats.ExtractedSources;
 			if (!Result)
@@ -154,7 +158,7 @@ namespace Durin::Asset
 			ReferenceErrors.begin(), ReferenceErrors.end());
 		if (!Refresh.Succeeded()) return Refresh;
 
-		FAssetResult PublishResult = GetAssetRegistryState().Publish({
+		FAssetResult PublishResult = PublishAssetRegistryPublication({
 			.ExpectedRevision = PriorRevision,
 			.Assets = Candidate.Assets,
 			.ReferenceEdges = ReferenceEdges,
@@ -174,6 +178,7 @@ namespace Durin::Asset
 		Refresh.bPublished = true;
 		Refresh.bRetainedPriorRevision = false;
 		Refresh.ResultingRevision = GetAssetCatalogRevision();
+		const uint64 PublishedRevision = Refresh.ResultingRevision;
 		Refresh.bCatalogCacheDirty = !Private::WriteRegistryCache(
 			MountManifest, std::move(Candidate.CacheEntries),
 			Refresh.CatalogCacheWarning);
@@ -189,15 +194,23 @@ namespace Durin::Asset
 		{
 			FCacheOperationalState& Operational = GetCacheOperationalState();
 			std::lock_guard Lock(Operational.Mutex);
-			Operational.bCatalogDirty = Refresh.bCatalogCacheDirty;
-			Operational.bReferencesDirty = Refresh.bReferenceCacheDirty;
-			Operational.CatalogWarning = Refresh.CatalogCacheWarning;
-			Operational.ReferenceWarning = Refresh.ReferenceCacheWarning;
+			if (GetAssetCatalogRevision() == PublishedRevision)
+			{
+				Operational.bCatalogDirty = Refresh.bCatalogCacheDirty;
+				Operational.bReferencesDirty = Refresh.bReferenceCacheDirty;
+				Operational.CatalogWarning = Refresh.CatalogCacheWarning;
+				Operational.ReferenceWarning = Refresh.ReferenceCacheWarning;
+			}
+			else
+			{
+				Operational.bCatalogDirty = true;
+				Operational.bReferencesDirty = true;
+			}
 		}
 		return Refresh;
 	}
 
-	auto MarkAssetRegistryCachesDirty() -> void
+	auto Private::MarkAssetRegistryCachesDirty() -> void
 	{
 		FCacheOperationalState& Operational = GetCacheOperationalState();
 		std::lock_guard Lock(Operational.Mutex);
@@ -210,7 +223,7 @@ namespace Durin::Asset
 		FCacheOperationalState& Operational = GetCacheOperationalState();
 		std::lock_guard Lock(Operational.Mutex);
 		const FAssetRegistryPublication Publication =
-			GetAssetRegistryState().CapturePublication();
+			Private::GetAssetRegistryState().CapturePublication();
 		if (Operational.bCatalogDirty)
 		{
 			std::vector<Private::FRegistryCacheEntry> Entries;
