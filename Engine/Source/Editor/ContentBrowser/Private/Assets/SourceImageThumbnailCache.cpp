@@ -97,6 +97,13 @@ namespace Durin::Editor::ContentBrowser::Private
 		uint32 ActiveDecodeCount = 0;
 		bool bShuttingDown = false;
 
+		auto PruneCompletedTasks() -> void
+		{
+			std::erase_if(Tasks, [](const FTaskHandle& Task) {
+				return Task.IsComplete();
+			});
+		}
+
 		auto UnregisterTexture(FEntry& Entry) -> void
 		{
 			if (Entry.Texture && Mona::GetActiveUIBackend())
@@ -294,6 +301,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (Impl->bShuttingDown) return;
 		++Impl->FrameNumber;
 		for (auto& [Path, Entry] : Impl->Entries) Entry.bVisible = false;
+		Impl->PruneCompletedTasks();
 		Impl->DrainUploadResults();
 		Impl->DrainDecodeResults();
 		Impl->SubmitUploads();
@@ -422,5 +430,11 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FSourceImageThumbnailCache::IsShuttingDown() const -> bool
 	{
 		return Impl->bShuttingDown;
+	}
+
+	auto FSourceImageThumbnailCache::GetTrackedTaskCountForTesting() const
+		-> size_t
+	{
+		return Impl->Tasks.size();
 	}
 } // namespace Durin::Editor::ContentBrowser::Private

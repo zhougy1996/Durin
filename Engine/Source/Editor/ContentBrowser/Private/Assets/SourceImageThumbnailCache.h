@@ -36,6 +36,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto Clear() -> void;
 		auto Shutdown() -> void;
 		auto IsShuttingDown() const -> bool;
+		auto GetTrackedTaskCountForTesting() const -> size_t;
 
 	private:
 		struct FImpl;

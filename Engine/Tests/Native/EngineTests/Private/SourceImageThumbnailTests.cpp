@@ -189,6 +189,45 @@ namespace Durin::Editor::ContentBrowser::Private
 		ShutdownTaskScheduler(true);
 	}
 
+	TEST(FSourceImageThumbnailTests, CompletedDecodeTasksReleaseTrackedHandles)
+	{
+		ShutdownTaskScheduler(false);
+		struct FTaskSchedulerShutdownGuard
+		{
+			~FTaskSchedulerShutdownGuard() { ShutdownTaskScheduler(false); }
+		} SchedulerGuard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+		const std::array<uint8, 4> CorruptPng{0, 1, 2, 3};
+		const std::filesystem::path Path = WriteBinaryFixture(
+			"ReleasedThumbnailTask.png", std::as_bytes(std::span{CorruptPng}));
+
+		FSourceImageThumbnailCache Cache;
+		Cache.BeginFrame();
+		Cache.Request({
+			.Identity = "/Game/Textures/ReleasedThumbnailTask",
+			.PhysicalPath = Path.generic_string(),
+			.FileSize = CorruptPng.size(),
+			.LastWriteTime = std::filesystem::last_write_time(Path),
+			.Priority = Editor::EAssetThumbnailPriority::Visible});
+		Cache.EndFrame();
+		ASSERT_EQ(Cache.GetTrackedTaskCountForTesting(), 1u);
+
+		for (uint32 Attempt = 0;
+			Attempt < 1'000 && Cache.GetTrackedTaskCountForTesting() != 0;
+			++Attempt)
+		{
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			Cache.BeginFrame();
+			Cache.EndFrame();
+		}
+
+		EXPECT_EQ(Cache.Find("/Game/Textures/ReleasedThumbnailTask").State,
+			Editor::EAssetThumbnailState::Failed);
+		EXPECT_EQ(Cache.GetTrackedTaskCountForTesting(), 0u);
+		Cache.Shutdown();
+		ShutdownTaskScheduler(true);
+	}
+
 	TEST(FSourceImageThumbnailTests, ShutdownCancelsQueuedDecodeAndRecreatedCacheStartsClean)
 	{
 		ShutdownTaskScheduler(false);
