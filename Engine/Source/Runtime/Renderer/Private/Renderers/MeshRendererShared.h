@@ -25,80 +25,112 @@
 #include "Scene.h"
 #include "SceneView.h"
 #include "Shader/Shader.h"
+#include "Shader/MaterialShader.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "StaticMesh/StaticMeshResources.h"
 
 namespace Durin::RendererPrivate
 {
-	inline auto InitializeCompiledMaterialShaderMap(
-		const FShaderType& VertexType,
-		const FShaderType& FragmentType,
-		const FMaterialCompilerResult& MaterialProgram,
-		std::string_view FragmentEntryPoint,
-		const FShaderCompileOptions& VertexCompileOptions,
-		std::shared_ptr<FShaderMapBase>& OutShaderMap,
-		std::string& OutError) -> bool
+	inline auto GetLocalVertexFactoryShaderType() -> const FVertexFactoryType&
 	{
-		const auto Generated = std::ranges::find(
-			MaterialProgram.CompiledShaders, FragmentEntryPoint,
-			&FCompiledShader::SourceEntryPoint);
-		if (Generated == MaterialProgram.CompiledShaders.end())
-		{
-			OutError = std::format(
-				"Accepted material program has no {} stage.",
-				FragmentEntryPoint);
-			return false;
-		}
-		FShaderMapBase VertexMap;
-		const std::array<const FShaderType*, 1> VertexTypes{&VertexType};
-		if (!VertexMap.InitializeFromShaderTypes(
-			VertexTypes, VertexCompileOptions, OutError)) return false;
-		const uint32* VertexIndex = VertexMap.FindShaderIndex(&VertexType);
-		if (!VertexIndex || !VertexMap.GetCode())
-		{
-			OutError = "Fixed material vertex program produced no resource code.";
-			return false;
-		}
-		FShaderCompilerOutput Combined;
-		Combined.bSucceeded = true;
-		Combined.CompiledShaders = {
-			VertexMap.GetCode()->GetCompiledShader(*VertexIndex), *Generated};
-		const std::array<const FShaderType*, 2> Types{
-			&VertexType, &FragmentType};
-		auto Candidate = std::make_shared<FShaderMapBase>();
-		if (!Candidate->Initialize(
-			Types, Combined, VertexCompileOptions, OutError)) return false;
-		OutShaderMap = std::move(Candidate);
-		return true;
+		static const FVertexFactoryType Type("LocalVertexFactory");
+		return Type;
 	}
 
-	class FStaticMeshVertexShader : public FShader
+	inline auto GetSplineVertexFactoryShaderType() -> const FVertexFactoryType&
+	{
+		static const FVertexFactoryType Type("SplineVertexFactory");
+		return Type;
+	}
+
+	inline auto GetSkeletalVertexFactoryShaderType() -> const FVertexFactoryType&
+	{
+		static const FVertexFactoryType Type("SkeletalVertexFactory");
+		return Type;
+	}
+
+	inline auto GetTerrainVertexFactoryShaderType() -> const FVertexFactoryType&
+	{
+		static const FVertexFactoryType Type("TerrainVertexFactory");
+		return Type;
+	}
+
+	inline constexpr uint32 MaterialMeshPassForward = 0;
+	inline constexpr uint32 MaterialMeshPassGBuffer = 1;
+	inline constexpr uint32 MaterialMeshPassShadow = 2;
+	inline constexpr size_t MaterialShaderMapCacheEntryBudget = 256;
+	inline constexpr size_t MaterialPipelineCacheEntryBudget = 512;
+
+	inline auto InitializeMaterialShaderMap(
+		const FShaderType& VertexType,
+		const FShaderType& FragmentType,
+		const FVertexFactoryType& VertexFactoryType,
+		uint32 MeshPassKey,
+		const FMaterialShaderMapIdentity& Identity,
+		const FRenderResourceGeneration& Generation,
+		const FMaterialCompilerResult* MaterialProgram,
+		const FShaderCompileOptions& VertexCompileOptions,
+		FMaterialShaderMap& OutShaderMap,
+		std::string& OutError) -> bool
+	{
+		if (MaterialProgram != nullptr
+			&& (!MaterialProgram->bSucceeded
+				|| MaterialProgram->Identity != Identity.ProgramIdentity
+				|| MaterialProgram->PassContractVersion
+					!= CurrentMaterialPassContractVersion))
+		{
+			OutError = "Accepted material compiler result does not match the requested identity or pass contract.";
+			return false;
+		}
+		const std::array<const FShaderType*, 2> Types{
+			&VertexType, &FragmentType};
+		const std::span<const FCompiledShader> GeneratedStages = MaterialProgram
+			? std::span<const FCompiledShader>(MaterialProgram->CompiledShaders)
+			: std::span<const FCompiledShader>{};
+		return FMaterialShaderMap::TryCompile({
+			.Identity = Identity,
+			.Generation = Generation,
+			.Target = MaterialProgram ? MaterialProgram->Target
+				: std::string("vulkan-spirv-1.5"),
+			.VertexFactoryType = &VertexFactoryType,
+			.MeshPassKey = MeshPassKey,
+			.ShaderTypes = Types,
+			.CompileOptions = VertexCompileOptions,
+			.GeneratedStages = GeneratedStages,
+			.CompiledProgramIdentity = MaterialProgram
+				? MaterialProgram->Identity : FMaterialProgramIdentity{},
+			.CompiledTarget = MaterialProgram
+				? MaterialProgram->Target : std::string{},
+			.bCreateRHIShaders = true}, OutShaderMap, OutError);
+	}
+
+	class FStaticMeshVertexShader : public FMeshMaterialShader
 	{
 	public:
 		DURIN_BEGIN_SHADER_PARAMETERS(FStaticMeshVertexShader)
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
 		DURIN_END_SHADER_PARAMETERS();
 
-		DURIN_DECLARE_SHADER(
+		DURIN_DECLARE_MESH_MATERIAL_SHADER(
 			FStaticMeshVertexShader,
-			FShader,
+			FMeshMaterialShader,
 			"/Engine/StaticMeshBasePass",
 			EShaderFrequency::Vertex,
 			"VertexMain"
 		);
 	};
 
-	class FSplineMeshVertexShader : public FShader
+	class FSplineMeshVertexShader : public FMeshMaterialShader
 	{
 	public:
 		DURIN_BEGIN_SHADER_PARAMETERS(FSplineMeshVertexShader)
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
 			DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(SplineMesh);
 		DURIN_END_SHADER_PARAMETERS();
-		DURIN_DECLARE_SHADER(FSplineMeshVertexShader, FShader, "/Engine/StaticMeshBasePass", EShaderFrequency::Vertex, "VertexMain");
+		DURIN_DECLARE_MESH_MATERIAL_SHADER(FSplineMeshVertexShader, FMeshMaterialShader, "/Engine/StaticMeshBasePass", EShaderFrequency::Vertex, "VertexMain");
 	};
 
-	class FSkeletalMeshVertexShader : public FShader
+	class FSkeletalMeshVertexShader : public FMeshMaterialShader
 	{
 	public:
 		DURIN_BEGIN_SHADER_PARAMETERS(FSkeletalMeshVertexShader)
@@ -106,9 +138,9 @@ namespace Durin::RendererPrivate
 			DURIN_SHADER_PARAMETER_STORAGE_BUFFER(SkinPalette);
 		DURIN_END_SHADER_PARAMETERS();
 
-		DURIN_DECLARE_SHADER(
+		DURIN_DECLARE_MESH_MATERIAL_SHADER(
 			FSkeletalMeshVertexShader,
-			FShader,
+			FMeshMaterialShader,
 			"/Engine/StaticMeshBasePass",
 			EShaderFrequency::Vertex,
 			"VertexMain"

@@ -286,6 +286,22 @@ namespace Durin
 
 		TEST(
 			FRendererResourceSlotCacheTests,
+			FindOrAddBoundedRetainsExistingAndEvictsOldestOnInsertion)
+		{
+			FCache Cache;
+			Cache.FindOrAddBounded(1, 2);
+			Cache.FindOrAddBounded(2, 2);
+			EXPECT_EQ(Cache.FindOrAddBounded(1, 2).Key, 1);
+			EXPECT_EQ(Cache.Num(), 2u);
+			Cache.FindOrAddBounded(3, 2);
+			EXPECT_EQ(Cache.Num(), 2u);
+			EXPECT_EQ(Cache.Find(1), nullptr);
+			EXPECT_NE(Cache.Find(2), nullptr);
+			EXPECT_NE(Cache.Find(3), nullptr);
+		}
+
+		TEST(
+			FRendererResourceSlotCacheTests,
 			RetainedPayloadWeightIgnoresFailedSlotsAndTracksEviction)
 		{
 			FCache Cache;

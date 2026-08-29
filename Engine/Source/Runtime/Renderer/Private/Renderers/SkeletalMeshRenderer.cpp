@@ -11,21 +11,21 @@ namespace Durin
 	{
 		struct FShaderMapPayload
 		{
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FSkeletalMeshVertexShader> VertexShader;
-			TShaderRef<FSurfaceFragmentShader> FragmentShader;
-			TShaderRef<FSurfaceOpaqueShadowFragmentShader>
+			FMaterialShaderMap ShaderMap;
+			TMaterialShaderRef<FSkeletalMeshVertexShader> VertexShader;
+			TMaterialShaderRef<FSurfaceFragmentShader> FragmentShader;
+			TMaterialShaderRef<FSurfaceOpaqueShadowFragmentShader>
 				OpaqueShadowFragmentShader;
-			TShaderRef<FSurfaceMaskedShadowFragmentShader> ShadowFragmentShader;
+			TMaterialShaderRef<FSurfaceMaskedShadowFragmentShader> ShadowFragmentShader;
 		};
 		struct FPipelinePayload
 		{
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FSkeletalMeshVertexShader> VertexShader;
-			TShaderRef<FSurfaceFragmentShader> FragmentShader;
-			TShaderRef<FSurfaceOpaqueShadowFragmentShader>
+			FMaterialShaderMap ShaderMap;
+			TMaterialShaderRef<FSkeletalMeshVertexShader> VertexShader;
+			TMaterialShaderRef<FSurfaceFragmentShader> FragmentShader;
+			TMaterialShaderRef<FSurfaceOpaqueShadowFragmentShader>
 				OpaqueShadowFragmentShader;
-			TShaderRef<FSurfaceMaskedShadowFragmentShader> ShadowFragmentShader;
+			TMaterialShaderRef<FSurfaceMaskedShadowFragmentShader> ShadowFragmentShader;
 			FGraphicsPipelineStateRHIRef PipelineState;
 		};
 		TRendererResourceSlotCache<FMaterialShaderMapIdentity, FShaderMapPayload>
@@ -144,7 +144,7 @@ namespace Durin
 				Item.PipelineKey.Depth.bEnableTest = true;
 				Item.PipelineKey.Depth.CompareOp =
 					View.DepthConvention == ESceneDepthConvention::ReversedZ ? ERHIDepthCompareOp::GreaterOrEqual : ERHIDepthCompareOp::Less;
-				const EMaterialBlendMode BlendMode =
+				const auto BlendMode =
 					Item.Material.PlanningPassIdentity.ShaderMap.BlendMode;
 				Item.Pass = BlendMode == EMaterialBlendMode::Masked ? EMeshBasePass::Masked : BlendMode == EMaterialBlendMode::Translucent ? EMeshBasePass::Translucent :
 																												   EMeshBasePass::Opaque;
@@ -279,8 +279,9 @@ namespace Durin
 		const FMaterialRenderData& Material = Item.Material;
 		using FShaderResult = TRenderResourceCreateResult<FState::FShaderMapPayload>;
 		auto& ShaderMapCache = bShadowDepth ? State->ShadowShaderMaps : State->ShaderMaps;
-		auto& ShaderEntry = ShaderMapCache.FindOrAdd(
-			Material.PlanningPassIdentity.ShaderMap
+		auto& ShaderEntry = ShaderMapCache.FindOrAddBounded(
+			Material.PlanningPassIdentity.ShaderMap,
+			MaterialShaderMapCacheEntryBudget
 		);
 		FState::FShaderMapPayload* ShaderPayload = ShaderEntry.Slot.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
@@ -312,34 +313,21 @@ namespace Durin
 					FSurfaceMaskedShadowFragmentShader::StaticType();
 				FShaderType& OpaqueShadowFragmentType =
 					FSurfaceOpaqueShadowFragmentShader::StaticType();
-				std::vector<const FShaderType*> Types{&VertexType};
-				if (!bShadowDepth)
-					Types.push_back(&FragmentType);
-				else if (Identity.BlendMode == EMaterialBlendMode::Masked)
-					Types.push_back(&ShadowFragmentType);
-				else
-					Types.push_back(&OpaqueShadowFragmentType);
-				std::shared_ptr<FShaderMapBase> ShaderMap;
+				FMaterialShaderMap ShaderMap;
 				std::string Error;
 				const bool bOpaqueShadow = bShadowDepth
 					&& Identity.BlendMode != EMaterialBlendMode::Masked;
-				bool bInitialized = false;
-				if (bOpaqueShadow || !Material.CompiledProgram)
-				{
-					ShaderMap = std::make_shared<FShaderMapBase>();
-					bInitialized = ShaderMap->InitializeFromShaderTypes(
-						Types, Options, Error);
-				}
-				else
-				{
-					const FShaderType& GeneratedFragmentType = bShadowDepth
-						? ShadowFragmentType : FragmentType;
-					bInitialized = InitializeCompiledMaterialShaderMap(
-						VertexType, GeneratedFragmentType,
-						*Material.CompiledProgram,
-						bShadowDepth ? "ShadowFragmentMain" : "FragmentMain",
-						Options, ShaderMap, Error);
-				}
+				const FShaderType& SelectedFragmentType = bOpaqueShadow
+					? OpaqueShadowFragmentType
+					: bShadowDepth ? ShadowFragmentType : FragmentType;
+				const bool bInitialized = InitializeMaterialShaderMap(
+					VertexType, SelectedFragmentType,
+					GetSkeletalVertexFactoryShaderType(),
+					bShadowDepth ? MaterialMeshPassShadow : MaterialMeshPassForward,
+					Identity,
+					Coordinator.GetGeneration_RenderThread(),
+					bOpaqueShadow ? nullptr : Material.CompiledProgram.get(),
+					Options, ShaderMap, Error);
 				if (!bInitialized)
 					return FShaderResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
@@ -348,63 +336,19 @@ namespace Durin
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual
 					));
-				auto* Vertex = static_cast<FSkeletalMeshVertexShader*>(
-					ShaderMap->GetShader(&VertexType)
-				);
-				auto* Fragment = !bShadowDepth ? static_cast<FSurfaceFragmentShader*>(
-													 ShaderMap->GetShader(&FragmentType)
-												 ) :
-												 nullptr;
-				auto* ShadowFragment = bShadowDepth
-											   && Identity.BlendMode == EMaterialBlendMode::Masked ?
-										   static_cast<FSurfaceMaskedShadowFragmentShader*>(
-											   ShaderMap->GetShader(&ShadowFragmentType)
-										   ) :
-										   nullptr;
-				auto* OpaqueShadowFragment =
-					bShadowDepth && Identity.BlendMode != EMaterialBlendMode::Masked ? static_cast<FSurfaceOpaqueShadowFragmentShader*>(
-																						   ShaderMap->GetShader(&OpaqueShadowFragmentType)
-																					   ) :
-																					   nullptr;
-				if (Vertex == nullptr || (!bShadowDepth && Fragment == nullptr))
-					return FShaderResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderBinding,
-						"SkeletalMeshShaderMap", GetIdentityText(Identity),
-						"Compiled map did not contain both typed shaders.",
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual
-					));
-				if (bShadowDepth && Identity.BlendMode == EMaterialBlendMode::Masked
-					&& ShadowFragment == nullptr)
-					return FShaderResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderBinding,
-						"SkeletalMeshShaderMap", GetIdentityText(Identity),
-						"Compiled masked shader map did not contain the shadow fragment shader.",
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual
-					));
-				if (bShadowDepth && Identity.BlendMode != EMaterialBlendMode::Masked
-					&& OpaqueShadowFragment == nullptr)
-					return FShaderResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderBinding,
-						"SkeletalMeshShaderMap", GetIdentityText(Identity),
-						"Compiled shader map did not contain the opaque shadow fragment shader.",
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual
-					));
 				FState::FShaderMapPayload Candidate;
 				Candidate.ShaderMap = std::move(ShaderMap);
-				Candidate.VertexShader = {Vertex, Candidate.ShaderMap.get()};
-				if (Fragment != nullptr)
-					Candidate.FragmentShader = {Fragment, Candidate.ShaderMap.get()};
-				if (ShadowFragment != nullptr)
-					Candidate.ShadowFragmentShader = {
-						ShadowFragment, Candidate.ShaderMap.get()
-					};
-				if (OpaqueShadowFragment != nullptr)
-					Candidate.OpaqueShadowFragmentShader = {
-						OpaqueShadowFragment, Candidate.ShaderMap.get()
-					};
+				Candidate.VertexShader =
+					TMaterialShaderRef<FSkeletalMeshVertexShader>(Candidate.ShaderMap);
+				if (!bShadowDepth)
+					Candidate.FragmentShader =
+						TMaterialShaderRef<FSurfaceFragmentShader>(Candidate.ShaderMap);
+				if (bShadowDepth && Identity.BlendMode == EMaterialBlendMode::Masked)
+					Candidate.ShadowFragmentShader =
+						TMaterialShaderRef<FSurfaceMaskedShadowFragmentShader>(Candidate.ShaderMap);
+				if (bShadowDepth && Identity.BlendMode != EMaterialBlendMode::Masked)
+					Candidate.OpaqueShadowFragmentShader =
+						TMaterialShaderRef<FSurfaceOpaqueShadowFragmentShader>(Candidate.ShaderMap);
 				if (Candidate.VertexShader.GetRHIShader(false) == nullptr
 					|| (!bShadowDepth
 						&& Candidate.FragmentShader.GetRHIShader(false) == nullptr)
@@ -433,10 +377,11 @@ namespace Durin
 		EffectivePipelineKey.bHybridRetained =
 			!bShadowDepth && bHybridRetained;
 		auto& PipelineCache = bShadowDepth ? State->ShadowPipelines : State->Pipelines;
-		auto& PipelineEntry = PipelineCache.FindOrAdd(EffectivePipelineKey);
+		auto& PipelineEntry = PipelineCache.FindOrAddBounded(
+			EffectivePipelineKey, MaterialPipelineCacheEntryBudget);
 		FRenderResourceGeneration Generation =
 			Coordinator.GetGeneration_RenderThread();
-		Generation.Shader = ShaderEntry.Slot.GetPayloadGeneration().Shader;
+		Generation.Shader = ShaderPayload->ShaderMap.GetGeneration().Shader;
 		FState::FPipelinePayload* Pipeline = PipelineEntry.Slot.Resolve(
 			Generation,
 			[&EffectivePipelineKey, &PipelineEntry, ShaderPayload,
@@ -480,7 +425,7 @@ namespace Durin
 					}
 				}
 				Initializer.PipelineLayout =
-					Candidate.ShaderMap->GetMergedPipelineLayout();
+					Candidate.ShaderMap.GetPipelineLayout();
 				Candidate.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState(
 					FName(std::format("SkeletalMeshPipeline_{}", PipelineEntry.Index)),
 					Initializer

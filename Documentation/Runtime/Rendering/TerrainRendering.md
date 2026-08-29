@@ -117,8 +117,10 @@ the normal is transformed by the inverse-transpose matrix. The two triangles
 of each cell are `(A,B,C)` and `(B,D,C)`; the existing determinant-based front
 face policy handles mirrored component transforms.
 
-Terrain compiles the fixed Terrain vertex contract and combines it with the
-accepted program-identified generated surface fragments. Exact-v3 material binding, ErrorMaterial fallback, texture fallbacks,
+Terrain registers its fixed vertex contract as an `FMeshMaterialShader` under
+the stable Terrain Vertex Factory descriptor and combines it with accepted
+program-identified generated surface fragments in one exact
+`FMaterialShaderMap`. Exact-v3 material binding, ErrorMaterial fallback, texture fallbacks,
 Opaque/Masked/Translucent classification, two-sided state, depth
 policy, Lit/Unlit lighting, Solid/Wireframe rasterization, environment data,
 and Present/offscreen render-target layouts remain shared Renderer policy.
@@ -248,7 +250,9 @@ topology buffers by the complete topology key. Removing a scene proxy does not
 discard these bounded renderer-lifetime resources; reopening the unchanged
 payload therefore records reuse and performs no upload or topology creation.
 The caches retain at most 64 height revisions and 256 topology keys. Shader and
-pipeline slots similarly report exact lookup/create/reuse conservation. Device
+pipeline slots similarly report exact lookup/create/reuse conservation and
+retain at most 256 exact maps and 512 pipelines per local forward or shadow
+cache. Device
 invalidation and renderer shutdown release every retained Terrain resource;
 the next accepted draw reconstructs a complete generation on demand.
 

@@ -14,6 +14,10 @@
 
 namespace Durin::RendererPrivate
 {
+	DURIN_IMPLEMENT_MATERIAL_SHADER(FSurfaceFragmentShader);
+	DURIN_IMPLEMENT_MATERIAL_SHADER(FSurfaceMaskedShadowFragmentShader);
+	DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FSurfaceOpaqueShadowFragmentShader);
+
 	namespace
 	{
 		auto CreateSurfaceSampler(const FMaterialSamplerState& State)

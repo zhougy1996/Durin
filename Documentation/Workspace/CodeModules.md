@@ -28,8 +28,8 @@ direction.
 | `Engine` | Asset package construction, residency, loading, serialization and writing, cooking, and mutation; plus worlds, actors, components, levels, runtime asset types, asset compilation, input, render-facing engine objects, and producer-facing primitive draw submission | [source](../../Engine/Source/Runtime/Engine) |
 | `RHI` | Backend-neutral GPU resources, command lists, contexts, feature levels, shader parameters, and RHI-thread contracts | [source](../../Engine/Source/Runtime/RHI) |
 | `VulkanRHI` | Vulkan instance/device selection, queues, resources, pipelines, descriptors, swapchains, and backend diagnostics | [source](../../Engine/Source/Runtime/VulkanRHI) |
-| `RenderCore` | Rendering thread, render resources, global shader registration/maps, shader compilation foundations, vertex factories, scene views, simple-element value vocabulary, and renderer-module interfaces | [source](../../Engine/Source/Runtime/RenderCore) |
-| `Renderer` | Renderer scene representation, view preparation, render passes, feature renderers, simple-element collection/GPU execution, and frame execution | [source](../../Engine/Source/Runtime/Renderer) |
+| `RenderCore` | Rendering thread, render resources, Global/Material/mesh-Material shader registration and typed maps, stable Vertex Factory descriptors, shader compilation foundations, scene views, simple-element value vocabulary, and renderer-module interfaces | [source](../../Engine/Source/Runtime/RenderCore) |
+| `Renderer` | Renderer scene representation, accepted Material-result adaptation, bounded exact Material/mesh shader-map and pipeline storage, view preparation, render passes, feature renderers, simple-element collection/GPU execution, and frame execution | [source](../../Engine/Source/Runtime/Renderer) |
 | `MonaCore` | Reusable widget, event, UI-backend, and viewport display-source contracts with no application, native-window, or presentation lifetime | [source](../../Engine/Source/Runtime/MonaCore) |
 | `Mona` | Mona application lifetime, native windows, RHI-backed window presentation, frame facade, and higher-level viewport widgets | [source](../../Engine/Source/Runtime/Mona) |
 | `MonaImGui` | ImGui integration, backend rendering, property tables, widgets, icons, and third-party ImGui boundary | [source](../../Engine/Source/Runtime/MonaImGui) |
@@ -78,7 +78,7 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | asset package, redirector, loading, mutation, cook | `Engine` | `AssetRegistry` for persistent metadata; `CoreDObject` for object identity; editor modules for UI |
 | actor, component, level, world, runtime asset type | `Engine` | `CoreDObject` or rendering modules at their owned boundary |
 | debug line, point, sprite, primitive draw submission | `Engine` | `RenderCore` for copied value vocabulary; `Renderer` only for collection and GPU execution; `LevelEditor` only for editor-specific producers |
-| global shader, shader map, render resource, vertex factory, scene view | `RenderCore` | `RHI` for GPU abstraction; `Renderer` for frame use and explicit generation fan-out |
+| Global/Material/mesh shader category, typed shader map, render resource, stable Vertex Factory type, scene view | `RenderCore` | `Engine` for accepted Material compiler results; `RHI` for GPU abstraction; `Renderer` for adaptation, bounded exact-set storage, frame use, and explicit generation fan-out |
 | render pass, visibility, draw preparation, renderer scene | `Renderer` | `RenderCore`, `Engine`, then `RHI` |
 | Vulkan capability, device, pipeline, descriptor, swapchain | `VulkanRHI` | `RHI` for backend-neutral contract; `Renderer` only for consumer behavior |
 | editor workspace, reflected details, thumbnail manager/pool | `DurinEd` | The owning feature editor for concrete renderers; `ContentBrowser` for presentation |

@@ -35,8 +35,9 @@ RenderCore's [Global Shader](GlobalShaders.md) map. Each bounded exact shader
 set has its own transactional slot and strong `FGlobalShaderSetRef` lifetime.
 Renderer feature payloads retain typed `TShaderMapRef` values and the exact set
 used by their PSO; they do not allocate, cast, or own private global
-`FShaderMapBase` instances. Material and vertex-factory/mesh combinations keep
-their existing private identities.
+`FShaderMapBase` instances. Material and vertex-factory/mesh combinations use
+`TMaterialShaderRef` over an exact `FMaterialShaderMap`; consumers likewise do
+not initialize an ordinary map, perform a raw lookup, or cast a shader.
 
 `FSimpleElementRenderer` follows the same contract. Its line and sprite Global
 Shader sets are independently demandable, so one unavailable class skips only
@@ -61,12 +62,14 @@ This seam coordinates reconstruction; it does not recover a lost Vulkan device
 or a failed RHI executor.
 
 Compiled materials retain one immutable accepted `FMaterialCompilerResult` in
-Engine render data. Renderer shader slots use its program identity as key and
-recreate typed forward, GBuffer, and masked-shadow shader maps from its complete
-compiled fragment set. Shader reload may refresh the shared fixed vertex stage;
-device invalidation discards the combined RHI shaders and PSOs. Both reconstruct
-lazily on the rendering thread without rereading graph state or recompiling the
-material program.
+Engine render data. The Renderer adapter verifies its identity, target, pass
+contract, and generated entry point before combining accepted fragments with
+fixed mesh stages in one exact typed candidate. RenderCore validates reflection,
+bindings, set identity, and merged layout. Shader reload may refresh a fixed
+mesh stage; device invalidation discards combined RHI shaders and PSOs. Both
+reconstruct lazily without rereading graph state or recompiling generated
+Material IR. Failed same-device candidates retain the compatible complete map
+and pipeline; device-generation changes permit no RHI fallback.
 
 Frame-transient targets use the Renderer-private provider described by
 [Renderer Frame Preparation and Render Graph Execution](RendererFramePreparation.md).

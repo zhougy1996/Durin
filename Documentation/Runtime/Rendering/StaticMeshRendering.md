@@ -335,6 +335,15 @@ is part of shader-map, pipeline, diagnostic, and draw-sort identity; identical
 programs may reuse a candidate while distinct programs cannot alias. The effective pipeline key also
 contains polygon, cull, front-face, depth, and color-blend values, so mirrored
 winding, render mode, and every visible material policy select compatible PSOs.
+
+StaticMesh and SplineMesh vertex stages are registered
+`FMeshMaterialShader` types. Their exact typed map identity combines the
+Material identity with the stable Local or Spline Vertex Factory type and the
+forward, GBuffer, or shadow mesh pass. The pipeline retains strong typed vertex
+and fragment refs plus their merged layout; no draw-time raw shader-map lookup
+or cast is permitted. Forward and shadow map caches remain independent and are
+bounded to 256 exact maps, while their dependent pipeline caches retain at most
+512 entries.
 Texture resources use role-specific white, black, or flat-normal fallbacks;
 environment irradiance, prefilter, and BRDF-LUT resources are shared by the
 scene renderer and fall back together to black.

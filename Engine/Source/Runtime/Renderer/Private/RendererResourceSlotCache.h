@@ -57,6 +57,22 @@ namespace Durin
 				PayloadDependencies);
 		}
 
+		auto FindOrAddBounded(const KeyType& Key, size_t MaximumEntries)
+			-> FEntry&
+		{
+			check(MaximumEntries > 0);
+			if (FEntry* Existing = Find(Key)) return *Existing;
+			if (Entries.size() >= MaximumEntries)
+			{
+				auto Oldest = std::ranges::min_element(
+					Entries, {}, &FEntry::Index);
+				check(Oldest != Entries.end());
+				Entries.erase(Oldest);
+			}
+			return Entries.emplace_back(
+				Key, NextIndex++, PayloadDependencies);
+		}
+
 		auto Find(const KeyType& Key) -> FEntry*
 		{
 			const auto Existing = std::ranges::find(

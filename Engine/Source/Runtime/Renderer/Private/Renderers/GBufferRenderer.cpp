@@ -7,49 +7,49 @@
 #include "Resources/RenderTargetLayouts.h"
 #include "Renderers/RendererTransientTargetPool.h"
 #include "RHI.h"
-#include "Shader/Shader.h"
+#include "Shader/MaterialShader.h"
 #include "Shader/ShaderCompilerCore.h"
 
 namespace Durin
 {
 	namespace
 	{
-		class FGBufferLocalVertexShader final : public FShader
+		class FGBufferLocalVertexShader final : public FMeshMaterialShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferLocalVertexShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
 			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_SHADER(FGBufferLocalVertexShader, FShader,
+			DURIN_DECLARE_MESH_MATERIAL_SHADER(FGBufferLocalVertexShader, FMeshMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Vertex,
 				"VertexMain");
 		};
 
-		class FGBufferSplineVertexShader final : public FShader
+		class FGBufferSplineVertexShader final : public FMeshMaterialShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferSplineVertexShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(SplineMesh);
 			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_SHADER(FGBufferSplineVertexShader, FShader,
+			DURIN_DECLARE_MESH_MATERIAL_SHADER(FGBufferSplineVertexShader, FMeshMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Vertex,
 				"VertexMain");
 		};
 
-		class FGBufferSkeletalVertexShader final : public FShader
+		class FGBufferSkeletalVertexShader final : public FMeshMaterialShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferSkeletalVertexShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
 				DURIN_SHADER_PARAMETER_STORAGE_BUFFER(SkinPalette);
 			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_SHADER(FGBufferSkeletalVertexShader, FShader,
+			DURIN_DECLARE_MESH_MATERIAL_SHADER(FGBufferSkeletalVertexShader, FMeshMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Vertex,
 				"VertexMain");
 		};
 
-		class FGBufferTerrainVertexShader final : public FShader
+		class FGBufferTerrainVertexShader final : public FMeshMaterialShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferTerrainVertexShader)
@@ -58,12 +58,17 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Terrain);
 				DURIN_SHADER_PARAMETER_STORAGE_BUFFER(TerrainPatchOrigins);
 			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_SHADER(FGBufferTerrainVertexShader, FShader,
+			DURIN_DECLARE_MESH_MATERIAL_SHADER(FGBufferTerrainVertexShader, FMeshMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Vertex,
 				"VertexMain");
 		};
 
-		class FGBufferFragmentShader final : public FShader
+		DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FGBufferLocalVertexShader);
+		DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FGBufferSplineVertexShader);
+		DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FGBufferSkeletalVertexShader);
+		DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FGBufferTerrainVertexShader);
+
+		class FGBufferFragmentShader final : public FMaterialShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferFragmentShader)
@@ -85,10 +90,12 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(OpacitySampler);
 				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(OpacityMaskSampler);
 			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_SHADER(FGBufferFragmentShader, FShader,
+			DURIN_DECLARE_MATERIAL_SHADER(FGBufferFragmentShader, FMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment,
 				"GeometryFragmentMain");
 		};
+
+		DURIN_IMPLEMENT_MATERIAL_SHADER(FGBufferFragmentShader);
 
 		struct FGBufferShaderMapKey
 		{
@@ -125,12 +132,12 @@ namespace Durin
 
 	struct FGBufferRenderer::FPipeline
 	{
-		std::shared_ptr<FShaderMapBase> ShaderMap;
-		TShaderRef<FGBufferLocalVertexShader> LocalVertex;
-		TShaderRef<FGBufferSplineVertexShader> SplineVertex;
-		TShaderRef<FGBufferSkeletalVertexShader> SkeletalVertex;
-		TShaderRef<FGBufferTerrainVertexShader> TerrainVertex;
-		TShaderRef<FGBufferFragmentShader> Fragment;
+		FMaterialShaderMap ShaderMap;
+		TMaterialShaderRef<FGBufferLocalVertexShader> LocalVertex;
+		TMaterialShaderRef<FGBufferSplineVertexShader> SplineVertex;
+		TMaterialShaderRef<FGBufferSkeletalVertexShader> SkeletalVertex;
+		TMaterialShaderRef<FGBufferTerrainVertexShader> TerrainVertex;
+		TMaterialShaderRef<FGBufferFragmentShader> Fragment;
 		FVertexDeclarationRHIRef VertexDeclaration;
 		FGraphicsPipelineStateRHIRef PipelineState;
 		EGBufferVertexDomain VertexDomain = EGBufferVertexDomain::Local;
@@ -140,12 +147,12 @@ namespace Durin
 	{
 		struct FShaderMapPayload
 		{
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FGBufferLocalVertexShader> LocalVertex;
-			TShaderRef<FGBufferSplineVertexShader> SplineVertex;
-			TShaderRef<FGBufferSkeletalVertexShader> SkeletalVertex;
-			TShaderRef<FGBufferTerrainVertexShader> TerrainVertex;
-			TShaderRef<FGBufferFragmentShader> Fragment;
+			FMaterialShaderMap ShaderMap;
+			TMaterialShaderRef<FGBufferLocalVertexShader> LocalVertex;
+			TMaterialShaderRef<FGBufferSplineVertexShader> SplineVertex;
+			TMaterialShaderRef<FGBufferSkeletalVertexShader> SkeletalVertex;
+			TMaterialShaderRef<FGBufferTerrainVertexShader> TerrainVertex;
+			TMaterialShaderRef<FGBufferFragmentShader> Fragment;
 		};
 
 		TRendererResourceSlotCache<FGBufferShaderMapKey, FShaderMapPayload>
@@ -208,7 +215,8 @@ namespace Durin
 		const FGBufferShaderMapKey ShaderKey{
 			.Material = Request.Material.ShaderMap,
 			.VertexDomain = Request.VertexDomain};
-		auto& ShaderEntry = State->ShaderMaps.FindOrAdd(ShaderKey);
+		auto& ShaderEntry = State->ShaderMaps.FindOrAddBounded(
+			ShaderKey, RendererPrivate::MaterialShaderMapCacheEntryBudget);
 		using FShaderResult =
 			TRenderResourceCreateResult<FState::FShaderMapPayload>;
 		FState::FShaderMapPayload* Shaders = ShaderEntry.Slot.Resolve(
@@ -264,24 +272,20 @@ namespace Durin
 				}
 				FShaderType& FragmentType =
 					FGBufferFragmentShader::StaticType();
-				std::shared_ptr<FShaderMapBase> ShaderMap;
+				FMaterialShaderMap ShaderMap;
 				std::string ErrorMessage;
-				bool bInitialized = false;
-				if (CompiledProgram)
-				{
-					bInitialized = RendererPrivate::InitializeCompiledMaterialShaderMap(
-						*VertexType, FragmentType, *CompiledProgram,
-						"GeometryFragmentMain", Options, ShaderMap,
-						ErrorMessage);
-				}
-				else
-				{
-					ShaderMap = std::make_shared<FShaderMapBase>();
-					const std::array<const FShaderType*, 2> ShaderTypes{
-						VertexType, &FragmentType};
-					bInitialized = ShaderMap->InitializeFromShaderTypes(
-						ShaderTypes, Options, ErrorMessage);
-				}
+				const bool bInitialized = RendererPrivate::InitializeMaterialShaderMap(
+					*VertexType, FragmentType,
+					ShaderKey.VertexDomain == EGBufferVertexDomain::Spline
+						? RendererPrivate::GetSplineVertexFactoryShaderType()
+						: ShaderKey.VertexDomain == EGBufferVertexDomain::Skeletal
+							? RendererPrivate::GetSkeletalVertexFactoryShaderType()
+							: ShaderKey.VertexDomain == EGBufferVertexDomain::Terrain
+								? RendererPrivate::GetTerrainVertexFactoryShaderType()
+								: RendererPrivate::GetLocalVertexFactoryShaderType(),
+					RendererPrivate::MaterialMeshPassGBuffer, ShaderKey.Material,
+					Coordinator.GetGeneration_RenderThread(), CompiledProgram.get(),
+					Options, ShaderMap, ErrorMessage);
 				if (!bInitialized)
 				{
 					return FShaderResult::Failure(
@@ -294,54 +298,30 @@ namespace Durin
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual));
 				}
-				FShader* Vertex = ShaderMap->GetShader(VertexType);
-				auto* Fragment = static_cast<FGBufferFragmentShader*>(
-					ShaderMap->GetShader(&FragmentType));
-				if (Vertex == nullptr || Fragment == nullptr)
-				{
-					return FShaderResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::ShaderBinding,
-							"GBufferShaderMap",
-							std::to_string(static_cast<uint8>(
-								ShaderKey.VertexDomain)),
-							"Compiled map omitted a typed geometry shader.",
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual));
-				}
-
 				FState::FShaderMapPayload Candidate;
 				Candidate.ShaderMap = std::move(ShaderMap);
 				switch (ShaderKey.VertexDomain)
 				{
 				case EGBufferVertexDomain::Spline:
 					Candidate.SplineVertex =
-						TShaderRef<FGBufferSplineVertexShader>(
-							static_cast<FGBufferSplineVertexShader*>(Vertex),
-							Candidate.ShaderMap.get());
+						TMaterialShaderRef<FGBufferSplineVertexShader>(Candidate.ShaderMap);
 					break;
 				case EGBufferVertexDomain::Skeletal:
 					Candidate.SkeletalVertex =
-						TShaderRef<FGBufferSkeletalVertexShader>(
-							static_cast<FGBufferSkeletalVertexShader*>(Vertex),
-							Candidate.ShaderMap.get());
+						TMaterialShaderRef<FGBufferSkeletalVertexShader>(Candidate.ShaderMap);
 					break;
 				case EGBufferVertexDomain::Terrain:
 					Candidate.TerrainVertex =
-						TShaderRef<FGBufferTerrainVertexShader>(
-							static_cast<FGBufferTerrainVertexShader*>(Vertex),
-							Candidate.ShaderMap.get());
+						TMaterialShaderRef<FGBufferTerrainVertexShader>(Candidate.ShaderMap);
 					break;
 				case EGBufferVertexDomain::Local:
 				default:
 					Candidate.LocalVertex =
-						TShaderRef<FGBufferLocalVertexShader>(
-							static_cast<FGBufferLocalVertexShader*>(Vertex),
-							Candidate.ShaderMap.get());
+						TMaterialShaderRef<FGBufferLocalVertexShader>(Candidate.ShaderMap);
 					break;
 				}
-				Candidate.Fragment = TShaderRef<FGBufferFragmentShader>(
-					Fragment, Candidate.ShaderMap.get());
+				Candidate.Fragment =
+					TMaterialShaderRef<FGBufferFragmentShader>(Candidate.ShaderMap);
 				FRHIShader* VertexRHI = nullptr;
 				switch (ShaderKey.VertexDomain)
 				{
@@ -384,11 +364,11 @@ namespace Durin
 			.Depth = Request.Depth,
 			.VertexDeclaration = Request.VertexDeclaration,
 			.VertexDomain = Request.VertexDomain};
-		auto& PipelineEntry = State->Pipelines.FindOrAdd(PipelineKey);
+		auto& PipelineEntry = State->Pipelines.FindOrAddBounded(
+			PipelineKey, RendererPrivate::MaterialPipelineCacheEntryBudget);
 		FRenderResourceGeneration PipelineGeneration =
 			Coordinator.GetGeneration_RenderThread();
-		PipelineGeneration.Shader =
-			ShaderEntry.Slot.GetPayloadGeneration().Shader;
+		PipelineGeneration.Shader = Shaders->ShaderMap.GetGeneration().Shader;
 		using FPipelineResult =
 			TRenderResourceCreateResult<std::unique_ptr<FPipeline>>;
 		std::unique_ptr<FPipeline>* Pipeline = PipelineEntry.Slot.Resolve(
@@ -434,7 +414,7 @@ namespace Durin
 				Initializer.RasterizerState = PipelineKey.Rasterizer;
 				Initializer.DepthStencilState = PipelineKey.Depth;
 				Initializer.PipelineLayout =
-					Candidate->ShaderMap->GetMergedPipelineLayout();
+					Candidate->ShaderMap.GetPipelineLayout();
 				Candidate->PipelineState =
 					GDynamicRHI->RHICreateGraphicsPipelineState(
 						FName(std::format("GBufferPipeline_{}",

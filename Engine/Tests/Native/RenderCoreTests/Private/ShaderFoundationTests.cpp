@@ -6,6 +6,7 @@
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
 #include "Shader/GlobalShader.h"
+#include "Shader/MaterialShader.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "Shader/ShaderPaths.h"
@@ -38,6 +39,25 @@ namespace Durin
 
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FGlobalFixtureVertexShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FGlobalFixtureFragmentShader);
+
+		class FMaterialFixtureVertexShader : public FMeshMaterialShader
+		{
+		public:
+			DURIN_DECLARE_MESH_MATERIAL_SHADER(
+				FMaterialFixtureVertexShader, FMeshMaterialShader,
+				"/Unit/MaterialShader", EShaderFrequency::Vertex, "vertexMain");
+		};
+
+		class FMaterialFixtureFragmentShader : public FMaterialShader
+		{
+		public:
+			DURIN_DECLARE_MATERIAL_SHADER(
+				FMaterialFixtureFragmentShader, FMaterialShader,
+				"/Unit/MaterialShader", EShaderFrequency::Fragment, "fragmentMain");
+		};
+
+		DURIN_IMPLEMENT_MESH_MATERIAL_SHADER(FMaterialFixtureVertexShader);
+		DURIN_IMPLEMENT_MATERIAL_SHADER(FMaterialFixtureFragmentShader);
 
 		class FStaticVertexShader : public FShader
 		{
@@ -226,6 +246,148 @@ namespace Durin
 			}
 		}
 
+	}
+
+	TEST(FShaderFoundationTests, MaterialShaderTypesRegisterInTheirOwnCategory)
+	{
+		const auto& Types = FMaterialShaderType::GetTypeList();
+		EXPECT_NE(std::ranges::find(
+			Types, &FMaterialFixtureVertexShader::StaticType()), Types.end());
+		EXPECT_NE(std::ranges::find(
+			Types, &FMaterialFixtureFragmentShader::StaticType()), Types.end());
+		const auto& MeshTypes = FMeshMaterialShaderType::GetTypeList();
+		EXPECT_NE(std::ranges::find(
+			MeshTypes, &FMaterialFixtureVertexShader::StaticType()), MeshTypes.end());
+		const auto& GlobalTypes = FGlobalShaderType::GetTypeList();
+		EXPECT_EQ(std::ranges::find_if(
+			GlobalTypes, [](const FGlobalShaderType* Type) {
+				return static_cast<const FShaderType*>(Type)
+					== static_cast<const FShaderType*>(
+						&FMaterialFixtureVertexShader::StaticType());
+			}),
+			GlobalTypes.end());
+	}
+
+	TEST(FShaderFoundationTests, MaterialShaderIdentityIsDeterministicAndOrdered)
+	{
+		FMaterialShaderPermutationIdentity First{
+			.Material = {
+				.ProgramIdentity = {.Digest = {.HashLow = 1, .HashHigh = 2}},
+				.BlendMode = FMaterialShaderBlendModeKey(1),
+				.ShadingModel = FMaterialShaderShadingModelKey(0)},
+			.ShaderType = "Fixture",
+			.EntryPoint = "fragmentMain",
+			.Target = "vulkan-spirv-1.5",
+			.PermutationId = 3,
+			.Frequency = EShaderFrequency::Fragment};
+		FMaterialShaderPermutationIdentity Same = First;
+		FMaterialShaderPermutationIdentity Later = First;
+		Later.PermutationId = 4;
+		EXPECT_EQ(GetMaterialShaderIdentityHash(First),
+			GetMaterialShaderIdentityHash(Same));
+		EXPECT_NE(GetMaterialShaderIdentityHash(First),
+			GetMaterialShaderIdentityHash(Later));
+		EXPECT_TRUE(MaterialShaderIdentityLess(First, Later));
+		EXPECT_FALSE(GetMaterialShaderIdentityText(First).empty());
+	}
+
+	TEST(FShaderFoundationTests, MaterialShaderMapRetainsTypedRefsAndStableSetIdentity)
+	{
+		FShaderType& VertexType = FMaterialFixtureVertexShader::StaticType();
+		FShaderType& FragmentType = FMaterialFixtureFragmentShader::StaticType();
+		static const FVertexFactoryType VertexFactoryType("FixtureVertexFactory");
+		const FMaterialShaderMapIdentity Identity{
+			.ProgramIdentity = {.Digest = {.HashLow = 11, .HashHigh = 12}},
+			.BlendMode = FMaterialShaderBlendModeKey(0),
+			.ShadingModel = FMaterialShaderShadingModelKey(1)};
+		const FRenderResourceGeneration Generation{.Shader = 7, .Device = 9};
+
+		const std::array<const FShaderType*, 2> TypesA{&VertexType, &FragmentType};
+		FShaderCompilerOutput OutputA;
+		OutputA.bSucceeded = true;
+		OutputA.CompiledShaders = {
+			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "MaterialVertex", 51),
+			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "MaterialFragment", 52)};
+		FMaterialShaderMap MapA;
+		std::string Error;
+		ASSERT_TRUE(FMaterialShaderMap::TryCreate({
+			.Identity = Identity,
+			.Generation = Generation,
+			.Target = "vulkan-spirv-1.5",
+			.VertexFactoryType = &VertexFactoryType,
+			.MeshPassKey = 1,
+			.ShaderTypes = TypesA,
+			.CompilerOutput = OutputA,
+			.bContainsGeneratedMaterialStages = true,
+			.CompiledProgramIdentity = Identity.ProgramIdentity,
+			.CompiledTarget = "vulkan-spirv-1.5",
+			.bCreateRHIShaders = false}, MapA, Error)) << Error;
+
+		const std::array<const FShaderType*, 2> TypesB{&FragmentType, &VertexType};
+		FShaderCompilerOutput OutputB;
+		OutputB.bSucceeded = true;
+		OutputB.CompiledShaders = {
+			MakeCompiledShader(EShaderFrequency::Fragment, "fragmentMain", "MaterialFragment", 52),
+			MakeCompiledShader(EShaderFrequency::Vertex, "vertexMain", "MaterialVertex", 51)};
+		FMaterialShaderMap MapB;
+		ASSERT_TRUE(FMaterialShaderMap::TryCreate({
+			.Identity = Identity,
+			.Generation = Generation,
+			.Target = "vulkan-spirv-1.5",
+			.VertexFactoryType = &VertexFactoryType,
+			.MeshPassKey = 1,
+			.ShaderTypes = TypesB,
+			.CompilerOutput = OutputB,
+			.bContainsGeneratedMaterialStages = true,
+			.CompiledProgramIdentity = Identity.ProgramIdentity,
+			.CompiledTarget = "vulkan-spirv-1.5",
+			.bCreateRHIShaders = false}, MapB, Error)) << Error;
+		EXPECT_EQ(MapA.GetCompatibilityHash(), MapB.GetCompatibilityHash());
+		EXPECT_EQ(MapA.GetCompatibilityText(), MapB.GetCompatibilityText());
+
+		TMaterialShaderRef<FMaterialFixtureFragmentShader> Fragment(MapA);
+		ASSERT_TRUE(Fragment);
+		EXPECT_EQ(Fragment.GetIdentity(), Identity);
+		EXPECT_EQ(Fragment.GetGeneration(), Generation);
+		MapA = {};
+		EXPECT_TRUE(Fragment);
+		EXPECT_EQ(Fragment.GetShader()->GetType(), &FragmentType);
+	}
+
+	TEST(FShaderFoundationTests, MaterialShaderMapRejectsWrongProgramAndEntryPoint)
+	{
+		FShaderType& FragmentType = FMaterialFixtureFragmentShader::StaticType();
+		const std::array<const FShaderType*, 1> Types{&FragmentType};
+		FShaderCompilerOutput Output;
+		Output.bSucceeded = true;
+		Output.CompiledShaders = {MakeCompiledShader(
+			EShaderFrequency::Fragment, "fragmentMain", "MaterialFragment", 61)};
+		const FMaterialShaderMapIdentity Identity{
+			.ProgramIdentity = {.Digest = {.HashLow = 1, .HashHigh = 1}}};
+		FMaterialShaderMap Map;
+		std::string Error;
+		EXPECT_FALSE(FMaterialShaderMap::TryCreate({
+			.Identity = Identity,
+			.Target = "vulkan-spirv-1.5",
+			.ShaderTypes = Types,
+			.CompilerOutput = Output,
+			.bContainsGeneratedMaterialStages = true,
+			.CompiledProgramIdentity = {.Digest = {.HashLow = 2, .HashHigh = 2}},
+			.CompiledTarget = "vulkan-spirv-1.5",
+			.bCreateRHIShaders = false}, Map, Error));
+		EXPECT_NE(Error.find("does not match requested identity"), std::string::npos);
+
+		Output.CompiledShaders[0].SourceEntryPoint = "missingMain";
+		EXPECT_FALSE(FMaterialShaderMap::TryCreate({
+			.Identity = Identity,
+			.Target = "vulkan-spirv-1.5",
+			.ShaderTypes = Types,
+			.CompilerOutput = Output,
+			.bContainsGeneratedMaterialStages = true,
+			.CompiledProgramIdentity = Identity.ProgramIdentity,
+			.CompiledTarget = "vulkan-spirv-1.5",
+			.bCreateRHIShaders = false}, Map, Error));
+		EXPECT_NE(Error.find("entry point"), std::string::npos);
 	}
 
 	TEST(FShaderFoundationTests, ShaderMapLookupByTypeIsStable)

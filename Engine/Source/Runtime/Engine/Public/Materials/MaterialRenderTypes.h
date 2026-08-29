@@ -3,6 +3,7 @@
 #include "Materials/MaterialTypes.h"
 #include "Materials/MaterialProgramCompiler.h"
 #include "Misc/EnumClassFlags.h"
+#include "Shader/MaterialShaderIdentity.h"
 
 #include <array>
 #include <cstddef>
@@ -27,23 +28,9 @@ namespace Durin
 		Texture2D,
 	};
 
-	using FMaterialRenderLayoutVersion = uint32;
-	inline constexpr FMaterialRenderLayoutVersion CurrentMaterialRenderLayoutVersion = 3;
 	inline constexpr uint32 MaterialRenderMaxFieldCount = 256;
 	inline constexpr uint32 MaterialRenderMaxResourceCount = 64;
 	inline constexpr uint32 MaterialRenderMaxUniformPayloadBytes = 16 * 1024;
-
-	// Identifies the exact current field table and shader binding contract.
-	inline constexpr FGuid MaterialRenderLayoutV3Id{
-		0xd71bc1d4, 0xa5894f47, 0x9b5c08b5, 0xf42d75b2};
-
-	struct FMaterialRenderLayoutIdentity
-	{
-		FMaterialRenderLayoutVersion Version = CurrentMaterialRenderLayoutVersion;
-		FGuid Id = MaterialRenderLayoutV3Id;
-
-		auto operator==(const FMaterialRenderLayoutIdentity&) const -> bool = default;
-	};
 
 	struct FMaterialRenderField
 	{
@@ -234,18 +221,6 @@ namespace Durin
 		const FMaterialRenderLayout& Layout,
 		FMaterialRenderValidationDiagnostic& OutDiagnostic
 	) -> bool;
-	// Contains the renderer-ready subset of resolved material parameters.
-	struct FMaterialShaderMapIdentity
-	{
-		FMaterialRenderLayoutIdentity RenderLayout;
-		FMaterialProgramIdentity ProgramIdentity;
-		EMaterialBlendMode BlendMode = EMaterialBlendMode::Opaque;
-		EMaterialShadingModel ShadingModel = EMaterialShadingModel::Lit;
-		float OpacityMaskThreshold = 0.333f;
-
-		auto operator==(const FMaterialShaderMapIdentity&) const -> bool = default;
-	};
-
 	struct FMaterialPlanningPassIdentity
 	{
 		FMaterialShaderMapIdentity ShaderMap;
@@ -262,8 +237,8 @@ namespace Durin
 		FMaterialPlanningPassIdentity PlanningPassIdentity{
 			.ShaderMap = {
 				.RenderLayout = {},
-				.BlendMode = EMaterialBlendMode::Opaque,
-				.ShadingModel = EMaterialShadingModel::Unlit,
+				.BlendMode = FMaterialShaderBlendModeKey(EMaterialBlendMode::Opaque),
+				.ShadingModel = FMaterialShaderShadingModelKey(EMaterialShadingModel::Unlit),
 				.OpacityMaskThreshold = 0.333f,
 			},
 			.bTwoSided = true,

@@ -226,6 +226,19 @@ resource-free fragment. StaticMesh, SplineMesh, SkeletalMesh, Terrain, Material
 Preview, and thumbnails therefore consume the same accepted surface program;
 none reads the authored graph or IR.
 
+RenderCore represents those sets with `FMaterialShaderMap` and strongly owned
+`TMaterialShaderRef` values. Intrinsic generated fragments derive from
+`FMaterialShader`; Local, Spline, Skeletal, Terrain, GBuffer, and opaque-shadow
+mesh stages derive from `FMeshMaterialShader`. Mesh compatibility adds only a
+registered stable Vertex Factory descriptor, mesh-pass key, frequency, and
+local permutation to the existing Material identity. Runtime factory pointers,
+vertex declarations, streams, and PSO state remain outside shader identity.
+Each geometry family retains independent exact-set caches, bounded to 256 maps
+and 512 pipelines per cache, because the lower shader-resource cache already
+shares identical code/RHI resources and a second hierarchy would widen failure
+and eviction domains without demonstrated sharing. Maps retain no Material
+asset or render proxy.
+
 Generated forward evaluation uses the same world normal frame, specular-AA,
 directional/local/environment lighting, shadow, UV transform/rotation, Terrain
 coverage, and exact-v3 binding helpers as the fixed characterization path.

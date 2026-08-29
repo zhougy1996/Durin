@@ -6,6 +6,33 @@
 
 namespace Durin
 {
+	namespace
+	{
+		auto GetVertexFactoryTypes()
+			-> std::vector<const FVertexFactoryType*>&
+		{
+			static std::vector<const FVertexFactoryType*> Types;
+			return Types;
+		}
+	}
+
+	FVertexFactoryType::FVertexFactoryType(std::string_view InName)
+		: Name(InName), StableKey(FXxHash64::HashBuffer(InName))
+	{
+		checkf(!Name.empty(), "Vertex Factory type name must not be empty");
+		auto& Types = GetVertexFactoryTypes();
+		checkf(std::ranges::none_of(Types, [this](const FVertexFactoryType* Type) {
+			return Type->GetName() == Name;
+		}), "Duplicate Vertex Factory type: {}", Name);
+		Types.push_back(this);
+	}
+
+	auto FVertexFactoryType::GetTypeList()
+		-> const std::vector<const FVertexFactoryType*>&
+	{
+		return GetVertexFactoryTypes();
+	}
+
 	FVertexFactory::FVertexFactory() = default;
 	FVertexFactory::~FVertexFactory() = default;
 

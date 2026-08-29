@@ -11,9 +11,10 @@ Last reviewed: 2026-08-29
 `FGlobalShader` is the fixed, non-Material shader category. Its
 `FGlobalShaderType` reuses the ordinary compiler, reflection, parameter
 metadata, shader-map resource code, and lazy RHI shader implementation.
-Material programs and the vertex-factory/mesh combinations used by GBuffer,
-static mesh, skeletal mesh, and terrain rendering remain on their compiled
-material and mesh identities.
+Material programs use the sibling `FMaterialShader` category. Vertex-factory
+and mesh-pass combinations use `FMeshMaterialShader`, whose identity adds the
+registered stable Vertex Factory type, mesh-pass key, and local permutation;
+neither category is admitted to a Global Shader set.
 
 RenderCore owns the process `FGlobalShaderMap`. Renderer does not own private
 `FShaderMapBase` instances for global shaders. A shader class declares its
@@ -31,8 +32,8 @@ The initial inventory is deliberately closed over fixed Renderer programs:
 | Category | Families | Ownership |
 | --- | --- | --- |
 | Global | EditorGrid, Gizmo, OverlayLine, OverlayIcon, GBufferDebug, SkyBox, PostProcess Copy/FXAA, ContactVisibility compute/fragment, DeferredDirectionalLighting, GTAO raw/filter, VolumetricCloud compute/fragment/temporal/composite, VolumetricCloudShadow compute/fragment | 39 registered types in 20 exact sets, owned by RenderCore |
-| Material | Surface Material and authored GBuffer programs | Material identities and Material compile lifecycle |
-| Vertex-factory/mesh | GBuffer, StaticMesh, SkeletalMesh, Terrain, and shared mesh-stage combinations | Existing mesh/vertex-factory shader maps |
+| Material | Generated forward, GBuffer, and masked-shadow fragments | RenderCore `FMaterialShaderMap` payloads built from Engine's accepted immutable compiler result |
+| Vertex-factory/mesh | GBuffer, StaticMesh, SplineMesh, SkeletalMesh, Terrain, and fixed opaque-shadow combinations | The same exact typed map API using `FMeshMaterialShader` identity |
 | Renderer-local | TextureEditor preview and Mona ImGui backend shaders | Their defining feature modules and ordered module shutdown |
 
 Generated Material programs remain generated rather than global. No eligible

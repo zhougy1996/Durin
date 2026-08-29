@@ -2,12 +2,27 @@
 
 #include "RenderCoreAPI.h"
 
+#include "Hash/XxHash.h"
 #include "RHI.h"
 #include "RenderResource.h"
 
 namespace Durin
 {
 	class FRHICommandListImmediate;
+
+	class FVertexFactoryType
+	{
+	public:
+		RENDERCORE_API explicit FVertexFactoryType(std::string_view InName);
+		auto GetName() const -> std::string_view { return Name; }
+		auto GetStableKey() const -> FXxHash64 { return StableKey; }
+		RENDERCORE_API static auto GetTypeList()
+			-> const std::vector<const FVertexFactoryType*>&;
+
+	private:
+		std::string Name;
+		FXxHash64 StableKey;
+	};
 
 	struct FVertexStreamComponent
 	{

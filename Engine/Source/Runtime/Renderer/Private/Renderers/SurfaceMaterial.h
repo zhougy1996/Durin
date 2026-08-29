@@ -5,7 +5,7 @@
 #include "RenderResourceCreation.h"
 #include "RHICommandList.h"
 #include "RHIResources.h"
-#include "Shader/Shader.h"
+#include "Shader/MaterialShader.h"
 
 #include <array>
 #include <cstddef>
@@ -97,7 +97,7 @@ namespace Durin
 			return Result;
 		}
 
-		class FSurfaceFragmentShader final : public FShader
+		class FSurfaceFragmentShader final : public FMaterialShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FSurfaceFragmentShader)
@@ -127,20 +127,20 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_SAMPLER_OPTIONAL(DirectionalShadowSampler);
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_SHADER(FSurfaceFragmentShader, FShader,
+			DURIN_DECLARE_MATERIAL_SHADER(FSurfaceFragmentShader, FMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment,
 				"FragmentMain");
 		};
 
-		class FSurfaceOpaqueShadowFragmentShader final : public FShader
+		class FSurfaceOpaqueShadowFragmentShader final : public FMeshMaterialShader
 		{
 		public:
-			DURIN_DECLARE_SHADER(FSurfaceOpaqueShadowFragmentShader, FShader,
+			DURIN_DECLARE_MESH_MATERIAL_SHADER(FSurfaceOpaqueShadowFragmentShader, FMeshMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment,
 				"OpaqueShadowFragmentMain");
 		};
 
-		class FSurfaceMaskedShadowFragmentShader final : public FShader
+		class FSurfaceMaskedShadowFragmentShader final : public FMaterialShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FSurfaceMaskedShadowFragmentShader)
@@ -149,7 +149,7 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_SAMPLER(OpacityMaskSampler);
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_SHADER(FSurfaceMaskedShadowFragmentShader, FShader,
+			DURIN_DECLARE_MATERIAL_SHADER(FSurfaceMaskedShadowFragmentShader, FMaterialShader,
 				"/Engine/StaticMeshBasePass", EShaderFrequency::Fragment,
 				"ShadowFragmentMain");
 		};

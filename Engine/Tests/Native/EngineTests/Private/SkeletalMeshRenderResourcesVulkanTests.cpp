@@ -1,4 +1,5 @@
 #include "CoreGlobals.h"
+#include "Asset/AssetCompilingManager.h"
 #include "DynamicRHI.h"
 #include "Rendering/SkeletalMeshSceneProxy.h"
 #include "Rendering/SplineMeshSceneProxy.h"
@@ -433,6 +434,9 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 					? "SkeletalTranslucentMaterial"
 					: "SkeletalOpaqueMaterial"));
 		auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, Name);
+		Durin::FMaterialProgramValidationResult ProgramValidation;
+		EXPECT_TRUE(Material->SetMaterialProgram(
+			Durin::MakeCanonicalMaterialProgram(), ProgramValidation));
 		EXPECT_TRUE(Material->SetStaticProperties(
 			Durin::FMaterialStaticProperties{
 				.BlendMode = BlendMode,
@@ -441,6 +445,11 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			}));
 		EXPECT_TRUE(Material->SetVectorParameterValue(
 			Durin::MaterialParameters::BaseColorName(), Color));
+		Durin::DObject* CompilationObject = Material;
+		Durin::FAssetCompilingManager::Get().FinishCompilationForObjects(
+			std::span<Durin::DObject* const>(&CompilationObject, 1));
+		EXPECT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+		EXPECT_NE(Material->GetAcceptedCompiledProgram(), nullptr);
 		return Material->GetMaterialRenderProxy();
 	};
 	auto Opaque = MakeMaterial(
@@ -524,14 +533,28 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	EXPECT_TRUE(std::ranges::any_of(*Readback,
 		[](std::byte Value) { return Value != std::byte{0}; }));
 	size_t RedPixels = 0;
+	uint8 MaximumRed = 0;
+	uint8 MaximumGreen = 0;
+	uint8 MaximumBlue = 0;
 	for (size_t Offset = 0; Offset + 3 < Readback->size(); Offset += 4)
+	{
+		MaximumRed = std::max(MaximumRed,
+			std::to_integer<uint8>((*Readback)[Offset]));
+		MaximumGreen = std::max(MaximumGreen,
+			std::to_integer<uint8>((*Readback)[Offset + 1]));
+		MaximumBlue = std::max(MaximumBlue,
+			std::to_integer<uint8>((*Readback)[Offset + 2]));
 		RedPixels += std::to_integer<uint8>((*Readback)[Offset])
 							 > std::to_integer<uint8>((*Readback)[Offset + 1]) + 20
 							 && std::to_integer<uint8>((*Readback)[Offset])
 							 > std::to_integer<uint8>((*Readback)[Offset + 2]) + 20 ?
 						 1u :
 						 0u;
-	EXPECT_GT(RedPixels, 0u);
+	}
+	EXPECT_GT(RedPixels, 0u)
+		<< "maximum RGB = " << static_cast<uint32>(MaximumRed) << ", "
+		<< static_cast<uint32>(MaximumGreen) << ", "
+		<< static_cast<uint32>(MaximumBlue);
 	auto RenderLitReadback = [&](
 		std::string Name,
 		bool bEnableGBufferQualification = false,

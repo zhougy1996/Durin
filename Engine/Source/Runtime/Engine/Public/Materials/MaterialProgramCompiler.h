@@ -4,6 +4,7 @@
 #include "Hash/XxHash.h"
 #include "Materials/MaterialProgramTypes.h"
 #include "Materials/MaterialTypes.h"
+#include "Shader/MaterialShaderIdentity.h"
 #include "Shader/ShaderCompilerCore.h"
 
 #include <span>
@@ -83,15 +84,6 @@ namespace Durin
 		std::vector<uint32> SurfaceOutputs;
 
 		auto operator==(const FMaterialIR&) const -> bool = default;
-	};
-
-	struct FMaterialProgramIdentity
-	{
-		FXxHash128 Digest;
-
-		auto IsValid() const -> bool { return !Digest.IsZero(); }
-		auto ToString() const -> std::string { return Digest.ToString(); }
-		auto operator==(const FMaterialProgramIdentity&) const -> bool = default;
 	};
 
 	struct FMaterialNormalizationResult

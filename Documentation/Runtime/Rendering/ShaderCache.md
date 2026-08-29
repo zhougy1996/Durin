@@ -96,8 +96,8 @@ published to disk. Correcting authored source therefore produces a new
 dependency fingerprint and variant key without restarting the compile service.
 
 Renderer exposes two demand-driven reload modes. It explicitly fans accepted
-generations into RenderCore's global shader map and its remaining Material/mesh
-resource owners. The
+generations into RenderCore's Global Shader map and Renderer-owned exact
+`FMaterialShaderMap` slots. The
 `renderer.reload-shaders changed` command advances the Renderer shader-resource
 generation; the next lookup for each demanded shader-backed resource validates
 its dependencies and reuses or compiles the resulting variant normally.
@@ -107,9 +107,10 @@ bypassing both successful memory and disk output reuse.
 
 Neither command eagerly recompiles every registered shader type or material
 identity. The console request is ordered through the render-command queue, and
-resource slots decide when a stale identity is next demanded. Global shader
-sets publish compilation, binding, and RHI state atomically; dependent pipeline
-payloads retain the exact set used to construct them. A failure leaves a valid
+resource slots decide when a stale identity is next demanded. Global Shader
+sets and typed Material/mesh sets publish compilation, binding, merged layout,
+and RHI state atomically; dependent pipeline payloads retain strong typed refs
+to the exact set used to construct them. A failure leaves a valid
 same-device last-known-good payload drawable when one exists, while a
 successful candidate replaces it atomically. See
 [Global Shaders](GlobalShaders.md) and
@@ -145,7 +146,15 @@ under the physical-path contract in [File I/O](../Core/FileIO.md).
 
 ## Lifetime and Retention
 
-The compiled-output LRU retains at most 128 request results. Shader-map cache entries hold weak references to `FShaderMapResourceCode` and `FShaderMapResource`; destroying the final shader map releases compiled code and any lazily created RHI shaders. `GetShaderMapResourceCacheStats()` prunes expired entries while reporting the live cache size.
+The compiled-output LRU retains at most 128 request results. Shader-map cache
+entries hold weak references to `FShaderMapResourceCode` and
+`FShaderMapResource`; destroying the final shader map releases compiled code
+and any lazily created RHI shaders. `GetShaderMapResourceCacheStats()` prunes
+expired entries while reporting the live cache size. Renderer families retain
+at most 256 exact Material shader maps and 512 dependent pipelines per local
+cache. Existing hits remain stable; inserting beyond the bound evicts the
+oldest slot. These payloads contain value identities and compiled/RHI resources,
+never Material assets or render proxies.
 
 Each `FShaderCacheStore` defaults to at most 64 variant directories and 256 MiB per virtual shader. After a successful publication, maintenance orders variants by last-write time and then name, removes the oldest candidates, and always protects the variant just published. A single protected variant may exceed the byte budget because deleting the only valid result would make a successful publication immediately useless.
 
