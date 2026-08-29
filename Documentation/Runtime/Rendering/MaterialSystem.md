@@ -100,11 +100,13 @@ deep-copies program values while preserving program GUIDs; presentation names
 round trip but do not affect rendering semantics.
 
 Base materials also persist bounded `EditorOnly` graph presentation containing
-one integral position per live node GUID. It sanitizes independently from the
-program and never enters validation, normalized IR, compile snapshots, shader
-identity, derived data, or Cook. MaterialEditor's shared inspection, command,
-canvas, clipboard, transaction, and diagnostic-navigation boundary is defined
-by [Material Graph Operations](../../Editor/Architecture/MaterialGraphOperations.md).
+one integral position per live node GUID and an optional integral position for
+the derived Material Output terminal. Presentation schema 2 sanitizes both
+domains independently from the program and never enters validation, normalized
+IR, compile snapshots, shader identity, derived data, or Cook. MaterialEditor's
+shared inspection, command, canvas, clipboard, transaction, and
+diagnostic-navigation boundary is defined by
+[Material Graph Operations](../../Editor/Architecture/MaterialGraphOperations.md).
 
 The persisted program is authored state, not a render artifact. GameThread can
 snapshot it, parameter declarations, code-affecting static properties, target,

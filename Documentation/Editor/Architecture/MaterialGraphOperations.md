@@ -63,12 +63,12 @@ before/after program and presentation values. Undo and Redo restore semantic
 state through the ordinary material mutation boundary, so semantic restores
 compile while presentation-only restores do not.
 
-Node movement uses `FMaterialGraphMoveSession`. Pointer-down captures the
-selection and presentation, every drag sample previews sanitized positions,
-and pointer-up records one applied transaction. Escape, document switch,
-deactivation, discard, close, destruction, or stale owner cancels the gesture
-and restores its original presentation. Each document owns a distinct canvas
-and move session.
+Node and Material Output movement use `FMaterialGraphMoveSession`. Pointer-down
+captures the selection and presentation, every drag sample previews sanitized
+positions, and pointer-up records one applied transaction. Escape, document
+switch, deactivation, discard, close, destruction, or stale owner cancels the
+gesture and restores its original presentation. Each document owns a distinct
+canvas and move session.
 
 ## Clipboard and layout
 
@@ -115,9 +115,12 @@ secondary identity, named pins, output type, tooltips, and inline constant
 controls. Frame All includes the derived surface proxy; Frame Selection uses
 only the selection. The derived `Material Output` terminal is initially placed
 one logical column after the rightmost node and remains stable during manual
-node arrangement; semantic graph changes and automatic layout derive a fresh
-position. It pans and zooms with the graph, participates in bounds and
-diagnostic framing, and is never persisted. It owns fixed Base
+node arrangement. Its header displays the material asset name with `Material
+Output` as secondary identity. The terminal can be selected and dragged like a
+node; its optional integral position is persisted in graph presentation, while
+automatic layout derives and persists a fresh position. It pans and zooms with
+the graph, participates in bounds and diagnostic framing, and remains absent
+from the semantic material program. It owns fixed Base
 Color, Normal, Metallic, Roughness, Ambient Occlusion, Emissive, Opacity, and
 Opacity Mask input rows. Editing mode exposes inline fallback controls for
 unconnected rows; each completed gesture is one validated transaction, while

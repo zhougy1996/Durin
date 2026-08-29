@@ -78,6 +78,7 @@ namespace Durin::Editor::Material
 	{
 		std::vector<FMaterialGraphNodeView> Nodes;
 		FMaterialSurfaceOutputs Outputs;
+		std::optional<std::pair<int32, int32>> MaterialOutputPosition;
 	};
 
 	struct FMaterialGraphCreateNodeRequest
@@ -250,6 +251,12 @@ namespace Durin::Editor::Material
 			std::span<const FMaterialGraphNodePresentation> Positions,
 			FTransactionManager* Transactions = nullptr)
 			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto MoveMaterialOutput(
+			DMaterial& Material,
+			int32 X,
+			int32 Y,
+			FTransactionManager* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API static auto Layout(
 			DMaterial& Material,
 			std::span<const FGuid> NodeIds = {},
@@ -297,8 +304,14 @@ namespace Durin::Editor::Material
 			std::span<const FGuid> NodeIds,
 			FTransactionManager* Transactions = nullptr)
 			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto BeginMaterialOutput(
+			DMaterial& Material,
+			FTransactionManager* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto Apply(
 			std::span<const FMaterialGraphNodePresentation> Positions)
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto ApplyMaterialOutput(int32 X, int32 Y)
 			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto Commit() -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto Cancel() -> FMaterialGraphCommandResult;

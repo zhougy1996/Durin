@@ -57,6 +57,7 @@ namespace Durin::Editor::Material
 		std::unordered_set<FGuid> SelectedNodes;
 		FGuid PendingFrameNode;
 		std::optional<EMaterialSurfaceOutput> SelectedSurfaceOutput;
+		bool bMaterialOutputSelected = false;
 		bool bPendingFrameSurface = false;
 		FGuid LinkSourceNode;
 		FGuid PaletteSourceNode;
@@ -79,6 +80,7 @@ namespace Durin::Editor::Material
 		ImVec2 MarqueeStart{};
 		bool bMarqueeActive = false;
 		std::unordered_map<FGuid, FMaterialGraphNodePresentation> DragStartPositions;
+		ImVec2 DragStartMaterialOutput{};
 		ImVec2 DragStartMouse{};
 		FMaterialGraphMoveSession MoveSession;
 	};

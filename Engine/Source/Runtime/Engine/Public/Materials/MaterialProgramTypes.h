@@ -30,7 +30,7 @@ namespace Durin
 	inline constexpr uint32 MaterialProgramMaxCanonicalBytes = 1024 * 1024;
 	inline constexpr uint32 MaterialProgramMaxDiagnosticCount = 64;
 	inline constexpr uint32 MaterialProgramMaxDiagnosticMessageBytes = 512;
-	inline constexpr uint32 CurrentMaterialGraphPresentationSchemaVersion = 1;
+	inline constexpr uint32 CurrentMaterialGraphPresentationSchemaVersion = 2;
 	inline constexpr int32 MaterialGraphPresentationCoordinateLimit = 1024 * 1024;
 
 	DENUM()
@@ -276,6 +276,17 @@ namespace Durin
 
 		DPROPERTY()
 		std::vector<FMaterialGraphNodePresentation> Nodes;
+
+		// Distinguishes an authored terminal position from automatic placement.
+		DPROPERTY()
+		bool bHasMaterialOutputPosition = false;
+
+		// Integral graph-space position of the derived Material Output terminal.
+		DPROPERTY()
+		int32 MaterialOutputX = 0;
+
+		DPROPERTY()
+		int32 MaterialOutputY = 0;
 
 		auto operator==(const FMaterialGraphPresentation&) const -> bool = default;
 	};

@@ -61,6 +61,9 @@ TEST(FMaterialGraphOperationsTests, PresentationSanitizationIsIndependentAndBoun
 		{FGuid::NewGuid(), 10, 10},
 		{Program.Nodes[0].Id, MaterialGraphPresentationCoordinateLimit + 1, 0},
 	};
+	Presentation.bHasMaterialOutputPosition = true;
+	Presentation.MaterialOutputX = 640;
+	Presentation.MaterialOutputY = -120;
 
 	const FMaterialGraphPresentation Sanitized =
 		SanitizeMaterialGraphPresentation(Presentation, Program);
@@ -70,6 +73,9 @@ TEST(FMaterialGraphOperationsTests, PresentationSanitizationIsIndependentAndBoun
 	EXPECT_EQ(Sanitized.Nodes.front().NodeId, Program.Nodes[1].Id);
 	EXPECT_EQ(Sanitized.Nodes.front().X, 20);
 	EXPECT_EQ(Sanitized.Nodes.front().Y, 40);
+	EXPECT_TRUE(Sanitized.bHasMaterialOutputPosition);
+	EXPECT_EQ(Sanitized.MaterialOutputX, 640);
+	EXPECT_EQ(Sanitized.MaterialOutputY, -120);
 }
 
 TEST(FMaterialGraphOperationsTests, PresentationReachesMaximumNodeBoundAndDuplicatesByReflection)
@@ -92,7 +98,10 @@ TEST(FMaterialGraphOperationsTests, PresentationReachesMaximumNodeBoundAndDuplic
 	ASSERT_NE(Material, nullptr);
 	const FGuid NodeId = Material->GetMaterialProgram()->Nodes.front().Id;
 	ASSERT_TRUE(Material->SetMaterialGraphPresentation(
-		{.Nodes = {{NodeId, 100, -200}}}));
+		{.Nodes = {{NodeId, 100, -200}},
+			.bHasMaterialOutputPosition = true,
+			.MaterialOutputX = 420,
+			.MaterialOutputY = -30}));
 	DMaterial* Duplicate = Cast<DMaterial>(DuplicateObject(
 		Material, nullptr, "PresentationDuplicate"));
 	ASSERT_NE(Duplicate, nullptr);
@@ -100,6 +109,43 @@ TEST(FMaterialGraphOperationsTests, PresentationReachesMaximumNodeBoundAndDuplic
 		Material->GetMaterialGraphPresentation());
 
 	MarkAsGarbage(Duplicate);
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndTransactional)
+{
+	InitializeDObjectSystem();
+	DMaterial* Material = NewObject<DMaterial>(nullptr, "MaterialOutputMovement");
+	ASSERT_NE(Material, nullptr);
+	const uint64 Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
+	FTransactionManager Transactions;
+
+	ASSERT_TRUE(FMaterialGraphOperations::MoveMaterialOutput(
+		*Material, 520, -80, &Transactions));
+	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
+	EXPECT_TRUE(Material->GetMaterialGraphPresentation().bHasMaterialOutputPosition);
+	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputX, 520);
+	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputY, -80);
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_FALSE(Material->GetMaterialGraphPresentation().bHasMaterialOutputPosition);
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputX, 520);
+
+	Transactions.Clear();
+	FMaterialGraphMoveSession Move;
+	ASSERT_TRUE(Move.BeginMaterialOutput(*Material, &Transactions));
+	ASSERT_TRUE(Move.ApplyMaterialOutput(600, 40));
+	ASSERT_TRUE(Move.Cancel());
+	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputX, 520);
+	EXPECT_FALSE(Transactions.CanUndo());
+	ASSERT_TRUE(Move.BeginMaterialOutput(*Material, &Transactions));
+	ASSERT_TRUE(Move.ApplyMaterialOutput(600, 40));
+	ASSERT_TRUE(Move.Commit());
+	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputX, 600);
+	EXPECT_TRUE(Transactions.CanUndo());
+
+	Transactions.Clear();
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -752,6 +798,27 @@ TEST(FMaterialGraphOperationsTests, CanvasPointerGesturesCancelDeselectAndReconn
 	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
 	DrawFrame();
 	EXPECT_EQ(Material->GetMaterialProgram()->Outputs.BaseColor.SourceNodeId, NodeId);
+
+	Transactions.Clear();
+	constexpr ImVec2 MaterialOutputHeaderPoint{620.0f, 138.0f};
+	IO.AddMousePosEvent(MaterialOutputHeaderPoint.x, MaterialOutputHeaderPoint.y);
+	DrawFrame();
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
+	DrawFrame();
+	IO.AddMousePosEvent(
+		MaterialOutputHeaderPoint.x + 60.0f,
+		MaterialOutputHeaderPoint.y + 30.0f);
+	DrawFrame();
+	IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
+	DrawFrame();
+	EXPECT_TRUE(Material->GetMaterialGraphPresentation().bHasMaterialOutputPosition);
+	EXPECT_TRUE(Transactions.CanUndo());
+	const FMaterialGraphPresentation MovedOutput =
+		Material->GetMaterialGraphPresentation();
+	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_FALSE(Material->GetMaterialGraphPresentation().bHasMaterialOutputPosition);
+	ASSERT_TRUE(Transactions.Redo());
+	EXPECT_EQ(Material->GetMaterialGraphPresentation(), MovedOutput);
 
 	Transactions.Clear();
 	ImGui::DestroyContext(Context);

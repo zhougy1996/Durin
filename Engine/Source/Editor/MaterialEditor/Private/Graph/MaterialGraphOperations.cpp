@@ -465,6 +465,10 @@ namespace Durin::Editor::Material
 			return View.Node.Id;
 		});
 		Result.Outputs = Program.Outputs;
+		if (Presentation.bHasMaterialOutputPosition)
+			Result.MaterialOutputPosition = {
+				Presentation.MaterialOutputX,
+				Presentation.MaterialOutputY};
 		return Result;
 	}
 
@@ -1154,6 +1158,27 @@ namespace Durin::Editor::Material
 			"Move Material Nodes", std::move(Affected), {}, Transactions);
 	}
 
+	auto FMaterialGraphOperations::MoveMaterialOutput(
+		DMaterial& Material,
+		int32 X,
+		int32 Y,
+		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+	{
+		if (X < -MaterialGraphPresentationCoordinateLimit
+			|| X > MaterialGraphPresentationCoordinateLimit
+			|| Y < -MaterialGraphPresentationCoordinateLimit
+			|| Y > MaterialGraphPresentationCoordinateLimit)
+			return MakeRejected(
+				"The Material Output position is outside the supported coordinate range.");
+		FMaterialGraphPresentation Presentation =
+			Material.GetMaterialGraphPresentation();
+		Presentation.bHasMaterialOutputPosition = true;
+		Presentation.MaterialOutputX = X;
+		Presentation.MaterialOutputY = Y;
+		return Commit(Material, *Material.GetMaterialProgram(),
+			std::move(Presentation), false, "Move Material Output", {}, {}, Transactions);
+	}
+
 	auto FMaterialGraphOperations::Layout(
 		DMaterial& Material,
 		std::span<const FGuid> NodeIds,
@@ -1348,6 +1373,41 @@ namespace Durin::Editor::Material
 			if (It == Presentation.Nodes.end()) Presentation.Nodes.push_back(Position);
 			else *It = Position;
 		}
+		if (NodeIds.empty())
+		{
+			bool bFound = false;
+			float MaximumX = 0.0f;
+			float MinimumY = 0.0f;
+			float MaximumY = 0.0f;
+			for (const FMaterialGraphNodePresentation& Position : Presentation.Nodes)
+			{
+				const FMaterialProgramNode* Node = FindNode(Program, Position.NodeId);
+				if (!Node) continue;
+				const float Y = static_cast<float>(Position.Y);
+				const float Height = FMaterialGraphGeometry::GetNodeHeight(
+					static_cast<uint32>(Node->Inputs.size()));
+				MaximumX = std::max(MaximumX,
+					static_cast<float>(Position.X) + Metrics.NodeWidth);
+				if (!bFound)
+				{
+					MinimumY = Y;
+					MaximumY = Y + Height;
+					bFound = true;
+				}
+				else
+				{
+					MinimumY = std::min(MinimumY, Y);
+					MaximumY = std::max(MaximumY, Y + Height);
+				}
+			}
+			const float OutputHeight = Metrics.SurfaceHeaderHeight
+				+ Metrics.PinRowHeight * 8.0f + Metrics.BodyPadding;
+			Presentation.bHasMaterialOutputPosition = true;
+			Presentation.MaterialOutputX = static_cast<int32>(std::round(
+				MaximumX + Metrics.ColumnGap));
+			Presentation.MaterialOutputY = static_cast<int32>(std::round(
+				bFound ? (MinimumY + MaximumY - OutputHeight) * 0.5f : 0.0f));
+		}
 		std::vector<FGuid> Affected(Requested.begin(), Requested.end());
 		return Commit(Material, Program, std::move(Presentation), false,
 			"Layout Material Graph", std::move(Affected), {}, Transactions);
@@ -1527,6 +1587,7 @@ namespace Durin::Editor::Material
 		FMaterialGraphPresentation CurrentPresentation;
 		std::unordered_set<FGuid> NodeIds;
 		FTransactionManager* Transactions = nullptr;
+		bool bMaterialOutput = false;
 		bool bActive = false;
 	};
 
@@ -1566,10 +1627,32 @@ namespace Durin::Editor::Material
 		Impl->BeforePresentation = Material.GetMaterialGraphPresentation();
 		Impl->CurrentPresentation = Impl->BeforePresentation;
 		Impl->Transactions = Transactions;
+		Impl->bMaterialOutput = false;
 		Impl->bActive = true;
 		std::vector<FGuid> Affected(NodeIds.begin(), NodeIds.end());
 		return {.Status = EMaterialGraphCommandStatus::Succeeded,
 			.AffectedNodeIds = std::move(Affected)};
+	}
+
+	auto FMaterialGraphMoveSession::BeginMaterialOutput(
+		DMaterial& Material,
+		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+	{
+		if (Impl->bActive) return MakeRejected("A material graph move is already active.");
+		if (!IsValid(&Material))
+			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
+				.Message = "The material graph owner is no longer available."};
+		if (Transactions && Transactions->HasPendingOperation())
+			return MakeRejected("The editor transaction manager is busy.");
+		Impl->Material = &Material;
+		Impl->Program = *Material.GetMaterialProgram();
+		Impl->BeforePresentation = Material.GetMaterialGraphPresentation();
+		Impl->CurrentPresentation = Impl->BeforePresentation;
+		Impl->NodeIds.clear();
+		Impl->Transactions = Transactions;
+		Impl->bMaterialOutput = true;
+		Impl->bActive = true;
+		return {.Status = EMaterialGraphCommandStatus::Succeeded};
 	}
 
 	auto FMaterialGraphMoveSession::Apply(
@@ -1577,6 +1660,8 @@ namespace Durin::Editor::Material
 		-> FMaterialGraphCommandResult
 	{
 		if (!Impl->bActive) return MakeRejected("No material graph move is active.");
+		if (Impl->bMaterialOutput)
+			return MakeRejected("The active move addresses Material Output, not graph nodes.");
 		DMaterial* Material = Impl->Material.Get();
 		if (!Material)
 		{
@@ -1589,6 +1674,25 @@ namespace Durin::Editor::Material
 				return MakeRejected("A material graph move preview addresses a node outside the selection.");
 		FMaterialGraphCommandResult Result = FMaterialGraphOperations::MoveNodes(
 			*Material, Positions, nullptr);
+		if (Result) Impl->CurrentPresentation = Material->GetMaterialGraphPresentation();
+		return Result;
+	}
+
+	auto FMaterialGraphMoveSession::ApplyMaterialOutput(int32 X, int32 Y)
+		-> FMaterialGraphCommandResult
+	{
+		if (!Impl->bActive) return MakeRejected("No material graph move is active.");
+		if (!Impl->bMaterialOutput)
+			return MakeRejected("The active move addresses graph nodes, not Material Output.");
+		DMaterial* Material = Impl->Material.Get();
+		if (!Material)
+		{
+			Impl->bActive = false;
+			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
+				.Message = "The material graph owner is no longer available."};
+		}
+		FMaterialGraphCommandResult Result =
+			FMaterialGraphOperations::MoveMaterialOutput(*Material, X, Y, nullptr);
 		if (Result) Impl->CurrentPresentation = Material->GetMaterialGraphPresentation();
 		return Result;
 	}
@@ -1616,7 +1720,8 @@ namespace Durin::Editor::Material
 					Impl->Program,
 					Impl->CurrentPresentation,
 					false,
-					"Move Material Nodes"));
+					Impl->bMaterialOutput
+						? "Move Material Output" : "Move Material Nodes"));
 			check(bRecorded);
 		}
 		std::vector<FGuid> Affected(Impl->NodeIds.begin(), Impl->NodeIds.end());

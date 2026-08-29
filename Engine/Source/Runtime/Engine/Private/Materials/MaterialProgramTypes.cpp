@@ -857,6 +857,16 @@ namespace Durin
 		}
 		std::ranges::sort(Result.Nodes, {},
 			&FMaterialGraphNodePresentation::NodeId);
+		if (Presentation.bHasMaterialOutputPosition
+			&& Presentation.MaterialOutputX >= -MaterialGraphPresentationCoordinateLimit
+			&& Presentation.MaterialOutputX <= MaterialGraphPresentationCoordinateLimit
+			&& Presentation.MaterialOutputY >= -MaterialGraphPresentationCoordinateLimit
+			&& Presentation.MaterialOutputY <= MaterialGraphPresentationCoordinateLimit)
+		{
+			Result.bHasMaterialOutputPosition = true;
+			Result.MaterialOutputX = Presentation.MaterialOutputX;
+			Result.MaterialOutputY = Presentation.MaterialOutputY;
+		}
 		return Result;
 	}
 

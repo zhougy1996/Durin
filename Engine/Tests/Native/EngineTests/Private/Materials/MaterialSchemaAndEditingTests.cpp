@@ -322,6 +322,12 @@ TEST(FMaterialProgramSchemaTests,
 	EXPECT_NE(ProgramStruct->FindPropertyByName("SchemaVersion"), nullptr);
 	EXPECT_NE(ProgramStruct->FindPropertyByName("Nodes"), nullptr);
 	EXPECT_NE(ProgramStruct->FindPropertyByName("Outputs"), nullptr);
+	Durin::DStruct* PresentationStruct =
+		Durin::FMaterialGraphPresentation::StaticStruct();
+	ASSERT_NE(PresentationStruct, nullptr);
+	EXPECT_NE(PresentationStruct->FindPropertyByName("bHasMaterialOutputPosition"), nullptr);
+	EXPECT_NE(PresentationStruct->FindPropertyByName("MaterialOutputX"), nullptr);
+	EXPECT_NE(PresentationStruct->FindPropertyByName("MaterialOutputY"), nullptr);
 	EXPECT_NE(
 		Durin::DMaterial::StaticClass()->FindPropertyByName("Program"),
 		nullptr);
