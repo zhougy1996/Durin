@@ -737,6 +737,7 @@ namespace Durin
 		std::string_view ShaderSourceFilePath,
 		const FShaderCompileOptions& Options)
 	{
+		std::lock_guard SlangLock(GlobalSessionMutex);
 		FShaderCompilerOutput Output;
 		Slang::ComPtr<slang::ISession> Session;
 		if (!CreateSession(Options, Session, Output.ErrorMessage)) return Output;
@@ -759,6 +760,7 @@ namespace Durin
 		std::string_view ModuleName, std::string_view SourcePathHint,
 		std::string_view Source, const FShaderCompileOptions& Options)
 	{
+		std::lock_guard SlangLock(GlobalSessionMutex);
 		FShaderCompilerOutput Output;
 		Slang::ComPtr<slang::ISession> Session;
 		if (!CreateSession(Options, Session, Output.ErrorMessage,
@@ -783,6 +785,7 @@ namespace Durin
 
 	auto FSlangShaderCompiler::GetEnvironmentIdentity() const -> std::string
 	{
+		std::lock_guard SlangLock(GlobalSessionMutex);
 		const char* BuildTag = GlobalSession ? GlobalSession->getBuildTagString() : nullptr;
 		return std::format("slang:{};target=spirv;profile={}", BuildTag ? BuildTag : "unknown", GSlangTargetProfile);
 	}

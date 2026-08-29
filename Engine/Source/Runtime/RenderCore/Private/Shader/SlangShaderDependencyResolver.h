@@ -5,6 +5,8 @@
 #include "slang.h"
 #include "slang-com-ptr.h"
 
+#include <mutex>
+
 namespace Durin
 {
 	// Resolves the complete physical source dependency set used for shader cache identity.
@@ -28,6 +30,8 @@ namespace Durin
 			std::string_view SearchPath = {}) const -> bool;
 		auto InitGlobalSession() -> void;
 
+		// Slang global sessions are non-reentrant; derived objects must also die under this lock.
+		mutable std::mutex GlobalSessionMutex;
 		Slang::ComPtr<slang::IGlobalSession> GlobalSession;
 	};
 }

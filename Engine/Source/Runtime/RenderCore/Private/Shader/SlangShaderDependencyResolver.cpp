@@ -79,6 +79,7 @@ namespace Durin
 
 	auto FSlangShaderDependencyResolver::Resolve(std::string_view ShaderSourceFilePath, const FShaderCompileOptions& Options, std::vector<std::string>& OutDependencyPaths, std::string& OutDiagnostics) const -> bool
 	{
+		std::lock_guard SlangLock(GlobalSessionMutex);
 		Slang::ComPtr<slang::ISession> Session;
 		if (!CreateSession(Options, Session, OutDiagnostics))
 		{
@@ -122,6 +123,7 @@ namespace Durin
 		std::vector<std::string>& OutDependencyPaths,
 		std::string& OutDiagnostics) const -> bool
 	{
+		std::lock_guard SlangLock(GlobalSessionMutex);
 		Slang::ComPtr<slang::ISession> Session;
 		if (!CreateSession(Options, Session, OutDiagnostics,
 			std::filesystem::path(SourcePathHint).parent_path().generic_string()))

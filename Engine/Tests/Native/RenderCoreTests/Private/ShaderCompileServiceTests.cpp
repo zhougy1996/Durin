@@ -12,6 +12,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <latch>
 
 namespace Durin
 {
@@ -323,6 +324,69 @@ float4 FragmentMain() : SV_Target0
 		const FShaderCompileServiceStats Stats = GetShaderCompileServiceStats();
 		EXPECT_EQ(Stats.DependencyResolutions, 1u);
 		EXPECT_EQ(Stats.Compilations, 1u);
+	}
+
+	TEST_F(FShaderCompileServiceTests,
+		ConcurrentColdFileAndGeneratedRequestsCompleteSafely)
+	{
+		constexpr uint32 FileRequestCount = 6;
+		const std::filesystem::path SourceRoot =
+			GetServiceTestRoot() / "Source";
+		for (uint32 Index = 0; Index < FileRequestCount; ++Index)
+		{
+			WriteTestShader(SourceRoot /
+				std::format("Concurrent{}.slang", Index));
+		}
+		WriteTextFile(SourceRoot / "ConcurrentImported.slang",
+			"module ConcurrentImported; "
+			"public float ConcurrentValue() { return 0.25; }\n");
+
+		FGeneratedShaderCompileRequest GeneratedRequest;
+		GeneratedRequest.VirtualPath =
+			"/Generated/Materials/abcdefabcdefabcdefabcdefabcdefab";
+		GeneratedRequest.Source = R"(module ConcurrentGeneratedMaterial;
+import ConcurrentImported;
+[shader("fragment")]
+float4 FragmentMain() : SV_Target0
+{
+    return float4(ConcurrentValue(), 0.5, 0.75, 1.0);
+}
+)";
+		GeneratedRequest.EntryPoints = {"FragmentMain"};
+		GeneratedRequest.Frequencies = {EShaderFrequency::Fragment};
+		GeneratedRequest.AllowedImportVirtualPrefixes = {
+			"/ShaderCompileServiceTests/"};
+
+		InitShaderCompileService();
+		std::latch StartGate(1);
+		std::vector<std::future<FShaderCompilerOutput>> Requests;
+		Requests.reserve(FileRequestCount + 1);
+		for (uint32 Index = 0; Index < FileRequestCount; ++Index)
+		{
+			Requests.push_back(std::async(std::launch::async,
+				[&StartGate, Index] {
+					StartGate.wait();
+					return GetOrCompileShader(std::format(
+						"/ShaderCompileServiceTests/Concurrent{}", Index),
+						MakeServiceOptions());
+				}));
+		}
+		Requests.push_back(std::async(std::launch::async,
+			[&StartGate, GeneratedRequest] {
+				StartGate.wait();
+				return GetOrCompileGeneratedShader(GeneratedRequest);
+			}));
+		StartGate.count_down();
+
+		for (auto& Request : Requests)
+		{
+			const FShaderCompilerOutput Output = Request.get();
+			EXPECT_TRUE(Output) << Output.ErrorMessage;
+		}
+		const FShaderCompileServiceStats Stats =
+			GetShaderCompileServiceStats();
+		EXPECT_EQ(Stats.DependencyResolutions, FileRequestCount + 1u);
+		EXPECT_EQ(Stats.Compilations, FileRequestCount + 1u);
 	}
 
 	TEST_F(FShaderCompileServiceTests,
