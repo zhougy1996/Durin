@@ -128,13 +128,21 @@ namespace Durin::Editor::Level
 		return MonaImGui::ScaleUI(3.0f);
 	}
 
+	// Returns one synchronized timing snapshot published at a readable cadence.
+	auto GetStableEditorFrameTiming() -> const FEngineFrameTiming&;
+	// Returns the frame interval from the shared stable timing snapshot.
+	auto GetStableEditorFrameTimeMilliseconds() -> float;
+	// Returns the frame rate from the shared stable timing snapshot.
+	auto GetStableEditorFramesPerSecond() -> float;
+
 	inline auto CalculateViewportStatisticsOverlayLayout(
 		const ImVec2& ViewportMin,
 		const ImVec2& ViewportMax,
-		bool bExpanded) -> FViewportStatisticsOverlayLayout
+		bool bExpanded,
+		float FramesPerSecond = GAverageFPS) -> FViewportStatisticsOverlayLayout
 	{
 		char FpsText[32];
-		snprintf(FpsText, sizeof(FpsText), "%.0f FPS", GAverageFPS);
+		snprintf(FpsText, sizeof(FpsText), "%.0f FPS", FramesPerSecond);
 		const ImVec2 TextSize = ImGui::CalcTextSize(FpsText);
 		const float OverlayHeight = std::max(
 			MonaImGui::ScaleUI(30.0f),
@@ -155,7 +163,7 @@ namespace Durin::Editor::Level
 		// Anchor the panel to that visible border so the two surfaces align.
 		const float AvailableWidth = ViewportMax.x - ViewportMin.x - Margin * 2.0f;
 		const float PanelWidth = std::min(MonaImGui::ScaleUI(248.0f), AvailableWidth);
-		const float PanelHeight = MonaImGui::ScaleUI(176.0f);
+		const float PanelHeight = MonaImGui::ScaleUI(162.0f);
 		Layout.PanelMax = ImVec2(
 			Layout.BadgeMax.x + GetViewportHudSurfaceOutset(),
 			Layout.BadgeMax.y + Gap + PanelHeight);
@@ -192,10 +200,6 @@ namespace Durin::Editor::Level
 	auto DrawViewportPlayStateBorder(const ImVec2& ViewportMin, const ImVec2& ViewportMax, bool bPaused) -> void;
 	auto DrawViewportOrientationOverlay(const FLevelEditorViewportClient* ViewportClient, const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void;
 	auto DrawViewportCameraSpeedOverlay(const FLevelEditorViewportClient* ViewportClient, const ImVec2& ViewportMin, const ImVec2& ViewportMax) -> void;
-	// Returns one synchronized timing snapshot published at a readable cadence.
-	auto GetStableEditorFrameTiming() -> const FEngineFrameTiming&;
-	// Returns the frame interval from the shared stable timing snapshot.
-	auto GetStableEditorFrameTimeMilliseconds() -> float;
 	auto DrawViewportStatisticsOverlay(
 		const ImVec2& ViewportMin,
 		const ImVec2& ViewportMax,

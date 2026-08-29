@@ -24,7 +24,9 @@ namespace Durin::Editor::Level
 			ImGuiContext* Context = nullptr;
 			int32 LastFrame = -1;
 			float PresentationAccumulatorSeconds = 0.0f;
+			uint32 PresentationFrameCount = 0;
 			FEngineFrameTiming Presented;
+			float PresentedFramesPerSecond = 0.0f;
 			bool bInitialized = false;
 		};
 
@@ -674,16 +676,36 @@ namespace Durin::Editor::Level
 		if (StableEditorFrameTiming.LastFrame != ImGui::GetFrameCount())
 		{
 			StableEditorFrameTiming.LastFrame = ImGui::GetFrameCount();
-			StableEditorFrameTiming.PresentationAccumulatorSeconds += std::clamp(
+			const float FrameDeltaSeconds = std::clamp(
 				ImGui::GetIO().DeltaTime, 0.0f, 0.25f);
+			StableEditorFrameTiming.PresentationAccumulatorSeconds +=
+				FrameDeltaSeconds;
+			++StableEditorFrameTiming.PresentationFrameCount;
 			constexpr float PresentationIntervalSeconds = 0.5f;
-			if (!StableEditorFrameTiming.bInitialized
-				|| StableEditorFrameTiming.PresentationAccumulatorSeconds
-					>= PresentationIntervalSeconds)
+			if (!StableEditorFrameTiming.bInitialized)
 			{
 				StableEditorFrameTiming.Presented = GetEngineFrameTiming();
+				const float FrameTimeMilliseconds =
+					StableEditorFrameTiming.Presented.FrameIntervalMilliseconds;
+				StableEditorFrameTiming.PresentedFramesPerSecond =
+					FrameTimeMilliseconds > 0.0f
+						? 1000.0f / FrameTimeMilliseconds : 0.0f;
 				StableEditorFrameTiming.PresentationAccumulatorSeconds = 0.0f;
+				StableEditorFrameTiming.PresentationFrameCount = 0;
 				StableEditorFrameTiming.bInitialized = true;
+			}
+			else if (StableEditorFrameTiming.PresentationAccumulatorSeconds
+				>= PresentationIntervalSeconds)
+			{
+				const float ElapsedSeconds =
+					StableEditorFrameTiming.PresentationAccumulatorSeconds;
+				const uint32 FrameCount =
+					StableEditorFrameTiming.PresentationFrameCount;
+				StableEditorFrameTiming.PresentedFramesPerSecond =
+					static_cast<float>(FrameCount) / ElapsedSeconds;
+				StableEditorFrameTiming.Presented = GetEngineFrameTiming();
+				StableEditorFrameTiming.PresentationAccumulatorSeconds = 0.0f;
+				StableEditorFrameTiming.PresentationFrameCount = 0;
 			}
 		}
 		return StableEditorFrameTiming.Presented;
@@ -692,6 +714,12 @@ namespace Durin::Editor::Level
 	auto GetStableEditorFrameTimeMilliseconds() -> float
 	{
 		return GetStableEditorFrameTiming().FrameIntervalMilliseconds;
+	}
+
+	auto GetStableEditorFramesPerSecond() -> float
+	{
+		GetStableEditorFrameTiming();
+		return StableEditorFrameTiming.PresentedFramesPerSecond;
 	}
 
 	auto DrawViewportPlayStateBorder(const ImVec2& ViewportMin, const ImVec2& ViewportMax, bool bPaused) -> void
@@ -1369,16 +1397,18 @@ namespace Durin::Editor::Level
 		bool* OutDetailsRequested) -> FViewportStatisticsOverlayLayout
 	{
 		if (OutDetailsRequested != nullptr) *OutDetailsRequested = false;
+		const float StableFramesPerSecond = GetStableEditorFramesPerSecond();
 		FViewportStatisticsOverlayLayout Layout =
 			CalculateViewportStatisticsOverlayLayout(
-				ViewportMin, ViewportMax, bExpanded);
+				ViewportMin, ViewportMax, bExpanded, StableFramesPerSecond);
 		const ImVec2 SavedCursor = ImGui::GetCursorScreenPos();
 		ImGui::PushClipRect(ViewportMin, ViewportMax, true);
 		const ImVec2 BadgeSize(
 			Layout.BadgeMax.x - Layout.BadgeMin.x,
 			Layout.BadgeMax.y - Layout.BadgeMin.y);
 		char FpsText[32];
-		snprintf(FpsText, sizeof(FpsText), "%.0f FPS", GAverageFPS);
+		snprintf(FpsText, sizeof(FpsText), "%.0f FPS",
+			StableFramesPerSecond);
 		const bool bActivated = DrawToolbarButton(
 			"##ViewportStatisticsToggle", Layout.BadgeMin, BadgeSize, FpsText,
 			EViewportToolbarIcon::None, bExpanded,
@@ -1388,7 +1418,7 @@ namespace Durin::Editor::Level
 		{
 			bExpanded = !bExpanded;
 			Layout = CalculateViewportStatisticsOverlayLayout(
-				ViewportMin, ViewportMax, bExpanded);
+				ViewportMin, ViewportMax, bExpanded, StableFramesPerSecond);
 		}
 		ImGui::SetCursorScreenPos(SavedCursor);
 
