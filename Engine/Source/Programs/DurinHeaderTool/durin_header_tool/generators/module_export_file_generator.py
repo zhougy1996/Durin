@@ -13,6 +13,7 @@ from durin_header_tool.cache.phase_state import (
     sha256_bytes,
 )
 from durin_header_tool.model.export_info import (
+    ModuleExportSchemaMismatchError,
     ModuleExportInfo,
     load_module_export_file,
     save_module_export_file,
@@ -46,6 +47,14 @@ def _load_previous_export(module_name: str) -> tuple[ModuleExportInfo | None, Ex
     if export_file_path.exists():
         try:
             old_export_info = load_module_export_file(export_file_path)
+        except ModuleExportSchemaMismatchError as error:
+            logging.debug(
+                "[DHT] Export %s: ignoring incompatible export schema in %s (found %r, expected %d)",
+                module_name,
+                export_file_path,
+                error.found,
+                error.expected,
+            )
         except (OSError, UnicodeError, ValueError, TypeError, AttributeError, KeyError) as error:
             logging.warning(
                 "[DHT] Export %s: ignoring invalid export %s (%s)",

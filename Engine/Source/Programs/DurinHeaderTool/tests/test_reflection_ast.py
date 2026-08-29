@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import sys
 import traceback
@@ -21,6 +22,7 @@ from durin_header_tool.extractors.export_symbol_extractor import (
     resolve_module_export_info,
 )
 from durin_header_tool.generators import module_reflection_files_generator as reflection_generator
+from durin_header_tool.generators import module_export_file_generator as export_generator
 from durin_header_tool.generators.module_reflection_files_generator import (
     _write_reflection_files,
     make_new_reflection_state,
@@ -84,6 +86,42 @@ class TestReflectionAstAndState:
 
         loaded = load_module_export_file(export_path)
         assert loaded.Symbols["Fixture::AAbstractActor"].IsAbstract
+
+
+    def test_incompatible_export_schema_is_a_quiet_cache_miss(self, caplog):
+        export_path = self.temp_root / "Fixture.export"
+        export_path.write_text(
+            json.dumps({"SchemaVersion": 5, "Module": "Fixture", "Symbols": {}}),
+            encoding="utf-8",
+        )
+        caplog.set_level(logging.DEBUG)
+
+        with (
+            mock.patch.object(utils, "get_module_export_file_path", return_value=export_path),
+            mock.patch.object(export_generator, "load_export_phase_state", return_value=None),
+        ):
+            export_info, export_state = export_generator._load_previous_export("Fixture")
+
+        assert export_info is None
+        assert export_state is None
+        assert not any(record.levelno >= logging.WARNING for record in caplog.records)
+        assert "ignoring incompatible export schema" in caplog.text
+
+
+    def test_malformed_export_remains_an_invalid_export_warning(self, caplog):
+        export_path = self.temp_root / "Fixture.export"
+        export_path.write_text('{"SchemaVersion":', encoding="utf-8")
+
+        with (
+            mock.patch.object(utils, "get_module_export_file_path", return_value=export_path),
+            mock.patch.object(export_generator, "load_export_phase_state", return_value=None),
+        ):
+            export_info, export_state = export_generator._load_previous_export("Fixture")
+
+        assert export_info is None
+        assert export_state is None
+        assert any(record.levelno == logging.WARNING for record in caplog.records)
+        assert "ignoring invalid export" in caplog.text
 
 
     def test_parallel_worker_failure_propagates_without_sequential_retry(self):

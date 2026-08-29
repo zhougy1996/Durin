@@ -12,6 +12,17 @@ from durin_header_tool.model.reflection_info import (
 EXPORT_SCHEMA_VERSION = 6
 
 
+class ModuleExportSchemaMismatchError(ValueError):
+    def __init__(self, module_export_file_path: Path, found: object) -> None:
+        self.module_export_file_path = module_export_file_path
+        self.found = found
+        self.expected = EXPORT_SCHEMA_VERSION
+        super().__init__(
+            f"Module export file '{module_export_file_path}' uses schema {found}; "
+            f"expected {self.expected}."
+        )
+
+
 @dataclass
 class ExportedSymbolInfo:
     Kind: str
@@ -102,10 +113,7 @@ class ModuleExportInfo:
             raise ValueError(f"Module export file '{module_export_file_path}' has an invalid JSON structure.")
         schema_version = raw_json_data.get("SchemaVersion", 0)
         if schema_version != EXPORT_SCHEMA_VERSION:
-            raise ValueError(
-                f"Module export file '{module_export_file_path}' uses schema {schema_version}; "
-                f"expected {EXPORT_SCHEMA_VERSION}."
-            )
+            raise ModuleExportSchemaMismatchError(module_export_file_path, schema_version)
         symbols = {
             qualified_name: ExportedSymbolInfo.from_json(symbol_data)
             for qualified_name, symbol_data in raw_json_data.get("Symbols", {}).items()
