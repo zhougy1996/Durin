@@ -352,9 +352,9 @@ namespace Durin::Editor::Material
 			[this](const ::Durin::Editor::FDocumentTab& Document) {
 				DrawDocument(Document, FindOpenMaterial(Document.ResourceId));
 			},
-			[this](const ::Durin::Editor::FDocumentTab& Document) {
+			[this](const ::Durin::Editor::FDocumentTab& Document, bool bVisible) {
 				if (const auto PreviewIt = MaterialPreviews.find(Document.Id.Value); PreviewIt != MaterialPreviews.end())
-					PreviewIt->second->SetVisible(false);
+					PreviewIt->second->SetVisible(bVisible);
 			}
 		);
 	}

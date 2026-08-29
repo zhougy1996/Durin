@@ -1,8 +1,10 @@
 #include "Editor/AssetPicker.h"
 #include "Editor/WorkspaceManager.h"
+#include "Editor/WorkspaceRootWindow.h"
 #include "Editor/WorkspaceUI.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
+#include "MonaImGui.h"
 #include "Texture/Texture.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
@@ -115,6 +117,44 @@ TEST(FEditorWorkspaceManagerTests, CommitsWorkspaceAndAssetEditorsAsOneBatch)
 	EXPECT_TRUE(Manager.OpenAsset("/Game/Materials/M_Stone", "Material"));
 	ASSERT_EQ(Manager.GetDocuments().size(), 1);
 	EXPECT_EQ(Manager.GetDocuments().front().Label, "M_Stone");
+}
+
+TEST(FEditorWorkspaceManagerTests, ReportsDocumentVisibilityBeforeDrawing)
+{
+	ImGuiContext* Context = ImGui::CreateContext();
+	ASSERT_NE(Context, nullptr);
+	ImGuiIO& IO = ImGui::GetIO();
+	IO.IniFilename = nullptr;
+	IO.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	IO.DisplaySize = ImVec2(1280.0f, 720.0f);
+	IO.DeltaTime = 1.0f / 60.0f;
+	IO.Fonts->Build();
+
+	Durin::Editor::FWorkspaceManager Manager;
+	auto Workspace = std::make_shared<FTestWorkspace>("MaterialEditor");
+	auto Registration = Manager.RegisterBatch({
+		.Workspaces = {MakeWorkspaceRegistration(Workspace)},
+		.AssetEditors = {MakeAssetEditor("Material", "MaterialEditor")},
+	});
+	ASSERT_TRUE(Registration);
+	ASSERT_TRUE(Manager.OpenAsset("/Game/Materials/M_Visible", "Material"));
+
+	std::vector<std::string> Events;
+	ImGui::NewFrame();
+	Durin::Editor::FWorkspaceDocumentHost DocumentHost;
+	DocumentHost.DrawDocuments(
+		Manager,
+		Durin::Editor::FWorkspaceTypeId("MaterialEditor"),
+		"MaterialEditor",
+		[](const Durin::Editor::FDocumentTab&) { return true; },
+		[&Events](const Durin::Editor::FDocumentTab&) { Events.emplace_back("draw"); },
+		[&Events](const Durin::Editor::FDocumentTab&, bool bVisible) {
+			Events.emplace_back(bVisible ? "visible" : "hidden");
+		});
+	ImGui::Render();
+	ImGui::DestroyContext(Context);
+
+	EXPECT_EQ(Events, (std::vector<std::string>{"visible", "draw"}));
 }
 
 TEST(FEditorWorkspaceManagerTests, OwnerRetirementRejectsEscapedWorkspaceCallsAndAuditsLease)

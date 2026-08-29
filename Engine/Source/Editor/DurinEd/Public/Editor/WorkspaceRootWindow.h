@@ -64,7 +64,7 @@ namespace Durin::Editor
 			std::string_view WorkspaceRootKey,
 			const std::function<bool(const FDocumentTab&)>& CanDrawDocument,
 			const std::function<void(const FDocumentTab&)>& DrawDocument,
-			const std::function<void(const FDocumentTab&)>& PrepareDocument = {}
+			const std::function<void(const FDocumentTab&, bool)>& UpdateDocumentVisibility = {}
 		) -> bool;
 
 	private:

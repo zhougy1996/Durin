@@ -78,7 +78,7 @@ namespace Durin::Editor
 		std::string_view WorkspaceRootKey,
 		const std::function<bool(const FDocumentTab&)>& CanDrawDocument,
 		const std::function<void(const FDocumentTab&)>& DrawDocument,
-		const std::function<void(const FDocumentTab&)>& PrepareDocument
+		const std::function<void(const FDocumentTab&, bool)>& UpdateDocumentVisibility
 	) -> bool
 	{
 		bool bWorkspaceActivated = false;
@@ -88,7 +88,6 @@ namespace Durin::Editor
 		{
 			if (Document.WorkspaceType != WorkspaceType) continue;
 			OpenDocumentIds.insert(Document.Id.Value);
-			if (PrepareDocument) PrepareDocument(Document);
 			if (!CanDrawDocument(Document)) continue;
 
 			FWorkspaceRootWindow& RootWindow = DocumentWindows[Document.Id.Value];
@@ -104,6 +103,8 @@ namespace Durin::Editor
 				if (!ActiveDocument || ActiveDocument->Id != Document.Id)
 					WorkspaceManager.ActivateDocument(Document.Id);
 			}
+			if (UpdateDocumentVisibility)
+				UpdateDocumentVisibility(Document, WindowState.bVisible);
 			if (WindowState.bVisible) DrawDocument(Document);
 			RootWindow.End();
 			if (WindowState.bCloseRequested) CloseRequests.push_back(Document.Id);
