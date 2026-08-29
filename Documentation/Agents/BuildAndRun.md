@@ -62,6 +62,13 @@ For a user-visible editor change, complete a successful full `all` build before
 handoff and link the verified editor executable from the same Agent Build
 Profile. Other changes need no executable link after a partial build.
 
+## macOS Application Smoke
+
+Do not run macOS application smoke tests in a Codex sandbox by default. Build
+the target when useful and report execution as not run. Run a smoke only when
+the user explicitly requests it and macOS application services are already
+authorized; `--exit-after-ticks` cannot recover a pre-loop startup stall.
+
 ## Read the Complete Guide
 
 Continue to [Build And Run](../Development/Build/BuildAndRun.md) only when the

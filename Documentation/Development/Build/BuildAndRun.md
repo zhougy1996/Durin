@@ -158,13 +158,11 @@ validation should prefer an already authorized checkout.
 
 The same LaunchServices boundary applies to `DevTool run`, including
 `--hidden-window`: that flag suppresses native windows but does not bypass
-macOS application services. In a restricted automation sandbox the process may
-stall during early module loading and report `com.apple.hiservices-xpcservice`
-or `Connection invalid` before it reaches the requested tick count. Treat that
-as a host-authorization failure, stop the tracked process, and rerun the exact
-smoke in an approved non-sandbox application context. A successful hidden run
-is intentionally invisible and is evidenced by DurinDevTool's zero exit and
-normal elapsed-time receipt.
+macOS application services. Do not run application smoke tests in a Codex
+sandbox by default; build the target and report execution as not run. Run one
+only when explicitly requested in an already authorized context. A restricted
+sandbox may stall before the first tick, where `--exit-after-ticks` cannot help.
+A successful hidden run is evidenced by DurinDevTool's zero exit receipt.
 
 The current native baseline qualifies setup, dependency preparation, fresh
 configuration, and the complete Debug Editor link closure. The generated
