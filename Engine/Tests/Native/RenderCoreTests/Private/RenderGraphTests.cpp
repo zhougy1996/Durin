@@ -2034,6 +2034,61 @@ namespace Durin
 		EXPECT_NE(Error.find("incompatible buffer"), std::string::npos);
 	}
 
+	TEST(FRenderGraphTests, AcceptsBackingWithSupersetUsageFlags)
+	{
+		static const auto TextureBacking = MakeRefCount<FRHITexture>(
+			FRHITextureCreateDesc::Create2D(
+			"TextureBacking", 16, 16, EPixelFormat::RGBA8_UNORM)
+			.SetFlags(ETextureCreateFlags::RenderTargetable
+				| ETextureCreateFlags::ShaderResource));
+		FRenderGraphBuilder TextureBuilder;
+		TextureBuilder.SetBackingResolver(
+			[&](auto Requests, auto& Backings, std::string&) {
+				return Backings.SetTexture(Requests.front().Texture,
+					TextureBacking.GetReference());
+			});
+		const auto Texture = TextureBuilder.CreateTexture("LogicalTexture",
+			FRenderGraphTextureDesc{
+				.Texture = FRHITextureCreateDesc::Create2D(
+					"LogicalTexture", 16, 16, EPixelFormat::RGBA8_UNORM)
+					.SetFlags(ETextureCreateFlags::RenderTargetable),
+				.BackingClass = "test"});
+		const auto TexturePass = TextureBuilder.AddPass(
+			"TextureWrite", ERenderGraphPassType::Graphics);
+		TextureBuilder.UseColorAttachment(TexturePass, Texture, WholeColor(),
+			ERHIRenderTargetLoadAction::Clear,
+			ERHIRenderTargetStoreAction::Store);
+		auto TextureResult = TextureBuilder.Compile();
+		ASSERT_TRUE(TextureResult.IsSuccess()) << TextureResult.Error;
+		std::string Error;
+		EXPECT_TRUE(TextureResult.Graph->Execute(
+			FRHICommandListImmediate::Get(), &Error)) << Error;
+
+		static const auto BufferBacking = MakeRefCount<FRHIBuffer>(
+			FRHIBufferCreateDesc::Create(
+			"BufferBacking", 64, 4, EBufferUsageFlags::UnorderedAccess
+				| EBufferUsageFlags::StructuredBuffer));
+		FRenderGraphBuilder BufferBuilder;
+		BufferBuilder.SetBackingResolver(
+			[&](auto Requests, auto& Backings, std::string&) {
+				return Backings.SetBuffer(Requests.front().Buffer,
+					BufferBacking.GetReference());
+			});
+		const auto Buffer = BufferBuilder.CreateBuffer("LogicalBuffer",
+			FRenderGraphBufferDesc{
+				.Buffer = FRHIBufferDesc(
+					64, 4, EBufferUsageFlags::UnorderedAccess),
+				.BackingClass = "test"});
+		const auto BufferPass = BufferBuilder.AddPass(
+			"BufferWrite", ERenderGraphPassType::Compute);
+		BufferBuilder.UseBuffer(BufferPass, Buffer, 0, 64,
+			ERenderGraphUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		auto BufferResult = BufferBuilder.Compile();
+		ASSERT_TRUE(BufferResult.IsSuccess()) << BufferResult.Error;
+		EXPECT_TRUE(BufferResult.Graph->Execute(
+			FRHICommandListImmediate::Get(), &Error)) << Error;
+	}
+
 	TEST(FRenderGraphTests, ExplicitEffectRootSurvivesWithoutResourceOutputs)
 	{
 		FRenderGraphBuilder Builder;

@@ -64,6 +64,11 @@ namespace Durin
 		std::string ExecutionError;
 		const bool Executed =
 			CompiledGraph.Graph->Execute(CommandList, &ExecutionError);
+		if (!Executed && !std::exchange(bReportedExecutionFailure, true))
+		{
+			DURIN_WARN("Scene frame graph execution failed: {}",
+				ExecutionError.empty() ? "unspecified error" : ExecutionError);
+		}
 		if (OutRenderGraphCapture != nullptr)
 			*OutRenderGraphCapture = CompiledGraph.Graph->Capture();
 		PublishSceneRenderGraphCapture(*CompiledGraph.Graph);

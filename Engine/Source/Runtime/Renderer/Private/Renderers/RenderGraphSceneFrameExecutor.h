@@ -38,5 +38,6 @@ namespace Durin
 
 		FSceneFrameExecutionPipeline Pipeline;
 		bool bReportedRegressionOverage = false;
+		bool bReportedExecutionFailure = false;
 	};
 } // namespace Durin

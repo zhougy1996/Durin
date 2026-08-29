@@ -140,9 +140,14 @@ namespace Durin
 			++State.PhaseTicks;
 			checkf(State.PhaseTicks <= SmokeStepTimeoutTicks,
 				"Renderer contact runtime smoke timed out in phase {} "
-				"(main revision {}, auxiliary revision {}).",
+				"(main revision {}, available {}, route {}; auxiliary revision {}, "
+				"available {}, route {}).",
 				static_cast<uint32>(State.Phase), Main.Revision,
-				Auxiliary.Revision);
+				Main.bAvailable,
+				static_cast<uint32>(Main.Statistics.Shadow.ContactRoute),
+				Auxiliary.Revision, Auxiliary.bAvailable,
+				static_cast<uint32>(
+					Auxiliary.Statistics.Shadow.ContactRoute));
 			return false;
 		}
 

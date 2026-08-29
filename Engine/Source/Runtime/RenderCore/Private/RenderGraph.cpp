@@ -185,6 +185,24 @@ namespace Durin
 				&& Left.Usage == Right.Usage;
 		}
 
+		auto TextureBackingIsCompatible(const FRHITextureDesc& Actual,
+			const FRHITextureDesc& Required) -> bool
+		{
+			FRHITextureDesc NormalizedActual = Actual;
+			NormalizedActual.Flags = Required.Flags;
+			return EnumHasAllFlags(Actual.Flags, Required.Flags)
+				&& TextureDescriptionsEqual(NormalizedActual, Required);
+		}
+
+		auto BufferBackingIsCompatible(const FRHIBufferDesc& Actual,
+			const FRHIBufferDesc& Required) -> bool
+		{
+			FRHIBufferDesc NormalizedActual = Actual;
+			NormalizedActual.Usage = Required.Usage;
+			return EnumHasAllFlags(Actual.Usage, Required.Usage)
+				&& BufferDescriptionsEqual(NormalizedActual, Required);
+		}
+
 		auto DescribeImportContract(const FGraphResource& Resource) -> std::string
 		{
 			std::ostringstream Stream;
@@ -2347,7 +2365,7 @@ namespace Durin
 				{
 					const FRHITextureDesc Actual = DescribeTexture(
 						*Candidate.Textures[Request.ResourceId]);
-					if (!TextureDescriptionsEqual(Actual, Request.TextureDesc))
+					if (!TextureBackingIsCompatible(Actual, Request.TextureDesc))
 					{
 						if (OutError != nullptr) *OutError =
 							"backing resolver returned incompatible texture '"
@@ -2359,7 +2377,7 @@ namespace Durin
 				else
 				{
 					const auto& Actual = Candidate.Buffers[Request.ResourceId]->GetDesc();
-					if (!BufferDescriptionsEqual(Actual, Request.BufferDesc))
+					if (!BufferBackingIsCompatible(Actual, Request.BufferDesc))
 					{
 						if (OutError != nullptr) *OutError =
 							"backing resolver returned incompatible buffer '"
