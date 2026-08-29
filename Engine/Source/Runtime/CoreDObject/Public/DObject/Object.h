@@ -214,6 +214,7 @@ namespace Durin
 		friend COREDOBJECT_API auto CollectGarbage() -> void;
 		friend COREDOBJECT_API auto ForEachObjectReference(DObject* Object, FReferenceCollector& Collector) -> void;
 		friend COREDOBJECT_API auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*;
+		friend class DPackage;
 		friend class FDObjectArray;
 	};
 

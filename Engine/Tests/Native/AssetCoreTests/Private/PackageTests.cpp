@@ -5314,6 +5314,38 @@ TEST(FPackageAssetTests, LoadsExternalDependenciesAndPreventsPrematureUnload)
 	EXPECT_TRUE(Durin::Asset::FindAssetExact(DependencyPath));
 }
 
+TEST(FPackageAssetTests, RuntimeStrongReferencePreventsUnloadAndRestoresResidency)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath TargetPath, OwnerPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TestAssets/RuntimeUnloadTarget", TargetPath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TestAssets/RuntimeUnloadOwner", OwnerPath));
+
+	DPackageAssetForTest* Target = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(TargetPath, Target));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Target->GetPackage()));
+	Durin::DPackage* TargetPackage = Target->GetPackage();
+
+	DPackageAssetForTest* Owner = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(OwnerPath, Owner));
+	Owner->ExternalReference = Target;
+	const Durin::Asset::FAssetResult Result =
+		Durin::Asset::UnloadPackage(TargetPath);
+	EXPECT_EQ(Result.Error, Durin::Asset::EAssetError::InUse);
+	EXPECT_EQ(Result.Message, "Package remains referenced by live objects.");
+	EXPECT_EQ(Durin::Asset::FindResidentPackage(TargetPath), TargetPackage);
+	EXPECT_TRUE(TargetPackage->HasAnyObjectFlags(Durin::EObjectFlags::Standalone));
+	EXPECT_FALSE(TargetPackage->IsGarbage());
+	EXPECT_EQ(Owner->ExternalReference.Get(), Target);
+
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		OwnerPath,
+		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	EXPECT_TRUE(Durin::Asset::UnloadPackage(TargetPath));
+}
+
 TEST(FPackageAssetTests, RejectsTruncatedPackagesWithoutCachingPartialObjects)
 {
 	InitializeAssetTests();

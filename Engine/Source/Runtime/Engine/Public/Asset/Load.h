@@ -221,6 +221,8 @@ namespace Durin::Asset
 		FAssetLoadReport* OutReport = nullptr
 	) -> FAssetResult;
 	ENGINE_API auto FindResidentPackage(const FAssetPath& Path) -> DPackage*;
+	// Attempts to release Standalone residency and collect an unreferenced package.
+	// Returns InUse and restores residency when a live strong reference keeps it reachable.
 	ENGINE_API auto UnloadPackage(
 		const FAssetPath& Path,
 		EAssetPackageUnloadPolicy Policy = EAssetPackageUnloadPolicy::RejectUnsaved

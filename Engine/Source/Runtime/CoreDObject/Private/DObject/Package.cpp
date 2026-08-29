@@ -74,6 +74,13 @@ namespace Durin
 		RegisterPackage(this, PackagePath);
 	}
 
+	auto DPackage::SetStandaloneResidency(bool bResident) -> void
+	{
+		check(IsAssetPackage());
+		if (bResident) ObjectFlags |= EObjectFlags::Standalone;
+		else ObjectFlags &= ~EObjectFlags::Standalone;
+	}
+
 	auto DPackage::SetAsset(DObject* InAsset) -> bool
 	{
 		if (!IsAssetPackage()) return false;

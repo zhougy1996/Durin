@@ -47,6 +47,10 @@ namespace Durin
 		COREDOBJECT_API auto InitializeAssetPackage(const FAssetPath& InPath) -> void;
 		COREDOBJECT_API auto RelocateAssetPackage(const FAssetPath& InPath) -> bool;
 		COREDOBJECT_API auto InitializeCppPackage(FName ModuleName) -> void;
+		// Controls ordinary-GC residency for an asset package. Unload attempts clear
+		// this temporarily and restore it when another strong reference keeps the
+		// package graph reachable.
+		COREDOBJECT_API auto SetStandaloneResidency(bool bResident) -> void;
 
 		// Asset packages accept only an asset whose Outer is this package.
 		COREDOBJECT_API auto SetAsset(DObject* InAsset) -> bool;

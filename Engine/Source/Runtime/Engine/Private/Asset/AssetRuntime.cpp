@@ -590,8 +590,14 @@ namespace Durin::Asset
 			&& Policy == EAssetPackageUnloadPolicy::RejectUnsaved)
 			return Error(EAssetError::InUse,
 				"Package has unsaved state; explicit discard policy is required.");
-		MarkObjectHierarchyAsGarbage(Package);
+		Package->SetStandaloneResidency(false);
 		CollectGarbage();
+		if (DPackage* RemainingPackage = FindResidentPackage(Path))
+		{
+			RemainingPackage->SetStandaloneResidency(true);
+			return Error(EAssetError::InUse,
+				"Package remains referenced by live objects.");
+		}
 		return {};
 	}
 

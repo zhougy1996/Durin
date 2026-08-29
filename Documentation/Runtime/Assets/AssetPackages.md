@@ -80,10 +80,15 @@ miss never guesses a physical filename or discovers an unindexed file. Unload
 rejects newly created or dirty packages by default. A caller that intentionally
 abandons unsaved work passes `EAssetPackageUnloadPolicy::DiscardUnsaved` to the
 same `UnloadPackage` operation. Successful unload explicitly retires the
-`Standalone` residency, calls
-`MarkObjectHierarchyAsGarbage()` for the package tree, and runs GC so the path
-can be loaded again only after GC-controlled physical removal. Objects that
-must survive unload must be reparented out of that package first.
+`Standalone` residency and runs GC without marking the package tree as garbage.
+An unreferenced graph is collected and releases its registered path. A graph
+still reachable through a runtime strong reference survives; unload restores
+its `Standalone` residency and reports `InUse`. Known authored hard-package
+dependencies are rejected before GC, while GC reachability remains the final
+authority for transient runtime references. Failure rollback, explicit asset
+deletion, and Engine shutdown are separate force-retirement operations and may
+still mark a complete package hierarchy as garbage.
+
 `DPackage::Asset` is a `TObjectPtr` that strongly retains the main asset;
 arbitrary descendants remain alive only through actual GC strong references,
 not merely because their Outer is the package or asset. A package cannot unload
