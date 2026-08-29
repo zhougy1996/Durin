@@ -197,7 +197,7 @@ namespace Durin::Editor::Level
 	}
 
 	auto MLevelEditor::RequestContentBrowserImport(
-		const std::string& Directory,
+		std::string_view Directory,
 		EImportDialogType Type) -> void
 	{
 		switch (Type)
@@ -208,6 +208,22 @@ namespace Durin::Editor::Level
 			break;
 		case EImportDialogType::Scene:
 			if (SceneImportDialog) SceneImportDialog->Open(Directory);
+			break;
+		}
+	}
+
+	auto MLevelEditor::DrawContentBrowserImport(
+		EImportDialogType Type, bool bAllowAssetMutation) -> void
+	{
+		switch (Type)
+		{
+		case EImportDialogType::TerrainHeightmap:
+			if (TerrainHeightmapImportDialog)
+				TerrainHeightmapImportDialog->Draw(bAllowAssetMutation);
+			break;
+		case EImportDialogType::Scene:
+			if (SceneImportDialog)
+				SceneImportDialog->Draw(bAllowAssetMutation);
 			break;
 		}
 	}
@@ -379,12 +395,8 @@ namespace Durin::Editor::Level
 
 	auto MLevelEditor::DrawWorkspace(bool bActive) -> bool
 	{
-		if (!Context || !DocumentController || !SceneImportDialog
-			|| !TerrainHeightmapImportDialog) return false;
+		if (!Context || !DocumentController) return false;
 		DocumentController->DrawDialogs();
-		const bool bAllowAssetMutation = !GEditor || !GEditor->IsPlaying();
-		SceneImportDialog->Draw(bAllowAssetMutation);
-		TerrainHeightmapImportDialog->Draw(bAllowAssetMutation);
 		bWasActive = bActive;
 		const bool bDocumentOpen = std::ranges::any_of(WorkspaceManager.GetDocuments(), [](const ::Durin::Editor::FDocumentTab& Document) {
 			return Document.WorkspaceType == Workspace::Type;

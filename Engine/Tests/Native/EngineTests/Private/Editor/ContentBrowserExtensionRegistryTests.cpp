@@ -12,24 +12,24 @@ namespace Durin::Editor::ContentBrowser
 		std::string Error;
 		auto B = RegisterExtension({
 			.Id = "test.order.b", .Label = "B",
-			.Category = EExtensionCategory::Create, .Order = 20,
+			.Category = EExtensionCategory::Import, .Order = 20,
 			.IsApplicable = [](const auto&) { return true; },
 			.Invoke = [](const auto&) {}, .OwnerGate = Gate.GetGate()}, Error);
 		auto A = RegisterExtension({
 			.Id = "test.order.a", .Label = "A",
-			.Category = EExtensionCategory::Create, .Order = 20,
+			.Category = EExtensionCategory::Import, .Order = 20,
 			.IsApplicable = [](const auto&) { return true; },
 			.Invoke = [](const auto&) {}, .OwnerGate = Gate.GetGate()}, Error);
 		auto First = RegisterExtension({
 			.Id = "test.order.first", .Label = "First",
-			.Category = EExtensionCategory::Create, .Order = 10,
+			.Category = EExtensionCategory::Import, .Order = 10,
 			.IsApplicable = [](const auto&) { return true; },
 			.Invoke = [](const auto&) {}, .OwnerGate = Gate.GetGate()}, Error);
 		ASSERT_TRUE(A.IsValid());
 		ASSERT_TRUE(B.IsValid());
 		ASSERT_TRUE(First.IsValid());
 
-		const auto Snapshot = CaptureExtensions(EExtensionCategory::Create);
+		const auto Snapshot = CaptureExtensions(EExtensionCategory::Import);
 		const auto FindIndex = [&Snapshot](std::string_view Id) {
 			return std::distance(Snapshot.begin(), std::ranges::find(
 				Snapshot, Id, &FExtensionDescriptor::Id));
@@ -46,7 +46,7 @@ namespace Durin::Editor::ContentBrowser
 		std::string Error;
 		auto Registration = RegisterExtension({
 			.Id = "test.lifetime", .Label = "Lifetime",
-			.Category = EExtensionCategory::Details,
+			.Category = EExtensionCategory::Import,
 			.IsApplicable = [](const auto& Context) {
 				return !Context.VirtualDirectory.empty();
 			},
@@ -55,13 +55,13 @@ namespace Durin::Editor::ContentBrowser
 		ASSERT_TRUE(Registration.IsValid());
 		auto Duplicate = RegisterExtension({
 			.Id = "test.lifetime", .Label = "Duplicate",
-			.Category = EExtensionCategory::Details,
+			.Category = EExtensionCategory::Import,
 			.IsApplicable = [](const auto&) { return true; },
 			.Invoke = [](const auto&) {}, .OwnerGate = Gate.GetGate()}, Error);
 		EXPECT_FALSE(Duplicate.IsValid());
 		EXPECT_FALSE(Error.empty());
 
-		const auto Snapshot = CaptureExtensions(EExtensionCategory::Details);
+		const auto Snapshot = CaptureExtensions(EExtensionCategory::Import);
 		const auto Entry = std::ranges::find(
 			Snapshot, "test.lifetime", &FExtensionDescriptor::Id);
 		ASSERT_NE(Entry, Snapshot.end());
@@ -82,7 +82,8 @@ namespace Durin::Editor::ContentBrowser
 		const std::array Categories{
 			EExtensionCategory::Create,
 			EExtensionCategory::Details,
-			EExtensionCategory::ContextMenu};
+			EExtensionCategory::ContextMenu,
+			EExtensionCategory::Import};
 		std::vector<FScopedExtensionRegistration> Registrations;
 		int Invocations = 0;
 		for (size_t Index = 0; Index < Categories.size(); ++Index)
@@ -126,33 +127,43 @@ namespace Durin::Editor::ContentBrowser
 		int Presentations = 0;
 		bool bLastPresentationAllowedMutation = true;
 		std::string Error;
-		auto Registration = RegisterExtension({
-			.Id = "test.mutation-policy",
-			.Label = "Mutation Policy",
-			.Category = EExtensionCategory::Create,
-			.IsApplicable = [](const auto&) { return true; },
-			.Invoke = [&Invocations](const auto&) { ++Invocations; },
-			.DrawHostPresentation = [
-				&Presentations,
-				&bLastPresentationAllowedMutation](bool bAllowAssetMutation) {
-				++Presentations;
-				bLastPresentationAllowedMutation = bAllowAssetMutation;
-			},
-			.OwnerGate = Gate.GetGate()}, Error);
-		ASSERT_TRUE(Registration.IsValid()) << Error;
+		std::vector<FScopedExtensionRegistration> Registrations;
+		for (const EExtensionCategory Category : {
+			EExtensionCategory::Create, EExtensionCategory::Import})
+		{
+			const std::string Id = Category == EExtensionCategory::Create
+				? "test.mutation-policy.create"
+				: "test.mutation-policy.import";
+			auto Registration = RegisterExtension({
+				.Id = Id,
+				.Label = "Mutation Policy",
+				.Category = Category,
+				.IsApplicable = [](const auto&) { return true; },
+				.Invoke = [&Invocations](const auto&) { ++Invocations; },
+				.DrawHostPresentation = Category == EExtensionCategory::Import
+					? std::function<void(bool)>{[
+						&Presentations,
+						&bLastPresentationAllowedMutation](bool bAllowAssetMutation) {
+						++Presentations;
+						bLastPresentationAllowedMutation = bAllowAssetMutation;
+					}}
+					: std::function<void(bool)>{},
+				.OwnerGate = Gate.GetGate()}, Error);
+			ASSERT_TRUE(Registration.IsValid()) << Error;
 
-		const auto Extensions = CaptureExtensions(EExtensionCategory::Create);
-		const auto Entry = std::ranges::find(
-			Extensions, "test.mutation-policy", &FExtensionDescriptor::Id);
-		ASSERT_NE(Entry, Extensions.end());
-		EXPECT_FALSE(InvokeExtension(*Entry, {.bAllowAssetMutation = false}));
-		EXPECT_EQ(Invocations, 0);
-		EXPECT_TRUE(InvokeExtension(*Entry, {.bAllowAssetMutation = true}));
-		EXPECT_EQ(Invocations, 1);
+			const auto Extensions = CaptureExtensions(Category);
+			const auto Entry = std::ranges::find(
+				Extensions, Id, &FExtensionDescriptor::Id);
+			ASSERT_NE(Entry, Extensions.end());
+			EXPECT_FALSE(InvokeExtension(*Entry, {.bAllowAssetMutation = false}));
+			EXPECT_TRUE(InvokeExtension(*Entry, {.bAllowAssetMutation = true}));
+			Registrations.push_back(std::move(Registration));
+		}
+		EXPECT_EQ(Invocations, 2);
 
 		const auto Presenters = CaptureHostPresenters();
 		const auto Presenter = std::ranges::find(
-			Presenters, "test.mutation-policy", &FExtensionDescriptor::Id);
+			Presenters, "test.mutation-policy.import", &FExtensionDescriptor::Id);
 		ASSERT_NE(Presenter, Presenters.end());
 		EXPECT_TRUE(DrawHostPresentation(*Presenter, false));
 		EXPECT_EQ(Presentations, 1);

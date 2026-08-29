@@ -172,24 +172,32 @@ roots receive a stable `$DurinRoot`.
 
 ## Editor Dispatch
 
-`BuiltinImportDispatch.h` is the finite Content Browser import menu authority.
-It contains four families: Texture, TerrainHeightmap, Scene, and standalone
-StaticMesh. MainFrame dispatches those import values directly to the owning
-feature module. Reimport has no family enum or host switch: Content Browser asks
+Content Browser Import workflows are feature-owned scoped extensions.
+TextureEditor registers Texture, LevelEditor registers Terrain Heightmap and
+Scene, and StaticMeshEditor registers standalone Static Mesh. Stable IDs and
+explicit order values preserve the visible menu independently of module load
+order. ContentBrowser invokes applicable entries through their owner gate and
+MainFrame has no import-family enum, descriptor table, or feature switch.
+
+Reimport has no extension entry, family enum, or host switch: Content Browser asks
 `FReimportManager` for loaded-object capabilities and sends Reimport or the
 complete selected replacement file set back to the same manager. **Reimport**
 resolves a retained complete hint set, while **Reimport From File...** remains
 available for a loaded supported asset even when no hint exists. Selecting a
 new file can change hints only through a successful complete candidate commit.
 
-Import and Reimport are deliberately not Content Browser extension categories.
-The remaining extension registry composes unrelated Create, Details, and
-Context Menu UI supplied by editor modules; it does not select importers or
-query import capabilities.
+Import is an editor presentation category rather than factory discovery:
+extensions select a user-facing workflow for a virtual destination directory,
+while `DFactory` remains authoritative for the object class and source formats
+inside that workflow. Reimport continues to query loaded-object capabilities.
+Create and Import invocation share Content Browser's asset-mutation admission
+policy.
 
 Dialogs use ordinary read-only file pickers. Texture and standalone StaticMesh
 dialogs are host presentations owned by their feature modules. Scene and
-Terrain dialogs are owned by the Level Editor workspace. Standalone dialogs
+Terrain dialogs are owned by the Level Editor workspace and also draw through
+their registered host presenters, independently of the active workspace.
+Standalone dialogs
 configure a concrete factory and call `IAssetTools`; Scene calls its private
 multi-output transaction. Terminal diagnostics and post-save Content Browser
 refresh/reveal remain host presentation concerns.
@@ -230,7 +238,7 @@ reader or dual-write route.
 
 ## Related Code
 
-- [`BuiltinImportDispatch.h`](../../../Engine/Source/Editor/DurinEd/Public/Editor/Import/BuiltinImportDispatch.h)
+- [`ContentBrowserContracts.h`](../../../Engine/Source/Editor/ContentBrowser/Public/ContentBrowser/ContentBrowserContracts.h)
 - [`IAssetTools.h`](../../../Engine/Source/Editor/AssetTools/Public/AssetTools/IAssetTools.h)
 - [`EditorReimportHandler.h`](../../../Engine/Source/Editor/DurinEd/Public/EditorReimportHandler.h)
 - [`Factory.h`](../../../Engine/Source/Editor/DurinEd/Public/Factories/Factory.h)

@@ -425,25 +425,6 @@ namespace Durin::Editor::MainFrame
 							return ContentBrowser::FActionResult{
 								static_cast<bool>(Result), Result.Message};
 						},
-						.OpenImport = [Level = &LevelEditorModule,
-							Texture = &TextureEditorModule,
-							StaticMesh = &StaticMeshEditorModule](
-							Editor::EBuiltinImportFamily Family,
-							std::string Directory) {
-							switch (Family)
-							{
-							case Editor::EBuiltinImportFamily::Texture:
-								Texture->OpenImportDialog(Directory); break;
-							case Editor::EBuiltinImportFamily::TerrainHeightmap:
-								Level->OpenImportDialog(
-									Editor::Level::EImportDialogType::TerrainHeightmap, Directory); break;
-							case Editor::EBuiltinImportFamily::Scene:
-								Level->OpenImportDialog(
-									Editor::Level::EImportDialogType::Scene, Directory); break;
-							case Editor::EBuiltinImportFamily::StaticMesh:
-								StaticMesh->OpenImportDialog(Directory); break;
-							}
-						},
 						.QueryReimport = [](std::string_view AssetPath) {
 							FAssetPath Path;
 							if (!FAssetPath::TryCreate(AssetPath, Path))
@@ -464,11 +445,6 @@ namespace Durin::Editor::MainFrame
 							std::function<void(std::string)> ReportError) {
 							ExecuteReimport(bFromFile, std::move(AssetPath),
 								std::move(ReportError));
-						},
-						.DrawImportDialogs = [Texture = &TextureEditorModule,
-							StaticMesh = &StaticMeshEditorModule](bool bAllowAssetMutation) {
-							Texture->DrawImportDialog(bAllowAssetMutation);
-							StaticMesh->DrawImportDialog(bAllowAssetMutation);
 						},
 					};
 					ContentBrowser::FPresentationSettings BrowserSettings;

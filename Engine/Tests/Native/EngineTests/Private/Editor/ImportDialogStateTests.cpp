@@ -1,5 +1,4 @@
 #include "Editor/Import/ImportDialogSupport.h"
-#include "Editor/Import/BuiltinImportDispatch.h"
 #include "Import/TextureImportDialogState.h"
 
 #include "EngineTestSupport.h"
@@ -47,21 +46,6 @@ TEST(FImportDialogCallbacksTests, RoutesWorkspaceOutcomes)
 	EXPECT_EQ(Error, "Import failed.");
 	EXPECT_EQ(ImportedPath, "/Project/Textures/Stone");
 	EXPECT_EQ(ImportedDirectory, "/Project/Scenes/Robot");
-}
-
-TEST(FBuiltinImportDispatchTests, ExposesOnlyTheFiniteBuiltInFamilies)
-{
-	ASSERT_EQ(BuiltinImportDescriptors.size(), 4u);
-	EXPECT_EQ(BuiltinImportDescriptors[0].Family, EBuiltinImportFamily::Texture);
-	EXPECT_EQ(BuiltinImportDescriptors[1].Family,
-		EBuiltinImportFamily::TerrainHeightmap);
-	EXPECT_EQ(BuiltinImportDescriptors[2].Family, EBuiltinImportFamily::Scene);
-	EXPECT_EQ(BuiltinImportDescriptors[3].Family, EBuiltinImportFamily::StaticMesh);
-	for (const FBuiltinImportDescriptor& Descriptor : BuiltinImportDescriptors)
-	{
-		EXPECT_FALSE(Descriptor.Label.empty());
-		EXPECT_FALSE(Descriptor.Extensions.empty());
-	}
 }
 
 TEST(FImportDialogDestinationModelTests, PreservesManualPathAcrossSuggestions)

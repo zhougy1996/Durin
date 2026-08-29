@@ -2,7 +2,7 @@
 
 Summary: Define asset presentation, operations, thumbnails, deletion, undo, and recovery in the Content Browser.
 
-Modules: ContentBrowser, MainFrame, AssetTools, DurinEd, Engine
+Modules: ContentBrowser, MainFrame, AssetTools, DurinEd, Engine, TextureEditor, StaticMeshEditor, LevelEditor
 
 The Content Browser presents the contents of automatically scanned mounted
 content roots. It combines registered engine assets and ordinary files in one
@@ -16,20 +16,23 @@ instance and its docked/drawer presentation. Shared asset
 registries, picker contracts, and thumbnail services remain in the flat
 `Durin::Editor` boundary or their runtime modules.
 
-Import and asset-family reimport use DurinEd's finite built-in descriptor table
-and direct MainFrame dispatch. TextureEditor, StaticMeshEditor, and LevelEditor
-own the concrete dialogs and direct family calls for textures, geometry,
-Terrain, and Scene. Import and Reimport are not dynamic extension categories.
-
-Create, Details, and Context Menu entries remain deterministic scoped
+Create, Import, Details, and Context Menu entries are deterministic scoped
 extensions ordered by `(Order, Id)`. LevelEditor contributes Level creation,
 and MaterialEditor contributes Material and Material Instance creation.
+TextureEditor, StaticMeshEditor, and LevelEditor contribute the existing Import
+workflows and own their concrete modal state. ContentBrowser captures the live
+Import snapshot for a selected virtual directory; MainFrame neither enumerates
+nor dispatches concrete import families. Reimport remains capability-driven
+through `FReimportManager` rather than this presentation registry.
+
 Releasing a feature handle removes
 admission before its module callback gate retires. An extension may also
 contribute one host presenter for its feature-owned modal state. MainFrame
 draws those presenters through the browser tool without depending on concrete
 asset-editor modules, and supplies the current asset-mutation policy to both
-command invocation and modal submission.
+command invocation and modal submission. Create and Import are both mutation
+categories: invocation is rejected while Play denies asset mutation, while an
+already-open presenter still draws with submission disabled.
 
 Presentation state lives in `ContentBrowserSettings.yaml`. When the file is
 absent, the browser uses defaults and writes the new file; the retired Level

@@ -1,5 +1,6 @@
 #include "StaticMeshEditorModule.h"
 
+#include "ContentBrowser/ContentBrowserContracts.h"
 #include "Editor/WorkspaceManager.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Thumbnail/ThumbnailManager.h"
@@ -15,6 +16,7 @@ namespace Durin
 
 	struct FStaticMeshEditorModule::FIntegrationState
 	{
+		Editor::ContentBrowser::FScopedExtensionRegistration ImportExtension;
 		std::unique_ptr<Editor::StaticMesh::FStaticMeshImportDialog> ImportDialog;
 	};
 
@@ -91,25 +93,41 @@ namespace Durin
 		ThumbnailRegistration =
 			std::make_unique<::Durin::Editor::FThumbnailRendererRegistrationHandle>(
 				std::move(ThumbnailHandle));
+		auto ImportExtension = Editor::ContentBrowser::RegisterExtension({
+			.Id = "static-mesh.import-static-mesh",
+			.Label = "Static Mesh (Geometry Only)...",
+			.Category = Editor::ContentBrowser::EExtensionCategory::Import,
+			.Order = 400,
+			.IsApplicable = [](const auto& Context) {
+				return !Context.VirtualDirectory.empty();
+			},
+			.Invoke = [this](const auto& Invocation) {
+				if (Integration->ImportDialog)
+					Integration->ImportDialog->Open(
+						Invocation.Context.VirtualDirectory);
+			},
+			.DrawHostPresentation = [this](bool bAllowAssetMutation) {
+				if (Integration->ImportDialog)
+					Integration->ImportDialog->Draw(bAllowAssetMutation);
+			},
+			.OwnerGate = EditorExtensionCallbacks.GetGate(),
+		}, Error);
+		if (!ImportExtension.IsValid())
+		{
+			DURIN_ERROR("Could not register Content Browser Static Mesh import: {}", Error);
+			UnregisterStaticMeshEditor();
+			return false;
+		}
+		Integration->ImportExtension = std::move(ImportExtension);
 		return true;
 	}
 
 	auto FStaticMeshEditorModule::UnregisterStaticMeshEditor() -> void
 	{
+		Integration->ImportExtension.Reset();
 		Integration->ImportDialog.reset();
 		ThumbnailRegistration.reset();
 		WorkspaceRegistration.reset();
-	}
-
-	auto FStaticMeshEditorModule::OpenImportDialog(std::string_view Directory) -> void
-	{
-		if (Integration->ImportDialog) Integration->ImportDialog->Open(Directory);
-	}
-
-	auto FStaticMeshEditorModule::DrawImportDialog(bool bAllowAssetMutation) -> void
-	{
-		if (Integration->ImportDialog)
-			Integration->ImportDialog->Draw(bAllowAssetMutation);
 	}
 
 }

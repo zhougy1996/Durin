@@ -9,24 +9,55 @@ Completed:
 
 ## Current Status
 
-The selected design is ready for implementation. Content Browser already owns
-a deterministic, scoped extension registry for Create, Details, and Context
-Menu contributions, but Import still bypasses it through a fixed descriptor
-table and host-side asset-family dispatch.
+Stage 0 is complete. The implementation baseline is:
 
-The current fixed path has four coupled seams:
+- The visible menu is `Texture...`, `Terrain Heightmap...`,
+  `Scene Source (FBX/glTF)...`, and `Static Mesh (Geometry Only)...` in that
+  order. Each selection forwards the currently selected non-empty virtual
+  directory to the existing feature-owned dialog.
+- Content Browser disables the Import submenu while asset mutation is denied.
+  Texture and Static Mesh modals are presented by MainFrame through
+  `DrawImportDialogs`; Scene and Terrain Heightmap modals are presented by
+  `MLevelEditor::DrawWorkspace`. All existing dialogs receive the mutation
+  policy and keep their existing completion callbacks for mounted-content
+  notification and asset or directory reveal.
+- The selected IDs `texture.import-texture`,
+  `level.import-terrain-heightmap`, `level.import-scene`, and
+  `static-mesh.import-static-mesh` have no repository collision. Their orders
+  100, 200, 300, and 400 preserve the baseline independently of module load
+  order.
+- The exact fixed-dispatch removal set is the DurinEd descriptor header, the
+  Content Browser construction/panel callbacks and members, MainFrame's family
+  switch and presenter capture, the three public module open/draw methods, and
+  the finite-family assertions in `ImportDialogStateTests.cpp`.
+- MainFrame shutdown first stops Content Browser admission and destroys its UI,
+  then unregisters StaticMeshEditor, TextureEditor, and LevelEditor. Within a
+  feature, Content Browser registrations must therefore reset before the
+  protected import dialog or workspace, and before the module callback gate is
+  retired by module shutdown.
+- The configured native registry maps the focused coverage to
+  `ContentBrowserWorkflowTests` and `EditorAssetWorkflowTests`.
 
-- `BuiltinImportDispatch.h` declares `EBuiltinImportFamily` and the four menu
-  descriptors for Texture, Terrain Heightmap, Scene, and Static Mesh.
-- Content Browser renders that table directly and forwards the selected enum
-  through `FConstructionServices::OpenImport`.
-- MainFrame switches on the enum to call concrete TextureEditor,
-  StaticMeshEditor, or LevelEditor module methods and separately enumerates the
-  Texture and Static Mesh modal presenters.
-- Focused tests assert that the built-in family set has exactly four members.
+Stages 1 through 3 are implemented. Import is a mutation category in the
+shared registry; the four workflows are scoped registrations owned by
+TextureEditor, LevelEditor, and StaticMeshEditor; Content Browser invokes the
+ordered live snapshot; and MainFrame no longer contains concrete import
+dispatch or presentation captures. Registration rollback uses the existing
+feature unregistration paths, which remove extension admission before dialog,
+workspace, thumbnail, and module-gate teardown. The affected `MainFrame`
+module closure compiles, and focused tests pass with 61 enabled
+`ContentBrowserWorkflowTests` cases and all 30 `EditorAssetWorkflowTests`
+cases.
 
-No implementation work in this plan is complete. The existing behavior remains
-authoritative until a stage acceptance gate passes.
+Stage 4 automated qualification is complete: the full Debug Editor `all`
+target builds, a hidden Sandbox editor run completed 120 ticks and shut down
+normally, changed-document validation passes, and the complete active-plan set
+passes validation. A visible Sandbox session confirmed the four Import entries
+appear exactly once in the selected order. Terrain Heightmap opened with the
+current `/Project/` destination and canceled cleanly. The operator stopped UI
+automation before the remaining Texture, Scene, Static Mesh, Play-mode,
+hidden-browser, and workspace-switch interactions, so those manual checks
+remain open and this plan remains Active.
 
 ## Goal
 
@@ -214,15 +245,15 @@ Gaps to close:
 
 ### Stage 0: Freeze the extension contract and behavior baseline
 
-- [ ] Record the four current menu labels, order, preferred-directory routing,
+- [x] Record the four current menu labels, order, preferred-directory routing,
   Play-mode behavior, completion notifications, and modal presentation owner.
-- [ ] Confirm the stable IDs and orders in this plan do not collide with live
+- [x] Confirm the stable IDs and orders in this plan do not collide with live
   Create, Details, or Context Menu registrations.
-- [ ] Identify every include and call site for `BuiltinImportDispatch.h`,
+- [x] Identify every include and call site for `BuiltinImportDispatch.h`,
   `EBuiltinImportFamily`, `OpenImport`, and `DrawImportDialogs`.
-- [ ] Characterize shutdown ordering for ContentBrowser, LevelEditor,
+- [x] Characterize shutdown ordering for ContentBrowser, LevelEditor,
   TextureEditor, and StaticMeshEditor before changing registration ownership.
-- [ ] Confirm the selected focused test targets through the configured native
+- [x] Confirm the selected focused test targets through the configured native
   test registry.
 
 #### Acceptance Gate
@@ -233,16 +264,16 @@ Gaps to close:
 
 ### Stage 1: Add Import registry semantics
 
-- [ ] Add `EExtensionCategory::Import` without changing existing category
+- [x] Add `EExtensionCategory::Import` without changing existing category
   values or their capture behavior unnecessarily.
-- [ ] Centralize mutation-category classification so Create and Import are both
+- [x] Centralize mutation-category classification so Create and Import are both
   rejected when asset mutation is unavailable.
-- [ ] Extend registry tests to cover Import registration, ordering, duplicate
+- [x] Extend registry tests to cover Import registration, ordering, duplicate
   rejection, removal, retired-owner invocation, and Play-mode rejection.
-- [ ] Add or extract a testable Content Browser import-action seam only if the
+- [x] Add or extract a testable Content Browser import-action seam only if the
   menu cutover cannot be covered through the public registry contract; do not
   export panel/UI implementation solely for testing.
-- [ ] Keep the fixed production menu path active until all feature registrations
+- [x] Keep the fixed production menu path active until all feature registrations
   are ready for the atomic cutover.
 
 #### Acceptance Gate
@@ -253,21 +284,21 @@ Gaps to close:
 
 ### Stage 2: Register feature-owned imports and cut over the menu
 
-- [ ] Give TextureEditor one scoped Texture import registration that opens and
+- [x] Give TextureEditor one scoped Texture import registration that opens and
   presents its existing dialog.
-- [ ] Give StaticMeshEditor one scoped geometry-only import registration that
+- [x] Give StaticMeshEditor one scoped geometry-only import registration that
   opens and presents its existing dialog.
-- [ ] Give LevelEditor separate Terrain Heightmap and Scene registrations with
+- [x] Give LevelEditor separate Terrain Heightmap and Scene registrations with
   matching open and presenter callbacks.
-- [ ] Make each feature integration attempt transactional and store handles so
+- [x] Make each feature integration attempt transactional and store handles so
   they reset before the dialog/workspace state they protect.
-- [ ] Stop drawing Scene and Terrain Heightmap import dialogs from
+- [x] Stop drawing Scene and Terrain Heightmap import dialogs from
   `MLevelEditor::DrawWorkspace`; route them exclusively through registered host
   presenters.
-- [ ] Change `DrawImportMenu` to capture applicable Import descriptors, preserve
+- [x] Change `DrawImportMenu` to capture applicable Import descriptors, preserve
   the selected order and labels, queue invocation, and populate the complete
   extension context and host callbacks.
-- [ ] Verify that hiding the Content Browser or changing the active workspace
+- [x] Verify that hiding the Content Browser or changing the active workspace
   does not strand an already-open import modal.
 
 #### Acceptance Gate
@@ -278,18 +309,18 @@ Gaps to close:
 
 ### Stage 3: Remove fixed dispatch and narrow host boundaries
 
-- [ ] Remove `OpenImport` and `DrawImportDialogs` from
+- [x] Remove `OpenImport` and `DrawImportDialogs` from
   `FConstructionServices`, Content Browser panel/tool constructors, aliases,
   members, and forwarding code.
-- [ ] Remove MainFrame's asset-family switch and concrete import-dialog draw
+- [x] Remove MainFrame's asset-family switch and concrete import-dialog draw
   captures.
-- [ ] Remove obsolete public feature-module import methods or make them private
+- [x] Remove obsolete public feature-module import methods or make them private
   when module-owned callbacks are their only remaining caller.
-- [ ] Delete `BuiltinImportDispatch.h` and remove it from all includes and build
+- [x] Delete `BuiltinImportDispatch.h` and remove it from all includes and build
   metadata.
-- [ ] Replace `FBuiltinImportDispatchTests` with open-registry assertions; keep
+- [x] Replace `FBuiltinImportDispatchTests` with open-registry assertions; keep
   dialog-state tests focused on feature-private form behavior.
-- [ ] Search production and tests to prove that no fixed import family,
+- [x] Search production and tests to prove that no fixed import family,
   descriptor table, construction callback, or host switch remains.
 
 #### Acceptance Gate
@@ -300,17 +331,17 @@ Gaps to close:
 
 ### Stage 4: Qualify lifecycle and publish the contract
 
-- [ ] Run the focused Content Browser and editor asset workflow targets using
+- [x] Run the focused Content Browser and editor asset workflow targets using
   the repository test workflow.
-- [ ] Build the affected editor module closure following the repository build
+- [x] Build the affected editor module closure following the repository build
   workflow, then run the required hidden-window editor smoke if the build guide
   selects it for this integration change.
 - [ ] Exercise each import menu entry, preferred destination, cancel/reopen,
   Play-mode disablement, hidden-browser presentation, workspace switching, and
   editor shutdown.
-- [ ] Update the lasting Content Browser architecture contract to describe
+- [x] Update the lasting Content Browser architecture contract to describe
   Import as a dynamic category and remove the finite dispatch statement.
-- [ ] Validate changed documentation and the complete active-plan set.
+- [x] Validate changed documentation and the complete active-plan set.
 
 #### Acceptance Gate
 

@@ -1,5 +1,6 @@
 #include "TextureEditorModule.h"
 
+#include "ContentBrowser/ContentBrowserContracts.h"
 #include "Editor/WorkspaceManager.h"
 #include "Texture2DPropertyEditing.h"
 #include "Texture/Texture2D.h"
@@ -22,6 +23,7 @@ namespace Durin
 
 	struct FTextureEditorModule::FIntegrationState
 	{
+		Editor::ContentBrowser::FScopedExtensionRegistration ImportExtension;
 		std::unique_ptr<Editor::Texture::FTextureImportDialog> ImportDialog;
 	};
 
@@ -132,26 +134,42 @@ namespace Durin
 		TextureCubeThumbnailRegistration =
 			std::make_unique<::Durin::Editor::FThumbnailRendererRegistrationHandle>(
 				std::move(TextureCubeHandle));
+		auto ImportExtension = Editor::ContentBrowser::RegisterExtension({
+			.Id = "texture.import-texture",
+			.Label = "Texture...",
+			.Category = Editor::ContentBrowser::EExtensionCategory::Import,
+			.Order = 100,
+			.IsApplicable = [](const auto& Context) {
+				return !Context.VirtualDirectory.empty();
+			},
+			.Invoke = [this](const auto& Invocation) {
+				if (Integration->ImportDialog)
+					Integration->ImportDialog->Open(
+						Invocation.Context.VirtualDirectory);
+			},
+			.DrawHostPresentation = [this](bool bAllowAssetMutation) {
+				if (Integration->ImportDialog)
+					Integration->ImportDialog->Draw(bAllowAssetMutation);
+			},
+			.OwnerGate = EditorExtensionCallbacks.GetGate(),
+		}, Error);
+		if (!ImportExtension.IsValid())
+		{
+			DURIN_ERROR("Could not register Content Browser Texture import: {}", Error);
+			UnregisterTextureEditor();
+			return false;
+		}
+		Integration->ImportExtension = std::move(ImportExtension);
 		return true;
 	}
 
 	auto FTextureEditorModule::UnregisterTextureEditor() -> void
 	{
+		Integration->ImportExtension.Reset();
 		Integration->ImportDialog.reset();
 		TextureCubeThumbnailRegistration.reset();
 		Texture2DThumbnailRegistration.reset();
 		WorkspaceRegistration.reset();
-	}
-
-	auto FTextureEditorModule::OpenImportDialog(std::string_view Directory) -> void
-	{
-		if (Integration->ImportDialog) Integration->ImportDialog->Open(Directory);
-	}
-
-	auto FTextureEditorModule::DrawImportDialog(bool bAllowAssetMutation) -> void
-	{
-		if (Integration->ImportDialog)
-			Integration->ImportDialog->Draw(bAllowAssetMutation);
 	}
 
 }

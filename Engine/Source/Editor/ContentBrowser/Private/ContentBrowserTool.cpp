@@ -40,10 +40,8 @@ namespace Durin::Editor::ContentBrowser
 			std::move(FixUpRedirectors), std::move(Services.ExecuteTransaction),
 			std::move(Services.GetMountedContentMutationRevision),
 			std::move(Services.NotifyMountedContentMutation),
-			std::move(Services.OpenImport),
 			std::move(Services.QueryReimport),
 			std::move(Services.Reimport),
-			std::move(Services.DrawImportDialogs),
 			std::make_shared<::Durin::Editor::ContentBrowser::Private::FMountedContentReconciliationState>(),
 			std::move(Services.ThumbnailTaskScope));
 	}

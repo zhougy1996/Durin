@@ -34,13 +34,10 @@ namespace Durin::Editor::ContentBrowser::Private
 			std::function<bool(std::unique_ptr<::Durin::Editor::ITransaction>)>;
 		using FGetMountedContentMutationRevision = std::function<uint64()>;
 		using FNotifyMountedContentMutation = std::function<void()>;
-		using FOpenImport = std::function<void(
-			::Durin::Editor::EBuiltinImportFamily, std::string)>;
 		using FQueryReimport = std::function<
 			::Durin::Editor::ContentBrowser::FReimportAvailability(std::string_view)>;
 		using FReimport = std::function<void(
 			bool, std::string, std::function<void(std::string)>)>;
-		using FDrawImportDialogs = std::function<void(bool)>;
 
 		FContentBrowserPanel(
 			::Durin::Editor::ContentBrowser::FPresentationSettings InSettings,
@@ -51,10 +48,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			FExecuteTransaction InExecuteTransaction,
 			FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
 			FNotifyMountedContentMutation InNotifyMountedContentMutation,
-			FOpenImport InOpenImport,
 			FQueryReimport InQueryReimport,
 			FReimport InReimport,
-			FDrawImportDialogs InDrawImportDialogs,
 			std::shared_ptr<FMountedContentReconciliationState>
 				InMountedContentReconciliationState,
 			FTaskScopeToken InThumbnailTaskScope);
@@ -140,10 +135,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		FExecuteTransaction ExecuteTransaction;
 		FGetMountedContentMutationRevision GetMountedContentMutationRevision;
 		FNotifyMountedContentMutation NotifyMountedContentMutation;
-		FOpenImport OpenImport;
 		FQueryReimport QueryReimport;
 		FReimport Reimport;
-		FDrawImportDialogs DrawImportDialogs;
 		FContentBrowserRefreshCoordinator RefreshCoordinator;
 		FContentBrowserModel Model;
 		FContentBrowserOperations Operations;

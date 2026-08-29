@@ -114,7 +114,6 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		if (AdmissionState != ::Durin::Editor::ContentBrowser::EAdmissionState::Accepting)
 			return;
-		if (DrawImportDialogs) DrawImportDialogs(bInAllowAssetMutation);
 		for (const auto& Extension :
 			::Durin::Editor::ContentBrowser::CaptureHostPresenters())
 			(void)::Durin::Editor::ContentBrowser::DrawHostPresentation(
@@ -1080,13 +1079,36 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserPanel::DrawImportMenu(std::string_view VirtualDirectory) -> void
 	{
 		ImGui::BeginDisabled(!bAllowAssetMutation);
-		for (const auto& Descriptor :
-			::Durin::Editor::BuiltinImportDescriptors)
+		const ::Durin::Editor::ContentBrowser::FExtensionContext Context{
+			.VirtualDirectory = std::string(VirtualDirectory)};
+		for (const auto& Extension :
+			::Durin::Editor::ContentBrowser::CaptureExtensions(
+				::Durin::Editor::ContentBrowser::EExtensionCategory::Import))
 		{
-			if (ImGui::MenuItem(Descriptor.Label.data()))
-				QueueContentAction([this, Family = Descriptor.Family,
-					Directory = std::string(VirtualDirectory)] {
-					if (OpenImport) OpenImport(Family, Directory);
+			if (!Extension.IsApplicable || !Extension.IsApplicable(Context)) continue;
+			if (ImGui::MenuItem(Extension.Label.c_str()))
+				QueueContentAction([this, Extension, Context] {
+					::Durin::Editor::ContentBrowser::InvokeExtension(
+						Extension, {
+							.Context = Context,
+							.bAllowAssetMutation = bAllowAssetMutation,
+							.RevealAsset = [this](std::string_view Path) {
+								return RevealAsset(Path);
+							},
+							.RevealDirectory = [this](std::string_view Path) {
+								return RevealDirectory(Path);
+							},
+							.OpenAsset = [this](std::string_view Path, std::string_view Class) {
+								return OpenAsset && OpenAsset(
+									std::string(Path), std::string(Class));
+							},
+							.NotifyMountedContentChanged = [this] {
+								PublishMountedContentMutation();
+							},
+							.ReportError = [this](std::string Message) {
+								SetError(std::move(Message));
+							},
+						});
 				});
 		}
 		ImGui::EndDisabled();

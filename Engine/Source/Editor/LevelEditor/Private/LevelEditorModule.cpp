@@ -242,6 +242,52 @@ namespace Durin
 			}
 			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
 		}
+		const auto RegisterImport = [this, Workspace](
+			std::string Id, std::string Label, int32 Order,
+			Editor::Level::EImportDialogType Type) -> bool {
+			std::string Error;
+			auto Handle = Editor::ContentBrowser::RegisterExtension({
+				.Id = std::move(Id),
+				.Label = std::move(Label),
+				.Category = Editor::ContentBrowser::EExtensionCategory::Import,
+				.Order = Order,
+				.IsApplicable = [](const auto& Context) {
+					return !Context.VirtualDirectory.empty();
+				},
+				.Invoke = [WeakWorkspace = std::weak_ptr(Workspace), Type](
+					const auto& Invocation) {
+					if (const std::shared_ptr<MLevelEditor> AdmittedWorkspace =
+						WeakWorkspace.lock())
+						AdmittedWorkspace->RequestContentBrowserImport(
+							Invocation.Context.VirtualDirectory, Type);
+				},
+				.DrawHostPresentation = [WeakWorkspace = std::weak_ptr(Workspace), Type](
+					bool bAllowAssetMutation) {
+					if (const std::shared_ptr<MLevelEditor> AdmittedWorkspace =
+						WeakWorkspace.lock())
+						AdmittedWorkspace->DrawContentBrowserImport(
+							Type, bAllowAssetMutation);
+				},
+				.OwnerGate = EditorExtensionCallbacks.GetGate(),
+			}, Error);
+			if (!Handle.IsValid())
+			{
+				DURIN_ERROR("Could not register Content Browser import: {}", Error);
+				return false;
+			}
+			Integration->ContentBrowserExtensions.push_back(std::move(Handle));
+			return true;
+		};
+		if (!RegisterImport(
+				"level.import-terrain-heightmap", "Terrain Heightmap...", 200,
+				Editor::Level::EImportDialogType::TerrainHeightmap)
+			|| !RegisterImport(
+				"level.import-scene", "Scene Source (FBX/glTF)...", 300,
+				Editor::Level::EImportDialogType::Scene))
+		{
+			UnregisterLevelEditorWorkspace();
+			return false;
+		}
 		return true;
 	}
 
@@ -257,13 +303,6 @@ namespace Durin
 	{
 		const std::shared_ptr<MLevelEditor> Workspace = LevelEditorWorkspace.lock();
 		return Workspace && Workspace->OpenDefaultDocument();
-	}
-
-	auto FLevelEditorModule::OpenImportDialog(
-		Editor::Level::EImportDialogType Type, std::string_view Directory) -> void
-	{
-		if (const std::shared_ptr<MLevelEditor> Workspace = LevelEditorWorkspace.lock())
-			Workspace->RequestContentBrowserImport(std::string(Directory), Type);
 	}
 
 }

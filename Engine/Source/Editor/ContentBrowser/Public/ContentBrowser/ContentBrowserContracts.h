@@ -1,7 +1,6 @@
 #pragma once
 
 #include "DObject/AssetPath.h"
-#include "Editor/Import/BuiltinImportDispatch.h"
 #include "Editor/Transaction.h"
 #include "Modules/ModularFeature.h"
 #include "Threading/Task.h"
@@ -15,6 +14,7 @@ namespace Durin::Editor::ContentBrowser
 		Create,
 		Details,
 		ContextMenu,
+		Import,
 	};
 
 	// Describes whether the browser still accepts externally requested work.
@@ -121,10 +121,8 @@ namespace Durin::Editor::ContentBrowser
 		std::function<void()> NotifyMountedContentMutation;
 		std::function<FActionResult(std::span<const FAssetMove>)> MoveAssets;
 		std::function<FActionResult(std::span<const FAssetPath>)> FixUpRedirectors;
-		std::function<void(EBuiltinImportFamily, std::string)> OpenImport;
 		std::function<FReimportAvailability(std::string_view)> QueryReimport;
 		std::function<void(bool, std::string, std::function<void(std::string)>)> Reimport;
-		std::function<void(bool)> DrawImportDialogs;
 		FTaskScopeToken ThumbnailTaskScope;
 		FModuleOwnedCallbackGate OwnerGate;
 	};

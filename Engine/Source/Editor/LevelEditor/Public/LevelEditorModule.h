@@ -23,7 +23,6 @@ namespace Durin::Editor
 
 namespace Durin::Editor::Level
 {
-	enum class EImportDialogType : uint8;
 	class FLevelEditorSessionSettings;
 	class MLevelEditor;
 }
@@ -43,8 +42,6 @@ namespace Durin
 			Editor::Level::FContentBrowserCallbacks ContentBrowserCallbacks) -> bool;
 		LEVELEDITOR_API auto UnregisterLevelEditorWorkspace() -> void;
 		LEVELEDITOR_API auto OpenDefaultDocument() -> bool;
-		LEVELEDITOR_API auto OpenImportDialog(
-			Editor::Level::EImportDialogType Type, std::string_view Directory) -> void;
 	private:
 		FModuleOwnedCallbackRegistration EditorExtensionCallbacks;
 		FAsyncOperationGroup ThumbnailOperations;

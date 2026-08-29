@@ -4,6 +4,12 @@ namespace Durin::Editor::ContentBrowser
 {
 	namespace
 	{
+		auto IsAssetMutationCategory(EExtensionCategory Category) -> bool
+		{
+			return Category == EExtensionCategory::Create
+				|| Category == EExtensionCategory::Import;
+		}
+
 		struct FRegistryState
 		{
 			std::mutex Mutex;
@@ -92,10 +98,9 @@ namespace Durin::Editor::ContentBrowser
 		const FExtensionDescriptor& Descriptor,
 		const FExtensionInvocation& Invocation) -> bool
 	{
-		const bool bMutationExtension =
-			Descriptor.Category == EExtensionCategory::Create;
 		if (!Descriptor.IsApplicable || !Descriptor.Invoke
-			|| (bMutationExtension && !Invocation.bAllowAssetMutation)
+			|| (IsAssetMutationCategory(Descriptor.Category)
+				&& !Invocation.bAllowAssetMutation)
 			|| !Descriptor.IsApplicable(Invocation.Context))
 			return false;
 		FModuleOwnedCallbackInvocation Admission =

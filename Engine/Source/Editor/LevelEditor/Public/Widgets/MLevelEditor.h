@@ -68,9 +68,6 @@ namespace Durin::Editor::Level
 		LEVELEDITOR_API auto DrawWindowMenu() -> void override;
 		LEVELEDITOR_API auto DrawWorkspace(bool bActive) -> bool override;
 		LEVELEDITOR_API auto ResetLayout() -> void override;
-		LEVELEDITOR_API auto RequestContentBrowserImport(
-			const std::string& Directory,
-			EImportDialogType Type) -> void;
 
 	private:
 		friend class ::Durin::FLevelEditorModule;
@@ -80,6 +77,10 @@ namespace Durin::Editor::Level
 		auto CreatePanels() -> void;
 		auto CreateDocumentServices() -> void;
 		auto CreateImportDialogs() -> void;
+		auto RequestContentBrowserImport(
+			std::string_view Directory, EImportDialogType Type) -> void;
+		auto DrawContentBrowserImport(
+			EImportDialogType Type, bool bAllowAssetMutation) -> void;
 		auto FinalizeSessionConstruction() -> void;
 		auto DrawProjectSettings() -> void;
 		auto LoadProjectSettings() -> bool;

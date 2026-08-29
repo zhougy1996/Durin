@@ -60,10 +60,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		FExecuteTransaction InExecuteTransaction,
 		FGetMountedContentMutationRevision InGetMountedContentMutationRevision,
 		FNotifyMountedContentMutation InNotifyMountedContentMutation,
-		FOpenImport InOpenImport,
 		FQueryReimport InQueryReimport,
 		FReimport InReimport,
-		FDrawImportDialogs InDrawImportDialogs,
 		std::shared_ptr<FMountedContentReconciliationState>
 			InMountedContentReconciliationState,
 		FTaskScopeToken InThumbnailTaskScope)
@@ -74,10 +72,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		, GetMountedContentMutationRevision(
 			std::move(InGetMountedContentMutationRevision))
 		, NotifyMountedContentMutation(InNotifyMountedContentMutation)
-		, OpenImport(std::move(InOpenImport))
 		, QueryReimport(std::move(InQueryReimport))
 		, Reimport(std::move(InReimport))
-		, DrawImportDialogs(std::move(InDrawImportDialogs))
 		, RefreshCoordinator(
 			GetMountedContentMutationRevision
 				? GetMountedContentMutationRevision()
