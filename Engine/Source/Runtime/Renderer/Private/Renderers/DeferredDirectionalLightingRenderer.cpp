@@ -9,17 +9,17 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "SceneView.h"
-#include "Shader/Shader.h"
+#include "Shader/GlobalShader.h"
 #include "Shader/ShaderCompilerCore.h"
 
 namespace Durin
 {
 	namespace
 	{
-		class FDeferredDirectionalVertexShader final : public FShader
+		class FDeferredDirectionalVertexShader final : public FGlobalShader
 		{
 		public:
-			DURIN_DECLARE_SHADER(FDeferredDirectionalVertexShader, FShader, "/Engine/DeferredDirectionalLighting", EShaderFrequency::Vertex, "VertexMain");
+			DURIN_DECLARE_GLOBAL_SHADER(FDeferredDirectionalVertexShader, FGlobalShader, "/Engine/DeferredDirectionalLighting", EShaderFrequency::Vertex, "VertexMain");
 		};
 
 #define DURIN_DEFERRED_FRAGMENT_PARAMETERS()                             \
@@ -43,36 +43,39 @@ namespace Durin
 	DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);                 \
 	DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Lighting);
 
-		class FDeferredDirectionalFragmentShader final : public FShader
+		class FDeferredDirectionalFragmentShader final : public FGlobalShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FDeferredDirectionalFragmentShader)
 				DURIN_DEFERRED_FRAGMENT_PARAMETERS()
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_SHADER(FDeferredDirectionalFragmentShader, FShader, "/Engine/DeferredDirectionalLighting", EShaderFrequency::Fragment, "FragmentMain");
+			DURIN_DECLARE_GLOBAL_SHADER(FDeferredDirectionalFragmentShader, FGlobalShader, "/Engine/DeferredDirectionalLighting", EShaderFrequency::Fragment, "FragmentMain");
 		};
 
-		class FDeferredProductionFragmentShader final : public FShader
+		class FDeferredProductionFragmentShader final : public FGlobalShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FDeferredProductionFragmentShader)
 				DURIN_DEFERRED_FRAGMENT_PARAMETERS()
 			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_SHADER(FDeferredProductionFragmentShader, FShader, "/Engine/DeferredDirectionalLighting", EShaderFrequency::Fragment, "ProductionFragmentMain");
+			DURIN_DECLARE_GLOBAL_SHADER(FDeferredProductionFragmentShader, FGlobalShader, "/Engine/DeferredDirectionalLighting", EShaderFrequency::Fragment, "ProductionFragmentMain");
 		};
 
 #undef DURIN_DEFERRED_FRAGMENT_PARAMETERS
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FDeferredDirectionalVertexShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FDeferredDirectionalFragmentShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FDeferredProductionFragmentShader);
 	} // namespace
 
 	struct FDeferredDirectionalLightingRenderer::FState
 	{
 		struct FPayload
 		{
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FDeferredDirectionalVertexShader> VertexShader;
-			TShaderRef<FDeferredDirectionalFragmentShader> FragmentShader;
-			TShaderRef<FDeferredProductionFragmentShader> ProductionFragmentShader;
+			FGlobalShaderSetRef ShaderSet;
+			TShaderMapRef<FDeferredDirectionalVertexShader> VertexShader;
+			TShaderMapRef<FDeferredDirectionalFragmentShader> FragmentShader;
+			TShaderMapRef<FDeferredProductionFragmentShader> ProductionFragmentShader;
 			FGraphicsPipelineStateRHIRef PipelineState;
 			FGraphicsPipelineStateRHIRef ProductionPipelineState;
 			FSamplerRHIRef FallbackEnvironmentSampler;
@@ -108,59 +111,27 @@ namespace Durin
 		FPayload* Payload = State->Resources.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
 			[this, &CommandList]() -> FResult {
-				FShaderCompileOptions CompileOptions;
-				CompileOptions.bForceRecompile =
-					Coordinator.ShouldForceShaderRecompile_RenderThread();
-				FShaderType& VertexType =
-					FDeferredDirectionalVertexShader::StaticType();
-				FShaderType& FragmentType =
-					FDeferredDirectionalFragmentShader::StaticType();
-				FShaderType& ProductionFragmentType =
-					FDeferredProductionFragmentShader::StaticType();
-				const std::array<const FShaderType*, 3> Types{
-					&VertexType, &FragmentType, &ProductionFragmentType
-				};
+				const std::array<const FGlobalShaderType*, 3> Types{
+					&FDeferredDirectionalVertexShader::StaticType(),
+					&FDeferredDirectionalFragmentShader::StaticType(),
+					&FDeferredProductionFragmentShader::StaticType()};
 				FPayload Candidate;
-				Candidate.ShaderMap = std::make_shared<FShaderMapBase>();
-				std::string Error;
-				if (!Candidate.ShaderMap->InitializeFromShaderTypes(
-						Types, CompileOptions, Error
-					))
+				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+					"DeferredDirectionalLighting.Default", Types, true,
+					ReportRendererResourceCreateDiagnostic);
+				if (!Candidate.ShaderSet)
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
 						"DeferredDirectionalLighting", "shader",
-						std::move(Error),
+						"Global shader set is unavailable.",
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual
 					));
 				}
-				auto* Vertex = static_cast<FDeferredDirectionalVertexShader*>(
-					Candidate.ShaderMap->GetShader(&VertexType)
-				);
-				auto* Fragment = static_cast<FDeferredDirectionalFragmentShader*>(
-					Candidate.ShaderMap->GetShader(&FragmentType)
-				);
-				auto* ProductionFragment =
-					static_cast<FDeferredProductionFragmentShader*>(
-						Candidate.ShaderMap->GetShader(&ProductionFragmentType)
-					);
-				if (Vertex == nullptr || Fragment == nullptr
-					|| ProductionFragment == nullptr)
-				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderBinding,
-						"DeferredDirectionalLighting", "shader",
-						"Compiled shader map is missing a typed shader.",
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual
-					));
-				}
-				Candidate.VertexShader = {Vertex, Candidate.ShaderMap.get()};
-				Candidate.FragmentShader = {Fragment, Candidate.ShaderMap.get()};
-				Candidate.ProductionFragmentShader = {
-					ProductionFragment, Candidate.ShaderMap.get()
-				};
+				Candidate.VertexShader = TShaderMapRef<FDeferredDirectionalVertexShader>(Candidate.ShaderSet);
+				Candidate.FragmentShader = TShaderMapRef<FDeferredDirectionalFragmentShader>(Candidate.ShaderSet);
+				Candidate.ProductionFragmentShader = TShaderMapRef<FDeferredProductionFragmentShader>(Candidate.ShaderSet);
 
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
 				{
@@ -199,7 +170,7 @@ namespace Durin
 					FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.PipelineLayout =
-					Candidate.ShaderMap->GetMergedPipelineLayout();
+					Candidate.ShaderSet.GetPipelineLayout();
 				Candidate.PipelineState =
 					GDynamicRHI->RHICreateGraphicsPipelineState(
 						"DeferredDirectionalLightingPipeline", Initializer
@@ -237,7 +208,7 @@ namespace Durin
 				}
 				return FResult::Success(std::move(Candidate));
 			},
-			ReportRendererResourceCreateDiagnostic
+			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable
 		);
 		return Payload != nullptr;
 	}

@@ -8,7 +8,7 @@
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
-#include "Shader/Shader.h"
+#include "Shader/GlobalShader.h"
 #include "Shader/ShaderCompilerCore.h"
 
 namespace Durin
@@ -17,31 +17,34 @@ namespace Durin
 
 	namespace
 	{
-		class FEditorGridVertexShader : public FShader
+		class FEditorGridVertexShader : public FGlobalShader
 		{
 		public:
-			DURIN_DECLARE_SHADER(
+			DURIN_DECLARE_GLOBAL_SHADER(
 				FEditorGridVertexShader,
-				FShader,
+				FGlobalShader,
 				"/Engine/EditorGrid",
 				EShaderFrequency::Vertex,
 				"VertexMain");
 		};
 
-		class FEditorGridFragmentShader : public FShader
+		class FEditorGridFragmentShader : public FGlobalShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FEditorGridFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Grid);
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_SHADER(
+			DURIN_DECLARE_GLOBAL_SHADER(
 				FEditorGridFragmentShader,
-				FShader,
+				FGlobalShader,
 				"/Engine/EditorGrid",
 				EShaderFrequency::Fragment,
 				"FragmentMain");
 		};
+
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FEditorGridVertexShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FEditorGridFragmentShader);
 
 		auto FindPreparedPipeline(const FPrepared& Prepared)
 			-> FGraphicsPipelineStateRHIRef
@@ -58,24 +61,20 @@ namespace Durin
 
 	struct FEditorGridRenderer::FState
 	{
-		struct FBasePayload
+		struct FPipelinePayload
 		{
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FEditorGridVertexShader> VertexShader;
-			TShaderRef<FEditorGridFragmentShader> FragmentShader;
+			FGraphicsPipelineStateRHIRef Pipeline;
+			FGlobalShaderSetRef ShaderSet;
 		};
 
 		struct FPipelineEntry
 		{
 			FPipelineKey Key;
-			TRenderResourceCreationSlot<FGraphicsPipelineStateRHIRef> Slot{
+			TRenderResourceCreationSlot<FPipelinePayload> Slot{
 				ERenderResourceGenerationDependency::Shader
 					| ERenderResourceGenerationDependency::Device};
 		};
 
-		TRenderResourceCreationSlot<FBasePayload> Base{
-			ERenderResourceGenerationDependency::Shader
-				| ERenderResourceGenerationDependency::Device};
 		std::vector<FPipelineEntry> Pipelines;
 	};
 
@@ -104,75 +103,16 @@ namespace Durin
 			return;
 		}
 
-		using FBasePayload = FState::FBasePayload;
-		using FBaseResult = TRenderResourceCreateResult<FBasePayload>;
-		FBasePayload* Base = State->Base.Resolve(
-			Coordinator.GetGeneration_RenderThread(),
-			[this]() -> FBaseResult {
-				FShaderCompileOptions CompileOptions;
-				CompileOptions.bForceRecompile =
-					Coordinator.ShouldForceShaderRecompile_RenderThread();
-				FShaderType& VertexShaderType =
-					FEditorGridVertexShader::StaticType();
-				FShaderType& FragmentShaderType =
-					FEditorGridFragmentShader::StaticType();
-				const std::array<const FShaderType*, 2> ShaderTypes = {
-					&VertexShaderType,
-					&FragmentShaderType};
-
-				FBasePayload Candidate;
-				Candidate.ShaderMap = std::make_shared<FShaderMapBase>();
-				std::string ErrorMessage;
-				if (!Candidate.ShaderMap->InitializeFromShaderTypes(
-						ShaderTypes, CompileOptions, ErrorMessage))
-				{
-					return FBaseResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::ShaderCompile,
-							"EditorGrid",
-							"base",
-							std::move(ErrorMessage),
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual));
-				}
-				auto* VertexShader = static_cast<FEditorGridVertexShader*>(
-					Candidate.ShaderMap->GetShader(&VertexShaderType));
-				auto* FragmentShader =
-					static_cast<FEditorGridFragmentShader*>(
-						Candidate.ShaderMap->GetShader(&FragmentShaderType));
-				if (VertexShader == nullptr || FragmentShader == nullptr)
-				{
-					return FBaseResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::ShaderBinding,
-							"EditorGrid",
-							"base",
-							"Compiled shader map is missing a typed shader.",
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual));
-				}
-				Candidate.VertexShader = TShaderRef<FEditorGridVertexShader>(
-					VertexShader, Candidate.ShaderMap.get());
-				Candidate.FragmentShader =
-					TShaderRef<FEditorGridFragmentShader>(
-						FragmentShader, Candidate.ShaderMap.get());
-				if (Candidate.VertexShader.GetRHIShader(false) == nullptr
-					|| Candidate.FragmentShader.GetRHIShader(false) == nullptr)
-				{
-					return FBaseResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::RHIResource,
-							"EditorGrid",
-							"base",
-							"RHI shader creation returned null.",
-							ERenderResourceGenerationDependency::Device
-								| ERenderResourceGenerationDependency::Manual));
-				}
-				return FBaseResult::Success(std::move(Candidate));
-			},
+		const std::array<const FGlobalShaderType*, 2> ShaderTypes = {
+			&FEditorGridVertexShader::StaticType(),
+			&FEditorGridFragmentShader::StaticType()};
+		FGlobalShaderSetRef ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+			"EditorAssistance.EditorGrid", ShaderTypes, true,
 			ReportRendererResourceCreateDiagnostic);
-		if (Base == nullptr)
+		if (!ShaderSet)
 			return;
+		TShaderMapRef<FEditorGridVertexShader> VertexShader(ShaderSet);
+		TShaderMapRef<FEditorGridFragmentShader> FragmentShader(ShaderSet);
 
 		const FPipelineKey Key{
 			.Feature = EFeature::EditorGrid,
@@ -187,23 +127,19 @@ namespace Durin
 			EntryIt = State->Pipelines.emplace(
 				State->Pipelines.end(), FState::FPipelineEntry{.Key = Key});
 		}
-		FRenderResourceGeneration PipelineGeneration =
-			Coordinator.GetGeneration_RenderThread();
-		PipelineGeneration.Shader =
-			State->Base.GetPayloadGeneration().Shader;
-		using FPipelineResult =
-			TRenderResourceCreateResult<FGraphicsPipelineStateRHIRef>;
+		FRenderResourceGeneration PipelineGeneration = ShaderSet.GetGeneration();
+		using FPipelineResult = TRenderResourceCreateResult<FState::FPipelinePayload>;
 		auto* Pipeline = EntryIt->Slot.Resolve(
 			PipelineGeneration,
-			[this, Base, Key]() -> FPipelineResult {
+			[this, ShaderSet, VertexShader, FragmentShader, Key]() -> FPipelineResult {
 				FGraphicsPipelineStateInitializer Initializer;
 				Initializer.RenderTargetLayout =
 					RenderTargetLayouts::MakeEditorAssistanceOutput(
 						Key.Output);
 				Initializer.BoundShaders.VertexShader =
-					Base->VertexShader.GetRHIShader();
+					VertexShader.GetRHIShader();
 				Initializer.BoundShaders.FragmentShader =
-					Base->FragmentShader.GetRHIShader();
+					FragmentShader.GetRHIShader();
 				Initializer.VertexDeclaration =
 					FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.ColorBlendStates[0] =
@@ -213,7 +149,7 @@ namespace Durin
 				Initializer.DepthStencilState.CompareOp =
 					GetVisibleDepthCompareOp(Key.DepthConvention);
 				Initializer.PipelineLayout =
-					Base->ShaderMap->GetMergedPipelineLayout();
+					ShaderSet.GetPipelineLayout();
 				const std::string PipelineName = std::format(
 					"EditorGridVisible{}Pipeline",
 					Key.Output
@@ -236,7 +172,9 @@ namespace Durin
 								| ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual));
 				}
-				return FPipelineResult::Success(std::move(Candidate));
+				return FPipelineResult::Success({
+					.Pipeline = std::move(Candidate),
+					.ShaderSet = ShaderSet});
 			},
 			ReportRendererResourceCreateDiagnostic);
 		if (Pipeline == nullptr)
@@ -245,7 +183,8 @@ namespace Durin
 		Prepared.EditorGridUniform = Uniform;
 		Prepared.Pipelines.push_back({
 			.Key = Key,
-			.Pipeline = *Pipeline,
+			.Pipeline = Pipeline->Pipeline,
+			.ShaderSet = Pipeline->ShaderSet,
 		});
 	}
 
@@ -254,11 +193,14 @@ namespace Durin
 		const FPrepared& Prepared) -> void
 	{
 		check(IsInRenderingThread());
-		const FState::FBasePayload* Base = State->Base.GetPayload();
+		const auto PreparedIt = std::ranges::find_if(
+			Prepared.Pipelines, [](const FPreparedPipeline& Item) {
+				return Item.Key.Feature == EFeature::EditorGrid;
+			});
 		const FGraphicsPipelineStateRHIRef Pipeline =
-			FindPreparedPipeline(Prepared);
+			PreparedIt != Prepared.Pipelines.end() ? PreparedIt->Pipeline : nullptr;
 		if (!Prepared.EditorGridUniform.has_value()
-			|| Base == nullptr
+			|| PreparedIt == Prepared.Pipelines.end()
 			|| Pipeline == nullptr
 			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
 			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
@@ -274,14 +216,15 @@ namespace Durin
 		Parameters.Grid = CommandList.AllocateDynamicUniformBuffer(
 			&*Prepared.EditorGridUniform,
 			sizeof(*Prepared.EditorGridUniform));
-		SetShaderParameters(CommandList, Base->FragmentShader, Parameters);
+		SetShaderParameters(CommandList,
+			TShaderMapRef<FEditorGridFragmentShader>(PreparedIt->ShaderSet).GetShaderRef(),
+			Parameters);
 		CommandList.DrawIndexed(3, 0, 0);
 	}
 
 	auto FEditorGridRenderer::ReleaseResources_RenderThread() -> void
 	{
 		check(IsInRenderingThread());
-		State->Base.Reset();
 		for (FState::FPipelineEntry& Entry : State->Pipelines)
 			Entry.Slot.Reset();
 		State->Pipelines.clear();

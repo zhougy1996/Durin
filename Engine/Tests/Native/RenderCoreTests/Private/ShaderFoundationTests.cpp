@@ -2,15 +2,43 @@
 
 #include <array>
 #include <cstring>
+#include "CoreGlobals.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleManager.h"
+#include "Shader/GlobalShader.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "Shader/ShaderPaths.h"
 
 namespace Durin
 {
-	namespace
-	{
+		namespace
+		{
+		class FGlobalFixtureVertexShader : public FGlobalShader
+		{
+		public:
+			DURIN_DECLARE_GLOBAL_SHADER(
+				FGlobalFixtureVertexShader,
+				FGlobalShader,
+				"/Engine/Gizmo",
+				EShaderFrequency::Vertex,
+				"VertexMain");
+		};
+
+		class FGlobalFixtureFragmentShader : public FGlobalShader
+		{
+		public:
+			DURIN_DECLARE_GLOBAL_SHADER(
+				FGlobalFixtureFragmentShader,
+				FGlobalShader,
+				"/Engine/Gizmo",
+				EShaderFrequency::Fragment,
+				"FragmentMain");
+		};
+
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FGlobalFixtureVertexShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FGlobalFixtureFragmentShader);
+
 		class FStaticVertexShader : public FShader
 		{
 		public:
@@ -932,6 +960,63 @@ namespace Durin
 		ASSERT_EQ(Bindings.size(), 1u);
 		EXPECT_EQ(Bindings[0].BindingIndex, 2u);
 		EXPECT_EQ(Bindings[0].Offset, offsetof(FStaticFragmentShader::FParameters, FontTexture));
+	}
+
+	TEST(FShaderFoundationTests, GlobalShaderDeclarationRegistersExactlyOneTypedImplementation)
+	{
+		FGlobalShaderType& VertexType = FGlobalFixtureVertexShader::StaticType();
+		EXPECT_EQ(&VertexType, &FGlobalFixtureVertexShader::StaticType());
+		EXPECT_EQ(VertexType.GetName(), "FGlobalFixtureVertexShader");
+		EXPECT_EQ(VertexType.GetVirtualShaderPath(), "/Engine/Gizmo");
+		EXPECT_EQ(VertexType.GetFrequency(), EShaderFrequency::Vertex);
+		EXPECT_NE(std::ranges::find(
+			FGlobalShaderType::GetTypeList(), &VertexType),
+			FGlobalShaderType::GetTypeList().end());
+	}
+
+	TEST(FShaderFoundationTests, GlobalShaderMapPublishesOrderIndependentTypedSet)
+	{
+		if (!GIsGameThreadIdInitialized)
+		{
+			GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+			GIsGameThreadIdInitialized = true;
+		}
+		const std::filesystem::path CacheDir =
+			std::filesystem::temp_directory_path()
+			/ "DurinGlobalShaderFoundationCache";
+		std::filesystem::create_directories(CacheDir);
+		FShaderPaths::RegisterMountPoint(
+			"/Engine/", DURIN_ENGINE_SHADER_SOURCE_DIR, CacheDir.generic_string());
+		ASSERT_NE(FModuleManager::Get().LoadModule("RenderCore"), nullptr);
+		FGlobalShaderMap& Map = GetGlobalShaderMap();
+		Map.Shutdown_RenderThread();
+		EXPECT_EQ(Map.GetSectionCount(), 0u);
+		EXPECT_EQ(GetGlobalShaderMap().GetSectionCount(), 0u);
+		FRenderResourceGeneration Generation;
+		Generation.Shader = 7;
+		Generation.Device = 3;
+		Map.SetGeneration_RenderThread(Generation, false);
+
+		const std::array<const FGlobalShaderType*, 2> Types = {
+			&FGlobalFixtureFragmentShader::StaticType(),
+			&FGlobalFixtureVertexShader::StaticType()};
+		const FGlobalShaderSetRef Set = Map.ResolveShaderSet(
+			"Tests.GlobalFixture", Types, false);
+		ASSERT_TRUE(Set);
+		EXPECT_EQ(Set.GetGeneration(), Generation);
+		EXPECT_EQ(Set.GetIdentity(),
+			"Tests.GlobalFixture|FGlobalFixtureFragmentShader|FGlobalFixtureVertexShader");
+
+		const TShaderMapRef<FGlobalFixtureVertexShader> Vertex(Set);
+		const TShaderMapRef<FGlobalFixtureFragmentShader> Fragment(Set);
+		EXPECT_TRUE(Vertex);
+		EXPECT_TRUE(Fragment);
+		EXPECT_EQ(Vertex.GetGeneration(), Generation);
+		EXPECT_FALSE(Set.GetPipelineLayout().BindingLayouts.empty());
+		Map.Shutdown_RenderThread();
+		EXPECT_EQ(Map.GetSectionCount(), 0u);
+		EXPECT_TRUE(Vertex);
+		EXPECT_TRUE(Fragment);
 	}
 
 	TEST(FShaderFoundationTests, StorageShaderParameterMacrosCreateTypedMetadata)

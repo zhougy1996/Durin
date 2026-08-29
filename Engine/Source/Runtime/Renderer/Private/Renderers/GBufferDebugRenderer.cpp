@@ -11,21 +11,21 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "SceneView.h"
-#include "Shader/Shader.h"
+#include "Shader/GlobalShader.h"
 #include "Shader/ShaderCompilerCore.h"
 
 namespace Durin
 {
 	namespace
 	{
-		class FGBufferDebugVertexShader final : public FShader
+		class FGBufferDebugVertexShader final : public FGlobalShader
 		{
 		public:
-			DURIN_DECLARE_SHADER(FGBufferDebugVertexShader, FShader,
+			DURIN_DECLARE_GLOBAL_SHADER(FGBufferDebugVertexShader, FGlobalShader,
 				"/Engine/GBufferDebug", EShaderFrequency::Vertex, "VertexMain");
 		};
 
-		class FGBufferDebugFragmentShader final : public FShader
+		class FGBufferDebugFragmentShader final : public FGlobalShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FGBufferDebugFragmentShader)
@@ -36,10 +36,12 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_TEXTURE(SceneDepth);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Params);
 			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_SHADER(FGBufferDebugFragmentShader, FShader,
+			DURIN_DECLARE_GLOBAL_SHADER(FGBufferDebugFragmentShader, FGlobalShader,
 				"/Engine/GBufferDebug", EShaderFrequency::Fragment,
 				"DebugFragmentMain");
 		};
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FGBufferDebugVertexShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FGBufferDebugFragmentShader);
 
 		struct alignas(16) FGBufferDebugUniform
 		{
@@ -57,9 +59,9 @@ namespace Durin
 	{
 		struct FPayload
 		{
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FGBufferDebugVertexShader> VertexShader;
-			TShaderRef<FGBufferDebugFragmentShader> FragmentShader;
+			FGlobalShaderSetRef ShaderSet;
+			TShaderMapRef<FGBufferDebugVertexShader> VertexShader;
+			TShaderMapRef<FGBufferDebugFragmentShader> FragmentShader;
 			FGraphicsPipelineStateRHIRef PipelineState;
 		};
 
@@ -128,42 +130,23 @@ namespace Durin
 		FPayload* Payload = State->Slot.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
 			[this, &CommandList]() -> FResult {
-				FShaderCompileOptions CompileOptions;
-				CompileOptions.bForceRecompile =
-					Coordinator.ShouldForceShaderRecompile_RenderThread();
-				FShaderType& VertexType =
-					FGBufferDebugVertexShader::StaticType();
-				FShaderType& FragmentType =
-					FGBufferDebugFragmentShader::StaticType();
-				const std::array<const FShaderType*, 2> Types{
-					&VertexType, &FragmentType};
+				const std::array<const FGlobalShaderType*, 2> Types{
+					&FGBufferDebugVertexShader::StaticType(),
+					&FGBufferDebugFragmentShader::StaticType()};
 				FPayload Candidate;
-				Candidate.ShaderMap = std::make_shared<FShaderMapBase>();
-				std::string Error;
-				if (!Candidate.ShaderMap->InitializeFromShaderTypes(
-						Types, CompileOptions, Error))
+				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+					"GBufferDebug.Debug", Types, true,
+					ReportRendererResourceCreateDiagnostic);
+				if (!Candidate.ShaderSet)
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
-						"GBufferDebug", "debug", std::move(Error),
+						"GBufferDebug", "debug", "Global shader set is unavailable.",
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual));
 				}
-				auto* Vertex = static_cast<FGBufferDebugVertexShader*>(
-					Candidate.ShaderMap->GetShader(&VertexType));
-				auto* Fragment = static_cast<FGBufferDebugFragmentShader*>(
-					Candidate.ShaderMap->GetShader(&FragmentType));
-				if (Vertex == nullptr || Fragment == nullptr)
-				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderBinding,
-						"GBufferDebug", "debug",
-						"Compiled shader map is missing a typed shader.",
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual));
-				}
-				Candidate.VertexShader = {Vertex, Candidate.ShaderMap.get()};
-				Candidate.FragmentShader = {Fragment, Candidate.ShaderMap.get()};
+				Candidate.VertexShader = TShaderMapRef<FGBufferDebugVertexShader>(Candidate.ShaderSet);
+				Candidate.FragmentShader = TShaderMapRef<FGBufferDebugFragmentShader>(Candidate.ShaderSet);
 
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
 				{
@@ -198,7 +181,7 @@ namespace Durin
 					FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.PipelineLayout =
-					Candidate.ShaderMap->GetMergedPipelineLayout();
+					Candidate.ShaderSet.GetPipelineLayout();
 				Candidate.PipelineState =
 					GDynamicRHI->RHICreateGraphicsPipelineState(
 						"GBufferDebugPipeline", Initializer);
@@ -214,7 +197,7 @@ namespace Durin
 				}
 				return FResult::Success(std::move(Candidate));
 			},
-			ReportRendererResourceCreateDiagnostic);
+			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
 		if (Payload == nullptr
 			|| FullscreenGeometry.GetVertexBuffer_RenderThread() == nullptr
 			|| FullscreenGeometry.GetIndexBuffer_RenderThread() == nullptr)
@@ -264,7 +247,7 @@ namespace Durin
 		Parameters.GBufferEmissive = Emissive;
 		Parameters.SceneDepth = Depth;
 		Parameters.Params = UniformBuffer;
-		SetShaderParameters(CommandList, Payload->FragmentShader, Parameters);
+		SetShaderParameters(CommandList, Payload->FragmentShader.GetShaderRef(), Parameters);
 		CommandList.DrawIndexed(3, 0, 0);
 		CommandList.EndRenderPass();
 

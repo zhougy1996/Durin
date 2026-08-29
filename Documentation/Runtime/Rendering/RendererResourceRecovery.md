@@ -4,7 +4,7 @@ Summary: Define complete-or-null Renderer resource publication, generation-scope
 
 Modules: RenderCore, Renderer, RHI, VulkanRHI, TextureEditor
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-29
 
 ## Complete-Or-Null Construction
 
@@ -29,6 +29,14 @@ assistance, shared fullscreen geometry, and Texture Editor previews use
 ownership and publishes only after every binding, RHI resource, and pipeline
 succeeds. Callers observe the prior complete payload, a newly committed payload,
 or no payload; partially initialized aggregates are never visible.
+
+Fixed non-Material shader compilation and typed lookup are centralized in
+RenderCore's [Global Shader](GlobalShaders.md) map. Each bounded exact shader
+set has its own transactional slot and strong `FGlobalShaderSetRef` lifetime.
+Renderer feature payloads retain typed `TShaderMapRef` values and the exact set
+used by their PSO; they do not allocate, cast, or own private global
+`FShaderMapBase` instances. Material and vertex-factory/mesh combinations keep
+their existing private identities.
 
 Each owner tracks independent shader, device, and manual generations. A failed
 attempt records its generation, error category, context, identity, diagnostic,
@@ -91,8 +99,9 @@ New failures and changed fingerprints produce one diagnostic, retained fallback
 is identified explicitly, and successful retry reports one recovery transition.
 
 `FRendererResourceCoordinator` owns command admission and the shader, device,
-and manual generation counters. `FSceneRenderer` explicitly fans accepted
-requests out to concrete owners. Shader and manual invalidation leave
+and manual generation counters. It explicitly supplies accepted generations
+to the RenderCore global map while `FSceneRenderer` fans requests out to its
+remaining concrete owners. Shader and manual invalidation leave
 reconstruction lazy. Device invalidation releases every dependent payload
 before advancing the device generation, recreates only startup defaults, and
 leaves feature resources to rebuild on demand.
@@ -108,6 +117,10 @@ Vulkan device-loss recovery. Renderer shutdown closes command admission,
 unregisters development commands, enqueues release, and flushes rendering work.
 Texture Editor retains module ownership of its preview slot and releases it
 through its own ordered shutdown.
+
+Global-map device invalidation is ordered after Renderer consumers release
+their pipelines and typed refs and before the new device generation is
+published. Shutdown follows the same consumer-before-map order.
 
 ## Related Documentation
 

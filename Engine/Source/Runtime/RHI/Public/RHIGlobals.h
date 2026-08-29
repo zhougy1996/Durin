@@ -1,10 +1,12 @@
 #pragma once
+#include "Delegates/Delegate.h"
 #include "RHIAPI.h"
 #include "RHIInitialization.h"
 
 namespace Durin
 {
 	class FDynamicRHI;
+	DECLARE_MULTICAST_DELEGATE(FRHIReleaseResourcesDelegate)
 
 	enum class ERHIExecutionMode
 	{
@@ -20,6 +22,10 @@ namespace Durin
 
 	RHI_API auto RHIInit(FRHIInitializationContext Context) -> bool;
 	RHI_API auto RHIExit() -> void;
+	// Broadcast before the command-list flush and backend shutdown so upper
+	// layers can drop device-backed references while the RHI is still valid.
+	RHI_API auto GetRHIReleaseResourcesDelegate()
+		-> FRHIReleaseResourcesDelegate&;
 	// Retains the owned cause from the most recent failed initialization attempt.
 	// A later successful attempt clears it.
 	RHI_API auto GetLastRHIInitializationDiagnostic() -> std::string_view;

@@ -28,7 +28,7 @@ direction.
 | `Engine` | Asset package construction, residency, loading, serialization and writing, cooking, and mutation; plus worlds, actors, components, levels, runtime asset types, asset compilation, input, and render-facing engine objects | [source](../../Engine/Source/Runtime/Engine) |
 | `RHI` | Backend-neutral GPU resources, command lists, contexts, feature levels, shader parameters, and RHI-thread contracts | [source](../../Engine/Source/Runtime/RHI) |
 | `VulkanRHI` | Vulkan instance/device selection, queues, resources, pipelines, descriptors, swapchains, and backend diagnostics | [source](../../Engine/Source/Runtime/VulkanRHI) |
-| `RenderCore` | Rendering thread, render resources, shaders, vertex factories, scene views, and renderer-module interfaces | [source](../../Engine/Source/Runtime/RenderCore) |
+| `RenderCore` | Rendering thread, render resources, global shader registration/maps, shader compilation foundations, vertex factories, scene views, and renderer-module interfaces | [source](../../Engine/Source/Runtime/RenderCore) |
 | `Renderer` | Renderer scene representation, view preparation, render passes, feature renderers, and frame execution | [source](../../Engine/Source/Runtime/Renderer) |
 | `MonaCore` | Reusable widget, event, UI-backend, and viewport display-source contracts with no application, native-window, or presentation lifetime | [source](../../Engine/Source/Runtime/MonaCore) |
 | `Mona` | Mona application lifetime, native windows, RHI-backed window presentation, frame facade, and higher-level viewport widgets | [source](../../Engine/Source/Runtime/Mona) |
@@ -77,7 +77,7 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | asset catalog, registry scan/cache, dependency or referencer query | `AssetRegistry` | `Engine` only for loading, mutation, package writing, or Cook |
 | asset package, redirector, loading, mutation, cook | `Engine` | `AssetRegistry` for persistent metadata; `CoreDObject` for object identity; editor modules for UI |
 | actor, component, level, world, runtime asset type | `Engine` | `CoreDObject` or rendering modules at their owned boundary |
-| shader, render resource, vertex factory, scene view | `RenderCore` | `RHI` for GPU abstraction; `Renderer` for frame use |
+| global shader, shader map, render resource, vertex factory, scene view | `RenderCore` | `RHI` for GPU abstraction; `Renderer` for frame use and explicit generation fan-out |
 | render pass, visibility, draw preparation, renderer scene | `Renderer` | `RenderCore`, `Engine`, then `RHI` |
 | Vulkan capability, device, pipeline, descriptor, swapchain | `VulkanRHI` | `RHI` for backend-neutral contract; `Renderer` only for consumer behavior |
 | editor workspace, reflected details, thumbnail manager/pool | `DurinEd` | The owning feature editor for concrete renderers; `ContentBrowser` for presentation |

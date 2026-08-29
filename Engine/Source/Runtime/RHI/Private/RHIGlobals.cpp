@@ -9,6 +9,7 @@ namespace Durin
 	static std::unique_ptr<FRHIThread> RHIThreadOwner;
 	static std::string LastRHIInitializationDiagnostic;
 	static bool GOwnsBackendModule = false;
+	static FRHIReleaseResourcesDelegate RHIReleaseResourcesDelegate;
 
 	namespace
 	{
@@ -212,6 +213,12 @@ namespace Durin
 			std::move(Context));
 	}
 
+	auto GetRHIReleaseResourcesDelegate()
+		-> FRHIReleaseResourcesDelegate&
+	{
+		return RHIReleaseResourcesDelegate;
+	}
+
 	auto GetLastRHIInitializationDiagnostic() -> std::string_view
 	{
 		return LastRHIInitializationDiagnostic;
@@ -231,6 +238,7 @@ namespace Durin
 	auto RHIExit() -> void
 	{
 		check(GDynamicRHI);
+		RHIReleaseResourcesDelegate.Broadcast();
 		FRHICommandListImmediate::Get().SwitchPipeline(ERHIPipeline::None);
 		FRHICommandListImmediate::Get().ImmediateFlush(
 			EImmediateFlushType::FlushRHIThreadFlushResources);

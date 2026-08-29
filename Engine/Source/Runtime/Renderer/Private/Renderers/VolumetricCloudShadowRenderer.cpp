@@ -10,7 +10,7 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "SceneView.h"
-#include "Shader/Shader.h"
+#include "Shader/GlobalShader.h"
 #include "Shader/ShaderCompilerCore.h"
 
 namespace Durin
@@ -21,13 +21,13 @@ namespace Durin
 			GVolumetricCloudShadowTimingQuerySink = nullptr;
 		std::atomic<FVolumetricCloudShadowRenderer::FCaptureSink>
 			GVolumetricCloudShadowCaptureSink = nullptr;
-		class FCloudShadowVertexShader final : public FShader
+		class FCloudShadowVertexShader final : public FGlobalShader
 		{
 		public:
-			DURIN_DECLARE_SHADER(FCloudShadowVertexShader, FShader,
+			DURIN_DECLARE_GLOBAL_SHADER(FCloudShadowVertexShader, FGlobalShader,
 				"/Engine/VolumetricCloudShadow", EShaderFrequency::Vertex, "VertexMain");
 		};
-		class FCloudShadowFragmentShader final : public FShader
+		class FCloudShadowFragmentShader final : public FGlobalShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FCloudShadowFragmentShader)
@@ -38,11 +38,11 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_SAMPLER(DensitySampler);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Params);
 			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_SHADER(FCloudShadowFragmentShader, FShader,
+			DURIN_DECLARE_GLOBAL_SHADER(FCloudShadowFragmentShader, FGlobalShader,
 				"/Engine/VolumetricCloudShadow", EShaderFrequency::Fragment,
 				"CloudVisibilityFragmentMain");
 		};
-		class FCloudShadowComputeShader final : public FShader
+		class FCloudShadowComputeShader final : public FGlobalShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FCloudShadowComputeShader)
@@ -54,10 +54,13 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER(Params);
 				DURIN_SHADER_PARAMETER_STORAGE_IMAGE(CloudVisibilityOutput);
 			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_SHADER(FCloudShadowComputeShader, FShader,
+			DURIN_DECLARE_GLOBAL_SHADER(FCloudShadowComputeShader, FGlobalShader,
 				"/Engine/VolumetricCloudShadow", EShaderFrequency::Compute,
 				"CloudVisibilityComputeMain");
 		};
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FCloudShadowVertexShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FCloudShadowFragmentShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FCloudShadowComputeShader);
 		struct alignas(16) FCloudShadowUniform
 		{
 			float InverseViewProjection[16]{};
@@ -86,15 +89,15 @@ namespace Durin
 	{
 		struct FFragmentPayload
 		{
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FCloudShadowVertexShader> VertexShader;
-			TShaderRef<FCloudShadowFragmentShader> FragmentShader;
+			FGlobalShaderSetRef ShaderSet;
+			TShaderMapRef<FCloudShadowVertexShader> VertexShader;
+			TShaderMapRef<FCloudShadowFragmentShader> FragmentShader;
 			FGraphicsPipelineStateRHIRef PipelineState;
 		};
 		struct FComputePayload
 		{
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FCloudShadowComputeShader> ComputeShader;
+			FGlobalShaderSetRef ShaderSet;
+			TShaderMapRef<FCloudShadowComputeShader> ComputeShader;
 			FComputePipelineStateRHIRef PipelineState;
 		};
 		TRenderResourceCreationSlot<FFragmentPayload> FragmentResources{
@@ -216,34 +219,30 @@ namespace Durin
 			? Policy.bComputeTargetExpected : ComputeTargets != nullptr)
 			ComputePayload = State->ComputeResources.Resolve(
 				Coordinator.GetGeneration_RenderThread(), [this]() -> FComputeResult {
-					FShaderCompileOptions Options;
-					Options.bForceRecompile = Coordinator.ShouldForceShaderRecompile_RenderThread();
-					FShaderType& Type = FCloudShadowComputeShader::StaticType();
-					const std::array<const FShaderType*, 1> Types{&Type};
+					const std::array<const FGlobalShaderType*, 1> Types{
+						&FCloudShadowComputeShader::StaticType()};
 					FComputePayload Candidate;
-					Candidate.ShaderMap = std::make_shared<FShaderMapBase>();
-					std::string Error;
-					if (!Candidate.ShaderMap->InitializeFromShaderTypes(Types, Options, Error))
+					Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+						"VolumetricCloudShadow.Compute", Types, true,
+						ReportRendererResourceCreateDiagnostic);
+					if (!Candidate.ShaderSet)
 						return FComputeResult::Failure(MakeFailure("VolumetricCloudShadowCompute",
-							"shader", std::move(Error), ERenderResourceCreateErrorCategory::ShaderCompile));
-					auto* Shader = static_cast<FCloudShadowComputeShader*>(Candidate.ShaderMap->GetShader(&Type));
-					if (!Shader) return FComputeResult::Failure(MakeFailure("VolumetricCloudShadowCompute",
-						"shader", "Typed compute shader is missing.", ERenderResourceCreateErrorCategory::ShaderBinding));
-					Candidate.ComputeShader = {Shader, Candidate.ShaderMap.get()};
+							"shader", "Global shader set is unavailable.", ERenderResourceCreateErrorCategory::ShaderCompile));
+					Candidate.ComputeShader = TShaderMapRef<FCloudShadowComputeShader>(Candidate.ShaderSet);
 					FRHIShader* RHIShader = Candidate.ComputeShader.GetRHIShader(false);
 					if (!RHIShader || !GDynamicRHI) return FComputeResult::Failure(MakeFailure(
 						"VolumetricCloudShadowCompute", "pipeline", "Compute shader RHI is unavailable.",
 						ERenderResourceCreateErrorCategory::RHIResource));
 					FComputePipelineStateInitializer Initializer;
 					Initializer.ComputeShader = RHIShader;
-					Initializer.PipelineLayout = Candidate.ShaderMap->GetMergedPipelineLayout();
+					Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
 					Candidate.PipelineState = GDynamicRHI->RHICreateComputePipelineState(
 						"VolumetricCloudShadowComputePipeline", Initializer);
 					if (!Candidate.PipelineState) return FComputeResult::Failure(MakeFailure(
 						"VolumetricCloudShadowCompute", "pipeline", "Compute pipeline creation returned null.",
 						ERenderResourceCreateErrorCategory::GraphicsPipeline));
 					return FComputeResult::Success(std::move(Candidate));
-				}, ReportRendererResourceCreateDiagnostic);
+				}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
 
 		const FRHICapabilities* Capabilities = GDynamicRHI ? GDynamicRHI->RHIGetCapabilities() : nullptr;
 		const uint32 GroupsX = CalculateGroupCount(Input.Width);
@@ -265,25 +264,22 @@ namespace Durin
 			&& bFragmentTargetReady)
 			FragmentPayload = State->FragmentResources.Resolve(
 				Coordinator.GetGeneration_RenderThread(), [this, &CommandList]() -> FFragmentResult {
-					FShaderCompileOptions Options;
-					Options.bForceRecompile = Coordinator.ShouldForceShaderRecompile_RenderThread();
-					FShaderType& VertexType = FCloudShadowVertexShader::StaticType();
-					FShaderType& FragmentType = FCloudShadowFragmentShader::StaticType();
-					const std::array<const FShaderType*, 2> Types{&VertexType, &FragmentType};
+					const std::array<const FGlobalShaderType*, 2> Types{
+						&FCloudShadowVertexShader::StaticType(),
+						&FCloudShadowFragmentShader::StaticType()};
 					FFragmentPayload Candidate;
-					Candidate.ShaderMap = std::make_shared<FShaderMapBase>();
-					std::string Error;
-					if (!Candidate.ShaderMap->InitializeFromShaderTypes(Types, Options, Error))
+					Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+						"VolumetricCloudShadow.Fragment", Types, true,
+						ReportRendererResourceCreateDiagnostic);
+					if (!Candidate.ShaderSet)
 						return FFragmentResult::Failure(MakeFailure("VolumetricCloudShadow",
-							"shader", std::move(Error), ERenderResourceCreateErrorCategory::ShaderCompile));
-					auto* Vertex = static_cast<FCloudShadowVertexShader*>(Candidate.ShaderMap->GetShader(&VertexType));
-					auto* Fragment = static_cast<FCloudShadowFragmentShader*>(Candidate.ShaderMap->GetShader(&FragmentType));
-					if (!Vertex || !Fragment || !FullscreenGeometry.EnsureResources_RenderThread(CommandList))
+							"shader", "Global shader set is unavailable.", ERenderResourceCreateErrorCategory::ShaderCompile));
+					if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
 						return FFragmentResult::Failure(MakeFailure("VolumetricCloudShadow", "shader",
 							"Typed shaders or fullscreen geometry are unavailable.",
 							ERenderResourceCreateErrorCategory::ShaderBinding));
-					Candidate.VertexShader = {Vertex, Candidate.ShaderMap.get()};
-					Candidate.FragmentShader = {Fragment, Candidate.ShaderMap.get()};
+					Candidate.VertexShader = TShaderMapRef<FCloudShadowVertexShader>(Candidate.ShaderSet);
+					Candidate.FragmentShader = TShaderMapRef<FCloudShadowFragmentShader>(Candidate.ShaderSet);
 					FRHIShader* VertexRHI = Candidate.VertexShader.GetRHIShader(false);
 					FRHIShader* FragmentRHI = Candidate.FragmentShader.GetRHIShader(false);
 					if (!VertexRHI || !FragmentRHI || !GDynamicRHI)
@@ -295,14 +291,14 @@ namespace Durin
 					Initializer.BoundShaders.FragmentShader = FragmentRHI;
 					Initializer.VertexDeclaration = FullscreenGeometry.GetVertexDeclaration_RenderThread();
 					Initializer.RasterizerState.CullMode = ERHICullMode::None;
-					Initializer.PipelineLayout = Candidate.ShaderMap->GetMergedPipelineLayout();
+					Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
 					Candidate.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState(
 						"VolumetricCloudShadowPipeline", Initializer);
 					if (!Candidate.PipelineState) return FFragmentResult::Failure(MakeFailure(
 						"VolumetricCloudShadow", "pipeline", "Graphics pipeline creation returned null.",
 						ERenderResourceCreateErrorCategory::GraphicsPipeline));
 					return FFragmentResult::Success(std::move(Candidate));
-				}, ReportRendererResourceCreateDiagnostic);
+				}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
 
 		const bool bUseCompute = ComputePayload && bComputeTargetReady && bComputeExtent;
 		if (!bUseCompute && !FragmentPayload)

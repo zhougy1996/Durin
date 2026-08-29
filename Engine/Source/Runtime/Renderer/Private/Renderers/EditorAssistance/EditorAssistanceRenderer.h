@@ -6,6 +6,7 @@
 #include "RendererAPI.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "SceneView.h"
+#include "Shader/GlobalShader.h"
 
 namespace Durin
 {
@@ -96,6 +97,7 @@ namespace Durin::RendererEditorAssistance
 	{
 		FPipelineKey Key;
 		FGraphicsPipelineStateRHIRef Pipeline;
+		FGlobalShaderSetRef ShaderSet;
 	};
 
 	struct FPrepared

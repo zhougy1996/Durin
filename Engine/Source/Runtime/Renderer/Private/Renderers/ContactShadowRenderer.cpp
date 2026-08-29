@@ -10,7 +10,7 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "SceneView.h"
-#include "Shader/Shader.h"
+#include "Shader/GlobalShader.h"
 #include "Shader/ShaderCompilerCore.h"
 
 namespace Durin
@@ -19,14 +19,14 @@ namespace Durin
 	{
 		std::atomic<FContactShadowVisibilityRenderer::FTimingQuerySink>
 			GContactVisibilityTimingQuerySink = nullptr;
-		class FContactVisibilityVertexShader final : public FShader
+		class FContactVisibilityVertexShader final : public FGlobalShader
 		{
 		public:
-			DURIN_DECLARE_SHADER(FContactVisibilityVertexShader, FShader,
+			DURIN_DECLARE_GLOBAL_SHADER(FContactVisibilityVertexShader, FGlobalShader,
 				"/Engine/ContactShadow", EShaderFrequency::Vertex, "VertexMain");
 		};
 
-		class FContactVisibilityFragmentShader final : public FShader
+		class FContactVisibilityFragmentShader final : public FGlobalShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FContactVisibilityFragmentShader)
@@ -37,12 +37,12 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_GRAPH_TEXTURE(SceneDepth);
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Params);
 			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_SHADER(FContactVisibilityFragmentShader, FShader,
+			DURIN_DECLARE_GLOBAL_SHADER(FContactVisibilityFragmentShader, FGlobalShader,
 				"/Engine/ContactShadow", EShaderFrequency::Fragment,
 				"ContactVisibilityFragmentMain");
 		};
 
-		class FContactVisibilityComputeShader final : public FShader
+		class FContactVisibilityComputeShader final : public FGlobalShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FContactVisibilityComputeShader)
@@ -54,10 +54,13 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER(Params);
 				DURIN_SHADER_PARAMETER_GRAPH_STORAGE_IMAGE(ContactVisibilityOutput);
 			DURIN_END_SHADER_PARAMETERS();
-			DURIN_DECLARE_SHADER(FContactVisibilityComputeShader, FShader,
+			DURIN_DECLARE_GLOBAL_SHADER(FContactVisibilityComputeShader, FGlobalShader,
 				"/Engine/ContactShadow", EShaderFrequency::Compute,
 				"ContactVisibilityComputeMain");
 		};
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FContactVisibilityVertexShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FContactVisibilityFragmentShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FContactVisibilityComputeShader);
 
 		struct alignas(16) FContactVisibilityUniform
 		{
@@ -75,15 +78,15 @@ namespace Durin
 	{
 		struct FFragmentPayload
 		{
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FContactVisibilityVertexShader> VertexShader;
-			TShaderRef<FContactVisibilityFragmentShader> FragmentShader;
+			FGlobalShaderSetRef ShaderSet;
+			TShaderMapRef<FContactVisibilityVertexShader> VertexShader;
+			TShaderMapRef<FContactVisibilityFragmentShader> FragmentShader;
 			FGraphicsPipelineStateRHIRef PipelineState;
 		};
 		struct FComputePayload
 		{
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FContactVisibilityComputeShader> ComputeShader;
+			FGlobalShaderSetRef ShaderSet;
+			TShaderMapRef<FContactVisibilityComputeShader> ComputeShader;
 			FComputePipelineStateRHIRef PipelineState;
 		};
 		TRenderResourceCreationSlot<FFragmentPayload> FragmentResources{
@@ -214,31 +217,19 @@ namespace Durin
 		{
 			ComputePayload = State->ComputeResources.Resolve(
 				Coordinator.GetGeneration_RenderThread(), [this]() -> FComputeResult {
-					FShaderCompileOptions Options;
-					Options.bForceRecompile =
-						Coordinator.ShouldForceShaderRecompile_RenderThread();
-					FShaderType& ComputeType =
-						FContactVisibilityComputeShader::StaticType();
-					const std::array<const FShaderType*, 1> Types{&ComputeType};
+					const std::array<const FGlobalShaderType*, 1> Types{
+						&FContactVisibilityComputeShader::StaticType()};
 					FComputePayload Candidate;
-					Candidate.ShaderMap = std::make_shared<FShaderMapBase>();
-					std::string Error;
-					if (!Candidate.ShaderMap->InitializeFromShaderTypes(Types, Options, Error))
+					Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+						"ContactVisibility.Compute", Types, true,
+						ReportRendererResourceCreateDiagnostic);
+					if (!Candidate.ShaderSet)
 						return FComputeResult::Failure(MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::ShaderCompile,
-							"ContactVisibilityCompute", "shader", std::move(Error),
+							"ContactVisibilityCompute", "shader", "Global shader set is unavailable.",
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual));
-					auto* Compute = static_cast<FContactVisibilityComputeShader*>(
-						Candidate.ShaderMap->GetShader(&ComputeType));
-					if (Compute == nullptr)
-						return FComputeResult::Failure(MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::ShaderBinding,
-							"ContactVisibilityCompute", "shader",
-							"Compiled shader map is missing the typed compute shader.",
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual));
-					Candidate.ComputeShader = {Compute, Candidate.ShaderMap.get()};
+					Candidate.ComputeShader = TShaderMapRef<FContactVisibilityComputeShader>(Candidate.ShaderSet);
 					FRHIShader* ComputeRHI = Candidate.ComputeShader.GetRHIShader(false);
 					if (ComputeRHI == nullptr)
 						return FComputeResult::Failure(MakeRendererResourceCreateError(
@@ -251,7 +242,7 @@ namespace Durin
 					FComputePipelineStateInitializer Initializer;
 					Initializer.ComputeShader = ComputeRHI;
 					Initializer.PipelineLayout =
-						Candidate.ShaderMap->GetMergedPipelineLayout();
+						Candidate.ShaderSet.GetPipelineLayout();
 					Candidate.PipelineState = GDynamicRHI->RHICreateComputePipelineState(
 						"ContactVisibilityComputePipeline", Initializer);
 					if (Candidate.PipelineState == nullptr)
@@ -263,7 +254,7 @@ namespace Durin
 								| ERenderResourceGenerationDependency::Device
 								| ERenderResourceGenerationDependency::Manual));
 					return FComputeResult::Success(std::move(Candidate));
-				}, ReportRendererResourceCreateDiagnostic);
+				}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
 		}
 
 		const FRHICapabilities* Capabilities =
@@ -295,33 +286,21 @@ namespace Durin
 		{
 			FragmentPayload = State->FragmentResources.Resolve(
 			Coordinator.GetGeneration_RenderThread(), [this, &CommandList]() -> FFragmentResult {
-				FShaderCompileOptions Options;
-				Options.bForceRecompile = Coordinator.ShouldForceShaderRecompile_RenderThread();
-				FShaderType& VertexType = FContactVisibilityVertexShader::StaticType();
-				FShaderType& FragmentType = FContactVisibilityFragmentShader::StaticType();
-				const std::array<const FShaderType*, 2> Types{&VertexType, &FragmentType};
+				const std::array<const FGlobalShaderType*, 2> Types{
+					&FContactVisibilityVertexShader::StaticType(),
+					&FContactVisibilityFragmentShader::StaticType()};
 				FFragmentPayload Candidate;
-				Candidate.ShaderMap = std::make_shared<FShaderMapBase>();
-				std::string Error;
-				if (!Candidate.ShaderMap->InitializeFromShaderTypes(Types, Options, Error))
+				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+					"ContactVisibility.Fragment", Types, true,
+					ReportRendererResourceCreateDiagnostic);
+				if (!Candidate.ShaderSet)
 					return FFragmentResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
-						"ContactVisibility", "shader", std::move(Error),
+						"ContactVisibility", "shader", "Global shader set is unavailable.",
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual));
-				auto* Vertex = static_cast<FContactVisibilityVertexShader*>(
-					Candidate.ShaderMap->GetShader(&VertexType));
-				auto* Fragment = static_cast<FContactVisibilityFragmentShader*>(
-					Candidate.ShaderMap->GetShader(&FragmentType));
-				if (Vertex == nullptr || Fragment == nullptr)
-					return FFragmentResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderBinding,
-						"ContactVisibility", "shader",
-						"Compiled shader map is missing a typed shader.",
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual));
-				Candidate.VertexShader = {Vertex, Candidate.ShaderMap.get()};
-				Candidate.FragmentShader = {Fragment, Candidate.ShaderMap.get()};
+				Candidate.VertexShader = TShaderMapRef<FContactVisibilityVertexShader>(Candidate.ShaderSet);
+				Candidate.FragmentShader = TShaderMapRef<FContactVisibilityFragmentShader>(Candidate.ShaderSet);
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
 					return FFragmentResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::RHIResource,
@@ -346,7 +325,7 @@ namespace Durin
 				Initializer.VertexDeclaration =
 					FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
-				Initializer.PipelineLayout = Candidate.ShaderMap->GetMergedPipelineLayout();
+				Initializer.PipelineLayout = Candidate.ShaderSet.GetPipelineLayout();
 				Candidate.PipelineState = GDynamicRHI->RHICreateGraphicsPipelineState(
 					"ContactVisibilityPipeline", Initializer);
 				if (Candidate.PipelineState == nullptr)
@@ -358,7 +337,7 @@ namespace Durin
 							| ERenderResourceGenerationDependency::Device
 							| ERenderResourceGenerationDependency::Manual));
 				return FFragmentResult::Success(std::move(Candidate));
-			}, ReportRendererResourceCreateDiagnostic);
+			}, ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
 		}
 		RouteInputs.bFragmentReady = FragmentPayload != nullptr
 			&& FullscreenGeometry.GetVertexBuffer_RenderThread() != nullptr

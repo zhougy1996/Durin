@@ -4,24 +4,36 @@ Summary: Introduce UE-aligned global shader types, maps, typed lookup, and gener
 
 Last reviewed: 2026-08-29
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-29
 
 ## Current Status
 
-RenderCore already registers typed `FShaderType` values, compiles
-`FShaderMapBase` instances through the shared shader cache, lazily creates RHI
-shaders, and exposes `TShaderRef<T>`. Renderer resource slots add transactional
-generation, retry, fallback, diagnostics, and device invalidation around those
-primitives. Fixed renderers nevertheless compile and retain their own shader
-maps, repeat typed lookup and binding checks, and manually propagate the
-published shader generation into dependent pipeline slots.
+Implemented a RenderCore-owned global-shader domain for fixed, non-Material
+shaders. Thirty-eight shader types now register through one declaration/
+implementation vocabulary and resolve lazily through 20 caller-named atomic
+sets. The 12 migrated Renderer families contain zero private
+`InitializeFromShaderTypes()` calls, down from 19; Material, mesh,
+vertex-factory, TextureEditor preview, and Mona ImGui ownership remain
+unchanged.
 
-This plan selects a RenderCore-owned global-shader domain for fixed,
-non-Material shaders. It preserves Durin's feature-local failure isolation and
-last-known-good behavior instead of adopting Unreal Engine's fatal global-
-shader assumption. The Primitive Draw Interface plan consumes this foundation
-for its simple-element shaders after Stages 0-2 are accepted.
+Typed refs strongly retain exact set payloads and pipeline layouts. Renderer
+explicitly fans shader, device, and manual generations into RenderCore;
+same-device failures retain compatible fallback, device exit releases global
+RHI payloads through both composed Renderer ordering and the RHI pre-shutdown
+delegate, and duplicate wrapper diagnostics are suppressed. The Primitive Draw
+Interface dependency gate is accepted.
+
+Validation completed with the full Win64 Debug editor build; 43 Render Shader,
+40 Renderer Scene, 77 Editor Rendering, 7 Editor Grid Vulkan, 1 Renderer Reload
+Vulkan, 1 Volumetric Cloud Vulkan, 1 Volumetric Cloud Scene Vulkan, and 1 SkyBox
+Vulkan test passing. Earlier focused runs also passed 7 Volumetric Cloud Scene,
+11 SkyBox, and all targeted global registration/set tests. `test all` built all
+native targets, then exposed four unrelated existing target failures:
+RenderContract target-order RHI state, StaticMesh/TextureThumbnail dead owner
+gates, and a SkeletalMesh studio-environment mount/pixel assertion. Each
+reproduced outside the changed global-shader paths; all task-specific bounded
+targets remained green.
 
 ## Goal
 
@@ -131,19 +143,19 @@ occlusion, cloud, shadow, and fixed mesh-stage shaders.
 
 ### Stage 0: Freeze global shader taxonomy, ownership, and compatibility identity
 
-- [ ] Inventory every fixed shader type and classify it as global, Material,
+- [x] Inventory every fixed shader type and classify it as global, Material,
   vertex-factory/mesh, generated, or intentionally renderer-local; record the
   initial migration set without reclassifying Material shader families.
-- [ ] Select the bounded global-map section or shader-set identity that permits
+- [x] Select the bounded global-map section or shader-set identity that permits
   lazy demand and feature-local failure while preventing incompatible
   vertex/fragment generations from entering one pipeline candidate.
-- [ ] Specify registration timing and unload rules for engine, project, and
+- [x] Specify registration timing and unload rules for engine, project, and
   future plugin shader definitions, including duplicate type/implementation
   rejection and no callable metadata after module retirement.
-- [ ] Define active-RHI ownership, rendering-thread access, startup, reload,
+- [x] Define active-RHI ownership, rendering-thread access, startup, reload,
   manual retry, device invalidation, and shutdown ordering without exposing the
   Renderer coordinator through a global pointer.
-- [ ] Capture current shader compile counts, cache hits, first-demand behavior,
+- [x] Capture current shader compile counts, cache hits, first-demand behavior,
   reload/retry diagnostics, fallback behavior, pipeline generation coupling,
   Vulkan output, and shutdown state for the EditorAssistance pilot.
 
@@ -158,17 +170,17 @@ occlusion, cloud, shadow, and fixed mesh-stage shaders.
 
 ### Stage 1: Add global shader types, registration, and typed map lookup
 
-- [ ] Add `FGlobalShader` and `FGlobalShaderType` on top of the existing shader
+- [x] Add `FGlobalShader` and `FGlobalShaderType` on top of the existing shader
   base/type machinery, including compile-permutation and environment hooks.
-- [ ] Add `DURIN_DECLARE_GLOBAL_SHADER` and
+- [x] Add `DURIN_DECLARE_GLOBAL_SHADER` and
   `DURIN_IMPLEMENT_GLOBAL_SHADER`; require exactly one implementation
   definition and preserve parameter-struct metadata composition.
-- [ ] Implement `FGlobalShaderMap`, `GetGlobalShaderMap()`, and
+- [x] Implement `FGlobalShaderMap`, `GetGlobalShaderMap()`, and
   `TShaderMapRef<T>` with selected section/set ownership, strong retained
   lifetime, const lookup, and deterministic missing-type diagnostics.
-- [ ] Add typed APIs for resolving one shader and a compatible multi-stage set,
+- [x] Add typed APIs for resolving one shader and a compatible multi-stage set,
   plus pipeline-layout construction from the exact retained shader reflections.
-- [ ] Prove registry order independence, duplicate rejection, missing
+- [x] Prove registry order independence, duplicate rejection, missing
   implementation behavior, type-safe retrieval, map lifetime, and no accessor
   mutation with RenderCore unit tests.
 
@@ -182,19 +194,19 @@ occlusion, cloud, shadow, and fixed mesh-stage shaders.
 
 ### Stage 2: Integrate generation-aware creation, reload, recovery, and shutdown
 
-- [ ] Back each selected map section/set with transactional creation state that
+- [x] Back each selected map section/set with transactional creation state that
   publishes complete candidates, suppresses same-generation retry, and reports
   failure/recovery transitions through the renderer diagnostic vocabulary.
-- [ ] Connect accepted shader reload, manual retry, and device invalidation
+- [x] Connect accepted shader reload, manual retry, and device invalidation
   generations explicitly from `FRendererResourceCoordinator` to the global map
   while preserving render-command ordering and lazy demand.
-- [ ] Retain last-known-good shader payloads for same-device compile/binding/RHI
+- [x] Retain last-known-good shader payloads for same-device compile/binding/RHI
   refresh failure and discard every dependent RHI payload before advancing a
   device generation.
-- [ ] Define pipeline consumers' exact shader-set generation API so a stale
+- [x] Define pipeline consumers' exact shader-set generation API so a stale
   global shader fallback retains a matching last-known-good PSO and a recovered
   shader set triggers one eligible PSO reconstruction.
-- [ ] Add failure injection for compile, binding, RHI creation, mixed-stage
+- [x] Add failure injection for compile, binding, RHI creation, mixed-stage
   refresh, manual retry, device invalidation, repeated lookup, and shutdown.
 
 #### Acceptance Gate
@@ -207,19 +219,19 @@ occlusion, cloud, shadow, and fixed mesh-stage shaders.
 
 ### Stage 3: Migrate EditorAssistance and establish the primitive-draw dependency
 
-- [ ] Convert EditorGrid, Gizmo, OverlayLine, and OverlayIcon fixed shaders to
+- [x] Convert EditorGrid, Gizmo, OverlayLine, and OverlayIcon fixed shaders to
   global shader registration and typed map lookup while keeping their vertex
   declarations, geometry, pipeline configuration, draw order, and feature
   failure independence unchanged.
-- [ ] Replace per-renderer Base shader-map slots with global refs plus
+- [x] Replace per-renderer Base shader-map slots with global refs plus
   renderer-specific transactional resources such as Gizmo static geometry,
   Overlay declarations, and the icon atlas/sampler.
-- [ ] Retain exact shader refs in each pipeline payload and remove manual Base
+- [x] Retain exact shader refs in each pipeline payload and remove manual Base
   shader-generation rewriting only after the global set identity proves the
   same fallback behavior.
-- [ ] Publish the accepted Global Shader API as the dependency gate for the
+- [x] Publish the accepted Global Shader API as the dependency gate for the
   Primitive Draw Interface simple-element shader implementation.
-- [ ] Run focused EditorAssistance CPU, resource failure/recovery, Vulkan
+- [x] Run focused EditorAssistance CPU, resource failure/recovery, Vulkan
   capture, reversed/forward depth, Present/Offscreen, reload, and device
   invalidation parity tests.
 
@@ -233,18 +245,18 @@ occlusion, cloud, shadow, and fixed mesh-stage shaders.
 
 ### Stage 4: Migrate remaining eligible fixed renderer passes
 
-- [ ] Migrate bounded fullscreen and debug families first, then lighting,
+- [x] Migrate bounded fullscreen and debug families first, then lighting,
   post-process, shadow, ambient-occlusion, cloud, and other Stage 0-classified
   global shaders in independently validated slices.
-- [ ] Keep generated Material programs, mesh shader maps, and vertex-factory
+- [x] Keep generated Material programs, mesh shader maps, and vertex-factory
   families on their existing typed identities; extract shared pipeline or
   material work only through separately approved plans.
-- [ ] Remove obsolete private shader-map payloads, casts, duplicate compile
+- [x] Remove obsolete private shader-map payloads, casts, duplicate compile
   diagnostics, and generation plumbing immediately after each family passes
   parity.
-- [ ] Measure compile request count, shader-map/code/RHI retention, reload work,
+- [x] Measure compile request count, shader-map/code/RHI retention, reload work,
   PSO recreation, first-use latency, and diagnostic volume against Stage 0.
-- [ ] Audit public/private headers and module descriptors so RenderCore remains
+- [x] Audit public/private headers and module descriptors so RenderCore remains
   below Renderer and no feature module owns global map lifetime.
 
 #### Acceptance Gate
@@ -258,18 +270,18 @@ occlusion, cloud, shadow, and fixed mesh-stage shaders.
 
 ### Stage 5: Qualify, document, and retire transitional APIs
 
-- [ ] Remove transitional adapters and any duplicate public fixed-shader
+- [x] Remove transitional adapters and any duplicate public fixed-shader
   creation path after all selected consumers migrate.
-- [ ] Run the smallest registered RenderCore shader, Renderer resource,
+- [x] Run the smallest registered RenderCore shader, Renderer resource,
   EditorAssistance, fixed-pass, RHI, Vulkan, module-lifecycle, and application
   targets selected through the repository testing workflow, followed by the
   required bounded aggregate and build tier.
-- [ ] Update Shader Cache, Renderer Resource Recovery, Viewport Rendering, Code
+- [x] Update Shader Cache, Renderer Resource Recovery, Viewport Rendering, Code
   Modules, and any pass-specific contracts to the implemented ownership and
   failure semantics.
-- [ ] Record exact compile/cache, reload/retry, fallback, device, visual,
+- [x] Record exact compile/cache, reload/retry, fallback, device, visual,
   lifecycle, budget, build, test, and documentation evidence in this plan.
-- [ ] Complete lifecycle metadata and repository-required plan/stage commit
+- [x] Complete lifecycle metadata and repository-required plan/stage commit
   provenance only after every acceptance gate passes.
 
 #### Acceptance Gate
@@ -353,4 +365,3 @@ occlusion, cloud, shadow, and fixed mesh-stage shaders.
 - `Engine/Tests/Native/RenderCoreTests/Private/ShaderFoundationTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/RendererEditorAssistanceTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/EditorGridVulkanTests.cpp`
-

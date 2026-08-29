@@ -8,7 +8,7 @@
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
-#include "Shader/Shader.h"
+#include "Shader/GlobalShader.h"
 #include "Shader/ShaderCompilerCore.h"
 
 namespace Durin
@@ -17,31 +17,34 @@ namespace Durin
 
 	namespace
 	{
-		class FGizmoVertexShader : public FShader
+		class FGizmoVertexShader : public FGlobalShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FGizmoVertexShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Transform);
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_SHADER(
+			DURIN_DECLARE_GLOBAL_SHADER(
 				FGizmoVertexShader,
-				FShader,
+				FGlobalShader,
 				"/Engine/Gizmo",
 				EShaderFrequency::Vertex,
 				"VertexMain");
 		};
 
-		class FGizmoFragmentShader : public FShader
+		class FGizmoFragmentShader : public FGlobalShader
 		{
 		public:
-			DURIN_DECLARE_SHADER(
+			DURIN_DECLARE_GLOBAL_SHADER(
 				FGizmoFragmentShader,
-				FShader,
+				FGlobalShader,
 				"/Engine/Gizmo",
 				EShaderFrequency::Fragment,
 				"FragmentMain");
 		};
+
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FGizmoVertexShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FGizmoFragmentShader);
 
 		struct FGizmoTransformUniform
 		{
@@ -271,19 +274,25 @@ namespace Durin
 	{
 		struct FBasePayload
 		{
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FGizmoVertexShader> VertexShader;
-			TShaderRef<FGizmoFragmentShader> FragmentShader;
+			FGlobalShaderSetRef ShaderSet;
+			TShaderMapRef<FGizmoVertexShader> VertexShader;
+			TShaderMapRef<FGizmoFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FBufferRHIRef VertexBuffer;
 			FBufferRHIRef IndexBuffer;
 			std::array<FGizmoMeshRange, 6> MeshRanges{};
 		};
 
+		struct FPipelinePayload
+		{
+			FGraphicsPipelineStateRHIRef Pipeline;
+			FGlobalShaderSetRef ShaderSet;
+		};
+
 		struct FPipelineEntry
 		{
 			FPipelineKey Key;
-			TRenderResourceCreationSlot<FGraphicsPipelineStateRHIRef> Slot{
+			TRenderResourceCreationSlot<FPipelinePayload> Slot{
 				ERenderResourceGenerationDependency::Shader
 					| ERenderResourceGenerationDependency::Device};
 		};
@@ -313,50 +322,26 @@ namespace Durin
 		FBasePayload* Base = State->Base.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
 			[this, &CommandList]() -> FBaseResult {
-				FShaderCompileOptions CompileOptions;
-				CompileOptions.bForceRecompile =
-					Coordinator.ShouldForceShaderRecompile_RenderThread();
-				FShaderType& VertexShaderType = FGizmoVertexShader::StaticType();
-				FShaderType& FragmentShaderType =
-					FGizmoFragmentShader::StaticType();
-				const std::array<const FShaderType*, 2> ShaderTypes = {
-					&VertexShaderType,
-					&FragmentShaderType};
-
 				FBasePayload Candidate;
-				Candidate.ShaderMap = std::make_shared<FShaderMapBase>();
-				std::string ErrorMessage;
-				if (!Candidate.ShaderMap->InitializeFromShaderTypes(
-						ShaderTypes, CompileOptions, ErrorMessage))
+				const std::array<const FGlobalShaderType*, 2> ShaderTypes = {
+					&FGizmoVertexShader::StaticType(),
+					&FGizmoFragmentShader::StaticType()};
+				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+					"EditorAssistance.Gizmo", ShaderTypes, true,
+					ReportRendererResourceCreateDiagnostic);
+				if (!Candidate.ShaderSet)
 				{
 					return FBaseResult::Failure(
 						MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::ShaderCompile,
 							"Gizmo",
 							"base",
-							std::move(ErrorMessage),
+							"Global shader set is unavailable.",
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual));
 				}
-				auto* VertexShader = static_cast<FGizmoVertexShader*>(
-					Candidate.ShaderMap->GetShader(&VertexShaderType));
-				auto* FragmentShader = static_cast<FGizmoFragmentShader*>(
-					Candidate.ShaderMap->GetShader(&FragmentShaderType));
-				if (VertexShader == nullptr || FragmentShader == nullptr)
-				{
-					return FBaseResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::ShaderBinding,
-							"Gizmo",
-							"base",
-							"Compiled shader map is missing a typed shader.",
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual));
-				}
-				Candidate.VertexShader = TShaderRef<FGizmoVertexShader>(
-					VertexShader, Candidate.ShaderMap.get());
-				Candidate.FragmentShader = TShaderRef<FGizmoFragmentShader>(
-					FragmentShader, Candidate.ShaderMap.get());
+				Candidate.VertexShader = TShaderMapRef<FGizmoVertexShader>(Candidate.ShaderSet);
+				Candidate.FragmentShader = TShaderMapRef<FGizmoFragmentShader>(Candidate.ShaderSet);
 				FVertexDeclarationElementList Elements;
 				Elements[0] = FVertexElement(
 					0, 0, EVertexElementType::Float3, 0, sizeof(FVector3f));
@@ -444,7 +429,7 @@ namespace Durin
 				}
 				return FBaseResult::Success(std::move(Candidate));
 			},
-			ReportRendererResourceCreateDiagnostic);
+			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
 		if (Base == nullptr)
 			return;
 
@@ -478,17 +463,13 @@ namespace Durin
 						State->Pipelines.end(),
 						FState::FPipelineEntry{.Key = Key});
 				}
-				FRenderResourceGeneration PipelineGeneration =
-					Coordinator.GetGeneration_RenderThread();
-				PipelineGeneration.Shader =
-					State->Base.GetPayloadGeneration().Shader;
+		FRenderResourceGeneration PipelineGeneration = Base->ShaderSet.GetGeneration();
 				const std::string PipelineName = std::format(
 					"Gizmo{}{}{}Pipeline",
 					GetTopologyName(Topology),
 					GetDepthName(DepthMode),
 					GetOutputName(Request.Output));
-				using FPipelineResult =
-					TRenderResourceCreateResult<FGraphicsPipelineStateRHIRef>;
+				using FPipelineResult = TRenderResourceCreateResult<FState::FPipelinePayload>;
 				auto* Pipeline = EntryIt->Slot.Resolve(
 					PipelineGeneration,
 					[Base, Key, PipelineName]() -> FPipelineResult {
@@ -517,7 +498,7 @@ namespace Durin
 						Initializer.DepthStencilState.CompareOp =
 							GetVisibleDepthCompareOp(Key.DepthConvention);
 						Initializer.PipelineLayout =
-							Base->ShaderMap->GetMergedPipelineLayout();
+							Base->ShaderSet.GetPipelineLayout();
 						FGraphicsPipelineStateRHIRef Candidate =
 							GDynamicRHI->RHICreateGraphicsPipelineState(
 								FName(PipelineName), Initializer);
@@ -536,15 +517,17 @@ namespace Durin
 										| ERenderResourceGenerationDependency::
 											Manual));
 						}
-						return FPipelineResult::Success(
-							std::move(Candidate));
+						return FPipelineResult::Success({
+							.Pipeline = std::move(Candidate),
+							.ShaderSet = Base->ShaderSet});
 					},
 					ReportRendererResourceCreateDiagnostic);
 				if (Pipeline != nullptr)
 				{
 					Prepared.Pipelines.push_back({
 						.Key = Key,
-						.Pipeline = *Pipeline,
+						.Pipeline = Pipeline->Pipeline,
+						.ShaderSet = Pipeline->ShaderSet,
 					});
 				}
 			}
@@ -591,8 +574,17 @@ namespace Durin
 			FGizmoVertexShader::FParameters Parameters;
 			Parameters.Transform = CommandList.AllocateDynamicUniformBuffer(
 				&Uniform, sizeof(Uniform));
-			SetShaderParameters(
-				CommandList, Base->VertexShader, Parameters);
+			const auto PreparedIt = std::ranges::find_if(
+				Prepared.Pipelines, [DepthMode, Topology](const FPreparedPipeline& Item) {
+					return Item.Key.Feature == EFeature::Gizmo
+						&& Item.Key.DepthMode == DepthMode
+						&& Item.Key.GizmoTopology == Topology;
+				});
+			if (PreparedIt == Prepared.Pipelines.end())
+				continue;
+			SetShaderParameters(CommandList,
+				TShaderMapRef<FGizmoVertexShader>(PreparedIt->ShaderSet).GetShaderRef(),
+				Parameters);
 			CommandList.DrawIndexed(
 				Range.IndexCount, Range.FirstIndex, Range.VertexOffset);
 		}

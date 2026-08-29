@@ -51,4 +51,15 @@ namespace Durin
 			Error.bRetainedFallback,
 			Error.Message);
 	}
+
+	auto ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable(
+		const FRenderResourceCreateDiagnostic& Diagnostic) -> void
+	{
+		if (Diagnostic.Error
+			&& Diagnostic.Error->Message == "Global shader set is unavailable.")
+		{
+			return;
+		}
+		ReportRendererResourceCreateDiagnostic(Diagnostic);
+	}
 } // namespace Durin

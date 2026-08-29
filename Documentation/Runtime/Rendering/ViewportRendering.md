@@ -75,8 +75,12 @@ FRendererModule
         `-- FOverlayIconRenderer
 ```
 
-Feature renderers own their shader maps, pipelines, RHI payloads, keyed
-caches, geometry, retry state, diagnostics, and release paths. Shared
+RenderCore owns fixed non-Material shader maps as bounded atomic
+[global shader sets](GlobalShaders.md). Feature renderers retain typed refs to
+the exact set used by each pipeline and continue to own pipelines, non-shader
+RHI payloads, keyed caches, geometry, retry state, diagnostics, and release
+paths. Material and vertex-factory/mesh renderers retain their specialized
+shader-map identities. Shared
 facilities are explicit resource owners rather than anonymous feature globals.
 All GPU resource mutation, invalidation, retry, and release remains confined
 to the rendering thread.

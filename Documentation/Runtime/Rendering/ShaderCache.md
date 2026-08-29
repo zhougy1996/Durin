@@ -17,6 +17,12 @@ The runtime uses four bounded or reclaimable layers:
 - a 128-entry least-recently-used compiled-output cache in the compile service;
 - weak shader-map resource entries that share code and RHI shaders only while a shader map still owns them.
 
+Fixed non-Material consumers reach these layers through RenderCore's
+generation-aware global shader map. Its exact, caller-named shader sets retain
+ordinary `FShaderMapBase` payloads internally, so global ownership does not
+change cache keys, artifact schemas, compiler behavior, or weak resource
+coalescing. See [Global Shaders](GlobalShaders.md).
+
 ## Paths and Identities
 
 The registered shader mount supplies its source root and may explicitly override its cache root. Default mounts store rebuildable data beneath the active project's `DerivedDataCache/Shaders/SPIR-V/`; without a project, `FPaths::DerivedDataCacheDir()` falls back beneath the engine directory. Each virtual mount root receives a readable, hashed namespace so engine, project, plugin, and nested mounts cannot collide. Old standalone `ShaderCache` directories are not migrated or read.
@@ -89,7 +95,9 @@ Failed compiler output is not stored in the in-process output cache or
 published to disk. Correcting authored source therefore produces a new
 dependency fingerprint and variant key without restarting the compile service.
 
-Renderer exposes two demand-driven reload modes. The
+Renderer exposes two demand-driven reload modes. It explicitly fans accepted
+generations into RenderCore's global shader map and its remaining Material/mesh
+resource owners. The
 `renderer.reload-shaders changed` command advances the Renderer shader-resource
 generation; the next lookup for each demanded shader-backed resource validates
 its dependencies and reuses or compiles the resulting variant normally.
@@ -99,11 +107,14 @@ bypassing both successful memory and disk output reuse.
 
 Neither command eagerly recompiles every registered shader type or material
 identity. The console request is ordered through the render-command queue, and
-resource slots decide when a stale identity is next demanded. Shader refresh
-is transactional: a compile, binding, RHI, or pipeline failure leaves a valid
-last-known-good payload drawable when one exists, while a successful candidate
-replaces it atomically. See [Viewport Rendering](ViewportRendering.md) for the
-generation, diagnostic, device-invalidation, and shutdown contracts.
+resource slots decide when a stale identity is next demanded. Global shader
+sets publish compilation, binding, and RHI state atomically; dependent pipeline
+payloads retain the exact set used to construct them. A failure leaves a valid
+same-device last-known-good payload drawable when one exists, while a
+successful candidate replaces it atomically. See
+[Global Shaders](GlobalShaders.md) and
+[Viewport Rendering](ViewportRendering.md) for generation, diagnostic,
+device-invalidation, and shutdown contracts.
 
 Graphics-pipeline names are stable diagnostic labels, not cache identities.
 Every RHI graphics-PSO request creates a fresh complete candidate, even when a

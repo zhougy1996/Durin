@@ -8,26 +8,26 @@
 #include "CoreGlobals.h"
 #include "RHI.h"
 #include "RHICommandList.h"
-#include "Shader/Shader.h"
+#include "Shader/GlobalShader.h"
 #include "Shader/ShaderCompilerCore.h"
 
 namespace Durin
 {
 	namespace
 	{
-		class FSkyBoxVertexShader : public FShader
+		class FSkyBoxVertexShader : public FGlobalShader
 		{
 		public:
-			DURIN_DECLARE_SHADER(
+			DURIN_DECLARE_GLOBAL_SHADER(
 				FSkyBoxVertexShader,
-				FShader,
+				FGlobalShader,
 				"/Engine/SkyBox",
 				EShaderFrequency::Vertex,
 				"VertexMain"
 			);
 		};
 
-		class FSkyBoxFragmentShader : public FShader
+		class FSkyBoxFragmentShader : public FGlobalShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FSkyBoxFragmentShader)
@@ -36,23 +36,25 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Sky);
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_SHADER(
+			DURIN_DECLARE_GLOBAL_SHADER(
 				FSkyBoxFragmentShader,
-				FShader,
+				FGlobalShader,
 				"/Engine/SkyBox",
 				EShaderFrequency::Fragment,
 				"FragmentMain"
 			);
 		};
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FSkyBoxVertexShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FSkyBoxFragmentShader);
 	} // namespace
 
 	struct FSkyBoxRenderer::FState
 	{
 		struct FPayload
 		{
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FSkyBoxVertexShader> VertexShader;
-			TShaderRef<FSkyBoxFragmentShader> FragmentShader;
+			FGlobalShaderSetRef ShaderSet;
+			TShaderMapRef<FSkyBoxVertexShader> VertexShader;
+			TShaderMapRef<FSkyBoxFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FGraphicsPipelineStateRHIRef PipelineState;
 			FGraphicsPipelineStateRHIRef HybridBootstrapPipelineState;
@@ -86,67 +88,29 @@ namespace Durin
 		FPayload* Payload = State->Slot.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
 			[this]() -> FResult {
-				FShaderCompileOptions CompileOptions;
-				CompileOptions.bForceRecompile =
-					Coordinator.ShouldForceShaderRecompile_RenderThread();
-				FShaderType& VertexShaderType =
-					FSkyBoxVertexShader::StaticType();
-				FShaderType& FragmentShaderType =
-					FSkyBoxFragmentShader::StaticType();
-				const std::array<const FShaderType*, 2> ShaderTypes = {
-					&VertexShaderType,
-					&FragmentShaderType
-				};
-				auto ShaderMap = std::make_shared<FShaderMapBase>();
-				std::string ErrorMessage;
-				if (!ShaderMap->InitializeFromShaderTypes(
-						ShaderTypes,
-						CompileOptions,
-						ErrorMessage
-					))
+				const std::array<const FGlobalShaderType*, 2> ShaderTypes = {
+					&FSkyBoxVertexShader::StaticType(),
+					&FSkyBoxFragmentShader::StaticType()};
+				FPayload Candidate;
+				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+					"SkyBox.Default", ShaderTypes, true,
+					ReportRendererResourceCreateDiagnostic);
+				if (!Candidate.ShaderSet)
 				{
 					return FResult::Failure(
 						MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::ShaderCompile,
 							"SkyBox",
 							"default",
-							std::move(ErrorMessage),
+							"Global shader set is unavailable.",
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual
 						)
 					);
 				}
 
-				auto* VertexShader = static_cast<FSkyBoxVertexShader*>(
-					ShaderMap->GetShader(&VertexShaderType)
-				);
-				auto* FragmentShader = static_cast<FSkyBoxFragmentShader*>(
-					ShaderMap->GetShader(&FragmentShaderType)
-				);
-				if (VertexShader == nullptr || FragmentShader == nullptr)
-				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::ShaderBinding,
-							"SkyBox",
-							"default",
-							"Compiled shader map is missing a typed shader.",
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual
-						)
-					);
-				}
-
-				FPayload Candidate;
-				Candidate.ShaderMap = std::move(ShaderMap);
-				Candidate.VertexShader = TShaderRef<FSkyBoxVertexShader>(
-					VertexShader,
-					Candidate.ShaderMap.get()
-				);
-				Candidate.FragmentShader = TShaderRef<FSkyBoxFragmentShader>(
-					FragmentShader,
-					Candidate.ShaderMap.get()
-				);
+				Candidate.VertexShader = TShaderMapRef<FSkyBoxVertexShader>(Candidate.ShaderSet);
+				Candidate.FragmentShader = TShaderMapRef<FSkyBoxFragmentShader>(Candidate.ShaderSet);
 				FRHIShader* VertexRHI =
 					Candidate.VertexShader.GetRHIShader(false);
 				FRHIShader* FragmentRHI =
@@ -183,7 +147,7 @@ namespace Durin
 					Candidate.VertexDeclaration;
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.PipelineLayout =
-					Candidate.ShaderMap->GetMergedPipelineLayout();
+					Candidate.ShaderSet.GetPipelineLayout();
 				Candidate.PipelineState =
 					GDynamicRHI->RHICreateGraphicsPipelineState(
 						"SkyBoxPipeline",
@@ -244,7 +208,7 @@ namespace Durin
 				}
 				return FResult::Success(std::move(Candidate));
 			},
-			ReportRendererResourceCreateDiagnostic
+			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable
 		);
 		return Payload != nullptr;
 	}
@@ -303,7 +267,7 @@ namespace Durin
 		);
 		SetShaderParameters(
 			CommandList,
-			Payload->FragmentShader,
+			Payload->FragmentShader.GetShaderRef(),
 			Parameters
 		);
 		CommandList.DrawIndexed(3, 0, 0);

@@ -9,25 +9,25 @@
 #include "CoreGlobals.h"
 #include "RHI.h"
 #include "RHICommandList.h"
-#include "Shader/Shader.h"
+#include "Shader/GlobalShader.h"
 #include "Shader/ShaderCompilerCore.h"
 
 namespace Durin
 {
 	namespace
 	{
-		class FPostProcessVertexShader : public FShader
+		class FPostProcessVertexShader : public FGlobalShader
 		{
 		public:
-			DURIN_DECLARE_SHADER(
+			DURIN_DECLARE_GLOBAL_SHADER(
 				FPostProcessVertexShader,
-				FShader,
+				FGlobalShader,
 				"/Engine/PostProcess",
 				EShaderFrequency::Vertex,
 				"VertexMain");
 		};
 
-		class FCopySceneColorFragmentShader : public FShader
+		class FCopySceneColorFragmentShader : public FGlobalShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FCopySceneColorFragmentShader)
@@ -36,15 +36,15 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_SHADER(
+			DURIN_DECLARE_GLOBAL_SHADER(
 				FCopySceneColorFragmentShader,
-				FShader,
+				FGlobalShader,
 				"/Engine/PostProcess",
 				EShaderFrequency::Fragment,
 				"CopyFragmentMain");
 		};
 
-		class FFXAAFragmentShader : public FShader
+		class FFXAAFragmentShader : public FGlobalShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FFXAAFragmentShader)
@@ -53,13 +53,16 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(View);
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_SHADER(
+			DURIN_DECLARE_GLOBAL_SHADER(
 				FFXAAFragmentShader,
-				FShader,
+				FGlobalShader,
 				"/Engine/PostProcess",
 				EShaderFrequency::Fragment,
 				"FXAAFragmentMain");
 		};
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FPostProcessVertexShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FCopySceneColorFragmentShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FFXAAFragmentShader);
 
 		struct FPostProcessViewUniform
 		{
@@ -96,12 +99,12 @@ namespace Durin
 	{
 		struct FPayload
 		{
-			std::shared_ptr<FShaderMapBase> CopyShaderMap;
-			std::shared_ptr<FShaderMapBase> FXAAShaderMap;
-			TShaderRef<FPostProcessVertexShader> CopyVertexShader;
-			TShaderRef<FPostProcessVertexShader> FXAAVertexShader;
-			TShaderRef<FCopySceneColorFragmentShader> CopyFragmentShader;
-			TShaderRef<FFXAAFragmentShader> FXAAFragmentShader;
+			FGlobalShaderSetRef CopyShaderSet;
+			FGlobalShaderSetRef FXAAShaderSet;
+			TShaderMapRef<FPostProcessVertexShader> CopyVertexShader;
+			TShaderMapRef<FPostProcessVertexShader> FXAAVertexShader;
+			TShaderMapRef<FCopySceneColorFragmentShader> CopyFragmentShader;
+			TShaderMapRef<FFXAAFragmentShader> FXAAFragmentShader;
 			FGraphicsPipelineStateRHIRef CopyIntermediatePipelineState;
 			FGraphicsPipelineStateRHIRef FXAAIntermediatePipelineState;
 			FGraphicsPipelineStateRHIRef CopyOffscreenPipelineState;
@@ -138,104 +141,46 @@ namespace Durin
 		FPayload* Payload = State->Slot.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
 			[this, &CommandList]() -> FResult {
-				FShaderCompileOptions CompileOptions;
-				CompileOptions.bForceRecompile =
-					Coordinator.ShouldForceShaderRecompile_RenderThread();
-				FShaderType& VertexShaderType =
-					FPostProcessVertexShader::StaticType();
-				FShaderType& CopyFragmentShaderType =
-					FCopySceneColorFragmentShader::StaticType();
-				FShaderType& FXAAFragmentShaderType =
-					FFXAAFragmentShader::StaticType();
-				const std::array<const FShaderType*, 2> CopyShaderTypes = {
-					&VertexShaderType,
-					&CopyFragmentShaderType};
-				const std::array<const FShaderType*, 2> FXAAShaderTypes = {
-					&VertexShaderType,
-					&FXAAFragmentShaderType};
-
+				const std::array<const FGlobalShaderType*, 2> CopyShaderTypes = {
+					&FPostProcessVertexShader::StaticType(),
+					&FCopySceneColorFragmentShader::StaticType()};
+				const std::array<const FGlobalShaderType*, 2> FXAAShaderTypes = {
+					&FPostProcessVertexShader::StaticType(),
+					&FFXAAFragmentShader::StaticType()};
 				FPayload Candidate;
-				Candidate.CopyShaderMap =
-					std::make_shared<FShaderMapBase>();
-				Candidate.FXAAShaderMap =
-					std::make_shared<FShaderMapBase>();
-				std::string ErrorMessage;
-				if (!Candidate.CopyShaderMap->InitializeFromShaderTypes(
-						CopyShaderTypes,
-						CompileOptions,
-						ErrorMessage))
+				Candidate.CopyShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+					"PostProcess.Copy", CopyShaderTypes, true,
+					ReportRendererResourceCreateDiagnostic);
+				if (!Candidate.CopyShaderSet)
 				{
 					return FResult::Failure(
 						MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::ShaderCompile,
 							"PostProcess",
 							"copy",
-							std::move(ErrorMessage),
+							"Global shader set is unavailable.",
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual));
 				}
-				if (!Candidate.FXAAShaderMap->InitializeFromShaderTypes(
-						FXAAShaderTypes,
-						CompileOptions,
-						ErrorMessage))
+				Candidate.FXAAShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+					"PostProcess.FXAA", FXAAShaderTypes, true,
+					ReportRendererResourceCreateDiagnostic);
+				if (!Candidate.FXAAShaderSet)
 				{
 					return FResult::Failure(
 						MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::ShaderCompile,
 							"PostProcess",
 							"fxaa",
-							std::move(ErrorMessage),
+							"Global shader set is unavailable.",
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual));
 				}
 
-				auto* CopyVertexShader =
-					static_cast<FPostProcessVertexShader*>(
-						Candidate.CopyShaderMap->GetShader(
-							&VertexShaderType));
-				auto* FXAAVertexShader =
-					static_cast<FPostProcessVertexShader*>(
-						Candidate.FXAAShaderMap->GetShader(
-							&VertexShaderType));
-				auto* CopyFragmentShader =
-					static_cast<FCopySceneColorFragmentShader*>(
-						Candidate.CopyShaderMap->GetShader(
-							&CopyFragmentShaderType));
-				auto* FXAAFragmentShader =
-					static_cast<FFXAAFragmentShader*>(
-						Candidate.FXAAShaderMap->GetShader(
-							&FXAAFragmentShaderType));
-				if (CopyVertexShader == nullptr
-					|| FXAAVertexShader == nullptr
-					|| CopyFragmentShader == nullptr
-					|| FXAAFragmentShader == nullptr)
-				{
-					return FResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::ShaderBinding,
-							"PostProcess",
-							"copy+fxaa",
-							"Compiled shader map is missing a typed shader.",
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual));
-				}
-
-				Candidate.CopyVertexShader =
-					TShaderRef<FPostProcessVertexShader>(
-						CopyVertexShader,
-						Candidate.CopyShaderMap.get());
-				Candidate.FXAAVertexShader =
-					TShaderRef<FPostProcessVertexShader>(
-						FXAAVertexShader,
-						Candidate.FXAAShaderMap.get());
-				Candidate.CopyFragmentShader =
-					TShaderRef<FCopySceneColorFragmentShader>(
-						CopyFragmentShader,
-						Candidate.CopyShaderMap.get());
-				Candidate.FXAAFragmentShader =
-					TShaderRef<FFXAAFragmentShader>(
-						FXAAFragmentShader,
-						Candidate.FXAAShaderMap.get());
+				Candidate.CopyVertexShader = TShaderMapRef<FPostProcessVertexShader>(Candidate.CopyShaderSet);
+				Candidate.FXAAVertexShader = TShaderMapRef<FPostProcessVertexShader>(Candidate.FXAAShaderSet);
+				Candidate.CopyFragmentShader = TShaderMapRef<FCopySceneColorFragmentShader>(Candidate.CopyShaderSet);
+				Candidate.FXAAFragmentShader = TShaderMapRef<FFXAAFragmentShader>(Candidate.FXAAShaderSet);
 
 				if (!FullscreenGeometry.EnsureResources_RenderThread(
 						CommandList))
@@ -295,40 +240,40 @@ namespace Durin
 					"PostProcessCopyIntermediatePipeline",
 					CopyVertexRHI,
 					CopyFragmentRHI,
-					Candidate.CopyShaderMap->GetMergedPipelineLayout(),
+					Candidate.CopyShaderSet.GetPipelineLayout(),
 					RenderTargetLayouts::MakeScenePostProcessOutput());
 				Candidate.FXAAIntermediatePipelineState = MakePipeline(
 					"PostProcessFXAAIntermediatePipeline",
 					FXAAVertexRHI,
 					FXAAFragmentRHI,
-					Candidate.FXAAShaderMap->GetMergedPipelineLayout(),
+					Candidate.FXAAShaderSet.GetPipelineLayout(),
 					RenderTargetLayouts::MakeScenePostProcessOutput());
 				Candidate.CopyOffscreenPipelineState = MakePipeline(
 					"PostProcessCopyOffscreenPipeline",
 					CopyVertexRHI,
 					CopyFragmentRHI,
-					Candidate.CopyShaderMap->GetMergedPipelineLayout(),
+					Candidate.CopyShaderSet.GetPipelineLayout(),
 					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
 						RenderTargetLayouts::EViewportOutput::Offscreen));
 				Candidate.CopyPresentPipelineState = MakePipeline(
 					"PostProcessCopyPresentPipeline",
 					CopyVertexRHI,
 					CopyFragmentRHI,
-					Candidate.CopyShaderMap->GetMergedPipelineLayout(),
+					Candidate.CopyShaderSet.GetPipelineLayout(),
 					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
 						RenderTargetLayouts::EViewportOutput::Present));
 				Candidate.FXAAOffscreenPipelineState = MakePipeline(
 					"PostProcessFXAAOffscreenPipeline",
 					FXAAVertexRHI,
 					FXAAFragmentRHI,
-					Candidate.FXAAShaderMap->GetMergedPipelineLayout(),
+					Candidate.FXAAShaderSet.GetPipelineLayout(),
 					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
 						RenderTargetLayouts::EViewportOutput::Offscreen));
 				Candidate.FXAAPresentPipelineState = MakePipeline(
 					"PostProcessFXAAPresentPipeline",
 					FXAAVertexRHI,
 					FXAAFragmentRHI,
-					Candidate.FXAAShaderMap->GetMergedPipelineLayout(),
+					Candidate.FXAAShaderSet.GetPipelineLayout(),
 					RenderTargetLayouts::MakeFinalScenePostProcessOutput(
 						RenderTargetLayouts::EViewportOutput::Present));
 				if (Candidate.CopyIntermediatePipelineState == nullptr
@@ -351,7 +296,7 @@ namespace Durin
 				}
 				return FResult::Success(std::move(Candidate));
 			},
-			ReportRendererResourceCreateDiagnostic);
+			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
 		return Payload != nullptr;
 	}
 
@@ -460,7 +405,7 @@ namespace Durin
 			FragmentParameters.View = ViewUniformBuffer;
 			SetShaderParameters(
 				CommandList,
-				Payload->FXAAFragmentShader,
+				Payload->FXAAFragmentShader.GetShaderRef(),
 				FragmentParameters);
 		}
 		else
@@ -472,7 +417,7 @@ namespace Durin
 			FragmentParameters.View = ViewUniformBuffer;
 			SetShaderParameters(
 				CommandList,
-				Payload->CopyFragmentShader,
+				Payload->CopyFragmentShader.GetShaderRef(),
 				FragmentParameters);
 		}
 

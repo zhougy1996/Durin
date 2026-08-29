@@ -8,7 +8,7 @@
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
-#include "Shader/Shader.h"
+#include "Shader/GlobalShader.h"
 #include "Shader/ShaderCompilerCore.h"
 
 namespace Durin
@@ -17,31 +17,34 @@ namespace Durin
 
 	namespace
 	{
-		class FOverlayLineVertexShader : public FShader
+		class FOverlayLineVertexShader : public FGlobalShader
 		{
 		public:
-			DURIN_DECLARE_SHADER(
+			DURIN_DECLARE_GLOBAL_SHADER(
 				FOverlayLineVertexShader,
-				FShader,
+				FGlobalShader,
 				"/Engine/Gizmo",
 				EShaderFrequency::Vertex,
 				"LineVertexMain");
 		};
 
-		class FOverlayLineFragmentShader : public FShader
+		class FOverlayLineFragmentShader : public FGlobalShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FOverlayLineFragmentShader)
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(Style);
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_SHADER(
+			DURIN_DECLARE_GLOBAL_SHADER(
 				FOverlayLineFragmentShader,
-				FShader,
+				FGlobalShader,
 				"/Engine/Gizmo",
 				EShaderFrequency::Fragment,
 				"LineFragmentMain");
 		};
+
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FOverlayLineVertexShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FOverlayLineFragmentShader);
 
 		struct FOverlayLineStyleUniform
 		{
@@ -202,16 +205,22 @@ namespace Durin
 	{
 		struct FBasePayload
 		{
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FOverlayLineVertexShader> VertexShader;
-			TShaderRef<FOverlayLineFragmentShader> FragmentShader;
+			FGlobalShaderSetRef ShaderSet;
+			TShaderMapRef<FOverlayLineVertexShader> VertexShader;
+			TShaderMapRef<FOverlayLineFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
+		};
+
+		struct FPipelinePayload
+		{
+			FGraphicsPipelineStateRHIRef Pipeline;
+			FGlobalShaderSetRef ShaderSet;
 		};
 
 		struct FPipelineEntry
 		{
 			FPipelineKey Key;
-			TRenderResourceCreationSlot<FGraphicsPipelineStateRHIRef> Slot{
+			TRenderResourceCreationSlot<FPipelinePayload> Slot{
 				ERenderResourceGenerationDependency::Shader
 					| ERenderResourceGenerationDependency::Device};
 		};
@@ -255,55 +264,26 @@ namespace Durin
 		FBasePayload* Base = State->Base.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
 			[this]() -> FBaseResult {
-				FShaderCompileOptions CompileOptions;
-				CompileOptions.bForceRecompile =
-					Coordinator.ShouldForceShaderRecompile_RenderThread();
-				FShaderType& VertexShaderType =
-					FOverlayLineVertexShader::StaticType();
-				FShaderType& FragmentShaderType =
-					FOverlayLineFragmentShader::StaticType();
-				const std::array<const FShaderType*, 2> ShaderTypes = {
-					&VertexShaderType,
-					&FragmentShaderType};
-
 				FBasePayload Candidate;
-				Candidate.ShaderMap = std::make_shared<FShaderMapBase>();
-				std::string ErrorMessage;
-				if (!Candidate.ShaderMap->InitializeFromShaderTypes(
-						ShaderTypes, CompileOptions, ErrorMessage))
+				const std::array<const FGlobalShaderType*, 2> ShaderTypes = {
+					&FOverlayLineVertexShader::StaticType(),
+					&FOverlayLineFragmentShader::StaticType()};
+				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+					"EditorAssistance.OverlayLine", ShaderTypes, true,
+					ReportRendererResourceCreateDiagnostic);
+				if (!Candidate.ShaderSet)
 				{
 					return FBaseResult::Failure(
 						MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::ShaderCompile,
 							"OverlayLine",
 							"base",
-							std::move(ErrorMessage),
+							"Global shader set is unavailable.",
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual));
 				}
-				auto* VertexShader =
-					static_cast<FOverlayLineVertexShader*>(
-						Candidate.ShaderMap->GetShader(&VertexShaderType));
-				auto* FragmentShader =
-					static_cast<FOverlayLineFragmentShader*>(
-						Candidate.ShaderMap->GetShader(&FragmentShaderType));
-				if (VertexShader == nullptr || FragmentShader == nullptr)
-				{
-					return FBaseResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::ShaderBinding,
-							"OverlayLine",
-							"base",
-							"Compiled shader map is missing a typed shader.",
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual));
-				}
-				Candidate.VertexShader =
-					TShaderRef<FOverlayLineVertexShader>(
-						VertexShader, Candidate.ShaderMap.get());
-				Candidate.FragmentShader =
-					TShaderRef<FOverlayLineFragmentShader>(
-						FragmentShader, Candidate.ShaderMap.get());
+				Candidate.VertexShader = TShaderMapRef<FOverlayLineVertexShader>(Candidate.ShaderSet);
+				Candidate.FragmentShader = TShaderMapRef<FOverlayLineFragmentShader>(Candidate.ShaderSet);
 				FVertexDeclarationElementList Elements;
 				Elements[0] = FVertexElement(
 					0,
@@ -342,7 +322,7 @@ namespace Durin
 				}
 				return FBaseResult::Success(std::move(Candidate));
 			},
-			ReportRendererResourceCreateDiagnostic);
+			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
 		if (Base == nullptr)
 			return;
 
@@ -405,16 +385,12 @@ namespace Durin
 					State->Pipelines.end(),
 					FState::FPipelineEntry{.Key = Key});
 			}
-			FRenderResourceGeneration PipelineGeneration =
-				Coordinator.GetGeneration_RenderThread();
-			PipelineGeneration.Shader =
-				State->Base.GetPayloadGeneration().Shader;
+			FRenderResourceGeneration PipelineGeneration = Base->ShaderSet.GetGeneration();
 			const std::string PipelineName = std::format(
 				"OverlayLine{}{}Pipeline",
 				GetDepthName(DepthMode),
 				GetOutputName(Output));
-			using FPipelineResult =
-				TRenderResourceCreateResult<FGraphicsPipelineStateRHIRef>;
+			using FPipelineResult = TRenderResourceCreateResult<FState::FPipelinePayload>;
 			auto* Pipeline = EntryIt->Slot.Resolve(
 				PipelineGeneration,
 				[Base, Key, PipelineName]() -> FPipelineResult {
@@ -436,7 +412,7 @@ namespace Durin
 					Initializer.DepthStencilState.CompareOp =
 						GetVisibleDepthCompareOp(Key.DepthConvention);
 					Initializer.PipelineLayout =
-						Base->ShaderMap->GetMergedPipelineLayout();
+						Base->ShaderSet.GetPipelineLayout();
 					FGraphicsPipelineStateRHIRef Candidate =
 						GDynamicRHI->RHICreateGraphicsPipelineState(
 							FName(PipelineName), Initializer);
@@ -455,14 +431,17 @@ namespace Durin
 									| ERenderResourceGenerationDependency::
 										Manual));
 					}
-					return FPipelineResult::Success(std::move(Candidate));
+					return FPipelineResult::Success({
+						.Pipeline = std::move(Candidate),
+						.ShaderSet = Base->ShaderSet});
 				},
 				ReportRendererResourceCreateDiagnostic);
 			if (Pipeline != nullptr)
 			{
 				Prepared.Pipelines.push_back({
 					.Key = Key,
-					.Pipeline = *Pipeline,
+					.Pipeline = Pipeline->Pipeline,
+					.ShaderSet = Pipeline->ShaderSet,
 				});
 			}
 		}
@@ -477,9 +456,15 @@ namespace Durin
 		const FState::FBasePayload* Base = State->Base.GetPayload();
 		const FGraphicsPipelineStateRHIRef Pipeline =
 			FindPreparedPipeline(Prepared, DepthMode);
+		const auto PreparedIt = std::ranges::find_if(
+			Prepared.Pipelines, [DepthMode](const FPreparedPipeline& Item) {
+				return Item.Key.Feature == EFeature::OverlayLine
+					&& Item.Key.DepthMode == DepthMode;
+			});
 		if (Prepared.OverlayLineIndexCount == 0
 			|| Base == nullptr
 			|| Pipeline == nullptr
+			|| PreparedIt == Prepared.Pipelines.end()
 			|| State->VertexBuffer == nullptr
 			|| State->IndexBuffer == nullptr)
 		{
@@ -493,8 +478,9 @@ namespace Durin
 		FOverlayLineFragmentShader::FParameters Parameters;
 		Parameters.Style = CommandList.AllocateDynamicUniformBuffer(
 			&Style, sizeof(Style));
-		SetShaderParameters(
-			CommandList, Base->FragmentShader, Parameters);
+		SetShaderParameters(CommandList,
+			TShaderMapRef<FOverlayLineFragmentShader>(PreparedIt->ShaderSet).GetShaderRef(),
+			Parameters);
 		CommandList.DrawIndexed(Prepared.OverlayLineIndexCount, 0, 0);
 	}
 

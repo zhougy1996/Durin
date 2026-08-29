@@ -7,7 +7,7 @@
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
-#include "Shader/Shader.h"
+#include "Shader/GlobalShader.h"
 #include "Shader/ShaderCompilerCore.h"
 
 namespace Durin
@@ -16,18 +16,18 @@ namespace Durin
 
 	namespace
 	{
-		class FOverlayIconVertexShader : public FShader
+		class FOverlayIconVertexShader : public FGlobalShader
 		{
 		public:
-			DURIN_DECLARE_SHADER(
+			DURIN_DECLARE_GLOBAL_SHADER(
 				FOverlayIconVertexShader,
-				FShader,
+				FGlobalShader,
 				"/Engine/Gizmo",
 				EShaderFrequency::Vertex,
 				"IconVertexMain");
 		};
 
-		class FOverlayIconFragmentShader : public FShader
+		class FOverlayIconFragmentShader : public FGlobalShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FOverlayIconFragmentShader)
@@ -36,13 +36,16 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_UNIFORM_BUFFER_DYNAMIC(IconStyle);
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_SHADER(
+			DURIN_DECLARE_GLOBAL_SHADER(
 				FOverlayIconFragmentShader,
-				FShader,
+				FGlobalShader,
 				"/Engine/Gizmo",
 				EShaderFrequency::Fragment,
 				"IconFragmentMain");
 		};
+
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FOverlayIconVertexShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FOverlayIconFragmentShader);
 
 		struct FOverlayIconStyleUniform
 		{
@@ -318,18 +321,24 @@ namespace Durin
 	{
 		struct FBasePayload
 		{
-			std::shared_ptr<FShaderMapBase> ShaderMap;
-			TShaderRef<FOverlayIconVertexShader> VertexShader;
-			TShaderRef<FOverlayIconFragmentShader> FragmentShader;
+			FGlobalShaderSetRef ShaderSet;
+			TShaderMapRef<FOverlayIconVertexShader> VertexShader;
+			TShaderMapRef<FOverlayIconFragmentShader> FragmentShader;
 			FVertexDeclarationRHIRef VertexDeclaration;
 			FTextureRHIRef Atlas;
 			FSamplerRHIRef AtlasSampler;
 		};
 
+		struct FPipelinePayload
+		{
+			FGraphicsPipelineStateRHIRef Pipeline;
+			FGlobalShaderSetRef ShaderSet;
+		};
+
 		struct FPipelineEntry
 		{
 			FPipelineKey Key;
-			TRenderResourceCreationSlot<FGraphicsPipelineStateRHIRef> Slot{
+			TRenderResourceCreationSlot<FPipelinePayload> Slot{
 				ERenderResourceGenerationDependency::Shader
 					| ERenderResourceGenerationDependency::Device};
 		};
@@ -373,55 +382,26 @@ namespace Durin
 		FBasePayload* Base = State->Base.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
 			[this, &CommandList]() -> FBaseResult {
-				FShaderCompileOptions CompileOptions;
-				CompileOptions.bForceRecompile =
-					Coordinator.ShouldForceShaderRecompile_RenderThread();
-				FShaderType& VertexShaderType =
-					FOverlayIconVertexShader::StaticType();
-				FShaderType& FragmentShaderType =
-					FOverlayIconFragmentShader::StaticType();
-				const std::array<const FShaderType*, 2> ShaderTypes = {
-					&VertexShaderType,
-					&FragmentShaderType};
-
 				FBasePayload Candidate;
-				Candidate.ShaderMap = std::make_shared<FShaderMapBase>();
-				std::string ErrorMessage;
-				if (!Candidate.ShaderMap->InitializeFromShaderTypes(
-						ShaderTypes, CompileOptions, ErrorMessage))
+				const std::array<const FGlobalShaderType*, 2> ShaderTypes = {
+					&FOverlayIconVertexShader::StaticType(),
+					&FOverlayIconFragmentShader::StaticType()};
+				Candidate.ShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+					"EditorAssistance.OverlayIcon", ShaderTypes, true,
+					ReportRendererResourceCreateDiagnostic);
+				if (!Candidate.ShaderSet)
 				{
 					return FBaseResult::Failure(
 						MakeRendererResourceCreateError(
 							ERenderResourceCreateErrorCategory::ShaderCompile,
 							"OverlayIcon",
 							"base",
-							std::move(ErrorMessage),
+							"Global shader set is unavailable.",
 							ERenderResourceGenerationDependency::Shader
 								| ERenderResourceGenerationDependency::Manual));
 				}
-				auto* VertexShader =
-					static_cast<FOverlayIconVertexShader*>(
-						Candidate.ShaderMap->GetShader(&VertexShaderType));
-				auto* FragmentShader =
-					static_cast<FOverlayIconFragmentShader*>(
-						Candidate.ShaderMap->GetShader(&FragmentShaderType));
-				if (VertexShader == nullptr || FragmentShader == nullptr)
-				{
-					return FBaseResult::Failure(
-						MakeRendererResourceCreateError(
-							ERenderResourceCreateErrorCategory::ShaderBinding,
-							"OverlayIcon",
-							"base",
-							"Compiled shader map is missing a typed shader.",
-							ERenderResourceGenerationDependency::Shader
-								| ERenderResourceGenerationDependency::Manual));
-				}
-				Candidate.VertexShader =
-					TShaderRef<FOverlayIconVertexShader>(
-						VertexShader, Candidate.ShaderMap.get());
-				Candidate.FragmentShader =
-					TShaderRef<FOverlayIconFragmentShader>(
-						FragmentShader, Candidate.ShaderMap.get());
+				Candidate.VertexShader = TShaderMapRef<FOverlayIconVertexShader>(Candidate.ShaderSet);
+				Candidate.FragmentShader = TShaderMapRef<FOverlayIconFragmentShader>(Candidate.ShaderSet);
 				FVertexDeclarationElementList Elements;
 				Elements[0] = FVertexElement(
 					0,
@@ -489,7 +469,7 @@ namespace Durin
 				}
 				return FBaseResult::Success(std::move(Candidate));
 			},
-			ReportRendererResourceCreateDiagnostic);
+			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
 		if (Base == nullptr)
 			return;
 
@@ -552,16 +532,12 @@ namespace Durin
 					State->Pipelines.end(),
 					FState::FPipelineEntry{.Key = Key});
 			}
-			FRenderResourceGeneration PipelineGeneration =
-				Coordinator.GetGeneration_RenderThread();
-			PipelineGeneration.Shader =
-				State->Base.GetPayloadGeneration().Shader;
+			FRenderResourceGeneration PipelineGeneration = Base->ShaderSet.GetGeneration();
 			const std::string PipelineName = std::format(
 				"OverlayIcon{}{}Pipeline",
 				GetDepthName(DepthMode),
 				GetOutputName(Output));
-			using FPipelineResult =
-				TRenderResourceCreateResult<FGraphicsPipelineStateRHIRef>;
+			using FPipelineResult = TRenderResourceCreateResult<FState::FPipelinePayload>;
 			auto* Pipeline = EntryIt->Slot.Resolve(
 				PipelineGeneration,
 				[Base, Key, PipelineName]() -> FPipelineResult {
@@ -583,7 +559,7 @@ namespace Durin
 					Initializer.DepthStencilState.CompareOp =
 						GetVisibleDepthCompareOp(Key.DepthConvention);
 					Initializer.PipelineLayout =
-						Base->ShaderMap->GetMergedPipelineLayout();
+						Base->ShaderSet.GetPipelineLayout();
 					FGraphicsPipelineStateRHIRef Candidate =
 						GDynamicRHI->RHICreateGraphicsPipelineState(
 							FName(PipelineName), Initializer);
@@ -602,14 +578,17 @@ namespace Durin
 									| ERenderResourceGenerationDependency::
 										Manual));
 					}
-					return FPipelineResult::Success(std::move(Candidate));
+					return FPipelineResult::Success({
+						.Pipeline = std::move(Candidate),
+						.ShaderSet = Base->ShaderSet});
 				},
 				ReportRendererResourceCreateDiagnostic);
 			if (Pipeline != nullptr)
 			{
 				Prepared.Pipelines.push_back({
 					.Key = Key,
-					.Pipeline = *Pipeline,
+					.Pipeline = Pipeline->Pipeline,
+					.ShaderSet = Pipeline->ShaderSet,
 				});
 			}
 		}
@@ -624,9 +603,15 @@ namespace Durin
 		const FState::FBasePayload* Base = State->Base.GetPayload();
 		const FGraphicsPipelineStateRHIRef Pipeline =
 			FindPreparedPipeline(Prepared, DepthMode);
+		const auto PreparedIt = std::ranges::find_if(
+			Prepared.Pipelines, [DepthMode](const FPreparedPipeline& Item) {
+				return Item.Key.Feature == EFeature::OverlayIcon
+					&& Item.Key.DepthMode == DepthMode;
+			});
 		if (Prepared.OverlayIconIndexCount == 0
 			|| Base == nullptr
 			|| Pipeline == nullptr
+			|| PreparedIt == Prepared.Pipelines.end()
 			|| State->VertexBuffer == nullptr
 			|| State->IndexBuffer == nullptr
 			|| Base->Atlas == nullptr
@@ -644,8 +629,9 @@ namespace Durin
 		Parameters.AtlasSampler = Base->AtlasSampler;
 		Parameters.IconStyle = CommandList.AllocateDynamicUniformBuffer(
 			&Style, sizeof(Style));
-		SetShaderParameters(
-			CommandList, Base->FragmentShader, Parameters);
+		SetShaderParameters(CommandList,
+			TShaderMapRef<FOverlayIconFragmentShader>(PreparedIt->ShaderSet).GetShaderRef(),
+			Parameters);
 		CommandList.DrawIndexed(Prepared.OverlayIconIndexCount, 0, 0);
 	}
 

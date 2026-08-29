@@ -24,7 +24,10 @@ current overlay line/icon and wire-gizmo use cases. Procedural fullscreen Grid
 and solid Gizmo mesh rendering remain specialized until a later mesh-batch
 foundation exists. The renderer implementation depends on the accepted Global
 Shader Framework Stages 0-2 rather than creating another private shader-map
-lifecycle.
+lifecycle. Those stages were accepted on 2026-08-29: simple-element shaders
+may register as bounded global sets, retain typed refs in pipeline payloads,
+and consume explicit Renderer generation fan-out without an
+EditorAssistance-private helper.
 
 ## Goal
 

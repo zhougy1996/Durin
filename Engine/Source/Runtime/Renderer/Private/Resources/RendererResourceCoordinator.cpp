@@ -4,6 +4,7 @@
 
 #include "RHICommandList.h"
 #include "RenderingThread.h"
+#include "Shader/GlobalShader.h"
 #include "Shader/ShaderCompilerCore.h"
 
 namespace Durin
@@ -156,6 +157,9 @@ namespace Durin
 				Cause == ERendererResourceInvalidationCause::ShaderAll
 					? std::optional<uint64>(Generation.Shader)
 					: std::nullopt;
+			GetGlobalShaderMap().SetGeneration_RenderThread(
+				Generation,
+				Cause == ERendererResourceInvalidationCause::ShaderAll);
 			if (Targets.InvalidateShaderResources)
 			{
 				Targets.InvalidateShaderResources(
@@ -171,7 +175,9 @@ namespace Durin
 			{
 				Targets.ReleaseDeviceResources();
 			}
+			GetGlobalShaderMap().ReleaseDeviceResources_RenderThread();
 			Generation = NextGeneration;
+			GetGlobalShaderMap().SetGeneration_RenderThread(Generation, false);
 			if (Targets.RecreateStartupResources)
 			{
 				Targets.RecreateStartupResources();
@@ -181,6 +187,7 @@ namespace Durin
 		case ERendererResourceInvalidationCause::ManualRetry:
 			Generation.Advance(
 				ERenderResourceGenerationDependency::Manual);
+			GetGlobalShaderMap().SetGeneration_RenderThread(Generation, false);
 			if (Targets.RetryFailedResources)
 			{
 				Targets.RetryFailedResources();
@@ -226,6 +233,7 @@ namespace Durin
 		check(IsInRenderingThread());
 		Generation = {};
 		ForceRecompileShaderGeneration.reset();
+		GetGlobalShaderMap().Shutdown_RenderThread();
 	}
 
 } // namespace Durin

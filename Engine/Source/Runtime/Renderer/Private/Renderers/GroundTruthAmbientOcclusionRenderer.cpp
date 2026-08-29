@@ -9,22 +9,22 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "SceneView.h"
-#include "Shader/Shader.h"
+#include "Shader/GlobalShader.h"
 #include "Shader/ShaderCompilerCore.h"
 
 namespace Durin
 {
 	namespace
 	{
-		class FGTAOVertexShader final : public FShader
+		class FGTAOVertexShader final : public FGlobalShader
 		{
 		public:
-			DURIN_DECLARE_SHADER(FGTAOVertexShader, FShader,
+			DURIN_DECLARE_GLOBAL_SHADER(FGTAOVertexShader, FGlobalShader,
 				"/Engine/GroundTruthAmbientOcclusion",
 				EShaderFrequency::Vertex, "VertexMain");
 		};
 
-		class FGTAORawFragmentShader final : public FShader
+		class FGTAORawFragmentShader final : public FGlobalShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FGTAORawFragmentShader)
@@ -35,12 +35,12 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_TEXTURE(RawSelector);
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_SHADER(FGTAORawFragmentShader, FShader,
+			DURIN_DECLARE_GLOBAL_SHADER(FGTAORawFragmentShader, FGlobalShader,
 				"/Engine/GroundTruthAmbientOcclusion",
 				EShaderFrequency::Fragment, "RawFragmentMain");
 		};
 
-		class FGTAOSelectorFragmentShader final : public FShader
+		class FGTAOSelectorFragmentShader final : public FGlobalShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FGTAOSelectorFragmentShader)
@@ -51,12 +51,12 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_TEXTURE(RawSelector);
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_SHADER(FGTAOSelectorFragmentShader, FShader,
+			DURIN_DECLARE_GLOBAL_SHADER(FGTAOSelectorFragmentShader, FGlobalShader,
 				"/Engine/GroundTruthAmbientOcclusion",
 				EShaderFrequency::Fragment, "SelectorFragmentMain");
 		};
 
-		class FGTAOHalfRawFragmentShader final : public FShader
+		class FGTAOHalfRawFragmentShader final : public FGlobalShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FGTAOHalfRawFragmentShader)
@@ -67,12 +67,12 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_TEXTURE(RawSelector);
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_SHADER(FGTAOHalfRawFragmentShader, FShader,
+			DURIN_DECLARE_GLOBAL_SHADER(FGTAOHalfRawFragmentShader, FGlobalShader,
 				"/Engine/GroundTruthAmbientOcclusion",
 				EShaderFrequency::Fragment, "HalfRawFragmentMain");
 		};
 
-		class FGTAOFilterFragmentShader final : public FShader
+		class FGTAOFilterFragmentShader final : public FGlobalShader
 		{
 		public:
 			DURIN_BEGIN_SHADER_PARAMETERS(FGTAOFilterFragmentShader)
@@ -84,7 +84,7 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_TEXTURE(FilterSelector);
 			DURIN_END_SHADER_PARAMETERS();
 
-			DURIN_DECLARE_SHADER(FGTAOFilterFragmentShader, FShader,
+			DURIN_DECLARE_GLOBAL_SHADER(FGTAOFilterFragmentShader, FGlobalShader,
 				"/Engine/GroundTruthAmbientOcclusion",
 				EShaderFrequency::Fragment, "BilateralFragmentMain");
 		};
@@ -99,41 +99,48 @@ namespace Durin
 				DURIN_SHADER_PARAMETER_TEXTURE(FilterSelector); \
 			DURIN_END_SHADER_PARAMETERS()
 
-		class FGTAOHalfFilterFragmentShader final : public FShader
+		class FGTAOHalfFilterFragmentShader final : public FGlobalShader
 		{
 		public:
 			DURIN_GTAO_HALF_FILTER_PARAMETERS(FGTAOHalfFilterFragmentShader);
-			DURIN_DECLARE_SHADER(FGTAOHalfFilterFragmentShader, FShader,
+			DURIN_DECLARE_GLOBAL_SHADER(FGTAOHalfFilterFragmentShader, FGlobalShader,
 				"/Engine/GroundTruthAmbientOcclusion",
 				EShaderFrequency::Fragment, "HalfBilateralFragmentMain");
 		};
 
-		class FGTAOResolveFragmentShader final : public FShader
+		class FGTAOResolveFragmentShader final : public FGlobalShader
 		{
 		public:
 			DURIN_GTAO_HALF_FILTER_PARAMETERS(FGTAOResolveFragmentShader);
-			DURIN_DECLARE_SHADER(FGTAOResolveFragmentShader, FShader,
+			DURIN_DECLARE_GLOBAL_SHADER(FGTAOResolveFragmentShader, FGlobalShader,
 				"/Engine/GroundTruthAmbientOcclusion",
 				EShaderFrequency::Fragment, "ResolveFragmentMain");
 		};
 
 		#undef DURIN_GTAO_HALF_FILTER_PARAMETERS
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FGTAOVertexShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FGTAORawFragmentShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FGTAOSelectorFragmentShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FGTAOHalfRawFragmentShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FGTAOFilterFragmentShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FGTAOHalfFilterFragmentShader);
+		DURIN_IMPLEMENT_GLOBAL_SHADER(FGTAOResolveFragmentShader);
 	}
 
 	struct FGroundTruthAmbientOcclusionRenderer::FState
 	{
 		struct FPayload
 		{
-			std::shared_ptr<FShaderMapBase> RawShaderMap;
-			std::shared_ptr<FShaderMapBase> FilterShaderMap;
-			TShaderRef<FGTAOVertexShader> RawVertexShader;
-			TShaderRef<FGTAOVertexShader> FilterVertexShader;
-			TShaderRef<FGTAORawFragmentShader> FragmentShader;
-			TShaderRef<FGTAOSelectorFragmentShader> SelectorFragmentShader;
-			TShaderRef<FGTAOHalfRawFragmentShader> HalfFragmentShader;
-			TShaderRef<FGTAOFilterFragmentShader> FilterFragmentShader;
-			TShaderRef<FGTAOHalfFilterFragmentShader> HalfFilterFragmentShader;
-			TShaderRef<FGTAOResolveFragmentShader> ResolveFragmentShader;
+			FGlobalShaderSetRef RawShaderSet;
+			FGlobalShaderSetRef FilterShaderSet;
+			TShaderMapRef<FGTAOVertexShader> RawVertexShader;
+			TShaderMapRef<FGTAOVertexShader> FilterVertexShader;
+			TShaderMapRef<FGTAORawFragmentShader> FragmentShader;
+			TShaderMapRef<FGTAOSelectorFragmentShader> SelectorFragmentShader;
+			TShaderMapRef<FGTAOHalfRawFragmentShader> HalfFragmentShader;
+			TShaderMapRef<FGTAOFilterFragmentShader> FilterFragmentShader;
+			TShaderMapRef<FGTAOHalfFilterFragmentShader> HalfFilterFragmentShader;
+			TShaderMapRef<FGTAOResolveFragmentShader> ResolveFragmentShader;
 			FGraphicsPipelineStateRHIRef PipelineState;
 			FGraphicsPipelineStateRHIRef SelectorPipelineState;
 			FGraphicsPipelineStateRHIRef HalfPipelineState;
@@ -168,92 +175,49 @@ namespace Durin
 		FPayload* Payload = State->Resources.Resolve(
 			Coordinator.GetGeneration_RenderThread(),
 			[this, &CommandList]() -> FResult {
-				FShaderCompileOptions Options;
-				Options.bForceRecompile =
-					Coordinator.ShouldForceShaderRecompile_RenderThread();
-				FShaderType& VertexType = FGTAOVertexShader::StaticType();
-				FShaderType& FragmentType = FGTAORawFragmentShader::StaticType();
-				FShaderType& SelectorType =
-					FGTAOSelectorFragmentShader::StaticType();
-				FShaderType& HalfFragmentType =
-					FGTAOHalfRawFragmentShader::StaticType();
-				FShaderType& FilterType = FGTAOFilterFragmentShader::StaticType();
-				FShaderType& HalfFilterType =
-					FGTAOHalfFilterFragmentShader::StaticType();
-				FShaderType& ResolveType = FGTAOResolveFragmentShader::StaticType();
-				const std::array<const FShaderType*, 4> RawTypes{
-					&VertexType, &FragmentType, &SelectorType, &HalfFragmentType};
-				const std::array<const FShaderType*, 4> FilterTypes{
-					&VertexType, &FilterType, &HalfFilterType, &ResolveType};
+				const std::array<const FGlobalShaderType*, 4> RawTypes{
+					&FGTAOVertexShader::StaticType(),
+					&FGTAORawFragmentShader::StaticType(),
+					&FGTAOSelectorFragmentShader::StaticType(),
+					&FGTAOHalfRawFragmentShader::StaticType()};
+				const std::array<const FGlobalShaderType*, 4> FilterTypes{
+					&FGTAOVertexShader::StaticType(),
+					&FGTAOFilterFragmentShader::StaticType(),
+					&FGTAOHalfFilterFragmentShader::StaticType(),
+					&FGTAOResolveFragmentShader::StaticType()};
 				FPayload Candidate;
-				Candidate.RawShaderMap = std::make_shared<FShaderMapBase>();
-				Candidate.FilterShaderMap = std::make_shared<FShaderMapBase>();
-				std::string Error;
-				if (!Candidate.RawShaderMap->InitializeFromShaderTypes(
-						RawTypes, Options, Error))
+				Candidate.RawShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+					"GroundTruthAmbientOcclusion.Raw", RawTypes, true,
+					ReportRendererResourceCreateDiagnostic);
+				if (!Candidate.RawShaderSet)
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
 						"GroundTruthAmbientOcclusion", "raw-shader",
-						std::move(Error),
+						"Global shader set is unavailable.",
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual));
 				}
-				if (!Candidate.FilterShaderMap->InitializeFromShaderTypes(
-						FilterTypes, Options, Error))
+				Candidate.FilterShaderSet = GetGlobalShaderMap().ResolveShaderSet(
+					"GroundTruthAmbientOcclusion.Filter", FilterTypes, true,
+					ReportRendererResourceCreateDiagnostic);
+				if (!Candidate.FilterShaderSet)
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
 						ERenderResourceCreateErrorCategory::ShaderCompile,
 						"GroundTruthAmbientOcclusion", "filter-shader",
-						std::move(Error),
+						"Global shader set is unavailable.",
 						ERenderResourceGenerationDependency::Shader
 							| ERenderResourceGenerationDependency::Manual));
 				}
-				auto* RawVertex = static_cast<FGTAOVertexShader*>(
-					Candidate.RawShaderMap->GetShader(&VertexType));
-				auto* FilterVertex = static_cast<FGTAOVertexShader*>(
-					Candidate.FilterShaderMap->GetShader(&VertexType));
-				auto* Fragment = static_cast<FGTAORawFragmentShader*>(
-					Candidate.RawShaderMap->GetShader(&FragmentType));
-				auto* Selector = static_cast<FGTAOSelectorFragmentShader*>(
-					Candidate.RawShaderMap->GetShader(&SelectorType));
-				auto* HalfFragment = static_cast<FGTAOHalfRawFragmentShader*>(
-					Candidate.RawShaderMap->GetShader(&HalfFragmentType));
-				auto* Filter = static_cast<FGTAOFilterFragmentShader*>(
-					Candidate.FilterShaderMap->GetShader(&FilterType));
-				auto* HalfFilter = static_cast<FGTAOHalfFilterFragmentShader*>(
-					Candidate.FilterShaderMap->GetShader(&HalfFilterType));
-				auto* Resolve = static_cast<FGTAOResolveFragmentShader*>(
-					Candidate.FilterShaderMap->GetShader(&ResolveType));
-				if (RawVertex == nullptr || FilterVertex == nullptr
-					|| Fragment == nullptr || Selector == nullptr
-					|| HalfFragment == nullptr
-					|| Filter == nullptr || HalfFilter == nullptr
-					|| Resolve == nullptr)
-				{
-					return FResult::Failure(MakeRendererResourceCreateError(
-						ERenderResourceCreateErrorCategory::ShaderBinding,
-						"GroundTruthAmbientOcclusion", "raw-shader",
-						"Compiled map omitted a typed GTAO shader.",
-						ERenderResourceGenerationDependency::Shader
-							| ERenderResourceGenerationDependency::Manual));
-				}
-				Candidate.RawVertexShader = {
-					RawVertex, Candidate.RawShaderMap.get()};
-				Candidate.FilterVertexShader = {
-					FilterVertex, Candidate.FilterShaderMap.get()};
-				Candidate.FragmentShader = {
-					Fragment, Candidate.RawShaderMap.get()};
-				Candidate.SelectorFragmentShader = {
-					Selector, Candidate.RawShaderMap.get()};
-				Candidate.HalfFragmentShader = {
-					HalfFragment, Candidate.RawShaderMap.get()};
-				Candidate.FilterFragmentShader = {
-					Filter, Candidate.FilterShaderMap.get()};
-				Candidate.HalfFilterFragmentShader = {
-					HalfFilter, Candidate.FilterShaderMap.get()};
-				Candidate.ResolveFragmentShader = {
-					Resolve, Candidate.FilterShaderMap.get()};
+				Candidate.RawVertexShader = TShaderMapRef<FGTAOVertexShader>(Candidate.RawShaderSet);
+				Candidate.FilterVertexShader = TShaderMapRef<FGTAOVertexShader>(Candidate.FilterShaderSet);
+				Candidate.FragmentShader = TShaderMapRef<FGTAORawFragmentShader>(Candidate.RawShaderSet);
+				Candidate.SelectorFragmentShader = TShaderMapRef<FGTAOSelectorFragmentShader>(Candidate.RawShaderSet);
+				Candidate.HalfFragmentShader = TShaderMapRef<FGTAOHalfRawFragmentShader>(Candidate.RawShaderSet);
+				Candidate.FilterFragmentShader = TShaderMapRef<FGTAOFilterFragmentShader>(Candidate.FilterShaderSet);
+				Candidate.HalfFilterFragmentShader = TShaderMapRef<FGTAOHalfFilterFragmentShader>(Candidate.FilterShaderSet);
+				Candidate.ResolveFragmentShader = TShaderMapRef<FGTAOResolveFragmentShader>(Candidate.FilterShaderSet);
 				if (!FullscreenGeometry.EnsureResources_RenderThread(CommandList))
 				{
 					return FResult::Failure(MakeRendererResourceCreateError(
@@ -301,7 +265,7 @@ namespace Durin
 					FullscreenGeometry.GetVertexDeclaration_RenderThread();
 				Initializer.RasterizerState.CullMode = ERHICullMode::None;
 				Initializer.PipelineLayout =
-					Candidate.RawShaderMap->GetMergedPipelineLayout();
+					Candidate.RawShaderSet.GetPipelineLayout();
 				Candidate.PipelineState =
 					GDynamicRHI->RHICreateGraphicsPipelineState(
 						"GroundTruthAmbientOcclusionRawPipeline", Initializer);
@@ -341,7 +305,7 @@ namespace Durin
 				Initializer.BoundShaders.VertexShader = FilterVertexRHI;
 				Initializer.BoundShaders.FragmentShader = FilterRHI;
 				Initializer.PipelineLayout =
-					Candidate.FilterShaderMap->GetMergedPipelineLayout();
+					Candidate.FilterShaderSet.GetPipelineLayout();
 				Candidate.FilterPipelineState =
 					GDynamicRHI->RHICreateGraphicsPipelineState(
 						"GroundTruthAmbientOcclusionFilterPipeline", Initializer);
@@ -376,7 +340,7 @@ namespace Durin
 				}
 				return FResult::Success(std::move(Candidate));
 			},
-			ReportRendererResourceCreateDiagnostic);
+			ReportRendererResourceCreateDiagnosticUnlessGlobalShaderUnavailable);
 		return Payload != nullptr;
 	}
 
