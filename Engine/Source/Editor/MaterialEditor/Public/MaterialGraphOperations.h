@@ -163,6 +163,7 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API static auto GetMetrics()
 			-> const FMaterialGraphCanvasMetrics&;
 		MATERIALEDITOR_API static auto GetNodeHeight(uint32 InputCount) -> float;
+		MATERIALEDITOR_API static auto GetSurfacePinOffset(uint32 InputIndex) -> float;
 		MATERIALEDITOR_API static auto SelectDetailLevel(
 			float Zoom,
 			EMaterialGraphDetailLevel Previous) -> EMaterialGraphDetailLevel;

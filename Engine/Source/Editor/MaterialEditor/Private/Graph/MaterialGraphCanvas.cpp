@@ -488,8 +488,8 @@ namespace Durin::Editor::Material
 			for (size_t Index = 0; Index < SurfacePins.size(); ++Index)
 			{
 				SurfacePins[Index] = {SurfaceMinimum.x,
-					SurfaceMinimum.y + (Metrics.SurfaceHeaderHeight
-						+ PinSpacing * Index) * Zoom};
+					SurfaceMinimum.y + FMaterialGraphGeometry::GetSurfacePinOffset(
+						static_cast<uint32>(Index)) * Zoom};
 				const auto SourceIt = VisualIndices.find(OutputLinks[Index]->SourceNodeId);
 				if (SourceIt == VisualIndices.end()) continue;
 				const ImVec2 A = VisualNodes[SourceIt->second].OutputPin;

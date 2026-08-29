@@ -396,6 +396,13 @@ namespace Durin::Editor::Material
 			+ Metrics.PinRowHeight * std::max(1u, InputCount);
 	}
 
+	auto FMaterialGraphGeometry::GetSurfacePinOffset(uint32 InputIndex) -> float
+	{
+		const FMaterialGraphCanvasMetrics& Metrics = GetMetrics();
+		return Metrics.SurfaceHeaderHeight
+			+ Metrics.PinRowHeight * (static_cast<float>(InputIndex) + 0.5f);
+	}
+
 	auto FMaterialGraphGeometry::SelectDetailLevel(
 		float Zoom,
 		EMaterialGraphDetailLevel Previous) -> EMaterialGraphDetailLevel

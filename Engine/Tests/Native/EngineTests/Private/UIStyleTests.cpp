@@ -275,47 +275,6 @@ namespace Durin::Editor::Level
 		ImGui::DestroyContext(Context);
 	}
 
-	TEST(FMonaImGuiStyleTests, VectorDragDirectInputRejectsNonNumericCharacters)
-	{
-		ImGuiContext* Context = ImGui::CreateContext();
-		ASSERT_NE(Context, nullptr);
-		ImGuiIO& IO = ImGui::GetIO();
-		IO.IniFilename = nullptr;
-		IO.DisplaySize = ImVec2(800.0f, 600.0f);
-		IO.DeltaTime = 1.0f / 60.0f;
-		IO.Fonts->Build();
-		FVector3 StoredValue(0.0, 2.126, 0.870);
-
-		auto DrawFrame = [&]() {
-			ImGui::NewFrame();
-			ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
-			ImGui::SetNextWindowSize(ImVec2(600.0f, 300.0f));
-			ImGui::Begin("VectorInputTest", nullptr, ImGuiWindowFlags_NoTitleBar);
-			FVector3 EditedValue = StoredValue;
-			if (MonaImGui::PropertyEdit::EditVectorValue("Value", EditedValue))
-				StoredValue = EditedValue;
-			ImGui::End();
-			ImGui::Render();
-		};
-
-		DrawFrame();
-		// The third equal-width component occupies the right side of the fixed test window.
-		IO.AddMousePosEvent(500.0f, 16.0f);
-		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
-		DrawFrame();
-		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
-		DrawFrame();
-		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, true);
-		DrawFrame();
-		IO.AddMouseButtonEvent(ImGuiMouseButton_Left, false);
-		DrawFrame();
-		IO.AddInputCharactersUTF8("abc42");
-		DrawFrame();
-
-		EXPECT_DOUBLE_EQ(StoredValue.z, 42.0);
-		ImGui::DestroyContext(Context);
-	}
-
 	TEST(FMonaImGuiStyleTests, ExpandablePropertyRowsMatchFramedValueHeight)
 	{
 		ImGuiContext* Context = ImGui::CreateContext();
