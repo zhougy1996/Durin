@@ -9,7 +9,6 @@ DOCUMENT_KINDS = (
     "router", "contract", "guide", "task", "plan", "roadmap",
     "investigation", "policy", "generic",
 )
-CREATABLE_DOCUMENT_KINDS = ("router", "contract", "guide", "generic")
 
 PLAN_LIST_ARGUMENTS = (
     argument("--scope", choices=PLAN_SCOPES, default="active"),
@@ -23,34 +22,13 @@ PLAN_ARCHIVE_ARGUMENTS = (
     argument("month", help="completion month in YYYY-MM form"),
     argument("--dry-run", action="store_true", help="preview without applying the archive"),
 )
-PLAN_CREATE_ARGUMENTS = (
-    argument("plan_path", metavar="PATH"),
-    argument("--title", required=True, help="plan title without the 'Plan' suffix"),
-    argument("--summary", required=True, help="one-line primary scope"),
-    argument("--dry-run", action="store_true", help="preview without creating the plan"),
-    argument("--format", choices=("markdown", "terminal", "json"), default=None, dest="output_format"),
-)
 
 
 def lifecycle_command(name: str, summary: str, default_prefix: str) -> CommandSpec:
-    create_commands = (
-        (
-            CommandSpec(
-                "create",
-                "create an implementation plan, or preview with --dry-run",
-                HANDLER,
-                arguments=PLAN_CREATE_ARGUMENTS,
-                defaults=((f"{default_prefix}_action", "create"),),
-            ),
-        )
-        if name == "plan"
-        else ()
-    )
     return CommandSpec(
         name,
         summary,
         subcommands=(
-            *create_commands,
             CommandSpec(
                 "list",
                 f"list {'implementation plans' if name == 'plan' else 'engineering roadmaps'}",
@@ -125,17 +103,6 @@ COMMAND_SPEC = CommandSpec(
             "validate", "validate repository documentation", HANDLER,
             arguments=(argument("--scope", choices=("all", "changed"), default="all"), DOCUMENT_ARCHIVE, DOCUMENT_OUTPUT),
             defaults=(("document_action", "validate"),),
-        ),
-        CommandSpec(
-            "create", "create a documentation file, or preview with --dry-run", HANDLER,
-            arguments=(
-                argument("document_kind", choices=CREATABLE_DOCUMENT_KINDS, metavar="KIND"),
-                argument("document_path", metavar="PATH"), argument("--title", required=True),
-                argument("--summary", default=""),
-                argument("--dry-run", action="store_true"),
-                DOCUMENT_OUTPUT,
-            ),
-            defaults=(("document_action", "create"),),
         ),
         CommandSpec(
             "move", "move a document and repair references, or preview with --dry-run", HANDLER,

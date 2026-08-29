@@ -87,14 +87,12 @@ explicit:
 schema-versioned JSON output. Validation checks mechanical repository rules;
 it does not replace ownership review against `Documentation/AGENTS.md`.
 
-Documentation mutations apply and validate transactionally by default; pass
-`--dry-run` to preview without writing:
+Create specialized documentation files directly from the minimal template in
+the nearest `AGENTS.md`, then run the applicable validator. Structural
+mutations apply and validate transactionally by default; pass `--dry-run` to
+preview without writing:
 
 ```powershell
-.\DevTool.bat doc create contract Documentation\Runtime\Example.md --title "Example"
-.\DevTool.bat doc create contract Documentation\Runtime\Example.md --title "Example" --dry-run
-.\DevTool.bat doc plan create Documentation\Plans\Example.md --title "Example" --summary "Implement the example"
-.\DevTool.bat doc plan create Documentation\Plans\Example.md --title "Example" --summary "Implement the example" --dry-run
 .\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md
 .\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md --dry-run
 ```

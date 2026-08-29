@@ -21,6 +21,25 @@ These instructions apply to `Documentation/Investigations/`.
   "improve" or "optimize."
 - Include validation gaps or reproduction guidance when the behavior is not already covered by tests.
 
+Start with this minimal template and add sections only when the investigation
+needs them:
+
+```markdown
+# <Investigation>
+
+**Status:** Open
+
+**Last reviewed:** YYYY-MM-DD
+
+## Scope And Verdict
+
+<What is unresolved and what is already known.>
+
+## Verified Findings
+
+<Evidence-backed findings, impact, and candidate direction.>
+```
+
 ## Maintenance
 
 - Update `README.md` when an issue is added, renamed, resolved, or removed.

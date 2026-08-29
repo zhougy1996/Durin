@@ -53,18 +53,9 @@ def run(
             document_count=validation.document_count,
         ), file=stdout)
         return 1 if any(item.severity is DiagnosticSeverity.ERROR for item in validation.diagnostics) else 0
-    change_set = (
-        workspace.prepare_create(
-            destination=DocumentRef.parse(namespace.document_path),
-            kind=DocumentKind(namespace.document_kind),
-            title=namespace.title,
-            summary=namespace.summary,
-        )
-        if action == "create"
-        else workspace.prepare_move(
-            source=DocumentRef.parse(namespace.source_path),
-            destination=DocumentRef.parse(namespace.destination_path),
-        )
+    change_set = workspace.prepare_move(
+        source=DocumentRef.parse(namespace.source_path),
+        destination=DocumentRef.parse(namespace.destination_path),
     )
     applied = not namespace.dry_run
     if applied:

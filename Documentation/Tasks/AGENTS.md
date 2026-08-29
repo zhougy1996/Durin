@@ -34,6 +34,36 @@ These instructions apply under `Documentation/Tasks/`.
 - Do not add Plan metadata or `Plan:` / `Stage:` commit provenance to task
   work.
 
+Use this minimal template; each section is required by task validation:
+
+```markdown
+# <Task>
+
+## Outcome
+
+<One atomic result.>
+
+## Evidence
+
+<Why the change is needed.>
+
+## Required Changes
+
+<What must change.>
+
+## Protected Invariants
+
+<What must remain true.>
+
+## Likely Working Set
+
+<Relevant code and documentation.>
+
+## Acceptance
+
+<Observable completion conditions.>
+```
+
 ## Lifecycle
 
 - If implementation reveals a material unresolved decision or requires staged

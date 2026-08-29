@@ -26,9 +26,9 @@ These instructions apply under `Documentation/Plans/`.
   are allowed only when the user asks to browse or audit the archive as a
   collection. Never use them merely to locate one historical plan.
 
-## Standard Structure
+## Minimal Template
 
-New plans use this structure unless the topic requires additional sections:
+Start with only the lifecycle metadata and working structure every plan needs:
 
 ```markdown
 # <Feature> Plan
@@ -41,29 +41,19 @@ Status: Active
 Completed:
 
 ## Current Status
+
 ## Goal
-## Scope
-## Non-Goals
-## Design Decisions and Invariants
-## Current Foundations and Gaps
+
 ## Implementation Stages
+
 ### Stage 0: ...
+
 - [ ] ...
-#### Acceptance Gate
-- ...
-## Validation Matrix
-## Definition of Done
-## Deferred Follow-ups
-## Related Documentation
-## Related Code
 ```
 
-Create this scaffold directly from the repository root; use `--dry-run` when a
-preview is needed:
-
-```powershell
-.\DevTool.bat doc plan create Documentation\Plans\Example.md --title "Example" --summary "Implement the example"
-```
+Add scope, non-goals, decisions, foundations, acceptance gates, validation,
+follow-ups, and related-link sections only when they carry information needed
+to execute or review that plan. Do not add empty headings for completeness.
 
 ## Writing Rules
 
@@ -74,12 +64,13 @@ preview is needed:
 - Titles must be unique within active/archive scope and filenames within their
   directory. Adding an active plan normally adds only its Markdown file; do not
   maintain active or archive index files.
-- Narrow scope before implementation. Goals, scope, and non-goals must be objectively distinguishable.
+- Narrow scope before implementation. When scope or non-goals need to be
+  explicit, make them objectively distinguishable.
 - State selected ownership, thread, failure, format, and ordering decisions before stage tasks.
 - Put unresolved decisions in Stage 0 instead of presenting conflicting approaches as simultaneous work.
-- Each stage needs a coherent outcome, concrete tasks, dependencies, and an
-  acceptance gate. Separate implementation from unit, integration, rendering,
-  and end-to-end validation.
+- Each stage needs a coherent outcome, concrete tasks, relevant dependencies,
+  and a clear completion condition. Use a dedicated acceptance-gate section or
+  validation matrix only when the extra structure helps.
 - Reference root build and test instructions instead of copying commands that can become stale.
 - Avoid vague requirements such as "improve," "support well," or "handle as appropriate."
 

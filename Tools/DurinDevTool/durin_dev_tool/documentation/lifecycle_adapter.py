@@ -10,9 +10,7 @@ from ..errors import DevToolError
 from .adapter_common import output_format
 from .archive import ArchivePreview, apply_lifecycle_archive, preview_lifecycle_archive
 from .lifecycle import LifecycleConfig
-from .model import DocumentRef
 from .plans import render_plan_context
-from .rendering import render_change_set
 from .service import DocumentWorkspace
 
 
@@ -63,22 +61,6 @@ def run(
     document_workspace = DocumentWorkspace(repository_root)
     workspace = document_workspace.lifecycle(config)
     action = getattr(namespace, f"{config.document_label}_action")
-    if action == "create":
-        change_set = workspace.prepare_create(
-            destination=DocumentRef.parse(namespace.plan_path),
-            title=namespace.title,
-            summary=namespace.summary,
-        )
-        if not namespace.dry_run:
-            document_workspace.apply(change_set)
-        print(render_change_set(
-            change_set,
-            repository_root=repository_root.resolve(),
-            applied=not namespace.dry_run,
-            output_format=output_format(namespace, interactive=interactive),
-            preview_instruction="Dry-run only; remove --dry-run to create the plan.",
-        ), file=stdout)
-        return 0
     if action == "list":
         if namespace.scope in {"archive", "all"} and not namespace.query and not namespace.all_results:
             raise DevToolError(

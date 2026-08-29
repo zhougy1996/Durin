@@ -11,10 +11,10 @@ These instructions apply under `Documentation/Roadmaps/`.
 - Child plans own selected implementation decisions, file-level work, stage
   checklists, validation evidence, and commit provenance.
 
-## Standard Structure
+## Minimal Template
 
-New roadmaps use this structure unless the topic requires an additional
-section:
+Start with only the lifecycle metadata and program structure every roadmap
+needs:
 
 ```markdown
 # <Outcome> Roadmap
@@ -27,19 +27,17 @@ Status: Active
 Completed:
 
 ## Current Status
+
 ## Outcome
-## Scope
-## Non-Goals
-## Program Decisions and Invariants
-## Current Foundations and Gaps
-## Milestone Map
-## Child Plan Boundaries
-## Program Validation Matrix
-## Risks and Control Gates
-## Completion Criteria
-## Related Documentation
-## Related Code
+
+## Milestones
+
+- [ ] P0: <Deliverable; dependencies and completion condition.>
 ```
+
+Add scope, non-goals, program decisions, foundations, child-plan boundaries,
+risks, validation, completion criteria, and related-link sections only when
+they clarify the roadmap. Do not add empty headings for completeness.
 
 ## Authoring Rules
 
@@ -47,8 +45,10 @@ Completed:
 - New roadmaps declare `Status: Active` and an empty `Completed:` date.
 - Name proposed child plans, but create each plan only when its entry gate is
   satisfied and it is ready to become active work.
-- Every required milestone must identify its dependencies, deliverable, entry
-  gate, and exit gate. Mark optional or evidence-gated milestones explicitly.
+- Every required milestone must identify its deliverable, relevant
+  dependencies, and completion condition. Add an entry gate only when work
+  must not begin before a specific condition. Mark optional or evidence-gated
+  milestones explicitly.
 - Do not duplicate child-plan stages or detailed task lists in the roadmap.
 - Record decisions that constrain every child plan here; keep local design
   choices in the owning child plan.
@@ -56,8 +56,8 @@ Completed:
 
 ## Lifecycle
 
-- Update `Last reviewed`, `Current Status`, and the child-plan table whenever a
-  child plan is activated, completed, replaced, or deliberately deferred.
+- Update `Last reviewed`, `Current Status`, and milestone state whenever a child
+  plan is activated, completed, replaced, or deliberately deferred.
 - A completed child plan remains linked as historical provenance after it is
   archived by the plan workflow.
 - Complete the roadmap only after all required milestones pass their exit

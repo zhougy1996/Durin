@@ -13,7 +13,6 @@ from .catalog import filter_documents, load_document_catalog, validate_documents
 from .changes import (
     DocumentChangeSet,
     apply_change_set,
-    prepare_create,
     prepare_move,
     prepare_task_remove,
 )
@@ -175,22 +174,6 @@ class DocumentWorkspace:
                     ),
                 )
             ),
-        )
-
-    def prepare_create(
-        self,
-        *,
-        destination: DocumentRef,
-        kind: DocumentKind,
-        title: str,
-        summary: str,
-    ) -> DocumentChangeSet:
-        return prepare_create(
-            self.repository_root,
-            destination=destination,
-            kind=kind,
-            title=title,
-            summary=summary,
         )
 
     def prepare_move(

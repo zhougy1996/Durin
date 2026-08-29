@@ -47,16 +47,13 @@ validate again only after a later edit or when an explicit audit is required.
 
 ## Apply Document Operations
 
-Document creation, move, task removal, plan creation, and monthly archive
-commands apply immediately and validate transactionally. Pass `--dry-run` only
-when a preview is needed. The former `--apply` spelling remains accepted for
-compatibility but is unnecessary:
+Document move, task removal, and monthly archive commands apply immediately and
+validate transactionally. Pass `--dry-run` only when a preview is needed.
+Create specialized files directly from the minimal template in the nearest
+`AGENTS.md`, then run the applicable validator. The former `--apply` spelling
+remains accepted for compatibility but is unnecessary:
 
 ```powershell
-.\DevTool.bat doc create contract Documentation\Runtime\Example.md --title "Example"
-.\DevTool.bat doc create contract Documentation\Runtime\Example.md --title "Example" --dry-run
-.\DevTool.bat doc plan create Documentation\Plans\Example.md --title "Example" --summary "Implement the example"
-.\DevTool.bat doc plan create Documentation\Plans\Example.md --title "Example" --summary "Implement the example" --dry-run
 .\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md
 .\DevTool.bat doc move Documentation\Runtime\Old.md Documentation\Runtime\New.md --dry-run
 .\DevTool.bat doc task remove Documentation\Tasks\CompletedTask.md
