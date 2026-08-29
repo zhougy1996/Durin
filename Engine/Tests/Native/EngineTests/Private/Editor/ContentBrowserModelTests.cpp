@@ -1643,6 +1643,144 @@ TEST_F(FContentBrowserModelTests, EmptyFolderDeletionRoundTripsThroughHistory)
 	EXPECT_TRUE(std::filesystem::is_directory(Folder));
 }
 
+TEST_F(FContentBrowserModelTests, RejectsExternalCompanionOutsideContentMount)
+{
+	InitializeDObjectSystem();
+	const std::filesystem::path Folder = Root / "Content/UnsafeCompanion";
+	const std::filesystem::path OutsideFile = Root / "Outside/innocent.txt";
+	std::filesystem::create_directories(Folder);
+	std::filesystem::create_directories(OutsideFile.parent_path());
+	{
+		std::ofstream File(OutsideFile);
+		File << "must not be staged";
+	}
+
+	struct FContributorReset
+	{
+		Asset::FAssetDeleteContributorHandle Handle = 0;
+		~FContributorReset() { Asset::UnregisterAssetDeleteContributor(Handle); }
+	};
+	FAssetPath AssetPath;
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/ContentBrowserTests/UnsafeCompanion/Material", AssetPath));
+	const Asset::FAssetDeleteContributorHandle Contributor =
+		Asset::RegisterAssetDeleteContributor(
+			DMaterial::StaticClass(),
+			[AssetPath, OutsideFile](const Asset::FAssetData& Data,
+				const Asset::FAssetPackageInspection&,
+				Asset::FAssetDeleteContribution& Contribution) -> Asset::FAssetResult {
+				if (Data.PackagePath == AssetPath)
+					Contribution.Files.push_back(OutsideFile);
+				return {};
+			});
+	ASSERT_NE(Contributor, 0);
+	FContributorReset Reset{Contributor};
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(Asset::CreateAsset(AssetPath, Material));
+	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+
+	FContentBrowserModel Model;
+	Model.RefreshMountSnapshot();
+	FContentBrowserOperations Operations(
+		Model, [](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+			return {};
+		});
+	const FContentBrowserItem Item{
+		.Kind = EContentBrowserItemKind::Folder,
+		.Name = "UnsafeCompanion",
+		.PhysicalPath = Folder.generic_string()};
+	const FContentDeletionPlanPtr Plan = Operations.BuildDeletionPlan(
+		std::span{&Item, 1},
+		std::unordered_set<std::string>{Item.StableId()});
+
+	EXPECT_FALSE(Plan->CanExecute());
+	EXPECT_TRUE(std::ranges::any_of(
+		Plan->Blockers,
+		[&](const FContentDeletionBlocker& Blocker) {
+			return Blocker.Kind == EContentDeletionBlocker::OutsideMount
+				&& Blocker.PhysicalPath
+					== std::filesystem::absolute(OutsideFile)
+						.lexically_normal().generic_string();
+		}));
+	EXPECT_FALSE(std::ranges::any_of(
+		Plan->MaximalRoots,
+		[&](const FContentDeletionRoot& RootEntry) {
+			return RootEntry.OriginalPath
+				== std::filesystem::absolute(OutsideFile)
+					.lexically_normal().generic_string();
+		}));
+	EXPECT_TRUE(std::filesystem::is_regular_file(OutsideFile));
+
+	ASSERT_TRUE(Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
+}
+
+TEST_F(FContentBrowserModelTests, RejectsExternalCompanionReparsePoint)
+{
+	InitializeDObjectSystem();
+	const std::filesystem::path Folder = Root / "Content/ReparseCompanion";
+	const std::filesystem::path Target = Root / "Outside/reparse-target.txt";
+	const std::filesystem::path Companion = Root / "Content/ReparseCompanion.meta";
+	std::filesystem::create_directories(Folder);
+	std::filesystem::create_directories(Target.parent_path());
+	{
+		std::ofstream File(Target);
+		File << "must not be staged through a reparse point";
+	}
+	std::error_code Ec;
+	std::filesystem::create_symlink(Target, Companion, Ec);
+	if (Ec) GTEST_SKIP() << "File symlinks are unavailable: " << Ec.message();
+
+	struct FContributorReset
+	{
+		Asset::FAssetDeleteContributorHandle Handle = 0;
+		~FContributorReset() { Asset::UnregisterAssetDeleteContributor(Handle); }
+	};
+	FAssetPath AssetPath;
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/ContentBrowserTests/ReparseCompanion/Material", AssetPath));
+	const Asset::FAssetDeleteContributorHandle Contributor =
+		Asset::RegisterAssetDeleteContributor(
+			DMaterial::StaticClass(),
+			[AssetPath, Companion](const Asset::FAssetData& Data,
+				const Asset::FAssetPackageInspection&,
+				Asset::FAssetDeleteContribution& Contribution) -> Asset::FAssetResult {
+				if (Data.PackagePath == AssetPath)
+					Contribution.Files.push_back(Companion);
+				return {};
+			});
+	ASSERT_NE(Contributor, 0);
+	FContributorReset Reset{Contributor};
+	DMaterial* Material = nullptr;
+	ASSERT_TRUE(Asset::CreateAsset(AssetPath, Material));
+	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
+
+	FContentBrowserModel Model;
+	Model.RefreshMountSnapshot();
+	FContentBrowserOperations Operations(
+		Model, [](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+			return {};
+		});
+	const FContentBrowserItem Item{
+		.Kind = EContentBrowserItemKind::Folder,
+		.Name = "ReparseCompanion",
+		.PhysicalPath = Folder.generic_string()};
+	const FContentDeletionPlanPtr Plan = Operations.BuildDeletionPlan(
+		std::span{&Item, 1},
+		std::unordered_set<std::string>{Item.StableId()});
+
+	EXPECT_FALSE(Plan->CanExecute());
+	EXPECT_TRUE(std::ranges::any_of(
+		Plan->Blockers,
+		[](const FContentDeletionBlocker& Blocker) {
+			return Blocker.Kind == EContentDeletionBlocker::ReparsePoint;
+		}));
+	EXPECT_TRUE(std::filesystem::is_regular_file(Target));
+
+	ASSERT_TRUE(Asset::UnloadPackage(AssetPath));
+	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
+}
+
 TEST_F(FContentBrowserModelTests, MixedFolderAndExternalCompanionRoundTripAsOneTransaction)
 {
 	InitializeDObjectSystem();

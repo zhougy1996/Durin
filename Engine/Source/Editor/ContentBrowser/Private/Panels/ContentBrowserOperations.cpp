@@ -77,6 +77,35 @@ namespace Durin::Editor::ContentBrowser::Private
 #endif
 		}
 
+		auto FindReparsePointInPath(
+			const std::filesystem::path& Root,
+			const std::filesystem::path& Candidate,
+			std::filesystem::path& OutReparsePoint,
+			std::error_code& OutError) -> bool
+		{
+			OutReparsePoint.clear();
+			OutError.clear();
+			std::filesystem::path Relative;
+			if (!PathUtilities::TryMakeLexicalRelativePath(
+					Candidate, Root, Relative))
+			{
+				OutError = std::make_error_code(std::errc::invalid_argument);
+				return false;
+			}
+			std::filesystem::path Current = Root;
+			for (const std::filesystem::path& Component : Relative)
+			{
+				Current /= Component;
+				if (IsReparsePoint(Current, OutError))
+				{
+					OutReparsePoint = std::move(Current);
+					return true;
+				}
+				if (OutError) return false;
+			}
+			return false;
+		}
+
 		auto MakeFingerprint(
 			const std::filesystem::path& Path,
 			EContentDeletionEntryKind Kind,
@@ -985,7 +1014,92 @@ namespace Durin::Editor::ContentBrowser::Private
 					}))
 				continue;
 			std::error_code Ec;
-			if (!std::filesystem::is_regular_file(CompanionPath, Ec)) continue;
+			if (!std::filesystem::is_regular_file(CompanionPath, Ec))
+			{
+				if (Ec
+					&& Ec != std::errc::no_such_file_or_directory
+					&& Ec != std::errc::not_a_directory)
+					AddBlocker(
+						EContentDeletionBlocker::InspectionFailed,
+						std::filesystem::path(CompanionPath).filename().generic_string(),
+						CompanionPath,
+						{},
+						std::format("Could not classify asset companion: {}", Ec.message()));
+				continue;
+			}
+
+			const FContentBrowserModel::FMountPath Resolved =
+				Model.ResolveMountPath(CompanionPath);
+			if (!Resolved)
+			{
+				AddBlocker(
+					EContentDeletionBlocker::OutsideMount,
+					std::filesystem::path(CompanionPath).filename().generic_string(),
+					CompanionPath,
+					{},
+					"Asset companion is outside every mounted content root.");
+				continue;
+			}
+			const FContentBrowserModel::FMountSnapshot* CompanionMount = Resolved.Mount;
+			const FContentBrowserModel::FMountSnapshot* SelectedMount =
+				MaximalRoots.empty() ? nullptr : MaximalRoots.front().Mount;
+			bool bCompanionRootSafe = true;
+			if (!SelectedMount || CompanionMount != SelectedMount)
+			{
+				AddBlocker(
+					EContentDeletionBlocker::UnsupportedMount,
+					std::filesystem::path(CompanionPath).filename().generic_string(),
+					CompanionPath,
+					{},
+					"An external asset companion must belong to the selected content mount.");
+				bCompanionRootSafe = false;
+			}
+			if (!CompanionMount->bContentWritable)
+			{
+				AddBlocker(
+					EContentDeletionBlocker::ReadOnlyMount,
+					std::filesystem::path(CompanionPath).filename().generic_string(),
+					CompanionPath,
+					{},
+					"The asset companion's content mount is not content-writable.");
+				bCompanionRootSafe = false;
+			}
+			if (!IsSameVolume(CompanionPath, Plan->StagingVolumeRoot))
+			{
+				AddBlocker(
+					EContentDeletionBlocker::CrossVolumeStaging,
+					std::filesystem::path(CompanionPath).filename().generic_string(),
+					CompanionPath,
+					{},
+					"The asset companion cannot be renamed into the Undo staging volume.");
+				bCompanionRootSafe = false;
+			}
+			std::filesystem::path ReparsePoint;
+			const bool bReparse = FindReparsePointInPath(
+				CompanionMount->PhysicalRoot, CompanionPath, ReparsePoint, Ec);
+			if (Ec)
+			{
+				AddBlocker(
+					EContentDeletionBlocker::InspectionFailed,
+					std::filesystem::path(CompanionPath).filename().generic_string(),
+					CompanionPath,
+					{},
+					std::format("Could not inspect asset companion: {}", Ec.message()));
+				continue;
+			}
+			if (bReparse)
+			{
+				AddBlocker(
+					EContentDeletionBlocker::ReparsePoint,
+					std::filesystem::path(CompanionPath).filename().generic_string(),
+					CompanionPath,
+					{},
+					std::format(
+						"Asset companion path traverses reparse point {}.",
+						ReparsePoint.generic_string()));
+				bCompanionRootSafe = false;
+			}
+			if (!bCompanionRootSafe) continue;
 			FContentDeletionFingerprint Fingerprint;
 			if (!MakeFingerprint(
 					CompanionPath,
