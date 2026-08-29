@@ -165,7 +165,7 @@ namespace Durin
 	private:
 		static auto GetShaderFromGlobalPayload(
 			const std::shared_ptr<FGlobalShaderMapPayload>& InPayload,
-			const FGlobalShaderType* ShaderType) -> FShader*;
+			const FGlobalShaderType* InShaderType) -> FShader*;
 		static auto GetShaderMapFromGlobalPayload(
 			const std::shared_ptr<FGlobalShaderMapPayload>& InPayload)
 			-> FShaderMapBase*;
@@ -219,9 +219,9 @@ namespace Durin
 	template<typename ShaderType>
 	auto TShaderMapRef<ShaderType>::GetShaderFromGlobalPayload(
 		const std::shared_ptr<FGlobalShaderMapPayload>& InPayload,
-		const FGlobalShaderType* ShaderType) -> FShader*
+		const FGlobalShaderType* InShaderType) -> FShader*
 	{
-		return GetShaderFromGlobalPayloadImpl(InPayload, ShaderType);
+		return GetShaderFromGlobalPayloadImpl(InPayload, InShaderType);
 	}
 
 	template<typename ShaderType>
