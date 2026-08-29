@@ -210,17 +210,23 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (!Data) return {};
 		if (Data->EntryKind == Asset::EAssetRegistryEntryKind::Redirector)
 			bShowRedirectors = true;
+		return RevealPhysicalItem(Data->PhysicalPath);
+	}
+
+	auto FContentBrowserModel::RevealPhysicalItem(
+		std::string_view InPhysicalPath) -> std::string
+	{
+		const std::string PhysicalPath = NormalizePath(InPhysicalPath);
 		if (!NavigateToPhysical(
-				std::filesystem::path(Data->PhysicalPath)
+				std::filesystem::path(PhysicalPath)
 					.parent_path()
 					.generic_string()))
 			return {};
 
 		Search.clear();
 		TypeFilter = EContentBrowserTypeFilter::All;
-		RebuildItems();
+		RefreshItemsSnapshot(false);
 
-		const std::string PhysicalPath = NormalizePath(Data->PhysicalPath);
 		if (std::ranges::none_of(
 				Items,
 				[&](const FContentBrowserItem& Item) {

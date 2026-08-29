@@ -128,6 +128,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto ResolveMountPath(std::string_view PhysicalPath) const -> FMountPath;
 		auto VirtualToPhysical(std::string_view VirtualPath) const -> std::string;
 		auto IsInsideCurrentDirectory(std::string_view PhysicalPath, bool bRecursive) const -> bool;
+		auto RevealPhysicalItem(std::string_view PhysicalPath) -> std::string;
 		auto RevealAsset(std::string_view AssetPath) -> std::string;
 
 		auto GetCurrentPhysicalPath() const -> const std::string& { return CurrentPhysicalPath; }

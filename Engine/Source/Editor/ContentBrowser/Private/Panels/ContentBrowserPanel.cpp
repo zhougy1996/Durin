@@ -434,18 +434,24 @@ namespace Durin::Editor::ContentBrowser::Private
 			SetError(Result.Status.Message);
 			return;
 		}
-		const std::string NormalizedDirectory =
-			std::filesystem::path(Result.FocusPhysicalPath)
-				.parent_path()
-				.generic_string();
-		if (Model.GetCurrentPhysicalPath() != NormalizedDirectory)
-			NavigateToPhysical(NormalizedDirectory);
-		else
-			Refresh(false);
+		const std::string PreviousDirectory = Model.GetCurrentPhysicalPath();
+		const std::string FocusPhysicalPath =
+			Model.RevealPhysicalItem(Result.FocusPhysicalPath);
+		SearchBuffer.fill('\0');
+		if (FocusPhysicalPath.empty())
+		{
+			SetError("The folder was created, but it could not be shown in the content browser.");
+			return;
+		}
+		if (Model.GetCurrentPhysicalPath() != PreviousDirectory)
+		{
+			ThumbnailReferences->CancelPendingRequests();
+			bResetContentScroll = true;
+		}
 
 		const std::span<const FContentBrowserItem> Items = Model.GetItems();
 		auto It = std::ranges::find(
-			Items, Result.FocusPhysicalPath, &FContentBrowserItem::PhysicalPath);
+			Items, FocusPhysicalPath, &FContentBrowserItem::PhysicalPath);
 		if (It == Items.end()) return;
 		Selection.clear();
 		Selection.insert(It->StableId());

@@ -452,6 +452,37 @@ TEST_F(FContentBrowserModelTests, RevealAssetClearsFiltersAndPublishesTarget)
 	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
 }
 
+TEST_F(FContentBrowserModelTests, RevealPhysicalItemPublishesNewFolderHiddenByFilters)
+{
+	FContentBrowserModel Model;
+	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
+	Model.SetTypeFilter(EContentBrowserTypeFilter::Files);
+	Model.SetSearch("does-not-match");
+	ASSERT_TRUE(Model.GetItems().empty());
+
+	FContentBrowserOperations Operations(
+		Model,
+		[](std::span<const FEditorAssetMove>) -> Asset::FAssetResult {
+			return {};
+		});
+	const FContentBrowserOperationResult CreateResult =
+		Operations.CreateFolder((Root / "Content").generic_string());
+	ASSERT_TRUE(CreateResult) << CreateResult.Status.Message;
+
+	const std::string Revealed =
+		Model.RevealPhysicalItem(CreateResult.FocusPhysicalPath);
+
+	EXPECT_EQ(Revealed, CreateResult.FocusPhysicalPath);
+	EXPECT_TRUE(Model.GetSearch().empty());
+	EXPECT_EQ(Model.GetTypeFilter(), EContentBrowserTypeFilter::All);
+	EXPECT_TRUE(std::ranges::any_of(
+		Model.GetItems(),
+		[&](const FContentBrowserItem& Item) {
+			return Item.Kind == EContentBrowserItemKind::Folder
+				&& Item.StableId() == Revealed;
+		}));
+}
+
 TEST_F(FContentBrowserModelTests, DefersRecursiveEnumerationUntilSearchStarts)
 {
 	const std::filesystem::path ScanRoot = Root / "Content/DeferredSearch";
