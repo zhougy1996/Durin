@@ -34,5 +34,6 @@ Repository entrypoint for Codex-style agents. Read only task-relevant docs.
   no trailing period; describe the outcome, and add a body only for non-obvious
   motivation, tradeoffs, or incomplete/non-standard validation.
 - For active-plan work, update required status/checklists in the same commit and
-  end the body with exact `Plan: Documentation/Plans/<Plan>.md` and `Stage:
-  Stage <N>: <stage title>` provenance; do not invent provenance.
+  add exact `Plan` and `Stage` provenance using `git commit --trailer`; use
+  `Documentation/Plans/<Plan>.md` and `Stage <N>: <stage title>` as their values
+  and do not invent provenance.
