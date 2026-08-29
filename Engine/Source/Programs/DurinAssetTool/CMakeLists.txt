@@ -9,7 +9,7 @@ add_executable(DurinAssetTool "Private/AssetToolMain.cpp")
 
 durin_target_enable_windows_long_paths(DurinAssetTool)
 durin_target_apply_common_definitions(DurinAssetTool "DurinAssetTool")
-target_link_libraries(DurinAssetTool PRIVATE Engine)
+target_link_libraries(DurinAssetTool PRIVATE AssetRegistry Engine)
 if(DURIN_WITH_EDITOR)
     # Canonical-resave apply loads AssetForgeBuiltins dynamically so uncooked assets can
     # run their uncooked post-load policy without expanding read-only audits.

@@ -1,6 +1,7 @@
 #include "AssetRuntimeStateInternal.h"
+#include "AssetRegistry/Scan.h"
 #include "AssetDeletionInternal.h"
-#include "AssetCatalogPersistenceInternal.h"
+#include "AssetRegistry/RegistryCache.h"
 #include "AssetMutationJournalInternal.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetRelocationExtensionsInternal.h"
@@ -159,9 +160,9 @@ namespace Durin::Asset
 	}
 
 	FAssetRuntimeState::FAssetRuntimeState()
-		: Loader(Catalog, Residency, RuntimeConfiguration, bAcceptingRequests)
+		: Loader(GetAssetPublicationCoordinator(), Residency, RuntimeConfiguration, bAcceptingRequests)
 		, Mutations(
-			Catalog,
+			GetAssetPublicationCoordinator(),
 			Residency,
 			Loader,
 			RuntimeConfiguration,
@@ -177,7 +178,7 @@ namespace Durin::Asset
 		if (RuntimeConfiguration.IsCooked())
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit asset creation.");
 		if (!Path.IsValid() || !Class || !Class->ClassConstructor) return Error(EAssetError::InvalidPath, "Invalid asset path or class.");
-		if (const FAssetData* Existing = Registry.FindAssetExactPointer(Path))
+		if (const FAssetCatalogEntry Existing = FindAssetExact(Path))
 			return Existing->EntryKind == EAssetRegistryEntryKind::Redirector
 				? Error(EAssetError::AlreadyExists, std::format(
 					"Asset {} is occupied by a redirector to {}. Run Fix Up Redirectors or choose another destination.",
@@ -228,14 +229,14 @@ namespace Durin::Asset
 			|| SourcePath == DestinationPath)
 			return Error(EAssetError::InvalidPath,
 				"Asset duplication requires distinct valid source and destination paths.");
-		const FAssetData* SourceData = Registry.FindAssetExactPointer(SourcePath);
+		const FAssetCatalogEntry SourceData = FindAssetExact(SourcePath);
 		if (!SourceData)
 			return Error(EAssetError::NotFound,
 				std::format("Asset {} is not registered.", SourcePath.ToString()));
 		if (SourceData->EntryKind != EAssetRegistryEntryKind::Asset)
 			return Error(EAssetError::InvalidPackageType,
 				"Redirectors cannot be duplicated as assets. Duplicate the final asset instead.");
-		if (const FAssetData* Existing = Registry.FindAssetExactPointer(DestinationPath))
+		if (const FAssetCatalogEntry Existing = FindAssetExact(DestinationPath))
 			return Existing->EntryKind == EAssetRegistryEntryKind::Redirector
 				? Error(EAssetError::AlreadyExists, std::format(
 					"Asset {} is occupied by a redirector to {}. Run Fix Up Redirectors or choose another destination.",
@@ -290,7 +291,7 @@ namespace Durin::Asset
 			|| RedirectorPath == DestinationPath)
 			return Error(EAssetError::InvalidPath,
 				"Redirector source and destination paths must be valid and distinct.");
-		const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(DestinationPath);
+		const FAssetPathResolveResult Resolution = Durin::Asset::ResolveAssetPath(DestinationPath);
 		if (!Resolution)
 		{
 			switch (Resolution.State)
@@ -379,7 +380,7 @@ namespace Durin::Asset
 				OutAsset = Asset;
 				if (OutReport)
 				{
-					OutReport->CatalogRevision = Registry.GetRevision();
+					OutReport->CatalogRevision = GetAssetCatalogRevision();
 					OutReport->FinalPath = Path;
 					OutReport->FinalAssetClassName =
 						Asset->GetClass()->GetQualifiedName().ToString();
@@ -388,7 +389,7 @@ namespace Durin::Asset
 			}
 		}
 
-		const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(
+		const FAssetPathResolveResult Resolution = Durin::Asset::ResolveAssetPath(
 			Path, {.ExpectedClass = ExpectedClass});
 		if (OutReport)
 		{
@@ -570,7 +571,7 @@ namespace Durin::Asset
 			|| FindPackage(Path.GetView()) != Package)
 			return Error(EAssetError::InvalidPackageType,
 				"Only a live registered asset package can be adopted.");
-		if (Registry.FindAssetExactPointer(Path))
+		if (FindAssetExact(Path))
 			return Error(EAssetError::AlreadyExists,
 				"A catalog entry already occupies the package path.");
 		if (auto Existing = ResidentPackages.find(Path);
@@ -602,11 +603,11 @@ namespace Durin::Asset
 		for (const auto& [OtherPath, OtherPackage] : ResidentPackages)
 		{
 			if (OtherPackage == Package) continue;
-			const FAssetData* Data = Registry.FindAssetExactPointer(OtherPath);
+			const FAssetCatalogEntry Data = FindAssetExact(OtherPath);
 			if (!Data) continue;
 			for (const FAssetPath& Dependency : Data->Dependencies)
 			{
-				const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(Dependency);
+				const FAssetPathResolveResult Resolution = Durin::Asset::ResolveAssetPath(Dependency);
 				if (Resolution && Resolution.FinalPath == Path) return true;
 			}
 		}
@@ -664,11 +665,11 @@ namespace Durin::Asset
 			for (const auto& [Path, Package] : ResidentPackages)
 			{
 				if (!Protected.contains(Path)) continue;
-				const FAssetData* Data = Registry.FindAssetExactPointer(Path);
+				const FAssetCatalogEntry Data = FindAssetExact(Path);
 				if (!Data) continue;
 				for (const FAssetPath& Dependency : Data->Dependencies)
 				{
-					const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(Dependency);
+					const FAssetPathResolveResult Resolution = Durin::Asset::ResolveAssetPath(Dependency);
 					if (Resolution) bChanged |= Protected.insert(Resolution.FinalPath).second;
 				}
 			}
@@ -702,7 +703,7 @@ namespace Durin::Asset
 	auto FAssetRuntimeState::Shutdown() -> void
 	{
 		StopAcceptingRequests();
-		Catalog.FlushPersistentSnapshot();
+		FlushAssetRegistryCaches();
 		std::vector<DPackage*> Packages;
 		Packages.reserve(Residency.size());
 		for (const auto& [Path, Package] : Residency)
@@ -764,7 +765,7 @@ namespace Durin::Asset
 		}
 
 		const FAssetPath& Path = Reference.GetSoftObjectPath().GetAssetPath();
-		const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(
+		const FAssetPathResolveResult Resolution = Durin::Asset::ResolveAssetPath(
 			Path, {.ExpectedClass = ExpectedClass});
 		if (!Resolution)
 		{

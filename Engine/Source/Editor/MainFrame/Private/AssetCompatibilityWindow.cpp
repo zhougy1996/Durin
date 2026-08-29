@@ -1,4 +1,5 @@
 #include "AssetCompatibilityWindow.h"
+#include "AssetRegistry/Scan.h"
 
 #include "MonaImGui.h"
 #include "Misc/Paths.h"
@@ -534,7 +535,7 @@ namespace Durin::Editor::MainFrame
 
 	auto FAssetCompatibilityWindow::RefreshCatalog() -> void
 	{
-		const Asset::FAssetCatalogRefreshResult Result = Asset::RefreshAssetCatalog();
+		const Asset::FAssetCatalogRefreshResult Result = Asset::RefreshAssetRegistry();
 		if (!Result)
 		{
 			WindowMessage = Result.Errors.empty()

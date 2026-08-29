@@ -1,9 +1,9 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Asset/Catalog.h"
+#include "AssetRegistry/Catalog.h"
 #include "Asset/CookedAsset.h"
-#include "Asset/PackageTypes.h"
+#include "AssetRegistry/PackageTypes.h"
 #include "DObject/AssetPath.h"
 #include "DObject/DObjectFwd.h"
 #include "DObject/SoftObjectPtr.h"

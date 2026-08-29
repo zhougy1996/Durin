@@ -2,7 +2,7 @@
 
 #include "EngineAPI.h"
 #include "AssetSubsystemFwd.h"
-#include "Asset/Result.h"
+#include "AssetRegistry/Result.h"
 
 namespace Durin
 {

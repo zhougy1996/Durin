@@ -1,0 +1,12 @@
+{
+    "ModuleName": "AssetRegistry",
+    "LinkType": "Shared",
+    "PCH": "SharedPCH_DObject",
+    "PublicDependencies": [
+        "Core",
+        "CoreDObject"
+    ],
+    "PrivateDependencies": [],
+    "OptionalPrivateDependencies": [],
+    "OptionalPublicDependencies": []
+}

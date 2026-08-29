@@ -100,7 +100,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();
-	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 	Durin::FAssetPath SpherePath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		Durin::Editor::FThumbnailVisualContract::SphereVirtualPath, SpherePath));
@@ -148,7 +148,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
 	ASSERT_TRUE(MountFixture.IsValid()) << MountFixture.GetError();
 	// Replace catalog paths captured from the default mounts before mutating test assets.
-	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 	const Durin::FAssetPath StandardPath =
 		MakeAssetPath(Durin::AssetForge::Builtins::ImportedSurfaceMaterialPath);
 	std::string MaterialError;

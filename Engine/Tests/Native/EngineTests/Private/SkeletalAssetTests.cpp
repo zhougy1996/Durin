@@ -1343,7 +1343,7 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	RestartAssetManager(FirstCookRoot);
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (FirstCookRoot / "Game").generic_string() + "/");
-	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	Mesh = nullptr;
 	ASSERT_TRUE(Durin::Asset::LoadAsset(MeshPath, Mesh));
@@ -1373,7 +1373,7 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	RestartAssetManager(FirstCookRoot);
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (FirstCookRoot / "Game").generic_string() + "/");
-	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	Mesh = nullptr;
 	const Durin::Asset::FAssetResult Corrupt = Durin::Asset::LoadAsset(MeshPath, Mesh);

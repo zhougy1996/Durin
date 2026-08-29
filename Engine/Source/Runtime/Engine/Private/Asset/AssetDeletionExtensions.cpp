@@ -1,4 +1,4 @@
-#include "AssetCatalogStoreInternal.h"
+#include "AssetPublicationCoordinatorInternal.h"
 #include "AssetDeletionInternal.h"
 #include "Asset/EditorBulkDataStorage.h"
 
@@ -127,7 +127,7 @@ namespace Durin::Asset
 		OutOwnership = {};
 		const std::filesystem::path Candidate =
 			std::filesystem::absolute(PhysicalPath).lexically_normal();
-		for (const auto& [Path, Data] : GetAssetCatalogStore().GetAssets())
+		for (const auto& [Path, Data] : CaptureAssetCatalogSnapshot().Assets)
 		{
 			std::error_code ExistenceError;
 			const bool bPackageExists =

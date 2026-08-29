@@ -1,6 +1,5 @@
-#include "AssetCatalogPersistenceInternal.h"
-#include "AssetPackageValueCodec.h"
-#include "Asset/PackageVersionPolicy.h"
+#include "AssetRegistry/RegistryCache.h"
+#include "AssetRegistry/PackageFormat.h"
 
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -19,6 +18,7 @@ namespace Durin::Asset::Private
 		constexpr uint64 MaximumReferenceRouteTokenBytes = 1024 * 1024;
 		constexpr uint32 MaximumReferenceContainerDepth = 4;
 		constexpr uint64 MaximumReferenceDisplayRouteBytes = 4 * 1024;
+		constexpr uint64 MaximumPackageStringBytes = 1024 * 1024;
 		constexpr std::string_view RedirectorClassName =
 			"Durin::Asset::DAssetRedirector";
 

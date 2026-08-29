@@ -13,4 +13,4 @@ namespace Durin::Asset
 
 		auto operator==(const FAssetPackageFingerprint&) const -> bool = default;
 	};
-} // namespace Durin::Asset
+}

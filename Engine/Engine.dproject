@@ -5,6 +5,7 @@
         "PhysicsCore": "Source/Runtime/PhysicsCore",
         "Physics": "Source/Runtime/Physics",
         "CoreDObject": "Source/Runtime/CoreDObject",
+        "AssetRegistry": "Source/Runtime/AssetRegistry",
         "ApplicationCore": "Source/Runtime/ApplicationCore",
         "Engine": "Source/Runtime/Engine",
         "RHI": "Source/Runtime/RHI",

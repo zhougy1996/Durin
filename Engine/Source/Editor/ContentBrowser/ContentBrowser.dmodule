@@ -3,7 +3,8 @@
     "LinkType": "Shared",
     "PCH": "SharedPCH_MonaEditor",
     "PrivateDependencies": [
-        "Core",
+		"Core",
+		"AssetRegistry",
         "RHI",
         "RenderCore",
         "Engine",

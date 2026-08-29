@@ -48,7 +48,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
-	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 	std::vector<Durin::PathUtilities::FMountPoint> MountDefinitions(
 		Durin::PathUtilities::GetRegisteredMountPoints().begin(),
 		Durin::PathUtilities::GetRegisteredMountPoints().end()

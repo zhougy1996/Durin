@@ -6,7 +6,7 @@
 
 #include "Asset/AssetOperations.h"
 #include "Asset.h"
-#include "Asset/References.h"
+#include "AssetRegistry/References.h"
 #include "Assets/ContentBrowserThumbnailReferences.h"
 #include "Editor/AssetDragDrop.h"
 #include "Editor/WorkspaceUI.h"

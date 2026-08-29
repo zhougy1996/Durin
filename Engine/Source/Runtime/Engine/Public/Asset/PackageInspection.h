@@ -2,31 +2,16 @@
 
 #include "EngineAPI.h"
 #include "Asset/EditorBulkDataStorageTypes.h"
-#include "Asset/Catalog.h"
-#include "Asset/PackageTypes.h"
-#include "Asset/Result.h"
+#include "AssetRegistry/Catalog.h"
+#include "AssetRegistry/PackageTypes.h"
+#include "AssetRegistry/Result.h"
+#include "AssetRegistry/PackageHeader.h"
 #include "DObject/AssetPath.h"
 #include "DObject/DObjectFwd.h"
 #include "DObject/DObjectGlobals.h"
 
 namespace Durin::Asset
 {
-	struct FAssetPackageHeader
-	{
-		std::string AssetClassName;
-		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
-		FAssetPath RedirectDestination;
-		uint32 FormatVersion = 0;
-		std::vector<FAssetPath> Dependencies;
-		uint64 ObjectCount = 0;
-		uint64 BytesRead = 0;
-		uint64 FileBytesRead = 0;
-	};
-
-	ENGINE_API auto ReadAssetPackageHeader(
-		std::string_view PhysicalPath,
-		FAssetPackageHeader& OutHeader
-	) -> FAssetResult;
 	ENGINE_API auto ValidateAssetPackageBytes(
 		std::span<const std::byte> Bytes
 	) -> FAssetResult;

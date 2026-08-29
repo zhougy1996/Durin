@@ -91,7 +91,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserModel::RescanRegistry() -> Asset::FAssetResult
 	{
 		const Asset::FAssetCatalogRefreshResult Refresh =
-			Asset::RefreshAssetCatalog(
+			Asset::RefreshAssetRegistry(
 				Asset::EAssetRegistryScanMode::Incremental);
 		if (Refresh) return {};
 		return Refresh.Errors.empty()

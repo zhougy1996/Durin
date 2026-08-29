@@ -2,7 +2,7 @@
 
 #include "Asset/AssetOperations.h"
 #include "Asset/CanonicalResave.h"
-#include "Asset/Catalog.h"
+#include "AssetRegistry/Catalog.h"
 #include "Asset/Compatibility.h"
 #include "Asset/Deletion.h"
 #include "Asset/Load.h"

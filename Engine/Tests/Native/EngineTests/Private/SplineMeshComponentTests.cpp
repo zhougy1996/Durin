@@ -89,7 +89,7 @@ TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationS
 	InitializeDObjectSystem();
 	PathUtilities::FScopedMountRegistryFixture MountRegistry;
 	PathUtilities::InitDefaultMountPoints();
-	ASSERT_TRUE(Asset::RefreshAssetCatalog());
+	ASSERT_TRUE(Asset::RefreshAssetRegistry());
 	FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	FAssetPath Path;

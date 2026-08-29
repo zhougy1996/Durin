@@ -2,7 +2,7 @@
 
 Summary: Define asset presentation, operations, thumbnails, deletion, undo, and recovery in the Content Browser.
 
-Modules: ContentBrowser, MainFrame, AssetTools, DurinEd, Engine, TextureEditor, StaticMeshEditor, LevelEditor
+Modules: ContentBrowser, MainFrame, AssetTools, DurinEd, AssetRegistry, Engine, TextureEditor, StaticMeshEditor, LevelEditor
 
 The Content Browser presents the contents of automatically scanned mounted
 content roots. It combines registered engine assets and ordinary files in one
@@ -269,18 +269,18 @@ transform-gizmo transactions never publish it; their package revision and dirty
 state transitions are independent of filesystem discovery.
 
 Every Content Browser panel observes the mounted-content revision separately
-from the live asset-registry revision. A new mounted-content revision performs
-one incremental reconciliation, then refreshes mount and item snapshots and
-repairs selection. Reconciliation acknowledgement and failure suppression are
+from the live AssetRegistry revision. A new mounted-content revision calls
+`RefreshAssetRegistry` for one incremental reconciliation, then refreshes mount
+and item snapshots and repairs selection. Reconciliation acknowledgement and failure suppression are
 shared across open panels, so later observers refresh their local snapshots but
 do not repeat the scan. A registry-only revision refreshes those derived
-snapshots without scanning, because Engine has already published the
+snapshots without scanning, because AssetRegistry has already published the
 metadata change.
 The initiating panel acknowledges a successful self-originating reconciliation,
 so the next draw cannot repeat it. Manual Refresh remains an explicit scan of
 all auto-scan mounts and is also the retry path for external filesystem changes.
 
-Failed automatic reconciliation reports the Engine error and retains the
+Failed automatic reconciliation reports the AssetRegistry error and retains the
 unacknowledged mounted-content revision. That exact failed revision is
 suppressed on later frames to avoid a scan loop; manual Refresh or a later
 mounted-content revision retries it. Snapshot refresh happens only after a

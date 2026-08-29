@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Asset/Catalog.h"
+#include "AssetRegistry/Catalog.h"
 
 namespace Durin::Asset
 {

@@ -1,10 +1,9 @@
-#include "Asset/PackageObjectStreamWriter.h"
+#include "AssetRegistry/ObjectStream.h"
 
 namespace Durin::Asset::PackageObjectStream
 {
 	namespace
 	{
-		constexpr uint32 MaximumSummaryBytes = 65'535;
 		constexpr uint8 SectionCount = 5;
 
 		auto Fail(FWriterDiagnostic& Diagnostic, EWriterFailure Failure,
@@ -835,3 +834,4 @@ namespace Durin::Asset::PackageObjectStream
 		Diagnostic.Reset(); return Finish(true);
 	}
 }
+

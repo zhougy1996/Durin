@@ -1,7 +1,7 @@
 #pragma once
 
 #include "DurinEdAPI.h"
-#include "Asset/Catalog.h"
+#include "AssetRegistry/Catalog.h"
 #include "Asset/Compatibility.h"
 #include "Threading/Task.h"
 

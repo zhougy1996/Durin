@@ -42,7 +42,7 @@ namespace Durin::Asset
 			State->LastResult = {
 				.Result = Result,
 				.State = State->State,
-				.RegistryRevision = FAssetRuntimeState::Get().GetCatalogStore().GetRevision(),
+				.RegistryRevision = GetAssetCatalogRevision(),
 				.bStateRestored = true,
 			};
 			return Result;
@@ -61,7 +61,7 @@ namespace Durin::Asset
 		State->LastResult = {
 			.Result = Result,
 			.State = State->State,
-			.RegistryRevision = FAssetRuntimeState::Get().GetCatalogStore().GetRevision(),
+			.RegistryRevision = GetAssetCatalogRevision(),
 			.bStateRestored = !Result && !bRecoveryRequired,
 			.bRecoveryRequired = bRecoveryRequired,
 		};
@@ -82,7 +82,7 @@ namespace Durin::Asset
 			State->LastResult = {
 				.Result = Result,
 				.State = State->State,
-				.RegistryRevision = FAssetRuntimeState::Get().GetCatalogStore().GetRevision(),
+				.RegistryRevision = GetAssetCatalogRevision(),
 				.bStateRestored = true,
 			};
 			return Result;
@@ -94,7 +94,7 @@ namespace Durin::Asset
 			State->LastResult = {
 				.Result = Result,
 				.State = State->State,
-				.RegistryRevision = FAssetRuntimeState::Get().GetCatalogStore().GetRevision(),
+				.RegistryRevision = GetAssetCatalogRevision(),
 				.bStateRestored = true,
 			};
 			return Result;
@@ -110,7 +110,7 @@ namespace Durin::Asset
 		State->LastResult = {
 			.Result = Result,
 			.State = State->State,
-			.RegistryRevision = FAssetRuntimeState::Get().GetCatalogStore().GetRevision(),
+			.RegistryRevision = GetAssetCatalogRevision(),
 			.bStateRestored = !Result && !bRecoveryRequired,
 			.bRecoveryRequired = bRecoveryRequired,
 		};
@@ -131,7 +131,7 @@ namespace Durin::Asset
 			State->LastResult = {
 				.Result = Result,
 				.State = State->State,
-				.RegistryRevision = FAssetRuntimeState::Get().GetCatalogStore().GetRevision(),
+				.RegistryRevision = GetAssetCatalogRevision(),
 				.bStateRestored = true,
 			};
 			return Result;
@@ -143,7 +143,7 @@ namespace Durin::Asset
 			State->LastResult = {
 				.Result = Result,
 				.State = State->State,
-				.RegistryRevision = FAssetRuntimeState::Get().GetCatalogStore().GetRevision(),
+				.RegistryRevision = GetAssetCatalogRevision(),
 				.bStateRestored = true,
 			};
 			return Result;
@@ -159,7 +159,7 @@ namespace Durin::Asset
 		State->LastResult = {
 			.Result = Result,
 			.State = State->State,
-			.RegistryRevision = FAssetRuntimeState::Get().GetCatalogStore().GetRevision(),
+			.RegistryRevision = GetAssetCatalogRevision(),
 			.bStateRestored = !Result && !bRecoveryRequired,
 			.bRecoveryRequired = bRecoveryRequired,
 		};

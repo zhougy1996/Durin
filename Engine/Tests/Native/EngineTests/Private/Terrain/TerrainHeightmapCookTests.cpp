@@ -71,7 +71,7 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 	ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(RuntimeConfiguration)));
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
-	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	Durin::DTerrainHeightmap* Cooked = nullptr;
 	const Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadAsset(AssetPath, Cooked);

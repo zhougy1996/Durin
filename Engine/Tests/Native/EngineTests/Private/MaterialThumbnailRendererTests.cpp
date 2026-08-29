@@ -301,7 +301,7 @@ TEST(FMaterialThumbnailRendererTests,
 	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();
 	std::string Error;
-	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 
 	Durin::FAssetPath MaterialPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(

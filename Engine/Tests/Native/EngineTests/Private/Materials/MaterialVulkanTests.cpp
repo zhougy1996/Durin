@@ -100,7 +100,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 	ASSERT_TRUE(MaterialInstanceRenderer) << StaticMeshRendererError;
 	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();
-	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 	const std::filesystem::path TextureMount =
 		Durin::Testing::GetTestWorkDirectory() / "MaterialThumbnailVulkan";
 	const std::filesystem::path TextureSource =
@@ -463,7 +463,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		ASSERT_TRUE(StaticMeshFixture->SetImportedDefaultMaterial(
 			0, StaticMeshAssetMaterial, Error)) << Error;
 		ASSERT_TRUE(Durin::Asset::SavePackage(StaticMeshFixture->GetPackage()));
-		ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));
 		const Durin::Asset::FAssetCatalogEntry StaticMeshAssetData =
 			Durin::Asset::FindAssetExact(StaticMeshFixturePath);

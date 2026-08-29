@@ -1,5 +1,6 @@
 #include "AssetRuntimeStateInternal.h"
 #include "AssetDeletionInternal.h"
+#include "AssetMutationReferenceInternal.h"
 
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
@@ -48,7 +49,7 @@ namespace Durin::Asset
 	{
 		OutAnalysis = {};
 		OutAnalysis.AssetPath = Path;
-		const FAssetData* Data = Registry.FindAssetExactPointer(Path);
+		const FAssetCatalogEntry Data = FindAssetExact(Path);
 		if (!Path.IsValid() || !Data)
 			return Error(EAssetError::NotFound, std::format(
 				"Asset {} was not found.", Path.ToString()));
@@ -56,7 +57,7 @@ namespace Durin::Asset
 			Data->EntryKind == EAssetRegistryEntryKind::Redirector;
 		OutAnalysis.RedirectDestination = Data->RedirectDestination;
 
-		for (const auto& [OtherPath, OtherData] : Registry.GetAssets())
+		for (const auto& [OtherPath, OtherData] : CaptureAssetCatalogSnapshot().Assets)
 		{
 			if (OtherPath != Path
 				&& std::ranges::find(OtherData.Dependencies, Path)
@@ -198,7 +199,7 @@ namespace Durin::Asset
 			SortedPaths.end());
 		const std::unordered_set<FAssetPath> DeletionSet(
 			SortedPaths.begin(), SortedPaths.end());
-		OutToken.RegistryRevision = Registry.GetRevision();
+		OutToken.RegistryRevision = GetAssetCatalogRevision();
 		OutToken.ReferenceStoreRevision =
 			Private::GetAssetReferenceStoreRevision();
 		OutToken.PhysicalRoots.reserve(PhysicalRoots.size());
@@ -221,7 +222,7 @@ namespace Durin::Asset
 
 		for (const FAssetPath& Path : SortedPaths)
 		{
-			const FAssetData* Data = Registry.FindAssetExactPointer(Path);
+			const FAssetCatalogEntry Data = FindAssetExact(Path);
 			if (!Path.IsValid() || !Data)
 			{
 				AddBlocker(
@@ -270,11 +271,11 @@ namespace Durin::Asset
 		// This prevents an alias-only delete from silently invalidating authored old paths,
 		// and prevents a target delete from leaving redirectors with no destination.
 		std::unordered_map<FAssetPath, std::vector<FAssetPath>> RedirectorsByTarget;
-		for (const auto& [AliasPath, AliasData] : Registry.GetAssets())
+		for (const auto& [AliasPath, AliasData] : CaptureAssetCatalogSnapshot().Assets)
 		{
 			if (AliasData.EntryKind != EAssetRegistryEntryKind::Redirector) continue;
 			const FAssetPathResolveResult Resolution =
-				Registry.ResolveAssetPath(AliasPath);
+				Durin::Asset::ResolveAssetPath(AliasPath);
 			if (!Resolution) continue;
 			RedirectorsByTarget[Resolution.FinalPath].push_back(AliasPath);
 		}
@@ -287,12 +288,12 @@ namespace Durin::Asset
 
 		for (const FAssetPath& Path : SortedPaths)
 		{
-			const FAssetData* Data = Registry.FindAssetExactPointer(Path);
+			const FAssetCatalogEntry Data = FindAssetExact(Path);
 			if (!Data) continue;
 			if (Data->EntryKind == EAssetRegistryEntryKind::Redirector)
 			{
 				const FAssetPathResolveResult Resolution =
-					Registry.ResolveAssetPath(Path);
+					Durin::Asset::ResolveAssetPath(Path);
 				if (!Resolution || !DeletionSet.contains(Resolution.FinalPath))
 				{
 					const FAssetPath Related = Resolution.FinalPath.IsValid()
@@ -323,8 +324,7 @@ namespace Durin::Asset
 					SelectedRedirectors.push_back(Redirector);
 				else
 				{
-					const FAssetData* RedirectorData =
-						Registry.FindAssetExactPointer(Redirector);
+					const FAssetCatalogEntry RedirectorData = FindAssetExact(Redirector);
 					AddBlocker(
 						EAssetDeletionBatchBlocker::TargetRedirectorsNotSelected,
 						Path,
@@ -346,7 +346,7 @@ namespace Durin::Asset
 						Path.ToString(), Found->second.size())});
 		}
 
-		const FAssetReferenceIndex& ReferenceIndex = Registry.GetReferenceIndex();
+		const FAssetReferenceIndex ReferenceIndex = CaptureAssetReferenceIndex();
 		for (const FAssetPath& Path : SortedPaths)
 		{
 			std::vector<FAssetPath> SoftReferencers;
@@ -397,7 +397,7 @@ namespace Durin::Asset
 				return A.Details < B.Details;
 			});
 
-		for (const auto& [OtherPath, OtherData] : Registry.GetAssets())
+		for (const auto& [OtherPath, OtherData] : CaptureAssetCatalogSnapshot().Assets)
 		{
 			if (DeletionSet.contains(OtherPath)) continue;
 			for (const FAssetPath& Dependency : OtherData.Dependencies)
@@ -422,7 +422,7 @@ namespace Durin::Asset
 		}
 
 		std::unordered_map<std::string, std::vector<FAssetPath>> CompanionOwners;
-		for (const auto& [OwnerPath, OwnerData] : Registry.GetAssets())
+		for (const auto& [OwnerPath, OwnerData] : CaptureAssetCatalogSnapshot().Assets)
 		{
 			std::vector<std::filesystem::path> Files;
 			if (!Private::InspectAssetCompanionFilesForDeletion(
@@ -576,19 +576,20 @@ namespace Durin::Asset
 		const FAssetDeletionTransaction& Transaction) -> FAssetResult
 	{
 		const auto& Token = *Transaction.State;
+		const uint64 ExpectedRevision = GetAssetCatalogRevision();
+		FAssetPublicationState Prepared = Registry.CapturePreparedState();
 		std::unordered_set<FAssetPath> DeletionSet;
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
 			DeletionSet.insert(Entry.RegistryEntry.PackagePath);
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
 		{
-			const FAssetData* Current = Registry.FindAssetExactPointer(
-				Entry.RegistryEntry.PackagePath);
-			if (!Current || !(*Current == Entry.RegistryEntry))
+			const auto Current = Prepared.Assets.find(Entry.RegistryEntry.PackagePath);
+			if (Current == Prepared.Assets.end() || !(Current->second == Entry.RegistryEntry))
 				return Error(EAssetError::InUse, std::format(
 					"Asset {} changed before registry removal.",
 					Entry.RegistryEntry.PackagePath.ToString()));
 		}
-		for (const auto& [OtherPath, OtherData] : Registry.GetAssets())
+		for (const auto& [OtherPath, OtherData] : Prepared.Assets)
 		{
 			if (DeletionSet.contains(OtherPath)) continue;
 			for (const FAssetPath& Dependency : OtherData.Dependencies)
@@ -598,18 +599,28 @@ namespace Durin::Asset
 						Dependency.ToString(), OtherPath.ToString()));
 		}
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
-			Registry.Remove(Entry.RegistryEntry.PackagePath);
-		return {};
+		{
+			const FAssetPath& Path = Entry.RegistryEntry.PackagePath;
+			Prepared.Assets.erase(Path);
+			Prepared.ReferenceFingerprints.erase(Path);
+			std::erase_if(Prepared.ReferenceEdges,
+				[&](const FAssetReferenceEdge& Edge) { return Edge.SourcePackage == Path; });
+		}
+		Prepared.bReferenceIndexComplete = Prepared.ReferenceErrors.empty()
+			&& Prepared.ReferenceFingerprints.size() == Prepared.Assets.size();
+		return Registry.PublishPreparedState(ExpectedRevision, std::move(Prepared));
 	}
 
 	auto FAssetMutationCoordinator::RestoreAssetDeletionRegistryProjection(
 		const FAssetDeletionTransaction& Transaction) -> FAssetResult
 	{
 		const auto& Token = *Transaction.State;
+		const uint64 ExpectedRevision = GetAssetCatalogRevision();
+		FAssetPublicationState Prepared = Registry.CapturePreparedState();
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
 		{
 			const FAssetPath& Path = Entry.RegistryEntry.PackagePath;
-			if (Registry.FindAssetExactPointer(Path) || ResidentPackages.contains(Path))
+			if (Prepared.Assets.contains(Path) || ResidentPackages.contains(Path))
 				return Error(EAssetError::AlreadyExists, std::format(
 					"Asset {} already exists and cannot be restored.",
 					Path.ToString()));
@@ -621,8 +632,27 @@ namespace Durin::Asset
 					Entry.RegistryEntry.PhysicalPath));
 		}
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
-			Registry.AddOrUpdate(Entry.RegistryEntry);
-		return {};
+		{
+			FAssetPackageInspection Inspection;
+			FAssetResult Result = InspectAssetPackage(
+				Entry.RegistryEntry.PhysicalPath, Inspection);
+			std::vector<FAssetReferenceEdge> References;
+			if (Result) Result = ExtractAssetReferences(
+				Entry.RegistryEntry.PackagePath, Inspection, References);
+			if (!Result) return Result;
+			Prepared.Assets.emplace(
+				Entry.RegistryEntry.PackagePath, Entry.RegistryEntry);
+			Prepared.ReferenceEdges.insert(Prepared.ReferenceEdges.end(),
+				std::make_move_iterator(References.begin()),
+				std::make_move_iterator(References.end()));
+			Prepared.ReferenceFingerprints.insert_or_assign(
+				Entry.RegistryEntry.PackagePath, Inspection.Fingerprint);
+		}
+		std::ranges::sort(Prepared.ReferenceEdges, &Private::AssetReferenceLess);
+		Prepared.ReferenceErrors.clear();
+		Prepared.bReferenceIndexComplete =
+			Prepared.ReferenceFingerprints.size() == Prepared.Assets.size();
+		return Registry.PublishPreparedState(ExpectedRevision, std::move(Prepared));
 	}
 
 	auto FAssetMutationCoordinator::DeleteAssetForTesting(const FAssetPath& Path)
@@ -652,7 +682,7 @@ namespace Durin::Asset
 			if (!Result) return Result;
 		}
 
-		const FAssetData* Data = Registry.FindAssetExactPointer(Path);
+		const FAssetCatalogEntry Data = FindAssetExact(Path);
 		if (!Data)
 			return Error(EAssetError::NotFound, std::format(
 				"Asset {} was not found.", Path.ToString()));
@@ -666,7 +696,8 @@ namespace Durin::Asset
 				Files.push_back(Normalized);
 		}
 
-		const auto RegistryBackup = Registry.Assets;
+		const uint64 ExpectedRevision = GetAssetCatalogRevision();
+		FAssetPublicationState Prepared = Registry.CapturePreparedState();
 		struct FStagedDeleteFile
 		{
 			std::filesystem::path Original;
@@ -687,7 +718,6 @@ namespace Durin::Asset
 						std::filesystem::copy_options::overwrite_existing, Ec);
 				std::filesystem::remove(It->RecoveryCopy, Ec);
 			}
-			Registry.Assets = RegistryBackup;
 		};
 
 		for (const std::filesystem::path& File : Files)
@@ -722,7 +752,6 @@ namespace Durin::Asset
 			StagedFiles.push_back({File, Staged, RecoveryCopy});
 		}
 
-		Registry.Remove(Path);
 		for (const FStagedDeleteFile& File : StagedFiles)
 		{
 			std::error_code Ec;
@@ -732,6 +761,18 @@ namespace Durin::Asset
 				return Error(EAssetError::IoError, std::format(
 					"Failed to delete {}.", File.Original.generic_string()));
 			}
+		}
+		Prepared.Assets.erase(Path);
+		Prepared.ReferenceFingerprints.erase(Path);
+		std::erase_if(Prepared.ReferenceEdges,
+			[&](const FAssetReferenceEdge& Edge) { return Edge.SourcePackage == Path; });
+		Prepared.bReferenceIndexComplete = Prepared.ReferenceErrors.empty()
+			&& Prepared.ReferenceFingerprints.size() == Prepared.Assets.size();
+		if (FAssetResult PublishResult = Registry.PublishPreparedState(
+			ExpectedRevision, std::move(Prepared)); !PublishResult)
+		{
+			Rollback();
+			return PublishResult;
 		}
 		for (const FStagedDeleteFile& File : StagedFiles)
 		{

@@ -176,7 +176,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 				.Dependencies = {"/Engine/"}}}};
 		Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
-		ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));
 		std::string Error;
 		Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
@@ -347,7 +347,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 				.Dependencies = {"/Engine/"}}}};
 		Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
-		ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));
 		std::vector<Durin::DSkeletalMesh*> RuntimeMeshes;
 		RuntimeMeshes.reserve(MeshPaths.size());

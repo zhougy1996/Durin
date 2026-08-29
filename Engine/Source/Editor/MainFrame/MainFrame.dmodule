@@ -4,6 +4,7 @@
     "PCH": "SharedPCH_MonaEditor",
     "PrivateDependencies": [
 		"AssetTools",
+		"AssetRegistry",
         "Core",
         "RHI",
 		"RenderCore",

@@ -174,7 +174,7 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	const Durin::Asset::FAssetCatalogRefreshResult Refresh =
-		Durin::Asset::RefreshAssetCatalog(
+		Durin::Asset::RefreshAssetRegistry(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation);
 	ASSERT_TRUE(Refresh) << (Refresh.Errors.empty()
 		? "Asset catalog refresh failed without a diagnostic."
@@ -260,7 +260,7 @@ TEST(FDefaultMaterialServiceTests, MissingEngineContentSelectsErrorTerminal)
 			.bContentWritable = false}};
 	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
-	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	EXPECT_FALSE(Durin::InitializeDefaultMaterialService());
 	EXPECT_FALSE(Durin::GetDefaultMaterialRenderProxy());
@@ -280,7 +280,7 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 {
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
-	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	Durin::FAssetPath Path;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
@@ -325,7 +325,7 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	Durin::PathUtilities::FScopedMountRegistryFixture CookMounts(
 		CookMountDefinitions);
 	ASSERT_TRUE(CookMounts.IsValid()) << CookMounts.GetError();
-	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	Durin::DMaterial* Cooked = nullptr;
 	Result = Durin::Asset::LoadAsset(Path, Cooked);
@@ -342,7 +342,7 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	Durin::Asset::ShutdownAssetManager();
 	Durin::CollectGarbage();
 	ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
-	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog(
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 }
 

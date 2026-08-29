@@ -1,6 +1,6 @@
 #include "AssetRuntimeStateInternal.h"
 #include "AssetDeletionInternal.h"
-#include "AssetCatalogPersistenceInternal.h"
+#include "AssetRegistry/RegistryCache.h"
 #include "AssetMutationJournalInternal.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetRelocationExtensionsInternal.h"
@@ -945,10 +945,10 @@ namespace Durin::Asset
 		}
 
 		auto ValidateSaveVersion(
-			const FAssetCatalogStore& Registry,
+			const FAssetPublicationCoordinator& Registry,
 			const FAssetPath& Path) -> FAssetResult
 		{
-			const FAssetCatalogEntry Existing = Registry.FindAssetExact(Path);
+			const FAssetCatalogEntry Existing = Durin::Asset::FindAssetExact(Path);
 			if (!Existing || Existing->FormatVersion == OrdinaryAssetPackageWriterVersion)
 				return {};
 			return Error(
@@ -1003,62 +1003,6 @@ namespace Durin::Asset
 				SourceVersion);
 		}
 
-	}
-
-	auto ReadAssetPackageHeader(std::string_view PhysicalPath, FAssetPackageHeader& OutHeader) -> FAssetResult
-	{
-		OutHeader = {};
-		FFileByteReader Reader(PhysicalPath);
-		if (!Reader.IsOpen())
-			return Error(EAssetError::IoError,
-				std::format("Failed to open asset package {}.", PhysicalPath));
-		if (Reader.FileSize > Private::DastV6::MaximumFileBytes)
-			return Error(EAssetError::CorruptFile,
-				"Asset package exceeds the supported byte bound.");
-		uint64 ReadSize = std::min<uint64>(
-			Reader.FileSize, BinaryEnvelopePreambleBytes);
-		std::vector<std::byte> Bytes(static_cast<size_t>(ReadSize));
-		if (ReadSize != 0)
-		{
-			Reader.Stream.read(
-				reinterpret_cast<char*>(Bytes.data()),
-				static_cast<std::streamsize>(ReadSize));
-			if (!Reader.Stream)
-				return Error(EAssetError::IoError,
-					std::format("Failed to read asset package {}.", PhysicalPath));
-		}
-		uint32 Magic = 0;
-		if (Bytes.size() >= sizeof(Magic))
-			std::memcpy(&Magic, Bytes.data(), sizeof(Magic));
-		constexpr uint32 DurfMagic = 0x46525544;
-		if (Magic == DurfMagic && Bytes.size() >= BinaryEnvelopePreambleBytes)
-		{
-			uint64 DeclaredHeaderBytes = 0;
-			if (!ReadLittleEndianAt(Bytes, 32, DeclaredHeaderBytes)
-				|| DeclaredHeaderBytes < BinaryEnvelopePreambleBytes
-				|| DeclaredHeaderBytes > Private::DastV6::MaximumHeaderBytes
-				|| DeclaredHeaderBytes > Reader.FileSize)
-				return Error(EAssetError::CorruptFile,
-					"Asset package declares an invalid front-matter extent.");
-			if (DeclaredHeaderBytes > Bytes.size())
-			{
-				const size_t PreviousSize = Bytes.size();
-				Bytes.resize(static_cast<size_t>(DeclaredHeaderBytes));
-				Reader.Stream.read(reinterpret_cast<char*>(Bytes.data() + PreviousSize),
-					static_cast<std::streamsize>(Bytes.size() - PreviousSize));
-				if (!Reader.Stream)
-					return Error(EAssetError::IoError,
-						std::format("Failed to read asset package {}.", PhysicalPath));
-			}
-			ReadSize = DeclaredHeaderBytes;
-		}
-		const Private::FAssetPackageCodec* Codec = nullptr;
-		if (FAssetResult Result = Private::ResolveAssetPackageReader(
-				Bytes, Codec, nullptr, Reader.FileSize); !Result)
-			return Result;
-		FAssetResult Result = Codec->ReadHeader(Bytes, Reader.FileSize, OutHeader);
-		if (Result) OutHeader.FileBytesRead = ReadSize;
-		return Result;
 	}
 
 	auto ValidateAssetPackageBytes(std::span<const std::byte> Bytes) -> FAssetResult
@@ -1355,7 +1299,7 @@ namespace Durin::Asset
 
 		for (FStagedPackage& Staged : StagedPackages)
 		{
-			Registry.AddOrUpdate(FAssetData{
+			Registry.PublishAssetMetadata(FAssetData{
 				.PackagePath = Staged.Path,
 				.PhysicalPath = Staged.Destination.generic_string(),
 				.AssetClassName = Staged.File.AssetClassName,
@@ -1392,7 +1336,7 @@ namespace Durin::Asset
 	{
 		if (!Path.IsValid())
 			return Error(EAssetError::InvalidPath, "The asset admission path is invalid.");
-		if (Registry.FindAssetExact(Path) || FindResidentPackage(Path))
+		if (Durin::Asset::FindAssetExact(Path) || FindResidentPackage(Path))
 			return Error(EAssetError::AlreadyExists,
 				"The asset admission path is already occupied.");
 		const std::string PhysicalPath = GetPhysicalPath(Path);
@@ -1419,7 +1363,7 @@ namespace Durin::Asset
 		if (ErrorCode)
 			return Error(EAssetError::IoError,
 				"The asset package size could not be read for admission.");
-		Registry.AddOrUpdate(FAssetData{
+		Registry.PublishAssetMetadata(FAssetData{
 			.PackagePath = Path,
 			.PhysicalPath = PhysicalPath,
 			.AssetClassName = Header.AssetClassName,
@@ -1624,7 +1568,7 @@ namespace Durin::Asset
 		Result = Private::ExtractAssetReferencesForCook(
 			Inspection, References);
 		if (!Result) return Result;
-		const FAssetCatalogStore& Registry = GetAssetCatalogStore();
+		const FAssetPublicationCoordinator& Registry = GetAssetPublicationCoordinator();
 		std::vector<FAssetRedirectorFixupMapping> Mappings;
 		auto ResolveReference = [&](const FAssetPath& Path,
 			std::string_view ExpectedClassName, std::string_view Route) -> FAssetResult {
@@ -1637,7 +1581,7 @@ namespace Durin::Asset
 						"CookCanonicalizationUnknownExpectedClass: {} expects unavailable class {}.",
 						Route, ExpectedClassName));
 			}
-			const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(
+			const FAssetPathResolveResult Resolution = Durin::Asset::ResolveAssetPath(
 				Path, {.ExpectedClass = ExpectedClass});
 			if (!Resolution)
 			{
@@ -1769,7 +1713,7 @@ namespace Durin::Asset
 		}
 		Package->ClearDirty();
 		const auto LastWriteTime = std::filesystem::last_write_time(Destination);
-		Registry.AddOrUpdate(FAssetData{
+		Registry.PublishAssetMetadata(FAssetData{
 			.PackagePath = Path,
 			.PhysicalPath = Destination.generic_string(),
 			.AssetClassName = File.AssetClassName,

@@ -1,6 +1,6 @@
 #include "Panels/ConsolePanel.h"
 
-#include "Asset/Catalog.h"
+#include "AssetRegistry/Catalog.h"
 #include "AssetTools/IAssetTools.h"
 #include "Editor/EditorEngine.h"
 

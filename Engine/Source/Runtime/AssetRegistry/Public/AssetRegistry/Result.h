@@ -4,7 +4,7 @@
 
 namespace Durin::Asset
 {
-	// Classifies failures returned by asset storage and catalog operations.
+	// Classifies failures returned by asset storage and registry operations.
 	enum class EAssetError : uint8
 	{
 		None,

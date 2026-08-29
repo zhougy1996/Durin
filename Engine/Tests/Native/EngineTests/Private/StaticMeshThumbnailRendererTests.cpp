@@ -141,7 +141,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 	InitializeDObjectSystem();
 	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry;
 	Durin::PathUtilities::InitDefaultMountPoints();
-	ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	std::string Error;
 

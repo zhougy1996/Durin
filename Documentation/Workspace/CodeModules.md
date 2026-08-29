@@ -24,7 +24,8 @@ direction.
 | `Physics` | World-independent physics scene body storage and synchronous query orchestration | [source](../../Engine/Source/Runtime/Physics) |
 | `CoreDObject` | Managed objects, reflection, properties, garbage collection, and object serialization foundations | [source](../../Engine/Source/Runtime/CoreDObject) |
 | `ApplicationCore` | Native application, window, input-message, GLFW, and file-dialog integration | [source](../../Engine/Source/Runtime/ApplicationCore) |
-| `Engine` | Asset registry, packages, serialization, loading, cooking, and mutation; plus worlds, actors, components, levels, runtime asset types, asset compilation, input, and render-facing engine objects | [source](../../Engine/Source/Runtime/Engine) |
+| `AssetRegistry` | Mounted package discovery, construct-free DAST inspection, immutable catalog/reference snapshots and queries, revisions, and rebuildable registry/reference caches | [source](../../Engine/Source/Runtime/AssetRegistry) |
+| `Engine` | Asset package construction, residency, loading, serialization and writing, cooking, and mutation; plus worlds, actors, components, levels, runtime asset types, asset compilation, input, and render-facing engine objects | [source](../../Engine/Source/Runtime/Engine) |
 | `RHI` | Backend-neutral GPU resources, command lists, contexts, feature levels, shader parameters, and RHI-thread contracts | [source](../../Engine/Source/Runtime/RHI) |
 | `VulkanRHI` | Vulkan instance/device selection, queues, resources, pipelines, descriptors, swapchains, and backend diagnostics | [source](../../Engine/Source/Runtime/VulkanRHI) |
 | `RenderCore` | Rendering thread, render resources, shaders, vertex factories, scene views, and renderer-module interfaces | [source](../../Engine/Source/Runtime/RenderCore) |
@@ -73,7 +74,8 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | Task language | Start with | Expand only when needed |
 | --- | --- | --- |
 | generic DDC bucket/key get, put, bounded trim, Build policy, or recipe orchestration | `DerivedDataCache` | Recipe modules only for typed inputs, execution, and validation |
-| asset package, registry, redirector, cook | `Engine` | `CoreDObject` for object identity; editor modules for UI |
+| asset catalog, registry scan/cache, dependency or referencer query | `AssetRegistry` | `Engine` only for loading, mutation, package writing, or Cook |
+| asset package, redirector, loading, mutation, cook | `Engine` | `AssetRegistry` for persistent metadata; `CoreDObject` for object identity; editor modules for UI |
 | actor, component, level, world, runtime asset type | `Engine` | `CoreDObject` or rendering modules at their owned boundary |
 | shader, render resource, vertex factory, scene view | `RenderCore` | `RHI` for GPU abstraction; `Renderer` for frame use |
 | render pass, visibility, draw preparation, renderer scene | `Renderer` | `RenderCore`, `Engine`, then `RHI` |
@@ -96,7 +98,7 @@ public surface.
 After selecting modules, prefer targeted symbol searches such as:
 
 ```powershell
-rg -n "FAssetRegistry|ContentBrowser" Engine/Source/Runtime/Engine Engine/Source/Editor/ContentBrowser
+rg -n "FAssetRegistry|ContentBrowser" Engine/Source/Runtime/AssetRegistry Engine/Source/Runtime/Engine Engine/Source/Editor/ContentBrowser
 ```
 
 Do not read every module descriptor or scan every source root merely to confirm

@@ -1,7 +1,7 @@
 #include "AssetTools/AssetToolsModule.h"
 
 #include "Asset/AssetOperations.h"
-#include "Asset/Catalog.h"
+#include "AssetRegistry/Catalog.h"
 #include "Asset/Load.h"
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"

@@ -2,6 +2,7 @@
 
 #include "Asset/Load.h"
 #include "Asset/Testing.h"
+#include "AssetRegistry/Scan.h"
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
@@ -103,7 +104,7 @@ namespace
 			.bContentWritable = true}};
 		auto Fixture = std::make_unique<
 			Durin::PathUtilities::FScopedMountRegistryFixture>(Mounts);
-		EXPECT_TRUE(Durin::Asset::RefreshAssetCatalog(
+		EXPECT_TRUE(Durin::Asset::RefreshAssetRegistry(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));
 		Scenario.OldPath = MakePath("/DefaultLevelTests/Levels/Old");
 		Scenario.NewPath = MakePath("/DefaultLevelTests/Levels/New");

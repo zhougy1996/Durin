@@ -143,19 +143,24 @@ namespace Durin::Asset
 				"An asset relocation batch must not be empty.");
 
 		auto State = std::make_shared<FAssetRelocationState>();
-		State->ExpectedRegistryRevision = Registry.GetRevision();
+		State->ExpectedRegistryRevision = GetAssetCatalogRevision();
+		const FAssetPublicationState Prepared = Registry.CapturePreparedState();
+		const auto FindPrepared = [&](const FAssetPath& Path) -> const FAssetData* {
+			const auto It = Prepared.Assets.find(Path);
+			return It == Prepared.Assets.end() ? nullptr : &It->second;
+		};
 		State->Mappings.assign(Mappings.begin(), Mappings.end());
 		std::ranges::sort(State->Mappings,
 			[](const FAssetRelocationMapping& A,
 				const FAssetRelocationMapping& B) {
 				return A.SourcePath.GetView() < B.SourcePath.GetView();
 			});
-		State->PreAssets = Registry.Assets;
+		State->PreAssets = Prepared.Assets;
 		State->PostAssets = State->PreAssets;
 		State->ExpectedAssets = State->PreAssets;
-		State->PreReferenceEdges = Registry.ReferenceIndex.Edges;
+		State->PreReferenceEdges = Prepared.ReferenceEdges;
 		State->PostReferenceEdges = State->PreReferenceEdges;
-		State->PreReferenceFingerprints = Registry.ReferenceIndex.SourceFingerprints;
+		State->PreReferenceFingerprints = Prepared.ReferenceFingerprints;
 		State->PostReferenceFingerprints = State->PreReferenceFingerprints;
 		State->Journal.OperationId = MakeRelocationOperationId();
 		const std::string RecoveryBase = FPaths::ProjectDir().empty()
@@ -283,8 +288,7 @@ namespace Durin::Asset
 
 		for (const FAssetRelocationMapping& Mapping : State->Mappings)
 		{
-			const FAssetData* SourceData =
-				Registry.FindAssetExactPointer(Mapping.SourcePath);
+			const FAssetData* SourceData = FindPrepared(Mapping.SourcePath);
 			if (!SourceData)
 				return Error(EAssetError::NotFound, std::format(
 					"Asset {} was not found.", Mapping.SourcePath.ToString()));
@@ -307,8 +311,7 @@ namespace Durin::Asset
 			}
 
 			bool bReclaimDestinationRedirector = false;
-			if (const FAssetData* DestinationData =
-				Registry.FindAssetExactPointer(Mapping.DestinationPath))
+			if (const FAssetData* DestinationData = FindPrepared(Mapping.DestinationPath))
 			{
 				if (DestinationData->EntryKind
 						!= EAssetRegistryEntryKind::Redirector)
@@ -316,7 +319,7 @@ namespace Durin::Asset
 						"Asset {} already exists.",
 						Mapping.DestinationPath.ToString()));
 				const FAssetPathResolveResult DestinationResolution =
-					Registry.ResolveAssetPath(Mapping.DestinationPath);
+					Durin::Asset::ResolveAssetPath(Mapping.DestinationPath);
 				if (!DestinationResolution
 					|| DestinationResolution.FinalPath != Mapping.SourcePath)
 					return Error(EAssetError::AlreadyExists, std::format(
@@ -428,7 +431,7 @@ namespace Durin::Asset
 					|| AliasPath == Mapping.DestinationPath)
 					continue;
 				const FAssetPathResolveResult AliasResolution =
-					Registry.ResolveAssetPath(AliasPath);
+					Durin::Asset::ResolveAssetPath(AliasPath);
 				if (!AliasResolution
 					|| AliasResolution.FinalPath != Mapping.SourcePath)
 					continue;
@@ -573,7 +576,7 @@ namespace Durin::Asset
 		TransactionState->LastResult.State =
 			EAssetMutationTransactionState::Prepared;
 		TransactionState->LastResult.RegistryRevision =
-			Registry.GetRevision();
+			GetAssetCatalogRevision();
 		OutTransaction.State = std::move(TransactionState);
 		return {};
 	}
@@ -594,8 +597,8 @@ namespace Durin::Asset
 			&& State.Journal.State != EAssetMutationState::Restored)
 			return Error(EAssetError::StaleData,
 				"The relocation token is not in a revalidatable state.");
-		if (Registry.GetRevision() != State.ExpectedRegistryRevision
-			|| Registry.Assets != State.ExpectedAssets)
+		if (GetAssetCatalogRevision() != State.ExpectedRegistryRevision
+			|| CaptureAssetCatalogSnapshot().Assets != State.ExpectedAssets)
 			return Error(EAssetError::StaleData,
 				"The asset registry changed after relocation analysis.");
 		const bool bExpectPost =
@@ -856,18 +859,17 @@ namespace Durin::Asset
 			State.PostReferenceEdges, State.PostReferenceFingerprints);
 		if (!Result) return Compensate(std::move(Result));
 
-		Registry.Assets = State.PostAssets;
-		Registry.ReferenceIndex.Edges = State.PostReferenceEdges;
-		Registry.ReferenceIndex.SourceFingerprints = State.PostReferenceFingerprints;
-		Registry.ReferenceIndex.bComplete = Registry.ReferenceIndex.Errors.empty()
-			&& Registry.ReferenceIndex.SourceFingerprints.size()
-				== Registry.Assets.size();
-		Registry.RebuildRedirectorIndex();
-		Registry.bPersistentSnapshotDirty = true;
-		Registry.ReferenceIndex.bSnapshotDirty = true;
-		++Registry.Revision;
-		State.ExpectedRegistryRevision = Registry.Revision;
-		State.ExpectedAssets = Registry.Assets;
+		const FAssetPublicationState Current = Registry.CapturePreparedState();
+		Result = Registry.PublishPreparedState(State.ExpectedRegistryRevision, {
+			.Assets = State.PostAssets,
+			.ReferenceEdges = State.PostReferenceEdges,
+			.ReferenceFingerprints = State.PostReferenceFingerprints,
+			.ReferenceErrors = Current.ReferenceErrors,
+			.bReferenceIndexComplete = Current.ReferenceErrors.empty()
+				&& State.PostReferenceFingerprints.size() == State.PostAssets.size()});
+		if (!Result) return Compensate(std::move(Result));
+		State.ExpectedRegistryRevision = GetAssetCatalogRevision();
+		State.ExpectedAssets = CaptureAssetCatalogSnapshot().Assets;
 		State.Journal.State = EAssetMutationState::Committed;
 		WriteMutationJournalState(State.Journal);
 		Private::NotifyAssetMoveObservers(State.Mappings);
@@ -992,18 +994,17 @@ namespace Durin::Asset
 				ProjectionResult.Message));
 		}
 
-		Registry.Assets = State.PreAssets;
-		Registry.ReferenceIndex.Edges = State.PreReferenceEdges;
-		Registry.ReferenceIndex.SourceFingerprints = State.PreReferenceFingerprints;
-		Registry.ReferenceIndex.bComplete = Registry.ReferenceIndex.Errors.empty()
-			&& Registry.ReferenceIndex.SourceFingerprints.size()
-				== Registry.Assets.size();
-		Registry.RebuildRedirectorIndex();
-		Registry.bPersistentSnapshotDirty = true;
-		Registry.ReferenceIndex.bSnapshotDirty = true;
-		++Registry.Revision;
-		State.ExpectedRegistryRevision = Registry.Revision;
-		State.ExpectedAssets = Registry.Assets;
+		const FAssetPublicationState Current = Registry.CapturePreparedState();
+		Result = Registry.PublishPreparedState(State.ExpectedRegistryRevision, {
+			.Assets = State.PreAssets,
+			.ReferenceEdges = State.PreReferenceEdges,
+			.ReferenceFingerprints = State.PreReferenceFingerprints,
+			.ReferenceErrors = Current.ReferenceErrors,
+			.bReferenceIndexComplete = Current.ReferenceErrors.empty()
+				&& State.PreReferenceFingerprints.size() == State.PreAssets.size()});
+		if (!Result) return Result;
+		State.ExpectedRegistryRevision = GetAssetCatalogRevision();
+		State.ExpectedAssets = CaptureAssetCatalogSnapshot().Assets;
 		State.Journal.State = EAssetMutationState::Restored;
 		WriteMutationJournalState(State.Journal);
 		std::vector<FAssetRelocationMapping> Inverse;

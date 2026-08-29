@@ -2,18 +2,20 @@
 
 Summary: Define asset identity, package serialization, runtime residency, loading, and compatibility inspection.
 
-Modules: Engine, CoreDObject
+Modules: AssetRegistry, Engine, CoreDObject
 
-Last reviewed: 2026-08-27
+Last reviewed: 2026-08-29
 
 Durin object assets are stored as versioned `.dasset` packages. A package has one public main asset and may contain any number of `DObject` instances arranged through the ordinary Outer hierarchy. Outer defines structural containment and object paths, not a GC strong reference.
 
 ## Public Capability Boundary
 
-Engine exposes capability-named entry points rather than one complete public
-surface. `Asset.h` is the ordinary runtime entry point for catalog lookup,
-redirect resolution, package residency, asset loading, and cooked-payload
-reading. Callers include `Asset/AssetOperations.h`, `Asset/Mutation.h`, or
+Persistent metadata consumers include `AssetRegistry/Catalog.h`,
+`AssetRegistry/References.h`, and `AssetRegistry/Scan.h` directly. Engine
+exposes capability-named entry points rather than one complete public surface.
+`Asset.h` is the ordinary runtime entry point for redirect resolution, package
+residency, asset loading, and cooked-payload reading. Callers include
+`Asset/AssetOperations.h`, `Asset/Mutation.h`, or
 `Asset/PackageSerialization.h` for the exact create/save, asset-mutation, or
 serialization capability. `AssetCook.h` adds Cook
 reachability, cooked-container construction, package serialization for Cook, and
@@ -23,11 +25,14 @@ canonical-resave workflows.
 Public Engine asset headers include narrow leaves such as
 `Asset/CookedAsset.h` and `Asset/Cook.h` when their type layout or method
 signatures require those declarations. They do not include an
-umbrella solely to obtain one value type. Callers select `PackageTypes.h`,
-`PackageInspection.h`, or `PackageSerialization.h` by capability; there is no
-package compatibility aggregate.
-The V4 reader, writer, archive adapter, and version policy remain Engine
-implementation details.
+umbrella solely to obtain one value type. Callers select
+`AssetRegistry/PackageTypes.h`, `Asset/PackageInspection.h`, or
+`Asset/PackageSerialization.h` by capability; there is no package compatibility
+aggregate.
+The legacy V4 reader, writer, archive adapter, and version policy remain Engine
+implementation details. The canonical construct-free object-stream reader and
+writer plus read-only DAST v6 inspection belong to AssetRegistry; Engine owns
+live object application, mutation, package writing, and legacy compatibility.
 
 ## Paths And Mounts
 
@@ -159,8 +164,9 @@ payload bytes or carry a codec tag. A cooked `.dbulk` is DURF/DBLK v2; the
 
 ### DAST v6 Envelope Route
 
-Engine implements DAST v6 under `DURF` v1 as its capability-complete
-production codec. Its 32-byte format header
+AssetRegistry implements the construct-free read-only DAST v6 route under
+`DURF` v1, while Engine supplies the live-load, mutation, and ordinary-write
+capabilities for the same production format. Its 32-byte format header
 records package kind, zero flags, absolute directory offset, section count,
 48-byte entry size, and zero reserved word. The canonical required sections are
 Public Summary, Import, Name, Type, Schema, Export, Value, and Payload
@@ -190,8 +196,9 @@ available. V6 is the supported-reader route and ordinary writer.
 
 ### DAST v6 Ordinary Route
 
-Engine registers one reader-, writer-, and mutation-complete DAST v6 codec
-and selects it for ordinary single-package and bundle saves. Existing file,
+Engine selects the writer- and mutation-complete DAST v6 route for ordinary
+single-package and bundle saves; AssetRegistry selects its reader for discovery,
+validation, and reference extraction. Existing file,
 asset type, payload size, or environment values never change that policy.
 Legacy DAST prefixes have no production reader, writer, migration, or rollback
 route. External payload authority is the required front-directory Payload
@@ -200,9 +207,11 @@ Directory; v6 has no EOF trailer or footer.
 ### DAST Logical Object-Stream Wire Contract
 
 The logical object stream is an internal canonical grammar carried by DAST v6
-sections. Engine exposes production-owned low-level writer and reader
-boundaries, while package policy routes header, inspection, compatibility,
-reference, registry/cache, and live-load operations only through v6. Its
+sections. AssetRegistry exposes the canonical construct-free low-level reader
+and writer boundaries used by inspection and extraction, while Engine applies
+validated streams to live objects and owns package publication. Package policy
+routes header, inspection, compatibility, reference, registry/cache, and
+live-load operations only through v6. Its
 internal grammar version is 5 and does not identify a supported standalone
 package format.
 The layout below is frozen: later format changes must use a new version rather
@@ -713,7 +722,8 @@ their parsed `FAssetPath` caches from authored path text.
 
 Complete live save/load and byte-only tooling deliberately meet at the DAST
 logical value grammar rather than at object construction. Engine's package
-Archives and tooling share the bounded scalar, container, struct, hard/soft
+Archives and AssetRegistry's construct-free tooling share the bounded scalar,
+container, struct, hard/soft
 reference, type-signature, native-field, and canonical Map-key rules. There is
 no second live-object serializer outside the Archive adapters.
 
@@ -745,7 +755,13 @@ of being silently omitted.
 ## Subsystem Boundary
 
 - `CoreDObject` owns `DPackage`, `FAssetPath`, object paths, qualified reflected class identities, and type-erased container access.
-- `Engine` owns `.dasset` I/O, the synchronous asset registry, package caching, dependency loading, construct-free compatibility reports, strict schema preflight, DDC storage, and cooked container/publication primitives.
+- `AssetRegistry` owns mounted `.dasset` discovery, bounded construct-free DAST
+  reading and canonical object streams, immutable catalog/reference state and
+  queries, revisions, and rebuildable registry/reference caches.
+- `Engine` owns package I/O and writing, live object construction and residency,
+  dependency loading, mutation and publication preparation, compatibility
+  orchestration, strict schema preflight, DDC storage, and cooked
+  container/publication primitives.
 - `DerivedDataCache` owns opaque cache access and the family-neutral definition,
   function, policy, value, and synchronous session contracts; it does not own
   typed asset recipes or object-aware compilation lifecycle.

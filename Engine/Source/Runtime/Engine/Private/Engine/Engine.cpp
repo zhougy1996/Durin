@@ -125,7 +125,7 @@ namespace Durin
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RegistryScan");
 			const Asset::FAssetCatalogRefreshResult Refresh =
-				Asset::RefreshAssetCatalog(
+				Asset::RefreshAssetRegistry(
 					Asset::EAssetRegistryScanMode::Incremental
 				);
 			if (!Refresh)

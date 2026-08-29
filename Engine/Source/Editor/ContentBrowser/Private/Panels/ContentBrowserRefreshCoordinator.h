@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/Result.h"
+#include "AssetRegistry/Result.h"
 
 namespace Durin::Editor::ContentBrowser::Private
 {

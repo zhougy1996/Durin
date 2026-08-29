@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Asset/Result.h"
+#include "AssetRegistry/Result.h"
 #include "Asset/EditorBulkDataStorageTypes.h"
 #include "Asset/CookedAsset.h"
 #include "DObject/Archive.h"

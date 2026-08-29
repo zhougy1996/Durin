@@ -1,7 +1,7 @@
 #include "Asset/Cook.h"
 #include "Asset/PackageSerialization.h"
 
-#include "AssetCatalogStoreInternal.h"
+#include "AssetPublicationCoordinatorInternal.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "BulkContainerInfrastructure.h"
 #include "Hash/XxHash.h"
@@ -238,10 +238,10 @@ namespace Durin::Asset
 			if (!FAssetPath::TryCreate(
 				VirtualPackagePath, RequestedPath))
 				return true;
-			const FAssetCatalogStore& Registry = GetAssetCatalogStore();
-			if (!Registry.FindAssetExact(RequestedPath)) return true;
+			const FAssetPublicationCoordinator& Registry = GetAssetPublicationCoordinator();
+			if (!Durin::Asset::FindAssetExact(RequestedPath)) return true;
 			const FAssetPathResolveResult Resolution =
-				Registry.ResolveAssetPath(RequestedPath);
+				Durin::Asset::ResolveAssetPath(RequestedPath);
 			if (!Resolution || !Resolution.FinalAssetData
 				|| Resolution.FinalAssetData->EntryKind
 					!= EAssetRegistryEntryKind::Asset)

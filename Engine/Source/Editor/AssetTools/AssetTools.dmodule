@@ -6,6 +6,7 @@
         "DurinEd"
     ],
     "PublicDependencies": [
+		"AssetRegistry",
         "Engine",
         "Core",
         "CoreDObject"

@@ -20,8 +20,6 @@ namespace Durin::Asset
 			return RuntimeConfiguration;
 		}
 
-		auto GetCatalogStore() -> FAssetCatalogStore& { return Catalog; }
-		auto GetCatalogStore() const -> const FAssetCatalogStore& { return Catalog; }
 		auto GetLoadService() -> FAssetLoadService& { return Loader; }
 		auto GetLoadService() const -> const FAssetLoadService& { return Loader; }
 		auto GetMutationCoordinator() -> FAssetMutationCoordinator& { return Mutations; }
@@ -32,7 +30,6 @@ namespace Durin::Asset
 		FAssetRuntimeConfiguration RuntimeConfiguration =
 			FAssetRuntimeConfiguration::Authored();
 		bool bAcceptingRequests = true;
-		FAssetCatalogStore Catalog;
 		FAssetResidencyStore Residency;
 		FAssetLoadService Loader;
 		FAssetMutationCoordinator Mutations;

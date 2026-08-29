@@ -2,9 +2,9 @@
 
 Summary: Define mounted package discovery, immutable catalog and reference projections, and transactional asset relocation, deletion, and path fix-up.
 
-Modules: Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
+Modules: AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
-Last reviewed: 2026-08-23
+Last reviewed: 2026-08-29
 
 Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
@@ -25,21 +25,24 @@ metadata; new or changed files use the bounded package header reader.
 
 Schema, package-format, serialization, mount-manifest, or snapshot corruption
 causes a nonfatal rebuild. Full validation bypasses fingerprint reuse and
-verifies package and redirector bodies. Successful mutation updates the private
-catalog store and publishes one new immutable snapshot. Public callers receive
+verifies package and redirector bodies. Successful mutation prepares a complete
+replacement in Engine and publishes it through AssetRegistry with an expected
+prior revision. Public callers receive
 owned `FAssetCatalogEntry` values and immutable `FAssetCatalogSnapshot` values,
 never pointers into mutable storage.
 
 The process-local catalog revision advances only when published metadata
-changes. `RefreshAssetCatalog` returns requested mode, completeness,
+changes. `RefreshAssetRegistry` returns requested mode, completeness,
 prior/resulting revisions, counters, warnings, and errors in one value. Explicit
 Content Browser refresh reconciles every registered auto-scan mount; its folder
 scope affects only presentation.
 
-Public headers remain split by responsibility: `Asset/Catalog.h` owns discovery
-values, `Asset/References.h` owns the immutable reference projection,
-`Asset/Load.h` owns runtime resolution and residency, `Asset/Mutation.h` owns
-asset-mutation transactions, and `Asset/Testing.h` owns deterministic failure seams.
+Public headers remain split by responsibility: `AssetRegistry/Catalog.h` owns
+discovery values and immutable queries, `AssetRegistry/References.h` owns the
+reference projection, `AssetRegistry/Scan.h` owns reconciliation and cache
+lifecycle, `Asset/Load.h` owns runtime resolution and residency,
+`Asset/Mutation.h` owns asset-mutation transactions, and `Asset/Testing.h` owns
+Engine's deterministic failure seams.
 Runtime and offline consumers include these capability headers directly; the
 former ambiguous root `AssetTools.h` aggregate no longer exists. The supported
 aggregate entry points are defined by
@@ -89,8 +92,11 @@ destination if persistence fails.
 
 ## Editor Orchestration Boundary
 
-Engine remains the sole owner of package identity, bytes, catalog/residency,
-graph copying, reference analysis, and opaque mutation transactions.
+AssetRegistry owns persistent package discovery, construct-free DAST inspection,
+immutable metadata and reference snapshots, their revisions, and rebuildable
+registry/reference caches. Engine owns package bytes and writing, object
+construction and residency, Cook, graph copying, publication preparation, and
+opaque mutation transactions.
 `IAssetTools` owns reusable editor acceptance, typed terminal and persistence
 results, history retention, cleanup, and one completion publication. Editor
 hosts own UI and presentation; ContentBrowser additionally owns recursive

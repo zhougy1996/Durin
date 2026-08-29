@@ -1,7 +1,7 @@
 #pragma once
 
-#include "EngineAPI.h"
-#include "Asset/Result.h"
+#include "AssetRegistryAPI.h"
+#include "AssetRegistry/Result.h"
 #include "DObject/AssetPath.h"
 
 namespace Durin
@@ -34,7 +34,7 @@ namespace Durin::Asset
 		auto operator==(const FAssetData&) const -> bool = default;
 	};
 
-	// Owns one exact catalog lookup and the revision against which it was made.
+	// Owns one exact registry lookup and the revision against which it was made.
 	struct FAssetCatalogEntry
 	{
 		uint64 Revision = 0;
@@ -49,7 +49,7 @@ namespace Durin::Asset
 		auto Get() const -> const FAssetData& { return Data.value(); }
 	};
 
-	// Owns an immutable catalog projection that remains valid across refreshes.
+	// Owns an immutable registry projection that remains valid across refreshes.
 	struct FAssetCatalogSnapshot
 	{
 		uint64 Revision = 0;
@@ -79,7 +79,7 @@ namespace Durin::Asset
 		const DClass* ExpectedClass = nullptr;
 	};
 
-	// Owns the complete bounded resolution result from one catalog revision.
+	// Owns the complete bounded resolution result from one registry revision.
 	struct FAssetPathResolveResult
 	{
 		EAssetPathResolveState State = EAssetPathResolveState::NotFound;
@@ -96,7 +96,6 @@ namespace Durin::Asset
 		explicit operator bool() const { return Succeeded(); }
 	};
 
-	// Selects whether catalog discovery may reuse its persistent snapshot.
 	enum class EAssetRegistryScanMode : uint8
 	{
 		Incremental,
@@ -126,7 +125,7 @@ namespace Durin::Asset
 		uint64 PayloadBytesRead = 0;
 	};
 
-	// Reports completeness and publication for one atomic catalog refresh.
+	// Reports completeness and publication for one atomic registry refresh.
 	struct FAssetCatalogRefreshResult
 	{
 		EAssetRegistryScanMode Mode = EAssetRegistryScanMode::Incremental;
@@ -134,6 +133,8 @@ namespace Durin::Asset
 		bool bReferenceIndexComplete = false;
 		bool bPublished = false;
 		bool bRetainedPriorRevision = false;
+		bool bCatalogCacheDirty = false;
+		bool bReferenceCacheDirty = false;
 		uint64 PriorRevision = 0;
 		uint64 ResultingRevision = 0;
 		FAssetRegistryScanStats CatalogStats;
@@ -149,14 +150,11 @@ namespace Durin::Asset
 		explicit operator bool() const { return Succeeded(); }
 	};
 
-	ENGINE_API auto FindAssetExact(
+	ASSETREGISTRY_API auto FindAssetExact(
 		const FAssetPath& Path) -> FAssetCatalogEntry;
-	ENGINE_API auto ResolveAssetPath(
+	ASSETREGISTRY_API auto ResolveAssetPath(
 		const FAssetPath& Path,
 		const FAssetPathResolveOptions& Options = {}) -> FAssetPathResolveResult;
-	ENGINE_API auto CaptureAssetCatalogSnapshot() -> FAssetCatalogSnapshot;
-	ENGINE_API auto GetAssetCatalogRevision() -> uint64;
-	ENGINE_API auto RefreshAssetCatalog(
-		EAssetRegistryScanMode Mode = EAssetRegistryScanMode::Incremental)
-		-> FAssetCatalogRefreshResult;
+	ASSETREGISTRY_API auto CaptureAssetCatalogSnapshot() -> FAssetCatalogSnapshot;
+	ASSETREGISTRY_API auto GetAssetCatalogRevision() -> uint64;
 }

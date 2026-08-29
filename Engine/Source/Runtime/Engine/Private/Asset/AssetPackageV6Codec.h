@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetPackageCodec.h"
-#include "Asset/Catalog.h"
+#include "AssetRegistry/Catalog.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Hash/XxHash.h"
 #include "Misc/Guid.h"

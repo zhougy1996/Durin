@@ -4,6 +4,7 @@
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/PackageObjectStreamReader.h"
 #include "Asset/PackageObjectStreamWriter.h"
+#include "AssetRegistry/PackageHeader.h"
 #include "Serialization/BinaryEnvelope.h"
 #include "Serialization/BinaryFormat.h"
 
@@ -241,60 +242,6 @@ namespace Durin::Asset::Private::DastV6
 			}
 			OutBytes = Writer.Take();
 			return true;
-		}
-
-		auto DecodePublicSummary(std::span<const std::byte> Bytes,
-			EAssetRegistryEntryKind EntryKind, FParsedPackage& Out, std::string* OutError) -> bool
-		{
-			FReader Reader(Bytes);
-			uint32 SummaryVersion = 0;
-			uint64 ImportCount = 0;
-			uint64 PayloadCount = 0;
-			uint64 Reserved = 0;
-			if (!Reader.Fixed(SummaryVersion) || SummaryVersion != PublicSummaryVersion
-				|| !Reader.Fixed(Out.MainExportIndex)
-				|| !Reader.Fixed(ImportCount)
-				|| !Reader.Fixed(Out.ExportCount)
-				|| !Reader.Fixed(PayloadCount)
-				|| !Reader.Fixed(Reserved) || Reserved != 0
-				|| !Reader.String(Out.AssetClass, false)
-				|| !Reader.String(Out.RedirectDestination)
-				|| !Reader.AtEnd())
-				return Fail("DAST v6 Public Summary is malformed.", OutError);
-			if (Out.MainExportIndex != 1 || Out.ExportCount == 0
-				|| Out.ExportCount > MaximumExportCount || ImportCount > MaximumImportCount
-				|| PayloadCount > MaximumPayloadCount
-				|| (EntryKind == EAssetRegistryEntryKind::Asset) != Out.RedirectDestination.empty())
-				return Fail("DAST v6 Public Summary values are invalid.", OutError);
-			Out.EntryKind = EntryKind;
-			Out.ExpectedImportCount = ImportCount;
-			Out.ExpectedPayloadCount = PayloadCount;
-			Out.Imports.reserve(static_cast<size_t>(ImportCount));
-			Out.PayloadEntries.reserve(static_cast<size_t>(PayloadCount));
-			return true;
-		}
-
-		auto DecodeImports(std::span<const std::byte> Bytes,
-			FParsedPackage& Out, std::string* OutError) -> bool
-		{
-			FReader Reader(Bytes);
-			uint32 VersionValue = 0;
-			uint32 Reserved = 0;
-			uint64 Count = 0;
-			if (!Reader.Fixed(VersionValue) || VersionValue != ImportVersion
-				|| !Reader.Fixed(Reserved) || Reserved != 0
-				|| !Reader.Fixed(Count) || Count != Out.ExpectedImportCount)
-				return Fail("DAST v6 Import header is malformed.", OutError);
-			std::string Previous;
-			for (uint64 Index = 0; Index < Count; ++Index)
-			{
-				std::string Import;
-				if (!Reader.String(Import, false) || (!Previous.empty() && !(Previous < Import)))
-					return Fail("DAST v6 Imports are invalid or noncanonical.", OutError);
-				Previous = Import;
-				Out.Imports.push_back(std::move(Import));
-			}
-			return Reader.AtEnd() || Fail("DAST v6 Import section has trailing bytes.", OutError);
 		}
 
 		auto DecodePayloadDirectory(std::span<const std::byte> Bytes,
@@ -579,108 +526,21 @@ namespace Durin::Asset::Private::DastV6
 			}
 			if (ExpectedOffset != Bytes.size() || ImportEnd != Preamble.HeaderBytes)
 				return Fail("DAST v6 sections leave gaps, trailing bytes, or invalid HeaderBytes.", OutError);
-			if (!DecodePublicSummary(Result.RequiredSections[0],
-				static_cast<EAssetRegistryEntryKind>(PackageKind), Result, OutError)
-				|| !DecodeImports(Result.RequiredSections[1], Result, OutError)
-				|| !DecodePayloadDirectory(Result.RequiredSections[7], Result, OutError))
+			Dast::FPublicSummary Summary;
+			if (!Dast::DecodePublicSummary(Result.RequiredSections[0],
+				Result.RequiredSections[1], static_cast<EAssetRegistryEntryKind>(PackageKind),
+				Summary, OutError))
 				return false;
-			OutPackage = std::move(Result);
-			if (OutError) OutError->clear();
-			return true;
-		}
-
-		auto ParseHeaderWire(
-			std::span<const std::byte> Bytes,
-			uint64 PackageSize,
-			FParsedPackage& OutPackage,
-			std::string* OutError) -> bool
-		{
-			FBinaryEnvelopePreamble Preamble;
-			FBinaryEnvelopeDiagnostic EnvelopeDiagnostic;
-			if (!ParseBinaryEnvelopePrefix(
-				Bytes, PackageSize, EnvelopeLimits, Preamble, &EnvelopeDiagnostic))
-				return Fail(std::string(EnvelopeDiagnostic.Message), OutError);
-			if (Preamble.HeaderBytes > Bytes.size())
-				return Fail("DAST v6 front matter is truncated.", OutError);
-			const std::span<const std::byte> Front = Bytes.first(
-				static_cast<size_t>(Preamble.HeaderBytes));
-			FValidatedBinaryEnvelope Envelope;
-			if (!ValidateBinaryEnvelopeHeader(
-				Front, PackageSize, EnvelopeLimits, GetRegistry(), Envelope, &EnvelopeDiagnostic))
-				return Fail(std::string(EnvelopeDiagnostic.Message), OutError);
-
-			uint32 PackageKind = 0;
-			uint32 PackageFlags = 0;
-			uint64 DirectoryOffset = 0;
-			uint32 SectionCount = 0;
-			uint32 EntryBytes = 0;
-			uint64 Reserved = 0;
-			if (!ReadAt(Front, 64, PackageKind) || PackageKind > 1
-				|| !ReadAt(Front, 68, PackageFlags) || PackageFlags != 0
-				|| !ReadAt(Front, 72, DirectoryOffset)
-				|| !ReadAt(Front, 80, SectionCount)
-				|| !ReadAt(Front, 84, EntryBytes) || EntryBytes != SectionEntryBytes
-				|| !ReadAt(Front, 88, Reserved) || Reserved != 0
-				|| SectionCount < RequiredSectionCount || SectionCount > MaximumSectionCount
-				|| DirectoryOffset != BinaryEnvelopePreambleBytes + FormatHeaderBytes)
-				return Fail("DAST v6 format header is invalid or unsupported.", OutError);
-			const uint64 DirectoryBytes = uint64(SectionCount) * SectionEntryBytes;
-			if (DirectoryOffset > Preamble.HeaderBytes
-				|| DirectoryBytes > Preamble.HeaderBytes - DirectoryOffset)
-				return Fail("DAST v6 section directory exceeds HeaderBytes.", OutError);
-
-			FParsedPackage Result;
-			Result.HeaderBytes = Preamble.HeaderBytes;
-			uint64 ExpectedOffset = DirectoryOffset + DirectoryBytes;
-			uint32 PreviousKind = 0;
-			uint64 ImportEnd = 0;
-			for (uint32 Index = 0; Index < SectionCount; ++Index)
-			{
-				const uint64 EntryOffset = DirectoryOffset + uint64(Index) * SectionEntryBytes;
-				FSectionEntry Entry;
-				uint64 EntryReserved = 0;
-				if (!ReadAt(Front, EntryOffset, Entry.Kind)
-					|| !ReadAt(Front, EntryOffset + 4, Entry.Flags)
-					|| !ReadAt(Front, EntryOffset + 8, Entry.Offset)
-					|| !ReadAt(Front, EntryOffset + 16, Entry.Size)
-					|| !ReadAt(Front, EntryOffset + 24, Entry.Hash.HashLow)
-					|| !ReadAt(Front, EntryOffset + 32, Entry.Hash.HashHigh)
-					|| !ReadAt(Front, EntryOffset + 40, EntryReserved) || EntryReserved != 0
-					|| Entry.Kind <= PreviousKind || (Entry.Flags & ~RequiredSectionFlag) != 0
-					|| Entry.Offset != ExpectedOffset || Entry.Offset > PackageSize
-					|| Entry.Size > PackageSize - Entry.Offset)
-					return Fail("DAST v6 section entry is invalid or noncanonical.", OutError);
-				if (Index < RequiredSectionCount)
-				{
-					if (Entry.Kind != Index + 1 || Entry.Flags != RequiredSectionFlag)
-						return Fail("DAST v6 required sections are missing or out of order.", OutError);
-					Result.RequiredEntries[Index] = Entry;
-					if (Index <= 1)
-					{
-						if (Entry.Offset > Front.size() || Entry.Size > Front.size() - Entry.Offset)
-							return Fail("DAST v6 header section exceeds HeaderBytes.", OutError);
-						const std::span<const std::byte> Section = Front.subspan(
-							static_cast<size_t>(Entry.Offset), static_cast<size_t>(Entry.Size));
-						if (FXxHash128::HashBuffer(Section) != Entry.Hash)
-							return Fail("DAST v6 header section hash verification failed.", OutError);
-						Result.RequiredSections[Index] = Section;
-						if (Index == 1) ImportEnd = Entry.Offset + Entry.Size;
-					}
-				}
-				else
-				{
-					if ((Entry.Flags & RequiredSectionFlag) != 0)
-						return Fail("DAST v6 contains an unknown required section.", OutError);
-					Result.bHasUnknownSkippableSections = true;
-				}
-				ExpectedOffset += Entry.Size;
-				PreviousKind = Entry.Kind;
-			}
-			if (ExpectedOffset != PackageSize || ImportEnd != Preamble.HeaderBytes)
-				return Fail("DAST v6 sections leave gaps, trailing bytes, or invalid HeaderBytes.", OutError);
-			if (!DecodePublicSummary(Result.RequiredSections[0],
-				static_cast<EAssetRegistryEntryKind>(PackageKind), Result, OutError)
-				|| !DecodeImports(Result.RequiredSections[1], Result, OutError))
+			Result.EntryKind = Summary.EntryKind;
+			Result.MainExportIndex = Summary.MainExportIndex;
+			Result.AssetClass = std::move(Summary.AssetClass);
+			Result.RedirectDestination = std::move(Summary.RedirectDestination);
+			Result.Imports = std::move(Summary.Imports);
+			Result.ExportCount = Summary.ExportCount;
+			Result.ExpectedImportCount = Result.Imports.size();
+			Result.ExpectedPayloadCount = Summary.PayloadCount;
+			Result.PayloadEntries.reserve(static_cast<size_t>(Summary.PayloadCount));
+			if (!DecodePayloadDirectory(Result.RequiredSections[7], Result, OutError))
 				return false;
 			OutPackage = std::move(Result);
 			if (OutError) OutError->clear();
@@ -729,28 +589,7 @@ namespace Durin::Asset::Private::DastV6
 		auto ReadHeader(std::span<const std::byte> Bytes, uint64 PackageSize,
 			FAssetPackageHeader& OutHeader) -> FAssetResult
 		{
-			FParsedPackage Parsed;
-			std::string ParseError;
-			if (!ParseHeaderWire(Bytes, PackageSize, Parsed, &ParseError))
-				return Error(std::move(ParseError));
-			FAssetPackageHeader Header{
-				.AssetClassName = Parsed.AssetClass,
-				.EntryKind = Parsed.EntryKind,
-				.FormatVersion = Version,
-				.ObjectCount = Parsed.ExportCount,
-				.BytesRead = Parsed.HeaderBytes};
-			if (!Parsed.RedirectDestination.empty()
-				&& !FAssetPath::TryCreate(Parsed.RedirectDestination, Header.RedirectDestination))
-				return Error("DAST v6 redirect destination path is invalid.");
-			for (const std::string& Import : Parsed.Imports)
-			{
-				FAssetPath Path;
-				if (!FAssetPath::TryCreate(Import, Path))
-					return Error("DAST v6 Import path is invalid.");
-				Header.Dependencies.push_back(std::move(Path));
-			}
-			OutHeader = std::move(Header);
-			return {};
+			return ReadAssetPackageHeaderBytes(Bytes, PackageSize, OutHeader);
 		}
 
 		auto Validate(std::span<const std::byte> Bytes) -> FAssetResult

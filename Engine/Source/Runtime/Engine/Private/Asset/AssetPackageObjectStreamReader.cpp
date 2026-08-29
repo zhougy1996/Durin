@@ -1675,91 +1675,14 @@ namespace Durin::Asset::PackageObjectStream
 		}
 	}
 
-	auto ReadHeader(std::span<const std::byte> Bytes, FValidatedHeader& OutHeader,
-		const FReaderLimits& Limits, FReaderDiagnostic* OutDiagnostic,
-		uint64 PackageSize) -> bool
-	{
-		FReaderDiagnostic Diagnostic; FValidatedHeader Result;
-		const bool Success = DecodeHeaderInner(
-			Bytes, PackageSize, Result, Limits, Diagnostic);
-		if (Success)
-		{
-			CanonicalizeSerializedClassName(Result.AssetClass);
-			OutHeader = std::move(Result);
-		}
-		if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic);
-		return Success;
-	}
-
-	auto ReencodePackage(const FDecodedPackage& Package, std::vector<std::byte>& OutBytes,
-		FReaderDiagnostic* OutDiagnostic) -> bool
-	{
-		++GReencodeCountForTesting;
-		FReaderDiagnostic Diagnostic; FPackageInput Input;
-		if (!BuildWriterInput(Package, Input, Diagnostic))
-		{
-			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic); return false;
-		}
-		std::vector<std::byte> Bytes; FWriterDiagnostic WriterDiagnostic;
-		if (!WritePackage(Input, Bytes, &WriterDiagnostic))
-		{
-			Diagnostic = {TranslateWriterFailure(WriterDiagnostic.Failure), WriterDiagnostic.LogicalPath,
-				WriterDiagnostic.Message, 0};
-			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic); return false;
-		}
-		OutBytes = std::move(Bytes);
-		if (OutDiagnostic) OutDiagnostic->Reset();
-		return true;
-	}
-
-	auto DecodePackageStructure(std::span<const std::byte> Bytes, FDecodedPackage& OutPackage,
-		const FReaderLimits& Limits, FReaderDiagnostic* OutDiagnostic) -> bool
-	{
-		FReaderDiagnostic Diagnostic; FDecodedPackage Result;
-		if (!DecodeHeaderInner(
-			Bytes, Bytes.size(), Result.Header, Limits, Diagnostic)
-			|| !DecodeTablesAndValues(Bytes, Result, Limits, Diagnostic))
-		{
-			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic); return false;
-		}
-		OutPackage = std::move(Result);
-		if (OutDiagnostic) OutDiagnostic->Reset();
-		return true;
-	}
-
-	auto DecodePackage(std::span<const std::byte> Bytes, FDecodedPackage& OutPackage,
-		const FReaderLimits& Limits, FReaderDiagnostic* OutDiagnostic) -> bool
-	{
-		FReaderDiagnostic Diagnostic;
-		FDecodedPackage Result;
-		if (!DecodePackageStructure(Bytes, Result, Limits, &Diagnostic))
-		{
-			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic); return false;
-		}
-		std::vector<std::byte> Canonical;
-		if (!ReencodePackage(Result, Canonical, &Diagnostic))
-		{
-			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic); return false;
-		}
-		if (!std::ranges::equal(Bytes, Canonical))
-		{
-			Fail(Diagnostic, EReaderFailure::NonCanonical,
-				"Decoded package does not match canonical object-stream re-emission.");
-			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic); return false;
-		}
-		OutPackage = std::move(Result);
-		if (OutDiagnostic) OutDiagnostic->Reset();
-		return true;
-	}
-
 	auto ResetAssetPackageReencodeCountForTesting() -> void
 	{
-		GReencodeCountForTesting = 0;
+		ResetReencodeCountForTesting();
 	}
 
 	auto GetAssetPackageReencodeCountForTesting() -> uint64
 	{
-		return GReencodeCountForTesting;
+		return GetReencodeCountForTesting();
 	}
 
 	FLoadedAssetPackage::~FLoadedAssetPackage() { Reset(); }
@@ -2122,67 +2045,6 @@ namespace Durin::Asset::PackageObjectStream
 			return {EAssetError::CorruptFile, Diagnostic.Message};
 		}
 		OutInspection = std::move(Inspection);
-		if (OutDiagnostic) OutDiagnostic->Reset();
-		return {};
-	}
-
-	auto ExtractReferences(std::span<const std::byte> Bytes, const FAssetPath& SourcePackage,
-		std::vector<FAssetReferenceEdge>& OutReferences, const FReaderLimits& Limits,
-		FReaderDiagnostic* OutDiagnostic) -> FAssetResult
-	{
-		FReaderDiagnostic Diagnostic; FDecodedPackage Package;
-		if (!SourcePackage.IsValid())
-		{
-			Fail(Diagnostic, EReaderFailure::InvalidValue, "Reference extraction requires a validated source package path.");
-			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
-			return {EAssetError::InvalidPath, Diagnostic.Message};
-		}
-		if (!DecodePackage(Bytes, Package, Limits, &Diagnostic))
-		{
-			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
-			return {EAssetError::CorruptFile, Diagnostic.Message};
-		}
-		std::string CanonicalizationError;
-		if (!CanonicalizeSerializedReflectionNames(Package, &CanonicalizationError))
-		{
-			Fail(Diagnostic, EReaderFailure::InvalidTable, CanonicalizationError);
-			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
-			return {EAssetError::CorruptFile, Diagnostic.Message};
-		}
-		const FAssetPackageFingerprint Fingerprint{.FileSize = Bytes.size(),
-			.ContentHash = FXxHash128::HashBuffer(Bytes), .ReaderVersion = Version};
-		std::vector<FAssetReferenceEdge> References;
-		if (Package.Header.EntryKind == EAssetRegistryEntryKind::Redirector)
-		{
-			FAssetPath Target; std::string Error;
-			if (!FAssetPath::TryCreate(Package.Header.RedirectDestination, Target, &Error))
-			{
-				Fail(Diagnostic, EReaderFailure::InvalidHeader, Error);
-				if (OutDiagnostic) *OutDiagnostic = Diagnostic;
-				return {EAssetError::InvalidPath, Diagnostic.Message};
-			}
-			References.push_back({.SourcePackage = SourcePackage, .SourceFingerprint = Fingerprint,
-				.SourceObjectId = 1, .SourceClass = Package.Header.AssetClass,
-				.Kind = EAssetReferenceKind::Redirect, .TargetPath = std::move(Target),
-				.DisplayRoute = "RedirectDestination"});
-		}
-		for (size_t ObjectIndex = 0; ObjectIndex < Package.Objects.size(); ++ObjectIndex)
-			for (const FDecodedOverride& Override : Package.ObjectValues[ObjectIndex].Overrides)
-			{
-				if (Override.Provenance == 2) continue;
-				const FDecodedSchema* Schema = SchemaAt(Package, Override.SchemaId);
-				const FDecodedField& Field = Schema->Fields[static_cast<size_t>(Override.FieldId - 1)];
-				const FDecodedType* Type = TypeAt(Package, Field.TypeId); if (!Type) continue;
-				std::vector<FAssetReferenceRouteSegment> Route;
-				if (!ExtractValueReferences(*Type, Override.Value, Package, SourcePackage, Fingerprint,
-					ObjectIndex + 1, Package.Objects[ObjectIndex].ClassName, Schema->QualifiedName,
-					Field.Name, Route, References, Diagnostic))
-				{
-					if (OutDiagnostic) *OutDiagnostic = Diagnostic;
-					return {EAssetError::CorruptFile, Diagnostic.Message};
-				}
-			}
-		OutReferences = std::move(References);
 		if (OutDiagnostic) OutDiagnostic->Reset();
 		return {};
 	}

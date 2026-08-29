@@ -152,7 +152,7 @@ namespace Durin::Asset
 		-> FAssetCanonicalResavePlan
 	{
 		FAssetCanonicalResavePlan Plan;
-		Plan.RegistryRevision = GetAssetCatalogStore().GetRevision();
+		Plan.RegistryRevision = GetAssetCatalogRevision();
 		Plan.TargetFormatVersion = AssetPackageV6FormatVersion;
 		std::vector<const FAssetPackageCompatibilityRecord*> Sorted;
 		for (const auto& Record : Records)
@@ -220,7 +220,7 @@ namespace Durin::Asset
 			Result.Diagnostic = "CanonicalResaveCancelled: planning did not complete.";
 			return Result;
 		}
-		if (Result.Plan.RegistryRevision != GetAssetCatalogStore().GetRevision())
+		if (Result.Plan.RegistryRevision != GetAssetCatalogRevision())
 		{
 			Result.Status = EAssetCanonicalResaveApplyStatus::Blocked;
 			Result.Diagnostic = "CanonicalResaveRegistryStale: registry changed after planning.";

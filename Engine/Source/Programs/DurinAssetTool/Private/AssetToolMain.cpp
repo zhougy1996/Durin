@@ -1,4 +1,5 @@
 #include "Asset/AssetOperations.h"
+#include "AssetRegistry/Scan.h"
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
@@ -651,7 +652,7 @@ int main(int ArgC, char** ArgV)
 	if (Options.Operation == EOperation::Resave && Options.bApply)
 	{
 		const Durin::Asset::FAssetCatalogRefreshResult Refresh =
-			Durin::Asset::RefreshAssetCatalog(
+			Durin::Asset::RefreshAssetRegistry(
 				Durin::Asset::EAssetRegistryScanMode::FullValidation);
 		if (!Refresh || !Refresh.bPublished)
 		{

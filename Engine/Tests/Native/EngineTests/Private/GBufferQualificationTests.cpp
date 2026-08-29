@@ -1,7 +1,7 @@
 #include "CoreGlobals.h"
 #include "DynamicRHI.h"
 #include "Asset/AssetCompilingManager.h"
-#include "Asset/Catalog.h"
+#include "AssetRegistry/Catalog.h"
 #include "EngineTestSupport.h"
 #include "Rendering/LightSceneProxy.h"
 #include "Rendering/SkeletalMeshSceneProxy.h"
@@ -90,7 +90,7 @@ namespace
 			MountRegistry = std::make_unique<
 				Durin::PathUtilities::FScopedMountRegistryFixture>();
 			ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
-			ASSERT_TRUE(Durin::Asset::RefreshAssetCatalog());
+			ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 		}
 
 		auto TearDown() -> void override

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "Asset/Catalog.h"
-#include "Asset/Result.h"
+#include "AssetRegistry/Catalog.h"
+#include "AssetRegistry/Result.h"
 #include "DObject/Archive.h"
 #include "DObject/DObjectGlobals.h"
 

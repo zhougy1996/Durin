@@ -213,19 +213,24 @@ namespace Durin::Asset
 			return Error(EAssetError::InvalidPath,
 				"Redirector Fix Up requires at least one redirector.");
 		if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete
-			&& !Registry.ReferenceIndex.IsComplete())
+			&& !CaptureAssetReferenceIndex().IsComplete())
 			return Error(EAssetError::StaleData,
 				"Redirector Fix Up cannot delete aliases because the reference index is incomplete.");
 
 		auto State = std::make_shared<FAssetRedirectorFixupState>();
+		const FAssetPublicationState Prepared = Registry.CapturePreparedState();
+		const auto FindPrepared = [&](const FAssetPath& Path) -> const FAssetData* {
+			const auto It = Prepared.Assets.find(Path);
+			return It == Prepared.Assets.end() ? nullptr : &It->second;
+		};
 		State->Mode = Mode;
-		State->ExpectedRegistryRevision = Registry.GetRevision();
-		State->ExpectedAssets = Registry.Assets;
-		State->PostAssets = Registry.Assets;
-		State->PostEdges = Registry.ReferenceIndex.Edges;
-		State->PostFingerprints = Registry.ReferenceIndex.SourceFingerprints;
-		State->PostErrors = Registry.ReferenceIndex.Errors;
-		State->bPostIndexComplete = Registry.ReferenceIndex.bComplete;
+		State->ExpectedRegistryRevision = GetAssetCatalogRevision();
+		State->ExpectedAssets = Prepared.Assets;
+		State->PostAssets = Prepared.Assets;
+		State->PostEdges = Prepared.ReferenceEdges;
+		State->PostFingerprints = Prepared.ReferenceFingerprints;
+		State->PostErrors = Prepared.ReferenceErrors;
+		State->bPostIndexComplete = Prepared.bReferenceIndexComplete;
 		State->Journal.OperationId = MakeRelocationOperationId();
 		State->Journal.OperationType = "fixup";
 		const std::string RecoveryBase = FPaths::ProjectDir().empty()
@@ -244,7 +249,7 @@ namespace Durin::Asset
 				return Error(EAssetError::InvalidPath,
 					"Redirector Fix Up contains an invalid path.");
 			if (!Closure.insert(Alias).second) continue;
-			const FAssetData* Data = Registry.FindAssetExactPointer(Alias);
+			const FAssetData* Data = FindPrepared(Alias);
 			if (!Data)
 				return Error(EAssetError::NotFound, std::format(
 					"Fix Up redirector {} is not registered.", Alias.ToString()));
@@ -258,7 +263,7 @@ namespace Durin::Asset
 				&& ResidentPackages.contains(Alias))
 				return Error(EAssetError::InUse,
 					"A loaded redirector must be unloaded before Fix Up deletion.");
-			for (FAssetPath Upstream : Registry.FindRedirectorsTo(Alias))
+			for (FAssetPath Upstream : Durin::Asset::FindRedirectorsTo(Alias))
 				Pending.push_back(std::move(Upstream));
 		}
 		State->Redirectors.assign(Closure.begin(), Closure.end());
@@ -268,7 +273,7 @@ namespace Durin::Asset
 			});
 		for (const FAssetPath& Alias : State->Redirectors)
 		{
-			const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(Alias);
+			const FAssetPathResolveResult Resolution = Durin::Asset::ResolveAssetPath(Alias);
 			if (!Resolution)
 				return Error(EAssetError::CorruptFile, std::format(
 					"Fix Up could not resolve {} (state {}).", Alias.ToString(),
@@ -281,7 +286,7 @@ namespace Durin::Asset
 		std::map<FAssetPath, uint64, decltype([](const FAssetPath& Left,
 			const FAssetPath& Right) { return Left.GetView() < Right.GetView(); })>
 			PackageRewriteCounts;
-		for (const FAssetReferenceEdge& Edge : Registry.ReferenceIndex.Edges)
+		for (const FAssetReferenceEdge& Edge : Prepared.ReferenceEdges)
 		{
 			if (!Closure.contains(Edge.TargetPath)) continue;
 			State->PackageOccurrences.push_back(Edge);
@@ -373,7 +378,7 @@ namespace Durin::Asset
 			if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::PreparePackage))
 				return Error(EAssetError::IoError,
 					"Injected Fix Up package-preparation failure.");
-			const FAssetData* Data = Registry.FindAssetExactPointer(SourcePath);
+			const FAssetData* Data = FindPrepared(SourcePath);
 			if (!Data)
 				return Error(EAssetError::StaleData,
 					"A package referencer is no longer registered.");
@@ -387,8 +392,8 @@ namespace Durin::Asset
 			std::vector<std::byte> PreBytes;
 			FAssetResult Result = LoadRelocationBytes(Data->PhysicalPath, PreBytes);
 			if (!Result) return Result;
-			const auto Fingerprint = Registry.ReferenceIndex.SourceFingerprints.find(SourcePath);
-			if (Fingerprint == Registry.ReferenceIndex.SourceFingerprints.end())
+			const auto Fingerprint = Prepared.ReferenceFingerprints.find(SourcePath);
+			if (Fingerprint == Prepared.ReferenceFingerprints.end())
 				return Error(EAssetError::StaleData,
 					"A package referencer has no complete index fingerprint.");
 			FAssetPackageFingerprint CurrentFingerprint;
@@ -514,8 +519,7 @@ namespace Durin::Asset
 				for (FAssetReferenceStorePackageRewrite& PackageRewrite :
 					StoreState.Contribution.PackageRewrites)
 				{
-					const FAssetData* Data = Registry.FindAssetExactPointer(
-						PackageRewrite.PackagePath);
+					const FAssetData* Data = FindPrepared(PackageRewrite.PackagePath);
 					if (!PackageRewrite.PackagePath.IsValid() || !Data
 						|| Data->EntryKind == EAssetRegistryEntryKind::Redirector)
 						return Error(EAssetError::StaleData,
@@ -659,7 +663,7 @@ namespace Durin::Asset
 		};
 		TransactionState->LastResult.State =
 			EAssetMutationTransactionState::Prepared;
-		TransactionState->LastResult.RegistryRevision = Registry.GetRevision();
+		TransactionState->LastResult.RegistryRevision = GetAssetCatalogRevision();
 		OutTransaction.State = std::move(TransactionState);
 		return {};
 	}
@@ -678,8 +682,8 @@ namespace Durin::Asset
 		if (State.Journal.State != EAssetMutationState::Prepared)
 			return Error(EAssetError::StaleData,
 				"The redirector Fix Up plan is no longer prepared.");
-		if (Registry.GetRevision() != State.ExpectedRegistryRevision
-			|| Registry.Assets != State.ExpectedAssets)
+		if (GetAssetCatalogRevision() != State.ExpectedRegistryRevision
+			|| CaptureAssetCatalogSnapshot().Assets != State.ExpectedAssets)
 			return Error(EAssetError::StaleData,
 				"The asset registry changed after redirector Fix Up analysis.");
 		const auto& Stores = GetAssetReferenceStoreRegistry();
@@ -954,19 +958,17 @@ namespace Durin::Asset
 			Data.LastWriteTimeTicks = FileTime::ToStableTicks(
 				Data.LastWriteTime);
 		}
-		Registry.Assets = State.PostAssets;
-		Registry.ReferenceIndex.Edges = State.PostEdges;
-		Registry.ReferenceIndex.SourceFingerprints = State.PostFingerprints;
-		Registry.ReferenceIndex.Errors = State.PostErrors;
-		Registry.ReferenceIndex.bComplete = State.Mode
-			== EAssetRedirectorFixupMode::RewriteAndDelete
-			? true : State.bPostIndexComplete;
-		Registry.ReferenceIndex.bSnapshotDirty = true;
-		Registry.RebuildRedirectorIndex();
-		Registry.bPersistentSnapshotDirty = true;
-		++Registry.Revision;
-		State.ExpectedRegistryRevision = Registry.Revision;
-		State.ExpectedAssets = Registry.Assets;
+		Result = Registry.PublishPreparedState(State.ExpectedRegistryRevision, {
+			.Assets = State.PostAssets,
+			.ReferenceEdges = State.PostEdges,
+			.ReferenceFingerprints = State.PostFingerprints,
+			.ReferenceErrors = State.PostErrors,
+			.bReferenceIndexComplete = State.Mode
+				== EAssetRedirectorFixupMode::RewriteAndDelete
+				? true : State.bPostIndexComplete});
+		if (!Result) return Compensate(std::move(Result));
+		State.ExpectedRegistryRevision = GetAssetCatalogRevision();
+		State.ExpectedAssets = CaptureAssetCatalogSnapshot().Assets;
 		State.Journal.State = EAssetMutationState::Committed;
 		WriteMutationJournalState(State.Journal);
 		return {};

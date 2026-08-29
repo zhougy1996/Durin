@@ -2,7 +2,7 @@
 
 #include "AssetSubsystemFwd.h"
 #include "Asset/Load.h"
-#include "AssetCatalogStoreInternal.h"
+#include "AssetPublicationCoordinatorInternal.h"
 
 namespace Durin::Asset
 {
@@ -65,7 +65,7 @@ namespace Durin::Asset
 	{
 	public:
 		FAssetLoadService(
-			FAssetCatalogStore& InCatalog,
+			FAssetPublicationCoordinator& InCatalog,
 			FAssetResidencyStore& InResidency,
 			FAssetRuntimeConfiguration& InRuntimeConfiguration,
 			bool& bInAcceptingRequests)
@@ -150,7 +150,7 @@ namespace Durin::Asset
 			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
 		auto IsPackageReferenced(const DPackage* Package) const -> bool;
 
-		FAssetCatalogStore& Registry;
+		FAssetPublicationCoordinator& Registry;
 		FAssetResidencyStore& ResidentPackages;
 		FAssetRuntimeConfiguration& RuntimeConfiguration;
 		bool& bAcceptingRequests;
@@ -166,7 +166,7 @@ namespace Durin::Asset
 	{
 	public:
 		FAssetMutationCoordinator(
-			FAssetCatalogStore& InCatalog,
+			FAssetPublicationCoordinator& InCatalog,
 			FAssetResidencyStore& InResidency,
 			FAssetLoadService& InLoader,
 			FAssetRuntimeConfiguration& InRuntimeConfiguration,
@@ -241,7 +241,7 @@ namespace Durin::Asset
 			return Loader.UnloadPackage(Path);
 		}
 
-		FAssetCatalogStore& Registry;
+		FAssetPublicationCoordinator& Registry;
 		FAssetResidencyStore& ResidentPackages;
 		FAssetLoadService& Loader;
 		std::unordered_set<FAssetPath>& LoadingPackages;
