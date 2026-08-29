@@ -26,6 +26,11 @@ namespace Durin::VulkanRHI
 			return Result == vk::Result::eErrorOutOfDateKHR || Result == vk::Result::eSuboptimalKHR;
 		}
 
+		auto IsTemporarilyUnavailableAcquireResult(const vk::Result Result) -> bool
+		{
+			return Result == vk::Result::eNotReady || Result == vk::Result::eTimeout;
+		}
+
 		auto ArePresentQueueOperationsEnqueued(const vk::Result Result) -> bool
 		{
 			// Presentation-engine rejection still leaves the queue operations enqueued.
@@ -295,12 +300,30 @@ namespace Durin::VulkanRHI
 		FVulkanSemaphore* CurrentSemaphore = ImageAcquiredSemaphores[NextSemaphoreIndex];
 		NextSemaphoreIndex = (NextSemaphoreIndex + 1) % ImageAcquiredSemaphores.size();
 
-		const vk::ResultValue<uint32> Result = Device.GetHandle().acquireNextImageKHR(Swapchain, UINT64_MAX, CurrentSemaphore->GetHandle(), nullptr);
+		const vk::ResultValue<uint32> Result = [&] {
+#if DURIN_VULKAN_TEST_FAILURE_INJECTION
+			if (ConsumeVulkanSwapchainAcquireTimeoutForTest())
+				return vk::ResultValue<uint32>{vk::Result::eTimeout, 0};
+#endif
+			return Device.GetHandle().acquireNextImageKHR(Swapchain,
+				GetSwapchainAcquireTimeout(PresentModePolicy),
+				CurrentSemaphore->GetHandle(), nullptr);
+		}();
 
 		if (Result.result != vk::Result::eSuccess && Result.result != vk::Result::eSuboptimalKHR)
 		{
 			CurrentImageIndex = -1;
-			if (IsRecoverableSwapchainResult(Result.result))
+			if (IsTemporarilyUnavailableAcquireResult(Result.result))
+			{
+				if (!bAcquireTimeoutReported)
+				{
+					DURIN_WARN("Vulkan swapchain image acquisition is temporarily unavailable: result={}, extent={}x{}, policy={}; skipping this viewport frame.",
+						vk::to_string(Result.result), Extent.width, Extent.height,
+						PresentModePolicyName(PresentModePolicy));
+					bAcquireTimeoutReported = true;
+				}
+			}
+			else if (IsRecoverableSwapchainResult(Result.result))
 			{
 				MarkNeedsRecreate("acquire", Result.result);
 			}
@@ -314,6 +337,12 @@ namespace Durin::VulkanRHI
 			}
 			*OutImageAcquiredSemaphore = nullptr;
 			return INDEX_NONE_U32;
+		}
+		if (bAcquireTimeoutReported)
+		{
+			DURIN_INFO("Vulkan swapchain image acquisition recovered: extent={}x{}, policy={}.",
+				Extent.width, Extent.height, PresentModePolicyName(PresentModePolicy));
+			bAcquireTimeoutReported = false;
 		}
 		if (Result.result == vk::Result::eSuboptimalKHR)
 		{

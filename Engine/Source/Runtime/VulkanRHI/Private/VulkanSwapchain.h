@@ -12,6 +12,14 @@ namespace Durin::VulkanRHI
 	inline constexpr vk::ImageUsageFlags RequiredSwapchainImageUsage =
 		vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled
 		| vk::ImageUsageFlagBits::eTransferDst;
+	inline constexpr uint64 DetachedViewportAcquireTimeoutNanoseconds = 1'000'000;
+
+	constexpr auto GetSwapchainAcquireTimeout(
+		EViewportPresentModePolicy Policy) -> uint64
+	{
+		return Policy == EViewportPresentModePolicy::ImGuiDetachedViewport
+			? DetachedViewportAcquireTimeoutNanoseconds : UINT64_MAX;
+	}
 
 	struct FVulkanSwapchainSelectionInput
 	{
@@ -100,6 +108,8 @@ namespace Durin::VulkanRHI
 		uint32 NextSemaphoreIndex{};
 
 		bool bNeedsRecreate = false;
+
+		bool bAcquireTimeoutReported = false;
 
 		std::vector<FVulkanSemaphore*> ImageAcquiredSemaphores;
 	};

@@ -259,7 +259,7 @@ namespace Durin::VulkanRHI
 		}
 		AcquiredBackBufferIndex = static_cast<int32>(
 			Swapchain->AcquireImageIndex(&AcquiredSemaphore));
-		if (AcquiredBackBufferIndex < 0)
+		if (AcquiredBackBufferIndex < 0 && Swapchain->NeedsRecreate())
 		{
 			MarkSwapchainNeedsRecreate();
 			PrepareSwapchain();

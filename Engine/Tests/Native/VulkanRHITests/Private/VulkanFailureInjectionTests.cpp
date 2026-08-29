@@ -2133,6 +2133,30 @@ namespace Durin::VulkanRHI
 		GCommandListExecutor.ExecuteSynchronousOperation(false, [DetachedVulkanViewport]() {
 			EXPECT_TRUE(DetachedVulkanViewport->HasAvailableOutput());
 		});
+		vk::SwapchainKHR DetachedSwapchain = VK_NULL_HANDLE;
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
+			ASSERT_NE(DetachedVulkanViewport->GetSwapchain(), nullptr);
+			DetachedSwapchain = DetachedVulkanViewport->GetSwapchain()->GetHandle();
+		});
+		ArmVulkanSwapchainAcquireTimeoutForTest();
+		bool bDetachedTimeoutSkippedFrame = false;
+		ENQUEUE_RENDER_COMMAND(DetachedAcquireTimeoutSkipsFrame)(
+			[DetachedViewport, &bDetachedTimeoutSkippedFrame](
+				FRHICommandListImmediate& Commands) {
+				Commands.SwitchPipeline(ERHIPipeline::Graphics);
+				Commands.BeginDrawingViewport(DetachedViewport, nullptr);
+				bDetachedTimeoutSkippedFrame =
+					!GDynamicRHI->RHIGetViewportBackBuffer(DetachedViewport);
+				Commands.EndDrawingViewport(DetachedViewport, false, false);
+			});
+		FlushRenderingCommands();
+		EXPECT_TRUE(bDetachedTimeoutSkippedFrame);
+		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
+			ASSERT_NE(DetachedVulkanViewport->GetSwapchain(), nullptr);
+			EXPECT_EQ(DetachedVulkanViewport->GetSwapchain()->GetHandle(),
+				DetachedSwapchain);
+			EXPECT_TRUE(DetachedVulkanViewport->HasAvailableOutput());
+		});
 		bool bDetachedPresentRecorded = false;
 		RenderAndPresent(DetachedViewport, bDetachedPresentRecorded);
 		EXPECT_TRUE(bDetachedPresentRecorded);

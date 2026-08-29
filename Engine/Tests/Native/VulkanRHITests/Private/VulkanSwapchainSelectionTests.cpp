@@ -63,6 +63,17 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(Configuration.PresentMode, vk::PresentModeKHR::eMailbox);
 	}
 
+	TEST(FVulkanSwapchainSelectionTests, BoundsOnlyDetachedViewportAcquisition)
+	{
+		EXPECT_EQ(GetSwapchainAcquireTimeout(
+			EViewportPresentModePolicy::MainWindow), UINT64_MAX);
+		EXPECT_EQ(GetSwapchainAcquireTimeout(
+			EViewportPresentModePolicy::ImGuiDetachedViewport),
+			DetachedViewportAcquireTimeoutNanoseconds);
+		EXPECT_GT(DetachedViewportAcquireTimeoutNanoseconds, 0u);
+		EXPECT_LT(DetachedViewportAcquireTimeoutNanoseconds, UINT64_MAX);
+	}
+
 	TEST(FVulkanSwapchainSelectionTests, UsesDeterministicCompositeAlphaFallback)
 	{
 		const std::array Fallbacks{

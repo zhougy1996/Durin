@@ -152,6 +152,7 @@ namespace Durin::VulkanRHI
 	{
 		std::array<std::atomic<bool>, static_cast<size_t>(EVulkanCreateFailurePoint::Count)>
 			GArmedVulkanCreateFailures{};
+		std::atomic<bool> GArmedVulkanSwapchainAcquireTimeout{};
 	}
 
 	auto ArmVulkanCreateFailure(EVulkanCreateFailurePoint FailurePoint) -> void
@@ -171,6 +172,18 @@ namespace Durin::VulkanRHI
 		{
 			Failure.store(false, std::memory_order_release);
 		}
+		GArmedVulkanSwapchainAcquireTimeout.store(false, std::memory_order_release);
+	}
+
+	auto ArmVulkanSwapchainAcquireTimeoutForTest() -> void
+	{
+		GArmedVulkanSwapchainAcquireTimeout.store(true, std::memory_order_release);
+	}
+
+	auto ConsumeVulkanSwapchainAcquireTimeoutForTest() -> bool
+	{
+		return GArmedVulkanSwapchainAcquireTimeout.exchange(
+			false, std::memory_order_acq_rel);
 	}
 
 	auto ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint FailurePoint) -> void

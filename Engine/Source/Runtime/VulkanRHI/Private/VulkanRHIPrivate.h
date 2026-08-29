@@ -49,6 +49,8 @@ namespace Durin::VulkanRHI
 	VULKANRHI_API auto ConsumeVulkanCreateFailure(EVulkanCreateFailurePoint FailurePoint) -> bool;
 	VULKANRHI_API auto ResetVulkanCreateFailures() -> void;
 	VULKANRHI_API auto ThrowIfVulkanNativeCreateFailureIsArmed(EVulkanCreateFailurePoint FailurePoint) -> void;
+	VULKANRHI_API auto ArmVulkanSwapchainAcquireTimeoutForTest() -> void;
+	VULKANRHI_API auto ConsumeVulkanSwapchainAcquireTimeoutForTest() -> bool;
 
 	struct FVulkanDebugMessengerTestStats
 	{
