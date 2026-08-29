@@ -198,35 +198,6 @@ namespace Durin::Editor::Material
 			return It == Program.Nodes.end() ? nullptr : &*It;
 		}
 
-		auto GetSurfaceParameterId(EMaterialSurfaceOutput Output) -> FGuid
-		{
-			switch (Output)
-			{
-			case EMaterialSurfaceOutput::BaseColor:
-				return MaterialParameters::BaseColorId;
-			case EMaterialSurfaceOutput::Normal:
-				return MaterialParameters::NormalId;
-			case EMaterialSurfaceOutput::Metallic:
-				return MaterialParameters::MetallicId;
-			case EMaterialSurfaceOutput::Roughness:
-				return MaterialParameters::RoughnessId;
-			case EMaterialSurfaceOutput::AmbientOcclusion:
-				return MaterialParameters::AmbientOcclusionId;
-			case EMaterialSurfaceOutput::Emissive:
-				return MaterialParameters::EmissiveId;
-			case EMaterialSurfaceOutput::Opacity:
-				return MaterialParameters::OpacityId;
-			case EMaterialSurfaceOutput::OpacityMask:
-				return MaterialParameters::OpacityMaskId;
-			}
-			return {};
-		}
-
-		auto GetSurfaceTextureRole(EMaterialSurfaceOutput Output) -> FGuid
-		{
-			return MaterialParameters::TextureIds[static_cast<size_t>(Output)];
-		}
-
 		auto MakeParameterValue(
 			EMaterialProgramValueType Type,
 			const FMaterialProgramLiteral& Literal) -> FMaterialParameterValue
@@ -997,7 +968,8 @@ namespace Durin::Editor::Material
 				"Only an unconnected material surface output can be promoted.");
 		if (BeforeProgram.Nodes.size() >= MaterialProgramMaxNodeCount)
 			return MakeRejected("The material graph node limit has been reached.");
-		const FGuid ParameterId = GetSurfaceParameterId(Request.Output);
+		const FGuid ParameterId = GetMaterialSurfaceParameterId(Request.Output,
+			MaterialParameters::EMaterialBuiltinParameterKind::Value);
 		FResolvedMaterialParameter BeforeResolved;
 		if (!Material.ResolveParameterValue(ParameterId, BeforeResolved))
 			return MakeRejected(
@@ -1069,7 +1041,8 @@ namespace Durin::Editor::Material
 			> MaterialProgramMaxNodeCount)
 			return MakeRejected(
 				"Adding the texture branch would exceed the material graph node limit.");
-		const FGuid TextureRole = GetSurfaceTextureRole(Request.Output);
+		const FGuid TextureRole = GetMaterialSurfaceParameterId(Request.Output,
+			MaterialParameters::EMaterialBuiltinParameterKind::Texture);
 		FMaterialGraphPresentation Presentation =
 			Material.GetMaterialGraphPresentation();
 		std::vector<FGuid> Generated;

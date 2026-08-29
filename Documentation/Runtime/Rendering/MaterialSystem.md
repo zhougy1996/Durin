@@ -66,6 +66,10 @@ Every texture role also owns UV-channel, UV-scale, UV-offset, UV-rotation, and
 packed sampler-state parameters. The sampler state preserves glTF minification,
 magnification, mip filtering, and independent U/V addressing.
 Their GUIDs are permanent because serialized overrides must survive renames.
+The built-in identities are maintained by one role-by-kind registry; named
+legacy constants and field arrays are compatibility views over that registry,
+and callers resolve surface-output identities through the shared lookup rather
+than duplicating GUID switches or parallel-array knowledge.
 Engine resolution compiles the declarations into the versioned v3 render
 layout identified by `MaterialRenderLayoutV3Id`; the layout owns compact
 uniform offsets and eight resource indices. User-authored parameter

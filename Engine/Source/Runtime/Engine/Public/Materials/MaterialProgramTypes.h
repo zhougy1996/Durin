@@ -14,6 +14,10 @@
 namespace Durin
 {
 	struct FMaterialParameterDefinition;
+	namespace MaterialParameters
+	{
+		enum class EMaterialBuiltinParameterKind : uint8;
+	}
 
 	inline constexpr uint32 CurrentMaterialProgramSchemaVersion = 2;
 	inline constexpr uint32 LegacyMaterialProgramSchemaVersion = 1;
@@ -87,6 +91,11 @@ namespace Durin
 		Opacity,
 		OpacityMask,
 	};
+
+	// Resolves the persistent built-in parameter identity owned by one surface output.
+	ENGINE_API auto GetMaterialSurfaceParameterId(
+		EMaterialSurfaceOutput Output,
+		MaterialParameters::EMaterialBuiltinParameterKind Kind) -> FGuid;
 
 	DSTRUCT()
 	struct FMaterialProgramLink

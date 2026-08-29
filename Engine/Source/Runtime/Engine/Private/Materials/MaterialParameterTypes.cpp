@@ -125,16 +125,16 @@ namespace Durin
 	{
 		using namespace MaterialParameters;
 		std::vector<FMaterialParameterDefinition> Result;
-		Result.reserve(56);
-		const std::array ConstantIds{BaseColorId, NormalId, MetallicId, RoughnessId, AmbientOcclusionId, EmissiveId, OpacityId, OpacityMaskId};
+		Result.reserve(BuiltinParameterRoleCount * BuiltinParameterKindCount);
 		const std::array ConstantNames{&BaseColorName(), &NormalName(), &MetallicName(), &RoughnessName(), &AmbientOcclusionName(), &EmissiveName(), &OpacityName(), &OpacityMaskName()};
 		const std::array TextureNames{&BaseColorTextureName(), &NormalTextureName(), &MetallicTextureName(), &RoughnessTextureName(), &AmbientOcclusionTextureName(), &EmissiveTextureName(), &OpacityTextureName(), &OpacityMaskTextureName()};
 		const std::array RoleNames{"BaseColor", "Normal", "Metallic", "Roughness", "AmbientOcclusion", "Emissive", "Opacity", "OpacityMask"};
 		const std::array DisplayNames{"Base Color", "Normal", "Metallic", "Roughness", "Ambient Occlusion", "Emissive", "Opacity", "Opacity Mask"};
 		const std::array GroupNames{"Surface/Base", "Surface/Normal", "Surface/Metallic", "Surface/Roughness", "Surface/Ambient Occlusion", "Surface/Emissive", "Surface/Opacity", "Surface/Opacity Mask"};
 		const std::array TextureUsages{ETextureUsage::Color, ETextureUsage::Normal, ETextureUsage::DataMask, ETextureUsage::DataMask, ETextureUsage::DataMask, ETextureUsage::Color, ETextureUsage::DataMask, ETextureUsage::DataMask};
-		for (size_t Role = 0; Role < 8; ++Role)
+		for (size_t Role = 0; Role < BuiltinParameterRoleCount; ++Role)
 		{
+			const auto BuiltinRole = static_cast<EMaterialBuiltinParameterRole>(Role);
 			const bool bVector = Role == 0 || Role == 1 || Role == 5;
 			FMaterialParameterValue ConstantValue;
 			float Minimum = 0.0f;
@@ -147,25 +147,25 @@ namespace Durin
 			else ConstantValue = FMaterialParameterValue::MakeScalar(1.0f);
 			const int32 Sort = static_cast<int32>(Role * 7);
 			const FName Group(GroupNames[Role]);
-			Result.push_back(MakeDefinition(ConstantIds[Role], *ConstantNames[Role], bVector ? EMaterialParameterType::Vector : EMaterialParameterType::Scalar,
+			Result.push_back(MakeDefinition(GetBuiltinParameterId(BuiltinRole, EMaterialBuiltinParameterKind::Value), *ConstantNames[Role], bVector ? EMaterialParameterType::Vector : EMaterialParameterType::Scalar,
 				ConstantValue, DisplayNames[Role], Sort, (Role == 0 || Role == 5) ? EMaterialParameterPresentation::Color : EMaterialParameterPresentation::Drag,
 				true, Minimum, Maximum, ETextureUsage::Color, Group));
-			Result.push_back(MakeDefinition(TextureIds[Role], *TextureNames[Role], EMaterialParameterType::Texture,
+			Result.push_back(MakeDefinition(GetBuiltinParameterId(BuiltinRole, EMaterialBuiltinParameterKind::Texture), *TextureNames[Role], EMaterialParameterType::Texture,
 				FMaterialParameterValue::MakeTexture(nullptr), std::string(DisplayNames[Role]) + " Texture", Sort + 1,
 				EMaterialParameterPresentation::AssetPicker, false, 0.0f, 0.0f, TextureUsages[Role], Group));
-			Result.push_back(MakeDefinition(UVChannelIds[Role], FName(std::string(RoleNames[Role]) + "UVChannel"), EMaterialParameterType::Scalar,
+			Result.push_back(MakeDefinition(GetBuiltinParameterId(BuiltinRole, EMaterialBuiltinParameterKind::UVChannel), FName(std::string(RoleNames[Role]) + "UVChannel"), EMaterialParameterType::Scalar,
 				FMaterialParameterValue::MakeScalar(0.0f), "UV Channel", Sort + 2, EMaterialParameterPresentation::Integer,
 				true, 0.0f, 3.0f, ETextureUsage::Color, Group));
-			Result.push_back(MakeDefinition(UVScaleIds[Role], FName(std::string(RoleNames[Role]) + "UVScale"), EMaterialParameterType::Vector2,
+			Result.push_back(MakeDefinition(GetBuiltinParameterId(BuiltinRole, EMaterialBuiltinParameterKind::UVScale), FName(std::string(RoleNames[Role]) + "UVScale"), EMaterialParameterType::Vector2,
 				FMaterialParameterValue::MakeVector2({1.0, 1.0}), "UV Scale", Sort + 3, EMaterialParameterPresentation::Drag,
 				true, -1024.0f, 1024.0f, ETextureUsage::Color, Group));
-			Result.push_back(MakeDefinition(UVOffsetIds[Role], FName(std::string(RoleNames[Role]) + "UVOffset"), EMaterialParameterType::Vector2,
+			Result.push_back(MakeDefinition(GetBuiltinParameterId(BuiltinRole, EMaterialBuiltinParameterKind::UVOffset), FName(std::string(RoleNames[Role]) + "UVOffset"), EMaterialParameterType::Vector2,
 				FMaterialParameterValue::MakeVector2(FVector2(0.0)), "UV Offset", Sort + 4, EMaterialParameterPresentation::Drag,
 				true, -1024.0f, 1024.0f, ETextureUsage::Color, Group));
-			Result.push_back(MakeDefinition(UVRotationIds[Role], FName(std::string(RoleNames[Role]) + "UVRotation"), EMaterialParameterType::Scalar,
+			Result.push_back(MakeDefinition(GetBuiltinParameterId(BuiltinRole, EMaterialBuiltinParameterKind::UVRotation), FName(std::string(RoleNames[Role]) + "UVRotation"), EMaterialParameterType::Scalar,
 				FMaterialParameterValue::MakeScalar(0.0f), "UV Rotation (Radians)", Sort + 5, EMaterialParameterPresentation::Drag,
 				true, -1024.0f, 1024.0f, ETextureUsage::Color, Group));
-			Result.push_back(MakeDefinition(SamplerStateIds[Role], FName(std::string(RoleNames[Role]) + "SamplerState"), EMaterialParameterType::Scalar,
+			Result.push_back(MakeDefinition(GetBuiltinParameterId(BuiltinRole, EMaterialBuiltinParameterKind::SamplerState), FName(std::string(RoleNames[Role]) + "SamplerState"), EMaterialParameterType::Scalar,
 				FMaterialParameterValue::MakeScalar(EncodeMaterialSamplerState({})), "Sampler State", Sort + 6, EMaterialParameterPresentation::Integer,
 				true, 0.0f, 255.0f, ETextureUsage::Color, Group));
 		}

@@ -157,18 +157,45 @@ TEST(FMaterialTests, RuntimeSchemaHasStableIdentityOrderAndMetadata)
 	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "SchemaMaterial");
 	const std::span Definitions = Material->GetParameterDefinitions();
 	ASSERT_EQ(Definitions.size(), 56u);
-	const std::array ConstantIds{Durin::MaterialParameters::BaseColorId, Durin::MaterialParameters::NormalId,
-		Durin::MaterialParameters::MetallicId, Durin::MaterialParameters::RoughnessId,
-		Durin::MaterialParameters::AmbientOcclusionId, Durin::MaterialParameters::EmissiveId,
-		Durin::MaterialParameters::OpacityId, Durin::MaterialParameters::OpacityMaskId};
+	using Durin::MaterialParameters::EMaterialBuiltinParameterKind;
+	using Durin::MaterialParameters::EMaterialBuiltinParameterRole;
+	const std::array SurfaceOutputs{
+		Durin::EMaterialSurfaceOutput::BaseColor,
+		Durin::EMaterialSurfaceOutput::Normal,
+		Durin::EMaterialSurfaceOutput::Metallic,
+		Durin::EMaterialSurfaceOutput::Roughness,
+		Durin::EMaterialSurfaceOutput::AmbientOcclusion,
+		Durin::EMaterialSurfaceOutput::Emissive,
+		Durin::EMaterialSurfaceOutput::Opacity,
+		Durin::EMaterialSurfaceOutput::OpacityMask,
+	};
 	std::vector<Durin::FGuid> ExpectedIds;
-	for (size_t Role = 0; Role < 8; ++Role)
+	for (size_t RoleIndex = 0;
+		RoleIndex < Durin::MaterialParameters::BuiltinParameterRoleCount;
+		++RoleIndex)
 	{
-		ExpectedIds.insert(ExpectedIds.end(), {ConstantIds[Role], Durin::MaterialParameters::TextureIds[Role],
-			Durin::MaterialParameters::UVChannelIds[Role], Durin::MaterialParameters::UVScaleIds[Role],
-			Durin::MaterialParameters::UVOffsetIds[Role], Durin::MaterialParameters::UVRotationIds[Role],
-			Durin::MaterialParameters::SamplerStateIds[Role]});
+		const auto Role = static_cast<EMaterialBuiltinParameterRole>(RoleIndex);
+		for (size_t KindIndex = 0;
+			KindIndex < Durin::MaterialParameters::BuiltinParameterKindCount;
+			++KindIndex)
+		{
+			const auto Kind = static_cast<EMaterialBuiltinParameterKind>(KindIndex);
+			const Durin::FGuid Id =
+				Durin::MaterialParameters::GetBuiltinParameterId(Role, Kind);
+			ExpectedIds.push_back(Id);
+			EXPECT_EQ(Durin::GetMaterialSurfaceParameterId(
+				SurfaceOutputs[RoleIndex], Kind), Id);
+		}
 	}
+	EXPECT_FALSE(Durin::GetMaterialSurfaceParameterId(
+		static_cast<Durin::EMaterialSurfaceOutput>(255),
+		EMaterialBuiltinParameterKind::Value).IsValid());
+	EXPECT_FALSE(Durin::GetMaterialSurfaceParameterId(
+		Durin::EMaterialSurfaceOutput::BaseColor,
+		EMaterialBuiltinParameterKind::Count).IsValid());
+	EXPECT_FALSE(Durin::MaterialParameters::GetBuiltinParameterId(
+		static_cast<EMaterialBuiltinParameterRole>(255),
+		EMaterialBuiltinParameterKind::Value).IsValid());
 	std::unordered_set<Durin::FGuid> Ids;
 	std::unordered_set<Durin::FName> Names;
 	for (size_t Index = 0; Index < Definitions.size(); ++Index)
