@@ -4,7 +4,7 @@ Summary: Extract Content Browser from LevelEditor into an independent editor fea
 
 Last reviewed: 2026-08-28
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-28
 
 ## Current Status
@@ -457,8 +457,8 @@ and visibility do not depend on whether the Level Editor dock tab is submitted.
 | Lifetime | Registration rollback, callback-gate, task/import cancellation, cache/provider drain, and shutdown-order tests | Close the editor with active imports and after reversible asset operations; relaunch and verify consistency |
 
 Build and native-test selection/execution follow the repository workflows in
-[Build and Run](../Agents/BuildAndRun.md) and
-[Testing](../Agents/Testing.md); this plan does not duplicate their commands.
+[Build and Run](../../../Agents/BuildAndRun.md) and
+[Testing](../../../Agents/Testing.md); this plan does not duplicate their commands.
 
 ## Definition of Done
 
@@ -492,26 +492,26 @@ Build and native-test selection/execution follow the repository workflows in
 
 ## Related Documentation
 
-- [Editor Workspace Framework](../Editor/Architecture/WorkspaceFramework.md)
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Async Asset Operations](../Editor/Architecture/AsyncAssetOperations.md)
-- [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Code Modules](../Workspace/CodeModules.md)
+- [Editor Workspace Framework](../../../Editor/Architecture/WorkspaceFramework.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Async Asset Operations](../../../Editor/Architecture/AsyncAssetOperations.md)
+- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
 
 ## Related Code
 
-- [MainFrame host composition](../../Engine/Source/Editor/MainFrame/Private/MainFrameModule.cpp)
-- [Workspace framework](../../Engine/Source/Editor/DurinEd/Public/Editor/Workspace.h)
-- [Workspace manager](../../Engine/Source/Editor/DurinEd/Public/Editor/WorkspaceManager.h)
-- [Level Editor composition](../../Engine/Source/Editor/LevelEditor/Private/Widgets/MLevelEditor.cpp)
-- [Content Browser panel](../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserPanel.h)
-- [Content Browser model](../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserModel.h)
-- [Content Browser operations](../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserOperations.h)
-- [Asset move coordinator](../../Engine/Source/Editor/LevelEditor/Private/Assets/EditorAssetMoveCoordinator.cpp)
-- [Console panel](../../Engine/Source/Editor/MainFrame/Private/Panels/ConsolePanel.h)
-- [Notification overlay](../../Engine/Source/Editor/MainFrame/Private/Widgets/EditorNotificationOverlay.h)
-- [Level Editor session settings](../../Engine/Source/Editor/LevelEditor/Private/Settings/LevelEditorSessionSettings.h)
-- [Editor transaction manager](../../Engine/Source/Editor/DurinEd/Public/Editor/Transaction.h)
+- [MainFrame host composition](../../../../Engine/Source/Editor/MainFrame/Private/MainFrameModule.cpp)
+- [Workspace framework](../../../../Engine/Source/Editor/DurinEd/Public/Editor/Workspace.h)
+- [Workspace manager](../../../../Engine/Source/Editor/DurinEd/Public/Editor/WorkspaceManager.h)
+- [Level Editor composition](../../../../Engine/Source/Editor/LevelEditor/Private/Widgets/MLevelEditor.cpp)
+- [Content Browser panel](../../../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserPanel.h)
+- [Content Browser model](../../../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserModel.h)
+- [Content Browser operations](../../../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserOperations.h)
+- [Asset move coordinator](../../../../Engine/Source/Editor/LevelEditor/Private/Assets/EditorAssetMoveCoordinator.cpp)
+- [Console panel](../../../../Engine/Source/Editor/MainFrame/Private/Panels/ConsolePanel.h)
+- [Notification overlay](../../../../Engine/Source/Editor/MainFrame/Private/Widgets/EditorNotificationOverlay.h)
+- [Level Editor session settings](../../../../Engine/Source/Editor/LevelEditor/Private/Settings/LevelEditorSessionSettings.h)
+- [Editor transaction manager](../../../../Engine/Source/Editor/DurinEd/Public/Editor/Transaction.h)

@@ -4,7 +4,7 @@ Summary: Migrate every production scene contributor to narrow typed inputs and o
 
 Last reviewed: 2026-08-29
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-29
 
 ## Current Status
@@ -412,16 +412,16 @@ authority without changing rendering behavior.
 
 ## Related Documentation
 
-- [Render Graph Parameter-Driven Authoring Roadmap](../Roadmaps/RenderGraphParameterDrivenAuthoring.md)
+- [Render Graph Parameter-Driven Authoring Roadmap](../../../Roadmaps/Archive/2026-08/RenderGraphParameterDrivenAuthoring.md)
 - [Render Graph Pass Parameters Foundation](RenderGraphPassParametersFoundation.md)
 - [Render Graph External Registration and Typed Values](RenderGraphExternalRegistrationAndTypedValues.md)
 - [Render Graph and Shader Parameter Composition](RenderGraphAndShaderParameterComposition.md)
-- [Render Graph](../Runtime/Rendering/RenderGraph.md)
-- [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
-- [Renderer Frame Preparation and Render Graph Execution](../Runtime/Rendering/RendererFramePreparation.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Testing](../Agents/Testing.md)
-- [Build and Run](../Agents/BuildAndRun.md)
+- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
+- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Renderer Frame Preparation and Render Graph Execution](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Testing](../../../Agents/Testing.md)
+- [Build and Run](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 

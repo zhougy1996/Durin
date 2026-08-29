@@ -4,7 +4,7 @@ Summary: Move editor asset-operation policy and orchestration into AssetTools wh
 
 Last reviewed: 2026-08-29
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-29
 
 ## Current Status
@@ -431,22 +431,22 @@ characterization constraints rather than migration targets.
 
 ## Related Documentation
 
-- [Asset Import Architecture](../Editor/Architecture/AssetImportFramework.md)
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Asset Catalog And Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Code Modules](../Workspace/CodeModules.md)
+- [Asset Import Architecture](../../../Editor/Architecture/AssetImportFramework.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Asset Catalog And Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
 - [AssetCore Engine Consolidation](AssetCoreEngineConsolidation.md)
-- [Build And Run Workflow](../Agents/BuildAndRun.md)
-- [Testing Workflow](../Agents/Testing.md)
+- [Build And Run Workflow](../../../Agents/BuildAndRun.md)
+- [Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`IAssetTools`](../../Engine/Source/Editor/AssetTools/Public/AssetTools/IAssetTools.h)
-- [`AssetTools` implementation](../../Engine/Source/Editor/AssetTools/Private/AssetTools/AssetTools.cpp)
-- [`AssetTools` module descriptor](../../Engine/Source/Editor/AssetTools/AssetTools.dmodule)
-- [Engine Asset public surface](../../Engine/Source/Runtime/Engine/Public/Asset)
-- [Engine Asset operation capabilities](../../Engine/Source/Runtime/Engine/Public/Asset/AssetOperations.h)
-- [`AssetTools` operation orchestration](../../Engine/Source/Editor/AssetTools/Private/AssetTools/AssetOperations.cpp)
-- [`ContentBrowser` asset operations](../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserOperations.cpp)
-- [`ContentBrowser` panel operations](../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserPanel.cpp)
+- [`IAssetTools`](../../../../Engine/Source/Editor/AssetTools/Public/AssetTools/IAssetTools.h)
+- [`AssetTools` implementation](../../../../Engine/Source/Editor/AssetTools/Private/AssetTools/AssetTools.cpp)
+- [`AssetTools` module descriptor](../../../../Engine/Source/Editor/AssetTools/AssetTools.dmodule)
+- [Engine Asset public surface](../../../../Engine/Source/Runtime/Engine/Public/Asset)
+- [Engine Asset operation capabilities](../../../../Engine/Source/Runtime/Engine/Public/Asset/AssetOperations.h)
+- [`AssetTools` operation orchestration](../../../../Engine/Source/Editor/AssetTools/Private/AssetTools/AssetOperations.cpp)
+- [`ContentBrowser` asset operations](../../../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserOperations.cpp)
+- [`ContentBrowser` panel operations](../../../../Engine/Source/Editor/ContentBrowser/Private/Panels/ContentBrowserPanel.cpp)

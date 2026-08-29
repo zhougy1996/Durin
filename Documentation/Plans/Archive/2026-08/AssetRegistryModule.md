@@ -4,7 +4,7 @@ Summary: Extract Engine asset discovery, immutable metadata queries, and referen
 
 Last reviewed: 2026-08-29
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-29
 
 ## Current Status
@@ -663,13 +663,13 @@ integration behavior requires it.
 
 ## Related Documentation
 
-- [Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

@@ -4,7 +4,7 @@ Summary: Complete parameter-driven authoring enforcement, inspection, diagnostic
 
 Last reviewed: 2026-08-29
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-29
 
 ## Current Status
@@ -266,14 +266,14 @@ and resulting dependency without consulting callback code.
 
 ## Related Documentation
 
-- [Render Graph Parameter-Driven Authoring Roadmap](../Roadmaps/RenderGraphParameterDrivenAuthoring.md)
-- [Render Graph](../Runtime/Rendering/RenderGraph.md)
-- [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
-- [Renderer Frame Preparation](../Runtime/Rendering/RendererFramePreparation.md)
-- [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Build and Run](../Agents/BuildAndRun.md)
-- [Testing](../Agents/Testing.md)
+- [Render Graph Parameter-Driven Authoring Roadmap](../../../Roadmaps/Archive/2026-08/RenderGraphParameterDrivenAuthoring.md)
+- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
+- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Build and Run](../../../Agents/BuildAndRun.md)
+- [Testing](../../../Agents/Testing.md)
 
 ## Related Code
 

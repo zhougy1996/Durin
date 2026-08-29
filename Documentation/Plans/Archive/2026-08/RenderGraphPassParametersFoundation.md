@@ -4,7 +4,7 @@ Summary: Make typed pass parameters the single declaration source for graph depe
 
 Last reviewed: 2026-08-29
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-29
 
 ## Current Status
@@ -576,15 +576,15 @@ fixtures above. All selected Stage 5 acceptance gates are closed.
 
 ## Related Documentation
 
-- [Render Graph Parameter-Driven Authoring Roadmap](../Roadmaps/RenderGraphParameterDrivenAuthoring.md)
-- [Render Graph](../Runtime/Rendering/RenderGraph.md)
-- [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
-- [Renderer Frame Preparation and Render Graph Execution](../Runtime/Rendering/RendererFramePreparation.md)
-- [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [RHI Command Execution](../Runtime/Rendering/RHICommandExecution.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Testing](../Agents/Testing.md)
-- [Build and Run](../Agents/BuildAndRun.md)
+- [Render Graph Parameter-Driven Authoring Roadmap](../../../Roadmaps/Archive/2026-08/RenderGraphParameterDrivenAuthoring.md)
+- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
+- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Renderer Frame Preparation and Render Graph Execution](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [RHI Command Execution](../../../Runtime/Rendering/RHICommandExecution.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Testing](../../../Agents/Testing.md)
+- [Build and Run](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 

@@ -4,7 +4,7 @@ Summary: Migrate first-time asset import to package-backed factories and introdu
 
 Last reviewed: 2026-08-28
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-28
 
 ## Current Status
@@ -404,25 +404,25 @@ reversed the dependency so AssetTools consumes them.
 
 ## Related Documentation
 
-- [Asset Import Architecture](../Editor/Architecture/AssetImportFramework.md)
-- [Source File Workflows](../Editor/Guides/SourceFileWorkflows.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Asset Import Simplification Roadmap](../Roadmaps/Archive/2026-08/AssetImportSimplification.md)
-- [Agent Build and Run](../Agents/BuildAndRun.md)
-- [Agent Testing](../Agents/Testing.md)
+- [Asset Import Architecture](../../../Editor/Architecture/AssetImportFramework.md)
+- [Source File Workflows](../../../Editor/Guides/SourceFileWorkflows.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Asset Import Simplification Roadmap](../../../Roadmaps/Archive/2026-08/AssetImportSimplification.md)
+- [Agent Build and Run](../../../Agents/BuildAndRun.md)
+- [Agent Testing](../../../Agents/Testing.md)
 
 ## Related Code
 
-- [`DFactory`](../../Engine/Source/Editor/DurinEd/Public/Factories/Factory.h)
-- [`IAssetTools`](../../Engine/Source/Editor/AssetTools/Public/AssetTools/IAssetTools.h)
-- [`CreatePackage`](../../Engine/Source/Runtime/CoreDObject/Public/DObject/Package.h)
-- [`AssetForgeBuiltins`](../../Engine/Source/Editor/AssetForgeBuiltins)
-- [`Texture2DImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/Texture2DImport.cpp)
-- [`TextureCubeImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/TextureCubeImport.cpp)
-- [`VolumeTextureImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/VolumeTextureImport.cpp)
-- [`TerrainHeightmapImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/TerrainHeightmapImport.cpp)
-- [`StaticMeshImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/StaticMeshImport.cpp)
-- [`SceneDirectImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/SceneDirectImport.cpp)
-- [`BuiltinImportDispatch.h`](../../Engine/Source/Editor/DurinEd/Public/Editor/Import/BuiltinImportDispatch.h)
+- [`DFactory`](../../../../Engine/Source/Editor/DurinEd/Public/Factories/Factory.h)
+- [`IAssetTools`](../../../../Engine/Source/Editor/AssetTools/Public/AssetTools/IAssetTools.h)
+- [`CreatePackage`](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/Package.h)
+- [`AssetForgeBuiltins`](../../../../Engine/Source/Editor/AssetForgeBuiltins)
+- [`Texture2DImport.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/Texture2DImport.cpp)
+- [`TextureCubeImport.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/TextureCubeImport.cpp)
+- [`VolumeTextureImport.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/VolumeTextureImport.cpp)
+- [`TerrainHeightmapImport.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/TerrainHeightmapImport.cpp)
+- [`StaticMeshImport.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/StaticMeshImport.cpp)
+- [`SceneDirectImport.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/SceneDirectImport.cpp)
+- `Engine/Source/Editor/DurinEd/Public/Editor/Import/BuiltinImportDispatch.h`

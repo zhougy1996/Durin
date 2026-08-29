@@ -4,7 +4,7 @@ Summary: Refactor DurinEd thumbnails into a UE-style manager, renderer, asset-th
 
 Last reviewed: 2026-08-29
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-29
 
 ## Current Status
@@ -536,14 +536,14 @@ Completed on Windows MSVC x64 with the `Win64-Debug-DurinEditor` preset on
 
 ## Related Documentation
 
-- [Asset Thumbnails](../Editor/Architecture/AssetThumbnails.md)
-- [Content Browser](../Editor/Architecture/ContentBrowser.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Core Task System](../Runtime/Core/TaskSystem.md)
-- [Modular Features and Module Retirement](../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
-- [Testing](../Agents/Testing.md)
-- [Build and Run](../Agents/BuildAndRun.md)
+- [Asset Thumbnails](../../../Editor/Architecture/AssetThumbnails.md)
+- [Content Browser](../../../Editor/Architecture/ContentBrowser.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Core Task System](../../../Runtime/Core/TaskSystem.md)
+- [Modular Features and Module Retirement](../../../Runtime/Core/ModularFeaturesAndModuleRetirement.md)
+- [Testing](../../../Agents/Testing.md)
+- [Build and Run](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 

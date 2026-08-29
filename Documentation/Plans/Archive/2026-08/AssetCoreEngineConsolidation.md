@@ -4,7 +4,7 @@ Summary: Remove the AssetCore module boundary by consolidating its asset runtime
 
 Last reviewed: 2026-08-29
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-29
 
 ## Current Status
@@ -213,7 +213,7 @@ for later package-loading work without taking that redesign into this plan.
 - The repository has one Engine-owned Asset implementation and no live
   `AssetCore` module artifact or ownership claim.
 - The final commit uses the repository commit format and includes exact
-  `Plan: Documentation/Plans/AssetCoreEngineConsolidation.md` and stage
+  `Plan: Documentation/Plans/Archive/2026-08/AssetCoreEngineConsolidation.md` and stage
   provenance.
 
 ## Validation Matrix
@@ -265,18 +265,18 @@ for later package-loading work without taking that redesign into this plan.
 
 ## Related Documentation
 
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
-- [Documentation Workflow](../Agents/Documentation.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
+- [Documentation Workflow](../../../Agents/Documentation.md)
 
 ## Related Code
 
-- [`Engine` module descriptor](../../Engine/Source/Runtime/Engine/Engine.dmodule)
-- [`DPackage`](../../Engine/Source/Runtime/CoreDObject/Public/DObject/Package.h)
-- [Engine Asset public surface](../../Engine/Source/Runtime/Engine/Public/Asset)
-- [Engine Asset implementation](../../Engine/Source/Runtime/Engine/Private/Asset)
-- [`DurinAssetTool` build composition](../../Engine/Source/Programs/DurinAssetTool/CMakeLists.txt)
-- [AssetCore native-test build composition](../../Engine/Tests/Native/AssetCoreTests/CMakeLists.txt)
+- [`Engine` module descriptor](../../../../Engine/Source/Runtime/Engine/Engine.dmodule)
+- [`DPackage`](../../../../Engine/Source/Runtime/CoreDObject/Public/DObject/Package.h)
+- [Engine Asset public surface](../../../../Engine/Source/Runtime/Engine/Public/Asset)
+- [Engine Asset implementation](../../../../Engine/Source/Runtime/Engine/Private/Asset)
+- [`DurinAssetTool` build composition](../../../../Engine/Source/Programs/DurinAssetTool/CMakeLists.txt)
+- [AssetCore native-test build composition](../../../../Engine/Tests/Native/AssetCoreTests/CMakeLists.txt)

@@ -4,7 +4,7 @@ Summary: Unify graph dependency declarations and reflected shader bindings on on
 
 Last reviewed: 2026-08-29
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-29
 
 ## Current Status
@@ -388,18 +388,18 @@ Vulkan, failure, capture, and rendering contracts.
 
 ## Related Documentation
 
-- [Render Graph Parameter-Driven Authoring Roadmap](../Roadmaps/RenderGraphParameterDrivenAuthoring.md)
+- [Render Graph Parameter-Driven Authoring Roadmap](../../../Roadmaps/Archive/2026-08/RenderGraphParameterDrivenAuthoring.md)
 - [Render Graph Pass Parameters Foundation](RenderGraphPassParametersFoundation.md)
 - [Render Graph External Registration and Typed Values](RenderGraphExternalRegistrationAndTypedValues.md)
-- [Render Graph](../Runtime/Rendering/RenderGraph.md)
-- [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
-- [Graphics State and Bindings](../Runtime/Rendering/GraphicsStateAndBindings.md)
-- [RHI Resource Views and Transfers](../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
-- [RHI Resource Transitions](../Runtime/Rendering/RHIResourceTransitions.md)
-- [Renderer Frame Preparation and Render Graph Execution](../Runtime/Rendering/RendererFramePreparation.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Testing](../Agents/Testing.md)
-- [Build and Run](../Agents/BuildAndRun.md)
+- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
+- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Graphics State and Bindings](../../../Runtime/Rendering/GraphicsStateAndBindings.md)
+- [RHI Resource Views and Transfers](../../../Runtime/Rendering/RHIResourceViewsAndTransfers.md)
+- [RHI Resource Transitions](../../../Runtime/Rendering/RHIResourceTransitions.md)
+- [Renderer Frame Preparation and Render Graph Execution](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Testing](../../../Agents/Testing.md)
+- [Build and Run](../../../Agents/BuildAndRun.md)
 
 ## Related Code
 
