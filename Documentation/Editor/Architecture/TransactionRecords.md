@@ -4,16 +4,17 @@ Summary: Define exact editor transaction object identity, collector-enumerated r
 
 Modules: CoreDObject, DurinEd
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-08-31
 
 ## Scope
 
 `Durin::Editor::FPersistentObjectRef` and
-`FFocusedTransactionObjectRecord` provide the data and lifetime foundation for
-collector-integrated editor history. `DTransBuffer` wraps focused and complete
-property records together with executable custom changes in the single
-application Undo/Redo order. Object creation and deletion remain explicit
-custom changes rather than persistent-reference resurrection.
+`FFocusedTransactionObjectSnapshot` provide the data and lifetime foundation
+for collector-integrated editor history. The focused snapshot is a detached
+capture/validation primitive, not an executable history record. `DTransBuffer`
+stores complete before/after property records together with executable custom
+changes in the single application Undo/Redo order. Object creation and deletion
+remain explicit custom changes rather than persistent-reference resurrection.
 
 All capture, resolution, collector traversal, and detached restore operations
 run on the game thread under CoreDObject's synchronous collection contract.
@@ -51,9 +52,9 @@ every hard handle. A stale, physically removed, or garbage hard reference makes
 restore fail rather than substituting another object. Weak references decode
 their original handle and naturally remain invalid when the target is gone.
 
-## Focused Object Records
+## Focused Object Snapshots
 
-A focused record owns:
+A focused snapshot owns:
 
 - the target's `FPersistentObjectRef`;
 - a top-level member locator containing declaring type, member name, and fixed
@@ -62,21 +63,21 @@ A focused record owns:
 - a deduplicated set of hard value references.
 
 Capture accepts only a live target and a top-level property belonging to its
-class hierarchy. The record stores no live value-container address. At restore
+class hierarchy. The snapshot stores no live value-container address. At restore
 time it resolves the exact target, finds the current member, verifies its
 declaring type and snapshot compatibility, allocates
 `FReflectedValueStorage`, and decodes into that detached storage.
 
 Detached restore does not mutate a live `DObject`, emit editor notifications,
-or bypass `PreEditChangeProperty` and `PostEditChangeProperty`. A later property
-transaction migration must feed the detached value through the validated
-editor mutation pipeline.
+or bypass `PreEditChangeProperty` and `PostEditChangeProperty`. Executable
+`FTransactionObjectRecord` values own both before and after payloads and feed
+them through the validated editor mutation pipeline.
 
-`FFocusedTransactionObjectRecord::AddReferencedObjects(...)` reports the target
+`FFocusedTransactionObjectSnapshot::AddReferencedObjects(...)` reports the target
 and every distinct hard payload reference exactly once. It never reports weak
 or soft values. A reachable `DObject` owner may enumerate a native vector of
-records from its own `AddReferencedObjects(...)` override. Removing or
-destroying a record removes all of those strong edges in the same logical
+snapshots from its own `AddReferencedObjects(...)` override. Removing or
+destroying a snapshot removes all of those strong edges in the same logical
 operation; there are no per-record manual roots to unwind.
 
 ## Hierarchy Boundary
@@ -90,8 +91,8 @@ object.
 ## Validation
 
 The lasting contract is covered by `CoreObjectTests`,
-`CorePropertyValueSnapshotTests`, and the persistent-reference and focused-
-record cases in `EditorOperationTests`. `EditorPropertyTests` protects the
+`CorePropertyValueSnapshotTests`, and the persistent-reference and focused
+snapshot cases in `EditorOperationTests`. `EditorPropertyTests` protects the
 collector-backed property-history path.
 
 ## Related Documentation

@@ -226,11 +226,11 @@ namespace
 		auto AddReferencedObjects(Durin::FReferenceCollector& Collector) -> void override
 		{
 			DObject::AddReferencedObjects(Collector);
-			for (const Durin::Editor::FFocusedTransactionObjectRecord& Record : Records)
-				Record.AddReferencedObjects(Collector);
+			for (const Durin::Editor::FFocusedTransactionObjectSnapshot& Snapshot : Records)
+				Snapshot.AddReferencedObjects(Collector);
 		}
 
-		std::vector<Durin::Editor::FFocusedTransactionObjectRecord> Records;
+		std::vector<Durin::Editor::FFocusedTransactionObjectSnapshot> Records;
 	};
 
 	class FCountingReferenceCollector final : public Durin::FReferenceCollector
@@ -333,15 +333,15 @@ namespace
 		return Path;
 	}
 
-	auto CaptureRecord(
+	auto CaptureSnapshot(
 		DTransactionRecordParticipant* Target,
-		std::string_view Name) -> Durin::Editor::FFocusedTransactionObjectRecord
+		std::string_view Name) -> Durin::Editor::FFocusedTransactionObjectSnapshot
 	{
-		Durin::Editor::FFocusedTransactionObjectRecord Record;
+		Durin::Editor::FFocusedTransactionObjectSnapshot Snapshot;
 		std::string Error;
-		EXPECT_TRUE(Durin::Editor::FFocusedTransactionObjectRecord::Capture(
-			Target, Property(Name), 0, Record, &Error)) << Error;
-		return Record;
+		EXPECT_TRUE(Durin::Editor::FFocusedTransactionObjectSnapshot::Capture(
+			Target, Property(Name), 0, Snapshot, &Error)) << Error;
+		return Snapshot;
 	}
 }
 
@@ -373,7 +373,7 @@ TEST(FPersistentObjectRefTests, PreservesExactIdentityAndRejectsGarbageAndSlotRe
 	Durin::CollectGarbage();
 }
 
-TEST(FFocusedTransactionObjectRecordTests, CollectorTraversalRetainsOnlyTargetAndHardReferences)
+TEST(FFocusedTransactionObjectSnapshotTests, CollectorTraversalRetainsOnlyTargetAndHardReferences)
 {
 	InitializeDObjectSystem();
 	auto* Owner = Durin::NewObject<DTransactionRecordOwner>(nullptr, Durin::FName("TransactionRecordOwner"));
@@ -387,7 +387,7 @@ TEST(FFocusedTransactionObjectRecordTests, CollectorTraversalRetainsOnlyTargetAn
 	const Durin::FObjectHandle WeakHandle = Durin::MakeObjectHandle(Weak);
 	Target->Hard = Hard;
 	Target->Weak = Weak;
-	auto HardRecord = CaptureRecord(Target, "Hard");
+	auto HardRecord = CaptureSnapshot(Target, "Hard");
 	FCountingReferenceCollector CountingCollector;
 	HardRecord.AddReferencedObjects(CountingCollector);
 	ASSERT_EQ(CountingCollector.References.size(), 2u);
@@ -396,7 +396,7 @@ TEST(FFocusedTransactionObjectRecordTests, CollectorTraversalRetainsOnlyTargetAn
 	Owner->Records.push_back(std::move(HardRecord));
 	Owner->Records.push_back(Owner->Records.front());
 	Owner->Records.erase(Owner->Records.begin());
-	Owner->Records.push_back(CaptureRecord(Target, "Weak"));
+	Owner->Records.push_back(CaptureSnapshot(Target, "Weak"));
 	Target->Hard = nullptr;
 	Target->Weak = nullptr;
 
@@ -417,13 +417,13 @@ TEST(FFocusedTransactionObjectRecordTests, CollectorTraversalRetainsOnlyTargetAn
 	EXPECT_EQ(Durin::ResolveObjectHandle(HardHandle), nullptr);
 }
 
-TEST(FFocusedTransactionObjectRecordTests, MarkedGarbageTargetIsNotRescued)
+TEST(FFocusedTransactionObjectSnapshotTests, MarkedGarbageTargetIsNotRescued)
 {
 	InitializeDObjectSystem();
 	auto* Owner = Durin::NewObject<DTransactionRecordOwner>(nullptr, Durin::FName("GarbageRecordOwner"));
 	Durin::TStrongObjectPtr<Durin::DObject> OwnerRoot(Owner);
 	auto* Target = Durin::NewObject<DTransactionRecordParticipant>(nullptr, Durin::FName("GarbageRecordTarget"));
-	Owner->Records.push_back(CaptureRecord(Target, "Value"));
+	Owner->Records.push_back(CaptureSnapshot(Target, "Value"));
 	const Durin::FObjectHandle Handle = Durin::MakeObjectHandle(Target);
 	Durin::MarkAsGarbage(Target);
 	Durin::CollectGarbage();
@@ -431,7 +431,7 @@ TEST(FFocusedTransactionObjectRecordTests, MarkedGarbageTargetIsNotRescued)
 	EXPECT_EQ(Owner->Records.front().GetTarget().Resolve(), nullptr);
 }
 
-TEST(FFocusedTransactionObjectRecordTests, RestoresSupportedValuesIntoDetachedStorage)
+TEST(FFocusedTransactionObjectSnapshotTests, RestoresSupportedValuesIntoDetachedStorage)
 {
 	InitializeDObjectSystem();
 	auto* Target = Durin::NewObject<DTransactionRecordParticipant>(nullptr, Durin::FName("DetachedRestoreTarget"));
@@ -446,9 +446,9 @@ TEST(FFocusedTransactionObjectRecordTests, RestoresSupportedValuesIntoDetachedSt
 	Target->Numbers = {3, 5, 8};
 	Target->Values = {{"alpha", 11}, {"beta", 13}};
 	Target->Nested.Count = 29;
-	auto BeforeRecord = CaptureRecord(Target, "Value");
+	auto BeforeRecord = CaptureSnapshot(Target, "Value");
 	Target->Value = 91;
-	auto AfterRecord = CaptureRecord(Target, "Value");
+	auto AfterRecord = CaptureSnapshot(Target, "Value");
 	for (const auto& [SnapshotRecord, Expected] :
 		std::array{std::pair{&BeforeRecord, 47}, std::pair{&AfterRecord, 91}})
 	{
@@ -461,7 +461,7 @@ TEST(FFocusedTransactionObjectRecordTests, RestoresSupportedValuesIntoDetachedSt
 
 	for (std::string_view Name : {"Value", "Hard", "Weak", "Soft", "Numbers", "Values", "Nested"})
 	{
-		const auto Record = CaptureRecord(Target, Name);
+		const auto Record = CaptureSnapshot(Target, Name);
 		Durin::FReflectedValueStorage Storage;
 		std::string Error;
 		ASSERT_TRUE(Record.RestoreDetached(Storage, &Error)) << Name << ": " << Error;
@@ -482,7 +482,7 @@ TEST(FFocusedTransactionObjectRecordTests, RestoresSupportedValuesIntoDetachedSt
 			EXPECT_EQ(static_cast<FRecordNestedValue*>(Storage.GetValue())->Count, 29);
 	}
 
-	auto StaleRecord = CaptureRecord(Target, "Value");
+	auto StaleRecord = CaptureSnapshot(Target, "Value");
 	TargetRoot = Durin::TStrongObjectPtr<Durin::DObject>(nullptr);
 	Durin::MarkAsGarbage(Target);
 	Durin::CollectGarbage();
@@ -492,13 +492,13 @@ TEST(FFocusedTransactionObjectRecordTests, RestoresSupportedValuesIntoDetachedSt
 	EXPECT_FALSE(Error.empty());
 }
 
-TEST(FFocusedTransactionObjectRecordTests, RejectsIncompatibleResolvedMember)
+TEST(FFocusedTransactionObjectSnapshotTests, RejectsIncompatibleResolvedMember)
 {
 	InitializeDObjectSystem();
 	auto* Target = Durin::NewObject<DTransactionRecordParticipant>(
 		nullptr, Durin::FName("IncompatibleRecordTarget"));
 	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
-	auto Record = CaptureRecord(Target, "Value");
+	auto Record = CaptureSnapshot(Target, "Value");
 	Durin::DClass* Class = DTransactionRecordParticipant::StaticClass();
 	Durin::FField* OriginalProperties = Class->ChildProperties;
 	Durin::FNumericProperty Incompatible(
@@ -520,6 +520,8 @@ static_assert(!std::is_copy_constructible_v<Durin::Editor::FTransaction>);
 static_assert(std::is_move_constructible_v<Durin::Editor::FTransaction>);
 static_assert(!std::is_copy_constructible_v<Durin::Editor::FScopedTransaction>);
 static_assert(std::is_move_constructible_v<Durin::Editor::FScopedTransaction>);
+static_assert(!std::is_constructible_v<Durin::Editor::FTransactionRecord,
+	Durin::Editor::FFocusedTransactionObjectSnapshot>);
 
 TEST(FTransBufferTests, ExposesReflectedIdentityAndProductionLimits)
 {
@@ -536,6 +538,43 @@ TEST(FTransBufferTests, ExposesReflectedIdentityAndProductionLimits)
 	EXPECT_EQ(Buffer->GetLimits().MaximumOwnedBytes, 64u * 1024u * 1024u);
 }
 
+TEST(FTransBufferTests, ScopedModifyRecordsChangedMembersAndPrunesNoOps)
+{
+	InitializeDObjectSystem();
+	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "ModifyTransBuffer");
+	Durin::FScopedObjectRoot BufferRoot(Buffer);
+	auto* Target = Durin::NewObject<DTransactionRecordParticipant>(nullptr, "ModifyTarget");
+	Durin::FScopedObjectRoot TargetRoot(Target);
+
+	{
+		Durin::Editor::FScopedTransaction NoChange(Buffer, {"test", "No change"});
+		ASSERT_TRUE(NoChange.Modify(Target));
+		ASSERT_TRUE(NoChange.Modify(Target));
+		EXPECT_EQ(NoChange.End().Code, Durin::Editor::ETransactorResultCode::NoOp);
+	}
+	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+
+	{
+		Durin::Editor::FScopedTransaction Change(Buffer, {"test", "Change value"});
+		ASSERT_TRUE(Change.Modify(Target));
+		Target->Value = 42;
+	}
+	ASSERT_EQ(Buffer->GetHistoryCount(), 1u);
+	ASSERT_TRUE(Buffer->Undo());
+	EXPECT_EQ(Target->Value, 0);
+	ASSERT_TRUE(Buffer->Redo());
+	EXPECT_EQ(Target->Value, 42);
+
+	{
+		Durin::Editor::FScopedTransaction Canceled(Buffer, {"test", "Canceled value"});
+		ASSERT_TRUE(Canceled.Modify(Target));
+		Target->Value = 81;
+		EXPECT_EQ(Canceled.Cancel().Code, Durin::Editor::ETransactorResultCode::Discarded);
+	}
+	EXPECT_EQ(Buffer->GetHistoryCount(), 1u);
+	EXPECT_EQ(Target->Value, 81);
+}
+
 TEST(FTransBufferTests, NestedScopesCancelToSavepointsAndCommitOneEntry)
 {
 	InitializeDObjectSystem();
@@ -547,13 +586,14 @@ TEST(FTransBufferTests, NestedScopesCancelToSavepointsAndCommitOneEntry)
 	Durin::Editor::FScopedTransaction Outer(Buffer, {"property", "Nested edit",
 		Durin::Editor::FPersistentObjectRef(Target)});
 	ASSERT_TRUE(Outer.IsActive());
-	ASSERT_TRUE(Buffer->Record(CaptureRecord(Target, "Value")));
+	ASSERT_TRUE(Outer.Modify(Target));
+	++Target->Value;
 	{
 		Durin::Editor::FScopedTransaction Inner(Buffer, {"property", "Ignored nested description"});
 		ASSERT_TRUE(Inner.IsActive());
 		auto* InnerTarget = Durin::NewObject<DTransactionRecordParticipant>(nullptr, "InnerCanceledTarget");
 		const auto InnerTargetHandle = Durin::MakeObjectHandle(InnerTarget);
-		ASSERT_TRUE(Buffer->Record(CaptureRecord(InnerTarget, "Numbers")));
+		ASSERT_TRUE(Inner.Modify(InnerTarget));
 		EXPECT_EQ(Inner.Cancel().Code, Durin::Editor::ETransactorResultCode::Discarded);
 		EXPECT_FALSE(Inner.IsActive());
 		Durin::CollectGarbage();
@@ -617,7 +657,8 @@ TEST(FTransBufferTests, MoveOnlyScopeClosesOnceAndCancelIsIdempotent)
 	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 	{
 		Durin::Editor::FScopedTransaction First(Buffer, {"test", "Moved scope"});
-		ASSERT_TRUE(Buffer->Record(CaptureRecord(Target, "Value")));
+		ASSERT_TRUE(First.Modify(Target));
+		++Target->Value;
 		Durin::Editor::FScopedTransaction Second(std::move(First));
 		EXPECT_FALSE(First.IsActive());
 		EXPECT_TRUE(Second.IsActive());
@@ -638,7 +679,8 @@ TEST(FTransBufferTests, MaintainsCursorBranchIdsEventsAndLimits)
 	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 	auto Commit = [&](std::string Description) {
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", std::move(Description)});
-		EXPECT_TRUE(Buffer->Record(CaptureRecord(Target, "Value")));
+		EXPECT_TRUE(Scope.Modify(Target));
+		++Target->Value;
 		return Scope.End();
 	};
 
@@ -679,14 +721,16 @@ TEST(FTransBufferTests, DiscardsOversizedEntryAndPreservesFailedUndoCursor)
 	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 	ASSERT_TRUE(Buffer->SetLimits({.MaximumEntries = 4, .MaximumOwnedBytes = 1}));
 	Durin::Editor::FScopedTransaction Oversized(Buffer, {"test", "Oversized"});
-	ASSERT_TRUE(Buffer->Record(CaptureRecord(Target, "Numbers")));
+	ASSERT_TRUE(Oversized.Modify(Target));
+	Target->Numbers.push_back(1);
 	EXPECT_EQ(Oversized.End().Code, Durin::Editor::ETransactorResultCode::Discarded);
 	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
 	EXPECT_EQ(Buffer->GetOwnedBytes(), 0u);
 
 	ASSERT_TRUE(Buffer->SetLimits({.MaximumEntries = 4, .MaximumOwnedBytes = 1024u * 1024u}));
 	Durin::Editor::FScopedTransaction Valid(Buffer, {"test", "Stale"});
-	ASSERT_TRUE(Buffer->Record(CaptureRecord(Target, "Value")));
+	ASSERT_TRUE(Valid.Modify(Target));
+	++Target->Value;
 	ASSERT_TRUE(Valid.End());
 	const auto Id = Buffer->GetUndoId();
 	TargetRoot = Durin::TStrongObjectPtr<Durin::DObject>(nullptr);
@@ -707,7 +751,8 @@ TEST(FTransBufferTests, ExpectedIdsAndExplicitRemovalPreserveHistoryPosition)
 	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 	auto Commit = [&](std::string Description) {
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", std::move(Description)});
-		EXPECT_TRUE(Buffer->Record(CaptureRecord(Target, "Value")));
+		EXPECT_TRUE(Scope.Modify(Target));
+		++Target->Value;
 		return Scope.End();
 	};
 	const auto First = Commit("First");
@@ -742,7 +787,8 @@ TEST(FTransBufferTests, RetainsAnEntryAtTheExactOwnedByteLimit)
 	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 	auto Commit = [&] {
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", "Exact limit"});
-		EXPECT_TRUE(Buffer->Record(CaptureRecord(Target, "Value")));
+		EXPECT_TRUE(Scope.Modify(Target));
+		++Target->Value;
 		return Scope.End();
 	};
 	ASSERT_TRUE(Commit());
@@ -768,7 +814,7 @@ TEST(FTransBufferTests, CancellationEvictionAndDestructionReleaseCollectorEdges)
 	const auto CanceledHandle = Durin::MakeObjectHandle(Canceled);
 	{
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", "Canceled"});
-		ASSERT_TRUE(Buffer->Record(CaptureRecord(Canceled, "Value")));
+		ASSERT_TRUE(Scope.Modify(Canceled));
 		EXPECT_EQ(Scope.Cancel().Code, Durin::Editor::ETransactorResultCode::Discarded);
 	}
 	Durin::CollectGarbage();
@@ -777,7 +823,8 @@ TEST(FTransBufferTests, CancellationEvictionAndDestructionReleaseCollectorEdges)
 	ASSERT_TRUE(Buffer->SetLimits({.MaximumEntries = 1, .MaximumOwnedBytes = 1024u * 1024u}));
 	auto Commit = [&](DTransactionRecordParticipant* Target, std::string Description) {
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", std::move(Description)});
-		EXPECT_TRUE(Buffer->Record(CaptureRecord(Target, "Value")));
+		EXPECT_TRUE(Scope.Modify(Target));
+		++Target->Value;
 		EXPECT_TRUE(Scope.End());
 	};
 	auto* Evicted = MakeTarget("EvictedTarget");
@@ -811,8 +858,7 @@ TEST(FTransBufferTests, CollectorRetainsPendingAndHistoryEdgesAndReleasesBranche
 	const auto WeakHandle = Durin::MakeObjectHandle(Weak);
 	{
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", "First GC"});
-		ASSERT_TRUE(Buffer->Record(CaptureRecord(First, "Hard")));
-		ASSERT_TRUE(Buffer->Record(CaptureRecord(First, "Weak")));
+		ASSERT_TRUE(Scope.Modify(First));
 		First->Hard = nullptr;
 		First->Weak = nullptr;
 		Durin::CollectGarbage();
@@ -829,7 +875,8 @@ TEST(FTransBufferTests, CollectorRetainsPendingAndHistoryEdgesAndReleasesBranche
 	Durin::TStrongObjectPtr<Durin::DObject> SecondRoot(Second);
 	{
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", "Branch GC"});
-		ASSERT_TRUE(Buffer->Record(CaptureRecord(Second, "Value")));
+		ASSERT_TRUE(Scope.Modify(Second));
+		++Second->Value;
 	}
 	Durin::CollectGarbage();
 	EXPECT_EQ(Durin::ResolveObjectHandle(FirstHandle), nullptr);

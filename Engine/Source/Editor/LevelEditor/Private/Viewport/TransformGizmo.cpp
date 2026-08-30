@@ -545,7 +545,14 @@ namespace Durin::Editor::Level
 			}
 			const char* Action = Mode == ETransformGizmoMode::Translate ? "Translate" : Mode == ETransformGizmoMode::Rotate ? "Rotate" :
 																															  "Scale";
-			Transactions->CommitApplied(std::make_unique<FTransformTargetTransaction>(Action, DragCollectionLabel, std::move(Entries)));
+			const auto Recorded = Transactions->CommitApplied(
+				std::make_unique<FTransformTargetTransaction>(
+					Action, DragCollectionLabel, std::move(Entries)));
+			if (!Recorded)
+			{
+				RestoreSnapshots();
+				RestoreInitialDirtyState();
+			}
 		}
 		else if (!bDragChanged)
 			RestoreInitialDirtyState();

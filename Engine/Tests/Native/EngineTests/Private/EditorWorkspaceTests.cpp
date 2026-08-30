@@ -5,6 +5,7 @@
 #include "DObject/Property.h"
 #include "Editor/AssetPicker.h"
 #include "Editor/EditorEngine.h"
+#include "Editor/PropertyEditing.h"
 #include "Editor/Transaction.h"
 #include "Editor/Transactor.h"
 #include "Editor/WorkspaceManager.h"
@@ -147,15 +148,26 @@ TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnS
 	Durin::FProperty* TransProperty = Editor->GetClass()->FindPropertyByName("Trans");
 	ASSERT_NE(TransProperty, nullptr);
 	EXPECT_TRUE(TransProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient));
+	{
+		Durin::Editor::FScopedTransaction GlobalScope("Global editor transaction");
+		ASSERT_TRUE(GlobalScope.IsActive());
+		EXPECT_EQ(GlobalScope.Cancel().Code,
+			Durin::Editor::ETransactorResultCode::Discarded);
+	}
 
-	Durin::Editor::FFocusedTransactionObjectRecord Record;
-	std::string Error;
-	ASSERT_TRUE(Durin::Editor::FFocusedTransactionObjectRecord::Capture(
-		Editor, TransProperty, 0, Record, &Error)) << Error;
 	const auto Scope = Buffer->Begin({"test", "Open during shutdown",
 		Durin::Editor::FPersistentObjectRef(Editor)});
 	ASSERT_TRUE(Scope);
-	ASSERT_TRUE(Buffer->Record(std::move(Record)));
+	const Durin::Editor::FPropertyEditTarget Target =
+		Durin::Editor::FPropertyEditTarget::ForMember(Editor, TransProperty);
+	Durin::FPropertyValueSnapshotPayload Snapshot;
+	std::string Error;
+	ASSERT_TRUE(Durin::CapturePropertyValuePayload(
+		TransProperty, Editor, 0, Snapshot, &Error)) << Error;
+	Durin::Editor::FTransactionObjectRecord Record;
+	ASSERT_TRUE(Durin::Editor::FTransactionObjectRecord::Capture(
+		Target, Snapshot, Snapshot, Record, &Error)) << Error;
+	ASSERT_TRUE(Buffer->Record(Scope.ScopeId, std::move(Record)));
 	Editor->BeginDestroy();
 	EXPECT_EQ(Editor->GetTransactor(), nullptr);
 	EXPECT_EQ(Buffer->GetState(), Durin::Editor::ETransactorState::Destroying);

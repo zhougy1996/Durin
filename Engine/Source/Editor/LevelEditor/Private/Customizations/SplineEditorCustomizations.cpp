@@ -83,8 +83,19 @@ namespace Durin::Editor::Level
 			const std::vector<FSplinePoint> After = Spline.GetSplinePoints();
 			const bool bAfterClosed = Spline.IsClosedLoop();
 			if (Before == After && bBeforeClosed == bAfterClosed) return false;
-			if (Transactions) Transactions->CommitApplied(std::make_unique<FSplineSnapshotTransaction>(
-				&Spline, std::move(Description), Before, bBeforeClosed, After, bAfterClosed));
+			if (Transactions)
+			{
+				const auto Recorded = Transactions->CommitApplied(
+					std::make_unique<FSplineSnapshotTransaction>(
+						&Spline, std::move(Description), Before, bBeforeClosed,
+						After, bAfterClosed));
+				if (!Recorded)
+				{
+					Spline.SetSplinePoints(Before);
+					Spline.SetClosedLoop(bBeforeClosed);
+					return false;
+				}
+			}
 			return true;
 		}
 

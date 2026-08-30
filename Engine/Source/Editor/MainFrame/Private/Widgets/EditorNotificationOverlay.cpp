@@ -4,6 +4,7 @@
 #include "Editor/Notification.h"
 #include "Editor/Transaction.h"
 #include "Icons/FontAwesomeIcons.h"
+#include "Logging/LogMacros.h"
 #include "MonaImGui.h"
 #include "Profiling/Profiling.h"
 
@@ -495,8 +496,11 @@ namespace Durin::Editor::MainFrame
 				return bOffersRedo ? Transactions.GetRedoId() == Id : Transactions.GetUndoId() == Id;
 			};
 			Action.Invoke = [&Transactions, Id, bOffersRedo] {
-				if (bOffersRedo) Transactions.Redo(Id);
-				else Transactions.Undo(Id);
+				const auto Result = bOffersRedo
+					? Transactions.Redo(Id) : Transactions.Undo(Id);
+				if (!Result)
+					DURIN_ERROR("Unable to apply notification history action: {}",
+						Result.Message);
 			};
 			Desc.Action = std::move(Action);
 			Notifications.Post(std::move(Desc));

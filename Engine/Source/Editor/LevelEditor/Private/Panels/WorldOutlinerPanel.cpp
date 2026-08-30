@@ -1,5 +1,7 @@
 #include "Panels/WorldOutlinerPanel.h"
 
+#include "Logging/LogMacros.h"
+
 #include "DObject/Package.h"
 #include "Panels/ActorAttachmentTransaction.h"
 #include "Panels/WorldOutlinerPresentation.h"
@@ -280,7 +282,11 @@ namespace Durin::Editor::Level
 		}
 		if (Entries.empty()) return;
 		auto Transaction = std::make_unique<FActorVisibilityTransaction>(std::move(Entries), !bHidden);
-		if (GEditor) GEditor->GetTransactor()->Execute(std::move(Transaction));
+		if (GEditor)
+		{
+			const auto Result = GEditor->GetTransactor()->Execute(std::move(Transaction));
+			if (!Result) DURIN_ERROR("Unable to record actor visibility change: {}", Result.Message);
+		}
 		else Transaction->Redo();
 	}
 
@@ -349,7 +355,12 @@ namespace Durin::Editor::Level
 				else if (ImGui::MenuItem("Set as Primary Camera"))
 				{
 					auto Transaction = std::make_unique<FPrimaryCameraTransaction>(Context.Level, Context.Level->GetPrimaryCameraActor(), Camera);
-					if (GEditor) GEditor->GetTransactor()->Execute(std::move(Transaction));
+					if (GEditor)
+					{
+						const auto Result = GEditor->GetTransactor()->Execute(std::move(Transaction));
+						if (!Result) Context.SetError(Result.Message.empty()
+							? "Failed to set the primary camera." : Result.Message);
+					}
 					else Context.Level->SetPrimaryCameraActor(Camera);
 				}
 			}

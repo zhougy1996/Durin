@@ -4,7 +4,7 @@ Summary: Define the reflected editor transactor service, executable property rec
 
 Modules: DurinEd
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-08-31
 
 ## Service Ownership
 
@@ -22,8 +22,7 @@ invalidation, property editing, and domain commands all call the same
 
 One `Editor::FTransaction` owns a monotonic session identifier, the outermost
 scope's stable context and description, an optional primary object identity,
-and move-only record envelopes. A focused record validates the P0 serialization
-contract. A property object record additionally stores an exact object
+and move-only record envelopes. A property object record stores an exact object
 identity, stable top-level member locator, owned member-to-leaf path, change
 kind, logical identity, and retention-neutral before/after payloads. Envelopes
 contain no live container address. A custom-change record owns one
@@ -46,6 +45,34 @@ entire pending transaction. Empty scopes are no-ops and do not create history.
 explicit End and Cancel are idempotent after a successful close, and a close
 rejected for invalid nesting leaves the scope active so the caller can restore
 valid close order.
+
+### Everyday Object Editing
+
+Ordinary synchronous editor code uses the active editor transactor implicitly:
+
+```cpp
+Editor::FScopedTransaction Transaction("Move Actor");
+if (!Transaction.Modify(Actor)) return false;
+Actor->SetActorTransform(NewTransform);
+```
+
+`Modify(...)` captures every non-transient reflected member before the caller
+mutates the object. Ending the scope captures final values, removes unchanged
+member records, and commits the remaining executable before/after records as
+one transaction. Calling `Modify(...)` repeatedly for the same object in one
+scope is idempotent. `Cancel()` discards the history records; it does not revert
+mutations the caller has already applied.
+
+Tests, independent tools, and hosts without `GEditor` may use the explicit
+`FScopedTransaction(DTransactor*, FTransactionContext)` constructor. Direct
+`Record(...)` and `UpdateRecord(...)` are advanced property-editing entry points
+bound to the exact scope token. Custom file, asynchronous, creation/deletion,
+and domain-compensation operations continue to use `Execute(...)` or
+`CommitApplied(...)`.
+
+`FTransactorResult` and `CommitApplied(...)` are `[[nodiscard]]`. A caller that
+applies a mutation before recording it must handle a rejected history commit,
+normally by restoring the prior state.
 
 ## Structural History And Barriers
 

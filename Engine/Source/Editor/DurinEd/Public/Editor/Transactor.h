@@ -51,7 +51,7 @@ namespace Durin::Editor
 		Failed,
 	};
 
-	struct FTransactorResult
+	struct [[nodiscard]] FTransactorResult
 	{
 		ETransactorResultCode Code = ETransactorResultCode::Rejected;
 		FTransactionId TransactionId = 0;
@@ -72,18 +72,17 @@ namespace Durin::Editor
 		bool bInitialCheckpointValid = false;
 	};
 
-	// Data-only P1 envelope. Executable custom changes are deliberately deferred to P3.
+	// Owns one executable property record or domain-specific custom change.
 	class FTransactionRecord
 	{
 	public:
-		explicit FTransactionRecord(FFocusedTransactionObjectRecord Record)
-			: Data(std::move(Record)) {}
 		explicit FTransactionRecord(FTransactionObjectRecord Record)
 			: Data(std::move(Record)) {}
 		explicit FTransactionRecord(std::unique_ptr<ITransactionCustomChange> Change)
 			: Data(std::move(Change)) {}
 
 		DURINED_API auto Validate(std::string* OutError = nullptr) const -> bool;
+		auto IsNoOp() const -> bool;
 		DURINED_API auto Apply(
 			bool bBefore,
 			EPropertyChangeOrigin Origin,
@@ -97,9 +96,10 @@ namespace Durin::Editor
 		DURINED_API auto GetAffectedPackages() const -> std::span<DPackage* const>;
 		DURINED_API auto MutatesMountedContent() const -> bool;
 		DURINED_API auto IsOwnedByModule(std::string_view ModuleName) const -> bool;
+		DURINED_API auto GetObjectTarget() const -> DObject*;
 
 	private:
-		std::variant<FFocusedTransactionObjectRecord, FTransactionObjectRecord,
+		std::variant<FTransactionObjectRecord,
 			std::unique_ptr<ITransactionCustomChange>> Data;
 	};
 
@@ -116,11 +116,11 @@ namespace Durin::Editor
 		auto GetId() const -> FTransactionId { return Id; }
 		auto GetContext() const -> const FTransactionContext& { return Context; }
 		auto GetRecordCount() const -> size_t { return Records.size(); }
-		DURINED_API auto AddRecord(FFocusedTransactionObjectRecord Record) -> uint64;
 		DURINED_API auto AddRecord(FTransactionObjectRecord Record) -> uint64;
 		DURINED_API auto AddRecord(std::unique_ptr<ITransactionCustomChange> Change) -> uint64;
 		DURINED_API auto UpdateRecord(uint64 RecordId, FTransactionObjectRecord Record) -> bool;
 		DURINED_API auto TruncateRecords(size_t Count) -> void;
+		DURINED_API auto RemoveNoOpRecords() -> void;
 		DURINED_API auto Validate(std::string* OutError = nullptr) const -> bool;
 		DURINED_API auto Apply(
 			bool bUndo,
@@ -157,7 +157,7 @@ namespace Durin
 {
 	struct FTransBufferTestAccess;
 
-	// Defines the reflected editor recording boundary without serving application Undo/Redo in P1.
+	// Defines the reflected editor recording and Undo/Redo service boundary.
 	DCLASS(Abstract)
 	class DTransactor : public DObject
 	{
@@ -166,17 +166,18 @@ namespace Durin
 	public:
 		DURINED_API virtual auto Begin(const Editor::FTransactionContext& Context)
 			-> Editor::FTransactorResult;
-		DURINED_API virtual auto Record(Editor::FFocusedTransactionObjectRecord Record)
-			-> Editor::FTransactorResult;
-		DURINED_API virtual auto Record(Editor::FTransactionObjectRecord Record)
+		DURINED_API virtual auto Record(
+			Editor::FTransactionScopeId ScopeId,
+			Editor::FTransactionObjectRecord Record)
 			-> Editor::FTransactorResult;
 		DURINED_API virtual auto Execute(
 			std::unique_ptr<Editor::ITransactionCustomChange> Change,
 			bool bAlreadyApplied = false) -> Editor::FTransactorResult;
-		DURINED_API virtual auto CommitApplied(
+		[[nodiscard]] DURINED_API virtual auto CommitApplied(
 			std::unique_ptr<Editor::ITransactionCustomChange> Change)
 			-> Editor::FTransactorResult;
 		DURINED_API virtual auto UpdateRecord(
+			Editor::FTransactionScopeId ScopeId,
 			uint64 RecordId,
 			Editor::FTransactionObjectRecord Record) -> Editor::FTransactorResult;
 		DURINED_API virtual auto End(Editor::FTransactionScopeId ScopeId)
@@ -224,7 +225,7 @@ namespace Durin
 		DURINED_API explicit DTransactor(const FObjectInitializer& ObjectInitializer);
 	};
 
-	// Owns bounded P1 transaction data, structural history position, and GC-visible references.
+	// Owns bounded transaction data, structural history position, and GC-visible references.
 	DCLASS()
 	class DTransBuffer final : public DTransactor
 	{
@@ -234,14 +235,15 @@ namespace Durin
 		DURINED_API explicit DTransBuffer(const FObjectInitializer& ObjectInitializer);
 		DURINED_API auto Begin(const Editor::FTransactionContext& Context)
 			-> Editor::FTransactorResult override;
-		DURINED_API auto Record(Editor::FFocusedTransactionObjectRecord Record)
-			-> Editor::FTransactorResult override;
-		DURINED_API auto Record(Editor::FTransactionObjectRecord Record)
+		DURINED_API auto Record(
+			Editor::FTransactionScopeId ScopeId,
+			Editor::FTransactionObjectRecord Record)
 			-> Editor::FTransactorResult override;
 		DURINED_API auto Execute(
 			std::unique_ptr<Editor::ITransactionCustomChange> Change,
 			bool bAlreadyApplied = false) -> Editor::FTransactorResult override;
 		DURINED_API auto UpdateRecord(
+			Editor::FTransactionScopeId ScopeId,
 			uint64 RecordId,
 			Editor::FTransactionObjectRecord Record) -> Editor::FTransactorResult override;
 		DURINED_API auto End(Editor::FTransactionScopeId ScopeId)
@@ -362,10 +364,12 @@ namespace Durin
 
 namespace Durin::Editor
 {
-	// Move-only RAII boundary that closes exactly the scope token it successfully opened.
+	// Move-only RAII boundary with automatic reflected-object before/after recording.
 	class FScopedTransaction
 	{
 	public:
+		// Uses the editor's active transactor. An absent editor leaves the scope inactive.
+		DURINED_API explicit FScopedTransaction(std::string_view Description);
 		DURINED_API FScopedTransaction(DTransactor* Transactor, FTransactionContext Context);
 		DURINED_API ~FScopedTransaction();
 		FScopedTransaction(const FScopedTransaction&) = delete;
@@ -373,12 +377,26 @@ namespace Durin::Editor
 		DURINED_API FScopedTransaction(FScopedTransaction&& Other) noexcept;
 		DURINED_API auto operator=(FScopedTransaction&& Other) noexcept
 			-> FScopedTransaction&;
+		// Captures every non-transient reflected member before mutation and records its
+		// final value when the scope ends. Repeated calls for one object are idempotent.
+		[[nodiscard]] DURINED_API auto Modify(DObject* Object) -> FTransactorResult;
+		[[nodiscard]] auto Modify(DObject& Object) -> FTransactorResult { return Modify(&Object); }
+		// Advanced property-editing entry points keep records bound to this exact scope.
+		[[nodiscard]] DURINED_API auto Record(FTransactionObjectRecord Record)
+			-> FTransactorResult;
+		[[nodiscard]] DURINED_API auto UpdateRecord(
+			uint64 RecordId,
+			FTransactionObjectRecord Record) -> FTransactorResult;
 		DURINED_API auto End() -> FTransactorResult;
 		DURINED_API auto Cancel() -> FTransactorResult;
 		auto IsActive() const -> bool { return Transactor != nullptr && ScopeId != 0; }
 
 	private:
+		struct FModifiedProperty;
+		auto PrepareModifiedRecords() -> FTransactorResult;
+
 		DTransactor* Transactor = nullptr;
 		FTransactionScopeId ScopeId = 0;
+		std::vector<std::unique_ptr<FModifiedProperty>> ModifiedProperties;
 	};
 }

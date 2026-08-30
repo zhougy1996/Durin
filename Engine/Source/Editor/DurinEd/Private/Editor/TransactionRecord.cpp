@@ -123,11 +123,11 @@ namespace Durin::Editor
 		return Property;
 	}
 
-	auto FFocusedTransactionObjectRecord::Capture(
+	auto FFocusedTransactionObjectSnapshot::Capture(
 		DObject* InTarget,
 		const FProperty* MemberProperty,
 		uint32 ArrayIndex,
-		FFocusedTransactionObjectRecord& OutRecord,
+		FFocusedTransactionObjectSnapshot& OutSnapshot,
 		std::string* OutError
 	) -> bool
 	{
@@ -135,32 +135,32 @@ namespace Durin::Editor
 		if (!IsValid(InTarget))
 			return Fail(OutError, "Cannot capture a focused record for an invalid target.");
 
-		FFocusedTransactionObjectRecord Record;
-		Record.Target = FPersistentObjectRef(InTarget);
+		FFocusedTransactionObjectSnapshot Snapshot;
+		Snapshot.Target = FPersistentObjectRef(InTarget);
 		if (!FTransactionMemberLocator::Capture(
-			MemberProperty, ArrayIndex, Record.Member, OutError)) return false;
-		if (Record.Member.Resolve(InTarget, OutError) != MemberProperty)
+			MemberProperty, ArrayIndex, Snapshot.Member, OutError)) return false;
+		if (Snapshot.Member.Resolve(InTarget, OutError) != MemberProperty)
 			return Fail(OutError, "Focused transaction member does not belong to the target class.");
 		if (!CapturePropertyValuePayload(
-			MemberProperty, InTarget, ArrayIndex, Record.Payload, OutError)) return false;
+			MemberProperty, InTarget, ArrayIndex, Snapshot.Payload, OutError)) return false;
 
-		for (FObjectHandle Handle : Record.Payload.GetReferencedObjectHandles())
+		for (FObjectHandle Handle : Snapshot.Payload.GetReferencedObjectHandles())
 		{
 			const FPersistentObjectRef Reference = FPersistentObjectRef::FromHandle(Handle);
-			if (Reference != Record.Target) Record.HardReferences.Add(Reference);
+			if (Reference != Snapshot.Target) Snapshot.HardReferences.Add(Reference);
 		}
-		OutRecord = std::move(Record);
+		OutSnapshot = std::move(Snapshot);
 		return true;
 	}
 
-	auto FFocusedTransactionObjectRecord::AddReferencedObjects(
+	auto FFocusedTransactionObjectSnapshot::AddReferencedObjects(
 		FReferenceCollector& Collector) const -> void
 	{
 		Target.AddReferencedObjects(Collector);
 		HardReferences.AddReferencedObjects(Collector);
 	}
 
-	auto FFocusedTransactionObjectRecord::RestoreDetached(
+	auto FFocusedTransactionObjectSnapshot::RestoreDetached(
 		FReflectedValueStorage& OutStorage,
 		std::string* OutError
 	) const -> bool
@@ -181,7 +181,7 @@ namespace Durin::Editor
 		return true;
 	}
 
-	auto FFocusedTransactionObjectRecord::TryGetAllocatedSize(size_t& OutBytes) const -> bool
+	auto FFocusedTransactionObjectSnapshot::TryGetAllocatedSize(size_t& OutBytes) const -> bool
 	{
 		size_t PayloadBytes = 0;
 		size_t ReferenceBytes = 0;

@@ -79,14 +79,14 @@ namespace Durin::Editor
 	};
 
 	// Stores one participant's focused member state without retaining live storage addresses.
-	class FFocusedTransactionObjectRecord
+	class FFocusedTransactionObjectSnapshot
 	{
 	public:
 		DURINED_API static auto Capture(
 			DObject* Target,
 			const FProperty* MemberProperty,
 			uint32 ArrayIndex,
-			FFocusedTransactionObjectRecord& OutRecord,
+			FFocusedTransactionObjectSnapshot& OutSnapshot,
 			std::string* OutError = nullptr) -> bool;
 
 		auto GetTarget() const -> const FPersistentObjectRef& { return Target; }

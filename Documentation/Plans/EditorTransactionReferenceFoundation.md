@@ -2,7 +2,7 @@
 
 Summary: Establish exact transaction participant identity, GC-enumerable non-reflected records, and root-free focused snapshot primitives without changing the active editor history.
 
-Last reviewed: 2026-08-30
+Last reviewed: 2026-08-31
 
 Status: Completed
 Completed: 2026-08-30
@@ -16,7 +16,7 @@ payload and now owns copyable `TStrongObjectPtr` references.
 
 `DurinEd` now provides `FPersistentObjectRef`, a deduplicated transaction
 reference set, a stable top-level member locator, and
-`FFocusedTransactionObjectRecord`. Reachable native record owners enumerate
+`FFocusedTransactionObjectSnapshot`. Reachable native snapshot owners enumerate
 exact live target and hard-value identities through `FReferenceCollector`;
 weak and soft values remain non-retaining. Focused restore resolves and checks
 the current member, then decodes only into detached reflected storage.

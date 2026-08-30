@@ -760,7 +760,7 @@ namespace Durin::Editor
 				Reset();
 				return false;
 			}
-			const FTransactorResult RecordResult = Transactor->Record(std::move(Record));
+			const FTransactorResult RecordResult = TransactionScope->Record(std::move(Record));
 			if (!RecordResult)
 			{
 				(void)TransactionScope->Cancel();
@@ -898,7 +898,7 @@ namespace Durin::Editor
 		if (!FTransactionObjectRecord::Capture(
 			Target, OriginalValue, CurrentValue, Record, OutError)) return false;
 		const FTransactorResult Result =
-			Transactor->UpdateRecord(TransactionRecordId, std::move(Record));
+			TransactionScope->UpdateRecord(TransactionRecordId, std::move(Record));
 		if (Result) return true;
 		return Fail(Result.Message.empty()
 			? "The reflected-property transactor rejected the record update."

@@ -1,6 +1,9 @@
 #include "Editor/Transactor.h"
 
+#include "Editor/EditorEngine.h"
+#include "Editor/PropertyEditing.h"
 #include "DObject/Archive.h"
+#include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "DObject/Property.h"
@@ -23,12 +26,7 @@ namespace Durin::Editor
 	{
 		return std::visit([&](const auto& Record) {
 			using T = std::decay_t<decltype(Record)>;
-			if constexpr (std::is_same_v<T, FFocusedTransactionObjectRecord>)
-			{
-				FReflectedValueStorage Storage;
-				return Record.RestoreDetached(Storage, OutError);
-			}
-			else if constexpr (std::is_same_v<T, FTransactionObjectRecord>)
+			if constexpr (std::is_same_v<T, FTransactionObjectRecord>)
 				return Record.Validate(OutError);
 			else
 			{
@@ -39,6 +37,13 @@ namespace Durin::Editor
 		}, Data);
 	}
 
+	auto FTransactionRecord::IsNoOp() const -> bool
+	{
+		if (const auto* Record = std::get_if<FTransactionObjectRecord>(&Data))
+			return Record->IsNoOp();
+		return false;
+	}
+
 	auto FTransactionRecord::Apply(
 		bool bBefore,
 		EPropertyChangeOrigin Origin,
@@ -46,9 +51,7 @@ namespace Durin::Editor
 	{
 		return std::visit([&](auto& Record) {
 			using T = std::decay_t<decltype(Record)>;
-			if constexpr (std::is_same_v<T, FFocusedTransactionObjectRecord>)
-				return Validate(OutError);
-			else if constexpr (std::is_same_v<T, FTransactionObjectRecord>)
+			if constexpr (std::is_same_v<T, FTransactionObjectRecord>)
 				return Record.Apply(bBefore, Origin, OutError);
 			else
 			{
@@ -150,16 +153,17 @@ namespace Durin::Editor
 		return false;
 	}
 
+	auto FTransactionRecord::GetObjectTarget() const -> DObject*
+	{
+		if (const auto* Record = std::get_if<FTransactionObjectRecord>(&Data))
+			return Record->GetTarget().Resolve();
+		return nullptr;
+	}
+
 	FTransaction::FTransaction(FTransactionId InId, FTransactionContext InContext)
 		: Id(InId)
 		, Context(std::move(InContext))
 	{
-	}
-
-	auto FTransaction::AddRecord(FFocusedTransactionObjectRecord Record) -> uint64
-	{
-		Records.emplace_back(std::move(Record));
-		return Records.size();
 	}
 
 	auto FTransaction::AddRecord(FTransactionObjectRecord Record) -> uint64
@@ -186,6 +190,13 @@ namespace Durin::Editor
 	auto FTransaction::TruncateRecords(size_t Count) -> void
 	{
 		if (Count < Records.size()) Records.erase(Records.begin() + Count, Records.end());
+	}
+
+	auto FTransaction::RemoveNoOpRecords() -> void
+	{
+		std::erase_if(Records, [](const FTransactionRecord& Record) {
+			return Record.IsNoOp();
+		});
 	}
 
 	auto FTransaction::Validate(std::string* OutError) const -> bool
@@ -282,9 +293,17 @@ namespace Durin::Editor
 		if (DObject* Primary = Context.PrimaryObject.Resolve())
 			if (DPackage* Package = Primary->GetPackage()) Packages.push_back(Package);
 		for (const FTransactionRecord& Record : Records)
+		{
+			if (DObject* Object = Record.GetObjectTarget())
+			{
+				DPackage* Package = Object->GetPackage();
+				if (Package && std::ranges::find(Packages, Package) == Packages.end())
+					Packages.push_back(Package);
+			}
 			for (DPackage* Package : Record.GetAffectedPackages())
 				if (Package && std::ranges::find(Packages, Package) == Packages.end())
 					Packages.push_back(Package);
+		}
 		return Packages;
 	}
 
@@ -348,6 +367,21 @@ namespace Durin::Editor
 		return true;
 	}
 
+	struct FScopedTransaction::FModifiedProperty
+	{
+		FPropertyEditTarget Target;
+		FPropertyValueSnapshotPayload Before;
+		uint64 RecordId = 0;
+	};
+
+	FScopedTransaction::FScopedTransaction(std::string_view Description)
+		: FScopedTransaction(GEditor ? GEditor->GetTransactor() : nullptr, {
+			.Name = "ScopedTransaction",
+			.Description = std::string(Description),
+		})
+	{
+	}
+
 	FScopedTransaction::FScopedTransaction(
 		DTransactor* InTransactor,
 		FTransactionContext Context)
@@ -367,6 +401,7 @@ namespace Durin::Editor
 	FScopedTransaction::FScopedTransaction(FScopedTransaction&& Other) noexcept
 		: Transactor(std::exchange(Other.Transactor, nullptr))
 		, ScopeId(std::exchange(Other.ScopeId, 0))
+		, ModifiedProperties(std::move(Other.ModifiedProperties))
 	{
 	}
 
@@ -377,18 +412,151 @@ namespace Durin::Editor
 		if (IsActive()) (void)End();
 		Transactor = std::exchange(Other.Transactor, nullptr);
 		ScopeId = std::exchange(Other.ScopeId, 0);
+		ModifiedProperties = std::move(Other.ModifiedProperties);
 		return *this;
+	}
+
+	auto FScopedTransaction::Modify(DObject* Object) -> FTransactorResult
+	{
+		if (!IsActive())
+			return {.Code = ETransactorResultCode::Rejected,
+				.Message = "Object modification requires an active transaction scope."};
+		if (!IsValid(Object))
+			return {.Code = ETransactorResultCode::Rejected,
+				.TransactionId = 0, .ScopeId = ScopeId,
+				.Message = "The transaction object is invalid."};
+		if (std::ranges::any_of(ModifiedProperties, [&](const auto& Modified) {
+			return Modified->Target.Object == Object;
+		}))
+		{
+			return {.Code = ETransactorResultCode::Succeeded, .ScopeId = ScopeId};
+		}
+
+		std::vector<std::unique_ptr<FModifiedProperty>> Captured;
+		FTransactorResult Failure{
+			.Code = ETransactorResultCode::NoOp,
+			.ScopeId = ScopeId,
+			.Message = "The object has no transaction-capable reflected members."};
+		Object->GetClass()->ForEachProperty([&](FProperty* Property) {
+			if (Failure.Code == ETransactorResultCode::Failed || !Property
+				|| Property->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
+			for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
+			{
+				auto Modified = std::make_unique<FModifiedProperty>();
+				Modified->Target = FPropertyEditTarget::ForMember(Object, Property, ArrayIndex);
+				std::string Error;
+				if (!CapturePropertyValuePayload(
+						Property, Object, ArrayIndex, Modified->Before, &Error))
+				{
+					Failure = {.Code = ETransactorResultCode::Failed, .ScopeId = ScopeId,
+						.Message = std::format("Unable to capture '{}': {}",
+							Property->NamePrivate.ToString(), Error)};
+					return;
+				}
+				FTransactionObjectRecord ObjectRecord;
+				if (!FTransactionObjectRecord::Capture(
+						Modified->Target, Modified->Before, Modified->Before, ObjectRecord, &Error))
+				{
+					Failure = {.Code = ETransactorResultCode::Failed, .ScopeId = ScopeId,
+						.Message = std::format("Unable to prepare '{}': {}",
+							Property->NamePrivate.ToString(), Error)};
+					return;
+				}
+				FTransactorResult RecordResult = Record(std::move(ObjectRecord));
+				if (!RecordResult)
+				{
+					Failure = std::move(RecordResult);
+					return;
+				}
+				Modified->RecordId = RecordResult.RecordId;
+				Captured.push_back(std::move(Modified));
+				Failure = {.Code = ETransactorResultCode::Succeeded, .ScopeId = ScopeId};
+			}
+		});
+		if (!Failure)
+		{
+			if (Failure.Code == ETransactorResultCode::Failed && IsActive())
+			{
+				const FTransactorResult CancelResult = Cancel();
+				if (CancelResult.Code == ETransactorResultCode::Rejected)
+					Failure.Message += std::format(" Scope cancellation also failed: {}",
+						CancelResult.Message);
+			}
+			return Failure;
+		}
+		ModifiedProperties.insert(ModifiedProperties.end(),
+			std::make_move_iterator(Captured.begin()),
+			std::make_move_iterator(Captured.end()));
+		return Failure;
+	}
+
+	auto FScopedTransaction::Record(FTransactionObjectRecord Record) -> FTransactorResult
+	{
+		if (!IsActive())
+			return {.Code = ETransactorResultCode::Rejected,
+				.Message = "Recording requires an active transaction scope."};
+		return Transactor->Record(ScopeId, std::move(Record));
+	}
+
+	auto FScopedTransaction::UpdateRecord(
+		uint64 RecordId,
+		FTransactionObjectRecord Record) -> FTransactorResult
+	{
+		if (!IsActive())
+			return {.Code = ETransactorResultCode::Rejected,
+				.Message = "Record updates require an active transaction scope."};
+		return Transactor->UpdateRecord(ScopeId, RecordId, std::move(Record));
+	}
+
+	auto FScopedTransaction::PrepareModifiedRecords() -> FTransactorResult
+	{
+		for (const auto& Modified : ModifiedProperties)
+		{
+			if (!IsValid(Modified->Target.Object))
+				return {.Code = ETransactorResultCode::Failed, .ScopeId = ScopeId,
+					.Message = "A modified transaction object became invalid before commit."};
+			FPropertyValueSnapshotPayload After;
+			std::string Error;
+			if (!CapturePropertyValuePayload(Modified->Target.SnapshotProperty,
+					Modified->Target.SnapshotContainer,
+					Modified->Target.SnapshotArrayIndex, After, &Error))
+			{
+				return {.Code = ETransactorResultCode::Failed, .ScopeId = ScopeId,
+					.Message = std::format("Unable to capture the final value of '{}': {}",
+						Modified->Target.MemberProperty->NamePrivate.ToString(), Error)};
+			}
+			FTransactionObjectRecord Record;
+			if (!FTransactionObjectRecord::Capture(Modified->Target,
+					Modified->Before, std::move(After), Record, &Error))
+			{
+				return {.Code = ETransactorResultCode::Failed, .ScopeId = ScopeId,
+					.Message = std::format("Unable to finalize '{}': {}",
+						Modified->Target.MemberProperty->NamePrivate.ToString(), Error)};
+			}
+			FTransactorResult Result = UpdateRecord(Modified->RecordId, std::move(Record));
+			if (!Result) return Result;
+		}
+		return {.Code = ETransactorResultCode::Succeeded, .ScopeId = ScopeId};
 	}
 
 	auto FScopedTransaction::End() -> FTransactorResult
 	{
 		if (!IsActive())
 			return {.Code = ETransactorResultCode::NoOp, .Message = "Transaction scope is inactive."};
+		const FTransactorResult Prepared = PrepareModifiedRecords();
+		if (!Prepared)
+		{
+			const FTransactorResult Failure = Prepared;
+			const FTransactorResult CancelResult = Cancel();
+			if (CancelResult.Code == ETransactorResultCode::Rejected) return CancelResult;
+			return Failure;
+		}
 		const FTransactorResult Result = Transactor->End(ScopeId);
 		if (Result.Code != ETransactorResultCode::Rejected)
 		{
 			Transactor = nullptr;
 			ScopeId = 0;
+			ModifiedProperties.clear();
 		}
 		return Result;
 	}
@@ -402,6 +570,7 @@ namespace Durin::Editor
 		{
 			Transactor = nullptr;
 			ScopeId = 0;
+			ModifiedProperties.clear();
 		}
 		return Result;
 	}
@@ -426,15 +595,14 @@ namespace Durin
 	}
 
 	auto DTransactor::Begin(const FTransactionContext&) -> FTransactorResult { return Unsupported(); }
-	auto DTransactor::Record(FFocusedTransactionObjectRecord) -> FTransactorResult { return Unsupported(); }
-	auto DTransactor::Record(FTransactionObjectRecord) -> FTransactorResult { return Unsupported(); }
+	auto DTransactor::Record(FTransactionScopeId, FTransactionObjectRecord) -> FTransactorResult { return Unsupported(); }
 	auto DTransactor::Execute(std::unique_ptr<ITransactionCustomChange>, bool) -> FTransactorResult { return Unsupported(); }
 	auto DTransactor::CommitApplied(std::unique_ptr<ITransactionCustomChange> Change)
 		-> FTransactorResult
 	{
 		return Execute(std::move(Change), true);
 	}
-	auto DTransactor::UpdateRecord(uint64, FTransactionObjectRecord) -> FTransactorResult { return Unsupported(); }
+	auto DTransactor::UpdateRecord(FTransactionScopeId, uint64, FTransactionObjectRecord) -> FTransactorResult { return Unsupported(); }
 	auto DTransactor::End(FTransactionScopeId) -> FTransactorResult { return Unsupported(); }
 	auto DTransactor::Cancel(FTransactionScopeId) -> FTransactorResult { return Unsupported(); }
 	auto DTransactor::Undo() -> FTransactorResult { return Unsupported(); }
@@ -504,22 +672,15 @@ namespace Durin
 			.TransactionId = Pending->GetId(), .ScopeId = ScopeId};
 	}
 
-	auto DTransBuffer::Record(FFocusedTransactionObjectRecord Record) -> FTransactorResult
+	auto DTransBuffer::Record(
+		FTransactionScopeId ScopeId,
+		FTransactionObjectRecord Record) -> FTransactorResult
 	{
 		CheckThread();
 		if (State != ETransactorState::Recording || !Pending || Savepoints.empty())
 			return Reject("Record requires an active transaction scope.");
-		const uint64 RecordId = Pending->AddRecord(std::move(Record));
-		return {.Code = ETransactorResultCode::Succeeded,
-			.TransactionId = Pending->GetId(), .ScopeId = Savepoints.back().ScopeId,
-			.RecordId = RecordId};
-	}
-
-	auto DTransBuffer::Record(FTransactionObjectRecord Record) -> FTransactorResult
-	{
-		CheckThread();
-		if (State != ETransactorState::Recording || !Pending || Savepoints.empty())
-			return Reject("Record requires an active transaction scope.");
+		if (Savepoints.back().ScopeId != ScopeId)
+			return Reject("Records must be added to the innermost transaction scope.");
 		const uint64 RecordId = Pending->AddRecord(std::move(Record));
 		return {.Code = ETransactorResultCode::Succeeded,
 			.TransactionId = Pending->GetId(), .ScopeId = Savepoints.back().ScopeId,
@@ -580,12 +741,15 @@ namespace Durin
 	}
 
 	auto DTransBuffer::UpdateRecord(
+		FTransactionScopeId ScopeId,
 		uint64 RecordId,
 		FTransactionObjectRecord Record) -> FTransactorResult
 	{
 		CheckThread();
 		if (State != ETransactorState::Recording || !Pending || Savepoints.empty())
 			return Reject("Record update requires an active transaction scope.");
+		if (Savepoints.back().ScopeId != ScopeId)
+			return Reject("Records must be updated by the innermost transaction scope.");
 		if (!Pending->UpdateRecord(RecordId, std::move(Record)))
 			return Reject("The pending transaction record identifier is unavailable.");
 		return {.Code = ETransactorResultCode::Succeeded,
@@ -638,6 +802,7 @@ namespace Durin
 	auto DTransBuffer::FinalizePending() -> FTransactorResult
 	{
 		const FTransactionId TransactionId = Pending->GetId();
+		Pending->RemoveNoOpRecords();
 		if (Pending->GetRecordCount() == 0)
 		{
 			QueueEvent(ETransactionEventType::Discarded, *Pending, "The transaction contained no records.");
