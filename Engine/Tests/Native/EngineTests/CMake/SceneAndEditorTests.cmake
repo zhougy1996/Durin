@@ -97,6 +97,7 @@ durin_add_engine_functional_test(RendererResourceReloadVulkanTests
 )
 
 durin_add_engine_functional_test(StaticMeshRenderPreparationVulkanTests
+	EDITOR_ONLY
 	KIND integration
 	DOMAINS static-mesh
 	MODULES engine renderer
@@ -206,6 +207,7 @@ durin_add_engine_functional_test(EditorRenderingTests
 
 if(NOT APPLE OR DURIN_ENABLE_APPLICATION_TESTS)
 	durin_add_engine_functional_test(EditorGridVulkanTests
+		EDITOR_ONLY
 		EXECUTION_HOST application
 		KIND integration
 		DOMAINS renderer viewport
@@ -224,6 +226,7 @@ if(NOT APPLE OR DURIN_ENABLE_APPLICATION_TESTS)
 	)
 
 	durin_add_engine_functional_test(VolumetricCloudVulkanTests
+		EDITOR_ONLY
 		EXECUTION_HOST application
 		KIND integration
 		DOMAINS renderer
@@ -242,6 +245,7 @@ if(NOT APPLE OR DURIN_ENABLE_APPLICATION_TESTS)
 	)
 
 	durin_add_engine_functional_test(VolumetricCloudSceneVulkanTests
+		EDITOR_ONLY
 		EXECUTION_HOST application
 		KIND integration
 		DOMAINS renderer viewport

@@ -318,6 +318,7 @@ durin_add_engine_functional_test(SkeletalSceneLifecycleTests
 )
 
 durin_add_engine_functional_test(SkeletalMeshRenderResourcesVulkanTests
+	EDITOR_ONLY
 	KIND integration
 	DOMAINS skeletal-mesh
 	MODULES engine renderer

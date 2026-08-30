@@ -121,6 +121,7 @@ durin_add_engine_functional_test(TerrainRenderPrimitiveTests
 )
 
 durin_add_engine_functional_test(TerrainRenderVulkanTests
+	EDITOR_ONLY
 	KIND integration
 	DOMAINS terrain
 	MODULES engine renderer

@@ -4,7 +4,6 @@
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
-#include "AssetMaintenance/CompatibilityAudit.h"
 #if DURIN_WITH_EDITOR
 	#include "AssetMaintenance/CompatibilityAudit.h"
 	#include "AssetMaintenance/CanonicalResave.h"
@@ -1598,6 +1597,7 @@ namespace
 		return false;
 	}
 
+#if DURIN_WITH_EDITOR
 	auto MakeCompatibilityProbeInput(
 		const Durin::FAssetPath& PackagePath,
 		const std::filesystem::path& PhysicalPath
@@ -1616,6 +1616,7 @@ namespace
 			.ExpectedLastWriteTimeTicks = Durin::FileTime::ToStableTicks(LastWriteTime),
 			.ExpectedContentHash = Durin::FXxHash128::HashBuffer(Bytes)};
 	}
+#endif
 
 	auto HexDigit(char Character) -> uint8
 	{
