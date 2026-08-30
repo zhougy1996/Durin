@@ -11,15 +11,6 @@
 
 namespace Durin
 {
-	namespace
-	{
-		auto CanonicalizeRenderGraphFrameCloudQuality(
-			EVolumetricCloudQuality Quality) -> EVolumetricCloudQuality
-		{
-			return Quality < EVolumetricCloudQuality::Count
-				? Quality : EVolumetricCloudQuality::High;
-		}
-	} // namespace
 
 	auto FVolumetricCloudShadowGraphContributor::AddPasses(
 		const FCloudShadowGraphInputs& Inputs) -> FCloudShadowGraphOutput
@@ -457,7 +448,7 @@ namespace Durin
 		const bool bForceFragment =
 			Qualification.bForceFragmentVolumetricCloud;
 		if (bForceFragment) ComputeTargets = nullptr;
-		const auto QualityTier = CanonicalizeRenderGraphFrameCloudQuality(
+		const auto QualityTier = CanonicalizeVolumetricCloudQuality(
 			Inputs.View.Settings.VolumetricCloud.Quality);
 		const auto Result = VolumetricCloudShadowRenderer.Render_RenderThread(
 			CommandList, FragmentTargets, ComputeTargets,
@@ -536,7 +527,7 @@ namespace Durin
 									&& Weather != nullptr
 									&& ResolvedCloud->Textures.DensitySampler != nullptr
 									&& Depth != nullptr;
-		const auto QualityTier = CanonicalizeRenderGraphFrameCloudQuality(
+		const auto QualityTier = CanonicalizeVolumetricCloudQuality(
 			View.Settings.VolumetricCloud.Quality);
 		const auto Quality = FVolumetricCloudSpatialRenderer::ResolveQualityPolicy(
 			QualityTier
@@ -607,7 +598,7 @@ namespace Durin
 		check(!CommandList.IsInsideRenderPass());
 		const FSceneView& View = Inputs.View;
 		const FPreparedVolumetricCloud* Cloud = Inputs.Cloud;
-		const auto QualityTier = CanonicalizeRenderGraphFrameCloudQuality(
+		const auto QualityTier = CanonicalizeVolumetricCloudQuality(
 			View.Settings.VolumetricCloud.Quality);
 		auto& ViewTelemetry = Telemetry.View;
 		FRHITexture* CurrentCloud = Spatial.Route

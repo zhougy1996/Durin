@@ -534,10 +534,8 @@ namespace Durin
 			&& PreparedView.VolumetricCloud
 			&& PreparedView.VolumetricCloud->Textures.BaseDensity
 			&& PreparedView.VolumetricCloud->Textures.DetailDensity;
-		const auto CloudQuality = View.Settings.VolumetricCloud.Quality
-			< EVolumetricCloudQuality::Count
-			? View.Settings.VolumetricCloud.Quality
-			: EVolumetricCloudQuality::High;
+		const auto CloudQuality = CanonicalizeVolumetricCloudQuality(
+			View.Settings.VolumetricCloud.Quality);
 		const auto CloudPolicy =
 			FVolumetricCloudSpatialRenderer::ResolveQualityPolicy(CloudQuality);
 		const auto CloudExtent =

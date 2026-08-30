@@ -59,20 +59,6 @@ namespace Durin
 			FSceneViewState* State = nullptr;
 		};
 
-		auto CanonicalizeRenderGraphFrameCloudQuality(EVolumetricCloudQuality Quality)
-			-> EVolumetricCloudQuality
-		{
-			return Quality < EVolumetricCloudQuality::Count
-				? Quality : EVolumetricCloudQuality::High;
-		}
-
-		auto CanonicalizeRenderGraphFrameCloudDebugMode(EVolumetricCloudDebugMode Mode)
-			-> EVolumetricCloudDebugMode
-		{
-			return Mode < EVolumetricCloudDebugMode::Count
-				? Mode : EVolumetricCloudDebugMode::Lit;
-		}
-
 		auto GetViewportOutput(bool bPresent)
 			-> RenderTargetLayouts::EViewportOutput
 		{
@@ -127,9 +113,9 @@ namespace Durin
 		if (RenderSubmissionSerial != std::numeric_limits<uint64>::max())
 			++RenderSubmissionSerial;
 		Telemetry.View.VolumetricCloud.VolumetricCloudQuality =
-			CanonicalizeRenderGraphFrameCloudQuality(View.Settings.VolumetricCloud.Quality);
+			CanonicalizeVolumetricCloudQuality(View.Settings.VolumetricCloud.Quality);
 		Telemetry.View.VolumetricCloud.VolumetricCloudDebugMode =
-			CanonicalizeRenderGraphFrameCloudDebugMode(View.Settings.VolumetricCloud.DebugMode);
+			CanonicalizeVolumetricCloudDebugMode(View.Settings.VolumetricCloud.DebugMode);
 		FSceneTelemetryPublication TelemetryPublication(
 			Telemetry, OutStatistics
 		);
@@ -320,7 +306,7 @@ namespace Durin
 						ResolvedFrame.VolumetricCloud->Textures.DensitySampler,
 					.Parameters = PreparedView.VolumetricCloud->Parameters,
 					.View = &RenderView,
-					.QualityTier = CanonicalizeRenderGraphFrameCloudQuality(
+					.QualityTier = CanonicalizeVolumetricCloudQuality(
 						RenderView.Settings.VolumetricCloud.Quality),
 					.Width = Width, .Height = Height},
 				{.bPreparationOnly = true,
@@ -348,7 +334,7 @@ namespace Durin
 					.Textures = Textures,
 					.Parameters = PreparedView.VolumetricCloud->Parameters,
 					.View = &RenderView,
-					.QualityTier = CanonicalizeRenderGraphFrameCloudQuality(
+					.QualityTier = CanonicalizeVolumetricCloudQuality(
 						RenderView.Settings.VolumetricCloud.Quality),
 					.SuccessfulSequence = TemporalContext.SuccessfulSequence,
 					.Width = static_cast<uint32>(std::max(

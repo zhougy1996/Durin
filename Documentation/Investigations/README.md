@@ -24,11 +24,6 @@
 - [PBR pipeline production gaps](PBRPipelineProductionGaps.md) —
   HDR output, render passes, scene-lighting ownership, and stale editor controls
   retain ranked end-to-end gaps.
-- [PSO cache for render-graph expansion](PSOCacheForRenderGraphExpansion.md) —
-  Renderer-owned PSOs are sufficient today, but RDG work must measure duplicate
-  creation, critical-path cost, and working-set growth before selecting cache,
-  eviction, or precaching policy.
-
 This index lists verified unresolved investigations only. Authoring and
 lifecycle rules are in `AGENTS.md`; resolved history belongs in Git, an archived
 implementation plan, and the resulting runtime, editor, development, or

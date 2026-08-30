@@ -909,9 +909,8 @@ namespace Durin
 		Uniform.Viewport[2] = static_cast<float>(View.ViewportWidth);
 		Uniform.Viewport[3] = static_cast<float>(View.ViewportHeight);
 		const EVolumetricCloudDebugMode DebugMode =
-			View.Settings.VolumetricCloud.DebugMode < EVolumetricCloudDebugMode::Count
-				? View.Settings.VolumetricCloud.DebugMode
-				: EVolumetricCloudDebugMode::Lit;
+			CanonicalizeVolumetricCloudDebugMode(
+				View.Settings.VolumetricCloud.DebugMode);
 		Uniform.Debug[0] = static_cast<float>(DebugMode);
 		Uniform.Debug[1] = !bHistoryAvailable ? -1.0f
 			: bHistoryAccepted ? 1.0f : 0.0f;

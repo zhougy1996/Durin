@@ -14,6 +14,13 @@ namespace Durin
 		Count,
 	};
 
+	[[nodiscard]] constexpr auto CanonicalizeVolumetricCloudQuality(
+		EVolumetricCloudQuality Quality) -> EVolumetricCloudQuality
+	{
+		return Quality < EVolumetricCloudQuality::Count
+			? Quality : EVolumetricCloudQuality::High;
+	}
+
 	// Development presentation for one view. These modes never mutate authored content.
 	enum class EVolumetricCloudDebugMode : uint8
 	{
@@ -24,6 +31,13 @@ namespace Durin
 		ShadowVisibility,
 		Count,
 	};
+
+	[[nodiscard]] constexpr auto CanonicalizeVolumetricCloudDebugMode(
+		EVolumetricCloudDebugMode Mode) -> EVolumetricCloudDebugMode
+	{
+		return Mode < EVolumetricCloudDebugMode::Count
+			? Mode : EVolumetricCloudDebugMode::Lit;
+	}
 
 	enum class EVolumetricCloudExecutionRoute : uint8
 	{
