@@ -190,9 +190,18 @@ TEST(FCookedMeshLoadManagerTests,
 	CollectGarbage();
 	EXPECT_EQ(Manager.GetDiagnostics().PendingRequestCount, 1u);
 	EXPECT_EQ(Manager.GetDiagnostics().PendingRequestEstimatedBytes, 4u);
+	const auto RetireDeadline =
+		std::chrono::steady_clock::now() + std::chrono::seconds(10);
+	while (!Resources[2]->IsRetired()
+		&& std::chrono::steady_clock::now() < RetireDeadline)
+	{
+		std::this_thread::yield();
+	}
+	const bool bRetirementStarted = Resources[2]->IsRetired();
 
 	for (const auto& Resource : Resources) Resource->Release();
 	RetireThread.join();
+	ASSERT_TRUE(bRetirementStarted);
 	ASSERT_TRUE(PumpUntil(Manager, [&] { return SuccessorResource->HasStarted(); }));
 	SuccessorResource->Release();
 
