@@ -80,6 +80,7 @@ durin_add_render_functional_test(RenderShaderContractTests
 		Private/ShaderFoundationTests.cpp
 		Private/ShaderReflectionTests.cpp
 	PRIVATE_SOURCES
+		${_durin_shader_build_private_dir}/SlangSessionEnvironment.cpp
 		${_durin_shader_build_private_dir}/SlangShaderCompiler.cpp
 		${_durin_shader_build_private_dir}/ShaderCompileUtilities.cpp
 		${_durin_shader_build_private_dir}/SlangShaderDependencyResolver.cpp
@@ -97,6 +98,7 @@ durin_add_render_functional_test(RenderShaderCacheTests
 	USE_SLANG
 	SOURCES Private/ShaderDerivedDataTests.cpp
 	PRIVATE_SOURCES
+		${_durin_shader_build_private_dir}/SlangSessionEnvironment.cpp
 		${_durin_shader_build_private_dir}/SlangShaderCompiler.cpp
 		${_durin_shader_build_private_dir}/ShaderCompileUtilities.cpp
 		${_durin_shader_build_private_dir}/ShaderDependencyManifestStore.cpp
@@ -113,6 +115,7 @@ durin_add_render_functional_test(RenderShaderServiceTests
 	USE_SLANG
 	SOURCES Private/ShaderCompileServiceTests.cpp
 	PRIVATE_SOURCES
+		${_durin_shader_build_private_dir}/SlangSessionEnvironment.cpp
 		${_durin_shader_build_private_dir}/SlangShaderCompiler.cpp
 		${_durin_shader_build_private_dir}/ShaderCompileUtilities.cpp
 		${_durin_shader_build_private_dir}/ShaderDependencyManifestStore.cpp

@@ -24,10 +24,6 @@ namespace Durin
 			std::string& OutDiagnostics) const -> bool;
 
 	private:
-		auto CreateSession(const FShaderCompileOptions& Options,
-			Slang::ComPtr<slang::ISession>& OutSession,
-			std::string& OutErrorMessage,
-			std::string_view SearchPath = {}) const -> bool;
 		auto InitGlobalSession() -> void;
 
 		// Slang global sessions are non-reentrant; derived objects must also die under this lock.

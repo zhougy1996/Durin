@@ -23,11 +23,6 @@ namespace Durin
 		auto GetEnvironmentIdentity() const -> std::string;
 
 	private:
-		auto CreateSession(const FShaderCompileOptions& Options,
-			Slang::ComPtr<slang::ISession>& OutSession,
-			std::string& OutErrorMessage,
-			std::string_view SearchPath = {}) const -> bool;
-
 		auto CompileInternal(
 			slang::ISession* InSession,
 			slang::IModule* InModule,

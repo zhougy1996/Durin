@@ -37,6 +37,7 @@ add_durin_test(VulkanRHIIntegrationTests
 	Private/VulkanTextureSamplingTests.cpp
 	Private/VulkanResourceTransitionTests.cpp
 	Private/VulkanSwapchainSelectionTests.cpp
+	${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangSessionEnvironment.cpp
 	${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangShaderCompiler.cpp
 	${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/ShaderCompileUtilities.cpp
 )

@@ -3,6 +3,7 @@
 #include "Hash/XxHash.h"
 #include "Misc/FileFingerprintCache.h"
 #include "ShaderBuild/ShaderPaths.h"
+#include "SlangSessionEnvironment.h"
 
 namespace Durin::ShaderCompileUtilities
 {
@@ -11,10 +12,6 @@ namespace Durin::ShaderCompileUtilities
 		constexpr std::string_view GShaderSourceTreeSignatureVersion = "DurinShaderPortableSourceTree_v1";
 		constexpr std::string_view GShaderVariantKeyVersion = "DurinShaderVariantKey_v6";
 		constexpr std::string_view GShaderDependencyKeyVersion = "DurinShaderDependencyKey_v1";
-		constexpr std::string_view GSlangBackendName = "slang";
-		constexpr std::string_view GSlangTargetFormat = "SPIR-V";
-		constexpr std::string_view GSlangTargetProfile = "spirv_1_5";
-
 		template <typename TBuilder>
 		auto UpdateHashStringField(TBuilder& Builder, std::string_view Value) -> void
 		{
@@ -25,29 +22,8 @@ namespace Durin::ShaderCompileUtilities
 
 	auto NormalizeMacros(const FShaderCompileOptions& Options, std::vector<FShaderMacroDefinition>& OutMacros, std::string& OutErrorMessage) -> bool
 	{
-		OutMacros = Options.Macros;
-		std::ranges::sort(OutMacros, [](const FShaderMacroDefinition& A, const FShaderMacroDefinition& B) {
-			if (A.Name != B.Name)
-			{
-				return A.Name < B.Name;
-			}
-			if (A.HasValue() != B.HasValue())
-			{
-				return !A.HasValue();
-			}
-			return A.Value < B.Value;
-		});
-
-		for (size_t Index = 1; Index < OutMacros.size(); ++Index)
-		{
-			if (OutMacros[Index - 1].Name == OutMacros[Index].Name)
-			{
-				OutErrorMessage = std::format("Duplicate shader macro definition is not allowed: {}", OutMacros[Index].Name);
-				return false;
-			}
-		}
-
-		return true;
+		return FSlangSessionEnvironment::NormalizeMacros(
+			Options, OutMacros, OutErrorMessage);
 	}
 
 	auto BuildShaderMetaData(
@@ -141,9 +117,9 @@ namespace Durin::ShaderCompileUtilities
 	{
 		FXxHash128Builder Builder;
 		UpdateHashStringField(Builder, GShaderVariantKeyVersion);
-		UpdateHashStringField(Builder, GSlangBackendName);
-		UpdateHashStringField(Builder, GSlangTargetFormat);
-		UpdateHashStringField(Builder, GSlangTargetProfile);
+		UpdateHashStringField(Builder, FSlangSessionEnvironment::BackendName);
+		UpdateHashStringField(Builder, FSlangSessionEnvironment::TargetFormatName);
+		UpdateHashStringField(Builder, FSlangSessionEnvironment::TargetProfileName);
 		UpdateHashStringField(Builder, CompilerEnvironment);
 		UpdateHashStringField(Builder, VirtualShaderPath);
 		Builder.UpdateValue(MetaData.SourceTreeSignature);

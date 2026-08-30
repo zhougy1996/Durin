@@ -2,14 +2,12 @@
 
 #include "Hash/XxHash.h"
 #include "RHIResources.h"
-#include "ShaderCompileUtilities.h"
+#include "SlangSessionEnvironment.h"
 
 namespace Durin
 {
 	namespace
 	{
-		constexpr std::string_view GSlangTargetProfile = "spirv_1_5";
-
 		auto ToStageFlags(EShaderFrequency Frequency) -> EShaderStageFlags
 		{
 			switch (Frequency)
@@ -490,52 +488,6 @@ namespace Durin
 		GlobalSession.setNull();
 	}
 
-	auto FSlangShaderCompiler::CreateSession(const FShaderCompileOptions& Options,
-		Slang::ComPtr<slang::ISession>& OutSession,
-		std::string& OutErrorMessage, std::string_view SearchPath) const -> bool
-	{
-		std::vector<FShaderMacroDefinition> NormalizedMacros;
-		if (!ShaderCompileUtilities::NormalizeMacros(Options, NormalizedMacros, OutErrorMessage))
-		{
-			return false;
-		}
-
-		std::vector<slang::PreprocessorMacroDesc> SlangMacros;
-		SlangMacros.reserve(NormalizedMacros.size());
-		for (const FShaderMacroDefinition& Macro : NormalizedMacros)
-		{
-			slang::PreprocessorMacroDesc MacroDesc = {};
-			MacroDesc.name = Macro.Name.c_str();
-			MacroDesc.value = Macro.Value ? Macro.Value->c_str() : nullptr;
-			SlangMacros.push_back(MacroDesc);
-		}
-
-		slang::TargetDesc TargetDesc = {};
-		TargetDesc.format = SLANG_SPIRV;
-		TargetDesc.profile = GlobalSession->findProfile(GSlangTargetProfile.data());
-
-		slang::SessionDesc SessionDesc = {};
-		SessionDesc.targets = &TargetDesc;
-		SessionDesc.targetCount = 1;
-		SessionDesc.preprocessorMacros = SlangMacros.empty() ? nullptr : SlangMacros.data();
-		SessionDesc.preprocessorMacroCount = static_cast<SlangInt>(SlangMacros.size());
-		const std::string SearchPathStorage(SearchPath);
-		const char* SearchPathPointer = SearchPathStorage.c_str();
-		if (!SearchPath.empty())
-		{
-			SessionDesc.searchPaths = &SearchPathPointer;
-			SessionDesc.searchPathCount = 1;
-		}
-
-		if (SLANG_FAILED(GlobalSession->createSession(SessionDesc, OutSession.writeRef())))
-		{
-			OutErrorMessage = "createSession failed";
-			return false;
-		}
-
-		return true;
-	}
-
 	auto FSlangShaderCompiler::CompileInternal(
 		slang::ISession* InSession,
 		slang::IModule* InModule,
@@ -740,7 +692,8 @@ namespace Durin
 		std::lock_guard SlangLock(GlobalSessionMutex);
 		FShaderCompilerOutput Output;
 		Slang::ComPtr<slang::ISession> Session;
-		if (!CreateSession(Options, Session, Output.ErrorMessage)) return Output;
+		if (!FSlangSessionEnvironment::CreateSession(
+			*GlobalSession, Options, Session, Output.ErrorMessage)) return Output;
 		const std::string Path(ShaderSourceFilePath);
 		Slang::ComPtr<slang::IBlob> Diagnostics;
 		slang::IModule* Module = Session->loadModule(
@@ -763,7 +716,8 @@ namespace Durin
 		std::lock_guard SlangLock(GlobalSessionMutex);
 		FShaderCompilerOutput Output;
 		Slang::ComPtr<slang::ISession> Session;
-		if (!CreateSession(Options, Session, Output.ErrorMessage,
+		if (!FSlangSessionEnvironment::CreateSession(
+			*GlobalSession, Options, Session, Output.ErrorMessage,
 			std::filesystem::path(SourcePathHint).parent_path().generic_string()))
 			return Output;
 		const std::string Name(ModuleName);
@@ -787,7 +741,12 @@ namespace Durin
 	{
 		std::lock_guard SlangLock(GlobalSessionMutex);
 		const char* BuildTag = GlobalSession ? GlobalSession->getBuildTagString() : nullptr;
-		return std::format("slang:{};target=spirv;profile={}", BuildTag ? BuildTag : "unknown", GSlangTargetProfile);
+		return std::format(
+			"{}:{};target={};profile={}",
+			FSlangSessionEnvironment::BackendName,
+			BuildTag ? BuildTag : "unknown",
+			FSlangSessionEnvironment::TargetIdentity,
+			FSlangSessionEnvironment::TargetProfileName);
 	}
 
 	auto FSlangShaderCompiler::InitGlobalSession() -> void
