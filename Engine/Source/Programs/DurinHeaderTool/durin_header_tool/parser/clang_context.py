@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 import re
 from typing import TypeAlias
@@ -9,7 +10,8 @@ from durin_header_tool.model.export_info import ExportedSymbolInfo
 from durin_header_tool.parser.annotation_rewriter import _DMetaUse, _make_dht_parse_source
 
 ExportedSymbols: TypeAlias = dict[str, ExportedSymbolInfo]
-PARSER_CONTEXT_VERSION = "target-predefines-v4"
+PARSER_CONTEXT_VERSION = "target-predefines-v5"
+_FILE_ID_READABLE_PREFIX_LENGTH = 48
 _INCLUDE_PATTERN = re.compile(r'^\s*#\s*include\b[^\r\n]*$', re.MULTILINE)
 _TYPE_DECLARATION_PATTERN = re.compile(r"\b(?:class|struct|enum(?:\s+class)?)\s+([A-Za-z_]\w*)")
 
@@ -154,7 +156,7 @@ def _synthetic_parser_prelude(
 
 
 def _include_path_for_header(header: str) -> str:
-    include_path = Path(header).as_posix()
+    include_path = Path(header.replace("\\", "/")).as_posix()
     if include_path.startswith("Public/"):
         include_path = include_path[len("Public/"):]
     elif include_path.startswith("Private/"):
@@ -164,7 +166,11 @@ def _include_path_for_header(header: str) -> str:
 
 def _file_id_for_header(module_name: str, header: str) -> str:
     include_path = _include_path_for_header(header)
-    return "FID_DURIN_" + module_name + "_" + include_path.replace("/", "_").replace(".", "_")
+    identity = f"{module_name}\0{include_path}".encode("utf-8")
+    digest = hashlib.sha256(identity).hexdigest()[:32]
+    readable_path = re.sub(r"[^A-Za-z0-9]+", "_", include_path).strip("_")
+    readable_path = readable_path[:_FILE_ID_READABLE_PREFIX_LENGTH] or "Header"
+    return f"FID_DURIN_{module_name}_{readable_path}_{digest}"
 
 
 def _parse_translation_unit(

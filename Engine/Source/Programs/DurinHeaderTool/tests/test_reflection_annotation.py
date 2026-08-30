@@ -48,6 +48,7 @@ from durin_header_tool.parser.reflection_parser import (
     parse_reflection_header,
 )
 from durin_header_tool.parser import property_parser, reflection_parser
+from durin_header_tool.parser.clang_context import _file_id_for_header
 from durin_header_tool.resolver.reflection_resolver import (
     load_available_symbols,
     resolve_header_symbols,
@@ -353,6 +354,20 @@ namespace Fixture
         assert "--target=arm64-apple-macos" in macos
         assert "-D_WIN32=1" not in macos
         assert "-D_MSC_VER=1930" not in macos
+
+    def test_file_id_distinguishes_paths_that_share_a_readable_prefix(self):
+        flat_file_id = _file_id_for_header("Fixture", "Public/A_B.h")
+        nested_file_id = _file_id_for_header("Fixture", "Public/A/B.h")
+
+        assert flat_file_id != nested_file_id
+        assert re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", flat_file_id)
+        assert re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", nested_file_id)
+
+    def test_file_id_is_stable_across_logical_path_separators(self):
+        forward_slashes = _file_id_for_header("Fixture", "Public/Folder/Item.h")
+        backslashes = _file_id_for_header("Fixture", r"Public\Folder\Item.h")
+
+        assert forward_slashes == backslashes
 
     def test_macos_target_selects_apple_platform_branch(self):
         header = "Public/MacOnly.h"
