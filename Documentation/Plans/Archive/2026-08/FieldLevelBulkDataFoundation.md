@@ -4,7 +4,7 @@ Summary: Establish field-level BulkData semantics, package-resource access, and 
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -37,7 +37,7 @@ lifetime/resource binding, raw segment publication/recovery, lazy metadata and
 range-I/O behavior, authored-family migration, and warm-DDC no-read evidence.
 
 This plan is the active M1 child of the
-[Package Bulk Data System roadmap](../Roadmaps/PackageBulkDataSystem.md). It
+[Package Bulk Data System roadmap](../../../Roadmaps/Archive/2026-08/PackageBulkDataSystem.md). It
 selects one breaking DAST v7 write path and one compatibility read/resave path
 rather than maintaining two authored writers.
 
@@ -360,16 +360,16 @@ those consumers together.
 
 ## Related Documentation
 
-- [Package Bulk Data System Roadmap](../Roadmaps/PackageBulkDataSystem.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [File I/O](../Runtime/Core/FileIO.md)
-- [Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Content Version Control](../Development/VersionControl/ContentVersionControl.md)
-- [Asset Compilation](../Runtime/Assets/AssetCompilation.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Package Bulk Data System Roadmap](../../../Roadmaps/Archive/2026-08/PackageBulkDataSystem.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [File I/O](../../../Runtime/Core/FileIO.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Content Version Control](../../../Development/VersionControl/ContentVersionControl.md)
+- [Asset Compilation](../../../Runtime/Assets/AssetCompilation.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

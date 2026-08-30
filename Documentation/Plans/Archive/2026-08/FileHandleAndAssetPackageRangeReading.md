@@ -4,7 +4,7 @@ Summary: Add one Core-owned synchronous random-read file handle, then migrate DA
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -219,9 +219,9 @@ Depends on Stages 1-3.
 - [x] Run the smallest Core, AssetRegistry, package, and editor compatibility
   targets selected through the native-test registry; run broader coverage only
   if shared-reader changes cross those targets.
-- [x] Update [File I/O](../Runtime/Core/FileIO.md),
-  [Asset Packages](../Runtime/Assets/AssetPackages.md), and, only where the
-  ownership boundary changes, [Package Bulk Data](../Runtime/Assets/BulkData.md).
+- [x] Update [File I/O](../../../Runtime/Core/FileIO.md),
+  [Asset Packages](../../../Runtime/Assets/AssetPackages.md), and, only where the
+  ownership boundary changes, [Package Bulk Data](../../../Runtime/Assets/BulkData.md).
 - [x] Remove obsolete compatibility-local streaming helpers after every caller
   uses the Core handle.
 

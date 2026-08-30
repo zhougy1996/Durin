@@ -4,7 +4,7 @@ Summary: Introduce typed Material and mesh-Material shader categories while pres
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -607,17 +607,17 @@ selected storage path without introducing speculative hierarchy.
 
 ## Related Documentation
 
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Global Shaders](../Runtime/Rendering/GlobalShaders.md)
-- [Shader Cache](../Runtime/Rendering/ShaderCache.md)
-- [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Render Resource Lifecycle](../Runtime/Rendering/RenderResourceLifecycle.md)
-- [Static Mesh Rendering](../Runtime/Rendering/StaticMeshRendering.md)
-- [Material System Roadmap](../Roadmaps/MaterialSystem.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Global Shaders](../../../Runtime/Rendering/GlobalShaders.md)
+- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
+- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Render Resource Lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
+- [Static Mesh Rendering](../../../Runtime/Rendering/StaticMeshRendering.md)
+- [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

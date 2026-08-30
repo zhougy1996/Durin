@@ -4,7 +4,7 @@ Summary: Turn per-family Cook contributions into one deterministic project Cook 
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -290,14 +290,14 @@ without reopening family schemas or publication design.
 
 ## Related Documentation
 
-- [Package Bulk Data System Roadmap](../Roadmaps/PackageBulkDataSystem.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Package Bulk Data](../Runtime/Assets/BulkData.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Workspace And Projects](../Workspace/WorkspaceProjects.md)
-- [Build And Run](../Development/Build/BuildAndRun.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Package Bulk Data System Roadmap](../../../Roadmaps/Archive/2026-08/PackageBulkDataSystem.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Package Bulk Data](../../../Runtime/Assets/BulkData.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
+- [Build And Run](../../../Development/Build/BuildAndRun.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

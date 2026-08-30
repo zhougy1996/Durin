@@ -4,7 +4,7 @@ Summary: Move asset compatibility policy and maintenance orchestration into a ta
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -163,23 +163,23 @@ Completion condition: supported targets and tests pass, the cost guarantees are 
 
 ## Validation Guidance
 
-Use [BuildAndRun.md](../Agents/BuildAndRun.md) before configuring or building targets and [Testing.md](../Agents/Testing.md) before selecting native tests. Plan and documentation lifecycle changes must follow [Documentation.md](../Agents/Documentation.md).
+Use [BuildAndRun.md](../../../Agents/BuildAndRun.md) before configuring or building targets and [Testing.md](../../../Agents/Testing.md) before selecting native tests. Plan and documentation lifecycle changes must follow [Documentation.md](../../../Agents/Documentation.md).
 
 For performance qualification, include at least one package with a payload much larger than its metadata and one project-sized batch. Report peak resident allocation separately from cumulative bytes read so removal of package/ObjectStream/value duplication is visible.
 
 ## Related Code and Documentation
 
-- [Runtime package-schema public API](../../Engine/Source/Runtime/Engine/Public/Asset/PackageSchema.h)
-- [Runtime package-schema implementation](../../Engine/Source/Runtime/Engine/Private/Asset/PackageSchema.cpp)
-- [Developer compatibility implementation](../../Engine/Source/Developer/AssetMaintenance/Private/CompatibilityAudit.cpp)
-- [V7 package codec](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageV7Codec.cpp)
-- [ObjectStream reader and load validation](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageObjectStreamReader.cpp)
-- [Editor compatibility audit adapter](../../Engine/Source/Editor/DurinEd/Private/Asset/AssetCompatibilityAudit.cpp)
-- [Editor compatibility window](../../Engine/Source/Editor/MainFrame/Private/AssetCompatibilityWindow.cpp)
-- [AssetTools operations](../../Engine/Source/Editor/AssetTools/Private/AssetTools/AssetOperations.cpp)
-- [DurinAssetTool host](../../Engine/Source/Programs/DurinAssetTool/Private/AssetToolMain.cpp)
-- [Engine target composition](../../Engine/Engine.dproject)
-- [Code module ownership](../Workspace/CodeModules.md)
-- [Asset package contract](../Runtime/Assets/AssetPackages.md)
-- [Canonical resave guide](../Editor/Guides/CanonicalResave.md)
-- [Editor workspace architecture](../Editor/Architecture/WorkspaceFramework.md)
+- [Runtime package-schema public API](../../../../Engine/Source/Runtime/Engine/Public/Asset/PackageSchema.h)
+- [Runtime package-schema implementation](../../../../Engine/Source/Runtime/Engine/Private/Asset/PackageSchema.cpp)
+- [Developer compatibility implementation](../../../../Engine/Source/Developer/AssetMaintenance/Private/CompatibilityAudit.cpp)
+- [V7 package codec](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageV7Codec.cpp)
+- [ObjectStream reader and load validation](../../../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageObjectStreamReader.cpp)
+- [Editor compatibility audit adapter](../../../../Engine/Source/Editor/DurinEd/Private/Asset/AssetCompatibilityAudit.cpp)
+- [Editor compatibility window](../../../../Engine/Source/Editor/MainFrame/Private/AssetCompatibilityWindow.cpp)
+- [AssetTools operations](../../../../Engine/Source/Editor/AssetTools/Private/AssetTools/AssetOperations.cpp)
+- [DurinAssetTool host](../../../../Engine/Source/Programs/DurinAssetTool/Private/AssetToolMain.cpp)
+- [Engine target composition](../../../../Engine/Engine.dproject)
+- [Code module ownership](../../../Workspace/CodeModules.md)
+- [Asset package contract](../../../Runtime/Assets/AssetPackages.md)
+- [Canonical resave guide](../../../Editor/Guides/CanonicalResave.md)
+- [Editor workspace architecture](../../../Editor/Architecture/WorkspaceFramework.md)

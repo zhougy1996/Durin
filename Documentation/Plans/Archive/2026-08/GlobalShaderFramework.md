@@ -4,7 +4,7 @@ Summary: Introduce UE-aligned global shader types, maps, typed lookup, and gener
 
 Last reviewed: 2026-08-29
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-29
 
 ## Current Status
@@ -339,15 +339,15 @@ occlusion, cloud, shadow, and fixed mesh-stage shaders.
 
 ## Related Documentation
 
-- [Shader Cache](../Runtime/Rendering/ShaderCache.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Render Resource Lifecycle](../Runtime/Rendering/RenderResourceLifecycle.md)
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Graphics State and Bindings](../Runtime/Rendering/GraphicsStateAndBindings.md)
-- [Render Graph](../Runtime/Rendering/RenderGraph.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Render Resource Lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Graphics State and Bindings](../../../Runtime/Rendering/GraphicsStateAndBindings.md)
+- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 - [Primitive Draw Interface Plan](PrimitiveDrawInterface.md)
 
 ## Related Code

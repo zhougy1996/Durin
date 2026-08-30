@@ -1,10 +1,5 @@
 # Engineering Investigations
 
-- [Durin binary envelope evolution](DurinBinaryEnvelopeEvolution.md) —
-  a future shared `DURF` preamble, stable 128-bit format/payload identities,
-  and simplified Import/Export sections could replace per-codec mnemonic magic
-  allocation while preserving separate DAST, DABK, DBLK, reflected-class,
-  payload-schema, and data-authority contracts.
 - [macOS MoltenVK argument-buffer instability](MacOSMoltenVKArgumentBufferInstability.md) —
   scene geometry is stable when MoltenVK uses discrete resource indexes; keep
   that qualified workaround until a LunarG SDK containing MoltenVK 1.4.2 or

@@ -224,7 +224,6 @@ budgets, and recorded evidence.
 
 ## Related Documentation
 
-- [Durin Binary Envelope Evolution](../../../Investigations/DurinBinaryEnvelopeEvolution.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Versioning](../../../Runtime/Assets/Versioning.md)

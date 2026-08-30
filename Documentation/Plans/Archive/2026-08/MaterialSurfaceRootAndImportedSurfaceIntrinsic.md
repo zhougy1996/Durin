@@ -4,7 +4,7 @@ Summary: Replace expanded surface fallbacks and the canonical ImportedSurface gr
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -372,18 +372,18 @@ and the plan can be marked completed.
 
 ## Related Documentation and Code
 
-- [Material System](../Runtime/Rendering/MaterialSystem.md)
-- [Material Graph Operations](../Editor/Architecture/MaterialGraphOperations.md)
-- [Material System Roadmap](../Roadmaps/MaterialSystem.md)
-- [`MaterialProgramTypes.h`](../../Engine/Source/Runtime/Engine/Public/Materials/MaterialProgramTypes.h)
-- [`MaterialProgramTypes.cpp`](../../Engine/Source/Runtime/Engine/Private/Materials/MaterialProgramTypes.cpp)
-- [`MaterialProgramCompiler.h`](../../Engine/Source/Runtime/Engine/Public/Materials/MaterialProgramCompiler.h)
-- [`MaterialProgramCompiler.cpp`](../../Engine/Source/Runtime/Engine/Private/Materials/MaterialProgramCompiler.cpp)
-- [`MaterialProgramGenerator.cpp`](../../Engine/Source/Runtime/Engine/Private/Materials/MaterialProgramGenerator.cpp)
-- [`MaterialCookedProgram.cpp`](../../Engine/Source/Runtime/Engine/Private/Materials/MaterialCookedProgram.cpp)
-- [`MaterialGraphOperations.h`](../../Engine/Source/Editor/MaterialEditor/Public/MaterialGraphOperations.h)
-- [`MaterialGraphCanvas.cpp`](../../Engine/Source/Editor/MaterialEditor/Private/Graph/MaterialGraphCanvas.cpp)
-- [`ImportedSurfaceMaterial.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/ImportedSurfaceMaterial.cpp)
-- [`SceneImport.cpp`](../../Engine/Source/Editor/AssetForgeBuiltins/Private/SceneImport.cpp)
-- [`MaterialSchemaAndEditingTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Materials/MaterialSchemaAndEditingTests.cpp)
-- [`MaterialGraphOperationsTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/Materials/MaterialGraphOperationsTests.cpp)
+- [Material System](../../../Runtime/Rendering/MaterialSystem.md)
+- [Material Graph Operations](../../../Editor/Architecture/MaterialGraphOperations.md)
+- [Material System Roadmap](../../../Roadmaps/MaterialSystem.md)
+- [`MaterialProgramTypes.h`](../../../../Engine/Source/Runtime/Engine/Public/Materials/MaterialProgramTypes.h)
+- [`MaterialProgramTypes.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Materials/MaterialProgramTypes.cpp)
+- [`MaterialProgramCompiler.h`](../../../../Engine/Source/Runtime/Engine/Public/Materials/MaterialProgramCompiler.h)
+- [`MaterialProgramCompiler.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Materials/MaterialProgramCompiler.cpp)
+- [`MaterialProgramGenerator.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Materials/MaterialProgramGenerator.cpp)
+- [`MaterialCookedProgram.cpp`](../../../../Engine/Source/Runtime/Engine/Private/Materials/MaterialCookedProgram.cpp)
+- [`MaterialGraphOperations.h`](../../../../Engine/Source/Editor/MaterialEditor/Public/MaterialGraphOperations.h)
+- [`MaterialGraphCanvas.cpp`](../../../../Engine/Source/Editor/MaterialEditor/Private/Graph/MaterialGraphCanvas.cpp)
+- [`ImportedSurfaceMaterial.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/ImportedSurfaceMaterial.cpp)
+- [`SceneImport.cpp`](../../../../Engine/Source/Editor/AssetForgeBuiltins/Private/SceneImport.cpp)
+- [`MaterialSchemaAndEditingTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Materials/MaterialSchemaAndEditingTests.cpp)
+- [`MaterialGraphOperationsTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/Materials/MaterialGraphOperationsTests.cpp)

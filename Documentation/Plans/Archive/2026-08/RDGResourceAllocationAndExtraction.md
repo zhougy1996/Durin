@@ -4,7 +4,7 @@ Summary: Replace scene-name-based Render Graph backing publication with descript
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -406,10 +406,10 @@ physical compatibility, output, or failure outcome.
 
 ## Related Documentation
 
-- [Render Graph](../Runtime/Rendering/RenderGraph.md)
-- [Renderer Frame Preparation](../Runtime/Rendering/RendererFramePreparation.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Render Graph Architecture Roadmap](../Roadmaps/Archive/2026-08/RenderGraphArchitecture.md)
+- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
+- [Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Render Graph Architecture Roadmap](../../../Roadmaps/Archive/2026-08/RenderGraphArchitecture.md)
 
 ## Related Code
 

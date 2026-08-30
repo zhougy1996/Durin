@@ -4,7 +4,7 @@ Summary: Compile typed RDG parameter metadata into one reusable flat layout so p
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -306,10 +306,10 @@ current command-recording and failure boundaries.
 
 ## Related Documentation
 
-- [Render Graph](../Runtime/Rendering/RenderGraph.md)
-- [Shader Parameters](../Runtime/Rendering/ShaderParameters.md)
-- [CPU Profiling](../Development/Build/Profiling.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Render Graph](../../../Runtime/Rendering/RenderGraph.md)
+- [Shader Parameters](../../../Runtime/Rendering/ShaderParameters.md)
+- [CPU Profiling](../../../Development/Build/Profiling.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

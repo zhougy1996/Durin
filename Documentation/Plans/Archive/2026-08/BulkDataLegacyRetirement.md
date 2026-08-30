@@ -4,7 +4,7 @@ Summary: Remove the bounded DAST v6/DABK and cooked DBLK compatibility surface a
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -125,9 +125,9 @@ segments remain, and the full registered test matrix passes.
 
 ## Related Documentation
 
-- [Package Bulk Data System roadmap](../Roadmaps/PackageBulkDataSystem.md)
-- [Package bulk data](../Runtime/Assets/BulkData.md)
-- [Asset data lifecycle](../Runtime/Assets/AssetDataLifecycle.md)
+- [Package Bulk Data System roadmap](../../../Roadmaps/Archive/2026-08/PackageBulkDataSystem.md)
+- [Package bulk data](../../../Runtime/Assets/BulkData.md)
+- [Asset data lifecycle](../../../Runtime/Assets/AssetDataLifecycle.md)
 
 ## Related Code
 

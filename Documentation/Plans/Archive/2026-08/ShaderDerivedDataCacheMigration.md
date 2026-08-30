@@ -4,7 +4,7 @@ Summary: Prepare the generic DDC for concurrent shader workloads and migrate por
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -380,24 +380,24 @@ runtime boundary already exists.
 
 ## Related Documentation
 
-- [Shader Cache](../Runtime/Rendering/ShaderCache.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Workspace And Projects](../Workspace/WorkspaceProjects.md)
-- [File I/O](../Runtime/Core/FileIO.md)
-- [Global Shaders](../Runtime/Rendering/GlobalShaders.md)
-- [Native C++ Tests](../Development/Build/NativeTests.md)
+- [Shader Cache](../../../Runtime/Rendering/ShaderCache.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Workspace And Projects](../../../Workspace/WorkspaceProjects.md)
+- [File I/O](../../../Runtime/Core/FileIO.md)
+- [Global Shaders](../../../Runtime/Rendering/GlobalShaders.md)
+- [Native C++ Tests](../../../Development/Build/NativeTests.md)
 
 ## Related Code
 
-- [`DerivedDataCache`](../../Engine/Source/Developer/DerivedDataCache)
-- [`RenderCore`](../../Engine/Source/Runtime/RenderCore)
-- [`ShaderDependencyManifestStore.h`](../../Engine/Source/Runtime/RenderCore/Private/Shader/ShaderDependencyManifestStore.h)
-- [`ShaderDependencyManifestStore.cpp`](../../Engine/Source/Runtime/RenderCore/Private/Shader/ShaderDependencyManifestStore.cpp)
-- [`ShaderDerivedData.h`](../../Engine/Source/Runtime/RenderCore/Private/Shader/ShaderDerivedData.h)
-- [`ShaderDerivedData.cpp`](../../Engine/Source/Runtime/RenderCore/Private/Shader/ShaderDerivedData.cpp)
-- [`ShaderCompileService.cpp`](../../Engine/Source/Runtime/RenderCore/Private/Shader/ShaderCompileService.cpp)
-- [`ShaderCompileUtilities.cpp`](../../Engine/Source/Runtime/RenderCore/Private/Shader/ShaderCompileUtilities.cpp)
-- [`ShaderDerivedDataTests.cpp`](../../Engine/Tests/Native/RenderCoreTests/Private/ShaderDerivedDataTests.cpp)
-- [`DerivedDataCacheTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/DerivedDataCacheTests.cpp)
-- [`DerivedDataBuildTests.cpp`](../../Engine/Tests/Native/EngineTests/Private/DerivedDataBuildTests.cpp)
+- [`DerivedDataCache`](../../../../Engine/Source/Developer/DerivedDataCache)
+- [`RenderCore`](../../../../Engine/Source/Runtime/RenderCore)
+- [`ShaderDependencyManifestStore.h`](../../../../Engine/Source/Runtime/RenderCore/Private/Shader/ShaderDependencyManifestStore.h)
+- [`ShaderDependencyManifestStore.cpp`](../../../../Engine/Source/Runtime/RenderCore/Private/Shader/ShaderDependencyManifestStore.cpp)
+- [`ShaderDerivedData.h`](../../../../Engine/Source/Runtime/RenderCore/Private/Shader/ShaderDerivedData.h)
+- [`ShaderDerivedData.cpp`](../../../../Engine/Source/Runtime/RenderCore/Private/Shader/ShaderDerivedData.cpp)
+- [`ShaderCompileService.cpp`](../../../../Engine/Source/Runtime/RenderCore/Private/Shader/ShaderCompileService.cpp)
+- [`ShaderCompileUtilities.cpp`](../../../../Engine/Source/Runtime/RenderCore/Private/Shader/ShaderCompileUtilities.cpp)
+- [`ShaderDerivedDataTests.cpp`](../../../../Engine/Tests/Native/RenderCoreTests/Private/ShaderDerivedDataTests.cpp)
+- [`DerivedDataCacheTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/DerivedDataCacheTests.cpp)
+- [`DerivedDataBuildTests.cpp`](../../../../Engine/Tests/Native/EngineTests/Private/DerivedDataBuildTests.cpp)

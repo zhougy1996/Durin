@@ -334,7 +334,7 @@ Leave one allocation and ownership model for graph-created physical resources:
 - [Render Graph](../Runtime/Rendering/RenderGraph.md)
 - [Renderer Frame Preparation](../Runtime/Rendering/RendererFramePreparation.md)
 - [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [RDG Resource Allocation and Extraction Plan](RDGResourceAllocationAndExtraction.md)
+- [RDG Resource Allocation and Extraction Plan](Archive/2026-08/RDGResourceAllocationAndExtraction.md)
 
 ## Related Code
 

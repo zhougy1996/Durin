@@ -4,7 +4,7 @@ Summary: Introduce a UE-aligned primitive draw submission and simple-element ren
 
 Last reviewed: 2026-08-29
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-29
 
 ## Current Status
@@ -397,14 +397,14 @@ interface.
 
 ## Related Documentation
 
-- [Viewport Rendering](../Runtime/Rendering/ViewportRendering.md)
-- [Editor Grid](../Runtime/Rendering/EditorGrid.md)
-- [Renderer Resource Recovery](../Runtime/Rendering/RendererResourceRecovery.md)
-- [Render Resource Lifecycle](../Runtime/Rendering/RenderResourceLifecycle.md)
-- [Renderer Frame Preparation](../Runtime/Rendering/RendererFramePreparation.md)
-- [Code Modules](../Workspace/CodeModules.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Viewport Rendering](../../../Runtime/Rendering/ViewportRendering.md)
+- [Editor Grid](../../../Runtime/Rendering/EditorGrid.md)
+- [Renderer Resource Recovery](../../../Runtime/Rendering/RendererResourceRecovery.md)
+- [Render Resource Lifecycle](../../../Runtime/Rendering/RenderResourceLifecycle.md)
+- [Renderer Frame Preparation](../../../Runtime/Rendering/RendererFramePreparation.md)
+- [Code Modules](../../../Workspace/CodeModules.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 - [Global Shader Framework Plan](GlobalShaderFramework.md)
 
 ## Related Code

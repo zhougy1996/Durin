@@ -4,7 +4,7 @@ Summary: Unify DDC and Cook on family-owned PlatformData and migrate cooked payl
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
@@ -401,14 +401,14 @@ observe mixed identity, size, memory, or package-source state.
 
 ## Related Documentation
 
-- [Package Bulk Data System Roadmap](../Roadmaps/PackageBulkDataSystem.md)
-- [Package Bulk Data](../Runtime/Assets/BulkData.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [File I/O](../Runtime/Core/FileIO.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Package Bulk Data System Roadmap](../../../Roadmaps/Archive/2026-08/PackageBulkDataSystem.md)
+- [Package Bulk Data](../../../Runtime/Assets/BulkData.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [File I/O](../../../Runtime/Core/FileIO.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 

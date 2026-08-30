@@ -33,7 +33,7 @@ Relevant implementation and architecture:
 - [`parallelism.py`](../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/runtime/parallelism.py);
 - [`module_export_file_generator.py`](../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/generators/module_export_file_generator.py);
 - [`module_reflection_files_generator.py`](../../Engine/Source/Programs/DurinHeaderTool/durin_header_tool/generators/module_reflection_files_generator.py);
-- [`config.py`](../../Tools/DurinDevTool/durin_dev_tool/build/config.py), especially
+- [`toolchain_context.py`](../../Tools/DurinDevTool/durin_dev_tool/build/toolchain_context.py), especially
   `resolve_jobs`;
 - [`core.py`](../../Tools/DurinDevTool/durin_dev_tool/build/core.py), which passes
   the resolved job count to `cmake --build`.

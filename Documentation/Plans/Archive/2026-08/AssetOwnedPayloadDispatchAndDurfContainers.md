@@ -463,7 +463,6 @@ trailing bytes all reject before returning opaque payload spans.
 ## Related Documentation
 
 - [Durin Binary Envelope and DAST v6](../../../Roadmaps/Archive/2026-08/DurinBinaryEnvelopeAndDastV6.md)
-- [Durin Binary Envelope Evolution](../../../Investigations/DurinBinaryEnvelopeEvolution.md)
 - [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
 - [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
 - [Versioning](../../../Runtime/Assets/Versioning.md)

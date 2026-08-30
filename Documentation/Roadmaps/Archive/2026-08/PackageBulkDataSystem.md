@@ -4,13 +4,13 @@ Summary: Replace purpose-specific bulk companions with field-level BulkData and 
 
 Last reviewed: 2026-08-30
 
-Status: Completed
+Status: Archived
 Completed: 2026-08-30
 
 ## Current Status
 
 Milestone 1 is complete. The
-[Field-Level Bulk Data Foundation plan](../Plans/FieldLevelBulkDataFoundation.md)
+[Field-Level Bulk Data Foundation plan](../../../Plans/Archive/2026-08/FieldLevelBulkDataFoundation.md)
 landed field-level runtime/editor values, package-resource range access, DAST
 v7 metadata, raw authored `.dbulk`, transactional legacy resave, and authored
 family migration. Its bounded qualification proves lazy metadata load,
@@ -18,7 +18,7 @@ exact-range access, resource retirement, publication recovery, and warm-DDC
 source-read avoidance across the registered test matrix and application smoke.
 
 Milestone 2 is complete through the
-[Cooked Bulk Data Field Migration plan](../Plans/CookedBulkDataFieldMigration.md).
+[Cooked Bulk Data Field Migration plan](../../../Plans/Archive/2026-08/CookedBulkDataFieldMigration.md).
 Every supported family now shares one PlatformData schema across DDC and Cook,
 projects cooked bytes into lazy `FBulkData` fields, and loads through common
 package-resource ranges without source/DDC fallback. New Cook output uses DAST
@@ -28,7 +28,7 @@ scheduling, generic publication, incremental state, and store abstraction
 remain outside M2.
 
 Milestone 3 is complete through the
-[Cook Package Segment Publication plan](../Plans/CookPackageSegmentPublication.md).
+[Cook Package Segment Publication plan](../../../Plans/Archive/2026-08/CookPackageSegmentPublication.md).
 The synchronous `DurinAssetTool`/`DevTool cook` workflow owns deterministic
 single-snapshot reachability, class-keyed family preparation, authored-state
 guards, detached save plans, canonical `CookState.bin`, and one transactional
@@ -40,7 +40,7 @@ and source/DDC-free runtime loading. Remote/archive stores and Cook On The Fly
 remain outside M3.
 
 Milestone 4 is complete through the
-[Bulk Data Legacy Retirement plan](../Plans/BulkDataLegacyRetirement.md).
+[Bulk Data Legacy Retirement plan](../../../Plans/Archive/2026-08/BulkDataLegacyRetirement.md).
 DAST v7 is the sole package reader/writer, raw `.dbulk` is the sole external
 field representation, construct-free UI inspection reads v7 field metadata,
 and the ten families register through one Engine-owned Cook contributor API.
@@ -189,10 +189,10 @@ future archive or remote stores without exposing physical paths to assets.
 
 | Proposed or active plan | Milestone | Boundary | Activation |
 | --- | --- | --- | --- |
-| [Field-Level Bulk Data Foundation](../Plans/FieldLevelBulkDataFoundation.md) | M1 | Core field semantics, Archive/package-resource boundary, DAST v7 raw authored segment, compatibility, and authored asset migration | Complete |
-| [Cooked Bulk Data Field Migration](../Plans/CookedBulkDataFieldMigration.md) | M2 | Publish coherent `FEditorBulkData` snapshots; unify DDC/Cook PlatformData schemas; replace cooked descriptors, family loaders, and DBLK v2 with runtime `FBulkData`; excludes Cook scheduler, generic publication, and archive storage | Complete |
-| [Cook Package Segment Publication](../Plans/CookPackageSegmentPublication.md) | M3 | Generic Cook capture, layout, output-store, manifest, and incremental publication; excludes authored migration | Complete |
-| [Bulk Data Legacy Retirement](../Plans/BulkDataLegacyRetirement.md) | M4 | Corpus resave, compatibility deletion, fixture cleanup, temporary family Cook API removal, and lasting documentation | Complete |
+| [Field-Level Bulk Data Foundation](../../../Plans/Archive/2026-08/FieldLevelBulkDataFoundation.md) | M1 | Core field semantics, Archive/package-resource boundary, DAST v7 raw authored segment, compatibility, and authored asset migration | Complete |
+| [Cooked Bulk Data Field Migration](../../../Plans/Archive/2026-08/CookedBulkDataFieldMigration.md) | M2 | Publish coherent `FEditorBulkData` snapshots; unify DDC/Cook PlatformData schemas; replace cooked descriptors, family loaders, and DBLK v2 with runtime `FBulkData`; excludes Cook scheduler, generic publication, and archive storage | Complete |
+| [Cook Package Segment Publication](../../../Plans/Archive/2026-08/CookPackageSegmentPublication.md) | M3 | Generic Cook capture, layout, output-store, manifest, and incremental publication; excludes authored migration | Complete |
+| [Bulk Data Legacy Retirement](../../../Plans/Archive/2026-08/BulkDataLegacyRetirement.md) | M4 | Corpus resave, compatibility deletion, fixture cleanup, temporary family Cook API removal, and lasting documentation | Complete |
 | Scalable Package Bulk Stores | M5 | One evidence-selected archive, optional, memory-mapped, or remote backend | Dispositioned without activation; create future work only from measured post-M4 evidence |
 
 ## Program Validation Matrix
@@ -208,8 +208,8 @@ future archive or remote stores without exposing physical paths to assets.
 | Scale | Peak resident bytes, range-read count/bytes, open resource handles, package load latency, DDC-hit source-read avoidance, Cook throughput, and shutdown conservation |
 
 Validation target selection and execution follow the repository
-[build and run](../Agents/BuildAndRun.md) and
-[testing](../Agents/Testing.md) workflows. Each child plan owns its exact
+[build and run](../../../Agents/BuildAndRun.md) and
+[testing](../../../Agents/Testing.md) workflows. Each child plan owns its exact
 targets, fixtures, failure injection, budgets, and evidence.
 
 ## Risks and Control Gates
@@ -256,14 +256,14 @@ targets, fixtures, failure injection, budgets, and evidence.
 
 ## Related Documentation
 
-- [Asset Packages](../Runtime/Assets/AssetPackages.md)
-- [Asset Data Lifecycle and Storage](../Runtime/Assets/AssetDataLifecycle.md)
-- [Serialization](../Runtime/Core/Serialization.md)
-- [File I/O](../Runtime/Core/FileIO.md)
-- [Asset Catalog and Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
-- [Workspace and Projects](../Workspace/WorkspaceProjects.md)
-- [Agent Build and Run Workflow](../Agents/BuildAndRun.md)
-- [Agent Testing Workflow](../Agents/Testing.md)
+- [Asset Packages](../../../Runtime/Assets/AssetPackages.md)
+- [Asset Data Lifecycle and Storage](../../../Runtime/Assets/AssetDataLifecycle.md)
+- [Serialization](../../../Runtime/Core/Serialization.md)
+- [File I/O](../../../Runtime/Core/FileIO.md)
+- [Asset Catalog and Mutation](../../../Runtime/Assets/AssetCatalogAndMutation.md)
+- [Workspace and Projects](../../../Workspace/WorkspaceProjects.md)
+- [Agent Build and Run Workflow](../../../Agents/BuildAndRun.md)
+- [Agent Testing Workflow](../../../Agents/Testing.md)
 
 ## Related Code
 
