@@ -148,7 +148,7 @@ def check_macos_vulkan_sdk(environment: Mapping[str, str]) -> str | None:
         ("MoltenVK ICD manifest", (sdk / "share/vulkan/icd.d/MoltenVK_icd.json",)),
     ]
     missing = [
-        f"{label} ({' or '.join(str(path) for path in candidates)})"
+        f"{label} ({' or '.join(path.as_posix() for path in candidates)})"
         for label, candidates in required
         if not any(path.is_file() for path in candidates)
     ]

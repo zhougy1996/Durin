@@ -140,7 +140,21 @@ class TestLauncher:
         launcher = REPOSITORY_ROOT / 'DevTool'
         content = launcher.read_text(encoding='utf-8')
         assert content.startswith('#!/bin/sh\n')
-        assert launcher.stat().st_mode & 0o111
+        if os.name == 'nt':
+            indexed = subprocess.run(
+                [
+                    'git', '-c', f'safe.directory={REPOSITORY_ROOT}',
+                    'ls-files', '--stage', '--', 'DevTool',
+                ],
+                cwd=REPOSITORY_ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            assert indexed.returncode == 0, indexed.stderr
+            assert indexed.stdout.startswith('100755 ')
+        else:
+            assert launcher.stat().st_mode & 0o111
         assert content.index('if [ -x "$VENV_PYTHON" ]') < content.index(
             'for PYTHON_NAME in python3'
         )
@@ -150,6 +164,7 @@ class TestLauncher:
         assert 'sys.version_info >= (3, 10)' in content
         assert 'Tools/DurinDevTool/durin_dev_tool/__main__.py' in content
 
+    @pytest.mark.skipif(os.name == 'nt', reason='POSIX launcher execution')
     def test_posix_launcher_runs_from_outside_the_repository(
         self, tmp_path_factory: pytest.TempPathFactory
     ) -> None:
