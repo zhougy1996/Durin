@@ -1,6 +1,7 @@
 import pytest
 import io
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 from durin_dev_tool import cli
@@ -805,6 +806,34 @@ class TestOrdinaryDocumentation:
         moved.write_text('# User edit\n', encoding='utf-8')
         with pytest.raises(DevToolError, match='modified after preview'):
             self.workspace.apply(second)
+
+    def test_apply_validates_written_files_after_catalog_was_cached(self) -> None:
+        self.workspace.catalog(include_archive=True)
+        destination = DocumentRef.parse(
+            'Documentation/Runtime/Nested/Topic.md'
+        )
+        change_set = self.workspace.prepare_move(
+            source=DocumentRef.parse('Documentation/Runtime/Topic.md'),
+            destination=destination,
+        )
+        invalid_changes = tuple(
+            replace(
+                change,
+                content=b'# Topic\n\n[Missing](Missing.md)\n',
+            )
+            if change.destination
+            == self.repository / destination.path
+            else change
+            for change in change_set.changes
+        )
+
+        with pytest.raises(DevToolError, match='document validation failed'):
+            self.workspace.apply(
+                replace(change_set, changes=invalid_changes)
+            )
+
+        assert self.topic.exists()
+        assert not (self.repository / destination.path).exists()
 
     def test_move_command_applies_by_default_and_reports_validation(self) -> None:
         output = io.StringIO()

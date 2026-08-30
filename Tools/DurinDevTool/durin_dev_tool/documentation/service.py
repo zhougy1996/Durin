@@ -200,7 +200,10 @@ class DocumentWorkspace:
 
     def apply(self, change_set: DocumentChangeSet) -> None:
         def validate_after_change() -> None:
-            validation = self.validate(
+            # Transaction validation runs after the files have been written.
+            # Use a separate workspace so a catalog cached by an earlier API
+            # call cannot describe the pre-transaction filesystem state.
+            validation = DocumentWorkspace(self.repository_root).validate(
                 scope=ValidationScope.ALL,
                 include_archive=True,
             )
