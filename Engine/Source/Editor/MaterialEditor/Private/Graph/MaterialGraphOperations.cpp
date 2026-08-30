@@ -475,18 +475,19 @@ namespace Durin::Editor::Material
 					Pin.AcceptedTypes = Shape->AcceptedInputTypes[InputIndex];
 				View.Inputs.push_back(std::move(Pin));
 			}
-			if (const auto It = Positions.find(Node.Id); It != Positions.end())
-				View.Presentation = It->second;
+			const auto It = Positions.find(Node.Id);
+			check(It != Positions.end());
+			View.Presentation = It->second;
 			Result.Nodes.push_back(std::move(View));
 		}
 		std::ranges::sort(Result.Nodes, {}, [](const FMaterialGraphNodeView& View) {
 			return View.Node.Id;
 		});
 		Result.Outputs = Program.Outputs;
-		if (Presentation.bHasMaterialOutputPosition)
-			Result.MaterialOutputPosition = {
-				Presentation.MaterialOutputX,
-				Presentation.MaterialOutputY};
+		check(Presentation.bHasMaterialOutputPosition);
+		Result.MaterialOutputPosition = {
+			Presentation.MaterialOutputX,
+			Presentation.MaterialOutputY};
 		return Result;
 	}
 
@@ -1383,16 +1384,17 @@ namespace Durin::Editor::Material
 			for (size_t Index = 0; Index < Nodes.size(); ++Index)
 				Ranks[Nodes[Index]] = Index;
 		};
-		for (uint32 Sweep = 0; Sweep < 4; ++Sweep)
-		{
-			for (auto It = std::next(Columns.begin()); It != Columns.end(); ++It)
-				SortColumn(It->first, std::prev(It)->first, true);
-			for (auto It = Columns.rbegin(); It != Columns.rend(); ++It)
+		if (!Columns.empty())
+			for (uint32 Sweep = 0; Sweep < 4; ++Sweep)
 			{
-				const auto Next = std::next(It);
-				if (Next != Columns.rend()) SortColumn(Next->first, It->first, false);
+				for (auto It = std::next(Columns.begin()); It != Columns.end(); ++It)
+					SortColumn(It->first, std::prev(It)->first, true);
+				for (auto It = Columns.rbegin(); It != Columns.rend(); ++It)
+				{
+					const auto Next = std::next(It);
+					if (Next != Columns.rend()) SortColumn(Next->first, It->first, false);
+				}
 			}
-		}
 
 		FMaterialGraphPresentation Presentation = Material.GetMaterialGraphPresentation();
 		const FMaterialGraphCanvasMetrics& Metrics = FMaterialGraphGeometry::GetMetrics();

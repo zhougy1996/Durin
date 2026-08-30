@@ -167,12 +167,11 @@ namespace Durin::Editor::Material
 			float MaximumY = 0.0f;
 			for (const FMaterialGraphNodeView& Node : View.Nodes)
 			{
-				if (!Node.Presentation) continue;
-				const float Y = static_cast<float>(Node.Presentation->Y);
+				const float Y = static_cast<float>(Node.Presentation.Y);
 				const float Height = FMaterialGraphGeometry::GetNodeHeight(
 					static_cast<uint32>(Node.Inputs.size()));
 				MaximumX = std::max(MaximumX,
-					static_cast<float>(Node.Presentation->X) + Metrics.NodeWidth);
+					static_cast<float>(Node.Presentation.X) + Metrics.NodeWidth);
 				if (!bFound) { MinimumY = Y; MaximumY = Y + Height; bFound = true; }
 				else { MinimumY = std::min(MinimumY, Y); MaximumY = std::max(MaximumY, Y + Height); }
 			}
@@ -282,9 +281,8 @@ namespace Durin::Editor::Material
 		DragStartPositions.clear();
 	}
 
-	auto FMaterialGraphCanvas::PrepareView(
-		DMaterial& Material,
-		const FReportError& ReportError) -> FMaterialGraphView
+	auto FMaterialGraphCanvas::PrepareView(DMaterial& Material)
+		-> FMaterialGraphView
 	{
 		const uint64 AuthoredRevision =
 			Material.GetMaterialCompileStatus().AuthoredRevision;
@@ -294,47 +292,9 @@ namespace Durin::Editor::Material
 			CatalogAuthoredRevision = AuthoredRevision;
 		}
 		FMaterialGraphView View = FMaterialGraphOperations::Inspect(Material, Catalog);
-		if (std::ranges::any_of(View.Nodes,
-			[](const FMaterialGraphNodeView& Node) { return !Node.Presentation; }))
-		{
-			const FMaterialGraphPresentation& Source =
-				Material.GetMaterialGraphPresentation();
-			if (!bHasTransientLayout || TransientLayoutSource != Source
-				|| TransientLayoutAuthoredRevision != AuthoredRevision)
-			{
-				const FMaterialGraphCommandResult Layout =
-					FMaterialGraphOperations::CalculateLayout(
-						Material, {}, TransientLayout);
-				ReportCommand(Layout, ReportError);
-				bHasTransientLayout = static_cast<bool>(Layout);
-				if (bHasTransientLayout)
-				{
-					TransientLayoutSource = Source;
-					TransientLayoutAuthoredRevision = AuthoredRevision;
-				}
-			}
-			if (bHasTransientLayout)
-			{
-				std::unordered_map<FGuid, FMaterialGraphNodePresentation> Positions;
-				for (const FMaterialGraphNodePresentation& Position : TransientLayout.Nodes)
-					Positions.emplace(Position.NodeId, Position);
-				for (FMaterialGraphNodeView& Node : View.Nodes)
-					if (!Node.Presentation)
-						if (const auto It = Positions.find(Node.Node.Id);
-							It != Positions.end()) Node.Presentation = It->second;
-				if (!View.MaterialOutputPosition
-					&& TransientLayout.bHasMaterialOutputPosition)
-					View.MaterialOutputPosition = {
-						TransientLayout.MaterialOutputX,
-						TransientLayout.MaterialOutputY};
-			}
-		}
-		if (View.MaterialOutputPosition)
-			SurfaceGraphPosition = {
-				static_cast<float>(View.MaterialOutputPosition->first),
-				static_cast<float>(View.MaterialOutputPosition->second)};
-		else if (!SurfaceGraphPosition || SurfaceGraphRevision != AuthoredRevision)
-			SurfaceGraphPosition = SurfaceGraphMinimum(View);
+		SurfaceGraphPosition = {
+			static_cast<float>(View.MaterialOutputPosition.first),
+			static_cast<float>(View.MaterialOutputPosition.second)};
 		SurfaceGraphRevision = AuthoredRevision;
 		return View;
 	}
@@ -347,10 +307,9 @@ namespace Durin::Editor::Material
 		Result.Nodes.reserve(View.Nodes.size());
 		for (const FMaterialGraphNodeView& Node : View.Nodes)
 		{
-			if (!Node.Presentation) continue;
 			const ImVec2 GraphPosition(
-				static_cast<float>(Node.Presentation->X),
-				static_cast<float>(Node.Presentation->Y));
+				static_cast<float>(Node.Presentation.X),
+				static_cast<float>(Node.Presentation.Y));
 			const float NodeHeight = FMaterialGraphGeometry::GetNodeHeight(
 				static_cast<uint32>(Node.Inputs.size()));
 			FVisualNode Visual;
@@ -384,10 +343,9 @@ namespace Durin::Editor::Material
 		{
 			if (SelectedSurfaceOutput && SelectedNodes.empty()) continue;
 			if (!SelectedNodes.empty() && !SelectedNodes.contains(Node.Node.Id)) continue;
-			if (!Node.Presentation) continue;
 			const ImVec2 Position(
-				static_cast<float>(Node.Presentation->X),
-				static_cast<float>(Node.Presentation->Y));
+				static_cast<float>(Node.Presentation.X),
+				static_cast<float>(Node.Presentation.Y));
 			const float Height = FMaterialGraphGeometry::GetNodeHeight(
 				static_cast<uint32>(Node.Inputs.size()));
 			if (!bFound)
@@ -458,7 +416,7 @@ namespace Durin::Editor::Material
 			ImGui::TextDisabled("%s | Wheel: zoom  MMB: pan  LMB: select/drag  Shift: add/replace",
 				DetailName);
 
-			FMaterialGraphView View = PrepareView(Material, ReportError);
+			FMaterialGraphView View = PrepareView(Material);
 			const ImVec2 CanvasMinimum = ImGui::GetCursorScreenPos();
 			ImVec2 CanvasSize = ImGui::GetContentRegionAvail();
 			CanvasSize.x = std::max(CanvasSize.x, 64.0f);
@@ -1158,10 +1116,9 @@ namespace Durin::Editor::Material
 							DragStartMouse = Mouse;
 							DragStartPositions.clear();
 							for (const FVisualNode& Visual : VisualNodes)
-								if (SelectedNodes.contains(Visual.View->Node.Id)
-									&& Visual.View->Presentation)
+								if (SelectedNodes.contains(Visual.View->Node.Id))
 									DragStartPositions.emplace(
-										Visual.View->Node.Id, *Visual.View->Presentation);
+										Visual.View->Node.Id, Visual.View->Presentation);
 						}
 					}
 				}

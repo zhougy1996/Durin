@@ -11,6 +11,18 @@ namespace Durin::AssetForge::Builtins
 	using namespace Durin::Asset;
 	namespace
 	{
+		auto MakeTemplatePresentation(const FMaterialProgram& Program)
+			-> FMaterialGraphPresentation
+		{
+			check(Program.Nodes.size() == 1);
+			return {
+				.Nodes = {{Program.Nodes.front().Id, 0, 0}},
+				.bHasMaterialOutputPosition = true,
+				.MaterialOutputX = 320,
+				.MaterialOutputY = 0,
+			};
+		}
+
 		auto EnsureTemplateProgram(DMaterial& Material, bool bAllowMigration,
 			std::string& OutError) -> bool
 		{
@@ -20,7 +32,9 @@ namespace Durin::AssetForge::Builtins
 				&& *Material.GetMaterialProgram() == MakeCanonicalMaterialProgram())
 			{
 				FMaterialProgramValidationResult Validation;
-				if (Material.SetMaterialProgram(Expected, Validation)) return true;
+				if (Material.SetMaterialProgram(Expected, Validation)
+					&& Material.SetMaterialGraphPresentation(
+						MakeTemplatePresentation(Expected))) return true;
 			}
 			OutError = "ImportedSurface has a modified or stale material program; run the exact built-in template migration before importing.";
 			return false;
@@ -111,6 +125,14 @@ namespace Durin::AssetForge::Builtins
 			OutError = ProgramValidation.Diagnostics.empty()
 				? "Failed to initialize the standard imported-surface material program."
 				: ProgramValidation.Diagnostics.front().Message;
+			Asset::UnloadPackage(Created->GetPackage(),
+				Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+			return nullptr;
+		}
+		if (!Created->SetMaterialGraphPresentation(
+			MakeTemplatePresentation(*Created->GetMaterialProgram())))
+		{
+			OutError = "Failed to initialize the standard imported-surface material graph presentation.";
 			Asset::UnloadPackage(Created->GetPackage(),
 				Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 			return nullptr;

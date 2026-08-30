@@ -47,8 +47,7 @@ namespace Durin::Editor::Material
 	private:
 		struct FVisualNode;
 		struct FVisualGraph;
-		auto PrepareView(DMaterial& Material, const FReportError& ReportError)
-			-> FMaterialGraphView;
+		auto PrepareView(DMaterial& Material) -> FMaterialGraphView;
 		auto BuildVisualGraph(const FMaterialGraphView& View,
 			const ImVec2& CanvasMinimum) const -> FVisualGraph;
 		auto FrameNodes(const FMaterialGraphView& View,
@@ -59,10 +58,6 @@ namespace Durin::Editor::Material
 		EMaterialGraphDetailLevel DetailLevel = EMaterialGraphDetailLevel::Editing;
 		std::optional<ImVec2> SurfaceGraphPosition;
 		uint64 SurfaceGraphRevision = std::numeric_limits<uint64>::max();
-		FMaterialGraphPresentation TransientLayoutSource;
-		FMaterialGraphPresentation TransientLayout;
-		uint64 TransientLayoutAuthoredRevision = std::numeric_limits<uint64>::max();
-		bool bHasTransientLayout = false;
 		std::unordered_set<FGuid> SelectedNodes;
 		FGuid PendingFrameNode;
 		std::optional<EMaterialSurfaceOutput> SelectedSurfaceOutput;

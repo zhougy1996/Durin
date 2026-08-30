@@ -6,6 +6,8 @@
 #include "MaterialTestSupport.h"
 
 #include "Asset/AssetCompilingManager.h"
+#include "Asset.h"
+#include "AssetRegistry/Scan.h"
 #include "DObject/DefaultObjectGraph.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
@@ -49,7 +51,8 @@ namespace
 		DMaterial* Material = NewObject<DMaterial>(nullptr, Name);
 		FMaterialProgramValidationResult Validation;
 		if (!Material || !Material->SetMaterialProgram(
-			MakeCanonicalMaterialProgram(), Validation)) return nullptr;
+			MakeCanonicalMaterialProgram(), Validation)
+			|| !FMaterialGraphOperations::Layout(*Material)) return nullptr;
 		return Material;
 	}
 }
@@ -67,11 +70,44 @@ TEST(FMaterialAssetCreationTests, NewBaseMaterialIsRenderableBeforePublication)
 		Durin::EMaterialCompileState::Ready);
 	EXPECT_TRUE(Material->GetAcceptedCompiledProgram());
 	EXPECT_TRUE(Material->GetMaterialProgram()->Nodes.empty());
+	EXPECT_TRUE(Material->GetMaterialGraphPresentation().bHasMaterialOutputPosition);
 	EXPECT_EQ(Material->GetMaterialProgram()->Outputs.BaseColorDefault,
 		(Durin::FMaterialProgramLiteral{0.5f, 0.5f, 0.5f, 0.0f}));
 
 	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();
+}
+
+TEST(FMaterialAssetCreationTests, BuiltInMaterialsHaveCompletePersistentGraphPresentation)
+{
+	InitializeDObjectSystem();
+	ASSERT_TRUE(PathUtilities::InitDefaultMountPoints());
+	const Asset::FAssetCatalogRefreshResult Refresh =
+		Asset::RefreshAssetRegistry(Asset::EAssetRegistryScanMode::FullValidation);
+	ASSERT_TRUE(Refresh) << (Refresh.Errors.empty()
+		? "Asset catalog refresh failed without a diagnostic."
+		: Refresh.Errors.front().Message);
+
+	for (const std::string_view PathString : {
+		"/Engine/Materials/DefaultMaterial",
+		"/Engine/Materials/ImportedSurface"})
+	{
+		FAssetPath Path;
+		ASSERT_TRUE(FAssetPath::TryCreate(PathString, Path));
+		DMaterial* Material = nullptr;
+		const Asset::FAssetResult Loaded = Asset::LoadAsset(Path, Material);
+		ASSERT_TRUE(Loaded) << Loaded.Message;
+		ASSERT_NE(Material, nullptr);
+		const FMaterialGraphPresentation& Presentation =
+			Material->GetMaterialGraphPresentation();
+		EXPECT_EQ(Presentation.Nodes.size(),
+			Material->GetMaterialProgram()->Nodes.size());
+		EXPECT_TRUE(Presentation.bHasMaterialOutputPosition);
+		const FMaterialGraphView View = FMaterialGraphOperations::Inspect(*Material);
+		EXPECT_EQ(View.Nodes.size(), Material->GetMaterialProgram()->Nodes.size());
+		ASSERT_TRUE(Asset::UnloadPackage(Path));
+	}
+	CollectGarbage();
 }
 
 TEST(FMaterialGraphOperationsTests,
@@ -273,6 +309,8 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 	ASSERT_NE(Material, nullptr);
 	const uint64 Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
 	FTransactionManager Transactions;
+	const FMaterialGraphPresentation OriginalPresentation =
+		Material->GetMaterialGraphPresentation();
 
 	ASSERT_TRUE(FMaterialGraphOperations::MoveMaterialOutput(
 		*Material, 520, -80, &Transactions));
@@ -281,7 +319,7 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputX, 520);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputY, -80);
 	ASSERT_TRUE(Transactions.Undo());
-	EXPECT_FALSE(Material->GetMaterialGraphPresentation().bHasMaterialOutputPosition);
+	EXPECT_EQ(Material->GetMaterialGraphPresentation(), OriginalPresentation);
 	ASSERT_TRUE(Transactions.Redo());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputX, 520);
 
@@ -435,7 +473,7 @@ TEST(FMaterialGraphOperationsTests, PaletteCreationAddsVisibleDefaultsInOneTrans
 		ASSERT_NE(Default, nullptr);
 		EXPECT_EQ(Default->Node.Opcode, EMaterialProgramOpcode::Constant);
 		EXPECT_EQ(Default->Node.ResultType, EMaterialProgramValueType::Float3);
-		EXPECT_TRUE(Default->Presentation.has_value());
+		EXPECT_EQ(Default->Presentation.NodeId, Default->Node.Id);
 	}
 	const float DefaultHeight = FMaterialGraphGeometry::GetNodeHeight(0);
 	const float DefaultGap = FMaterialGraphGeometry::GetMetrics().RowGap;
@@ -443,8 +481,8 @@ TEST(FMaterialGraphOperationsTests, PaletteCreationAddsVisibleDefaultsInOneTrans
 	for (const FMaterialProgramLink& Link : Node->Node.Inputs)
 	{
 		const FMaterialGraphNodeView* Default = FindViewNode(View, Link.SourceNodeId);
-		ASSERT_TRUE(Default && Default->Presentation);
-		DefaultRows.push_back(Default->Presentation->Y);
+		ASSERT_NE(Default, nullptr);
+		DefaultRows.push_back(Default->Presentation.Y);
 	}
 	std::ranges::sort(DefaultRows);
 	for (size_t Index = 1; Index < DefaultRows.size(); ++Index)
@@ -497,10 +535,8 @@ TEST(FMaterialGraphOperationsTests, MaximumGraphLayoutIsDeterministicAndPresenta
 	for (size_t A = 0; A < LayoutView.Nodes.size(); ++A)
 		for (size_t B = A + 1; B < LayoutView.Nodes.size(); ++B)
 		{
-			ASSERT_TRUE(LayoutView.Nodes[A].Presentation);
-			ASSERT_TRUE(LayoutView.Nodes[B].Presentation);
-			const auto& PositionA = *LayoutView.Nodes[A].Presentation;
-			const auto& PositionB = *LayoutView.Nodes[B].Presentation;
+			const auto& PositionA = LayoutView.Nodes[A].Presentation;
+			const auto& PositionB = LayoutView.Nodes[B].Presentation;
 			const float HeightA = FMaterialGraphGeometry::GetNodeHeight(
 				static_cast<uint32>(LayoutView.Nodes[A].Inputs.size()));
 			const float HeightB = FMaterialGraphGeometry::GetNodeHeight(
@@ -533,44 +569,36 @@ TEST(FMaterialGraphOperationsTests, MaximumGraphLayoutIsDeterministicAndPresenta
 }
 
 TEST(FMaterialGraphOperationsTests,
-	ViewportAndDerivedFallbackLayoutDoNotDirtyTheMaterial)
+	NewMaterialInitializationPersistsACompleteGraphPresentation)
 {
 	InitializeDObjectSystem();
 	PathUtilities::FScopedMountRegistryFixture MountRegistry;
 	const std::filesystem::path Root = std::filesystem::temp_directory_path()
-		/ "DurinTransientGraphLayoutMaterial";
+		/ "DurinInitializedGraphLayoutMaterial";
 	PathUtilities::RegisterMountPointForTests(
 		"/MaterialGraphTests/", Root.generic_string() + "/");
 	FAssetPath PackagePath;
 	ASSERT_TRUE(FAssetPath::TryCreate(
-		"/MaterialGraphTests/TransientGraphLayoutMaterial", PackagePath));
+		"/MaterialGraphTests/InitializedGraphLayoutMaterial", PackagePath));
 	DPackage* Package = CreatePackage(PackagePath);
 	ASSERT_NE(Package, nullptr);
 	DMaterial* Material = NewObject<DMaterial>(
-		Package, "TransientGraphLayoutMaterial");
+		Package, "InitializedGraphLayoutMaterial");
 	ASSERT_NE(Material, nullptr);
 	FMaterialProgramValidationResult Validation;
 	ASSERT_TRUE(Material->SetMaterialProgram(
 		MakeCanonicalMaterialProgram(), Validation));
-	Package->ClearDirty();
-	const uint64 EditRevision = Package->GetEditRevision();
-	const FMaterialGraphPresentation BeforePresentation =
+	std::string Error;
+	ASSERT_TRUE(PrepareNewMaterialForEditing(*Material, Error)) << Error;
+	const FMaterialGraphPresentation& Presentation =
 		Material->GetMaterialGraphPresentation();
-
-	FMaterialGraphCanvas Canvas;
-	Canvas.SetViewport(0.5f, {120.0f, -40.0f});
-	FMaterialGraphPresentation DerivedPresentation;
-	const FMaterialGraphCommandResult Layout =
-		FMaterialGraphOperations::CalculateLayout(
-			*Material, {}, DerivedPresentation);
-
-	ASSERT_TRUE(Layout);
-	EXPECT_EQ(DerivedPresentation.Nodes.size(),
+	EXPECT_EQ(Presentation.Nodes.size(),
 		Material->GetMaterialProgram()->Nodes.size());
-	EXPECT_TRUE(DerivedPresentation.bHasMaterialOutputPosition);
-	EXPECT_EQ(Material->GetMaterialGraphPresentation(), BeforePresentation);
-	EXPECT_EQ(Package->GetEditRevision(), EditRevision);
-	EXPECT_FALSE(Package->IsDirty());
+	EXPECT_TRUE(Presentation.bHasMaterialOutputPosition);
+	const FMaterialGraphView View = FMaterialGraphOperations::Inspect(*Material);
+	EXPECT_EQ(View.Nodes.size(), Material->GetMaterialProgram()->Nodes.size());
+	EXPECT_EQ(View.MaterialOutputPosition,
+		(std::pair{Presentation.MaterialOutputX, Presentation.MaterialOutputY}));
 
 	MarkObjectHierarchyAsGarbage(Package);
 	CollectGarbage();
@@ -610,8 +638,7 @@ TEST(FMaterialGraphOperationsTests, LayoutReducesDenseCrossingsAndAvoidsSelected
 	auto Y = [&](const FGuid& Id) {
 		const FMaterialGraphNodeView* Node = FindViewNode(View, Id);
 		EXPECT_NE(Node, nullptr);
-		EXPECT_TRUE(Node && Node->Presentation);
-		return Node && Node->Presentation ? Node->Presentation->Y : 0;
+		return Node ? Node->Presentation.Y : 0;
 	};
 	uint32 Crossings = 0;
 	for (size_t A = 0; A < Sources.size(); ++A)
@@ -626,22 +653,21 @@ TEST(FMaterialGraphOperationsTests, LayoutReducesDenseCrossingsAndAvoidsSelected
 	const FGuid Fixed = Sources.back();
 	const FMaterialGraphNodeView* SelectedView = FindViewNode(View, Selected);
 	ASSERT_NE(SelectedView, nullptr);
-	ASSERT_TRUE(SelectedView->Presentation);
 	const FMaterialGraphNodePresentation Occupied{
-		Fixed, SelectedView->Presentation->X, 0};
+		Fixed, SelectedView->Presentation.X, 0};
 	ASSERT_TRUE(FMaterialGraphOperations::MoveNodes(*Material, std::span(&Occupied, 1)));
 	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Material, std::span(&Selected, 1)));
 	const FMaterialGraphView Relayout = FMaterialGraphOperations::Inspect(*Material);
 	const auto* RelayoutSelected = FindViewNode(Relayout, Selected);
 	const auto* RelayoutFixed = FindViewNode(Relayout, Fixed);
-	ASSERT_TRUE(RelayoutSelected && RelayoutSelected->Presentation);
-	ASSERT_TRUE(RelayoutFixed && RelayoutFixed->Presentation);
+	ASSERT_NE(RelayoutSelected, nullptr);
+	ASSERT_NE(RelayoutFixed, nullptr);
 	const float Height = FMaterialGraphGeometry::GetNodeHeight(0);
 	const float Width = FMaterialGraphGeometry::GetMetrics().NodeWidth;
-	EXPECT_FALSE(RelayoutSelected->Presentation->X < RelayoutFixed->Presentation->X + Width
-		&& RelayoutSelected->Presentation->X + Width > RelayoutFixed->Presentation->X
-		&& RelayoutSelected->Presentation->Y < RelayoutFixed->Presentation->Y + Height
-		&& RelayoutSelected->Presentation->Y + Height > RelayoutFixed->Presentation->Y);
+	EXPECT_FALSE(RelayoutSelected->Presentation.X < RelayoutFixed->Presentation.X + Width
+		&& RelayoutSelected->Presentation.X + Width > RelayoutFixed->Presentation.X
+		&& RelayoutSelected->Presentation.Y < RelayoutFixed->Presentation.Y + Height
+		&& RelayoutSelected->Presentation.Y + Height > RelayoutFixed->Presentation.Y);
 
 	MarkAsGarbage(Material);
 	CollectGarbage();
@@ -861,6 +887,7 @@ TEST(FMaterialGraphOperationsTests, CanvasProducesBoundedEditingDrawData)
 	}
 	FMaterialProgramValidationResult Validation;
 	ASSERT_TRUE(Material->SetMaterialProgram(DenseProgram, Validation));
+	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Material));
 	const int DenseVertices = DrawAtZoom(0.55f);
 	EXPECT_GT(DenseVertices, 100);
 	EXPECT_LT(DenseVertices, 100000);
@@ -876,6 +903,7 @@ TEST(FMaterialGraphOperationsTests, CanvasProducesBoundedEditingDrawData)
 		});
 	}
 	ASSERT_TRUE(Material->SetMaterialProgram(MaximumProgram, Validation));
+	ASSERT_TRUE(FMaterialGraphOperations::Layout(*Material));
 	const int MaximumVertices = DrawAtZoom(0.30f);
 	EXPECT_GT(MaximumVertices, 100);
 	EXPECT_LT(MaximumVertices, 100000);
@@ -923,8 +951,7 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 	const FMaterialGraphView MovedGraph = FMaterialGraphOperations::Inspect(*Material);
 	const FMaterialGraphNodeView* MovedView = FindViewNode(MovedGraph, CreatedId);
 	ASSERT_NE(MovedView, nullptr);
-	ASSERT_TRUE(MovedView->Presentation.has_value());
-	EXPECT_EQ(MovedView->Presentation->X, 320);
+	EXPECT_EQ(MovedView->Presentation.X, 320);
 
 	FMaterialProgram BeforeRejected = *Material->GetMaterialProgram();
 	const auto CreatedNodeIt = std::ranges::find(
@@ -944,8 +971,7 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 	const FMaterialGraphView UnmovedGraph = FMaterialGraphOperations::Inspect(*Material);
 	const FMaterialGraphNodeView* UnmovedView = FindViewNode(UnmovedGraph, CreatedId);
 	ASSERT_NE(UnmovedView, nullptr);
-	ASSERT_TRUE(UnmovedView->Presentation.has_value());
-	EXPECT_EQ(UnmovedView->Presentation->X, 120);
+	EXPECT_EQ(UnmovedView->Presentation.X, 120);
 	ASSERT_TRUE(Transactions.Undo());
 	EXPECT_EQ(*Material->GetMaterialProgram(), OriginalProgram);
 	ASSERT_TRUE(Transactions.Redo());
@@ -955,8 +981,7 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 	const FMaterialGraphView RemovedGraph = FMaterialGraphOperations::Inspect(*Material);
 	const FMaterialGraphNodeView* RedoneView = FindViewNode(RemovedGraph, CreatedId);
 	ASSERT_NE(RedoneView, nullptr);
-	ASSERT_TRUE(RedoneView->Presentation.has_value());
-	EXPECT_EQ(RedoneView->Presentation->X, 320);
+	EXPECT_EQ(RedoneView->Presentation.X, 320);
 
 	FMaterialGraphMoveSession MoveSession;
 	ASSERT_TRUE(MoveSession.Begin(*Material, std::span(&CreatedId, 1), &Transactions));
@@ -970,8 +995,7 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 	const FMaterialGraphNodeView* CoalescedUndo = FindViewNode(
 		CoalescedUndoGraph, CreatedId);
 	ASSERT_NE(CoalescedUndo, nullptr);
-	ASSERT_TRUE(CoalescedUndo->Presentation.has_value());
-	EXPECT_EQ(CoalescedUndo->Presentation->X, 320);
+	EXPECT_EQ(CoalescedUndo->Presentation.X, 320);
 
 	Transactions.Clear();
 	MarkAsGarbage(Material);

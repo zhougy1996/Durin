@@ -15,6 +15,10 @@ namespace Durin
 		: Super(ObjectInitializer)
 		, ParameterDefinitions(MakeCanonicalMaterialParameterDefinitions())
 		, Program(MakeDefaultMaterialProgram())
+		, GraphPresentation({
+			.bHasMaterialOutputPosition = true,
+			.MaterialOutputX = 96,
+			.MaterialOutputY = 0})
 	{
 		if (!IsTemplateConstructionPurpose(ObjectInitializer.Purpose))
 		{

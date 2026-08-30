@@ -63,14 +63,14 @@ namespace Durin::Editor::Material
 		std::vector<std::vector<EMaterialProgramValueType>> AcceptedInputTypes;
 	};
 
-	// Describes one node and its optional shared authored position without exposing mutable storage.
+	// Describes one node and its shared authored position without exposing mutable storage.
 	struct FMaterialGraphNodeView
 	{
 		FMaterialProgramNode Node;
 		std::string PrimaryLabel;
 		std::string SecondaryLabel;
 		std::vector<FMaterialGraphPinView> Inputs;
-		std::optional<FMaterialGraphNodePresentation> Presentation;
+		FMaterialGraphNodePresentation Presentation;
 	};
 
 	// Is a detached deterministic snapshot used by widgets, tests, and automation.
@@ -78,7 +78,7 @@ namespace Durin::Editor::Material
 	{
 		std::vector<FMaterialGraphNodeView> Nodes;
 		FMaterialSurfaceOutputs Outputs;
-		std::optional<std::pair<int32, int32>> MaterialOutputPosition;
+		std::pair<int32, int32> MaterialOutputPosition;
 	};
 
 	struct FMaterialGraphCreateNodeRequest

@@ -14,12 +14,14 @@ addressed by stable GUID and input/output indices rather than `DObject`
 subobjects or canvas coordinates. Material instances never own or edit a graph.
 
 `DMaterial::GraphPresentation` is a separate `EditorOnly` reflected value. It
-contains schema version 1 and at most one integral graph-space position for each
-of the 256 live node GUIDs. Sanitization retains the first valid record, removes
-duplicate, dangling, invalid, and out-of-range entries, and never makes a valid
-program fail to load. Presentation is copied by ordinary reflection but is
-excluded from program validation, normalized IR, compile snapshots, shader-map
-identity, derived data, and the cooked DMAT payload.
+contains schema version 2, exactly one integral graph-space position for every
+live node GUID, and one integral Material Output position. New material and
+node creation establish those positions before publication. Sanitization retains
+the first valid record and removes duplicate, dangling, invalid, and out-of-range
+entries; an incomplete presentation violates the editable graph contract rather
+than selecting an alternate transient layout. Presentation is copied by ordinary
+reflection but is excluded from program validation, normalized IR, compile
+snapshots, shader-map identity, derived data, and the cooked DMAT payload.
 
 MaterialEditor owns transient pan, zoom, hover, selection, marquee, link drag,
 and per-document controller state. None of those values are serialized.
@@ -101,12 +103,11 @@ seed. Stable prior order and GUIDs break all ties. Columns use computed node
 heights and fixed gaps; selected-only layout treats every unselected node as an
 occupied rectangle and searches downward for the nearest collision-free slot.
 It rejects atomically if the bounded search fails. Layout never changes program
-order, node IDs, links, outputs, normalized IR, or identity. Missing legacy
-positions use the same layout calculation transiently when the graph is first
-displayed; opening, panning, zooming, selection framing, and diagnostic framing
-therefore never persist presentation or dirty the material. Explicit Auto Layout
-and node or Material Output movement persist presentation through ordinary
-transactions.
+order, node IDs, links, outputs, normalized IR, or identity. New material
+creation persists the initial complete layout before the asset is first
+published. Opening, panning, zooming, selection framing, and diagnostic framing
+never synthesize or persist missing positions. Explicit Auto Layout and node or
+Material Output movement persist presentation through ordinary transactions.
 
 ## Canvas and diagnostics
 
