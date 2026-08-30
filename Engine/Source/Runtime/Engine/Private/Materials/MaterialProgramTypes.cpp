@@ -72,6 +72,7 @@ namespace Durin
 			case EMaterialProgramValueType::Float3: return 3;
 			case EMaterialProgramValueType::Float4: return 4;
 			case EMaterialProgramValueType::Texture2D: return 0;
+			case EMaterialProgramValueType::Surface: return 0;
 			}
 			return 0;
 		}
