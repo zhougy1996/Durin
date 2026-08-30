@@ -184,6 +184,25 @@ TEST(FPackageObjectStreamReaderTests, CompleteDecodeReconstructsAndReemitsCanoni
 	EXPECT_EQ(Reencoded, Bytes);
 }
 
+TEST(FPackageObjectStreamReaderTests, DescriptorDecodeSkipsPayloadMaterializationAndReencoding)
+{
+	const std::vector<std::byte> Bytes = BuildPackage(true);
+	Production::FDecodedPackage Package;
+	Production::FReaderDiagnostic Diagnostic;
+	Production::ResetAssetPackageReencodeCountForTesting();
+	ASSERT_TRUE(Production::DecodePackageDescriptors(Bytes, Package, {}, &Diagnostic))
+		<< Diagnostic.Message;
+	EXPECT_EQ(Production::GetAssetPackageReencodeCountForTesting(), 0);
+	ASSERT_EQ(Package.ObjectValues.size(), 1);
+	ASSERT_EQ(Package.ObjectValues.front().Overrides.size(), 1);
+	const auto& Override = Package.ObjectValues.front().Overrides.front();
+	EXPECT_GT(Override.PayloadSize, 0);
+	EXPECT_TRUE(Override.DescriptorClosure.empty());
+	EXPECT_TRUE(Override.RetainedPayload.empty());
+	EXPECT_TRUE(Override.Value.Bytes.empty());
+	EXPECT_TRUE(Override.Value.Elements.empty());
+}
+
 TEST(FPackageObjectStreamReaderTests, RetainedClosureAndPayloadRemainExact)
 {
 	const std::vector<std::byte> Bytes = BuildPackage(true);
@@ -249,8 +268,10 @@ TEST(FPackageObjectStreamReaderTests, ConstructFreeCompatibilityReportsUnavailab
 	Production::FReaderDiagnostic Diagnostic;
 	Durin::FAssetPath Path;
 	const auto Catalog = Durin::Asset::FReflectionCompatibilityCatalog::Capture();
+	Production::ResetAssetPackageReencodeCountForTesting();
 	ASSERT_TRUE(Production::ProbeCompatibility(Bytes, Path, Catalog, Record, &Stats, {}, &Diagnostic))
 		<< Diagnostic.Message;
+	EXPECT_EQ(Production::GetAssetPackageReencodeCountForTesting(), 0);
 	EXPECT_EQ(Record.FormatVersion, 5);
 	EXPECT_EQ(Record.Inspection, Durin::Asset::EAssetCompatibilityInspection::Ready);
 	EXPECT_EQ(Record.Compatibility, Durin::Asset::EAssetPackageCompatibility::Unsupported);

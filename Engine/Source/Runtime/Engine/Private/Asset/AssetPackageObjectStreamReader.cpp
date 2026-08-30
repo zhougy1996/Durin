@@ -2066,7 +2066,18 @@ namespace Durin::Asset::PackageObjectStream
 		FReaderDiagnostic* OutDiagnostic) -> FAssetResult
 	{
 		FReaderDiagnostic Diagnostic; FDecodedPackage Package;
-		if (!DecodePackage(Bytes, Package, Limits, &Diagnostic))
+		if (!DecodePackageDescriptors(Bytes, Package, Limits, &Diagnostic))
+		{
+			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
+			return {EAssetError::CorruptFile, Diagnostic.Message};
+		}
+		const bool bNeedsPayloadValues = std::ranges::any_of(
+			Catalog.GetDeprecatedPropertyRoutes(), [&](const auto& Route) {
+				return std::ranges::any_of(Package.Schemas, [&](const auto& Schema) {
+					return Schema.QualifiedName == Route.DeclaringType;
+				});
+			});
+		if (bNeedsPayloadValues && !DecodePackage(Bytes, Package, Limits, &Diagnostic))
 		{
 			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
 			return {EAssetError::CorruptFile, Diagnostic.Message};
@@ -2121,7 +2132,7 @@ namespace Durin::Asset::PackageObjectStream
 				const std::string StoredSignature = Override.Provenance == 2 || !Type
 					? "DASTv4:RetainedClosure" : TypeSignature(*Type, Package);
 				const size_t NestedEvidenceBegin = Record.DeprecatedRouteEvidence.size();
-				if (Type) GatherNestedDeprecatedRouteEvidence(*Type, Override.Value, Package,
+				if (bNeedsPayloadValues && Type) GatherNestedDeprecatedRouteEvidence(*Type, Override.Value, Package,
 					Catalog, CompatibilityVersions, PackagePath, Object.Path,
 					Record.DeprecatedRouteEvidence);
 				for (size_t EvidenceIndex = NestedEvidenceBegin;
@@ -2192,11 +2203,14 @@ namespace Durin::Asset::PackageObjectStream
 		}
 		FAssetCompatibilityProbeStats Stats;
 		Stats.PayloadBytesSkipped = 0;
-		for (const auto& Object : Package.ObjectValues)
-			for (const auto& Override : Object.Overrides) Stats.PayloadBytesSkipped += Override.PayloadSize;
-		Stats.MetadataBytesRead = Package.Header.BytesRead
-			+ Package.Header.Sections[0].Length + Package.Header.Sections[1].Length
-			+ Package.Header.Sections[2].Length + Package.Header.Sections[3].Length;
+		if (!bNeedsPayloadValues)
+			for (const auto& Object : Package.ObjectValues)
+				for (const auto& Override : Object.Overrides)
+					Stats.PayloadBytesSkipped += Override.PayloadSize;
+		Stats.MetadataBytesRead = bNeedsPayloadValues ? Bytes.size()
+			: Package.Header.BytesRead + Package.Header.Sections[0].Length
+				+ Package.Header.Sections[1].Length + Package.Header.Sections[2].Length
+				+ Package.Header.Sections[3].Length;
 		Stats.PeakMetadataBytes = Stats.MetadataBytesRead;
 		OutRecord = std::move(Record); if (OutStats) *OutStats = Stats;
 		if (OutDiagnostic) OutDiagnostic->Reset();

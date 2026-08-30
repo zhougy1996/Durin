@@ -595,9 +595,9 @@ their prior active document or world unchanged.
 
 The read-only compatibility probe is a separate, compact inspection path. The
 game thread freezes registered class and property identities into a value-only
-`FReflectionCompatibilityCatalog`; a worker can then stream object and field
-descriptors from one package, validate ids, outers, lengths, and payload bounds,
-and seek across payload bytes without copying them. It constructs no `DObject`,
+`FReflectionCompatibilityCatalog`; a worker decodes object and field descriptors,
+validates ids, outers, lengths, and payload bounds, and leaves payload extents
+unmaterialized when the catalog has no deprecated property routes. It constructs no `DObject`,
 loads no dependency, invokes no `PostLoad()`, changes no dirty state, and writes
 no authored file. Package size and stable last-write ticks bind each result to
 the registry snapshot and mark a changed input stale.

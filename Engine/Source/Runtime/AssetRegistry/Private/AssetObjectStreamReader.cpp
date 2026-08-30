@@ -493,7 +493,8 @@ namespace Durin::Asset::PackageObjectStream
 		}
 
 		auto DecodeTablesAndValues(std::span<const std::byte> Bytes, FDecodedPackage& Package,
-			const FReaderLimits& Limits, FReaderDiagnostic& Diagnostic) -> bool
+			const FReaderLimits& Limits, FReaderDiagnostic& Diagnostic,
+			bool bDecodePayloads = true) -> bool
 		{
 			auto Section = [&](size_t Index) {
 				const auto& Entry = Package.Header.Sections[Index];
@@ -652,7 +653,12 @@ namespace Durin::Asset::PackageObjectStream
 					if (!Schema || Override.FieldId == 0 || Override.FieldId > Schema->Fields.size())
 						return Fail(Diagnostic, EReaderFailure::InvalidValue, "Override schema or field id is invalid.", Block.Position());
 					Override.PayloadSize = Payload.size();
-					if (Override.Provenance == 2)
+					if (!bDecodePayloads)
+					{
+						// Record() already validated the complete extent. Compatibility
+						// inspection intentionally leaves the payload untouched.
+					}
+					else if (Override.Provenance == 2)
 					{
 						FWireReader Unknown(Payload, Override.PayloadOffset); std::span<const std::byte> Closure, Retained;
 						if (!Unknown.Record(Closure, Diagnostic) || !Unknown.Record(Retained, Diagnostic)
@@ -1091,6 +1097,23 @@ namespace Durin::Asset::PackageObjectStream
 			|| !DecodeTablesAndValues(Bytes, Result, Limits, Diagnostic))
 		{
 			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic); return false;
+		}
+		OutPackage = std::move(Result);
+		if (OutDiagnostic) OutDiagnostic->Reset();
+		return true;
+	}
+
+	auto DecodePackageDescriptors(std::span<const std::byte> Bytes,
+		FDecodedPackage& OutPackage, const FReaderLimits& Limits,
+		FReaderDiagnostic* OutDiagnostic) -> bool
+	{
+		FReaderDiagnostic Diagnostic;
+		FDecodedPackage Result;
+		if (!DecodeHeaderInner(Bytes, Bytes.size(), Result.Header, Limits, Diagnostic)
+			|| !DecodeTablesAndValues(Bytes, Result, Limits, Diagnostic, false))
+		{
+			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic);
+			return false;
 		}
 		OutPackage = std::move(Result);
 		if (OutDiagnostic) OutDiagnostic->Reset();
