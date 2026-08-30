@@ -97,6 +97,11 @@ namespace Durin::Editor::StaticMesh
 			{
 				FStaticMeshRenderResourceStatus Status =
 					StaticMesh->GetRenderResourceStatus();
+				if (Status.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
+				{
+					(void)StaticMesh->EnsureRenderDataAndResourcesBlocking();
+					Status = StaticMesh->GetRenderResourceStatus();
+				}
 				if (!StaticMesh->GetLOD0LocalBounds())
 				{
 					const FStaticMeshDerivedDataDiagnostic& Diagnostic =
@@ -116,11 +121,6 @@ namespace Durin::Editor::StaticMesh
 						.Diagnostic = std::format(
 							"StaticMesh '{}' has no valid non-degenerate LOD 0 bounds.",
 							Input.AssetPath.ToString())};
-				}
-				if (Status.Readiness == EStaticMeshRenderResourceReadiness::Unavailable)
-				{
-					StaticMesh->InitResources();
-					Status = StaticMesh->GetRenderResourceStatus();
 				}
 				if (!bCapturedAssetRevision)
 				{

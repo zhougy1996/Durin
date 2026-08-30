@@ -394,10 +394,46 @@ Family serializers retain their existing versioned headers, target/profile
 facts, bounds, checksums, and semantic validation. Cooked package load validates
 the complete package/segment closure and attaches each external `FBulkData`
 range before publishing the object graph. It performs no field-range read.
-The first family accessor locks only the required field, decodes into a detached
-candidate, validates the family schema, and publishes transactionally. Missing,
-truncated, corrupt, wrong-target, or incompatible data is an asset-qualified
-hard failure; there is no source, importer, DDC, or synthetic fallback.
+The first explicit family request locks only the required field, decodes into a
+detached candidate, validates the family schema, and publishes transactionally.
+Missing, truncated, corrupt, wrong-target, or incompatible data is an
+asset-qualified hard failure; there is no source, importer, DDC, or synthetic
+fallback.
+
+### Cooked mesh runtime residency
+
+`DStaticMesh` and `DSkeletalMesh` expose side-effect-free RenderData and payload
+getters. `RequestRenderDataAndResources()` is the ordinary non-blocking entry
+point used by mesh-component assignment, registration, and SceneProxy fallback.
+Its generation-qualified snapshot separates `Unloaded`, queued/read/decode,
+`CpuReady`, `Failed`, and `Cancelled` CPU phases from independently
+`Unavailable`, `Queued`, `Ready`, and `Failed` GPU phases. SplineMesh shares its
+source StaticMesh request and residency.
+
+The Engine cooked-mesh manager bounds active and pending request bytes, active
+request count, retained completion bytes, and completions published per pump.
+Package resources perform the asynchronous reads. Worker tasks receive owned
+immutable bytes plus copied material, collision, bounds, bind-transform, bone,
+and Skeleton-compatibility facts; they never resolve or mutate a `DObject`,
+component, package, BodySetup, live Skeleton, or render resource. The GameThread
+alone rechecks object/load/resource generations and metadata identity, installs
+the detached candidate and diagnostics, queues GPU initialization, and
+invalidates registered consumers.
+
+`EnsureRenderDataAndResourcesBlocking()` is an explicit compatibility boundary.
+It submits or joins the same request identity and pumps only that owner's
+manager work before using the shared synchronous fallback. It is not used by
+getters, component ticks, SceneProxy creation, or renderer preparation. A
+failure or cancellation remains sticky for that load generation;
+`RetryRenderDataAndResourcesBlocking()` advances the generation and explicitly
+repeats the same contract.
+
+Manager shutdown stops admission, cancels reads and decode work, reports a
+current cancellation terminal to live assets without publishing CPU or GPU
+state, and drains tasks and completions before package, task, render, or Engine
+lifetime ends. Reinitialization creates a new manager scope; a cancelled asset
+resumes only through explicit retry. Package retirement, unload, destruction,
+or a newer generation cannot publish stale candidates.
 
 Terrain World is a manifest-owned opaque-stream exception rather than an asset
 field container. `TWMF` records the exact offset, size, product hash,

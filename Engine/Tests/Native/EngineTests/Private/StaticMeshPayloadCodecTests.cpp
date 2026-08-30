@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "CoreGlobals.h"
+#include "Asset/CookedMeshProducts.h"
 #include "HAL/PlatformLTS.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
@@ -353,6 +354,82 @@ namespace
 		Rehash(Bytes);
 		return Bytes;
 	}
+}
+
+TEST(FStaticMeshCookedProductTests, DetachedCodecMatchesBaselineAndClassifiesTruncation)
+{
+	const Durin::FStaticMeshPayloadData Payload = MakeMultiMaterialFixture();
+	const std::vector<std::byte> Bytes = Encode(Payload);
+	const std::vector<Durin::FMeshMaterialSlotDefinition> Slots{
+		{.Name = Durin::FName("Body"), .SourceMaterialIndex = 4},
+		{.Name = Durin::FName("Trim"), .SourceMaterialIndex = 9}};
+	std::unique_ptr<Durin::FStaticMeshRenderData> Baseline;
+	std::string Error;
+	ASSERT_TRUE(Durin::MakeStaticMeshRenderData(Payload, Baseline, Error)) << Error;
+
+	Durin::FStaticMeshCookedProduct Product;
+	Durin::FCookedMeshProductError ProductError;
+	ASSERT_TRUE(Durin::DecodeStaticMeshCookedProduct(
+		Bytes, {}, Slots,
+		Durin::EBodySetupCollisionSourceMode::None,
+		Durin::EBodySetupCollisionQueryPolicy::SimpleAndComplex,
+		Product, ProductError)) << ProductError.Message;
+	ASSERT_NE(Product.RenderData, nullptr);
+	ASSERT_EQ(Product.RenderData->LODResources.size(), Baseline->LODResources.size());
+	EXPECT_EQ(Product.RenderData->LODResources[0].IndexBuffer.GetIndices(),
+		Baseline->LODResources[0].IndexBuffer.GetIndices());
+	EXPECT_EQ(Product.RenderData->LODResources[0].VertexBuffers.PositionVertexBuffer.GetPositions(),
+		Baseline->LODResources[0].VertexBuffers.PositionVertexBuffer.GetPositions());
+	ASSERT_EQ(Product.RenderData->MaterialSlots.size(), Slots.size());
+	EXPECT_EQ(Product.RenderData->MaterialSlots[0].Name, "Body");
+	EXPECT_EQ(Product.RenderData->MaterialSlots[0].SourceMaterialIndex, 4u);
+	EXPECT_EQ(Product.RenderData->MaterialSlots[1].Name, "Trim");
+	EXPECT_EQ(Product.RenderData->MaterialSlots[1].SourceMaterialIndex, 9u);
+
+	Durin::FStaticMeshCookedProduct Rejected;
+	std::vector<std::byte> Truncated(Bytes.begin(), Bytes.end() - 1);
+	EXPECT_FALSE(Durin::DecodeStaticMeshCookedProduct(
+		Truncated, {}, Slots,
+		Durin::EBodySetupCollisionSourceMode::None,
+		Durin::EBodySetupCollisionQueryPolicy::SimpleAndComplex,
+		Rejected, ProductError));
+	EXPECT_EQ(ProductError.Category, Durin::ECookedMeshProductFailure::Schema);
+
+	std::vector<std::byte> Incompatible = Bytes;
+	WriteU32(Incompatible, 4, StaticMeshPayloadSchemaVersion + 1);
+	Rehash(Incompatible);
+	EXPECT_FALSE(Durin::DecodeStaticMeshCookedProduct(
+		Incompatible, {}, Slots,
+		Durin::EBodySetupCollisionSourceMode::None,
+		Durin::EBodySetupCollisionQueryPolicy::SimpleAndComplex,
+		Rejected, ProductError));
+	EXPECT_EQ(ProductError.Category, Durin::ECookedMeshProductFailure::Schema);
+
+	std::vector<std::byte> Oversized = Bytes;
+	const uint64 LODChunkOffset = ReadU64(Oversized, 64 + 2 * 32 + 8);
+	WriteU32(Oversized, static_cast<size_t>(LODChunkOffset + 4),
+		MaximumStaticMeshVerticesPerLOD + 1);
+	Rehash(Oversized);
+	EXPECT_FALSE(Durin::DecodeStaticMeshCookedProduct(
+		Oversized, {}, Slots,
+		Durin::EBodySetupCollisionSourceMode::None,
+		Durin::EBodySetupCollisionQueryPolicy::SimpleAndComplex,
+		Rejected, ProductError));
+	EXPECT_EQ(ProductError.Category, Durin::ECookedMeshProductFailure::Schema);
+
+	std::vector<std::byte> Compressed = Bytes;
+	WriteU32(Compressed, 16, 1);
+	WriteU32(Compressed, 64 + 4, 1 | (1 << 8));
+	WriteU64(Compressed, 64 + 16, 1);
+	WriteU64(Compressed, 64 + 24, 65);
+	Rehash(Compressed);
+	EXPECT_FALSE(Durin::DecodeStaticMeshCookedProduct(
+		Compressed, {}, Slots,
+		Durin::EBodySetupCollisionSourceMode::None,
+		Durin::EBodySetupCollisionQueryPolicy::SimpleAndComplex,
+		Rejected, ProductError));
+	EXPECT_EQ(ProductError.Category, Durin::ECookedMeshProductFailure::Schema);
+
 }
 
 TEST(FBoundedPayloadSerializationTests, PreservesNonDefaultDestinationAcrossEveryFailure)

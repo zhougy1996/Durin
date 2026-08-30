@@ -50,6 +50,7 @@ namespace Durin
 	{
 		if (StaticMesh == InStaticMesh) return;
 		StaticMesh = InStaticMesh;
+		if (StaticMesh) StaticMesh->RequestRenderDataAndResources();
 		++MaterialComponentRevision;
 		RebuildDerivedState();
 		MarkPackageDirty();
@@ -282,11 +283,13 @@ namespace Durin
 
 	auto DSplineMeshComponent::CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy>
 	{
+		if (!StaticMesh) return nullptr;
+		StaticMesh->RequestRenderDataAndResources();
+		if (!RebuildDerivedState()) return nullptr;
 		const auto State = GetDerivedState();
-		if (!StaticMesh || !State || !State->IsValid()) return nullptr;
-		StaticMesh->InitResources();
+		if (!State || !State->IsValid()) return nullptr;
 		const FStaticMeshRenderData* RenderData = StaticMesh->GetRenderData();
-		if (!StaticMesh->GetRenderResourceStatus().IsReady() || !RenderData
+		if (!RenderData
 			|| RenderData->LODResources.empty() || RenderData->LODResources[0].GetNumIndices() == 0)
 			return nullptr;
 		std::vector<FMaterialRenderProxyRef> MaterialProxies;
@@ -301,6 +304,12 @@ namespace Durin
 				.Params = State->Params,
 				.LocalBounds = State->ConservativeLocalBounds,
 				.Revision = State->DeformationRevision});
+	}
+
+	auto DSplineMeshComponent::OnRegister() -> void
+	{
+		if (StaticMesh) StaticMesh->RequestRenderDataAndResources();
+		Super::OnRegister();
 	}
 
 	auto DSplineMeshComponent::PushDynamicDataToScene() -> void

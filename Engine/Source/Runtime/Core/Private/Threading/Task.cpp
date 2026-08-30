@@ -1326,12 +1326,11 @@ namespace Durin
 				Private::FTaskAttributionAccess::GetCategoryId(State->GetAttribution()),
 				static_cast<uint8>(State->GetTarget()));
 
+			const bool bCancelAfterAdmission = SelectedScope && SelectedScope->BindTask(State);
 			if (const std::shared_ptr<FTaskCancellationState>& CancellationState = State->GetSharedCancellationState())
 			{
 				CancellationState->RegisterTask(State);
 			}
-
-			const bool bCancelAfterAdmission = SelectedScope && SelectedScope->BindTask(State);
 			for (const std::shared_ptr<FTaskStateData>& Prerequisite : PrerequisiteStates)
 			{
 				const ETaskState PrerequisiteState = Prerequisite->RegisterDependent(State);

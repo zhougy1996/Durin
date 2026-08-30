@@ -16,6 +16,11 @@ namespace Durin
 
 		CORE_API static auto Copy(std::span<const std::byte> Bytes) -> FSharedByteBuffer;
 		CORE_API static auto Take(std::vector<std::byte> Bytes) -> FSharedByteBuffer;
+		static auto Share(std::shared_ptr<const std::vector<std::byte>> Bytes)
+			-> FSharedByteBuffer
+		{
+			return FSharedByteBuffer(std::move(Bytes));
+		}
 
 		auto GetBytes() const -> std::span<const std::byte>
 		{

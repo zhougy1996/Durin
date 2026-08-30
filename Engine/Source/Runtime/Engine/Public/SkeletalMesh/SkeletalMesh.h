@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Asset/CookedMeshLoading.h"
+
 #include "Asset/Cook.h"
 #include "Asset/BulkData.h"
 #include "Asset/EditorBulkData.h"
@@ -237,6 +239,14 @@ namespace Durin
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
 		auto GetPayloadStorageDiagnostic() const -> const std::string& { return PayloadStorageDiagnostic; }
 		ENGINE_API auto GetRenderData() const -> const FSkeletalMeshRenderData*;
+		// Starts or joins nonblocking cooked work and returns the current snapshot.
+		ENGINE_API auto RequestRenderDataAndResources() -> FCookedMeshLoadStatus;
+		// May perform package I/O and CPU construction on the calling GameThread.
+		ENGINE_API auto EnsureRenderDataAndResourcesBlocking()
+			-> FCookedMeshBlockingResult;
+		// Clears a sticky cooked failure and explicitly repeats the blocking request.
+		ENGINE_API auto RetryRenderDataAndResourcesBlocking()
+			-> FCookedMeshBlockingResult;
 		ENGINE_API auto GetRenderResourceStatus() const
 			-> FSkeletalMeshRenderResourceStatus;
 		ENGINE_API auto InitResources() -> void;
@@ -310,10 +320,13 @@ namespace Durin
 		std::atomic<ERenderResourceState> RenderResourceState{
 			ERenderResourceState::Uninitialized};
 		std::atomic<uint64> RenderResourceRevision{1};
+		std::atomic<ECookedMeshCpuPhase> CookedLoadPhase{ECookedMeshCpuPhase::Unloaded};
+		std::atomic<uint64> CookedLoadGeneration{1};
 		FRenderCommandFence ReleaseResourcesFence;
 
 		auto LoadCookedPayload(std::string& OutError) -> bool;
 		auto BuildRenderData(std::string& OutError) -> bool;
+		auto SubmitCookedRenderDataRequest() -> bool;
 		auto ReleaseResources() -> void;
 
 		friend class FSkeletalMeshImportedStateExchange;

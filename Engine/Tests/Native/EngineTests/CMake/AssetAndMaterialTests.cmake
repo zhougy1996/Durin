@@ -12,6 +12,13 @@ durin_add_engine_functional_test(AssetCompilingManagerTests
 	SOURCES Private/AssetCompilingManagerTests.cpp
 )
 
+durin_add_engine_functional_test(CookedMeshLoadingTests
+	KIND contract
+	DOMAINS asset-workflow static-mesh skeletal-mesh
+	MODULES engine
+	SOURCES Private/CookedMeshLoadManagerTests.cpp
+)
+
 durin_add_engine_functional_test(DerivedDataCacheTests
 	EDITOR_ONLY
 	KIND contract

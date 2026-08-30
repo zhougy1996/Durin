@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Asset/CookedMeshLoading.h"
+
 #include "Asset/AssetImportData.h"
 #include "Asset/BulkData.h"
 #include "Asset/Cook.h"
@@ -196,6 +198,15 @@ namespace Durin
 		ENGINE_API ~DStaticMesh() override;
 		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
+		// Starts or joins bounded cooked loading and returns immediately with the
+		// current generation-qualified CPU/GPU snapshot.
+		ENGINE_API auto RequestRenderDataAndResources() -> FCookedMeshLoadStatus;
+		// May perform package I/O and CPU construction on the calling GameThread.
+		ENGINE_API auto EnsureRenderDataAndResourcesBlocking()
+			-> FCookedMeshBlockingResult;
+		// Clears a sticky cooked failure and explicitly repeats the blocking request.
+		ENGINE_API auto RetryRenderDataAndResourcesBlocking()
+			-> FCookedMeshBlockingResult;
 		// Returns one coherent, nonblocking snapshot for stale-work rejection.
 		ENGINE_API auto GetRenderResourceStatus() const
 			-> FStaticMeshRenderResourceStatus;
@@ -327,6 +338,7 @@ namespace Durin
 			std::string& OutError,
 			bool bBuildAuthoredCollision = true) -> bool;
 		auto LoadCookedRenderData(std::string& OutError) -> bool;
+		auto SubmitCookedRenderDataRequest() -> bool;
 		auto RefreshQualifiedBoxBodySetup() -> void;
 		auto BuildCollisionCandidate(
 			const FStaticMeshRenderData& SourceRenderData,
@@ -362,6 +374,8 @@ namespace Durin
 		FRenderCommandFence ReleaseResourcesFence;
 		std::atomic<uint64> RenderResourceStatus{PackRenderResourceStatus(
 			EStaticMeshRenderResourceState::Uninitialized, 1)};
+		std::atomic<ECookedMeshCpuPhase> CookedLoadPhase{ECookedMeshCpuPhase::Unloaded};
+		std::atomic<uint64> CookedLoadGeneration{1};
 
 		friend class FStaticMeshImportedStateExchange;
 		friend class Asset::FStaticMeshBuildOperations;

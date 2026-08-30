@@ -230,6 +230,14 @@ namespace Durin::Asset
 		FBulkDataMetadata Metadata;
 		{
 			std::lock_guard Lock(State->Mutex);
+			if ((State->State == EBulkDataState::Resident
+					|| State->State == EBulkDataState::Detached)
+				&& State->Allocation)
+			{
+				return FPackageResourceRequest::Completed({
+					.Status = EPackageResourceReadStatus::Success,
+					.Buffer = FSharedByteBuffer::Share(State->Allocation)});
+			}
 			if ((State->State != EBulkDataState::Attached && State->State != EBulkDataState::Failed)
 				|| !State->Metadata.Range.Resource)
 				return FPackageResourceRequest::Completed({

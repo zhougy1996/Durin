@@ -26,6 +26,7 @@ namespace Durin
 		}
 
 		StaticMesh = InStaticMesh;
+		if (StaticMesh) StaticMesh->RequestRenderDataAndResources();
 		++MaterialComponentRevision;
 		MarkPackageDirty();
 		MarkRenderStateDirty();
@@ -234,7 +235,7 @@ namespace Durin
 			return nullptr;
 		}
 
-		StaticMesh->InitResources();
+		StaticMesh->RequestRenderDataAndResources();
 		const FStaticMeshRenderData* RenderData = StaticMesh->GetRenderData();
 		if (RenderData == nullptr
 			|| RenderData->LODResources.empty()
@@ -254,6 +255,12 @@ namespace Durin
 			RenderData,
 			std::move(MaterialProxies),
 			MaterialComponentRevision);
+	}
+
+	auto DStaticMeshComponent::OnRegister() -> void
+	{
+		if (StaticMesh) StaticMesh->RequestRenderDataAndResources();
+		Super::OnRegister();
 	}
 
 #if DURIN_WITH_EDITOR

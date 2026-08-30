@@ -835,6 +835,36 @@ namespace Durin
 		EXPECT_EQ(ETaskScopeCloseResult::AlreadyClosed, First.Close(ETaskScopeCloseMode::Cancel));
 	}
 
+	TEST(FTaskScopeTests, PreCanceledTokenReconcilesScopedAdmission)
+	{
+		ShutdownTaskScheduler(false);
+		FEngineThreadPoolTestGuard Guard;
+		ASSERT_TRUE(InitializeTaskScheduler(1));
+
+		FTaskScope Scope = CreateTaskScope();
+		ASSERT_TRUE(Scope.IsValid());
+		FTaskCancellationSource Source;
+		Source.RequestCancellation();
+		FTaskLaunchOptions Options;
+		Options.Scope = Scope.GetToken();
+		Options.CancellationToken = Source.GetToken();
+		std::atomic<bool> bRan = false;
+		FTaskHandle Task = LaunchTask("ScopedPreCanceledToken", [&] {
+			bRan.store(true, std::memory_order_release);
+		}, Options);
+
+		ASSERT_TRUE(Task.IsValid());
+		EXPECT_EQ(ETaskState::Canceled, WaitTask(Task));
+		EXPECT_FALSE(bRan.load(std::memory_order_acquire));
+		EXPECT_EQ(ETaskScopeCloseResult::Closed,
+			Scope.Close(ETaskScopeCloseMode::Drain));
+		EXPECT_EQ(ETaskScopeWaitResult::Quiescent, Scope.Wait());
+		const FTaskScopeDiagnostics Diagnostics = Scope.GetDiagnostics();
+		EXPECT_EQ(1u, Diagnostics.AcceptedCount);
+		EXPECT_EQ(1u, Diagnostics.CanceledCount);
+		EXPECT_EQ(0u, Diagnostics.CurrentActiveCount);
+	}
+
 	TEST(FTaskScopeTests, ExplicitAndInheritedSelectionCoversEveryTaskForm)
 	{
 		ShutdownTaskScheduler(false);

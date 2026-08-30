@@ -10,6 +10,7 @@
 #include "Mona.h"
 #include "Engine/Engine.h"
 #include "Asset/AssetCompilingManager.h"
+#include "Asset/CookedMeshLoadManager.h"
 
 #include "RenderingThread.h"
 #include "CoreGlobals.h"
@@ -381,6 +382,7 @@ namespace Durin
 			Diagnostics.BeforeAssetServiceShutdown();
 			SetProcessCrashPhase(EProcessCrashPhase::AssetServiceShutdown);
 		}
+		Asset::ShutdownCookedMeshLoadManager();
 		if (GEngine) GEngine->PrepareForShutdown();
 		if (bGameThreadDeferredExecutorStarted)
 		{

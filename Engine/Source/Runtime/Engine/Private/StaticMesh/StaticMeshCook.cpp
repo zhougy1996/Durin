@@ -3,42 +3,57 @@
 #include "DObject/Package.h"
 
 #include "AssetCook.h"
+#include "Asset/CookedMeshProducts.h"
+#include "Asset/CookedMeshLoadManager.h"
 #include "DObject/Property.h"
+#include "Hash/XxHash.h"
 #include "Physics/BodySetup.h"
 #include "Serialization/Archive.h"
 #include "StaticMesh/StaticMeshPostLoad.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
+#include "StaticMesh/StaticMeshRenderStateRecreateContext.h"
 
 namespace Durin
 {
 	namespace
 	{
-		auto RestoreStaticMeshRuntimeMetadata(
-			const std::vector<FMeshMaterialSlotDefinition>& MaterialSlots,
-			FStaticMeshRenderData& RenderData,
-			std::string& OutError) -> bool
+		struct FStaticMeshManagerProduct final
+			: Asset::ICookedMeshDetachedProduct
 		{
-			if (RenderData.MaterialSlots.size() != MaterialSlots.size())
+			FStaticMeshCookedProduct Product;
+		};
+
+		auto BuildStaticCookedMetadataIdentity(const DStaticMesh& Mesh) -> uint64
+		{
+			FXxHash64Builder Builder;
+			auto AddBulk = [&Builder](const Asset::FBulkData& Bulk) {
+				const Asset::FBulkDataMetadata Metadata = Bulk.GetMetadata();
+				Builder.UpdateValue(Metadata.LogicalSize);
+				Builder.UpdateValue(Metadata.Range.SegmentOffset);
+				Builder.UpdateValue(Metadata.Range.StoredSize);
+				Builder.UpdateValue(Metadata.Range.StorageFlags);
+				Builder.UpdateValue(Metadata.Range.Alignment);
+				const uintptr_t Resource = reinterpret_cast<uintptr_t>(
+					Metadata.Range.Resource.get());
+				Builder.UpdateValue(Resource);
+			};
+			AddBulk(Mesh.GetCookedRenderData());
+			AddBulk(Mesh.GetCookedCollisionData());
+			const DBodySetup* BodySetup = Mesh.GetBodySetup();
+			const EBodySetupCollisionSourceMode Mode = BodySetup
+				? BodySetup->GetCollisionSourceMode()
+				: EBodySetupCollisionSourceMode::None;
+			const EBodySetupCollisionQueryPolicy Policy = BodySetup
+				? BodySetup->GetCollisionQueryPolicy()
+				: EBodySetupCollisionQueryPolicy::SimpleAndComplex;
+			Builder.UpdateValue(Mode);
+			Builder.UpdateValue(Policy);
+			for (const FMeshMaterialSlotDefinition& Slot : Mesh.GetMaterialSlots())
 			{
-				OutError = "Cached static-mesh material slot count does not match asset metadata.";
-				return false;
+				Builder.Update(Slot.Name.ToString());
+				Builder.UpdateValue(Slot.SourceMaterialIndex);
 			}
-			for (size_t SlotIndex = 0; SlotIndex < MaterialSlots.size(); ++SlotIndex)
-			{
-				const FMeshMaterialSlotDefinition& Definition = MaterialSlots[SlotIndex];
-				FStaticMeshMaterialSlot& Slot = RenderData.MaterialSlots[SlotIndex];
-				// Editable asset metadata is authoritative; the cached payload contributes
-				// only the compatible stable slot count and ordering.
-				Slot.Name = Definition.Name.ToString();
-				Slot.SourceMaterialIndex = Definition.SourceMaterialIndex;
-			}
-			for (size_t LODIndex = 0; LODIndex < RenderData.LODResources.size(); ++LODIndex)
-			{
-				auto& Sections = RenderData.LODResources[LODIndex].Sections;
-				for (size_t SectionIndex = 0; SectionIndex < Sections.size(); ++SectionIndex)
-					Sections[SectionIndex].Name = std::format("LOD{}_Section{}", LODIndex, SectionIndex);
-			}
-			return true;
+			return Builder.Finalize().HashValue;
 		}
 
 		auto ValidateStaticMeshMaterialSlotMapping(
@@ -216,66 +231,32 @@ namespace Durin
 		std::span<const std::byte> Bytes;
 		if (!CookedRenderData.LockReadOnly(Bytes, &OutError))
 			return FailCooked(OutError);
-		FCollisionGeometryRef CookedSimple;
-		FCollisionGeometryRef CookedComplex;
+		std::span<const std::byte> CollisionBytes;
 		if (bRequiresCollision)
 		{
-			std::span<const std::byte> CollisionBytes;
 			if (!CookedCollisionData.LockReadOnly(CollisionBytes, &OutError))
-			{
-				CookedRenderData.UnlockReadOnly();
-				return FailCooked(OutError);
-			}
-			FStaticMeshCollisionPayloadData CollisionPayload;
-			FCanonicalMemoryReader CollisionAr(
-				CollisionBytes, EArchivePurpose::CookedPayload);
-			CollisionPayload.Serialize(
-				CollisionAr, EStaticMeshTargetPlatform::Win64);
-			if (CollisionAr.HasError() || !RequireArchiveEnd(CollisionAr))
-			{
-				const std::string Error(CollisionAr.GetError());
-				CookedCollisionData.UnlockReadOnly();
-				CookedRenderData.UnlockReadOnly();
-				return FailCooked(Error);
-			}
-			if (CollisionPayload.SourceMode != BodySetup->GetCollisionSourceMode()
-				|| CollisionPayload.QueryPolicy != BodySetup->GetCollisionQueryPolicy())
-			{
-				CookedCollisionData.UnlockReadOnly();
-				CookedRenderData.UnlockReadOnly();
-				return FailCooked("DCOL policy does not match its cooked BodySetup metadata.");
-			}
-			FCollisionGeometryRef Geometry;
-			if (!MakeStaticMeshCollisionGeometry(CollisionPayload, Geometry, OutError))
-			{
-				CookedCollisionData.UnlockReadOnly();
-				CookedRenderData.UnlockReadOnly();
-				return FailCooked(OutError);
-			}
-			if (CollisionPayload.SourceMode == EBodySetupCollisionSourceMode::ConvexHullFromLOD0)
-				CookedSimple = Geometry;
-			else
-				CookedComplex = Geometry;
-			if (!CookedCollisionData.UnlockReadOnly(&OutError))
 			{
 				CookedRenderData.UnlockReadOnly();
 				return FailCooked(OutError);
 			}
 		}
 
-		FStaticMeshPayloadData Payload;
-		std::unique_ptr<FStaticMeshRenderData> CandidateRenderData;
-		FCanonicalMemoryReader PayloadAr(Bytes, EArchivePurpose::CookedPayload);
-		Payload.Serialize(PayloadAr, EStaticMeshTargetPlatform::Win64);
-		if (PayloadAr.HasError() || !RequireArchiveEnd(PayloadAr))
+		FStaticMeshCookedProduct Product;
+		FCookedMeshProductError ProductError;
+		const EBodySetupCollisionSourceMode CollisionMode = bRequiresCollision
+			? BodySetup->GetCollisionSourceMode()
+			: EBodySetupCollisionSourceMode::None;
+		const EBodySetupCollisionQueryPolicy CollisionPolicy = BodySetup
+			? BodySetup->GetCollisionQueryPolicy()
+			: EBodySetupCollisionQueryPolicy::SimpleAndComplex;
+		if (!DecodeStaticMeshCookedProduct(Bytes, CollisionBytes, MaterialSlots,
+			CollisionMode, CollisionPolicy, Product, ProductError))
 		{
-			const std::string Error(PayloadAr.GetError());
+			if (bRequiresCollision) CookedCollisionData.UnlockReadOnly();
 			CookedRenderData.UnlockReadOnly();
-			return FailCooked(Error);
+			return FailCooked(std::move(ProductError.Message));
 		}
-		if (!ValidateStaticMeshMaterialSlotMapping(Payload, MaterialSlots, OutError)
-			|| !MakeStaticMeshRenderData(Payload, CandidateRenderData, OutError)
-			|| !RestoreStaticMeshRuntimeMetadata(MaterialSlots, *CandidateRenderData, OutError))
+		if (bRequiresCollision && !CookedCollisionData.UnlockReadOnly(&OutError))
 		{
 			CookedRenderData.UnlockReadOnly();
 			return FailCooked(OutError);
@@ -283,23 +264,165 @@ namespace Durin
 		if (!CookedRenderData.UnlockReadOnly(&OutError)) return FailCooked(OutError);
 
 		if (!CommitRenderDataCandidate(
-			std::move(CandidateRenderData), nullptr, OutError, false))
+			std::move(Product.RenderData), nullptr, OutError, false))
 		{
 			return FailCooked(OutError);
 		}
 		if (bRequiresCollision)
 		{
 			const bool bPublished = BodySetup->PublishCollisionGeometry(
-				CookedSimple, CookedComplex,
+				Product.SimpleCollision, Product.ComplexCollision,
 				EBodySetupCollisionBuildStatus::CookedLoaded,
 				{}, "Loaded immutable collision from the cooked DCOL package field.",
-				CookedCollisionData.GetMetadata().LogicalSize);
+				Product.CollisionPayloadBytes);
 			check(bPublished);
 		}
 		DerivedDataDiagnostic.Status = EStaticMeshDerivedDataStatus::CookedLoaded;
 		DerivedDataDiagnostic.Message = std::format(
 			"Loaded cooked static-mesh payload for '{}'.", GetObjectPath());
 		OutError.clear();
+		return true;
+	}
+
+	auto DStaticMesh::SubmitCookedRenderDataRequest() -> bool
+	{
+		Asset::FCookedMeshLoadManager* Manager =
+			Asset::GetCookedMeshLoadManager();
+		if (!Manager || RenderData
+			|| !Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+			|| CookedRenderData.GetMetadata().LogicalSize == 0)
+		{
+			return false;
+		}
+
+		const DBodySetup* CurrentBodySetup = BodySetup.Get();
+		const EBodySetupCollisionSourceMode CollisionMode = CurrentBodySetup
+			? CurrentBodySetup->GetCollisionSourceMode()
+			: EBodySetupCollisionSourceMode::None;
+		const EBodySetupCollisionQueryPolicy CollisionPolicy = CurrentBodySetup
+			? CurrentBodySetup->GetCollisionQueryPolicy()
+			: EBodySetupCollisionQueryPolicy::SimpleAndComplex;
+		const bool bRequiresCollision =
+			CollisionMode != EBodySetupCollisionSourceMode::None;
+		const uint64 Generation =
+			CookedLoadGeneration.load(std::memory_order_acquire);
+		const uint64 ResourceRevision = GetRenderResourceStatus().Revision;
+		const uint64 MetadataIdentity = BuildStaticCookedMetadataIdentity(*this);
+		std::vector<FMeshMaterialSlotDefinition> SlotSnapshot = MaterialSlots;
+
+		Asset::FCookedMeshLoadRequest Request{
+			.Identity = {
+				.Owner = MakeObjectHandle(this),
+				.Family = Asset::ECookedMeshFamily::StaticMesh,
+				.LoadGeneration = Generation,
+				.ResourceRevision = ResourceRevision,
+				.MetadataIdentity = MetadataIdentity},
+			.Fields = {CookedRenderData},
+			.Worker = [SlotSnapshot = std::move(SlotSnapshot), CollisionMode,
+				CollisionPolicy, bRequiresCollision](
+				std::span<const FSharedByteBuffer> Buffers,
+				const FTaskCancellationToken& Cancellation)
+				-> Asset::FCookedMeshWorkerResult {
+				if (Cancellation.IsCancellationRequested()) return {};
+				if (Buffers.size() != (bRequiresCollision ? 2u : 1u))
+					return {.Message = "StaticMesh cooked field count is invalid."};
+				auto Result = std::make_unique<FStaticMeshManagerProduct>();
+				FCookedMeshProductError Error;
+				const std::span<const std::byte> CollisionBytes = bRequiresCollision
+					? Buffers[1].GetBytes() : std::span<const std::byte>{};
+				if (!DecodeStaticMeshCookedProduct(Buffers[0].GetBytes(),
+					CollisionBytes, SlotSnapshot, CollisionMode, CollisionPolicy,
+					Result->Product, Error))
+				{
+					return {.Message = std::move(Error.Message)};
+				}
+				uint64 RetainedBytes = Buffers[0].GetSize();
+				if (bRequiresCollision)
+					RetainedBytes += Buffers[1].GetSize();
+				if (Result->Product.SimpleCollision)
+					RetainedBytes += Result->Product.SimpleCollision.GetRetainedBytes();
+				if (Result->Product.ComplexCollision)
+					RetainedBytes += Result->Product.ComplexCollision.GetRetainedBytes();
+				return {.Product = std::move(Result),
+					.RetainedBytes = std::max<uint64>(RetainedBytes, 1)};
+			},
+			.IsCurrent = [](const DObject& Owner,
+				const Asset::FCookedMeshLoadIdentity& Identity) {
+				const auto* Mesh = Cast<DStaticMesh>(&Owner);
+				return Mesh
+					&& Mesh->CookedLoadGeneration.load(std::memory_order_acquire)
+						== Identity.LoadGeneration
+					&& Mesh->GetRenderResourceStatus().Revision
+						== Identity.ResourceRevision
+					&& BuildStaticCookedMetadataIdentity(*Mesh)
+						== Identity.MetadataIdentity;
+			},
+			.Publish = [](DObject& Owner,
+				const Asset::FCookedMeshLoadIdentity&,
+				std::unique_ptr<Asset::ICookedMeshDetachedProduct> BaseProduct,
+				std::string& OutError) {
+				auto* Mesh = Cast<DStaticMesh>(&Owner);
+				auto* Typed = dynamic_cast<FStaticMeshManagerProduct*>(
+					BaseProduct.get());
+				if (!Mesh || !Typed)
+				{
+					OutError = "StaticMesh cooked publication product is invalid.";
+					return false;
+				}
+				FStaticMeshRenderStateRecreateContext RecreateContext(Mesh);
+				FStaticMeshCookedProduct Product = std::move(Typed->Product);
+				if (!Mesh->CommitRenderDataCandidate(
+					std::move(Product.RenderData), nullptr, OutError, false))
+				{
+					return false;
+				}
+				if (Product.bHasCollision)
+				{
+					if (!Mesh->BodySetup
+						|| !Mesh->BodySetup->PublishCollisionGeometry(
+							Product.SimpleCollision, Product.ComplexCollision,
+							EBodySetupCollisionBuildStatus::CookedLoaded, {},
+							"Loaded immutable collision from the cooked DCOL package field.",
+							Product.CollisionPayloadBytes))
+					{
+						OutError = "StaticMesh cooked collision publication failed.";
+						return false;
+					}
+				}
+				Mesh->DerivedDataDiagnostic.Status =
+					EStaticMeshDerivedDataStatus::CookedLoaded;
+				Mesh->DerivedDataDiagnostic.Message = std::format(
+					"Loaded cooked static-mesh payload for '{}'.",
+					Mesh->GetObjectPath());
+				Mesh->CookedLoadPhase.store(
+					ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
+				Mesh->InitResources();
+				OutError.clear();
+				return true;
+			},
+			.OnTerminal = [](DObject& Owner,
+				const Asset::FCookedMeshLoadIdentity&,
+				Asset::ECookedMeshTerminalState Terminal,
+				std::string_view Message) {
+				auto* Mesh = Cast<DStaticMesh>(&Owner);
+				if (!Mesh) return;
+				const bool bFailed = Terminal == Asset::ECookedMeshTerminalState::Failed
+					|| Terminal == Asset::ECookedMeshTerminalState::Rejected;
+				Mesh->CookedLoadPhase.store(bFailed
+					? ECookedMeshCpuPhase::Failed
+					: ECookedMeshCpuPhase::Cancelled, std::memory_order_release);
+				Mesh->DerivedDataDiagnostic.Status =
+					EStaticMeshDerivedDataStatus::CookedFailure;
+				Mesh->DerivedDataDiagnostic.Message = std::format(
+					"Cooked static mesh '{}': {}", Mesh->GetObjectPath(),
+					Message.empty() ? "asynchronous load terminated" : Message);
+			}
+		};
+		if (bRequiresCollision)
+			Request.Fields.push_back(CookedCollisionData);
+		if (!Manager->Submit(std::move(Request))) return false;
+		CookedLoadPhase.store(
+			ECookedMeshCpuPhase::IoQueued, std::memory_order_release);
 		return true;
 	}
 

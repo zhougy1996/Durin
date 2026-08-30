@@ -4,7 +4,7 @@ Summary: Define RenderCore resource state, deferred C++ cleanup, producer teardo
 
 Modules: RenderCore, Engine, MonaImGui
 
-Last reviewed: 2026-08-18
+Last reviewed: 2026-08-30
 
 `FRenderResource` owns registry membership and the rendering-thread
 initialization, update, and release state machine. This contract covers generic
@@ -42,6 +42,28 @@ does not authorize immediate C++ destruction.
 Texture assets apply this rule to their stable `FTextureReference` and concrete
 `FTextureResource` ownership. Their publication, replacement, invalidation, and
 asset diagnostics are defined by [Texture System](TextureSystem.md).
+
+## Cooked mesh readiness
+
+StaticMesh and SkeletalMesh CPU residency is independent of render-resource
+readiness. A current cooked CPU candidate is published on GameThread and queues
+resource initialization immediately. The asset reports the queued state before
+the rendering thread executes that command and advances its resource revision
+again when initialization reaches Ready or Failed.
+
+A StaticMesh, SplineMesh, or SkeletalMesh SceneProxy may be created from valid
+CPU data while GPU initialization is queued. Renderer preparation still checks
+the selected LOD's actual resources and rejects or falls back until they are
+ready. Because CPU publication recreates registered component render state, the
+queued-to-ready transition needs no warm-up getter, second asset assignment, or
+external render-state mutation.
+
+Initialization failure is sticky for the current asset/resource generation and
+never leaves a partially initialized LOD accepted by the renderer. Explicit
+retry resets the failed resource state and queues the same validated CPU data
+again. Replacement, unload, and destruction first invalidate component state,
+then enqueue release and retain displaced RenderData until the deferred C++
+cleanup boundary.
 
 ## Producer Teardown
 

@@ -4,10 +4,13 @@
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
+#include "Asset/CookedMeshLoadManager.h"
 #include "DObject/Class.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
+#include "Components/StaticMeshComponent.h"
+#include "Components/SplineMeshComponent.h"
 #include "EngineTestSupport.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
@@ -308,6 +311,9 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 		const Durin::Asset::FAssetResult Loaded =
 			Durin::Asset::LoadAsset(Path, CookedMesh);
 		ASSERT_TRUE(Loaded) << Loaded.Message;
+		const Durin::FCookedMeshBlockingResult LoadResult =
+			CookedMesh->EnsureRenderDataAndResourcesBlocking();
+		ASSERT_TRUE(LoadResult) << LoadResult.Message;
 		ASSERT_NE(CookedMesh->GetRenderData(), nullptr);
 		Durin::FCollisionGeometryRef Geometry;
 		ASSERT_TRUE(CookedMesh->GetBodySetup()->BuildComplexGeometry(Geometry));
@@ -375,7 +381,48 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		const Durin::Asset::FAssetResult Loaded =
 			Durin::Asset::LoadAsset(Path, CookedMesh);
 		ASSERT_TRUE(Loaded) << Loaded.Message;
+		ASSERT_EQ(CookedMesh->GetRenderData(), nullptr);
+		EXPECT_EQ(CookedMesh->RequestRenderDataAndResources().CpuPhase,
+			Durin::ECookedMeshCpuPhase::Unloaded);
+		auto* FirstConsumer = Durin::NewObject<Durin::DStaticMeshComponent>(
+			nullptr, Durin::FName("CookedStaticMeshFirstConsumer"));
+		FirstConsumer->SetStaticMesh(CookedMesh);
+		EXPECT_EQ(CookedMesh->RequestRenderDataAndResources().CpuPhase,
+			Durin::ECookedMeshCpuPhase::Unloaded);
+		ASSERT_TRUE(Durin::Asset::InitializeCookedMeshLoadManager());
+		FirstConsumer->RegisterComponent();
+		EXPECT_EQ(CookedMesh->RequestRenderDataAndResources().CpuPhase,
+			Durin::ECookedMeshCpuPhase::IoQueued);
+		EXPECT_EQ(FirstConsumer->CreateSceneProxy(), nullptr);
+		Durin::Asset::ShutdownCookedMeshLoadManager();
+		EXPECT_EQ(CookedMesh->RequestRenderDataAndResources().CpuPhase,
+			Durin::ECookedMeshCpuPhase::Cancelled);
+		EXPECT_NE(CookedMesh->GetDerivedDataDiagnostic().Message.find("cancel"),
+			std::string::npos);
+		ASSERT_TRUE(Durin::Asset::InitializeCookedMeshLoadManager());
+		const Durin::FCookedMeshBlockingResult RetryResult =
+			CookedMesh->RetryRenderDataAndResourcesBlocking();
+		ASSERT_TRUE(RetryResult) << RetryResult.Message;
+		auto FirstProxy = FirstConsumer->CreateSceneProxy();
+		const Durin::FCookedMeshLoadStatus RecoveredStatus =
+			CookedMesh->RequestRenderDataAndResources();
+		const Durin::Asset::FCookedMeshLoadDiagnostics RecoveredDiagnostics =
+			Durin::Asset::GetCookedMeshLoadManager()->GetDiagnostics();
+		if (!FirstProxy) Durin::Asset::ShutdownCookedMeshLoadManager();
+		ASSERT_NE(FirstProxy, nullptr)
+			<< "cpu_phase=" << static_cast<uint32>(RecoveredStatus.CpuPhase)
+			<< " failed=" << RecoveredDiagnostics.FailedCount
+			<< " stale=" << RecoveredDiagnostics.StaleCount
+			<< " in_flight=" << RecoveredDiagnostics.InFlightCount
+			<< " diagnostic=" << CookedMesh->GetDerivedDataDiagnostic().Message;
 		ASSERT_NE(CookedMesh->GetRenderData(), nullptr);
+		EXPECT_EQ(CookedMesh->RequestRenderDataAndResources().CpuPhase,
+			Durin::ECookedMeshCpuPhase::CpuReady);
+		auto* SplineConsumer = Durin::NewObject<Durin::DSplineMeshComponent>(
+			nullptr, Durin::FName("CookedSplineMeshConsumer"));
+		SplineConsumer->SetStaticMesh(CookedMesh);
+		ASSERT_NE(SplineConsumer->CreateSceneProxy(), nullptr);
+		Durin::Asset::ShutdownCookedMeshLoadManager();
 		EXPECT_EQ(CookedMesh->GetAssetImportData(), nullptr);
 		EXPECT_NE(CookedMesh->GetCookedRenderData().GetMetadata().LogicalSize, 0u);
 		ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));

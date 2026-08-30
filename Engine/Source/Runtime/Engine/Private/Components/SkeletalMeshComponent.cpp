@@ -101,6 +101,27 @@ namespace Durin
 			OutError.clear();
 			return true;
 		}
+		if (!InMesh->GetPayloadData() || !InMesh->GetRenderData())
+		{
+			if (!InMesh->Validate(OutError)) return false;
+			if (InClip)
+			{
+				if (!InClip->Validate(OutError)) return false;
+				const DSkeleton* MeshSkeleton = InMesh->GetSkeleton();
+				const DSkeleton* ClipSkeleton = InClip->GetSkeleton();
+				if (!MeshSkeleton || !ClipSkeleton
+					|| MeshSkeleton->GetCompatibilityIdentity()
+						!= ClipSkeleton->GetCompatibilityIdentity()
+					|| InMesh->GetSkeletonCompatibilityIdentity()
+						!= InClip->GetSkeletonCompatibilityIdentity())
+				{
+					OutError = "Animation clip is structurally incompatible with the skeletal mesh.";
+					return false;
+				}
+			}
+			OutError.clear();
+			return true;
+		}
 		FSkeletalAnimationBinding Candidate;
 		return BuildSkeletalAnimationBinding(*InMesh, InClip, Candidate, OutError);
 	}
@@ -126,6 +147,11 @@ namespace Durin
 			AnimationInstance.Unbind();
 			OutError.clear();
 			return true;
+		}
+		if (!InMesh->GetPayloadData() || !InMesh->GetRenderData())
+		{
+			AnimationInstance.Unbind();
+			return ValidateProspectiveBinding(InMesh, InClip, OutError);
 		}
 		const bool bWasPlaying = AnimationInstance.IsPlaying();
 		if (!AnimationInstance.Bind(*InMesh, InClip, OutError)) return false;
@@ -162,6 +188,7 @@ namespace Durin
 		DSkeletalMesh* InMesh,
 		std::string& OutError) -> bool
 	{
+		if (InMesh) InMesh->RequestRenderDataAndResources();
 		if (SkeletalMesh.Get() == InMesh)
 		{
 			OutError.clear();
@@ -326,6 +353,7 @@ namespace Durin
 
 	auto DSkeletalMeshComponent::OnRegister() -> void
 	{
+		if (SkeletalMesh) SkeletalMesh->RequestRenderDataAndResources();
 		Super::OnRegister();
 		std::string Error;
 		if (!RebindCurrent(Error))
@@ -381,9 +409,9 @@ namespace Durin
 	auto DSkeletalMeshComponent::CreateSceneProxy() -> std::unique_ptr<FPrimitiveSceneProxy>
 	{
 		if (!SkeletalMesh) return nullptr;
+		SkeletalMesh->RequestRenderDataAndResources();
 		const std::shared_ptr<const FSkeletalPosePalette> Pose = GetLatestPosePalette();
 		if (!Pose || !Pose->LocalBounds.bIsValid) return nullptr;
-		SkeletalMesh->InitResources();
 		const FSkeletalMeshRenderData* RenderData = SkeletalMesh->GetRenderData();
 		if (!RenderData || RenderData->Sections.empty()) return nullptr;
 		std::vector<FMaterialRenderProxyRef> Materials;
@@ -396,6 +424,22 @@ namespace Durin
 		LastPublishedPoseRevision = Pose->Revision;
 		return std::make_unique<FSkeletalMeshSceneProxy>(
 			RenderData, std::move(Materials), MaterialComponentRevision, Pose);
+	}
+
+	auto DSkeletalMeshComponent::HandleSkeletalMeshRenderDataChanged(
+		DSkeletalMesh* ChangedMesh) -> void
+	{
+		if (!ChangedMesh || ChangedMesh != SkeletalMesh.Get()) return;
+		AnimationInstance.Unbind();
+		LastPublishedPoseRevision = 0;
+		std::string Error;
+		if (!RebindCurrent(Error))
+		{
+			DURIN_WARN("Skeletal-mesh component could not bind published render data. (component: {}, reason: {})",
+				GetObjectPath(), Error);
+		}
+		++MaterialComponentRevision;
+		MarkRenderStateDirty();
 	}
 
 #if DURIN_WITH_EDITOR

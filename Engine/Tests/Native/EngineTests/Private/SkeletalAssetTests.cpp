@@ -1,8 +1,13 @@
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <thread>
+
 #include "Animation/AnimationClip.h"
 #include "Actors/SkeletalMeshActor.h"
 #include "Asset/EditorBulkDataStorage.h"
+#include "Asset/CookedMeshProducts.h"
+#include "Asset/CookedMeshLoadManager.h"
 #include "Asset/Mutation.h"
 #include "Asset/AssetOperations.h"
 #include "Asset/Mutation.h"
@@ -380,6 +385,63 @@ namespace
 			CookRoot, Configuration));
 		ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(Configuration)));
 	}
+}
+
+TEST(FSkeletalMeshCookedProductTests,
+	DetachedCodecMatchesBaselineAndClassifiesSummaryMismatch)
+{
+	InitializeDObjectSystem();
+	auto* Skeleton = Durin::NewObject<Durin::DSkeleton>(nullptr, "DetachedCodecSkeleton");
+	InitializeSkeleton(*Skeleton);
+	const auto Payload = MakeMeshPayload();
+	std::vector<std::byte> Bytes;
+	std::string Error;
+	ASSERT_TRUE(SerializeMeshPayload(*Payload, *Skeleton, 1, Bytes, Error)) << Error;
+	const std::vector<Durin::FMeshMaterialSlotDefinition> Slots{
+		{.Name = Durin::FName("Body"), .SourceMaterialIndex = 3}};
+	const Durin::FSkeletonTransform BindTransform = MakeTransform();
+	std::unique_ptr<Durin::FSkeletalMeshRenderData> Baseline;
+	ASSERT_TRUE(Durin::BuildSkeletalMeshRenderData(
+		*Payload, *Skeleton, BindTransform, Slots, Baseline, Error)) << Error;
+	const Durin::FSkeletalMeshSummary Summary{
+		.VertexCount = static_cast<uint32>(Payload->Positions.size()),
+		.IndexCount = static_cast<uint32>(Payload->Indices.size()),
+		.SectionCount = static_cast<uint32>(Payload->Sections.size()),
+		.LocalBounds = Durin::FSkeletalMeshBounds::FromBox(Payload->LocalBounds)};
+
+	Durin::FSkeletalMeshCookedProduct Product;
+	Durin::FCookedMeshProductError ProductError;
+	ASSERT_TRUE(Durin::DecodeSkeletalMeshCookedProduct(
+		Bytes, Skeleton->GetBones(), BindTransform, Slots, Summary,
+		Product, ProductError)) << ProductError.Message;
+	ASSERT_TRUE(Product.Payload);
+	EXPECT_EQ(*Product.Payload, *Payload);
+	ASSERT_NE(Product.RenderData, nullptr);
+	EXPECT_EQ(Product.RenderData->IndexBuffer.GetIndices(),
+		Baseline->IndexBuffer.GetIndices());
+	EXPECT_EQ(Product.RenderData->VertexBuffers.Geometry.PositionVertexBuffer.GetPositions(),
+		Baseline->VertexBuffers.Geometry.PositionVertexBuffer.GetPositions());
+	EXPECT_EQ(Product.RenderData->PaletteBoneIndices, Baseline->PaletteBoneIndices);
+
+	Durin::FSkeletalMeshSummary WrongSummary = Summary;
+	++WrongSummary.VertexCount;
+	Durin::FSkeletalMeshCookedProduct Rejected;
+	EXPECT_FALSE(Durin::DecodeSkeletalMeshCookedProduct(
+		Bytes, Skeleton->GetBones(), BindTransform, Slots, WrongSummary,
+		Rejected, ProductError));
+	EXPECT_EQ(ProductError.Category, Durin::ECookedMeshProductFailure::Metadata);
+
+	std::vector<std::byte> Truncated(Bytes.begin(), Bytes.end() - 1);
+	EXPECT_FALSE(Durin::DecodeSkeletalMeshCookedProduct(
+		Truncated, Skeleton->GetBones(), BindTransform, Slots, Summary,
+		Rejected, ProductError));
+	EXPECT_EQ(ProductError.Category, Durin::ECookedMeshProductFailure::Schema);
+	std::vector<std::byte> Incompatible = Bytes;
+	WriteWireU32(Incompatible, 4, 99);
+	EXPECT_FALSE(Durin::DecodeSkeletalMeshCookedProduct(
+		Incompatible, Skeleton->GetBones(), BindTransform, Slots, Summary,
+		Rejected, ProductError));
+	EXPECT_EQ(ProductError.Category, Durin::ECookedMeshProductFailure::Schema);
 }
 
 TEST(FSkeletalRenderDataTests, ConvertsPayloadAndBuildsDedicatedVertexFactoryContract)
@@ -1321,9 +1383,9 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	ASSERT_NE(Mesh, nullptr);
 	ASSERT_NE(Mesh->GetSkeleton(), nullptr);
 	EXPECT_NE(Mesh->GetCookedPlatformData().GetMetadata().LogicalSize, 0u);
-	ASSERT_NE(Mesh->GetPayloadData(), nullptr);
-	EXPECT_EQ(*Mesh->GetPayloadData(), ExpectedMesh);
-	EXPECT_TRUE(Mesh->GetDerivedDataKey().empty());
+	ASSERT_EQ(Mesh->GetRenderData(), nullptr);
+	EXPECT_EQ(Mesh->RequestRenderDataAndResources().CpuPhase,
+		Durin::ECookedMeshCpuPhase::Unloaded);
 	Clip = nullptr;
 	ASSERT_TRUE(Durin::Asset::LoadAsset(ClipPath, Clip));
 	ASSERT_NE(Clip, nullptr);
@@ -1332,6 +1394,45 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	ASSERT_NE(Clip->GetPayloadData(), nullptr);
 	EXPECT_EQ(*Clip->GetPayloadData(), ExpectedClip);
 	EXPECT_TRUE(Clip->GetDerivedDataKey().empty());
+	auto* FirstConsumer = Durin::NewObject<Durin::DSkeletalMeshComponent>(
+		nullptr, Durin::FName("CookedSkeletalMeshFirstConsumer"));
+	ASSERT_TRUE(Durin::Asset::InitializeCookedMeshLoadManager());
+	ASSERT_TRUE(FirstConsumer->SetSkeletalMesh(Mesh, Error)) << Error;
+	FirstConsumer->RegisterComponent();
+	ASSERT_TRUE(FirstConsumer->SetAnimationClip(Clip, Error)) << Error;
+	auto* ReassignedConsumer = Durin::NewObject<Durin::DSkeletalMeshComponent>(
+		nullptr, Durin::FName("CookedSkeletalMeshReassignedConsumer"));
+	ASSERT_TRUE(ReassignedConsumer->SetSkeletalMesh(Mesh, Error)) << Error;
+	ReassignedConsumer->RegisterComponent();
+	ASSERT_TRUE(ReassignedConsumer->SetAnimationClip(Clip, Error)) << Error;
+	ASSERT_TRUE(ReassignedConsumer->SetAnimationClip(nullptr, Error)) << Error;
+	ASSERT_TRUE(ReassignedConsumer->SetSkeletalMesh(nullptr, Error)) << Error;
+	EXPECT_EQ(Mesh->RequestRenderDataAndResources().CpuPhase,
+		Durin::ECookedMeshCpuPhase::IoQueued);
+	EXPECT_EQ(FirstConsumer->CreateSceneProxy(), nullptr);
+	Durin::Asset::ShutdownCookedMeshLoadManager();
+	EXPECT_EQ(Mesh->RequestRenderDataAndResources().CpuPhase,
+		Durin::ECookedMeshCpuPhase::Cancelled);
+	EXPECT_NE(Mesh->GetPayloadStorageDiagnostic().find("cancel"),
+		std::string::npos);
+	ASSERT_TRUE(Durin::Asset::InitializeCookedMeshLoadManager());
+	const Durin::FCookedMeshBlockingResult RetryResult =
+		Mesh->RetryRenderDataAndResourcesBlocking();
+	ASSERT_TRUE(RetryResult) << RetryResult.Message;
+	auto FirstProxy = FirstConsumer->CreateSceneProxy();
+	if (!FirstProxy) Durin::Asset::ShutdownCookedMeshLoadManager();
+	ASSERT_NE(FirstProxy, nullptr) << Mesh->GetPayloadStorageDiagnostic();
+	EXPECT_EQ(ReassignedConsumer->GetSkeletalMesh(), nullptr);
+	EXPECT_EQ(ReassignedConsumer->GetLatestPosePalette(), nullptr);
+	EXPECT_EQ(ReassignedConsumer->CreateSceneProxy(), nullptr);
+	ASSERT_TRUE(ReassignedConsumer->SetSkeletalMesh(Mesh, Error)) << Error;
+	ASSERT_TRUE(ReassignedConsumer->SetAnimationClip(Clip, Error)) << Error;
+	ASSERT_NE(ReassignedConsumer->CreateSceneProxy(), nullptr);
+	ASSERT_NE(Mesh->GetPayloadData(), nullptr);
+	ASSERT_NE(Mesh->GetRenderData(), nullptr);
+	EXPECT_EQ(*Mesh->GetPayloadData(), ExpectedMesh);
+	EXPECT_TRUE(Mesh->GetDerivedDataKey().empty());
+	Durin::Asset::ShutdownCookedMeshLoadManager();
 
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ClipPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));

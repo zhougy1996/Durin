@@ -82,13 +82,12 @@ namespace Durin
 
 		auto ValidateReferenceContainment(
 			const FSkeletalMeshPayloadData& Payload,
-			const DSkeleton& Skeleton,
+			std::span<const FSkeletonBone> Bones,
 			const FSkeletonTransform& MeshNodeBindTransform,
 			std::span<const FBox> InfluenceBounds,
 			std::string& OutError) -> bool
 		{
-			std::vector<FMatrix> ComponentMatrices(Skeleton.GetBoneCount(), FMatrix(1.0));
-			const auto Bones = Skeleton.GetBones();
+			std::vector<FMatrix> ComponentMatrices(Bones.size(), FMatrix(1.0));
 			for (size_t BoneIndex = 0; BoneIndex < Bones.size(); ++BoneIndex)
 			{
 				const FMatrix Local = ToDoubleMatrix(Bones[BoneIndex].ReferenceTransform.ToMatrix4f());
@@ -262,9 +261,22 @@ namespace Durin
 		std::unique_ptr<FSkeletalMeshRenderData>& OutRenderData,
 		std::string& OutError) -> bool
 	{
+		return BuildSkeletalMeshRenderData(Payload, Skeleton.GetBones(),
+			MeshNodeBindTransform, MaterialSlots, OutRenderData, OutError);
+	}
+
+	auto BuildSkeletalMeshRenderData(
+		const FSkeletalMeshPayloadData& Payload,
+		std::span<const FSkeletonBone> SkeletonBones,
+		const FSkeletonTransform& MeshNodeBindTransform,
+		std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
+		std::unique_ptr<FSkeletalMeshRenderData>& OutRenderData,
+		std::string& OutError) -> bool
+	{
 		if (!MeshNodeBindTransform.IsValid(&OutError)) return false;
 		if (!ValidateSkeletalMeshPayload(
-			Payload, Skeleton, static_cast<uint32>(MaterialSlots.size()), OutError)) return false;
+			Payload, static_cast<uint32>(SkeletonBones.size()),
+			static_cast<uint32>(MaterialSlots.size()), OutError)) return false;
 		auto Candidate = std::make_unique<FSkeletalMeshRenderData>();
 		Candidate->VertexBuffers.Geometry.PositionVertexBuffer.Init(Payload.Positions);
 		Candidate->VertexBuffers.Geometry.StaticMeshVertexBuffer.TangentsVertexBuffer.Init(
@@ -303,7 +315,7 @@ namespace Durin
 			}
 		}
 		Candidate->LocalBounds = Payload.LocalBounds;
-		if (!ValidateReferenceContainment(Payload, Skeleton, MeshNodeBindTransform,
+		if (!ValidateReferenceContainment(Payload, SkeletonBones, MeshNodeBindTransform,
 			Candidate->InfluenceBounds, OutError)) return false;
 		if (!IsGeometryValid(*Candidate))
 		{

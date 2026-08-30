@@ -97,4 +97,11 @@ namespace Durin
 		std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
 		std::unique_ptr<FSkeletalMeshRenderData>& OutRenderData,
 		std::string& OutError) -> bool;
+	ENGINE_API auto BuildSkeletalMeshRenderData(
+		const FSkeletalMeshPayloadData& Payload,
+		std::span<const FSkeletonBone> SkeletonBones,
+		const FSkeletonTransform& MeshNodeBindTransform,
+		std::span<const FMeshMaterialSlotDefinition> MaterialSlots,
+		std::unique_ptr<FSkeletalMeshRenderData>& OutRenderData,
+		std::string& OutError) -> bool;
 }

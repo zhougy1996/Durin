@@ -1,5 +1,7 @@
 #include "StaticMesh/StaticMesh.h"
 
+#include "Asset/CookedMeshLoadManager.h"
+
 #include "DObject/Package.h"
 
 #include "Asset.h"
@@ -342,13 +344,99 @@ namespace Durin
 
 	auto DStaticMesh::GetRenderData() const -> const FStaticMeshRenderData*
 	{
-		if (!RenderData && Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+		return RenderData.get();
+	}
+
+	auto DStaticMesh::RequestRenderDataAndResources() -> FCookedMeshLoadStatus
+	{
+		CheckStaticMeshUpdateThread();
+		if (RenderData)
+		{
+			CookedLoadPhase.store(
+				ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
+			InitResources();
+		}
+		else
+		{
+			const ECookedMeshCpuPhase Phase =
+				CookedLoadPhase.load(std::memory_order_acquire);
+			if (Phase == ECookedMeshCpuPhase::Unloaded)
+				SubmitCookedRenderDataRequest();
+		}
+		const FStaticMeshRenderResourceStatus Resource = GetRenderResourceStatus();
+		ECookedMeshGpuPhase GpuPhase = ECookedMeshGpuPhase::Unavailable;
+		switch (Resource.Readiness)
+		{
+		case EStaticMeshRenderResourceReadiness::Queued: GpuPhase = ECookedMeshGpuPhase::Queued; break;
+		case EStaticMeshRenderResourceReadiness::Ready: GpuPhase = ECookedMeshGpuPhase::Ready; break;
+		case EStaticMeshRenderResourceReadiness::Failed: GpuPhase = ECookedMeshGpuPhase::Failed; break;
+		case EStaticMeshRenderResourceReadiness::Unavailable: break;
+		}
+		return {.CpuPhase = RenderData ? ECookedMeshCpuPhase::CpuReady
+			: CookedLoadPhase.load(std::memory_order_acquire),
+			.GpuPhase = GpuPhase,
+			.Generation = CookedLoadGeneration.load(std::memory_order_acquire),
+			.ResourceRevision = Resource.Revision};
+	}
+
+	auto DStaticMesh::EnsureRenderDataAndResourcesBlocking()
+		-> FCookedMeshBlockingResult
+	{
+		CheckStaticMeshUpdateThread();
+		FCookedMeshLoadStatus Initial = RequestRenderDataAndResources();
+		if (!Initial.HasCpuData()
+			&& Initial.CpuPhase != ECookedMeshCpuPhase::Failed)
+		{
+			if (Asset::FCookedMeshLoadManager* Manager =
+				Asset::GetCookedMeshLoadManager();
+				Manager && Initial.CpuPhase != ECookedMeshCpuPhase::Unloaded)
+			{
+				Manager->Finish(MakeObjectHandle(this));
+				Initial = RequestRenderDataAndResources();
+			}
+		}
+		if (!RenderData && CookedLoadPhase.load(std::memory_order_acquire)
+			!= ECookedMeshCpuPhase::Failed
+			&& Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			&& CookedRenderData.GetMetadata().LogicalSize != 0)
 		{
+			CookedLoadPhase.store(ECookedMeshCpuPhase::Reading, std::memory_order_release);
 			std::string Error;
-			const_cast<DStaticMesh*>(this)->LoadCookedRenderData(Error);
+			if (!LoadCookedRenderData(Error))
+			{
+				CookedLoadPhase.store(ECookedMeshCpuPhase::Failed, std::memory_order_release);
+				return {.Status = RequestRenderDataAndResources(), .Message = std::move(Error)};
+			}
+			CookedLoadPhase.store(ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
 		}
-		return RenderData.get();
+		if (RenderData)
+		{
+			CookedLoadPhase.store(ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
+			InitResources();
+		}
+		FCookedMeshBlockingResult Result{.Status = RequestRenderDataAndResources()};
+		if (!Result.Status.HasCpuData()) Result.Message = "StaticMesh CPU render data is unavailable.";
+		return Result;
+	}
+
+	auto DStaticMesh::RetryRenderDataAndResourcesBlocking()
+		-> FCookedMeshBlockingResult
+	{
+		CheckStaticMeshUpdateThread();
+		const ECookedMeshCpuPhase LoadPhase =
+			CookedLoadPhase.load(std::memory_order_acquire);
+		if (LoadPhase == ECookedMeshCpuPhase::Failed
+			|| LoadPhase == ECookedMeshCpuPhase::Cancelled)
+		{
+			if (Asset::FCookedMeshLoadManager* Manager =
+				Asset::GetCookedMeshLoadManager())
+				Manager->Cancel(MakeObjectHandle(this));
+			CookedLoadPhase.store(ECookedMeshCpuPhase::Unloaded, std::memory_order_release);
+			CookedLoadGeneration.fetch_add(1, std::memory_order_acq_rel);
+		}
+		if (LoadRenderResourceState() == EStaticMeshRenderResourceState::Failed)
+			PublishRenderResourceState(EStaticMeshRenderResourceState::Uninitialized);
+		return EnsureRenderDataAndResourcesBlocking();
 	}
 
 	auto DStaticMesh::GetRenderResourceStatus() const
@@ -720,6 +808,8 @@ namespace Durin
 
 	auto DStaticMesh::BeginDestroy() -> void
 	{
+		if (Asset::FCookedMeshLoadManager* Manager = Asset::GetCookedMeshLoadManager())
+			Manager->Cancel(MakeObjectHandle(this));
 		const EStaticMeshRenderResourceState State =
 			LoadRenderResourceState();
 		const bool bHasQueuedResourceWork =

@@ -1,17 +1,22 @@
 #include "SkeletalMesh/SkeletalMesh.h"
 
+#include "Asset/CookedMeshProducts.h"
+#include "Asset/CookedMeshLoadManager.h"
+
 #include "DObject/Package.h"
 
 #include "AssetCook.h"
 #include "CoreGlobals.h"
 #include "DObject/Property.h"
 #include "DynamicRHI.h"
+#include "Hash/XxHash.h"
 #include "Math/Operations.h"
 #include "RenderingThread.h"
 #include "Serialization/Archive.h"
 #include "SkeletalMesh/SkeletalAssetPostLoad.h"
 #include "SkeletalMesh/SkeletalDerivedData.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
+#include "SkeletalMesh/SkeletalMeshRenderStateRecreateContext.h"
 
 namespace Durin
 {
@@ -20,6 +25,44 @@ namespace Durin
 
 	namespace
 	{
+		struct FSkeletalMeshManagerProduct final
+			: Asset::ICookedMeshDetachedProduct
+		{
+			FSkeletalMeshCookedProduct Product;
+		};
+
+		auto BuildSkeletalCookedMetadataIdentity(const DSkeletalMesh& Mesh) -> uint64
+		{
+			FXxHash64Builder Builder;
+			const Asset::FBulkDataMetadata Metadata =
+				Mesh.GetCookedPlatformData().GetMetadata();
+			Builder.UpdateValue(Metadata.LogicalSize);
+			Builder.UpdateValue(Metadata.Range.SegmentOffset);
+			Builder.UpdateValue(Metadata.Range.StoredSize);
+			Builder.UpdateValue(Metadata.Range.StorageFlags);
+			Builder.UpdateValue(Metadata.Range.Alignment);
+			Builder.UpdateValue(reinterpret_cast<uintptr_t>(Metadata.Range.Resource.get()));
+			Builder.Update(Mesh.GetSkeletonCompatibilityIdentity());
+			const FSkeletonTransform& Transform = Mesh.GetMeshNodeBindTransform();
+			Builder.UpdateValue(Transform.Row0);
+			Builder.UpdateValue(Transform.Row1);
+			Builder.UpdateValue(Transform.Row2);
+			Builder.UpdateValue(Transform.Row3);
+			const FSkeletalMeshSummary& Summary = Mesh.GetSummary();
+			Builder.UpdateValue(Summary.VertexCount);
+			Builder.UpdateValue(Summary.IndexCount);
+			Builder.UpdateValue(Summary.SectionCount);
+			Builder.UpdateValue(Summary.LocalBounds.Minimum);
+			Builder.UpdateValue(Summary.LocalBounds.Maximum);
+			Builder.UpdateValue(Summary.LocalBounds.bIsValid);
+			for (const FMeshMaterialSlotDefinition& Slot : Mesh.GetMaterialSlots())
+			{
+				Builder.Update(Slot.Name.ToString());
+				Builder.UpdateValue(Slot.SourceMaterialIndex);
+			}
+			return Builder.Finalize().HashValue;
+		}
+
 		auto IsFinite(const FBox& Bounds) -> bool
 		{
 			return Bounds.bIsValid && Math::IsFinite(Bounds.Min) && Math::IsFinite(Bounds.Max)
@@ -305,27 +348,102 @@ namespace Durin
 	auto DSkeletalMesh::GetPayloadData() const
 		-> std::shared_ptr<const FSkeletalMeshPayloadData>
 	{
-		if (!PayloadData && Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
-			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
-		{
-			std::string Error;
-			const_cast<DSkeletalMesh*>(this)->LoadCookedPayload(Error);
-		}
 		return PayloadData;
 	}
 
 	auto DSkeletalMesh::GetRenderData() const -> const FSkeletalMeshRenderData*
 	{
-		if (!RenderData && Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+		return RenderData.get();
+	}
+
+	auto DSkeletalMesh::RequestRenderDataAndResources() -> FCookedMeshLoadStatus
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		if (RenderData)
+		{
+			CookedLoadPhase.store(ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
+			InitResources();
+		}
+		else if (CookedLoadPhase.load(std::memory_order_acquire)
+			== ECookedMeshCpuPhase::Unloaded)
+		{
+			SubmitCookedRenderDataRequest();
+		}
+		const FSkeletalMeshRenderResourceStatus Resource = GetRenderResourceStatus();
+		ECookedMeshGpuPhase GpuPhase = ECookedMeshGpuPhase::Unavailable;
+		switch (Resource.Readiness)
+		{
+		case ESkeletalMeshRenderResourceReadiness::Queued: GpuPhase = ECookedMeshGpuPhase::Queued; break;
+		case ESkeletalMeshRenderResourceReadiness::Ready: GpuPhase = ECookedMeshGpuPhase::Ready; break;
+		case ESkeletalMeshRenderResourceReadiness::Failed: GpuPhase = ECookedMeshGpuPhase::Failed; break;
+		case ESkeletalMeshRenderResourceReadiness::Unavailable: break;
+		}
+		return {.CpuPhase = RenderData ? ECookedMeshCpuPhase::CpuReady
+			: CookedLoadPhase.load(std::memory_order_acquire),
+			.GpuPhase = GpuPhase,
+			.Generation = CookedLoadGeneration.load(std::memory_order_acquire),
+			.ResourceRevision = Resource.Revision};
+	}
+
+	auto DSkeletalMesh::EnsureRenderDataAndResourcesBlocking()
+		-> FCookedMeshBlockingResult
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		FCookedMeshLoadStatus Initial = RequestRenderDataAndResources();
+		if (!Initial.HasCpuData() && Initial.CpuPhase != ECookedMeshCpuPhase::Failed)
+		{
+			if (Asset::FCookedMeshLoadManager* Manager = Asset::GetCookedMeshLoadManager();
+				Manager && Initial.CpuPhase != ECookedMeshCpuPhase::Unloaded)
+			{
+				Manager->Finish(MakeObjectHandle(this));
+				Initial = RequestRenderDataAndResources();
+			}
+		}
+		if (!RenderData && CookedLoadPhase.load(std::memory_order_acquire)
+			!= ECookedMeshCpuPhase::Failed
+			&& Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
 			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
 		{
+			CookedLoadPhase.store(ECookedMeshCpuPhase::Reading, std::memory_order_release);
 			std::string Error;
-			DSkeletalMesh* Mutable = const_cast<DSkeletalMesh*>(this);
-			if ((Mutable->PayloadData || Mutable->LoadCookedPayload(Error))
-				&& !Mutable->RenderData)
-				Mutable->BuildRenderData(Error);
+			if ((!PayloadData && !LoadCookedPayload(Error))
+				|| (!RenderData && !BuildRenderData(Error)))
+			{
+				CookedLoadPhase.store(ECookedMeshCpuPhase::Failed, std::memory_order_release);
+				return {.Status = RequestRenderDataAndResources(), .Message = std::move(Error)};
+			}
+			CookedLoadPhase.store(ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
 		}
-		return RenderData.get();
+		if (RenderData)
+		{
+			CookedLoadPhase.store(ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
+			InitResources();
+		}
+		FCookedMeshBlockingResult Result{.Status = RequestRenderDataAndResources()};
+		if (!Result.Status.HasCpuData()) Result.Message = "SkeletalMesh CPU render data is unavailable.";
+		return Result;
+	}
+
+	auto DSkeletalMesh::RetryRenderDataAndResourcesBlocking()
+		-> FCookedMeshBlockingResult
+	{
+		if (GIsGameThreadIdInitialized) CheckGameThread();
+		const ECookedMeshCpuPhase Phase =
+			CookedLoadPhase.load(std::memory_order_acquire);
+		if (Phase == ECookedMeshCpuPhase::Failed
+			|| Phase == ECookedMeshCpuPhase::Cancelled)
+		{
+			if (Asset::FCookedMeshLoadManager* Manager = Asset::GetCookedMeshLoadManager())
+				Manager->Cancel(MakeObjectHandle(this));
+			CookedLoadPhase.store(ECookedMeshCpuPhase::Unloaded, std::memory_order_release);
+			CookedLoadGeneration.fetch_add(1, std::memory_order_acq_rel);
+		}
+		if (RenderResourceState.load(std::memory_order_acquire) == ERenderResourceState::Failed)
+		{
+			RenderResourceState.store(ERenderResourceState::Uninitialized, std::memory_order_release);
+			RenderResourceRevision.fetch_add(1, std::memory_order_acq_rel);
+		}
+		return EnsureRenderDataAndResourcesBlocking();
 	}
 
 	auto DSkeletalMesh::GetMaterialSlot(uint32 SlotIndex) const
@@ -386,11 +504,7 @@ namespace Durin
 		ERenderResourceState Expected = ERenderResourceState::Uninitialized;
 		if (!RenderResourceState.compare_exchange_strong(
 			Expected, ERenderResourceState::InitializationQueued, std::memory_order_acq_rel))
-		{
-			Expected = ERenderResourceState::Failed;
-			if (!RenderResourceState.compare_exchange_strong(
-				Expected, ERenderResourceState::InitializationQueued, std::memory_order_acq_rel)) return;
-		}
+			return;
 		RenderResourceRevision.fetch_add(1, std::memory_order_acq_rel);
 #if DURIN_BUILD_DEBUG
 		RenderData->SetResourceDebugOwner(GetPackage()
@@ -623,6 +737,7 @@ namespace Durin
 	auto DSkeletalMesh::LoadCookedPayload(std::string& OutError) -> bool
 	{
 		auto FailCooked = [&](std::string Message) {
+			CookedLoadPhase.store(ECookedMeshCpuPhase::Failed, std::memory_order_release);
 			PayloadStorageDiagnostic = std::format(
 				"Cooked SkeletalMesh '{}': {}", GetObjectPath(), Message);
 			OutError = PayloadStorageDiagnostic;
@@ -631,34 +746,130 @@ namespace Durin
 		std::span<const std::byte> Bytes;
 		if (!CookedPlatformData.LockReadOnly(Bytes, &OutError))
 			return FailCooked(OutError);
-		FSkeletalMeshPayloadData Candidate;
-		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload);
-		Candidate.Serialize(Ar, {
-			.SkeletonBoneCount = Skeleton->GetBoneCount(),
-			.MaterialSlotCount = static_cast<uint32>(MaterialSlots.size()),
-			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
-			.TargetProfile = ESkeletalPayloadTargetProfile::Game});
-		if (Ar.HasError() || !RequireArchiveEnd(Ar))
+		if (!Skeleton)
 		{
-			const std::string Error(Ar.GetError());
 			CookedPlatformData.UnlockReadOnly();
-			return FailCooked(Error);
+			return FailCooked("Skeleton is unavailable.");
 		}
-		if (Candidate.Positions.size() != Summary.VertexCount
-			|| Candidate.Indices.size() != Summary.IndexCount
-			|| Candidate.Sections.size() != Summary.SectionCount
-			|| FSkeletalMeshBounds::FromBox(Candidate.LocalBounds) != Summary.LocalBounds)
+		FSkeletalMeshCookedProduct Product;
+		FCookedMeshProductError ProductError;
+		if (!DecodeSkeletalMeshCookedProduct(Bytes, Skeleton->GetBones(),
+			MeshNodeBindTransform, MaterialSlots, Summary, Product, ProductError))
 		{
 			CookedPlatformData.UnlockReadOnly();
-			return FailCooked("payload does not match authored summary.");
+			return FailCooked(std::move(ProductError.Message));
 		}
 		if (!CookedPlatformData.UnlockReadOnly(&OutError)) return FailCooked(OutError);
-		PayloadData = std::make_shared<const FSkeletalMeshPayloadData>(std::move(Candidate));
+		PayloadData = std::move(Product.Payload);
+		RenderData = std::move(Product.RenderData);
+		RenderResourceState.store(ERenderResourceState::Uninitialized, std::memory_order_release);
+		RenderResourceRevision.fetch_add(1, std::memory_order_acq_rel);
 		DerivedDataKey.clear();
 		bLoadedFromDerivedDataCache = false;
 		PayloadStorageDiagnostic = std::format(
 			"Loaded cooked SkeletalMesh payload for '{}'.", GetObjectPath());
 		OutError.clear();
+		return true;
+	}
+
+	auto DSkeletalMesh::SubmitCookedRenderDataRequest() -> bool
+	{
+		Asset::FCookedMeshLoadManager* Manager = Asset::GetCookedMeshLoadManager();
+		if (!Manager || RenderData
+			|| !Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+			|| CookedPlatformData.GetMetadata().LogicalSize == 0 || !Skeleton)
+			return false;
+
+		const uint64 Generation = CookedLoadGeneration.load(std::memory_order_acquire);
+		const uint64 ResourceRevision = GetRenderResourceStatus().Revision;
+		const uint64 MetadataIdentity = BuildSkeletalCookedMetadataIdentity(*this);
+		std::vector<FSkeletonBone> BoneSnapshot(
+			Skeleton->GetBones().begin(), Skeleton->GetBones().end());
+		FSkeletonTransform TransformSnapshot = MeshNodeBindTransform;
+		std::vector<FMeshMaterialSlotDefinition> SlotSnapshot = MaterialSlots;
+		FSkeletalMeshSummary SummarySnapshot = Summary;
+
+		Asset::FCookedMeshLoadRequest Request{
+			.Identity = {
+				.Owner = MakeObjectHandle(this),
+				.Family = Asset::ECookedMeshFamily::SkeletalMesh,
+				.LoadGeneration = Generation,
+				.ResourceRevision = ResourceRevision,
+				.MetadataIdentity = MetadataIdentity},
+			.Fields = {CookedPlatformData},
+			.Worker = [Bones = std::move(BoneSnapshot), TransformSnapshot,
+				Slots = std::move(SlotSnapshot), SummarySnapshot](
+				std::span<const FSharedByteBuffer> Buffers,
+				const FTaskCancellationToken& Cancellation)
+				-> Asset::FCookedMeshWorkerResult {
+				if (Cancellation.IsCancellationRequested()) return {};
+				if (Buffers.size() != 1)
+					return {.Message = "SkeletalMesh cooked field count is invalid."};
+				auto Result = std::make_unique<FSkeletalMeshManagerProduct>();
+				FCookedMeshProductError Error;
+				if (!DecodeSkeletalMeshCookedProduct(Buffers[0].GetBytes(), Bones,
+					TransformSnapshot, Slots, SummarySnapshot, Result->Product, Error))
+					return {.Message = std::move(Error.Message)};
+				return {.Product = std::move(Result),
+					.RetainedBytes = std::max<uint64>(Buffers[0].GetSize(), 1)};
+			},
+			.IsCurrent = [](const DObject& Owner,
+				const Asset::FCookedMeshLoadIdentity& Identity) {
+				const auto* Mesh = Cast<DSkeletalMesh>(&Owner);
+				return Mesh
+					&& Mesh->CookedLoadGeneration.load(std::memory_order_acquire)
+						== Identity.LoadGeneration
+					&& Mesh->GetRenderResourceStatus().Revision
+						== Identity.ResourceRevision
+					&& BuildSkeletalCookedMetadataIdentity(*Mesh)
+						== Identity.MetadataIdentity;
+			},
+			.Publish = [](DObject& Owner,
+				const Asset::FCookedMeshLoadIdentity&,
+				std::unique_ptr<Asset::ICookedMeshDetachedProduct> BaseProduct,
+				std::string& OutError) {
+				auto* Mesh = Cast<DSkeletalMesh>(&Owner);
+				auto* Typed = dynamic_cast<FSkeletalMeshManagerProduct*>(BaseProduct.get());
+				if (!Mesh || !Typed)
+				{
+					OutError = "SkeletalMesh cooked publication product is invalid.";
+					return false;
+				}
+				FSkeletalMeshRenderStateRecreateContext RecreateContext(Mesh);
+				FSkeletalMeshCookedProduct Product = std::move(Typed->Product);
+				Mesh->PayloadData = std::move(Product.Payload);
+				Mesh->RenderData = std::move(Product.RenderData);
+				Mesh->RenderResourceState.store(
+					ERenderResourceState::Uninitialized, std::memory_order_release);
+				Mesh->RenderResourceRevision.fetch_add(1, std::memory_order_acq_rel);
+				Mesh->DerivedDataKey.clear();
+				Mesh->bLoadedFromDerivedDataCache = false;
+				Mesh->PayloadStorageDiagnostic = std::format(
+					"Loaded cooked SkeletalMesh payload for '{}'.", Mesh->GetObjectPath());
+				Mesh->CookedLoadPhase.store(
+					ECookedMeshCpuPhase::CpuReady, std::memory_order_release);
+				Mesh->InitResources();
+				OutError.clear();
+				return true;
+			},
+			.OnTerminal = [](DObject& Owner,
+				const Asset::FCookedMeshLoadIdentity&,
+				Asset::ECookedMeshTerminalState Terminal,
+				std::string_view Message) {
+				auto* Mesh = Cast<DSkeletalMesh>(&Owner);
+				if (!Mesh) return;
+				const bool bFailed = Terminal == Asset::ECookedMeshTerminalState::Failed
+					|| Terminal == Asset::ECookedMeshTerminalState::Rejected;
+				Mesh->CookedLoadPhase.store(bFailed
+					? ECookedMeshCpuPhase::Failed : ECookedMeshCpuPhase::Cancelled,
+					std::memory_order_release);
+				Mesh->PayloadStorageDiagnostic = std::format(
+					"Cooked SkeletalMesh '{}': {}", Mesh->GetObjectPath(),
+					Message.empty() ? "asynchronous load terminated" : Message);
+			}
+		};
+		if (!Manager->Submit(std::move(Request))) return false;
+		CookedLoadPhase.store(ECookedMeshCpuPhase::IoQueued, std::memory_order_release);
 		return true;
 	}
 
@@ -792,6 +1003,8 @@ namespace Durin
 
 	auto DSkeletalMesh::BeginDestroy() -> void
 	{
+		if (Asset::FCookedMeshLoadManager* Manager = Asset::GetCookedMeshLoadManager())
+			Manager->Cancel(MakeObjectHandle(this));
 		const ERenderResourceState State = RenderResourceState.load(std::memory_order_acquire);
 		const bool bHasQueuedWork = State != ERenderResourceState::Uninitialized
 			&& State != ERenderResourceState::Released;

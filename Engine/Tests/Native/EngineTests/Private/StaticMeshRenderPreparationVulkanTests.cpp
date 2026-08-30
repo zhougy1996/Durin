@@ -1,4 +1,12 @@
+#include "Asset/AssetOperations.h"
+#include "Asset/CookedMeshLoadManager.h"
+#include "Asset/Load.h"
+#include "AssetCook.h"
+#include "Components/StaticMeshComponent.h"
+#include "DObject/Class.h"
+#include "DObject/ObjectLifecycle.h"
 #include "DynamicRHI.h"
+#include "EngineTestSupport.h"
 #include "Rendering/SplineMeshSceneProxy.h"
 #include "Rendering/StaticMeshSceneProxy.h"
 #include "CoreGlobals.h"
@@ -7,17 +15,23 @@
 #include "Materials/MaterialRenderProxy.h"
 #include "Math/Operations.h"
 #include "Modules/ModuleManager.h"
+#include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "RendererModule.h"
 #include "Renderers/StaticMeshRenderPreparation.h"
 #include "Scene.h"
+#include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
 
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <condition_variable>
 #include <format>
+#include <mutex>
+#include <thread>
 
 namespace
 {
@@ -164,7 +178,202 @@ namespace
 	{
 		static constexpr auto GetName() -> const char* { return "CapturePreparedStaticMeshView"; }
 	};
+
+	class FScopedRenderThreadBlocker final
+	{
+	public:
+		FScopedRenderThreadBlocker()
+			: State(std::make_shared<FState>())
+		{
+			Durin::EnqueueRenderCommand<FBlockCookedStaticMeshInitializationCommand>(
+				[State = State](Durin::FRHICommandListImmediate&) {
+					std::unique_lock Lock(State->Mutex);
+					State->bEntered = true;
+					State->CV.notify_all();
+					State->CV.wait(Lock, [&] { return State->bReleased; });
+				});
+			std::unique_lock Lock(State->Mutex);
+			State->CV.wait(Lock, [&] { return State->bEntered; });
+		}
+
+		~FScopedRenderThreadBlocker()
+		{
+			Release();
+		}
+
+		auto Release() -> void
+		{
+			std::lock_guard Lock(State->Mutex);
+			State->bReleased = true;
+			State->CV.notify_all();
+		}
+
+	private:
+		struct FState
+		{
+			std::mutex Mutex;
+			std::condition_variable CV;
+			bool bEntered = false;
+			bool bReleased = false;
+		};
+
+		struct FBlockCookedStaticMeshInitializationCommand
+		{
+			static constexpr auto GetName() -> const char*
+			{
+				return "BlockCookedStaticMeshInitialization";
+			}
+		};
+
+		std::shared_ptr<FState> State;
+	};
 } // namespace
+
+TEST(FStaticMeshRenderPreparationVulkanTests,
+	CookedComponentProxyConvergesFromCpuReadyGpuQueuedWithoutMutation)
+{
+	if (!Durin::GIsGameThreadIdInitialized)
+	{
+		Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
+		Durin::GIsGameThreadIdInitialized = true;
+	}
+	InitializeDObjectSystem();
+	const std::filesystem::path Root =
+		Durin::Testing::CreateTestFixtureDirectory(
+			"CookedStaticMeshRenderPreparationVulkan");
+	std::filesystem::create_directories(Root / "Content");
+	const std::filesystem::path CookRoot =
+		std::filesystem::absolute(Root / "Cook");
+	const std::array Mounts{
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/CookedStaticMeshRenderPreparation/",
+			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Root = Root / "Content",
+			.bAutoScan = true,
+			.bContentWritable = true},
+		Durin::PathUtilities::FMountPoint{
+			.VirtualRoot = "/Game/",
+			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Root = CookRoot / "Game",
+			.bAutoScan = true,
+			.bContentWritable = false}};
+	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
+	ASSERT_TRUE(MountFixture.IsValid()) << MountFixture.GetError();
+	ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
+	Durin::FAssetPath AuthoredPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/CookedStaticMeshRenderPreparation/Mesh", AuthoredPath));
+	Durin::DStaticMesh* AuthoredMesh = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(AuthoredPath, AuthoredMesh));
+	ASSERT_NE(AuthoredMesh, nullptr);
+	Durin::DStaticMesh* Candidate = Durin::DStaticMesh::CreateDebugTriangle();
+	ASSERT_NE(Candidate, nullptr);
+	std::string Error;
+	ASSERT_TRUE(AuthoredMesh->ExchangeImportedState(*Candidate, Error)) << Error;
+	Durin::MarkAsGarbage(Candidate);
+	Durin::CollectGarbage();
+
+	Durin::Asset::FCookContext CookContext(
+		CookRoot,
+		Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game);
+	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+		*AuthoredMesh, "/Game/CookedMesh", CookContext, Error)) << Error;
+	ASSERT_TRUE(CookContext.Publish(&Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		AuthoredPath,
+		Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	Durin::Asset::ShutdownAssetManager();
+	Durin::CollectGarbage();
+
+	auto CookedConfiguration =
+		Durin::Asset::FAssetRuntimeConfiguration::Authored();
+	ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(
+		CookRoot, CookedConfiguration));
+	ASSERT_TRUE(Durin::Asset::InitializeAssetManager(
+		std::move(CookedConfiguration)));
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	Durin::FAssetPath CookedPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedMesh", CookedPath));
+	Durin::DStaticMesh* CookedMesh = nullptr;
+	const Durin::Asset::FAssetResult Loaded =
+		Durin::Asset::LoadAsset(CookedPath, CookedMesh);
+	ASSERT_TRUE(Loaded) << Loaded.Message;
+	ASSERT_NE(CookedMesh, nullptr);
+	ASSERT_EQ(CookedMesh->GetRenderData(), nullptr);
+	ASSERT_TRUE(Durin::Asset::InitializeCookedMeshLoadManager());
+
+	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
+	Durin::FModuleManager::Get().LoadModule("RenderCore");
+	Durin::RHIInit(Durin::FRHIInitializationContext::Headless());
+	ASSERT_NE(Durin::GDynamicRHI, nullptr);
+	Durin::InitRenderingThread();
+	FScopedRenderThreadBlocker RenderThreadBlocker;
+
+	auto* Component = Durin::NewObject<Durin::DStaticMeshComponent>(
+		nullptr, Durin::FName("CookedStaticMeshVulkanConsumer"));
+	Component->SetStaticMesh(CookedMesh);
+	Component->RegisterComponent();
+	EXPECT_EQ(Component->CreateSceneProxy(), nullptr);
+	const auto Deadline = std::chrono::steady_clock::now()
+		+ std::chrono::seconds(10);
+	Durin::FCookedMeshLoadStatus LoadStatus =
+		CookedMesh->RequestRenderDataAndResources();
+	while (!LoadStatus.HasCpuData()
+		&& std::chrono::steady_clock::now() < Deadline)
+	{
+		Durin::Asset::PumpCookedMeshLoadManager();
+		std::this_thread::yield();
+		LoadStatus = CookedMesh->RequestRenderDataAndResources();
+	}
+	ASSERT_TRUE(LoadStatus.HasCpuData());
+	EXPECT_EQ(LoadStatus.GpuPhase, Durin::ECookedMeshGpuPhase::Queued);
+	EXPECT_EQ(
+		CookedMesh->GetRenderResourceStatus().Readiness,
+		Durin::EStaticMeshRenderResourceReadiness::Queued);
+	auto QueuedProxy = Component->CreateSceneProxy();
+	ASSERT_NE(QueuedProxy, nullptr);
+
+	Durin::FScene Scene;
+	const Durin::FPrimitiveSceneId PrimitiveId(211);
+	Scene.AddOrReplacePrimitive(
+		PrimitiveId, std::move(QueuedProxy), Durin::FMatrix(1.0));
+	RenderThreadBlocker.Release();
+	Durin::FlushRenderingCommands();
+	const Durin::FCookedMeshLoadStatus ReadyStatus =
+		CookedMesh->RequestRenderDataAndResources();
+	EXPECT_EQ(ReadyStatus.CpuPhase, Durin::ECookedMeshCpuPhase::CpuReady);
+	EXPECT_EQ(ReadyStatus.GpuPhase, Durin::ECookedMeshGpuPhase::Ready);
+	EXPECT_TRUE(CookedMesh->GetRenderResourceStatus().IsReady());
+
+	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+		[&Scene](Durin::FRHICommandListImmediate& CommandList) {
+			const Durin::FPreparedStaticMeshView Prepared =
+				Durin::PrepareStaticMeshView_RenderThread(
+					CommandList, Scene.GetStaticMeshSceneInfos(),
+					Durin::FSceneView{}, Durin::ERasterMode::Solid);
+			ASSERT_EQ(Prepared.Primitives.size(), 1u);
+			EXPECT_EQ(Prepared.GetNumSections(), 1u);
+			EXPECT_EQ(Prepared.RejectedPrimitives, 0u);
+		});
+	Durin::FlushRenderingCommands();
+	Scene.RemovePrimitive(PrimitiveId);
+	Durin::FlushRenderingCommands();
+
+	Component->UnregisterComponent();
+	Component->SetStaticMesh(nullptr);
+	Durin::MarkAsGarbage(Component);
+	Durin::Asset::ShutdownCookedMeshLoadManager();
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(CookedPath));
+	Durin::CollectGarbage();
+	Durin::FlushRenderingCommands();
+	Durin::ShutdownRenderingThread();
+	Durin::RHIExit();
+	Durin::Asset::ShutdownAssetManager();
+	Durin::CollectGarbage();
+	Durin::Testing::RemoveTestWorkDirectory(Root);
+}
 
 TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecomputesPerViewFacts)
 {

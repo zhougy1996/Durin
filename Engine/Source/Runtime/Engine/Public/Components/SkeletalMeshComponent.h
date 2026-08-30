@@ -7,6 +7,8 @@
 
 namespace Durin
 {
+	class FSkeletalMeshRenderStateRecreateContext;
+
 	// Owns one detached skeletal playback instance and publishes complete render proxies.
 	DCLASS()
 	class DSkeletalMeshComponent final : public DMeshComponent
@@ -60,6 +62,8 @@ namespace Durin
 #endif
 
 	private:
+		friend class FSkeletalMeshRenderStateRecreateContext;
+		auto HandleSkeletalMeshRenderDataChanged(DSkeletalMesh* ChangedMesh) -> void;
 		auto ValidateProspectiveBinding(
 			DSkeletalMesh* InMesh,
 			DAnimationClip* InClip,

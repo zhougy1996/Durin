@@ -1,4 +1,6 @@
 #include "Engine/Engine.h"
+
+#include "Asset/CookedMeshLoadManager.h"
 #include "PrimitiveDrawInterface.h"
 #include "Engine/World.h"
 #include "Engine/Level.h"
@@ -122,6 +124,9 @@ namespace Durin
 
 	auto DEngine::Init(const FEngineInitContext&) -> FEngineInitializationResult
 	{
+		if (!Asset::InitializeCookedMeshLoadManager())
+			return FEngineInitializationResult::Failure(
+				"Cooked mesh load manager could not start.");
 		Profiling::RecordStartupMilestone(Profiling::EStartupMilestone::RegistryScanBegin);
 		{
 			DURIN_PROFILE_CPU_ZONE_NAMED("Startup.RegistryScan");
@@ -200,6 +205,7 @@ namespace Durin
 	auto DEngine::Tick(float DeltaSeconds, bool bIdleMode) -> void
 	{
 		(void)bIdleMode;
+		Asset::PumpCookedMeshLoadManager();
 		if (GameInputWindow.expired() && GameInputState.IsEnabled()) ClearGameInputWindow();
 		if (MainWorld) MainWorld->Tick({.DeltaSeconds = DeltaSeconds, .GameInput = &GameInputState});
 		GameInputState.FinishGameTick();
