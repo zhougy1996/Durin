@@ -1,4 +1,5 @@
 #include "Asset/AssetOperations.h"
+#include "VulkanEngineTestSupport.h"
 #include "Asset/CookedMeshLoadManager.h"
 #include "Asset/Load.h"
 #include "AssetCook.h"
@@ -308,7 +309,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
-	Durin::RHIInit(Durin::FRHIInitializationContext::Headless());
+	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 	FScopedRenderThreadBlocker RenderThreadBlocker;
@@ -386,7 +387,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 	}
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
-	Durin::RHIInit(Durin::FRHIInitializationContext::Headless());
+	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 

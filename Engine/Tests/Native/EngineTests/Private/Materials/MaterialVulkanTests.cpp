@@ -1,4 +1,5 @@
 #include "Misc/MountPathTestSupport.h"
+#include "VulkanEngineTestSupport.h"
 #include "MaterialTestSupport.h"
 #include "Texture/TextureFactoryTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
@@ -136,7 +137,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 	WaitForRenderingThread();
 	Durin::ShutdownRenderingThread();
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
-	Durin::RHIInit(Durin::FRHIInitializationContext::Headless());
+	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 

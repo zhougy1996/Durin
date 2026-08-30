@@ -1,4 +1,5 @@
 #include "CoreGlobals.h"
+#include "VulkanEngineTestSupport.h"
 #include "DynamicRHI.h"
 #include "Rendering/TerrainSceneProxy.h"
 #include "HAL/PlatformLTS.h"
@@ -52,7 +53,7 @@ TEST(FTerrainRenderQualificationTests, MeasuresMaximumHeightPatchRendering)
 	}
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
-	Durin::RHIInit(Durin::FRHIInitializationContext::Headless());
+	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 	Durin::FRendererModule Renderer;

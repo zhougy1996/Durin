@@ -1,4 +1,5 @@
 #include "CoreGlobals.h"
+#include "VulkanEngineTestSupport.h"
 #include "DynamicRHI.h"
 #include "Asset/AssetCompilingManager.h"
 #include "EngineTestSupport.h"
@@ -618,7 +619,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 	}
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
-	Durin::RHIInit(Durin::FRHIInitializationContext::Headless());
+	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 	Durin::FRendererModule Renderer;
@@ -1209,7 +1210,7 @@ TEST(FDirectionalShadowBaselineVulkanTests,
 	}
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
-	Durin::RHIInit(Durin::FRHIInitializationContext::Headless());
+	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 	Durin::FRendererModule Renderer;
@@ -1399,7 +1400,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	}
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
-	Durin::RHIInit(Durin::FRHIInitializationContext::Headless());
+	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 	Durin::FRendererModule Renderer;

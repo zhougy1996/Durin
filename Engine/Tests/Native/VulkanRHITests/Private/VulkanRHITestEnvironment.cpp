@@ -9,7 +9,6 @@ namespace Durin::VulkanRHI
 {
 	namespace
 	{
-#ifdef __APPLE__
 		// Publishes the fixture window through the production surface lookup boundary.
 		class FVulkanTestApplication final : public FGenericApplication
 		{
@@ -35,7 +34,7 @@ namespace Durin::VulkanRHI
 			std::shared_ptr<FGenericWindow> Window;
 		};
 
-		// Owns one hidden Cocoa window and its reference-counted ApplicationCore lease.
+		// Owns one hidden platform window and its reference-counted ApplicationCore lease.
 		class FVulkanTestPresentationWindow
 		{
 		public:
@@ -89,16 +88,15 @@ namespace Durin::VulkanRHI
 			std::shared_ptr<FGenericWindow> Window;
 			std::shared_ptr<FVulkanTestApplication> Application;
 		};
-#endif
 	}
 
 	auto GetVulkanTestInitializationContext() -> FRHIInitializationContext
 	{
-#ifdef __APPLE__
+	#if defined(_WIN32) || defined(__APPLE__)
 		static FVulkanTestPresentationWindow PresentationWindow;
 		return PresentationWindow.GetInitializationContext();
-#else
+	#else
 		return FRHIInitializationContext::Headless();
-#endif
+	#endif
 	}
 }

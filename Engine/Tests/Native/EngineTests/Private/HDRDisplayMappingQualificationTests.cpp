@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "VulkanEngineTestSupport.h"
 
 #include "CoreGlobals.h"
 #include "DynamicRHI.h"
@@ -62,7 +63,7 @@ namespace Durin
 		}
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit(FRHIInitializationContext::Headless());
+		RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		auto* Vulkan = static_cast<VulkanRHI::IVulkanDynamicRHI*>(GDynamicRHI);
 		vk::PhysicalDeviceProperties DeviceProperties{};

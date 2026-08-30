@@ -1,4 +1,5 @@
 #include "Asset/AssetOperations.h"
+#include "VulkanEngineTestSupport.h"
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
@@ -299,7 +300,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
-	Durin::RHIInit(Durin::FRHIInitializationContext::Headless());
+	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 	struct FBeginCookedTextureUploadFrame

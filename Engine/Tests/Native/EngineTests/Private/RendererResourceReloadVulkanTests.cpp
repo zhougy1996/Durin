@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "VulkanEngineTestSupport.h"
 
 #include "Console/ConsoleCommand.h"
 #include "CoreGlobals.h"
@@ -159,7 +160,7 @@ float4 FragmentMain() : SV_Target
 
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit(FRHIInitializationContext::Headless());
+		RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 

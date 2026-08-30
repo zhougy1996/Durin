@@ -1,4 +1,5 @@
 #include "CoreGlobals.h"
+#include "VulkanEngineTestSupport.h"
 #include "DynamicRHI.h"
 #include "Asset/AssetCompilingManager.h"
 #include "AssetRegistry/Catalog.h"
@@ -522,7 +523,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	}
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
-	Durin::RHIInit(Durin::FRHIInitializationContext::Headless());
+	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	auto* Vulkan = static_cast<Durin::VulkanRHI::IVulkanDynamicRHI*>(
 		Durin::GDynamicRHI);

@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "VulkanEngineTestSupport.h"
 
 #include "Application/GenericApplication.h"
 #include "ApplicationCoreGlobals.h"
@@ -177,7 +178,8 @@ namespace Durin
 
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit(FRHIInitializationContext::Headless());
+		RHIInit(FRHIInitializationContext::Presentation({
+			.NativeWindowHandle = Window->GetOSNativeWindowHandle()}));
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 		FRendererModule Renderer;

@@ -1,4 +1,5 @@
 #include "Misc/MountPathTestSupport.h"
+#include "VulkanEngineTestSupport.h"
 #include "SkyBoxTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Client/SceneViewport.h"
@@ -65,7 +66,7 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
-	Durin::RHIInit(Durin::FRHIInitializationContext::Headless());
+	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 

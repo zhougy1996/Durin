@@ -1,4 +1,5 @@
 #include "Asset/Testing.h"
+#include "VulkanEngineTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/AssetRetention.h"
 #include "DObject/ObjectLifecycle.h"
@@ -278,7 +279,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 
 	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
 	Durin::FModuleManager::Get().LoadModule("RenderCore");
-	Durin::RHIInit(Durin::FRHIInitializationContext::Headless());
+	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 	ASSERT_NE(Durin::GDynamicRHI, nullptr);
 	Durin::InitRenderingThread();
 

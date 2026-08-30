@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "VulkanEngineTestSupport.h"
 
 #include "CoreGlobals.h"
 #include "Console/ConsoleCommand.h"
@@ -278,7 +279,7 @@ namespace Durin
 		}
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit(FRHIInitializationContext::Headless());
+		RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 		FRendererModule Renderer;
@@ -666,7 +667,7 @@ namespace Durin
 		}
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit(FRHIInitializationContext::Headless());
+		RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 
@@ -727,7 +728,7 @@ namespace Durin
 		}
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit(FRHIInitializationContext::Headless());
+		RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 
@@ -904,7 +905,7 @@ namespace Durin
 		}
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit(FRHIInitializationContext::Headless());
+		RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 
@@ -1058,7 +1059,7 @@ namespace Durin
 		}
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit(FRHIInitializationContext::Headless());
+		RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 
@@ -1236,7 +1237,7 @@ namespace Durin
 		}
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit(FRHIInitializationContext::Headless());
+		RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 		FRendererModule Renderer;
@@ -1308,7 +1309,7 @@ namespace Durin
 		}
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit(FRHIInitializationContext::Headless());
+		RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 
@@ -1462,7 +1463,8 @@ namespace Durin
 
 		ASSERT_EQ(GDynamicRHI, nullptr);
 		FModuleManager::Get().LoadModule("RenderCore");
-		RHIInit(FRHIInitializationContext::Headless());
+		RHIInit(FRHIInitializationContext::Presentation({
+			.NativeWindowHandle = Window->GetOSNativeWindowHandle()}));
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 		FRendererModule Renderer;
