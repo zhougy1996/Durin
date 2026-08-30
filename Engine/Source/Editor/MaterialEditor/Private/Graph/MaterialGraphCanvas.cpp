@@ -14,6 +14,11 @@ namespace Durin::Editor::Material
 		const float NodeHeaderHeight = Metrics.HeaderHeight;
 		const float PinSpacing = Metrics.PinRowHeight;
 		const float NodePadding = Metrics.BodyPadding;
+		constexpr float GraphBodyFontHeight = 14.0f;
+		constexpr float GraphTitleFontHeight = 16.0f;
+		constexpr float GraphSecondaryFontHeight = 13.0f;
+		constexpr float GraphControlHorizontalPadding = 3.0f;
+		constexpr float GraphControlVerticalPadding = 2.0f;
 
 		auto Add(const ImVec2& A, const ImVec2& B) -> ImVec2
 		{
@@ -401,6 +406,18 @@ namespace Durin::Editor::Material
 			}
 			if (bHovered && ImGui::IsMouseDragging(ImGuiMouseButton_Middle))
 				Pan = Add(Pan, ImGui::GetIO().MouseDelta);
+			const float GraphBodyFontSize = GraphBodyFontHeight * Zoom;
+			const float GraphTitleFontSize = GraphTitleFontHeight * Zoom;
+			const float GraphSecondaryFontSize = GraphSecondaryFontHeight * Zoom;
+			const float GlobalFontScale = ImGui::GetFontSize()
+				/ std::max(ImGui::GetStyle().FontSizeBase, 1.0f);
+			const float GraphControlFontSizeBase = GraphBodyFontSize / GlobalFontScale;
+			const ImVec2 GraphControlFramePadding{
+				GraphControlHorizontalPadding * Zoom,
+				GraphControlVerticalPadding * Zoom};
+			const ImVec2 GraphControlItemSpacing{4.0f * Zoom, 4.0f * Zoom};
+			const float GraphControlHeight = GraphBodyFontSize
+				+ GraphControlFramePadding.y * 2.0f;
 
 			const float GridStep = 32.0f * Zoom;
 			if (GridStep >= 16.0f)
@@ -539,7 +556,7 @@ namespace Durin::Editor::Material
 					IM_COL32(57, 62, 74, 255), 6.0f, ImDrawFlags_RoundCornersTop);
 				if (DetailLevel != EMaterialGraphDetailLevel::Overview)
 				{
-					const float FontSize = std::max(10.0f, ImGui::GetFontSize() * Zoom);
+					const float FontSize = GraphTitleFontSize;
 					const std::string Label = Ellipsize(Visual.View->PrimaryLabel,
 						(NodeWidth - NodePadding * 2.0f) * Zoom
 							* ImGui::GetFontSize() / FontSize);
@@ -547,19 +564,20 @@ namespace Durin::Editor::Material
 						Visual.Maximum.x - 5.0f,
 						Visual.Minimum.y + NodeHeaderHeight * Zoom);
 					DrawList->AddText(ImGui::GetFont(), FontSize,
-						Add(Visual.Minimum, {8.0f * Zoom, 6.0f * Zoom}),
+						Add(Visual.Minimum,
+							{8.0f * Zoom, (NodeHeaderHeight * Zoom - FontSize) * 0.5f}),
 						IM_COL32(235, 238, 242, 255), Label.c_str(), nullptr, 0.0f, &Clip);
 					if (DetailLevel == EMaterialGraphDetailLevel::Editing
 						&& !Visual.View->SecondaryLabel.empty())
 					{
 						const std::string Secondary = Ellipsize(Visual.View->SecondaryLabel,
 							(NodeWidth - NodePadding * 2.0f) * Zoom
-								* ImGui::GetFontSize() / FontSize);
+								* ImGui::GetFontSize() / GraphSecondaryFontSize);
 						const ImVec4 SecondaryClip(Visual.Minimum.x + 5.0f,
 							Visual.Minimum.y + NodeHeaderHeight * Zoom,
 							Visual.Maximum.x - 5.0f,
 							Visual.Minimum.y + (NodeHeaderHeight + Metrics.SecondaryHeight) * Zoom);
-						DrawList->AddText(ImGui::GetFont(), FontSize,
+						DrawList->AddText(ImGui::GetFont(), GraphSecondaryFontSize,
 							Add(Visual.Minimum, {8.0f * Zoom, NodeHeaderHeight * Zoom}),
 							IM_COL32(165, 172, 186, 255), Secondary.c_str(), nullptr, 0.0f,
 							&SecondaryClip);
@@ -581,16 +599,22 @@ namespace Durin::Editor::Material
 					&& !bInlineEditorVisible)
 				{
 					const std::string ResultLabel = TypeName(Visual.View->Node.ResultType);
-					DrawList->AddText(Add(Visual.OutputPin,
-						{-8.0f * Zoom - ImGui::CalcTextSize(ResultLabel.c_str()).x,
-							-7.0f}), IM_COL32(185, 190, 202, 255), ResultLabel.c_str());
+					const float ResultLabelWidth = ImGui::GetFont()->CalcTextSizeA(
+						GraphBodyFontSize, FLT_MAX, 0.0f, ResultLabel.c_str()).x;
+					DrawList->AddText(ImGui::GetFont(), GraphBodyFontSize,
+						Add(Visual.OutputPin,
+							{-8.0f * Zoom - ResultLabelWidth,
+								-GraphBodyFontSize * 0.5f}),
+						IM_COL32(185, 190, 202, 255), ResultLabel.c_str());
 				}
 				for (size_t Index = 0; Index < Visual.InputPins.size(); ++Index)
 				{
 					DrawList->AddCircleFilled(Visual.InputPins[Index], PinRadius,
 						TypeColor(Visual.View->Inputs[Index].SourceType));
 					if (DetailLevel == EMaterialGraphDetailLevel::Editing)
-						DrawList->AddText(Add(Visual.InputPins[Index], {9.0f, -7.0f}),
+						DrawList->AddText(ImGui::GetFont(), GraphBodyFontSize,
+							Add(Visual.InputPins[Index],
+								{9.0f * Zoom, -GraphBodyFontSize * 0.5f}),
 							IM_COL32(205, 210, 220, 255),
 							Visual.View->Inputs[Index].Name.c_str());
 					if (LinkSourceType)
@@ -640,6 +664,11 @@ namespace Durin::Editor::Material
 						ImGui::PushID(InlineEditNode.ToString().c_str());
 						ImGui::SetNextItemWidth(std::max(80.0f,
 							(NodeWidth - 20.0f) * Zoom));
+						ImGui::PushFont(nullptr, GraphControlFontSizeBase);
+						ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+							GraphControlFramePadding);
+						ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing,
+							GraphControlItemSpacing);
 						DrawNumericValueEditor("##InlineConstant",
 							Visual.View->Node.ResultType, InlineConstantDraft.data());
 						bEmbeddedControlHoveredOrActive |=
@@ -658,6 +687,8 @@ namespace Durin::Editor::Material
 								Material, std::move(Edited), &Transactions), ReportError);
 						}
 						if (!bInlineActive) InlineEditNode = {};
+						ImGui::PopStyleVar(2);
+						ImGui::PopFont();
 						ImGui::PopID();
 						ImGui::SetCursorScreenPos(SavedCursor);
 					}
@@ -672,6 +703,11 @@ namespace Durin::Editor::Material
 								+ 4.0f) * Zoom}));
 						ImGui::PushID(Visual.View->Node.Id.ToString().c_str());
 						ImGui::SetNextItemWidth(std::max(80.0f, (NodeWidth - 20.0f) * Zoom));
+						ImGui::PushFont(nullptr, GraphControlFontSizeBase);
+						ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+							GraphControlFramePadding);
+						ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing,
+							GraphControlItemSpacing);
 						FResolvedMaterialParameter Resolved;
 						const bool bEditValue =
 							Visual.View->Node.Opcode == EMaterialProgramOpcode::Parameter
@@ -751,6 +787,8 @@ namespace Durin::Editor::Material
 							bEmbeddedControlHoveredOrActive |=
 								ImGui::IsItemHovered() || ImGui::IsItemActive();
 						}
+						ImGui::PopStyleVar(2);
+						ImGui::PopFont();
 						ImGui::PopID();
 						ImGui::SetCursorScreenPos(SavedCursor);
 					}
@@ -770,6 +808,11 @@ namespace Durin::Editor::Material
 								+ 4.0f) * Zoom}));
 						ImGui::PushID(InlineEditNode.ToString().c_str());
 						ImGui::SetNextItemWidth(std::max(80.0f, (NodeWidth - 20.0f) * Zoom));
+						ImGui::PushFont(nullptr, GraphControlFontSizeBase);
+						ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+							GraphControlFramePadding);
+						ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing,
+							GraphControlItemSpacing);
 						ImGui::DragInt4("##InlineSwizzle", InlineSwizzleDraft.data(), 0.1f, 0, 3);
 						bEmbeddedControlHoveredOrActive |=
 							ImGui::IsItemHovered() || ImGui::IsItemActive();
@@ -789,6 +832,8 @@ namespace Durin::Editor::Material
 								Material, std::move(Edited), &Transactions), ReportError);
 						}
 						if (!bInlineActive) InlineEditNode = {};
+						ImGui::PopStyleVar(2);
+						ImGui::PopFont();
 						ImGui::PopID();
 						ImGui::SetCursorScreenPos(SavedCursor);
 					}
@@ -817,8 +862,8 @@ namespace Durin::Editor::Material
 				IM_COL32(57, 62, 74, 255), 6.0f, ImDrawFlags_RoundCornersTop);
 			if (DetailLevel != EMaterialGraphDetailLevel::Overview)
 			{
-				const float FontSize = std::max(9.0f, ImGui::GetFontSize() * Zoom);
-				const float SecondaryFontSize = std::max(8.0f, FontSize * 0.82f);
+				const float FontSize = GraphTitleFontSize;
+				const float SecondaryFontSize = GraphSecondaryFontSize;
 				const std::string MaterialName = Ellipsize(Material.GetName(),
 					(Metrics.SurfaceWidth - 20.0f) * Zoom
 						* ImGui::GetFontSize() / FontSize);
@@ -826,11 +871,11 @@ namespace Durin::Editor::Material
 					SurfaceMaximum.x - 5.0f,
 					SurfaceMinimum.y + Metrics.SurfaceHeaderHeight * Zoom);
 				DrawList->AddText(ImGui::GetFont(), FontSize,
-					Add(SurfaceMinimum, {10.0f * Zoom, 4.0f * Zoom}),
+					Add(SurfaceMinimum, {10.0f * Zoom, 6.0f * Zoom}),
 					IM_COL32(235, 238, 242, 255), MaterialName.c_str(), nullptr, 0.0f, &Clip);
 				DrawList->AddText(ImGui::GetFont(), SecondaryFontSize,
 					Add(SurfaceMinimum,
-						{10.0f * Zoom, 5.0f * Zoom + FontSize}),
+						{10.0f * Zoom, 24.0f * Zoom}),
 					IM_COL32(165, 172, 186, 255), "Material Output", nullptr, 0.0f, &Clip);
 			}
 			for (size_t Index = 0; Index < SurfacePins.size(); ++Index)
@@ -851,8 +896,9 @@ namespace Durin::Editor::Material
 						SurfaceMinimum.x
 							+ (NodePadding + Metrics.SurfaceLabelWidth) * Zoom,
 						SurfacePins[Index].y + PinSpacing * 0.5f * Zoom);
-					DrawList->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-						Add(SurfacePins[Index], {NodePadding * Zoom, -7.0f}),
+					DrawList->AddText(ImGui::GetFont(), GraphBodyFontSize,
+						Add(SurfacePins[Index],
+							{NodePadding * Zoom, -GraphBodyFontSize * 0.5f}),
 						IM_COL32(210, 214, 222, 255), SurfaceNames[Index],
 						nullptr, 0.0f, &LabelClip);
 					if (!OutputLinks[Index]->SourceNodeId.IsValid())
@@ -872,9 +918,14 @@ namespace Durin::Editor::Material
 							{SurfaceMinimum.x + (NodePadding
 								+ Metrics.SurfaceLabelWidth
 								+ Metrics.SurfaceValueGap) * Zoom,
-								SurfacePins[Index].y - 10.0f * Zoom});
+								SurfacePins[Index].y - GraphControlHeight * 0.5f});
 						ImGui::PushID(static_cast<int>(Index) + 9000);
 						ImGui::SetNextItemWidth(Metrics.SurfaceValueWidth * Zoom);
+						ImGui::PushFont(nullptr, GraphControlFontSizeBase);
+						ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
+							GraphControlFramePadding);
+						ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing,
+							GraphControlItemSpacing);
 						DrawNumericValueEditor("##SurfaceDefault", SurfaceTypes[Index],
 							SurfaceDefaultDrafts[Index].data());
 						bEmbeddedControlHoveredOrActive |=
@@ -897,6 +948,8 @@ namespace Durin::Editor::Material
 						}
 						if (!bInlineActive)
 							bSurfaceDefaultDraftInitialized[Index] = false;
+						ImGui::PopStyleVar(2);
+						ImGui::PopFont();
 						ImGui::PopID();
 						ImGui::SetCursorScreenPos(SavedCursor);
 						ImGui::Dummy({0.0f, 0.0f});
