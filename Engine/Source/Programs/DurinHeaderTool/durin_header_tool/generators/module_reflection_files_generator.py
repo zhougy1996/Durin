@@ -30,7 +30,6 @@ from durin_header_tool.resolver.reflection_resolver import (
     load_available_symbols,
     resolved_symbol_dependencies_for_header,
     resolve_header_symbols,
-    symbol_dependency_snapshot,
 )
 from durin_header_tool.runtime.worker_context import initialize_worker_config
 from durin_header_tool.runtime.parallelism import resolve_worker_count
@@ -85,12 +84,19 @@ def get_reflection_headers_requiring_regeneration(
     module_name: str,
     old_state: ReflectionPhaseState,
     new_state: ReflectionPhaseState,
-    available_symbols: dict[str, ExportedSymbolInfo] | None = None,
 ) -> list[str]:
     if old_state is None:
         return list(new_state.reflect_headers.keys())
 
     if _reflection_state_contract_changed(old_state, new_state):
+        return list(new_state.reflect_headers.keys())
+
+    # A newly exported symbol can change unqualified lookup even when every
+    # symbol referenced by the cached result still exists unchanged. Until the
+    # cache records enough lookup context to resolve the original spelling
+    # again, any dependency export change must conservatively invalidate all
+    # reflection headers in this module.
+    if old_state.dependency_exports != new_state.dependency_exports:
         return list(new_state.reflect_headers.keys())
 
     headers_requiring_regeneration = []
@@ -100,27 +106,12 @@ def get_reflection_headers_requiring_regeneration(
         if (
             old_fingerprint != new_fingerprint
             or old_result is None
-            or (
-                old_state.dependency_exports != new_state.dependency_exports
-                and not _resolved_dependencies_match(old_result, available_symbols or {})
-            )
         ):
             headers_requiring_regeneration.append(header)
         else:
             new_state.results_by_header[header] = old_result
             _copy_generated_output_digests(module_name, header, old_state, new_state)
     return headers_requiring_regeneration
-
-
-def _resolved_dependencies_match(
-    result: ReflectionHeaderGenerationResult,
-    available_symbols: dict[str, ExportedSymbolInfo],
-) -> bool:
-    return all(
-        qualified_name in available_symbols
-        and symbol_dependency_snapshot(available_symbols[qualified_name]) == snapshot
-        for qualified_name, snapshot in result.resolved_symbol_dependencies.items()
-    )
 
 
 def _reflection_state_contract_changed(
@@ -348,15 +339,12 @@ def generate_reflection_files(module_name: str, max_workers: int = 1) -> None:
         and not _reflection_state_contract_changed(old_state, new_state)
         and old_state.dependency_exports != new_state.dependency_exports
     )
-    symbols: dict[str, ExportedSymbolInfo] = (
-        load_available_symbols(module_name) if dep_exports_changed else {}
-    )
+    symbols: dict[str, ExportedSymbolInfo] = {}
 
     headers_to_regenerate = get_reflection_headers_requiring_regeneration(
         module_name,
         old_state,
         new_state,
-        symbols,
     )
     for header in new_state.reflect_headers:
         if (

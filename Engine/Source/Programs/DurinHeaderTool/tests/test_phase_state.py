@@ -230,7 +230,7 @@ def test_invalid_reflection_header_record_only_invalidates_that_record(isolated_
     assert loaded.results_by_header[second_header] == second
 
 
-def test_dependency_export_change_only_invalidates_referenced_symbol_changes():
+def test_dependency_export_change_invalidates_headers_when_existing_binding_is_unchanged():
     symbol = _symbol()
     result = ReflectionHeaderGenerationResult(
         header=HEADER,
@@ -256,21 +256,11 @@ def test_dependency_export_change_only_invalidates_referenced_symbol_changes():
         dependency_exports={"CoreDObject": "old"},
         results_by_header={HEADER: result},
     )
-    unchanged_state = ReflectionPhaseState(
+    changed_exports_state = ReflectionPhaseState(
         **common,
         dependency_exports={"CoreDObject": "new"},
     )
 
     assert get_reflection_headers_requiring_regeneration(
-        "Fixture", old_state, unchanged_state, {symbol.QualifiedName: symbol}
-    ) == []
-    changed_symbol = ExportedSymbolInfo.from_json(
-        {**symbol.to_json(), "API": "CHANGED_API"}
-    )
-    changed_state = ReflectionPhaseState(
-        **common,
-        dependency_exports={"CoreDObject": "newer"},
-    )
-    assert get_reflection_headers_requiring_regeneration(
-        "Fixture", old_state, changed_state, {symbol.QualifiedName: changed_symbol}
+        "Fixture", old_state, changed_exports_state
     ) == [HEADER]
