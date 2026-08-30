@@ -118,10 +118,10 @@ namespace Durin
 
 			for (const FTaskHandle& Task : Canceled) EXPECT_TRUE(CancelTask(Task));
 			ReleaseBlocker.Trigger();
-			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker));
-			for (const FTaskHandle& Task : Succeeded) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task));
-			for (const FTaskHandle& Task : Failed) EXPECT_EQ(ETaskState::Failed, WaitTask(Task));
-			for (const FTaskHandle& Task : Canceled) EXPECT_EQ(ETaskState::Canceled, WaitTask(Task));
+			EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker).TaskState);
+			for (const FTaskHandle& Task : Succeeded) EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task).TaskState);
+			for (const FTaskHandle& Task : Failed) EXPECT_EQ(ETaskState::Failed, WaitTask(Task).TaskState);
+			for (const FTaskHandle& Task : Canceled) EXPECT_EQ(ETaskState::Canceled, WaitTask(Task).TaskState);
 		}
 
 		const FTaskSchedulerDiagnostics Final = GetTaskSchedulerDiagnostics();
@@ -170,7 +170,7 @@ namespace Durin
 				Handles.emplace_back(LaunchTask("CopyableQualification", [&CallableRuns]() {
 					CallableRuns.fetch_add(1, std::memory_order::acq_rel);
 				}));
-			EXPECT_TRUE(std::ranges::all_of(WaitAll(Handles), [](ETaskState State) { return State == ETaskState::Succeeded; }));
+			EXPECT_TRUE(std::ranges::all_of(WaitAll(Handles), [](const FTaskWaitResult& Result) { return Result.WaitStatus == ETaskWaitStatus::Completed && Result.TaskState == ETaskState::Succeeded; }));
 		});
 		const uint64 MoveOnlyCallableNanoseconds = MeasureNanoseconds([&]() {
 			std::vector<FTaskHandle> Handles;
@@ -179,7 +179,7 @@ namespace Durin
 					[Value = std::make_unique<uint32>(1), &CallableRuns]() {
 						CallableRuns.fetch_add(*Value, std::memory_order::acq_rel);
 					}));
-			EXPECT_TRUE(std::ranges::all_of(WaitAll(Handles), [](ETaskState State) { return State == ETaskState::Succeeded; }));
+			EXPECT_TRUE(std::ranges::all_of(WaitAll(Handles), [](const FTaskWaitResult& Result) { return Result.WaitStatus == ETaskWaitStatus::Completed && Result.TaskState == ETaskState::Succeeded; }));
 		});
 
 		std::atomic<uint64> ResultBytesObserved = 0;
@@ -194,7 +194,7 @@ namespace Durin
 					ResultBytesObserved.fetch_add(Value.size(), std::memory_order::acq_rel);
 				}));
 			}
-			EXPECT_TRUE(std::ranges::all_of(WaitAll(Sinks), [](ETaskState State) { return State == ETaskState::Succeeded; }));
+			EXPECT_TRUE(std::ranges::all_of(WaitAll(Sinks), [](const FTaskWaitResult& Result) { return Result.WaitStatus == ETaskWaitStatus::Completed && Result.TaskState == ETaskState::Succeeded; }));
 		});
 		const uint64 UniqueTransferNanoseconds = MeasureNanoseconds([&]() {
 			std::vector<FTaskHandle> Sinks;
@@ -208,7 +208,7 @@ namespace Durin
 						ResultBytesObserved.fetch_add(Value.size(), std::memory_order::acq_rel);
 					}));
 			}
-			EXPECT_TRUE(std::ranges::all_of(WaitAll(Sinks), [](ETaskState State) { return State == ETaskState::Succeeded; }));
+			EXPECT_TRUE(std::ranges::all_of(WaitAll(Sinks), [](const FTaskWaitResult& Result) { return Result.WaitStatus == ETaskWaitStatus::Completed && Result.TaskState == ETaskState::Succeeded; }));
 		});
 
 		EXPECT_EQ(CallableCount * 2, CallableRuns.load(std::memory_order::acquire));

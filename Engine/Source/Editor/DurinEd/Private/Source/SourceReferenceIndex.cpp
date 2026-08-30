@@ -33,7 +33,7 @@ namespace Durin::Editor
 			{
 				if (!BuildTask.IsValid()) return;
 				(void)CancelTask(BuildTask.GetTaskHandle());
-				(void)WaitTask(BuildTask.GetTaskHandle());
+				(void)WaitTask(BuildTask.GetTaskHandle()).TaskState;
 			}
 
 			std::mutex Mutex;

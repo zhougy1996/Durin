@@ -80,7 +80,7 @@ namespace Durin
 		});
 
 		State->WaiterTask = LaunchTask("EngineSmoke.Waiter", [StatePtr]() {
-			StatePtr->WaitedState = WaitTask(StatePtr->DependentTask);
+			StatePtr->WaitedState = WaitTask(StatePtr->DependentTask).TaskState;
 		});
 
 		checkf(State->ShortTask.IsValid() && State->DependentTask.IsValid()

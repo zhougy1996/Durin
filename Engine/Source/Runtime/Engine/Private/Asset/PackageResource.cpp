@@ -153,7 +153,7 @@ namespace Durin::Asset
 			if (State->bTerminal) return State->Result;
 			Task = State->Task;
 		}
-		const ETaskState TaskState = WaitTask(Task);
+		const ETaskState TaskState = WaitTask(Task).TaskState;
 		{
 			std::lock_guard Lock(State->Mutex);
 			if (State->bTerminal) return State->Result;

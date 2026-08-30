@@ -325,7 +325,7 @@ namespace Durin::Editor
 		{
 			Cancellation.RequestCancellation();
 			(void)CancelTask(Task);
-			(void)WaitTask(Task);
+			(void)WaitTask(Task).TaskState;
 			DrainMailbox();
 			State = EAssetCompatibilityAuditState::Failed;
 			Failure = "The task scheduler rejected terminal audit publication.";
@@ -348,7 +348,7 @@ namespace Durin::Editor
 		{
 			Cancel();
 			if (TerminalTask.IsValid()) (void)CancelTask(TerminalTask);
-			if (Task.IsValid()) (void)WaitTask(Task);
+			if (Task.IsValid()) (void)WaitTask(Task).TaskState;
 		}
 		DrainMailbox();
 		if (State == EAssetCompatibilityAuditState::Running)

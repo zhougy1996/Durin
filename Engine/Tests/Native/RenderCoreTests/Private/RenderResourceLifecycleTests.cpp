@@ -322,7 +322,7 @@ namespace Durin
 		FTaskHandle RestartedTask = LaunchTask(
 			"RenderLifecycle.AfterRestart", []() {});
 		ASSERT_TRUE(RestartedTask.IsValid());
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(RestartedTask));
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(RestartedTask).TaskState);
 		EXPECT_EQ(ETaskState::Canceled, RunningTask.GetState());
 		EXPECT_EQ(ETaskState::Canceled, QueuedTask.GetState());
 		ShutdownTaskScheduler(true);

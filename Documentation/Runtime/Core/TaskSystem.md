@@ -63,9 +63,14 @@ Waiting -> Queued -> Running -> Succeeded
 
 A task without prerequisites begins in `Queued`. Terminal states never change.
 `FTaskHandle::IsComplete()` is true only for `Succeeded`, `Failed`, or
-`Canceled`; it is false for an invalid handle. `WaitTask()` returns the observed
-state, while `WaitAll()` waits every valid input and returns one outcome per
-input without collapsing failure or cancellation into success.
+`Canceled`; it is false for an invalid handle. `WaitTask()` returns
+`FTaskWaitResult`, which keeps the wait operation's `WaitStatus` separate from
+the observed `TaskState`. `Completed` guarantees that the task reached a
+terminal state; `InvalidTask`, `SelfWait`, `DependencyCycle`, and
+`UnsupportedThread` report why no completion wait occurred, and `TaskState`
+then remains only a snapshot. `WaitAll()` returns one such result per input
+without collapsing failure, cancellation, invalid handles, or rejected waits
+into success.
 
 Void launch APIs remain supported. Typed launch APIs return `TTaskHandle<T>`;
 the callable moves one value into shared result state and successful consumers
@@ -268,10 +273,13 @@ Waiting is a synchronization boundary, not a routine scheduling technique.
   while holding a subsystem, registry, or ownership lock needed by task work.
 - A worker waiting for another task from the same scheduler may help execute an
   eligible queued task while its scheduler lifetime remains protected.
-- Self-wait is rejected deterministically. A same-pool worker call to
+- Self-wait is rejected deterministically with `ETaskWaitStatus::SelfWait`.
+  Waiting for work that depends on the current task is rejected with
+  `ETaskWaitStatus::DependencyCycle`. A same-pool worker call to
   `FQueuedThreadPool::WaitForIdle()` returns false rather than deadlocking.
-- Routine waits on the rendering thread are unsupported. Rendering work uses
-  render commands, render fences, and the game/render synchronization contract.
+- Routine waits on the rendering thread are rejected with
+  `ETaskWaitStatus::UnsupportedThread`. Rendering work uses render commands,
+  render fences, and the game/render synchronization contract.
 - Long waits preserve normal wait semantics while recording the waiter, target
   ID and state, and elapsed duration in scheduler diagnostics.
 
@@ -280,9 +288,10 @@ Workers never help by executing themselves or a dependency that is still in
 idle as a substitute.
 
 GameThread must not use ordinary `WaitTask()` on a nonterminal
-`GameThreadDeferred` node. Workers never help by executing that target. Build a
-continuation graph instead; the cross-executor shutdown coordinator is the only
-pump-until-quiescent path.
+`GameThreadDeferred` node; the wait result is `UnsupportedThread` and its task
+state is only the current snapshot. Workers never help by executing that
+target. Build a continuation graph instead; the cross-executor shutdown
+coordinator is the only pump-until-quiescent path.
 
 ## GameThread Deferred Executor
 

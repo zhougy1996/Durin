@@ -140,7 +140,7 @@ namespace Durin
 		{
 			if (!bWaitUntilReady) return true;
 			const std::shared_ptr<FBuildState> Build = ActiveBuild;
-			const ETaskState State = WaitTask(Build->Worker);
+			const ETaskState State = WaitTask(Build->Worker).TaskState;
 			if (State == ETaskState::Succeeded) return PublishCompletedBuild(Build);
 			CancelBuild();
 			return SetFailure(ETerrainCollisionStatus::BuildFailed,
@@ -255,7 +255,7 @@ namespace Durin
 				"The GameThread executor rejected Terrain collision publication.");
 		}
 		if (!bWaitUntilReady) return true;
-		const ETaskState State = WaitTask(Build->Worker);
+		const ETaskState State = WaitTask(Build->Worker).TaskState;
 		if (State == ETaskState::Succeeded) return PublishCompletedBuild(Build);
 		CancelBuild();
 		return SetFailure(ETerrainCollisionStatus::BuildFailed,

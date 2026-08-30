@@ -88,7 +88,7 @@ namespace Durin::Tests
 				}, MakeOptions(Group));
 			}
 
-			auto WaitForTaskForTest() -> ETaskState { return WaitTask(Task); }
+			auto WaitForTaskForTest() -> ETaskState { return WaitTask(Task).TaskState; }
 
 		private:
 			FThreadEvent& Started;
@@ -120,7 +120,7 @@ namespace Durin::Tests
 		EXPECT_EQ(EAsyncOperationCloseStatus::Closed,
 			Group.Close(EAsyncOperationCloseMode::Cancel, EAsyncOperationAbortReason::Superseded));
 		Continue.Trigger();
-		EXPECT_EQ(ETaskState::Canceled, WaitTask(Root));
+		EXPECT_EQ(ETaskState::Canceled, WaitTask(Root).TaskState);
 		EXPECT_FALSE(Child.IsValid());
 		const auto Drained = Group.Drain(std::chrono::seconds(1));
 		ASSERT_TRUE(Drained.Succeeded()) << Drained.Message;
@@ -147,7 +147,7 @@ namespace Durin::Tests
 		ASSERT_TRUE(Started.WaitFor(1.0));
 		EXPECT_EQ(EAsyncOperationCloseStatus::Closed, Group.Close(EAsyncOperationCloseMode::Drain));
 		BeginDrain.Trigger();
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task));
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Task).TaskState);
 		EXPECT_EQ(EAsyncOperationDrainStatus::SelfWait, Observed.load(std::memory_order_acquire));
 		EXPECT_TRUE(Group.Drain(std::chrono::seconds(1)).Succeeded());
 	}
@@ -164,8 +164,8 @@ namespace Durin::Tests
 		std::atomic<uint32> SecondRuns = 0;
 		FTaskHandle FirstRoot = LaunchTask("FirstRoot", []() {}, MakeOptions(First));
 		FTaskHandle SecondRoot = LaunchTask("SecondRoot", []() {}, MakeOptions(Second));
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(FirstRoot));
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(SecondRoot));
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(FirstRoot).TaskState);
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(SecondRoot).TaskState);
 		FTaskHandle FirstTask = Then(FirstRoot, "FirstDeferred", [&]() { ++FirstRuns; }, MakeDeferredOptions(First));
 		FTaskHandle SecondTask = Then(SecondRoot, "SecondDeferred", [&]() { ++SecondRuns; }, MakeDeferredOptions(Second));
 
@@ -183,7 +183,7 @@ namespace Durin::Tests
 
 		auto Canceled = Context.CreateAsyncOperationGroup("Canceled");
 		FTaskHandle CanceledRoot = LaunchTask("CanceledRoot", []() {}, MakeOptions(Canceled));
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(CanceledRoot));
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(CanceledRoot).TaskState);
 		auto Capture = std::make_shared<int>(41);
 		std::weak_ptr<int> WeakCapture = Capture;
 		std::atomic<bool> bCanceledCallbackRan = false;
@@ -207,7 +207,7 @@ namespace Durin::Tests
 
 		auto Results = Context.CreateAsyncOperationGroup("Results");
 		auto Typed = LaunchTask<int>("RetainedTypedResult", []() { return 17; }, MakeOptions(Results));
-		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Typed.GetTaskHandle()));
+		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Typed.GetTaskHandle()).TaskState);
 		Results.Close(EAsyncOperationCloseMode::Drain);
 		auto Retained = Results.Drain(std::chrono::milliseconds(1));
 		EXPECT_EQ(EAsyncOperationDrainStatus::TimedOut, Retained.Status);
@@ -233,7 +233,7 @@ namespace Durin::Tests
 		ASSERT_TRUE(Callables.Drain(std::chrono::seconds(1)).Succeeded());
 		EXPECT_TRUE(WeakCapture.expired());
 		EXPECT_EQ(ETaskState::Canceled, Queued.GetState());
-		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker));
+		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Blocker).TaskState);
 	}
 
 	TEST(FModuleManagerAsyncRetirementTests, UnloadCancelsAndDrainsOwnedOperationsBeforeRelease)

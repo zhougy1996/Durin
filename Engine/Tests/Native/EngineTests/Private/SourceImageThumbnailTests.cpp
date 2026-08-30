@@ -285,7 +285,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			BlockingState->bRelease = true;
 		}
 		BlockingState->Condition.notify_all();
-		EXPECT_EQ(WaitTask(Blocker), ETaskState::Succeeded);
+		EXPECT_EQ(WaitTask(Blocker).TaskState, ETaskState::Succeeded);
 		EXPECT_EQ(GetTaskSchedulerDiagnostics().OpenScopeCount, 0u);
 		EXPECT_EQ(GetTaskSchedulerDiagnostics().NonquiescentScopeCount, 0u);
 

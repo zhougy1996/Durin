@@ -56,6 +56,7 @@ namespace Durin
 	class TUniqueTaskResultState;
 	struct FTaskLaunchOptions;
 	struct FTaskContinuationOptions;
+	struct FTaskWaitResult;
 	struct FParallelForOptions;
 	struct FParallelForResult;
 
@@ -69,6 +70,21 @@ namespace Durin
 		Succeeded,
 		Failed,
 		Canceled,
+	};
+
+	enum class ETaskWaitStatus : uint8
+	{
+		Completed,
+		InvalidTask,
+		SelfWait,
+		DependencyCycle,
+		UnsupportedThread,
+	};
+
+	struct FTaskWaitResult
+	{
+		ETaskWaitStatus WaitStatus = ETaskWaitStatus::InvalidTask;
+		ETaskState TaskState = ETaskState::Invalid;
 	};
 
 	enum class ETaskTarget : uint8
@@ -550,7 +566,7 @@ namespace Durin
 		friend CORE_API auto Private::LaunchContinuationTask(const FTaskHandle& Predecessor, const char* Name, Private::FMoveOnlyTaskFunction&& Function, std::function<void(ETaskState)>&& CompletionFunction, const FTaskContinuationOptions& Options, ETaskDependencyKind DependencyKind, uint64 EstimatedResultBytes) -> FTaskHandle;
 		friend CORE_API auto Private::MakeTaskRetainedResultBytesSetter(const FTaskHandle& Task) -> std::function<void(uint64)>;
 		friend CORE_API auto CancelTask(const FTaskHandle& Task) -> bool;
-		friend CORE_API auto WaitTask(const FTaskHandle& Task) -> ETaskState;
+		friend CORE_API auto WaitTask(const FTaskHandle& Task) -> FTaskWaitResult;
 
 		std::shared_ptr<FTaskStateData> State;
 	};
@@ -714,9 +730,9 @@ namespace Durin
 	}
 	// Returns false only for an invalid or already-terminal task.
 	CORE_API auto CancelTask(const FTaskHandle& Task) -> bool;
-	CORE_API auto WaitTask(const FTaskHandle& Task) -> ETaskState;
-	// Returns one observed outcome for each input handle, including Invalid.
-	CORE_API auto WaitAll(std::span<const FTaskHandle> Tasks) -> std::vector<ETaskState>;
+	CORE_API auto WaitTask(const FTaskHandle& Task) -> FTaskWaitResult;
+	// Returns one wait result for each input handle, including invalid handles and rejected waits.
+	CORE_API auto WaitAll(std::span<const FTaskHandle> Tasks) -> std::vector<FTaskWaitResult>;
 
 	// Executes [0, Num) in bounded contiguous chunks and includes the calling thread.
 	CORE_API auto ParallelFor(const char* Name, uint64 Num, FParallelForFunction&& Function, const FParallelForOptions& Options = {}) -> FParallelForResult;

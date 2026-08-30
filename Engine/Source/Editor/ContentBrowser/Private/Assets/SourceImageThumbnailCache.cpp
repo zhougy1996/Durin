@@ -419,7 +419,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (Impl->OwnedTaskScope)
 			(void)Impl->OwnedTaskScope->Close(ETaskScopeCloseMode::Cancel);
 		for (const FTaskHandle& Task : Impl->Tasks) (void)CancelTask(Task);
-		for (const FTaskHandle& Task : Impl->Tasks) (void)WaitTask(Task);
+		for (const FTaskHandle& Task : Impl->Tasks) (void)WaitTask(Task).TaskState;
 		Impl->Tasks.clear();
 		if (Impl->OwnedTaskScope) (void)Impl->OwnedTaskScope->Wait();
 		if (GRenderingThread) FlushRenderingCommands();

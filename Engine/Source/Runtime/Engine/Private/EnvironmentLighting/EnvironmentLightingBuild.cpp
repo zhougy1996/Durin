@@ -281,10 +281,11 @@ namespace Durin
 		for (const auto& Task : IrradianceTasks) Tasks.push_back(Task.GetTaskHandle());
 		for (const auto& Task : PrefilterTasks) Tasks.push_back(Task.GetTaskHandle());
 		for (const auto& Task : LutTasks) Tasks.push_back(Task.GetTaskHandle());
-		const std::vector<ETaskState> Outcomes = WaitAll(Tasks);
+		const std::vector<FTaskWaitResult> Outcomes = WaitAll(Tasks);
 		for (size_t Index = 0; Index < Outcomes.size(); ++Index)
 		{
-			if (Outcomes[Index] == ETaskState::Succeeded) continue;
+			if (Outcomes[Index].WaitStatus == ETaskWaitStatus::Completed
+				&& Outcomes[Index].TaskState == ETaskState::Succeeded) continue;
 			const std::string Diagnostic = Tasks[Index].IsValid()
 				? Tasks[Index].GetDiagnostic()
 				: "task admission was rejected";

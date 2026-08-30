@@ -3311,40 +3311,40 @@ namespace Durin
 		return Task.State && Task.State->RequestCancellation("Task cancellation was requested through its handle.");
 	}
 
-	auto WaitTask(const FTaskHandle& Task) -> ETaskState
+	auto WaitTask(const FTaskHandle& Task) -> FTaskWaitResult
 	{
 		if (!Task.State)
 		{
-			return ETaskState::Invalid;
+			return {ETaskWaitStatus::InvalidTask, ETaskState::Invalid};
 		}
 
 		ETaskState State = Task.State->GetState();
 		if (IsTerminalState(State))
 		{
-			return State;
+			return {ETaskWaitStatus::Completed, State};
 		}
 
 		if (GCurrentTaskState == Task.State.get())
 		{
 			DURIN_WARN("Task wait rejected because a task cannot wait for itself. (task: {}, id: {})", Task.State->GetDebugName(), Task.State->GetTaskId());
-			return State;
+			return {ETaskWaitStatus::SelfWait, State};
 		}
 
 		if (GCurrentTaskState && Task.State->DependsOn(GCurrentTaskState))
 		{
 			DURIN_WARN("Task wait rejected because the target depends on the current task. (task: {}, id: {})", Task.State->GetDebugName(), Task.State->GetTaskId());
-			return State;
+			return {ETaskWaitStatus::DependencyCycle, State};
 		}
 
 		if (IsInRenderingThread())
 		{
 			DURIN_WARN("Task wait rejected on the rendering thread. (task: {}, id: {})", Task.State->GetDebugName(), Task.State->GetTaskId());
-			return State;
+			return {ETaskWaitStatus::UnsupportedThread, State};
 		}
 		if (Task.State->GetTarget() == ETaskTarget::GameThreadDeferred && IsInGameThread())
 		{
 			DURIN_WARN("Task wait rejected because GameThread cannot block on deferred GameThread work. (task: {}, id: {})", Task.State->GetDebugName(), Task.State->GetTaskId());
-			return State;
+			return {ETaskWaitStatus::UnsupportedThread, State};
 		}
 
 		std::shared_ptr<FTaskScheduler> Scheduler = Task.State->PinScheduler();
@@ -3393,7 +3393,7 @@ namespace Durin
 				State = Task.State->WaitFor(WorkerWaitSliceSeconds);
 				ReportLongWait();
 			}
-			return State;
+			return {ETaskWaitStatus::Completed, State};
 		}
 
 		State = Task.State->WaitFor(LongWaitThresholdSeconds);
@@ -3402,12 +3402,12 @@ namespace Durin
 			ReportLongWait(true);
 			State = Task.State->Wait();
 		}
-		return State;
+		return {ETaskWaitStatus::Completed, State};
 	}
 
-	auto WaitAll(std::span<const FTaskHandle> Tasks) -> std::vector<ETaskState>
+	auto WaitAll(std::span<const FTaskHandle> Tasks) -> std::vector<FTaskWaitResult>
 	{
-		std::vector<ETaskState> Outcomes;
+		std::vector<FTaskWaitResult> Outcomes;
 		Outcomes.reserve(Tasks.size());
 		for (const FTaskHandle& Task : Tasks)
 		{
@@ -3581,11 +3581,14 @@ namespace Durin
 			// ExecuteChunk records the stable failure before preserving task-style exception precedence.
 		}
 
-		const std::vector<ETaskState> WorkerOutcomes = WaitAll(WorkerTasks);
+		const std::vector<FTaskWaitResult> WorkerOutcomes = WaitAll(WorkerTasks);
 		bool bAnyCanceled = bLaunchFailed || SharedState->CancellationSource.IsCancellationRequested() || Options.CancellationToken.IsCancellationRequested();
-		for (ETaskState Outcome : WorkerOutcomes)
+		for (const FTaskWaitResult& Outcome : WorkerOutcomes)
 		{
-			bAnyCanceled = bAnyCanceled || Outcome == ETaskState::Canceled || Outcome == ETaskState::Invalid;
+			bAnyCanceled = bAnyCanceled
+				|| Outcome.WaitStatus != ETaskWaitStatus::Completed
+				|| Outcome.TaskState == ETaskState::Canceled
+				|| Outcome.TaskState == ETaskState::Invalid;
 		}
 
 		{
