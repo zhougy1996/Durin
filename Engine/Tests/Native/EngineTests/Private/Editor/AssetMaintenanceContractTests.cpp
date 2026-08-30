@@ -105,7 +105,7 @@ TEST_F(FAssetMaintenanceContractTests, CompatibilityReportKeepsStableSchemaAndPa
 			.PackagePath = MakePath("/Maintenance/A"), .PhysicalPath = "A.dasset",
 			.Inspection = Durin::Asset::EAssetCompatibilityInspection::Ready,
 			.Compatibility = Durin::Asset::EAssetPackageCompatibility::Incompatible}};
-	const std::string Report = Durin::Asset::SerializeAssetCompatibilityReportV1(Records);
+	const std::string Report = Durin::Asset::SerializeAssetCompatibilityReport(Records);
 
 	Durin::FJsonDocument Document;
 	ASSERT_TRUE(Document.Parse(Report));
@@ -127,7 +127,7 @@ TEST_F(FAssetMaintenanceContractTests, CoreJsonSerializationPreservesControlChar
 
 	Durin::FJsonDocument CompatibilityDocument;
 	ASSERT_TRUE(CompatibilityDocument.Parse(
-		Durin::Asset::SerializeAssetCompatibilityReportV1(
+		Durin::Asset::SerializeAssetCompatibilityReport(
 			std::array{CompatibilityRecord})));
 	const Durin::FJsonNodeView CompatibilityPackage =
 		CompatibilityDocument.GetRootView().GetView("packages").GetView(0);

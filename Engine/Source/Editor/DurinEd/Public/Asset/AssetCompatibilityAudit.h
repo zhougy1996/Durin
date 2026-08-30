@@ -3,7 +3,6 @@
 #include "DurinEdAPI.h"
 #include "AssetRegistry/Catalog.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
-#include "AssetMaintenance/CompatibilityAudit.h"
 #include "Threading/Task.h"
 
 namespace Durin::Editor

@@ -5,7 +5,6 @@
 #include "AssetCook.h"
 #include "AssetMaintenance/CanonicalResave.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
-#include "AssetMaintenance/CompatibilityAudit.h"
 #include "Asset/AssetSaveReadiness.h"
 
 #include "Asset/EditorBulkDataStorage.h"
@@ -953,7 +952,7 @@ int main(int ArgC, char** ArgV)
 	if (Options.Operation == EOperation::Check)
 	{
 		if (Options.Format == EOutputFormat::Json)
-			std::cout << Durin::Asset::SerializeAssetCompatibilityReportV1(Records) << '\n';
+			std::cout << Durin::Asset::SerializeAssetCompatibilityReport(Records) << '\n';
 		else
 			PrintCompatibilityCheck(Records);
 		return 0;

@@ -497,7 +497,7 @@ namespace Durin::Asset
 		return Result;
 	}
 
-	auto SerializeAssetCompatibilityReportV1(
+	auto SerializeAssetCompatibilityReport(
 		std::span<const FAssetPackageCompatibilityRecord> Records) -> std::string
 	{
 		std::vector<const FAssetPackageCompatibilityRecord*> Sorted;

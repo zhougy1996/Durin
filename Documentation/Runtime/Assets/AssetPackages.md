@@ -626,12 +626,11 @@ each result to the registry snapshot and mark a changed input stale.
 Each terminal record keeps inspection, compatibility, and freshness as
 orthogonal states and reports stable codes for unknown fields, incompatible
 signatures, unavailable classes, unsupported formats, invalid object graphs,
-corrupt bytes, and I/O failures. Report schema v1 serializes stable string names
+corrupt bytes, and I/O failures. Report schema v3 serializes stable string names
 and deterministic virtual-path order; it never includes field payload bytes.
-The frozen fixture corpus under
-`Engine/Tests/Native/AssetCoreTests/Data/Compatibility` covers the current
-format and every terminal classification without defining those incompatible
-inputs as supported migration sources.
+`AssetPackageTests` and `AssetMaintenanceContractTests` cover the current
+format, deterministic report contract, and terminal classifications without
+defining incompatible inputs as supported migration sources.
 
 The Developer `AssetMaintenance` module owns deterministic project batches,
 mounted-file snapshots, report serialization, and canonical-resave

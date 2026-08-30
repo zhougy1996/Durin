@@ -5429,7 +5429,7 @@ TEST(FPackageAssetTests, RejectsInvalidPaths)
 TEST(FPackageAssetTests, RejectsSavingCppPackages)
 {
 	InitializeAssetTests();
-	Durin::DPackage* Package = Durin::FindOrCreateCppPackage("AssetCoreTests");
+	Durin::DPackage* Package = Durin::FindOrCreateCppPackage("AssetTests");
 	ASSERT_NE(Package, nullptr);
 	EXPECT_EQ(Durin::Asset::SavePackage(Package).Error, Durin::Asset::EAssetError::InvalidPackageType);
 }

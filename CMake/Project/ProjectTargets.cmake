@@ -760,7 +760,7 @@ function(durin_validate_native_test_source_ownership native_test_root)
 	set(_durin_forbidden_catch_all_targets
 		CoreTests
 		CoreDObjectTests
-		AssetCoreTests
+		AssetTests
 		RenderCoreTests
 		VulkanRHITests
 		EngineTests

@@ -133,6 +133,6 @@ namespace Durin::Asset
 		const FAssetCompatibilityProbeOperation& Probe = {})
 		-> FAssetCompatibilityAuditResult;
 
-	ASSETMAINTENANCE_API auto SerializeAssetCompatibilityReportV1(
+	ASSETMAINTENANCE_API auto SerializeAssetCompatibilityReport(
 		std::span<const FAssetPackageCompatibilityRecord> Records) -> std::string;
 }

@@ -4,7 +4,7 @@ add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/../NativeTestSupport"
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/CoreTests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/CoreDObjectTests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/AssetMetadataQueryTests)
-add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/AssetCoreTests)
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/AssetTests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/RHITests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/RenderCoreTests)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/NativeTestIsolationProbeTests)

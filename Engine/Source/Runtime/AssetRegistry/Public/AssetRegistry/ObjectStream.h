@@ -315,7 +315,7 @@ namespace Durin::Asset::PackageObjectStream
 	ASSETREGISTRY_API auto DecodePackageStructure(std::span<const std::byte> Bytes,
 		FDecodedPackage& OutPackage, const FReaderLimits& Limits = {},
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> bool;
-	// Compatibility-only decode that validates tables, topology, field ids, and
+	// Descriptor-only decode that validates tables, topology, field ids, and
 	// payload extents without materializing or interpreting field payloads.
 	ASSETREGISTRY_API auto DecodePackageDescriptors(std::span<const std::byte> Bytes,
 		FDecodedPackage& OutPackage, const FReaderLimits& Limits = {},
