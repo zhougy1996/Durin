@@ -403,6 +403,13 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 		[&](Durin::FRHICommandListImmediate& CommandList) {
 			ASSERT_TRUE(RenderData->InitResources(CommandList));
 			ASSERT_TRUE(MultiLODRenderData->InitResources(CommandList));
+			ASSERT_TRUE(RenderData->IsReadyForRendering());
+			auto& PublishedSection = RenderData->LODResources[0].Sections[0];
+			const uint32 PublishedIndexCount = PublishedSection.IndexCount;
+			PublishedSection.IndexCount = 1;
+			EXPECT_TRUE(RenderData->IsReadyForRendering())
+				<< "readiness must use initialization-time geometry validation";
+			PublishedSection.IndexCount = PublishedIndexCount;
 		}
 	);
 	Durin::FlushRenderingCommands();
