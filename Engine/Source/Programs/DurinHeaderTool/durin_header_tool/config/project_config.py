@@ -89,6 +89,15 @@ def get_project_config(project_name: str) -> DurinProjectConfig:
         return PROJECT_CONFIGS[project_name]
     raise ValueError(f"Project '{project_name}' was not supplied to DHT.")
 
+def get_loaded_project_files() -> tuple[Path, ...]:
+    return tuple(
+        project.config_file_path
+        for project in sorted(
+            PROJECT_CONFIGS.values(),
+            key=lambda project: str(project.config_file_path),
+        )
+    )
+
 # return the owning project name for a given module name, by searching through all loaded project configs
 def find_module(module_name: str) -> str:
     for project_name, project_config in PROJECT_CONFIGS.items():

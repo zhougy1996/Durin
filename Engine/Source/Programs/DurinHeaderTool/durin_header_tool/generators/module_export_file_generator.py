@@ -67,11 +67,9 @@ def _load_previous_export(module_name: str) -> tuple[ModuleExportInfo | None, Ex
 
 
 def _parse_header_export_worker(args):
-    module_name, header, arch, runtime_variant = args
+    module_name, header = args
 
     from durin_header_tool.extractors.export_symbol_extractor import _extract_header_export_symbols_impl as worker_extract
-
-    initialize_worker_config(arch, runtime_variant)
 
     start_time = time.perf_counter()
     symbols = worker_extract(module_name, header)
@@ -192,15 +190,21 @@ def _build_module_export_from_state(
             (
                 module_name,
                 header,
-                configs.ARCH,
-                configs.RUNTIME_VARIANT,
             )
             for header in headers_to_parse
         ]
         if worker_count == 1:
             results = [_parse_header_export_worker(args) for args in worker_args]
         else:
-            with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            with ProcessPoolExecutor(
+                max_workers=worker_count,
+                initializer=initialize_worker_config,
+                initargs=(
+                    configs.ARCH,
+                    configs.RUNTIME_VARIANT,
+                    configs.get_loaded_project_files(),
+                ),
+            ) as executor:
                 futures = [executor.submit(_parse_header_export_worker, args) for args in worker_args]
                 results = [future.result() for future in as_completed(futures)]
 

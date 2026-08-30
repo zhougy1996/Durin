@@ -383,11 +383,12 @@ class TestIntermediateLayout:
 
     def test_worker_receives_build_context(self):
         with mock.patch.object(configs, "init_configs") as init_configs:
-            initialize_worker_config("Win64", "DurinEditor")
+            project_files = (Path("External.dproject"),)
+            initialize_worker_config("Win64", "DurinEditor", project_files)
 
         assert configs.ARCH == "Win64"
         assert configs.RUNTIME_VARIANT == "DurinEditor"
-        init_configs.assert_called_once_with()
+        init_configs.assert_called_once_with(project_files)
 
     def test_generated_project_metadata_uses_shared_build_path(self):
         with mock.patch.object(project_cmake_file_generator.utils, "generate_file") as generate_file:

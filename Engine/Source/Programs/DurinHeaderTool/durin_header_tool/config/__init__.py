@@ -21,6 +21,7 @@ from .project_config import (
     DurinProjectConfig,
     DurinProjectRuntimeVariantConfig,
     find_module,
+    get_loaded_project_files,
     get_project_config,
     load_project_config_file,
 )

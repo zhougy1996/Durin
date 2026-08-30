@@ -202,11 +202,9 @@ def _generate_reflection_output_impl(
 
 
 def _generate_reflection_output_worker(args):
-    module_name, header, symbols, arch, runtime_variant = args
+    module_name, header, symbols = args
 
     from durin_header_tool.generators.module_reflection_files_generator import _generate_reflection_output_impl as worker_generate
-
-    initialize_worker_config(arch, runtime_variant)
 
     start_time = time.perf_counter()
     result = worker_generate(module_name, header, symbols)
@@ -282,8 +280,6 @@ def _write_reflection_files(
                 module_name,
                 header,
                 symbols,
-                configs.ARCH,
-                configs.RUNTIME_VARIANT,
             )
             for header in headers_to_parse
         ]
@@ -291,7 +287,15 @@ def _write_reflection_files(
         if worker_count == 1:
             parsed_results = [_generate_reflection_output_worker(args) for args in worker_args]
         elif worker_count > 1:
-            with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            with ProcessPoolExecutor(
+                max_workers=worker_count,
+                initializer=initialize_worker_config,
+                initargs=(
+                    configs.ARCH,
+                    configs.RUNTIME_VARIANT,
+                    configs.get_loaded_project_files(),
+                ),
+            ) as executor:
                 futures = [executor.submit(_generate_reflection_output_worker, args) for args in worker_args]
                 parsed_results = [future.result() for future in as_completed(futures)]
 
