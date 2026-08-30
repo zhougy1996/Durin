@@ -14,7 +14,7 @@ namespace Durin::Editor
 
 namespace Durin::Editor::Material
 {
-	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 1;
+	inline constexpr uint32 CurrentMaterialGraphClipboardSchemaVersion = 2;
 
 	// Identifies the stable outcome of one graph inspection or mutation request.
 	enum class EMaterialGraphCommandStatus : uint8
@@ -129,6 +129,8 @@ namespace Durin::Editor::Material
 	{
 		uint32 SchemaVersion = CurrentMaterialGraphClipboardSchemaVersion;
 		std::vector<FMaterialGraphClipboardNode> Nodes;
+		bool bConnectAggregateSurface = false;
+		FGuid AggregateSourceNodeId;
 	};
 
 	// Defines stable logical canvas dimensions shared by layout, rendering, and tests.
@@ -221,6 +223,15 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API static auto AssignSurfaceOutput(
 			DMaterial& Material,
 			const FMaterialGraphSurfaceOutputRequest& Request,
+			FTransactionManager* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto AssignAggregateSurface(
+			DMaterial& Material,
+			const FGuid& SourceNodeId,
+			FTransactionManager* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API static auto DisconnectAggregateSurface(
+			DMaterial& Material,
 			FTransactionManager* Transactions = nullptr)
 			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API static auto DisconnectSurfaceOutput(

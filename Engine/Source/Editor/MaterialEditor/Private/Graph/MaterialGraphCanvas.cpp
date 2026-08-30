@@ -59,6 +59,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramValueType::Float3: return IM_COL32(220, 170, 80, 255);
 			case EMaterialProgramValueType::Float4: return IM_COL32(210, 110, 180, 255);
 			case EMaterialProgramValueType::Texture2D: return IM_COL32(150, 110, 230, 255);
+			case EMaterialProgramValueType::Surface: return IM_COL32(235, 155, 70, 255);
 			}
 			return IM_COL32_WHITE;
 		}
@@ -77,6 +78,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramValueType::Float3: return "Float3";
 			case EMaterialProgramValueType::Float4: return "Float4";
 			case EMaterialProgramValueType::Texture2D: return "Texture2D";
+			case EMaterialProgramValueType::Surface: return "Surface";
 			}
 			return "Unknown";
 		}
@@ -122,6 +124,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramValueType::Float4:
 				return ImGui::DragFloat4(Label, Value, DragSpeed, 0.0f, 0.0f, "%.3f");
 			case EMaterialProgramValueType::Texture2D:
+			case EMaterialProgramValueType::Surface:
 				return false;
 			}
 			return false;
@@ -142,17 +145,18 @@ namespace Durin::Editor::Material
 			case EMaterialProgramValueType::Float4:
 				return ImGui::InputFloat4(Label, Value, "%.3f", Flags);
 			case EMaterialProgramValueType::Texture2D:
+			case EMaterialProgramValueType::Surface:
 				return false;
 			}
 			return false;
 		}
 
 		auto SurfaceLinks(const FMaterialSurfaceOutputs& Outputs)
-			-> std::array<const FMaterialProgramLink*, 8>
+			-> std::array<const FMaterialProgramLink*, 9>
 		{
 			return {&Outputs.BaseColor, &Outputs.Normal, &Outputs.Metallic,
 				&Outputs.Roughness, &Outputs.AmbientOcclusion, &Outputs.Emissive,
-				&Outputs.Opacity, &Outputs.OpacityMask};
+				&Outputs.Opacity, &Outputs.OpacityMask, &Outputs.Surface};
 		}
 
 		auto SurfaceGraphMinimum(const FMaterialGraphView& View) -> ImVec2
@@ -173,7 +177,9 @@ namespace Durin::Editor::Material
 				else { MinimumY = std::min(MinimumY, Y); MaximumY = std::max(MaximumY, Y + Height); }
 			}
 			const float Height = Metrics.SurfaceHeaderHeight
-				+ Metrics.PinRowHeight * 8.0f + Metrics.BodyPadding;
+				+ Metrics.PinRowHeight
+					* (View.Outputs.Surface.SourceNodeId.IsValid() ? 1.0f : 8.0f)
+				+ Metrics.BodyPadding;
 			return {MaximumX + Metrics.ColumnGap,
 				bFound ? (MinimumY + MaximumY - Height) * 0.5f : 0.0f};
 		}
@@ -233,7 +239,7 @@ namespace Durin::Editor::Material
 			SelectedSurfaceOutput.reset();
 			return SelectAndFrame(Diagnostic.NodeId);
 		case EMaterialProgramDiagnosticLocationKind::SurfaceOutput:
-			if (Diagnostic.LocationIndex >= 8) return false;
+			if (Diagnostic.LocationIndex >= 9) return false;
 			bMaterialOutputSelected = false;
 			SelectedNodes.clear();
 			SelectedSurfaceOutput =
@@ -507,7 +513,8 @@ namespace Durin::Editor::Material
 
 			constexpr std::array SurfaceNames{
 				"Base Color", "Normal", "Metallic", "Roughness",
-				"Ambient Occlusion", "Emissive", "Opacity", "Opacity Mask"};
+				"Ambient Occlusion", "Emissive", "Opacity", "Opacity Mask",
+				"Surface"};
 			constexpr std::array SurfaceTypes{
 				EMaterialProgramValueType::Float3,
 				EMaterialProgramValueType::Float3,
@@ -516,21 +523,33 @@ namespace Durin::Editor::Material
 				EMaterialProgramValueType::Float,
 				EMaterialProgramValueType::Float3,
 				EMaterialProgramValueType::Float,
-				EMaterialProgramValueType::Float};
+				EMaterialProgramValueType::Float,
+				EMaterialProgramValueType::Surface};
+			const bool bConnectingAggregate = std::ranges::any_of(View.Nodes,
+				[&](const FMaterialGraphNodeView& Node) {
+					return Node.Node.Id == LinkSourceNode
+						&& Node.Node.ResultType == EMaterialProgramValueType::Surface;
+				});
+			const bool bAggregateOutput = View.Outputs.Surface.SourceNodeId.IsValid()
+				|| bConnectingAggregate;
+			std::vector<size_t> ActiveSurfaceIndices;
+			if (bAggregateOutput) ActiveSurfaceIndices = {8};
+			else ActiveSurfaceIndices = {0, 1, 2, 3, 4, 5, 6, 7};
 			const ImVec2 CurrentSurfaceGraphPosition = *SurfaceGraphPosition;
 			const ImVec2 SurfaceMinimum = Add(CanvasMinimum,
 				Add(Pan, Multiply(CurrentSurfaceGraphPosition, Zoom)));
 			const ImVec2 SurfaceMaximum = Add(SurfaceMinimum, Multiply({
 				Metrics.SurfaceWidth,
-				Metrics.SurfaceHeaderHeight + PinSpacing * SurfaceNames.size()
+				Metrics.SurfaceHeaderHeight + PinSpacing * ActiveSurfaceIndices.size()
 					+ NodePadding}, Zoom));
-			std::array<ImVec2, 8> SurfacePins;
+			std::array<ImVec2, 9> SurfacePins;
 			const auto OutputLinks = SurfaceLinks(View.Outputs);
-			for (size_t Index = 0; Index < SurfacePins.size(); ++Index)
+			for (size_t Row = 0; Row < ActiveSurfaceIndices.size(); ++Row)
 			{
+				const size_t Index = ActiveSurfaceIndices[Row];
 				SurfacePins[Index] = {SurfaceMinimum.x,
 					SurfaceMinimum.y + FMaterialGraphGeometry::GetSurfacePinOffset(
-						static_cast<uint32>(Index)) * Zoom};
+						static_cast<uint32>(Row)) * Zoom};
 				const auto SourceIt = VisualIndices.find(OutputLinks[Index]->SourceNodeId);
 				if (SourceIt == VisualIndices.end()) continue;
 				const ImVec2 A = VisualNodes[SourceIt->second].OutputPin;
@@ -916,7 +935,7 @@ namespace Durin::Editor::Material
 						{10.0f * Zoom, 24.0f * Zoom}),
 					IM_COL32(165, 172, 186, 255), "Material Output", nullptr, 0.0f, &Clip);
 			}
-			for (size_t Index = 0; Index < SurfacePins.size(); ++Index)
+			for (size_t Index : ActiveSurfaceIndices)
 			{
 				if (SelectedSurfaceOutput
 					&& static_cast<size_t>(*SelectedSurfaceOutput) == Index)
@@ -939,7 +958,7 @@ namespace Durin::Editor::Material
 							{NodePadding * Zoom, -GraphBodyFontSize * 0.5f}),
 						IM_COL32(210, 214, 222, 255), SurfaceNames[Index],
 						nullptr, 0.0f, &LabelClip);
-					if (!OutputLinks[Index]->SourceNodeId.IsValid())
+					if (Index < 8 && !OutputLinks[Index]->SourceNodeId.IsValid())
 					{
 						const EMaterialSurfaceOutput Output =
 							static_cast<EMaterialSurfaceOutput>(Index);
@@ -1173,10 +1192,15 @@ namespace Durin::Editor::Material
 							.bReplaceExisting = ImGui::GetIO().KeyShift,
 						}, &Transactions), ReportError);
 					else if (HoveredSurfaceOutput)
-						ReportCommand(FMaterialGraphOperations::AssignSurfaceOutput(Material, {
+					{
+						if (static_cast<size_t>(*HoveredSurfaceOutput) == 8)
+							ReportCommand(FMaterialGraphOperations::AssignAggregateSurface(
+								Material, LinkSourceNode, &Transactions), ReportError);
+						else ReportCommand(FMaterialGraphOperations::AssignSurfaceOutput(Material, {
 							.Output = *HoveredSurfaceOutput,
 							.SourceNodeId = LinkSourceNode,
 						}, &Transactions), ReportError);
+					}
 					else if (bHovered)
 					{
 						PaletteSourceNode = LinkSourceNode;
@@ -1225,10 +1249,15 @@ namespace Durin::Editor::Material
 				if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
 				{
 					if (HoveredOutput)
-						ReportCommand(FMaterialGraphOperations::AssignSurfaceOutput(Material, {
+					{
+						if (static_cast<size_t>(*ReconnectSurfaceOutput) == 8)
+							ReportCommand(FMaterialGraphOperations::AssignAggregateSurface(
+								Material, HoveredOutput->View->Node.Id, &Transactions), ReportError);
+						else ReportCommand(FMaterialGraphOperations::AssignSurfaceOutput(Material, {
 							.Output = *ReconnectSurfaceOutput,
 							.SourceNodeId = HoveredOutput->View->Node.Id,
 						}, &Transactions), ReportError);
+					}
 					ReconnectSurfaceOutput.reset();
 				}
 			}
@@ -1434,6 +1463,14 @@ namespace Durin::Editor::Material
 				}
 				else if (ContextSurfaceOutput)
 				{
+					if (static_cast<size_t>(*ContextSurfaceOutput) == 8)
+					{
+						if (ImGui::MenuItem("Disconnect Surface"))
+							ReportCommand(FMaterialGraphOperations::DisconnectAggregateSurface(
+								Material, &Transactions), ReportError);
+					}
+					else
+					{
 					const FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(
 						View.Outputs, *ContextSurfaceOutput);
 					const ImVec2 SurfacePosition = SurfaceGraphPosition.value_or(
@@ -1459,6 +1496,7 @@ namespace Durin::Editor::Material
 					if (ImGui::MenuItem("Add Texture"))
 						ReportCommand(FMaterialGraphOperations::AddTextureToSurfaceOutput(
 							Material, NodeRequest, &Transactions), ReportError);
+					}
 				}
 				else
 				{

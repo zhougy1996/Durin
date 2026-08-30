@@ -4,6 +4,7 @@
 #include "DObject/MathStructs.h"
 #include "Hash/XxHash.h"
 #include "Materials/MaterialProgramCompiler.h"
+#include "Materials/MaterialCookedProgram.h"
 #include "SkeletalMesh/SkeletalMesh.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
 
@@ -553,7 +554,7 @@ TEST(FMaterialProgramNormalizationTests,
 }
 
 TEST(FMaterialProgramNormalizationTests,
-	DefaultProgramLowersEightSurfaceFallbacksWithoutAuthoredNodes)
+	DefaultProgramUsesLiteralSurfaceRootWithoutOrdinaryNodes)
 {
 	InitializeDObjectSystem();
 	Durin::FMaterialCompilerInput Input = MakeSyntheticMaterialCompilerInput();
@@ -566,11 +567,11 @@ TEST(FMaterialProgramNormalizationTests,
 		Durin::NormalizeMaterialProgram(Input);
 	ASSERT_TRUE(Normalized);
 	EXPECT_TRUE(Input.Program.Nodes.empty());
-	ASSERT_EQ(Normalized.IR.Nodes.size(), 8u);
-	ASSERT_EQ(Normalized.IR.SurfaceOutputs.size(), 8u);
-	EXPECT_EQ(Normalized.IR.Nodes[0].Literal,
+	ASSERT_TRUE(Normalized.IR.Nodes.empty());
+	EXPECT_FALSE(Normalized.IR.SurfaceRoot.bAggregate);
+	EXPECT_EQ(Normalized.IR.SurfaceRoot.Inputs[0].Literal,
 		(Durin::FMaterialProgramLiteral{0.5f, 0.5f, 0.5f, 0.0f}));
-	EXPECT_EQ(Normalized.IR.Nodes[1].Literal,
+	EXPECT_EQ(Normalized.IR.SurfaceRoot.Inputs[1].Literal,
 		(Durin::FMaterialProgramLiteral{0.0f, 0.0f, 1.0f, 0.0f}));
 	std::string Source;
 	std::string Error;
@@ -594,6 +595,79 @@ TEST(FMaterialProgramNormalizationTests,
 		<< " identity=" << Compiled.Identity.Digest.ToString()
 		<< " compiled_stages=" << Compiled.CompiledShaders.size()
 		<< " active_bindings=" << ActiveBindings << '\n';
+}
+
+TEST(FMaterialProgramNormalizationTests,
+	StandardSurfacePersistsAndNormalizesAsOneAggregateExpression)
+{
+	InitializeDObjectSystem();
+	Durin::FMaterialCompilerInput Input = MakeSyntheticMaterialCompilerInput();
+	Input.Program = Durin::MakeStandardSurfaceMaterialProgram();
+	const auto Validation = Durin::ValidateMaterialProgram(
+		Input.Program, Durin::GetCanonicalMaterialParameterDefinitions());
+	ASSERT_TRUE(Validation);
+	const auto Normalized = Durin::NormalizeMaterialProgram(Input);
+	ASSERT_TRUE(Normalized);
+	ASSERT_EQ(Input.Program.Nodes.size(), 1u);
+	ASSERT_EQ(Normalized.IR.Nodes.size(), 1u);
+	EXPECT_EQ(Normalized.IR.Nodes.front().Opcode,
+		Durin::EMaterialProgramOpcode::StandardSurface);
+	EXPECT_TRUE(Normalized.IR.SurfaceRoot.bAggregate);
+	const auto Dependencies = Durin::InspectMaterialParameterDependencies(
+		Input.Program, Durin::GetCanonicalMaterialParameterDefinitions());
+	EXPECT_EQ(Dependencies.size(),
+		Durin::GetCanonicalMaterialParameterDefinitions().size());
+	std::string Source;
+	std::string Error;
+	ASSERT_TRUE(Durin::GenerateMaterialProgramSlang(
+		Normalized.IR, Source, Error)) << Error;
+	EXPECT_NE(Source.find("EvaluateStandardSurface(input)"), std::string::npos);
+	EXPECT_NE(Source.find("BlendSurfaceNormalsRNM"), std::string::npos);
+	Durin::FModuleManager::Get().LoadModule("RenderCore");
+	const auto Compiled = Durin::CompileMaterialProgram(Input);
+	ASSERT_TRUE(Compiled) << (Compiled.Diagnostics.empty()
+		? std::string("no diagnostic") : Compiled.Diagnostics.front().Message);
+	EXPECT_EQ(Compiled.CompiledShaders.size(), 3u);
+	std::vector<std::byte> CookedBytes;
+	ASSERT_TRUE(Durin::EncodeMaterialCookedProgram(Compiled, {},
+		Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game, CookedBytes, Error)) << Error;
+	std::cout << "[StandardSurfaceBaseline] authored_nodes="
+		<< Input.Program.Nodes.size() << " ir_nodes=" << Normalized.IR.Nodes.size()
+		<< " canonical_bytes=" << Normalized.CanonicalBytes.size()
+		<< " generated_bytes=" << Source.size()
+		<< " cooked_bytes=" << CookedBytes.size()
+		<< " normalize_us=" << Compiled.Timings.NormalizationMicroseconds
+		<< " generate_us=" << Compiled.Timings.GenerationMicroseconds
+		<< " compile_us=" << Compiled.Timings.CompilationMicroseconds << '\n';
+}
+
+TEST(FMaterialProgramSchemaTests, SchemaTwoUpgradePreservesAuthoredState)
+{
+	Durin::FMaterialProgram Program = Durin::MakeCanonicalMaterialProgram();
+	Program.SchemaVersion = 2;
+	const auto Nodes = Program.Nodes;
+	const auto Outputs = Program.Outputs;
+	ASSERT_TRUE(Durin::UpgradeMaterialProgram(Program));
+	EXPECT_EQ(Program.SchemaVersion, Durin::CurrentMaterialProgramSchemaVersion);
+	EXPECT_EQ(Program.Nodes, Nodes);
+	EXPECT_EQ(Program.Outputs, Outputs);
+	Durin::FMaterialProgram Unknown = Program;
+	Unknown.SchemaVersion = 99;
+	EXPECT_FALSE(Durin::UpgradeMaterialProgram(Unknown));
+}
+
+TEST(FMaterialProgramSchemaTests, AggregateAndPropertyOutputsAreExclusive)
+{
+	Durin::FMaterialProgram Program = Durin::MakeStandardSurfaceMaterialProgram();
+	Program.Outputs.BaseColor = Program.Outputs.Surface;
+	const auto Validation = Durin::ValidateMaterialProgram(
+		Program, Durin::GetCanonicalMaterialParameterDefinitions());
+	EXPECT_FALSE(Validation);
+	EXPECT_NE(std::ranges::find(Validation.Diagnostics,
+		Durin::EMaterialProgramDiagnosticCategory::Graph,
+		&Durin::FMaterialProgramDiagnostic::Category),
+		Validation.Diagnostics.end());
 }
 
 TEST(FMaterialProgramNormalizationTests,
@@ -800,6 +874,10 @@ TEST(FMaterialProgramCompilerTests,
 		ASSERT_TRUE(Compiled.CompiledShaders[Index].Code);
 		SpirvBytes += Compiled.CompiledShaders[Index].Code->size();
 	}
+	std::vector<std::byte> CookedBytes;
+	ASSERT_TRUE(Durin::EncodeMaterialCookedProgram(Compiled, {},
+		Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game, CookedBytes, Error)) << Error;
 	RecordProperty("GeneratedSourceBytes", Compiled.GeneratedSource.size());
 	RecordProperty("DependencyCount", Compiled.Dependencies.size());
 	RecordProperty("SpirvBytes", SpirvBytes);
@@ -818,12 +896,14 @@ TEST(FMaterialProgramCompilerTests,
 			Normalized.IR.Nodes, [](const Durin::FMaterialIRNode& Node) {
 				return Node.Opcode == Durin::EMaterialProgramOpcode::TextureSample2D;
 			})
+		<< " canonical_bytes=" << Normalized.CanonicalBytes.size()
 		<< " generated_bytes=" << Compiled.GeneratedSource.size()
 		<< " source_hash="
 		<< Durin::FXxHash128::HashBuffer(Compiled.GeneratedSource).ToString()
 		<< " identity=" << Compiled.Identity.Digest.ToString()
 		<< " dependencies=" << Compiled.Dependencies.size()
 		<< " spirv_bytes=" << SpirvBytes
+		<< " cooked_bytes=" << CookedBytes.size()
 		<< " normalize_us=" << Compiled.Timings.NormalizationMicroseconds
 		<< " generate_us=" << Compiled.Timings.GenerationMicroseconds
 		<< " cold_compile_us=" << Compiled.Timings.CompilationMicroseconds

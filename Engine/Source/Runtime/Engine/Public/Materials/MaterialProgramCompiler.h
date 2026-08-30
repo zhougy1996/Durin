@@ -8,6 +8,7 @@
 #include "Shader/ShaderCompilerCore.h"
 
 #include <span>
+#include <array>
 #include <string>
 #include <vector>
 
@@ -15,9 +16,9 @@ namespace Durin
 {
 	class DMaterialInterface;
 
-	inline constexpr uint32 CurrentMaterialIRVersion = 1;
-	inline constexpr uint32 CurrentMaterialGeneratorVersion = 1;
-	inline constexpr uint32 CurrentMaterialCompilerEnvelopeVersion = 2;
+	inline constexpr uint32 CurrentMaterialIRVersion = 2;
+	inline constexpr uint32 CurrentMaterialGeneratorVersion = 2;
+	inline constexpr uint32 CurrentMaterialCompilerEnvelopeVersion = 3;
 	inline constexpr uint32 CurrentMaterialPassContractVersion = 1;
 
 	struct FMaterialCompilerParameterDeclaration
@@ -81,7 +82,22 @@ namespace Durin
 	{
 		uint32 Version = CurrentMaterialIRVersion;
 		std::vector<FMaterialIRNode> Nodes;
-		std::vector<uint32> SurfaceOutputs;
+		struct FSurfaceInput
+		{
+			bool bExpression = false;
+			uint32 ExpressionIndex = 0;
+			EMaterialProgramValueType Type = EMaterialProgramValueType::Float;
+			FMaterialProgramLiteral Literal;
+			auto operator==(const FSurfaceInput&) const -> bool = default;
+		};
+		struct FSurfaceRoot
+		{
+			bool bAggregate = false;
+			uint32 AggregateExpressionIndex = 0;
+			std::array<FSurfaceInput, 8> Inputs;
+			auto operator==(const FSurfaceRoot&) const -> bool = default;
+		};
+		FSurfaceRoot SurfaceRoot;
 
 		auto operator==(const FMaterialIR&) const -> bool = default;
 	};

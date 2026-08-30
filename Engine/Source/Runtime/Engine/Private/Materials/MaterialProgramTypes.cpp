@@ -79,13 +79,14 @@ namespace Durin
 		auto IsValidValueType(EMaterialProgramValueType Type) -> bool
 		{
 			return GetComponentCount(Type) != 0
-				|| Type == EMaterialProgramValueType::Texture2D;
+				|| Type == EMaterialProgramValueType::Texture2D
+				|| Type == EMaterialProgramValueType::Surface;
 		}
 
 		auto IsValidOpcode(EMaterialProgramOpcode Opcode) -> bool
 		{
 			return Opcode >= EMaterialProgramOpcode::Constant
-				&& Opcode <= EMaterialProgramOpcode::BlendNormalsRNM;
+				&& Opcode <= EMaterialProgramOpcode::StandardSurface;
 		}
 
 		auto IsCanonicalTextureParameter(const FGuid& Id) -> bool
@@ -192,6 +193,24 @@ namespace Durin
 
 			switch (Node.Opcode)
 			{
+			case EMaterialProgramOpcode::StandardSurface:
+				RequireCount(0);
+				if (Node.ResultType != EMaterialProgramValueType::Surface)
+					AddType(0, "StandardSurface must return Surface.");
+				for (const auto& Entry : MaterialParameters::BuiltinParameters)
+					for (auto Kind : {MaterialParameters::EMaterialBuiltinParameterKind::Value,
+						MaterialParameters::EMaterialBuiltinParameterKind::Texture,
+						MaterialParameters::EMaterialBuiltinParameterKind::UVChannel,
+						MaterialParameters::EMaterialBuiltinParameterKind::UVScale,
+						MaterialParameters::EMaterialBuiltinParameterKind::UVOffset,
+						MaterialParameters::EMaterialBuiltinParameterKind::UVRotation,
+						MaterialParameters::EMaterialBuiltinParameterKind::SamplerState})
+				{
+					const FGuid Id = MaterialParameters::GetBuiltinParameterId(Entry.Role, Kind);
+					if (FindParameter(Definitions, Id)) ReferencedParameters.insert(Id);
+					else AddType(0, "StandardSurface requires the complete canonical parameter descriptor.");
+				}
+				break;
 			case EMaterialProgramOpcode::Constant:
 			{
 				RequireCount(0);
@@ -351,6 +370,28 @@ namespace Durin
 	auto MakeDefaultMaterialProgram() -> FMaterialProgram
 	{
 		return {};
+	}
+
+	auto UpgradeMaterialProgram(FMaterialProgram& Program) -> bool
+	{
+		if (Program.SchemaVersion == CurrentMaterialProgramSchemaVersion) return true;
+		if (Program.SchemaVersion != 2) return false;
+		Program.SchemaVersion = CurrentMaterialProgramSchemaVersion;
+		Program.Outputs.Surface = {};
+		return true;
+	}
+
+	auto MakeStandardSurfaceMaterialProgram() -> FMaterialProgram
+	{
+		FMaterialProgram Program;
+		FMaterialProgramNode Node;
+		Node.Id = MakeCanonicalNodeId(0);
+		Node.Opcode = EMaterialProgramOpcode::StandardSurface;
+		Node.ResultType = EMaterialProgramValueType::Surface;
+		Node.DisplayName = "Standard Surface";
+		Program.Nodes.push_back(Node);
+		Program.Outputs.Surface = MakeLink(Program.Nodes.front());
+		return Program;
 	}
 
 	auto MakeCanonicalMaterialProgram() -> FMaterialProgram
@@ -611,7 +652,8 @@ namespace Durin
 			return Result;
 		}
 
-		uint64 LinkCount = static_cast<uint64>(std::ranges::count_if(
+		uint64 LinkCount = Program.Outputs.Surface.SourceNodeId.IsValid() ? 1u : 0u;
+		LinkCount += static_cast<uint64>(std::ranges::count_if(
 			std::array{
 				Program.Outputs.BaseColor.SourceNodeId,
 				Program.Outputs.Normal.SourceNodeId,
@@ -624,7 +666,8 @@ namespace Durin
 			[](const FGuid& Id) { return Id.IsValid(); }));
 		uint64 StringBytes = 0;
 		uint64 EstimatedBytes = sizeof(Program.SchemaVersion)
-			+ 8 * (sizeof(FMaterialProgramLink) + sizeof(FMaterialProgramLiteral));
+			+ 9 * sizeof(FMaterialProgramLink)
+			+ 8 * sizeof(FMaterialProgramLiteral);
 		std::unordered_map<FGuid, size_t> NodeIndices;
 		NodeIndices.reserve(std::min<size_t>(
 			Program.Nodes.size(), MaterialProgramMaxNodeCount));
@@ -782,6 +825,24 @@ namespace Durin
 			{EMaterialSurfaceOutput::Emissive, &Program.Outputs.Emissive},
 			{EMaterialSurfaceOutput::Opacity, &Program.Outputs.Opacity},
 			{EMaterialSurfaceOutput::OpacityMask, &Program.Outputs.OpacityMask}}};
+		const bool bAggregate = Program.Outputs.Surface.SourceNodeId.IsValid();
+		if (!bAggregate && Program.Outputs.Surface.SourceOutputIndex != 0)
+			AddDiagnostic(Diagnostics, EMaterialProgramDiagnosticCategory::Graph,
+				EMaterialProgramDiagnosticLocationKind::SurfaceOutput, {}, 8,
+				"An unconnected aggregate Surface source has an invalid output slot.");
+		if (bAggregate)
+		{
+			const auto It = NodeIndices.find(Program.Outputs.Surface.SourceNodeId);
+			if (Program.Outputs.Surface.SourceOutputIndex != 0 || It == NodeIndices.end())
+				AddDiagnostic(Diagnostics, EMaterialProgramDiagnosticCategory::Graph,
+					EMaterialProgramDiagnosticLocationKind::SurfaceOutput, {}, 8,
+					"Aggregate Surface source is missing or dangling.");
+			else if (Program.Nodes[It->second].ResultType != EMaterialProgramValueType::Surface)
+				AddDiagnostic(Diagnostics, EMaterialProgramDiagnosticCategory::Type,
+					EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
+					Program.Outputs.Surface.SourceNodeId, 8,
+					"Aggregate Material Output requires a Surface value.");
+		}
 		for (const auto& [Output, Link] : Outputs)
 		{
 			const FMaterialProgramLiteral& Default =
@@ -804,6 +865,14 @@ namespace Durin
 						EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
 						{}, static_cast<uint32>(Output),
 						"An unconnected material surface output has an invalid output slot.");
+				continue;
+			}
+			if (bAggregate)
+			{
+				AddDiagnostic(Diagnostics, EMaterialProgramDiagnosticCategory::Graph,
+					EMaterialProgramDiagnosticLocationKind::SurfaceOutput, {},
+					static_cast<uint32>(Output),
+					"Aggregate and per-property Material Output sources cannot coexist.");
 				continue;
 			}
 			const auto It = NodeIndices.find(Link->SourceNodeId);
@@ -938,7 +1007,21 @@ namespace Durin
 							Role).SamplerState, true);
 				}
 			}
+			if (Node.Opcode == EMaterialProgramOpcode::StandardSurface)
+				for (const auto& Entry : MaterialParameters::BuiltinParameters)
+					for (auto Kind : {MaterialParameters::EMaterialBuiltinParameterKind::Value,
+						MaterialParameters::EMaterialBuiltinParameterKind::Texture,
+						MaterialParameters::EMaterialBuiltinParameterKind::UVChannel,
+						MaterialParameters::EMaterialBuiltinParameterKind::UVScale,
+						MaterialParameters::EMaterialBuiltinParameterKind::UVOffset,
+						MaterialParameters::EMaterialBuiltinParameterKind::UVRotation,
+						MaterialParameters::EMaterialBuiltinParameterKind::SamplerState})
+						Add(Node.Id, MaterialParameters::GetBuiltinParameterId(Entry.Role, Kind),
+							Kind != MaterialParameters::EMaterialBuiltinParameterKind::Value
+							&& Kind != MaterialParameters::EMaterialBuiltinParameterKind::Texture);
 		};
+		if (Program.Outputs.Surface.SourceNodeId.IsValid())
+			Visit(Program.Outputs.Surface.SourceNodeId);
 		for (EMaterialSurfaceOutput Output : {
 			EMaterialSurfaceOutput::BaseColor,
 			EMaterialSurfaceOutput::Normal,

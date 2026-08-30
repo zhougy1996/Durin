@@ -6,6 +6,7 @@
 #include "Materials/MaterialProgramCompiler.h"
 #include "Asset.h"
 #include "DObject/Property.h"
+#include "DObject/Package.h"
 #include "Modules/ModuleManager.h"
 
 namespace Durin
@@ -91,6 +92,14 @@ namespace Durin
 		FMaterialProgram InProgram,
 		FMaterialProgramValidationResult& OutValidation) -> bool
 	{
+		if (!UpgradeMaterialProgram(InProgram))
+		{
+			OutValidation = {};
+			OutValidation.Diagnostics.push_back({
+				.Category = EMaterialProgramDiagnosticCategory::Schema,
+				.Message = "Material program schema version is unsupported."});
+			return false;
+		}
 		OutValidation = ValidateMaterialProgram(
 			InProgram, ParameterDefinitions);
 		if (!OutValidation) return false;
@@ -325,6 +334,19 @@ namespace Durin
 			OutError.clear();
 			return true;
 		}
+		if (!UpgradeMaterialProgram(Program))
+		{
+			OutError = "Material program schema version is unsupported.";
+			return false;
+		}
+		// The only legacy-DAG recognition path is the stable Engine-owned import
+		// parent. Exact graph equality prevents edited or user-authored graphs from
+		// being collapsed during ordinary load; an explicit package resave persists
+		// the compact schema-3 form.
+		if (GetPackage()
+			&& GetPackage()->GetPackagePath() == "/Engine/Materials/ImportedSurface"
+			&& Program == MakeCanonicalMaterialProgram())
+			Program = MakeStandardSurfaceMaterialProgram();
 		const FMaterialProgramValidationResult ProgramValidation =
 			ValidateMaterialProgram(Program, ParameterDefinitions);
 		if (!ProgramValidation)

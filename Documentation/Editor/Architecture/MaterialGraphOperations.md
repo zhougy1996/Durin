@@ -4,7 +4,7 @@ Summary: Define the shared MaterialEditor command, presentation, canvas, transac
 
 Modules: MaterialEditor, Engine, DurinEd
 
-Last reviewed: 2026-08-29
+Last reviewed: 2026-08-30
 
 ## Ownership
 
@@ -29,8 +29,9 @@ and per-document controller state. None of those values are serialized.
 `MaterialGraphOperations.h` is the UI-independent boundary shared by the canvas,
 tests, and structured callers. Inspection returns detached deterministic node,
 pin, surface-output, presentation, and closed-domain catalog values. Catalog
-entries come from the M5 opcode/type rules and the live canonical material
-parameter definitions.
+entries come from the opcode/type rules and the live canonical material
+parameter definitions, including Standard Surface with a distinct aggregate
+Surface output type.
 
 Commands use node GUIDs, explicit pin indices, parameter GUIDs, and
 `EMaterialSurfaceOutput`. They cover creation, complete node replacement,
@@ -38,7 +39,9 @@ removal, connection, disconnection, surface assignment, movement, layout,
 surface-default edit/reset, parameter promotion, explicit texture-branch
 creation, copy, cut, paste, and duplication. Each result reports a stable status,
 affected/generated GUIDs, bounded validation diagnostics, and a message; an
-automation caller never needs to scrape canvas labels.
+automation caller never needs to scrape canvas labels. Aggregate assignment is
+atomic: it accepts only a Surface node and clears all property links in the same
+validated candidate. Disconnect restores the retained property fallbacks.
 
 A semantic command copies the current program, changes the candidate, validates
 it against the live parameter definitions and all M5 bounds, and commits through
@@ -49,12 +52,13 @@ submits exactly one M6 compile generation. Presentation-only commands sanitize
 and commit positions, mark the package dirty, and never compile or invalidate
 render data.
 
-Program schema 2 keeps ordinary node inputs mandatory but makes each of the
+Program schema 3 keeps ordinary node inputs mandatory but makes each of the
 eight fixed Material Output inputs optionally connected. Disconnecting or
 deleting a surface source clears its link and returns to the retained typed
 fallback; disconnecting an ordinary required node input still rejects. The
 canvas makes input replacement explicit with Shift and uses the same command
-result for invalid-target feedback.
+result for invalid-target feedback. Aggregate and per-property sources cannot
+coexist in a valid program.
 
 ## Transactions and gestures
 
@@ -72,9 +76,9 @@ canvas and move session.
 
 ## Clipboard and layout
 
-`FMaterialGraphClipboardPayload` schema 1 contains at most 256 complete nodes,
+`FMaterialGraphClipboardPayload` schema 2 contains at most 256 complete nodes,
 internal links, parameter GUIDs, and integral offsets from the selection's
-minimum corner. It contains no object pointer, package path, surface assignment,
+minimum corner. It contains no object pointer, package path, derived terminal,
 compile result, or viewport state. Copy orders nodes by GUID and drops links to
 unselected nodes. Paste rejects unknown versions, malformed or duplicate IDs,
 invalid bounds, overflow, and any candidate that ordinary program validation
@@ -82,7 +86,9 @@ does not accept.
 
 Paste generates a fresh GUID for every node in payload order, remaps internal
 links, preserves parameter GUIDs and relative placement, and commits the full
-candidate once. Cut is a read-only copy followed by one validated delete
+candidate once. A selection containing the active aggregate source records that
+source; paste reconnects the remapped Surface node atomically without copying
+the derived terminal. Cut is a read-only copy followed by one validated delete
 transaction. Duplicate uses the same payload and paste path with a deterministic
 offset. The canvas stores this structured payload directly, so canvas and
 automation semantics cannot diverge.
@@ -120,9 +126,9 @@ Output` as secondary identity. The terminal can be selected and dragged like a
 node; its optional integral position is persisted in graph presentation, while
 automatic layout derives and persists a fresh position. It pans and zooms with
 the graph, participates in bounds and diagnostic framing, and remains absent
-from the semantic material program. It owns fixed Base
-Color, Normal, Metallic, Roughness, Ambient Occlusion, Emissive, Opacity, and
-Opacity Mask input rows. Editing mode exposes inline fallback controls for
+from the semantic material program. Per-property mode owns fixed Base Color,
+Normal, Metallic, Roughness, Ambient Occlusion, Emissive, Opacity, and Opacity
+Mask rows; aggregate mode owns one typed Surface row. Editing mode exposes inline fallback controls for
 unconnected rows; each completed gesture is one validated transaction, while
 Escape and document lifecycle cancellation discard the draft.
 

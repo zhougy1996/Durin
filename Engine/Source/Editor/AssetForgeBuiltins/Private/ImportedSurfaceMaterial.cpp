@@ -9,6 +9,23 @@
 namespace Durin::AssetForge::Builtins
 {
 	using namespace Durin::Asset;
+	namespace
+	{
+		auto EnsureTemplateProgram(DMaterial& Material, bool bAllowMigration,
+			std::string& OutError) -> bool
+		{
+			const FMaterialProgram Expected = MakeStandardSurfaceMaterialProgram();
+			if (*Material.GetMaterialProgram() == Expected) return true;
+			if (bAllowMigration
+				&& *Material.GetMaterialProgram() == MakeCanonicalMaterialProgram())
+			{
+				FMaterialProgramValidationResult Validation;
+				if (Material.SetMaterialProgram(Expected, Validation)) return true;
+			}
+			OutError = "ImportedSurface has a modified or stale material program; run the exact built-in template migration before importing.";
+			return false;
+		}
+	}
 	auto EnsureImportedSurfaceMaterial(std::string& OutError) -> DMaterial*
 	{
 		FAssetPath MaterialPath;
@@ -31,6 +48,7 @@ namespace Durin::AssetForge::Builtins
 			}
 			if (!ValidateCanonicalMaterialParameterDefinitions(
 				Loaded->GetParameterDefinitions(), OutError)) return nullptr;
+			if (!EnsureTemplateProgram(*Loaded, false, OutError)) return nullptr;
 			OutError.clear();
 			return Loaded;
 		}
@@ -51,6 +69,21 @@ namespace Durin::AssetForge::Builtins
 			{
 				Asset::UnloadPackage(MaterialPath);
 				return nullptr;
+			}
+			if (!EnsureTemplateProgram(*Loaded, true, OutError))
+			{
+				Asset::UnloadPackage(MaterialPath);
+				return nullptr;
+			}
+			if (Loaded->GetPackage()->IsDirty())
+			{
+				const Asset::FAssetResult SaveResult = Asset::SavePackage(Loaded->GetPackage());
+				if (!SaveResult)
+				{
+					OutError = SaveResult.Message;
+					Asset::UnloadPackage(MaterialPath);
+					return nullptr;
+				}
 			}
 			OutError.clear();
 			return Loaded;
@@ -73,7 +106,7 @@ namespace Durin::AssetForge::Builtins
 		}
 		FMaterialProgramValidationResult ProgramValidation;
 		if (!Created->SetMaterialProgram(
-			MakeCanonicalMaterialProgram(), ProgramValidation))
+			MakeStandardSurfaceMaterialProgram(), ProgramValidation))
 		{
 			OutError = ProgramValidation.Diagnostics.empty()
 				? "Failed to initialize the standard imported-surface material program."

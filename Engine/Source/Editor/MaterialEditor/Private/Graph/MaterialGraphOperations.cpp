@@ -53,6 +53,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::TextureSample2D:
 			case EMaterialProgramOpcode::DecodeNormalRG:
 			case EMaterialProgramOpcode::BlendNormalsRNM: return "Textures";
+			case EMaterialProgramOpcode::StandardSurface: return "Surface";
 			case EMaterialProgramOpcode::Swizzle:
 			case EMaterialProgramOpcode::MakeFloat2:
 			case EMaterialProgramOpcode::MakeFloat3:
@@ -89,6 +90,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramValueType::Float3: return "Float3";
 			case EMaterialProgramValueType::Float4: return "Float4";
 			case EMaterialProgramValueType::Texture2D: return "Texture2D";
+			case EMaterialProgramValueType::Surface: return "Surface";
 			}
 			return "Unknown";
 		}
@@ -127,6 +129,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::TruncateToFloat3: return "Truncate to Float3";
 			case EMaterialProgramOpcode::DecodeNormalRG: return "Decode Normal RG";
 			case EMaterialProgramOpcode::BlendNormalsRNM: return "Blend Normals RNM";
+			case EMaterialProgramOpcode::StandardSurface: return "Standard Surface";
 			}
 			return "Unknown";
 		}
@@ -173,6 +176,7 @@ namespace Durin::Editor::Material
 			case EMaterialProgramOpcode::TruncateToFloat3: Entry.Description = "Keeps the leading components of a wider vector."; break;
 			case EMaterialProgramOpcode::DecodeNormalRG: Entry.Description = "Reconstructs a tangent-space normal from two channels."; break;
 			case EMaterialProgramOpcode::BlendNormalsRNM: Entry.Description = "Blends two tangent-space normals with RNM."; break;
+			case EMaterialProgramOpcode::StandardSurface: Entry.Description = "Builds the Engine standard PBR surface from canonical material parameters."; break;
 			}
 			Entry.NodeTemplate.Opcode = Opcode;
 			Entry.NodeTemplate.ResultType = ResultType;
@@ -596,6 +600,9 @@ namespace Durin::Editor::Material
 			EMaterialProgramValueType::Float3,
 			{One(EMaterialProgramValueType::Float3),
 				One(EMaterialProgramValueType::Float3)}));
+		Result.push_back(MakeCatalogEntry(
+			EMaterialProgramOpcode::StandardSurface,
+			EMaterialProgramValueType::Surface));
 		std::ranges::stable_sort(Result, {}, &FMaterialGraphCatalogEntry::Name);
 		return Result;
 	}
@@ -812,6 +819,8 @@ namespace Durin::Editor::Material
 				Candidate.Outputs, Output);
 			if (Removed.contains(Link.SourceNodeId)) Link = {};
 		}
+		if (Removed.contains(Candidate.Outputs.Surface.SourceNodeId))
+			Candidate.Outputs.Surface = {};
 		FMaterialGraphPresentation Presentation = Material.GetMaterialGraphPresentation();
 		std::erase_if(Presentation.Nodes, [&](const FMaterialGraphNodePresentation& Node) {
 			return Removed.contains(Node.NodeId);
@@ -880,6 +889,44 @@ namespace Durin::Editor::Material
 		return Commit(Material, std::move(Candidate),
 			Material.GetMaterialGraphPresentation(), true,
 			"Assign Material Surface Output", {Request.SourceNodeId}, {}, Transactions);
+	}
+
+	auto FMaterialGraphOperations::AssignAggregateSurface(
+		DMaterial& Material, const FGuid& SourceNodeId,
+		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+	{
+		const FMaterialProgram* Current = Material.GetMaterialProgram();
+		if (!Current) return MakeRejected("The material has no authored program.");
+		const FMaterialProgramNode* Source = FindNode(*Current, SourceNodeId);
+		if (!Source || Source->ResultType != EMaterialProgramValueType::Surface)
+			return MakeRejected("Aggregate Material Output requires a Surface node.");
+		FMaterialProgram Candidate = *Current;
+		for (EMaterialSurfaceOutput Output : {
+			EMaterialSurfaceOutput::BaseColor, EMaterialSurfaceOutput::Normal,
+			EMaterialSurfaceOutput::Metallic, EMaterialSurfaceOutput::Roughness,
+			EMaterialSurfaceOutput::AmbientOcclusion, EMaterialSurfaceOutput::Emissive,
+			EMaterialSurfaceOutput::Opacity, EMaterialSurfaceOutput::OpacityMask})
+			GetMaterialSurfaceOutputLink(Candidate.Outputs, Output) = {};
+		Candidate.Outputs.Surface = {.SourceNodeId = SourceNodeId};
+		return Commit(Material, std::move(Candidate),
+			Material.GetMaterialGraphPresentation(), true,
+			"Connect Aggregate Surface", {SourceNodeId}, {}, Transactions);
+	}
+
+	auto FMaterialGraphOperations::DisconnectAggregateSurface(
+		DMaterial& Material, FTransactionManager* Transactions)
+		-> FMaterialGraphCommandResult
+	{
+		const FMaterialProgram* Current = Material.GetMaterialProgram();
+		if (!Current) return MakeRejected("The material has no authored program.");
+		if (!Current->Outputs.Surface.SourceNodeId.IsValid())
+			return {.Status = EMaterialGraphCommandStatus::NoChange};
+		FMaterialProgram Candidate = *Current;
+		const FGuid Source = Candidate.Outputs.Surface.SourceNodeId;
+		Candidate.Outputs.Surface = {};
+		return Commit(Material, std::move(Candidate),
+			Material.GetMaterialGraphPresentation(), true,
+			"Disconnect Aggregate Surface", {Source}, {}, Transactions);
 	}
 
 	auto FMaterialGraphOperations::DisconnectSurfaceOutput(
@@ -1224,6 +1271,7 @@ namespace Durin::Editor::Material
 			Program.Outputs.Emissive.SourceNodeId,
 			Program.Outputs.Opacity.SourceNodeId,
 			Program.Outputs.OpacityMask.SourceNodeId,
+			Program.Outputs.Surface.SourceNodeId,
 		};
 		std::unordered_map<FGuid, uint32> DistanceToSink;
 		std::function<uint32(const FGuid&)> Visit = [&](const FGuid& Id) -> uint32 {
@@ -1264,6 +1312,7 @@ namespace Durin::Editor::Material
 			Program.Outputs.Emissive.SourceNodeId,
 			Program.Outputs.Opacity.SourceNodeId,
 			Program.Outputs.OpacityMask.SourceNodeId,
+			Program.Outputs.Surface.SourceNodeId,
 		};
 		std::unordered_map<FGuid, size_t> SurfaceRanks;
 		for (size_t Index = 0; Index < SurfaceOrder.size(); ++Index)
@@ -1415,7 +1464,9 @@ namespace Durin::Editor::Material
 				}
 			}
 			const float OutputHeight = Metrics.SurfaceHeaderHeight
-				+ Metrics.PinRowHeight * 8.0f + Metrics.BodyPadding;
+				+ Metrics.PinRowHeight
+					* (Program.Outputs.Surface.SourceNodeId.IsValid() ? 1.0f : 8.0f)
+				+ Metrics.BodyPadding;
 			Presentation.bHasMaterialOutputPosition = true;
 			Presentation.MaterialOutputX = static_cast<int32>(std::round(
 				MaximumX + Metrics.ColumnGap));
@@ -1471,6 +1522,11 @@ namespace Durin::Editor::Material
 				.RelativeY = Position.Y - MinimumY,
 			});
 		}
+		if (Selected.contains(Program.Outputs.Surface.SourceNodeId))
+		{
+			OutPayload.bConnectAggregateSurface = true;
+			OutPayload.AggregateSourceNodeId = Program.Outputs.Surface.SourceNodeId;
+		}
 		return {
 			.Status = EMaterialGraphCommandStatus::Succeeded,
 			.AffectedNodeIds = std::move(Ordered),
@@ -1513,6 +1569,10 @@ namespace Durin::Editor::Material
 			do NewId = FGuid::NewGuid(); while (UsedIds.contains(NewId));
 			UsedIds.insert(NewId);
 		}
+		if (Payload.bConnectAggregateSurface
+			&& (!Payload.AggregateSourceNodeId.IsValid()
+				|| !Remap.contains(Payload.AggregateSourceNodeId)))
+			return MakeRejected("The aggregate Surface clipboard source is missing from the selection.");
 
 		FMaterialGraphPresentation Presentation = Material.GetMaterialGraphPresentation();
 		std::vector<FGuid> Generated;
@@ -1540,6 +1600,17 @@ namespace Durin::Editor::Material
 			Presentation.Nodes.push_back({Node.Id,
 				static_cast<int32>(PositionX), static_cast<int32>(PositionY)});
 			Candidate.Nodes.push_back(std::move(Node));
+		}
+		if (Payload.bConnectAggregateSurface)
+		{
+			for (EMaterialSurfaceOutput Output : {
+				EMaterialSurfaceOutput::BaseColor, EMaterialSurfaceOutput::Normal,
+				EMaterialSurfaceOutput::Metallic, EMaterialSurfaceOutput::Roughness,
+				EMaterialSurfaceOutput::AmbientOcclusion, EMaterialSurfaceOutput::Emissive,
+				EMaterialSurfaceOutput::Opacity, EMaterialSurfaceOutput::OpacityMask})
+				GetMaterialSurfaceOutputLink(Candidate.Outputs, Output) = {};
+			Candidate.Outputs.Surface = {
+				.SourceNodeId = Remap.at(Payload.AggregateSourceNodeId)};
 		}
 		return Commit(Material, std::move(Candidate), std::move(Presentation), true,
 			"Paste Material Nodes", Generated, Generated, Transactions);

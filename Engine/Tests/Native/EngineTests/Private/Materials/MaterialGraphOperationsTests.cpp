@@ -73,6 +73,45 @@ TEST(FMaterialAssetCreationTests, NewBaseMaterialIsRenderableBeforePublication)
 	Durin::CollectGarbage();
 }
 
+TEST(FMaterialGraphOperationsTests,
+	StandardSurfaceCatalogAndAggregateCommandsAreAtomic)
+{
+	InitializeDObjectSystem();
+	DMaterial* Material = NewObject<DMaterial>(nullptr, "AggregateSurfaceCommands");
+	ASSERT_NE(Material, nullptr);
+	const auto Catalog = FMaterialGraphOperations::EnumerateCatalog(*Material);
+	const auto Entry = std::ranges::find(Catalog,
+		EMaterialProgramOpcode::StandardSurface,
+		[](const FMaterialGraphCatalogEntry& Value) {
+			return Value.NodeTemplate.Opcode;
+		});
+	ASSERT_NE(Entry, Catalog.end());
+	EXPECT_EQ(Entry->NodeTemplate.ResultType, EMaterialProgramValueType::Surface);
+	FMaterialGraphCreateNodeRequest Request{.Node = Entry->NodeTemplate, .X = 100, .Y = 100};
+	Request.Node.Id = {0x57face01, 1, 2, 3};
+	ASSERT_TRUE(FMaterialGraphOperations::CreateNode(*Material, Request));
+	ASSERT_TRUE(FMaterialGraphOperations::AssignAggregateSurface(
+		*Material, Request.Node.Id));
+	EXPECT_EQ(Material->GetMaterialProgram()->Outputs.Surface.SourceNodeId,
+		Request.Node.Id);
+	EXPECT_FALSE(Material->GetMaterialProgram()->Outputs.BaseColor.SourceNodeId.IsValid());
+	const auto Normalized = Normalize(*Material);
+	ASSERT_TRUE(Normalized);
+	EXPECT_TRUE(Normalized.IR.SurfaceRoot.bAggregate);
+	EXPECT_EQ(Normalized.IR.Nodes.size(), 1u);
+	FMaterialGraphClipboardPayload Payload;
+	ASSERT_TRUE(FMaterialGraphOperations::CopySelection(
+		*Material, std::array{Request.Node.Id}, Payload));
+	EXPECT_TRUE(Payload.bConnectAggregateSurface);
+	ASSERT_TRUE(FMaterialGraphOperations::Paste(*Material, Payload, 300, 100));
+	EXPECT_NE(Material->GetMaterialProgram()->Outputs.Surface.SourceNodeId,
+		Request.Node.Id);
+	ASSERT_TRUE(FMaterialGraphOperations::DisconnectAggregateSurface(*Material));
+	EXPECT_FALSE(Material->GetMaterialProgram()->Outputs.Surface.SourceNodeId.IsValid());
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
 TEST(FMaterialDocumentSnapshotTests,
 	DiscardRestoresAuthoredAndRenderableBaseMaterialState)
 {
@@ -967,7 +1006,7 @@ TEST(FMaterialGraphOperationsTests,
 		MaterialParameters::GetBuiltinParameterIds(MaterialParameters::EMaterialBuiltinParameterRole::Normal).SamplerState);
 	const FMaterialNormalizationResult Normalized = Normalize(*Material);
 	ASSERT_TRUE(Normalized);
-	EXPECT_EQ(Normalized.IR.Nodes.size(), 12u);
+	EXPECT_EQ(Normalized.IR.Nodes.size(), 5u);
 	ASSERT_TRUE(Transactions.Undo());
 	EXPECT_FALSE(Material->GetMaterialProgram()->Outputs.Normal.SourceNodeId.IsValid());
 

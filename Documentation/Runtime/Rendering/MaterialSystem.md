@@ -4,7 +4,7 @@ Summary: Define material assets, parameters, render proxies, invalidation, passe
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-08-29
+Last reviewed: 2026-08-30
 
 Durin's material architecture keeps declaration ownership, instance resolution,
 editor presentation, and renderer consumption at explicit boundaries.
@@ -75,21 +75,27 @@ uniform offsets and eight resource indices. User-authored parameter
 declarations and compiled layouts remain deferred work.
 
 `DMaterial` additionally persists one reflected material program defined by
-`Materials/MaterialProgramTypes.h`. Version 2 is a bounded typed expression DAG
-with stable node/parameter/link identities and eight fixed typed surface inputs.
+`Materials/MaterialProgramTypes.h`. Version 3 is a bounded typed expression DAG
+with stable node/parameter/link identities, eight fixed typed property inputs,
+and an optional aggregate `Surface` input.
 Each surface input stores a retained fallback literal and an optional source
 link; an invalid source GUID means unconnected. Constants, parameter and texture reads, UV resolution,
 sampling, arithmetic, composition, explicit conversions, safe normal decode,
-and RNM normal blending form the closed opcode domain. `DMaterialInstance`
+and RNM normal blending form the ordinary closed opcode domain. The closed
+`StandardSurface` intrinsic returns Surface from the canonical eight-role
+parameter descriptor; Surface is invalid in arithmetic, texture, conversion,
+and per-property links. `DMaterialInstance`
 stores no graph and resolves the root base program through its existing parent
 chain, so dynamic GUID overrides remain independent of authored node order.
 
 Fresh materials own zero expression nodes and eight unconnected defaults:
 BaseColor `(0.5, 0.5, 0.5)`, Normal `(0, 0, 1)`, Metallic `0`, Roughness
 `0.5`, AmbientOcclusion `1`, Emissive `(0, 0, 0)`, Opacity `1`, and
-OpacityMask `1`. Repository material packages persist the current program
-schema, and load accepts only `CurrentMaterialProgramSchemaVersion`; the former
-version-1 upgrade path is intentionally not retained. An unknown-version or
+OpacityMask `1`. Aggregate mode accepts one Surface source and requires all
+eight property links to be disconnected; per-property mode requires the
+aggregate source to be disconnected. Retained fallbacks survive either mode.
+Repository material packages persist schema 3. Schema 2 upgrades value-for-value
+by adding a disconnected aggregate source; unknown schemas fail. An unknown-version or
 malformed program fails bounded validation, which
 rejects invalid enums and GUIDs, count/string/byte/input/depth limits, dangling
 links, cycles, non-finite constants, bad parameter references, input types, and
@@ -112,11 +118,16 @@ The persisted program is authored state, not a render artifact. GameThread can
 snapshot it, parameter declarations, code-affecting static properties, target,
 compiler identity, and virtual dependency fingerprints into a detached value
 request. Normalization starts only from connected Material Output inputs,
-injects one typed IR constant for each unconnected fallback, removes dead and presentation-only state, canonicalizes
+removes dead and presentation-only state, canonicalizes
 commutative inputs and numeric bytes, and produces versioned typed IR plus a
 stable digest independent of authored node order, node GUIDs, and dynamic
 parameter/resource values. Two-sided state and depth policy remain pipeline-
-only and do not enter this program digest.
+only and do not enter this program digest. Normalized IR owns one special
+Surface Root outside its ordinary node vector. Per-property inputs contain an
+earlier exact-typed expression or an inline finite literal; aggregate mode names
+one earlier Surface expression. A default material therefore has zero ordinary
+IR nodes. StandardSurface remains one aggregate expression and source generation
+lowers its implementation without reconstructing an ordinary DAG.
 
 The default material compiler environment represents the dedicated
 `/Engine/MaterialCompilerEnvironment` dependency graph with one
@@ -189,7 +200,7 @@ semantics.
 
 Cook requires a current successful Win64 Game result and never substitutes
 ErrorMaterial. Authored `Program` data is editor-only in a cooked package. One
-DMAT v1 value in the cooked `ProgramData` BulkData field stores the exact compiler/target/pass/version
+DMAT v2 value in the cooked `ProgramData` BulkData field stores the exact compiler/target/pass/version
 envelope, program identity, static properties, dependencies, and complete
 shader code/reflection set. It is uncompressed, 16-byte aligned, bounded to
 8 MiB, and protected by the DAST field range and raw-segment extent/hash
@@ -211,7 +222,9 @@ graph or cooked program in the instance package.
 `InspectMaterialParameterDependencies` is the UI-independent dependency
 authority. It traverses connected surface branches in fixed surface/input order,
 de-duplicates shared declarations by first use, and adds the UV channel, scale,
-offset, rotation, and sampler GUIDs implied by reachable texture roles. Base
+offset, rotation, and sampler GUIDs implied by reachable texture roles.
+StandardSurface obtains its exact dependency set from the shared canonical
+descriptor rather than a parallel role switch. Base
 Details, instance eligibility/orphans, and local render layers consume this same
 snapshot. Serialized but unreachable values remain intact and are excluded from
 ordinary controls and active local bindings.

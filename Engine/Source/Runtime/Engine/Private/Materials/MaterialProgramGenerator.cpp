@@ -5,6 +5,7 @@
 #include <array>
 #include <chrono>
 #include <format>
+#include <ranges>
 
 namespace Durin
 {
@@ -24,6 +25,7 @@ namespace Durin
 			case EMaterialProgramValueType::Float4: return "float4";
 			case EMaterialProgramValueType::Texture2D:
 				return "Texture2D<float4>";
+			case EMaterialProgramValueType::Surface: return "FMaterialSurface";
 			}
 			return {};
 		}
@@ -77,6 +79,15 @@ namespace Durin
 			return Result + ")";
 		}
 
+		auto LiteralExpression(EMaterialProgramValueType Type,
+			const FMaterialProgramLiteral& Literal) -> std::string
+		{
+			FMaterialIRNode Node;
+			Node.ResultType = Type;
+			Node.Literal = Literal;
+			return LiteralExpression(Node);
+		}
+
 		auto MakeDiagnostic(EMaterialProgramDiagnosticCategory Category,
 			std::string Message) -> FMaterialProgramDiagnostic
 		{
@@ -92,9 +103,7 @@ namespace Durin
 		OutSource.clear();
 		OutError.clear();
 		if (IR.Version != CurrentMaterialIRVersion
-			|| IR.Nodes.empty()
-			|| IR.Nodes.size() > MaterialProgramMaxNodeCount
-			|| IR.SurfaceOutputs.size() != 8)
+			|| IR.Nodes.size() > MaterialProgramMaxNodeCount)
 		{
 			OutError = "Invalid material IR for Slang generation.";
 			return false;
@@ -171,7 +180,38 @@ float2 GetMaterialUV(VSOutput input, uint role)
     return float2(cosine * scaled.x - sine * scaled.y,
         sine * scaled.x + cosine * scaled.y) + transform.zw;
 }
-
+)";
+		const bool bUsesStandardSurface = std::ranges::any_of(IR.Nodes,
+			[](const FMaterialIRNode& Node) {
+				return Node.Opcode == EMaterialProgramOpcode::StandardSurface;
+			});
+		if (bUsesStandardSurface) OutSource += R"(
+FMaterialSurface EvaluateStandardSurface(VSOutput input)
+{
+    float4 baseSample = BaseColorTexture.Sample(BaseColorSampler, GetMaterialUV(input, 0u));
+    float4 normalSample = NormalTexture.Sample(NormalSampler, GetMaterialUV(input, 1u));
+    float4 metallicSample = MetallicTexture.Sample(MetallicSampler, GetMaterialUV(input, 2u));
+    float4 roughnessSample = RoughnessTexture.Sample(RoughnessSampler, GetMaterialUV(input, 3u));
+    float4 aoSample = AmbientOcclusionTexture.Sample(AmbientOcclusionSampler, GetMaterialUV(input, 4u));
+    float4 emissiveSample = EmissiveTexture.Sample(EmissiveSampler, GetMaterialUV(input, 5u));
+    float4 opacitySample = OpacityTexture.Sample(OpacitySampler, GetMaterialUV(input, 6u));
+    float4 maskSample = OpacityMaskTexture.Sample(OpacityMaskSampler, GetMaterialUV(input, 7u));
+    FMaterialSurface result;
+    result.baseColor = saturate(Material.BaseColor.xyz) * baseSample.xyz;
+    result.tangentNormal = BlendSurfaceNormalsRNM(Material.NormalRoughness.xyz,
+        DecodeTextureNormal(normalSample.xy));
+    result.metallic = saturate(Material.EmissiveMetallic.w) * saturate(metallicSample.z);
+    result.roughness = clamp(saturate(Material.NormalRoughness.w)
+        * saturate(roughnessSample.y), 0.045, 1.0);
+    result.ambientOcclusion = saturate(Material.SurfaceParams.x) * saturate(aoSample.x);
+    result.emissive = max(Material.EmissiveMetallic.xyz, float3(0.0))
+        + max(emissiveSample.xyz, float3(0.0));
+    result.opacity = saturate(Material.BaseColor.w) * saturate(opacitySample.w);
+    result.opacityMask = saturate(Material.SurfaceParams.y) * saturate(maskSample.x);
+    return result;
+}
+)";
+		OutSource += R"(
 FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 {
 )";
@@ -186,6 +226,8 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 			std::string Expression;
 			switch (Node.Opcode)
 			{
+			case EMaterialProgramOpcode::StandardSurface:
+				Expression = "EvaluateStandardSurface(input)"; break;
 			case EMaterialProgramOpcode::Constant:
 				Expression = LiteralExpression(Node); break;
 			case EMaterialProgramOpcode::Parameter:
@@ -268,7 +310,35 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
 			else
 				Expressions[Index] = std::move(Expression);
 		}
-		OutSource += std::format(R"(    FMaterialSurface result;
+		if (IR.SurfaceRoot.bAggregate)
+		{
+			if (IR.SurfaceRoot.AggregateExpressionIndex >= Expressions.size())
+			{
+				OutError = "Aggregate Surface Root expression is out of bounds.";
+				OutSource.clear();
+				return false;
+			}
+			OutSource += std::format("    return {};\n}}\n", Expressions[IR.SurfaceRoot.AggregateExpressionIndex]);
+		}
+		else
+		{
+			std::array<std::string, 8> Outputs;
+			for (size_t Index = 0; Index < Outputs.size(); ++Index)
+			{
+				const auto& Input = IR.SurfaceRoot.Inputs[Index];
+				if (Input.bExpression)
+				{
+					if (Input.ExpressionIndex >= Expressions.size())
+					{
+						OutError = "Per-property Surface Root expression is out of bounds.";
+						OutSource.clear();
+						return false;
+					}
+					Outputs[Index] = Expressions[Input.ExpressionIndex];
+				}
+				else Outputs[Index] = LiteralExpression(Input.Type, Input.Literal);
+			}
+			OutSource += std::format(R"(    FMaterialSurface result;
     result.baseColor = {};
     result.tangentNormal = {};
     result.metallic = {};
@@ -279,10 +349,9 @@ FMaterialSurface EvaluateGeneratedMaterial(VSOutput input)
     result.opacityMask = {};
     return result;
 }}
-)", Expressions[IR.SurfaceOutputs[0]], Expressions[IR.SurfaceOutputs[1]],
-			Expressions[IR.SurfaceOutputs[2]], Expressions[IR.SurfaceOutputs[3]],
-			Expressions[IR.SurfaceOutputs[4]], Expressions[IR.SurfaceOutputs[5]],
-			Expressions[IR.SurfaceOutputs[6]], Expressions[IR.SurfaceOutputs[7]]);
+)", Outputs[0], Outputs[1], Outputs[2], Outputs[3], Outputs[4], Outputs[5],
+			Outputs[6], Outputs[7]);
+		}
 		OutSource += R"(
 struct FResolvedGeneratedSurfaceShading
 {

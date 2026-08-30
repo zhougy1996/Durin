@@ -19,7 +19,7 @@ namespace Durin
 		enum class EMaterialBuiltinParameterKind : uint8;
 	}
 
-	inline constexpr uint32 CurrentMaterialProgramSchemaVersion = 2;
+	inline constexpr uint32 CurrentMaterialProgramSchemaVersion = 3;
 	inline constexpr uint32 MaterialProgramMaxNodeCount = 256;
 	inline constexpr uint32 MaterialProgramMaxLinkCount = 1024;
 	inline constexpr uint32 MaterialProgramMaxReferencedParameterCount = 128;
@@ -41,6 +41,7 @@ namespace Durin
 		Float3,
 		Float4,
 		Texture2D,
+		Surface,
 	};
 
 	DENUM()
@@ -76,6 +77,7 @@ namespace Durin
 		TruncateToFloat3,
 		DecodeNormalRG,
 		BlendNormalsRNM,
+		StandardSurface,
 	};
 
 	DENUM()
@@ -178,6 +180,11 @@ namespace Durin
 	struct FMaterialSurfaceOutputs
 	{
 		GENERATED_BODY()
+
+		// Aggregate surface source. Valid only when every per-property link is
+		// disconnected; retained defaults remain available after disconnection.
+		DPROPERTY()
+		FMaterialProgramLink Surface;
 
 		DPROPERTY()
 		FMaterialProgramLink BaseColor;
@@ -336,6 +343,8 @@ namespace Durin
 
 	ENGINE_API auto MakeDefaultMaterialProgram() -> FMaterialProgram;
 	ENGINE_API auto MakeCanonicalMaterialProgram() -> FMaterialProgram;
+	ENGINE_API auto MakeStandardSurfaceMaterialProgram() -> FMaterialProgram;
+	ENGINE_API auto UpgradeMaterialProgram(FMaterialProgram& Program) -> bool;
 	ENGINE_API auto GetMaterialSurfaceOutputType(EMaterialSurfaceOutput Output)
 		-> EMaterialProgramValueType;
 	ENGINE_API auto GetMaterialSurfaceOutputLink(
