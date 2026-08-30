@@ -1,6 +1,7 @@
 #include "AssetMaintenance/CompatibilityAudit.h"
 
 #include "Hash/XxHash.h"
+#include "Json/Json.h"
 #include "Misc/FileTime.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -150,28 +151,6 @@ namespace Durin::Asset
 				.ContentHash = Builder.Finalize()};
 			OutReportContentHash = Sha256.Finalize();
 			return EAssetPackageSnapshotStatus::Completed;
-		}
-
-		auto JsonEscape(std::string_view Value) -> std::string
-		{
-			std::string Result;
-			for (const unsigned char Character : Value)
-			{
-				switch (Character)
-				{
-				case '\\': Result += "\\\\"; break;
-				case '"': Result += "\\\""; break;
-				case '\b': Result += "\\b"; break;
-				case '\f': Result += "\\f"; break;
-				case '\n': Result += "\\n"; break;
-				case '\r': Result += "\\r"; break;
-				case '\t': Result += "\\t"; break;
-				default:
-					if (Character < 0x20) Result += std::format("\\u{:04x}", Character);
-					else Result.push_back(static_cast<char>(Character));
-				}
-			}
-			return Result;
 		}
 
 		auto PropertyKindName(DurinCodeGen::EPropertyGenFlags Value) -> std::string_view
@@ -537,35 +516,44 @@ namespace Durin::Asset
 			case EAssetPackageCompatibility::Unsupported: return "Unsupported"; }
 			return "Unsupported";
 		};
-		std::string Json = std::format("{{\"schemaVersion\":{},\"packages\":[",
-			AssetCompatibilityReportSchemaVersion);
-		for (size_t RecordIndex = 0; RecordIndex < Sorted.size(); ++RecordIndex)
+		FJsonDocument Document;
+		FJsonNodeRef Root = Document.GetMutableRoot();
+		Root.EnsureObject();
+		Root.SetChildValue("schemaVersion", AssetCompatibilityReportSchemaVersion);
+		FJsonNodeRef Packages = Root.AddArray("packages");
+		for (const FAssetPackageCompatibilityRecord* RecordPtr : Sorted)
 		{
-			if (RecordIndex) Json += ',';
-			const auto& Record = *Sorted[RecordIndex];
-			Json += std::format("{{\"packagePath\":\"{}\",\"physicalPath\":\"{}\",\"formatVersion\":{},\"inspection\":\"{}\",\"compatibility\":\"{}\",\"freshness\":\"{}\",\"fileSize\":{},\"lastWriteTimeTicks\":{},\"findings\":[",
-				JsonEscape(Record.PackagePath.GetView()), JsonEscape(Record.PhysicalPath),
-				Record.FormatVersion, InspectionName(Record.Inspection),
-				CompatibilityName(Record.Compatibility),
-				Record.Freshness == EAssetCompatibilityFreshness::Current ? "Current" : "Stale",
-				Record.Fingerprint.FileSize, Record.Fingerprint.LastWriteTimeTicks);
-			for (size_t Index = 0; Index < Record.Findings.size(); ++Index)
+			const auto& Record = *RecordPtr;
+			FJsonNodeRef Package = Packages.AppendObject();
+			Package.SetChildValue("packagePath", Record.PackagePath.GetView());
+			Package.SetChildValue("physicalPath", Record.PhysicalPath);
+			Package.SetChildValue("formatVersion", Record.FormatVersion);
+			Package.SetChildValue("inspection", InspectionName(Record.Inspection));
+			Package.SetChildValue("compatibility", CompatibilityName(Record.Compatibility));
+			Package.SetChildValue("freshness",
+				Record.Freshness == EAssetCompatibilityFreshness::Current ? "Current" : "Stale");
+			Package.SetChildValue("fileSize", static_cast<uint64>(Record.Fingerprint.FileSize));
+			Package.SetChildValue("lastWriteTimeTicks", Record.Fingerprint.LastWriteTimeTicks);
+			FJsonNodeRef Findings = Package.AddArray("findings");
+			for (const auto& Finding : Record.Findings)
 			{
-				if (Index) Json += ',';
-				const auto& Finding = Record.Findings[Index];
-				Json += std::format("{{\"code\":\"{}\",\"objectPath\":\"{}\",\"classIdentity\":\"{}\",\"declaringType\":\"{}\",\"fieldName\":\"{}\",\"storedKind\":\"{}\",\"storedTypeSignature\":\"{}\",\"expectedKind\":\"{}\",\"expectedTypeSignature\":\"{}\",\"payloadSize\":{},\"payloadOffset\":{},\"diagnostic\":\"{}\"}}",
-					AssetCompatibilityFindingCodeName(Finding.Code), JsonEscape(Finding.ObjectPath),
-					JsonEscape(Finding.ClassIdentity), JsonEscape(Finding.DeclaringType),
-					JsonEscape(Finding.FieldName), PropertyKindName(Finding.StoredKind),
-					JsonEscape(Finding.StoredTypeSignature), PropertyKindName(Finding.ExpectedKind),
-					JsonEscape(Finding.ExpectedTypeSignature), Finding.PayloadSize,
-					Finding.PayloadOffset, JsonEscape(Finding.Diagnostic));
+				FJsonNodeRef Node = Findings.AppendObject();
+				Node.SetChildValue("code", AssetCompatibilityFindingCodeName(Finding.Code));
+				Node.SetChildValue("objectPath", Finding.ObjectPath);
+				Node.SetChildValue("classIdentity", Finding.ClassIdentity);
+				Node.SetChildValue("declaringType", Finding.DeclaringType);
+				Node.SetChildValue("fieldName", Finding.FieldName);
+				Node.SetChildValue("storedKind", PropertyKindName(Finding.StoredKind));
+				Node.SetChildValue("storedTypeSignature", Finding.StoredTypeSignature);
+				Node.SetChildValue("expectedKind", PropertyKindName(Finding.ExpectedKind));
+				Node.SetChildValue("expectedTypeSignature", Finding.ExpectedTypeSignature);
+				Node.SetChildValue("payloadSize", Finding.PayloadSize);
+				Node.SetChildValue("payloadOffset", Finding.PayloadOffset);
+				Node.SetChildValue("diagnostic", Finding.Diagnostic);
 			}
-			Json += "],\"canonicalizationEvidence\":[";
-			for (size_t Index = 0; Index < Record.CanonicalizationEvidence.size(); ++Index)
+			FJsonNodeRef CanonicalizationEvidence = Package.AddArray("canonicalizationEvidence");
+			for (const auto& Evidence : Record.CanonicalizationEvidence)
 			{
-				if (Index) Json += ',';
-				const auto& Evidence = Record.CanonicalizationEvidence[Index];
 				auto Kind = [](EAssetReflectedIdentityKind Value) -> std::string_view {
 					switch (Value) { case EAssetReflectedIdentityKind::Class: return "Class";
 					case EAssetReflectedIdentityKind::Struct: return "Struct";
@@ -580,29 +568,29 @@ namespace Durin::Asset
 					case EAssetSerializedIdentityLocation::TypeDescriptor: return "TypeDescriptor"; }
 					return "PackageHeader";
 				};
-				Json += std::format("{{\"storedIdentity\":\"{}\",\"currentIdentity\":\"{}\",\"kind\":\"{}\",\"location\":\"{}\",\"logicalPath\":\"{}\"}}",
-					JsonEscape(Evidence.StoredIdentity), JsonEscape(Evidence.CurrentIdentity),
-					Kind(Evidence.Kind), Location(Evidence.Location), JsonEscape(Evidence.LogicalPath));
+				FJsonNodeRef Node = CanonicalizationEvidence.AppendObject();
+				Node.SetChildValue("storedIdentity", Evidence.StoredIdentity);
+				Node.SetChildValue("currentIdentity", Evidence.CurrentIdentity);
+				Node.SetChildValue("kind", Kind(Evidence.Kind));
+				Node.SetChildValue("location", Location(Evidence.Location));
+				Node.SetChildValue("logicalPath", Evidence.LogicalPath);
 			}
-			Json += "],\"deprecatedRouteEvidence\":[";
-			for (size_t Index = 0; Index < Record.DeprecatedRouteEvidence.size(); ++Index)
+			FJsonNodeRef DeprecatedRouteEvidence = Package.AddArray("deprecatedRouteEvidence");
+			for (const auto& Evidence : Record.DeprecatedRouteEvidence)
 			{
-				if (Index) Json += ',';
-				const auto& Evidence = Record.DeprecatedRouteEvidence[Index];
-				Json += std::format("{{\"objectPath\":\"{}\",\"declaringType\":\"{}\",\"storedFieldName\":\"{}\",\"deprecatedPropertyName\":\"{}\",\"customVersionGuid\":\"{}\",\"sourceVersion\":{},\"deprecatedBefore\":{},\"migrationTargets\":[",
-					JsonEscape(Evidence.ObjectPath), JsonEscape(Evidence.DeclaringType),
-					JsonEscape(Evidence.StoredFieldName), JsonEscape(Evidence.DeprecatedPropertyName),
-					Evidence.CustomVersionGuid.ToString(), Evidence.SourceVersion,
-					Evidence.DeprecatedBefore);
-				for (size_t Target = 0; Target < Evidence.MigrationTargets.size(); ++Target)
-				{
-					if (Target) Json += ',';
-					Json += std::format("\"{}\"", JsonEscape(Evidence.MigrationTargets[Target]));
-				}
-				Json += "]}";
+				FJsonNodeRef Node = DeprecatedRouteEvidence.AppendObject();
+				Node.SetChildValue("objectPath", Evidence.ObjectPath);
+				Node.SetChildValue("declaringType", Evidence.DeclaringType);
+				Node.SetChildValue("storedFieldName", Evidence.StoredFieldName);
+				Node.SetChildValue("deprecatedPropertyName", Evidence.DeprecatedPropertyName);
+				Node.SetChildValue("customVersionGuid", Evidence.CustomVersionGuid.ToString());
+				Node.SetChildValue("sourceVersion", Evidence.SourceVersion);
+				Node.SetChildValue("deprecatedBefore", Evidence.DeprecatedBefore);
+				FJsonNodeRef MigrationTargets = Node.AddArray("migrationTargets");
+				for (const auto& Target : Evidence.MigrationTargets)
+					MigrationTargets.AppendValue(Target);
 			}
-			Json += "]}";
 		}
-		return Json + "]}";
+		return Document.ToString();
 	}
 }

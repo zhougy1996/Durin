@@ -5,6 +5,7 @@
 #include "AssetRegistry/PackageFormat.h"
 #include "AssetRegistry/Publication.h"
 #include "Hash/XxHash.h"
+#include "Json/Json.h"
 #include "DObject/Package.h"
 #include "Misc/FileHelper.h"
 #include "Misc/FileTime.h"
@@ -48,24 +49,6 @@ namespace Durin::Asset
 			std::error_code Error;
 			const bool bRemoved = std::filesystem::remove(Snapshot.Path, Error);
 			return !Error || (!bRemoved && Error == std::errc::no_such_file_or_directory);
-		}
-
-		auto JsonEscape(std::string_view Value) -> std::string
-		{
-			std::string Result;
-			for (const unsigned char Character : Value)
-			{
-				switch (Character)
-				{
-				case '\\': Result += "\\\\"; break;
-				case '"': Result += "\\\""; break;
-				case '\n': Result += "\\n"; break;
-				case '\r': Result += "\\r"; break;
-				case '\t': Result += "\\t"; break;
-				default: Result += static_cast<char>(Character); break;
-				}
-			}
-			return Result;
 		}
 
 		auto StatusName(EAssetCanonicalResavePackageStatus Status) -> std::string_view
@@ -138,48 +121,44 @@ namespace Durin::Asset
 				&& Fingerprint.ContentHash == FXxHash128::HashBuffer(Bytes);
 		}
 
-		auto SerializePackages(const FAssetCanonicalResavePlan& Plan) -> std::string
+		auto AppendPackages(FJsonNodeRef Packages, const FAssetCanonicalResavePlan& Plan) -> void
 		{
-			std::string Json = "[";
-			for (size_t Index = 0; Index < Plan.Packages.size(); ++Index)
+			for (const auto& Package : Plan.Packages)
 			{
-				if (Index) Json += ',';
-				const auto& Package = Plan.Packages[Index];
-				Json += std::format("{{\"packagePath\":\"{}\",\"physicalPath\":\"{}\",\"status\":\"{}\",\"formatVersion\":{},\"loaded\":{},\"dirty\":{},\"plainResave\":{},\"evidence\":[",
-					JsonEscape(Package.PackagePath.GetView()), JsonEscape(Package.PhysicalPath),
-					StatusName(Package.Status), Package.FormatVersion, Package.bLoaded,
-					Package.bDirty, Package.bPlainResaveRequested);
-				for (size_t EvidenceIndex = 0; EvidenceIndex < Package.Evidence.size(); ++EvidenceIndex)
+				FJsonNodeRef Node = Packages.AppendObject();
+				Node.SetChildValue("packagePath", Package.PackagePath.GetView());
+				Node.SetChildValue("physicalPath", Package.PhysicalPath);
+				Node.SetChildValue("status", StatusName(Package.Status));
+				Node.SetChildValue("formatVersion", Package.FormatVersion);
+				Node.SetChildValue("loaded", Package.bLoaded);
+				Node.SetChildValue("dirty", Package.bDirty);
+				Node.SetChildValue("plainResave", Package.bPlainResaveRequested);
+				FJsonNodeRef EvidenceArray = Node.AddArray("evidence");
+				for (const auto& Evidence : Package.Evidence)
 				{
-					if (EvidenceIndex) Json += ',';
-					const auto& Evidence = Package.Evidence[EvidenceIndex];
-					Json += std::format("{{\"storedIdentity\":\"{}\",\"currentIdentity\":\"{}\",\"kind\":\"{}\",\"location\":\"{}\",\"logicalPath\":\"{}\"}}",
-						JsonEscape(Evidence.StoredIdentity), JsonEscape(Evidence.CurrentIdentity),
-						KindName(Evidence.Kind), LocationName(Evidence.Location), JsonEscape(Evidence.LogicalPath));
+					FJsonNodeRef EvidenceNode = EvidenceArray.AppendObject();
+					EvidenceNode.SetChildValue("storedIdentity", Evidence.StoredIdentity);
+					EvidenceNode.SetChildValue("currentIdentity", Evidence.CurrentIdentity);
+					EvidenceNode.SetChildValue("kind", KindName(Evidence.Kind));
+					EvidenceNode.SetChildValue("location", LocationName(Evidence.Location));
+					EvidenceNode.SetChildValue("logicalPath", Evidence.LogicalPath);
 				}
-				Json += "],\"deprecatedRouteEvidence\":[";
-				for (size_t EvidenceIndex = 0;
-					EvidenceIndex < Package.DeprecatedRouteEvidence.size(); ++EvidenceIndex)
+				FJsonNodeRef DeprecatedRouteEvidence = Node.AddArray("deprecatedRouteEvidence");
+				for (const auto& Evidence : Package.DeprecatedRouteEvidence)
 				{
-					if (EvidenceIndex) Json += ',';
-					const auto& Evidence = Package.DeprecatedRouteEvidence[EvidenceIndex];
-					Json += std::format(
-						"{{\"objectPath\":\"{}\",\"declaringType\":\"{}\",\"storedFieldName\":\"{}\",\"deprecatedPropertyName\":\"{}\",\"customVersionGuid\":\"{}\",\"sourceVersion\":{},\"deprecatedBefore\":{}}}",
-						JsonEscape(Evidence.ObjectPath), JsonEscape(Evidence.DeclaringType),
-						JsonEscape(Evidence.StoredFieldName),
-						JsonEscape(Evidence.DeprecatedPropertyName),
-						Evidence.CustomVersionGuid.ToString(), Evidence.SourceVersion,
-						Evidence.DeprecatedBefore);
+					FJsonNodeRef EvidenceNode = DeprecatedRouteEvidence.AppendObject();
+					EvidenceNode.SetChildValue("objectPath", Evidence.ObjectPath);
+					EvidenceNode.SetChildValue("declaringType", Evidence.DeclaringType);
+					EvidenceNode.SetChildValue("storedFieldName", Evidence.StoredFieldName);
+					EvidenceNode.SetChildValue("deprecatedPropertyName", Evidence.DeprecatedPropertyName);
+					EvidenceNode.SetChildValue("customVersionGuid", Evidence.CustomVersionGuid.ToString());
+					EvidenceNode.SetChildValue("sourceVersion", Evidence.SourceVersion);
+					EvidenceNode.SetChildValue("deprecatedBefore", Evidence.DeprecatedBefore);
 				}
-				Json += "],\"diagnostics\":[";
-				for (size_t DiagnosticIndex = 0; DiagnosticIndex < Package.Diagnostics.size(); ++DiagnosticIndex)
-				{
-					if (DiagnosticIndex) Json += ',';
-					Json += std::format("\"{}\"", JsonEscape(Package.Diagnostics[DiagnosticIndex]));
-				}
-				Json += "]}";
+				FJsonNodeRef Diagnostics = Node.AddArray("diagnostics");
+				for (const auto& Diagnostic : Package.Diagnostics)
+					Diagnostics.AppendValue(Diagnostic);
 			}
-			return Json + "]";
 		}
 	}
 
@@ -502,10 +481,18 @@ namespace Durin::Asset
 
 	auto SerializeAssetCanonicalResavePlanReport(const FAssetCanonicalResavePlan& Plan) -> std::string
 	{
-		return std::format("{{\"schemaVersion\":{},\"operation\":\"canonical-resave\",\"mode\":\"plan\",\"status\":\"{}\",\"registryRevision\":{},\"targetFormatVersion\":{},\"packages\":{}}}",
-			AssetCanonicalResaveReportSchemaVersion,
-			Plan.Status == EAssetCanonicalResavePlanStatus::Completed ? "Completed" : "Cancelled",
-			Plan.RegistryRevision, Plan.TargetFormatVersion, SerializePackages(Plan));
+		FJsonDocument Document;
+		FJsonNodeRef Root = Document.GetMutableRoot();
+		Root.EnsureObject();
+		Root.SetChildValue("schemaVersion", AssetCanonicalResaveReportSchemaVersion);
+		Root.SetChildValue("operation", "canonical-resave");
+		Root.SetChildValue("mode", "plan");
+		Root.SetChildValue("status",
+			Plan.Status == EAssetCanonicalResavePlanStatus::Completed ? "Completed" : "Cancelled");
+		Root.SetChildValue("registryRevision", Plan.RegistryRevision);
+		Root.SetChildValue("targetFormatVersion", Plan.TargetFormatVersion);
+		AppendPackages(Root.AddArray("packages"), Plan);
+		return Document.ToString();
 	}
 
 	auto SerializeAssetCanonicalResaveApplyReport(const FAssetCanonicalResaveApplyResult& Result) -> std::string
@@ -522,9 +509,16 @@ namespace Durin::Asset
 			}
 			return "Failed";
 		};
-		return std::format("{{\"schemaVersion\":{},\"operation\":\"canonical-resave\",\"mode\":\"apply\",\"status\":\"{}\",\"diagnostic\":\"{}\",\"targetFormatVersion\":{},\"packages\":{}}}",
-			AssetCanonicalResaveReportSchemaVersion, ApplyStatusName(Result.Status),
-			JsonEscape(Result.Diagnostic), Result.Plan.TargetFormatVersion,
-			SerializePackages(Result.Plan));
+		FJsonDocument Document;
+		FJsonNodeRef Root = Document.GetMutableRoot();
+		Root.EnsureObject();
+		Root.SetChildValue("schemaVersion", AssetCanonicalResaveReportSchemaVersion);
+		Root.SetChildValue("operation", "canonical-resave");
+		Root.SetChildValue("mode", "apply");
+		Root.SetChildValue("status", ApplyStatusName(Result.Status));
+		Root.SetChildValue("diagnostic", Result.Diagnostic);
+		Root.SetChildValue("targetFormatVersion", Result.Plan.TargetFormatVersion);
+		AppendPackages(Root.AddArray("packages"), Result.Plan);
+		return Document.ToString();
 	}
 }

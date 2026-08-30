@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 
+#include "AssetMaintenance/CanonicalResave.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
+#include "Json/Json.h"
 #include "Misc/Paths.h"
 
 #include "NativeTestSupport.h"
@@ -103,6 +105,48 @@ TEST_F(FAssetMaintenanceContractTests, CompatibilityReportKeepsStableSchemaAndPa
 			.Compatibility = Durin::Asset::EAssetPackageCompatibility::Incompatible}};
 	const std::string Report = Durin::Asset::SerializeAssetCompatibilityReportV1(Records);
 
-	EXPECT_TRUE(Report.starts_with("{\"schemaVersion\":3,\"packages\":["));
-	EXPECT_LT(Report.find("/Maintenance/A"), Report.find("/Maintenance/B"));
+	Durin::FJsonDocument Document;
+	ASSERT_TRUE(Document.Parse(Report));
+	const Durin::FJsonNodeView Root = Document.GetRootView();
+	EXPECT_EQ(Root.GetView("schemaVersion").GetUInt(), 3u);
+	const Durin::FJsonNodeView Packages = Root.GetView("packages");
+	ASSERT_EQ(Packages.Num(), 2u);
+	EXPECT_EQ(Packages.GetView(0).GetView("packagePath").GetString(), "/Maintenance/A");
+	EXPECT_EQ(Packages.GetView(1).GetView("packagePath").GetString(), "/Maintenance/B");
+}
+
+TEST_F(FAssetMaintenanceContractTests, CoreJsonSerializationPreservesControlCharacters)
+{
+	const std::string ControlCharacters = std::string("before\b\f") + '\x01' + "after";
+	Durin::Asset::FAssetPackageCompatibilityRecord CompatibilityRecord{
+		.PackagePath = MakePath("/Maintenance/Compatibility"),
+		.PhysicalPath = ControlCharacters};
+	CompatibilityRecord.Findings.push_back({.Diagnostic = ControlCharacters});
+
+	Durin::FJsonDocument CompatibilityDocument;
+	ASSERT_TRUE(CompatibilityDocument.Parse(
+		Durin::Asset::SerializeAssetCompatibilityReportV1(
+			std::array{CompatibilityRecord})));
+	const Durin::FJsonNodeView CompatibilityPackage =
+		CompatibilityDocument.GetRootView().GetView("packages").GetView(0);
+	EXPECT_EQ(CompatibilityPackage.GetView("physicalPath").GetString(), ControlCharacters);
+	EXPECT_EQ(CompatibilityPackage.GetView("findings").GetView(0)
+		.GetView("diagnostic").GetString(), ControlCharacters);
+
+	Durin::Asset::FAssetCanonicalResaveApplyResult ApplyResult;
+	ApplyResult.Diagnostic = ControlCharacters;
+	ApplyResult.Plan.Packages.push_back({
+		.PackagePath = MakePath("/Maintenance/Canonical"),
+		.PhysicalPath = ControlCharacters,
+		.Diagnostics = {ControlCharacters}});
+	Durin::FJsonDocument CanonicalDocument;
+	ASSERT_TRUE(CanonicalDocument.Parse(
+		Durin::Asset::SerializeAssetCanonicalResaveApplyReport(ApplyResult)));
+	const Durin::FJsonNodeView CanonicalRoot = CanonicalDocument.GetRootView();
+	EXPECT_EQ(CanonicalRoot.GetView("diagnostic").GetString(), ControlCharacters);
+	const Durin::FJsonNodeView CanonicalPackage =
+		CanonicalRoot.GetView("packages").GetView(0);
+	EXPECT_EQ(CanonicalPackage.GetView("physicalPath").GetString(), ControlCharacters);
+	EXPECT_EQ(CanonicalPackage.GetView("diagnostics").GetView(0).GetString(),
+		ControlCharacters);
 }
