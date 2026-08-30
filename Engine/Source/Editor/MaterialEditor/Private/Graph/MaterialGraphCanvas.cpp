@@ -295,7 +295,6 @@ namespace Durin::Editor::Material
 		SurfaceGraphPosition = {
 			static_cast<float>(View.MaterialOutputPosition.first),
 			static_cast<float>(View.MaterialOutputPosition.second)};
-		SurfaceGraphRevision = AuthoredRevision;
 		return View;
 	}
 

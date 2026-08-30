@@ -57,7 +57,6 @@ namespace Durin::Editor::Material
 		float Zoom = 1.0f;
 		EMaterialGraphDetailLevel DetailLevel = EMaterialGraphDetailLevel::Editing;
 		std::optional<ImVec2> SurfaceGraphPosition;
-		uint64 SurfaceGraphRevision = std::numeric_limits<uint64>::max();
 		std::unordered_set<FGuid> SelectedNodes;
 		FGuid PendingFrameNode;
 		std::optional<EMaterialSurfaceOutput> SelectedSurfaceOutput;
