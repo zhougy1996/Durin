@@ -224,6 +224,69 @@ namespace Durin::Editor::Material
 		FMaterialParameterGroup Root;
 	};
 
+	class MMaterialEditor::FMaterialParameterRowScope
+	{
+	public:
+		FMaterialParameterRowScope(
+			MMaterialEditor& InEditor,
+			const FMaterialParameterPanelModel& Model,
+			const FMaterialParameterPanelEntry& InEntry
+		)
+			: Editor(InEditor)
+			, Entry(InEntry)
+			, Instance(Model.GetInstance())
+			, bOverrideEnabled(!Instance || Entry.bHasLocalOverride)
+		{
+			const FMaterialParameterDefinition& Definition = *Entry.Definition;
+			const std::string ParameterName = Definition.Name.ToString();
+			ImGui::PushID(ParameterName.c_str());
+			MonaImGui::PropertyEdit::BeginRow(Definition.DisplayName.c_str());
+			if (Instance)
+			{
+				if (ImGui::Checkbox("##Override", &bOverrideEnabled)
+					&& !Model.SetOverrideEnabled(Editor.PropertyView,
+						Editor.MakePropertyViewContext(), Entry, bOverrideEnabled))
+					bOverrideEnabled = !bOverrideEnabled;
+				ImGui::SameLine();
+				if (bOverrideEnabled && ImGui::SmallButton("Reset")
+					&& Model.SetOverrideEnabled(Editor.PropertyView,
+						Editor.MakePropertyViewContext(), Entry, false))
+					bOverrideEnabled = false;
+			}
+			if (!bOverrideEnabled)
+			{
+				ImGui::BeginDisabled();
+				bDisabled = true;
+			}
+		}
+
+		~FMaterialParameterRowScope()
+		{
+			if (bDisabled) ImGui::EndDisabled();
+			if (Instance) ImGui::TextDisabled("%s", FormatParameterSource(Entry).c_str());
+			MonaImGui::PropertyEdit::EndRow();
+			ImGui::PopID();
+		}
+
+		auto IsOverrideEnabled() const -> bool { return bOverrideEnabled; }
+
+		auto HandleContinuousEdit(bool bDeactivatedAfterEdit, bool bActive) -> void
+		{
+			if (bDeactivatedAfterEdit && Editor.PropertyView.IsEditing())
+				Editor.FinishActivePropertyEdit(false);
+			else if (bActive && ImGui::IsKeyPressed(ImGuiKey_Escape)
+				&& Editor.PropertyView.IsEditing())
+				Editor.FinishActivePropertyEdit(true);
+		}
+
+	private:
+		MMaterialEditor& Editor;
+		const FMaterialParameterPanelEntry& Entry;
+		DMaterialInstance* Instance = nullptr;
+		bool bOverrideEnabled = false;
+		bool bDisabled = false;
+	};
+
 	MMaterialEditor::MMaterialEditor(
 		::Durin::Editor::FWorkspaceManager& InWorkspaceManager,
 		FModuleOwnedCallbackGate OwnerGate)
@@ -920,19 +983,7 @@ namespace Durin::Editor::Material
 	) -> void
 	{
 		const FMaterialParameterDefinition& Definition = *Entry.Definition;
-		DMaterialInstance* Instance = Model.GetInstance();
-		bool bOverride = !Instance || Entry.bHasLocalOverride;
-		ImGui::PushID(Definition.Name.ToString().c_str());
-		MonaImGui::PropertyEdit::BeginRow(Definition.DisplayName.c_str());
-		if (Instance)
-		{
-			if (ImGui::Checkbox("##Override", &bOverride)
-				&& !Model.SetOverrideEnabled(PropertyView, MakePropertyViewContext(), Entry, bOverride)) bOverride = !bOverride;
-			ImGui::SameLine();
-			if (bOverride && ImGui::SmallButton("Reset")
-				&& Model.SetOverrideEnabled(PropertyView, MakePropertyViewContext(), Entry, false)) bOverride = false;
-			if (!bOverride) ImGui::BeginDisabled();
-		}
+		FMaterialParameterRowScope Row(*this, Model, Entry);
 		MonaImGui::PropertyEdit::FWidgetState WidgetState;
 		const MonaImGui::PropertyEdit::FValueWidgetConfig WidgetConfig{
 			.MaximumWidthInEm = MaximumMaterialVectorWidthInEm,
@@ -957,15 +1008,10 @@ namespace Durin::Editor::Material
 				"##Value", Value, 0.01, &WidgetState, WidgetConfig);
 			Edited.VectorValue = Value;
 		}
-		if (bChanged && bOverride
+		if (bChanged && Row.IsOverrideEnabled()
 			&& !Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
 			SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
-		if (WidgetState.bDeactivatedAfterEdit && PropertyView.IsEditing()) FinishActivePropertyEdit(false);
-		else if (WidgetState.bActive && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
-		if (Instance && !bOverride) ImGui::EndDisabled();
-		if (Instance) ImGui::TextDisabled("%s", FormatParameterSource(Entry).c_str());
-		MonaImGui::PropertyEdit::EndRow();
-		ImGui::PopID();
+		Row.HandleContinuousEdit(WidgetState.bDeactivatedAfterEdit, WidgetState.bActive);
 	}
 
 	auto MMaterialEditor::DrawColorParameter(
@@ -975,41 +1021,18 @@ namespace Durin::Editor::Material
 	{
 		const FMaterialParameterDefinition& Definition = *Entry.Definition;
 		FVector3 Value = Entry.Value.VectorValue;
-		DMaterialInstance* Instance = Model.GetInstance();
-		const std::string ParameterName = Definition.Name.ToString();
-		bool bOverride = !Instance || Entry.bHasLocalOverride;
-		ImGui::PushID(ParameterName.c_str());
-		MonaImGui::PropertyEdit::BeginRow(Definition.DisplayName.c_str());
-		if (Instance)
-		{
-			if (ImGui::Checkbox("##Override", &bOverride))
-			{
-				if (!Model.SetOverrideEnabled(PropertyView, MakePropertyViewContext(), Entry, bOverride))
-					bOverride = !bOverride;
-			}
-			ImGui::SameLine();
-			if (bOverride && ImGui::SmallButton("Reset"))
-			{
-				if (Model.SetOverrideEnabled(PropertyView, MakePropertyViewContext(), Entry, false))
-					bOverride = false;
-			}
-			if (!bOverride) ImGui::BeginDisabled();
-		}
+		FMaterialParameterRowScope Row(*this, Model, Entry);
 		float Color[3] = {static_cast<float>(Value.x), static_cast<float>(Value.y), static_cast<float>(Value.z)};
 		ImGui::SetNextItemWidth(-FLT_MIN);
-		if (ImGui::ColorEdit3("##Value", Color, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_InputRGB) && bOverride)
+		if (ImGui::ColorEdit3("##Value", Color, ImGuiColorEditFlags_Float | ImGuiColorEditFlags_InputRGB)
+			&& Row.IsOverrideEnabled())
 		{
 			FMaterialParameterValue Edited = Entry.Value;
 			Edited.VectorValue = FVector3(Color[0], Color[1], Color[2]);
 			if (!Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
 				SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
 		}
-		if (ImGui::IsItemDeactivatedAfterEdit() && PropertyView.IsEditing()) FinishActivePropertyEdit(false);
-		else if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
-		if (Instance && !bOverride) ImGui::EndDisabled();
-		if (Instance) ImGui::TextDisabled("%s", FormatParameterSource(Entry).c_str());
-		MonaImGui::PropertyEdit::EndRow();
-		ImGui::PopID();
+		Row.HandleContinuousEdit(ImGui::IsItemDeactivatedAfterEdit(), ImGui::IsItemActive());
 	}
 
 	auto MMaterialEditor::DrawScalarParameter(
@@ -1019,46 +1042,20 @@ namespace Durin::Editor::Material
 	{
 		const FMaterialParameterDefinition& Definition = *Entry.Definition;
 		float Value = Entry.Value.ScalarValue;
-		DMaterialInstance* Instance = Model.GetInstance();
-		const std::string ParameterName = Definition.Name.ToString();
-		bool bOverride = !Instance || Entry.bHasLocalOverride;
-		// The visible label belongs to the property-table column, while the actual controls use
-		// hidden labels. Scope the complete row by parameter name so base materials and instances
-		// both receive stable, distinct ImGui IDs.
-		ImGui::PushID(ParameterName.c_str());
-		MonaImGui::PropertyEdit::BeginRow(Definition.DisplayName.c_str());
-		if (Instance)
-		{
-			if (ImGui::Checkbox("##Override", &bOverride))
-			{
-				if (!Model.SetOverrideEnabled(PropertyView, MakePropertyViewContext(), Entry, bOverride))
-					bOverride = !bOverride;
-			}
-			ImGui::SameLine();
-			if (bOverride && ImGui::SmallButton("Reset"))
-			{
-				if (Model.SetOverrideEnabled(PropertyView, MakePropertyViewContext(), Entry, false))
-					bOverride = false;
-			}
-			if (!bOverride) ImGui::BeginDisabled();
-		}
+		FMaterialParameterRowScope Row(*this, Model, Entry);
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		const float Minimum = Definition.bHasRange ? Definition.MinimumValue : 0.0f;
 		const float Maximum = Definition.bHasRange ? Definition.MaximumValue : 0.0f;
 		const ImGuiSliderFlags Flags = Definition.bHasRange ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None;
-		if (ImGui::DragFloat("##Value", &Value, 0.01f, Minimum, Maximum, "%.3f", Flags) && bOverride)
+		if (ImGui::DragFloat("##Value", &Value, 0.01f, Minimum, Maximum, "%.3f", Flags)
+			&& Row.IsOverrideEnabled())
 		{
 			FMaterialParameterValue Edited = Entry.Value;
 			Edited.ScalarValue = Value;
 			if (!Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
 				SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
 		}
-		if (ImGui::IsItemDeactivatedAfterEdit() && PropertyView.IsEditing()) FinishActivePropertyEdit(false);
-		else if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
-		if (Instance && !bOverride) ImGui::EndDisabled();
-		if (Instance) ImGui::TextDisabled("%s", FormatParameterSource(Entry).c_str());
-		MonaImGui::PropertyEdit::EndRow();
-		ImGui::PopID();
+		Row.HandleContinuousEdit(ImGui::IsItemDeactivatedAfterEdit(), ImGui::IsItemActive());
 	}
 
 	auto MMaterialEditor::DrawIntegerParameter(
@@ -1067,26 +1064,7 @@ namespace Durin::Editor::Material
 	) -> void
 	{
 		const FMaterialParameterDefinition& Definition = *Entry.Definition;
-		DMaterialInstance* Instance = Model.GetInstance();
-		const std::string ParameterName = Definition.Name.ToString();
-		bool bOverride = !Instance || Entry.bHasLocalOverride;
-		ImGui::PushID(ParameterName.c_str());
-		MonaImGui::PropertyEdit::BeginRow(Definition.DisplayName.c_str());
-		if (Instance)
-		{
-			if (ImGui::Checkbox("##Override", &bOverride))
-			{
-				if (!Model.SetOverrideEnabled(PropertyView, MakePropertyViewContext(), Entry, bOverride))
-					bOverride = !bOverride;
-			}
-			ImGui::SameLine();
-			if (bOverride && ImGui::SmallButton("Reset"))
-			{
-				if (Model.SetOverrideEnabled(PropertyView, MakePropertyViewContext(), Entry, false))
-					bOverride = false;
-			}
-			if (!bOverride) ImGui::BeginDisabled();
-		}
+		FMaterialParameterRowScope Row(*this, Model, Entry);
 
 		float Scalar = std::isfinite(Entry.Value.ScalarValue)
 			? Entry.Value.ScalarValue : Definition.Value.ScalarValue;
@@ -1100,19 +1078,15 @@ namespace Durin::Editor::Material
 		ImGui::SetNextItemWidth(-FLT_MIN);
 		const ImGuiSliderFlags Flags = Definition.bHasRange
 			? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None;
-		if (ImGui::DragInt("##Value", &Value, 1.0f, Minimum, Maximum, "%d", Flags) && bOverride)
+		if (ImGui::DragInt("##Value", &Value, 1.0f, Minimum, Maximum, "%d", Flags)
+			&& Row.IsOverrideEnabled())
 		{
 			FMaterialParameterValue Edited = Entry.Value;
 			Edited.ScalarValue = static_cast<float>(Value);
 			if (!Model.SubmitValueEdit(PropertyView, MakePropertyViewContext(), Entry, Edited, true))
 				SetError(std::format("The reflected {} parameter is unavailable.", Definition.DisplayName));
 		}
-		if (ImGui::IsItemDeactivatedAfterEdit() && PropertyView.IsEditing()) FinishActivePropertyEdit(false);
-		else if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape) && PropertyView.IsEditing()) FinishActivePropertyEdit(true);
-		if (Instance && !bOverride) ImGui::EndDisabled();
-		if (Instance) ImGui::TextDisabled("%s", FormatParameterSource(Entry).c_str());
-		MonaImGui::PropertyEdit::EndRow();
-		ImGui::PopID();
+		Row.HandleContinuousEdit(ImGui::IsItemDeactivatedAfterEdit(), ImGui::IsItemActive());
 	}
 
 	auto MMaterialEditor::DrawTextureParameter(
@@ -1122,26 +1096,7 @@ namespace Durin::Editor::Material
 	{
 		const FMaterialParameterDefinition& Definition = *Entry.Definition;
 		DTexture2D* Texture = Entry.Value.TextureValue.Get();
-		DMaterialInstance* Instance = Model.GetInstance();
-		const std::string ParameterName = Definition.Name.ToString();
-		bool bOverride = !Instance || Entry.bHasLocalOverride;
-		ImGui::PushID(ParameterName.c_str());
-		MonaImGui::PropertyEdit::BeginRow(Definition.DisplayName.c_str());
-		if (Instance)
-		{
-			if (ImGui::Checkbox("##Override", &bOverride))
-			{
-				if (!Model.SetOverrideEnabled(PropertyView, MakePropertyViewContext(), Entry, bOverride))
-					bOverride = !bOverride;
-			}
-			ImGui::SameLine();
-			if (bOverride && ImGui::SmallButton("Reset"))
-			{
-				if (Model.SetOverrideEnabled(PropertyView, MakePropertyViewContext(), Entry, false))
-					bOverride = false;
-			}
-		}
-		if (!bOverride) ImGui::BeginDisabled();
+		FMaterialParameterRowScope Row(*this, Model, Entry);
 		const ::Durin::Editor::FAssetPickerResult PickerResult = ::Durin::Editor::AssetPicker::Draw({
 			.ComboId = "##Texture",
 			.SearchId = "##TextureSearch",
@@ -1166,11 +1121,7 @@ namespace Durin::Editor::Material
 				return bAssigned;
 			},
 		});
-		if (!bOverride) ImGui::EndDisabled();
 		if (!PickerResult.Error.empty()) SetError(PickerResult.Error);
-		if (Instance) ImGui::TextDisabled("%s", FormatParameterSource(Entry).c_str());
-		MonaImGui::PropertyEdit::EndRow();
-		ImGui::PopID();
 	}
 
 	auto MMaterialEditor::DrawOrphanParameter(

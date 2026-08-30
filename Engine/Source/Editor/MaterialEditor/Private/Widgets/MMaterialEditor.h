@@ -53,6 +53,8 @@ namespace Durin::Editor::Material
 		MATERIALEDITOR_API auto ResetLayout() -> void override;
 
 	private:
+		class FMaterialParameterRowScope;
+
 		auto FindOpenMaterial(std::string_view ResourceId) const -> DMaterialInterface*;
 		auto GetActiveMaterial() const -> DMaterialInterface*;
 		auto SaveMaterial(DMaterialInterface* Material) -> bool;
