@@ -7,6 +7,8 @@
 
 namespace Durin
 {
+	struct FStaticMeshLODResources;
+
 	inline constexpr uint32 InvalidStaticMeshLODIndex =
 		std::numeric_limits<uint32>::max();
 
@@ -72,10 +74,10 @@ namespace Durin
 	// Selects the first threshold met by the size, so exact equality chooses the higher-detail LOD.
 	RENDERER_API auto SelectStaticMeshLOD(
 		float NormalizedScreenSize,
-		std::span<const float> ScreenSizes) -> uint32;
+		std::span<const FStaticMeshLODResources> LODResources) -> uint32;
 
 	// Prefers ready lower-detail LODs before searching back toward higher detail.
 	RENDERER_API auto ResolveAvailableStaticMeshLOD(
 		uint32 RequestedLOD,
-		std::span<const uint8> ReadyLODs) -> uint32;
+		std::span<const FStaticMeshLODResources> LODResources) -> uint32;
 } // namespace Durin

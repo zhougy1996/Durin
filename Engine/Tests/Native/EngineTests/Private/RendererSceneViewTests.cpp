@@ -7,6 +7,7 @@
 #include "Renderers/DirectionalShadowView.h"
 #include "Renderers/ViewPreparationMath.h"
 #include "SceneViewProjection.h"
+#include "StaticMesh/StaticMeshResources.h"
 
 namespace Durin
 {
@@ -980,27 +981,33 @@ namespace Durin
 			MakeDefaultStaticMeshLODScreenSizes(3);
 		ASSERT_EQ(ScreenSizes, (std::vector<float>{0.5f, 0.25f, 0.0f}));
 		ASSERT_TRUE(ValidateStaticMeshLODScreenSizes(ScreenSizes));
-		EXPECT_EQ(SelectStaticMeshLOD(0.5f, ScreenSizes), 0u);
-		EXPECT_EQ(SelectStaticMeshLOD(0.49f, ScreenSizes), 1u);
-		EXPECT_EQ(SelectStaticMeshLOD(0.25f, ScreenSizes), 1u);
-		EXPECT_EQ(SelectStaticMeshLOD(0.24f, ScreenSizes), 2u);
+		std::array<FStaticMeshLODResources, 3> LODResources;
+		for (size_t LODIndex = 0; LODIndex < LODResources.size(); ++LODIndex)
+		{
+			LODResources[LODIndex].ScreenSize = ScreenSizes[LODIndex];
+		}
+		EXPECT_EQ(SelectStaticMeshLOD(0.5f, LODResources), 0u);
+		EXPECT_EQ(SelectStaticMeshLOD(0.49f, LODResources), 1u);
+		EXPECT_EQ(SelectStaticMeshLOD(0.25f, LODResources), 1u);
+		EXPECT_EQ(SelectStaticMeshLOD(0.24f, LODResources), 2u);
 		EXPECT_EQ(
-			SelectStaticMeshLOD(std::numeric_limits<float>::quiet_NaN(), ScreenSizes),
+			SelectStaticMeshLOD(std::numeric_limits<float>::quiet_NaN(), LODResources),
 			0u);
+		LODResources[2].bReadyForRendering = true;
 		EXPECT_EQ(
 			ResolveAvailableStaticMeshLOD(
-				1,
-				std::to_array<uint8>({0, 0, 1})),
+				1, LODResources),
 			2u);
+		LODResources[0].bReadyForRendering = true;
+		LODResources[2].bReadyForRendering = false;
 		EXPECT_EQ(
 			ResolveAvailableStaticMeshLOD(
-				2,
-				std::to_array<uint8>({1, 0, 0})),
+				2, LODResources),
 			0u);
+		LODResources[0].bReadyForRendering = false;
 		EXPECT_EQ(
 			ResolveAvailableStaticMeshLOD(
-				0,
-				std::to_array<uint8>({0, 0, 0})),
+				0, LODResources),
 			InvalidStaticMeshLODIndex);
 
 		struct FDistinctGeometryLOD
@@ -1040,13 +1047,13 @@ namespace Durin
 			  {0.0, 1.0, 0.0}},
 			 {0, 1, 2}}}};
 		EXPECT_EQ(
-			MeshLODs[SelectStaticMeshLOD(0.6f, ScreenSizes)].GetTriangleCount(),
+			MeshLODs[SelectStaticMeshLOD(0.6f, LODResources)].GetTriangleCount(),
 			4u);
 		EXPECT_EQ(
-			MeshLODs[SelectStaticMeshLOD(0.3f, ScreenSizes)].GetTriangleCount(),
+			MeshLODs[SelectStaticMeshLOD(0.3f, LODResources)].GetTriangleCount(),
 			2u);
 		EXPECT_EQ(
-			MeshLODs[SelectStaticMeshLOD(0.1f, ScreenSizes)].GetTriangleCount(),
+			MeshLODs[SelectStaticMeshLOD(0.1f, LODResources)].GetTriangleCount(),
 			1u);
 		const FBox LOD0Bounds = MeshLODs[0].GetLocalBounds();
 		const FBox LOD2Bounds = MeshLODs[2].GetLocalBounds();

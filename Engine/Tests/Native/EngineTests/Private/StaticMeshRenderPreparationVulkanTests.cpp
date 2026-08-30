@@ -404,6 +404,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 			ASSERT_TRUE(RenderData->InitResources(CommandList));
 			ASSERT_TRUE(MultiLODRenderData->InitResources(CommandList));
 			ASSERT_TRUE(RenderData->IsReadyForRendering());
+			EXPECT_TRUE(std::ranges::all_of(
+				MultiLODRenderData->LODResources,
+				[](const Durin::FStaticMeshLODResources& LOD) {
+					return LOD.bReadyForRendering;
+				}));
 			auto& PublishedSection = RenderData->LODResources[0].Sections[0];
 			const uint32 PublishedIndexCount = PublishedSection.IndexCount;
 			PublishedSection.IndexCount = 1;
@@ -786,6 +791,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 
 			MultiLODRenderData->LODVertexFactories[1]
 				.VertexFactory.ReleaseResource();
+			MultiLODRenderData->LODResources[1].bReadyForRendering = false;
 			const Durin::FPreparedStaticMeshView Fallback =
 				Prepare(MakeOrthographicView(2.5));
 			ASSERT_EQ(Fallback.Primitives.size(), 1u);
@@ -797,8 +803,10 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 				Fallback.Primitives.size() + Fallback.RejectedPrimitives);
 			MultiLODRenderData->LODVertexFactories[0]
 				.VertexFactory.ReleaseResource();
+			MultiLODRenderData->LODResources[0].bReadyForRendering = false;
 			MultiLODRenderData->LODVertexFactories[2]
 				.VertexFactory.ReleaseResource();
+			MultiLODRenderData->LODResources[2].bReadyForRendering = false;
 			const Durin::FPreparedStaticMeshView Unavailable =
 				Prepare(MakeOrthographicView(2.5));
 			EXPECT_TRUE(Unavailable.Primitives.empty());
@@ -874,6 +882,11 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 				Durin::ERasterMode::Solid).GetNumSections(), 0u);
 			RenderData->ReleaseResources();
 			MultiLODRenderData->ReleaseResources();
+			EXPECT_TRUE(std::ranges::none_of(
+				MultiLODRenderData->LODResources,
+				[](const Durin::FStaticMeshLODResources& LOD) {
+					return LOD.bReadyForRendering;
+				}));
 		}
 	);
 	Durin::FlushRenderingCommands();

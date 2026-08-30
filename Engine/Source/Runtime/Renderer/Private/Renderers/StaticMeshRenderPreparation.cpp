@@ -45,21 +45,6 @@ namespace Durin
 				return;
 			}
 
-			std::vector<float> ScreenSizes;
-			std::vector<uint8> ReadyLODs;
-			ScreenSizes.reserve(RenderData->LODResources.size());
-			ReadyLODs.reserve(RenderData->LODResources.size());
-			for (uint32 LODIndex = 0;
-				 LODIndex < static_cast<uint32>(RenderData->LODResources.size());
-				 ++LODIndex)
-			{
-				ScreenSizes.push_back(
-					RenderData->LODResources[LODIndex].ScreenSize
-				);
-				ReadyLODs.push_back(
-					RenderData->IsReadyForRendering(LODIndex) ? 1u : 0u
-				);
-			}
 			const FProjectedScreenSizeResult ProjectedSize =
 				ComputeProjectedScreenSize(View, SceneInfo->GetWorldBounds());
 			if (ProjectedSize.Status != EProjectedScreenSizeStatus::Valid)
@@ -67,9 +52,14 @@ namespace Durin
 				++Result.ProjectedSizeFallbacks;
 			}
 			const uint32 RequestedLODIndex =
-				View.Settings.Mode.LODMode == EViewLODMode::ForceLOD0 ? 0u : SelectStaticMeshLOD(ProjectedSize.NormalizedScreenSize, ScreenSizes);
+				View.Settings.Mode.LODMode == EViewLODMode::ForceLOD0 ?
+					0u :
+					SelectStaticMeshLOD(
+						ProjectedSize.NormalizedScreenSize,
+						RenderData->LODResources
+					);
 			const uint32 SelectedLODIndex = ResolveAvailableStaticMeshLOD(
-				RequestedLODIndex, ReadyLODs
+				RequestedLODIndex, RenderData->LODResources
 			);
 			if (SelectedLODIndex == InvalidStaticMeshLODIndex)
 			{

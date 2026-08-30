@@ -1,6 +1,7 @@
 #include "Renderers/ViewPreparationMath.h"
 
 #include "Math/Operations.h"
+#include "StaticMesh/StaticMeshResources.h"
 
 namespace Durin
 {
@@ -22,6 +23,27 @@ namespace Durin
 		{
 			return std::isfinite(Value.x) && std::isfinite(Value.y)
 				&& std::isfinite(Value.z) && std::isfinite(Value.w);
+		}
+
+		auto ValidateStaticMeshLODResources(
+			std::span<const FStaticMeshLODResources> LODResources) -> bool
+		{
+			if (LODResources.empty() || LODResources.back().ScreenSize != 0.0f)
+			{
+				return false;
+			}
+			for (size_t LODIndex = 0; LODIndex < LODResources.size(); ++LODIndex)
+			{
+				const float ScreenSize = LODResources[LODIndex].ScreenSize;
+				if (!std::isfinite(ScreenSize) || ScreenSize < 0.0f
+					|| ScreenSize > 1.0f
+					|| (LODIndex > 0
+						&& LODResources[LODIndex - 1].ScreenSize <= ScreenSize))
+				{
+					return false;
+				}
+			}
+			return true;
 		}
 
 		auto IsFiniteBounds(const FBox& Bounds) -> bool
@@ -250,46 +272,46 @@ namespace Durin
 
 	auto SelectStaticMeshLOD(
 		float NormalizedScreenSize,
-		std::span<const float> ScreenSizes) -> uint32
+		std::span<const FStaticMeshLODResources> LODResources) -> uint32
 	{
 		if (!std::isfinite(NormalizedScreenSize)
 			|| NormalizedScreenSize < 0.0f || NormalizedScreenSize > 1.0f
-			|| !ValidateStaticMeshLODScreenSizes(ScreenSizes))
+			|| !ValidateStaticMeshLODResources(LODResources))
 		{
 			return 0;
 		}
 		for (uint32 LODIndex = 0;
-			 LODIndex < static_cast<uint32>(ScreenSizes.size());
+			 LODIndex < static_cast<uint32>(LODResources.size());
 			 ++LODIndex)
 		{
-			if (NormalizedScreenSize >= ScreenSizes[LODIndex])
+			if (NormalizedScreenSize >= LODResources[LODIndex].ScreenSize)
 			{
 				return LODIndex;
 			}
 		}
-		return static_cast<uint32>(ScreenSizes.size() - 1);
+		return static_cast<uint32>(LODResources.size() - 1);
 	}
 
 	auto ResolveAvailableStaticMeshLOD(
 		uint32 RequestedLOD,
-		std::span<const uint8> ReadyLODs) -> uint32
+		std::span<const FStaticMeshLODResources> LODResources) -> uint32
 	{
-		if (RequestedLOD >= ReadyLODs.size())
+		if (RequestedLOD >= LODResources.size())
 		{
 			return InvalidStaticMeshLODIndex;
 		}
 		for (uint32 LODIndex = RequestedLOD;
-			 LODIndex < static_cast<uint32>(ReadyLODs.size());
+			 LODIndex < static_cast<uint32>(LODResources.size());
 			 ++LODIndex)
 		{
-			if (ReadyLODs[LODIndex] != 0)
+			if (LODResources[LODIndex].bReadyForRendering)
 			{
 				return LODIndex;
 			}
 		}
 		for (uint32 LODIndex = RequestedLOD; LODIndex > 0; --LODIndex)
 		{
-			if (ReadyLODs[LODIndex - 1] != 0)
+			if (LODResources[LODIndex - 1].bReadyForRendering)
 			{
 				return LODIndex - 1;
 			}

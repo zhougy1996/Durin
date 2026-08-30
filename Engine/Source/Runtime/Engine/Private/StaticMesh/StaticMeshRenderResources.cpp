@@ -401,7 +401,6 @@ namespace Durin
 				return false;
 			}
 		}
-		bGeometryValidated = true;
 		for (FStaticMeshLODResources& LOD : LODResources)
 		{
 			LOD.VertexBuffers.InitResources(RHICmdList);
@@ -441,13 +440,16 @@ namespace Durin
 			ReleaseResources();
 			return false;
 		}
+		for (FStaticMeshLODResources& LOD : LODResources)
+		{
+			LOD.bReadyForRendering = true;
+		}
 		return true;
 	}
 
 	auto FStaticMeshRenderData::ReleaseResources() -> void
 	{
 		check(IsInRenderingThread());
-		bGeometryValidated = false;
 		for (FStaticMeshVertexFactories& Factories
 			: LODVertexFactories | std::views::reverse)
 		{
@@ -456,6 +458,7 @@ namespace Durin
 		for (FStaticMeshLODResources& LOD
 			: LODResources | std::views::reverse)
 		{
+			LOD.bReadyForRendering = false;
 			ReleaseStaticMeshResource(LOD.IndexBuffer);
 			LOD.VertexBuffers.ReleaseResources();
 		}
@@ -519,15 +522,11 @@ namespace Durin
 	auto FStaticMeshRenderData::IsReadyForRendering(uint32 LODIndex) const -> bool
 	{
 		if (LODVertexFactories.size() != LODResources.size()
-			|| !bGeometryValidated
 			|| LODIndex >= LODResources.size())
 		{
 			return false;
 		}
-		const FStaticMeshLODResources& LOD = LODResources[LODIndex];
-		return LOD.VertexBuffers.IsReady()
-			&& LOD.IndexBuffer.IsReady()
-			&& LODVertexFactories[LODIndex].VertexFactory.IsReady();
+		return LODResources[LODIndex].bReadyForRendering;
 	}
 
 	auto FStaticMeshRenderData::RecalculateBounds() -> void

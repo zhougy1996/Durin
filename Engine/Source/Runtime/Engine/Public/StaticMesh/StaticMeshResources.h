@@ -358,6 +358,9 @@ namespace Durin
 		uint8 NumTexCoords = 0;
 		bool bHasColorVertexData = false;
 		std::shared_ptr<const FRayQueryAcceleration> RayQueryAcceleration;
+		// Caches aggregate GPU-buffer and matching vertex-factory readiness
+		// for render-thread LOD selection.
+		bool bReadyForRendering = false;
 
 		auto GetNumVertices() const -> uint32
 		{
@@ -399,11 +402,6 @@ namespace Durin
 		ENGINE_API auto GetNumInitializedResources() const -> size_t;
 		ENGINE_API auto IsReadyForRendering(uint32 LODIndex = 0) const -> bool;
 		ENGINE_API auto RecalculateBounds() -> void;
-
-	private:
-		// Geometry is immutable after publication. Cache its initialization-time
-		// validation so render-thread readiness checks remain constant-time.
-		bool bGeometryValidated = false;
 	};
 
 	// Produces the deterministic policy used by builders without authored thresholds.
