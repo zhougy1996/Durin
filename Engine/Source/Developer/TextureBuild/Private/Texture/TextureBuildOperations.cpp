@@ -53,7 +53,7 @@ namespace Durin::Asset
 		const std::string Key = BuildTexture2DDerivedDataKey(KeyInput);
 		FBuildDefinition Definition;
 		FBuildDefinitionBuilder DefinitionBuilder(
-			Private::Texture2DFunctionIdentity, std::string(Private::Texture2DValueName));
+			Private::Texture2DFunctionName, std::string(Private::Texture2DValueName));
 		DefinitionBuilder.SetKey(FBuildKey::FromString(Key), KeyBytes)
 			.AddTargetFact("Platform", "Win64")
 			.AddTargetFact("Profile", "Game")
@@ -186,7 +186,7 @@ namespace Durin::Asset
 		}
 		FBuildDefinition Definition;
 		FBuildDefinitionBuilder Builder(
-			Private::Texture2DFunctionIdentity, std::string(Private::Texture2DValueName));
+			Private::Texture2DFunctionName, std::string(Private::Texture2DValueName));
 		Builder.SetKey(FBuildKey::FromString(Key))
 			.AddTargetFact("Platform", "Win64")
 			.AddTargetFact("Profile", "Game");

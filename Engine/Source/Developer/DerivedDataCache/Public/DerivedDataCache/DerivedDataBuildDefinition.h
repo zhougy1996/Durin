@@ -7,7 +7,7 @@ namespace Durin::DerivedData
 	class FBuildDefinition
 	{
 	public:
-		auto GetFunction() const -> const FBuildFunctionIdentity& { return Function; }
+		auto GetFunction() const -> const FBuildFunctionName& { return Function; }
 		auto GetKey() const -> const FBuildKey& { return Key; }
 		// The definition carries its output contract independently of the local
 		// registry so it can be serialized for future remote execution.
@@ -16,7 +16,7 @@ namespace Durin::DerivedData
 		DERIVEDDATACACHE_API auto GetTargetFact(std::string_view Name) const -> std::optional<std::string_view>;
 		auto HasLocalInputs() const -> bool { return !Inputs.empty(); }
 	private:
-		FBuildFunctionIdentity Function;
+		FBuildFunctionName Function;
 		FBuildKey Key;
 		std::string ExpectedValueName;
 		std::vector<FBuildValue> Inputs;
@@ -28,7 +28,7 @@ namespace Durin::DerivedData
 	{
 	public:
 		DERIVEDDATACACHE_API FBuildDefinitionBuilder(
-			FBuildFunctionIdentity Function, std::string ExpectedValueName);
+			FBuildFunctionName Function, std::string ExpectedValueName);
 		DERIVEDDATACACHE_API auto SetKey(
 			FBuildKey Key, std::span<const std::byte> CanonicalKeyInput = {})
 			-> FBuildDefinitionBuilder&;

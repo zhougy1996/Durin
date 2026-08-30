@@ -7,8 +7,8 @@ namespace Durin::Asset::Private
 {
 	using namespace ::Durin::DerivedData;
 
-	extern const FBuildFunctionIdentity SkeletalMeshFunctionIdentity;
-	extern const FBuildFunctionIdentity AnimationClipFunctionIdentity;
+	extern const FBuildFunctionName SkeletalMeshFunctionName;
+	extern const FBuildFunctionName AnimationClipFunctionName;
 	inline constexpr std::string_view SkeletalMeshInputName = "SkeletalMeshBuildInput";
 	inline constexpr std::string_view AnimationClipInputName = "AnimationClipBuildInput";
 	inline constexpr std::string_view SkeletalValueName = "SkeletalPayload";

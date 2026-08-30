@@ -1183,7 +1183,7 @@ namespace Durin::Asset
 				return Fail(ETerrainWorldOutcome::PublicationFailed,
 					"Terrain tile product build key could not be created.", OutOutcome, OutError);
 			FBuildDefinition Definition;
-			FBuildDefinitionBuilder Builder(Private::GetTerrainWorldBuildFunctionIdentity(Class),
+			FBuildDefinitionBuilder Builder(Private::GetTerrainWorldBuildFunctionName(Class),
 				std::string(Private::GetTerrainWorldBuildValueName(Class)));
 			Builder.SetKey(FBuildKey::FromString(DerivedDataKey))
 				.AddTargetFact("TerrainProductClass", std::to_string(Value))

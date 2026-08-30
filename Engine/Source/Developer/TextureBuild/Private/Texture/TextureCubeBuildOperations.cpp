@@ -47,7 +47,7 @@ namespace Durin::Asset
 			if (OutKey.empty()) return false;
 			FBuildDefinition Definition;
 			FBuildDefinitionBuilder Builder(
-				Private::TextureCubeFunctionIdentity,
+				Private::TextureCubeFunctionName,
 				std::string(Private::TextureCubeValueName));
 			Builder.SetKey(FBuildKey::FromString(OutKey), KeyBytes)
 				.AddTargetFact("Platform", "Win64")
@@ -173,7 +173,7 @@ namespace Durin::Asset
 		}
 		FBuildDefinition Definition;
 		FBuildDefinitionBuilder Builder(
-			Private::TextureCubeFunctionIdentity,
+			Private::TextureCubeFunctionName,
 			std::string(Private::TextureCubeValueName));
 		Builder.SetKey(FBuildKey::FromString(Key))
 			.AddTargetFact("Platform", "Win64")

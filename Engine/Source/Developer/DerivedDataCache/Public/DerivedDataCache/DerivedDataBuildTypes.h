@@ -41,12 +41,18 @@ namespace Durin::DerivedData
 		std::string Value;
 	};
 
-	struct FBuildFunctionIdentity
+	// Identifies one registered Build capability by a stable, case-sensitive name.
+	class FBuildFunctionName
 	{
-		std::string Name;
-		uint32 Version = 0;
-		auto IsValid() const -> bool { return !Name.empty() && Version != 0; }
-		auto operator==(const FBuildFunctionIdentity&) const -> bool = default;
+	public:
+		DERIVEDDATACACHE_API static auto FromString(
+			std::string_view Value, std::string* OutError = nullptr) -> FBuildFunctionName;
+		auto IsValid() const -> bool { return !Value.empty(); }
+		auto ToString() const -> std::string_view { return Value; }
+		auto operator==(const FBuildFunctionName&) const -> bool = default;
+
+	private:
+		std::string Value;
 	};
 
 	struct FBuildPolicy

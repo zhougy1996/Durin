@@ -7,8 +7,8 @@ namespace Durin::Asset::Private
 {
 	using namespace ::Durin::DerivedData;
 
-	extern const FBuildFunctionIdentity StaticMeshFunctionIdentity;
-	extern const FBuildFunctionIdentity StaticMeshCollisionFunctionIdentity;
+	extern const FBuildFunctionName StaticMeshFunctionName;
+	extern const FBuildFunctionName StaticMeshCollisionFunctionName;
 	inline constexpr std::string_view StaticMeshInputName = "StaticMeshBuildInput";
 	inline constexpr std::string_view StaticMeshValueName = "StaticMeshPayload";
 	inline constexpr std::string_view CollisionInputName = "StaticMeshCollisionBuildInput";

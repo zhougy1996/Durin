@@ -2,6 +2,7 @@
 
 #include "Serialization/BinaryFormat.h"
 #include "Serialization/Archive.h"
+#include "Texture/Texture2DDerivedData.h"
 #include "Texture/TextureBuilder.h"
 #include "Texture/TextureCubeBuilder.h"
 #include "Texture/TextureDerivedData.h"
@@ -9,12 +10,12 @@
 
 namespace Durin::Asset::Private
 {
-	const FBuildFunctionIdentity Texture2DFunctionIdentity{
-		"Durin.TextureBuild.Texture2D", 1};
-	const FBuildFunctionIdentity TextureCubeFunctionIdentity{
-		"Durin.TextureBuild.TextureCube", 1};
-	const FBuildFunctionIdentity VolumeTextureFunctionIdentity{
-		"Durin.TextureBuild.VolumeTexture", 1};
+	const FBuildFunctionName Texture2DFunctionName =
+		FBuildFunctionName::FromString("Durin.TextureBuild.Texture2D");
+	const FBuildFunctionName TextureCubeFunctionName =
+		FBuildFunctionName::FromString("Durin.TextureBuild.TextureCube");
+	const FBuildFunctionName VolumeTextureFunctionName =
+		FBuildFunctionName::FromString("Durin.TextureBuild.VolumeTexture");
 
 	namespace
 	{
@@ -176,7 +177,8 @@ namespace Durin::Asset::Private
 		public:
 			auto GetConfig() const -> FBuildFunctionConfig override
 			{
-				return {.CacheBucket = "Textures/Objects",
+				return {.Version = Texture2DBuilderVersion,
+					.CacheBucket = "Textures/Objects",
 					.ExpectedValueName = std::string(Texture2DValueName),
 					.MaximumValueBytes = MaximumTexturePayloadBytes,
 					.CleanupBudgetBytes = TextureDerivedDataBudgetBytes,
@@ -233,7 +235,8 @@ namespace Durin::Asset::Private
 		public:
 			auto GetConfig() const -> FBuildFunctionConfig override
 			{
-				return {.CacheBucket = "TextureCube/Objects",
+				return {.Version = TextureCubeBuilderVersion,
+					.CacheBucket = "TextureCube/Objects",
 					.ExpectedValueName = std::string(TextureCubeValueName),
 					.MaximumValueBytes = MaximumTexturePayloadBytes,
 					.CleanupBudgetBytes = TextureDerivedDataBudgetBytes,
@@ -301,7 +304,8 @@ namespace Durin::Asset::Private
 		public:
 			auto GetConfig() const -> FBuildFunctionConfig override
 			{
-				return {.CacheBucket = "VolumeTexture/Objects",
+				return {.Version = VolumeTextureBuilderVersion,
+					.CacheBucket = "VolumeTexture/Objects",
 					.ExpectedValueName = std::string(VolumeTextureValueName),
 					.MaximumValueBytes = MaximumTexturePayloadBytes,
 					.CleanupBudgetBytes = TextureDerivedDataBudgetBytes,

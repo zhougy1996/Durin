@@ -27,14 +27,14 @@ namespace Durin::Asset
 		if (bAcquiredRender)
 		{
 			GStaticMeshRegistration = RegisterBuildFunction(
-				Private::StaticMeshFunctionIdentity,
+				Private::StaticMeshFunctionName,
 				Private::CreateStaticMeshBuildFunction(), Gate, OutError);
 			if (!GStaticMeshRegistration.IsValid()) return false;
 		}
 		if (bAcquiredCollision)
 		{
 			GStaticMeshCollisionRegistration = RegisterBuildFunction(
-				Private::StaticMeshCollisionFunctionIdentity,
+				Private::StaticMeshCollisionFunctionName,
 				Private::CreateStaticMeshCollisionBuildFunction(), Gate, OutError);
 			if (!GStaticMeshCollisionRegistration.IsValid())
 			{

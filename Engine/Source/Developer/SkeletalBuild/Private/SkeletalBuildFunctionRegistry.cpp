@@ -27,14 +27,14 @@ namespace Durin::Asset
 		if (bAcquiredSkeletalMesh)
 		{
 			GSkeletalMeshRegistration = RegisterBuildFunction(
-				Private::SkeletalMeshFunctionIdentity,
+				Private::SkeletalMeshFunctionName,
 				Private::CreateSkeletalMeshBuildFunction(), Gate, OutError);
 			if (!GSkeletalMeshRegistration.IsValid()) return false;
 		}
 		if (bAcquiredAnimationClip)
 		{
 			GAnimationClipRegistration = RegisterBuildFunction(
-				Private::AnimationClipFunctionIdentity,
+				Private::AnimationClipFunctionName,
 				Private::CreateAnimationClipBuildFunction(), Gate, OutError);
 			if (!GAnimationClipRegistration.IsValid())
 			{

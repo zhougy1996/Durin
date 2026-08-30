@@ -175,7 +175,8 @@ namespace Durin::Asset::Private
 
 			auto GetConfig() const -> FBuildFunctionConfig override
 			{
-				return {.CacheBucket = std::format("TerrainWorld/{}/Objects",
+				return {.Version = TerrainWorldBuilderVersion,
+					.CacheBucket = std::format("TerrainWorld/{}/Objects",
 					GetTerrainWorldBuildValueName(ProductClass)),
 					.ExpectedValueName = std::string(GetTerrainWorldBuildValueName(ProductClass)),
 					.MaximumValueBytes = MaximumBodyBytes(ProductClass)};
@@ -221,11 +222,12 @@ namespace Durin::Asset::Private
 		};
 	}
 
-	auto GetTerrainWorldBuildFunctionIdentity(ETerrainTileProductClass ProductClass)
-		-> FBuildFunctionIdentity
+	auto GetTerrainWorldBuildFunctionName(ETerrainTileProductClass ProductClass)
+		-> FBuildFunctionName
 	{
-		return {std::format("Durin.GeometryBuild.TerrainWorld.{}",
-			GetTerrainWorldBuildValueName(ProductClass)), 1};
+		return FBuildFunctionName::FromString(std::format(
+			"Durin.GeometryBuild.TerrainWorld.{}",
+			GetTerrainWorldBuildValueName(ProductClass)));
 	}
 
 	auto ValidateTerrainWorldProductBody(ETerrainTileProductClass ProductClass,

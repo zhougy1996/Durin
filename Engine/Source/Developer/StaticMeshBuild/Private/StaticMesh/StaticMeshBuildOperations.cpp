@@ -586,7 +586,7 @@ namespace Durin::Asset
 		}
 		const std::vector<std::byte> KeyBytes = BuildStaticMeshDerivedDataKeyBytes(KeyInput, OutError);
 		FBuildDefinition Definition;
-		FBuildDefinitionBuilder Builder(Private::StaticMeshFunctionIdentity, std::string(Private::StaticMeshValueName));
+		FBuildDefinitionBuilder Builder(Private::StaticMeshFunctionName, std::string(Private::StaticMeshValueName));
 		Builder.SetKey(FBuildKey::FromString(Product.DerivedDataKey), KeyBytes)
 			.AddTargetFact("Platform", "Win64")
 			.AddInput(FBuildValue::FromOwned(std::string(Private::StaticMeshInputName),
@@ -653,7 +653,7 @@ namespace Durin::Asset
 
 		FBuildDefinition Definition;
 		FBuildDefinitionBuilder Builder(
-			Private::StaticMeshFunctionIdentity,
+			Private::StaticMeshFunctionName,
 			std::string(Private::StaticMeshValueName));
 		Builder.SetKey(FBuildKey::FromString(Key), KeyBytes)
 			.AddTargetFact("Platform", "Win64");
@@ -739,7 +739,7 @@ namespace Durin::Asset
 			BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput, OutError);
 		FBuildDefinition Definition;
 		FBuildDefinitionBuilder Builder(
-			Private::StaticMeshCollisionFunctionIdentity, std::string(Private::CollisionValueName));
+			Private::StaticMeshCollisionFunctionName, std::string(Private::CollisionValueName));
 		Builder.SetKey(FBuildKey::FromString(OutProduct.DerivedDataKey), KeyBytes)
 			.AddTargetFact("Platform", "Win64")
 			.AddTargetFact("Mode", std::to_string(static_cast<uint32>(Mode)))

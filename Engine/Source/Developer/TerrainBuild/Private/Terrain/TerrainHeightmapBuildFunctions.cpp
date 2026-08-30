@@ -6,8 +6,8 @@
 
 namespace Durin::Asset::Private
 {
-	const FBuildFunctionIdentity TerrainHeightmapFunctionIdentity{
-		"Durin.GeometryBuild.TerrainHeightmap", 1};
+	const FBuildFunctionName TerrainHeightmapFunctionName =
+		FBuildFunctionName::FromString("Durin.GeometryBuild.TerrainHeightmap");
 
 	namespace
 	{
@@ -79,7 +79,8 @@ namespace Durin::Asset::Private
 		public:
 			auto GetConfig() const -> FBuildFunctionConfig override
 			{
-				return {.CacheBucket = "TerrainHeightmap/Objects",
+				return {.Version = TerrainHeightmapBuilderVersion,
+					.CacheBucket = "TerrainHeightmap/Objects",
 					.ExpectedValueName = std::string(TerrainHeightmapValueName),
 					.MaximumValueBytes = MaximumTerrainHeightmapPayloadBytes};
 			}

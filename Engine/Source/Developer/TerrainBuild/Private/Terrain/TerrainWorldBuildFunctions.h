@@ -9,8 +9,8 @@ namespace Durin::Asset::Private
 
 	inline constexpr std::string_view TerrainWorldProductInputName = "TerrainWorldProductBody";
 
-	auto GetTerrainWorldBuildFunctionIdentity(ETerrainTileProductClass ProductClass)
-		-> FBuildFunctionIdentity;
+	auto GetTerrainWorldBuildFunctionName(ETerrainTileProductClass ProductClass)
+		-> FBuildFunctionName;
 	auto GetTerrainWorldBuildValueName(ETerrainTileProductClass ProductClass)
 		-> std::string_view;
 	auto CreateTerrainWorldBuildFunction(ETerrainTileProductClass ProductClass)

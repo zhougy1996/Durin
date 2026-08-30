@@ -4,10 +4,10 @@
 
 namespace Durin::Asset::Private
 {
-	const FBuildFunctionIdentity SkeletalMeshFunctionIdentity{
-		"Durin.GeometryBuild.SkeletalMesh", 1};
-	const FBuildFunctionIdentity AnimationClipFunctionIdentity{
-		"Durin.GeometryBuild.AnimationClip", 1};
+	const FBuildFunctionName SkeletalMeshFunctionName =
+		FBuildFunctionName::FromString("Durin.GeometryBuild.SkeletalMesh");
+	const FBuildFunctionName AnimationClipFunctionName =
+		FBuildFunctionName::FromString("Durin.GeometryBuild.AnimationClip");
 
 	namespace
 	{
@@ -89,16 +89,16 @@ namespace Durin::Asset::Private
 		class TSkeletalBuildFunction final : public IBuildFunction
 		{
 		public:
-			TSkeletalBuildFunction(
+			TSkeletalBuildFunction(uint32 InVersion,
 				std::string InRoot, std::string InInputName, uint64 InMaximumBytes)
-				: Root(std::move(InRoot)), InputName(std::move(InInputName)),
+				: Version(InVersion), Root(std::move(InRoot)), InputName(std::move(InInputName)),
 				  MaximumBytes(InMaximumBytes)
 			{
 			}
 
 			auto GetConfig() const -> FBuildFunctionConfig override
 			{
-				return {.CacheBucket = Root,
+				return {.Version = Version, .CacheBucket = Root,
 					.ExpectedValueName = std::string(SkeletalValueName),
 					.MaximumValueBytes = MaximumBytes,
 					.CleanupBudgetBytes = SkeletalDerivedDataBudgetBytes,
@@ -151,6 +151,7 @@ namespace Durin::Asset::Private
 			}
 
 		private:
+			uint32 Version = 0;
 			std::string Root;
 			std::string InputName;
 			uint64 MaximumBytes = 0;
@@ -196,14 +197,14 @@ namespace Durin::Asset::Private
 	auto CreateSkeletalMeshBuildFunction() -> std::shared_ptr<IBuildFunction>
 	{
 		return std::make_shared<TSkeletalBuildFunction<FSkeletalMeshPayloadData>>(
-			"SkeletalMesh/Objects", std::string(SkeletalMeshInputName),
+			SkeletalMeshBuilderVersion, "SkeletalMesh/Objects", std::string(SkeletalMeshInputName),
 			MaximumSkeletalMeshPayloadBytes);
 	}
 
 	auto CreateAnimationClipBuildFunction() -> std::shared_ptr<IBuildFunction>
 	{
 		return std::make_shared<TSkeletalBuildFunction<FAnimationClipPayloadData>>(
-			"AnimationClip/Objects", std::string(AnimationClipInputName),
+			AnimationClipBuilderVersion, "AnimationClip/Objects", std::string(AnimationClipInputName),
 			MaximumAnimationClipPayloadBytes);
 	}
 }

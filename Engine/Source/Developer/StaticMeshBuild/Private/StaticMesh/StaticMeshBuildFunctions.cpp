@@ -7,10 +7,10 @@
 
 namespace Durin::Asset::Private
 {
-	const FBuildFunctionIdentity StaticMeshFunctionIdentity{
-		"Durin.GeometryBuild.StaticMesh", 1};
-	const FBuildFunctionIdentity StaticMeshCollisionFunctionIdentity{
-		"Durin.GeometryBuild.StaticMeshCollision", 1};
+	const FBuildFunctionName StaticMeshFunctionName =
+		FBuildFunctionName::FromString("Durin.GeometryBuild.StaticMesh");
+	const FBuildFunctionName StaticMeshCollisionFunctionName =
+		FBuildFunctionName::FromString("Durin.GeometryBuild.StaticMeshCollision");
 
 	namespace
 	{
@@ -66,7 +66,8 @@ namespace Durin::Asset::Private
 		public:
 			auto GetConfig() const -> FBuildFunctionConfig override
 			{
-				return {.CacheBucket = "StaticMesh/Objects",
+				return {.Version = StaticMeshBuilderVersion,
+					.CacheBucket = "StaticMesh/Objects",
 					.ExpectedValueName = std::string(StaticMeshValueName),
 					.MaximumValueBytes = MaximumStaticMeshPayloadBytes,
 					.CleanupBudgetBytes = StaticMeshDerivedDataBudgetBytes,
@@ -100,7 +101,8 @@ namespace Durin::Asset::Private
 		public:
 			auto GetConfig() const -> FBuildFunctionConfig override
 			{
-				return {.CacheBucket = "StaticMeshCollision/Objects",
+				return {.Version = StaticMeshCollisionBuilderVersion,
+					.CacheBucket = "StaticMeshCollision/Objects",
 					.ExpectedValueName = std::string(CollisionValueName),
 					.MaximumValueBytes = MaximumStaticMeshCollisionPayloadBytes};
 			}

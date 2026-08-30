@@ -30,7 +30,7 @@ publication uses the ordinary revision context and atomically makes the complete
 render-derived generation available; stale or failed work never publishes a
 partial proxy.
 
-TerrainBuild owns the synchronous `Durin.GeometryBuild.TerrainHeightmap@1`
+TerrainBuild owns the synchronous `Durin.GeometryBuild.TerrainHeightmap`
 request and complete payload validation. AssetForgeBuiltins' family worker
 first issues one cache-only request; after a miss it captures and decodes source
 and issues a query-disabled local build. Cancellation, request coalescing,

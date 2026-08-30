@@ -29,7 +29,7 @@ namespace Durin::Asset
 			const FVolumeTextureBuildSettings* Settings,
 			FBuildDefinition& OutDefinition, std::string& OutError) -> bool
 		{
-			FBuildDefinitionBuilder Builder(Private::VolumeTextureFunctionIdentity,
+			FBuildDefinitionBuilder Builder(Private::VolumeTextureFunctionName,
 				std::string(Private::VolumeTextureValueName));
 			Builder.SetKey(FBuildKey::FromString(Key), KeyBytes)
 				.AddTargetFact("Platform", "Win64")

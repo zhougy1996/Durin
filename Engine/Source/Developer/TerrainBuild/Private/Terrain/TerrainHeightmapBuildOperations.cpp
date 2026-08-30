@@ -46,7 +46,7 @@ namespace Durin::Asset
 		std::string Key = KeyBytes.empty() ? std::string{} : FXxHash128::HashBuffer(KeyBytes).ToString();
 		if (Key.empty()) return false;
 		FBuildDefinition Definition;
-		FBuildDefinitionBuilder Builder(Private::TerrainHeightmapFunctionIdentity, std::string(Private::TerrainHeightmapValueName));
+		FBuildDefinitionBuilder Builder(Private::TerrainHeightmapFunctionName, std::string(Private::TerrainHeightmapValueName));
 		FTerrainHeightmapBuildRequest CanonicalRequest = Request;
 		CanonicalRequest.DecoderId = "canonical-u16";
 		CanonicalRequest.DecoderVersion = TerrainHeightmapImportedDataSchemaVersion;
@@ -176,7 +176,7 @@ namespace Durin::Asset
 			return false;
 		}
 		FBuildDefinition Definition;
-		FBuildDefinitionBuilder Builder(Private::TerrainHeightmapFunctionIdentity, std::string(Private::TerrainHeightmapValueName));
+		FBuildDefinitionBuilder Builder(Private::TerrainHeightmapFunctionName, std::string(Private::TerrainHeightmapValueName));
 		Builder.SetKey(FBuildKey::FromString(Key)).AddTargetFact("Platform", "Win64")
 			.AddTargetFact("Profile", "Game");
 		if (!Builder.Build(Definition, &OutError))

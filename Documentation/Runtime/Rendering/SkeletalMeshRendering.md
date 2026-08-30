@@ -12,8 +12,8 @@ on the game thread and publishes a detached `FSkeletalMeshSceneProxy`; the
 rendering thread never reads the component, mesh asset, skeleton, clip, or
 actor.
 
-SkeletalBuild registers the compatibility identity
-`Durin.GeometryBuild.SkeletalMesh@1`; its synchronous
+SkeletalBuild registers the build function name
+`Durin.GeometryBuild.SkeletalMesh`; its synchronous
 session validates complete skeletal-mesh payloads against Skeleton bone count, material
 slot count, target, and request identity. Scene parsing and detached candidate
 construction remain in AssetForgeBuiltins, which also owns private ordered peer

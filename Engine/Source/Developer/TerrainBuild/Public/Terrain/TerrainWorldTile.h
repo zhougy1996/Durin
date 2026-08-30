@@ -8,6 +8,7 @@
 namespace Durin::Asset
 {
 	inline constexpr uint16 TerrainWorldSchemaVersion = 1;
+	inline constexpr uint32 TerrainWorldBuilderVersion = 1;
 	inline constexpr uint16 TerrainWorldTileSchemeVersion = 1;
 	inline constexpr int64 TerrainWorldTileCells = 256;
 	inline constexpr int64 TerrainWorldTileSamples = 257;
@@ -187,7 +188,7 @@ namespace Durin::Asset
 		std::array<FTerrainNeighborEvidence, TerrainWorldMaximumNeighbors> Neighbors{};
 		FGuid CompositionPolicyId;
 		uint32 CompositionPolicyVersion = 0;
-		uint32 BuilderVersion = 1;
+		uint32 BuilderVersion = TerrainWorldBuilderVersion;
 		uint16 ProductSchemaVersion = TerrainWorldSchemaVersion;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Win64;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Game;

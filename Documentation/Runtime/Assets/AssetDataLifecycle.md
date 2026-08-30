@@ -30,9 +30,13 @@ and stable value identifiers determine runtime readability, so a producer
 version change does not by itself make a compatible payload unreadable.
 
 `DerivedDataCache` owns a synchronous local derived-data request boundary. An
-immutable `FBuildDefinition` selects a versioned local `IBuildFunction`, carries
-an existing canonical key plus opaque local inputs, and declares one expected
-value. `FBuildSession` performs query, cached-value validation, local build,
+immutable `FBuildDefinition` selects a local `IBuildFunction` by its stable,
+case-sensitive `FBuildFunctionName`, carries an existing canonical key plus
+opaque local inputs, and declares one expected value. Registration freezes the
+function's current version and cache configuration; the version is not part of
+registry lookup, and each family canonical key encodes the same builder version
+to invalidate incompatible results. `FBuildSession` performs query,
+cached-value validation, local build,
 built-value validation, store, and cleanup in that order and reports structured
 origin, status, failure phase, and bounded nanosecond durations for each
 executed phase. It does not own worker threads, priorities,
@@ -55,9 +59,9 @@ TextureBuild does the same for Texture2D, TextureCube, and VolumeTexture. Each
 transaction rolls back registrations acquired by a failed attempt and resets
 the complete set in reverse order during owner retirement. Each family retains
 its build keys, cache namespace, value schema, codec, and validation policy.
-Terrain function identities intentionally retain their historical
-`Durin.GeometryBuild.Terrain...` prefix: the identity is persisted production
-identity rather than the selectable module name, so this ownership extraction
+Terrain function names intentionally retain their historical
+`Durin.GeometryBuild.Terrain...` prefix: the name is a stable production
+protocol rather than the selectable module name, so this ownership extraction
 does not invalidate otherwise compatible disposable cache entries.
 TextureBuild's Texture2D compilation domain calls the synchronous session from
 its workers and directly owns admission, cancellation, supersession, metrics,
@@ -315,7 +319,7 @@ from canonical imported data. Every family retains a complete local result
 after a successful build even when best-effort DDC storage fails, and surfaces
 the bounded store diagnostic separately.
 
-TextureCube uses `Durin.TextureBuild.TextureCube@1` with value
+TextureCube uses function `Durin.TextureBuild.TextureCube` with value
 `TextureCubePayload` under `TextureCube/Objects`. Explicit import or reimport
 decodes and projects a panorama into six canonical authored RGBA8 faces before
 the immutable request. Ordinary build, PostLoad, DDC recovery, and Cook consume
@@ -335,8 +339,8 @@ complete in-memory candidate even when its best-effort DDC write fails. A
 missing or corrupt object is always a safe authored miss: ordinary package load
 decodes the owning asset's canonical bulk and never replays Scene import.
 
-The registered functions are `Durin.GeometryBuild.SkeletalMesh@1` and
-`Durin.GeometryBuild.AnimationClip@1`, both returning `SkeletalPayload`.
+The registered function names are `Durin.GeometryBuild.SkeletalMesh` and
+`Durin.GeometryBuild.AnimationClip`, both returning `SkeletalPayload`.
 Definitions carry the exact Skeleton/count/material target context. PostLoad
 validates the complete owner-selected value and rebuilds it from the owning
 canonical bulk when necessary; Scene import owns only the initial detached
@@ -344,7 +348,7 @@ multi-package transaction and hard Skeleton edges.
 
 ### Terrain Heightmap Derived Data
 
-TerrainHeightmap uses `Durin.GeometryBuild.TerrainHeightmap@1`, value
+TerrainHeightmap uses function `Durin.GeometryBuild.TerrainHeightmap`, value
 `TerrainHeightmapPayload`, and `TerrainHeightmap/Objects`. Persisting direct
 builds query/build/store; explicit non-persisting builds disable both query and
 store. Authored load first performs a cache query using the metadata-only

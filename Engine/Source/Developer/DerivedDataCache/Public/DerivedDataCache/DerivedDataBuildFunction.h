@@ -7,6 +7,9 @@ namespace Durin::DerivedData
 {
 	struct FBuildFunctionConfig
 	{
+		// Changes whenever the function's output semantics change. Family build
+		// keys encode this same version to invalidate incompatible cache results.
+		uint32 Version = 0;
 		std::string CacheBucket;
 		std::string ExpectedValueName;
 		uint64 MaximumValueBytes = 0;
@@ -54,17 +57,22 @@ namespace Durin::DerivedData
 		DERIVEDDATACACHE_API auto Reset() -> void;
 		auto IsValid() const -> bool { return Generation != 0; }
 	private:
-		FBuildFunctionIdentity Identity;
+		FBuildFunctionName Name;
 		uint64 Generation = 0;
 		friend DERIVEDDATACACHE_API auto RegisterBuildFunction(
-			FBuildFunctionIdentity, std::shared_ptr<IBuildFunction>,
+			FBuildFunctionName, std::shared_ptr<IBuildFunction>,
 			FModuleOwnedCallbackGate, std::string*) -> FBuildFunctionRegistration;
 	};
 
 	// Module providers pass their callback gate. A process-resident direct-linked
 	// provider may omit it only when no unload boundary exists in that process.
 	DERIVEDDATACACHE_API auto RegisterBuildFunction(
-		FBuildFunctionIdentity Identity, std::shared_ptr<IBuildFunction> Function,
+		FBuildFunctionName Name, std::shared_ptr<IBuildFunction> Function,
 		FModuleOwnedCallbackGate OwnerGate, std::string* OutError = nullptr)
 		-> FBuildFunctionRegistration;
+
+	// Returns the current registered implementation version for a function name,
+	// or zero when no local function is registered.
+	DERIVEDDATACACHE_API auto FindBuildFunctionVersion(
+		const FBuildFunctionName& Name) -> uint32;
 }

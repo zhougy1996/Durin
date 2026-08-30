@@ -14,8 +14,8 @@ animation clip, persistent playback settings, and one
 play state, looping, rate, revisions, and evaluated poses never live on
 `DSkeleton`, `DSkeletalMesh`, or `DAnimationClip`.
 
-SkeletalBuild registers the compatibility identity
-`Durin.GeometryBuild.AnimationClip@1`; its synchronous
+SkeletalBuild registers the build function name
+`Durin.GeometryBuild.AnimationClip`; its synchronous
 session validates the complete animation payload against the Skeleton/target context.
 AssetForgeBuiltins retains private Scene capture, clip naming, hard Skeleton
 relationships, and transaction publication. Cache-only authored load never

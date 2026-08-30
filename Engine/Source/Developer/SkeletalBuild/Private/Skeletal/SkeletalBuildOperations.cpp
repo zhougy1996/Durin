@@ -24,7 +24,7 @@ namespace Durin::Asset
 		}
 
 		template<typename T>
-		auto ExecuteSkeletalSession(const FBuildFunctionIdentity& Identity,
+		auto ExecuteSkeletalSession(const FBuildFunctionName& FunctionName,
 			std::string_view InputName, std::string_view Key,
 			std::span<const std::byte> KeyBytes, std::span<const std::byte> LocalBytes,
 			const FSkeletalPayloadSerializationContext& Context,
@@ -33,7 +33,7 @@ namespace Durin::Asset
 		{
 			if (!EnsureSkeletalBuildFunctions(&OutError)) return false;
 			FBuildDefinition Definition;
-			FBuildDefinitionBuilder Builder(Identity, std::string(Private::SkeletalValueName));
+			FBuildDefinitionBuilder Builder(FunctionName, std::string(Private::SkeletalValueName));
 			Builder.SetKey(FBuildKey::FromString(Key), KeyBytes)
 				.AddTargetFact("Platform", "Win64").AddTargetFact("Profile", "Game")
 				.AddTargetFact("SkeletonBoneCount", std::to_string(Context.SkeletonBoneCount))
@@ -85,7 +85,7 @@ namespace Durin::Asset
 		const std::vector<std::byte> KeyBytes = BuildSkeletalMeshDerivedDataKeyBytes(Request.KeyInput, OutError);
 		FBuildOutput Output;
 		FSkeletalMeshPayloadData SelectedPayload;
-		if (!ExecuteSkeletalSession(Private::SkeletalMeshFunctionIdentity, Private::SkeletalMeshInputName,
+		if (!ExecuteSkeletalSession(Private::SkeletalMeshFunctionName, Private::SkeletalMeshInputName,
 			Key, KeyBytes, Bytes, Context, Request.SkeletonCompatibilityIdentity,
 			false, Output, SelectedPayload, OutError)) return false;
 		OutProduct = {
@@ -133,7 +133,7 @@ namespace Durin::Asset
 		const std::vector<std::byte> KeyBytes = BuildAnimationClipDerivedDataKeyBytes(Request.KeyInput, OutError);
 		FBuildOutput Output;
 		FAnimationClipPayloadData SelectedPayload;
-		if (!ExecuteSkeletalSession(Private::AnimationClipFunctionIdentity, Private::AnimationClipInputName,
+		if (!ExecuteSkeletalSession(Private::AnimationClipFunctionName, Private::AnimationClipInputName,
 			Key, KeyBytes, Bytes, Context, Request.SkeletonCompatibilityIdentity,
 			false, Output, SelectedPayload, OutError)) return false;
 		OutProduct = {
@@ -189,7 +189,7 @@ namespace Durin::Asset
 		FBuildOutput CachedOutput;
 		FSkeletalMeshPayloadData CachedPayload;
 		if (ExecuteSkeletalSession(
-			Private::SkeletalMeshFunctionIdentity,
+			Private::SkeletalMeshFunctionName,
 			Private::SkeletalMeshInputName, CachedKey, KeyBytes, {}, Context,
 			Mesh.GetSkeletonCompatibilityIdentity(), false,
 			CachedOutput, CachedPayload, OutError))
@@ -272,7 +272,7 @@ namespace Durin::Asset
 		FBuildOutput CachedOutput;
 		FAnimationClipPayloadData CachedPayload;
 		if (ExecuteSkeletalSession(
-			Private::AnimationClipFunctionIdentity,
+			Private::AnimationClipFunctionName,
 			Private::AnimationClipInputName, CachedKey, KeyBytes, {}, Context,
 			Clip.GetSkeletonCompatibilityIdentity(), false,
 			CachedOutput, CachedPayload, OutError))

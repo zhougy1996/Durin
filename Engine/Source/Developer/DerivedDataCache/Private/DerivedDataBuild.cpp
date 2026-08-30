@@ -35,11 +35,6 @@ namespace Durin::DerivedData
 		std::unordered_map<std::string, FRegisteredBuildFunction> GFunctions;
 		uint64 GNextFunctionGeneration = 1;
 
-		auto FunctionKey(const FBuildFunctionIdentity& Identity) -> std::string
-		{
-			return std::format("{}@{}", Identity.Name, Identity.Version);
-		}
-
 		auto Fail(EBuildFailurePhase Phase, std::string Message) -> FBuildOutput
 		{
 			return {.Status = EBuildStatus::Failed, .FailurePhase = Phase,
@@ -90,6 +85,20 @@ namespace Durin::DerivedData
 		return Result;
 	}
 
+	auto FBuildFunctionName::FromString(std::string_view InValue, std::string* OutError)
+		-> FBuildFunctionName
+	{
+		FBuildFunctionName Result;
+		if (!IsCanonicalIdentityPart(InValue))
+		{
+			if (OutError) *OutError = "Build function name is invalid.";
+			return Result;
+		}
+		Result.Value.assign(InValue);
+		if (OutError) OutError->clear();
+		return Result;
+	}
+
 	auto FBuildDefinition::GetInput(std::string_view Name) const -> const FBuildValue*
 	{
 		const auto It = std::ranges::find(Inputs, Name, &FBuildValue::GetName);
@@ -112,7 +121,7 @@ namespace Durin::DerivedData
 	}
 
 	FBuildDefinitionBuilder::FBuildDefinitionBuilder(
-		FBuildFunctionIdentity InFunction, std::string InExpectedValueName)
+		FBuildFunctionName InFunction, std::string InExpectedValueName)
 	{
 		Definition.Function = std::move(InFunction);
 		Definition.ExpectedValueName = std::move(InExpectedValueName);
@@ -152,9 +161,8 @@ namespace Durin::DerivedData
 		FBuildDefinition& OutDefinition, std::string* OutError) const -> bool
 	{
 		std::string Validation = Error;
-		if (Validation.empty() && (!Definition.Function.IsValid()
-			|| !IsCanonicalIdentityPart(Definition.Function.Name)))
-			Validation = "Build function identity is invalid.";
+		if (Validation.empty() && !Definition.Function.IsValid())
+			Validation = "Build function name is invalid.";
 		if (Validation.empty() && !Definition.Key.IsValid()) Validation = "Build key is invalid.";
 		if (Validation.empty() && !IsCanonicalIdentityPart(Definition.ExpectedValueName))
 			Validation = "Expected build value name is invalid.";
@@ -174,14 +182,14 @@ namespace Durin::DerivedData
 	FBuildFunctionRegistration::~FBuildFunctionRegistration() { Reset(); }
 	FBuildFunctionRegistration::FBuildFunctionRegistration(
 		FBuildFunctionRegistration&& Other) noexcept
-		: Identity(std::move(Other.Identity)), Generation(std::exchange(Other.Generation, 0)) {}
+		: Name(std::move(Other.Name)), Generation(std::exchange(Other.Generation, 0)) {}
 	auto FBuildFunctionRegistration::operator=(FBuildFunctionRegistration&& Other) noexcept
 		-> FBuildFunctionRegistration&
 	{
 		if (this != &Other)
 		{
 			Reset();
-			Identity = std::move(Other.Identity);
+			Name = std::move(Other.Name);
 			Generation = std::exchange(Other.Generation, 0);
 		}
 		return *this;
@@ -192,7 +200,7 @@ namespace Durin::DerivedData
 		FRegisteredBuildFunction Removed;
 		{
 			std::lock_guard Lock(GFunctionMutex);
-			const auto It = GFunctions.find(FunctionKey(Identity));
+			const auto It = GFunctions.find(std::string(Name.ToString()));
 			if (It != GFunctions.end() && It->second.Generation == Generation)
 			{
 				Removed = std::move(It->second);
@@ -203,19 +211,20 @@ namespace Durin::DerivedData
 	}
 
 	auto RegisterBuildFunction(
-		FBuildFunctionIdentity Identity, std::shared_ptr<IBuildFunction> Function,
+		FBuildFunctionName Name, std::shared_ptr<IBuildFunction> Function,
 		FModuleOwnedCallbackGate OwnerGate, std::string* OutError)
 		-> FBuildFunctionRegistration
 	{
-		if (!Identity.IsValid() || !IsCanonicalIdentityPart(Identity.Name))
-			return SetError(OutError, "Build function identity is invalid."), FBuildFunctionRegistration{};
+		if (!Name.IsValid())
+			return SetError(OutError, "Build function name is invalid."), FBuildFunctionRegistration{};
 		if (!Function)
 			return SetError(OutError, "Build function is invalid."), FBuildFunctionRegistration{};
 		const FBuildFunctionConfig Config = Function->GetConfig();
 		const FCacheBucket CacheBucket = FCacheBucket::FromString(Config.CacheBucket);
 		const bool bHasCleanupBudget = Config.CleanupBudgetBytes != 0;
 		const bool bHasCleanupDeleteLimit = Config.CleanupDeleteLimit != 0;
-		if (!CacheBucket.IsValid() || !IsCanonicalIdentityPart(Config.ExpectedValueName)
+		if (Config.Version == 0 || !CacheBucket.IsValid()
+			|| !IsCanonicalIdentityPart(Config.ExpectedValueName)
 			|| Config.MaximumValueBytes == 0
 			|| bHasCleanupBudget != bHasCleanupDeleteLimit)
 			return SetError(OutError, "Build function cache configuration is invalid."), FBuildFunctionRegistration{};
@@ -223,17 +232,25 @@ namespace Durin::DerivedData
 		if (OwnerGate.IsValid() && !Resource)
 			return SetError(OutError, "Build function module owner is retiring."), FBuildFunctionRegistration{};
 		std::lock_guard Lock(GFunctionMutex);
-		const std::string Key = FunctionKey(Identity);
+		const std::string Key(Name.ToString());
 		if (GFunctions.contains(Key))
-			return SetError(OutError, "Build function identity is already registered."), FBuildFunctionRegistration{};
+			return SetError(OutError, "Build function name is already registered."), FBuildFunctionRegistration{};
 		const uint64 Generation = GNextFunctionGeneration++;
 		GFunctions.emplace(Key, FRegisteredBuildFunction{
 			std::move(Function), Config, CacheBucket, OwnerGate, std::move(Resource), Generation});
 		FBuildFunctionRegistration Result;
-		Result.Identity = std::move(Identity);
+		Result.Name = std::move(Name);
 		Result.Generation = Generation;
 		if (OutError) OutError->clear();
 		return Result;
+	}
+
+	auto FindBuildFunctionVersion(const FBuildFunctionName& Name) -> uint32
+	{
+		if (!Name.IsValid()) return 0;
+		std::lock_guard Lock(GFunctionMutex);
+		const auto It = GFunctions.find(std::string(Name.ToString()));
+		return It == GFunctions.end() ? 0 : It->second.Config.Version;
 	}
 
 	auto FBuildSession::Build(const FBuildDefinition& Definition,
@@ -256,7 +273,7 @@ namespace Durin::DerivedData
 		FModuleOwnedResourceLease Resource;
 		{
 			std::lock_guard Lock(GFunctionMutex);
-			const auto It = GFunctions.find(FunctionKey(Definition.GetFunction()));
+			const auto It = GFunctions.find(std::string(Definition.GetFunction().ToString()));
 			if (It == GFunctions.end())
 				return Fail(EBuildFailurePhase::FunctionLookup, "Build function is not registered.");
 			Function = It->second.Function;

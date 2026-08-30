@@ -9,9 +9,9 @@ namespace Durin::Asset::Private
 {
 	using namespace ::Durin::DerivedData;
 
-	extern const FBuildFunctionIdentity Texture2DFunctionIdentity;
-	extern const FBuildFunctionIdentity TextureCubeFunctionIdentity;
-	extern const FBuildFunctionIdentity VolumeTextureFunctionIdentity;
+	extern const FBuildFunctionName Texture2DFunctionName;
+	extern const FBuildFunctionName TextureCubeFunctionName;
+	extern const FBuildFunctionName VolumeTextureFunctionName;
 	inline constexpr std::string_view Texture2DInputName = "Texture2DInput";
 	inline constexpr std::string_view Texture2DValueName = "Texture2DPayload";
 	inline constexpr std::string_view TextureCubeInputName = "TextureCubeBuildInput";

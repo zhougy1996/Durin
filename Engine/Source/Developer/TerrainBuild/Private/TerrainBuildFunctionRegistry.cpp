@@ -33,7 +33,7 @@ namespace Durin::Asset
 		if (bAcquiredHeightmap)
 		{
 			GTerrainHeightmapRegistration = RegisterBuildFunction(
-				Private::TerrainHeightmapFunctionIdentity,
+				Private::TerrainHeightmapFunctionName,
 				Private::CreateTerrainHeightmapBuildFunction(), Gate, OutError);
 			if (!GTerrainHeightmapRegistration.IsValid()) return false;
 		}
@@ -43,7 +43,7 @@ namespace Durin::Asset
 			if (!AcquiredTerrainWorld[Index]) continue;
 			const auto ProductClass = static_cast<ETerrainTileProductClass>(Value);
 			GTerrainWorldRegistrations[Index] = RegisterBuildFunction(
-				Private::GetTerrainWorldBuildFunctionIdentity(ProductClass),
+				Private::GetTerrainWorldBuildFunctionName(ProductClass),
 				Private::CreateTerrainWorldBuildFunction(ProductClass), Gate, OutError);
 			if (!GTerrainWorldRegistrations[Index].IsValid())
 			{

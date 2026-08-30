@@ -25,6 +25,14 @@ namespace
 		return Registration.GetGate();
 	}
 
+	auto BuildFunctionName(std::string_view Value) -> FBuildFunctionName
+	{
+		std::string Error;
+		FBuildFunctionName Name = FBuildFunctionName::FromString(Value, &Error);
+		requiref(Name.IsValid(), "{}", Error);
+		return Name;
+	}
+
 	class FScopedDerivedDataCacheDirectory
 	{
 	public:
@@ -54,7 +62,7 @@ namespace
 
 		auto GetConfig() const -> FBuildFunctionConfig override
 		{
-			return {.CacheBucket = "DerivedDataBuildTests/Policy",
+			return {.Version = 1, .CacheBucket = "DerivedDataBuildTests/Policy",
 				.ExpectedValueName = "PolicyOutput", .MaximumValueBytes = 1024};
 		}
 
@@ -80,6 +88,7 @@ namespace
 	{
 	public:
 		FBuildFunctionConfig Config{
+			.Version = 1,
 			.CacheBucket = "DerivedDataBuildTests/Config",
 			.ExpectedValueName = "ConfigOutput",
 			.MaximumValueBytes = 1024,
@@ -115,7 +124,7 @@ namespace
 		FBuildDefinition Definition;
 		std::string Error;
 		FBuildDefinitionBuilder Builder(
-			{"Durin.Tests.PolicyFunction", 1}, "PolicyOutput");
+			BuildFunctionName("Durin.Tests.PolicyFunction"), "PolicyOutput");
 		Builder.SetKey(FBuildKey::FromString(std::string(32, KeyCharacter)))
 			.AddInput(FBuildValue::FromOwned("PolicyInput", Bytes({1})));
 		requiref(Builder.Build(Definition, &Error), "{}", Error);
@@ -125,31 +134,49 @@ namespace
 
 TEST(FDerivedDataBuildTests, RegistrationRejectsInvalidCompleteFunctionConfig)
 {
-	auto ExpectInvalid = [](FBuildFunctionConfig Config, uint32 IdentityVersion) {
+	auto ExpectInvalid = [](FBuildFunctionConfig Config) {
 		auto Function = std::make_shared<FConfigurableTestFunction>();
 		Function->Config = std::move(Config);
 		std::string Error;
 		EXPECT_FALSE(RegisterBuildFunction(
-			{"Durin.Tests.InvalidConfigFunction", IdentityVersion}, Function,
+			BuildFunctionName("Durin.Tests.InvalidConfigFunction"), Function,
 			GetDerivedDataBuildTestGate(), &Error).IsValid());
 		EXPECT_EQ(Error, "Build function cache configuration is invalid.");
 	};
 
 	FBuildFunctionConfig Config = FConfigurableTestFunction().Config;
 	Config.CacheBucket = "../escape";
-	ExpectInvalid(Config, 1);
+	ExpectInvalid(Config);
 	Config = FConfigurableTestFunction().Config;
 	Config.ExpectedValueName = "Invalid/Output";
-	ExpectInvalid(Config, 2);
+	ExpectInvalid(Config);
 	Config = FConfigurableTestFunction().Config;
 	Config.MaximumValueBytes = 0;
-	ExpectInvalid(Config, 3);
+	ExpectInvalid(Config);
 	Config = FConfigurableTestFunction().Config;
 	Config.CleanupDeleteLimit = 0;
-	ExpectInvalid(Config, 4);
+	ExpectInvalid(Config);
 	Config = FConfigurableTestFunction().Config;
 	Config.CleanupBudgetBytes = 0;
-	ExpectInvalid(Config, 5);
+	ExpectInvalid(Config);
+	Config = FConfigurableTestFunction().Config;
+	Config.Version = 0;
+	ExpectInvalid(Config);
+}
+
+TEST(FDerivedDataBuildTests, FunctionNamesAreValidatedCaseSensitiveProtocolValues)
+{
+	std::string Error;
+	EXPECT_FALSE(FBuildFunctionName::FromString("Invalid/Function", &Error).IsValid());
+	EXPECT_EQ(Error, "Build function name is invalid.");
+	const FBuildFunctionName Upper =
+		FBuildFunctionName::FromString("Durin.Tests.Function", &Error);
+	const FBuildFunctionName Lower =
+		FBuildFunctionName::FromString("durin.tests.function", &Error);
+	EXPECT_TRUE(Upper.IsValid());
+	EXPECT_TRUE(Lower.IsValid());
+	EXPECT_NE(Upper, Lower);
+	EXPECT_EQ(Upper.ToString(), "Durin.Tests.Function");
 }
 
 TEST(FDerivedDataBuildTests, RegistrationFreezesValidatedFunctionConfig)
@@ -158,20 +185,22 @@ TEST(FDerivedDataBuildTests, RegistrationFreezesValidatedFunctionConfig)
 	auto Function = std::make_shared<FConfigurableTestFunction>();
 	std::string Error;
 	auto Registration = RegisterBuildFunction(
-		{"Durin.Tests.FrozenConfigFunction", 1}, Function,
+		BuildFunctionName("Durin.Tests.FrozenConfigFunction"), Function,
 		GetDerivedDataBuildTestGate(), &Error);
 	ASSERT_TRUE(Registration.IsValid()) << Error;
 	ASSERT_EQ(Function->GetConfigCount, 1u);
+	EXPECT_EQ(FindBuildFunctionVersion(
+		BuildFunctionName("Durin.Tests.FrozenConfigFunction")), 1u);
 
 	Function->Config = {
-		.CacheBucket = "../escape",
+		.Version = 99, .CacheBucket = "../escape",
 		.ExpectedValueName = "ChangedOutput",
 		.MaximumValueBytes = 1,
 		.CleanupBudgetBytes = 0,
 		.CleanupDeleteLimit = 0};
 	FBuildDefinition Definition;
 	FBuildDefinitionBuilder Builder(
-		{"Durin.Tests.FrozenConfigFunction", 1}, "ConfigOutput");
+		BuildFunctionName("Durin.Tests.FrozenConfigFunction"), "ConfigOutput");
 	Builder.SetKey(FBuildKey::FromString(std::string(32, 'b')))
 		.AddInput(FBuildValue::FromOwned("ConfigInput", Bytes({1})));
 	ASSERT_TRUE(Builder.Build(Definition, &Error)) << Error;
@@ -179,6 +208,21 @@ TEST(FDerivedDataBuildTests, RegistrationFreezesValidatedFunctionConfig)
 		{.bQueryCache = false, .bStoreBuildResult = false});
 	EXPECT_EQ(Output.Status, EBuildStatus::Built) << Output.Diagnostic;
 	EXPECT_EQ(Function->GetConfigCount, 1u);
+	EXPECT_EQ(FindBuildFunctionVersion(
+		BuildFunctionName("Durin.Tests.FrozenConfigFunction")), 1u);
+
+	auto NewVersionFunction = std::make_shared<FConfigurableTestFunction>();
+	NewVersionFunction->Config.Version = 2;
+	EXPECT_FALSE(RegisterBuildFunction(
+		BuildFunctionName("Durin.Tests.FrozenConfigFunction"), NewVersionFunction,
+		GetDerivedDataBuildTestGate(), &Error).IsValid());
+	Registration.Reset();
+	auto NewVersionRegistration = RegisterBuildFunction(
+		BuildFunctionName("Durin.Tests.FrozenConfigFunction"), NewVersionFunction,
+		GetDerivedDataBuildTestGate(), &Error);
+	ASSERT_TRUE(NewVersionRegistration.IsValid()) << Error;
+	EXPECT_EQ(FindBuildFunctionVersion(
+		BuildFunctionName("Durin.Tests.FrozenConfigFunction")), 2u);
 }
 
 TEST(FDerivedDataBuildTests, SessionOwnsColdBuildWarmHitAndQueryOnlyMiss)
@@ -190,7 +234,7 @@ TEST(FDerivedDataBuildTests, SessionOwnsColdBuildWarmHitAndQueryOnlyMiss)
 		mutable uint32 BuildCount = 0;
 		auto GetConfig() const -> FBuildFunctionConfig override
 		{
-			return {.CacheBucket = "DerivedDataBuildTests/Session",
+			return {.Version = 1, .CacheBucket = "DerivedDataBuildTests/Session",
 				.ExpectedValueName = "SampleOutput", .MaximumValueBytes = 1024,
 				.CleanupBudgetBytes = 4096, .CleanupDeleteLimit = 2};
 		}
@@ -214,13 +258,16 @@ TEST(FDerivedDataBuildTests, SessionOwnsColdBuildWarmHitAndQueryOnlyMiss)
 	auto Function = std::make_shared<FSampleFunction>();
 	std::string Error;
 	auto Registration = RegisterBuildFunction(
-		{"Durin.Tests.SampleFunction", 1}, Function, GetDerivedDataBuildTestGate(), &Error);
+		BuildFunctionName("Durin.Tests.SampleFunction"), Function, GetDerivedDataBuildTestGate(), &Error);
 	ASSERT_TRUE(Registration.IsValid()) << Error;
+	auto DuplicateFunction = std::make_shared<FSampleFunction>();
 	EXPECT_FALSE(RegisterBuildFunction(
-		{"Durin.Tests.SampleFunction", 1}, Function, GetDerivedDataBuildTestGate(), &Error).IsValid());
+		BuildFunctionName("Durin.Tests.SampleFunction"), DuplicateFunction,
+		GetDerivedDataBuildTestGate(), &Error).IsValid());
+	EXPECT_EQ(Error, "Build function name is already registered.");
 	const std::vector<std::byte> KeyInput = Bytes({1, 2, 3});
 	FBuildDefinition Definition;
-	FBuildDefinitionBuilder Builder({"Durin.Tests.SampleFunction", 1}, "SampleOutput");
+	FBuildDefinitionBuilder Builder(BuildFunctionName("Durin.Tests.SampleFunction"), "SampleOutput");
 	Builder.SetKey(FBuildKey::FromString(FXxHash128::HashBuffer(KeyInput).ToString()), KeyInput)
 		.AddTargetFact("Platform", "Test")
 		.AddInput(FBuildValue::FromOwned("SampleInput", Bytes({9})));
@@ -252,7 +299,7 @@ TEST(FDerivedDataBuildTests, SessionOwnsColdBuildWarmHitAndQueryOnlyMiss)
 	EXPECT_EQ(Warm.PhaseDurations.CacheStoreNanoseconds, 0u);
 
 	FBuildDefinition Missing;
-	FBuildDefinitionBuilder MissingBuilder({"Durin.Tests.SampleFunction", 1}, "SampleOutput");
+	FBuildDefinitionBuilder MissingBuilder(BuildFunctionName("Durin.Tests.SampleFunction"), "SampleOutput");
 	MissingBuilder.SetKey(FBuildKey::FromString(std::string(32, 'e')))
 		.AddTargetFact("Platform", "Test");
 	ASSERT_TRUE(MissingBuilder.Build(Missing, &Error)) << Error;
@@ -267,12 +314,12 @@ TEST(FDerivedDataBuildTests, DefinitionRejectsDuplicateInputsAndKeyDisagreement)
 {
 	std::string Error;
 	FBuildDefinition Definition;
-	FBuildDefinitionBuilder Duplicate({"Durin.Tests.Definition", 1}, "Output");
+	FBuildDefinitionBuilder Duplicate(BuildFunctionName("Durin.Tests.Definition"), "Output");
 	Duplicate.SetKey(FBuildKey::FromString(std::string(32, 'a')))
 		.AddInput(FBuildValue::FromOwned("Input", Bytes({1})))
 		.AddInput(FBuildValue::FromOwned("Input", Bytes({2})));
 	EXPECT_FALSE(Duplicate.Build(Definition, &Error));
-	FBuildDefinitionBuilder Mismatch({"Durin.Tests.Definition", 1}, "Output");
+	FBuildDefinitionBuilder Mismatch(BuildFunctionName("Durin.Tests.Definition"), "Output");
 	Mismatch.SetKey(FBuildKey::FromString(std::string(32, 'a')), Bytes({7}));
 	EXPECT_FALSE(Mismatch.Build(Definition, &Error));
 }
@@ -298,7 +345,7 @@ TEST(FDerivedDataBuildTests, SessionHonorsExplicitQueryAndStorePolicies)
 	auto Function = std::make_shared<FPolicyTestFunction>();
 	std::string Error;
 	auto Registration = RegisterBuildFunction(
-		{"Durin.Tests.PolicyFunction", 1}, Function, GetDerivedDataBuildTestGate(), &Error);
+		BuildFunctionName("Durin.Tests.PolicyFunction"), Function, GetDerivedDataBuildTestGate(), &Error);
 	ASSERT_TRUE(Registration.IsValid()) << Error;
 	const FBuildDefinition Definition = MakePolicyDefinition('a');
 	const FBuildPolicy LocalOnly{
@@ -329,7 +376,7 @@ TEST(FDerivedDataBuildTests, CacheRequiredAndBestEffortWritePoliciesDiffer)
 	auto Function = std::make_shared<FPolicyTestFunction>();
 	std::string Error;
 	auto Registration = RegisterBuildFunction(
-		{"Durin.Tests.PolicyFunction", 1}, Function, GetDerivedDataBuildTestGate(), &Error);
+		BuildFunctionName("Durin.Tests.PolicyFunction"), Function, GetDerivedDataBuildTestGate(), &Error);
 	ASSERT_TRUE(Registration.IsValid()) << Error;
 	const FBuildOutput BestEffort = FBuildSession().Build(MakePolicyDefinition('c'),
 		{.bQueryCache = false});

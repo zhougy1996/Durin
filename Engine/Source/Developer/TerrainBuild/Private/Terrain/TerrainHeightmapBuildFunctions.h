@@ -7,7 +7,7 @@ namespace Durin::Asset::Private
 {
 	using namespace ::Durin::DerivedData;
 
-	extern const FBuildFunctionIdentity TerrainHeightmapFunctionIdentity;
+	extern const FBuildFunctionName TerrainHeightmapFunctionName;
 	inline constexpr std::string_view TerrainHeightmapInputName =
 		"TerrainHeightmapBuildInput";
 	inline constexpr std::string_view TerrainHeightmapValueName =
