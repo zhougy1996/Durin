@@ -145,7 +145,7 @@ if(BUILD_TESTING)
 		"${CMAKE_BINARY_DIR}/DurinNativeTestRegistry.json")
 endif()
 
-if(DURIN_PROFILE_NAME STREQUAL "DurinGame")
+if(DURIN_RUNTIME_VARIANT STREQUAL "DurinGame")
 	durin_assert_target_dependency_closure_excludes(DurinLauncher
 		# Authoring frameworks and hosts.
 		AssetImport
