@@ -4,7 +4,7 @@ Summary: Define registration, atomic set ownership, typed lookup, generation rec
 
 Modules: RenderCore, Renderer
 
-Last reviewed: 2026-08-29
+Last reviewed: 2026-08-30
 
 ## Category and Ownership
 
@@ -31,10 +31,10 @@ The initial inventory is deliberately closed over fixed Renderer programs:
 
 | Category | Families | Ownership |
 | --- | --- | --- |
-| Global | EditorGrid, Gizmo, OverlayLine, OverlayIcon, GBufferDebug, SkyBox, PostProcess Copy/FXAA, ContactVisibility compute/fragment, DeferredDirectionalLighting, GTAO raw/filter, VolumetricCloud compute/fragment/temporal/composite, VolumetricCloudShadow compute/fragment | 39 registered types in 20 exact sets, owned by RenderCore |
+| Global | EditorGrid, Gizmo, SimpleElement line/sprite, GBufferDebug, SkyBox, PostProcess Copy/FXAA, ContactVisibility compute/fragment, DeferredDirectionalLighting, GTAO raw/filter, VolumetricCloud compute/fragment/temporal/composite, VolumetricCloudShadow compute/fragment | 38 registered types in 19 exact sets, declared by Renderer and mapped by RenderCore |
 | Material | Generated forward, GBuffer, and masked-shadow fragments | RenderCore `FMaterialShaderMap` payloads built from Engine's accepted immutable compiler result |
 | Vertex-factory/mesh | GBuffer, StaticMesh, SplineMesh, SkeletalMesh, Terrain, and fixed opaque-shadow combinations | The same exact typed map API using `FMeshMaterialShader` identity |
-| Renderer-local | TextureEditor preview and Mona ImGui backend shaders | Their defining feature modules and ordered module shutdown |
+| Finite Editor-only | TextureEditor preview and Mona ImGui backend programs | Stable feature-program contributions owned by their defining modules; excluded from Game Cook |
 
 Generated Material programs remain generated rather than global. No eligible
 fixed Renderer family retains a private-map compatibility path.
@@ -54,6 +54,14 @@ published map and exposes its exact generation, identity, and merged pipeline
 layout. `TShaderMapRef<T>` provides type-safe access while retaining the same
 set. A pipeline payload retains the set it used; parameter binding uses a
 typed ref from that retained set rather than looking up a newer map.
+
+Every exact set also contributes one stable runtime request until the target
+inventory freezes. The 15 non-`EditorAssistance` sets are Win64/Game inputs;
+EditorGrid, Gizmo, and both SimpleElement sets are Editor-only. In Authored mode
+set construction asks ShaderBuild for a complete output. In Cooked mode the
+same typed construction consumes the exact `DSHD` output from the qualified
+`DSLB` library. Parameter binding, merged layouts, lazy RHI creation, generation
+coupling, and last-known-good publication are shared after that data selection.
 
 ## Generations and Failure Recovery
 

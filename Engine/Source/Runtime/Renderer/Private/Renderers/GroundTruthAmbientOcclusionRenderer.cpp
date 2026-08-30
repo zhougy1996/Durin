@@ -124,6 +124,20 @@ namespace Durin
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FGTAOFilterFragmentShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FGTAOHalfFilterFragmentShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FGTAOResolveFragmentShader);
+		const FGlobalShaderSetRegistration GGtaoRawShaderSet(
+			"Renderer", "GroundTruthAmbientOcclusion.Raw",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FGTAOVertexShader::StaticType(),
+			 &FGTAORawFragmentShader::StaticType(),
+			 &FGTAOSelectorFragmentShader::StaticType(),
+			 &FGTAOHalfRawFragmentShader::StaticType()});
+		const FGlobalShaderSetRegistration GGtaoFilterShaderSet(
+			"Renderer", "GroundTruthAmbientOcclusion.Filter",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FGTAOVertexShader::StaticType(),
+			 &FGTAOFilterFragmentShader::StaticType(),
+			 &FGTAOHalfFilterFragmentShader::StaticType(),
+			 &FGTAOResolveFragmentShader::StaticType()});
 	}
 
 	struct FGroundTruthAmbientOcclusionRenderer::FState

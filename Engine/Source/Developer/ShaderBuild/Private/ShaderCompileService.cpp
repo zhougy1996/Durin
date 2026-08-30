@@ -9,7 +9,7 @@
 #include "Misc/FileFingerprintCache.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
-#include "Shader/ShaderPaths.h"
+#include "ShaderBuild/ShaderPaths.h"
 
 #include <tuple>
 

@@ -45,6 +45,11 @@ namespace Durin
 
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FEditorGridVertexShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FEditorGridFragmentShader);
+		const FGlobalShaderSetRegistration GEditorGridShaderSet(
+			"Renderer", "EditorAssistance.EditorGrid",
+			EShaderRequestEligibility::EditorOnly,
+			{&FEditorGridVertexShader::StaticType(),
+			 &FEditorGridFragmentShader::StaticType()});
 
 		auto FindPreparedPipeline(const FPrepared& Prepared)
 			-> FGraphicsPipelineStateRHIRef

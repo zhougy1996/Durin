@@ -8,6 +8,7 @@
 #include "RenderResourceCreation.h"
 #include "RenderingThread.h"
 #include "Shader/Shader.h"
+#include "Shader/ShaderCookedLibrary.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "Texture/Texture2D.h"
 
@@ -54,6 +55,12 @@ namespace Durin::Editor::Texture
 				EShaderFrequency::Fragment,
 				"FragmentMain");
 		};
+
+		const FShaderProgramRegistration GTexturePreviewShaderProgram(
+			"TextureEditor", "TextureEditor.Preview",
+			EShaderRequestEligibility::EditorOnly,
+			{&FTexturePreviewVertexShader::StaticType(),
+			 &FTexturePreviewFragmentShader::StaticType()});
 
 		struct FTexturePreviewRendererState
 		{

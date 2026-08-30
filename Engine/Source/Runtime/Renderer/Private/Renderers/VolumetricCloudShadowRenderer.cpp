@@ -60,6 +60,15 @@ namespace Durin
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FCloudShadowVertexShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FCloudShadowFragmentShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FCloudShadowComputeShader);
+		const FGlobalShaderSetRegistration GCloudShadowComputeShaderSet(
+			"Renderer", "VolumetricCloudShadow.Compute",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FCloudShadowComputeShader::StaticType()});
+		const FGlobalShaderSetRegistration GCloudShadowFragmentShaderSet(
+			"Renderer", "VolumetricCloudShadow.Fragment",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FCloudShadowVertexShader::StaticType(),
+			 &FCloudShadowFragmentShader::StaticType()});
 		struct alignas(16) FCloudShadowUniform
 		{
 			float InverseViewProjection[16]{};

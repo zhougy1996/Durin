@@ -62,6 +62,16 @@ namespace Durin
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FPostProcessVertexShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FCopySceneColorFragmentShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FFXAAFragmentShader);
+		const FGlobalShaderSetRegistration GPostProcessCopyShaderSet(
+			"Renderer", "PostProcess.Copy",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FPostProcessVertexShader::StaticType(),
+			 &FCopySceneColorFragmentShader::StaticType()});
+		const FGlobalShaderSetRegistration GPostProcessFxaaShaderSet(
+			"Renderer", "PostProcess.FXAA",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FPostProcessVertexShader::StaticType(),
+			 &FFXAAFragmentShader::StaticType()});
 
 		struct FPostProcessViewUniform
 		{

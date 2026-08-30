@@ -32,7 +32,8 @@
         "TerrainBuild": "Source/Developer/TerrainBuild",
         "DerivedDataCache": "Source/Developer/DerivedDataCache",
         "TextureBuild": "Source/Developer/TextureBuild",
-        "AssetMaintenance": "Source/Developer/AssetMaintenance"
+        "AssetMaintenance": "Source/Developer/AssetMaintenance",
+        "ShaderBuild": "Source/Developer/ShaderBuild"
     },
     "BaseModules": [
         "DurinLauncher",
@@ -57,7 +58,8 @@
                 "TerrainBuild",
                 "DerivedDataCache",
                 "TextureBuild",
-                "AssetMaintenance"
+                "AssetMaintenance",
+                "ShaderBuild"
             ]
         },
         "DurinGame": {

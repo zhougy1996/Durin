@@ -1,0 +1,34 @@
+#include "CoreGlobals.h"
+#include "HAL/PlatformLTS.h"
+#include "ShaderBuild/ShaderBuildLifecycle.h"
+
+#include <gtest/gtest.h>
+
+namespace Durin
+{
+	namespace
+	{
+		class FAuthoredShaderTestEnvironment final : public testing::Environment
+		{
+		public:
+			auto SetUp() -> void override
+			{
+				if (!GIsGameThreadIdInitialized)
+				{
+					GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+					GIsGameThreadIdInitialized = true;
+				}
+				InitializeShaderBuildForTesting();
+			}
+
+			auto TearDown() -> void override
+			{
+				ShutdownShaderBuild();
+			}
+		};
+
+		[[maybe_unused]] testing::Environment* GAuthoredShaderTestEnvironment =
+			testing::AddGlobalTestEnvironment(
+				new FAuthoredShaderTestEnvironment());
+	}
+}

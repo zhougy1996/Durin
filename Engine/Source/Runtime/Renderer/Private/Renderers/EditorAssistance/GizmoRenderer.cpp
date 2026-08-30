@@ -45,6 +45,11 @@ namespace Durin
 
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FGizmoVertexShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FGizmoFragmentShader);
+		const FGlobalShaderSetRegistration GGizmoShaderSet(
+			"Renderer", "EditorAssistance.Gizmo",
+			EShaderRequestEligibility::EditorOnly,
+			{&FGizmoVertexShader::StaticType(),
+			 &FGizmoFragmentShader::StaticType()});
 
 		struct FGizmoTransformUniform
 		{

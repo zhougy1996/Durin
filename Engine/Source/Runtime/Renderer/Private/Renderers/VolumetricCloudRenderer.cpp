@@ -100,6 +100,25 @@ namespace Durin
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FCloudTemporalVertexShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FCloudTemporalFragmentShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FCloudCompositeFragmentShader);
+		const FGlobalShaderSetRegistration GCloudComputeShaderSet(
+			"Renderer", "VolumetricCloud.Compute",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FCloudComputeShader::StaticType()});
+		const FGlobalShaderSetRegistration GCloudFragmentShaderSet(
+			"Renderer", "VolumetricCloud.Fragment",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FCloudVertexShader::StaticType(),
+			 &FCloudFragmentShader::StaticType()});
+		const FGlobalShaderSetRegistration GCloudTemporalShaderSet(
+			"Renderer", "VolumetricCloud.Temporal",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FCloudTemporalVertexShader::StaticType(),
+			 &FCloudTemporalFragmentShader::StaticType()});
+		const FGlobalShaderSetRegistration GCloudCompositeShaderSet(
+			"Renderer", "VolumetricCloud.Composite",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FCloudCompositeVertexShader::StaticType(),
+			 &FCloudCompositeFragmentShader::StaticType()});
 
 		struct alignas(16) FCloudUniform
 		{

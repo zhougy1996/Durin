@@ -1,4 +1,5 @@
 #include "Asset/Cook.h"
+#include "Shader/ShaderBuildProvider.h"
 
 #include "Asset/Load.h"
 #include "Asset/PackageSerialization.h"
@@ -267,7 +268,7 @@ namespace Durin::Asset
 			{
 			}
 
-			auto Publish(std::span<const FCookSavePlan> Plans, const FCookState& State, FCookRunResult& InOutResult, const FCookCancellationCheck& Cancellation, const FCookFailureInjection& ShouldFail, std::string& OutError) -> bool override
+			auto Publish(std::span<const FCookSavePlan> Plans, std::span<const FCookAuxiliaryOutput> AuxiliaryOutputs, const FCookState& State, FCookRunResult& InOutResult, const FCookCancellationCheck& Cancellation, const FCookFailureInjection& ShouldFail, std::string& OutError) -> bool override
 			{
 				const auto CommitStart = std::chrono::steady_clock::now();
 				if (Root.empty() || !Root.is_absolute()
@@ -303,6 +304,19 @@ namespace Durin::Asset
 					else if (Plan.bRawBulkSegment && !Plan.bReuseExistingOutput
 							 && !ValidatePackageBulkDataSegment(Plan.BulkSummary, Plan.BulkEntries, Plan.BulkBytes, &OutError))
 						return false;
+				}
+				for (size_t Index = 0; Index < AuxiliaryOutputs.size(); ++Index)
+				{
+					const FCookAuxiliaryOutput& Output = AuxiliaryOutputs[Index];
+					const std::filesystem::path Relative(Output.RelativePath);
+					if (Output.Kind != ECookManifestEntryKind::ShaderLibrary
+						|| Output.RelativePath.empty() || Relative.is_absolute()
+						|| Relative.lexically_normal() != Relative
+						|| Relative.native().starts_with(std::filesystem::path("..").native())
+						|| Output.Bytes.empty()
+						|| FXxHash128::HashBuffer(Output.Bytes) != Output.Digest
+						|| (Index && !(AuxiliaryOutputs[Index - 1].RelativePath < Output.RelativePath)))
+						return Fail("CookOutputStoreInvalidAuxiliaryOutput", &OutError);
 				}
 				std::error_code ErrorCode;
 				std::filesystem::create_directories(Root, ErrorCode);
@@ -356,6 +370,11 @@ namespace Durin::Asset
 					const std::string SegmentRelative = RelativeSegmentPath(Plan.VirtualPath);
 					Outputs.push_back({ECookManifestEntryKind::PackageBulk, CookManifestEntryPresent, SegmentRelative, Plan.BulkBytes, Plan.SegmentFileSize, Plan.SegmentDigest, ECookOperationStage::StageSegment, ECookOperationStage::CommitSegment, Plan.bReuseExistingOutput});
 					Manifest.Entries.push_back({ECookManifestEntryKind::PackageBulk, CookManifestEntryPresent, SegmentRelative, Plan.SegmentFileSize, Plan.SegmentDigest.HashLow, Plan.SegmentDigest.HashHigh});
+				}
+				for (const FCookAuxiliaryOutput& Auxiliary : AuxiliaryOutputs)
+				{
+					Outputs.push_back({Auxiliary.Kind, CookManifestEntryPresent, Auxiliary.RelativePath, Auxiliary.Bytes, static_cast<uint64>(Auxiliary.Bytes.size()), Auxiliary.Digest, ECookOperationStage::StageAuxiliary, ECookOperationStage::CommitAuxiliary, false});
+					Manifest.Entries.push_back({Auxiliary.Kind, CookManifestEntryPresent, Auxiliary.RelativePath, static_cast<uint64>(Auxiliary.Bytes.size()), Auxiliary.Digest.HashLow, Auxiliary.Digest.HashHigh});
 				}
 
 				std::ranges::stable_sort(Outputs, [](const FOutputRecord& Left, const FOutputRecord& Right) {
@@ -532,8 +551,10 @@ namespace Durin::Asset
 		case ECookOperationStage::Capture: return "capture";
 		case ECookOperationStage::StageSegment: return "stage-segment";
 		case ECookOperationStage::StagePackage: return "stage-package";
+		case ECookOperationStage::StageAuxiliary: return "stage-auxiliary";
 		case ECookOperationStage::CommitSegment: return "commit-segment";
 		case ECookOperationStage::CommitPackage: return "commit-package";
+		case ECookOperationStage::CommitAuxiliary: return "commit-auxiliary";
 		case ECookOperationStage::CommitState: return "commit-state";
 		case ECookOperationStage::CommitManifest: return "commit-manifest";
 		case ECookOperationStage::Rollback: return "rollback";
@@ -684,8 +705,8 @@ namespace Durin::Asset
 												.count();
 			return Status == ECookRunStatus::Succeeded;
 		};
-		if (Request.TargetPlatform == ECookTargetPlatform::Invalid
-			|| Request.TargetProfile == ECookTargetProfile::Invalid
+		if (Request.TargetPlatform != ECookTargetPlatform::Win64
+			|| Request.TargetProfile != ECookTargetProfile::Game
 			|| (!Request.bDryRun && (Request.OutputRoot.empty() || !Request.OutputRoot.is_absolute())))
 			return Finish(ECookRunStatus::Failed, "invalid-request", "CookInvalidRequest: target/profile or output root is invalid.");
 		if (IsCancelled(Request.IsCancelled))
@@ -850,6 +871,19 @@ namespace Durin::Asset
 		std::ranges::sort(NewState.Entries, {}, &FCookStateEntry::VirtualPackagePath);
 		if (Request.bDryRun)
 			return Finish(ECookRunStatus::Succeeded, "dry-run", "Cook dry-run captured the complete plan.");
+		std::vector<FCookAuxiliaryOutput> AuxiliaryOutputs;
+		std::vector<std::byte> ShaderLibraryBytes;
+		std::string ShaderLibraryError;
+		if (!BuildCookedShaderLibrary(
+				EShaderTargetPlatform::Win64, EShaderTargetProfile::Game,
+				ShaderLibraryBytes, ShaderLibraryError))
+			return Finish(ECookRunStatus::Failed, "shader-library-failed",
+				std::format("CookShaderLibraryFailed: {}", ShaderLibraryError));
+		AuxiliaryOutputs.push_back({
+			ECookManifestEntryKind::ShaderLibrary,
+			std::string(ShaderCookedLibraryRelativePath),
+			std::move(ShaderLibraryBytes)});
+		AuxiliaryOutputs.back().Digest = FXxHash128::HashBuffer(AuxiliaryOutputs.back().Bytes);
 		std::unique_ptr<ICookOutputStore> OwnedStore;
 		if (!OutputStore)
 		{
@@ -857,7 +891,7 @@ namespace Durin::Asset
 			OutputStore = OwnedStore.get();
 		}
 		std::string PublishError;
-		if (!OutputStore->Publish(Plans, NewState, OutResult, Request.IsCancelled, ShouldFail, PublishError))
+		if (!OutputStore->Publish(Plans, AuxiliaryOutputs, NewState, OutResult, Request.IsCancelled, ShouldFail, PublishError))
 		{
 			if (IsCancelled(Request.IsCancelled)
 				|| PublishError.starts_with("CookCancelled"))

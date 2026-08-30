@@ -1,14 +1,14 @@
 #include "Shader/ShaderCompilerCore.h"
-#include "Shader/ShaderPaths.h"
+#include "ShaderBuild/ShaderPaths.h"
 
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "Misc/FileFingerprintCache.h"
 #include "NativeTestSupport.h"
 #include "Serialization/BinaryFormat.h"
-#include "Shader/ShaderCompileUtilities.h"
-#include "Shader/ShaderDependencyManifestStore.h"
-#include "Shader/ShaderDerivedData.h"
+#include "ShaderCompileUtilities.h"
+#include "ShaderDependencyManifestStore.h"
+#include "ShaderDerivedData.h"
 
 #include "gtest/gtest.h"
 

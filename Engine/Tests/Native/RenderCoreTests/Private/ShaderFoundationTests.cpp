@@ -9,7 +9,7 @@
 #include "Shader/MaterialShader.h"
 #include "Shader/Shader.h"
 #include "Shader/ShaderCompilerCore.h"
-#include "Shader/ShaderPaths.h"
+#include "ShaderBuild/ShaderPaths.h"
 
 namespace Durin
 {
@@ -1149,7 +1149,7 @@ namespace Durin
 		std::filesystem::create_directories(CacheDir);
 		FShaderPaths::RegisterMountPoint(
 			"/Engine/", DURIN_ENGINE_SHADER_SOURCE_DIR, CacheDir.generic_string());
-		ASSERT_NE(FModuleManager::Get().LoadModule("RenderCore"), nullptr);
+		ASSERT_NE(FModuleManager::Get().LoadModule("ShaderBuild"), nullptr);
 		FGlobalShaderMap& Map = GetGlobalShaderMap();
 		Map.Shutdown_RenderThread();
 		EXPECT_EQ(Map.GetSectionCount(), 0u);

@@ -1,13 +1,16 @@
 # Shader Cache
 
-Summary: Define shader compilation, portable DDC identity, local dependency manifests, validation, and publication behavior.
+Summary: Define authored ShaderBuild caching and compiler-free cooked Shader delivery.
 
-Modules: RenderCore, DerivedDataCache, RHI
+Modules: RenderCore, ShaderBuild, DerivedDataCache, RHI
 
 Last reviewed: 2026-08-30
 
-RenderCore owns Slang dependency resolution, compilation, request coalescing,
-typed output validation, and publication. DerivedDataCache owns only synchronous
+ShaderBuild owns Slang dependency resolution, compilation, request coalescing,
+dependency manifests, DDC orchestration, and cooked-library production.
+RenderCore owns source-independent request/value types, `DSHD` encoding, the
+`DSLB` cooked-library schema/reader, Shader maps, and RHI publication.
+DerivedDataCache owns only synchronous
 opaque `bucket + key -> immutable bytes` persistence and bounded bucket
 maintenance. It does not schedule or execute Shader builds.
 
@@ -15,7 +18,7 @@ maintenance. It does not schedule or execute Shader builds.
 
 The runtime uses four bounded or reclaimable layers:
 
-- RenderCore-private, machine-local dependency manifests;
+- ShaderBuild-private, machine-local dependency manifests;
 - one portable DDC value for each exact compiled-output request;
 - a 128-entry in-process compiled-output LRU;
 - weak Shader-map resource entries retained only by live Shader maps.
@@ -35,7 +38,8 @@ unchanged size/time facts without reading source contents.
 Compiled output uses the generic DDC bucket `Shaders/CompiledOutput`. Its key is
 a canonical lowercase XXH3-128 identity and its filesystem backend currently
 maps that opaque key to the ordinary two-character-sharded `.bin` object layout.
-RenderCore never constructs or observes that physical path.
+RenderCore never constructs or observes that physical path; ShaderBuild uses
+only the bucket/key API.
 
 ## Portable identity
 
@@ -86,7 +90,7 @@ reflection are never independently published or accepted.
 
 ## Request flow and failure policy
 
-The compile service performs:
+The ShaderBuild compile service performs:
 
 1. macro validation and identical-request single-flight admission;
 2. local dependency-manifest validation or dependency resolution;
@@ -117,17 +121,36 @@ covers filesystem I/O. Different buckets and ordinary same-bucket operations
 may progress concurrently. Atomic file replacement gives identical writers
 safe last-writer-wins publication and readers a prior or new complete object.
 
-The compile service owns workers, single-flight records, compiler lifetime,
+ShaderBuild owns workers, single-flight records, compiler lifetime,
 memory caching, and shutdown. Reload generation invalidates memoized source
 fingerprints. Global and Material Shader owners continue to publish complete
 last-known-good typed sets atomically; this storage migration does not change
 their generation or RHI-resource contract.
 
-RenderCore has a private DerivedDataCache dependency in both DurinEditor and
-DurinGame because both variants currently support on-demand authoring Shader
-compilation. The Core-only DDC module enters the game closure; asset recipe and
-editor modules do not. Removing compiler and DDC closure from DurinGame requires
-a separately qualified cooked-Shader-library boundary.
+DurinEditor and Cook-capable tools select ShaderBuild. Its module-owned
+`IShaderBuildProvider` is the only live-build path; provider absence or
+retirement is an explicit authored failure. RenderCore has no Slang or
+DerivedDataCache dependency, and DurinGame selects neither ShaderBuild nor DDC.
+
+## Cooked delivery
+
+Cook freezes the target-eligible non-Material request inventory and asks
+ShaderBuild to resolve each exact request through the ordinary memory/DDC/
+compiler path. It publishes `Shaders/ShaderLibrary.dslb` in the same Cook
+transaction as packages and records it in `CookManifest.bin`.
+
+`DSLB` schema 1 is exact for one target/profile. Its sorted directory maps a
+source-independent runtime request identity to one complete embedded `DSHD`
+value and records production identity and payload digests. RenderCore preflights
+the full header, directory, bounds, alignment, target/profile, inventory closure
+and whole-file digest before serving a record. A lazy record load revalidates
+its digest and exact request membership.
+
+Launch selects one immutable Shader-data domain before demand. Authored mode
+uses the provider; Cooked Game mode opens only the qualified library below the
+Cook root. Missing, corrupt, incomplete, wrong-target, or wrong-profile data is
+a bounded content failure and never falls back to source, manifests, DDC, Slang,
+or a compiler provider. Material `ProgramData` remains package-owned.
 
 ## Compatibility
 

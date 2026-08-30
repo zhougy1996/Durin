@@ -9,7 +9,7 @@
 #include "RHIGlobals.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
-#include "Shader/SlangShaderCompiler.h"
+#include "SlangShaderCompiler.h"
 #include "VulkanRHIPrivate.h"
 #include "VulkanDynamicRHI.h"
 #include "VulkanExtensions.h"

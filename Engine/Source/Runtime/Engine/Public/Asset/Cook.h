@@ -16,6 +16,7 @@ namespace Durin::Asset
 		CookedPackage = 1,
 		CookedBulk = 2,
 		PackageBulk = 3,
+		ShaderLibrary = 4,
 	};
 
 	inline constexpr uint8 CookManifestEntryPresent = 1u << 0;
@@ -87,8 +88,10 @@ namespace Durin::Asset
 		Capture,
 		StageSegment,
 		StagePackage,
+		StageAuxiliary,
 		CommitSegment,
 		CommitPackage,
+		CommitAuxiliary,
 		CommitState,
 		CommitManifest,
 		Rollback,
@@ -205,6 +208,15 @@ namespace Durin::Asset
 		std::vector<FCookStateEntry> Entries;
 	};
 
+	// Detached non-package output committed by the same manifest-last transaction.
+	struct FCookAuxiliaryOutput
+	{
+		ECookManifestEntryKind Kind = ECookManifestEntryKind::ShaderLibrary;
+		std::string RelativePath;
+		std::vector<std::byte> Bytes;
+		FXxHash128 Digest;
+	};
+
 	ENGINE_API auto EncodeCookState(const FCookState& State, std::vector<std::byte>& OutBytes, std::string* OutError = nullptr) -> bool;
 	ENGINE_API auto DecodeCookState(std::span<const std::byte> Bytes, FCookState& OutState, std::string* OutError = nullptr) -> bool;
 
@@ -217,7 +229,11 @@ namespace Durin::Asset
 	{
 	public:
 		virtual ~ICookOutputStore() = default;
-		virtual auto Publish(std::span<const FCookSavePlan> Plans, const FCookState& State, FCookRunResult& InOutResult, const FCookCancellationCheck& IsCancelled, const FCookFailureInjection& ShouldFail, std::string& OutError) -> bool = 0;
+		virtual auto Publish(std::span<const FCookSavePlan> Plans, std::span<const FCookAuxiliaryOutput> AuxiliaryOutputs, const FCookState& State, FCookRunResult& InOutResult, const FCookCancellationCheck& IsCancelled, const FCookFailureInjection& ShouldFail, std::string& OutError) -> bool = 0;
+		auto Publish(std::span<const FCookSavePlan> Plans, const FCookState& State, FCookRunResult& InOutResult, const FCookCancellationCheck& IsCancelled, const FCookFailureInjection& ShouldFail, std::string& OutError) -> bool
+		{
+			return Publish(Plans, {}, State, InOutResult, IsCancelled, ShouldFail, OutError);
+		}
 	};
 
 	ENGINE_API auto CreateLocalLooseCookOutputStore(

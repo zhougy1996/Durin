@@ -4,30 +4,77 @@ Summary: Cook every DurinGame-reachable non-Material Shader into a validated lib
 
 Last reviewed: 2026-08-30
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-30
 
 ## Current Status
 
-Planning is complete enough to begin Stage 0; no implementation stage has
-started. The completed Shader DDC migration gives every exact live compile
-request one portable, validated `DSHD` value and keeps machine-local dependency
-manifests separate. RenderCore nevertheless still initializes the compile
-service in both runtime variants, privately depends on `DerivedDataCache`,
-links and deploys Slang, resolves source dependencies, and permits on-demand
-compilation from Shader source in DurinGame.
+All stages are complete. Win64 Game Cook now publishes one deterministic
+`Shaders/ShaderLibrary.dslb` covering the 15 Game Global Shader exact sets.
+RenderCore owns source-independent request values, strict `DSLB`/`DSHD`
+reading, and the immutable Authored/Cooked domain; the Developer `ShaderBuild`
+module owns Slang, source dependency discovery, live compilation, and DDC.
+DurinGame contains neither ShaderBuild, DerivedDataCache, Slang, nor a live
+fallback path. Material programs remain package-owned `ProgramData`.
 
-Material has already crossed the cooked boundary: each cooked Material owns a
-complete target-qualified `ProgramData` value and Runtime needs no authored
-program, generated source, DDC, or compiler. Fixed Global Shaders and finite
-feature-owned Shader programs, including any DurinGame-reachable UI backend
-programs, do not yet have an equivalent cooked delivery authority.
+The headless asset tool loads the Renderer binary only for static inventory
+registration and does not start the Renderer module. This prevents the former
+Cook-exit crash caused by Renderer shutdown issuing a render command without a
+rendering thread. A real Sandbox Cook, a disk-backed Cook integration test, and
+a five-frame DurinGame process have qualified the completed boundary.
 
-This bounded plan is sufficient and does not require a roadmap. It targets the
-current Win64 Game profile, the finite Shader consumer closure selected by
-DurinGame, and one complete library. Cross-platform distribution, streaming,
-incremental patch libraries, remote DDC, pipeline archives, and PSO caches are
-separate outcomes.
+### Stage 0 frozen handoff
+
+- Runtime target/profile values are `Win64` and `Game`/`EditorValidation`.
+  Eligibility is an explicit descriptor field; names and source locations are
+  never eligibility inputs.
+- A request is `(schema, target, profile, category, owner, name, ordered
+  members)`. A member is `(stable type name, source entry point, frequency)`.
+  Global-set members are sorted by stable type name before identity and
+  compilation. Category is `GlobalSet` or `FeatureProgram`; Material is not a
+  library category. The canonical identity is XXH128 over length-prefixed UTF-8
+  fields and little-endian integers, with duplicate identities and conflicting
+  owner/name membership rejected.
+- Contribution registration is module-owned and allowed until the first
+  inventory freeze. Freeze filters by target/profile, validates every member,
+  sorts by canonical identity, and is immutable until complete RenderCore
+  shutdown. Late registration and retirement after freeze fail explicitly.
+- The relative library path is `Shaders/ShaderLibrary.dslb`. The little-endian
+  schema uses magic `DSLB`, schema version 1, builder version 1, a 112-byte
+  header, 80-byte sorted directory records, 16-byte payload alignment, no
+  string table, and complete embedded `DSHD` values. Header fields cover
+  target/profile, counts, directory/payload offsets and sizes, whole-file size,
+  inventory digest, and file digest. Each directory record contains runtime
+  identity, production identity, DSHD digest, offset, size, and reserved zeros.
+  Counts are bounded at 65,536, one DSHD at 256 MiB, and the file at 4 GiB.
+  Preflight validates every fixed field, ordering, uniqueness, alignment,
+  checked range, non-overlap, exact extent, inventory digest, and file digest.
+  Lazy access performs an exact bounded read and validates the DSHD digest and
+  request membership before returning value-owned decoded output.
+- `FShaderDataConfiguration` is selected once as `Authored` or `Cooked` before
+  Shader demand. Authored requires exactly one `IShaderBuildProvider`; Cooked
+  requires an absolute normalized Cook root and successful exact-target library
+  preflight and forbids a provider. Reconfiguration is rejected until shutdown.
+  Cooked reload never changes production identity; device recovery may reread
+  only the same qualified library generation.
+- `IShaderBuildProvider` is a RenderCore modular-feature contract for mounted
+  compile, generated compile, dependency inspection, environment identity,
+  stats, and Cook production. ShaderBuild owns its implementation and all
+  Slang, manifest, fingerprint, worker, LRU, DDC, generated-import, and Cook
+  state. Core's modular-feature invocation/retirement leases are the sole
+  cross-module call lifetime; tests may register one deterministic fake.
+- Cook freezes inventory after selected modules load, resolves every item
+  through the ordinary provider path, copies complete DSHD values, sorts by
+  runtime identity, and returns one detached library candidate plus production
+  identities. The existing Cook store publishes it in the same transaction as
+  packages, records it in `CookManifest.bin`, commits the manifest last, and
+  preserves the prior generation on any failure. Identical inputs, target,
+  profile, compiler identity, and inventory must produce identical bytes.
+- Removal targets are RenderCore's DerivedDataCache dependency, Slang link and
+  deployment, compile-service startup/shutdown, source/dependency-manifest
+  access, and DurinGame's Shader DDC paths. ShaderBuild is selected only for
+  DurinEditor and Cook-capable test/program roots. DurinGame must deploy only
+  `Shaders/ShaderLibrary.dslb` for non-Material Shader code.
 
 ## Goal
 
@@ -246,31 +293,31 @@ its package-local program bytes.
 
 ### Stage 0: Freeze closure, ownership, and formats
 
-- [ ] Inventory every DurinGame- and DurinEditor-reachable call to mounted-file
+- [x] Inventory every DurinGame- and DurinEditor-reachable call to mounted-file
   or generated-source Shader compilation, every registered Global Shader type
   and exact set, every finite feature/backend program, and all startup,
   shutdown, reload, device-recovery, and Cook call paths.
-- [ ] Classify each current consumer as Game-required, Editor-only,
+- [x] Classify each current consumer as Game-required, Editor-only,
   package-owned Material, or unsupported, with one selected owner and explicit
   target/profile eligibility; resolve MonaImGui and any other non-Global
   DurinGame program explicitly.
-- [ ] Freeze the runtime request identity stream and contribution descriptor,
+- [x] Freeze the runtime request identity stream and contribution descriptor,
   including owner/category/name, type or entry membership, ordering,
   target/profile, schema, duplicate rules, and registration/freeze lifetime.
-- [ ] Freeze the exact library relative path and binary contract: magic,
+- [x] Freeze the exact library relative path and binary contract: magic,
   schema/builder versions, byte order, header, sorted directory, optional string
   table, record envelope, DSHD reuse, alignment, ranges, digests, counts, total
   size, preflight, lazy-read, and compatibility behavior.
-- [ ] Specify the immutable Authored/Cooked RenderCore configuration, Launch
+- [x] Specify the immutable Authored/Cooked RenderCore configuration, Launch
   adaptation, initialization/shutdown order, wrong-domain calls, cooked reload
   behavior, library generation, and device-recovery policy.
-- [ ] Specify the ShaderBuild feature API, provider registration/retirement,
+- [x] Specify the ShaderBuild feature API, provider registration/retirement,
   public RenderCore value boundary, module dependencies, target selections,
   Slang deployment ownership, and test substitution seam.
-- [ ] Freeze Cook inventory timing, target/profile selection, DDC-hit/build
+- [x] Freeze Cook inventory timing, target/profile selection, DDC-hit/build
   provenance, deterministic ordering, atomic publication, failure rollback,
   output manifest/receipt, and repeat-Cook byte identity.
-- [ ] Record baseline focused tests, both runtime-variant closures, deployed
+- [x] Record baseline focused tests, both runtime-variant closures, deployed
   files, cold/warm compile counts, registered inventories, Cooked Material
   behavior, source/DDC-free fixtures, and expected removal targets.
 
@@ -283,19 +330,19 @@ its package-local program bytes.
 
 ### Stage 1: Introduce runtime identities and cooked library reading
 
-- [ ] Add closed target/profile-qualified runtime request descriptors and
+- [x] Add closed target/profile-qualified runtime request descriptors and
   canonical identity construction in RenderCore without source, DDC,
   compiler-environment, asset, Renderer-private, or RHI object fields.
-- [ ] Add module-owned registration and canonical inventory freeze for Global
+- [x] Add module-owned registration and canonical inventory freeze for Global
   exact sets and finite feature/backend contributions, including deterministic
   duplicate/late-registration/retirement rejection and a bounded test seam.
-- [ ] Implement the RenderCore-owned library header/directory and DSHD record
+- [x] Implement the RenderCore-owned library header/directory and DSHD record
   encode/decode helpers with checked arithmetic, exact bounds, canonical
   ordering, digest validation, request matching, and complete consumption.
-- [ ] Implement immutable library preflight plus bounded lazy record access and
+- [x] Implement immutable library preflight plus bounded lazy record access and
   decoded-output lifetime that never retains an unqualified raw file span or
   mutable producer storage.
-- [ ] Add golden empty-invalid, minimal, multi-record, multi-stage, and full
+- [x] Add golden empty-invalid, minimal, multi-record, multi-stage, and full
   current-inventory fixtures plus wrong-target/profile/version, duplicate,
   unsorted, overlap, gap if prohibited, alignment, extent, digest, truncation,
   overflow, malformed DSHD, request-mismatch, and trailing-byte cases.
@@ -308,24 +355,24 @@ its package-local program bytes.
 
 ### Stage 2: Extract live compilation into ShaderBuild
 
-- [ ] Create the `ShaderBuild` Developer module with private RenderCore,
+- [x] Create the `ShaderBuild` Developer module with private RenderCore,
   DerivedDataCache, Core, and Slang dependencies and select it for DurinEditor
   and Cook-capable roots but not DurinGame.
-- [ ] Move Slang compiler/resolver, dependency manifests, file-fingerprint
+- [x] Move Slang compiler/resolver, dependency manifests, file-fingerprint
   state, compile service/workers, in-flight records, output LRU, Shader DDC
   orchestration, generated-source handling, and related private tests from
   RenderCore into ShaderBuild without changing keys, DSHD bytes, cache buckets,
   limits, counters, or diagnostics.
-- [ ] Register one module-owned live-build provider implementing the frozen
+- [x] Register one module-owned live-build provider implementing the frozen
   RenderCore feature contract, including bounded admission, invocation/resource
   leases, retirement, shutdown, and deterministic fake-provider testing.
-- [ ] Rewire existing RenderCore compile/dependency facades and all current
+- [x] Rewire existing RenderCore compile/dependency facades and all current
   authored consumers to the provider while keeping public request/result value
   types and Global/Material/mesh map contracts stable.
-- [ ] Move Slang link, delay-load, runtime-file deployment, and compiler test
+- [x] Move Slang link, delay-load, runtime-file deployment, and compiler test
   ownership to ShaderBuild; remove private compiler/DDC includes and build
   metadata from RenderCore.
-- [ ] Prove Authored cold/warm DDC, corruption repair, force recompile,
+- [x] Prove Authored cold/warm DDC, corruption repair, force recompile,
   generated imports, dependency fingerprints, reload changed/all, concurrent
   requests, provider absence/retirement, and last-known-good publication retain
   their exact behavior.
@@ -338,24 +385,24 @@ its package-local program bytes.
 
 ### Stage 3: Produce the library through Cook
 
-- [ ] Add a ShaderBuild-owned Cook producer that freezes the selected target
+- [x] Add a ShaderBuild-owned Cook producer that freezes the selected target
   inventory only after required module registration, resolves every descriptor
   through the ordinary live-build/DDC path, and retains complete validated
   immutable candidates.
-- [ ] Adapt Global exact sets and each Game-required finite feature/backend
+- [x] Adapt Global exact sets and each Game-required finite feature/backend
   program to stable contributions without changing their runtime map/resource
   ownership or forcing unrelated Editor-only entries into the Game inventory.
-- [ ] Encode the canonical library from sorted runtime requests, DSHD values,
+- [x] Encode the canonical library from sorted runtime requests, DSHD values,
   production identities, and digests; reject missing, duplicate, incompatible,
   failed, canceled, or target-ineligible required outputs before publication.
-- [ ] Integrate the library with the existing Cook root, target/profile,
+- [x] Integrate the library with the existing Cook root, target/profile,
   transaction, output receipt/manifest, atomic replacement, rollback, and
   stale-output repair boundaries rather than publishing beside Cook ad hoc.
-- [ ] Add cold-DDC, warm-DDC, force rebuild if selected, failed compiler,
+- [x] Add cold-DDC, warm-DDC, force rebuild if selected, failed compiler,
   corrupt DDC repair, duplicate/late contribution, missing module, failed
   publication, prior-output preservation, deterministic ordering, and repeated
   byte-identical Cook coverage.
-- [ ] Prove Material `ProgramData` remains package-owned and byte/behavior
+- [x] Prove Material `ProgramData` remains package-owned and byte/behavior
   compatible and no Material payload is duplicated in the global library.
 
 #### Acceptance Gate
@@ -367,24 +414,24 @@ its package-local program bytes.
 
 ### Stage 4: Switch Cooked Runtime to the library
 
-- [ ] Add explicit Shader-data configuration and initialize Authored Editor or
+- [x] Add explicit Shader-data configuration and initialize Authored Editor or
   Cooked Game mode before the first Shader demand; reject replacement,
   premature demand, missing provider/library, and target/profile disagreement.
-- [ ] Make Global Shader exact-set resolution consume library outputs in Cooked
+- [x] Make Global Shader exact-set resolution consume library outputs in Cooked
   mode while preserving typed map construction, parameter binding, merged
   layouts, lazy RHI creation, exact generations, pipeline coupling, and
   last-known-good rules.
-- [ ] Switch every Game-required finite feature/backend program to its stable
+- [x] Switch every Game-required finite feature/backend program to its stable
   library request in Cooked mode while keeping its module-local resource and
   shutdown ownership.
-- [ ] Disable live compile, generated-source compile, dependency inspection,
+- [x] Disable live compile, generated-source compile, dependency inspection,
   DDC repair, force recompile, and source reload in Cooked mode with explicit
   domain diagnostics rather than unavailable symbol calls or silent fallbacks.
-- [ ] Preserve metadata-only startup where selected, bounded first-demand
+- [x] Preserve metadata-only startup where selected, bounded first-demand
   payload reads, shared immutable code/reflection lifetimes, complete
   missing/corrupt-record rejection, and device-loss reconstruction from the
   same qualified library generation.
-- [ ] Add cooked startup, first demand, all Global sets, feature/backend
+- [x] Add cooked startup, first demand, all Global sets, feature/backend
   consumers, Material coexistence, wrong/missing/corrupt library, missing
   record, device loss, retry, shutdown/reopen, and no-authoring-fallback tests.
 
@@ -397,22 +444,22 @@ its package-local program bytes.
 
 ### Stage 5: Remove authoring dependencies from DurinGame
 
-- [ ] Remove DerivedDataCache from RenderCore dependencies and DurinGame
+- [x] Remove DerivedDataCache from RenderCore dependencies and DurinGame
   closure, remove Slang link/deployment from RenderCore and Game, and ensure
   ShaderBuild remains selected only by authoring/Cook roots.
-- [ ] Remove Runtime initialization and shutdown of compiler workers,
+- [x] Remove Runtime initialization and shutdown of compiler workers,
   dependency manifests, file-fingerprint caches, DDC statistics/maintenance,
   and generated-source state; retain only domain-neutral values and the cooked
   reader in RenderCore.
-- [ ] Audit the generated DurinGame module graph, binary imports, deployed
+- [x] Audit the generated DurinGame module graph, binary imports, deployed
   runtime files, source/package closure, logs, and filesystem accesses for
   ShaderBuild, DerivedDataCache, Slang, Shader source extensions, manifest
   directories, and DDC paths.
-- [ ] Run a Cooked Game fixture after removing/renaming source trees, local
+- [x] Run a Cooked Game fixture after removing/renaming source trees, local
   manifests and the complete DDC, and prove the same representative frame,
   Global/feature Shader identities, Material programs, reflection layouts, and
   RHI resources are produced.
-- [ ] Inject missing/corrupt/incompatible library and record failures with all
+- [x] Inject missing/corrupt/incompatible library and record failures with all
   authoring inputs restored but unavailable to the Cooked domain, proving no
   source/compiler/DDC fallback is reachable.
 
@@ -424,18 +471,18 @@ its package-local program bytes.
 
 ### Stage 6: Complete qualification and lasting contracts
 
-- [ ] Update Shader cache/build, Global Shader, Material boundary, runtime
+- [x] Update Shader cache/build, Global Shader, Material boundary, runtime
   lifecycle, runtime variants, Cook/data lifecycle, code-module, build/deploy,
   and file-I/O documentation with only their lasting owned contracts.
-- [ ] Update module closure assertions, native-test ownership/selection,
+- [x] Update module closure assertions, native-test ownership/selection,
   deployment audits, Cook receipts, compatibility/versioning coverage, and
   documentation routing affected by ShaderBuild and the library.
-- [ ] Run the repository-prescribed focused Core archive/file, RenderCore
+- [x] Run the repository-prescribed focused Core archive/file, RenderCore
   Shader/library/map, ShaderBuild compile/DDC, Material Cook/runtime,
   Renderer/Vulkan, Cook/package, module-closure, deployment, DurinEditor,
   DurinGame, source-free process, full build, complete native aggregate, and
   documentation validation under the testing and build/run guides.
-- [ ] Record exact validation evidence, close every acceptance gate, mark the
+- [x] Record exact validation evidence, close every acceptance gate, mark the
   plan completed, and stage and commit the isolated implementation with exact
   Plan and final Stage provenance.
 
@@ -462,6 +509,23 @@ its package-local program bytes.
 | Deployment | Cooked Game contains the selected library and no Shader source, dependency manifests, DDC objects, compiler binary or authoring-only module |
 | Source-free process | Representative Cooked Game frame and recovery pass after source, manifests and DDC are unavailable |
 | Repository | Focused targets, both configured variants, Cook/process tests, full builds, complete native aggregate and documentation validators pass |
+
+## Completion Evidence
+
+- `Win64-Debug-DurinEditor` and `Win64-Debug-DurinGame` full `all` builds pass.
+- The complete ordinary Editor native aggregate passes all 87 registered
+  targets. Focused Shader contract/service/cache/library/Cook integration,
+  Asset Cook, Renderer reload, Material, and Vulkan-backed consumers pass.
+- The Game cooked-library target passes all four strict domain/library tests.
+- Two consecutive Sandbox Cooks publish or validate the same 3,759,142-byte
+  output generation. `Shaders/ShaderLibrary.dslb` is 444,532 bytes; its
+  qualified SHA-256 is
+  `DE9E81D64D5EC10631E0DBD2E9807DB33DA7180AE4C49704944512D7379D3689`.
+- The DurinGame import/deployment audit contains no ShaderBuild,
+  DerivedDataCache, Slang, Shader source, or dependency-manifest access. A
+  cooked five-frame Sandbox process exits successfully with no authoring path.
+- Changed-document validation passes after the lasting ownership, Cook
+  transaction, runtime-variant, Global Shader, and module-routing updates.
 
 ## Deferred Follow-ups
 
@@ -500,10 +564,13 @@ its package-local program bytes.
 - [`Renderer`](../../Engine/Source/Runtime/Renderer)
 - [`MonaImGui`](../../Engine/Source/Runtime/MonaImGui)
 - [`DerivedDataCache`](../../Engine/Source/Developer/DerivedDataCache)
+- [`ShaderBuild`](../../Engine/Source/Developer/ShaderBuild)
 - [`ShaderCompilerCore.h`](../../Engine/Source/Runtime/RenderCore/Public/Shader/ShaderCompilerCore.h)
-- [`ShaderCompileService.cpp`](../../Engine/Source/Runtime/RenderCore/Private/Shader/ShaderCompileService.cpp)
+- [`ShaderCookedLibrary.h`](../../Engine/Source/Runtime/RenderCore/Public/Shader/ShaderCookedLibrary.h)
+- [`ShaderData.h`](../../Engine/Source/Runtime/RenderCore/Public/Shader/ShaderData.h)
+- [`ShaderCompileService.cpp`](../../Engine/Source/Developer/ShaderBuild/Private/ShaderCompileService.cpp)
 - [`ShaderDerivedData.cpp`](../../Engine/Source/Runtime/RenderCore/Private/Shader/ShaderDerivedData.cpp)
-- [`ShaderDependencyManifestStore.cpp`](../../Engine/Source/Runtime/RenderCore/Private/Shader/ShaderDependencyManifestStore.cpp)
+- [`ShaderDependencyManifestStore.cpp`](../../Engine/Source/Developer/ShaderBuild/Private/ShaderDependencyManifestStore.cpp)
 - [`GlobalShader.cpp`](../../Engine/Source/Runtime/RenderCore/Private/Shader/GlobalShader.cpp)
 - [`MaterialCook.cpp`](../../Engine/Source/Runtime/Engine/Private/Materials/MaterialCook.cpp)
 - [`Engine.dproject`](../../Engine/Engine.dproject)

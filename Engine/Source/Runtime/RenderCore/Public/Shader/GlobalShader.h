@@ -2,11 +2,31 @@
 
 #include "RenderResourceCreation.h"
 #include "Shader/Shader.h"
+#include "Shader/ShaderCookedLibrary.h"
 
 namespace Durin
 {
 	class FGlobalShaderMap;
 	class FGlobalShaderMapPayload;
+	class FGlobalShaderType;
+
+	// Registers one exact Global Shader set for deterministic target inventory.
+	class FGlobalShaderSetRegistration final
+	{
+	public:
+		RENDERCORE_API FGlobalShaderSetRegistration(
+			std::string_view Owner,
+			std::string_view Name,
+			EShaderRequestEligibility Eligibility,
+			std::initializer_list<const FGlobalShaderType*> Types);
+		[[nodiscard]] auto IsValid() const -> bool
+		{
+			return Registration.IsValid();
+		}
+
+	private:
+		FShaderRequestRegistration Registration;
+	};
 
 	// Base class for fixed, non-Material shaders owned by the global shader map.
 	class FGlobalShader : public FShader

@@ -93,7 +93,7 @@ durin_add_engine_functional_test(RendererResourceReloadVulkanTests
 	RUNTIME_ONLY_RATIONALE "RHIInit selects VulkanRHI dynamically for this Vulkan-backed test."
 	RUNTIME_ONLY_TARGETS VulkanRHI
 	SOURCES Private/RendererResourceReloadVulkanTests.cpp
-	LIBRARIES ApplicationCore RenderCore Renderer
+	LIBRARIES ApplicationCore DerivedDataCache RenderCore Renderer ShaderBuild Slang_Imported
 )
 
 durin_add_engine_functional_test(StaticMeshRenderPreparationVulkanTests

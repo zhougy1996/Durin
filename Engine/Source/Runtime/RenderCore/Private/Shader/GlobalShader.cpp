@@ -1,4 +1,5 @@
 #include "Shader/GlobalShader.h"
+#include "Shader/ShaderData.h"
 
 #include "RenderingThread.h"
 
@@ -55,6 +56,24 @@ namespace Durin
 		FRenderResourceGeneration Generation;
 		std::string Identity;
 	};
+
+	FGlobalShaderSetRegistration::FGlobalShaderSetRegistration(
+		std::string_view Owner,
+		std::string_view Name,
+		EShaderRequestEligibility Eligibility,
+		std::initializer_list<const FGlobalShaderType*> Types)
+	{
+		FShaderRuntimeRequest Request;
+		Request.Category = EShaderRuntimeRequestCategory::GlobalSet;
+		Request.Owner = Owner;
+		Request.Name = Name;
+		std::vector<const FShaderType*> BaseTypes(Types.begin(), Types.end());
+		std::string Error;
+		Registration = RegisterShaderRuntimeRequest(
+			std::move(Request), Eligibility, BaseTypes, &Error);
+		requiref(Registration.IsValid(),
+			"Global Shader set registration failed for '{}': {}", Name, Error);
+	}
 
 	struct FGlobalShaderMap::FSectionEntry
 	{
@@ -151,9 +170,6 @@ namespace Durin
 							.RetryDependencies = ERenderResourceGenerationDependency::Manual});
 					}
 				}
-				FShaderCompileOptions Options;
-				Options.bForceRecompile =
-					ForceRecompileShaderGeneration == Generation.Shader;
 				auto Candidate = std::make_shared<FGlobalShaderMapPayload>();
 				Candidate->ShaderMap = std::make_shared<FShaderMapBase>();
 				Candidate->Generation = Generation;
@@ -161,8 +177,24 @@ namespace Durin
 				std::vector<const FShaderType*> BaseTypes(
 					Entry.Types.begin(), Entry.Types.end());
 				std::string Error;
-				if (!Candidate->ShaderMap->InitializeFromShaderTypes(
-						BaseTypes, Options, Error))
+				bool bInitialized = false;
+				if (GetShaderDataDomain() == EShaderDataDomain::Cooked)
+				{
+					FShaderCompilerOutput Output;
+					bInitialized = LoadCookedShaderRuntimeRequest(
+						SectionIdentity, BaseTypes, Output, Error)
+						&& Candidate->ShaderMap->Initialize(
+							BaseTypes, Output, Error);
+				}
+				else
+				{
+					FShaderCompileOptions Options;
+					Options.bForceRecompile =
+						ForceRecompileShaderGeneration == Generation.Shader;
+					bInitialized = Candidate->ShaderMap->InitializeFromShaderTypes(
+						BaseTypes, Options, Error);
+				}
+				if (!bInitialized)
 				{
 					return FResult::Failure({
 						.Category = ERenderResourceCreateErrorCategory::ShaderCompile,

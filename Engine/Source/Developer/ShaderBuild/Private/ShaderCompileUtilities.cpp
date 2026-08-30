@@ -2,7 +2,7 @@
 
 #include "Hash/XxHash.h"
 #include "Misc/FileFingerprintCache.h"
-#include "Shader/ShaderPaths.h"
+#include "ShaderBuild/ShaderPaths.h"
 
 namespace Durin::ShaderCompileUtilities
 {

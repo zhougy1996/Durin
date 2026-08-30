@@ -60,6 +60,15 @@ namespace Durin
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FContactVisibilityVertexShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FContactVisibilityFragmentShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FContactVisibilityComputeShader);
+		const FGlobalShaderSetRegistration GContactComputeShaderSet(
+			"Renderer", "ContactVisibility.Compute",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FContactVisibilityComputeShader::StaticType()});
+		const FGlobalShaderSetRegistration GContactFragmentShaderSet(
+			"Renderer", "ContactVisibility.Fragment",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FContactVisibilityVertexShader::StaticType(),
+			 &FContactVisibilityFragmentShader::StaticType()});
 
 		struct alignas(16) FContactVisibilityUniform
 		{

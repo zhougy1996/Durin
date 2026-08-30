@@ -1,6 +1,6 @@
 #include "Shader/ShaderCompilerCore.h"
 
-#include "ShaderCompileService.h"
+#include "ShaderDataInternal.h"
 
 namespace Durin
 {
@@ -11,7 +11,7 @@ namespace Durin
 
 	auto GetShaderCompilerEnvironmentIdentity() -> std::string
 	{
-		return GetShaderCompilerEnvironmentIdentityFromService();
+		return GetShaderCompilerEnvironmentIdentityFromProvider();
 	}
 
 	auto BuildShaderSourceDependencyManifest(
@@ -20,7 +20,7 @@ namespace Durin
 		std::vector<FShaderSourceDependencyFingerprint>& OutDependencies,
 		std::string& OutError) -> bool
 	{
-		return BuildShaderSourceDependencyManifestFromService(
+		return BuildShaderSourceDependencyManifestFromProvider(
 			VirtualShaderPath, Options, OutDependencies, OutError);
 	}
 
@@ -30,7 +30,7 @@ namespace Durin
 		FShaderSourceDependencyFingerprint& OutFingerprint,
 		std::string& OutError) -> bool
 	{
-		return BuildShaderSourceTreeFingerprintFromService(
+		return BuildShaderSourceTreeFingerprintFromProvider(
 			VirtualShaderPath, Options, OutFingerprint, OutError);
 	}
 

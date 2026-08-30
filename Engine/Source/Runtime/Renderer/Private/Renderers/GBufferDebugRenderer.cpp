@@ -41,6 +41,11 @@ namespace Durin
 		};
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FGBufferDebugVertexShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FGBufferDebugFragmentShader);
+		const FGlobalShaderSetRegistration GGBufferDebugShaderSet(
+			"Renderer", "GBufferDebug.Debug",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FGBufferDebugVertexShader::StaticType(),
+			 &FGBufferDebugFragmentShader::StaticType()});
 
 		struct alignas(16) FGBufferDebugUniform
 		{

@@ -9,6 +9,7 @@
 #include "Rendering/MonaRenderer.h"
 #include "RenderingThread.h"
 #include "Shader/Shader.h"
+#include "Shader/ShaderCookedLibrary.h"
 #include "Shader/ShaderCompilerCore.h"
 #include "Widgets/MWindow.h"
 
@@ -47,6 +48,11 @@ namespace Durin::MonaImGui
 
 		DURIN_DECLARE_SHADER(FImGuiFragmentShader, FShader, "/Engine/ImGui", EShaderFrequency::Fragment, "FragmentMain");
 	};
+
+	const FShaderProgramRegistration GImGuiShaderProgram(
+		"MonaImGui", "MonaImGui.Main",
+		EShaderRequestEligibility::EditorOnly,
+		{&FImGuiVertexShader::StaticType(), &FImGuiFragmentShader::StaticType()});
 
 	// Groups render-thread backend state to preserve deterministic static initialization.
 	struct FImGuiRHIImplRT_BackendState

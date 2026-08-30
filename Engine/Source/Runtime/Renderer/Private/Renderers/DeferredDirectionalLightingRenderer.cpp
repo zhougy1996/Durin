@@ -65,6 +65,12 @@ namespace Durin
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FDeferredDirectionalVertexShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FDeferredDirectionalFragmentShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FDeferredProductionFragmentShader);
+		const FGlobalShaderSetRegistration GDeferredDirectionalShaderSet(
+			"Renderer", "DeferredDirectionalLighting.Default",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FDeferredDirectionalVertexShader::StaticType(),
+			 &FDeferredDirectionalFragmentShader::StaticType(),
+			 &FDeferredProductionFragmentShader::StaticType()});
 	} // namespace
 
 	struct FDeferredDirectionalLightingRenderer::FState

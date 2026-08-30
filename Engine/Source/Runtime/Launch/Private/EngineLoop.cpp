@@ -11,6 +11,7 @@
 #include "Engine/Engine.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/CookedMeshLoadManager.h"
+#include "Shader/ShaderData.h"
 
 #include "RenderingThread.h"
 #include "CoreGlobals.h"
@@ -24,7 +25,6 @@
 #include "Modules/ModuleManager.h"
 #include "Profiling/Profiling.h"
 
-#include "Shader/ShaderPaths.h"
 #include "EngineGlobals.h"
 #include "EngineFrame.h"
 #include "EngineFramePhases.h"
@@ -118,7 +118,29 @@ namespace Durin
 		}
 		bGameThreadDeferredExecutorStarted = true;
 
-		FModuleManager::Get().LoadModule("RenderCore");
+		if (!FModuleManager::Get().LoadModule("RenderCore"))
+		{
+			DURIN_ERROR("Engine pre-initialization failed because RenderCore could not start.");
+			Exit();
+			return false;
+		}
+#if DURIN_WITH_EDITOR
+		if (!FModuleManager::Get().LoadModule("ShaderBuild"))
+		{
+			DURIN_ERROR("Engine pre-initialization failed because ShaderBuild could not start.");
+			Exit();
+			return false;
+		}
+#else
+		std::string ShaderDataError;
+		if (!InitializeShaderData(FShaderDataConfiguration::Cooked(
+				std::filesystem::path(FPaths::LaunchDir()).lexically_normal()), ShaderDataError))
+		{
+			DURIN_ERROR("Engine pre-initialization failed because Cooked Shader data could not start: {}", ShaderDataError);
+			Exit();
+			return false;
+		}
+#endif
 		if (!InitializeAssetCompilingManager())
 		{
 			DURIN_ERROR("Engine pre-initialization failed because the asset compiling manager could not start.");

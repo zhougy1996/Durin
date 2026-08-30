@@ -9,7 +9,7 @@
 #include "RHIResources.h"
 #include "InlineRHITestScope.h"
 #include "RenderingThread.h"
-#include "Shader/SlangShaderCompiler.h"
+#include "SlangShaderCompiler.h"
 #include "Shader/Shader.h"
 #if DURIN_WITH_EDITOR
 #include "Texture/TextureBuilder.h"

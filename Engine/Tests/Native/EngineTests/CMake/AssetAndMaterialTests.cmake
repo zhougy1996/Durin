@@ -313,7 +313,7 @@ durin_add_engine_functional_test(SkeletalSceneLifecycleTests
 		"Exercises editor skeletal Scene import, render-command publication, cook, and runtime-only load."
 	SOURCES
 		Private/SkeletalSceneLifecycleTests.cpp
-	LIBRARIES AssetForgeBuiltins RenderCore DurinEd SkeletalMeshEditor
+	LIBRARIES AssetForgeBuiltins RenderCore Renderer DurinEd SkeletalMeshEditor
 	DATA_DIRECTORIES ${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 )
 

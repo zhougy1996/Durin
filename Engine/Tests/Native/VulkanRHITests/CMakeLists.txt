@@ -15,6 +15,21 @@ if(APPLE AND NOT DURIN_ENABLE_APPLICATION_TESTS)
 	return()
 endif()
 
+if(NOT DURIN_WITH_EDITOR)
+	durin_exclude_native_test_sources(
+		RATIONALE
+			"This integration fixture compiles authored Slang test shaders and is therefore excluded from the compiler-free Game closure."
+		SOURCES
+			Private/VulkanRHITestEnvironment.cpp
+			Private/VulkanFailureInjectionTests.cpp
+			Private/VulkanMemoryPolicyTests.cpp
+			Private/VulkanTextureSamplingTests.cpp
+			Private/VulkanResourceTransitionTests.cpp
+			Private/VulkanSwapchainSelectionTests.cpp
+	)
+	return()
+endif()
+
 add_durin_test(VulkanRHIIntegrationTests
 	Private/VulkanRHITestEnvironment.cpp
 	Private/VulkanFailureInjectionTests.cpp
@@ -22,8 +37,8 @@ add_durin_test(VulkanRHIIntegrationTests
 	Private/VulkanTextureSamplingTests.cpp
 	Private/VulkanResourceTransitionTests.cpp
 	Private/VulkanSwapchainSelectionTests.cpp
-	${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private/Shader/SlangShaderCompiler.cpp
-	${DURIN_PROJECT_SOURCE_DIR}/Runtime/RenderCore/Private/Shader/ShaderCompileUtilities.cpp
+	${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/SlangShaderCompiler.cpp
+	${DURIN_PROJECT_SOURCE_DIR}/Developer/ShaderBuild/Private/ShaderCompileUtilities.cpp
 )
 
 target_compile_definitions(VulkanRHIIntegrationTests PRIVATE
@@ -32,6 +47,7 @@ target_compile_definitions(VulkanRHIIntegrationTests PRIVATE
 
 target_include_directories(VulkanRHIIntegrationTests PRIVATE
 	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/RenderCore/Private
+	${CMAKE_SOURCE_DIR}/Engine/Source/Developer/ShaderBuild/Private
 	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Public
 	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/VulkanRHI/Private
 )
@@ -42,6 +58,7 @@ target_link_libraries(VulkanRHIIntegrationTests PRIVATE
 	Engine
 	RHI
 	RenderCore
+	ShaderBuild
 	VulkanRHI
 	Vulkan::Vulkan
 	Slang_Imported
@@ -67,12 +84,12 @@ durin_register_native_test(VulkanRHIIntegrationTests
 	KIND ${_durin_vulkan_rhi_test_kind}
 	${_durin_vulkan_rhi_execution_host}
 	DOMAINS renderer viewport
-	MODULES rendercore rhi vulkan-rhi
+	MODULES rendercore shaderbuild rhi vulkan-rhi
 	BACKENDS vulkan
 	STACKS renderer
 	PROCESSORS 8
 	TIMEOUT 900
-	PRIVATE_SOURCE_OWNER RenderCore
+	PRIVATE_SOURCE_OWNER ShaderBuild
 	PRIVATE_SOURCE_RATIONALE
-		"Owns the RenderCore shader-compiler white-box seam used by Vulkan integration coverage."
+		"Owns the ShaderBuild compiler white-box seam used by Vulkan integration coverage."
 )

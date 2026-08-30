@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Shader/Shader.h"
-#include "Shader/SlangShaderCompiler.h"
+#include "SlangShaderCompiler.h"
 
 #include <cstring>
 #include <set>

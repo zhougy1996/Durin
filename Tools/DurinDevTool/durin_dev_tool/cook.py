@@ -10,7 +10,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, TextIO
 
-from .build.config import BuildToolError, OutputMode
+from .build.errors import BuildToolError
+from .build.models import OutputMode
 from .build.output import BuildOutput
 from .context import RepositoryContext
 from .errors import DevToolError

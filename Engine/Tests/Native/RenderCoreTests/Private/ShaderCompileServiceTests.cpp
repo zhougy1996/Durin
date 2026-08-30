@@ -1,11 +1,11 @@
-#include "Shader/ShaderPaths.h"
+#include "ShaderBuild/ShaderPaths.h"
 #include "Shader/ShaderCompilerCore.h"
 
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "Misc/Paths.h"
-#include "Shader/ShaderCompileService.h"
-#include "Shader/SlangShaderDependencyResolver.h"
+#include "ShaderCompileService.h"
+#include "SlangShaderDependencyResolver.h"
 #include "NativeTestSupport.h"
 
 #include "gtest/gtest.h"

@@ -1,9 +1,9 @@
-#include "ShaderDerivedData.h"
+#include "Shader/ShaderCompiledOutput.h"
 
 #include "Hash/XxHash.h"
 #include "Serialization/BinaryFormat.h"
 
-namespace Durin::ShaderDerivedData
+namespace Durin::ShaderCompiledOutput
 {
 	namespace
 	{
@@ -78,30 +78,6 @@ namespace Durin::ShaderDerivedData
 			OutError = Message;
 			return false;
 		}
-	}
-
-	auto GetBucket() -> DerivedData::FCacheBucket
-	{
-		return DerivedData::FCacheBucket::FromString("Shaders/CompiledOutput");
-	}
-
-	auto BuildKey(const FShaderVariantKey& VariantKey,
-		const FShaderCompileOptions& Options) -> DerivedData::FCacheKey
-	{
-		if (VariantKey.Value.IsZero() || !IsValidRequest(Options)) return {};
-		FXxHash128Builder Builder;
-		UpdateString(Builder, "DurinShaderCompiledOutputKey");
-		Builder.UpdateValue(PayloadSchemaVersion);
-		Builder.UpdateValue(BuilderVersion);
-		Builder.UpdateValue(VariantKey.Value);
-		Builder.UpdateValue(static_cast<uint32>(Options.EntryPoints.size()));
-		for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)
-		{
-			UpdateString(Builder, EntryPoint(Options.EntryPoints[Index]));
-			Builder.UpdateValue(static_cast<uint32>(Options.Frequencies[Index]));
-		}
-		return DerivedData::FCacheKey::FromString(
-			Builder.Finalize().ToString());
 	}
 
 	auto Encode(const FShaderCompileOptions& Options,

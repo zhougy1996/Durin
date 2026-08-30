@@ -225,25 +225,35 @@ TEST(FCookOutputStoreTests, RestoresEveryPriorFileAfterMidCommitFailure)
 		return FCookState{ECookTargetPlatform::Win64, ECookTargetProfile::Game, {{Plan.VirtualPath, Plan.InputFingerprint, Plan.PackageDigest, Plan.SegmentDigest, Plan.PackageFileSize, Plan.SegmentFileSize, Plan.ContributorVersion, Plan.FamilyProducerVersion, Plan.Contributor, Plan.BuildProvenance}}};
 	};
 	std::vector<FCookSavePlan> First = Capture({std::byte{1}, std::byte{2}});
+	std::vector<FCookAuxiliaryOutput> FirstAuxiliary{{
+		ECookManifestEntryKind::ShaderLibrary, "Shaders/ShaderLibrary.dslb",
+		{std::byte{1}, std::byte{3}}}};
+	FirstAuxiliary[0].Digest = FXxHash128::HashBuffer(FirstAuxiliary[0].Bytes);
 	auto Store = CreateLocalLooseCookOutputStore(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
 	FCookRunResult Result;
-	ASSERT_TRUE(Store->Publish(First, MakeState(First[0]), Result, {}, {}, Error)) << Error;
-	std::vector<std::byte> PriorPackage, PriorSegment, PriorManifest, PriorState;
+	ASSERT_TRUE(Store->Publish(First, FirstAuxiliary, MakeState(First[0]), Result, {}, {}, Error)) << Error;
+	std::vector<std::byte> PriorPackage, PriorSegment, PriorLibrary, PriorManifest, PriorState;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(PriorPackage, Root / "Game/Transactional.dasset"));
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(PriorSegment, Root / "Game/Transactional.dbulk"));
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(PriorLibrary, Root / "Shaders/ShaderLibrary.dslb"));
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(PriorManifest, Root / "CookManifest.bin"));
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(PriorState, Root / "CookState.bin"));
 
 	std::vector<FCookSavePlan> Second = Capture(
 		{std::byte{9}, std::byte{8}, std::byte{7}}
 	);
+	std::vector<FCookAuxiliaryOutput> SecondAuxiliary{{
+		ECookManifestEntryKind::ShaderLibrary, "Shaders/ShaderLibrary.dslb",
+		{std::byte{9}, std::byte{7}, std::byte{5}}}};
+	SecondAuxiliary[0].Digest = FXxHash128::HashBuffer(SecondAuxiliary[0].Bytes);
 	for (const ECookOperationStage FailureStage : {
 			 ECookOperationStage::CommitPackage,
+			 ECookOperationStage::CommitAuxiliary,
 			 ECookOperationStage::CommitState,
 			 ECookOperationStage::CommitManifest
 		 })
 	{
-		EXPECT_FALSE(Store->Publish(Second, MakeState(Second[0]), Result, {}, [FailureStage](ECookOperationStage Stage, size_t, std::string& OutError) {
+		EXPECT_FALSE(Store->Publish(Second, SecondAuxiliary, MakeState(Second[0]), Result, {}, [FailureStage](ECookOperationStage Stage, size_t, std::string& OutError) {
 				if (Stage != FailureStage) return false;
 				OutError = "injected commit failure";
 				return true; }, Error));
@@ -252,6 +262,8 @@ TEST(FCookOutputStoreTests, RestoresEveryPriorFileAfterMidCommitFailure)
 		EXPECT_EQ(Bytes, PriorPackage);
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "Game/Transactional.dbulk"));
 		EXPECT_EQ(Bytes, PriorSegment);
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "Shaders/ShaderLibrary.dslb"));
+		EXPECT_EQ(Bytes, PriorLibrary);
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "CookManifest.bin"));
 		EXPECT_EQ(Bytes, PriorManifest);
 		ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "CookState.bin"));
@@ -259,7 +271,7 @@ TEST(FCookOutputStoreTests, RestoresEveryPriorFileAfterMidCommitFailure)
 	}
 
 	bool bCancelled = false;
-	EXPECT_FALSE(Store->Publish(Second, MakeState(Second[0]), Result, [&bCancelled] { return bCancelled; }, [&bCancelled](ECookOperationStage Stage, size_t, std::string&) {
+	EXPECT_FALSE(Store->Publish(Second, SecondAuxiliary, MakeState(Second[0]), Result, [&bCancelled] { return bCancelled; }, [&bCancelled](ECookOperationStage Stage, size_t, std::string&) {
 			if (Stage == ECookOperationStage::CommitSegment) bCancelled = true;
 			return false; }, Error));
 	EXPECT_NE(Error.find("CookCancelledDuringCommit"), std::string::npos);
@@ -268,6 +280,8 @@ TEST(FCookOutputStoreTests, RestoresEveryPriorFileAfterMidCommitFailure)
 	EXPECT_EQ(Bytes, PriorPackage);
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "Game/Transactional.dbulk"));
 	EXPECT_EQ(Bytes, PriorSegment);
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "Shaders/ShaderLibrary.dslb"));
+	EXPECT_EQ(Bytes, PriorLibrary);
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "CookManifest.bin"));
 	EXPECT_EQ(Bytes, PriorManifest);
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "CookState.bin"));

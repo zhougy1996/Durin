@@ -46,6 +46,11 @@ namespace Durin
 		};
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FSkyBoxVertexShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FSkyBoxFragmentShader);
+		const FGlobalShaderSetRegistration GSkyBoxShaderSet(
+			"Renderer", "SkyBox.Default",
+			EShaderRequestEligibility::GameAndEditor,
+			{&FSkyBoxVertexShader::StaticType(),
+			 &FSkyBoxFragmentShader::StaticType()});
 	} // namespace
 
 	struct FSkyBoxRenderer::FState

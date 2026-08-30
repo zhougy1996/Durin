@@ -1,13 +1,35 @@
 #include "Shader/Shader.h"
 
 #include "DynamicRHI.h"
-#include "ShaderCompileService.h"
-#include "ShaderCompileUtilities.h"
+#include "ShaderDataInternal.h"
 
 namespace Durin
 {
 	namespace
 	{
+		auto NormalizeShaderMacros(
+			const FShaderCompileOptions& Options,
+			std::vector<FShaderMacroDefinition>& OutMacros,
+			std::string& OutError) -> bool
+		{
+			OutMacros = Options.Macros;
+			std::ranges::sort(OutMacros,
+				[](const FShaderMacroDefinition& Left,
+					const FShaderMacroDefinition& Right) {
+					return std::tie(Left.Name, Left.Value)
+						< std::tie(Right.Name, Right.Value);
+				});
+			for (size_t Index = 1; Index < OutMacros.size(); ++Index)
+			{
+				if (OutMacros[Index - 1].Name != OutMacros[Index].Name) continue;
+				OutError = std::format(
+					"Duplicate shader macro definition is not allowed: {}",
+					OutMacros[Index].Name);
+				return false;
+			}
+			return true;
+		}
+
 		struct FShaderBindingKey
 		{
 			uint32 SetIndex = 0;
@@ -312,7 +334,8 @@ namespace Durin
 			}
 
 			std::vector<FShaderMacroDefinition> NormalizedMacros;
-			if (!ShaderCompileUtilities::NormalizeMacros(CompileOptions, NormalizedMacros, OutErrorMessage))
+			if (!NormalizeShaderMacros(
+				CompileOptions, NormalizedMacros, OutErrorMessage))
 			{
 				return false;
 			}

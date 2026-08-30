@@ -57,6 +57,16 @@ namespace Durin
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FSimpleLineFragmentShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FSimpleSpriteVertexShader);
 		DURIN_IMPLEMENT_GLOBAL_SHADER(FSimpleSpriteFragmentShader);
+		const FGlobalShaderSetRegistration GSimpleLineShaderSet(
+			"Renderer", "EditorAssistance.SimpleElement.Line",
+			EShaderRequestEligibility::EditorOnly,
+			{&FSimpleLineVertexShader::StaticType(),
+			 &FSimpleLineFragmentShader::StaticType()});
+		const FGlobalShaderSetRegistration GSimpleSpriteShaderSet(
+			"Renderer", "EditorAssistance.SimpleElement.Sprite",
+			EShaderRequestEligibility::EditorOnly,
+			{&FSimpleSpriteVertexShader::StaticType(),
+			 &FSimpleSpriteFragmentShader::StaticType()});
 
 		struct FSimpleStyleUniform
 		{

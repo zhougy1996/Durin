@@ -464,6 +464,12 @@ package-only output has no companion entry. Cleanup removes stale outputs only
 when owned by the previous valid manifest, so an interrupted Cook retains a
 complete prior generation or diagnosable staged files.
 
+Win64/Game Cook also supplies `Shaders/ShaderLibrary.dslb` as a
+`ShaderLibrary` auxiliary output. It is detached before the store transaction,
+validated by its producer, staged and committed with package outputs, and
+recorded in CMNF. Failure at its stage or commit participates in the same
+reverse-order rollback; it is never published beside the Cook transaction.
+
 Cook reachability resolves explicit, built-in, and registered external runtime
 roots before traversal. Redirectors are authoring-only: references are rewritten
 to final real identities and redirector packages are omitted. Missing targets,

@@ -89,21 +89,20 @@ new module to the `DurinEditor` root and `Source/Developer`, while the project
 descriptor roots and dependency closure still decide whether that module is
 present. Developer modules required by headless programs are selected
 explicitly by those programs; `DurinGame` does not gain a Developer branch.
-The Engine editor currently selects `DerivedDataCache`, `TextureBuild`,
+The Engine editor currently selects `DerivedDataCache`, `ShaderBuild`, `TextureBuild`,
 `StaticMeshBuild`, `SkeletalBuild`, and `TerrainBuild`. Package audit, storage inventory, and
 canonical-resave dry-run select no Developer module. Canonical-resave apply
 explicitly loads `StaticMeshBuild`, `SkeletalBuild`, `TerrainBuild`, `TextureBuild`, and
 `AssetForgeBuiltins` so uncooked PostLoad
 recovery can reach family-owned readiness before the canonical save.
 
-RenderCore privately depends on the Core-only `DerivedDataCache` module because
-both DurinEditor and DurinGame currently support on-demand Shader compilation.
-That dependency therefore enters both closures even though the module is
-physically under `Source/Developer`. DurinGame does not gain `TextureBuild`,
-`StaticMeshBuild`, `SkeletalBuild`, `TerrainBuild`, `AssetForgeBuiltins`, or any
-editor module through this edge. Removing DerivedDataCache from the game closure
-requires a cooked-Shader-library boundary that also removes authoring compiler
-ownership from the runtime.
+`ShaderBuild` privately owns Slang and Shader DDC orchestration and is selected
+only for DurinEditor and Cook-capable tools. RenderCore owns the compiler-free
+cooked library reader and has no DerivedDataCache or Slang edge. DurinGame
+therefore gains none of `ShaderBuild`, `DerivedDataCache`, compiler binaries,
+Shader sources, local dependency manifests, asset recipe modules, or editor
+modules. Its non-Material Shader authority is the Cook output
+`Shaders/ShaderLibrary.dslb`; Material programs remain package-local.
 
 ## Adding A New Runtime Variant
 

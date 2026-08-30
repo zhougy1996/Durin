@@ -99,6 +99,21 @@ function(durin_add_engine_functional_test target_name)
 		${DURIN_ENGINE_TEST_SOURCES}
 		${DURIN_ENGINE_TEST_PRIVATE_SOURCES}
 	)
+	if(DURIN_WITH_EDITOR
+		AND Renderer IN_LIST DURIN_ENGINE_TEST_LIBRARIES
+		AND NOT target_name STREQUAL "RendererResourceReloadVulkanTests")
+		set(_durin_authored_shader_environment
+			"${CMAKE_CURRENT_BINARY_DIR}/Generated/AuthoredShaderTestEnvironment-${target_name}.cpp")
+		configure_file(
+			"${CMAKE_CURRENT_SOURCE_DIR}/Private/AuthoredShaderTestEnvironment.cpp.in"
+			"${_durin_authored_shader_environment}"
+			COPYONLY
+		)
+		target_sources(${target_name} PRIVATE
+			"${_durin_authored_shader_environment}")
+		target_link_libraries(${target_name} PRIVATE
+			DerivedDataCache ShaderBuild Slang_Imported)
+	endif()
 	set(_durin_private_source_compile_definitions)
 	if(DURIN_ENGINE_TEST_PRIVATE_SOURCE_OWNER)
 		string(TOUPPER

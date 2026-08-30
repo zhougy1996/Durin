@@ -869,6 +869,14 @@ int main(int ArgC, char** ArgV)
 			Durin::ShutdownTaskSystem(Durin::ETaskShutdownMode::Drain);
 		}
 	} EditorServices;
+	struct FScopedShaderInventoryModule final
+	{
+		Durin::FModuleHandle Handle = nullptr;
+		~FScopedShaderInventoryModule()
+		{
+			if (Handle) Durin::FPlatformMisc::FreeLibrary(Handle);
+		}
+	} ShaderInventoryModule;
 #if DURIN_WITH_EDITOR
 	if (!Durin::InitializeTaskScheduler(2)
 		|| !Durin::InitializeGameThreadDeferredExecutor()
@@ -884,6 +892,20 @@ int main(int ArgC, char** ArgV)
 		Durin::FModuleManager::Get().LoadModuleChecked("TerrainBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 		Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
+		if (Options.Operation == EOperation::Cook)
+		{
+			Durin::FModuleManager::Get().LoadModuleChecked("RenderCore");
+			ShaderInventoryModule.Handle = Durin::FPlatformMisc::LoadLibrary(
+				std::format("{}-Renderer{}", DURIN_RUNTIME_VARIANT,
+					Durin::FPlatformMisc::FLibraryExtension));
+			if (!ShaderInventoryModule.Handle)
+			{
+				std::cerr << "Error: Renderer Shader inventory could not load: "
+					<< Durin::FPlatformMisc::GetLastLibraryError() << '\n';
+				return 1;
+			}
+			Durin::FModuleManager::Get().LoadModuleChecked("ShaderBuild");
+		}
 	}
 #endif
 	(void)Durin::DLevel::StaticClass(); // Force the Engine reflection module into this process.

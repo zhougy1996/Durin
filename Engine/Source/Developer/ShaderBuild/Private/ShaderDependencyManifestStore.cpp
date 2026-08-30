@@ -3,7 +3,7 @@
 #include "Json/Json.h"
 #include "Misc/FileHelper.h"
 #include "Misc/StringConvert.h"
-#include "Shader/ShaderPaths.h"
+#include "ShaderBuild/ShaderPaths.h"
 
 namespace Durin
 {

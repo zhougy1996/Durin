@@ -289,7 +289,8 @@ namespace Durin::Asset
 			if (!IsValidRelativeManifestPath(Entry.RelativePath)
 				|| (Entry.Kind != ECookManifestEntryKind::CookedPackage
 					&& Entry.Kind != ECookManifestEntryKind::CookedBulk
-					&& Entry.Kind != ECookManifestEntryKind::PackageBulk)
+					&& Entry.Kind != ECookManifestEntryKind::PackageBulk
+					&& Entry.Kind != ECookManifestEntryKind::ShaderLibrary)
 				|| (Entry.Flags & CookManifestEntryPresent) == 0
 				|| (Entry.Flags & ~CookManifestEntryKnownFlags) != 0
 				|| (Entry.Kind != ECookManifestEntryKind::CookedPackage
@@ -375,7 +376,8 @@ namespace Durin::Asset
 				|| (Index && !(Entries.back().RelativePath < Entry.RelativePath))
 				|| (Entry.Kind != ECookManifestEntryKind::CookedPackage
 					&& Entry.Kind != ECookManifestEntryKind::CookedBulk
-					&& Entry.Kind != ECookManifestEntryKind::PackageBulk)
+					&& Entry.Kind != ECookManifestEntryKind::PackageBulk
+					&& Entry.Kind != ECookManifestEntryKind::ShaderLibrary)
 				|| (Entry.Flags & CookManifestEntryPresent) == 0
 				|| (Entry.Flags & ~CookManifestEntryKnownFlags) != 0
 				|| (Entry.Kind != ECookManifestEntryKind::CookedPackage
@@ -572,7 +574,7 @@ namespace Durin::Asset
 		);
 		std::string Error;
 		const bool bPublished = Store->Publish(
-			Plans, State, Result, {}, {}, Error
+			Plans, {}, State, Result, {}, {}, Error
 		);
 		if (!bPublished && OutError)
 			*OutError = std::move(Error);
