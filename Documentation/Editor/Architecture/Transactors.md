@@ -52,16 +52,19 @@ Ordinary synchronous editor code uses the active editor transactor implicitly:
 
 ```cpp
 Editor::FScopedTransaction Transaction("Move Actor");
-if (!Transaction.Modify(Actor)) return false;
-Actor->SetActorTransform(NewTransform);
+Transaction.Modify(Actor);
+return Actor->SetActorTransform(NewTransform);
 ```
 
 `Modify(...)` captures every non-transient reflected member before the caller
 mutates the object. Ending the scope captures final values, removes unchanged
 member records, and commits the remaining executable before/after records as
 one transaction. Calling `Modify(...)` repeatedly for the same object in one
-scope is idempotent. `Cancel()` discards the history records; it does not revert
-mutations the caller has already applied.
+scope is idempotent. The convenience API is best-effort: an unavailable or
+rejected transactor does not prevent the caller's mutation. Operations that
+require rollback when history recording fails use the advanced record API or a
+domain-specific `CommitApplied(...)` change. `Cancel()` discards the history
+records; it does not revert mutations the caller has already applied.
 
 Tests, independent tools, and hosts without `GEditor` may use the explicit
 `FScopedTransaction(DTransactor*, FTransactionContext)` constructor. Direct

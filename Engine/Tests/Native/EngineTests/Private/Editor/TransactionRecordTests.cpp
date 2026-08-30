@@ -548,15 +548,15 @@ TEST(FTransBufferTests, ScopedModifyRecordsChangedMembersAndPrunesNoOps)
 
 	{
 		Durin::Editor::FScopedTransaction NoChange(Buffer, {"test", "No change"});
-		ASSERT_TRUE(NoChange.Modify(Target));
-		ASSERT_TRUE(NoChange.Modify(Target));
+		NoChange.Modify(Target);
+		NoChange.Modify(Target);
 		EXPECT_EQ(NoChange.End().Code, Durin::Editor::ETransactorResultCode::NoOp);
 	}
 	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
 
 	{
 		Durin::Editor::FScopedTransaction Change(Buffer, {"test", "Change value"});
-		ASSERT_TRUE(Change.Modify(Target));
+		Change.Modify(Target);
 		Target->Value = 42;
 	}
 	ASSERT_EQ(Buffer->GetHistoryCount(), 1u);
@@ -567,7 +567,7 @@ TEST(FTransBufferTests, ScopedModifyRecordsChangedMembersAndPrunesNoOps)
 
 	{
 		Durin::Editor::FScopedTransaction Canceled(Buffer, {"test", "Canceled value"});
-		ASSERT_TRUE(Canceled.Modify(Target));
+		Canceled.Modify(Target);
 		Target->Value = 81;
 		EXPECT_EQ(Canceled.Cancel().Code, Durin::Editor::ETransactorResultCode::Discarded);
 	}
@@ -586,14 +586,14 @@ TEST(FTransBufferTests, NestedScopesCancelToSavepointsAndCommitOneEntry)
 	Durin::Editor::FScopedTransaction Outer(Buffer, {"property", "Nested edit",
 		Durin::Editor::FPersistentObjectRef(Target)});
 	ASSERT_TRUE(Outer.IsActive());
-	ASSERT_TRUE(Outer.Modify(Target));
+	Outer.Modify(Target);
 	++Target->Value;
 	{
 		Durin::Editor::FScopedTransaction Inner(Buffer, {"property", "Ignored nested description"});
 		ASSERT_TRUE(Inner.IsActive());
 		auto* InnerTarget = Durin::NewObject<DTransactionRecordParticipant>(nullptr, "InnerCanceledTarget");
 		const auto InnerTargetHandle = Durin::MakeObjectHandle(InnerTarget);
-		ASSERT_TRUE(Inner.Modify(InnerTarget));
+		Inner.Modify(InnerTarget);
 		EXPECT_EQ(Inner.Cancel().Code, Durin::Editor::ETransactorResultCode::Discarded);
 		EXPECT_FALSE(Inner.IsActive());
 		Durin::CollectGarbage();
@@ -657,7 +657,7 @@ TEST(FTransBufferTests, MoveOnlyScopeClosesOnceAndCancelIsIdempotent)
 	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 	{
 		Durin::Editor::FScopedTransaction First(Buffer, {"test", "Moved scope"});
-		ASSERT_TRUE(First.Modify(Target));
+		First.Modify(Target);
 		++Target->Value;
 		Durin::Editor::FScopedTransaction Second(std::move(First));
 		EXPECT_FALSE(First.IsActive());
@@ -679,7 +679,7 @@ TEST(FTransBufferTests, MaintainsCursorBranchIdsEventsAndLimits)
 	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 	auto Commit = [&](std::string Description) {
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", std::move(Description)});
-		EXPECT_TRUE(Scope.Modify(Target));
+		Scope.Modify(Target);
 		++Target->Value;
 		return Scope.End();
 	};
@@ -721,7 +721,7 @@ TEST(FTransBufferTests, DiscardsOversizedEntryAndPreservesFailedUndoCursor)
 	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 	ASSERT_TRUE(Buffer->SetLimits({.MaximumEntries = 4, .MaximumOwnedBytes = 1}));
 	Durin::Editor::FScopedTransaction Oversized(Buffer, {"test", "Oversized"});
-	ASSERT_TRUE(Oversized.Modify(Target));
+	Oversized.Modify(Target);
 	Target->Numbers.push_back(1);
 	EXPECT_EQ(Oversized.End().Code, Durin::Editor::ETransactorResultCode::Discarded);
 	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
@@ -729,7 +729,7 @@ TEST(FTransBufferTests, DiscardsOversizedEntryAndPreservesFailedUndoCursor)
 
 	ASSERT_TRUE(Buffer->SetLimits({.MaximumEntries = 4, .MaximumOwnedBytes = 1024u * 1024u}));
 	Durin::Editor::FScopedTransaction Valid(Buffer, {"test", "Stale"});
-	ASSERT_TRUE(Valid.Modify(Target));
+	Valid.Modify(Target);
 	++Target->Value;
 	ASSERT_TRUE(Valid.End());
 	const auto Id = Buffer->GetUndoId();
@@ -751,7 +751,7 @@ TEST(FTransBufferTests, ExpectedIdsAndExplicitRemovalPreserveHistoryPosition)
 	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 	auto Commit = [&](std::string Description) {
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", std::move(Description)});
-		EXPECT_TRUE(Scope.Modify(Target));
+		Scope.Modify(Target);
 		++Target->Value;
 		return Scope.End();
 	};
@@ -787,7 +787,7 @@ TEST(FTransBufferTests, RetainsAnEntryAtTheExactOwnedByteLimit)
 	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 	auto Commit = [&] {
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", "Exact limit"});
-		EXPECT_TRUE(Scope.Modify(Target));
+		Scope.Modify(Target);
 		++Target->Value;
 		return Scope.End();
 	};
@@ -814,7 +814,7 @@ TEST(FTransBufferTests, CancellationEvictionAndDestructionReleaseCollectorEdges)
 	const auto CanceledHandle = Durin::MakeObjectHandle(Canceled);
 	{
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", "Canceled"});
-		ASSERT_TRUE(Scope.Modify(Canceled));
+		Scope.Modify(Canceled);
 		EXPECT_EQ(Scope.Cancel().Code, Durin::Editor::ETransactorResultCode::Discarded);
 	}
 	Durin::CollectGarbage();
@@ -823,7 +823,7 @@ TEST(FTransBufferTests, CancellationEvictionAndDestructionReleaseCollectorEdges)
 	ASSERT_TRUE(Buffer->SetLimits({.MaximumEntries = 1, .MaximumOwnedBytes = 1024u * 1024u}));
 	auto Commit = [&](DTransactionRecordParticipant* Target, std::string Description) {
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", std::move(Description)});
-		EXPECT_TRUE(Scope.Modify(Target));
+		Scope.Modify(Target);
 		++Target->Value;
 		EXPECT_TRUE(Scope.End());
 	};
@@ -858,7 +858,7 @@ TEST(FTransBufferTests, CollectorRetainsPendingAndHistoryEdgesAndReleasesBranche
 	const auto WeakHandle = Durin::MakeObjectHandle(Weak);
 	{
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", "First GC"});
-		ASSERT_TRUE(Scope.Modify(First));
+		Scope.Modify(First);
 		First->Hard = nullptr;
 		First->Weak = nullptr;
 		Durin::CollectGarbage();
@@ -875,7 +875,7 @@ TEST(FTransBufferTests, CollectorRetainsPendingAndHistoryEdgesAndReleasesBranche
 	Durin::TStrongObjectPtr<Durin::DObject> SecondRoot(Second);
 	{
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", "Branch GC"});
-		ASSERT_TRUE(Scope.Modify(Second));
+		Scope.Modify(Second);
 		++Second->Value;
 	}
 	Durin::CollectGarbage();

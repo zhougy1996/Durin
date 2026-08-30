@@ -377,10 +377,11 @@ namespace Durin::Editor
 		DURINED_API FScopedTransaction(FScopedTransaction&& Other) noexcept;
 		DURINED_API auto operator=(FScopedTransaction&& Other) noexcept
 			-> FScopedTransaction&;
-		// Captures every non-transient reflected member before mutation and records its
-		// final value when the scope ends. Repeated calls for one object are idempotent.
-		[[nodiscard]] DURINED_API auto Modify(DObject* Object) -> FTransactorResult;
-		[[nodiscard]] auto Modify(DObject& Object) -> FTransactorResult { return Modify(&Object); }
+		// Best-effort captures reflected members before mutation and their final values
+		// at scope end. Repeated calls are idempotent, and recording failure does not
+		// prevent the caller's mutation.
+		DURINED_API auto Modify(DObject* Object) -> void;
+		auto Modify(DObject& Object) -> void { Modify(&Object); }
 		// Advanced property-editing entry points keep records bound to this exact scope.
 		[[nodiscard]] DURINED_API auto Record(FTransactionObjectRecord Record)
 			-> FTransactorResult;
@@ -393,6 +394,7 @@ namespace Durin::Editor
 
 	private:
 		struct FModifiedProperty;
+		auto CaptureModifiedObject(DObject* Object) -> FTransactorResult;
 		auto PrepareModifiedRecords() -> FTransactorResult;
 
 		DTransactor* Transactor = nullptr;

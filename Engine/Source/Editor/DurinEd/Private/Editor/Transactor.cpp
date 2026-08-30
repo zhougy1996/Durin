@@ -8,6 +8,7 @@
 #include "DObject/Package.h"
 #include "DObject/Property.h"
 #include "CoreGlobals.h"
+#include "Logging/LogMacros.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin::Editor
@@ -416,7 +417,18 @@ namespace Durin::Editor
 		return *this;
 	}
 
-	auto FScopedTransaction::Modify(DObject* Object) -> FTransactorResult
+	auto FScopedTransaction::Modify(DObject* Object) -> void
+	{
+		const bool bWasActive = IsActive();
+		const FTransactorResult Result = CaptureModifiedObject(Object);
+		if (bWasActive && (Result.Code == ETransactorResultCode::Rejected
+			|| Result.Code == ETransactorResultCode::Failed))
+		{
+			DURIN_ERROR("Unable to record scoped object modification: {}", Result.Message);
+		}
+	}
+
+	auto FScopedTransaction::CaptureModifiedObject(DObject* Object) -> FTransactorResult
 	{
 		if (!IsActive())
 			return {.Code = ETransactorResultCode::Rejected,
@@ -433,12 +445,9 @@ namespace Durin::Editor
 		}
 
 		std::vector<std::unique_ptr<FModifiedProperty>> Captured;
-		FTransactorResult Failure{
-			.Code = ETransactorResultCode::NoOp,
-			.ScopeId = ScopeId,
-			.Message = "The object has no transaction-capable reflected members."};
+		std::optional<FTransactorResult> Failure;
 		Object->GetClass()->ForEachProperty([&](FProperty* Property) {
-			if (Failure.Code == ETransactorResultCode::Failed || !Property
+			if (Failure || !Property
 				|| Property->HasAnyPropertyFlags(EPropertyFlags::Transient)) return;
 			for (uint32 ArrayIndex = 0; ArrayIndex < Property->GetArrayDim(); ++ArrayIndex)
 			{
@@ -470,24 +479,26 @@ namespace Durin::Editor
 				}
 				Modified->RecordId = RecordResult.RecordId;
 				Captured.push_back(std::move(Modified));
-				Failure = {.Code = ETransactorResultCode::Succeeded, .ScopeId = ScopeId};
 			}
 		});
-		if (!Failure)
+		if (Failure)
 		{
-			if (Failure.Code == ETransactorResultCode::Failed && IsActive())
+			if (IsActive())
 			{
 				const FTransactorResult CancelResult = Cancel();
 				if (CancelResult.Code == ETransactorResultCode::Rejected)
-					Failure.Message += std::format(" Scope cancellation also failed: {}",
+					Failure->Message += std::format(" Scope cancellation also failed: {}",
 						CancelResult.Message);
 			}
-			return Failure;
+			return std::move(*Failure);
 		}
+		if (Captured.empty())
+			return {.Code = ETransactorResultCode::NoOp, .ScopeId = ScopeId,
+				.Message = "The object has no transaction-capable reflected members."};
 		ModifiedProperties.insert(ModifiedProperties.end(),
 			std::make_move_iterator(Captured.begin()),
 			std::make_move_iterator(Captured.end()));
-		return Failure;
+		return {.Code = ETransactorResultCode::Succeeded, .ScopeId = ScopeId};
 	}
 
 	auto FScopedTransaction::Record(FTransactionObjectRecord Record) -> FTransactorResult
