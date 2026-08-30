@@ -419,6 +419,15 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphOperations::Inspect(const DMaterial& Material)
 		-> FMaterialGraphView
 	{
+		const std::vector Catalog = EnumerateCatalog(Material);
+		return Inspect(Material, Catalog);
+	}
+
+	auto FMaterialGraphOperations::Inspect(
+		const DMaterial& Material,
+		std::span<const FMaterialGraphCatalogEntry> Catalog)
+		-> FMaterialGraphView
+	{
 		FMaterialGraphView Result;
 		const FMaterialProgram& Program = *Material.GetMaterialProgram();
 		const FMaterialGraphPresentation Presentation =
@@ -427,8 +436,6 @@ namespace Durin::Editor::Material
 		std::unordered_map<FGuid, FMaterialGraphNodePresentation> Positions;
 		for (const FMaterialGraphNodePresentation& Position : Presentation.Nodes)
 			Positions.emplace(Position.NodeId, Position);
-		const std::vector<FMaterialGraphCatalogEntry> Catalog =
-			EnumerateCatalog(Material);
 		Result.Nodes.reserve(Program.Nodes.size());
 		for (const FMaterialProgramNode& Node : Program.Nodes)
 		{
@@ -1755,6 +1762,140 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphMoveSession::IsActive() const -> bool
+	{
+		return Impl->bActive;
+	}
+
+	struct FMaterialGraphParameterEditSession::FImpl
+	{
+		TWeakObjectPtr<DMaterial> Material;
+		FGuid ParameterId;
+		FMaterialParameterValue BeforeValue;
+		FMaterialParameterValue CurrentValue;
+		FMaterialGraphPresentation Presentation;
+		FMaterialProgram Program;
+		FTransactionManager* Transactions = nullptr;
+		bool bActive = false;
+	};
+
+	FMaterialGraphParameterEditSession::FMaterialGraphParameterEditSession()
+		: Impl(std::make_unique<FImpl>())
+	{
+	}
+
+	FMaterialGraphParameterEditSession::~FMaterialGraphParameterEditSession()
+	{
+		if (Impl && Impl->bActive) Cancel();
+	}
+
+	auto FMaterialGraphParameterEditSession::Begin(
+		DMaterial& Material,
+		const FGuid& ParameterId,
+		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+	{
+		if (Impl->bActive) return MakeRejected("A material parameter edit is already active.");
+		if (!IsValid(&Material))
+			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
+				.Message = "The material graph owner is no longer available."};
+		if (Transactions && Transactions->HasPendingOperation())
+			return MakeRejected("The editor transaction manager is busy.");
+		const std::vector Dependencies = InspectMaterialParameterDependencies(
+			*Material.GetMaterialProgram(), Material.GetParameterDefinitions());
+		if (std::ranges::none_of(Dependencies, [&](const auto& Dependency) {
+			return Dependency.ParameterId == ParameterId;
+		}))
+			return MakeRejected("Only a reachable material graph parameter can be edited here.");
+		FResolvedMaterialParameter Resolved;
+		if (!Material.ResolveParameterValue(ParameterId, Resolved)
+			|| !Resolved.Definition)
+			return MakeRejected("The material parameter definition is unavailable.");
+		Impl->Material = &Material;
+		Impl->ParameterId = ParameterId;
+		Impl->BeforeValue = Resolved.Value;
+		Impl->CurrentValue = Resolved.Value;
+		Impl->Presentation = Material.GetMaterialGraphPresentation();
+		Impl->Program = *Material.GetMaterialProgram();
+		Impl->Transactions = Transactions;
+		Impl->bActive = true;
+		return {.Status = EMaterialGraphCommandStatus::Succeeded};
+	}
+
+	auto FMaterialGraphParameterEditSession::Apply(FMaterialParameterValue Value)
+		-> FMaterialGraphCommandResult
+	{
+		if (!Impl->bActive) return MakeRejected("No material parameter edit is active.");
+		DMaterial* Material = Impl->Material.Get();
+		if (!Material)
+		{
+			Impl->bActive = false;
+			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
+				.Message = "The material graph owner is no longer available."};
+		}
+		if (Value == Impl->CurrentValue)
+			return {.Status = EMaterialGraphCommandStatus::NoChange};
+		FScopedPackageDirtySuppression SuppressPackageRevision;
+		if (!Material->SetParameterValue(Impl->ParameterId, Value))
+			return MakeRejected("The material rejected the parameter value.");
+		Impl->CurrentValue = std::move(Value);
+		std::vector<FGuid> AffectedNodes;
+		for (const FMaterialProgramNode& Node : Material->GetMaterialProgram()->Nodes)
+			if (Node.ParameterId == Impl->ParameterId) AffectedNodes.push_back(Node.Id);
+		return {.Status = EMaterialGraphCommandStatus::Succeeded,
+			.AffectedNodeIds = std::move(AffectedNodes)};
+	}
+
+	auto FMaterialGraphParameterEditSession::Commit()
+		-> FMaterialGraphCommandResult
+	{
+		if (!Impl->bActive) return MakeRejected("No material parameter edit is active.");
+		DMaterial* Material = Impl->Material.Get();
+		if (!Material)
+		{
+			Impl->bActive = false;
+			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
+				.Message = "The material graph owner is no longer available."};
+		}
+		if (Impl->Transactions && Impl->Transactions->HasPendingOperation())
+			return MakeRejected("The editor transaction manager is busy.");
+		const bool bChanged = Impl->BeforeValue != Impl->CurrentValue;
+		if (bChanged && Impl->Transactions)
+		{
+			const bool bRecorded = Impl->Transactions->CommitApplied(
+				std::make_unique<FMaterialGraphTransaction>(
+					*Material, Impl->Program, Impl->Presentation,
+					Impl->Program, Impl->Presentation, false,
+					"Edit Material Parameter", Impl->ParameterId,
+					Impl->BeforeValue, Impl->CurrentValue));
+			check(bRecorded);
+		}
+		if (bChanged) Material->MarkPackageDirty();
+		Impl->bActive = false;
+		return {.Status = bChanged ? EMaterialGraphCommandStatus::Succeeded
+			: EMaterialGraphCommandStatus::NoChange};
+	}
+
+	auto FMaterialGraphParameterEditSession::Cancel()
+		-> FMaterialGraphCommandResult
+	{
+		if (!Impl->bActive) return MakeRejected("No material parameter edit is active.");
+		DMaterial* Material = Impl->Material.Get();
+		Impl->bActive = false;
+		if (!Material)
+			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
+				.Message = "The material graph owner is no longer available."};
+		const bool bChanged = Impl->BeforeValue != Impl->CurrentValue;
+		if (bChanged)
+		{
+			FScopedPackageDirtySuppression SuppressPackageRevision;
+			if (!Material->SetParameterValue(
+				Impl->ParameterId, Impl->BeforeValue))
+				return MakeRejected("The material rejected the original parameter value.");
+		}
+		return {.Status = bChanged ? EMaterialGraphCommandStatus::Succeeded
+			: EMaterialGraphCommandStatus::NoChange};
+	}
+
+	auto FMaterialGraphParameterEditSession::IsActive() const -> bool
 	{
 		return Impl->bActive;
 	}

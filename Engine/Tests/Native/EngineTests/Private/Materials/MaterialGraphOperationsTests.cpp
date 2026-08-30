@@ -975,3 +975,66 @@ TEST(FMaterialGraphOperationsTests,
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
+
+TEST(FMaterialGraphOperationsTests,
+	ParameterEditSessionPublishesEveryPreviewWithoutCompiling)
+{
+	InitializeDObjectSystem();
+	auto* Material = NewObject<DMaterial>(nullptr, "InteractiveParameterMaterial");
+	ASSERT_NE(Material, nullptr);
+	ASSERT_TRUE(FMaterialGraphOperations::SetSurfaceDefault(*Material, {
+		.Output = EMaterialSurfaceOutput::BaseColor,
+		.Value = {0.2f, 0.3f, 0.4f, 0.0f}}));
+	ASSERT_TRUE(FMaterialGraphOperations::PromoteSurfaceOutputToParameter(
+		*Material, {.Output = EMaterialSurfaceOutput::BaseColor}));
+
+	const FGuid ParameterId = MaterialParameters::GetBuiltinParameterIds(
+		MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value;
+	const uint64 CompileGeneration =
+		Material->GetMaterialCompileStatus().RequestGeneration;
+	FVector3 OriginalBaseColor;
+	ASSERT_TRUE(Material->GetVectorParameterValue(
+		MaterialParameters::BaseColorName(), OriginalBaseColor));
+	FTransactionManager Transactions;
+	FMaterialGraphParameterEditSession Session;
+	ASSERT_TRUE(Session.Begin(*Material, ParameterId, &Transactions));
+	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeVector(
+		{0.4, 0.5, 0.6})));
+	FVector3 BaseColor;
+	ASSERT_TRUE(Material->GetVectorParameterValue(
+		MaterialParameters::BaseColorName(), BaseColor));
+	EXPECT_EQ(BaseColor, FVector3(0.4, 0.5, 0.6));
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
+		CompileGeneration);
+	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeVector(
+		{0.7, 0.8, 0.9})));
+	ASSERT_TRUE(Material->GetVectorParameterValue(
+		MaterialParameters::BaseColorName(), BaseColor));
+	EXPECT_EQ(BaseColor, FVector3(0.7, 0.8, 0.9));
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
+		CompileGeneration);
+	ASSERT_TRUE(Session.Commit());
+
+	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Material->GetVectorParameterValue(
+		MaterialParameters::BaseColorName(), BaseColor));
+	EXPECT_EQ(BaseColor, OriginalBaseColor);
+	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Material->GetVectorParameterValue(
+		MaterialParameters::BaseColorName(), BaseColor));
+	EXPECT_EQ(BaseColor, FVector3(0.7, 0.8, 0.9));
+
+	ASSERT_TRUE(Session.Begin(*Material, ParameterId, &Transactions));
+	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeVector(
+		{0.1, 0.1, 0.1})));
+	ASSERT_TRUE(Session.Cancel());
+	ASSERT_TRUE(Material->GetVectorParameterValue(
+		MaterialParameters::BaseColorName(), BaseColor));
+	EXPECT_EQ(BaseColor, FVector3(0.7, 0.8, 0.9));
+	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
+		CompileGeneration);
+
+	Transactions.Clear();
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}

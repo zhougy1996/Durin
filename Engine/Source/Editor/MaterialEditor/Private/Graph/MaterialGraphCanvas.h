@@ -69,6 +69,8 @@ namespace Durin::Editor::Material
 		std::vector<std::string> RecentPaletteEntries;
 		std::unordered_set<std::string> FavoritePaletteEntries;
 		std::array<char, 96> PaletteSearch{};
+		uint64 CatalogAuthoredRevision = 0;
+		std::vector<FMaterialGraphCatalogEntry> Catalog;
 		FGuid ReconnectDestinationNode;
 		uint32 ReconnectDestinationInputIndex = 0;
 		std::optional<EMaterialSurfaceOutput> ReconnectSurfaceOutput;
@@ -83,5 +85,6 @@ namespace Durin::Editor::Material
 		ImVec2 DragStartMaterialOutput{};
 		ImVec2 DragStartMouse{};
 		FMaterialGraphMoveSession MoveSession;
+		FMaterialGraphParameterEditSession ParameterEditSession;
 	};
 }

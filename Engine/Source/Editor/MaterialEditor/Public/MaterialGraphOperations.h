@@ -175,6 +175,10 @@ namespace Durin::Editor::Material
 	public:
 		MATERIALEDITOR_API static auto Inspect(const DMaterial& Material)
 			-> FMaterialGraphView;
+		MATERIALEDITOR_API static auto Inspect(
+			const DMaterial& Material,
+			std::span<const FMaterialGraphCatalogEntry> Catalog)
+			-> FMaterialGraphView;
 		MATERIALEDITOR_API static auto EnumerateCatalog(const DMaterial& Material)
 			-> std::vector<FMaterialGraphCatalogEntry>;
 		MATERIALEDITOR_API static auto SearchCatalog(
@@ -316,6 +320,32 @@ namespace Durin::Editor::Material
 			std::span<const FMaterialGraphNodePresentation> Positions)
 			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto ApplyMaterialOutput(int32 X, int32 Y)
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto Commit() -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto Cancel() -> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto IsActive() const -> bool;
+
+	private:
+		struct FImpl;
+		std::unique_ptr<FImpl> Impl;
+	};
+
+	// Publishes parameter previews during one pointer gesture and records one undo step.
+	class FMaterialGraphParameterEditSession
+	{
+	public:
+		MATERIALEDITOR_API FMaterialGraphParameterEditSession();
+		MATERIALEDITOR_API ~FMaterialGraphParameterEditSession();
+		FMaterialGraphParameterEditSession(const FMaterialGraphParameterEditSession&) = delete;
+		auto operator=(const FMaterialGraphParameterEditSession&)
+			-> FMaterialGraphParameterEditSession& = delete;
+
+		MATERIALEDITOR_API auto Begin(
+			DMaterial& Material,
+			const FGuid& ParameterId,
+			FTransactionManager* Transactions = nullptr)
+			-> FMaterialGraphCommandResult;
+		MATERIALEDITOR_API auto Apply(FMaterialParameterValue Value)
 			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto Commit() -> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API auto Cancel() -> FMaterialGraphCommandResult;

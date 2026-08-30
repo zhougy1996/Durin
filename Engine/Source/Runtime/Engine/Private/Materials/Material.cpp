@@ -257,10 +257,17 @@ namespace Durin
 		-> FMaterialLocalRenderLayer
 	{
 		FMaterialLocalRenderLayer Result;
-		const std::vector Dependencies = InspectMaterialParameterDependencies(
-			Program, ParameterDefinitions);
-		Result.Parameters.reserve(Dependencies.size());
-		for (const FMaterialParameterDependency& Dependency : Dependencies)
+		if (CachedParameterDependencyRevision
+			!= MaterialCompileStatus.AuthoredRevision)
+		{
+			CachedParameterDependencies = InspectMaterialParameterDependencies(
+				Program, ParameterDefinitions);
+			CachedParameterDependencyRevision =
+				MaterialCompileStatus.AuthoredRevision;
+		}
+		Result.Parameters.reserve(CachedParameterDependencies.size());
+		for (const FMaterialParameterDependency& Dependency
+			: CachedParameterDependencies)
 		{
 			const FMaterialParameterDefinition* Definition =
 				FindParameterDefinition(Dependency.ParameterId);
@@ -292,6 +299,8 @@ namespace Durin
 	auto DMaterial::PostLoad(std::string& OutError) -> bool
 	{
 		if (!Super::PostLoad(OutError)) return false;
+		CachedParameterDependencyRevision = 0;
+		CachedParameterDependencies.clear();
 		if (!ValidateCanonicalMaterialParameterDefinitions(
 				ParameterDefinitions, OutError)
 			|| !ValidateMaterialStaticProperties(

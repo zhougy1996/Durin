@@ -117,6 +117,9 @@ namespace Durin
 		FMaterialCompileStatus MaterialCompileStatus;
 		std::vector<FMaterialCompileDiagnostic> MaterialCompileDiagnostics;
 		std::string MaterialCookDiagnostic;
+		// Parameter values change frequently, while reachability changes only with the authored program.
+		mutable uint64 CachedParameterDependencyRevision = 0;
+		mutable std::vector<FMaterialParameterDependency> CachedParameterDependencies;
 
 		auto LoadCookedProgram(std::string& OutError) -> bool;
 

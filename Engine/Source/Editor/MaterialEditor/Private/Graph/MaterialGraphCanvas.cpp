@@ -107,7 +107,7 @@ namespace Durin::Editor::Material
 			return Result.empty() ? "No inputs" : Result;
 		}
 
-		auto DrawNumericValueEditor(const char* Label,
+		auto DrawNumericDragEditor(const char* Label,
 			EMaterialProgramValueType Type, float* Value) -> bool
 		{
 			constexpr float DragSpeed = 0.01f;
@@ -121,6 +121,26 @@ namespace Durin::Editor::Material
 				return ImGui::DragFloat3(Label, Value, DragSpeed, 0.0f, 0.0f, "%.3f");
 			case EMaterialProgramValueType::Float4:
 				return ImGui::DragFloat4(Label, Value, DragSpeed, 0.0f, 0.0f, "%.3f");
+			case EMaterialProgramValueType::Texture2D:
+				return false;
+			}
+			return false;
+		}
+
+		auto DrawNumericInputEditor(const char* Label,
+			EMaterialProgramValueType Type, float* Value) -> bool
+		{
+			constexpr ImGuiInputTextFlags Flags = ImGuiInputTextFlags_EnterReturnsTrue;
+			switch (Type)
+			{
+			case EMaterialProgramValueType::Float:
+				return ImGui::InputFloat(Label, Value, 0.0f, 0.0f, "%.3f", Flags);
+			case EMaterialProgramValueType::Float2:
+				return ImGui::InputFloat2(Label, Value, "%.3f", Flags);
+			case EMaterialProgramValueType::Float3:
+				return ImGui::InputFloat3(Label, Value, "%.3f", Flags);
+			case EMaterialProgramValueType::Float4:
+				return ImGui::InputFloat4(Label, Value, "%.3f", Flags);
 			case EMaterialProgramValueType::Texture2D:
 				return false;
 			}
@@ -228,6 +248,7 @@ namespace Durin::Editor::Material
 
 	auto FMaterialGraphCanvas::CancelInteraction() -> void
 	{
+		if (ParameterEditSession.IsActive()) ParameterEditSession.Cancel();
 		if (MoveSession.IsActive())
 		{
 			MoveSession.Cancel();
@@ -332,7 +353,15 @@ namespace Durin::Editor::Material
 			ImGui::TextDisabled("%s | Wheel: zoom  MMB: pan  LMB: select/drag  Shift: add/replace",
 				DetailName);
 
-			FMaterialGraphView View = FMaterialGraphOperations::Inspect(Material);
+			const uint64 AuthoredRevision =
+				Material.GetMaterialCompileStatus().AuthoredRevision;
+			if (CatalogAuthoredRevision != AuthoredRevision || Catalog.empty())
+			{
+				Catalog = FMaterialGraphOperations::EnumerateCatalog(Material);
+				CatalogAuthoredRevision = AuthoredRevision;
+			}
+			FMaterialGraphView View = FMaterialGraphOperations::Inspect(
+				Material, Catalog);
 			if (std::ranges::any_of(View.Nodes,
 				[](const FMaterialGraphNodeView& Node) { return !Node.Presentation; }))
 			{
@@ -341,12 +370,10 @@ namespace Durin::Editor::Material
 				ReportCommand(Layout, ReportError);
 				if (Layout)
 				{
-					View = FMaterialGraphOperations::Inspect(Material);
+					View = FMaterialGraphOperations::Inspect(Material, Catalog);
 					SurfaceGraphPosition.reset();
 				}
 			}
-			const uint64 AuthoredRevision =
-				Material.GetMaterialCompileStatus().AuthoredRevision;
 			if (View.MaterialOutputPosition)
 				SurfaceGraphPosition = {
 					static_cast<float>(View.MaterialOutputPosition->first),
@@ -354,9 +381,6 @@ namespace Durin::Editor::Material
 			else if (!SurfaceGraphPosition || SurfaceGraphRevision != AuthoredRevision)
 				SurfaceGraphPosition = SurfaceGraphMinimum(View);
 			SurfaceGraphRevision = AuthoredRevision;
-			const std::vector<FMaterialGraphCatalogEntry> Catalog =
-				FMaterialGraphOperations::EnumerateCatalog(Material);
-
 			const ImVec2 CanvasMinimum = ImGui::GetCursorScreenPos();
 			ImVec2 CanvasSize = ImGui::GetContentRegionAvail();
 			CanvasSize.x = std::max(CanvasSize.x, 64.0f);
@@ -669,7 +693,7 @@ namespace Durin::Editor::Material
 							GraphControlFramePadding);
 						ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing,
 							GraphControlItemSpacing);
-						DrawNumericValueEditor("##InlineConstant",
+						const bool bValueSubmitted = DrawNumericInputEditor("##InlineConstant",
 							Visual.View->Node.ResultType, InlineConstantDraft.data());
 						bEmbeddedControlHoveredOrActive |=
 							ImGui::IsItemHovered() || ImGui::IsItemActive();
@@ -678,7 +702,7 @@ namespace Durin::Editor::Material
 							&& (bInlineActive || ImGui::IsItemFocused());
 						if (bCancelInline)
 							InlineEditNode = {};
-						else if (ImGui::IsItemDeactivatedAfterEdit())
+						else if (bValueSubmitted || ImGui::IsItemDeactivatedAfterEdit())
 						{
 							FMaterialProgramNode Edited = Visual.View->Node;
 							Edited.Literal = {InlineConstantDraft[0], InlineConstantDraft[1],
@@ -733,7 +757,7 @@ namespace Durin::Editor::Material
 										static_cast<float>(Resolved.Value.VectorValue.y),
 										static_cast<float>(Resolved.Value.VectorValue.z), 0.0f};
 							}
-							DrawNumericValueEditor("##InlineParameterValue",
+							const bool bValueChanged = DrawNumericDragEditor("##InlineParameterValue",
 								Visual.View->Node.ResultType, InlineConstantDraft.data());
 							bEmbeddedControlHoveredOrActive |=
 								ImGui::IsItemHovered() || ImGui::IsItemActive();
@@ -741,8 +765,12 @@ namespace Durin::Editor::Material
 							const bool bCancelInline = ImGui::IsKeyPressed(ImGuiKey_Escape)
 								&& (bInlineActive || ImGui::IsItemFocused());
 							if (bCancelInline)
+							{
+								if (ParameterEditSession.IsActive())
+									ReportCommand(ParameterEditSession.Cancel(), ReportError);
 								InlineEditNode = {};
-							else if (ImGui::IsItemDeactivatedAfterEdit())
+							}
+							else if (bValueChanged)
 							{
 								FMaterialParameterValue Value = Resolved.Value;
 								if (Visual.View->Node.ResultType
@@ -754,9 +782,16 @@ namespace Durin::Editor::Material
 										InlineConstantDraft[1]};
 								else Value.VectorValue = {InlineConstantDraft[0],
 									InlineConstantDraft[1], InlineConstantDraft[2]};
-								ReportCommand(FMaterialGraphOperations::SetParameterValue(
-									Material, Visual.View->Node.ParameterId,
-									std::move(Value), &Transactions), ReportError);
+								if (!ParameterEditSession.IsActive())
+									ReportCommand(ParameterEditSession.Begin(Material,
+										Visual.View->Node.ParameterId, &Transactions), ReportError);
+								if (ParameterEditSession.IsActive())
+									ReportCommand(ParameterEditSession.Apply(std::move(Value)), ReportError);
+							}
+							if (!bCancelInline && ImGui::IsItemDeactivatedAfterEdit())
+							{
+								if (ParameterEditSession.IsActive())
+									ReportCommand(ParameterEditSession.Commit(), ReportError);
 								InlineEditNode = {};
 							}
 							if (!bInlineActive) InlineEditNode = {};
@@ -926,7 +961,8 @@ namespace Durin::Editor::Material
 							GraphControlFramePadding);
 						ImGui::PushStyleVar(ImGuiStyleVar_ItemInnerSpacing,
 							GraphControlItemSpacing);
-						DrawNumericValueEditor("##SurfaceDefault", SurfaceTypes[Index],
+						const bool bValueSubmitted = DrawNumericInputEditor(
+							"##SurfaceDefault", SurfaceTypes[Index],
 							SurfaceDefaultDrafts[Index].data());
 						bEmbeddedControlHoveredOrActive |=
 							ImGui::IsItemHovered() || ImGui::IsItemActive();
@@ -935,7 +971,7 @@ namespace Durin::Editor::Material
 							&& (bInlineActive || ImGui::IsItemFocused());
 						if (bCancelInline)
 							bSurfaceDefaultDraftInitialized[Index] = false;
-						else if (ImGui::IsItemDeactivatedAfterEdit())
+						else if (bValueSubmitted || ImGui::IsItemDeactivatedAfterEdit())
 						{
 							ReportCommand(FMaterialGraphOperations::SetSurfaceDefault(
 								Material, {.Output = Output, .Value = {
