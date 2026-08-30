@@ -482,7 +482,14 @@ namespace Durin
 		{
 			return std::nullopt;
 		}
-		const FVector3 Size = Bounds.Max - Bounds.Min;
+		return Bounds;
+	}
+
+	auto DStaticMesh::GetLOD0VolumetricBounds() const -> std::optional<FBox>
+	{
+		const std::optional<FBox> Bounds = GetLOD0LocalBounds();
+		if (!Bounds) return std::nullopt;
+		const FVector3 Size = Bounds->Max - Bounds->Min;
 		if (Size.x <= 0.0 || Size.y <= 0.0 || Size.z <= 0.0)
 			return std::nullopt;
 		return Bounds;

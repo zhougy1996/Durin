@@ -82,7 +82,7 @@ namespace Durin::Editor::StaticMesh
 			-> std::unique_ptr<::Durin::Editor::IThumbnailRendererSession> override;
 	};
 
-	// Fits all eight finite, non-degenerate bounds corners inside the requested image margin.
+	// Fits all finite, valid bounds corners, including zero-thickness bounds, inside the image margin.
 	STATICMESHEDITOR_API auto CalculateStaticMeshThumbnailRendererView(
 		const FStaticMeshThumbnailRendererViewInput& Input,
 		FStaticMeshThumbnailRendererView& OutView,

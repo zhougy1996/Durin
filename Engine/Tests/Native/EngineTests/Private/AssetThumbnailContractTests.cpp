@@ -446,6 +446,7 @@ namespace Durin
 		ExpectStaticMeshBoundsFit(FBox(FVector3(-0.5, -6.0, -0.5), FVector3(0.5, 6.0, 0.5)));
 		ExpectStaticMeshBoundsFit(FBox(FVector3(9.0, -7.0, 2.0), FVector3(12.0, -1.0, 8.0)));
 		ExpectStaticMeshBoundsFit(FBox(FVector3(-1.0e-4), FVector3(1.0e-4)));
+		ExpectStaticMeshBoundsFit(FBox(FVector3(-2.0, -1.0, 0.0), FVector3(2.0, 1.0, 0.0)));
 		ExpectStaticMeshBoundsFit(FBox(FVector3(-2.0, -1.0, -0.5), FVector3(2.0, 1.0, 0.5)), 16.0 / 9.0);
 	}
 
@@ -480,8 +481,7 @@ namespace Durin
 		};
 
 		ExpectRejected({});
-		ExpectRejected({.LocalBounds = FBox(FVector3(-1.0), FVector3(1.0, 1.0, -1.0))});
-		ExpectRejected({.LocalBounds = FBox(FVector3(0.0), FVector3(0.0, 1.0, 1.0))});
+		ExpectRejected({.LocalBounds = FBox(FVector3(-1.0), FVector3(1.0, 1.0, -2.0))});
 		ExpectRejected({
 			.LocalBounds = FBox(
 				FVector3(-1.0),

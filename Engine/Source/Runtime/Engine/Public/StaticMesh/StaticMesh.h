@@ -210,8 +210,10 @@ namespace Durin
 		// Returns one coherent, nonblocking snapshot for stale-work rejection.
 		ENGINE_API auto GetRenderResourceStatus() const
 			-> FStaticMeshRenderResourceStatus;
-		// Returns a read-only copy only when CPU LOD 0 data has finite, non-degenerate bounds.
+		// Returns finite, ordered CPU LOD 0 bounds, including zero-thickness bounds.
 		ENGINE_API auto GetLOD0LocalBounds() const -> std::optional<FBox>;
+		// Returns CPU LOD 0 bounds only when every axis has positive extent.
+		ENGINE_API auto GetLOD0VolumetricBounds() const -> std::optional<FBox>;
 		ENGINE_API auto GetBodySetup() const -> DBodySetup*;
 		ENGINE_API auto SetBodySetup(DBodySetup* InBodySetup) -> bool;
 		ENGINE_API auto SetCollisionSourceMode(

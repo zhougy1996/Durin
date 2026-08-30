@@ -84,6 +84,17 @@ TEST(FSplineMeshComponentTests, DefaultObjectPublishesDiagnosticStateAndReflects
 	EXPECT_NE(Component->GetClass()->FindPropertyByName(FName("OverrideMaterials")), nullptr);
 }
 
+TEST(FSplineMeshComponentTests, PlanarStaticMeshPublishesZeroThicknessLocalBounds)
+{
+	DStaticMesh* Mesh = DStaticMesh::CreateDebugTriangle();
+	ASSERT_NE(Mesh, nullptr);
+	const std::optional<FBox> Bounds = Mesh->GetLOD0LocalBounds();
+	ASSERT_TRUE(Bounds.has_value());
+	EXPECT_DOUBLE_EQ(Bounds->Min.z, 0.0);
+	EXPECT_DOUBLE_EQ(Bounds->Max.z, 0.0);
+	EXPECT_FALSE(Mesh->GetLOD0VolumetricBounds().has_value());
+}
+
 TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationSections)
 {
 	InitializeDObjectSystem();

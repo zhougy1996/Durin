@@ -153,7 +153,7 @@ namespace Durin
 		if (BodySetup) return BodySetup.Get();
 		const std::string ObjectPath = GetObjectPath();
 		if (!ObjectPath.starts_with("/Engine/Models/Box")) return nullptr;
-		const std::optional<FBox> Bounds = GetLOD0LocalBounds();
+		const std::optional<FBox> Bounds = GetLOD0VolumetricBounds();
 		if (!Bounds || !Bounds->bIsValid || !Math::IsFinite(Bounds->Min) || !Math::IsFinite(Bounds->Max)) return nullptr;
 		const FVector3 HalfExtent = Bounds->GetExtent();
 		if (!FCollisionShape::MakeBox(HalfExtent).IsValid()) return nullptr;
@@ -166,7 +166,7 @@ namespace Durin
 	auto DStaticMesh::RefreshQualifiedBoxBodySetup() -> void
 	{
 		if (!BodySetup || !GetObjectPath().starts_with("/Engine/Models/Box")) return;
-		const std::optional<FBox> Bounds = GetLOD0LocalBounds();
+		const std::optional<FBox> Bounds = GetLOD0VolumetricBounds();
 		if (Bounds && Bounds->bIsValid) BodySetup->SetBox(Bounds->GetExtent(), Bounds->GetCenter());
 	}
 

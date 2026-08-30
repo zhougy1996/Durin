@@ -119,7 +119,7 @@ namespace Durin::Editor::StaticMesh
 						.AssetRevision = Status.Revision,
 						.ResourceRevision = Status.Revision,
 						.Diagnostic = std::format(
-							"StaticMesh '{}' has no valid non-degenerate LOD 0 bounds.",
+							"StaticMesh '{}' has no finite, valid LOD 0 bounds.",
 							Input.AssetPath.ToString())};
 				}
 				if (!bCapturedAssetRevision)
@@ -409,15 +409,6 @@ namespace Durin::Editor::StaticMesh
 				OutView, OutError, "Static-mesh thumbnail bounds must be finite and valid.");
 		}
 
-		const FVector3 BoundsSize = Input.LocalBounds.Max - Input.LocalBounds.Min;
-		if (!Math::IsFinite(BoundsSize)
-			|| BoundsSize.x <= 0.0
-			|| BoundsSize.y <= 0.0
-			|| BoundsSize.z <= 0.0)
-		{
-			return FailStaticMeshThumbnailView(
-				OutView, OutError, "Static-mesh thumbnail bounds must have finite non-zero volume.");
-		}
 		if (!std::isfinite(Input.OutputAspectRatio) || Input.OutputAspectRatio <= 0.0)
 		{
 			return FailStaticMeshThumbnailView(
