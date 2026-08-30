@@ -4,6 +4,7 @@
 #include "Misc/FilesystemMigration.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
+#include "Misc/StringHelper.h"
 #include "Yaml/Yaml.h"
 
 namespace Durin
@@ -17,7 +18,7 @@ namespace Durin
 		{
 			std::string Key = NormalizeProjectFile(ProjectFile);
 #if PLATFORM_WINDOWS
-			std::ranges::transform(Key, Key.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
+			Key = StringUtils::FoldAscii(Key);
 #endif
 			return Key;
 		}

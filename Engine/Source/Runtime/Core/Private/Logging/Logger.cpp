@@ -7,6 +7,7 @@
 #include "HAL/PlatformProcess.h"
 #include "Misc/AppConfig.h"
 #include "Misc/Paths.h"
+#include "Misc/StringHelper.h"
 #include "Threading/RunnableThread.h"
 #include "spdlog/logger.h"
 #include "spdlog/sinks/rotating_file_sink.h"
@@ -47,10 +48,7 @@ namespace Durin
 
 		auto TryParseLogLevel(std::string_view Text, ELogLevel& OutLevel) -> bool
 		{
-			std::string Normalized(Text);
-			std::ranges::transform(Normalized, Normalized.begin(), [](unsigned char Character) {
-				return static_cast<char>(std::tolower(Character));
-			});
+			const std::string Normalized = StringUtils::FoldAscii(Text);
 			static const std::unordered_map<std::string_view, ELogLevel> Levels = {
 				{"trace", ELogLevel::Trace}, {"debug", ELogLevel::Debug}, {"info", ELogLevel::Info},
 				{"warn", ELogLevel::Warn}, {"warning", ELogLevel::Warn}, {"error", ELogLevel::Error},

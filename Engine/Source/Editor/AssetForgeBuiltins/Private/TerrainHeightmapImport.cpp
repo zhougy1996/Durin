@@ -12,6 +12,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
+#include "Misc/StringHelper.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
@@ -44,11 +45,7 @@ namespace Durin::AssetForge::Builtins
 
 		auto NormalizeExtension(std::string_view Extension) -> std::string
 		{
-			std::string Result(Extension);
-			std::ranges::transform(Result, Result.begin(), [](unsigned char Character) {
-				return static_cast<char>(std::tolower(Character));
-			});
-			return Result;
+			return StringUtils::FoldAscii(Extension);
 		}
 
 		auto IsSupportedHeightmapExtension(std::string_view Extension) -> bool

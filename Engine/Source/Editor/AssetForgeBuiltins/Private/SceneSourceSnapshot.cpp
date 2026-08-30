@@ -2,6 +2,7 @@
 #include "Asset/Load.h"
 
 #include "Misc/Paths.h"
+#include "Misc/StringHelper.h"
 #include "Profiling/Profiling.h"
 
 namespace Durin::AssetForge
@@ -35,15 +36,6 @@ namespace Durin::AssetForge
 				});
 		}
 
-		auto FoldAscii(std::string_view Value) -> std::string
-		{
-			std::string Result(Value);
-			std::ranges::transform(Result, Result.begin(), [](const char Character) {
-				return static_cast<char>(std::tolower(static_cast<unsigned char>(Character)));
-			});
-			return Result;
-		}
-
 		auto HasError(std::span<const FImportDiagnostic> Diagnostics) -> bool
 		{
 			return std::ranges::any_of(Diagnostics, [](const FImportDiagnostic& Diagnostic) {
@@ -55,7 +47,8 @@ namespace Durin::AssetForge
 		{
 			std::error_code Error;
 			const std::filesystem::path Canonical = std::filesystem::weakly_canonical(Path, Error);
-			return FoldAscii((Error ? Path.lexically_normal() : Canonical).generic_string());
+			return StringUtils::FoldAscii(
+				(Error ? Path.lexically_normal() : Canonical).generic_string());
 		}
 
 		class FDiagnosticFinalizer

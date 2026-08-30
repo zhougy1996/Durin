@@ -1,4 +1,5 @@
 #include "ImportedSceneInternal.h"
+#include "Misc/StringHelper.h"
 
 
 namespace Durin::AssetForge::Builtins::Private
@@ -214,14 +215,8 @@ namespace Durin::AssetForge::Builtins::Private
 		{
 			if (CandidateIt == Candidate.end()) return false;
 #if defined(_WIN32)
-			std::string RootPart = RootIt->string();
-			std::string CandidatePart = CandidateIt->string();
-			std::ranges::transform(RootPart, RootPart.begin(), [](unsigned char Character) {
-				return static_cast<char>(std::tolower(Character));
-			});
-			std::ranges::transform(CandidatePart, CandidatePart.begin(), [](unsigned char Character) {
-				return static_cast<char>(std::tolower(Character));
-			});
+			const std::string RootPart = StringUtils::FoldAscii(RootIt->string());
+			const std::string CandidatePart = StringUtils::FoldAscii(CandidateIt->string());
 			if (RootPart != CandidatePart) return false;
 #else
 			if (*RootIt != *CandidateIt) return false;
@@ -236,12 +231,9 @@ namespace Durin::AssetForge::Builtins::Private
 		std::string_view Path,
 		EImportedImageEncoding& OutEncoding) -> bool
 	{
-		std::string Value = !MimeType.empty()
-			? std::string(MimeType)
-			: std::filesystem::path(Path).extension().string();
-		std::ranges::transform(Value, Value.begin(), [](unsigned char Character) {
-			return static_cast<char>(std::tolower(Character));
-		});
+		const std::string Value = !MimeType.empty()
+			? StringUtils::FoldAscii(MimeType)
+			: StringUtils::FoldAscii(std::filesystem::path(Path).extension().string());
 		if (Value == "image/png" || Value == ".png") OutEncoding = EImportedImageEncoding::Png;
 		else if (Value == "image/jpeg" || Value == ".jpg" || Value == ".jpeg") OutEncoding = EImportedImageEncoding::Jpeg;
 		else if (Value == "image/bmp" || Value == ".bmp") OutEncoding = EImportedImageEncoding::Bmp;

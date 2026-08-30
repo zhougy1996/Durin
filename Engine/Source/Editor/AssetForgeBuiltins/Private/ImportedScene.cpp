@@ -3,6 +3,7 @@
 #include "ImportedSceneInternal.h"
 
 #include "Logging/LogMacros.h"
+#include "Misc/StringHelper.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
@@ -112,10 +113,7 @@ namespace Durin::AssetForge::Builtins
 				return Result;
 			}
 
-			std::string Extension = RootPath.extension().string();
-			std::ranges::transform(Extension, Extension.begin(), [](unsigned char Character) {
-				return static_cast<char>(std::tolower(Character));
-			});
+			const std::string Extension = StringUtils::FoldAscii(RootPath.extension().string());
 			const bool bGltf = Extension == ".gltf";
 			const bool bGlb = Extension == ".glb";
 			const Private::FImportedSceneContext Context{
@@ -285,11 +283,8 @@ namespace Durin::AssetForge::Builtins
 			return false;
 		}
 
-		std::string Hint(ExtensionHint);
+		std::string Hint = StringUtils::FoldAscii(ExtensionHint);
 		if (!Hint.empty() && Hint.front() == '.') Hint.erase(Hint.begin());
-		std::ranges::transform(Hint, Hint.begin(), [](unsigned char Character) {
-			return static_cast<char>(std::tolower(Character));
-		});
 		Assimp::Importer Importer;
 		const aiScene* Scene = Importer.ReadFileFromMemory(
 			EncodedBytes.data(), EncodedBytes.size(),

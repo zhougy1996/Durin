@@ -1,6 +1,7 @@
 #include "Misc/Name.h"
 
 #include "HAL/PlatformMisc.h"
+#include "Misc/StringHelper.h"
 
 #include <charconv>
 #include <cstdlib>
@@ -39,16 +40,6 @@ namespace Durin
 		}
 
 		return Name.substr(0, Length);
-	}
-
-	static auto FoldAsciiCase(char Character) -> char
-	{
-		if (Character >= 'A' && Character <= 'Z')
-		{
-			return static_cast<char>(Character + ('a' - 'A'));
-		}
-
-		return Character;
 	}
 
 	CORE_API auto FNameInit() -> void
@@ -165,7 +156,7 @@ namespace Durin
 
 			for (size_t i = 0; i < ValidLen; ++i)
 			{
-				LowerName[i] = FoldAsciiCase(Str[i]);
+				LowerName[i] = StringUtils::ToLowerAscii(Str[i]);
 			}
 
 			return FNameHash::GenerateHash(LowerName, ValidLen);
@@ -211,7 +202,7 @@ namespace Durin
 
 		for (size_t i = 0; i < ValidLen; ++i)
 		{
-			LowerName[i] = FoldAsciiCase(Str[i]);
+			LowerName[i] = StringUtils::ToLowerAscii(Str[i]);
 		}
 
 		return FNameHash(LowerName, static_cast<int32>(ValidLen));
@@ -452,7 +443,7 @@ namespace Durin
 
 		for (uint32 Index = 0; Index < Len; ++Index)
 		{
-			if (FoldAsciiCase(A[Index]) != FoldAsciiCase(B[Index]))
+			if (StringUtils::ToLowerAscii(A[Index]) != StringUtils::ToLowerAscii(B[Index]))
 			{
 				return false;
 			}

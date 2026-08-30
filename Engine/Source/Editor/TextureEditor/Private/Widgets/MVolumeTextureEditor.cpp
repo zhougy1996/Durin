@@ -7,6 +7,7 @@
 #include "MonaImGui.h"
 #include "MonaImGuiPropertyTable.h"
 #include "MonaUIBackend.h"
+#include "Misc/StringHelper.h"
 #include "Texture/TexturePayloadInspection.h"
 #include "Texture/VolumeTexture.h"
 #include "AssetForge/Builtins/VolumeTextureImportData.h"
@@ -16,15 +17,6 @@ namespace Durin::Editor::Texture
 {
 	namespace
 	{
-		auto FormatBytes(uint64 Bytes) -> std::string
-		{
-			if (Bytes >= 1024ull * 1024ull)
-				return std::format("{:.2f} MiB", static_cast<double>(Bytes) / (1024.0 * 1024.0));
-			if (Bytes >= 1024ull)
-				return std::format("{:.2f} KiB", static_cast<double>(Bytes) / 1024.0);
-			return std::format("{} bytes", Bytes);
-		}
-
 		auto DrawFact(const char* Label, std::string_view Value) -> void
 		{
 			MonaImGui::PropertyEdit::BeginRow(Label, true);
@@ -308,12 +300,12 @@ namespace Durin::Editor::Texture
 			DrawFact("Mip levels", std::to_string(Platform->Mips.size()));
 			uint64 Bytes = 0;
 			for (const auto& Entry : Platform->Mips) Bytes += Entry.Voxels.size();
-			DrawFact("Built voxels", FormatBytes(Bytes));
+			DrawFact("Built voxels", StringUtils::FormatByteSize(Bytes));
 		}
 		if (Source.IsValid())
 		{
 			DrawFact("Source dimensions", std::format("{} x {} x {}", Source.Width, Source.Height, Source.Depth));
-			DrawFact("Source voxels", FormatBytes(Source.GetVoxelBytes().size()));
+			DrawFact("Source voxels", StringUtils::FormatByteSize(Source.GetVoxelBytes().size()));
 		}
 		const auto* Import = dynamic_cast<const AssetForge::Builtins::DVolumeTextureImportData*>(
 			Texture->GetAssetImportData());
@@ -343,7 +335,7 @@ namespace Durin::Editor::Texture
 					: "GPU resource";
 				DrawFact(Stage, std::format("{} | {} | {} | repair: {}",
 					PayloadStateText(Entry.State), Entry.Placement,
-					FormatBytes(Entry.LogicalByteCount), PayloadRepairText(Entry.Repair)));
+					StringUtils::FormatByteSize(Entry.LogicalByteCount), PayloadRepairText(Entry.Repair)));
 			}
 			MonaImGui::PropertyEdit::EndTable();
 		}

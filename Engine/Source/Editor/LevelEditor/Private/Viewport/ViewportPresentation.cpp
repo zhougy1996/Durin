@@ -114,15 +114,6 @@ namespace Durin::Editor::Level
 			return "Unknown";
 		}
 
-		auto FormatByteCount(uint64 Bytes) -> std::string
-		{
-			if (Bytes >= 1024ull * 1024ull)
-				return std::format("{:.2f} MiB", static_cast<double>(Bytes) / (1024.0 * 1024.0));
-			if (Bytes >= 1024ull)
-				return std::format("{:.2f} KiB", static_cast<double>(Bytes) / 1024.0);
-			return std::format("{} B", Bytes);
-		}
-
 		template<typename T, size_t Size, typename FSetMode>
 		auto DrawModeOptions(T CurrentMode, const std::array<TViewportModeOption<T>, Size>& Options, FSetMode&& SetMode) -> void
 		{

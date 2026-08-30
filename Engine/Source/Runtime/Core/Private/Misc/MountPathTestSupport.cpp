@@ -1,23 +1,11 @@
 #include "Misc/MountPathTestSupport.h"
 
 #include "Misc/MountPathsInternal.h"
+#include "Misc/StringHelper.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin::Testing
 {
-	namespace
-	{
-		auto FoldAscii(std::string_view Text) -> std::string
-		{
-			std::string Folded(Text);
-			std::ranges::transform(Folded, Folded.begin(), [](const char Character) {
-				return Character >= 'A' && Character <= 'Z'
-					? static_cast<char>(Character - 'A' + 'a') : Character;
-			});
-			return Folded;
-		}
-	}
-
 	auto RegisterMountPointForTests(
 		std::string_view VirtualRoot,
 		std::string_view PhysicalPath,
@@ -39,7 +27,8 @@ namespace Durin::Testing
 		checkf(!DirectoryError, "Failed to create test mount root.");
 		auto& MountPoints = MountPathInternal::MutableMountPoints();
 		const auto Existing = std::ranges::find_if(MountPoints, [&](const FMountPoint& Mount) {
-			return FoldAscii(Mount.VirtualRoot) == FoldAscii(VirtualRoot);
+			return StringUtils::FoldAscii(Mount.VirtualRoot)
+				== StringUtils::FoldAscii(VirtualRoot);
 		});
 		FMountPoint Definition{
 			.VirtualRoot = std::string(VirtualRoot),

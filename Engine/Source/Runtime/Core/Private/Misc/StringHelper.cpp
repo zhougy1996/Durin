@@ -2,13 +2,20 @@
 
 namespace Durin::StringUtils
 {
+	auto FoldAscii(std::string_view Text) -> std::string
+	{
+		std::string Result(Text);
+		std::ranges::transform(Result, Result.begin(), ToLowerAscii);
+		return Result;
+	}
+
 	auto ContainsInsensitive(std::string_view Text, std::string_view Filter) -> bool
 	{
 		if (Filter.empty()) return true;
 		if (Filter.size() > Text.size()) return false;
 
 		const auto EqualsInsensitive = [](const char Left, const char Right) {
-			return std::tolower(static_cast<unsigned char>(Left)) == std::tolower(static_cast<unsigned char>(Right));
+			return ToLowerAscii(Left) == ToLowerAscii(Right);
 		};
 		return std::search(Text.begin(), Text.end(), Filter.begin(), Filter.end(), EqualsInsensitive) != Text.end();
 	}
@@ -28,5 +35,20 @@ namespace Durin::StringUtils
 			Result.push_back(Name[Index]);
 		}
 		return Result;
+	}
+
+	auto FormatByteSize(uint64 Bytes) -> std::string
+	{
+		constexpr std::array Units{"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"};
+		double Value = static_cast<double>(Bytes);
+		size_t UnitIndex = 0;
+		while (Value >= 1024.0 && UnitIndex + 1 < Units.size())
+		{
+			Value /= 1024.0;
+			++UnitIndex;
+		}
+		return UnitIndex == 0
+			? std::format("{} B", Bytes)
+			: std::format("{:.2f} {}", Value, Units[UnitIndex]);
 	}
 } // namespace Durin::StringUtils

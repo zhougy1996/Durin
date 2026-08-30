@@ -8,6 +8,7 @@
 #include "RDG.h"
 #include "Viewport/ViewportPresentation.h"
 #include "Workspace/LevelEditorWorkspace.h"
+#include "Misc/StringHelper.h"
 
 namespace Durin::Editor::Level
 {
@@ -83,11 +84,7 @@ namespace Durin::Editor::Level
 		auto ContainsCaseInsensitive(
 			std::string_view Text, std::string_view Filter) -> bool
 		{
-			if (Filter.empty()) return true;
-			return std::ranges::search(Text, Filter, [](char Left, char Right) {
-				return std::tolower(static_cast<unsigned char>(Left))
-					== std::tolower(static_cast<unsigned char>(Right));
-			}).begin() != Text.end();
+			return StringUtils::ContainsInsensitive(Text, Filter);
 		}
 
 		auto DrawBudgetRow(

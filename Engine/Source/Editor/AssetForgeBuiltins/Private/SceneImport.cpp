@@ -11,6 +11,7 @@
 #include "Materials/MaterialTypes.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/StringHelper.h"
 #include "SceneImportInternal.h"
 #include "Skeletal/SkeletalBuildOperations.h"
 #include "SkeletalMesh/SkeletalDerivedData.h"
@@ -124,14 +125,6 @@ namespace Durin::AssetForge::Builtins
 			return Options;
 		}
 
-		auto FoldAscii(std::string Value) -> std::string
-		{
-			std::ranges::transform(Value, Value.begin(), [](const char Character) {
-				return static_cast<char>(std::tolower(static_cast<unsigned char>(Character)));
-			});
-			return Value;
-		}
-
 		auto SanitizeAssetName(
 			std::string_view Value,
 			std::string_view Fallback) -> std::string
@@ -163,7 +156,7 @@ namespace Durin::AssetForge::Builtins
 		{
 			const std::string Base = SanitizeAssetName(Requested, Fallback);
 			std::string Candidate = Base;
-			for (uint32 Suffix = 2; !UsedNames.insert(FoldAscii(Candidate)).second; ++Suffix)
+			for (uint32 Suffix = 2; !UsedNames.insert(StringUtils::FoldAscii(Candidate)).second; ++Suffix)
 				Candidate = std::format("{}_{}", Base, Suffix);
 			return Candidate;
 		}
@@ -395,7 +388,7 @@ namespace Durin::AssetForge::Builtins
 					MaterialIndices.push_back(Slot.SourceMaterialIndex);
 		std::unordered_map<std::string, uint32> MaterialNameCounts;
 		for (const FImportedMaterial& Material : OutPlan.Scene.Materials)
-			++MaterialNameCounts[FoldAscii(Material.SourceName)];
+			++MaterialNameCounts[StringUtils::FoldAscii(Material.SourceName)];
 		std::unordered_set<std::string> MaterialNames;
 		std::unordered_set<std::string> TextureNames;
 		std::unordered_map<std::string, std::string> TextureByKey;
@@ -407,8 +400,8 @@ namespace Durin::AssetForge::Builtins
 				&FImportedMaterial::SourceMaterialIndex);
 			if (Material == OutPlan.Scene.Materials.end()) return false;
 			const std::string MaterialKey = !Material->SourceName.empty()
-				&& MaterialNameCounts[FoldAscii(Material->SourceName)] == 1
-				? std::string("name:") + FoldAscii(Material->SourceName)
+				&& MaterialNameCounts[StringUtils::FoldAscii(Material->SourceName)] == 1
+				? std::string("name:") + StringUtils::FoldAscii(Material->SourceName)
 				: std::format("index:{}", MaterialIndex);
 			const std::string MaterialIdentity =
 				std::string("scene:material:") + StableSuffix(MaterialKey);
@@ -751,7 +744,7 @@ namespace Durin::AssetForge::Builtins
 		const auto Root = std::ranges::find(
 			Sources, std::string_view("root"), &FSourceSnapshotEntry::StableIdentity);
 		if (Root == Sources.end()) return false;
-		const std::string Extension = FoldAscii(
+		const std::string Extension = StringUtils::FoldAscii(
 			std::filesystem::path(Root->Filename).extension().generic_string());
 		if (Extension != ".gltf") return true;
 		if (DiscoverGltfUris(Root->GetBytes(), Sink)) return true;

@@ -4,6 +4,7 @@
 #include "DObject/Package.h"
 #include "DObject/WeakObjectPtr.h"
 #include "Editor/Transaction.h"
+#include "Misc/StringHelper.h"
 
 namespace Durin::Editor::Material
 {
@@ -188,12 +189,7 @@ namespace Durin::Editor::Material
 
 		auto NormalizeSearchText(std::string_view Value) -> std::string
 		{
-			std::string Result(Value);
-			std::ranges::transform(Result, Result.begin(), [](char Character) {
-				return static_cast<char>(std::tolower(
-					static_cast<unsigned char>(Character)));
-			});
-			return Result;
+			return StringUtils::FoldAscii(Value);
 		}
 
 		auto PrepareSearchFields(FMaterialGraphCatalogEntry& Entry) -> void

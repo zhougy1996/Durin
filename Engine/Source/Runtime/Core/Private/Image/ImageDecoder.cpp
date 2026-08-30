@@ -1,6 +1,7 @@
 #include "Image/ImageDecoder.h"
 
 #include "Misc/FileHelper.h"
+#include "Misc/StringHelper.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "ThirdParty/stb/stb_image.h"
@@ -21,9 +22,7 @@ namespace Durin::Image
 
 		auto LowercaseExtension(std::string_view Extension) -> std::string
 		{
-			std::string Result(Extension);
-			std::ranges::transform(Result, Result.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
-			return Result;
+			return StringUtils::FoldAscii(Extension);
 		}
 
 		auto ReadPngU32(std::span<const std::byte> Bytes, size_t Offset, uint32& OutValue) -> bool

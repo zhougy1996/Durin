@@ -1,4 +1,5 @@
 #include "Asset/AssetCompatibilityAudit.h"
+#include "Misc/StringHelper.h"
 
 namespace Durin::Editor
 {
@@ -6,11 +7,7 @@ namespace Durin::Editor
 	{
 		auto LowerCopy(std::string_view Value) -> std::string
 		{
-			std::string Result(Value);
-			std::ranges::transform(Result, Result.begin(), [](char Character) {
-				return static_cast<char>(std::tolower(static_cast<unsigned char>(Character)));
-			});
-			return Result;
+			return StringUtils::FoldAscii(Value);
 		}
 
 		auto ContainsSearch(std::string_view Value, const std::string& LowerSearch) -> bool

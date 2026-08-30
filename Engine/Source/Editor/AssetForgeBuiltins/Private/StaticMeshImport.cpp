@@ -12,6 +12,7 @@
 #include "EncodedSourceSnapshot.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
+#include "Misc/StringHelper.h"
 #include "StaticMeshImportAdapter.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 
@@ -36,10 +37,7 @@ namespace Durin::AssetForge::Builtins
 
 		auto IsSupportedExtension(std::string_view Extension) -> bool
 		{
-			std::string Lower(Extension);
-			std::ranges::transform(Lower, Lower.begin(), [](unsigned char Value) {
-				return static_cast<char>(std::tolower(Value));
-			});
+			const std::string Lower = StringUtils::FoldAscii(Extension);
 			return Lower == ".obj" || Lower == ".fbx" || Lower == ".gltf"
 				|| Lower == ".glb" || Lower == ".dae" || Lower == ".3ds"
 				|| Lower == ".ply" || Lower == ".stl";

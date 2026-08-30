@@ -11,6 +11,7 @@
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "Misc/StringConvert.h"
+#include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 #include "PixelFormat.h"
 
@@ -34,12 +35,8 @@ namespace Durin::Editor::Texture
 
 		auto IsRadianceHDRPath(std::string_view Path) -> bool
 		{
-			std::string Extension =
-				std::filesystem::path(Path).extension().generic_string();
-			std::ranges::transform(Extension, Extension.begin(),
-				[](unsigned char Character) {
-					return static_cast<char>(std::tolower(Character));
-				});
+			const std::string Extension = StringUtils::FoldAscii(
+				std::filesystem::path(Path).extension().generic_string());
 			return Extension == ".hdr";
 		}
 

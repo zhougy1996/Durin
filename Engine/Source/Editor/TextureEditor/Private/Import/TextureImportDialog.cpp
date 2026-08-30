@@ -9,6 +9,7 @@
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "Misc/StringConvert.h"
+#include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
@@ -21,15 +22,6 @@ namespace Durin::Editor::Texture
 {
 	namespace
 	{
-		auto Lowercase(std::string Value) -> std::string
-		{
-			std::ranges::transform(Value, Value.begin(), [](char Character) {
-				return static_cast<char>(std::tolower(
-					static_cast<unsigned char>(Character)));
-			});
-			return Value;
-		}
-
 		auto DescribeAssetType(ETextureImportAssetType AssetType) -> const char*
 		{
 			switch (AssetType)
@@ -268,7 +260,7 @@ namespace Durin::Editor::Texture
 		const bool bSourceExists = bHasSource &&
 			std::filesystem::is_regular_file(SourcePath);
 		const std::string SourceExtension =
-			Lowercase(SourcePath.extension().generic_string());
+			StringUtils::FoldAscii(SourcePath.extension().generic_string());
 		const bool bVolume =
 			State.GetAssetType() == ETextureImportAssetType::VolumeTexture;
 		const bool bSupportedSource = bHasSource && (bVolume

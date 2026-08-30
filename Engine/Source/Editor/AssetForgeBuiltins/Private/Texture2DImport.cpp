@@ -11,6 +11,7 @@
 #include "Image/ImageDecoder.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
+#include "Misc/StringHelper.h"
 #include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureBuilder.h"
 
@@ -308,10 +309,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto IsTexture2DSourceExtension(std::string_view Extension) -> bool
 	{
-		std::string Lowercase(Extension);
-		std::ranges::transform(Lowercase, Lowercase.begin(), [](unsigned char Character) {
-			return static_cast<char>(std::tolower(Character));
-		});
+		const std::string Lowercase = StringUtils::FoldAscii(Extension);
 		return Lowercase == ".png" || Lowercase == ".jpg" || Lowercase == ".jpeg"
 			|| Lowercase == ".bmp" || Lowercase == ".tga";
 	}

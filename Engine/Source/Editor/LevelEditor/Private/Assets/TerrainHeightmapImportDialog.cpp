@@ -8,6 +8,7 @@
 #include "Dialogs/FileDialog.h"
 #include "Misc/Project.h"
 #include "Misc/StringConvert.h"
+#include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
@@ -67,10 +68,8 @@ namespace Durin::Editor::Level
 			ValidationMessage = "The selected source file no longer exists.";
 		else
 		{
-			std::string Extension = Source.extension().generic_string();
-			std::ranges::transform(Extension, Extension.begin(), [](unsigned char Character) {
-				return static_cast<char>(std::tolower(Character));
-			});
+			const std::string Extension = StringUtils::FoldAscii(
+				Source.extension().generic_string());
 			if (Extension != ".png" && Extension != ".raw")
 				ValidationMessage = "Terrain heightmaps require a .png or .raw source.";
 			else if (!DestinationValidation) ValidationMessage = DestinationValidation.Message;

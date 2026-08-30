@@ -1,6 +1,7 @@
 #include "Yaml/Yaml.h"
 
 #include "Misc/FileHelper.h"
+#include "Misc/StringHelper.h"
 
 #include <c4/yml/emit.hpp>
 #include <c4/yml/parse.hpp>
@@ -84,8 +85,8 @@ namespace Durin
 
 			for (size_t Index = 0; Index < Left.size(); ++Index)
 			{
-				if (static_cast<char>(std::tolower(static_cast<unsigned char>(Left[Index])))
-					!= static_cast<char>(std::tolower(static_cast<unsigned char>(Right[Index]))))
+				if (StringUtils::ToLowerAscii(Left[Index])
+					!= StringUtils::ToLowerAscii(Right[Index]))
 				{
 					return false;
 				}

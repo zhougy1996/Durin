@@ -1,6 +1,7 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Misc/MountPathsInternal.h"
+#include "Misc/StringHelper.h"
 
 #include "HAL/PlatformProcess.h"
 #include "Json/Json.h"
@@ -100,15 +101,7 @@ namespace Durin
 		std::vector<FMountPoint> MountPoints;
 		bool bRegistryPublished = false;
 		bool bSuppressMountLog = false;
-
-		auto FoldAscii(std::string_view Text) -> std::string
-		{
-			std::string Folded(Text);
-			std::ranges::transform(Folded, Folded.begin(), [](const char Character) {
-				return Character >= 'A' && Character <= 'Z' ? static_cast<char>(Character - 'A' + 'a') : Character;
-			});
-			return Folded;
-		}
+		using StringUtils::FoldAscii;
 
 		auto SamePathComponent(const std::filesystem::path& A, const std::filesystem::path& B) -> bool
 		{

@@ -5,6 +5,7 @@
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
 #include "Math/Vector.h"
+#include "Misc/StringHelper.h"
 #include "Texture/TextureCube.h"
 
 namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
@@ -161,11 +162,8 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 			Snapshot.Exposure = std::format("{:+.1f} EV", Exposure);
 		if (Snapshot.bPanorama && Snapshot.Source != "-")
 		{
-			std::string Extension =
-				std::filesystem::path(Snapshot.Source).extension().generic_string();
-			std::ranges::transform(Extension, Extension.begin(), [](unsigned char Character) {
-				return static_cast<char>(std::tolower(Character));
-			});
+			const std::string Extension = StringUtils::FoldAscii(
+				std::filesystem::path(Snapshot.Source).extension().generic_string());
 			Snapshot.InputRange = Extension == ".hdr" ? "Radiance HDR" : "LDR";
 		}
 
@@ -296,11 +294,7 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 
 	auto FormatFileSize(uintmax_t Bytes) -> std::string
 	{
-		if (Bytes < 1024) return std::format("{} B", Bytes);
-		if (Bytes < 1024 * 1024) return std::format("{:.1f} KB", Bytes / 1024.0);
-		if (Bytes < 1024ull * 1024ull * 1024ull)
-			return std::format("{:.1f} MB", Bytes / (1024.0 * 1024.0));
-		return std::format("{:.2f} GB", Bytes / (1024.0 * 1024.0 * 1024.0));
+		return StringUtils::FormatByteSize(static_cast<uint64>(Bytes));
 	}
 
 	auto FormatFileTime(const std::filesystem::file_time_type& Time) -> std::string

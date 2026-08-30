@@ -82,7 +82,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		EXPECT_EQ(ContentBrowserItemView::TypeLabel(Redirector), "Redirector");
 		EXPECT_STREQ(ContentBrowserItemView::Icon(Redirector), Icons::ArrowRight);
 		EXPECT_EQ(ContentBrowserItemView::FormatFileSize(512), "512 B");
-		EXPECT_EQ(ContentBrowserItemView::FormatFileSize(1536), "1.5 KB");
+		EXPECT_EQ(ContentBrowserItemView::FormatFileSize(1536), "1.50 KiB");
 	}
 
 	TEST(FContentBrowserItemViewTests, InspectsTextureCubeDetailsWithoutLoadingPackage)

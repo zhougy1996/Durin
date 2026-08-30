@@ -6,6 +6,7 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Misc/ProjectHistory.h"
+#include "Misc/StringHelper.h"
 
 #ifdef _WIN32
 	#include "Windows/WindowsPlatform.h"
@@ -115,7 +116,8 @@ namespace Durin
 		uint64 Hash = 14695981039346656037ull;
 		for (unsigned char Character : GCurrentProject->ProjectFile)
 		{
-			Hash ^= static_cast<unsigned char>(std::tolower(Character));
+			Hash ^= static_cast<unsigned char>(
+				StringUtils::ToLowerAscii(static_cast<char>(Character)));
 			Hash *= 1099511628211ull;
 		}
 		const std::wstring Name = std::format(

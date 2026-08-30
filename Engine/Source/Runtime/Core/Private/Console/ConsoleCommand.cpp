@@ -1,4 +1,5 @@
 #include "Console/ConsoleCommand.h"
+#include "Misc/StringHelper.h"
 
 namespace Durin
 {
@@ -6,9 +7,7 @@ namespace Durin
 	{
 		auto ToLower(std::string_view Text) -> std::string
 		{
-			std::string Result(Text);
-			std::ranges::transform(Result, Result.begin(), [](unsigned char Character) { return static_cast<char>(std::tolower(Character)); });
-			return Result;
+			return StringUtils::FoldAscii(Text);
 		}
 
 		auto ParseCommandLine(std::string_view Line, std::vector<std::string>& Tokens) -> FConsoleCommandResult

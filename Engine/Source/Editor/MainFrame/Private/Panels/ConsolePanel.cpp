@@ -202,7 +202,9 @@ namespace Durin::Editor::MainFrame
 			for (size_t Index = 1; Index < Values.size(); ++Index)
 			{
 				size_t Length = 0;
-				while (Length < Prefix.size() && Length < Values[Index].size() && std::tolower(static_cast<unsigned char>(Prefix[Length])) == std::tolower(static_cast<unsigned char>(Values[Index][Length])))
+				while (Length < Prefix.size() && Length < Values[Index].size()
+					&& StringUtils::ToLowerAscii(Prefix[Length])
+						== StringUtils::ToLowerAscii(Values[Index][Length]))
 					++Length;
 				Prefix.resize(Length);
 			}

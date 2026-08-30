@@ -9,6 +9,7 @@
 #include "DObject/Class.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 
 #ifdef _WIN32
@@ -150,17 +151,12 @@ namespace Durin::Editor::ContentBrowser::Private
 			const std::filesystem::path& A,
 			const std::filesystem::path& B) -> bool
 		{
-			std::string Left = A.root_name().generic_string();
-			std::string Right = B.root_name().generic_string();
 #ifdef _WIN32
-			std::ranges::transform(Left, Left.begin(), [](unsigned char Character) {
-				return static_cast<char>(std::tolower(Character));
-			});
-			std::ranges::transform(Right, Right.begin(), [](unsigned char Character) {
-				return static_cast<char>(std::tolower(Character));
-			});
+			return StringUtils::FoldAscii(A.root_name().generic_string())
+				== StringUtils::FoldAscii(B.root_name().generic_string());
+#else
+			return A.root_name() == B.root_name();
 #endif
-			return Left == Right;
 		}
 
 		auto AreSamePath(std::string_view A, std::string_view B) -> bool

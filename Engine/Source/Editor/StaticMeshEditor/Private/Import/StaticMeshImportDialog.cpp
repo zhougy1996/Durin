@@ -8,6 +8,7 @@
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "Misc/StringConvert.h"
+#include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "AssetForge/Builtins/StaticMeshFactory.h"
@@ -16,17 +17,9 @@ namespace Durin::Editor::StaticMesh
 {
 	namespace
 	{
-		auto Lowercase(std::string Value) -> std::string
-		{
-			std::ranges::transform(Value, Value.begin(), [](unsigned char Character) {
-				return static_cast<char>(std::tolower(Character));
-			});
-			return Value;
-		}
-
 		auto IsSupportedModelExtension(std::string_view Extension) -> bool
 		{
-			const std::string Folded = Lowercase(std::string(Extension));
+			const std::string Folded = StringUtils::FoldAscii(Extension);
 			return Folded == ".obj" || Folded == ".fbx" || Folded == ".gltf"
 				|| Folded == ".glb" || Folded == ".dae" || Folded == ".3ds"
 				|| Folded == ".ply" || Folded == ".stl";
@@ -161,7 +154,7 @@ namespace Durin::Editor::StaticMesh
 
 		SourcePathBuffer.fill(0);
 		std::memcpy(SourcePathBuffer.data(), Result.FilePath.data(), Result.FilePath.size());
-		if (Lowercase(std::filesystem::path(Result.FilePath).extension().generic_string()) == ".obj")
+		if (StringUtils::FoldAscii(std::filesystem::path(Result.FilePath).extension().generic_string()) == ".obj")
 		{
 			Coordinates.SetPreset(
 				FMeshCoordinateImportModel::EPreset::YUpNegativeZForward);

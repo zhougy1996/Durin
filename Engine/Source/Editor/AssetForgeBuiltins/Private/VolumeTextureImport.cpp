@@ -13,6 +13,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
+#include "Misc/StringHelper.h"
 #include "Texture/TextureDerivedData.h"
 #include "Texture/VolumeTextureBuildOperations.h"
 
@@ -36,14 +37,6 @@ namespace Durin::AssetForge::Builtins
 			OutPath = Resolved.PhysicalPath;
 			OutPath += ".dasset";
 			return true;
-		}
-
-		auto Lowercase(std::string Value) -> std::string
-		{
-			std::ranges::transform(Value, Value.begin(), [](unsigned char Character) {
-				return static_cast<char>(std::tolower(Character));
-			});
-			return Value;
 		}
 
 		auto AppendPixel(const Image::FDecodedImage& Image, size_t Pixel,
@@ -367,7 +360,7 @@ namespace Durin::AssetForge::Builtins
 				PhysicalPath = PhysicalPathText;
 			}
 			if (!std::filesystem::is_regular_file(PhysicalPath)
-				|| Lowercase(PhysicalPath.extension().generic_string()) != ".png")
+				|| StringUtils::FoldAscii(PhysicalPath.extension().generic_string()) != ".png")
 			{
 				OutError = "VolumeTexture source must be an existing PNG file.";
 				return false;
@@ -427,7 +420,7 @@ namespace Durin::AssetForge::Builtins
 			std::filesystem::absolute(Filename).lexically_normal();
 		if (!std::filesystem::is_regular_file(Input))
 			return Failed("Volume texture source image does not exist.");
-		if (Lowercase(Input.extension().generic_string()) != ".png")
+		if (StringUtils::FoldAscii(Input.extension().generic_string()) != ".png")
 			return Failed("Volume texture atlas source must use PNG encoding.");
 		std::string Error;
 		if (!Settings.IsValid(&Error)) return Failed(std::move(Error));

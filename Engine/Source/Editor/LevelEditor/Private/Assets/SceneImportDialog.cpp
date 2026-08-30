@@ -5,6 +5,7 @@
 #include "Dialogs/FileDialog.h"
 #include "Misc/Project.h"
 #include "Misc/StringConvert.h"
+#include "Misc/StringHelper.h"
 #include "MonaImGui.h"
 
 namespace Durin::Editor::Level
@@ -49,9 +50,8 @@ namespace Durin::Editor::Level
 		const std::filesystem::path SourcePath(SourcePathBuffer.data());
 		const bool bHasSource = SourcePathBuffer[0] != '\0';
 		const bool bSourceExists = bHasSource && std::filesystem::is_regular_file(SourcePath);
-		std::string Extension = SourcePath.extension().generic_string();
-		std::ranges::transform(Extension, Extension.begin(), [](unsigned char Value) {
-			return static_cast<char>(std::tolower(Value)); });
+		const std::string Extension = StringUtils::FoldAscii(
+			SourcePath.extension().generic_string());
 		const bool bSupportedSource = Extension == ".fbx"
 			|| Extension == ".gltf" || Extension == ".glb";
 		if (bHasSource) ImGui::TextDisabled("%s", SourcePath.filename().generic_string().c_str());

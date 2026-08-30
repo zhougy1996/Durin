@@ -13,6 +13,7 @@
 #include "MonaImGuiWidgets.h"
 #include "MonaCoreGlobals.h"
 #include "MonaUIBackend.h"
+#include "Misc/StringHelper.h"
 #include "PixelFormat.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TexturePayloadInspection.h"
@@ -35,13 +36,6 @@ namespace Durin::Editor::Texture
 		auto FormatDimensions(uint32 Width, uint32 Height) -> std::string
 		{
 			return std::format("{} x {}", Width, Height);
-		}
-
-		auto FormatByteCount(uint64 Bytes) -> std::string
-		{
-			if (Bytes >= 1024 * 1024) return std::format("{:.2f} MiB", static_cast<double>(Bytes) / (1024.0 * 1024.0));
-			if (Bytes >= 1024) return std::format("{:.2f} KiB", static_cast<double>(Bytes) / 1024.0);
-			return std::format("{} bytes", Bytes);
 		}
 
 		auto DescribeBuildPhase(Asset::ETexture2DCompilationPhase Phase) -> const char*
@@ -445,10 +439,10 @@ namespace Durin::Editor::Texture
 			ImGui::Text("Worker: %.2f ms", Diagnostic.WorkerNanoseconds / 1'000'000.0);
 		ImGui::Text(
 			"Estimated: %s  Decoded: %s  Peak intermediate: %s  Result: %s",
-			FormatByteCount(Diagnostic.Metrics.EstimatedBytes).c_str(),
-			FormatByteCount(Diagnostic.Metrics.DecodedBytes).c_str(),
-			FormatByteCount(Diagnostic.Metrics.PeakIntermediateBytes).c_str(),
-			FormatByteCount(Diagnostic.Metrics.ResultBytes).c_str());
+			StringUtils::FormatByteSize(Diagnostic.Metrics.EstimatedBytes).c_str(),
+			StringUtils::FormatByteSize(Diagnostic.Metrics.DecodedBytes).c_str(),
+			StringUtils::FormatByteSize(Diagnostic.Metrics.PeakIntermediateBytes).c_str(),
+			StringUtils::FormatByteSize(Diagnostic.Metrics.ResultBytes).c_str());
 		if (!Diagnostic.Message.empty())
 			ImGui::TextWrapped("%s", Diagnostic.Message.c_str());
 		if (Diagnostic.Phase == Asset::ETexture2DCompilationPhase::Failed
@@ -482,7 +476,7 @@ namespace Durin::Editor::Texture
 			DrawInfoRow(PayloadStageName(Entry.Stage), std::format(
 				"{} | {} | {} | repair: {}",
 				PayloadStateName(Entry.State), Entry.Placement,
-				FormatByteCount(Entry.LogicalByteCount), PayloadRepairName(Entry.Repair)));
+				StringUtils::FormatByteSize(Entry.LogicalByteCount), PayloadRepairName(Entry.Repair)));
 			if (!Entry.Diagnostic.empty()) DrawInfoRow("Diagnostic", Entry.Diagnostic);
 		}
 		MonaImGui::PropertyEdit::EndTable();
@@ -878,7 +872,7 @@ namespace Durin::Editor::Texture
 			DrawInfoRow("Mip Count", std::format("{}", Platform->Mips.size()));
 			DrawInfoRow("Mip Range", std::format("{} to {}", FormatDimensions(Platform->Mips.front().Width, Platform->Mips.front().Height),
 				FormatDimensions(Platform->Mips.back().Width, Platform->Mips.back().Height)));
-			DrawInfoRow("Platform Bytes", FormatByteCount(TotalBytes));
+			DrawInfoRow("Platform Bytes", StringUtils::FormatByteSize(TotalBytes));
 			DrawInfoRow("Residency", "Fully resident");
 		}
 		else
