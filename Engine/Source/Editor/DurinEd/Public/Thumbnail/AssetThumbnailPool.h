@@ -45,6 +45,7 @@ namespace Durin::Editor
 		uint64 PeakParkedResourceWaits = 0;
 		uint64 ResourceWaitTimeouts = 0;
 		uint64 QueuedJobs = 0;
+		uint64 RetainedEntries = 0;
 		uint64 PinnedEntries = 0;
 		uint64 Referencers = 0;
 		bool bHasActiveJob = false;

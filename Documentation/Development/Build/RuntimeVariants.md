@@ -2,7 +2,7 @@
 
 Summary: Define how build presets select independent runtime module closures and outputs.
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-30
 
 This document explains runtime variants, how presets select them, which compile
 definitions they expose, and what must be updated when adding one.
@@ -95,6 +95,15 @@ canonical-resave dry-run select no Developer module. Canonical-resave apply
 explicitly loads `StaticMeshBuild`, `SkeletalBuild`, `TerrainBuild`, `TextureBuild`, and
 `AssetForgeBuiltins` so uncooked PostLoad
 recovery can reach family-owned readiness before the canonical save.
+
+RenderCore privately depends on the Core-only `DerivedDataCache` module because
+both DurinEditor and DurinGame currently support on-demand Shader compilation.
+That dependency therefore enters both closures even though the module is
+physically under `Source/Developer`. DurinGame does not gain `TextureBuild`,
+`StaticMeshBuild`, `SkeletalBuild`, `TerrainBuild`, `AssetForgeBuiltins`, or any
+editor module through this edge. Removing DerivedDataCache from the game closure
+requires a cooked-Shader-library boundary that also removes authoring compiler
+ownership from the runtime.
 
 ## Adding A New Runtime Variant
 

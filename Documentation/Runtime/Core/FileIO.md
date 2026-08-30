@@ -53,7 +53,7 @@ at the physical I/O boundary.
 ## Atomic Byte Publication
 
 `FFileHelper::SaveArrayToFileAtomically()` is the shared publication primitive
-for a complete byte buffer. DDC objects, shader artifacts and manifests, and
+for a complete byte buffer. DDC objects, Shader dependency manifests, and
 asset packages use this Core-owned path instead of implementing private
 replacement logic.
 

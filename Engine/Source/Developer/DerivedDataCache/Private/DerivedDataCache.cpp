@@ -6,8 +6,28 @@ namespace Durin::DerivedData
 {
 	namespace
 	{
-		std::mutex GCacheMutex;
+		// Bucket locks are retained only while an operation is active. The short
+		// registry lock never covers backend IO.
+		std::mutex GBucketLockRegistryMutex;
+		std::unordered_map<std::string, std::weak_ptr<std::shared_mutex>> GBucketLocks;
 		FDerivedDataCache GDerivedDataCache;
+
+		auto AcquireBucketLock(const FCacheBucket& Bucket) -> std::shared_ptr<std::shared_mutex>
+		{
+			std::lock_guard RegistryLock(GBucketLockRegistryMutex);
+			for (auto It = GBucketLocks.begin(); It != GBucketLocks.end();)
+			{
+				It = It->second.expired() ? GBucketLocks.erase(It) : std::next(It);
+			}
+			auto& WeakLock = GBucketLocks[std::string(Bucket.ToString())];
+			std::shared_ptr<std::shared_mutex> Lock = WeakLock.lock();
+			if (!Lock)
+			{
+				Lock = std::make_shared<std::shared_mutex>();
+				WeakLock = Lock;
+			}
+			return Lock;
+		}
 
 		auto SetError(std::string* OutError, std::string Message) -> void
 		{
@@ -53,19 +73,22 @@ namespace Durin::DerivedData
 
 	auto FDerivedDataCache::Get(const FCacheGetRequest& Request) const -> FCacheGetResult
 	{
-		std::lock_guard Lock(GCacheMutex);
+		const std::shared_ptr BucketLock = AcquireBucketLock(Request.Bucket);
+		std::shared_lock Lock(*BucketLock);
 		return FFileSystemCacheBackend().Get(Request);
 	}
 
 	auto FDerivedDataCache::Put(const FCachePutRequest& Request) const -> FCachePutResult
 	{
-		std::lock_guard Lock(GCacheMutex);
+		const std::shared_ptr BucketLock = AcquireBucketLock(Request.Bucket);
+		std::shared_lock Lock(*BucketLock);
 		return FFileSystemCacheBackend().Put(Request);
 	}
 
 	auto FDerivedDataCache::Trim(const FCacheTrimRequest& Request) const -> FCacheTrimResult
 	{
-		std::lock_guard Lock(GCacheMutex);
+		const std::shared_ptr BucketLock = AcquireBucketLock(Request.Bucket);
+		std::unique_lock Lock(*BucketLock);
 		return FFileSystemCacheBackend().TrimToBudget(Request);
 	}
 

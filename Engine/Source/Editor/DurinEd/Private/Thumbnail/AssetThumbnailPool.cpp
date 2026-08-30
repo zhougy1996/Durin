@@ -258,9 +258,39 @@ namespace Durin::Editor
 			const FAssetThumbnailGenerationRequest& Request,
 			std::span<const std::byte> EncodedBytes) -> bool
 		{
+			const uint64 ExpectedPixels =
+				static_cast<uint64>(Request.KeyInput.Output.Width)
+					* Request.KeyInput.Output.Height;
+			uint64 ExpectedBytes = 0;
 			Image::FDecodedImage Image;
 			std::string Error;
-			if (!Image::DecodeImageFromMemory(EncodedBytes, Image, Error))
+			bool bDecoded = false;
+			if (ExpectedPixels == 0
+				|| ExpectedPixels > Budgets.CpuPixelBudgetBytes / 4)
+			{
+				Error = "The cached thumbnail exceeds the configured CPU pixel budget.";
+			}
+			else
+			{
+				ExpectedBytes = ExpectedPixels * 4;
+				bDecoded = Image::DecodeImageFromMemory(
+					EncodedBytes,
+					Image,
+					Error,
+					{.MaximumEncodedBytes = EncodedBytes.size(),
+					 .MaximumDecodedPixels = ExpectedPixels});
+			}
+			if (!bDecoded && Error.empty())
+			{
+				Error = "The cached thumbnail could not be decoded.";
+			}
+			else if (bDecoded && (Image.Width != Request.KeyInput.Output.Width
+					|| Image.Height != Request.KeyInput.Output.Height
+					|| Image.Pixels.size() != ExpectedBytes))
+			{
+				Error = "The cached thumbnail dimensions do not match its fixed output contract.";
+			}
+			if (!Error.empty())
 			{
 				if (auto It = Entries.find(Request.KeyInput.Asset.VirtualPath);
 					It != Entries.end())
@@ -675,6 +705,40 @@ namespace Durin::Editor
 					++GpuEvictions;
 				}
 			}
+
+			BudgetEntries.clear();
+			BudgetEntries.reserve(Entries.size());
+			for (const auto& [Path, Entry] : Entries)
+			{
+				const EAssetThumbnailState State = Scheduler.Find(Path).State;
+				const bool bActive = Entry.bUploading
+					|| State == EAssetThumbnailState::Queued
+					|| State == EAssetThumbnailState::Loading
+					|| State == EAssetThumbnailState::WaitingForResources
+					|| State == EAssetThumbnailState::Rendering
+					|| State == EAssetThumbnailState::Readback
+					|| State == EAssetThumbnailState::Encoding
+					|| State == EAssetThumbnailState::Uploading;
+				BudgetEntries.push_back({
+					.Key = Path.ToString(),
+					.Bytes = 1,
+					.LastUsed = Entry.LastUsedFrame,
+					.bPinned = Entry.bVisible || Entry.ReferencerCount != 0 || bActive});
+			}
+			for (const std::string& Key : SelectThumbnailBudgetEvictions(
+					BudgetEntries, Budgets.MaximumRetainedEntries))
+			{
+				FAssetPath Path;
+				if (!FAssetPath::TryCreate(Key, Path)) continue;
+				if (auto It = Entries.find(Path); It != Entries.end())
+				{
+					const bool bHadTexture = It->second.Texture != nullptr;
+					UnregisterTexture(It->second);
+					Entries.erase(It);
+					Scheduler.Cancel(Path);
+					GpuEvictions += bHadTexture ? 1u : 0u;
+				}
+			}
 		}
 	};
 
@@ -871,6 +935,7 @@ namespace Durin::Editor
 			.PeakParkedResourceWaits = Impl->PeakParkedResourceWaits,
 			.ResourceWaitTimeouts = Impl->ResourceWaitTimeouts,
 			.QueuedJobs = Impl->Scheduler.NumQueued(),
+			.RetainedEntries = Impl->Entries.size(),
 			.PinnedEntries = PinnedEntries,
 			.Referencers = Referencers,
 			.bHasActiveJob = Impl->ActiveJob.has_value(),

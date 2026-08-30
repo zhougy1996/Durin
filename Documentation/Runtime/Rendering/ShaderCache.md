@@ -1,174 +1,144 @@
 # Shader Cache
 
-Summary: Define shader compilation, cache identity, invalidation, persistence, and failure behavior.
+Summary: Define shader compilation, portable DDC identity, local dependency manifests, validation, and publication behavior.
 
-Modules: RenderCore, RHI
+Modules: RenderCore, DerivedDataCache, RHI
 
-This document defines the current Slang shader loading and cache contract owned by `RenderCore`.
+Last reviewed: 2026-08-30
 
-## Ownership and Layers
+RenderCore owns Slang dependency resolution, compilation, request coalescing,
+typed output validation, and publication. DerivedDataCache owns only synchronous
+opaque `bucket + key -> immutable bytes` persistence and bounded bucket
+maintenance. It does not schedule or execute Shader builds.
 
-`GetOrCompileShader()` owns virtual-path resolution, dependency validation, compilation coalescing, and cache storage. `FSlangShaderCompiler` consumes physical source files and produces SPIR-V plus reflection; it does not choose cache paths.
+## Storage layers and ownership
 
 The runtime uses four bounded or reclaimable layers:
 
-- macro-specific dependency manifests on disk;
-- content-addressed SPIR-V and reflection artifacts on disk;
-- a 128-entry least-recently-used compiled-output cache in the compile service;
-- weak shader-map resource entries that share code and RHI shaders only while a shader map still owns them.
+- RenderCore-private, machine-local dependency manifests;
+- one portable DDC value for each exact compiled-output request;
+- a 128-entry in-process compiled-output LRU;
+- weak Shader-map resource entries retained only by live Shader maps.
 
-Fixed non-Material consumers reach these layers through RenderCore's
-generation-aware global shader map. Its exact, caller-named shader sets retain
-ordinary `FShaderMapBase` payloads internally, so global ownership does not
-change cache keys, artifact schemas, compiler behavior, or weak resource
-coalescing. See [Global Shaders](GlobalShaders.md).
-
-## Paths and Identities
-
-The registered shader mount supplies its source root and may explicitly override its cache root. Default mounts store rebuildable data beneath the active project's `DerivedDataCache/Shaders/SPIR-V/`; without a project, `FPaths::DerivedDataCacheDir()` falls back beneath the engine directory. Each virtual mount root receives a readable, hashed namespace so engine, project, plugin, and nested mounts cannot collide. Old standalone `ShaderCache` directories are not migrated or read.
-
-A virtual shader such as `/Engine/ImGui/Button` maps to this layout:
+Dependency manifests remain beneath the registered mount's private cache root:
 
 ```text
-<Project>/DerivedDataCache/Shaders/SPIR-V/Engine.<MountHash>/ImGui/Button.slang/
-  Manifests/
-    <DependencyKey>.json
-  <VariantKey>/
-    <EntryPointIdentity>.spv
-    <EntryPointIdentity>.reflect.json
+<MountCache>/<VirtualShader>.slang/Manifests/<DependencyKey>.json
 ```
 
-All dependency and variant keys are exactly 32 hexadecimal characters. Storage rejects malformed keys before constructing a path.
+They store normalized physical paths, sizes, modification times, content hashes,
+and the paired virtual dependency identities. They are a local fingerprint-reuse
+optimization, not portable DDC data. Missing, old-schema, malformed, or stale
+manifests are reparsed and replaced atomically. A warm manifest validates
+unchanged size/time facts without reading source contents.
 
-The dependency key includes the virtual shader path, normalized macro definitions, and compiler environment. A manifest stores the source-tree signature and each dependency's normalized path, size, modification time, and content hash.
+Compiled output uses the generic DDC bucket `Shaders/CompiledOutput`. Its key is
+a canonical lowercase XXH3-128 identity and its filesystem backend currently
+maps that opaque key to the ordinary two-character-sharded `.bin` object layout.
+RenderCore never constructs or observes that physical path.
 
-Higher-level deterministic compilers may request the current Slang environment
-identity and a value-owned dependency fingerprint manifest. Those requests
-reuse the compile service's long-lived compiler and dependency resolver; they
-do not construct per-request Slang global sessions. The public dependency view
-is sorted by virtual source path and contains only virtual paths plus content
-hashes; physical source and cache paths remain private to RenderCore.
-Callers that need only cache invalidation may instead request one aggregate
-source-tree fingerprint. It uses the same macro-specific manifest as ordinary
-shader compilation: a warm lookup validates persisted size and modification
-metadata, while a missing or stale manifest reparses imports and refreshes
-content hashes. This avoids maintaining a separate higher-level dependency
-cache. The compile service memoizes aggregate fingerprints for the current
-Shader reload generation. Repeated callers perform no filesystem validation;
-an applied `renderer.reload-shaders changed|all` request advances the shared
-generation, clears those memoized views lazily, and makes the next request
-validate the persisted manifest again.
+## Portable identity
 
-Generated shader roots use a separate owned-memory request. Their virtual path,
-source-content hash, normalized macros, imported file fingerprints, compiler
-environment, entry points, and frequencies form the variant identity. A
-source-hash-specific dependency manifest persists imported-file fingerprints,
-including the valid empty-import case. A warm process validates that manifest
-before invoking Slang dependency resolution and then rechecks every recovered
-import against the caller-selected registered virtual prefixes. Changed source
-selects a different manifest; changed imported files invalidate the existing
-manifest and resolve the dependency graph again. The source is never
-materialized as authored content; SPIR-V/reflection artifacts still use the
-ordinary RenderCore cache validation, retention, corruption repair, force-
-recompile, and in-process output cache.
+The source-tree signature is built from the sorted registered virtual dependency
+paths and their content hashes. It excludes physical checkout paths, mount cache
+roots, timestamps, cache locations, dependency discovery order, and worker order.
+Equivalent source closures mounted from different physical roots therefore have
+the same portable identity.
 
-The variant key includes the virtual shader path, source-tree signature, normalized macros, target settings, and Slang build identity. Artifact filenames use a stable hash of the unsanitized source entry point and requested shader frequency, so separate requests cannot collide through filename sanitization or stage differences.
+The variant identity additionally includes explicit key version, Slang backend,
+SPIR-V target/profile, compiler-environment identity, root virtual path, portable
+source-tree signature, and normalized macros. The compiled-output key adds the
+payload schema, builder version, and the exact ordered entry-point/frequency
+request. `bForceRecompile` is execution policy and never enters production
+identity.
 
-## Warm and Miss Paths
+Generated Shader roots add the generated source-content hash to the portable
+source-tree signature. Imported files still use sorted registered virtual paths
+and content hashes. The local import manifest may use physical facts and a source
+path hint, but those values do not enter the compiled-output DDC identity.
+Recovered imports are rechecked against the caller's virtual-prefix allowlist.
 
-On lookup, the compile service:
+## Compiled-output payload
 
-1. normalizes and validates macros;
-2. coalesces an identical in-process request through a single-flight record;
-3. loads the macro-specific dependency manifest;
-4. reuses persisted hashes when dependency size and modification time are unchanged;
-5. resolves the Slang dependency graph and hashes content only when the manifest is absent or stale;
-6. checks the in-process output LRU, then the disk artifacts;
-7. compiles on a miss, loading the Slang module once and deriving each entry-point program from it;
-8. atomically publishes each artifact and applies retention maintenance.
+One `DSHD` schema-1, builder-1 little-endian binary value contains the complete
+ordered `FShaderCompilerOutput`. The header contains magic, schema, builder,
+endianness marker, a zero reserved field, and entry count. Each entry contains:
 
-`bForceRecompile` skips compiled-output and disk-artifact hits, but still validates dependencies and republishes the successful result.
+1. length-prefixed UTF-8 source and binary entry points;
+2. `uint32` frequency and zero reserved field;
+3. length-prefixed UTF-8 debug name;
+4. the two `uint64` halves of the XXH3-128 SPIR-V hash;
+5. `uint64` SPIR-V byte count followed by bytes;
+6. `uint32` resource count and each name, stage flags, set, binding, type, and array size;
+7. `uint32` push-constant count and each stage flags, offset, size, and zero reserved field.
 
-## Development Reload and Recovery
+The request supports 1–32 stages. A stage permits at most 64 MiB SPIR-V, 65,536
+resource bindings, 65,536 push-constant ranges, 32 KiB per string, descriptor
+indices through 65,535, and push-constant extents within 65,536 bytes. The whole
+DDC value permits at most 256 MiB. Decode validates header versions, request
+identity and ordering, enum masks, all counts and length arithmetic, reserved
+fields, SPIR-V minimum size/alignment/magic, recomputed code hashes, reflection
+bounds, and complete byte consumption before publishing a candidate.
 
-Failed compiler output is not stored in the in-process output cache or
-published to disk. Correcting authored source therefore produces a new
-dependency fingerprint and variant key without restarting the compile service.
+Missing, excessive, incompatible, malformed, or corrupt values are ordinary
+compile misses. Decode failure leaves the caller output empty; SPIR-V and
+reflection are never independently published or accepted.
 
-Renderer exposes two demand-driven reload modes. It explicitly fans accepted
-generations into RenderCore's Global Shader map and Renderer-owned exact
-`FMaterialShaderMap` slots. The
-`renderer.reload-shaders changed` command advances the Renderer shader-resource
-generation; the next lookup for each demanded shader-backed resource validates
-its dependencies and reuses or compiles the resulting variant normally.
-`renderer.reload-shaders all` advances the same generation but also sets
-`bForceRecompile` on shader candidates first demanded in that generation,
-bypassing both successful memory and disk output reuse.
+## Request flow and failure policy
 
-Neither command eagerly recompiles every registered shader type or material
-identity. The console request is ordered through the render-command queue, and
-resource slots decide when a stale identity is next demanded. Global Shader
-sets and typed Material/mesh sets publish compilation, binding, merged layout,
-and RHI state atomically; dependent pipeline payloads retain strong typed refs
-to the exact set used to construct them. A failure leaves a valid
-same-device last-known-good payload drawable when one exists, while a
-successful candidate replaces it atomically. See
-[Global Shaders](GlobalShaders.md) and
-[Viewport Rendering](ViewportRendering.md) for generation, diagnostic,
-device-invalidation, and shutdown contracts.
+The compile service performs:
 
-Graphics-pipeline names are stable diagnostic labels, not cache identities.
-Every RHI graphics-PSO request creates a fresh complete candidate, even when a
-live pipeline has the same name. The demanding Renderer slot owns the logical
-PSO together with the typed shader payload used for binding and reload; a
-successful refresh therefore replaces both atomically without encoding a
-shader generation into the debug name.
+1. macro validation and identical-request single-flight admission;
+2. local dependency-manifest validation or dependency resolution;
+3. in-process output-LRU query;
+4. DDC Get and complete Shader-owned decode;
+5. local Slang compilation on a miss;
+6. one encode and best-effort DDC Put;
+7. one bounded bucket Trim attempt;
+8. complete typed output publication and LRU admission.
 
-## Validation and Publication
+Force recompile bypasses steps 3 and 4, retains ordinary dependency validation,
+and best-effort replaces the same DDC key after success. Compiler or validation
+failure is never stored or admitted to the LRU. Put or Trim failure is diagnosed
+and counted independently but does not invalidate a successful compiler result.
+Statistics distinguish memory hits, validated DDC hits, compilations, corrupt
+DDC misses, store failures, and maintenance failures without exposing a path.
 
-A disk hit is published only when every requested artifact passes all checks:
+The DDC bucket budget is 2 GiB. Each post-compile maintenance pass deletes at
+most 16 oldest canonical entries. Trim ignores symlinks and unrecognized shapes,
+never leaves its selected bucket, and may report a bounded partial result.
 
-- SPIR-V has the expected magic, word alignment, minimum header size, and configured maximum size;
-- the recomputed bytecode hash matches the reflection sidecar;
-- source entry point and frequency match the request;
-- reflection counts, enum values, descriptor indices, push-constant ranges, and file sizes are within runtime bounds.
+## Concurrency and lifecycle
 
-Any missing, corrupt, incompatible, or malformed record is an ordinary cache miss. Authored Slang source remains authoritative and recompilation repairs the cache.
+DDC Get and Put operations hold a shared lock for their logical bucket; Trim
+holds that bucket's exclusive lock. The lock registry holds only weak entries,
+so metadata cannot grow with every historical bucket, and its short mutex never
+covers filesystem I/O. Different buckets and ordinary same-bucket operations
+may progress concurrently. Atomic file replacement gives identical writers
+safe last-writer-wins publication and readers a prior or new complete object.
 
-Writers use Core's shared atomic byte-publication API, which creates a
-fixed-length same-directory temporary name and atomically replaces the target.
-The temporary name does not grow with the destination path. Readers therefore
-observe either the prior complete file or the new complete file. Identical
-requests compile once per process; independent processes use atomic
-last-writer-wins publication. Binary, reflection, and dependency-manifest
-round trips are supported beyond the traditional Windows `MAX_PATH` boundary
-under the physical-path contract in [File I/O](../Core/FileIO.md).
+The compile service owns workers, single-flight records, compiler lifetime,
+memory caching, and shutdown. Reload generation invalidates memoized source
+fingerprints. Global and Material Shader owners continue to publish complete
+last-known-good typed sets atomically; this storage migration does not change
+their generation or RHI-resource contract.
 
-## Lifetime and Retention
-
-The compiled-output LRU retains at most 128 request results. Shader-map cache
-entries hold weak references to `FShaderMapResourceCode` and
-`FShaderMapResource`; destroying the final shader map releases compiled code
-and any lazily created RHI shaders. `GetShaderMapResourceCacheStats()` prunes
-expired entries while reporting the live cache size. Renderer families retain
-at most 256 exact Material shader maps and 512 dependent pipelines per local
-cache. Existing hits remain stable; inserting beyond the bound evicts the
-oldest slot. These payloads contain value identities and compiled/RHI resources,
-never Material assets or render proxies.
-
-Each `FShaderCacheStore` defaults to at most 64 variant directories and 256 MiB per virtual shader. After a successful publication, maintenance orders variants by last-write time and then name, removes the oldest candidates, and always protects the variant just published. A single protected variant may exceed the byte budget because deleting the only valid result would make a successful publication immediately useless.
-
-Cleanup only considers non-symlink, immediate child directories whose names are valid 32-character hexadecimal keys. It does not remove manifest directories, unknown siblings, or any path outside the resolved shader directory. Removal failure is logged and does not turn a successful compile into a failure.
-
-The complete `DerivedDataCache` remains disposable while the editor is stopped. Authored Slang sources repopulate missing shader manifests and artifacts.
+RenderCore has a private DerivedDataCache dependency in both DurinEditor and
+DurinGame because both variants currently support on-demand authoring Shader
+compilation. The Core-only DDC module enters the game closure; asset recipe and
+editor modules do not. Removing compiler and DDC closure from DurinGame requires
+a separately qualified cooked-Shader-library boundary.
 
 ## Compatibility
 
-Cache schemas are intentionally strict and do not migrate old layouts. Schema, compiler-environment, or identity changes produce misses and new records. Stale records remain safe because validation rejects them and retention eventually removes old variant directories.
+The former variant directories, per-entry-point `.spv` files, and
+`.reflect.json` sidecars are neither read nor migrated. Disposable old data is a
+cold miss. Payload readability changes bump schema; output-semantic changes bump
+builder/key identity even when the payload remains readable.
 
 ## Related Documentation
 
-- [Shader Cache Hardening Plan](../../Plans/Archive/2026-07/ShaderCacheHardening.md)
-- [Versioning](../Assets/Versioning.md)
-- [Native C++ Tests](../../Development/Build/NativeTests.md)
+- [Global Shaders](GlobalShaders.md)
+- [Asset Data Lifecycle](../Assets/AssetDataLifecycle.md)
 - [File I/O](../Core/FileIO.md)
+- [Runtime Variants](../../Development/Build/RuntimeVariants.md)

@@ -2,8 +2,9 @@ include(GoogleTest)
 
 function(durin_add_asset_functional_test target_name)
 	set(options IMPORT_RUNTIME)
-	set(one_value_args KIND TIMEOUT)
-	set(multi_value_args DOMAINS MODULES SOURCES LIBRARIES)
+	set(one_value_args KIND TIMEOUT PRIVATE_SOURCE_RATIONALE)
+	set(multi_value_args DOMAINS MODULES SOURCES LIBRARIES PRIVATE_SOURCES
+		PRIVATE_INCLUDE_DIRECTORIES)
 	cmake_parse_arguments(
 		DURIN_ASSET_TEST
 		"${options}"
@@ -12,12 +13,18 @@ function(durin_add_asset_functional_test target_name)
 		${ARGN}
 	)
 
-	add_durin_test(${target_name} ${DURIN_ASSET_TEST_SOURCES})
+	add_durin_test(${target_name}
+		${DURIN_ASSET_TEST_SOURCES}
+		${DURIN_ASSET_TEST_PRIVATE_SOURCES}
+	)
 	target_link_libraries(${target_name} PRIVATE
 		Core
 		CoreDObject
 		Engine
 		${DURIN_ASSET_TEST_LIBRARIES}
+	)
+	target_include_directories(${target_name} PRIVATE
+		${DURIN_ASSET_TEST_PRIVATE_INCLUDE_DIRECTORIES}
 	)
 
 	if(DURIN_ASSET_TEST_IMPORT_RUNTIME)
@@ -31,18 +38,38 @@ function(durin_add_asset_functional_test target_name)
 	if(DURIN_ASSET_TEST_TIMEOUT)
 		set(_durin_timeout_arg TIMEOUT "${DURIN_ASSET_TEST_TIMEOUT}")
 	endif()
-	durin_register_native_test(${target_name}
-		KIND ${DURIN_ASSET_TEST_KIND}
-		DOMAINS ${DURIN_ASSET_TEST_DOMAINS}
-		MODULES ${DURIN_ASSET_TEST_MODULES}
-		${_durin_timeout_arg}
-	)
+	if(DURIN_ASSET_TEST_PRIVATE_SOURCES)
+		durin_register_native_test(${target_name}
+			KIND ${DURIN_ASSET_TEST_KIND}
+			DOMAINS ${DURIN_ASSET_TEST_DOMAINS}
+			MODULES ${DURIN_ASSET_TEST_MODULES}
+			${_durin_timeout_arg}
+			PRIVATE_SOURCE_OWNER Engine
+			PRIVATE_SOURCE_RATIONALE
+				"${DURIN_ASSET_TEST_PRIVATE_SOURCE_RATIONALE}"
+		)
+	else()
+		durin_register_native_test(${target_name}
+			KIND ${DURIN_ASSET_TEST_KIND}
+			DOMAINS ${DURIN_ASSET_TEST_DOMAINS}
+			MODULES ${DURIN_ASSET_TEST_MODULES}
+			${_durin_timeout_arg}
+		)
+	endif()
 endfunction()
+
+set(_durin_asset_package_modules engine)
+set(_durin_asset_package_libraries)
+if(DURIN_WITH_EDITOR)
+	list(APPEND _durin_asset_package_modules asset-maintenance)
+	list(APPEND _durin_asset_package_libraries AssetMaintenance)
+endif()
 
 durin_add_asset_functional_test(AssetPackageTests
 	KIND feature
 	DOMAINS asset-package
-	MODULES engine
+	MODULES ${_durin_asset_package_modules}
+	LIBRARIES ${_durin_asset_package_libraries}
 	SOURCES
 		Private/BulkDataTests.cpp
 		Private/PackageTests.cpp
@@ -52,13 +79,13 @@ durin_add_asset_functional_test(AssetPackageTests
 		Private/PackageObjectStreamReferenceModelTests.cpp
 		Private/PackageObjectStreamWriterTests.cpp
 		Private/PackageObjectStreamReaderTests.cpp
+	PRIVATE_SOURCE_RATIONALE
+		"Engine-owned package bulk directory white-box tests exercise its private wire format without exporting runtime symbols."
+	PRIVATE_SOURCES
+		${DURIN_PROJECT_SOURCE_DIR}/Runtime/Engine/Private/Asset/PackageBulkDataWire.cpp
+	PRIVATE_INCLUDE_DIRECTORIES
+		${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 )
-target_include_directories(AssetPackageTests PRIVATE
-	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
-)
-if(DURIN_WITH_EDITOR)
-	target_link_libraries(AssetPackageTests PRIVATE AssetMaintenance)
-endif()
 durin_add_asset_functional_test(AssetCookTests
 	KIND feature
 	DOMAINS asset-cook

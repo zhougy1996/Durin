@@ -15,6 +15,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "NativeTestSupport.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
 #include "RenderingThread.h"
@@ -90,15 +91,14 @@ namespace
 			});
 	}
 
-	auto ThumbnailPngBytes() -> std::span<const std::byte>
+	auto LoadThumbnailPngBytes() -> std::vector<std::byte>
 	{
-		static constexpr uint8 Bytes[] = {
-			137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
-			0, 0, 0, 2, 0, 0, 0, 1, 8, 6, 0, 0, 0, 244, 34, 127, 138,
-			0, 0, 0, 17, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 240,
-			159, 129, 129, 129, 1, 0, 12, 252, 1, 255, 253, 45, 119, 109,
-			0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130};
-		return std::as_bytes(std::span{Bytes});
+		std::vector<std::byte> Bytes;
+		EXPECT_TRUE(Durin::FFileHelper::LoadFileToArray(
+			Bytes,
+			std::filesystem::path(Durin::FPaths::EngineContentDir())
+				/ "Editor/Branding/DurinEditorLogoUI.png"));
+		return Bytes;
 	}
 
 	auto MakeCacheRoot(std::string_view Name) -> std::filesystem::path
@@ -404,7 +404,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Durin::Editor::FThumbnailObjectStore Store({
 			.CacheRoot = CacheRoot,
 			.ObjectExtension = ".png"});
-		ASSERT_TRUE(Store.Store(CacheKey, ThumbnailPngBytes()));
+		ASSERT_TRUE(Store.Store(CacheKey, LoadThumbnailPngBytes()));
 	}
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(StaticMeshPath));
 	ASSERT_EQ(Durin::Asset::FindResidentPackage(StaticMeshPath), nullptr);
@@ -612,7 +612,6 @@ TEST(FStaticMeshThumbnailRendererTests,
 	EXPECT_TRUE(ThumbnailManager.Find(MaterialClass));
 	EXPECT_TRUE(ThumbnailManager.Find(MaterialInstanceClass));
 	EXPECT_TRUE(ThumbnailManager.Find(Texture2DClass));
-	EXPECT_FALSE(ThumbnailManager.UsesSourceImage(Texture2DClass));
 	EXPECT_TRUE(ThumbnailManager.Find(TextureCubeClass));
 	EXPECT_TRUE(ThumbnailManager.Find(StaticMeshClass));
 

@@ -92,18 +92,4 @@ namespace Durin::Editor::Texture
 		return true;
 	}
 
-	auto DTextureThumbnailRenderer::CaptureSourceImage(
-		const Asset::FAssetData& AssetData,
-		::Durin::Editor::FAssetThumbnailSourceImage& OutSource,
-		std::string& OutError) -> bool
-	{
-		OutSource = {};
-		if (AssetData.AssetClassName != GetRegistration().AssetClassName)
-		{
-			OutError = "The Texture2D thumbnail renderer received the wrong asset class.";
-			return false;
-		}
-		OutError = "Texture2D source-image thumbnails are disabled; source hints are never probed implicitly.";
-		return false;
-	}
 } // namespace Durin::Editor::Texture

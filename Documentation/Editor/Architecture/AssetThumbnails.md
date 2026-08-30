@@ -14,10 +14,10 @@ content.
 
 - `DurinEd` owns `DThumbnailManager`, `DThumbnailRenderer`,
   `DDefaultSizedThumbnailRenderer`, `FThumbnailRenderingInfo`,
-  `FAssetThumbnail`, `FAssetThumbnailPool`, and `FObjectThumbnail`.
+  `FAssetThumbnail`, and `FAssetThumbnailPool`.
 - `DThumbnailManager` maps one exact asset class to one renderer generation.
-  It rejects duplicate registration, publishes a monotonic dirty revision,
-  owns the shared default pool, and performs explicit shutdown.
+  It rejects duplicate registration, owns the shared default pool, and performs
+  explicit shutdown.
 - Feature editor modules own their concrete renderer objects and move-only
   `FThumbnailRendererRegistrationHandle` values. Material/MaterialInstance,
   Texture2D/TextureCube, StaticMesh, SkeletalMesh, and Terrain Heightmap logic
@@ -28,8 +28,8 @@ content.
 - `FAssetThumbnailPool` owns coalescing, priority, state, generation, preview
   leasing, readback, encoding, persistence, upload, pinning, LRU retention,
   cancellation, diagnostics, and statistics.
-- `FObjectThumbnail` is the bounded CPU RGBA8/encoded output contract. Persistent
-  object-store and queue/index types remain private to `DurinEd`.
+- Persistent object-store, CPU RGBA8 transfer, and queue/index types remain
+  private to `DurinEd`.
 
 The process manager lazily creates one shared pool. Tests and isolated editor
 tools may inject a local manager into a local pool. Manager and renderer public
@@ -100,11 +100,10 @@ The default limits remain:
 | Resource | Limit |
 | --- | ---: |
 | Queued jobs | 512 |
-| Concurrent source/file decodes | 4 |
-| Uploads per frame | 2 |
 | Render captures per frame | 1 |
 | Live preview scenes | 1 |
 | Parked resource waits | 64 |
+| Retained pool entries | 4096 |
 | Resource poll interval | 4 frames |
 | Resource wait timeout | 600 frames |
 | CPU pixels | 64 MiB |
@@ -116,12 +115,14 @@ Jobs move through queued, loading, waiting-for-resources, rendering, readback,
 encoding, uploading, and ready states. A waiting rendered job is parked and
 releases the capture slot, allowing canonical-pixel or another ready rendered
 job to progress. Timeout and failure are stable until identity changes or the
-caller explicitly refreshes.
+caller explicitly refreshes. Unreferenced inactive metadata entries use a
+separate count-bounded LRU so failed or unsupported assets cannot grow the pool
+without bound.
 
 Pool statistics expose jobs, loads, waits, renders, readbacks, disk hits,
 failures, retries, cancellations, evictions, uploads, live textures, queued
-jobs, pinned entries, and reference count. Statistics are observations and do
-not alter scheduling or cache identity.
+jobs, retained entries, pinned entries, and reference count. Statistics are
+observations and do not alter scheduling or cache identity.
 
 ## Content Browser And Ordinary Files
 
@@ -143,11 +144,13 @@ job and remain icon-only.
 ## Persistence, Corruption, And Shutdown
 
 Warm requests load compatible PNG objects and upload them without loading the
-authored asset or creating a preview scene. Missing, incompatible, oversized,
-truncated, corrupt, or decode-invalid objects are safe misses. Removal first
-proves the resolved path remains beneath the cache root; regeneration then uses
-mounted authored content. A decode-invalid warm object is invalidated and
-requeued once, never retried every frame.
+authored asset or creating a preview scene. Decode admission is bounded by the
+fixed requested output before allocation, and decoded dimensions must match
+that output exactly. Missing, incompatible, oversized, truncated, corrupt, or
+decode-invalid objects are safe misses. Removal first proves the resolved path
+remains beneath the cache root; regeneration then uses mounted authored
+content. An invalid warm object is invalidated and requeued once, never retried
+every frame.
 
 MainFrame shutdown order is:
 

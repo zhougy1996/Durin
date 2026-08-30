@@ -341,17 +341,19 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 			.VertexBuffers.StaticMeshVertexBuffer
 				.TexCoordVertexBuffer.GetMutableTexCoords().front())
 	{
-		TexCoord = {0.99f, 0.0f};
+		const float Width = static_cast<float>(
+			ExpectedPlatformData.Mips.front().Width);
+		TexCoord = {(Width - 0.5f) / Width, 0.0f};
 	}
 	auto* SampleMaterial =
 		Durin::NewObject<Durin::DMaterial>(nullptr, "CookedTextureSampleMaterial");
 	Durin::FMaterialProgramValidationResult SampleMaterialValidation;
 	ASSERT_TRUE(SampleMaterial->SetMaterialProgram(
 		Durin::MakeCanonicalMaterialProgram(), SampleMaterialValidation));
-	SampleMaterial->SetVectorParameterValue(
-		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(1.0));
-	SampleMaterial->SetTextureParameterValue(
-		Durin::MaterialParameters::BaseColorTextureName(), CookedTexture);
+	ASSERT_TRUE(SampleMaterial->SetVectorParameterValue(
+		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(1.0)));
+	ASSERT_TRUE(SampleMaterial->SetTextureParameterValue(
+		Durin::MaterialParameters::BaseColorTextureName(), CookedTexture));
 	Durin::DObject* SampleMaterialCompilationObject = SampleMaterial;
 	Durin::FAssetCompilingManager::Get().FinishCompilationForObjects(
 		std::span<Durin::DObject* const>(&SampleMaterialCompilationObject, 1));
@@ -426,8 +428,15 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 			View.ViewLocation = {0.0, 0.0, -1.0};
 			View.ViewportWidth = 17;
 			View.ViewportHeight = 17;
-			(void)Renderer.RenderView(
-				CommandList, &Scene, View, Color, false, {});
+			if (Renderer.RenderView(
+					CommandList, &Scene, View, Color, false, {})
+				!= Durin::ERenderViewResult::Success)
+			{
+				UploadResult->bSucceeded = false;
+				UploadResult->Error =
+					"Failed to render the cooked Texture2D sample target.";
+				return;
+			}
 			if (!Durin::GDynamicRHI->RHIReadTexture2D(
 				CommandList, Color, 0, 0, UploadResult->SamplePixels))
 			{

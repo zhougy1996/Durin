@@ -415,21 +415,9 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::error_code FileEc;
 		Item.FileSize = std::filesystem::file_size(Data.PhysicalPath, FileEc);
 		Item.LastWriteTime = Data.LastWriteTime;
-		::Durin::Editor::FAssetThumbnailSourceImage SourceImage;
-		std::string ThumbnailError;
 		::Durin::Editor::DThumbnailManager& ThumbnailManager =
 			::Durin::Editor::GetDefaultThumbnailManager();
-		if (ThumbnailManager.UsesSourceImage(Data.AssetClassName))
-		{
-			if (ThumbnailManager.CaptureSourceImage(Data, SourceImage, ThumbnailError))
-			{
-				Item.ThumbnailIdentity = Item.VirtualPath;
-				Item.ThumbnailSourcePath = SourceImage.PhysicalPath;
-				Item.ThumbnailFileSize = SourceImage.FileSize;
-				Item.ThumbnailLastWriteTime = SourceImage.LastWriteTime;
-			}
-		}
-		else if (ThumbnailManager.Find(Data.AssetClassName))
+		if (ThumbnailManager.Find(Data.AssetClassName))
 		{
 			Item.ThumbnailIdentity = Item.VirtualPath;
 			Item.ThumbnailFileSize = Data.FileSize;

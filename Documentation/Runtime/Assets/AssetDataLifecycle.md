@@ -2,7 +2,7 @@
 
 Summary: Define authored, derived, cooked, and runtime asset-data ownership and transitions.
 
-Modules: Engine, DerivedDataCache, StaticMeshBuild, SkeletalBuild, TerrainBuild, TextureBuild, AssetForgeBuiltins
+Modules: Engine, RenderCore, DerivedDataCache, StaticMeshBuild, SkeletalBuild, TerrainBuild, TextureBuild, AssetForgeBuiltins
 
 Last reviewed: 2026-08-30
 
@@ -37,6 +37,15 @@ built-value validation, store, and cleanup in that order and reports structured
 origin, status, failure phase, and bounded nanosecond durations for each
 executed phase. It does not own worker threads, priorities,
 callbacks, dependency graphs, remote execution, or typed asset interpretation.
+
+The low-level Cache API permits concurrent Get and Put operations under a
+logical bucket's shared lock; bounded Trim owns only that bucket exclusively.
+Shader compilation is a direct Cache API client because RenderCore already owns
+its build orchestration. It stores one complete versioned SPIR-V-plus-reflection
+value in `Shaders/CompiledOutput`; machine-local dependency manifests remain a
+separate RenderCore optimization and never enter portable DDC values. Asset
+recipe families continue to use `FBuildSession` and retain their existing
+observable policy.
 
 StaticMeshBuild registers the StaticMesh render/collision functions as one
 atomic module-owned transaction; SkeletalBuild independently registers the

@@ -70,27 +70,6 @@ public:
 	std::optional<Durin::FViewEnvironmentOverride> LastEnvironment;
 };
 
-TEST(FTextureAssetThumbnailTests, Texture2DRendererNeverCapturesReimportSource)
-{
-	Durin::Tests::FAssetThumbnailFixtureSet Fixtures;
-	std::string Error;
-	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))
-		<< Error;
-	Durin::FAssetPath TexturePath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
-		Durin::Tests::FAssetThumbnailFixtureSet::ParentTexturePath,
-		TexturePath));
-	const Durin::Asset::FAssetCatalogEntry Data =
-		Durin::Asset::FindAssetExact(TexturePath);
-	ASSERT_NE(Data, nullptr);
-	Durin::Editor::Texture::DTextureThumbnailRenderer Renderer;
-	Durin::Editor::FAssetThumbnailSourceImage Source;
-	EXPECT_FALSE(Renderer.UsesSourceImage());
-	EXPECT_FALSE(Renderer.CaptureSourceImage(*Data, Source, Error));
-	EXPECT_TRUE(Source.PhysicalPath.empty());
-	EXPECT_FALSE(Error.empty());
-}
-
 TEST(FTextureAssetThumbnailTests, Texture2DRendererGeneratesCanonicalSquarePixels)
 {
 	Durin::Tests::FAssetThumbnailFixtureSet Fixtures;
@@ -136,7 +115,6 @@ TEST(FTextureAssetThumbnailTests, ModuleOwnsBothExactRenderersAndWorkspaceLifecy
 		Durin::DTextureCube::StaticClass()->GetQualifiedName().ToString();
 	ASSERT_TRUE(Module.RegisterTextureEditor(Manager, ThumbnailManager));
 	EXPECT_TRUE(ThumbnailManager.Find(Texture2DClass));
-	EXPECT_FALSE(ThumbnailManager.UsesSourceImage(Texture2DClass));
 	EXPECT_TRUE(ThumbnailManager.Find(TextureCubeClass));
 	EXPECT_NE(Manager.FindWorkspace(
 		Durin::Editor::FWorkspaceTypeId("TextureEditor")), nullptr);
@@ -145,7 +123,6 @@ TEST(FTextureAssetThumbnailTests, ModuleOwnsBothExactRenderersAndWorkspaceLifecy
 	EXPECT_FALSE(Module.RegisterTextureEditor(Manager, ThumbnailManager));
 	Module.UnregisterTextureEditor();
 	EXPECT_FALSE(ThumbnailManager.Find(Texture2DClass));
-	EXPECT_FALSE(ThumbnailManager.UsesSourceImage(Texture2DClass));
 	EXPECT_FALSE(ThumbnailManager.Find(TextureCubeClass));
 	EXPECT_EQ(Manager.FindWorkspace(
 		Durin::Editor::FWorkspaceTypeId("TextureEditor")), nullptr);

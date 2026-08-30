@@ -65,11 +65,14 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 					GIsGameThreadIdInitialized = true;
 				}
 				const std::filesystem::path Root = GetServiceTestRoot();
+				PreviousDdcRoot = FPaths::DerivedDataCacheDir();
 				std::error_code ErrorCode;
 				Durin::Testing::RemoveTestWorkDirectory(Root, ErrorCode);
 				ASSERT_FALSE(ErrorCode);
 				std::filesystem::create_directories(Root / "Source");
 				std::filesystem::create_directories(Root / "Cache");
+				FPaths::SetDerivedDataCacheDirForTests(
+					(Root / "DDC").generic_string());
 				FShaderPaths::RegisterMountPoint(
 					"/ShaderCompileServiceTests/",
 					(Root / "Source").generic_string(),
@@ -81,7 +84,10 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 			void TearDown() override
 			{
 				ShutdownShaderCompileService();
+				FPaths::SetDerivedDataCacheDirForTests(PreviousDdcRoot);
 			}
+
+			std::string PreviousDdcRoot;
 		};
 	}
 
@@ -103,7 +109,67 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(WarmStats.Compilations, 0u);
 		EXPECT_EQ(WarmStats.ContentReads, 0u);
 		EXPECT_EQ(WarmStats.ManifestHits, 1u);
-		EXPECT_EQ(WarmStats.DiskHits, 1u);
+		EXPECT_EQ(WarmStats.DdcHits, 1u);
+	}
+
+	TEST_F(FShaderCompileServiceTests, CorruptDdcValueIsRecompiledAndRepaired)
+	{
+		const FShaderCompileOptions Options = MakeServiceOptions();
+		InitShaderCompileService();
+		ASSERT_TRUE(GetOrCompileShader(
+			"/ShaderCompileServiceTests/Simple", Options));
+		ShutdownShaderCompileService();
+
+		const std::filesystem::path Bucket = GetServiceTestRoot()
+			/ "DDC" / "Shaders" / "CompiledOutput";
+		std::vector<std::filesystem::path> Entries;
+		std::error_code Error;
+		for (std::filesystem::recursive_directory_iterator It(Bucket, Error), End;
+			!Error && It != End; It.increment(Error))
+		{
+			if (It->is_regular_file() && It->path().extension() == ".bin")
+				Entries.push_back(It->path());
+		}
+		ASSERT_FALSE(Error) << Error.message();
+		ASSERT_EQ(Entries.size(), 1u);
+		{
+			std::ofstream Stream(Entries.front(),
+				std::ios::binary | std::ios::trunc);
+			Stream << "corrupt";
+			ASSERT_TRUE(Stream.good());
+		}
+
+		InitShaderCompileService();
+		const FShaderCompilerOutput Repaired = GetOrCompileShader(
+			"/ShaderCompileServiceTests/Simple", Options);
+		ASSERT_TRUE(Repaired) << Repaired.ErrorMessage;
+		const FShaderCompileServiceStats Stats =
+			GetShaderCompileServiceStats();
+		EXPECT_EQ(Stats.DdcHits, 0u);
+		EXPECT_EQ(Stats.DdcCorruptMisses, 1u);
+		EXPECT_EQ(Stats.Compilations, 1u);
+		EXPECT_EQ(Stats.ManifestHits, 1u);
+	}
+
+	TEST_F(FShaderCompileServiceTests, DdcStoreFailureDoesNotDiscardCompiledOutput)
+	{
+		const std::filesystem::path BlockedRoot =
+			GetServiceTestRoot() / "BlockedDdc";
+		{
+			std::ofstream Stream(BlockedRoot, std::ios::binary);
+			Stream << "not a directory";
+			ASSERT_TRUE(Stream.good());
+		}
+		FPaths::SetDerivedDataCacheDirForTests(BlockedRoot.generic_string());
+		InitShaderCompileService();
+		const FShaderCompilerOutput Output = GetOrCompileShader(
+			"/ShaderCompileServiceTests/Simple", MakeServiceOptions());
+		ASSERT_TRUE(Output) << Output.ErrorMessage;
+		const FShaderCompileServiceStats Stats =
+			GetShaderCompileServiceStats();
+		EXPECT_EQ(Stats.Compilations, 1u);
+		EXPECT_EQ(Stats.DdcStoreFailures, 1u);
+		EXPECT_EQ(Stats.OutputEntries, 1u);
 	}
 
 	TEST_F(FShaderCompileServiceTests,
@@ -211,7 +277,7 @@ float4 FragmentMain() : SV_Target0
 		const auto RestartWarmStats = GetShaderCompileServiceStats();
 		EXPECT_EQ(RestartWarmStats.DependencyResolutions, 0u);
 		EXPECT_EQ(RestartWarmStats.ManifestHits, 1u);
-		EXPECT_EQ(RestartWarmStats.DiskHits, 1u);
+		EXPECT_EQ(RestartWarmStats.DdcHits, 1u);
 		EXPECT_EQ(RestartWarmStats.Compilations, 0u);
 		EXPECT_EQ(RestartWarmStats.ContentReads, 0u);
 
@@ -268,7 +334,7 @@ float4 FragmentMain() : SV_Target0
 		const auto Stats = GetShaderCompileServiceStats();
 		EXPECT_EQ(Stats.DependencyResolutions, 1u);
 		EXPECT_EQ(Stats.ManifestHits, 0u);
-		EXPECT_EQ(Stats.DiskHits, 0u);
+		EXPECT_EQ(Stats.DdcHits, 0u);
 		EXPECT_EQ(Stats.Compilations, 1u);
 	}
 
@@ -301,7 +367,7 @@ float4 FragmentMain() : SV_Target0
 		const auto Stats = GetShaderCompileServiceStats();
 		EXPECT_EQ(Stats.DependencyResolutions, 0u);
 		EXPECT_EQ(Stats.ManifestHits, 1u);
-		EXPECT_EQ(Stats.DiskHits, 1u);
+		EXPECT_EQ(Stats.DdcHits, 1u);
 		EXPECT_EQ(Stats.Compilations, 0u);
 	}
 
@@ -441,7 +507,7 @@ float4 FragmentMain() : SV_Target0
 			GetShaderCompileServiceStats();
 		EXPECT_EQ(ForcedStats.Compilations, 2u);
 		EXPECT_EQ(ForcedStats.MemoryHits, 1u);
-		EXPECT_EQ(ForcedStats.DiskHits, 0u);
+		EXPECT_EQ(ForcedStats.DdcHits, 0u);
 	}
 
 	TEST_F(FShaderCompileServiceTests, AlternatingMacroDependencyGraphsRemainWarmHits)
@@ -480,7 +546,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(WarmStats.Compilations, 0u);
 		EXPECT_EQ(WarmStats.ContentReads, 0u);
 		EXPECT_EQ(WarmStats.ManifestHits, 2u);
-		EXPECT_EQ(WarmStats.DiskHits, 2u);
+		EXPECT_EQ(WarmStats.DdcHits, 2u);
 	}
 
 	TEST_F(FShaderCompileServiceTests,
@@ -560,7 +626,7 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(Stats.DependencyResolutions, 4u);
 		EXPECT_EQ(Stats.Compilations, 4u);
 		EXPECT_EQ(Stats.MemoryHits, 0u);
-		EXPECT_EQ(Stats.DiskHits, 0u);
+		EXPECT_EQ(Stats.DdcHits, 0u);
 	}
 
 	TEST_F(FShaderCompileServiceTests,
@@ -670,22 +736,33 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		EXPECT_EQ(WarmStats.Compilations, ColdStats.Compilations);
 		EXPECT_EQ(WarmStats.MemoryHits, ColdStats.MemoryHits + 1u);
 
-		uint64 ReflectionBytes = 0;
-		uint32 ReflectionFiles = 0;
+		uint64 DdcBytes = 0;
+		uint32 DdcFiles = 0;
 		std::error_code ErrorCode;
-		for (std::filesystem::recursive_directory_iterator It(CacheRoot, ErrorCode),
+		for (std::filesystem::recursive_directory_iterator It(
+			Root / "DDC" / "Shaders" / "CompiledOutput", ErrorCode),
 			End; !ErrorCode && It != End; It.increment(ErrorCode))
 		{
 			if (!It->is_regular_file()) continue;
-			if (It->path().filename().generic_string().ends_with(
-				".reflect.json"))
+			if (It->path().extension() == ".bin")
 			{
-				ReflectionBytes += It->file_size();
-				++ReflectionFiles;
+				DdcBytes += It->file_size();
+				++DdcFiles;
 			}
 		}
 		ASSERT_FALSE(ErrorCode) << ErrorCode.message();
-		EXPECT_EQ(ReflectionFiles, 4u);
+		EXPECT_EQ(DdcFiles, 1u);
+		bool bFoundLegacyArtifact = false;
+		for (std::filesystem::recursive_directory_iterator It(CacheRoot, ErrorCode),
+			End; !ErrorCode && It != End; It.increment(ErrorCode))
+		{
+			if (It->is_regular_file()
+				&& (It->path().extension() == ".spv"
+					|| It->path().filename().generic_string().ends_with(
+						".reflect.json"))) bFoundLegacyArtifact = true;
+		}
+		ASSERT_FALSE(ErrorCode) << ErrorCode.message();
+		EXPECT_FALSE(bFoundLegacyArtifact);
 
 		const uint64 SourceBytes =
 			std::filesystem::file_size(SourcePath);
@@ -700,13 +777,13 @@ float4 VertexMain(uint vertexID : SV_VertexID) : SV_Position
 		RecordProperty("DependencyCount", Dependencies.size());
 		RecordProperty("SourceBytes", SourceBytes);
 		RecordProperty("SpirvBytes", SpirvBytes);
-		RecordProperty("ReflectionBytes", ReflectionBytes);
+		RecordProperty("DdcBytes", DdcBytes);
 		std::cout
 			<< "[M5FixedMaterialBaseline] cold_us=" << ColdMicroseconds
 			<< " warm_us=" << WarmMicroseconds
 			<< " dependencies=" << Dependencies.size()
 			<< " source_bytes=" << SourceBytes
 			<< " spirv_bytes=" << SpirvBytes
-			<< " reflection_bytes=" << ReflectionBytes << '\n';
+			<< " ddc_bytes=" << DdcBytes << '\n';
 	}
 } // namespace Durin

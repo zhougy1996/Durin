@@ -17,10 +17,5 @@ namespace Durin::Editor::Texture
 			uint64 RendererGeneration,
 			::Durin::Editor::FAssetThumbnailGenerationRequest& OutRequest,
 			std::string& OutError) -> bool override;
-		auto UsesSourceImage() const -> bool override { return false; }
-		TEXTUREEDITOR_API auto CaptureSourceImage(
-			const Asset::FAssetData& Asset,
-			::Durin::Editor::FAssetThumbnailSourceImage& OutSource,
-			std::string& OutError) -> bool override;
 	};
 } // namespace Durin::Editor::Texture

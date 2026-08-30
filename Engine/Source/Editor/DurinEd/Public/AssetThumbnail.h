@@ -5,21 +5,6 @@
 
 namespace Durin::Editor
 {
-	// Core-owned canonical RGBA8 output and its stable encoded representation.
-	struct FObjectThumbnail
-	{
-		std::vector<std::byte> Pixels;
-		std::vector<std::byte> EncodedBytes;
-		uint32 Width = 0;
-		uint32 Height = 0;
-		uint32 EncodingVersion = 1;
-		bool bHasTransparency = false;
-
-		DURINED_API auto Validate(uint64 MaximumBytes, std::string& OutError) const -> bool;
-		DURINED_API auto Decode(std::span<const std::byte> Bytes,
-			uint64 MaximumBytes, std::string& OutError) -> bool;
-	};
-
 	// Lightweight UI reference to one canonical asset entry in a shared pool.
 	class FAssetThumbnail
 	{

@@ -206,26 +206,6 @@ namespace Durin::FShaderPaths
 		return false;
 	}
 
-	static auto MakeDirectoryString(const std::filesystem::path& InPath) -> std::string
-	{
-		std::string Result = InPath.lexically_normal().generic_string();
-		if (!Result.ends_with('/'))
-		{
-			Result.push_back('/');
-		}
-		return Result;
-	}
-
-	static auto MakeArtifactStem(std::string_view EntryPoint, EShaderFrequency Frequency) -> std::string
-	{
-		FXxHash128Builder Builder;
-		Builder.UpdateValue(static_cast<uint64>(EntryPoint.size()));
-		Builder.Update(EntryPoint);
-		Builder.UpdateValue(Frequency);
-		const std::string ReadableName = StringUtils::SanitizeFileName(EntryPoint, "Shader");
-		return ReadableName + "." + Builder.Finalize().ToString();
-	}
-
 	static auto GetRelativeShaderCacheDirectory(std::string_view RelativeVirtualShaderPath) -> std::filesystem::path
 	{
 		std::filesystem::path CachePath;
@@ -271,32 +251,10 @@ namespace Durin::FShaderPaths
 			return std::filesystem::path(MakeDefaultCacheDirectory(VirtualShaderPath)) / "Shader.slang";
 		}
 
-	auto ShaderDirectory(std::string_view VirtualShaderPath) -> std::string
-	{
-		return MakeDirectoryString(ResolveShaderDirectoryPath(VirtualShaderPath));
-	}
-
-	auto CacheDirectory(std::string_view VirtualShaderPath, std::string_view CacheKey) -> std::string
-	{
-		return MakeDirectoryString(ResolveShaderDirectoryPath(VirtualShaderPath) / std::string(CacheKey));
-	}
-
 	auto MetaPath(std::string_view VirtualShaderPath, std::string_view DependencyKey) -> std::string
 	{
 		const std::filesystem::path ShaderDirectoryPath = ResolveShaderDirectoryPath(VirtualShaderPath);
 		return (ShaderDirectoryPath / "Manifests" / (std::string(DependencyKey) + ".json")).generic_string();
-	}
-
-	auto BinaryPath(std::string_view VirtualShaderPath, std::string_view EntryPoint, EShaderFrequency Frequency, std::string_view CacheKey) -> std::string
-	{
-		const std::string FileName = MakeArtifactStem(EntryPoint, Frequency) + ".spv";
-		return (ResolveShaderDirectoryPath(VirtualShaderPath) / std::string(CacheKey) / FileName).generic_string();
-	}
-
-	auto ReflectionPath(std::string_view VirtualShaderPath, std::string_view EntryPoint, EShaderFrequency Frequency, std::string_view CacheKey) -> std::string
-	{
-		const std::string FileName = MakeArtifactStem(EntryPoint, Frequency) + ".reflect.json";
-		return (ResolveShaderDirectoryPath(VirtualShaderPath) / std::string(CacheKey) / FileName).generic_string();
 	}
 
 	auto InitDefaultMountPoints() -> void

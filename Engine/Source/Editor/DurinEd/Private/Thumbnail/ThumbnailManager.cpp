@@ -1,6 +1,5 @@
 #include "Thumbnail/ThumbnailManager.h"
 
-#include "Asset.h"
 #include "Thumbnail/AssetThumbnailPool.h"
 #include "Thumbnail/ThumbnailRenderer.h"
 
@@ -72,7 +71,6 @@ namespace Durin::Editor
 
 			std::unordered_map<std::string, FEntry> Renderers;
 			uint64 NextGeneration = 1;
-			uint64 DirtyRevision = 1;
 			bool bShuttingDown = false;
 		};
 	} // namespace Detail
@@ -105,7 +103,6 @@ namespace Durin::Editor
 			Detail::DThumbnailManagerState::FEntry Entry =
 				std::move(It->second);
 			State->Renderers.erase(It);
-			++State->DirtyRevision;
 			InvalidateRendererEntry(Entry);
 			return true;
 		}
@@ -161,7 +158,6 @@ namespace Durin::Editor
 					.Renderer = std::move(Renderer),
 					.OwnerGate = std::move(OwnerGate),
 					.Generation = Generation});
-			++State->DirtyRevision;
 			OutError.clear();
 			return Generation;
 		}
@@ -357,37 +353,6 @@ namespace Durin::Editor
 		return {.Generation = It->second.Generation};
 	}
 
-	auto DThumbnailManager::CaptureSourceImage(
-		const Asset::FAssetData& Asset,
-		FAssetThumbnailSourceImage& OutSource,
-		std::string& OutError) const -> bool
-	{
-		OutSource = {};
-		const auto It = State->Renderers.find(Asset.AssetClassName);
-		if (It == State->Renderers.end())
-		{
-			OutError.clear();
-			return false;
-		}
-		auto Invocation = It->second.OwnerGate.TryEnter();
-		if (It->second.OwnerGate.IsValid() && !Invocation)
-		{
-			OutError = "The thumbnail renderer owner is retiring.";
-			return false;
-		}
-		return It->second.Renderer->CaptureSourceImage(Asset, OutSource, OutError);
-	}
-
-	auto DThumbnailManager::UsesSourceImage(
-		std::string_view AssetClassName) const -> bool
-	{
-		const auto It = State->Renderers.find(std::string(AssetClassName));
-		if (It == State->Renderers.end()) return false;
-		auto Invocation = It->second.OwnerGate.TryEnter();
-		return (!It->second.OwnerGate.IsValid() || Invocation)
-			&& It->second.Renderer->UsesSourceImage();
-	}
-
 	auto DThumbnailManager::Capture(
 		const FAssetThumbnailRequest& Request,
 		uint64 RendererGeneration,
@@ -456,18 +421,6 @@ namespace Durin::Editor
 	auto DThumbnailManager::Num() const -> size_t
 	{
 		return State->Renderers.size();
-	}
-
-	auto DThumbnailManager::GetDirtyRevision() const -> uint64
-	{
-		return State->DirtyRevision;
-	}
-
-	auto DThumbnailManager::MarkThumbnailDirty(const FAssetPath& AssetPath) -> void
-	{
-		if (State->bShuttingDown || !AssetPath.IsValid()) return;
-		++State->DirtyRevision;
-		if (SharedPool) SharedPool->Refresh(AssetPath);
 	}
 
 	auto DThumbnailManager::GetSharedPool() -> FAssetThumbnailPool&

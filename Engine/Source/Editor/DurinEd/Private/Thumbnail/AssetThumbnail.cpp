@@ -1,46 +1,9 @@
 #include "AssetThumbnail.h"
 
-#include "Image/ImageDecoder.h"
 #include "Thumbnail/ThumbnailManager.h"
 
 namespace Durin::Editor
 {
-	auto FObjectThumbnail::Validate(uint64 MaximumBytes, std::string& OutError) const -> bool
-	{
-		const uint64 ExpectedBytes = static_cast<uint64>(Width) * Height * 4;
-		if (Width == 0 || Height == 0 || ExpectedBytes > MaximumBytes
-			|| (!Pixels.empty() && Pixels.size() != ExpectedBytes)
-			|| EncodedBytes.size() > MaximumBytes || EncodingVersion == 0)
-		{
-			OutError = "Object thumbnail dimensions or bytes violate the configured bounds.";
-			return false;
-		}
-		OutError.clear();
-		return true;
-	}
-
-	auto FObjectThumbnail::Decode(std::span<const std::byte> Bytes,
-		uint64 MaximumBytes, std::string& OutError) -> bool
-	{
-		*this = {};
-		if (Bytes.empty() || Bytes.size() > MaximumBytes)
-		{
-			OutError = "Encoded object thumbnail is empty or oversized.";
-			return false;
-		}
-		Image::FDecodedImage Image;
-		if (!Image::DecodeImageFromMemory(Bytes, Image, OutError,
-			{.MaximumEncodedBytes = MaximumBytes,
-			 .MaximumDecodedPixels = MaximumBytes / 4})) return false;
-		Pixels = std::move(Image.Pixels);
-		EncodedBytes.assign(Bytes.begin(), Bytes.end());
-		Width = Image.Width;
-		Height = Image.Height;
-		bHasTransparency = Image.bHasTransparency;
-		EncodingVersion = 1;
-		return Validate(MaximumBytes, OutError);
-	}
-
 	FAssetThumbnail::FAssetThumbnail(FAssetThumbnailPackageFingerprint InAsset,
 		uint32 InRequestedWidth, uint32 InRequestedHeight, FAssetThumbnailPool* InPool)
 		: Asset(std::move(InAsset))

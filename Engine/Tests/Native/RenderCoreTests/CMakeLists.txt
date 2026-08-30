@@ -24,6 +24,7 @@ function(durin_add_render_functional_test target_name)
 	)
 	target_link_libraries(${target_name} PRIVATE
 		Core
+		DerivedDataCache
 		RHI
 		RenderCore
 	)
@@ -79,22 +80,23 @@ target_compile_definitions(RenderShaderContractTests PRIVATE
 durin_add_render_functional_test(RenderShaderCacheTests
 	KIND feature
 	DOMAINS shader
-	MODULES rendercore
+	MODULES rendercore derived-data-cache
 	PRIVATE_SOURCE_RATIONALE
 		"RenderCore-owned shader cache white-box coverage avoids exporting private cache implementation symbols."
 	USE_SLANG
-	SOURCES Private/ShaderCacheStoreTests.cpp
+	SOURCES Private/ShaderDerivedDataTests.cpp
 	PRIVATE_SOURCES
 		${_durin_render_core_private_dir}/Shader/SlangShaderCompiler.cpp
 		${_durin_render_core_private_dir}/Shader/ShaderCompileUtilities.cpp
-		${_durin_render_core_private_dir}/Shader/ShaderCacheStore.cpp
+		${_durin_render_core_private_dir}/Shader/ShaderDependencyManifestStore.cpp
+		${_durin_render_core_private_dir}/Shader/ShaderDerivedData.cpp
 		${_durin_render_core_private_dir}/Shader/SlangShaderDependencyResolver.cpp
 )
 
 durin_add_render_functional_test(RenderShaderServiceTests
 	KIND feature
 	DOMAINS shader
-	MODULES rendercore
+	MODULES rendercore derived-data-cache
 	PRIVATE_SOURCE_RATIONALE
 		"RenderCore-owned shader service white-box coverage avoids exporting private service implementation symbols."
 	USE_SLANG
@@ -102,7 +104,8 @@ durin_add_render_functional_test(RenderShaderServiceTests
 	PRIVATE_SOURCES
 		${_durin_render_core_private_dir}/Shader/SlangShaderCompiler.cpp
 		${_durin_render_core_private_dir}/Shader/ShaderCompileUtilities.cpp
-		${_durin_render_core_private_dir}/Shader/ShaderCacheStore.cpp
+		${_durin_render_core_private_dir}/Shader/ShaderDependencyManifestStore.cpp
+		${_durin_render_core_private_dir}/Shader/ShaderDerivedData.cpp
 		${_durin_render_core_private_dir}/Shader/ShaderCompileService.cpp
 		${_durin_render_core_private_dir}/Shader/SlangShaderDependencyResolver.cpp
 )

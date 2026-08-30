@@ -79,14 +79,10 @@ namespace
 	class FRouteOnlyThumbnailRenderer final : public Editor::DThumbnailRenderer
 	{
 	public:
-		explicit FRouteOnlyThumbnailRenderer(
-			std::string InAssetClassName,
-			bool bInUsesSourceImage = false)
+		explicit FRouteOnlyThumbnailRenderer(std::string InAssetClassName)
 			: AssetClassName(std::move(InAssetClassName))
-			, bUsesSourceImage(bInUsesSourceImage)
 		{
 		}
-		auto UsesSourceImage() const -> bool override { return bUsesSourceImage; }
 
 		auto GetRegistration() const -> Editor::FThumbnailRenderingInfo override
 		{
@@ -109,7 +105,6 @@ namespace
 
 	private:
 		std::string AssetClassName;
-		bool bUsesSourceImage = false;
 	};
 } // namespace
 
@@ -228,51 +223,6 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToThumbnails)
 	EXPECT_EQ(It->ThumbnailPackageFormatVersion, AssetData->FormatVersion);
 	EXPECT_EQ(It->ThumbnailLastWriteTimeTicks, AssetData->LastWriteTimeTicks);
 
-	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
-}
-
-TEST_F(FContentBrowserModelTests, SourceRendererWithoutUsableSourceKeepsAssetIcon)
-{
-	InitializeDObjectSystem();
-	FAssetPath AssetPath;
-	ASSERT_TRUE(FAssetPath::TryCreate(
-		"/ContentBrowserTests/SourceLessMesh", AssetPath));
-	const Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> Imported = AssetForge::Builtins::ImportStaticMeshForTest(
-		(std::filesystem::path(DURIN_TEST_DATA_DIR)
-			/ "MultiSection.gltf").generic_string(), AssetPath.ToString());
-	ASSERT_TRUE(Imported) << Imported.Message;
-	DStaticMesh* StaticMesh = Imported.Asset;
-	auto* ImportData = dynamic_cast<AssetForge::Builtins::DStaticMeshImportData*>(
-		StaticMesh->GetAssetImportData());
-	ASSERT_NE(ImportData, nullptr);
-	auto ImportState = ImportData->GetStaticMeshState();
-	ASSERT_FALSE(ImportState.SourceData.Sources.empty());
-	ImportState.SourceData.Sources.front().Hint.clear();
-	std::string ImportError;
-	ASSERT_TRUE(ImportData->SetState(std::move(ImportState), ImportError)) << ImportError;
-	ASSERT_TRUE(StaticMesh->PublishAssetImportData(*ImportData, ImportError)) << ImportError;
-	ASSERT_TRUE(Asset::SavePackage(StaticMesh->GetPackage()));
-	const Asset::FAssetCatalogEntry AssetData =
-		Asset::FindAssetExact(AssetPath);
-	ASSERT_NE(AssetData, nullptr);
-	std::string Error;
-	auto Registration =
-		Editor::GetDefaultThumbnailManager().RegisterScoped(
-			std::make_unique<FRouteOnlyThumbnailRenderer>(
-				AssetData->AssetClassName, true),
-			Error);
-	ASSERT_TRUE(Registration) << Error;
-
-	FContentBrowserModel Model;
-	ASSERT_TRUE(Model.NavigateToPhysical((Root / "Content").generic_string()));
-	const auto It = std::ranges::find_if(
-		Model.GetItems(),
-		[&](const FContentBrowserItem& Item) {
-			return Item.VirtualPath == AssetPath.ToString();
-		});
-	ASSERT_NE(It, Model.GetItems().end());
-	EXPECT_TRUE(It->ThumbnailIdentity.empty());
-	EXPECT_TRUE(It->ThumbnailSourcePath.empty());
 	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
 }
 

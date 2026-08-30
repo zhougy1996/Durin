@@ -1,13 +1,14 @@
 #include "ShaderCompileService.h"
 
 #include "ShaderCompileUtilities.h"
+#include "ShaderDerivedData.h"
+#include "ShaderDependencyManifestStore.h"
 #include "SlangShaderCompiler.h"
 #include "SlangShaderDependencyResolver.h"
 
 #include "Misc/FileFingerprintCache.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
-#include "ShaderCacheStore.h"
 #include "Shader/ShaderPaths.h"
 
 #include <tuple>
@@ -48,15 +49,28 @@ namespace Durin
 
 		auto BuildOutputKey(const FShaderVariantKey& VariantKey, const FShaderCompileOptions& Options) -> std::string
 		{
-			FXxHash128Builder Builder;
-			UpdateHashStringField(Builder, "DurinShaderCompileOutput_v1");
-			Builder.UpdateValue(VariantKey.Value);
+			return std::string(
+				ShaderDerivedData::BuildKey(VariantKey, Options).ToString());
+		}
+
+		auto HasValidUniqueEntryPoints(const FShaderCompileOptions& Options) -> bool
+		{
+			if (Options.EntryPoints.empty()
+				|| Options.EntryPoints.size() != Options.Frequencies.size()
+				|| Options.EntryPoints.size()
+					> ShaderDerivedData::MaximumEntryPoints) return false;
+			std::set<std::pair<std::string_view, uint32>> Entries;
 			for (size_t Index = 0; Index < Options.EntryPoints.size(); ++Index)
 			{
-				UpdateHashStringField(Builder, Options.EntryPoints[Index] ? std::string_view(Options.EntryPoints[Index]) : std::string_view{});
-				Builder.UpdateValue(Options.Frequencies[Index]);
+				const std::string_view Entry = Options.EntryPoints[Index]
+					? std::string_view(Options.EntryPoints[Index]) : std::string_view{};
+				const uint32 Frequency =
+					static_cast<uint32>(Options.Frequencies[Index]);
+				if (Entry.empty()
+					|| Frequency > static_cast<uint32>(EShaderFrequency::RayMiss)
+					|| !Entries.emplace(Entry, Frequency).second) return false;
 			}
-			return Builder.Finalize().ToString();
+			return true;
 		}
 
 		class FShaderCompileService
@@ -208,9 +222,9 @@ namespace Durin
 					Output.ErrorMessage = "Virtual shader path is required for shader compile service";
 					return Output;
 				}
-				if (Options.EntryPoints.empty() || Options.EntryPoints.size() != Options.Frequencies.size())
+				if (!HasValidUniqueEntryPoints(Options))
 				{
-					Output.ErrorMessage = "Shader compile request entry points and frequencies must be non-empty and have matching counts";
+					Output.ErrorMessage = "Shader compile request entry points and frequencies must be valid, unique, bounded, and have matching counts";
 					return Output;
 				}
 
@@ -260,7 +274,10 @@ namespace Durin
 					.DependencyResolutions = DependencyResolutions.load(std::memory_order_relaxed),
 					.ManifestHits = ManifestHits.load(std::memory_order_relaxed),
 					.MemoryHits = MemoryHits.load(std::memory_order_relaxed),
-					.DiskHits = DiskHits.load(std::memory_order_relaxed),
+					.DdcHits = DdcHits.load(std::memory_order_relaxed),
+					.DdcCorruptMisses = DdcCorruptMisses.load(std::memory_order_relaxed),
+					.DdcStoreFailures = DdcStoreFailures.load(std::memory_order_relaxed),
+					.DdcMaintenanceFailures = DdcMaintenanceFailures.load(std::memory_order_relaxed),
 					.Compilations = Compilations.load(std::memory_order_relaxed),
 					.ContentReads = FileFingerprintCache.GetContentReadCount(),
 					.OutputEntries = OutputCache.size(),
@@ -294,6 +311,11 @@ namespace Durin
 				Options.EntryPoints.reserve(Request.EntryPoints.size());
 				for (const std::string& Entry : Request.EntryPoints)
 					Options.EntryPoints.push_back(Entry.c_str());
+				if (!HasValidUniqueEntryPoints(Options))
+				{
+					Output.ErrorMessage = "Invalid generated shader entry-point request";
+					return Output;
+				}
 
 				std::vector<FShaderMacroDefinition> Macros;
 				if (!ShaderCompileUtilities::NormalizeMacros(
@@ -343,7 +365,7 @@ namespace Durin
 					DependencyKey);
 				FShaderMetaData DependencyMetaData;
 				bool bManifestCurrent = false;
-				if (CacheStore.LoadMetaData(
+				if (ManifestStore.Load(
 					CachePath, DependencyKey, DependencyMetaData))
 				{
 					std::string ManifestError;
@@ -381,7 +403,7 @@ namespace Durin
 					Output.ErrorMessage)) return Output;
 				if (!bManifestCurrent)
 				{
-					if (!CacheStore.SaveMetaData(
+					if (!ManifestStore.Save(
 						CachePath, DependencyKey, DependencyMetaData))
 						DURIN_WARN(
 							"Generated shader dependency manifest write failed for {}",
@@ -415,10 +437,10 @@ namespace Durin
 						return Found->second.Output;
 					}
 				}
-				if (!Options.bForceRecompile && CacheStore.TryLoad(
-					CachePath, Options, VariantKey, Output))
+				if (!Options.bForceRecompile && TryLoadDerivedData(
+					Options, VariantKey, Output))
 				{
-					DiskHits.fetch_add(1, std::memory_order_relaxed);
+					DdcHits.fetch_add(1, std::memory_order_relaxed);
 					AddOutput(OutputKey, Output);
 					return Output;
 				}
@@ -426,9 +448,7 @@ namespace Durin
 				Output = Compiler.CompileSource(Request.VirtualPath.substr(1),
 					SourcePathHint, Request.Source, Options);
 				if (!Output) return Output;
-				if (!CacheStore.Save(CachePath, Options, VariantKey, Output))
-					DURIN_WARN("Generated shader cache write failed for {}",
-						Request.VirtualPath);
+				StoreDerivedData(Options, VariantKey, Output);
 				AddOutput(OutputKey, Output);
 				return Output;
 			}
@@ -436,6 +456,69 @@ namespace Durin
 		private:
 			static constexpr size_t GMaximumOutputEntries = 128;
 			static constexpr size_t GMaximumSourceTreeFingerprintEntries = 128;
+
+			auto TryLoadDerivedData(const FShaderCompileOptions& Options,
+				const FShaderVariantKey& VariantKey,
+				FShaderCompilerOutput& OutOutput) -> bool
+			{
+				using namespace DerivedData;
+				const FCacheKey Key = ShaderDerivedData::BuildKey(
+					VariantKey, Options);
+				if (!Key.IsValid()) return false;
+				const FCacheGetResult Result = GetDerivedDataCache().Get({
+					ShaderDerivedData::GetBucket(), Key,
+					ShaderDerivedData::MaximumValueBytes});
+				if (Result.Status != ECacheGetStatus::Hit)
+				{
+					if (Result.Status == ECacheGetStatus::ValueTooLarge)
+						DdcCorruptMisses.fetch_add(1, std::memory_order_relaxed);
+					return false;
+				}
+				std::string Error;
+				if (!ShaderDerivedData::Decode(
+					Result.Value.GetBytes(), Options, OutOutput, Error))
+				{
+					DdcCorruptMisses.fetch_add(1, std::memory_order_relaxed);
+					DURIN_WARN("Shader DDC value was rejected: {}", Error);
+					return false;
+				}
+				return true;
+			}
+
+			auto StoreDerivedData(const FShaderCompileOptions& Options,
+				const FShaderVariantKey& VariantKey,
+				const FShaderCompilerOutput& Output) -> void
+			{
+				using namespace DerivedData;
+				std::vector<std::byte> Bytes;
+				std::string Error;
+				const FCacheKey Key = ShaderDerivedData::BuildKey(
+					VariantKey, Options);
+				if (!Key.IsValid() || !ShaderDerivedData::Encode(
+					Options, Output, Bytes, Error))
+				{
+					DdcStoreFailures.fetch_add(1, std::memory_order_relaxed);
+					DURIN_WARN("Shader DDC encoding failed: {}", Error);
+					return;
+				}
+				const FCacheBucket Bucket = ShaderDerivedData::GetBucket();
+				const FCachePutResult Put = GetDerivedDataCache().Put({
+					Bucket, Key, Bytes, ShaderDerivedData::MaximumValueBytes});
+				if (!Put)
+				{
+					DdcStoreFailures.fetch_add(1, std::memory_order_relaxed);
+					DURIN_WARN("Shader DDC store failed: {}", Put.Diagnostic);
+				}
+				const FCacheTrimResult Trim = GetDerivedDataCache().Trim({
+					Bucket, ShaderDerivedData::BucketBudgetBytes,
+					ShaderDerivedData::CleanupDeleteLimit});
+				if (Trim.Status != ECacheTrimStatus::Complete)
+				{
+					DdcMaintenanceFailures.fetch_add(1, std::memory_order_relaxed);
+					DURIN_WARN("Shader DDC maintenance did not complete: {}",
+						Trim.Diagnostic);
+				}
+			}
 
 			static auto ValidateGeneratedImports(
 				std::span<const std::string> DependencyPaths,
@@ -511,7 +594,7 @@ namespace Durin
 					VirtualShaderPath, NormalizedMacros,
 					EffectiveOptions.CompilerEnvironment, DependencyKey);
 				bool bManifestCurrent = false;
-				if (CacheStore.LoadMetaData(
+				if (ManifestStore.Load(
 					VirtualShaderPath, DependencyKey, OutMetaData))
 				{
 					std::string ManifestError;
@@ -539,7 +622,7 @@ namespace Durin
 				if (!ShaderCompileUtilities::BuildShaderMetaData(
 					DependencyPaths, FileFingerprintCache, OutMetaData, OutError))
 					return false;
-				if (!CacheStore.SaveMetaData(
+				if (!ManifestStore.Save(
 					VirtualShaderPath, DependencyKey, OutMetaData))
 				{
 					DURIN_WARN("Shader dependency manifest write failed for {}",
@@ -576,9 +659,10 @@ namespace Durin
 					}
 				}
 
-				if (!EffectiveOptions.bForceRecompile && CacheStore.TryLoad(VirtualShaderPath, EffectiveOptions, VariantKey, Output))
+				if (!EffectiveOptions.bForceRecompile
+					&& TryLoadDerivedData(EffectiveOptions, VariantKey, Output))
 				{
-					DiskHits.fetch_add(1, std::memory_order_relaxed);
+					DdcHits.fetch_add(1, std::memory_order_relaxed);
 					AddOutput(OutputKey, Output);
 					return Output;
 				}
@@ -592,10 +676,7 @@ namespace Durin
 
 				DURIN_DEBUG("Shader compiled (Virtual: {}, Hash: {})", VirtualShaderPath, VariantKey.Hex);
 
-				if (!CacheStore.Save(VirtualShaderPath, EffectiveOptions, VariantKey, Output))
-				{
-					DURIN_WARN("Shader compiled successfully, but cache write failed for {}", VirtualShaderPath);
-				}
+				StoreDerivedData(EffectiveOptions, VariantKey, Output);
 				AddOutput(OutputKey, Output);
 
 				return Output;
@@ -604,7 +685,7 @@ namespace Durin
 			FSlangShaderCompiler Compiler;
 			FSlangShaderDependencyResolver DependencyResolver;
 			const std::string CompilerEnvironmentIdentity;
-			FShaderCacheStore CacheStore;
+			FShaderDependencyManifestStore ManifestStore;
 			FFileFingerprintCache FileFingerprintCache;
 			std::mutex InFlightMutex;
 			std::unordered_map<std::string, std::shared_ptr<FInFlightRequest>> InFlightRequests;
@@ -619,7 +700,10 @@ namespace Durin
 			std::atomic_uint64_t DependencyResolutions = 0;
 			std::atomic_uint64_t ManifestHits = 0;
 			std::atomic_uint64_t MemoryHits = 0;
-			std::atomic_uint64_t DiskHits = 0;
+			std::atomic_uint64_t DdcHits = 0;
+			std::atomic_uint64_t DdcCorruptMisses = 0;
+			std::atomic_uint64_t DdcStoreFailures = 0;
+			std::atomic_uint64_t DdcMaintenanceFailures = 0;
 			std::atomic_uint64_t Compilations = 0;
 			std::atomic_uint64_t SourceTreeFingerprintHits = 0;
 		};

@@ -10,7 +10,10 @@ namespace Durin
 		uint64 DependencyResolutions = 0;
 		uint64 ManifestHits = 0;
 		uint64 MemoryHits = 0;
-		uint64 DiskHits = 0;
+		uint64 DdcHits = 0;
+		uint64 DdcCorruptMisses = 0;
+		uint64 DdcStoreFailures = 0;
+		uint64 DdcMaintenanceFailures = 0;
 		uint64 Compilations = 0;
 		uint64 ContentReads = 0;
 		uint64 OutputEntries = 0;

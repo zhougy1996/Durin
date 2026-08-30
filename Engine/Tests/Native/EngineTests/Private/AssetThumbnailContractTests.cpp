@@ -19,6 +19,13 @@ namespace Durin
 {
 	namespace
 	{
+		constexpr uint8 WrongSizedThumbnailPng[] = {
+			137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
+			0, 0, 0, 2, 0, 0, 0, 1, 8, 6, 0, 0, 0, 244, 34, 127, 138,
+			0, 0, 0, 17, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 240,
+			159, 129, 129, 129, 1, 0, 12, 252, 1, 255, 253, 45, 119, 109,
+			0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130};
+
 		auto MakePath(std::string_view Value) -> FAssetPath
 		{
 			InitializeDObjectSystem();
@@ -619,12 +626,15 @@ namespace Durin
 		EXPECT_EQ(Budgets.MaximumRendersPerFrame, 1u);
 		EXPECT_EQ(Budgets.MaximumLivePreviewScenes, 1u);
 		EXPECT_GT(Budgets.MaximumParkedRenderedJobs, 0u);
+		EXPECT_GT(Budgets.MaximumRetainedEntries, 0u);
 		EXPECT_GT(Budgets.ResourcePollIntervalFrames, 0u);
 		EXPECT_GT(Budgets.MaximumResourceWaitFrames, 0u);
 		EXPECT_GT(Budgets.MaximumQueuedJobs, 0u);
 		EXPECT_GT(Budgets.CpuPixelBudgetBytes, 0u);
 		EXPECT_GT(Budgets.GpuTextureBudgetBytes, 0u);
-		EXPECT_GT(Budgets.DiskBudgetBytes, 0u);
+		const Editor::FAssetThumbnailPoolStorageSettings Storage;
+		EXPECT_GT(Storage.MaximumObjectBytes, 0u);
+		EXPECT_GT(Storage.DiskBudgetBytes, 0u);
 	}
 
 	TEST(FAssetThumbnailContractTests, ObjectStorePersistsAndRejectsUnsafeKeys)
@@ -799,24 +809,6 @@ namespace Durin
 		EXPECT_GT(Registry.Find("DFakeRenderedAsset").Generation, FirstGeneration);
 	}
 
-	TEST(FAssetThumbnailContractTests, ManagerPublishesDirtyRevisionForRegistrationRetirementAndAssetRefresh)
-	{
-		Editor::DThumbnailManager Manager;
-		const uint64 InitialRevision = Manager.GetDirtyRevision();
-		std::string Error;
-		auto State = std::make_shared<FFakeThumbnailRendererState>();
-		auto Registration = Manager.RegisterScoped(
-			std::make_unique<FFakeThumbnailRenderer>(State), Error);
-		ASSERT_TRUE(Registration) << Error;
-		EXPECT_GT(Manager.GetDirtyRevision(), InitialRevision);
-		const uint64 RegisteredRevision = Manager.GetDirtyRevision();
-		Manager.MarkThumbnailDirty(MakePath("/ThumbnailTests/Dirty/Asset"));
-		EXPECT_GT(Manager.GetDirtyRevision(), RegisteredRevision);
-		const uint64 AssetRevision = Manager.GetDirtyRevision();
-		Registration.Reset();
-		EXPECT_GT(Manager.GetDirtyRevision(), AssetRevision);
-	}
-
 	TEST(FAssetThumbnailContractTests, AssetThumbnailReferencesCoalesceAndReleasePoolPins)
 	{
 		Editor::DThumbnailManager Manager;
@@ -843,6 +835,74 @@ namespace Durin
 		}
 		EXPECT_EQ(Pool.GetStats().PinnedEntries, 0u);
 		EXPECT_EQ(Pool.GetStats().Referencers, 0u);
+	}
+
+	TEST(FAssetThumbnailContractTests, PoolEvictsUnreferencedMetadataEntriesToBudget)
+	{
+		Editor::DThumbnailManager Manager;
+		Editor::FAssetThumbnailBudgets Budgets;
+		Budgets.MaximumRetainedEntries = 2;
+		Editor::FAssetThumbnailPool Pool(
+			Manager,
+			Budgets,
+			{.CacheRoot = MakeObjectStoreRoot("RetainedEntryBudget")});
+
+		Pool.BeginFrame();
+		for (uint32 Index = 0; Index < 3; ++Index)
+		{
+			Pool.Request(
+				MakePackage(
+					std::format("/ThumbnailTests/Retained/Asset{}", Index),
+					"DUnsupportedAsset",
+					1,
+					100 + Index,
+					200 + Index),
+				Editor::EAssetThumbnailPriority::Prefetch);
+		}
+		Pool.EndFrame();
+
+		EXPECT_EQ(Pool.GetStats().RetainedEntries, 2u);
+	}
+
+	TEST(FAssetThumbnailContractTests, PoolRejectsWrongSizedPersistentThumbnailBeforeUpload)
+	{
+		const std::filesystem::path Root = MakeObjectStoreRoot("WrongSizedWarmObject");
+		Editor::DThumbnailManager Manager;
+		std::string Error;
+		auto Renderer = std::make_shared<FTestThumbnailRenderer>(
+			Editor::FThumbnailRenderingInfo{
+				.AssetClassName = "DMaterial",
+				.RendererName = "Durin.MaterialThumbnail",
+				.GeneratorSchemaVersion = 1});
+		ASSERT_TRUE(Manager.Register(Renderer, Error)) << Error;
+		const Editor::FAssetThumbnailRequest Request = MakeThumbnailRequest(
+			"/ThumbnailTests/WrongSizedWarm/Material", "DMaterial", 1);
+
+		std::string CacheKey;
+		{
+			Editor::FAssetThumbnailRequestQueue Scheduler(Manager);
+			ASSERT_TRUE(Scheduler.Request(Request, Error)) << Error;
+			auto Scheduled = Scheduler.TakeNext();
+			ASSERT_TRUE(Scheduled);
+			CacheKey = Scheduled->CacheKey;
+		}
+		{
+			Editor::FThumbnailObjectStore Store({.CacheRoot = Root});
+			ASSERT_TRUE(Store.Store(
+				CacheKey, std::as_bytes(std::span{WrongSizedThumbnailPng})));
+		}
+
+		Editor::FAssetThumbnailPool Pool(Manager, {}, {.CacheRoot = Root});
+		Pool.BeginFrame();
+		Pool.Request(Request.Asset, Request.Priority);
+		Pool.EndFrame();
+
+		EXPECT_EQ(Pool.GetStats().Generation.Retries, 1u);
+		EXPECT_EQ(Pool.Find(Request.Asset.VirtualPath).State,
+			Editor::EAssetThumbnailState::Queued);
+		Editor::FThumbnailObjectStore Store({.CacheRoot = Root});
+		std::vector<std::byte> Bytes;
+		EXPECT_EQ(Store.Load(CacheKey, Bytes), Editor::EThumbnailObjectLoadResult::Miss);
 	}
 
 	TEST(FAssetThumbnailContractTests, SchedulersCreatedBeforeAndAfterScopedRegistrationObserveItsGeneration)

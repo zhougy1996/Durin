@@ -8,11 +8,6 @@
 
 namespace Durin
 {
-	namespace Asset
-	{
-		struct FAssetData;
-	}
-
 	namespace Editor
 	{
 		class IThumbnailRendererSession;
@@ -136,17 +131,6 @@ namespace Durin
 			const FAssetThumbnailGenerationRequest&,
 			const IAssetThumbnailGenerationInput&,
 			std::string& OutError) -> std::unique_ptr<IThumbnailRendererSession>;
-		virtual auto UsesSourceImage() const -> bool { return false; }
-		virtual auto CaptureSourceImage(
-			const Asset::FAssetData&,
-			FAssetThumbnailSourceImage& OutSource,
-			std::string& OutError) -> bool
-		{
-			OutSource = {};
-			OutError.clear();
-			return false;
-		}
-
 	protected:
 		DURINED_API explicit DThumbnailRenderer(
 			const FObjectInitializer& ObjectInitializer);
@@ -227,16 +211,9 @@ namespace Durin
 		}
 		DURINED_API auto Unregister(std::string_view AssetClassName, std::string& OutError) -> bool;
 		DURINED_API auto Find(std::string_view AssetClassName) const -> FThumbnailRendererHandle;
-		DURINED_API auto UsesSourceImage(std::string_view AssetClassName) const -> bool;
-		DURINED_API auto CaptureSourceImage(
-			const Asset::FAssetData& Asset,
-			FAssetThumbnailSourceImage& OutSource,
-			std::string& OutError) const -> bool;
 		DURINED_API auto Shutdown() -> void;
 		DURINED_API auto IsShuttingDown() const -> bool;
 		DURINED_API auto Num() const -> size_t;
-		DURINED_API auto GetDirtyRevision() const -> uint64;
-		DURINED_API auto MarkThumbnailDirty(const FAssetPath& AssetPath) -> void;
 		// Lazily creates the manager-owned process pool. Tests may still inject a
 		// local manager into an independently constructed pool.
 		DURINED_API auto GetSharedPool() -> FAssetThumbnailPool&;

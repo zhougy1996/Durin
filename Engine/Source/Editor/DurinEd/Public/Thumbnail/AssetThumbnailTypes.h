@@ -6,10 +6,6 @@
 
 namespace Durin
 {
-	namespace Asset
-	{
-		struct FAssetData;
-	}
 	class FRHITexture;
 
 	namespace Editor
@@ -112,17 +108,14 @@ namespace Durin
 	struct FAssetThumbnailBudgets
 	{
 		uint32 MaximumQueuedJobs = 512;
-		uint32 MaximumConcurrentSourceDecodes = 4;
-		uint32 MaximumUploadsPerFrame = 2;
 		uint32 MaximumRendersPerFrame = 1;
 		uint32 MaximumLivePreviewScenes = 1;
 		uint32 MaximumParkedRenderedJobs = 64;
+		uint32 MaximumRetainedEntries = 4096;
 		uint32 ResourcePollIntervalFrames = 4;
 		uint32 MaximumResourceWaitFrames = 600;
 		uint64 CpuPixelBudgetBytes = 64ull * 1024ull * 1024ull;
 		uint64 GpuTextureBudgetBytes = 64ull * 1024ull * 1024ull;
-		uint64 MaximumEncodedObjectBytes = 16ull * 1024ull * 1024ull;
-		uint64 DiskBudgetBytes = 256ull * 1024ull * 1024ull;
 	};
 
 	// Identifies one request independently from renderer-owned generation data.
@@ -131,15 +124,6 @@ namespace Durin
 		FAssetThumbnailPackageFingerprint Asset;
 		EAssetThumbnailPriority Priority = EAssetThumbnailPriority::Prefetch;
 		uint64 RequestSerial = 0;
-	};
-
-	// Describes a renderer-selected source image for one authored asset. The
-	// Content Browser keeps decoding, persistence, upload, and presentation generic.
-	struct FAssetThumbnailSourceImage
-	{
-		std::string PhysicalPath;
-		uintmax_t FileSize = 0;
-		std::filesystem::file_time_type LastWriteTime{};
 	};
 
 	// Exposes one service-owned result without transferring UI texture ownership.

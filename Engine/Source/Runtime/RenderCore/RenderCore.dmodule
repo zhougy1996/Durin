@@ -4,6 +4,7 @@
     "PCH": "SharedPCH_Core",
     "PrivateDependencies": [
         "Core",
-        "RHI"
+        "RHI",
+        "DerivedDataCache"
     ]
 }
