@@ -477,7 +477,7 @@ namespace Durin::Asset
 						if (ShouldFail && ShouldFail(ECookOperationStage::StaleCleanup, Index, OutError)) break;
 						const std::filesystem::path Candidate = (Root / Entry.RelativePath).lexically_normal();
 						const std::filesystem::path Relative = Candidate.lexically_relative(Root);
-						if (Relative.empty() || Relative.native().starts_with("..")) continue;
+						if (Relative.empty() || Relative.native().starts_with(std::filesystem::path("..").native())) continue;
 						std::filesystem::remove(Candidate, ErrorCode);
 					}
 				}
