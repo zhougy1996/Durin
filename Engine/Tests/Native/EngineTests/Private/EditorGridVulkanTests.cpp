@@ -23,7 +23,7 @@
 #include "RendererFeatureTargetTestFixture.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneVisibility.h"
-#include "Renderers/RendererTransientTargetPool.h"
+#include "Renderers/RendererRDGAllocator.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
@@ -657,7 +657,7 @@ namespace Durin
 		RHIExit();
 	}
 
-	TEST(FEditorGridVulkanTests, RDGPoolReusesDescriptorAcrossDiagnosticNameChanges)
+	TEST(FEditorGridVulkanTests, RDGAllocatorReusesDescriptorAcrossDiagnosticNameChanges)
 	{
 		if (!GIsGameThreadIdInitialized)
 		{
@@ -674,7 +674,7 @@ namespace Durin
 		EnqueueRenderCommand<FRDGDescriptorReuseContract>(
 			[Captures](FRHICommandListImmediate& CommandList) {
 				FRendererResourceCoordinator Coordinator;
-				FRendererTransientTargetPool Pool(Coordinator);
+				FRendererRDGAllocator Allocator(Coordinator);
 				const std::array<std::string_view, 2> Names{
 					"Diagnostic.First", "Diagnostic.Renamed"};
 				for (size_t Index = 0; Index < Names.size(); ++Index)
@@ -694,13 +694,13 @@ namespace Durin
 						ERHIRenderTargetStoreAction::Store);
 					auto Result = Builder.Compile();
 					ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-					FRDGExecutionContext Context{Pool};
+					FRDGExecutionContext Context{Allocator};
 					std::string Error;
 					ASSERT_TRUE(Result.Graph->Execute(CommandList, Context, &Error))
 						<< Error;
 					(*Captures)[Index] = Result.Graph->Capture();
 				}
-				Pool.Release_RenderThread();
+				Allocator.Release_RenderThread();
 			});
 		FlushRenderingCommands();
 		for (const auto& Capture : *Captures)

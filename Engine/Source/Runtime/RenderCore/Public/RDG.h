@@ -800,8 +800,6 @@ namespace Durin
 		FRHICommandListImmediate&, const FRDGPassResources&)>;
 	using FRDGParameterizedPassExecute = std::function<void(
 		FRHICommandListImmediate&, const FRDGParameterResolver&)>;
-	using FRDGPrepareCallback = std::function<bool(std::string&)>;
-
 	// Describes one retained graph-created resource for execution allocation.
 	// Diagnostic names are deliberately absent from allocation identity.
 	struct FRDGAllocationRequest final
@@ -1213,7 +1211,6 @@ namespace Durin
 		auto MarkPassRoot(FRDGPassHandle Pass,
 			std::string_view Reason = "side-effect") -> void;
 		auto EnablePassCulling() -> void;
-		auto SetExecutionPreparation(FRDGPrepareCallback Prepare) -> void;
 		auto SetBudget(const FRDGBudget& Budget) -> void;
 
 		template<typename ParameterStruct>

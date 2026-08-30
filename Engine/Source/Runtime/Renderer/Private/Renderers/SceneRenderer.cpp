@@ -12,7 +12,7 @@
 namespace Durin
 {
 	FSceneRenderer::FSceneRenderer()
-		: TransientTargets(Coordinator)
+		: RDGAllocator(Coordinator)
 		, DefaultTextures(Coordinator)
 		, EnvironmentLighting(Coordinator)
 		, SurfaceMaterials(Coordinator, DefaultTextures, EnvironmentLighting)
@@ -105,7 +105,7 @@ namespace Durin
 		VolumetricCloudRenderer.ReleaseResources_RenderThread();
 		VolumetricCloudShadowRenderer.ReleaseResources_RenderThread();
 		FullscreenGeometry.ReleaseResources_RenderThread();
-		TransientTargets.Release_RenderThread();
+		RDGAllocator.Release_RenderThread();
 		Coordinator.ReleaseResources_RenderThread();
 	}
 

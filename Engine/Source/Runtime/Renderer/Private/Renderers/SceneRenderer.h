@@ -21,7 +21,7 @@
 #include "Resources/FullscreenGeometryResources.h"
 #include "Renderers/SurfaceMaterial.h"
 #include "Resources/RendererResourceCoordinator.h"
-#include "Renderers/RendererTransientTargetPool.h"
+#include "Renderers/RendererRDGAllocator.h"
 #include "IRendererModule.h"
 #include "RendererAPI.h"
 
@@ -98,7 +98,7 @@ namespace Durin
 		) -> void;
 
 		FRendererResourceCoordinator Coordinator;
-		FRendererTransientTargetPool TransientTargets;
+		FRendererRDGAllocator RDGAllocator;
 		FDefaultTextureResources DefaultTextures;
 		FEnvironmentLightingResources EnvironmentLighting;
 		RendererPrivate::FSurfaceMaterialResources SurfaceMaterials;

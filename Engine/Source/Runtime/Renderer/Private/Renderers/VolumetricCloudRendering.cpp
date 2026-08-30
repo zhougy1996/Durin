@@ -479,9 +479,9 @@ namespace Durin
 		if (ReasonIndex < ViewTelemetry.VolumetricCloud.VolumetricCloudShadowRouteReasons.size())
 			++ViewTelemetry.VolumetricCloud.VolumetricCloudShadowRouteReasons[ReasonIndex];
 		ViewTelemetry.VolumetricCloud.VolumetricCloudShadowRetainedBytes =
-			TransientTargets.GetObservedRetainedBytes_RenderThread(
+			RDGAllocator.GetObservedRetainedBytes_RenderThread(
 				ERDGAllocationObservation::VolumetricCloudShadowFragment)
-			+ TransientTargets.GetObservedRetainedBytes_RenderThread(
+			+ RDGAllocator.GetObservedRetainedBytes_RenderThread(
 				ERDGAllocationObservation::VolumetricCloudShadowCompute);
 		if (!Result.Visibility)
 		{
@@ -638,11 +638,11 @@ namespace Durin
 				Temporal.bHistoryAccepted, View) :
 			nullptr;
 		ViewTelemetry.VolumetricCloud.VolumetricCloudRetainedBytes =
-			TransientTargets.GetObservedRetainedBytes_RenderThread(
+			RDGAllocator.GetObservedRetainedBytes_RenderThread(
 				ERDGAllocationObservation::VolumetricCloudFragment)
-			+ TransientTargets.GetObservedRetainedBytes_RenderThread(
+			+ RDGAllocator.GetObservedRetainedBytes_RenderThread(
 				ERDGAllocationObservation::VolumetricCloudCompute)
-			+ TransientTargets.GetObservedRetainedBytes_RenderThread(
+			+ RDGAllocator.GetObservedRetainedBytes_RenderThread(
 				ERDGAllocationObservation::VolumetricCloudComposite);
 		if (Composite != nullptr)
 		{

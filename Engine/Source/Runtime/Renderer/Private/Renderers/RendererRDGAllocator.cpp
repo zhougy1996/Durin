@@ -1,4 +1,4 @@
-#include "Renderers/RendererTransientTargetPool.h"
+#include "Renderers/RendererRDGAllocator.h"
 
 #include "RenderResourceCreation.h"
 #include "Resources/RendererResourceCoordinator.h"
@@ -95,7 +95,7 @@ namespace Durin
 		}
 	} // namespace
 
-	struct FRendererTransientTargetPool::FState
+	struct FRendererRDGAllocator::FState
 	{
 		template<typename Descriptor, typename Resource>
 		struct TEntry final
@@ -122,15 +122,15 @@ namespace Durin
 		uint32 RetainedResources = 0;
 	};
 
-	FRendererTransientTargetPool::FRendererTransientTargetPool(
+	FRendererRDGAllocator::FRendererRDGAllocator(
 		FRendererResourceCoordinator& InCoordinator)
 		: Coordinator(InCoordinator), State(std::make_unique<FState>())
 	{
 	}
 
-	FRendererTransientTargetPool::~FRendererTransientTargetPool() = default;
+	FRendererRDGAllocator::~FRendererRDGAllocator() = default;
 
-	auto FRendererTransientTargetPool::GetObservedRetainedBytes_RenderThread(
+	auto FRendererRDGAllocator::GetObservedRetainedBytes_RenderThread(
 		ERDGAllocationObservation Observation) const -> uint64
 	{
 		check(Observation < ERDGAllocationObservation::Count);
@@ -146,7 +146,7 @@ namespace Durin
 		return Total;
 	}
 
-	auto FRendererTransientTargetPool::Release_RenderThread() -> void
+	auto FRendererRDGAllocator::Release_RenderThread() -> void
 	{
 		check(IsInRenderingThread());
 		State->Textures.clear();
@@ -156,7 +156,7 @@ namespace Durin
 		State->RetainedResources = 0;
 	}
 
-	auto FRendererTransientTargetPool::Allocate(
+	auto FRendererRDGAllocator::Allocate(
 		std::span<const FRDGAllocationRequest> Requests,
 		FRDGAllocatedResources& OutResources, std::string& OutError) -> bool
 	{

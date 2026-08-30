@@ -2828,29 +2828,34 @@ namespace Durin
 		}
 		EXPECT_EQ(CulledDestructions, 1);
 
-		int PreparationFailureDestructions = 0;
+		int AllocationFailureDestructions = 0;
 		{
 			FRDGBuilder Builder;
 			const auto Value = Builder.CreateValue<FTypedValuePayload>(
-				"PreparationFailure", "tracked",
-				&PreparationFailureDestructions);
+				"AllocationFailure", "tracked",
+				&AllocationFailureDestructions);
+			const auto Buffer = Builder.CreateBuffer(FRDGBufferDesc{
+				.Buffer = FRHIBufferDesc(
+					64, 4, EBufferUsageFlags::UnorderedAccess)},
+				"AllocationFailure.Buffer");
 			const auto Write = Builder.AddPass("Write",
 				ERDGPassType::Compute);
 			Builder.UseValue(Write, Value, ERDGUse::Write);
+			Builder.UseBuffer(Write, Buffer, 0, 64, ERDGUse::Write,
+				ERHIAccess::ComputeShaderReadWrite, true);
 			Builder.MarkPassRoot(Write, "publish");
-			Builder.SetExecutionPreparation([](std::string& Error) {
-				Error = "injected preparation failure";
-				return false;
-			});
 			auto Result = Builder.Compile();
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+			FTestRDGAllocator Allocator;
+			Allocator.bFail = true;
+			FRDGExecutionContext Context{Allocator};
 			std::string Error;
 			EXPECT_FALSE(Result.Graph->Execute(
-				GetCommandList(), &Error));
-			EXPECT_EQ(Error, "injected preparation failure");
-			EXPECT_EQ(PreparationFailureDestructions, 0);
+				GetCommandList(), Context, &Error));
+			EXPECT_EQ(Error, "injected allocation failure");
+			EXPECT_EQ(AllocationFailureDestructions, 0);
 		}
-		EXPECT_EQ(PreparationFailureDestructions, 1);
+		EXPECT_EQ(AllocationFailureDestructions, 1);
 	}
 
 	TEST_F(FRDGTests, TypedValueResolutionRejectsWrongDirectionAndCopies)

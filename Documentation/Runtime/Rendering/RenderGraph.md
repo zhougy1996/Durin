@@ -259,7 +259,7 @@ compatibility, selection, scheduling, eviction priority, and success.
 
 The Renderer allocator keys textures and buffers only by exact allocation
 descriptions. Diagnostic names are stored outside compatibility, so renaming a
-logical graph resource does not change reuse or its stable pool allocation ID.
+logical graph resource does not change reuse or its stable physical allocation ID.
 Candidate reservation, generation-based failure suppression, rollback,
 publication, and error reporting form one transaction for both resource kinds;
 typed RHI creation remains at the boundary. Retained bytes are maintained
@@ -416,6 +416,8 @@ may instead supply an explicit capture output; Engine uses that path to route a
 one-shot owning capture back to the exact requesting `FSceneViewport`. With no
 observer and no explicit output, no capture is constructed. Neither mechanism
 can mutate resources, callbacks, scheduling, or frame commit state.
+When both consumers are present, Renderer constructs one owning snapshot and
+publishes that same value to the observer and explicit output.
 
 ## Related Documentation
 

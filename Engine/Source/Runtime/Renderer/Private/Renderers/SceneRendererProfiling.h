@@ -190,7 +190,7 @@ namespace Durin
 		-> FDeferredDirectionalCaptureSink;
 	auto GetGroundTruthAmbientOcclusionCaptureSink()
 		-> FGroundTruthAmbientOcclusionCaptureSink;
-	auto GetSceneRenderGraphCaptureSink() -> FSceneRenderGraphCaptureSink;
 	RENDERER_API auto PublishSceneRenderGraphCapture(
-		const FRDGCompiledGraph& Graph) -> void;
+		const FRDGCompiledGraph& Graph,
+		FRDGCapture* OutCapture = nullptr) -> void;
 }

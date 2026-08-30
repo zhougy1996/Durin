@@ -13,7 +13,7 @@
 #include "Renderers/MeshRendererShared.h"
 #include "Renderers/SceneRenderGraphExecutor.h"
 #include "Renderers/SceneRenderGraphContributors.h"
-#include "Renderers/RendererTransientTargetPool.h"
+#include "Renderers/RendererRDGAllocator.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/ForwardLighting.h"
@@ -1217,6 +1217,7 @@ TEST(FRendererSceneContractTests, TelemetrySnapshotSeamDeliversOneImmutableValue
 TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesOwningSnapshot)
 {
 	std::vector<Durin::FRDGCapture> Captures;
+	Durin::FRDGCapture ExplicitCapture;
 	GObservedRenderGraphCaptures = &Captures;
 	Durin::SetSceneRenderGraphCaptureSink(ObserveRenderGraphCapture);
 	{
@@ -1231,11 +1232,12 @@ TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesOwningSnaps
 		Builder.MarkPassRoot(Final, "offscreen-output");
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-		Durin::PublishSceneRenderGraphCapture(*Result.Graph);
+		Durin::PublishSceneRenderGraphCapture(*Result.Graph, &ExplicitCapture);
 	}
 	Durin::SetSceneRenderGraphCaptureSink(nullptr);
 	GObservedRenderGraphCaptures = nullptr;
 	ASSERT_EQ(Captures.size(), 1u);
+	EXPECT_EQ(ExplicitCapture.Dump, Captures[0].Dump);
 	ASSERT_EQ(Captures[0].Passes.size(), 1u);
 	EXPECT_EQ(Captures[0].Passes[0].Name, "Scene.FinalOutput");
 	EXPECT_EQ(Captures[0].Passes[0].ParameterStructName,

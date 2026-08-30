@@ -979,7 +979,6 @@ namespace Durin
 		std::vector<std::string> DeclarationErrors;
 		std::vector<FGraphExtraction> Extractions;
 		bool bEnableCulling = false;
-		FRDGPrepareCallback Prepare;
 		FRDGBudget Budget;
 		mutable FGraphParameterStorage ParameterStorage;
 		mutable bool bParameterStorageTransferred = false;
@@ -1020,7 +1019,6 @@ namespace Durin
 		std::vector<FRDGTransitionCapture> TransitionCaptures;
 		std::vector<FRDGAllocationRequest> AllocationRequests;
 		std::vector<FGraphExtraction> Extractions;
-		FRDGPrepareCallback Prepare;
 		FRDGBudget Budget;
 		FGraphParameterStorage ParameterStorage;
 		FGraphParameterStorage ValueStorage;
@@ -1599,12 +1597,6 @@ namespace Durin
 		State->bEnableCulling = true;
 	}
 
-	auto FRDGBuilder::SetExecutionPreparation(FRDGPrepareCallback Prepare)
-		-> void
-	{
-		State->Prepare = std::move(Prepare);
-	}
-
 	auto FRDGBuilder::SetBudget(const FRDGBudget& Budget) -> void
 	{
 		State->Budget = Budget;
@@ -2054,7 +2046,6 @@ namespace Durin
 		auto CompiledState = std::make_unique<FRDGCompiledGraph::FState>();
 		CompiledState->Owner = State->Owner;
 		CompiledState->Resources = State->Resources;
-		CompiledState->Prepare = State->Prepare;
 		CompiledState->Extractions = State->Extractions;
 		CompiledState->Budget = State->Budget;
 		CompiledState->Passes.reserve(PassCount);
@@ -2538,16 +2529,6 @@ namespace Durin
 					std::chrono::steady_clock::now() - Started).count()),
 				std::memory_order_relaxed);
 		};
-		if (State->Prepare)
-		{
-			std::string Error;
-			if (!State->Prepare(Error))
-			{
-				if (OutError != nullptr) *OutError = std::move(Error);
-				RecordDuration();
-				return false;
-			}
-		}
 		if (Context != nullptr && !State->AllocationRequests.empty())
 		{
 			FRDGAllocatedResources Candidate(

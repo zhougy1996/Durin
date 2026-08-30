@@ -1,5 +1,7 @@
 #include "Renderers/SceneRendererProfiling.h"
 
+#include <utility>
+
 namespace Durin
 {
 	namespace
@@ -157,14 +159,15 @@ namespace Durin
 		GSceneRenderGraphCaptureSink.store(Sink, std::memory_order_release);
 	}
 
-	auto PublishSceneRenderGraphCapture(const FRDGCompiledGraph& Graph) -> void
+	auto PublishSceneRenderGraphCapture(
+		const FRDGCompiledGraph& Graph, FRDGCapture* OutCapture) -> void
 	{
-		if (const auto Sink =
-			GSceneRenderGraphCaptureSink.load(std::memory_order_acquire))
-		{
-			const FRDGCapture Capture = Graph.Capture();
-			Sink(Capture);
-		}
+		const auto Sink =
+			GSceneRenderGraphCaptureSink.load(std::memory_order_acquire);
+		if (Sink == nullptr && OutCapture == nullptr) return;
+		FRDGCapture Capture = Graph.Capture();
+		if (Sink != nullptr) Sink(Capture);
+		if (OutCapture != nullptr) *OutCapture = std::move(Capture);
 	}
 
 #define DURIN_DEFINE_SINK_GETTER(Name, Type, Storage) \
@@ -204,8 +207,6 @@ namespace Durin
 	DURIN_DEFINE_SINK_GETTER(GetGroundTruthAmbientOcclusionCaptureSink,
 		FGroundTruthAmbientOcclusionCaptureSink,
 		GGroundTruthAmbientOcclusionCaptureSink)
-	DURIN_DEFINE_SINK_GETTER(GetSceneRenderGraphCaptureSink,
-		FSceneRenderGraphCaptureSink, GSceneRenderGraphCaptureSink)
 #undef DURIN_DEFINE_SINK_GETTER
 
 } // namespace Durin

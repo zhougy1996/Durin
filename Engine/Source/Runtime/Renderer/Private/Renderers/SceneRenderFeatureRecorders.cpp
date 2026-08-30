@@ -8,7 +8,7 @@ namespace Durin
 		FResolvedSceneResources& InResolvedFrame,
 		FSceneViewTemporalContext& InTemporalContext,
 		FSceneViewState*& InViewState)
-		: TransientTargets(Renderer.TransientTargets)
+		: RDGAllocator(Renderer.RDGAllocator)
 		, DefaultTextures(Renderer.DefaultTextures)
 		, EnvironmentLighting(Renderer.EnvironmentLighting)
 		, DirectionalShadowRenderer(Renderer.DirectionalShadowRenderer)

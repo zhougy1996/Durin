@@ -7,7 +7,7 @@ namespace Durin
 {
 	FSceneRenderGraphExecutor::FSceneRenderGraphExecutor(
 		FSceneRenderer& Renderer)
-		: Pipeline(Renderer), Allocator(Renderer.TransientTargets)
+		: Pipeline(Renderer), Allocator(Renderer.RDGAllocator)
 	{
 	}
 
@@ -70,9 +70,8 @@ namespace Durin
 			DURIN_WARN("Scene frame graph execution failed: {}",
 				ExecutionError.empty() ? "unspecified error" : ExecutionError);
 		}
-		if (OutRenderGraphCapture != nullptr)
-			*OutRenderGraphCapture = CompiledGraph.Graph->Capture();
-		PublishSceneRenderGraphCapture(*CompiledGraph.Graph);
+		PublishSceneRenderGraphCapture(
+			*CompiledGraph.Graph, OutRenderGraphCapture);
 		return Executed ? ESceneRenderGraphExecutionStatus::Executed
 			: ESceneRenderGraphExecutionStatus::ExecutionFailed;
 	}

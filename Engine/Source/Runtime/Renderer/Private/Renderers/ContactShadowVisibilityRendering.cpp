@@ -343,9 +343,9 @@ namespace Durin
 			if (bForceCompute) FragmentContactTargets = nullptr;
 			if (bForceFragment) ComputeContactTargets = nullptr;
 			Telemetry.View.ContactShadow.ContactShadowRetainedBytes =
-				TransientTargets.GetObservedRetainedBytes_RenderThread(
+				RDGAllocator.GetObservedRetainedBytes_RenderThread(
 					ERDGAllocationObservation::ContactFragment)
-				+ TransientTargets.GetObservedRetainedBytes_RenderThread(
+				+ RDGAllocator.GetObservedRetainedBytes_RenderThread(
 					ERDGAllocationObservation::ContactCompute);
 			const auto ContactResult = ContactShadowRenderer.Render_RenderThread(
 				CommandList, true, FragmentContactTargets, ComputeContactTargets,

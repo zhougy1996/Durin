@@ -36,6 +36,17 @@ graph-created resources, and no longer carries prebound capture state or raw-
 pointer extraction fallbacks. The Win64 Debug `all` build passes, and
 `RenderContractTests` passes all 104 tests.
 
+A later Stage 4 maintenance audit renamed the allocation-only Renderer owner to
+`FRendererRDGAllocator` and its scene member to `RDGAllocator`, matching its
+sole `FRDGAllocator` responsibility. Scene graph capture now creates at most
+one snapshot and distributes it to the optional explicit output and observer;
+the unused capture-sink getter is removed. The unused
+`SetExecutionPreparation` callback is also removed, with its two failure tests
+now using the production allocator-failure contract. The refreshed Win64 Debug
+configuration and complete `RenderContractTests` (106),
+`RendererSceneContractTests` (39), `VulkanRHIIntegrationTests` (65), and
+`EditorGridVulkanTests` (8) targets pass.
+
 Final implementation accounting against the frozen pre-plan source is 357
 production lines added and 949 removed (net -592). Compatibility-symbol count
 is zero. The final representative scene batch requested 13 active resources
@@ -341,8 +352,8 @@ Leave one allocation and ownership model for graph-created physical resources:
 
 - `Engine/Source/Runtime/RenderCore/Public/RDG.h`
 - `Engine/Source/Runtime/RenderCore/Private/RDG.cpp`
-- `Engine/Source/Runtime/Renderer/Private/Renderers/RendererTransientTargetPool.h`
-- `Engine/Source/Runtime/Renderer/Private/Renderers/RendererTransientTargetPool.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/RendererRDGAllocator.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/RendererRDGAllocator.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderGraphExecutor.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderGraphComposer.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/GBufferRendering.cpp`

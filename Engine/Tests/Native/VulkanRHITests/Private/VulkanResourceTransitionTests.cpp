@@ -23,8 +23,9 @@ namespace Durin::VulkanRHI
 		{
 		public:
 			FTransitionTestRDGAllocator(FBufferRHIRef InBuffer,
-				FTextureRHIRef InTexture)
-				: Buffer(std::move(InBuffer)), Texture(std::move(InTexture))
+				FTextureRHIRef InTexture, bool bInFail = false)
+				: Buffer(std::move(InBuffer)), Texture(std::move(InTexture)),
+				bFail(bInFail)
 			{
 			}
 
@@ -32,6 +33,11 @@ namespace Durin::VulkanRHI
 				FRDGAllocatedResources& OutResources, std::string& OutError)
 				-> bool override
 			{
+				if (bFail)
+				{
+					OutError = "injected allocation failure";
+					return false;
+				}
 				for (const FRDGAllocationRequest& Request : Requests)
 				{
 					const bool bPublished =
@@ -53,6 +59,7 @@ namespace Durin::VulkanRHI
 		private:
 			FBufferRHIRef Buffer;
 			FTextureRHIRef Texture;
+			bool bFail = false;
 		};
 	} // namespace
 
@@ -285,28 +292,30 @@ namespace Durin::VulkanRHI
 				| ETextureCreateFlags::ShaderResource);
 		FTextureRHIRef Texture = RHICreateTexture(TextureDesc);
 		ASSERT_TRUE(Buffer && Texture);
-		bool bPrepared = false;
 		bool bExecuted = false;
 		FRDGBuilder RejectedBuilder;
 		RejectedBuilder.EnablePassCulling();
+		const auto RejectedBuffer = RejectedBuilder.CreateBuffer(
+			FRDGBufferDesc{.Buffer = Buffer->GetDesc()}, "RejectedBuffer");
 		const auto RejectedPass = RejectedBuilder.AddPass("Rejected",
-			ERDGPassType::Graphics,
+			ERDGPassType::Copy,
 			[&](FRHICommandListImmediate&, const FRDGPassResources&) {
 				bExecuted = true;
 			});
+		RejectedBuilder.UseBuffer(RejectedPass, RejectedBuffer, 0, 64,
+			ERDGUse::Write, ERHIAccess::TransferWrite, true);
 		RejectedBuilder.MarkPassRoot(RejectedPass, "external-effect");
-		RejectedBuilder.SetExecutionPreparation([&](std::string& Error) {
-			bPrepared = true;
-			Error = "injected allocation failure";
-			return false;
-		});
 		auto Rejected = RejectedBuilder.Compile();
 		ASSERT_TRUE(Rejected.IsSuccess()) << Rejected.Error;
-		std::string PreparationError;
-		EXPECT_FALSE(Rejected.Graph->Execute(Commands, &PreparationError));
-		EXPECT_TRUE(bPrepared);
+		std::string AllocationError;
+		{
+			FTransitionTestRDGAllocator RejectedAllocator(Buffer, Texture, true);
+			FRDGExecutionContext RejectedContext{RejectedAllocator};
+			EXPECT_FALSE(Rejected.Graph->Execute(
+				Commands, RejectedContext, &AllocationError));
+		}
 		EXPECT_FALSE(bExecuted);
-		EXPECT_EQ(PreparationError, "injected allocation failure");
+		EXPECT_EQ(AllocationError, "injected allocation failure");
 
 		FRDGBuilder Builder;
 		const auto GraphBuffer = Builder.CreateBuffer(

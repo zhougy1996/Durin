@@ -178,7 +178,7 @@ namespace Durin
 		{
 			++Telemetry.View.AmbientOcclusion.GroundTruthAmbientOcclusionAttemptedViews;
 			Telemetry.View.AmbientOcclusion.GroundTruthAmbientOcclusionRetainedBytes =
-				TransientTargets.GetObservedRetainedBytes_RenderThread(
+				RDGAllocator.GetObservedRetainedBytes_RenderThread(
 					ERDGAllocationObservation::GroundTruthAmbientOcclusion);
 			if (!bGBufferComplete || AmbientOcclusionTargets == nullptr)
 			{

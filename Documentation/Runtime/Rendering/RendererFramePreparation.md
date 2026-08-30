@@ -79,10 +79,10 @@ logical preparation.
 | Class | Owner | Examples | Frame rule |
 | --- | --- | --- | --- |
 | External | Caller, asset, or shared resource owner plus graph execution | Window/offscreen output, material and environment textures, default textures | `RegisterExternalTexture` retains a counted RHI reference by physical identity and declares exact boundary access. |
-| Persistent | Feature/shared Renderer owner or view state | Shader maps, PSOs, samplers, fullscreen geometry, material/geometry caches, cloud history | Generation invalidation and ordered owner shutdown remain authoritative. Committed history is never placed in the transient pool. |
-| Frame-transient | `FRendererTransientTargetPool` as `FRDGAllocator` | Scene Color/depth, GBuffer, GTAO, contact/cloud visibility, deferred/debug output, cloud spatial/composite textures | After compile and culling, exact retained descriptions allocate as one batch. Culled resources never allocate, and pass execution performs no target creation. |
+| Persistent | Feature/shared Renderer owner or view state | Shader maps, PSOs, samplers, fullscreen geometry, material/geometry caches, cloud history | Generation invalidation and ordered owner shutdown remain authoritative. Committed history is never placed in the RDG allocator cache. |
+| Frame-transient | `FRendererRDGAllocator` | Scene Color/depth, GBuffer, GTAO, contact/cloud visibility, deferred/debug output, cloud spatial/composite textures | After compile and culling, exact retained descriptions allocate as one batch. Culled resources never allocate, and pass execution performs no target creation. |
 
-The RDG side of the transient pool keys entries by the complete allocation-
+The Renderer RDG allocator keys retained entries by the complete allocation-
 compatible description: dimension, flags, format, extent, depth, array size,
 mip/sample counts, and clear binding/value for textures, or size, stride, and
 usage for buffers. Debug names, graph IDs, pass names, and feature routes are
@@ -91,13 +91,13 @@ inactive compatible entries may be reused by a later execution. The 640 MiB
 named graph-wide structural policy rejects an oversized active batch and evicts
 the oldest inactive entries when retained storage exceeds the ceiling. Active
 allocation IDs are tracked directly, retained bytes are updated incrementally,
-and stable pool sequence IDs preserve deterministic reuse and eviction. A
-successful pool allocation publishes a nonzero ID across graph executions;
+and stable allocator sequence IDs preserve deterministic reuse and eviction. A
+successful allocation publishes a nonzero ID across graph executions;
 external resources remain outside that identity and publish ID zero. Allocation
 publishes only after the entire batch succeeds, and the compiled graph keeps
 every returned RHI reference alive through recording.
 
-Feature release clears feature-local views and persistent payloads; the pool
+Feature release clears feature-local views and persistent payloads; the allocator
 owner performs deterministic transient release before the shared coordinator
 is released. Device invalidation reconstructs demanded textures under the new
 generation. The allocator does not alias physical memory, infer scheduling, or

@@ -42,12 +42,12 @@ namespace Durin
 		}
 	};
 
-	class RENDERER_API FRendererTransientTargetPool final : public FRDGAllocator
+	class RENDERER_API FRendererRDGAllocator final : public FRDGAllocator
 	{
 	public:
-		explicit FRendererTransientTargetPool(
+		explicit FRendererRDGAllocator(
 			FRendererResourceCoordinator& InCoordinator);
-		~FRendererTransientTargetPool();
+		~FRendererRDGAllocator();
 
 		auto GetObservedRetainedBytes_RenderThread(
 			ERDGAllocationObservation Observation) const -> uint64;
