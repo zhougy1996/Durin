@@ -275,14 +275,14 @@ namespace Durin
 		return NativeWindow->GetWindowMode();
 	}
 
-	auto MWindow::SetViewportPresentModePolicy(EViewportPresentModePolicy InPolicy) -> void
+	auto MWindow::SetViewportPresentationPolicy(EViewportPresentationPolicy InPolicy) -> void
 	{
-		ViewportPresentModePolicy = InPolicy;
+		ViewportPresentationPolicy = InPolicy;
 	}
 
-	auto MWindow::GetViewportPresentModePolicy() const -> EViewportPresentModePolicy
+	auto MWindow::GetViewportPresentationPolicy() const -> EViewportPresentationPolicy
 	{
-		return ViewportPresentModePolicy;
+		return ViewportPresentationPolicy;
 	}
 
 	bool MWindow::IsWindow()

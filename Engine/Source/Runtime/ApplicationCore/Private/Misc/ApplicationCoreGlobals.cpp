@@ -1,6 +1,5 @@
 #include "ApplicationCoreGlobals.h"
 
-#include "CoreGlobals.h"
 #include "Application/GenericApplication.h"
 #include "Misc/GlfwVulkanInitialization.h"
 #include "ThirdParty/Glfw/GlfwCommon.h"
@@ -11,6 +10,8 @@ namespace Durin
 	namespace
 	{
 		uint32 GApplicationCoreInitializationCount = 0;
+		std::vector<std::string> VulkanSurfaceRequiredInstanceExtensions;
+
 		auto ConfigureConsoleOutputEncoding() -> void
 		{
 			#ifdef _WIN32
@@ -18,7 +19,8 @@ namespace Durin
 			#endif
 		}
 
-		auto AppendRequiredGlfwVulkanInstanceExtensions() -> bool
+		auto DiscoverVulkanSurfaceRequirements()
+			-> FVulkanSurfaceRequirementsResult
 		{
 			FGlfwVulkanExtensionQueryResult Result =
 				QueryRequiredGlfwVulkanInstanceExtensions(
@@ -28,13 +30,9 @@ namespace Durin
 					[](const char** Description) {
 						return glfwGetError(Description);
 					});
-			if (!Result.Succeeded())
-			{
-				DURIN_ERROR("{}", Result.Diagnostic);
-				return false;
-			}
-			GMonaRequiredVulkanInstanceExtensions = std::move(Result.Extensions);
-			return true;
+			return {
+				.RequiredInstanceExtensions = std::move(Result.Extensions),
+				.Diagnostic = std::move(Result.Diagnostic)};
 		}
 	}
 
@@ -57,13 +55,17 @@ namespace Durin
 			return false;
 		}
 		InitGlfwCursors();
-		if (!AppendRequiredGlfwVulkanInstanceExtensions())
+		FVulkanSurfaceRequirementsResult SurfaceRequirements =
+			DiscoverVulkanSurfaceRequirements();
+		if (!SurfaceRequirements.Succeeded())
 		{
+			DURIN_ERROR("{}", SurfaceRequirements.Diagnostic);
 			DestroyGlfwCursors();
 			glfwTerminate();
-			GMonaRequiredVulkanInstanceExtensions.clear();
 			return false;
 		}
+		VulkanSurfaceRequiredInstanceExtensions = std::move(
+			SurfaceRequirements.RequiredInstanceExtensions);
 		GApplicationCoreInitializationCount = 1;
 		return true;
 	}
@@ -73,12 +75,27 @@ namespace Durin
 		return GApplicationCoreInitializationCount > 0;
 	}
 
+	auto GetVulkanSurfaceRequirements()
+		-> FVulkanSurfaceRequirementsResult
+	{
+		if (!IsApplicationCoreInitialized())
+		{
+			return {
+				.Diagnostic =
+					"Vulkan surface requirements were queried before ApplicationCore initialization."};
+		}
+
+		return {
+			.RequiredInstanceExtensions =
+				VulkanSurfaceRequiredInstanceExtensions};
+	}
+
 	auto ShutdownApplicationCore() -> void
 	{
 		if (GApplicationCoreInitializationCount == 0) return;
 		if (--GApplicationCoreInitializationCount > 0) return;
 		DestroyGlfwCursors();
 		glfwTerminate();
-		GMonaRequiredVulkanInstanceExtensions.clear();
+		VulkanSurfaceRequiredInstanceExtensions.clear();
 	}
 }

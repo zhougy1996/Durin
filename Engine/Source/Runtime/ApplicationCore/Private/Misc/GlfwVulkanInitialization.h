@@ -5,7 +5,7 @@ namespace Durin
 	// Owns the result of one GLFW Vulkan-extension discovery attempt.
 	struct FGlfwVulkanExtensionQueryResult
 	{
-		std::vector<const char*> Extensions;
+		std::vector<std::string> Extensions;
 		std::string Diagnostic;
 
 		auto Succeeded() const -> bool { return Diagnostic.empty(); }
@@ -43,7 +43,7 @@ namespace Durin
 					Index);
 				return Result;
 			}
-			Result.Extensions.push_back(Extensions[Index]);
+			Result.Extensions.emplace_back(Extensions[Index]);
 		}
 		return Result;
 	}

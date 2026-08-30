@@ -74,7 +74,7 @@ namespace Durin::Mona
 			.SizeY = static_cast<uint32>(Height),
 			.bIsFullscreen = bFullScreen,
 			.PreferredPixelFormat = EPixelFormat::SRGBA8_UNORM,
-			.PresentModePolicy = Window->GetViewportPresentModePolicy(),
+			.PresentationPolicy = Window->GetViewportPresentationPolicy(),
 			.bAdoptInitializationPresentationCandidate =
 				bAdoptInitializationPresentationCandidate};
 		ViewportInfo->ViewportRHI =

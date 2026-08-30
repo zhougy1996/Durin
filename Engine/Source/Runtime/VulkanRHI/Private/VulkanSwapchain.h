@@ -12,13 +12,13 @@ namespace Durin::VulkanRHI
 	inline constexpr vk::ImageUsageFlags RequiredSwapchainImageUsage =
 		vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled
 		| vk::ImageUsageFlagBits::eTransferDst;
-	inline constexpr uint64 DetachedViewportAcquireTimeoutNanoseconds = 1'000'000;
+	inline constexpr uint64 BestEffortAcquireTimeoutNanoseconds = 1'000'000;
 
 	constexpr auto GetSwapchainAcquireTimeout(
-		EViewportPresentModePolicy Policy) -> uint64
+		EViewportPresentationPolicy Policy) -> uint64
 	{
-		return Policy == EViewportPresentModePolicy::ImGuiDetachedViewport
-			? DetachedViewportAcquireTimeoutNanoseconds : UINT64_MAX;
+		return Policy == EViewportPresentationPolicy::BestEffort
+			? BestEffortAcquireTimeoutNanoseconds : UINT64_MAX;
 	}
 
 	struct FVulkanSwapchainSelectionInput
@@ -28,7 +28,7 @@ namespace Durin::VulkanRHI
 		std::vector<vk::PresentModeKHR> PresentModes;
 		uint32 RequestedWidth = 0;
 		uint32 RequestedHeight = 0;
-		EViewportPresentModePolicy PresentModePolicy = EViewportPresentModePolicy::MainWindow;
+		EViewportPresentationPolicy PresentationPolicy = EViewportPresentationPolicy::FramePaced;
 	};
 
 	struct FVulkanSwapchainConfiguration
@@ -58,7 +58,7 @@ namespace Durin::VulkanRHI
 	class FVulkanSwapchain
 	{
 	public:
-		FVulkanSwapchain(FVulkanDevice& InDevice, vk::SurfaceKHR InSurface, uint32 Width, uint32 Height, bool bIsFullScreen, EViewportPresentModePolicy InPresentModePolicy, vk::SwapchainKHR InOldSwapchain, bool& bOutNativeSwapchainCreated);
+		FVulkanSwapchain(FVulkanDevice& InDevice, vk::SurfaceKHR InSurface, uint32 Width, uint32 Height, bool bIsFullScreen, EViewportPresentationPolicy InPresentationPolicy, vk::SwapchainKHR InOldSwapchain, bool& bOutNativeSwapchainCreated);
 
 		~FVulkanSwapchain();
 
@@ -101,7 +101,7 @@ namespace Durin::VulkanRHI
 
 		vk::SurfaceKHR Surface;
 
-		EViewportPresentModePolicy PresentModePolicy = EViewportPresentModePolicy::MainWindow;
+		EViewportPresentationPolicy PresentationPolicy = EViewportPresentationPolicy::FramePaced;
 
 		int32 CurrentImageIndex = -1;
 

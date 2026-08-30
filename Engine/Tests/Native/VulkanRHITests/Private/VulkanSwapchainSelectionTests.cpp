@@ -52,7 +52,7 @@ namespace Durin::VulkanRHI
 		Input.Capabilities.currentExtent = vk::Extent2D{800, 600};
 		Input.Capabilities.minImageCount = 3;
 		Input.Capabilities.maxImageCount = 3;
-		Input.PresentModePolicy = EViewportPresentModePolicy::ImGuiDetachedViewport;
+		Input.PresentationPolicy = EViewportPresentationPolicy::BestEffort;
 		Input.PresentModes = {vk::PresentModeKHR::eMailbox};
 		FVulkanSwapchainConfiguration Configuration;
 		std::string Error;
@@ -63,15 +63,15 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(Configuration.PresentMode, vk::PresentModeKHR::eMailbox);
 	}
 
-	TEST(FVulkanSwapchainSelectionTests, BoundsOnlyDetachedViewportAcquisition)
+	TEST(FVulkanSwapchainSelectionTests, BoundsOnlyBestEffortAcquisition)
 	{
 		EXPECT_EQ(GetSwapchainAcquireTimeout(
-			EViewportPresentModePolicy::MainWindow), UINT64_MAX);
+			EViewportPresentationPolicy::FramePaced), UINT64_MAX);
 		EXPECT_EQ(GetSwapchainAcquireTimeout(
-			EViewportPresentModePolicy::ImGuiDetachedViewport),
-			DetachedViewportAcquireTimeoutNanoseconds);
-		EXPECT_GT(DetachedViewportAcquireTimeoutNanoseconds, 0u);
-		EXPECT_LT(DetachedViewportAcquireTimeoutNanoseconds, UINT64_MAX);
+			EViewportPresentationPolicy::BestEffort),
+			BestEffortAcquireTimeoutNanoseconds);
+		EXPECT_GT(BestEffortAcquireTimeoutNanoseconds, 0u);
+		EXPECT_LT(BestEffortAcquireTimeoutNanoseconds, UINT64_MAX);
 	}
 
 	TEST(FVulkanSwapchainSelectionTests, UsesDeterministicCompositeAlphaFallback)
@@ -92,12 +92,12 @@ namespace Durin::VulkanRHI
 		}
 	}
 
-	TEST(FVulkanSwapchainSelectionTests, UsesUndefinedFormatAndDetachedModeFallbacks)
+	TEST(FVulkanSwapchainSelectionTests, UsesUndefinedFormatAndBestEffortFallbacks)
 	{
 		auto Input = MakeInput();
 		Input.Formats = {{vk::Format::eUndefined,
 			vk::ColorSpaceKHR::eSrgbNonlinear}};
-		Input.PresentModePolicy = EViewportPresentModePolicy::ImGuiDetachedViewport;
+		Input.PresentationPolicy = EViewportPresentationPolicy::BestEffort;
 		Input.PresentModes = {vk::PresentModeKHR::eImmediate,
 			vk::PresentModeKHR::eFifo};
 		FVulkanSwapchainConfiguration Configuration;

@@ -482,7 +482,7 @@ namespace Durin::MonaImGui
 		auto Window = std::make_shared<MWindow>();
 		Window->SetTitleBarDarkMode(GetColorTheme() == EColorTheme::Dark);
 		Window->SetTitle("ImGui");
-		Window->SetViewportPresentModePolicy(EViewportPresentModePolicy::ImGuiDetachedViewport);
+		Window->SetViewportPresentationPolicy(EViewportPresentationPolicy::BestEffort);
 		Window->ReshapeWindow({Viewport->Pos.x, Viewport->Pos.y}, {Viewport->Size.x, Viewport->Size.y});
 
 		std::shared_ptr<MWindow> ParentWindow = nullptr;

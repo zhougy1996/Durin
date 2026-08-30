@@ -1,7 +1,7 @@
 #pragma once
 
 #include "MonaAPI.h"
-#include "Misc/ViewportPresentModePolicy.h"
+#include "RHIPresentation.h"
 #include "Window/GenericWindow.h"
 #include "Widgets/MWidget.h"
 
@@ -79,9 +79,9 @@ namespace Durin
 
 		MONA_API auto GetWindowMode() const -> EWindowMode;
 
-		MONA_API auto SetViewportPresentModePolicy(EViewportPresentModePolicy InPolicy) -> void;
+		MONA_API auto SetViewportPresentationPolicy(EViewportPresentationPolicy InPolicy) -> void;
 
-		MONA_API auto GetViewportPresentModePolicy() const -> EViewportPresentModePolicy;
+		MONA_API auto GetViewportPresentationPolicy() const -> EViewportPresentationPolicy;
 
 		MONA_API auto ShowWindow() -> void;
 
@@ -115,7 +115,7 @@ namespace Durin
 
 		FVector2f ViewportSize = {};
 
-		EViewportPresentModePolicy ViewportPresentModePolicy = EViewportPresentModePolicy::MainWindow;
+		EViewportPresentationPolicy ViewportPresentationPolicy = EViewportPresentationPolicy::FramePaced;
 
 		std::shared_ptr<MWidget> ContentWidget;
 

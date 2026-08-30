@@ -9,13 +9,13 @@ namespace Durin::VulkanRHI
 {
 	namespace
 	{
-		auto GetPreferredPresentModes(EViewportPresentModePolicy Policy) -> std::vector<vk::PresentModeKHR>
+		auto GetPreferredPresentModes(EViewportPresentationPolicy Policy) -> std::vector<vk::PresentModeKHR>
 		{
 			switch (Policy)
 			{
-			case EViewportPresentModePolicy::ImGuiDetachedViewport:
+			case EViewportPresentationPolicy::BestEffort:
 				return {vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eImmediate, vk::PresentModeKHR::eFifo};
-			case EViewportPresentModePolicy::MainWindow:
+			case EViewportPresentationPolicy::FramePaced:
 			default:
 				return {vk::PresentModeKHR::eFifo};
 			}
@@ -51,9 +51,9 @@ namespace Durin::VulkanRHI
 			return static_cast<vk::Result>(Error.code().value());
 		}
 
-		auto PresentModePolicyName(const EViewportPresentModePolicy Policy) -> const char*
+		auto PresentationPolicyName(const EViewportPresentationPolicy Policy) -> const char*
 		{
-			return Policy == EViewportPresentModePolicy::ImGuiDetachedViewport ? "ImGuiDetachedViewport" : "MainWindow";
+			return Policy == EViewportPresentationPolicy::BestEffort ? "BestEffort" : "FramePaced";
 		}
 	}
 
@@ -82,7 +82,7 @@ namespace Durin::VulkanRHI
 		return AvailableFormats[0];
 	}
 
-	auto ChooseSwapPresentMode(const std::vector<vk::PresentModeKHR>& AvailablePresentModes, EViewportPresentModePolicy Policy) -> vk::PresentModeKHR
+	auto ChooseSwapPresentMode(const std::vector<vk::PresentModeKHR>& AvailablePresentModes, EViewportPresentationPolicy Policy) -> vk::PresentModeKHR
 	{
 		for (const vk::PresentModeKHR RequestedMode : GetPreferredPresentModes(Policy))
 		{
@@ -148,7 +148,7 @@ namespace Durin::VulkanRHI
 		FVulkanSwapchainConfiguration Configuration;
 		Configuration.SurfaceFormat = ChooseSwapSurfaceFormat(Input.Formats);
 		Configuration.PresentMode = ChooseSwapPresentMode(
-			Input.PresentModes, Input.PresentModePolicy);
+			Input.PresentModes, Input.PresentationPolicy);
 		if (std::ranges::find(Input.PresentModes, Configuration.PresentMode)
 			== Input.PresentModes.end())
 			return Fail("Vulkan swapchain selection failed: no policy-compatible present mode is supported.");
@@ -183,10 +183,10 @@ namespace Durin::VulkanRHI
 		return Fail("Vulkan swapchain selection failed: the surface reported no supported composite-alpha mode.");
 	}
 
-	FVulkanSwapchain::FVulkanSwapchain(FVulkanDevice& InDevice, vk::SurfaceKHR InSurface, uint32 Width, uint32 Height, bool bIsFullScreen, EViewportPresentModePolicy InPresentModePolicy, vk::SwapchainKHR InOldSwapchain, bool& bOutNativeSwapchainCreated)
+	FVulkanSwapchain::FVulkanSwapchain(FVulkanDevice& InDevice, vk::SurfaceKHR InSurface, uint32 Width, uint32 Height, bool bIsFullScreen, EViewportPresentationPolicy InPresentationPolicy, vk::SwapchainKHR InOldSwapchain, bool& bOutNativeSwapchainCreated)
 		: Device(InDevice)
 		, Surface(InSurface)
-		, PresentModePolicy(InPresentModePolicy)
+		, PresentationPolicy(InPresentationPolicy)
 	{
 		CheckVulkanRHIThread();
 		bOutNativeSwapchainCreated = false;
@@ -211,7 +211,7 @@ namespace Durin::VulkanRHI
 				.PresentModes = std::move(PresentModes),
 				.RequestedWidth = Width,
 				.RequestedHeight = Height,
-				.PresentModePolicy = PresentModePolicy}, Configuration, SelectionError))
+				.PresentationPolicy = PresentationPolicy}, Configuration, SelectionError))
 			throw std::runtime_error(SelectionError);
 		Extent = Configuration.Extent;
 		ImageFormat = Configuration.SurfaceFormat.format;
@@ -253,7 +253,7 @@ namespace Durin::VulkanRHI
 			vk::to_string(Configuration.SurfaceFormat.format),
 			vk::to_string(Configuration.SurfaceFormat.colorSpace),
 			vk::to_string(Configuration.PresentMode), SwapchainImages.size(),
-			PresentModePolicyName(PresentModePolicy), bIsFullScreen ? "fullscreen" : "windowed");
+			PresentationPolicyName(PresentationPolicy), bIsFullScreen ? "fullscreen" : "windowed");
 
 	}
 
@@ -306,7 +306,7 @@ namespace Durin::VulkanRHI
 				return vk::ResultValue<uint32>{vk::Result::eTimeout, 0};
 #endif
 			return Device.GetHandle().acquireNextImageKHR(Swapchain,
-				GetSwapchainAcquireTimeout(PresentModePolicy),
+				GetSwapchainAcquireTimeout(PresentationPolicy),
 				CurrentSemaphore->GetHandle(), nullptr);
 		}();
 
@@ -319,7 +319,7 @@ namespace Durin::VulkanRHI
 				{
 					DURIN_WARN("Vulkan swapchain image acquisition is temporarily unavailable: result={}, extent={}x{}, policy={}; skipping this viewport frame.",
 						vk::to_string(Result.result), Extent.width, Extent.height,
-						PresentModePolicyName(PresentModePolicy));
+						PresentationPolicyName(PresentationPolicy));
 					bAcquireTimeoutReported = true;
 				}
 			}
@@ -341,7 +341,7 @@ namespace Durin::VulkanRHI
 		if (bAcquireTimeoutReported)
 		{
 			DURIN_INFO("Vulkan swapchain image acquisition recovered: extent={}x{}, policy={}.",
-				Extent.width, Extent.height, PresentModePolicyName(PresentModePolicy));
+				Extent.width, Extent.height, PresentationPolicyName(PresentationPolicy));
 			bAcquireTimeoutReported = false;
 		}
 		if (Result.result == vk::Result::eSuboptimalKHR)

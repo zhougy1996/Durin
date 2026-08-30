@@ -3,7 +3,7 @@
 #include "RHIAPI.h"
 #include "RHIFwd.h"
 #include "RHIInitialization.h"
-#include "Misc/ViewportPresentModePolicy.h"
+#include "RHIPresentation.h"
 #include "PixelFormat.h"
 #include "RHIResources.h"
 #include "RHICapabilities.h"
@@ -193,8 +193,8 @@ namespace Durin
 		uint32 SizeY = 0;
 		bool bIsFullscreen = false;
 		EPixelFormat PreferredPixelFormat = EPixelFormat::SRGBA8_UNORM;
-		EViewportPresentModePolicy PresentModePolicy =
-			EViewportPresentModePolicy::MainWindow;
+		EViewportPresentationPolicy PresentationPolicy =
+			EViewportPresentationPolicy::FramePaced;
 		bool bAdoptInitializationPresentationCandidate = false;
 	};
 

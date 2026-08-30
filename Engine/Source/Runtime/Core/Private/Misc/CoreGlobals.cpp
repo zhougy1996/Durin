@@ -7,8 +7,6 @@ namespace Durin
 	bool GIsRequestingExit = false;
 	bool GIsWindowDisplaySuppressed = false;
 
-	std::vector<const char*> GMonaRequiredVulkanInstanceExtensions;
-
 	uint32 GGameThreadId = 0;
 	bool GIsGameThreadIdInitialized = false;
 

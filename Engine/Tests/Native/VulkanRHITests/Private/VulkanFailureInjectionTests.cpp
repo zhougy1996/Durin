@@ -1948,7 +1948,7 @@ namespace Durin::VulkanRHI
 			.SizeX = 64,
 			.SizeY = 64,
 			.PreferredPixelFormat = EPixelFormat::SBGRA8_UNORM,
-			.PresentModePolicy = EViewportPresentModePolicy::MainWindow,
+			.PresentationPolicy = EViewportPresentationPolicy::FramePaced,
 			.bAdoptInitializationPresentationCandidate = true};
 		FRHIViewportCreateInfo MismatchedCreateInfo = MainCreateInfo;
 		MismatchedCreateInfo.NativeWindowHandle =
@@ -2120,8 +2120,8 @@ namespace Durin::VulkanRHI
 				.SizeX = 64,
 				.SizeY = 64,
 				.PreferredPixelFormat = EPixelFormat::SBGRA8_UNORM,
-				.PresentModePolicy =
-					EViewportPresentModePolicy::ImGuiDetachedViewport});
+				.PresentationPolicy =
+					EViewportPresentationPolicy::BestEffort});
 		ASSERT_TRUE(DetachedViewport);
 		auto* DetachedVulkanViewport = static_cast<FVulkanViewport*>(DetachedViewport.GetReference());
 		GCommandListExecutor.ExecuteSynchronousOperation(false, [DetachedVulkanViewport]() {

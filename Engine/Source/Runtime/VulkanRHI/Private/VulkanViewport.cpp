@@ -102,7 +102,7 @@ namespace Durin::VulkanRHI
 	FVulkanViewport::FVulkanViewport(FVulkanDevice& InDevice,
 		void* InWindowHandle, uint32 InSizeX, uint32 InSizeY,
 		bool bInIsFullScreen, EPixelFormat InPreferredPixelFormat,
-		EViewportPresentModePolicy InPresentModePolicy,
+		EViewportPresentationPolicy InPresentationPolicy,
 		vk::SurfaceKHR InPresentationSurface)
 		: Device(InDevice)
 		, SizeX(InSizeX)
@@ -110,7 +110,7 @@ namespace Durin::VulkanRHI
 		, bIsFullScreen(bInIsFullScreen)
 		, NativeWindowHandle(InWindowHandle)
 	 	, PixelFormat(InPreferredPixelFormat)
-		, PresentModePolicy(InPresentModePolicy)
+		, PresentationPolicy(InPresentationPolicy)
 	{
 		CheckVulkanRHIThread();
 		Surface = InPresentationSurface
@@ -401,7 +401,7 @@ namespace Durin::VulkanRHI
 				: VK_NULL_HANDLE;
 			CandidateSwapchain = std::make_unique<FVulkanSwapchain>(
 				Device, Surface, TargetSizeX, TargetSizeY, bIsFullScreen,
-				PresentModePolicy, OldSwapchain, bNativeSwapchainCreated);
+				PresentationPolicy, OldSwapchain, bNativeSwapchainCreated);
 			CandidateSwapchain->InitializeSynchronizationResources();
 			CandidateImages = CandidateSwapchain->GetImages();
 			for (uint32 ImageIndex = 0; ImageIndex < CandidateImages.size(); ++ImageIndex)
@@ -461,7 +461,7 @@ namespace Durin::VulkanRHI
 			{
 				DURIN_ERROR("Failed to build Vulkan viewport output candidate: result={}, extent={}x{}, policy={}, nativeSwapchainCreated={}, error={}",
 					vk::to_string(Result), TargetSizeX, TargetSizeY,
-					PresentModePolicy == EViewportPresentModePolicy::ImGuiDetachedViewport ? "ImGuiDetachedViewport" : "MainWindow",
+					PresentationPolicy == EViewportPresentationPolicy::BestEffort ? "BestEffort" : "FramePaced",
 					bNativeSwapchainCreated, Error.what());
 				bSwapchainFailureReported = true;
 			}
@@ -756,7 +756,7 @@ namespace Durin::VulkanRHI
 						CreateInfo.SizeX, CreateInfo.SizeY,
 						CreateInfo.bIsFullscreen,
 						CreateInfo.PreferredPixelFormat,
-						CreateInfo.PresentModePolicy,
+						CreateInfo.PresentationPolicy,
 						PresentationSurface);
 				});
 			return Result;
@@ -764,7 +764,7 @@ namespace Durin::VulkanRHI
 		return MakeRefCount<FVulkanViewport>(*Device,
 			CreateInfo.NativeWindowHandle,
 			CreateInfo.SizeX, CreateInfo.SizeY, CreateInfo.bIsFullscreen,
-			CreateInfo.PreferredPixelFormat, CreateInfo.PresentModePolicy,
+			CreateInfo.PreferredPixelFormat, CreateInfo.PresentationPolicy,
 			PresentationSurface);
 	}
 

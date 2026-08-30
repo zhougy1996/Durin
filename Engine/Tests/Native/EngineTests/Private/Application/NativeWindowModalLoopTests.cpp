@@ -42,9 +42,11 @@ TEST(FGlfwVulkanInitializationTests, RejectsInvalidRequiredExtensionName)
 		"GLFW Vulkan instance-extension discovery returned an invalid name at index 1.");
 }
 
-TEST(FGlfwVulkanInitializationTests, RetainsValidatedBorrowedExtensions)
+TEST(FGlfwVulkanInitializationTests, CopiesValidatedExtensionsIntoOwnedStorage)
 {
-	const char* Extensions[] = {"VK_KHR_surface", "VK_KHR_win32_surface"};
+	char SurfaceExtension[] = "VK_KHR_surface";
+	char PlatformExtension[] = "VK_KHR_win32_surface";
+	const char* Extensions[] = {SurfaceExtension, PlatformExtension};
 	const Durin::FGlfwVulkanExtensionQueryResult Result =
 		Durin::QueryRequiredGlfwVulkanInstanceExtensions(
 			[&Extensions](uint32_t* Count) {
@@ -55,8 +57,10 @@ TEST(FGlfwVulkanInitializationTests, RetainsValidatedBorrowedExtensions)
 
 	ASSERT_TRUE(Result.Succeeded());
 	ASSERT_EQ(Result.Extensions.size(), 2u);
-	EXPECT_STREQ(Result.Extensions[0], "VK_KHR_surface");
-	EXPECT_STREQ(Result.Extensions[1], "VK_KHR_win32_surface");
+	SurfaceExtension[0] = 'X';
+	PlatformExtension[0] = 'X';
+	EXPECT_EQ(Result.Extensions[0], "VK_KHR_surface");
+	EXPECT_EQ(Result.Extensions[1], "VK_KHR_win32_surface");
 }
 
 #if defined(_WIN32)

@@ -1477,7 +1477,7 @@ namespace Durin
 			.SizeX = 96,
 			.SizeY = 64,
 			.PreferredPixelFormat = EPixelFormat::SRGBA8_UNORM,
-			.PresentModePolicy = EViewportPresentModePolicy::MainWindow});
+			.PresentationPolicy = EViewportPresentationPolicy::FramePaced});
 		ASSERT_NE(Viewport, nullptr);
 		auto RenderPresent = [&Renderer, &Viewport, ViewStateId](
 								 uint32 Width,

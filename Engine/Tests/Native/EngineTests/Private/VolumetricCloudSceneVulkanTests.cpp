@@ -285,7 +285,7 @@ namespace Durin
 		}
 		EXPECT_TRUE(bDiffersFromDisabled);
 
-		TRefCountPtr<FRHIViewport> Viewport = GDynamicRHI->RHICreateViewport({.NativeWindowHandle = Window->GetOSNativeWindowHandle(), .SizeX = 96, .SizeY = 64, .PreferredPixelFormat = EPixelFormat::SRGBA8_UNORM, .PresentModePolicy = EViewportPresentModePolicy::MainWindow});
+		TRefCountPtr<FRHIViewport> Viewport = GDynamicRHI->RHICreateViewport({.NativeWindowHandle = Window->GetOSNativeWindowHandle(), .SizeX = 96, .SizeY = 64, .PreferredPixelFormat = EPixelFormat::SRGBA8_UNORM, .PresentationPolicy = EViewportPresentationPolicy::FramePaced});
 		ASSERT_NE(Viewport, nullptr);
 		auto RenderPresent = [&Renderer, &Viewport, Scene](uint32 Width, uint32 Height, bool bForceFragment) {
 			auto Result = std::make_shared<ERenderViewResult>(

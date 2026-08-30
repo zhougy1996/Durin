@@ -130,7 +130,8 @@ namespace Durin::VulkanRHI
 		) -> bool;
 
 	protected:
-		auto CreateInstance() -> void;
+		auto CreateInstance(
+			std::span<const std::string> SurfaceProviderRequiredExtensions) -> void;
 		auto CreateDebugMessenger() -> void;
 		auto DestroyDebugMessenger() -> void;
 		auto SelectDevice(

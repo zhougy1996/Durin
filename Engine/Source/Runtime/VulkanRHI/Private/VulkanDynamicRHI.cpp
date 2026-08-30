@@ -15,6 +15,7 @@
 #include "VulkanRHIPrivate.h"
 #include "VulkanViewCache.h"
 
+#include "ApplicationCoreGlobals.h"
 #include "VulkanDescriptorSets.h"
 #include "Misc/Version.h"
 
@@ -44,7 +45,20 @@ namespace Durin::VulkanRHI
 	auto FVulkanDynamicRHI::Init(const FRHIInitializationContext& Context) -> void
 	{
 		CheckVulkanRHIThread();
-		CreateInstance();
+		const std::optional<FRHIPresentationTarget>& PresentationTarget =
+			Context.GetPresentationTarget();
+		FVulkanSurfaceRequirementsResult SurfaceRequirements;
+		if (PresentationTarget)
+		{
+			SurfaceRequirements = GetVulkanSurfaceRequirements();
+			if (!SurfaceRequirements.Succeeded())
+			{
+				throw std::runtime_error(std::format(
+					"Vulkan initialization failed to obtain native surface requirements: {}",
+					SurfaceRequirements.Diagnostic));
+			}
+		}
+		CreateInstance(SurfaceRequirements.RequiredInstanceExtensions);
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(Instance);
 		CreateDebugMessenger();
 		DebugUtils.SetExtensionActive(
@@ -395,7 +409,8 @@ namespace Durin::VulkanRHI
 		return Result;
 	}
 
-	auto FVulkanDynamicRHI::CreateInstance() -> void
+	auto FVulkanDynamicRHI::CreateInstance(
+		std::span<const std::string> SurfaceProviderRequiredExtensions) -> void
 	{
 		CheckVulkanRHIThread();
 		std::string EngineName = "Durin";
@@ -416,13 +431,8 @@ namespace Durin::VulkanRHI
 				"Vulkan instance requirement enumeration failed: {}", Exception.what()));
 		}
 		FVulkanInstanceExtensionRequestInput ExtensionRequestInput;
-#ifdef _WIN32
-		ExtensionRequestInput.SurfaceProviderRequiredExtensions.emplace_back(
-			VK_KHR_SURFACE_EXTENSION_NAME);
-		ExtensionRequestInput.SurfaceProviderRequiredExtensions.emplace_back(
-			VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
-#endif
-		for (const char* RequiredExtension : GMonaRequiredVulkanInstanceExtensions)
+		for (const std::string& RequiredExtension :
+			SurfaceProviderRequiredExtensions)
 			ExtensionRequestInput.SurfaceProviderRequiredExtensions.emplace_back(
 				RequiredExtension);
 #ifdef __APPLE__

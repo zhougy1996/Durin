@@ -25,8 +25,6 @@ namespace Durin
 		return GIsRequestingExit;
 	}
 
-	extern CORE_API std::vector<const char*> GMonaRequiredVulkanInstanceExtensions;
-
 	extern CORE_API double GStartTime;
 
 	extern CORE_API uint32 GGameThreadId;
