@@ -715,6 +715,7 @@ namespace Durin::Editor::Material
 						ImGui::PopFont();
 						ImGui::PopID();
 						ImGui::SetCursorScreenPos(SavedCursor);
+						ImGui::Dummy({0.0f, 0.0f});
 					}
 					else if ((Visual.View->Node.Opcode == EMaterialProgramOpcode::Parameter
 						|| Visual.View->Node.Opcode == EMaterialProgramOpcode::TextureParameter
@@ -826,6 +827,7 @@ namespace Durin::Editor::Material
 						ImGui::PopFont();
 						ImGui::PopID();
 						ImGui::SetCursorScreenPos(SavedCursor);
+						ImGui::Dummy({0.0f, 0.0f});
 					}
 					else if (Visual.View->Node.Opcode == EMaterialProgramOpcode::Swizzle
 						&& Intersects(Visual.Minimum, Visual.Maximum, CanvasMinimum, CanvasMaximum))
@@ -871,6 +873,7 @@ namespace Durin::Editor::Material
 						ImGui::PopFont();
 						ImGui::PopID();
 						ImGui::SetCursorScreenPos(SavedCursor);
+						ImGui::Dummy({0.0f, 0.0f});
 					}
 				}
 			}
