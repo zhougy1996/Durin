@@ -102,7 +102,11 @@ heights and fixed gaps; selected-only layout treats every unselected node as an
 occupied rectangle and searches downward for the nearest collision-free slot.
 It rejects atomically if the bounded search fails. Layout never changes program
 order, node IDs, links, outputs, normalized IR, or identity. Missing legacy
-positions invoke this layout when the graph is first displayed.
+positions use the same layout calculation transiently when the graph is first
+displayed; opening, panning, zooming, selection framing, and diagnostic framing
+therefore never persist presentation or dirty the material. Explicit Auto Layout
+and node or Material Output movement persist presentation through ordinary
+transactions.
 
 ## Canvas and diagnostics
 

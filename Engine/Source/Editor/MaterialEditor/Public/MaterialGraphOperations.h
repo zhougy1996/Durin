@@ -281,6 +281,12 @@ namespace Durin::Editor::Material
 			std::span<const FGuid> NodeIds = {},
 			FTransactionManager* Transactions = nullptr)
 			-> FMaterialGraphCommandResult;
+		// Calculates the same deterministic layout without mutating the material.
+		MATERIALEDITOR_API static auto CalculateLayout(
+			const DMaterial& Material,
+			std::span<const FGuid> NodeIds,
+			FMaterialGraphPresentation& OutPresentation)
+			-> FMaterialGraphCommandResult;
 		MATERIALEDITOR_API static auto CopySelection(
 			const DMaterial& Material,
 			std::span<const FGuid> NodeIds,

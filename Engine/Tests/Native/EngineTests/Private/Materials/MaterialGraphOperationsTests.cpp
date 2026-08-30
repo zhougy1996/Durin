@@ -8,6 +8,7 @@
 #include "Asset/AssetCompilingManager.h"
 #include "DObject/DefaultObjectGraph.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Package.h"
 #include "Editor/Transaction.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -523,6 +524,50 @@ TEST(FMaterialGraphOperationsTests, MaximumGraphLayoutIsDeterministicAndPresenta
 	EXPECT_LT(Samples[95], std::chrono::milliseconds(50));
 
 	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests,
+	ViewportAndDerivedFallbackLayoutDoNotDirtyTheMaterial)
+{
+	InitializeDObjectSystem();
+	PathUtilities::FScopedMountRegistryFixture MountRegistry;
+	const std::filesystem::path Root = std::filesystem::temp_directory_path()
+		/ "DurinTransientGraphLayoutMaterial";
+	PathUtilities::RegisterMountPointForTests(
+		"/MaterialGraphTests/", Root.generic_string() + "/");
+	FAssetPath PackagePath;
+	ASSERT_TRUE(FAssetPath::TryCreate(
+		"/MaterialGraphTests/TransientGraphLayoutMaterial", PackagePath));
+	DPackage* Package = CreatePackage(PackagePath);
+	ASSERT_NE(Package, nullptr);
+	DMaterial* Material = NewObject<DMaterial>(
+		Package, "TransientGraphLayoutMaterial");
+	ASSERT_NE(Material, nullptr);
+	FMaterialProgramValidationResult Validation;
+	ASSERT_TRUE(Material->SetMaterialProgram(
+		MakeCanonicalMaterialProgram(), Validation));
+	Package->ClearDirty();
+	const uint64 EditRevision = Package->GetEditRevision();
+	const FMaterialGraphPresentation BeforePresentation =
+		Material->GetMaterialGraphPresentation();
+
+	FMaterialGraphCanvas Canvas;
+	Canvas.SetViewport(0.5f, {120.0f, -40.0f});
+	FMaterialGraphPresentation DerivedPresentation;
+	const FMaterialGraphCommandResult Layout =
+		FMaterialGraphOperations::CalculateLayout(
+			*Material, {}, DerivedPresentation);
+
+	ASSERT_TRUE(Layout);
+	EXPECT_EQ(DerivedPresentation.Nodes.size(),
+		Material->GetMaterialProgram()->Nodes.size());
+	EXPECT_TRUE(DerivedPresentation.bHasMaterialOutputPosition);
+	EXPECT_EQ(Material->GetMaterialGraphPresentation(), BeforePresentation);
+	EXPECT_EQ(Package->GetEditRevision(), EditRevision);
+	EXPECT_FALSE(Package->IsDirty());
+
+	MarkObjectHierarchyAsGarbage(Package);
 	CollectGarbage();
 }
 

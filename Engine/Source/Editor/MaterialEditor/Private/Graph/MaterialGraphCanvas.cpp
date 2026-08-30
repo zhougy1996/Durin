@@ -371,13 +371,37 @@ namespace Durin::Editor::Material
 			if (std::ranges::any_of(View.Nodes,
 				[](const FMaterialGraphNodeView& Node) { return !Node.Presentation; }))
 			{
-				const FMaterialGraphCommandResult Layout =
-					FMaterialGraphOperations::Layout(Material, {}, &Transactions);
-				ReportCommand(Layout, ReportError);
-				if (Layout)
+				const FMaterialGraphPresentation& Source =
+					Material.GetMaterialGraphPresentation();
+				if (!bHasTransientLayout || TransientLayoutSource != Source
+					|| TransientLayoutAuthoredRevision != AuthoredRevision)
 				{
-					View = FMaterialGraphOperations::Inspect(Material, Catalog);
-					SurfaceGraphPosition.reset();
+					const FMaterialGraphCommandResult Layout =
+						FMaterialGraphOperations::CalculateLayout(
+							Material, {}, TransientLayout);
+					ReportCommand(Layout, ReportError);
+					bHasTransientLayout = static_cast<bool>(Layout);
+					if (bHasTransientLayout)
+					{
+						TransientLayoutSource = Source;
+						TransientLayoutAuthoredRevision = AuthoredRevision;
+					}
+				}
+				if (bHasTransientLayout)
+				{
+					std::unordered_map<FGuid, FMaterialGraphNodePresentation> Positions;
+					for (const FMaterialGraphNodePresentation& Position
+						: TransientLayout.Nodes)
+						Positions.emplace(Position.NodeId, Position);
+					for (FMaterialGraphNodeView& Node : View.Nodes)
+						if (!Node.Presentation)
+							if (const auto It = Positions.find(Node.Node.Id);
+								It != Positions.end()) Node.Presentation = It->second;
+					if (!View.MaterialOutputPosition
+						&& TransientLayout.bHasMaterialOutputPosition)
+						View.MaterialOutputPosition = {
+							TransientLayout.MaterialOutputX,
+							TransientLayout.MaterialOutputY};
 				}
 			}
 			if (View.MaterialOutputPosition)

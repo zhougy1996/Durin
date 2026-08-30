@@ -1240,11 +1240,12 @@ namespace Durin::Editor::Material
 			std::move(Presentation), false, "Move Material Output", {}, {}, Transactions);
 	}
 
-	auto FMaterialGraphOperations::Layout(
-		DMaterial& Material,
+	auto FMaterialGraphOperations::CalculateLayout(
+		const DMaterial& Material,
 		std::span<const FGuid> NodeIds,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		FMaterialGraphPresentation& OutPresentation) -> FMaterialGraphCommandResult
 	{
+		OutPresentation = Material.GetMaterialGraphPresentation();
 		const FMaterialProgram& Program = *Material.GetMaterialProgram();
 		if (NodeIds.size() > MaterialProgramMaxNodeCount)
 			return MakeRejected("The material graph layout request exceeds the node bound.");
@@ -1474,8 +1475,26 @@ namespace Durin::Editor::Material
 				bFound ? (MinimumY + MaximumY - OutputHeight) * 0.5f : 0.0f));
 		}
 		std::vector<FGuid> Affected(Requested.begin(), Requested.end());
-		return Commit(Material, Program, std::move(Presentation), false,
-			"Layout Material Graph", std::move(Affected), {}, Transactions);
+		OutPresentation = std::move(Presentation);
+		std::ranges::sort(Affected);
+		return {
+			.Status = EMaterialGraphCommandStatus::Succeeded,
+			.AffectedNodeIds = std::move(Affected),
+		};
+	}
+
+	auto FMaterialGraphOperations::Layout(
+		DMaterial& Material,
+		std::span<const FGuid> NodeIds,
+		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+	{
+		FMaterialGraphPresentation Presentation;
+		FMaterialGraphCommandResult Calculated = CalculateLayout(
+			Material, NodeIds, Presentation);
+		if (!Calculated) return Calculated;
+		return Commit(Material, *Material.GetMaterialProgram(),
+			std::move(Presentation), false, "Layout Material Graph",
+			std::move(Calculated.AffectedNodeIds), {}, Transactions);
 	}
 
 	auto FMaterialGraphOperations::CopySelection(
