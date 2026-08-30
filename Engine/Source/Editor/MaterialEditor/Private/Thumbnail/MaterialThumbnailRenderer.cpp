@@ -12,6 +12,8 @@
 #include "StaticMesh/StaticMesh.h"
 #include "Texture/Texture2D.h"
 
+#include <unordered_set>
+
 namespace Durin::Editor::Material
 {
 	namespace
@@ -55,14 +57,38 @@ namespace Durin::Editor::Material
 				OutError = "The material asset is unavailable.";
 				return 0;
 			}
-			if (auto* Instance = Cast<DMaterialInstance>(Material); Instance != nullptr
-				&& Instance->GetParent() == nullptr)
+			uint64 Revision = 0;
+			DMaterialInterface* Current = Material;
+			DMaterial* BaseMaterial = nullptr;
+			std::unordered_set<DMaterialInterface*> Visited;
+			while (Current != nullptr && Visited.insert(Current).second)
 			{
-				OutError = "The material instance has no valid parent.";
+				Revision ^= Current->GetRenderStateVersion() + 0x9e3779b97f4a7c15ull
+					+ (Revision << 6) + (Revision >> 2);
+				if ((BaseMaterial = Cast<DMaterial>(Current)) != nullptr) break;
+				Current = Current->GetParent();
+			}
+			if (BaseMaterial == nullptr)
+			{
+				OutError = Current == nullptr
+					? "The material instance has no valid parent."
+					: "The material instance parent chain contains a cycle.";
 				return 0;
 			}
-
-			uint64 Revision = Material->GetRenderStateVersion();
+			const FMaterialCompileStatus& CompileStatus =
+				BaseMaterial->GetMaterialCompileStatus();
+			if (!CompileStatus.IsCurrent()
+				|| BaseMaterial->GetAcceptedCompiledProgram() == nullptr)
+			{
+				if (CompileStatus.State == EMaterialCompileState::Pending
+					|| CompileStatus.State == EMaterialCompileState::Running)
+					return Revision == 0 ? 1 : Revision;
+				const auto Diagnostics = BaseMaterial->GetMaterialCompileDiagnostics();
+				OutError = !Diagnostics.empty() && !Diagnostics.front().Source.Message.empty()
+					? Diagnostics.front().Source.Message
+					: "The material has no current compiled program.";
+				return 0;
+			}
 			DTexture2D* Texture = nullptr;
 			if (!Material->GetTextureParameterValue(
 					MaterialParameters::BaseColorTextureName(), Texture)
@@ -219,6 +245,11 @@ namespace Durin::Editor::Material
 						.AssetRevision = AssetRevision,
 						.ResourceRevision = MaterialRevision,
 						.Diagnostic = std::move(Error)};
+				if (!bReady)
+					return {
+						.State = ::Durin::Editor::EThumbnailRendererSessionState::WaitingForResources,
+						.AssetRevision = AssetRevision,
+						.ResourceRevision = MaterialRevision};
 				if (Sphere == nullptr)
 					return {
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,

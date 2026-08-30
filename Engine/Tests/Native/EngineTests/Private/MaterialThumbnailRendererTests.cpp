@@ -7,6 +7,7 @@
 
 #include "Thumbnail/AssetThumbnailTestFixtures.h"
 
+#include "Asset/AssetCompilingManager.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Package.h"
 #include "Rendering/StaticMeshSceneProxy.h"
@@ -339,5 +340,57 @@ TEST(FMaterialThumbnailRendererTests,
 		<< Loaded.Diagnostic;
 	EXPECT_EQ(Loaded.AssetRevision, AuthoredRevision);
 	EXPECT_NE(Loaded.AssetRevision, Material->GetRenderStateVersion());
+	Session.reset();
+}
+
+TEST(FMaterialThumbnailRendererTests,
+	RendererWaitsForCurrentMaterialCompilationBeforeRendering)
+{
+	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
+	InitializeDObjectSystem();
+	if (!Durin::IsMaterialCompilationAcceptingRequests())
+		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
+	Durin::PathUtilities::InitDefaultMountPoints();
+	std::string Error;
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
+
+	Durin::FAssetPath MaterialPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/Engine/Materials/ImportedSurface", MaterialPath));
+	const Durin::Asset::FAssetCatalogEntry MaterialData =
+		Durin::Asset::FindAssetExact(MaterialPath);
+	ASSERT_NE(MaterialData, nullptr);
+	Durin::DObject* LoadedObject = nullptr;
+	const Durin::Asset::FAssetResult LoadResult =
+		Durin::Asset::LoadAsset(MaterialPath, LoadedObject);
+	ASSERT_TRUE(LoadResult) << LoadResult.Message;
+	auto* Material = Durin::Cast<Durin::DMaterial>(LoadedObject);
+	ASSERT_NE(Material, nullptr);
+	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+	ASSERT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+
+	Durin::Editor::Material::DMaterialThumbnailRenderer Renderer(
+		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString());
+	Durin::Editor::FAssetThumbnailGenerationRequest Request;
+	ASSERT_FALSE(CaptureKey(Renderer, *MaterialData, Request, Error).empty())
+		<< Error;
+	auto Session = Renderer.CreateGenerationSession(
+		Request, *Request.Input, Error);
+	ASSERT_NE(Session, nullptr) << Error;
+	ASSERT_EQ(Session->Load().State,
+		Durin::Editor::EThumbnailRendererSessionState::WaitingForResources);
+
+	ASSERT_TRUE(Durin::RequestMaterialRecompile(*Material, true));
+	ASSERT_FALSE(Material->GetMaterialCompileStatus().IsCurrent());
+	const Durin::Editor::FThumbnailRendererSessionUpdate Compiling =
+		Session->PollResources();
+	EXPECT_EQ(Compiling.State,
+		Durin::Editor::EThumbnailRendererSessionState::WaitingForResources)
+		<< Compiling.Diagnostic;
+
+	(void)Durin::FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+	ASSERT_TRUE(Material->GetMaterialCompileStatus().IsCurrent());
+
 	Session.reset();
 }
