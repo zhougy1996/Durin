@@ -1,7 +1,5 @@
 #include "Panels/WorldOutlinerPanel.h"
 
-#include "Logging/LogMacros.h"
-
 #include "DObject/Package.h"
 #include "Panels/ActorAttachmentTransaction.h"
 #include "Panels/WorldOutlinerPresentation.h"
@@ -16,7 +14,7 @@
 #include "Engine/World.h"
 #include "Editor/WorkspaceUI.h"
 #include "Editor/EditorEngine.h"
-#include "Editor/Transaction.h"
+#include "Editor/Transactor.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Workspace/LevelEditorContext.h"
 #include "Workspace/LevelEditorHelpers.h"
@@ -77,102 +75,6 @@ namespace Durin::Editor::Level
 				.bReadOnly = Context.bReadOnly,
 			});
 		}
-
-		// Restores the level's primary-camera selection.
-		class FPrimaryCameraTransaction final : public ::Durin::Editor::ITransactionCustomChange
-		{
-		public:
-			FPrimaryCameraTransaction(DLevel* InLevel, ACameraActor* InBefore, ACameraActor* InAfter)
-				: Level(InLevel), Before(InBefore), After(InAfter)
-			{
-				AffectedPackages.front() = InLevel ? InLevel->GetPackage() : nullptr;
-			}
-			auto GetDescription() const -> std::string_view override { return "Set primary camera"; }
-			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
-			auto GetDetails(::Durin::Editor::ETransactionOperation) const -> std::string override
-			{
-				return After ? std::format("Set '{}' as the primary camera", After->GetName()) : "Clear the primary camera";
-			}
-			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
-			auto Undo() -> bool override { return Level && Level->SetPrimaryCameraActor(Before.Get()); }
-			auto Redo() -> bool override { return Level && Level->SetPrimaryCameraActor(After.Get()); }
-			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
-			{
-				for (DObject* Object : {static_cast<DObject*>(Level.Get()),
-					static_cast<DObject*>(Before.Get()),
-					static_cast<DObject*>(After.Get())})
-					if (Object) Collector.AddReferencedObject(Object);
-			}
-
-		private:
-			TObjectPtr<DLevel> Level;
-			TObjectPtr<ACameraActor> Before;
-			TObjectPtr<ACameraActor> After;
-			std::array<DPackage*, 1> AffectedPackages{};
-		};
-
-		// Restores visibility for every actor changed by one outliner operation.
-		class FActorVisibilityTransaction final : public ::Durin::Editor::ITransactionCustomChange
-		{
-		public:
-			// Stores one actor's visibility before and after the outliner action.
-			struct FEntry
-			{
-				TObjectPtr<AActor> Actor;
-				bool bBefore = false;
-				bool bAfter = false;
-			};
-
-			FActorVisibilityTransaction(std::vector<FEntry> InEntries, bool bInShow)
-				: Entries(std::move(InEntries)), bShow(bInShow)
-			{
-				for (const FEntry& Entry : Entries)
-				{
-					DPackage* Package = Entry.Actor ? Entry.Actor->GetPackage() : nullptr;
-					if (Package && std::ranges::find(AffectedPackages, Package) == AffectedPackages.end())
-						AffectedPackages.push_back(Package);
-				}
-			}
-			auto GetDescription() const -> std::string_view override { return bShow ? "Show actors" : "Hide actors"; }
-			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
-			auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const -> std::string override
-			{
-				const bool bApplyingAfter = Operation != ::Durin::Editor::ETransactionOperation::Undo;
-				const size_t HiddenCount = std::ranges::count_if(Entries, [bApplyingAfter](const FEntry& Entry) { return bApplyingAfter ? Entry.bAfter : Entry.bBefore; });
-				return std::format("Set visibility for {} actor(s); {} hidden", Entries.size(), HiddenCount);
-			}
-			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
-			auto Undo() -> bool override { return Apply(false); }
-			auto Redo() -> bool override { return Apply(true); }
-			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
-			{
-				for (const FEntry& Entry : Entries)
-				{
-					DObject* Object = Entry.Actor.Get();
-					if (Object) Collector.AddReferencedObject(Object);
-				}
-			}
-
-		private:
-			auto Apply(bool bAfter) -> bool
-			{
-				bool bSuccess = true;
-				for (const FEntry& Entry : Entries)
-				{
-					if (!Entry.Actor)
-					{
-						bSuccess = false;
-						continue;
-					}
-					Entry.Actor->SetHidden(bAfter ? Entry.bAfter : Entry.bBefore);
-				}
-				return bSuccess;
-			}
-
-			std::vector<FEntry> Entries;
-			std::vector<DPackage*> AffectedPackages;
-			bool bShow = false;
-		};
 
 		auto LevelDisplayName(const DLevel* Level) -> std::string
 		{
@@ -275,19 +177,13 @@ namespace Durin::Editor::Level
 
 	auto FWorldOutlinerPanel::SetActorVisibility(const std::vector<TObjectPtr<AActor>>& TargetActors, bool bHidden) -> void
 	{
-		std::vector<FActorVisibilityTransaction::FEntry> Entries;
+		::Durin::Editor::FScopedTransaction Transaction(bHidden ? "Hide actors" : "Show actors");
 		for (const TObjectPtr<AActor>& Actor : TargetActors)
 		{
-			if (Actor && Actor->IsHidden() != bHidden) Entries.push_back({Actor, Actor->IsHidden(), bHidden});
+			if (!Actor || Actor->IsHidden() == bHidden) continue;
+			Transaction.Modify(Actor.Get());
+			Actor->SetHidden(bHidden);
 		}
-		if (Entries.empty()) return;
-		auto Transaction = std::make_unique<FActorVisibilityTransaction>(std::move(Entries), !bHidden);
-		if (GEditor)
-		{
-			const auto Result = GEditor->GetTransactor()->Execute(std::move(Transaction));
-			if (!Result) DURIN_ERROR("Unable to record actor visibility change: {}", Result.Message);
-		}
-		else Transaction->Redo();
 	}
 
 	auto FWorldOutlinerPanel::ShowAllActors() -> void
@@ -354,14 +250,10 @@ namespace Durin::Editor::Level
 				}
 				else if (ImGui::MenuItem("Set as Primary Camera"))
 				{
-					auto Transaction = std::make_unique<FPrimaryCameraTransaction>(Context.Level, Context.Level->GetPrimaryCameraActor(), Camera);
-					if (GEditor)
-					{
-						const auto Result = GEditor->GetTransactor()->Execute(std::move(Transaction));
-						if (!Result) Context.SetError(Result.Message.empty()
-							? "Failed to set the primary camera." : Result.Message);
-					}
-					else Context.Level->SetPrimaryCameraActor(Camera);
+					::Durin::Editor::FScopedTransaction Transaction("Set primary camera");
+					Transaction.Modify(Context.Level);
+					if (!Context.Level->SetPrimaryCameraActor(Camera))
+						Context.SetError("Failed to set the primary camera.");
 				}
 			}
 			if (ImGui::MenuItem("Rename", "F2")) BeginActorRename(Actor);

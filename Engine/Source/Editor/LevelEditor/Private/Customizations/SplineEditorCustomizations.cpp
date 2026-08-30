@@ -5,7 +5,7 @@
 #include "Actors/SplineMeshActor.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
-#include "Editor/Transaction.h"
+#include "Editor/Transactor.h"
 #include "Engine/Actor.h"
 #include "Math/Operations.h"
 #include "MonaImGui.h"
@@ -41,61 +41,15 @@ namespace Durin::Editor::Level
 			return std::ranges::find(Selection, Element) != Selection.end();
 		}
 
-		class FSplineSnapshotTransaction final : public ::Durin::Editor::ITransactionCustomChange
-		{
-		public:
-			FSplineSnapshotTransaction(DSplineComponent* InSpline, std::string InDescription,
-				std::vector<FSplinePoint> InBefore, bool bInBeforeClosed, std::vector<FSplinePoint> InAfter, bool bInAfterClosed)
-				: Spline(InSpline), Description(std::move(InDescription)), Before(std::move(InBefore)), After(std::move(InAfter)),
-				  bBeforeClosed(bInBeforeClosed), bAfterClosed(bInAfterClosed)
-			{
-				if (InSpline && InSpline->GetPackage()) Packages.push_back(InSpline->GetPackage());
-			}
-			auto GetDescription() const -> std::string_view override { return Description; }
-			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
-			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return Packages; }
-			auto Undo() -> bool override { return Apply(Before, bBeforeClosed); }
-			auto Redo() -> bool override { return Apply(After, bAfterClosed); }
-		private:
-			auto Apply(const std::vector<FSplinePoint>& Points, bool bClosed) -> bool
-			{
-				DSplineComponent* Resolved = Spline.Get();
-				if (!Resolved) return false;
-				Resolved->SetSplinePoints(Points);
-				Resolved->SetClosedLoop(bClosed);
-				return true;
-			}
-			TWeakObjectPtr<DSplineComponent> Spline;
-			std::string Description;
-			std::vector<FSplinePoint> Before;
-			std::vector<FSplinePoint> After;
-			bool bBeforeClosed = false;
-			bool bAfterClosed = false;
-			std::vector<DPackage*> Packages;
-		};
-
 		template<typename F>
 		auto CommitSplineEdit(DSplineComponent& Spline, ::Durin::DTransactor* Transactions, std::string Description, F&& Edit) -> bool
 		{
-			const std::vector<FSplinePoint> Before = Spline.GetSplinePoints();
-			const bool bBeforeClosed = Spline.IsClosedLoop();
+			::Durin::Editor::FScopedTransaction Transaction(Transactions, {
+				.Name = "SplineEdit",
+				.Description = std::move(Description),
+			});
+			Transaction.Modify(Spline);
 			if (!Edit()) return false;
-			const std::vector<FSplinePoint> After = Spline.GetSplinePoints();
-			const bool bAfterClosed = Spline.IsClosedLoop();
-			if (Before == After && bBeforeClosed == bAfterClosed) return false;
-			if (Transactions)
-			{
-				const auto Recorded = Transactions->CommitApplied(
-					std::make_unique<FSplineSnapshotTransaction>(
-						&Spline, std::move(Description), Before, bBeforeClosed,
-						After, bAfterClosed));
-				if (!Recorded)
-				{
-					Spline.SetSplinePoints(Before);
-					Spline.SetClosedLoop(bBeforeClosed);
-					return false;
-				}
-			}
 			return true;
 		}
 
