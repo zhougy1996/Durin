@@ -16,6 +16,8 @@
 #include "Math/Operations.h"
 #include "Modules/ModuleManager.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
@@ -245,19 +247,19 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	const std::filesystem::path CookRoot =
 		std::filesystem::absolute(Root / "Cook");
 	const std::array Mounts{
-		Durin::PathUtilities::FMountPoint{
+		Durin::FMountPoint{
 			.VirtualRoot = "/CookedStaticMeshRenderPreparation/",
-			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Owner = Durin::EMountOwner::Test,
 			.Root = Root / "Content",
 			.bAutoScan = true,
 			.bContentWritable = true},
-		Durin::PathUtilities::FMountPoint{
+		Durin::FMountPoint{
 			.VirtualRoot = "/Game/",
-			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Owner = Durin::EMountOwner::Test,
 			.Root = CookRoot / "Game",
 			.bAutoScan = true,
 			.bContentWritable = false}};
-	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
+	Durin::Testing::FScopedMountRegistryFixture MountFixture(Mounts);
 	ASSERT_TRUE(MountFixture.IsValid()) << MountFixture.GetError();
 	ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
 	Durin::FAssetPath AuthoredPath;

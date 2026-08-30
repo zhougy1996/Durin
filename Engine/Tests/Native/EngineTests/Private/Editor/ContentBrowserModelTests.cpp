@@ -10,6 +10,8 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
@@ -36,20 +38,20 @@ namespace
 			std::filesystem::create_directories(Root / "Content/A");
 			std::filesystem::create_directories(Root / "Content/B");
 			const std::array Definitions{
-				PathUtilities::FMountPoint{
+				FMountPoint{
 					.VirtualRoot = "/ContentBrowserTests/",
-					.Owner = PathUtilities::EMountOwner::Test,
+					.Owner = EMountOwner::Test,
 					.Root = Root / "Content",
 					.bAutoScan = true,
 					.bContentWritable = true}};
 			Registry =
-				std::make_unique<PathUtilities::FScopedMountRegistryFixture>(
+				std::make_unique<Testing::FScopedMountRegistryFixture>(
 					Definitions);
 			ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
 		}
 
 		std::filesystem::path Root;
-		std::unique_ptr<PathUtilities::FScopedMountRegistryFixture> Registry;
+		std::unique_ptr<Testing::FScopedMountRegistryFixture> Registry;
 	};
 
 	auto BuildTransactionPlan(
@@ -231,19 +233,19 @@ TEST_F(FContentBrowserModelTests, RejectsExcludedMountsAndClearsStaleCurrentDire
 	Registry.reset();
 	std::filesystem::create_directories(Root / "Excluded");
 	const std::array Definitions{
-		PathUtilities::FMountPoint{
+		FMountPoint{
 			.VirtualRoot = "/ContentBrowserTests/",
-			.Owner = PathUtilities::EMountOwner::Test,
+			.Owner = EMountOwner::Test,
 			.Root = Root / "Content",
 			.bAutoScan = true,
 			.bContentWritable = true},
-		PathUtilities::FMountPoint{
+		FMountPoint{
 			.VirtualRoot = "/ContentBrowserExcluded/",
-			.Owner = PathUtilities::EMountOwner::Test,
+			.Owner = EMountOwner::Test,
 			.Root = Root / "Excluded",
 			.bAutoScan = false,
 			.bContentWritable = true}};
-	Registry = std::make_unique<PathUtilities::FScopedMountRegistryFixture>(
+	Registry = std::make_unique<Testing::FScopedMountRegistryFixture>(
 		Definitions);
 	ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
 
@@ -273,13 +275,13 @@ TEST_F(FContentBrowserModelTests, RejectsExcludedMountsAndClearsStaleCurrentDire
 	Registry.reset();
 	std::filesystem::create_directories(Root / "Replacement");
 	const std::array ReplacementDefinitions{
-		PathUtilities::FMountPoint{
+		FMountPoint{
 			.VirtualRoot = "/ContentBrowserReplacement/",
-			.Owner = PathUtilities::EMountOwner::Test,
+			.Owner = EMountOwner::Test,
 			.Root = Root / "Replacement",
 			.bAutoScan = true,
 			.bContentWritable = true}};
-	Registry = std::make_unique<PathUtilities::FScopedMountRegistryFixture>(
+	Registry = std::make_unique<Testing::FScopedMountRegistryFixture>(
 		ReplacementDefinitions);
 	ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
 	Model.RefreshMountSnapshot();
@@ -294,17 +296,17 @@ TEST_F(FContentBrowserModelTests, ListsGameMountBeforeEngineMount)
 	std::filesystem::create_directories(Root / "EngineContent");
 	std::filesystem::create_directories(Root / "GameContent");
 	const std::array Definitions{
-		PathUtilities::FMountPoint{
+		FMountPoint{
 			.VirtualRoot = "/Engine/",
-			.Owner = PathUtilities::EMountOwner::Engine,
+			.Owner = EMountOwner::Engine,
 			.Root = Root / "EngineContent",
 			.bAutoScan = true},
-		PathUtilities::FMountPoint{
+		FMountPoint{
 			.VirtualRoot = "/Game/",
-			.Owner = PathUtilities::EMountOwner::ActiveProject,
+			.Owner = EMountOwner::ActiveProject,
 			.Root = Root / "GameContent",
 			.bAutoScan = true}};
-	Registry = std::make_unique<PathUtilities::FScopedMountRegistryFixture>(
+	Registry = std::make_unique<Testing::FScopedMountRegistryFixture>(
 		Definitions);
 	ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
 
@@ -1053,13 +1055,13 @@ TEST_F(FContentBrowserModelTests, RejectsOrdinaryMutationsInReadOnlyMount)
 {
 	Registry.reset();
 	const std::array Definitions{
-		PathUtilities::FMountPoint{
+		FMountPoint{
 			.VirtualRoot = "/ContentBrowserReadOnly/",
-			.Owner = PathUtilities::EMountOwner::Test,
+			.Owner = EMountOwner::Test,
 			.Root = Root / "Content",
 			.bAutoScan = true,
 			.bContentWritable = false}};
-	Registry = std::make_unique<PathUtilities::FScopedMountRegistryFixture>(
+	Registry = std::make_unique<Testing::FScopedMountRegistryFixture>(
 		Definitions);
 	ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
 
@@ -1337,13 +1339,13 @@ TEST(FContentDeletionAnalysisTests, RejectsReadOnlyMountBeforeMutation)
 	Durin::Testing::RemoveTestWorkDirectory(Root, Ec);
 	std::filesystem::create_directories(Root / "Content/Folder");
 	const std::array Definitions{
-		PathUtilities::FMountPoint{
+		FMountPoint{
 			.VirtualRoot = "/ContentDeletionReadOnly/",
-			.Owner = PathUtilities::EMountOwner::Test,
+			.Owner = EMountOwner::Test,
 			.Root = Root / "Content",
 			.bAutoScan = true,
 			.bContentWritable = false}};
-	PathUtilities::FScopedMountRegistryFixture Registry(Definitions);
+	Testing::FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 	FContentBrowserModel Model;
 	Model.RefreshMountSnapshot();

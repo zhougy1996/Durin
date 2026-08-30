@@ -1,3 +1,4 @@
+#include "Misc/MountPathTestSupport.h"
 #include "Editor/Import/ImportDialogSupport.h"
 #include "Import/TextureImportDialogState.h"
 
@@ -95,13 +96,13 @@ TEST(FImportDialogDestinationModelTests, DelegatesValidationToAssetDestination)
 		Durin::Testing::GetTestWorkDirectory() / "ImportDialogState";
 	std::filesystem::create_directories(Root / "Project/Content");
 	const std::array Definitions{
-		PathUtilities::FMountPoint{
+		FMountPoint{
 			.VirtualRoot = "/Project/",
-			.Owner = PathUtilities::EMountOwner::ActiveProject,
+			.Owner = EMountOwner::ActiveProject,
 			.Root = Root / "Project/Content",
 			.bAutoScan = true,
 			.bContentWritable = true}};
-	const PathUtilities::FScopedMountRegistryFixture Registry(Definitions);
+	const Testing::FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 
 	FImportDialogDestinationModel Destination;

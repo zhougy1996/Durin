@@ -1,3 +1,4 @@
+#include "Misc/MountPathTestSupport.h"
 #include "WorldTestSupport.h"
 
 #include "DObject/Package.h"
@@ -105,20 +106,20 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	ASSERT_TRUE(std::filesystem::create_directories(Root));
 
-	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
-	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
+	Durin::Testing::FScopedMountRegistryFixture SavedMountRegistry;
+	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
-	std::vector<Durin::PathUtilities::FMountPoint> MountDefinitions(
-		Durin::PathUtilities::GetRegisteredMountPoints().begin(),
-		Durin::PathUtilities::GetRegisteredMountPoints().end());
+	std::vector<Durin::FMountPoint> MountDefinitions(
+		Durin::FMountPaths::GetRegisteredMountPoints().begin(),
+		Durin::FMountPaths::GetRegisteredMountPoints().end());
 	MountDefinitions.push_back({
 		.VirtualRoot = "/LevelReconstruction/",
-		.Owner = Durin::PathUtilities::EMountOwner::Test,
+		.Owner = Durin::EMountOwner::Test,
 		.Root = Root.generic_string() + "/",
 		.bAutoScan = true,
 		.bContentWritable = true,
 		.Dependencies = {"/Engine/"}});
-	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry(MountDefinitions);
+	Durin::Testing::FScopedMountRegistryFixture MountRegistry(MountDefinitions);
 	ASSERT_TRUE(MountRegistry.IsValid()) << MountRegistry.GetError();
 
 	Durin::FAssetPath MeshPath;

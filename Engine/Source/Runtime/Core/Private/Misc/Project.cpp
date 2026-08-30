@@ -4,6 +4,7 @@
 #include "HAL/PlatformProcess.h"
 #include "Json/Json.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "Misc/ProjectHistory.h"
 
 #ifdef _WIN32
@@ -71,7 +72,7 @@ namespace Durin
 			return false;
 		}
 		if (!FPaths::SetProjectFile(Normalized, OutError)) return false;
-		if (!PathUtilities::ValidateDefaultMountPoints(OutError))
+		if (!FMountPaths::ValidateDefaultMountPoints(OutError))
 		{
 			FPaths::SetProjectFile({});
 			return false;
@@ -81,7 +82,7 @@ namespace Durin
 		Info.ProjectFile = Normalized;
 		Info.ProjectDir = std::filesystem::path(Normalized).parent_path().generic_string() + "/";
 		Info.ContentDir = Info.ProjectDir + "Content/";
-		Info.MountRoot = PathUtilities::ProjectContentMountRoot;
+		Info.MountRoot = FMountPaths::ProjectContentMountRoot;
 		GCurrentProject = std::move(Info);
 		return true;
 	}

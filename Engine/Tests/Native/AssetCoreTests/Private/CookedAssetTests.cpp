@@ -17,6 +17,7 @@
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Materials/Material.h"
 #include "NativeTestSupport.h"
 #include "NativeDObjectTestSupport.h"
@@ -51,7 +52,7 @@ namespace
 			const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory()
 											   / "CookPackageFixtureMount";
 			std::filesystem::create_directories(Root);
-			PathUtilities::RegisterMountPointForTests(
+			Testing::RegisterMountPointForTests(
 				"/TestCook/", Root.generic_string() + "/"
 			);
 			return true;

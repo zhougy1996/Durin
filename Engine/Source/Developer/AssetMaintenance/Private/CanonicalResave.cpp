@@ -10,6 +10,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/FileTime.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 
 namespace Durin::Asset
 {
@@ -208,8 +209,8 @@ namespace Durin::Asset
 			if (!IsSupportedAssetPackageReaderVersion(Record->FormatVersion))
 				Package.Diagnostics.push_back(
 					"UnsupportedFormat: canonical resave requires a supported DAST reader.");
-			const PathUtilities::FMountLookupResult Mount =
-				PathUtilities::FindMountForVirtualPath(Record->PackagePath.GetView());
+			const FMountLookupResult Mount =
+				FMountPaths::FindMountForVirtualPath(Record->PackagePath.GetView());
 			if (!Mount || !Mount.Mount->bContentWritable)
 				Package.Diagnostics.push_back("ReadOnlyMount: package is not on an content-writable mount.");
 			if (Package.bDirty)

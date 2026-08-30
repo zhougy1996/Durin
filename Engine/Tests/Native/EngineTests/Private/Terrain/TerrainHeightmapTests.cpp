@@ -10,6 +10,7 @@
 #include "Image/ImageDecoder.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Source/SourceReferenceIndex.h"
 #include "Terrain/TerrainHeightmap.h"
@@ -206,7 +207,7 @@ namespace
 			Durin::Testing::GetTestWorkDirectory() / "TerrainHeightmap";
 		static const bool Initialized = [&] {
 			Durin::Testing::RemoveTestWorkDirectory(Root);
-			Durin::PathUtilities::RegisterMountPointForTests(
+			Durin::Testing::RegisterMountPointForTests(
 				"/TerrainHeightmap/", Root.generic_string() + "/");
 			return true;
 		}();

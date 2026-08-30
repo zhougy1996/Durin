@@ -1,6 +1,6 @@
 #include "Panels/ContentBrowserOperations.h"
 
-#include "Misc/LexicalPath.h"
+#include "Misc/Paths.h"
 #include "Misc/FileHelper.h"
 
 namespace Durin::Editor::ContentBrowser::Private
@@ -21,7 +21,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			const std::filesystem::path& B) -> bool
 		{
 			std::filesystem::path Relative;
-			return PathUtilities::TryMakeLexicalRelativePath(
+			return FPaths::TryMakeLexicalRelativePath(
 				Normalize(A), Normalize(B), Relative) && Relative.empty();
 		}
 
@@ -131,7 +131,7 @@ namespace Durin::Editor::ContentBrowser::Private
 					Current = bApplied ? Move.Staged : Move.Original;
 					break;
 				}
-				if (PathUtilities::IsLexicalDescendantPath(
+				if (FPaths::IsLexicalDescendantPath(
 						Original.generic_string(), Move.Original.generic_string(), true))
 				{
 					Current = (bApplied ? Move.Staged : Move.Original)

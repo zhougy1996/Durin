@@ -15,6 +15,7 @@
 #include "Editor/Transaction.h"
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "MonaImGuiPropertyTable.h"
 #include "NativeTestSupport.h"
 
@@ -238,7 +239,7 @@ namespace
 			InitializeDObjectSystem();
 			const std::filesystem::path Root =
 				Durin::Testing::CreateTestFixtureDirectory("SoftObjectPropertyView");
-			Durin::PathUtilities::RegisterMountPointForTests(
+			Durin::Testing::RegisterMountPointForTests(
 				"/SoftObjectPropertyView/", Root.generic_string() + "/");
 			return true;
 		}();

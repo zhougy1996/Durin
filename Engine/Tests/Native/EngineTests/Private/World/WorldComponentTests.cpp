@@ -1,3 +1,4 @@
+#include "Misc/MountPathTestSupport.h"
 #include "WorldTestSupport.h"
 #include "DObject/Package.h"
 #include "Math/Operations.h"
@@ -44,7 +45,7 @@ TEST(FDirectionalLightTests, LinearColorRoundTripsThroughLevelAssets)
 	if (InitializedRoots.insert(Root).second)
 	{
 		Durin::Testing::RemoveTestWorkDirectory(Root);
-		Durin::PathUtilities::RegisterMountPointForTests("/DirectionalLightTests/", Root.generic_string() + "/");
+		Durin::Testing::RegisterMountPointForTests("/DirectionalLightTests/", Root.generic_string() + "/");
 	}
 
 	Durin::FAssetPath Path;
@@ -175,7 +176,7 @@ TEST(FSceneComponentTests, EqualTransformSettersDoNotDirtyTheOwningPackage)
 	if (InitializedRoots.insert(Root).second)
 	{
 		Durin::Testing::RemoveTestWorkDirectory(Root);
-		Durin::PathUtilities::RegisterMountPointForTests("/SceneComponentTests/", Root.generic_string() + "/");
+		Durin::Testing::RegisterMountPointForTests("/SceneComponentTests/", Root.generic_string() + "/");
 	}
 
 	Durin::FAssetPath Path;

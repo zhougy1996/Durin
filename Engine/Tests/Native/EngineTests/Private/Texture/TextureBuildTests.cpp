@@ -1,3 +1,4 @@
+#include "Misc/MountPathTestSupport.h"
 #include "TextureTestSupport.h"
 #include "Misc/FileHelper.h"
 #include "Modules/ModuleManager.h"
@@ -202,7 +203,7 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(
 		CookRoot, CookedConfiguration));
 	ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(CookedConfiguration)));
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));

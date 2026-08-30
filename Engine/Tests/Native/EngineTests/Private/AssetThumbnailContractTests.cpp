@@ -3,6 +3,7 @@
 #include "EngineTestSupport.h"
 #include "Image/ImageDecoder.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "Thumbnail/ThumbnailManager.h"
@@ -34,7 +35,7 @@ namespace Durin
 			if (RegisteredRoots.insert(Root).second)
 			{
 				std::filesystem::create_directories(Root);
-				PathUtilities::RegisterMountPointForTests("/ThumbnailTests/", Root.generic_string() + "/");
+				Testing::RegisterMountPointForTests("/ThumbnailTests/", Root.generic_string() + "/");
 			}
 			FAssetPath Path;
 			EXPECT_TRUE(FAssetPath::TryCreate(Value, Path));

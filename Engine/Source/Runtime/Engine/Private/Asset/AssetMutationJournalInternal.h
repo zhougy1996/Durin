@@ -4,6 +4,7 @@
 #include "Asset/Mutation.h"
 #undef DURIN_ENGINE_ASSET_INTERNAL
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 
 namespace Durin::Asset::Private
 {
@@ -75,7 +76,7 @@ namespace Durin::Asset::Private
 		FAssetPackageFingerprint& OutFingerprint) -> FAssetResult;
 	auto IsWritableRelocationPath(
 		const std::filesystem::path& Path,
-		const PathUtilities::FMountPoint*& OutMount,
+		const FMountPoint*& OutMount,
 		std::string& OutError) -> bool;
 	auto WriteMutationJournalState(FAssetMutationJournal& Journal) -> FAssetResult;
 	// Makes a state visible only after every recovery record accepts it.

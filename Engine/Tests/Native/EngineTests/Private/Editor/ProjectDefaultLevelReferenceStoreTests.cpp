@@ -10,6 +10,8 @@
 #include "Engine/Level.h"
 
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Misc/Project.h"
 #include "NativeTestSupport.h"
 #include "NativeDObjectTestSupport.h"
@@ -89,21 +91,21 @@ namespace
 	}
 
 	auto ConfigureAssets(FDefaultLevelScenario& Scenario)
-		-> std::unique_ptr<Durin::PathUtilities::FScopedMountRegistryFixture>
+		-> std::unique_ptr<Durin::Testing::FScopedMountRegistryFixture>
 	{
 		Durin::Asset::ShutdownAssetManager();
 		Durin::CollectGarbage();
 		Durin::Asset::InitializeAssetManager();
 		Durin::FPaths::SetDerivedDataCacheDirForTests(
 			(Scenario.Root / "DerivedDataCache").generic_string());
-		const std::array Mounts = {Durin::PathUtilities::FMountPoint{
+		const std::array Mounts = {Durin::FMountPoint{
 			.VirtualRoot = "/DefaultLevelTests/",
-			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Owner = Durin::EMountOwner::Test,
 			.Root = Scenario.Root / "Content",
 			.bAutoScan = true,
 			.bContentWritable = true}};
 		auto Fixture = std::make_unique<
-			Durin::PathUtilities::FScopedMountRegistryFixture>(Mounts);
+			Durin::Testing::FScopedMountRegistryFixture>(Mounts);
 		EXPECT_TRUE(Durin::Asset::RefreshAssetRegistry(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));
 		Scenario.OldPath = MakePath("/DefaultLevelTests/Levels/Old");

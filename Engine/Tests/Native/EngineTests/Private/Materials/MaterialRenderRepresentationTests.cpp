@@ -1,3 +1,4 @@
+#include "Misc/MountPathTestSupport.h"
 #include "MaterialTestSupport.h"
 #include "Asset/AssetOperations.h"
 #include "Asset/Mutation.h"
@@ -159,7 +160,7 @@ TEST(FMaterialProgramCharacterizationTests,
 TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 {
 	InitializeDObjectSystem();
-	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
+	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	const Durin::Asset::FAssetCatalogRefreshResult Refresh =
 		Durin::Asset::RefreshAssetRegistry(
@@ -240,13 +241,13 @@ TEST(FDefaultMaterialServiceTests, MissingEngineContentSelectsErrorTerminal)
 	const std::filesystem::path Root =
 		Durin::Testing::CreateTestFixtureDirectory("MissingDefaultMaterial");
 	const std::array Definitions{
-		Durin::PathUtilities::FMountPoint{
+		Durin::FMountPoint{
 			.VirtualRoot = "/Engine/",
-			.Owner = Durin::PathUtilities::EMountOwner::Engine,
+			.Owner = Durin::EMountOwner::Engine,
 			.Root = Root,
 			.bAutoScan = true,
 			.bContentWritable = false}};
-	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Definitions);
+	Durin::Testing::FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
@@ -267,7 +268,7 @@ TEST(FDefaultMaterialServiceTests, MissingEngineContentSelectsErrorTerminal)
 TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 {
 	InitializeDObjectSystem();
-	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
+	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	Durin::FAssetPath Path;
@@ -310,12 +311,12 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	ASSERT_TRUE(Result) << Result.Message;
 	{
 	const std::array CookMountDefinitions{
-		Durin::PathUtilities::FMountPoint{
+		Durin::FMountPoint{
 			.VirtualRoot = "/Engine/",
-			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Owner = Durin::EMountOwner::Test,
 			.Root = CookRoot / "Engine",
 			.bAutoScan = true}};
-	Durin::PathUtilities::FScopedMountRegistryFixture CookMounts(
+	Durin::Testing::FScopedMountRegistryFixture CookMounts(
 		CookMountDefinitions);
 	ASSERT_TRUE(CookMounts.IsValid()) << CookMounts.GetError();
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(

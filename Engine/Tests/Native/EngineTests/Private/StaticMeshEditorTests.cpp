@@ -2,6 +2,7 @@
 #include "EngineTestSupport.h"
 #include "Materials/MaterialTestSupport.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Modules/ModuleTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Preview/OrbitAssetPreview.h"
@@ -126,7 +127,7 @@ TEST(FStaticMeshEditorTests, ReusesOneDocumentPerMeshAndSupportsCloseReopen)
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "StaticMeshEditorDocuments";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	std::filesystem::create_directories(Root / "Content");
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::RegisterMountPointForTests(
 		"/StaticMeshEditorTests/", (Root / "Content").generic_string() + "/");
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 	const Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> First = Durin::AssetForge::Builtins::ImportStaticMeshForTest(

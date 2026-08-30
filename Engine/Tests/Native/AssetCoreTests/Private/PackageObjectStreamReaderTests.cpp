@@ -14,6 +14,7 @@
 #include "DObject/DObjectArray.h"
 #include "DObject/Package.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "PackageObjectStreamReferenceModel.h"
@@ -78,7 +79,7 @@ namespace
 			Durin::Testing::InitializeDObjectSystemForTests();
 			(void)Durin::Asset::DAssetRedirector::StaticClass();
 			const auto Root = Durin::Testing::GetTestWorkDirectory() / "V4ReaderAssets";
-			Durin::PathUtilities::RegisterMountPointForTests("/V4Reader/", Root.generic_string() + "/");
+			Durin::Testing::RegisterMountPointForTests("/V4Reader/", Root.generic_string() + "/");
 			return true;
 		}();
 		(void)Initialized;

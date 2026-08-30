@@ -31,6 +31,7 @@
 #include "Materials/MaterialInstance.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "Modules/ModuleTestSupport.h"
 #include "RenderingThread.h"
 #include "RendererModule.h"
@@ -383,7 +384,7 @@ namespace
 				Durin::GetRenderCommandAdmissionState()
 					== Durin::ERenderCommandAdmissionState::Stopped;
 			if (bOwnsRenderingThread) Durin::InitRenderingThread();
-			if (Durin::PathUtilities::FindMountForVirtualPath(
+			if (Durin::FMountPaths::FindMountForVirtualPath(
 					Durin::DefaultMaterialAssetPath))
 			{
 				Durin::InitializeDefaultMaterialService();
@@ -449,7 +450,7 @@ namespace
 				Durin::GetRenderCommandAdmissionState()
 					== Durin::ERenderCommandAdmissionState::Stopped;
 			if (bOwnsRenderingThread) Durin::InitRenderingThread();
-			if (Durin::PathUtilities::FindMountForVirtualPath(
+			if (Durin::FMountPaths::FindMountForVirtualPath(
 					Durin::DefaultMaterialAssetPath))
 			{
 				Durin::InitializeDefaultMaterialService();

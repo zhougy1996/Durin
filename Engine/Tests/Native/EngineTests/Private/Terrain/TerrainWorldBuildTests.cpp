@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "Asset/AssetOperations.h"
@@ -84,7 +85,7 @@ namespace
 		Testing::InitializeDObjectSystemForTests();
 		const std::filesystem::path Content = Testing::GetTestWorkDirectory() / "TerrainWorldTemplateContent";
 		std::filesystem::create_directories(Content);
-		PathUtilities::RegisterMountPointForTests(
+		Testing::RegisterMountPointForTests(
 			"/TerrainWorld/", Content.generic_string() + "/"
 		);
 		FAssetPath Path;

@@ -35,6 +35,7 @@
 #include "MonaImGui.h"
 #include "Client/SceneViewport.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "SceneViewProjection.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -131,8 +132,8 @@ namespace
 	auto MakeRevisionTestPackage(std::string_view Label = "Package") -> Durin::DPackage*
 	{
 		InitializeDObjectSystem();
-		Durin::PathUtilities::FScopedMountRegistryFixture MountFixture;
-		Durin::PathUtilities::RegisterMountPointForTests(
+		Durin::Testing::FScopedMountRegistryFixture MountFixture;
+		Durin::Testing::RegisterMountPointForTests(
 			"/EditorRevisionTests/",
 			Durin::Testing::GetTestWorkDirectory().generic_string() + "/"
 		);

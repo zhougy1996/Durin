@@ -17,6 +17,7 @@
 #include "DObject/PropertyKindTraits.h"
 #include "CoreGlobals.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Math/Color.h"
 #include "NativeTestSupport.h"
 #include "NativeDObjectTestSupport.h"
@@ -2404,7 +2405,7 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		static const bool bMounted = [] {
 			Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
 			Durin::GIsGameThreadIdInitialized = true;
-			Durin::PathUtilities::RegisterMountPointForTests(
+			Durin::Testing::RegisterMountPointForTests(
 				"/CoreTests/",
 				(Durin::Testing::GetTestWorkDirectory() / "CoreTests").generic_string() + "/"
 			);

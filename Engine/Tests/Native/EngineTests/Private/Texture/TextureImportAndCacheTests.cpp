@@ -1,3 +1,4 @@
+#include "Misc/MountPathTestSupport.h"
 #include "TextureTestSupport.h"
 #include "Asset/SourceHint.h"
 #include "Misc/FileHelper.h"
@@ -19,9 +20,9 @@ namespace
 		const std::filesystem::path& Source,
 		std::string_view AssetPath) -> std::string
 	{
-		const Durin::PathUtilities::FAssetPathResult Resolved =
-			Durin::PathUtilities::ResolveAssetPath(
-				AssetPath, Durin::PathUtilities::EPathExistence::AllowMissing);
+		const Durin::FAssetPathResult Resolved =
+			Durin::FMountPaths::ResolveAssetPath(
+				AssetPath, Durin::EMountPathExistence::AllowMissing);
 		if (!Resolved) return {};
 		std::filesystem::path PackagePath = Resolved.PhysicalPath;
 		PackagePath += ".dasset";
@@ -154,9 +155,9 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	EXPECT_EQ(Loaded->GetBuildRevision(), 1u);
 	std::string ExpectedFilename;
 	std::string FilenameError;
-	const Durin::PathUtilities::FAssetPathResult PhysicalPackage =
-		Durin::PathUtilities::ResolveAssetPath(
-			AssetPath.GetView(), Durin::PathUtilities::EPathExistence::AllowMissing);
+	const Durin::FAssetPathResult PhysicalPackage =
+		Durin::FMountPaths::ResolveAssetPath(
+			AssetPath.GetView(), Durin::EMountPathExistence::AllowMissing);
 	ASSERT_TRUE(PhysicalPackage) << PhysicalPackage.Message;
 	std::filesystem::path PhysicalPackagePath = PhysicalPackage.PhysicalPath;
 	PhysicalPackagePath += ".dasset";
@@ -263,7 +264,7 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "TextureDerivedDataMount";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::RegisterMountPointForTests(
 		"/TextureDerivedDataTests/", Root.generic_string() + "/");
 	FScopedDerivedDataCacheRoot CacheRoot(
 		Durin::Testing::GetTestWorkDirectory() / "TextureDerivedDataCache");

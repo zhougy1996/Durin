@@ -13,6 +13,7 @@
 #include "HAL/PlatformProcess.h"
 #include "Math/Operations.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "Misc/Project.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMeshLevelMutations.h"
@@ -183,8 +184,8 @@ namespace Durin::Editor::Level
 				}
 				return true;
 			}
-			const PathUtilities::FAssetPathResult Resolved =
-				PathUtilities::ResolveAssetPath(Path.ToString());
+			const FAssetPathResult Resolved =
+				FMountPaths::ResolveAssetPath(Path.ToString());
 			if (!Resolved) return false;
 			std::filesystem::path PackageFile = Resolved.PhysicalPath;
 			PackageFile += ".dasset";

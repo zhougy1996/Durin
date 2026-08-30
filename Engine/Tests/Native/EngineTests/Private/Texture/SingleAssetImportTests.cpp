@@ -9,6 +9,7 @@
 #include "EngineTestSupport.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "StaticMesh/StaticMeshFactoryTestSupport.h"
@@ -34,7 +35,7 @@ namespace
 			Durin::Testing::GetTestWorkDirectory() / "SingleAssetImportStage2";
 		static const bool Initialized = [&] {
 			Durin::Testing::RemoveTestWorkDirectory(Root);
-			Durin::PathUtilities::RegisterMountPointForTests(
+			Durin::Testing::RegisterMountPointForTests(
 				"/SingleAssetStage2/", Root.generic_string() + "/");
 			return true;
 		}();

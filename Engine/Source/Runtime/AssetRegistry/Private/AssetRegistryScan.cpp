@@ -2,6 +2,7 @@
 
 #include "Misc/FileTime.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 
 namespace Durin::Asset::Private
 {
@@ -43,7 +44,7 @@ namespace Durin::Asset::Private
 		const bool bCacheLoaded = LoadRegistryCache(
 			MountManifest, CachedEntries, Result.CacheWarning);
 
-		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+		for (const FMountPoint& Mount : FMountPaths::GetRegisteredMountPoints())
 		{
 			if (!Mount.bAutoScan) continue;
 			const std::filesystem::path AssetRoot = Mount.GetContentDir();

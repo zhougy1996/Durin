@@ -8,6 +8,8 @@
 #include "EngineTestSupport.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Texture/TextureCube.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
@@ -92,13 +94,13 @@ namespace Durin::Editor::ContentBrowser::Private
 		Testing::RemoveTestWorkDirectory(Root, Error);
 		std::filesystem::create_directories(Root / "Content");
 		const std::array Definitions{
-			PathUtilities::FMountPoint{
+			FMountPoint{
 				.VirtualRoot = "/ContentBrowserTextureCubeDetails/",
-				.Owner = PathUtilities::EMountOwner::Test,
+				.Owner = EMountOwner::Test,
 				.Root = Root / "Content",
 				.bAutoScan = true,
 				.bContentWritable = true}};
-		PathUtilities::FScopedMountRegistryFixture Registry(Definitions);
+		Testing::FScopedMountRegistryFixture Registry(Definitions);
 		ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 		FAssetPath CubePath;
 		ASSERT_TRUE(FAssetPath::TryCreate(

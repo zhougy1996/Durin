@@ -5,7 +5,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
-#include "Misc/LexicalPath.h"
+#include "Misc/Paths.h"
 
 namespace Durin::Asset
 {
@@ -468,7 +468,7 @@ namespace Durin::Asset
 					const std::string NormalizedRoot =
 						std::filesystem::absolute(Root).lexically_normal().generic_string();
 					return PhysicalPath == NormalizedRoot
-						|| PathUtilities::IsLexicalDescendantPath(
+						|| FPaths::IsLexicalDescendantPath(
 							PhysicalPath, NormalizedRoot, true);
 				});
 			if (!bInsidePhysicalRoot) continue;

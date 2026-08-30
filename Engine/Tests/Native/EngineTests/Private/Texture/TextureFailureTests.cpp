@@ -1,3 +1,4 @@
+#include "Misc/MountPathTestSupport.h"
 #include "TextureTestSupport.h"
 #include "EditorReimportHandler.h"
 #include "Misc/FileHelper.h"
@@ -228,7 +229,7 @@ TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "TextureFailureMount";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::RegisterMountPointForTests(
 		"/TextureFailureTests/", Root.generic_string() + "/");
 
 	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "FailureReadySource.png";
@@ -252,7 +253,7 @@ TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "TextureInvalidateMount";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::RegisterMountPointForTests(
 		"/TextureInvalidateTests/", Root.generic_string() + "/");
 
 	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "InvalidateSource.png";

@@ -12,6 +12,8 @@
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
@@ -98,8 +100,8 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
-	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
-	Durin::PathUtilities::InitDefaultMountPoints();
+	Durin::Testing::FScopedMountRegistryFixture SavedMountRegistry;
+	Durin::FMountPaths::InitDefaultMountPoints();
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 	Durin::FAssetPath SpherePath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
@@ -132,20 +134,20 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 			std::filesystem::copy_options::overwrite_existing);
 	}
 	const std::array Mounts{
-		Durin::PathUtilities::FMountPoint{
+		Durin::FMountPoint{
 			.VirtualRoot = "/Engine/",
-			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Owner = Durin::EMountOwner::Test,
 			.Root = Root / "Engine/Content",
 			.bAutoScan = true,
 			.bContentWritable = true},
-		Durin::PathUtilities::FMountPoint{
+		Durin::FMountPoint{
 			.VirtualRoot = "/SceneImportVulkan/",
-			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Owner = Durin::EMountOwner::Test,
 			.Root = Root / "Project/Content",
 			.bAutoScan = true,
 			.bContentWritable = true,
 			.Dependencies = {"/Engine/"}}};
-	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture(Mounts);
+	Durin::Testing::FScopedMountRegistryFixture MountFixture(Mounts);
 	ASSERT_TRUE(MountFixture.IsValid()) << MountFixture.GetError();
 	// Replace catalog paths captured from the default mounts before mutating test assets.
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());

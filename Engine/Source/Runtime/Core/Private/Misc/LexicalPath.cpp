@@ -1,8 +1,8 @@
-#include "Misc/LexicalPath.h"
+#include "Misc/Paths.h"
 
 #include <cwctype>
 
-namespace Durin::PathUtilities
+namespace Durin
 {
 	namespace
 	{
@@ -31,7 +31,7 @@ namespace Durin::PathUtilities
 		}
 	}
 
-	auto TryMakeLexicalRelativePath(
+	auto FPaths::TryMakeLexicalRelativePath(
 		const std::filesystem::path& Candidate,
 		const std::filesystem::path& Parent,
 		std::filesystem::path& OutRelative) -> bool
@@ -52,17 +52,17 @@ namespace Durin::PathUtilities
 		return true;
 	}
 
-	auto IsLexicalDescendantPath(
+	auto FPaths::IsLexicalDescendantPath(
 		const std::filesystem::path& Candidate,
 		const std::filesystem::path& Parent,
 		bool bRecursive) -> bool
 	{
 		std::filesystem::path Relative;
-		if (!TryMakeLexicalRelativePath(Candidate, Parent, Relative) || Relative.empty()) return false;
+		if (!FPaths::TryMakeLexicalRelativePath(Candidate, Parent, Relative) || Relative.empty()) return false;
 		return bRecursive || Relative.parent_path().empty();
 	}
 
-	auto TryResolveContainedPath(
+	auto FPaths::TryResolveContainedPath(
 		const std::filesystem::path& Candidate,
 		const std::filesystem::path& Root,
 		std::filesystem::path& OutResolvedCandidate,
@@ -80,7 +80,7 @@ namespace Durin::PathUtilities
 		if (OutError) return false;
 		const std::filesystem::path ResolvedCandidate = std::filesystem::weakly_canonical(Candidate, OutError);
 		if (OutError) return false;
-		if (!IsLexicalDescendantPath(ResolvedCandidate, ResolvedRoot, true)) return false;
+		if (!FPaths::IsLexicalDescendantPath(ResolvedCandidate, ResolvedRoot, true)) return false;
 		OutResolvedCandidate = ResolvedCandidate;
 		return true;
 	}

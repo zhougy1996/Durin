@@ -11,6 +11,7 @@
 #include "Asset.h"
 #include "DObject/DObjectGlobals.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"
 #include "Terrain/TerrainHeightmapBuildOperations.h"
@@ -32,9 +33,9 @@ namespace Durin::AssetForge::Builtins
 				OutError = "Terrain heightmap source capture requires an owning package.";
 				return false;
 			}
-			const PathUtilities::FAssetPathResult Resolved =
-				PathUtilities::ResolveAssetPath(Heightmap.GetPackage()->GetPackagePath(),
-					PathUtilities::EPathExistence::AllowMissing);
+			const FAssetPathResult Resolved =
+				FMountPaths::ResolveAssetPath(Heightmap.GetPackage()->GetPackagePath(),
+					EMountPathExistence::AllowMissing);
 			if (!Resolved) { OutError = Resolved.Message; return false; }
 			OutPath = Resolved.PhysicalPath;
 			OutPath += ".dasset";

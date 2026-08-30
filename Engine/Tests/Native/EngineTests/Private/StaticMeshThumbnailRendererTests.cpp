@@ -17,6 +17,8 @@
 #include "NativeTestSupport.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "RenderingThread.h"
 #include "StaticMesh/StaticMesh.h"
@@ -137,8 +139,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 	MissingDerivedDataRebuildsBeforeThumbnailReadiness)
 {
 	InitializeDObjectSystem();
-	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry;
-	Durin::PathUtilities::InitDefaultMountPoints();
+	Durin::Testing::FScopedMountRegistryFixture MountRegistry;
+	Durin::FMountPaths::InitDefaultMountPoints();
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	std::string Error;

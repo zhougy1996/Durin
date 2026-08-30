@@ -5,6 +5,7 @@
 #include "Misc/FileTime.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 
 namespace Durin::Asset
 {
@@ -220,7 +221,7 @@ namespace Durin::Asset
 		-> FAssetPackageDiscoverySnapshot
 	{
 		FAssetPackageDiscoverySnapshot Result;
-		for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+		for (const FMountPoint& Mount : FMountPaths::GetRegisteredMountPoints())
 		{
 			if (IsCancellationRequested && IsCancellationRequested())
 			{

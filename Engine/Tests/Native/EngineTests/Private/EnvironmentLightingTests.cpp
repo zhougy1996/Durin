@@ -7,6 +7,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Serialization/Archive.h"
 
@@ -111,7 +112,7 @@ TEST(FEnvironmentLightingTests, AssetCooksAuthoredPayloadDirectlyWithoutDdc)
 		Durin::Testing::GetTestWorkDirectory() / "EnvironmentLightingCook";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	std::filesystem::create_directories(Root / "Content");
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::RegisterMountPointForTests(
 		"/EnvironmentLightingCook/", (Root / "Content").generic_string() + "/");
 
 	Durin::FAssetPath AssetPath;

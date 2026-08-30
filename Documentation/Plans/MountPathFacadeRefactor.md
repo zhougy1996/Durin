@@ -9,12 +9,26 @@ Completed:
 
 ## Current Status
 
-The target API shape is selected and implementation has not started. The
-current `Durin::PathUtilities` namespace combines process-wide mount registry
-state with three general filesystem path operations. Repository consumers span
-Core, asset runtime, developer tools, editor modules, programs, and native
-tests, so removal of the old namespace must follow a compatibility-backed
-migration rather than a single declaration-only rename.
+Stages 0 through 3 and the implementation portion of Stage 4 are complete.
+`FPaths` now owns the physical-path algorithms, `FMountPaths` owns the unchanged
+process-wide registry implementation, and mount types live directly in
+`Durin`. Mutable registry helpers are available only from
+`Misc/MountPathTestSupport.h` under `Durin::Testing`; focused coverage verifies
+nested fixture restoration and publication-state preservation. All repository
+C++ consumers have migrated and `Misc/LexicalPath.h` has been removed.
+
+The temporary compatibility layer was omitted during implementation because
+all repository-owned consumers could be migrated atomically in this isolated
+checkout. This avoids landing a transient second public surface while retaining
+the plan's single-registry requirement.
+
+Before editing, `CoreFileSystemTests` passed 45/45 and `AssetPackageTests`
+passed 131/131. After migration, the full configured `all` build passes and the
+same focused targets pass. The complete default native-test selection builds
+and passes 73 of 74 targets; the unrelated
+`FSkeletalSceneLifecycleTests.GltfAndGlbCookDeterministicallyAndLoadRuntimeOnly`
+integration case fails because a runtime-loaded mesh has no payload data. The
+case reproduces in isolation and is the remaining acceptance-gate blocker.
 
 ## Goal
 
@@ -120,104 +134,104 @@ final stage; no lasting source-compatibility promise is made.
 
 ### Stage 0: Freeze the inventory and baseline
 
-- [ ] Record every declaration, definition, include, and qualified use of
+- [x] Record every declaration, definition, include, and qualified use of
   `PathUtilities`, `Misc/Paths.h`, and `Misc/LexicalPath.h`, grouped by Core,
   runtime consumers, developer/editor/program consumers, and tests.
-- [ ] Identify unqualified uses made visible by `using namespace Durin` so the
+- [x] Identify unqualified uses made visible by `using namespace Durin` so the
   migration does not rely only on textual `Durin::PathUtilities` matches.
-- [ ] Confirm whether any non-test production target includes or calls the
+- [x] Confirm whether any non-test production target includes or calls the
   mutable test registry helpers.
-- [ ] Run the smallest existing Core lexical-path and mount/package test
+- [x] Run the smallest existing Core lexical-path and mount/package test
   baselines according to the repository testing workflow, recording any
   pre-existing failures before editing declarations.
-- [ ] Complete the stage when the migration inventory accounts for all current
+- [x] Complete the stage when the migration inventory accounts for all current
   call sites and the baseline evidence is recorded in `Current Status`.
 
 ### Stage 1: Introduce the canonical Core API
 
-- [ ] Add `FMountPaths` and move mount contract types to `Durin`, preserving
+- [x] Add `FMountPaths` and move mount contract types to `Durin`, preserving
   ABI-relevant field order, enum values, result conversions, defaults, and
   exported function behavior.
-- [ ] Add the three general path algorithms to `FPaths` and keep their existing
+- [x] Add the three general path algorithms to `FPaths` and keep their existing
   implementation behavior and platform case rules.
-- [ ] Split mount implementation from general path implementation where needed
+- [x] Split mount declarations from general path declarations so public header
   so source-file ownership matches the two public facades.
-- [ ] Add temporary `PathUtilities` type aliases and forwarding functions that
-  resolve to the canonical implementation without duplicating state.
-- [ ] Add focused compile-time or native coverage proving the old and new
-  entry points observe the same mount registry during the transition.
-- [ ] Complete the stage when Core and its focused native tests build and pass
-  through both the canonical and compatibility entry points.
+- [x] Omit the temporary compatibility surface because repository consumers
+  migrated atomically; retain the existing single canonical registry state.
+- [x] Add focused native coverage for the canonical registry and test fixture.
+- [x] Complete the stage when Core and its focused native tests build and pass
+  through the canonical entry points.
 
 ### Stage 2: Migrate production consumers
 
-- [ ] Migrate runtime modules first, replacing mount operations with
+- [x] Migrate runtime modules first, replacing mount operations with
   `FMountPaths`, general physical-path operations with `FPaths`, and old nested
   types with their `Durin` names.
-- [ ] Migrate developer, editor, and program targets after runtime consumers so
+- [x] Migrate developer, editor, and program targets after runtime consumers so
   dependency direction remains explicit.
-- [ ] Replace direct `Misc/LexicalPath.h` includes with `Misc/Paths.h`; replace
+- [x] Replace direct `Misc/LexicalPath.h` includes with `Misc/Paths.h`; replace
   mount includes with the selected `Misc/MountPaths.h` public header.
-- [ ] Update tests colocated with each migrated production module when their
+- [x] Update tests colocated with each migrated production module when their
   compile surface changes, while leaving shared mutable-registry fixtures for
   Stage 3.
-- [ ] Confirm no production source includes the test-support header or calls a
+- [x] Confirm no production consumer includes the test-support header or calls a
   `ForTests` API.
-- [ ] Complete the stage when all production targets are free of
+- [x] Complete the stage when all production targets are free of
   `PathUtilities` and the affected runtime/editor/program build targets pass.
 
 ### Stage 3: Isolate and migrate mount test support
 
-- [ ] Publish the dedicated Core mount test-support header and move the scoped
+- [x] Publish the dedicated Core mount test-support header and move the scoped
   registry fixture and registration helper into `Durin::Testing`.
-- [ ] Migrate all native-test modules to the canonical mount types, facade, and
+- [x] Migrate all native-test modules to the canonical mount types, facade, and
   test-support names.
-- [ ] Preserve fixture nesting, registry restoration, publication state, and
+- [x] Preserve fixture nesting, registry restoration, publication state, and
   failure reporting behavior; add focused regression coverage if those
   invariants are not already explicit.
-- [ ] Verify source searches find no repository-owned call to
+- [x] Verify source searches find no repository-owned call to
   `RegisterMountPointForTests` and no use of
   `PathUtilities::FScopedMountRegistryFixture`.
-- [ ] Complete the stage when affected native-test targets compile and the
+- [x] Complete the stage when affected native-test targets compile and the
   focused Core, AssetCore, AssetRegistry, and Engine test selections pass.
 
 ### Stage 4: Remove compatibility surfaces and close the migration
 
-- [ ] Remove all `PathUtilities` aliases and forwarding functions.
-- [ ] Remove `Misc/LexicalPath.h` if it has no independent contract after the
+- [x] Remove all `PathUtilities` aliases and forwarding functions.
+- [x] Remove `Misc/LexicalPath.h` if it has no independent contract after the
   migration, and update build metadata or umbrella includes accordingly.
-- [ ] Search all repository-owned C++ and current documentation for stale
+- [x] Search all repository-owned C++ and current documentation for stale
   `PathUtilities`, old test fixture, and `EPathExistence` references.
-- [ ] Update the lasting asset/path documentation to name `FMountPaths` only
+- [x] Update the lasting asset/path documentation to name `FMountPaths` only
   where concrete API names are required; keep behavioral mount contracts
   unchanged.
-- [ ] Run formatting and the repository-prescribed full build after the public
+- [x] Run formatting and the repository-prescribed full build after the public
   Core API migration, followed by the complete applicable native-test set.
-- [ ] Run changed-document validation and all-plan validation.
+- [x] Run changed-document validation and all-plan validation.
 - [ ] Complete the stage only when compatibility code is gone, all acceptance
   gates pass, and lasting behavior is documented outside this plan.
 
 ## Acceptance Gates
 
-- [ ] `PathUtilities` has no declaration, definition, include dependency, or
+- [x] `PathUtilities` has no declaration, definition, include dependency, or
   call site in repository-owned current C++ sources.
-- [ ] General path algorithms are callable only through `FPaths`; mount-domain
+- [x] General path algorithms are callable only through `FPaths`; mount-domain
   operations are callable only through `FMountPaths` outside test support.
-- [ ] Production targets cannot reach mutable test registry helpers through the
+- [x] Production targets cannot reach mutable test registry helpers through the
   normal mount facade header.
-- [ ] Mount type layouts, enum values, default arguments, normalization,
+- [x] Mount type layouts, enum values, default arguments, normalization,
   longest-prefix lookup, dependency checks, and error results remain
   behaviorally unchanged.
-- [ ] Existing virtual paths and package identities require no data migration.
+- [x] Existing virtual paths and package identities require no data migration.
 - [ ] The full configured build and applicable native tests pass according to
   the repository build and testing workflows.
-- [ ] Documentation validators pass with no new diagnostics.
+- [x] Documentation validators pass with no new diagnostics.
 
 ## Related Code and Documentation
 
 - `Engine/Source/Runtime/Core/Public/Misc/Paths.h`
+- `Engine/Source/Runtime/Core/Public/Misc/MountPaths.h`
+- `Engine/Source/Runtime/Core/Public/Misc/MountPathTestSupport.h`
 - `Engine/Source/Runtime/Core/Private/Misc/Paths.cpp`
-- `Engine/Source/Runtime/Core/Public/Misc/LexicalPath.h`
 - `Engine/Source/Runtime/Core/Private/Misc/LexicalPath.cpp`
 - `Engine/Source/Runtime/Core/Private/Misc/Project.cpp`
 - `Engine/Tests/Native/CoreTests/Private/LexicalPathTests.cpp`

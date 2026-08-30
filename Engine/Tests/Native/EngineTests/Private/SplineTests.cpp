@@ -18,6 +18,7 @@
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Math/Operations.h"
 #include "NativeTestSupport.h"
 #include "Spline/SplineCurve.h"
@@ -411,7 +412,7 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoReconcileWithoutIdent
 	if (InitializedRoots.insert(Root).second)
 	{
 		Durin::Testing::RemoveTestWorkDirectory(Root);
-		Durin::PathUtilities::RegisterMountPointForTests(
+		Durin::Testing::RegisterMountPointForTests(
 			"/SplineMeshActorEditing/", Root.generic_string() + "/");
 	}
 	Durin::FAssetPath Path;
@@ -477,7 +478,7 @@ TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)
 	if (InitializedRoots.insert(Root).second)
 	{
 		Durin::Testing::RemoveTestWorkDirectory(Root);
-		Durin::PathUtilities::RegisterMountPointForTests("/SplineV2Tests/", Root.generic_string() + "/");
+		Durin::Testing::RegisterMountPointForTests("/SplineV2Tests/", Root.generic_string() + "/");
 	}
 
 	Durin::FAssetPath Path;

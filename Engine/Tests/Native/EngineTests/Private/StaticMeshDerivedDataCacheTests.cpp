@@ -15,6 +15,7 @@
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshDerivedData.h"
@@ -60,7 +61,7 @@ namespace
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.Root);
 		std::filesystem::create_directories(Fixture.Root / "Content");
 		const std::string Mount = std::format("/{}/", Name);
-		Durin::PathUtilities::RegisterMountPointForTests(
+		Durin::Testing::RegisterMountPointForTests(
 			Mount, (Fixture.Root / "Content").generic_string() + "/");
 		Durin::FPaths::SetDerivedDataCacheDirForTests(Fixture.CacheRoot.generic_string());
 		EXPECT_TRUE(Durin::FAssetPath::TryCreate(Mount + "Mesh", Fixture.AssetPath));
@@ -301,7 +302,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.Root / "Content" / "Models");
 		RestartAssetManager(CookRoot);
-		Durin::PathUtilities::RegisterMountPointForTests(
+		Durin::Testing::RegisterMountPointForTests(
 			"/Game/", (CookRoot / "Game").generic_string() + "/");
 		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));
@@ -371,7 +372,7 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
 		Durin::Testing::RemoveTestWorkDirectory(Fixture.Root / "Content" / "Models");
 		RestartAssetManager(CookRoot);
-		Durin::PathUtilities::RegisterMountPointForTests(
+		Durin::Testing::RegisterMountPointForTests(
 			"/Game/", (CookRoot / "Game").generic_string() + "/");
 		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));

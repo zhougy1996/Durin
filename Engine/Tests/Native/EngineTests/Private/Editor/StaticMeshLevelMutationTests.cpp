@@ -12,6 +12,7 @@
 #include "Editor/Transaction.h"
 #include "Engine/Level.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 #include "NativeTestSupport.h"
 #include "StaticMeshLevelMutations.h"
@@ -33,7 +34,7 @@ namespace
 			static const bool bRegistered = [] {
 				const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "LevelMutation";
 				std::filesystem::create_directories(Root);
-				Durin::PathUtilities::RegisterMountPointForTests(
+				Durin::Testing::RegisterMountPointForTests(
 					"/LevelMutationTests/", Root.generic_string() + "/");
 				return true;
 			}();

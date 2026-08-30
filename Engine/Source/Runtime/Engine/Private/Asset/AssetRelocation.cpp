@@ -12,6 +12,7 @@
 #include "DObject/Package.h"
 #include "Misc/FileTime.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "Profiling/Profiling.h"
 #include "Threading/RunnableThread.h"
 
@@ -55,9 +56,9 @@ namespace Durin::Asset
 					Context.GetCookRoot(), Path.GetView(), CookedPath)) return {};
 				return CookedPath.generic_string();
 			}
-			const PathUtilities::FAssetPathResult Resolved =
-				PathUtilities::ResolveAssetPath(
-					Path.GetView(), PathUtilities::EPathExistence::AllowMissing);
+			const FAssetPathResult Resolved =
+				FMountPaths::ResolveAssetPath(
+					Path.GetView(), EMountPathExistence::AllowMissing);
 			if (!Resolved)
 				DURIN_WARN_CATEGORY(
 					"AssetSystem",
@@ -174,7 +175,7 @@ namespace Durin::Asset
 		std::unordered_set<FAssetPath> Sources;
 		std::unordered_set<FAssetPath> Destinations;
 		std::unordered_map<std::string, size_t> FileEntries;
-		std::unordered_map<std::string, const PathUtilities::FMountPoint*> EntryMounts;
+		std::unordered_map<std::string, const FMountPoint*> EntryMounts;
 		auto AddFileEntry = [&](const std::filesystem::path& PhysicalPath,
 			const FAssetPath& RegistryPath,
 			ERelocationPublicationRole Role,
@@ -187,7 +188,7 @@ namespace Durin::Asset
 				return Error(EAssetError::AlreadyExists, std::format(
 					"Relocation participants claim the same file {}.", Key));
 			std::string PathError;
-			const PathUtilities::FMountPoint* Mount = nullptr;
+			const FMountPoint* Mount = nullptr;
 			if (!IsWritableRelocationPath(Normalized, Mount, PathError))
 				return Error(EAssetError::ReadOnlyMode, std::move(PathError));
 			if (PreBytes)

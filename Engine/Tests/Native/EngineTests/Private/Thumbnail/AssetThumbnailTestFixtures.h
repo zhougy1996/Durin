@@ -16,6 +16,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Math/Operations.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
@@ -282,7 +283,7 @@ namespace Durin::Tests
 	{
 		InitializeDObjectSystem();
 		const std::filesystem::path Root = GetAssetThumbnailFixtureRoot();
-		PathUtilities::RegisterMountPointForTests(
+		Testing::RegisterMountPointForTests(
 			FAssetThumbnailFixtureSet::MountPoint,
 			Root.generic_string() + "/");
 		return Root;

@@ -5,6 +5,7 @@
 #include "AssetRegistry/ObjectStream.h"
 #include "AssetRegistry/Publication.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 
 #include <gtest/gtest.h>
@@ -16,8 +17,8 @@ namespace
 	TEST(FAssetMetadataQueryTests, SnapshotOwnsExactMetadataWithoutEngine)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
-		Durin::PathUtilities::FScopedMountRegistryFixture Mounts;
-		Durin::PathUtilities::RegisterMountPointForTests(
+		Durin::Testing::FScopedMountRegistryFixture Mounts;
+		Durin::Testing::RegisterMountPointForTests(
 			"/MetadataTests/", "MetadataTests/");
 		Durin::FAssetPath Path;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MetadataTests/Textures/Brick", Path));
@@ -64,8 +65,8 @@ namespace
 	TEST(FAssetMetadataQueryTests, PublishesWholeStateAgainstExpectedRevision)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
-		Durin::PathUtilities::FScopedMountRegistryFixture Mounts;
-		Durin::PathUtilities::RegisterMountPointForTests("/MetadataTests/", "MetadataTests/");
+		Durin::Testing::FScopedMountRegistryFixture Mounts;
+		Durin::Testing::RegisterMountPointForTests("/MetadataTests/", "MetadataTests/");
 		Durin::FAssetPath Path;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MetadataTests/Published", Path));
 
@@ -97,8 +98,8 @@ namespace
 	TEST(FAssetMetadataQueryTests, ConcurrentExpectedRevisionPublishesAtMostOnce)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
-		Durin::PathUtilities::FScopedMountRegistryFixture Mounts;
-		Durin::PathUtilities::RegisterMountPointForTests("/MetadataTests/", "MetadataTests/");
+		Durin::Testing::FScopedMountRegistryFixture Mounts;
+		Durin::Testing::RegisterMountPointForTests("/MetadataTests/", "MetadataTests/");
 		Durin::FAssetPath FirstPath, SecondPath;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MetadataTests/ConcurrentA", FirstPath));
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MetadataTests/ConcurrentB", SecondPath));
@@ -134,8 +135,8 @@ namespace
 	TEST(FAssetMetadataQueryTests, CapturesOnlyRevisionConsistentTransitiveDependencies)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
-		Durin::PathUtilities::FScopedMountRegistryFixture Mounts;
-		Durin::PathUtilities::RegisterMountPointForTests(
+		Durin::Testing::FScopedMountRegistryFixture Mounts;
+		Durin::Testing::RegisterMountPointForTests(
 			"/MetadataTests/", "MetadataTests/");
 		Durin::FAssetPath Root, Dependency, Unrelated;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
@@ -176,8 +177,8 @@ namespace
 	TEST(FAssetMetadataQueryTests, ExtractsCanonicalObjectStreamReferencesWithoutEngine)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
-		Durin::PathUtilities::FScopedMountRegistryFixture Mounts;
-		Durin::PathUtilities::RegisterMountPointForTests(
+		Durin::Testing::FScopedMountRegistryFixture Mounts;
+		Durin::Testing::RegisterMountPointForTests(
 			"/MetadataTests/", "MetadataTests/");
 		Durin::FAssetPath SourcePath, TargetPath, SoftPath;
 		ASSERT_TRUE(Durin::FAssetPath::TryCreate(

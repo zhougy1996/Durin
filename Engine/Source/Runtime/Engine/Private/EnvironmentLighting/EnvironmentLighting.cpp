@@ -7,6 +7,7 @@
 #include "Serialization/BinaryFormat.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "Serialization/Archive.h"
 #include "Serialization/BoundedPayloadSerialization.h"
 
@@ -239,8 +240,8 @@ namespace Durin
 	auto DEnvironmentLighting::GetAuthoredPayloadPath(std::string_view VirtualPackagePath)
 		-> std::filesystem::path
 	{
-		const PathUtilities::FAssetPathResult Resolved = PathUtilities::ResolveAssetPath(
-			VirtualPackagePath, PathUtilities::EPathExistence::AllowMissing);
+		const FAssetPathResult Resolved = FMountPaths::ResolveAssetPath(
+			VirtualPackagePath, EMountPathExistence::AllowMissing);
 		if (!Resolved) return {};
 		std::filesystem::path Result = Resolved.PhysicalPath;
 		Result += ".iblbulk";

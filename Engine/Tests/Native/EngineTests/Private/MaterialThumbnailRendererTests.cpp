@@ -14,6 +14,8 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "RenderingThread.h"
@@ -299,8 +301,8 @@ TEST(FMaterialThumbnailRendererTests,
 {
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	InitializeDObjectSystem();
-	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
-	Durin::PathUtilities::InitDefaultMountPoints();
+	Durin::Testing::FScopedMountRegistryFixture SavedMountRegistry;
+	Durin::FMountPaths::InitDefaultMountPoints();
 	std::string Error;
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 
@@ -350,8 +352,8 @@ TEST(FMaterialThumbnailRendererTests,
 	InitializeDObjectSystem();
 	if (!Durin::IsMaterialCompilationAcceptingRequests())
 		ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
-	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
-	Durin::PathUtilities::InitDefaultMountPoints();
+	Durin::Testing::FScopedMountRegistryFixture SavedMountRegistry;
+	Durin::FMountPaths::InitDefaultMountPoints();
 	std::string Error;
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 

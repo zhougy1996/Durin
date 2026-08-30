@@ -13,6 +13,8 @@
 #include "Materials/MaterialRenderProxy.h"
 #include "Math/Operations.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "NativeTestSupport.h"
@@ -88,8 +90,8 @@ namespace
 			InitializeDObjectSystem();
 			ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
 			MountRegistry = std::make_unique<
-				Durin::PathUtilities::FScopedMountRegistryFixture>();
-			ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
+				Durin::Testing::FScopedMountRegistryFixture>();
+			ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
 			ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 		}
 
@@ -100,7 +102,7 @@ namespace
 		}
 
 	private:
-		std::unique_ptr<Durin::PathUtilities::FScopedMountRegistryFixture>
+		std::unique_ptr<Durin::Testing::FScopedMountRegistryFixture>
 			MountRegistry;
 	};
 

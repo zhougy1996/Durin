@@ -30,6 +30,8 @@
 #include "DObject/WeakObjectPtr.h"
 #include "Misc/FileTime.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Misc/FileHelper.h"
 #include "NativeTestSupport.h"
 #include "NativeDObjectTestSupport.h"
@@ -1428,7 +1430,7 @@ namespace
 		Durin::Testing::RemoveTestWorkDirectory(DerivedDataRoot);
 		Durin::FPaths::SetDerivedDataCacheDirForTests(
 			DerivedDataRoot.generic_string());
-		Durin::PathUtilities::RegisterMountPointForTests(
+		Durin::Testing::RegisterMountPointForTests(
 			"/TestAssets/", Root.generic_string() + "/");
 		Durin::Asset::SetAssetRelocationFailurePointForTesting(
 			Durin::Asset::EAssetRelocationFailurePoint::None);
@@ -2640,13 +2642,13 @@ TEST(FPackageAssetTests, CookPublishesHeaderlessRawPlatformDataFields)
 		Durin::Testing::GetTestWorkDirectory() / "CookedRawPlatformData");
 	const auto GameRoot = CookRoot / "Game";
 	std::filesystem::create_directories(GameRoot);
-	const std::array MountDefinitions{Durin::PathUtilities::FMountPoint{
+	const std::array MountDefinitions{Durin::FMountPoint{
 		.VirtualRoot = "/Game/",
-		.Owner = Durin::PathUtilities::EMountOwner::Test,
+		.Owner = Durin::EMountOwner::Test,
 		.Root = GameRoot,
 		.ContentPath = ".",
 		.bAutoScan = false}};
-	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
+	Durin::Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 	Durin::FAssetPath Path;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedRawField", Path));
@@ -2757,13 +2759,13 @@ TEST(FPackageAssetTests, CookedInlineOnlyProjectionLoadsWithoutBulkCompanion)
 		Durin::Testing::GetTestWorkDirectory() / "CookedInlineOnlyProjection");
 	const auto GameRoot = CookRoot / "Game";
 	std::filesystem::create_directories(GameRoot);
-	const std::array MountDefinitions{Durin::PathUtilities::FMountPoint{
+	const std::array MountDefinitions{Durin::FMountPoint{
 		.VirtualRoot = "/Game/",
-		.Owner = Durin::PathUtilities::EMountOwner::Test,
+		.Owner = Durin::EMountOwner::Test,
 		.Root = GameRoot,
 		.ContentPath = ".",
 		.bAutoScan = false}};
-	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
+	Durin::Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 	Durin::FAssetPath Path;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/MetadataOnly", Path));
@@ -4834,19 +4836,19 @@ TEST(FPackageAssetTests, MountedPackageSnapshotIsDeterministicHashedAndReadOnly)
 		std::ofstream(Ignored, std::ios::binary) << "ignored";
 	}
 	const std::array Definitions{
-		Durin::PathUtilities::FMountPoint{
+		Durin::FMountPoint{
 			.VirtualRoot = "/Snapshot/",
-			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Owner = Durin::EMountOwner::Test,
 			.Root = AutoRoot,
 			.ContentPath = ".",
 			.bAutoScan = true},
-		Durin::PathUtilities::FMountPoint{
+		Durin::FMountPoint{
 			.VirtualRoot = "/Manual/",
-			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Owner = Durin::EMountOwner::Test,
 			.Root = ManualRoot,
 			.ContentPath = ".",
 			.bAutoScan = false}};
-	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(Definitions);
+	Durin::Testing::FScopedMountRegistryFixture Mounts(Definitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 	std::vector<std::byte> FirstBefore;
 	std::vector<std::byte> SecondBefore;
@@ -4936,14 +4938,14 @@ TEST(FPackageAssetTests, PackageSavesRejectReadOnlyContentMounts)
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	std::filesystem::create_directories(Root);
 	const std::array Definitions{
-		Durin::PathUtilities::FMountPoint{
+		Durin::FMountPoint{
 			.VirtualRoot = "/ReadOnly/",
-			.Owner = Durin::PathUtilities::EMountOwner::Extension,
+			.Owner = Durin::EMountOwner::Extension,
 			.Root = Root,
 			.ContentPath = ".",
 			.bAutoScan = true,
 			.bContentWritable = false}};
-	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(Definitions);
+	Durin::Testing::FScopedMountRegistryFixture Mounts(Definitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 
 	Durin::FAssetPath Path;
@@ -6074,9 +6076,9 @@ TEST(FPackageAssetTests, ManualScanMountsRequireExplicitAdmissionBeforeLoading)
 	const std::filesystem::path Root =
 		Durin::Testing::GetTestWorkDirectory() / "Assets";
 	const std::array Definitions{
-		Durin::PathUtilities::FMountPoint{
+		Durin::FMountPoint{
 			.VirtualRoot = "/TestAssets/",
-			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Owner = Durin::EMountOwner::Test,
 			.Root = Root,
 			.ContentPath = ".",
 			.bAutoScan = false,
@@ -6088,7 +6090,7 @@ TEST(FPackageAssetTests, ManualScanMountsRequireExplicitAdmissionBeforeLoading)
 		"/TestAssets/ManualScanAsset", Path
 	));
 	{
-		Durin::PathUtilities::FScopedMountRegistryFixture Mounts(Definitions);
+		Durin::Testing::FScopedMountRegistryFixture Mounts(Definitions);
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 		DPackageAssetForTest* Asset = nullptr;
 		ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
@@ -6152,7 +6154,7 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	const auto ValidSource = OriginalAssets / "RegistryReconciliationSeed.dasset";
 	std::filesystem::copy_file(ValidSource, ContentA / "Alpha.dasset");
 	std::filesystem::copy_file(ValidSource, ContentA / "Beta.dasset");
-	Durin::PathUtilities::RegisterMountPointForTests("/TestAssets/", ContentA.generic_string() + "/");
+	Durin::Testing::RegisterMountPointForTests("/TestAssets/", ContentA.generic_string() + "/");
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	const uint64 RevisionBeforeInitialScan =
 		Durin::Asset::GetAssetCatalogRevision();
@@ -6254,7 +6256,7 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 		std::filesystem::copy_file(Source, Destination);
 		std::filesystem::last_write_time(Destination, std::filesystem::last_write_time(Source));
 	}
-	Durin::PathUtilities::RegisterMountPointForTests("/TestAssets/", ContentB.generic_string() + "/");
+	Durin::Testing::RegisterMountPointForTests("/TestAssets/", ContentB.generic_string() + "/");
 	const auto RelocatedMountRefresh = Durin::Asset::RefreshAssetRegistry();
 	ASSERT_TRUE(RelocatedMountRefresh);
 	EXPECT_EQ(RelocatedMountRefresh.CatalogStats.Reused, 2u);
@@ -6263,7 +6265,7 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 
 	const auto AdditionalContent = WorkRoot / "AdditionalContent";
 	std::filesystem::create_directories(AdditionalContent);
-	Durin::PathUtilities::RegisterMountPointForTests("/Additional/", AdditionalContent.generic_string() + "/");
+	Durin::Testing::RegisterMountPointForTests("/Additional/", AdditionalContent.generic_string() + "/");
 	const auto ManifestRefresh = Durin::Asset::RefreshAssetRegistry();
 	ASSERT_TRUE(ManifestRefresh);
 	EXPECT_EQ(ManifestRefresh.CatalogStats.Reparsed, 2u);
@@ -6306,21 +6308,21 @@ TEST(FPackageAssetTests, RegistryDuplicatePathsReadOnlyTheAcceptedReferenceSourc
 	std::filesystem::copy_file(SeedFile, RootB / "Duplicate.dasset");
 
 	const std::array Definitions{
-		Durin::PathUtilities::FMountPoint{
+		Durin::FMountPoint{
 			.VirtualRoot = "/TestAssets/",
-			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Owner = Durin::EMountOwner::Test,
 			.Root = RootA,
 			.ContentPath = ".",
 			.bAutoScan = true,
 			.bContentWritable = true},
-		Durin::PathUtilities::FMountPoint{
+		Durin::FMountPoint{
 			.VirtualRoot = "/TestAssets/Nested/",
-			.Owner = Durin::PathUtilities::EMountOwner::Test,
+			.Owner = Durin::EMountOwner::Test,
 			.Root = RootB,
 			.ContentPath = ".",
 			.bAutoScan = true,
 			.bContentWritable = true}};
-	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(Definitions);
+	Durin::Testing::FScopedMountRegistryFixture Mounts(Definitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	const Durin::Asset::FAssetCatalogSnapshot BeforeRefresh =
@@ -6353,7 +6355,7 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	const auto CacheRoot = WorkRoot / "DerivedDataCache";
 	Durin::Testing::RemoveTestWorkDirectory(WorkRoot);
 	std::filesystem::create_directories(ContentRoot);
-	Durin::PathUtilities::RegisterMountPointForTests("/TestAssets/", ContentRoot.generic_string() + "/");
+	Durin::Testing::RegisterMountPointForTests("/TestAssets/", ContentRoot.generic_string() + "/");
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));

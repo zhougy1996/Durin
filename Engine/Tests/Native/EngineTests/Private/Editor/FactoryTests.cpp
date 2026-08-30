@@ -12,6 +12,7 @@
 #include "HAL/PlatformLTS.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
@@ -214,7 +215,7 @@ namespace
 			const std::filesystem::path Root =
 				Durin::Testing::GetTestWorkDirectory() / "AssetTools";
 			std::filesystem::create_directories(Root);
-			Durin::PathUtilities::RegisterMountPointForTests(
+			Durin::Testing::RegisterMountPointForTests(
 				"/AssetToolsTests/", Root.generic_string() + "/");
 			return true;
 		}();
@@ -406,7 +407,7 @@ TEST(DFactoryTests, SaveFailureLeavesCreatedPackageAvailableForDiscard)
 	InitializeFactoryTestGameThread();
 	const std::filesystem::path InvalidRoot =
 		Durin::Testing::GetTestWorkDirectory() / "AssetToolsSaveFailureRoot";
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::RegisterMountPointForTests(
 		"/AssetToolsSaveFailure/", InvalidRoot.generic_string() + "/");
 	Durin::Testing::RemoveTestWorkDirectory(InvalidRoot);
 	const std::array InvalidRootBytes{std::byte{1}};
@@ -515,7 +516,7 @@ TEST(DFactoryTests, DuplicateSaveFailureDiscardsOnlyDisposableDestination)
 
 	const std::filesystem::path InvalidRoot =
 		Durin::Testing::GetTestWorkDirectory() / "AssetToolsDuplicateSaveFailure";
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::RegisterMountPointForTests(
 		"/AssetToolsDuplicateSaveFailure/", InvalidRoot.generic_string() + "/");
 	Durin::Testing::RemoveTestWorkDirectory(InvalidRoot);
 	const std::array InvalidRootBytes{std::byte{1}};

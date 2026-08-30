@@ -5,6 +5,8 @@
 #include "HAL/PlatformProcess.h"
 #include "Misc/FilesystemMigration.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Misc/Project.h"
 #include "Misc/ProjectHistory.h"
 #include "NativeTestSupport.h"
@@ -191,7 +193,7 @@ TEST(FProjectTests, ExplicitBrowserSkipsRecentProject)
 
 TEST_F(FProjectHistoryTest, ValidatesAdditionalMountDescriptorSchema)
 {
-	Durin::PathUtilities::FScopedMountRegistryFixture Registry;
+	Durin::Testing::FScopedMountRegistryFixture Registry;
 	const std::string Valid = WriteProject(
 		"Mounted",
 		R"({
@@ -233,17 +235,17 @@ TEST_F(FProjectHistoryTest, ValidatesAdditionalMountDescriptorSchema)
 		Durin::GGameThreadId = Durin::FPlatformLTS::GetCurrentThreadId();
 		Durin::GIsGameThreadIdInitialized = true;
 	}
-	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints(&Error)) << Error;
-	EXPECT_TRUE(Durin::PathUtilities::ResolveAssetPath("/Game/Levels/Test"));
-	EXPECT_TRUE(Durin::PathUtilities::ResolveAssetPath("/Engine/StaticMeshes/Box"));
-	EXPECT_TRUE(Durin::PathUtilities::ResolveAssetPath(
-		"/Plugins/PCG/Noise.png", Durin::PathUtilities::EPathExistence::RequireFile));
-	EXPECT_TRUE(Durin::PathUtilities::ResolveAssetPath("/Libraries/StudioArt/Texture"));
-	EXPECT_TRUE(Durin::PathUtilities::CheckMountDependency("/Game/Asset", "/Engine/Source"));
-	EXPECT_TRUE(Durin::PathUtilities::CheckMountDependency("/Game/Asset", "/Plugins/PCG/Source"));
+	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints(&Error)) << Error;
+	EXPECT_TRUE(Durin::FMountPaths::ResolveAssetPath("/Game/Levels/Test"));
+	EXPECT_TRUE(Durin::FMountPaths::ResolveAssetPath("/Engine/StaticMeshes/Box"));
+	EXPECT_TRUE(Durin::FMountPaths::ResolveAssetPath(
+		"/Plugins/PCG/Noise.png", Durin::EMountPathExistence::RequireFile));
+	EXPECT_TRUE(Durin::FMountPaths::ResolveAssetPath("/Libraries/StudioArt/Texture"));
+	EXPECT_TRUE(Durin::FMountPaths::CheckMountDependency("/Game/Asset", "/Engine/Source"));
+	EXPECT_TRUE(Durin::FMountPaths::CheckMountDependency("/Game/Asset", "/Plugins/PCG/Source"));
 	EXPECT_EQ(
-		Durin::PathUtilities::CheckMountDependency("/Engine/Asset", "/Game/Source").Error,
-		Durin::PathUtilities::EMountPathError::ForbiddenDependency);
+		Durin::FMountPaths::CheckMountDependency("/Engine/Asset", "/Game/Source").Error,
+		Durin::EMountPathError::ForbiddenDependency);
 
 	const std::string LegacyWritable = WriteProject(
 		"LegacyWritable",

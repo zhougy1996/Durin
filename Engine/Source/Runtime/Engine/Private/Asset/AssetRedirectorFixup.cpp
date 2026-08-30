@@ -9,6 +9,7 @@
 #include "DObject/Package.h"
 #include "Misc/FileTime.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin::Asset
@@ -309,7 +310,7 @@ namespace Durin::Asset
 			if (!FilePaths.insert(Normalized.generic_string()).second)
 				return Error(EAssetError::AlreadyExists,
 					"Redirector Fix Up has duplicate physical participants.");
-			const PathUtilities::FMountPoint* Mount = nullptr;
+			const FMountPoint* Mount = nullptr;
 			std::string PathError;
 			if (!IsWritableRelocationPath(Normalized, Mount, PathError))
 				return Error(EAssetError::ReadOnlyMode, std::move(PathError));

@@ -8,6 +8,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Name.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "Serialization/Archive.h"
 
 namespace
@@ -39,14 +40,14 @@ auto main(int ArgumentCount, char** Arguments) -> int
 	Durin::DObjectInit();
 
 	std::string Error;
-	const Durin::PathUtilities::FMountPoint EngineMount{
+	const Durin::FMountPoint EngineMount{
 		.VirtualRoot = "/Engine/",
-		.Owner = Durin::PathUtilities::EMountOwner::Engine,
+		.Owner = Durin::EMountOwner::Engine,
 		.Root = ContentDirectory.parent_path(),
 		.ContentPath = ContentDirectory.filename(),
 		.bAutoScan = false,
 		.bContentWritable = true};
-	if (!Durin::PathUtilities::PublishMountRegistry({&EngineMount, 1}, &Error))
+	if (!Durin::FMountPaths::PublishMountRegistry({&EngineMount, 1}, &Error))
 	{
 		std::cerr << "Failed to mount Engine Content: " << Error << '\n';
 		return 1;

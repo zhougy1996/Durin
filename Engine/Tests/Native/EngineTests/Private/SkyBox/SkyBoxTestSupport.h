@@ -20,6 +20,7 @@
 #include "Rendering/SkyBoxSceneProxy.h"
 #include "Materials/Material.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 #include "RendererModule.h"
@@ -122,7 +123,7 @@ namespace
 		if (InitializedRoots.insert(Root).second)
 		{
 			Durin::Testing::RemoveTestWorkDirectory(Root);
-			Durin::PathUtilities::RegisterMountPointForTests("/SkyBoxAssetTests/", Root.generic_string() + "/");
+			Durin::Testing::RegisterMountPointForTests("/SkyBoxAssetTests/", Root.generic_string() + "/");
 		}
 		return Root;
 	}

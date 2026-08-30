@@ -4,6 +4,8 @@
 #include "AssetMaintenance/CompatibilityAudit.h"
 #include "Json/Json.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
+#include "Misc/MountPathTestSupport.h"
 
 #include "NativeTestSupport.h"
 
@@ -31,16 +33,16 @@ namespace
 	protected:
 		void SetUp() override
 		{
-			const std::array Definitions{Durin::PathUtilities::FMountPoint{
+			const std::array Definitions{Durin::FMountPoint{
 				.VirtualRoot = "/Maintenance/",
-				.Owner = Durin::PathUtilities::EMountOwner::Test,
+				.Owner = Durin::EMountOwner::Test,
 				.Root = Durin::Testing::GetTestWorkDirectory(),
 				.bAutoScan = false}};
-			Mounts = std::make_unique<Durin::PathUtilities::FScopedMountRegistryFixture>(Definitions);
+			Mounts = std::make_unique<Durin::Testing::FScopedMountRegistryFixture>(Definitions);
 			ASSERT_TRUE(Mounts->IsValid()) << Mounts->GetError();
 		}
 
-		std::unique_ptr<Durin::PathUtilities::FScopedMountRegistryFixture> Mounts;
+		std::unique_ptr<Durin::Testing::FScopedMountRegistryFixture> Mounts;
 	};
 }
 

@@ -12,6 +12,7 @@
 #include "Image/ImageDecoder.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "Texture/TextureDerivedData.h"
 #include "Texture/VolumeTextureBuildOperations.h"
 
@@ -28,9 +29,9 @@ namespace Durin::AssetForge::Builtins
 				OutError = "VolumeTexture source capture requires an owning package.";
 				return false;
 			}
-			const PathUtilities::FAssetPathResult Resolved =
-				PathUtilities::ResolveAssetPath(Texture.GetPackage()->GetPackagePath(),
-					PathUtilities::EPathExistence::AllowMissing);
+			const FAssetPathResult Resolved =
+				FMountPaths::ResolveAssetPath(Texture.GetPackage()->GetPackagePath(),
+					EMountPathExistence::AllowMissing);
 			if (!Resolved) { OutError = Resolved.Message; return false; }
 			OutPath = Resolved.PhysicalPath;
 			OutPath += ".dasset";

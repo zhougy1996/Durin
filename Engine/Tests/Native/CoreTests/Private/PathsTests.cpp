@@ -1,6 +1,8 @@
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
@@ -40,9 +42,9 @@ namespace
 			Durin::Testing::RemoveTestWorkDirectory(Root, Error);
 		}
 
-		auto Definitions() const -> std::array<Durin::PathUtilities::FMountPoint, 5>
+		auto Definitions() const -> std::array<Durin::FMountPoint, 5>
 		{
-			using namespace Durin::PathUtilities;
+			using namespace Durin;
 			return {{
 				{
 					.VirtualRoot = "/Engine/",
@@ -124,17 +126,17 @@ TEST(FPathsTests, RootAndEngineMountAreWorkspaceRelative)
 		Durin::GIsGameThreadIdInitialized = true;
 	}
 	const std::array Definitions{
-		Durin::PathUtilities::FMountPoint{
+		Durin::FMountPoint{
 			.VirtualRoot = "/Engine/",
-			.Owner = Durin::PathUtilities::EMountOwner::Engine,
+			.Owner = Durin::EMountOwner::Engine,
 			.Root = EngineDir,
 			.ContentPath = "Content",
 			.bAutoScan = true,
 			.bContentWritable = true}};
-	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Definitions);
+	Durin::Testing::FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
-	const Durin::PathUtilities::FAssetPathResult Result =
-		Durin::PathUtilities::ResolveAssetPath("/Engine/StaticMeshes/Test");
+	const Durin::FAssetPathResult Result =
+		Durin::FMountPaths::ResolveAssetPath("/Engine/StaticMeshes/Test");
 	ASSERT_TRUE(Result) << Result.Message;
 	EXPECT_EQ(Result.PhysicalPath.lexically_normal(), (EngineDir / "Content/StaticMeshes/Test").lexically_normal());
 }
@@ -188,90 +190,122 @@ TEST(FPathsTests, ExplicitProjectFileControlsProjectDirectoryAndMount)
 		Durin::GIsGameThreadIdInitialized = true;
 	}
 	const std::array Definitions{
-		Durin::PathUtilities::FMountPoint{
+		Durin::FMountPoint{
 			.VirtualRoot = "/Game/",
-			.Owner = Durin::PathUtilities::EMountOwner::ActiveProject,
+			.Owner = Durin::EMountOwner::ActiveProject,
 			.Root = ProjectDir,
 			.ContentPath = "Content",
 			.bAutoScan = true,
 			.bContentWritable = true}};
-	Durin::PathUtilities::FScopedMountRegistryFixture Registry(Definitions);
+	Durin::Testing::FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
-	const Durin::PathUtilities::FAssetPathResult Result =
-		Durin::PathUtilities::ResolveAssetPath("/Game/Levels/Test");
+	const Durin::FAssetPathResult Result =
+		Durin::FMountPaths::ResolveAssetPath("/Game/Levels/Test");
 	ASSERT_TRUE(Result) << Result.Message;
 	EXPECT_EQ(Result.PhysicalPath.lexically_normal(), (ProjectDir / "Content/Levels/Test").lexically_normal());
 }
 
 TEST_F(FMountRegistryTests, ResolvesTypedPathsClassifiesRootsAndEnforcesPolicy)
 {
-	using namespace Durin::PathUtilities;
+	using namespace Durin;
 	const auto MountDefinitions = Definitions();
-	FScopedMountRegistryFixture Registry(MountDefinitions);
+	Testing::FScopedMountRegistryFixture Registry(MountDefinitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 
-	const FAssetPathResult EngineContent = ResolveAssetPath("/Engine/StaticMeshes/Box");
+	const FAssetPathResult EngineContent = FMountPaths::ResolveAssetPath("/Engine/StaticMeshes/Box");
 	ASSERT_TRUE(EngineContent) << EngineContent.Message;
 	EXPECT_EQ(
 		EngineContent.PhysicalPath.lexically_normal(),
 		(Root / "Engine/Content/StaticMeshes/Box").lexically_normal());
 
-	const FAssetPathResult EngineSource = ResolveAssetPath(
-		"/engine/Textures/Stone.png", EPathExistence::RequireFile);
+	const FAssetPathResult EngineSource = FMountPaths::ResolveAssetPath(
+		"/engine/Textures/Stone.png", EMountPathExistence::RequireFile);
 	ASSERT_TRUE(EngineSource) << EngineSource.Message;
 	EXPECT_EQ(EngineSource.NormalizedVirtualPath, "/Engine/Textures/Stone.png");
 	EXPECT_EQ(EngineSource.PhysicalPath, Root / "Engine/Content/Textures/Stone.png");
-	const FAssetPathResult SamePhysicalPath = ResolveAssetPath("/Engine/Textures/Stone.png");
+	const FAssetPathResult SamePhysicalPath = FMountPaths::ResolveAssetPath("/Engine/Textures/Stone.png");
 	ASSERT_TRUE(SamePhysicalPath) << SamePhysicalPath.Message;
 	EXPECT_EQ(SamePhysicalPath.PhysicalPath, EngineSource.PhysicalPath);
 
-	const FAssetPathResult Classified = ClassifyAssetPath(EngineSource.PhysicalPath);
+	const FAssetPathResult Classified = FMountPaths::ClassifyAssetPath(EngineSource.PhysicalPath);
 	ASSERT_TRUE(Classified) << Classified.Message;
 	EXPECT_EQ(Classified.NormalizedVirtualPath, "/Engine/Textures/Stone.png");
 	const FAssetPathResult ClassifiedGameRoot =
-		ClassifyAssetPath(Root / "Game/Content");
+		FMountPaths::ClassifyAssetPath(Root / "Game/Content");
 	ASSERT_TRUE(ClassifiedGameRoot) << ClassifiedGameRoot.Message;
 	EXPECT_EQ(ClassifiedGameRoot.NormalizedVirtualPath, "/Game/");
 
-	EXPECT_TRUE(ResolveAssetPath("/Libraries/StudioArt/Texture"));
-	const FAssetPathResult ExternalSource = ResolveAssetPath(
-		"/Libraries/StudioArt/Stone.png", EPathExistence::RequireFile);
+	EXPECT_TRUE(FMountPaths::ResolveAssetPath("/Libraries/StudioArt/Texture"));
+	const FAssetPathResult ExternalSource = FMountPaths::ResolveAssetPath(
+		"/Libraries/StudioArt/Stone.png", EMountPathExistence::RequireFile);
 	ASSERT_TRUE(ExternalSource) << ExternalSource.Message;
 	EXPECT_EQ(ExternalSource.PhysicalPath, Root / "StudioArt/Stone.png");
 	EXPECT_EQ(
-		ResolveAssetPath("/Libraries/Offline/Texture.png", EPathExistence::RequireFile).Error,
+		FMountPaths::ResolveAssetPath("/Libraries/Offline/Texture.png", EMountPathExistence::RequireFile).Error,
 		EMountPathError::UnavailableRoot);
-	const FAssetPathResult MissingSource = ResolveAssetPath(
-		"/Engine/Textures/Missing.png", EPathExistence::RequireFile);
+	const FAssetPathResult MissingSource = FMountPaths::ResolveAssetPath(
+		"/Engine/Textures/Missing.png", EMountPathExistence::RequireFile);
 	EXPECT_EQ(MissingSource.Error, EMountPathError::MissingFile) << MissingSource.Message;
 	EXPECT_EQ(
-		FindMountForVirtualPath("/Game/../Engine/Stone").Error,
+		FMountPaths::FindMountForVirtualPath("/Game/../Engine/Stone").Error,
 		EMountPathError::InvalidRelativePath);
 
-	EXPECT_TRUE(CheckMountDependency("/Game/Asset", "/Engine/Source"));
-	EXPECT_TRUE(CheckMountDependency("/Game/Asset", "/Plugins/PCG/Source"));
+	EXPECT_TRUE(FMountPaths::CheckMountDependency("/Game/Asset", "/Engine/Source"));
+	EXPECT_TRUE(FMountPaths::CheckMountDependency("/Game/Asset", "/Plugins/PCG/Source"));
 	EXPECT_EQ(
-		CheckMountDependency("/Engine/Asset", "/Game/Source").Error,
+		FMountPaths::CheckMountDependency("/Engine/Asset", "/Game/Source").Error,
 		EMountPathError::ForbiddenDependency);
 
 	std::string PublishError;
-	EXPECT_FALSE(PublishMountRegistry(MountDefinitions, &PublishError));
+	EXPECT_FALSE(FMountPaths::PublishMountRegistry(MountDefinitions, &PublishError));
 	EXPECT_FALSE(PublishError.empty());
+}
+
+TEST_F(FMountRegistryTests, NestedFixturesRestoreRegistryAndPublicationState)
+{
+	using namespace Durin;
+	const auto OuterDefinitions = Definitions();
+	Testing::FScopedMountRegistryFixture Outer(OuterDefinitions);
+	ASSERT_TRUE(Outer.IsValid()) << Outer.GetError();
+	EXPECT_TRUE(FMountPaths::FindMountForVirtualPath("/Engine/Asset"));
+
+	const std::array InnerDefinitions{FMountPoint{
+		.VirtualRoot = "/Nested/",
+		.Owner = EMountOwner::Test,
+		.Root = Root / "Nested"}};
+	std::filesystem::create_directories(Root / "Nested");
+	{
+		Testing::FScopedMountRegistryFixture Inner(InnerDefinitions);
+		ASSERT_TRUE(Inner.IsValid()) << Inner.GetError();
+		EXPECT_TRUE(FMountPaths::FindMountForVirtualPath("/Nested/Asset"));
+		EXPECT_EQ(FMountPaths::FindMountForVirtualPath("/Engine/Asset").Error,
+			EMountPathError::UnknownMount);
+		std::string Error;
+		EXPECT_FALSE(FMountPaths::PublishMountRegistry(InnerDefinitions, &Error));
+		EXPECT_FALSE(Error.empty());
+	}
+
+	EXPECT_TRUE(FMountPaths::FindMountForVirtualPath("/Engine/Asset"));
+	EXPECT_EQ(FMountPaths::FindMountForVirtualPath("/Nested/Asset").Error,
+		EMountPathError::UnknownMount);
+	std::string Error;
+	EXPECT_FALSE(FMountPaths::PublishMountRegistry(OuterDefinitions, &Error));
+	EXPECT_FALSE(Error.empty());
 }
 
 TEST_F(FMountRegistryTests, RejectsNestedLinkEscapesOverlappingRootsAndAcceptsLinkedRoots)
 {
-	using namespace Durin::PathUtilities;
+	using namespace Durin;
 	std::error_code Error;
 	std::filesystem::create_directory_symlink(
 		Root / "External", Root / "Game/Content/Escape", Error);
 	if (Error) GTEST_SKIP() << "Directory symlinks are unavailable: " << Error.message();
 
 	auto MountDefinitions = Definitions();
-	FScopedMountRegistryFixture Registry(MountDefinitions);
+	Testing::FScopedMountRegistryFixture Registry(MountDefinitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 	EXPECT_EQ(
-		ResolveAssetPath("/Game/Escape/Escape.png", EPathExistence::RequireFile).Error,
+		FMountPaths::ResolveAssetPath("/Game/Escape/Escape.png", EMountPathExistence::RequireFile).Error,
 		EMountPathError::EscapedRoot);
 
 	const std::filesystem::path LinkedRoot = Root / "StudioLink";
@@ -282,24 +316,24 @@ TEST_F(FMountRegistryTests, RejectsNestedLinkEscapesOverlappingRootsAndAcceptsLi
 			.VirtualRoot = "/Linked/",
 			.Owner = EMountOwner::ExternalSources,
 			.Root = LinkedRoot}};
-	FScopedMountRegistryFixture LinkedRegistry(LinkedDefinitions);
+	Testing::FScopedMountRegistryFixture LinkedRegistry(LinkedDefinitions);
 	ASSERT_TRUE(LinkedRegistry.IsValid()) << LinkedRegistry.GetError();
 	const FAssetPathResult Missing =
-		ResolveAssetPath("/Linked/New.png", EPathExistence::AllowMissing);
+		FMountPaths::ResolveAssetPath("/Linked/New.png", EMountPathExistence::AllowMissing);
 	ASSERT_TRUE(Missing) << Missing.Message;
 	EXPECT_EQ(Missing.PhysicalPath.lexically_normal(), (LinkedRoot / "New.png").lexically_normal());
 
 	const std::array OverlappingDefinitions{
 		FMountPoint{.VirtualRoot = "/Outer/", .Root = Root / "Game", .ContentPath = "Content"},
 		FMountPoint{.VirtualRoot = "/Inner/", .Root = Root / "Game/Content", .ContentPath = "."}};
-	FScopedMountRegistryFixture OverlappingRegistry(OverlappingDefinitions);
+	Testing::FScopedMountRegistryFixture OverlappingRegistry(OverlappingDefinitions);
 	EXPECT_FALSE(OverlappingRegistry.IsValid());
 	EXPECT_FALSE(OverlappingRegistry.GetError().empty());
 }
 
 TEST_F(FMountRegistryTests, AllowsSharedOwnerRootsWithDistinctContentDirectories)
 {
-	using namespace Durin::PathUtilities;
+	using namespace Durin;
 	std::filesystem::create_directories(Root / "Shared/ContentA");
 	std::filesystem::create_directories(Root / "Shared/ContentB");
 	const std::array Definitions{
@@ -311,25 +345,25 @@ TEST_F(FMountRegistryTests, AllowsSharedOwnerRootsWithDistinctContentDirectories
 			.VirtualRoot = "/Second/",
 			.Root = Root / "Shared",
 			.ContentPath = "ContentB"}};
-	FScopedMountRegistryFixture Registry(Definitions);
+	Testing::FScopedMountRegistryFixture Registry(Definitions);
 	ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
 	EXPECT_EQ(
-		ResolveAssetPath("/First/File.bin", EPathExistence::AllowMissing).PhysicalPath,
+		FMountPaths::ResolveAssetPath("/First/File.bin", EMountPathExistence::AllowMissing).PhysicalPath,
 		Root / "Shared/ContentA/File.bin");
 	EXPECT_EQ(
-		ResolveAssetPath("/Second/Asset").PhysicalPath,
+		FMountPaths::ResolveAssetPath("/Second/Asset").PhysicalPath,
 		Root / "Shared/ContentB/Asset");
 }
 
 TEST_F(FMountRegistryTests, RejectsContentPathTraversal)
 {
-	using namespace Durin::PathUtilities;
+	using namespace Durin;
 	const std::array Definitions{
 		FMountPoint{
 			.VirtualRoot = "/Escaped/",
 			.Root = Root / "Game",
 			.ContentPath = "../External"}};
-	FScopedMountRegistryFixture Registry(Definitions);
+	Testing::FScopedMountRegistryFixture Registry(Definitions);
 	EXPECT_FALSE(Registry.IsValid());
 	EXPECT_FALSE(Registry.GetError().empty());
 }

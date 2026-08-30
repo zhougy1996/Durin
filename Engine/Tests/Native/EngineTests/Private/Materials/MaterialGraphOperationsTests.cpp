@@ -1,3 +1,4 @@
+#include "Misc/MountPathTestSupport.h"
 #include "MaterialGraphOperations.h"
 #include "MaterialAssetCreation.h"
 #include "MaterialDocumentSnapshot.h"
@@ -81,7 +82,7 @@ TEST(FMaterialAssetCreationTests, NewBaseMaterialIsRenderableBeforePublication)
 TEST(FMaterialAssetCreationTests, BuiltInMaterialsHaveCompletePersistentGraphPresentation)
 {
 	InitializeDObjectSystem();
-	ASSERT_TRUE(PathUtilities::InitDefaultMountPoints());
+	ASSERT_TRUE(FMountPaths::InitDefaultMountPoints());
 	const Asset::FAssetCatalogRefreshResult Refresh =
 		Asset::RefreshAssetRegistry(Asset::EAssetRegistryScanMode::FullValidation);
 	ASSERT_TRUE(Refresh) << (Refresh.Errors.empty()
@@ -572,10 +573,10 @@ TEST(FMaterialGraphOperationsTests,
 	NewMaterialInitializationPersistsACompleteGraphPresentation)
 {
 	InitializeDObjectSystem();
-	PathUtilities::FScopedMountRegistryFixture MountRegistry;
+	Testing::FScopedMountRegistryFixture MountRegistry;
 	const std::filesystem::path Root = std::filesystem::temp_directory_path()
 		/ "DurinInitializedGraphLayoutMaterial";
-	PathUtilities::RegisterMountPointForTests(
+	Testing::RegisterMountPointForTests(
 		"/MaterialGraphTests/", Root.generic_string() + "/");
 	FAssetPath PackagePath;
 	ASSERT_TRUE(FAssetPath::TryCreate(

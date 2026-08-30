@@ -12,7 +12,6 @@
 #include "Editor/WorkspaceUI.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Misc/Paths.h"
-#include "Misc/LexicalPath.h"
 #include "MonaImGui.h"
 #include "MonaImGuiWidgets.h"
 #include "MonaCoreGlobals.h"
@@ -259,7 +258,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			for (const FContentBrowserModel::FMountSnapshot& Mount : Model.GetMounts())
 			{
 				std::filesystem::path Relative;
-				if (!PathUtilities::TryMakeLexicalRelativePath(Model.GetCurrentPhysicalPath(), Mount.PhysicalRoot, Relative)) continue;
+				if (!FPaths::TryMakeLexicalRelativePath(Model.GetCurrentPhysicalPath(), Mount.PhysicalRoot, Relative)) continue;
 				std::filesystem::path Progressive = Mount.PhysicalRoot;
 				std::string RootLabel = Mount.VirtualRoot;
 				if (RootLabel.starts_with('/')) RootLabel.erase(RootLabel.begin());

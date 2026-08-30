@@ -10,6 +10,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "MonaImGui.h"
 #include "Texture/Texture.h"
 #include "Texture/Texture2D.h"
@@ -26,7 +27,7 @@ namespace
 	{
 	public:
 		explicit FAppliedPackageEdit(Durin::DPackage& InPackage)
-			: Package(&InPackage)
+			: Package{&InPackage}
 		{
 		}
 
@@ -137,8 +138,8 @@ TEST(FEditableAssetDocumentModelTests, UndoToActivatedRevisionClearsDirtyState)
 	auto* Editor = Durin::NewObject<Durin::DEditorEngine>(
 		nullptr, "EditableAssetDocumentEditor");
 	ASSERT_NE(Editor, nullptr);
-	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture;
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::FScopedMountRegistryFixture MountFixture;
+	Durin::Testing::RegisterMountPointForTests(
 		"/EditableAssetDocumentTests/",
 		Durin::Testing::GetTestWorkDirectory().generic_string() + "/");
 	Durin::FAssetPath PackagePath;

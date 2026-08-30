@@ -15,6 +15,7 @@
 #include "Materials/Material.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "NativeTestSupport.h"
@@ -132,7 +133,7 @@ TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 	const std::filesystem::path CacheRoot = Root / "DerivedDataCache";
 	const std::filesystem::path CookRoot = std::filesystem::absolute(Root / "Cook");
 	std::filesystem::create_directories(ContentRoot);
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::RegisterMountPointForTests(
 		"/TextureColdCookTests/", ContentRoot.generic_string() + "/");
 	FScopedDerivedDataCacheRoot ScopedCache(CacheRoot);
 	const std::filesystem::path Source = Root / "ColdCook.tga";
@@ -186,7 +187,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		std::filesystem::absolute(Root / "CookDiagnostic");
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	std::filesystem::create_directories(ContentRoot);
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::RegisterMountPointForTests(
 		"/TextureCookTests/", ContentRoot.generic_string() + "/");
 	FScopedDerivedDataCacheRoot ScopedCache(CacheRoot);
 
@@ -292,7 +293,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
 	Durin::Testing::RemoveTestWorkDirectory(Root / "Content" / "Textures");
 	RestartAssetManager(CookRoot);
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
@@ -479,7 +480,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	Durin::RHIExit();
 	ASSERT_TRUE(std::filesystem::remove(CookRoot / "Game/CookedTexture.dbulk"));
 	RestartAssetManager(CookRoot);
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
@@ -492,7 +493,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	auto ExpectCookedFailure = [](const std::filesystem::path& FailureRoot,
 								   std::string_view ExpectedText) {
 		RestartAssetManager(FailureRoot);
-		Durin::PathUtilities::RegisterMountPointForTests(
+		Durin::Testing::RegisterMountPointForTests(
 			"/Game/", (FailureRoot / "Game").generic_string() + "/");
 		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));

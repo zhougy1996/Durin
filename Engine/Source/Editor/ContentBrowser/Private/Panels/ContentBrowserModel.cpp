@@ -3,8 +3,8 @@
 #include "Panels/ContentBrowserItemView.h"
 
 #include "Asset.h"
-#include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "Misc/StringHelper.h"
 #include "Thumbnail/ThumbnailManager.h"
 
@@ -38,15 +38,15 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserModel::RefreshMountSnapshot() -> void
 	{
-		const auto& RegisteredMounts = PathUtilities::GetRegisteredMountPoints();
+		const auto& RegisteredMounts = FMountPaths::GetRegisteredMountPoints();
 		const size_t ContentMountCount = std::ranges::count_if(
 			RegisteredMounts,
-			[](const PathUtilities::FMountPoint& Mount) {
+			[](const FMountPoint& Mount) {
 				return Mount.bAutoScan;
 			});
 		std::vector<FMountSnapshot> NextMountSnapshot;
 		NextMountSnapshot.reserve(ContentMountCount);
-		for (const PathUtilities::FMountPoint& Mount : RegisteredMounts)
+		for (const FMountPoint& Mount : RegisteredMounts)
 		{
 			if (!Mount.bAutoScan) continue;
 			const std::string ContentRoot = Mount.GetContentDir().generic_string();
@@ -114,8 +114,8 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserModel::ResolveMountPath(
 		std::string_view PhysicalPath) const -> FMountPath
 	{
-		const PathUtilities::FAssetPathResult Classified =
-			PathUtilities::ClassifyAssetPath(PhysicalPath);
+		const FAssetPathResult Classified =
+			FMountPaths::ClassifyAssetPath(PhysicalPath);
 		if (!Classified) return {};
 		const std::string ClassifiedRoot =
 			NormalizePath(Classified.Mount->GetContentDir().generic_string());
@@ -138,8 +138,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::string EntryPath(VirtualPath);
 		if (!EntryPath.ends_with('/')) EntryPath += '/';
 		EntryPath += "_directory_";
-		const PathUtilities::FAssetPathResult Resolved =
-			PathUtilities::ResolveAssetPath(EntryPath);
+		const FAssetPathResult Resolved =
+			FMountPaths::ResolveAssetPath(EntryPath);
 		return Resolved
 			? NormalizePath(Resolved.PhysicalPath.parent_path().generic_string())
 			: std::string{};
@@ -196,7 +196,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::string_view PhysicalPath,
 		bool bRecursive) const -> bool
 	{
-		return PathUtilities::IsLexicalDescendantPath(
+		return FPaths::IsLexicalDescendantPath(
 			NormalizePath(PhysicalPath), CurrentPhysicalPath, bRecursive);
 	}
 
@@ -371,7 +371,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			for (const auto& [Directory, Assets] : AssetDirectoryIndex)
 			{
 				if (Directory != CurrentPhysicalPath
-					&& !PathUtilities::IsLexicalDescendantPath(
+					&& !FPaths::IsLexicalDescendantPath(
 						Directory, CurrentPhysicalPath, true))
 					continue;
 				for (const FIndexedAsset& Asset : Assets)

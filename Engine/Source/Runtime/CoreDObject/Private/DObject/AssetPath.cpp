@@ -1,6 +1,7 @@
 #include "DObject/AssetPath.h"
 
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 
 namespace Durin
 {
@@ -32,7 +33,7 @@ namespace Durin
 			Start = End == std::string_view::npos ? InPath.size() : End + 1;
 		}
 
-		const PathUtilities::FMountLookupResult Lookup = PathUtilities::FindMountForVirtualPath(InPath);
+		const FMountLookupResult Lookup = FMountPaths::FindMountForVirtualPath(InPath);
 		if (!Lookup) return Fail(Lookup.Message, OutError);
 		return true;
 	}

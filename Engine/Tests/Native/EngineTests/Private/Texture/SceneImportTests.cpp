@@ -1,3 +1,4 @@
+#include "Misc/MountPathTestSupport.h"
 #include "TextureTestSupport.h"
 
 #include "Animation/AnimationClip.h"
@@ -30,7 +31,7 @@ namespace
 		};
 
 		std::unique_ptr<FRenderingThreadScope> RenderingThread;
-		std::unique_ptr<Durin::PathUtilities::FScopedMountRegistryFixture> Mounts;
+		std::unique_ptr<Durin::Testing::FScopedMountRegistryFixture> Mounts;
 		std::string Source;
 		Durin::FAssetPath DestinationDirectory;
 
@@ -54,12 +55,12 @@ namespace
 		Durin::Testing::RemoveTestWorkDirectory(Root);
 		std::filesystem::create_directories(Root / "Engine/Content");
 		std::filesystem::create_directories(Root / "Project/Content/Scenes");
-		auto Mounts = std::make_unique<Durin::PathUtilities::FScopedMountRegistryFixture>(
-			std::vector<Durin::PathUtilities::FMountPoint>{
-				{.VirtualRoot = "/Engine/", .Owner = Durin::PathUtilities::EMountOwner::Test,
+		auto Mounts = std::make_unique<Durin::Testing::FScopedMountRegistryFixture>(
+			std::vector<Durin::FMountPoint>{
+				{.VirtualRoot = "/Engine/", .Owner = Durin::EMountOwner::Test,
 					.Root = Root / "Engine/Content", .bAutoScan = true,
 					.bContentWritable = true},
-				{.VirtualRoot = "/SceneImportTests/", .Owner = Durin::PathUtilities::EMountOwner::Test,
+				{.VirtualRoot = "/SceneImportTests/", .Owner = Durin::EMountOwner::Test,
 					.Root = Root / "Project/Content", .bAutoScan = true,
 					.bContentWritable = true, .Dependencies = {"/Engine/"}}});
 		EXPECT_TRUE(Mounts->IsValid()) << Mounts->GetError();

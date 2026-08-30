@@ -45,8 +45,9 @@ Optional importer source hints use the separate explicitly based
 asset-relative, project-relative, or absolute physical-path contract and never
 resolve through these package mounts.
 
-The immutable Core mount registry publishes `/Engine/` and `/Game/` plus
-validated project-declared extension and external-source mounts. Every mount
+The immutable Core mount registry is exposed through `FMountPaths`, which
+publishes `/Engine/` and `/Game/` plus validated project-declared extension and
+external-source mounts. Every mount
 may contain `.dasset` packages and ordinary authoring files. Typed resolution
 reports invalid paths, unknown mounts, unavailable content directories,
 escapes, missing files, forbidden dependencies, and read-only content-write policy

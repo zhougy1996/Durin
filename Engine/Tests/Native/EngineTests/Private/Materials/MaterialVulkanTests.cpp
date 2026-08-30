@@ -1,3 +1,4 @@
+#include "Misc/MountPathTestSupport.h"
 #include "MaterialTestSupport.h"
 #include "Texture/TextureFactoryTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
@@ -98,8 +99,8 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 				Durin::DMaterialInstance::StaticClass()->GetQualifiedName().ToString()),
 			StaticMeshRendererError);
 	ASSERT_TRUE(MaterialInstanceRenderer) << StaticMeshRendererError;
-	Durin::PathUtilities::FScopedMountRegistryFixture SavedMountRegistry;
-	Durin::PathUtilities::InitDefaultMountPoints();
+	Durin::Testing::FScopedMountRegistryFixture SavedMountRegistry;
+	Durin::FMountPaths::InitDefaultMountPoints();
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 	const std::filesystem::path TextureMount =
 		Durin::Testing::GetTestWorkDirectory() / "MaterialThumbnailVulkan";
@@ -108,16 +109,16 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 	Durin::Testing::RemoveTestWorkDirectory(TextureMount);
 	std::filesystem::create_directories(TextureMount);
 	WriteMaterialTextureFixture(TextureSource);
-	std::vector<Durin::PathUtilities::FMountPoint> MountDefinitions(
-		Durin::PathUtilities::GetRegisteredMountPoints().begin(),
-		Durin::PathUtilities::GetRegisteredMountPoints().end());
+	std::vector<Durin::FMountPoint> MountDefinitions(
+		Durin::FMountPaths::GetRegisteredMountPoints().begin(),
+		Durin::FMountPaths::GetRegisteredMountPoints().end());
 	MountDefinitions.push_back({
 		.VirtualRoot = "/MaterialThumbnailVulkan/",
-		.Owner = Durin::PathUtilities::EMountOwner::Test,
+		.Owner = Durin::EMountOwner::Test,
 		.Root = TextureMount,
 		.bAutoScan = true,
 		.bContentWritable = true});
-	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry(MountDefinitions);
+	Durin::Testing::FScopedMountRegistryFixture MountRegistry(MountDefinitions);
 	ASSERT_TRUE(MountRegistry.IsValid()) << MountRegistry.GetError();
 	Durin::FAssetPath SpherePath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(

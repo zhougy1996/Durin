@@ -1,3 +1,4 @@
+#include "Misc/MountPathTestSupport.h"
 #include "WorldTestSupport.h"
 #include "Actors/SplineMeshActor.h"
 #include "Components/SplineComponent.h"
@@ -295,7 +296,7 @@ TEST(FCameraComponentTests, SettingsAndLookAtCommitOnceAndIgnoreEquivalentValues
 		const std::filesystem::path Root =
 			Durin::Testing::GetTestWorkDirectory() / "CameraComponentAtomicUpdates";
 		std::filesystem::create_directories(Root);
-		Durin::PathUtilities::RegisterMountPointForTests(
+		Durin::Testing::RegisterMountPointForTests(
 			"/CameraComponentTests/", Root.generic_string() + "/");
 		return true;
 	}();

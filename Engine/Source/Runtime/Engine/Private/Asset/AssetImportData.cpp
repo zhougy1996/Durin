@@ -3,7 +3,6 @@
 
 #include "DObject/AssetPath.h"
 #include "DObject/DObjectGlobals.h"
-#include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
 
 namespace Durin
@@ -50,7 +49,7 @@ namespace Durin
 			const std::filesystem::path& Project) -> bool
 		{
 			std::filesystem::path Relative;
-			if (!PathUtilities::TryMakeLexicalRelativePath(Path, Project, Relative)
+			if (!FPaths::TryMakeLexicalRelativePath(Path, Project, Relative)
 				|| Relative.empty() || Relative.is_absolute()) return false;
 			const auto First = Relative.begin();
 			return First != Relative.end() && *First != "..";

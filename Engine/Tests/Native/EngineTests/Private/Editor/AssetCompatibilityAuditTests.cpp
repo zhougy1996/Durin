@@ -1,5 +1,7 @@
 #include "Asset/AssetCompatibilityAudit.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Threading/ThreadEvent.h"
 
 #include "NativeTestSupport.h"
@@ -74,12 +76,12 @@ namespace
 			Root = Durin::Testing::GetTestWorkDirectory() / "AssetCompatibilityAudit";
 			std::filesystem::create_directories(Root);
 			const std::array Definitions{
-				Durin::PathUtilities::FMountPoint{
+				Durin::FMountPoint{
 					.VirtualRoot = "/AuditTests/",
-					.Owner = Durin::PathUtilities::EMountOwner::ActiveProject,
+					.Owner = Durin::EMountOwner::ActiveProject,
 					.Root = Root,
 					.bAutoScan = true}};
-			Mounts = std::make_unique<Durin::PathUtilities::FScopedMountRegistryFixture>(Definitions);
+			Mounts = std::make_unique<Durin::Testing::FScopedMountRegistryFixture>(Definitions);
 			ASSERT_TRUE(Mounts->IsValid()) << Mounts->GetError();
 			const Durin::FTaskSchedulerDiagnostics Diagnostics =
 				Durin::GetTaskSchedulerDiagnostics();
@@ -108,7 +110,7 @@ namespace
 		}
 
 		std::filesystem::path Root;
-		std::unique_ptr<Durin::PathUtilities::FScopedMountRegistryFixture> Mounts;
+		std::unique_ptr<Durin::Testing::FScopedMountRegistryFixture> Mounts;
 		Durin::FTaskSchedulerConfig PreviousConfig;
 		bool bRestoreScheduler = false;
 		bool bRestoreDeferredExecutor = false;

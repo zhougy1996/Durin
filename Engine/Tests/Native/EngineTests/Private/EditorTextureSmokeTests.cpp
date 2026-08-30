@@ -21,6 +21,8 @@
 #include "Materials/MaterialTypes.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "Modules/ModuleTestSupport.h"
 #include "NativeTestSupport.h"
@@ -74,14 +76,14 @@ namespace Durin
 		Durin::Testing::RemoveTestWorkDirectory(Root);
 		std::filesystem::create_directories(Root / "Content");
 		const std::array Definitions{
-			PathUtilities::FMountPoint{
+			FMountPoint{
 				.VirtualRoot = "/EditorMixedV4/",
-				.Owner = PathUtilities::EMountOwner::Test,
+				.Owner = EMountOwner::Test,
 				.Root = Root / "Content",
 				.ContentPath = ".",
 				.bAutoScan = true,
 				.bContentWritable = true}};
-		PathUtilities::FScopedMountRegistryFixture Mounts(Definitions);
+		Testing::FScopedMountRegistryFixture Mounts(Definitions);
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 		FPaths::SetDerivedDataCacheDirForTests(
 			(Root / "DerivedDataCache").generic_string());
@@ -249,7 +251,7 @@ namespace Durin
 		if (InitializedRoots.insert(Root).second)
 		{
 			Durin::Testing::RemoveTestWorkDirectory(Root);
-			PathUtilities::RegisterMountPointForTests("/EditorTextureSmoke/", Root.generic_string() + "/");
+			Testing::RegisterMountPointForTests("/EditorTextureSmoke/", Root.generic_string() + "/");
 		}
 
 		const std::filesystem::path TextureSource = Testing::GetTestWorkDirectory() / "EditorTextureSmoke.png";
@@ -412,7 +414,7 @@ namespace Durin
 		const std::filesystem::path Root =
 			Testing::GetTestWorkDirectory() / "TextureOwnershipSmoke";
 		Durin::Testing::RemoveTestWorkDirectory(Root);
-		PathUtilities::RegisterMountPointForTests(
+		Testing::RegisterMountPointForTests(
 			"/TextureOwnershipSmoke/", Root.generic_string() + "/");
 		const std::filesystem::path Source =
 			Testing::GetTestWorkDirectory() / "TextureOwnershipSmoke.png";

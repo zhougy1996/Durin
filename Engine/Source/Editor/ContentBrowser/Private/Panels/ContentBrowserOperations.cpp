@@ -7,7 +7,6 @@
 #include "Asset.h"
 #include "AssetTools/IAssetTools.h"
 #include "DObject/Class.h"
-#include "Misc/LexicalPath.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "MonaImGui.h"
@@ -86,7 +85,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			OutReparsePoint.clear();
 			OutError.clear();
 			std::filesystem::path Relative;
-			if (!PathUtilities::TryMakeLexicalRelativePath(
+			if (!FPaths::TryMakeLexicalRelativePath(
 					Candidate, Root, Relative))
 			{
 				OutError = std::make_error_code(std::errc::invalid_argument);
@@ -167,7 +166,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto AreSamePath(std::string_view A, std::string_view B) -> bool
 		{
 			std::filesystem::path Relative;
-			return PathUtilities::TryMakeLexicalRelativePath(
+			return FPaths::TryMakeLexicalRelativePath(
 				std::filesystem::path(A), std::filesystem::path(B), Relative)
 				&& Relative.empty();
 		}
@@ -417,7 +416,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		for (const auto& [Path, Data]
 			: Asset::CaptureAssetCatalogSnapshot().Assets)
 		{
-			if (!PathUtilities::IsLexicalDescendantPath(
+			if (!FPaths::IsLexicalDescendantPath(
 					NormalizePath(Data.PhysicalPath), Item.PhysicalPath, true))
 				continue;
 			if (!Path.GetView().starts_with(OldVirtual))
@@ -831,7 +830,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			if (std::ranges::any_of(
 					MaximalRoots,
 					[&](const FSelectedRoot& Existing) {
-						return PathUtilities::IsLexicalDescendantPath(
+						return FPaths::IsLexicalDescendantPath(
 							Candidate.PhysicalPath, Existing.PhysicalPath, true);
 					}))
 				continue;
@@ -1032,7 +1031,7 @@ namespace Durin::Editor::ContentBrowser::Private
 				MaximalRoots.empty() ? nullptr : MaximalRoots.front().Mount;
 			std::filesystem::path SelectedReparsePoint;
 			if (SelectedMount
-				&& PathUtilities::IsLexicalDescendantPath(
+				&& FPaths::IsLexicalDescendantPath(
 					CompanionPath, SelectedMount->PhysicalRoot, true)
 				&& FindReparsePointInPath(
 					SelectedMount->PhysicalRoot,
@@ -1214,7 +1213,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			FXxHash128Builder ByteIdentity;
 			for (const FContentDeletionFingerprint& Descendant : Plan->Entries)
 			{
-				if (!PathUtilities::IsLexicalDescendantPath(
+				if (!FPaths::IsLexicalDescendantPath(
 						Descendant.PhysicalPath, Directory.PhysicalPath, true))
 					continue;
 				const std::string Relative = std::filesystem::path(

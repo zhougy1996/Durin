@@ -1,7 +1,6 @@
 #include "Thumbnail/ThumbnailStorage.h"
 
 #include "Misc/FileHelper.h"
-#include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
 #include "Serialization/BinaryFormat.h"
 
@@ -37,7 +36,7 @@ namespace Durin::Editor
 			std::filesystem::path& OutResolved) -> bool
 		{
 			std::error_code Error;
-			return PathUtilities::TryResolveContainedPath(
+			return FPaths::TryResolveContainedPath(
 				Candidate, Root, OutResolved, Error);
 		}
 	} // namespace

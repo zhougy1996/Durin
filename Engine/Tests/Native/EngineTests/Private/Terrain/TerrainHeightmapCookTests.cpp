@@ -6,6 +6,7 @@
 #include "EngineTestSupport.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Terrain/TerrainHeightmap.h"
 #include "Terrain/TerrainHeightmapFactoryTestSupport.h"
@@ -28,7 +29,7 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 	const std::filesystem::path ContentRoot = Root / "Content";
 	const std::filesystem::path Source = ContentRoot / "Sources/Height.raw";
 	std::filesystem::create_directories(Source.parent_path());
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", ContentRoot.generic_string() + "/");
 	const std::string PreviousDdc = Durin::FPaths::DerivedDataCacheDir();
 	Durin::FPaths::SetDerivedDataCacheDirForTests((Root / "DDC").generic_string());
@@ -67,7 +68,7 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 	ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(
 		CookRoot, RuntimeConfiguration));
 	ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(RuntimeConfiguration)));
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (CookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));

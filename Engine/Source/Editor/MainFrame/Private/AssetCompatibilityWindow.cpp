@@ -3,6 +3,7 @@
 
 #include "MonaImGui.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 
 namespace Durin::Editor::MainFrame
 {
@@ -43,15 +44,15 @@ namespace Durin::Editor::MainFrame
 			return "Unknown";
 		}
 
-		auto MountOwnerName(PathUtilities::EMountOwner Value) -> const char*
+		auto MountOwnerName(EMountOwner Value) -> const char*
 		{
 			switch (Value)
 			{
-			case PathUtilities::EMountOwner::Engine: return "Engine";
-			case PathUtilities::EMountOwner::ActiveProject: return "Active project";
-			case PathUtilities::EMountOwner::Extension: return "Extension";
-			case PathUtilities::EMountOwner::ExternalSources: return "External sources";
-			case PathUtilities::EMountOwner::Test: return "Test";
+			case EMountOwner::Engine: return "Engine";
+			case EMountOwner::ActiveProject: return "Active project";
+			case EMountOwner::Extension: return "Extension";
+			case EMountOwner::ExternalSources: return "External sources";
+			case EMountOwner::Test: return "Test";
 			}
 			return "Unknown";
 		}
@@ -343,8 +344,8 @@ namespace Durin::Editor::MainFrame
 		ImGui::SeparatorText("Details");
 		if (!Record) { ImGui::TextDisabled("Select a package to inspect its findings."); return; }
 		ImGui::TextUnformatted(Record->PackagePath.ToString().c_str());
-		const PathUtilities::FMountLookupResult Mount =
-			PathUtilities::FindMountForVirtualPath(Record->PackagePath.GetView());
+		const FMountLookupResult Mount =
+			FMountPaths::FindMountForVirtualPath(Record->PackagePath.GetView());
 		if (Mount)
 		{
 			ImGui::SameLine();

@@ -21,6 +21,7 @@
 #include "EngineTestSupport.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Modules/ModuleTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Serialization/Archive.h"
@@ -322,7 +323,7 @@ namespace
 		const std::filesystem::path Root =
 			Durin::Testing::GetTestWorkDirectory() / "SkeletalAssets";
 		Durin::Testing::RemoveTestWorkDirectory(Root);
-		Durin::PathUtilities::RegisterMountPointForTests(
+		Durin::Testing::RegisterMountPointForTests(
 			"/SkeletalAssetTests/", Root.generic_string() + "/");
 		return Root;
 	}
@@ -1293,7 +1294,7 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	const std::filesystem::path SecondCookRoot = std::filesystem::absolute(Root / "CookSecond");
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	std::filesystem::create_directories(ContentRoot);
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", ContentRoot.generic_string() + "/");
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	Durin::FAssetPath SkeletonPath;
@@ -1374,7 +1375,7 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	Durin::Testing::RemoveTestWorkDirectory(ContentRoot);
 	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
 	RestartAssetManager(FirstCookRoot);
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (FirstCookRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
@@ -1444,7 +1445,7 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(MeshPackage)), FirstCookRoot / "Game/Mesh.dasset"));
 	RestartAssetManager(FirstCookRoot);
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (FirstCookRoot / "Game").generic_string() + "/");
 	EXPECT_FALSE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));

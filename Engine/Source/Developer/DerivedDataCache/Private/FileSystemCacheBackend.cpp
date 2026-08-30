@@ -1,7 +1,6 @@
 #include "FileSystemCacheBackend.h"
 
 #include "Misc/FileHelper.h"
-#include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
 
 namespace Durin::DerivedData
@@ -36,7 +35,7 @@ namespace Durin::DerivedData
 		const std::string KeyText(Key.ToString());
 		const std::filesystem::path Candidate =
 			(Directory / KeyText.substr(0, 2) / (KeyText + ".bin")).lexically_normal();
-		if (!PathUtilities::IsLexicalDescendantPath(Candidate, Directory, true))
+		if (!FPaths::IsLexicalDescendantPath(Candidate, Directory, true))
 		{
 			OutError = "Cache entry path escapes its configured bucket.";
 			return false;
@@ -64,7 +63,7 @@ namespace Durin::DerivedData
 		if (!std::filesystem::is_regular_file(Status))
 			return {ECacheGetStatus::StorageFailure, {}, "Cache entry is not a regular file."};
 		std::filesystem::path ResolvedPath;
-		if (!PathUtilities::TryResolveContainedPath(
+		if (!FPaths::TryResolveContainedPath(
 			Path, GetBucketDirectory(Request.Bucket), ResolvedPath, ErrorCode))
 			return {ECacheGetStatus::StorageFailure, {},
 				"Cache entry resolves outside its configured bucket."};
@@ -96,7 +95,7 @@ namespace Durin::DerivedData
 		std::error_code ErrorCode;
 		std::filesystem::path ResolvedPath;
 		const std::filesystem::path BucketDirectory = GetBucketDirectory(Request.Bucket);
-		if (!PathUtilities::TryResolveContainedPath(Path, BucketDirectory, ResolvedPath, ErrorCode))
+		if (!FPaths::TryResolveContainedPath(Path, BucketDirectory, ResolvedPath, ErrorCode))
 			return {ECachePutStatus::StorageFailure, ErrorCode
 				? std::format("Failed to resolve cache entry path: {}", ErrorCode.message())
 				: "Cache entry resolves outside its configured bucket."};
@@ -104,7 +103,7 @@ namespace Durin::DerivedData
 		if (ErrorCode)
 			return {ECachePutStatus::StorageFailure,
 				std::format("Failed to create cache entry directory: {}", ErrorCode.message())};
-		if (!PathUtilities::TryResolveContainedPath(Path, BucketDirectory, ResolvedPath, ErrorCode))
+		if (!FPaths::TryResolveContainedPath(Path, BucketDirectory, ResolvedPath, ErrorCode))
 			return {ECachePutStatus::StorageFailure, ErrorCode
 				? std::format("Failed to resolve cache entry path: {}", ErrorCode.message())
 				: "Cache entry resolves outside its configured bucket."};
@@ -156,8 +155,8 @@ namespace Durin::DerivedData
 				&& Relative.begin()->generic_string() == KeyText.substr(0, std::min<size_t>(2, KeyText.size()))
 				&& Path.extension() == ".bin" && FileName == KeyText + ".bin" && Key.IsValid();
 			std::filesystem::path ResolvedPath;
-			if (!bExpectedShape || !PathUtilities::IsLexicalDescendantPath(Path, Directory, true)
-				|| !PathUtilities::TryResolveContainedPath(Path, Directory, ResolvedPath, ErrorCode)) continue;
+			if (!bExpectedShape || !FPaths::IsLexicalDescendantPath(Path, Directory, true)
+				|| !FPaths::TryResolveContainedPath(Path, Directory, ResolvedPath, ErrorCode)) continue;
 			const uint64 Size = std::filesystem::file_size(Path, ErrorCode);
 			if (ErrorCode) break;
 			const auto LastWriteTime = std::filesystem::last_write_time(Path, ErrorCode);
@@ -189,7 +188,7 @@ namespace Durin::DerivedData
 			if (Result.BytesAfter <= Request.BudgetBytes
 				|| Result.DeletedEntries >= Request.MaximumDeletes) break;
 			std::filesystem::path ResolvedPath;
-			if (!PathUtilities::TryResolveContainedPath(Candidate.Path, Directory, ResolvedPath, ErrorCode))
+			if (!FPaths::TryResolveContainedPath(Candidate.Path, Directory, ResolvedPath, ErrorCode))
 			{
 				Result.Status = ECacheTrimStatus::StorageFailure;
 				Result.Diagnostic = "Refused to delete a cache entry outside its configured bucket.";

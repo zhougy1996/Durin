@@ -7,6 +7,7 @@
 #include "AssetTools/IAssetTools.h"
 #include "Assets/ContentBrowserThumbnailReferences.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "Panels/ContentBrowserItemView.h"
 
 #ifdef _WIN32
@@ -119,8 +120,8 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		if (AdmissionState != ::Durin::Editor::ContentBrowser::EAdmissionState::Accepting)
 			return false;
-		const PathUtilities::FAssetPathResult Resolved =
-			PathUtilities::ResolveAssetPath(DirectoryPath);
+		const FAssetPathResult Resolved =
+			FMountPaths::ResolveAssetPath(DirectoryPath);
 		if (!Resolved)
 		{
 			SetError(Resolved.Message);

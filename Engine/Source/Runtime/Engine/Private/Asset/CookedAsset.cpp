@@ -5,7 +5,7 @@
 #include "BulkContainerInfrastructure.h"
 #include "DObject/Package.h"
 #include "Hash/XxHash.h"
-#include "Misc/LexicalPath.h"
+#include "Misc/Paths.h"
 
 namespace Durin::Asset
 {
@@ -244,7 +244,7 @@ namespace Durin::Asset
 		const std::filesystem::path Root = CookRoot.lexically_normal();
 		std::filesystem::path Candidate = (Root / std::filesystem::path(Relative)).lexically_normal();
 		Candidate += ".dasset";
-		if (!PathUtilities::IsLexicalDescendantPath(Candidate, Root, true))
+		if (!FPaths::IsLexicalDescendantPath(Candidate, Root, true))
 			return Fail("Cooked package path escapes the cook root.", OutError);
 		OutPackagePath = std::move(Candidate);
 		return true;
@@ -261,11 +261,11 @@ namespace Durin::Asset
 		const std::filesystem::path Root = CookRoot.lexically_normal();
 		const std::filesystem::path Normalized = PackagePath.lexically_normal();
 		if (Root.empty() || !Root.is_absolute() || PackagePath.extension() != ".dasset"
-			|| !PathUtilities::IsLexicalDescendantPath(Normalized, Root, true))
+			|| !FPaths::IsLexicalDescendantPath(Normalized, Root, true))
 			return Fail("Cooked companion package path is invalid or outside the cook root.", OutError);
 		OutCompanionPath = Normalized;
 		OutCompanionPath.replace_extension(".dbulk");
-		if (!PathUtilities::IsLexicalDescendantPath(OutCompanionPath, Root, true))
+		if (!FPaths::IsLexicalDescendantPath(OutCompanionPath, Root, true))
 			return Fail("Cooked companion path escapes the cook root.", OutError);
 		return true;
 	}

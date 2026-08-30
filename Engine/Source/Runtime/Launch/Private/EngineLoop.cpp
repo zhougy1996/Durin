@@ -19,6 +19,7 @@
 #include "HAL/PlatformProcess.h"
 #include "Misc/AppConfig.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "Misc/Project.h"
 #include "Misc/Time.h"
 #include "Misc/Version.h"
@@ -97,7 +98,7 @@ namespace Durin
 		);
 		if (!FPaths::ProjectFile().empty()) DURIN_DEBUG(STR("Project file: {}"), FPaths::ProjectFile());
 		std::string MountError;
-		if (!PathUtilities::InitDefaultMountPoints(&MountError))
+		if (!FMountPaths::InitDefaultMountPoints(&MountError))
 		{
 			DURIN_ERROR("Failed to initialize mount registry: {}", MountError);
 			Exit();

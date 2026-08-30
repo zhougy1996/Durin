@@ -3,6 +3,7 @@
 
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "Serialization/BinaryFormat.h"
 
 namespace Durin::Asset::Private
@@ -45,7 +46,7 @@ namespace Durin::Asset::Private
 		auto GetMountManifest() -> std::vector<std::string>
 		{
 			std::vector<std::string> Roots;
-			for (const PathUtilities::FMountPoint& Mount : PathUtilities::GetRegisteredMountPoints())
+			for (const FMountPoint& Mount : FMountPaths::GetRegisteredMountPoints())
 				if (Mount.bAutoScan) Roots.push_back(Mount.VirtualRoot);
 		std::ranges::sort(Roots);
 		Roots.erase(std::unique(Roots.begin(), Roots.end()), Roots.end());
@@ -217,8 +218,8 @@ namespace Durin::Asset::Private
 		OutEntries.reserve(Assets.size());
 		for (const auto& [Path, Data] : Assets)
 		{
-			const PathUtilities::FMountLookupResult Lookup =
-				PathUtilities::FindMountForVirtualPath(Path.GetView());
+			const FMountLookupResult Lookup =
+				FMountPaths::FindMountForVirtualPath(Path.GetView());
 			if (!Lookup || !Lookup.Mount->bAutoScan)
 			{
 				OutWarning = std::format("Could not persist asset registry entry {} because its mount is unavailable.", Path.ToString());

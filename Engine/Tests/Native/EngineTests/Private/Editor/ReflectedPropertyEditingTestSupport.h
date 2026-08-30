@@ -16,6 +16,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "EngineTestSupport.h"
 #include "NativeTestSupport.h"
 
@@ -216,8 +217,8 @@ namespace
 	auto MakeReflectedRevisionTestPackage() -> Durin::DPackage*
 	{
 		InitializeDObjectSystem();
-		Durin::PathUtilities::FScopedMountRegistryFixture MountFixture;
-		Durin::PathUtilities::RegisterMountPointForTests(
+		Durin::Testing::FScopedMountRegistryFixture MountFixture;
+		Durin::Testing::RegisterMountPointForTests(
 			"/ReflectedRevisionTests/",
 			(Durin::Testing::GetTestWorkDirectory() / "ReflectedRevisionTests").generic_string() + "/"
 		);

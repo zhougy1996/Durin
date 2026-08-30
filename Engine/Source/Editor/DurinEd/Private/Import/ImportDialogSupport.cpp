@@ -2,6 +2,7 @@
 
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "Misc/Project.h"
 #include "MonaImGui.h"
 
@@ -100,8 +101,8 @@ namespace Durin::Editor
 		Request.DefaultFileName = DefaultFileName;
 		if (const FProjectInfo* Project = GetCurrentProject())
 		{
-			const PathUtilities::FMountLookupResult Lookup =
-				PathUtilities::FindMountForVirtualPath(
+			const FMountLookupResult Lookup =
+				FMountPaths::FindMountForVirtualPath(
 					Project->MountRoot + std::string("Destination"));
 			if (Lookup)
 				Request.InitialDirectory =
@@ -203,8 +204,8 @@ namespace Durin::Editor
 			Request.InitialDirectory = Current.PhysicalPath.generic_string();
 		else if (const FProjectInfo* Project = GetCurrentProject())
 		{
-			const PathUtilities::FMountLookupResult Lookup =
-				PathUtilities::FindMountForVirtualPath(
+			const FMountLookupResult Lookup =
+				FMountPaths::FindMountForVirtualPath(
 					Project->MountRoot + std::string("Destination"));
 			if (Lookup)
 				Request.InitialDirectory = Lookup.Mount->GetContentDir().generic_string();

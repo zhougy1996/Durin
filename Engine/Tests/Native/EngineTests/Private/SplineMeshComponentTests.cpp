@@ -19,6 +19,8 @@
 #include "EngineTestSupport.h"
 #include "Materials/Material.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
@@ -85,8 +87,8 @@ TEST(FSplineMeshComponentTests, DefaultObjectPublishesDiagnosticStateAndReflects
 TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationSections)
 {
 	InitializeDObjectSystem();
-	PathUtilities::FScopedMountRegistryFixture MountRegistry;
-	PathUtilities::InitDefaultMountPoints();
+	Testing::FScopedMountRegistryFixture MountRegistry;
+	FMountPaths::InitDefaultMountPoints();
 	ASSERT_TRUE(Asset::RefreshAssetRegistry());
 	FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
@@ -331,7 +333,7 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 	if (InitializedRoots.insert(Root).second)
 	{
 		Testing::RemoveTestWorkDirectory(Root);
-		PathUtilities::RegisterMountPointForTests("/SplineMeshComponentTests/", Root.generic_string() + "/");
+		Testing::RegisterMountPointForTests("/SplineMeshComponentTests/", Root.generic_string() + "/");
 	}
 	FAssetPath Path;
 	ASSERT_TRUE(FAssetPath::TryCreate("/SplineMeshComponentTests/RoundTrip", Path));
@@ -379,7 +381,7 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	if (InitializedRoots.insert(Root).second)
 	{
 		Testing::RemoveTestWorkDirectory(Root);
-		PathUtilities::RegisterMountPointForTests("/SplineMeshActorTests/", Root.generic_string() + "/");
+		Testing::RegisterMountPointForTests("/SplineMeshActorTests/", Root.generic_string() + "/");
 	}
 	FAssetPath Path;
 	ASSERT_TRUE(FAssetPath::TryCreate("/SplineMeshActorTests/Reconciliation", Path));

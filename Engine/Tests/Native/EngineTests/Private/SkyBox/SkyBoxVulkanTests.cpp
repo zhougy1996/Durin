@@ -1,3 +1,4 @@
+#include "Misc/MountPathTestSupport.h"
 #include "SkyBoxTestSupport.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Client/SceneViewport.h"
@@ -47,18 +48,18 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 {
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
-	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
+	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
-	std::vector<Durin::PathUtilities::FMountPoint> MountDefinitions(
-		Durin::PathUtilities::GetRegisteredMountPoints().begin(),
-		Durin::PathUtilities::GetRegisteredMountPoints().end()
+	std::vector<Durin::FMountPoint> MountDefinitions(
+		Durin::FMountPaths::GetRegisteredMountPoints().begin(),
+		Durin::FMountPaths::GetRegisteredMountPoints().end()
 	);
 	const std::filesystem::path AssetRoot =
 		Durin::Testing::GetTestWorkDirectory() / "SkyBoxAssets";
 	Durin::Testing::RemoveTestWorkDirectory(AssetRoot);
 	std::filesystem::create_directories(AssetRoot);
-	MountDefinitions.push_back({.VirtualRoot = "/SkyBoxAssetTests/", .Owner = Durin::PathUtilities::EMountOwner::Test, .Root = AssetRoot, .bAutoScan = true, .bContentWritable = true});
-	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
+	MountDefinitions.push_back({.VirtualRoot = "/SkyBoxAssetTests/", .Owner = Durin::EMountOwner::Test, .Root = AssetRoot, .bAutoScan = true, .bContentWritable = true});
+	Durin::Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");

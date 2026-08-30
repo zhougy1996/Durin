@@ -4,7 +4,8 @@
 
 #include "Misc/FileTime.h"
 #include "Misc/FileHelper.h"
-#include "Misc/LexicalPath.h"
+#include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 
 namespace Durin::Asset::Private
 {
@@ -127,17 +128,17 @@ namespace Durin::Asset::Private
 
 	auto IsWritableRelocationPath(
 		const std::filesystem::path& Path,
-		const PathUtilities::FMountPoint*& OutMount,
+		const FMountPoint*& OutMount,
 		std::string& OutError) -> bool
 	{
 		OutMount = nullptr;
 		const std::filesystem::path Normalized = NormalizePhysicalPath(Path);
-		for (const PathUtilities::FMountPoint& Mount :
-			PathUtilities::GetRegisteredMountPoints())
+		for (const FMountPoint& Mount :
+			FMountPaths::GetRegisteredMountPoints())
 		{
 			const std::filesystem::path Content =
 				NormalizePhysicalPath(Mount.GetContentDir());
-			if (!PathUtilities::IsLexicalDescendantPath(
+			if (!FPaths::IsLexicalDescendantPath(
 					Normalized.generic_string(), Content.generic_string(), true))
 				continue;
 			if (!Mount.bContentWritable)

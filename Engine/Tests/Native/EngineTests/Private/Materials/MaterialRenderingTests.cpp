@@ -1,3 +1,4 @@
+#include "Misc/MountPathTestSupport.h"
 #include "MaterialTestSupport.h"
 #include "Console/ConsoleCommand.h"
 #include "DefaultTextures.h"
@@ -339,7 +340,7 @@ TEST(FMaterialTests, StaticMeshProxyUsesSharedEngineDefaultForUnassignedSlots)
 {
 	InitializeDObjectSystem();
 	Durin::ResetMaterialFallbackDiagnosticsForTests();
-	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
+	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 	FRenderSceneHarness Harness;
 	Durin::DStaticMesh* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
@@ -377,7 +378,7 @@ TEST(FMaterialTests, StaticMeshProxyUsesSharedEngineDefaultForUnassignedSlots)
 TEST(FMaterialTests, StaticMeshProxyResolvesPrecedenceAndUpdatesEverySharedMaterialSlot)
 {
 	InitializeDObjectSystem();
-	ASSERT_TRUE(Durin::PathUtilities::InitDefaultMountPoints());
+	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 	FRenderSceneHarness Harness;
 	auto* Shared = MakeExpandedMaterial(nullptr, "SharedSlotMaterial");
@@ -572,8 +573,8 @@ TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	InitializeDObjectSystem();
-	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry;
-	Durin::PathUtilities::InitDefaultMountPoints();
+	Durin::Testing::FScopedMountRegistryFixture MountRegistry;
+	Durin::FMountPaths::InitDefaultMountPoints();
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 	for (const std::string_view PathText : {
 		"/Engine/Models/Sphere",
@@ -610,8 +611,8 @@ TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionA
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
 	FMaterialPreviewHarness Harness;
-	Durin::PathUtilities::FScopedMountRegistryFixture MountRegistry;
-	Durin::PathUtilities::InitDefaultMountPoints();
+	Durin::Testing::FScopedMountRegistryFixture MountRegistry;
+	Durin::FMountPaths::InitDefaultMountPoints();
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 
 	constexpr uint64 FirstPreviewId = 987654321;

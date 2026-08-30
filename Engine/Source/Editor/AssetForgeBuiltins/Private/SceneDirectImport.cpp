@@ -12,6 +12,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "SceneImportInternal.h"
 #include "Skeletal/SkeletalBuildOperations.h"
 #include "SkeletalMesh/SkeletalMesh.h"
@@ -415,9 +416,9 @@ namespace Durin::AssetForge::Builtins
 					.HashLow = Output.Texture.Product.SourceContentHashLow,
 					.HashHigh = Output.Texture.Product.SourceContentHashHigh};
 				const std::string SourcePhysicalPath = Output.Texture.SourceFilename;
-				const PathUtilities::FAssetPathResult PackageResolution =
-					PathUtilities::ResolveAssetPath(
-						Output.AssetPath.GetView(), PathUtilities::EPathExistence::AllowMissing);
+				const FAssetPathResult PackageResolution =
+					FMountPaths::ResolveAssetPath(
+						Output.AssetPath.GetView(), EMountPathExistence::AllowMissing);
 				if (!PackageResolution)
 				{
 					Abandon(Prepared);

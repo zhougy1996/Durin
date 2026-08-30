@@ -10,6 +10,7 @@
 #include "Editor/PropertyView.h"
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureBuildOperations.h"
@@ -34,7 +35,7 @@ inline auto InitializeTextureImportMount() -> void
 	if (InitializedRoots.insert(Root).second)
 	{
 		Durin::Testing::RemoveTestWorkDirectory(Root);
-		Durin::PathUtilities::RegisterMountPointForTests(
+		Durin::Testing::RegisterMountPointForTests(
 			"/TextureImportTests/", (Root / "Content").generic_string() + "/");
 	}
 }

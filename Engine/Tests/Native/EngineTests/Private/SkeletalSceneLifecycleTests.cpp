@@ -13,6 +13,8 @@
 #include "Materials/MaterialInstance.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "Modules/ModuleManager.h"
 #include "NativeTestSupport.h"
 #include "RenderingThread.h"
@@ -158,21 +160,21 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 	std::vector<Durin::FAssetPath> ClipPaths;
 	std::vector<Durin::FAnimationClipPayloadData> ExpectedClips;
 	{
-		const std::array<Durin::PathUtilities::FMountPoint, 2> MountDefinitions{{
+		const std::array<Durin::FMountPoint, 2> MountDefinitions{{
 			{
 				.VirtualRoot = "/Engine/",
-				.Owner = Durin::PathUtilities::EMountOwner::Test,
+				.Owner = Durin::EMountOwner::Test,
 				.Root = EngineContent,
 				.bAutoScan = true,
 				.bContentWritable = true},
 			{
 				.VirtualRoot = "/Game/",
-				.Owner = Durin::PathUtilities::EMountOwner::Test,
+				.Owner = Durin::EMountOwner::Test,
 				.Root = GameContent,
 				.bAutoScan = true,
 				.bContentWritable = true,
 				.Dependencies = {"/Engine/"}}}};
-		Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
+		Durin::Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));
@@ -335,19 +337,19 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 	EXPECT_FALSE(std::filesystem::exists(CacheRoot));
 	InitializeAssetManager(FirstCookRoot);
 	{
-		const std::array<Durin::PathUtilities::FMountPoint, 2> MountDefinitions{{
+		const std::array<Durin::FMountPoint, 2> MountDefinitions{{
 			{
 				.VirtualRoot = "/Engine/",
-				.Owner = Durin::PathUtilities::EMountOwner::Test,
+				.Owner = Durin::EMountOwner::Test,
 				.Root = FirstCookRoot / "Engine",
 				.bAutoScan = true},
 			{
 				.VirtualRoot = "/Game/",
-				.Owner = Durin::PathUtilities::EMountOwner::Test,
+				.Owner = Durin::EMountOwner::Test,
 				.Root = FirstCookRoot / "Game",
 				.bAutoScan = true,
 				.Dependencies = {"/Engine/"}}}};
-		Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
+		Durin::Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
 		ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));

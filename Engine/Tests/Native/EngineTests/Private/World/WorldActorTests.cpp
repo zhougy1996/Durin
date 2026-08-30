@@ -1,3 +1,4 @@
+#include "Misc/MountPathTestSupport.h"
 #include "WorldTestSupport.h"
 #include "DObject/Package.h"
 
@@ -197,7 +198,7 @@ TEST(FNativeConstructionTests, RepeatedDerivedReconciliationDoesNotDirtyTheLevel
 	if (InitializedRoots.insert(Root).second)
 	{
 		Durin::Testing::RemoveTestWorkDirectory(Root);
-		Durin::PathUtilities::RegisterMountPointForTests(
+		Durin::Testing::RegisterMountPointForTests(
 			"/NativeConstructionTests/", Root.generic_string() + "/");
 	}
 	Durin::FAssetPath Path;
@@ -479,7 +480,7 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 	if (InitializedRoots.insert(Root).second)
 	{
 		Durin::Testing::RemoveTestWorkDirectory(Root);
-		Durin::PathUtilities::RegisterMountPointForTests("/LevelTests/", Root.generic_string() + "/");
+		Durin::Testing::RegisterMountPointForTests("/LevelTests/", Root.generic_string() + "/");
 	}
 
 	Durin::FAssetPath Path;

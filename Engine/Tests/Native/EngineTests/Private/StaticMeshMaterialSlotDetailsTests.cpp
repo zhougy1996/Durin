@@ -14,6 +14,7 @@
 #include "LevelEditorCustomizations.h"
 #include "Materials/Material.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "StaticMesh/StaticMesh.h"
 #include "StaticMesh/StaticMeshResources.h"
@@ -169,7 +170,7 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	InitializeDObjectSystem();
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "StaticMeshSlotDetails";
 	Durin::Testing::RemoveTestWorkDirectory(Root);
-	Durin::PathUtilities::RegisterMountPointForTests("/StaticMeshSlotDetails/", Root.generic_string() + "/");
+	Durin::Testing::RegisterMountPointForTests("/StaticMeshSlotDetails/", Root.generic_string() + "/");
 	Durin::FAssetPath Path;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotDetails/DirtyComponent", Path));
 	Durin::DStaticMeshComponent* Component = nullptr;

@@ -14,6 +14,7 @@
 #include "PackageBulkDataWire.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 
 namespace Durin::Asset::Private::DastV7
 {
@@ -842,8 +843,8 @@ namespace Durin::Asset::Private::DastV7
 			}
 			else
 			{
-				const PathUtilities::FAssetPathResult Resolved = PathUtilities::ResolveAssetPath(
-					Path.GetView(), PathUtilities::EPathExistence::AllowMissing);
+				const FAssetPathResult Resolved = FMountPaths::ResolveAssetPath(
+					Path.GetView(), EMountPathExistence::AllowMissing);
 				if (!Resolved) return Error("DAST v7 package path cannot resolve its bulk segment.");
 				PackagePath = Resolved.PhysicalPath;
 				PackagePath += ".dasset";

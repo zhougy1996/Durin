@@ -24,7 +24,6 @@
 #include "DObject/Package.h"
 #include "Misc/FileHelper.h"
 
-#include "Misc/LexicalPath.h"
 #include "Misc/Paths.h"
 #include "Threading/RunnableThread.h"
 

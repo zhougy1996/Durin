@@ -1,3 +1,4 @@
+#include "Misc/MountPathTestSupport.h"
 #include "Editor/Import/AssetDestinationValidation.h"
 
 #include "EngineTestSupport.h"
@@ -54,33 +55,33 @@ namespace
 			std::filesystem::create_directories(Root / "Sources");
 			std::filesystem::create_directories(Root / "CanonicalContent");
 			const std::array Definitions{
-				PathUtilities::FMountPoint{
+				FMountPoint{
 					.VirtualRoot = "/Project/",
-					.Owner = PathUtilities::EMountOwner::ActiveProject,
+					.Owner = EMountOwner::ActiveProject,
 					.Root = Root / "Project/Content",
 					.bAutoScan = true,
 					.bContentWritable = true},
-				PathUtilities::FMountPoint{
+				FMountPoint{
 					.VirtualRoot = "/Engine/",
-					.Owner = PathUtilities::EMountOwner::Engine,
+					.Owner = EMountOwner::Engine,
 					.Root = Root / "Engine/Content",
 					.bAutoScan = true},
-				PathUtilities::FMountPoint{
+				FMountPoint{
 					.VirtualRoot = "/Sources/",
-					.Owner = PathUtilities::EMountOwner::ExternalSources,
+					.Owner = EMountOwner::ExternalSources,
 					.Root = Root / "Sources"},
-				PathUtilities::FMountPoint{
+				FMountPoint{
 					.VirtualRoot = "/NonNormalized/",
-					.Owner = PathUtilities::EMountOwner::Extension,
+					.Owner = EMountOwner::Extension,
 					.Root = Root / "Project/../CanonicalContent",
 					.bAutoScan = true,
 					.bContentWritable = true}};
-			Registry = std::make_unique<PathUtilities::FScopedMountRegistryFixture>(Definitions);
+			Registry = std::make_unique<Testing::FScopedMountRegistryFixture>(Definitions);
 			ASSERT_TRUE(Registry->IsValid()) << Registry->GetError();
 		}
 
 		std::filesystem::path Root;
-		std::unique_ptr<PathUtilities::FScopedMountRegistryFixture> Registry;
+		std::unique_ptr<Testing::FScopedMountRegistryFixture> Registry;
 	};
 } // namespace
 

@@ -23,6 +23,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Name.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "Misc/Project.h"
 #include "Modules/ModuleManager.h"
 #include "Materials/Material.h"
@@ -853,7 +854,7 @@ int main(int ArgC, char** ArgV)
 		~FScopedLoggerShutdown() { Durin::LoggerShutdown(); }
 	} ScopedLoggerShutdown;
 	Durin::FLogger::Get().SetConsoleLogLevel(Durin::ELogLevel::Fatal);
-	if (!Durin::PathUtilities::InitDefaultMountPoints(&Error))
+	if (!Durin::FMountPaths::InitDefaultMountPoints(&Error))
 	{
 		std::cerr << "Error: " << Error << '\n';
 		return 1;

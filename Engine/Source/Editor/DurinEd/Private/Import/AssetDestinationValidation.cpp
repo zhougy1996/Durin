@@ -1,3 +1,4 @@
+#include "Misc/MountPaths.h"
 #include "Editor/Import/AssetDestinationValidation.h"
 
 #include "Asset.h"
@@ -36,8 +37,8 @@ namespace Durin::Editor
 		Result.bAssetPathValid = FAssetPath::TryCreate(VirtualPath, Result.AssetPath, &Result.Message);
 		if (!Result.bAssetPathValid) return Result;
 
-		const PathUtilities::FAssetPathResult Resolved =
-			PathUtilities::ResolveAssetPath(Result.AssetPath.GetView());
+		const FAssetPathResult Resolved =
+			FMountPaths::ResolveAssetPath(Result.AssetPath.GetView());
 		Result.Mount = Resolved.Mount;
 		if (!Resolved)
 		{
@@ -82,8 +83,8 @@ namespace Durin::Editor
 		FAssetDestinationOccupancyQuery OccupancyQuery
 	) -> FAssetDestinationValidation
 	{
-		const PathUtilities::FAssetPathResult Classified =
-			PathUtilities::ClassifyAssetPath(PhysicalPath);
+		const FAssetPathResult Classified =
+			FMountPaths::ClassifyAssetPath(PhysicalPath);
 		if (!Classified)
 		{
 			FAssetDestinationValidation Result;
@@ -104,8 +105,8 @@ namespace Durin::Editor
 			VirtualPath, Result.DirectoryPath, &Result.Message);
 		if (!Result.bDirectoryPathValid) return Result;
 
-		const PathUtilities::FAssetPathResult Resolved =
-			PathUtilities::ResolveAssetPath(Result.DirectoryPath.GetView());
+		const FAssetPathResult Resolved =
+			FMountPaths::ResolveAssetPath(Result.DirectoryPath.GetView());
 		Result.Mount = Resolved.Mount;
 		if (!Resolved)
 		{
@@ -124,8 +125,8 @@ namespace Durin::Editor
 	auto ClassifyContentDirectory(const std::filesystem::path& PhysicalPath)
 		-> FContentDirectoryValidation
 	{
-		const PathUtilities::FAssetPathResult Classified =
-			PathUtilities::ClassifyAssetPath(PhysicalPath);
+		const FAssetPathResult Classified =
+			FMountPaths::ClassifyAssetPath(PhysicalPath);
 		if (!Classified)
 		{
 			FContentDirectoryValidation Result;

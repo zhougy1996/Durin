@@ -14,6 +14,8 @@
 #include "EngineTestSupport.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeTestSupport.h"
 #include "RenderingThread.h"
 #include "Serialization/Archive.h"
@@ -94,9 +96,9 @@ namespace
 			OutError = "TextureCube has no owning package.";
 			return false;
 		}
-		const auto Resolved = Durin::PathUtilities::ResolveAssetPath(
+		const auto Resolved = Durin::FMountPaths::ResolveAssetPath(
 			Texture.GetPackage()->GetPackagePath(),
-			Durin::PathUtilities::EPathExistence::AllowMissing);
+			Durin::EMountPathExistence::AllowMissing);
 		if (!Resolved) { OutError = Resolved.Message; return false; }
 		std::filesystem::path PackagePath = Resolved.PhysicalPath;
 		PackagePath += ".dasset";
@@ -185,7 +187,7 @@ namespace
 		if (InitializedRoots.insert(Root).second)
 		{
 			Durin::Testing::RemoveTestWorkDirectory(Root);
-			Durin::PathUtilities::RegisterMountPointForTests("/TextureCubeTests/", Root.generic_string() + "/");
+			Durin::Testing::RegisterMountPointForTests("/TextureCubeTests/", Root.generic_string() + "/");
 		}
 		return Root;
 	}
@@ -707,7 +709,7 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureCubeTests/CookedCube", AuthoredPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AuthoredPath));
 	RestartAssetManager(FirstRoot);
-	Durin::PathUtilities::RegisterMountPointForTests(
+	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", (FirstRoot / "Game").generic_string() + "/");
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));

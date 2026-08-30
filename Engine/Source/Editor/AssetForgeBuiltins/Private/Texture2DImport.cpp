@@ -10,6 +10,7 @@
 #include "Hash/XxHash.h"
 #include "Image/ImageDecoder.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureBuilder.h"
 
@@ -25,9 +26,9 @@ namespace Durin::AssetForge::Builtins
 			std::filesystem::path& OutPath,
 			std::string& OutError) -> bool
 		{
-			const PathUtilities::FAssetPathResult Resolved =
-				PathUtilities::ResolveAssetPath(
-					PackagePath, PathUtilities::EPathExistence::AllowMissing);
+			const FAssetPathResult Resolved =
+				FMountPaths::ResolveAssetPath(
+					PackagePath, EMountPathExistence::AllowMissing);
 			if (!Resolved)
 			{
 				OutError = Resolved.Message;

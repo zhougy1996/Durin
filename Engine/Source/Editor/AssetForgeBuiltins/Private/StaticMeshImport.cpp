@@ -11,6 +11,7 @@
 #include "DObject/Package.h"
 #include "EncodedSourceSnapshot.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 #include "StaticMeshImportAdapter.h"
 #include "StaticMesh/StaticMeshBuildOperations.h"
 
@@ -24,9 +25,9 @@ namespace Durin::AssetForge::Builtins
 			std::filesystem::path& OutPath, std::string& OutError) -> bool
 		{
 			if (!Mesh.GetPackage()) return false;
-			const PathUtilities::FAssetPathResult Resolved =
-				PathUtilities::ResolveAssetPath(Mesh.GetPackage()->GetPackagePath(),
-					PathUtilities::EPathExistence::AllowMissing);
+			const FAssetPathResult Resolved =
+				FMountPaths::ResolveAssetPath(Mesh.GetPackage()->GetPackagePath(),
+					EMountPathExistence::AllowMissing);
 			if (!Resolved) { OutError = Resolved.Message; return false; }
 			OutPath = Resolved.PhysicalPath;
 			OutPath += ".dasset";

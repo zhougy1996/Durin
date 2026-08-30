@@ -3,6 +3,7 @@
 #include "Asset/Load.h"
 #include "DurinEdAPI.h"
 #include "Misc/Paths.h"
+#include "Misc/MountPaths.h"
 
 namespace Durin::Editor
 {
@@ -30,7 +31,7 @@ namespace Durin::Editor
 	struct FAssetDestinationValidation
 	{
 		FAssetPath AssetPath;
-		const PathUtilities::FMountPoint* Mount = nullptr;
+		const FMountPoint* Mount = nullptr;
 		std::filesystem::path PhysicalPath;
 		bool bAssetPathValid = false;
 		bool bMountedDestination = false;
@@ -58,7 +59,7 @@ namespace Durin::Editor
 	struct FContentDirectoryValidation
 	{
 		FAssetPath DirectoryPath;
-		const PathUtilities::FMountPoint* Mount = nullptr;
+		const FMountPoint* Mount = nullptr;
 		std::filesystem::path PhysicalPath;
 		bool bDirectoryPathValid = false;
 		bool bMountedDestination = false;
