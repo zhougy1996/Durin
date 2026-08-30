@@ -19,18 +19,43 @@ namespace Durin::Asset::Private
 		RecoveryRequired,
 	};
 
-	enum class ERelocationPublicationRole : uint8
+	enum class EAssetMutationPublicationRole : uint8
 	{
 		RealAsset,
 		OwnedPayload,
 		Redirector,
 	};
 
+	// Selects whether an already-staged physical participant is a conflict or
+	// may reuse an identical byte-image plan.
+	enum class EMutationJournalDuplicatePolicy : uint8
+	{
+		Reject,
+		ReuseEquivalent,
+	};
+
+	// Describes the complete before/after byte images for one physical mutation
+	// participant without transferring their ownership.
+	struct FMutationJournalStageRequest
+	{
+		std::filesystem::path PhysicalPath;
+		FAssetPath RegistryPath;
+		EAssetMutationPublicationRole Role =
+			EAssetMutationPublicationRole::RealAsset;
+		bool bPreExists = false;
+		bool bPostExists = false;
+		std::span<const std::byte> PreBytes;
+		std::span<const std::byte> PostBytes;
+		EMutationJournalDuplicatePolicy DuplicatePolicy =
+			EMutationJournalDuplicatePolicy::Reject;
+	};
+
 	struct FAssetMutationJournalEntry
 	{
 		std::filesystem::path PhysicalPath;
 		FAssetPath RegistryPath;
-		ERelocationPublicationRole Role = ERelocationPublicationRole::RealAsset;
+		EAssetMutationPublicationRole Role =
+			EAssetMutationPublicationRole::RealAsset;
 		uint64 PublicationOrder = std::numeric_limits<uint64>::max();
 		bool bPreExists = false;
 		bool bPostExists = false;
@@ -49,16 +74,30 @@ namespace Durin::Asset::Private
 	struct FAssetMutationJournal
 	{
 		std::string OperationId;
-		std::string OperationType = "relocation";
+		std::string OperationType;
 		std::vector<std::filesystem::path> Roots;
 		std::filesystem::path LocatorPath;
 		std::vector<FAssetMutationJournalEntry> Entries;
+		// Transient normalized-path index; recovery records remain Entries-based.
+		std::unordered_map<std::string, size_t> EntryIndices;
 		EAssetMutationState State = EAssetMutationState::Planned;
 
+		FAssetMutationJournal() = default;
+		FAssetMutationJournal(const FAssetMutationJournal&) = delete;
+		auto operator=(const FAssetMutationJournal&)
+			-> FAssetMutationJournal& = delete;
 		~FAssetMutationJournal();
 	};
 
-	auto MakeRelocationOperationId() -> std::string;
+	auto InitializeMutationJournal(
+		FAssetMutationJournal& Journal,
+		EAssetMutationOperationKind OperationKind) -> void;
+	// On success, publishes one complete entry or reuses an equivalent entry;
+	// on failure, leaves no partial entry or unowned staging root.
+	auto StageMutationJournalEntry(
+		FAssetMutationJournal& Journal,
+		const FMutationJournalStageRequest& Request,
+		size_t& OutEntryIndex) -> FAssetResult;
 	auto NormalizePhysicalPath(const std::filesystem::path& Path)
 		-> std::filesystem::path;
 	auto LoadRelocationBytes(

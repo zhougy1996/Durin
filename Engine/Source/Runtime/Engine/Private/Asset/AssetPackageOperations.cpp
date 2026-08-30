@@ -151,14 +151,11 @@ namespace Durin::Asset
 	using Private::FAssetReferenceStoreRegistry;
 	using Private::GetAssetReferenceStoreRegistry;
 	using Private::EAssetMutationState;
-	using Private::ERelocationPublicationRole;
 	using Private::FAssetMutationJournal;
 	using Private::FAssetMutationJournalEntry;
 	using Private::FingerprintRelocationFile;
-	using Private::IsWritableRelocationPath;
 	using Private::LoadRelocationBytes;
 	using Private::MakePackageFingerprint;
-	using Private::MakeRelocationOperationId;
 	using Private::NormalizePhysicalPath;
 	using Private::PublishRelocationFile;
 	using Private::RebuildReferenceProjectionForPublishedEntries;

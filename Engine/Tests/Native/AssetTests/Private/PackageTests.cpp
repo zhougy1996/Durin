@@ -4117,6 +4117,71 @@ TEST(FPackageAssetTests, RelocationRejectsReadOnlySourceWithoutStagingMutation)
 	EXPECT_EQ(Durin::Asset::FindAssetExact(DestinationPath), nullptr);
 }
 
+TEST(FPackageAssetTests, PreparedRelocationOwnsAndRemovesItsStagingRoot)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath SourcePath;
+	Durin::FAssetPath DestinationPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TestAssets/JournalCleanupSource", SourcePath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TestAssets/JournalCleanupDestination", DestinationPath));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(SourcePath, Asset));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+
+	const std::filesystem::path StagingRoot =
+		Durin::Testing::GetTestWorkDirectory()
+		/ "Assets" / ".durin-asset-mutation";
+	std::unordered_set<std::string> ExistingOperations;
+	if (std::filesystem::is_directory(StagingRoot))
+		for (const std::filesystem::directory_entry& Entry :
+			std::filesystem::directory_iterator(StagingRoot))
+			ExistingOperations.insert(
+				Entry.path().filename().generic_string());
+
+	{
+		const Durin::Asset::FAssetRelocationMapping Mapping{
+			SourcePath, DestinationPath};
+		Durin::Asset::FAssetMutationSummary Summary;
+		Durin::Asset::FAssetMutationTransaction Transaction;
+		ASSERT_TRUE(Durin::Asset::PrepareAssetRelocationTransaction(
+			std::span{&Mapping, 1}, Summary, Transaction));
+
+		std::filesystem::path OperationRoot;
+		for (const std::filesystem::directory_entry& Entry :
+			std::filesystem::directory_iterator(StagingRoot))
+			if (!ExistingOperations.contains(
+					Entry.path().filename().generic_string()))
+			{
+				ASSERT_TRUE(OperationRoot.empty());
+				OperationRoot = Entry.path();
+			}
+		ASSERT_FALSE(OperationRoot.empty());
+		const std::string OperationDirectory =
+			OperationRoot.filename().generic_string();
+		ASSERT_TRUE(OperationDirectory.starts_with("operation-"));
+		std::vector<std::byte> OwnerBytes;
+		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+			OwnerBytes, OperationRoot / "owner"));
+		const std::string Owner(
+			reinterpret_cast<const char*>(OwnerBytes.data()),
+			OwnerBytes.size());
+		EXPECT_EQ(Owner, std::format(
+			"durin-asset-mutation\n{}\n",
+			OperationDirectory.substr(std::string_view("operation-").size())));
+	}
+
+	std::unordered_set<std::string> RemainingOperations;
+	if (std::filesystem::is_directory(StagingRoot))
+		for (const std::filesystem::directory_entry& Entry :
+			std::filesystem::directory_iterator(StagingRoot))
+			RemainingOperations.insert(
+				Entry.path().filename().generic_string());
+	EXPECT_EQ(RemainingOperations, ExistingOperations);
+	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(SourcePath));
+}
+
 TEST(FPackageAssetTests, RelocationFailureSeamsPreserveEveryOrdinaryBoundary)
 {
 	InitializeAssetTests();

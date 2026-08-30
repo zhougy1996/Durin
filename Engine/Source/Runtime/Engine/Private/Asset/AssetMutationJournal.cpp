@@ -15,13 +15,55 @@ namespace Durin::Asset::Private
 		{
 			return {Code, std::move(Message)};
 		}
+
+		auto MakeMutationOperationId() -> std::string
+		{
+			static std::atomic<uint64> Counter = 1;
+			const uint64 Time = static_cast<uint64>(
+				std::chrono::steady_clock::now().time_since_epoch().count());
+			return std::format("{:016x}{:016x}", Time, Counter++);
+		}
+
+		auto GetMutationOperationType(
+			EAssetMutationOperationKind OperationKind) -> std::string_view
+		{
+			switch (OperationKind)
+			{
+			case EAssetMutationOperationKind::Relocation:
+				return "relocation";
+			case EAssetMutationOperationKind::RedirectorFixup:
+				return "fixup";
+			case EAssetMutationOperationKind::Deletion:
+				return "deletion";
+			}
+			return "unknown";
+		}
+
+		auto MakeMutationJournalOwnerMarker(std::string_view OperationId)
+			-> std::string
+		{
+			return std::format("durin-asset-mutation\n{}\n", OperationId);
+		}
+
+		auto IsReadOnlyMutationInput(const std::filesystem::path& Path) -> bool
+		{
+			std::error_code ErrorCode;
+			const std::filesystem::perms Permissions =
+				std::filesystem::status(Path, ErrorCode).permissions();
+			constexpr auto WritePermissions =
+				std::filesystem::perms::owner_write
+				| std::filesystem::perms::group_write
+				| std::filesystem::perms::others_write;
+			return ErrorCode || (Permissions & WritePermissions)
+				== std::filesystem::perms::none;
+		}
 	}
 
 	FAssetMutationJournal::~FAssetMutationJournal()
 	{
 		if (IsMutationJournalRecoveryRequired(*this)) return;
-		const std::string ExpectedOwner = std::format(
-			"durin-asset-mutation\\n{}\\n", OperationId);
+		const std::string ExpectedOwner =
+			MakeMutationJournalOwnerMarker(OperationId);
 		for (const std::filesystem::path& Root : Roots)
 		{
 			if (Root.filename() != std::format("operation-{}", OperationId)
@@ -76,12 +118,17 @@ namespace Durin::Asset::Private
 	}
 
 
-	auto MakeRelocationOperationId() -> std::string
+	auto InitializeMutationJournal(
+		FAssetMutationJournal& Journal,
+		EAssetMutationOperationKind OperationKind) -> void
 	{
-		static std::atomic<uint64> Counter = 1;
-		const uint64 Time = static_cast<uint64>(
-			std::chrono::steady_clock::now().time_since_epoch().count());
-		return std::format("{:016x}{:016x}", Time, Counter++);
+		Journal.OperationId = MakeMutationOperationId();
+		Journal.OperationType = GetMutationOperationType(OperationKind);
+		const std::string RecoveryBase = FPaths::ProjectDir().empty()
+			? FPaths::LaunchDir() : FPaths::ProjectDir();
+		Journal.LocatorPath = NormalizePhysicalPath(RecoveryBase)
+			/ "Saved" / "AssetMutationRecovery"
+			/ std::format("operation-{}", Journal.OperationId);
 	}
 
 	auto NormalizePhysicalPath(const std::filesystem::path& Path)
@@ -170,6 +217,137 @@ namespace Durin::Asset::Private
 			"Relocation path is outside writable mounted content: {}.",
 			Path.generic_string());
 		return false;
+	}
+
+	auto StageMutationJournalEntry(
+		FAssetMutationJournal& Journal,
+		const FMutationJournalStageRequest& Request,
+		size_t& OutEntryIndex) -> FAssetResult
+	{
+		OutEntryIndex = std::numeric_limits<size_t>::max();
+		const std::filesystem::path Normalized =
+			NormalizePhysicalPath(Request.PhysicalPath);
+		const std::string Key = Normalized.generic_string();
+		FAssetMutationJournalEntry Entry{
+			.PhysicalPath = Normalized,
+			.RegistryPath = Request.RegistryPath,
+			.Role = Request.Role,
+			.bPreExists = Request.bPreExists,
+			.bPostExists = Request.bPostExists};
+		if (Request.bPreExists)
+			Entry.StagedPreHash = FXxHash128::HashBuffer(Request.PreBytes);
+		if (Request.bPostExists)
+		{
+			Entry.StagedPostHash = FXxHash128::HashBuffer(Request.PostBytes);
+			Entry.ExpectedPostFingerprint.FileSize = Request.PostBytes.size();
+			Entry.ExpectedPostFingerprint.ContentHash = Entry.StagedPostHash;
+		}
+
+		if (const auto Existing = Journal.EntryIndices.find(Key);
+			Existing != Journal.EntryIndices.end())
+		{
+			const FAssetMutationJournalEntry& ExistingEntry =
+				Journal.Entries[Existing->second];
+			const bool bEquivalent =
+				ExistingEntry.RegistryPath == Entry.RegistryPath
+				&& ExistingEntry.Role == Entry.Role
+				&& ExistingEntry.bPreExists == Entry.bPreExists
+				&& ExistingEntry.bPostExists == Entry.bPostExists
+				&& ExistingEntry.StagedPreHash == Entry.StagedPreHash
+				&& ExistingEntry.StagedPostHash == Entry.StagedPostHash;
+			if (Request.DuplicatePolicy
+					== EMutationJournalDuplicatePolicy::ReuseEquivalent
+				&& bEquivalent)
+			{
+				OutEntryIndex = Existing->second;
+				return {};
+			}
+			return Error(EAssetError::AlreadyExists, std::format(
+				"Asset mutation participants claim the same file {}.", Key));
+		}
+
+		std::string PathError;
+		const FMountPoint* Mount = nullptr;
+		if (!IsWritableRelocationPath(Normalized, Mount, PathError))
+			return Error(EAssetError::ReadOnlyMode, std::move(PathError));
+		if (Request.bPreExists && IsReadOnlyMutationInput(Normalized))
+			return Error(EAssetError::ReadOnlyMode, std::format(
+				"Asset mutation input is read-only: {}.", Key));
+		if (Request.bPreExists)
+		{
+			FAssetResult Result = MakePackageFingerprint(
+				Key, Request.PreBytes, Entry.ExpectedPreFingerprint);
+			if (!Result) return Result;
+		}
+
+		const size_t Index = Journal.Entries.size();
+		const std::filesystem::path Root =
+			NormalizePhysicalPath(Mount->GetContentDir())
+			/ ".durin-asset-mutation"
+			/ std::format("operation-{}", Journal.OperationId);
+		bool bCreatedRoot = false;
+		if (std::ranges::find(Journal.Roots, Root) == Journal.Roots.end())
+		{
+			std::error_code DirectoryError;
+			bCreatedRoot = std::filesystem::create_directories(
+				Root, DirectoryError);
+			if (DirectoryError)
+				return Error(EAssetError::IoError, std::format(
+					"Could not create asset mutation staging root: {}",
+					DirectoryError.message()));
+			if (!bCreatedRoot)
+				return Error(EAssetError::AlreadyExists, std::format(
+					"Asset mutation staging root already exists: {}.",
+					Root.generic_string()));
+			const std::string Marker =
+				MakeMutationJournalOwnerMarker(Journal.OperationId);
+			FAssetResult MarkerResult = SaveRelocationBytes(
+				Root / "owner", std::as_bytes(std::span(Marker)));
+			if (!MarkerResult)
+			{
+				std::error_code CleanupError;
+				std::filesystem::remove_all(Root, CleanupError);
+				return MarkerResult;
+			}
+			Journal.Roots.push_back(Root);
+		}
+
+		Entry.StagedPrePath = Root / std::format("pre-{:08}", Index);
+		Entry.StagedPostPath = Root / std::format("post-{:08}", Index);
+		auto CleanupStagedEntry = [&] {
+			std::error_code CleanupError;
+			std::filesystem::remove(Entry.StagedPrePath, CleanupError);
+			CleanupError.clear();
+			std::filesystem::remove(Entry.StagedPostPath, CleanupError);
+			if (!bCreatedRoot) return;
+			CleanupError.clear();
+			std::filesystem::remove_all(Root, CleanupError);
+			if (!CleanupError) std::erase(Journal.Roots, Root);
+		};
+		if (Request.bPreExists)
+		{
+			FAssetResult Result = SaveRelocationBytes(
+				Entry.StagedPrePath, Request.PreBytes);
+			if (!Result)
+			{
+				CleanupStagedEntry();
+				return Result;
+			}
+		}
+		if (Request.bPostExists)
+		{
+			FAssetResult Result = SaveRelocationBytes(
+				Entry.StagedPostPath, Request.PostBytes);
+			if (!Result)
+			{
+				CleanupStagedEntry();
+				return Result;
+			}
+		}
+		Journal.Entries.push_back(std::move(Entry));
+		Journal.EntryIndices.emplace(Key, Index);
+		OutEntryIndex = Index;
+		return {};
 	}
 
 

@@ -11,7 +11,6 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"
 #include "Misc/FileTime.h"
-#include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Profiling/Profiling.h"
 #include "Threading/RunnableThread.h"
@@ -19,19 +18,18 @@
 namespace Durin::Asset
 {
 	using Private::EAssetMutationState;
-	using Private::ERelocationPublicationRole;
+	using Private::EMutationJournalDuplicatePolicy;
+	using Private::EAssetMutationPublicationRole;
 	using Private::FAssetMutationJournal;
 	using Private::FAssetMutationJournalEntry;
 	using Private::FingerprintRelocationFile;
+	using Private::InitializeMutationJournal;
 	using Private::IsMutationJournalRecoveryRequired;
-	using Private::IsWritableRelocationPath;
 	using Private::LoadRelocationBytes;
-	using Private::MakePackageFingerprint;
-	using Private::MakeRelocationOperationId;
 	using Private::NormalizePhysicalPath;
 	using Private::PublishRelocationFile;
 	using Private::RebuildReferenceProjectionForPublishedEntries;
-	using Private::SaveRelocationBytes;
+	using Private::StageMutationJournalEntry;
 	using Private::TransitionMutationJournalState;
 	using Private::WriteMutationJournalState;
 
@@ -165,115 +163,35 @@ namespace Durin::Asset
 		State->PostReferenceEdges = State->PreReferenceEdges;
 		State->PreReferenceFingerprints = Prepared.ReferenceFingerprints;
 		State->PostReferenceFingerprints = State->PreReferenceFingerprints;
-		State->Journal.OperationId = MakeRelocationOperationId();
-		const std::string RecoveryBase = FPaths::ProjectDir().empty()
-			? FPaths::LaunchDir() : FPaths::ProjectDir();
-		State->Journal.LocatorPath = NormalizePhysicalPath(RecoveryBase)
-			/ "Saved" / "AssetMutationRecovery"
-			/ std::format("operation-{}", State->Journal.OperationId);
+		InitializeMutationJournal(
+			State->Journal, EAssetMutationOperationKind::Relocation);
 
 		std::unordered_set<FAssetPath> Sources;
 		std::unordered_set<FAssetPath> Destinations;
-		std::unordered_map<std::string, size_t> FileEntries;
-		std::unordered_map<std::string, const FMountPoint*> EntryMounts;
 		auto AddFileEntry = [&](const std::filesystem::path& PhysicalPath,
 			const FAssetPath& RegistryPath,
-			ERelocationPublicationRole Role,
+			EAssetMutationPublicationRole Role,
 			std::optional<std::vector<std::byte>> PreBytes,
 			std::optional<std::vector<std::byte>> PostBytes) -> FAssetResult {
-			const std::filesystem::path Normalized =
-				NormalizePhysicalPath(PhysicalPath);
-			const std::string Key = Normalized.generic_string();
-			if (FileEntries.contains(Key))
-				return Error(EAssetError::AlreadyExists, std::format(
-					"Relocation participants claim the same file {}.", Key));
-			std::string PathError;
-			const FMountPoint* Mount = nullptr;
-			if (!IsWritableRelocationPath(Normalized, Mount, PathError))
-				return Error(EAssetError::ReadOnlyMode, std::move(PathError));
-			if (PreBytes)
-			{
-				std::error_code PermissionError;
-				const std::filesystem::perms Permissions =
-					std::filesystem::status(
-						Normalized, PermissionError).permissions();
-				constexpr auto WritePermissions =
-					std::filesystem::perms::owner_write
-					| std::filesystem::perms::group_write
-					| std::filesystem::perms::others_write;
-				if (PermissionError
-					|| (Permissions & WritePermissions)
-						== std::filesystem::perms::none)
-					return Error(EAssetError::ReadOnlyMode, std::format(
-						"Relocation input is read-only: {}.", Key));
-			}
-			FAssetMutationJournalEntry Entry{
-				.PhysicalPath = Normalized,
-				.RegistryPath = RegistryPath,
-				.Role = Role,
-				.bPreExists = PreBytes.has_value(),
-				.bPostExists = PostBytes.has_value()};
-			if (PreBytes)
-				Entry.StagedPreHash = FXxHash128::HashBuffer(*PreBytes);
-			if (PostBytes)
-			{
-				Entry.StagedPostHash = FXxHash128::HashBuffer(*PostBytes);
-				Entry.ExpectedPostFingerprint.FileSize = PostBytes->size();
-				Entry.ExpectedPostFingerprint.ContentHash = Entry.StagedPostHash;
-			}
-			FileEntries.emplace(Key, State->Journal.Entries.size());
-			EntryMounts.emplace(Key, Mount);
-			State->Journal.Entries.push_back(std::move(Entry));
-			FAssetMutationJournalEntry& Stored = State->Journal.Entries.back();
-			if (Stored.bPreExists)
-			{
-				FAssetResult Result = MakePackageFingerprint(
-					Normalized.generic_string(), *PreBytes,
-					Stored.ExpectedPreFingerprint);
-				if (!Result) return Result;
-			}
-			const size_t Index = State->Journal.Entries.size() - 1;
-			const std::filesystem::path Content =
-				NormalizePhysicalPath(Mount->GetContentDir());
-			const std::filesystem::path Root = Content
-				/ ".durin-asset-mutation"
-				/ std::format("operation-{}", State->Journal.OperationId);
-			if (std::ranges::find(State->Journal.Roots, Root)
-				== State->Journal.Roots.end())
-			{
-				std::error_code DirectoryError;
-				std::filesystem::create_directories(Root, DirectoryError);
-				if (DirectoryError)
-					return Error(EAssetError::IoError, std::format(
-						"Could not create relocation staging root: {}",
-						DirectoryError.message()));
-				const std::string Marker = std::format(
-					"durin-asset-mutation\n{}\n", State->Journal.OperationId);
-				FAssetResult MarkerResult = SaveRelocationBytes(
-					Root / "owner",
-					std::as_bytes(std::span(Marker)));
-				if (!MarkerResult) return MarkerResult;
-				State->Journal.Roots.push_back(Root);
-			}
-			Stored.StagedPrePath = Root / std::format("pre-{:08}", Index);
-			Stored.StagedPostPath = Root / std::format("post-{:08}", Index);
 			if (Private::ConsumeAssetRelocationFailure(
 					EAssetRelocationFailurePoint::PrepareOutput))
 				return Error(EAssetError::IoError,
 					"Injected relocation output-preparation failure.");
-			if (PreBytes)
-			{
-				FAssetResult Result = SaveRelocationBytes(
-					Stored.StagedPrePath, *PreBytes);
-				if (!Result) return Result;
-			}
-			if (PostBytes)
-			{
-				FAssetResult Result = SaveRelocationBytes(
-					Stored.StagedPostPath, *PostBytes);
-				if (!Result) return Result;
-			}
-			return {};
+			size_t IgnoredIndex = 0;
+			return StageMutationJournalEntry(State->Journal, {
+				.PhysicalPath = PhysicalPath,
+				.RegistryPath = RegistryPath,
+				.Role = Role,
+				.bPreExists = PreBytes.has_value(),
+				.bPostExists = PostBytes.has_value(),
+				.PreBytes = PreBytes
+					? std::span<const std::byte>(*PreBytes)
+					: std::span<const std::byte>{},
+				.PostBytes = PostBytes
+					? std::span<const std::byte>(*PostBytes)
+					: std::span<const std::byte>{},
+				.DuplicatePolicy =
+					EMutationJournalDuplicatePolicy::Reject}, IgnoredIndex);
 		};
 
 		for (const FAssetRelocationMapping& Mapping : State->Mappings)
@@ -369,7 +287,7 @@ namespace Durin::Asset
 			Result = AddFileEntry(
 				DestinationFile,
 				Mapping.DestinationPath,
-				ERelocationPublicationRole::RealAsset,
+				EAssetMutationPublicationRole::RealAsset,
 				bReclaimDestinationRedirector
 					? std::optional<std::vector<std::byte>>(DestinationPreBytes)
 					: std::nullopt,
@@ -378,7 +296,7 @@ namespace Durin::Asset
 			Result = AddFileEntry(
 				SourceFile,
 				Mapping.SourcePath,
-				ERelocationPublicationRole::Redirector,
+				EAssetMutationPublicationRole::Redirector,
 				SourceBytes,
 				std::move(SourceRedirectorBytes));
 			if (!Result) return Result;
@@ -405,10 +323,12 @@ namespace Durin::Asset
 					return Error(EAssetError::AlreadyExists,
 						"Authored bulk relocation destination already exists.");
 				Result = AddFileEntry(DestinationBulkFiles[BulkIndex], {},
-					ERelocationPublicationRole::OwnedPayload, std::nullopt, PayloadBytes);
+					EAssetMutationPublicationRole::OwnedPayload,
+					std::nullopt, PayloadBytes);
 				if (!Result) return Result;
 				Result = AddFileEntry(SourceBulkFiles[BulkIndex], {},
-					ERelocationPublicationRole::OwnedPayload, std::move(PayloadBytes), std::nullopt);
+					EAssetMutationPublicationRole::OwnedPayload,
+					std::move(PayloadBytes), std::nullopt);
 				if (!Result) return Result;
 			}
 
@@ -453,7 +373,7 @@ namespace Durin::Asset
 				Result = AddFileEntry(
 					AliasData.PhysicalPath,
 					AliasPath,
-					ERelocationPublicationRole::Redirector,
+					EAssetMutationPublicationRole::Redirector,
 					std::move(AliasPreBytes),
 					std::move(AliasPostBytes));
 				if (!Result) return Result;
@@ -521,12 +441,12 @@ namespace Durin::Asset
 							"An owned payload destination already exists.");
 					Result = AddFileEntry(
 						DestinationPayload, {},
-						ERelocationPublicationRole::OwnedPayload,
+						EAssetMutationPublicationRole::OwnedPayload,
 						std::nullopt, PayloadBytes);
 					if (!Result) return Result;
 					Result = AddFileEntry(
 						SourcePayload, {},
-						ERelocationPublicationRole::OwnedPayload,
+						EAssetMutationPublicationRole::OwnedPayload,
 						std::move(PayloadBytes), std::nullopt);
 					if (!Result) return Result;
 				}
@@ -660,16 +580,16 @@ namespace Durin::Asset
 
 	namespace
 	{
-		auto FailurePointForRole(ERelocationPublicationRole Role)
+		auto FailurePointForRole(EAssetMutationPublicationRole Role)
 			-> EAssetRelocationFailurePoint
 		{
 			switch (Role)
 			{
-			case ERelocationPublicationRole::RealAsset:
+			case EAssetMutationPublicationRole::RealAsset:
 				return EAssetRelocationFailurePoint::PublishRealAsset;
-			case ERelocationPublicationRole::OwnedPayload:
+			case EAssetMutationPublicationRole::OwnedPayload:
 				return EAssetRelocationFailurePoint::PublishOwnedPayload;
-			case ERelocationPublicationRole::Redirector:
+			case EAssetMutationPublicationRole::Redirector:
 				return EAssetRelocationFailurePoint::PublishRedirector;
 			}
 			return EAssetRelocationFailurePoint::PublishRealAsset;

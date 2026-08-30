@@ -8,32 +8,30 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/Package.h"
 #include "Misc/FileTime.h"
-#include "Misc/Paths.h"
-#include "Misc/MountPaths.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin::Asset
 {
 	using Private::EAssetMutationState;
-	using Private::ERelocationPublicationRole;
+	using Private::EMutationJournalDuplicatePolicy;
+	using Private::EAssetMutationPublicationRole;
 	using Private::FAssetMutationJournal;
 	using Private::FAssetMutationJournalEntry;
 	using Private::FAssetReferenceStoreRegistry;
 	using Private::FMutationPackageMetadata;
 	using Private::CollectLoadedPackageSoftReferencesForMutation;
 	using Private::FingerprintRelocationFile;
+	using Private::InitializeMutationJournal;
 	using Private::IsMutationJournalRecoveryRequired;
 	using Private::GetAssetReferenceStoreRegistry;
-	using Private::IsWritableRelocationPath;
 	using Private::LoadRelocationBytes;
 	using Private::MakePackageFingerprint;
-	using Private::MakeRelocationOperationId;
 	using Private::NormalizePhysicalPath;
 	using Private::PublishRelocationFile;
 	using Private::ReadMutationPackageMetadata;
 	using Private::RebuildReferenceProjectionForPublishedEntries;
 	using Private::RewritePackageReferencesForMutation;
-	using Private::SaveRelocationBytes;
+	using Private::StageMutationJournalEntry;
 	using Private::TransitionMutationJournalState;
 	using Private::WriteMutationJournalState;
 
@@ -110,18 +108,6 @@ namespace Durin::Asset
 			FAssetReferenceStoreRewriteContribution Contribution;
 			bool bApplied = false;
 		};
-
-		auto IsReadOnlyMutationInput(const std::filesystem::path& Path) -> bool
-		{
-			std::error_code ErrorCode;
-			const std::filesystem::perms Permissions =
-				std::filesystem::status(Path, ErrorCode).permissions();
-			constexpr auto WritePermissions = std::filesystem::perms::owner_write
-				| std::filesystem::perms::group_write
-				| std::filesystem::perms::others_write;
-			return ErrorCode || (Permissions & WritePermissions)
-				== std::filesystem::perms::none;
-		}
 
 		auto FindFixupDestination(
 			const FAssetPath& Source,
@@ -234,13 +220,8 @@ namespace Durin::Asset
 		State->PostFingerprints = Prepared.ReferenceFingerprints;
 		State->PostErrors = Prepared.ReferenceErrors;
 		State->bPostIndexComplete = Prepared.bReferenceIndexComplete;
-		State->Journal.OperationId = MakeRelocationOperationId();
-		State->Journal.OperationType = "fixup";
-		const std::string RecoveryBase = FPaths::ProjectDir().empty()
-			? FPaths::LaunchDir() : FPaths::ProjectDir();
-		State->Journal.LocatorPath = NormalizePhysicalPath(RecoveryBase)
-			/ "Saved" / "AssetMutationRecovery"
-			/ std::format("operation-{}", State->Journal.OperationId);
+		InitializeMutationJournal(
+			State->Journal, EAssetMutationOperationKind::RedirectorFixup);
 
 		std::unordered_set<FAssetPath> Closure;
 		std::vector<FAssetPath> Pending(Redirectors.begin(), Redirectors.end());
@@ -299,81 +280,26 @@ namespace Durin::Asset
 			++PackageRewriteCounts[Edge.SourcePackage];
 		}
 
-		std::unordered_set<std::string> FilePaths;
 		auto AddJournalEntry = [&](const std::filesystem::path& PhysicalPath,
 			const FAssetPath& RegistryPath,
-			ERelocationPublicationRole Role,
+			EAssetMutationPublicationRole Role,
 			std::optional<std::vector<std::byte>> PreBytes,
 			std::optional<std::vector<std::byte>> PostBytes,
 			size_t& OutIndex) -> FAssetResult {
-			const std::filesystem::path Normalized = NormalizePhysicalPath(PhysicalPath);
-			if (!FilePaths.insert(Normalized.generic_string()).second)
-				return Error(EAssetError::AlreadyExists,
-					"Redirector Fix Up has duplicate physical participants.");
-			const FMountPoint* Mount = nullptr;
-			std::string PathError;
-			if (!IsWritableRelocationPath(Normalized, Mount, PathError))
-				return Error(EAssetError::ReadOnlyMode, std::move(PathError));
-			if (PreBytes && IsReadOnlyMutationInput(Normalized))
-				return Error(EAssetError::ReadOnlyMode, std::format(
-					"Redirector Fix Up input is read-only: {}.",
-					Normalized.generic_string()));
-			FAssetMutationJournalEntry Entry{
-				.PhysicalPath = Normalized,
+			return StageMutationJournalEntry(State->Journal, {
+				.PhysicalPath = PhysicalPath,
 				.RegistryPath = RegistryPath,
 				.Role = Role,
 				.bPreExists = PreBytes.has_value(),
-				.bPostExists = PostBytes.has_value()};
-			if (PreBytes)
-			{
-				Entry.StagedPreHash = FXxHash128::HashBuffer(*PreBytes);
-				FAssetResult Result = MakePackageFingerprint(
-					Normalized.generic_string(), *PreBytes,
-					Entry.ExpectedPreFingerprint);
-				if (!Result) return Result;
-			}
-			if (PostBytes)
-			{
-				Entry.StagedPostHash = FXxHash128::HashBuffer(*PostBytes);
-				Entry.ExpectedPostFingerprint.FileSize = PostBytes->size();
-				Entry.ExpectedPostFingerprint.ContentHash = Entry.StagedPostHash;
-			}
-			const std::filesystem::path Root =
-				NormalizePhysicalPath(Mount->GetContentDir())
-				/ ".durin-asset-mutation"
-				/ std::format("operation-{}", State->Journal.OperationId);
-			if (std::ranges::find(State->Journal.Roots, Root)
-				== State->Journal.Roots.end())
-			{
-				std::error_code DirectoryError;
-				std::filesystem::create_directories(Root, DirectoryError);
-				if (DirectoryError)
-					return Error(EAssetError::IoError, std::format(
-						"Could not create Fix Up staging root: {}",
-						DirectoryError.message()));
-				const std::string Marker = std::format(
-					"durin-asset-mutation\n{}\n", State->Journal.OperationId);
-				FAssetResult MarkerResult = SaveRelocationBytes(
-					Root / "owner",
-					std::as_bytes(std::span(Marker)));
-				if (!MarkerResult) return MarkerResult;
-				State->Journal.Roots.push_back(Root);
-			}
-			OutIndex = State->Journal.Entries.size();
-			Entry.StagedPrePath = Root / std::format("pre-{:08}", OutIndex);
-			Entry.StagedPostPath = Root / std::format("post-{:08}", OutIndex);
-			if (PreBytes)
-			{
-				FAssetResult Result = SaveRelocationBytes(Entry.StagedPrePath, *PreBytes);
-				if (!Result) return Result;
-			}
-			if (PostBytes)
-			{
-				FAssetResult Result = SaveRelocationBytes(Entry.StagedPostPath, *PostBytes);
-				if (!Result) return Result;
-			}
-			State->Journal.Entries.push_back(std::move(Entry));
-			return {};
+				.bPostExists = PostBytes.has_value(),
+				.PreBytes = PreBytes
+					? std::span<const std::byte>(*PreBytes)
+					: std::span<const std::byte>{},
+				.PostBytes = PostBytes
+					? std::span<const std::byte>(*PostBytes)
+					: std::span<const std::byte>{},
+				.DuplicatePolicy =
+					EMutationJournalDuplicatePolicy::Reject}, OutIndex);
 		};
 
 		for (const auto& [SourcePath, ExpectedCount] : PackageRewriteCounts)
@@ -412,7 +338,7 @@ namespace Durin::Asset
 			size_t JournalEntry = 0;
 			Result = AddJournalEntry(
 				Data->PhysicalPath, SourcePath,
-				ERelocationPublicationRole::RealAsset,
+				EAssetMutationPublicationRole::RealAsset,
 				std::move(PreBytes), PostBytes, JournalEntry);
 			if (!Result) return Result;
 			State->Packages.push_back({SourcePath, JournalEntry, Loaded});
@@ -545,7 +471,7 @@ namespace Durin::Asset
 					size_t JournalEntry = 0;
 					Result = AddJournalEntry(
 						Data->PhysicalPath, PackageRewrite.PackagePath,
-						ERelocationPublicationRole::RealAsset,
+						EAssetMutationPublicationRole::RealAsset,
 						std::move(PackageRewrite.PreBytes),
 						PackageRewrite.PostBytes, JournalEntry);
 					if (!Result) return Result;
@@ -598,7 +524,7 @@ namespace Durin::Asset
 				size_t Ignored = 0;
 				Result = AddJournalEntry(
 					Data.PhysicalPath, Alias,
-					ERelocationPublicationRole::Redirector,
+					EAssetMutationPublicationRole::Redirector,
 					std::move(PreBytes), std::nullopt, Ignored);
 				if (!Result) return Result;
 				State->PostAssets.erase(Alias);
@@ -861,7 +787,7 @@ namespace Durin::Asset
 		for (size_t Index = 0; Index < State.Journal.Entries.size(); ++Index)
 		{
 			FAssetMutationJournalEntry& Entry = State.Journal.Entries[Index];
-			if (Entry.Role == ERelocationPublicationRole::Redirector) continue;
+			if (Entry.Role == EAssetMutationPublicationRole::Redirector) continue;
 			if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::PublishPackage))
 				return Compensate(Error(EAssetError::IoError,
 					"Injected Fix Up package-publication failure."));
@@ -946,7 +872,7 @@ namespace Durin::Asset
 			for (size_t Index = 0; Index < State.Journal.Entries.size(); ++Index)
 			{
 				FAssetMutationJournalEntry& Entry = State.Journal.Entries[Index];
-				if (Entry.Role != ERelocationPublicationRole::Redirector) continue;
+				if (Entry.Role != EAssetMutationPublicationRole::Redirector) continue;
 				if (ConsumeFixupFailure(
 						EAssetRedirectorFixupFailurePoint::DeleteRedirector))
 					return Compensate(Error(EAssetError::IoError,
