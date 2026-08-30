@@ -10,7 +10,7 @@ Last reviewed: 2026-08-30
 
 ## Ownership Boundary
 
-One render command prepares one `FSceneRenderPlan`. Only the private scene-frame
+One render command prepares one `FSceneRenderPlan`. Only the private scene-render
 execution pipeline may inspect this outer value. It owns command-local logical
 partitions for the fitted view, optional environment, selected lighting,
 receiver geometry and its shared Skeletal pose table, optional directional
@@ -64,7 +64,7 @@ Preparation returns either one complete plan or a typed failure. The published
 plan is then held as `const`. A distinct resolution stage allocates the packed
 lighting uniform, resolves receiver and shadow resources, uploads shared
 Skeletal palettes into a resolved palette table, and resolves the cloud
-sampler. The pipeline then derives one immutable `FSceneFrameTopology` value.
+sampler. The pipeline then derives one immutable `FSceneRenderTopology` value.
 Mutually exclusive Contact Visibility, cloud-shadow, and cloud routes use
 `Disabled`/`Fragment`/`Compute` states rather than independent booleans. Scene
 Color, depth, GBuffer, and output receive graph identities before
@@ -106,8 +106,8 @@ introduce synchronization.
 ## Render Graph Frame Schedule
 
 `FSceneRenderer::RenderView_RenderThread` delegates to the thin
-`FSceneFrameGraphExecutor`. The executor owns the compile/execute/capture
-boundary. `FSceneFrameGraphComposer` constructs the sole production graph in
+`FSceneRenderGraphExecutor`. The executor owns the compile/execute/capture
+boundary. `FSceneRenderGraphComposer` constructs the sole production graph in
 stable order through renderer-private named feature contributors:
 
 1. Validate output extent and persistent startup resources.
@@ -116,7 +116,7 @@ stable order through renderer-private named feature contributors:
 3. Prepare environment, visibility, lighting, receiver/shadow logical draws,
    shared poses, combined translucency, and optional cloud inputs; publish the
    immutable plan, then resolve geometry, palette, shadow, lighting, and cloud
-   resources into `FResolvedSceneFrame`. Derive frame topology once.
+   resources into `FResolvedSceneResources`. Derive frame topology once.
 4. Compile explicit top-level dependencies and output roots, cull unreachable
    versions, then allocate retained logical descriptions as one complete-or-null
    strong-reference table before any command records.
@@ -169,7 +169,7 @@ Color and post process return explicit output/result values instead of
 rewriting caller-owned texture variables.
 
 Scene Color and post-process callbacks copy only their final transactional
-publication into `FSceneFrameGraphComposition`; intermediate payloads never
+publication into `FSceneRenderGraphComposition`; intermediate payloads never
 leave graph storage. Editor assistance reads the post-process value and
 publishes its adjusted final result without becoming a second writer. The
 pipeline commits view state and telemetry only from these final publications
@@ -214,14 +214,14 @@ partitions, resolved geometry values, imported/persistent graph handles,
 retained logical target descriptions, and non-RHI pass results described above.
 
 Each stable pass identity is owned by one named contributor type in
-`SceneFrameGraphContributors.h`; contributors add parameterized passes only to
+`SceneRenderGraphContributors.h`; contributors add parameterized passes only to
 the caller-owned builder and never compile or execute a graph. The composer
 wires returned typed outputs into narrow downstream inputs. Each pass owns one
 feature-local parameter schema whose assigned fields are its sole graph
 declaration and callback capability. It converts the complete
 prepared plan into feature-specific shadow, geometry, visibility, cloud, or
 view inputs; neither contributors nor their callbacks can discover the whole
-plan or the execution pipeline. `FSceneFrameFeatureRecorders` owns command
+plan or the execution pipeline. `FSceneRenderFeatureRecorders` owns command
 recording through the same narrow contracts. Retained allocation policy is the
 Renderer-owned implementation of `FRDGAllocator`. It receives only exact
 descriptors and lifetimes from RenderCore, and publishes one complete candidate

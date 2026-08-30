@@ -11,8 +11,8 @@
 #include "RenderingThread.h"
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/MeshRendererShared.h"
-#include "Renderers/SceneFrameGraphExecutor.h"
-#include "Renderers/SceneFrameGraphContributors.h"
+#include "Renderers/SceneRenderGraphExecutor.h"
+#include "Renderers/SceneRenderGraphContributors.h"
 #include "Renderers/RendererTransientTargetPool.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/SceneRendererProfiling.h"
@@ -273,12 +273,12 @@ static_assert(!std::is_copy_constructible_v<Durin::FSceneViewStateOwner>);
 static_assert(!std::is_copy_assignable_v<Durin::FSceneViewStateOwner>);
 static_assert(std::is_move_constructible_v<Durin::FSceneViewStateOwner>);
 static_assert(std::is_move_assignable_v<Durin::FSceneViewStateOwner>);
-static_assert(std::is_final_v<Durin::FSceneFrameGraphExecutor>);
-static_assert(!std::is_empty_v<Durin::FSceneFrameGraphExecutor>);
-static_assert(!std::is_copy_constructible_v<Durin::FSceneFrameGraphExecutor>);
-static_assert(!std::is_copy_assignable_v<Durin::FSceneFrameGraphExecutor>);
-static_assert(!std::is_move_constructible_v<Durin::FSceneFrameGraphExecutor>);
-static_assert(!std::is_move_assignable_v<Durin::FSceneFrameGraphExecutor>);
+static_assert(std::is_final_v<Durin::FSceneRenderGraphExecutor>);
+static_assert(!std::is_empty_v<Durin::FSceneRenderGraphExecutor>);
+static_assert(!std::is_copy_constructible_v<Durin::FSceneRenderGraphExecutor>);
+static_assert(!std::is_copy_assignable_v<Durin::FSceneRenderGraphExecutor>);
+static_assert(!std::is_move_constructible_v<Durin::FSceneRenderGraphExecutor>);
+static_assert(!std::is_move_assignable_v<Durin::FSceneRenderGraphExecutor>);
 static_assert(!CHasPublicQualificationSwitches<
 	Durin::FSceneViewRenderOptions>);
 static_assert(!std::is_copy_constructible_v<
@@ -287,13 +287,13 @@ static_assert(!CHasResolvedReceiver<Durin::FSceneRenderPlan>);
 static_assert(!CHasResolvedDirectionalShadow<Durin::FSceneRenderPlan>);
 static_assert(!CHasTelemetry<Durin::FSceneRenderPlan>);
 static_assert(!CHasResolvedTargets<Durin::FSceneRenderPlan>);
-static_assert(!CHasResolvedTargets<Durin::FResolvedSceneFrame>);
-static_assert(!CHasTelemetry<Durin::FSceneFrameOutcome>);
-static_assert(!CHasDeferredParameters<Durin::FSceneFrameOutcome>);
-static_assert(std::is_default_constructible_v<Durin::FSceneFrameOutcome>);
+static_assert(!CHasResolvedTargets<Durin::FResolvedSceneResources>);
+static_assert(!CHasTelemetry<Durin::FSceneRenderOutcome>);
+static_assert(!CHasDeferredParameters<Durin::FSceneRenderOutcome>);
+static_assert(std::is_default_constructible_v<Durin::FSceneRenderOutcome>);
 static_assert(!CHasUploadRange<Durin::FPreparedSkeletalPaletteTable::FEntry>);
 static_assert(CHasUploadRange<Durin::FResolvedSkeletalPaletteTable::FEntry>);
-static_assert(std::is_copy_constructible_v<Durin::FSceneFrameTopology>);
+static_assert(std::is_copy_constructible_v<Durin::FSceneRenderTopology>);
 static_assert(std::is_same_v<
 	Durin::FDirectionalShadowGraphContributor::Result,
 	Durin::FDirectionalShadowPassResult>);
@@ -478,22 +478,22 @@ TEST(FRendererSceneContractTests,
 	EXPECT_EQ(Compute->Members.back().Use, Durin::ERDGUse::Write);
 }
 
-TEST(FRendererSceneContractTests, SceneFrameTopologyUsesExclusiveRoutes)
+TEST(FRendererSceneContractTests, SceneRenderTopologyUsesExclusiveRoutes)
 {
-	Durin::FSceneFrameTopology Topology;
+	Durin::FSceneRenderTopology Topology;
 	EXPECT_FALSE(Topology.UsesContactShadowVisibilityFragment());
 	EXPECT_FALSE(Topology.UsesContactShadowVisibilityCompute());
-	Topology.ContactShadowVisibility = Durin::ESceneFrameRoute::Fragment;
+	Topology.ContactShadowVisibility = Durin::ESceneRenderRoute::Fragment;
 	EXPECT_TRUE(Topology.UsesContactShadowVisibilityFragment());
 	EXPECT_FALSE(Topology.UsesContactShadowVisibilityCompute());
-	Topology.ContactShadowVisibility = Durin::ESceneFrameRoute::Compute;
+	Topology.ContactShadowVisibility = Durin::ESceneRenderRoute::Compute;
 	EXPECT_FALSE(Topology.UsesContactShadowVisibilityFragment());
 	EXPECT_TRUE(Topology.UsesContactShadowVisibilityCompute());
 
-	Topology.VolumetricCloudShadow = Durin::ESceneFrameRoute::Fragment;
+	Topology.VolumetricCloudShadow = Durin::ESceneRenderRoute::Fragment;
 	EXPECT_TRUE(Topology.UsesCloudShadowFragment());
 	EXPECT_FALSE(Topology.UsesCloudShadowCompute());
-	Topology.VolumetricCloud = Durin::ESceneFrameRoute::Compute;
+	Topology.VolumetricCloud = Durin::ESceneRenderRoute::Compute;
 	EXPECT_FALSE(Topology.UsesCloudFragment());
 	EXPECT_TRUE(Topology.UsesCloudCompute());
 }

@@ -1,17 +1,17 @@
-#include "Renderers/SceneFrameGraphExecutor.h"
+#include "Renderers/SceneRenderGraphExecutor.h"
 
 #include "Renderers/SceneRendererProfiling.h"
 #include "RHICommandList.h"
 
 namespace Durin
 {
-	FSceneFrameGraphExecutor::FSceneFrameGraphExecutor(
+	FSceneRenderGraphExecutor::FSceneRenderGraphExecutor(
 		FSceneRenderer& Renderer)
 		: Pipeline(Renderer), Allocator(Renderer.TransientTargets)
 	{
 	}
 
-	auto FSceneFrameGraphExecutor::Execute_RenderThread(
+	auto FSceneRenderGraphExecutor::Execute_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FScene* Scene,
 		const FSceneView& View,
@@ -30,18 +30,18 @@ namespace Durin
 			});
 	}
 
-	auto FSceneFrameGraphExecutor::CompileAndExecuteGraph_RenderThread(
+	auto FSceneRenderGraphExecutor::CompileAndExecuteGraph_RenderThread(
 		FRDGBuilder& Graph,
 		FRHICommandListImmediate& CommandList,
 		FRDGCapture* OutRenderGraphCapture
-	) -> ESceneFrameGraphExecutionStatus
+	) -> ESceneRenderGraphExecutionStatus
 	{
 		auto CompiledGraph = Graph.Compile();
 		if (!CompiledGraph.IsSuccess())
 		{
 			DURIN_WARN("Scene frame graph compilation failed: {}",
 				CompiledGraph.Error);
-			return ESceneFrameGraphExecutionStatus::CompileFailed;
+			return ESceneRenderGraphExecutionStatus::CompileFailed;
 		}
 		const FRDGStatistics Statistics =
 			CompiledGraph.Graph->GetStatistics();
@@ -73,7 +73,7 @@ namespace Durin
 		if (OutRenderGraphCapture != nullptr)
 			*OutRenderGraphCapture = CompiledGraph.Graph->Capture();
 		PublishSceneRenderGraphCapture(*CompiledGraph.Graph);
-		return Executed ? ESceneFrameGraphExecutionStatus::Executed
-			: ESceneFrameGraphExecutionStatus::ExecutionFailed;
+		return Executed ? ESceneRenderGraphExecutionStatus::Executed
+			: ESceneRenderGraphExecutionStatus::ExecutionFailed;
 	}
 } // namespace Durin

@@ -1,7 +1,7 @@
-#include "Renderers/SceneFrameGraphContributors.h"
+#include "Renderers/SceneRenderGraphContributors.h"
 
-#include "Renderers/SceneFrameFeatureRecorders.h"
-#include "Renderers/SceneFrameGraphComposer.h"
+#include "Renderers/SceneRenderFeatureRecorders.h"
+#include "Renderers/SceneRenderGraphComposer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -31,7 +31,7 @@ namespace Durin
 			Inputs.bHybridRetainedResourcesReady;
 		auto& DeferredParameters = Inputs.DeferredParameters;
 		auto& ProductionDeferredParameters = Inputs.ProductionDeferredParameters;
-		FSceneFrameTopology Topology;
+		FSceneRenderTopology Topology;
 		Topology.bIsolatedDeferred = Inputs.bIsolated;
 		Topology.AmbientOcclusionQuality = Inputs.AmbientOcclusion.Quality;
 		struct {
@@ -177,7 +177,7 @@ namespace Durin
 			Parameters->Resources.IsolatedDeferredOutput = {
 				*GraphResources.IsolatedDeferred,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		(void)AddSceneFrameFeaturePass<FDeferredDirectionalLightingGraphContributor>(
+		(void)AddSceneRenderFeaturePass<FDeferredDirectionalLightingGraphContributor>(
 			Graph, ERDGPassType::Graphics, std::move(Parameters),
 			[&Services, RecordView = &RecordView, Topology,
 				&Options, &DeferredParameters, &ProductionDeferredParameters,
@@ -308,7 +308,7 @@ namespace Durin
 			.Isolated = GraphResources.IsolatedDeferred};
 	}
 
-	auto FSceneFrameFeatureRecorders::BuildDeferredParameters(
+	auto FSceneRenderFeatureRecorders::BuildDeferredParameters(
 		const FSceneView& RenderView,
 		FRHITexture* EnvironmentIrradiance,
 		FRHITexture* EnvironmentPrefiltered,
@@ -423,7 +423,7 @@ namespace Durin
 				bCloudShadowVisibilityComplete};
 	}
 
-	auto FSceneFrameFeatureRecorders::RenderIsolatedDeferred_RenderThread(
+	auto FSceneRenderFeatureRecorders::RenderIsolatedDeferred_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FDeferredDirectionalLightingRenderer::FTargets* Targets,
 		const FDeferredDirectionalLightingRenderer::FRenderParameters& DeferredParameters,

@@ -1,7 +1,7 @@
-#include "Renderers/SceneFrameGraphContributors.h"
+#include "Renderers/SceneRenderGraphContributors.h"
 
-#include "Renderers/SceneFrameFeatureRecorders.h"
-#include "Renderers/SceneFrameGraphComposer.h"
+#include "Renderers/SceneRenderFeatureRecorders.h"
+#include "Renderers/SceneRenderGraphComposer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -34,7 +34,7 @@ namespace Durin
 		const uint32 Height = Inputs.Height;
 		const bool bPresentOutput = Inputs.bPresentOutput;
 		const bool bHasEditorAssistance = Inputs.bHasEditorAssistance;
-		FSceneFrameTopology Topology;
+		FSceneRenderTopology Topology;
 		Topology.bGBufferDebug = Inputs.bGBufferDebug;
 		struct {
 			FRDGTextureHandle SceneColor;
@@ -119,7 +119,7 @@ namespace Durin
 			Parameters->OutputCompletion = FRDGTokenParameter{
 				Channels.OutputCompletion};
 		const auto PostProcessPass =
-			AddSceneFrameFeaturePass<FPostProcessGraphContributor>(
+			AddSceneRenderFeaturePass<FPostProcessGraphContributor>(
 				Graph, ERDGPassType::Graphics, std::move(Parameters),
 			[&Services, &Publication = Inputs.Publication,
 				RecordView = &RecordView, &View, Topology, &Options,
@@ -187,7 +187,7 @@ namespace Durin
 			.OutputCompletion = Channels.OutputCompletion};
 	}
 
-	auto FSceneFrameFeatureRecorders::RenderPostProcess_RenderThread(
+	auto FSceneRenderFeatureRecorders::RenderPostProcess_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& RenderView,
 		const FSceneView& View,

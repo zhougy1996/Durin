@@ -338,12 +338,12 @@ longer constructs, compiles, or executes a child graph. Its current compute or
 fragment body retains its bounded intra-pass pipeline handoffs while the parent
 owns ordering against GBuffer, depth, deferred lighting, and final output.
 
-## Scene Frame Graph
+## Scene Render Graph
 
-`FSceneFrameGraphExecutor` owns the sole production graph's
-compile/execute/capture boundary. `FSceneFrameExecutionPipeline` owns frame
+`FSceneRenderGraphExecutor` owns the sole production graph's
+compile/execute/capture boundary. `FSceneRenderPipeline` owns frame
 preparation, topology selection, and commit or abort, while
-`FSceneFrameGraphComposer` wires renderer-private feature contributors in a
+`FSceneRenderGraphComposer` wires renderer-private feature contributors in a
 fixed order. Each contributor accepts a feature-specific immutable input,
 creates its own typed completion value and logical textures, then returns a
 narrow typed output for the next contributor. Every production scene pass is
@@ -356,7 +356,7 @@ optional producers.
 The composer is the only boundary allowed to see the complete immutable
 `FSceneRenderPlan`; it slices that plan into feature-specific recorder inputs
 before invoking contributors. Contributors and their callbacks cannot receive
-the complete plan or execution pipeline. `FSceneFrameFeatureRecorders` owns
+the complete plan or execution pipeline. `FSceneRenderFeatureRecorders` owns
 feature command semantics and renderer services, but does not author, compile,
 or execute graph structure.
 

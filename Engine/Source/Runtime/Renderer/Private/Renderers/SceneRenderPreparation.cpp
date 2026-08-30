@@ -1,4 +1,4 @@
-#include "Renderers/SceneFrameExecutionPipeline.h"
+#include "Renderers/SceneRenderPipeline.h"
 
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/SceneRendererProfiling.h"
@@ -16,12 +16,12 @@
 
 namespace Durin
 {
-	auto FSceneFrameExecutionPipeline::PrepareView_RenderThread(
+	auto FSceneRenderPipeline::PrepareView_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FScene* Scene,
 		FSceneView& RenderView,
 		const FSceneViewRenderOptions& Options
-	) -> FSceneFramePreparationResult
+	) -> FSceneRenderPreparationResult
 	{
 		FSceneRenderPlan PreparedView;
 		PreparedView.Context.View = RenderView;
@@ -415,7 +415,7 @@ namespace Durin
 			.Plan = std::move(PreparedView)};
 	}
 
-	auto FSceneFrameExecutionPipeline::ResolveFrameResources_RenderThread(
+	auto FSceneRenderPipeline::ResolveFrameResources_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView
 	) -> ERenderViewResult
@@ -489,12 +489,12 @@ namespace Durin
 		return ERenderViewResult::Success;
 	}
 
-	auto FSceneFrameExecutionPipeline::BuildFrameTopology(
+	auto FSceneRenderPipeline::BuildFrameTopology(
 		const FSceneRenderPlan& PreparedView,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
 		uint32 Height
-	) const -> FSceneFrameTopology
+	) const -> FSceneRenderTopology
 	{
 		const FSceneView& View = PreparedView.Context.View;
 		const bool bProductionDeferred =
@@ -550,19 +550,19 @@ namespace Durin
 			.Height = Height,
 			.bGBuffer = bGBuffer,
 			.bGroundTruthAmbientOcclusion = bAmbientOcclusion,
-			.ContactShadowVisibility = !bContact ? ESceneFrameRoute::Disabled
-				: (bForceContactShadowVisibilityFragment ? ESceneFrameRoute::Fragment
-					: ESceneFrameRoute::Compute),
+			.ContactShadowVisibility = !bContact ? ESceneRenderRoute::Disabled
+				: (bForceContactShadowVisibilityFragment ? ESceneRenderRoute::Fragment
+					: ESceneRenderRoute::Compute),
 			.VolumetricCloudShadow = !bCloudShadow
-				? ESceneFrameRoute::Disabled
-				: (bForceCloudFragment ? ESceneFrameRoute::Fragment
-					: ESceneFrameRoute::Compute),
+				? ESceneRenderRoute::Disabled
+				: (bForceCloudFragment ? ESceneRenderRoute::Fragment
+					: ESceneRenderRoute::Compute),
 			.bIsolatedDeferred = bIsolatedDeferred,
 			.bGBufferDebug =
 				Options.GBufferDebugMode != EGBufferDebugMode::Disabled,
-			.VolumetricCloud = !bCloudInputs ? ESceneFrameRoute::Disabled
-				: (bForceCloudFragment ? ESceneFrameRoute::Fragment
-					: ESceneFrameRoute::Compute),
+			.VolumetricCloud = !bCloudInputs ? ESceneRenderRoute::Disabled
+				: (bForceCloudFragment ? ESceneRenderRoute::Fragment
+					: ESceneRenderRoute::Compute),
 			.bVolumetricCloudComposite = bCloudInputs,
 			.AmbientOcclusionQuality = View.Settings.AmbientOcclusion.Quality,
 			.VolumetricCloudExtent = {

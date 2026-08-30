@@ -1,11 +1,11 @@
-#include "Renderers/SceneFrameFeatureRecorders.h"
+#include "Renderers/SceneRenderFeatureRecorders.h"
 
 namespace Durin
 {
-	FSceneFrameFeatureRecorders::FSceneFrameFeatureRecorders(
+	FSceneRenderFeatureRecorders::FSceneRenderFeatureRecorders(
 		FSceneRenderer& Renderer,
 		FSceneRenderTelemetry& InTelemetry,
-		FResolvedSceneFrame& InResolvedFrame,
+		FResolvedSceneResources& InResolvedFrame,
 		FSceneViewTemporalContext& InTemporalContext,
 		FSceneViewState*& InViewState)
 		: TransientTargets(Renderer.TransientTargets)

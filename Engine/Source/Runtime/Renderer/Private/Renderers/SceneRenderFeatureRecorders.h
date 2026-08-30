@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Renderers/SceneFrameGraphTypes.h"
+#include "Renderers/SceneRenderGraphTypes.h"
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/SceneRendererProfiling.h"
@@ -47,13 +47,13 @@ namespace Durin
 	};
 
 	// Coordinates feature command recording through borrowed renderer services.
-	class FSceneFrameFeatureRecorders final
+	class FSceneRenderFeatureRecorders final
 	{
 	public:
-		FSceneFrameFeatureRecorders(
+		FSceneRenderFeatureRecorders(
 			FSceneRenderer& Renderer,
 			FSceneRenderTelemetry& Telemetry,
-			FResolvedSceneFrame& ResolvedFrame,
+			FResolvedSceneResources& ResolvedFrame,
 			FSceneViewTemporalContext& TemporalContext,
 			FSceneViewState*& ViewState);
 
@@ -238,7 +238,7 @@ namespace Durin
 		FEditorAssistanceRenderer& EditorAssistanceRenderer;
 		FRendererQualificationPolicy Qualification;
 		FSceneRenderTelemetry& Telemetry;
-		FResolvedSceneFrame& ResolvedFrame;
+		FResolvedSceneResources& ResolvedFrame;
 		FSceneViewTemporalContext& TemporalContext;
 		FSceneViewState*& ViewState;
 	};

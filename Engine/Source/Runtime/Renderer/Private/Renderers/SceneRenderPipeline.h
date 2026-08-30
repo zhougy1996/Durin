@@ -4,25 +4,25 @@
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/SceneRenderer.h"
-#include "Renderers/SceneFrameGraphTypes.h"
-#include "Renderers/SceneFrameFeatureRecorders.h"
+#include "Renderers/SceneRenderGraphTypes.h"
+#include "Renderers/SceneRenderFeatureRecorders.h"
 #include "RDG.h"
 
 namespace Durin
 {
-	class FSceneFrameGraphComposer;
-	// Owns scene-frame preparation, topology selection, and lifecycle finalization.
-	class FSceneFrameExecutionPipeline final
+	class FSceneRenderGraphComposer;
+	// Owns scene-render preparation, topology selection, and lifecycle finalization.
+	class FSceneRenderPipeline final
 	{
 	public:
-		explicit FSceneFrameExecutionPipeline(FSceneRenderer& Renderer);
+		explicit FSceneRenderPipeline(FSceneRenderer& Renderer);
 
-		FSceneFrameExecutionPipeline(const FSceneFrameExecutionPipeline&) = delete;
-		auto operator=(const FSceneFrameExecutionPipeline&)
-			-> FSceneFrameExecutionPipeline& = delete;
-		FSceneFrameExecutionPipeline(FSceneFrameExecutionPipeline&&) = delete;
-		auto operator=(FSceneFrameExecutionPipeline&&)
-			-> FSceneFrameExecutionPipeline& = delete;
+		FSceneRenderPipeline(const FSceneRenderPipeline&) = delete;
+		auto operator=(const FSceneRenderPipeline&)
+			-> FSceneRenderPipeline& = delete;
+		FSceneRenderPipeline(FSceneRenderPipeline&&) = delete;
+		auto operator=(FSceneRenderPipeline&&)
+			-> FSceneRenderPipeline& = delete;
 
 		auto Execute_RenderThread(
 			FRHICommandListImmediate& CommandList,
@@ -32,7 +32,7 @@ namespace Durin
 			bool bPresentOutput,
 			const FSceneViewRenderOptions& Options,
 			FSceneViewStatistics* OutStatistics,
-			const FSceneFrameGraphExecute& ExecuteGraph
+			const FSceneRenderGraphExecute& ExecuteGraph
 		) -> ERenderViewResult;
 
 	private:
@@ -41,7 +41,7 @@ namespace Durin
 			FScene* Scene,
 			FSceneView& RenderView,
 			const FSceneViewRenderOptions& Options
-		) -> FSceneFramePreparationResult;
+		) -> FSceneRenderPreparationResult;
 		auto ResolveFrameResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneRenderPlan& PreparedView
@@ -51,7 +51,7 @@ namespace Durin
 			const FSceneViewRenderOptions& Options,
 			uint32 Width,
 			uint32 Height
-		) const -> FSceneFrameTopology;
+		) const -> FSceneRenderTopology;
 
 		FDefaultTextureResources& DefaultTextures;
 		FEnvironmentLightingResources& EnvironmentLighting;
@@ -73,9 +73,9 @@ namespace Durin
 		uint64& RenderSubmissionSerial;
 		FRendererQualificationPolicy Qualification;
 		FSceneRenderTelemetry Telemetry;
-		FResolvedSceneFrame ResolvedFrame;
+		FResolvedSceneResources ResolvedFrame;
 		FSceneViewTemporalContext TemporalContext;
 		FSceneViewState* ViewState = nullptr;
-		FSceneFrameFeatureRecorders Recorders;
+		FSceneRenderFeatureRecorders Recorders;
 	};
 } // namespace Durin

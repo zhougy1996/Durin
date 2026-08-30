@@ -1,7 +1,7 @@
-#include "Renderers/SceneFrameGraphContributors.h"
+#include "Renderers/SceneRenderGraphContributors.h"
 
-#include "Renderers/SceneFrameFeatureRecorders.h"
-#include "Renderers/SceneFrameGraphComposer.h"
+#include "Renderers/SceneRenderFeatureRecorders.h"
+#include "Renderers/SceneRenderGraphComposer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -22,7 +22,7 @@ namespace Durin
 		const uint32 Width = Inputs.Width;
 		const uint32 Height = Inputs.Height;
 		const bool bWantsGroundTruthAmbientOcclusion = Inputs.bRequested;
-		FSceneFrameTopology Topology;
+		FSceneRenderTopology Topology;
 		Topology.bGroundTruthAmbientOcclusion = Inputs.bEnabled;
 		Topology.AmbientOcclusionQuality = Inputs.Quality;
 		struct {
@@ -115,7 +115,7 @@ namespace Durin
 						*GraphResources.GroundTruthAmbientOcclusion[Index],
 						{ERHITextureAspect::Color, 0, 1, 0, 1}};
 		}
-		(void)AddSceneFrameFeaturePass<FAmbientOcclusionGraphContributor>(
+		(void)AddSceneRenderFeaturePass<FAmbientOcclusionGraphContributor>(
 			Graph, ERDGPassType::Graphics, std::move(Parameters),
 			[&Services, RecordView = &RecordView, Topology,
 				&Options, Width, Height, bWantsGroundTruthAmbientOcclusion](
@@ -165,7 +165,7 @@ namespace Durin
 			.Quality = Topology.AmbientOcclusionQuality};
 	}
 
-	auto FSceneFrameFeatureRecorders::RenderGroundTruthAmbientOcclusion_RenderThread(
+	auto FSceneRenderFeatureRecorders::RenderGroundTruthAmbientOcclusion_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& RenderView,
 		const FGBufferRenderer::FTargets* GBufferTargets,

@@ -1,7 +1,7 @@
-#include "Renderers/SceneFrameGraphContributors.h"
+#include "Renderers/SceneRenderGraphContributors.h"
 
-#include "Renderers/SceneFrameFeatureRecorders.h"
-#include "Renderers/SceneFrameGraphComposer.h"
+#include "Renderers/SceneRenderFeatureRecorders.h"
+#include "Renderers/SceneRenderGraphComposer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -60,7 +60,7 @@ namespace Durin
 			.Texture = GraphResources.SceneDepth,
 			.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		const auto EditorAssistancePass =
-			AddSceneFrameFeaturePass<FEditorAssistanceGraphContributor>(
+			AddSceneRenderFeaturePass<FEditorAssistanceGraphContributor>(
 				Graph, ERDGPassType::Graphics, std::move(Parameters),
 				[&Services, &Publication = Inputs.Publication,
 					RecordView = &RecordView, &PreparedEditorAssistance,
@@ -88,7 +88,7 @@ namespace Durin
 		return {.OutputCompletion = Channels.OutputCompletion};
 	}
 
-	auto FSceneFrameFeatureRecorders::RenderEditorAssistance_RenderThread(
+	auto FSceneRenderFeatureRecorders::RenderEditorAssistance_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneView& RenderView,
 		FRHITexture* OutputTarget,

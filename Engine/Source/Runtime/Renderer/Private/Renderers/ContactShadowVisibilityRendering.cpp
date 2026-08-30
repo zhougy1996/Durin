@@ -1,7 +1,7 @@
-#include "Renderers/SceneFrameGraphContributors.h"
+#include "Renderers/SceneRenderGraphContributors.h"
 
-#include "Renderers/SceneFrameFeatureRecorders.h"
-#include "Renderers/SceneFrameGraphComposer.h"
+#include "Renderers/SceneRenderFeatureRecorders.h"
+#include "Renderers/SceneRenderGraphComposer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -172,7 +172,7 @@ namespace Durin
 		const uint32 Width = Inputs.Width;
 		const uint32 Height = Inputs.Height;
 		const bool bWantsProductionDeferred = Inputs.bProductionDeferred;
-		FSceneFrameTopology Topology;
+		FSceneRenderTopology Topology;
 		Topology.ContactShadowVisibility = Inputs.GraphRoute;
 		struct {
 			std::optional<FRDGTextureHandle> DirectionalShadow;
@@ -300,7 +300,7 @@ namespace Durin
 				Parameters->ContactVisibilityOutput = FRDGTextureParameter{
 					*GraphResources.ContactShadowVisibilityCompute,
 					{ERHITextureAspect::Color, 0, 1, 0, 1}};
-			(void)AddSceneFrameFeaturePass<
+			(void)AddSceneRenderFeaturePass<
 				FContactShadowVisibilityGraphContributor>(Graph,
 				ERDGPassType::Compute, std::move(Parameters), Execute);
 		}
@@ -313,7 +313,7 @@ namespace Durin
 				Parameters->Output = FRDGColorAttachmentParameter{
 					*GraphResources.ContactShadowVisibilityFragment,
 					{ERHITextureAspect::Color, 0, 1, 0, 1}};
-			(void)AddSceneFrameFeaturePass<
+			(void)AddSceneRenderFeaturePass<
 				FContactShadowVisibilityGraphContributor>(Graph,
 				ERDGPassType::Graphics, std::move(Parameters), Execute);
 		}
@@ -322,7 +322,7 @@ namespace Durin
 			.Compute = GraphResources.ContactShadowVisibilityCompute};
 	}
 
-	auto FSceneFrameFeatureRecorders::RenderContactShadowVisibility_RenderThread(
+	auto FSceneRenderFeatureRecorders::RenderContactShadowVisibility_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FContactShadowVisibilityRecordInputs& Inputs,
 		const FGBufferRenderer::FTargets* GBufferTargets,

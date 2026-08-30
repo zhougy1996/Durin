@@ -134,7 +134,7 @@ namespace Durin
 	};
 
 	// Publishes either one complete logical plan or its preparation failure.
-	struct FSceneFramePreparationResult
+	struct FSceneRenderPreparationResult
 	{
 		ERenderViewResult Result = ERenderViewResult::Success;
 		std::optional<FSceneRenderPlan> Plan;

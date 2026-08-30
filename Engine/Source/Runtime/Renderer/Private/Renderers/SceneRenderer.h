@@ -28,9 +28,9 @@
 namespace Durin
 {
 	class FConsoleCommandRegistry;
-	class FSceneFrameGraphExecutor;
-	class FSceneFrameExecutionPipeline;
-	class FSceneFrameFeatureRecorders;
+	class FSceneRenderGraphExecutor;
+	class FSceneRenderPipeline;
+	class FSceneRenderFeatureRecorders;
 	class FRHICommandListImmediate;
 	class FRHITexture;
 	class FScene;
@@ -86,9 +86,9 @@ namespace Durin
 		}
 
 	private:
-		friend class FSceneFrameGraphExecutor;
-		friend class FSceneFrameExecutionPipeline;
-		friend class FSceneFrameFeatureRecorders;
+		friend class FSceneRenderGraphExecutor;
+		friend class FSceneRenderPipeline;
+		friend class FSceneRenderFeatureRecorders;
 		auto EnqueueResourceInvalidation(
 			ERendererResourceInvalidationCause Cause
 		) -> void;

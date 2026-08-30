@@ -124,7 +124,7 @@ namespace Durin
 		bool bEditorAssistance = false;
 	};
 
-	struct FSceneFrameOutcome
+	struct FSceneRenderOutcome
 	{
 		FDirectionalShadowPassResult DirectionalShadow;
 		FGBufferPassResult GBuffer;

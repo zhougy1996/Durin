@@ -6,24 +6,24 @@
 
 namespace Durin
 {
-	enum class ESceneFrameRoute : uint8
+	enum class ESceneRenderRoute : uint8
 	{
 		Disabled,
 		Fragment,
 		Compute,
 	};
 
-	struct FSceneFrameTopology
+	struct FSceneRenderTopology
 	{
 		uint32 Width = 0;
 		uint32 Height = 0;
 		bool bGBuffer = false;
 		bool bGroundTruthAmbientOcclusion = false;
-		ESceneFrameRoute ContactShadowVisibility = ESceneFrameRoute::Disabled;
-		ESceneFrameRoute VolumetricCloudShadow = ESceneFrameRoute::Disabled;
+		ESceneRenderRoute ContactShadowVisibility = ESceneRenderRoute::Disabled;
+		ESceneRenderRoute VolumetricCloudShadow = ESceneRenderRoute::Disabled;
 		bool bIsolatedDeferred = false;
 		bool bGBufferDebug = false;
-		ESceneFrameRoute VolumetricCloud = ESceneFrameRoute::Disabled;
+		ESceneRenderRoute VolumetricCloud = ESceneRenderRoute::Disabled;
 		bool bVolumetricCloudComposite = false;
 		EGroundTruthAmbientOcclusionQuality AmbientOcclusionQuality =
 			EGroundTruthAmbientOcclusionQuality::FullResolution;
@@ -31,31 +31,31 @@ namespace Durin
 
 		[[nodiscard]] auto UsesContactShadowVisibilityFragment() const -> bool
 		{
-			return ContactShadowVisibility == ESceneFrameRoute::Fragment;
+			return ContactShadowVisibility == ESceneRenderRoute::Fragment;
 		}
 		[[nodiscard]] auto UsesContactShadowVisibilityCompute() const -> bool
 		{
-			return ContactShadowVisibility == ESceneFrameRoute::Compute;
+			return ContactShadowVisibility == ESceneRenderRoute::Compute;
 		}
 		[[nodiscard]] auto UsesCloudShadowFragment() const -> bool
 		{
-			return VolumetricCloudShadow == ESceneFrameRoute::Fragment;
+			return VolumetricCloudShadow == ESceneRenderRoute::Fragment;
 		}
 		[[nodiscard]] auto UsesCloudShadowCompute() const -> bool
 		{
-			return VolumetricCloudShadow == ESceneFrameRoute::Compute;
+			return VolumetricCloudShadow == ESceneRenderRoute::Compute;
 		}
 		[[nodiscard]] auto UsesCloudFragment() const -> bool
 		{
-			return VolumetricCloud == ESceneFrameRoute::Fragment;
+			return VolumetricCloud == ESceneRenderRoute::Fragment;
 		}
 		[[nodiscard]] auto UsesCloudCompute() const -> bool
 		{
-			return VolumetricCloud == ESceneFrameRoute::Compute;
+			return VolumetricCloud == ESceneRenderRoute::Compute;
 		}
 	};
 
-	struct FResolvedSceneFrame
+	struct FResolvedSceneResources
 	{
 		FResolvedLighting Lighting;
 		FResolvedReceiverGeometry Receiver;
@@ -63,13 +63,13 @@ namespace Durin
 		std::optional<FResolvedVolumetricCloud> VolumetricCloud;
 	};
 
-	enum class ESceneFrameGraphExecutionStatus : uint8
+	enum class ESceneRenderGraphExecutionStatus : uint8
 	{
 		CompileFailed,
 		ExecutionFailed,
 		Executed,
 	};
 
-	using FSceneFrameGraphExecute = std::function<ESceneFrameGraphExecutionStatus(
+	using FSceneRenderGraphExecute = std::function<ESceneRenderGraphExecutionStatus(
 		FRDGBuilder&)>;
 } // namespace Durin

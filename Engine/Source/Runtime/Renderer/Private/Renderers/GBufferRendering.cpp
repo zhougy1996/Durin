@@ -1,7 +1,7 @@
-#include "Renderers/SceneFrameGraphContributors.h"
+#include "Renderers/SceneRenderGraphContributors.h"
 
-#include "Renderers/SceneFrameFeatureRecorders.h"
-#include "Renderers/SceneFrameGraphComposer.h"
+#include "Renderers/SceneRenderFeatureRecorders.h"
+#include "Renderers/SceneRenderGraphComposer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -101,7 +101,7 @@ namespace Durin
 				.Texture = GraphResources.SceneDepth,
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		}
-		(void)AddSceneFrameFeaturePass<FGBufferGraphContributor>(
+		(void)AddSceneRenderFeaturePass<FGBufferGraphContributor>(
 			Graph, ERDGPassType::Graphics, std::move(Parameters),
 			[&Services, RecordInputs, &Options,
 				Width, Height, bNeedsGBuffer, bWantsIsolatedDeferred](
@@ -139,7 +139,7 @@ namespace Durin
 			.Depth = GraphResources.SceneDepth};
 	}
 
-	auto FSceneFrameFeatureRecorders::RenderGBuffer_RenderThread(
+	auto FSceneRenderFeatureRecorders::RenderGBuffer_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FGBufferRecordInputs& Inputs,
 		const FPostProcessRenderer::FSceneTargets& SceneTargets,

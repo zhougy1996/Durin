@@ -1,7 +1,7 @@
-#include "Renderers/SceneFrameGraphContributors.h"
+#include "Renderers/SceneRenderGraphContributors.h"
 
-#include "Renderers/SceneFrameFeatureRecorders.h"
-#include "Renderers/SceneFrameGraphComposer.h"
+#include "Renderers/SceneRenderFeatureRecorders.h"
+#include "Renderers/SceneRenderGraphComposer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -98,7 +98,7 @@ namespace Durin
 			Parameters->Resources.SceneDepthDepthToGraphics = Depth;
 		else
 			Parameters->Resources.SceneDepthDepthToDepth = Depth;
-		(void)AddSceneFrameFeaturePass<FBaseSceneGraphContributor>(
+		(void)AddSceneRenderFeaturePass<FBaseSceneGraphContributor>(
 			Graph, ERDGPassType::Graphics, std::move(Parameters),
 			[&Services, RecordInputs, &ProductionDeferredParameters](
 				FRHICommandListImmediate& Commands,
@@ -133,7 +133,7 @@ namespace Durin
 			.Color = GraphResources.SceneColor, .Depth = GraphResources.SceneDepth};
 	}
 
-	auto FSceneFrameFeatureRecorders::RenderBaseScene_RenderThread(
+	auto FSceneRenderFeatureRecorders::RenderBaseScene_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneGeometryRecordInputs& Inputs,
 		FRHITexture* SceneColor,
@@ -304,7 +304,7 @@ namespace Durin
 		return {.Result = ERenderViewResult::Success};
 	}
 
-	auto FSceneFrameFeatureRecorders::RenderForwardScene_RenderThread(
+	auto FSceneRenderFeatureRecorders::RenderForwardScene_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneGeometryRecordInputs& Inputs,
 		FRHITexture* RenderTarget

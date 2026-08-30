@@ -1,7 +1,7 @@
-#include "Renderers/SceneFrameGraphContributors.h"
+#include "Renderers/SceneRenderGraphContributors.h"
 
-#include "Renderers/SceneFrameFeatureRecorders.h"
-#include "Renderers/SceneFrameGraphComposer.h"
+#include "Renderers/SceneRenderFeatureRecorders.h"
+#include "Renderers/SceneRenderGraphComposer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -32,7 +32,7 @@ namespace Durin
 		const uint32 Width = Inputs.Width;
 		const uint32 Height = Inputs.Height;
 		const bool bWantsProductionDeferred = Inputs.bProductionDeferred;
-		FSceneFrameTopology Topology;
+		FSceneRenderTopology Topology;
 		Topology.VolumetricCloudShadow = Inputs.GraphRoute;
 		struct {
 			FRDGTextureHandle SceneDepth;
@@ -91,7 +91,7 @@ namespace Durin
 			FVolumetricCloudShadowPassParameters>();
 		Parameters->GBufferCompletion = {.Value = Channels.GBuffer};
 		Parameters->Completion = {.Value = Channels.CloudShadow};
-		if (Topology.VolumetricCloudShadow != ESceneFrameRoute::Disabled)
+		if (Topology.VolumetricCloudShadow != ESceneRenderRoute::Disabled)
 		{
 			FRDGTextureParameter Depth{GraphResources.SceneDepth,
 				{ERHITextureAspect::Depth, 0, 1, 0, 1}};
@@ -129,7 +129,7 @@ namespace Durin
 			Parameters->Resources.CloudShadowComputeOutput = {
 				*GraphResources.VolumetricCloudShadowCompute,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		(void)AddSceneFrameFeaturePass<FVolumetricCloudShadowGraphContributor>(Graph,
+		(void)AddSceneRenderFeaturePass<FVolumetricCloudShadowGraphContributor>(Graph,
 			bCompute ? ERDGPassType::Compute : ERDGPassType::Graphics,
 			std::move(Parameters),
 			[&Services, RecordInputs, Topology, Width, Height,
@@ -153,7 +153,7 @@ namespace Durin
 				const FPostProcessRenderer::FSceneTargets SceneTargets{
 					.Color = nullptr,
 					.Depth = Topology.VolumetricCloudShadow
-							!= ESceneFrameRoute::Disabled
+							!= ESceneRenderRoute::Disabled
 						? Depth : nullptr};
 				auto GetCloudInput = [&](const auto& Graphics, const auto& Compute) {
 					FRHITexture* Texture = Resolver.GetTexture(Graphics);
@@ -190,7 +190,7 @@ namespace Durin
 		auto* CloudWeatherTexture = Inputs.WeatherTexture;
 		const uint32 Width = Inputs.Width;
 		const uint32 Height = Inputs.Height;
-		FSceneFrameTopology Topology;
+		FSceneRenderTopology Topology;
 		Topology.VolumetricCloud = Inputs.GraphRoute;
 		Topology.VolumetricCloudExtent = Inputs.Extent;
 		Topology.bVolumetricCloudComposite = Inputs.bComposite;
@@ -292,7 +292,7 @@ namespace Durin
 				Parameters->Resources.CloudWeatherCompute,
 				GraphResources.VolumetricCloudWeather, CloudWeatherTexture);
 		}
-		if (Topology.VolumetricCloud != ESceneFrameRoute::Disabled)
+		if (Topology.VolumetricCloud != ESceneRenderRoute::Disabled)
 		{
 			FRDGTextureParameter Depth{GraphResources.SceneDepth,
 				{ERHITextureAspect::Depth, 0, 1, 0, 1}};
@@ -307,7 +307,7 @@ namespace Durin
 			Parameters->Resources.CloudComputeOutput = {
 				*GraphResources.VolumetricCloudCompute,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		(void)AddSceneFrameFeaturePass<FVolumetricCloudSpatialGraphContributor>(Graph,
+		(void)AddSceneRenderFeaturePass<FVolumetricCloudSpatialGraphContributor>(Graph,
 			bCompute ? ERDGPassType::Compute : ERDGPassType::Graphics,
 			std::move(Parameters),
 			[&Services, RecordInputs, Topology](FRHICommandListImmediate& Commands,
@@ -340,7 +340,7 @@ namespace Durin
 							PassParameters.Resources.CloudDetailDensityCompute),
 						GetCloudInput(PassParameters.Resources.CloudWeather,
 							PassParameters.Resources.CloudWeatherCompute),
-					Topology.VolumetricCloud != ESceneFrameRoute::Disabled
+					Topology.VolumetricCloud != ESceneRenderRoute::Disabled
 							? GetCloudInput(PassParameters.Resources.SceneDepth,
 								PassParameters.Resources.SceneDepthCompute) : nullptr);
 				Timing.Commit();
@@ -358,7 +358,7 @@ namespace Durin
 		auto& Services = Inputs.Services;
 		const auto RecordInputs = Inputs.Record;
 		auto* CloudWeatherTexture = Inputs.WeatherTexture;
-		FSceneFrameTopology Topology;
+		FSceneRenderTopology Topology;
 		Topology.bVolumetricCloudComposite = Inputs.bEnabled;
 		struct {
 			FRDGTextureHandle SceneColor;
@@ -448,7 +448,7 @@ namespace Durin
 			Parameters->Resources.CloudCompositeOutput = {
 				*GraphResources.VolumetricCloudComposite,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		(void)AddSceneFrameFeaturePass<FVolumetricCloudCompositeGraphContributor>(
+		(void)AddSceneRenderFeaturePass<FVolumetricCloudCompositeGraphContributor>(
 			Graph, ERDGPassType::Graphics, std::move(Parameters),
 			[&Services, RecordInputs, Topology](
 				FRHICommandListImmediate& Commands,
@@ -496,7 +496,7 @@ namespace Durin
 			.Composite = GraphResources.VolumetricCloudComposite};
 	}
 
-	auto FSceneFrameFeatureRecorders::RenderVolumetricCloudShadows_RenderThread(
+	auto FSceneRenderFeatureRecorders::RenderVolumetricCloudShadows_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FVolumetricCloudShadowRecordInputs& Inputs,
 		const FVolumetricCloudShadowRenderer::FTargets* FragmentTargets,
@@ -581,7 +581,7 @@ namespace Durin
 		return PassResult;
 	}
 
-	auto FSceneFrameFeatureRecorders::RenderVolumetricCloudSpatial_RenderThread(
+	auto FSceneRenderFeatureRecorders::RenderVolumetricCloudSpatial_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FVolumetricCloudRecordInputs& Inputs,
 		const FVolumetricCloudRenderer::FTargets* FragmentTargets,
@@ -662,7 +662,7 @@ namespace Durin
 			.Route = Result.Counters.Route};
 	}
 
-	auto FSceneFrameFeatureRecorders::RenderVolumetricCloudComposite_RenderThread(
+	auto FSceneRenderFeatureRecorders::RenderVolumetricCloudComposite_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FVolumetricCloudRecordInputs& Inputs,
 		const FVolumetricCloudSpatialPassResult& Spatial,

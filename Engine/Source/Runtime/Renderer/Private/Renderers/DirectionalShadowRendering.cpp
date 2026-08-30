@@ -1,7 +1,7 @@
-#include "Renderers/SceneFrameGraphContributors.h"
+#include "Renderers/SceneRenderGraphContributors.h"
 
-#include "Renderers/SceneFrameFeatureRecorders.h"
-#include "Renderers/SceneFrameGraphComposer.h"
+#include "Renderers/SceneRenderFeatureRecorders.h"
+#include "Renderers/SceneRenderGraphComposer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -33,7 +33,7 @@ namespace Durin
 				.Texture = *GraphResources.DirectionalShadow,
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0,
 					DirectionalShadowCascadeCount}};
-		(void)AddSceneFrameFeaturePass<FDirectionalShadowGraphContributor>(
+		(void)AddSceneRenderFeaturePass<FDirectionalShadowGraphContributor>(
 			Graph, ERDGPassType::Graphics, std::move(Parameters),
 			[&Services, RecordInputs](FRHICommandListImmediate& Commands,
 				const FDirectionalShadowPassParameters& PassParameters,
@@ -47,7 +47,7 @@ namespace Durin
 			.Shadow = GraphResources.DirectionalShadow};
 	}
 
-	auto FSceneFrameFeatureRecorders::RenderDirectionalShadow_RenderThread(
+	auto FSceneRenderFeatureRecorders::RenderDirectionalShadow_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FDirectionalShadowRecordInputs& Inputs,
 		FRHITexture* DirectionalShadowTarget

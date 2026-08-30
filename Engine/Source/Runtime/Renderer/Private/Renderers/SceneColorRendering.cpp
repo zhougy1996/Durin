@@ -1,7 +1,7 @@
-#include "Renderers/SceneFrameGraphContributors.h"
+#include "Renderers/SceneRenderGraphContributors.h"
 
-#include "Renderers/SceneFrameFeatureRecorders.h"
-#include "Renderers/SceneFrameGraphComposer.h"
+#include "Renderers/SceneRenderFeatureRecorders.h"
+#include "Renderers/SceneRenderGraphComposer.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -18,7 +18,7 @@ namespace Durin
 		auto& Services = Inputs.Services;
 		const auto RecordInputs = Inputs.Record;
 		const bool bRequiresDeferredOpaque = Inputs.bRequiresDeferredOpaque;
-		FSceneFrameTopology Topology;
+		FSceneRenderTopology Topology;
 		Topology.bVolumetricCloudComposite = Inputs.bVolumetricCloudComposite;
 		struct {
 			FRDGTextureHandle SceneColor;
@@ -55,7 +55,7 @@ namespace Durin
 				.Texture = GraphResources.SceneDepth,
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		}
-		(void)AddSceneFrameFeaturePass<FSceneColorGraphContributor>(
+		(void)AddSceneRenderFeaturePass<FSceneColorGraphContributor>(
 			Graph, ERDGPassType::Graphics, std::move(Parameters),
 			[&Services, &Publication = Inputs.Publication,
 				RecordInputs, Topology, bRequiresDeferredOpaque](
@@ -101,7 +101,7 @@ namespace Durin
 			.CloudComposite = GraphResources.VolumetricCloudComposite};
 	}
 
-	auto FSceneFrameFeatureRecorders::RenderSceneTranslucency_RenderThread(
+	auto FSceneRenderFeatureRecorders::RenderSceneTranslucency_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneGeometryRecordInputs& Inputs,
 		FRHITexture* SceneColor,

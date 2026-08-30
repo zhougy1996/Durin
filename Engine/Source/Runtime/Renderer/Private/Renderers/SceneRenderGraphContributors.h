@@ -1,14 +1,14 @@
 #pragma once
 
-#include "Renderers/SceneFrameFeatureRecorders.h"
-#include "Renderers/SceneFrameGraphComposer.h"
+#include "Renderers/SceneRenderFeatureRecorders.h"
+#include "Renderers/SceneRenderGraphComposer.h"
 #include "RDG.h"
 
 namespace Durin
 {
-	struct FSceneFrameGraphComposeInputs;
-	struct FSceneFrameGraphComposition;
-	struct FSceneFrameGraphServices;
+	struct FSceneRenderGraphComposeInputs;
+	struct FSceneRenderGraphComposition;
+	struct FSceneRenderGraphServices;
 
 #define DURIN_DECLARE_SCENE_PASS_RESOURCES(TypeName, ...) \
 	struct TypeName final \
@@ -289,14 +289,14 @@ namespace Durin
 	struct FDirectionalShadowGraphInputs final
 	{
 		FRDGBuilder& Graph;
-		FSceneFrameGraphServices& Services;
+		FSceneRenderGraphServices& Services;
 		FDirectionalShadowRecordInputs Record;
 		std::optional<FRDGTextureHandle> Shadow;
 	};
 	struct FGBufferGraphInputs final
 	{
 		FRDGBuilder& Graph;
-		FSceneFrameGraphServices& Services;
+		FSceneRenderGraphServices& Services;
 		FGBufferRecordInputs Record;
 		FRDGTextureHandle Depth;
 		const FSceneViewRenderOptions& Options;
@@ -309,7 +309,7 @@ namespace Durin
 	struct FAmbientOcclusionGraphInputs final
 	{
 		FRDGBuilder& Graph;
-		FSceneFrameGraphServices& Services;
+		FSceneRenderGraphServices& Services;
 		const FSceneView& View;
 		const FSceneViewRenderOptions& Options;
 		const FGBufferGraphOutput& GBuffer;
@@ -322,13 +322,13 @@ namespace Durin
 	struct FContactShadowGraphInputs final
 	{
 		FRDGBuilder& Graph;
-		FSceneFrameGraphServices& Services;
+		FSceneRenderGraphServices& Services;
 		FContactShadowVisibilityRecordInputs Record;
 		const FSceneViewRenderOptions& Options;
 		const FDirectionalShadowGraphOutput& DirectionalShadow;
 		const FGBufferGraphOutput& GBuffer;
 		FContactShadowVisibilityRenderer::FRouteDecision Route;
-		ESceneFrameRoute GraphRoute;
+		ESceneRenderRoute GraphRoute;
 		uint32 Width;
 		uint32 Height;
 		bool bProductionDeferred;
@@ -336,7 +336,7 @@ namespace Durin
 	struct FCloudShadowGraphInputs final
 	{
 		FRDGBuilder& Graph;
-		FSceneFrameGraphServices& Services;
+		FSceneRenderGraphServices& Services;
 		FVolumetricCloudShadowRecordInputs Record;
 		const FGBufferGraphOutput& GBuffer;
 		FRDGTextureHandle SceneDepth;
@@ -345,7 +345,7 @@ namespace Durin
 		std::optional<FRDGTextureHandle> Weather;
 		FRHITexture* WeatherTexture;
 		FVolumetricCloudShadowRenderer::ERoute Route;
-		ESceneFrameRoute GraphRoute;
+		ESceneRenderRoute GraphRoute;
 		uint32 Width;
 		uint32 Height;
 		bool bProductionDeferred;
@@ -353,7 +353,7 @@ namespace Durin
 	struct FDeferredLightingGraphInputs final
 	{
 		FRDGBuilder& Graph;
-		FSceneFrameGraphServices& Services;
+		FSceneRenderGraphServices& Services;
 		const FSceneView& View;
 		const FSceneViewRenderOptions& Options;
 		const FDirectionalShadowGraphOutput& DirectionalShadow;
@@ -385,7 +385,7 @@ namespace Durin
 	struct FBaseSceneGraphInputs final
 	{
 		FRDGBuilder& Graph;
-		FSceneFrameGraphServices& Services;
+		FSceneRenderGraphServices& Services;
 		FSceneGeometryRecordInputs Record;
 		const FDeferredLightingGraphOutput& Deferred;
 		FRDGTextureHandle SceneColor;
@@ -407,7 +407,7 @@ namespace Durin
 	struct FCloudSpatialGraphInputs final
 	{
 		FRDGBuilder& Graph;
-		FSceneFrameGraphServices& Services;
+		FSceneRenderGraphServices& Services;
 		FVolumetricCloudRecordInputs Record;
 		const FBaseSceneGraphOutput& BaseScene;
 		std::optional<FRDGTextureHandle> BaseDensity;
@@ -415,7 +415,7 @@ namespace Durin
 		std::optional<FRDGTextureHandle> Weather;
 		FRHITexture* WeatherTexture;
 		FVolumetricCloudRenderer::ERoute Route;
-		ESceneFrameRoute GraphRoute;
+		ESceneRenderRoute GraphRoute;
 		FIntPoint Extent;
 		uint32 Width;
 		uint32 Height;
@@ -424,7 +424,7 @@ namespace Durin
 	struct FCloudCompositeGraphInputs final
 	{
 		FRDGBuilder& Graph;
-		FSceneFrameGraphServices& Services;
+		FSceneRenderGraphServices& Services;
 		FVolumetricCloudRecordInputs Record;
 		const FBaseSceneGraphOutput& BaseScene;
 		const FCloudSpatialGraphOutput& Spatial;
@@ -438,7 +438,7 @@ namespace Durin
 	struct FSceneColorGraphInputs final
 	{
 		FRDGBuilder& Graph;
-		FSceneFrameGraphServices& Services;
+		FSceneRenderGraphServices& Services;
 		FSceneGeometryRecordInputs Record;
 		const FBaseSceneGraphOutput& BaseScene;
 		const FCloudCompositeGraphOutput& VolumetricCloud;
@@ -449,7 +449,7 @@ namespace Durin
 	struct FPostProcessGraphInputs final
 	{
 		FRDGBuilder& Graph;
-		FSceneFrameGraphServices& Services;
+		FSceneRenderGraphServices& Services;
 		const FSceneView& RecordView;
 		const FSceneView& View;
 		const FSceneViewRenderOptions& Options;
@@ -468,7 +468,7 @@ namespace Durin
 	struct FEditorAssistanceGraphInputs final
 	{
 		FRDGBuilder& Graph;
-		FSceneFrameGraphServices& Services;
+		FSceneRenderGraphServices& Services;
 		const FSceneView& View;
 		const RendererEditorAssistance::FPrepared& Prepared;
 		const FPostProcessGraphOutput& PostProcess;
@@ -529,7 +529,7 @@ namespace Durin
 
 	template <typename TContributor, CRDGParameters TParameters,
 		typename TCallback>
-	[[nodiscard]] auto AddSceneFrameFeaturePass(
+	[[nodiscard]] auto AddSceneRenderFeaturePass(
 		FRDGBuilder& Graph,
 		ERDGPassType Type,
 		TRDGParametersRef<TParameters>&& Parameters,

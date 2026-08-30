@@ -1,6 +1,6 @@
-#include "Renderers/SceneFrameGraphComposer.h"
+#include "Renderers/SceneRenderGraphComposer.h"
 
-#include "Renderers/SceneFrameGraphContributors.h"
+#include "Renderers/SceneRenderGraphContributors.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
@@ -8,10 +8,10 @@
 
 namespace Durin
 {
-	auto FSceneFrameGraphComposer::Compose(
+	auto FSceneRenderGraphComposer::Compose(
 		FRDGBuilder& Graph,
-		const FSceneFrameGraphComposeInputs& Inputs,
-		FSceneFrameGraphComposition& Composition) -> void
+		const FSceneRenderGraphComposeInputs& Inputs,
+		FSceneRenderGraphComposition& Composition) -> void
 	{
 		auto& Services = Inputs.Services;
 		const auto& PreparedView = Inputs.PreparedView;
@@ -57,7 +57,7 @@ namespace Durin
 			FRHITexture* SelectedEnvironmentPrefiltered = nullptr;
 			FRHITexture* SelectedEnvironmentBrdfLut = nullptr;
 		} GraphResources;
-		constexpr FRDGBudget SceneFrameBudget{
+		constexpr FRDGBudget SceneRenderBudget{
 			.MaxPasses = 256,
 			.MaxDependencies = 4096,
 			.MaxBufferTransitions = 4096,
@@ -68,7 +68,7 @@ namespace Durin
 			.MaxCompileMicroseconds = 5000,
 			.MaxExecuteMicroseconds = 250000,
 		};
-		Graph.SetBudget(SceneFrameBudget);
+		Graph.SetBudget(SceneRenderBudget);
 		Graph.EnablePassCulling();
 		auto ImportPersistentTexture = [&](std::string_view Name,
 			FRHITexture* Texture) -> std::optional<FRDGTextureHandle> {

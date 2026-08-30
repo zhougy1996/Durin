@@ -1,30 +1,30 @@
 #pragma once
 
-#include "Renderers/SceneFrameGraphTypes.h"
+#include "Renderers/SceneRenderGraphTypes.h"
 
 namespace Durin
 {
-	class FSceneFrameFeatureRecorders;
+	class FSceneRenderFeatureRecorders;
 	struct FSceneRenderTelemetry;
 
-	struct FSceneFrameGraphServices final
+	struct FSceneRenderGraphServices final
 	{
-		FSceneFrameFeatureRecorders& Recorders;
+		FSceneRenderFeatureRecorders& Recorders;
 		FDefaultTextureResources& DefaultTextures;
 		FEnvironmentLightingResources& EnvironmentLighting;
 		FDirectionalShadowRenderer& DirectionalShadowRenderer;
-		FResolvedSceneFrame& ResolvedFrame;
+		FResolvedSceneResources& ResolvedFrame;
 		FSceneRenderTelemetry& Telemetry;
 	};
 
-	struct FSceneFrameGraphComposeInputs final
+	struct FSceneRenderGraphComposeInputs final
 	{
-		FSceneFrameGraphServices& Services;
+		FSceneRenderGraphServices& Services;
 		const FSceneRenderPlan& PreparedView;
 		const FSceneView& View;
 		FRHITexture* OutputTarget = nullptr;
 		const FSceneViewRenderOptions& Options;
-		FSceneFrameTopology& Topology;
+		FSceneRenderTopology& Topology;
 		const RendererEditorAssistance::FPrepared& EditorAssistance;
 		FContactShadowVisibilityRenderer::FRouteDecision ContactRoute;
 		FVolumetricCloudShadowRenderer::ERoute CloudShadowRoute =
@@ -45,7 +45,7 @@ namespace Durin
 		bool bNeedsGBuffer = false;
 	};
 
-	struct FSceneFrameGraphComposition final
+	struct FSceneRenderGraphComposition final
 	{
 		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>
 			DeferredParameters;
@@ -56,12 +56,12 @@ namespace Durin
 	};
 
 	// Wires feature contributions into the caller-owned parent graph.
-	class FSceneFrameGraphComposer final
+	class FSceneRenderGraphComposer final
 	{
 	public:
 		static auto Compose(
 			FRDGBuilder& Graph,
-			const FSceneFrameGraphComposeInputs& Inputs,
-			FSceneFrameGraphComposition& Composition) -> void;
+			const FSceneRenderGraphComposeInputs& Inputs,
+			FSceneRenderGraphComposition& Composition) -> void;
 	};
 } // namespace Durin

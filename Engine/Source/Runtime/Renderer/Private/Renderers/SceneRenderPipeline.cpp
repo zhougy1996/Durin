@@ -1,10 +1,10 @@
-#include "Renderers/SceneFrameExecutionPipeline.h"
-#include "Renderers/SceneFrameGraphComposer.h"
+#include "Renderers/SceneRenderPipeline.h"
+#include "Renderers/SceneRenderGraphComposer.h"
 
 #include "Renderers/SceneRendererProfiling.h"
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/SceneRenderTelemetry.h"
-#include "Renderers/SceneFrameGraphContributors.h"
+#include "Renderers/SceneRenderGraphContributors.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
 #include "RDG.h"
@@ -81,7 +81,7 @@ namespace Durin
 		}
 	} // namespace
 
-	FSceneFrameExecutionPipeline::FSceneFrameExecutionPipeline(FSceneRenderer& Renderer)
+	FSceneRenderPipeline::FSceneRenderPipeline(FSceneRenderer& Renderer)
 		: DefaultTextures(Renderer.DefaultTextures)
 		, EnvironmentLighting(Renderer.EnvironmentLighting)
 		, DirectionalShadowRenderer(Renderer.DirectionalShadowRenderer)
@@ -107,7 +107,7 @@ namespace Durin
 	{
 	}
 
-	auto FSceneFrameExecutionPipeline::Execute_RenderThread(
+	auto FSceneRenderPipeline::Execute_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FScene* Scene,
 		const FSceneView& View,
@@ -115,7 +115,7 @@ namespace Durin
 		bool bPresentOutput,
 		const FSceneViewRenderOptions& Options,
 		FSceneViewStatistics* OutStatistics,
-		const FSceneFrameGraphExecute& ExecuteGraph
+		const FSceneRenderGraphExecute& ExecuteGraph
 	) -> ERenderViewResult
 	{
 		check(IsInRenderingThread());
@@ -205,7 +205,7 @@ namespace Durin
 				);
 			}
 		}
-		FSceneFramePreparationResult Preparation = PrepareView_RenderThread(
+		FSceneRenderPreparationResult Preparation = PrepareView_RenderThread(
 			CommandList, Scene, RenderView, Options);
 		if (!Preparation.IsSuccess()) return Preparation.Result;
 		const FSceneRenderPlan PreparedView = std::move(*Preparation.Plan);
@@ -213,7 +213,7 @@ namespace Durin
 			ResolveFrameResources_RenderThread(CommandList, PreparedView);
 		if (ResolutionResult != ERenderViewResult::Success)
 			return ResolutionResult;
-		FSceneFrameTopology Requirements = BuildFrameTopology(
+		FSceneRenderTopology Requirements = BuildFrameTopology(
 			PreparedView, Options, Width, Height);
 		const RenderTargetLayouts::EViewportOutput ViewportOutput =
 			GetViewportOutput(bPresentOutput);
@@ -276,7 +276,7 @@ namespace Durin
 			!Qualification.bForceFragmentContactVisibility
 			&& RenderView.Settings.DirectionalShadow.ContactRoutePreference
 				== EContactShadowRoutePreference::Compute;
-		if (Requirements.ContactShadowVisibility != ESceneFrameRoute::Disabled
+		if (Requirements.ContactShadowVisibility != ESceneRenderRoute::Disabled
 			&& PreparedView.DirectionalShadow)
 		{
 			const auto Prepared = ContactShadowRenderer.Render_RenderThread(
@@ -291,9 +291,9 @@ namespace Durin
 				.Route = Prepared.Route, .Reason = Prepared.Reason};
 			Requirements.ContactShadowVisibility = Prepared.Route
 				== FContactShadowVisibilityRenderer::ERoute::Fragment
-				? ESceneFrameRoute::Fragment
+				? ESceneRenderRoute::Fragment
 				: (Prepared.Route == FContactShadowVisibilityRenderer::ERoute::Compute
-					? ESceneFrameRoute::Compute : ESceneFrameRoute::Disabled);
+					? ESceneRenderRoute::Compute : ESceneRenderRoute::Disabled);
 		}
 		FVolumetricCloudShadowRenderer::ERoute PreparedCloudShadowRoute =
 			FVolumetricCloudShadowRenderer::ERoute::FactorOne;
@@ -307,7 +307,7 @@ namespace Durin
 				CloudWeatherTexture = DefaultTextures.Get_RenderThread(
 					EDefaultTexture::White);
 		}
-		if (Requirements.VolumetricCloudShadow != ESceneFrameRoute::Disabled
+		if (Requirements.VolumetricCloudShadow != ESceneRenderRoute::Disabled
 			&& PreparedView.VolumetricCloud && ResolvedFrame.VolumetricCloud)
 		{
 			const auto Prepared = VolumetricCloudShadowRenderer.Render_RenderThread(
@@ -330,13 +330,13 @@ namespace Durin
 			PreparedCloudShadowRoute = Prepared.Route;
 			Requirements.VolumetricCloudShadow = Prepared.Route
 				== FVolumetricCloudShadowRenderer::ERoute::Fragment
-				? ESceneFrameRoute::Fragment
+				? ESceneRenderRoute::Fragment
 				: (Prepared.Route == FVolumetricCloudShadowRenderer::ERoute::Compute
-					? ESceneFrameRoute::Compute : ESceneFrameRoute::Disabled);
+					? ESceneRenderRoute::Compute : ESceneRenderRoute::Disabled);
 		}
 		FVolumetricCloudRenderer::ERoute PreparedCloudRoute =
 			FVolumetricCloudRenderer::ERoute::Disabled;
-		if (Requirements.VolumetricCloud != ESceneFrameRoute::Disabled
+		if (Requirements.VolumetricCloud != ESceneRenderRoute::Disabled
 			&& PreparedView.VolumetricCloud && ResolvedFrame.VolumetricCloud)
 		{
 			auto Textures = ResolvedFrame.VolumetricCloud->Textures;
@@ -364,22 +364,22 @@ namespace Durin
 			PreparedCloudRoute = Prepared.Counters.Route;
 			Requirements.VolumetricCloud = PreparedCloudRoute
 				== FVolumetricCloudRenderer::ERoute::Fragment
-				? ESceneFrameRoute::Fragment
+				? ESceneRenderRoute::Fragment
 				: (PreparedCloudRoute == FVolumetricCloudRenderer::ERoute::Compute
-					? ESceneFrameRoute::Compute : ESceneFrameRoute::Disabled);
+					? ESceneRenderRoute::Compute : ESceneRenderRoute::Disabled);
 			Requirements.bVolumetricCloudComposite = PreparedCloudRoute
 				!= FVolumetricCloudRenderer::ERoute::Disabled;
 		}
 		FRDGBuilder Graph;
-		FSceneFrameGraphComposition Composition;
-		FSceneFrameGraphServices GraphServices{
+		FSceneRenderGraphComposition Composition;
+		FSceneRenderGraphServices GraphServices{
 			.Recorders = Recorders,
 			.DefaultTextures = DefaultTextures,
 			.EnvironmentLighting = EnvironmentLighting,
 			.DirectionalShadowRenderer = DirectionalShadowRenderer,
 			.ResolvedFrame = ResolvedFrame,
 			.Telemetry = Telemetry};
-		const FSceneFrameGraphComposeInputs ComposeInputs{
+		const FSceneRenderGraphComposeInputs ComposeInputs{
 			.Services = GraphServices,
 			.PreparedView = PreparedView,
 			.View = View,
@@ -404,11 +404,11 @@ namespace Durin
 			.bHybridRetainedResourcesReady =
 				bHybridRetainedResourcesReady,
 			.bNeedsGBuffer = bNeedsGBuffer};
-		FSceneFrameGraphComposer::Compose(Graph, ComposeInputs, Composition);
-		const ESceneFrameGraphExecutionStatus GraphStatus = ExecuteGraph(Graph);
-		if (GraphStatus == ESceneFrameGraphExecutionStatus::CompileFailed)
+		FSceneRenderGraphComposer::Compose(Graph, ComposeInputs, Composition);
+		const ESceneRenderGraphExecutionStatus GraphStatus = ExecuteGraph(Graph);
+		if (GraphStatus == ESceneRenderGraphExecutionStatus::CompileFailed)
 			return ERenderViewResult::RendererResourcesUnavailable;
-		if (GraphStatus == ESceneFrameGraphExecutionStatus::ExecutionFailed)
+		if (GraphStatus == ESceneRenderGraphExecutionStatus::ExecutionFailed)
 			return ERenderViewResult::RendererResourcesUnavailable;
 		if (!Composition.SceneColorPublication.IsSuccess())
 			return Composition.SceneColorPublication.Result;

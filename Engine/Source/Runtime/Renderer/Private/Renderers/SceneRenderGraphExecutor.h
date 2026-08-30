@@ -1,22 +1,22 @@
 #pragma once
 
-#include "Renderers/SceneFrameExecutionPipeline.h"
+#include "Renderers/SceneRenderPipeline.h"
 
 namespace Durin
 {
 	// Owns the public frame-execution boundary. Scene graph authoring is delegated
 	// to the renderer-private composer.
-	class FSceneFrameGraphExecutor final
+	class FSceneRenderGraphExecutor final
 	{
 	public:
-		explicit FSceneFrameGraphExecutor(FSceneRenderer& Renderer);
+		explicit FSceneRenderGraphExecutor(FSceneRenderer& Renderer);
 
-		FSceneFrameGraphExecutor(const FSceneFrameGraphExecutor&) = delete;
-		auto operator=(const FSceneFrameGraphExecutor&)
-			-> FSceneFrameGraphExecutor& = delete;
-		FSceneFrameGraphExecutor(FSceneFrameGraphExecutor&&) = delete;
-		auto operator=(FSceneFrameGraphExecutor&&)
-			-> FSceneFrameGraphExecutor& = delete;
+		FSceneRenderGraphExecutor(const FSceneRenderGraphExecutor&) = delete;
+		auto operator=(const FSceneRenderGraphExecutor&)
+			-> FSceneRenderGraphExecutor& = delete;
+		FSceneRenderGraphExecutor(FSceneRenderGraphExecutor&&) = delete;
+		auto operator=(FSceneRenderGraphExecutor&&)
+			-> FSceneRenderGraphExecutor& = delete;
 
 		auto Execute_RenderThread(
 			FRHICommandListImmediate& CommandList,
@@ -34,9 +34,9 @@ namespace Durin
 			FRDGBuilder& Graph,
 			FRHICommandListImmediate& CommandList,
 			FRDGCapture* OutRenderGraphCapture
-		) -> ESceneFrameGraphExecutionStatus;
+		) -> ESceneRenderGraphExecutionStatus;
 
-		FSceneFrameExecutionPipeline Pipeline;
+		FSceneRenderPipeline Pipeline;
 		FRDGAllocator& Allocator;
 		bool bReportedRegressionOverage = false;
 		bool bReportedExecutionFailure = false;

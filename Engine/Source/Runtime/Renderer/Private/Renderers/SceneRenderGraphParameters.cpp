@@ -1,4 +1,4 @@
-#include "Renderers/SceneFrameGraphContributors.h"
+#include "Renderers/SceneRenderGraphContributors.h"
 
 namespace Durin
 {

@@ -316,7 +316,7 @@ physical compatibility, output, or failure outcome.
   diagnostic-only; and no production scene resource requires a semantic
   backing resolver.
 
-### Stage 4: Migrate the production scene frame
+### Stage 4: Migrate the production scene render
 
 - [x] Migrate Scene Color/depth and GBuffer first, using graph descriptions as
   the sole creation descriptions and constructing feature target views inside
@@ -417,6 +417,6 @@ physical compatibility, output, or failure outcome.
 - `Engine/Source/Runtime/RenderCore/Private/RDG.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/RendererTransientTargetPool.h`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/RendererTransientTargetPool.cpp`
-- `Engine/Source/Runtime/Renderer/Private/Renderers/SceneFrameGraphComposer.cpp`
-- `Engine/Source/Runtime/Renderer/Private/Renderers/SceneFramePreparation.cpp`
-- `Engine/Source/Runtime/Renderer/Private/Renderers/SceneFrameGraphTypes.h`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderGraphComposer.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderPreparation.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/SceneRenderGraphTypes.h`
