@@ -361,6 +361,9 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			ASSERT_TRUE(LoadMeshResult) << LoadMeshResult.Message;
 			ASSERT_NE(Mesh, nullptr);
 			ASSERT_NE(Mesh->GetSkeleton(), nullptr);
+			const Durin::FCookedMeshBlockingResult Residency =
+				Mesh->EnsureRenderDataAndResourcesBlocking();
+			ASSERT_TRUE(Residency) << Residency.Message;
 			ASSERT_NE(Mesh->GetPayloadData(), nullptr);
 			ASSERT_NE(Mesh->GetRenderData(), nullptr);
 			EXPECT_EQ(Mesh->GetRenderData()->IndexBuffer.GetIndices(),

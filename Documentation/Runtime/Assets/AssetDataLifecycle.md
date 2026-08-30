@@ -412,6 +412,10 @@ source StaticMesh request and residency.
 
 The Engine cooked-mesh manager bounds active and pending request bytes, active
 request count, retained completion bytes, and completions published per pump.
+Its diagnostics expose current and peak counts/bytes plus cumulative async-read
+readiness, worker decode/build, and GameThread completion-publication time. The
+timings are observational: correctness gates use thread ownership and bounded
+work, while performance comparison requires a quiet qualification lane.
 Package resources perform the asynchronous reads. Worker tasks receive owned
 immutable bytes plus copied material, collision, bounds, bind-transform, bone,
 and Skeleton-compatibility facts; they never resolve or mutate a `DObject`,

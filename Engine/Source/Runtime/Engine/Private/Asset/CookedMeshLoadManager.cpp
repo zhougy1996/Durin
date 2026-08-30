@@ -25,6 +25,7 @@ namespace Durin::Asset
 			FCookedMeshTerminalCallback OnTerminal;
 			FTaskCancellationSource Cancellation;
 			FTaskHandle Task;
+			std::chrono::steady_clock::time_point ReadStartedAt;
 			std::atomic<EFlightPhase> Phase{EFlightPhase::Reading};
 		};
 
@@ -71,6 +72,10 @@ namespace Durin::Asset
 				else PendingCompletionBytes += Bytes;
 			}
 			Mailbox.push_back(std::move(Completion));
+			Diagnostics.PeakPendingCompletionCount = std::max<uint32>(
+				Diagnostics.PeakPendingCompletionCount, static_cast<uint32>(Mailbox.size()));
+			Diagnostics.PeakPendingCompletionBytes = std::max(
+				Diagnostics.PeakPendingCompletionBytes, PendingCompletionBytes);
 		}
 
 		auto Find(const FCookedMeshLoadIdentity& Identity) const
@@ -113,11 +118,16 @@ namespace Durin::Asset
 			Flight->IsCurrent = std::move(Request.IsCurrent);
 			Flight->Publish = std::move(Request.Publish);
 			Flight->OnTerminal = std::move(Request.OnTerminal);
+			Flight->ReadStartedAt = std::chrono::steady_clock::now();
 			Flight->Reads.reserve(Request.Fields.size());
 			for (FBulkData& Field : Request.Fields)
 				Flight->Reads.push_back(Field.ReloadAsync());
 			InFlightEstimatedBytes += EstimatedBytes;
 			Flights.push_back(std::move(Flight));
+			Diagnostics.PeakInFlightCount = std::max<uint32>(
+				Diagnostics.PeakInFlightCount, static_cast<uint32>(Flights.size()));
+			Diagnostics.PeakInFlightEstimatedBytes = std::max(
+				Diagnostics.PeakInFlightEstimatedBytes, InFlightEstimatedBytes);
 		}
 
 		auto CanStart(uint64 EstimatedBytes) const -> bool
@@ -303,6 +313,12 @@ namespace Durin::Asset
 				State->PendingRequestEstimatedBytes += EstimatedBytes;
 				State->PendingRequests.push_back(
 					{std::move(Request), EstimatedBytes});
+				State->Diagnostics.PeakPendingRequestCount = std::max<uint32>(
+					State->Diagnostics.PeakPendingRequestCount,
+					static_cast<uint32>(State->PendingRequests.size()));
+				State->Diagnostics.PeakPendingRequestEstimatedBytes = std::max(
+					State->Diagnostics.PeakPendingRequestEstimatedBytes,
+					State->PendingRequestEstimatedBytes);
 				++State->Diagnostics.SupersededCount;
 				++State->Diagnostics.AcceptedCount;
 				return true;
@@ -337,6 +353,13 @@ namespace Durin::Asset
 				++Polled;
 				if (!std::ranges::all_of(Flight->Reads,
 					[](const FPackageResourceRequest& Read) { return Read.IsReady(); })) continue;
+				{
+					const uint64 Elapsed = static_cast<uint64>(std::chrono::duration_cast<
+						std::chrono::microseconds>(std::chrono::steady_clock::now()
+							- Flight->ReadStartedAt).count());
+					std::scoped_lock Lock(State->Mutex);
+					State->Diagnostics.ReadReadyMicroseconds += Elapsed;
+				}
 				std::vector<FSharedByteBuffer> Buffers;
 				Buffers.reserve(Flight->Reads.size());
 				std::string ReadError;
@@ -387,7 +410,15 @@ namespace Durin::Asset
 								ECookedMeshTerminalState::Cancelled});
 							return;
 						}
+						const auto WorkerBegin = std::chrono::steady_clock::now();
 						FCookedMeshWorkerResult Result = Flight->Worker(Buffers, Token);
+						const uint64 WorkerElapsed = static_cast<uint64>(
+							std::chrono::duration_cast<std::chrono::microseconds>(
+								std::chrono::steady_clock::now() - WorkerBegin).count());
+						{
+							std::scoped_lock Lock(SharedState->Mutex);
+							SharedState->Diagnostics.WorkerMicroseconds += WorkerElapsed;
+						}
 						const bool bCancelled = Token.IsCancellationRequested();
 						const ECookedMeshTerminalState Terminal = bCancelled
 							? ECookedMeshTerminalState::Cancelled
@@ -416,6 +447,7 @@ namespace Durin::Asset
 		uint32 Processed = 0;
 		while (Processed < State->Config.MaxCompletionsPerPump)
 		{
+			const auto CompletionBegin = std::chrono::steady_clock::now();
 			FCompletion Completion;
 			{
 				std::scoped_lock Lock(State->Mutex);
@@ -478,6 +510,9 @@ namespace Durin::Asset
 			}
 			{
 				std::scoped_lock Lock(State->Mutex);
+				State->Diagnostics.GameThreadCompletionMicroseconds +=
+					static_cast<uint64>(std::chrono::duration_cast<std::chrono::microseconds>(
+						std::chrono::steady_clock::now() - CompletionBegin).count());
 				State->RemoveFlight(Completion.Flight);
 				switch (Terminal)
 				{

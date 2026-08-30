@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <iostream>
 #include <semaphore>
 
 #include "Asset/CookedMeshLoadManager.h"
@@ -69,12 +70,14 @@ namespace
 		bool* bCurrent,
 		uint32* PublishCount,
 		uint64 RetainedBytes = 4,
-		uint32* TerminalCount = nullptr) -> FCookedMeshLoadRequest
+		uint32* TerminalCount = nullptr,
+		ECookedMeshFamily Family = ECookedMeshFamily::StaticMesh)
+		-> FCookedMeshLoadRequest
 	{
 		return {
 			.Identity = {
 				.Owner = MakeObjectHandle(&Owner),
-				.Family = ECookedMeshFamily::StaticMesh,
+				.Family = Family,
 				.LoadGeneration = Generation,
 				.ResourceRevision = 1,
 				.MetadataIdentity = 7},
@@ -121,6 +124,126 @@ namespace
 		}
 		return Done();
 	}
+}
+
+TEST(FCookedMeshLoadManagerTests,
+	SaturatesConfiguredCountAndByteBudgetsAcrossConcurrentLifecycleChanges)
+{
+	InitializeDObjectSystem();
+	if (!GIsGameThreadIdInitialized)
+	{
+		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
+		GIsGameThreadIdInitialized = true;
+	}
+	const bool bOwnsScheduler = !IsTaskSchedulerRunning();
+	if (bOwnsScheduler) ASSERT_TRUE(InitializeTaskScheduler(4));
+
+	// This scale-equivalent fixture makes every request one eighth of the byte
+	// budget. It exercises the production 8-way admission ratio without making
+	// a correctness test allocate the production 256 MiB ceiling.
+	FCookedMeshLoadManager Manager({
+		.MaxConcurrentRequests = 8,
+		.MaxEstimatedBytes = 32,
+		.MaxPendingRequests = 8,
+		.MaxPendingEstimatedBytes = 32,
+		.MaxPendingCompletionBytes = 32,
+		.MaxIoPollsPerPump = 16,
+		.MaxCompletionsPerPump = 4});
+	ASSERT_TRUE(Manager.Initialize());
+
+	std::array<DMaterial*, 8> Owners{};
+	std::array<std::shared_ptr<FControlledPackageResource>, 8> Resources{};
+	bool bCurrent = true;
+	uint32 PublishCount = 0;
+	uint32 TerminalCount = 0;
+	for (uint32 Index = 0; Index < Owners.size(); ++Index)
+	{
+		Owners[Index] = NewObject<DMaterial>(nullptr,
+			"CookedMeshConcurrentOwner" + std::to_string(Index));
+		AddToRoot(Owners[Index]);
+		Resources[Index] = std::make_shared<FControlledPackageResource>();
+		ASSERT_TRUE(Manager.Submit(MakeRequest(*Owners[Index], 1,
+			MakeBulkData(Resources[Index]), &bCurrent, &PublishCount, 4,
+			&TerminalCount, Index % 2 == 0 ? ECookedMeshFamily::StaticMesh
+				: ECookedMeshFamily::SkeletalMesh)));
+	}
+
+	const FCookedMeshLoadDiagnostics Saturated = Manager.GetDiagnostics();
+	EXPECT_EQ(Saturated.InFlightCount, 8u);
+	EXPECT_EQ(Saturated.InFlightEstimatedBytes, 32u);
+	ASSERT_TRUE(PumpUntil(Manager, [&] {
+		return std::ranges::all_of(Resources,
+			[](const auto& Resource) { return Resource->HasStarted(); });
+	}));
+
+	// Exercise reassignment/supersession, unload cancellation, package-resource
+	// retirement, and object destruction while both mesh families occupy the
+	// full configured admission budget.
+	auto SuccessorResource = std::make_shared<FControlledPackageResource>();
+	ASSERT_TRUE(Manager.Submit(MakeRequest(*Owners[0], 2,
+		MakeBulkData(SuccessorResource), &bCurrent, &PublishCount, 4,
+		&TerminalCount, ECookedMeshFamily::StaticMesh)));
+	EXPECT_TRUE(Manager.Cancel(MakeObjectHandle(Owners[1])));
+	std::thread RetireThread([Resource = Resources[2]] { Resource->Retire(); });
+	RemoveFromRoot(Owners[3]);
+	MarkObjectHierarchyAsGarbage(Owners[3]);
+	CollectGarbage();
+	EXPECT_EQ(Manager.GetDiagnostics().PendingRequestCount, 1u);
+	EXPECT_EQ(Manager.GetDiagnostics().PendingRequestEstimatedBytes, 4u);
+
+	for (const auto& Resource : Resources) Resource->Release();
+	RetireThread.join();
+	ASSERT_TRUE(PumpUntil(Manager, [&] { return SuccessorResource->HasStarted(); }));
+	SuccessorResource->Release();
+
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+	while (std::chrono::steady_clock::now() < Deadline)
+	{
+		EXPECT_LE(Manager.Pump(), 4u);
+		const FCookedMeshLoadDiagnostics Current = Manager.GetDiagnostics();
+		if (Current.InFlightCount == 0 && Current.PendingRequestCount == 0) break;
+		std::this_thread::yield();
+	}
+
+	Manager.Shutdown();
+	const FCookedMeshLoadDiagnostics Final = Manager.GetDiagnostics();
+	EXPECT_EQ(Final.State, ECookedMeshManagerState::Stopped);
+	EXPECT_EQ(Final.InFlightCount, 0u);
+	EXPECT_EQ(Final.PendingRequestCount, 0u);
+	EXPECT_EQ(Final.PendingCompletionCount, 0u);
+	EXPECT_EQ(Final.InFlightEstimatedBytes, 0u);
+	EXPECT_EQ(Final.PendingRequestEstimatedBytes, 0u);
+	EXPECT_EQ(Final.PendingCompletionBytes, 0u);
+	EXPECT_EQ(Final.PeakInFlightCount, 8u);
+	EXPECT_EQ(Final.PeakInFlightEstimatedBytes, 32u);
+	EXPECT_EQ(Final.PeakPendingRequestCount, 1u);
+	EXPECT_EQ(Final.PeakPendingRequestEstimatedBytes, 4u);
+	EXPECT_LE(Final.PeakPendingCompletionCount, 8u);
+	EXPECT_LE(Final.PeakPendingCompletionBytes, 32u);
+	EXPECT_EQ(Final.AcceptedCount, 9u);
+	EXPECT_EQ(Final.SupersededCount, 1u);
+	EXPECT_EQ(Final.SucceededCount + Final.FailedCount + Final.CancelledCount
+		+ Final.StaleCount, Final.AcceptedCount);
+	EXPECT_EQ(PublishCount, Final.SucceededCount);
+	EXPECT_GE(TerminalCount, 3u);
+	std::cout << "cooked_mesh_qualification"
+		<< " read_ready_us=" << Final.ReadReadyMicroseconds
+		<< " worker_us=" << Final.WorkerMicroseconds
+		<< " game_thread_completion_us="
+		<< Final.GameThreadCompletionMicroseconds
+		<< " peak_in_flight_count=" << Final.PeakInFlightCount
+		<< " peak_in_flight_bytes=" << Final.PeakInFlightEstimatedBytes
+		<< " peak_completion_bytes=" << Final.PeakPendingCompletionBytes
+		<< '\n';
+
+	for (uint32 Index = 0; Index < Owners.size(); ++Index)
+	{
+		if (Index == 3) continue;
+		RemoveFromRoot(Owners[Index]);
+		MarkObjectHierarchyAsGarbage(Owners[Index]);
+	}
+	CollectGarbage();
+	if (bOwnsScheduler) ShutdownTaskScheduler(true);
 }
 
 TEST(FCookedMeshLoadManagerTests,

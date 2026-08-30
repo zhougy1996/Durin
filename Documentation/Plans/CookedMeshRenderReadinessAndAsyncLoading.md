@@ -4,101 +4,51 @@ Summary: Guarantee first-consumer render-resource initialization for cooked mesh
 
 Last reviewed: 2026-08-30
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-30
 
 ## Current Status
 
-The first cooked `DStaticMesh` SceneProxy request can synchronously materialize
-CPU render data only after `InitResources()` has already returned for a null
-`RenderData`. The first publication leaves the resource state
-`Uninitialized`, so the proxy retains valid CPU data while every LOD remains
-permanently unavailable to the renderer unless another unrelated path calls
-`InitResources()` later. The existing cooked package test calls
-`GetRenderData()` before any component consumes the asset and therefore does
-not exercise this ordering.
+All stages are complete. Cold cooked StaticMesh, SplineMesh, and SkeletalMesh
+consumers now start or join bounded asynchronous residency without a warm-up
+getter. CPU publication is generation-qualified and GameThread-only; GPU
+initialization remains render-thread work, and a queued-resource proxy
+converges without a second component mutation. Explicit blocking and retry
+operations share the same detached codecs and publication rules.
 
-`DSplineMeshComponent` and `DSkeletalMeshComponent` use the same load-before-
-initialize ordering incorrectly. SplineMesh also rejects a proxy while an
-asynchronous GPU initialization is merely queued, which can strand the
-component without a later render-state rebuild.
+Historical Stage 0 regressions were captured before the implementation and are
+preserved by the first-consumer package and Vulkan tests. The prior 4 MiB cold
+BulkData baseline recorded 9.95 ms metadata load and 19.77 ms first access;
+these machine-local numbers motivated removing the whole interval from ordinary
+component registration rather than freezing a wall-clock threshold. The final
+manager exposes cumulative read-ready, worker decode/build (including cooked
+collision), and GameThread completion time plus current/peak retained bytes.
+The selected production limits are eight active and eight pending requests,
+256 MiB for each active/pending/completion byte domain, sixteen I/O polls, and
+four GameThread completions per pump. Deterministic qualification saturates the
+same 8-way count/byte ratio at a scaled allocation, proves the four-completion
+bound, and retains the one-valid-oversized-request policy without allocating a
+256 MiB test payload. One diagnostic run recorded 72,863 us controlled read
+readiness, 13 us worker work, and 36 us GameThread completion work; the read
+number deliberately includes test barriers and is not a performance threshold.
 
-The public CPU/GPU phase vocabulary, explicit blocking result, snapshot request,
-and generation-qualified retry contract are now present. StaticMesh,
-SplineMesh, and SkeletalMesh component consumption now starts or joins the
-shared bounded request without waiting; getters no longer materialize cooked
-RenderData, and static/spline proxies may survive queued GPU initialization.
+Concurrent qualification combines StaticMesh and SkeletalMesh requests at the
+configured boundary while superseding a generation, cancelling an unloaded
+owner, retiring a package resource, destroying an object, publishing surviving
+results, and shutting down. Final diagnostics prove zero live flights, pending
+requests, mailbox results, and retained bytes. The skeletal bounded-domain run
+also exposed and repaired the last integration caller that expected
+`GetPayloadData()` to load implicitly; it now opts into the explicit blocking
+boundary.
 
-Cold cooked StaticMesh and SkeletalMesh package tests now begin with null
-RenderData and reach a valid proxy through their first component consumer. The
-focused StaticMesh, SplineMesh, SkeletalMesh, and existing Vulkan resource
-targets pass. The cooked StaticMesh Vulkan fixture now holds the render thread
-behind a deterministic gate, records CPU-ready/GPU-queued state, creates and
-submits the component's proxy in that state, then proves the same one-time
-component binding reaches GPU-ready renderer preparation after the gate is
-released. Stage 0 measurements remain open.
-
-Stage 2 now has shared detached StaticMesh render/collision and SkeletalMesh
-payload/render products. The blocking baseline calls those same worker-safe
-codecs. An Engine-owned manager provides bounded asynchronous package reads,
-Core-task decoding, weak-handle and generation-qualified GameThread
-publication, selected finish/cancel, package-retirement handling, a byte-
-bounded completion mailbox, and shutdown before task-system retirement.
-Deterministic tests cover admission, coalescing, I/O cancellation, package
-retirement, destroyed and stale owners, completion-byte rejection, exactly-once
-terminal accounting, bounded newer-generation supersession, older-generation
-rejection, and shutdown without publication. The detached codec tests cover
-valid equivalence and truncated, incompatible, oversized, metadata-mismatched,
-and compression-flag failure classifications while the blocking baseline uses
-the same implementation. Stage 0-derived production budgets and the remaining
-Stage 3-5 qualification work remain open.
-
-Stage 3 StaticMesh/SplineMesh assignment, registration, and SceneProxy fallback
-now start or join the bounded request without waiting. Resident/inline bulk is
-shared into an already-complete read without a GameThread payload copy, while
-attached bulk retains the asynchronous package-resource path. A current worker
-product publishes RenderData and collision on GameThread, queues resources, and
-recreates registered StaticMesh/SplineMesh render and physics state through the
-existing context. Current I/O, decode, mailbox, and publication failures now
-reach the asset as a sticky terminal diagnostic; explicit blocking joins an
-admitted request before using the shared synchronous fallback. The real cooked
-package regression records `Unloaded -> IoQueued -> CpuReady`, observes a null
-proxy before completion, and creates StaticMesh and SplineMesh proxies after
-the frame pump. `StaticMeshRenderPreparationVulkanTests` extends that evidence
-through `CpuReady/GpuQueued -> GpuReady` with a proxy created before the render
-thread drains and no second component mutation. Cancellation/retry integration
-now shuts the manager down with the real cooked asset still queued, observes a
-sticky cancelled diagnostic, rebuilds the manager, and joins the next asset
-generation through the explicit blocking retry before recreating its proxy.
-Manager tests retain the package-retirement, destroyed-owner, stale-owner, and
-shutdown drain evidence. Remaining Stage 4 edge cases and measurement-derived
-budgets remain open.
-
-Stage 4 now gives cooked SkeletalMesh the same bounded request, finish, retry,
-terminal-diagnostic, and shutdown semantics. The worker receives copied bones,
-bind transform, material slots, summary, and compatibility-derived identity,
-never a live Skeleton or component. `GetPayloadData()` is side-effect-free;
-component assignment, registration, and SceneProxy fallback only start or join
-work. Current publication installs payload and RenderData on GameThread, queues
-resources, and recreates registered skeletal state while first rebinding the
-current mesh/clip pair so an obsolete pose cannot escape. The real cooked
-package regression covers a registered component receiving its clip before CPU
-readiness, a null initial proxy, detachment while the request is in flight,
-manager shutdown cancellation with a sticky diagnostic, explicit retry after
-manager reinitialization, safe rebinding and pose arrival after CPU readiness,
-and package unload after recovery. Prospective component tests reject Skeleton
-mismatches without disturbing the current pose, while
-`SkeletalMeshRenderResourcesVulkanTests` rejects malformed resource candidates,
-then retries and releases valid resources exactly. This completes the Stage 4
-edge-case matrix without giving the worker access to live managed state.
-
-Stage 5 lasting contracts now live in `AssetDataLifecycle.md` and
-`RenderResourceLifecycle.md`. They define side-effect-free mesh getters,
-separate CPU/GPU phases, bounded request and completion ownership, worker and
-GameThread publication boundaries, explicit blocking/retry behavior,
-queued-resource proxy acceptance, renderer rejection/fallback, deferred
-RenderData cleanup, and shutdown/reinitialization ordering. Measurement and
-stress qualification remain open.
+Final focused validation passed `CookedMeshLoadingTests` (2/2),
+`StaticMeshTests` (75/75), `SplineTests` (40/40), `SkeletalAssetTests` (36/36),
+`StaticMeshRenderPreparationVulkanTests` (2/2),
+`SkeletalMeshRenderResourcesVulkanTests` (1/1), and
+`CoreConcurrencyTests` (142/142). Bounded `asset-workflow`, `static-mesh`, and
+`skeletal-mesh` domain selections pass. Lasting contracts live in
+`AssetDataLifecycle.md` and `RenderResourceLifecycle.md`; this plan is execution
+evidence only.
 
 ## Goal
 
@@ -241,19 +191,19 @@ GameThread.
 
 ### Stage 0: Lock correctness contract and reproduce the first-consumer failure
 
-- [ ] Add a cooked StaticMesh fixture whose loaded asset still has no resident
+- [x] Add a cooked StaticMesh fixture whose loaded asset still has no resident
   CPU RenderData and whose first data consumer is
   `DStaticMeshComponent::CreateSceneProxy()`; do not warm it through
   `GetRenderData()`.
-- [ ] Prove the current failure by recording the initial unavailable state, the
+- [x] Prove the current failure by recording the initial unavailable state, the
   created proxy with unready LOD0, and the failure to reach GPU-ready after the
   render queue drains.
-- [ ] Add equivalent first-consumer characterization for SplineMesh and
+- [x] Add equivalent first-consumer characterization for SplineMesh and
   SkeletalMesh, including SplineMesh's queued-resource proxy rejection.
 - [x] Freeze the blocking API result, non-blocking request/status snapshot,
   CPU/GPU phase vocabulary, retry semantics, and generation rules in public
   headers or contract tests before implementation callers spread.
-- [ ] Measure cold read, decode/build, collision, and GameThread publication
+- [x] Measure cold read, decode/build, collision, and GameThread publication
   time plus payload/candidate/result bytes for representative and maximum-
   bounded fixtures; select initial request-count, byte-budget, and per-frame
   completion limits from that evidence.
@@ -280,7 +230,7 @@ are not a dependency.
   initialization completes.
 - [x] Make decode and GPU initialization failures observable and sticky rather
   than silently returning a null pointer and retrying through future getters.
-- [ ] Update cooked tests so no test relies on a warm-up getter, and prove each
+- [x] Update cooked tests so no test relies on a warm-up getter, and prove each
   first consumer reaches `Ready` after render commands drain.
 - [x] Audit direct StaticMesh/SkeletalMesh `InitResources()` callers and either
   migrate them or make the operation itself enforce its CPU-data prerequisite.
@@ -378,19 +328,19 @@ Dependencies: Stage 3 and its manager/lifecycle evidence.
 
 Dependencies: Stages 3 and 4.
 
-- [ ] Compare Stage 0 cold-load measurements against the non-blocking path and
+- [x] Compare Stage 0 cold-load measurements against the non-blocking path and
   show that ordinary component registration contains no I/O/decode-scale
   GameThread interval; report bounded publication cost separately.
-- [ ] Stress concurrent StaticMesh/SkeletalMesh loads at the selected request
+- [x] Stress concurrent StaticMesh/SkeletalMesh loads at the selected request
   and byte budgets while reassigning components, unloading packages, retiring
   resources, destroying objects, and shutting down Engine services.
-- [ ] Validate renderer fallback/rejection, resource failure, retry, device
+- [x] Validate renderer fallback/rejection, resource failure, retry, device
   lifecycle, collision publication, and component recreation across every
   CPU/GPU phase.
 - [x] Move the implemented residency, thread, status, failure, and shutdown
   contract into the authoritative asset/rendering documentation and leave this
   plan as execution evidence rather than a competing specification.
-- [ ] Run focused feature and Vulkan integration targets first, then the
+- [x] Run focused feature and Vulkan integration targets first, then the
   bounded domain selections justified by shared Engine/task/package lifecycle
   changes. Run broader validation only if the implementation crosses shared
   infrastructure or focused evidence is insufficient.

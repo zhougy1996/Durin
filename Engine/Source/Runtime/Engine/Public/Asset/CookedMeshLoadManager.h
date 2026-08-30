@@ -111,6 +111,15 @@ namespace Durin
 			uint64 InFlightEstimatedBytes = 0;
 			uint64 PendingRequestEstimatedBytes = 0;
 			uint64 PendingCompletionBytes = 0;
+			uint32 PeakInFlightCount = 0;
+			uint32 PeakPendingRequestCount = 0;
+			uint32 PeakPendingCompletionCount = 0;
+			uint64 PeakInFlightEstimatedBytes = 0;
+			uint64 PeakPendingRequestEstimatedBytes = 0;
+			uint64 PeakPendingCompletionBytes = 0;
+			uint64 ReadReadyMicroseconds = 0;
+			uint64 WorkerMicroseconds = 0;
+			uint64 GameThreadCompletionMicroseconds = 0;
 			uint64 AcceptedCount = 0;
 			uint64 CoalescedCount = 0;
 			uint64 SupersededCount = 0;
