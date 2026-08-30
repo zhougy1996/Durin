@@ -94,4 +94,15 @@ namespace Durin::Asset::PackageObjectStream
 		FAssetCompatibilityProbeStats* OutStats = nullptr,
 		const FReaderLimits& Limits = {},
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> FAssetResult;
+
+	// Compatibility evaluator for package codecs that already decoded the
+	// canonical logical tables and value descriptors from non-contiguous ranges.
+	auto ProbeDecodedCompatibility(
+		FDecodedPackage Package,
+		uint64 PhysicalPackageBytes,
+		bool bPayloadValuesDecoded,
+		const FAssetPath& PackagePath,
+		const FReflectionCompatibilityCatalog& Catalog,
+		FAssetPackageCompatibilityRecord& OutRecord,
+		FReaderDiagnostic* OutDiagnostic = nullptr) -> FAssetResult;
 }

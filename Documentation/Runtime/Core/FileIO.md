@@ -9,6 +9,27 @@ Last reviewed: 2026-08-30
 This document defines the repository-owned runtime contract for physical file
 paths and atomic byte publication.
 
+## Synchronous Random Reads
+
+`FFileHelper::OpenRead()` returns one uniquely owned `IFileHandle` for a
+physical path. The handle captures its size from the opened native resource and
+closes that resource on destruction. `ReadAt()` is an exact synchronous read:
+it fills the complete destination span or fails, rejects overflow and ranges
+past the captured size before issuing I/O, and accepts an empty range at any
+offset through `GetSize()`. Calls expose no mutable stream cursor. The initial
+contract requires callers to serialize access to one handle; consumers that
+need concurrent reads open independent handles.
+
+`FFileIoError` reports open, size-query, and read failures separately from
+`FAtomicFileError`, including the normalized path and requested extent. The
+handle is a low-level byte capability, not an asynchronous request, immutable
+snapshot guarantee, package resource, or cancellation owner. Higher layers
+bound individual reads, check their own cancellation token, and compare
+before/after file metadata when stable snapshot semantics are required.
+
+Complete-buffer loads and incremental XXH128 hashing use this handle while
+retaining their existing result and bounded-memory contracts.
+
 ## Physical Path Contract
 
 Runtime file APIs use `std::filesystem::path`. On Windows, operations that may

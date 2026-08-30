@@ -1,6 +1,7 @@
 #include "Asset/Compatibility.h"
 #include "Asset/PackageObjectStreamReader.h"
 #include "AssetPackageCodec.h"
+#include "AssetPackageByteSource.h"
 #include "Asset/PackageVersionPolicy.h"
 
 #include "DObject/Class.h"
@@ -14,7 +15,6 @@ namespace Durin::Asset
 {
 	namespace
 	{
-		constexpr uint64 MaximumPackageStringBytes = 1024 * 1024;
 		constexpr size_t FingerprintBufferSize = 64 * 1024;
 
 		class FSha256
@@ -206,60 +206,6 @@ namespace Durin::Asset
 				return std::format("{}:v1", static_cast<uint32>(Kind));
 			return std::format("{}:{}", static_cast<uint32>(Kind), Property->GetElementSize());
 		}
-
-		struct FStreamingReader
-		{
-			std::ifstream Stream;
-			uint64 FileSize = 0;
-			uint64 Offset = 0;
-			uint64 MetadataBytesRead = 0;
-
-			explicit FStreamingReader(std::string_view Path) : Stream(std::string(Path), std::ios::binary)
-			{
-				if (!Stream) return;
-				Stream.seekg(0, std::ios::end);
-				const std::streamoff Size = Stream.tellg();
-				if (Size < 0) { Stream.setstate(std::ios::failbit); return; }
-				FileSize = static_cast<uint64>(Size);
-				Stream.seekg(0, std::ios::beg);
-			}
-
-			auto IsOpen() const -> bool { return Stream.is_open() && !Stream.fail(); }
-
-			template<typename T> auto Read(T& Value) -> bool
-			{
-				if (sizeof(T) > FileSize - std::min(Offset, FileSize)) return false;
-				Stream.read(reinterpret_cast<char*>(&Value), sizeof(T));
-				if (!Stream) return false;
-				Offset += sizeof(T);
-				MetadataBytesRead += sizeof(T);
-				return true;
-			}
-
-			auto ReadString(std::string& Value) -> bool
-			{
-				uint64 Size = 0;
-				if (!Read(Size) || Size > MaximumPackageStringBytes || Size > FileSize - std::min(Offset, FileSize)) return false;
-				Value.resize(static_cast<size_t>(Size));
-				if (Size != 0)
-				{
-					Stream.read(Value.data(), static_cast<std::streamsize>(Size));
-					if (!Stream) return false;
-				}
-				Offset += Size;
-				MetadataBytesRead += Size;
-				return true;
-			}
-
-			auto Skip(uint64 Size) -> bool
-			{
-				if (Size > FileSize - std::min(Offset, FileSize)) return false;
-				Stream.seekg(static_cast<std::streamoff>(Size), std::ios::cur);
-				if (!Stream) return false;
-				Offset += Size;
-				return true;
-			}
-		};
 
 		auto JsonEscape(std::string_view Value) -> std::string
 		{
@@ -613,6 +559,10 @@ namespace Durin::Asset
 	{
 		FAssetPackageCompatibilityProbeResult Result;
 		auto IsCancelled = [&]() { return IsCancellationRequested && IsCancellationRequested(); };
+		auto IsIoFailure = [](const FAssetResult& Failure) {
+			return Failure.Error == EAssetError::IoError || Failure.Error == EAssetError::NotFound
+				|| Failure.Message.starts_with("File I/O failed");
+		};
 		if (IsCancelled()) { Result.Status = EAssetCompatibilityProbeStatus::Cancelled; return Result; }
 
 		FAssetPackageCompatibilityRecord Record{
@@ -620,15 +570,16 @@ namespace Durin::Asset
 			.PhysicalPath = Input.PhysicalPath,
 			.Inspection = EAssetCompatibilityInspection::Ready,
 			.Compatibility = EAssetPackageCompatibility::Compatible};
-		FStreamingReader Reader(Input.PhysicalPath);
-		if (!Reader.IsOpen())
+		FFileHelper::FFileIoError OpenError;
+		auto Handle = FFileHelper::OpenRead(Input.PhysicalPath, &OpenError);
+		if (!Handle)
 		{
 			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::IoFailure,
-				std::format("Failed to open asset package {}.", Input.PhysicalPath));
+				OpenError.ToString());
 			Result.Record = std::move(Record);
 			return Result;
 		}
-		Record.Fingerprint.FileSize = Reader.FileSize;
+		Record.Fingerprint.FileSize = Handle->GetSize();
 		std::error_code TimeError;
 		const auto InitialTime = std::filesystem::last_write_time(Input.PhysicalPath, TimeError);
 		if (TimeError)
@@ -643,35 +594,41 @@ namespace Durin::Asset
 		bool bUsedCodec = false;
 		Record.ReportContentHash = Input.ExpectedReportContentHash;
 
-		std::vector<std::byte> Bytes;
-		if (!FFileHelper::LoadFileToArray(Bytes, Input.PhysicalPath))
-			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::IoFailure,
-				std::format("Failed to open asset package {}.", Input.PhysicalPath));
-		else
+		Private::FFileAssetPackageByteSource FileSource(std::move(Handle));
+		Private::FCountingAssetPackageByteSource Source(FileSource, Result.Stats);
 		{
 			const Private::FAssetPackageCodec* Codec = nullptr;
 			uint32 FormatVersion = 0;
-			const FAssetResult ResolveResult =
-				Private::ResolveAssetPackageReader(Bytes, Codec, &FormatVersion);
+			const FAssetResult ResolveResult = Private::ResolveAssetPackageReader(
+				Source, Codec, &FormatVersion, IsCancelled);
+			if (IsCancelled())
+		{
+			Result.Status = EAssetCompatibilityProbeStatus::Cancelled;
+			return Result;
+		}
 			if (!ResolveResult)
 				AddTerminalFailure(Record,
 					ResolveResult.Error == EAssetError::UnsupportedVersion
 						? EAssetCompatibilityFindingCode::UnsupportedPackageFormat
+						: IsIoFailure(ResolveResult) ? EAssetCompatibilityFindingCode::IoFailure
 						: EAssetCompatibilityFindingCode::CorruptPackage,
 					ResolveResult.Message);
-			else if (IsCancelled())
-			{
-				Result.Status = EAssetCompatibilityProbeStatus::Cancelled;
-				return Result;
-			}
 			else
 			{
 				bUsedCodec = true;
 				FAssetPackageCompatibilityRecord CodecRecord;
 				FAssetResult ProbeResult = Codec->ProbeCompatibility(
-					Bytes, Input.PackagePath, Catalog, CodecRecord, &Result.Stats);
+					Source, Input.PackagePath, Catalog, CodecRecord, &Result.Stats,
+					IsCancelled);
+				if (IsCancelled())
+				{
+					Result.Status = EAssetCompatibilityProbeStatus::Cancelled;
+					return Result;
+				}
 				if (!ProbeResult)
-					AddTerminalFailure(Record, EAssetCompatibilityFindingCode::CorruptPackage,
+					AddTerminalFailure(Record, IsIoFailure(ProbeResult)
+						? EAssetCompatibilityFindingCode::IoFailure
+						: EAssetCompatibilityFindingCode::CorruptPackage,
 						ProbeResult.Message);
 				else
 				{
@@ -687,7 +644,6 @@ namespace Durin::Asset
 		}
 		if (!bUsedCodec)
 		{
-			Result.Stats.MetadataBytesRead = Reader.MetadataBytesRead;
 			Result.Stats.PeakMetadataBytes = EstimateMetadataBytes(Record);
 		}
 		std::error_code FinalError;

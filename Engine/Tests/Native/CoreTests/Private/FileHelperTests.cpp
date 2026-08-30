@@ -95,6 +95,67 @@ TEST(FFileHelperTests, HashesFilesIncrementallyAcrossBufferBoundaries)
 	EXPECT_TRUE(Error);
 }
 
+TEST(FFileHelperTests, RandomReadHandleSupportsExactOutOfOrderRanges)
+{
+	const std::filesystem::path FilePath = TestRoot("RandomRead") / "Value.bin";
+	std::vector<std::byte> Bytes(257);
+	for (size_t Index = 0; Index < Bytes.size(); ++Index)
+		Bytes[Index] = static_cast<std::byte>((Index * 29) & 0xff);
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Bytes, FilePath));
+
+	Durin::FFileHelper::FFileIoError Error;
+	auto Handle = Durin::FFileHelper::OpenRead(FilePath, &Error);
+	ASSERT_NE(Handle, nullptr) << Error.ToString();
+	EXPECT_EQ(Handle->GetSize(), Bytes.size());
+	std::array<std::byte, 13> Tail{};
+	ASSERT_TRUE(Handle->ReadAt(201, Tail, &Error)) << Error.ToString();
+	EXPECT_TRUE(std::ranges::equal(Tail, std::span(Bytes).subspan(201, Tail.size())));
+	std::array<std::byte, 17> Head{};
+	ASSERT_TRUE(Handle->ReadAt(3, Head, &Error)) << Error.ToString();
+	EXPECT_TRUE(std::ranges::equal(Head, std::span(Bytes).subspan(3, Head.size())));
+	EXPECT_TRUE(Handle->ReadAt(Handle->GetSize(), {}, &Error));
+	EXPECT_FALSE(Error.NativeError);
+}
+
+TEST(FFileHelperTests, RandomReadHandleRejectsInvalidRangesDeterministically)
+{
+	const std::filesystem::path FilePath = TestRoot("RandomReadBounds") / "Value.bin";
+	const std::array Bytes{std::byte{0x11}, std::byte{0x22}};
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Bytes, FilePath));
+	auto Handle = Durin::FFileHelper::OpenRead(FilePath);
+	ASSERT_NE(Handle, nullptr);
+	std::array<std::byte, 1> Output{};
+	Durin::FFileHelper::FFileIoError Error;
+	EXPECT_FALSE(Handle->ReadAt(3, Output, &Error));
+	EXPECT_EQ(Error.Operation, Durin::FFileHelper::EFileIoOperation::Read);
+	EXPECT_EQ(Error.Offset, 3);
+	EXPECT_EQ(Error.Size, 1);
+	EXPECT_EQ(Error.NativeError, std::make_error_code(std::errc::result_out_of_range));
+	EXPECT_FALSE(Handle->ReadAt(std::numeric_limits<uint64>::max(), Output, &Error));
+
+	Error = {};
+	EXPECT_EQ(Durin::FFileHelper::OpenRead(FilePath.parent_path() / "Missing.bin", &Error), nullptr);
+	EXPECT_EQ(Error.Operation, Durin::FFileHelper::EFileIoOperation::OpenRead);
+	EXPECT_TRUE(Error.NativeError);
+}
+
+TEST(FFileHelperTests, RandomReadHandleSupportsSparseFilesBeyondFourGiB)
+{
+	const std::filesystem::path FilePath = TestRoot("SparseRandomRead") / "Value.bin";
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::span<const std::byte>{}, FilePath));
+	constexpr uint64 SparseSize = (uint64{4} << 30) + 37;
+	std::error_code Error;
+	std::filesystem::resize_file(FilePath, SparseSize, Error);
+	if (Error) GTEST_SKIP() << "Sparse/large fixture is unavailable: " << Error.message();
+	auto Handle = Durin::FFileHelper::OpenRead(FilePath);
+	ASSERT_NE(Handle, nullptr);
+	EXPECT_EQ(Handle->GetSize(), SparseSize);
+	std::array<std::byte, 16> Tail;
+	Tail.fill(std::byte{0xff});
+	ASSERT_TRUE(Handle->ReadAt(SparseSize - Tail.size(), Tail));
+	EXPECT_TRUE(std::ranges::all_of(Tail, [](std::byte Value) { return Value == std::byte{0}; }));
+}
+
 TEST(FFileHelperTests, EmptyFilesClearSuccessfulLoadResults)
 {
 	const std::filesystem::path FilePath = TestRoot("EmptyRead") / "Empty.bin";

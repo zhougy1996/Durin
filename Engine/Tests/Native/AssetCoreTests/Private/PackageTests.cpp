@@ -7,6 +7,7 @@
 #include "Asset/CanonicalResave.h"
 #include "Asset/Compatibility.h"
 #include "Asset/AssetPackageV7Codec.h"
+#include "Asset/AssetPackageByteSource.h"
 #include "Asset/AssetPropertyKindTraits.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/PackageObjectStreamReader.h"
@@ -2234,8 +2235,9 @@ TEST(FPackageAssetTests, V7CodecMatchesLiveWriteInspectReferenceMutationAndLoadS
 	EXPECT_EQ(std::ranges::count(References, TargetPath, &FAssetReferenceEdge::TargetPath), 1);
 	const FReflectionCompatibilityCatalog Catalog = FReflectionCompatibilityCatalog::Capture();
 	FAssetPackageCompatibilityRecord Compatibility;
+	FMemoryAssetPackageByteSource CompatibilitySource(V6);
 	ASSERT_TRUE(Codec.ProbeCompatibility(
-		V6, SourcePath, Catalog, Compatibility, nullptr));
+		CompatibilitySource, SourcePath, Catalog, Compatibility, nullptr, {}));
 	EXPECT_EQ(Compatibility.FormatVersion, AssetPackageV7FormatVersion);
 
 	std::vector<std::byte> DirectWrite;

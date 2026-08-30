@@ -2,6 +2,7 @@
 
 #include "Asset/PackageObjectStreamReader.h"
 #include "Asset/AssetPackageV7Codec.h"
+#include "Asset/AssetPackageByteSource.h"
 #include "Asset/Testing.h"
 #include "Asset/AssetOperations.h"
 #include "Asset/Mutation.h"
@@ -143,6 +144,54 @@ namespace
 		EXPECT_TRUE(Production::WritePackage(Input, Bytes, &Diagnostic)) << Diagnostic.Message;
 		return Bytes;
 	}
+
+	auto BuildLargePayloadPackage() -> std::vector<std::byte>
+	{
+		auto Blob = Production::MakeType(Production::ETypeOpcode::Bytes);
+		Production::FValue Value;
+		Value.Bytes.resize(4 * 1024 * 1024, std::byte{0x5a});
+		Production::FPackageInput Input{
+			.AssetClass = "Example::LargeAsset",
+			.Types = {Blob},
+			.Schemas = {{"Example::LargeAsset", {{"Payload", Blob, 0}}}},
+			.Objects = {{"Root", {}, "Example::LargeAsset", "Root"}},
+			.ObjectValues = {{"Root", {{.SchemaName = "Example::LargeAsset",
+				.FieldName = "Payload", .Value = std::move(Value)}}}},
+		};
+		std::vector<std::byte> Bytes;
+		Production::FWriterDiagnostic Diagnostic;
+		EXPECT_TRUE(Production::WritePackage(Input, Bytes, &Diagnostic)) << Diagnostic.Message;
+		return Bytes;
+	}
+
+	class FRejectingRangeSource final : public Durin::Asset::Private::IAssetPackageByteSource
+	{
+	public:
+		FRejectingRangeSource(std::span<const std::byte> InBytes, uint64 InForbiddenOffset,
+			uint64 InForbiddenSize)
+			: Bytes(InBytes), ForbiddenOffset(InForbiddenOffset),
+			  ForbiddenEnd(InForbiddenOffset + InForbiddenSize) {}
+		auto GetSize() const -> uint64 override { return Bytes.size(); }
+		auto ReadAt(uint64 Offset, std::span<std::byte> Output,
+			std::string* OutError) -> bool override
+		{
+			const uint64 End = Offset + Output.size_bytes();
+			if (!Output.empty() && Offset < ForbiddenEnd && End > ForbiddenOffset)
+			{
+				bReadForbiddenRange = true;
+				if (OutError) *OutError = "Compatibility probe read a payload range.";
+				return false;
+			}
+			if (Offset > Bytes.size() || Output.size_bytes() > Bytes.size() - Offset) return false;
+			std::ranges::copy(Bytes.subspan(static_cast<size_t>(Offset), Output.size()), Output.begin());
+			return true;
+		}
+		bool bReadForbiddenRange = false;
+	private:
+		std::span<const std::byte> Bytes;
+		uint64 ForbiddenOffset = 0;
+		uint64 ForbiddenEnd = 0;
+	};
 }
 
 TEST(FPackageObjectStreamReaderTests, HeaderOnlyValidatesSummaryAndDirectoryWithoutPublishingOnFailure)
@@ -280,6 +329,52 @@ TEST(FPackageObjectStreamReaderTests, ConstructFreeCompatibilityReportsUnavailab
 	EXPECT_GT(Stats.MetadataBytesRead, 0);
 	EXPECT_GT(Stats.PayloadBytesSkipped, 0);
 	EXPECT_LT(Stats.MetadataBytesRead, Bytes.size());
+}
+
+TEST(FPackageObjectStreamReaderTests, V7CompatibilityRangeReaderDoesNotReadLargePayload)
+{
+	const std::vector<std::byte> ObjectStream = BuildLargePayloadPackage();
+	Production::FDecodedPackage Decoded;
+	Production::FReaderDiagnostic Diagnostic;
+	ASSERT_TRUE(Production::DecodePackageDescriptors(ObjectStream, Decoded, {}, &Diagnostic))
+		<< Diagnostic.Message;
+	const auto& Override = Decoded.ObjectValues.front().Overrides.front();
+	ASSERT_GT(Override.PayloadSize, 4 * 1024 * 1024);
+	std::vector<std::byte> PackageBytes;
+	ASSERT_TRUE(Durin::Asset::Private::DastV7::BuildPackageFromObjectStream(
+		ObjectStream, PackageBytes));
+	Durin::Asset::Private::DastV7::FParsedPackage Parsed;
+	std::string ParseError;
+	ASSERT_TRUE(Durin::Asset::Private::DastV7::ParsePackage(
+		PackageBytes, Parsed, &ParseError)) << ParseError;
+	const uint64 PhysicalPayloadOffset = Parsed.RequiredEntries[6].Offset
+		+ Override.PayloadOffset - Decoded.Header.Sections[4].Offset;
+	FRejectingRangeSource Rejecting(PackageBytes, PhysicalPayloadOffset, Override.PayloadSize);
+	Durin::Asset::FAssetCompatibilityProbeStats Stats;
+	Durin::Asset::Private::FCountingAssetPackageByteSource Counting(Rejecting, Stats);
+	Durin::FAssetPath Path;
+	Durin::Asset::FAssetPackageCompatibilityRecord Record;
+	const auto Catalog = Durin::Asset::FReflectionCompatibilityCatalog::Capture();
+	const auto Result = Durin::Asset::Private::DastV7::GetCodec().ProbeCompatibility(
+		Counting, Path, Catalog, Record, &Stats, {});
+	ASSERT_TRUE(Result) << Result.Message;
+	EXPECT_FALSE(Rejecting.bReadForbiddenRange);
+	EXPECT_EQ(Stats.PayloadBytesSkipped, Override.PayloadSize);
+	EXPECT_LT(Stats.MetadataBytesRead, PackageBytes.size() / 16);
+	EXPECT_LT(Stats.PeakMetadataBytes, PackageBytes.size() / 16);
+
+	FRejectingRangeSource CancellationSource(PackageBytes, PhysicalPayloadOffset, Override.PayloadSize);
+	Durin::Asset::FAssetCompatibilityProbeStats CancellationStats;
+	Durin::Asset::Private::FCountingAssetPackageByteSource CancellationCounting(
+		CancellationSource, CancellationStats);
+	uint32 CancellationChecks = 0;
+	const auto Cancelled = Durin::Asset::Private::DastV7::GetCodec().ProbeCompatibility(
+		CancellationCounting, Path, Catalog, Record, &CancellationStats,
+		[&] { return ++CancellationChecks >= 20; });
+	EXPECT_FALSE(Cancelled);
+	EXPECT_GE(CancellationChecks, 20u);
+	EXPECT_LT(CancellationStats.MetadataBytesRead, PackageBytes.size() / 16);
+	EXPECT_FALSE(CancellationSource.bReadForbiddenRange);
 }
 
 TEST(FPackageObjectStreamReaderTests, ExplicitLiveLoadPublishesOnlyAfterPostLoadAndRollsBackFailure)

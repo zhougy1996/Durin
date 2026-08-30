@@ -5,6 +5,7 @@
 #else
 #include <cerrno>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -14,6 +15,125 @@ namespace Durin
 	{
 		namespace
 		{
+			auto FileIoOperationName(EFileIoOperation Operation) -> std::string_view
+			{
+				switch (Operation)
+				{
+				case EFileIoOperation::None: return "none";
+				case EFileIoOperation::OpenRead: return "open for reading";
+				case EFileIoOperation::QuerySize: return "query size";
+				case EFileIoOperation::Read: return "read";
+				}
+				return "unknown";
+			}
+
+			auto SetFileIoError(FFileIoError* OutError, EFileIoOperation Operation,
+				std::error_code NativeError, const std::filesystem::path& Path,
+				uint64 Offset = 0, uint64 Size = 0) -> void
+			{
+				if (!OutError) return;
+				*OutError = {.Operation = Operation, .NativeError = NativeError,
+					.Path = Path, .Offset = Offset, .Size = Size};
+			}
+
+#if defined(_WIN32)
+			class FNativeFileHandle final : public IFileHandle
+			{
+			public:
+				FNativeFileHandle(HANDLE InHandle, uint64 InSize, std::filesystem::path InPath)
+					: Handle(InHandle), Size(InSize), Path(std::move(InPath)) {}
+				~FNativeFileHandle() override { if (Handle != INVALID_HANDLE_VALUE) CloseHandle(Handle); }
+				auto GetSize() const -> uint64 override { return Size; }
+				auto ReadAt(uint64 Offset, std::span<std::byte> Output,
+					FFileIoError* OutError) -> bool override
+				{
+					if (OutError) *OutError = {};
+					if (Offset > Size || Output.size_bytes() > Size - Offset)
+					{
+						SetFileIoError(OutError, EFileIoOperation::Read,
+							std::make_error_code(std::errc::result_out_of_range), Path,
+							Offset, Output.size_bytes());
+						return false;
+					}
+					if (Output.empty()) return true;
+					LARGE_INTEGER Position; Position.QuadPart = static_cast<LONGLONG>(Offset);
+					if (!SetFilePointerEx(Handle, Position, nullptr, FILE_BEGIN))
+					{
+						SetFileIoError(OutError, EFileIoOperation::Read,
+							{static_cast<int>(GetLastError()), std::system_category()}, Path,
+							Offset, Output.size_bytes());
+						return false;
+					}
+					size_t Complete = 0;
+					while (Complete < Output.size_bytes())
+					{
+						const DWORD Requested = static_cast<DWORD>(std::min<size_t>(
+							Output.size_bytes() - Complete, MAXDWORD));
+						DWORD Read = 0;
+						if (!ReadFile(Handle, Output.data() + Complete, Requested, &Read, nullptr)
+							|| Read != Requested)
+						{
+							const DWORD Native = GetLastError();
+							SetFileIoError(OutError, EFileIoOperation::Read,
+								{static_cast<int>(Native == ERROR_SUCCESS ? ERROR_HANDLE_EOF : Native),
+									std::system_category()}, Path, Offset + Complete,
+								Output.size_bytes() - Complete);
+							return false;
+						}
+						Complete += Read;
+					}
+					return true;
+				}
+			private:
+				HANDLE Handle = INVALID_HANDLE_VALUE;
+				uint64 Size = 0;
+				std::filesystem::path Path;
+			};
+#else
+			class FNativeFileHandle final : public IFileHandle
+			{
+			public:
+				FNativeFileHandle(int InFile, uint64 InSize, std::filesystem::path InPath)
+					: File(InFile), Size(InSize), Path(std::move(InPath)) {}
+				~FNativeFileHandle() override { if (File >= 0) close(File); }
+				auto GetSize() const -> uint64 override { return Size; }
+				auto ReadAt(uint64 Offset, std::span<std::byte> Output,
+					FFileIoError* OutError) -> bool override
+				{
+					if (OutError) *OutError = {};
+					if (Offset > Size || Output.size_bytes() > Size - Offset
+						|| Offset > static_cast<uint64>(std::numeric_limits<off_t>::max()))
+					{
+						SetFileIoError(OutError, EFileIoOperation::Read,
+							std::make_error_code(std::errc::result_out_of_range), Path,
+							Offset, Output.size_bytes());
+						return false;
+					}
+					size_t Complete = 0;
+					while (Complete < Output.size_bytes())
+					{
+						const size_t Requested = std::min<size_t>(Output.size_bytes() - Complete,
+							static_cast<size_t>(std::numeric_limits<ssize_t>::max()));
+						const ssize_t Read = pread(File, Output.data() + Complete, Requested,
+							static_cast<off_t>(Offset + Complete));
+						if (Read <= 0)
+						{
+							SetFileIoError(OutError, EFileIoOperation::Read,
+								{Read == 0 ? EIO : errno, std::system_category()}, Path,
+								Offset + Complete, Output.size_bytes() - Complete);
+							return false;
+						}
+						Complete += static_cast<size_t>(Read);
+					}
+					return true;
+				}
+			private:
+				int File = -1;
+				uint64 Size = 0;
+				std::filesystem::path Path;
+			};
+#endif
+
 			auto AtomicFileOperationName(EAtomicFileOperation Operation) -> std::string_view
 			{
 				switch (Operation)
@@ -213,6 +333,59 @@ namespace Durin
 			);
 		}
 
+		auto FFileIoError::ToString() const -> std::string
+		{
+			const uint64 End = Size > std::numeric_limits<uint64>::max() - Offset
+				? std::numeric_limits<uint64>::max() : Offset + Size;
+			return std::format("File I/O failed while attempting to {} at [{}, {}) "
+				"(native error {}: {}) for {}.", FileIoOperationName(Operation), Offset, End,
+				NativeError.value(), NativeError.message(), Path.generic_string());
+		}
+
+		auto OpenRead(const std::filesystem::path& FilePath,
+			FFileIoError* OutError) -> std::unique_ptr<IFileHandle>
+		{
+			if (OutError) *OutError = {};
+			const std::filesystem::path Path = std::filesystem::absolute(FilePath).lexically_normal();
+#if defined(_WIN32)
+			const HANDLE File = CreateFileW(Path.c_str(), GENERIC_READ,
+				FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+				FILE_ATTRIBUTE_NORMAL, nullptr);
+			if (File == INVALID_HANDLE_VALUE)
+			{
+				SetFileIoError(OutError, EFileIoOperation::OpenRead,
+					{static_cast<int>(GetLastError()), std::system_category()}, Path);
+				return nullptr;
+			}
+			LARGE_INTEGER Size;
+			if (!GetFileSizeEx(File, &Size) || Size.QuadPart < 0)
+			{
+				const DWORD Error = GetLastError(); CloseHandle(File);
+				SetFileIoError(OutError, EFileIoOperation::QuerySize,
+					{static_cast<int>(Error), std::system_category()}, Path);
+				return nullptr;
+			}
+			return std::make_unique<FNativeFileHandle>(File, static_cast<uint64>(Size.QuadPart), Path);
+#else
+			const int File = open(Path.c_str(), O_RDONLY);
+			if (File == -1)
+			{
+				SetFileIoError(OutError, EFileIoOperation::OpenRead,
+					{errno, std::system_category()}, Path);
+				return nullptr;
+			}
+			struct stat Status{};
+			if (fstat(File, &Status) != 0 || Status.st_size < 0)
+			{
+				const int Error = errno; close(File);
+				SetFileIoError(OutError, EFileIoOperation::QuerySize,
+					{Error, std::system_category()}, Path);
+				return nullptr;
+			}
+			return std::make_unique<FNativeFileHandle>(File, static_cast<uint64>(Status.st_size), Path);
+#endif
+		}
+
 		bool FileExists(std::string_view FileName)
 		{
 			return std::filesystem::exists(FileName);
@@ -225,34 +398,20 @@ namespace Durin
 		{
 			for (uint32 Attempt = 0; Attempt < 64; ++Attempt)
 			{
-				std::ifstream File(FilePath, std::ios::binary | std::ios::ate);
-				if (File.is_open())
+				auto File = OpenRead(FilePath);
+				if (File)
 				{
-					// Query the size through the opened handle. Atomic publishers may
-					// replace FilePath after this stream opens; a separate path-based
-					// file_size call could describe a different generation.
-					const std::streamoff End = static_cast<std::streamoff>(File.tellg());
-					if (End >= 0
-						&& static_cast<uintmax_t>(End)
-							<= static_cast<uintmax_t>(std::numeric_limits<std::streamsize>::max()))
+					const uint64 FileSize = File->GetSize();
+					if (FileSize <= static_cast<uint64>(std::numeric_limits<size_t>::max()))
 					{
-						const uintmax_t FileSize = static_cast<uintmax_t>(End);
-						File.seekg(0, std::ios::beg);
-						const uintmax_t ElementCount = FileSize / sizeof(ElementType)
+						const uint64 ElementCount = FileSize / sizeof(ElementType)
 							+ (FileSize % sizeof(ElementType) != 0);
 						std::vector<ElementType> Loaded;
-						if (File && ElementCount <= Loaded.max_size())
+						if (ElementCount <= Loaded.max_size())
 						{
 							Loaded.resize(static_cast<size_t>(ElementCount));
-							if (FileSize == 0)
-							{
-								Result = std::move(Loaded);
-								return true;
-							}
-							const std::streamsize ReadSize =
-								static_cast<std::streamsize>(FileSize);
-							File.read(reinterpret_cast<char*>(Loaded.data()), ReadSize);
-							if (File && File.gcount() == ReadSize)
+							if (File->ReadAt(0, std::as_writable_bytes(std::span(Loaded)).first(
+								static_cast<size_t>(FileSize))))
 							{
 								Result = std::move(Loaded);
 								return true;
@@ -329,26 +488,28 @@ namespace Durin
 		{
 			OutHash = {};
 			OutError.clear();
-			std::ifstream Stream(FilePath, std::ios::binary);
-			if (!Stream.is_open())
+			FFileIoError FileError;
+			auto File = OpenRead(FilePath, &FileError);
+			if (!File)
 			{
-				OutError = std::make_error_code(std::errc::io_error);
+				OutError = FileError.NativeError ? FileError.NativeError
+					: std::make_error_code(std::errc::io_error);
 				return false;
 			}
 			constexpr size_t BufferSize = 64 * 1024;
-			std::array<char, BufferSize> Buffer{};
+			std::array<std::byte, BufferSize> Buffer{};
 			FXxHash128Builder Builder;
-			while (Stream)
+			for (uint64 Offset = 0; Offset < File->GetSize();)
 			{
-				Stream.read(Buffer.data(), static_cast<std::streamsize>(Buffer.size()));
-				const std::streamsize Read = Stream.gcount();
-				if (Read > 0)
-					Builder.Update(Buffer.data(), static_cast<uint64>(Read));
-			}
-			if (Stream.bad())
-			{
-				OutError = std::make_error_code(std::errc::io_error);
-				return false;
+				const size_t Count = static_cast<size_t>(std::min<uint64>(Buffer.size(), File->GetSize() - Offset));
+				if (!File->ReadAt(Offset, std::span(Buffer).first(Count), &FileError))
+				{
+					OutError = FileError.NativeError ? FileError.NativeError
+						: std::make_error_code(std::errc::io_error);
+					return false;
+				}
+				Builder.Update(Buffer.data(), Count);
+				Offset += Count;
 			}
 			OutHash = Builder.Finalize();
 			return true;

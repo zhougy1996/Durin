@@ -2060,28 +2060,13 @@ namespace Durin::Asset::PackageObjectStream
 		return {};
 	}
 
-	auto ProbeCompatibility(std::span<const std::byte> Bytes, const FAssetPath& PackagePath,
-		const FReflectionCompatibilityCatalog& Catalog, FAssetPackageCompatibilityRecord& OutRecord,
-		FAssetCompatibilityProbeStats* OutStats, const FReaderLimits& Limits,
+	auto ProbeDecodedCompatibility(FDecodedPackage Package, uint64 PhysicalPackageBytes,
+		bool bPayloadValuesDecoded, const FAssetPath& PackagePath,
+		const FReflectionCompatibilityCatalog& Catalog,
+		FAssetPackageCompatibilityRecord& OutRecord,
 		FReaderDiagnostic* OutDiagnostic) -> FAssetResult
 	{
-		FReaderDiagnostic Diagnostic; FDecodedPackage Package;
-		if (!DecodePackageDescriptors(Bytes, Package, Limits, &Diagnostic))
-		{
-			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
-			return {EAssetError::CorruptFile, Diagnostic.Message};
-		}
-		const bool bNeedsPayloadValues = std::ranges::any_of(
-			Catalog.GetDeprecatedPropertyRoutes(), [&](const auto& Route) {
-				return std::ranges::any_of(Package.Schemas, [&](const auto& Schema) {
-					return Schema.QualifiedName == Route.DeclaringType;
-				});
-			});
-		if (bNeedsPayloadValues && !DecodePackage(Bytes, Package, Limits, &Diagnostic))
-		{
-			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
-			return {EAssetError::CorruptFile, Diagnostic.Message};
-		}
+		FReaderDiagnostic Diagnostic;
 		std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence =
 			GatherCanonicalizationEvidence(Package, PackagePath, &Catalog);
 		std::string CanonicalizationError;
@@ -2093,7 +2078,7 @@ namespace Durin::Asset::PackageObjectStream
 		}
 		FAssetPackageCompatibilityRecord Record{
 			.PackagePath = PackagePath,
-			.Fingerprint = {.FileSize = Bytes.size(), .ContentHash = FXxHash128::HashBuffer(Bytes),
+			.Fingerprint = {.FileSize = PhysicalPackageBytes,
 				.ReaderVersion = Version},
 			.FormatVersion = Version,
 			.EntryKind = Package.Header.EntryKind,
@@ -2132,7 +2117,7 @@ namespace Durin::Asset::PackageObjectStream
 				const std::string StoredSignature = Override.Provenance == 2 || !Type
 					? "DASTv4:RetainedClosure" : TypeSignature(*Type, Package);
 				const size_t NestedEvidenceBegin = Record.DeprecatedRouteEvidence.size();
-				if (bNeedsPayloadValues && Type) GatherNestedDeprecatedRouteEvidence(*Type, Override.Value, Package,
+				if (bPayloadValuesDecoded && Type) GatherNestedDeprecatedRouteEvidence(*Type, Override.Value, Package,
 					Catalog, CompatibilityVersions, PackagePath, Object.Path,
 					Record.DeprecatedRouteEvidence);
 				for (size_t EvidenceIndex = NestedEvidenceBegin;
@@ -2201,18 +2186,54 @@ namespace Durin::Asset::PackageObjectStream
 				}
 			}
 		}
-		FAssetCompatibilityProbeStats Stats;
-		Stats.PayloadBytesSkipped = 0;
-		if (!bNeedsPayloadValues)
-			for (const auto& Object : Package.ObjectValues)
-				for (const auto& Override : Object.Overrides)
-					Stats.PayloadBytesSkipped += Override.PayloadSize;
-		Stats.MetadataBytesRead = bNeedsPayloadValues ? Bytes.size()
-			: Package.Header.BytesRead + Package.Header.Sections[0].Length
-				+ Package.Header.Sections[1].Length + Package.Header.Sections[2].Length
-				+ Package.Header.Sections[3].Length;
-		Stats.PeakMetadataBytes = Stats.MetadataBytesRead;
-		OutRecord = std::move(Record); if (OutStats) *OutStats = Stats;
+		OutRecord = std::move(Record);
+		if (OutDiagnostic) OutDiagnostic->Reset();
+		return {};
+	}
+
+	auto ProbeCompatibility(std::span<const std::byte> Bytes, const FAssetPath& PackagePath,
+		const FReflectionCompatibilityCatalog& Catalog, FAssetPackageCompatibilityRecord& OutRecord,
+		FAssetCompatibilityProbeStats* OutStats, const FReaderLimits& Limits,
+		FReaderDiagnostic* OutDiagnostic) -> FAssetResult
+	{
+		FReaderDiagnostic Diagnostic;
+		FDecodedPackage Package;
+		if (!DecodePackageDescriptors(Bytes, Package, Limits, &Diagnostic))
+		{
+			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
+			return {EAssetError::CorruptFile, Diagnostic.Message};
+		}
+		const bool bNeedsPayloadValues = std::ranges::any_of(
+			Catalog.GetDeprecatedPropertyRoutes(), [&](const auto& Route) {
+				return std::ranges::any_of(Package.Schemas, [&](const auto& Schema) {
+					return Schema.QualifiedName == Route.DeclaringType;
+				});
+			});
+		if (bNeedsPayloadValues && !DecodePackage(Bytes, Package, Limits, &Diagnostic))
+		{
+			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
+			return {EAssetError::CorruptFile, Diagnostic.Message};
+		}
+		FAssetResult Result = ProbeDecodedCompatibility(Package, Bytes.size(),
+			bNeedsPayloadValues, PackagePath, Catalog, OutRecord, &Diagnostic);
+		if (!Result)
+		{
+			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
+			return Result;
+		}
+		if (OutStats)
+		{
+			OutStats->PayloadBytesSkipped = 0;
+			if (!bNeedsPayloadValues)
+				for (const auto& Object : Package.ObjectValues)
+					for (const auto& Override : Object.Overrides)
+						OutStats->PayloadBytesSkipped += Override.PayloadSize;
+			OutStats->MetadataBytesRead = bNeedsPayloadValues ? Bytes.size()
+				: Package.Header.BytesRead + Package.Header.Sections[0].Length
+					+ Package.Header.Sections[1].Length + Package.Header.Sections[2].Length
+					+ Package.Header.Sections[3].Length;
+			OutStats->PeakMetadataBytes = OutStats->MetadataBytesRead;
+		}
 		if (OutDiagnostic) OutDiagnostic->Reset();
 		return {};
 	}

@@ -595,12 +595,26 @@ their prior active document or world unchanged.
 
 The read-only compatibility probe is a separate, compact inspection path. The
 game thread freezes registered class and property identities into a value-only
-`FReflectionCompatibilityCatalog`; a worker decodes object and field descriptors,
-validates ids, outers, lengths, and payload bounds, and leaves payload extents
-unmaterialized when the catalog has no deprecated property routes. It constructs no `DObject`,
-loads no dependency, invokes no `PostLoad()`, changes no dirty state, and writes
-no authored file. Package size and stable last-write ticks bind each result to
-the registry snapshot and mark a changed input stale.
+`FReflectionCompatibilityCatalog`; a worker opens one Core random-read handle,
+reads the DURF/DAST directory and metadata sections by declared range, and
+walks Value framing with physical offsets. It validates ids, outers, ordering,
+lengths, and every payload bound while seeking across unrelated payload extents
+without reading or materializing them. `MetadataBytesRead` counts bytes actually
+returned by the byte source, `PayloadBytesSkipped` counts payload extents
+actually crossed without reads, and peak metadata excludes declared skipped
+payload sizes. The path constructs no complete logical ObjectStream and no
+`DObject`, loads no dependency, invokes no `PostLoad()`, changes no dirty state,
+and writes no authored file.
+
+This is metadata compatibility validation, not complete package integrity
+validation: hashes for metadata sections are checked, but the Value-section
+hash is intentionally not recomputed when its payload bytes are skipped.
+Ordinary load and explicit validation retain complete section-hash and payload
+validation. If a package schema is relevant to a registered versioned
+deprecated-property route, compatibility inspection explicitly falls back to
+the complete value decoder so nested migration evidence remains exact; those
+bytes count as read and not skipped. Package size and stable last-write ticks
+bind each result to the registry snapshot and mark a changed input stale.
 
 Each terminal record keeps inspection, compatibility, and freshness as
 orthogonal states and reports stable codes for unknown fields, incompatible

@@ -4,23 +4,25 @@ Summary: Add one Core-owned synchronous random-read file handle, then migrate DA
 
 Last reviewed: 2026-08-30
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-30
 
 ## Current Status
 
-DAST v7 is the only supported package format. Compatibility inspection now has
-a descriptor-only logical decode and avoids recursive `FValue` materialization
-when no relevant deprecated route exists, but the outer path still calls
-`LoadFileToArray` and the v7 codec reconstructs a complete logical ObjectStream.
-Large packages therefore retain a complete package buffer plus a second logical
-stream buffer before descriptor scanning begins.
+All stages are complete. Core owns a synchronous exact-offset `IFileHandle`,
+and complete-buffer loads plus incremental hashing use it. Engine compatibility
+inspection adapts file and memory sources through a counting range boundary,
+resolves DURF from bounded reads, validates DAST v7 metadata sections, and walks
+Value descriptors at physical offsets without reading field payloads. The
+ordinary path allocates neither the complete package nor the complete logical
+ObjectStream. A schema-relevant deprecated-property route retains the explicit
+full-value fallback so nested migration evidence is unchanged.
 
-Core currently exposes complete-buffer helpers and incremental hashing, but no
-owned synchronous random-read handle. Engine separately owns
-`FPackageResource`, whose retirement, cancellation, and asynchronous-result
-contract is specific to already validated package bulk segments. This plan adds
-the lower-level Core capability without merging those responsibilities.
+Qualification passed `CoreFileSystemTests` 45/45, `AssetPackageTests` 129/129,
+`AssetMetadataQueryTests` 6/6, `EditorOperationTests` 20/20, and the complete
+`fast-all` contract/feature/infrastructure selection. The 4 MiB payload fixture
+rejects any attempted payload-range read and proves actual skipped/read counts,
+bounded peak metadata, and cancellation during range scanning.
 
 ## Goal
 
@@ -122,12 +124,12 @@ decoded bytes count as bytes read and never as payload skipped.
 
 ### Stage 0: Freeze semantics and caller inventory
 
-- [ ] Inventory Core complete-buffer/hash readers, Engine package readers, and
+- [x] Inventory Core complete-buffer/hash readers, Engine package readers, and
   the existing `FPackageResource` boundary; assign only compatibility inspection
   to the first range-reading migration.
-- [ ] Freeze exact-read, empty-range, overflow, short-read, mutation, error, and
+- [x] Freeze exact-read, empty-range, overflow, short-read, mutation, error, and
   single-handle concurrency semantics.
-- [ ] Record the metadata-only versus full-integrity diagnostic boundary in the
+- [x] Record the metadata-only versus full-integrity diagnostic boundary in the
   asset-package contract before changing behavior.
 
 #### Acceptance Gate
@@ -141,15 +143,15 @@ decoded bytes count as bytes read and never as payload skipped.
 
 Depends on Stage 0.
 
-- [ ] Add `IFileHandle`, `FFileIoError`, and `FFileHelper::OpenRead` with a
+- [x] Add `IFileHandle`, `FFileIoError`, and `FFileHelper::OpenRead` with a
   platform-neutral implementation behind the public interface.
-- [ ] Route `LoadFileToArray` and incremental file hashing through the handle
+- [x] Route `LoadFileToArray` and incremental file hashing through the handle
   where doing so preserves their exact observable behavior.
-- [ ] Add focused Core tests for empty files/ranges, exact and unaligned ranges,
+- [x] Add focused Core tests for empty files/ranges, exact and unaligned ranges,
   EOF and arithmetic rejection, repeated out-of-order reads, files larger than
   4 GiB through sparse fixtures where supported, long physical paths, and
   deterministic failure outputs.
-- [ ] Prove the handle owns and closes its resource under success, early return,
+- [x] Prove the handle owns and closes its resource under success, early return,
   and read failure.
 
 #### Acceptance Gate
@@ -162,14 +164,14 @@ Depends on Stage 0.
 
 Depends on Stage 1.
 
-- [ ] Add file-handle and memory implementations of
+- [x] Add file-handle and memory implementations of
   `IAssetPackageByteSource`, plus a counting wrapper used by probe statistics.
-- [ ] Change codec resolution for compatibility inspection to read the DURF
+- [x] Change codec resolution for compatibility inspection to read the DURF
   prefix from the source while retaining the current span resolver for other
   capabilities.
-- [ ] Change `FAssetPackageCodec::ProbeCompatibility` to accept the byte source
+- [x] Change `FAssetPackageCodec::ProbeCompatibility` to accept the byte source
   and cancellation callback; keep the capability mandatory for readable codecs.
-- [ ] Replace the compatibility path's `LoadFileToArray` with one opened handle
+- [x] Replace the compatibility path's `LoadFileToArray` with one opened handle
   and bounded reads, preserving stale-input checks and terminal classification.
 
 #### Acceptance Gate
@@ -183,18 +185,18 @@ Depends on Stage 1.
 
 Depends on Stage 2.
 
-- [ ] Split v7 parsing into front-matter validation and section consumers.
+- [x] Split v7 parsing into front-matter validation and section consumers.
   Replace `FParsedPackage::RequiredSections` spans with immutable range facts on
   the compatibility path.
-- [ ] Read Public Summary, Imports, Name, Type, Schema, and Object metadata into
+- [x] Read Public Summary, Imports, Name, Type, Schema, and Object metadata into
   bounded owned buffers; validate each range before allocation or I/O.
-- [ ] Add a cached range cursor for the Value section that reads object/override
+- [x] Add a payload-safe range cursor for the Value section that reads object/override
   framing, records schema id, field id, provenance, payload offset and payload
   size, then seeks over unrelated payloads.
-- [ ] Remove `MakeObjectStream` and complete logical-stream allocation from v7
+- [x] Remove `MakeObjectStream` and complete logical-stream allocation from v7
   compatibility inspection. Keep them for load, inspection projection,
   reference rewriting, relocation, and other value-consuming operations.
-- [ ] Preserve the relevant deprecated-route fallback without making unrelated
+- [x] Preserve the relevant deprecated-route fallback without making unrelated
   registered routes force payload decoding.
 
 #### Acceptance Gate
@@ -210,17 +212,17 @@ Depends on Stage 2.
 
 Depends on Stages 1-3.
 
-- [ ] Add cancellation tests before open, during front-matter reads, between
+- [x] Add cancellation tests before open, during front-matter reads, between
   objects, and while scanning a large Value section.
-- [ ] Add peak-memory and byte-read regression gates using a package whose
+- [x] Add peak-memory and byte-read regression gates using a package whose
   payload dominates its metadata.
-- [ ] Run the smallest Core, AssetRegistry, package, and editor compatibility
+- [x] Run the smallest Core, AssetRegistry, package, and editor compatibility
   targets selected through the native-test registry; run broader coverage only
   if shared-reader changes cross those targets.
-- [ ] Update [File I/O](../Runtime/Core/FileIO.md),
+- [x] Update [File I/O](../Runtime/Core/FileIO.md),
   [Asset Packages](../Runtime/Assets/AssetPackages.md), and, only where the
   ownership boundary changes, [Package Bulk Data](../Runtime/Assets/BulkData.md).
-- [ ] Remove obsolete compatibility-local streaming helpers after every caller
+- [x] Remove obsolete compatibility-local streaming helpers after every caller
   uses the Core handle.
 
 #### Acceptance Gate

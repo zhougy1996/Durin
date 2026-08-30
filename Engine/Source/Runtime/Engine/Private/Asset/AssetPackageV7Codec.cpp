@@ -1,4 +1,5 @@
 #include "AssetPackageV7Codec.h"
+#include "AssetPackageByteSource.h"
 
 #include "Asset/Compatibility.h"
 #include "Asset/Cook.h"
@@ -425,6 +426,269 @@ namespace Durin::Asset::Private::DastV7
 			return {};
 		}
 
+		auto ReadCompatibilityRange(IAssetPackageByteSource& Source, uint64 Offset,
+			std::span<std::byte> Output,
+			const FAssetCompatibilityCancellationCheck& IsCancelled,
+			std::string& OutError) -> bool
+		{
+			constexpr size_t ScratchReadBytes = 64 * 1024;
+			for (size_t Complete = 0; Complete < Output.size();)
+			{
+				if (IsCancelled && IsCancelled())
+					return Fail("Asset compatibility inspection was cancelled.", &OutError);
+				const size_t Count = std::min(ScratchReadBytes, Output.size() - Complete);
+				if (!Source.ReadAt(Offset + Complete, Output.subspan(Complete, Count), &OutError))
+					return false;
+				Complete += Count;
+			}
+			if (Output.empty() && IsCancelled && IsCancelled())
+				return Fail("Asset compatibility inspection was cancelled.", &OutError);
+			return true;
+		}
+
+		auto ParseCompatibilityMetadata(IAssetPackageByteSource& Source,
+			std::array<std::vector<std::byte>, RequiredSectionCount>& Owned,
+			FParsedPackage& OutPackage,
+			const FAssetCompatibilityCancellationCheck& IsCancelled,
+			std::string& OutError) -> bool
+		{
+			const size_t PrefixSize = static_cast<size_t>(std::min<uint64>(
+				Source.GetSize(), BinaryEnvelopePreambleBytes));
+			std::vector<std::byte> Prefix(PrefixSize);
+			if (!ReadCompatibilityRange(Source, 0, Prefix, IsCancelled, OutError)) return false;
+			FBinaryEnvelopePreamble Preamble;
+			FBinaryEnvelopeDiagnostic EnvelopeDiagnostic;
+			if (!ParseBinaryEnvelopePrefix(Prefix, Source.GetSize(), EnvelopeLimits,
+				Preamble, &EnvelopeDiagnostic))
+				return Fail(std::string(EnvelopeDiagnostic.Message), &OutError);
+			if (Preamble.HeaderBytes > std::numeric_limits<size_t>::max())
+				return Fail("DAST v7 front matter exceeds the addressable range.", &OutError);
+			std::vector<std::byte> Header(static_cast<size_t>(Preamble.HeaderBytes));
+			if (!ReadCompatibilityRange(Source, 0, Header, IsCancelled, OutError)) return false;
+			FValidatedBinaryEnvelope Envelope;
+			if (!ValidateBinaryEnvelopeHeader(Header, Source.GetSize(), EnvelopeLimits,
+				GetRegistry(), Envelope, &EnvelopeDiagnostic))
+				return Fail(std::string(EnvelopeDiagnostic.Message), &OutError);
+
+			uint32 PackageKind = 0, PackageFlags = 0, SectionCount = 0, EntryBytes = 0;
+			uint64 DirectoryOffset = 0, Reserved = 0;
+			if (!ReadAt(Header, 64, PackageKind) || PackageKind > 1
+				|| !ReadAt(Header, 68, PackageFlags) || PackageFlags != 0
+				|| !ReadAt(Header, 72, DirectoryOffset)
+				|| !ReadAt(Header, 80, SectionCount)
+				|| !ReadAt(Header, 84, EntryBytes) || EntryBytes != SectionEntryBytes
+				|| !ReadAt(Header, 88, Reserved) || Reserved != 0
+				|| SectionCount < RequiredSectionCount || SectionCount > MaximumSectionCount
+				|| DirectoryOffset != BinaryEnvelopePreambleBytes + FormatHeaderBytes)
+				return Fail("DAST v7 format header is invalid or unsupported.", &OutError);
+			const uint64 DirectoryBytes = uint64(SectionCount) * SectionEntryBytes;
+			if (DirectoryOffset > Preamble.HeaderBytes
+				|| DirectoryBytes > Preamble.HeaderBytes - DirectoryOffset)
+				return Fail("DAST v7 section directory exceeds HeaderBytes.", &OutError);
+
+			FParsedPackage Result;
+			Result.HeaderBytes = Preamble.HeaderBytes;
+			uint64 ExpectedOffset = DirectoryOffset + DirectoryBytes;
+			uint32 PreviousKind = 0;
+			uint64 ImportEnd = 0;
+			for (uint32 Index = 0; Index < SectionCount; ++Index)
+			{
+				const uint64 EntryOffset = DirectoryOffset + uint64(Index) * SectionEntryBytes;
+				FSectionEntry Entry; uint64 EntryReserved = 0;
+				if (!ReadAt(Header, EntryOffset, Entry.Kind)
+					|| !ReadAt(Header, EntryOffset + 4, Entry.Flags)
+					|| !ReadAt(Header, EntryOffset + 8, Entry.Offset)
+					|| !ReadAt(Header, EntryOffset + 16, Entry.Size)
+					|| !ReadAt(Header, EntryOffset + 24, Entry.Hash.HashLow)
+					|| !ReadAt(Header, EntryOffset + 32, Entry.Hash.HashHigh)
+					|| !ReadAt(Header, EntryOffset + 40, EntryReserved) || EntryReserved != 0
+					|| Entry.Kind <= PreviousKind || (Entry.Flags & ~RequiredSectionFlag) != 0
+					|| Entry.Offset != ExpectedOffset || Entry.Offset > Source.GetSize()
+					|| Entry.Size > Source.GetSize() - Entry.Offset)
+					return Fail("DAST v7 section entry is invalid or noncanonical.", &OutError);
+				if (Index < RequiredSectionCount)
+				{
+					if (Entry.Kind != Index + 1 || Entry.Flags != RequiredSectionFlag)
+						return Fail("DAST v7 required sections are missing or out of order.", &OutError);
+					Result.RequiredEntries[Index] = Entry;
+					if (Index == 1) ImportEnd = Entry.Offset + Entry.Size;
+				}
+				else
+				{
+					if ((Entry.Flags & RequiredSectionFlag) != 0)
+						return Fail("DAST v7 contains an unknown required section.", &OutError);
+					Result.bHasUnknownSkippableSections = true;
+				}
+				ExpectedOffset += Entry.Size;
+				PreviousKind = Entry.Kind;
+			}
+			if (ExpectedOffset != Source.GetSize() || ImportEnd != Preamble.HeaderBytes)
+				return Fail("DAST v7 sections leave gaps, trailing bytes, or invalid HeaderBytes.", &OutError);
+
+			for (size_t Index : {size_t{0}, size_t{1}, size_t{2}, size_t{3}, size_t{4}, size_t{5}, size_t{7}})
+			{
+				const FSectionEntry& Entry = Result.RequiredEntries[Index];
+				if (Entry.Size > std::numeric_limits<size_t>::max())
+					return Fail("DAST v7 metadata section exceeds the addressable range.", &OutError);
+				Owned[Index].resize(static_cast<size_t>(Entry.Size));
+				if (Entry.Offset + Entry.Size <= Header.size())
+					std::ranges::copy(std::span(Header).subspan(static_cast<size_t>(Entry.Offset),
+						static_cast<size_t>(Entry.Size)), Owned[Index].begin());
+				else if (!ReadCompatibilityRange(Source, Entry.Offset, Owned[Index], IsCancelled, OutError))
+					return false;
+				if (FXxHash128::HashBuffer(Owned[Index]) != Entry.Hash)
+					return Fail("DAST v7 metadata section hash verification failed.", &OutError);
+				Result.RequiredSections[Index] = Owned[Index];
+			}
+
+			Dast::FPublicSummary Summary;
+			if (!Dast::DecodePublicSummary(Result.RequiredSections[0], Result.RequiredSections[1],
+				static_cast<EAssetRegistryEntryKind>(PackageKind), Summary, &OutError)) return false;
+			Result.EntryKind = Summary.EntryKind;
+			Result.MainExportIndex = Summary.MainExportIndex;
+			Result.AssetClass = std::move(Summary.AssetClass);
+			Result.RedirectDestination = std::move(Summary.RedirectDestination);
+			Result.Imports = std::move(Summary.Imports);
+			Result.ExportCount = Summary.ExportCount;
+			Result.BulkSegment = {.Extent = Summary.BulkSegmentExtent,
+				.Digest = Summary.BulkSegmentDigest};
+			if (!DecodePackageBulkDataDirectory(Result.RequiredSections[7], Result.BulkEntries, &OutError)
+				|| Result.BulkEntries.size() != Summary.PayloadCount
+				|| !ValidatePackageBulkDataMetadata(Result.BulkSegment, Result.BulkEntries, &OutError))
+				return false;
+			OutPackage = std::move(Result);
+			return true;
+		}
+
+		auto BuildCompatibilityObjectStream(const FParsedPackage& Package,
+			std::vector<std::byte>& OutBytes) -> bool
+		{
+			FWriter Summary;
+			if (!Summary.String(Package.AssetClass)) return false;
+			Summary.Fixed(static_cast<uint8>(Package.EntryKind));
+			if (!Summary.String(Package.RedirectDestination)) return false;
+			Summary.VarUInt(Package.Imports.size());
+			for (const std::string& Import : Package.Imports)
+				if (!Summary.String(Import)) return false;
+			Summary.VarUInt(Package.ExportCount);
+			FWriter Values;
+			Values.VarUInt(Package.ExportCount);
+			for (uint64 Index = 0; Index < Package.ExportCount; ++Index)
+			{
+				Values.VarUInt(1);
+				Values.VarUInt(0);
+			}
+			const std::array<std::span<const std::byte>, 5> Sections{
+				Package.RequiredSections[2], Package.RequiredSections[3],
+				Package.RequiredSections[4], Package.RequiredSections[5], Values.View()};
+			uint64 Total = 13 + Summary.View().size() + Sections.size() * 9;
+			for (const auto Section : Sections) Total += Section.size();
+			if (Total > PackageObjectStream::MaximumPackageBytes
+				|| Total > std::numeric_limits<uint32>::max()) return false;
+			FWriter Writer;
+			Writer.Fixed(DastPackageMagic);
+			Writer.Fixed(AssetPackageObjectStreamVersion);
+			Writer.Fixed(static_cast<uint32>(Summary.View().size()));
+			Writer.Fixed(static_cast<uint8>(Sections.size()));
+			Writer.Append(Summary.View());
+			uint32 Offset = static_cast<uint32>(13 + Summary.View().size() + Sections.size() * 9);
+			for (size_t Index = 0; Index < Sections.size(); ++Index)
+			{
+				Writer.Fixed(static_cast<uint8>(Index + 1)); Writer.Fixed(Offset);
+				Writer.Fixed(static_cast<uint32>(Sections[Index].size()));
+				Offset += static_cast<uint32>(Sections[Index].size());
+			}
+			for (const auto Section : Sections) Writer.Append(Section);
+			OutBytes = Writer.Take();
+			return true;
+		}
+
+		auto ScanCompatibilityValueDescriptors(IAssetPackageByteSource& Source,
+			const FSectionEntry& Section, PackageObjectStream::FDecodedPackage& Package,
+			FAssetCompatibilityProbeStats* OutStats,
+			const FAssetCompatibilityCancellationCheck& IsCancelled,
+			std::string& OutError) -> bool
+		{
+			uint64 Offset = Section.Offset;
+			const uint64 End = Section.Offset + Section.Size;
+			auto ReadByte = [&](uint64 Bound, uint8& Out) -> bool {
+				if (Offset >= Bound) return Fail(std::format(
+					"DAST v7 value descriptor is truncated at physical offset {}.", Offset), &OutError);
+				std::byte Byte{};
+				if (!ReadCompatibilityRange(Source, Offset, std::span(&Byte, 1), IsCancelled, OutError)) return false;
+				Out = std::to_integer<uint8>(Byte); ++Offset; return true;
+			};
+			auto VarUInt = [&](uint64 Bound, uint64& Out) -> bool {
+				const uint64 Start = Offset; uint64 Value = 0;
+				for (uint32 Index = 0; Index < 10; ++Index)
+				{
+					uint8 Byte = 0; if (!ReadByte(Bound, Byte)) return false;
+					const uint8 Payload = Byte & 0x7f;
+					if (Index == 9 && Payload > 1)
+						return Fail(std::format("DAST v7 VarUInt overflows at physical offset {}.", Start), &OutError);
+					Value |= uint64(Payload) << (Index * 7);
+					if ((Byte & 0x80) == 0)
+					{
+						if (Index > 0 && Payload == 0)
+							return Fail(std::format("DAST v7 VarUInt is noncanonical at physical offset {}.", Start), &OutError);
+						Out = Value; return true;
+					}
+				}
+				return Fail(std::format("DAST v7 VarUInt exceeds ten bytes at physical offset {}.", Start), &OutError);
+			};
+			uint64 ObjectCount = 0;
+			if (!VarUInt(End, ObjectCount) || ObjectCount != Package.Objects.size())
+				return Fail("DAST v7 value-section object count is invalid.", &OutError);
+			Package.ObjectValues.clear();
+			Package.ObjectValues.reserve(static_cast<size_t>(ObjectCount));
+			for (uint64 ObjectIndex = 0; ObjectIndex < ObjectCount; ++ObjectIndex)
+			{
+				if (IsCancelled && IsCancelled())
+					return Fail("Asset compatibility inspection was cancelled.", &OutError);
+				uint64 BlockSize = 0;
+				if (!VarUInt(End, BlockSize) || BlockSize > End - Offset)
+					return Fail(std::format("DAST v7 object value block is invalid at physical offset {}.", Offset), &OutError);
+				const uint64 BlockEnd = Offset + BlockSize;
+				uint64 OverrideCount = 0;
+				if (!VarUInt(BlockEnd, OverrideCount)
+					|| OverrideCount > PackageObjectStream::MaximumTableEntries)
+					return Fail("DAST v7 override count exceeds the configured bound.", &OutError);
+				PackageObjectStream::FDecodedObjectValues Values;
+				uint64 PreviousSchema = 0, PreviousField = 0;
+				for (uint64 Index = 0; Index < OverrideCount; ++Index)
+				{
+					if (IsCancelled && IsCancelled())
+						return Fail("Asset compatibility inspection was cancelled.", &OutError);
+					PackageObjectStream::FDecodedOverride Override;
+					uint8 Provenance = 0;
+					if (!VarUInt(BlockEnd, Override.SchemaId) || !VarUInt(BlockEnd, Override.FieldId)
+						|| !ReadByte(BlockEnd, Provenance) || Provenance > 2)
+						return Fail("DAST v7 override descriptor is invalid.", &OutError);
+					Override.Provenance = Provenance;
+					if (Override.SchemaId < PreviousSchema
+						|| (Override.SchemaId == PreviousSchema && Override.FieldId <= PreviousField)
+						|| Override.SchemaId == 0 || Override.SchemaId > Package.Schemas.size()
+						|| Override.FieldId == 0
+						|| Override.FieldId > Package.Schemas[static_cast<size_t>(Override.SchemaId - 1)].Fields.size())
+						return Fail("DAST v7 overrides are unordered or reference an invalid field.", &OutError);
+					uint64 PayloadSize = 0;
+					if (!VarUInt(BlockEnd, PayloadSize) || PayloadSize > BlockEnd - Offset)
+						return Fail(std::format("DAST v7 payload extent is invalid at physical offset {}.", Offset), &OutError);
+					Override.PayloadOffset = Offset;
+					Override.PayloadSize = PayloadSize;
+					Offset += PayloadSize;
+					if (OutStats) OutStats->PayloadBytesSkipped += PayloadSize;
+					PreviousSchema = Override.SchemaId; PreviousField = Override.FieldId;
+					Values.Overrides.push_back(std::move(Override));
+				}
+				if (Offset != BlockEnd)
+					return Fail(std::format("DAST v7 object value block has trailing bytes at physical offset {}.", Offset), &OutError);
+				Package.ObjectValues.push_back(std::move(Values));
+			}
+			return Offset == End || Fail(std::format(
+				"DAST v7 value section has trailing bytes at physical offset {}.", Offset), &OutError);
+		}
+
 		auto BuildV7FromObjectStream(std::span<const std::byte> ObjectStream,
 			std::span<const FPackageBulkDataEntry> Entries,
 			const FPackageBulkSegmentSummary& Segment,
@@ -487,23 +751,69 @@ namespace Durin::Asset::Private::DastV7
 				ObjectStream, Source, Out, {}, &Diagnostic);
 		}
 
-		auto ProbeCompatibility(std::span<const std::byte> Bytes,
+		auto ProbeCompatibility(IAssetPackageByteSource& Source,
 			const FAssetPath& Path, const FReflectionCompatibilityCatalog& Catalog,
 			FAssetPackageCompatibilityRecord& OutRecord,
-			FAssetCompatibilityProbeStats* OutStats) -> FAssetResult
+			FAssetCompatibilityProbeStats* OutStats,
+			const FAssetCompatibilityCancellationCheck& IsCancelled) -> FAssetResult
 		{
-			std::vector<std::byte> ObjectStream;
-			if (FAssetResult Result = MakeObjectStream(Bytes, ObjectStream, true); !Result)
-				return Result;
+			if (IsCancelled && IsCancelled())
+				return {EAssetError::IoError, "Asset compatibility inspection was cancelled."};
+			std::array<std::vector<std::byte>, RequiredSectionCount> Owned;
+			FParsedPackage Parsed;
+			std::string ReadError;
+			if (!ParseCompatibilityMetadata(Source, Owned, Parsed, IsCancelled, ReadError))
+				return Error(std::move(ReadError));
+			std::vector<std::byte> MetadataStream;
+			if (!BuildCompatibilityObjectStream(Parsed, MetadataStream))
+				return Error("DAST v7 metadata cannot form a bounded compatibility stream.");
 			PackageObjectStream::FReaderDiagnostic Diagnostic;
-			FAssetResult Result = PackageObjectStream::ProbeCompatibility(
-				ObjectStream, Path, Catalog, OutRecord, OutStats, {}, &Diagnostic);
+			PackageObjectStream::FDecodedPackage Package;
+			if (!PackageObjectStream::DecodePackageDescriptors(
+				MetadataStream, Package, {}, &Diagnostic))
+				return Error(Diagnostic.Message);
+			if (!ScanCompatibilityValueDescriptors(Source, Parsed.RequiredEntries[6],
+				Package, OutStats, IsCancelled, ReadError)) return Error(std::move(ReadError));
+
+			const bool bNeedsPayloadValues = std::ranges::any_of(
+				Catalog.GetDeprecatedPropertyRoutes(), [&](const auto& Route) {
+					return std::ranges::any_of(Package.Schemas, [&](const auto& Schema) {
+						return Schema.QualifiedName == Route.DeclaringType;
+					});
+				});
+			FAssetResult Result;
+			if (bNeedsPayloadValues)
+			{
+				if (Source.GetSize() > std::numeric_limits<size_t>::max())
+					return Error("DAST v7 package exceeds the addressable range.");
+				std::vector<std::byte> Bytes(static_cast<size_t>(Source.GetSize()));
+				if (!ReadCompatibilityRange(Source, 0, Bytes, IsCancelled, ReadError))
+					return Error(std::move(ReadError));
+				std::vector<std::byte> ObjectStream;
+				if (Result = MakeObjectStream(Bytes, ObjectStream, true); !Result) return Result;
+				FAssetCompatibilityProbeStats FallbackStats;
+				Result = PackageObjectStream::ProbeCompatibility(ObjectStream, Path, Catalog,
+					OutRecord, &FallbackStats, {}, &Diagnostic);
+				if (OutStats)
+				{
+					OutStats->PayloadBytesSkipped = 0;
+					OutStats->PeakMetadataBytes = std::max<uint64>(OutStats->PeakMetadataBytes,
+						Bytes.size() + ObjectStream.size());
+				}
+			}
+			else Result = PackageObjectStream::ProbeDecodedCompatibility(std::move(Package),
+				Source.GetSize(), false, Path, Catalog, OutRecord, &Diagnostic);
 			if (Result)
 			{
 				OutRecord.FormatVersion = AssetPackageV7FormatVersion;
-				OutRecord.Fingerprint = {
-					.FileSize = Bytes.size(), .ContentHash = FXxHash128::HashBuffer(Bytes),
-					.ReaderVersion = AssetPackageV7FormatVersion};
+				OutRecord.Fingerprint.FileSize = Source.GetSize();
+				OutRecord.Fingerprint.ReaderVersion = AssetPackageV7FormatVersion;
+				if (OutStats && !bNeedsPayloadValues)
+				{
+					uint64 LiveBytes = MetadataStream.size();
+					for (const auto& Section : Owned) LiveBytes += Section.size();
+					OutStats->PeakMetadataBytes = std::max(OutStats->PeakMetadataBytes, LiveBytes);
+				}
 			}
 			return Result;
 		}

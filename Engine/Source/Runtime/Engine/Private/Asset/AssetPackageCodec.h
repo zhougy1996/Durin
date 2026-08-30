@@ -2,6 +2,7 @@
 
 #include "EngineAPI.h"
 #include "AssetSubsystemFwd.h"
+#include "Asset/Compatibility.h"
 #include "AssetRegistry/Result.h"
 
 namespace Durin
@@ -11,6 +12,8 @@ namespace Durin
 
 namespace Durin::Asset::Private
 {
+	class IAssetPackageByteSource;
+
 	// Defines the complete engine-owned capability set for one immutable package format.
 	struct FAssetPackageCodec
 	{
@@ -28,9 +31,10 @@ namespace Durin::Asset::Private
 			std::span<const std::byte>, const FAssetPath&, std::vector<FAssetReferenceEdge>&)
 			-> FAssetResult = nullptr;
 		auto (*ProbeCompatibility)(
-			std::span<const std::byte>, const FAssetPath&,
+			IAssetPackageByteSource&, const FAssetPath&,
 			const FReflectionCompatibilityCatalog&, FAssetPackageCompatibilityRecord&,
-			FAssetCompatibilityProbeStats*) -> FAssetResult = nullptr;
+			FAssetCompatibilityProbeStats*, const FAssetCompatibilityCancellationCheck&)
+			-> FAssetResult = nullptr;
 		auto (*Load)(
 			std::span<const std::byte>, const FAssetPath&, DPackage*&, FAssetLoadReport*,
 			const std::function<FAssetResult(DPackage*)>&,
@@ -56,6 +60,10 @@ namespace Durin::Asset::Private
 		std::span<const std::byte> Bytes, const FAssetPackageCodec*& OutCodec,
 		uint32* OutFormatVersion = nullptr,
 		uint64 PhysicalFileBytes = 0) -> FAssetResult;
+	auto ResolveAssetPackageReader(
+		IAssetPackageByteSource& Source, const FAssetPackageCodec*& OutCodec,
+		uint32* OutFormatVersion = nullptr,
+		const FAssetCompatibilityCancellationCheck& IsCancelled = {}) -> FAssetResult;
 	auto ValidateAssetPackageCodecPolicy(std::string& OutError) -> bool;
 	ENGINE_API auto ValidateAssetPackageCodecTable(
 		std::span<const FAssetPackageCodec> Codecs, std::string& OutError) -> bool;

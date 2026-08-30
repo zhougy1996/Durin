@@ -7,6 +7,42 @@ namespace Durin
 {
 	namespace FFileHelper
 	{
+		enum class EFileIoOperation : uint8
+		{
+			None,
+			OpenRead,
+			QuerySize,
+			Read
+		};
+
+		struct FFileIoError
+		{
+			EFileIoOperation Operation = EFileIoOperation::None;
+			std::error_code NativeError;
+			std::filesystem::path Path;
+			uint64 Offset = 0;
+			uint64 Size = 0;
+
+			CORE_API auto ToString() const -> std::string;
+		};
+
+		// Uniquely owned synchronous random-read capability. ReadAt is exact: it
+		// either fills Output or fails without exposing a shared stream cursor.
+		class IFileHandle
+		{
+		public:
+			virtual ~IFileHandle() = default;
+			virtual auto GetSize() const -> uint64 = 0;
+			virtual auto ReadAt(
+				uint64 Offset,
+				std::span<std::byte> Output,
+				FFileIoError* OutError = nullptr) -> bool = 0;
+		};
+
+		CORE_API auto OpenRead(
+			const std::filesystem::path& FilePath,
+			FFileIoError* OutError = nullptr) -> std::unique_ptr<IFileHandle>;
+
 		// Identifies the filesystem operation that prevented atomic file publication.
 		enum class EAtomicFileOperation : uint8
 		{
