@@ -542,9 +542,9 @@ TEST(FTransBufferTests, ScopedModifyRecordsChangedMembersAndPrunesNoOps)
 {
 	InitializeDObjectSystem();
 	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "ModifyTransBuffer");
-	Durin::FScopedObjectRoot BufferRoot(Buffer);
+	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
 	auto* Target = Durin::NewObject<DTransactionRecordParticipant>(nullptr, "ModifyTarget");
-	Durin::FScopedObjectRoot TargetRoot(Target);
+	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 
 	{
 		Durin::Editor::FScopedTransaction NoChange(Buffer, {"test", "No change"});
