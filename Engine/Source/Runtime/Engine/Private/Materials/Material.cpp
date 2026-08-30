@@ -11,6 +11,15 @@
 
 namespace Durin
 {
+	namespace
+	{
+		auto AdvanceRevision(uint64& Revision) -> void
+		{
+			Revision = Revision == std::numeric_limits<uint64>::max()
+				? 1 : Revision + 1;
+		}
+	}
+
 	DMaterial::DMaterial(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
 		, ParameterDefinitions(MakeCanonicalMaterialParameterDefinitions())
@@ -76,10 +85,7 @@ namespace Durin
 
 	auto DMaterial::AdvanceAuthoredRevision() -> void
 	{
-		MaterialCompileStatus.AuthoredRevision =
-			MaterialCompileStatus.AuthoredRevision
-				== std::numeric_limits<uint64>::max()
-				? 1 : MaterialCompileStatus.AuthoredRevision + 1;
+		AdvanceRevision(MaterialCompileStatus.AuthoredRevision);
 	}
 
 	auto DMaterial::GetRenderableStaticProperties() const
@@ -109,6 +115,7 @@ namespace Durin
 		if (!OutValidation) return false;
 		if (Program == InProgram) return true;
 		Program = std::move(InProgram);
+		AdvanceRevision(MaterialProgramRevision);
 		AdvanceAuthoredRevision();
 		RequestProgramCompile(Program, StaticProperties);
 		MarkPackageDirty();
@@ -123,6 +130,7 @@ namespace Durin
 			InPresentation, Program);
 		if (GraphPresentation == InPresentation) return true;
 		GraphPresentation = std::move(InPresentation);
+		AdvanceRevision(MaterialGraphPresentationRevision);
 		MarkPackageDirty();
 		return true;
 	}
@@ -362,6 +370,9 @@ namespace Durin
 		}
 		GraphPresentation = SanitizeMaterialGraphPresentation(
 			GraphPresentation, Program);
+		AdvanceRevision(MaterialProgramRevision);
+		AdvanceRevision(MaterialGraphPresentationRevision);
+		AdvanceRevision(ParameterDefinitionSchemaRevision);
 		RequestProgramCompile(Program, StaticProperties);
 		PublishMaterialRenderProxyState();
 		return true;
@@ -375,9 +386,19 @@ namespace Durin
 		const FName Name = Event.MemberProperty->NamePrivate;
 		if (Name == FName("Program") || Name == FName("StaticProperties"))
 		{
+			if (Name == FName("Program"))
+				AdvanceRevision(MaterialProgramRevision);
 			AdvanceAuthoredRevision();
 			RequestProgramCompile(Program, StaticProperties);
 			MarkRenderDataDirty(EMaterialRenderDirtyFlags::ShaderMap);
+		}
+		else if (Name == FName("GraphPresentation"))
+		{
+			AdvanceRevision(MaterialGraphPresentationRevision);
+		}
+		else if (Name == FName("ParameterDefinitions"))
+		{
+			AdvanceRevision(ParameterDefinitionSchemaRevision);
 		}
 	}
 

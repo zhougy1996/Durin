@@ -432,45 +432,96 @@ namespace Durin::Editor::Material
 		std::span<const FMaterialGraphCatalogEntry> Catalog)
 		-> FMaterialGraphView
 	{
+		struct FCatalogShapeKey
+		{
+			EMaterialProgramOpcode Opcode;
+			EMaterialProgramValueType ResultType;
+			FGuid ParameterId;
+
+			auto operator==(const FCatalogShapeKey&) const -> bool = default;
+		};
+		struct FCatalogShapeKeyHash
+		{
+			auto operator()(const FCatalogShapeKey& Key) const -> size_t
+			{
+				size_t Hash = static_cast<size_t>(Key.Opcode);
+				Hash = Hash * 31 + static_cast<size_t>(Key.ResultType);
+				return Hash * 31 + std::hash<FGuid>{}(Key.ParameterId);
+			}
+		};
+		const auto BaseShapeKey = [](EMaterialProgramOpcode Opcode,
+			EMaterialProgramValueType ResultType) {
+			return static_cast<uint32>(Opcode) << 8
+				| static_cast<uint32>(ResultType);
+		};
+
 		FMaterialGraphView Result;
 		const FMaterialProgram& Program = *Material.GetMaterialProgram();
 		const FMaterialGraphPresentation Presentation =
 			SanitizeMaterialGraphPresentation(
 				Material.GetMaterialGraphPresentation(), Program);
+		std::unordered_map<FGuid, const FMaterialProgramNode*> NodesById;
+		NodesById.reserve(Program.Nodes.size());
+		for (const FMaterialProgramNode& Node : Program.Nodes)
+			NodesById.emplace(Node.Id, &Node);
+		std::unordered_map<uint32, const FMaterialGraphCatalogEntry*> BaseShapes;
+		std::unordered_map<FCatalogShapeKey,
+			const FMaterialGraphCatalogEntry*, FCatalogShapeKeyHash> ParameterShapes;
+		BaseShapes.reserve(Catalog.size());
+		ParameterShapes.reserve(Catalog.size());
+		for (const FMaterialGraphCatalogEntry& Entry : Catalog)
+		{
+			BaseShapes.emplace(BaseShapeKey(
+				Entry.NodeTemplate.Opcode, Entry.NodeTemplate.ResultType), &Entry);
+			if (Entry.NodeTemplate.ParameterId.IsValid())
+				ParameterShapes.emplace(FCatalogShapeKey{
+					Entry.NodeTemplate.Opcode,
+					Entry.NodeTemplate.ResultType,
+					Entry.NodeTemplate.ParameterId}, &Entry);
+		}
 		std::unordered_map<FGuid, FMaterialGraphNodePresentation> Positions;
+		Positions.reserve(Presentation.Nodes.size());
 		for (const FMaterialGraphNodePresentation& Position : Presentation.Nodes)
 			Positions.emplace(Position.NodeId, Position);
 		Result.Nodes.reserve(Program.Nodes.size());
 		for (const FMaterialProgramNode& Node : Program.Nodes)
 		{
 			FMaterialGraphNodeView View{.Node = Node};
-			const auto Shape = std::ranges::find_if(Catalog,
-				[&](const FMaterialGraphCatalogEntry& Entry) {
-					return Entry.NodeTemplate.Opcode == Node.Opcode
-						&& Entry.NodeTemplate.ResultType == Node.ResultType
-						&& (!Node.ParameterId.IsValid()
-							|| Entry.NodeTemplate.ParameterId == Node.ParameterId);
-				});
-			View.PrimaryLabel = Shape == Catalog.end()
-				? GetOpcodeName(Node.Opcode) : Shape->OperationName;
+			const FMaterialGraphCatalogEntry* Shape = nullptr;
+			if (Node.ParameterId.IsValid())
+			{
+				const auto It = ParameterShapes.find({
+					Node.Opcode, Node.ResultType, Node.ParameterId});
+				if (It != ParameterShapes.end()) Shape = It->second;
+			}
+			else
+			{
+				const auto It = BaseShapes.find(BaseShapeKey(
+					Node.Opcode, Node.ResultType));
+				if (It != BaseShapes.end()) Shape = It->second;
+			}
+			View.PrimaryLabel = Shape
+				? Shape->OperationName : GetOpcodeName(Node.Opcode);
 			View.SecondaryLabel = Node.DisplayName;
-			if (View.SecondaryLabel.empty() && Shape != Catalog.end())
+			if (View.SecondaryLabel.empty() && Shape)
 				View.SecondaryLabel = Shape->SecondaryName;
 			View.Inputs.reserve(Node.Inputs.size());
 			for (uint32 InputIndex = 0; InputIndex < Node.Inputs.size(); ++InputIndex)
 			{
-				const FMaterialProgramNode* Source = FindNode(
-					Program, Node.Inputs[InputIndex].SourceNodeId);
+				const auto SourceIt = NodesById.find(
+					Node.Inputs[InputIndex].SourceNodeId);
+				const FMaterialProgramNode* Source = SourceIt == NodesById.end()
+					? nullptr : SourceIt->second;
 				FMaterialGraphPinView Pin{
 					.InputIndex = InputIndex,
-					.Name = Shape != Catalog.end()
+					.Name = Shape
 						&& InputIndex < Shape->InputNames.size()
 						? Shape->InputNames[InputIndex] : "Value",
 					.Link = Node.Inputs[InputIndex],
 					.SourceType = Source ? Source->ResultType
 						: EMaterialProgramValueType::Float,
 				};
-				if (Shape != Catalog.end()
+				if (Shape
 					&& InputIndex < Shape->AcceptedInputTypes.size())
 					Pin.AcceptedTypes = Shape->AcceptedInputTypes[InputIndex];
 				View.Inputs.push_back(std::move(Pin));

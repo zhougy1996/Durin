@@ -58,6 +58,51 @@ namespace
 	}
 }
 
+TEST(FMaterialGraphOperationsTests,
+	GraphViewRevisionsTrackRelevantAuthoredState)
+{
+	InitializeDObjectSystem();
+	DMaterial* Material = NewObject<DMaterial>(nullptr, "GraphViewRevisions");
+	ASSERT_NE(Material, nullptr);
+	const uint64 InitialProgramRevision = Material->GetMaterialProgramRevision();
+	const uint64 InitialPresentationRevision =
+		Material->GetMaterialGraphPresentationRevision();
+	const uint64 InitialSchemaRevision =
+		Material->GetParameterDefinitionSchemaRevision();
+
+	FMaterialGraphPresentation Presentation =
+		Material->GetMaterialGraphPresentation();
+	Presentation.MaterialOutputX += 64;
+	ASSERT_TRUE(Material->SetMaterialGraphPresentation(Presentation));
+	EXPECT_EQ(Material->GetMaterialProgramRevision(), InitialProgramRevision);
+	EXPECT_GT(Material->GetMaterialGraphPresentationRevision(),
+		InitialPresentationRevision);
+	EXPECT_EQ(Material->GetParameterDefinitionSchemaRevision(),
+		InitialSchemaRevision);
+	const uint64 MovedPresentationRevision =
+		Material->GetMaterialGraphPresentationRevision();
+	ASSERT_TRUE(Material->SetMaterialGraphPresentation(Presentation));
+	EXPECT_EQ(Material->GetMaterialGraphPresentationRevision(),
+		MovedPresentationRevision);
+
+	FMaterialProgram Program = *Material->GetMaterialProgram();
+	Program.Outputs.RoughnessDefault.X = 0.75f;
+	FMaterialProgramValidationResult Validation;
+	ASSERT_TRUE(Material->SetMaterialProgram(std::move(Program), Validation));
+	EXPECT_GT(Material->GetMaterialProgramRevision(), InitialProgramRevision);
+	EXPECT_EQ(Material->GetMaterialGraphPresentationRevision(),
+		MovedPresentationRevision);
+	EXPECT_EQ(Material->GetParameterDefinitionSchemaRevision(),
+		InitialSchemaRevision);
+
+	ASSERT_TRUE(Material->SetVectorParameterValue(
+		MaterialParameters::BaseColorName(), {0.2f, 0.3f, 0.4f}));
+	EXPECT_EQ(Material->GetParameterDefinitionSchemaRevision(),
+		InitialSchemaRevision);
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
 TEST(FMaterialAssetCreationTests, NewBaseMaterialIsRenderableBeforePublication)
 {
 	InitializeDObjectSystem();

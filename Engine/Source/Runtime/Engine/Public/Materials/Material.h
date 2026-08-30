@@ -29,6 +29,18 @@ namespace Durin
 		{
 			return GraphPresentation;
 		}
+		auto GetMaterialProgramRevision() const -> uint64
+		{
+			return MaterialProgramRevision;
+		}
+		auto GetMaterialGraphPresentationRevision() const -> uint64
+		{
+			return MaterialGraphPresentationRevision;
+		}
+		auto GetParameterDefinitionSchemaRevision() const -> uint64
+		{
+			return ParameterDefinitionSchemaRevision;
+		}
 		ENGINE_API auto GetAcceptedCompiledProgram() const
 			-> std::shared_ptr<const FMaterialCompilerResult> override;
 		auto GetCookedProgramData() const -> const Asset::FBulkData&
@@ -120,6 +132,10 @@ namespace Durin
 		// Parameter values change frequently, while reachability changes only with the authored program.
 		mutable uint64 CachedParameterDependencyRevision = 0;
 		mutable std::vector<FMaterialParameterDependency> CachedParameterDependencies;
+		// Transient monotonic revisions invalidate editor graph caches independently.
+		uint64 MaterialProgramRevision = 1;
+		uint64 MaterialGraphPresentationRevision = 1;
+		uint64 ParameterDefinitionSchemaRevision = 1;
 
 		auto LoadCookedProgram(std::string& OutError) -> bool;
 

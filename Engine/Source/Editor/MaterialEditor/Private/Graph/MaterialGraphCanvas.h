@@ -17,6 +17,8 @@ namespace Durin::Editor::Material
 	{
 	public:
 		using FReportError = std::function<void(std::string)>;
+		FMaterialGraphCanvas();
+		~FMaterialGraphCanvas();
 
 		auto Draw(
 			DMaterial& Material,
@@ -100,9 +102,9 @@ namespace Durin::Editor::Material
 			FPaletteInteraction,
 			FContextMenuInteraction>;
 
-		auto PrepareView(DMaterial& Material) -> FMaterialGraphView;
-		auto BuildVisualGraph(const FMaterialGraphView& View,
-			const ImVec2& CanvasMinimum) const -> FVisualGraph;
+		auto PrepareView(DMaterial& Material) -> const FMaterialGraphView&;
+		auto PrepareVisualGraph(const FMaterialGraphView& View,
+			const ImVec2& CanvasMinimum) -> const FVisualGraph&;
 		auto FrameNodes(const FMaterialGraphView& View,
 			const ImVec2& CanvasSize) -> void;
 		auto DrawLinks(const FVisualGraph& VisualGraph,
@@ -129,8 +131,15 @@ namespace Durin::Editor::Material
 		bool bPendingFrameSurface = false;
 		std::vector<std::string> RecentPaletteEntries;
 		std::unordered_set<std::string> FavoritePaletteEntries;
-		uint64 CatalogAuthoredRevision = 0;
+		DMaterial* CachedMaterial = nullptr;
+		uint64 CatalogSchemaRevision = 0;
+		uint64 CachedProgramRevision = 0;
+		uint64 CachedPresentationRevision = 0;
+		uint64 CachedSchemaRevision = 0;
 		std::vector<FMaterialGraphCatalogEntry> Catalog;
+		FMaterialGraphView CachedView;
+		std::unique_ptr<FVisualGraph> CachedVisualGraph;
+		bool bVisualGraphTopologyStale = true;
 		std::array<std::array<float, 4>, 8> SurfaceDefaultDrafts{};
 		std::array<bool, 8> bSurfaceDefaultDraftInitialized{};
 		FInteraction Interaction = FIdleInteraction{};
