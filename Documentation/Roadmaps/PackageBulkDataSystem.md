@@ -27,6 +27,14 @@ production DBLK publication are retired. The M3 entry gate is satisfied; Cook
 scheduling, generic publication, incremental state, and store abstraction
 remain outside M2.
 
+Milestone 3 is active through the
+[Cook Package Segment Publication plan](../Plans/CookPackageSegmentPublication.md).
+It selects a synchronous offline project Cook hosted by `DurinAssetTool` and
+exposed through a top-level `DevTool cook` command. Engine will own deterministic
+reachability/scheduling, immutable save-plan capture, separate incremental Cook
+state, and a transactional local output-store boundary; remote/archive stores
+and Cook On The Fly remain outside M3.
+
 The M4 compatibility inventory now contains 25 checked-in DAST v7 packages and
 eight raw `.dbulk` companions, with no tracked `.dabulk` companions or unknown
 legacy `CookedPayload` fields. The one 259-byte logical DBLK v2 regression
@@ -153,7 +161,9 @@ future archive or remote stores without exposing physical paths to assets.
 
 - Cook scheduling and publication remain family/project coordinated rather
   than one generic captured save-plan and output-store transaction.
-- The checked-in v6/DABK corpus has not yet been resaved and retired.
+- The checked-in corpus is canonical DAST v7, but DAST v6/DABK and DBLK
+  compatibility readers, adapters, UI inspection routes, and fixtures remain
+  until M4.
 - No archive/install-chunk backend consumes the same package-segment contract.
 
 ## Milestone Map
@@ -162,7 +172,7 @@ future archive or remote stores without exposing physical paths to assets.
 | --- | --- | --- | --- | --- | --- |
 | 1. Field-level authored foundation | Complete | Existing DAST v6, package transaction, and BulkData property foundations | Field-level `FBulkData`/`FEditorBulkData`, package-resource API, DAST v7 field metadata, raw authored `.dbulk`, v6 compatibility, and authored-family migration | Current DABK/DBLK contracts and affected asset families are documented and covered by native tests | Passed: authored assets save and metadata-load through DAST v7/raw `.dbulk`; DDC hits use editor payload identity without reading bytes; v6 packages resave transactionally; no new `.dabulk` is written |
 | 2. Cooked field and loader migration | Complete | M1 | Coherent editor payload snapshots, one family PlatformData schema across DDC/Cook, and runtime `FBulkData` fields replace cooked descriptors and DBLK v2 containers | Passed: M1 package-resource lifetime, raw segment binding, failure policy, and warm-DDC no-read behavior are qualified | Passed: every supported cooked asset loads lazily from raw `.dbulk` without source/DDC or family-owned physical-path resolution; old DBLK remains only in the selected decoder/fixture window |
-| 3. Cook bulk publication integration | Proposed | M2; project-level Cook orchestration selected separately | Generic Cook save plans contribute field payloads to one package-segment writer and manifest/store boundary | All cooked families express runtime bytes through `FBulkData` and immutable save overrides | Cook produces deterministic package/segment pairs, distinguishes DDC and Cook hits, publishes atomically, cleans stale outputs from manifests, and never mutates authored objects |
+| 3. Cook bulk publication integration | Active | M2; offline project Cook orchestration selected in the active child plan | Generic Cook save plans contribute field payloads to one package-segment writer and manifest/store boundary | Passed: all cooked families express runtime bytes through `FBulkData` and immutable save overrides | Cook produces deterministic package/segment pairs, distinguishes DDC and Cook hits, publishes atomically, cleans stale outputs from manifests, and never mutates authored objects |
 | 4. Legacy retirement and corpus qualification | Proposed | M1-M3 | Repository corpus migration, old writer/reader removal, lasting contract updates, and storage inventory cleanup | All checked-in and fixture packages have a supported canonical resave path | `.dabulk`, DABK v2, structured DBLK v2, legacy storage APIs, and temporary adapters are removed; repository and runtime qualification use only the new model |
 | 5. Scalable package stores | Evidence-gated | M3-M4; measured loose-file and streaming workloads | Optional/memory-mapped segments, archive/install-chunk routing, or remote editor payload virtualization selected from evidence | Profiles identify file-count, latency, memory, patch, or collaboration limits not met by loose segments | The selected backend preserves field semantics, package identity, failure policy, determinism, and bounded resource lifetime without asset-level path knowledge |
 
@@ -172,7 +182,7 @@ future archive or remote stores without exposing physical paths to assets.
 | --- | --- | --- | --- |
 | [Field-Level Bulk Data Foundation](../Plans/FieldLevelBulkDataFoundation.md) | M1 | Core field semantics, Archive/package-resource boundary, DAST v7 raw authored segment, compatibility, and authored asset migration | Complete |
 | [Cooked Bulk Data Field Migration](../Plans/CookedBulkDataFieldMigration.md) | M2 | Publish coherent `FEditorBulkData` snapshots; unify DDC/Cook PlatformData schemas; replace cooked descriptors, family loaders, and DBLK v2 with runtime `FBulkData`; excludes Cook scheduler, generic publication, and archive storage | Complete |
-| Cook Package Segment Publication | M3 | Generic Cook capture, layout, output-store, manifest, and incremental publication; excludes authored migration | M2 entry evidence passed; create after project-level Cook orchestration selection |
+| [Cook Package Segment Publication](../Plans/CookPackageSegmentPublication.md) | M3 | Generic Cook capture, layout, output-store, manifest, and incremental publication; excludes authored migration | Active; M2 entry evidence passed and offline project Cook orchestration selected |
 | Bulk Data Legacy Retirement | M4 | Corpus resave, compatibility deletion, fixture cleanup, and lasting documentation | Create only when all production families have migrated |
 | Scalable Package Bulk Stores | M5 | One evidence-selected archive, optional, memory-mapped, or remote backend | Create only from measured post-M4 evidence |
 
