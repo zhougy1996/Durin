@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Asset/PackageObjectStreamReader.h"
-#include "Asset/AssetPackageV6Codec.h"
+#include "Asset/AssetPackageV7Codec.h"
 #include "Asset/Testing.h"
 #include "Asset/AssetOperations.h"
 #include "Asset/Mutation.h"
@@ -359,7 +359,7 @@ TEST(FPackageObjectStreamReaderTests, OrdinaryValidationUsesTheV6Envelope)
 	Production::FDecodedPackage Package;
 	ASSERT_TRUE(Production::DecodePackage(ObjectStream, Package));
 	std::vector<std::byte> Bytes;
-	ASSERT_TRUE(Durin::Asset::Private::DastV6::BuildPackageFromObjectStream(
+	ASSERT_TRUE(Durin::Asset::Private::DastV7::BuildPackageFromObjectStream(
 		ObjectStream, Bytes));
 	const Durin::Asset::FAssetResult Ordinary = Durin::Asset::ValidateAssetPackageBytes(Bytes);
 	EXPECT_TRUE(Ordinary) << Ordinary.Message;

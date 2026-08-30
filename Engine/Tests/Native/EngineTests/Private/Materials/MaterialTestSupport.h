@@ -8,7 +8,7 @@
 #include "AssetCook.h"
 #include "Asset/CanonicalResave.h"
 #include "Asset/Compatibility.h"
-#include "Asset/AssetPackageV6Codec.h"
+#include "Asset/AssetPackageV7Codec.h"
 #include "Asset/PackageObjectStreamReader.h"
 #include "Asset/AssetRetention.h"
 #include "Components/DirectionalLightComponent.h"
@@ -64,7 +64,7 @@ namespace
 	) -> bool
 	{
 		std::vector<std::byte> ObjectStream;
-		if (!Durin::Asset::Private::DastV6::ExtractObjectStream(
+		if (!Durin::Asset::Private::DastV7::ExtractObjectStream(
 				Bytes, ObjectStream)) return false;
 		Durin::Asset::PackageObjectStream::FDecodedPackage Package;
 		if (!Durin::Asset::PackageObjectStream::DecodePackage(ObjectStream, Package)) return false;
@@ -117,14 +117,14 @@ namespace
 			|| !Durin::Asset::PackageObjectStream::ReencodePackage(Package, ObjectStream))
 			return false;
 		return static_cast<bool>(
-			Durin::Asset::Private::DastV6::BuildPackageFromObjectStream(
+			Durin::Asset::Private::DastV7::BuildPackageFromObjectStream(
 				ObjectStream, Bytes));
 	}
 
 	auto ContainsSerializedField(std::span<const std::byte> Bytes, std::string_view Name) -> bool
 	{
 		std::vector<std::byte> ObjectStream;
-		if (!Durin::Asset::Private::DastV6::ExtractObjectStream(
+		if (!Durin::Asset::Private::DastV7::ExtractObjectStream(
 				Bytes, ObjectStream)) return false;
 		Durin::Asset::PackageObjectStream::FDecodedPackage Package;
 		if (!Durin::Asset::PackageObjectStream::DecodePackage(
@@ -143,7 +143,7 @@ namespace
 		std::string_view Name) -> bool
 	{
 		std::vector<std::byte> ObjectStream;
-		if (!Durin::Asset::Private::DastV6::ExtractObjectStream(
+		if (!Durin::Asset::Private::DastV7::ExtractObjectStream(
 				Bytes, ObjectStream)) return false;
 		Durin::Asset::PackageObjectStream::FDecodedPackage Package;
 		if (!Durin::Asset::PackageObjectStream::DecodePackage(
@@ -185,7 +185,7 @@ namespace
 		if (!Durin::Asset::PackageObjectStream::ReencodePackage(
 			Package, ObjectStream)) return false;
 		return static_cast<bool>(
-			Durin::Asset::Private::DastV6::BuildPackageFromObjectStream(
+			Durin::Asset::Private::DastV7::BuildPackageFromObjectStream(
 				ObjectStream, Bytes));
 	}
 

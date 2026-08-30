@@ -2,60 +2,20 @@
 #include "Asset/PackageSerialization.h"
 
 #include "AssetPublicationCoordinatorInternal.h"
-#include "Asset/PackageVersionPolicy.h"
 #include "BulkContainerInfrastructure.h"
 #include "DObject/Package.h"
 #include "Hash/XxHash.h"
-#include "Misc/FileHelper.h"
 #include "Misc/LexicalPath.h"
-#include "Serialization/BinaryEnvelope.h"
 
 namespace Durin::Asset
 {
 	namespace
 	{
-		constexpr uint32 BulkVersion = 2;
-		constexpr uint32 BulkHeaderSize = 64;
-		constexpr uint64 BulkFixedHeaderSize = BinaryEnvelopePreambleBytes + BulkHeaderSize;
-		constexpr uint32 BulkEntrySize = 80;
-		constexpr uint32 MaximumPayloadCount = 64;
-		constexpr uint64 MaximumPayloadBytes = 8ull * 1024 * 1024 * 1024;
-		constexpr uint64 MaximumBulkBytes = 64ull * 1024 * 1024 * 1024;
-		constexpr FBinaryEnvelopeLimits BulkEnvelopeLimits{64ull * 1024, MaximumBulkBytes};
 		constexpr uint32 ManifestMagic = 0x464e4d43;
 		constexpr uint32 ManifestVersion = 1;
 		constexpr uint32 ManifestHeaderSize = 48;
 		constexpr uint64 MaximumManifestRecordBytes = 256ull * 1024 * 1024;
 		constexpr uint32 MaximumManifestEntries = 1'000'000;
-
-		struct FBulkHeader
-		{
-			uint32 Platform = 0;
-			uint32 Profile = 0;
-			uint32 Flags = 0;
-			uint32 EntrySize = 0;
-			uint32 Count = 0;
-			uint32 Reserved0 = 0;
-			uint64 TableOffset = 0;
-			uint64 DataOffset = 0;
-			uint64 TableHash = 0;
-			uint64 Reserved1 = 0;
-			uint64 Reserved2 = 0;
-		};
-
-		struct FBulkWireEntry
-		{
-			FCookedPayloadDescriptor Descriptor;
-			uint32 Flags = 0;
-		};
-
-		struct FParsedCookedBulk
-		{
-			ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
-			ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
-			std::vector<FCookedPayloadDescriptor> Entries;
-			std::vector<std::span<const std::byte>> Payloads;
-		};
 
 		struct FManifestHeader
 		{
@@ -81,92 +41,10 @@ namespace Durin::Asset
 			uint64 HashHigh = 0;
 		};
 
-		auto ReadBulkHeader(
-			BulkContainer::FBoundedReader& Reader,
-			FBulkHeader& OutHeader) -> bool
-		{
-			FBulkHeader Header;
-			Reader.Read(Header.Platform);
-			Reader.Read(Header.Profile);
-			Reader.Read(Header.Flags);
-			Reader.Read(Header.EntrySize);
-			Reader.Read(Header.Count);
-			Reader.Read(Header.Reserved0);
-			Reader.Read(Header.TableOffset);
-			Reader.Read(Header.DataOffset);
-			Reader.Read(Header.TableHash);
-			Reader.Read(Header.Reserved1);
-			Reader.Read(Header.Reserved2);
-			if (!Reader.IsValid()) return false;
-			OutHeader = Header;
-			return true;
-		}
-
-		auto WriteBulkHeader(
-			BulkContainer::FBoundedWriter& Writer,
-			const FBulkHeader& Header) -> bool
-		{
-			Writer.Write(Header.Platform);
-			Writer.Write(Header.Profile);
-			Writer.Write(Header.Flags);
-			Writer.Write(Header.EntrySize);
-			Writer.Write(Header.Count);
-			Writer.Write(Header.Reserved0);
-			Writer.Write(Header.TableOffset);
-			Writer.Write(Header.DataOffset);
-			Writer.Write(Header.TableHash);
-			Writer.Write(Header.Reserved1);
-			Writer.Write(Header.Reserved2);
-			return Writer.IsValid();
-		}
-
-		auto ReadBulkEntry(
-			BulkContainer::FBoundedReader& Reader,
-			FBulkWireEntry& OutEntry) -> bool
-		{
-			FBulkWireEntry Entry;
-			Reader.ReadGuid(Entry.Descriptor.PayloadId);
-			Reader.Read(Entry.Flags);
-			Reader.Read(Entry.Descriptor.PayloadSchemaVersion);
-			Reader.Read(Entry.Descriptor.TargetPlatform);
-			Reader.Read(Entry.Descriptor.TargetProfile);
-			Reader.Read(Entry.Descriptor.CompressionMethod);
-			Reader.Read(Entry.Descriptor.Alignment);
-			Reader.Read(Entry.Descriptor.Offset);
-			Reader.Read(Entry.Descriptor.StoredSize);
-			Reader.Read(Entry.Descriptor.UncompressedSize);
-			Reader.Read(Entry.Descriptor.PayloadHashLow);
-			Reader.Read(Entry.Descriptor.PayloadHashHigh);
-			if (!Reader.IsValid()) return false;
-			Entry.Descriptor.LocationKind = static_cast<uint32>(
-				ECookedPayloadLocationKind::PackageCompanion);
-			OutEntry = Entry;
-			return true;
-		}
-
-		auto WriteBulkEntry(
-			BulkContainer::FBoundedWriter& Writer,
-			const FCookedBulkPayload& Payload,
-			const FCookedPayloadDescriptor& Descriptor) -> bool
-		{
-			Writer.WriteGuid(Payload.PayloadId);
-			Writer.Write(Payload.Flags);
-			Writer.Write(Payload.PayloadSchemaVersion);
-			Writer.Write(Descriptor.TargetPlatform);
-			Writer.Write(Descriptor.TargetProfile);
-			Writer.Write(static_cast<uint32>(Payload.Compression));
-			Writer.Write(Payload.Alignment);
-			Writer.Write(Descriptor.Offset);
-			Writer.Write(Descriptor.StoredSize);
-			Writer.Write(Descriptor.UncompressedSize);
-			Writer.Write(Descriptor.PayloadHashLow);
-			Writer.Write(Descriptor.PayloadHashHigh);
-			return Writer.IsValid();
-		}
-
 		auto ReadManifestHeader(
 			BulkContainer::FBoundedReader& Reader,
-			FManifestHeader& OutHeader) -> bool
+			FManifestHeader& OutHeader
+		) -> bool
 		{
 			FManifestHeader Header;
 			Reader.Read(Header.Magic);
@@ -185,7 +63,8 @@ namespace Durin::Asset
 
 		auto WriteManifestHeader(
 			BulkContainer::FBoundedWriter& Writer,
-			const FManifestHeader& Header) -> bool
+			const FManifestHeader& Header
+		) -> bool
 		{
 			Writer.Write(Header.Magic);
 			Writer.Write(Header.Version);
@@ -201,7 +80,8 @@ namespace Durin::Asset
 
 		auto ReadManifestRecordHeader(
 			BulkContainer::FBoundedReader& Reader,
-			FManifestRecordHeader& OutHeader) -> bool
+			FManifestRecordHeader& OutHeader
+		) -> bool
 		{
 			FManifestRecordHeader Header;
 			Reader.Read(Header.Kind);
@@ -218,7 +98,8 @@ namespace Durin::Asset
 
 		auto WriteManifestRecord(
 			BulkContainer::FBoundedWriter& Writer,
-			const FCookManifestEntry& Entry) -> bool
+			const FCookManifestEntry& Entry
+		) -> bool
 		{
 			Writer.Write(static_cast<uint8>(Entry.Kind));
 			Writer.Write(Entry.Flags);
@@ -233,11 +114,13 @@ namespace Durin::Asset
 
 		auto CanonicalizeCookVirtualPath(
 			std::string& VirtualPackagePath,
-			std::string* OutError) -> bool
+			std::string* OutError
+		) -> bool
 		{
 			FAssetPath RequestedPath;
 			if (!FAssetPath::TryCreate(
-				VirtualPackagePath, RequestedPath))
+					VirtualPackagePath, RequestedPath
+				))
 				return true;
 			const FAssetPublicationCoordinator& Registry = GetAssetPublicationCoordinator();
 			if (!Durin::Asset::FindAssetExact(RequestedPath)) return true;
@@ -245,10 +128,8 @@ namespace Durin::Asset
 				Durin::Asset::ResolveAssetPath(RequestedPath);
 			if (!Resolution || !Resolution.FinalAssetData
 				|| Resolution.FinalAssetData->EntryKind
-					!= EAssetRegistryEntryKind::Asset)
-				return Fail(std::format(
-					"Cook output path {} does not resolve to a final real asset.",
-					RequestedPath.ToString()), OutError);
+					   != EAssetRegistryEntryKind::Asset)
+				return Fail(std::format("Cook output path {} does not resolve to a final real asset.", RequestedPath.ToString()), OutError);
 			VirtualPackagePath = Resolution.FinalPath.ToString();
 			return true;
 		}
@@ -256,158 +137,7 @@ namespace Durin::Asset
 		auto IsValidTarget(ECookTargetPlatform Platform, ECookTargetProfile Profile) -> bool
 		{
 			return Platform == ECookTargetPlatform::Win64
-				&& (Profile == ECookTargetProfile::Game || Profile == ECookTargetProfile::EditorValidation);
-		}
-
-		auto GetBulkFormatRegistry() -> const FBinaryFormatRegistry&
-		{
-			static const FBinaryFormatRegistry Registry = [] {
-				const std::array Descriptors{FBinaryFormatDescriptor{
-					.FormatId = DblkBinaryFormatId,
-					.DebugName = std::string(DblkBinaryFormatName),
-					.MinimumFormatVersion = BulkVersion,
-					.MaximumFormatVersion = BulkVersion,
-					.SupportedRequiredFeatures = 0,
-					.Limits = BulkEnvelopeLimits}};
-				FBinaryFormatRegistry Result;
-				require(FBinaryFormatRegistry::Create(Descriptors, Result));
-				return Result;
-			}();
-			return Registry;
-		}
-
-		auto ParseCookedBulk(
-			std::span<const std::byte> Bytes,
-			ECookTargetPlatform ExpectedPlatform,
-			ECookTargetProfile ExpectedProfile,
-			FParsedCookedBulk& OutParsed,
-			std::string* OutError) -> bool
-		{
-			if (Bytes.size() < BulkFixedHeaderSize || Bytes.size() > MaximumBulkBytes)
-				return Fail("DBLK file size is invalid.", OutError);
-			FBinaryEnvelopePreamble Preamble;
-			FBinaryEnvelopeDiagnostic Diagnostic;
-			if (!ParseBinaryEnvelopePrefix(Bytes.first(BinaryEnvelopePreambleBytes), Bytes.size(),
-					BulkEnvelopeLimits, Preamble, &Diagnostic)
-				|| Preamble.HeaderBytes > Bytes.size())
-				return Fail(std::string(Diagnostic.Message), OutError);
-			FValidatedBinaryEnvelope Envelope;
-			if (!ValidateBinaryEnvelopeHeader(Bytes.first(static_cast<size_t>(Preamble.HeaderBytes)),
-					Bytes.size(), BulkEnvelopeLimits, GetBulkFormatRegistry(), Envelope, &Diagnostic))
-				return Fail(std::string(Diagnostic.Message), OutError);
-			BulkContainer::FBoundedReader Reader(Envelope.FormatHeaderBytes, BulkEnvelopeLimits.MaximumHeaderBytes);
-			FBulkHeader Header;
-			if (!ReadBulkHeader(Reader, Header))
-				return Fail("DBLK header is truncated.", OutError);
-			if (Header.Flags != 0
-				|| Header.Count == 0 || Header.Count > MaximumPayloadCount
-				|| Header.EntrySize != BulkEntrySize || Header.TableOffset != BulkFixedHeaderSize
-				|| Header.Reserved0 != 0 || Header.Reserved1 != 0 || Header.Reserved2 != 0
-				|| Header.DataOffset != Preamble.HeaderBytes)
-				return Fail("DBLK header is invalid.", OutError);
-			if (Header.Platform != static_cast<uint32>(ExpectedPlatform)
-				|| Header.Profile != static_cast<uint32>(ExpectedProfile)
-				|| !IsValidTarget(static_cast<ECookTargetPlatform>(Header.Platform),
-					static_cast<ECookTargetProfile>(Header.Profile)))
-				return Fail("DBLK target does not match the load context.", OutError);
-
-			uint64 TableBytes = 0, DirectoryEnd = 0, MinimumDataOffset = 0;
-			if (!BulkContainer::TryMultiply(
-					Header.Count, BulkEntrySize, MaximumBulkBytes, TableBytes)
-				|| !BulkContainer::TryAdd(
-					BulkFixedHeaderSize, TableBytes, MaximumBulkBytes, DirectoryEnd)
-				|| DirectoryEnd > Bytes.size())
-				return Fail("DBLK table is truncated.", OutError);
-			std::span<const std::byte> Table;
-			if (!BulkContainer::TryProjectRange(Bytes, BulkFixedHeaderSize, TableBytes, Table))
-				return Fail("DBLK table is truncated.", OutError);
-			if (FXxHash64::HashBuffer(Table).HashValue != Header.TableHash)
-				return Fail("DBLK table checksum is invalid.", OutError);
-			if (!BulkContainer::TryAlignUp(
-				DirectoryEnd, 16, MaximumBulkBytes, MinimumDataOffset)
-				|| Header.DataOffset != MinimumDataOffset)
-				return Fail("DBLK payload range is invalid.", OutError);
-
-			BulkContainer::FBoundedReader TableReader(Table, TableBytes);
-			FParsedCookedBulk Parsed;
-			Parsed.TargetPlatform = static_cast<ECookTargetPlatform>(Header.Platform);
-			Parsed.TargetProfile = static_cast<ECookTargetProfile>(Header.Profile);
-			Parsed.Entries.reserve(Header.Count);
-			std::vector<BulkContainer::FPayloadRange> Ranges;
-			Ranges.reserve(Header.Count);
-			for (uint32 Index = 0; Index < Header.Count; ++Index)
-			{
-				FBulkWireEntry WireEntry;
-				if (!ReadBulkEntry(TableReader, WireEntry))
-					return Fail("DBLK table entry is truncated.", OutError);
-				const FCookedPayloadDescriptor& Entry = WireEntry.Descriptor;
-				if (!Entry.PayloadId.IsValid()
-					|| (Index && !(Parsed.Entries.back().PayloadId < Entry.PayloadId))
-					|| (WireEntry.Flags & ~1u) != 0 || Entry.PayloadSchemaVersion == 0
-					|| Entry.TargetPlatform != Header.Platform
-					|| Entry.TargetProfile != Header.Profile
-					|| !BulkContainer::IsPowerOfTwo(Entry.Alignment)
-					|| Entry.Alignment < 16 || Entry.Alignment > 4096
-					|| Entry.StoredSize == 0 || Entry.StoredSize > MaximumPayloadBytes
-					|| Entry.UncompressedSize == 0
-					|| Entry.UncompressedSize > MaximumPayloadBytes)
-					return Fail("DBLK table entry is invalid.", OutError);
-				if (Entry.CompressionMethod
-					== static_cast<uint32>(ECookedPayloadCompression::None))
-				{
-					if (Entry.StoredSize != Entry.UncompressedSize)
-						return Fail("DBLK uncompressed sizes differ.", OutError);
-				}
-				else if (Entry.CompressionMethod
-					== static_cast<uint32>(ECookedPayloadCompression::Zstandard))
-				{
-					const uint64 Ratio = Entry.UncompressedSize / Entry.StoredSize;
-					if (Ratio > 64 || (Ratio == 64
-						&& Entry.UncompressedSize % Entry.StoredSize != 0))
-						return Fail("DBLK compression ratio exceeds its bound.", OutError);
-					return Fail("DBLK Zstandard compression is unsupported by this build.", OutError);
-				}
-				else
-				{
-					return Fail("DBLK compression method is unknown.", OutError);
-				}
-				Ranges.push_back({Entry.Offset, Entry.StoredSize, Entry.Alignment});
-				Parsed.Entries.push_back(Entry);
-			}
-
-			const BulkContainer::FLayoutPolicy LayoutPolicy{
-				.MaximumCount = MaximumPayloadCount,
-				.MaximumPayloadBytes = MaximumPayloadBytes,
-				.MaximumContainerBytes = MaximumBulkBytes,
-				.RequireCanonicalOffsets = false,
-				.AllowTrailingZeroPadding = true};
-			BulkContainer::FFailure LayoutFailure;
-			if (!BulkContainer::ValidateLayout(
-				Bytes, DirectoryEnd, MinimumDataOffset, Ranges, LayoutPolicy, &LayoutFailure))
-			{
-				if (LayoutFailure.Category == BulkContainer::EFailure::TrailingNonzeroPadding)
-					return Fail("DBLK trailing padding is nonzero.", OutError);
-				if (LayoutFailure.Category == BulkContainer::EFailure::NonzeroPadding)
-					return Fail("DBLK alignment padding is nonzero.", OutError);
-				return Fail("DBLK payload range is invalid.", OutError);
-			}
-
-			Parsed.Payloads.reserve(Parsed.Entries.size());
-			for (const FCookedPayloadDescriptor& Entry : Parsed.Entries)
-			{
-				std::span<const std::byte> Stored;
-				if (!BulkContainer::TryProjectRange(
-					Bytes, Entry.Offset, Entry.StoredSize, Stored))
-					return Fail("DBLK payload range is invalid.", OutError);
-				const FXxHash128 Hash = FXxHash128::HashBuffer(Stored);
-				if (Hash.HashLow != Entry.PayloadHashLow
-					|| Hash.HashHigh != Entry.PayloadHashHigh)
-					return Fail("DBLK payload checksum is invalid.", OutError);
-				Parsed.Payloads.push_back(Stored);
-			}
-			OutParsed = std::move(Parsed);
-			if (OutError) OutError->clear();
-			return true;
+				   && (Profile == ECookTargetProfile::Game || Profile == ECookTargetProfile::EditorValidation);
 		}
 
 		auto IsValidRelativeManifestPath(std::string_view Value) -> bool
@@ -421,10 +151,23 @@ namespace Durin::Asset
 				if (Lead < 0x80) continue;
 				uint32 CodePoint = 0;
 				size_t Continuations = 0;
-				if ((Lead & 0xe0) == 0xc0) { CodePoint = Lead & 0x1f; Continuations = 1; }
-				else if ((Lead & 0xf0) == 0xe0) { CodePoint = Lead & 0x0f; Continuations = 2; }
-				else if ((Lead & 0xf8) == 0xf0) { CodePoint = Lead & 0x07; Continuations = 3; }
-				else return false;
+				if ((Lead & 0xe0) == 0xc0)
+				{
+					CodePoint = Lead & 0x1f;
+					Continuations = 1;
+				}
+				else if ((Lead & 0xf0) == 0xe0)
+				{
+					CodePoint = Lead & 0x0f;
+					Continuations = 2;
+				}
+				else if ((Lead & 0xf8) == 0xf0)
+				{
+					CodePoint = Lead & 0x07;
+					Continuations = 3;
+				}
+				else
+					return false;
 				if (Byte + Continuations > Value.size()) return false;
 				for (size_t Index = 0; Index < Continuations; ++Index)
 				{
@@ -432,7 +175,8 @@ namespace Durin::Asset
 					if ((Tail & 0xc0) != 0x80) return false;
 					CodePoint = (CodePoint << 6) | (Tail & 0x3f);
 				}
-				const uint32 Minimum = Continuations == 1 ? 0x80 : Continuations == 2 ? 0x800 : 0x10000;
+				const uint32 Minimum = Continuations == 1 ? 0x80 : Continuations == 2 ? 0x800 :
+																						0x10000;
 				if (CodePoint < Minimum || CodePoint > 0x10ffff || (CodePoint >= 0xd800 && CodePoint <= 0xdfff))
 					return false;
 			}
@@ -447,58 +191,11 @@ namespace Durin::Asset
 				static constexpr std::array<std::string_view, 4> FixedDevices = {"CON", "PRN", "AUX", "NUL"};
 				if (std::ranges::find(FixedDevices, Stem) != FixedDevices.end()) return true;
 				return Stem.size() == 4 && (Stem.starts_with("COM") || Stem.starts_with("LPT"))
-					&& Stem[3] >= '1' && Stem[3] <= '9';
+					   && Stem[3] >= '1' && Stem[3] <= '9';
 			});
 		}
 
-		auto MakeTemporaryPath(const std::filesystem::path& Destination) -> std::filesystem::path
-		{
-			return Destination.parent_path() / std::format(".{}.cooktmp", FGuid::NewGuid().ToString());
-		}
-
-		auto WriteValidatedTemporary(
-			const std::filesystem::path& Destination,
-			std::span<const std::byte> Bytes,
-			const std::function<bool(std::span<const std::byte>, std::string*)>& Validate,
-			std::filesystem::path& OutTemporary,
-			std::string* OutError) -> bool
-		{
-			std::error_code ErrorCode;
-			std::filesystem::create_directories(Destination.parent_path(), ErrorCode);
-			if (ErrorCode) return Fail(std::format("Failed to create cook directory: {}", ErrorCode.message()), OutError);
-			OutTemporary = MakeTemporaryPath(Destination);
-			FFileHelper::FAtomicFileError FileError;
-			if (!FFileHelper::SaveArrayToFileAtomically(
-				std::span{reinterpret_cast<const std::byte*>(Bytes.data()), Bytes.size()}, OutTemporary, &FileError))
-				return Fail(FileError.ToString(), OutError);
-			std::vector<std::byte> Reloaded;
-			std::string ValidationError;
-			if (!FFileHelper::LoadFileToArray(Reloaded, OutTemporary)
-				|| !Validate(Reloaded, &ValidationError))
-			{
-				std::filesystem::remove(OutTemporary, ErrorCode);
-				return Fail(ValidationError.empty() ? "Failed to reopen temporary cook output." : ValidationError, OutError);
-			}
-			return true;
-		}
-
-		auto PublishTemporary(
-			const std::filesystem::path& Temporary,
-			const std::filesystem::path& Destination,
-			std::string* OutError) -> bool
-		{
-			std::vector<std::byte> Bytes;
-			if (!FFileHelper::LoadFileToArray(Bytes, Temporary))
-				return Fail("Failed to reopen validated temporary cook output for publication.", OutError);
-			FFileHelper::FAtomicFileError FileError;
-			if (!FFileHelper::SaveArrayToFileAtomically(
-				std::span{reinterpret_cast<const std::byte*>(Bytes.data()), Bytes.size()}, Destination, &FileError))
-				return Fail(FileError.ToString(), OutError);
-			std::error_code ErrorCode;
-			std::filesystem::remove(Temporary, ErrorCode);
-			return true;
-		}
-	}
+	} // namespace
 
 	auto FAssetRuntimeConfiguration::Authored() -> FAssetRuntimeConfiguration
 	{
@@ -507,14 +204,16 @@ namespace Durin::Asset
 
 	auto FAssetRuntimeConfiguration::Cooked(
 		std::filesystem::path InCookRoot,
-		FAssetRuntimeConfiguration& OutConfiguration) -> FAssetResult
+		FAssetRuntimeConfiguration& OutConfiguration
+	) -> FAssetResult
 	{
 		if (InCookRoot.empty() || !InCookRoot.is_absolute()
 			|| InCookRoot.lexically_normal() != InCookRoot)
 		{
 			return {
 				.Error = EAssetError::InvalidPath,
-				.Message = "Cooked asset execution requires an absolute normalized cook root."};
+				.Message = "Cooked asset execution requires an absolute normalized cook root."
+			};
 		}
 		FAssetRuntimeConfiguration Result;
 		Result.ExecutionDomain = EAssetExecutionDomain::Cooked;
@@ -524,198 +223,12 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto EncodeCookedBulk(
-		std::span<const FCookedBulkPayload> Payloads,
-		ECookTargetPlatform TargetPlatform,
-		ECookTargetProfile TargetProfile,
-		std::vector<std::byte>& OutBytes,
-		std::vector<FCookedPayloadDescriptor>* OutDescriptors,
-		std::string* OutError) -> bool
-	{
-		OutBytes.clear();
-		if (OutDescriptors) OutDescriptors->clear();
-		if (!IsValidTarget(TargetPlatform, TargetProfile))
-			return Fail("DBLK target is invalid.", OutError);
-		if (Payloads.empty() || Payloads.size() > MaximumPayloadCount)
-			return Fail("DBLK payload count is outside its bound.", OutError);
-
-		std::vector<const FCookedBulkPayload*> Sorted;
-		if (!BulkContainer::TryMakeSortedProjection<FCookedBulkPayload>(
-			Payloads, &FCookedBulkPayload::PayloadId, Sorted))
-			return Fail("DBLK payload identifiers must be nonzero and unique.", OutError);
-		for (size_t Index = 0; Index < Sorted.size(); ++Index)
-		{
-			const FCookedBulkPayload& Payload = *Sorted[Index];
-			if (!Payload.PayloadId.IsValid())
-				return Fail("DBLK payload identifiers must be nonzero and unique.", OutError);
-			if ((Payload.Flags & ~1u) != 0 || Payload.PayloadSchemaVersion == 0)
-				return Fail("DBLK payload flags or schema are invalid.", OutError);
-			if (!BulkContainer::IsPowerOfTwo(Payload.Alignment) || Payload.Alignment < 16 || Payload.Alignment > 4096)
-				return Fail("DBLK payload alignment is invalid.", OutError);
-			if (Payload.Compression != ECookedPayloadCompression::None)
-				return Fail("DBLK writer supports only uncompressed version 2 payloads.", OutError);
-			if (Payload.Bytes.empty() || Payload.Bytes.size() > MaximumPayloadBytes)
-				return Fail("DBLK payload size is outside its bound.", OutError);
-		}
-
-		uint64 TableBytes = 0, TableEnd = 0, DataOffset = 0;
-		if (!BulkContainer::TryMultiply(Sorted.size(), BulkEntrySize, MaximumBulkBytes, TableBytes)
-			|| !BulkContainer::TryAdd(BulkFixedHeaderSize, TableBytes, MaximumBulkBytes, TableEnd)
-			|| !BulkContainer::TryAlignUp(TableEnd, 16, MaximumBulkBytes, DataOffset))
-			return Fail("DBLK table size overflowed.", OutError);
-		std::vector<BulkContainer::FLayoutItem> LayoutItems;
-		LayoutItems.reserve(Sorted.size());
-		for (const FCookedBulkPayload* Payload : Sorted)
-			LayoutItems.push_back({Payload->Bytes.size(), Payload->Alignment});
-		std::vector<BulkContainer::FPayloadRange> Ranges;
-		uint64 FileSize = 0;
-		const BulkContainer::FLayoutPolicy LayoutPolicy{
-			.MaximumCount = MaximumPayloadCount,
-			.MaximumPayloadBytes = MaximumPayloadBytes,
-			.MaximumContainerBytes = MaximumBulkBytes,
-			.RequireCanonicalOffsets = true,
-			.AllowTrailingZeroPadding = false};
-		if (!BulkContainer::TryBuildLayout(
-			DataOffset, LayoutItems, LayoutPolicy, Ranges, FileSize))
-			return Fail("DBLK container exceeds its size bound.", OutError);
-		std::vector<FCookedPayloadDescriptor> Descriptors;
-		Descriptors.reserve(Sorted.size());
-		for (size_t Index = 0; Index < Sorted.size(); ++Index)
-		{
-			const FCookedBulkPayload& Payload = *Sorted[Index];
-			const FXxHash128 Hash = FXxHash128::HashBuffer(Payload.Bytes);
-			Descriptors.push_back({
-				.PayloadId = Payload.PayloadId,
-				.LocationKind = static_cast<uint32>(ECookedPayloadLocationKind::PackageCompanion),
-				.Offset = Ranges[Index].Offset,
-				.StoredSize = Payload.Bytes.size(),
-				.UncompressedSize = Payload.Bytes.size(),
-				.Alignment = Payload.Alignment,
-				.PayloadHashLow = Hash.HashLow,
-				.PayloadHashHigh = Hash.HashHigh,
-				.PayloadSchemaVersion = Payload.PayloadSchemaVersion,
-				.TargetPlatform = static_cast<uint32>(TargetPlatform),
-				.TargetProfile = static_cast<uint32>(TargetProfile),
-				.CompressionMethod = static_cast<uint32>(Payload.Compression)});
-		}
-
-		BulkContainer::FBoundedWriter Table(TableBytes);
-		for (size_t Index = 0; Index < Sorted.size(); ++Index)
-		{
-			const FCookedBulkPayload& Payload = *Sorted[Index];
-			const FCookedPayloadDescriptor& Descriptor = Descriptors[Index];
-			if (!WriteBulkEntry(Table, Payload, Descriptor))
-				return Fail("DBLK table encoding failed.", OutError);
-		}
-		const uint64 TableHash = FXxHash64::HashBuffer(Table.View()).HashValue;
-		BulkContainer::FBoundedWriter Writer(MaximumBulkBytes);
-		const std::array<std::byte, BinaryEnvelopePreambleBytes> EmptyPreamble{};
-		const FBulkHeader Header{
-			.Platform = static_cast<uint32>(TargetPlatform),
-			.Profile = static_cast<uint32>(TargetProfile),
-			.Flags = 0,
-			.EntrySize = BulkEntrySize,
-			.Count = static_cast<uint32>(Sorted.size()),
-			.Reserved0 = 0,
-			.TableOffset = BulkFixedHeaderSize,
-			.DataOffset = DataOffset,
-			.TableHash = TableHash,
-			.Reserved1 = 0,
-			.Reserved2 = 0};
-		if (!Writer.Write(EmptyPreamble) || !WriteBulkHeader(Writer, Header)
-			|| !Writer.Write(Table.View()))
-			return Fail("DBLK encoding failed.", OutError);
-		for (size_t Index = 0; Index < Sorted.size(); ++Index)
-		{
-			if (!Writer.PadTo(Descriptors[Index].Offset)) return Fail("DBLK payload layout overflowed.", OutError);
-			if (!Writer.Write(Sorted[Index]->Bytes)) return Fail("DBLK encoding failed.", OutError);
-		}
-		std::vector<std::byte> Candidate;
-		if (Writer.Tell() != FileSize || !Writer.TryTake(Candidate))
-			return Fail("DBLK encoding failed.", OutError);
-		const FBinaryEnvelopePreamble Preamble{
-			.FormatId = DblkBinaryFormatId, .FormatVersion = BulkVersion,
-			.RequiredFeatures = 0, .HeaderBytes = DataOffset, .FileBytes = FileSize};
-		FBinaryEnvelopeDiagnostic Diagnostic;
-		if (!EncodeBinaryEnvelopePreamble(Preamble, Candidate, &Diagnostic)
-			|| !FinalizeBinaryEnvelopeHeader(std::span(Candidate).first(static_cast<size_t>(DataOffset)),
-				FileSize, BulkEnvelopeLimits, &Diagnostic))
-			return Fail(std::string(Diagnostic.Message), OutError);
-		FParsedCookedBulk Validation;
-		if (!ParseCookedBulk(
-			Candidate, TargetPlatform, TargetProfile, Validation, OutError)) return false;
-		OutBytes = std::move(Candidate);
-		if (OutDescriptors) *OutDescriptors = std::move(Descriptors);
-		if (OutError) OutError->clear();
-		return true;
-	}
-
-	auto DecodeCookedBulk(
-		std::span<const std::byte> Bytes,
-		ECookTargetPlatform ExpectedPlatform,
-		ECookTargetProfile ExpectedProfile,
-		FCookedBulkContainer& OutContainer,
-		std::string* OutError) -> bool
-	{
-		OutContainer = {};
-		FParsedCookedBulk Parsed;
-		if (!ParseCookedBulk(
-			Bytes, ExpectedPlatform, ExpectedProfile, Parsed, OutError)) return false;
-		std::vector<std::vector<std::byte>> Payloads;
-		Payloads.reserve(Parsed.Payloads.size());
-		for (std::span<const std::byte> Stored : Parsed.Payloads)
-			Payloads.emplace_back(Stored.begin(), Stored.end());
-		OutContainer.TargetPlatform = Parsed.TargetPlatform;
-		OutContainer.TargetProfile = Parsed.TargetProfile;
-		OutContainer.Entries = std::move(Parsed.Entries);
-		OutContainer.Payloads = std::move(Payloads);
-		if (OutError) OutError->clear();
-		return true;
-	}
-
-	auto ResolveCookedPayload(
-		const FCookedBulkContainer& Container,
-		const FCookedPayloadDescriptor& Descriptor,
-		std::span<const std::byte>& OutPayload,
-		std::string* OutError) -> bool
-	{
-		OutPayload = {};
-		if (Descriptor.LocationKind != static_cast<uint32>(ECookedPayloadLocationKind::PackageCompanion))
-			return Fail("Cooked payload location kind is unknown.", OutError);
-		auto It = std::ranges::find(Container.Entries, Descriptor.PayloadId, &FCookedPayloadDescriptor::PayloadId);
-		if (It == Container.Entries.end() || *It != Descriptor)
-			return Fail("Cooked payload descriptor does not exactly match its DBLK entry.", OutError);
-		const size_t Index = static_cast<size_t>(std::distance(Container.Entries.begin(), It));
-		OutPayload = Container.Payloads[Index];
-		return true;
-	}
-
-	auto LoadCookedBulkFile(
-		const std::filesystem::path& Path,
-		ECookTargetPlatform ExpectedPlatform,
-		ECookTargetProfile ExpectedProfile,
-		FCookedBulkContainer& OutContainer,
-		std::string* OutError) -> bool
-	{
-		OutContainer = {};
-		std::error_code ErrorCode;
-		const std::filesystem::file_status Status = std::filesystem::symlink_status(Path, ErrorCode);
-		if (ErrorCode || !std::filesystem::is_regular_file(Status))
-			return Fail("Cooked bulk companion is missing or is not a regular file.", OutError);
-		const uint64 FileSize = std::filesystem::file_size(Path, ErrorCode);
-		if (ErrorCode || FileSize > MaximumBulkBytes || FileSize > std::numeric_limits<size_t>::max())
-			return Fail("Cooked bulk companion size is invalid.", OutError);
-		std::vector<std::byte> Bytes;
-		if (!FFileHelper::LoadFileToArray(Bytes, Path))
-			return Fail("Failed to read cooked bulk companion.", OutError);
-		return DecodeCookedBulk(Bytes, ExpectedPlatform, ExpectedProfile, OutContainer, OutError);
-	}
-
 	auto ResolveCookedPackagePath(
 		const std::filesystem::path& CookRoot,
 		std::string_view VirtualPackagePath,
 		std::filesystem::path& OutPackagePath,
-		std::string* OutError) -> bool
+		std::string* OutError
+	) -> bool
 	{
 		OutPackagePath.clear();
 		if (CookRoot.empty() || !CookRoot.is_absolute() || VirtualPackagePath.empty()
@@ -723,10 +236,9 @@ namespace Durin::Asset
 			|| VirtualPackagePath.find('\\') != std::string_view::npos)
 			return Fail("Cooked package path or root is invalid.", OutError);
 		const size_t Slash = VirtualPackagePath.find('/', 1);
-		const std::string_view Mount = Slash == std::string_view::npos
-			? VirtualPackagePath.substr(1) : VirtualPackagePath.substr(1, Slash - 1);
-		if ((Mount != "Engine" && Mount != "Game") || Slash == std::string_view::npos)
-			return Fail("Cooked package mount is not Engine or Game.", OutError);
+		const std::string_view Mount = Slash == std::string_view::npos ? VirtualPackagePath.substr(1) : VirtualPackagePath.substr(1, Slash - 1);
+		if (Mount.empty() || Slash == std::string_view::npos)
+			return Fail("Cooked package mount is invalid.", OutError);
 		const std::string Relative(VirtualPackagePath.substr(1));
 		if (!IsValidRelativeManifestPath(Relative)) return Fail("Cooked package path is not normalized.", OutError);
 		const std::filesystem::path Root = CookRoot.lexically_normal();
@@ -742,7 +254,8 @@ namespace Durin::Asset
 		const std::filesystem::path& CookRoot,
 		const std::filesystem::path& PackagePath,
 		std::filesystem::path& OutCompanionPath,
-		std::string* OutError) -> bool
+		std::string* OutError
+	) -> bool
 	{
 		OutCompanionPath.clear();
 		const std::filesystem::path Root = CookRoot.lexically_normal();
@@ -766,7 +279,8 @@ namespace Durin::Asset
 			return Fail("Cook manifest entry count exceeds its bound.", OutError);
 		std::vector<const FCookManifestEntry*> Entries;
 		if (!BulkContainer::TryMakeSortedProjection<FCookManifestEntry>(
-			Manifest.Entries, &FCookManifestEntry::RelativePath, Entries))
+				Manifest.Entries, &FCookManifestEntry::RelativePath, Entries
+			))
 			return Fail("Cook manifest entry is invalid.", OutError);
 		BulkContainer::FBoundedWriter Records(MaximumManifestRecordBytes);
 		for (const FCookManifestEntry* EntryPointer : Entries)
@@ -786,15 +300,15 @@ namespace Durin::Asset
 				return Fail("Cook manifest records exceed their byte bound.", OutError);
 		}
 		uint64 MaximumManifestBytes = 0;
-		if (!BulkContainer::TryAdd(ManifestHeaderSize, MaximumManifestRecordBytes,
-			std::numeric_limits<uint64>::max(), MaximumManifestBytes))
+		if (!BulkContainer::TryAdd(ManifestHeaderSize, MaximumManifestRecordBytes, std::numeric_limits<uint64>::max(), MaximumManifestBytes))
 			return Fail("Cook manifest records exceed their byte bound.", OutError);
 		BulkContainer::FBoundedWriter Writer(MaximumManifestBytes);
 		const uint64 RecordBytes = Records.Tell();
 		uint64 FileSize = 0;
 		std::vector<std::byte> Candidate;
 		if (!BulkContainer::TryAdd(
-			ManifestHeaderSize, RecordBytes, MaximumManifestBytes, FileSize))
+				ManifestHeaderSize, RecordBytes, MaximumManifestBytes, FileSize
+			))
 			return Fail("Cook manifest encoding failed.", OutError);
 		const FManifestHeader Header{
 			.Magic = ManifestMagic,
@@ -805,7 +319,8 @@ namespace Durin::Asset
 			.HeaderSize = ManifestHeaderSize,
 			.RecordBytes = RecordBytes,
 			.RecordHash = FXxHash64::HashBuffer(Records.View()).HashValue,
-			.FileSize = FileSize};
+			.FileSize = FileSize
+		};
 		if (!WriteManifestHeader(Writer, Header)
 			|| !Writer.Write(Records.View()) || !Writer.TryTake(Candidate))
 			return Fail("Cook manifest encoding failed.", OutError);
@@ -820,7 +335,8 @@ namespace Durin::Asset
 		OutManifest = {};
 		if (Bytes.size() < ManifestHeaderSize) return Fail("Cook manifest is truncated.", OutError);
 		BulkContainer::FBoundedReader Reader(
-			Bytes, ManifestHeaderSize + MaximumManifestRecordBytes);
+			Bytes, ManifestHeaderSize + MaximumManifestRecordBytes
+		);
 		FManifestHeader Header;
 		if (!ReadManifestHeader(Reader, Header))
 			return Fail("Cook manifest header is truncated.", OutError);
@@ -830,8 +346,7 @@ namespace Durin::Asset
 			|| Header.RecordBytes > MaximumManifestRecordBytes
 			|| Header.FileSize != Bytes.size()
 			|| Header.RecordBytes != Bytes.size() - ManifestHeaderSize
-			|| !IsValidTarget(static_cast<ECookTargetPlatform>(Header.Platform),
-				static_cast<ECookTargetProfile>(Header.Profile)))
+			|| !IsValidTarget(static_cast<ECookTargetPlatform>(Header.Platform), static_cast<ECookTargetProfile>(Header.Profile)))
 			return Fail("Cook manifest header is invalid.", OutError);
 		const std::span<const std::byte> Records = Bytes.subspan(ManifestHeaderSize);
 		if (FXxHash64::HashBuffer(Records).HashValue != Header.RecordHash)
@@ -880,13 +395,37 @@ namespace Durin::Asset
 		std::filesystem::path InCookRoot,
 		ECookTargetPlatform InTargetPlatform,
 		ECookTargetProfile InTargetProfile,
-		bool bInRetainEditorOnlyData)
+		bool bInRetainEditorOnlyData
+	)
 		: CookRoot(InCookRoot.lexically_normal())
 		, TargetPlatform(InTargetPlatform)
 		, TargetProfile(InTargetProfile)
 		, bRetainEditorOnlyData(bInRetainEditorOnlyData)
 	{
 	}
+
+	namespace
+	{
+		auto ValidateCookCapturePath(const std::filesystem::path& CookRoot, std::string_view VirtualPackagePath, std::string* OutError) -> bool
+		{
+			if (!CookRoot.empty())
+			{
+				std::filesystem::path Ignored;
+				return ResolveCookedPackagePath(
+					CookRoot, VirtualPackagePath, Ignored, OutError
+				);
+			}
+			if (VirtualPackagePath.empty()
+				|| VirtualPackagePath.front() != '/'
+				|| VirtualPackagePath.back() == '/'
+				|| VirtualPackagePath.find("//") != std::string_view::npos
+				|| VirtualPackagePath.find("\\") != std::string_view::npos
+				|| VirtualPackagePath.find("/../") != std::string_view::npos
+				|| VirtualPackagePath.find('/', 1) == std::string_view::npos)
+				return Fail("Cook package path is invalid or uses an unsupported mount.", OutError);
+			return true;
+		}
+	} // namespace
 
 	auto FCookContext::MakePackageSerializationOptions() const
 		-> FAssetPackageSerializationOptions
@@ -895,24 +434,23 @@ namespace Durin::Asset
 			.Domain = EAssetPackageSaveDomain::Cooked,
 			.TargetPlatform = TargetPlatform,
 			.TargetProfile = TargetProfile,
-			.bRetainEditorOnlyData = bRetainEditorOnlyData};
+			.bRetainEditorOnlyData = bRetainEditorOnlyData
+		};
 	}
 
 	auto FCookContext::AddPackage(
 		std::string VirtualPackagePath,
 		std::vector<std::byte> PackageBytes,
-		std::string* OutError) -> bool
+		std::string* OutError
+	) -> bool
 	{
-		std::filesystem::path PackagePath;
-		if (!ResolveCookedPackagePath(CookRoot, VirtualPackagePath, PackagePath, OutError))
+		if (!ValidateCookCapturePath(CookRoot, VirtualPackagePath, OutError))
 			return false;
 		if (PackageBytes.empty()) return Fail("Cook package bytes must be nonempty.", OutError);
-		if (std::ranges::any_of(Packages, [&](const FPendingPackage& Existing) {
-			return Existing.VirtualPath == VirtualPackagePath;
-		})) return Fail("Cook package path is duplicated.", OutError);
-		Packages.push_back({
-			.VirtualPath = std::move(VirtualPackagePath),
-			.PackageBytes = std::move(PackageBytes)});
+		if (std::ranges::any_of(Packages, [&](const FCookSavePlan& Existing) {
+				return Existing.VirtualPath == VirtualPackagePath;
+			})) return Fail("Cook package path is duplicated.", OutError);
+		Packages.push_back({.VirtualPath = std::move(VirtualPackagePath), .PackageBytes = std::move(PackageBytes)});
 		if (OutError) OutError->clear();
 		return true;
 	}
@@ -920,15 +458,15 @@ namespace Durin::Asset
 	auto FCookContext::AddPackage(
 		std::string VirtualPackagePath,
 		DPackage* Package,
-		std::string* OutError) -> bool
+		std::string* OutError
+	) -> bool
 	{
-		std::filesystem::path PackagePath;
-		if (!ResolveCookedPackagePath(CookRoot, VirtualPackagePath, PackagePath, OutError)) return false;
+		if (!ValidateCookCapturePath(CookRoot, VirtualPackagePath, OutError)) return false;
 		if (!Package || !Package->IsAssetPackage() || !Package->GetAsset())
 			return Fail("Cook package projection requires a valid asset package.", OutError);
-		if (std::ranges::any_of(Packages, [&](const FPendingPackage& Existing) {
-			return Existing.VirtualPath == VirtualPackagePath;
-		})) return Fail("Cook package path is duplicated.", OutError);
+		if (std::ranges::any_of(Packages, [&](const FCookSavePlan& Existing) {
+				return Existing.VirtualPath == VirtualPackagePath;
+			})) return Fail("Cook package path is duplicated.", OutError);
 
 		std::vector<FEditorBulkDataStoragePayload> Payloads;
 		FAssetPackageSerializationOptions Options = MakePackageSerializationOptions();
@@ -941,13 +479,14 @@ namespace Durin::Asset
 		FPackageBulkSegmentSummary Summary;
 		std::vector<FPackageBulkDataEntry> Entries;
 		if (!BuildPackageBulkDataSegment(Payloads, Segment, Summary, Entries, OutError)) return false;
-		FPendingPackage Pending{
+		FCookSavePlan Pending{
 			.VirtualPath = std::move(VirtualPackagePath),
 			.PackageBytes = std::move(PackageBytes),
 			.BulkBytes = std::move(Segment),
 			.BulkSummary = Summary,
 			.BulkEntries = std::move(Entries),
-			.bRawBulkSegment = true};
+			.bRawBulkSegment = true
+		};
 		Packages.push_back(std::move(Pending));
 		if (OutError) OutError->clear();
 		return true;
@@ -957,205 +496,88 @@ namespace Durin::Asset
 		std::string VirtualPackagePath,
 		std::vector<std::byte> PackageBytes,
 		std::vector<std::byte> RawSegmentBytes,
-		std::string* OutError) -> bool
+		std::string* OutError
+	) -> bool
 	{
-		std::filesystem::path PackagePath;
-		if (!ResolveCookedPackagePath(CookRoot, VirtualPackagePath, PackagePath, OutError))
+		if (!ValidateCookCapturePath(CookRoot, VirtualPackagePath, OutError))
 			return false;
 		if (PackageBytes.empty() || RawSegmentBytes.empty())
 			return Fail("Opaque raw Cook packages require package and segment bytes.", OutError);
 		if (RawSegmentBytes.size() > PackageBulkDataMaximumSegmentBytes)
 			return Fail("Opaque raw Cook segment exceeds the 1 GiB limit.", OutError);
-		if (std::ranges::any_of(Packages, [&](const FPendingPackage& Existing) {
-			return Existing.VirtualPath == VirtualPackagePath;
-		})) return Fail("Cook package path is duplicated.", OutError);
+		if (std::ranges::any_of(Packages, [&](const FCookSavePlan& Existing) {
+				return Existing.VirtualPath == VirtualPackagePath;
+			})) return Fail("Cook package path is duplicated.", OutError);
 		FPackageBulkSegmentSummary Summary{
 			.Extent = RawSegmentBytes.size(),
-			.Digest = FXxHash128::HashBuffer(RawSegmentBytes)};
-		Packages.push_back({
-			.VirtualPath = std::move(VirtualPackagePath),
-			.PackageBytes = std::move(PackageBytes),
-			.BulkBytes = std::move(RawSegmentBytes),
-			.BulkSummary = Summary,
-			.bOpaqueRawSegment = true});
+			.Digest = FXxHash128::HashBuffer(RawSegmentBytes)
+		};
+		Packages.push_back({.VirtualPath = std::move(VirtualPackagePath), .PackageBytes = std::move(PackageBytes), .BulkBytes = std::move(RawSegmentBytes), .BulkSummary = Summary, .bOpaqueRawSegment = true});
+		if (OutError) OutError->clear();
+		return true;
+	}
+
+	auto FCookContext::TakeSavePlans(
+		std::vector<FCookSavePlan>& OutPlans,
+		std::string* OutError
+	) -> bool
+	{
+		OutPlans = Packages;
+		if (!IsValidTarget(TargetPlatform, TargetProfile))
+			return Fail("Cook capture target is invalid.", OutError);
+		for (FCookSavePlan& Plan : OutPlans)
+		{
+			if (!CanonicalizeCookVirtualPath(Plan.VirtualPath, OutError))
+				return false;
+			std::vector<std::byte> CanonicalBytes;
+			const FAssetResult CanonicalResult = CanonicalizeAssetPackageForCook(
+				Plan.PackageBytes, CanonicalBytes
+			);
+			if (!CanonicalResult)
+				return Fail(std::format("Cook package {} could not be canonicalized: {}", Plan.VirtualPath, CanonicalResult.Message), OutError);
+			Plan.PackageBytes = std::move(CanonicalBytes);
+			Plan.PackageDigest = FXxHash128::HashBuffer(Plan.PackageBytes);
+			Plan.SegmentDigest = FXxHash128::HashBuffer(Plan.BulkBytes);
+			Plan.PackageFileSize = Plan.PackageBytes.size();
+			Plan.SegmentFileSize = Plan.BulkBytes.size();
+			Plan.TargetPlatform = TargetPlatform;
+			Plan.TargetProfile = TargetProfile;
+		}
+		std::ranges::sort(OutPlans, {}, &FCookSavePlan::VirtualPath);
+		for (size_t Index = 1; Index < OutPlans.size(); ++Index)
+			if (OutPlans[Index - 1].VirtualPath == OutPlans[Index].VirtualPath)
+				return Fail(std::format("Cook package path {} is duplicated after redirect canonicalization.", OutPlans[Index].VirtualPath), OutError);
 		if (OutError) OutError->clear();
 		return true;
 	}
 
 	auto FCookContext::Publish(std::string* OutError) -> bool
 	{
-		if (!IsValidTarget(TargetPlatform, TargetProfile) || CookRoot.empty() || !CookRoot.is_absolute())
-			return Fail("Cook context is invalid.", OutError);
-		for (FPendingPackage& Package : Packages)
+		std::vector<FCookSavePlan> Plans;
+		if (!TakeSavePlans(Plans, OutError)) return false;
+		FCookState State{TargetPlatform, TargetProfile};
+		for (FCookSavePlan& Plan : Plans)
 		{
-			if (!CanonicalizeCookVirtualPath(Package.VirtualPath, OutError))
-				return false;
-			std::vector<std::byte> CanonicalBytes;
-			const FAssetResult CanonicalResult = CanonicalizeAssetPackageForCook(
-				Package.PackageBytes, CanonicalBytes);
-			if (!CanonicalResult)
-				return Fail(std::format(
-					"Cook package {} could not be canonicalized: {}",
-					Package.VirtualPath, CanonicalResult.Message), OutError);
-			Package.PackageBytes = std::move(CanonicalBytes);
+			Plan.Contributor = "compatibility-context";
+			Plan.BuildProvenance = "captured";
+			State.Entries.push_back({Plan.VirtualPath, Plan.InputFingerprint, Plan.PackageDigest, Plan.SegmentDigest, Plan.PackageFileSize, Plan.SegmentFileSize, Plan.ContributorVersion, Plan.FamilyProducerVersion, Plan.Contributor, Plan.BuildProvenance});
+			State.Entries.back().SegmentFlags = static_cast<uint8>(
+				(Plan.bRawBulkSegment ? 1 : 0)
+				| (Plan.bOpaqueRawSegment ? 2 : 0)
+			);
 		}
-		std::ranges::sort(Packages, {}, &FPendingPackage::VirtualPath);
-		for (size_t Index = 1; Index < Packages.size(); ++Index)
-			if (Packages[Index - 1].VirtualPath == Packages[Index].VirtualPath)
-				return Fail(std::format(
-					"Cook package path {} is duplicated after redirect canonicalization.",
-					Packages[Index].VirtualPath), OutError);
-		struct FOutput
-		{
-			ECookManifestEntryKind Kind;
-			uint8 Flags = CookManifestEntryPresent;
-			std::filesystem::path Destination;
-			std::filesystem::path Temporary;
-			std::vector<std::byte> Bytes;
-			FPackageBulkSegmentSummary BulkSummary;
-			std::vector<FPackageBulkDataEntry> BulkEntries;
-			bool bRawBulkSegment = false;
-			bool bOpaqueRawSegment = false;
-		};
-		std::vector<FOutput> BulkOutputs;
-		std::vector<FOutput> PackageOutputs;
-		std::vector<std::filesystem::path> Temporaries;
-		auto CleanupTemporaries = [&]() {
-			std::error_code ErrorCode;
-			for (const std::filesystem::path& Temporary : Temporaries) std::filesystem::remove(Temporary, ErrorCode);
-		};
-
-		for (const FPendingPackage& Package : Packages)
-		{
-			std::filesystem::path PackagePath, BulkPath;
-			if (!ResolveCookedPackagePath(CookRoot, Package.VirtualPath, PackagePath, OutError)
-				|| !ResolveCookedCompanionPath(CookRoot, PackagePath, BulkPath, OutError))
-				return false;
-			if (!Package.BulkBytes.empty())
-			{
-				BulkOutputs.push_back({
-					(Package.bRawBulkSegment || Package.bOpaqueRawSegment)
-						? ECookManifestEntryKind::PackageBulk
-						: ECookManifestEntryKind::CookedBulk,
-					CookManifestEntryPresent,
-					BulkPath,
-					{},
-					Package.BulkBytes,
-					Package.BulkSummary,
-					Package.BulkEntries,
-					Package.bRawBulkSegment,
-					Package.bOpaqueRawSegment});
-			}
-			PackageOutputs.push_back({
-				ECookManifestEntryKind::CookedPackage,
-				static_cast<uint8>(CookManifestEntryPresent
-					| (Package.bRawBulkSegment ? CookManifestEntryCookedFieldProjection : 0)),
-				PackagePath, {}, Package.PackageBytes});
-		}
-
-		for (FOutput& Output : BulkOutputs)
-		{
-			auto Validate = [&](std::span<const std::byte> Bytes, std::string* Error) {
-				if (Output.bOpaqueRawSegment)
-					return Bytes.size() == Output.BulkSummary.Extent
-						&& FXxHash128::HashBuffer(Bytes) == Output.BulkSummary.Digest;
-				if (Output.bRawBulkSegment)
-					return ValidatePackageBulkDataSegment(
-						Output.BulkSummary, Output.BulkEntries, Bytes, Error);
-				FCookedBulkContainer Container;
-				return DecodeCookedBulk(Bytes, TargetPlatform, TargetProfile, Container, Error);
-			};
-			if (!WriteValidatedTemporary(Output.Destination, Output.Bytes, Validate, Output.Temporary, OutError))
-			{
-				CleanupTemporaries();
-				return false;
-			}
-			Temporaries.push_back(Output.Temporary);
-		}
-		for (FOutput& Output : PackageOutputs)
-		{
-			auto Validate = [&](std::span<const std::byte> Bytes, std::string* Error) {
-				if (!std::ranges::equal(Bytes, Output.Bytes)) return Fail("Temporary cooked package bytes changed.", Error);
-				const FAssetResult Result = ValidateAssetPackageBytes(Bytes);
-				if (!Result) return Fail(std::format("Temporary cooked package is invalid: {}", Result.Message), Error);
-				return true;
-			};
-			if (!WriteValidatedTemporary(Output.Destination, Output.Bytes, Validate, Output.Temporary, OutError))
-			{
-				CleanupTemporaries();
-				return false;
-			}
-			Temporaries.push_back(Output.Temporary);
-		}
-
-		FCookManifest PreviousManifest;
-		const std::filesystem::path ManifestPath = CookRoot / "CookManifest.bin";
-		std::vector<std::byte> PreviousBytes;
-		const bool bHasPreviousManifest = FFileHelper::LoadFileToArray(PreviousBytes, ManifestPath)
-			&& DecodeCookManifest(PreviousBytes, PreviousManifest);
-
-		for (FOutput& Output : BulkOutputs)
-			if (!PublishTemporary(Output.Temporary, Output.Destination, OutError))
-			{
-				CleanupTemporaries();
-				return false;
-			}
-		for (FOutput& Output : PackageOutputs)
-			if (!PublishTemporary(Output.Temporary, Output.Destination, OutError))
-			{
-				CleanupTemporaries();
-				return false;
-			}
-
-		FCookManifest Manifest{TargetPlatform, TargetProfile};
-		auto AddManifestEntries = [&](const std::vector<FOutput>& Outputs) {
-			for (const FOutput& Output : Outputs)
-			{
-				const std::string Relative = Output.Destination.lexically_relative(CookRoot).generic_string();
-				const FXxHash128 Hash = FXxHash128::HashBuffer(Output.Bytes);
-				Manifest.Entries.push_back({Output.Kind, Output.Flags, Relative,
-					Output.Bytes.size(), Hash.HashLow, Hash.HashHigh});
-			}
-		};
-		AddManifestEntries(PackageOutputs);
-		AddManifestEntries(BulkOutputs);
-		std::vector<std::byte> ManifestBytes;
-		if (!EncodeCookManifest(Manifest, ManifestBytes, OutError))
-		{
-			CleanupTemporaries();
-			return false;
-		}
-		std::filesystem::path ManifestTemporary;
-		auto ValidateManifest = [&](std::span<const std::byte> Bytes, std::string* Error) {
-			FCookManifest Decoded;
-			return DecodeCookManifest(Bytes, Decoded, Error);
-		};
-		if (!WriteValidatedTemporary(ManifestPath, ManifestBytes, ValidateManifest, ManifestTemporary, OutError))
-			return false;
-		Temporaries.push_back(ManifestTemporary);
-		if (!PublishTemporary(ManifestTemporary, ManifestPath, OutError))
-		{
-			CleanupTemporaries();
-			return false;
-		}
-
-		if (bHasPreviousManifest)
-		{
-			std::unordered_set<std::string> CurrentPaths;
-			for (const FCookManifestEntry& Entry : Manifest.Entries) CurrentPaths.insert(Entry.RelativePath);
-			for (const FCookManifestEntry& Entry : PreviousManifest.Entries)
-			{
-				if (CurrentPaths.contains(Entry.RelativePath) || !IsValidRelativeManifestPath(Entry.RelativePath)) continue;
-				const std::filesystem::path Stale = (CookRoot / Entry.RelativePath).lexically_normal();
-				std::filesystem::path ResolvedStale;
-				std::error_code ResolveError;
-				if (!PathUtilities::TryResolveContainedPath(
-					Stale, CookRoot.lexically_normal(), ResolvedStale, ResolveError)) continue;
-				std::error_code ErrorCode;
-				std::filesystem::remove(ResolvedStale, ErrorCode);
-			}
-		}
-		if (OutError) OutError->clear();
-		return true;
+		FCookRunResult Result;
+		std::unique_ptr<ICookOutputStore> Store = CreateLocalLooseCookOutputStore(
+			CookRoot, TargetPlatform, TargetProfile
+		);
+		std::string Error;
+		const bool bPublished = Store->Publish(
+			Plans, State, Result, {}, {}, Error
+		);
+		if (!bPublished && OutError)
+			*OutError = std::move(Error);
+		else if (OutError)
+			OutError->clear();
+		return bPublished;
 	}
-}
+} // namespace Durin::Asset

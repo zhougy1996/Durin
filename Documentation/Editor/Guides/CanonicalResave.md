@@ -33,7 +33,7 @@ below that path. Use `--all` instead of scopes for the complete project, and
 for automation. The lower-level host accepts the corresponding
 `DurinAssetTool resave --project=<project.dproject> <scope>...` grammar.
 
-Canonical resave always writes DURF/DAST v6; no format-selection or rollback
+Canonical resave always writes DURF/DAST v7; no format-selection or rollback
 option exists. `--apply` is the only option that authorizes writes.
 Before apply, check out the reported authored files in source control. After
 apply, review the package diffs and rerun the same dry-run; a successful second

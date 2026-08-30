@@ -4,34 +4,41 @@ Summary: Turn per-family Cook contributions into one deterministic project Cook 
 
 Last reviewed: 2026-08-30
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-30
 
 ## Current Status
 
-The Package Bulk Data roadmap M1 and M2 exit gates have passed. Every supported
-asset family can produce one DAST v7 cooked package whose large PlatformData
-fields use an optional raw `.dbulk` segment, and cooked runtime load is lazy and
-source/DDC independent. The checked-in corpus is also canonical DAST v7, so M3
-does not need to preserve an authored migration workflow.
+M3 is complete. `FCookCoordinator` now captures one registry/reference snapshot,
+resolves explicit plus configured roots, loads a canonical package schedule,
+dispatches owner-gated class contributors serially, guards authored package
+bytes and dirty state, and returns detached `FCookSavePlan` values. All
+supported asset families, metadata-only packages, and Terrain World opaque
+regions use the common capture/transaction boundary; temporary public family
+helpers are explicitly assigned to M4 retirement.
 
-Cook is not yet a project operation. Callers construct `FCookContext`, invoke a
-family-specific `AddToCook`, and call `Publish` directly. Reachability discovery
-exists, but no production coordinator owns root selection, deterministic
-loading/preparation, cancellation, incremental state, or a complete run report.
-`FCookContext` also combines live-object capture, package-segment layout,
-filesystem publication, CMNF generation, and stale cleanup in one mutable
-object. Its manifest-last ordering is covered, but overwriting an existing
-generation does not yet have a store transaction that can restore every prior
-file after a mid-commit failure.
+`ICookOutputStore` owns local loose publication. It validates staged bytes,
+retains overwritten files, commits segment/package/state/manifest in that
+order, rolls back failures or cancellation, rejects competing writers, and
+removes only stale paths owned by the previous CMNF. Canonical `CookState.bin`
+fingerprints source/dependency content, target/profile, settings, and producer
+revisions. Validated unchanged output is a Cook hit; corrupt output is repaired,
+and DDC-hit/rebuild provenance stays distinct.
 
-This plan selects a synchronous offline project Cook hosted by
-`DurinAssetTool` and exposed as the top-level `DevTool cook` workflow. Engine
-owns the reusable coordinator and narrow output-store contracts; the program
-owns project/module bootstrap and process policy; DurinDevTool owns command-line
-selection and stable human/JSON reporting. Initial scheduling may use bounded
-parallel preparation only after family thread-safety is proven; deterministic
-single-process execution is the required baseline.
+`DurinAssetTool cook` and top-level `DevTool cook` provide project/output/
+target/profile/root, incremental, dry-run, human, JSON, heartbeat,
+interruption, and exit-code contracts. Sandbox qualification cooked the five
+package Graybox Stage 15 closure twice: the first generation published
+3,759,142 bytes and the second was five validated Cook hits with stable output
+hashes. The canonical sorted SHA-256 receipt is
+`e8a0152d57b13770d6e3882d61f98c23864168911169705c7fb69112754537c9`;
+CMNF is `187e3db8fa4c7e28947665e2d567a9ed9415d6504d415418d9c837a7eaa3051d`
+and Cook state is
+`a8eed3a5012869b1b5329a8edd6c5bf7cb8a6821e7bd9386c6b5ebaf2ad81d19`.
+Focused package and family suites passed; the registered 60-target `fast-all`
+matrix passed in 77.07 seconds. macOS application smoke
+was not launched because repository guidance requires explicit user direction;
+the bounded non-application command smoke passed.
 
 ## Goal
 
@@ -133,27 +140,27 @@ generation authoritative and returns package-qualified diagnostics.
 
 ### Stage 0: Freeze orchestration, state, and failure contracts
 
-- [ ] Inventory every production and test-only `FCookContext`, `AddToCook`,
+- [x] Inventory every production and test-only `FCookContext`, `AddToCook`,
   `AddRawPackage`, `BuildCookReachability`, CMNF, stale-cleanup, and cooked-root
   consumer; classify family, generic-package, Terrain opaque-stream, and legacy
   DBLK callers.
-- [ ] Specify the `FCookRequest`, `FCookRunResult`, package result, progress,
+- [x] Specify the `FCookRequest`, `FCookRunResult`, package result, progress,
   cancellation, contributor, immutable save-plan, output-store transaction,
   CMNF, and incremental-state contracts without implementation-only pointers or
   paths crossing their owners.
-- [ ] Freeze root precedence: explicit roots augment registered project/runtime
+- [x] Freeze root precedence: explicit roots augment registered project/runtime
   roots; an empty final root set is an error; redirects are resolved once from
   the captured registry snapshot.
-- [ ] Freeze input fingerprint components and versioning. Include canonical
+- [x] Freeze input fingerprint components and versioning. Include canonical
   source package identity, dependency/reference closure facts, target/profile,
   contributor and family producer versions, and relevant project Cook settings;
   exclude timestamps, output paths, scheduling order, and DDC storage location.
-- [ ] Define exact Cook-hit, DDC-hit, rebuilt, reused-output, failed, cancelled,
+- [x] Define exact Cook-hit, DDC-hit, rebuilt, reused-output, failed, cancelled,
   and unsupported diagnostics and their stable JSON names.
-- [ ] Add failure-injection seams for contributor preparation, package capture,
+- [x] Add failure-injection seams for contributor preparation, package capture,
   store staging, each commit boundary, rollback, stale cleanup, cancellation,
   and competing-writer rejection.
-- [ ] Record pre-change baseline coverage and output fixtures for ordinary
+- [x] Record pre-change baseline coverage and output fixtures for ordinary
   package-only, package-plus-segment, Terrain opaque segment, redirect,
   dependency closure, and prior-manifest scenarios.
 
@@ -164,22 +171,22 @@ or failure policy.
 
 ### Stage 1: Separate immutable Cook capture from publication
 
-- [ ] Introduce owner-gated contributor registration and deterministic
+- [x] Introduce owner-gated contributor registration and deterministic
   class/inheritance resolution with duplicate, ambiguity, owner retirement, and
   unsupported-class tests.
-- [ ] Extract package serialization and raw-segment layout from the mutable
+- [x] Extract package serialization and raw-segment layout from the mutable
   publication loop into an immutable `FCookSavePlan` builder. Preserve DAST v7
   and raw `.dbulk` golden bytes.
-- [ ] Adapt every supported Texture2D, TextureCube, VolumeTexture, StaticMesh,
+- [x] Adapt every supported Texture2D, TextureCube, VolumeTexture, StaticMesh,
   collision, SkeletalMesh, Skeleton, AnimationClip, TerrainHeightmap, Material,
   EnvironmentLighting, Level/metadata, and Terrain World contribution path.
-- [ ] Prove contributors publish no files and do not change authored package
+- [x] Prove contributors publish no files and do not change authored package
   bytes, dirty state, object topology, or reflected source values while
   preparing derived state and capture overrides.
-- [ ] Retire public per-family orchestration entrypoints after all callers use
+- [x] Retire public per-family orchestration entrypoints after all callers use
   the registry/save-plan boundary; retain only bounded compatibility helpers
   explicitly assigned to M4.
-- [ ] Keep one canonical segment builder and package serializer for direct
+- [x] Keep one canonical segment builder and package serializer for direct
   tests, project Cook, and future stores; reject duplicate virtual paths and
   target/profile disagreement before returning a batch.
 
@@ -189,25 +196,25 @@ identical plans independent of load or completion order.
 
 ### Stage 2: Add project scheduling and the offline Cook command
 
-- [ ] Implement `FCookCoordinator` discovery, sorted loading, contributor
+- [x] Implement `FCookCoordinator` discovery, sorted loading, contributor
   preparation, save-plan capture, bounded cancellation, and aggregate result
   flow over one registry/reference snapshot.
-- [ ] Select project roots from explicit command arguments and registered Cook
+- [x] Select project roots from explicit command arguments and registered Cook
   root stores, including the configured default Level route, then exercise
   missing roots, cycles, type mismatches, stale reference indices, duplicate
   output identities, redirect omission, and external module roots.
-- [ ] Extend `DurinAssetTool` with a `cook` operation that bootstraps the
+- [x] Extend `DurinAssetTool` with a `cook` operation that bootstraps the
   required developer/editor modules without an application loop and accepts a
   project, output root, target/profile, repeated roots, incremental policy, and
   JSON output.
-- [ ] Add top-level `DevTool cook` selection, runtime resolution, interruption,
+- [x] Add top-level `DevTool cook` selection, runtime resolution, interruption,
   heartbeat, exit-code, human summary, and versioned JSON-contract handling.
   Preview/dry-run captures and reports plans but never opens a store
   transaction.
-- [ ] Make diagnostics identify the requested root, final package, contributor,
+- [x] Make diagnostics identify the requested root, final package, contributor,
   operation stage, target/profile, and causal error while preserving a stable
   machine-readable code.
-- [ ] Start with deterministic serial preparation. Enable a bounded worker
+- [x] Start with deterministic serial preparation. Enable a bounded worker
   schedule only if race, module-owner, cancellation, and byte-equivalence tests
   prove it; otherwise record serial execution as the qualified M3 policy.
 
@@ -217,24 +224,24 @@ capture failure produces no output mutation.
 
 ### Stage 3: Publish transactionally and add incremental Cook state
 
-- [ ] Introduce `ICookOutputStore` and the local loose implementation without
+- [x] Introduce `ICookOutputStore` and the local loose implementation without
   exposing store paths or handles to contributors, save overrides, PlatformData,
   `FBulkData`, or CMNF consumers.
-- [ ] Stage and revalidate all changed segments, packages, CMNF, and Cook state;
+- [x] Stage and revalidate all changed segments, packages, CMNF, and Cook state;
   implement complete rollback for new and overwritten outputs at every injected
   commit boundary.
-- [ ] Preserve segment-before-package-before-manifest ordering while making the
+- [x] Preserve segment-before-package-before-manifest ordering while making the
   prior valid manifest closure readable until the new manifest commit succeeds.
-- [ ] Version and encode `CookState.bin` canonically. Reject unsupported or
+- [x] Version and encode `CookState.bin` canonically. Reject unsupported or
   corrupt state as an incremental miss without weakening validation of an
   existing CMNF/output closure.
-- [ ] Reuse unchanged valid outputs and report Cook hits without rewriting their
+- [x] Reuse unchanged valid outputs and report Cook hits without rewriting their
   timestamps or bytes. Distinguish capture requiring a DDC hit, capture requiring
   a rebuild, and publication-only replacement.
-- [ ] Remove stale files only from the previous valid CMNF after successful new
+- [x] Remove stale files only from the previous valid CMNF after successful new
   manifest publication; never delete unowned files, current shared outputs,
   rollback material, or a prior generation still needed for recovery.
-- [ ] Enforce one writer per output root and prove retry after failure,
+- [x] Enforce one writer per output root and prove retry after failure,
   cancellation, or process interruption converges to the same canonical result.
 
 Completion condition: no injected failure or cancellation exposes a mixed
@@ -244,21 +251,21 @@ repaired rather than reused.
 
 ### Stage 4: Integrate families and qualify the M3 boundary
 
-- [ ] Run the project coordinator across every supported family plus package-only
+- [x] Run the project coordinator across every supported family plus package-only
   assets and Terrain World opaque regions; verify runtime loading uses only the
   published package/segment closure.
-- [ ] Prove DDC hit, DDC miss/rebuild, Cook hit, selective invalidation, full
+- [x] Prove DDC hit, DDC miss/rebuild, Cook hit, selective invalidation, full
   recapture, dry-run, cancellation, competing writer, missing/corrupt output,
   rollback, retry, stale cleanup, and unsupported target/profile behavior.
-- [ ] Record deterministic output hashes across repeated runs and configured
+- [x] Record deterministic output hashes across repeated runs and configured
   worker counts, plus package count, changed/reused bytes, peak captured bytes,
   range count, build/cache provenance, wall time, and commit/rollback timings.
-- [ ] Run focused `AssetCookTests`, `AssetPackageTests`, affected family tests,
+- [x] Run focused `AssetCookTests`, `AssetPackageTests`, affected family tests,
   DurinDevTool command-contract tests, the registered `fast-all` matrix, and a
   bounded Sandbox command/application smoke following repository test guidance.
-- [ ] Move lasting project Cook, save-plan, incremental-state, output-store,
+- [x] Move lasting project Cook, save-plan, incremental-state, output-store,
   manifest, and failure rules into their owning Runtime/Development documents.
-- [ ] Update the Package Bulk Data roadmap with M3 completion evidence and exact
+- [x] Update the Package Bulk Data roadmap with M3 completion evidence and exact
   M4 entry inventory; create the M4 legacy-retirement plan only after every
   remaining compatibility reader, adapter, fixture, and Content Browser route
   has a named deletion test.

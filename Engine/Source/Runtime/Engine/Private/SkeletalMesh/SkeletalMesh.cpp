@@ -662,7 +662,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DSkeletalMesh::AddToCook(
+	auto DSkeletalMesh::ContributeToCook(
 		Asset::FCookContext& Context,
 		std::string_view VirtualPackagePath,
 		std::string& OutError) -> bool

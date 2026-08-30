@@ -97,7 +97,7 @@ Persistent asset identity is defined by
 [Asset Packages](AssetPackages.md#paths-and-mounts). A standalone-family source
 hint is instead an optional explicitly based asset-relative,
 project-relative, or absolute physical path used only by explicit Reimport.
-Neither kind identifies a DDC key, `.bin` object, `.dabulk`/`.dbulk` file, or
+Neither kind identifies a DDC key, `.bin` object, `.dbulk` file, or
 byte offset, and asset paths and source hints are not interchangeable.
 
 ## Runtime Data Domain
@@ -365,7 +365,7 @@ Payload-bearing packages use DAST v7 BulkData fields. Values up to the package
 inline threshold remain in the `.dasset`; larger fields occupy aligned ranges
 in one stable, headerless `.dbulk` sibling. The package summary owns the exact
 segment extent and digest, and Payload Directory v2 owns every range. The raw
-segment has no DURF/DBLK header, descriptor table, target, schema, or physical
+segment has no DURF header, descriptor table, target, schema, or physical
 path. Metadata-only packages, including Skeleton and packages whose fields stay
 inline, have no companion and no empty manifest record.
 
@@ -396,15 +396,16 @@ dependencies, region extent, and region hash for each installed product.
 `FCookContext::AddRawPackage` publishes one headerless region segment and CMNF
 records it as `PackageBulk`. Runtime validates region and product bounds and
 hashes before decoding the requested product. It never interprets the region as
-DBLK.
+a structured bulk container.
 
 ## Cook and Publication Rules
 
 `FCookContext::AddPackage` accepts canonical cooked package bytes; package
 serialization captures any `FBulkData` ranges and produces the optional raw
 segment. `AddRawPackage` admits an already laid-out opaque segment such as a
-Terrain region. Descriptor-aware Cook overloads and family
-`LoadCookedPackagePayload` routes are not production APIs.
+Terrain region. The ten asset families contribute through class-keyed
+registrations owned by `RegisterEngineCookContributors`; individual family
+Cook methods are private.
 
 Publication stages and validates complete outputs, writes a required segment
 before its referencing package, and publishes `CookManifest.bin` last. CMNF
@@ -420,19 +421,37 @@ to final real identities and redirector packages are omitted. Missing targets,
 cycles, type mismatches, corrupt aliases, duplicate output identities, or
 incomplete reference projections fail before manifest publication.
 
-This contract covers asset contribution and deterministic loose-file
-publication. Project-wide scheduling, incremental state, output-store
-generalization, and installable-build orchestration belong to the next Cook
-integration milestone.
+`FCookCoordinator` owns project Cook. Explicit roots augment the configured
+default Level and registered runtime roots, one asset-registry/reference
+snapshot determines the closure, and normalized final package identities are
+loaded and captured serially in canonical order. Class-keyed, owner-gated
+contributors may prepare derived state and return detached save plans; the
+coordinator rejects any contributor that changes authored package bytes or
+dirty state. Unsupported classes, stale registry facts, missing or mistyped
+references, and duplicate output identities fail before publication.
+
+`CookState.bin` is a canonical editor/tool-only incremental database separate
+from CMNF. Its fingerprint includes source package content, resolved dependency
+facts and content, target/profile, project Cook settings, contributor revision,
+and family producer revision; it excludes timestamps, output paths, schedule,
+and DDC location. A Cook hit additionally validates stored output size and
+digest. Missing or corrupt output is recaptured and repaired. DDC hits,
+rebuilds, captures, and validated Cook hits remain distinct provenance.
+
+All save plans are detached before `ICookOutputStore` opens its transaction.
+The local loose store enforces one writer per output root, stages and validates
+every changed file, retains overwritten bytes, commits segments before packages,
+then `CookState.bin`, and commits `CookManifest.bin` last. Failure or
+cancellation before the manifest commit restores the prior closure in reverse
+order. Only after manifest publication may paths owned solely by the previous
+manifest be removed; unowned files are never cleanup candidates.
 
 ## Compatibility, targets, and inspection
 
-DBLK v2 is a finite read-only compatibility and regression-fixture surface.
-`FCookedPayloadDescriptor`, `FCookedBulkContainer`, and the bounded DBLK
-decoder remain only for construct-free inspection and the recorded fixture
-corpus. New family Cook output never emits a DBLK container or persists a
-cooked descriptor. Removal is gated on canonical resave/retirement of the
-remaining legacy fixture corpus in the legacy-retirement milestone.
+DAST v7 field metadata and an optional headerless raw segment are the only
+supported cooked package representation. Construct-free inspection decodes the
+field storage metadata directly and never constructs an asset or a separate
+container descriptor.
 
 The implemented compatibility identifiers are Win64 platform `1`, Game
 profile `1`, and EditorValidation profile `2`. Production family Cook and
@@ -447,8 +466,8 @@ read-only and never rebuilds, recooks, repairs, deletes, or publishes.
 
 ## Versioning and naming
 
-Package format, family PlatformData schema, builder version, Cook target/profile,
-and legacy DBLK container version are independent. A builder-version change
+Package format, family PlatformData schema, builder version, and Cook target/profile
+are independent. A builder-version change
 invalidates DDC/Cook production identity without necessarily changing readable
 family bytes. A package or family schema change requires an explicit supported
 reader or a hard unsupported-version result.
@@ -480,11 +499,10 @@ unloaded. Family build keys use the editor payload identity before requesting
 bytes, so a validated DDC hit performs zero source-range reads. A miss obtains
 and owns exactly one immutable payload snapshot before worker execution.
 
-DAST v6/DABK remains a read-only migration input. Canonical resave validates
-that complete old closure, transactionally publishes DAST v7 plus raw `.dbulk`,
-updates catalog authority, and only then removes `.dabulk`; rollback restores
-both companion names and prior registry state. Exact state, wire, and resource
-rules are defined by [Package Bulk Data](BulkData.md).
+DAST v7 plus an optional raw `.dbulk` segment is the sole supported authored
+package closure. Canonical resave republishes that closure transactionally and
+rolls back both storage and catalog authority on failure. Exact state, wire,
+and resource rules are defined by [Package Bulk Data](BulkData.md).
 
 ## Domain-qualified inspection and repair ownership
 
@@ -501,7 +519,7 @@ Repair classifications name the owning explicit workflow:
 | Finding | Action owner |
 | --- | --- |
 | Missing/changed/malformed standalone source | Reimport or select a replacement file. |
-| Missing/corrupt authored segment | Restore the package-matching raw `.dbulk`, canonically resave a valid v6/DABK closure, or reimport. |
+| Missing/corrupt authored segment | Restore the package-matching raw `.dbulk` or reimport. |
 | Unreferenced editor companion | Explicit package cleanup; inspection never deletes it. |
 | Missing/corrupt/incompatible DDC | Domain rebuild; cache data is disposable. |
 | Missing/unsupported/failed cooked payload | Recook or upgrade/resave; runtime has no source fallback. |

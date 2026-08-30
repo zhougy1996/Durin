@@ -46,7 +46,6 @@ durin_add_asset_functional_test(AssetPackageTests
 	SOURCES
 		Private/BulkDataTests.cpp
 		Private/PackageTests.cpp
-		Private/PackageV6Tests.cpp
 		Private/PackageObjectStreamWireContract.cpp
 		Private/PackageObjectStreamWireContractTests.cpp
 		Private/PackageObjectStreamReferenceModel.cpp
@@ -57,11 +56,6 @@ durin_add_asset_functional_test(AssetPackageTests
 target_include_directories(AssetPackageTests PRIVATE
 	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 )
-durin_test_deploy_directory_to_data(
-	AssetPackageTests
-	"${CMAKE_CURRENT_SOURCE_DIR}/Data/Compatibility"
-)
-
 durin_add_asset_functional_test(AssetCookTests
 	KIND feature
 	DOMAINS asset-cook

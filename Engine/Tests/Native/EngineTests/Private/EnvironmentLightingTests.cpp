@@ -138,7 +138,8 @@ TEST(FEnvironmentLightingTests, AssetCooksAuthoredPayloadDirectlyWithoutDdc)
 		CookRoot,
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game);
-	ASSERT_TRUE(Asset->AddToCook(Context, "/Game/StudioEnvironment", Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+		*Asset, "/Game/StudioEnvironment", Context, Error)) << Error;
 	ASSERT_TRUE(Context.Publish(&Error)) << Error;
 
 	Durin::Asset::FAssetPackageInspection Inspection;

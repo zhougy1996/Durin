@@ -198,10 +198,14 @@ namespace Durin
 		ENGINE_API auto IsSemanticImportNoOp(const DTerrainHeightmap& Candidate) const -> bool;
 		ENGINE_API auto PrepareCandidateRevision(DTerrainHeightmap& Candidate) const -> void;
 		ENGINE_API auto ExchangeImportedState(DTerrainHeightmap& Other) noexcept -> void;
-		ENGINE_API auto AddToCook(
+	private:
+		friend auto Asset::ContributeEngineCookAsset(
+			DObject&, std::string_view, Asset::FCookContext&, std::string&) -> bool;
+		ENGINE_API auto ContributeToCook(
 			Asset::FCookContext& Context,
 			std::string_view VirtualPackagePath,
 			std::string& OutError) -> bool;
+	public:
 
 	private:
 		friend class FTerrainHeightmapRenderStateRecreateContext;

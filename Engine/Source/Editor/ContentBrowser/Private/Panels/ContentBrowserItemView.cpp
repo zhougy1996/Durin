@@ -169,15 +169,14 @@ namespace Durin::Editor::ContentBrowser::Private::ContentBrowserItemView
 			Snapshot.InputRange = Extension == ".hdr" ? "Radiance HDR" : "LDR";
 		}
 
-		Asset::FCookedPayloadDescriptor CookedPayload;
+		Asset::FEditorBulkDataStorageDescriptor CookedPayload;
 		const Asset::FAssetPackageField* CookedField =
-			Inspection.FindField("CookedPayload");
+			Inspection.FindField("PlatformData");
 		if (CookedField
-			&& CookedField->TryReadStruct(
-				Asset::FCookedPayloadDescriptor::StaticStruct(), &CookedPayload)
-			&& CookedPayload.StoredSize != 0)
+			&& CookedField->TryReadBulkDataStorageDescriptor(CookedPayload)
+			&& CookedPayload.StoredByteCount != 0)
 			Snapshot.Output = std::format(
-				"Cooked payload ({} bytes)", CookedPayload.StoredSize);
+				"Cooked payload ({} bytes)", CookedPayload.StoredByteCount);
 		Snapshot.BuildDiagnostic =
 			"Runtime platform data and build diagnostics are not serialized in this package.";
 		return Snapshot;

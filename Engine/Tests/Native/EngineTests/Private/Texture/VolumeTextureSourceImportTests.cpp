@@ -468,7 +468,8 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	Testing::RemoveTestWorkDirectory(CookRoot);
 	Asset::FCookContext Cook(CookRoot, Asset::ECookTargetPlatform::Win64,
 		Asset::ECookTargetProfile::Game);
-	ASSERT_TRUE(Imported.Asset->AddToCook(Cook, "/Game/ProductionVolume", Error)) << Error;
+	ASSERT_TRUE(Asset::ContributeEngineCookAsset(
+		*Imported.Asset, "/Game/ProductionVolume", Cook, Error)) << Error;
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 	EXPECT_TRUE(std::filesystem::exists(CookRoot / "Game/ProductionVolume.dasset"));
 	EXPECT_TRUE(std::filesystem::exists(CookRoot / "Game/ProductionVolume.dbulk"));
@@ -507,8 +508,8 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	Testing::RemoveTestWorkDirectory(RollbackCookRoot);
 	Asset::FCookContext RollbackCook(RollbackCookRoot,
 		Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game);
-	ASSERT_TRUE(Reloaded->AddToCook(
-		RollbackCook, "/Game/ProductionVolume", Error)) << Error;
+	ASSERT_TRUE(Asset::ContributeEngineCookAsset(
+		*Reloaded, "/Game/ProductionVolume", RollbackCook, Error)) << Error;
 	ASSERT_TRUE(RollbackCook.Publish(&Error)) << Error;
 	std::vector<std::byte> RepeatedCookedPackage;
 	std::vector<std::byte> RepeatedCookedBulk;

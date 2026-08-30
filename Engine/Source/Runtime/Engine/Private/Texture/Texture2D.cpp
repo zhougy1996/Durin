@@ -315,7 +315,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DTexture2D::AddToCook(
+	auto DTexture2D::ContributeToCook(
 		Asset::FCookContext& Context,
 		std::string_view VirtualPackagePath,
 		std::string& OutError) -> bool

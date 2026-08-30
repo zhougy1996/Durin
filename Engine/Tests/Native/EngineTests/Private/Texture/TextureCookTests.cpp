@@ -163,7 +163,8 @@ TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 		CookRoot,
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game);
-	ASSERT_TRUE(Loaded->AddToCook(Cook, "/Game/ColdTexture", Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+		*Loaded, "/Game/ColdTexture", Cook, Error)) << Error;
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Game/ColdTexture.dasset"));
@@ -213,7 +214,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		CookRoot,
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game);
-	ASSERT_TRUE(Import.Asset->AddToCook(First, "/Game/CookedTexture", Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+		*Import.Asset, "/Game/CookedTexture", First, Error)) << Error;
 	ASSERT_TRUE(First.Publish(&Error)) << Error;
 	EXPECT_EQ(
 		Import.Asset->GetDerivedDataDiagnostic().bSourceDecoderInvoked,
@@ -223,7 +225,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		SecondCookRoot,
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game);
-	ASSERT_TRUE(Import.Asset->AddToCook(Second, "/Game/CookedTexture", Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+		*Import.Asset, "/Game/CookedTexture", Second, Error)) << Error;
 	ASSERT_TRUE(Second.Publish(&Error)) << Error;
 
 	Durin::Asset::FCookContext Diagnostic(
@@ -231,7 +234,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game,
 		true);
-	ASSERT_TRUE(Import.Asset->AddToCook(Diagnostic, "/Game/CookedTexture", Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+		*Import.Asset, "/Game/CookedTexture", Diagnostic, Error)) << Error;
 	ASSERT_TRUE(Diagnostic.Publish(&Error)) << Error;
 	ASSERT_NE(Import.Asset->GetAssetImportData(), nullptr);
 	ImportedSource = Import.Asset->GetAssetImportData()->GetSourceData().FindByRole("source");
@@ -476,7 +480,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		Durin::Asset::LoadAsset(CookedPath, CookedTexture);
 	EXPECT_FALSE(MissingBulk);
 	EXPECT_EQ(CookedTexture, nullptr);
-	EXPECT_NE(MissingBulk.Message.find("Cooked Texture2D"), std::string::npos);
+	EXPECT_NE(MissingBulk.Message.find("bulk segment"), std::string::npos);
 
 	auto ExpectCookedFailure = [](const std::filesystem::path& FailureRoot,
 								   std::string_view ExpectedText) {
@@ -493,7 +497,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		EXPECT_EQ(Texture, nullptr);
 		EXPECT_NE(Result.Message.find(ExpectedText), std::string::npos) << Result.Message;
 	};
-	ExpectCookedFailure(CorruptRoot, "checksum");
+	ExpectCookedFailure(CorruptRoot, "bulk segment");
 	Durin::Asset::ShutdownAssetManager();
 	Durin::CollectGarbage();
 }

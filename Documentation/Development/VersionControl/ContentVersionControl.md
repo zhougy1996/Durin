@@ -10,7 +10,6 @@ Durin keeps authored content reproducible alongside the source revision that con
 | --- | --- | --- |
 | `.dasset` packages and levels | Git | Runtime asset identity and object state must match the code revision. The files are marked binary. |
 | Authored raw `.dbulk` segments | Git LFS | Stable-name external canonical fields remain outside the ordinary Git object database. |
-| Legacy `.dabulk` companions | Git LFS | Read-only DAST v6 migration inputs remain versioned until canonical resave removes them. |
 | Models, textures, audio, and fonts | Git LFS | These files are commonly large, binary, or produce noisy diffs. LFS avoids copying every revision into the main Git object database. |
 | Small text metadata and import settings | Git | They are reviewable and should evolve with their assets. |
 | `DerivedDataCache`, `Cooked`, and `Saved` | Ignored | These directories contain rebuildable or machine-local output. |
@@ -164,18 +163,16 @@ Do not place `.dasset` under LFS by default. Packages are currently compact,
 and keeping them in normal Git makes ordinary engine and level changes
 self-contained. Ordinary DAST v7 packages keep large authored fields in a raw
 `.dbulk`; `.dasset` remains ordinary Git and the segment remains LFS. A submit
-must include the package and every newly referenced stable companion. Legacy
-`.dabulk` remains LFS only while a DAST v6 package references it. Hidden
-`.dbulk.durin-backup`, `.dabulk.durin-backup`, and atomic temporary files are
+must include the package and every newly referenced stable companion. Hidden
+`.dbulk.durin-backup` and atomic temporary files are
 transaction state and must never be submitted. Revisit
 `.dasset` LFS only if a separately qualified route begins embedding large
 render data.
 
 The package version and Payload Directory, not a suffix scan, select the
 canonical closure. Review migration or resave reports and submit the `.dasset`
-and its LFS-backed `.dbulk` together whenever either changes. A v6 migration
-commit must include deletion of the superseded `.dabulk`. Never submit only the
-package or only the companion side.
+and its LFS-backed `.dbulk` together whenever either changes. Never submit only
+the package or only the companion side.
 
 ## Existing Repository Files
 

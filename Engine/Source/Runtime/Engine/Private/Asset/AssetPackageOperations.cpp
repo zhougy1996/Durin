@@ -6,7 +6,7 @@
 #include "Asset/PackageObjectStreamReader.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetPackageCodec.h"
-#include "AssetPackageV6Codec.h"
+#include "AssetPackageV7Codec.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/Redirector.h"
 #include "Asset/EditorBulkData.h"
@@ -347,7 +347,6 @@ namespace Durin::Asset
 			const std::filesystem::path Parent = PackagePath.parent_path();
 			const std::string Stem = PackagePath.stem().string();
 			const std::string StableName = Stem + ".dbulk";
-			const std::string LegacyName = Stem + std::string(EditorBulkDataCompanionSuffix);
 			std::error_code ErrorCode;
 			for (std::filesystem::directory_iterator It(Parent, ErrorCode), End;
 				!ErrorCode && It != End; It.increment(ErrorCode))
@@ -355,7 +354,7 @@ namespace Durin::Asset
 				const std::filesystem::path Candidate = It->path();
 				const std::string Name = Candidate.filename().string();
 				if (!It->is_regular_file(ErrorCode) || ErrorCode
-					|| (Name != StableName && Name != LegacyName)
+					|| Name != StableName
 					|| (!KeepPath.empty() && Candidate == KeepPath))
 				{
 					ErrorCode.clear();
@@ -1407,13 +1406,13 @@ namespace Durin::Asset
 		return Reader.Offset == Payload.size();
 	}
 
-	auto FAssetPackageField::TryReadEditorBulkDataStorageDescriptor(
+	auto FAssetPackageField::TryReadBulkDataStorageDescriptor(
 		FEditorBulkDataStorageDescriptor& OutValue) const -> bool
 	{
 		OutValue = {};
 		if (Kind != DurinCodeGen::EPropertyGenFlags::BulkData) return false;
 		FByteReader Reader{Payload};
-		if (SourceFormatVersion >= AssetPackageV7FormatVersion)
+		if (SourceFormatVersion == AssetPackageV7FormatVersion)
 		{
 			uint64 FieldIndex = 0;
 			uint8 Placement = 0;
@@ -1449,31 +1448,13 @@ namespace Durin::Asset
 				std::span<const std::byte>(Payload).subspan(Reader.Offset))
 				== OutValue.ContentHash;
 		}
-		uint8 StorageKind = 0;
-		FGuid ReservedIdentity;
-		uint32 ReservedVersion = 0;
-		uint64 HashLow = 0, HashHigh = 0, ContainerLow = 0, ContainerHigh = 0;
-		if (!Reader.Read(StorageKind) || StorageKind > 1
-			|| !Reader.Read(OutValue.PayloadId) || !Reader.Read(ReservedIdentity)
-			|| !Reader.Read(ReservedVersion)
-			|| !Reader.Read(OutValue.LogicalByteCount)
-			|| !Reader.Read(OutValue.StoredByteCount)
-			|| !Reader.Read(HashLow) || !Reader.Read(HashHigh)
-			|| !Reader.Read(ContainerLow) || !Reader.Read(ContainerHigh)) return false;
-		OutValue.ContentHash = {HashLow, HashHigh};
-		OutValue.ContainerHash = {ContainerLow, ContainerHigh};
-		OutValue.StorageKind = StorageKind == 0
-			? EEditorBulkDataStorageKind::Inline : EEditorBulkDataStorageKind::External;
-		if (!OutValue.PayloadId.IsValid()
-			|| OutValue.LogicalByteCount != OutValue.StoredByteCount) return false;
-		if (OutValue.StorageKind == EEditorBulkDataStorageKind::External)
-			return !OutValue.ContainerHash.IsZero() && Reader.Offset == Payload.size();
-		if (!OutValue.ContainerHash.IsZero()
-			|| Reader.Offset > Payload.size()
-			|| OutValue.StoredByteCount != Payload.size() - Reader.Offset) return false;
-		return FXxHash128::HashBuffer(
-			std::span<const std::byte>(Payload).subspan(Reader.Offset))
-			== OutValue.ContentHash;
+		return false;
+	}
+
+	auto FAssetPackageField::TryReadEditorBulkDataStorageDescriptor(
+		FEditorBulkDataStorageDescriptor& OutValue) const -> bool
+	{
+		return TryReadBulkDataStorageDescriptor(OutValue);
 	}
 
 	auto FAssetPackageField::TryInspectStructFields(
@@ -1546,21 +1527,16 @@ namespace Durin::Asset
 			FAssetPackageInspection Inspection;
 			Result = Codec->Inspect(Bytes, Inspection);
 			if (!Result) return Result;
-			if (Inspection.Header.FormatVersion >= AssetPackageV7FormatVersion)
+			if (Inspection.Header.FormatVersion == AssetPackageV7FormatVersion)
 			{
-				Private::DastV6::FParsedPackage Parsed;
+				Private::DastV7::FParsedPackage Parsed;
 				std::string SegmentError;
-				if (!Private::DastV6::ParsePackage(Bytes, Parsed, &SegmentError))
+				if (!Private::DastV7::ParsePackage(Bytes, Parsed, &SegmentError))
 					return Error(EAssetError::CorruptFile, std::move(SegmentError));
 				std::filesystem::path PackagePath(PhysicalPath);
 				std::filesystem::path SegmentPath = PackagePath;
 				SegmentPath.replace_extension(".dbulk");
-				std::filesystem::path LegacyPath = PackagePath;
-				LegacyPath.replace_extension(".dabulk");
 				std::error_code FileError;
-				if (std::filesystem::exists(LegacyPath, FileError))
-					return Error(EAssetError::CorruptFile,
-						"DAST v7 package conflicts with a legacy DABK companion.");
 				const bool bHasSegment = std::filesystem::is_regular_file(SegmentPath, FileError);
 				if (Parsed.BulkSegment.Extent != 0)
 				{

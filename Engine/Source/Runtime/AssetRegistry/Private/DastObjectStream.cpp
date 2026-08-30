@@ -15,8 +15,6 @@ namespace Durin::Asset::PackageObjectStream
 		constexpr uint64 DastMaximumHeaderBytes = 16ull * 1024ull * 1024ull;
 		constexpr uint64 DastMaximumFileBytes = 1024ull * 1024ull * 1024ull;
 		constexpr uint32 RequiredSectionFlag = 1;
-		constexpr uint32 PayloadDirectoryVersion = 1;
-		constexpr uint32 PayloadEntryBytes = 80;
 		constexpr FBinaryEnvelopeLimits EnvelopeLimits{
 			DastMaximumHeaderBytes, DastMaximumFileBytes};
 
@@ -31,7 +29,7 @@ namespace Durin::Asset::PackageObjectStream
 				const std::array Descriptors{FBinaryFormatDescriptor{
 					.FormatId = DastBinaryFormatId,
 					.DebugName = std::string(DastBinaryFormatName),
-					.MinimumFormatVersion = AssetPackageV6FormatVersion,
+					.MinimumFormatVersion = AssetPackageV7FormatVersion,
 					.MaximumFormatVersion = AssetPackageV7FormatVersion,
 					.SupportedRequiredFeatures = 0,
 					.Limits = EnvelopeLimits}};
@@ -118,42 +116,6 @@ namespace Durin::Asset::PackageObjectStream
 			std::vector<std::byte> Bytes;
 		};
 
-		auto ValidatePayloadDirectory(std::span<const std::byte> Bytes,
-			uint64 ExpectedCount) -> bool
-		{
-			FReader Reader(Bytes);
-			uint32 VersionValue = 0;
-			uint32 EntryBytes = 0;
-			uint64 Count = 0;
-			if (!Reader.Fixed(VersionValue) || VersionValue != PayloadDirectoryVersion
-				|| !Reader.Fixed(EntryBytes) || EntryBytes != PayloadEntryBytes
-				|| !Reader.Fixed(Count) || Count != ExpectedCount)
-				return false;
-			FGuid Previous;
-			bool bHasPrevious = false;
-			for (uint64 Index = 0; Index < Count; ++Index)
-			{
-				FGuid Id;
-				uint32 Placement = 0;
-				uint32 Flags = 0;
-				uint64 LogicalBytes = 0;
-				uint64 StoredBytes = 0;
-				FXxHash128 ContentHash;
-				FXxHash128 ContainerHash;
-				uint64 Reserved = 0;
-				if (!Reader.Guid(Id) || !Reader.Fixed(Placement) || Placement != 1
-					|| !Reader.Fixed(Flags) || Flags != 0
-					|| !Reader.Fixed(LogicalBytes) || !Reader.Fixed(StoredBytes)
-					|| LogicalBytes != StoredBytes || !Reader.Hash(ContentHash)
-					|| !Reader.Hash(ContainerHash) || !Reader.Fixed(Reserved)
-					|| Reserved != 0 || !Id.IsValid() || ContentHash.IsZero()
-					|| ContainerHash.IsZero() || (bHasPrevious && !(Previous < Id)))
-					return false;
-				Previous = Id;
-				bHasPrevious = true;
-			}
-			return Reader.AtEnd();
-		}
 	}
 
 	auto ExtractDastObjectStream(std::span<const std::byte> PackageBytes,
@@ -166,7 +128,7 @@ namespace Durin::Asset::PackageObjectStream
 			EnvelopeLimits, Preamble, &Diagnostic))
 			return Error(std::string(Diagnostic.Message));
 		if (Preamble.HeaderBytes > PackageBytes.size())
-			return Error("DAST v6 front matter is truncated.");
+			return Error("DAST v7 front matter is truncated.");
 		FValidatedBinaryEnvelope Envelope;
 		if (!ValidateBinaryEnvelopeHeader(
 			PackageBytes.first(static_cast<size_t>(Preamble.HeaderBytes)),
@@ -189,11 +151,11 @@ namespace Durin::Asset::PackageObjectStream
 			|| SectionCount < DastRequiredSectionCount
 			|| SectionCount > MaximumSectionCount
 			|| DirectoryOffset != BinaryEnvelopePreambleBytes + FormatHeaderBytes)
-			return Error("DAST v6 format header is invalid or unsupported.");
+			return Error("DAST v7 format header is invalid or unsupported.");
 		const uint64 DirectoryBytes = uint64(SectionCount) * SectionEntryBytes;
 		if (DirectoryOffset > Preamble.HeaderBytes
 			|| DirectoryBytes > Preamble.HeaderBytes - DirectoryOffset)
-			return Error("DAST v6 section directory exceeds HeaderBytes.");
+			return Error("DAST v7 section directory exceeds HeaderBytes.");
 
 		std::array<std::span<const std::byte>, DastRequiredSectionCount> Sections;
 		uint64 ExpectedOffset = DirectoryOffset + DirectoryBytes;
@@ -218,55 +180,51 @@ namespace Durin::Asset::PackageObjectStream
 				|| EntryReserved != 0 || Kind <= PreviousKind
 				|| (Flags & ~RequiredSectionFlag) != 0 || Offset != ExpectedOffset
 				|| Offset > PackageBytes.size() || Size > PackageBytes.size() - Offset)
-				return Error("DAST v6 section entry is invalid or noncanonical.");
+				return Error("DAST v7 section entry is invalid or noncanonical.");
 			const auto Section = PackageBytes.subspan(
 				static_cast<size_t>(Offset), static_cast<size_t>(Size));
 			if (FXxHash128::HashBuffer(Section) != Hash)
-				return Error("DAST v6 section hash verification failed.");
+				return Error("DAST v7 section hash verification failed.");
 			if (Index < DastRequiredSectionCount)
 			{
 				if (Kind != Index + 1 || Flags != RequiredSectionFlag)
-					return Error("DAST v6 required sections are missing or out of order.");
+					return Error("DAST v7 required sections are missing or out of order.");
 				Sections[Index] = Section;
 				if (Index == 1) ImportEnd = Offset + Size;
 			}
 			else if ((Flags & RequiredSectionFlag) != 0)
-				return Error("DAST v6 contains an unknown required section.");
+				return Error("DAST v7 contains an unknown required section.");
 			ExpectedOffset += Size;
 			PreviousKind = Kind;
 		}
 		if (ExpectedOffset != PackageBytes.size() || ImportEnd != Preamble.HeaderBytes)
-			return Error("DAST v6 sections leave gaps, trailing bytes, or invalid HeaderBytes.");
+			return Error("DAST v7 sections leave gaps, trailing bytes, or invalid HeaderBytes.");
 
 		Dast::FPublicSummary Summary;
 		std::string ParseError;
 		if (!Dast::DecodePublicSummary(Sections[0], Sections[1],
 			static_cast<EAssetRegistryEntryKind>(PackageKind), Summary, &ParseError))
 			return Error(std::move(ParseError));
-		if (Preamble.FormatVersion == AssetPackageV6FormatVersion
-			&& !ValidatePayloadDirectory(Sections[7], Summary.PayloadCount))
-			return Error("DAST v6 Payload Directory is malformed or noncanonical.");
-
 		FWriter SummaryWriter;
 		if (!SummaryWriter.String(Summary.AssetClass))
-			return Error("DAST v6 logical summary exceeds its bound.");
+			return Error("DAST v7 logical summary exceeds its bound.");
 		SummaryWriter.Fixed(static_cast<uint8>(Summary.EntryKind));
 		if (!SummaryWriter.String(Summary.RedirectDestination))
-			return Error("DAST v6 logical redirect exceeds its bound.");
+			return Error("DAST v7 logical redirect exceeds its bound.");
 		SummaryWriter.VarUInt(Summary.Imports.size());
 		for (const std::string& Import : Summary.Imports)
 			if (!SummaryWriter.String(Import))
-				return Error("DAST v6 logical import exceeds its bound.");
+				return Error("DAST v7 logical import exceeds its bound.");
 		SummaryWriter.VarUInt(Summary.ExportCount);
 		if (SummaryWriter.Size() > MaximumSummaryBytes)
-			return Error("DAST v6 logical summary exceeds its bound.");
+			return Error("DAST v7 logical summary exceeds its bound.");
 
 		const std::array LogicalSections{
 			Sections[2], Sections[3], Sections[4], Sections[5], Sections[6]};
 		uint64 Total = 13 + SummaryWriter.Size() + LogicalSections.size() * 9;
 		for (const auto Section : LogicalSections) Total += Section.size();
 		if (Total > MaximumPackageBytes || Total > std::numeric_limits<uint32>::max())
-			return Error("DAST v6 logical object stream exceeds its bound.");
+			return Error("DAST v7 logical object stream exceeds its bound.");
 		const uint32 LogicalSummaryBytes = static_cast<uint32>(SummaryWriter.Size());
 		FWriter Writer;
 		Writer.Fixed(Magic);

@@ -1,4 +1,4 @@
-#include "AssetPackageV6Codec.h"
+#include "AssetPackageV7Codec.h"
 
 #include "Asset/Compatibility.h"
 #include "Asset/Cook.h"
@@ -14,14 +14,11 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
-namespace Durin::Asset::Private::DastV6
+namespace Durin::Asset::Private::DastV7
 {
 	namespace
 	{
-		constexpr uint32 PublicSummaryVersion = 1;
 		constexpr uint32 ImportVersion = 1;
-		constexpr uint32 PayloadDirectoryVersion = 1;
-		constexpr uint32 PayloadEntryBytes = 80;
 		constexpr FBinaryEnvelopeLimits EnvelopeLimits{MaximumHeaderBytes, MaximumFileBytes};
 
 		auto Error(std::string Message) -> FAssetResult
@@ -64,11 +61,6 @@ namespace Durin::Asset::Private::DastV6
 				return true;
 			}
 
-			auto Guid(const FGuid& Value) -> void
-			{
-				Fixed(Value.A); Fixed(Value.B); Fixed(Value.C); Fixed(Value.D);
-			}
-
 			auto Hash(const FXxHash128& Value) -> void
 			{
 				Fixed(Value.HashLow); Fixed(Value.HashHigh);
@@ -85,78 +77,6 @@ namespace Durin::Asset::Private::DastV6
 		private:
 			std::vector<std::byte> Bytes;
 		};
-
-		class FReader
-		{
-		public:
-			explicit FReader(std::span<const std::byte> InBytes) : Bytes(InBytes) {}
-
-			template<typename T>
-			auto Fixed(T& OutValue) -> bool
-			{
-				if (Remaining() < sizeof(T)) return false;
-				T Value = 0;
-				for (size_t Index = 0; Index < sizeof(T); ++Index)
-					Value |= static_cast<T>(std::to_integer<uint8>(Bytes[Offset++])) << (Index * 8);
-				OutValue = Value;
-				return true;
-			}
-
-			auto VarUInt(uint64& OutValue) -> bool
-			{
-				uint64 Value = 0;
-				for (uint32 Index = 0; Index < 10; ++Index)
-				{
-					uint8 Byte = 0;
-					if (!Fixed(Byte) || (Index == 9 && (Byte & 0xfe) != 0)) return false;
-					Value |= uint64(Byte & 0x7f) << (Index * 7);
-					if ((Byte & 0x80) == 0)
-					{
-						if (Index != 0 && Byte == 0) return false;
-						OutValue = Value;
-						return true;
-					}
-				}
-				return false;
-			}
-
-			auto String(std::string& OutValue, bool bAllowEmpty = true) -> bool
-			{
-				uint64 Size = 0;
-				if (!VarUInt(Size) || Size > PackageObjectStream::MaximumStringBytes
-					|| Size > Remaining() || (!bAllowEmpty && Size == 0)) return false;
-				std::string Value(reinterpret_cast<const char*>(Bytes.data() + Offset),
-					static_cast<size_t>(Size));
-				Offset += Size;
-				if (Value.find('\0') != std::string::npos) return false;
-				OutValue = std::move(Value);
-				return true;
-			}
-
-			auto Guid(FGuid& OutValue) -> bool
-			{
-				FGuid Value;
-				if (!Fixed(Value.A) || !Fixed(Value.B) || !Fixed(Value.C) || !Fixed(Value.D))
-					return false;
-				OutValue = Value;
-				return true;
-			}
-
-			auto Hash(FXxHash128& OutValue) -> bool
-			{
-				FXxHash128 Value;
-				if (!Fixed(Value.HashLow) || !Fixed(Value.HashHigh)) return false;
-				OutValue = Value;
-				return true;
-			}
-
-			auto Remaining() const -> size_t { return Bytes.size() - Offset; }
-			auto AtEnd() const -> bool { return Offset == Bytes.size(); }
-
-	private:
-		std::span<const std::byte> Bytes;
-		size_t Offset = 0;
-	};
 
 		template<typename T>
 		auto ReadAt(std::span<const std::byte> Bytes, uint64 Offset, T& OutValue) -> bool
@@ -178,7 +98,7 @@ namespace Durin::Asset::Private::DastV6
 				const std::array Descriptors{FBinaryFormatDescriptor{
 					.FormatId = DastBinaryFormatId,
 					.DebugName = std::string(DastBinaryFormatName),
-					.MinimumFormatVersion = Version,
+					.MinimumFormatVersion = AssetPackageV7FormatVersion,
 					.MaximumFormatVersion = AssetPackageV7FormatVersion,
 					.SupportedRequiredFeatures = 0,
 					.Limits = EnvelopeLimits}};
@@ -188,27 +108,6 @@ namespace Durin::Asset::Private::DastV6
 				return Result;
 			}();
 			return Registry;
-		}
-
-		auto EncodePublicSummary(
-			const PackageObjectStream::FValidatedHeader& Header,
-			uint64 PayloadCount,
-			std::vector<std::byte>& OutBytes) -> bool
-		{
-			if (Header.ObjectCount == 0 || Header.ObjectCount > MaximumExportCount
-				|| Header.Dependencies.size() > MaximumImportCount
-				|| PayloadCount > MaximumPayloadCount) return false;
-			FWriter Writer;
-			Writer.Fixed(PublicSummaryVersion);
-			Writer.Fixed(uint32{1});
-			Writer.Fixed(static_cast<uint64>(Header.Dependencies.size()));
-			Writer.Fixed(Header.ObjectCount);
-			Writer.Fixed(PayloadCount);
-			Writer.Fixed(uint64{0});
-			if (!Writer.String(Header.AssetClass) || !Writer.String(Header.RedirectDestination))
-				return false;
-			OutBytes = Writer.Take();
-			return true;
 		}
 
 		auto EncodePublicSummaryV7(
@@ -253,67 +152,6 @@ namespace Durin::Asset::Private::DastV6
 			return true;
 		}
 
-		auto EncodePayloadDirectory(
-			std::span<const FPayloadEntry> Entries,
-			std::vector<std::byte>& OutBytes) -> bool
-		{
-			if (Entries.size() > MaximumPayloadCount) return false;
-			FWriter Writer;
-			Writer.Fixed(PayloadDirectoryVersion);
-			Writer.Fixed(PayloadEntryBytes);
-			Writer.Fixed(static_cast<uint64>(Entries.size()));
-			for (const FPayloadEntry& Entry : Entries)
-			{
-				Writer.Guid(Entry.PayloadId);
-				Writer.Fixed(static_cast<uint32>(Entry.Placement));
-				Writer.Fixed(uint32{0});
-				Writer.Fixed(Entry.LogicalByteCount);
-				Writer.Fixed(Entry.StoredByteCount);
-				Writer.Hash(Entry.ContentHash);
-				Writer.Hash(Entry.ContainerHash);
-				Writer.Fixed(uint64{0});
-			}
-			OutBytes = Writer.Take();
-			return true;
-		}
-
-		auto DecodePayloadDirectory(std::span<const std::byte> Bytes,
-			FParsedPackage& Out, std::string* OutError) -> bool
-		{
-			FReader Reader(Bytes);
-			uint32 VersionValue = 0;
-			uint32 EntryBytes = 0;
-			uint64 Count = 0;
-			if (!Reader.Fixed(VersionValue) || VersionValue != PayloadDirectoryVersion
-				|| !Reader.Fixed(EntryBytes) || EntryBytes != PayloadEntryBytes
-				|| !Reader.Fixed(Count) || Count != Out.ExpectedPayloadCount)
-				return Fail("DAST v6 Payload Directory header is malformed.", OutError);
-			for (uint64 Index = 0; Index < Count; ++Index)
-			{
-				FPayloadEntry Entry;
-				uint32 Placement = 0;
-				uint32 Flags = 0;
-				uint64 Reserved = 0;
-				if (!Reader.Guid(Entry.PayloadId) || !Reader.Fixed(Placement)
-					|| !Reader.Fixed(Flags) || Flags != 0
-					|| !Reader.Fixed(Entry.LogicalByteCount)
-					|| !Reader.Fixed(Entry.StoredByteCount)
-					|| !Reader.Hash(Entry.ContentHash) || !Reader.Hash(Entry.ContainerHash)
-					|| !Reader.Fixed(Reserved) || Reserved != 0)
-					return Fail("DAST v6 Payload Directory entry is malformed.", OutError);
-				Entry.Placement = static_cast<EPayloadPlacement>(Placement);
-				if (!Entry.PayloadId.IsValid()
-					|| Entry.Placement != EPayloadPlacement::ExternalDabkV1
-					|| Entry.LogicalByteCount != Entry.StoredByteCount
-					|| Entry.ContentHash.IsZero() || Entry.ContainerHash.IsZero()
-					|| (!Out.PayloadEntries.empty()
-						&& !(Out.PayloadEntries.back().PayloadId < Entry.PayloadId)))
-					return Fail("DAST v6 Payload Directory entry is invalid or noncanonical.", OutError);
-				Out.PayloadEntries.push_back(Entry);
-			}
-			return Reader.AtEnd() || Fail("DAST v6 Payload Directory has trailing bytes.", OutError);
-		}
-
 		auto EncodeLogicalObjectStream(
 			const FParsedPackage& Package,
 			std::vector<std::byte>& OutBytes) -> bool
@@ -356,34 +194,7 @@ namespace Durin::Asset::Private::DastV6
 			return true;
 		}
 
-		auto MakePayloadEntries(const FAssetPackageInspection& Inspection,
-			std::vector<FPayloadEntry>& OutEntries) -> FAssetResult
-		{
-			OutEntries.clear();
-			std::vector<FEditorBulkDataStorageDescriptor> Descriptors;
-			std::string DescriptorError;
-			if (!InspectEditorBulkDataStorageDescriptors(
-					Inspection, Descriptors, &DescriptorError))
-				return Error(std::move(DescriptorError));
-			for (const FEditorBulkDataStorageDescriptor& Descriptor : Descriptors)
-			{
-				if (Descriptor.StorageKind != EEditorBulkDataStorageKind::External) continue;
-				OutEntries.push_back({
-					.PayloadId = Descriptor.PayloadId,
-					.Placement = EPayloadPlacement::ExternalDabkV1,
-					.LogicalByteCount = Descriptor.LogicalByteCount,
-					.StoredByteCount = Descriptor.StoredByteCount,
-					.ContentHash = Descriptor.ContentHash,
-					.ContainerHash = Descriptor.ContainerHash});
-			}
-			std::ranges::sort(OutEntries, {}, &FPayloadEntry::PayloadId);
-			for (size_t Index = 1; Index < OutEntries.size(); ++Index)
-				if (OutEntries[Index - 1].PayloadId == OutEntries[Index].PayloadId)
-					return Error("DAST v6 object stream contains duplicate external payload ids.");
-			return {};
-		}
-
-			auto PrepareObjectStream(const FParsedPackage& Package,
+		auto PrepareObjectStream(const FParsedPackage& Package,
 			std::vector<std::byte>& OutBytes,
 			FAssetPackageInspection* OutInspection = nullptr) -> FAssetResult
 		{
@@ -393,7 +204,7 @@ namespace Durin::Asset::Private::DastV6
 			PackageObjectStream::FReaderDiagnostic Diagnostic;
 			if (FAssetResult Result = PackageObjectStream::InspectPackage(
 					OutBytes, Inspection, {}, &Diagnostic); !Result)
-				return Error(std::format("{} (DAST v6 imports: {})", Result.Message,
+					return Error(std::format("{} (DAST v7 imports: {})", Result.Message,
 					std::accumulate(Package.Imports.begin(), Package.Imports.end(),
 						std::string{}, [](std::string Value, const std::string& Import) {
 							if (!Value.empty()) Value += ", ";
@@ -402,108 +213,29 @@ namespace Durin::Asset::Private::DastV6
 						})));
 			for (FAssetPackageObjectInspection& Object : Inspection.Objects)
 				for (FAssetPackageField& Field : Object.Fields)
-					Field.SourceFormatVersion = Package.FormatVersion;
-			if (Package.FormatVersion == AssetPackageV6FormatVersion)
-			{
-				std::vector<FPayloadEntry> Expected;
-				if (FAssetResult Result = MakePayloadEntries(Inspection, Expected); !Result)
-					return Result;
-				if (Expected != Package.PayloadEntries)
-					return Error(
-						"DAST v6 Payload Directory disagrees with object-stream bulk descriptors.");
-			}
-			else
-			{
-				std::vector<FEditorBulkDataStorageDescriptor> Descriptors;
-				std::string DescriptorError;
-				if (!InspectEditorBulkDataStorageDescriptors(
+					Field.SourceFormatVersion = AssetPackageV7FormatVersion;
+			std::vector<FEditorBulkDataStorageDescriptor> Descriptors;
+			std::string DescriptorError;
+			if (!InspectEditorBulkDataStorageDescriptors(
 					Inspection, Descriptors, &DescriptorError))
-					return Error(std::move(DescriptorError));
-				if (Descriptors.size() != Package.BulkEntries.size())
-					return Error("DAST v7 Payload Directory field count disagrees with the object stream.");
-				for (size_t Index = 0; Index < Descriptors.size(); ++Index)
-				{
-					const auto& Descriptor = Descriptors[Index];
-					const auto& Entry = Package.BulkEntries[Index];
-					if (Entry.FieldIndex != Index + 1
-						|| Entry.Placement != (Descriptor.StorageKind == EEditorBulkDataStorageKind::Inline
-							? EPackageBulkDataPlacement::Inline : EPackageBulkDataPlacement::External)
-						|| Entry.LogicalSize != Descriptor.LogicalByteCount
-						|| Entry.StoredSize != Descriptor.StoredByteCount
-						|| Entry.SegmentOffset != Descriptor.SegmentOffset
-						|| Entry.Alignment != Descriptor.Alignment
-						|| Entry.ContentId != Descriptor.ContentHash)
-						return Error("DAST v7 Payload Directory disagrees with object-stream bulk metadata.");
-				}
+				return Error(std::move(DescriptorError));
+			if (Descriptors.size() != Package.BulkEntries.size())
+				return Error("DAST v7 Payload Directory field count disagrees with the object stream.");
+			for (size_t Index = 0; Index < Descriptors.size(); ++Index)
+			{
+				const auto& Descriptor = Descriptors[Index];
+				const auto& Entry = Package.BulkEntries[Index];
+				if (Entry.FieldIndex != Index + 1
+					|| Entry.Placement != (Descriptor.StorageKind == EEditorBulkDataStorageKind::Inline
+						? EPackageBulkDataPlacement::Inline : EPackageBulkDataPlacement::External)
+					|| Entry.LogicalSize != Descriptor.LogicalByteCount
+					|| Entry.StoredSize != Descriptor.StoredByteCount
+					|| Entry.SegmentOffset != Descriptor.SegmentOffset
+					|| Entry.Alignment != Descriptor.Alignment
+					|| Entry.ContentId != Descriptor.ContentHash)
+					return Error("DAST v7 Payload Directory disagrees with object-stream bulk metadata.");
 			}
 			if (OutInspection) *OutInspection = std::move(Inspection);
-			return {};
-		}
-
-		auto BuildV6Package(
-			const PackageObjectStream::FValidatedHeader& Header,
-			const std::array<std::span<const std::byte>, 5>& V5Sections,
-			std::span<const FPayloadEntry> PayloadEntries,
-			std::vector<std::byte>& OutBytes) -> FAssetResult
-		{
-			std::array<std::vector<std::byte>, RequiredSectionCount> Owned;
-			if (!EncodePublicSummary(Header, PayloadEntries.size(), Owned[0])
-				|| !EncodeImports(Header.Dependencies, Owned[1])
-				|| !EncodePayloadDirectory(PayloadEntries, Owned[7]))
-				return Error("DAST v6 front matter or Payload Directory exceeds its bound.");
-			for (size_t Index = 0; Index < V5Sections.size(); ++Index)
-				Owned[Index + 2].assign(V5Sections[Index].begin(), V5Sections[Index].end());
-
-			const uint64 DirectoryOffset = BinaryEnvelopePreambleBytes + FormatHeaderBytes;
-			uint64 Offset = DirectoryOffset + RequiredSectionCount * SectionEntryBytes;
-			std::array<FSectionEntry, RequiredSectionCount> Entries;
-			for (size_t Index = 0; Index < Owned.size(); ++Index)
-			{
-				Entries[Index] = {
-					.Kind = static_cast<uint32>(Index + 1),
-					.Flags = RequiredSectionFlag,
-					.Offset = Offset,
-					.Size = Owned[Index].size(),
-					.Hash = FXxHash128::HashBuffer(Owned[Index])};
-				if (Owned[Index].size() > MaximumFileBytes - Offset)
-					return Error("DAST v6 section extents exceed the file bound.");
-				Offset += Owned[Index].size();
-			}
-			const uint64 HeaderBytes = Entries[1].Offset + Entries[1].Size;
-			if (HeaderBytes > MaximumHeaderBytes || Offset > MaximumFileBytes)
-				return Error("DAST v6 declared extents exceed configured limits.");
-
-			std::vector<std::byte> Bytes(static_cast<size_t>(Offset));
-			const FBinaryEnvelopePreamble Preamble{
-				.FormatId = DastBinaryFormatId,
-				.FormatVersion = Version,
-				.RequiredFeatures = 0,
-				.HeaderBytes = HeaderBytes,
-				.FileBytes = Offset};
-			if (!EncodeBinaryEnvelopePreamble(Preamble, Bytes))
-				return Error("DAST v6 common preamble encoding failed.");
-			WriteAt(Bytes, 64, static_cast<uint32>(Header.EntryKind));
-			WriteAt(Bytes, 68, uint32{0});
-			WriteAt(Bytes, 72, DirectoryOffset);
-			WriteAt(Bytes, 80, RequiredSectionCount);
-			WriteAt(Bytes, 84, SectionEntryBytes);
-			WriteAt(Bytes, 88, uint64{0});
-			for (size_t Index = 0; Index < Entries.size(); ++Index)
-			{
-				const uint64 EntryOffset = DirectoryOffset + Index * SectionEntryBytes;
-				WriteAt(Bytes, EntryOffset, Entries[Index].Kind);
-				WriteAt(Bytes, EntryOffset + 4, Entries[Index].Flags);
-				WriteAt(Bytes, EntryOffset + 8, Entries[Index].Offset);
-				WriteAt(Bytes, EntryOffset + 16, Entries[Index].Size);
-				WriteAt(Bytes, EntryOffset + 24, Entries[Index].Hash.HashLow);
-				WriteAt(Bytes, EntryOffset + 32, Entries[Index].Hash.HashHigh);
-				WriteAt(Bytes, EntryOffset + 40, uint64{0});
-				std::ranges::copy(Owned[Index], Bytes.begin() + Entries[Index].Offset);
-			}
-			if (!FinalizeBinaryEnvelopeHeader(std::span(Bytes).first(static_cast<size_t>(HeaderBytes)),
-				Offset, EnvelopeLimits))
-				return Error("DAST v6 common header finalization failed.");
-			OutBytes = std::move(Bytes);
 			return {};
 		}
 
@@ -581,7 +313,7 @@ namespace Durin::Asset::Private::DastV6
 				Bytes, Bytes.size(), EnvelopeLimits, Preamble, &EnvelopeDiagnostic))
 				return Fail(std::string(EnvelopeDiagnostic.Message), OutError);
 			if (Preamble.HeaderBytes > Bytes.size())
-				return Fail("DAST v6 front matter is truncated.", OutError);
+				return Fail("DAST v7 front matter is truncated.", OutError);
 			FValidatedBinaryEnvelope Envelope;
 			if (!ValidateBinaryEnvelopeHeader(
 				Bytes.first(static_cast<size_t>(Preamble.HeaderBytes)), Bytes.size(),
@@ -602,14 +334,13 @@ namespace Durin::Asset::Private::DastV6
 				|| !ReadAt(Bytes, 88, Reserved) || Reserved != 0
 				|| SectionCount < RequiredSectionCount || SectionCount > MaximumSectionCount
 				|| DirectoryOffset != BinaryEnvelopePreambleBytes + FormatHeaderBytes)
-				return Fail("DAST v6 format header is invalid or unsupported.", OutError);
+				return Fail("DAST v7 format header is invalid or unsupported.", OutError);
 			const uint64 DirectoryBytes = uint64(SectionCount) * SectionEntryBytes;
 			if (DirectoryOffset > Preamble.HeaderBytes
 				|| DirectoryBytes > Preamble.HeaderBytes - DirectoryOffset)
-				return Fail("DAST v6 section directory exceeds HeaderBytes.", OutError);
+				return Fail("DAST v7 section directory exceeds HeaderBytes.", OutError);
 
 			FParsedPackage Result;
-			Result.FormatVersion = Preamble.FormatVersion;
 			Result.HeaderBytes = Preamble.HeaderBytes;
 			uint64 ExpectedOffset = DirectoryOffset + DirectoryBytes;
 			uint32 PreviousKind = 0;
@@ -629,15 +360,15 @@ namespace Durin::Asset::Private::DastV6
 					|| Entry.Kind <= PreviousKind || (Entry.Flags & ~RequiredSectionFlag) != 0
 					|| Entry.Offset != ExpectedOffset || Entry.Offset > Bytes.size()
 					|| Entry.Size > Bytes.size() - Entry.Offset)
-					return Fail("DAST v6 section entry is invalid or noncanonical.", OutError);
+					return Fail("DAST v7 section entry is invalid or noncanonical.", OutError);
 				const std::span<const std::byte> Section = Bytes.subspan(
 					static_cast<size_t>(Entry.Offset), static_cast<size_t>(Entry.Size));
 				if (FXxHash128::HashBuffer(Section) != Entry.Hash)
-					return Fail("DAST v6 section hash verification failed.", OutError);
+					return Fail("DAST v7 section hash verification failed.", OutError);
 				if (Index < RequiredSectionCount)
 				{
 					if (Entry.Kind != Index + 1 || Entry.Flags != RequiredSectionFlag)
-						return Fail("DAST v6 required sections are missing or out of order.", OutError);
+						return Fail("DAST v7 required sections are missing or out of order.", OutError);
 					Result.RequiredEntries[Index] = Entry;
 					Result.RequiredSections[Index] = Section;
 					if (Index == 1) ImportEnd = Entry.Offset + Entry.Size;
@@ -645,14 +376,14 @@ namespace Durin::Asset::Private::DastV6
 				else
 				{
 					if ((Entry.Flags & RequiredSectionFlag) != 0)
-						return Fail("DAST v6 contains an unknown required section.", OutError);
+						return Fail("DAST v7 contains an unknown required section.", OutError);
 					Result.bHasUnknownSkippableSections = true;
 				}
 				ExpectedOffset += Entry.Size;
 				PreviousKind = Entry.Kind;
 			}
 			if (ExpectedOffset != Bytes.size() || ImportEnd != Preamble.HeaderBytes)
-				return Fail("DAST v6 sections leave gaps, trailing bytes, or invalid HeaderBytes.", OutError);
+				return Fail("DAST v7 sections leave gaps, trailing bytes, or invalid HeaderBytes.", OutError);
 			Dast::FPublicSummary Summary;
 			if (!Dast::DecodePublicSummary(Result.RequiredSections[0],
 				Result.RequiredSections[1], static_cast<EAssetRegistryEntryKind>(PackageKind),
@@ -667,22 +398,11 @@ namespace Durin::Asset::Private::DastV6
 			Result.BulkSegment = {
 				.Extent = Summary.BulkSegmentExtent,
 				.Digest = Summary.BulkSegmentDigest};
-			Result.ExpectedImportCount = Result.Imports.size();
-			Result.ExpectedPayloadCount = Summary.PayloadCount;
-			if (Result.FormatVersion == AssetPackageV6FormatVersion)
-			{
-				Result.PayloadEntries.reserve(static_cast<size_t>(Summary.PayloadCount));
-				if (!DecodePayloadDirectory(Result.RequiredSections[7], Result, OutError))
-					return false;
-			}
-			else
-			{
-				if (!DecodePackageBulkDataDirectory(
+			if (!DecodePackageBulkDataDirectory(
 					Result.RequiredSections[7], Result.BulkEntries, OutError)
-					|| Result.BulkEntries.size() != Summary.PayloadCount
-					|| !ValidatePackageBulkDataMetadata(
-						Result.BulkSegment, Result.BulkEntries, OutError)) return false;
-			}
+				|| Result.BulkEntries.size() != Summary.PayloadCount
+				|| !ValidatePackageBulkDataMetadata(
+					Result.BulkSegment, Result.BulkEntries, OutError)) return false;
 			OutPackage = std::move(Result);
 			if (OutError) OutError->clear();
 			return true;
@@ -697,34 +417,12 @@ namespace Durin::Asset::Private::DastV6
 			std::string ParseError;
 			if (!ParseWire(Bytes, Parsed, &ParseError)) return Error(std::move(ParseError));
 			if (Parsed.bHasUnknownSkippableSections && !bAllowUnknown)
-				return Error("DAST v6 mutation cannot preserve unknown skippable sections.");
+				return Error("DAST v7 mutation cannot preserve unknown skippable sections.");
 			if (FAssetResult Result = PrepareObjectStream(
 					Parsed, OutObjectStream, OutInspection); !Result)
 				return Result;
 			if (OutParsed) *OutParsed = std::move(Parsed);
 			return {};
-		}
-
-		auto BuildV6FromObjectStream(std::span<const std::byte> ObjectStream,
-			std::vector<std::byte>& OutBytes) -> FAssetResult
-		{
-			PackageObjectStream::FValidatedHeader Header;
-			PackageObjectStream::FReaderDiagnostic Diagnostic;
-			if (!PackageObjectStream::ReadHeader(
-					ObjectStream, Header, {}, &Diagnostic, ObjectStream.size()))
-				return Error(Diagnostic.Message);
-			FAssetPackageInspection Inspection;
-			if (FAssetResult Result = PackageObjectStream::InspectPackage(
-					ObjectStream, Inspection, {}, &Diagnostic); !Result)
-				return Result;
-			std::vector<FPayloadEntry> Entries;
-			if (FAssetResult Result = MakePayloadEntries(Inspection, Entries); !Result)
-				return Result;
-			std::array<std::span<const std::byte>, 5> Sections;
-			for (size_t Index = 0; Index < Sections.size(); ++Index)
-				Sections[Index] = ObjectStream.subspan(
-					Header.Sections[Index].Offset, Header.Sections[Index].Length);
-			return BuildV6Package(Header, Sections, Entries, OutBytes);
 		}
 
 		auto BuildV7FromObjectStream(std::span<const std::byte> ObjectStream,
@@ -764,11 +462,16 @@ namespace Durin::Asset::Private::DastV6
 			if (FAssetResult Result = MakeObjectStream(
 					Bytes, ObjectStream, true, nullptr, &Inspection); !Result)
 				return Result;
-			Inspection.Header.FormatVersion = Version;
+			FParsedPackage Parsed;
+			std::string ParseError;
+			if (!ParseWire(Bytes, Parsed, &ParseError)) return Error(std::move(ParseError));
+			Inspection.Header.FormatVersion = AssetPackageV7FormatVersion;
+			Inspection.Header.BulkSegmentExtent = Parsed.BulkSegment.Extent;
+			Inspection.Header.BulkSegmentDigest = Parsed.BulkSegment.Digest;
 			Inspection.Fingerprint = {
 				.FileSize = Bytes.size(),
 				.ContentHash = FXxHash128::HashBuffer(Bytes),
-				.ReaderVersion = Version};
+				.ReaderVersion = AssetPackageV7FormatVersion};
 			OutInspection = std::move(Inspection);
 			return {};
 		}
@@ -797,79 +500,15 @@ namespace Durin::Asset::Private::DastV6
 				ObjectStream, Path, Catalog, OutRecord, OutStats, {}, &Diagnostic);
 			if (Result)
 			{
-				OutRecord.FormatVersion = Version;
+				OutRecord.FormatVersion = AssetPackageV7FormatVersion;
 				OutRecord.Fingerprint = {
 					.FileSize = Bytes.size(), .ContentHash = FXxHash128::HashBuffer(Bytes),
-					.ReaderVersion = Version};
+					.ReaderVersion = AssetPackageV7FormatVersion};
 			}
 			return Result;
 		}
 
 		auto Load(std::span<const std::byte> Bytes, const FAssetPath& Path,
-			DPackage*& OutPackage, FAssetLoadReport* OutReport,
-			const std::function<FAssetResult(DPackage*)>& OnSkeletonReady,
-			const std::function<void(DPackage*)>& OnSkeletonRollback) -> FAssetResult
-		{
-			OutPackage = nullptr;
-			std::vector<std::byte> ObjectStream;
-			if (FAssetResult Result = MakeObjectStream(Bytes, ObjectStream, true); !Result)
-				return Result;
-			PackageObjectStream::FLoadedAssetPackage Loaded;
-			PackageObjectStream::FReaderDiagnostic Diagnostic;
-			FAssetResult Result = PackageObjectStream::LoadAssetPackage(
-				ObjectStream, Path, Loaded, OutReport,
-				{.OnSkeletonReady = OnSkeletonReady,
-					.OnSkeletonRollback = OnSkeletonRollback}, {}, &Diagnostic);
-			if (!Result) return Result;
-			OutPackage = Loaded.Release();
-			return {};
-		}
-
-		auto Write(DPackage* Package, std::vector<std::byte>& OutBytes,
-			EDefaultDeltaMode DeltaMode,
-			const FAssetPackageSerializationOptions& Options) -> FAssetResult
-		{
-			std::vector<std::byte> ObjectStream;
-			PackageObjectStream::FWriterDiagnostic Diagnostic;
-			if (FAssetResult Result = PackageObjectStream::WriteAssetPackage(
-					Package, ObjectStream,
-					{.DeltaMode = DeltaMode, .Serialization = Options}, &Diagnostic); !Result)
-				return Result;
-			return BuildV6FromObjectStream(ObjectStream, OutBytes);
-		}
-
-		auto InspectV7(std::span<const std::byte> Bytes,
-			FAssetPackageInspection& OutInspection) -> FAssetResult
-		{
-			FAssetResult Result = Inspect(Bytes, OutInspection);
-			if (Result)
-			{
-				FParsedPackage Parsed;
-				std::string ParseError;
-				if (!ParseWire(Bytes, Parsed, &ParseError)) return Error(std::move(ParseError));
-				OutInspection.Header.FormatVersion = AssetPackageV7FormatVersion;
-				OutInspection.Header.BulkSegmentExtent = Parsed.BulkSegment.Extent;
-				OutInspection.Header.BulkSegmentDigest = Parsed.BulkSegment.Digest;
-				OutInspection.Fingerprint.ReaderVersion = AssetPackageV7FormatVersion;
-			}
-			return Result;
-		}
-
-		auto ProbeCompatibilityV7(std::span<const std::byte> Bytes,
-			const FAssetPath& Path, const FReflectionCompatibilityCatalog& Catalog,
-			FAssetPackageCompatibilityRecord& OutRecord,
-			FAssetCompatibilityProbeStats* OutStats) -> FAssetResult
-		{
-			FAssetResult Result = ProbeCompatibility(Bytes, Path, Catalog, OutRecord, OutStats);
-			if (Result)
-			{
-				OutRecord.FormatVersion = AssetPackageV7FormatVersion;
-				OutRecord.Fingerprint.ReaderVersion = AssetPackageV7FormatVersion;
-			}
-			return Result;
-		}
-
-		auto LoadV7(std::span<const std::byte> Bytes, const FAssetPath& Path,
 			DPackage*& OutPackage, FAssetLoadReport* OutReport,
 			const std::function<FAssetResult(DPackage*)>& OnSkeletonReady,
 			const std::function<void(DPackage*)>& OnSkeletonRollback) -> FAssetResult
@@ -920,13 +559,6 @@ namespace Durin::Asset::Private::DastV6
 				PackagePath = Resolved.PhysicalPath;
 				PackagePath += ".dasset";
 			}
-			std::filesystem::path LegacyPath = PackagePath;
-			LegacyPath.replace_extension(".dabulk");
-			std::filesystem::path SegmentPath = PackagePath;
-			SegmentPath.replace_extension(".dbulk");
-			std::error_code FileError;
-			if (std::filesystem::exists(LegacyPath, FileError))
-				return Error("DAST v7 package conflicts with a legacy DABK companion.");
 			if (Parsed.BulkSegment.Extent != 0)
 			{
 				std::string ResourceError;
@@ -951,7 +583,7 @@ namespace Durin::Asset::Private::DastV6
 			return {};
 		}
 
-		auto WriteV7(DPackage* Package, std::vector<std::byte>& OutBytes,
+		auto Write(DPackage* Package, std::vector<std::byte>& OutBytes,
 			EDefaultDeltaMode DeltaMode,
 			const FAssetPackageSerializationOptions& Options) -> FAssetResult
 		{
@@ -975,7 +607,7 @@ namespace Durin::Asset::Private::DastV6
 			return BuildV7FromObjectStream(ObjectStream, Entries, Summary, OutBytes);
 		}
 
-		auto RewriteReferencesV7(std::span<const std::byte> Bytes,
+		auto RewriteReferences(std::span<const std::byte> Bytes,
 			std::span<const FAssetRedirectorFixupMapping> Mappings,
 			uint64 ExpectedCount, std::vector<std::byte>& OutBytes) -> FAssetResult
 		{
@@ -989,7 +621,7 @@ namespace Durin::Asset::Private::DastV6
 			return BuildV7FromObjectStream(Rewritten, Parsed.BulkEntries, Parsed.BulkSegment, OutBytes);
 		}
 
-		auto RelocateV7(std::span<const std::byte> Bytes, const FAssetPath& Destination,
+		auto Relocate(std::span<const std::byte> Bytes, const FAssetPath& Destination,
 			std::vector<std::byte>& OutBytes) -> FAssetResult
 		{
 			std::vector<std::byte> ObjectStream;
@@ -1002,7 +634,7 @@ namespace Durin::Asset::Private::DastV6
 			return BuildV7FromObjectStream(Relocated, Parsed.BulkEntries, Parsed.BulkSegment, OutBytes);
 		}
 
-		auto WriteRedirectorV7(const FAssetPath& Source, const FAssetPath& Destination,
+		auto WriteRedirector(const FAssetPath& Source, const FAssetPath& Destination,
 			std::vector<std::byte>& OutBytes) -> FAssetResult
 		{
 			std::vector<std::byte> ObjectStream;
@@ -1011,42 +643,6 @@ namespace Durin::Asset::Private::DastV6
 			return BuildV7FromObjectStream(ObjectStream, {}, {}, OutBytes);
 		}
 
-		auto RewriteReferences(std::span<const std::byte> Bytes,
-			std::span<const FAssetRedirectorFixupMapping> Mappings,
-			uint64 ExpectedCount, std::vector<std::byte>& OutBytes) -> FAssetResult
-		{
-			std::vector<std::byte> ObjectStream;
-			if (FAssetResult Result = MakeObjectStream(Bytes, ObjectStream, false); !Result)
-				return Result;
-			std::vector<std::byte> Rewritten;
-			if (FAssetResult Result = PackageObjectStream::RewriteReferences(
-					ObjectStream, Mappings, ExpectedCount, Rewritten); !Result)
-				return Result;
-			return BuildV6FromObjectStream(Rewritten, OutBytes);
-		}
-
-		auto Relocate(std::span<const std::byte> Bytes, const FAssetPath& Destination,
-			std::vector<std::byte>& OutBytes) -> FAssetResult
-		{
-			std::vector<std::byte> ObjectStream;
-			if (FAssetResult Result = MakeObjectStream(Bytes, ObjectStream, false); !Result)
-				return Result;
-			std::vector<std::byte> Relocated;
-			if (FAssetResult Result = PackageObjectStream::RelocatePackage(
-					ObjectStream, Destination, Relocated); !Result)
-				return Result;
-			return BuildV6FromObjectStream(Relocated, OutBytes);
-		}
-
-		auto WriteRedirector(const FAssetPath& Source, const FAssetPath& Destination,
-			std::vector<std::byte>& OutBytes) -> FAssetResult
-		{
-			std::vector<std::byte> ObjectStream;
-			if (FAssetResult Result = PackageObjectStream::WriteRedirectorPackage(
-					Source, Destination, ObjectStream); !Result)
-				return Result;
-			return BuildV6FromObjectStream(ObjectStream, OutBytes);
-		}
 	}
 
 	auto ParsePackage(std::span<const std::byte> Bytes,
@@ -1062,25 +658,25 @@ namespace Durin::Asset::Private::DastV6
 	}
 
 	auto BuildPackageFromObjectStream(std::span<const std::byte> ObjectStreamBytes,
-		std::vector<std::byte>& OutV6Bytes) -> FAssetResult
+		std::vector<std::byte>& OutBytes) -> FAssetResult
 	{
-		return BuildV6FromObjectStream(ObjectStreamBytes, OutV6Bytes);
+		return BuildV7FromObjectStream(ObjectStreamBytes, {}, {}, OutBytes);
 	}
 
-	auto ExtractObjectStream(std::span<const std::byte> V6Bytes,
+	auto ExtractObjectStream(std::span<const std::byte> Bytes,
 		std::vector<std::byte>& OutObjectStream) -> FAssetResult
 	{
-		return MakeObjectStream(V6Bytes, OutObjectStream, true);
+		return MakeObjectStream(Bytes, OutObjectStream, true);
 	}
 
 	auto GetCodec() -> const FAssetPackageCodec&
 	{
 		static const FAssetPackageCodec Codec{
-			.CodecId = "dast-v6",
-			.FormatVersion = Version,
+			.CodecId = "dast-v7",
+			.FormatVersion = AssetPackageV7FormatVersion,
 			.bCanRead = true,
-			.bCanWrite = false,
-			.bCanMutate = false,
+			.bCanWrite = true,
+			.bCanMutate = true,
 			.ReadHeader = &ReadHeader,
 			.Validate = &Validate,
 			.Inspect = &Inspect,
@@ -1094,24 +690,4 @@ namespace Durin::Asset::Private::DastV6
 		return Codec;
 	}
 
-	auto GetV7Codec() -> const FAssetPackageCodec&
-	{
-		static const FAssetPackageCodec Codec{
-			.CodecId = "dast-v7",
-			.FormatVersion = AssetPackageV7FormatVersion,
-			.bCanRead = true,
-			.bCanWrite = true,
-			.bCanMutate = true,
-			.ReadHeader = &ReadHeader,
-			.Validate = &Validate,
-			.Inspect = &InspectV7,
-			.ExtractReferences = &ExtractReferences,
-			.ProbeCompatibility = &ProbeCompatibilityV7,
-			.Load = &LoadV7,
-			.Write = &WriteV7,
-			.RewriteReferences = &RewriteReferencesV7,
-			.Relocate = &RelocateV7,
-			.WriteRedirector = &WriteRedirectorV7};
-		return Codec;
-	}
 }

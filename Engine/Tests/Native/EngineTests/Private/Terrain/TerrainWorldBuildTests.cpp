@@ -85,28 +85,30 @@ namespace
 		const std::filesystem::path Content = Testing::GetTestWorkDirectory() / "TerrainWorldTemplateContent";
 		std::filesystem::create_directories(Content);
 		PathUtilities::RegisterMountPointForTests(
-			"/TerrainWorld/", Content.generic_string() + "/");
+			"/TerrainWorld/", Content.generic_string() + "/"
+		);
 		FAssetPath Path;
-		requiref(FAssetPath::TryCreate("/TerrainWorld/PackageTemplate", Path),
-			"Terrain World test package path must be valid.");
+		requiref(FAssetPath::TryCreate("/TerrainWorld/PackageTemplate", Path), "Terrain World test package path must be valid.");
 		DObject* Object = nullptr;
 		const Asset::FAssetResult Created = Asset::CreateAsset(Path, Object);
 		requiref(Created && Object, "{}", Created.Message);
 		std::vector<std::byte> Bytes;
 		const Asset::FAssetResult Serialized = Asset::SerializeAssetPackageBytes(
-			Object->GetPackage(), Bytes);
+			Object->GetPackage(), Bytes
+		);
 		requiref(Serialized, "{}", Serialized.Message);
 		return Bytes;
 	}
-}
+} // namespace
 
 TEST(FTerrainWorldBuildTests, FloorDivisionAndInclusiveMaximumMatchGoldenCoordinates)
 {
 	for (const auto [Global, Tile, Local] : std::array{
-		std::tuple{-257ll, -2ll, 255ll}, std::tuple{-256ll, -1ll, 0ll},
-		std::tuple{-1ll, -1ll, 255ll}, std::tuple{0ll, 0ll, 0ll},
-		std::tuple{255ll, 0ll, 255ll}, std::tuple{256ll, 1ll, 0ll},
-		std::tuple{257ll, 1ll, 1ll}})
+			 std::tuple{-257ll, -2ll, 255ll}, std::tuple{-256ll, -1ll, 0ll},
+			 std::tuple{-1ll, -1ll, 255ll}, std::tuple{0ll, 0ll, 0ll},
+			 std::tuple{255ll, 0ll, 255ll}, std::tuple{256ll, 1ll, 0ll},
+			 std::tuple{257ll, 1ll, 1ll}
+		 })
 	{
 		int64 ActualTile = 0, ActualLocal = 0;
 		ASSERT_TRUE(TerrainFloorDiv(Global, 256, ActualTile));
@@ -118,8 +120,7 @@ TEST(FTerrainWorldBuildTests, FloorDivisionAndInclusiveMaximumMatchGoldenCoordin
 	ETerrainWorldOutcome Outcome{};
 	std::string Error;
 	FTerrainTileAddress Address;
-	ASSERT_TRUE(ResolveTerrainSampleAddress({Id(1)}, {{-513, 769}, {259, 1282}},
-		{259, 1282}, Address, Outcome, Error)) << Error;
+	ASSERT_TRUE(ResolveTerrainSampleAddress({Id(1)}, {{-513, 769}, {259, 1282}}, {259, 1282}, Address, Outcome, Error)) << Error;
 	EXPECT_EQ(Address.Tile.TileX, 1);
 	EXPECT_EQ(Address.Tile.TileY, 5);
 	EXPECT_EQ(Address.Local.X, 3);
@@ -158,12 +159,12 @@ TEST(FTerrainWorldBuildTests, DefinitionRejectsContractBoundaryAndNumericViolati
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::Overflow);
 	EXPECT_FALSE(NormalizeTerrainHeightQuantum(32768, Height, Outcome, Error));
 	std::array<double, 3> Position{};
-	EXPECT_FALSE(TerrainSampleToWorldPosition({0, 0, 0, 2.0, 0},
-		{1ll << 40, 0}, 0, Position, Outcome, Error));
+	EXPECT_FALSE(TerrainSampleToWorldPosition({0, 0, 0, 2.0, 0}, {1ll << 40, 0}, 0, Position, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::Overflow);
 	EXPECT_FALSE(TerrainSampleToWorldPosition(
 		{std::numeric_limits<double>::infinity(), 0, 0, 1.0, 0},
-		{0, 0}, 0, Position, Outcome, Error));
+		{0, 0}, 0, Position, Outcome, Error
+	));
 }
 
 TEST(FTerrainWorldBuildTests, AuthoredValuesNormalizeToImmutableBoundedWorkerInput)
@@ -178,15 +179,14 @@ TEST(FTerrainWorldBuildTests, AuthoredValuesNormalizeToImmutableBoundedWorkerInp
 	Definition.Layers = {{Id(2), "Base", Id(20)}};
 	Definition.Sources = {
 		{Id(4), {4, 5}, {{-1024, 0}, {-768, 256}}, 1, 255, true},
-		{Id(5), {6, 7}, {{-512, 768}, {-256, 1024}}, 1, 255, true}};
+		{Id(5), {6, 7}, {{-512, 768}, {-256, 1024}}, 1, 255, true}
+	};
 	FTerrainNormalizedTileInput Fixture = MakeInput();
-	FTerrainComposedTileValues Values{Fixture.Heights, Fixture.Coverage,
-		Fixture.HeightHalo, Fixture.CoverageHalo, Fixture.Neighbors};
+	FTerrainComposedTileValues Values{Fixture.Heights, Fixture.Coverage, Fixture.HeightHalo, Fixture.CoverageHalo, Fixture.Neighbors};
 	FTerrainNormalizedTileInput Normalized;
 	ETerrainWorldOutcome Outcome{};
 	std::string Error;
-	ASSERT_TRUE(NormalizeTerrainTileInput(Definition, -2, 3, Values,
-		Normalized, Outcome, Error)) << Error;
+	ASSERT_TRUE(NormalizeTerrainTileInput(Definition, -2, 3, Values, Normalized, Outcome, Error)) << Error;
 	ASSERT_EQ(Normalized.Sources.size(), 1u);
 	EXPECT_EQ(Normalized.Sources[0].SourceId, Id(5));
 	EXPECT_EQ(Normalized.LayerIds, std::vector{Id(2)});
@@ -207,34 +207,26 @@ TEST(FTerrainWorldBuildTests, OrderedHeightAndCoverageSourcesComposeDeterministi
 	Definition.PeakBuildBudgetBytes = 2ull * 1024ull * 1024ull * 1024ull;
 	Definition.Layers = {{Id(2), "Base", Id(20)}};
 	Definition.Sources = {
-		{Id(4), {4, 5}, Definition.SampleExtent,
-			static_cast<uint8>(ETerrainCompositionBlendOperation::Replace), 255, true,
-			TerrainSourceAffectsHeight | TerrainSourceAffectsCoverage},
-		{Id(5), {6, 7}, Definition.SampleExtent,
-			static_cast<uint8>(ETerrainCompositionBlendOperation::Add), 128, true,
-			TerrainSourceAffectsHeight}};
-	FTerrainTileSourceContribution Base{Id(4), {4, 5},
-		std::vector<int16>(TerrainWorldSampleCount, 100),
-		std::vector<FTerrainCoverageSample>(TerrainWorldSampleCount)};
+		{Id(4), {4, 5}, Definition.SampleExtent, static_cast<uint8>(ETerrainCompositionBlendOperation::Replace), 255, true, TerrainSourceAffectsHeight | TerrainSourceAffectsCoverage},
+		{Id(5), {6, 7}, Definition.SampleExtent, static_cast<uint8>(ETerrainCompositionBlendOperation::Add), 128, true, TerrainSourceAffectsHeight}
+	};
+	FTerrainTileSourceContribution Base{Id(4), {4, 5}, std::vector<int16>(TerrainWorldSampleCount, 100), std::vector<FTerrainCoverageSample>(TerrainWorldSampleCount)};
 	for (FTerrainCoverageSample& Sample : Base.Coverage)
 	{
 		Sample.LayerCount = 1;
 		Sample.Layers[0] = {Id(2), 255};
 	}
-	FTerrainTileSourceContribution Add{Id(5), {6, 7},
-		std::vector<int16>(TerrainWorldSampleCount, 20), {}};
+	FTerrainTileSourceContribution Add{Id(5), {6, 7}, std::vector<int16>(TerrainWorldSampleCount, 20), {}};
 	std::array Contributions{std::move(Base), std::move(Add)};
 	FTerrainNormalizedTileInput Composed;
 	ETerrainWorldOutcome Outcome{};
 	std::string Error;
-	ASSERT_TRUE(ComposeTerrainTileInput(Definition, -2, 3, Contributions,
-		Composed, Outcome, Error)) << Error;
+	ASSERT_TRUE(ComposeTerrainTileInput(Definition, -2, 3, Contributions, Composed, Outcome, Error)) << Error;
 	EXPECT_EQ(Composed.Heights.front(), 110);
 	EXPECT_EQ(Composed.Heights.back(), 110);
 	EXPECT_EQ(Composed.Coverage.front().Layers[0].LayerId, Id(2));
 	std::ranges::swap(Contributions[0], Contributions[1]);
-	EXPECT_FALSE(ComposeTerrainTileInput(Definition, -2, 3, Contributions,
-		Composed, Outcome, Error));
+	EXPECT_FALSE(ComposeTerrainTileInput(Definition, -2, 3, Contributions, Composed, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::MissingDependency);
 }
 
@@ -248,7 +240,8 @@ TEST(FTerrainWorldBuildTests, AsymmetricTileBuildIsDeterministicAndEveryProductB
 		ETerrainWorldOutcome LocalOutcome{};
 		std::string LocalError;
 		const bool bSucceeded = BuildTerrainTileGeneration(
-			Input, Id(9), Generation, LocalOutcome, LocalError);
+			Input, Id(9), Generation, LocalOutcome, LocalError
+		);
 		return std::tuple{bSucceeded, std::move(Generation), LocalOutcome, std::move(LocalError)};
 	};
 	auto FirstTask = std::async(std::launch::async, Build);
@@ -262,18 +255,13 @@ TEST(FTerrainWorldBuildTests, AsymmetricTileBuildIsDeterministicAndEveryProductB
 		const FTerrainTileProduct& Product = First.Products[Index];
 		EXPECT_EQ(Product.Bytes, Second.Products[Index].Bytes);
 		EXPECT_EQ(Product.DerivedDataKey, Second.Products[Index].DerivedDataKey);
-		const std::array ProductMagic{std::byte{'T'}, std::byte{'W'},
-			std::byte{'P'}, std::byte{'D'}};
-		EXPECT_TRUE(std::equal(Product.Bytes.begin(), Product.Bytes.begin() + 4,
-			ProductMagic.begin()));
-		EXPECT_TRUE(std::equal(Product.Bytes.begin(), Product.Bytes.begin() + 4,
-			First.Products[0].Bytes.begin()));
-		EXPECT_EQ(std::to_integer<uint8>(Product.Bytes[6]),
-			static_cast<uint8>(Product.ProductClass));
+		const std::array ProductMagic{std::byte{'T'}, std::byte{'W'}, std::byte{'P'}, std::byte{'D'}};
+		EXPECT_TRUE(std::equal(Product.Bytes.begin(), Product.Bytes.begin() + 4, ProductMagic.begin()));
+		EXPECT_TRUE(std::equal(Product.Bytes.begin(), Product.Bytes.begin() + 4, First.Products[0].Bytes.begin()));
+		EXPECT_EQ(std::to_integer<uint8>(Product.Bytes[6]), static_cast<uint8>(Product.ProductClass));
 		EXPECT_EQ(Product.Bytes[7], std::byte{0});
 		FTerrainTileProduct Decoded;
-		ASSERT_TRUE(DecodeTerrainTileProduct(Product.Bytes, Product.ProductClass,
-			Decoded, Outcome, Error)) << Error;
+		ASSERT_TRUE(DecodeTerrainTileProduct(Product.Bytes, Product.ProductClass, Decoded, Outcome, Error)) << Error;
 		EXPECT_EQ(Decoded.Tile, Input.Tile);
 		EXPECT_EQ(Decoded.GenerationId, Id(9));
 		EXPECT_EQ(Decoded.BodyHash, Product.BodyHash);
@@ -298,32 +286,27 @@ TEST(FTerrainWorldBuildTests, EnvelopeRejectsLegacyClassMismatchCorruptionTraili
 	Bytes[1] = std::byte{'W'};
 	Bytes[2] = std::byte{'H'};
 	Bytes[3] = std::byte{'T'};
-	EXPECT_FALSE(DecodeTerrainTileProduct(Bytes, ETerrainTileProductClass::Height,
-		Product, Outcome, Error));
+	EXPECT_FALSE(DecodeTerrainTileProduct(Bytes, ETerrainTileProductClass::Height, Product, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::UnsupportedLegacySchema);
 	Bytes = Generation.Products[1].Bytes;
 	Bytes[6] = static_cast<std::byte>(
-		static_cast<uint8>(ETerrainTileProductClass::Coverage));
-	EXPECT_FALSE(DecodeTerrainTileProduct(Bytes, ETerrainTileProductClass::Height,
-		Product, Outcome, Error));
+		static_cast<uint8>(ETerrainTileProductClass::Coverage)
+	);
+	EXPECT_FALSE(DecodeTerrainTileProduct(Bytes, ETerrainTileProductClass::Height, Product, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::Corrupt);
 	Bytes = Generation.Products[1].Bytes;
 	Bytes.back() ^= std::byte{1};
-	EXPECT_FALSE(DecodeTerrainTileProduct(Bytes, ETerrainTileProductClass::Height,
-		Product, Outcome, Error));
+	EXPECT_FALSE(DecodeTerrainTileProduct(Bytes, ETerrainTileProductClass::Height, Product, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::Corrupt);
 	Bytes = Generation.Products[1].Bytes;
 	Bytes.push_back(std::byte{0});
-	EXPECT_FALSE(DecodeTerrainTileProduct(Bytes, ETerrainTileProductClass::Height,
-		Product, Outcome, Error));
+	EXPECT_FALSE(DecodeTerrainTileProduct(Bytes, ETerrainTileProductClass::Height, Product, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::Corrupt);
 	Bytes.resize(160u * 1024u + 1u);
-	EXPECT_FALSE(DecodeTerrainTileProduct(Bytes, ETerrainTileProductClass::Height,
-		Product, Outcome, Error));
+	EXPECT_FALSE(DecodeTerrainTileProduct(Bytes, ETerrainTileProductClass::Height, Product, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::BudgetRejected);
 	std::vector<std::byte> Encoded;
-	EXPECT_FALSE(EncodeTerrainTileProduct(ETerrainTileProductClass::Height,
-		Input.Tile, Id(9), {}, std::array{std::byte{0}}, Encoded, Outcome, Error));
+	EXPECT_FALSE(EncodeTerrainTileProduct(ETerrainTileProductClass::Height, Input.Tile, Id(9), {}, std::array{std::byte{0}}, Encoded, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::InvalidDefinition);
 }
 
@@ -350,18 +333,16 @@ TEST(FTerrainWorldBuildTests, ProductKeysInvalidateOnlyDeclaredHeightCoverageAnd
 	Input.Heights[2] += 1;
 	EXPECT_EQ(MakeTerrainTileBuildKey(Input, ETerrainTileProductClass::Coverage, Error), CoverageAfterEdit);
 	FTerrainNormalizedTileInput SourceInput = MakeInput();
-	SourceInput.Sources.push_back({Id(7), {8, 9}, SourceInput.WorldExtent,
-		static_cast<uint8>(ETerrainCompositionBlendOperation::Replace), 255, true,
-		TerrainSourceAffectsHeight});
+	SourceInput.Sources.push_back({Id(7), {8, 9}, SourceInput.WorldExtent, static_cast<uint8>(ETerrainCompositionBlendOperation::Replace), 255, true, TerrainSourceAffectsHeight});
 	const std::string SourceHeight = MakeTerrainTileBuildKey(
-		SourceInput, ETerrainTileProductClass::Height, Error);
+		SourceInput, ETerrainTileProductClass::Height, Error
+	);
 	const std::string SourceCoverage = MakeTerrainTileBuildKey(
-		SourceInput, ETerrainTileProductClass::Coverage, Error);
+		SourceInput, ETerrainTileProductClass::Coverage, Error
+	);
 	SourceInput.Sources[0].ContentHash.HashLow += 1;
-	EXPECT_NE(MakeTerrainTileBuildKey(SourceInput, ETerrainTileProductClass::Height, Error),
-		SourceHeight);
-	EXPECT_EQ(MakeTerrainTileBuildKey(SourceInput, ETerrainTileProductClass::Coverage, Error),
-		SourceCoverage);
+	EXPECT_NE(MakeTerrainTileBuildKey(SourceInput, ETerrainTileProductClass::Height, Error), SourceHeight);
+	EXPECT_EQ(MakeTerrainTileBuildKey(SourceInput, ETerrainTileProductClass::Coverage, Error), SourceCoverage);
 }
 
 TEST(FTerrainWorldBuildTests, FiveIndependentProductsUseValidatedColdAndWarmDerivedData)
@@ -385,8 +366,8 @@ TEST(FTerrainWorldBuildTests, FiveIndependentProductsUseValidatedColdAndWarmDeri
 	}
 	const std::string& HeightKey = Cold.Products[1].DerivedDataKey;
 	const std::filesystem::path HeightObject = Cache.GetRoot()
-		/ "TerrainWorld/TerrainWorldHeight/Objects" / HeightKey.substr(0, 2)
-		/ (HeightKey + ".bin");
+											   / "TerrainWorld/TerrainWorldHeight/Objects" / HeightKey.substr(0, 2)
+											   / (HeightKey + ".bin");
 	std::vector<std::byte> Corrupt;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Corrupt, HeightObject));
 	Corrupt.back() ^= std::byte{1};
@@ -462,13 +443,11 @@ TEST(FTerrainWorldBuildTests, AssetForgeBridgeNormalizesBuildsAndPublishesWithCo
 	Definition.PeakBuildBudgetBytes = 2ull * 1024ull * 1024ull * 1024ull;
 	Definition.Layers = {{Id(2), "Base", Id(20)}};
 	FTerrainNormalizedTileInput Fixture = MakeInput();
-	FTerrainComposedTileValues Values{Fixture.Heights, Fixture.Coverage,
-		Fixture.HeightHalo, Fixture.CoverageHalo, Fixture.Neighbors};
+	FTerrainComposedTileValues Values{Fixture.Heights, Fixture.Coverage, Fixture.HeightHalo, Fixture.CoverageHalo, Fixture.Neighbors};
 	FTerrainTileGenerationPublisher Publisher;
 	Durin::AssetForge::Builtins::FTerrainWorldBuildDiagnostics Diagnostics;
 	std::string Error;
-	ASSERT_TRUE(Durin::AssetForge::Builtins::BuildAndPublishTerrainWorldTile(
-		Definition, -2, 3, Values, Id(9), Publisher, Diagnostics, Error)) << Error;
+	ASSERT_TRUE(Durin::AssetForge::Builtins::BuildAndPublishTerrainWorldTile(Definition, -2, 3, Values, Id(9), Publisher, Diagnostics, Error)) << Error;
 	EXPECT_EQ(Diagnostics.Outcome, ETerrainWorldOutcome::Ready);
 	EXPECT_EQ(Diagnostics.LocalProductCount + Diagnostics.CachedProductCount, 5u);
 	EXPECT_GT(Diagnostics.ProductBytes, 0u);
@@ -496,29 +475,24 @@ TEST(FTerrainWorldBuildTests, ManifestRoundTripsSignedRegionsAndRejectsLegacyOrC
 	Manifest.WorldId = {Id(1)};
 	Manifest.Regions = {
 		{{Manifest.WorldId, -2, 3, 1}, false, "/Game/Terrain/Regions/N2_P3", {}},
-		{{Manifest.WorldId, 1, 4, 1}, false, "/Game/Terrain/Regions/P1_P4", {}}};
+		{{Manifest.WorldId, 1, 4, 1}, false, "/Game/Terrain/Regions/P1_P4", {}}
+	};
 	ETerrainWorldOutcome Outcome{};
 	std::string Error;
 	std::vector<std::byte> Bytes;
 	ASSERT_TRUE(EncodeTerrainWorldManifest(Manifest, Bytes, Outcome, Error)) << Error;
 	FTerrainWorldManifest Decoded;
-	ASSERT_TRUE(DecodeTerrainWorldManifest(Bytes, Manifest.WorldId,
-		Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game,
-		Decoded, Outcome, Error)) << Error;
+	ASSERT_TRUE(DecodeTerrainWorldManifest(Bytes, Manifest.WorldId, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game, Decoded, Outcome, Error)) << Error;
 	ASSERT_EQ(Decoded.Regions.size(), 2u);
 	EXPECT_EQ(Decoded.Regions[0].Region.RegionX, -2);
 	EXPECT_EQ(Decoded.Regions[0].Region.RegionY, 3);
 	std::vector<std::byte> Invalid = Bytes;
 	Invalid[0] = static_cast<std::byte>('D');
-	EXPECT_FALSE(DecodeTerrainWorldManifest(Invalid, Manifest.WorldId,
-		Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game,
-		Decoded, Outcome, Error));
+	EXPECT_FALSE(DecodeTerrainWorldManifest(Invalid, Manifest.WorldId, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game, Decoded, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::UnsupportedLegacySchema);
 	Invalid = Bytes;
 	Invalid.back() ^= std::byte{1};
-	EXPECT_FALSE(DecodeTerrainWorldManifest(Invalid, Manifest.WorldId,
-		Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game,
-		Decoded, Outcome, Error));
+	EXPECT_FALSE(DecodeTerrainWorldManifest(Invalid, Manifest.WorldId, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game, Decoded, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::Corrupt);
 }
 
@@ -531,8 +505,7 @@ TEST(FTerrainWorldBuildTests, F0TileGridReconcilesToFourRegionsPlusOneManifest)
 		for (int64 TileX = 0; TileX < 16; ++TileX)
 		{
 			FTerrainRegionKey Region;
-			ASSERT_TRUE(GetTerrainRegionKey({{Id(1)}, TileX, TileY, 1},
-				Region, Outcome, Error)) << Error;
+			ASSERT_TRUE(GetTerrainRegionKey({{Id(1)}, TileX, TileY, 1}, Region, Outcome, Error)) << Error;
 			Regions.emplace(Region.RegionX, Region.RegionY);
 		}
 	EXPECT_EQ(Regions.size(), 4u);
@@ -559,9 +532,15 @@ TEST(FTerrainWorldBuildTests, CookSupportsPartialInstallAndSourceAndDdcFreeProdu
 	const std::filesystem::path Root = Testing::CreateTestFixtureDirectory("TerrainWorldCook");
 	const std::filesystem::path CookRoot = std::filesystem::absolute(Root / "Cooked");
 	FTerrainWorldManifest CookedManifest;
-	ASSERT_TRUE(CookTerrainWorld({CookRoot, "/Game/TerrainWorld", {Id(1)},
-		{First, Second}, {Installed}, MakePackageTemplate()},
-		CookedManifest, Outcome, Error)) << Error;
+	const FTerrainWorldCookRequest CookRequest{CookRoot, "/Game/TerrainWorld", {Id(1)}, {First, Second}, {Installed}, MakePackageTemplate()};
+	Asset::FCookContext Cook(CookRoot, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game);
+	ASSERT_TRUE(ContributeTerrainWorldToCook(
+		CookRequest, Cook, CookedManifest, Outcome, Error
+	)) << Error;
+	ASSERT_TRUE(Cook.AddPackage(
+		"/Game/Metadata", CookRequest.PackageTemplateBytes, &Error
+	)) << Error;
+	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 	ASSERT_EQ(CookedManifest.Regions.size(), 2u);
 	EXPECT_TRUE(CookedManifest.Regions[0].bInstalled);
 	EXPECT_FALSE(CookedManifest.Regions[1].bInstalled);
@@ -569,23 +548,17 @@ TEST(FTerrainWorldBuildTests, CookSupportsPartialInstallAndSourceAndDdcFreeProdu
 	Asset::FAssetRuntimeConfiguration Runtime = Asset::FAssetRuntimeConfiguration::Authored();
 	ASSERT_TRUE(Asset::FAssetRuntimeConfiguration::Cooked(CookRoot, Runtime));
 	std::shared_ptr<const FTerrainWorldManifest> LoadedManifest;
-	ASSERT_TRUE(LoadCookedTerrainWorldManifest(Runtime, "/Game/TerrainWorld", {Id(1)},
-		Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game,
-		LoadedManifest, Outcome, Error)) << Error;
+	ASSERT_TRUE(LoadCookedTerrainWorldManifest(Runtime, "/Game/TerrainWorld", {Id(1)}, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game, LoadedManifest, Outcome, Error)) << Error;
 	FTerrainCookedProductHandle Height;
-	ASSERT_TRUE(LoadCookedTerrainProduct(Runtime, LoadedManifest, First.Tile, Id(9),
-		ETerrainTileProductClass::Height, Height, Outcome, Error)) << Error;
-	EXPECT_EQ(std::vector<std::byte>(Height.GetBytes().begin(), Height.GetBytes().end()),
-		First.Products[1].Bytes);
+	ASSERT_TRUE(LoadCookedTerrainProduct(Runtime, LoadedManifest, First.Tile, Id(9), ETerrainTileProductClass::Height, Height, Outcome, Error)) << Error;
+	EXPECT_EQ(std::vector<std::byte>(Height.GetBytes().begin(), Height.GetBytes().end()), First.Products[1].Bytes);
 	FTerrainCookedProductHandle Missing;
-	EXPECT_FALSE(LoadCookedTerrainProduct(Runtime, LoadedManifest, Second.Tile, Id(10),
-		ETerrainTileProductClass::Height, Missing, Outcome, Error));
+	EXPECT_FALSE(LoadCookedTerrainProduct(Runtime, LoadedManifest, Second.Tile, Id(10), ETerrainTileProductClass::Height, Missing, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::Unavailable);
 
 	const FTerrainManifestRegion& InstalledRecord = LoadedManifest->Regions[0];
 	std::filesystem::path RegionPackage;
-	ASSERT_TRUE(Asset::ResolveCookedPackagePath(CookRoot,
-		InstalledRecord.VirtualPackagePath, RegionPackage, &Error)) << Error;
+	ASSERT_TRUE(Asset::ResolveCookedPackagePath(CookRoot, InstalledRecord.VirtualPackagePath, RegionPackage, &Error)) << Error;
 	std::filesystem::path RegionBulk;
 	ASSERT_TRUE(Asset::ResolveCookedCompanionPath(CookRoot, RegionPackage, RegionBulk, &Error)) << Error;
 	std::vector<std::byte> Corrupt;
@@ -593,8 +566,7 @@ TEST(FTerrainWorldBuildTests, CookSupportsPartialInstallAndSourceAndDdcFreeProdu
 	Corrupt.back() ^= std::byte{1};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Corrupt, RegionBulk));
 	Height = {};
-	EXPECT_FALSE(LoadCookedTerrainProduct(Runtime, LoadedManifest, First.Tile, Id(9),
-		ETerrainTileProductClass::Height, Height, Outcome, Error));
+	EXPECT_FALSE(LoadCookedTerrainProduct(Runtime, LoadedManifest, First.Tile, Id(9), ETerrainTileProductClass::Height, Height, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::Corrupt);
 	Testing::RemoveTestWorkDirectory(Root);
 }

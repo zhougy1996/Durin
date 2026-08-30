@@ -303,7 +303,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DStaticMesh::AddToCook(
+	auto DStaticMesh::ContributeToCook(
 		Asset::FCookContext& Context,
 		std::string_view VirtualPackagePath,
 		std::string& OutError) -> bool

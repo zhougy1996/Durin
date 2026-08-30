@@ -323,7 +323,7 @@ namespace Durin::Asset::PackageObjectStream
 		std::vector<FAssetReferenceEdge>& OutReferences,
 		const FReaderLimits& Limits = {},
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> FAssetResult;
-	// Validates a complete DAST v6 envelope and reconstructs its canonical
+	// Validates a complete DAST v7 envelope and reconstructs its canonical
 	// construct-free logical object stream.
 	ASSETREGISTRY_API auto ExtractDastObjectStream(
 		std::span<const std::byte> PackageBytes,

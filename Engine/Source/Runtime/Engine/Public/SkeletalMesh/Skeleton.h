@@ -72,10 +72,14 @@ namespace Durin
 			std::string& OutError) -> bool;
 		ENGINE_API auto Validate(std::string& OutError) const -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
-		ENGINE_API auto AddToCook(
+	private:
+		friend auto Asset::ContributeEngineCookAsset(
+			DObject&, std::string_view, Asset::FCookContext&, std::string&) -> bool;
+		ENGINE_API auto ContributeToCook(
 			Asset::FCookContext& Context,
 			std::string_view VirtualPackagePath,
 			std::string& OutError) -> bool;
+	public:
 		ENGINE_API auto PrepareImportedStateExchange(
 			DSkeleton& Candidate,
 			std::string& OutError) -> std::unique_ptr<FSkeletonImportedStateExchange>;

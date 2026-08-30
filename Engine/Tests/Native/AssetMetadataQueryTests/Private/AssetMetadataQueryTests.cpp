@@ -28,28 +28,28 @@ namespace
 				.PackagePath = Path,
 				.PhysicalPath = "Content/Textures/Brick.dasset",
 				.AssetClassName = "Durin::DTexture2D",
-				.FormatVersion = 6}}}};
+				.FormatVersion = 7}}}};
 
 		const FAssetData* Data = Snapshot.FindExact(Path);
 		ASSERT_NE(Data, nullptr);
 		EXPECT_EQ(Snapshot.Revision, 17u);
 		EXPECT_EQ(Data->PackagePath, Path);
 		EXPECT_EQ(Data->AssetClassName, "Durin::DTexture2D");
-		EXPECT_EQ(Data->FormatVersion, 6u);
+		EXPECT_EQ(Data->FormatVersion, 7u);
 	}
 
 	TEST(FAssetMetadataQueryTests, OwnsCanonicalDastReaderIdentity)
 	{
-		EXPECT_EQ(AssetPackageV6FormatVersion, 6u);
+		EXPECT_EQ(AssetPackageV7FormatVersion, 7u);
 		EXPECT_EQ(DastBinaryFormatName, "Durin.BinaryFormat.DAST");
-		EXPECT_TRUE(IsSupportedAssetPackageReaderVersion(6));
-		EXPECT_FALSE(IsSupportedAssetPackageReaderVersion(5));
+		EXPECT_TRUE(IsSupportedAssetPackageReaderVersion(7));
+		EXPECT_FALSE(IsSupportedAssetPackageReaderVersion(6));
 
 		const FAssetPackageFingerprint Fingerprint{
 			.FileSize = 128,
 			.LastWriteTimeTicks = 42,
-			.ReaderVersion = AssetPackageV6FormatVersion};
-		EXPECT_EQ(Fingerprint.ReaderVersion, 6u);
+			.ReaderVersion = AssetPackageV7FormatVersion};
+		EXPECT_EQ(Fingerprint.ReaderVersion, 7u);
 	}
 
 	TEST(FAssetMetadataQueryTests, RejectsMalformedPublicSummaryWithoutEngine)
@@ -74,7 +74,7 @@ namespace
 		First.Assets.insert_or_assign(Path, FAssetData{
 			.PackagePath = Path,
 			.AssetClassName = "Durin::DTexture2D",
-			.FormatVersion = AssetPackageV6FormatVersion});
+			.FormatVersion = AssetPackageV7FormatVersion});
 		First.ReferenceFingerprints.insert_or_assign(Path, FAssetPackageFingerprint{});
 		First.ReferenceErrors.clear();
 		First.bReferenceIndexComplete = true;
@@ -197,7 +197,7 @@ namespace
 			Publication.Assets.insert_or_assign(Source, FAssetData{
 				.PackagePath = Source,
 				.AssetClassName = "Example::MetadataAsset",
-				.FormatVersion = AssetPackageV6FormatVersion});
+				.FormatVersion = AssetPackageV7FormatVersion});
 			Publication.ReferenceFingerprints.insert_or_assign(
 				Source, FAssetPackageFingerprint{});
 		}

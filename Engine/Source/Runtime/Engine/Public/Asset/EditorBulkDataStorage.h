@@ -2,41 +2,14 @@
 
 #include "EngineAPI.h"
 #include "Asset/EditorBulkDataStorageTypes.h"
-#include "Asset/PackageBulkData.h"
 #include "Asset/PackageInspection.h"
 
 namespace Durin::Asset
 {
-	inline constexpr std::string_view EditorBulkDataCompanionSuffix = ".dabulk";
-	// Internal sibling retained only until the package/companion closure commits.
-	inline constexpr std::string_view EditorBulkDataCompanionBackupSuffix = ".durin-backup";
+	// Internal sibling retained only until the package/segment closure commits.
+	inline constexpr std::string_view EditorBulkDataCompanionBackupSuffix =
+		".durin-backup";
 
-	// Resolves the stable submitted companion independently of its container hash.
-	ENGINE_API auto ResolveEditorBulkDataCompanionPath(
-		const std::filesystem::path& PackagePath,
-		std::filesystem::path& OutPath,
-		std::string* OutError = nullptr) -> bool;
-	ENGINE_API auto BuildEditorBulkDataCompanion(
-		std::span<const FEditorBulkDataStoragePayload> Payloads,
-		FXxHash128 ContainerHash,
-		std::vector<std::byte>& OutBytes,
-		std::string* OutError = nullptr) -> bool;
-	ENGINE_API auto ValidateEditorBulkDataCompanion(
-		std::span<const std::byte> Bytes,
-		FXxHash128 ExpectedContainerHash,
-		std::string* OutError = nullptr) -> bool;
-	// Live load may restore a descriptor-matching backup and removes stale backups.
-	ENGINE_API auto LoadEditorBulkDataStoragePayload(
-		const std::filesystem::path& CompanionPath,
-		const FEditorBulkDataStorageDescriptor& Descriptor,
-		FSharedByteBuffer& OutBuffer,
-		std::string* OutError = nullptr) -> bool;
-	// Reads and verifies exactly one path without changing recovery state.
-	ENGINE_API auto ReadEditorBulkDataStoragePayload(
-		const std::filesystem::path& CompanionPath,
-		const FEditorBulkDataStorageDescriptor& Descriptor,
-		FSharedByteBuffer& OutBuffer,
-		std::string* OutError = nullptr) -> bool;
 	ENGINE_API auto InspectEditorBulkDataCompanionPaths(
 		const std::filesystem::path& PackagePath,
 		const FAssetPackageInspection& Inspection,

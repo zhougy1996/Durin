@@ -50,6 +50,9 @@ namespace Durin::Asset
 		ENGINE_API auto TryReadEditorBulkDataStorageDescriptor(
 			FEditorBulkDataStorageDescriptor& OutValue
 		) const -> bool;
+		ENGINE_API auto TryReadBulkDataStorageDescriptor(
+			FEditorBulkDataStorageDescriptor& OutValue
+		) const -> bool;
 		// Decodes the tagged fields of one reflected struct without constructing its
 		// C++ value or resolving nested bulk storage.
 		ENGINE_API auto TryInspectStructFields(

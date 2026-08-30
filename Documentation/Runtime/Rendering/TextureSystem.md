@@ -72,7 +72,7 @@ payload schema 2 belongs to the owning asset, DDC values are rebuildable
 canonical platform data, and cooked `PlatformData` fields are immutable
 deployment data loaded through package resources. Decoded source, platform mip, and RHI resource
 lifetimes are independent downstream products. This measured boundary already
-satisfies the large-payload architecture; converting Texture2D to editor DABK
+satisfies the large-payload architecture; adding another authored container
 would not remove an oversized reflected value and is not selected.
 
 Texture2D platform mip chains are content-addressed beneath

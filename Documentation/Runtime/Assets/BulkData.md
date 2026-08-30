@@ -176,16 +176,28 @@ physical validation; neither becomes `FBulkData` semantic state.
 
 `FCookContext::AddPackage(VirtualPath, Package)` publishes the resulting raw
 segment and records it as `PackageBulk` in CMNF. This route has no
-`FCookedPayloadDescriptor`, descriptor callback, DBLK header, payload table, or
-family companion resolver. Cooked load validates the complete segment before
+descriptor callback, container header, payload table, or family companion
+resolver. Cooked load validates the complete segment before
 object publication, dispatches `SerializeCooked`, and attaches external fields
 to the registered package resource. Metadata load performs zero range requests;
-the first lock requests exactly the declared field range. The descriptor-aware
-`AddPackage` production route is retired. `CookedBulk` manifest records and
-DBLK v2 decoding remain accepted only by the bounded compatibility/inspection
-surface.
+the first lock requests exactly the declared field range. Construct-free tools
+inspect this same field metadata without constructing a runtime descriptor.
 
 ## Publication, compatibility, and migration
+
+Project Cook captures canonical package bytes and the optional raw segment into
+immutable `FCookSavePlan` values before publication. Ordinary reflected assets,
+metadata-only packages, and Terrain World opaque regions can contribute to the
+same `FCookContext` batch. Contributors never receive output paths or store
+handles; Terrain World retains its TWMF schema while sharing the package,
+segment, Cook-state, and CMNF transaction.
+
+The local Cook store stages and read-back validates changed segments, packages,
+`CookState.bin`, and CMNF. Commit order is segment, referencing package,
+incremental state, then `CookManifest.bin`; backups restore every overwritten
+or newly introduced file when staging, commit, or cancellation fails. A
+validated unchanged plan is reused without rewriting bytes or timestamps.
+Post-commit stale cleanup is restricted to entries owned by the previous CMNF.
 
 A save captures immutable payload snapshots, lays out the segment without
 mutating live fields, stages package and optional segment, and preserves the
@@ -196,29 +208,25 @@ complete pair or removes a first uncommitted pair. Inline-only saves publish no
 empty segment and remove a stale canonical segment only after the package is
 committed.
 
-DAST v6 plus DABK v2 remains a read-only compatibility input. Canonical resave
-loads and verifies the complete legacy payload closure, writes only DAST v7 and
-raw `.dbulk`, commits and catalogs the new pair, then removes the stable
-`.dabulk`. A `.dasset` that declares v7 while only `.dabulk` exists, v6 while
-only `.dbulk` exists, or either format with both stable siblings is a conflict;
-normal load never guesses. Backup recovery considers only the suffix owned by
-the package version. Git LFS pointer text, missing LFS content, partial clones,
-and absent siblings are reported as missing or mismatched closure and never
-published as live packages.
+DAST v7 plus an optional raw `.dbulk` segment is the only supported authored
+closure. Canonical resave verifies, republishes, and catalogs that closure
+transactionally. Git LFS pointer text, missing LFS content, partial clones, and
+absent required segments are reported as missing or mismatched closure and
+never published as live packages.
 
 Move, duplicate, delete, inventory, orphan detection, and source-control
-closure derive the stable companion from the validated package version and
+closure derive the stable raw segment from validated v7 field metadata and
 summary. Transaction temporaries and `.durin-backup` files are recovery state,
-not authored companions. New writers never emit DABK or `.dabulk`.
+not authored companions.
 
 ## Qualification budgets
 
 `FPackageAssetTests.FieldBulkQualificationMeetsBoundedLooseFixtureBudgets`
 freezes one 4 MiB uncompressed external authored field. The MacOS arm64 Debug
 measurement on 2026-08-30 recorded 9.95 ms metadata load, 19.77 ms first access,
-175.81 ms canonical v7 save, and 235.81 ms v6-to-v7 resave (16.96 MiB/s). The
+and 175.81 ms canonical v7 save. The
 enforced diagnostic ceilings are 500 ms metadata load, 500 ms first access,
-2 seconds save, and 4 seconds resave, with a 0.25 MiB/s resave floor.
+and 2 seconds save.
 
 Metadata load retains zero field payload bytes, registers one logical package
 resource, and issues zero range requests. First access returns one owned 4 MiB

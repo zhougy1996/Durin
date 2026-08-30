@@ -17,4 +17,9 @@ namespace Durin::Asset
 		std::span<const FAssetPath> Roots,
 		std::vector<FAssetPath>& OutPackages
 	) -> FAssetResult;
+	ENGINE_API auto BuildCookReachability(
+		const FAssetRegistrySnapshot& RegistrySnapshot,
+		std::span<const FAssetPath> Roots,
+		std::vector<FAssetPath>& OutPackages
+	) -> FAssetResult;
 } // namespace Durin::Asset

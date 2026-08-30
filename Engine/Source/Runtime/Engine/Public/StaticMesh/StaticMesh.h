@@ -237,11 +237,14 @@ namespace Durin
 		auto GetCookedRenderData() const -> const Asset::FBulkData& { return CookedRenderData; }
 		auto GetCookedCollisionData() const -> const Asset::FBulkData& { return CookedCollisionData; }
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
-		// Contributes deterministic DMSH data and descriptor-bearing runtime metadata to a cook.
-		ENGINE_API auto AddToCook(
+	private:
+		friend auto Asset::ContributeEngineCookAsset(
+			DObject&, std::string_view, Asset::FCookContext&, std::string&) -> bool;
+		ENGINE_API auto ContributeToCook(
 			Asset::FCookContext& Context,
 			std::string_view VirtualPackagePath,
 			std::string& OutError) -> bool;
+	public:
 
 		ENGINE_API static auto CreateDebugTriangle(DObject* Outer = nullptr) -> DStaticMesh*;
 		// Seeds a detached candidate with only the slot state required by the

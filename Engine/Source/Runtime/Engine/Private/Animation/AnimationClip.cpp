@@ -403,7 +403,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DAnimationClip::AddToCook(
+	auto DAnimationClip::ContributeToCook(
 		Asset::FCookContext& Context,
 		std::string_view VirtualPackagePath,
 		std::string& OutError) -> bool

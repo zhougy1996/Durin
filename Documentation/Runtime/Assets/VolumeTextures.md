@@ -104,8 +104,8 @@ placement and replacement remain authored-only capabilities.
 Ordinary and explicit saves emit DURF/DAST v7 and only the authored BulkData
 field. Small voxel values stay inline. External values produce one matching
 Payload Directory v2 entry and a range in the stable headerless
-`<package-stem>.dbulk` segment. DAST v6/DABK is load-and-resave compatibility
-only; canonical resave publishes v7 before retiring `.dabulk`.
+`<package-stem>.dbulk` segment. Other DAST versions and structured authored-bulk
+containers are unsupported.
 
 The 256 KiB authoring threshold changes placement,
 not reflection identity, DDC key input, platform payload, cooked field, or upload

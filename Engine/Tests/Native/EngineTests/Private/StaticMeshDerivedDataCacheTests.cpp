@@ -276,7 +276,8 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 		Durin::Asset::FCookContext Context(
 			Root, Durin::Asset::ECookTargetPlatform::Win64,
 			Durin::Asset::ECookTargetProfile::Game);
-		ASSERT_TRUE(Fixture.Mesh->AddToCook(Context, "/Game/CookedCollisionMesh", Error)) << Error;
+		ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+			*Fixture.Mesh, "/Game/CookedCollisionMesh", Context, Error)) << Error;
 		ASSERT_TRUE(Context.Publish(&Error)) << Error;
 	}
 	std::vector<std::byte> FirstPackage, SecondPackage, FirstBulk, SecondBulk, FirstManifest, SecondManifest;
@@ -320,126 +321,6 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 		RestartAssetManager();
 		return;
 	}
-#if 0 // Retained only as historical DBLK fixture logic until the compatibility corpus is removed.
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		SecondBulk, SecondCookRoot / "Game/CookedCollisionMesh.dbulk"));
-	EXPECT_EQ(FirstBulk, SecondBulk);
-
-	Durin::Asset::FCookedBulkContainer Container;
-	ASSERT_TRUE(Durin::Asset::DecodeCookedBulk(
-		FirstBulk, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Container, &Error)) << Error;
-	ASSERT_EQ(Container.Entries.size(), 2u);
-	const auto RenderEntry = std::ranges::find(
-		Container.Entries, Durin::StaticMeshPrimaryCookedPayloadId,
-		&Durin::Asset::FCookedPayloadDescriptor::PayloadId);
-	const auto CollisionEntry = std::ranges::find(
-		Container.Entries, Durin::StaticMeshCollisionCookedPayloadId,
-		&Durin::Asset::FCookedPayloadDescriptor::PayloadId);
-	ASSERT_NE(RenderEntry, Container.Entries.end());
-	ASSERT_NE(CollisionEntry, Container.Entries.end());
-
-	const std::filesystem::path InvalidRoot = std::filesystem::absolute(Fixture.Root / "CookCollisionInvalid");
-	std::filesystem::create_directories(InvalidRoot / "Game");
-	std::vector<Durin::Asset::FCookedBulkPayload> InvalidPayloads;
-	for (size_t Index = 0; Index < Container.Entries.size(); ++Index)
-	{
-		std::vector<std::byte> Bytes = Container.Payloads[Index];
-		if (Container.Entries[Index].PayloadId == Durin::StaticMeshCollisionCookedPayloadId)
-			WriteU32(Bytes, 4, Durin::StaticMeshCollisionPayloadSchemaVersion + 1);
-		InvalidPayloads.push_back({
-			.PayloadId = Container.Entries[Index].PayloadId,
-			.Flags = 1,
-			.PayloadSchemaVersion = Container.Entries[Index].PayloadSchemaVersion,
-			.Compression = Durin::Asset::ECookedPayloadCompression::None,
-			.Alignment = Container.Entries[Index].Alignment,
-			.Bytes = std::move(Bytes)});
-	}
-	std::vector<std::byte> InvalidBulk;
-	std::vector<Durin::Asset::FCookedPayloadDescriptor> InvalidDescriptors;
-	ASSERT_TRUE(Durin::Asset::EncodeCookedBulk(
-		InvalidPayloads, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, InvalidBulk, &InvalidDescriptors, &Error)) << Error;
-	const auto InvalidRender = std::ranges::find(
-		InvalidDescriptors, Durin::StaticMeshPrimaryCookedPayloadId,
-		&Durin::Asset::FCookedPayloadDescriptor::PayloadId);
-	const auto InvalidCollision = std::ranges::find(
-		InvalidDescriptors, Durin::StaticMeshCollisionCookedPayloadId,
-		&Durin::Asset::FCookedPayloadDescriptor::PayloadId);
-	ASSERT_NE(InvalidRender, InvalidDescriptors.end());
-	ASSERT_NE(InvalidCollision, InvalidDescriptors.end());
-	SaveVariantPackage(*Fixture.Mesh, InvalidRoot / "Game/CookedCollisionMesh.dasset",
-		*InvalidRender, false, &*InvalidCollision);
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
-		std::as_bytes(std::span(InvalidBulk)), InvalidRoot / "Game/CookedCollisionMesh.dbulk"));
-	const std::filesystem::path MissingRoot = std::filesystem::absolute(Fixture.Root / "CookCollisionMissing");
-	std::filesystem::create_directories(MissingRoot / "Game");
-	const size_t RenderIndex = static_cast<size_t>(RenderEntry - Container.Entries.begin());
-	std::vector<Durin::Asset::FCookedBulkPayload> RenderOnlyPayloads{{
-		.PayloadId = Durin::StaticMeshPrimaryCookedPayloadId,
-		.Flags = 1,
-		.PayloadSchemaVersion = Durin::StaticMeshPayloadSchemaVersion,
-		.Compression = Durin::Asset::ECookedPayloadCompression::None,
-		.Alignment = Durin::StaticMeshPayloadAlignment,
-		.Bytes = Container.Payloads[RenderIndex]}};
-	std::vector<std::byte> RenderOnlyBulk;
-	std::vector<Durin::Asset::FCookedPayloadDescriptor> RenderOnlyDescriptors;
-	ASSERT_TRUE(Durin::Asset::EncodeCookedBulk(
-		RenderOnlyPayloads, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, RenderOnlyBulk, &RenderOnlyDescriptors, &Error)) << Error;
-	ASSERT_EQ(RenderOnlyDescriptors.size(), 1u);
-	SaveVariantPackage(*Fixture.Mesh, MissingRoot / "Game/CookedCollisionMesh.dasset",
-		RenderOnlyDescriptors.front(), false, &*CollisionEntry);
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
-		std::as_bytes(std::span(RenderOnlyBulk)), MissingRoot / "Game/CookedCollisionMesh.dbulk"));
-
-	Durin::Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
-	Durin::Testing::RemoveTestWorkDirectory(Fixture.Root / "Content" / "Models");
-	RestartAssetManager(CookRoot);
-	Durin::PathUtilities::RegisterMountPointForTests("/Game/", (CookRoot / "Game").generic_string() + "/");
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation));
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedCollisionMesh", Path));
-	Durin::DStaticMesh* CookedMesh = nullptr;
-	const Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadAsset(Path, CookedMesh);
-	ASSERT_TRUE(Loaded) << Loaded.Message;
-	ASSERT_NE(CookedMesh, nullptr);
-	ASSERT_NE(CookedMesh->GetBodySetup(), nullptr);
-	EXPECT_EQ(CookedMesh->GetBodySetup()->GetCollisionBuildStatus(), Durin::EBodySetupCollisionBuildStatus::CookedLoaded);
-	EXPECT_EQ(CookedMesh->GetBodySetup()->GetCollisionBuildRevision(), 1u);
-	EXPECT_TRUE(CookedMesh->GetBodySetup()->GetCollisionDerivedDataKey().empty());
-	Durin::FCollisionGeometryRef Geometry;
-	ASSERT_TRUE(CookedMesh->GetBodySetup()->BuildComplexGeometry(Geometry));
-	EXPECT_EQ(Geometry.GetKind(), Durin::ECollisionGeometryKind::TriangleMesh);
-	EXPECT_EQ(Geometry.GetVertexCount(), AuthoredVertices);
-	EXPECT_EQ(Geometry.GetTriangleCount(), AuthoredTriangles);
-	EXPECT_EQ(Geometry.GetNodeCount(), AuthoredNodes);
-	EXPECT_EQ(Geometry.GetRetainedBytes(), AuthoredBytes);
-	EXPECT_EQ(CookedMesh->GetRenderData()->GetNumInitializedResources(), 0u);
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
-
-	RestartAssetManager(InvalidRoot);
-	Durin::PathUtilities::RegisterMountPointForTests("/Game/", (InvalidRoot / "Game").generic_string() + "/");
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation));
-	CookedMesh = nullptr;
-	const Durin::Asset::FAssetResult Invalid = Durin::Asset::LoadAsset(Path, CookedMesh);
-	EXPECT_FALSE(Invalid);
-	EXPECT_EQ(CookedMesh, nullptr);
-	EXPECT_NE(Invalid.Message.find("DCOL"), std::string::npos) << Invalid.Message;
-
-	RestartAssetManager(MissingRoot);
-	Durin::PathUtilities::RegisterMountPointForTests("/Game/", (MissingRoot / "Game").generic_string() + "/");
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation));
-	CookedMesh = nullptr;
-	const Durin::Asset::FAssetResult Missing = Durin::Asset::LoadAsset(Path, CookedMesh);
-	EXPECT_FALSE(Missing);
-	EXPECT_EQ(CookedMesh, nullptr);
-	EXPECT_NE(Missing.Message.find("descriptor"), std::string::npos) << Missing.Message;
-	RestartAssetManager();
-#endif
 }
 
 TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedDataFallback)
@@ -454,14 +335,16 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game);
 	std::string Error;
-	ASSERT_TRUE(Fixture.Mesh->AddToCook(First, "/Game/CookedMesh", Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+		*Fixture.Mesh, "/Game/CookedMesh", First, Error)) << Error;
 	ASSERT_TRUE(First.Publish(&Error)) << Error;
 
 	Durin::Asset::FCookContext Second(
 		SecondCookRoot,
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game);
-	ASSERT_TRUE(Fixture.Mesh->AddToCook(Second, "/Game/CookedMesh", Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+		*Fixture.Mesh, "/Game/CookedMesh", Second, Error)) << Error;
 	ASSERT_TRUE(Second.Publish(&Error)) << Error;
 	std::vector<std::byte> FirstPackage;
 	std::vector<std::byte> SecondPackage;
@@ -501,158 +384,4 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		RestartAssetManager();
 		return;
 	}
-#if 0 // Retained only as historical DBLK fixture logic until the compatibility corpus is removed.
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		SecondBulk, SecondCookRoot / "Game/CookedMesh.dbulk"));
-	EXPECT_EQ(FirstBulk, SecondBulk);
-	auto ContainsText = [](std::span<const std::byte> Bytes, std::string_view Text) {
-		const std::span<const std::byte> TextBytes =
-			std::as_bytes(std::span{Text.data(), Text.size()});
-		return std::search(
-			Bytes.begin(), Bytes.end(),
-			TextBytes.begin(), TextBytes.end()) != Bytes.end();
-	};
-	EXPECT_FALSE(ContainsText(FirstPackage, "SourceFile"));
-	EXPECT_FALSE(ContainsText(FirstPackage, "SourceImportData"));
-	EXPECT_FALSE(ContainsText(FirstPackage, "SourceName"));
-	EXPECT_FALSE(ContainsText(FirstPackage, "SourceMaterialIndex"));
-	EXPECT_FALSE(ContainsText(FirstPackage, "Assimp"));
-
-	Durin::Asset::FCookedBulkContainer DecodedBulk;
-	ASSERT_TRUE(Durin::Asset::DecodeCookedBulk(
-		FirstBulk,
-		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game,
-		DecodedBulk,
-		&Error)) << Error;
-	ASSERT_EQ(DecodedBulk.Entries.size(), 1u);
-	ASSERT_EQ(DecodedBulk.Payloads.size(), 1u);
-
-	const std::filesystem::path WrongPlatformRoot =
-		std::filesystem::absolute(Fixture.Root / "CookWrongPlatform");
-	std::vector<std::byte> WrongPlatformBulk = FirstBulk;
-	WriteU32(WrongPlatformBulk, 64, static_cast<uint32>(Durin::Asset::ECookTargetPlatform::Invalid));
-	RefreshEnvelopeHeaderHash(WrongPlatformBulk);
-	std::filesystem::create_directories(WrongPlatformRoot / "Game");
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
-		std::as_bytes(std::span(FirstPackage)), WrongPlatformRoot / "Game/CookedMesh.dasset"));
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
-		std::as_bytes(std::span(WrongPlatformBulk)), WrongPlatformRoot / "Game/CookedMesh.dbulk"));
-
-	const std::filesystem::path WrongSchemaRoot =
-		std::filesystem::absolute(Fixture.Root / "CookWrongSchema");
-	std::vector<std::byte> WrongSchemaPayload = DecodedBulk.Payloads.front();
-	WriteU32(WrongSchemaPayload, 4, Durin::StaticMeshPayloadSchemaVersion + 1);
-	WriteU64(
-		WrongSchemaPayload,
-		56,
-		Durin::FXxHash64::HashBuffer(std::span<const std::byte>(WrongSchemaPayload).subspan(64)).HashValue);
-	std::vector<std::byte> WrongSchemaBulk;
-	std::vector<Durin::Asset::FCookedPayloadDescriptor> WrongSchemaDescriptors;
-	std::vector<Durin::Asset::FCookedBulkPayload> WrongSchemaPayloads;
-	WrongSchemaPayloads.push_back({
-		.PayloadId = Durin::StaticMeshPrimaryCookedPayloadId,
-		.Flags = 1,
-		.PayloadSchemaVersion = Durin::StaticMeshPayloadSchemaVersion,
-		.Compression = Durin::Asset::ECookedPayloadCompression::None,
-		.Alignment = Durin::StaticMeshPayloadAlignment,
-		.Bytes = std::move(WrongSchemaPayload)});
-	ASSERT_TRUE(Durin::Asset::EncodeCookedBulk(
-		WrongSchemaPayloads,
-		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game,
-		WrongSchemaBulk,
-		&WrongSchemaDescriptors,
-		&Error)) << Error;
-	std::filesystem::create_directories(WrongSchemaRoot / "Game");
-	SaveVariantPackage(
-		*Fixture.Mesh,
-		WrongSchemaRoot / "Game/CookedMesh.dasset",
-		WrongSchemaDescriptors.front());
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
-		std::as_bytes(std::span(WrongSchemaBulk)), WrongSchemaRoot / "Game/CookedMesh.dbulk"));
-
-	const std::filesystem::path CorruptPayloadRoot =
-		std::filesystem::absolute(Fixture.Root / "CookCorruptPayload");
-	std::vector<std::byte> CorruptBulk = FirstBulk;
-	ASSERT_GT(CorruptBulk.size(), 64u);
-	CorruptBulk.back() ^= std::byte{0x80};
-	std::filesystem::create_directories(CorruptPayloadRoot / "Game");
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
-		std::as_bytes(std::span(FirstPackage)), CorruptPayloadRoot / "Game/CookedMesh.dasset"));
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
-		std::as_bytes(std::span(CorruptBulk)), CorruptPayloadRoot / "Game/CookedMesh.dbulk"));
-
-	const std::filesystem::path MaterialMismatchRoot =
-		std::filesystem::absolute(Fixture.Root / "CookMaterialMismatch");
-	std::filesystem::create_directories(MaterialMismatchRoot / "Game");
-	SaveVariantPackage(
-		*Fixture.Mesh,
-		MaterialMismatchRoot / "Game/CookedMesh.dasset",
-		DecodedBulk.Entries.front(),
-		true);
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
-		std::as_bytes(std::span(FirstBulk)), MaterialMismatchRoot / "Game/CookedMesh.dbulk"));
-
-	Durin::Testing::RemoveTestWorkDirectory(Fixture.CacheRoot);
-	Durin::Testing::RemoveTestWorkDirectory(Fixture.Root / "Content" / "Models");
-	RestartAssetManager(CookRoot);
-	Durin::PathUtilities::RegisterMountPointForTests(
-		"/Game/", (CookRoot / "Game").generic_string() + "/");
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-		Durin::Asset::EAssetRegistryScanMode::FullValidation));
-	Durin::FAssetPath CookedPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedMesh", CookedPath));
-	Durin::DStaticMesh* CookedMesh = nullptr;
-	const Durin::Asset::FAssetResult LoadResult = Durin::Asset::LoadAsset(CookedPath, CookedMesh);
-	ASSERT_TRUE(LoadResult) << LoadResult.Message;
-	ASSERT_NE(CookedMesh, nullptr);
-	ASSERT_NE(CookedMesh->GetRenderData(), nullptr);
-	ASSERT_FALSE(CookedMesh->GetRenderData()->LODResources.empty());
-	ASSERT_FALSE(
-		CookedMesh->GetRenderData()->LODResources.front()
-			.VertexBuffers.PositionVertexBuffer.GetPositions().empty());
-	ASSERT_FALSE(
-		CookedMesh->GetRenderData()->LODResources.front()
-			.IndexBuffer.GetIndices().empty());
-	EXPECT_EQ(
-		CookedMesh->GetRenderData()->LODResources.front().ScreenSize,
-		0.0f);
-	ASSERT_EQ(
-		CookedMesh->GetRenderData()->MaterialSlots.size(),
-		CookedMesh->GetNumMaterialSlots());
-	EXPECT_EQ(
-		CookedMesh->GetDerivedDataDiagnostic().Status,
-		Durin::EStaticMeshDerivedDataStatus::CookedLoaded);
-	EXPECT_EQ(CookedMesh->GetAssetImportData(), nullptr);
-	EXPECT_NE(CookedMesh->GetCookedRenderData().GetMetadata().LogicalSize, 0u);
-
-	ASSERT_TRUE(Durin::Asset::UnloadPackage(CookedPath));
-	ASSERT_TRUE(std::filesystem::remove(CookRoot / "Game/CookedMesh.dbulk"));
-	CookedMesh = nullptr;
-	const Durin::Asset::FAssetResult MissingBulk = Durin::Asset::LoadAsset(CookedPath, CookedMesh);
-	EXPECT_FALSE(MissingBulk);
-	EXPECT_EQ(CookedMesh, nullptr);
-	EXPECT_NE(MissingBulk.Message.find("Cooked static mesh"), std::string::npos);
-
-	auto ExpectCookedFailure = [](const std::filesystem::path& Root, std::string_view ExpectedText) {
-		RestartAssetManager(Root);
-		Durin::PathUtilities::RegisterMountPointForTests(
-			"/Game/", (Root / "Game").generic_string() + "/");
-		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
-			Durin::Asset::EAssetRegistryScanMode::FullValidation));
-		Durin::FAssetPath Path;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedMesh", Path));
-		Durin::DStaticMesh* Mesh = nullptr;
-		const Durin::Asset::FAssetResult Result = Durin::Asset::LoadAsset(Path, Mesh);
-		EXPECT_FALSE(Result);
-		EXPECT_EQ(Mesh, nullptr);
-		EXPECT_NE(Result.Message.find(ExpectedText), std::string::npos) << Result.Message;
-	};
-	ExpectCookedFailure(WrongPlatformRoot, "target");
-	ExpectCookedFailure(WrongSchemaRoot, "schema version");
-	ExpectCookedFailure(CorruptPayloadRoot, "checksum");
-	ExpectCookedFailure(MaterialMismatchRoot, "material slot");
-	RestartAssetManager();
-#endif
 }

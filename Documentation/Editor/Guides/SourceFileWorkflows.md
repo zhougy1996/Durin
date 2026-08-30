@@ -64,7 +64,7 @@ set even when no hint exists. Both actions capture once, prepare a detached
 candidate, and commit canonical imported data, settings, derived result, and
 hints together. A resolution, decode, build, or cancellation failure leaves
 both live and persisted state unchanged. A later save failure preserves the
-prior DAST/DABK bundle and leaves the complete new live state Dirty for retry.
+prior DAST v7 package/raw-segment bundle and leaves the complete new live state Dirty for retry.
 
 These actions are class-aware capabilities supplied by the reflected factory
 for the loaded asset; the Content Browser does not maintain a separate family

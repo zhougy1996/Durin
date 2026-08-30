@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "status", "code", "diagnostic", "target", "profile",
+    "changedBytes", "reusedBytes", "peakCapturedBytes", "rangeReadCount", "wallTimeNanoseconds",
+    "commitTimeNanoseconds", "rollbackTimeNanoseconds", "packages"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "status": {"enum": ["succeeded", "failed", "cancelled"]},
+    "code": {"type": "string"},
+    "diagnostic": {"type": "string"},
+    "target": {"const": "win64"},
+    "profile": {"const": "game"},
+    "changedBytes": {"type": "integer", "minimum": 0},
+    "reusedBytes": {"type": "integer", "minimum": 0},
+    "peakCapturedBytes": {"type": "integer", "minimum": 0},
+    "rangeReadCount": {"type": "integer", "minimum": 0},
+    "wallTimeNanoseconds": {"type": "integer", "minimum": 0},
+    "commitTimeNanoseconds": {"type": "integer", "minimum": 0},
+    "rollbackTimeNanoseconds": {"type": "integer", "minimum": 0},
+    "packages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "packagePath", "contributor", "status", "stage", "code",
+          "diagnostic", "packageBytes", "segmentBytes"
+        ],
+        "properties": {
+          "packagePath": {"type": "string"},
+          "contributor": {"type": "string"},
+          "status": {"enum": ["cook-hit", "ddc-hit", "rebuilt", "reused-output", "captured", "failed", "cancelled", "unsupported"]},
+          "stage": {"enum": ["discovery", "load", "prepare", "capture", "stage-segment", "stage-package", "commit-segment", "commit-package", "commit-state", "commit-manifest", "rollback", "stale-cleanup", "writer-lock"]},
+          "code": {"type": "string"},
+          "diagnostic": {"type": "string"},
+          "packageBytes": {"type": "integer", "minimum": 0},
+          "segmentBytes": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  }
+}

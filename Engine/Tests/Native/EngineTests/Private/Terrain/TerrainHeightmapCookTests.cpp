@@ -53,8 +53,8 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 	Durin::Asset::FCookContext Cook(
 		CookRoot, Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game);
-	ASSERT_TRUE(Imported.Asset->AddToCook(
-		Cook, "/Game/Height", Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+		*Imported.Asset, "/Game/Height", Cook, Error)) << Error;
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 
 	Durin::FAssetPath AssetPath;

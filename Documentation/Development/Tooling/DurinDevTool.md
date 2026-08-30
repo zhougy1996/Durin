@@ -2,7 +2,7 @@
 
 Summary: Define the interactive shell, repository path discovery, documentation lifecycle commands, and workspace scaffolding interface.
 
-Last reviewed: 2026-08-27
+Last reviewed: 2026-08-30
 
 ## Interactive Shell
 
@@ -32,6 +32,7 @@ Representative commands are:
 .\DevTool.bat test CoreConcurrencyTests FTaskSchedulerTests.*
 .\DevTool.bat asset
 .\DevTool.bat asset resave /Game/Characters
+.\DevTool.bat cook --output Saved/Cooked --target win64 --target-profile game
 .\DevTool.bat path runtime
 .\DevTool.bat open logs
 ```
@@ -47,6 +48,31 @@ are defined by [Native Test Execution](../Build/NativeTests.md); target
 construction is defined by [Native Test Authoring](../Build/NativeTestAuthoring.md).
 Asset checking, canonical resave, and storage qualification are defined by
 [Build and Run](../Build/BuildAndRun.md#asset-maintenance).
+
+## Project Cook
+
+`cook` runs the synchronous offline project Cook through `DurinAssetTool`
+without opening an application loop:
+
+```powershell
+.\DevTool.bat cook --output Saved/Cooked --target win64 --target-profile game
+.\DevTool.bat cook --output Saved/Cooked --root /Game/Levels/Entry --dry-run
+.\DevTool.bat cook --output Saved/Cooked --no-incremental --json
+```
+
+`--project` selects a registered project; omission uses the configured default.
+`--root` is repeatable and augments the project's configured default Level.
+`--output` resolves relative to the checkout and is passed to the native host as
+an absolute path. `--profile` continues to select the host build profile, while
+`--target-profile` selects the Cook runtime profile. `--dry-run` performs
+discovery and immutable capture without opening a store transaction.
+
+Human output summarizes package counts, validated Cook hits, failures, changed
+bytes, and reused bytes. `--json` validates and emits the version-1 Cook
+run schema with packages in canonical virtual-path order. Native failure reports
+are preserved even when the child exits nonzero; cancellation returns 130,
+ordinary Cook failure returns 1, and success returns 0. The child process uses
+the standard heartbeat, interruption, and command-log policy.
 
 ## Repository Locations
 

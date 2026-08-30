@@ -95,7 +95,7 @@ namespace
 			return false;
 		}
 		return Context.AddPackage(
-			Object.GetPackage()->GetPackagePath(), std::move(Bytes), {}, &OutError);
+			Object.GetPackage()->GetPackagePath(), std::move(Bytes), &OutError);
 	}
 
 	struct FSceneOutputs
@@ -281,22 +281,26 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			Durin::Asset::FCookContext Context(
 				CookRoot, Durin::Asset::ECookTargetPlatform::Win64,
 				Durin::Asset::ECookTargetProfile::Game);
-			if (!StandardMaterial->AddToCook(
-				Context, StandardMaterial->GetPackage()->GetPackagePath(), Error))
+			if (!Durin::Asset::ContributeEngineCookAsset(
+				*StandardMaterial, StandardMaterial->GetPackage()->GetPackagePath(),
+				Context, Error))
 				return false;
 			for (const FSceneOutputs& Result : Results)
 			{
 				for (Durin::DMaterialInstance* Material : Result.Materials)
 					if (!AddPackageOnly(Context, *Material, Error)) return false;
 				for (Durin::DSkeleton* Skeleton : Result.Skeletons)
-					if (!Skeleton->AddToCook(
-						Context, Skeleton->GetPackage()->GetPackagePath(), Error)) return false;
+					if (!Durin::Asset::ContributeEngineCookAsset(
+						*Skeleton, Skeleton->GetPackage()->GetPackagePath(),
+						Context, Error)) return false;
 				for (Durin::DSkeletalMesh* Mesh : Result.SkeletalMeshes)
-					if (!Mesh->AddToCook(
-						Context, Mesh->GetPackage()->GetPackagePath(), Error)) return false;
+					if (!Durin::Asset::ContributeEngineCookAsset(
+						*Mesh, Mesh->GetPackage()->GetPackagePath(), Context, Error))
+						return false;
 				for (Durin::DAnimationClip* Clip : Result.AnimationClips)
-					if (!Clip->AddToCook(
-						Context, Clip->GetPackage()->GetPackagePath(), Error)) return false;
+					if (!Durin::Asset::ContributeEngineCookAsset(
+						*Clip, Clip->GetPackage()->GetPackagePath(), Context, Error))
+						return false;
 			}
 			return Context.Publish(&Error);
 		};

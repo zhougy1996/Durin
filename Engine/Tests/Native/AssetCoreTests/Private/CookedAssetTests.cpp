@@ -6,40 +6,41 @@
 #include "AssetCook.h"
 #include "Asset/CanonicalResave.h"
 #include "Asset/Compatibility.h"
-#include "Asset/AssetPackageV6Codec.h"
 #include "Asset/PackageObjectStreamWriter.h"
+#include "Animation/AnimationClip.h"
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
+#include "DObject/DObjectGlobals.h"
 #include "DObject/Object.h"
+#include "DObject/Package.h"
+#include "EnvironmentLighting/EnvironmentLighting.h"
 #include "HAL/PlatformLTS.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "Materials/Material.h"
 #include "NativeTestSupport.h"
 #include "NativeDObjectTestSupport.h"
+#include "SkeletalMesh/SkeletalMesh.h"
+#include "SkeletalMesh/Skeleton.h"
+#include "StaticMesh/StaticMesh.h"
+#include "Terrain/TerrainHeightmap.h"
+#include "Texture/Texture2D.h"
+#include "Texture/TextureCube.h"
+#include "Texture/VolumeTexture.h"
 
 namespace
 {
 	using namespace Durin;
 	using namespace Durin::Asset;
 
-	auto Payload(FGuid Id, std::initializer_list<uint8> Bytes, uint32 Alignment = 16) -> FCookedBulkPayload
+	template<typename T>
+	concept HasPublicAddToCook = requires(
+		T& Value, FCookContext& Context, std::string& Error)
 	{
-		std::vector<std::byte> PayloadBytes;
-		PayloadBytes.reserve(Bytes.size());
-		for (uint8 Byte : Bytes) PayloadBytes.push_back(static_cast<std::byte>(Byte));
-		return {Id, 1, 7, ECookedPayloadCompression::None, Alignment, std::move(PayloadBytes)};
-	}
-
-	auto MakeBulk(std::vector<FCookedPayloadDescriptor>* OutDescriptors = nullptr) -> std::vector<std::byte>
-	{
-		const std::array Payloads = {
-			Payload(FGuid(2, 0, 0, 0), {9, 8, 7}, 64),
-			Payload(FGuid(1, 0, 0, 0), {1, 2, 3, 4}, 16)};
-		std::vector<std::byte> Bytes;
-		EXPECT_TRUE(EncodeCookedBulk(Payloads, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Bytes, OutDescriptors));
-		return Bytes;
-	}
+		Value.AddToCook(Context, std::string_view{}, Error);
+	};
 
 	auto MakePackageBytes() -> std::vector<std::byte>
 	{
@@ -48,130 +49,34 @@ namespace
 			return true;
 		}();
 		(void)bInitialized;
-		const std::string ClassName =
-			DObject::StaticClass()->GetQualifiedName().ToString();
-		Asset::PackageObjectStream::FPackageInput Input{
-			.AssetClass = ClassName,
-			.Objects = {{"Root", {}, ClassName, "Root"}},
-			.ObjectValues = {{"Root", {}}},
-		};
-		std::vector<std::byte> ObjectStream;
-		Asset::PackageObjectStream::FWriterDiagnostic Diagnostic;
-		EXPECT_TRUE(Asset::PackageObjectStream::WritePackage(Input, ObjectStream, &Diagnostic))
-			<< Diagnostic.Message;
+		static const bool bMounted = [] {
+			const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory()
+											   / "CookPackageFixtureMount";
+			std::filesystem::create_directories(Root);
+			PathUtilities::RegisterMountPointForTests(
+				"/TestCook/", Root.generic_string() + "/"
+			);
+			return true;
+		}();
+		(void)bMounted;
+		static uint64 NextPackage = 1;
+		FAssetPath Path;
+		EXPECT_TRUE(FAssetPath::TryCreate(std::format("/TestCook/Fixture{}", NextPackage++), Path));
+		DPackage* Package = CreatePackage(Path);
+		EXPECT_NE(Package, nullptr);
+		DObject* Asset = NewObject<DObject>(Package, "Root");
+		EXPECT_NE(Asset, nullptr);
+		EXPECT_TRUE(Package->SetAsset(Asset));
 		std::vector<std::byte> Bytes;
-		EXPECT_TRUE(Asset::Private::DastV6::BuildPackageFromObjectStream(
-			ObjectStream, Bytes));
+		const FAssetResult Result = SerializeAssetPackageBytes(Package, Bytes);
+		EXPECT_TRUE(Result) << Result.Message;
+		EXPECT_TRUE(UnloadPackage(Package, EAssetPackageUnloadPolicy::DiscardUnsaved));
 		return Bytes;
 	}
 
-	template<typename T>
-	auto ReadLittle(const std::vector<std::byte>& Bytes, size_t Offset) -> T
-	{
-		T Value = 0;
-		for (size_t Index = 0; Index < sizeof(T); ++Index)
-			Value |= static_cast<T>(std::to_integer<uint8>(Bytes[Offset + Index])) << (Index * 8);
-		return Value;
-	}
+} // namespace
 
-	template<typename T>
-	auto WriteLittle(std::vector<std::byte>& Bytes, size_t Offset, T Value) -> void
-	{
-		for (size_t Index = 0; Index < sizeof(T); ++Index)
-			Bytes[Offset + Index] = static_cast<std::byte>(Value >> (Index * 8));
-	}
-
-	auto RefreshTableHash(std::vector<std::byte>& Bytes) -> void
-	{
-		const uint32 Count = ReadLittle<uint32>(Bytes, 80);
-		const uint64 Hash = FXxHash64::HashBuffer(std::span(Bytes).subspan(128, Count * 80)).HashValue;
-		WriteLittle(Bytes, 104, Hash);
-		const uint64 HeaderBytes = ReadLittle<uint64>(Bytes, 32);
-		std::ranges::fill(std::span(Bytes).subspan(48, 16), std::byte{});
-		const FXxHash128 HeaderHash = FXxHash128::HashBuffer(std::span(Bytes).first(HeaderBytes));
-		WriteLittle(Bytes, 48, HeaderHash.HashLow);
-		WriteLittle(Bytes, 56, HeaderHash.HashHigh);
-	}
-}
-
-TEST(FCookedBulkTests, ProducesDeterministicSortedMultiPayloadContainer)
-{
-	std::vector<FCookedPayloadDescriptor> Descriptors;
-	const std::vector<std::byte> First = MakeBulk(&Descriptors);
-	const std::vector<std::byte> Second = MakeBulk();
-	EXPECT_EQ(First, Second);
-	EXPECT_EQ(First.size(), 323u);
-	const FXxHash128 GoldenHash = FXxHash128::HashBuffer(First);
-	EXPECT_EQ(GoldenHash.HashLow, 7957336162608224858ull);
-	EXPECT_EQ(GoldenHash.HashHigh, 18071802371373617090ull);
-	EXPECT_TRUE(std::ranges::equal(std::span(First).first(4),
-		std::array{std::byte{'D'}, std::byte{'U'}, std::byte{'R'}, std::byte{'F'}}));
-	ASSERT_EQ(Descriptors.size(), 2u);
-	EXPECT_EQ(Descriptors[0].PayloadId, FGuid(1, 0, 0, 0));
-	EXPECT_EQ(Descriptors[1].PayloadId, FGuid(2, 0, 0, 0));
-
-	FCookedBulkContainer Container;
-	ASSERT_TRUE(DecodeCookedBulk(First, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Container));
-	std::span<const std::byte> Resolved;
-	ASSERT_TRUE(ResolveCookedPayload(Container, Descriptors[1], Resolved));
-	EXPECT_TRUE(std::ranges::equal(Resolved, Container.Payloads[1]));
-}
-
-TEST(FCookedBulkTests, RejectsWrongTargetCorruptionOverlapTruncationAndUnknownCompression)
-{
-	FCookedBulkContainer Container;
-	std::vector<std::byte> Bytes = MakeBulk();
-	EXPECT_FALSE(DecodeCookedBulk(Bytes, ECookTargetPlatform::Win64, ECookTargetProfile::EditorValidation, Container));
-
-	auto Corrupt = Bytes;
-	Corrupt.back() ^= std::byte{1};
-	EXPECT_FALSE(DecodeCookedBulk(Corrupt, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Container));
-
-	auto Overlap = Bytes;
-	const uint64 FirstOffset = [] (const std::vector<std::byte>& Value) {
-		uint64 Result = 0;
-		for (size_t Index = 0; Index < 8; ++Index)
-			Result |= std::to_integer<uint64>(Value[128 + 40 + Index]) << (Index * 8);
-		return Result;
-	}(Overlap);
-	WriteLittle(Overlap, 128 + 80 + 40, FirstOffset);
-	RefreshTableHash(Overlap);
-	EXPECT_FALSE(DecodeCookedBulk(Overlap, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Container));
-
-	auto UnknownCompression = Bytes;
-	WriteLittle(UnknownCompression, 128 + 32, uint32{99});
-	RefreshTableHash(UnknownCompression);
-	EXPECT_FALSE(DecodeCookedBulk(UnknownCompression, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Container));
-
-	Bytes.pop_back();
-	EXPECT_FALSE(DecodeCookedBulk(Bytes, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Container));
-}
-
-TEST(FCookedBulkTests, DescriptorMustExactlyMatchEntry)
-{
-	std::vector<FCookedPayloadDescriptor> Descriptors;
-	const std::vector<std::byte> Bytes = MakeBulk(&Descriptors);
-	FCookedBulkContainer Container;
-	ASSERT_TRUE(DecodeCookedBulk(Bytes, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Container));
-	Descriptors[0].StoredSize++;
-	std::span<const std::byte> Resolved;
-	EXPECT_FALSE(ResolveCookedPayload(Container, Descriptors[0], Resolved));
-	Descriptors[0] = Container.Entries[0];
-	Descriptors[0].LocationKind = 99;
-	EXPECT_FALSE(ResolveCookedPayload(Container, Descriptors[0], Resolved));
-}
-
-TEST(FCookedBulkTests, RejectsDeclaredExcessivePayloadSizeBeforeAllocation)
-{
-	std::vector<std::byte> Bytes = MakeBulk();
-	WriteLittle(Bytes, 64 + 48, uint64{8ull * 1024 * 1024 * 1024 + 1});
-	WriteLittle(Bytes, 64 + 56, uint64{8ull * 1024 * 1024 * 1024 + 1});
-	RefreshTableHash(Bytes);
-	FCookedBulkContainer Container;
-	EXPECT_FALSE(DecodeCookedBulk(Bytes, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Container));
-}
-
-TEST(FCookedPathTests, ResolvesRelocatableCompanionAndRejectsTraversalAndWrongMount)
+TEST(FCookedPathTests, ResolvesMountedCompanionsAndRejectsTraversal)
 {
 	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory() / "CookedPath";
 	std::filesystem::path Package, Companion;
@@ -179,66 +84,20 @@ TEST(FCookedPathTests, ResolvesRelocatableCompanionAndRejectsTraversalAndWrongMo
 	ASSERT_TRUE(ResolveCookedCompanionPath(std::filesystem::absolute(Root), Package, Companion));
 	EXPECT_EQ(Package.filename(), "T.dasset");
 	EXPECT_EQ(Companion.filename(), "T.dbulk");
+	ASSERT_TRUE(ResolveCookedPackagePath(
+		std::filesystem::absolute(Root), "/Plugins/PCG/Textures/T", Package
+	));
+	EXPECT_NE(Package.generic_string().find("Plugins/PCG/Textures/T.dasset"), std::string::npos);
 	EXPECT_FALSE(ResolveCookedPackagePath(std::filesystem::absolute(Root), "/Game/../Escape", Package));
-	EXPECT_FALSE(ResolveCookedPackagePath(std::filesystem::absolute(Root), "/DDC/Object", Package));
 	EXPECT_FALSE(ResolveCookedPackagePath(std::filesystem::absolute(Root), "/Game/CON", Package));
 	EXPECT_FALSE(ResolveCookedPackagePath(std::filesystem::absolute(Root), "G:/Source/T", Package));
 }
 
-#if 0 // Retired descriptor-owned runtime loading; decoder compatibility remains covered above.
-TEST(FCookedPathTests, LoadsDescriptorSelectedPayloadWithExplicitContainerLifetime)
-{
-	const std::filesystem::path Root = std::filesystem::absolute(
-		Durin::Testing::GetTestWorkDirectory() / "CookedPayloadLoad");
-	Durin::Testing::RemoveTestWorkDirectory(Root);
-	std::vector<FCookedPayloadDescriptor> Descriptors;
-	const std::vector<std::byte> Bulk = MakeBulk(&Descriptors);
-	const std::filesystem::path Companion = Root / "Game/Textures/T.dbulk";
-	std::filesystem::create_directories(Companion.parent_path());
-	ASSERT_TRUE(FFileHelper::SaveArrayToFile(
-		std::as_bytes(std::span(Bulk)), Companion));
-
-	FCookedPackagePayload Loaded;
-	std::string Error;
-	FAssetRuntimeConfiguration Runtime = FAssetRuntimeConfiguration::Authored();
-	ASSERT_TRUE(FAssetRuntimeConfiguration::Cooked(Root, Runtime));
-	ASSERT_TRUE(LoadCookedPackagePayload(
-		Runtime,
-		"/Game/Textures/T",
-		Descriptors[1],
-		ECookTargetPlatform::Win64,
-		ECookTargetProfile::Game,
-		Loaded,
-		&Error)) << Error;
-	ASSERT_EQ(Loaded.Container.Payloads.size(), 2u);
-	EXPECT_TRUE(std::ranges::equal(Loaded.Payload, Loaded.Container.Payloads[1]));
-	EXPECT_EQ(Loaded.Payload.data(), Loaded.Container.Payloads[1].data());
-	EXPECT_EQ(Loaded.Payload.size(), Loaded.Container.Payloads[1].size());
-
-	const std::span<const std::byte> Previous = Loaded.Payload;
-	EXPECT_FALSE(LoadCookedPackagePayload(
-		Runtime,
-		"/Game/Textures/Missing",
-		Descriptors[0],
-		ECookTargetPlatform::Win64,
-		ECookTargetProfile::Game,
-		Loaded,
-		&Error));
-	EXPECT_EQ(Loaded.Payload.data(), Previous.data());
-
-	FCookedPayloadDescriptor WrongTarget = Descriptors[1];
-	WrongTarget.TargetProfile = static_cast<uint32>(ECookTargetProfile::EditorValidation);
-	FCookedPackagePayload Rejected;
-	EXPECT_FALSE(LoadCookedPackagePayload(Runtime, "/Game/Textures/T",
-		WrongTarget, ECookTargetPlatform::Win64,
-		ECookTargetProfile::Game, Rejected, &Error));
-}
-#endif
-
 TEST(FCookedPathTests, ImmutableRuntimeConfigurationRejectsReplacementAndPackageMutation)
 {
 	const std::filesystem::path Root = std::filesystem::absolute(
-		Durin::Testing::GetTestWorkDirectory() / "CookedMode");
+		Durin::Testing::GetTestWorkDirectory() / "CookedMode"
+	);
 	FAssetRuntimeConfiguration Runtime = FAssetRuntimeConfiguration::Authored();
 	FAssetRuntimeConfiguration Invalid = Runtime;
 	EXPECT_FALSE(FAssetRuntimeConfiguration::Cooked("relative/cook", Invalid));
@@ -251,12 +110,6 @@ TEST(FCookedPathTests, ImmutableRuntimeConfigurationRejectsReplacementAndPackage
 	EXPECT_TRUE(GetAssetRuntimeConfiguration().RequiresCookedPayload());
 	EXPECT_FALSE(InitializeAssetManager(FAssetRuntimeConfiguration::Authored()));
 	EXPECT_EQ(SavePackage(nullptr).Error, EAssetError::ReadOnlyMode);
-	FCookedBulkContainer Missing;
-	EXPECT_FALSE(LoadCookedBulkFile(
-		Root / "Game/DefinitelyMissing.dbulk",
-		ECookTargetPlatform::Win64,
-		ECookTargetProfile::Game,
-		Missing));
 	ShutdownAssetManager();
 	ASSERT_TRUE(InitializeAssetManager());
 }
@@ -267,7 +120,8 @@ TEST(FCookManifestTests, IsDeterministicAndRejectsCorruptRecords)
 		ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game,
 		{{ECookManifestEntryKind::CookedBulk, 1, "Game/B.dbulk", 2, 3, 4},
-		 {ECookManifestEntryKind::CookedPackage, 1, "Game/A.dasset", 1, 5, 6}}};
+		 {ECookManifestEntryKind::CookedPackage, 1, "Game/A.dasset", 1, 5, 6}}
+	};
 	std::vector<std::byte> First, Second;
 	ASSERT_TRUE(EncodeCookManifest(Manifest, First));
 	ASSERT_TRUE(EncodeCookManifest(Manifest, Second));
@@ -284,118 +138,210 @@ TEST(FCookManifestTests, IsDeterministicAndRejectsCorruptRecords)
 	EXPECT_FALSE(DecodeCookManifest(First, Decoded));
 }
 
-#if 0 // Retired DBLK Cook writer tests; current raw-field publication is covered by PackageTests.
-TEST(FCookContextTests, PublishesRelocatesAndCleansOnlyManifestOwnedStaleOutputs)
+TEST(FCookStateTests, IsCanonicalVersionedAndRejectsCorruption)
 {
-	const std::filesystem::path Root = std::filesystem::absolute(
-		Durin::Testing::GetTestWorkDirectory() / "CookPublication");
-	Durin::Testing::RemoveTestWorkDirectory(Root);
-	FCookContext First(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	std::string Error;
-	ASSERT_TRUE(First.AddPackage("/Game/Old", MakePackageBytes(), {Payload(FGuid(1, 0, 0, 0), {3, 4})}));
-	ASSERT_TRUE(First.Publish(&Error)) << Error;
-	ASSERT_TRUE(std::filesystem::exists(Root / "Game/Old.dasset"));
-	ASSERT_TRUE(std::filesystem::exists(Root / "Game/Old.dbulk"));
-	const std::filesystem::path Unowned = Root / "keep.txt";
-	const std::array<uint8, 1> Keep{9};
-	ASSERT_TRUE(FFileHelper::SaveArrayToFile(
-		std::span{reinterpret_cast<const std::byte*>(Keep.data()), Keep.size()}, Unowned));
-
-	FCookContext Second(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	ASSERT_TRUE(Second.AddPackage("/Game/New", MakePackageBytes(), {Payload(FGuid(2, 0, 0, 0), {7, 8})}));
-	ASSERT_TRUE(Second.Publish(&Error)) << Error;
-	EXPECT_FALSE(std::filesystem::exists(Root / "Game/Old.dasset"));
-	EXPECT_FALSE(std::filesystem::exists(Root / "Game/Old.dbulk"));
-	EXPECT_TRUE(std::filesystem::exists(Unowned));
-
-	const std::filesystem::path Relocated = Root.parent_path() / "CookPublicationRelocated";
-	Durin::Testing::RemoveTestWorkDirectory(Relocated);
-	std::filesystem::rename(Root, Relocated);
-	std::vector<std::byte> BulkBytes;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(BulkBytes, (Relocated / "Game/New.dbulk")));
-	FCookedBulkContainer Container;
-	EXPECT_TRUE(DecodeCookedBulk(BulkBytes, ECookTargetPlatform::Win64, ECookTargetProfile::Game, Container));
-}
-
-TEST(FCookContextTests, PublishesPackageWithoutBulkCompanion)
-{
-	const std::filesystem::path Root = std::filesystem::absolute(
-		Durin::Testing::GetTestWorkDirectory() / "PackageOnlyCook");
-	Durin::Testing::RemoveTestWorkDirectory(Root);
-	FCookContext Context(
-		Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	std::string Error;
-	ASSERT_TRUE(Context.AddPackage("/Engine/Plain", MakePackageBytes(), {}));
-	ASSERT_TRUE(Context.Publish(&Error)) << Error;
-	EXPECT_TRUE(std::filesystem::is_regular_file(
-		Root / "Engine/Plain.dasset"));
-	EXPECT_FALSE(std::filesystem::exists(Root / "Engine/Plain.dbulk"));
-
-	std::vector<std::byte> ManifestBytes;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(
-		ManifestBytes, (Root / "CookManifest.bin")));
-	FCookManifest Manifest;
-	ASSERT_TRUE(DecodeCookManifest(ManifestBytes, Manifest));
-	ASSERT_EQ(Manifest.Entries.size(), 1u);
-	EXPECT_EQ(
-		Manifest.Entries[0].Kind,
-		ECookManifestEntryKind::CookedPackage);
-}
-
-TEST(FCookContextTests, DescriptorAwarePackageBuilderReceivesExactPublishedEntries)
-{
-	const std::filesystem::path Root = std::filesystem::absolute(
-		Durin::Testing::GetTestWorkDirectory() / "DescriptorAwareCook");
-	Durin::Testing::RemoveTestWorkDirectory(Root);
-	FCookContext Context(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	FCookedPayloadDescriptor Captured;
-	std::string Error;
-	ASSERT_TRUE(Context.AddPackage(
-		"/Game/DescriptorAware",
-		{Payload(FGuid(4, 3, 2, 1), {7, 6, 5}, 64)},
-		[&](std::span<const FCookedPayloadDescriptor> Descriptors, std::vector<std::byte>& OutBytes, std::string*) {
-			if (Descriptors.size() != 1) return false;
-			Captured = Descriptors.front();
-			OutBytes = MakePackageBytes();
-			return true;
-		}));
-	ASSERT_TRUE(Context.Publish(&Error)) << Error;
-
-	FCookedBulkContainer Container;
-	ASSERT_TRUE(LoadCookedBulkFile(
-		Root / "Game/DescriptorAware.dbulk",
+	FCookState State{
 		ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game,
-		Container));
-	ASSERT_EQ(Container.Entries.size(), 1u);
-	EXPECT_EQ(Captured, Container.Entries.front());
+		{{"/Game/B", {1, 2}, {3, 4}, {5, 6}, 12, 8, 2, 3, "texture", "ddc-hit"},
+		 {"/Game/A", {7, 8}, {9, 10}, {}, 11, 0, 4, 5, "generic", "captured"}}
+	};
+	std::vector<std::byte> First, Second;
+	std::string Error;
+	ASSERT_TRUE(EncodeCookState(State, First, &Error)) << Error;
+	ASSERT_TRUE(EncodeCookState(State, Second, &Error)) << Error;
+	EXPECT_EQ(First, Second);
+	FCookState Decoded;
+	ASSERT_TRUE(DecodeCookState(First, Decoded, &Error)) << Error;
+	ASSERT_EQ(Decoded.Entries.size(), 2u);
+	EXPECT_EQ(Decoded.Entries[0].VirtualPackagePath, "/Game/A");
+	First[4] ^= std::byte{1};
+	EXPECT_FALSE(DecodeCookState(First, Decoded, &Error));
 }
 
-TEST(FCookContextTests, PackagePublicationFailureLeavesNoReferencingPackageOrManifest)
+TEST(FCookContributorTests, RejectsDuplicatesAndAllowsOwnerRetirement)
 {
-	const std::filesystem::path Root = std::filesystem::absolute(
-		Durin::Testing::GetTestWorkDirectory() / "CookInterruption");
-	Durin::Testing::RemoveTestWorkDirectory(Root);
-	std::filesystem::create_directories(Root / "Game/Blocked.dasset");
-	FCookContext Context(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	ASSERT_TRUE(Context.AddPackage("/Game/Blocked", MakePackageBytes(), {Payload(FGuid(1, 0, 0, 0), {2})}));
-	EXPECT_FALSE(Context.Publish());
-	EXPECT_FALSE(std::filesystem::is_regular_file(Root / "Game/Blocked.dasset"));
-	EXPECT_FALSE(std::filesystem::exists(Root / "CookManifest.bin"));
+	const FCookContributor Contributor = [](DObject&, std::string_view,
+											FCookContext&) -> FAssetResult { return {}; };
+	const FCookContributorHandle First = RegisterCookContributor(
+		DObject::StaticClass(), {"generic-test", 1, 1, Contributor}
+	);
+	ASSERT_NE(First, 0u);
+	EXPECT_EQ(RegisterCookContributor(DObject::StaticClass(), {"duplicate", 1, 1, Contributor}), 0u);
+	UnregisterCookContributor(First);
+	const FCookContributorHandle Replacement = RegisterCookContributor(
+		DObject::StaticClass(), {"replacement", 1, 1, Contributor}
+	);
+	EXPECT_NE(Replacement, 0u);
+	UnregisterCookContributor(Replacement);
 }
 
-TEST(FCookContextTests, InvalidPackageFailsBeforeBulkPublication)
+TEST(FCookContributorTests, FamilyCookHelpersAreNotPublicApi)
+{
+	EXPECT_FALSE(HasPublicAddToCook<DTexture2D>);
+	EXPECT_FALSE(HasPublicAddToCook<DTextureCube>);
+	EXPECT_FALSE(HasPublicAddToCook<DVolumeTexture>);
+	EXPECT_FALSE(HasPublicAddToCook<DStaticMesh>);
+	EXPECT_FALSE(HasPublicAddToCook<DSkeletalMesh>);
+	EXPECT_FALSE(HasPublicAddToCook<DSkeleton>);
+	EXPECT_FALSE(HasPublicAddToCook<DAnimationClip>);
+	EXPECT_FALSE(HasPublicAddToCook<DTerrainHeightmap>);
+	EXPECT_FALSE(HasPublicAddToCook<DMaterial>);
+	EXPECT_FALSE(HasPublicAddToCook<DEnvironmentLighting>);
+}
+
+TEST(FCookSavePlanTests, CapturesWithoutAnOutputRootAndIsDeterministic)
+{
+	std::string Error;
+	FCookContext First({}, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	FCookContext Second({}, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	ASSERT_TRUE(First.AddRawPackage("/Game/Detached", MakePackageBytes(), {std::byte{1}, std::byte{2}, std::byte{3}}, &Error)) << Error;
+	ASSERT_TRUE(Second.AddRawPackage("/Game/Detached", MakePackageBytes(), {std::byte{1}, std::byte{2}, std::byte{3}}, &Error)) << Error;
+	std::vector<FCookSavePlan> FirstPlans, SecondPlans;
+	ASSERT_TRUE(First.TakeSavePlans(FirstPlans, &Error)) << Error;
+	ASSERT_TRUE(Second.TakeSavePlans(SecondPlans, &Error)) << Error;
+	EXPECT_EQ(FirstPlans, SecondPlans);
+	ASSERT_EQ(FirstPlans.size(), 1u);
+	EXPECT_EQ(FirstPlans[0].VirtualPath, "/Game/Detached");
+	EXPECT_FALSE(FirstPlans[0].PackageDigest.IsZero());
+	EXPECT_FALSE(FirstPlans[0].SegmentDigest.IsZero());
+}
+
+TEST(FCookOutputStoreTests, RestoresEveryPriorFileAfterMidCommitFailure)
 {
 	const std::filesystem::path Root = std::filesystem::absolute(
-		Durin::Testing::GetTestWorkDirectory() / "CookInvalidPackage");
+		Durin::Testing::GetTestWorkDirectory() / "CookTransactionalRollback"
+	);
 	Durin::Testing::RemoveTestWorkDirectory(Root);
-	FCookContext Context(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
-	ASSERT_TRUE(Context.AddPackage("/Game/Invalid",
-		{std::byte{1}, std::byte{2}, std::byte{3}},
-		{Payload(FGuid(1, 0, 0, 0), {4})}));
-	EXPECT_FALSE(Context.Publish());
-	EXPECT_FALSE(std::filesystem::exists(Root / "Game/Invalid.dbulk"));
-	EXPECT_FALSE(std::filesystem::exists(Root / "Game/Invalid.dasset"));
-	EXPECT_FALSE(std::filesystem::exists(Root / "CookManifest.bin"));
+	std::string Error;
+	auto Capture = [&](std::initializer_list<std::byte> Segment) {
+		FCookContext Context({}, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+		EXPECT_TRUE(Context.AddRawPackage("/Game/Transactional", MakePackageBytes(), std::vector<std::byte>(Segment), &Error)) << Error;
+		std::vector<FCookSavePlan> Plans;
+		EXPECT_TRUE(Context.TakeSavePlans(Plans, &Error)) << Error;
+		Plans[0].Contributor = "opaque-test";
+		Plans[0].BuildProvenance = "captured";
+		return Plans;
+	};
+	auto MakeState = [](const FCookSavePlan& Plan) {
+		return FCookState{ECookTargetPlatform::Win64, ECookTargetProfile::Game, {{Plan.VirtualPath, Plan.InputFingerprint, Plan.PackageDigest, Plan.SegmentDigest, Plan.PackageFileSize, Plan.SegmentFileSize, Plan.ContributorVersion, Plan.FamilyProducerVersion, Plan.Contributor, Plan.BuildProvenance}}};
+	};
+	std::vector<FCookSavePlan> First = Capture({std::byte{1}, std::byte{2}});
+	auto Store = CreateLocalLooseCookOutputStore(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	FCookRunResult Result;
+	ASSERT_TRUE(Store->Publish(First, MakeState(First[0]), Result, {}, {}, Error)) << Error;
+	std::vector<std::byte> PriorPackage, PriorSegment, PriorManifest, PriorState;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(PriorPackage, Root / "Game/Transactional.dasset"));
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(PriorSegment, Root / "Game/Transactional.dbulk"));
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(PriorManifest, Root / "CookManifest.bin"));
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(PriorState, Root / "CookState.bin"));
+
+	std::vector<FCookSavePlan> Second = Capture(
+		{std::byte{9}, std::byte{8}, std::byte{7}}
+	);
+	for (const ECookOperationStage FailureStage : {
+			 ECookOperationStage::CommitPackage,
+			 ECookOperationStage::CommitState,
+			 ECookOperationStage::CommitManifest
+		 })
+	{
+		EXPECT_FALSE(Store->Publish(Second, MakeState(Second[0]), Result, {}, [FailureStage](ECookOperationStage Stage, size_t, std::string& OutError) {
+				if (Stage != FailureStage) return false;
+				OutError = "injected commit failure";
+				return true; }, Error));
+		std::vector<std::byte> Bytes;
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "Game/Transactional.dasset"));
+		EXPECT_EQ(Bytes, PriorPackage);
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "Game/Transactional.dbulk"));
+		EXPECT_EQ(Bytes, PriorSegment);
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "CookManifest.bin"));
+		EXPECT_EQ(Bytes, PriorManifest);
+		ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "CookState.bin"));
+		EXPECT_EQ(Bytes, PriorState);
+	}
+
+	bool bCancelled = false;
+	EXPECT_FALSE(Store->Publish(Second, MakeState(Second[0]), Result, [&bCancelled] { return bCancelled; }, [&bCancelled](ECookOperationStage Stage, size_t, std::string&) {
+			if (Stage == ECookOperationStage::CommitSegment) bCancelled = true;
+			return false; }, Error));
+	EXPECT_NE(Error.find("CookCancelledDuringCommit"), std::string::npos);
+	std::vector<std::byte> Bytes;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "Game/Transactional.dasset"));
+	EXPECT_EQ(Bytes, PriorPackage);
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "Game/Transactional.dbulk"));
+	EXPECT_EQ(Bytes, PriorSegment);
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "CookManifest.bin"));
+	EXPECT_EQ(Bytes, PriorManifest);
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Bytes, Root / "CookState.bin"));
+	EXPECT_EQ(Bytes, PriorState);
 }
-#endif
+
+TEST(FCookOutputStoreTests, RepairsCorruptReusedOutputAndRejectsCompetingWriter)
+{
+	const std::filesystem::path Root = std::filesystem::absolute(
+		Durin::Testing::GetTestWorkDirectory() / "CookRepairAndLock"
+	);
+	Durin::Testing::RemoveTestWorkDirectory(Root);
+	FCookContext Context({}, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	std::string Error;
+	ASSERT_TRUE(Context.AddRawPackage("/Game/Repair", MakePackageBytes(), {std::byte{4}, std::byte{5}, std::byte{6}}, &Error)) << Error;
+	std::vector<FCookSavePlan> Plans;
+	ASSERT_TRUE(Context.TakeSavePlans(Plans, &Error)) << Error;
+	Plans[0].Contributor = "repair-test";
+	Plans[0].BuildProvenance = "captured";
+	FCookState State{ECookTargetPlatform::Win64, ECookTargetProfile::Game, {{Plans[0].VirtualPath, Plans[0].InputFingerprint, Plans[0].PackageDigest, Plans[0].SegmentDigest, Plans[0].PackageFileSize, Plans[0].SegmentFileSize, Plans[0].ContributorVersion, Plans[0].FamilyProducerVersion, Plans[0].Contributor, Plans[0].BuildProvenance}}};
+	auto Store = CreateLocalLooseCookOutputStore(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	FCookRunResult Result;
+	ASSERT_TRUE(Store->Publish(Plans, State, Result, {}, {}, Error)) << Error;
+	const std::array<std::byte, 1> Corrupt{std::byte{0}};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Corrupt, Root / "Game/Repair.dbulk"));
+	Plans[0].bReuseExistingOutput = true;
+	ASSERT_TRUE(Store->Publish(Plans, State, Result, {}, {}, Error)) << Error;
+	std::vector<std::byte> Repaired;
+	ASSERT_TRUE(FFileHelper::LoadFileToArray(Repaired, Root / "Game/Repair.dbulk"));
+	EXPECT_EQ(Repaired, Plans[0].BulkBytes);
+
+	ASSERT_TRUE(std::filesystem::create_directory(Root / ".durin-cook-writer"));
+	EXPECT_FALSE(Store->Publish(Plans, State, Result, {}, {}, Error));
+	EXPECT_NE(Error.find("CookCompetingWriter"), std::string::npos);
+	std::filesystem::remove(Root / ".durin-cook-writer");
+}
+
+TEST(FCookOutputStoreTests, CleansOnlyPreviousManifestOwnedStaleFiles)
+{
+	const std::filesystem::path Root = std::filesystem::absolute(
+		Durin::Testing::GetTestWorkDirectory() / "CookStaleCleanup"
+	);
+	Durin::Testing::RemoveTestWorkDirectory(Root);
+	auto Capture = [](std::string Path, std::byte Value) {
+		FCookContext Context({}, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+		std::string Error;
+		EXPECT_TRUE(Context.AddRawPackage(std::move(Path), MakePackageBytes(), {Value}, &Error)) << Error;
+		std::vector<FCookSavePlan> Plans;
+		EXPECT_TRUE(Context.TakeSavePlans(Plans, &Error)) << Error;
+		Plans[0].Contributor = "stale-test";
+		Plans[0].BuildProvenance = "captured";
+		return Plans[0];
+	};
+	FCookSavePlan Keep = Capture("/Game/Keep", std::byte{1});
+	FCookSavePlan Stale = Capture("/Game/Stale", std::byte{2});
+	auto StateFor = [](std::span<const FCookSavePlan> Plans) {
+		FCookState State{ECookTargetPlatform::Win64, ECookTargetProfile::Game};
+		for (const FCookSavePlan& Plan : Plans)
+			State.Entries.push_back({Plan.VirtualPath, Plan.InputFingerprint, Plan.PackageDigest, Plan.SegmentDigest, Plan.PackageFileSize, Plan.SegmentFileSize, Plan.ContributorVersion, Plan.FamilyProducerVersion, Plan.Contributor, Plan.BuildProvenance});
+		return State;
+	};
+	std::vector<FCookSavePlan> First{Keep, Stale};
+	auto Store = CreateLocalLooseCookOutputStore(Root, ECookTargetPlatform::Win64, ECookTargetProfile::Game);
+	FCookRunResult Result;
+	std::string Error;
+	ASSERT_TRUE(Store->Publish(First, StateFor(First), Result, {}, {}, Error)) << Error;
+	const std::array<std::byte, 1> UnownedBytes{std::byte{9}};
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(UnownedBytes, Root / "unowned.bin"));
+	std::vector<FCookSavePlan> Second{Keep};
+	ASSERT_TRUE(Store->Publish(Second, StateFor(Second), Result, {}, {}, Error)) << Error;
+	EXPECT_FALSE(std::filesystem::exists(Root / "Game/Stale.dasset"));
+	EXPECT_FALSE(std::filesystem::exists(Root / "Game/Stale.dbulk"));
+	EXPECT_TRUE(std::filesystem::exists(Root / "Game/Keep.dasset"));
+	EXPECT_TRUE(std::filesystem::exists(Root / "unowned.bin"));
+}

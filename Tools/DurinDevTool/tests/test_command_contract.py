@@ -39,6 +39,7 @@ COMMAND_CASES = (
     (("rebuild",), "rebuild"),
     (("test",), "test"),
     (("run",), "run"),
+    (("cook",), "cook --output Saved/Cooked --target win64 --target-profile game"),
     (("asset", "check"), "asset check --baseline --json"),
     (("asset", "resave"), "asset resave /Game/Characters --apply"),
     (("asset", "storage"), "asset storage"),
@@ -93,6 +94,7 @@ EXPECTED_COMMAND_PATHS = {
     ("rebuild",),
     ("test",),
     ("run",),
+    ("cook",),
     ("asset",),
     ("asset", "check"),
     ("asset", "resave"),
@@ -164,6 +166,7 @@ class TestCommandGrammarContract:
                     "import durin_dev_tool.commands.asset_specs; "
                     "import durin_dev_tool.commands.bootstrap_specs; "
                     "import durin_dev_tool.commands.build_specs; "
+                    "import durin_dev_tool.commands.cook_specs; "
                     "import durin_dev_tool.commands.documentation_specs; "
                     "import durin_dev_tool.commands.scene_specs; "
                     "import durin_dev_tool.commands.worktree_specs; "
@@ -171,6 +174,7 @@ class TestCommandGrammarContract:
                     "assert 'durin_dev_tool.storage_qualification' not in sys.modules; "
                     "assert 'durin_dev_tool.bootstrap.handler' not in sys.modules; "
                     "assert 'durin_dev_tool.build.handler' not in sys.modules; "
+                    "assert 'durin_dev_tool.cook' not in sys.modules; "
                     "assert 'durin_dev_tool.documentation.handler' not in sys.modules; "
                     "assert 'durin_dev_tool.scene' not in sys.modules; "
                     "assert 'durin_dev_tool.worktree.handler' not in sys.modules"
@@ -218,10 +222,10 @@ class TestCommandGrammarContract:
             f"{' '.join(path)}\n{registry.format_command_help(path)}" for path in paths
         )
         assert hashlib.sha256(snapshot.encode()).hexdigest() == (
-            "b7997d38fc45b6fb54fa332fa2eb51647de4ec75277c9a734c6842fa7560d0d1"
+            "ae84f94b412f40a926128375f2910f164d155057480587de2ae197f6a5a02237"
         )
         assert hashlib.sha256(registry.format_help().encode()).hexdigest() == (
-            "bed2de189231812d3488daae530af21293b82a5a4c9ac8c062870ddf599280dc"
+            "7d44e1043a23fa443bb05186e4aefdf451b537dcfd8fb6b4439f1aab24dd4f83"
         )
 
 

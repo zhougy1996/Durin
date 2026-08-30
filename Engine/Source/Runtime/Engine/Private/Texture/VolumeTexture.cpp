@@ -230,7 +230,7 @@ namespace Durin
 		return true;
 	}
 
-	auto DVolumeTexture::AddToCook(Asset::FCookContext& Context,
+	auto DVolumeTexture::ContributeToCook(Asset::FCookContext& Context,
 		std::string_view VirtualPackagePath, std::string& OutError) -> bool
 	{
 		if (Context.GetTargetPlatform() != Asset::ECookTargetPlatform::Win64

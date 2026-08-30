@@ -194,7 +194,7 @@ namespace Durin
 		return false;
 	}
 
-	auto DSkeleton::AddToCook(
+	auto DSkeleton::ContributeToCook(
 		Asset::FCookContext& Context,
 		std::string_view VirtualPackagePath,
 		std::string& OutError) -> bool

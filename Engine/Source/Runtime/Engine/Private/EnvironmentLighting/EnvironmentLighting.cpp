@@ -339,7 +339,7 @@ namespace Durin
 			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
 	}
 
-	auto DEnvironmentLighting::AddToCook(
+	auto DEnvironmentLighting::ContributeToCook(
 		Asset::FCookContext& Context,
 		std::string_view VirtualPackagePath,
 		std::string& OutError) -> bool

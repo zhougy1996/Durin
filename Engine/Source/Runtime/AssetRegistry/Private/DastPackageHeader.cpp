@@ -10,7 +10,6 @@ namespace Durin::Asset
 {
 	namespace
 	{
-		constexpr uint32 PublicSummaryVersionV6 = 1;
 		constexpr uint32 PublicSummaryVersionV7 = 2;
 		constexpr uint32 ImportVersion = 1;
 		constexpr uint32 FormatHeaderBytes = 32;
@@ -108,7 +107,7 @@ namespace Durin::Asset
 				const std::array Descriptors{FBinaryFormatDescriptor{
 					.FormatId = DastBinaryFormatId,
 					.DebugName = std::string(DastBinaryFormatName),
-					.MinimumFormatVersion = AssetPackageV6FormatVersion,
+					.MinimumFormatVersion = AssetPackageV7FormatVersion,
 					.MaximumFormatVersion = AssetPackageV7FormatVersion,
 					.SupportedRequiredFeatures = 0,
 					.Limits = EnvelopeLimits}};
@@ -133,29 +132,20 @@ namespace Durin::Asset
 			uint64 ImportCount = 0;
 			uint64 Reserved = 0;
 			if (!Summary.Fixed(SummaryVersion)
-				|| (SummaryVersion != PublicSummaryVersionV6
-					&& SummaryVersion != PublicSummaryVersionV7)
+				|| SummaryVersion != PublicSummaryVersionV7
 				|| !Summary.Fixed(Result.MainExportIndex) || !Summary.Fixed(ImportCount)
 				|| !Summary.Fixed(Result.ExportCount) || !Summary.Fixed(Result.PayloadCount))
 				return Fail("DAST Public Summary is malformed.", OutError);
-			if (SummaryVersion == PublicSummaryVersionV6)
-			{
-				if (!Summary.Fixed(Reserved) || Reserved != 0)
-					return Fail("DAST v6 Public Summary is malformed.", OutError);
-			}
-			else
-			{
-				uint32 SegmentFlags = 0;
-				uint32 Reserved32 = 0;
-				if (!Summary.Fixed(Result.BulkSegmentExtent)
-					|| !Summary.Fixed(Result.BulkSegmentDigest.HashLow)
-					|| !Summary.Fixed(Result.BulkSegmentDigest.HashHigh)
-					|| !Summary.Fixed(SegmentFlags) || SegmentFlags != 0
-					|| !Summary.Fixed(Reserved32) || Reserved32 != 0
-					|| Result.BulkSegmentExtent > MaximumFileBytes
-					|| ((Result.BulkSegmentExtent == 0) != Result.BulkSegmentDigest.IsZero()))
-					return Fail("DAST v7 Public Summary segment binding is malformed.", OutError);
-			}
+			uint32 SegmentFlags = 0;
+			uint32 Reserved32 = 0;
+			if (!Summary.Fixed(Result.BulkSegmentExtent)
+				|| !Summary.Fixed(Result.BulkSegmentDigest.HashLow)
+				|| !Summary.Fixed(Result.BulkSegmentDigest.HashHigh)
+				|| !Summary.Fixed(SegmentFlags) || SegmentFlags != 0
+				|| !Summary.Fixed(Reserved32) || Reserved32 != 0
+				|| Result.BulkSegmentExtent > MaximumFileBytes
+				|| ((Result.BulkSegmentExtent == 0) != Result.BulkSegmentDigest.IsZero()))
+				return Fail("DAST v7 Public Summary segment binding is malformed.", OutError);
 			if (!Summary.String(Result.AssetClass, false)
 				|| !Summary.String(Result.RedirectDestination) || !Summary.AtEnd())
 				return Fail("DAST Public Summary is malformed.", OutError);
@@ -164,7 +154,7 @@ namespace Durin::Asset
 				|| Result.PayloadCount > MaximumPayloadCount
 				|| (EntryKind == EAssetRegistryEntryKind::Asset)
 					!= Result.RedirectDestination.empty())
-				return Fail("DAST v6 Public Summary values are invalid.", OutError);
+				return Fail("DAST v7 Public Summary values are invalid.", OutError);
 			Result.EntryKind = EntryKind;
 			Result.Imports.reserve(static_cast<size_t>(ImportCount));
 
@@ -175,18 +165,18 @@ namespace Durin::Asset
 			if (!Imports.Fixed(ImportsVersion) || ImportsVersion != ImportVersion
 				|| !Imports.Fixed(ImportsReserved) || ImportsReserved != 0
 				|| !Imports.Fixed(Count) || Count != ImportCount)
-				return Fail("DAST v6 Import header is malformed.", OutError);
+				return Fail("DAST v7 Import header is malformed.", OutError);
 			std::string Previous;
 			for (uint64 Index = 0; Index < Count; ++Index)
 			{
 				std::string Import;
 				if (!Imports.String(Import, false) || (!Previous.empty() && !(Previous < Import)))
-					return Fail("DAST v6 Imports are invalid or noncanonical.", OutError);
+					return Fail("DAST v7 Imports are invalid or noncanonical.", OutError);
 				Previous = Import;
 				Result.Imports.push_back(std::move(Import));
 			}
 			if (!Imports.AtEnd())
-				return Fail("DAST v6 Import section has trailing bytes.", OutError);
+				return Fail("DAST v7 Import section has trailing bytes.", OutError);
 			OutSummary = std::move(Result);
 			if (OutError) OutError->clear();
 			return true;
@@ -203,7 +193,7 @@ namespace Durin::Asset
 			Preamble, &Diagnostic))
 			return EnvelopeError(Diagnostic);
 		if (Preamble.HeaderBytes > FrontMatter.size())
-			return Error(EAssetError::CorruptFile, "DAST v6 front matter is truncated.");
+			return Error(EAssetError::CorruptFile, "DAST v7 front matter is truncated.");
 		const auto Front = FrontMatter.first(static_cast<size_t>(Preamble.HeaderBytes));
 		FValidatedBinaryEnvelope Envelope;
 		if (!ValidateBinaryEnvelopeHeader(Front, PhysicalFileBytes, EnvelopeLimits,
@@ -221,12 +211,12 @@ namespace Durin::Asset
 			|| SectionCount < RequiredSectionCount || SectionCount > MaximumSectionCount
 			|| DirectoryOffset != BinaryEnvelopePreambleBytes + FormatHeaderBytes)
 			return Error(EAssetError::CorruptFile,
-				"DAST v6 format header is invalid or unsupported.");
+				"DAST v7 format header is invalid or unsupported.");
 		const uint64 DirectoryBytes = uint64(SectionCount) * SectionEntryBytes;
 		if (DirectoryOffset > Preamble.HeaderBytes
 			|| DirectoryBytes > Preamble.HeaderBytes - DirectoryOffset)
 			return Error(EAssetError::CorruptFile,
-				"DAST v6 section directory exceeds HeaderBytes.");
+				"DAST v7 section directory exceeds HeaderBytes.");
 
 		uint64 ExpectedOffset = DirectoryOffset + DirectoryBytes;
 		uint64 ImportEnd = 0;
@@ -248,34 +238,34 @@ namespace Durin::Asset
 				|| Offset != ExpectedOffset || Offset > PhysicalFileBytes
 				|| Size > PhysicalFileBytes - Offset)
 				return Error(EAssetError::CorruptFile,
-					"DAST v6 section entry is invalid or noncanonical.");
+					"DAST v7 section entry is invalid or noncanonical.");
 			if (Index < RequiredSectionCount)
 			{
 				if (Kind != Index + 1 || Flags != RequiredSectionFlag)
 					return Error(EAssetError::CorruptFile,
-						"DAST v6 required sections are missing or out of order.");
+						"DAST v7 required sections are missing or out of order.");
 				if (Index <= 1)
 				{
 					if (Offset > Front.size() || Size > Front.size() - Offset)
 						return Error(EAssetError::CorruptFile,
-							"DAST v6 header section exceeds HeaderBytes.");
+							"DAST v7 header section exceeds HeaderBytes.");
 					HeaderSections[Index] = Front.subspan(
 						static_cast<size_t>(Offset), static_cast<size_t>(Size));
 					if (FXxHash128::HashBuffer(HeaderSections[Index]) != FXxHash128{HashLow, HashHigh})
 						return Error(EAssetError::CorruptFile,
-							"DAST v6 header section hash verification failed.");
+							"DAST v7 header section hash verification failed.");
 					if (Index == 1) ImportEnd = Offset + Size;
 				}
 			}
 			else if ((Flags & RequiredSectionFlag) != 0)
 				return Error(EAssetError::CorruptFile,
-					"DAST v6 contains an unknown required section.");
+					"DAST v7 contains an unknown required section.");
 			ExpectedOffset += Size;
 			PreviousKind = Kind;
 		}
 		if (ExpectedOffset != PhysicalFileBytes || ImportEnd != Preamble.HeaderBytes)
 			return Error(EAssetError::CorruptFile,
-				"DAST v6 sections leave gaps, trailing bytes, or invalid HeaderBytes.");
+				"DAST v7 sections leave gaps, trailing bytes, or invalid HeaderBytes.");
 
 		Dast::FPublicSummary Summary;
 		std::string ParseError;
@@ -293,12 +283,12 @@ namespace Durin::Asset
 		if (!Summary.RedirectDestination.empty()
 			&& !FAssetPath::TryCreate(Summary.RedirectDestination, Header.RedirectDestination))
 			return Error(EAssetError::CorruptFile,
-				"DAST v6 redirect destination path is invalid.");
+				"DAST v7 redirect destination path is invalid.");
 		for (const std::string& Import : Summary.Imports)
 		{
 			FAssetPath Path;
 			if (!FAssetPath::TryCreate(Import, Path))
-				return Error(EAssetError::CorruptFile, "DAST v6 Import path is invalid.");
+				return Error(EAssetError::CorruptFile, "DAST v7 Import path is invalid.");
 			Header.Dependencies.push_back(std::move(Path));
 		}
 		OutHeader = std::move(Header);

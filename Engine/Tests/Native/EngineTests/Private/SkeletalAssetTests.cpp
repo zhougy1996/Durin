@@ -1264,9 +1264,12 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 		Durin::Asset::FCookContext Context(
 			CookRoot, Durin::Asset::ECookTargetPlatform::Win64,
 			Durin::Asset::ECookTargetProfile::Game);
-		ASSERT_TRUE(Skeleton->AddToCook(Context, "/Game/Skeleton", Error)) << Error;
-		ASSERT_TRUE(Mesh->AddToCook(Context, "/Game/Mesh", Error)) << Error;
-		ASSERT_TRUE(Clip->AddToCook(Context, "/Game/Clip", Error)) << Error;
+		ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+			*Skeleton, "/Game/Skeleton", Context, Error)) << Error;
+		ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+			*Mesh, "/Game/Mesh", Context, Error)) << Error;
+		ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+			*Clip, "/Game/Clip", Context, Error)) << Error;
 		ASSERT_TRUE(Context.Publish(&Error)) << Error;
 	};
 	Cook(FirstCookRoot);

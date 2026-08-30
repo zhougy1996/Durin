@@ -73,49 +73,6 @@ namespace Durin
 			return Field && Field->TryReadScalar(OutValue);
 		}
 
-		auto ReadCooked(const Asset::FAssetPackageInspection& Package,
-			Asset::FCookedPayloadDescriptor& OutValue) -> bool
-		{
-			const Asset::FAssetPackageField* Field = Package.FindField("CookedPayload");
-			return Field && Field->TryReadStruct(
-				Asset::FCookedPayloadDescriptor::StaticStruct(), &OutValue);
-		}
-
-		auto MakeCookedEntry(std::string Domain,
-			const Asset::FCookedPayloadDescriptor& Descriptor,
-			FGuid ExpectedId) -> FTexturePayloadInspectionEntry
-		{
-			FTexturePayloadInspectionEntry Entry{
-				.Domain = std::move(Domain),
-				.Stage = ETexturePayloadStage::Cooked,
-				.State = ETexturePayloadState::NotPresent,
-				.Repair = ETexturePayloadRepairAction::Recook,
-				.DomainSchemaVersion = Descriptor.PayloadSchemaVersion,
-				.LogicalByteCount = Descriptor.UncompressedSize,
-				.StoredByteCount = Descriptor.StoredSize,
-				.PayloadId = Descriptor.PayloadId,
-				.Placement = "CookedPackageCompanion"};
-			if (!Descriptor.PayloadId.IsValid())
-			{
-				Entry.Repair = ETexturePayloadRepairAction::None;
-				Entry.Diagnostic = "No cooked payload is referenced by this package.";
-				return Entry;
-			}
-			if (Descriptor.PayloadId != ExpectedId
-				|| Descriptor.LocationKind != static_cast<uint32>(
-					Asset::ECookedPayloadLocationKind::PackageCompanion)
-				|| Descriptor.PayloadSchemaVersion != TexturePayloadSchemaVersion)
-			{
-				Entry.State = ETexturePayloadState::Unsupported;
-				Entry.Repair = ETexturePayloadRepairAction::UpgradeOrResave;
-				Entry.Diagnostic = "Cooked payload identity, placement, or TXPL schema is unsupported.";
-				return Entry;
-			}
-			Entry.State = ETexturePayloadState::Available;
-			Entry.Diagnostic = "Descriptor is domain-qualified; companion integrity requires storage validation.";
-			return Entry;
-		}
-
 		auto MakeCookedFieldEntry(std::string Domain, const Asset::FBulkData& Field)
 			-> FTexturePayloadInspectionEntry
 		{
@@ -136,6 +93,33 @@ namespace Durin
 				.Diagnostic = bPresent
 					? "Cooked TXPL is stored as a package BulkData field."
 					: "No cooked TXPL field is present."};
+		}
+
+		auto MakeInspectedCookedFieldEntry(
+			std::string Domain, const Asset::FAssetPackageField* Field)
+			-> FTexturePayloadInspectionEntry
+		{
+			Asset::FEditorBulkDataStorageDescriptor Descriptor;
+			const bool bPresent = Field
+				&& Field->TryReadBulkDataStorageDescriptor(Descriptor);
+			return {
+				.Domain = std::move(Domain),
+				.Stage = ETexturePayloadStage::Cooked,
+				.State = bPresent ? ETexturePayloadState::Available
+					: ETexturePayloadState::NotPresent,
+				.Repair = bPresent ? ETexturePayloadRepairAction::None
+					: ETexturePayloadRepairAction::Recook,
+				.DomainSchemaVersion = TexturePayloadSchemaVersion,
+				.LogicalByteCount = bPresent ? Descriptor.LogicalByteCount : 0,
+				.StoredByteCount = bPresent ? Descriptor.StoredByteCount : 0,
+				.PayloadId = bPresent ? Descriptor.PayloadId : FGuid{},
+				.Placement = bPresent
+					? (Descriptor.StorageKind == Asset::EEditorBulkDataStorageKind::External
+						? "PackageBulkRange" : "PackageInlineBulk")
+					: "PackageBulkField",
+				.Diagnostic = bPresent
+					? "Cooked TXPL field metadata is present in DAST v7."
+					: "No valid cooked TXPL field is present."};
 		}
 
 		auto MapDerivedState(ETextureDerivedDataStatus Status) -> ETexturePayloadState
@@ -220,24 +204,8 @@ namespace Durin
 				.DomainSchemaVersion = TexturePayloadSchemaVersion,
 				.Placement = "DerivedDataCache",
 				.Diagnostic = "DDC keys and records are intentionally not serialized in the package."});
-			if (const Asset::FAssetPackageField* PlatformField =
-				Package.FindField("PlatformData"))
-				OutInspection.Entries.push_back({
-					.Domain = "Texture2D", .Stage = ETexturePayloadStage::Cooked,
-					.State = ETexturePayloadState::Available,
-					.Repair = ETexturePayloadRepairAction::None,
-					.DomainSchemaVersion = TexturePayloadSchemaVersion,
-					.StoredByteCount = PlatformField->Payload.size(),
-					.Placement = "PackageBulkField",
-					.Diagnostic = "Cooked TXPL field metadata is present in DAST."});
-			else
-				OutInspection.Entries.push_back({
-					.Domain = "Texture2D", .Stage = ETexturePayloadStage::Cooked,
-					.State = ETexturePayloadState::NotPresent,
-					.Repair = ETexturePayloadRepairAction::None,
-					.DomainSchemaVersion = TexturePayloadSchemaVersion,
-					.Placement = "PackageBulkField",
-					.Diagnostic = "No cooked TXPL field is present."});
+			OutInspection.Entries.push_back(MakeInspectedCookedFieldEntry(
+				"Texture2D", Package.FindField("PlatformData")));
 		}
 		else if (Package.Header.AssetClassName == VolumeClass)
 		{
@@ -286,11 +254,8 @@ namespace Durin
 					SourceDiagnostic = StorageError.empty()
 						? "Editor source companion is missing or unreadable." : StorageError;
 				}
-				else if (Package.Header.FormatVersion >= Asset::AssetPackageV7FormatVersion
-					? (CompanionBytes.size() != Package.Header.BulkSegmentExtent
-						|| FXxHash128::HashBuffer(CompanionBytes) != Package.Header.BulkSegmentDigest)
-					: !Asset::ValidateEditorBulkDataCompanion(
-						CompanionBytes, Descriptor.ContainerHash, &StorageError))
+				else if (CompanionBytes.size() != Package.Header.BulkSegmentExtent
+					|| FXxHash128::HashBuffer(CompanionBytes) != Package.Header.BulkSegmentDigest)
 				{
 					SourceState = ETexturePayloadState::Corrupt;
 					SourceRepair = ETexturePayloadRepairAction::RestoreEditorCompanion;
@@ -330,24 +295,8 @@ namespace Durin
 				.DomainSchemaVersion = TexturePayloadSchemaVersion,
 				.Placement = "DerivedDataCache",
 				.Diagnostic = "DDC keys and records are intentionally not serialized in the package."});
-			if (const Asset::FAssetPackageField* PlatformField =
-				Package.FindField("PlatformData"))
-				OutInspection.Entries.push_back({
-					.Domain = "VolumeTexture", .Stage = ETexturePayloadStage::Cooked,
-					.State = ETexturePayloadState::Available,
-					.Repair = ETexturePayloadRepairAction::None,
-					.DomainSchemaVersion = TexturePayloadSchemaVersion,
-					.StoredByteCount = PlatformField->Payload.size(),
-					.Placement = "PackageBulkField",
-					.Diagnostic = "Cooked TXPL field metadata is present in DAST."});
-			else
-				OutInspection.Entries.push_back({
-					.Domain = "VolumeTexture", .Stage = ETexturePayloadStage::Cooked,
-					.State = ETexturePayloadState::NotPresent,
-					.Repair = ETexturePayloadRepairAction::None,
-					.DomainSchemaVersion = TexturePayloadSchemaVersion,
-					.Placement = "PackageBulkField",
-					.Diagnostic = "No cooked TXPL field is present."});
+			OutInspection.Entries.push_back(MakeInspectedCookedFieldEntry(
+				"VolumeTexture", Package.FindField("PlatformData")));
 		}
 		else
 		{

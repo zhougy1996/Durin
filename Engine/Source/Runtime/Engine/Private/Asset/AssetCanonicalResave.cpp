@@ -312,12 +312,8 @@ namespace Durin::Asset
 			}
 			std::filesystem::path BulkPath(PackagePlan.PhysicalPath);
 			BulkPath.replace_extension(".dbulk");
-			std::filesystem::path LegacyBulkPath(PackagePlan.PhysicalPath);
-			LegacyBulkPath.replace_extension(".dabulk");
 			FCanonicalResaveFileSnapshot BulkSnapshot;
-			FCanonicalResaveFileSnapshot LegacyBulkSnapshot;
-			if (!CaptureFileSnapshot(BulkPath, BulkSnapshot)
-				|| !CaptureFileSnapshot(LegacyBulkPath, LegacyBulkSnapshot))
+			if (!CaptureFileSnapshot(BulkPath, BulkSnapshot))
 			{
 				PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 				PackagePlan.Diagnostics.push_back(
@@ -335,7 +331,6 @@ namespace Durin::Asset
 					std::as_bytes(std::span(BeforeBytes)),
 					PackagePlan.PhysicalPath, nullptr);
 				const bool bBulkRestored = RestoreFileSnapshot(BulkSnapshot);
-				const bool bLegacyRestored = RestoreFileSnapshot(LegacyBulkSnapshot);
 				std::filesystem::path BackupPath = BulkPath;
 				BackupPath += EditorBulkDataCompanionBackupSuffix;
 				std::error_code BackupError;
@@ -343,7 +338,7 @@ namespace Durin::Asset
 				RegistrySnapshot.ExpectedRevision = GetAssetCatalogRevision();
 				const FAssetResult RegistryRestored =
 					PublishAssetRegistryPublication(std::move(RegistrySnapshot));
-				return bPackageRestored && bBulkRestored && bLegacyRestored
+				return bPackageRestored && bBulkRestored
 					&& static_cast<bool>(RegistryRestored);
 			};
 
@@ -500,9 +495,6 @@ namespace Durin::Asset
 			std::error_code CompanionError;
 			if (std::filesystem::is_regular_file(BulkPath, CompanionError))
 				Result.ChangedPaths.push_back(BulkPath.generic_string());
-			if (LegacyBulkSnapshot.bExisted
-				&& !std::filesystem::exists(LegacyBulkPath, CompanionError))
-				Result.ChangedPaths.push_back(LegacyBulkPath.generic_string());
 			++Completed;
 		}
 		Result.Status = EAssetCanonicalResaveApplyStatus::Succeeded;

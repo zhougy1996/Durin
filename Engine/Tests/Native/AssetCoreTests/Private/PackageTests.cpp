@@ -6,7 +6,7 @@
 #include "AssetCook.h"
 #include "Asset/CanonicalResave.h"
 #include "Asset/Compatibility.h"
-#include "Asset/AssetPackageV6Codec.h"
+#include "Asset/AssetPackageV7Codec.h"
 #include "Asset/AssetPropertyKindTraits.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/PackageObjectStreamReader.h"
@@ -149,7 +149,6 @@ namespace
 		Durin::Asset::AssetPackageV7FormatVersion);
 	static_assert(Durin::Asset::SupportedAssetPackageReaderVersions ==
 		decltype(Durin::Asset::SupportedAssetPackageReaderVersions){
-			Durin::Asset::AssetPackageV6FormatVersion,
 			Durin::Asset::AssetPackageV7FormatVersion});
 	static_assert(!Durin::Asset::IsSupportedAssetPackageReaderVersion(
 		4));
@@ -158,7 +157,7 @@ namespace
 	static_assert(!Durin::Asset::IsSupportedAssetPackageReaderVersion(
 		Durin::Asset::AssetPackageV7FormatVersion + 1));
 	static_assert(Durin::Asset::IsSupportedAssetPackageReaderVersion(
-		Durin::Asset::AssetPackageV6FormatVersion));
+		Durin::Asset::AssetPackageV7FormatVersion));
 
 	auto RelocateAssetsForTest(
 		std::span<const Durin::Asset::FAssetRelocationMapping> Mappings
@@ -1442,148 +1441,6 @@ namespace
 		}
 	}
 
-	auto WriteLegacyExternalBulkPackageForTest(
-		const Durin::FAssetPath& AssetPath,
-		DBulkPackageAssetForTest* Asset,
-		std::string& OutError) -> bool
-	{
-		using namespace Durin;
-		using namespace Durin::Asset;
-		std::vector<FEditorBulkDataStoragePayload> Payloads;
-		PackageObjectStream::FAssetPackageWriteOptions Options;
-		Options.DeltaMode = EDefaultDeltaMode::NoDelta;
-		Options.Serialization.EditorBulkDataStoragePayloads = &Payloads;
-		std::vector<std::byte> ObjectStream;
-		PackageObjectStream::FWriterDiagnostic WriterDiagnostic;
-		if (const FAssetResult Result = PackageObjectStream::WriteAssetPackage(
-				Asset->GetPackage(), ObjectStream, Options, &WriterDiagnostic); !Result)
-		{
-			OutError = Result.Message;
-			return false;
-		}
-		if (Payloads.size() != 1
-			|| Payloads.front().Descriptor.StorageKind
-				!= EEditorBulkDataStorageKind::External)
-		{
-			OutError = "Test package did not capture one external bulk payload.";
-			return false;
-		}
-
-		PackageObjectStream::FDecodedPackage Decoded;
-		PackageObjectStream::FReaderDiagnostic ReaderDiagnostic;
-		if (!PackageObjectStream::DecodePackage(
-				ObjectStream, Decoded, {}, &ReaderDiagnostic))
-		{
-			OutError = ReaderDiagnostic.Message;
-			return false;
-		}
-		const auto Schema = std::ranges::find(
-			Decoded.Schemas, std::string("Tests::DBulkPackageAssetForTest"),
-			&PackageObjectStream::FDecodedSchema::QualifiedName);
-		if (Schema == Decoded.Schemas.end())
-		{
-			OutError = "Test package bulk schema was not serialized.";
-			return false;
-		}
-		const auto Field = std::ranges::find(
-			Schema->Fields, std::string("Payload"),
-			&PackageObjectStream::FDecodedField::Name);
-		if (Field == Schema->Fields.end())
-		{
-			OutError = "Test package bulk field was not serialized.";
-			return false;
-		}
-		const uint64 SchemaId = static_cast<uint64>(
-			std::distance(Decoded.Schemas.begin(), Schema)) + 1;
-		const uint64 FieldId = static_cast<uint64>(
-			std::distance(Schema->Fields.begin(), Field)) + 1;
-		auto Override = std::ranges::find_if(
-			Decoded.ObjectValues.front().Overrides,
-			[&](const PackageObjectStream::FDecodedOverride& Candidate) {
-				return Candidate.SchemaId == SchemaId && Candidate.FieldId == FieldId;
-			});
-		if (Override == Decoded.ObjectValues.front().Overrides.end())
-		{
-			OutError = "Test package bulk override was not serialized.";
-			return false;
-		}
-
-		const FEditorBulkDataStorageDescriptor& Descriptor =
-			Payloads.front().Descriptor;
-		std::vector<std::byte> LegacyDescriptor;
-		FCanonicalMemoryWriter DescriptorWriter(
-			LegacyDescriptor, EArchivePurpose::BulkData);
-		uint8 StorageKind = 1;
-		FGuid ReservedIdentity;
-		uint32 ReservedVersion = 0;
-		uint64 HashLow = Descriptor.ContentHash.HashLow;
-		uint64 HashHigh = Descriptor.ContentHash.HashHigh;
-		uint64 ContainerHashLow = Descriptor.ContainerHash.HashLow;
-		uint64 ContainerHashHigh = Descriptor.ContainerHash.HashHigh;
-		FGuid PayloadId = Descriptor.PayloadId;
-		uint64 LogicalSize = Descriptor.LogicalByteCount;
-		uint64 StoredSize = Descriptor.StoredByteCount;
-		DescriptorWriter << StorageKind << PayloadId << ReservedIdentity
-			<< ReservedVersion << LogicalSize << StoredSize << HashLow << HashHigh
-			<< ContainerHashLow << ContainerHashHigh;
-		if (DescriptorWriter.HasError())
-		{
-			OutError = "Test package legacy bulk descriptor could not be encoded.";
-			return false;
-		}
-		Override->Value.Bytes = std::move(LegacyDescriptor);
-		if (!PackageObjectStream::ReencodePackage(
-				Decoded, ObjectStream, &ReaderDiagnostic))
-		{
-			OutError = ReaderDiagnostic.Message;
-			return false;
-		}
-
-		std::vector<std::byte> PackageBytes;
-		if (const FAssetResult Result = Durin::Asset::Private::DastV6::BuildPackageFromObjectStream(
-				ObjectStream, PackageBytes); !Result)
-		{
-			OutError = Result.Message;
-			return false;
-		}
-		std::vector<std::byte> CompanionBytes;
-		if (!BuildEditorBulkDataCompanion(
-				Payloads, Descriptor.ContainerHash, CompanionBytes, &OutError))
-			return false;
-
-		if (!UnloadPackage(
-				Asset->GetPackage(), EAssetPackageUnloadPolicy::DiscardUnsaved))
-		{
-			OutError = "Test package could not be unloaded before fixture publication.";
-			return false;
-		}
-		const PathUtilities::FAssetPathResult Resolved =
-			PathUtilities::ResolveAssetPath(
-				AssetPath.GetView(), PathUtilities::EPathExistence::AllowMissing);
-		if (!Resolved)
-		{
-			OutError = Resolved.Message;
-			return false;
-		}
-		std::filesystem::path PackagePath = Resolved.PhysicalPath;
-		PackagePath += ".dasset";
-		std::filesystem::path CompanionPath = PackagePath;
-		CompanionPath.replace_extension(".dabulk");
-		if (!FFileHelper::SaveArrayToFileAtomically(PackageBytes, PackagePath, nullptr)
-			|| !FFileHelper::SaveArrayToFileAtomically(
-				CompanionBytes, CompanionPath, nullptr))
-		{
-			OutError = "Test package legacy closure could not be published.";
-			return false;
-		}
-		const FAssetCatalogRefreshResult Refreshed = RefreshAssetRegistry(
-			EAssetRegistryScanMode::FullValidation);
-		if (!Refreshed) OutError = Refreshed.Errors.empty()
-			? "Test package registry refresh did not complete."
-			: Refreshed.Errors.front().Message;
-		return Refreshed.Succeeded();
-	}
-
 	class FMemoryAssetReferenceStore final
 		: public Durin::Asset::IAssetReferenceStore
 	{
@@ -1852,153 +1709,6 @@ TEST(FEditorBulkDataTests, SharesImmutableBytesAndReplacesTransactionally)
 	EXPECT_TRUE(std::ranges::equal(Shared.GetPayload().Wait().Buffer.GetBytes(), Replacement));
 }
 
-TEST(FEditorBulkDataStorageTests, IsCanonicalBoundedAndRejectsCorruption)
-{
-	const Durin::FXxHash128 ContainerHash{0x1122334455667788ull, 0x8877665544332211ull};
-	const auto MakePayload = [&](Durin::FGuid PayloadId, std::vector<std::byte> Bytes) {
-		Durin::Asset::FEditorBulkDataStoragePayload Payload;
-		Payload.Buffer = Durin::FSharedByteBuffer::Take(std::move(Bytes));
-		Payload.Descriptor = {
-			.PayloadId = PayloadId,
-			.LogicalByteCount = Payload.Buffer.GetSize(),
-			.StoredByteCount = Payload.Buffer.GetSize(),
-			.ContentHash = Durin::FXxHash128::HashBuffer(Payload.Buffer.GetBytes()),
-			.ContainerHash = ContainerHash,
-			.StorageKind = Durin::Asset::EEditorBulkDataStorageKind::External};
-		return Payload;
-	};
-	auto High = MakePayload({2, 0, 0, 0}, {std::byte{4}, std::byte{5}});
-	auto Low = MakePayload({1, 0, 0, 0}, {std::byte{1}, std::byte{2}, std::byte{3}});
-	std::array Payloads{High, Low};
-	std::vector<std::byte> FirstBytes, SecondBytes;
-	std::string Error;
-	ASSERT_TRUE(Durin::Asset::BuildEditorBulkDataCompanion(
-		Payloads, ContainerHash, FirstBytes, &Error)) << Error;
-	std::ranges::reverse(Payloads);
-	ASSERT_TRUE(Durin::Asset::BuildEditorBulkDataCompanion(
-		Payloads, ContainerHash, SecondBytes, &Error)) << Error;
-	EXPECT_EQ(FirstBytes, SecondBytes);
-	EXPECT_EQ(FirstBytes.size(), 274u);
-	ASSERT_GE(FirstBytes.size(), 128u);
-	EXPECT_TRUE(std::ranges::equal(std::span(FirstBytes).first(4),
-		std::array{std::byte{'D'}, std::byte{'U'}, std::byte{'R'}, std::byte{'F'}}));
-	uint32 FormatA = 0, FormatB = 0, FormatC = 0, FormatD = 0, FormatVersion = 0;
-	ASSERT_TRUE(Durin::ReadLittleEndianAt(FirstBytes, 8, FormatA));
-	ASSERT_TRUE(Durin::ReadLittleEndianAt(FirstBytes, 12, FormatB));
-	ASSERT_TRUE(Durin::ReadLittleEndianAt(FirstBytes, 16, FormatC));
-	ASSERT_TRUE(Durin::ReadLittleEndianAt(FirstBytes, 20, FormatD));
-	ASSERT_TRUE(Durin::ReadLittleEndianAt(FirstBytes, 24, FormatVersion));
-	EXPECT_EQ(FormatA, Durin::Asset::DabkBinaryFormatId.A);
-	EXPECT_EQ(FormatB, Durin::Asset::DabkBinaryFormatId.B);
-	EXPECT_EQ(FormatC, Durin::Asset::DabkBinaryFormatId.C);
-	EXPECT_EQ(FormatD, Durin::Asset::DabkBinaryFormatId.D);
-	EXPECT_EQ(FormatVersion, 2u);
-	EXPECT_TRUE(Durin::Asset::ValidateEditorBulkDataCompanion(
-		FirstBytes, ContainerHash, &Error)) << Error;
-	auto UnknownFormat = FirstBytes;
-	UnknownFormat[8] ^= std::byte{1};
-	EXPECT_FALSE(Durin::Asset::ValidateEditorBulkDataCompanion(
-		UnknownFormat, ContainerHash, &Error));
-
-	const std::filesystem::path PackagePath =
-		Durin::Testing::GetTestWorkDirectory() / "AuthoredBulk/Fixture.dasset";
-	std::filesystem::create_directories(PackagePath.parent_path());
-	std::filesystem::path CompanionPath;
-	ASSERT_TRUE(Durin::Asset::ResolveEditorBulkDataCompanionPath(
-		PackagePath, CompanionPath, &Error)) << Error;
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
-		std::as_bytes(std::span(FirstBytes)), CompanionPath.generic_string()));
-	Durin::FSharedByteBuffer Loaded;
-	ASSERT_TRUE(Durin::Asset::ReadEditorBulkDataStoragePayload(
-		CompanionPath, Low.Descriptor, Loaded, &Error)) << Error;
-	EXPECT_TRUE(std::ranges::equal(Loaded.GetBytes(), Low.Buffer.GetBytes()));
-
-	std::vector<std::byte> Truncated = FirstBytes;
-	Truncated.pop_back();
-	EXPECT_FALSE(Durin::Asset::ValidateEditorBulkDataCompanion(
-		Truncated, ContainerHash, &Error));
-	std::vector<std::byte> Corrupt = FirstBytes;
-	Corrupt.back() ^= std::byte{1};
-	EXPECT_FALSE(Durin::Asset::ValidateEditorBulkDataCompanion(
-		Corrupt, ContainerHash, &Error));
-	std::vector<std::byte> NonzeroPayloadPadding = FirstBytes;
-	NonzeroPayloadPadding[260] = std::byte{1};
-	EXPECT_FALSE(Durin::Asset::ValidateEditorBulkDataCompanion(
-		NonzeroPayloadPadding, ContainerHash, &Error));
-	std::array Duplicate{Low, Low};
-	EXPECT_FALSE(Durin::Asset::BuildEditorBulkDataCompanion(
-		Duplicate, ContainerHash, Corrupt, &Error));
-	EXPECT_FALSE(Durin::Asset::ValidateEditorBulkDataCompanion(
-		FirstBytes, Durin::FXxHash128{1, 1}, &Error));
-}
-
-TEST(FEditorBulkDataStorageTests, LiveLoadRecoversStableCompanionByDescriptorHash)
-{
-	const Durin::FXxHash128 OldHash{11, 12};
-	const Durin::FXxHash128 NewHash{21, 22};
-	const Durin::FGuid PayloadId{1, 2, 3, 4};
-	const auto MakePayload = [&](Durin::FXxHash128 ContainerHash, std::byte Value) {
-		Durin::Asset::FEditorBulkDataStoragePayload Payload;
-		Payload.Buffer = Durin::FSharedByteBuffer::Take(
-			std::vector<std::byte>{Value, Value});
-		Payload.Descriptor = {
-			.PayloadId = PayloadId,
-			.LogicalByteCount = Payload.Buffer.GetSize(),
-			.StoredByteCount = Payload.Buffer.GetSize(),
-			.ContentHash = Durin::FXxHash128::HashBuffer(Payload.Buffer.GetBytes()),
-			.ContainerHash = ContainerHash,
-			.StorageKind = Durin::Asset::EEditorBulkDataStorageKind::External};
-		return Payload;
-	};
-	const auto OldPayload = MakePayload(OldHash, std::byte{0x31});
-	const auto NewPayload = MakePayload(NewHash, std::byte{0x42});
-	std::vector<std::byte> OldBytes;
-	std::vector<std::byte> NewBytes;
-	std::string Error;
-	ASSERT_TRUE(Durin::Asset::BuildEditorBulkDataCompanion(
-		std::span{&OldPayload, 1}, OldHash, OldBytes, &Error)) << Error;
-	ASSERT_TRUE(Durin::Asset::BuildEditorBulkDataCompanion(
-		std::span{&NewPayload, 1}, NewHash, NewBytes, &Error)) << Error;
-
-	const std::filesystem::path PackagePath =
-		Durin::Testing::GetTestWorkDirectory() / "AuthoredBulk/Recovery.dasset";
-	std::filesystem::create_directories(PackagePath.parent_path());
-	std::filesystem::path CompanionPath;
-	ASSERT_TRUE(Durin::Asset::ResolveEditorBulkDataCompanionPath(
-		PackagePath, CompanionPath, &Error)) << Error;
-	EXPECT_EQ(CompanionPath.filename(), "Recovery.dabulk");
-	std::filesystem::path BackupPath = CompanionPath;
-	BackupPath += Durin::Asset::EditorBulkDataCompanionBackupSuffix;
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(NewBytes, CompanionPath.generic_string()));
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(OldBytes, BackupPath.generic_string()));
-
-	Durin::FSharedByteBuffer Loaded;
-	EXPECT_FALSE(Durin::Asset::ReadEditorBulkDataStoragePayload(
-		CompanionPath, OldPayload.Descriptor, Loaded, &Error));
-	EXPECT_TRUE(std::filesystem::is_regular_file(BackupPath));
-	ASSERT_TRUE(Durin::Asset::LoadEditorBulkDataStoragePayload(
-		CompanionPath, OldPayload.Descriptor, Loaded, &Error)) << Error;
-	EXPECT_TRUE(std::ranges::equal(Loaded.GetBytes(), OldPayload.Buffer.GetBytes()));
-	EXPECT_FALSE(std::filesystem::exists(BackupPath));
-	std::vector<std::byte> RecoveredBytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(RecoveredBytes, CompanionPath));
-	EXPECT_TRUE(Durin::Asset::ValidateEditorBulkDataCompanion(
-		RecoveredBytes, OldHash, &Error)) << Error;
-
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(NewBytes, BackupPath.generic_string()));
-	ASSERT_TRUE(Durin::Asset::LoadEditorBulkDataStoragePayload(
-		CompanionPath, OldPayload.Descriptor, Loaded, &Error)) << Error;
-	EXPECT_FALSE(std::filesystem::exists(BackupPath));
-
-	NewBytes.back() ^= std::byte{1};
-	OldBytes.back() ^= std::byte{1};
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(NewBytes, CompanionPath.generic_string()));
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(OldBytes, BackupPath.generic_string()));
-	EXPECT_FALSE(Durin::Asset::LoadEditorBulkDataStoragePayload(
-		CompanionPath, OldPayload.Descriptor, Loaded, &Error));
-	EXPECT_TRUE(std::filesystem::is_regular_file(CompanionPath));
-	EXPECT_TRUE(std::filesystem::is_regular_file(BackupPath));
-}
 
 TEST(FPackageAssetTests, V7FirstBundleFailureRemovesUncommittedStableSegment)
 {
@@ -2066,11 +1776,6 @@ TEST(FPackageAssetTests, OrdinaryV7PublishesLoadsAndRollsBackExternalClosure)
 	std::filesystem::path BackupPath = Companions.front();
 	BackupPath += Durin::Asset::EditorBulkDataCompanionBackupSuffix;
 	EXPECT_FALSE(std::filesystem::exists(BackupPath));
-	const std::filesystem::path LegacyCompanion =
-		Companions.front().parent_path() / "V6ExternalClosure.legacy.dabulk";
-	std::filesystem::copy_file(
-		Companions.front(), LegacyCompanion,
-		std::filesystem::copy_options::overwrite_existing);
 	std::filesystem::copy_file(
 		Companions.front(), BackupPath,
 		std::filesystem::copy_options::overwrite_existing);
@@ -2078,7 +1783,6 @@ TEST(FPackageAssetTests, OrdinaryV7PublishesLoadsAndRollsBackExternalClosure)
 	ASSERT_TRUE(Durin::Asset::InspectOrphanedEditorBulkDataCompanionPaths(
 		V6Data->PhysicalPath, Inspection, Orphans, &Error)) << Error;
 	EXPECT_TRUE(Orphans.empty());
-	EXPECT_TRUE(std::filesystem::remove(LegacyCompanion));
 
 	std::vector<std::byte> LoadedPayload;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(LoadedPayload, Companions.front()));
@@ -2139,116 +1843,6 @@ TEST(FPackageAssetTests, OrdinaryV7PublishesLoadsAndRollsBackExternalClosure)
 		Durin::Asset::AssetPackageV7FormatVersion);
 }
 
-TEST(FPackageAssetTests, CanonicalResaveMigratesLegacyExternalClosureAndRestoresItOnFailure)
-{
-	InitializeAssetTests();
-	using namespace Durin;
-	using namespace Durin::Asset;
-	FAssetPath Path;
-	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/CanonicalLegacyBulk", Path));
-	DBulkPackageAssetForTest* Asset = nullptr;
-	ASSERT_TRUE(CreateAsset(Path, Asset));
-	std::vector<std::byte> Payload(
-		static_cast<size_t>(EditorBulkDataExternalThreshold + 29),
-		std::byte{0x6d});
-	ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
-	std::string Error;
-	ASSERT_TRUE(WriteLegacyExternalBulkPackageForTest(Path, Asset, Error)) << Error;
-
-	auto LegacyEntry = FindAssetExact(Path);
-	ASSERT_TRUE(LegacyEntry);
-	ASSERT_EQ(LegacyEntry->FormatVersion, AssetPackageV6FormatVersion);
-	const std::filesystem::path PackagePath = LegacyEntry->PhysicalPath;
-	std::filesystem::path LegacyBulkPath = PackagePath;
-	LegacyBulkPath.replace_extension(".dabulk");
-	std::filesystem::path BulkPath = PackagePath;
-	BulkPath.replace_extension(".dbulk");
-	ASSERT_TRUE(std::filesystem::is_regular_file(LegacyBulkPath));
-	ASSERT_FALSE(std::filesystem::exists(BulkPath));
-	std::vector<std::byte> LegacyPackageBytes;
-	std::vector<std::byte> LegacyBulkBytes;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(LegacyPackageBytes, PackagePath));
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(LegacyBulkBytes, LegacyBulkPath));
-
-	const auto ProbeLegacy = [&]() -> std::optional<FAssetPackageCompatibilityRecord> {
-		const FAssetPackageDiscoverySnapshot Snapshot =
-			CaptureMountedAssetPackageSnapshot();
-		if (Snapshot.Status != EAssetPackageSnapshotStatus::Completed) return std::nullopt;
-		const auto Input = std::ranges::find(
-			Snapshot.Packages, Path,
-			&FAssetPackageCompatibilityProbeInput::PackagePath);
-		if (Input == Snapshot.Packages.end()) return std::nullopt;
-		const FReflectionCompatibilityCatalog Catalog =
-			FReflectionCompatibilityCatalog::Capture();
-		FAssetPackageCompatibilityProbeResult Probe =
-			ProbeAssetPackageCompatibility(*Input, Catalog);
-		return std::move(Probe.Record);
-	};
-	std::optional<FAssetPackageCompatibilityRecord> Record = ProbeLegacy();
-	ASSERT_TRUE(Record.has_value());
-	ASSERT_EQ(Record->FormatVersion, AssetPackageV6FormatVersion);
-	ASSERT_EQ(Record->Compatibility, EAssetPackageCompatibility::Compatible);
-	FAssetCanonicalResaveSelection Selection{.Packages = {Path}};
-	FReflectionCompatibilityCatalog Catalog =
-		FReflectionCompatibilityCatalog::Capture();
-	FAssetCanonicalResavePlan Plan = PlanAssetCanonicalResaves(
-		std::span{&*Record, 1}, Selection);
-	ASSERT_EQ(Plan.Packages.size(), 1u);
-	ASSERT_EQ(Plan.Packages.front().Status,
-		EAssetCanonicalResavePackageStatus::Ready);
-	const FAssetCanonicalResaveApplyResult Failed = ApplyAssetCanonicalResaves(
-		std::move(Plan), Catalog,
-		{.ShouldFail = [](EAssetCanonicalResaveApplyPhase Phase, size_t) {
-			return Phase == EAssetCanonicalResaveApplyPhase::VerifyPackage;
-		}});
-	EXPECT_EQ(Failed.Status, EAssetCanonicalResaveApplyStatus::Failed);
-	EXPECT_NE(Failed.Diagnostic.find("prior package closure and registry were restored"),
-		std::string::npos) << Failed.Diagnostic;
-	std::vector<std::byte> RestoredPackageBytes;
-	std::vector<std::byte> RestoredBulkBytes;
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(RestoredPackageBytes, PackagePath));
-	ASSERT_TRUE(FFileHelper::LoadFileToArray(RestoredBulkBytes, LegacyBulkPath));
-	EXPECT_EQ(RestoredPackageBytes, LegacyPackageBytes);
-	EXPECT_EQ(RestoredBulkBytes, LegacyBulkBytes);
-	EXPECT_FALSE(std::filesystem::exists(BulkPath));
-	LegacyEntry = FindAssetExact(Path);
-	ASSERT_TRUE(LegacyEntry);
-	EXPECT_EQ(LegacyEntry->FormatVersion, AssetPackageV6FormatVersion);
-
-	Record = ProbeLegacy();
-	ASSERT_TRUE(Record.has_value());
-	Catalog = FReflectionCompatibilityCatalog::Capture();
-	Plan = PlanAssetCanonicalResaves(std::span{&*Record, 1}, Selection);
-	const FAssetCanonicalResaveApplyResult Migrated =
-		ApplyAssetCanonicalResaves(std::move(Plan), Catalog);
-	ASSERT_EQ(Migrated.Status, EAssetCanonicalResaveApplyStatus::Succeeded)
-		<< Migrated.Diagnostic;
-	ASSERT_EQ(Migrated.Plan.Packages.front().Status,
-		EAssetCanonicalResavePackageStatus::Resaved);
-	EXPECT_TRUE(std::filesystem::is_regular_file(BulkPath));
-	EXPECT_FALSE(std::filesystem::exists(LegacyBulkPath));
-	const auto MigratedEntry = FindAssetExact(Path);
-	ASSERT_TRUE(MigratedEntry);
-	EXPECT_EQ(MigratedEntry->FormatVersion, AssetPackageV7FormatVersion);
-	EXPECT_NE(std::ranges::find(
-		Migrated.ChangedPaths, PackagePath.generic_string()),
-		Migrated.ChangedPaths.end());
-	EXPECT_NE(std::ranges::find(
-		Migrated.ChangedPaths, BulkPath.generic_string()),
-		Migrated.ChangedPaths.end());
-	EXPECT_NE(std::ranges::find(
-		Migrated.ChangedPaths, LegacyBulkPath.generic_string()),
-		Migrated.ChangedPaths.end());
-
-	DObject* LoadedObject = nullptr;
-	ASSERT_TRUE(LoadAsset(Path, LoadedObject));
-	auto* Loaded = Cast<DBulkPackageAssetForTest>(LoadedObject);
-	ASSERT_NE(Loaded, nullptr);
-	const auto LoadedPayload = Loaded->Payload.GetPayload().Wait();
-	ASSERT_TRUE(LoadedPayload);
-	EXPECT_TRUE(std::ranges::equal(LoadedPayload.Buffer.GetBytes(), Payload));
-	EXPECT_TRUE(UnloadPackage(Path));
-}
 
 TEST(FPackageAssetTests, FieldBulkQualificationMeetsBoundedLooseFixtureBudgets)
 {
@@ -2259,8 +1853,6 @@ TEST(FPackageAssetTests, FieldBulkQualificationMeetsBoundedLooseFixtureBudgets)
 	constexpr double MetadataLoadBudgetMilliseconds = 500.0;
 	constexpr double FirstAccessBudgetMilliseconds = 500.0;
 	constexpr double SaveBudgetMilliseconds = 2000.0;
-	constexpr double ResaveBudgetMilliseconds = 4000.0;
-	constexpr double ResaveThroughputBudgetMiBPerSecond = 0.25;
 
 	FAssetPath Path;
 	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/FieldBulkQualification", Path));
@@ -2270,36 +1862,8 @@ TEST(FPackageAssetTests, FieldBulkQualificationMeetsBoundedLooseFixtureBudgets)
 	for (size_t Index = 0; Index < Payload.size(); ++Index)
 		Payload[Index] = static_cast<std::byte>((Index * 131u + 17u) & 0xffu);
 	ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
-	std::string Error;
-	ASSERT_TRUE(WriteLegacyExternalBulkPackageForTest(Path, Asset, Error)) << Error;
-
-	const FAssetPackageDiscoverySnapshot Snapshot = CaptureMountedAssetPackageSnapshot();
-	ASSERT_EQ(Snapshot.Status, EAssetPackageSnapshotStatus::Completed);
-	const auto Input = std::ranges::find(
-		Snapshot.Packages, Path, &FAssetPackageCompatibilityProbeInput::PackagePath);
-	ASSERT_NE(Input, Snapshot.Packages.end());
-	FReflectionCompatibilityCatalog Catalog = FReflectionCompatibilityCatalog::Capture();
-	FAssetPackageCompatibilityProbeResult Probe =
-		ProbeAssetPackageCompatibility(*Input, Catalog);
-	ASSERT_TRUE(Probe.Record.has_value());
-	ASSERT_EQ(Probe.Record->Compatibility, EAssetPackageCompatibility::Compatible);
-	FAssetCanonicalResaveSelection Selection{.Packages = {Path}};
-	FAssetCanonicalResavePlan Plan =
-		PlanAssetCanonicalResaves(std::span{&*Probe.Record, 1}, Selection);
-	ASSERT_EQ(Plan.Packages.size(), 1u);
-
-	const auto ResaveStart = std::chrono::steady_clock::now();
-	const FAssetCanonicalResaveApplyResult Resaved =
-		ApplyAssetCanonicalResaves(std::move(Plan), Catalog);
-	const double ResaveMilliseconds = std::chrono::duration<double, std::milli>(
-		std::chrono::steady_clock::now() - ResaveStart).count();
-	ASSERT_EQ(Resaved.Status, EAssetCanonicalResaveApplyStatus::Succeeded)
-		<< Resaved.Diagnostic;
-	const double ResaveMiBPerSecond =
-		(static_cast<double>(PayloadBytes) / (1024.0 * 1024.0)) /
-		(ResaveMilliseconds / 1000.0);
-	EXPECT_LT(ResaveMilliseconds, ResaveBudgetMilliseconds);
-	EXPECT_GT(ResaveMiBPerSecond, ResaveThroughputBudgetMiBPerSecond);
+	ASSERT_TRUE(SavePackage(Asset->GetPackage()));
+	ASSERT_TRUE(UnloadPackage(Path));
 
 	const FAssetCatalogEntry Entry = FindAssetExact(Path);
 	ASSERT_TRUE(Entry);
@@ -2307,9 +1871,6 @@ TEST(FPackageAssetTests, FieldBulkQualificationMeetsBoundedLooseFixtureBudgets)
 	SegmentPath.replace_extension(".dbulk");
 	ASSERT_TRUE(std::filesystem::is_regular_file(SegmentPath));
 	EXPECT_EQ(std::filesystem::file_size(SegmentPath), PayloadBytes);
-	std::filesystem::path LegacyPath = Entry->PhysicalPath;
-	LegacyPath.replace_extension(".dabulk");
-	EXPECT_FALSE(std::filesystem::exists(LegacyPath));
 	EXPECT_EQ(GetPackageResourceManager().GetRegisteredPackageCount(), 0u);
 
 	const auto MetadataStart = std::chrono::steady_clock::now();
@@ -2353,9 +1914,7 @@ TEST(FPackageAssetTests, FieldBulkQualificationMeetsBoundedLooseFixtureBudgets)
 		<< " metadata_load_ms=" << MetadataMilliseconds
 		<< " first_access_ms=" << AccessMilliseconds
 		<< " first_access_reads=1 first_access_read_bytes=" << PayloadBytes
-		<< " save_ms=" << SaveMilliseconds
-		<< " canonical_resave_ms=" << ResaveMilliseconds
-		<< " canonical_resave_mib_per_second=" << ResaveMiBPerSecond << '\n';
+		<< " save_ms=" << SaveMilliseconds << '\n';
 	EXPECT_TRUE(UnloadPackage(Path));
 	EXPECT_EQ(GetPackageResourceManager().GetRegisteredPackageCount(), 0u);
 }
@@ -2549,59 +2108,27 @@ TEST(FPackageAssetTests, PackageCodecPolicyIsCompleteUniqueAndIndependentOfWireV
 		(Durin::FGuid{0x3c59d1a9, 0x6ceb4e4c, 0xb059452d, 0xb0a5af56}));
 	EXPECT_EQ(Durin::Asset::DastBinaryFormatName, "Durin.BinaryFormat.DAST");
 
-	const auto& V6 = Durin::Asset::Private::DastV6::GetCodec();
-	std::array DuplicateKeys{V6, V6};
-	DuplicateKeys[1].CodecId = "dast-v6-alias";
+	const auto& V7 = Durin::Asset::Private::DastV7::GetCodec();
+	std::array DuplicateKeys{V7, V7};
+	DuplicateKeys[1].CodecId = "dast-v7-alias";
 	EXPECT_FALSE(Durin::Asset::Private::ValidateAssetPackageCodecTable(DuplicateKeys, Error));
 	std::ranges::reverse(DuplicateKeys);
 	EXPECT_FALSE(Durin::Asset::Private::ValidateAssetPackageCodecTable(DuplicateKeys, Error));
 
-	std::array DuplicateNames{V6, V6};
-	DuplicateNames[1].FormatVersion = Durin::Asset::AssetPackageV6FormatVersion + 1;
+	std::array DuplicateNames{V7, V7};
+	DuplicateNames[1].FormatVersion = Durin::Asset::AssetPackageV7FormatVersion + 1;
 	EXPECT_FALSE(Durin::Asset::Private::ValidateAssetPackageCodecTable(DuplicateNames, Error));
 	std::ranges::reverse(DuplicateNames);
 	EXPECT_FALSE(Durin::Asset::Private::ValidateAssetPackageCodecTable(DuplicateNames, Error));
 
-	std::array Incomplete{V6};
+	std::array Incomplete{V7};
 	Incomplete[0].Validate = nullptr;
 	EXPECT_FALSE(Durin::Asset::Private::ValidateAssetPackageCodecTable(Incomplete, Error));
-	std::array InvalidVersion{V6};
+	std::array InvalidVersion{V7};
 	InvalidVersion[0].FormatVersion = 0;
 	EXPECT_FALSE(Durin::Asset::Private::ValidateAssetPackageCodecTable(InvalidVersion, Error));
 }
 
-TEST(FPackageAssetTests, V6HeaderReadCharacterizationRemainsBounded)
-{
-	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/V6HeaderCost", Path));
-	DPackageAssetForTest* Asset = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
-	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
-	const auto File = Durin::Testing::GetTestWorkDirectory() / "Assets" / "V6HeaderCost.dasset";
-	std::vector<std::byte> Bytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File));
-	const auto* Reader = Durin::Asset::Private::FindAssetPackageReader(
-		Durin::Asset::AssetPackageV6FormatVersion);
-	ASSERT_NE(Reader, nullptr);
-
-	constexpr size_t Iterations = 2000;
-	const auto Begin = std::chrono::steady_clock::now();
-	uint64 LastBytesRead = 0;
-	for (size_t Index = 0; Index < Iterations; ++Index)
-	{
-		Durin::Asset::FAssetPackageHeader Header;
-		ASSERT_TRUE(Reader->ReadHeader(Bytes, Bytes.size(), Header));
-		LastBytesRead = Header.BytesRead;
-	}
-	const double Microseconds = std::chrono::duration<double, std::micro>(
-		std::chrono::steady_clock::now() - Begin).count() / Iterations;
-	testing::Test::RecordProperty("v6_file_bytes", Bytes.size());
-	testing::Test::RecordProperty("v6_header_bytes_read", LastBytesRead);
-	testing::Test::RecordProperty("v6_header_parse_us", Microseconds);
-	EXPECT_LT(Microseconds, 500.0);
-	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
-}
 
 TEST(FPackageAssetTests, EnvelopeDispatchUsesPermanentIdentityAndFailsBeforeCodec)
 {
@@ -2611,22 +2138,23 @@ TEST(FPackageAssetTests, EnvelopeDispatchUsesPermanentIdentityAndFailsBeforeCode
 	constexpr FBinaryEnvelopeLimits Limits{16ull * 1024ull * 1024ull,
 		1024ull * 1024ull * 1024ull};
 
-	std::array<std::byte, BinaryEnvelopePreambleBytes> V6{};
+	std::array<std::byte, BinaryEnvelopePreambleBytes> UnsupportedV6{};
 	const FBinaryEnvelopePreamble V6Preamble{
 		.FormatId = DastBinaryFormatId,
-		.FormatVersion = AssetPackageV6FormatVersion,
-		.HeaderBytes = V6.size(),
-		.FileBytes = V6.size()};
-	ASSERT_TRUE(EncodeBinaryEnvelopePreamble(V6Preamble, V6));
-	ASSERT_TRUE(FinalizeBinaryEnvelopeHeader(V6, V6.size(), Limits));
+		.FormatVersion = 6,
+		.HeaderBytes = UnsupportedV6.size(),
+		.FileBytes = UnsupportedV6.size()};
+	ASSERT_TRUE(EncodeBinaryEnvelopePreamble(V6Preamble, UnsupportedV6));
+	ASSERT_TRUE(FinalizeBinaryEnvelopeHeader(
+		UnsupportedV6, UnsupportedV6.size(), Limits));
 
 	const FAssetPackageCodec* Codec = reinterpret_cast<const FAssetPackageCodec*>(1);
 	uint32 FormatVersion = 0;
-	const FAssetResult Resolved = ResolveAssetPackageReader(V6, Codec, &FormatVersion);
-	EXPECT_TRUE(Resolved);
-	ASSERT_NE(Codec, nullptr);
-	EXPECT_EQ(Codec->FormatVersion, AssetPackageV6FormatVersion);
-	EXPECT_EQ(FormatVersion, AssetPackageV6FormatVersion);
+	const FAssetResult Resolved = ResolveAssetPackageReader(
+		UnsupportedV6, Codec, &FormatVersion);
+	EXPECT_EQ(Resolved.Error, EAssetError::UnsupportedVersion);
+	EXPECT_EQ(Codec, nullptr);
+	EXPECT_EQ(FormatVersion, 0u);
 
 	std::array<std::byte, 8> Legacy{
 		std::byte{0x44}, std::byte{0x41}, std::byte{0x53}, std::byte{0x54},
@@ -2637,15 +2165,25 @@ TEST(FPackageAssetTests, EnvelopeDispatchUsesPermanentIdentityAndFailsBeforeCode
 	std::array<std::byte, BinaryEnvelopePreambleBytes> Unknown{};
 	const FBinaryEnvelopePreamble UnknownPreamble{
 		.FormatId = {1, 2, 3, 4},
-		.FormatVersion = AssetPackageV6FormatVersion,
+		.FormatVersion = AssetPackageV7FormatVersion,
 		.HeaderBytes = Unknown.size(),
 		.FileBytes = Unknown.size()};
 	ASSERT_TRUE(EncodeBinaryEnvelopePreamble(UnknownPreamble, Unknown));
 	ASSERT_TRUE(FinalizeBinaryEnvelopeHeader(Unknown, Unknown.size(), Limits));
 	EXPECT_EQ(ResolveAssetPackageReader(Unknown, Codec).Error, EAssetError::UnsupportedVersion);
 
-	V6[48] ^= std::byte{1};
-	EXPECT_EQ(ResolveAssetPackageReader(V6, Codec).Error, EAssetError::CorruptFile);
+	std::array<std::byte, BinaryEnvelopePreambleBytes> Supported{};
+	const FBinaryEnvelopePreamble SupportedPreamble{
+		.FormatId = DastBinaryFormatId,
+		.FormatVersion = AssetPackageV7FormatVersion,
+		.HeaderBytes = Supported.size(),
+		.FileBytes = Supported.size()};
+	ASSERT_TRUE(EncodeBinaryEnvelopePreamble(SupportedPreamble, Supported));
+	ASSERT_TRUE(FinalizeBinaryEnvelopeHeader(Supported, Supported.size(), Limits));
+	EXPECT_TRUE(ResolveAssetPackageReader(Supported, Codec));
+	Supported[48] ^= std::byte{1};
+	EXPECT_EQ(ResolveAssetPackageReader(Supported, Codec).Error,
+		EAssetError::CorruptFile);
 }
 
 TEST(FPackageAssetTests, V7CodecMatchesLiveWriteInspectReferenceMutationAndLoadSemantics)
@@ -2675,7 +2213,7 @@ TEST(FPackageAssetTests, V7CodecMatchesLiveWriteInspectReferenceMutationAndLoadS
 	ASSERT_TRUE(SourceData);
 	std::vector<std::byte> V6;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(V6, SourceData->PhysicalPath));
-	const FAssetPackageCodec& Codec = DastV6::GetV7Codec();
+	const FAssetPackageCodec& Codec = DastV7::GetCodec();
 	ASSERT_TRUE(Codec.Validate(V6));
 	FAssetPackageHeader Header;
 	uint64 HeaderByteCount = 0;
@@ -2756,12 +2294,12 @@ TEST(FPackageAssetTests, V7PreservesExternalPayloadDirectoryAndSegmentDescriptor
 	ASSERT_TRUE(Data);
 	std::vector<std::byte> V6;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(V6, Data->PhysicalPath));
-	DastV6::FParsedPackage Parsed;
+	DastV7::FParsedPackage Parsed;
 	std::string Error;
-	ASSERT_TRUE(DastV6::ParsePackage(V6, Parsed, &Error)) << Error;
+	ASSERT_TRUE(DastV7::ParsePackage(V6, Parsed, &Error)) << Error;
 	ASSERT_EQ(Parsed.BulkEntries.size(), 1);
 	FAssetPackageInspection Inspection;
-	ASSERT_TRUE(DastV6::GetV7Codec().Inspect(V6, Inspection));
+	ASSERT_TRUE(DastV7::GetCodec().Inspect(V6, Inspection));
 	std::vector<FEditorBulkDataStorageDescriptor> Descriptors;
 	ASSERT_TRUE(InspectEditorBulkDataStorageDescriptors(
 		Inspection, Descriptors, &Error)) << Error;
@@ -3147,6 +2685,17 @@ TEST(FPackageAssetTests, CookPublishesHeaderlessRawPlatformDataFields)
 	ASSERT_NE(PackageManifestEntry, Manifest.Entries.end());
 	EXPECT_NE(PackageManifestEntry->Flags
 		& Durin::Asset::CookManifestEntryCookedFieldProjection, 0u);
+	Durin::Asset::FAssetPackageInspection Inspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(PackagePath.generic_string(), Inspection));
+	const Durin::Asset::FAssetPackageField* PlatformField =
+		Inspection.FindField("CookedBulk");
+	ASSERT_NE(PlatformField, nullptr);
+	Durin::Asset::FEditorBulkDataStorageDescriptor PlatformStorage;
+	ASSERT_TRUE(PlatformField->TryReadBulkDataStorageDescriptor(PlatformStorage));
+	EXPECT_EQ(PlatformStorage.LogicalByteCount, BulkBytes.size());
+	EXPECT_EQ(PlatformStorage.StoredByteCount, BulkBytes.size());
+	EXPECT_EQ(PlatformStorage.StorageKind,
+		Durin::Asset::EEditorBulkDataStorageKind::External);
 
 	Durin::Asset::ShutdownAssetManager();
 	Durin::CollectGarbage();

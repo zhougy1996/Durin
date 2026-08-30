@@ -118,12 +118,11 @@ aliases directly to `C`; reclaiming an alias path requires exact proof that it
 denotes the same real asset. Relocation does not rewrite persistent hard or soft
 paths or arbitrary settings/import stores.
 
-Owned authored payload closure is version-derived, not suffix-guessed. A DAST
-v7 package contributes its validated raw `.dbulk`; a DAST v6 compatibility
-package contributes its validated `.dabulk`. Relocation, duplication, deletion,
-Undo, Redo, and recovery journal the selected companion with the `.dasset` and
-reject conflicting stable siblings. Atomic temporaries and `.durin-backup`
-files are recovery state and never mutation participants.
+Owned authored payload closure is metadata-derived, not suffix-guessed. A DAST
+v7 package contributes its validated raw `.dbulk` when its field metadata
+requires an external segment. Relocation, duplication, deletion, Undo, Redo,
+and recovery journal that companion with the `.dasset`. Atomic temporaries and
+`.durin-backup` files are recovery state and never mutation participants.
 
 Stale tokens, read-only participants, collisions, staging failures, and
 publication failures either leave authority unchanged or compensate in reverse

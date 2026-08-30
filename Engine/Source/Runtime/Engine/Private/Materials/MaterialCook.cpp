@@ -104,7 +104,7 @@ namespace Durin
 			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
 	}
 
-	auto DMaterial::AddToCook(
+	auto DMaterial::ContributeToCook(
 		Asset::FCookContext& Context,
 		std::string_view VirtualPackagePath,
 		std::string& OutError) -> bool

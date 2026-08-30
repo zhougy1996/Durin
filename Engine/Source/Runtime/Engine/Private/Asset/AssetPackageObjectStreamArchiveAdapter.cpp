@@ -299,140 +299,66 @@ namespace Durin::Asset::Private
 				if (HasError() || !IsCurrentFieldAvailable()) return;
 				const FArchiveFormatVersion* DastVersion =
 					GetVersionContext().FindFormat(FName("DAST"));
-				if (DastVersion && DastVersion->Version >= AssetPackageV7FormatVersion)
+				if (!DastVersion || DastVersion->Version != AssetPackageV7FormatVersion)
 				{
-					uint64 FieldIndex = 0;
-					uint8 Placement = 0;
-					uint8 StorageFlags = 0;
-					uint16 Alignment = 0;
-					uint32 ContentIdVersion = 0;
-					FGuid InstanceId;
-					uint64 HashLow = 0, HashHigh = 0;
-					uint64 LogicalSize = 0, StoredSize = 0, SegmentOffset = 0;
-					*this << FieldIndex << Placement << StorageFlags << Alignment
-						<< ContentIdVersion << InstanceId << HashLow << HashHigh
-						<< LogicalSize << StoredSize << SegmentOffset;
-					if (HasError()) return;
-					if (FieldIndex == 0 || Placement > 1 || StorageFlags != 0
-						|| ContentIdVersion != EditorBulkDataContentIdVersion
-						|| !InstanceId.IsValid() || FXxHash128{HashLow, HashHigh}.IsZero()
-						|| LogicalSize != StoredSize || LogicalSize > MaximumAuthoredBulkBytes
-						|| (Placement == 0 && (Alignment != 1 || SegmentOffset != 0))
-						|| (Placement == 1 && (Alignment != EditorBulkDataExternalAlignment
-							|| SegmentOffset % Alignment != 0)))
-					{
-						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-							"DAST v7 authored bulk field metadata is invalid.");
-						return;
-					}
-					Value = {.PayloadId = InstanceId,
-						.LogicalSize = LogicalSize,
-						.StoredSize = StoredSize,
-						.ContentHash = {HashLow, HashHigh},
-						.StorageKind = Placement == 0 ? EArchiveBulkDataStorageKind::Inline
-							: EArchiveBulkDataStorageKind::External,
-						.SegmentOffset = SegmentOffset,
-						.Alignment = Alignment};
-					if (Placement == 0)
-					{
-						std::vector<std::byte> Bytes(static_cast<size_t>(StoredSize));
-						ReadBytes(Bytes);
-						if (HasError()) return;
-						if (FXxHash128::HashBuffer(Bytes) != Value.ContentHash)
-						{
-							FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-								"DAST v7 inline authored bulk content identity is invalid.");
-							return;
-						}
-						Value.Buffer = FSharedByteBuffer::Take(std::move(Bytes));
-					}
-					else
-					{
-						Value.PackageResource = GetPackageResourceManager().FindPackage(
-							PackagePath.ToString());
-						if (!Value.PackageResource)
-							FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-								"DAST v7 package bulk resource was not registered before graph load.");
-					}
+					FailLoad(EAssetError::UnsupportedVersion,
+						EArchiveFailureCode::InvalidData,
+						"Authored bulk fields require DAST v7.");
 					return;
 				}
-				uint8 StorageKind = 0;
-				FGuid PayloadId, ReservedIdentity;
-				uint32 ReservedVersion = 0;
-				uint64 LogicalSize = 0, StoredSize = 0;
-				uint64 HashLow = 0, HashHigh = 0, ContainerHashLow = 0, ContainerHashHigh = 0;
-				*this << StorageKind << PayloadId << ReservedIdentity << ReservedVersion
-					<< LogicalSize << StoredSize << HashLow << HashHigh
-					<< ContainerHashLow << ContainerHashHigh;
+				uint64 FieldIndex = 0;
+				uint8 Placement = 0;
+				uint8 StorageFlags = 0;
+				uint16 Alignment = 0;
+				uint32 ContentIdVersion = 0;
+				FGuid InstanceId;
+				uint64 HashLow = 0, HashHigh = 0;
+				uint64 LogicalSize = 0, StoredSize = 0, SegmentOffset = 0;
+				*this << FieldIndex << Placement << StorageFlags << Alignment
+					<< ContentIdVersion << InstanceId << HashLow << HashHigh
+					<< LogicalSize << StoredSize << SegmentOffset;
 				if (HasError()) return;
-				if (StorageKind > static_cast<uint8>(EArchiveBulkDataStorageKind::External)
-					|| !PayloadId.IsValid()
-					|| LogicalSize != StoredSize)
+				if (FieldIndex == 0 || Placement > 1 || StorageFlags != 0
+					|| ContentIdVersion != EditorBulkDataContentIdVersion
+					|| !InstanceId.IsValid() || FXxHash128{HashLow, HashHigh}.IsZero()
+					|| LogicalSize != StoredSize || LogicalSize > MaximumAuthoredBulkBytes
+					|| (Placement == 0 && (Alignment != 1 || SegmentOffset != 0))
+					|| (Placement == 1 && (Alignment != EditorBulkDataExternalAlignment
+						|| SegmentOffset % Alignment != 0)))
 				{
 					FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-						"Authored bulk descriptor is invalid.");
+						"DAST v7 authored bulk field metadata is invalid.");
 					return;
 				}
-				const FXxHash128 ContentHash{HashLow, HashHigh};
-				const FXxHash128 ContainerHash{ContainerHashLow, ContainerHashHigh};
-				FSharedByteBuffer Buffer;
-				if (StorageKind == static_cast<uint8>(EArchiveBulkDataStorageKind::Inline))
+				Value = {.PayloadId = InstanceId,
+					.LogicalSize = LogicalSize,
+					.StoredSize = StoredSize,
+					.ContentHash = {HashLow, HashHigh},
+					.StorageKind = Placement == 0 ? EArchiveBulkDataStorageKind::Inline
+						: EArchiveBulkDataStorageKind::External,
+					.SegmentOffset = SegmentOffset,
+					.Alignment = Alignment};
+				if (Placement == 0)
 				{
-					if (!ContainerHash.IsZero())
+					std::vector<std::byte> Bytes(static_cast<size_t>(StoredSize));
+					ReadBytes(Bytes);
+					if (HasError()) return;
+					if (FXxHash128::HashBuffer(Bytes) != Value.ContentHash)
 					{
 						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-							"Inline authored bulk data declares an external container hash.");
+							"DAST v7 inline authored bulk content identity is invalid.");
 						return;
 					}
-					std::vector<std::byte> Bytes;
-					SerializeByteBlob(Bytes);
-					if (HasError()) return;
-					Buffer = FSharedByteBuffer::Take(std::move(Bytes));
+					Value.Buffer = FSharedByteBuffer::Take(std::move(Bytes));
 				}
 				else
 				{
-					if (ContainerHash.IsZero())
-					{
+					Value.PackageResource = GetPackageResourceManager().FindPackage(
+						PackagePath.ToString());
+					if (!Value.PackageResource)
 						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-							"External authored bulk data has no container hash.");
-						return;
-					}
-					const PathUtilities::FAssetPathResult Resolved = PathUtilities::ResolveAssetPath(
-						PackagePath.GetView(), PathUtilities::EPathExistence::AllowMissing);
-					std::filesystem::path CompanionPath;
-					std::string Error;
-					const std::filesystem::path PhysicalPackage = Resolved
-						? std::filesystem::path(Resolved.PhysicalPath.generic_string() + ".dasset")
-						: std::filesystem::path{};
-					const FEditorBulkDataStorageDescriptor Descriptor{
-						.PayloadId = PayloadId, .LogicalByteCount = LogicalSize,
-						.StoredByteCount = StoredSize, .ContentHash = ContentHash,
-						.ContainerHash = ContainerHash,
-						.StorageKind = EEditorBulkDataStorageKind::External};
-					if (!Resolved || !ResolveEditorBulkDataCompanionPath(
-							PhysicalPackage, CompanionPath, &Error)
-						|| !LoadEditorBulkDataStoragePayload(CompanionPath, Descriptor, Buffer, &Error))
-					{
-						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-							Error.empty() ? "Authored bulk companion could not be resolved." : Error);
-						return;
-					}
+							"DAST v7 package bulk resource was not registered before graph load.");
 				}
-				if (Buffer.GetSize() != LogicalSize
-					|| FXxHash128::HashBuffer(Buffer.GetBytes()) != ContentHash)
-				{
-					FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-						"Authored bulk payload size or hash verification failed.");
-					return;
-				}
-				Value = {.PayloadId = PayloadId, .LogicalSize = LogicalSize,
-					.StoredSize = StoredSize, .ContentHash = ContentHash,
-					.ContainerHash = ContainerHash,
-					// The v6 adapter resolves legacy companions eagerly; publish the
-					// verified bytes as resident data so modern bulk owners do not
-					// require a v7 package resource that cannot exist for DABK.
-					.StorageKind = EArchiveBulkDataStorageKind::Inline,
-					.Buffer = std::move(Buffer)};
 			}
 
 			auto SerializeObjectReference(DObject*& Value) -> void override
@@ -890,7 +816,12 @@ namespace Durin::Asset::Private
 				if (HasError() || SuppressedDepth != 0) return;
 				const FArchiveFormatVersion* DastVersion =
 					GetVersionContext().FindFormat(FName("DAST"));
-				const bool bV7 = DastVersion && DastVersion->Version >= AssetPackageV7FormatVersion;
+				if (!DastVersion || DastVersion->Version != AssetPackageV7FormatVersion)
+				{
+					Fail(EArchiveFailureCode::InvalidData,
+						"Package bulk fields require DAST v7.");
+					return;
+				}
 				const bool bCooked = IsCooking();
 				uint64 FieldIndex = Package.BulkPayloads.size() + 1;
 				if (bCooked && !Value.PayloadId.IsValid())
@@ -907,16 +838,6 @@ namespace Durin::Asset::Private
 						"Package bulk capture requires valid metadata and verified resident bytes.");
 					return;
 				}
-				if (!bV7 && std::ranges::find(Package.BulkPayloads, Value.PayloadId,
-						[](const FEditorBulkDataStoragePayload& Payload) {
-							return Payload.Descriptor.PayloadId;
-						}) != Package.BulkPayloads.end())
-				{
-					Fail(EArchiveFailureCode::DuplicateField,
-						"Authored package contains duplicate bulk payload ids.");
-					return;
-				}
-
 				const bool bExternal = Value.LogicalSize > EditorBulkDataExternalThreshold
 					&& Parameters.StoragePolicy != EArchiveBulkDataStoragePolicy::ForceInline;
 				const uint32 RequestedAlignment = bCooked
@@ -959,40 +880,20 @@ namespace Durin::Asset::Private
 					.Alignment = Alignment};
 				Package.BulkPayloads.push_back({Descriptor, Value.Buffer});
 
-				if (bV7)
-				{
-					uint8 Placement = bExternal ? 1 : 0;
-					uint8 StorageFlags = 0;
-					uint16 WireAlignment = static_cast<uint16>(Alignment);
-					uint32 ContentIdVersion = EditorBulkDataContentIdVersion;
-					uint64 HashLow = Value.ContentHash.HashLow;
-					uint64 HashHigh = Value.ContentHash.HashHigh;
-					FGuid PayloadId = Value.PayloadId;
-					uint64 LogicalSize = Value.LogicalSize;
-					uint64 StoredSize = Value.StoredSize;
-					uint64 WireSegmentOffset = SegmentOffset;
-					*this << FieldIndex << Placement << StorageFlags << WireAlignment
-						<< ContentIdVersion << PayloadId << HashLow << HashHigh
-						<< LogicalSize << StoredSize << WireSegmentOffset;
-					if (!bExternal) WriteBytes(Value.Buffer.GetBytes());
-					return;
-				}
-
-				if (!bExternal)
-				{
-					FArchive::SerializeBulkData(Value, Parameters);
-					return;
-				}
-				uint8 StorageKind = static_cast<uint8>(EArchiveBulkDataStorageKind::External);
+				uint8 Placement = bExternal ? 1 : 0;
+				uint8 StorageFlags = 0;
+				uint16 WireAlignment = static_cast<uint16>(Alignment);
+				uint32 ContentIdVersion = EditorBulkDataContentIdVersion;
 				uint64 HashLow = Value.ContentHash.HashLow;
 				uint64 HashHigh = Value.ContentHash.HashHigh;
-				uint64 ContainerHashLow = Value.ContainerHash.HashLow;
-				uint64 ContainerHashHigh = Value.ContainerHash.HashHigh;
-				FGuid ReservedIdentity;
-				uint32 ReservedVersion = 0;
-				*this << StorageKind << Value.PayloadId << ReservedIdentity << ReservedVersion
-					<< Value.LogicalSize << Value.StoredSize << HashLow << HashHigh
-					<< ContainerHashLow << ContainerHashHigh;
+				FGuid PayloadId = Value.PayloadId;
+				uint64 LogicalSize = Value.LogicalSize;
+				uint64 StoredSize = Value.StoredSize;
+				uint64 WireSegmentOffset = SegmentOffset;
+				*this << FieldIndex << Placement << StorageFlags << WireAlignment
+					<< ContentIdVersion << PayloadId << HashLow << HashHigh
+					<< LogicalSize << StoredSize << WireSegmentOffset;
+				if (!bExternal) WriteBytes(Value.Buffer.GetBytes());
 			}
 
 			auto SerializeObjectReference(DObject*& Value) -> void override

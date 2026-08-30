@@ -289,8 +289,8 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game);
 	std::string Error;
-	ASSERT_TRUE(Source->AddToCook(
-		Cook, Durin::DefaultMaterialAssetPath, Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+		*Source, Durin::DefaultMaterialAssetPath, Cook, Error)) << Error;
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dasset"));

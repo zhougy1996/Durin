@@ -186,7 +186,8 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 	Durin::Asset::FCookContext Cook(CookRoot,
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game);
-	ASSERT_TRUE(Texture->AddToCook(Cook, "/Game/CookedVolume", Error)) << Error;
+	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
+		*Texture, "/Game/CookedVolume", Cook, Error)) << Error;
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 	EXPECT_FALSE(std::filesystem::exists(CookRoot / "Game/CookedVolume.dbulk"));
 	Durin::Asset::FAssetPackageInspection CookedInspection;
@@ -334,7 +335,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	const std::filesystem::path OrphanCompanion =
 		std::filesystem::path(SavedData->PhysicalPath).parent_path()
 		/ (std::filesystem::path(SavedData->PhysicalPath).stem().string()
-			+ ".orphan.dabulk");
+			+ ".orphan.dbulk");
 	std::filesystem::copy_file(EditorBulkDataFiles.front(), OrphanCompanion,
 		std::filesystem::copy_options::overwrite_existing);
 	ASSERT_TRUE(Durin::InspectTexturePayloadPackage(
@@ -342,7 +343,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	const auto OrphanEntry = std::ranges::find(
 		PayloadInspection.Entries, Durin::ETexturePayloadRepairAction::RemoveOrphan,
 		&Durin::FTexturePayloadInspectionEntry::Repair);
-	// Stable companion publication deliberately ignores legacy/non-stable names;
+	// Stable companion publication deliberately ignores non-stable names;
 	// they are not safe package-owned cleanup candidates.
 	EXPECT_EQ(OrphanEntry, PayloadInspection.Entries.end());
 	EXPECT_TRUE(std::filesystem::is_regular_file(OrphanCompanion));
