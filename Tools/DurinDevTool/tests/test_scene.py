@@ -28,12 +28,17 @@ def test_graybox_build_forwards_one_bounded_startup_command(tmp_path: Path) -> N
     executable = tmp_path / "DurinEditor.exe"
     executable.touch()
     calls: list[tuple[list[str], dict[str, object]]] = []
+    selection = scene.select_runtime(REPOSITORY)
 
     with mock.patch.object(
         RepositoryContext,
         "load",
         side_effect=AssertionError("repository context was rediscovered"),
-    ):
+    ), mock.patch.object(
+        scene, "select_runtime", return_value=selection
+    ) as select, mock.patch.object(
+        scene, "locate_executable", return_value=executable
+    ) as locate:
         result = scene.run(
             _namespace(
                 [
@@ -47,11 +52,12 @@ def test_graybox_build_forwards_one_bounded_startup_command(tmp_path: Path) -> N
             repository_context=REPOSITORY,
             stdout=io.StringIO(),
             stderr=io.StringIO(),
-            executable_resolver=lambda *_: executable,
             command_runner=lambda command, **kwargs: calls.append((list(command), kwargs)),
         )
 
     assert result == 0
+    select.assert_called_once_with(REPOSITORY, profile_name="", preset_name="")
+    locate.assert_called_once_with(selection, scene.EDITOR_EXECUTABLE)
     assert len(calls) == 1
     command, options = calls[0]
     assert command[0] == str(executable)

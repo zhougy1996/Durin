@@ -8,7 +8,6 @@ from typing import Callable, TextIO
 
 from .build.config import BuildToolError, OutputMode
 from .build.output import BuildOutput
-from .build.process import run_command
 from .context import RepositoryContext
 from .errors import DevToolError
 from .runtime_program import (
@@ -19,6 +18,8 @@ from .runtime_program import (
     resolve_project,
     select_runtime,
 )
+
+EDITOR_EXECUTABLE = ExecutableDescription("Editor", "all")
 
 
 def _command_arguments(namespace: argparse.Namespace, project: Path) -> list[str]:
@@ -54,7 +55,7 @@ def run(
     stdout: TextIO,
     stderr: TextIO,
     executable_resolver: Callable[[argparse.Namespace, Path], Path] | None = None,
-    command_runner: Callable[..., None] = run_command,
+    command_runner: Callable[..., str] | None = None,
     **_kwargs: object,
 ) -> int:
     repository = repository_context or RepositoryContext.load(repository_root)
@@ -66,7 +67,7 @@ def run(
     executable = (
         executable_resolver(namespace, repository.root)
         if executable_resolver
-        else locate_executable(selection, ExecutableDescription("Editor", "all"))
+        else locate_executable(selection, EDITOR_EXECUTABLE)
     )
     project = resolve_project(repository, Path(namespace.project_path))
     output_path = str(namespace.mounted_output)
@@ -83,7 +84,7 @@ def run(
     try:
         invoke_runtime_program(
             selection,
-            ExecutableDescription("Editor", "all"),
+            EDITOR_EXECUTABLE,
             _command_arguments(namespace, project),
             output=output,
             policy=RuntimeProcessPolicy(

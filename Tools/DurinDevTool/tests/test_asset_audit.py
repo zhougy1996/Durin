@@ -14,6 +14,7 @@ REPOSITORY_ROOT = DEV_TOOL_ROOT.parents[1]
 from durin_dev_tool import cli
 from durin_dev_tool import asset
 from durin_dev_tool import storage_qualification
+from durin_dev_tool.build.config import BuildToolError
 from durin_dev_tool.context import RepositoryContext
 from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry
@@ -110,7 +111,7 @@ def run_handler(tmp_path: Path, report_text: str, format_name: str = "json") -> 
         stdout=output,
         stderr=errors,
         executable_resolver=lambda _namespace, _root: executable,
-        process_runner=lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, report_text, ""),
+        command_runner=lambda *_args, **_kwargs: report_text,
     )
     return result, output.getvalue(), errors.getvalue()
 
@@ -126,7 +127,12 @@ def test_asset_production_path_uses_runtime_program_service(tmp_path: Path) -> N
         "format_name": "json",
         "baseline": False,
     })()
-    with mock.patch.object(asset, "invoke_runtime_program", return_value=report()) as invoke, mock.patch.object(
+    selection = asset.select_runtime(REPOSITORY)
+    with mock.patch.object(asset, "select_runtime", return_value=selection) as select, mock.patch.object(
+        asset, "locate_executable", return_value=executable
+    ) as locate, mock.patch.object(
+        asset, "invoke_runtime_program", return_value=report()
+    ) as invoke, mock.patch.object(
         RepositoryContext,
         "load",
         side_effect=AssertionError("repository context was rediscovered"),
@@ -137,8 +143,9 @@ def test_asset_production_path_uses_runtime_program_service(tmp_path: Path) -> N
             repository_context=REPOSITORY,
             stdout=io.StringIO(),
             stderr=io.StringIO(),
-            executable_resolver=lambda *_args: executable,
         ) == 0
+    select.assert_called_once_with(REPOSITORY, profile_name="", preset_name="")
+    locate.assert_called_once_with(selection, asset.ASSET_EXECUTABLE)
     assert invoke.call_args.args[2] == ["check", f"--project={project.resolve()}", "--json"]
 
 
@@ -217,7 +224,7 @@ def test_asset_check_uses_configured_default_project(tmp_path: Path) -> None:
         "format_name": "json",
         "baseline": False,
     })()
-    calls: list[list[str]] = []
+    calls: list[tuple[list[str], dict[str, object]]] = []
     repository = replace(
         REPOSITORY,
         config=replace(
@@ -226,9 +233,9 @@ def test_asset_check_uses_configured_default_project(tmp_path: Path) -> None:
         ),
     )
 
-    def process_runner(arguments: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        calls.append(arguments)
-        return subprocess.CompletedProcess(arguments, 0, report(), "")
+    def command_runner(arguments: list[str], **kwargs: object) -> str:
+        calls.append((arguments, kwargs))
+        return report()
 
     assert asset.run(
         namespace,
@@ -237,9 +244,14 @@ def test_asset_check_uses_configured_default_project(tmp_path: Path) -> None:
         stdout=io.StringIO(),
         stderr=io.StringIO(),
         executable_resolver=lambda *_args: executable,
-        process_runner=process_runner,
+        command_runner=command_runner,
     ) == 0
-    assert calls == [[str(executable), "check", f"--project={project}", "--json"]]
+    assert len(calls) == 1
+    arguments, options = calls[0]
+    assert arguments == [str(executable), "check", f"--project={project}", "--json"]
+    assert options["show_heartbeat"]
+    assert options["capture_output"]
+    assert options["cwd"] == REPOSITORY_ROOT
 
 
 def test_asset_resave_maps_scopes_and_write_intent_to_native_command(tmp_path: Path) -> None:
@@ -257,9 +269,9 @@ def test_asset_resave_maps_scopes_and_write_intent_to_native_command(tmp_path: P
     })()
     calls: list[list[str]] = []
 
-    def process_runner(arguments: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+    def command_runner(arguments: list[str], **_kwargs: object) -> str:
         calls.append(arguments)
-        return subprocess.CompletedProcess(arguments, 0, '{"status":"Succeeded"}\n', "")
+        return '{"status":"Succeeded"}\n'
 
     output = io.StringIO()
     assert asset.run(
@@ -269,7 +281,7 @@ def test_asset_resave_maps_scopes_and_write_intent_to_native_command(tmp_path: P
         stdout=output,
         stderr=io.StringIO(),
         executable_resolver=lambda *_args: executable,
-        process_runner=process_runner,
+        command_runner=command_runner,
     ) == 0
     assert calls == [[
         str(executable), "resave", f"--project={project}",
@@ -301,7 +313,7 @@ def test_asset_resave_requires_exactly_one_selection_style(tmp_path: Path) -> No
                 stdout=io.StringIO(),
                 stderr=io.StringIO(),
                 executable_resolver=lambda *_args: executable,
-                process_runner=lambda *_args, **_kwargs: pytest.fail("invalid selection must not launch"),
+                command_runner=lambda *_args, **_kwargs: pytest.fail("invalid selection must not launch"),
             )
 
 
@@ -484,9 +496,9 @@ def test_asset_baseline_requires_current_format_and_schema(
     })()
     calls: list[list[str]] = []
 
-    def process_runner(arguments: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+    def command_runner(arguments: list[str], **_kwargs: object) -> str:
         calls.append(arguments)
-        return subprocess.CompletedProcess(arguments, 0, native_report, "")
+        return native_report
 
     output = io.StringIO()
     assert asset.run(
@@ -496,7 +508,7 @@ def test_asset_baseline_requires_current_format_and_schema(
         stdout=output,
         stderr=io.StringIO(),
         executable_resolver=lambda *_args: executable,
-        process_runner=process_runner,
+        command_runner=command_runner,
     ) == expected
     assert calls == [[str(executable), "check", f"--project={project}", "--json"]]
     assert ("Asset baseline:" in output.getvalue()) == (expected == 0)
@@ -597,20 +609,28 @@ def test_cancel_and_process_failure_are_distinct(tmp_path: Path) -> None:
         "format_name": "json", "baseline": False,
     })()
     errors = io.StringIO()
+
+    def cancelled(*_args: object, **_kwargs: object) -> str:
+        raise BuildToolError("cancelled", exit_code=130)
+
     result = asset.run(
         namespace, repository_root=tmp_path, repository_context=REPOSITORY,
         stdout=io.StringIO(), stderr=errors,
         executable_resolver=lambda _namespace, _root: executable,
-        process_runner=lambda *_args, **_kwargs: subprocess.CompletedProcess([], 130, "", ""),
+        command_runner=cancelled,
     )
     assert result == 130
     assert "cancelled" in errors.getvalue()
+
+    def failed(*_args: object, **_kwargs: object) -> str:
+        raise BuildToolError("scan failed", exit_code=1)
+
     with pytest.raises(DevToolError, match="scan failed"):
         asset.run(
             namespace, repository_root=tmp_path, repository_context=REPOSITORY,
             stdout=io.StringIO(), stderr=io.StringIO(),
             executable_resolver=lambda _namespace, _root: executable,
-            process_runner=lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1, "", "scan failed"),
+            command_runner=failed,
         )
 
 
@@ -629,9 +649,9 @@ def test_check_invocation_is_read_only_and_missing_project_fails_before_launch(t
     before = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
     calls: list[tuple[list[str], Path]] = []
 
-    def process_runner(arguments: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+    def command_runner(arguments: list[str], **kwargs: object) -> str:
         calls.append((arguments, kwargs["cwd"]))
-        return subprocess.CompletedProcess(arguments, 0, report(), "")
+        return report()
 
     assert asset.run(
         namespace,
@@ -640,7 +660,7 @@ def test_check_invocation_is_read_only_and_missing_project_fails_before_launch(t
         stdout=io.StringIO(),
         stderr=io.StringIO(),
         executable_resolver=lambda *_args: executable,
-        process_runner=process_runner,
+        command_runner=command_runner,
     ) == 0
     after = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
     assert before == after
@@ -657,5 +677,5 @@ def test_check_invocation_is_read_only_and_missing_project_fails_before_launch(t
             stdout=io.StringIO(),
             stderr=io.StringIO(),
             executable_resolver=lambda *_args: executable,
-            process_runner=lambda *_args, **_kwargs: pytest.fail("missing project must not launch"),
+            command_runner=lambda *_args, **_kwargs: pytest.fail("missing project must not launch"),
         )
