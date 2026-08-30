@@ -123,6 +123,18 @@ namespace Durin::Editor
 	{
 		DocumentHost.RequestFocus(Document.Id);
 		if (!Object) return false;
+		if (GEditor)
+		{
+			if (DPackage* Package = Object->GetPackage())
+			{
+				FTransactionManager& Transactions = GEditor->GetTransactionManager();
+				if (!Transactions.GetPackageRevisionState(*Package))
+				{
+					if (Package->IsDirty()) Transactions.InvalidateSavedState(*Package);
+					else Transactions.EstablishSavedState(*Package);
+				}
+			}
+		}
 		ActiveResourceId = Document.ResourceId;
 		return true;
 	}
@@ -148,7 +160,11 @@ namespace Durin::Editor
 	{
 		if (!CanSave(Object) || (BeforeSave && !BeforeSave())) return false;
 		const Asset::FAssetResult Result = Asset::SavePackage(Object->GetPackage());
-		if (Result) return true;
+		if (Result)
+		{
+			if (GEditor) GEditor->GetTransactionManager().MarkSaved(*Object->GetPackage());
+			return true;
+		}
 		if (ReportError) ReportError(Result.Message);
 		return false;
 	}
@@ -158,6 +174,7 @@ namespace Durin::Editor
 	{
 		if (!CanSave(Object)) return false;
 		if (BeforeDiscard) BeforeDiscard();
+		if (GEditor) GEditor->GetTransactionManager().ForgetPackage(*Object->GetPackage());
 		Object->GetPackage()->ClearDirty();
 		return true;
 	}

@@ -1,19 +1,47 @@
+#include "Asset.h"
+#include "DObject/ObjectLifecycle.h"
+#include "DObject/Package.h"
 #include "Editor/AssetPicker.h"
+#include "Editor/EditorEngine.h"
+#include "Editor/Transaction.h"
 #include "Editor/WorkspaceManager.h"
 #include "Editor/WorkspaceRootWindow.h"
 #include "Editor/WorkspaceUI.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
+#include "Misc/Paths.h"
 #include "MonaImGui.h"
 #include "Texture/Texture.h"
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Modules/ModuleTestSupport.h"
+#include "NativeDObjectTestSupport.h"
+#include "NativeTestSupport.h"
 
 #include <gtest/gtest.h>
 
 namespace
 {
+	class FAppliedPackageEdit final : public Durin::Editor::ITransaction
+	{
+	public:
+		explicit FAppliedPackageEdit(Durin::DPackage& InPackage)
+			: Package(&InPackage)
+		{
+		}
+
+		auto GetDescription() const -> std::string_view override { return "Edit Asset"; }
+		auto GetAffectedPackages() const -> std::span<Durin::DPackage* const> override
+		{
+			return Package;
+		}
+		auto Undo() -> bool override { return true; }
+		auto Redo() -> bool override { return true; }
+
+	private:
+		std::array<Durin::DPackage*, 1> Package{};
+	};
+
 	class FTestWorkspace final : public Durin::Editor::IWorkspace
 	{
 	public:
@@ -101,6 +129,53 @@ namespace
 			.Workspace = Workspace,
 		};
 	}
+}
+
+TEST(FEditableAssetDocumentModelTests, UndoToActivatedRevisionClearsDirtyState)
+{
+	Durin::Testing::InitializeDObjectSystemForTests();
+	auto* Editor = Durin::NewObject<Durin::DEditorEngine>(
+		nullptr, "EditableAssetDocumentEditor");
+	ASSERT_NE(Editor, nullptr);
+	Durin::PathUtilities::FScopedMountRegistryFixture MountFixture;
+	Durin::PathUtilities::RegisterMountPointForTests(
+		"/EditableAssetDocumentTests/",
+		Durin::Testing::GetTestWorkDirectory().generic_string() + "/");
+	Durin::FAssetPath PackagePath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/EditableAssetDocumentTests/UndoCheckpoint", PackagePath));
+	Durin::DPackage* Package = Durin::NewObject<Durin::DPackage>(
+		nullptr, "UndoCheckpointPackage");
+	ASSERT_NE(Package, nullptr);
+	Package->InitializeAssetPackage(PackagePath);
+	Durin::DObject* Asset = Durin::NewObject<Durin::DObject>(Package, "Asset");
+	ASSERT_NE(Asset, nullptr);
+	Package->ClearDirty();
+
+	Durin::Editor::FEditableAssetDocumentModel Documents;
+	const Durin::Editor::FDocumentTab Document{
+		.Id = {1},
+		.ResourceId = "/EditableAssetDocumentTests/UndoCheckpoint",
+	};
+	ASSERT_TRUE(Documents.Activate(Document, Asset));
+	Durin::Editor::FTransactionManager& Transactions =
+		Editor->GetTransactionManager();
+	const auto OpenRevision = Transactions.GetPackageRevisionState(*Package);
+	ASSERT_TRUE(OpenRevision.has_value());
+	EXPECT_EQ(OpenRevision->CurrentRevision, OpenRevision->SavedRevision);
+
+	Package->MarkDirty();
+	ASSERT_TRUE(Transactions.CommitApplied(
+		std::make_unique<FAppliedPackageEdit>(*Package)));
+	EXPECT_TRUE(Package->IsDirty());
+	ASSERT_TRUE(Documents.Undo());
+	EXPECT_FALSE(Package->IsDirty());
+	ASSERT_TRUE(Documents.Redo());
+	EXPECT_TRUE(Package->IsDirty());
+
+	Durin::MarkObjectHierarchyAsGarbage(Package);
+	Durin::MarkAsGarbage(Editor);
+	Durin::CollectGarbage();
 }
 
 TEST(FEditorWorkspaceManagerTests, CommitsWorkspaceAndAssetEditorsAsOneBatch)

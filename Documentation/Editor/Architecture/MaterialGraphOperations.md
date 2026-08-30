@@ -67,7 +67,11 @@ coexist in a valid program.
 One user-visible command produces one global editor transaction containing the
 before/after program and presentation values. Undo and Redo restore semantic
 state through the ordinary material mutation boundary, so semantic restores
-compile while presentation-only restores do not.
+compile while presentation-only restores do not. Activating an editable asset
+document establishes its package's saved revision checkpoint, and a successful
+save advances that checkpoint. Undoing back to the open or most recently saved
+revision therefore clears the package dirty state and removes the unsaved marker;
+Redo marks it dirty again when it moves away from that checkpoint.
 
 Node and Material Output movement use `FMaterialGraphMoveSession`. Pointer-down
 captures the selection and presentation, every drag sample previews sanitized
