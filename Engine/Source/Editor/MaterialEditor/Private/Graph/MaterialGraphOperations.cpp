@@ -613,6 +613,15 @@ namespace Durin::Editor::Material
 		std::optional<EMaterialProgramValueType> SourceType)
 		-> std::vector<FMaterialGraphCatalogEntry>
 	{
+		return SearchCatalog(EnumerateCatalog(Material), Query, SourceType);
+	}
+
+	auto FMaterialGraphOperations::SearchCatalog(
+		std::span<const FMaterialGraphCatalogEntry> Catalog,
+		std::string_view Query,
+		std::optional<EMaterialProgramValueType> SourceType)
+		-> std::vector<FMaterialGraphCatalogEntry>
+	{
 		auto Lower = [](std::string_view Value) {
 			std::string Result(Value);
 			std::ranges::transform(Result, Result.begin(), [](char Character) {
@@ -629,10 +638,9 @@ namespace Durin::Editor::Material
 			size_t Ordinal = 0;
 		};
 		std::vector<FRankedEntry> Ranked;
-		std::vector<FMaterialGraphCatalogEntry> Catalog = EnumerateCatalog(Material);
 		for (size_t Ordinal = 0; Ordinal < Catalog.size(); ++Ordinal)
 		{
-			FMaterialGraphCatalogEntry& Entry = Catalog[Ordinal];
+			const FMaterialGraphCatalogEntry& Entry = Catalog[Ordinal];
 			if (SourceType)
 			{
 				if (Entry.AcceptedInputTypes.empty()
@@ -658,7 +666,7 @@ namespace Durin::Editor::Material
 				else if (Type.find(Needle) != std::string::npos)
 					Match = std::min<uint8>(Match, 2);
 			}
-			if (Match < 4) Ranked.push_back({std::move(Entry), Match, Ordinal});
+			if (Match < 4) Ranked.push_back({Entry, Match, Ordinal});
 		}
 		std::ranges::sort(Ranked, [](const FRankedEntry& A, const FRankedEntry& B) {
 			if (A.Match != B.Match) return A.Match < B.Match;

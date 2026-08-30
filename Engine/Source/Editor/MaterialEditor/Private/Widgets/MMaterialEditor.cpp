@@ -675,18 +675,10 @@ namespace Durin::Editor::Material
 			ImGui::TextDisabled("Material graph transactions are unavailable.");
 			return;
 		}
-		std::unique_ptr<FMaterialGraphCanvas>& Canvas =
-			MaterialGraphCanvases[Document.Id.Value];
-		if (!Canvas)
-		{
-			Canvas = std::make_unique<FMaterialGraphCanvas>();
-			if (const FMaterialGraphViewportState* State =
-				SessionSettings->FindViewport(Document.ResourceId))
-				Canvas->SetViewport(State->Zoom, State->Pan);
-		}
-		Canvas->Draw(*Base, GEditor->GetTransactionManager(), Height,
+		FMaterialGraphCanvas& Canvas = GetOrCreateCanvas(Document);
+		Canvas.Draw(*Base, GEditor->GetTransactionManager(), Height,
 			[this](std::string Message) { SetError(std::move(Message)); });
-		const auto [Zoom, Pan] = Canvas->GetViewport();
+		const auto [Zoom, Pan] = Canvas.GetViewport();
 		SessionSettings->SetViewport(Document.ResourceId, {.Zoom = Zoom, .Pan = Pan});
 	}
 
@@ -771,10 +763,8 @@ namespace Durin::Editor::Material
 			{
 				if (ImGui::SmallButton("Go"))
 				{
-					std::unique_ptr<FMaterialGraphCanvas>& Canvas =
-						MaterialGraphCanvases[Document.Id.Value];
-					if (!Canvas) Canvas = std::make_unique<FMaterialGraphCanvas>();
-					Canvas->SelectAndFrameDiagnostic(Diagnostic.Source);
+					GetOrCreateCanvas(Document).SelectAndFrameDiagnostic(
+						Diagnostic.Source);
 				}
 				ImGui::SameLine();
 			}
@@ -1250,6 +1240,21 @@ namespace Durin::Editor::Material
 		if (const auto It = MaterialGraphCanvases.find(DocumentId);
 			It != MaterialGraphCanvases.end())
 			It->second->CancelInteraction();
+	}
+
+	auto MMaterialEditor::GetOrCreateCanvas(
+		const ::Durin::Editor::FDocumentTab& Document) -> FMaterialGraphCanvas&
+	{
+		std::unique_ptr<FMaterialGraphCanvas>& Canvas =
+			MaterialGraphCanvases[Document.Id.Value];
+		if (!Canvas)
+		{
+			Canvas = std::make_unique<FMaterialGraphCanvas>();
+			if (const FMaterialGraphViewportState* State =
+				SessionSettings->FindViewport(Document.ResourceId))
+				Canvas->SetViewport(State->Zoom, State->Pan);
+		}
+		return *Canvas;
 	}
 
 	auto MMaterialEditor::CaptureCanvasViewport(

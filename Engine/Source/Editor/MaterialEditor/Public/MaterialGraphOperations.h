@@ -188,6 +188,11 @@ namespace Durin::Editor::Material
 			std::string_view Query,
 			std::optional<EMaterialProgramValueType> SourceType = std::nullopt)
 			-> std::vector<FMaterialGraphCatalogEntry>;
+		MATERIALEDITOR_API static auto SearchCatalog(
+			std::span<const FMaterialGraphCatalogEntry> Catalog,
+			std::string_view Query,
+			std::optional<EMaterialProgramValueType> SourceType = std::nullopt)
+			-> std::vector<FMaterialGraphCatalogEntry>;
 		MATERIALEDITOR_API static auto CreateNode(
 			DMaterial& Material,
 			FMaterialGraphCreateNodeRequest Request,

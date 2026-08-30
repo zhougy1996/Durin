@@ -82,6 +82,8 @@ namespace Durin::Editor::Material
 		auto SetError(std::string Message) -> void;
 		auto OnAssetsRelocated(
 			std::span<const Asset::FAssetRelocationMapping> Mappings) -> void override;
+		auto GetOrCreateCanvas(const ::Durin::Editor::FDocumentTab& Document)
+			-> FMaterialGraphCanvas&;
 		auto CancelCanvasInteraction(uint64 DocumentId) -> void;
 		auto CaptureCanvasViewport(const ::Durin::Editor::FDocumentTab& Document) -> void;
 

@@ -220,10 +220,17 @@ namespace Durin::Editor::Material
 		std::vector<ImVec2> InputPins;
 	};
 
+	struct FMaterialGraphCanvas::FVisualGraph
+	{
+		std::vector<FVisualNode> Nodes;
+		std::unordered_map<FGuid, size_t> Indices;
+	};
+
 	auto FMaterialGraphCanvas::SelectAndFrame(const FGuid& NodeId) -> bool
 	{
 		if (!NodeId.IsValid()) return false;
 		bMaterialOutputSelected = false;
+		SelectedSurfaceOutput.reset();
 		SelectedNodes = {NodeId};
 		PendingFrameNode = NodeId;
 		return true;
@@ -239,7 +246,8 @@ namespace Durin::Editor::Material
 			SelectedSurfaceOutput.reset();
 			return SelectAndFrame(Diagnostic.NodeId);
 		case EMaterialProgramDiagnosticLocationKind::SurfaceOutput:
-			if (Diagnostic.LocationIndex >= 9) return false;
+			if (Diagnostic.LocationIndex
+				> static_cast<uint32>(EMaterialSurfaceOutput::OpacityMask)) return false;
 			bMaterialOutputSelected = false;
 			SelectedNodes.clear();
 			SelectedSurfaceOutput =
@@ -272,6 +280,97 @@ namespace Durin::Editor::Material
 		bSurfaceDefaultDraftInitialized.fill(false);
 		bMarqueeActive = false;
 		DragStartPositions.clear();
+	}
+
+	auto FMaterialGraphCanvas::PrepareView(
+		DMaterial& Material,
+		const FReportError& ReportError) -> FMaterialGraphView
+	{
+		const uint64 AuthoredRevision =
+			Material.GetMaterialCompileStatus().AuthoredRevision;
+		if (CatalogAuthoredRevision != AuthoredRevision || Catalog.empty())
+		{
+			Catalog = FMaterialGraphOperations::EnumerateCatalog(Material);
+			CatalogAuthoredRevision = AuthoredRevision;
+		}
+		FMaterialGraphView View = FMaterialGraphOperations::Inspect(Material, Catalog);
+		if (std::ranges::any_of(View.Nodes,
+			[](const FMaterialGraphNodeView& Node) { return !Node.Presentation; }))
+		{
+			const FMaterialGraphPresentation& Source =
+				Material.GetMaterialGraphPresentation();
+			if (!bHasTransientLayout || TransientLayoutSource != Source
+				|| TransientLayoutAuthoredRevision != AuthoredRevision)
+			{
+				const FMaterialGraphCommandResult Layout =
+					FMaterialGraphOperations::CalculateLayout(
+						Material, {}, TransientLayout);
+				ReportCommand(Layout, ReportError);
+				bHasTransientLayout = static_cast<bool>(Layout);
+				if (bHasTransientLayout)
+				{
+					TransientLayoutSource = Source;
+					TransientLayoutAuthoredRevision = AuthoredRevision;
+				}
+			}
+			if (bHasTransientLayout)
+			{
+				std::unordered_map<FGuid, FMaterialGraphNodePresentation> Positions;
+				for (const FMaterialGraphNodePresentation& Position : TransientLayout.Nodes)
+					Positions.emplace(Position.NodeId, Position);
+				for (FMaterialGraphNodeView& Node : View.Nodes)
+					if (!Node.Presentation)
+						if (const auto It = Positions.find(Node.Node.Id);
+							It != Positions.end()) Node.Presentation = It->second;
+				if (!View.MaterialOutputPosition
+					&& TransientLayout.bHasMaterialOutputPosition)
+					View.MaterialOutputPosition = {
+						TransientLayout.MaterialOutputX,
+						TransientLayout.MaterialOutputY};
+			}
+		}
+		if (View.MaterialOutputPosition)
+			SurfaceGraphPosition = {
+				static_cast<float>(View.MaterialOutputPosition->first),
+				static_cast<float>(View.MaterialOutputPosition->second)};
+		else if (!SurfaceGraphPosition || SurfaceGraphRevision != AuthoredRevision)
+			SurfaceGraphPosition = SurfaceGraphMinimum(View);
+		SurfaceGraphRevision = AuthoredRevision;
+		return View;
+	}
+
+	auto FMaterialGraphCanvas::BuildVisualGraph(
+		const FMaterialGraphView& View,
+		const ImVec2& CanvasMinimum) const -> FVisualGraph
+	{
+		FVisualGraph Result;
+		Result.Nodes.reserve(View.Nodes.size());
+		for (const FMaterialGraphNodeView& Node : View.Nodes)
+		{
+			if (!Node.Presentation) continue;
+			const ImVec2 GraphPosition(
+				static_cast<float>(Node.Presentation->X),
+				static_cast<float>(Node.Presentation->Y));
+			const float NodeHeight = FMaterialGraphGeometry::GetNodeHeight(
+				static_cast<uint32>(Node.Inputs.size()));
+			FVisualNode Visual;
+			Visual.View = &Node;
+			Visual.Minimum = Add(CanvasMinimum, Add(Pan, Multiply(GraphPosition, Zoom)));
+			Visual.Maximum = Add(Visual.Minimum,
+				Multiply({NodeWidth, NodeHeight}, Zoom));
+			Visual.OutputPin = {
+				Visual.Maximum.x,
+				Visual.Minimum.y + (NodeHeaderHeight + Metrics.SecondaryHeight
+					+ NodePadding) * Zoom};
+			for (size_t Index = 0; Index < Node.Inputs.size(); ++Index)
+				Visual.InputPins.push_back({
+					Visual.Minimum.x,
+					Visual.Minimum.y + (NodeHeaderHeight + Metrics.SecondaryHeight
+						+ NodePadding + PinSpacing * Index) * Zoom});
+			Result.Indices.emplace(Node.Node.Id, Result.Nodes.size());
+			Result.Nodes.push_back(std::move(Visual));
+		}
+		return Result;
 	}
 
 	auto FMaterialGraphCanvas::FrameNodes(
@@ -359,58 +458,7 @@ namespace Durin::Editor::Material
 			ImGui::TextDisabled("%s | Wheel: zoom  MMB: pan  LMB: select/drag  Shift: add/replace",
 				DetailName);
 
-			const uint64 AuthoredRevision =
-				Material.GetMaterialCompileStatus().AuthoredRevision;
-			if (CatalogAuthoredRevision != AuthoredRevision || Catalog.empty())
-			{
-				Catalog = FMaterialGraphOperations::EnumerateCatalog(Material);
-				CatalogAuthoredRevision = AuthoredRevision;
-			}
-			FMaterialGraphView View = FMaterialGraphOperations::Inspect(
-				Material, Catalog);
-			if (std::ranges::any_of(View.Nodes,
-				[](const FMaterialGraphNodeView& Node) { return !Node.Presentation; }))
-			{
-				const FMaterialGraphPresentation& Source =
-					Material.GetMaterialGraphPresentation();
-				if (!bHasTransientLayout || TransientLayoutSource != Source
-					|| TransientLayoutAuthoredRevision != AuthoredRevision)
-				{
-					const FMaterialGraphCommandResult Layout =
-						FMaterialGraphOperations::CalculateLayout(
-							Material, {}, TransientLayout);
-					ReportCommand(Layout, ReportError);
-					bHasTransientLayout = static_cast<bool>(Layout);
-					if (bHasTransientLayout)
-					{
-						TransientLayoutSource = Source;
-						TransientLayoutAuthoredRevision = AuthoredRevision;
-					}
-				}
-				if (bHasTransientLayout)
-				{
-					std::unordered_map<FGuid, FMaterialGraphNodePresentation> Positions;
-					for (const FMaterialGraphNodePresentation& Position
-						: TransientLayout.Nodes)
-						Positions.emplace(Position.NodeId, Position);
-					for (FMaterialGraphNodeView& Node : View.Nodes)
-						if (!Node.Presentation)
-							if (const auto It = Positions.find(Node.Node.Id);
-								It != Positions.end()) Node.Presentation = It->second;
-					if (!View.MaterialOutputPosition
-						&& TransientLayout.bHasMaterialOutputPosition)
-						View.MaterialOutputPosition = {
-							TransientLayout.MaterialOutputX,
-							TransientLayout.MaterialOutputY};
-				}
-			}
-			if (View.MaterialOutputPosition)
-				SurfaceGraphPosition = {
-					static_cast<float>(View.MaterialOutputPosition->first),
-					static_cast<float>(View.MaterialOutputPosition->second)};
-			else if (!SurfaceGraphPosition || SurfaceGraphRevision != AuthoredRevision)
-				SurfaceGraphPosition = SurfaceGraphMinimum(View);
-			SurfaceGraphRevision = AuthoredRevision;
+			FMaterialGraphView View = PrepareView(Material, ReportError);
 			const ImVec2 CanvasMinimum = ImGui::GetCursorScreenPos();
 			ImVec2 CanvasSize = ImGui::GetContentRegionAvail();
 			CanvasSize.x = std::max(CanvasSize.x, 64.0f);
@@ -484,34 +532,10 @@ namespace Durin::Editor::Material
 						Add(CanvasMinimum, {CanvasSize.x, Y}), IM_COL32(48, 52, 60, 90));
 			}
 
-			std::vector<FVisualNode> VisualNodes;
-			VisualNodes.reserve(View.Nodes.size());
-			std::unordered_map<FGuid, size_t> VisualIndices;
-			for (const FMaterialGraphNodeView& Node : View.Nodes)
-			{
-				if (!Node.Presentation) continue;
-				const ImVec2 GraphPosition(
-					static_cast<float>(Node.Presentation->X),
-					static_cast<float>(Node.Presentation->Y));
-				const float NodeHeight = FMaterialGraphGeometry::GetNodeHeight(
-					static_cast<uint32>(Node.Inputs.size()));
-				FVisualNode Visual;
-				Visual.View = &Node;
-				Visual.Minimum = Add(CanvasMinimum, Add(Pan, Multiply(GraphPosition, Zoom)));
-				Visual.Maximum = Add(Visual.Minimum,
-					Multiply({NodeWidth, NodeHeight}, Zoom));
-				Visual.OutputPin = {
-					Visual.Maximum.x,
-					Visual.Minimum.y + (NodeHeaderHeight + Metrics.SecondaryHeight
-						+ NodePadding) * Zoom};
-				for (size_t Index = 0; Index < Node.Inputs.size(); ++Index)
-					Visual.InputPins.push_back({
-						Visual.Minimum.x,
-						Visual.Minimum.y + (NodeHeaderHeight + Metrics.SecondaryHeight + NodePadding
-							+ PinSpacing * Index) * Zoom});
-				VisualIndices.emplace(Node.Node.Id, VisualNodes.size());
-				VisualNodes.push_back(std::move(Visual));
-			}
+			FVisualGraph VisualGraph = BuildVisualGraph(View, CanvasMinimum);
+			const std::vector<FVisualNode>& VisualNodes = VisualGraph.Nodes;
+			const std::unordered_map<FGuid, size_t>& VisualIndices =
+				VisualGraph.Indices;
 
 			for (const FVisualNode& Destination : VisualNodes)
 				for (size_t InputIndex = 0; InputIndex < Destination.View->Inputs.size(); ++InputIndex)
@@ -1423,8 +1447,7 @@ namespace Durin::Editor::Material
 					FMaterialProgramNode Edited = ContextNodeView->Node;
 					if (ImGui::BeginMenu("Parameter"))
 					{
-						for (const FMaterialGraphCatalogEntry& Entry
-							: FMaterialGraphOperations::EnumerateCatalog(Material))
+						for (const FMaterialGraphCatalogEntry& Entry : Catalog)
 						{
 							if (Entry.NodeTemplate.Opcode != Edited.Opcode
 								|| !Entry.NodeTemplate.ParameterId.IsValid()) continue;
@@ -1586,7 +1609,7 @@ namespace Durin::Editor::Material
 					PaletteSourceType = PaletteSource->Node.ResultType;
 				std::vector<FMaterialGraphCatalogEntry> PaletteCatalog =
 					FMaterialGraphOperations::SearchCatalog(
-						Material, PaletteSearch.data(), PaletteSourceType);
+						Catalog, PaletteSearch.data(), PaletteSourceType);
 				if (PaletteSearch.front() == '\0')
 				{
 					const auto RecentRank = [this](const FMaterialGraphCatalogEntry& Entry) {

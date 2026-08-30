@@ -46,6 +46,11 @@ namespace Durin::Editor::Material
 
 	private:
 		struct FVisualNode;
+		struct FVisualGraph;
+		auto PrepareView(DMaterial& Material, const FReportError& ReportError)
+			-> FMaterialGraphView;
+		auto BuildVisualGraph(const FMaterialGraphView& View,
+			const ImVec2& CanvasMinimum) const -> FVisualGraph;
 		auto FrameNodes(const FMaterialGraphView& View,
 			const ImVec2& CanvasSize) -> void;
 

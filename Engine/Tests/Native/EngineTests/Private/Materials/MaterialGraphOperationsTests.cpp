@@ -341,8 +341,13 @@ TEST(FMaterialGraphOperationsTests, CatalogAndInspectionCoverTheClosedOpcodeDoma
 	}
 	const std::vector<FMaterialGraphCatalogEntry> MultiplyResults =
 		FMaterialGraphOperations::SearchCatalog(*Material, "multiply");
+	const std::vector<FMaterialGraphCatalogEntry> CachedMultiplyResults =
+		FMaterialGraphOperations::SearchCatalog(Catalog, "multiply");
 	ASSERT_FALSE(MultiplyResults.empty());
+	ASSERT_EQ(CachedMultiplyResults.size(), MultiplyResults.size());
 	EXPECT_EQ(MultiplyResults.front().OperationName, "Multiply");
+	EXPECT_EQ(CachedMultiplyResults.front().OperationName,
+		MultiplyResults.front().OperationName);
 	const std::vector<FMaterialGraphCatalogEntry> TextureSourceResults =
 		FMaterialGraphOperations::SearchCatalog(*Material, {},
 			EMaterialProgramValueType::Texture2D);
@@ -780,8 +785,14 @@ TEST(FMaterialGraphOperationsTests, DiagnosticNavigationIsLocatedAndDocumentLoca
 	EXPECT_TRUE(FirstCanvas.GetSelection().empty());
 	EXPECT_EQ(FirstCanvas.GetSelectedSurfaceOutput(),
 		EMaterialSurfaceOutput::Roughness);
+	EXPECT_TRUE(FirstCanvas.SelectAndFrame(FirstNode));
+	EXPECT_FALSE(FirstCanvas.GetSelectedSurfaceOutput().has_value());
 	EXPECT_FALSE(FirstCanvas.SelectAndFrameDiagnostic({
 		.LocationKind = EMaterialProgramDiagnosticLocationKind::Program,
+	}));
+	EXPECT_FALSE(FirstCanvas.SelectAndFrameDiagnostic({
+		.LocationKind = EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
+		.LocationIndex = 8,
 	}));
 	EXPECT_FALSE(FirstCanvas.SelectAndFrameDiagnostic({
 		.LocationKind = EMaterialProgramDiagnosticLocationKind::SurfaceOutput,
