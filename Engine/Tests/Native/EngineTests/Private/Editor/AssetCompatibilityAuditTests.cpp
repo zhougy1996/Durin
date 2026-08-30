@@ -1,4 +1,4 @@
-#include "Asset/AssetCompatibilityAudit.h"
+#include "AssetCompatibilityAudit.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Misc/MountPathTestSupport.h"

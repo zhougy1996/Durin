@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/AssetCompatibilityAudit.h"
+#include "AssetCompatibilityAudit.h"
 #include "AssetMaintenance/CanonicalResave.h"
 
 namespace Durin::Editor::MainFrame

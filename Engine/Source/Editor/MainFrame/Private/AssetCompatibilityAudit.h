@@ -1,6 +1,6 @@
 #pragma once
 
-#include "DurinEdAPI.h"
+#include "MainFrameAPI.h"
 #include "AssetRegistry/Catalog.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
 #include "Threading/Task.h"
@@ -43,18 +43,18 @@ namespace Durin::Editor
 		uint64 NotChecked = 0;
 	};
 
-	DURINED_API auto MatchesAssetCompatibilityAuditFilter(
+	MAINFRAME_API auto MatchesAssetCompatibilityAuditFilter(
 		const Asset::FAssetPackageCompatibilityRecord& Record,
 		EAssetCompatibilityAuditFilter Filter) -> bool;
-	DURINED_API auto MatchesAssetCompatibilityAuditSearch(
+	MAINFRAME_API auto MatchesAssetCompatibilityAuditSearch(
 		const Asset::FAssetPackageCompatibilityRecord& Record,
 		std::string_view SearchText) -> bool;
-	DURINED_API auto CountAssetCompatibilityAuditRecords(
+	MAINFRAME_API auto CountAssetCompatibilityAuditRecords(
 		std::span<const Asset::FAssetPackageCompatibilityRecord> Records)
 		-> FAssetCompatibilityAuditCounts;
-	DURINED_API auto FormatAssetCompatibilityAuditDiagnostics(
+	MAINFRAME_API auto FormatAssetCompatibilityAuditDiagnostics(
 		const Asset::FAssetPackageCompatibilityRecord& Record) -> std::string;
-	DURINED_API auto FormatAssetCompatibilityAuditReport(
+	MAINFRAME_API auto FormatAssetCompatibilityAuditReport(
 		std::span<const Asset::FAssetPackageCompatibilityRecord> Records) -> std::string;
 
 	using FAssetCompatibilityProbe = Asset::FAssetCompatibilityProbeOperation;
@@ -64,32 +64,32 @@ namespace Durin::Editor
 	class FAssetCompatibilityAuditModel
 	{
 	public:
-		DURINED_API explicit FAssetCompatibilityAuditModel(FAssetCompatibilityProbe InProbe = {});
-		DURINED_API ~FAssetCompatibilityAuditModel();
+		MAINFRAME_API explicit FAssetCompatibilityAuditModel(FAssetCompatibilityProbe InProbe = {});
+		MAINFRAME_API ~FAssetCompatibilityAuditModel();
 
 		FAssetCompatibilityAuditModel(const FAssetCompatibilityAuditModel&) = delete;
 		auto operator=(const FAssetCompatibilityAuditModel&) -> FAssetCompatibilityAuditModel& = delete;
 
-		DURINED_API auto RunCurrentProjectAudit() -> bool;
-		DURINED_API auto RunAudit(
+		MAINFRAME_API auto RunCurrentProjectAudit() -> bool;
+		MAINFRAME_API auto RunAudit(
 			const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets,
 			Asset::FReflectionCompatibilityCatalog Catalog) -> bool;
-		DURINED_API auto Cancel() -> bool;
-		DURINED_API auto CancelAndDrain() -> void;
-		DURINED_API auto ProjectChanged() -> void;
-		DURINED_API auto Shutdown() -> void;
+		MAINFRAME_API auto Cancel() -> bool;
+		MAINFRAME_API auto CancelAndDrain() -> void;
+		MAINFRAME_API auto ProjectChanged() -> void;
+		MAINFRAME_API auto Shutdown() -> void;
 
 		// Drains worker notices without scanning the registry or reading package bytes.
-		DURINED_API auto Tick() -> void;
+		MAINFRAME_API auto Tick() -> void;
 		// Reconciles paths/fingerprints against a caller-owned catalog snapshot.
 		// Callers should use the catalog revision to avoid redundant reconciliation.
-		DURINED_API auto ReconcileAssetCatalog(
+		MAINFRAME_API auto ReconcileAssetCatalog(
 			const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets) -> void;
 		// Convenience path for callers that already own a changed catalog snapshot.
-		DURINED_API auto Tick(const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets) -> void;
-		DURINED_API auto GetPresentationRecords() const
+		MAINFRAME_API auto Tick(const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets) -> void;
+		MAINFRAME_API auto GetPresentationRecords() const
 			-> const std::vector<Asset::FAssetPackageCompatibilityRecord>&;
-		DURINED_API auto FindRecord(const FAssetPath& Path) const
+		MAINFRAME_API auto FindRecord(const FAssetPath& Path) const
 			-> const Asset::FAssetPackageCompatibilityRecord*;
 
 		auto GetState() const -> EAssetCompatibilityAuditState { return State; }

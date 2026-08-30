@@ -68,7 +68,7 @@ durin_add_engine_functional_test(EditorOperationTests
 durin_add_engine_functional_test(EditorAssetWorkflowTests
 	KIND feature
 	DOMAINS asset-workflow
-	MODULES asset-maintenance asset-tools durin-ed texture-editor
+	MODULES asset-maintenance asset-tools durin-ed main-frame texture-editor
 	STACKS editor
 	PRIVATE_SOURCE_OWNER TextureEditor
 	PRIVATE_SOURCE_RATIONALE
@@ -85,7 +85,7 @@ durin_add_engine_functional_test(EditorAssetWorkflowTests
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private/Import/TextureImportDialogState.cpp
 	INCLUDE_DIRECTORIES
 		${CMAKE_SOURCE_DIR}/Engine/Source/Editor/TextureEditor/Private
-	LIBRARIES ApplicationCore MonaCore Mona MonaImGui AssetTools DurinEd StaticMeshBuild AssetForgeBuiltins bc7enc_rdo::bc7enc_rdo
+	LIBRARIES ApplicationCore MonaCore Mona MonaImGui AssetMaintenance AssetTools DurinEd MainFrame StaticMeshBuild AssetForgeBuiltins bc7enc_rdo::bc7enc_rdo
 	DATA_DIRECTORIES
 		${DURIN_PROJECT_ROOT_DIR}/Tests/Data/AssetImport
 		${CMAKE_CURRENT_SOURCE_DIR}/Data

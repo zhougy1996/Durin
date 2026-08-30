@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Asset/AssetCompatibilityAudit.h"
 #include "EditorReimportHandler.h"
 #include "Editor/Notification.h"
 #include "Editor/PropertyEditing.h"

@@ -88,7 +88,7 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | Content Browser | `ContentBrowser`, `MainFrame`, `DurinEd`, `Engine` | `LevelEditor`, `TextureEditor`, and `StaticMeshEditor` for finite built-in import dispatch; feature modules for scoped create/details/context extensions |
 | importing assets | `AssetForgeBuiltins`, `AssetTools`, `DurinEd` | `TextureBuild`, `StaticMeshBuild`, `SkeletalBuild`, or `TerrainBuild` for typed recipes; plus `Engine` and the destination runtime asset type |
 | local asset DDC request flow for StaticMesh, Texture2D/TextureCube/VolumeTexture, skeletal/animation, or Terrain | `DerivedDataCache` | `StaticMeshBuild`, `SkeletalBuild`, `TextureBuild`, or `TerrainBuild` for function inputs, recipe execution, payload validation, typed result reconstruction, and family-owned publication |
-| project compatibility audit and canonical-resave batch | `AssetMaintenance` | `Engine` for per-package schema/load validation and atomic package mechanisms; `DurinEd` and `MainFrame` for Editor task state and presentation; `AssetTools` for editor save policy |
+| project compatibility audit and canonical-resave batch | `AssetMaintenance` | `Engine` for per-package schema/load validation and atomic package mechanisms; `MainFrame` for private Editor task state and presentation; `AssetTools` for editor save policy |
 
 Engine public headers are a repository-owned module contract rather than an
 installed external SDK. They must include what they use and resolve through

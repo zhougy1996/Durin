@@ -10,7 +10,6 @@
         "Mona"
     ],
 	"PublicDependencies": [
-		"AssetMaintenance",
 		"AssetRegistry",
         "Engine",
         "RenderCore",
