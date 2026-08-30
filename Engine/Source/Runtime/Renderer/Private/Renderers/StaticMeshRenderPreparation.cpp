@@ -20,16 +20,11 @@ namespace Durin
 		checkf(!CommandList.IsInsideRenderPass(), "StaticMesh preparation must occur before the scene render pass.");
 		FPreparedStaticMeshView Result;
 		Result.Primitives.reserve(SceneInfos.size() + SplineSceneInfos.size());
-		std::vector<const FPrimitiveSceneInfo*> CombinedSceneInfos;
-		CombinedSceneInfos.reserve(SceneInfos.size() + SplineSceneInfos.size());
-		CombinedSceneInfos.insert(CombinedSceneInfos.end(), SceneInfos.begin(), SceneInfos.end());
-		CombinedSceneInfos.insert(CombinedSceneInfos.end(), SplineSceneInfos.begin(), SplineSceneInfos.end());
-		for (const FPrimitiveSceneInfo* SceneInfo : CombinedSceneInfos)
-		{
+		auto PrepareSceneInfo = [&](const FPrimitiveSceneInfo* SceneInfo) {
 			if (SceneInfo == nullptr)
 			{
 				++Result.RejectedPrimitives;
-				continue;
+				return;
 			}
 			const bool bSplineMesh = SceneInfo->GetKind() == EPrimitiveSceneProxyKind::SplineMesh;
 			++Result.VisibleCandidates;
@@ -47,7 +42,7 @@ namespace Durin
 					   != RenderData->LODResources.size())
 			{
 				++Result.RejectedPrimitives;
-				continue;
+				return;
 			}
 
 			std::vector<float> ScreenSizes;
@@ -79,7 +74,7 @@ namespace Durin
 			if (SelectedLODIndex == InvalidStaticMeshLODIndex)
 			{
 				++Result.RejectedPrimitives;
-				continue;
+				return;
 			}
 			if (SelectedLODIndex != RequestedLODIndex)
 			{
@@ -95,13 +90,13 @@ namespace Durin
 			if (!Math::IsFinite(LocalToWorld))
 			{
 				++Result.RejectedPrimitives;
-				continue;
+				return;
 			}
 			const double Determinant = Math::LinearDeterminant(LocalToWorld);
 			if (!std::isfinite(Determinant))
 			{
 				++Result.RejectedPrimitives;
-				continue;
+				return;
 			}
 
 			const uint32 PrimitiveIndex =
@@ -233,7 +228,7 @@ namespace Durin
 				Result.Primitives.pop_back();
 				Result.SelectedTriangles = FirstTriangleCount;
 				++Result.RejectedPrimitives;
-				continue;
+				return;
 			}
 			if (bSplineMesh)
 			{
@@ -255,7 +250,9 @@ namespace Durin
 			);
 			++Result.RequestedLODHistogram[RequestedLODIndex];
 			++Result.SelectedLODHistogram[SelectedLODIndex];
-		}
+		};
+		std::ranges::for_each(SceneInfos, PrepareSceneInfo);
+		std::ranges::for_each(SplineSceneInfos, PrepareSceneInfo);
 		Result.RejectedSplinePrimitives = Result.VisibleSplineCandidates
 										  - std::min(Result.VisibleSplineCandidates, Result.PreparedSplinePrimitives);
 		const auto SortingStart = std::chrono::steady_clock::now();
