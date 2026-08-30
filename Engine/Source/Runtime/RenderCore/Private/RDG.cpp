@@ -177,6 +177,123 @@ namespace Durin
 			uint32 Version = 0;
 		};
 
+		struct FLoweredParameterUse final
+		{
+			FGraphUse Use;
+			bool bPresent = false;
+		};
+
+		template<typename TextureIndex, typename BufferIndex, typename TokenIndex>
+		auto LowerParameterUse(const FRDGParameterMemberMetadata& Member,
+			const void* ElementData, std::string_view FieldPath, uint64 Owner,
+			std::span<const FGraphResource> Resources,
+			TextureIndex&& GetTextureIndex, BufferIndex&& GetBufferIndex,
+			TokenIndex&& GetTokenIndex)
+			-> FLoweredParameterUse
+		{
+			FLoweredParameterUse Result;
+			auto& Use = Result.Use;
+			Use.Kind = Member.ResourceKind;
+			Use.Use = Member.Use;
+			Use.Access = Member.Access;
+			Use.bDiscard = Member.bDiscard;
+			Use.bPassManagedTransition = Member.bPassManagedTransition;
+			Use.ResultAccess = Member.ResultAccess;
+			Use.ParameterPath = FieldPath;
+			if (Member.bShaderBinding)
+			{
+				Use.ShaderBindingName = Member.ShaderBindingName;
+				Use.ShaderBindingType = Member.ShaderBindingType;
+			}
+
+			auto Visit = [&]<typename Wrapper>(auto&& ReadWrapper) {
+				if (Member.bOptional)
+				{
+					const auto& Optional = *static_cast<
+						const std::optional<Wrapper>*>(ElementData);
+					if (!Optional.has_value()) return false;
+					ReadWrapper(*Optional);
+				}
+				else ReadWrapper(*static_cast<const Wrapper*>(ElementData));
+				return true;
+			};
+
+			switch (Member.Kind)
+			{
+			case ERDGParameterMemberKind::Texture:
+				Result.bPresent = Visit.template operator()<
+					FRDGTextureParameter>([&](const auto& Value) {
+						Use.ResourceIndex = GetTextureIndex(Value.Texture);
+						Use.TextureRange = Value.Range;
+					});
+				break;
+			case ERDGParameterMemberKind::Buffer:
+				Result.bPresent = Visit.template operator()<
+					FRDGBufferParameter>([&](const auto& Value) {
+						Use.ResourceIndex = GetBufferIndex(Value.Buffer);
+						Use.BufferOffset = Value.Offset;
+						Use.BufferSize = Value.Size;
+					});
+				break;
+			case ERDGParameterMemberKind::Token:
+				Result.bPresent = Visit.template operator()<
+					FRDGTokenParameter>([&](const auto& Value) {
+						Use.ResourceIndex = GetTokenIndex(Value.Token);
+						Use.bDiscard = Member.Use != ERDGUse::Read;
+					});
+				break;
+			case ERDGParameterMemberKind::ColorAttachment:
+			case ERDGParameterMemberKind::ManagedColorAttachment:
+				Result.bPresent = Visit.template operator()<
+					FRDGColorAttachmentParameter>([&](const auto& Value) {
+						Use.ResourceIndex = GetTextureIndex(Value.Texture);
+						Use.TextureRange = Value.Range;
+					});
+				Use.bDiscard = Member.LoadAction
+					!= ERHIRenderTargetLoadAction::Load;
+				Use.bStore = Member.StoreAction
+					== ERHIRenderTargetStoreAction::Store;
+				break;
+			case ERDGParameterMemberKind::DepthStencilAttachment:
+			case ERDGParameterMemberKind::ManagedDepthStencilAttachment:
+				Result.bPresent = Visit.template operator()<
+					FRDGDepthStencilAttachmentParameter>([&](const auto& Value) {
+						Use.ResourceIndex = GetTextureIndex(Value.Texture);
+						Use.TextureRange = Value.Range;
+					});
+				Use.bDiscard = Member.LoadAction
+					!= ERHIRenderTargetLoadAction::Load;
+				Use.bStore = Member.StoreAction
+					== ERHIRenderTargetStoreAction::Store;
+				break;
+			case ERDGParameterMemberKind::ManagedTexture:
+				Result.bPresent = Visit.template operator()<
+					FRDGManagedTextureParameter>([&](const auto& Value) {
+						Use.ResourceIndex = GetTextureIndex(Value.Texture);
+						Use.TextureRange = Value.Range;
+					});
+				break;
+			case ERDGParameterMemberKind::ValueRead:
+			case ERDGParameterMemberKind::ValueWrite:
+			{
+				uint64 ValueOwner = 0;
+				uint32 Index = 0;
+				Result.bPresent = Member.ReadValueHandle != nullptr
+					&& Member.ReadValueHandle(ElementData, ValueOwner, Index);
+				Use.ResourceIndex = ValueOwner == Owner
+					? Index : std::numeric_limits<uint32>::max();
+				Use.bDiscard = Member.Use == ERDGUse::Write;
+				if (Result.bPresent && (Index >= Resources.size()
+					|| Resources[Index].ValueTypeIdentity
+						!= Member.ValueTypeIdentity))
+					Use.ResourceIndex = std::numeric_limits<uint32>::max();
+				break;
+			}
+			case ERDGParameterMemberKind::Nested: break;
+			}
+			return Result;
+		}
+
 		auto IsWriteUse(ERDGUse Use) -> bool
 		{
 			return Use != ERDGUse::Read;
@@ -873,6 +990,339 @@ namespace Durin
 			}
 			return true;
 		}
+
+		using FResourceUseTable = std::vector<std::vector<const FGraphUse*>>;
+
+		// Carries the mutable scheduling state shared by dependency analysis and
+		// stable topological ordering.
+		struct FDependencyGraph final
+		{
+			std::vector<std::vector<uint32>> Outgoing;
+			std::vector<uint32> Indegree;
+			std::vector<FRDGDependency> Dependencies;
+		};
+
+		auto AddDependencyEdge(FDependencyGraph& Graph, uint32 Before,
+			uint32 After, const std::string& Cause, ERDGDependencyKind Kind) -> void
+		{
+			auto Existing = std::ranges::find_if(Graph.Dependencies,
+				[&](const auto& Edge) {
+					return Edge.BeforePass == Before && Edge.AfterPass == After;
+				});
+			if (Existing != Graph.Dependencies.end())
+			{
+				if (Existing->Kind == ERDGDependencyKind::Execution
+					&& Kind != ERDGDependencyKind::Execution)
+				{
+					Existing->Kind = Kind;
+					Existing->Cause = Cause;
+				}
+				return;
+			}
+			Graph.Outgoing[Before].push_back(After);
+			++Graph.Indegree[After];
+			Graph.Dependencies.push_back({Before, After, Cause, Kind});
+		}
+
+		auto ValidateGraphResources(std::span<const FGraphResource> Resources)
+			-> std::string
+		{
+			for (uint32 ResourceIndex = 0; ResourceIndex < Resources.size();
+				++ResourceIndex)
+			{
+				const auto& Resource = Resources[ResourceIndex];
+				if (Resource.Name.empty())
+					return "resource[" + std::to_string(ResourceIndex)
+						+ "] has an empty name";
+				if (Resource.bExternal && !Resource.Texture && !Resource.Buffer)
+					return "resource '" + Resource.Name
+						+ "' has no physical resource";
+				if (Resource.bExternal && Resource.FinalAccess == ERHIAccess::None)
+					return "external resource '" + Resource.Name
+						+ "' has no final access";
+				if (EnumHasAnyFlags(Resource.FinalAccess, ERHIAccess::Discard))
+					return "resource '" + Resource.Name
+						+ "' has invalid final access";
+				for (uint32 Other = 0; Other < ResourceIndex; ++Other)
+					if (Resources[Other].Name == Resource.Name)
+						return "duplicate resource name '" + Resource.Name + "'";
+			}
+			return {};
+		}
+
+		auto ValidateGraphPasses(std::span<const FGraphPass> Passes,
+			std::span<const FGraphResource> Resources,
+			FDependencyGraph& Graph) -> std::string
+		{
+			for (uint32 PassIndex = 0; PassIndex < Passes.size(); ++PassIndex)
+			{
+				const auto& Pass = Passes[PassIndex];
+				if (Pass.Name.empty())
+					return "pass[" + std::to_string(PassIndex)
+						+ "] has an empty name";
+				for (uint32 Other = 0; Other < PassIndex; ++Other)
+					if (Passes[Other].Name == Pass.Name)
+						return "duplicate pass name '" + Pass.Name + "'";
+				for (uint32 Prerequisite : Pass.Prerequisites)
+				{
+					if (Prerequisite >= Passes.size())
+						return "pass '" + Pass.Name
+							+ "' has an invalid prerequisite";
+					AddDependencyEdge(Graph, Prerequisite, PassIndex, "explicit",
+						ERDGDependencyKind::Explicit);
+				}
+				std::string UseError;
+				if (!ValidatePassUses(Pass, Resources, UseError))
+					return UseError;
+			}
+			return {};
+		}
+
+		auto BuildResourceUseTable(std::span<const FGraphPass> Passes,
+			uint32 ResourceCount) -> FResourceUseTable
+		{
+			FResourceUseTable ResourceUses(ResourceCount);
+			std::vector<size_t> ResourceUseCounts(ResourceCount, 0);
+			for (const auto& Pass : Passes)
+				for (const auto& Use : Pass.Uses)
+					++ResourceUseCounts[Use.ResourceIndex];
+			for (uint32 ResourceIndex = 0; ResourceIndex < ResourceCount;
+				++ResourceIndex)
+				ResourceUses[ResourceIndex].reserve(
+					ResourceUseCounts[ResourceIndex]);
+			for (const auto& Pass : Passes)
+				for (const auto& Use : Pass.Uses)
+					ResourceUses[Use.ResourceIndex].push_back(&Use);
+			return ResourceUses;
+		}
+
+		auto ValidateTypedValueWriters(
+			std::span<const FGraphResource> Resources,
+			const FResourceUseTable& ResourceUses) -> std::string
+		{
+			for (uint32 ResourceIndex = 0; ResourceIndex < Resources.size();
+				++ResourceIndex)
+			{
+				const auto& Resource = Resources[ResourceIndex];
+				if (Resource.ValueTypeIdentity == nullptr) continue;
+				const size_t Writers = std::ranges::count_if(
+					ResourceUses[ResourceIndex], [](const FGraphUse* Use) {
+						return Use->Use == ERDGUse::Write;
+					});
+				if (Writers != 1)
+					return "typed value '" + Resource.Name + "' type '"
+						+ Resource.ValueTypeName
+						+ "' requires exactly one writer; actual="
+						+ std::to_string(Writers);
+			}
+			return {};
+		}
+
+		auto BuildRangeCells(std::span<const FGraphResource> Resources,
+			const FResourceUseTable& ResourceUses, size_t DeclaredUseCount)
+			-> std::vector<FRangeState>
+		{
+			std::vector<FRangeState> Cells;
+			Cells.reserve(DeclaredUseCount);
+			for (uint32 ResourceIndex = 0; ResourceIndex < Resources.size();
+				++ResourceIndex)
+			{
+				const auto& Resource = Resources[ResourceIndex];
+				const auto& Uses = ResourceUses[ResourceIndex];
+				if (Uses.empty()) continue;
+				if (Resource.Kind == ERDGResourceKind::Token)
+				{
+					FRangeState Cell;
+					Cell.Use = *Uses.front();
+					Cell.bProduced = Resource.bExternal;
+					Cell.Access = Resource.InitialAccess;
+					Cells.push_back(std::move(Cell));
+					continue;
+				}
+				if (Resource.Kind == ERDGResourceKind::Buffer)
+				{
+					std::vector<uint64> Cuts;
+					for (const FGraphUse* Use : Uses)
+					{
+						Cuts.push_back(Use->BufferOffset);
+						Cuts.push_back(Use->BufferOffset + Use->BufferSize);
+					}
+					std::ranges::sort(Cuts);
+					Cuts.erase(std::unique(Cuts.begin(), Cuts.end()), Cuts.end());
+					for (size_t Index = 1; Index < Cuts.size(); ++Index)
+					{
+						FGraphUse CellUse = *Uses.front();
+						CellUse.BufferOffset = Cuts[Index - 1];
+						CellUse.BufferSize = Cuts[Index] - Cuts[Index - 1];
+						if (!std::ranges::any_of(Uses,
+							[&](const FGraphUse* Use) {
+								return ContainsRange(*Use, CellUse);
+							}))
+							continue;
+						FRangeState Cell;
+						Cell.Use = CellUse;
+						Cell.bProduced = Resource.bExternal;
+						Cell.Access = Resource.InitialAccess;
+						Cells.push_back(std::move(Cell));
+					}
+					continue;
+				}
+				for (ERHITextureAspect Aspect : {ERHITextureAspect::Color,
+					ERHITextureAspect::Depth, ERHITextureAspect::Stencil})
+				{
+					std::vector<uint32> MipCuts;
+					std::vector<uint32> LayerCuts;
+					for (const FGraphUse* Use : Uses)
+						if (EnumHasAnyFlags(Use->TextureRange.Aspects, Aspect))
+						{
+							MipCuts.push_back(Use->TextureRange.FirstMip);
+							MipCuts.push_back(Use->TextureRange.FirstMip
+								+ Use->TextureRange.NumMips);
+							LayerCuts.push_back(Use->TextureRange.FirstArrayLayer);
+							LayerCuts.push_back(Use->TextureRange.FirstArrayLayer
+								+ Use->TextureRange.NumArrayLayers);
+						}
+					std::ranges::sort(MipCuts);
+					std::ranges::sort(LayerCuts);
+					MipCuts.erase(std::unique(MipCuts.begin(), MipCuts.end()),
+						MipCuts.end());
+					LayerCuts.erase(std::unique(LayerCuts.begin(), LayerCuts.end()),
+						LayerCuts.end());
+					for (size_t Mip = 1; Mip < MipCuts.size(); ++Mip)
+						for (size_t Layer = 1; Layer < LayerCuts.size(); ++Layer)
+						{
+							FGraphUse CellUse = *Uses.front();
+							CellUse.TextureRange = {Aspect, MipCuts[Mip - 1],
+								MipCuts[Mip] - MipCuts[Mip - 1],
+								LayerCuts[Layer - 1],
+								LayerCuts[Layer] - LayerCuts[Layer - 1]};
+							if (!std::ranges::any_of(Uses,
+								[&](const FGraphUse* Use) {
+									return ContainsRange(*Use, CellUse);
+								}))
+								continue;
+							FRangeState Cell;
+							Cell.Use = CellUse;
+							Cell.bProduced = Resource.bExternal;
+							Cell.Access = Resource.InitialAccess;
+							Cells.push_back(std::move(Cell));
+						}
+				}
+			}
+			return Cells;
+		}
+
+		auto BuildHazardDependencies(std::span<const FGraphPass> Passes,
+			std::span<const FGraphResource> Resources,
+			std::vector<FRangeState>& Cells, FDependencyGraph& Graph)
+			-> std::string
+		{
+			for (uint32 PassIndex = 0; PassIndex < Passes.size(); ++PassIndex)
+				for (const auto& Use : Passes[PassIndex].Uses)
+					for (auto& Cell : Cells)
+					{
+						if (!ContainsRange(Use, Cell.Use)) continue;
+						const auto& Resource = Resources[Use.ResourceIndex];
+						if (Use.Use != ERDGUse::Write && !Use.bDiscard
+							&& !Cell.bProduced)
+							return PassUsePrefix(Passes[PassIndex], Use)
+								+ " reads resource '" + Resource.Name
+								+ "' before its producer";
+						if (Use.Use == ERDGUse::Read)
+						{
+							if (Cell.Producer != std::numeric_limits<uint32>::max())
+								AddDependencyEdge(Graph, Cell.Producer, PassIndex,
+									Resource.Name, ERDGDependencyKind::Value);
+							if (std::ranges::find(Cell.Readers, PassIndex)
+								== Cell.Readers.end())
+								Cell.Readers.push_back(PassIndex);
+							continue;
+						}
+						if (Use.Use == ERDGUse::ReadWrite && !Use.bDiscard
+							&& Cell.Producer != std::numeric_limits<uint32>::max())
+							AddDependencyEdge(Graph, Cell.Producer, PassIndex,
+								Resource.Name, ERDGDependencyKind::Value);
+						for (uint32 Reader : Cell.Readers)
+							AddDependencyEdge(Graph, Reader, PassIndex, Resource.Name,
+								ERDGDependencyKind::Execution);
+						if (Cell.Readers.empty()
+							&& Cell.Producer != std::numeric_limits<uint32>::max())
+							AddDependencyEdge(Graph, Cell.Producer, PassIndex,
+								Resource.Name, ERDGDependencyKind::Execution);
+						++Cell.Version;
+						Cell.Producer = Use.bStore
+							? PassIndex : std::numeric_limits<uint32>::max();
+						Cell.bProduced = Use.bStore;
+						Cell.Readers.clear();
+					}
+			return {};
+		}
+
+		auto BuildStablePassOrder(FDependencyGraph& Graph, uint32 PassCount,
+			std::vector<uint32>& OutOrder) -> std::string
+		{
+			OutOrder.reserve(PassCount);
+			std::vector<bool> Emitted(PassCount, false);
+			while (OutOrder.size() < PassCount)
+			{
+				uint32 Selected = PassCount;
+				for (uint32 Index = 0; Index < PassCount; ++Index)
+					if (!Emitted[Index] && Graph.Indegree[Index] == 0)
+					{
+						Selected = Index;
+						break;
+					}
+				if (Selected == PassCount)
+					return "graph contains a dependency cycle";
+				Emitted[Selected] = true;
+				OutOrder.push_back(Selected);
+				for (uint32 After : Graph.Outgoing[Selected])
+					--Graph.Indegree[After];
+			}
+			return {};
+		}
+
+		auto FindRetainedPasses(std::span<const FGraphPass> Passes,
+			std::span<const FGraphExtraction> Extractions,
+			std::span<const FRangeState> Cells,
+			std::span<const FRDGDependency> Dependencies, bool bEnableCulling)
+			-> std::vector<bool>
+		{
+			std::vector<bool> Retained(Passes.size(), !bEnableCulling);
+			if (!bEnableCulling) return Retained;
+
+			std::vector<uint32> Pending;
+			Pending.reserve(Passes.size());
+			for (uint32 Index = 0; Index < Passes.size(); ++Index)
+				if (Passes[Index].bRoot)
+				{
+					Retained[Index] = true;
+					Pending.push_back(Index);
+				}
+			for (const FGraphExtraction& Extraction : Extractions)
+				for (const FRangeState& Cell : Cells)
+					if (Cell.Use.ResourceIndex == Extraction.ResourceIndex
+						&& Cell.Producer != std::numeric_limits<uint32>::max()
+						&& !Retained[Cell.Producer])
+					{
+						Retained[Cell.Producer] = true;
+						Pending.push_back(Cell.Producer);
+					}
+			while (!Pending.empty())
+			{
+				const uint32 After = Pending.back();
+				Pending.pop_back();
+				for (const auto& Edge : Dependencies)
+					if (Edge.AfterPass == After
+						&& Edge.Kind != ERDGDependencyKind::Execution
+						&& !Retained[Edge.BeforePass])
+					{
+						Retained[Edge.BeforePass] = true;
+						Pending.push_back(Edge.BeforePass);
+					}
+			}
+			return Retained;
+		}
 	} // namespace
 
 	auto BuildRDGParameterLayout(const FRDGParametersMetadata* Metadata,
@@ -1405,146 +1855,43 @@ namespace Durin
 				}
 			}
 
-					FGraphUse DeclaredUse;
-					DeclaredUse.Kind = Member.ResourceKind;
-					DeclaredUse.Use = Member.Use;
-					DeclaredUse.Access = Member.Access;
-					DeclaredUse.bDiscard = Member.bDiscard;
-					DeclaredUse.bPassManagedTransition =
-						Member.bPassManagedTransition;
-					DeclaredUse.ResultAccess = Member.ResultAccess;
-					DeclaredUse.ParameterPath = FieldPath;
-					if (Member.bShaderBinding)
-					{
-						DeclaredUse.ShaderBindingName = Member.ShaderBindingName;
-						DeclaredUse.ShaderBindingType = Member.ShaderBindingType;
-					}
-
-					auto Visit = [&]<typename Wrapper>(auto&& ReadWrapper) {
-						if (Member.bOptional)
-						{
-							const auto& Optional = *static_cast<
-								const std::optional<Wrapper>*>(ElementData);
-							if (!Optional.has_value()) return false;
-							ReadWrapper(*Optional);
-						}
-						else ReadWrapper(*static_cast<const Wrapper*>(ElementData));
-						return true;
-					};
-
-					bool bPresent = false;
-					switch (Member.Kind)
-					{
-					case ERDGParameterMemberKind::Texture:
-						bPresent = Visit.template operator()<
-							FRDGTextureParameter>([&](const auto& Value) {
-								DeclaredUse.ResourceIndex = Value.Texture.Owner
-									== State->Owner ? Value.Texture.Index
-									: std::numeric_limits<uint32>::max();
-								DeclaredUse.TextureRange = Value.Range;
-							});
-						break;
-					case ERDGParameterMemberKind::Buffer:
-						bPresent = Visit.template operator()<
-							FRDGBufferParameter>([&](const auto& Value) {
-								DeclaredUse.ResourceIndex = Value.Buffer.Owner
-									== State->Owner ? Value.Buffer.Index
-									: std::numeric_limits<uint32>::max();
-								DeclaredUse.BufferOffset = Value.Offset;
-								DeclaredUse.BufferSize = Value.Size;
-							});
-						break;
-					case ERDGParameterMemberKind::Token:
-						bPresent = Visit.template operator()<
-							FRDGTokenParameter>([&](const auto& Value) {
-								DeclaredUse.ResourceIndex = Value.Token.Owner
-									== State->Owner ? Value.Token.Index
-									: std::numeric_limits<uint32>::max();
-								DeclaredUse.bDiscard = Member.Use
-									!= ERDGUse::Read;
-							});
-						break;
-					case ERDGParameterMemberKind::ColorAttachment:
-					case ERDGParameterMemberKind::ManagedColorAttachment:
-						bPresent = Visit.template operator()<
-							FRDGColorAttachmentParameter>(
-							[&](const auto& Value) {
-								DeclaredUse.ResourceIndex = Value.Texture.Owner
-									== State->Owner ? Value.Texture.Index
-									: std::numeric_limits<uint32>::max();
-								DeclaredUse.TextureRange = Value.Range;
-							});
-						DeclaredUse.bDiscard = Member.LoadAction
-							!= ERHIRenderTargetLoadAction::Load;
-						DeclaredUse.bStore = Member.StoreAction
-							== ERHIRenderTargetStoreAction::Store;
-						break;
-					case ERDGParameterMemberKind::DepthStencilAttachment:
-					case ERDGParameterMemberKind::ManagedDepthStencilAttachment:
-						bPresent = Visit.template operator()<
-							FRDGDepthStencilAttachmentParameter>(
-							[&](const auto& Value) {
-								DeclaredUse.ResourceIndex = Value.Texture.Owner
-									== State->Owner ? Value.Texture.Index
-									: std::numeric_limits<uint32>::max();
-								DeclaredUse.TextureRange = Value.Range;
-							});
-						DeclaredUse.bDiscard = Member.LoadAction
-							!= ERHIRenderTargetLoadAction::Load;
-						DeclaredUse.bStore = Member.StoreAction
-							== ERHIRenderTargetStoreAction::Store;
-						break;
-					case ERDGParameterMemberKind::ManagedTexture:
-						bPresent = Visit.template operator()<
-							FRDGManagedTextureParameter>([&](const auto& Value) {
-								DeclaredUse.ResourceIndex = Value.Texture.Owner
-									== State->Owner ? Value.Texture.Index
-									: std::numeric_limits<uint32>::max();
-								DeclaredUse.TextureRange = Value.Range;
-							});
-						break;
-					case ERDGParameterMemberKind::ValueRead:
-					case ERDGParameterMemberKind::ValueWrite:
-					{
-						uint64 Owner = 0;
-						uint32 Index = 0;
-						bPresent = Member.ReadValueHandle != nullptr
-							&& Member.ReadValueHandle(ElementData, Owner, Index);
-						DeclaredUse.ResourceIndex = Owner == State->Owner
-							? Index : std::numeric_limits<uint32>::max();
-						DeclaredUse.bDiscard = Member.Use == ERDGUse::Write;
-						if (bPresent && (Index >= State->Resources.size()
-							|| State->Resources[Index].ValueTypeIdentity
-								!= Member.ValueTypeIdentity))
-							DeclaredUse.ResourceIndex =
-								std::numeric_limits<uint32>::max();
-						break;
-					}
-					case ERDGParameterMemberKind::Nested: break;
-					}
-					ParameterizedPass.ParameterCaptures.push_back({
-						.FieldPath = FieldPath,
-						.Kind = Member.Kind,
-						.ResourceKind = Member.ResourceKind,
-						.bPresent = bPresent,
-						.ResourceId = bPresent ? DeclaredUse.ResourceIndex
-							: std::numeric_limits<uint32>::max(),
-						.Use = DeclaredUse.Use,
-						.Access = DeclaredUse.Access,
-						.TextureRange = DeclaredUse.TextureRange,
-						.BufferOffset = DeclaredUse.BufferOffset,
-						.BufferSize = DeclaredUse.BufferSize,
-						.bDiscard = DeclaredUse.bDiscard,
-						.bStore = DeclaredUse.bStore,
-						.bPassManagedTransition =
-							DeclaredUse.bPassManagedTransition,
-						.ResultAccess = DeclaredUse.ResultAccess,
-						.ShaderBindingName = std::string(
-							DeclaredUse.ShaderBindingName),
-						.ShaderBindingType = DeclaredUse.ShaderBindingType,
-					});
-					if (bPresent)
-						ParameterizedPass.Uses.push_back(std::move(DeclaredUse));
+			FLoweredParameterUse Lowered = LowerParameterUse(Member,
+				ElementData, FieldPath, State->Owner, State->Resources,
+				[&](FRDGTextureHandle Handle) {
+					return Handle.Owner == State->Owner ? Handle.Index
+						: std::numeric_limits<uint32>::max();
+				},
+				[&](FRDGBufferHandle Handle) {
+					return Handle.Owner == State->Owner ? Handle.Index
+						: std::numeric_limits<uint32>::max();
+				},
+				[&](FRDGTokenHandle Handle) {
+					return Handle.Owner == State->Owner ? Handle.Index
+						: std::numeric_limits<uint32>::max();
+				});
+			const FGraphUse& DeclaredUse = Lowered.Use;
+			ParameterizedPass.ParameterCaptures.push_back({
+				.FieldPath = FieldPath,
+				.Kind = Member.Kind,
+				.ResourceKind = Member.ResourceKind,
+				.bPresent = Lowered.bPresent,
+				.ResourceId = Lowered.bPresent ? DeclaredUse.ResourceIndex
+					: std::numeric_limits<uint32>::max(),
+				.Use = DeclaredUse.Use,
+				.Access = DeclaredUse.Access,
+				.TextureRange = DeclaredUse.TextureRange,
+				.BufferOffset = DeclaredUse.BufferOffset,
+				.BufferSize = DeclaredUse.BufferSize,
+				.bDiscard = DeclaredUse.bDiscard,
+				.bStore = DeclaredUse.bStore,
+				.bPassManagedTransition = DeclaredUse.bPassManagedTransition,
+				.ResultAccess = DeclaredUse.ResultAccess,
+				.ShaderBindingName = std::string(
+					DeclaredUse.ShaderBindingName),
+				.ShaderBindingType = DeclaredUse.ShaderBindingType,
+			});
+			if (Lowered.bPresent)
+				ParameterizedPass.Uses.push_back(std::move(Lowered.Use));
 		}
 		std::ranges::sort(OptionalAliases);
 		ParameterizedPass.OptionalAliases = FOptionalAliasTable(OptionalAliases);
@@ -1785,25 +2132,9 @@ namespace Durin
 			return Fail("render graph parameter storage was already transferred");
 		if (State->bValueStorageTransferred)
 			return Fail("render graph value storage was already transferred");
-		for (uint32 ResourceIndex = 0; ResourceIndex < State->Resources.size(); ++ResourceIndex)
-		{
-			const auto& Resource = State->Resources[ResourceIndex];
-			if (Resource.Name.empty())
-				return Fail("resource[" + std::to_string(ResourceIndex) + "] has an empty name");
-			if (Resource.bExternal
-				&& !Resource.Texture && !Resource.Buffer)
-				return Fail("resource '" + Resource.Name + "' has no physical resource");
-			if (Resource.bExternal && Resource.FinalAccess == ERHIAccess::None)
-				return Fail("external resource '" + Resource.Name + "' has no final access");
-			if (EnumHasAnyFlags(Resource.FinalAccess, ERHIAccess::Discard))
-				return Fail("resource '" + Resource.Name + "' has invalid final access");
-			for (uint32 Other = 0; Other < ResourceIndex; ++Other)
-			{
-				const auto& Previous = State->Resources[Other];
-				if (Previous.Name == Resource.Name)
-					return Fail("duplicate resource name '" + Resource.Name + "'");
-			}
-		}
+		if (std::string Error = ValidateGraphResources(State->Resources);
+			!Error.empty())
+			return Fail(std::move(Error));
 
 		const uint32 PassCount = static_cast<uint32>(State->Passes.size());
 		const uint32 ResourceCount = static_cast<uint32>(State->Resources.size());
@@ -1817,231 +2148,37 @@ namespace Durin
 		if (PassCount > State->Budget.MaxPasses)
 			return Fail("render graph safety limit exceeded: passes actual="
 				+ std::to_string(PassCount) + " limit=" + std::to_string(State->Budget.MaxPasses));
-		std::vector<std::vector<uint32>> Outgoing(PassCount);
-		std::vector<uint32> Indegree(PassCount, 0);
-		std::vector<FRDGDependency> Dependencies;
-		Dependencies.reserve(ExplicitDependencyCount + DeclaredUseCount);
-		auto AddEdge = [&](uint32 Before, uint32 After, const std::string& Cause,
-			ERDGDependencyKind Kind) {
-			auto Existing = std::ranges::find_if(Dependencies, [&](const auto& Edge) {
-				return Edge.BeforePass == Before && Edge.AfterPass == After;
-			});
-			if (Existing != Dependencies.end())
-			{
-				if (Existing->Kind == ERDGDependencyKind::Execution
-					&& Kind != ERDGDependencyKind::Execution)
-				{
-					Existing->Kind = Kind;
-					Existing->Cause = Cause;
-				}
-				return;
-			}
-			Outgoing[Before].push_back(After);
-			++Indegree[After];
-			Dependencies.push_back({Before, After, Cause, Kind});
+		FDependencyGraph DependencyGraph{
+			.Outgoing = std::vector<std::vector<uint32>>(PassCount),
+			.Indegree = std::vector<uint32>(PassCount, 0),
 		};
+		DependencyGraph.Dependencies.reserve(
+			ExplicitDependencyCount + DeclaredUseCount);
+		if (std::string Error = ValidateGraphPasses(State->Passes,
+			State->Resources, DependencyGraph); !Error.empty())
+			return Fail(std::move(Error));
 
-		for (uint32 PassIndex = 0; PassIndex < PassCount; ++PassIndex)
-		{
-			const auto& Pass = State->Passes[PassIndex];
-			if (Pass.Name.empty())
-				return Fail("pass[" + std::to_string(PassIndex) + "] has an empty name");
-			for (uint32 Other = 0; Other < PassIndex; ++Other)
-				if (State->Passes[Other].Name == Pass.Name)
-					return Fail("duplicate pass name '" + Pass.Name + "'");
-			for (uint32 Prerequisite : Pass.Prerequisites)
-			{
-				if (Prerequisite >= PassCount)
-					return Fail("pass '" + Pass.Name + "' has an invalid prerequisite");
-				AddEdge(Prerequisite, PassIndex, "explicit", ERDGDependencyKind::Explicit);
-			}
-			std::string UseError;
-			if (!ValidatePassUses(Pass, State->Resources, UseError))
-				return Fail(std::move(UseError));
-		}
+		const FResourceUseTable ResourceUses = BuildResourceUseTable(
+			State->Passes, ResourceCount);
+		if (std::string Error = ValidateTypedValueWriters(State->Resources,
+			ResourceUses); !Error.empty())
+			return Fail(std::move(Error));
 
-		std::vector<std::vector<const FGraphUse*>> ResourceUses(ResourceCount);
-		std::vector<size_t> ResourceUseCounts(ResourceCount, 0);
-		for (const auto& Pass : State->Passes)
-			for (const auto& Use : Pass.Uses)
-				++ResourceUseCounts[Use.ResourceIndex];
-		for (uint32 ResourceIndex = 0; ResourceIndex < ResourceCount; ++ResourceIndex)
-			ResourceUses[ResourceIndex].reserve(ResourceUseCounts[ResourceIndex]);
-		for (const auto& Pass : State->Passes)
-			for (const auto& Use : Pass.Uses)
-				ResourceUses[Use.ResourceIndex].push_back(&Use);
-		for (uint32 ResourceIndex = 0; ResourceIndex < ResourceCount;
-			++ResourceIndex)
-		{
-			const auto& Resource = State->Resources[ResourceIndex];
-			if (Resource.ValueTypeIdentity == nullptr) continue;
-			const size_t Writers = std::ranges::count_if(
-				ResourceUses[ResourceIndex], [](const FGraphUse* Use) {
-					return Use->Use == ERDGUse::Write;
-				});
-			if (Writers != 1)
-				return Fail("typed value '" + Resource.Name + "' type '"
-					+ Resource.ValueTypeName + "' requires exactly one writer; actual="
-					+ std::to_string(Writers));
-		}
+		std::vector<FRangeState> Cells = BuildRangeCells(State->Resources,
+			ResourceUses, DeclaredUseCount);
 
-		std::vector<FRangeState> Cells;
-		Cells.reserve(DeclaredUseCount);
-		for (uint32 ResourceIndex = 0; ResourceIndex < ResourceCount; ++ResourceIndex)
-		{
-			const auto& Resource = State->Resources[ResourceIndex];
-			const auto& Uses = ResourceUses[ResourceIndex];
-			if (Uses.empty()) continue;
-			if (Resource.Kind == ERDGResourceKind::Token)
-			{
-				FRangeState Cell;
-				Cell.Use = *Uses.front();
-				Cell.bProduced = Resource.bExternal;
-				Cell.Access = Resource.InitialAccess;
-				Cells.push_back(std::move(Cell));
-				continue;
-			}
-			if (Resource.Kind == ERDGResourceKind::Buffer)
-			{
-				std::vector<uint64> Cuts;
-				for (const FGraphUse* Use : Uses)
-				{
-					Cuts.push_back(Use->BufferOffset);
-					Cuts.push_back(Use->BufferOffset + Use->BufferSize);
-				}
-				std::ranges::sort(Cuts);
-				Cuts.erase(std::unique(Cuts.begin(), Cuts.end()), Cuts.end());
-				for (size_t Index = 1; Index < Cuts.size(); ++Index)
-				{
-					FGraphUse CellUse = *Uses.front();
-					CellUse.BufferOffset = Cuts[Index - 1];
-					CellUse.BufferSize = Cuts[Index] - Cuts[Index - 1];
-					if (!std::ranges::any_of(Uses,
-						[&](const FGraphUse* Use) { return ContainsRange(*Use, CellUse); }))
-						continue;
-					FRangeState Cell;
-					Cell.Use = CellUse;
-					Cell.bProduced = Resource.bExternal;
-					Cell.Access = Resource.InitialAccess;
-					Cells.push_back(std::move(Cell));
-				}
-				continue;
-			}
-			for (ERHITextureAspect Aspect : {ERHITextureAspect::Color,
-				ERHITextureAspect::Depth, ERHITextureAspect::Stencil})
-			{
-				std::vector<uint32> MipCuts;
-				std::vector<uint32> LayerCuts;
-				for (const FGraphUse* Use : Uses)
-					if (EnumHasAnyFlags(Use->TextureRange.Aspects, Aspect))
-					{
-						MipCuts.push_back(Use->TextureRange.FirstMip);
-						MipCuts.push_back(Use->TextureRange.FirstMip + Use->TextureRange.NumMips);
-						LayerCuts.push_back(Use->TextureRange.FirstArrayLayer);
-						LayerCuts.push_back(Use->TextureRange.FirstArrayLayer + Use->TextureRange.NumArrayLayers);
-					}
-				std::ranges::sort(MipCuts);
-				std::ranges::sort(LayerCuts);
-				MipCuts.erase(std::unique(MipCuts.begin(), MipCuts.end()), MipCuts.end());
-				LayerCuts.erase(std::unique(LayerCuts.begin(), LayerCuts.end()), LayerCuts.end());
-				for (size_t Mip = 1; Mip < MipCuts.size(); ++Mip)
-					for (size_t Layer = 1; Layer < LayerCuts.size(); ++Layer)
-					{
-						FGraphUse CellUse = *Uses.front();
-						CellUse.TextureRange = {Aspect, MipCuts[Mip - 1],
-							MipCuts[Mip] - MipCuts[Mip - 1], LayerCuts[Layer - 1],
-							LayerCuts[Layer] - LayerCuts[Layer - 1]};
-						if (!std::ranges::any_of(Uses,
-							[&](const FGraphUse* Use) { return ContainsRange(*Use, CellUse); }))
-							continue;
-						FRangeState Cell;
-						Cell.Use = CellUse;
-						Cell.bProduced = Resource.bExternal;
-						Cell.Access = Resource.InitialAccess;
-						Cells.push_back(std::move(Cell));
-					}
-			}
-		}
-
-		for (uint32 PassIndex = 0; PassIndex < PassCount; ++PassIndex)
-			for (const auto& Use : State->Passes[PassIndex].Uses)
-				for (auto& Cell : Cells)
-				{
-					if (!ContainsRange(Use, Cell.Use)) continue;
-					const auto& Resource = State->Resources[Use.ResourceIndex];
-					if (Use.Use != ERDGUse::Write && !Use.bDiscard && !Cell.bProduced)
-						return Fail(PassUsePrefix(State->Passes[PassIndex], Use)
-							+ " reads resource '" + Resource.Name + "' before its producer");
-					if (Use.Use == ERDGUse::Read)
-					{
-						if (Cell.Producer != std::numeric_limits<uint32>::max())
-							AddEdge(Cell.Producer, PassIndex, Resource.Name,
-								ERDGDependencyKind::Value);
-						if (std::ranges::find(Cell.Readers, PassIndex) == Cell.Readers.end())
-							Cell.Readers.push_back(PassIndex);
-						continue;
-					}
-					if (Use.Use == ERDGUse::ReadWrite && !Use.bDiscard
-						&& Cell.Producer != std::numeric_limits<uint32>::max())
-						AddEdge(Cell.Producer, PassIndex, Resource.Name,
-							ERDGDependencyKind::Value);
-					for (uint32 Reader : Cell.Readers)
-						AddEdge(Reader, PassIndex, Resource.Name,
-							ERDGDependencyKind::Execution);
-					if (Cell.Readers.empty()
-						&& Cell.Producer != std::numeric_limits<uint32>::max())
-						AddEdge(Cell.Producer, PassIndex, Resource.Name,
-							ERDGDependencyKind::Execution);
-					++Cell.Version;
-					Cell.Producer = Use.bStore ? PassIndex : std::numeric_limits<uint32>::max();
-					Cell.bProduced = Use.bStore;
-					Cell.Readers.clear();
-				}
+		if (std::string Error = BuildHazardDependencies(State->Passes,
+			State->Resources, Cells, DependencyGraph); !Error.empty())
+			return Fail(std::move(Error));
 
 		std::vector<uint32> Order;
-		Order.reserve(PassCount);
-		std::vector<bool> Emitted(PassCount, false);
-		while (Order.size() < PassCount)
-		{
-			uint32 Selected = PassCount;
-			for (uint32 Index = 0; Index < PassCount; ++Index)
-				if (!Emitted[Index] && Indegree[Index] == 0) { Selected = Index; break; }
-			if (Selected == PassCount) return Fail("graph contains a dependency cycle");
-			Emitted[Selected] = true;
-			Order.push_back(Selected);
-			for (uint32 After : Outgoing[Selected]) --Indegree[After];
-		}
+		if (std::string Error = BuildStablePassOrder(DependencyGraph,
+			PassCount, Order); !Error.empty())
+			return Fail(std::move(Error));
 
-		std::vector<bool> Retained(PassCount, !State->bEnableCulling);
-		if (State->bEnableCulling)
-		{
-			std::vector<uint32> Pending;
-			Pending.reserve(PassCount);
-			for (uint32 Index = 0; Index < PassCount; ++Index)
-				if (State->Passes[Index].bRoot) { Retained[Index] = true; Pending.push_back(Index); }
-			for (const FGraphExtraction& Extraction : State->Extractions)
-				for (const FRangeState& Cell : Cells)
-					if (Cell.Use.ResourceIndex == Extraction.ResourceIndex
-						&& Cell.Producer != std::numeric_limits<uint32>::max()
-						&& !Retained[Cell.Producer])
-					{
-						Retained[Cell.Producer] = true;
-						Pending.push_back(Cell.Producer);
-					}
-			while (!Pending.empty())
-			{
-				const uint32 After = Pending.back();
-				Pending.pop_back();
-				for (const auto& Edge : Dependencies)
-					if (Edge.AfterPass == After
-						&& Edge.Kind != ERDGDependencyKind::Execution
-						&& !Retained[Edge.BeforePass])
-					{
-						Retained[Edge.BeforePass] = true;
-						Pending.push_back(Edge.BeforePass);
-					}
-			}
-		}
+		const std::vector<bool> Retained = FindRetainedPasses(State->Passes,
+			State->Extractions, Cells, DependencyGraph.Dependencies,
+			State->bEnableCulling);
 
 		auto CompiledState = std::make_unique<FRDGCompiledGraph::FState>();
 		CompiledState->Owner = State->Owner;
@@ -2050,7 +2187,8 @@ namespace Durin
 		CompiledState->Budget = State->Budget;
 		CompiledState->Passes.reserve(PassCount);
 		CompiledState->RuntimePasses.reserve(PassCount);
-		CompiledState->Dependencies.reserve(Dependencies.size());
+		CompiledState->Dependencies.reserve(
+			DependencyGraph.Dependencies.size());
 		CompiledState->ResourceLifetimes.reserve(ResourceCount);
 		CompiledState->CullingDecisions.reserve(PassCount);
 		CompiledState->ResourceCaptures.reserve(ResourceCount);
@@ -2061,7 +2199,7 @@ namespace Durin
 		CompiledState->UseCaptures.reserve(DeclaredUseCount);
 		CompiledState->TransitionCaptures.reserve(DeclaredUseCount * 2);
 		CompiledState->AllocationRequests.reserve(ResourceCount);
-		for (const auto& Edge : Dependencies)
+		for (const auto& Edge : DependencyGraph.Dependencies)
 			if (Retained[Edge.BeforePass] && Retained[Edge.AfterPass])
 				CompiledState->Dependencies.push_back(Edge);
 		for (uint32 ResourceIndex = 0; ResourceIndex < State->Resources.size(); ++ResourceIndex)
