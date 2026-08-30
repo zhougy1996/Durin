@@ -49,56 +49,35 @@ namespace Durin::Asset
 		class FReader
 		{
 		public:
-			explicit FReader(std::span<const std::byte> InBytes) : Bytes(InBytes) {}
+			explicit FReader(std::span<const std::byte> InBytes)
+				: Reader(InBytes, {MaximumHeaderBytes, MaximumStringBytes}) {}
 
 			template<typename T>
 			auto Fixed(T& OutValue) -> bool
 			{
-				if (Remaining() < sizeof(T)) return false;
-				T Value = 0;
-				for (size_t Index = 0; Index < sizeof(T); ++Index)
-					Value |= static_cast<T>(std::to_integer<uint8>(Bytes[Offset++])) << (Index * 8);
-				OutValue = Value;
-				return true;
+				return Reader.ReadInteger(OutValue);
 			}
 
-			auto VarUInt(uint64& OutValue) -> bool
-			{
-				uint64 Value = 0;
-				for (uint32 Index = 0; Index < 10; ++Index)
-				{
-					uint8 Byte = 0;
-					if (!Fixed(Byte) || (Index == 9 && (Byte & 0xfe) != 0)) return false;
-					Value |= uint64(Byte & 0x7f) << (Index * 7);
-					if ((Byte & 0x80) == 0)
-					{
-						if (Index != 0 && Byte == 0) return false;
-						OutValue = Value;
-						return true;
-					}
-				}
-				return false;
-			}
+			auto VarUInt(uint64& OutValue) -> bool { return Reader.ReadVarUInt(OutValue); }
 
 			auto String(std::string& OutValue, bool bAllowEmpty = true) -> bool
 			{
 				uint64 Size = 0;
 				if (!VarUInt(Size) || Size > MaximumStringBytes || Size > Remaining()
 					|| (!bAllowEmpty && Size == 0)) return false;
-				std::string Value(reinterpret_cast<const char*>(Bytes.data() + Offset),
-					static_cast<size_t>(Size));
-				Offset += static_cast<size_t>(Size);
+				std::span<const std::byte> Encoded;
+				if (!Reader.ReadRegion(Encoded, Size, MaximumStringBytes)) return false;
+				std::string Value(reinterpret_cast<const char*>(Encoded.data()), Encoded.size());
 				if (Value.find('\0') != std::string::npos) return false;
 				OutValue = std::move(Value);
 				return true;
 			}
 
-			auto Remaining() const -> size_t { return Bytes.size() - Offset; }
-			auto AtEnd() const -> bool { return Offset == Bytes.size(); }
+			auto Remaining() const -> size_t { return Reader.GetRemainingBytes(); }
+			auto AtEnd() const -> bool { return Reader.IsAtEnd(); }
 
 		private:
-			std::span<const std::byte> Bytes;
-			size_t Offset = 0;
+			FBinaryReader Reader;
 		};
 
 		auto GetRegistry() -> const FBinaryFormatRegistry&

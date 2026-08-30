@@ -12,6 +12,7 @@
 #include "Engine/ProjectGameSettings.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Project.h"
+#include "Serialization/BinaryFormat.h"
 
 namespace Durin::Asset
 {
@@ -35,61 +36,44 @@ namespace Durin::Asset
 			return false;
 		}
 
-		template<typename TValue>
-		auto AppendValue(std::vector<std::byte>& Bytes, TValue Value) -> void
-		{
-			static_assert(std::is_unsigned_v<TValue>);
-			for (size_t Index = 0; Index < sizeof(TValue); ++Index)
-				Bytes.push_back(static_cast<std::byte>((Value >> (Index * 8)) & static_cast<TValue>(0xff)));
-		}
-
-		auto AppendString(std::vector<std::byte>& Bytes, std::string_view Value) -> bool
+		auto AppendString(FBinaryWriter& Writer, std::string_view Value) -> bool
 		{
 			if (Value.empty() || Value.size() > 4096
 				|| Value.size() > std::numeric_limits<uint32>::max()) return false;
-			AppendValue(Bytes, static_cast<uint32>(Value.size()));
-			const std::span<const char> Characters(Value.data(), Value.size());
-			const std::span<const std::byte> Encoded = std::as_bytes(Characters);
-			Bytes.insert(Bytes.end(), Encoded.begin(), Encoded.end());
-			return Bytes.size() <= MaximumCookStateBytes;
+			Writer.WriteU32(static_cast<uint32>(Value.size()));
+			Writer.WriteBytes(std::as_bytes(std::span(Value)));
+			return !Writer.HasError();
 		}
 
 		class FStateReader
 		{
 		public:
 			explicit FStateReader(std::span<const std::byte> InBytes)
-				: Bytes(InBytes)
+				: Reader(InBytes, {MaximumCookStateBytes, 4096})
 			{
 			}
 
 			template<typename TValue>
 			auto Read(TValue& OutValue) -> bool
 			{
-				static_assert(std::is_unsigned_v<TValue>);
-				if (Offset > Bytes.size() || sizeof(TValue) > Bytes.size() - Offset)
-					return false;
-				OutValue = 0;
-				for (size_t Index = 0; Index < sizeof(TValue); ++Index)
-					OutValue |= static_cast<TValue>(std::to_integer<uint8>(Bytes[Offset++]))
-								<< (Index * 8);
-				return true;
+				return Reader.ReadInteger(OutValue);
 			}
 
 			auto ReadString(std::string& OutValue) -> bool
 			{
 				uint32 Size = 0;
 				if (!Read(Size) || Size == 0 || Size > 4096
-					|| Offset > Bytes.size() || Size > Bytes.size() - Offset) return false;
-				OutValue.assign(reinterpret_cast<const char*>(Bytes.data() + Offset), Size);
-				Offset += Size;
+					|| Size > Reader.GetRemainingBytes()) return false;
+				std::span<const std::byte> Encoded;
+				if (!Reader.ReadRegion(Encoded, Size, 4096)) return false;
+				OutValue.assign(reinterpret_cast<const char*>(Encoded.data()), Encoded.size());
 				return OutValue.find('\0') == std::string::npos;
 			}
 
-			auto IsAtEnd() const -> bool { return Offset == Bytes.size(); }
+			auto IsAtEnd() const -> bool { return Reader.IsAtEnd(); }
 
 		private:
-			std::span<const std::byte> Bytes;
-			size_t Offset = 0;
+			FBinaryReader Reader;
 		};
 
 		struct FRegisteredCookContributor
@@ -579,32 +563,31 @@ namespace Durin::Asset
 		for (size_t Index = 1; Index < Entries.size(); ++Index)
 			if (Entries[Index - 1]->VirtualPackagePath == Entries[Index]->VirtualPackagePath)
 				return Fail("Cook state contains a duplicate package path.", OutError);
-		AppendValue(OutBytes, CookStateMagic);
-		AppendValue(OutBytes, CookStateVersion);
-		AppendValue(OutBytes, static_cast<uint32>(State.TargetPlatform));
-		AppendValue(OutBytes, static_cast<uint32>(State.TargetProfile));
-		AppendValue(OutBytes, static_cast<uint32>(Entries.size()));
-		AppendValue(OutBytes, uint32{0});
+		FBinaryWriter Writer({MaximumCookStateBytes, 4096});
+		Writer.WriteU32(CookStateMagic);
+		Writer.WriteU32(CookStateVersion);
+		Writer.WriteU32(static_cast<uint32>(State.TargetPlatform));
+		Writer.WriteU32(static_cast<uint32>(State.TargetProfile));
+		Writer.WriteU32(static_cast<uint32>(Entries.size()));
+		Writer.WriteU32(0);
 		for (const FCookStateEntry* Entry : Entries)
 		{
-			if (!AppendString(OutBytes, Entry->VirtualPackagePath)
-				|| !AppendString(OutBytes, Entry->Contributor)
-				|| !AppendString(OutBytes, Entry->BuildProvenance))
+			if (!AppendString(Writer, Entry->VirtualPackagePath)
+				|| !AppendString(Writer, Entry->Contributor)
+				|| !AppendString(Writer, Entry->BuildProvenance))
 				return Fail("Cook state string is invalid or exceeds its bound.", OutError);
-			AppendValue(OutBytes, Entry->InputFingerprint.HashLow);
-			AppendValue(OutBytes, Entry->InputFingerprint.HashHigh);
-			AppendValue(OutBytes, Entry->PackageDigest.HashLow);
-			AppendValue(OutBytes, Entry->PackageDigest.HashHigh);
-			AppendValue(OutBytes, Entry->SegmentDigest.HashLow);
-			AppendValue(OutBytes, Entry->SegmentDigest.HashHigh);
-			AppendValue(OutBytes, Entry->PackageSize);
-			AppendValue(OutBytes, Entry->SegmentSize);
-			AppendValue(OutBytes, Entry->ContributorVersion);
-			AppendValue(OutBytes, Entry->FamilyProducerVersion);
-			AppendValue(OutBytes, Entry->SegmentFlags);
+			Writer.WriteHash128(Entry->InputFingerprint);
+			Writer.WriteHash128(Entry->PackageDigest);
+			Writer.WriteHash128(Entry->SegmentDigest);
+			Writer.WriteU64(Entry->PackageSize);
+			Writer.WriteU64(Entry->SegmentSize);
+			Writer.WriteU32(Entry->ContributorVersion);
+			Writer.WriteU32(Entry->FamilyProducerVersion);
+			Writer.WriteU8(Entry->SegmentFlags);
 		}
-		if (OutBytes.size() > MaximumCookStateBytes)
+		if (Writer.HasError())
 			return Fail("Cook state exceeds its byte bound.", OutError);
+		OutBytes = Writer.TakeBytes();
 		if (OutError) OutError->clear();
 		return true;
 	}

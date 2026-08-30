@@ -163,3 +163,105 @@ TEST(FBinaryFormatTests, TakeBytesLeavesWriterReadyForAnIndependentSequence)
 	EXPECT_EQ(Writer.TakeBytes(), (std::vector<std::byte>{
 		std::byte{0x33}, std::byte{0x22}, std::byte{0x44}, std::byte{0x55}}));
 }
+
+TEST(FBinaryFormatTests, GenericIntegersByteOrderAndFixedLayoutsRoundTrip)
+{
+	Durin::FBinaryWriter Writer;
+	Writer.WriteInteger(uint32{0x12345678}, Durin::EBinaryByteOrder::BigEndian);
+	Writer.WriteInteger(int16{-2});
+	const Durin::FGuid Guid{0x01020304, 0x11121314, 0x21222324, 0x31323334};
+	const Durin::FXxHash128 Hash{0x0102030405060708ull, 0x1112131415161718ull};
+	Writer.WriteGuid(Guid);
+	Writer.WriteHash128(Hash);
+	EXPECT_EQ(Writer.Tell(), 38);
+	EXPECT_TRUE(std::ranges::equal(std::span<const std::byte>(Writer.GetBytes()).first(4),
+		(std::array<std::byte, 4>{std::byte{0x12}, std::byte{0x34}, std::byte{0x56}, std::byte{0x78}})));
+
+	Durin::FBinaryReader Reader(Writer.GetBytes());
+	uint32 BigEndian = 0;
+	int16 Signed = 0;
+	Durin::FGuid DecodedGuid;
+	Durin::FXxHash128 DecodedHash;
+	EXPECT_TRUE(Reader.ReadInteger(BigEndian, Durin::EBinaryByteOrder::BigEndian));
+	EXPECT_EQ(Reader.Tell(), 4);
+	EXPECT_TRUE(Reader.ReadInteger(Signed));
+	EXPECT_TRUE(Reader.ReadGuid(DecodedGuid));
+	EXPECT_TRUE(Reader.ReadHash128(DecodedHash));
+	EXPECT_TRUE(Reader.IsAtEnd());
+	EXPECT_EQ(BigEndian, 0x12345678u);
+	EXPECT_EQ(Signed, -2);
+	EXPECT_EQ(DecodedGuid, Guid);
+	EXPECT_EQ(DecodedHash, Hash);
+}
+
+TEST(FBinaryFormatTests, VarIntsUseCanonicalEncodingAndPreserveOutputsOnFailure)
+{
+	Durin::FBinaryWriter Writer;
+	for (const uint64 Value : {0ull, 127ull, 128ull, std::numeric_limits<uint64>::max()})
+		Writer.WriteVarUInt(Value);
+	for (const int64 Value : {std::numeric_limits<int64>::min(), -1ll, 0ll, 1ll,
+		std::numeric_limits<int64>::max()})
+		Writer.WriteVarInt(Value);
+
+	Durin::FBinaryReader Reader(Writer.GetBytes());
+	for (const uint64 Expected : {0ull, 127ull, 128ull, std::numeric_limits<uint64>::max()})
+	{
+		uint64 Actual = 7;
+		ASSERT_TRUE(Reader.ReadVarUInt(Actual));
+		EXPECT_EQ(Actual, Expected);
+	}
+	for (const int64 Expected : {std::numeric_limits<int64>::min(), -1ll, 0ll, 1ll,
+		std::numeric_limits<int64>::max()})
+	{
+		int64 Actual = 7;
+		ASSERT_TRUE(Reader.ReadVarInt(Actual));
+		EXPECT_EQ(Actual, Expected);
+	}
+	EXPECT_TRUE(Reader.IsAtEnd());
+
+	const std::array NonCanonical{std::byte{0x80}, std::byte{0x00}};
+	Durin::FBinaryReader NonCanonicalReader(NonCanonical);
+	uint64 Unchanged = 42;
+	EXPECT_FALSE(NonCanonicalReader.ReadVarUInt(Unchanged));
+	EXPECT_EQ(Unchanged, 42);
+
+	const std::array Overflow{
+		std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
+		std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0x02}};
+	Durin::FBinaryReader OverflowReader(Overflow);
+	EXPECT_FALSE(OverflowReader.ReadVarUInt(Unchanged));
+	EXPECT_EQ(Unchanged, 42);
+}
+
+TEST(FBinaryFormatTests, ConfiguredTotalAndFieldLimitsFailWithoutPartialWrites)
+{
+	Durin::FBinaryWriter TotalBounded({5, 16});
+	TotalBounded.WriteU32(0x01020304);
+	TotalBounded.WriteU16(7);
+	EXPECT_TRUE(TotalBounded.HasError());
+	EXPECT_EQ(TotalBounded.Tell(), 4);
+
+	Durin::FBinaryWriter Writer({8, 4});
+	Writer.WriteU32(0x01020304);
+	Writer.WriteBytes(std::array<std::byte, 5>{});
+	EXPECT_TRUE(Writer.HasError());
+	EXPECT_EQ(Writer.Tell(), 4);
+	Writer.WriteU32(7);
+	EXPECT_EQ(Writer.Tell(), 4);
+
+	const std::vector<std::byte> First = Writer.TakeBytes();
+	EXPECT_FALSE(Writer.HasError());
+	Writer.WriteU32(7);
+	EXPECT_EQ(Writer.Tell(), 4);
+
+	Durin::FBinaryReader TooLarge(First, {3, 4});
+	uint32 Value = 99;
+	EXPECT_TRUE(TooLarge.HasError());
+	EXPECT_FALSE(TooLarge.ReadU32(Value));
+	EXPECT_EQ(Value, 99u);
+
+	Durin::FBinaryReader FieldBounded(First, {4, 3});
+	std::span<const std::byte> Region;
+	EXPECT_FALSE(FieldBounded.ReadRegion(Region, 4, 4));
+	EXPECT_EQ(FieldBounded.Tell(), 0);
+}

@@ -1,4 +1,5 @@
 #include "AssetRegistry/ObjectStream.h"
+#include "Serialization/BinaryFormat.h"
 
 namespace Durin::Asset::PackageObjectStream
 {
@@ -55,71 +56,34 @@ namespace Durin::Asset::PackageObjectStream
 		class FWireWriter
 		{
 		public:
-			auto U8(uint8 Value) -> void { Data.push_back(static_cast<std::byte>(Value)); }
-			auto U16(uint16 Value) -> void { Fixed(Value); }
-			auto U32(uint32 Value) -> void { Fixed(Value); }
-			auto U64(uint64 Value) -> void { Fixed(Value); }
-			auto VarUInt(uint64 Value) -> void
-			{
-				do
-				{
-					uint8 Byte = uint8(Value & 0x7f);
-					Value >>= 7;
-					if (Value != 0) Byte |= 0x80;
-					Data.push_back(static_cast<std::byte>(Byte));
-				} while (Value != 0);
-			}
-			auto VarInt(int64 Value) -> void
-			{
-				VarUInt((uint64(Value) << 1) ^ uint64(Value >> 63));
-			}
+			auto U8(uint8 Value) -> void { Writer.WriteU8(Value); }
+			auto U16(uint16 Value) -> void { Writer.WriteU16(Value); }
+			auto U32(uint32 Value) -> void { Writer.WriteU32(Value); }
+			auto U64(uint64 Value) -> void { Writer.WriteU64(Value); }
+			auto VarUInt(uint64 Value) -> void { Writer.WriteVarUInt(Value); }
+			auto VarInt(int64 Value) -> void { Writer.WriteVarInt(Value); }
 			auto String(std::string_view Value) -> void
 			{
 				VarUInt(Value.size());
-				const auto Bytes = std::as_bytes(std::span(Value));
-				Data.insert(Data.end(), Bytes.begin(), Bytes.end());
+				Bytes(std::as_bytes(std::span(Value)));
 			}
-			auto Bytes(std::span<const std::byte> Value) -> void
-			{
-				Data.insert(Data.end(), Value.begin(), Value.end());
-			}
+			auto Bytes(std::span<const std::byte> Value) -> void { Writer.WriteBytes(Value); }
 			auto Record(std::span<const std::byte> Value) -> void { VarUInt(Value.size()); Bytes(Value); }
-			auto View() const -> std::span<const std::byte> { return Data; }
-			auto Take() -> std::vector<std::byte> { return std::move(Data); }
+			auto View() const -> std::span<const std::byte> { return Writer.GetBytes(); }
+			auto Take() -> std::vector<std::byte> { return Writer.TakeBytes(); }
 		private:
-			template<typename T> auto Fixed(T Value) -> void
-			{
-				for (size_t Index = 0; Index < sizeof(T); ++Index)
-					Data.push_back(static_cast<std::byte>(uint64(Value) >> (Index * 8)));
-			}
-			std::vector<std::byte> Data;
+			FBinaryWriter Writer;
 		};
 
 		class FWireReader
 		{
 		public:
-			explicit FWireReader(std::span<const std::byte> In) : Data(In) {}
-			auto U8(uint8& Out) -> bool
-			{
-				if (Offset == Data.size()) return false;
-				Out = std::to_integer<uint8>(Data[Offset++]); return true;
-			}
-			auto VarUInt(uint64& Out) -> bool
-			{
-				Out = 0;
-				for (uint32 Index = 0; Index < 10; ++Index)
-				{
-					uint8 Byte = 0;
-					if (!U8(Byte) || (Index == 9 && (Byte & 0xfe) != 0)) return false;
-					Out |= uint64(Byte & 0x7f) << (Index * 7);
-					if ((Byte & 0x80) == 0) return Index == 0 || (Byte & 0x7f) != 0;
-				}
-				return false;
-			}
+			explicit FWireReader(std::span<const std::byte> In) : Reader(In) {}
+			auto U8(uint8& Out) -> bool { return Reader.ReadU8(Out); }
+			auto VarUInt(uint64& Out) -> bool { return Reader.ReadVarUInt(Out); }
 			auto Bytes(uint64 Count, std::span<const std::byte>& Out) -> bool
 			{
-				if (Count > Data.size() - Offset) return false;
-				Out = Data.subspan(Offset, size_t(Count)); Offset += size_t(Count); return true;
+				return Reader.ReadRegion(Out, Count, std::numeric_limits<uint64>::max());
 			}
 			auto Record(std::span<const std::byte>& Out) -> bool
 			{
@@ -132,10 +96,9 @@ namespace Durin::Asset::PackageObjectStream
 				Out.assign(reinterpret_cast<const char*>(Encoded.data()), Encoded.size());
 				return IsValidUtf8(Out);
 			}
-			auto End() const -> bool { return Offset == Data.size(); }
+			auto End() const -> bool { return Reader.IsAtEnd(); }
 		private:
-			std::span<const std::byte> Data;
-			size_t Offset = 0;
+			FBinaryReader Reader;
 		};
 
 		struct FFrozenType { FTypePtr Descriptor; std::vector<std::byte> Key; };
@@ -834,4 +797,3 @@ namespace Durin::Asset::PackageObjectStream
 		Diagnostic.Reset(); return Finish(true);
 	}
 }
-

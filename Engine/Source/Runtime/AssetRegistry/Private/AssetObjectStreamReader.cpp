@@ -1,6 +1,7 @@
 #include "AssetRegistry/ObjectStream.h"
 
 #include "DObject/Class.h"
+#include "Serialization/BinaryFormat.h"
 
 namespace Durin::Asset::PackageObjectStream
 {
@@ -53,17 +54,17 @@ namespace Durin::Asset::PackageObjectStream
 		{
 		public:
 			explicit FWireReader(std::span<const std::byte> InBytes, uint64 InBaseOffset = 0)
-				: Bytes(InBytes), BaseOffset(InBaseOffset) {}
+				: Bytes(InBytes), BaseOffset(InBaseOffset), Reader(InBytes) {}
 
-			auto Position() const -> uint64 { return BaseOffset + Offset; }
-			auto Remaining() const -> uint64 { return Bytes.size() - Offset; }
-			auto IsAtEnd() const -> bool { return Offset == Bytes.size(); }
+			auto Position() const -> uint64 { return BaseOffset + Reader.Tell(); }
+			auto Remaining() const -> uint64 { return Reader.GetRemainingBytes(); }
+			auto IsAtEnd() const -> bool { return Reader.IsAtEnd(); }
 
 			auto U8(uint8& Out, FReaderDiagnostic& Diagnostic) -> bool
 			{
-				if (Offset == Bytes.size()) return Fail(Diagnostic, EReaderFailure::TruncatedInput,
+				if (Remaining() == 0) return Fail(Diagnostic, EReaderFailure::TruncatedInput,
 					"Unexpected end of input.", Position());
-				Out = std::to_integer<uint8>(Bytes[Offset++]); return true;
+				return Reader.ReadU8(Out);
 			}
 
 			template<typename T>
@@ -72,33 +73,27 @@ namespace Durin::Asset::PackageObjectStream
 				static_assert(std::is_unsigned_v<T>);
 				if (sizeof(T) > Remaining()) return Fail(Diagnostic, EReaderFailure::TruncatedInput,
 					"Truncated fixed-width value.", Position());
-				Out = 0;
-				for (uint64 Index = 0; Index < sizeof(T); ++Index)
-					Out |= T(std::to_integer<uint8>(Bytes[Offset++])) << (Index * 8);
-				return true;
+				return Reader.ReadInteger(Out);
 			}
 
 			auto VarUInt(uint64& Out, FReaderDiagnostic& Diagnostic) -> bool
 			{
-				const uint64 Start = Position();
-				uint64 Value = 0;
-				for (uint32 Index = 0; Index < 10; ++Index)
-				{
-					uint8 Byte = 0;
-					if (!U8(Byte, Diagnostic)) return false;
-					const uint8 Payload = Byte & 0x7f;
-					if (Index == 9 && Payload > 1)
-						return Fail(Diagnostic, EReaderFailure::InvalidPrimitive,
-							"VarUInt overflows uint64.", Start);
-					Value |= uint64(Payload) << (Index * 7);
-					if ((Byte & 0x80) == 0)
-					{
-						if (Index > 0 && Payload == 0)
-							return Fail(Diagnostic, EReaderFailure::InvalidPrimitive,
-								"VarUInt is not minimally encoded.", Start);
-						Out = Value; return true;
-					}
-				}
+				const uint64 LocalStart = Reader.Tell();
+				const uint64 Start = BaseOffset + LocalStart;
+				if (Reader.ReadVarUInt(Out)) return true;
+				const uint64 Consumed = Reader.Tell() - LocalStart;
+				if (Consumed == 0 || (Consumed < 10
+					&& (std::to_integer<uint8>(Bytes[static_cast<size_t>(LocalStart + Consumed - 1)]) & 0x80) != 0))
+					return Fail(Diagnostic, EReaderFailure::TruncatedInput,
+						"Unexpected end of input.", BaseOffset + Reader.Tell());
+				const uint8 Last = std::to_integer<uint8>(
+					Bytes[static_cast<size_t>(LocalStart + Consumed - 1)]);
+				if ((Last & 0x80) == 0 && Consumed > 1 && (Last & 0x7f) == 0)
+					return Fail(Diagnostic, EReaderFailure::InvalidPrimitive,
+						"VarUInt is not minimally encoded.", Start);
+				if (Consumed == 10 && (Last & 0x7f) > 1)
+					return Fail(Diagnostic, EReaderFailure::InvalidPrimitive,
+						"VarUInt overflows uint64.", Start);
 				return Fail(Diagnostic, EReaderFailure::InvalidPrimitive,
 					"VarUInt exceeds ten bytes.", Start);
 			}
@@ -107,7 +102,7 @@ namespace Durin::Asset::PackageObjectStream
 			{
 				uint64 Encoded = 0;
 				if (!VarUInt(Encoded, Diagnostic)) return false;
-				Out = static_cast<int64>((Encoded >> 1) ^ (uint64(0) - (Encoded & 1)));
+				Out = std::bit_cast<int64>((Encoded >> 1) ^ (uint64(0) - (Encoded & 1)));
 				return true;
 			}
 
@@ -116,8 +111,7 @@ namespace Durin::Asset::PackageObjectStream
 			{
 				if (Count > Remaining()) return Fail(Diagnostic, EReaderFailure::TruncatedInput,
 					"Length-delimited data exceeds its containing extent.", Position());
-				Out = Bytes.subspan(Offset, static_cast<size_t>(Count));
-				Offset += static_cast<size_t>(Count); return true;
+				return Reader.ReadRegion(Out, Count, std::numeric_limits<uint64>::max());
 			}
 
 			auto Record(std::span<const std::byte>& Out, FReaderDiagnostic& Diagnostic,
@@ -156,7 +150,7 @@ namespace Durin::Asset::PackageObjectStream
 		private:
 			std::span<const std::byte> Bytes;
 			uint64 BaseOffset = 0;
-			size_t Offset = 0;
+			FBinaryReader Reader;
 		};
 
 		auto ValidateLimits(const FReaderLimits& Limits, FReaderDiagnostic& Diagnostic) -> bool

@@ -43,35 +43,28 @@ namespace Durin::Asset::PackageObjectStream
 		class FReader
 		{
 		public:
-			explicit FReader(std::span<const std::byte> InBytes) : Bytes(InBytes) {}
+			explicit FReader(std::span<const std::byte> InBytes) : Reader(InBytes) {}
 
 			template<typename T>
 			auto Fixed(T& Out) -> bool
 			{
-				if (Bytes.size() - Offset < sizeof(T)) return false;
-				T Value = 0;
-				for (size_t Index = 0; Index < sizeof(T); ++Index)
-					Value |= static_cast<T>(std::to_integer<uint8>(Bytes[Offset++]))
-						<< (Index * 8);
-				Out = Value;
-				return true;
+				return Reader.ReadInteger(Out);
 			}
 
 			auto Guid(FGuid& Out) -> bool
 			{
-				return Fixed(Out.A) && Fixed(Out.B) && Fixed(Out.C) && Fixed(Out.D);
+				return Reader.ReadGuid(Out);
 			}
 
 			auto Hash(FXxHash128& Out) -> bool
 			{
-				return Fixed(Out.HashLow) && Fixed(Out.HashHigh);
+				return Reader.ReadHash128(Out);
 			}
 
-			auto AtEnd() const -> bool { return Offset == Bytes.size(); }
+			auto AtEnd() const -> bool { return Reader.IsAtEnd(); }
 
 		private:
-			std::span<const std::byte> Bytes;
-			size_t Offset = 0;
+			FBinaryReader Reader;
 		};
 
 		class FWriter
@@ -80,19 +73,12 @@ namespace Durin::Asset::PackageObjectStream
 			template<typename T>
 			auto Fixed(T Value) -> void
 			{
-				for (size_t Index = 0; Index < sizeof(T); ++Index)
-					Bytes.push_back(static_cast<std::byte>(Value >> (Index * 8)));
+				Writer.WriteInteger(Value);
 			}
 
 			auto VarUInt(uint64 Value) -> void
 			{
-				do
-				{
-					uint8 Byte = static_cast<uint8>(Value & 0x7f);
-					Value >>= 7;
-					if (Value != 0) Byte |= 0x80;
-					Bytes.push_back(static_cast<std::byte>(Byte));
-				} while (Value != 0);
+				Writer.WriteVarUInt(Value);
 			}
 
 			auto String(std::string_view Value) -> bool
@@ -100,20 +86,20 @@ namespace Durin::Asset::PackageObjectStream
 				if (Value.size() > MaximumStringBytes) return false;
 				VarUInt(Value.size());
 				const auto Raw = std::as_bytes(std::span(Value));
-				Bytes.insert(Bytes.end(), Raw.begin(), Raw.end());
+				Writer.WriteBytes(Raw);
 				return true;
 			}
 
 			auto Append(std::span<const std::byte> Value) -> void
 			{
-				Bytes.insert(Bytes.end(), Value.begin(), Value.end());
+				Writer.WriteBytes(Value);
 			}
 
-			auto Take() -> std::vector<std::byte> { return std::move(Bytes); }
-			auto Size() const -> size_t { return Bytes.size(); }
+			auto Take() -> std::vector<std::byte> { return Writer.TakeBytes(); }
+			auto Size() const -> size_t { return static_cast<size_t>(Writer.Tell()); }
 
 		private:
-			std::vector<std::byte> Bytes;
+			FBinaryWriter Writer;
 		};
 
 	}

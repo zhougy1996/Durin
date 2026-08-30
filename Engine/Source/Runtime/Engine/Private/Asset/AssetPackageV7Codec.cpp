@@ -40,20 +40,10 @@ namespace Durin::Asset::Private::DastV7
 			template<typename T>
 			auto Fixed(T Value) -> void
 			{
-				for (size_t Index = 0; Index < sizeof(T); ++Index)
-					Bytes.push_back(static_cast<std::byte>((Value >> (Index * 8)) & 0xff));
+				Writer.WriteInteger(Value);
 			}
 
-			auto VarUInt(uint64 Value) -> void
-			{
-				do
-				{
-					uint8 Byte = Value & 0x7f;
-					Value >>= 7;
-					if (Value != 0) Byte |= 0x80;
-					Bytes.push_back(static_cast<std::byte>(Byte));
-				} while (Value != 0);
-			}
+			auto VarUInt(uint64 Value) -> void { Writer.WriteVarUInt(Value); }
 
 			auto String(std::string_view Value) -> bool
 			{
@@ -65,19 +55,19 @@ namespace Durin::Asset::Private::DastV7
 
 			auto Hash(const FXxHash128& Value) -> void
 			{
-				Fixed(Value.HashLow); Fixed(Value.HashHigh);
+				Writer.WriteHash128(Value);
 			}
 
 			auto Append(std::span<const std::byte> Value) -> void
 			{
-				Bytes.insert(Bytes.end(), Value.begin(), Value.end());
+				Writer.WriteBytes(Value);
 			}
 
-			auto View() const -> std::span<const std::byte> { return Bytes; }
-			auto Take() -> std::vector<std::byte> { return std::move(Bytes); }
+			auto View() const -> std::span<const std::byte> { return Writer.GetBytes(); }
+			auto Take() -> std::vector<std::byte> { return Writer.TakeBytes(); }
 
 		private:
-			std::vector<std::byte> Bytes;
+			FBinaryWriter Writer;
 		};
 
 		template<typename T>
@@ -591,21 +581,22 @@ namespace Durin::Asset::Private::DastV7
 				Out = std::to_integer<uint8>(Byte); ++Offset; return true;
 			};
 			auto VarUInt = [&](uint64 Bound, uint64& Out) -> bool {
-				const uint64 Start = Offset; uint64 Value = 0;
+				const uint64 Start = Offset;
+				std::array<std::byte, 10> Encoded{};
+				size_t EncodedSize = 0;
 				for (uint32 Index = 0; Index < 10; ++Index)
 				{
 					uint8 Byte = 0; if (!ReadByte(Bound, Byte)) return false;
-					const uint8 Payload = Byte & 0x7f;
-					if (Index == 9 && Payload > 1)
-						return Fail(std::format("DAST v7 VarUInt overflows at physical offset {}.", Start), &OutError);
-					Value |= uint64(Payload) << (Index * 7);
-					if ((Byte & 0x80) == 0)
-					{
-						if (Index > 0 && Payload == 0)
-							return Fail(std::format("DAST v7 VarUInt is noncanonical at physical offset {}.", Start), &OutError);
-						Out = Value; return true;
-					}
+					Encoded[EncodedSize++] = static_cast<std::byte>(Byte);
+					if ((Byte & 0x80) == 0) break;
 				}
+				FBinaryReader Decoder(std::span(Encoded).first(EncodedSize));
+				if (Decoder.ReadVarUInt(Out) && Decoder.IsAtEnd()) return true;
+				const uint8 Last = std::to_integer<uint8>(Encoded[EncodedSize - 1]);
+				if ((Last & 0x7f) > 1 && EncodedSize == 10)
+					return Fail(std::format("DAST v7 VarUInt overflows at physical offset {}.", Start), &OutError);
+				if ((Last & 0x80) == 0)
+					return Fail(std::format("DAST v7 VarUInt is noncanonical at physical offset {}.", Start), &OutError);
 				return Fail(std::format("DAST v7 VarUInt exceeds ten bytes at physical offset {}.", Start), &OutError);
 			};
 			uint64 ObjectCount = 0;

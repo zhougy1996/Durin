@@ -19,16 +19,27 @@ iteration. `FArchiveState` independently carries direction, persistence, Cook,
 editor-only filtering, bulk policy, purpose and target facts.
 
 `Serialization/BinaryFormat.h` is the small convenience surface for explicit
-fixed-width binary families and reuses the same Archive primitive encoding. One
-`FBinaryWriter` retains one canonical Archive bound to its owned byte vector for
-its complete lifetime; scalar calls do not reconstruct Archive state. The writer
-is neither copied nor moved, and `TakeBytes()` starts a new independent sequence
-without invalidating later writes. Its
+binary families and reuses the same Archive byte substrate. Its typed integer
+operations cover every non-boolean integral width and explicitly select little-
+or big-endian encoding; named scalar helpers remain canonical little-endian.
+Sequential readers and writers expose `Tell()`, bounded byte regions, canonical
+unsigned VarInt plus ZigZag signed VarInt, and fixed GUID and XXH3-128 layouts.
+VarInt readers reject overflow, truncation, and non-shortest encodings without
+publishing a partial value. Configurable cursor limits bound the complete input
+or output and each variable-width field; rejected writer operations append no
+partial bytes.
+
+One `FBinaryWriter` retains one canonical Archive bound to its owned byte vector
+for its complete lifetime; scalar calls do not reconstruct Archive state. The
+writer is neither copied nor moved, and `TakeBytes()` starts a new independent
+sequence without invalidating later writes. Its
 floating-point operations preserve exact IEEE-754 bits, including signed zero;
 format-specific equivalence such as normalizing `-0.0` before a compatibility
 hash remains the responsibility of the owning format. Bounded sequential
 regions and random-access integer reads validate their complete source range
-before publishing output.
+before publishing output. DAST, Cook state, and package BulkData reuse this byte
+cursor but continue to own their schemas, semantic validation, diagnostics, and
+publication policy.
 
 `Serialization/BinaryEnvelope.h` owns the format-neutral `DURF` header-version-1
 contract. The fixed 64-byte little-endian preamble encodes `DURF`, header and
