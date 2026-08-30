@@ -31,16 +31,10 @@ namespace Durin
 		auto* OutputTarget = Inputs.OutputTarget;
 		const bool bPresentOutput = Inputs.bPresentOutput;
 		const auto& PreparedEditorAssistance = Inputs.Prepared;
-		struct {
-			FRDGTextureHandle Output;
-			FRDGTextureHandle SceneDepth;
-		} GraphResources;
-		GraphResources.Output = Inputs.PostProcess.Output;
-		GraphResources.SceneDepth = Inputs.SceneDepth;
 		auto Parameters = Graph.AllocParameters<FEditorAssistancePassParameters>();
 		Parameters->PostProcess = {.Value = Inputs.PostProcess.Completion};
 		const FRDGColorAttachmentParameter Output{
-			.Texture = GraphResources.Output,
+			.Texture = Inputs.PostProcess.Output,
 			.Range = {GetTextureAspects(OutputTarget->GetFormat()), 0,
 				OutputTarget->GetNumMips(), 0, OutputTarget->GetArraySize()}};
 		if (bPresentOutput)
@@ -48,7 +42,7 @@ namespace Durin
 		else
 			Parameters->Resources.EditorOutputOffscreen = Output;
 		Parameters->Resources.EditorDepth = {
-			.Texture = GraphResources.SceneDepth,
+			.Texture = Inputs.SceneDepth,
 			.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		const auto EditorAssistancePass =
 			AddSceneRenderFeaturePass<FEditorAssistanceGraphContributor>(

@@ -18,19 +18,14 @@ namespace Durin
 		auto& Graph = Inputs.Graph;
 		auto& Services = Inputs.Services;
 		const auto RecordInputs = Inputs.Record;
-		struct { std::optional<FRDGTextureHandle> DirectionalShadow; }
-			GraphResources;
-		GraphResources.DirectionalShadow = Inputs.Shadow;
-		struct { TRDGValueHandle<FDirectionalShadowPassResult>
-			DirectionalShadow; } Channels;
-		Channels.DirectionalShadow =
+		const auto DirectionalShadow =
 			Graph.CreateValue<FDirectionalShadowPassResult>(
 				"Scene.DirectionalShadowValue", "directional-shadow-result");
 		auto Parameters = Graph.AllocParameters<FDirectionalShadowPassParameters>();
-		Parameters->Completion = {.Value = Channels.DirectionalShadow};
-		if (GraphResources.DirectionalShadow)
+		Parameters->Completion = {.Value = DirectionalShadow};
+		if (Inputs.Shadow)
 			Parameters->Resources.DirectionalShadowOutput = {
-				.Texture = *GraphResources.DirectionalShadow,
+				.Texture = *Inputs.Shadow,
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0,
 					DirectionalShadowCascadeCount}};
 		(void)AddSceneRenderFeaturePass<FDirectionalShadowGraphContributor>(
@@ -43,8 +38,7 @@ namespace Durin
 						RecordInputs, Resolver.GetDepthStencilAttachment(
 							PassParameters.Resources.DirectionalShadowOutput).Texture);
 			});
-		return {.Completion = Channels.DirectionalShadow,
-			.Shadow = GraphResources.DirectionalShadow};
+		return {.Completion = DirectionalShadow, .Shadow = Inputs.Shadow};
 	}
 
 	auto FSceneRenderFeatureRecorders::RenderDirectionalShadow_RenderThread(

@@ -20,42 +20,12 @@ namespace Durin
 		const bool bRequiresDeferredOpaque = Inputs.bRequiresDeferredOpaque;
 		const bool bNeedsGBuffer = Inputs.bNeedsGBuffer;
 		auto& ProductionDeferredParameters = Inputs.ProductionDeferredParameters;
-		struct {
-			std::optional<FRDGTextureHandle> DirectionalShadow;
-			FRDGTextureHandle SceneColor;
-			FRDGTextureHandle SceneDepth;
-			std::optional<FRDGTextureHandle> DefaultWhite;
-			std::optional<FRDGTextureHandle> DefaultShadowArray;
-			std::optional<FRDGTextureHandle> EnvironmentIrradiance;
-			std::optional<FRDGTextureHandle> EnvironmentPrefiltered;
-			std::optional<FRDGTextureHandle> EnvironmentBrdfLut;
-			FRHITexture* SelectedEnvironmentIrradiance = nullptr;
-			FRHITexture* SelectedEnvironmentPrefiltered = nullptr;
-			FRHITexture* SelectedEnvironmentBrdfLut = nullptr;
-		} GraphResources;
-		GraphResources.SceneColor = Inputs.SceneColor;
-		GraphResources.SceneDepth = Inputs.SceneDepth;
-		GraphResources.DirectionalShadow = Inputs.DirectionalShadow.Shadow;
-		GraphResources.DefaultWhite = Inputs.DefaultWhite;
-		GraphResources.DefaultShadowArray = Inputs.DefaultShadowArray;
-		GraphResources.EnvironmentIrradiance = Inputs.EnvironmentIrradiance;
-		GraphResources.EnvironmentPrefiltered = Inputs.EnvironmentPrefiltered;
-		GraphResources.EnvironmentBrdfLut = Inputs.EnvironmentBrdfLut;
-		GraphResources.SelectedEnvironmentIrradiance = Inputs.SelectedEnvironmentIrradiance;
-		GraphResources.SelectedEnvironmentPrefiltered = Inputs.SelectedEnvironmentPrefiltered;
-		GraphResources.SelectedEnvironmentBrdfLut = Inputs.SelectedEnvironmentBrdfLut;
-		struct {
-			TRDGValueHandle<FIsolatedDeferredPassResult>
-				DeferredDirectionalLighting;
-			TRDGValueHandle<FSceneColorPassResult> BaseScene;
-		} Channels;
-		Channels.DeferredDirectionalLighting = Inputs.Deferred.Completion;
-		Channels.BaseScene = Graph.CreateValue<FSceneColorPassResult>(
+		const auto BaseSceneCompletion = Graph.CreateValue<FSceneColorPassResult>(
 			"Scene.BaseValue", "scene-color-result");
 		auto Parameters = Graph.AllocParameters<FBaseScenePassParameters>();
 		Parameters->DeferredLighting = {
-			.Value = Channels.DeferredDirectionalLighting};
-		Parameters->Completion = {.Value = Channels.BaseScene};
+			.Value = Inputs.Deferred.Completion};
+		Parameters->Completion = {.Value = BaseSceneCompletion};
 		std::vector<FRDGTextureHandle> DeclaredPersistentInputs;
 		auto AssignRead = [&DeclaredPersistentInputs](auto& Parameter, const auto& Handle,
 			FRHITexture* Physical) {
@@ -68,27 +38,27 @@ namespace Durin
 					Physical->GetNumMips(), 0, Physical->GetArraySize()}};
 		};
 		AssignRead(Parameters->Resources.DirectionalShadow,
-			GraphResources.DirectionalShadow,
+			Inputs.DirectionalShadow.Shadow,
 			Services.DirectionalShadowRenderer.GetTexture_RenderThread());
-		AssignRead(Parameters->Resources.DefaultWhite, GraphResources.DefaultWhite,
+		AssignRead(Parameters->Resources.DefaultWhite, Inputs.DefaultWhite,
 			Services.DefaultTextures.Get_RenderThread(EDefaultTexture::White));
 		AssignRead(Parameters->Resources.DefaultShadowArray,
-			GraphResources.DefaultShadowArray,
+			Inputs.DefaultShadowArray,
 			Services.DefaultTextures.GetArray_RenderThread());
 		AssignRead(Parameters->Resources.EnvironmentIrradiance,
-			GraphResources.EnvironmentIrradiance,
-			GraphResources.SelectedEnvironmentIrradiance);
+			Inputs.EnvironmentIrradiance,
+			Inputs.SelectedEnvironmentIrradiance);
 		AssignRead(Parameters->Resources.EnvironmentPrefiltered,
-			GraphResources.EnvironmentPrefiltered,
-			GraphResources.SelectedEnvironmentPrefiltered);
+			Inputs.EnvironmentPrefiltered,
+			Inputs.SelectedEnvironmentPrefiltered);
 		AssignRead(Parameters->Resources.EnvironmentBrdfLut,
-			GraphResources.EnvironmentBrdfLut,
-			GraphResources.SelectedEnvironmentBrdfLut);
+			Inputs.EnvironmentBrdfLut,
+			Inputs.SelectedEnvironmentBrdfLut);
 		Parameters->Resources.SceneColorOutput = {
-			.Texture = GraphResources.SceneColor,
+			.Texture = Inputs.SceneColor,
 			.Range = {ERHITextureAspect::Color, 0, 1, 0, 1}};
 		FRDGManagedTextureParameter Depth{
-			.Texture = GraphResources.SceneDepth,
+			.Texture = Inputs.SceneDepth,
 			.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		if (bNeedsGBuffer && bRequiresDeferredOpaque)
 			Parameters->Resources.SceneDepthGraphicsToGraphics = Depth;
@@ -129,8 +99,8 @@ namespace Durin
 						? &*ProductionDeferredParameters : nullptr);
 				Timing.Commit();
 			});
-		return {.Completion = Channels.BaseScene,
-			.Color = GraphResources.SceneColor, .Depth = GraphResources.SceneDepth};
+		return {.Completion = BaseSceneCompletion,
+			.Color = Inputs.SceneColor, .Depth = Inputs.SceneDepth};
 	}
 
 	auto FSceneRenderFeatureRecorders::RenderBaseScene_RenderThread(

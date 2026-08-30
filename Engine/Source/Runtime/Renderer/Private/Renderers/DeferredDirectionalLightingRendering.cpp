@@ -34,67 +34,12 @@ namespace Durin
 		FSceneRenderTopology Topology;
 		Topology.bIsolatedDeferred = Inputs.bIsolated;
 		Topology.AmbientOcclusionQuality = Inputs.AmbientOcclusion.Quality;
-		struct {
-			std::optional<FRDGTextureHandle> DirectionalShadow;
-			FRDGTextureHandle SceneDepth;
-			std::array<std::optional<FRDGTextureHandle>, 4> GBuffer;
-			std::array<std::optional<FRDGTextureHandle>, 4>
-				GroundTruthAmbientOcclusion;
-			std::optional<FRDGTextureHandle>
-				ContactShadowVisibilityFragment;
-			std::optional<FRDGTextureHandle>
-				ContactShadowVisibilityCompute;
-			std::optional<FRDGTextureHandle>
-				VolumetricCloudShadowFragment;
-			std::optional<FRDGTextureHandle>
-				VolumetricCloudShadowCompute;
-			std::optional<FRDGTextureHandle> DefaultWhite;
-			std::optional<FRDGTextureHandle> DefaultShadowArray;
-			std::optional<FRDGTextureHandle> EnvironmentIrradiance;
-			std::optional<FRDGTextureHandle> EnvironmentPrefiltered;
-			std::optional<FRDGTextureHandle> EnvironmentBrdfLut;
-			FRHITexture* SelectedEnvironmentIrradiance = nullptr;
-			FRHITexture* SelectedEnvironmentPrefiltered = nullptr;
-			FRHITexture* SelectedEnvironmentBrdfLut = nullptr;
-			std::optional<FRDGTextureHandle> IsolatedDeferred;
-		} GraphResources;
-		GraphResources.DirectionalShadow = Inputs.DirectionalShadow.Shadow;
-		GraphResources.GBuffer = Inputs.GBuffer.Textures;
-		GraphResources.SceneDepth = Inputs.GBuffer.Depth;
-		GraphResources.GroundTruthAmbientOcclusion = Inputs.AmbientOcclusion.Textures;
-		GraphResources.ContactShadowVisibilityFragment = Inputs.ContactShadow.Fragment;
-		GraphResources.ContactShadowVisibilityCompute = Inputs.ContactShadow.Compute;
-		GraphResources.VolumetricCloudShadowFragment = Inputs.CloudShadow.Fragment;
-		GraphResources.VolumetricCloudShadowCompute = Inputs.CloudShadow.Compute;
-		GraphResources.DefaultWhite = Inputs.DefaultWhite;
-		GraphResources.DefaultShadowArray = Inputs.DefaultShadowArray;
-		GraphResources.EnvironmentIrradiance = Inputs.EnvironmentIrradiance;
-		GraphResources.EnvironmentPrefiltered = Inputs.EnvironmentPrefiltered;
-		GraphResources.EnvironmentBrdfLut = Inputs.EnvironmentBrdfLut;
-		GraphResources.SelectedEnvironmentIrradiance = Inputs.SelectedEnvironmentIrradiance;
-		GraphResources.SelectedEnvironmentPrefiltered = Inputs.SelectedEnvironmentPrefiltered;
-		GraphResources.SelectedEnvironmentBrdfLut = Inputs.SelectedEnvironmentBrdfLut;
-		struct {
-			TRDGValueHandle<FDirectionalShadowPassResult> DirectionalShadow;
-			TRDGValueHandle<FGBufferPassResult> GBuffer;
-			TRDGValueHandle<FGroundTruthAmbientOcclusionPassResult>
-				AmbientOcclusion;
-			TRDGValueHandle<FContactShadowVisibilityPassResult>
-				ContactShadowVisibility;
-			TRDGValueHandle<FVolumetricCloudShadowPassResult> CloudShadow;
-			TRDGValueHandle<FIsolatedDeferredPassResult>
-				DeferredDirectionalLighting;
-		} Channels;
-		Channels.DirectionalShadow = Inputs.DirectionalShadow.Completion;
-		Channels.GBuffer = Inputs.GBuffer.Completion;
-		Channels.AmbientOcclusion = Inputs.AmbientOcclusion.Completion;
-		Channels.ContactShadowVisibility = Inputs.ContactShadow.Completion;
-		Channels.CloudShadow = Inputs.CloudShadow.Completion;
-		Channels.DeferredDirectionalLighting = Graph.CreateValue<
+		std::optional<FRDGTextureHandle> IsolatedDeferred;
+		const auto DeferredDirectionalLightingCompletion = Graph.CreateValue<
 			FIsolatedDeferredPassResult>("Scene.DeferredDirectionalLightingValue",
 				"deferred-directional-lighting-result");
 		if (Topology.bIsolatedDeferred)
-			GraphResources.IsolatedDeferred = Graph.CreateTexture(
+			IsolatedDeferred = Graph.CreateTexture(
 				FRDGTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"DeferredDirectionalColor", Width, Height,
 					EPixelFormat::RGBA16_FLOAT)
@@ -107,14 +52,16 @@ namespace Durin
 				ERHIAccess::GraphicsShaderRead);
 		auto Parameters = Graph.AllocParameters<
 			FDeferredDirectionalLightingPassParameters>();
-		Parameters->DirectionalShadow = {.Value = Channels.DirectionalShadow};
-		Parameters->GBufferCompletion = {.Value = Channels.GBuffer};
-		Parameters->AmbientOcclusion = {.Value = Channels.AmbientOcclusion};
+		Parameters->DirectionalShadow = {
+			.Value = Inputs.DirectionalShadow.Completion};
+		Parameters->GBufferCompletion = {.Value = Inputs.GBuffer.Completion};
+		Parameters->AmbientOcclusion = {
+			.Value = Inputs.AmbientOcclusion.Completion};
 		Parameters->ContactShadow = {
-			.Value = Channels.ContactShadowVisibility};
-		Parameters->CloudShadow = {.Value = Channels.CloudShadow};
+			.Value = Inputs.ContactShadow.Completion};
+		Parameters->CloudShadow = {.Value = Inputs.CloudShadow.Completion};
 		Parameters->Completion = {
-			.Value = Channels.DeferredDirectionalLighting};
+			.Value = DeferredDirectionalLightingCompletion};
 		std::vector<FRDGTextureHandle> DeclaredPersistentInputs;
 		auto AssignRead = [&DeclaredPersistentInputs](auto& Parameter, const auto& Handle,
 			FRHITexture* Physical) {
@@ -127,55 +74,55 @@ namespace Durin
 					Physical->GetNumMips(), 0, Physical->GetArraySize()}};
 		};
 		AssignRead(Parameters->Resources.DirectionalShadow,
-			GraphResources.DirectionalShadow, DirectionalShadowTexture);
-		if (GraphResources.GBuffer[0])
+			Inputs.DirectionalShadow.Shadow, DirectionalShadowTexture);
+		if (Inputs.GBuffer.Textures[0])
 		{
-			for (uint32 Index = 0; Index < GraphResources.GBuffer.size(); ++Index)
+			for (uint32 Index = 0; Index < Inputs.GBuffer.Textures.size(); ++Index)
 				Parameters->Resources.GBuffer[Index] = {
-					*GraphResources.GBuffer[Index],
+					*Inputs.GBuffer.Textures[Index],
 					{ERHITextureAspect::Color, 0, 1, 0, 1}};
-			Parameters->Resources.SceneDepth = {GraphResources.SceneDepth,
+			Parameters->Resources.SceneDepth = {Inputs.GBuffer.Depth,
 				{ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		}
 		for (uint32 Index = 0;
-			Index < GraphResources.GroundTruthAmbientOcclusion.size(); ++Index)
-			if (GraphResources.GroundTruthAmbientOcclusion[Index])
+			Index < Inputs.AmbientOcclusion.Textures.size(); ++Index)
+			if (Inputs.AmbientOcclusion.Textures[Index])
 				Parameters->Resources.AmbientOcclusion[Index] = {
-					*GraphResources.GroundTruthAmbientOcclusion[Index],
+					*Inputs.AmbientOcclusion.Textures[Index],
 					{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		if (GraphResources.ContactShadowVisibilityFragment)
+		if (Inputs.ContactShadow.Fragment)
 			Parameters->Resources.ContactShadowFragment = {
-				*GraphResources.ContactShadowVisibilityFragment,
+				*Inputs.ContactShadow.Fragment,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		if (GraphResources.ContactShadowVisibilityCompute)
+		if (Inputs.ContactShadow.Compute)
 			Parameters->Resources.ContactShadowCompute = {
-				*GraphResources.ContactShadowVisibilityCompute,
+				*Inputs.ContactShadow.Compute,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		if (GraphResources.VolumetricCloudShadowFragment)
+		if (Inputs.CloudShadow.Fragment)
 			Parameters->Resources.CloudShadowFragment = {
-				*GraphResources.VolumetricCloudShadowFragment,
+				*Inputs.CloudShadow.Fragment,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		if (GraphResources.VolumetricCloudShadowCompute)
+		if (Inputs.CloudShadow.Compute)
 			Parameters->Resources.CloudShadowCompute = {
-				*GraphResources.VolumetricCloudShadowCompute,
+				*Inputs.CloudShadow.Compute,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		AssignRead(Parameters->Resources.DefaultWhite, GraphResources.DefaultWhite,
+		AssignRead(Parameters->Resources.DefaultWhite, Inputs.DefaultWhite,
 			Services.DefaultTextures.Get_RenderThread(EDefaultTexture::White));
 		AssignRead(Parameters->Resources.DefaultShadowArray,
-			GraphResources.DefaultShadowArray,
+			Inputs.DefaultShadowArray,
 			Services.DefaultTextures.GetArray_RenderThread());
 		AssignRead(Parameters->Resources.EnvironmentIrradiance,
-			GraphResources.EnvironmentIrradiance,
-			GraphResources.SelectedEnvironmentIrradiance);
+			Inputs.EnvironmentIrradiance,
+			Inputs.SelectedEnvironmentIrradiance);
 		AssignRead(Parameters->Resources.EnvironmentPrefiltered,
-			GraphResources.EnvironmentPrefiltered,
-			GraphResources.SelectedEnvironmentPrefiltered);
+			Inputs.EnvironmentPrefiltered,
+			Inputs.SelectedEnvironmentPrefiltered);
 		AssignRead(Parameters->Resources.EnvironmentBrdfLut,
-			GraphResources.EnvironmentBrdfLut,
-			GraphResources.SelectedEnvironmentBrdfLut);
-		if (GraphResources.IsolatedDeferred)
+			Inputs.EnvironmentBrdfLut,
+			Inputs.SelectedEnvironmentBrdfLut);
+		if (IsolatedDeferred)
 			Parameters->Resources.IsolatedDeferredOutput = {
-				*GraphResources.IsolatedDeferred,
+				*IsolatedDeferred,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
 		(void)AddSceneRenderFeaturePass<FDeferredDirectionalLightingGraphContributor>(
 			Graph, ERDGPassType::Graphics, std::move(Parameters),
@@ -184,9 +131,9 @@ namespace Durin
 				Width, Height, bWantsDeferredInputs, bWantsIsolatedDeferred,
 				bWantsProductionDeferred, bHybridRetainedResourcesReady,
 				EnvironmentSampler,
-				EnvironmentIrradiance = GraphResources.SelectedEnvironmentIrradiance,
-				EnvironmentPrefiltered = GraphResources.SelectedEnvironmentPrefiltered,
-				EnvironmentBrdfLut = GraphResources.SelectedEnvironmentBrdfLut](
+				EnvironmentIrradiance = Inputs.SelectedEnvironmentIrradiance,
+				EnvironmentPrefiltered = Inputs.SelectedEnvironmentPrefiltered,
+				EnvironmentBrdfLut = Inputs.SelectedEnvironmentBrdfLut](
 				FRHICommandListImmediate& Commands,
 				const FDeferredDirectionalLightingPassParameters& PassParameters,
 				const FRDGParameterResolver& Resolver) {
@@ -304,8 +251,8 @@ namespace Durin
 					ProductionDeferredParameters->DiagnosticMode = 0;
 				}
 			});
-		return {.Completion = Channels.DeferredDirectionalLighting,
-			.Isolated = GraphResources.IsolatedDeferred};
+		return {.Completion = DeferredDirectionalLightingCompletion,
+			.Isolated = IsolatedDeferred};
 	}
 
 	auto FSceneRenderFeatureRecorders::BuildDeferredParameters(

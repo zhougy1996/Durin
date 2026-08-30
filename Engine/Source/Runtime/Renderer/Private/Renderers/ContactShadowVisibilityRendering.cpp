@@ -174,32 +174,14 @@ namespace Durin
 		const bool bWantsProductionDeferred = Inputs.bProductionDeferred;
 		FSceneRenderTopology Topology;
 		Topology.ContactShadowVisibility = Inputs.GraphRoute;
-		struct {
-			std::optional<FRDGTextureHandle> DirectionalShadow;
-			FRDGTextureHandle SceneDepth;
-			std::array<std::optional<FRDGTextureHandle>, 4> GBuffer;
-			std::optional<FRDGTextureHandle>
-				ContactShadowVisibilityFragment;
-			std::optional<FRDGTextureHandle>
-				ContactShadowVisibilityCompute;
-		} GraphResources;
-		GraphResources.DirectionalShadow = Inputs.DirectionalShadow.Shadow;
-		GraphResources.GBuffer = Inputs.GBuffer.Textures;
-		GraphResources.SceneDepth = Inputs.GBuffer.Depth;
-		struct {
-			TRDGValueHandle<FDirectionalShadowPassResult> DirectionalShadow;
-			TRDGValueHandle<FGBufferPassResult> GBuffer;
-			TRDGValueHandle<FContactShadowVisibilityPassResult>
-				ContactShadowVisibility;
-		} Channels;
-		Channels.DirectionalShadow = Inputs.DirectionalShadow.Completion;
-		Channels.GBuffer = Inputs.GBuffer.Completion;
-		Channels.ContactShadowVisibility = Graph.CreateValue<
+		std::optional<FRDGTextureHandle> ContactShadowVisibilityFragment;
+		std::optional<FRDGTextureHandle> ContactShadowVisibilityCompute;
+		const auto ContactShadowVisibilityCompletion = Graph.CreateValue<
 			FContactShadowVisibilityPassResult>(
 				"Scene.ContactShadowVisibilityValue",
 				"contact-shadow-visibility-result");
 		if (Topology.UsesContactShadowVisibilityFragment())
-			GraphResources.ContactShadowVisibilityFragment = Graph.CreateTexture(
+			ContactShadowVisibilityFragment = Graph.CreateTexture(
 				FRDGTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"DirectionalContactVisibility", Width, Height,
 					EPixelFormat::R8_UNORM)
@@ -212,7 +194,7 @@ namespace Durin
 				"Scene.ContactShadowVisibility.Fragment",
 				ERHIAccess::GraphicsShaderRead);
 		if (Topology.UsesContactShadowVisibilityCompute())
-			GraphResources.ContactShadowVisibilityCompute = Graph.CreateTexture(
+			ContactShadowVisibilityCompute = Graph.CreateTexture(
 				FRDGTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"DirectionalContactShadowVisibilityCompute", Width, Height,
 					EPixelFormat::R8_UNORM)
@@ -225,24 +207,24 @@ namespace Durin
 				ERHIAccess::GraphicsShaderRead);
 		auto FillCommonParameters = [&](auto& Parameters) {
 			Parameters.DirectionalShadow = {
-				.Value = Channels.DirectionalShadow};
-			Parameters.GBufferCompletion = {.Value = Channels.GBuffer};
+				.Value = Inputs.DirectionalShadow.Completion};
+			Parameters.GBufferCompletion = {.Value = Inputs.GBuffer.Completion};
 			Parameters.Completion = {
-				.Value = Channels.ContactShadowVisibility};
-			if (GraphResources.GBuffer[0])
+				.Value = ContactShadowVisibilityCompletion};
+			if (Inputs.GBuffer.Textures[0])
 			{
 				const FRHITextureSubresourceRange ColorRange{
 					ERHITextureAspect::Color, 0, 1, 0, 1};
 				Parameters.GBufferMaterial = FRDGTextureParameter{
-					*GraphResources.GBuffer[0], ColorRange};
+					*Inputs.GBuffer.Textures[0], ColorRange};
 				Parameters.GBufferNormals = FRDGTextureParameter{
-					*GraphResources.GBuffer[1], ColorRange};
+					*Inputs.GBuffer.Textures[1], ColorRange};
 				Parameters.GBufferSurface = FRDGTextureParameter{
-					*GraphResources.GBuffer[2], ColorRange};
+					*Inputs.GBuffer.Textures[2], ColorRange};
 				Parameters.GBufferEmissive = FRDGTextureParameter{
-					*GraphResources.GBuffer[3], ColorRange};
+					*Inputs.GBuffer.Textures[3], ColorRange};
 				Parameters.SceneDepth = FRDGTextureParameter{
-					GraphResources.SceneDepth,
+					Inputs.GBuffer.Depth,
 					{ERHITextureAspect::Depth, 0, 1, 0, 1}};
 			}
 		};
@@ -296,9 +278,9 @@ namespace Durin
 			auto Parameters = Graph.AllocParameters<
 				FContactShadowComputePassParameters>();
 			FillCommonParameters(Parameters.Get());
-			if (GraphResources.ContactShadowVisibilityCompute)
+			if (ContactShadowVisibilityCompute)
 				Parameters->ContactVisibilityOutput = FRDGTextureParameter{
-					*GraphResources.ContactShadowVisibilityCompute,
+					*ContactShadowVisibilityCompute,
 					{ERHITextureAspect::Color, 0, 1, 0, 1}};
 			(void)AddSceneRenderFeaturePass<
 				FContactShadowVisibilityGraphContributor>(Graph,
@@ -309,17 +291,17 @@ namespace Durin
 			auto Parameters = Graph.AllocParameters<
 				FContactShadowGraphicsPassParameters>();
 			FillCommonParameters(Parameters.Get());
-			if (GraphResources.ContactShadowVisibilityFragment)
+			if (ContactShadowVisibilityFragment)
 				Parameters->Output = FRDGColorAttachmentParameter{
-					*GraphResources.ContactShadowVisibilityFragment,
+					*ContactShadowVisibilityFragment,
 					{ERHITextureAspect::Color, 0, 1, 0, 1}};
 			(void)AddSceneRenderFeaturePass<
 				FContactShadowVisibilityGraphContributor>(Graph,
 				ERDGPassType::Graphics, std::move(Parameters), Execute);
 		}
-		return {.Completion = Channels.ContactShadowVisibility,
-			.Fragment = GraphResources.ContactShadowVisibilityFragment,
-			.Compute = GraphResources.ContactShadowVisibilityCompute};
+		return {.Completion = ContactShadowVisibilityCompletion,
+			.Fragment = ContactShadowVisibilityFragment,
+			.Compute = ContactShadowVisibilityCompute};
 	}
 
 	auto FSceneRenderFeatureRecorders::RenderContactShadowVisibility_RenderThread(

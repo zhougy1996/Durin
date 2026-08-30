@@ -61,13 +61,8 @@ namespace Durin
 		const uint32 Height = Inputs.Height;
 		const bool bNeedsGBuffer = Inputs.bNeedsGBuffer;
 		const bool bWantsIsolatedDeferred = Inputs.bWantsIsolatedDeferred;
-		struct {
-			FRDGTextureHandle SceneDepth;
-			std::array<std::optional<FRDGTextureHandle>, 4> GBuffer;
-		} GraphResources;
-		GraphResources.SceneDepth = Inputs.Depth;
-		struct { TRDGValueHandle<FGBufferPassResult> GBuffer; } Channels;
-		Channels.GBuffer = Graph.CreateValue<FGBufferPassResult>(
+		std::array<std::optional<FRDGTextureHandle>, 4> GBuffer;
+		const auto GBufferCompletion = Graph.CreateValue<FGBufferPassResult>(
 			"Scene.GBufferValue", "gbuffer-result");
 		if (Inputs.bEnabled)
 		{
@@ -76,8 +71,8 @@ namespace Durin
 				EPixelFormat::R11G11B10_FLOAT};
 			const std::array Names{"Scene.GBuffer.Material", "Scene.GBuffer.Normals",
 				"Scene.GBuffer.Surface", "Scene.GBuffer.Emissive"};
-			for (uint32 Index = 0; Index < GraphResources.GBuffer.size(); ++Index)
-				GraphResources.GBuffer[Index] = Graph.CreateTexture(
+			for (uint32 Index = 0; Index < GBuffer.size(); ++Index)
+				GBuffer[Index] = Graph.CreateTexture(
 					FRDGTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 						Names[Index], Width, Height, Formats[Index])
 						.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -88,17 +83,17 @@ namespace Durin
 					ERHIAccess::GraphicsShaderRead);
 		}
 		auto Parameters = Graph.AllocParameters<FGBufferPassParameters>();
-		Parameters->Completion = {Channels.GBuffer};
-		if (GraphResources.GBuffer[0])
+		Parameters->Completion = {GBufferCompletion};
+		if (GBuffer[0])
 		{
-			for (uint32 Index = 0; Index < GraphResources.GBuffer.size(); ++Index)
+			for (uint32 Index = 0; Index < GBuffer.size(); ++Index)
 			{
 				Parameters->Colors[Index] = FRDGColorAttachmentParameter{
-					.Texture = *GraphResources.GBuffer[Index],
+					.Texture = *GBuffer[Index],
 					.Range = {ERHITextureAspect::Color, 0, 1, 0, 1}};
 			}
 			Parameters->Depth = FRDGDepthStencilAttachmentParameter{
-				.Texture = GraphResources.SceneDepth,
+				.Texture = Inputs.Depth,
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		}
 		(void)AddSceneRenderFeaturePass<FGBufferGraphContributor>(
@@ -134,9 +129,8 @@ namespace Durin
 					Options, Width, Height,
 					bNeedsGBuffer, bWantsIsolatedDeferred);
 			});
-		return {.Completion = Channels.GBuffer,
-			.Textures = GraphResources.GBuffer,
-			.Depth = GraphResources.SceneDepth};
+		return {.Completion = GBufferCompletion,
+			.Textures = GBuffer, .Depth = Inputs.Depth};
 	}
 
 	auto FSceneRenderFeatureRecorders::RenderGBuffer_RenderThread(
