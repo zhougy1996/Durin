@@ -39,7 +39,7 @@ namespace Durin
 		auto CompiledGraph = Graph.Compile();
 		if (!CompiledGraph.IsSuccess())
 		{
-			DURIN_WARN("Scene frame graph compilation failed: {}",
+			DURIN_WARN("Scene render graph compilation failed: {}",
 				CompiledGraph.Error);
 			return ESceneRenderGraphExecutionStatus::CompileFailed;
 		}
@@ -50,7 +50,7 @@ namespace Durin
 		{
 			const FRDGBudget& Budget = CompiledGraph.Graph->GetBudget();
 			DURIN_WARN(
-				"Scene frame graph regression budget exceeded: passes={}/{} "
+				"Scene render graph regression budget exceeded: passes={}/{} "
 				"dependencies={}/{} buffer-transitions={}/{} "
 				"texture-transitions={}/{}",
 				Statistics.DeclaredPasses, Budget.RegressionMaxPasses,
@@ -67,7 +67,7 @@ namespace Durin
 			CommandList, ExecutionContext, &ExecutionError);
 		if (!Executed && !std::exchange(bReportedExecutionFailure, true))
 		{
-			DURIN_WARN("Scene frame graph execution failed: {}",
+			DURIN_WARN("Scene render graph execution failed: {}",
 				ExecutionError.empty() ? "unspecified error" : ExecutionError);
 		}
 		PublishSceneRenderGraphCapture(

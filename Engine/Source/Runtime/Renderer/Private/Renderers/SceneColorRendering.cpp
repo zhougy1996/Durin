@@ -74,12 +74,12 @@ namespace Durin
 				Publication = SceneColorResult;
 				if (!SceneColorResult.IsSuccess()) return;
 				ReduceStaticMeshTelemetry(RecordInputs.Receiver.StaticMeshes,
-					Services.ResolvedFrame.Receiver.StaticMeshes, Services.Telemetry.View);
+					Services.ResolvedSceneResources.Receiver.StaticMeshes, Services.Telemetry.View);
 				ReduceSkeletalMeshTelemetry(RecordInputs.Receiver.SkeletalMeshes,
-					Services.ResolvedFrame.Receiver.SkeletalMeshes,
-					Services.ResolvedFrame.Receiver.SkeletalPalettes, Services.Telemetry.View);
+					Services.ResolvedSceneResources.Receiver.SkeletalMeshes,
+					Services.ResolvedSceneResources.Receiver.SkeletalPalettes, Services.Telemetry.View);
 				ReduceTerrainTelemetry(RecordInputs.Receiver.Terrains,
-					Services.ResolvedFrame.Receiver.Terrains, Services.Telemetry.View);
+					Services.ResolvedSceneResources.Receiver.Terrains, Services.Telemetry.View);
 			});
 		return {.Completion = SceneColorCompletion,
 			.Color = Inputs.BaseScene.Color, .Depth = Inputs.BaseScene.Depth,
@@ -135,27 +135,27 @@ namespace Durin
 		{
 			if (Draw.Family == EPreparedTranslucentGeometryFamily::StaticMesh)
 				StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
-					CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
+					CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
 					View.Settings.Mode.RenderMode, EMeshBasePass::Translucent,
 					Inputs.Receiver.StaticMeshes.Translucent[Draw.DrawIndex],
 					Inputs.Receiver.StaticMeshes,
-					ResolvedFrame.Receiver.StaticMeshes, true
+					ResolvedSceneResources.Receiver.StaticMeshes, true
 				);
 			else if (Draw.Family == EPreparedTranslucentGeometryFamily::SkeletalMesh)
 				SkeletalMeshRenderer.ExecutePreparedDraw_RenderThread(
-					CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
+					CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
 					View.Settings.Mode.RenderMode, EMeshBasePass::Translucent,
 					Inputs.Receiver.SkeletalMeshes.Translucent[Draw.DrawIndex],
 					Inputs.Receiver.SkeletalMeshes,
-					ResolvedFrame.Receiver.SkeletalMeshes, true
+					ResolvedSceneResources.Receiver.SkeletalMeshes, true
 				);
 			else
 				TerrainRenderer.ExecutePreparedDraw_RenderThread(
-					CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
+					CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
 					View.Settings.Mode.RenderMode,
 					Inputs.Receiver.Terrains.Translucent[Draw.DrawIndex],
 					Inputs.Receiver.Terrains,
-					ResolvedFrame.Receiver.Terrains, true
+					ResolvedSceneResources.Receiver.Terrains, true
 				);
 		}
 		CommandList.EndRenderPass();
@@ -164,11 +164,11 @@ namespace Durin
 		// lighting, so the retained-forward attempted count intentionally does not
 		// equal every prepared section as it does in the all-forward finalizer.
 		StaticMeshRenderer.FinalizeExecution_RenderThread(
-			ResolvedFrame.Receiver.StaticMeshes);
+			ResolvedSceneResources.Receiver.StaticMeshes);
 		SkeletalMeshRenderer.FinalizeExecution_RenderThread(
-			ResolvedFrame.Receiver.SkeletalMeshes);
+			ResolvedSceneResources.Receiver.SkeletalMeshes);
 		TerrainRenderer.FinalizeExecution_RenderThread(
-			ResolvedFrame.Receiver.Terrains);
+			ResolvedSceneResources.Receiver.Terrains);
 		++Telemetry.View.Deferred.HybridDeferredEnabledViews;
 		return {
 			.Result = ERenderViewResult::Success,

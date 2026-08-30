@@ -48,13 +48,13 @@ namespace Durin
 	) -> FDirectionalShadowPassResult
 	{
 		if (Inputs.Shadow == nullptr
-			|| !ResolvedFrame.DirectionalShadow
-			|| !ResolvedFrame.DirectionalShadow->bEnabled)
+			|| !ResolvedSceneResources.DirectionalShadow
+			|| !ResolvedSceneResources.DirectionalShadow->bEnabled)
 			return {};
 		const bool bRendered = DirectionalShadowRenderer.Render_RenderThread(
 			CommandList, DirectionalShadowTarget, StaticMeshRenderer, SkeletalMeshRenderer,
 			TerrainRenderer, *Inputs.Shadow,
-			*ResolvedFrame.DirectionalShadow, Telemetry.View);
+			*ResolvedSceneResources.DirectionalShadow, Telemetry.View);
 		return {
 			.Status = bRendered
 				? EScenePassStatus::Complete : EScenePassStatus::Failed};

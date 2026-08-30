@@ -237,10 +237,10 @@ namespace Durin
 					!= EMaterialShadingModel::Lit)
 				{
 					StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
-						CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
+						CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
 						View.Settings.Mode.RenderMode, Pass, Draw,
 						Inputs.Receiver.StaticMeshes,
-						ResolvedFrame.Receiver.StaticMeshes, true
+						ResolvedSceneResources.Receiver.StaticMeshes, true
 					);
 				}
 			const auto& SkeletalDraws = Pass == EMeshBasePass::Opaque ? Inputs.Receiver.SkeletalMeshes.Opaque : Inputs.Receiver.SkeletalMeshes.Masked;
@@ -249,10 +249,10 @@ namespace Durin
 					!= EMaterialShadingModel::Lit)
 				{
 					SkeletalMeshRenderer.ExecutePreparedDraw_RenderThread(
-						CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
+						CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
 						View.Settings.Mode.RenderMode, Pass, Draw,
 						Inputs.Receiver.SkeletalMeshes,
-						ResolvedFrame.Receiver.SkeletalMeshes, true
+						ResolvedSceneResources.Receiver.SkeletalMeshes, true
 					);
 				}
 			const auto& TerrainDraws = Pass == EMeshBasePass::Opaque ? Inputs.Receiver.Terrains.Opaque : Inputs.Receiver.Terrains.Masked;
@@ -261,10 +261,10 @@ namespace Durin
 					!= EMaterialShadingModel::Lit)
 				{
 					TerrainRenderer.ExecutePreparedDraw_RenderThread(
-						CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
+						CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
 						View.Settings.Mode.RenderMode, Draw,
 						Inputs.Receiver.Terrains,
-						ResolvedFrame.Receiver.Terrains,
+						ResolvedSceneResources.Receiver.Terrains,
 						true
 					);
 				}
@@ -333,22 +333,22 @@ namespace Durin
 			 })
 		{
 			StaticMeshRenderer.ExecutePass_RenderThread(
-				CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
+				CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
 				View.Settings.Mode.RenderMode, Pass,
 				Inputs.Receiver.StaticMeshes,
-				ResolvedFrame.Receiver.StaticMeshes
+				ResolvedSceneResources.Receiver.StaticMeshes
 			);
 			SkeletalMeshRenderer.ExecutePass_RenderThread(
-				CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
+				CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
 				View.Settings.Mode.RenderMode, Pass,
 				Inputs.Receiver.SkeletalMeshes,
-				ResolvedFrame.Receiver.SkeletalMeshes
+				ResolvedSceneResources.Receiver.SkeletalMeshes
 			);
 			TerrainRenderer.ExecutePass_RenderThread(
-				CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
+				CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
 				View.Settings.Mode.RenderMode, Pass,
 				Inputs.Receiver.Terrains,
-				ResolvedFrame.Receiver.Terrains
+				ResolvedSceneResources.Receiver.Terrains
 			);
 		}
 		for (const FPreparedTranslucentSceneDraw& Draw :
@@ -356,37 +356,37 @@ namespace Durin
 		{
 			if (Draw.Family == EPreparedTranslucentGeometryFamily::StaticMesh)
 				StaticMeshRenderer.ExecutePreparedDraw_RenderThread(
-					CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
+					CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
 					View.Settings.Mode.RenderMode, EMeshBasePass::Translucent,
 					Inputs.Receiver.StaticMeshes.Translucent[Draw.DrawIndex],
 					Inputs.Receiver.StaticMeshes,
-					ResolvedFrame.Receiver.StaticMeshes
+					ResolvedSceneResources.Receiver.StaticMeshes
 				);
 			else if (Draw.Family == EPreparedTranslucentGeometryFamily::SkeletalMesh)
 				SkeletalMeshRenderer.ExecutePreparedDraw_RenderThread(
-					CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
+					CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
 					View.Settings.Mode.RenderMode, EMeshBasePass::Translucent,
 					Inputs.Receiver.SkeletalMeshes.Translucent[Draw.DrawIndex],
 					Inputs.Receiver.SkeletalMeshes,
-					ResolvedFrame.Receiver.SkeletalMeshes
+					ResolvedSceneResources.Receiver.SkeletalMeshes
 				);
 			else
 				TerrainRenderer.ExecutePreparedDraw_RenderThread(
-					CommandList, View, ResolvedFrame.Lighting.UniformBuffer,
+					CommandList, View, ResolvedSceneResources.Lighting.UniformBuffer,
 					View.Settings.Mode.RenderMode,
 					Inputs.Receiver.Terrains.Translucent[Draw.DrawIndex],
 					Inputs.Receiver.Terrains,
-					ResolvedFrame.Receiver.Terrains
+					ResolvedSceneResources.Receiver.Terrains
 				);
 		}
 		StaticMeshRenderer.FinalizeExecution_RenderThread(
-			ResolvedFrame.Receiver.StaticMeshes
+			ResolvedSceneResources.Receiver.StaticMeshes
 		);
 		SkeletalMeshRenderer.FinalizeExecution_RenderThread(
-			ResolvedFrame.Receiver.SkeletalMeshes
+			ResolvedSceneResources.Receiver.SkeletalMeshes
 		);
 		TerrainRenderer.FinalizeExecution_RenderThread(
-			ResolvedFrame.Receiver.Terrains);
+			ResolvedSceneResources.Receiver.Terrains);
 		return true;
 	}
 } // namespace Durin

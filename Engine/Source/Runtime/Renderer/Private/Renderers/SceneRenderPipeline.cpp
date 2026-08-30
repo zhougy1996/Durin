@@ -19,7 +19,7 @@ namespace Durin
 {
 	namespace
 	{
-		auto ReportRenderGraphFrameRejectedViewState(
+		auto ReportSceneRenderGraphRejectedViewState(
 			std::string_view Reason,
 			FSceneViewStateId Id
 		) -> void
@@ -33,15 +33,15 @@ namespace Durin
 			);
 		}
 
-		class FFrameViewStateSubmission final
+		class FSceneRenderViewStateSubmission final
 		{
 		public:
-			explicit FFrameViewStateSubmission(FSceneViewState* InState)
+			explicit FSceneRenderViewStateSubmission(FSceneViewState* InState)
 				: State(InState)
 			{
 			}
 
-			~FFrameViewStateSubmission()
+			~FSceneRenderViewStateSubmission()
 			{
 				if (State != nullptr) State->Abort();
 			}
@@ -89,7 +89,7 @@ namespace Durin
 		, ViewStates(Renderer.ViewStates)
 		, RenderSubmissionSerial(Renderer.RenderSubmissionSerial)
 		, Qualification(GetRendererQualificationPolicy())
-		, Recorders(Renderer, Telemetry, ResolvedFrame, TemporalContext, ViewState)
+		, Recorders(Renderer, Telemetry, ResolvedSceneResources, TemporalContext, ViewState)
 	{
 	}
 
@@ -107,7 +107,7 @@ namespace Durin
 		check(IsInRenderingThread());
 		DURIN_PROFILE_CPU_ZONE_NAMED("Renderer.RenderView");
 		Telemetry = {};
-		ResolvedFrame = {};
+		ResolvedSceneResources = {};
 		TemporalContext = {};
 		ViewState = nullptr;
 		if (RenderSubmissionSerial != std::numeric_limits<uint64>::max())
@@ -156,13 +156,13 @@ namespace Durin
 				RenderSubmissionSerial;
 			TemporalContext.Discontinuities =
 				ESceneViewDiscontinuity::DuplicateSubmission;
-			ReportRenderGraphFrameRejectedViewState(
+			ReportSceneRenderGraphRejectedViewState(
 				"an interleaved submission for",
 				RenderView.ViewStateId
 			);
 			ViewState = nullptr;
 		}
-		FFrameViewStateSubmission ViewStateSubmission(ViewState);
+		FSceneRenderViewStateSubmission ViewStateSubmission(ViewState);
 		if (ViewState != nullptr)
 		{
 			TemporalContext = ViewState->Begin(
@@ -185,7 +185,7 @@ namespace Durin
 				ESceneViewDiscontinuity::MissingState;
 			if (RenderView.ViewStateId.IsValid())
 			{
-				ReportRenderGraphFrameRejectedViewState(
+				ReportSceneRenderGraphRejectedViewState(
 					"a missing, released, or foreign",
 					RenderView.ViewStateId
 				);
@@ -196,10 +196,10 @@ namespace Durin
 		if (!Preparation.IsSuccess()) return Preparation.Result;
 		const FSceneRenderPlan PreparedView = std::move(*Preparation.Plan);
 		const ERenderViewResult ResolutionResult =
-			ResolveFrameResources_RenderThread(CommandList, PreparedView);
+			ResolveSceneRenderResources_RenderThread(CommandList, PreparedView);
 		if (ResolutionResult != ERenderViewResult::Success)
 			return ResolutionResult;
-		FSceneRenderTopology Requirements = BuildFrameTopology(
+		FSceneRenderTopology Requirements = BuildSceneRenderTopology(
 			PreparedView, Options, Width, Height);
 		const RenderTargetLayouts::EViewportOutput ViewportOutput =
 			GetViewportOutput(bPresentOutput);
@@ -240,15 +240,15 @@ namespace Durin
 			!bWantsProductionDeferred
 			|| (StaticMeshRenderer.PrepareHybridRetainedResources_RenderThread(
 					PreparedView.Receiver.StaticMeshes,
-					ResolvedFrame.Receiver.StaticMeshes
+					ResolvedSceneResources.Receiver.StaticMeshes
 				)
 				&& SkeletalMeshRenderer.PrepareHybridRetainedResources_RenderThread(
 					PreparedView.Receiver.SkeletalMeshes,
-					ResolvedFrame.Receiver.SkeletalMeshes
+					ResolvedSceneResources.Receiver.SkeletalMeshes
 				)
 				&& TerrainRenderer.PrepareHybridRetainedResources_RenderThread(
 					CommandList, PreparedView.Receiver.Terrains,
-					ResolvedFrame.Receiver.Terrains
+					ResolvedSceneResources.Receiver.Terrains
 				));
 		const bool bNeedsGBuffer = Qualification.bEnableGBuffer
 								   || Options.GBufferDebugMode != EGBufferDebugMode::Disabled
@@ -286,24 +286,24 @@ namespace Durin
 		FRHITexture* CloudWeatherTexture = nullptr;
 		const bool bForceCloudFragment =
 			Qualification.bForceFragmentVolumetricCloud;
-		if (ResolvedFrame.VolumetricCloud)
+		if (ResolvedSceneResources.VolumetricCloud)
 		{
-			CloudWeatherTexture = ResolvedFrame.VolumetricCloud->Textures.Weather;
+			CloudWeatherTexture = ResolvedSceneResources.VolumetricCloud->Textures.Weather;
 			if (!CloudWeatherTexture)
 				CloudWeatherTexture = DefaultTextures.Get_RenderThread(
 					EDefaultTexture::White);
 		}
 		if (Requirements.VolumetricCloudShadow != ESceneRenderRoute::Disabled
-			&& PreparedView.VolumetricCloud && ResolvedFrame.VolumetricCloud)
+			&& PreparedView.VolumetricCloud && ResolvedSceneResources.VolumetricCloud)
 		{
 			const auto Prepared = VolumetricCloudShadowRenderer.Render_RenderThread(
 				CommandList, nullptr, nullptr,
 				{.bRequested = true,
-					.BaseDensity = ResolvedFrame.VolumetricCloud->Textures.BaseDensity,
-					.DetailDensity = ResolvedFrame.VolumetricCloud->Textures.DetailDensity,
+					.BaseDensity = ResolvedSceneResources.VolumetricCloud->Textures.BaseDensity,
+					.DetailDensity = ResolvedSceneResources.VolumetricCloud->Textures.DetailDensity,
 					.Weather = CloudWeatherTexture,
 					.DensitySampler =
-						ResolvedFrame.VolumetricCloud->Textures.DensitySampler,
+						ResolvedSceneResources.VolumetricCloud->Textures.DensitySampler,
 					.Parameters = PreparedView.VolumetricCloud->Parameters,
 					.View = &RenderView,
 					.QualityTier = CanonicalizeVolumetricCloudQuality(
@@ -323,9 +323,9 @@ namespace Durin
 		FVolumetricCloudRenderer::ERoute PreparedCloudRoute =
 			FVolumetricCloudRenderer::ERoute::Disabled;
 		if (Requirements.VolumetricCloud != ESceneRenderRoute::Disabled
-			&& PreparedView.VolumetricCloud && ResolvedFrame.VolumetricCloud)
+			&& PreparedView.VolumetricCloud && ResolvedSceneResources.VolumetricCloud)
 		{
-			auto Textures = ResolvedFrame.VolumetricCloud->Textures;
+			auto Textures = ResolvedSceneResources.VolumetricCloud->Textures;
 			Textures.Weather = CloudWeatherTexture;
 			Textures.SceneDepth = nullptr;
 			const auto Prepared = VolumetricCloudRenderer.Render_RenderThread(
@@ -363,7 +363,7 @@ namespace Durin
 			.DefaultTextures = DefaultTextures,
 			.EnvironmentLighting = EnvironmentLighting,
 			.DirectionalShadowRenderer = DirectionalShadowRenderer,
-			.ResolvedFrame = ResolvedFrame,
+			.ResolvedSceneResources = ResolvedSceneResources,
 			.Telemetry = Telemetry};
 		const FSceneRenderGraphComposeInputs ComposeInputs{
 			.Services = GraphServices,

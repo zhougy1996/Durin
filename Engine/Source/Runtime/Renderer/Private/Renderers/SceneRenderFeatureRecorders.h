@@ -53,7 +53,7 @@ namespace Durin
 		FSceneRenderFeatureRecorders(
 			FSceneRenderer& Renderer,
 			FSceneRenderTelemetry& Telemetry,
-			FResolvedSceneResources& ResolvedFrame,
+			FResolvedSceneResources& ResolvedSceneResources,
 			FSceneViewTemporalContext& TemporalContext,
 			FSceneViewState*& ViewState);
 
@@ -238,7 +238,7 @@ namespace Durin
 		FEditorAssistanceRenderer& EditorAssistanceRenderer;
 		FRendererQualificationPolicy Qualification;
 		FSceneRenderTelemetry& Telemetry;
-		FResolvedSceneResources& ResolvedFrame;
+		FResolvedSceneResources& ResolvedSceneResources;
 		FSceneViewTemporalContext& TemporalContext;
 		FSceneViewState*& ViewState;
 	};

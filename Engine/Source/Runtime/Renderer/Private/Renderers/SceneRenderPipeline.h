@@ -42,11 +42,11 @@ namespace Durin
 			FSceneView& RenderView,
 			const FSceneViewRenderOptions& Options
 		) -> FSceneRenderPreparationResult;
-		auto ResolveFrameResources_RenderThread(
+		auto ResolveSceneRenderResources_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FSceneRenderPlan& PreparedView
 		) -> ERenderViewResult;
-		auto BuildFrameTopology(
+		auto BuildSceneRenderTopology(
 			const FSceneRenderPlan& PreparedView,
 			const FSceneViewRenderOptions& Options,
 			uint32 Width,
@@ -73,7 +73,7 @@ namespace Durin
 		uint64& RenderSubmissionSerial;
 		FRendererQualificationPolicy Qualification;
 		FSceneRenderTelemetry Telemetry;
-		FResolvedSceneResources ResolvedFrame;
+		FResolvedSceneResources ResolvedSceneResources;
 		FSceneViewTemporalContext TemporalContext;
 		FSceneViewState* ViewState = nullptr;
 		FSceneRenderFeatureRecorders Recorders;

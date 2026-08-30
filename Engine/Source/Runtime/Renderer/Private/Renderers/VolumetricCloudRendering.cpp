@@ -79,16 +79,16 @@ namespace Durin
 			if (bCompute) Compute = Parameter;
 			else Graphics = Parameter;
 		};
-		if (Services.ResolvedFrame.VolumetricCloud)
+		if (Services.ResolvedSceneResources.VolumetricCloud)
 		{
 			AssignCloudInput(Parameters->Resources.CloudBaseDensity,
 				Parameters->Resources.CloudBaseDensityCompute,
 				Inputs.BaseDensity,
-				Services.ResolvedFrame.VolumetricCloud->Textures.BaseDensity);
+				Services.ResolvedSceneResources.VolumetricCloud->Textures.BaseDensity);
 			AssignCloudInput(Parameters->Resources.CloudDetailDensity,
 				Parameters->Resources.CloudDetailDensityCompute,
 				Inputs.DetailDensity,
-				Services.ResolvedFrame.VolumetricCloud->Textures.DetailDensity);
+				Services.ResolvedSceneResources.VolumetricCloud->Textures.DetailDensity);
 			AssignCloudInput(Parameters->Resources.CloudWeather,
 				Parameters->Resources.CloudWeatherCompute,
 				Inputs.Weather, CloudWeatherTexture);
@@ -232,16 +232,16 @@ namespace Durin
 			if (bCompute) Compute = Parameter;
 			else Graphics = Parameter;
 		};
-		if (Services.ResolvedFrame.VolumetricCloud)
+		if (Services.ResolvedSceneResources.VolumetricCloud)
 		{
 			AssignCloudInput(Parameters->Resources.CloudBaseDensity,
 				Parameters->Resources.CloudBaseDensityCompute,
 				Inputs.BaseDensity,
-				Services.ResolvedFrame.VolumetricCloud->Textures.BaseDensity);
+				Services.ResolvedSceneResources.VolumetricCloud->Textures.BaseDensity);
 			AssignCloudInput(Parameters->Resources.CloudDetailDensity,
 				Parameters->Resources.CloudDetailDensityCompute,
 				Inputs.DetailDensity,
-				Services.ResolvedFrame.VolumetricCloud->Textures.DetailDensity);
+				Services.ResolvedSceneResources.VolumetricCloud->Textures.DetailDensity);
 			AssignCloudInput(Parameters->Resources.CloudWeather,
 				Parameters->Resources.CloudWeatherCompute,
 				Inputs.Weather, CloudWeatherTexture);
@@ -336,14 +336,14 @@ namespace Durin
 					{GetTextureAspects(Physical->GetFormat()), 0,
 						Physical->GetNumMips(), 0, Physical->GetArraySize()}};
 			};
-			if (Services.ResolvedFrame.VolumetricCloud)
+			if (Services.ResolvedSceneResources.VolumetricCloud)
 			{
 				AssignCloudInput(Parameters->Resources.CloudBaseDensity,
 					Inputs.BaseDensity,
-					Services.ResolvedFrame.VolumetricCloud->Textures.BaseDensity);
+					Services.ResolvedSceneResources.VolumetricCloud->Textures.BaseDensity);
 				AssignCloudInput(Parameters->Resources.CloudDetailDensity,
 					Inputs.DetailDensity,
-					Services.ResolvedFrame.VolumetricCloud->Textures.DetailDensity);
+					Services.ResolvedSceneResources.VolumetricCloud->Textures.DetailDensity);
 				AssignCloudInput(Parameters->Resources.CloudWeather,
 					Inputs.Weather, CloudWeatherTexture);
 			}
@@ -434,8 +434,8 @@ namespace Durin
 		FVolumetricCloudShadowPassResult PassResult;
 		const FPreparedVolumetricCloud* Cloud = Inputs.Cloud;
 		const FResolvedVolumetricCloud* ResolvedCloud =
-			ResolvedFrame.VolumetricCloud
-				? &*ResolvedFrame.VolumetricCloud : nullptr;
+			ResolvedSceneResources.VolumetricCloud
+				? &*ResolvedSceneResources.VolumetricCloud : nullptr;
 		const bool bRequested = bWantsProductionDeferred && bGBufferComplete
 								&& Cloud != nullptr && ResolvedCloud != nullptr
 								&& !Inputs.Lighting.Lights.Directional.empty()
@@ -519,8 +519,8 @@ namespace Durin
 		const uint32 Height = Depth != nullptr ? Depth->GetSizeY() : 0;
 		const FPreparedVolumetricCloud* Cloud = Inputs.Cloud;
 		const FResolvedVolumetricCloud* ResolvedCloud =
-			ResolvedFrame.VolumetricCloud
-				? &*ResolvedFrame.VolumetricCloud : nullptr;
+			ResolvedSceneResources.VolumetricCloud
+				? &*ResolvedSceneResources.VolumetricCloud : nullptr;
 		const bool bInputsPresent = Cloud != nullptr && ResolvedCloud != nullptr
 									&& BaseDensity != nullptr
 									&& DetailDensity != nullptr

@@ -327,8 +327,8 @@ namespace Durin
 		const bool bWantsContactVisibility = bWantsProductionDeferred
 											 && RenderView.Settings.DirectionalShadow.bEnableContactShadows
 											 && Inputs.Shadow != nullptr
-											 && ResolvedFrame.DirectionalShadow
-											 && ResolvedFrame.DirectionalShadow->bEnabled;
+											 && ResolvedSceneResources.DirectionalShadow
+											 && ResolvedSceneResources.DirectionalShadow->bEnabled;
 		if (!bWantsContactVisibility) return PassResult;
 		PassResult.Status = EScenePassStatus::Failed;
 		if (bWantsContactVisibility && bGBufferComplete

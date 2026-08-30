@@ -5,7 +5,7 @@ namespace Durin
 	FSceneRenderFeatureRecorders::FSceneRenderFeatureRecorders(
 		FSceneRenderer& Renderer,
 		FSceneRenderTelemetry& InTelemetry,
-		FResolvedSceneResources& InResolvedFrame,
+		FResolvedSceneResources& InResolvedSceneResources,
 		FSceneViewTemporalContext& InTemporalContext,
 		FSceneViewState*& InViewState)
 		: RDGAllocator(Renderer.RDGAllocator)
@@ -29,7 +29,7 @@ namespace Durin
 		, EditorAssistanceRenderer(Renderer.EditorAssistanceRenderer)
 		, Qualification(GetRendererQualificationPolicy())
 		, Telemetry(InTelemetry)
-		, ResolvedFrame(InResolvedFrame)
+		, ResolvedSceneResources(InResolvedSceneResources)
 		, TemporalContext(InTemporalContext)
 		, ViewState(InViewState)
 	{

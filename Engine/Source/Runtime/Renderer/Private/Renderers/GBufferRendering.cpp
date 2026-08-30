@@ -206,17 +206,17 @@ namespace Durin
 				const FGeometryExecutionResult StaticResult = StaticMeshRenderer.ExecuteGBuffer_RenderThread(
 					CommandList, RenderView, GBufferRenderer,
 					Inputs.Receiver.StaticMeshes,
-					ResolvedFrame.Receiver.StaticMeshes
+					ResolvedSceneResources.Receiver.StaticMeshes
 				);
 				const FGeometryExecutionResult SkeletalResult = SkeletalMeshRenderer.ExecuteGBuffer_RenderThread(
 					CommandList, RenderView, GBufferRenderer,
 					Inputs.Receiver.SkeletalMeshes,
-					ResolvedFrame.Receiver.SkeletalMeshes
+					ResolvedSceneResources.Receiver.SkeletalMeshes
 				);
 				const FGeometryExecutionResult TerrainResult = TerrainRenderer.ExecuteGBuffer_RenderThread(
 					CommandList, RenderView, GBufferRenderer,
 					Inputs.Receiver.Terrains,
-					ResolvedFrame.Receiver.Terrains
+					ResolvedSceneResources.Receiver.Terrains
 				);
 				CommandList.EndRenderPass();
 				Result.Status = StaticResult.bComplete && SkeletalResult.bComplete
@@ -244,53 +244,53 @@ namespace Durin
 				Telemetry.View.GBuffer.GBufferAttachmentBytes =
 					FGBufferRenderer::CalculateTargetBytes(Width, Height);
 				Telemetry.View.GBuffer.GBufferAttemptedDraws =
-					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferAttemptedDraws
-					+ ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferAttemptedDraws
-					+ ResolvedFrame.Receiver.Terrains.Observations.GBufferAttemptedDraws;
+					ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferAttemptedDraws
+					+ ResolvedSceneResources.Receiver.SkeletalMeshes.Observations.GBufferAttemptedDraws
+					+ ResolvedSceneResources.Receiver.Terrains.Observations.GBufferAttemptedDraws;
 				Telemetry.View.GBuffer.GBufferSuccessfulDraws =
-					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferSuccessfulDraws
-					+ ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferSuccessfulDraws
-					+ ResolvedFrame.Receiver.Terrains.Observations.GBufferSuccessfulDraws;
+					ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferSuccessfulDraws
+					+ ResolvedSceneResources.Receiver.SkeletalMeshes.Observations.GBufferSuccessfulDraws
+					+ ResolvedSceneResources.Receiver.Terrains.Observations.GBufferSuccessfulDraws;
 				Telemetry.View.GBuffer.GBufferRejectedDraws =
-					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferRejectedDraws
-					+ ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferRejectedDraws
-					+ ResolvedFrame.Receiver.Terrains.Observations.GBufferRejectedDraws;
+					ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferRejectedDraws
+					+ ResolvedSceneResources.Receiver.SkeletalMeshes.Observations.GBufferRejectedDraws
+					+ ResolvedSceneResources.Receiver.Terrains.Observations.GBufferRejectedDraws;
 				Telemetry.View.GBuffer.GBufferSkippedDraws =
-					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferSkippedDraws
-					+ ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferSkippedDraws
-					+ ResolvedFrame.Receiver.Terrains.Observations.GBufferSkippedDraws;
+					ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferSkippedDraws
+					+ ResolvedSceneResources.Receiver.SkeletalMeshes.Observations.GBufferSkippedDraws
+					+ ResolvedSceneResources.Receiver.Terrains.Observations.GBufferSkippedDraws;
 				Telemetry.View.GBuffer.GBufferStaticMeshAttemptedDraws =
-					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferLocalAttemptedDraws;
+					ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferLocalAttemptedDraws;
 				Telemetry.View.GBuffer.GBufferStaticMeshSuccessfulDraws =
-					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferLocalSuccessfulDraws;
+					ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferLocalSuccessfulDraws;
 				Telemetry.View.GBuffer.GBufferStaticMeshRejectedDraws =
-					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferLocalRejectedDraws;
+					ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferLocalRejectedDraws;
 				Telemetry.View.GBuffer.GBufferStaticMeshSkippedDraws =
-					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferLocalSkippedDraws;
+					ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferLocalSkippedDraws;
 				Telemetry.View.GBuffer.GBufferSplineMeshAttemptedDraws =
-					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferSplineAttemptedDraws;
+					ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferSplineAttemptedDraws;
 				Telemetry.View.GBuffer.GBufferSplineMeshSuccessfulDraws =
-					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferSplineSuccessfulDraws;
+					ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferSplineSuccessfulDraws;
 				Telemetry.View.GBuffer.GBufferSplineMeshRejectedDraws =
-					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferSplineRejectedDraws;
+					ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferSplineRejectedDraws;
 				Telemetry.View.GBuffer.GBufferSplineMeshSkippedDraws =
-					ResolvedFrame.Receiver.StaticMeshes.Observations.GBufferSplineSkippedDraws;
+					ResolvedSceneResources.Receiver.StaticMeshes.Observations.GBufferSplineSkippedDraws;
 				Telemetry.View.GBuffer.GBufferSkeletalMeshAttemptedDraws =
-					ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferAttemptedDraws;
+					ResolvedSceneResources.Receiver.SkeletalMeshes.Observations.GBufferAttemptedDraws;
 				Telemetry.View.GBuffer.GBufferSkeletalMeshSuccessfulDraws =
-					ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferSuccessfulDraws;
+					ResolvedSceneResources.Receiver.SkeletalMeshes.Observations.GBufferSuccessfulDraws;
 				Telemetry.View.GBuffer.GBufferSkeletalMeshRejectedDraws =
-					ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferRejectedDraws;
+					ResolvedSceneResources.Receiver.SkeletalMeshes.Observations.GBufferRejectedDraws;
 				Telemetry.View.GBuffer.GBufferSkeletalMeshSkippedDraws =
-					ResolvedFrame.Receiver.SkeletalMeshes.Observations.GBufferSkippedDraws;
+					ResolvedSceneResources.Receiver.SkeletalMeshes.Observations.GBufferSkippedDraws;
 				Telemetry.View.GBuffer.GBufferTerrainAttemptedDraws =
-					ResolvedFrame.Receiver.Terrains.Observations.GBufferAttemptedDraws;
+					ResolvedSceneResources.Receiver.Terrains.Observations.GBufferAttemptedDraws;
 				Telemetry.View.GBuffer.GBufferTerrainSuccessfulDraws =
-					ResolvedFrame.Receiver.Terrains.Observations.GBufferSuccessfulDraws;
+					ResolvedSceneResources.Receiver.Terrains.Observations.GBufferSuccessfulDraws;
 				Telemetry.View.GBuffer.GBufferTerrainRejectedDraws =
-					ResolvedFrame.Receiver.Terrains.Observations.GBufferRejectedDraws;
+					ResolvedSceneResources.Receiver.Terrains.Observations.GBufferRejectedDraws;
 				Telemetry.View.GBuffer.GBufferTerrainSkippedDraws =
-					ResolvedFrame.Receiver.Terrains.Observations.GBufferSkippedDraws;
+					ResolvedSceneResources.Receiver.Terrains.Observations.GBufferSkippedDraws;
 			}
 		}
 		return Result;

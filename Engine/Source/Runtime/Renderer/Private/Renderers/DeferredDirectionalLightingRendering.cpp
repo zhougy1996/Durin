@@ -357,7 +357,7 @@ namespace Durin
 					? AmbientOcclusionTargets->Selector.GetReference() : White,
 			.ContactVisibility = ContactVisibility,
 			.VolumetricCloudVisibility = CloudShadowVisibility,
-			.Lighting = ResolvedFrame.Lighting.UniformBuffer,
+			.Lighting = ResolvedSceneResources.Lighting.UniformBuffer,
 			.View = &RenderView,
 			.DiagnosticMode = static_cast<uint32>(
 				Options.DeferredDirectionalDebugMode),

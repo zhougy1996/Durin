@@ -13,7 +13,7 @@ namespace Durin
 		FDefaultTextureResources& DefaultTextures;
 		FEnvironmentLightingResources& EnvironmentLighting;
 		FDirectionalShadowRenderer& DirectionalShadowRenderer;
-		FResolvedSceneResources& ResolvedFrame;
+		FResolvedSceneResources& ResolvedSceneResources;
 		FSceneRenderTelemetry& Telemetry;
 	};
 

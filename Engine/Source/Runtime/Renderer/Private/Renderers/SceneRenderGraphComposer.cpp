@@ -79,19 +79,19 @@ namespace Durin
 		};
 		FRHITexture* DirectionalShadowTexture =
 			Services.DirectionalShadowRenderer.GetTexture_RenderThread();
-		if (PreparedView.DirectionalShadow && Services.ResolvedFrame.DirectionalShadow
-			&& Services.ResolvedFrame.DirectionalShadow->bEnabled
+		if (PreparedView.DirectionalShadow && Services.ResolvedSceneResources.DirectionalShadow
+			&& Services.ResolvedSceneResources.DirectionalShadow->bEnabled
 			&& DirectionalShadowTexture != nullptr)
 			GraphResources.DirectionalShadow = ImportPersistentTexture(
 				"Scene.DirectionalShadow", DirectionalShadowTexture);
-		if (Services.ResolvedFrame.VolumetricCloud)
+		if (Services.ResolvedSceneResources.VolumetricCloud)
 		{
 			GraphResources.VolumetricCloudBaseDensity = ImportPersistentTexture(
 				"Scene.VolumetricCloud.BaseDensity",
-				Services.ResolvedFrame.VolumetricCloud->Textures.BaseDensity);
+				Services.ResolvedSceneResources.VolumetricCloud->Textures.BaseDensity);
 			GraphResources.VolumetricCloudDetailDensity = ImportPersistentTexture(
 				"Scene.VolumetricCloud.DetailDensity",
-				Services.ResolvedFrame.VolumetricCloud->Textures.DetailDensity);
+				Services.ResolvedSceneResources.VolumetricCloud->Textures.DetailDensity);
 			GraphResources.VolumetricCloudWeather = ImportPersistentTexture(
 				"Scene.VolumetricCloud.Weather", CloudWeatherTexture);
 		}

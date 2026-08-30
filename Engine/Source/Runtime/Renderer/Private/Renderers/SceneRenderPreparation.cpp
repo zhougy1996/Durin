@@ -415,7 +415,7 @@ namespace Durin
 			.Plan = std::move(PreparedView)};
 	}
 
-	auto FSceneRenderPipeline::ResolveFrameResources_RenderThread(
+	auto FSceneRenderPipeline::ResolveSceneRenderResources_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		const FSceneRenderPlan& PreparedView
 	) -> ERenderViewResult
@@ -426,44 +426,44 @@ namespace Durin
 			&& View.Settings.Mode.RasterMode == ERasterMode::Solid;
 		StaticMeshRenderer.PrepareResources_RenderThread(
 			CommandList, PreparedView.Receiver.StaticMeshes,
-			ResolvedFrame.Receiver.StaticMeshes, !bRequiresDeferredOpaque);
+			ResolvedSceneResources.Receiver.StaticMeshes, !bRequiresDeferredOpaque);
 		SkeletalMeshRenderer.PrepareResources_RenderThread(
 			CommandList, PreparedView.Receiver.SkeletalPalettes,
-			ResolvedFrame.Receiver.SkeletalPalettes,
+			ResolvedSceneResources.Receiver.SkeletalPalettes,
 			PreparedView.Receiver.SkeletalMeshes,
-			ResolvedFrame.Receiver.SkeletalMeshes, !bRequiresDeferredOpaque);
+			ResolvedSceneResources.Receiver.SkeletalMeshes, !bRequiresDeferredOpaque);
 		TerrainRenderer.PrepareResources_RenderThread(
 			CommandList, PreparedView.Receiver.Terrains,
-			ResolvedFrame.Receiver.Terrains, !bRequiresDeferredOpaque);
+			ResolvedSceneResources.Receiver.Terrains, !bRequiresDeferredOpaque);
 
 		if (PreparedView.DirectionalShadow)
 		{
-			ResolvedFrame.DirectionalShadow.emplace();
+			ResolvedSceneResources.DirectionalShadow.emplace();
 			DirectionalShadowRenderer.PrepareResources_RenderThread(
 				CommandList, StaticMeshRenderer, SkeletalMeshRenderer,
 				TerrainRenderer, *PreparedView.DirectionalShadow,
-				*ResolvedFrame.DirectionalShadow,
+				*ResolvedSceneResources.DirectionalShadow,
 				PreparedView.Receiver.SkeletalPalettes,
-				ResolvedFrame.Receiver.SkeletalPalettes, Telemetry.View);
+				ResolvedSceneResources.Receiver.SkeletalPalettes, Telemetry.View);
 		}
 
-		const bool bShadowReady = ResolvedFrame.DirectionalShadow
-			&& ResolvedFrame.DirectionalShadow->bEnabled;
+		const bool bShadowReady = ResolvedSceneResources.DirectionalShadow
+			&& ResolvedSceneResources.DirectionalShadow->bEnabled;
 		FRHITexture* DirectionalShadowTexture =
 			DirectionalShadowRenderer.GetTexture_RenderThread();
 		FRHISampler* DirectionalShadowSampler =
 			DirectionalShadowRenderer.GetSampler_RenderThread();
-		ResolvedFrame.Receiver.StaticMeshes.DirectionalShadowTexture =
+		ResolvedSceneResources.Receiver.StaticMeshes.DirectionalShadowTexture =
 			DirectionalShadowTexture;
-		ResolvedFrame.Receiver.StaticMeshes.DirectionalShadowSampler =
+		ResolvedSceneResources.Receiver.StaticMeshes.DirectionalShadowSampler =
 			DirectionalShadowSampler;
-		ResolvedFrame.Receiver.SkeletalMeshes.DirectionalShadowTexture =
+		ResolvedSceneResources.Receiver.SkeletalMeshes.DirectionalShadowTexture =
 			DirectionalShadowTexture;
-		ResolvedFrame.Receiver.SkeletalMeshes.DirectionalShadowSampler =
+		ResolvedSceneResources.Receiver.SkeletalMeshes.DirectionalShadowSampler =
 			DirectionalShadowSampler;
-		ResolvedFrame.Receiver.Terrains.DirectionalShadowTexture =
+		ResolvedSceneResources.Receiver.Terrains.DirectionalShadowTexture =
 			DirectionalShadowTexture;
-		ResolvedFrame.Receiver.Terrains.DirectionalShadowSampler =
+		ResolvedSceneResources.Receiver.Terrains.DirectionalShadowSampler =
 			DirectionalShadowSampler;
 
 		const FForwardLightingUniform Lighting = BuildForwardLightingUniform(
@@ -472,24 +472,24 @@ namespace Durin
 				&& DirectionalShadowSampler != nullptr
 				? &PreparedView.DirectionalShadow->View : nullptr);
 		Telemetry.View.Lighting.PackedLightBytes = sizeof(Lighting);
-		ResolvedFrame.Lighting.UniformBuffer =
+		ResolvedSceneResources.Lighting.UniformBuffer =
 			CommandList.AllocateDynamicUniformBuffer(&Lighting, sizeof(Lighting));
-		if (ResolvedFrame.Lighting.UniformBuffer.Buffer == nullptr
-			|| ResolvedFrame.Lighting.UniformBuffer.Size != sizeof(Lighting))
+		if (ResolvedSceneResources.Lighting.UniformBuffer.Buffer == nullptr
+			|| ResolvedSceneResources.Lighting.UniformBuffer.Size != sizeof(Lighting))
 			return ERenderViewResult::RendererResourcesUnavailable;
 
 		if (PreparedView.VolumetricCloud)
 		{
-			ResolvedFrame.VolumetricCloud.emplace();
-			ResolvedFrame.VolumetricCloud->Textures =
+			ResolvedSceneResources.VolumetricCloud.emplace();
+			ResolvedSceneResources.VolumetricCloud->Textures =
 				PreparedView.VolumetricCloud->Textures;
-			ResolvedFrame.VolumetricCloud->Textures.DensitySampler =
+			ResolvedSceneResources.VolumetricCloud->Textures.DensitySampler =
 				VolumetricCloudRenderer.EnsureDensitySampler_RenderThread();
 		}
 		return ERenderViewResult::Success;
 	}
 
-	auto FSceneRenderPipeline::BuildFrameTopology(
+	auto FSceneRenderPipeline::BuildSceneRenderTopology(
 		const FSceneRenderPlan& PreparedView,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
