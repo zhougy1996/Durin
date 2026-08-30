@@ -35,9 +35,7 @@ namespace Durin::RendererPrivate
 		);
 		TransformUniform.LocalToWorld =
 			Math::TransposeToFloat(Primitive.LocalToWorld);
-		TransformUniform.NormalToWorld = Math::TransposeToFloat(
-			Math::Transpose(Math::Inverse(Primitive.LocalToWorld))
-		);
+		TransformUniform.NormalToWorld = Primitive.NormalToWorld;
 		TransformUniform.TransformParams.x = Math::LinearDeterminant(
 			FMatrix4f(Primitive.LocalToWorld)
 		) < 0.0f ? -1.0f : 1.0f;

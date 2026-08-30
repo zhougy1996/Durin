@@ -83,7 +83,17 @@ namespace Durin
 				return;
 			}
 			const double Determinant = Math::LinearDeterminant(LocalToWorld);
-			if (!std::isfinite(Determinant))
+			FMatrix WorldToLocal;
+			if (!std::isfinite(Determinant)
+				|| !Math::TryInverse(LocalToWorld, WorldToLocal))
+			{
+				++Result.RejectedPrimitives;
+				return;
+			}
+			const FMatrix4f NormalToWorld = Math::TransposeToFloat(
+				Math::Transpose(WorldToLocal)
+			);
+			if (!Math::IsFinite(FMatrix(NormalToWorld)))
 			{
 				++Result.RejectedPrimitives;
 				return;
@@ -91,7 +101,7 @@ namespace Durin
 
 			const uint32 PrimitiveIndex =
 				static_cast<uint32>(Result.Primitives.size());
-			Result.Primitives.push_back({.PrimitiveId = SceneInfo->GetId(), .RequestedLODIndex = RequestedLODIndex, .SelectedLODIndex = SelectedLODIndex, .LOD = &LOD, .VertexFactory = &VertexFactory, .VertexDomain = bSplineMesh ? EVertexDeformationDomain::Spline : EVertexDeformationDomain::Local, .SplineDynamicData = bSplineMesh ? SplineProxy->GetDynamicData() : FSplineMeshRenderDynamicData{}, .LocalToWorld = LocalToWorld});
+			Result.Primitives.push_back({.PrimitiveId = SceneInfo->GetId(), .RequestedLODIndex = RequestedLODIndex, .SelectedLODIndex = SelectedLODIndex, .LOD = &LOD, .VertexFactory = &VertexFactory, .VertexDomain = bSplineMesh ? EVertexDeformationDomain::Spline : EVertexDeformationDomain::Local, .SplineDynamicData = bSplineMesh ? SplineProxy->GetDynamicData() : FSplineMeshRenderDynamicData{}, .LocalToWorld = LocalToWorld, .NormalToWorld = NormalToWorld});
 			const size_t FirstSectionCount = Result.GetNumSections();
 			const size_t FirstTriangleCount = Result.SelectedTriangles;
 

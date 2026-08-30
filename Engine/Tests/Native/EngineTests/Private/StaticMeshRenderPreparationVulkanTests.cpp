@@ -851,10 +851,46 @@ TEST(FStaticMeshRenderPreparationVulkanTests, ClassifiesResolvedSectionsAndRecom
 					Durin::ERasterMode::Solid);
 			ASSERT_EQ(Nonuniform.Primitives.size(), 1u);
 			EXPECT_EQ(Nonuniform.Primitives[0].SelectedLODIndex, 1u);
+			const Durin::FMatrix4f& NormalToWorld =
+				Nonuniform.Primitives[0].NormalToWorld;
+			EXPECT_FLOAT_EQ(NormalToWorld[0][0], 1.0f);
+			EXPECT_FLOAT_EQ(NormalToWorld[1][1], 2.0f);
+			EXPECT_FLOAT_EQ(NormalToWorld[2][2], 0.5f);
 		}
 	);
 	Durin::FlushRenderingCommands();
 	MultiLODScene.RemovePrimitive(Durin::FPrimitiveSceneId(101));
+	Durin::FlushRenderingCommands();
+
+	Durin::FScene DegenerateTransformScene;
+	DegenerateTransformScene.AddOrReplacePrimitive(
+		Durin::FPrimitiveSceneId(102),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(
+			MultiLODRenderData.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 2),
+		Durin::Math::ScaleMatrix(Durin::FVector3(0.0, 1.0, 1.0)));
+	DegenerateTransformScene.AddOrReplacePrimitive(
+		Durin::FPrimitiveSceneId(103),
+		std::make_unique<Durin::FStaticMeshSceneProxy>(
+			MultiLODRenderData.get(),
+			std::vector<Durin::FMaterialRenderProxyRef>{Opaque}, 2),
+		Durin::Math::ScaleMatrix(Durin::FVector3(1.0e-12, 1.0, 1.0)));
+	Durin::FlushRenderingCommands();
+	Durin::EnqueueRenderCommand<FCapturePreparedStaticMeshViewCommand>(
+		[&DegenerateTransformScene](
+			Durin::FRHICommandListImmediate& CommandList) {
+			const Durin::FPreparedStaticMeshView Prepared =
+				Durin::PrepareStaticMeshView_RenderThread(
+					CommandList,
+					DegenerateTransformScene.GetStaticMeshSceneInfos(),
+					Durin::FSceneView{}, Durin::ERasterMode::Solid);
+			EXPECT_TRUE(Prepared.Primitives.empty());
+			EXPECT_EQ(Prepared.GetNumSections(), 0u);
+			EXPECT_EQ(Prepared.RejectedPrimitives, 2u);
+		});
+	Durin::FlushRenderingCommands();
+	DegenerateTransformScene.RemovePrimitive(Durin::FPrimitiveSceneId(102));
+	DegenerateTransformScene.RemovePrimitive(Durin::FPrimitiveSceneId(103));
 	Durin::FlushRenderingCommands();
 
 	Scene.AddOrReplacePrimitive(Id, std::make_unique<Durin::FStaticMeshSceneProxy>(RenderData.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 2), Durin::FMatrix(1.0));

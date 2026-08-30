@@ -27,6 +27,8 @@ namespace Durin
 		EVertexDeformationDomain VertexDomain = EVertexDeformationDomain::Local;
 		FSplineMeshRenderDynamicData SplineDynamicData;
 		FMatrix LocalToWorld{1.0};
+		// Validated inverse-transpose in shader uniform storage order.
+		FMatrix4f NormalToWorld{1.0f};
 	};
 
 	// References its owning prepared primitive by index so vector relocation is safe.
