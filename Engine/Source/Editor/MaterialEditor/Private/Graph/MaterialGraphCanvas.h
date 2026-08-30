@@ -3,6 +3,8 @@
 #include "MaterialGraphOperations.h"
 #include "MonaImGui.h"
 
+#include <variant>
+
 namespace Durin::Editor
 {
 	class FTransactionManager;
@@ -47,11 +49,74 @@ namespace Durin::Editor::Material
 	private:
 		struct FVisualNode;
 		struct FVisualGraph;
+
+		struct FIdleInteraction {};
+		struct FMovingInteraction
+		{
+			ImVec2 StartMouse{};
+			std::unordered_map<FGuid, FMaterialGraphNodePresentation> StartPositions;
+			std::optional<ImVec2> MaterialOutputStart;
+		};
+		struct FLinkingInteraction { FGuid SourceNode; };
+		struct FReconnectingInputInteraction
+		{
+			FGuid DestinationNode;
+			uint32 DestinationInputIndex = 0;
+		};
+		struct FReconnectingSurfaceInteraction
+		{
+			EMaterialSurfaceOutput Output = EMaterialSurfaceOutput::BaseColor;
+		};
+		struct FMarqueeInteraction { ImVec2 Start{}; };
+		struct FInlineEditingInteraction
+		{
+			FGuid Node;
+			std::array<float, 4> ConstantDraft{};
+			std::array<int, 4> SwizzleDraft{};
+		};
+		struct FPaletteInteraction
+		{
+			FGuid SourceNode;
+			ImVec2 GraphPosition{};
+			bool bOpenRequested = true;
+			int32 Selection = 0;
+			std::array<char, 96> Search{};
+		};
+		struct FContextMenuInteraction
+		{
+			FGuid SourceNode;
+			FGuid ContextNode;
+			std::optional<EMaterialSurfaceOutput> SurfaceOutput;
+			ImVec2 GraphPosition{};
+		};
+		using FInteraction = std::variant<
+			FIdleInteraction,
+			FMovingInteraction,
+			FLinkingInteraction,
+			FReconnectingInputInteraction,
+			FReconnectingSurfaceInteraction,
+			FMarqueeInteraction,
+			FInlineEditingInteraction,
+			FPaletteInteraction,
+			FContextMenuInteraction>;
+
 		auto PrepareView(DMaterial& Material) -> FMaterialGraphView;
 		auto BuildVisualGraph(const FMaterialGraphView& View,
 			const ImVec2& CanvasMinimum) const -> FVisualGraph;
 		auto FrameNodes(const FMaterialGraphView& View,
 			const ImVec2& CanvasSize) -> void;
+		auto DrawLinks(const FVisualGraph& VisualGraph,
+			const ImVec2& CanvasMinimum, const ImVec2& CanvasMaximum,
+			ImDrawList& DrawList) const -> void;
+		auto HandleKeyboardInput(DMaterial& Material,
+			FTransactionManager& Transactions, const FMaterialGraphView& View,
+			const ImVec2& CanvasMinimum, const ImVec2& CanvasSize,
+			const ImVec2& Mouse, bool bInputAvailable,
+			const FReportError& ReportError) -> void;
+		auto DrawPalette(DMaterial& Material,
+			FTransactionManager& Transactions, const FMaterialGraphView& View,
+			const FReportError& ReportError) -> void;
+		auto ResetInteraction() -> void;
 
 		ImVec2 Pan{40.0f, 40.0f};
 		float Zoom = 1.0f;
@@ -62,31 +127,13 @@ namespace Durin::Editor::Material
 		std::optional<EMaterialSurfaceOutput> SelectedSurfaceOutput;
 		bool bMaterialOutputSelected = false;
 		bool bPendingFrameSurface = false;
-		FGuid LinkSourceNode;
-		FGuid PaletteSourceNode;
-		FGuid ContextNode;
-		std::optional<EMaterialSurfaceOutput> ContextSurfaceOutput;
-		ImVec2 PaletteGraphPosition{};
-		bool bPaletteOpenRequested = false;
-		int32 PaletteSelection = 0;
 		std::vector<std::string> RecentPaletteEntries;
 		std::unordered_set<std::string> FavoritePaletteEntries;
-		std::array<char, 96> PaletteSearch{};
 		uint64 CatalogAuthoredRevision = 0;
 		std::vector<FMaterialGraphCatalogEntry> Catalog;
-		FGuid ReconnectDestinationNode;
-		uint32 ReconnectDestinationInputIndex = 0;
-		std::optional<EMaterialSurfaceOutput> ReconnectSurfaceOutput;
-		FGuid InlineEditNode;
-		std::array<float, 4> InlineConstantDraft{};
-		std::array<int, 4> InlineSwizzleDraft{};
 		std::array<std::array<float, 4>, 8> SurfaceDefaultDrafts{};
 		std::array<bool, 8> bSurfaceDefaultDraftInitialized{};
-		ImVec2 MarqueeStart{};
-		bool bMarqueeActive = false;
-		std::unordered_map<FGuid, FMaterialGraphNodePresentation> DragStartPositions;
-		ImVec2 DragStartMaterialOutput{};
-		ImVec2 DragStartMouse{};
+		FInteraction Interaction = FIdleInteraction{};
 		FMaterialGraphMoveSession MoveSession;
 		FMaterialGraphParameterEditSession ParameterEditSession;
 	};
