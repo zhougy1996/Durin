@@ -329,6 +329,7 @@ namespace Durin::Asset
 			case DurinCodeGen::EPropertyGenFlags::Byte: return "Byte";
 			case DurinCodeGen::EPropertyGenFlags::Blob: return "Blob";
 			case DurinCodeGen::EPropertyGenFlags::BulkData: return "BulkData";
+			case DurinCodeGen::EPropertyGenFlags::Count: return "Unknown";
 			}
 			return "Unknown";
 		}
