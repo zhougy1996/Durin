@@ -186,6 +186,27 @@ namespace Durin::Editor::Material
 			return Entry;
 		}
 
+		auto NormalizeSearchText(std::string_view Value) -> std::string
+		{
+			std::string Result(Value);
+			std::ranges::transform(Result, Result.begin(), [](char Character) {
+				return static_cast<char>(std::tolower(
+					static_cast<unsigned char>(Character)));
+			});
+			return Result;
+		}
+
+		auto PrepareSearchFields(FMaterialGraphCatalogEntry& Entry) -> void
+		{
+			Entry.NormalizedSearchFields = {
+				NormalizeSearchText(Entry.OperationName),
+				NormalizeSearchText(Entry.SecondaryName),
+				NormalizeSearchText(Entry.Category),
+				NormalizeSearchText(Entry.Description),
+				NormalizeSearchText(GetProgramTypeName(Entry.NodeTemplate.ResultType)),
+			};
+		}
+
 		auto FindNode(FMaterialProgram& Program, const FGuid& Id)
 			-> FMaterialProgramNode*
 		{
@@ -656,6 +677,7 @@ namespace Durin::Editor::Material
 			EMaterialProgramOpcode::StandardSurface,
 			EMaterialProgramValueType::Surface));
 		std::ranges::stable_sort(Result, {}, &FMaterialGraphCatalogEntry::Name);
+		for (FMaterialGraphCatalogEntry& Entry : Result) PrepareSearchFields(Entry);
 		return Result;
 	}
 
@@ -674,18 +696,24 @@ namespace Durin::Editor::Material
 		std::optional<EMaterialProgramValueType> SourceType)
 		-> std::vector<FMaterialGraphCatalogEntry>
 	{
-		auto Lower = [](std::string_view Value) {
-			std::string Result(Value);
-			std::ranges::transform(Result, Result.begin(), [](char Character) {
-				return static_cast<char>(std::tolower(
-					static_cast<unsigned char>(Character)));
-			});
-			return Result;
-		};
-		const std::string Needle = Lower(Query);
+		const std::vector<size_t> Indices = SearchCatalogIndices(
+			Catalog, Query, SourceType);
+		std::vector<FMaterialGraphCatalogEntry> Result;
+		Result.reserve(Indices.size());
+		for (const size_t Index : Indices) Result.push_back(Catalog[Index]);
+		return Result;
+	}
+
+	auto FMaterialGraphOperations::SearchCatalogIndices(
+		std::span<const FMaterialGraphCatalogEntry> Catalog,
+		std::string_view Query,
+		std::optional<EMaterialProgramValueType> SourceType)
+		-> std::vector<size_t>
+	{
+		const std::string Needle = NormalizeSearchText(Query);
 		struct FRankedEntry
 		{
-			FMaterialGraphCatalogEntry Entry;
+			size_t Index = 0;
 			uint8 Match = 3;
 			size_t Ordinal = 0;
 		};
@@ -700,42 +728,48 @@ namespace Durin::Editor::Material
 						== Entry.AcceptedInputTypes.front().end()) continue;
 			}
 			uint8 Match = Needle.empty() ? 3 : 4;
-			for (const std::string* Field : {
-				&Entry.OperationName, &Entry.SecondaryName, &Entry.Category,
-				&Entry.Description})
+			std::array<std::string, 5> FallbackSearchFields;
+			const std::array<std::string, 5>* SearchFields =
+				&Entry.NormalizedSearchFields;
+			if (std::ranges::all_of(*SearchFields,
+				[](const std::string& Field) { return Field.empty(); }))
 			{
-				const std::string Haystack = Lower(*Field);
+				FallbackSearchFields = {
+					NormalizeSearchText(Entry.OperationName),
+					NormalizeSearchText(Entry.SecondaryName),
+					NormalizeSearchText(Entry.Category),
+					NormalizeSearchText(Entry.Description),
+					NormalizeSearchText(GetProgramTypeName(Entry.NodeTemplate.ResultType)),
+				};
+				SearchFields = &FallbackSearchFields;
+			}
+			for (const std::string& Haystack : *SearchFields)
+			{
 				if (Haystack == Needle) Match = std::min<uint8>(Match, 0);
 				else if (Haystack.starts_with(Needle)) Match = std::min<uint8>(Match, 1);
 				else if (Haystack.find(Needle) != std::string::npos)
 					Match = std::min<uint8>(Match, 2);
 			}
-			const std::string Type = Lower(GetProgramTypeName(Entry.NodeTemplate.ResultType));
-			if (!Needle.empty())
-			{
-				if (Type == Needle) Match = std::min<uint8>(Match, 0);
-				else if (Type.starts_with(Needle)) Match = std::min<uint8>(Match, 1);
-				else if (Type.find(Needle) != std::string::npos)
-					Match = std::min<uint8>(Match, 2);
-			}
-			if (Match < 4) Ranked.push_back({Entry, Match, Ordinal});
+			if (Match < 4) Ranked.push_back({Ordinal, Match, Ordinal});
 		}
-		std::ranges::sort(Ranked, [](const FRankedEntry& A, const FRankedEntry& B) {
+		std::ranges::sort(Ranked, [Catalog](const FRankedEntry& A,
+			const FRankedEntry& B) {
 			if (A.Match != B.Match) return A.Match < B.Match;
-			if (A.Entry.Category != B.Entry.Category)
-				return A.Entry.Category < B.Entry.Category;
-			if (A.Entry.OperationName != B.Entry.OperationName)
-				return A.Entry.OperationName < B.Entry.OperationName;
-			if (A.Entry.NodeTemplate.ResultType != B.Entry.NodeTemplate.ResultType)
-				return A.Entry.NodeTemplate.ResultType < B.Entry.NodeTemplate.ResultType;
-			if (A.Entry.NodeTemplate.ParameterId != B.Entry.NodeTemplate.ParameterId)
-				return A.Entry.NodeTemplate.ParameterId < B.Entry.NodeTemplate.ParameterId;
+			const FMaterialGraphCatalogEntry& EntryA = Catalog[A.Index];
+			const FMaterialGraphCatalogEntry& EntryB = Catalog[B.Index];
+			if (EntryA.Category != EntryB.Category)
+				return EntryA.Category < EntryB.Category;
+			if (EntryA.OperationName != EntryB.OperationName)
+				return EntryA.OperationName < EntryB.OperationName;
+			if (EntryA.NodeTemplate.ResultType != EntryB.NodeTemplate.ResultType)
+				return EntryA.NodeTemplate.ResultType < EntryB.NodeTemplate.ResultType;
+			if (EntryA.NodeTemplate.ParameterId != EntryB.NodeTemplate.ParameterId)
+				return EntryA.NodeTemplate.ParameterId < EntryB.NodeTemplate.ParameterId;
 			return A.Ordinal < B.Ordinal;
 		});
-		std::vector<FMaterialGraphCatalogEntry> Result;
+		std::vector<size_t> Result;
 		Result.reserve(Ranked.size());
-		for (FRankedEntry& Entry : Ranked)
-			Result.push_back(std::move(Entry.Entry));
+		for (const FRankedEntry& Entry : Ranked) Result.push_back(Entry.Index);
 		return Result;
 	}
 

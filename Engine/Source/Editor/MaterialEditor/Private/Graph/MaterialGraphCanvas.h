@@ -133,6 +133,15 @@ namespace Durin::Editor::Material
 		std::unordered_set<std::string> FavoritePaletteEntries;
 		DMaterial* CachedMaterial = nullptr;
 		uint64 CatalogSchemaRevision = 0;
+		uint64 CatalogRevision = 0;
+		uint64 FavoritePaletteRevision = 0;
+		uint64 RecentPaletteRevision = 0;
+		uint64 CachedPaletteCatalogRevision = 0;
+		uint64 CachedFavoritePaletteRevision = 0;
+		uint64 CachedRecentPaletteRevision = 0;
+		std::string CachedPaletteQuery;
+		std::optional<EMaterialProgramValueType> CachedPaletteSourceType;
+		std::vector<size_t> CachedPaletteResults;
 		uint64 CachedProgramRevision = 0;
 		uint64 CachedPresentationRevision = 0;
 		uint64 CachedSchemaRevision = 0;

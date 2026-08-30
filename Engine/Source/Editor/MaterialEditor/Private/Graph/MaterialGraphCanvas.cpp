@@ -292,6 +292,7 @@ namespace Durin::Editor::Material
 		{
 			Catalog = FMaterialGraphOperations::EnumerateCatalog(Material);
 			CatalogSchemaRevision = SchemaRevision;
+			++CatalogRevision;
 		}
 		if (CachedMaterial != &Material
 			|| CachedProgramRevision != ProgramRevision
@@ -573,29 +574,42 @@ namespace Durin::Editor::Material
 			[](const FMaterialGraphNodeView& Node) { return Node.Node.Id; });
 		if (Palette->SourceNode.IsValid() && Source != View.Nodes.end())
 			SourceType = Source->Node.ResultType;
-		std::vector<FMaterialGraphCatalogEntry> Results =
-			FMaterialGraphOperations::SearchCatalog(
-				Catalog, Palette->Search.data(), SourceType);
-		if (Palette->Search.front() == '\0')
+		const bool bPaletteResultsStale =
+			CachedPaletteCatalogRevision != CatalogRevision
+			|| CachedFavoritePaletteRevision != FavoritePaletteRevision
+			|| CachedRecentPaletteRevision != RecentPaletteRevision
+			|| CachedPaletteQuery != Palette->Search.data()
+			|| CachedPaletteSourceType != SourceType;
+		if (bPaletteResultsStale)
 		{
-			const auto RecentRank = [this](const FMaterialGraphCatalogEntry& Entry) {
-				const auto It = std::ranges::find(
-					RecentPaletteEntries, PaletteEntryKey(Entry));
-				return It == RecentPaletteEntries.end()
-					? RecentPaletteEntries.size()
-					: static_cast<size_t>(It - RecentPaletteEntries.begin());
-			};
-			std::ranges::stable_sort(Results,
-				[this, &RecentRank](const FMaterialGraphCatalogEntry& A,
-					const FMaterialGraphCatalogEntry& B) {
-					const bool bFavoriteA =
-						FavoritePaletteEntries.contains(PaletteEntryKey(A));
-					const bool bFavoriteB =
-						FavoritePaletteEntries.contains(PaletteEntryKey(B));
-					if (bFavoriteA != bFavoriteB) return bFavoriteA;
-					return RecentRank(A) < RecentRank(B);
-				});
+			CachedPaletteResults = FMaterialGraphOperations::SearchCatalogIndices(
+				Catalog, Palette->Search.data(), SourceType);
+			if (Palette->Search.front() == '\0')
+			{
+				const auto RecentRank = [this](size_t Index) {
+					const auto It = std::ranges::find(RecentPaletteEntries,
+						PaletteEntryKey(Catalog[Index]));
+					return It == RecentPaletteEntries.end()
+						? RecentPaletteEntries.size()
+						: static_cast<size_t>(It - RecentPaletteEntries.begin());
+				};
+				std::ranges::stable_sort(CachedPaletteResults,
+					[this, &RecentRank](size_t A, size_t B) {
+						const bool bFavoriteA = FavoritePaletteEntries.contains(
+							PaletteEntryKey(Catalog[A]));
+						const bool bFavoriteB = FavoritePaletteEntries.contains(
+							PaletteEntryKey(Catalog[B]));
+						if (bFavoriteA != bFavoriteB) return bFavoriteA;
+						return RecentRank(A) < RecentRank(B);
+					});
+			}
+			CachedPaletteCatalogRevision = CatalogRevision;
+			CachedFavoritePaletteRevision = FavoritePaletteRevision;
+			CachedRecentPaletteRevision = RecentPaletteRevision;
+			CachedPaletteQuery = Palette->Search.data();
+			CachedPaletteSourceType = SourceType;
 		}
+		const std::vector<size_t>& Results = CachedPaletteResults;
 
 		Palette->Selection = std::clamp(Palette->Selection, 0,
 			std::max(static_cast<int32>(Results.size()) - 1, 0));
@@ -615,7 +629,7 @@ namespace Durin::Editor::Material
 		{
 			for (size_t EntryIndex = 0; EntryIndex < Results.size(); ++EntryIndex)
 			{
-				const FMaterialGraphCatalogEntry& Entry = Results[EntryIndex];
+				const FMaterialGraphCatalogEntry& Entry = Catalog[Results[EntryIndex]];
 				const std::string Key = PaletteEntryKey(Entry);
 				ImGui::PushID(static_cast<int>(EntryIndex));
 				const bool bFavorite = FavoritePaletteEntries.contains(Key);
@@ -623,6 +637,7 @@ namespace Durin::Editor::Material
 				{
 					if (bFavorite) FavoritePaletteEntries.erase(Key);
 					else FavoritePaletteEntries.insert(Key);
+					++FavoritePaletteRevision;
 				}
 				if (ImGui::IsItemHovered())
 					ImGui::SetTooltip(bFavorite
@@ -649,8 +664,8 @@ namespace Durin::Editor::Material
 
 		if (bActivateSelection && !Results.empty())
 		{
-			const FMaterialGraphCatalogEntry& Entry =
-				Results[static_cast<size_t>(Palette->Selection)];
+			const FMaterialGraphCatalogEntry& Entry = Catalog[
+				Results[static_cast<size_t>(Palette->Selection)]];
 			FMaterialProgramNode Candidate = Entry.NodeTemplate;
 			if (SourceType) Candidate.Inputs.front() = {Palette->SourceNode, 0};
 			const FMaterialGraphCommandResult Created =
@@ -668,6 +683,7 @@ namespace Durin::Editor::Material
 				std::erase(RecentPaletteEntries, Key);
 				RecentPaletteEntries.insert(RecentPaletteEntries.begin(), Key);
 				if (RecentPaletteEntries.size() > 8) RecentPaletteEntries.resize(8);
+				++RecentPaletteRevision;
 				ResetInteraction();
 				ImGui::CloseCurrentPopup();
 			}

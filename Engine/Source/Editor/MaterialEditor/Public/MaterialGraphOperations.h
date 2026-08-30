@@ -3,6 +3,7 @@
 #include "MaterialEditorAPI.h"
 #include "Materials/Material.h"
 
+#include <array>
 #include <span>
 #include <string>
 #include <vector>
@@ -61,6 +62,9 @@ namespace Durin::Editor::Material
 		FMaterialProgramNode NodeTemplate;
 		std::vector<std::string> InputNames;
 		std::vector<std::vector<EMaterialProgramValueType>> AcceptedInputTypes;
+		// Prepared once with the catalog so repeated palette searches do not
+		// allocate and normalize every searchable field.
+		std::array<std::string, 5> NormalizedSearchFields;
 	};
 
 	// Describes one node and its shared authored position without exposing mutable storage.
@@ -193,6 +197,11 @@ namespace Durin::Editor::Material
 			std::string_view Query,
 			std::optional<EMaterialProgramValueType> SourceType = std::nullopt)
 			-> std::vector<FMaterialGraphCatalogEntry>;
+		MATERIALEDITOR_API static auto SearchCatalogIndices(
+			std::span<const FMaterialGraphCatalogEntry> Catalog,
+			std::string_view Query,
+			std::optional<EMaterialProgramValueType> SourceType = std::nullopt)
+			-> std::vector<size_t>;
 		MATERIALEDITOR_API static auto CreateNode(
 			DMaterial& Material,
 			FMaterialGraphCreateNodeRequest Request,

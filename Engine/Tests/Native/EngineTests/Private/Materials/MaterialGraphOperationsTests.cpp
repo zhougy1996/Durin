@@ -421,6 +421,7 @@ TEST(FMaterialGraphOperationsTests, CatalogAndInspectionCoverTheClosedOpcodeDoma
 		EXPECT_FALSE(Entry.OperationName.empty());
 		EXPECT_FALSE(Entry.Category.empty());
 		EXPECT_FALSE(Entry.Description.empty());
+		EXPECT_FALSE(Entry.NormalizedSearchFields.front().empty());
 		EXPECT_EQ(Entry.InputNames.size(), Entry.AcceptedInputTypes.size());
 	}
 	const std::vector<FMaterialGraphCatalogEntry> MultiplyResults =
@@ -431,6 +432,11 @@ TEST(FMaterialGraphOperationsTests, CatalogAndInspectionCoverTheClosedOpcodeDoma
 	ASSERT_EQ(CachedMultiplyResults.size(), MultiplyResults.size());
 	EXPECT_EQ(MultiplyResults.front().OperationName, "Multiply");
 	EXPECT_EQ(CachedMultiplyResults.front().OperationName,
+		MultiplyResults.front().OperationName);
+	const std::vector<size_t> MultiplyIndices =
+		FMaterialGraphOperations::SearchCatalogIndices(Catalog, "MuLtIpLy");
+	ASSERT_EQ(MultiplyIndices.size(), MultiplyResults.size());
+	EXPECT_EQ(Catalog[MultiplyIndices.front()].OperationName,
 		MultiplyResults.front().OperationName);
 	const std::vector<FMaterialGraphCatalogEntry> TextureSourceResults =
 		FMaterialGraphOperations::SearchCatalog(*Material, {},
