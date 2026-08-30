@@ -31,6 +31,18 @@ file(CONFIGURE
 	@ONLY
 )
 
+execute_process(
+	COMMAND ${Python_EXECUTABLE} -c "import clang.cindex; print(clang.cindex.conf.get_filename())"
+	RESULT_VARIABLE _durin_libclang_path_result
+	OUTPUT_VARIABLE DURIN_NATIVE_LIBCLANG_PATH
+	OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+if(NOT _durin_libclang_path_result EQUAL 0 OR NOT EXISTS "${DURIN_NATIVE_LIBCLANG_PATH}")
+	message(FATAL_ERROR "Failed to locate the native libclang library used by DurinHeaderTool.")
+endif()
+file(SHA256 "${DURIN_NATIVE_LIBCLANG_PATH}" DURIN_NATIVE_LIBCLANG_FINGERPRINT)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${DURIN_NATIVE_LIBCLANG_PATH}")
+
 function(durin_project_log project_name)
 	message(STATUS "[${project_name}] Project: ${project_name}")
 endfunction()
@@ -47,6 +59,7 @@ function(add_durin_project project_name)
 		-a ${DURIN_TARGET_PLATFORM}
 		--runtime-variant ${DURIN_RUNTIME_VARIANT}
 		--tool-fingerprint ${DURIN_DHT_TOOL_FINGERPRINT}
+		--native-libclang-fingerprint ${DURIN_NATIVE_LIBCLANG_FINGERPRINT}
 	)
 	execute_process(
 		COMMAND ${DHT_MAIN} prepare_project_build -p "${CMAKE_CURRENT_SOURCE_DIR}/${project_name}.dproject" ${DURIN_DHT_CONTEXT_ARGS}

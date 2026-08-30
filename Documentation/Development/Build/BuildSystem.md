@@ -150,7 +150,10 @@ During configuration, CMake hashes the tracked DHT Python package together with
 and export/reflection build commands depend on the resulting fingerprint. The
 fingerprint is also passed into DHT's persistent phase bundles,
 so a tool implementation change invalidates both CMake's build edge and DHT's
-internal cache. Schema, parser/generator context, native-libclang content,
+internal cache. CMake also resolves and hashes the active native libclang once
+per configuration and passes that fingerprint to every export/reflection command;
+direct DHT invocations fall back to hashing the library locally. Schema,
+parser/generator context, native-libclang content,
 platform, runtime variant, and current-header content changes likewise miss
 deterministically. Export semantic changes invalidate only reflection records
 whose resolved-symbol dependency snapshots changed.

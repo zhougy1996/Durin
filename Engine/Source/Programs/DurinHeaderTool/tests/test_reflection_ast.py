@@ -139,11 +139,14 @@ class TestReflectionAstAndState:
         executor.submit.side_effect = [successful_future, failed_future]
         worker = mock.Mock()
         manifest = ReflectionPhaseState(module="Fixture")
+        symbols = {"Fixture::Type": mock.sentinel.symbol}
 
         with (
             mock.patch.object(utils, "get_module_dht_output_dir", return_value=self.dht_output_dir),
             mock.patch.object(reflection_generator, "resolve_worker_count", return_value=2),
-            mock.patch.object(reflection_generator, "ProcessPoolExecutor", return_value=executor),
+            mock.patch.object(
+                reflection_generator, "ProcessPoolExecutor", return_value=executor
+            ) as executor_factory,
             mock.patch.object(reflection_generator, "as_completed", return_value=[successful_future, failed_future]),
             mock.patch.object(reflection_generator, "_generate_reflection_output_worker", worker),
             pytest.raises(RuntimeError, match="worker failed") as raised,
@@ -151,7 +154,7 @@ class TestReflectionAstAndState:
             _write_reflection_files(
                 "Fixture",
                 ["First.h", "Second.h"],
-                {},
+                symbols,
                 manifest,
                 max_workers=2,
             )
@@ -161,6 +164,12 @@ class TestReflectionAstAndState:
             frame.name for frame in traceback.extract_tb(raised.value.__traceback__)
         }
         worker.assert_not_called()
+        assert executor_factory.call_args.kwargs["initializer"] is reflection_generator._initialize_reflection_worker
+        assert executor_factory.call_args.kwargs["initargs"][-1] is symbols
+        assert [call.args[1] for call in executor.submit.call_args_list] == [
+            ("Fixture", "First.h"),
+            ("Fixture", "Second.h"),
+        ]
 
 
     def test_generated_body_line_comes_from_source_instead_of_synthetic_cursor(self):

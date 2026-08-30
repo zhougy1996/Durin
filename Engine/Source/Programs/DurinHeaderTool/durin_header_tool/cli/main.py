@@ -39,6 +39,7 @@ def main():
     configs.ARCH = args.arch
     configs.RUNTIME_VARIANT = args.runtime_variant
     configs.TOOL_FINGERPRINT = args.tool_fingerprint
+    configs.NATIVE_LIBCLANG_FINGERPRINT = args.native_libclang_fingerprint
     init_logging(args.log, quiet=args.quiet)
     project_files = list(args.project_file)
     if args.function == "prepare_project_build":

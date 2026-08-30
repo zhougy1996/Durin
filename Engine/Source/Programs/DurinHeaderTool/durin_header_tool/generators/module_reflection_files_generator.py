@@ -37,6 +37,7 @@ from durin_header_tool.writers.reflection_source_writer import generate_cpp_cont
 
 
 _GENERATOR_OPTIONS_HASH = "cpp-packages-namespace-scoped-v2"
+_WORKER_SYMBOLS: dict[str, ExportedSymbolInfo] | None = None
 
 
 def _reflection_cache_context_digest() -> str:
@@ -139,7 +140,9 @@ def make_new_reflection_state(
         runtime_variant=configs.RUNTIME_VARIANT,
         platform=configs.ARCH,
         tool_fingerprint=configs.TOOL_FINGERPRINT or TOOL_VERSION,
-        native_libclang_fingerprint=fingerprint_native_libclang(),
+        native_libclang_fingerprint=fingerprint_native_libclang(
+            configs.NATIVE_LIBCLANG_FINGERPRINT
+        ),
         context_digest=_reflection_cache_context_digest(),
         generated_outputs=sorted(generated_output_names(module_name, module_config.reflect_headers)),
     )
@@ -201,13 +204,26 @@ def _generate_reflection_output_impl(
     )
 
 
+def _initialize_reflection_worker(
+    arch: str,
+    runtime_variant: str,
+    project_files: tuple[Path, ...],
+    symbols: dict[str, ExportedSymbolInfo],
+) -> None:
+    global _WORKER_SYMBOLS
+    initialize_worker_config(arch, runtime_variant, project_files)
+    _WORKER_SYMBOLS = symbols
+
+
 def _generate_reflection_output_worker(args):
-    module_name, header, symbols = args
+    module_name, header = args
+    if _WORKER_SYMBOLS is None:
+        raise RuntimeError("reflection worker symbol context was not initialized")
 
     from durin_header_tool.generators.module_reflection_files_generator import _generate_reflection_output_impl as worker_generate
 
     start_time = time.perf_counter()
-    result = worker_generate(module_name, header, symbols)
+    result = worker_generate(module_name, header, _WORKER_SYMBOLS)
     return ReflectionHeaderGenerationResult(
         header=result.header,
         generated_header=result.generated_header,
@@ -275,25 +291,21 @@ def _write_reflection_files(
                 len(headers_to_parse),
                 worker_count,
             )
-        worker_args = [
-            (
-                module_name,
-                header,
-                symbols,
-            )
-            for header in headers_to_parse
-        ]
+        worker_args = [(module_name, header) for header in headers_to_parse]
         parsed_results: list[ReflectionHeaderGenerationResult] = []
         if worker_count == 1:
+            global _WORKER_SYMBOLS
+            _WORKER_SYMBOLS = symbols
             parsed_results = [_generate_reflection_output_worker(args) for args in worker_args]
         elif worker_count > 1:
             with ProcessPoolExecutor(
                 max_workers=worker_count,
-                initializer=initialize_worker_config,
+                initializer=_initialize_reflection_worker,
                 initargs=(
                     configs.ARCH,
                     configs.RUNTIME_VARIANT,
                     configs.get_loaded_project_files(),
+                    symbols,
                 ),
             ) as executor:
                 futures = [executor.submit(_generate_reflection_output_worker, args) for args in worker_args]

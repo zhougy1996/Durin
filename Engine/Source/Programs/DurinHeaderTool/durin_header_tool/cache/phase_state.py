@@ -33,7 +33,9 @@ def sha256_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
-def fingerprint_native_libclang() -> str:
+def fingerprint_native_libclang(precomputed_fingerprint: str = "") -> str:
+    if precomputed_fingerprint:
+        return precomputed_fingerprint
     return utils.calc_sha256(Path(clang.cindex.conf.get_filename()))
 
 

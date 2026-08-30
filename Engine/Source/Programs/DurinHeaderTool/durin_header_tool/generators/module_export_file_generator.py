@@ -84,7 +84,9 @@ def _make_current_export_state(module_name: str, old_state: ExportPhaseState = N
         runtime_variant=configs.RUNTIME_VARIANT,
         platform=configs.ARCH,
         tool_fingerprint=configs.TOOL_FINGERPRINT or TOOL_VERSION,
-        native_libclang_fingerprint=fingerprint_native_libclang(),
+        native_libclang_fingerprint=fingerprint_native_libclang(
+            configs.NATIVE_LIBCLANG_FINGERPRINT
+        ),
         context_digest=_export_cache_context_digest(),
     )
     for dep_module in configs.collect_all_dependent_module_with_export_file(module_name):

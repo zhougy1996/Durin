@@ -23,6 +23,11 @@ def add_common_arguments(parser: argparse.ArgumentParser):
         default=TOOL_VERSION,
     )
     parser.add_argument(
+        "--native-libclang-fingerprint",
+        help="Precomputed libclang fingerprint; direct invocations hash the library when omitted.",
+        default="",
+    )
+    parser.add_argument(
         "--workers",
         help="Maximum parser workers; parallelism is used only for sufficiently large header sets.",
         default=1,

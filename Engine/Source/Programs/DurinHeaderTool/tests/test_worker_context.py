@@ -13,6 +13,7 @@ if str(ROOT) not in sys.path:
 
 from durin_header_tool import config as configs
 from durin_header_tool.generators import module_export_file_generator as export_generator
+from durin_header_tool.generators import module_reflection_files_generator as reflection_generator
 from durin_header_tool.model.export_info import load_module_export_file
 
 
@@ -78,6 +79,13 @@ namespace SpawnWorker
         ):
             export_generator.generate_module_export_file(module_name, max_workers=2)
 
+        with mock.patch.object(
+            reflection_generator,
+            "ProcessPoolExecutor",
+            spawn_executor,
+        ):
+            reflection_generator.generate_reflection_files(module_name, max_workers=2)
+
         export_info = load_module_export_file(
             tmp_path
             / "Intermediate"
@@ -92,6 +100,19 @@ namespace SpawnWorker
             f"SpawnWorker::FSpawnType{index}"
             for index in range(8)
         }
+        dht_output_dir = (
+            tmp_path
+            / "Intermediate"
+            / "Build"
+            / configs.ARCH
+            / configs.RUNTIME_VARIANT
+            / module_name
+            / "DHT"
+        )
+        assert all(
+            (dht_output_dir / f"SpawnType{index}.gen.cpp").exists()
+            for index in range(8)
+        )
     finally:
         configs.project_config.PROJECT_CONFIGS.clear()
         configs.project_config.PROJECT_CONFIGS.update(previous_projects)

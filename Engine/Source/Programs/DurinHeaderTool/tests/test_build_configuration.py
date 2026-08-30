@@ -328,6 +328,12 @@ class TestIntermediateLayout:
         args = parser.parse_args(["--tool-fingerprint", "abc123"])
         assert args.tool_fingerprint == "abc123"
 
+    def test_cli_accepts_precomputed_libclang_fingerprint(self):
+        parser = argparse.ArgumentParser()
+        add_common_arguments(parser)
+        args = parser.parse_args(["--native-libclang-fingerprint", "def456"])
+        assert args.native_libclang_fingerprint == "def456"
+
     def test_cli_accepts_bounded_worker_count(self):
         parser = argparse.ArgumentParser()
         add_common_arguments(parser)
@@ -429,6 +435,8 @@ class TestIntermediateLayout:
 
         assert "DURIN_DHT_TOOL_FINGERPRINT_FILE" in project_setup
         assert "--tool-fingerprint ${DURIN_DHT_TOOL_FINGERPRINT}" in project_setup
+        assert "file(SHA256 \"${DURIN_NATIVE_LIBCLANG_PATH}\" DURIN_NATIVE_LIBCLANG_FINGERPRINT)" in project_setup
+        assert "--native-libclang-fingerprint ${DURIN_NATIVE_LIBCLANG_FINGERPRINT}" in project_setup
         assert project_targets.count("\n\t\t\tBYPRODUCTS ") == 2
         assert "GLOB_RECURSE module_public_srcs CONFIGURE_DEPENDS" in project_targets
         assert "GLOB_RECURSE module_private_srcs CONFIGURE_DEPENDS" in project_targets

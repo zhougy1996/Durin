@@ -2,6 +2,7 @@ import json
 import logging
 from pathlib import Path
 import sys
+from unittest import mock
 
 import pytest
 
@@ -15,6 +16,7 @@ from durin_header_tool.cache.phase_state import (
     ReflectionPhaseState,
     canonical_json_bytes,
     export_state_path,
+    fingerprint_native_libclang,
     load_export_phase_state,
     load_reflection_phase_state,
     reflection_state_path,
@@ -83,6 +85,12 @@ def test_file_fingerprint_codec_uses_sha256_and_ignores_fast_path_metadata():
     assert original == touched
     assert FileFingerprint.from_json(original.to_json()) == original
     assert set(original.to_json()) == {"Timestamp", "FileSize", "SHA256"}
+
+
+def test_precomputed_libclang_fingerprint_avoids_reading_the_library():
+    with mock.patch.object(utils, "calc_sha256") as calc_sha256:
+        assert fingerprint_native_libclang(DIGEST) == DIGEST
+    calc_sha256.assert_not_called()
 
 
 def test_legacy_md5_fingerprint_is_a_stale_migration_input():
