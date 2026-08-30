@@ -125,8 +125,15 @@ namespace Durin::Asset::VolumeTextureBuilder
 		Base.Depth = SourceData.Depth;
 		Base.RowPitch = Base.Width * BytesPerVoxel;
 		Base.DepthPitch = Base.RowPitch * Base.Height;
+		const FSharedByteBuffer SourceVoxels = SourceData.GetVoxelBytes();
+		if (SourceVoxels.GetSize()
+			!= static_cast<uint64>(Base.DepthPitch) * Base.Depth)
+		{
+			OutError = "Volume texture authored voxel payload could not be read.";
+			return false;
+		}
 		Base.Voxels.assign(
-			SourceData.GetVoxelBytes().begin(), SourceData.GetVoxelBytes().end());
+			SourceVoxels.GetBytes().begin(), SourceVoxels.GetBytes().end());
 		for (size_t Offset = 0; Offset < Base.Voxels.size(); Offset += BytesPerVoxel)
 			for (uint32 Channel = 0; Channel < Layout.Channels; ++Channel)
 			{

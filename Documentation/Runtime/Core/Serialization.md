@@ -4,7 +4,7 @@ Summary: Define canonical byte archives, object-aware logical serialization, obj
 
 Modules: Core, CoreDObject
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-08-30
 
 ## Archive And Object Serialization
 
@@ -52,10 +52,11 @@ and validation replace caller outputs or destination bytes only on success.
 Core never interprets format-owned sections, asset paths, schemas, codecs, or
 publication policy.
 
-Engine currently consumes this envelope through three sibling identities:
-DAST v6 object packages, DABK v2 authored bulk companions, and DBLK v2 cooked
-bulk companions. Embedded domain payloads and raw DDC `.bin` values do not nest
-another DURF envelope; their owning asset slot supplies the codec and schema.
+Engine consumes this envelope through DAST v6/v7 object packages and the legacy
+DABK v2 and cooked DBLK v2 containers. A DAST v7 authored `.dbulk` is deliberately
+not a DURF envelope: it is a raw package segment interpreted only through its
+owning package. Embedded domain payloads and raw DDC `.bin` values likewise do
+not nest another DURF envelope; their owning asset slot supplies the codec and schema.
 
 Persistent values expose one bidirectional customization: member
 `Serialize(FArchive&)`, free `Serialize(FArchive&, Value&)`, or an explicit
@@ -120,17 +121,14 @@ descriptor. Structured package framing may add its own record length, but must
 not reinterpret the Blob contents or persist vector capacity/allocator state.
 
 `FSharedByteBuffer` is Core's immutable, copy-shareable byte owner. It exposes
-only a const span; replacement constructs a new allocation. `SerializeBulkData`
-transfers a placement-independent storage identity (payload id, logical/stored
-sizes, and XXH3-128 content hash) plus verified bytes.
-`Inline` writes the bounded descriptor and byte Blob, `Skip` performs no
-transfer, and base `External` fails before mutation unless an owning Archive
-adapter implements location and publication. Core never resolves asset paths or
-files for this operation. The transfer carries no payload format/schema,
-authority, provider, or residency state; those belong to the owning domain and
-authority service.
-Every saving Archive therefore receives a complete immutable candidate, and a
-loading Archive publishes a transfer only after its bytes are verified.
+only a const span; replacement constructs a new allocation. Archive BulkData
+serialization receives the field value plus explicit owner, element size,
+alignment, storage policy, and Cook index. `Inline` transfers bounded bytes,
+`Skip` performs no transfer, and `External` requires the owning Archive adapter
+to capture or attach a logical package range. Core never resolves asset paths or
+files. Runtime BulkData metadata is non-semantic and does not participate in
+authored identical/default comparison; editor payload size and content identity
+form the atomic authored logical value.
 
 Object, field, array, and Map scopes maintain a structured diagnostic path.
 `FArchive::Fail(...)` stores the first failure and later operations cannot clear
@@ -168,13 +166,14 @@ Planning compares logical size and verified content identity, never domain
 schema, physical placement, or authority state. Multi-megabyte values still
 contribute one node in enabled and no-delta plans.
 
-DAST v6 does not introduce a second logical Archive dialect. Its `DURF`
+DAST v6 and v7 do not introduce a second logical Archive dialect. Their `DURF`
 sections carry the canonical object-stream table and tagged-value encoding.
-Archive continues to encode the compatibility bulk descriptor; package
-validation must match every external descriptor exactly to one required
-Payload Directory entry before any logical value is decoded or constructed.
-Section extents, placement, and container generation therefore remain physical
-package concerns rather than reflected semantics.
+V7 package capture records each logical BulkData field in Payload Directory v2
+and assigns raw-segment placement without writing offsets, handles, flags, or
+residency back into the live value. Package validation binds every external
+field to the declared segment before object publication. Section extents,
+placement, and segment generation remain physical package concerns rather than
+reflected semantics.
 
 Engine's private bounded container codec is not an Archive implementation.
 It serializes only explicit little-endian fixed-width integers, GUID words, and

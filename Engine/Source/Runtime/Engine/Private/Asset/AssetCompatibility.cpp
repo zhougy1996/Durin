@@ -199,7 +199,10 @@ namespace Durin::Asset
 			}
 			if (Kind == DurinCodeGen::EPropertyGenFlags::String
 				|| Kind == DurinCodeGen::EPropertyGenFlags::Name
-				|| Kind == DurinCodeGen::EPropertyGenFlags::Guid)
+				|| Kind == DurinCodeGen::EPropertyGenFlags::Guid
+				|| Kind == DurinCodeGen::EPropertyGenFlags::Byte
+				|| Kind == DurinCodeGen::EPropertyGenFlags::Blob
+				|| Kind == DurinCodeGen::EPropertyGenFlags::BulkData)
 				return std::format("{}:v1", static_cast<uint32>(Kind));
 			return std::format("{}:{}", static_cast<uint32>(Kind), Property->GetElementSize());
 		}

@@ -185,9 +185,27 @@ namespace Durin
 		if (!HasError()) Bytes = std::move(Candidate);
 	}
 
-	auto FArchive::SerializeBulkData(FArchiveBulkDataTransfer& Value) -> void
+	auto FArchive::SerializeBulkData(
+		FArchiveBulkDataValue& Value,
+		const FArchiveBulkDataParameters& Parameters) -> void
 	{
+		if (Parameters.ElementSize == 0 || Parameters.Alignment == 0
+			|| (Parameters.Alignment & (Parameters.Alignment - 1)) != 0
+			|| Parameters.Alignment > 4096
+			|| (Value.LogicalSize != 0 && Value.LogicalSize % Parameters.ElementSize != 0))
+		{
+			Fail(EArchiveFailureCode::InvalidAlignment,
+				"BulkData serialization parameters are invalid or disagree with logical size.");
+			return;
+		}
 		if (GetBulkDataPolicy() == EArchiveBulkDataPolicy::Skip) return;
+		if (Parameters.StoragePolicy == EArchiveBulkDataStoragePolicy::ForceInline
+			&& GetBulkDataPolicy() == EArchiveBulkDataPolicy::External)
+		{
+			Fail(EArchiveFailureCode::UnsupportedCapability,
+				"BulkData field requires inline storage in an external archive.");
+			return;
+		}
 		if (GetBulkDataPolicy() == EArchiveBulkDataPolicy::External)
 		{
 			Fail(EArchiveFailureCode::UnsupportedCapability,

@@ -5,7 +5,7 @@ and revisioned GPU-resource contracts for package-backed volume textures.
 
 Modules: Engine, TextureBuild, AssetForgeBuiltins, RHI, VulkanRHI
 
-Last reviewed: 2026-08-27
+Last reviewed: 2026-08-30
 
 ## Asset boundary
 
@@ -92,19 +92,20 @@ payload id words `{6fe21a38, 494340a7, a304c2d5, 26f22931}`. Source payload
 schema version 1, dimensions, portable voxel format, and import provenance are
 ordinary reflected VolumeTexture fields. Old packages that predate the schema
 field receive its v1 default; unsupported values fail domain validation.
-The source accessor never performs IO; build and import paths require verified
-resident bytes and replace the complete payload atomically. Consumers use
-`FEditorBulkData::GetBulkData()` for storage identity and immutable byte
-access. The VolumeTexture fields define voxel meaning and require a tightly
+The source identity accessor performs no I/O. Build keys use that identity
+before bytes are requested; a validated DDC hit reads no package range, while a
+miss obtains one immutable owned snapshot through `GetPayload()`. Import and
+reimport replace the complete payload atomically. The VolumeTexture fields
+define voxel meaning and require a tightly
 packed row-major depth-slice encoding whose exact byte width comes from
-`EVolumeTextureFormat`; DAST/DABK
+`EVolumeTextureFormat`; DAST/package-resource
 placement and replacement remain authored-only capabilities.
 
-Ordinary and explicit saves emit DURF/DAST v6 and only the authored BulkData
-field. Small voxel values stay
-inline. External values produce one matching Payload Directory entry and the
-stable `<package-stem>.dabulk` DURF/DABK v2 companion. Reimport and canonical
-resave use the same writer; there is no legacy rollback route.
+Ordinary and explicit saves emit DURF/DAST v7 and only the authored BulkData
+field. Small voxel values stay inline. External values produce one matching
+Payload Directory v2 entry and a range in the stable headerless
+`<package-stem>.dbulk` segment. DAST v6/DABK is load-and-resave compatibility
+only; canonical resave publishes v7 before retiring `.dabulk`.
 
 The 256 KiB authoring threshold changes placement,
 not reflection identity, DDC key input, platform payload, cooked DBLK, or upload
@@ -141,12 +142,13 @@ unchanged.
 
 VolumeTexture participates in the shared texture-domain inspection contract,
 not a generic bulk element registry. Construct-free inspection reads the nested
-source schema/dimensions and `FEditorBulkData` storage descriptor, and validates
-the referenced stable DABK companion without modifying recovery state.
-Generation-named companions are not a supported production route. Live
+source schema/dimensions and `FEditorBulkData` field metadata, and validates the
+referenced raw segment without modifying recovery state. Generation-named
+companions are not a supported production route. Live
 inspection independently reports source, DDC/platform,
-cooked payload/DBLK, decoded CPU, and GPU stages. Missing/corrupt DABK maps to
-restore or reimport, DDC failure maps to rebuild, cooked failure maps to recook,
+cooked payload/DBLK, decoded CPU, and GPU stages. Missing/corrupt authored bulk
+maps to restore, canonical resave, or reimport; DDC failure maps to rebuild,
+cooked failure maps to recook,
 and GPU failure maps to resource retry.
 
 `FVolumeTextureResource` creates a public `Texture3D` descriptor with sampled

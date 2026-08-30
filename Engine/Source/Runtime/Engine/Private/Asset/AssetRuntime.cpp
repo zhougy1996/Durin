@@ -6,6 +6,7 @@
 #include "AssetMutationReferenceInternal.h"
 #include "AssetRelocationExtensionsInternal.h"
 #include "Asset/PackageObjectStreamReader.h"
+#include "Asset/PackageResource.h"
 #include "AssetPackageCodec.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/Redirector.h"
@@ -598,6 +599,7 @@ namespace Durin::Asset
 			return Error(EAssetError::InUse,
 				"Package remains referenced by live objects.");
 		}
+		GetPackageResourceManager().RetirePackage(Path.ToString());
 		return {};
 	}
 
@@ -644,6 +646,7 @@ namespace Durin::Asset
 		}
 
 		std::vector<DPackage*> ReleasedPackages;
+		std::vector<FAssetPath> ReleasedPaths;
 		for (DPackage* Package : GetResidentAssetPackages())
 		{
 			FAssetPath Path;
@@ -652,7 +655,10 @@ namespace Durin::Asset
 				|| Package->IsNewlyCreated()
 				|| Package->IsDirty()) continue;
 			ReleasedPackages.push_back(Package);
+			ReleasedPaths.push_back(std::move(Path));
 		}
+		for (const FAssetPath& Path : ReleasedPaths)
+			GetPackageResourceManager().RetirePackage(Path.ToString());
 		for (DPackage* Package : ReleasedPackages)
 		{
 			MarkObjectHierarchyAsGarbage(Package);
@@ -665,6 +671,7 @@ namespace Durin::Asset
 	{
 		StopAcceptingRequests();
 		FlushAssetRegistryCaches();
+		GetPackageResourceManager().RetireAllPackages();
 		std::vector<DPackage*> Packages = GetResidentAssetPackages();
 		Loader.Reset();
 		for (DPackage* Package : Packages)

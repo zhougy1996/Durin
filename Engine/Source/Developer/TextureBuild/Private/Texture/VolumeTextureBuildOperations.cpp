@@ -15,7 +15,7 @@ namespace Durin::Asset
 		auto MakeKeyInput(const FVolumeTextureSourceData& Source,
 			const FVolumeTextureBuildSettings& Settings) -> FVolumeTextureBuildKeyInput
 		{
-			return {.SourceContentHash = FXxHash128::HashBuffer(Source.GetVoxelBytes()),
+			return {.SourceContentHash = Source.GetIdentity(),
 				.Width = Source.Width, .Height = Source.Height, .Depth = Source.Depth,
 				.Settings = Settings,
 				.SourcePayloadSchemaVersion = Source.PayloadSchemaVersion,

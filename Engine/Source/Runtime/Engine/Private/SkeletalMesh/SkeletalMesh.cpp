@@ -235,7 +235,7 @@ namespace Durin
 			return Fail(Ar.HasError() ? Ar.GetFailure()->Message
 				: "SkeletalMesh canonical imported data exceeds its authored bound.",
 				&OutError);
-		if (!Geometry.ReplaceBytes(SkeletalMeshImportedDataPayloadId, Bytes))
+		if (!Geometry.UpdatePayload(Bytes))
 			return Fail("SkeletalMesh canonical imported data could not be retained.", &OutError);
 		SchemaVersion = SkeletalMeshImportedDataSchemaVersion;
 		OutError.clear();
@@ -248,16 +248,16 @@ namespace Durin
 		std::string& OutError) const -> FSkeletalMeshPayloadData
 	{
 		FSkeletalMeshPayloadData Result;
-		const Asset::FBulkData& Bulk = Geometry.GetBulkData();
+		const Asset::FPackageResourceReadResult Payload = Geometry.GetPayload().Wait();
+		const std::span<const std::byte> Bytes = Payload.Buffer.GetBytes();
 		if (SchemaVersion != SkeletalMeshImportedDataSchemaVersion
-			|| Bulk.GetDescriptor().PayloadId != SkeletalMeshImportedDataPayloadId
-			|| Bulk.GetBytes().empty()
-			|| Bulk.GetBytes().size() > MaximumSkeletalMeshImportedDataBytes)
+			|| !Payload || Bytes.empty()
+			|| Bytes.size() > MaximumSkeletalMeshImportedDataBytes)
 		{
 			OutError = "SkeletalMesh canonical imported-data header is missing or invalid.";
 			return Result;
 		}
-		FCanonicalMemoryReader Ar(Bulk.GetBytes(), EArchivePurpose::BulkData);
+		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::BulkData);
 		Result.Serialize(Ar, {
 			.SkeletonBoneCount = SkeletonBoneCount,
 			.MaterialSlotCount = MaterialSlotCount,
@@ -280,21 +280,20 @@ namespace Durin
 		uint32 SkeletonBoneCount,
 		uint32 MaterialSlotCount) const -> bool
 	{
-		std::string Error;
-		const FSkeletalMeshPayloadData Value = Decode(
-			SkeletonBoneCount, MaterialSlotCount, Error);
-		return Error.empty() && !Value.Positions.empty();
+		(void)SkeletonBoneCount;
+		(void)MaterialSlotCount;
+		return SchemaVersion == SkeletalMeshImportedDataSchemaVersion
+			&& Geometry.GetPayloadSize() > 0
+			&& Geometry.GetPayloadSize() <= MaximumSkeletalMeshImportedDataBytes;
 	}
 
 	auto FSkeletalMeshImportedData::GetIdentity() const -> FXxHash128
 	{
-		const Asset::FBulkData& Bulk = Geometry.GetBulkData();
 		if (SchemaVersion != SkeletalMeshImportedDataSchemaVersion
-			|| Bulk.GetDescriptor().PayloadId != SkeletalMeshImportedDataPayloadId
-			|| Bulk.GetBytes().empty()) return {};
+			|| Geometry.GetPayloadSize() == 0) return {};
 		FXxHash128Builder Builder;
 		Builder.UpdateValue(SchemaVersion);
-		Builder.Update(Bulk.GetBytes());
+		Builder.UpdateValue(Geometry.GetPayloadId());
 		return Builder.Finalize();
 	}
 

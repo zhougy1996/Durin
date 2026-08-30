@@ -25,15 +25,13 @@ namespace Durin
 
 	auto FTerrainHeightmapImportedData::IsValid() const -> bool
 	{
-		const Asset::FBulkData& Bulk = Samples.GetBulkData();
 		const uint64 Count = static_cast<uint64>(Width) * Height;
 		return SchemaVersion == TerrainHeightmapImportedDataSchemaVersion
 			&& Width >= 2 && Height >= 2
 			&& Width <= MaximumTerrainHeightmapDimension
 			&& Height <= MaximumTerrainHeightmapDimension
 			&& Count <= MaximumTerrainHeightmapSamples
-			&& Bulk.GetDescriptor().PayloadId == TerrainHeightmapImportedSamplesPayloadId
-			&& Bulk.GetBytes().size() == Count * sizeof(uint16);
+			&& Samples.GetPayloadSize() == Count * sizeof(uint16);
 	}
 
 	auto FTerrainHeightmapImportedData::SetSamples(uint32 InWidth, uint32 InHeight,
@@ -46,7 +44,7 @@ namespace Durin
 			|| Count > MaximumTerrainHeightmapSamples || Count != InSamples.size())
 			return false;
 		const std::span<const std::byte> Bytes = std::as_bytes(InSamples);
-		if (!Samples.ReplaceBytes(TerrainHeightmapImportedSamplesPayloadId, Bytes))
+		if (!Samples.UpdatePayload(Bytes))
 			return false;
 		Width = InWidth;
 		Height = InHeight;
@@ -57,7 +55,8 @@ namespace Durin
 	auto FTerrainHeightmapImportedData::GetSamples() const -> std::vector<uint16>
 	{
 		if (!IsValid()) return {};
-		const std::span<const std::byte> Bytes = Samples.GetBulkData().GetBytes();
+		const FSharedByteBuffer Payload = Samples.GetPayload().Wait().Buffer;
+		const std::span<const std::byte> Bytes = Payload.GetBytes();
 		std::vector<uint16> Result(Bytes.size() / sizeof(uint16));
 		std::memcpy(Result.data(), Bytes.data(), Bytes.size());
 		return Result;
@@ -70,7 +69,7 @@ namespace Durin
 		Builder.UpdateValue(SchemaVersion);
 		Builder.UpdateValue(Width);
 		Builder.UpdateValue(Height);
-		Builder.Update(Samples.GetBulkData().GetBytes());
+		Builder.UpdateValue(Samples.GetPayloadId());
 		return Builder.Finalize();
 	}
 

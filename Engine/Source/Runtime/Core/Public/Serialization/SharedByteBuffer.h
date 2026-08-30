@@ -22,6 +22,12 @@ namespace Durin
 			return Storage ? std::span<const std::byte>(*Storage) : std::span<const std::byte>();
 		}
 		auto GetSize() const -> uint64 { return static_cast<uint64>(GetBytes().size()); }
+		auto size() const -> size_t { return GetBytes().size(); }
+		auto data() const -> const std::byte* { return GetBytes().data(); }
+		auto begin() const -> const std::byte* { return GetBytes().data(); }
+		auto end() const -> const std::byte* { return GetBytes().data() + GetBytes().size(); }
+		auto operator[](size_t Index) const -> const std::byte& { return GetBytes()[Index]; }
+		operator std::span<const std::byte>() const { return GetBytes(); }
 		auto IsEmpty() const -> bool { return GetBytes().empty(); }
 		auto SharesStorageWith(const FSharedByteBuffer& Other) const -> bool
 		{

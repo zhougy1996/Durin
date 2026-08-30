@@ -4,7 +4,7 @@ Summary: Define mounted package discovery, immutable catalog and reference proje
 
 Modules: AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
-Last reviewed: 2026-08-29
+Last reviewed: 2026-08-30
 
 Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
@@ -117,6 +117,13 @@ Moving `A -> B` retains a direct redirector. A later `B -> C` retargets upstream
 aliases directly to `C`; reclaiming an alias path requires exact proof that it
 denotes the same real asset. Relocation does not rewrite persistent hard or soft
 paths or arbitrary settings/import stores.
+
+Owned authored payload closure is version-derived, not suffix-guessed. A DAST
+v7 package contributes its validated raw `.dbulk`; a DAST v6 compatibility
+package contributes its validated `.dabulk`. Relocation, duplication, deletion,
+Undo, Redo, and recovery journal the selected companion with the `.dasset` and
+reject conflicting stable siblings. Atomic temporaries and `.durin-backup`
+files are recovery state and never mutation participants.
 
 Stale tokens, read-only participants, collisions, staging failures, and
 publication failures either leave authority unchanged or compensate in reverse

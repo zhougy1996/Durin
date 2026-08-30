@@ -344,7 +344,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	EXPECT_TRUE(std::filesystem::is_regular_file(EditorBulkDataFiles.front()));
 	EXPECT_LT(std::filesystem::file_size(SavedData->PhysicalPath), 256ull * 1024);
 	EXPECT_EQ(std::filesystem::file_size(EditorBulkDataFiles.front()),
-		Voxels.size() + 192ull);
+		Voxels.size());
 	const std::filesystem::path OrphanCompanion =
 		std::filesystem::path(SavedData->PhysicalPath).parent_path()
 		/ (std::filesystem::path(SavedData->PhysicalPath).stem().string()
@@ -401,8 +401,26 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	const Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadAsset(AssetPath, Texture);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
 	ASSERT_NE(Texture, nullptr);
+	const std::string ColdKey = Texture->GetDerivedDataKey();
+	EXPECT_EQ(Texture->GetDerivedDataDiagnostic().Status,
+		Durin::ETextureDerivedDataStatus::Rebuilt);
+	ASSERT_TRUE(Durin::Asset::UnloadPackage(
+		AssetPath, Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
+	Texture = nullptr;
+	const Durin::Asset::FAssetResult WarmLoaded =
+		Durin::Asset::LoadAsset(AssetPath, Texture);
+	ASSERT_TRUE(WarmLoaded) << WarmLoaded.Message;
+	ASSERT_NE(Texture, nullptr);
+	EXPECT_EQ(Texture->GetDerivedDataKey(), ColdKey);
+	EXPECT_EQ(Texture->GetDerivedDataDiagnostic().Status,
+		Durin::ETextureDerivedDataStatus::Hit);
+	const Durin::Asset::FPackageResourceHandle WarmResource =
+		Durin::Asset::GetPackageResourceManager().FindPackage(AssetPath.ToString());
+	ASSERT_TRUE(WarmResource);
+	EXPECT_EQ(WarmResource->GetReadStats().RequestCount, 0u);
 	EXPECT_TRUE(std::ranges::equal(
 		Texture->GetSourceData().GetVoxelBytes(), Source.GetVoxelBytes()));
+	EXPECT_EQ(WarmResource->GetReadStats().RequestCount, 1u);
 	Texture = nullptr;
 	Durin::Asset::ShutdownAssetManager();
 	Durin::CollectGarbage();
@@ -517,8 +535,7 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	const Durin::FXxHash128 ImportedIdentity =
 		Imported.Asset->GetImportedDataIdentity();
 	EXPECT_FALSE(ImportedIdentity.IsZero());
-	EXPECT_EQ(Imported.Asset->GetImportedData().Pixels.GetBulkData()
-		.GetDescriptor().PayloadId, Durin::Texture2DImportedPixelsPayloadId);
+	EXPECT_TRUE(Imported.Asset->GetImportedData().Pixels.GetInstanceId().IsValid());
 
 	const Durin::Asset::FAssetCatalogEntry Entry =
 		Durin::Asset::FindAssetExact(AssetPath);
@@ -535,7 +552,7 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 	EXPECT_EQ(Descriptors.front().StorageKind,
 		Durin::Asset::EEditorBulkDataStorageKind::External);
 	EXPECT_EQ(Descriptors.front().PayloadId,
-		Durin::Texture2DImportedPixelsPayloadId);
+		Imported.Asset->GetImportedData().Pixels.GetInstanceId());
 	std::vector<std::filesystem::path> Companions;
 	ASSERT_TRUE(Durin::Asset::InspectEditorBulkDataCompanionPaths(
 		Entry->PhysicalPath, Inspection, Companions, &Error)) << Error;

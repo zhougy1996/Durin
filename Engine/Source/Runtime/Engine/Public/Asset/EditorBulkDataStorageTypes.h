@@ -19,6 +19,8 @@ namespace Durin::Asset
 		FXxHash128 ContentHash;
 		FXxHash128 ContainerHash;
 		EEditorBulkDataStorageKind StorageKind = EEditorBulkDataStorageKind::Inline;
+		uint64 SegmentOffset = 0;
+		uint32 Alignment = 1;
 
 		auto operator==(const FEditorBulkDataStorageDescriptor&) const -> bool = default;
 	};

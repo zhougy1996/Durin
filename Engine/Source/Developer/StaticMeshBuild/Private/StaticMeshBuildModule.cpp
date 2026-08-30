@@ -36,11 +36,22 @@ namespace Durin
 				OutError = "StaticMesh canonical imported geometry is missing or invalid.";
 				return false;
 			}
+			const Asset::FStaticMeshReconciliationSnapshot Reconciliation =
+				Asset::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh);
+			FStaticMeshBuildProduct Product;
+			if (Asset::FStaticMeshBuildOperations::TryLoadImportedProduct(
+				Reconciliation, Mesh.GetImportedData(), Product, OutError))
+			{
+				if (!Asset::FStaticMeshBuildOperations::PublishImportedProduct(
+					Mesh, std::move(Product), OutError)) return false;
+				OutDiagnostic = Mesh.GetDerivedDataDiagnostic();
+				return true;
+			}
+			if (!OutError.empty()) return false;
 			FStaticMeshImportedData Decoded = Mesh.GetImportedData().Decode(OutError);
 			if (!OutError.empty()) return false;
-			FStaticMeshBuildProduct Product;
 			if (!Asset::FStaticMeshBuildOperations::BuildImportedProduct(
-				Asset::FStaticMeshBuildOperations::CaptureReconciliationSnapshot(Mesh),
+				Reconciliation,
 				Decoded, "canonical imported geometry", Product, OutError)) return false;
 			Product.bMarkPackageDirty = false;
 			Product.bContainsImportedData = false;

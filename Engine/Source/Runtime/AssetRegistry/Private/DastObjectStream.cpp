@@ -32,7 +32,7 @@ namespace Durin::Asset::PackageObjectStream
 					.FormatId = DastBinaryFormatId,
 					.DebugName = std::string(DastBinaryFormatName),
 					.MinimumFormatVersion = AssetPackageV6FormatVersion,
-					.MaximumFormatVersion = AssetPackageV6FormatVersion,
+					.MaximumFormatVersion = AssetPackageV7FormatVersion,
 					.SupportedRequiredFeatures = 0,
 					.Limits = EnvelopeLimits}};
 				FBinaryFormatRegistry Result;
@@ -243,7 +243,8 @@ namespace Durin::Asset::PackageObjectStream
 		if (!Dast::DecodePublicSummary(Sections[0], Sections[1],
 			static_cast<EAssetRegistryEntryKind>(PackageKind), Summary, &ParseError))
 			return Error(std::move(ParseError));
-		if (!ValidatePayloadDirectory(Sections[7], Summary.PayloadCount))
+		if (Preamble.FormatVersion == AssetPackageV6FormatVersion
+			&& !ValidatePayloadDirectory(Sections[7], Summary.PayloadCount))
 			return Error("DAST v6 Payload Directory is malformed or noncanonical.");
 
 		FWriter SummaryWriter;
@@ -295,6 +296,11 @@ namespace Durin::Asset::PackageObjectStream
 		std::vector<std::byte> ObjectStream;
 		if (FAssetResult Result = ExtractDastObjectStream(PackageBytes, ObjectStream); !Result)
 			return Result;
+		FBinaryEnvelopePreamble PackagePreamble;
+		FBinaryEnvelopeDiagnostic PackageDiagnostic;
+		if (!ParseBinaryEnvelopePrefix(PackageBytes, PackageBytes.size(), EnvelopeLimits,
+				PackagePreamble, &PackageDiagnostic))
+			return Error(std::string(PackageDiagnostic.Message));
 		FReaderDiagnostic Diagnostic;
 		if (FAssetResult Result = ExtractReferences(
 			ObjectStream, SourcePackage, OutReferences, {}, &Diagnostic); !Result)
@@ -306,7 +312,7 @@ namespace Durin::Asset::PackageObjectStream
 		const FAssetPackageFingerprint Fingerprint{
 			.FileSize = PackageBytes.size(),
 			.ContentHash = FXxHash128::HashBuffer(PackageBytes),
-			.ReaderVersion = AssetPackageV6FormatVersion};
+			.ReaderVersion = PackagePreamble.FormatVersion};
 		for (FAssetReferenceEdge& Reference : OutReferences)
 			Reference.SourceFingerprint = Fingerprint;
 		if (OutFingerprint)

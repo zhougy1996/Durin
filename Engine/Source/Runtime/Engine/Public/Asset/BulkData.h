@@ -1,49 +1,66 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Hash/XxHash.h"
-#include "Misc/Guid.h"
-#include "Serialization/SharedByteBuffer.h"
+#include "Asset/PackageResource.h"
 
 namespace Durin::Asset
 {
-	// Identifies opaque bytes independently of domain meaning and physical placement.
-	struct FBulkDataDescriptor
-	{
-		FGuid PayloadId;
-		uint64 LogicalByteCount = 0;
-		FXxHash128 ContentHash;
+	inline constexpr uint64 MaximumBulkDataBytes = 1024ull * 1024ull * 1024ull;
 
-		auto operator==(const FBulkDataDescriptor&) const -> bool = default;
+	enum class EBulkDataState : uint8
+	{
+		Empty, Attached, Loading, Resident, ReadLocked, WriteLocked, Detached, Failed, Retired,
 	};
 
-	ENGINE_API auto ValidateBulkDataDescriptor(
-		const FBulkDataDescriptor& Descriptor,
-		std::string* OutError = nullptr) -> bool;
-	ENGINE_API auto VerifyBulkDataBuffer(
-		const FBulkDataDescriptor& Descriptor,
-		const FSharedByteBuffer& Buffer,
-		std::string* OutError = nullptr) -> bool;
+	// Carries only bounded runtime storage facts and a logical package resource.
+	struct FBulkDataMetadata
+	{
+		uint32 StorageFlags = 0;
+		uint64 LogicalSize = 0;
+		uint64 StoredSize = 0;
+		uint64 SegmentOffset = 0;
+		uint32 Alignment = 1;
+		FPackageResourceHandle Resource;
+	};
 
-	// Owns placement-independent identity and verified immutable resident bytes.
+	namespace Private { struct FBulkDataState; }
+
+	// Owns a lock-checked runtime allocation or a lazy package-resource range.
 	class FBulkData
 	{
 	public:
-		FBulkData() = default;
+		ENGINE_API FBulkData();
+		ENGINE_API ~FBulkData();
+		ENGINE_API FBulkData(const FBulkData& Other);
+		ENGINE_API auto operator=(const FBulkData& Other) -> FBulkData&;
+		ENGINE_API FBulkData(FBulkData&& Other) noexcept;
+		ENGINE_API auto operator=(FBulkData&& Other) noexcept -> FBulkData&;
 
-		ENGINE_API static auto TryCreate(
-			FBulkDataDescriptor Descriptor,
-			FSharedByteBuffer Buffer,
-			FBulkData& OutValue,
+		ENGINE_API static auto TryCreateDetached(
+			std::span<const std::byte> Bytes, FBulkData& OutValue,
+			std::string* OutError = nullptr) -> bool;
+		ENGINE_API static auto TryAttach(
+			FBulkDataMetadata Metadata, FBulkData& OutValue,
 			std::string* OutError = nullptr) -> bool;
 
-		auto HasPayload() const -> bool { return Descriptor.PayloadId.IsValid(); }
-		auto GetDescriptor() const -> const FBulkDataDescriptor& { return Descriptor; }
-		auto GetBytes() const -> std::span<const std::byte> { return Buffer.GetBytes(); }
-		auto GetBuffer() const -> const FSharedByteBuffer& { return Buffer; }
+		ENGINE_API auto GetState() const -> EBulkDataState;
+		ENGINE_API auto GetMetadata() const -> FBulkDataMetadata;
+		ENGINE_API auto HasData() const -> bool;
+		ENGINE_API auto LockReadOnly(
+			std::span<const std::byte>& OutBytes, std::string* OutError = nullptr) -> bool;
+		ENGINE_API auto UnlockReadOnly(std::string* OutError = nullptr) -> bool;
+		ENGINE_API auto LockReadWrite(
+			std::span<std::byte>& OutBytes, std::string* OutError = nullptr) -> bool;
+		ENGINE_API auto Resize(
+			uint64 Size, std::span<std::byte>& OutBytes, std::string* OutError = nullptr) -> bool;
+		ENGINE_API auto UnlockWrite(std::string* OutError = nullptr) -> bool;
+		ENGINE_API auto Unload(std::string* OutError = nullptr) -> bool;
+		ENGINE_API auto ReloadAsync() -> FPackageResourceRequest;
 
 	private:
-		FBulkDataDescriptor Descriptor;
-		FSharedByteBuffer Buffer;
+		explicit FBulkData(std::shared_ptr<Private::FBulkDataState> InState)
+			: State(std::move(InState)) {}
+
+		std::shared_ptr<Private::FBulkDataState> State;
 	};
 }

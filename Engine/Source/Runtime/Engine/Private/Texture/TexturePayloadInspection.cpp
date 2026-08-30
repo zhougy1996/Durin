@@ -237,9 +237,12 @@ namespace Durin
 				std::filesystem::path CompanionPath;
 				std::vector<std::byte> CompanionBytes;
 				std::string StorageError;
+				std::vector<std::filesystem::path> CompanionPaths;
 				if (Package.PhysicalPath.empty()
-					|| !Asset::ResolveEditorBulkDataCompanionPath(
-						Package.PhysicalPath, CompanionPath, &StorageError)
+					|| !Asset::InspectEditorBulkDataCompanionPaths(
+						Package.PhysicalPath, Package, CompanionPaths, &StorageError)
+					|| CompanionPaths.empty()
+					|| (CompanionPath = CompanionPaths.front()).empty()
 					|| !FFileHelper::LoadFileToArray(CompanionBytes, CompanionPath))
 				{
 					SourceState = ETexturePayloadState::Missing;
@@ -247,7 +250,10 @@ namespace Durin
 					SourceDiagnostic = StorageError.empty()
 						? "Editor source companion is missing or unreadable." : StorageError;
 				}
-				else if (!Asset::ValidateEditorBulkDataCompanion(
+				else if (Package.Header.FormatVersion >= Asset::AssetPackageV7FormatVersion
+					? (CompanionBytes.size() != Package.Header.BulkSegmentExtent
+						|| FXxHash128::HashBuffer(CompanionBytes) != Package.Header.BulkSegmentDigest)
+					: !Asset::ValidateEditorBulkDataCompanion(
 						CompanionBytes, Descriptor.ContainerHash, &StorageError))
 				{
 					SourceState = ETexturePayloadState::Corrupt;
@@ -375,8 +381,6 @@ namespace Durin
 		const FVolumeTextureSourceData& Source = Texture.GetSourceData();
 		const FSourceFile* ImportedSource =
 			FindImportedSource(Texture.GetAssetImportData());
-		const Asset::FBulkDataDescriptor& SourceDescriptor =
-			Source.Voxels.GetBulkData().GetDescriptor();
 		Result.Entries.push_back({
 			.Domain = "VolumeTexture", .Stage = ETexturePayloadStage::Source,
 			.State = Source.IsValid() ? ETexturePayloadState::Available : ETexturePayloadState::Corrupt,
@@ -384,9 +388,9 @@ namespace Durin
 				: ETexturePayloadRepairAction::ReimportSource,
 			.DomainSchemaVersion = Source.PayloadSchemaVersion,
 			.LogicalElementCount = Multiply(Multiply(Source.Width, Source.Height), Source.Depth),
-			.LogicalByteCount = SourceDescriptor.LogicalByteCount,
-			.StoredByteCount = SourceDescriptor.LogicalByteCount,
-			.PayloadId = SourceDescriptor.PayloadId,
+			.LogicalByteCount = Source.Voxels.GetPayloadSize(),
+			.StoredByteCount = Source.Voxels.GetPayloadSize(),
+			.PayloadId = Source.Voxels.GetInstanceId(),
 			.Placement = "EditorPackage",
 			.Provenance = ImportedSource ? ImportedSource->Hint : std::string{}});
 		const bool bDerivedReady = Texture.GetPlatformData() && Texture.GetPlatformData()->IsValid()

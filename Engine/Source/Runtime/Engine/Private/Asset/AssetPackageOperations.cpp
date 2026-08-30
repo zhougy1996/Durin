@@ -9,6 +9,7 @@
 #include "AssetPackageV6Codec.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/Redirector.h"
+#include "Asset/EditorBulkData.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "AssetPackageArchive.h"
 #include "AssetPropertyKindTraits.h"
@@ -345,7 +346,8 @@ namespace Durin::Asset
 		{
 			const std::filesystem::path Parent = PackagePath.parent_path();
 			const std::string Stem = PackagePath.stem().string();
-			const std::string StableName = Stem + std::string(EditorBulkDataCompanionSuffix);
+			const std::string StableName = Stem + ".dbulk";
+			const std::string LegacyName = Stem + std::string(EditorBulkDataCompanionSuffix);
 			std::error_code ErrorCode;
 			for (std::filesystem::directory_iterator It(Parent, ErrorCode), End;
 				!ErrorCode && It != End; It.increment(ErrorCode))
@@ -353,7 +355,7 @@ namespace Durin::Asset
 				const std::filesystem::path Candidate = It->path();
 				const std::string Name = Candidate.filename().string();
 				if (!It->is_regular_file(ErrorCode) || ErrorCode
-					|| Name != StableName
+					|| (Name != StableName && Name != LegacyName)
 					|| (!KeepPath.empty() && Candidate == KeepPath))
 				{
 					ErrorCode.clear();
@@ -369,6 +371,7 @@ namespace Durin::Asset
 			std::filesystem::path FinalPath;
 			std::filesystem::path BackupPath;
 			FXxHash128 ContainerHash;
+			uint64 Extent = 0;
 			bool bHadFinal = false;
 			bool bPublished = false;
 		};
@@ -378,8 +381,8 @@ namespace Durin::Asset
 			std::string& OutError) -> bool
 		{
 			std::filesystem::path FinalPath;
-			if (!ResolveEditorBulkDataCompanionPath(PackagePath, FinalPath, &OutError))
-				return false;
+			FinalPath = PackagePath;
+			FinalPath.replace_extension(".dbulk");
 			std::filesystem::path BackupPath = FinalPath;
 			BackupPath += EditorBulkDataCompanionBackupSuffix;
 			std::error_code ErrorCode;
@@ -395,53 +398,37 @@ namespace Durin::Asset
 				return true;
 			}
 
-			FAssetPackageInspection Inspection;
-			const FAssetResult InspectionResult = InspectAssetPackage(
-				PackagePath.generic_string(), Inspection);
-			if (!InspectionResult)
-			{
-				OutError = std::format(
-					"Cannot resolve authored bulk backup without a readable published package: {}",
-					InspectionResult.Message);
-				return false;
-			}
-			std::vector<FEditorBulkDataStorageDescriptor> Descriptors;
-			if (!InspectEditorBulkDataStorageDescriptors(Inspection, Descriptors, &OutError))
-				return false;
-			const auto External = std::ranges::find_if(Descriptors, [](const auto& Descriptor) {
-				return Descriptor.StorageKind == EEditorBulkDataStorageKind::External;
-			});
-			if (External == Descriptors.end())
-			{
+			if (!std::filesystem::exists(FinalPath, ErrorCode))
+				std::filesystem::rename(BackupPath, FinalPath, ErrorCode);
+			else
 				std::filesystem::remove(BackupPath, ErrorCode);
-				if (ErrorCode)
-				{
-					OutError = std::format("Failed to remove stale authored bulk backup {}: {}",
-						BackupPath.generic_string(), ErrorCode.message());
-					return false;
-				}
-				OutError.clear();
-				return true;
+			if (ErrorCode)
+			{
+				OutError = std::format("Failed to recover package bulk segment backup: {}",
+					ErrorCode.message());
+				return false;
 			}
-			FSharedByteBuffer Recovered;
-			return LoadEditorBulkDataStoragePayload(
-				FinalPath, *External, Recovered, &OutError);
+			OutError.clear();
+			return true;
 		}
 
 		auto PublishEditorBulkDataCompanion(
 			const std::filesystem::path& PackagePath,
 			FXxHash128 ContainerHash,
+			uint64 Extent,
 			std::span<const std::byte> Bytes,
 			FEditorBulkDataCompanionTransaction& OutTransaction,
 			std::string& OutError) -> bool
 		{
 			OutTransaction = {};
 			if (!PrepareEditorBulkDataCompanionState(PackagePath, OutError)
-				|| !ResolveEditorBulkDataCompanionPath(
-					PackagePath, OutTransaction.FinalPath, &OutError)) return false;
+				) return false;
+			OutTransaction.FinalPath = PackagePath;
+			OutTransaction.FinalPath.replace_extension(".dbulk");
 			OutTransaction.BackupPath = OutTransaction.FinalPath;
 			OutTransaction.BackupPath += EditorBulkDataCompanionBackupSuffix;
 			OutTransaction.ContainerHash = ContainerHash;
+			OutTransaction.Extent = Extent;
 
 			std::error_code ErrorCode;
 			OutTransaction.bHadFinal =
@@ -526,9 +513,15 @@ namespace Durin::Asset
 		{
 			if (!Transaction.bPublished) return true;
 			std::vector<std::byte> Bytes;
-			return FFileHelper::LoadFileToArray(Bytes, Transaction.FinalPath)
-				&& ValidateEditorBulkDataCompanion(
-					Bytes, Transaction.ContainerHash, &OutError);
+			if (!FFileHelper::LoadFileToArray(Bytes, Transaction.FinalPath)
+				|| Bytes.size() != Transaction.Extent
+				|| FXxHash128::HashBuffer(Bytes) != Transaction.ContainerHash)
+			{
+				OutError = "Published package bulk segment failed extent or digest verification.";
+				return false;
+			}
+			OutError.clear();
+			return true;
 		}
 
 		auto CommitEditorBulkDataCompanion(
@@ -930,7 +923,7 @@ namespace Durin::Asset
 			const FAssetPath& Path) -> FAssetResult
 		{
 			const FAssetCatalogEntry Existing = Durin::Asset::FindAssetExact(Path);
-			if (!Existing || Existing->FormatVersion == OrdinaryAssetPackageWriterVersion)
+			if (!Existing || IsSupportedAssetPackageReaderVersion(Existing->FormatVersion))
 				return {};
 			return Error(
 				EAssetError::UnsupportedVersion,
@@ -1143,7 +1136,10 @@ namespace Durin::Asset
 					"Failed to create package directory {}: {}",
 					Staged.Destination.parent_path().generic_string(), Ec.message()));
 			}
-			if (!Staged.File.BulkPayloads.empty())
+			if (std::ranges::any_of(Staged.File.BulkPayloads,
+				[](const FEditorBulkDataStoragePayload& Payload) {
+					return Payload.Descriptor.StorageKind == EEditorBulkDataStorageKind::External;
+				}))
 			{
 				if (Options.ShouldFail
 					&& Options.ShouldFail(EAssetBundleSavePhase::PublishCompanion, Index))
@@ -1152,25 +1148,20 @@ namespace Durin::Asset
 					return Error(EAssetError::IoError,
 						"Injected asset-bundle companion publication failure.");
 				}
-				const FXxHash128 ContainerHash =
-					Staged.File.BulkPayloads.front().Descriptor.ContainerHash;
 				std::vector<std::byte> CompanionBytes;
+				FPackageBulkSegmentSummary SegmentSummary;
+				std::vector<FPackageBulkDataEntry> SegmentEntries;
 				std::string CompanionError;
-				if (ContainerHash.IsZero()
-					|| std::ranges::any_of(Staged.File.BulkPayloads,
-						[&](const FEditorBulkDataStoragePayload& Payload) {
-							return Payload.Descriptor.ContainerHash != ContainerHash;
-						})
-					|| !BuildEditorBulkDataCompanion(Staged.File.BulkPayloads,
-						ContainerHash, CompanionBytes, &CompanionError)
-					|| !ResolveEditorBulkDataCompanionPath(Staged.Destination,
-						Staged.PublishedCompanion, &CompanionError))
+				if (!BuildPackageBulkDataSegment(Staged.File.BulkPayloads, CompanionBytes,
+						SegmentSummary, SegmentEntries, &CompanionError))
 				{
 					AbortStaging();
 					return Error(EAssetError::CorruptFile, std::move(CompanionError));
 				}
+				Staged.PublishedCompanion = Staged.Destination;
+				Staged.PublishedCompanion.replace_extension(".dbulk");
 				if (!PublishEditorBulkDataCompanion(
-						Staged.Destination, ContainerHash, CompanionBytes,
+						Staged.Destination, SegmentSummary.Digest, SegmentSummary.Extent, CompanionBytes,
 						Staged.CompanionTransaction, CompanionError))
 				{
 					AbortStaging();
@@ -1422,6 +1413,42 @@ namespace Durin::Asset
 		OutValue = {};
 		if (Kind != DurinCodeGen::EPropertyGenFlags::BulkData) return false;
 		FByteReader Reader{Payload};
+		if (SourceFormatVersion >= AssetPackageV7FormatVersion)
+		{
+			uint64 FieldIndex = 0;
+			uint8 Placement = 0;
+			uint8 StorageFlags = 0;
+			uint16 Alignment = 0;
+			uint32 ContentIdVersion = 0;
+			uint64 HashLow = 0, HashHigh = 0;
+			if (!Reader.Read(FieldIndex) || FieldIndex == 0
+				|| !Reader.Read(Placement) || Placement > 1
+				|| !Reader.Read(StorageFlags) || StorageFlags != 0
+				|| !Reader.Read(Alignment)
+				|| !Reader.Read(ContentIdVersion)
+				|| ContentIdVersion != EditorBulkDataContentIdVersion
+				|| !Reader.Read(OutValue.PayloadId)
+				|| !Reader.Read(HashLow) || !Reader.Read(HashHigh)
+				|| !Reader.Read(OutValue.LogicalByteCount)
+				|| !Reader.Read(OutValue.StoredByteCount)
+				|| !Reader.Read(OutValue.SegmentOffset)) return false;
+			OutValue.ContentHash = {HashLow, HashHigh};
+			OutValue.StorageKind = Placement == 0
+				? EEditorBulkDataStorageKind::Inline : EEditorBulkDataStorageKind::External;
+			OutValue.Alignment = Alignment;
+			if (!OutValue.PayloadId.IsValid() || OutValue.ContentHash.IsZero()
+				|| OutValue.LogicalByteCount != OutValue.StoredByteCount) return false;
+			if (Placement == 1)
+				return Alignment == EditorBulkDataExternalAlignment
+					&& OutValue.SegmentOffset % Alignment == 0
+					&& Reader.Offset == Payload.size();
+			if (Alignment != 1 || OutValue.SegmentOffset != 0
+				|| Reader.Offset > Payload.size()
+				|| OutValue.StoredByteCount != Payload.size() - Reader.Offset) return false;
+			return FXxHash128::HashBuffer(
+				std::span<const std::byte>(Payload).subspan(Reader.Offset))
+				== OutValue.ContentHash;
+		}
 		uint8 StorageKind = 0;
 		FGuid ReservedIdentity;
 		uint32 ReservedVersion = 0;
@@ -1519,6 +1546,33 @@ namespace Durin::Asset
 			FAssetPackageInspection Inspection;
 			Result = Codec->Inspect(Bytes, Inspection);
 			if (!Result) return Result;
+			if (Inspection.Header.FormatVersion >= AssetPackageV7FormatVersion)
+			{
+				Private::DastV6::FParsedPackage Parsed;
+				std::string SegmentError;
+				if (!Private::DastV6::ParsePackage(Bytes, Parsed, &SegmentError))
+					return Error(EAssetError::CorruptFile, std::move(SegmentError));
+				std::filesystem::path PackagePath(PhysicalPath);
+				std::filesystem::path SegmentPath = PackagePath;
+				SegmentPath.replace_extension(".dbulk");
+				std::filesystem::path LegacyPath = PackagePath;
+				LegacyPath.replace_extension(".dabulk");
+				std::error_code FileError;
+				if (std::filesystem::exists(LegacyPath, FileError))
+					return Error(EAssetError::CorruptFile,
+						"DAST v7 package conflicts with a legacy DABK companion.");
+				const bool bHasSegment = std::filesystem::is_regular_file(SegmentPath, FileError);
+				if (Parsed.BulkSegment.Extent != 0)
+				{
+					std::vector<std::byte> Segment;
+					if (!bHasSegment || !FFileHelper::LoadFileToArray(Segment, SegmentPath)
+						|| !ValidatePackageBulkDataSegment(
+							Parsed.BulkSegment, Parsed.BulkEntries, Segment, &SegmentError))
+						return Error(EAssetError::CorruptFile, SegmentError.empty()
+							? "DAST v7 package bulk segment is missing or unreadable."
+							: std::move(SegmentError));
+				}
+			}
 			Inspection.PhysicalPath = PhysicalPath;
 			Inspection.Fingerprint = OutInspection.Fingerprint;
 			OutInspection = std::move(Inspection);
@@ -1653,24 +1707,22 @@ namespace Durin::Asset
 		FFileHelper::FAtomicFileError PublicationError;
 		std::filesystem::path PublishedCompanion;
 		FEditorBulkDataCompanionTransaction CompanionTransaction;
-		if (!File.BulkPayloads.empty())
+		if (std::ranges::any_of(File.BulkPayloads,
+			[](const FEditorBulkDataStoragePayload& Payload) {
+				return Payload.Descriptor.StorageKind == EEditorBulkDataStorageKind::External;
+			}))
 		{
-			const FXxHash128 ContainerHash = File.BulkPayloads.front().Descriptor.ContainerHash;
-			if (ContainerHash.IsZero()
-				|| std::ranges::any_of(File.BulkPayloads, [&](const FEditorBulkDataStoragePayload& Payload) {
-					return Payload.Descriptor.ContainerHash != ContainerHash;
-				}))
-				return Error(EAssetError::CorruptFile,
-					"Serialized authored bulk payloads disagree on container identity.");
 			std::vector<std::byte> CompanionBytes;
+			FPackageBulkSegmentSummary SegmentSummary;
+			std::vector<FPackageBulkDataEntry> SegmentEntries;
 			std::string CompanionError;
-			if (!BuildEditorBulkDataCompanion(
-					File.BulkPayloads, ContainerHash, CompanionBytes, &CompanionError)
-				|| !ResolveEditorBulkDataCompanionPath(
-					Destination, PublishedCompanion, &CompanionError))
+			if (!BuildPackageBulkDataSegment(File.BulkPayloads, CompanionBytes,
+					SegmentSummary, SegmentEntries, &CompanionError))
 				return Error(EAssetError::CorruptFile, std::move(CompanionError));
+			PublishedCompanion = Destination;
+			PublishedCompanion.replace_extension(".dbulk");
 			if (!PublishEditorBulkDataCompanion(
-					Destination, ContainerHash, CompanionBytes,
+					Destination, SegmentSummary.Digest, SegmentSummary.Extent, CompanionBytes,
 					CompanionTransaction, CompanionError))
 				return Error(EAssetError::IoError, std::move(CompanionError));
 		}

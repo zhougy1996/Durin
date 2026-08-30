@@ -56,6 +56,8 @@ namespace Durin
 	auto FTextureSourceData::GetImportedDataIdentity() const -> FXxHash128
 	{
 		if (!IsValid()) return {};
+		Asset::FEditorBulkData PayloadIdentity;
+		if (!PayloadIdentity.UpdatePayload(Pixels)) return {};
 		FXxHash128Builder Builder;
 		Builder.UpdateValue(Texture2DImportedDataSchemaVersion);
 		Builder.UpdateValue(Width);
@@ -63,21 +65,19 @@ namespace Durin
 		Builder.UpdateValue(SourceChannelCount);
 		Builder.UpdateValue(static_cast<uint8>(Format));
 		Builder.UpdateValue(bHasTransparency);
-		Builder.Update(std::span<const std::byte>(Pixels));
+		Builder.UpdateValue(PayloadIdentity.GetPayloadId());
 		return Builder.Finalize();
 	}
 
 	auto FTexture2DImportedData::IsValid() const -> bool
 	{
-		const Asset::FBulkData& BulkData = Pixels.GetBulkData();
 		const uint64 ExpectedByteCount = static_cast<uint64>(Width)
 			* Height * ::Durin::TextureSourceChannelCount;
 		return SchemaVersion == Texture2DImportedDataSchemaVersion
-			&& BulkData.GetDescriptor().PayloadId == Texture2DImportedPixelsPayloadId
 			&& Format == ETextureSourceFormat::RGBA8
 			&& Width > 0 && Height > 0 && Width <= 16384 && Height <= 16384
 			&& SourceChannelCount > 0 && SourceChannelCount <= TextureSourceChannelCount
-			&& ExpectedByteCount == BulkData.GetBytes().size()
+			&& ExpectedByteCount == Pixels.GetPayloadSize()
 			&& ExpectedByteCount <= MaximumTexture2DImportedPixelBytes;
 	}
 
@@ -85,7 +85,7 @@ namespace Durin
 		const FTextureSourceData& Source) -> bool
 	{
 		if (!Source.IsValid()
-			|| !Pixels.ReplaceBytes(Texture2DImportedPixelsPayloadId, Source.Pixels))
+			|| !Pixels.UpdatePayload(Source.Pixels))
 			return false;
 		Width = Source.Width;
 		Height = Source.Height;
@@ -98,7 +98,8 @@ namespace Durin
 
 	auto FTexture2DImportedData::ToSourceData() const -> FTextureSourceData
 	{
-		const std::span<const std::byte> Bytes = Pixels.GetBulkData().GetBytes();
+		const FSharedByteBuffer Payload = Pixels.GetPayload().Wait().Buffer;
+		const std::span<const std::byte> Bytes = Payload.GetBytes();
 		return {
 			.Pixels = std::vector<std::byte>(Bytes.begin(), Bytes.end()),
 			.Width = Width,
@@ -118,7 +119,7 @@ namespace Durin
 		Builder.UpdateValue(SourceChannelCount);
 		Builder.UpdateValue(static_cast<uint8>(Format));
 		Builder.UpdateValue(bHasTransparency);
-		Builder.Update(Pixels.GetBulkData().GetBytes());
+		Builder.UpdateValue(Pixels.GetPayloadId());
 		return Builder.Finalize();
 	}
 

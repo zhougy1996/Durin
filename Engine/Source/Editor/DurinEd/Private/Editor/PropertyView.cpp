@@ -811,11 +811,11 @@ namespace Durin::Editor
 		{
 			const auto& Value = *static_cast<const Asset::FEditorBulkData*>(
 				Property->GetValuePtr(Container, ArrayIndex));
-			const auto& Descriptor = Value.GetBulkData().GetDescriptor();
 			ImGui::TextDisabled("%s", std::format(
-				"{} bytes, resident, hash {}",
-				Descriptor.LogicalByteCount,
-				Descriptor.ContentHash.ToString()).c_str());
+				"{} bytes, {}, content {}",
+				Value.GetPayloadSize(),
+				Value.IsMemoryResident() ? "resident" : "package-backed",
+				Value.GetPayloadId().ToString()).c_str());
 		}
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::Enum)
 		{

@@ -3,7 +3,7 @@
 #include "AssetRegistry/ObjectStream.h"
 #include "EngineAPI.h"
 #include "Asset/PackageSerialization.h"
-#include "Asset/PackageVersionPolicy.h"
+#include "PackageVersionPolicy.h"
 
 namespace Durin::Asset::PackageObjectStream
 {

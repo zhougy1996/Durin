@@ -10,7 +10,8 @@ namespace Durin::Asset
 {
 	namespace
 	{
-		constexpr uint32 PublicSummaryVersion = 1;
+		constexpr uint32 PublicSummaryVersionV6 = 1;
+		constexpr uint32 PublicSummaryVersionV7 = 2;
 		constexpr uint32 ImportVersion = 1;
 		constexpr uint32 FormatHeaderBytes = 32;
 		constexpr uint32 SectionEntryBytes = 48;
@@ -108,7 +109,7 @@ namespace Durin::Asset
 					.FormatId = DastBinaryFormatId,
 					.DebugName = std::string(DastBinaryFormatName),
 					.MinimumFormatVersion = AssetPackageV6FormatVersion,
-					.MaximumFormatVersion = AssetPackageV6FormatVersion,
+					.MaximumFormatVersion = AssetPackageV7FormatVersion,
 					.SupportedRequiredFeatures = 0,
 					.Limits = EnvelopeLimits}};
 				FBinaryFormatRegistry Result;
@@ -131,13 +132,33 @@ namespace Durin::Asset
 			uint32 SummaryVersion = 0;
 			uint64 ImportCount = 0;
 			uint64 Reserved = 0;
-			if (!Summary.Fixed(SummaryVersion) || SummaryVersion != PublicSummaryVersion
+			if (!Summary.Fixed(SummaryVersion)
+				|| (SummaryVersion != PublicSummaryVersionV6
+					&& SummaryVersion != PublicSummaryVersionV7)
 				|| !Summary.Fixed(Result.MainExportIndex) || !Summary.Fixed(ImportCount)
-				|| !Summary.Fixed(Result.ExportCount) || !Summary.Fixed(Result.PayloadCount)
-				|| !Summary.Fixed(Reserved) || Reserved != 0
-				|| !Summary.String(Result.AssetClass, false)
+				|| !Summary.Fixed(Result.ExportCount) || !Summary.Fixed(Result.PayloadCount))
+				return Fail("DAST Public Summary is malformed.", OutError);
+			if (SummaryVersion == PublicSummaryVersionV6)
+			{
+				if (!Summary.Fixed(Reserved) || Reserved != 0)
+					return Fail("DAST v6 Public Summary is malformed.", OutError);
+			}
+			else
+			{
+				uint32 SegmentFlags = 0;
+				uint32 Reserved32 = 0;
+				if (!Summary.Fixed(Result.BulkSegmentExtent)
+					|| !Summary.Fixed(Result.BulkSegmentDigest.HashLow)
+					|| !Summary.Fixed(Result.BulkSegmentDigest.HashHigh)
+					|| !Summary.Fixed(SegmentFlags) || SegmentFlags != 0
+					|| !Summary.Fixed(Reserved32) || Reserved32 != 0
+					|| Result.BulkSegmentExtent > MaximumFileBytes
+					|| ((Result.BulkSegmentExtent == 0) != Result.BulkSegmentDigest.IsZero()))
+					return Fail("DAST v7 Public Summary segment binding is malformed.", OutError);
+			}
+			if (!Summary.String(Result.AssetClass, false)
 				|| !Summary.String(Result.RedirectDestination) || !Summary.AtEnd())
-				return Fail("DAST v6 Public Summary is malformed.", OutError);
+				return Fail("DAST Public Summary is malformed.", OutError);
 			if (Result.MainExportIndex != 1 || Result.ExportCount == 0
 				|| Result.ExportCount > MaximumExportCount || ImportCount > MaximumImportCount
 				|| Result.PayloadCount > MaximumPayloadCount
@@ -264,8 +285,10 @@ namespace Durin::Asset
 		FAssetPackageHeader Header{
 			.AssetClassName = std::move(Summary.AssetClass),
 			.EntryKind = Summary.EntryKind,
-			.FormatVersion = AssetPackageV6FormatVersion,
+			.FormatVersion = Preamble.FormatVersion,
 			.ObjectCount = Summary.ExportCount,
+			.BulkSegmentExtent = Summary.BulkSegmentExtent,
+			.BulkSegmentDigest = Summary.BulkSegmentDigest,
 			.BytesRead = Preamble.HeaderBytes};
 		if (!Summary.RedirectDestination.empty()
 			&& !FAssetPath::TryCreate(Summary.RedirectDestination, Header.RedirectDestination))

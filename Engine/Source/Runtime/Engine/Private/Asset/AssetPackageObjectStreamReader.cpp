@@ -1927,7 +1927,7 @@ namespace Durin::Asset::PackageObjectStream
 				KnownOverrides.push_back(&Override);
 			}
 			FAssetResult Result = Private::LoadAuthoredObject(*Objects[ObjectIndex], Fields, Objects,
-				PackagePath, Version, CustomVersions);
+				PackagePath, Options.SourceFormatVersion, CustomVersions);
 			if (!Result)
 			{
 				Fail(Diagnostic, EReaderFailure::ArchiveFailure, Result.Message, 0, Decoded.Objects[ObjectIndex].Path); Rollback();

@@ -2,20 +2,39 @@
 
 Summary: Establish field-level BulkData semantics, package-resource access, and the headerless raw `.dbulk` segment contract.
 
-Last reviewed: 2026-08-29
+Last reviewed: 2026-08-30
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-30
 
 ## Current Status
 
-No implementation from this plan has landed. Current `FBulkData` owns a GUID,
-logical size, XXH3-128 hash, and verified resident `FSharedByteBuffer`;
-`FEditorBulkData` is a synchronous wrapper that always exposes those resident
-bytes. DAST v6 serializes a BulkData field into inline bytes or a DABK v2
-`.dabulk` descriptor, and package load resolves and verifies all external bytes
-before constructing the live graph. Cooked DBLK v2 remains a separate
-structured container and is outside this plan's production migration.
+All five stages are complete. `FBulkData`, `FEditorBulkData`, Archive
+serialization, package resources, DAST v7/raw `.dbulk`, transactional v6/DABK
+resave, construct-free tooling, and all authored bulk-owning families now use
+the selected contracts. Warm derived-data hits avoid source-range reads; cold
+paths own one immutable snapshot. Resource retirement is conserved across
+temporary canonical-resave loads, package unload, and runtime shutdown.
+
+The bounded 4 MiB qualification fixture measured 9.8 ms metadata load with
+zero field residency and zero range reads, 18.5 ms first access through one
+4 MiB read, 171.0 ms canonical v7 save, and 230.9 ms v6-to-v7 resave at
+17.3 MiB/s on macOS arm64 Debug. Enforced ceilings are 500 ms for metadata and
+first access, 2 seconds for save, and 4 seconds for resave, with a 0.25 MiB/s
+resave floor. The complete registered targets pass: `CoreUtilityTests` 91/91,
+`CoreObjectTests` 85/85, `AssetPackageTests` 133/133, `TextureTests` 78/78,
+`StaticMeshTests` 74/74, `SkeletalAssetTests` 35/35,
+`TerrainHeightmapTests` 11/11, and the LevelEditor target build. The user-run
+macOS application smoke also passed. Asset package failure injection passed;
+no sanitizer mode is registered by the owning targets.
+
+The checked-in compatibility inventory is finite: 25 `.dasset` packages are
+still DAST v6 and nine tracked `.dabulk` companions remain. M4 may remove v6,
+DABK, and their fixtures only after all 25 packages are canonically resaved to
+v7 and the tracked `.dabulk` count reaches zero; structured cooked DBLK v2 is
+removed only after M2 migration. M2 can now activate using the qualified field
+lifetime/resource binding, raw segment publication/recovery, lazy metadata and
+range-I/O behavior, authored-family migration, and warm-DDC no-read evidence.
 
 This plan is the active M1 child of the
 [Package Bulk Data System roadmap](../Roadmaps/PackageBulkDataSystem.md). It
@@ -137,7 +156,7 @@ next roadmap milestone.
   they never write storage offsets, handles, flags, or residency back into live
   asset fields.
 
-## Current Foundations and Gaps
+## Initial Foundations and Gaps
 
 Reflection already registers custom BulkData property serialization and
 identical functions. Core archives already expose a BulkData policy, DAST v6
@@ -147,38 +166,37 @@ mutating the object graph. Core file I/O and package mutation already provide
 atomic publication, backup recovery, bundle rollback, catalog admission, and
 failure injection.
 
-The missing foundation is a resource-backed field state machine. Current
-Archive transfer requires verified resident bytes; current package load reads
-the complete DABK before graph publication; current `FEditorBulkData` accessors
-return immediate spans used throughout asset families; and current inspection,
-move, deletion, inventory, tests, and source-control rules assume a DABK header
-and payload directory. Those consumers must move together so the first DAST v7
-package is never only partially understood.
+At plan activation, the missing foundation was a resource-backed field state
+machine. Archive transfer required verified resident bytes, package load read
+the complete DABK before graph publication, `FEditorBulkData` accessors returned
+immediate spans, and inspection, mutation, inventory, tests, and source-control
+rules assumed a DABK header and payload directory. The completed stages moved
+those consumers together.
 
 ## Implementation Stages
 
 ### Stage 0: Freeze field, wire, resource, and migration contracts
 
-- [ ] Specify the `FBulkData` state machine for empty, unloaded attached,
+- [x] Specify the `FBulkData` state machine for empty, unloaded attached,
   loading, resident unlocked, read-locked, write-locked, detached, failed, and
   retired states, including legal copy/move/unload/reload transitions and
   exactly-once async completion.
-- [ ] Specify `FEditorBulkData` instance identity, versioned content-ID
+- [x] Specify `FEditorBulkData` instance identity, versioned content-ID
   algorithm and encoding, empty-payload identity, copy snapshot, memory-only,
   package-backed, update, async retrieval, cancellation, and failure semantics.
-- [ ] Freeze DAST v7 BulkData field bytes, storage flags, relative-offset base,
+- [x] Freeze DAST v7 BulkData field bytes, storage flags, relative-offset base,
   size/alignment limits, package segment summary, canonical field ordering,
   zero-padding rule, and maximum package/segment/range counts.
-- [ ] Select and document when whole-segment digest validation occurs during
+- [x] Select and document when whole-segment digest validation occurs during
   live load, construct-free inspection, range access, and canonical resave, with
   explicit maximum I/O and allocation budgets.
-- [ ] Freeze the package-resource handle lifetime, async request ownership,
+- [x] Freeze the package-resource handle lifetime, async request ownership,
   package unload blocking/cancellation, module shutdown, and loose-backend
   failure vocabulary.
-- [ ] Define the DAST v6/DABK v2 compatibility and transaction sequence,
+- [x] Define the DAST v6/DABK v2 compatibility and transaction sequence,
   including old/new sibling conflicts, backup recovery, Git/LFS partial state,
   canonical resave, stale `.dabulk` removal, and rollback.
-- [ ] Add golden metadata fixtures and table-driven invalid cases before the
+- [x] Add golden metadata fixtures and table-driven invalid cases before the
   production writer is enabled.
 
 #### Acceptance Gate
@@ -191,21 +209,21 @@ package is never only partially understood.
 
 ### Stage 1: Implement field values, Archive boundary, and package resources
 
-- [ ] Replace `FBulkDataDescriptor`/verified-resident construction with bounded
+- [x] Replace `FBulkDataDescriptor`/verified-resident construction with bounded
   field metadata, optional allocation, checked lock/unlock/resize/unload, and an
   attached package-resource range that contains no hash, GUID, DDC key, schema,
   target, or path.
-- [ ] Replace `FArchiveBulkDataTransfer` with Archive serialization of a
+- [x] Replace `FArchiveBulkDataTransfer` with Archive serialization of a
   `FBulkData` value plus explicit owner, element size, alignment, storage-policy,
   and Cook-index parameters; update default/delta/reflection adapters without
   changing unrelated property kinds.
-- [ ] Add the package-resource interface and loose backend for bounded sync and
+- [x] Add the package-resource interface and loose backend for bounded sync and
   async segment range reads, request cancellation, package retirement, and
   shutdown conservation.
-- [ ] Rebuild `FEditorBulkData` as the separate content-addressed asynchronous
+- [x] Rebuild `FEditorBulkData` as the separate content-addressed asynchronous
   field value selected in Stage 0, including atomic update, copy snapshot,
   memory-only payloads, package registration, and owned result buffers.
-- [ ] Add focused native tests for state transitions, illegal locks, copy/move,
+- [x] Add focused native tests for state transitions, illegal locks, copy/move,
   detached mutation, async success/failure/cancel, unloaded reload, retired
   resources, instance/content identity separation, and DDC-independent types.
 
@@ -218,21 +236,21 @@ package is never only partially understood.
 
 ### Stage 2: Emit and load DAST v7 with a raw authored bulk segment
 
-- [ ] Add DAST v7 logical BulkData encoding and construct-free inspection for
+- [x] Add DAST v7 logical BulkData encoding and construct-free inspection for
   inline and external fields plus package-level segment extent/digest metadata.
-- [ ] Implement deterministic capture, alignment, checked offset assignment,
+- [x] Implement deterministic capture, alignment, checked offset assignment,
   raw byte emission, zero padding, and exact extent/digest calculation without
   a segment header or directory and without mutating live field state.
-- [ ] Publish `.dbulk` and `.dasset` as one failure-injected transaction with
+- [x] Publish `.dbulk` and `.dasset` as one failure-injected transaction with
   companion-first ordering, prior-generation backup, rollback, verification,
   catalog-last publication, and no empty segment file.
-- [ ] Validate package summary, stable sibling, whole-segment binding, all
+- [x] Validate package summary, stable sibling, whole-segment binding, all
   declared ranges, overlap, padding, limits, and storage flags before live graph
   publication while leaving external payload allocations unloaded.
-- [ ] Convert inspection, inventory, orphan discovery, relocation, deletion,
+- [x] Convert inspection, inventory, orphan discovery, relocation, deletion,
   duplicate, and bundle-save closure to the DAST v7 raw segment while retaining
   explicitly routed v6/DABK behavior.
-- [ ] Add golden round trips and failure-injection tests for inline-only,
+- [x] Add golden round trips and failure-injection tests for inline-only,
   single/multiple external fields, zero-length payload, boundary threshold,
   deterministic repeated save, corruption, truncation, mixed generations,
   backup recovery, move/delete, and package unload.
@@ -247,21 +265,21 @@ package is never only partially understood.
 
 ### Stage 3: Migrate authored asset families and retire `.dabulk` writes
 
-- [ ] Adapt Texture2D, TextureCube, VolumeTexture, StaticMesh, SkeletalMesh,
+- [x] Adapt Texture2D, TextureCube, VolumeTexture, StaticMesh, SkeletalMesh,
   AnimationClip, and TerrainHeightmap authored fields, accessors, importers,
   reimporters, builders, compilation domains, and save-readiness checks to
   asynchronous immutable editor payload access and atomic update.
-- [ ] Make family Build definitions derive keys from the editor content ID and
+- [x] Make family Build definitions derive keys from the editor content ID and
   prove a validated DDC hit does not read the package bulk range; a miss reads
   and owns exactly one immutable payload snapshot before worker execution.
-- [ ] Retain v6/DABK reading for old assets and implement canonical resave that
+- [x] Retain v6/DABK reading for old assets and implement canonical resave that
   writes only DAST v7/raw `.dbulk`, verifies the new package closure, publishes
   catalog state, and then removes the stable `.dabulk` without exposing an
   intermediate missing-authority state.
-- [ ] Update source-control closure, storage inventory, compatibility reports,
+- [x] Update source-control closure, storage inventory, compatibility reports,
   asset mutation, and fixtures to distinguish legacy readable `.dabulk` from
   canonical `.dbulk` and to diagnose conflicting or orphaned siblings.
-- [ ] Add representative warm-DDC, cold-DDC, import, reimport, save/reload,
+- [x] Add representative warm-DDC, cold-DDC, import, reimport, save/reload,
   duplicate, move, delete, cancellation, failed save, unload, and shutdown tests
   for every migrated family.
 
@@ -274,17 +292,17 @@ package is never only partially understood.
 
 ### Stage 4: Qualify the foundation and publish lasting contracts
 
-- [ ] Measure metadata-only package load, first payload access, warm/cold DDC
+- [x] Measure metadata-only package load, first payload access, warm/cold DDC
   source reads, resident bytes, open resource handles, segment bytes, save
   latency, and canonical resave throughput against explicit bounded fixtures.
-- [ ] Run the smallest registered Core, CoreDObject, AssetCore, Engine asset-
+- [x] Run the smallest registered Core, CoreDObject, AssetCore, Engine asset-
   family, package compatibility, and application smoke targets selected through
   repository guidance; include sanitizer/failure-injection modes where the
   owning target supports them.
-- [ ] Update Asset Packages, Asset Data Lifecycle, Serialization, catalog/
+- [x] Update Asset Packages, Asset Data Lifecycle, Serialization, catalog/
   mutation, file I/O, source-control, and relevant family contracts to own the
   implemented DAST v7, field lifetime, raw segment, and migration behavior.
-- [ ] Record remaining old-package/fixture inventory, compatibility removal
+- [x] Record remaining old-package/fixture inventory, compatibility removal
   gates, measured budgets, and the exact M2 cooked-migration entry evidence in
   this plan and the roadmap.
 

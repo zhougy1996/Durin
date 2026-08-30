@@ -448,8 +448,8 @@ namespace Durin::AssetForge::Builtins
 			Texture->GetAssetImportData()) : nullptr;
 		if (!Texture || !Texture->GetPackage() || !Data)
 			return {.Diagnostic = "VolumeTexture has no current family import data."};
-		const FSourceFile* Source =
-			Data->GetVolumeTextureState().SourceData.FindByRole("source");
+		const FVolumeTextureImportDataState State = Data->GetVolumeTextureState();
+		const FSourceFile* Source = State.SourceData.FindByRole("source");
 		const bool bHasSource = Source && !Source->Hint.empty();
 		return {.bCanReimport = bHasSource, .bCanReimportFromFile = true,
 			.Diagnostic = bHasSource ? std::string{}

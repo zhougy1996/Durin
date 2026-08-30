@@ -1,7 +1,9 @@
 #include "Asset/CanonicalResave.h"
+#include "Asset/EditorBulkDataStorage.h"
 #include "Asset/PackageSerialization.h"
 
 #include "Asset/PackageObjectStreamReader.h"
+#include "AssetRegistry/Publication.h"
 #include "AssetRuntimeStateInternal.h"
 #include "Hash/XxHash.h"
 #include "DObject/Package.h"
@@ -13,6 +15,42 @@ namespace Durin::Asset
 {
 	namespace
 	{
+		struct FCanonicalResaveFileSnapshot
+		{
+			std::filesystem::path Path;
+			std::vector<std::byte> Bytes;
+			bool bExisted = false;
+		};
+
+		auto CaptureFileSnapshot(const std::filesystem::path& Path,
+			FCanonicalResaveFileSnapshot& OutSnapshot) -> bool
+		{
+			OutSnapshot = {.Path = Path};
+			std::error_code Error;
+			const std::filesystem::file_status Status =
+				std::filesystem::status(Path, Error);
+			if (Error == std::errc::no_such_file_or_directory)
+			{
+				Error.clear();
+				return true;
+			}
+			if (Error || (!std::filesystem::is_regular_file(Status)
+				&& std::filesystem::exists(Status))) return false;
+			OutSnapshot.bExisted = std::filesystem::is_regular_file(Status);
+			return !OutSnapshot.bExisted
+				|| FFileHelper::LoadFileToArray(OutSnapshot.Bytes, Path);
+		}
+
+		auto RestoreFileSnapshot(const FCanonicalResaveFileSnapshot& Snapshot) -> bool
+		{
+			if (Snapshot.bExisted)
+				return FFileHelper::SaveArrayToFileAtomically(
+					Snapshot.Bytes, Snapshot.Path, nullptr);
+			std::error_code Error;
+			const bool bRemoved = std::filesystem::remove(Snapshot.Path, Error);
+			return !Error || (!bRemoved && Error == std::errc::no_such_file_or_directory);
+		}
+
 		auto JsonEscape(std::string_view Value) -> std::string
 		{
 			std::string Result;
@@ -153,7 +191,7 @@ namespace Durin::Asset
 	{
 		FAssetCanonicalResavePlan Plan;
 		Plan.RegistryRevision = GetAssetCatalogRevision();
-		Plan.TargetFormatVersion = AssetPackageV6FormatVersion;
+		Plan.TargetFormatVersion = AssetPackageV7FormatVersion;
 		std::vector<const FAssetPackageCompatibilityRecord*> Sorted;
 		for (const auto& Record : Records)
 			if (IsSelected(Record.PackagePath, Selection)) Sorted.push_back(&Record);
@@ -189,9 +227,9 @@ namespace Durin::Asset
 				Package.Diagnostics.push_back("CompatibilityBlocked: package inspection is not compatible and ready.");
 			if (Record->Freshness != EAssetCompatibilityFreshness::Current)
 				Package.Diagnostics.push_back("StaleFingerprint: package changed during inspection.");
-			if (Record->FormatVersion != AssetPackageV6FormatVersion)
+			if (!IsSupportedAssetPackageReaderVersion(Record->FormatVersion))
 				Package.Diagnostics.push_back(
-					"NonCurrentFormat: canonical resave accepts only DAST v6 packages.");
+					"UnsupportedFormat: canonical resave requires a supported DAST reader.");
 			const PathUtilities::FMountLookupResult Mount =
 				PathUtilities::FindMountForVirtualPath(Record->PackagePath.GetView());
 			if (!Mount || !Mount.Mount->bContentWritable)
@@ -272,6 +310,42 @@ namespace Durin::Asset
 				Result.Diagnostic = PackagePlan.Diagnostics.back();
 				return Result;
 			}
+			std::filesystem::path BulkPath(PackagePlan.PhysicalPath);
+			BulkPath.replace_extension(".dbulk");
+			std::filesystem::path LegacyBulkPath(PackagePlan.PhysicalPath);
+			LegacyBulkPath.replace_extension(".dabulk");
+			FCanonicalResaveFileSnapshot BulkSnapshot;
+			FCanonicalResaveFileSnapshot LegacyBulkSnapshot;
+			if (!CaptureFileSnapshot(BulkPath, BulkSnapshot)
+				|| !CaptureFileSnapshot(LegacyBulkPath, LegacyBulkSnapshot))
+			{
+				PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
+				PackagePlan.Diagnostics.push_back(
+					"CanonicalResaveSnapshotFailed: authored companion closure is unreadable.");
+				Result.Status = Completed
+					? EAssetCanonicalResaveApplyStatus::Partial
+					: EAssetCanonicalResaveApplyStatus::Failed;
+				Result.Diagnostic = PackagePlan.Diagnostics.back();
+				return Result;
+			}
+			FAssetRegistryPublication RegistrySnapshot =
+				CaptureAssetRegistryPublication();
+			const auto RestorePriorClosure = [&]() {
+				const bool bPackageRestored = FFileHelper::SaveArrayToFileAtomically(
+					std::as_bytes(std::span(BeforeBytes)),
+					PackagePlan.PhysicalPath, nullptr);
+				const bool bBulkRestored = RestoreFileSnapshot(BulkSnapshot);
+				const bool bLegacyRestored = RestoreFileSnapshot(LegacyBulkSnapshot);
+				std::filesystem::path BackupPath = BulkPath;
+				BackupPath += EditorBulkDataCompanionBackupSuffix;
+				std::error_code BackupError;
+				std::filesystem::remove(BackupPath, BackupError);
+				RegistrySnapshot.ExpectedRevision = GetAssetCatalogRevision();
+				const FAssetResult RegistryRestored =
+					PublishAssetRegistryPublication(std::move(RegistrySnapshot));
+				return bPackageRestored && bBulkRestored && bLegacyRestored
+					&& static_cast<bool>(RegistryRestored);
+			};
 
 			const FAssetPackageLoadSnapshot Snapshot = CapturePackageLoadSnapshot();
 			DPackage* Package = FAssetRuntimeState::Get().GetLoadService().FindResidentPackage(PackagePlan.PackagePath);
@@ -381,15 +455,12 @@ namespace Durin::Asset
 				|| !Verification.CanonicalizationEvidence.empty()
 				|| !Verification.DeprecatedRouteEvidence.empty())
 			{
-				FFileHelper::FAtomicFileError RestoreError;
-				const bool bRestored = FFileHelper::SaveArrayToFileAtomically(
-					std::as_bytes(std::span(BeforeBytes)), PackagePlan.PhysicalPath, &RestoreError);
+				const bool bRestored = RestorePriorClosure();
 				Package->SetCanonicalResaveRecommended(true);
 				PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 				PackagePlan.Diagnostics.push_back(bRestored
-					? "CanonicalResaveVerificationFailed: prior package bytes were restored."
-					: std::format("CanonicalResaveRecoveryRequired: verification failed and prior bytes could not be restored: {}",
-						RestoreError.ToString()));
+					? "CanonicalResaveVerificationFailed: prior package closure and registry were restored."
+					: "CanonicalResaveRecoveryRequired: verification failed and the prior package closure or registry could not be restored.");
 				if (!bWasLoaded) (void)ReleasePackagesLoadedSince(Snapshot);
 				Result.Status = bRestored
 					? (Completed ? EAssetCanonicalResaveApplyStatus::Partial : EAssetCanonicalResaveApplyStatus::Failed)
@@ -399,16 +470,13 @@ namespace Durin::Asset
 			}
 			if (Options.ShouldFail && Options.ShouldFail(EAssetCanonicalResaveApplyPhase::ReconcileRegistry, Index))
 			{
-				FFileHelper::FAtomicFileError RestoreError;
-				const bool bRestored = FFileHelper::SaveArrayToFileAtomically(
-					std::as_bytes(std::span(BeforeBytes)), PackagePlan.PhysicalPath, &RestoreError);
+				const bool bRestored = RestorePriorClosure();
 				Package->SetCanonicalResaveRecommended(true);
 				if (!bWasLoaded) (void)ReleasePackagesLoadedSince(Snapshot);
 				PackagePlan.Status = EAssetCanonicalResavePackageStatus::Failed;
 				PackagePlan.Diagnostics.push_back(bRestored
-					? "CanonicalResaveRegistryReconciliationFailed: prior package bytes were restored."
-					: std::format("CanonicalResaveRecoveryRequired: registry reconciliation failed and restore failed: {}",
-						RestoreError.ToString()));
+					? "CanonicalResaveRegistryReconciliationFailed: prior package closure and registry were restored."
+					: "CanonicalResaveRecoveryRequired: registry reconciliation failed and the prior package closure or registry could not be restored.");
 				Result.Status = bRestored
 					? (Completed ? EAssetCanonicalResaveApplyStatus::Partial : EAssetCanonicalResaveApplyStatus::Failed)
 					: EAssetCanonicalResaveApplyStatus::RecoveryRequired;
@@ -429,6 +497,12 @@ namespace Durin::Asset
 			}
 			PackagePlan.Status = EAssetCanonicalResavePackageStatus::Resaved;
 			Result.ChangedPaths.push_back(PackagePlan.PhysicalPath);
+			std::error_code CompanionError;
+			if (std::filesystem::is_regular_file(BulkPath, CompanionError))
+				Result.ChangedPaths.push_back(BulkPath.generic_string());
+			if (LegacyBulkSnapshot.bExisted
+				&& !std::filesystem::exists(LegacyBulkPath, CompanionError))
+				Result.ChangedPaths.push_back(LegacyBulkPath.generic_string());
 			++Completed;
 		}
 		Result.Status = EAssetCanonicalResaveApplyStatus::Succeeded;

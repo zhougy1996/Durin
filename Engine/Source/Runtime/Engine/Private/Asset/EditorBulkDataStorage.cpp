@@ -43,12 +43,24 @@ namespace Durin::Asset
 			std::span<const std::byte> Payload,
 			std::vector<FEditorBulkDataStorageDescriptor>& Out,
 			uint32 Depth,
+			uint32 SourceFormatVersion,
 			std::string* OutError) -> bool
 		{
 			if (Depth > 64) return Fail("Authored bulk inspection exceeded the struct depth limit.", OutError);
 			FCanonicalMemoryReader Reader(Payload, EArchivePurpose::BulkData);
 			if (Kind == DurinCodeGen::EPropertyGenFlags::BulkData)
 			{
+				if (SourceFormatVersion >= AssetPackageV7FormatVersion)
+				{
+					FAssetPackageField Field{.Kind = Kind,
+						.Payload = std::vector<std::byte>(Payload.begin(), Payload.end()),
+						.SourceFormatVersion = SourceFormatVersion};
+					FEditorBulkDataStorageDescriptor Descriptor;
+					if (!Field.TryReadEditorBulkDataStorageDescriptor(Descriptor))
+						return Fail("Inspected authored bulk descriptor is invalid.", OutError);
+					Out.push_back(std::move(Descriptor));
+					return true;
+				}
 				uint8 StorageKind = 0;
 				FEditorBulkDataStorageDescriptor Descriptor;
 				FGuid ReservedIdentity;
@@ -102,7 +114,7 @@ namespace Durin::Asset
 					Reader.SerializeRawBytes(std::as_writable_bytes(std::span(FieldPayload)));
 				if (Reader.HasError() || !CollectDescriptors(
 						static_cast<DurinCodeGen::EPropertyGenFlags>(FieldKind),
-						FieldPayload, Out, Depth + 1, OutError)) return false;
+						FieldPayload, Out, Depth + 1, SourceFormatVersion, OutError)) return false;
 			}
 			if (Reader.Tell() != Payload.size())
 				return Fail("Inspected authored struct payload contains trailing bytes.", OutError);
@@ -485,7 +497,12 @@ namespace Durin::Asset
 		{
 			if (Descriptor.StorageKind != EEditorBulkDataStorageKind::External) continue;
 			std::filesystem::path Path;
-			if (!ResolveEditorBulkDataCompanionPath(PackagePath, Path, OutError)) return false;
+			if (Inspection.Header.FormatVersion >= AssetPackageV7FormatVersion)
+			{
+				Path = PackagePath;
+				Path.replace_extension(".dbulk");
+			}
+			else if (!ResolveEditorBulkDataCompanionPath(PackagePath, Path, OutError)) return false;
 			if (OutPaths.empty() || OutPaths.back() != Path) OutPaths.push_back(std::move(Path));
 		}
 		if (OutError) OutError->clear();
@@ -501,7 +518,8 @@ namespace Durin::Asset
 		for (const FAssetPackageObjectInspection& Object : Inspection.Objects)
 			for (const FAssetPackageField& Field : Object.Fields)
 				if (!CollectDescriptors(
-						Field.Kind, Field.Payload, OutDescriptors, 0, OutError))
+						Field.Kind, Field.Payload, OutDescriptors, 0,
+						Field.SourceFormatVersion, OutError))
 					return false;
 		if (OutError) OutError->clear();
 		return true;
@@ -519,7 +537,8 @@ namespace Durin::Asset
 				PackagePath, Inspection, Referenced, OutError)) return false;
 		const std::filesystem::path Parent = PackagePath.parent_path();
 		const std::string Stem = PackagePath.stem().string();
-		const std::string StableName = Stem + std::string(EditorBulkDataCompanionSuffix);
+		const std::string StableName = Stem + (Inspection.Header.FormatVersion
+			>= AssetPackageV7FormatVersion ? ".dbulk" : std::string(EditorBulkDataCompanionSuffix));
 		std::error_code ErrorCode;
 		for (std::filesystem::directory_iterator It(Parent, ErrorCode), End;
 			!ErrorCode && It != End; It.increment(ErrorCode))

@@ -2,35 +2,31 @@
 
 Summary: Replace purpose-specific bulk companions with field-level BulkData and one raw package bulk segment across authored and cooked assets.
 
-Last reviewed: 2026-08-29
+Last reviewed: 2026-08-30
 
 Status: Active
 Completed:
 
 ## Current Status
 
-Durin currently models `FBulkData` as a verified immutable resident buffer with
-a GUID, logical size, and XXH3-128 content hash. `FEditorBulkData` wraps that
-value and authored package load eagerly resolves inline bytes or a structured
-DABK v2 `.dabulk` companion before publishing the object graph. Cooked assets
-use separate `FCookedPayloadDescriptor` values and structured DBLK v2
-`.dbulk` companions whose headers and entry tables repeat target, offset,
-alignment, size, schema, compression, and hash metadata.
+Milestone 1 is complete. The
+[Field-Level Bulk Data Foundation plan](../Plans/FieldLevelBulkDataFoundation.md)
+landed field-level runtime/editor values, package-resource range access, DAST
+v7 metadata, raw authored `.dbulk`, transactional v6/DABK resave, and authored
+family migration. Its bounded qualification proves lazy metadata load,
+exact-range access, resource retirement, publication recovery, and warm-DDC
+source-read avoidance across the registered test matrix and application smoke.
 
-The package object stream already recognizes BulkData as a reflected field
-kind, package save already captures the object graph twice before emission, and
-authored/cooked publication already has companion-before-package transaction
-ordering. Those foundations make a field-level transition feasible, but the
-current resident-only value, purpose-specific storage descriptors, eager load,
-two companion formats, and direct physical companion readers prevent one
-package-resource model from serving authored, cooked, loose, and future archive
-storage.
+Milestone 2's entry gate is satisfied. Cooked assets still use
+`FCookedPayloadDescriptor`, `LoadCookedPackagePayload`, family loaders, and
+structured DBLK v2 `.dbulk` containers. The next child plan may replace those
+with runtime `FBulkData` and common package-resource ranges; Cook scheduling,
+generic publication, manifests, and archive storage remain outside M2.
 
-The active [Field-Level Bulk Data Foundation plan](../Plans/FieldLevelBulkDataFoundation.md)
-owns the first transition: field semantics, package-resource access, DAST v7
-metadata, raw authored `.dbulk` output, legacy read compatibility, and authored
-asset migration. Later plans will migrate cooked runtime fields and Cook
-publication only after that boundary is qualified.
+The M4 compatibility inventory currently contains 25 checked-in DAST v6
+packages and nine tracked `.dabulk` companions. v6/DABK removal requires all 25
+packages at v7 and zero tracked `.dabulk`; structured DBLK v2 removal additionally
+requires M2 completion.
 
 ## Outcome
 
@@ -128,45 +124,40 @@ future archive or remote stores without exposing physical paths to assets.
   lazy source lifetime, package unload, copy/move, cancellation, and failed
   publication retain deterministic terminal behavior.
 
-## Current Foundations and Gaps
+## Foundations and Remaining Gaps
 
 ### Landed foundations
 
 - A reflected `BulkData` property kind with custom serialize and identical
   operations.
-- DAST v6 logical object streams, bounded field inspection, stable package
-  identity, and canonical save ordering.
+- Field-level `FBulkData` and independent `FEditorBulkData` values with explicit
+  residency, immutable asynchronous access, and content identity.
+- DAST v7 logical object streams, bounded field inspection, stable package
+  identity, canonical save ordering, and raw authored segments.
 - Shared immutable byte buffers, checked archives, atomic file publication, and
   package bundle rollback.
-- Authored DABK and cooked DBLK readers with strict range, alignment, extent,
-  and checksum validation.
+- Package-resource range reads and authored raw-segment validation with strict
+  range, alignment, extent, and digest binding.
 - Companion-aware package move, delete, inspection, backup recovery, catalog
   publication, Cook manifest cleanup, and source-control policy.
 - Family-owned canonical authored data and detached Build/DDC products for
   texture, static mesh, skeletal, animation, and Terrain assets.
+- Read-only DAST v6/DABK compatibility and transactional canonical resave.
 
 ### Program gaps
 
-- `FBulkData` is resident-only and content-identity-oriented rather than a lazy
-  package field.
-- `FEditorBulkData` has synchronous resident access and no independent
-  content-addressed asynchronous payload contract.
-- Archive serialization transfers one eager buffer and purpose-specific
-  descriptor instead of asking an archive to serialize a BulkData field under
-  explicit parameters.
-- `.dabulk` and cooked `.dbulk` are independently self-describing containers;
-  neither is the raw segment selected by a package-resource abstraction.
-- Package load cannot publish metadata-only BulkData fields and defer their
-  payload allocations.
 - Cooked assets expose family-specific descriptor/load paths rather than common
   runtime `FBulkData` fields.
+- Cooked `.dbulk` remains a structured DBLK v2 container rather than the raw
+  segment selected by the package-resource abstraction.
+- The checked-in v6/DABK corpus has not yet been resaved and retired.
 - No archive/install-chunk backend consumes the same package-segment contract.
 
 ## Milestone Map
 
 | Milestone | State | Dependencies | Deliverable | Entry gate | Exit gate |
 | --- | --- | --- | --- | --- | --- |
-| 1. Field-level authored foundation | Active | Existing DAST v6, package transaction, and BulkData property foundations | Field-level `FBulkData`/`FEditorBulkData`, package-resource API, DAST v7 field metadata, raw authored `.dbulk`, v6 compatibility, and authored-family migration | Current DABK/DBLK contracts and affected asset families are documented and covered by native tests | Authored assets save and metadata-load through DAST v7/raw `.dbulk`; DDC hits can use editor payload identity without reading bytes; v6 packages resave transactionally; no new `.dabulk` is written |
+| 1. Field-level authored foundation | Complete | Existing DAST v6, package transaction, and BulkData property foundations | Field-level `FBulkData`/`FEditorBulkData`, package-resource API, DAST v7 field metadata, raw authored `.dbulk`, v6 compatibility, and authored-family migration | Current DABK/DBLK contracts and affected asset families are documented and covered by native tests | Passed: authored assets save and metadata-load through DAST v7/raw `.dbulk`; DDC hits use editor payload identity without reading bytes; v6 packages resave transactionally; no new `.dabulk` is written |
 | 2. Cooked field and loader migration | Proposed | M1 | Runtime `FBulkData` fields and common range loading replace family-specific cooked companion descriptors and DBLK v2 containers | M1 package-resource lifetime, raw segment binding, and failure policy are qualified | Every supported cooked asset loads lazily from raw `.dbulk` without source/DDC or family-owned physical-path resolution; old cooked packages retain only the selected compatibility window |
 | 3. Cook bulk publication integration | Proposed | M2; project-level Cook orchestration selected separately | Generic Cook save plans contribute field payloads to one package-segment writer and manifest/store boundary | All cooked families express runtime bytes through `FBulkData` and immutable save overrides | Cook produces deterministic package/segment pairs, distinguishes DDC and Cook hits, publishes atomically, cleans stale outputs from manifests, and never mutates authored objects |
 | 4. Legacy retirement and corpus qualification | Proposed | M1-M3 | Repository corpus migration, old writer/reader removal, lasting contract updates, and storage inventory cleanup | All checked-in and fixture packages have a supported canonical resave path | `.dabulk`, DABK v2, structured DBLK v2, legacy storage APIs, and temporary adapters are removed; repository and runtime qualification use only the new model |
@@ -176,8 +167,8 @@ future archive or remote stores without exposing physical paths to assets.
 
 | Proposed or active plan | Milestone | Boundary | Activation |
 | --- | --- | --- | --- |
-| [Field-Level Bulk Data Foundation](../Plans/FieldLevelBulkDataFoundation.md) | M1 | Core field semantics, Archive/package-resource boundary, DAST v7 raw authored segment, compatibility, and authored asset migration | Active |
-| Cooked Bulk Data Field Migration | M2 | Runtime field conversion and asset-family cooked loaders; excludes Cook scheduler and archive storage | Create after M1 exit evidence |
+| [Field-Level Bulk Data Foundation](../Plans/FieldLevelBulkDataFoundation.md) | M1 | Core field semantics, Archive/package-resource boundary, DAST v7 raw authored segment, compatibility, and authored asset migration | Complete |
+| Cooked Bulk Data Field Migration | M2 | Replace `FCookedPayloadDescriptor`, `LoadCookedPackagePayload`, family cooked loaders, and structured DBLK v2 with runtime `FBulkData`; excludes Cook scheduler, generic publication, and archive storage | Entry gate satisfied; next plan may be created |
 | Cook Package Segment Publication | M3 | Generic Cook capture, layout, output-store, manifest, and incremental publication; excludes authored migration | Create after M2 exit and project-level Cook orchestration selection |
 | Bulk Data Legacy Retirement | M4 | Corpus resave, compatibility deletion, fixture cleanup, and lasting documentation | Create only when all production families have migrated |
 | Scalable Package Bulk Stores | M5 | One evidence-selected archive, optional, memory-mapped, or remote backend | Create only from measured post-M4 evidence |

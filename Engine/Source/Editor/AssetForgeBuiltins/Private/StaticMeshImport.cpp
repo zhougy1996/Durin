@@ -221,8 +221,8 @@ namespace Durin::AssetForge::Builtins
 			Mesh->GetAssetImportData()) : nullptr;
 		if (!Mesh || !Mesh->GetPackage() || !Data)
 			return {.Diagnostic = "StaticMesh has no current family import data."};
-		const FSourceFile* Source =
-			Data->GetStaticMeshState().SourceData.FindByRole("source");
+		const FStaticMeshImportDataState State = Data->GetStaticMeshState();
+		const FSourceFile* Source = State.SourceData.FindByRole("source");
 		const bool bHasSource = Source && !Source->Hint.empty();
 		return {.bCanReimport = bHasSource, .bCanReimportFromFile = true,
 			.Diagnostic = bHasSource ? std::string{}

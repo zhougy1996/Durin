@@ -627,6 +627,68 @@ namespace Durin::Asset
 		return true;
 	}
 
+	auto FStaticMeshBuildOperations::TryLoadImportedProduct(
+		const FStaticMeshReconciliationSnapshot& Reconciliation,
+		const FStaticMeshImportedData& ImportedData,
+		FStaticMeshBuildProduct& OutProduct,
+		std::string& OutError) -> bool
+	{
+		OutProduct = {};
+		if (!ImportedData.IsValid())
+		{
+			OutError = "StaticMesh canonical imported-data metadata is invalid.";
+			return false;
+		}
+		if (!EnsureStaticMeshBuildFunctions(&OutError)) return false;
+		const FStaticMeshBuildKeyInput KeyInput{
+			.ImportedDataHash = ImportedData.GetIdentity(),
+			.ReconciliationHash = BuildReconciliationHash(
+				Reconciliation.MaterialSlots, Reconciliation.NormalizedSize),
+			.TargetPlatform = EStaticMeshTargetPlatform::Win64};
+		const std::vector<std::byte> KeyBytes =
+			BuildStaticMeshDerivedDataKeyBytes(KeyInput, OutError);
+		const std::string Key = KeyBytes.empty()
+			? std::string{} : FXxHash128::HashBuffer(KeyBytes).ToString();
+		if (Key.empty()) return false;
+
+		FBuildDefinition Definition;
+		FBuildDefinitionBuilder Builder(
+			Private::StaticMeshFunctionIdentity,
+			std::string(Private::StaticMeshValueName));
+		Builder.SetKey(FBuildKey::FromString(Key), KeyBytes)
+			.AddTargetFact("Platform", "Win64");
+		if (!Builder.Build(Definition, &OutError)) return false;
+		const FBuildOutput Output = FBuildSession().Build(Definition, {
+			.bQueryCache = true, .bAllowLocalBuild = false,
+			.bStoreBuildResult = false, .bReturnData = true});
+		if (!Output.Succeeded())
+		{
+			OutError.clear();
+			return false;
+		}
+		auto RenderData = std::unique_ptr<FStaticMeshRenderData>();
+		if (!Private::DecodeStaticMeshRenderData(
+			Output.Value, RenderData, OutError)
+			|| !RestoreRuntimeMetadata(
+				Reconciliation.MaterialSlots, *RenderData, OutError))
+		{
+			OutError.clear();
+			return false;
+		}
+		OutProduct = {
+			.RenderData = std::move(RenderData),
+			.MaterialSlots = Reconciliation.MaterialSlots,
+			.NormalizedSize = Reconciliation.NormalizedSize,
+			.DerivedDataKey = Key,
+			.DerivedDataStatus = EStaticMeshDerivedDataStatus::Hit,
+			.DiagnosticMessage = "Loaded StaticMesh render data from DDC.",
+			.bSourceImporterInvoked = false,
+			.bMarkPackageDirty = false,
+			.bContainsImportedData = false};
+		OutError.clear();
+		return true;
+	}
+
 	auto FStaticMeshBuildOperations::PublishImportedProduct(
 		DStaticMesh& Mesh,
 		FStaticMeshBuildProduct Product,

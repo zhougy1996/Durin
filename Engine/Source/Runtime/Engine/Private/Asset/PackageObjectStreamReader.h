@@ -2,7 +2,7 @@
 
 #include "AssetSubsystemFwd.h"
 #include "AssetRegistry/Result.h"
-#include "Asset/PackageObjectStreamWriter.h"
+#include "PackageObjectStreamWriter.h"
 
 namespace Durin::Asset::PackageObjectStream
 {
@@ -26,6 +26,7 @@ namespace Durin::Asset::PackageObjectStream
 		// resolved, allowing dependency cycles to observe the in-flight package.
 		std::function<FAssetResult(DPackage*)> OnSkeletonReady;
 		std::function<void(DPackage*)> OnSkeletonRollback;
+		uint32 SourceFormatVersion = AssetPackageObjectStreamVersion;
 	};
 
 	class FLoadedAssetPackage final

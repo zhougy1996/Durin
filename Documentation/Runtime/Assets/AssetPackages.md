@@ -4,7 +4,7 @@ Summary: Define asset identity, package serialization, runtime residency, loadin
 
 Modules: AssetRegistry, Engine, CoreDObject
 
-Last reviewed: 2026-08-29
+Last reviewed: 2026-08-30
 
 Durin object assets are stored as versioned `.dasset` packages. A package has one public main asset and may contain any number of `DObject` instances arranged through the ordinary Outer hierarchy. Outer defines structural containment and object paths, not a GC strong reference.
 
@@ -29,10 +29,9 @@ umbrella solely to obtain one value type. Callers select
 `AssetRegistry/PackageTypes.h`, `Asset/PackageInspection.h`, or
 `Asset/PackageSerialization.h` by capability; there is no package compatibility
 aggregate.
-The legacy V4 reader, writer, archive adapter, and version policy remain Engine
-implementation details. The canonical construct-free object-stream reader and
-writer plus read-only DAST v6 inspection belong to AssetRegistry; Engine owns
-live object application, mutation, package writing, and legacy compatibility.
+Versioned readers, the canonical object-stream writer, and construct-free
+inspection belong to AssetRegistry; Engine owns live object application,
+mutation, DAST v7 package writing, and bounded DAST v6 compatibility/resave.
 
 ## Paths And Mounts
 
@@ -137,9 +136,10 @@ and transactional relocation are defined by
 
 ## File Format
 
-Every authored or cooked `.dasset` is a DURF/DAST v6 object package, regardless
-of its main asset class. It is the repository baseline, ordinary writer, and
-only supported package format. DAST has the permanent format identity
+Every authored `.dasset` newly written by Engine is a DURF/DAST v7 object
+package. DAST v6 remains a supported read-only compatibility input for load and
+canonical resave; it is never selected by an ordinary writer. Cooked-package
+conversion remains owned by the cooked-data milestone. DAST has the permanent format identity
 `3c59d1a9-6ceb-4e4c-b059-452db0a5af56` and canonical diagnostic name
 `Durin.BinaryFormat.DAST`. DURF carries `(FormatId, FormatVersion)` and common
 integrity facts; Engine resolves that pair through an immutable codec
@@ -169,15 +169,16 @@ declared format changes.
 
 Domain payloads are not file formats or nested DURF envelopes. The reflected
 asset class and payload slot select one codec and schema before bytes are read.
-DDC, DABK, and DBLK remain opaque storage at that boundary: they do not probe
-payload bytes or carry a codec tag. A cooked `.dbulk` is DURF/DBLK v2; the
-`.dasset` that describes its slots remains DURF/DAST v6.
+DDC and legacy DABK/DBLK containers remain opaque storage at that boundary:
+they do not probe domain payload bytes or carry a domain codec tag. An authored
+DAST v7 `.dbulk` is instead a headerless raw package segment whose layout and
+whole-segment digest are owned exclusively by its `.dasset`. Structured cooked
+DBLK v2 remains the pre-M2 cooked representation.
 
-### DAST v6 Envelope Route
+### DAST v6 Compatibility Route
 
 AssetRegistry implements the construct-free read-only DAST v6 route under
-`DURF` v1, while Engine supplies the live-load, mutation, and ordinary-write
-capabilities for the same production format. Its 32-byte format header
+`DURF` v1, while Engine supplies bounded live load and canonical resave. Its 32-byte format header
 records package kind, zero flags, absolute directory offset, section count,
 48-byte entry size, and zero reserved word. The canonical required sections are
 Public Summary, Import, Name, Type, Schema, Export, Value, and Payload
@@ -203,17 +204,18 @@ topology, payload descriptor equality, and canonical reconstruction before any
 codec capability exposes data. Unknown required sections fail. Unknown
 skippable sections are extent/hash validated for read-only validation, but save
 or mutation rejects before output unless byte-exact canonical retention is
-available. V6 is the supported-reader route and ordinary writer.
+available. V6 is a supported reader and migration source, never an ordinary writer.
 
-### DAST v6 Ordinary Route
+### DAST v7 Ordinary Route
 
-Engine selects the writer- and mutation-complete DAST v6 route for ordinary
-single-package and bundle saves; AssetRegistry selects its reader for discovery,
-validation, and reference extraction. Existing file,
-asset type, payload size, or environment values never change that policy.
-Legacy DAST prefixes have no production reader, writer, migration, or rollback
-route. External payload authority is the required front-directory Payload
-Directory; v6 has no EOF trailer or footer.
+Engine selects the writer- and mutation-complete DAST v7 route for ordinary
+single-package and bundle saves; AssetRegistry selects the matching reader for
+discovery, validation, and reference extraction. Existing file, asset type,
+payload size, or environment values never change that policy. V7 retains the
+eight-section DAST envelope and adds Public Summary v2 plus Payload Directory
+v2 authority for field-level BulkData and the optional raw segment. Exact field
+metadata, limits, layout, and digest rules are owned by
+[Package Bulk Data](BulkData.md#dast-v7-authored-wire-contract).
 
 ### DAST Logical Object-Stream Wire Contract
 
@@ -551,15 +553,16 @@ across the complete dependency closure; it is structured bounded telemetry, not
 a cache or a per-package log.
 
 An ordinary single-package or atomic-bundle save may update an existing package
-only when its registered format equals the ordinary v6 writer. A stale or
+only when its registered format equals the ordinary v7 writer. A stale or
 unsupported registry version is rejected before serialization, staging, file
 publication, registry publication, or dirty-state clearing. New packages use
-the same ordinary writer. A non-current format is not an ordinary save input.
+the same v7 writer. A non-current format is not an ordinary save input.
 
 Current-format byte mutations resolve the source codec before decoding and
 require its declared mutation capability. Reference fixup and relocation
-accept and preserve only source v6; new redirectors and ordinary authored saves
-use v6. Unsupported formats are rejected before output bytes change.
+accept and preserve only the current source format; new redirectors and
+ordinary authored saves use v7. Unsupported formats are rejected before output
+bytes change.
 Version-specific decoded packages remain inside their
 codec adapter; shared transactions consume neutral headers, inspections,
 reference edges, load handles, and byte results.
@@ -606,7 +609,7 @@ A scope selects an exact package when present and all descendant packages, so
 callers do not distinguish mount, folder, and package selectors. `--all`
 selects the project and cannot be combined with scopes; `--apply` writes, and
 `--json` replaces the default compact human report with deterministic JSON.
-Canonical resave always targets v6; no format-selection or legacy rollback
+Canonical resave always targets v7; no format-selection or legacy rollback
 option exists. The plan records the target format and rejects stale
 fingerprints before each atomic unit.
 
@@ -804,12 +807,11 @@ converter.
 ### Construct-free payload inspection
 
 `FAssetPackageInspection` records the inspected physical package path and can
-decode the tagged fields of a reflected struct through
-`FAssetPackageField::TryInspectStructFields` without constructing its C++ value
-or resolving nested storage. Editor bulk descriptors use the explicit
-`TryReadEditorBulkDataStorageDescriptor` name and validate inline size/hash as
-well as external identity. `EditorBulkDataStorage` can enumerate descriptors,
-referenced companions, and unreferenced same-package companions read-only.
+decode tagged reflected fields without constructing their C++ values. Bulk
+inspection enumerates inline and external field metadata and derives companion
+closure from the inspected DAST version. V7 validates exact segment extent,
+digest, ranges, ordering, and zero padding; v6 inspection retains the bounded
+DABK descriptor route required for migration.
 
 The texture domain composes these physical facts through
 `InspectTexturePayloadPackage`. Engine does not interpret dimensions, pixel
@@ -817,56 +819,28 @@ formats, voxel counts, domain schema versions, or repair policy. Inspection may 
 validate a referenced companion, but it never publishes, restores, removes, or
 rewrites a file; those remain explicit package/source/Cook workflows.
 
-The DAST logical object stream gives authored bulk values their own `BulkData` opcode. The Value
-section contains payload id, 16+4 compatibility-reserved bytes, logical and
-stored byte counts, XXH3-128 content hash, placement, and container hash.
-Readers accept historical nonzero reserved values from the superseded semantic
-descriptor experiment and ignore them; current writers emit zero. Canonical
-resave is the supported migration without changing the opcode layout.
-Values below 256 KiB carry a normal bounded inline Blob after the descriptor;
-values at or above 256 KiB carry no payload bytes in DAST.
+DAST v7 encodes each reflected BulkData value as one logical field. Values at
+or below 256 KiB are inline; larger values occupy a 16-byte-aligned range in
+`<package-stem>.dbulk`. The segment contains only zero alignment padding and
+payload bytes—no DURF envelope, header, directory, target, or schema. Package
+capture owns placement without mutating the live field, and the owning asset
+family remains the sole authority for payload meaning.
 
-The reflected UE-style `FEditorBulkData` value composes Engine's
-storage-neutral `FBulkData` with editor-side atomic replacement. The value
-contains only payload id, logical byte count, content hash, and immutable
-resident bytes; it has no semantic format, authority, provider, residency,
-placement, or container state. Package Archive capture creates the authored
-descriptor that adds stored size, placement, and container hash for the
-DAST/DABK transaction. Payload meaning and schema versions belong to the
-reflected owning domain.
+Live load validates the complete package/segment binding while streaming at
+most 1 GiB through bounded scratch, then publishes external fields as unloaded
+package-resource ranges. `FEditorBulkData::GetPayload()` is the explicit
+immutable range-read boundary; metadata-only load and validated warm-DDC paths
+do not allocate or read the field payload. Unload retires the logical package
+resource and drains admitted requests before withdrawing the object graph.
 
-External authored bytes live beside the package as
-`<package-stem>.dabulk`. The stable filename is discovery only: the package
-descriptor and v6 Payload Directory remain authoritative for the container hash. This is
-distinct from cooked `.dbulk`.
-The companion is DURF/DABK v2 with permanent identity
-`49efbbb4-e2434e35-a7c01c34-9ed84ea0`, a 64-byte format header, sorted 64-byte
-entries, 16-byte payload alignment, at most 65,536 unique payload ids, and a
-1 GiB file/payload ceiling. Readers reject invalid identity/version/features,
-duplicate or unordered ids,
-misalignment, overlap, gaps, nonzero padding, bounds overflow, size/hash
-mismatch, wrong container identity, and trailing bytes.
-
-Engine's bounded container mechanism supplies DURF discovery,
-little-endian IO, checked alignment, canonical ordering, zero padding, safe
-range projection, and layout validation. DABK owns its descriptors, suffix,
-recovery, and publication transaction; the reflected asset owns payload meaning
-and schema.
-
-Save constructs and validates the replacement companion, copies any prior
-stable companion to `<package-stem>.dabulk.durin-backup`, and publishes the
-companion before the package. A synchronous package or bundle failure restores
-the prior companion before returning. Live payload load validates the stable
-file against the package descriptor; on mismatch it may restore only a complete
-backup with the exact expected container hash. A matching stable file commits
-recovery and removes a stale backup. Construct-free inspection is read-only and
-internal backup and atomic temporary files never enter orphan or submit closure.
-Cleanup runs only after package, companion, and catalog publication verify.
-Relocation journals the stable companion as owned payload, and deletion
-discovers it from package descriptors. Generation-named authored companions are
-unsupported after corpus migration. Referenced `.dabulk` files are authored
-data and must be submitted with their `.dasset`; repositories must not ignore
-the suffix wholesale.
+Save publishes the optional raw segment before the package and catalog, using
+`.dbulk.durin-backup` to restore the prior complete generation on failure.
+Canonical resave is the only v6/DABK migration writer: it verifies the old
+closure, publishes v7/raw `.dbulk`, then removes `.dabulk`. Mutation, inventory,
+orphan detection, and source-control closure select exactly one stable sibling
+from the validated package version; temporary and backup files are excluded.
+The complete field, wire, resource, and migration contract is
+[Package Bulk Data](BulkData.md).
 
 ## Related Asset Data Contracts
 

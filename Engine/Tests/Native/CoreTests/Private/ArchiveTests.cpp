@@ -175,7 +175,7 @@ TEST(FArchiveTests, BulkDataInlineRoundTripsAndRejectsCorruptionTransactionally)
 {
 	const std::array<std::byte, 4> Payload{
 		std::byte{0x11}, std::byte{0x22}, std::byte{0x33}, std::byte{0x44}};
-	Durin::FArchiveBulkDataTransfer Source{
+	Durin::FArchiveBulkDataValue Source{
 		.PayloadId = {1, 2, 3, 4},
 		.LogicalSize = Payload.size(),
 		.StoredSize = Payload.size(),
@@ -184,15 +184,15 @@ TEST(FArchiveTests, BulkDataInlineRoundTripsAndRejectsCorruptionTransactionally)
 
 	std::vector<std::byte> Bytes;
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::BulkData);
-	Writer.SerializeBulkData(Source);
+	Writer.SerializeBulkData(Source, {});
 	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
 	ASSERT_GE(Bytes.size(), 37u);
 	EXPECT_TRUE(std::ranges::all_of(
 		std::span(Bytes).subspan(17, 20), [](std::byte Byte) { return Byte == std::byte{0}; }));
 
-	Durin::FArchiveBulkDataTransfer Loaded;
+	Durin::FArchiveBulkDataValue Loaded;
 	Durin::FCanonicalMemoryReader Reader(Bytes, Durin::EArchivePurpose::BulkData);
-	Reader.SerializeBulkData(Loaded);
+	Reader.SerializeBulkData(Loaded, {});
 	ASSERT_TRUE(Durin::RequireArchiveEnd(Reader)) << Reader.GetError();
 	EXPECT_EQ(Loaded.PayloadId, Source.PayloadId);
 	EXPECT_EQ(Loaded.ContentHash, Source.ContentHash);
@@ -202,18 +202,18 @@ TEST(FArchiveTests, BulkDataInlineRoundTripsAndRejectsCorruptionTransactionally)
 	auto HistoricalSlots = Bytes;
 	HistoricalSlots[17] = std::byte{1};
 	HistoricalSlots[33] = std::byte{1};
-	Durin::FArchiveBulkDataTransfer Historical;
+	Durin::FArchiveBulkDataValue Historical;
 	Durin::FCanonicalMemoryReader HistoricalReader(
 		HistoricalSlots, Durin::EArchivePurpose::BulkData);
-	HistoricalReader.SerializeBulkData(Historical);
+	HistoricalReader.SerializeBulkData(Historical, {});
 	ASSERT_TRUE(Durin::RequireArchiveEnd(HistoricalReader)) << HistoricalReader.GetError();
 	EXPECT_EQ(Historical.PayloadId, Source.PayloadId);
 	EXPECT_TRUE(std::ranges::equal(Historical.Buffer.GetBytes(), Payload));
 
 	Bytes.back() ^= std::byte{0xff};
-	Durin::FArchiveBulkDataTransfer Preserved = Loaded;
+	Durin::FArchiveBulkDataValue Preserved = Loaded;
 	Durin::FCanonicalMemoryReader Corrupt(Bytes, Durin::EArchivePurpose::BulkData);
-	Corrupt.SerializeBulkData(Preserved);
+	Corrupt.SerializeBulkData(Preserved, {});
 	ASSERT_TRUE(Corrupt.HasError());
 	EXPECT_EQ(Preserved.ContentHash, Loaded.ContentHash);
 	EXPECT_TRUE(Preserved.Buffer.SharesStorageWith(Loaded.Buffer));
@@ -221,7 +221,7 @@ TEST(FArchiveTests, BulkDataInlineRoundTripsAndRejectsCorruptionTransactionally)
 
 TEST(FArchiveTests, BulkDataPoliciesSkipOrRejectBeforeMutation)
 {
-	Durin::FArchiveBulkDataTransfer Value{
+	Durin::FArchiveBulkDataValue Value{
 		.PayloadId = {1, 1, 1, 1},
 		.StoredSize = 0};
 
@@ -230,7 +230,7 @@ TEST(FArchiveTests, BulkDataPoliciesSkipOrRejectBeforeMutation)
 	std::vector<std::byte> Bytes;
 	Durin::FCanonicalMemoryWriter Skip(
 		Bytes, Durin::EArchivePurpose::BulkData, SkipState);
-	Skip.SerializeBulkData(Value);
+	Skip.SerializeBulkData(Value, {});
 	EXPECT_FALSE(Skip.HasError());
 	EXPECT_TRUE(Bytes.empty());
 
@@ -238,7 +238,7 @@ TEST(FArchiveTests, BulkDataPoliciesSkipOrRejectBeforeMutation)
 	ExternalState.BulkDataPolicy = Durin::EArchiveBulkDataPolicy::External;
 	Durin::FCanonicalMemoryWriter External(
 		Bytes, Durin::EArchivePurpose::BulkData, ExternalState);
-	External.SerializeBulkData(Value);
+	External.SerializeBulkData(Value, {});
 	ASSERT_TRUE(External.HasError());
 	EXPECT_EQ(External.GetFailure()->Code,
 		Durin::EArchiveFailureCode::UnsupportedCapability);

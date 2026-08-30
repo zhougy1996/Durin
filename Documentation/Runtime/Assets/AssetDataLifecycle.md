@@ -4,7 +4,7 @@ Summary: Define authored, derived, cooked, and runtime asset-data ownership and 
 
 Modules: Engine, DerivedDataCache, StaticMeshBuild, SkeletalBuild, TerrainBuild, TextureBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-08-27
+Last reviewed: 2026-08-30
 
 Durin separates asset identity, authoring input, rebuildable derived data, and
 deployable runtime data. File suffixes describe those lifecycle contracts, not
@@ -87,7 +87,7 @@ not the name of the compilation domain or one of its requests.
 | --- | --- | --- | --- | --- |
 | Physical source input | User-selected physical file closure | Source-specific | Explicit Import, Reimport, or Reimport From File only | Yes, after a successful authored save if reimport is not needed |
 | Object package | Mounted content directory | `.dasset` | Asset identity, editable object state, and inline canonical imported data | No |
-| Authored bulk data | Beside its object package | `.dabulk` | External canonical imported data selected by the DAST descriptor | No |
+| Authored bulk segment | Beside its object package | `.dbulk` | External canonical imported fields selected by DAST v7 metadata | No |
 | Derived data | `DerivedDataCache/` | `.bin` | Nothing; it accelerates editor and cook work | Yes |
 | Cooked package | `Cooked/<Platform>/...` | `.dasset` | Runtime object metadata for that cook | No |
 | Cooked bulk data | Beside its cooked package initially | `.dbulk` | Runtime payload bytes for that cook | No |
@@ -121,7 +121,7 @@ policy.
 
 ## Authored Packages
 
-An editor DAST/DABK bundle contains authoritative object and imported state:
+An editor DAST v7 package and optional raw `.dbulk` segment contain authoritative object and imported state:
 
 - reflected properties and cross-package asset references;
 - bounded decoder-free canonical imported data, inline or in authored bulk;
@@ -130,7 +130,7 @@ An editor DAST/DABK bundle contains authoritative object and imported state:
 
 Large platform render payloads do not belong in authored storage. Canonical
 imported arrays use `FEditorBulkData`, allowing Engine to keep small values
-inline and place large values in the descriptor-selected DABK companion.
+inline and place large values in package-resource ranges of the raw segment.
 Standalone family import data stores an explicit `AssetRelative`,
 `ProjectRelative`, or `Absolute` hint base beside each optional hint. Resolution
 never consults an asset mount and occurs only after the user invokes Reimport.
@@ -182,15 +182,15 @@ The current import behavior is:
 
 | Asset | Import-time build | Persistent outputs |
 | --- | --- | --- |
-| StaticMesh | Import canonical geometry and build render/collision payloads | Authored `.dasset` plus optional DABK, DDC `.bin` |
-| Texture2D | Decode canonical pixels, then generate mips and platform format | Authored `.dasset` plus optional DABK, DDC `.bin` |
-| TextureCube, six-face | Decode and validate six canonical faces, then build platform faces | Authored `.dasset` plus optional DABK, DDC `.bin` |
-| TextureCube, panorama | Decode and project the panorama into canonical faces, then build platform faces | Authored `.dasset` plus optional DABK, DDC `.bin` |
-| VolumeTexture | Decode a canonical voxel volume and build its platform mip chain | Authored `.dasset` plus optional DABK, DDC `.bin` |
-| TerrainHeightmap | Decode canonical uint16 samples and build the terrain payload | Authored `.dasset` plus optional DABK, DDC `.bin` |
+| StaticMesh | Import canonical geometry and build render/collision payloads | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
+| Texture2D | Decode canonical pixels, then generate mips and platform format | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
+| TextureCube, six-face | Decode and validate six canonical faces, then build platform faces | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
+| TextureCube, panorama | Decode and project the panorama into canonical faces, then build platform faces | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
+| VolumeTexture | Decode a canonical voxel volume and build its platform mip chain | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
+| TerrainHeightmap | Decode canonical uint16 samples and build the terrain payload | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
 | Skeleton | Validate and persist the canonical reference hierarchy and structural compatibility identity | Authored `.dasset` |
-| SkeletalMesh | Persist canonical geometry/influences, validate Skeleton compatibility, and build LOD0 | Authored `.dasset` plus optional DABK, DDC `.bin` |
-| AnimationClip | Persist canonical tracks/keys, validate Skeleton compatibility, and build clip data | Authored `.dasset` plus optional DABK, DDC `.bin` |
+| SkeletalMesh | Persist canonical geometry/influences, validate Skeleton compatibility, and build LOD0 | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
+| AnimationClip | Persist canonical tracks/keys, validate Skeleton compatibility, and build clip data | Authored `.dasset` plus optional raw `.dbulk`, DDC `.bin` |
 | Assets without an external platform payload | Construct and save reflected authoring state | Authored `.dasset` |
 
 StaticMesh, texture, SkeletalMesh, and AnimationClip import currently build the
@@ -338,8 +338,9 @@ multi-package transaction and hard Skeleton edges.
 TerrainHeightmap uses `Durin.GeometryBuild.TerrainHeightmap@1`, value
 `TerrainHeightmapPayload`, and `TerrainHeightmap/Objects`. Persisting direct
 builds query/build/store; explicit non-persisting builds disable both query and
-store. Authored load first performs a cache query, then its family worker builds
-from resident row-major uint16 canonical samples after a miss or invalid value.
+store. Authored load first performs a cache query using the metadata-only
+content identity. A validated hit reads no package range; only a miss or invalid
+value requests one immutable row-major uint16 sample snapshot before worker execution.
 The worker adapts its cancellation token to the session while TerrainBuild
 retains coalescing, admission, generation checks, and deferred GameThread
 publication. Diagnostics map the session phases and never expose a physical
@@ -617,44 +618,23 @@ disposable while that build is running or installed.
 
 ## Authored bulk ownership and failure behavior
 
-`FBulkData` is a storage-neutral owner of verified immutable resident bytes. Its
-descriptor contains only payload id, logical byte count, and XXH3-128 content
-hash. It has no semantic format, schema version, stored size, authority enum,
-provider, mutable lock, or unloaded/failed residency state. Transactional
-creation verifies size and hash before replacing a destination value, and
-copies share the immutable `FSharedByteBuffer` allocation.
+`FBulkData` owns bounded runtime storage metadata, optional allocation, lock
+state, and an optional logical package-resource range; it owns no content hash,
+payload GUID, DDC key, schema, target, or physical path. `FEditorBulkData` is an
+independent authored value with instance identity, content-derived payload
+identity, asynchronous immutable retrieval, and atomic whole-payload update.
 
-Authored DABK, cooked DBLK, and DDC remain separate authority services. Authored
-load resolves DABK before constructing resident bytes; cooked consumers request
-one descriptor-selected DBLK view; derived-data services own DDC misses and
-rebuilds. Their shared container primitives do not create a common provider or
-payload-dispatch layer.
+DAST v7 live load validates the raw segment extent, digest, ranges, ordering,
+and padding before object publication, while leaving external field allocations
+unloaded. Family build keys use the editor payload identity before requesting
+bytes, so a validated DDC hit performs zero source-range reads. A miss obtains
+and owns exactly one immutable payload snapshot before worker execution.
 
-UE-style `FEditorBulkData` composes only `FBulkData` and editor-side atomic
-replacement. It stores no authored placement, container, or stored-size state;
-package Archive capture creates those physical facts for the DAST/DABK
-publication transaction. Replacement builds a detached verified candidate and
-never exposes writable resident memory. Immutable byte access goes through
-`GetBulkData()`; authored package loading remains eager and publishes the object
-graph only after external DABK bytes have been resolved and verified.
-
-DAST's Payload Directory and DABK entries carry only storage facts. Before live
-construction, authored load rejects any missing, extra, or disagreeing payload
-id, size, hash, or placement. Domain schema versions remain reflected facts
-owned by the asset slot. Exact DAST/DABK framing and publication rules are
-defined by [Asset Packages](AssetPackages.md#authored-bulk-companions).
-
-Asset package loading resolves external storage to the stable sibling
-`<package-stem>.dabulk`, then validates the complete DABK container and selected
-entry against the descriptor container and content hashes before publishing the
-decoded object graph. If the stable file does not match, live load may recover
-only from `<package-stem>.dabulk.durin-backup` with the exact expected container
-hash; construct-free inspection never performs that mutation. Missing,
-truncated, stale, excessive, or corrupt final-and-backup state retires the
-candidate graph; a prior resident package or texture resource is not partially
-mutated. Unload releases the shared allocation normally. Move/rename and
-deletion treat the package and validated descriptor companion closure
-as one mutation participant.
+DAST v6/DABK remains a read-only migration input. Canonical resave validates
+that complete old closure, transactionally publishes DAST v7 plus raw `.dbulk`,
+updates catalog authority, and only then removes `.dabulk`; rollback restores
+both companion names and prior registry state. Exact state, wire, and resource
+rules are defined by [Package Bulk Data](BulkData.md).
 
 ## Domain-qualified inspection and repair ownership
 
@@ -671,7 +651,7 @@ Repair classifications name the owning explicit workflow:
 | Finding | Action owner |
 | --- | --- |
 | Missing/changed/malformed standalone source | Reimport or select a replacement file. |
-| Missing/corrupt editor companion | Restore the descriptor-matching stable DABK or reimport. |
+| Missing/corrupt authored segment | Restore the package-matching raw `.dbulk`, canonically resave a valid v6/DABK closure, or reimport. |
 | Unreferenced editor companion | Explicit package cleanup; inspection never deletes it. |
 | Missing/corrupt/incompatible DDC | Domain rebuild; cache data is disposable. |
 | Missing/unsupported/failed cooked payload | Recook or upgrade/resave; runtime has no source fallback. |

@@ -148,7 +148,7 @@ namespace Durin
 			return Fail(Ar.HasError() ? Ar.GetFailure()->Message
 				: "AnimationClip canonical imported data exceeds its authored bound.",
 				&OutError);
-		if (!Tracks.ReplaceBytes(AnimationClipImportedDataPayloadId, Bytes))
+		if (!Tracks.UpdatePayload(Bytes))
 			return Fail("AnimationClip canonical imported data could not be retained.", &OutError);
 		SchemaVersion = AnimationClipImportedDataSchemaVersion;
 		OutError.clear();
@@ -160,16 +160,16 @@ namespace Durin
 		std::string& OutError) const -> FAnimationClipPayloadData
 	{
 		FAnimationClipPayloadData Result;
-		const Asset::FBulkData& Bulk = Tracks.GetBulkData();
+		const Asset::FPackageResourceReadResult Payload = Tracks.GetPayload().Wait();
+		const std::span<const std::byte> Bytes = Payload.Buffer.GetBytes();
 		if (SchemaVersion != AnimationClipImportedDataSchemaVersion
-			|| Bulk.GetDescriptor().PayloadId != AnimationClipImportedDataPayloadId
-			|| Bulk.GetBytes().empty()
-			|| Bulk.GetBytes().size() > MaximumAnimationClipImportedDataBytes)
+			|| !Payload || Bytes.empty()
+			|| Bytes.size() > MaximumAnimationClipImportedDataBytes)
 		{
 			OutError = "AnimationClip canonical imported-data header is missing or invalid.";
 			return Result;
 		}
-		FCanonicalMemoryReader Ar(Bulk.GetBytes(), EArchivePurpose::BulkData);
+		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::BulkData);
 		Result.Serialize(Ar, {
 			.SkeletonBoneCount = SkeletonBoneCount,
 			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
@@ -188,20 +188,19 @@ namespace Durin
 
 	auto FAnimationClipImportedData::IsValid(uint32 SkeletonBoneCount) const -> bool
 	{
-		std::string Error;
-		const FAnimationClipPayloadData Value = Decode(SkeletonBoneCount, Error);
-		return Error.empty() && !Value.Tracks.empty();
+		(void)SkeletonBoneCount;
+		return SchemaVersion == AnimationClipImportedDataSchemaVersion
+			&& Tracks.GetPayloadSize() > 0
+			&& Tracks.GetPayloadSize() <= MaximumAnimationClipImportedDataBytes;
 	}
 
 	auto FAnimationClipImportedData::GetIdentity() const -> FXxHash128
 	{
-		const Asset::FBulkData& Bulk = Tracks.GetBulkData();
 		if (SchemaVersion != AnimationClipImportedDataSchemaVersion
-			|| Bulk.GetDescriptor().PayloadId != AnimationClipImportedDataPayloadId
-			|| Bulk.GetBytes().empty()) return {};
+			|| Tracks.GetPayloadSize() == 0) return {};
 		FXxHash128Builder Builder;
 		Builder.UpdateValue(SchemaVersion);
-		Builder.Update(Bulk.GetBytes());
+		Builder.UpdateValue(Tracks.GetPayloadId());
 		return Builder.Finalize();
 	}
 

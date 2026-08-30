@@ -745,7 +745,7 @@ TEST(FSkeletalAssetTests, PayloadCodecsAreDeterministicAndRoundTripExactValues)
 	KeyInput.TargetProfile = Durin::ESkeletalPayloadTargetProfile::Game;
 	const std::string MeshKey = Durin::Asset::BuildSkeletalMeshDerivedDataKey(
 		MeshKeyInput, Error);
-	EXPECT_EQ(MeshKey, "da0d52b7a2d042d9f1a5c43ca80b77d1");
+	EXPECT_EQ(MeshKey, "660abdcaef3c3096b0cee1e1655f6bc8");
 	EXPECT_EQ(MeshKey.size(), 32u);
 	EXPECT_EQ(Durin::Asset::BuildSkeletalMeshDerivedDataKey(MeshKeyInput, Error), MeshKey);
 	Durin::Asset::FAnimationClipBuildKeyInput ClipKeyInput;
@@ -754,7 +754,7 @@ TEST(FSkeletalAssetTests, PayloadCodecsAreDeterministicAndRoundTripExactValues)
 	ClipKeyInput.StableOutputIdentity = "animation-clip:animation/0/skin/0";
 	const std::string ClipKey = Durin::Asset::BuildAnimationClipDerivedDataKey(
 		ClipKeyInput, Error);
-	EXPECT_EQ(ClipKey, "11a65acba0f9f01c50b74ea09cfcb6fa");
+	EXPECT_EQ(ClipKey, "f1949ebcd286b684b0246923ca55d328");
 	EXPECT_EQ(ClipKey.size(), 32u);
 	EXPECT_NE(ClipKey, MeshKey);
 }
@@ -1046,6 +1046,11 @@ TEST(FSkeletalAssetTests, RelocationRekeysIndependentOutputsAndMissingAuthoredBu
 	std::filesystem::rename(HeldCompanion, Companions.front());
 	ASSERT_TRUE(Durin::Asset::LoadAsset(RelocatedClipPath, Clip));
 	EXPECT_EQ(Clip->GetImportedData().GetIdentity(), ClipImportedIdentity);
+	const Durin::Asset::FPackageResourceHandle WarmResource =
+		Durin::Asset::GetPackageResourceManager().FindPackage(
+			RelocatedClipPath.ToString());
+	ASSERT_TRUE(WarmResource);
+	EXPECT_EQ(WarmResource->GetReadStats().RequestCount, 0u);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(RelocatedClipPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
 	Durin::FPaths::SetDerivedDataCacheDirForTests({});

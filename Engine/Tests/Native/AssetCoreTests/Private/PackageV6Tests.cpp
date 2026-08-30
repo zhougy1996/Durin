@@ -225,13 +225,13 @@ TEST(FDastV6WireTests, DirectorySectionAndEnvelopeCorruptionFailDeterministicall
 	ExpectFailure(std::move(Trailing), "gaps, trailing bytes");
 }
 
-TEST(FDastV6WireTests, V6CodecIsTheSoleOrdinaryPolicy)
+TEST(FDastV6WireTests, V6CodecIsReadOnlyAndV7IsTheOrdinaryPolicy)
 {
 	const FAssetPackageCodec& Codec = DastV6::GetCodec();
 	EXPECT_EQ(Codec.FormatVersion, AssetPackageV6FormatVersion);
 	EXPECT_TRUE(Codec.bCanRead);
-	EXPECT_TRUE(Codec.bCanWrite);
-	EXPECT_TRUE(Codec.bCanMutate);
+	EXPECT_FALSE(Codec.bCanWrite);
+	EXPECT_FALSE(Codec.bCanMutate);
 	std::string PolicyError;
 	EXPECT_TRUE(ValidateAssetPackageVersionPolicy(PolicyError)) << PolicyError;
 
@@ -243,7 +243,7 @@ TEST(FDastV6WireTests, V6CodecIsTheSoleOrdinaryPolicy)
 	ASSERT_NE(Resolved, nullptr);
 	EXPECT_EQ(Resolved->CodecId, Codec.CodecId);
 	EXPECT_EQ(FindAssetPackageWriter(OrdinaryAssetPackageWriterVersion)->FormatVersion,
-		AssetPackageV6FormatVersion);
+		AssetPackageV7FormatVersion);
 }
 
 TEST(FDastV6WireTests, AssetFileFormatIdentitiesArePermanentAndCollisionFree)

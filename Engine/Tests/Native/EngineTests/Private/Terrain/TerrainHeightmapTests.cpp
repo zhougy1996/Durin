@@ -697,6 +697,10 @@ TEST(FTerrainHeightmapImportTests, AsyncLoadHandlesWarmDdcCorruptionRecoveryAndM
 	Loaded = Durin::Asset::LoadAsset(Path, Reloaded);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
 	ASSERT_NE(Reloaded, nullptr);
+	const Durin::Asset::FPackageResourceHandle WarmResource =
+		Durin::Asset::GetPackageResourceManager().FindPackage(Path.ToString());
+	ASSERT_TRUE(WarmResource);
+	EXPECT_EQ(WarmResource->GetReadStats().RequestCount, 0u);
 	EXPECT_EQ(Reloaded->GetStatus(), Durin::ETerrainHeightmapStatus::Ready);
 	std::string Error;
 	ASSERT_TRUE(Durin::WaitForTerrainHeightmapDerivedDataLoad(*Reloaded, Error)) << Error;

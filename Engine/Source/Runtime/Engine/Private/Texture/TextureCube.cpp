@@ -62,14 +62,12 @@ namespace Durin
 
 	auto FTextureCubeImportedData::IsValid() const -> bool
 	{
-		const Asset::FBulkData& BulkData = Pixels.GetBulkData();
 		const uint64 ExpectedByteCount = static_cast<uint64>(FaceDimension)
 			* FaceDimension * 4ull * TextureCubeFaceCount;
 		return SchemaVersion == TextureCubeImportedDataSchemaVersion
-			&& BulkData.GetDescriptor().PayloadId == TextureCubeImportedFacesPayloadId
 			&& FaceDimension > 0 && FaceDimension <= 16384
 			&& SourceChannelCount > 0 && SourceChannelCount <= 4
-			&& ExpectedByteCount == BulkData.GetBytes().size()
+			&& ExpectedByteCount == Pixels.GetPayloadSize()
 			&& ExpectedByteCount <= MaximumTextureCubeImportedPixelBytes
 			&& (TransparencyMask & ~0x3fu) == 0;
 	}
@@ -90,7 +88,7 @@ namespace Durin
 			Bytes.insert(Bytes.end(), Face.Pixels.begin(), Face.Pixels.end());
 			if (Face.bHasTransparency) NewTransparencyMask |= static_cast<uint8>(1u << Index);
 		}
-		if (!Pixels.ReplaceBytes(TextureCubeImportedFacesPayloadId, Bytes)) return false;
+		if (!Pixels.UpdatePayload(Bytes)) return false;
 		FaceDimension = Source.Faces[0].Width;
 		SourceChannelCount = Source.Faces[0].SourceChannelCount;
 		TransparencyMask = NewTransparencyMask;
@@ -102,7 +100,8 @@ namespace Durin
 	{
 		FTextureCubeSourceData Result;
 		if (!IsValid()) return Result;
-		const std::span<const std::byte> Bytes = Pixels.GetBulkData().GetBytes();
+		const FSharedByteBuffer Payload = Pixels.GetPayload().Wait().Buffer;
+		const std::span<const std::byte> Bytes = Payload.GetBytes();
 		const size_t FaceBytes = static_cast<size_t>(FaceDimension) * FaceDimension * 4;
 		for (size_t Index = 0; Index < TextureCubeFaceCount; ++Index)
 		{
@@ -126,7 +125,7 @@ namespace Durin
 		Builder.UpdateValue(FaceDimension);
 		Builder.UpdateValue(SourceChannelCount);
 		Builder.UpdateValue(TransparencyMask);
-		Builder.Update(Pixels.GetBulkData().GetBytes());
+		Builder.UpdateValue(Pixels.GetPayloadId());
 		return Builder.Finalize();
 	}
 

@@ -7,7 +7,7 @@
 
 namespace Durin::Asset
 {
-	inline constexpr uint32 SkeletalPayloadKeySchemaVersion = 2;
+	inline constexpr uint32 SkeletalPayloadKeySchemaVersion = 3;
 	inline constexpr uint32 SkeletalMeshBuilderVersion = 1;
 	inline constexpr uint32 AnimationClipBuilderVersion = 1;
 	inline constexpr std::string_view SkeletalMeshBuilderIdentity =

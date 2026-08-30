@@ -236,7 +236,7 @@ namespace Durin
 				: "StaticMesh canonical geometry exceeds the 1 GiB authored limit.";
 			return false;
 		}
-		if (!Geometry.ReplaceBytes(StaticMeshImportedGeometryPayloadId, Bytes))
+		if (!Geometry.UpdatePayload(Bytes))
 		{
 			OutError = "StaticMesh canonical geometry could not be retained as authored bulk.";
 			return false;
@@ -252,16 +252,16 @@ namespace Durin
 		-> FStaticMeshImportedData
 	{
 		FStaticMeshImportedData Result;
-		const Asset::FBulkData& Bulk = Geometry.GetBulkData();
+		const Asset::FPackageResourceReadResult Payload = Geometry.GetPayload().Wait();
+		const std::span<const std::byte> Bytes = Payload.Buffer.GetBytes();
 		if (SchemaVersion != StaticMeshImportedDataSchemaVersion
-			|| Bulk.GetDescriptor().PayloadId != StaticMeshImportedGeometryPayloadId
-			|| Bulk.GetBytes().empty()
-			|| Bulk.GetBytes().size() > MaximumStaticMeshImportedDataBytes)
+			|| !Payload || Bytes.empty()
+			|| Bytes.size() > MaximumStaticMeshImportedDataBytes)
 		{
 			OutError = "StaticMesh canonical imported-data header is missing or invalid.";
 			return Result;
 		}
-		FCanonicalMemoryReader Ar(Bulk.GetBytes(), EArchivePurpose::BulkData);
+		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::BulkData);
 		SerializeStaticMeshImportedValue(Ar, Result);
 		if (Ar.HasError() || !RequireArchiveEnd(Ar)
 			|| Result.MaterialSlots.size() != MaterialSlotCount
@@ -279,19 +279,21 @@ namespace Durin
 
 	auto FStaticMeshImportedData::IsValid() const -> bool
 	{
-		std::string Error;
-		const FStaticMeshImportedData Decoded = Decode(Error);
-		return Error.empty() && !Decoded.Meshes.empty();
+		return SchemaVersion == StaticMeshImportedDataSchemaVersion
+			&& MeshCount > 0
+			&& Geometry.GetPayloadSize() > 0
+			&& Geometry.GetPayloadSize() <= MaximumStaticMeshImportedDataBytes;
 	}
 
 	auto FStaticMeshImportedData::GetIdentity() const -> FXxHash128
 	{
-		if (!IsValid()) return {};
+		if (SchemaVersion != StaticMeshImportedDataSchemaVersion
+			|| MeshCount == 0 || Geometry.GetPayloadSize() == 0) return {};
 		FXxHash128Builder Builder;
 		Builder.UpdateValue(SchemaVersion);
 		Builder.UpdateValue(MaterialSlotCount);
 		Builder.UpdateValue(MeshCount);
-		Builder.Update(Geometry.GetBulkData().GetBytes());
+		Builder.UpdateValue(Geometry.GetPayloadId());
 		return Builder.Finalize();
 	}
 

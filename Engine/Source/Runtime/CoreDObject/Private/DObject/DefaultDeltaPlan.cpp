@@ -42,13 +42,16 @@ namespace Durin
 		{
 		public:
 			explicit FLogicalValueCaptureArchive(EArchivePurpose Purpose)
-				: FObjectArchive({EArchiveDirection::Save, Purpose,
-					EArchiveCapability::StructuredFields
+				: FObjectArchive({
+					.Direction = EArchiveDirection::Save,
+					.Purpose = Purpose,
+					.Capabilities = EArchiveCapability::StructuredFields
 					| EArchiveCapability::RawBytes
 					| EArchiveCapability::CanonicalMapOrder
 					| EArchiveCapability::ObjectReferences
 					| EArchiveCapability::SoftObjectReferences
-					| EArchiveCapability::MultiPassDiscovery})
+					| EArchiveCapability::MultiPassDiscovery,
+					.BulkDataPolicy = EArchiveBulkDataPolicy::Skip})
 			{
 			}
 
@@ -88,8 +91,11 @@ namespace Durin
 				Node->bHasAtomicValue = true;
 			}
 
-			auto SerializeBulkData(FArchiveBulkDataTransfer& Value) -> void override
+			auto SerializeBulkData(
+				FArchiveBulkDataValue& Value,
+				const FArchiveBulkDataParameters& Parameters) -> void override
 			{
+				(void)Parameters;
 				FDefaultDeltaNode* Node = CurrentNode();
 				if (!Node || Node->LogicalType.Kind != ETypeKind::BulkData)
 				{

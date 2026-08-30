@@ -35,6 +35,13 @@ namespace Durin::Asset
 			FStaticMeshBuildProduct& OutProduct,
 			std::string& OutError) -> bool;
 
+		// Queries a validated cached product using metadata-only authored identity.
+		static auto TryLoadImportedProduct(
+			const FStaticMeshReconciliationSnapshot& Reconciliation,
+			const FStaticMeshImportedData& ImportedData,
+			FStaticMeshBuildProduct& OutProduct,
+			std::string& OutError) -> bool;
+
 		static auto PublishImportedProduct(
 			DStaticMesh& Mesh,
 			FStaticMeshBuildProduct Product,

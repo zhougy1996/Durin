@@ -74,9 +74,10 @@ namespace Durin
 		uint32 PayloadSchemaVersion = VolumeTextureSourcePayloadSchemaVersion;
 
 		ENGINE_API auto IsValid() const -> bool;
-		auto GetVoxelBytes() const -> std::span<const std::byte>
+		ENGINE_API auto GetIdentity() const -> FXxHash128;
+		auto GetVoxelBytes() const -> FSharedByteBuffer
 		{
-			return Voxels.GetBulkData().GetBytes();
+			return Voxels.GetPayload().Wait().Buffer;
 		}
 		ENGINE_API auto SetVoxelBytes(std::span<const std::byte> Bytes) -> bool;
 	};

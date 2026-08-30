@@ -2,7 +2,8 @@
 
 #include "AssetPackageCodec.h"
 #include "AssetRegistry/Catalog.h"
-#include "Asset/PackageVersionPolicy.h"
+#include "PackageVersionPolicy.h"
+#include "Asset/PackageBulkData.h"
 #include "Hash/XxHash.h"
 #include "Misc/Guid.h"
 
@@ -61,6 +62,7 @@ namespace Durin::Asset::Private::DastV6
 
 	struct FParsedPackage
 	{
+		uint32 FormatVersion = Version;
 		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
 		uint32 MainExportIndex = 0;
 		std::string AssetClass;
@@ -68,6 +70,8 @@ namespace Durin::Asset::Private::DastV6
 		std::vector<std::string> Imports;
 		uint64 ExportCount = 0;
 		std::vector<FPayloadEntry> PayloadEntries;
+		std::vector<FPackageBulkDataEntry> BulkEntries;
+		FPackageBulkSegmentSummary BulkSegment;
 		uint64 ExpectedImportCount = 0;
 		uint64 ExpectedPayloadCount = 0;
 		std::array<FSectionEntry, RequiredSectionCount> RequiredEntries;
@@ -89,4 +93,5 @@ namespace Durin::Asset::Private::DastV6
 		std::vector<std::byte>& OutObjectStream) -> FAssetResult;
 
 	ENGINE_API auto GetCodec() -> const FAssetPackageCodec&;
+	ENGINE_API auto GetV7Codec() -> const FAssetPackageCodec&;
 }

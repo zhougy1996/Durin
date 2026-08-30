@@ -14,7 +14,7 @@ namespace Durin::Asset
 	inline constexpr FGuid DblkBinaryFormatId{
 		0x76c5d46c, 0xa3744b7e, 0x9cda6c8f, 0xe0dbcd17};
 	inline constexpr std::string_view DblkBinaryFormatName = "Durin.BinaryFormat.DBLK";
-	inline constexpr uint32 OrdinaryAssetPackageWriterVersion = AssetPackageV6FormatVersion;
+	inline constexpr uint32 OrdinaryAssetPackageWriterVersion = AssetPackageV7FormatVersion;
 
 	ENGINE_API auto ValidateAssetPackageVersionPolicy(std::string& OutError) -> bool;
 	ENGINE_API auto GetAssetPackageReaderPolicyIdentity() -> uint32;

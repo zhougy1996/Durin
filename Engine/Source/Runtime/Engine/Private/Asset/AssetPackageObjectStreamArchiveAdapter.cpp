@@ -2,6 +2,7 @@
 #include "AssetRuntimeStateInternal.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/PackageObjectStreamWriter.h"
+#include "Asset/EditorBulkData.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "AssetPackageValueCodec.h"
 
@@ -212,7 +213,9 @@ namespace Durin::Asset::Private
 				if (Left.PayloadId != Right.PayloadId
 					|| Left.LogicalByteCount != Right.LogicalByteCount
 					|| Left.StoredByteCount != Right.StoredByteCount
-					|| Left.ContentHash != Right.ContentHash) return false;
+					|| Left.ContentHash != Right.ContentHash
+					|| Left.SegmentOffset != Right.SegmentOffset
+					|| Left.Alignment != Right.Alignment) return false;
 			}
 			for (size_t ObjectIndex = 0; ObjectIndex < A.Objects.size(); ++ObjectIndex)
 			{
@@ -284,9 +287,71 @@ namespace Durin::Asset::Private
 				Scope.Offset += Bytes.size();
 			}
 
-			auto SerializeBulkData(FArchiveBulkDataTransfer& Value) -> void override
+			auto SerializeBulkData(
+				FArchiveBulkDataValue& Value,
+				const FArchiveBulkDataParameters& Parameters) -> void override
 			{
+				(void)Parameters;
 				if (HasError() || !IsCurrentFieldAvailable()) return;
+				const FArchiveFormatVersion* DastVersion =
+					GetVersionContext().FindFormat(FName("DAST"));
+				if (DastVersion && DastVersion->Version >= AssetPackageV7FormatVersion)
+				{
+					uint64 FieldIndex = 0;
+					uint8 Placement = 0;
+					uint8 StorageFlags = 0;
+					uint16 Alignment = 0;
+					uint32 ContentIdVersion = 0;
+					FGuid InstanceId;
+					uint64 HashLow = 0, HashHigh = 0;
+					uint64 LogicalSize = 0, StoredSize = 0, SegmentOffset = 0;
+					*this << FieldIndex << Placement << StorageFlags << Alignment
+						<< ContentIdVersion << InstanceId << HashLow << HashHigh
+						<< LogicalSize << StoredSize << SegmentOffset;
+					if (HasError()) return;
+					if (FieldIndex == 0 || Placement > 1 || StorageFlags != 0
+						|| ContentIdVersion != EditorBulkDataContentIdVersion
+						|| !InstanceId.IsValid() || FXxHash128{HashLow, HashHigh}.IsZero()
+						|| LogicalSize != StoredSize || LogicalSize > MaximumAuthoredBulkBytes
+						|| (Placement == 0 && (Alignment != 1 || SegmentOffset != 0))
+						|| (Placement == 1 && (Alignment != EditorBulkDataExternalAlignment
+							|| SegmentOffset % Alignment != 0)))
+					{
+						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
+							"DAST v7 authored bulk field metadata is invalid.");
+						return;
+					}
+					Value = {.PayloadId = InstanceId,
+						.LogicalSize = LogicalSize,
+						.StoredSize = StoredSize,
+						.ContentHash = {HashLow, HashHigh},
+						.StorageKind = Placement == 0 ? EArchiveBulkDataStorageKind::Inline
+							: EArchiveBulkDataStorageKind::External,
+						.SegmentOffset = SegmentOffset,
+						.Alignment = Alignment};
+					if (Placement == 0)
+					{
+						std::vector<std::byte> Bytes(static_cast<size_t>(StoredSize));
+						ReadBytes(Bytes);
+						if (HasError()) return;
+						if (FXxHash128::HashBuffer(Bytes) != Value.ContentHash)
+						{
+							FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
+								"DAST v7 inline authored bulk content identity is invalid.");
+							return;
+						}
+						Value.Buffer = FSharedByteBuffer::Take(std::move(Bytes));
+					}
+					else
+					{
+						Value.PackageResource = GetPackageResourceManager().FindPackage(
+							PackagePath.ToString());
+						if (!Value.PackageResource)
+							FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
+								"DAST v7 package bulk resource was not registered before graph load.");
+					}
+					return;
+				}
 				uint8 StorageKind = 0;
 				FGuid PayloadId, ReservedIdentity;
 				uint32 ReservedVersion = 0;
@@ -359,8 +424,10 @@ namespace Durin::Asset::Private
 				Value = {.PayloadId = PayloadId, .LogicalSize = LogicalSize,
 					.StoredSize = StoredSize, .ContentHash = ContentHash,
 					.ContainerHash = ContainerHash,
-					.StorageKind = StorageKind == 0 ? EArchiveBulkDataStorageKind::Inline
-						: EArchiveBulkDataStorageKind::External,
+					// The v6 adapter resolves legacy companions eagerly; publish the
+					// verified bytes as resident data so modern bulk owners do not
+					// require a v7 package resource that cannot exist for DABK.
+					.StorageKind = EArchiveBulkDataStorageKind::Inline,
 					.Buffer = std::move(Buffer)};
 			}
 
@@ -812,18 +879,23 @@ namespace Durin::Asset::Private
 					NodeStack.back()->Raw.end(), Bytes.begin(), Bytes.end());
 			}
 
-			auto SerializeBulkData(FArchiveBulkDataTransfer& Value) -> void override
+			auto SerializeBulkData(
+				FArchiveBulkDataValue& Value,
+				const FArchiveBulkDataParameters& Parameters) -> void override
 			{
 				if (HasError() || SuppressedDepth != 0) return;
+				const FArchiveFormatVersion* DastVersion =
+					GetVersionContext().FindFormat(FName("DAST"));
+				const bool bV7 = DastVersion && DastVersion->Version >= AssetPackageV7FormatVersion;
 				if (!Value.PayloadId.IsValid() || Value.LogicalSize != Value.StoredSize
-					|| Value.Buffer.GetSize() != Value.LogicalSize
-					|| FXxHash128::HashBuffer(Value.Buffer.GetBytes()) != Value.ContentHash)
+					|| (bCapturePayload && (Value.Buffer.GetSize() != Value.LogicalSize
+						|| FXxHash128::HashBuffer(Value.Buffer.GetBytes()) != Value.ContentHash)))
 				{
 					Fail(EArchiveFailureCode::InvalidData,
 						"Authored bulk capture requires valid identity and verified resident bytes.");
 					return;
 				}
-				if (std::ranges::find(Package.BulkPayloads, Value.PayloadId,
+				if (!bV7 && std::ranges::find(Package.BulkPayloads, Value.PayloadId,
 						[](const FEditorBulkDataStoragePayload& Payload) {
 							return Payload.Descriptor.PayloadId;
 						}) != Package.BulkPayloads.end())
@@ -833,7 +905,23 @@ namespace Durin::Asset::Private
 					return;
 				}
 
-				const bool bExternal = Value.LogicalSize >= EditorBulkDataExternalThreshold;
+				const bool bExternal = Value.LogicalSize > EditorBulkDataExternalThreshold;
+				uint64 FieldIndex = Package.BulkPayloads.size() + 1;
+				const uint32 Alignment = bExternal ? EditorBulkDataExternalAlignment : 1;
+				const uint64 SegmentOffset = bExternal
+					? (NextExternalOffset + Alignment - 1) & ~static_cast<uint64>(Alignment - 1)
+					: 0;
+				if (bExternal)
+				{
+					if (SegmentOffset > PackageBulkDataMaximumSegmentBytes
+						|| Value.StoredSize > PackageBulkDataMaximumSegmentBytes - SegmentOffset)
+					{
+						Fail(EArchiveFailureCode::LimitExceeded,
+							"Authored bulk segment exceeds the 1 GiB limit.");
+						return;
+					}
+					NextExternalOffset = SegmentOffset + Value.StoredSize;
+				}
 				Value.StorageKind = bExternal
 					? EArchiveBulkDataStorageKind::External
 					: EArchiveBulkDataStorageKind::Inline;
@@ -845,12 +933,33 @@ namespace Durin::Asset::Private
 					.ContentHash = Value.ContentHash,
 					.ContainerHash = Value.ContainerHash,
 					.StorageKind = bExternal ? EEditorBulkDataStorageKind::External
-						: EEditorBulkDataStorageKind::Inline};
+						: EEditorBulkDataStorageKind::Inline,
+					.SegmentOffset = SegmentOffset,
+					.Alignment = Alignment};
 				Package.BulkPayloads.push_back({Descriptor, Value.Buffer});
+
+				if (bV7)
+				{
+					uint8 Placement = bExternal ? 1 : 0;
+					uint8 StorageFlags = 0;
+					uint16 WireAlignment = static_cast<uint16>(Alignment);
+					uint32 ContentIdVersion = EditorBulkDataContentIdVersion;
+					uint64 HashLow = Value.ContentHash.HashLow;
+					uint64 HashHigh = Value.ContentHash.HashHigh;
+					FGuid PayloadId = Value.PayloadId;
+					uint64 LogicalSize = Value.LogicalSize;
+					uint64 StoredSize = Value.StoredSize;
+					uint64 WireSegmentOffset = SegmentOffset;
+					*this << FieldIndex << Placement << StorageFlags << WireAlignment
+						<< ContentIdVersion << PayloadId << HashLow << HashHigh
+						<< LogicalSize << StoredSize << WireSegmentOffset;
+					if (!bExternal) WriteBytes(Value.Buffer.GetBytes());
+					return;
+				}
 
 				if (!bExternal)
 				{
-					FArchive::SerializeBulkData(Value);
+					FArchive::SerializeBulkData(Value, Parameters);
 					return;
 				}
 				uint8 StorageKind = static_cast<uint8>(EArchiveBulkDataStorageKind::External);
@@ -1139,6 +1248,7 @@ namespace Durin::Asset::Private
 			std::vector<FAssetPath> ExternalPaths;
 			std::vector<FResolvedReplacement> ReplacementValues;
 			FXxHash128 ContainerHash;
+			uint64 NextExternalOffset = 0;
 
 		public:
 			auto SetCurrentObject(DObject* Object) -> void { CurrentDObject = Object; }
@@ -1758,7 +1868,8 @@ namespace Durin::Asset::PackageObjectStream
 		for (size_t Index = 0; Index < Objects.size(); ++Index) ObjectIds.emplace(Objects[Index], Index + 1);
 		Private::FCapturedPackage Discovery;
 		FAssetResult Result = Private::CapturePackage(
-			Objects, ObjectIds, Options.Serialization, false, Version, {}, Discovery);
+			Objects, ObjectIds, Options.Serialization, false,
+			OrdinaryAssetPackageWriterVersion, {}, Discovery);
 		if (!Result)
 		{
 			Diagnostic = {EWriterFailure::ArchiveFailure, {}, Result.Message}; return Finish(Result);
@@ -1781,7 +1892,8 @@ namespace Durin::Asset::PackageObjectStream
 			for (size_t Index = 0; Index < Objects.size(); ++Index)
 				ObjectIds.emplace(Objects[Index], Index + 1);
 			Result = Private::CapturePackage(
-				Objects, ObjectIds, Options.Serialization, false, Version, {}, Discovery);
+				Objects, ObjectIds, Options.Serialization, false,
+				OrdinaryAssetPackageWriterVersion, {}, Discovery);
 			if (!Result)
 			{
 				Diagnostic = {EWriterFailure::ArchiveFailure, {}, Result.Message};
@@ -1791,7 +1903,7 @@ namespace Durin::Asset::PackageObjectStream
 		const FXxHash128 ContainerHash = Private::ComputeContainerHash(Discovery.BulkPayloads);
 		if (!Discovery.BulkPayloads.empty()
 			&& std::ranges::any_of(Discovery.BulkPayloads, [](const FEditorBulkDataStoragePayload& Payload) {
-				return Payload.Descriptor.LogicalByteCount >= EditorBulkDataExternalThreshold;
+				return Payload.Descriptor.LogicalByteCount > EditorBulkDataExternalThreshold;
 			}) && ContainerHash.IsZero())
 		{
 			Diagnostic = {EWriterFailure::ArchiveFailure, {},
@@ -1800,7 +1912,8 @@ namespace Durin::Asset::PackageObjectStream
 		}
 		Private::FCapturedPackage Captured;
 		Result = Private::CapturePackage(
-			Objects, ObjectIds, Options.Serialization, true, Version, ContainerHash, Captured);
+			Objects, ObjectIds, Options.Serialization, true,
+			OrdinaryAssetPackageWriterVersion, ContainerHash, Captured);
 		if (!Result)
 		{
 			Diagnostic = {EWriterFailure::ArchiveFailure, {}, Result.Message}; return Finish(Result);
@@ -1818,8 +1931,7 @@ namespace Durin::Asset::PackageObjectStream
 		{
 			Options.Serialization.EditorBulkDataStoragePayloads->clear();
 			for (const FEditorBulkDataStoragePayload& Payload : Captured.BulkPayloads)
-				if (Payload.Descriptor.StorageKind == EEditorBulkDataStorageKind::External)
-					Options.Serialization.EditorBulkDataStoragePayloads->push_back(Payload);
+				Options.Serialization.EditorBulkDataStoragePayloads->push_back(Payload);
 		}
 		if (!Private::HasFrozenObjectGraph(Package->GetAsset(), FrozenObjects)
 			|| !Private::EqualManifest(Discovery, Captured))

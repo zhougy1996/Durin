@@ -72,8 +72,26 @@ namespace Durin
 
 	enum class EArchiveBulkDataStorageKind : uint8 { Inline, External };
 
-	// Carries placement-independent bulk identity and immutable bytes through an Archive.
-	struct FArchiveBulkDataTransfer
+	// Selects whether a field accepts archive policy or requires one physical placement.
+	enum class EArchiveBulkDataStoragePolicy : uint8
+	{
+		ArchiveDefault,
+		ForceInline,
+		AllowExternal,
+	};
+
+	// Supplies non-wire context required to serialize one BulkData field.
+	struct FArchiveBulkDataParameters
+	{
+		const void* Owner = nullptr;
+		uint64 ElementSize = 1;
+		uint32 Alignment = 1;
+		EArchiveBulkDataStoragePolicy StoragePolicy = EArchiveBulkDataStoragePolicy::ArchiveDefault;
+		uint64 CookIndex = 0;
+	};
+
+	// Carries one archive-owned BulkData capture or load candidate.
+	struct FArchiveBulkDataValue
 	{
 		FGuid PayloadId;
 		uint64 LogicalSize = 0;
@@ -82,6 +100,9 @@ namespace Durin
 		FXxHash128 ContainerHash;
 		EArchiveBulkDataStorageKind StorageKind = EArchiveBulkDataStorageKind::Inline;
 		FSharedByteBuffer Buffer;
+		std::shared_ptr<void> PackageResource;
+		uint64 SegmentOffset = 0;
+		uint32 Alignment = 1;
 	};
 
 	// Carries stable Cook target facts queried by serializers.
@@ -193,7 +214,9 @@ namespace Durin
 		CORE_API auto SerializeByteBlob(std::vector<std::byte>& Bytes) -> void;
 		// Transfers one atomic bulk value according to the selected physical policy.
 		// Loading commits only a completely read and hash-verified resident candidate.
-		virtual CORE_API auto SerializeBulkData(FArchiveBulkDataTransfer& Value) -> void;
+		virtual CORE_API auto SerializeBulkData(
+			FArchiveBulkDataValue& Value,
+			const FArchiveBulkDataParameters& Parameters) -> void;
 		virtual auto Tell() const -> uint64 { return 0; }
 		virtual auto GetRemainingPayloadBytes() const -> uint64 { return std::numeric_limits<uint64>::max(); }
 		virtual auto IsCurrentFieldAvailable() const -> bool { return true; }

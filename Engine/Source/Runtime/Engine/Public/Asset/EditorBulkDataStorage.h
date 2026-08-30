@@ -2,11 +2,11 @@
 
 #include "EngineAPI.h"
 #include "Asset/EditorBulkDataStorageTypes.h"
+#include "Asset/PackageBulkData.h"
 #include "Asset/PackageInspection.h"
 
 namespace Durin::Asset
 {
-	inline constexpr uint64 EditorBulkDataExternalThreshold = 256ull * 1024;
 	inline constexpr std::string_view EditorBulkDataCompanionSuffix = ".dabulk";
 	// Internal sibling retained only until the package/companion closure commits.
 	inline constexpr std::string_view EditorBulkDataCompanionBackupSuffix = ".durin-backup";

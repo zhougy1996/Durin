@@ -4,6 +4,7 @@
 #include "AssetRegistry/Catalog.h"
 #include "AssetRegistry/PackageFormat.h"
 #include "DObject/AssetPath.h"
+#include "Hash/XxHash.h"
 
 namespace Durin::Asset
 {
@@ -15,6 +16,8 @@ namespace Durin::Asset
 		uint32 FormatVersion = 0;
 		std::vector<FAssetPath> Dependencies;
 		uint64 ObjectCount = 0;
+		uint64 BulkSegmentExtent = 0;
+		FXxHash128 BulkSegmentDigest;
 		uint64 BytesRead = 0;
 		uint64 FileBytesRead = 0;
 	};
@@ -42,6 +45,8 @@ namespace Durin::Asset::Dast
 		std::vector<std::string> Imports;
 		uint64 ExportCount = 0;
 		uint64 PayloadCount = 0;
+		uint64 BulkSegmentExtent = 0;
+		FXxHash128 BulkSegmentDigest;
 	};
 
 	// Canonical decoder shared by registry header inspection and Engine's full
