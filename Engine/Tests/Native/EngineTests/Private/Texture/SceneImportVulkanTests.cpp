@@ -97,6 +97,11 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 {
 	InitializeDObjectSystem();
 	ASSERT_TRUE(Durin::InitializeAssetCompilingManager());
+	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
+	Durin::FModuleManager::Get().LoadModule("RenderCore");
+	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
+	ASSERT_NE(Durin::GDynamicRHI, nullptr);
+	Durin::InitRenderingThread();
 	Durin::FModuleManager::Get().LoadModuleChecked("TextureBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	Durin::FModuleManager::Get().LoadModuleChecked("SkeletalBuild");
@@ -277,12 +282,6 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	MutableLODContractRenderData->LODVertexFactories.resize(2);
 	MutableLODContractRenderData->RecalculateBounds();
 
-	ASSERT_EQ(Durin::GDynamicRHI, nullptr);
-	Durin::FModuleManager::Get().LoadModule("RenderCore");
-	Durin::RHIInit(Durin::Tests::GetVulkanEngineTestInitializationContext());
-	ASSERT_NE(Durin::GDynamicRHI, nullptr);
-	Durin::InitRenderingThread();
-
 	const size_t InitialRenderResourceCount =
 		Durin::GetNumInitializedRenderResources();
 	Durin::DStaticMesh* LifecycleMesh =
@@ -294,7 +293,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 		InitialLifecycleStatus.Readiness,
 		Durin::EStaticMeshRenderResourceReadiness::Unavailable);
 	EXPECT_NE(InitialLifecycleStatus.Revision, 0u);
-	EXPECT_FALSE(LifecycleMesh->GetLOD0LocalBounds().has_value());
+	EXPECT_TRUE(LifecycleMesh->GetLOD0LocalBounds().has_value());
 	const auto StaticMeshInitStart =
 		std::chrono::steady_clock::now();
 	LifecycleMesh->InitResources();

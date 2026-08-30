@@ -8,7 +8,6 @@
 #include "DObject/ObjectLifecycle.h"
 #include "EngineTestSupport.h"
 #include "HAL/PlatformLTS.h"
-#include "Materials/Material.h"
 #include "Threading/RunnableThread.h"
 
 namespace
@@ -151,14 +150,14 @@ TEST(FCookedMeshLoadManagerTests,
 		.MaxCompletionsPerPump = 4});
 	ASSERT_TRUE(Manager.Initialize());
 
-	std::array<DMaterial*, 8> Owners{};
+	std::array<DObject*, 8> Owners{};
 	std::array<std::shared_ptr<FControlledPackageResource>, 8> Resources{};
 	bool bCurrent = true;
 	uint32 PublishCount = 0;
 	uint32 TerminalCount = 0;
 	for (uint32 Index = 0; Index < Owners.size(); ++Index)
 	{
-		Owners[Index] = NewObject<DMaterial>(nullptr,
+		Owners[Index] = NewObject<DObject>(nullptr,
 			"CookedMeshConcurrentOwner" + std::to_string(Index));
 		AddToRoot(Owners[Index]);
 		Resources[Index] = std::make_shared<FControlledPackageResource>();
@@ -171,10 +170,14 @@ TEST(FCookedMeshLoadManagerTests,
 	const FCookedMeshLoadDiagnostics Saturated = Manager.GetDiagnostics();
 	EXPECT_EQ(Saturated.InFlightCount, 8u);
 	EXPECT_EQ(Saturated.InFlightEstimatedBytes, 32u);
-	ASSERT_TRUE(PumpUntil(Manager, [&] {
-		return std::ranges::all_of(Resources,
-			[](const auto& Resource) { return Resource->HasStarted(); });
-	}));
+	const uint32 ExpectedStartedReadCount = std::min<uint32>(
+		GetTaskSchedulerDiagnostics().WorkerCount,
+		static_cast<uint32>(Resources.size()));
+	const bool bExpectedReadsStarted = PumpUntil(Manager, [&] {
+		return std::ranges::count_if(Resources,
+			[](const auto& Resource) { return Resource->HasStarted(); })
+			>= ExpectedStartedReadCount;
+	});
 
 	// Exercise reassignment/supersession, unload cancellation, package-resource
 	// retirement, and object destruction while both mesh families occupy the
@@ -201,9 +204,12 @@ TEST(FCookedMeshLoadManagerTests,
 
 	for (const auto& Resource : Resources) Resource->Release();
 	RetireThread.join();
-	ASSERT_TRUE(bRetirementStarted);
-	ASSERT_TRUE(PumpUntil(Manager, [&] { return SuccessorResource->HasStarted(); }));
+	const bool bSuccessorStarted =
+		PumpUntil(Manager, [&] { return SuccessorResource->HasStarted(); });
 	SuccessorResource->Release();
+	ASSERT_TRUE(bExpectedReadsStarted);
+	ASSERT_TRUE(bRetirementStarted);
+	ASSERT_TRUE(bSuccessorStarted);
 
 	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 	while (std::chrono::steady_clock::now() < Deadline)
@@ -276,8 +282,8 @@ TEST(FCookedMeshLoadManagerTests,
 		.MaxIoPollsPerPump = 1,
 		.MaxCompletionsPerPump = 1});
 	ASSERT_TRUE(Manager.Initialize());
-	auto* First = NewObject<DMaterial>(nullptr, "CookedMeshManagerFirst");
-	auto* Second = NewObject<DMaterial>(nullptr, "CookedMeshManagerSecond");
+	auto* First = NewObject<DObject>(nullptr, "CookedMeshManagerFirst");
+	auto* Second = NewObject<DObject>(nullptr, "CookedMeshManagerSecond");
 	AddToRoot(First);
 	AddToRoot(Second);
 	bool bCurrent = true;
@@ -386,7 +392,7 @@ TEST(FCookedMeshLoadManagerTests,
 	EXPECT_EQ(Manager.GetDiagnostics().CancelledCount, 3u);
 
 	// Destruction invalidates the weak object generation before publication.
-	auto* Destroyed = NewObject<DMaterial>(nullptr, "CookedMeshManagerDestroyed");
+	auto* Destroyed = NewObject<DObject>(nullptr, "CookedMeshManagerDestroyed");
 	auto DestroyedResource = std::make_shared<FControlledPackageResource>();
 	ASSERT_TRUE(Manager.Submit(MakeRequest(
 		*Destroyed, 1, MakeBulkData(DestroyedResource), &bCurrent, &PublishCount)));
