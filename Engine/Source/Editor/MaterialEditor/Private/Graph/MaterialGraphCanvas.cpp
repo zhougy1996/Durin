@@ -996,9 +996,16 @@ namespace Durin::Editor::Material
 					Mouse.y - SurfacePins[Index].y) <= 8.0f)
 					HoveredSurfaceOutput = static_cast<EMaterialSurfaceOutput>(Index);
 			}
-			const bool bCanvasInteractionAvailable = bHovered
-				&& !bEmbeddedControlHoveredOrActive && !ImGui::GetIO().WantTextInput;
-			const bool bOpenPaletteByDoubleClick = bCanvasInteractionAvailable
+			const bool bCanvasPointerInteractionAvailable = bHovered
+				&& !bEmbeddedControlHoveredOrActive;
+			const bool bCanvasKeyboardInteractionAvailable =
+				bCanvasPointerInteractionAvailable && !ImGui::GetIO().WantTextInput;
+			if (bCanvasPointerInteractionAvailable
+				&& (ImGui::IsMouseClicked(ImGuiMouseButton_Left)
+					|| ImGui::IsMouseClicked(ImGuiMouseButton_Middle)
+					|| ImGui::IsMouseClicked(ImGuiMouseButton_Right)))
+				ImGui::SetWindowFocus();
+			const bool bOpenPaletteByDoubleClick = bCanvasPointerInteractionAvailable
 				&& ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)
 				&& !HoveredNode && !HoveredOutput && !HoveredInputNode
 				&& !HoveredSurfaceOutput && !bHoveredMaterialOutputHeader;
@@ -1010,7 +1017,7 @@ namespace Durin::Editor::Material
 					Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom);
 				bPaletteOpenRequested = true;
 			}
-			if (bCanvasInteractionAvailable && ImGui::IsKeyPressed(ImGuiKey_Escape))
+			if (bCanvasKeyboardInteractionAvailable && ImGui::IsKeyPressed(ImGuiKey_Escape))
 			{
 				if (MoveSession.IsActive())
 				{
@@ -1024,7 +1031,7 @@ namespace Durin::Editor::Material
 				DragStartPositions.clear();
 			}
 
-			if (bCanvasInteractionAvailable && !bOpenPaletteByDoubleClick
+			if (bCanvasPointerInteractionAvailable && !bOpenPaletteByDoubleClick
 				&& ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 			{
 				if (HoveredInputNode)
@@ -1101,7 +1108,8 @@ namespace Durin::Editor::Material
 				}
 			}
 
-			if (MoveSession.IsActive() && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+			if (MoveSession.IsActive()
+				&& ImGui::IsMouseDragging(ImGuiMouseButton_Left))
 			{
 				const ImVec2 Delta = Multiply(Subtract(Mouse, DragStartMouse), 1.0f / Zoom);
 				if (bMaterialOutputSelected)
@@ -1222,14 +1230,14 @@ namespace Durin::Editor::Material
 				}
 			}
 
-			if (bCanvasInteractionAvailable && ImGui::GetIO().KeyCtrl
+			if (bCanvasKeyboardInteractionAvailable && ImGui::GetIO().KeyCtrl
 				&& ImGui::IsKeyPressed(ImGuiKey_A))
 			{
 				SelectedNodes.clear();
 				for (const FMaterialGraphNodeView& Node : View.Nodes)
 					SelectedNodes.insert(Node.Node.Id);
 			}
-			if (bCanvasInteractionAvailable && ImGui::GetIO().KeyCtrl
+			if (bCanvasKeyboardInteractionAvailable && ImGui::GetIO().KeyCtrl
 				&& ImGui::IsKeyPressed(ImGuiKey_C) && !SelectedNodes.empty())
 			{
 				std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
@@ -1239,7 +1247,7 @@ namespace Durin::Editor::Material
 				ReportCommand(Copied, ReportError);
 				if (Copied) GraphClipboard = std::move(Payload);
 			}
-			if (bCanvasInteractionAvailable && ImGui::GetIO().KeyCtrl
+			if (bCanvasKeyboardInteractionAvailable && ImGui::GetIO().KeyCtrl
 				&& ImGui::IsKeyPressed(ImGuiKey_X) && !SelectedNodes.empty())
 			{
 				std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
@@ -1253,7 +1261,7 @@ namespace Durin::Editor::Material
 					SelectedNodes.clear();
 				}
 			}
-			if (bCanvasInteractionAvailable && ImGui::GetIO().KeyCtrl
+			if (bCanvasKeyboardInteractionAvailable && ImGui::GetIO().KeyCtrl
 				&& ImGui::IsKeyPressed(ImGuiKey_D) && !SelectedNodes.empty())
 			{
 				std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
@@ -1268,7 +1276,7 @@ namespace Durin::Editor::Material
 						Duplicated.GeneratedNodeIds.end());
 				}
 			}
-			if (bCanvasInteractionAvailable && ImGui::GetIO().KeyCtrl
+			if (bCanvasKeyboardInteractionAvailable && ImGui::GetIO().KeyCtrl
 				&& ImGui::IsKeyPressed(ImGuiKey_V) && GraphClipboard)
 			{
 				const ImVec2 GraphPosition = Multiply(
@@ -1285,7 +1293,7 @@ namespace Durin::Editor::Material
 						Pasted.GeneratedNodeIds.end());
 				}
 			}
-			if (bCanvasInteractionAvailable && ImGui::IsKeyPressed(ImGuiKey_Delete)
+			if (bCanvasKeyboardInteractionAvailable && ImGui::IsKeyPressed(ImGuiKey_Delete)
 				&& !SelectedNodes.empty())
 			{
 				std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
@@ -1294,7 +1302,7 @@ namespace Durin::Editor::Material
 				ReportCommand(Removed, ReportError);
 				if (Removed) SelectedNodes.clear();
 			}
-			if (bCanvasInteractionAvailable && ImGui::IsKeyPressed(ImGuiKey_F))
+			if (bCanvasKeyboardInteractionAvailable && ImGui::IsKeyPressed(ImGuiKey_F))
 				FrameNodes(View, CanvasSize);
 			if (bFrameSelectionRequested
 				&& (!SelectedNodes.empty() || SelectedSurfaceOutput
@@ -1322,7 +1330,7 @@ namespace Durin::Editor::Material
 				bPendingFrameSurface = false;
 			}
 			DetailLevel = FMaterialGraphGeometry::SelectDetailLevel(Zoom, DetailLevel);
-			if (bCanvasInteractionAvailable
+			if (bCanvasPointerInteractionAvailable
 				&& ImGui::IsMouseClicked(ImGuiMouseButton_Right))
 			{
 				PaletteSourceNode = HoveredOutput
@@ -1334,7 +1342,7 @@ namespace Durin::Editor::Material
 					Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom);
 				ImGui::OpenPopup("MaterialGraphContext");
 			}
-			if (bCanvasInteractionAvailable && ImGui::IsKeyPressed(ImGuiKey_Space))
+			if (bCanvasKeyboardInteractionAvailable && ImGui::IsKeyPressed(ImGuiKey_Space))
 			{
 				PaletteSourceNode = {};
 				ContextNode = {};
@@ -1494,7 +1502,7 @@ namespace Durin::Editor::Material
 				ImGuiCond_Appearing, {0.5f, 0.5f});
 			ImGui::SetNextWindowSize({MonaImGui::ScaleUI(660.0f),
 				MonaImGui::ScaleUI(520.0f)}, ImGuiCond_Appearing);
-			if (ImGui::BeginPopupModal("MaterialNodePalette", nullptr,
+			if (ImGui::BeginPopup("MaterialNodePalette",
 				ImGuiWindowFlags_NoSavedSettings))
 			{
 				if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
@@ -1615,6 +1623,7 @@ namespace Durin::Editor::Material
 				ImGui::TextDisabled("Up/Down navigate   Enter create   Esc close");
 				ImGui::EndPopup();
 			}
+			else PaletteSourceNode = {};
 
 			DrawList->PopClipRect();
 		}
