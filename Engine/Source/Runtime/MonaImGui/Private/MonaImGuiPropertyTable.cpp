@@ -346,7 +346,7 @@ namespace Durin::MonaImGui::PropertyEdit
 	{
 		ImGui::PushID(Label);
 		BeginRow(Label, bReadOnly, 0.0f, LabelTooltip);
-		FLinearColor DisplayColor(LinearToSRGB(Color.R), LinearToSRGB(Color.G), LinearToSRGB(Color.B), std::clamp(Color.A, 0.0f, 1.0f));
+		FLinearColor DisplayColor(ColorConvert::LinearToSRGB(Color.R), ColorConvert::LinearToSRGB(Color.G), ColorConvert::LinearToSRGB(Color.B), std::clamp(Color.A, 0.0f, 1.0f));
 		const ImGuiColorEditFlags Flags = ImGuiColorEditFlags_Float | ImGuiColorEditFlags_InputRGB;
 		bool bChanged = false;
 
@@ -368,9 +368,9 @@ namespace Durin::MonaImGui::PropertyEdit
 		}
 		if (bChanged)
 		{
-			Color.R = SRGBToLinear(DisplayColor.R);
-			Color.G = SRGBToLinear(DisplayColor.G);
-			Color.B = SRGBToLinear(DisplayColor.B);
+			Color.R = ColorConvert::SRGBToLinear(DisplayColor.R);
+			Color.G = ColorConvert::SRGBToLinear(DisplayColor.G);
+			Color.B = ColorConvert::SRGBToLinear(DisplayColor.B);
 			if (bShowAlpha) Color.A = DisplayColor.A;
 		}
 		EndRow(bReadOnly);

@@ -55,16 +55,6 @@ namespace Durin::Asset::TextureCubeBuilder
 			};
 		}
 
-		auto DecodeSRGB(uint8 Value) -> double
-		{
-			return SRGBToLinear(static_cast<double>(Value) / 255.0);
-		}
-
-		auto EncodeSRGB(double Value) -> uint8
-		{
-			return QuantizeUNorm8(LinearToSRGB(Value));
-		}
-
 		auto FilmicToneMap(double Value) -> double
 		{
 			const double Numerator = Value * (2.51 * Value + 0.03);
@@ -209,11 +199,11 @@ namespace Durin::Asset::TextureCubeBuilder
 							const uint8 Encoded = std::to_integer<uint8>(
 								Panorama.Pixels[Sample.PixelIndices[Tap] * LDRChannelCount + Channel]);
 							Value += Sample.Weights[Tap] * (Channel < 3
-								? DecodeSRGB(Encoded)
+								? ColorConvert::SRGB8ToLinear(Encoded)
 								: static_cast<double>(Encoded) / 255.0);
 						}
 						Face.Pixels[Destination + Channel] = static_cast<std::byte>(
-							Channel < 3 ? EncodeSRGB(Value) : QuantizeUNorm8(Value));
+							Channel < 3 ? ColorConvert::LinearToSRGB8(Value) : ColorConvert::QuantizeUNorm8(Value));
 					}
 					Face.bHasTransparency |= Face.Pixels[Destination + 3] != static_cast<std::byte>(255);
 				}
@@ -267,7 +257,7 @@ namespace Durin::Asset::TextureCubeBuilder
 							return false;
 						}
 						Face.Pixels[Destination + Channel] = static_cast<std::byte>(
-							EncodeSRGB(FilmicToneMap(Exposed)));
+							ColorConvert::LinearToSRGB8(FilmicToneMap(Exposed)));
 					}
 					Face.Pixels[Destination + 3] = static_cast<std::byte>(255);
 				}

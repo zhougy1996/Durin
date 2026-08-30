@@ -9,14 +9,29 @@ namespace Durin
 {
 	struct FColor;
 
-	// Clamps a linear-light channel to [0,1], maps NaN to zero, and converts it to normalized sRGB.
-	CORE_API auto LinearToSRGB(double Linear) -> double;
+	namespace ColorConvert
+	{
+		// Clamps a linear-light channel to [0,1], maps NaN to zero, and converts it to normalized sRGB.
+		CORE_API auto LinearToSRGB(double Linear) -> double;
 
-	// Clamps an sRGB channel to [0,1], maps NaN to zero, and converts it to normalized linear light.
-	CORE_API auto SRGBToLinear(double SRGB) -> double;
+		// Clamps an sRGB channel to [0,1], maps NaN to zero, and converts it to normalized linear light.
+		CORE_API auto SRGBToLinear(double SRGB) -> double;
 
-	// Clamps a normalized channel, maps NaN to zero, and rounds it to an 8-bit UNorm value.
-	CORE_API auto QuantizeUNorm8(double Value) -> uint8;
+		// Clamps a normalized channel, maps NaN to zero, and rounds it to an 8-bit UNorm value.
+		CORE_API auto QuantizeUNorm8(double Value) -> uint8;
+
+		// Converts one 8-bit sRGB channel to normalized linear light.
+		FORCEINLINE auto SRGB8ToLinear(uint8 Encoded) -> double
+		{
+			return SRGBToLinear(static_cast<double>(Encoded) / 255.0);
+		}
+
+		// Converts one linear-light channel to an 8-bit sRGB value.
+		FORCEINLINE auto LinearToSRGB8(double Linear) -> uint8
+		{
+			return QuantizeUNorm8(LinearToSRGB(Linear));
+		}
+	}
 
 	enum class EGammaSpace : uint8
 	{
@@ -411,10 +426,10 @@ namespace Durin
 	FORCEINLINE FColor FLinearColor::QuantizeRound() const
 	{
 		return FColor(
-			QuantizeUNorm8(R),
-			QuantizeUNorm8(G),
-			QuantizeUNorm8(B),
-			QuantizeUNorm8(A));
+			ColorConvert::QuantizeUNorm8(R),
+			ColorConvert::QuantizeUNorm8(G),
+			ColorConvert::QuantizeUNorm8(B),
+			ColorConvert::QuantizeUNorm8(A));
 	}
 
 	FORCEINLINE FColor FLinearColor::ToFColor(const bool bSRGB) const
