@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Asset/Cook.h"
+#include "Asset/BulkData.h"
 #include "Asset/EditorBulkData.h"
 #include "EngineAPI.h"
 #include "Hash/XxHash.h"
@@ -110,7 +111,6 @@ namespace Durin
 		std::string SkeletonCompatibilityIdentity;
 		FName ClipName;
 		std::shared_ptr<const FAnimationClipPayloadData> Payload;
-		Asset::FCookedPayloadDescriptor CookedPayload;
 		std::string DerivedDataKey;
 		std::string DiagnosticMessage;
 		bool bLoadedFromDerivedDataCache = false;
@@ -140,8 +140,8 @@ namespace Durin
 		auto GetSkeletonCompatibilityIdentity() const -> const std::string& { return SkeletonCompatibilityIdentity; }
 		auto GetClipName() const -> FName { return ClipName; }
 		auto GetSummary() const -> const FAnimationClipSummary& { return Summary; }
-		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
-		auto GetPayloadData() const -> std::shared_ptr<const FAnimationClipPayloadData> { return PayloadData; }
+		ENGINE_API auto GetPayloadData() const -> std::shared_ptr<const FAnimationClipPayloadData>;
+		auto GetCookedPlatformData() const -> const Asset::FBulkData& { return CookedPlatformData; }
 		auto GetImportedData() const -> const FAnimationClipImportedData& { return ImportedData; }
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
@@ -155,6 +155,7 @@ namespace Durin
 			const DSkeleton& ProspectiveSkeleton,
 			std::string& OutError) const -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 		ENGINE_API auto AddToCook(
 			Asset::FCookContext& Context,
 			std::string_view VirtualPackagePath,
@@ -180,8 +181,7 @@ namespace Durin
 		DPROPERTY()
 		FAnimationClipSummary Summary;
 
-		DPROPERTY()
-		Asset::FCookedPayloadDescriptor CookedPayload;
+		Asset::FBulkData CookedPlatformData;
 
 		DPROPERTY(EditorOnly)
 		std::string DerivedDataKey;

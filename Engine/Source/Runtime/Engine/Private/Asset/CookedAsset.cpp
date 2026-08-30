@@ -4,6 +4,7 @@
 #include "AssetPublicationCoordinatorInternal.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "BulkContainerInfrastructure.h"
+#include "DObject/Package.h"
 #include "Hash/XxHash.h"
 #include "Misc/FileHelper.h"
 #include "Misc/LexicalPath.h"
@@ -689,49 +690,6 @@ namespace Durin::Asset
 		return true;
 	}
 
-	auto LoadCookedPackagePayload(
-		const FAssetRuntimeConfiguration& RuntimeConfiguration,
-		std::string_view VirtualPackagePath,
-		const FCookedPayloadDescriptor& Descriptor,
-		ECookTargetPlatform ExpectedPlatform,
-		ECookTargetProfile ExpectedProfile,
-		FCookedPackagePayload& OutPayload,
-		std::string* OutError) -> bool
-	{
-		std::filesystem::path PackagePath;
-		std::filesystem::path CompanionPath;
-		if (!RuntimeConfiguration.RequiresCookedPayload())
-			return Fail("Cooked payload loading requires the cooked runtime configuration.", OutError);
-		if (!ResolveCookedPackagePath(
-				RuntimeConfiguration.GetCookRoot(), VirtualPackagePath, PackagePath, OutError)
-			|| !ResolveCookedCompanionPath(
-				RuntimeConfiguration.GetCookRoot(), PackagePath, CompanionPath, OutError))
-		{
-			return false;
-		}
-
-		FCookedBulkContainer Candidate;
-		if (!LoadCookedBulkFile(
-			CompanionPath, ExpectedPlatform, ExpectedProfile, Candidate, OutError))
-		{
-			return false;
-		}
-		std::span<const std::byte> CandidatePayload;
-		if (!ResolveCookedPayload(Candidate, Descriptor, CandidatePayload, OutError))
-			return false;
-
-		OutPayload.Payload = {};
-		OutPayload.Container = std::move(Candidate);
-		if (!ResolveCookedPayload(
-			OutPayload.Container, Descriptor, OutPayload.Payload, OutError))
-		{
-			OutPayload.Container = {};
-			OutPayload.Payload = {};
-			return false;
-		}
-		return true;
-	}
-
 	auto LoadCookedBulkFile(
 		const std::filesystem::path& Path,
 		ECookTargetPlatform ExpectedPlatform,
@@ -815,8 +773,14 @@ namespace Durin::Asset
 		{
 			const FCookManifestEntry& Entry = *EntryPointer;
 			if (!IsValidRelativeManifestPath(Entry.RelativePath)
-				|| (Entry.Kind != ECookManifestEntryKind::CookedPackage && Entry.Kind != ECookManifestEntryKind::CookedBulk)
-				|| Entry.Flags != 1 || Entry.FileSize == 0)
+				|| (Entry.Kind != ECookManifestEntryKind::CookedPackage
+					&& Entry.Kind != ECookManifestEntryKind::CookedBulk
+					&& Entry.Kind != ECookManifestEntryKind::PackageBulk)
+				|| (Entry.Flags & CookManifestEntryPresent) == 0
+				|| (Entry.Flags & ~CookManifestEntryKnownFlags) != 0
+				|| (Entry.Kind != ECookManifestEntryKind::CookedPackage
+					&& (Entry.Flags & CookManifestEntryCookedFieldProjection) != 0)
+				|| Entry.FileSize == 0)
 				return Fail("Cook manifest entry is invalid.", OutError);
 			if (!WriteManifestRecord(Records, Entry))
 				return Fail("Cook manifest records exceed their byte bound.", OutError);
@@ -894,8 +858,14 @@ namespace Durin::Asset
 			Entry.RelativePath.assign(reinterpret_cast<const char*>(Path.data()), Path.size());
 			if (!IsValidRelativeManifestPath(Entry.RelativePath)
 				|| (Index && !(Entries.back().RelativePath < Entry.RelativePath))
-				|| (Entry.Kind != ECookManifestEntryKind::CookedPackage && Entry.Kind != ECookManifestEntryKind::CookedBulk)
-				|| Entry.Flags != 1 || Entry.FileSize == 0)
+				|| (Entry.Kind != ECookManifestEntryKind::CookedPackage
+					&& Entry.Kind != ECookManifestEntryKind::CookedBulk
+					&& Entry.Kind != ECookManifestEntryKind::PackageBulk)
+				|| (Entry.Flags & CookManifestEntryPresent) == 0
+				|| (Entry.Flags & ~CookManifestEntryKnownFlags) != 0
+				|| (Entry.Kind != ECookManifestEntryKind::CookedPackage
+					&& (Entry.Flags & CookManifestEntryCookedFieldProjection) != 0)
+				|| Entry.FileSize == 0)
 				return Fail("Cook manifest entry is invalid.", OutError);
 			Entries.push_back(std::move(Entry));
 		}
@@ -931,51 +901,84 @@ namespace Durin::Asset
 	auto FCookContext::AddPackage(
 		std::string VirtualPackagePath,
 		std::vector<std::byte> PackageBytes,
-		std::vector<FCookedBulkPayload> Payloads,
 		std::string* OutError) -> bool
 	{
 		std::filesystem::path PackagePath;
-		if (!ResolveCookedPackagePath(CookRoot, VirtualPackagePath, PackagePath, OutError)) return false;
+		if (!ResolveCookedPackagePath(CookRoot, VirtualPackagePath, PackagePath, OutError))
+			return false;
 		if (PackageBytes.empty()) return Fail("Cook package bytes must be nonempty.", OutError);
 		if (std::ranges::any_of(Packages, [&](const FPendingPackage& Existing) {
 			return Existing.VirtualPath == VirtualPackagePath;
 		})) return Fail("Cook package path is duplicated.", OutError);
-		std::vector<std::byte> BulkBytes;
-		if (!Payloads.empty()
-			&& !EncodeCookedBulk(
-				Payloads, TargetPlatform, TargetProfile,
-				BulkBytes, nullptr, OutError)) return false;
-		Packages.push_back({std::move(VirtualPackagePath), std::move(PackageBytes), std::move(BulkBytes)});
+		Packages.push_back({
+			.VirtualPath = std::move(VirtualPackagePath),
+			.PackageBytes = std::move(PackageBytes)});
+		if (OutError) OutError->clear();
 		return true;
 	}
 
 	auto FCookContext::AddPackage(
 		std::string VirtualPackagePath,
-		std::vector<FCookedBulkPayload> Payloads,
-		FPackageByteBuilder BuildPackageBytes,
+		DPackage* Package,
 		std::string* OutError) -> bool
 	{
 		std::filesystem::path PackagePath;
 		if (!ResolveCookedPackagePath(CookRoot, VirtualPackagePath, PackagePath, OutError)) return false;
-		if (!BuildPackageBytes)
-			return Fail("Cook package-byte builder must be nonempty.", OutError);
+		if (!Package || !Package->IsAssetPackage() || !Package->GetAsset())
+			return Fail("Cook package projection requires a valid asset package.", OutError);
 		if (std::ranges::any_of(Packages, [&](const FPendingPackage& Existing) {
 			return Existing.VirtualPath == VirtualPackagePath;
 		})) return Fail("Cook package path is duplicated.", OutError);
 
-		std::vector<std::byte> BulkBytes;
-		std::vector<FCookedPayloadDescriptor> Descriptors;
-		if (!Payloads.empty()
-			&& !EncodeCookedBulk(
-				Payloads, TargetPlatform, TargetProfile,
-				BulkBytes, &Descriptors, OutError)) return false;
+		std::vector<FEditorBulkDataStoragePayload> Payloads;
+		FAssetPackageSerializationOptions Options = MakePackageSerializationOptions();
+		Options.EditorBulkDataStoragePayloads = &Payloads;
 		std::vector<std::byte> PackageBytes;
-		if (!BuildPackageBytes(Descriptors, PackageBytes, OutError)) return false;
-		if (PackageBytes.empty()) return Fail("Cook package-byte builder returned an empty package.", OutError);
-		const FAssetResult Validation = ValidateAssetPackageBytes(PackageBytes);
-		if (!Validation)
-			return Fail(std::format("Cook package-byte builder returned invalid bytes: {}", Validation.Message), OutError);
-		Packages.push_back({std::move(VirtualPackagePath), std::move(PackageBytes), std::move(BulkBytes)});
+		const FAssetResult Result = SerializeAssetPackageBytes(Package, PackageBytes, Options);
+		if (!Result)
+			return Fail(std::format("Cook package projection failed: {}", Result.Message), OutError);
+		std::vector<std::byte> Segment;
+		FPackageBulkSegmentSummary Summary;
+		std::vector<FPackageBulkDataEntry> Entries;
+		if (!BuildPackageBulkDataSegment(Payloads, Segment, Summary, Entries, OutError)) return false;
+		FPendingPackage Pending{
+			.VirtualPath = std::move(VirtualPackagePath),
+			.PackageBytes = std::move(PackageBytes),
+			.BulkBytes = std::move(Segment),
+			.BulkSummary = Summary,
+			.BulkEntries = std::move(Entries),
+			.bRawBulkSegment = true};
+		Packages.push_back(std::move(Pending));
+		if (OutError) OutError->clear();
+		return true;
+	}
+
+	auto FCookContext::AddRawPackage(
+		std::string VirtualPackagePath,
+		std::vector<std::byte> PackageBytes,
+		std::vector<std::byte> RawSegmentBytes,
+		std::string* OutError) -> bool
+	{
+		std::filesystem::path PackagePath;
+		if (!ResolveCookedPackagePath(CookRoot, VirtualPackagePath, PackagePath, OutError))
+			return false;
+		if (PackageBytes.empty() || RawSegmentBytes.empty())
+			return Fail("Opaque raw Cook packages require package and segment bytes.", OutError);
+		if (RawSegmentBytes.size() > PackageBulkDataMaximumSegmentBytes)
+			return Fail("Opaque raw Cook segment exceeds the 1 GiB limit.", OutError);
+		if (std::ranges::any_of(Packages, [&](const FPendingPackage& Existing) {
+			return Existing.VirtualPath == VirtualPackagePath;
+		})) return Fail("Cook package path is duplicated.", OutError);
+		FPackageBulkSegmentSummary Summary{
+			.Extent = RawSegmentBytes.size(),
+			.Digest = FXxHash128::HashBuffer(RawSegmentBytes)};
+		Packages.push_back({
+			.VirtualPath = std::move(VirtualPackagePath),
+			.PackageBytes = std::move(PackageBytes),
+			.BulkBytes = std::move(RawSegmentBytes),
+			.BulkSummary = Summary,
+			.bOpaqueRawSegment = true});
+		if (OutError) OutError->clear();
 		return true;
 	}
 
@@ -1005,9 +1008,14 @@ namespace Durin::Asset
 		struct FOutput
 		{
 			ECookManifestEntryKind Kind;
+			uint8 Flags = CookManifestEntryPresent;
 			std::filesystem::path Destination;
 			std::filesystem::path Temporary;
 			std::vector<std::byte> Bytes;
+			FPackageBulkSegmentSummary BulkSummary;
+			std::vector<FPackageBulkDataEntry> BulkEntries;
+			bool bRawBulkSegment = false;
+			bool bOpaqueRawSegment = false;
 		};
 		std::vector<FOutput> BulkOutputs;
 		std::vector<FOutput> PackageOutputs;
@@ -1026,17 +1034,34 @@ namespace Durin::Asset
 			if (!Package.BulkBytes.empty())
 			{
 				BulkOutputs.push_back({
-					ECookManifestEntryKind::CookedBulk,
+					(Package.bRawBulkSegment || Package.bOpaqueRawSegment)
+						? ECookManifestEntryKind::PackageBulk
+						: ECookManifestEntryKind::CookedBulk,
+					CookManifestEntryPresent,
 					BulkPath,
 					{},
-					Package.BulkBytes});
+					Package.BulkBytes,
+					Package.BulkSummary,
+					Package.BulkEntries,
+					Package.bRawBulkSegment,
+					Package.bOpaqueRawSegment});
 			}
-			PackageOutputs.push_back({ECookManifestEntryKind::CookedPackage, PackagePath, {}, Package.PackageBytes});
+			PackageOutputs.push_back({
+				ECookManifestEntryKind::CookedPackage,
+				static_cast<uint8>(CookManifestEntryPresent
+					| (Package.bRawBulkSegment ? CookManifestEntryCookedFieldProjection : 0)),
+				PackagePath, {}, Package.PackageBytes});
 		}
 
 		for (FOutput& Output : BulkOutputs)
 		{
 			auto Validate = [&](std::span<const std::byte> Bytes, std::string* Error) {
+				if (Output.bOpaqueRawSegment)
+					return Bytes.size() == Output.BulkSummary.Extent
+						&& FXxHash128::HashBuffer(Bytes) == Output.BulkSummary.Digest;
+				if (Output.bRawBulkSegment)
+					return ValidatePackageBulkDataSegment(
+						Output.BulkSummary, Output.BulkEntries, Bytes, Error);
 				FCookedBulkContainer Container;
 				return DecodeCookedBulk(Bytes, TargetPlatform, TargetProfile, Container, Error);
 			};
@@ -1088,7 +1113,8 @@ namespace Durin::Asset
 			{
 				const std::string Relative = Output.Destination.lexically_relative(CookRoot).generic_string();
 				const FXxHash128 Hash = FXxHash128::HashBuffer(Output.Bytes);
-				Manifest.Entries.push_back({Output.Kind, 1, Relative, Output.Bytes.size(), Hash.HashLow, Hash.HashHigh});
+				Manifest.Entries.push_back({Output.Kind, Output.Flags, Relative,
+					Output.Bytes.size(), Hash.HashLow, Hash.HashHigh});
 			}
 		};
 		AddManifestEntries(PackageOutputs);

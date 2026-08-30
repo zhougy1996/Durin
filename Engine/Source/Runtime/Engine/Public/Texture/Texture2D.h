@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Asset/AssetImportData.h"
+#include "Asset/BulkData.h"
 #include "Asset/Cook.h"
 #include "Asset/EditorBulkData.h"
 #include "DObject/ObjectPtr.h"
@@ -178,6 +179,7 @@ namespace Durin
 		ENGINE_API explicit DTexture2D(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DTexture2D() override;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
+		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 
 		auto GetAssetImportData() const -> const DAssetImportData*
 		{
@@ -204,10 +206,10 @@ namespace Durin
 		auto GetSourceHeight() const -> uint32 { return SourceHeight; }
 		auto GetSourceChannelCount() const -> uint8 { return SourceChannelCount; }
 		auto SourceHasTransparency() const -> bool { return bSourceHasTransparency; }
-		auto GetPlatformData() const -> const FTexturePlatformData* { return PlatformData.get(); }
+		ENGINE_API auto GetPlatformData() const -> const FTexturePlatformData*;
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
 		auto GetDerivedDataDiagnostic() const -> const FTextureDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
-		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
+		auto GetCookedPlatformData() const -> const Asset::FBulkData& { return CookedPlatformData; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
 		auto GetUsage() const -> ETextureUsage { return Usage; }
 		auto IsSRGB() const -> bool { return bSRGB; }
@@ -294,13 +296,11 @@ protected:
 		DPROPERTY()
 		float AlphaCoverageThreshold = 0.5f;
 
-		DPROPERTY()
-		Asset::FCookedPayloadDescriptor CookedPayload;
-
 		// Both representations are derived from the imported source file. Keeping them
 		// separate lets platform builds replace format/mips without mutating edit data.
 		std::unique_ptr<FTextureSourceData> SourceData;
 		std::unique_ptr<FTexturePlatformData> PlatformData;
+		Asset::FBulkData CookedPlatformData;
 		std::string DerivedDataKey;
 		FTextureDerivedDataDiagnostic DerivedDataDiagnostic;
 		bool bLoadedFromDerivedDataCache = false;

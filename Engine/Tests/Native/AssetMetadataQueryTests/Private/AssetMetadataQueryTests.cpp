@@ -58,7 +58,7 @@ namespace
 		std::string Error;
 		EXPECT_FALSE(Dast::DecodePublicSummary({}, {},
 			EAssetRegistryEntryKind::Asset, Summary, &Error));
-		EXPECT_EQ(Error, "DAST v6 Public Summary is malformed.");
+		EXPECT_EQ(Error, "DAST Public Summary is malformed.");
 	}
 
 	TEST(FAssetMetadataQueryTests, PublishesWholeStateAgainstExpectedRevision)

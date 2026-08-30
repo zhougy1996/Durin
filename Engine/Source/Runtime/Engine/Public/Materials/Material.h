@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Asset/BulkData.h"
 #include "Materials/MaterialInterface.h"
 #include "Materials/MaterialCompileLifecycle.h"
 #include "Materials/MaterialCookedProgram.h"
@@ -28,10 +29,11 @@ namespace Durin
 		{
 			return GraphPresentation;
 		}
-		auto GetAcceptedCompiledProgram() const
-			-> std::shared_ptr<const FMaterialCompilerResult> override
+		ENGINE_API auto GetAcceptedCompiledProgram() const
+			-> std::shared_ptr<const FMaterialCompilerResult> override;
+		auto GetCookedProgramData() const -> const Asset::FBulkData&
 		{
-			return AcceptedCompiledProgram;
+			return CookedProgramData;
 		}
 		auto GetMaterialCompileDiagnostics() const
 			-> std::span<const FMaterialCompileDiagnostic>
@@ -68,6 +70,7 @@ namespace Durin
 		ENGINE_API auto GetVectorParameterValue(FName Name, FVector3& OutValue) const -> bool override;
 		ENGINE_API auto GetTextureParameterValue(FName Name, DTexture2D*& OutValue) const -> bool override;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 		ENGINE_API auto AddToCook(
 			Asset::FCookContext& Context,
 			std::string_view VirtualPackagePath,
@@ -103,9 +106,7 @@ namespace Durin
 		DPROPERTY(EditorOnly)
 		FMaterialGraphPresentation GraphPresentation;
 
-		// Runtime-only descriptor replaced transactionally in cooked package bytes.
-		DPROPERTY()
-		Asset::FCookedPayloadDescriptor CookedProgramPayload;
+		Asset::FBulkData CookedProgramData;
 
 		std::shared_ptr<const FMaterialCompilerResult> AcceptedCompiledProgram;
 		FMaterialStaticProperties AcceptedCompiledStaticProperties;

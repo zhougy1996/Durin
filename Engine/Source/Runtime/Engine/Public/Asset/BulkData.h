@@ -2,6 +2,7 @@
 
 #include "EngineAPI.h"
 #include "Asset/PackageResource.h"
+#include "Serialization/Archive.h"
 
 namespace Durin::Asset
 {
@@ -15,12 +16,8 @@ namespace Durin::Asset
 	// Carries only bounded runtime storage facts and a logical package resource.
 	struct FBulkDataMetadata
 	{
-		uint32 StorageFlags = 0;
 		uint64 LogicalSize = 0;
-		uint64 StoredSize = 0;
-		uint64 SegmentOffset = 0;
-		uint32 Alignment = 1;
-		FPackageResourceHandle Resource;
+		FPackageResourceRange Range;
 	};
 
 	namespace Private { struct FBulkDataState; }
@@ -56,6 +53,8 @@ namespace Durin::Asset
 		ENGINE_API auto UnlockWrite(std::string* OutError = nullptr) -> bool;
 		ENGINE_API auto Unload(std::string* OutError = nullptr) -> bool;
 		ENGINE_API auto ReloadAsync() -> FPackageResourceRequest;
+		ENGINE_API auto Serialize(
+			FArchive& Ar, FArchiveBulkDataParameters Parameters = {}) -> void;
 
 	private:
 		explicit FBulkData(std::shared_ptr<Private::FBulkDataState> InState)

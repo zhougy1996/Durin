@@ -113,7 +113,8 @@ namespace Durin
 		DObject* RootObject,
 		EDefaultDeltaMode Mode,
 		FDefaultDeltaPlan& OutPlan,
-		FDefaultDeltaDiagnostic* OutDiagnostic = nullptr) -> bool;
+		FDefaultDeltaDiagnostic* OutDiagnostic = nullptr,
+		const FArchiveState& Context = {}) -> bool;
 
 	COREDOBJECT_API auto AreDefaultDeltaPlansEquivalent(
 		const FDefaultDeltaPlan& Left,

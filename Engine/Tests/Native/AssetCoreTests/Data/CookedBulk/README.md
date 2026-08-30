@@ -1,6 +1,6 @@
 # Cooked-Bulk Logical Fixtures
 
-These are the canonical logical inputs for DBLK container version 1 and cook
+These are the canonical logical inputs for DBLK container version 2 and cook
 manifest version 1. Tests construct bytes from these values; they do not
 serialize C++ structures or require an asset codec.
 

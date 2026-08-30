@@ -133,8 +133,9 @@ finite exposure, sRGB policy, schema versions, target platform, and profile.
 Texture payload schema 2 uses exactly six matching slices in the frozen
 `+X/-X/+Y/-Y/+Z/-Z` order. Cook strips source provenance
 and publishes the payload under stable ID
-`d52878ce-8f50-48c7-a3c7-ff846e2c4c5a`. Generic DDC, build-session, Cook, DBLK,
-and runtime fallback rules are defined by
+`d52878ce-8f50-48c7-a3c7-ff846e2c4c5a`. Cook projects the same TXPL value into
+the lazy `PlatformData` field; generic DDC, build-session, raw-segment, and
+runtime fallback rules are defined by
 [Asset Data Lifecycle and Storage](../Assets/AssetDataLifecycle.md) and
 [Texture System](TextureSystem.md).
 

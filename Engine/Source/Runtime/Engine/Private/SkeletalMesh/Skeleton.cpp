@@ -204,12 +204,8 @@ namespace Durin
 			return Fail(std::format(
 				"Skeleton '{}' supports only the Win64 game cook target.", GetObjectPath()), &OutError);
 		if (!GetPackage() || !Validate(OutError)) return false;
-		std::vector<std::byte> PackageBytes;
-		const Asset::FAssetResult Serialized =
-			Asset::SerializeAssetPackageBytes(GetPackage(), PackageBytes);
-		if (!Serialized) return Fail(Serialized.Message, &OutError);
 		return Context.AddPackage(
-			std::string(VirtualPackagePath), std::move(PackageBytes), {}, &OutError);
+			std::string(VirtualPackagePath), GetPackage(), &OutError);
 	}
 
 	auto DSkeleton::PrepareImportedStateExchange(

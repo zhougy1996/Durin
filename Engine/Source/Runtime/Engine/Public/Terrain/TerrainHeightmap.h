@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Asset/AssetImportData.h"
+#include "Asset/BulkData.h"
 #include "Asset/Cook.h"
 #include "Asset/EditorBulkData.h"
 #include "DObject/Object.h"
@@ -145,10 +146,11 @@ namespace Durin
 		ENGINE_API explicit DTerrainHeightmap(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DTerrainHeightmap() override;
 		ENGINE_API auto Serialize(FArchive& Ar) -> void override;
+		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 		ENGINE_API auto BeginDestroy() -> void override;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 
-		auto GetPayload() const -> std::shared_ptr<const FTerrainHeightmapPayload> { return Payload; }
+		ENGINE_API auto GetPayload() const -> std::shared_ptr<const FTerrainHeightmapPayload>;
 		auto GetImportedData() const -> const FTerrainHeightmapImportedData& { return ImportedData; }
 		auto GetImportedDataIdentity() const -> FXxHash128 { return ImportedData.GetIdentity(); }
 		auto GetWidth() const -> uint32 { return Width; }
@@ -169,7 +171,7 @@ namespace Durin
 			DAssetImportData& Value, std::string& OutError) -> bool;
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
 		auto GetLastDiagnostic() const -> const std::string& { return LastDiagnostic; }
-		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
+		auto GetCookedPlatformData() const -> const Asset::FBulkData& { return CookedPlatformData; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
 		auto GetDerivedDataLoadGeneration() const -> uint64 { return DerivedDataLoadGeneration; }
 		ENGINE_API auto BeginDerivedDataLoad(bool bRebuilding, std::string Diagnostic) -> uint64;
@@ -244,8 +246,7 @@ namespace Durin
 		DPROPERTY()
 		uint64 RetainedBytes = 0;
 
-		DPROPERTY()
-		Asset::FCookedPayloadDescriptor CookedPayload;
+		Asset::FBulkData CookedPlatformData;
 
 		DPROPERTY(Transient)
 		ETerrainHeightmapStatus Status = ETerrainHeightmapStatus::Unavailable;

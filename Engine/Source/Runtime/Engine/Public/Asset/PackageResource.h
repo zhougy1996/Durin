@@ -100,6 +100,22 @@ namespace Durin::Asset
 
 	using FPackageResourceHandle = std::shared_ptr<FPackageResource>;
 
+	// Identifies one bounded stored range in a validated logical package segment.
+	struct FPackageResourceRange
+	{
+		FPackageResourceHandle Resource;
+		uint64 SegmentOffset = 0;
+		uint64 StoredSize = 0;
+		uint32 StorageFlags = 0;
+		uint32 Alignment = 1;
+	};
+
+	// Validates storage facts only; the caller retains logical-size and domain limits.
+	ENGINE_API auto ValidatePackageResourceRange(
+		const FPackageResourceRange& Range,
+		uint64 MaximumStoredSize,
+		std::string* OutError = nullptr) -> bool;
+
 	// Owns loose package resources and retires them before package I/O shutdown.
 	class FPackageResourceManager
 	{

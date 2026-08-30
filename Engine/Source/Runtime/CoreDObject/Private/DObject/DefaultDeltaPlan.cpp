@@ -41,7 +41,8 @@ namespace Durin
 		class FLogicalValueCaptureArchive final : public FObjectArchive
 		{
 		public:
-			explicit FLogicalValueCaptureArchive(EArchivePurpose Purpose)
+			explicit FLogicalValueCaptureArchive(
+				EArchivePurpose Purpose, const FArchiveState& Context = {})
 				: FObjectArchive({
 					.Direction = EArchiveDirection::Save,
 					.Purpose = Purpose,
@@ -51,7 +52,11 @@ namespace Durin
 					| EArchiveCapability::ObjectReferences
 					| EArchiveCapability::SoftObjectReferences
 					| EArchiveCapability::MultiPassDiscovery,
-					.BulkDataPolicy = EArchiveBulkDataPolicy::Skip})
+					.bPersistent = Context.bPersistent,
+					.bCooking = Context.bCooking,
+					.bFilterEditorOnly = Context.bFilterEditorOnly,
+					.BulkDataPolicy = EArchiveBulkDataPolicy::Skip,
+					.Target = Context.Target})
 			{
 			}
 
@@ -441,12 +446,14 @@ namespace Durin
 		}
 
 		auto CaptureObject(DObject* Object, EArchivePurpose Purpose,
-			std::vector<FDefaultDeltaFieldPlan>& OutFields, FDefaultDeltaDiagnostic& Diagnostic) -> bool
+			std::vector<FDefaultDeltaFieldPlan>& OutFields, FDefaultDeltaDiagnostic& Diagnostic,
+			const FArchiveState& Context = {}) -> bool
 		{
-			FLogicalValueCaptureArchive Archive(Purpose);
+			FLogicalValueCaptureArchive Archive(Purpose, Context);
 			{
 				auto Scope = Archive.EnterObject(*Object);
-				Object->Serialize(Archive);
+				if (Context.bCooking) Object->SerializeCooked(Archive);
+				else Object->Serialize(Archive);
 			}
 			if (!Archive.Finish())
 			{
@@ -1092,7 +1099,8 @@ namespace Durin
 	}
 
 	auto BuildDefaultDeltaPlan(DObject* RootObject, EDefaultDeltaMode Mode,
-		FDefaultDeltaPlan& OutPlan, FDefaultDeltaDiagnostic* OutDiagnostic) -> bool
+		FDefaultDeltaPlan& OutPlan, FDefaultDeltaDiagnostic* OutDiagnostic,
+		const FArchiveState& Context) -> bool
 	{
 		OutPlan.Reset();
 		OutPlan.Mode = Mode;
@@ -1125,8 +1133,9 @@ namespace Durin
 			for (DObject* Object : Objects)
 			{
 				std::vector<FDefaultDeltaFieldPlan> Discovery, Values;
-				if (!CaptureObject(Object, EArchivePurpose::Discovery, Discovery, Diagnostic)
-					|| !CaptureObject(Object, EArchivePurpose::AuthoredPackage, Values, Diagnostic)) return Fail();
+				if (!CaptureObject(Object, EArchivePurpose::Discovery, Discovery, Diagnostic, Context)
+					|| !CaptureObject(Object, Context.bCooking ? EArchivePurpose::CookedPackage
+						: EArchivePurpose::AuthoredPackage, Values, Diagnostic, Context)) return Fail();
 				if (!FieldsCaptureShapeEquivalent(Discovery, Values))
 				{
 					Diagnostic.Reason = EDefaultDeltaFailureReason::ManifestMismatch;

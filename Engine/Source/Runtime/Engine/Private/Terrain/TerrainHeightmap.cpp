@@ -453,13 +453,82 @@ namespace Durin
 	auto DTerrainHeightmap::PostLoad(std::string& OutError) -> bool
 	{
 		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
-			return LoadCookedPayload(OutError);
+		{
+			if (CookedPlatformData.GetMetadata().LogicalSize == 0)
+			{
+				OutError = std::format(
+					"Cooked terrain heightmap '{}': required PlatformData field is missing.",
+					GetObjectPath());
+				Status = ETerrainHeightmapStatus::Failed;
+				SetBoundedDiagnostic(LastDiagnostic, OutError);
+				return false;
+			}
+			Payload.reset();
+			DerivedDataKey.clear();
+			bLoadedFromDerivedDataCache = false;
+			Status = ETerrainHeightmapStatus::Ready;
+			LastDiagnostic = "Loaded cooked terrain heightmap metadata.";
+			OutError.clear();
+			return true;
+		}
 		if (!GetPackage() && Payload && Payload->IsValid())
 		{
 			OutError.clear();
 			return true;
 		}
 		return InvokeTerrainHeightmapUncookedPostLoadHandler(*this, OutError);
+	}
+
+	auto DTerrainHeightmap::GetPayload() const
+		-> std::shared_ptr<const FTerrainHeightmapPayload>
+	{
+		if (!Payload && Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
+		{
+			std::string Error;
+			const_cast<DTerrainHeightmap*>(this)->LoadCookedPayload(Error);
+		}
+		return Payload;
+	}
+
+	auto DTerrainHeightmap::SerializeCooked(FArchive& Ar) -> void
+	{
+		Super::SerializeCooked(Ar);
+		if (Ar.GetTarget().Platform != "Win64" || Ar.GetTarget().Profile != "Game")
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData,
+				"TerrainHeightmap cooked platform data requires the Win64 Game target.");
+			return;
+		}
+		Asset::FBulkData Projection;
+		Asset::FBulkData* FieldValue = &CookedPlatformData;
+		if (Ar.IsSaving())
+		{
+			if (!Payload || !Payload->IsValid())
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData,
+					"TerrainHeightmap cooked platform data is unavailable.");
+				return;
+			}
+			std::vector<std::byte> Bytes;
+			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload);
+			const_cast<FTerrainHeightmapPayload&>(*Payload).Serialize(
+				Writer, Asset::ECookTargetPlatform::Win64,
+				Asset::ECookTargetProfile::Game);
+			std::string Error;
+			if (Writer.HasError()
+				|| !Asset::FBulkData::TryCreateDetached(Bytes, Projection, &Error))
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData,
+					Error.empty() ? std::string(Writer.GetError()) : std::move(Error));
+				return;
+			}
+			FieldValue = &Projection;
+		}
+		auto Field = EnterArchiveField(Ar, {FName("Durin::DTerrainHeightmap"),
+			FName("PlatformData"), FArchiveLogicalTypeDescriptor::BulkData()});
+		FieldValue->Serialize(Ar, {.Alignment = Asset::EditorBulkDataExternalAlignment,
+			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
 	}
 
 	auto DTerrainHeightmap::LoadCookedPayload(std::string& OutError) -> bool
@@ -470,34 +539,27 @@ namespace Durin
 			SetBoundedDiagnostic(LastDiagnostic, OutError);
 			return false;
 		};
-		if (CookedPayload.PayloadId != TerrainHeightmapPrimaryCookedPayloadId
-			|| CookedPayload.LocationKind
-				!= static_cast<uint32>(Asset::ECookedPayloadLocationKind::PackageCompanion)
-			|| CookedPayload.PayloadSchemaVersion != TerrainHeightmapPayloadSchemaVersion
-			|| CookedPayload.TargetPlatform != static_cast<uint32>(Asset::ECookTargetPlatform::Win64)
-			|| CookedPayload.TargetProfile != static_cast<uint32>(Asset::ECookTargetProfile::Game)
-			|| CookedPayload.CompressionMethod
-				!= static_cast<uint32>(Asset::ECookedPayloadCompression::None))
-			return FailCooked("required THPL descriptor is missing or incompatible.");
-		const Asset::FAssetRuntimeConfiguration& LoadContext =
-			Asset::GetAssetRuntimeConfiguration();
-		if (!GetPackage()) return FailCooked(OutError);
-		Asset::FCookedPackagePayload LoadedPayload;
-		if (!Asset::LoadCookedPackagePayload(
-			LoadContext, GetPackage()->GetPackagePath(), CookedPayload,
-			Asset::ECookTargetPlatform::Win64,
-			Asset::ECookTargetProfile::Game, LoadedPayload, &OutError))
+		std::span<const std::byte> Bytes;
+		if (!CookedPlatformData.LockReadOnly(Bytes, &OutError))
 			return FailCooked(OutError);
-		const std::span<const std::byte> Bytes = LoadedPayload.Payload;
 		auto MutableCandidate = std::make_shared<FTerrainHeightmapPayload>();
 		FCanonicalMemoryReader PayloadAr(Bytes, EArchivePurpose::CookedPayload);
 		MutableCandidate->Serialize(PayloadAr, Asset::ECookTargetPlatform::Win64,
 			Asset::ECookTargetProfile::Game);
-		if (PayloadAr.HasError()) return FailCooked(PayloadAr.GetFailure()->Message);
+		if (PayloadAr.HasError() || !RequireArchiveEnd(PayloadAr))
+		{
+			const std::string Error(PayloadAr.GetError());
+			CookedPlatformData.UnlockReadOnly();
+			return FailCooked(Error);
+		}
 		std::shared_ptr<const FTerrainHeightmapPayload> Candidate = std::move(MutableCandidate);
 		if (Candidate->Width != Width || Candidate->Height != Height
 			|| Candidate->Minimum != Minimum || Candidate->Maximum != Maximum)
-			return FailCooked("package facts do not match the required THPL payload.");
+		{
+			CookedPlatformData.UnlockReadOnly();
+			return FailCooked("package facts do not match the PlatformData payload.");
+		}
+		if (!CookedPlatformData.UnlockReadOnly(&OutError)) return FailCooked(OutError);
 		PublishPayload(std::move(Candidate), false);
 		DerivedDataKey.clear();
 		bLoadedFromDerivedDataCache = false;
@@ -519,57 +581,8 @@ namespace Durin
 			return false;
 		}
 		if ((!Payload || !Payload->IsValid()) && !PostLoad(OutError)) return false;
-		std::vector<std::byte> PayloadBytes;
-		FCanonicalMemoryWriter CookAr(PayloadBytes, EArchivePurpose::CookedPayload);
-		const_cast<FTerrainHeightmapPayload&>(*Payload).Serialize(
-			CookAr, Context.GetTargetPlatform(), Context.GetTargetProfile());
-		if (CookAr.HasError())
-		{
-			OutError = CookAr.GetFailure()->Message;
-			return false;
-		}
-		Asset::FCookedBulkPayload Bulk{
-			.PayloadId = TerrainHeightmapPrimaryCookedPayloadId,
-			.Flags = 1,
-			.PayloadSchemaVersion = TerrainHeightmapPayloadSchemaVersion,
-			.Compression = Asset::ECookedPayloadCompression::None,
-			.Alignment = TerrainHeightmapPayloadAlignment,
-			.Bytes = std::move(PayloadBytes)};
-		const Asset::FAssetPackageSerializationOptions CookPackageOptions =
-			Context.MakePackageSerializationOptions();
 		return Context.AddPackage(
-			std::string(VirtualPackagePath), {std::move(Bulk)},
-			[this, CookPackageOptions](
-				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
-				std::vector<std::byte>& OutPackageBytes,
-				std::string* Error) {
-				if (Descriptors.size() != 1
-					|| Descriptors.front().PayloadId != TerrainHeightmapPrimaryCookedPayloadId)
-				{
-					if (Error) *Error = "Terrain heightmap cook did not produce its required descriptor.";
-					return false;
-				}
-				FProperty* DescriptorProperty = GetClass()->FindPropertyByName("CookedPayload");
-				if (!DescriptorProperty)
-				{
-					if (Error) *Error = "TerrainHeightmap CookedPayload reflection is unavailable.";
-					return false;
-				}
-				auto Overrides = std::make_shared<Asset::FObjectSaveOverrides>();
-				std::string OverrideError;
-				if (!Overrides->AddPropertyValue(
-					*this, *DescriptorProperty, Descriptors.front(), &OverrideError))
-				{
-					if (Error) *Error = OverrideError;
-					return false;
-				}
-				Asset::FAssetPackageSerializationOptions Options = CookPackageOptions;
-				Options.SaveOverrides = std::move(Overrides);
-				const Asset::FAssetResult Result = Asset::SerializeAssetPackageBytes(
-					GetPackage(), OutPackageBytes, Options);
-				if (!Result && Error) *Error = Result.Message;
-				return static_cast<bool>(Result);
-			}, &OutError);
+			std::string(VirtualPackagePath), GetPackage(), &OutError);
 	}
 
 	auto DTerrainHeightmap::IsSemanticImportNoOp(
@@ -601,7 +614,7 @@ namespace Durin
 		std::swap(SampleBytes, Other.SampleBytes);
 		std::swap(HierarchyBytes, Other.HierarchyBytes);
 		std::swap(RetainedBytes, Other.RetainedBytes);
-		std::swap(CookedPayload, Other.CookedPayload);
+		std::swap(CookedPlatformData, Other.CookedPlatformData);
 		std::swap(Status, Other.Status);
 		std::swap(DerivedDataKey, Other.DerivedDataKey);
 		std::swap(LastDiagnostic, Other.LastDiagnostic);

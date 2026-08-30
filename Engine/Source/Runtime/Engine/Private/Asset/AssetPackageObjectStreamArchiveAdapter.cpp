@@ -239,12 +239,16 @@ namespace Durin::Asset::Private
 				std::span<DObject* const> InObjects,
 				const FAssetPath& InPackagePath,
 				uint32 SourceVersion,
-				std::span<const FArchiveCustomVersion> CustomVersions)
-				: FObjectArchive({EArchiveDirection::Load, EArchivePurpose::AuthoredPackage,
+				std::span<const FArchiveCustomVersion> CustomVersions,
+				const FArchiveState& Context)
+				: FObjectArchive({EArchiveDirection::Load,
+					Context.bCooking ? EArchivePurpose::CookedPackage : EArchivePurpose::AuthoredPackage,
 					EArchiveCapability::StructuredFields | EArchiveCapability::RawBytes
 					| EArchiveCapability::ObjectReferences
 					| EArchiveCapability::SoftObjectReferences
-					| EArchiveCapability::RemainingPayload | EArchiveCapability::CustomVersions},
+					| EArchiveCapability::RemainingPayload | EArchiveCapability::CustomVersions,
+					true, Context.bCooking, Context.bFilterEditorOnly,
+					EArchiveBulkDataPolicy::External, Context.Target},
 					FArchiveVersionContext{
 						std::vector<FArchiveFormatVersion>{FArchiveFormatVersion{FName("DAST"), SourceVersion}},
 						std::vector<FArchiveCustomVersion>(CustomVersions.begin(), CustomVersions.end())})
@@ -887,12 +891,20 @@ namespace Durin::Asset::Private
 				const FArchiveFormatVersion* DastVersion =
 					GetVersionContext().FindFormat(FName("DAST"));
 				const bool bV7 = DastVersion && DastVersion->Version >= AssetPackageV7FormatVersion;
+				const bool bCooked = IsCooking();
+				uint64 FieldIndex = Package.BulkPayloads.size() + 1;
+				if (bCooked && !Value.PayloadId.IsValid())
+					Value.PayloadId = {0x434f4f4bu, static_cast<uint32>(FieldIndex >> 32),
+						static_cast<uint32>(FieldIndex), 0x4649454cu};
+				if (bCooked && Value.ContentHash.IsZero()
+					&& Value.Buffer.GetSize() == Value.LogicalSize)
+					Value.ContentHash = FXxHash128::HashBuffer(Value.Buffer.GetBytes());
 				if (!Value.PayloadId.IsValid() || Value.LogicalSize != Value.StoredSize
 					|| (bCapturePayload && (Value.Buffer.GetSize() != Value.LogicalSize
 						|| FXxHash128::HashBuffer(Value.Buffer.GetBytes()) != Value.ContentHash)))
 				{
 					Fail(EArchiveFailureCode::InvalidData,
-						"Authored bulk capture requires valid identity and verified resident bytes.");
+						"Package bulk capture requires valid metadata and verified resident bytes.");
 					return;
 				}
 				if (!bV7 && std::ranges::find(Package.BulkPayloads, Value.PayloadId,
@@ -905,9 +917,18 @@ namespace Durin::Asset::Private
 					return;
 				}
 
-				const bool bExternal = Value.LogicalSize > EditorBulkDataExternalThreshold;
-				uint64 FieldIndex = Package.BulkPayloads.size() + 1;
-				const uint32 Alignment = bExternal ? EditorBulkDataExternalAlignment : 1;
+				const bool bExternal = Value.LogicalSize > EditorBulkDataExternalThreshold
+					&& Parameters.StoragePolicy != EArchiveBulkDataStoragePolicy::ForceInline;
+				const uint32 RequestedAlignment = bCooked
+					? Parameters.Alignment : EditorBulkDataExternalAlignment;
+				const uint32 Alignment = bExternal ? RequestedAlignment : 1;
+				if (bExternal && (Alignment == 0 || Alignment > 4096
+					|| (Alignment & (Alignment - 1)) != 0))
+				{
+					Fail(EArchiveFailureCode::InvalidAlignment,
+						"Package bulk field alignment is invalid.");
+					return;
+				}
 				const uint64 SegmentOffset = bExternal
 					? (NextExternalOffset + Alignment - 1) & ~static_cast<uint64>(Alignment - 1)
 					: 0;
@@ -917,7 +938,7 @@ namespace Durin::Asset::Private
 						|| Value.StoredSize > PackageBulkDataMaximumSegmentBytes - SegmentOffset)
 					{
 						Fail(EArchiveFailureCode::LimitExceeded,
-							"Authored bulk segment exceeds the 1 GiB limit.");
+							"Package bulk segment exceeds the 1 GiB limit.");
 						return;
 					}
 					NextExternalOffset = SegmentOffset + Value.StoredSize;
@@ -1350,7 +1371,9 @@ namespace Durin::Asset::Private
 				Archive.SetCurrentObject(Object);
 				{
 					auto Scope = Archive.EnterObject(*Object);
-					Object->Serialize(Archive);
+					if (Options.Domain == EAssetPackageSaveDomain::Cooked)
+						Object->SerializeCooked(Archive);
+					else Object->Serialize(Archive);
 				}
 				if (Archive.HasError()) return TranslateArchiveFailure(Archive);
 			}
@@ -1753,7 +1776,8 @@ namespace Durin::Asset::Private
 		std::span<DObject* const> Objects,
 		const FAssetPath& PackagePath,
 		uint32 SourceVersion,
-		std::span<const FArchiveCustomVersion> CustomVersions) -> FAssetResult
+		std::span<const FArchiveCustomVersion> CustomVersions,
+		const FArchiveState& Context) -> FAssetResult
 	{
 		FArchiveVersionContext VersionContext{
 			{FArchiveFormatVersion{FName("DAST"), SourceVersion}},
@@ -1762,10 +1786,11 @@ namespace Durin::Asset::Private
 		if (!ValidateDeprecationVersions(Object.GetClass(), VersionContext, VersionError))
 			return {EAssetError::UnsupportedVersion, std::move(VersionError)};
 		FAuthoredLoadArchive Archive(
-			Object, Fields, Objects, PackagePath, SourceVersion, CustomVersions);
+			Object, Fields, Objects, PackagePath, SourceVersion, CustomVersions, Context);
 		{
 			auto Scope = Archive.EnterObject(Object);
-			Object.Serialize(Archive);
+			if (Context.bCooking) Object.SerializeCooked(Archive);
+			else Object.Serialize(Archive);
 		}
 		if (Archive.HasError())
 			return {Archive.GetAssetError(), std::string(Archive.GetError())};
@@ -1963,7 +1988,18 @@ namespace Durin::Asset::PackageObjectStream
 			Options.Serialization.Domain == EAssetPackageSaveDomain::Cooked
 				|| (Options.Serialization.SaveOverrides && !Options.Serialization.SaveOverrides->IsEmpty())
 			? EDefaultDeltaMode::NoDelta : Options.DeltaMode;
-		if (!BuildDefaultDeltaPlan(Package->GetAsset(), DeltaMode, DeltaPlan, &DeltaDiagnostic))
+		FArchiveState DeltaContext;
+		if (Options.Serialization.Domain == EAssetPackageSaveDomain::Cooked)
+		{
+			DeltaContext.bPersistent = true;
+			DeltaContext.bCooking = true;
+			DeltaContext.bFilterEditorOnly = !Options.Serialization.bRetainEditorOnlyData;
+			DeltaContext.Target.Platform = "Win64";
+			DeltaContext.Target.Profile = Options.Serialization.TargetProfile == ECookTargetProfile::Game
+				? "Game" : "EditorValidation";
+		}
+		if (!BuildDefaultDeltaPlan(
+			Package->GetAsset(), DeltaMode, DeltaPlan, &DeltaDiagnostic, DeltaContext))
 		{
 			auto ReasonName = [](EDefaultDeltaFailureReason Reason) -> std::string_view {
 				switch (Reason)

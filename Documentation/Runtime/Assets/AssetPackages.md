@@ -173,7 +173,8 @@ DDC and legacy DABK/DBLK containers remain opaque storage at that boundary:
 they do not probe domain payload bytes or carry a domain codec tag. An authored
 DAST v7 `.dbulk` is instead a headerless raw package segment whose layout and
 whole-segment digest are owned exclusively by its `.dasset`. Structured cooked
-DBLK v2 remains the pre-M2 cooked representation.
+DBLK v2 is a read-only legacy representation; current cooked packages use the
+same DAST v7 field metadata and headerless raw segment.
 
 ### DAST v6 Compatibility Route
 
@@ -844,7 +845,7 @@ The complete field, wire, resource, and migration contract is
 
 ## Related Asset Data Contracts
 
-Platform payload DDC objects, cooked DBLK companions, deterministic publication,
+Platform payload DDC objects, cooked raw fields, deterministic publication,
 and authored-versus-cooked runtime policy are defined by
 [Asset Data Lifecycle and Storage](AssetDataLifecycle.md). Asset-specific build
 and payload details remain with their owning contracts, including

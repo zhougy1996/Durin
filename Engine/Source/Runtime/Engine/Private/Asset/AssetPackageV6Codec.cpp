@@ -1,7 +1,9 @@
 #include "AssetPackageV6Codec.h"
 
 #include "Asset/Compatibility.h"
+#include "Asset/Cook.h"
 #include "Asset/EditorBulkDataStorage.h"
+#include "Asset/Load.h"
 #include "Asset/PackageResource.h"
 #include "Asset/PackageObjectStreamReader.h"
 #include "Asset/PackageObjectStreamWriter.h"
@@ -9,6 +11,7 @@
 #include "Serialization/BinaryEnvelope.h"
 #include "Serialization/BinaryFormat.h"
 #include "PackageBulkDataWire.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
 namespace Durin::Asset::Private::DastV6
@@ -877,11 +880,46 @@ namespace Durin::Asset::Private::DastV6
 			if (FAssetResult Result = MakeObjectStream(Bytes, ObjectStream, true, &Parsed); !Result)
 				return Result;
 			FPackageResourceHandle Resource;
-			const PathUtilities::FAssetPathResult Resolved = PathUtilities::ResolveAssetPath(
-				Path.GetView(), PathUtilities::EPathExistence::AllowMissing);
-			if (!Resolved) return Error("DAST v7 package path cannot resolve its bulk segment.");
-			std::filesystem::path PackagePath = Resolved.PhysicalPath;
-			PackagePath += ".dasset";
+			const FAssetRuntimeConfiguration& Runtime = GetAssetRuntimeConfiguration();
+			std::filesystem::path PackagePath;
+			bool bCookedFieldPackage = false;
+			FArchiveTarget CookTarget;
+			if (Runtime.IsCooked())
+			{
+				std::string ResolveError;
+				if (!ResolveCookedPackagePath(
+					Runtime.GetCookRoot(), Path.GetView(), PackagePath, &ResolveError))
+					return Error(ResolveError.empty()
+						? "Cooked DAST v7 package path cannot resolve its bulk segment."
+						: std::move(ResolveError));
+				std::vector<std::byte> ManifestBytes;
+				FCookManifest Manifest;
+				if (!FFileHelper::LoadFileToArray(
+						ManifestBytes, Runtime.GetCookRoot() / "CookManifest.bin")
+					|| !DecodeCookManifest(ManifestBytes, Manifest, &ResolveError))
+					return Error(ResolveError.empty()
+						? "Cooked DAST v7 manifest cannot be loaded." : std::move(ResolveError));
+				const std::string RelativePackage = PackagePath.lexically_relative(
+					Runtime.GetCookRoot()).generic_string();
+				bCookedFieldPackage = std::ranges::any_of(Manifest.Entries,
+					[&](const FCookManifestEntry& Entry) {
+						return Entry.Kind == ECookManifestEntryKind::CookedPackage
+							&& Entry.RelativePath == RelativePackage
+							&& (Entry.Flags & CookManifestEntryCookedFieldProjection) != 0;
+					});
+				CookTarget.Platform = Manifest.TargetPlatform == ECookTargetPlatform::Win64
+					? "Win64" : std::string{};
+				CookTarget.Profile = Manifest.TargetProfile == ECookTargetProfile::Game
+					? "Game" : "EditorValidation";
+			}
+			else
+			{
+				const PathUtilities::FAssetPathResult Resolved = PathUtilities::ResolveAssetPath(
+					Path.GetView(), PathUtilities::EPathExistence::AllowMissing);
+				if (!Resolved) return Error("DAST v7 package path cannot resolve its bulk segment.");
+				PackagePath = Resolved.PhysicalPath;
+				PackagePath += ".dasset";
+			}
 			std::filesystem::path LegacyPath = PackagePath;
 			LegacyPath.replace_extension(".dabulk");
 			std::filesystem::path SegmentPath = PackagePath;
@@ -901,7 +939,9 @@ namespace Durin::Asset::Private::DastV6
 			FAssetResult Result = PackageObjectStream::LoadAssetPackage(
 				ObjectStream, Path, Loaded, OutReport,
 				{.OnSkeletonReady = OnSkeletonReady, .OnSkeletonRollback = OnSkeletonRollback,
-					.SourceFormatVersion = AssetPackageV7FormatVersion}, {}, &Diagnostic);
+					.SourceFormatVersion = AssetPackageV7FormatVersion,
+					.bCooked = bCookedFieldPackage,
+					.Target = std::move(CookTarget)}, {}, &Diagnostic);
 			if (!Result)
 			{
 				if (Resource) GetPackageResourceManager().RetirePackage(Path.ToString());

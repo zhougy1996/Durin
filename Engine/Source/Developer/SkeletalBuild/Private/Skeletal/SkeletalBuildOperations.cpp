@@ -202,7 +202,6 @@ namespace Durin::Asset
 				.MaterialSlots = {Mesh.GetMaterialSlots().begin(), Mesh.GetMaterialSlots().end()},
 				.Payload = std::make_shared<const FSkeletalMeshPayloadData>(
 					std::move(CachedPayload)),
-				.CookedPayload = Mesh.GetCookedPayloadDescriptor(),
 				.DerivedDataKey = CachedKey,
 				.DiagnosticMessage = std::format(
 					"Loaded SkeletalMesh DDC key {}.", CachedKey),
@@ -229,7 +228,6 @@ namespace Durin::Asset
 			.MeshNodeBindTransform = Product.MeshNodeBindTransform,
 			.MaterialSlots = {Mesh.GetMaterialSlots().begin(), Mesh.GetMaterialSlots().end()},
 			.Payload = std::move(Product.Payload),
-			.CookedPayload = Mesh.GetCookedPayloadDescriptor(),
 			.DerivedDataKey = std::move(Product.DerivedDataKey),
 			.DiagnosticMessage = std::move(Product.Diagnostic),
 			.bLoadedFromDerivedDataCache = Product.bLoadedFromDerivedDataCache,
@@ -286,7 +284,6 @@ namespace Durin::Asset
 				.ClipName = Clip.GetClipName(),
 				.Payload = std::make_shared<const FAnimationClipPayloadData>(
 					std::move(CachedPayload)),
-				.CookedPayload = Clip.GetCookedPayloadDescriptor(),
 				.DerivedDataKey = CachedKey,
 				.DiagnosticMessage = std::format(
 					"Loaded AnimationClip DDC key {}.", CachedKey),
@@ -311,7 +308,6 @@ namespace Durin::Asset
 			.SkeletonCompatibilityIdentity = Product.SkeletonCompatibilityIdentity,
 			.ClipName = Product.ClipName,
 			.Payload = std::move(Product.Payload),
-			.CookedPayload = Clip.GetCookedPayloadDescriptor(),
 			.DerivedDataKey = std::move(Product.DerivedDataKey),
 			.DiagnosticMessage = std::move(Product.Diagnostic),
 			.bLoadedFromDerivedDataCache = Product.bLoadedFromDerivedDataCache,

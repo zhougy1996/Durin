@@ -1028,6 +1028,39 @@ namespace Durin::Editor::ContentBrowser::Private
 				continue;
 			}
 
+			const FContentBrowserModel::FMountSnapshot* SelectedMount =
+				MaximalRoots.empty() ? nullptr : MaximalRoots.front().Mount;
+			std::filesystem::path SelectedReparsePoint;
+			if (SelectedMount
+				&& PathUtilities::IsLexicalDescendantPath(
+					CompanionPath, SelectedMount->PhysicalRoot, true)
+				&& FindReparsePointInPath(
+					SelectedMount->PhysicalRoot,
+					CompanionPath,
+					SelectedReparsePoint,
+					Ec))
+			{
+				AddBlocker(
+					EContentDeletionBlocker::ReparsePoint,
+					std::filesystem::path(CompanionPath).filename().generic_string(),
+					CompanionPath,
+					{},
+					std::format(
+						"Asset companion path traverses reparse point {}.",
+						SelectedReparsePoint.generic_string()));
+				continue;
+			}
+			if (Ec)
+			{
+				AddBlocker(
+					EContentDeletionBlocker::InspectionFailed,
+					std::filesystem::path(CompanionPath).filename().generic_string(),
+					CompanionPath,
+					{},
+					std::format("Could not inspect asset companion: {}", Ec.message()));
+				continue;
+			}
+
 			const FContentBrowserModel::FMountPath Resolved =
 				Model.ResolveMountPath(CompanionPath);
 			if (!Resolved)
@@ -1041,8 +1074,6 @@ namespace Durin::Editor::ContentBrowser::Private
 				continue;
 			}
 			const FContentBrowserModel::FMountSnapshot* CompanionMount = Resolved.Mount;
-			const FContentBrowserModel::FMountSnapshot* SelectedMount =
-				MaximalRoots.empty() ? nullptr : MaximalRoots.front().Mount;
 			bool bCompanionRootSafe = true;
 			if (!SelectedMount || CompanionMount != SelectedMount)
 			{

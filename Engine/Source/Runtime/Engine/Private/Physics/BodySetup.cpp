@@ -175,7 +175,6 @@ namespace Durin
 		swap(CollisionQueryPolicy, Other.CollisionQueryPolicy);
 		swap(CollisionBuildRevision, Other.CollisionBuildRevision);
 		swap(CollisionBuildStatus, Other.CollisionBuildStatus);
-		swap(CookedCollisionPayload, Other.CookedCollisionPayload);
 		swap(CachedSimpleCollision, Other.CachedSimpleCollision);
 		swap(CachedComplexCollision, Other.CachedComplexCollision);
 		swap(CollisionDerivedDataKey, Other.CollisionDerivedDataKey);
@@ -183,12 +182,6 @@ namespace Durin
 		swap(CollisionPayloadBytes, Other.CollisionPayloadBytes);
 		++Revision;
 		++Other.Revision;
-	}
-
-	auto DBodySetup::SetCookedCollisionPayloadDescriptor(
-		const Asset::FCookedPayloadDescriptor& Descriptor) -> void
-	{
-		CookedCollisionPayload = Descriptor;
 	}
 
 	auto DBodySetup::IsValid(std::string* OutDiagnostic) const -> bool

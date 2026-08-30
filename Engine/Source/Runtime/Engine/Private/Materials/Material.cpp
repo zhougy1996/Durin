@@ -272,8 +272,21 @@ namespace Durin
 					Definition->Value));
 		}
 		Result.StaticProperties = GetRenderableStaticProperties();
-		Result.CompiledProgram = AcceptedCompiledProgram;
+		Result.CompiledProgram = GetAcceptedCompiledProgram();
 		return Result;
+	}
+
+	auto DMaterial::GetAcceptedCompiledProgram() const
+		-> std::shared_ptr<const FMaterialCompilerResult>
+	{
+		if (!AcceptedCompiledProgram
+			&& Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+			&& CookedProgramData.GetMetadata().LogicalSize != 0)
+		{
+			std::string Error;
+			const_cast<DMaterial*>(this)->LoadCookedProgram(Error);
+		}
+		return AcceptedCompiledProgram;
 	}
 
 	auto DMaterial::PostLoad(std::string& OutError) -> bool
@@ -287,7 +300,22 @@ namespace Durin
 			return false;
 		}
 		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
-			return LoadCookedProgram(OutError);
+		{
+			if (CookedProgramData.GetMetadata().LogicalSize == 0)
+			{
+				OutError = std::format(
+					"Cooked Material '{}': required ProgramData field is missing.",
+					GetObjectPath());
+				MaterialCookDiagnostic = OutError;
+				return false;
+			}
+			AcceptedCompiledProgram.reset();
+			MaterialCompileDiagnostics.clear();
+			MaterialCookDiagnostic = std::format(
+				"Loaded cooked Material metadata for '{}'.", GetObjectPath());
+			OutError.clear();
+			return true;
+		}
 		const FMaterialProgramValidationResult ProgramValidation =
 			ValidateMaterialProgram(Program, ParameterDefinitions);
 		if (!ProgramValidation)

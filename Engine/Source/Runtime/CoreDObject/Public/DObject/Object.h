@@ -119,6 +119,10 @@ namespace Durin
 		// caches may change only when they cannot affect emitted bytes or later passes.
 		COREDOBJECT_API virtual auto Serialize(FArchive& Ar) -> void;
 
+		// Projects target-specific persistent state when a cooked Archive explicitly
+		// selects it. The default preserves the ordinary serialization contract.
+		COREDOBJECT_API virtual auto SerializeCooked(FArchive& Ar) -> void;
+
 		COREDOBJECT_API virtual auto AddReferencedObjects(FReferenceCollector& Collector) -> void;
 
 		COREDOBJECT_API virtual auto BeginDestroy() -> void;

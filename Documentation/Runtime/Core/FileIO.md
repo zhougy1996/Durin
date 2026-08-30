@@ -59,8 +59,9 @@ preserves the prior stable segment, publishes the segment before the package,
 and publishes catalog state last. Failure restores the prior complete pair;
 the backup is removed only after the new extent/digest closure verifies. A
 v6/DABK canonical resave additionally snapshots both companion names and
-removes `.dabulk` only after v7 publication commits. Backups and hidden atomic
-temporaries are not submitted content.
+removes `.dabulk` only after v7 publication commits. Cooked DAST v7 publication
+uses the same segment-before-package rule and publishes its CMNF manifest last.
+Backups and hidden atomic temporaries are not submitted content.
 
 ## Diagnostics
 

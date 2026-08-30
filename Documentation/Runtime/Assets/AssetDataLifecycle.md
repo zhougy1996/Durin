@@ -22,8 +22,8 @@ normalized values. `DerivedDataCache` owns the backend-neutral
 `bucket + key -> opaque immutable bytes` contract, the private local filesystem
 backend, and the family-neutral Build Framework that adapts cache results inside
 `FBuildSession`; recipe modules reach cache query/store only through that
-session. `Engine` owns package, descriptor, container, manifest, and
-atomic-publication formats without interpreting Engine payloads.
+session. `Engine` owns package fields, raw-segment placement, manifest, and
+atomic-publication formats without interpreting family payloads.
 
 Builder and translator versions invalidate production identity. Payload schema
 and stable value identifiers determine runtime readability, so a producer
@@ -247,8 +247,8 @@ rotation sign is canonical before encoding. The maximum bone count is 65,535.
 reference and the expected compatibility identity. Validation requires both to
 match; an equal name or hash without the referenced Skeleton is insufficient.
 The mesh also persists its mesh-node bind transform, stable material slots,
-LOD0/section/bounds summary, and payload descriptor. The clip persists its
-stable name, duration and track/key summary, and payload descriptor. Their
+and LOD0/section/bounds summary. The clip persists its stable name, duration,
+and track/key summary. Their
 large geometry, influence, inverse-bind, time, and typed-key arrays are detached
 immutable CPU payloads: they contain no source token, reflected object, RHI
 handle, playback clock, evaluated pose, or palette state.
@@ -260,7 +260,7 @@ resident canonical imported data and current settings; it never issues an
 import request, resolves a hint, or rewrites source metadata. Scene outputs
 retain no aggregate recipe, but each SkeletalMesh and AnimationClip rebuilds
 independently from its own canonical data plus referenced Skeleton.
-`DSkeleton` has no external payload and therefore no DDC object or DBLK
+`DSkeleton` has no external payload and therefore no DDC object or cooked bulk
 companion.
 
 ## Derived Data Cache Objects
@@ -346,267 +346,117 @@ retains coalescing, admission, generation checks, and deferred GameThread
 publication. Diagnostics map the session phases and never expose a physical
 DDC path or probe a source hint.
 
-## Cooked Packages and Bulk Payloads
+## Cooked Packages and Bulk Fields
 
-Cook produces a platform-qualified runtime view under
-`Cooked/<Platform>/`. It writes a cooked `.dasset` containing runtime object
-metadata and moves large, already-built payloads into `.dbulk`. Source files,
-source-only editor metadata, DDC keys, and DDC paths are not runtime
-dependencies.
+Cook produces a target-qualified runtime projection beneath
+`Cooked/<Platform>/<Profile>/`. Each family owns one PlatformData schema and
+uses it for DDC values, Cook capture, and runtime decode. A valid target product
+may be reused from DDC, but Cook copies it into package ownership; cooked
+runtime never follows a DDC reference or rebuilds from authored/source data.
 
-Cook reachability resolves explicit roots, built-in roots, and registered
-external runtime roots before traversal. Hard and soft edges are validated
-against their final real asset classes. Produced package bytes rewrite every
-redirected reference to that final identity; authored packages and external
-stores remain byte-stable. Missing targets, redirect cycles/depth overflow,
-type mismatch, corrupt aliases, incomplete reference indexing, or a remaining
-redirected runtime identity fail before manifest publication.
+A cooked Archive supplies persistent, Cook, editor-filter, platform, and
+profile context and dispatches `DObject::SerializeCooked` during discovery,
+NoDelta planning, value capture, and load. Family overrides serialize detached
+or stack-local projections and never mutate authored fields, dirty state,
+diagnostics, build revisions, DDC state, or live residency. Editor-only source
+provenance, canonical imported data, and rebuild keys are omitted.
 
-Redirector packages are authoring-only and never appear in normal cooked
-output. `FCookContext` canonicalizes registered output identities, rejects
-redirector package bytes and post-resolution duplicates, and verifies that each
-cooked dependency and reflected hard/soft field names an exact real asset. A
-cooked runtime therefore needs neither redirector packages nor a mutable alias
-table.
+Payload-bearing packages use DAST v7 BulkData fields. Values up to the package
+inline threshold remain in the `.dasset`; larger fields occupy aligned ranges
+in one stable, headerless `.dbulk` sibling. The package summary owns the exact
+segment extent and digest, and Payload Directory v2 owns every range. The raw
+segment has no DURF/DBLK header, descriptor table, target, schema, or physical
+path. Metadata-only packages, including Skeleton and packages whose fields stay
+inline, have no companion and no empty manifest record.
 
-Packages without external runtime payloads publish only their cooked
-`.dasset`; `FCookContext` does not create an empty `.dbulk` or manifest entry.
-`/Engine/Materials/DefaultMaterial` is such a package. Engine exposes it as a
-fixed built-in Cook root so a minimal project includes it even though empty
-material slots deliberately serialize no reference.
+The implemented family projections are:
 
-StaticMesh, texture, SkeletalMesh, and AnimationClip cooked packages also omit
-import source provenance, rebuild keys, and editor diagnostics. SkeletalMesh
-and AnimationClip retain exact hard Skeleton dependencies and compatibility
-identities; their logical payload descriptors select fixed type payload IDs in
-the package companion. Runtime targets do not deploy `AssetForgeBuiltins`,
-Assimp, or editor image decoders.
+| Family | Cooked field | First runtime consumer |
+| --- | --- | --- |
+| Texture2D, TextureCube, VolumeTexture | `PlatformData` | texture resource upload |
+| StaticMesh | `RenderData`, `CollisionData` | render and physics publication |
+| SkeletalMesh, AnimationClip | `PlatformData` | render or animation setup |
+| TerrainHeightmap | `PlatformData` | terrain render/collision |
+| Material | `ProgramData` | material render-layer publication |
+| EnvironmentLighting | `PlatformData` | lighting resource upload |
+| Skeleton | metadata only | skeleton compatibility lookup |
 
-Cook package construction is a read-only projection of the authored object
-graph. Stable source provenance and editor diagnostics are declared
-`DPROPERTY(EditorOnly)` and are recursively filtered by the cooked Archive.
-Generated `CookedPayload` values, including StaticMesh BodySetup collision
-metadata, remain runtime properties and are supplied as owned per-save
-replacements. Texture2D, TextureCube, VolumeTexture, TerrainHeightmap,
-StaticMesh, SkeletalMesh, AnimationClip, and EnvironmentLighting do not install
-those descriptors or clear and restore source fields on their live objects.
-Success and failure therefore preserve reflected values, package dirty state,
-build revisions, and diagnostics.
+Family serializers retain their existing versioned headers, target/profile
+facts, bounds, checksums, and semantic validation. Cooked package load validates
+the complete package/segment closure and attaches each external `FBulkData`
+range before publishing the object graph. It performs no field-range read.
+The first family accessor locks only the required field, decodes into a detached
+candidate, validates the family schema, and publishes transactionally. Missing,
+truncated, corrupt, wrong-target, or incompatible data is an asset-qualified
+hard failure; there is no source, importer, DDC, or synthetic fallback.
 
-`FCookContext` owns the target platform/profile and the single editor-only-data
-policy for all contributing asset families. Production contexts filter by
-default; a diagnostic context may retain the same editor-only field set across
-families. Asset APIs do not expose per-family retention switches. Graph
-discovery and value capture run on the asset-owning thread and freeze an owned,
-immutable package value; DAST encoding and publication consume that value and
-must not read the live graph after capture.
-
-The initial loose-file convention is at most one companion bulk container per
-package:
-
-```text
-Content/Textures/T.dasset
-Cooked/Win64/Game/Textures/T.dasset
-Cooked/Win64/Game/Textures/T.dbulk
-```
-
-When a package owns external payloads, the companion name is derived from the
-cooked package's mount-relative path by
-replacing `.dasset` with `.dbulk`. Case and path normalization follow the
-package path rules. A cooked package must not persist that physical path.
-
-A package refers to each external payload with a logical descriptor equivalent
-to:
-
-```text
-PayloadId
-LocationKind
-Offset
-StoredSize
-UncompressedSize
-Alignment
-PayloadHash
-PayloadSchemaVersion
-TargetPlatform
-CompressionMethod
-```
-
-`PayloadId` is unique within the package and remains stable when the payload is
-moved from a loose companion into a future archive. `LocationKind` initially
-selects the package companion; future kinds may select an archive or install
-chunk without changing asset references or the asset-specific payload schema.
-Offsets and sizes are unsigned, explicitly encoded values rather than native
-structure layouts.
-
-The `.dbulk` companion is DURF/DBLK v2. DURF selects the storage format; DBLK
-records target/profile and a bounded payload table. Ranges are aligned,
-non-overlapping, file-contained, and independently checksummed so failures can
-name the owning asset and `PayloadId`.
-
-DBLK and DABK share Engine's bounded little-endian container primitives, but
-remain separate formats and authority services. CMNF reuses only lower-level
-codec primitives; it remains a Cook manifest, not a payload container.
-
-The reflected asset class and payload slot select exactly one codec before
-lookup. That codec owns its schema and bytes—for example texture mip records or
-static-mesh vertex/index streams. Engine owns container lookup, bounded I/O,
-and descriptor validation, but neither dispatches from payload bytes nor
-interprets them. C++ object memory, STL layouts, pointers, and RHI handles are
-never serialized.
-
-Runtime asset loaders use `LoadCookedPackagePayload` for the common package
-path, `.dbulk` companion, target/profile, and exact-descriptor lookup. Its
-`FCookedPackagePayload` result owns the decoded container, so the selected
-opaque byte span remains valid for the result lifetime. The owning asset
-validates its slot descriptor and schema before lookup, decodes into a detached
-candidate, and publishes only after complete type-specific validation. Engine-private wire
-helpers provide bounded little-endian reads/writes and checked alignment to the
-StaticMesh, Skeletal, Texture, and Terrain codecs; their field order, chunks,
-limits, hashes, compatibility rules, and diagnostics remain locally owned.
-
-When an Engine serializer adapts one complete asset-specific payload to an
-`FArchive`, the Archive region must advertise an exact remaining-payload bound.
-The Engine-private adapter checks that bound and the format's allocation ceiling,
-transfers the complete region, decodes into a default-constructed detached value,
-and move-replaces the destination only after successful validation. Saving passes
-the current value explicitly to its encoder and checks the encoded size before
-writing. Missing bounds, excessive sizes, incompatible payloads, corrupt payloads,
-and raw Archive failures remain distinct structured outcomes; pointer ownership
-and caller-defined commit callbacks do not cross this whole-payload boundary.
-
-The initial texture payload uses no additional container compression because BC
-texture data is already compressed and must remain independently addressable by
-mip. Other payload types may select an explicit compression method when their
-codec and loading policy support it.
-
-### Skeletal Payload Schemas
-
-SkeletalMesh schema 2 and producer 2 use a required-zero first header word. Its
-required chunks store metadata and bounds, sections,
-positions, vertex attributes, indices, canonical four-slot influences, and
-palette indices with inverse-bind matrices. AnimationClip schema 2 and producer
-2 use the same framing; its required chunks store clip
-metadata, track records, key times, and typed translation/rotation/scale values.
-
-Both codecs use an explicit 64-byte little-endian header, 32-byte chunk
-records, 16-byte aligned non-overlapping ranges, zero padding, an XXH3-64 body
-checksum, at most 64 chunks, and complete byte consumption. Decoders bound all
-counts and allocations to at most 8 GiB per decoded payload, then reject
-incompatible target/profile, duplicate or
-unknown required chunks, invalid references or enums, non-finite values,
-invalid influences/transforms/times, truncation, overlap, overflow, checksum
-failure, and trailing required data before publishing a detached candidate.
-Neither format serializes a native structure image, pointer, `size_t`, source
-token, reflected object, physical cache path, or RHI state.
-
-The logical cooked identities are `<asset-path>#SkeletalMeshPayload.v1` and
-`<asset-path>#AnimationClipPayload.v1`. They select fixed type payload IDs in
-the package's DBLK companion; no physical DDC or companion path enters the
-asset package.
-
-### Implemented Container Contract
-
-`DBLK` version 2 uses DURF header version 1, permanent `FormatId`
-`76c5d46c-a3744b7e-9cda6c8f-e0dbcd17`, a 64-byte format header after the
-common preamble, 80-byte payload-table entries, and 16-byte default payload
-alignment. The header records target platform/profile, table and data offsets,
-payload count, and an XXH64 table checksum; DURF owns exact file extent and
-front-header integrity. Each entry records the stable payload GUID,
-flags, schema, location, compression, alignment, range, uncompressed size, and
-XXH3-128 payload hash. Unknown required entries, duplicate identities, invalid enums,
-misaligned or overlapping ranges, overflow, trailing size disagreement, and
-checksum failure reject the complete container before payload publication.
-
-`FCookedPayloadDescriptor` serializes the same logical identity and compatibility
-fields but never a physical path. The implemented target identifiers are Win64
-platform `1`, Game profile `1`, and EditorValidation profile `2`;
-PackageCompanion location is `1`, no compression is `0`, and Zstandard is
-reserved as `1`.
-
-`CookManifest.bin` uses `CMNF` version 1. Entries are sorted by normalized
-cook-relative path and name every package and companion with kind, required
-flag, size, and XXH3-128 hash. `FCookContext` validates all packages and bulk
-containers in staging, publishes companions before their packages, publishes
-the manifest last, and removes stale outputs only from the previous valid
-manifest. Manifest paths consequently name only canonical real package
-identities.
+Terrain World is a manifest-owned opaque-stream exception rather than an asset
+field container. `TWMF` records the exact offset, size, product hash,
+dependencies, region extent, and region hash for each installed product.
+`FCookContext::AddRawPackage` publishes one headerless region segment and CMNF
+records it as `PackageBulk`. Runtime validates region and product bounds and
+hashes before decoding the requested product. It never interprets the region as
+DBLK.
 
 ## Cook and Publication Rules
 
-Cooking must be deterministic for identical source bytes, settings, builder and
-schema versions, and target platform. It may reuse a validated DDC payload, but
-the result is copied into cooked ownership; the runtime never follows a DDC
-reference.
+`FCookContext::AddPackage` accepts canonical cooked package bytes; package
+serialization captures any `FBulkData` ranges and produces the optional raw
+segment. `AddRawPackage` admits an already laid-out opaque segment such as a
+Terrain region. Descriptor-aware Cook overloads and family
+`LoadCookedPackagePayload` routes are not production APIs.
 
-For payload-bearing packages, the cooker writes bulk data to a temporary file,
-flushes and closes it, validates
-the completed container, and publishes it before publishing the cooked package
-that references it. Failed cooks remove their temporary output. A stale
-unreferenced bulk file is harmless and can be removed by manifest-driven output
-cleanup; a package must never reference a partially written container.
+Publication stages and validates complete outputs, writes a required segment
+before its referencing package, and publishes `CookManifest.bin` last. CMNF
+entries are sorted by normalized cook-relative path and record kind, required
+flag, byte extent, and XXH3-128 digest. Raw companions use `PackageBulk`;
+package-only output has no companion entry. Cleanup removes stale outputs only
+when owned by the previous valid manifest, so an interrupted Cook retains a
+complete prior generation or diagnosable staged files.
 
-Cook output and its deployment manifest are a consistency unit. The manifest
-must include every cooked `.dasset` and only the required `.dbulk` companions.
-Packaging,
-patch generation, installation, and cleanup operate from that manifest rather
-than by assuming that every `.dbulk` in a directory is live.
+Cook reachability resolves explicit, built-in, and registered external runtime
+roots before traversal. Redirectors are authoring-only: references are rewritten
+to final real identities and redirector packages are omitted. Missing targets,
+cycles, type mismatches, corrupt aliases, duplicate output identities, or
+incomplete reference projections fail before manifest publication.
 
-This contract covers asset-level Cook contribution and deterministic
-publication. Project-wide Cook-set discovery and installable-build
-orchestration require a separately selected workflow.
+This contract covers asset contribution and deterministic loose-file
+publication. Project-wide scheduling, incremental state, output-store
+generalization, and installable-build orchestration belong to the next Cook
+integration milestone.
 
-## Load and Failure Policy
+## Compatibility, targets, and inspection
 
-Editor loading may use a valid DDC object and rebuild from source on a safe miss.
-Cooked runtime loading has no source or DDC fallback:
+DBLK v2 is a finite read-only compatibility and regression-fixture surface.
+`FCookedPayloadDescriptor`, `FCookedBulkContainer`, and the bounded DBLK
+decoder remain only for construct-free inspection and the recorded fixture
+corpus. New family Cook output never emits a DBLK container or persists a
+cooked descriptor. Removal is gated on canonical resave/retirement of the
+remaining legacy fixture corpus in the legacy-retirement milestone.
 
-1. load the cooked package and resolve its logical bulk location;
-2. validate the container, descriptor, platform, schema, ranges, and hash;
-3. decode the complete asset-specific payload transactionally;
-4. publish runtime data only after all required validation succeeds.
+The implemented compatibility identifiers are Win64 platform `1`, Game
+profile `1`, and EditorValidation profile `2`. Production family Cook and
+runtime qualification currently select Win64/Game. Other target/profile pairs
+are unsupported and fail explicitly rather than falling back or guessing.
 
-A missing or invalid required cooked payload is an asset-qualified hard load
-failure and indicates an incomplete or corrupt installation. Optional payloads
-must be explicitly marked by the asset schema; absence is not inferred as
-optional merely because a file cannot be found.
+Construct-free inspection reports DAST fields, inline/external placement,
+declared segment extent/digest, and compatibility status without constructing
+assets or loading field ranges. Live family inspection may additionally report
+DDC/build, decoded CPU, and renderer/physics publication state. Inspection is
+read-only and never rebuilds, recooks, repairs, deletes, or publishes.
 
-Neither editor nor runtime readers trust counts, offsets, sizes, compression
-ratios, enum values, or cross-record references from disk. Readers enforce
-per-payload and process-appropriate allocation limits and reject integer
-overflow, overlapping ranges, trailing required data, and decompression bombs.
+## Versioning and naming
 
-## Versioning
+Package format, family PlatformData schema, builder version, Cook target/profile,
+and legacy DBLK container version are independent. A builder-version change
+invalidates DDC/Cook production identity without necessarily changing readable
+family bytes. A package or family schema change requires an explicit supported
+reader or a hard unsupported-version result.
 
-The following versions are independent and change for different reasons:
-
-- `.dasset` package format version: object-package envelope changes;
-- bulk container version: descriptor table or container framing changes;
-- asset payload schema version: texture, mesh, audio, or another payload layout
-  changes;
-- builder version: output semantics change without necessarily changing its
-  readable disk layout;
-- target platform/profile: output compatibility differs by runtime target.
-
-A reader may retain deliberate backward compatibility for old package,
-container, or payload schemas. A builder-version change normally creates a new
-DDC key and cooked output but does not by itself require the runtime reader to
-reject an otherwise supported payload schema.
-
-## Naming Decision
-
-`.bin` and `.dbulk` may contain identical asset-specific payload bytes, but they
-are not interchangeable:
-
-- `.bin` means a content-addressed, rebuildable cache object with no persistent
-  asset reference.
-- `.dbulk` means manifest-owned, deployable bulk data referenced logically by a
-  cooked package and required by runtime.
-
-The dedicated `.dbulk` suffix lets cook, staging, patching, deployment,
-diagnostics, and cleanup distinguish required runtime payloads from arbitrary
-binary caches without inspecting every file. A future archive may absorb loose
-`.dbulk` containers; `.dbulk` is the loose cooked representation, not a promise
-that distribution will always ship one operating-system file per package.
+`.bin` is disposable content-addressed DDC storage. A cooked `.dbulk` is a
+manifest-owned deployable raw package segment whose layout is authoritative only
+through its `.dasset` or Terrain manifest. The suffix does not promise one
+operating-system file per package after future archive/store integration.
 
 ## Repository Policy
 

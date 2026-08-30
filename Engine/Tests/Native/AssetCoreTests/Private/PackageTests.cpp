@@ -12,6 +12,7 @@
 #include "Asset/PackageObjectStreamReader.h"
 #include "Asset/PackageObjectStreamWriter.h"
 #include "Asset/CanonicalResave.h"
+#include "Asset/BulkData.h"
 #include "Asset/EditorBulkData.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/Testing.h"
@@ -909,6 +910,7 @@ namespace
 	std::vector<uint32> GAuthoredArchiveFormatVersions;
 	uint64 GAuthoredConstructCount = 0;
 	uint64 GAuthoredLoadSerializeCount = 0;
+	uint64 GCookedSerializeCount = 0;
 	bool GRejectAuthoredLoad = false;
 	bool GRejectAuthoredPostLoad = false;
 
@@ -1009,6 +1011,35 @@ namespace
 					"The package object stream cannot persist the requested authored custom version.");
 		}
 
+		auto SerializeCooked(Durin::FArchive& Ar) -> void override
+		{
+			++GCookedSerializeCount;
+			if (!Ar.IsCooking() || !Ar.IsFilterEditorOnly()
+				|| Ar.GetTarget().Platform != "Win64" || Ar.GetTarget().Profile != "Game")
+			{
+				Ar.Fail(Durin::EArchiveFailureCode::InvalidData,
+					"Cooked test projection requires an explicit Win64 Game context.");
+				return;
+			}
+			DObject::Serialize(Ar);
+			const Durin::FName DeclaringType("Tests::DAuthoredArchiveAssetForTest");
+			{
+				auto Field = Durin::EnterArchiveField(Ar, {DeclaringType,
+					Durin::FName("CookedValue"),
+					Durin::FArchiveLogicalTypeDescriptor::Scalar(true, 32)});
+				int32 Projection = NativeValue * 2;
+				Ar << Projection;
+			}
+			{
+				auto BulkField = Durin::EnterArchiveField(Ar, {DeclaringType,
+					Durin::FName("CookedBulk"),
+					Durin::FArchiveLogicalTypeDescriptor::BulkData()});
+				CookedBulk.Serialize(Ar, {
+					.Alignment = 16,
+					.StoragePolicy = Durin::EArchiveBulkDataStoragePolicy::AllowExternal});
+			}
+		}
+
 		auto PostLoad(std::string& OutError) -> bool override
 		{
 			if (GRejectAuthoredPostLoad)
@@ -1020,6 +1051,7 @@ namespace
 		}
 
 		int32 NativeValue = 73;
+		Durin::Asset::FBulkData CookedBulk;
 		Durin::TObjectPtr<Durin::DObject> HardReference;
 		Durin::FSoftObjectPath SoftReference;
 		bool bSkipSuper = false;
@@ -3010,6 +3042,228 @@ TEST(FPackageAssetTests, AuthoredArchiveFreezesNativeFieldsReferencesAndFailures
 		Durin::Asset::EAssetError::UnsupportedProperty);
 	ExpectAtomicFailure([&] { Source->bUnsupportedCustomVersion = true; },
 		Durin::Asset::EAssetError::UnsupportedVersion);
+}
+
+TEST(FPackageAssetTests, CookedArchiveDispatchesImmutableTargetProjection)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/CookedArchiveProjection", Path));
+	DAuthoredArchiveAssetForTest* Source = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Source));
+	Source->NativeValue = 37;
+	const std::array BulkBytes{std::byte{1}, std::byte{3}, std::byte{5}};
+	std::string BulkError;
+	ASSERT_TRUE(Durin::Asset::FBulkData::TryCreateDetached(
+		BulkBytes, Source->CookedBulk, &BulkError)) << BulkError;
+
+	Durin::Asset::FAssetPackageSerializationOptions Options;
+	Options.Domain = Durin::Asset::EAssetPackageSaveDomain::Cooked;
+	std::vector<std::byte> Bytes{std::byte{0x7f}};
+	EXPECT_FALSE(Durin::Asset::SerializeAssetPackageBytes(
+		Source->GetPackage(), Bytes, Options));
+	EXPECT_EQ(Bytes, (std::vector<std::byte>{std::byte{0x7f}}));
+
+	Options.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64;
+	Options.TargetProfile = Durin::Asset::ECookTargetProfile::Game;
+	GCookedSerializeCount = 0;
+	const Durin::Asset::FAssetResult CookResult =
+		Durin::Asset::SerializeAssetPackageBytes(Source->GetPackage(), Bytes, Options);
+	ASSERT_TRUE(CookResult) << CookResult.Message;
+	EXPECT_GT(GCookedSerializeCount, 0u);
+	EXPECT_EQ(Source->NativeValue, 37);
+	EXPECT_EQ(Source->CookedBulk.GetState(), Durin::Asset::EBulkDataState::Detached);
+
+	const auto File = Durin::Testing::GetTestWorkDirectory()
+		/ "Assets" / "CookedArchiveProjection.dasset";
+	WriteTestBytes(File, Bytes);
+	Durin::Asset::FAssetPackageInspection Inspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(File.generic_string(), Inspection));
+	EXPECT_EQ(Inspection.FindField("NativeValue"), nullptr);
+	const auto* CookedField = Inspection.FindField("CookedValue");
+	ASSERT_NE(CookedField, nullptr);
+	int32 CookedValue = 0;
+	ASSERT_TRUE(CookedField->TryReadScalar(CookedValue));
+	EXPECT_EQ(CookedValue, 74);
+	EXPECT_NE(Inspection.FindField("CookedBulk"), nullptr);
+	EXPECT_EQ(Source->NativeValue, 37);
+	EXPECT_EQ(Source->CookedBulk.GetState(), Durin::Asset::EBulkDataState::Detached);
+}
+
+TEST(FPackageAssetTests, CookPublishesHeaderlessRawPlatformDataFields)
+{
+	InitializeAssetTests();
+	const auto CookRoot = std::filesystem::absolute(
+		Durin::Testing::GetTestWorkDirectory() / "CookedRawPlatformData");
+	const auto GameRoot = CookRoot / "Game";
+	std::filesystem::create_directories(GameRoot);
+	const std::array MountDefinitions{Durin::PathUtilities::FMountPoint{
+		.VirtualRoot = "/Game/",
+		.Owner = Durin::PathUtilities::EMountOwner::Test,
+		.Root = GameRoot,
+		.ContentPath = ".",
+		.bAutoScan = false}};
+	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
+	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedRawField", Path));
+	DAuthoredArchiveAssetForTest* Source = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Source));
+	const std::vector<std::byte> BulkBytes(
+		static_cast<size_t>(Durin::Asset::EditorBulkDataExternalThreshold + 1),
+		std::byte{0x5a});
+	std::string Error;
+	ASSERT_TRUE(Durin::Asset::FBulkData::TryCreateDetached(
+		BulkBytes, Source->CookedBulk, &Error)) << Error;
+	Durin::Asset::FCookContext Context(
+		CookRoot, Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game);
+	ASSERT_TRUE(Context.AddPackage(Path.ToString(), Source->GetPackage(), &Error)) << Error;
+	ASSERT_TRUE(Context.Publish(&Error)) << Error;
+	EXPECT_EQ(Source->CookedBulk.GetState(), Durin::Asset::EBulkDataState::Detached);
+
+	std::filesystem::path PackagePath;
+	ASSERT_TRUE(Durin::Asset::ResolveCookedPackagePath(
+		CookRoot, Path.GetView(), PackagePath, &Error)) << Error;
+	std::filesystem::path SegmentPath = PackagePath;
+	SegmentPath.replace_extension(".dbulk");
+	std::vector<std::byte> Segment;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Segment, SegmentPath));
+	EXPECT_EQ(Segment, BulkBytes);
+	ASSERT_GE(Segment.size(), 4u);
+	EXPECT_NE(std::string_view(reinterpret_cast<const char*>(Segment.data()), 4), "DURF");
+
+	std::vector<std::byte> ManifestBytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		ManifestBytes, CookRoot / "CookManifest.bin"));
+	Durin::Asset::FCookManifest Manifest;
+	ASSERT_TRUE(Durin::Asset::DecodeCookManifest(ManifestBytes, Manifest, &Error)) << Error;
+	EXPECT_NE(std::ranges::find(Manifest.Entries,
+		Durin::Asset::ECookManifestEntryKind::PackageBulk,
+		&Durin::Asset::FCookManifestEntry::Kind), Manifest.Entries.end());
+	const auto PackageManifestEntry = std::ranges::find(Manifest.Entries,
+		Durin::Asset::ECookManifestEntryKind::CookedPackage,
+		&Durin::Asset::FCookManifestEntry::Kind);
+	ASSERT_NE(PackageManifestEntry, Manifest.Entries.end());
+	EXPECT_NE(PackageManifestEntry->Flags
+		& Durin::Asset::CookManifestEntryCookedFieldProjection, 0u);
+
+	Durin::Asset::ShutdownAssetManager();
+	Durin::CollectGarbage();
+	auto Runtime = Durin::Asset::FAssetRuntimeConfiguration::Authored();
+	ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(CookRoot, Runtime));
+	ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(Runtime)));
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	ASSERT_TRUE(Durin::Asset::AdmitAssetPackageToCatalog(Path));
+	DAuthoredArchiveAssetForTest* Loaded = nullptr;
+	const Durin::Asset::FAssetResult LoadResult = Durin::Asset::LoadAsset(Path, Loaded);
+	ASSERT_TRUE(LoadResult) << LoadResult.Message;
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_EQ(Loaded->CookedBulk.GetState(), Durin::Asset::EBulkDataState::Attached);
+	const Durin::Asset::FPackageResourceHandle Resource =
+		Durin::Asset::GetPackageResourceManager().FindPackage(Path.ToString());
+	ASSERT_NE(Resource, nullptr);
+	EXPECT_EQ(Resource->GetReadStats().RequestCount, 0u);
+	std::span<const std::byte> LoadedBytes;
+	ASSERT_TRUE(Loaded->CookedBulk.LockReadOnly(LoadedBytes, &Error)) << Error;
+	EXPECT_TRUE(std::ranges::equal(LoadedBytes, BulkBytes));
+	ASSERT_TRUE(Loaded->CookedBulk.UnlockReadOnly(&Error)) << Error;
+	EXPECT_EQ(Resource->GetReadStats().RequestCount, 1u);
+	ASSERT_TRUE(Loaded->CookedBulk.Unload(&Error)) << Error;
+	EXPECT_EQ(Loaded->CookedBulk.GetState(), Durin::Asset::EBulkDataState::Attached);
+	ASSERT_TRUE(Loaded->CookedBulk.LockReadOnly(LoadedBytes, &Error)) << Error;
+	EXPECT_TRUE(std::ranges::equal(LoadedBytes, BulkBytes));
+	ASSERT_TRUE(Loaded->CookedBulk.UnlockReadOnly(&Error)) << Error;
+	EXPECT_EQ(Resource->GetReadStats().RequestCount, 2u);
+	Durin::Asset::ShutdownAssetManager();
+	Durin::CollectGarbage();
+
+	Segment.front() ^= std::byte{1};
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Segment, SegmentPath));
+	auto CorruptRuntime = Durin::Asset::FAssetRuntimeConfiguration::Authored();
+	ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(CookRoot, CorruptRuntime));
+	ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(CorruptRuntime)));
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	ASSERT_TRUE(Durin::Asset::AdmitAssetPackageToCatalog(Path));
+	Loaded = nullptr;
+	EXPECT_FALSE(Durin::Asset::LoadAsset(Path, Loaded));
+	EXPECT_EQ(Loaded, nullptr);
+	EXPECT_EQ(Durin::Asset::GetPackageResourceManager().FindPackage(Path.ToString()), nullptr);
+	Durin::Asset::ShutdownAssetManager();
+	Durin::CollectGarbage();
+	ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
+}
+
+TEST(FPackageAssetTests, CookedInlineOnlyProjectionLoadsWithoutBulkCompanion)
+{
+	InitializeAssetTests();
+	const auto CookRoot = std::filesystem::absolute(
+		Durin::Testing::GetTestWorkDirectory() / "CookedInlineOnlyProjection");
+	const auto GameRoot = CookRoot / "Game";
+	std::filesystem::create_directories(GameRoot);
+	const std::array MountDefinitions{Durin::PathUtilities::FMountPoint{
+		.VirtualRoot = "/Game/",
+		.Owner = Durin::PathUtilities::EMountOwner::Test,
+		.Root = GameRoot,
+		.ContentPath = ".",
+		.bAutoScan = false}};
+	Durin::PathUtilities::FScopedMountRegistryFixture Mounts(MountDefinitions);
+	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
+	Durin::FAssetPath Path;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/MetadataOnly", Path));
+	DAuthoredArchiveAssetForTest* Source = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Source));
+	Source->NativeValue = 41;
+	const std::array InlineBytes{std::byte{2}, std::byte{4}, std::byte{6}};
+	std::string Error;
+	ASSERT_TRUE(Durin::Asset::FBulkData::TryCreateDetached(
+		InlineBytes, Source->CookedBulk, &Error)) << Error;
+	Durin::Asset::FCookContext Context(
+		CookRoot, Durin::Asset::ECookTargetPlatform::Win64,
+		Durin::Asset::ECookTargetProfile::Game);
+	ASSERT_TRUE(Context.AddPackage(Path.ToString(), Source->GetPackage(), &Error)) << Error;
+	ASSERT_TRUE(Context.Publish(&Error)) << Error;
+
+	std::filesystem::path PackagePath;
+	ASSERT_TRUE(Durin::Asset::ResolveCookedPackagePath(
+		CookRoot, Path.GetView(), PackagePath, &Error)) << Error;
+	std::filesystem::path SegmentPath = PackagePath;
+	SegmentPath.replace_extension(".dbulk");
+	EXPECT_FALSE(std::filesystem::exists(SegmentPath));
+	std::vector<std::byte> ManifestBytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		ManifestBytes, CookRoot / "CookManifest.bin"));
+	Durin::Asset::FCookManifest Manifest;
+	ASSERT_TRUE(Durin::Asset::DecodeCookManifest(ManifestBytes, Manifest, &Error)) << Error;
+	ASSERT_EQ(Manifest.Entries.size(), 1u);
+	EXPECT_EQ(Manifest.Entries.front().Kind,
+		Durin::Asset::ECookManifestEntryKind::CookedPackage);
+	EXPECT_NE(Manifest.Entries.front().Flags
+		& Durin::Asset::CookManifestEntryCookedFieldProjection, 0u);
+
+	Durin::Asset::ShutdownAssetManager();
+	Durin::CollectGarbage();
+	auto Runtime = Durin::Asset::FAssetRuntimeConfiguration::Authored();
+	ASSERT_TRUE(Durin::Asset::FAssetRuntimeConfiguration::Cooked(CookRoot, Runtime));
+	ASSERT_TRUE(Durin::Asset::InitializeAssetManager(std::move(Runtime)));
+	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
+		Durin::Asset::EAssetRegistryScanMode::FullValidation));
+	ASSERT_TRUE(Durin::Asset::AdmitAssetPackageToCatalog(Path));
+	DAuthoredArchiveAssetForTest* Loaded = nullptr;
+	const Durin::Asset::FAssetResult LoadResult = Durin::Asset::LoadAsset(Path, Loaded);
+	ASSERT_TRUE(LoadResult) << LoadResult.Message;
+	ASSERT_NE(Loaded, nullptr);
+	EXPECT_EQ(Loaded->CookedBulk.GetState(), Durin::Asset::EBulkDataState::Detached);
+	std::span<const std::byte> LoadedBytes;
+	ASSERT_TRUE(Loaded->CookedBulk.LockReadOnly(LoadedBytes, &Error)) << Error;
+	EXPECT_TRUE(std::ranges::equal(LoadedBytes, InlineBytes));
+	ASSERT_TRUE(Loaded->CookedBulk.UnlockReadOnly(&Error)) << Error;
+	EXPECT_EQ(Durin::Asset::GetPackageResourceManager().FindPackage(Path.ToString()), nullptr);
+	Durin::Asset::ShutdownAssetManager();
+	Durin::CollectGarbage();
+	ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
 }
 
 TEST(FPackageAssetTests, PerSaveOverridesOwnValuesOmitFieldsAndPreserveLiveState)

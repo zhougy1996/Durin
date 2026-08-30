@@ -252,30 +252,14 @@ namespace Durin
 		std::vector<std::byte> PayloadBytes;
 		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
-			if (CookedPayload.PayloadId != EnvironmentLightingPrimaryCookedPayloadId
-				|| CookedPayload.LocationKind
-					!= static_cast<uint32>(Asset::ECookedPayloadLocationKind::PackageCompanion)
-				|| CookedPayload.PayloadSchemaVersion != EnvironmentLightingPayloadSchemaVersion
-				|| CookedPayload.TargetPlatform
-					!= static_cast<uint32>(Asset::ECookTargetPlatform::Win64)
-				|| CookedPayload.TargetProfile
-					!= static_cast<uint32>(Asset::ECookTargetProfile::Game))
-			{
-				return Fail("Cooked environment-lighting descriptor is missing or incompatible.", &OutError);
-			}
-			const Asset::FAssetRuntimeConfiguration& LoadContext =
-				Asset::GetAssetRuntimeConfiguration();
-			if (!GetPackage()) return false;
-			Asset::FCookedPackagePayload LoadedPayload;
-			if (!Asset::LoadCookedPackagePayload(
-					LoadContext,
-					GetPackage()->GetPackagePath(),
-					CookedPayload,
-					Asset::ECookTargetPlatform::Win64,
-					Asset::ECookTargetProfile::Game,
-					LoadedPayload,
-					&OutError)) return false;
-			PayloadBytes.assign(LoadedPayload.Payload.begin(), LoadedPayload.Payload.end());
+			if (PayloadSchemaVersion != EnvironmentLightingPayloadSchemaVersion
+				|| CookedPlatformData.GetMetadata().LogicalSize == 0)
+				return Fail(
+					"Cooked environment-lighting PlatformData field is missing.",
+					&OutError);
+			Data.reset();
+			OutError.clear();
+			return true;
 		}
 		else
 		{
@@ -295,6 +279,66 @@ namespace Durin
 		return true;
 	}
 
+	auto DEnvironmentLighting::GetData() const
+		-> const std::shared_ptr<const FEnvironmentLightingData>&
+	{
+		if (!Data && Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
+		{
+			std::span<const std::byte> Bytes;
+			std::string Error;
+			DEnvironmentLighting* Mutable = const_cast<DEnvironmentLighting*>(this);
+			if (Mutable->CookedPlatformData.LockReadOnly(Bytes, &Error))
+			{
+				auto Candidate = std::make_shared<FEnvironmentLightingData>();
+				FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload);
+				Candidate->Serialize(Ar);
+				const bool bValid = !Ar.HasError() && RequireArchiveEnd(Ar);
+				Mutable->CookedPlatformData.UnlockReadOnly();
+				if (bValid) Mutable->Data = std::move(Candidate);
+			}
+		}
+		return Data;
+	}
+
+	auto DEnvironmentLighting::SerializeCooked(FArchive& Ar) -> void
+	{
+		Super::SerializeCooked(Ar);
+		if (Ar.GetTarget().Platform != "Win64" || Ar.GetTarget().Profile != "Game")
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData,
+				"EnvironmentLighting cooked platform data requires the Win64 Game target.");
+			return;
+		}
+		Asset::FBulkData Projection;
+		Asset::FBulkData* FieldValue = &CookedPlatformData;
+		if (Ar.IsSaving())
+		{
+			if (!Data || !Data->IsValid())
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData,
+					"EnvironmentLighting cooked platform data is unavailable.");
+				return;
+			}
+			std::vector<std::byte> Bytes;
+			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload);
+			const_cast<FEnvironmentLightingData&>(*Data).Serialize(Writer);
+			std::string Error;
+			if (Writer.HasError()
+				|| !Asset::FBulkData::TryCreateDetached(Bytes, Projection, &Error))
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData,
+					Error.empty() ? std::string(Writer.GetError()) : std::move(Error));
+				return;
+			}
+			FieldValue = &Projection;
+		}
+		auto Field = EnterArchiveField(Ar, {FName("Durin::DEnvironmentLighting"),
+			FName("PlatformData"), FArchiveLogicalTypeDescriptor::BulkData()});
+		FieldValue->Serialize(Ar, {.Alignment = Asset::EditorBulkDataExternalAlignment,
+			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
+	}
+
 	auto DEnvironmentLighting::AddToCook(
 		Asset::FCookContext& Context,
 		std::string_view VirtualPackagePath,
@@ -308,56 +352,12 @@ namespace Durin
 		if (!GetPackage()) return Fail("Environment-lighting asset has no package.", &OutError);
 		std::vector<std::byte> PayloadBytes;
 		if (!LoadAuthoredPayload(GetPackage()->GetPackagePath(), PayloadBytes, OutError)) return false;
-		FEnvironmentLightingData Validated;
+		auto Validated = std::make_shared<FEnvironmentLightingData>();
 		FCanonicalMemoryReader PayloadAr(PayloadBytes, EArchivePurpose::CookedPayload);
-		Validated.Serialize(PayloadAr);
+		Validated->Serialize(PayloadAr);
 		if (PayloadAr.HasError()) return Fail(PayloadAr.GetFailure()->Message, &OutError);
-
-		Asset::FCookedBulkPayload BulkPayload{
-			.PayloadId = EnvironmentLightingPrimaryCookedPayloadId,
-			.Flags = 1,
-			.PayloadSchemaVersion = EnvironmentLightingPayloadSchemaVersion,
-			.Compression = Asset::ECookedPayloadCompression::None,
-			.Alignment = EnvironmentLightingPayloadAlignment,
-			.Bytes = std::move(PayloadBytes)};
-		const Asset::FAssetPackageSerializationOptions CookPackageOptions =
-			Context.MakePackageSerializationOptions();
+		Data = std::move(Validated);
 		return Context.AddPackage(
-			std::string(VirtualPackagePath), {std::move(BulkPayload)},
-			[this, CookPackageOptions](
-				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
-				std::vector<std::byte>& OutPackageBytes,
-				std::string* Error) {
-				if (Descriptors.size() != 1
-					|| Descriptors.front().PayloadId != EnvironmentLightingPrimaryCookedPayloadId)
-				{
-					if (Error) *Error = "Environment-lighting cook produced an invalid descriptor.";
-					return false;
-				}
-				FProperty* DescriptorProperty = GetClass()->FindPropertyByName("CookedPayload");
-				if (!DescriptorProperty)
-				{
-					if (Error) *Error = "EnvironmentLighting CookedPayload reflection is unavailable.";
-					return false;
-				}
-				auto Overrides = std::make_shared<Asset::FObjectSaveOverrides>();
-				std::string OverrideError;
-				if (!Overrides->AddPropertyValue(
-					*this, *DescriptorProperty, Descriptors.front(), &OverrideError))
-				{
-					if (Error) *Error = OverrideError;
-					return false;
-				}
-				Asset::FAssetPackageSerializationOptions Options = CookPackageOptions;
-				Options.SaveOverrides = std::move(Overrides);
-				const Asset::FAssetResult Result =
-					Asset::SerializeAssetPackageBytes(GetPackage(), OutPackageBytes, Options);
-				if (!Result)
-				{
-					if (Error) *Error = Result.Message;
-					return false;
-				}
-				return true;
-			}, &OutError);
+			std::string(VirtualPackagePath), GetPackage(), &OutError);
 	}
 }

@@ -78,8 +78,7 @@ TEST(FSourceFileContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainS
 		std::string_view("MaxResolution"),
 		std::string_view("CompressionQuality"),
 		std::string_view("AlphaMipMode"),
-		std::string_view("AlphaCoverageThreshold"),
-		std::string_view("CookedPayload")};
+		std::string_view("AlphaCoverageThreshold")};
 	static constexpr std::array TextureCubeProperties = {
 		std::string_view("SourceLayout"),
 		std::string_view("AssetImportData"),
@@ -87,8 +86,7 @@ TEST(FSourceFileContractTests, TextureLeafIdentityAndPropertyDeclarationsRemainS
 		std::string_view("PanoramaExposureEV"),
 		std::string_view("OriginalSourceWidth"),
 		std::string_view("OriginalSourceHeight"),
-		std::string_view("bSRGB"),
-		std::string_view("CookedPayload")};
+		std::string_view("bSRGB")};
 
 	const auto ExpectDeclaredProperties = [](Durin::DClass* Class,
 		std::span<const std::string_view> PropertyNames) {

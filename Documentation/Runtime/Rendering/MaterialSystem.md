@@ -189,12 +189,12 @@ semantics.
 
 Cook requires a current successful Win64 Game result and never substitutes
 ErrorMaterial. Authored `Program` data is editor-only in a cooked package. One
-DMAT v1 package-companion payload, identified by
-`MaterialCookedProgramPayloadId`, stores the exact compiler/target/pass/version
+DMAT v1 value in the cooked `ProgramData` BulkData field stores the exact compiler/target/pass/version
 envelope, program identity, static properties, dependencies, and complete
 shader code/reflection set. It is uncompressed, 16-byte aligned, bounded to
-8 MiB, and protected by the canonical DBLK descriptor extent/hash contract.
-Loading rejects missing, truncated, corrupt, trailing, wrong-target,
+8 MiB, and protected by the DAST field range and raw-segment extent/hash
+contract. Metadata load is range-free; first render-layer construction locks
+and decodes the field. Loading rejects missing, truncated, corrupt, trailing, wrong-target,
 wrong-profile, wrong-version, invalid-stage, or package/payload static-property
 mismatches before publishing an immutable result. Runtime loading therefore
 requires neither authored IR/generated source, Shader source files, editor DDC,
@@ -461,9 +461,10 @@ irradiance, GGX-prefiltered radiance, and a split-sum BRDF LUT generated only
 by the independent `EnvironmentLightingBake` offline tool.
 
 `DEnvironmentLighting` validates the versioned, checksummed authoring payload
-and owns its Cook operation. Cook publishes the payload through the generic
-package `.dbulk` companion without consulting DDC. Runtime loading accepts
-only that cooked descriptor/payload pair. Renderer creates the RHI resources
+and owns its Cook operation. Cook projects it into the `PlatformData` BulkData
+field and may place that field in the generic raw package segment without
+consulting DDC. Runtime loading accepts only a valid target-qualified field.
+Renderer creates the RHI resources
 on the render thread; an absent, invalid, or unavailable set resolves as one
 black environment set, preserving direct lighting and Emissive. This internal
 asset follows Engine content and asset-cook ownership rather than `DevTool`
@@ -496,10 +497,11 @@ sections, vertex streams, and index buffers.
 Readers bound all counts and ranges, reject invalid numeric data and indices,
 skip only optional unknown chunks, and publish render data only after complete
 validation. Schema 3 and older payloads are rejected rather than converted.
-Cook uses stable payload ID
-`6d9f79b5-7b68-4d91-a42c-2a6063fcab16`, strips source/import metadata, and
-loads the render payload only through the cooked package descriptor and DBLK
-companion.
+Cook strips source/import metadata and projects schema 5 into the lazy
+`RenderData` BulkData field. BodySetup collision uses the parallel
+`CollisionData` field. Runtime metadata load reads neither field; render and
+physics publication lock, decode, validate, and publish their required field
+independently without source or DDC fallback.
 
 Material Preview acquires shared `/Engine/Models/Sphere` and
 `/Engine/Models/Box` StaticMesh assets through the canonical

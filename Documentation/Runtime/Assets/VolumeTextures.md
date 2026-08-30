@@ -108,17 +108,18 @@ Payload Directory v2 entry and a range in the stable headerless
 only; canonical resave publishes v7 before retiring `.dabulk`.
 
 The 256 KiB authoring threshold changes placement,
-not reflection identity, DDC key input, platform payload, cooked DBLK, or upload
+not reflection identity, DDC key input, platform payload, cooked field, or upload
 bytes. The production `16384 x 128` atlas therefore keeps its exact normalized
 2 MiB source while ordinary `.dasset` Value bytes contain only the descriptor.
 
 ## Payload and cook
 
-Cooked post-load validates the VolumeTexture slot, schema version,
-compression, target, and profile from its domain and DBLK descriptors, then
-calls `LoadCookedPackagePayload` for an opaque verified byte view. It decodes
-that view transactionally into `FVolumeTexturePlatformData`; no common bulk
-descriptor or cross-authority provider translation participates.
+Cook projects the validated VolumeTexture TXPL value into the cooked
+`PlatformData` BulkData field. Post-load validates target/profile field
+metadata without reading the range. First platform-data or resource access
+locks the field and decodes transactionally into
+`FVolumeTexturePlatformData`; no common descriptor or provider translation
+participates.
 
 The owner-selected texture payload schema 2 uses dimension value 3. Stable pixel
 format identifiers 8 through 12 were appended for the five portable formats;
@@ -130,13 +131,10 @@ three axes before allocation.
 
 The volume producer version is 2 and the primary cooked payload ID is
 `672b164e-4e19-4871-a7b8-41dfe3208b15`. Cook accepts only Win64/Game and emits
-one uncompressed PackageCompanion payload. Cooked loading requires the matching
-descriptor and valid payload, strips authored source by default, does not query
-DDC or invoke an importer, and fails the asset load transactionally on missing
-or corrupt bulk. At runtime VolumeTexture passes its reflected cooked descriptor
-to the DBLK-owned `LoadCookedPackagePayload` service and transactionally decodes
-the returned opaque verified view. Cooked `.dasset`, DBLK, and payload bytes remain
-unchanged.
+one uncompressed field value. Cooked loading requires valid field metadata and
+payload, strips authored source by default, does not query DDC or invoke an
+importer, and fails transactionally on missing or corrupt bulk. New output is
+DAST v7 plus an optional headerless raw `.dbulk` segment.
 
 ## GPU resource and diagnostics
 
@@ -146,7 +144,7 @@ source schema/dimensions and `FEditorBulkData` field metadata, and validates the
 referenced raw segment without modifying recovery state. Generation-named
 companions are not a supported production route. Live
 inspection independently reports source, DDC/platform,
-cooked payload/DBLK, decoded CPU, and GPU stages. Missing/corrupt authored bulk
+cooked field/segment, decoded CPU, and GPU stages. Missing/corrupt authored bulk
 maps to restore, canonical resave, or reimport; DDC failure maps to rebuild,
 cooked failure maps to recook,
 and GPU failure maps to resource retry.

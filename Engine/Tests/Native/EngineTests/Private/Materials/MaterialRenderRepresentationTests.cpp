@@ -294,8 +294,13 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dasset"));
-	EXPECT_TRUE(std::filesystem::is_regular_file(
+	EXPECT_FALSE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dbulk"));
+	Durin::Asset::FAssetPackageInspection Inspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		(CookRoot / "Engine/Materials/DefaultMaterial.dasset").generic_string(),
+		Inspection));
+	EXPECT_NE(Inspection.FindField("ProgramData"), nullptr);
 
 	Durin::Asset::ShutdownAssetManager();
 	Durin::CollectGarbage();

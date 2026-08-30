@@ -27,6 +27,8 @@ namespace Durin::Asset::PackageObjectStream
 		std::function<FAssetResult(DPackage*)> OnSkeletonReady;
 		std::function<void(DPackage*)> OnSkeletonRollback;
 		uint32 SourceFormatVersion = AssetPackageObjectStreamVersion;
+		bool bCooked = false;
+		FArchiveTarget Target;
 	};
 
 	class FLoadedAssetPackage final

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Asset/BulkData.h"
 #include "Asset/Cook.h"
 #include "DObject/Object.h"
 #include "EngineAPI.h"
@@ -43,16 +44,15 @@ namespace Durin
 	public:
 		ENGINE_API explicit DEnvironmentLighting(const FObjectInitializer& ObjectInitializer);
 
-		auto GetData() const -> const std::shared_ptr<const FEnvironmentLightingData>&
+		ENGINE_API auto GetData() const
+			-> const std::shared_ptr<const FEnvironmentLightingData>&;
+		auto GetCookedPlatformData() const -> const Asset::FBulkData&
 		{
-			return Data;
-		}
-		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor&
-		{
-			return CookedPayload;
+			return CookedPlatformData;
 		}
 
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 		ENGINE_API auto AddToCook(
 			Asset::FCookContext& Context,
 			std::string_view VirtualPackagePath,
@@ -63,7 +63,9 @@ namespace Durin
 
 	private:
 		DPROPERTY()
-		Asset::FCookedPayloadDescriptor CookedPayload;
+		uint32 PayloadSchemaVersion = EnvironmentLightingPayloadSchemaVersion;
+
+		Asset::FBulkData CookedPlatformData;
 
 		std::shared_ptr<const FEnvironmentLightingData> Data;
 	};

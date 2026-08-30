@@ -4,6 +4,8 @@ Summary: Define serialized type, object, package, and compatibility version cont
 
 Modules: Core, CoreDObject, Engine
 
+Last reviewed: 2026-08-30
+
 Durin's engine release version is defined once in `Engine/Build/Build.version`. The current development version is `0.1.0-dev`. CMake validates that file, exposes the numeric core as the workspace project version, and generates the header consumed by Core's public version API.
 
 Runtime code should use `GetEngineVersion()` for numeric components and `GetEngineVersionString()` for display. Do not duplicate the engine version in module sources, window titles, API integration metadata, or packaging scripts.
@@ -25,8 +27,8 @@ Changing the engine release version alone must not rewrite assets or invalidate 
 
 `FArchiveVersionContext` carries named format versions separately from optional
 GUID-keyed custom versions. Object-graph Archives report object-graph v2;
-authored-package Archives report the actual source format, currently DAST v6.
-Ordinary and bundle saves report and emit v6. Property snapshots are
+authored-package Archives report the actual source format, DAST v6 or v7.
+Ordinary and bundle saves report and emit v7. Property snapshots are
 process-local and unversioned. Struct
 `PostDeserialize` receives the Archive purpose and source format version instead
 of deriving compatibility from the engine release number. During authored
@@ -34,7 +36,7 @@ loading it also receives the complete source custom-version context, allowing a
 detached reflected struct to perform the same bounded conversion as an
 object's pre-publication `PostLoad`.
 
-The DAST logical object stream inside v6 owns the package-local custom-version table, canonical GUID ordering,
+The DAST logical object stream inside v6/v7 owns the package-local custom-version table, canonical GUID ordering,
 discovery freeze, reader bounds, unknown-version rejection, and exact retained
 closure/payload semantics.
 
@@ -65,21 +67,22 @@ codec parsing when no reader exists. Header
 reads, validation, inspection, compatibility probes,
 reference projection, live loading, serialization, relocation, reference
 rewrite, redirector creation, and cook canonicalization do not branch on a
-version enum. The repository registers only the bounded production v6 codec;
-read-only entrypoints never select a writer or dirty authored content. Legacy
-DAST prefixes, including v4 and v5, are unsupported and fail before
-object-stream parsing or publication. DAST v6 is both the supported reader and
-the ordinary writer.
+version enum. The repository registers bounded v6 and v7 readers and selects
+only v7 for ordinary writing and mutation. Read-only entrypoints never select a
+writer or dirty authored content. Legacy DAST prefixes, including v4 and v5,
+are unsupported and fail before object-stream parsing or publication. DAST v6
+is a canonical-resave input rather than an ordinary output.
 
-DURF selects three independent storage formats by permanent GUID: DAST v6
-packages, DABK v2 authored companions, and DBLK v2 cooked companions. Their
-versions describe storage grammar only. The reflected asset slot selects and
-validates its payload schema; `PayloadId` locates that slot but does not select
-a codec. DDC keys and Cook descriptors advance with domain schema or producer
-changes so old raw values cannot enter a new decoder.
+DURF selects DAST object packages and the read-only legacy DABK v2/DBLK v2
+compatibility containers by permanent GUID. DAST v7 ordinary writers place
+authored and cooked BulkData in package-owned raw `.dbulk` segments; raw
+segments are not DURF formats. Their versions describe storage grammar only.
+The reflected asset slot selects and validates its payload schema. DDC/Cook
+keys advance with family schema or producer changes so old raw values cannot
+enter a new decoder.
 
 A frozen writer constructs its Archive context from its own codec identity.
-The v6 writer therefore always reports DAST v6 to serializers and emits v6. The
+The v7 writer therefore always reports DAST v7 to serializers and emits v7. The
 reader-policy cache identity is an explicit generation, not a wire-version
 alias; changing the supported-reader contract requires changing that identity.
 

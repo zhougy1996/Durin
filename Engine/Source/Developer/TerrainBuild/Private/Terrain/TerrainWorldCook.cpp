@@ -2,6 +2,7 @@
 
 #include "Asset/PackageInspection.h"
 #include "Hash/XxHash.h"
+#include "Misc/FileHelper.h"
 #include "Serialization/BinaryFormat.h"
 
 namespace Durin::Asset
@@ -66,32 +67,6 @@ namespace Durin::Asset
 				&& Reader.ReadI64(Tile.TileY) && Reader.ReadU16(Tile.SchemeVersion);
 		}
 
-		auto WriteDescriptor(FBinaryWriter& Writer, const Asset::FCookedPayloadDescriptor& Value) -> void
-		{
-			WriteGuid(Writer, Value.PayloadId);
-			Writer.WriteU32(Value.LocationKind);
-			Writer.WriteU64(Value.Offset);
-			Writer.WriteU64(Value.StoredSize);
-			Writer.WriteU64(Value.UncompressedSize);
-			Writer.WriteU32(Value.Alignment);
-			Writer.WriteU64(Value.PayloadHashLow);
-			Writer.WriteU64(Value.PayloadHashHigh);
-			Writer.WriteU32(Value.PayloadSchemaVersion);
-			Writer.WriteU32(Value.TargetPlatform);
-			Writer.WriteU32(Value.TargetProfile);
-			Writer.WriteU32(Value.CompressionMethod);
-		}
-
-		auto ReadDescriptor(FBinaryReader& Reader, Asset::FCookedPayloadDescriptor& Value) -> bool
-		{
-			return ReadGuid(Reader, Value.PayloadId) && Reader.ReadU32(Value.LocationKind)
-				&& Reader.ReadU64(Value.Offset) && Reader.ReadU64(Value.StoredSize)
-				&& Reader.ReadU64(Value.UncompressedSize) && Reader.ReadU32(Value.Alignment)
-				&& Reader.ReadU64(Value.PayloadHashLow) && Reader.ReadU64(Value.PayloadHashHigh)
-				&& Reader.ReadU32(Value.PayloadSchemaVersion) && Reader.ReadU32(Value.TargetPlatform)
-				&& Reader.ReadU32(Value.TargetProfile) && Reader.ReadU32(Value.CompressionMethod);
-		}
-
 		auto ProductLess(const FTerrainManifestProductEntry& A,
 			const FTerrainManifestProductEntry& B) -> bool
 		{
@@ -120,42 +95,18 @@ namespace Durin::Asset
 				for (uint8 Offset = 0; Offset < 5; ++Offset)
 				{
 					const FTerrainManifestProductEntry& Product = Region.Products[Base + Offset];
-					const Asset::FCookedPayloadDescriptor& Descriptor = Product.Descriptor;
 					if (Product.Tile != First.Tile || Product.GenerationId != First.GenerationId
 						|| Product.ProductClass != static_cast<ETerrainTileProductClass>(Offset + 1)
-						|| !Descriptor.PayloadId.IsValid()
-						|| Descriptor.LocationKind != static_cast<uint32>(Asset::ECookedPayloadLocationKind::PackageCompanion)
-						|| Descriptor.StoredSize == 0 || Descriptor.UncompressedSize == 0
-						|| Descriptor.PayloadSchemaVersion != TerrainWorldSchemaVersion
-						|| Descriptor.TargetPlatform != static_cast<uint32>(Manifest.TargetPlatform)
-						|| Descriptor.TargetProfile != static_cast<uint32>(Manifest.TargetProfile)
+						|| Product.StoredSize == 0
+						|| Product.SegmentOffset > Region.SegmentExtent
+						|| Product.StoredSize > Region.SegmentExtent - Product.SegmentOffset
 						|| Product.ProductHash.IsZero()
 						|| std::ranges::any_of(Product.Dependencies,
 							[](const FXxHash128& Value) { return Value.IsZero(); })) return false;
 				}
 			}
+			if ((Region.SegmentExtent == 0) != Region.SegmentHash.IsZero()) return false;
 			return true;
-		}
-
-		auto ProductPayloadId(const FTerrainTileProduct& Product) -> FGuid
-		{
-			FBinaryWriter Writer;
-			WriteTile(Writer, Product.Tile);
-			WriteGuid(Writer, Product.GenerationId);
-			Writer.WriteU8(static_cast<uint8>(Product.ProductClass));
-			const FXxHash128 Hash = FXxHash128::HashBuffer(Writer.GetBytes());
-			return {static_cast<uint32>(Hash.HashHigh >> 32), static_cast<uint32>(Hash.HashHigh),
-				static_cast<uint32>(Hash.HashLow >> 32), static_cast<uint32>(Hash.HashLow)};
-		}
-
-		auto ManifestPayloadId(const FTerrainWorldId& WorldId) -> FGuid
-		{
-			FBinaryWriter Writer;
-			WriteGuid(Writer, WorldId.Value);
-			Writer.WriteString("TerrainWorldManifest");
-			const FXxHash128 Hash = FXxHash128::HashBuffer(Writer.GetBytes());
-			return {static_cast<uint32>(Hash.HashHigh >> 32), static_cast<uint32>(Hash.HashHigh),
-				static_cast<uint32>(Hash.HashLow >> 32), static_cast<uint32>(Hash.HashLow)};
 		}
 
 		auto RegionPath(std::string_view Root, const FTerrainRegionKey& Region) -> std::string
@@ -229,6 +180,8 @@ namespace Durin::Asset
 			Records.WriteI64(Region.Region.RegionY);
 			Records.WriteU8(Region.bInstalled ? 1 : 0);
 			Records.WriteString(Region.VirtualPackagePath);
+			Records.WriteU64(Region.SegmentExtent);
+			WriteHash(Records, Region.SegmentHash);
 			Records.WriteU32(static_cast<uint32>(Region.Products.size()));
 			std::array<uint32, 5> ClassCounts{};
 			for (const FTerrainManifestProductEntry& Product : Region.Products)
@@ -242,7 +195,8 @@ namespace Durin::Asset
 				WriteTile(Records, Product.Tile);
 				WriteGuid(Records, Product.GenerationId);
 				Records.WriteU8(ProductValue);
-				WriteDescriptor(Records, Product.Descriptor);
+				Records.WriteU64(Product.SegmentOffset);
+				Records.WriteU64(Product.StoredSize);
 				WriteHash(Records, Product.ProductHash);
 				Records.WriteU8(static_cast<uint8>(Product.Dependencies.size()));
 				for (const FXxHash128& Dependency : Product.Dependencies) WriteHash(Records, Dependency);
@@ -332,6 +286,8 @@ namespace Durin::Asset
 			if (!Records.ReadI64(Region.Region.RegionX) || !Records.ReadI64(Region.Region.RegionY)
 				|| !Records.ReadU8(Installed) || Installed > 1
 				|| !Records.ReadString(Region.VirtualPackagePath, 1024)
+				|| !Records.ReadU64(Region.SegmentExtent)
+				|| !ReadHash(Records, Region.SegmentHash)
 				|| !Records.ReadU32(ProductCount) || ProductCount > 64u * 5u)
 				return Fail(ETerrainWorldOutcome::Corrupt,
 					"Terrain World manifest region record is invalid.", OutOutcome, OutError);
@@ -343,7 +299,8 @@ namespace Durin::Asset
 				uint8 ProductClass = 0, DependencyCount = 0;
 				if (!ReadTile(Records, Product.Tile) || !ReadGuid(Records, Product.GenerationId)
 					|| !Records.ReadU8(ProductClass) || ProductClass < 1 || ProductClass > 5
-					|| !ReadDescriptor(Records, Product.Descriptor)
+					|| !Records.ReadU64(Product.SegmentOffset)
+					|| !Records.ReadU64(Product.StoredSize)
 					|| !ReadHash(Records, Product.ProductHash)
 					|| !Records.ReadU8(DependencyCount) || DependencyCount > TerrainWorldMaximumDependencies)
 					return Fail(ETerrainWorldOutcome::Corrupt,
@@ -433,8 +390,7 @@ namespace Durin::Asset
 		for (FTerrainManifestRegion& Region : Manifest.Regions)
 		{
 			if (!Region.bInstalled) continue;
-			std::vector<Asset::FCookedBulkPayload> Payloads;
-			std::vector<const FTerrainTileProduct*> Products;
+			std::vector<std::byte> Segment;
 			for (const FTerrainTileGeneration& Generation : Request.Generations)
 			{
 				FTerrainRegionKey Key;
@@ -442,55 +398,38 @@ namespace Durin::Asset
 				if (Key != Region.Region) continue;
 				for (const FTerrainTileProduct& Product : Generation.Products)
 				{
-					Payloads.push_back({ProductPayloadId(Product), 1, TerrainWorldSchemaVersion,
-						Asset::ECookedPayloadCompression::None, 16, Product.Bytes});
-					Products.push_back(&Product);
+					const uint64 Offset = (Segment.size() + 15u) & ~uint64{15};
+					Segment.resize(static_cast<size_t>(Offset), std::byte{0});
+					Region.Products.push_back({
+						.Tile = Product.Tile,
+						.GenerationId = Product.GenerationId,
+						.ProductClass = Product.ProductClass,
+						.SegmentOffset = Offset,
+						.StoredSize = Product.Bytes.size(),
+						.ProductHash = FXxHash128::HashBuffer(Product.Bytes),
+						.Dependencies = Product.Dependencies});
+					Segment.insert(Segment.end(), Product.Bytes.begin(), Product.Bytes.end());
 				}
 			}
-			if (Products.size() > 64u * 5u)
+			if (Region.Products.size() > 64u * 5u)
 				return Fail(ETerrainWorldOutcome::BudgetRejected,
 					"Terrain World region exceeds 64 products per class.", OutOutcome, OutError);
-			uint64 LogicalBytes = 0;
-			for (const auto& Payload : Payloads) LogicalBytes += Payload.Bytes.size();
-			if (LogicalBytes > TerrainWorldMaximumRegionLogicalBytes)
+			if (Segment.size() > TerrainWorldMaximumRegionLogicalBytes
+				|| Segment.size() > TerrainWorldMaximumRegionStoredBytes)
 				return Fail(ETerrainWorldOutcome::BudgetRejected,
 					"Terrain World region exceeds its logical byte ceiling.", OutOutcome, OutError);
-			if (!Cook.AddPackage(Region.VirtualPackagePath, std::move(Payloads),
-				[&, Products](std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
-					std::vector<std::byte>& OutBytes, std::string*) {
-					if (Descriptors.size() != Products.size()) return false;
-					uint64 MaximumStoredEnd = 0;
-					for (const Asset::FCookedPayloadDescriptor& Descriptor : Descriptors)
-					{
-						if (Descriptor.Offset > std::numeric_limits<uint64>::max() - Descriptor.StoredSize)
-							return false;
-						MaximumStoredEnd = std::max(MaximumStoredEnd,
-							Descriptor.Offset + Descriptor.StoredSize);
-					}
-					if (MaximumStoredEnd > TerrainWorldMaximumRegionStoredBytes) return false;
-					for (const FTerrainTileProduct* Product : Products)
-					{
-						const FGuid Id = ProductPayloadId(*Product);
-						const auto Descriptor = std::ranges::find(Descriptors, Id,
-							&Asset::FCookedPayloadDescriptor::PayloadId);
-						if (Descriptor == Descriptors.end()) return false;
-						Region.Products.push_back({Product->Tile, Product->GenerationId,
-							Product->ProductClass, *Descriptor, FXxHash128::HashBuffer(Product->Bytes),
-							Product->Dependencies});
-					}
-					std::ranges::sort(Region.Products, ProductLess);
-					OutBytes = Request.PackageTemplateBytes;
-					return true;
-				}, &OutError))
+			std::ranges::sort(Region.Products, ProductLess);
+			Region.SegmentExtent = Segment.size();
+			Region.SegmentHash = FXxHash128::HashBuffer(Segment);
+			if (!Cook.AddRawPackage(Region.VirtualPackagePath,
+				Request.PackageTemplateBytes, std::move(Segment), &OutError))
 				return Fail(ETerrainWorldOutcome::PublicationFailed,
 					"Terrain World region package could not be staged: " + OutError, OutOutcome, OutError);
 		}
 		std::vector<std::byte> ManifestBytes;
 		if (!EncodeTerrainWorldManifest(Manifest, ManifestBytes, OutOutcome, OutError)) return false;
-		if (!Cook.AddPackage(Request.VirtualWorldRoot + "/Manifest",
-			Request.PackageTemplateBytes,
-			{{ManifestPayloadId(Request.WorldId), 1, TerrainWorldSchemaVersion,
-				Asset::ECookedPayloadCompression::None, 16, std::move(ManifestBytes)}}, &OutError)
+		if (!Cook.AddRawPackage(Request.VirtualWorldRoot + "/Manifest",
+			Request.PackageTemplateBytes, std::move(ManifestBytes), &OutError)
 			|| !Cook.Publish(&OutError))
 			return Fail(ETerrainWorldOutcome::PublicationFailed,
 				"Terrain World Cook publication failed: " + OutError, OutOutcome, OutError);
@@ -514,18 +453,10 @@ namespace Durin::Asset
 			|| !Asset::ResolveCookedPackagePath(RuntimeConfiguration.GetCookRoot(), VirtualPath, PackagePath, &OutError)
 			|| !Asset::ResolveCookedCompanionPath(RuntimeConfiguration.GetCookRoot(), PackagePath, BulkPath, &OutError))
 			return Fail(MapLoadError(OutError), OutError, OutOutcome, OutError);
-		Asset::FCookedBulkContainer Container;
-		if (!Asset::LoadCookedBulkFile(BulkPath, ExpectedPlatform, ExpectedProfile, Container, &OutError))
-			return Fail(MapLoadError(OutError), OutError, OutOutcome, OutError);
-		const FGuid PayloadId = ManifestPayloadId(WorldId);
-		const auto It = std::ranges::find(Container.Entries, PayloadId,
-			&Asset::FCookedPayloadDescriptor::PayloadId);
-		if (It == Container.Entries.end())
+		std::vector<std::byte> Bytes;
+		if (!FFileHelper::LoadFileToArray(Bytes, BulkPath))
 			return Fail(ETerrainWorldOutcome::MissingDependency,
-				"Cooked Terrain World manifest product is missing.", OutOutcome, OutError);
-		std::span<const std::byte> Bytes;
-		if (!Asset::ResolveCookedPayload(Container, *It, Bytes, &OutError))
-			return Fail(MapLoadError(OutError), OutError, OutOutcome, OutError);
+				"Cooked Terrain World manifest segment is missing.", OutOutcome, OutError);
 		FTerrainWorldManifest Decoded;
 		if (!DecodeTerrainWorldManifest(Bytes, WorldId, ExpectedPlatform, ExpectedProfile,
 			Decoded, OutOutcome, OutError)) return false;
@@ -560,21 +491,34 @@ namespace Durin::Asset
 		if (Entry == Region->Products.end())
 			return Fail(ETerrainWorldOutcome::MissingDependency,
 				"Cooked Terrain product is missing.", OutOutcome, OutError);
-		auto Payload = std::make_shared<Asset::FCookedPackagePayload>();
-		if (!Asset::LoadCookedPackagePayload(RuntimeConfiguration, Region->VirtualPackagePath,
-			Entry->Descriptor, Manifest->TargetPlatform, Manifest->TargetProfile,
-			*Payload, &OutError))
+		std::filesystem::path PackagePath, BulkPath;
+		if (!Asset::ResolveCookedPackagePath(RuntimeConfiguration.GetCookRoot(),
+				Region->VirtualPackagePath, PackagePath, &OutError)
+			|| !Asset::ResolveCookedCompanionPath(RuntimeConfiguration.GetCookRoot(),
+				PackagePath, BulkPath, &OutError))
 			return Fail(MapLoadError(OutError), OutError, OutOutcome, OutError);
-		if (FXxHash128::HashBuffer(Payload->Payload) != Entry->ProductHash)
+		std::vector<std::byte> Segment;
+		if (!FFileHelper::LoadFileToArray(Segment, BulkPath))
+			return Fail(ETerrainWorldOutcome::MissingDependency,
+				"Cooked Terrain region segment is missing.", OutOutcome, OutError);
+		if (Segment.size() != Region->SegmentExtent
+			|| FXxHash128::HashBuffer(Segment) != Region->SegmentHash
+			|| Entry->SegmentOffset > Segment.size()
+			|| Entry->StoredSize > Segment.size() - Entry->SegmentOffset)
+			return Fail(ETerrainWorldOutcome::Corrupt,
+				"Cooked Terrain region segment metadata is invalid.", OutOutcome, OutError);
+		const std::span<const std::byte> ProductBytes = std::span(Segment).subspan(
+			static_cast<size_t>(Entry->SegmentOffset), static_cast<size_t>(Entry->StoredSize));
+		if (FXxHash128::HashBuffer(ProductBytes) != Entry->ProductHash)
 			return Fail(ETerrainWorldOutcome::Corrupt,
 				"Cooked Terrain product manifest checksum is invalid.", OutOutcome, OutError);
 		FTerrainTileProduct Product;
-		if (!DecodeTerrainTileProduct(Payload->Payload, ProductClass, Product, OutOutcome, OutError)) return false;
+		if (!DecodeTerrainTileProduct(ProductBytes, ProductClass, Product, OutOutcome, OutError)) return false;
 		if (Product.Tile != Tile || Product.GenerationId != GenerationId
 			|| Product.Dependencies != Entry->Dependencies)
 			return Fail(ETerrainWorldOutcome::Corrupt,
 				"Cooked Terrain product identity or dependencies do not match the manifest.", OutOutcome, OutError);
-		OutHandle = {Manifest, std::move(Payload), *Entry};
+		OutHandle = {Manifest, FSharedByteBuffer::Copy(ProductBytes), *Entry};
 		OutOutcome = ETerrainWorldOutcome::Ready;
 		OutError.clear();
 		return true;

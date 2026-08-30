@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Asset/AssetImportData.h"
+#include "Asset/BulkData.h"
 #include "Asset/EditorBulkData.h"
 #include "EngineAPI.h"
 #include "RHIDefinitions.h"
@@ -78,6 +79,7 @@ namespace Durin
 	public:
 		ENGINE_API explicit DTextureCube(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DTextureCube() override;
+		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 
 		auto GetSourceLayout() const -> ETextureCubeSourceLayout { return SourceLayout; }
 		auto GetAssetImportData() const -> const DAssetImportData*
@@ -100,10 +102,10 @@ namespace Durin
 		auto GetSourceData() const -> const FTextureCubeSourceData* { return SourceData.get(); }
 		auto GetImportedData() const -> const FTextureCubeImportedData& { return ImportedData; }
 		auto GetImportedDataIdentity() const -> FXxHash128 { return ImportedData.GetIdentity(); }
-		auto GetPlatformData() const -> const FTextureCubePlatformData* { return PlatformData.get(); }
+		ENGINE_API auto GetPlatformData() const -> const FTextureCubePlatformData*;
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
 		auto GetDerivedDataDiagnostic() const -> const FTextureDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
-		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
+		auto GetCookedPlatformData() const -> const Asset::FBulkData& { return CookedPlatformData; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
 		auto IsSRGB() const -> bool { return bSRGB; }
 		auto GetBuildStatus() const -> ETextureBuildStatus { return BuildStatus; }
@@ -170,11 +172,9 @@ namespace Durin
 		DPROPERTY()
 		bool bSRGB = true;
 
-		DPROPERTY()
-		Asset::FCookedPayloadDescriptor CookedPayload;
-
 		std::unique_ptr<FTextureCubeSourceData> SourceData;
 		std::unique_ptr<FTextureCubePlatformData> PlatformData;
+		Asset::FBulkData CookedPlatformData;
 		std::string DerivedDataKey;
 		FTextureDerivedDataDiagnostic DerivedDataDiagnostic;
 		bool bLoadedFromDerivedDataCache = false;

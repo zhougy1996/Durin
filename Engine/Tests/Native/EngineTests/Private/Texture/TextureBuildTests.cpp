@@ -188,25 +188,11 @@ TEST(FVolumeTextureTests, PackageReloadCookAndFailedReplacementAreTransactional)
 		Durin::Asset::ECookTargetProfile::Game);
 	ASSERT_TRUE(Texture->AddToCook(Cook, "/Game/CookedVolume", Error)) << Error;
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
-	std::vector<std::byte> BulkBytes;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BulkBytes,
-		(CookRoot / "Game/CookedVolume.dbulk")));
-	Durin::Asset::FCookedBulkContainer Container;
-	ASSERT_TRUE(Durin::Asset::DecodeCookedBulk(BulkBytes,
-		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Container, &Error)) << Error;
-	ASSERT_EQ(Container.Entries.size(), 1u);
-	EXPECT_EQ(Container.Entries.front().PayloadId,
-		Durin::VolumeTexturePrimaryCookedPayloadId);
-	Durin::FVolumeTexturePlatformData Decoded;
-	Durin::FCanonicalMemoryReader Reader(Container.Payloads.front(),
-		Durin::EArchivePurpose::CookedPayload);
-	Decoded.Serialize(Reader, {
-		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
-		.TargetProfile = Durin::Asset::ECookTargetProfile::Game});
-	ASSERT_FALSE(Reader.HasError());
-	EXPECT_EQ(Decoded.Mips.front().Voxels, Expected.Mips.front().Voxels);
-	EXPECT_EQ(Decoded.Mips.back().Voxels, Expected.Mips.back().Voxels);
+	EXPECT_FALSE(std::filesystem::exists(CookRoot / "Game/CookedVolume.dbulk"));
+	Durin::Asset::FAssetPackageInspection CookedInspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		(CookRoot / "Game/CookedVolume.dasset").generic_string(), CookedInspection));
+	EXPECT_NE(CookedInspection.FindField("PlatformData"), nullptr);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	Texture = nullptr;
 	Durin::Asset::ShutdownAssetManager();

@@ -252,6 +252,11 @@ namespace Durin
 		SerializeDObjectProperties(Ar, *this);
 	}
 
+	auto DObject::SerializeCooked(FArchive& Ar) -> void
+	{
+		Serialize(Ar);
+	}
+
 	auto DObject::PostLoad(std::string& OutError) -> bool
 	{
 		(void)OutError;

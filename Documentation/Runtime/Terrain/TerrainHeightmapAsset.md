@@ -74,7 +74,8 @@ partial boundary regions, returning exact extrema.
 ## Authored Package and DDC
 
 The authored package retains canonical row-major uint16 samples, dimensions,
-global range, revision, retained-byte facts, and the cooked descriptor field.
+global range, revision, and retained-byte facts. Cooked `PlatformData` is a
+target projection and is not authored state.
 Schema-2 editor import data carries an optional explicitly based hint,
 XXH3-128 provenance, source format facts, and decoder/profile interpretation
 for explicit Reimport. It does not retain encoded source bytes.
@@ -107,8 +108,8 @@ activation barrier; missing/corrupt payload recovery failure rejects play.
 
 ## Payload and Cook
 
-The terrain owner selects `TerrainHeightmapPrimaryCookedPayloadId`, payload
-schema 2, and builder 3. The value uses 16-byte section alignment, no bulk
+The terrain owner selects payload schema 2 and builder 3. The value uses
+16-byte section alignment, no bulk
 compression, and a 96-byte
 little-endian header records platform/profile, dimensions, hierarchy policy,
 counts, global range, table/section offsets, stored size, and XXH64 body
@@ -118,10 +119,11 @@ little-endian `uint16`; hierarchy nodes follow as little-endian min/max pairs.
 
 Decode validates target identity, versions, ceilings, checked counts and
 ranges, alignment, non-overlap, checksum, level topology, sample extrema, and a
-complete independently rebuilt hierarchy before publication. Cook emits one
-package companion entry transactionally and strips source-only fields. Cooked
-runtime requires the descriptor and companion; it never falls back to source,
-DDC, `DTexture2D`, or zero height.
+complete independently rebuilt hierarchy before publication. Cook projects the
+value into the lazy `PlatformData` BulkData field and strips source-only fields.
+Cooked metadata load performs no field-range read; first `GetPayload` locks,
+decodes, validates, and publishes the value. Runtime never falls back to
+source, DDC, `DTexture2D`, or zero height.
 
 ## Import, Reimport, and Inspection
 

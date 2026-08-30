@@ -4,7 +4,7 @@ Summary: Define deterministic single-clip skeletal pose evaluation, playback own
 
 Modules: Engine, SkeletalBuild, AssetForgeBuiltins
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-08-30
 
 ## Ownership Boundary
 
@@ -20,6 +20,12 @@ session validates the complete animation payload against the Skeleton/target con
 AssetForgeBuiltins retains private Scene capture, clip naming, hard Skeleton
 relationships, and transaction publication. Cache-only authored load never
 invokes scene import, and a valid hit skips payload encoding and another store.
+
+Cook projects the same target-qualified clip schema into the lazy
+`PlatformData` BulkData field and preserves the hard Skeleton dependency and
+compatibility identity. Cooked metadata load is range-free; binding setup locks,
+decodes, validates, and transactionally publishes the clip payload without
+source, importer, or DDC fallback.
 
 Binding construction is the only playback operation that reads reflected asset
 objects. A successful `FSkeletalAnimationBinding` detaches:

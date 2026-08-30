@@ -683,35 +683,17 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 
 	std::vector<std::byte> FirstPackage;
 	std::vector<std::byte> SecondPackage;
-	std::vector<std::byte> FirstBulk;
-	std::vector<std::byte> SecondBulk;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		FirstPackage, (FirstRoot / "Game/CookedCube.dasset")));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		SecondPackage, (SecondRoot / "Game/CookedCube.dasset")));
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		FirstBulk, (FirstRoot / "Game/CookedCube.dbulk")));
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		SecondBulk, (SecondRoot / "Game/CookedCube.dbulk")));
 	EXPECT_EQ(FirstPackage, SecondPackage);
-	EXPECT_EQ(FirstBulk, SecondBulk);
-
-	Durin::Asset::FCookedBulkContainer Container;
-	ASSERT_TRUE(Durin::Asset::DecodeCookedBulk(
-		FirstBulk, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, Container, &Error)) << Error;
-	ASSERT_EQ(Container.Entries.size(), 1u);
-	EXPECT_EQ(Container.Entries[0].PayloadId, Durin::TextureCubePrimaryCookedPayloadId);
-	Durin::FTextureCubePlatformData Decoded;
-	Durin::FCanonicalMemoryReader PayloadAr(
-		Container.Payloads[0], Durin::EArchivePurpose::CookedPayload);
-	Decoded.Serialize(PayloadAr, {
-		.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64,
-		.TargetProfile = Durin::Asset::ECookTargetProfile::Game});
-	ASSERT_FALSE(PayloadAr.HasError());
-	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
-		EXPECT_EQ(Decoded.Faces[FaceIndex].Mips[0].Pixels,
-			Expected.Faces[FaceIndex].Mips[0].Pixels);
+	EXPECT_FALSE(std::filesystem::exists(FirstRoot / "Game/CookedCube.dbulk"));
+	EXPECT_FALSE(std::filesystem::exists(SecondRoot / "Game/CookedCube.dbulk"));
+	Durin::Asset::FAssetPackageInspection CookedInspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		(FirstRoot / "Game/CookedCube.dasset").generic_string(), CookedInspection));
+	EXPECT_NE(CookedInspection.FindField("PlatformData"), nullptr);
 
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 	{
@@ -740,8 +722,7 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	EXPECT_TRUE(Cooked->GetDerivedDataKey().empty());
 	EXPECT_EQ(Cooked->GetDerivedDataDiagnostic().Status,
 		Durin::ETextureDerivedDataStatus::CookedLoaded);
-	EXPECT_EQ(Cooked->GetCookedPayloadDescriptor().PayloadId,
-		Durin::TextureCubePrimaryCookedPayloadId);
+	EXPECT_NE(Cooked->GetCookedPlatformData().GetMetadata().LogicalSize, 0u);
 	for (size_t FaceIndex = 0; FaceIndex < Durin::TextureCubeFaceCount; ++FaceIndex)
 		EXPECT_EQ(Cooked->GetPlatformData()->Faces[FaceIndex].Mips[0].Pixels,
 			Expected.Faces[FaceIndex].Mips[0].Pixels);

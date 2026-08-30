@@ -1,7 +1,6 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Asset/CookedAsset.h"
 #include "DObject/Object.h"
 #include "Physics/PhysicsTypes.h"
 
@@ -74,8 +73,6 @@ namespace Durin
 			EBodySetupCollisionBuildStatus Status,
 			std::string Diagnostic) -> void;
 		ENGINE_API auto ExchangeCollisionState(DBodySetup& Other) noexcept -> void;
-		ENGINE_API auto SetCookedCollisionPayloadDescriptor(
-			const Asset::FCookedPayloadDescriptor& Descriptor) -> void;
 		ENGINE_API auto IsValid(std::string* OutDiagnostic = nullptr) const -> bool;
 		auto GetRevision() const -> uint64 { return Revision; }
 		auto GetShapeType() const -> EBodySetupShapeType { return ShapeType; }
@@ -86,8 +83,6 @@ namespace Durin
 		auto GetCollisionDerivedDataKey() const -> const std::string& { return CollisionDerivedDataKey; }
 		auto GetCollisionDiagnostic() const -> const std::string& { return CollisionDiagnostic; }
 		auto GetCollisionPayloadBytes() const -> uint64 { return CollisionPayloadBytes; }
-		auto GetCookedCollisionPayloadDescriptor() const
-			-> const Asset::FCookedPayloadDescriptor& { return CookedCollisionPayload; }
 
 	private:
 		DPROPERTY()
@@ -114,9 +109,6 @@ namespace Durin
 
 		DPROPERTY(EditorOnly)
 		EBodySetupCollisionBuildStatus CollisionBuildStatus = EBodySetupCollisionBuildStatus::None;
-
-		DPROPERTY()
-		Asset::FCookedPayloadDescriptor CookedCollisionPayload;
 
 		mutable FCollisionGeometryRef CachedGeometry;
 		mutable uint64 CachedGeometryRevision = 0;

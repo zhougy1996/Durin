@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Asset/AssetImportData.h"
+#include "Asset/BulkData.h"
 #include "Asset/Cook.h"
 #include "Asset/EditorBulkData.h"
 #include "EngineAPI.h"
@@ -193,6 +194,7 @@ namespace Durin
 	public:
 		ENGINE_API explicit DStaticMesh(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DStaticMesh() override;
+		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 		ENGINE_API auto GetRenderData() const -> const FStaticMeshRenderData*;
 		// Returns one coherent, nonblocking snapshot for stale-work rejection.
 		ENGINE_API auto GetRenderResourceStatus() const
@@ -232,7 +234,8 @@ namespace Durin
 		auto GetDerivedDataDiagnostic() const -> const FStaticMeshDerivedDataDiagnostic& { return DerivedDataDiagnostic; }
 		auto GetImportedData() const -> const FStaticMeshImportedData& { return ImportedData; }
 		auto GetImportedDataIdentity() const -> FXxHash128 { return ImportedData.GetIdentity(); }
-		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
+		auto GetCookedRenderData() const -> const Asset::FBulkData& { return CookedRenderData; }
+		auto GetCookedCollisionData() const -> const Asset::FBulkData& { return CookedCollisionData; }
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
 		// Contributes deterministic DMSH data and descriptor-bearing runtime metadata to a cook.
 		ENGINE_API auto AddToCook(
@@ -347,12 +350,11 @@ namespace Durin
 		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
 
 		DPROPERTY()
-		Asset::FCookedPayloadDescriptor CookedPayload;
-
-		DPROPERTY()
 		TObjectPtr<DBodySetup> BodySetup;
 
 		std::unique_ptr<FStaticMeshRenderData> RenderData;
+		Asset::FBulkData CookedRenderData;
+		Asset::FBulkData CookedCollisionData;
 		FStaticMeshDerivedDataDiagnostic DerivedDataDiagnostic;
 		FRenderCommandFence ReleaseResourcesFence;
 		std::atomic<uint64> RenderResourceStatus{PackRenderResourceStatus(

@@ -4,7 +4,7 @@ Summary: Define production GPU skinning, animated bounds, scene preparation, pal
 
 Modules: Engine, SkeletalBuild, AssetForgeBuiltins, Renderer, RenderCore, RHI, VulkanRHI
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-08-30
 
 Durin renders `DSkeletalMeshComponent` through the ordinary scene and viewport
 pipeline. The component evaluates a complete immutable `FSkeletalPosePalette`
@@ -19,6 +19,12 @@ slot count, target, and request identity. Scene parsing and detached candidate
 construction remain in AssetForgeBuiltins, which also owns private ordered peer
 publication and hard Skeleton relationships. A valid cache hit skips
 payload encoding and another store.
+
+Cook projects that same target-qualified skeletal schema into the lazy
+`PlatformData` BulkData field while retaining the hard Skeleton dependency and
+compatibility identity. Cooked metadata load performs no field-range read.
+First render-data access locks, decodes, validates against the Skeleton, and
+publishes transactionally without source, importer, or DDC fallback.
 
 ## Geometry and Skinning
 

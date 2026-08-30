@@ -1,6 +1,6 @@
 # Package Bulk Data
 
-Summary: Define field-level BulkData values, package-resource range access, and the authored raw package segment.
+Summary: Define field-level BulkData values, package-resource range access, and authored/cooked raw package segments.
 
 Modules: Engine, CoreDObject, AssetRegistry
 
@@ -74,10 +74,17 @@ be retried. No request callback or backend object may escape the request.
 
 ## Package-resource ownership
 
-A field stores a ref-counted logical resource handle and `(segment, offset,
-size)`. Only the loose backend stores the mounted physical package path and
-derives the stable `.dbulk` sibling. A read is admitted only when the resource
-is Active and the checked range is within the validated segment extent.
+`FPackageResourceRange` stores only a ref-counted logical resource handle,
+segment offset, stored size, storage flags, and alignment. Its shared validator
+checks flags, alignment, arithmetic, the caller's size bound, and the resource's
+validated segment extent. `FEditorBulkData` wraps the range with authored
+instance/content identity and logical size; `FBulkData` wraps it with logical
+size and residency state. The range never owns a hash, GUID, DDC key, schema,
+target, asset path, or physical path.
+
+Only the loose backend stores the mounted physical package path and derives the
+stable `.dbulk` sibling. A read is admitted only when the resource is Active and
+the checked range is within the validated segment extent.
 
 Retirement changes the resource to Retiring, rejects new requests as Retired,
 requests cancellation for admitted work, and waits for admitted callbacks to
@@ -157,6 +164,27 @@ any other payload bytes. Segment content is opaque: a header-like payload is
 valid when declared as payload, but undeclared header bytes before the first
 range are nonzero padding and invalid.
 
+## Cooked raw-field projection
+
+A cooked Archive dispatches `DObject::SerializeCooked` and captures runtime
+`FBulkData` fields through the same DAST v7 field grammar and raw-segment
+placement used above. Cook supplies explicit platform/profile context, filters
+editor-only state, and uses NoDelta planning with the same cooked dispatch.
+Detached fields remain detached while capture copies their immutable bytes.
+The package writer assigns transient field identities and content checks for
+physical validation; neither becomes `FBulkData` semantic state.
+
+`FCookContext::AddPackage(VirtualPath, Package)` publishes the resulting raw
+segment and records it as `PackageBulk` in CMNF. This route has no
+`FCookedPayloadDescriptor`, descriptor callback, DBLK header, payload table, or
+family companion resolver. Cooked load validates the complete segment before
+object publication, dispatches `SerializeCooked`, and attaches external fields
+to the registered package resource. Metadata load performs zero range requests;
+the first lock requests exactly the declared field range. The descriptor-aware
+`AddPackage` production route is retired. `CookedBulk` manifest records and
+DBLK v2 decoding remain accepted only by the bounded compatibility/inspection
+surface.
+
 ## Publication, compatibility, and migration
 
 A save captures immutable payload snapshots, lays out the segment without
@@ -187,8 +215,8 @@ not authored companions. New writers never emit DABK or `.dabulk`.
 
 `FPackageAssetTests.FieldBulkQualificationMeetsBoundedLooseFixtureBudgets`
 freezes one 4 MiB uncompressed external authored field. The MacOS arm64 Debug
-measurement on 2026-08-30 recorded 9.8 ms metadata load, 18.5 ms first access,
-171.0 ms canonical v7 save, and 230.9 ms v6-to-v7 resave (17.3 MiB/s). The
+measurement on 2026-08-30 recorded 9.95 ms metadata load, 19.77 ms first access,
+175.81 ms canonical v7 save, and 235.81 ms v6-to-v7 resave (16.96 MiB/s). The
 enforced diagnostic ceilings are 500 ms metadata load, 500 ms first access,
 2 seconds save, and 4 seconds resave, with a 0.25 MiB/s resave floor.
 

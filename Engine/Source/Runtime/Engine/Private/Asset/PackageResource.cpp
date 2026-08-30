@@ -216,6 +216,27 @@ namespace Durin::Asset
 		return ReadStats;
 	}
 
+	auto ValidatePackageResourceRange(
+		const FPackageResourceRange& Range,
+		uint64 MaximumStoredSize,
+		std::string* OutError) -> bool
+	{
+		const bool bValid = Range.Resource && Range.StorageFlags == 0
+			&& Range.StoredSize <= MaximumStoredSize
+			&& Range.Alignment != 0 && Range.Alignment <= 4096
+			&& (Range.Alignment & (Range.Alignment - 1)) == 0
+			&& Range.SegmentOffset % Range.Alignment == 0
+			&& Range.SegmentOffset <= Range.Resource->GetSegmentExtent()
+			&& Range.StoredSize <= Range.Resource->GetSegmentExtent() - Range.SegmentOffset;
+		if (!bValid)
+		{
+			if (OutError) *OutError = "Package resource range is invalid or unsupported.";
+			return false;
+		}
+		if (OutError) OutError->clear();
+		return true;
+	}
+
 	FPackageResourceManager::~FPackageResourceManager()
 	{
 		Shutdown();

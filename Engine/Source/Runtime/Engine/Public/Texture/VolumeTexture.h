@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Asset/AssetImportData.h"
+#include "Asset/BulkData.h"
 #include "Asset/Cook.h"
 #include "Asset/EditorBulkData.h"
 #include "EngineAPI.h"
@@ -131,6 +132,7 @@ namespace Durin
 	public:
 		ENGINE_API explicit DVolumeTexture(const FObjectInitializer& ObjectInitializer);
 		ENGINE_API ~DVolumeTexture() override;
+		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 
 		auto GetSourceData() const -> const FVolumeTextureSourceData& { return SourceData; }
 		auto GetAssetImportData() const -> const DAssetImportData*
@@ -144,9 +146,9 @@ namespace Durin
 		ENGINE_API auto PublishAssetImportData(
 			DAssetImportData& Value, std::string& OutError) -> bool;
 		auto GetBuildSettings() const -> const FVolumeTextureBuildSettings& { return BuildSettings; }
-		auto GetPlatformData() const -> const FVolumeTexturePlatformData* { return PlatformData.get(); }
+		ENGINE_API auto GetPlatformData() const -> const FVolumeTexturePlatformData*;
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
-		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
+		auto GetCookedPlatformData() const -> const Asset::FBulkData& { return CookedPlatformData; }
 		auto GetBuildStatus() const -> ETextureBuildStatus { return BuildStatus; }
 		auto GetLastBuildError() const -> const std::string& { return LastBuildError; }
 		auto GetDerivedDataDiagnostic() const -> const FTextureDerivedDataDiagnostic&
@@ -188,10 +190,8 @@ namespace Durin
 		DPROPERTY()
 		FVolumeTextureBuildSettings BuildSettings;
 
-		DPROPERTY()
-		Asset::FCookedPayloadDescriptor CookedPayload;
-
 		std::unique_ptr<FVolumeTexturePlatformData> PlatformData;
+		Asset::FBulkData CookedPlatformData;
 		std::string DerivedDataKey;
 		FTextureDerivedDataDiagnostic DerivedDataDiagnostic;
 		ETextureBuildStatus BuildStatus = ETextureBuildStatus::Unbuilt;

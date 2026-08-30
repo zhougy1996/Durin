@@ -116,6 +116,28 @@ namespace Durin
 			return Entry;
 		}
 
+		auto MakeCookedFieldEntry(std::string Domain, const Asset::FBulkData& Field)
+			-> FTexturePayloadInspectionEntry
+		{
+			const Asset::FBulkDataMetadata Metadata = Field.GetMetadata();
+			const bool bPresent = Metadata.LogicalSize != 0;
+			return {
+				.Domain = std::move(Domain),
+				.Stage = ETexturePayloadStage::Cooked,
+				.State = bPresent ? ETexturePayloadState::Available
+					: ETexturePayloadState::NotPresent,
+				.Repair = bPresent ? ETexturePayloadRepairAction::None
+					: ETexturePayloadRepairAction::Recook,
+				.DomainSchemaVersion = TexturePayloadSchemaVersion,
+				.LogicalByteCount = Metadata.LogicalSize,
+				.StoredByteCount = Metadata.Range.StoredSize,
+				.Placement = Field.GetState() == Asset::EBulkDataState::Attached
+					? "PackageBulkRange" : "CookProjection",
+				.Diagnostic = bPresent
+					? "Cooked TXPL is stored as a package BulkData field."
+					: "No cooked TXPL field is present."};
+		}
+
 		auto MapDerivedState(ETextureDerivedDataStatus Status) -> ETexturePayloadState
 		{
 			switch (Status)
@@ -198,10 +220,24 @@ namespace Durin
 				.DomainSchemaVersion = TexturePayloadSchemaVersion,
 				.Placement = "DerivedDataCache",
 				.Diagnostic = "DDC keys and records are intentionally not serialized in the package."});
-			Asset::FCookedPayloadDescriptor Cooked;
-			if (ReadCooked(Package, Cooked))
-				OutInspection.Entries.push_back(MakeCookedEntry(
-					"Texture2D", Cooked, Texture2DPrimaryCookedPayloadId));
+			if (const Asset::FAssetPackageField* PlatformField =
+				Package.FindField("PlatformData"))
+				OutInspection.Entries.push_back({
+					.Domain = "Texture2D", .Stage = ETexturePayloadStage::Cooked,
+					.State = ETexturePayloadState::Available,
+					.Repair = ETexturePayloadRepairAction::None,
+					.DomainSchemaVersion = TexturePayloadSchemaVersion,
+					.StoredByteCount = PlatformField->Payload.size(),
+					.Placement = "PackageBulkField",
+					.Diagnostic = "Cooked TXPL field metadata is present in DAST."});
+			else
+				OutInspection.Entries.push_back({
+					.Domain = "Texture2D", .Stage = ETexturePayloadStage::Cooked,
+					.State = ETexturePayloadState::NotPresent,
+					.Repair = ETexturePayloadRepairAction::None,
+					.DomainSchemaVersion = TexturePayloadSchemaVersion,
+					.Placement = "PackageBulkField",
+					.Diagnostic = "No cooked TXPL field is present."});
 		}
 		else if (Package.Header.AssetClassName == VolumeClass)
 		{
@@ -294,10 +330,24 @@ namespace Durin
 				.DomainSchemaVersion = TexturePayloadSchemaVersion,
 				.Placement = "DerivedDataCache",
 				.Diagnostic = "DDC keys and records are intentionally not serialized in the package."});
-			Asset::FCookedPayloadDescriptor Cooked;
-			if (ReadCooked(Package, Cooked))
-				OutInspection.Entries.push_back(MakeCookedEntry(
-					"VolumeTexture", Cooked, VolumeTexturePrimaryCookedPayloadId));
+			if (const Asset::FAssetPackageField* PlatformField =
+				Package.FindField("PlatformData"))
+				OutInspection.Entries.push_back({
+					.Domain = "VolumeTexture", .Stage = ETexturePayloadStage::Cooked,
+					.State = ETexturePayloadState::Available,
+					.Repair = ETexturePayloadRepairAction::None,
+					.DomainSchemaVersion = TexturePayloadSchemaVersion,
+					.StoredByteCount = PlatformField->Payload.size(),
+					.Placement = "PackageBulkField",
+					.Diagnostic = "Cooked TXPL field metadata is present in DAST."});
+			else
+				OutInspection.Entries.push_back({
+					.Domain = "VolumeTexture", .Stage = ETexturePayloadStage::Cooked,
+					.State = ETexturePayloadState::NotPresent,
+					.Repair = ETexturePayloadRepairAction::None,
+					.DomainSchemaVersion = TexturePayloadSchemaVersion,
+					.Placement = "PackageBulkField",
+					.Diagnostic = "No cooked TXPL field is present."});
 		}
 		else
 		{
@@ -340,14 +390,14 @@ namespace Durin
 			.Placement = "DerivedDataCache",
 			.Provenance = Derived.Key,
 			.Diagnostic = Derived.Message});
-		FTexturePayloadInspectionEntry Cooked = MakeCookedEntry(
-			"Texture2D", Texture.GetCookedPayloadDescriptor(), Texture2DPrimaryCookedPayloadId);
+		FTexturePayloadInspectionEntry Cooked = MakeCookedFieldEntry(
+			"Texture2D", Texture.GetCookedPlatformData());
 		if (Cooked.State == ETexturePayloadState::NotPresent
 			&& Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			Cooked.State = ETexturePayloadState::Missing;
 			Cooked.Repair = ETexturePayloadRepairAction::Recook;
-			Cooked.Diagnostic = "The cooked runtime requires a Texture2D payload descriptor.";
+			Cooked.Diagnostic = "The cooked runtime requires a Texture2D PlatformData field.";
 		}
 		else if (Derived.Status == ETextureDerivedDataStatus::CookedFailure)
 		{
@@ -405,14 +455,14 @@ namespace Durin
 			.Placement = "DerivedDataCache",
 			.Provenance = Texture.GetDerivedDataKey(),
 			.Diagnostic = Texture.GetLastBuildError()});
-		FTexturePayloadInspectionEntry Cooked = MakeCookedEntry(
-			"VolumeTexture", Texture.GetCookedPayloadDescriptor(), VolumeTexturePrimaryCookedPayloadId);
+		FTexturePayloadInspectionEntry Cooked = MakeCookedFieldEntry(
+			"VolumeTexture", Texture.GetCookedPlatformData());
 		if (Cooked.State == ETexturePayloadState::NotPresent
 			&& Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			Cooked.State = ETexturePayloadState::Missing;
 			Cooked.Repair = ETexturePayloadRepairAction::Recook;
-			Cooked.Diagnostic = "The cooked runtime requires a VolumeTexture payload descriptor.";
+			Cooked.Diagnostic = "The cooked runtime requires a VolumeTexture PlatformData field.";
 		}
 		else if (Cooked.State == ETexturePayloadState::Available
 			&& !Texture.GetPlatformData() && !Texture.GetLastBuildError().empty())

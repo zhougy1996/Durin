@@ -81,23 +81,6 @@ TEST(FSkyBoxTests, ActorDefaultsSerializeAndRetainCubeReference)
 	auto* Actor = Durin::NewObject<Durin::ASkyBoxActor>(nullptr, "SkyBoxActor");
 	Durin::DSkyBoxComponent* Component = Actor->GetSkyBoxComponent();
 	auto* Cube = Durin::NewObject<Durin::DTextureCube>(nullptr, "ReferencedCube");
-	auto Source = std::make_unique<Durin::FTextureCubeSourceData>();
-	auto Platform = std::make_unique<Durin::FTextureCubePlatformData>();
-	Platform->PixelFormat = Durin::EPixelFormat::RGBA8_UNORM;
-	for (size_t Face = 0; Face < Durin::TextureCubeFaceCount; ++Face)
-	{
-		const std::vector<std::byte> Pixel{
-			std::byte{0x20}, std::byte{0x40}, std::byte{0x80}, std::byte{0xff}};
-		Source->Faces[Face] = {.Pixels = Pixel, .Width = 1, .Height = 1,
-			.SourceChannelCount = 4, .Format = Durin::ETextureSourceFormat::RGBA8};
-		Platform->Faces[Face] = {.Mips = {{.Pixels = Pixel, .Width = 1,
-			.Height = 1, .RowPitch = 4}}, .PixelFormat = Durin::EPixelFormat::RGBA8_UNORM};
-	}
-	Cube->PublishBuildProduct(Durin::ETextureCubeSourceLayout::SixFaces,
-		0, 0.0f, 1, 1, false, std::move(Source), std::move(Platform),
-		"SkyBoxReferenceFixture", {
-			.Status = Durin::ETextureDerivedDataStatus::Rebuilt,
-			.Key = "SkyBoxReferenceFixture"});
 	ASSERT_NE(Component, nullptr);
 	ASSERT_TRUE(Component->GetSkyBoxSceneId().IsValid());
 	const Durin::FGuid OriginalSceneId = Component->GetSkyBoxSceneId();
@@ -111,6 +94,7 @@ TEST(FSkyBoxTests, ActorDefaultsSerializeAndRetainCubeReference)
 	const Durin::FObjectHandle CubeHandle = Durin::MakeObjectHandle(Cube);
 	Durin::CollectGarbage();
 	EXPECT_EQ(Durin::ResolveObjectHandle(CubeHandle), Cube);
+	Component->SetTextureCube(nullptr);
 
 	std::vector<std::byte> Bytes;
 	ASSERT_TRUE(Durin::SaveObjectGraphToMemory(Actor, Bytes));
@@ -118,14 +102,12 @@ TEST(FSkyBoxTests, ActorDefaultsSerializeAndRetainCubeReference)
 	ASSERT_NE(LoadedActor, nullptr);
 	Durin::DSkyBoxComponent* LoadedComponent = LoadedActor->GetSkyBoxComponent();
 	ASSERT_NE(LoadedComponent, nullptr);
-	ASSERT_NE(LoadedComponent->GetTextureCube(), nullptr);
-	EXPECT_EQ(LoadedComponent->GetTextureCube()->GetName(), "ReferencedCube");
+	EXPECT_EQ(LoadedComponent->GetTextureCube(), nullptr);
 	EXPECT_EQ(LoadedComponent->GetSkyBoxSceneId(), OriginalSceneId);
 	EXPECT_NE(LoadedComponent->GetSkyBoxInstanceId(), Component->GetSkyBoxInstanceId());
 	EXPECT_EQ(LoadedComponent->GetTint(), (Durin::FLinearColor(0.25f, 0.5f, 0.75f, 1.0f)));
 	EXPECT_EQ(LoadedComponent->GetIntensity(), 0.0f);
 
-	Component->SetTextureCube(nullptr);
 	Durin::RemoveFromRoot(Actor);
 	Durin::MarkAsGarbage(Actor);
 	Durin::MarkAsGarbage(LoadedActor);

@@ -4,7 +4,7 @@ Summary: Define texture assets, derived platform data, cooking, GPU upload, mate
 
 Modules: Engine, TextureEditor, RenderCore, RHI
 
-Last reviewed: 2026-08-27
+Last reviewed: 2026-08-30
 
 Durin's Texture2D pipeline has explicit authored-source, derived platform,
 cooked-runtime, render-resource, editor, and material boundaries.
@@ -69,8 +69,8 @@ the authored package.
 
 Source image encoding belongs to the ordinary source file and decoder. Texture
 payload schema 2 belongs to the owning asset, DDC values are rebuildable
-canonical platform data, and cooked DBLK bytes are immutable deployment data loaded through
-`LoadCookedPackagePayload`. Decoded source, platform mip, and RHI resource
+canonical platform data, and cooked `PlatformData` fields are immutable
+deployment data loaded through package resources. Decoded source, platform mip, and RHI resource
 lifetimes are independent downstream products. This measured boundary already
 satisfies the large-payload architecture; converting Texture2D to editor DABK
 would not remove an oversized reflected value and is not selected.
@@ -113,13 +113,14 @@ slices. The selected cross-asset storage and cooked companion contract is docume
 
 ## Cooking and Runtime Loading
 
-Texture2D producer version 3 contributes its validated platform bytes under stable
-payload ID `53aa6a89-dc49-401a-b409-adc498ac4f8b`. Cook serializes runtime
-settings plus the logical descriptor, strips source provenance and editor
-fingerprints, and publishes them inside the package DBLK companion.
+Texture2D producer version 3 contributes its validated TXPL schema-2 value as
+the cooked `PlatformData` BulkData field. Cook serializes runtime settings and
+the detached field, strips source provenance and editor fingerprints, and
+publishes large bytes in the package's headerless raw segment.
 
-Cooked-runtime package mode accepts only Win64/Game, PackageCompanion, schema 2,
-uncompressed descriptors matching the DBLK entry. Decode validates every mip
+Cooked-runtime package mode accepts only Win64/Game and schema 2. Metadata load
+attaches the field without reading its range; first platform-data/resource
+access locks and decodes it. Decode validates every mip
 dimension, block row pitch, byte range, padding, format, checksum, and allocation
 limit before replacing live platform data. Missing or malformed bulk is a hard,
 asset-qualified load failure with no source decoder, DDC, or offline compressor

@@ -2,6 +2,7 @@
 
 #include "Terrain/TerrainWorldTile.h"
 #include "Asset/Cook.h"
+#include "Serialization/SharedByteBuffer.h"
 
 namespace Durin::Asset
 {
@@ -19,7 +20,8 @@ namespace Durin::Asset
 		FTerrainTileKey Tile;
 		FGuid GenerationId;
 		ETerrainTileProductClass ProductClass = ETerrainTileProductClass::Metadata;
-		Asset::FCookedPayloadDescriptor Descriptor;
+		uint64 SegmentOffset = 0;
+		uint64 StoredSize = 0;
 		FXxHash128 ProductHash;
 		std::vector<FXxHash128> Dependencies;
 		auto operator==(const FTerrainManifestProductEntry&) const -> bool = default;
@@ -30,6 +32,8 @@ namespace Durin::Asset
 		FTerrainRegionKey Region;
 		bool bInstalled = false;
 		std::string VirtualPackagePath;
+		uint64 SegmentExtent = 0;
+		FXxHash128 SegmentHash;
 		std::vector<FTerrainManifestProductEntry> Products;
 	};
 
@@ -57,11 +61,11 @@ namespace Durin::Asset
 	struct FTerrainCookedProductHandle
 	{
 		std::shared_ptr<const FTerrainWorldManifest> Manifest;
-		std::shared_ptr<Asset::FCookedPackagePayload> PackagePayload;
+		FSharedByteBuffer Payload;
 		FTerrainManifestProductEntry Entry;
 		auto GetBytes() const -> std::span<const std::byte>
 		{
-			return PackagePayload ? PackagePayload->Payload : std::span<const std::byte>{};
+			return Payload.GetBytes();
 		}
 	};
 

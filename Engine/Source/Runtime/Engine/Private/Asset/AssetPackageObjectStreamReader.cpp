@@ -1765,7 +1765,12 @@ namespace Durin::Asset::PackageObjectStream
 					&& Expected->TypeSignature == TypeSignature(*Type, Decoded);
 				const bool bDeprecatedCompatible = Override.Provenance != 2 && Type
 					&& FindDecodedDeprecatedRoute(Decoded, *Schema, Field, *Type);
-				const bool bCompatible = bCurrentCompatible || bDeprecatedCompatible;
+				// Cooked native projection fields are validated against the exact
+				// SerializeCooked manifest and must be consumed by the load Archive.
+				const bool bCookedNativeCandidate = Options.bCooked
+					&& Override.Provenance != 2 && Type && !Expected;
+				const bool bCompatible = bCurrentCompatible || bDeprecatedCompatible
+					|| bCookedNativeCandidate;
 				if (!bCompatible)
 				{
 					Fail(Diagnostic, EReaderFailure::ArchiveFailure,
@@ -1926,13 +1931,18 @@ namespace Durin::Asset::PackageObjectStream
 					TypeSignature(*Type, Decoded), std::move(Payload.Bytes)});
 				KnownOverrides.push_back(&Override);
 			}
+			FArchiveState LoadContext;
+			LoadContext.bCooking = Options.bCooked;
+			LoadContext.bFilterEditorOnly = Options.bCooked;
+			LoadContext.Target = Options.Target;
 			FAssetResult Result = Private::LoadAuthoredObject(*Objects[ObjectIndex], Fields, Objects,
-				PackagePath, Options.SourceFormatVersion, CustomVersions);
+				PackagePath, Options.SourceFormatVersion, CustomVersions, LoadContext);
 			if (!Result)
 			{
 				Fail(Diagnostic, EReaderFailure::ArchiveFailure, Result.Message, 0, Decoded.Objects[ObjectIndex].Path); Rollback();
 				return Finish(Result);
 			}
+			if (Options.bCooked) continue;
 			std::vector<FAuthoredOverrideEntry> LedgerEntries;
 			bool bUsedDeprecatedRoute = false;
 			for (const FDecodedOverride* Override : KnownOverrides)

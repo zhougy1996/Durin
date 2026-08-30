@@ -30,5 +30,6 @@ namespace Durin::Asset::Private
 		std::span<DObject* const> Objects,
 		const FAssetPath& PackagePath,
 		uint32 SourceVersion,
-		std::span<const FArchiveCustomVersion> CustomVersions = {}) -> FAssetResult;
+		std::span<const FArchiveCustomVersion> CustomVersions = {},
+		const FArchiveState& Context = {}) -> FAssetResult;
 }

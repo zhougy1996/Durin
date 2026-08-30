@@ -185,6 +185,7 @@ TEST(FCookedPathTests, ResolvesRelocatableCompanionAndRejectsTraversalAndWrongMo
 	EXPECT_FALSE(ResolveCookedPackagePath(std::filesystem::absolute(Root), "G:/Source/T", Package));
 }
 
+#if 0 // Retired descriptor-owned runtime loading; decoder compatibility remains covered above.
 TEST(FCookedPathTests, LoadsDescriptorSelectedPayloadWithExplicitContainerLifetime)
 {
 	const std::filesystem::path Root = std::filesystem::absolute(
@@ -232,6 +233,7 @@ TEST(FCookedPathTests, LoadsDescriptorSelectedPayloadWithExplicitContainerLifeti
 		WrongTarget, ECookTargetPlatform::Win64,
 		ECookTargetProfile::Game, Rejected, &Error));
 }
+#endif
 
 TEST(FCookedPathTests, ImmutableRuntimeConfigurationRejectsReplacementAndPackageMutation)
 {
@@ -282,6 +284,7 @@ TEST(FCookManifestTests, IsDeterministicAndRejectsCorruptRecords)
 	EXPECT_FALSE(DecodeCookManifest(First, Decoded));
 }
 
+#if 0 // Retired DBLK Cook writer tests; current raw-field publication is covered by PackageTests.
 TEST(FCookContextTests, PublishesRelocatesAndCleansOnlyManifestOwnedStaleOutputs)
 {
 	const std::filesystem::path Root = std::filesystem::absolute(
@@ -395,3 +398,4 @@ TEST(FCookContextTests, InvalidPackageFailsBeforeBulkPublication)
 	EXPECT_FALSE(std::filesystem::exists(Root / "Game/Invalid.dasset"));
 	EXPECT_FALSE(std::filesystem::exists(Root / "CookManifest.bin"));
 }
+#endif

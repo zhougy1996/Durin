@@ -302,8 +302,29 @@ namespace Durin
 
 	DSkeletalMesh::~DSkeletalMesh() = default;
 
+	auto DSkeletalMesh::GetPayloadData() const
+		-> std::shared_ptr<const FSkeletalMeshPayloadData>
+	{
+		if (!PayloadData && Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
+		{
+			std::string Error;
+			const_cast<DSkeletalMesh*>(this)->LoadCookedPayload(Error);
+		}
+		return PayloadData;
+	}
+
 	auto DSkeletalMesh::GetRenderData() const -> const FSkeletalMeshRenderData*
 	{
+		if (!RenderData && Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
+		{
+			std::string Error;
+			DSkeletalMesh* Mutable = const_cast<DSkeletalMesh*>(this);
+			if ((Mutable->PayloadData || Mutable->LoadCookedPayload(Error))
+				&& !Mutable->RenderData)
+				Mutable->BuildRenderData(Error);
+		}
 		return RenderData.get();
 	}
 
@@ -461,7 +482,7 @@ namespace Durin
 			.IndexCount = static_cast<uint32>(InData.Payload->Indices.size()),
 			.SectionCount = static_cast<uint32>(InData.Payload->Sections.size()),
 			.LocalBounds = FSkeletalMeshBounds::FromBox(InData.Payload->LocalBounds)};
-		CookedPayload = InData.CookedPayload;
+		CookedPlatformData = {};
 		DerivedDataKey = std::move(InData.DerivedDataKey);
 		if (InData.bReplaceImportedData) ImportedData = std::move(ImportedCandidate);
 		PayloadData = std::move(InData.Payload);
@@ -538,15 +559,65 @@ namespace Durin
 			OutError = std::format("{}: {}", GetName(), OutError);
 			return false;
 		}
-		if (!PayloadData)
+		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
-			if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
-			{
-				if (!LoadCookedPayload(OutError)) return false;
-			}
-			else if (!InvokeSkeletalMeshUncookedPostLoad(*this, OutError)) return false;
+			if (CookedPlatformData.GetMetadata().LogicalSize == 0)
+				return Fail(std::format(
+					"Cooked SkeletalMesh '{}': required PlatformData field is missing.",
+					GetObjectPath()), &OutError);
+			PayloadData.reset();
+			RenderData.reset();
+			DerivedDataKey.clear();
+			bLoadedFromDerivedDataCache = false;
+			PayloadStorageDiagnostic = std::format(
+				"Loaded cooked SkeletalMesh metadata for '{}'.", GetObjectPath());
+			OutError.clear();
+			return true;
 		}
+		if (!PayloadData && !InvokeSkeletalMeshUncookedPostLoad(*this, OutError)) return false;
 		return PayloadData && (RenderData || BuildRenderData(OutError));
+	}
+
+	auto DSkeletalMesh::SerializeCooked(FArchive& Ar) -> void
+	{
+		Super::SerializeCooked(Ar);
+		if (Ar.GetTarget().Platform != "Win64" || Ar.GetTarget().Profile != "Game")
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData,
+				"SkeletalMesh cooked platform data requires the Win64 Game target.");
+			return;
+		}
+		Asset::FBulkData Projection;
+		Asset::FBulkData* FieldValue = &CookedPlatformData;
+		if (Ar.IsSaving())
+		{
+			if (!PayloadData || !Skeleton)
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData,
+					"SkeletalMesh cooked platform data is unavailable.");
+				return;
+			}
+			std::vector<std::byte> Bytes;
+			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload);
+			const_cast<FSkeletalMeshPayloadData&>(*PayloadData).Serialize(Writer, {
+				.SkeletonBoneCount = Skeleton->GetBoneCount(),
+				.MaterialSlotCount = static_cast<uint32>(MaterialSlots.size()),
+				.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
+				.TargetProfile = ESkeletalPayloadTargetProfile::Game});
+			std::string Error;
+			if (Writer.HasError()
+				|| !Asset::FBulkData::TryCreateDetached(Bytes, Projection, &Error))
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData,
+					Error.empty() ? std::string(Writer.GetError()) : std::move(Error));
+				return;
+			}
+			FieldValue = &Projection;
+		}
+		auto Field = EnterArchiveField(Ar, {FName("Durin::DSkeletalMesh"),
+			FName("PlatformData"), FArchiveLogicalTypeDescriptor::BulkData()});
+		FieldValue->Serialize(Ar, {.Alignment = Asset::EditorBulkDataExternalAlignment,
+			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
 	}
 
 	auto DSkeletalMesh::LoadCookedPayload(std::string& OutError) -> bool
@@ -557,29 +628,9 @@ namespace Durin
 			OutError = PayloadStorageDiagnostic;
 			return false;
 		};
-		if (CookedPayload.PayloadId != SkeletalMeshPrimaryCookedPayloadId
-			|| CookedPayload.LocationKind
-				!= static_cast<uint32>(Asset::ECookedPayloadLocationKind::PackageCompanion)
-			|| CookedPayload.PayloadSchemaVersion != SkeletalMeshPayloadSchemaVersion
-			|| CookedPayload.TargetPlatform
-				!= static_cast<uint32>(Asset::ECookTargetPlatform::Win64)
-			|| CookedPayload.TargetProfile
-				!= static_cast<uint32>(Asset::ECookTargetProfile::Game)
-			|| CookedPayload.CompressionMethod
-				!= static_cast<uint32>(Asset::ECookedPayloadCompression::None))
-			return FailCooked("required DSKM descriptor is missing or incompatible.");
-
-		const Asset::FAssetRuntimeConfiguration& Context =
-			Asset::GetAssetRuntimeConfiguration();
-		if (!GetPackage())
-			return FailCooked("package companion path could not be resolved.");
-		Asset::FCookedPackagePayload LoadedPayload;
-		if (!Asset::LoadCookedPackagePayload(
-			Context, GetPackage()->GetPackagePath(), CookedPayload,
-			Asset::ECookTargetPlatform::Win64,
-			Asset::ECookTargetProfile::Game, LoadedPayload, &OutError))
+		std::span<const std::byte> Bytes;
+		if (!CookedPlatformData.LockReadOnly(Bytes, &OutError))
 			return FailCooked(OutError);
-		const std::span<const std::byte> Bytes = LoadedPayload.Payload;
 		FSkeletalMeshPayloadData Candidate;
 		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::CookedPayload);
 		Candidate.Serialize(Ar, {
@@ -587,12 +638,21 @@ namespace Durin
 			.MaterialSlotCount = static_cast<uint32>(MaterialSlots.size()),
 			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
 			.TargetProfile = ESkeletalPayloadTargetProfile::Game});
-		if (Ar.HasError()) return FailCooked(Ar.GetFailure()->Message);
+		if (Ar.HasError() || !RequireArchiveEnd(Ar))
+		{
+			const std::string Error(Ar.GetError());
+			CookedPlatformData.UnlockReadOnly();
+			return FailCooked(Error);
+		}
 		if (Candidate.Positions.size() != Summary.VertexCount
 			|| Candidate.Indices.size() != Summary.IndexCount
 			|| Candidate.Sections.size() != Summary.SectionCount
 			|| FSkeletalMeshBounds::FromBox(Candidate.LocalBounds) != Summary.LocalBounds)
+		{
+			CookedPlatformData.UnlockReadOnly();
 			return FailCooked("payload does not match authored summary.");
+		}
+		if (!CookedPlatformData.UnlockReadOnly(&OutError)) return FailCooked(OutError);
 		PayloadData = std::make_shared<const FSkeletalMeshPayloadData>(std::move(Candidate));
 		DerivedDataKey.clear();
 		bLoadedFromDerivedDataCache = false;
@@ -613,60 +673,7 @@ namespace Durin
 				"SkeletalMesh '{}' supports only the Win64 game cook target.", GetObjectPath()), &OutError);
 		if (!PayloadData && !PostLoad(OutError)) return false;
 		if (!PayloadData) return Fail("SkeletalMesh has no CPU payload to cook.", &OutError);
-		std::vector<std::byte> PayloadBytes;
-		FCanonicalMemoryWriter Ar(PayloadBytes, EArchivePurpose::CookedPayload);
-		const_cast<FSkeletalMeshPayloadData&>(*PayloadData).Serialize(Ar, {
-			.SkeletonBoneCount = Skeleton->GetBoneCount(),
-			.MaterialSlotCount = static_cast<uint32>(MaterialSlots.size()),
-			.TargetPlatform = ESkeletalPayloadTargetPlatform::Win64,
-			.TargetProfile = ESkeletalPayloadTargetProfile::Game});
-		if (Ar.HasError()) return Fail(Ar.GetFailure()->Message, &OutError);
-		Asset::FCookedBulkPayload BulkPayload{
-			.PayloadId = SkeletalMeshPrimaryCookedPayloadId,
-			.Flags = 1,
-			.PayloadSchemaVersion = SkeletalMeshPayloadSchemaVersion,
-			.Compression = Asset::ECookedPayloadCompression::None,
-			.Alignment = SkeletalPayloadAlignment,
-			.Bytes = std::move(PayloadBytes)};
-		const Asset::FAssetPackageSerializationOptions CookPackageOptions =
-			Context.MakePackageSerializationOptions();
-		return Context.AddPackage(
-			std::string(VirtualPackagePath), {std::move(BulkPayload)},
-			[this, CookPackageOptions](
-				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
-				std::vector<std::byte>& OutPackageBytes,
-				std::string* Error) {
-				if (Descriptors.size() != 1
-					|| Descriptors.front().PayloadId != SkeletalMeshPrimaryCookedPayloadId)
-				{
-					if (Error) *Error = "SkeletalMesh cook did not produce its required descriptor.";
-					return false;
-				}
-				FProperty* DescriptorProperty = GetClass()->FindPropertyByName("CookedPayload");
-				if (!DescriptorProperty)
-				{
-					if (Error) *Error = "SkeletalMesh CookedPayload reflection is unavailable.";
-					return false;
-				}
-				auto Overrides = std::make_shared<Asset::FObjectSaveOverrides>();
-				std::string OverrideError;
-				if (!Overrides->AddPropertyValue(
-					*this, *DescriptorProperty, Descriptors.front(), &OverrideError))
-				{
-					if (Error) *Error = OverrideError;
-					return false;
-				}
-				Asset::FAssetPackageSerializationOptions Options = CookPackageOptions;
-				Options.SaveOverrides = std::move(Overrides);
-				const Asset::FAssetResult Serialized = Asset::SerializeAssetPackageBytes(
-					GetPackage(), OutPackageBytes, Options);
-				if (!Serialized)
-				{
-					if (Error) *Error = Serialized.Message;
-					return false;
-				}
-				return true;
-			}, &OutError);
+		return Context.AddPackage(std::string(VirtualPackagePath), GetPackage(), &OutError);
 	}
 
 	auto DSkeletalMesh::PrepareImportedStateExchange(
@@ -745,7 +752,7 @@ namespace Durin
 		std::swap(Target->MeshNodeBindTransform, Candidate->MeshNodeBindTransform);
 		std::swap(Target->MaterialSlots, Candidate->MaterialSlots);
 		std::swap(Target->Summary, Candidate->Summary);
-		std::swap(Target->CookedPayload, Candidate->CookedPayload);
+		std::swap(Target->CookedPlatformData, Candidate->CookedPlatformData);
 		std::swap(Target->DerivedDataKey, Candidate->DerivedDataKey);
 		std::swap(Target->ImportedData, Candidate->ImportedData);
 		std::swap(Target->PayloadData, Candidate->PayloadData);

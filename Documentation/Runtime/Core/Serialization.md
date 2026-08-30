@@ -52,11 +52,12 @@ and validation replace caller outputs or destination bytes only on success.
 Core never interprets format-owned sections, asset paths, schemas, codecs, or
 publication policy.
 
-Engine consumes this envelope through DAST v6/v7 object packages and the legacy
-DABK v2 and cooked DBLK v2 containers. A DAST v7 authored `.dbulk` is deliberately
-not a DURF envelope: it is a raw package segment interpreted only through its
-owning package. Embedded domain payloads and raw DDC `.bin` values likewise do
-not nest another DURF envelope; their owning asset slot supplies the codec and schema.
+Engine consumes this envelope through DAST v6/v7 object packages and the
+read-only legacy DABK v2 and DBLK v2 compatibility codecs. A DAST v7 authored
+or cooked `.dbulk` is deliberately not a DURF envelope: it is a raw package
+segment interpreted only through its owning package. Embedded family payloads
+and raw DDC `.bin` values likewise do not nest another DURF envelope; their
+owning asset slot supplies the codec and schema.
 
 Persistent values expose one bidirectional customization: member
 `Serialize(FArchive&)`, free `Serialize(FArchive&, Value&)`, or an explicit
@@ -102,6 +103,19 @@ rather than implementation type. Discovery is save-like and may call a
 serializer once before emission; a serializer must therefore expose the same
 fields, logical types, versions, and references in both passes and must not
 mutate persistent state.
+
+`DObject::Serialize` remains the ordinary authored/object-state entry.
+`DObject::SerializeCooked` is the materially different target projection entry;
+its default delegates to `Serialize` for compatibility. A cooked package
+Archive selects `SerializeCooked` during discovery, NoDelta logical planning,
+payload capture, and cooked load, and supplies persistent/Cook/editor-filter and
+explicit target facts in every pass. Overrides call the appropriate base entry
+once, serialize a detached or stack-local PlatformData projection, and do not
+mutate the live graph, package dirty state, build state, diagnostics, or
+residency. Cooked native fields absent from reflection are admitted only as
+provisional compatibility candidates; the exact cooked Archive manifest and
+complete field consumption validate them before publication. Cooked loads do
+not restore authored-override intent.
 
 `FArchiveLogicalTypeDescriptor` describes fixed-width scalars, enums, String,
 Name, Guid, bytes, hard and soft objects, structs, Array, Map, and fixed arrays
@@ -177,7 +191,7 @@ reflected semantics.
 
 Engine's private bounded container codec is not an Archive implementation.
 It serializes only explicit little-endian fixed-width integers, GUID words, and
-exact byte spans for DABK, DBLK, and CMNF physical framing. Archive continues to
+exact byte spans for legacy DABK/DBLK and CMNF physical framing. Archive continues to
 own semantic object/value serialization, purposes, defaults, and reflected
 field traversal; physical-container helpers are not public and do not admit
 native structure layouts.

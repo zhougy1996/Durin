@@ -342,6 +342,12 @@ namespace Durin
 
 	auto DStaticMesh::GetRenderData() const -> const FStaticMeshRenderData*
 	{
+		if (!RenderData && Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+			&& CookedRenderData.GetMetadata().LogicalSize != 0)
+		{
+			std::string Error;
+			const_cast<DStaticMesh*>(this)->LoadCookedRenderData(Error);
+		}
 		return RenderData.get();
 	}
 
@@ -966,7 +972,8 @@ namespace Durin
 			std::swap(NormalizedSize, Other.NormalizedSize);
 			std::swap(ImportedData, Other.ImportedData);
 			std::swap(MaterialSlots, Other.MaterialSlots);
-			std::swap(CookedPayload, Other.CookedPayload);
+			std::swap(CookedRenderData, Other.CookedRenderData);
+			std::swap(CookedCollisionData, Other.CookedCollisionData);
 			if (BodySetup && Other.BodySetup)
 				BodySetup->ExchangeCollisionState(*Other.BodySetup);
 			std::swap(
@@ -1041,7 +1048,8 @@ namespace Durin
 		FStaticMeshRenderStateRecreateContext RecreateContext(Target);
 		std::swap(Target->NormalizedSize, Candidate->NormalizedSize);
 		std::swap(Target->MaterialSlots, Candidate->MaterialSlots);
-		std::swap(Target->CookedPayload, Candidate->CookedPayload);
+		std::swap(Target->CookedRenderData, Candidate->CookedRenderData);
+		std::swap(Target->CookedCollisionData, Candidate->CookedCollisionData);
 		if (Target->BodySetup && Candidate->BodySetup)
 			Target->BodySetup->ExchangeCollisionState(*Candidate->BodySetup);
 		std::swap(Target->DerivedDataDiagnostic, Candidate->DerivedDataDiagnostic);

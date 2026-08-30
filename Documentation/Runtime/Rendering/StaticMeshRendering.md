@@ -4,7 +4,7 @@ Summary: Define static-mesh render data, scene proxies, materials, draw preparat
 
 Modules: Engine, Renderer, RenderCore
 
-Last reviewed: 2026-08-25
+Last reviewed: 2026-08-30
 
 SkeletalMesh uses the same material/pass policy and combined Translucent order
 through its dedicated geometry, vertex-factory, palette, and renderer owner; see
@@ -22,6 +22,12 @@ responsibility: `StaticMesh.cpp` owns lifecycle and publication,
 state and CPU query acceleration, and `StaticMeshRenderResources.cpp` owns
 vertex/index/RHI resource mechanics. These are implementation partitions, not
 additional owners or forwarding layers.
+
+Cook serializes the same schema-5 render value used by DDC into the lazy
+`RenderData` BulkData field and BodySetup collision into `CollisionData`.
+Cooked metadata load attaches both fields without range reads. Render and
+physics publication independently lock, decode, validate, and transactionally
+publish only the required field; cooked runtime has no authored or DDC fallback.
 
 ## Resource Ownership
 

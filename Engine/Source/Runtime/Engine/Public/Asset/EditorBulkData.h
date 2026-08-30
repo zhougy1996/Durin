@@ -9,14 +9,9 @@ namespace Durin::Asset
 	inline constexpr uint32 EditorBulkDataContentIdVersion = 1;
 	inline constexpr uint64 MaximumAuthoredBulkBytes = 1024ull * 1024ull * 1024ull;
 
-	struct FEditorBulkDataSource
-	{
-		FPackageResourceHandle Resource;
-		uint64 SegmentOffset = 0;
-		uint64 StoredSize = 0;
-		uint32 StorageFlags = 0;
-		uint32 Alignment = 1;
-	};
+	using FEditorBulkDataSource = FPackageResourceRange;
+
+	namespace Private { struct FEditorBulkDataState; }
 
 	// Owns authored content identity and an immutable memory or package-resource snapshot.
 	class FEditorBulkData
@@ -24,11 +19,15 @@ namespace Durin::Asset
 	public:
 		ENGINE_API FEditorBulkData();
 		ENGINE_API explicit FEditorBulkData(FGuid InstanceId);
+		ENGINE_API FEditorBulkData(const FEditorBulkData& Other);
+		ENGINE_API auto operator=(const FEditorBulkData& Other) -> FEditorBulkData&;
+		ENGINE_API FEditorBulkData(FEditorBulkData&& Other) noexcept;
+		ENGINE_API auto operator=(FEditorBulkData&& Other) noexcept -> FEditorBulkData&;
 
-		auto GetInstanceId() const -> const FGuid& { return InstanceId; }
-		auto GetPayloadId() const -> FXxHash128 { return ContentId; }
-		auto GetPayloadSize() const -> uint64 { return LogicalSize; }
-		auto IsMemoryResident() const -> bool { return bHasMemory; }
+		ENGINE_API auto GetInstanceId() const -> FGuid;
+		ENGINE_API auto GetPayloadId() const -> FXxHash128;
+		ENGINE_API auto GetPayloadSize() const -> uint64;
+		ENGINE_API auto IsMemoryResident() const -> bool;
 		ENGINE_API auto GetPayload() const -> FPackageResourceRequest;
 		ENGINE_API auto UpdatePayload(std::span<const std::byte> Bytes) -> bool;
 		ENGINE_API auto UpdatePayload(FSharedByteBuffer Buffer) -> bool;
@@ -48,11 +47,6 @@ namespace Durin::Asset
 		ENGINE_API auto Identical(const FEditorBulkData& Other) const -> bool;
 
 	private:
-		FGuid InstanceId;
-		FXxHash128 ContentId;
-		uint64 LogicalSize = 0;
-		FSharedByteBuffer Memory;
-		FEditorBulkDataSource Source;
-		bool bHasMemory = true;
+		std::shared_ptr<const Private::FEditorBulkDataState> State;
 	};
 }

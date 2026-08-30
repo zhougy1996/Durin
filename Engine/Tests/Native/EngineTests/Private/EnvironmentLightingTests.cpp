@@ -141,16 +141,12 @@ TEST(FEnvironmentLightingTests, AssetCooksAuthoredPayloadDirectlyWithoutDdc)
 	ASSERT_TRUE(Asset->AddToCook(Context, "/Game/StudioEnvironment", Error)) << Error;
 	ASSERT_TRUE(Context.Publish(&Error)) << Error;
 
-	Durin::Asset::FCookedBulkContainer Container;
-	ASSERT_TRUE(Durin::Asset::LoadCookedBulkFile(
-		CookRoot / "Game/StudioEnvironment.dbulk",
-		Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game,
-		Container,
-		&Error)) << Error;
-	ASSERT_EQ(Container.Entries.size(), 1);
-	std::span<const std::byte> CookedBytes;
-	ASSERT_TRUE(Durin::Asset::ResolveCookedPayload(
-		Container, Container.Entries.front(), CookedBytes, &Error)) << Error;
-	EXPECT_EQ(std::vector<std::byte>(CookedBytes.begin(), CookedBytes.end()), SourceBytes);
+	Durin::Asset::FAssetPackageInspection Inspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		(CookRoot / "Game/StudioEnvironment.dasset").generic_string(), Inspection));
+	EXPECT_NE(Inspection.FindField("PlatformData"), nullptr);
+	std::vector<std::byte> CookedBytes;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		CookedBytes, CookRoot / "Game/StudioEnvironment.dbulk"));
+	EXPECT_EQ(CookedBytes, SourceBytes);
 }

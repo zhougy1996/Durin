@@ -29,14 +29,10 @@ namespace Durin::Asset
 
 		auto ValidateMetadata(const FBulkDataMetadata& Metadata, std::string* OutError) -> bool
 		{
-			if (!Metadata.Resource || Metadata.StorageFlags != 0
-				|| Metadata.LogicalSize != Metadata.StoredSize
+			if (Metadata.LogicalSize != Metadata.Range.StoredSize
 				|| Metadata.LogicalSize > MaximumBulkDataBytes
-				|| Metadata.Alignment == 0 || Metadata.Alignment > 4096
-				|| (Metadata.Alignment & (Metadata.Alignment - 1)) != 0
-				|| Metadata.SegmentOffset % Metadata.Alignment != 0
-				|| Metadata.SegmentOffset > Metadata.Resource->GetSegmentExtent()
-				|| Metadata.StoredSize > Metadata.Resource->GetSegmentExtent() - Metadata.SegmentOffset)
+				|| !ValidatePackageResourceRange(
+					Metadata.Range, MaximumBulkDataBytes, OutError))
 				return Fail("Bulk data package metadata is invalid or unsupported.", OutError);
 			if (OutError) OutError->clear();
 			return true;
@@ -50,10 +46,10 @@ namespace Durin::Asset
 			Result->Metadata = Source->Metadata;
 			Result->Allocation = Source->Allocation;
 			if (Source->State == EBulkDataState::Empty) Result->State = EBulkDataState::Empty;
-			else if (Source->State == EBulkDataState::Detached || !Source->Metadata.Resource)
+			else if (Source->State == EBulkDataState::Detached || !Source->Metadata.Range.Resource)
 				Result->State = EBulkDataState::Detached;
 			else if (Source->Allocation) Result->State = EBulkDataState::Resident;
-			else if (Source->Metadata.Resource->IsRetired()) Result->State = EBulkDataState::Retired;
+			else if (Source->Metadata.Range.Resource->IsRetired()) Result->State = EBulkDataState::Retired;
 			else Result->State = EBulkDataState::Attached;
 			return Result;
 		}
@@ -91,7 +87,7 @@ namespace Durin::Asset
 			return Fail("Detached bulk data exceeds the 1 GiB limit.", OutError);
 		auto Candidate = NewEmptyState();
 		Candidate->Metadata.LogicalSize = Bytes.size();
-		Candidate->Metadata.StoredSize = Bytes.size();
+		Candidate->Metadata.Range.StoredSize = Bytes.size();
 		Candidate->Allocation = std::make_shared<std::vector<std::byte>>(Bytes.begin(), Bytes.end());
 		Candidate->State = EBulkDataState::Detached;
 		OutValue = FBulkData(std::move(Candidate));
@@ -105,7 +101,7 @@ namespace Durin::Asset
 		if (!ValidateMetadata(Metadata, OutError)) return false;
 		auto Candidate = NewEmptyState();
 		Candidate->Metadata = std::move(Metadata);
-		Candidate->State = Candidate->Metadata.Resource->IsRetired()
+		Candidate->State = Candidate->Metadata.Range.Resource->IsRetired()
 			? EBulkDataState::Retired : EBulkDataState::Attached;
 		OutValue = FBulkData(std::move(Candidate));
 		if (OutError) OutError->clear();
@@ -139,8 +135,8 @@ namespace Durin::Asset
 			const FBulkDataMetadata Metadata = State->Metadata;
 			State->State = EBulkDataState::Loading;
 			Lock.unlock();
-			FPackageResourceReadResult Result = Metadata.Resource->ReadRange(
-				Metadata.SegmentOffset, Metadata.StoredSize);
+			FPackageResourceReadResult Result = Metadata.Range.Resource->ReadRange(
+				Metadata.Range.SegmentOffset, Metadata.Range.StoredSize);
 			Lock.lock();
 			if (!Result || Result.Buffer.GetSize() != Metadata.LogicalSize)
 			{
@@ -169,7 +165,8 @@ namespace Durin::Asset
 		if (State->State != EBulkDataState::ReadLocked || State->ReadLocks == 0)
 			return Fail("Bulk data has no matching read lock.", OutError);
 		if (--State->ReadLocks == 0)
-			State->State = State->Metadata.Resource ? EBulkDataState::Resident : EBulkDataState::Detached;
+			State->State = State->Metadata.Range.Resource
+				? EBulkDataState::Resident : EBulkDataState::Detached;
 		if (OutError) OutError->clear();
 		return true;
 	}
@@ -183,7 +180,7 @@ namespace Durin::Asset
 		if (!State->Allocation) State->Allocation = std::make_shared<std::vector<std::byte>>();
 		else if (State->Allocation.use_count() != 1)
 			State->Allocation = std::make_shared<std::vector<std::byte>>(*State->Allocation);
-		State->Metadata.Resource.reset();
+		State->Metadata.Range.Resource.reset();
 		State->State = EBulkDataState::WriteLocked;
 		OutBytes = *State->Allocation;
 		if (OutError) OutError->clear();
@@ -200,7 +197,7 @@ namespace Durin::Asset
 			return Fail("Bulk data resize exceeds the 1 GiB limit.", OutError);
 		State->Allocation->resize(static_cast<size_t>(Size));
 		State->Metadata.LogicalSize = Size;
-		State->Metadata.StoredSize = Size;
+		State->Metadata.Range.StoredSize = Size;
 		OutBytes = *State->Allocation;
 		if (OutError) OutError->clear();
 		return true;
@@ -219,10 +216,10 @@ namespace Durin::Asset
 	auto FBulkData::Unload(std::string* OutError) -> bool
 	{
 		std::lock_guard Lock(State->Mutex);
-		if (State->State != EBulkDataState::Resident || !State->Metadata.Resource)
+		if (State->State != EBulkDataState::Resident || !State->Metadata.Range.Resource)
 			return Fail("Only unlocked resource-backed bulk data can unload.", OutError);
 		State->Allocation.reset();
-		State->State = State->Metadata.Resource->IsRetired()
+		State->State = State->Metadata.Range.Resource->IsRetired()
 			? EBulkDataState::Retired : EBulkDataState::Attached;
 		if (OutError) OutError->clear();
 		return true;
@@ -234,15 +231,15 @@ namespace Durin::Asset
 		{
 			std::lock_guard Lock(State->Mutex);
 			if ((State->State != EBulkDataState::Attached && State->State != EBulkDataState::Failed)
-				|| !State->Metadata.Resource)
+				|| !State->Metadata.Range.Resource)
 				return FPackageResourceRequest::Completed({
 					.Status = EPackageResourceReadStatus::InvalidRange,
 					.Message = "Bulk data cannot reload in its current state."});
 			Metadata = State->Metadata;
 			State->State = EBulkDataState::Loading;
 		}
-		FPackageResourceRequest Request = Metadata.Resource->ReadRangeAsync(
-			Metadata.SegmentOffset, Metadata.StoredSize);
+		FPackageResourceRequest Request = Metadata.Range.Resource->ReadRangeAsync(
+			Metadata.Range.SegmentOffset, Metadata.Range.StoredSize);
 		auto Target = State;
 		return FPackageResourceRequest::Transform(std::move(Request),
 			[Target, Metadata](FPackageResourceReadResult Result) {
@@ -258,5 +255,69 @@ namespace Durin::Asset
 				? EBulkDataState::Retired : EBulkDataState::Failed;
 			return Result;
 		});
+	}
+
+	auto FBulkData::Serialize(
+		FArchive& Ar, FArchiveBulkDataParameters Parameters) -> void
+	{
+		FArchiveBulkDataValue Value;
+		if (Ar.IsSaving())
+		{
+			FBulkDataMetadata Metadata;
+			std::shared_ptr<std::vector<std::byte>> Allocation;
+			{
+				std::lock_guard Lock(State->Mutex);
+				Metadata = State->Metadata;
+				Allocation = State->Allocation;
+			}
+			FSharedByteBuffer Buffer;
+			if (Allocation) Buffer = FSharedByteBuffer::Copy(*Allocation);
+			else if (Metadata.Range.Resource)
+			{
+				const FPackageResourceReadResult Result = Metadata.Range.Resource->ReadRange(
+					Metadata.Range.SegmentOffset, Metadata.Range.StoredSize);
+				if (!Result)
+				{
+					Ar.Fail(EArchiveFailureCode::InvalidData,
+						Result.Message.empty() ? "Bulk data cannot be read for serialization."
+							: Result.Message);
+					return;
+				}
+				Buffer = Result.Buffer;
+			}
+			if (Buffer.GetSize() != Metadata.LogicalSize)
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData,
+					"Bulk data serialization captured an inconsistent logical size.");
+				return;
+			}
+			Value.LogicalSize = Metadata.LogicalSize;
+			Value.StoredSize = Metadata.LogicalSize;
+			Value.ContentHash = FXxHash128::HashBuffer(Buffer.GetBytes());
+			Value.Buffer = std::move(Buffer);
+		}
+		if (!Parameters.Owner) Parameters.Owner = this;
+		Ar.SerializeBulkData(Value, Parameters);
+		if (!Ar.IsLoading() || Ar.HasError()) return;
+
+		FBulkData Candidate;
+		std::string Error;
+		const bool bLoaded = Value.StorageKind == EArchiveBulkDataStorageKind::External
+			? Value.PackageResource && TryAttach({
+				.LogicalSize = Value.LogicalSize,
+				.Range = {
+					.Resource = std::static_pointer_cast<FPackageResource>(Value.PackageResource),
+					.SegmentOffset = Value.SegmentOffset,
+					.StoredSize = Value.StoredSize,
+					.Alignment = Value.Alignment}}, Candidate, &Error)
+			: Value.Buffer.GetSize() == Value.LogicalSize
+				&& TryCreateDetached(Value.Buffer.GetBytes(), Candidate, &Error);
+		if (!bLoaded)
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData,
+				Error.empty() ? "Loaded runtime bulk data is invalid." : Error);
+			return;
+		}
+		*this = std::move(Candidate);
 	}
 }

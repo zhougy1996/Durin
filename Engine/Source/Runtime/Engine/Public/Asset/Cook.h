@@ -2,6 +2,7 @@
 
 #include "EngineAPI.h"
 #include "Asset/CookedAsset.h"
+#include "Asset/PackageBulkData.h"
 
 namespace Durin::Asset
 {
@@ -28,13 +29,19 @@ namespace Durin::Asset
 	enum class ECookManifestEntryKind : uint8
 	{
 		CookedPackage = 1,
-		CookedBulk = 2
+		CookedBulk = 2,
+		PackageBulk = 3,
 	};
+
+	inline constexpr uint8 CookManifestEntryPresent = 1u << 0;
+	inline constexpr uint8 CookManifestEntryCookedFieldProjection = 1u << 1;
+	inline constexpr uint8 CookManifestEntryKnownFlags =
+		CookManifestEntryPresent | CookManifestEntryCookedFieldProjection;
 
 	struct FCookManifestEntry
 	{
 		ECookManifestEntryKind Kind = ECookManifestEntryKind::CookedPackage;
-		uint8 Flags = 1;
+		uint8 Flags = CookManifestEntryPresent;
 		std::string RelativePath;
 		uint64 FileSize = 0;
 		uint64 HashLow = 0;
@@ -64,12 +71,6 @@ namespace Durin::Asset
 	class FCookContext
 	{
 	public:
-		using FPackageByteBuilder = std::function<bool(
-			std::span<const FCookedPayloadDescriptor>,
-			std::vector<std::byte>&,
-			std::string*
-		)>;
-
 		ENGINE_API FCookContext(
 			std::filesystem::path InCookRoot,
 			ECookTargetPlatform InTargetPlatform,
@@ -79,13 +80,19 @@ namespace Durin::Asset
 		ENGINE_API auto AddPackage(
 			std::string VirtualPackagePath,
 			std::vector<std::byte> PackageBytes,
-			std::vector<FCookedBulkPayload> Payloads,
 			std::string* OutError = nullptr
 		) -> bool;
 		ENGINE_API auto AddPackage(
 			std::string VirtualPackagePath,
-			std::vector<FCookedBulkPayload> Payloads,
-			FPackageByteBuilder BuildPackageBytes,
+			DPackage* Package,
+			std::string* OutError = nullptr
+		) -> bool;
+		// Publishes an opaque headerless raw segment owned by a higher-level
+		// manifest rather than by reflected package fields.
+		ENGINE_API auto AddRawPackage(
+			std::string VirtualPackagePath,
+			std::vector<std::byte> PackageBytes,
+			std::vector<std::byte> RawSegmentBytes,
 			std::string* OutError = nullptr
 		) -> bool;
 		ENGINE_API auto Publish(std::string* OutError = nullptr) -> bool;
@@ -101,6 +108,10 @@ namespace Durin::Asset
 			std::string VirtualPath;
 			std::vector<std::byte> PackageBytes;
 			std::vector<std::byte> BulkBytes;
+			FPackageBulkSegmentSummary BulkSummary;
+			std::vector<FPackageBulkDataEntry> BulkEntries;
+			bool bRawBulkSegment = false;
+			bool bOpaqueRawSegment = false;
 		};
 
 		std::filesystem::path CookRoot;

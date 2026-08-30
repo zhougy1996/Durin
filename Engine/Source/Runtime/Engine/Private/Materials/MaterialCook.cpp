@@ -16,42 +16,29 @@ namespace Durin
 			OutError = MaterialCookDiagnostic;
 			return false;
 		};
-		if (CookedProgramPayload.PayloadId != MaterialCookedProgramPayloadId
-			|| CookedProgramPayload.LocationKind
-				!= static_cast<uint32>(
-					Asset::ECookedPayloadLocationKind::PackageCompanion)
-			|| CookedProgramPayload.PayloadSchemaVersion
-				!= MaterialCookedProgramPayloadSchemaVersion
-			|| CookedProgramPayload.TargetPlatform
-				!= static_cast<uint32>(Asset::ECookTargetPlatform::Win64)
-			|| CookedProgramPayload.TargetProfile
-				!= static_cast<uint32>(Asset::ECookTargetProfile::Game)
-			|| CookedProgramPayload.CompressionMethod
-				!= static_cast<uint32>(Asset::ECookedPayloadCompression::None))
-			return FailCooked("required DMAT descriptor is missing or incompatible.");
-		if (!GetPackage())
-			return FailCooked("package companion path could not be resolved.");
-
-		const Asset::FAssetRuntimeConfiguration& Runtime =
-			Asset::GetAssetRuntimeConfiguration();
-		Asset::FCookedPackagePayload LoadedPayload;
-		if (!Asset::LoadCookedPackagePayload(
-			Runtime, GetPackage()->GetPackagePath(), CookedProgramPayload,
-			Asset::ECookTargetPlatform::Win64,
-			Asset::ECookTargetProfile::Game, LoadedPayload, &OutError))
+		std::span<const std::byte> Bytes;
+		if (!CookedProgramData.LockReadOnly(Bytes, &OutError))
 			return FailCooked(OutError);
 
 		FMaterialStaticProperties PayloadProperties;
 		std::shared_ptr<const FMaterialCompilerResult> ProgramCandidate;
 		if (!DecodeMaterialCookedProgram(
-			LoadedPayload.Payload,
+			Bytes,
 			Asset::ECookTargetPlatform::Win64,
 			Asset::ECookTargetProfile::Game,
 			PayloadProperties, ProgramCandidate, OutError))
+		{
+			CookedProgramData.UnlockReadOnly();
 			return FailCooked(OutError);
+		}
 		if (PayloadProperties != StaticProperties)
+		{
+			CookedProgramData.UnlockReadOnly();
 			return FailCooked(
 				"payload static properties do not match package metadata.");
+		}
+		if (!CookedProgramData.UnlockReadOnly(&OutError))
+			return FailCooked(OutError);
 
 		AcceptedCompiledProgram = std::move(ProgramCandidate);
 		AcceptedCompiledStaticProperties = PayloadProperties;
@@ -79,6 +66,44 @@ namespace Durin
 		return true;
 	}
 
+	auto DMaterial::SerializeCooked(FArchive& Ar) -> void
+	{
+		Super::SerializeCooked(Ar);
+		if (Ar.GetTarget().Platform != "Win64" || Ar.GetTarget().Profile != "Game")
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData,
+				"Material cooked program data requires the Win64 Game target.");
+			return;
+		}
+		Asset::FBulkData Projection;
+		Asset::FBulkData* FieldValue = &CookedProgramData;
+		if (Ar.IsSaving())
+		{
+			if (!AcceptedCompiledProgram)
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData,
+					"Material cooked program data is unavailable.");
+				return;
+			}
+			std::vector<std::byte> Bytes;
+			std::string Error;
+			if (!EncodeMaterialCookedProgram(
+					*AcceptedCompiledProgram, AcceptedCompiledStaticProperties,
+					Asset::ECookTargetPlatform::Win64,
+					Asset::ECookTargetProfile::Game, Bytes, Error)
+				|| !Asset::FBulkData::TryCreateDetached(Bytes, Projection, &Error))
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData, std::move(Error));
+				return;
+			}
+			FieldValue = &Projection;
+		}
+		auto Field = EnterArchiveField(Ar, {FName("Durin::DMaterial"),
+			FName("ProgramData"), FArchiveLogicalTypeDescriptor::BulkData()});
+		FieldValue->Serialize(Ar, {.Alignment = Asset::EditorBulkDataExternalAlignment,
+			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
+	}
+
 	auto DMaterial::AddToCook(
 		Asset::FCookContext& Context,
 		std::string_view VirtualPackagePath,
@@ -101,66 +126,7 @@ namespace Durin
 				"Material '{}' compiled target or pass contract is incompatible with Cook.",
 				GetObjectPath()), &OutError);
 
-		std::vector<std::byte> PayloadBytes;
-		if (!EncodeMaterialCookedProgram(
-			*AcceptedCompiledProgram, AcceptedCompiledStaticProperties,
-			Context.GetTargetPlatform(), Context.GetTargetProfile(),
-			PayloadBytes, OutError))
-			return false;
-		Asset::FCookedBulkPayload BulkPayload{
-			.PayloadId = MaterialCookedProgramPayloadId,
-			.Flags = 1,
-			.PayloadSchemaVersion = MaterialCookedProgramPayloadSchemaVersion,
-			.Compression = Asset::ECookedPayloadCompression::None,
-			.Alignment = MaterialCookedProgramPayloadAlignment,
-			.Bytes = std::move(PayloadBytes),
-		};
-		const Asset::FAssetPackageSerializationOptions CookPackageOptions =
-			Context.MakePackageSerializationOptions();
 		return Context.AddPackage(
-			std::string(VirtualPackagePath), {std::move(BulkPayload)},
-			[this, CookPackageOptions](
-				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
-				std::vector<std::byte>& OutPackageBytes,
-				std::string* Error) {
-				if (Descriptors.size() != 1
-					|| Descriptors.front().PayloadId
-						!= MaterialCookedProgramPayloadId)
-				{
-					if (Error) *Error =
-						"Material Cook did not produce its required descriptor.";
-					return false;
-				}
-				FProperty* DescriptorProperty = GetClass()->FindPropertyByName(
-					"CookedProgramPayload");
-				if (!DescriptorProperty)
-				{
-					if (Error) *Error =
-						"Material CookedProgramPayload reflection is unavailable.";
-					return false;
-				}
-				auto Overrides =
-					std::make_shared<Asset::FObjectSaveOverrides>();
-				std::string OverrideError;
-				if (!Overrides->AddPropertyValue(
-					*this, *DescriptorProperty, Descriptors.front(),
-					&OverrideError))
-				{
-					if (Error) *Error = OverrideError;
-					return false;
-				}
-				Asset::FAssetPackageSerializationOptions Options =
-					CookPackageOptions;
-				Options.SaveOverrides = std::move(Overrides);
-				const Asset::FAssetResult Serialized =
-					Asset::SerializeAssetPackageBytes(
-						GetPackage(), OutPackageBytes, Options);
-				if (!Serialized)
-				{
-					if (Error) *Error = Serialized.Message;
-					return false;
-				}
-				return true;
-			}, &OutError);
+			std::string(VirtualPackagePath), GetPackage(), &OutError);
 	}
 }

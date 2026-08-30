@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Asset/Cook.h"
+#include "Asset/BulkData.h"
 #include "Asset/EditorBulkData.h"
 #include "EngineAPI.h"
 #include "Hash/XxHash.h"
@@ -191,7 +192,6 @@ namespace Durin
 		FSkeletonTransform MeshNodeBindTransform;
 		std::vector<FMeshMaterialSlotDefinition> MaterialSlots;
 		std::shared_ptr<const FSkeletalMeshPayloadData> Payload;
-		Asset::FCookedPayloadDescriptor CookedPayload;
 		std::string DerivedDataKey;
 		std::string DiagnosticMessage;
 		bool bLoadedFromDerivedDataCache = false;
@@ -230,8 +230,8 @@ namespace Durin
 		ENGINE_API auto FindMaterialSlot(FName Name) const
 			-> const FMeshMaterialSlotDefinition*;
 		auto GetSummary() const -> const FSkeletalMeshSummary& { return Summary; }
-		auto GetCookedPayloadDescriptor() const -> const Asset::FCookedPayloadDescriptor& { return CookedPayload; }
-		auto GetPayloadData() const -> std::shared_ptr<const FSkeletalMeshPayloadData> { return PayloadData; }
+		ENGINE_API auto GetPayloadData() const -> std::shared_ptr<const FSkeletalMeshPayloadData>;
+		auto GetCookedPlatformData() const -> const Asset::FBulkData& { return CookedPlatformData; }
 		auto GetImportedData() const -> const FSkeletalMeshImportedData& { return ImportedData; }
 		auto GetDerivedDataKey() const -> const std::string& { return DerivedDataKey; }
 		auto WasLoadedFromDerivedDataCache() const -> bool { return bLoadedFromDerivedDataCache; }
@@ -249,6 +249,7 @@ namespace Durin
 			const DSkeleton& ProspectiveSkeleton,
 			std::string& OutError) const -> bool;
 		ENGINE_API auto PostLoad(std::string& OutError) -> bool override;
+		ENGINE_API auto SerializeCooked(FArchive& Ar) -> void override;
 		ENGINE_API auto AddToCook(
 			Asset::FCookContext& Context,
 			std::string_view VirtualPackagePath,
@@ -280,8 +281,7 @@ namespace Durin
 		DPROPERTY()
 		FSkeletalMeshSummary Summary;
 
-		DPROPERTY()
-		Asset::FCookedPayloadDescriptor CookedPayload;
+		Asset::FBulkData CookedPlatformData;
 
 		DPROPERTY(EditorOnly)
 		std::string DerivedDataKey;

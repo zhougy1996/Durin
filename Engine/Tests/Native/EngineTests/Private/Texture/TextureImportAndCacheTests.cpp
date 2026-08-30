@@ -131,36 +131,12 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	EXPECT_EQ(ConstructFreeInspection.Entries.front().Domain, "Texture2D");
 	EXPECT_EQ(ConstructFreeInspection.Entries.front().LogicalElementCount, 2u);
 	EXPECT_EQ(ConstructFreeInspection.Entries.front().Placement, "SourceFile");
-	Durin::FProperty* CookedProperty = Result.Asset->GetClass()->FindPropertyByName(
-		"CookedPayload");
-	ASSERT_NE(CookedProperty, nullptr);
-	auto* CookedDescriptor = static_cast<Durin::Asset::FCookedPayloadDescriptor*>(
-		CookedProperty->GetValuePtr(Result.Asset));
-	ASSERT_NE(CookedDescriptor, nullptr);
-	const Durin::Asset::FCookedPayloadDescriptor SavedCookedDescriptor =
-		*CookedDescriptor;
-	*CookedDescriptor = {
-		.PayloadId = Durin::Texture2DPrimaryCookedPayloadId,
-		.LocationKind = static_cast<uint32>(
-			Durin::Asset::ECookedPayloadLocationKind::PackageCompanion),
-		.StoredSize = 16,
-		.UncompressedSize = 16,
-		.PayloadSchemaVersion = Durin::TexturePayloadSchemaVersion + 1};
-	ASSERT_TRUE(Durin::Asset::SavePackage(Result.Asset->GetPackage()));
-	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
-		AssetData->PhysicalPath, PackageInspection));
-	ASSERT_TRUE(Durin::InspectTexturePayloadPackage(
-		PackageInspection, ConstructFreeInspection, &InspectionError))
-		<< InspectionError;
-	const auto UnsupportedCooked = std::ranges::find(
+	const auto AuthoredCooked = std::ranges::find(
 		ConstructFreeInspection.Entries, Durin::ETexturePayloadStage::Cooked,
 		&Durin::FTexturePayloadInspectionEntry::Stage);
-	ASSERT_NE(UnsupportedCooked, ConstructFreeInspection.Entries.end());
-	EXPECT_EQ(UnsupportedCooked->State, Durin::ETexturePayloadState::Unsupported);
-	EXPECT_EQ(UnsupportedCooked->Repair,
-		Durin::ETexturePayloadRepairAction::UpgradeOrResave);
-	*CookedDescriptor = SavedCookedDescriptor;
-	ASSERT_TRUE(Durin::Asset::SavePackage(Result.Asset->GetPackage()));
+	ASSERT_NE(AuthoredCooked, ConstructFreeInspection.Entries.end());
+	EXPECT_EQ(AuthoredCooked->State, Durin::ETexturePayloadState::NotPresent);
+	EXPECT_EQ(AuthoredCooked->Placement, "PackageBulkField");
 
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 

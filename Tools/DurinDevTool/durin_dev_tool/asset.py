@@ -27,7 +27,7 @@ from .runtime_program import (
 
 POLICY_EXIT_CODE = 3
 SCHEMA_VERSION = 3
-CURRENT_ASSET_FORMAT_VERSION = 6
+CURRENT_ASSET_FORMAT_VERSION = 7
 SCHEMA_DIRECTORY = Path(__file__).resolve().parents[1] / "schemas"
 
 
@@ -220,12 +220,12 @@ def _run_check(
         if _baseline_failed(report):
             _render_human(report, stdout)
             print(
-                "\nAsset baseline rejected: every package must be current DAST v6 "
+                "\nAsset baseline rejected: every package must be current DAST v7 "
                 "with no compatibility or resave findings.",
                 file=stdout,
             )
         else:
-            print(f"Asset baseline: {len(report['packages'])} current DAST v6 package(s).", file=stdout)
+            print(f"Asset baseline: {len(report['packages'])} current DAST v7 package(s).", file=stdout)
     else:
         _render_human(report, stdout)
     if is_baseline:

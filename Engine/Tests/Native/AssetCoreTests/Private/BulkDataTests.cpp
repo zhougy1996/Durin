@@ -266,9 +266,10 @@ TEST(FPackageResourceTests, LoadsUnloadsAndRetiresAttachedBulkData)
 	FBulkData Value;
 	ASSERT_TRUE(FBulkData::TryAttach({
 		.LogicalSize = Size,
-		.StoredSize = Size,
-		.Alignment = EditorBulkDataExternalAlignment,
-		.Resource = Handle}, Value, &Error)) << Error;
+		.Range = {
+			.Resource = Handle,
+			.StoredSize = Size,
+			.Alignment = EditorBulkDataExternalAlignment}}, Value, &Error)) << Error;
 	EXPECT_EQ(Value.GetState(), EBulkDataState::Attached);
 	ASSERT_TRUE(Value.ReloadAsync().Wait()) << Error;
 	EXPECT_EQ(Value.GetState(), EBulkDataState::Resident);
@@ -330,4 +331,83 @@ TEST(FEditorBulkDataTests, SeparatesInstanceAndContentIdentityWithoutForcedLoad)
 	EXPECT_TRUE(PackageBacked.GetPayload().Wait());
 	Resource->Retire();
 	EXPECT_EQ(PackageBacked.GetPayload().Wait().Status, EPackageResourceReadStatus::Retired);
+}
+
+TEST(FEditorBulkDataTests, ConcurrentCopiesObserveOneCoherentSnapshot)
+{
+	const std::array Initial{std::byte{1}, std::byte{2}, std::byte{3}};
+	const std::array Replacement{std::byte{9}, std::byte{8}, std::byte{7}, std::byte{6}};
+	FEditorBulkData Value(FGuid{11, 12, 13, 14});
+	ASSERT_TRUE(Value.UpdatePayload(Initial));
+	std::atomic_bool Done = false;
+	std::atomic_bool Coherent = true;
+	std::thread Writer([&] {
+		for (uint32 Index = 0; Index < 2000; ++Index)
+		{
+			if (!Value.UpdatePayload(Index % 2 == 0
+				? std::span<const std::byte>(Initial)
+				: std::span<const std::byte>(Replacement)))
+				Coherent.store(false, std::memory_order_release);
+		}
+		Done.store(true, std::memory_order_release);
+	});
+	while (!Done.load(std::memory_order_acquire))
+	{
+		const FEditorBulkData Snapshot = Value;
+		const FPackageResourceReadResult Payload = Snapshot.GetPayload().Wait();
+		if (!Payload || Payload.Buffer.GetSize() != Snapshot.GetPayloadSize()
+			|| FXxHash128::HashBuffer(Payload.Buffer.GetBytes()) != Snapshot.GetPayloadId()
+			|| Snapshot.GetInstanceId() != FGuid{11, 12, 13, 14})
+			Coherent.store(false, std::memory_order_release);
+	}
+	Writer.join();
+	EXPECT_TRUE(Coherent.load(std::memory_order_acquire));
+}
+
+TEST(FEditorBulkDataTests, RequestsAndFailedReplacementConserveCapturedState)
+{
+	auto Resource = std::make_shared<FSlowPackageResource>();
+	FEditorBulkData Value;
+	std::string Error;
+	ASSERT_TRUE(FEditorBulkData::TryCreatePackageBacked(
+		FGuid{21, 22, 23, 24}, FXxHash128::HashBuffer(
+			std::vector<std::byte>(4, std::byte{0})), 4,
+		{.Resource = Resource, .StoredSize = 4}, Value, &Error)) << Error;
+	FPackageResourceRequest Captured = Value.GetPayload();
+	const std::array Replacement{std::byte{4}, std::byte{3}};
+	ASSERT_TRUE(Value.UpdatePayload(Replacement));
+	const FPackageResourceReadResult Original = Captured.Wait();
+	ASSERT_TRUE(Original);
+	EXPECT_EQ(Original.Buffer.GetSize(), 4u);
+	EXPECT_TRUE(std::ranges::all_of(
+		Original.Buffer.GetBytes(), [](std::byte Byte) { return Byte == std::byte{0}; }));
+
+	const FGuid InstanceId = Value.GetInstanceId();
+	const FXxHash128 ContentId = Value.GetPayloadId();
+	EXPECT_FALSE(Value.ReplaceBytes(FGuid{}, Replacement));
+	EXPECT_EQ(Value.GetInstanceId(), InstanceId);
+	EXPECT_EQ(Value.GetPayloadId(), ContentId);
+	EXPECT_TRUE(std::ranges::equal(Value.GetPayload().Wait().Buffer.GetBytes(), Replacement));
+}
+
+TEST(FPackageResourceRangeTests, SharesBoundedStorageFactsAcrossEditorAndRuntimeBulk)
+{
+	auto Resource = std::make_shared<FSlowPackageResource>();
+	const FPackageResourceRange Range{.Resource = Resource, .StoredSize = 4};
+	std::string Error;
+	EXPECT_TRUE(ValidatePackageResourceRange(Range, 4, &Error)) << Error;
+	FPackageResourceRange Invalid = Range;
+	Invalid.StorageFlags = 1;
+	EXPECT_FALSE(ValidatePackageResourceRange(Invalid, 4, &Error));
+
+	FEditorBulkData Editor;
+	ASSERT_TRUE(FEditorBulkData::TryCreatePackageBacked(
+		FGuid{31, 32, 33, 34}, FXxHash128::HashBuffer(
+			std::vector<std::byte>(4, std::byte{0})), 4, Range, Editor, &Error)) << Error;
+	FBulkData Runtime;
+	ASSERT_TRUE(FBulkData::TryAttach(
+		{.LogicalSize = 4, .Range = Range}, Runtime, &Error)) << Error;
+	EXPECT_EQ(Editor.GetPayloadSize(), Runtime.GetMetadata().LogicalSize);
+	EXPECT_EQ(Runtime.GetMetadata().Range.Resource, Resource);
+	EXPECT_FALSE(Editor.IsMemoryResident());
 }

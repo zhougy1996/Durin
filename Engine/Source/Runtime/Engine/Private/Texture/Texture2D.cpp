@@ -157,6 +157,45 @@ namespace Durin
 		Super::Serialize(Ar);
 	}
 
+	auto DTexture2D::SerializeCooked(FArchive& Ar) -> void
+	{
+		Super::SerializeCooked(Ar);
+		if (Ar.GetTarget().Platform != "Win64" || Ar.GetTarget().Profile != "Game")
+		{
+			Ar.Fail(EArchiveFailureCode::InvalidData,
+				"Texture2D cooked platform data requires the Win64 Game target.");
+			return;
+		}
+		Asset::FBulkData Projection;
+		Asset::FBulkData* Value = &CookedPlatformData;
+		if (Ar.IsSaving())
+		{
+			if (!PlatformData || !PlatformData->IsValid())
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData,
+					"Texture2D cooked platform data is unavailable.");
+				return;
+			}
+			std::vector<std::byte> Bytes;
+			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload);
+			PlatformData->Serialize(Writer, {
+				.TargetPlatform = Asset::ECookTargetPlatform::Win64,
+				.TargetProfile = Asset::ECookTargetProfile::Game});
+			std::string Error;
+			if (Writer.HasError() || !Asset::FBulkData::TryCreateDetached(Bytes, Projection, &Error))
+			{
+				Ar.Fail(EArchiveFailureCode::InvalidData, Error.empty()
+					? std::string(Writer.GetError()) : std::move(Error));
+				return;
+			}
+			Value = &Projection;
+		}
+		auto Field = EnterArchiveField(Ar, {FName("Durin::DTexture2D"),
+			FName("PlatformData"), FArchiveLogicalTypeDescriptor::BulkData()});
+		Value->Serialize(Ar, {.Alignment = TexturePayloadAlignment,
+			.StoragePolicy = EArchiveBulkDataStoragePolicy::AllowExternal});
+	}
+
 	auto DTexture2D::InvalidatePlatformData() -> void
 	{
 		PlatformData.reset();
@@ -169,6 +208,17 @@ namespace Durin
 			LastBuildError.clear();
 		}
 		InvalidateRenderResource();
+	}
+
+	auto DTexture2D::GetPlatformData() const -> const FTexturePlatformData*
+	{
+		if (!PlatformData && Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload()
+			&& CookedPlatformData.GetMetadata().LogicalSize != 0)
+		{
+			std::string Error;
+			const_cast<DTexture2D*>(this)->LoadCookedPlatformData(Error);
+		}
+		return PlatformData.get();
 	}
 
 	auto DTexture2D::CreateRenderResourceCandidate(
@@ -188,7 +238,27 @@ namespace Durin
 	auto DTexture2D::PostLoad(std::string& OutError) -> bool
 	{
 		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
-			return LoadCookedPlatformData(OutError);
+		{
+			if (CookedPlatformData.GetMetadata().LogicalSize == 0)
+			{
+				OutError = std::format(
+					"Cooked Texture2D '{}': required PlatformData field is missing.",
+					GetObjectPath());
+				return false;
+			}
+			SourceData.reset();
+			PlatformData.reset();
+			DerivedDataKey.clear();
+			bLoadedFromDerivedDataCache = false;
+			DerivedDataDiagnostic = {
+				.Status = ETextureDerivedDataStatus::CookedLoaded,
+				.Message = std::format(
+					"Loaded cooked Texture2D metadata for '{}'.", GetObjectPath())};
+			BuildStatus = ETextureBuildStatus::Ready;
+			LastBuildError.clear();
+			OutError.clear();
+			return true;
+		}
 		BuildStatus = ETextureBuildStatus::Unbuilt;
 		LastBuildError.clear();
 		DerivedDataKey.clear();
@@ -215,35 +285,9 @@ namespace Durin
 			return false;
 		};
 
-		if (CookedPayload.PayloadId != Texture2DPrimaryCookedPayloadId
-			|| CookedPayload.LocationKind
-				!= static_cast<uint32>(Asset::ECookedPayloadLocationKind::PackageCompanion)
-			|| CookedPayload.PayloadSchemaVersion != TexturePayloadSchemaVersion
-			|| CookedPayload.TargetPlatform != static_cast<uint32>(Asset::ECookTargetPlatform::Win64)
-			|| CookedPayload.TargetProfile != static_cast<uint32>(Asset::ECookTargetProfile::Game)
-			|| CookedPayload.CompressionMethod
-				!= static_cast<uint32>(Asset::ECookedPayloadCompression::None))
-		{
-			return FailCooked("required TXPL descriptor is missing or incompatible.");
-		}
-
-		const Asset::FAssetRuntimeConfiguration& LoadContext =
-			Asset::GetAssetRuntimeConfiguration();
-		if (!GetPackage())
-			return FailCooked("package companion path could not be resolved.");
-		Asset::FCookedPackagePayload LoadedPayload;
-		if (!Asset::LoadCookedPackagePayload(
-			LoadContext,
-			GetPackage()->GetPackagePath(),
-			CookedPayload,
-			Asset::ECookTargetPlatform::Win64,
-			Asset::ECookTargetProfile::Game,
-			LoadedPayload,
-			&OutError))
-		{
+		std::span<const std::byte> Bytes;
+		if (!CookedPlatformData.LockReadOnly(Bytes, &OutError))
 			return FailCooked(OutError);
-		}
-		const std::span<const std::byte> Bytes = LoadedPayload.Payload;
 
 		auto CandidatePlatformData = std::make_unique<FTexturePlatformData>();
 		FCanonicalMemoryReader PayloadAr(Bytes, EArchivePurpose::CookedPayload);
@@ -252,8 +296,10 @@ namespace Durin
 			.TargetProfile = Asset::ECookTargetProfile::Game});
 		if (PayloadAr.HasError() || !RequireArchiveEnd(PayloadAr))
 		{
+			CookedPlatformData.UnlockReadOnly();
 			return FailCooked(std::string(PayloadAr.GetError()));
 		}
+		if (!CookedPlatformData.UnlockReadOnly(&OutError)) return FailCooked(OutError);
 
 		SourceData.reset();
 		PlatformData = std::move(CandidatePlatformData);
@@ -294,68 +340,8 @@ namespace Durin
 			return false;
 		}
 
-		std::vector<std::byte> PayloadBytes;
-		FCanonicalMemoryWriter CookAr(PayloadBytes, EArchivePurpose::CookedPayload);
-		PlatformData->Serialize(CookAr, {
-			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
-			.TargetProfile = Asset::ECookTargetProfile::Game});
-		if (CookAr.HasError())
-		{
-			OutError = std::format(
-				"Failed to cook Texture2D '{}': {}", GetObjectPath(), CookAr.GetError());
-			return false;
-		}
-
-		Asset::FCookedBulkPayload BulkPayload{
-			.PayloadId = Texture2DPrimaryCookedPayloadId,
-			.Flags = 1,
-			.PayloadSchemaVersion = TexturePayloadSchemaVersion,
-			.Compression = Asset::ECookedPayloadCompression::None,
-			.Alignment = TexturePayloadAlignment,
-			.Bytes = std::move(PayloadBytes)};
-		const Asset::FAssetPackageSerializationOptions CookPackageOptions =
-			Context.MakePackageSerializationOptions();
-
 		return Context.AddPackage(
-			std::string(VirtualPackagePath),
-			{std::move(BulkPayload)},
-			[this, CookPackageOptions](
-				std::span<const Asset::FCookedPayloadDescriptor> Descriptors,
-				std::vector<std::byte>& OutPackageBytes,
-				std::string* Error) {
-				if (Descriptors.size() != 1
-					|| Descriptors.front().PayloadId != Texture2DPrimaryCookedPayloadId)
-				{
-					if (Error) *Error = "Texture2D cook did not produce its required descriptor.";
-					return false;
-				}
-
-				FProperty* DescriptorProperty = GetClass()->FindPropertyByName("CookedPayload");
-				if (!DescriptorProperty)
-				{
-					if (Error) *Error = "Texture2D CookedPayload reflection is unavailable.";
-					return false;
-				}
-				auto Overrides = std::make_shared<Asset::FObjectSaveOverrides>();
-				std::string OverrideError;
-				if (!Overrides->AddPropertyValue(
-					*this, *DescriptorProperty, Descriptors.front(), &OverrideError))
-				{
-					if (Error) *Error = OverrideError;
-					return false;
-				}
-				Asset::FAssetPackageSerializationOptions SerializationOptions = CookPackageOptions;
-				SerializationOptions.SaveOverrides = std::move(Overrides);
-				const Asset::FAssetResult Result = Asset::SerializeAssetPackageBytes(
-					GetPackage(), OutPackageBytes, SerializationOptions);
-				if (!Result)
-				{
-					if (Error) *Error = Result.Message;
-					return false;
-				}
-				return true;
-			},
-			&OutError);
+			std::string(VirtualPackagePath), GetPackage(), &OutError);
 	}
 
 	auto DTexture2D::PreEditChangeProperty(FPropertyEditProposal& Proposal, std::string& OutError) -> bool
@@ -529,7 +515,7 @@ namespace Durin
 		std::swap(CompressionQuality, Other.CompressionQuality);
 		std::swap(AlphaMipMode, Other.AlphaMipMode);
 		std::swap(AlphaCoverageThreshold, Other.AlphaCoverageThreshold);
-		std::swap(CookedPayload, Other.CookedPayload);
+		std::swap(CookedPlatformData, Other.CookedPlatformData);
 		std::swap(SourceData, Other.SourceData);
 		std::swap(PlatformData, Other.PlatformData);
 		std::swap(DerivedDataKey, Other.DerivedDataKey);

@@ -174,23 +174,6 @@ namespace
 		return Payload;
 	}
 
-	auto MakeCookedDescriptor(uint32 Seed) -> Durin::Asset::FCookedPayloadDescriptor
-	{
-		return {
-			.PayloadId = Durin::FGuid(Seed, Seed + 1, Seed + 2, Seed + 3),
-			.LocationKind = Seed + 4,
-			.Offset = Seed + 5,
-			.StoredSize = Seed + 6,
-			.UncompressedSize = Seed + 7,
-			.Alignment = Seed + 8,
-			.PayloadHashLow = Seed + 9,
-			.PayloadHashHigh = Seed + 10,
-			.PayloadSchemaVersion = Seed + 11,
-			.TargetPlatform = Seed + 12,
-			.TargetProfile = Seed + 13,
-			.CompressionMethod = Seed + 14};
-	}
-
 	auto InitializeMesh(
 		Durin::DSkeletalMesh& Mesh,
 		Durin::DSkeleton& Skeleton,
@@ -206,7 +189,6 @@ namespace
 				.SourceName = std::string(SlotName),
 				.SourceMaterialIndex = 0}},
 			.Payload = MakeMeshPayload(),
-			.CookedPayload = MakeCookedDescriptor(100),
 			.DerivedDataKey = DerivedDataKey};
 		std::string Error;
 		if (!DerivedDataKey.empty())
@@ -295,7 +277,6 @@ namespace
 			.SkeletonCompatibilityIdentity = Skeleton.GetCompatibilityIdentity(),
 			.ClipName = Durin::FName(Name),
 			.Payload = MakeClipPayload(EndValue),
-			.CookedPayload = MakeCookedDescriptor(200),
 			.DerivedDataKey = DerivedDataKey};
 		std::string Error;
 		if (!DerivedDataKey.empty())
@@ -1164,8 +1145,6 @@ TEST(FSkeletalAssetTests, AuthoredPackagesRoundTripHardReferencesAndSummaries)
 	const std::string Identity = Skeleton->GetCompatibilityIdentity();
 	const Durin::FSkeletalMeshSummary MeshSummary = Mesh->GetSummary();
 	const Durin::FAnimationClipSummary ClipSummary = Clip->GetSummary();
-	const Durin::Asset::FCookedPayloadDescriptor MeshCooked = Mesh->GetCookedPayloadDescriptor();
-	const Durin::Asset::FCookedPayloadDescriptor ClipCooked = Clip->GetCookedPayloadDescriptor();
 	ASSERT_TRUE(Durin::Asset::SavePackage(Skeleton->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Mesh->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Clip->GetPackage()));
@@ -1178,7 +1157,6 @@ TEST(FSkeletalAssetTests, AuthoredPackagesRoundTripHardReferencesAndSummaries)
 	EXPECT_EQ(Mesh->GetSkeleton()->GetCompatibilityIdentity(), Identity);
 	EXPECT_EQ(Mesh->GetSkeletonCompatibilityIdentity(), Identity);
 	EXPECT_EQ(Mesh->GetSummary(), MeshSummary);
-	EXPECT_EQ(Mesh->GetCookedPayloadDescriptor(), MeshCooked);
 	ASSERT_EQ(Mesh->GetMaterialSlots().size(), 1u);
 	EXPECT_EQ(Mesh->GetMaterialSlots()[0].SourceName, "Body");
 	EXPECT_NE(Mesh->GetPayloadData(), nullptr);
@@ -1189,7 +1167,6 @@ TEST(FSkeletalAssetTests, AuthoredPackagesRoundTripHardReferencesAndSummaries)
 	ASSERT_NE(Clip->GetSkeleton(), nullptr);
 	EXPECT_EQ(Clip->GetSkeletonCompatibilityIdentity(), Identity);
 	EXPECT_EQ(Clip->GetSummary(), ClipSummary);
-	EXPECT_EQ(Clip->GetCookedPayloadDescriptor(), ClipCooked);
 	ASSERT_EQ(Clip->GetSkeleton()->GetBones().size(), 5u);
 	EXPECT_EQ(Clip->GetSkeleton()->GetBones()[4].Name, Durin::FName("Hand"));
 	EXPECT_NE(Clip->GetPayloadData(), nullptr);
@@ -1215,7 +1192,6 @@ TEST(FSkeletalAssetTests, DuplicationPreservesAuthoredStateAndExternalReferences
 	ASSERT_NE(MeshDuplicate, nullptr);
 	EXPECT_EQ(MeshDuplicate->GetSkeleton(), Skeleton);
 	EXPECT_EQ(MeshDuplicate->GetSummary(), Mesh->GetSummary());
-	EXPECT_EQ(MeshDuplicate->GetCookedPayloadDescriptor(), Mesh->GetCookedPayloadDescriptor());
 	EXPECT_NE(MeshDuplicate->GetPayloadData(), nullptr);
 	EXPECT_EQ(MeshDuplicate->GetImportedData().GetIdentity(),
 		Mesh->GetImportedData().GetIdentity());
@@ -1224,7 +1200,6 @@ TEST(FSkeletalAssetTests, DuplicationPreservesAuthoredStateAndExternalReferences
 	ASSERT_NE(ClipDuplicate, nullptr);
 	EXPECT_EQ(ClipDuplicate->GetSkeleton(), Skeleton);
 	EXPECT_EQ(ClipDuplicate->GetSummary(), Clip->GetSummary());
-	EXPECT_EQ(ClipDuplicate->GetCookedPayloadDescriptor(), Clip->GetCookedPayloadDescriptor());
 	EXPECT_NE(ClipDuplicate->GetPayloadData(), nullptr);
 	EXPECT_EQ(ClipDuplicate->GetImportedData().GetIdentity(),
 		Clip->GetImportedData().GetIdentity());
@@ -1300,9 +1275,7 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	for (const std::filesystem::path& Relative : {
 		std::filesystem::path("Game/Skeleton.dasset"),
 		std::filesystem::path("Game/Mesh.dasset"),
-		std::filesystem::path("Game/Mesh.dbulk"),
 		std::filesystem::path("Game/Clip.dasset"),
-		std::filesystem::path("Game/Clip.dbulk"),
 		std::filesystem::path("CookManifest.bin")})
 	{
 		std::vector<std::byte> FirstBytes;
@@ -1321,24 +1294,16 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 			EXPECT_FALSE(ContainsText(FirstBytes, "cook-clip"));
 		}
 	}
-	std::vector<std::byte> MeshBulk;
-	std::vector<std::byte> ClipBulk;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		MeshBulk, (FirstCookRoot / "Game/Mesh.dbulk")));
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
-		ClipBulk, (FirstCookRoot / "Game/Clip.dbulk")));
-	Durin::Asset::FCookedBulkContainer MeshContainer;
-	Durin::Asset::FCookedBulkContainer ClipContainer;
-	ASSERT_TRUE(Durin::Asset::DecodeCookedBulk(
-		MeshBulk, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, MeshContainer, &Error)) << Error;
-	ASSERT_TRUE(Durin::Asset::DecodeCookedBulk(
-		ClipBulk, Durin::Asset::ECookTargetPlatform::Win64,
-		Durin::Asset::ECookTargetProfile::Game, ClipContainer, &Error)) << Error;
-	ASSERT_EQ(MeshContainer.Entries.size(), 1u);
-	ASSERT_EQ(ClipContainer.Entries.size(), 1u);
-	EXPECT_EQ(MeshContainer.Entries[0].PayloadId, Durin::SkeletalMeshPrimaryCookedPayloadId);
-	EXPECT_EQ(ClipContainer.Entries[0].PayloadId, Durin::AnimationClipPrimaryCookedPayloadId);
+	EXPECT_FALSE(std::filesystem::exists(FirstCookRoot / "Game/Mesh.dbulk"));
+	EXPECT_FALSE(std::filesystem::exists(FirstCookRoot / "Game/Clip.dbulk"));
+	Durin::Asset::FAssetPackageInspection MeshInspection;
+	Durin::Asset::FAssetPackageInspection ClipInspection;
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		(FirstCookRoot / "Game/Mesh.dasset").generic_string(), MeshInspection));
+	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
+		(FirstCookRoot / "Game/Clip.dasset").generic_string(), ClipInspection));
+	EXPECT_NE(MeshInspection.FindField("PlatformData"), nullptr);
+	EXPECT_NE(ClipInspection.FindField("PlatformData"), nullptr);
 
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ClipPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
@@ -1354,37 +1319,33 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	ASSERT_TRUE(Durin::Asset::LoadAsset(MeshPath, Mesh));
 	ASSERT_NE(Mesh, nullptr);
 	ASSERT_NE(Mesh->GetSkeleton(), nullptr);
+	EXPECT_NE(Mesh->GetCookedPlatformData().GetMetadata().LogicalSize, 0u);
 	ASSERT_NE(Mesh->GetPayloadData(), nullptr);
 	EXPECT_EQ(*Mesh->GetPayloadData(), ExpectedMesh);
 	EXPECT_TRUE(Mesh->GetDerivedDataKey().empty());
-	EXPECT_EQ(Mesh->GetCookedPayloadDescriptor().PayloadId,
-		Durin::SkeletalMeshPrimaryCookedPayloadId);
 	Clip = nullptr;
 	ASSERT_TRUE(Durin::Asset::LoadAsset(ClipPath, Clip));
 	ASSERT_NE(Clip, nullptr);
 	EXPECT_EQ(Clip->GetSkeleton(), Mesh->GetSkeleton());
+	EXPECT_NE(Clip->GetCookedPlatformData().GetMetadata().LogicalSize, 0u);
 	ASSERT_NE(Clip->GetPayloadData(), nullptr);
 	EXPECT_EQ(*Clip->GetPayloadData(), ExpectedClip);
 	EXPECT_TRUE(Clip->GetDerivedDataKey().empty());
-	EXPECT_EQ(Clip->GetCookedPayloadDescriptor().PayloadId,
-		Durin::AnimationClipPrimaryCookedPayloadId);
 
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ClipPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(SkeletonPath));
-	MeshBulk.back() ^= std::byte{0x80};
+	std::vector<std::byte> MeshPackage;
+	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
+		MeshPackage, FirstCookRoot / "Game/Mesh.dasset"));
+	MeshPackage.back() ^= std::byte{0x80};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
-		std::as_bytes(std::span(MeshBulk)), FirstCookRoot / "Game/Mesh.dbulk"));
+		std::as_bytes(std::span(MeshPackage)), FirstCookRoot / "Game/Mesh.dasset"));
 	RestartAssetManager(FirstCookRoot);
 	Durin::PathUtilities::RegisterMountPointForTests(
 		"/Game/", (FirstCookRoot / "Game").generic_string() + "/");
-	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
+	EXPECT_FALSE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
-	Mesh = nullptr;
-	const Durin::Asset::FAssetResult Corrupt = Durin::Asset::LoadAsset(MeshPath, Mesh);
-	EXPECT_FALSE(Corrupt);
-	EXPECT_EQ(Mesh, nullptr);
-	EXPECT_NE(Corrupt.Message.find("checksum"), std::string::npos) << Corrupt.Message;
 
 	RestartAssetManager();
 	Durin::FPaths::SetDerivedDataCacheDirForTests({});

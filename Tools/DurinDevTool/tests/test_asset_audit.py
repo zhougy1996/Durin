@@ -26,7 +26,7 @@ def package(
     inspection: str = "Ready",
     compatibility: str = "Compatible",
     freshness: str = "Current",
-    format_version: int = 6,
+    format_version: int = 7,
     code: str | None = None,
 ) -> dict[str, object]:
     findings = [] if code is None else [{
@@ -381,6 +381,7 @@ def test_storage_history_is_head_bounded_and_follows_renames(tmp_path: Path) -> 
         (report(package("/Game/Baseline", format_version=3)), 3),
         (report(package("/Game/Baseline", format_version=4, compatibility="Unsupported", code="UnsupportedPackageFormat")), 3),
         (report(package("/Game/Baseline", format_version=5, compatibility="Unsupported", code="UnsupportedPackageFormat")), 3),
+        (report(package("/Game/Baseline", format_version=6)), 3),
         (report(package("/Game/Baseline", compatibility="Incompatible", code="UnknownField")), 3),
         (report(with_canonicalization_evidence(package("/Game/Baseline"))), 3),
         (report(with_deprecated_route_evidence(package("/Game/Baseline"))), 3),
@@ -444,7 +445,7 @@ def test_checked_in_schema_freezes_public_enum_names() -> None:
     finding_properties = schema["$defs"]["finding"]["properties"]
     assert schema["properties"]["schemaVersion"]["const"] == asset.SCHEMA_VERSION
     native_contract = (
-        REPOSITORY_ROOT / "Engine/Source/Runtime/AssetCore/Public/Asset/Compatibility.h"
+        REPOSITORY_ROOT / "Engine/Source/Runtime/Engine/Public/Asset/Compatibility.h"
     ).read_text(encoding="utf-8")
     assert f"AssetCompatibilityReportSchemaVersion = {asset.SCHEMA_VERSION};" in native_contract
     assert set(package_properties["inspection"]["enum"]) == {"NotChecked", "Ready", "Failed"}
