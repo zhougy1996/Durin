@@ -5,7 +5,6 @@
 #include "Renderers/SceneRenderPlan.h"
 #include "Renderers/SceneRenderTelemetry.h"
 #include "Renderers/SceneFrameGraphContributors.h"
-#include "Renderers/SceneFrameGraphBackingProvider.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
 #include "RenderGraph.h"
@@ -379,10 +378,7 @@ namespace Durin
 			.EnvironmentLighting = EnvironmentLighting,
 			.DirectionalShadowRenderer = DirectionalShadowRenderer,
 			.ResolvedFrame = ResolvedFrame,
-			.Telemetry = Telemetry,
-			.ResolveTargets = [this](const FSceneFrameTopology& Topology) {
-				return ResolveFrameTargets_RenderThread(Topology);
-			}};
+			.Telemetry = Telemetry};
 		const FSceneFrameGraphComposeInputs ComposeInputs{
 			.Services = GraphServices,
 			.PreparedView = PreparedView,
@@ -413,11 +409,7 @@ namespace Durin
 		if (GraphStatus == ESceneFrameGraphExecutionStatus::CompileFailed)
 			return ERenderViewResult::RendererResourcesUnavailable;
 		if (GraphStatus == ESceneFrameGraphExecutionStatus::ExecutionFailed)
-		{
-			return Composition.TargetResolutionResult != ERenderViewResult::Success
-				? Composition.TargetResolutionResult
-				: ERenderViewResult::RendererResourcesUnavailable;
-		}
+			return ERenderViewResult::RendererResourcesUnavailable;
 		if (!Composition.SceneColorPublication.IsSuccess())
 			return Composition.SceneColorPublication.Result;
 		if (Composition.PostProcessPublication.Result

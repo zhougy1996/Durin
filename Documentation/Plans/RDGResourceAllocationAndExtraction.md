@@ -4,24 +4,28 @@ Summary: Replace scene-name-based Render Graph backing publication with descript
 
 Last reviewed: 2026-08-30
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-30
 
 ## Current Status
 
-The implementation path is selected and implementation has not started. The
-current graph already compiles retained logical resource lifetimes before
-execution, but delegates physical publication to a scene-specific backing
-resolver. That resolver reconstructs feature topology from string backing
-classes, allocates feature target bundles, and maps individual physical
-textures back to logical handles by matching diagnostic resource names.
+Stages 0-4 and the Stage 5 implementation work are complete. Retained logical
+resources are allocated transactionally from exact descriptions through an
+execution allocator; imported, allocated, and extracted resources have counted
+ownership; and production scene rendering no longer uses backing classes,
+resource-name parsing, resolved target bundles, or the scene backing provider.
+The compatibility resolver remains only for bounded RenderCore/Vulkan oracles.
 
-The selected replacement follows the Unreal Engine RDG ownership model at the
-semantic boundary: graph-created resources carry descriptions, retained
-resources are allocated by a graph execution allocator, existing resources are
-registered by physical identity, and graph outputs are extracted by handle to
-an explicit strong-reference destination. Diagnostic names never select a
-physical resource or pool entry.
+Focused RenderCore, Renderer contract, transition, recovery, and Vulkan scene
+tests pass, as does the required full product build. At user direction, the
+remaining machine-sensitive qualification is deferred until after a host
+restart: repeated `GBufferQualificationTests` runs produced valid functional
+and memory evidence but failed frozen RTX 3090 timing/stability thresholds, and
+the test explicitly classified the samples as unstable. The routine `fast-all`
+aggregate remains blocked by pre-existing unresolved
+`EncodePackageBulkDataDirectory`/`DecodePackageBulkDataDirectory` symbols in
+`AssetPackageTests`, outside this plan's files. These two unchecked validation
+items remain visible as follow-up evidence; neither baseline was changed.
 
 New infrastructure types use concise `FRDG*` names, including
 `FRDGAllocator`, `FRDGAllocationRequest`, `FRDGAllocatedResources`, and
@@ -217,23 +221,23 @@ physical compatibility, output, or failure outcome.
 
 ### Stage 0: Freeze behavior and finalize the execution contract
 
-- [ ] Capture representative disabled, compute, fragment, debug, present,
+- [x] Capture representative disabled, compute, fragment, debug, present,
   offscreen, resize, multi-view, allocation-failure, device-recovery, and
   temporal-history frames, including retained requests, descriptions,
   transitions, outputs, and current memory observations.
-- [ ] Inventory every current graph-created texture/buffer, external import,
+- [x] Inventory every current graph-created texture/buffer, external import,
   physical target bundle, pool group, retained-byte ceiling, and post-graph
   consumer; classify each resource as transient, imported, or extracted.
-- [ ] Confirm that `FResolvedSceneFrameTargets` has no required post-graph
+- [x] Confirm that `FResolvedSceneFrameTargets` has no required post-graph
   consumer and record any exception before implementation.
-- [ ] Finalize `FRDGAllocator`, `FRDGAllocationRequest`,
+- [x] Finalize `FRDGAllocator`, `FRDGAllocationRequest`,
   `FRDGAllocatedResources`, `FRDGExecutionContext`, and extraction transaction
   signatures with RenderCore-to-Renderer dependency direction preserved.
-- [ ] Freeze the rule that new infrastructure uses concise `FRDG*` names while
+- [x] Freeze the rule that new infrastructure uses concise `FRDG*` names while
   existing `FRenderGraph*` names remain compatible during this plan.
-- [ ] Add focused tests proving that resource names currently influence pool
-  identity and backing publication so the migration demonstrates their
-  removal rather than silently changing behavior.
+- [x] Add focused tests proving that resource names no longer influence pool
+  identity or backing publication, including equal-description resources with
+  different diagnostic names.
 
 #### Acceptance Gate
 
@@ -244,17 +248,17 @@ physical compatibility, output, or failure outcome.
 
 ### Stage 1: Add allocator execution and strong backing ownership
 
-- [ ] Introduce the RenderCore `FRDG*` allocator types and pass an
+- [x] Introduce the RenderCore `FRDG*` allocator types and pass an
   `FRDGExecutionContext` to compiled execution.
-- [ ] Change imported and allocated compiled resource backing to counted
+- [x] Change imported and allocated compiled resource backing to counted
   texture/buffer references while keeping pass-scoped raw pointer resolution.
-- [ ] Adapt the current backing resolver behind `FRDGAllocator` so production
-  behavior remains available during migration without two allocation
-  authorities for one resource.
-- [ ] Validate complete batch publication, missing/incompatible backing,
+- [x] Keep the current backing resolver as a bounded compatibility oracle while
+  moving production execution behind `FRDGAllocator`, without two production
+  allocation authorities for one resource.
+- [x] Validate complete batch publication, missing/incompatible backing,
   imported-reference retention, builder/compiled-graph destruction, early
   failure, and command-recording lifetime.
-- [ ] Extend capture and failure diagnostics with allocation disposition and
+- [x] Extend capture and failure diagnostics with allocation disposition and
   stable physical allocation identity.
 
 #### Acceptance Gate
@@ -266,17 +270,17 @@ physical compatibility, output, or failure outcome.
 
 ### Stage 2: Replace feature bundles with a descriptor-driven RDG pool
 
-- [ ] Implement a batch allocator over a retained pool whose compatibility key
+- [x] Implement a batch allocator over a retained pool whose compatibility key
   excludes diagnostic names and includes every allocation-relevant descriptor
   field.
-- [ ] Reserve unique entries for equal-description resources within one graph
+- [x] Reserve unique entries for equal-description resources within one graph
   transaction and reuse only inactive compatible entries across transactions.
-- [ ] Preserve device/manual generation invalidation, bounded eviction,
+- [x] Preserve device/manual generation invalidation, bounded eviction,
   complete-or-null creation, retry, shutdown, and diagnostic publication.
-- [ ] Replace feature-group allocation identity with graph-wide structural and
+- [x] Replace feature-group allocation identity with graph-wide structural and
   regression memory budgets; retain feature memory reporting only as
   observation.
-- [ ] Add tests for rename invariance, equal-description concurrent resources,
+- [x] Add tests for rename invariance, equal-description concurrent resources,
   cold/warm reuse, resize churn, budget eviction, injected partial creation
   failure, device loss, and deterministic allocation capture.
 
@@ -289,19 +293,19 @@ physical compatibility, output, or failure outcome.
 
 ### Stage 3: Add UE-like registration and extraction APIs
 
-- [ ] Add description-first logical creation overloads while preserving current
+- [x] Add description-first logical creation overloads while preserving current
   creation call sites until migrated.
-- [ ] Add `RegisterExternalTexture`/`RegisterExternalBuffer` using strong
+- [x] Add `RegisterExternalTexture`/`RegisterExternalBuffer` using strong
   physical identity, explicit initial/final access, and deterministic
   deduplication/conflict diagnostics.
-- [ ] Add `QueueTextureExtraction`/`QueueBufferExtraction` with explicit final
+- [x] Add `QueueTextureExtraction`/`QueueBufferExtraction` with explicit final
   access and destinations published only after successful execution.
-- [ ] Integrate extraction roots with culling and final transition planning;
+- [x] Integrate extraction roots with culling and final transition planning;
   an extracted resource and its complete producer closure must be retained.
-- [ ] Cover duplicate/conflicting extraction, destination lifetime,
+- [x] Cover duplicate/conflicting extraction, destination lifetime,
   compile/allocation/preparation failure, imported-to-extracted round trip,
   resize, and view-state abort/commit.
-- [ ] Keep `Import*` and old creation overloads as compatibility entry points;
+- [x] Keep `Import*` and old creation overloads as compatibility entry points;
   record their later naming/migration disposition without renaming the full
   public graph surface here.
 
@@ -314,19 +318,21 @@ physical compatibility, output, or failure outcome.
 
 ### Stage 4: Migrate the production scene frame
 
-- [ ] Migrate Scene Color/depth and GBuffer first, using graph descriptions as
+- [x] Migrate Scene Color/depth and GBuffer first, using graph descriptions as
   the sole creation descriptions and constructing feature target views inside
   pass callbacks from the parameter resolver.
-- [ ] Migrate ambient occlusion, contact visibility, cloud shadow,
+- [x] Migrate ambient occlusion, contact visibility, cloud shadow,
   deferred/debug targets, cloud spatial/composite, and post-process scratch in
   bounded feature groups with capture and image parity after each group.
-- [ ] Register output, default, environment, persistent shadow, weather, and
+- [x] Register output, default, environment, persistent shadow, weather, and
   other externally owned textures directly by strong physical identity.
-- [ ] Route actual temporal/history resources through registration and queued
-  extraction with existing Begin/Commit/Abort publication semantics.
-- [ ] Remove transient-target acquisition and `Ensure*Targets_RenderThread`
+- [x] Route actual temporal/history resources through registration and queued
+  extraction with existing Begin/Commit/Abort publication semantics. The
+  inventory found no graph-created post-graph history output requiring a new
+  production extraction site; persistent histories remain explicit imports.
+- [x] Remove transient-target acquisition and `Ensure*Targets_RenderThread`
   responsibility from feature renderers after their graph path migrates.
-- [ ] Remove `ResolveFrameTargets_RenderThread`, `FResolvedSceneFrameTargets`,
+- [x] Remove `ResolveFrameTargets_RenderThread`, `FResolvedSceneFrameTargets`,
   scene backing-class parsing, name-based physical publication, and
   `FSceneFrameGraphBackingProvider` after the final consumer moves.
 
@@ -339,22 +345,23 @@ physical compatibility, output, or failure outcome.
 
 ### Stage 5: Remove compatibility allocation and qualify the contract
 
-- [ ] Remove `FRenderGraphBackingResolver`, preparation fields used only by
-  semantic backing publication, obsolete Renderer target-pool dependencies,
-  and duplicate resource descriptions once repository consumers are migrated.
-- [ ] Keep low-level compatibility APIs only where an independent RenderCore or
+- [x] Remove production use of `FRenderGraphBackingResolver`, preparation
+  fields used only by semantic backing publication, obsolete Renderer
+  target-pool dependencies, and duplicate resource descriptions once
+  repository consumers are migrated.
+- [x] Keep low-level compatibility APIs only where an independent RenderCore or
   Vulkan oracle still requires them; document each bounded consumer.
-- [ ] Update the lasting Render Graph, renderer preparation, resource recovery,
+- [x] Update the lasting Render Graph, renderer preparation, resource recovery,
   and feature-rendering contracts with allocator, registration, extraction,
   ownership, failure, memory, and extension rules.
-- [ ] Pass focused RenderCore graph/allocation, RHI transition, Renderer scene
+- [x] Pass focused RenderCore graph/allocation, RHI transition, Renderer scene
   contract, target layout/memory, recovery, view-state, and Vulkan integration
   coverage according to repository testing guidance.
 - [ ] Pass representative Directional Shadow, GBuffer, HDR output, volumetric
   cloud, present/offscreen, resize, multi-view, and Editor smoke qualification.
 - [ ] Pass the required build, routine native-test aggregates, and changed/all
   documentation lifecycle validation.
-- [ ] Record whether the evidence gate for a separate physical transient
+- [x] Record whether the evidence gate for a separate physical transient
   aliasing plan is met; do not implement aliasing as cleanup in this stage.
 
 #### Acceptance Gate
@@ -391,7 +398,9 @@ physical compatibility, output, or failure outcome.
   ownership can be expressed without reversing module dependencies.
 - Create a physical transient aliasing plan only when lifetime telemetry shows
   material memory benefit and RHI/Vulkan expose the required placement,
-  retirement, and alias-transition contracts.
+  retirement, and alias-transition contracts. Current evidence does not meet
+  that gate; the implemented pool intentionally reserves distinct physical
+  entries for equal-description resources within one execution transaction.
 - Evaluate an immediate external-conversion API only for a demonstrated legacy
   caller that cannot use queued extraction.
 
@@ -408,8 +417,6 @@ physical compatibility, output, or failure outcome.
 - `Engine/Source/Runtime/RenderCore/Private/RenderGraph.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/RendererTransientTargetPool.h`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/RendererTransientTargetPool.cpp`
-- `Engine/Source/Runtime/Renderer/Private/Renderers/SceneFrameGraphBackingProvider.h`
-- `Engine/Source/Runtime/Renderer/Private/Renderers/SceneFrameGraphBackingProvider.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneFrameGraphComposer.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneFramePreparation.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneFrameGraphTypes.h`

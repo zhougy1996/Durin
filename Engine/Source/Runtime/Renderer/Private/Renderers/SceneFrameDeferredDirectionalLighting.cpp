@@ -102,8 +102,8 @@ namespace Durin
 					.SetFlags(ETextureCreateFlags::RenderTargetable
 						| ETextureCreateFlags::ShaderResource
 						| ETextureCreateFlags::SourceCopy),
-					.BackingClass = std::string(GetSceneFrameBackingClassName(
-						ESceneFrameBackingClass::Deferred))},
+					.ObservationTag = static_cast<uint32>(
+						ERendererTransientTargetGroup::DeferredDirectional)},
 				ERHIAccess::GraphicsShaderRead);
 		auto Parameters = Graph.AllocParameters<
 			FDeferredDirectionalLightingPassParameters>();

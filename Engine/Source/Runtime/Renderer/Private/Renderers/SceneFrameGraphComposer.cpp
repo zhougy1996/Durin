@@ -1,6 +1,5 @@
 #include "Renderers/SceneFrameGraphComposer.h"
 
-#include "Renderers/SceneFrameGraphBackingProvider.h"
 #include "Renderers/SceneFrameGraphContributors.h"
 #include "Renderers/SceneRendererProfiling.h"
 #include "Profiling/Profiling.h"
@@ -41,7 +40,6 @@ namespace Durin
 		auto& DeferredParameters = Composition.DeferredParameters;
 		auto& ProductionDeferredParameters =
 			Composition.ProductionDeferredParameters;
-		auto& TargetResolutionResult = Composition.TargetResolutionResult;
 		struct {
 			std::optional<FRenderGraphTextureHandle> DirectionalShadow;
 			FRenderGraphTextureHandle SceneColor;
@@ -75,7 +73,7 @@ namespace Durin
 		auto ImportPersistentTexture = [&](std::string_view Name,
 			FRHITexture* Texture) -> std::optional<FRenderGraphTextureHandle> {
 			if (!Texture) return std::nullopt;
-			return Graph.ImportTexture(Name, Texture,
+			return Graph.RegisterExternalTexture(FTextureRHIRef(Texture), Name,
 				ERHIAccess::GraphicsShaderRead,
 				ERHIAccess::GraphicsShaderRead);
 		};
@@ -122,14 +120,14 @@ namespace Durin
 					EDefaultTexture::Black);
 				SelectedEnvironmentSampler = nullptr;
 			}
-			GraphResources.EnvironmentIrradiance = Graph.ImportTexture(
-				"Scene.Environment.Irradiance", Irradiance,
+			GraphResources.EnvironmentIrradiance = Graph.RegisterExternalTexture(
+				FTextureRHIRef(Irradiance), "Scene.Environment.Irradiance",
 				ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-			GraphResources.EnvironmentPrefiltered = Graph.ImportTexture(
-				"Scene.Environment.Prefiltered", Prefiltered,
+			GraphResources.EnvironmentPrefiltered = Graph.RegisterExternalTexture(
+				FTextureRHIRef(Prefiltered), "Scene.Environment.Prefiltered",
 				ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-			GraphResources.EnvironmentBrdfLut = Graph.ImportTexture(
-				"Scene.Environment.BrdfLut", BrdfLut,
+			GraphResources.EnvironmentBrdfLut = Graph.RegisterExternalTexture(
+				FTextureRHIRef(BrdfLut), "Scene.Environment.BrdfLut",
 				ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 			GraphResources.SelectedEnvironmentIrradiance = Irradiance;
 			GraphResources.SelectedEnvironmentPrefiltered = Prefiltered;
@@ -141,34 +139,19 @@ namespace Durin
 				.SetFlags(ETextureCreateFlags::RenderTargetable
 					| ETextureCreateFlags::ShaderResource
 					| ETextureCreateFlags::SourceCopy),
-				.BackingClass = std::string(GetSceneFrameBackingClassName(
-					ESceneFrameBackingClass::Scene))}, ERHIAccess::GraphicsShaderRead);
+			.ObservationTag = static_cast<uint32>(
+				ERendererTransientTargetGroup::Scene)}, ERHIAccess::GraphicsShaderRead);
 		GraphResources.SceneDepth = Graph.CreateTexture("Scene.Depth",
 			FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 				"SceneDepth", Width, Height, EPixelFormat::D32)
 				.SetFlags(ETextureCreateFlags::DepthStencilTargetable
 					| ETextureCreateFlags::ShaderResource),
-				.BackingClass = std::string(GetSceneFrameBackingClassName(
-					ESceneFrameBackingClass::Scene))}, ERHIAccess::DepthStencilReadWrite);
-		GraphResources.Output = Graph.ImportTexture("Scene.Output", OutputTarget,
+			.ObservationTag = static_cast<uint32>(
+				ERendererTransientTargetGroup::Scene)}, ERHIAccess::DepthStencilReadWrite);
+		GraphResources.Output = Graph.RegisterExternalTexture(
+			FTextureRHIRef(OutputTarget), "Scene.Output",
 			ERHIAccess::Discard,
 			bPresentOutput ? ERHIAccess::Present : ERHIAccess::GraphicsShaderRead);
-		Graph.SetBackingResolver([&Services, &Topology, &TargetResolutionResult](
-			auto Requests, auto& Backings,
-			std::string& Error) {
-			const auto Retained =
-				FSceneFrameGraphBackingProvider::BuildRetainedTopology(
-					Requests, Topology, Error);
-			if (!Retained) return false;
-			TargetResolutionResult = Services.ResolveTargets(*Retained);
-			if (TargetResolutionResult != ERenderViewResult::Success)
-			{
-				Error = "renderer transient target preparation failed";
-				return false;
-			}
-			return FSceneFrameGraphBackingProvider::Publish(Requests, Backings,
-				Services.ResolvedFrame.Targets, Error);
-		});
 		const FSceneView& PreparedRenderView = PreparedView.Context.View;
 		const FPreparedDirectionalShadow* DirectionalShadow =
 			PreparedView.DirectionalShadow ? &*PreparedView.DirectionalShadow : nullptr;

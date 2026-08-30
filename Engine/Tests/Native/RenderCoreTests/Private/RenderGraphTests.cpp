@@ -95,6 +95,49 @@ namespace Durin
 					| ETextureCreateFlags::DestinationCopy));
 		}
 
+		class FTestRDGAllocator final : public FRDGAllocator
+		{
+		public:
+			bool bFail = false;
+			uint32 AllocationCount = 0;
+			std::vector<FTextureRHIRef> CreatedTextures;
+
+			auto Allocate(std::span<const FRDGAllocationRequest> Requests,
+				FRDGAllocatedResources& OutResources, std::string& OutError)
+				-> bool override
+			{
+				if (bFail)
+				{
+					OutError = "injected allocation failure";
+					return false;
+				}
+				for (const FRDGAllocationRequest& Request : Requests)
+				{
+					++AllocationCount;
+					if (Request.Kind == ERenderGraphResourceKind::Texture)
+					{
+						FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create(
+							"TestRDG", Request.TextureDesc.Dimension);
+						static_cast<FRHITextureDesc&>(Desc) = Request.TextureDesc;
+						auto Texture = MakeRefCount<FRHITexture>(Desc);
+						CreatedTextures.push_back(Texture);
+						if (!OutResources.SetTexture(Request.ResourceId,
+							std::move(Texture), AllocationCount)) return false;
+					}
+					else
+					{
+						auto Buffer = MakeRefCount<FRHIBuffer>(
+							FRHIBufferCreateDesc::Create("TestRDG",
+								Request.BufferDesc));
+						if (!OutResources.SetBuffer(Request.ResourceId,
+							std::move(Buffer), AllocationCount)) return false;
+					}
+				}
+				OutError.clear();
+				return true;
+			}
+		};
+
 		struct FNestedGraphParameters final
 		{
 			FRenderGraphTokenParameter Completion;
@@ -1992,6 +2035,179 @@ namespace Durin
 		EXPECT_FALSE(Result.Graph->Execute(GetCommandList(), &Error));
 		EXPECT_FALSE(bExecuted);
 		EXPECT_NE(Error.find("omitted retained resource"), std::string::npos);
+	}
+
+	TEST_F(FRenderGraphTests, RDGAllocationIsDescriptorDrivenAndExtractionIsTransactional)
+	{
+		FTextureRHIRef FirstExtraction;
+		FTextureRHIRef SecondExtraction;
+		FRenderGraphBuilder Builder;
+		Builder.EnablePassCulling();
+		const FRenderGraphTextureDesc Desc{
+			.Texture = FRHITextureCreateDesc::Create2D(
+				"DiagnosticOnly", 16, 16, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::RenderTargetable
+					| ETextureCreateFlags::ShaderResource)};
+		const auto First = Builder.CreateTexture(Desc, "Renamed.First");
+		const auto Second = Builder.CreateTexture(Desc, "Renamed.Second");
+		const auto FirstPass = Builder.AddPass(
+			"First", ERenderGraphPassType::Graphics);
+		Builder.UseColorAttachment(FirstPass, First, WholeColor(),
+			ERHIRenderTargetLoadAction::Clear,
+			ERHIRenderTargetStoreAction::Store);
+		const auto SecondPass = Builder.AddPass(
+			"Second", ERenderGraphPassType::Graphics);
+		Builder.UseColorAttachment(SecondPass, Second, WholeColor(),
+			ERHIRenderTargetLoadAction::Clear,
+			ERHIRenderTargetStoreAction::Store);
+		Builder.QueueTextureExtraction(First, &FirstExtraction,
+			ERHIAccess::GraphicsShaderRead);
+		Builder.QueueTextureExtraction(Second, &SecondExtraction,
+			ERHIAccess::GraphicsShaderRead);
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		EXPECT_FALSE(FirstExtraction);
+		EXPECT_FALSE(SecondExtraction);
+		ASSERT_EQ(Result.Graph->GetPasses().size(), 2u);
+
+		FTestRDGAllocator Allocator;
+		FRDGExecutionContext Context{Allocator};
+		std::string Error;
+		ASSERT_TRUE(Result.Graph->Execute(GetCommandList(), Context, &Error))
+			<< Error;
+		EXPECT_EQ(Allocator.AllocationCount, 2u);
+		ASSERT_TRUE(FirstExtraction);
+		ASSERT_TRUE(SecondExtraction);
+		EXPECT_NE(FirstExtraction.GetReference(), SecondExtraction.GetReference());
+		const auto Capture = Result.Graph->Capture();
+		EXPECT_EQ(Capture.Resources[0].AllocationDisposition, "allocated");
+		EXPECT_NE(Capture.Resources[0].PhysicalAllocationId, 0u);
+		EXPECT_NE(Capture.Resources[0].PhysicalAllocationId,
+			Capture.Resources[1].PhysicalAllocationId);
+	}
+
+	TEST_F(FRenderGraphTests, RDGAllocationFailurePublishesNoExtractionOrPass)
+	{
+		auto Original = MakeRefCount<FRHITexture>(
+			FRHITextureCreateDesc::Create2D(
+				"Original", 4, 4, EPixelFormat::RGBA8_UNORM));
+		FTextureRHIRef Destination = Original;
+		bool bExecuted = false;
+		FRenderGraphBuilder Builder;
+		const auto Texture = Builder.CreateTexture(
+			FRenderGraphTextureDesc{.Texture =
+				FRHITextureCreateDesc::Create2D(
+					"Logical", 16, 16, EPixelFormat::RGBA8_UNORM)
+					.SetFlags(ETextureCreateFlags::RenderTargetable)},
+			"Logical");
+		const auto Pass = Builder.AddPass("Write", ERenderGraphPassType::Graphics,
+			[&](FRHICommandListImmediate&, const FRenderGraphPassResources&) {
+				bExecuted = true;
+			});
+		Builder.UseColorAttachment(Pass, Texture, WholeColor(),
+			ERHIRenderTargetLoadAction::Clear,
+			ERHIRenderTargetStoreAction::Store);
+		Builder.QueueTextureExtraction(Texture, &Destination,
+			ERHIAccess::GraphicsShaderRead);
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		FTestRDGAllocator Allocator;
+		Allocator.bFail = true;
+		FRDGExecutionContext Context{Allocator};
+		std::string Error;
+		EXPECT_FALSE(Result.Graph->Execute(GetCommandList(), Context, &Error));
+		EXPECT_FALSE(bExecuted);
+		EXPECT_EQ(Destination.GetReference(), Original.GetReference());
+		EXPECT_NE(Error.find("injected allocation failure"), std::string::npos);
+	}
+
+	TEST_F(FRenderGraphTests, ExternalRegistrationRetainsPhysicalResource)
+	{
+		auto Texture = MakeRefCount<FRHITexture>(
+			FRHITextureCreateDesc::Create2D(
+				"External", 8, 8, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource));
+		const int32 InitialReferences = Texture.GetRefCount();
+		{
+			FRenderGraphBuilder Builder;
+			const auto External = Builder.RegisterExternalTexture(Texture,
+				"External", ERHIAccess::GraphicsShaderRead,
+				ERHIAccess::GraphicsShaderRead);
+			const auto Pass = Builder.AddPass("Read", ERenderGraphPassType::Graphics);
+			Builder.UseTexture(Pass, External, WholeColor(), ERenderGraphUse::Read,
+				ERHIAccess::GraphicsShaderRead);
+			auto Result = Builder.Compile();
+			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+			EXPECT_GT(Texture.GetRefCount(), InitialReferences);
+			EXPECT_TRUE(Result.Graph->Execute(GetCommandList()));
+		}
+		EXPECT_EQ(Texture.GetRefCount(), InitialReferences);
+	}
+
+	TEST_F(FRenderGraphTests, ExternalExtractionRoundTripPublishesAfterExecution)
+	{
+		auto Texture = MakeRefCount<FRHITexture>(
+			FRHITextureCreateDesc::Create2D(
+				"External", 8, 8, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource));
+		FTextureRHIRef Extracted;
+		FRenderGraphBuilder Builder;
+		const auto External = Builder.RegisterExternalTexture(Texture,
+			"External", ERHIAccess::GraphicsShaderRead,
+			ERHIAccess::GraphicsShaderRead);
+		Builder.QueueTextureExtraction(External, &Extracted,
+			ERHIAccess::GraphicsShaderRead);
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		EXPECT_FALSE(Extracted);
+		ASSERT_TRUE(Result.Graph->Execute(GetCommandList()));
+		EXPECT_EQ(Extracted.GetReference(), Texture.GetReference());
+	}
+
+	TEST_F(FRenderGraphTests, DuplicateExtractionFailsWithoutPublishing)
+	{
+		FTextureRHIRef First;
+		FTextureRHIRef Second;
+		FRenderGraphBuilder Builder;
+		const auto Texture = Builder.CreateTexture(
+			FRenderGraphTextureDesc{.Texture =
+				FRHITextureCreateDesc::Create2D(
+					"Logical", 8, 8, EPixelFormat::RGBA8_UNORM)
+					.SetFlags(ETextureCreateFlags::RenderTargetable)},
+			"Logical");
+		Builder.QueueTextureExtraction(Texture, &First,
+			ERHIAccess::GraphicsShaderRead);
+		Builder.QueueTextureExtraction(Texture, &Second,
+			ERHIAccess::GraphicsShaderRead);
+		auto Result = Builder.Compile();
+		EXPECT_FALSE(Result.IsSuccess());
+		EXPECT_NE(Result.Error.find("duplicate or conflicting texture extraction"),
+			std::string::npos);
+		EXPECT_FALSE(First);
+		EXPECT_FALSE(Second);
+	}
+
+	TEST_F(FRenderGraphTests, BufferExtractionPublishesCountedAllocation)
+	{
+		FBufferRHIRef Extracted;
+		FRenderGraphBuilder Builder;
+		const auto Buffer = Builder.CreateBuffer(
+			FRenderGraphBufferDesc{.Buffer = FRHIBufferDesc(
+				64, 4, EBufferUsageFlags::UnorderedAccess)}, "LogicalBuffer");
+		const auto Pass = Builder.AddPass("Write", ERenderGraphPassType::Compute);
+		Builder.UseBuffer(Pass, Buffer, 0, 64, ERenderGraphUse::Write,
+			ERHIAccess::ComputeShaderReadWrite, true);
+		Builder.QueueBufferExtraction(Buffer, &Extracted,
+			ERHIAccess::ComputeShaderRead);
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		FTestRDGAllocator Allocator;
+		FRDGExecutionContext Context{Allocator};
+		std::string Error;
+		ASSERT_TRUE(Result.Graph->Execute(GetCommandList(), Context, &Error))
+			<< Error;
+		EXPECT_TRUE(Extracted);
+		EXPECT_EQ(Extracted->GetDesc().Size, 64u);
 	}
 
 	TEST_F(FRenderGraphTests, RejectsBackingWithIncompatibleUsageFlags)

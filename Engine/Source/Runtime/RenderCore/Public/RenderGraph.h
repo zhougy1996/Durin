@@ -88,6 +88,7 @@ namespace Durin
 	{
 		FRHITextureDesc Texture;
 		std::string BackingClass = "transient";
+		uint32 ObservationTag = 0;
 	};
 
 	// Describes a graph-created buffer without requiring physical backing.
@@ -95,6 +96,7 @@ namespace Durin
 	{
 		FRHIBufferDesc Buffer;
 		std::string BackingClass = "transient";
+		uint32 ObservationTag = 0;
 	};
 
 	// Identifies one texture registered in a single builder lifetime.
@@ -729,6 +731,73 @@ namespace Durin
 		FRHICommandListImmediate&, const FRenderGraphParameterResolver&)>;
 	using FRenderGraphPrepare = std::function<bool(std::string&)>;
 
+	// Describes one retained graph-created resource for execution allocation.
+	// Diagnostic names are deliberately absent from allocation identity.
+	struct FRDGAllocationRequest final
+	{
+		uint32 ResourceId = 0;
+		ERenderGraphResourceKind Kind = ERenderGraphResourceKind::Texture;
+		FRHITextureDesc TextureDesc;
+		FRHIBufferDesc BufferDesc;
+		uint32 FirstPass = 0;
+		uint32 LastPass = 0;
+		uint32 ObservationTag = 0;
+	};
+
+	struct FRDGAllocationStatistics final
+	{
+		uint32 ActiveResources = 0;
+		uint32 RetainedResources = 0;
+		uint64 ActiveBytes = 0;
+		uint64 RetainedBytes = 0;
+		uint64 PeakActiveBytes = 0;
+		uint64 ReuseHits = 0;
+		uint64 ReuseMisses = 0;
+		uint64 Evictions = 0;
+		uint64 Failures = 0;
+	};
+
+	// Owns one complete candidate allocation result until graph execution retires.
+	class RENDERCORE_API FRDGAllocatedResources final
+	{
+	public:
+		auto SetTexture(uint32 ResourceId, FTextureRHIRef Texture,
+			uint64 AllocationId = 0,
+			std::string_view Disposition = "allocated") -> bool;
+		auto SetBuffer(uint32 ResourceId, FBufferRHIRef Buffer,
+			uint64 AllocationId = 0,
+			std::string_view Disposition = "allocated") -> bool;
+		auto SetStatistics(const FRDGAllocationStatistics& InStatistics) -> void
+		{
+			Statistics = InStatistics;
+		}
+
+	private:
+		friend class FCompiledRenderGraph;
+		explicit FRDGAllocatedResources(uint32 Count);
+		std::vector<FTextureRHIRef> Textures;
+		std::vector<FBufferRHIRef> Buffers;
+		std::vector<uint64> AllocationIds;
+		std::vector<std::string> AllocationDispositions;
+		FRDGAllocationStatistics Statistics;
+	};
+
+	// Allocates one retained batch atomically. Implementations must not publish a
+	// partial result when returning failure.
+	class RENDERCORE_API FRDGAllocator
+	{
+	public:
+		virtual ~FRDGAllocator() = default;
+		virtual auto Allocate(std::span<const FRDGAllocationRequest> Requests,
+			FRDGAllocatedResources& OutResources, std::string& OutError)
+			-> bool = 0;
+	};
+
+	struct FRDGExecutionContext final
+	{
+		FRDGAllocator& Allocator;
+	};
+
 	// Names one retained logical resource that requires physical backing.
 	struct FRenderGraphPreparationRequest final
 	{
@@ -785,6 +854,8 @@ namespace Durin
 		bool bImported = false;
 		std::string BackingClass;
 		std::string Preparation;
+		std::string AllocationDisposition;
+		uint64 PhysicalAllocationId = 0;
 		std::string ValueType;
 		EPixelFormat TextureFormat = EPixelFormat::Unknown;
 		FIntPoint TextureExtent{0, 0};
@@ -928,6 +999,7 @@ namespace Durin
 	{
 		FRenderGraphBudget Budget;
 		FRenderGraphStatistics Statistics;
+		FRDGAllocationStatistics AllocationStatistics;
 		std::vector<FRenderGraphPassCapture> Passes;
 		std::vector<FRenderGraphResourceCapture> Resources;
 		std::vector<FRenderGraphParameterCapture> Parameters;
@@ -981,12 +1053,17 @@ namespace Durin
 		// Runs complete resource preparation before recording any pass command.
 		auto Execute(FRHICommandListImmediate& CommandList,
 			std::string* OutError = nullptr) const -> bool;
+		auto Execute(FRHICommandListImmediate& CommandList,
+			FRDGExecutionContext& Context,
+			std::string* OutError = nullptr) const -> bool;
 
 	private:
 		friend class FRenderGraphBuilder;
 		friend class FRenderGraphPassResources;
 		struct FState;
 		explicit FCompiledRenderGraph(std::unique_ptr<FState> InState);
+		auto ExecuteInternal(FRHICommandListImmediate& CommandList,
+			FRDGExecutionContext* Context, std::string* OutError) const -> bool;
 		std::unique_ptr<FState> State;
 	};
 
@@ -1016,6 +1093,13 @@ namespace Durin
 		auto ImportTexture(std::string_view Name, FRHITexture* Texture,
 			ERHIAccess InitialAccess, ERHIAccess FinalAccess)
 			-> FRenderGraphTextureHandle;
+		auto RegisterExternalTexture(const FTextureRHIRef& Texture,
+			std::string_view Name, ERHIAccess InitialAccess,
+			ERHIAccess FinalAccess) -> FRenderGraphTextureHandle;
+		auto CreateTexture(const FRenderGraphTextureDesc& Desc,
+			std::string_view Name,
+			ERHIAccess FinalAccess = ERHIAccess::None)
+			-> FRenderGraphTextureHandle;
 		auto CreateTexture(std::string_view Name, FRHITexture* Texture,
 			ERHIAccess FinalAccess = ERHIAccess::None)
 			-> FRenderGraphTextureHandle;
@@ -1026,6 +1110,13 @@ namespace Durin
 		auto ImportBuffer(std::string_view Name, FRHIBuffer* Buffer,
 			ERHIAccess InitialAccess, ERHIAccess FinalAccess)
 			-> FRenderGraphBufferHandle;
+		auto RegisterExternalBuffer(const FBufferRHIRef& Buffer,
+			std::string_view Name, ERHIAccess InitialAccess,
+			ERHIAccess FinalAccess) -> FRenderGraphBufferHandle;
+		auto CreateBuffer(const FRenderGraphBufferDesc& Desc,
+			std::string_view Name,
+			ERHIAccess FinalAccess = ERHIAccess::None)
+			-> FRenderGraphBufferHandle;
 		auto CreateBuffer(std::string_view Name, FRHIBuffer* Buffer,
 			ERHIAccess FinalAccess = ERHIAccess::None)
 			-> FRenderGraphBufferHandle;
@@ -1034,6 +1125,10 @@ namespace Durin
 			ERHIAccess FinalAccess = ERHIAccess::None)
 			-> FRenderGraphBufferHandle;
 		auto CreateToken(std::string_view Name) -> FRenderGraphTokenHandle;
+		auto QueueTextureExtraction(FRenderGraphTextureHandle Texture,
+			FTextureRHIRef* Destination, ERHIAccess FinalAccess) -> void;
+		auto QueueBufferExtraction(FRenderGraphBufferHandle Buffer,
+			FBufferRHIRef* Destination, ERHIAccess FinalAccess) -> void;
 		template<typename T, typename... Args>
 		requires std::constructible_from<T, Args...> && std::destructible<T>
 		auto CreateValue(std::string_view Name, std::string_view StableTypeName,

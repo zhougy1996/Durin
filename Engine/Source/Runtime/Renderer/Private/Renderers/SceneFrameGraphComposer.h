@@ -15,8 +15,6 @@ namespace Durin
 		FDirectionalShadowRenderer& DirectionalShadowRenderer;
 		FResolvedSceneFrame& ResolvedFrame;
 		FSceneRenderTelemetry& Telemetry;
-		std::function<ERenderViewResult(const FSceneFrameTopology&)>
-			ResolveTargets;
 	};
 
 	struct FSceneFrameGraphComposeInputs final
@@ -53,7 +51,6 @@ namespace Durin
 			DeferredParameters;
 		std::optional<FDeferredDirectionalLightingRenderer::FRenderParameters>
 			ProductionDeferredParameters;
-		ERenderViewResult TargetResolutionResult = ERenderViewResult::Success;
 		FSceneColorPassResult SceneColorPublication;
 		FPostProcessPassResult PostProcessPublication;
 	};

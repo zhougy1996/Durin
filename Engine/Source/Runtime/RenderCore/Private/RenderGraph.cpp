@@ -21,9 +21,12 @@ namespace Durin
 			ERenderGraphResourceKind Kind = ERenderGraphResourceKind::Texture;
 			FRHITexture* Texture = nullptr;
 			FRHIBuffer* Buffer = nullptr;
+			FTextureRHIRef TextureOwnership;
+			FBufferRHIRef BufferOwnership;
 			FRHITextureDesc TextureDesc;
 			FRHIBufferDesc BufferDesc;
 			std::string BackingClass;
+			uint32 ObservationTag = 0;
 			ERHIAccess InitialAccess = ERHIAccess::Discard;
 			ERHIAccess FinalAccess = ERHIAccess::None;
 			bool bImported = false;
@@ -31,6 +34,15 @@ namespace Durin
 			const void* ValueTypeIdentity = nullptr;
 			std::string ValueTypeName;
 			uint32 ValueStorageIndex = std::numeric_limits<uint32>::max();
+		};
+
+		struct FGraphExtraction
+		{
+			uint32 ResourceIndex = 0;
+			ERenderGraphResourceKind Kind = ERenderGraphResourceKind::Texture;
+			FTextureRHIRef* TextureDestination = nullptr;
+			FBufferRHIRef* BufferDestination = nullptr;
+			ERHIAccess FinalAccess = ERHIAccess::None;
 		};
 
 		struct FGraphUse
@@ -830,6 +842,7 @@ namespace Durin
 		std::unordered_map<const void*, uint32> ImportedResources;
 		std::vector<FGraphPass> Passes;
 		std::vector<std::string> DeclarationErrors;
+		std::vector<FGraphExtraction> Extractions;
 		bool bEnableCulling = false;
 		FRenderGraphPrepare Prepare;
 		FRenderGraphBackingResolver Resolver;
@@ -866,6 +879,8 @@ namespace Durin
 		std::vector<FRenderGraphUseCapture> UseCaptures;
 		std::vector<FRenderGraphTransitionCapture> TransitionCaptures;
 		std::vector<FRenderGraphPreparationRequest> PreparationRequests;
+		std::vector<FRDGAllocationRequest> AllocationRequests;
+		std::vector<FGraphExtraction> Extractions;
 		FRenderGraphPrepare Prepare;
 		FRenderGraphBackingResolver Resolver;
 		FRenderGraphBudget Budget;
@@ -873,6 +888,7 @@ namespace Durin
 		FGraphParameterStorage ValueStorage;
 		uint64 CompileMicroseconds = 0;
 		mutable std::atomic<uint64> ExecuteMicroseconds = 0;
+		mutable FRDGAllocationStatistics AllocationStatistics;
 	};
 
 	FRenderGraphBuilder::FRenderGraphBuilder()
@@ -1022,6 +1038,25 @@ namespace Durin
 		return {State->Owner, Index};
 	}
 
+	auto FRenderGraphBuilder::RegisterExternalTexture(
+		const FTextureRHIRef& Texture, std::string_view Name,
+		ERHIAccess InitialAccess, ERHIAccess FinalAccess)
+		-> FRenderGraphTextureHandle
+	{
+		const auto Handle = ImportTexture(Name, Texture.GetReference(), InitialAccess,
+			FinalAccess);
+		if (Handle.Owner == State->Owner && Handle.Index < State->Resources.size())
+			State->Resources[Handle.Index].TextureOwnership = Texture;
+		return Handle;
+	}
+
+	auto FRenderGraphBuilder::CreateTexture(
+		const FRenderGraphTextureDesc& Desc, std::string_view Name,
+		ERHIAccess FinalAccess) -> FRenderGraphTextureHandle
+	{
+		return CreateTexture(Name, Desc, FinalAccess);
+	}
+
 	auto FRenderGraphBuilder::CreateTexture(std::string_view Name,
 		FRHITexture* Texture, ERHIAccess FinalAccess)
 		-> FRenderGraphTextureHandle
@@ -1048,6 +1083,7 @@ namespace Durin
 		Resource.Kind = ERenderGraphResourceKind::Texture;
 		Resource.TextureDesc = Desc.Texture;
 		Resource.BackingClass = Desc.BackingClass;
+		Resource.ObservationTag = Desc.ObservationTag;
 		Resource.FinalAccess = FinalAccess;
 		Resource.bRequiresBacking = true;
 		State->Resources.push_back(std::move(Resource));
@@ -1088,6 +1124,24 @@ namespace Durin
 		return {State->Owner, Index};
 	}
 
+	auto FRenderGraphBuilder::RegisterExternalBuffer(const FBufferRHIRef& Buffer,
+		std::string_view Name, ERHIAccess InitialAccess,
+		ERHIAccess FinalAccess) -> FRenderGraphBufferHandle
+	{
+		const auto Handle = ImportBuffer(Name, Buffer.GetReference(), InitialAccess,
+			FinalAccess);
+		if (Handle.Owner == State->Owner && Handle.Index < State->Resources.size())
+			State->Resources[Handle.Index].BufferOwnership = Buffer;
+		return Handle;
+	}
+
+	auto FRenderGraphBuilder::CreateBuffer(const FRenderGraphBufferDesc& Desc,
+		std::string_view Name, ERHIAccess FinalAccess)
+		-> FRenderGraphBufferHandle
+	{
+		return CreateBuffer(Name, Desc, FinalAccess);
+	}
+
 	auto FRenderGraphBuilder::CreateBuffer(std::string_view Name,
 		FRHIBuffer* Buffer, ERHIAccess FinalAccess)
 		-> FRenderGraphBufferHandle
@@ -1114,6 +1168,7 @@ namespace Durin
 		Resource.Kind = ERenderGraphResourceKind::Buffer;
 		Resource.BufferDesc = Desc.Buffer;
 		Resource.BackingClass = Desc.BackingClass;
+		Resource.ObservationTag = Desc.ObservationTag;
 		Resource.FinalAccess = FinalAccess;
 		Resource.bRequiresBacking = true;
 		State->Resources.push_back(std::move(Resource));
@@ -1129,6 +1184,74 @@ namespace Durin
 		Resource.Kind = ERenderGraphResourceKind::Token;
 		State->Resources.push_back(std::move(Resource));
 		return {State->Owner, Index};
+	}
+
+	auto FRenderGraphBuilder::QueueTextureExtraction(
+		FRenderGraphTextureHandle Texture, FTextureRHIRef* Destination,
+		ERHIAccess FinalAccess) -> void
+	{
+		if (Texture.Owner != State->Owner || Texture.Index >= State->Resources.size()
+			|| State->Resources[Texture.Index].Kind
+				!= ERenderGraphResourceKind::Texture)
+		{
+			State->DeclarationErrors.emplace_back(
+				"texture extraction uses a foreign or invalid handle");
+			return;
+		}
+		if (Destination == nullptr || FinalAccess == ERHIAccess::None
+			|| EnumHasAnyFlags(FinalAccess, ERHIAccess::Discard))
+		{
+			State->DeclarationErrors.emplace_back(
+				"texture extraction requires a destination and valid final access");
+			return;
+		}
+		if (std::ranges::any_of(State->Extractions,
+			[&](const FGraphExtraction& Existing) {
+				return Existing.ResourceIndex == Texture.Index
+					|| Existing.TextureDestination == Destination;
+			}))
+		{
+			State->DeclarationErrors.emplace_back(
+				"duplicate or conflicting texture extraction");
+			return;
+		}
+		State->Resources[Texture.Index].FinalAccess = FinalAccess;
+		State->Extractions.push_back({Texture.Index,
+			ERenderGraphResourceKind::Texture, Destination, nullptr, FinalAccess});
+	}
+
+	auto FRenderGraphBuilder::QueueBufferExtraction(
+		FRenderGraphBufferHandle Buffer, FBufferRHIRef* Destination,
+		ERHIAccess FinalAccess) -> void
+	{
+		if (Buffer.Owner != State->Owner || Buffer.Index >= State->Resources.size()
+			|| State->Resources[Buffer.Index].Kind
+				!= ERenderGraphResourceKind::Buffer)
+		{
+			State->DeclarationErrors.emplace_back(
+				"buffer extraction uses a foreign or invalid handle");
+			return;
+		}
+		if (Destination == nullptr || FinalAccess == ERHIAccess::None
+			|| EnumHasAnyFlags(FinalAccess, ERHIAccess::Discard))
+		{
+			State->DeclarationErrors.emplace_back(
+				"buffer extraction requires a destination and valid final access");
+			return;
+		}
+		if (std::ranges::any_of(State->Extractions,
+			[&](const FGraphExtraction& Existing) {
+				return Existing.ResourceIndex == Buffer.Index
+					|| Existing.BufferDestination == Destination;
+			}))
+		{
+			State->DeclarationErrors.emplace_back(
+				"duplicate or conflicting buffer extraction");
+			return;
+		}
+		State->Resources[Buffer.Index].FinalAccess = FinalAccess;
+		State->Extractions.push_back({Buffer.Index,
+			ERenderGraphResourceKind::Buffer, nullptr, Destination, FinalAccess});
 	}
 
 	auto FRenderGraphBuilder::AddPass(std::string_view Name,
@@ -1608,8 +1731,6 @@ namespace Durin
 				&& !Resource.bRequiresBacking && Resource.Texture == nullptr
 				&& Resource.Buffer == nullptr)
 				return Fail("resource '" + Resource.Name + "' has no physical resource");
-			if (Resource.bRequiresBacking && !State->Resolver)
-				return Fail("logical resource '" + Resource.Name + "' has no backing resolver");
 			if (Resource.bImported && Resource.FinalAccess == ERHIAccess::None)
 				return Fail("imported resource '" + Resource.Name + "' has no final access");
 			if (EnumHasAnyFlags(Resource.FinalAccess, ERHIAccess::Discard))
@@ -1841,6 +1962,15 @@ namespace Durin
 			Pending.reserve(PassCount);
 			for (uint32 Index = 0; Index < PassCount; ++Index)
 				if (State->Passes[Index].bRoot) { Retained[Index] = true; Pending.push_back(Index); }
+			for (const FGraphExtraction& Extraction : State->Extractions)
+				for (const FRangeState& Cell : Cells)
+					if (Cell.Use.ResourceIndex == Extraction.ResourceIndex
+						&& Cell.Producer != std::numeric_limits<uint32>::max()
+						&& !Retained[Cell.Producer])
+					{
+						Retained[Cell.Producer] = true;
+						Pending.push_back(Cell.Producer);
+					}
 			while (!Pending.empty())
 			{
 				const uint32 After = Pending.back();
@@ -1861,6 +1991,7 @@ namespace Durin
 		CompiledState->Resources = State->Resources;
 		CompiledState->Prepare = State->Prepare;
 		CompiledState->Resolver = State->Resolver;
+		CompiledState->Extractions = State->Extractions;
 		CompiledState->Budget = State->Budget;
 		CompiledState->Passes.reserve(PassCount);
 		CompiledState->Dependencies.reserve(Dependencies.size());
@@ -1882,6 +2013,7 @@ namespace Durin
 		CompiledState->UseCaptures.reserve(DeclaredUseCount);
 		CompiledState->TransitionCaptures.reserve(DeclaredUseCount * 2);
 		CompiledState->PreparationRequests.reserve(ResourceCount);
+		CompiledState->AllocationRequests.reserve(ResourceCount);
 		for (const auto& Edge : Dependencies)
 			if (Retained[Edge.BeforePass] && Retained[Edge.AfterPass])
 				CompiledState->Dependencies.push_back(Edge);
@@ -2052,12 +2184,27 @@ namespace Durin
 			const auto& Resource = State->Resources[ResourceIndex];
 			const auto& Lifetime = CompiledState->ResourceLifetimes[ResourceIndex];
 			auto& Capture = CompiledState->ResourceCaptures[ResourceIndex];
-			if (Lifetime.bCulled) Capture.Preparation = "culled";
-			else if (Resource.bImported) Capture.Preparation = "imported";
-			else if (!Resource.bRequiresBacking) Capture.Preparation = "prebound";
+			if (Lifetime.bCulled)
+			{
+				Capture.Preparation = "culled";
+				Capture.AllocationDisposition = "culled";
+			}
+			else if (Resource.bImported)
+			{
+				Capture.Preparation = "imported";
+				Capture.AllocationDisposition = "external";
+				Capture.PhysicalAllocationId = ResourceIndex + 1;
+			}
+			else if (!Resource.bRequiresBacking)
+			{
+				Capture.Preparation = "prebound";
+				Capture.AllocationDisposition = "prebound";
+				Capture.PhysicalAllocationId = ResourceIndex + 1;
+			}
 			else
 			{
 				Capture.Preparation = "requested";
+				Capture.AllocationDisposition = "pending";
 				FRenderGraphPreparationRequest Request;
 				Request.ResourceId = ResourceIndex;
 				Request.Name = Resource.Name;
@@ -2070,6 +2217,14 @@ namespace Durin
 				Request.FirstPass = Lifetime.FirstPass;
 				Request.LastPass = Lifetime.LastPass;
 				CompiledState->PreparationRequests.push_back(std::move(Request));
+				CompiledState->AllocationRequests.push_back({
+					.ResourceId = ResourceIndex,
+					.Kind = Resource.Kind,
+					.TextureDesc = Resource.TextureDesc,
+					.BufferDesc = Resource.BufferDesc,
+					.FirstPass = Lifetime.FirstPass,
+					.LastPass = Lifetime.LastPass,
+					.ObservationTag = Resource.ObservationTag});
 			}
 		}
 		std::ranges::sort(CompiledState->Dependencies,
@@ -2196,6 +2351,7 @@ namespace Durin
 		FRenderGraphCapture Result;
 		Result.Budget = State->Budget;
 		Result.Statistics = GetStatistics();
+		Result.AllocationStatistics = State->AllocationStatistics;
 		Result.Resources = State->ResourceCaptures;
 		Result.Parameters = State->ParameterCaptures;
 		Result.Uses = State->UseCaptures;
@@ -2218,6 +2374,18 @@ namespace Durin
 		std::ostringstream Output;
 		Output << "render-graph passes=" << State->Passes.size()
 			<< " edges=" << State->Dependencies.size() << '\n';
+		Output << "allocation active-resources="
+			<< State->AllocationStatistics.ActiveResources
+			<< " retained-resources="
+			<< State->AllocationStatistics.RetainedResources
+			<< " active-bytes=" << State->AllocationStatistics.ActiveBytes
+			<< " retained-bytes=" << State->AllocationStatistics.RetainedBytes
+			<< " peak-active-bytes="
+			<< State->AllocationStatistics.PeakActiveBytes
+			<< " hits=" << State->AllocationStatistics.ReuseHits
+			<< " misses=" << State->AllocationStatistics.ReuseMisses
+			<< " evictions=" << State->AllocationStatistics.Evictions
+			<< " failures=" << State->AllocationStatistics.Failures << '\n';
 		for (uint32 Index = 0; Index < State->Passes.size(); ++Index)
 		{
 			const auto& Pass = State->Passes[Index];
@@ -2248,7 +2416,9 @@ namespace Durin
 				<< Resource.Name << " kind=" << static_cast<uint32>(Resource.Kind)
 				<< " imported=" << Resource.bImported << " backing="
 				<< Resource.BackingClass << " preparation="
-				<< Resource.Preparation << " value-type="
+				<< Resource.Preparation << " allocation="
+				<< Resource.AllocationDisposition << " allocation-id="
+				<< Resource.PhysicalAllocationId << " value-type="
 				<< Resource.ValueType << " format="
 				<< static_cast<uint32>(Resource.TextureFormat) << " extent="
 				<< Resource.TextureExtent.x << 'x' << Resource.TextureExtent.y
@@ -2320,6 +2490,19 @@ namespace Durin
 	auto FCompiledRenderGraph::Execute(FRHICommandListImmediate& CommandList,
 		std::string* OutError) const -> bool
 	{
+		return ExecuteInternal(CommandList, nullptr, OutError);
+	}
+
+	auto FCompiledRenderGraph::Execute(FRHICommandListImmediate& CommandList,
+		FRDGExecutionContext& Context, std::string* OutError) const -> bool
+	{
+		return ExecuteInternal(CommandList, &Context, OutError);
+	}
+
+	auto FCompiledRenderGraph::ExecuteInternal(
+		FRHICommandListImmediate& CommandList, FRDGExecutionContext* Context,
+		std::string* OutError) const -> bool
+	{
 		const auto Started = std::chrono::steady_clock::now();
 		auto RecordDuration = [&] {
 			State->ExecuteMicroseconds.store(static_cast<uint64>(
@@ -2337,7 +2520,80 @@ namespace Durin
 				return false;
 			}
 		}
-		if (State->Resolver && !State->PreparationRequests.empty())
+		if (Context != nullptr && !State->AllocationRequests.empty())
+		{
+			FRDGAllocatedResources Candidate(
+				static_cast<uint32>(State->Resources.size()));
+			std::string Error;
+			const bool bAllocated = Context->Allocator.Allocate(
+				State->AllocationRequests, Candidate, Error);
+			State->AllocationStatistics = Candidate.Statistics;
+			if (!bAllocated)
+			{
+				if (OutError != nullptr) *OutError = std::move(Error);
+				RecordDuration();
+				return false;
+			}
+			for (const FRDGAllocationRequest& Request : State->AllocationRequests)
+			{
+				const bool bReady = Request.Kind == ERenderGraphResourceKind::Texture
+					? static_cast<bool>(Candidate.Textures[Request.ResourceId])
+					: static_cast<bool>(Candidate.Buffers[Request.ResourceId]);
+				if (!bReady)
+				{
+					if (OutError != nullptr)
+						*OutError = "RDG allocator omitted retained resource id="
+							+ std::to_string(Request.ResourceId);
+					RecordDuration();
+					return false;
+				}
+				if (Request.Kind == ERenderGraphResourceKind::Texture)
+				{
+					const FRHITextureDesc Actual = DescribeTexture(
+						*Candidate.Textures[Request.ResourceId]);
+					if (!TextureBackingIsCompatible(Actual, Request.TextureDesc))
+					{
+						if (OutError != nullptr) *OutError =
+							"RDG allocator returned incompatible texture id="
+							+ std::to_string(Request.ResourceId);
+						RecordDuration();
+						return false;
+					}
+				}
+				else if (!BufferBackingIsCompatible(
+					Candidate.Buffers[Request.ResourceId]->GetDesc(),
+					Request.BufferDesc))
+				{
+					if (OutError != nullptr) *OutError =
+						"RDG allocator returned incompatible buffer id="
+						+ std::to_string(Request.ResourceId);
+					RecordDuration();
+					return false;
+				}
+			}
+			for (const FRDGAllocationRequest& Request : State->AllocationRequests)
+			{
+				auto& Resource = State->Resources[Request.ResourceId];
+				auto& Capture = State->ResourceCaptures[Request.ResourceId];
+				Capture.AllocationDisposition =
+					Candidate.AllocationDispositions[Request.ResourceId];
+				Capture.PhysicalAllocationId =
+					Candidate.AllocationIds[Request.ResourceId];
+				if (Request.Kind == ERenderGraphResourceKind::Texture)
+				{
+					Resource.TextureOwnership = std::move(
+						Candidate.Textures[Request.ResourceId]);
+					Resource.Texture = Resource.TextureOwnership.GetReference();
+				}
+				else
+				{
+					Resource.BufferOwnership = std::move(
+						Candidate.Buffers[Request.ResourceId]);
+					Resource.Buffer = Resource.BufferOwnership.GetReference();
+				}
+			}
+		}
+		else if (State->Resolver && !State->PreparationRequests.empty())
 		{
 			FRenderGraphResourceBackings Candidate(State->Owner,
 				static_cast<uint32>(State->Resources.size()));
@@ -2395,6 +2651,13 @@ namespace Durin
 				else Resource.Buffer = Candidate.Buffers[Request.ResourceId];
 			}
 		}
+		else if (!State->AllocationRequests.empty())
+		{
+			if (OutError != nullptr)
+				*OutError = "retained graph resources require an RDG execution allocator";
+			RecordDuration();
+			return false;
+		}
 		for (uint32 Index = 0; Index < State->Passes.size(); ++Index)
 		{
 			auto& Pass = State->Passes[Index];
@@ -2434,6 +2697,15 @@ namespace Durin
 			CommandList.TransitionBuffers(State->FinalBufferTransitions);
 		if (!State->FinalTextureTransitions.empty())
 			CommandList.TransitionTextures(State->FinalTextureTransitions);
+		for (const FGraphExtraction& Extraction : State->Extractions)
+		{
+			const auto& Resource = State->Resources[Extraction.ResourceIndex];
+			if (Extraction.Kind == ERenderGraphResourceKind::Texture)
+				*Extraction.TextureDestination = Resource.TextureOwnership
+					? Resource.TextureOwnership : FTextureRHIRef(Resource.Texture);
+			else *Extraction.BufferDestination = Resource.BufferOwnership
+				? Resource.BufferOwnership : FBufferRHIRef(Resource.Buffer);
+		}
 		if (OutError != nullptr) OutError->clear();
 		RecordDuration();
 		return true;
@@ -2707,6 +2979,34 @@ namespace Durin
 			ERenderGraphParameterMemberKind::ManagedDepthStencilAttachment, true);
 		return Parameter ? MakeAttachmentView(Resources, Parameter->Texture,
 			Parameter->Range, Member) : FRenderGraphAttachmentView{};
+	}
+
+	FRDGAllocatedResources::FRDGAllocatedResources(uint32 Count)
+		: Textures(Count), Buffers(Count), AllocationIds(Count),
+		  AllocationDispositions(Count)
+	{
+	}
+
+	auto FRDGAllocatedResources::SetTexture(uint32 ResourceId,
+		FTextureRHIRef Texture, uint64 AllocationId,
+		std::string_view Disposition) -> bool
+	{
+		if (ResourceId >= Textures.size() || !Texture) return false;
+		Textures[ResourceId] = std::move(Texture);
+		AllocationIds[ResourceId] = AllocationId;
+		AllocationDispositions[ResourceId] = Disposition;
+		return true;
+	}
+
+	auto FRDGAllocatedResources::SetBuffer(uint32 ResourceId,
+		FBufferRHIRef Buffer, uint64 AllocationId,
+		std::string_view Disposition) -> bool
+	{
+		if (ResourceId >= Buffers.size() || !Buffer) return false;
+		Buffers[ResourceId] = std::move(Buffer);
+		AllocationIds[ResourceId] = AllocationId;
+		AllocationDispositions[ResourceId] = Disposition;
+		return true;
 	}
 
 	FRenderGraphResourceBackings::FRenderGraphResourceBackings(

@@ -74,8 +74,8 @@ namespace Durin
 					.SetFlags(ETextureCreateFlags::RenderTargetable
 						| ETextureCreateFlags::ShaderResource
 						| ETextureCreateFlags::SourceCopy),
-					.BackingClass = std::string(GetSceneFrameBackingClassName(
-						ESceneFrameBackingClass::GBufferDebug))},
+					.ObservationTag = static_cast<uint32>(
+						ERendererTransientTargetGroup::GBufferDebug)},
 				ERHIAccess::GraphicsShaderRead);
 		auto Parameters = Graph.AllocParameters<FPostProcessPassParameters>();
 		Parameters->SceneColor = {.Value = Channels.SceneColor.Handle};

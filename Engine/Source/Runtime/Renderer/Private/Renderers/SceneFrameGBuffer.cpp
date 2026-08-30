@@ -83,8 +83,8 @@ namespace Durin
 						.SetFlags(ETextureCreateFlags::RenderTargetable
 							| ETextureCreateFlags::ShaderResource
 							| ETextureCreateFlags::SourceCopy),
-						.BackingClass = std::string(GetSceneFrameBackingClassName(
-							ESceneFrameBackingClass::GBuffer))},
+						.ObservationTag = static_cast<uint32>(
+							ERendererTransientTargetGroup::GBuffer)},
 					ERHIAccess::GraphicsShaderRead);
 		}
 		auto Parameters = Graph.AllocParameters<FGBufferPassParameters>();

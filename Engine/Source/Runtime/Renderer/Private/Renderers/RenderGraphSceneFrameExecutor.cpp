@@ -7,7 +7,7 @@ namespace Durin
 {
 	FRenderGraphSceneFrameExecutor::FRenderGraphSceneFrameExecutor(
 		FSceneRenderer& Renderer)
-		: Pipeline(Renderer)
+		: Pipeline(Renderer), Allocator(Renderer.TransientTargets)
 	{
 	}
 
@@ -62,8 +62,9 @@ namespace Durin
 			bReportedRegressionOverage = true;
 		}
 		std::string ExecutionError;
-		const bool Executed =
-			CompiledGraph.Graph->Execute(CommandList, &ExecutionError);
+		FRDGExecutionContext ExecutionContext{Allocator};
+		const bool Executed = CompiledGraph.Graph->Execute(
+			CommandList, ExecutionContext, &ExecutionError);
 		if (!Executed && !std::exchange(bReportedExecutionFailure, true))
 		{
 			DURIN_WARN("Scene frame graph execution failed: {}",

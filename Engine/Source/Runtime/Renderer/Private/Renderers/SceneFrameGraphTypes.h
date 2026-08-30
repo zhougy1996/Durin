@@ -13,65 +13,6 @@ namespace Durin
 		Compute,
 	};
 
-	enum class ESceneFrameBackingClass : uint8
-	{
-		Scene,
-		GBuffer,
-		AmbientOcclusion,
-		ContactShadowVisibilityFragment,
-		ContactShadowVisibilityCompute,
-		VolumetricCloudShadowFragment,
-		VolumetricCloudShadowCompute,
-		VolumetricCloudFragment,
-		VolumetricCloudCompute,
-		VolumetricCloudComposite,
-		Deferred,
-		GBufferDebug,
-	};
-
-	[[nodiscard]] constexpr auto GetSceneFrameBackingClassName(
-		ESceneFrameBackingClass Class) -> std::string_view
-	{
-		switch (Class)
-		{
-		case ESceneFrameBackingClass::Scene: return "renderer.scene";
-		case ESceneFrameBackingClass::GBuffer: return "renderer.gbuffer";
-		case ESceneFrameBackingClass::AmbientOcclusion:
-			return "renderer.ambient-occlusion";
-		case ESceneFrameBackingClass::ContactShadowVisibilityFragment:
-			return "renderer.contact-shadow-visibility.fragment";
-		case ESceneFrameBackingClass::ContactShadowVisibilityCompute:
-			return "renderer.contact-shadow-visibility.compute";
-		case ESceneFrameBackingClass::VolumetricCloudShadowFragment:
-			return "renderer.cloud-shadow.fragment";
-		case ESceneFrameBackingClass::VolumetricCloudShadowCompute:
-			return "renderer.cloud-shadow.compute";
-		case ESceneFrameBackingClass::VolumetricCloudFragment:
-			return "renderer.cloud.fragment";
-		case ESceneFrameBackingClass::VolumetricCloudCompute:
-			return "renderer.cloud.compute";
-		case ESceneFrameBackingClass::VolumetricCloudComposite:
-			return "renderer.cloud.composite";
-		case ESceneFrameBackingClass::Deferred: return "renderer.deferred";
-		case ESceneFrameBackingClass::GBufferDebug:
-			return "renderer.gbuffer-debug";
-		}
-		return {};
-	}
-
-	[[nodiscard]] inline auto ParseSceneFrameBackingClass(std::string_view Name)
-		-> std::optional<ESceneFrameBackingClass>
-	{
-		for (uint8 Value = 0;
-			Value <= static_cast<uint8>(ESceneFrameBackingClass::GBufferDebug);
-			++Value)
-		{
-			const auto Class = static_cast<ESceneFrameBackingClass>(Value);
-			if (GetSceneFrameBackingClassName(Class) == Name) return Class;
-		}
-		return std::nullopt;
-	}
-
 	struct FSceneFrameTopology
 	{
 		uint32 Width = 0;
@@ -114,36 +55,12 @@ namespace Durin
 		}
 	};
 
-	struct FResolvedSceneFrameTargets
-	{
-		std::optional<FPostProcessRenderer::FSceneTargets> Scene;
-		std::optional<FGBufferRenderer::FTargets> GBuffer;
-		std::optional<FGroundTruthAmbientOcclusionRenderer::FTargets>
-			GroundTruthAmbientOcclusion;
-		std::optional<FContactShadowVisibilityRenderer::FTargets>
-			ContactShadowVisibilityFragment;
-		std::optional<FContactShadowVisibilityRenderer::FComputeTargets>
-			ContactShadowVisibilityCompute;
-		std::optional<FVolumetricCloudShadowRenderer::FTargets>
-			VolumetricCloudShadowFragment;
-		std::optional<FVolumetricCloudShadowRenderer::FComputeTargets>
-			VolumetricCloudShadowCompute;
-		std::optional<FDeferredDirectionalLightingRenderer::FTargets>
-			IsolatedDeferred;
-		std::optional<FGBufferDebugRenderer::FTargets> GBufferDebug;
-		std::optional<FVolumetricCloudRenderer::FTargets> VolumetricCloudFragment;
-		std::optional<FVolumetricCloudRenderer::FComputeTargets>
-			VolumetricCloudCompute;
-		std::optional<FVolumetricCloudRenderer::FTargets> VolumetricCloudComposite;
-	};
-
 	struct FResolvedSceneFrame
 	{
 		FResolvedLighting Lighting;
 		FResolvedReceiverGeometry Receiver;
 		std::optional<FResolvedDirectionalShadow> DirectionalShadow;
 		std::optional<FResolvedVolumetricCloud> VolumetricCloud;
-		FResolvedSceneFrameTargets Targets;
 	};
 
 	template <typename TResult>

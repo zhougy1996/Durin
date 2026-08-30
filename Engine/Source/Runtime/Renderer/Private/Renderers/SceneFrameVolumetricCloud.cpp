@@ -69,8 +69,8 @@ namespace Durin
 						| ETextureCreateFlags::SourceCopy
 						| ETextureCreateFlags::CPUReadback)
 					.SetClearValue(FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f)),
-					.BackingClass = std::string(GetSceneFrameBackingClassName(
-						ESceneFrameBackingClass::VolumetricCloudShadowFragment))},
+					.ObservationTag = static_cast<uint32>(
+						ERendererTransientTargetGroup::VolumetricCloudShadowFragment)},
 				ERHIAccess::GraphicsShaderRead);
 		if (Topology.UsesCloudShadowCompute())
 			GraphResources.VolumetricCloudShadowCompute = Graph.CreateTexture(
@@ -82,8 +82,8 @@ namespace Durin
 						| ETextureCreateFlags::ShaderResource
 						| ETextureCreateFlags::SourceCopy
 						| ETextureCreateFlags::CPUReadback),
-					.BackingClass = std::string(GetSceneFrameBackingClassName(
-						ESceneFrameBackingClass::VolumetricCloudShadowCompute))},
+					.ObservationTag = static_cast<uint32>(
+						ERendererTransientTargetGroup::VolumetricCloudShadowCompute)},
 				ERHIAccess::GraphicsShaderRead);
 		const bool bCompute = PreparedCloudShadowRoute
 			== FVolumetricCloudShadowRenderer::ERoute::Compute;
@@ -233,8 +233,8 @@ namespace Durin
 						| ETextureCreateFlags::SourceCopy
 						| ETextureCreateFlags::CPUReadback)
 					.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f)),
-					.BackingClass = std::string(GetSceneFrameBackingClassName(
-						ESceneFrameBackingClass::VolumetricCloudFragment))},
+					.ObservationTag = static_cast<uint32>(
+						ERendererTransientTargetGroup::VolumetricCloudFragment)},
 				ERHIAccess::GraphicsShaderRead);
 		if (Topology.UsesCloudCompute())
 			GraphResources.VolumetricCloudCompute = Graph.CreateTexture(
@@ -246,8 +246,8 @@ namespace Durin
 						| ETextureCreateFlags::ShaderResource
 						| ETextureCreateFlags::SourceCopy
 						| ETextureCreateFlags::CPUReadback),
-					.BackingClass = std::string(GetSceneFrameBackingClassName(
-						ESceneFrameBackingClass::VolumetricCloudCompute))},
+					.ObservationTag = static_cast<uint32>(
+						ERendererTransientTargetGroup::VolumetricCloudCompute)},
 				ERHIAccess::GraphicsShaderRead);
 		if (Topology.bVolumetricCloudComposite)
 			GraphResources.VolumetricCloudComposite = Graph.CreateTexture(
@@ -260,8 +260,8 @@ namespace Durin
 						| ETextureCreateFlags::SourceCopy
 						| ETextureCreateFlags::CPUReadback)
 					.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f)),
-					.BackingClass = std::string(GetSceneFrameBackingClassName(
-						ESceneFrameBackingClass::VolumetricCloudComposite))},
+					.ObservationTag = static_cast<uint32>(
+						ERendererTransientTargetGroup::VolumetricCloudComposite)},
 				ERHIAccess::GraphicsShaderRead);
 		const bool bCompute = PreparedCloudRoute
 			== FVolumetricCloudRenderer::ERoute::Compute;

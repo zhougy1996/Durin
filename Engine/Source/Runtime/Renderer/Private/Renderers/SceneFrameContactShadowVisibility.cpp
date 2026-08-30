@@ -208,8 +208,8 @@ namespace Durin
 						| ETextureCreateFlags::ShaderResource
 						| ETextureCreateFlags::SourceCopy)
 					.SetClearValue(FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f)),
-					.BackingClass = std::string(GetSceneFrameBackingClassName(
-						ESceneFrameBackingClass::ContactShadowVisibilityFragment))},
+					.ObservationTag = static_cast<uint32>(
+						ERendererTransientTargetGroup::ContactFragment)},
 				ERHIAccess::GraphicsShaderRead);
 		if (Topology.UsesContactShadowVisibilityCompute())
 			GraphResources.ContactShadowVisibilityCompute = Graph.CreateTexture(
@@ -220,8 +220,8 @@ namespace Durin
 					.SetFlags(ETextureCreateFlags::Storage
 						| ETextureCreateFlags::ShaderResource
 						| ETextureCreateFlags::SourceCopy),
-					.BackingClass = std::string(GetSceneFrameBackingClassName(
-						ESceneFrameBackingClass::ContactShadowVisibilityCompute))},
+					.ObservationTag = static_cast<uint32>(
+						ERendererTransientTargetGroup::ContactCompute)},
 				ERHIAccess::GraphicsShaderRead);
 		auto FillCommonParameters = [&](auto& Parameters) {
 			Parameters.DirectionalShadow = {

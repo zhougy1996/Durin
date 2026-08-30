@@ -12,7 +12,6 @@
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/MeshRendererShared.h"
 #include "Renderers/RenderGraphSceneFrameExecutor.h"
-#include "Renderers/SceneFrameGraphBackingProvider.h"
 #include "Renderers/SceneFrameGraphContributors.h"
 #include "Renderers/RendererTransientTargetPool.h"
 #include "Renderers/SceneRenderTelemetry.h"
@@ -288,7 +287,7 @@ static_assert(!CHasResolvedReceiver<Durin::FSceneRenderPlan>);
 static_assert(!CHasResolvedDirectionalShadow<Durin::FSceneRenderPlan>);
 static_assert(!CHasTelemetry<Durin::FSceneRenderPlan>);
 static_assert(!CHasResolvedTargets<Durin::FSceneRenderPlan>);
-static_assert(CHasResolvedTargets<Durin::FResolvedSceneFrame>);
+static_assert(!CHasResolvedTargets<Durin::FResolvedSceneFrame>);
 static_assert(!CHasTelemetry<Durin::FSceneFrameOutcome>);
 static_assert(!CHasDeferredParameters<Durin::FSceneFrameOutcome>);
 static_assert(std::is_default_constructible_v<Durin::FSceneFrameOutcome>);
@@ -488,49 +487,6 @@ TEST(FRendererSceneContractTests, SceneFrameTopologyUsesExclusiveRoutes)
 	Topology.VolumetricCloud = Durin::ESceneFrameRoute::Compute;
 	EXPECT_FALSE(Topology.UsesCloudFragment());
 	EXPECT_TRUE(Topology.UsesCloudCompute());
-}
-
-TEST(FRendererSceneContractTests, SceneFrameBackingClassesRoundTrip)
-{
-	for (uint8 Value = 0;
-		Value <= static_cast<uint8>(Durin::ESceneFrameBackingClass::GBufferDebug);
-		++Value)
-	{
-		const auto Class = static_cast<Durin::ESceneFrameBackingClass>(Value);
-		const std::string_view Name = Durin::GetSceneFrameBackingClassName(Class);
-		ASSERT_FALSE(Name.empty());
-		EXPECT_EQ(Durin::ParseSceneFrameBackingClass(Name), Class);
-	}
-	EXPECT_FALSE(Durin::ParseSceneFrameBackingClass("renderer.unknown"));
-}
-
-TEST(FRendererSceneContractTests, RetainedBackingTopologyIsRequestBounded)
-{
-	Durin::FSceneFrameTopology Frame{
-		.Width = 1280,
-		.Height = 720,
-		.ContactShadowVisibility = Durin::ESceneFrameRoute::Compute};
-	std::array<Durin::FRenderGraphPreparationRequest, 2> Requests;
-	Requests[0].BackingClass = std::string(Durin::GetSceneFrameBackingClassName(
-		Durin::ESceneFrameBackingClass::Scene));
-	Requests[1].BackingClass = std::string(Durin::GetSceneFrameBackingClassName(
-		Durin::ESceneFrameBackingClass::GBuffer));
-	std::string Error;
-	const auto Retained =
-		Durin::FSceneFrameGraphBackingProvider::BuildRetainedTopology(
-			Requests, Frame, Error);
-	ASSERT_TRUE(Retained);
-	EXPECT_TRUE(Error.empty());
-	EXPECT_EQ(Retained->Width, 1280u);
-	EXPECT_EQ(Retained->Height, 720u);
-	EXPECT_TRUE(Retained->bGBuffer);
-	EXPECT_EQ(Retained->ContactShadowVisibility,
-		Durin::ESceneFrameRoute::Disabled);
-
-	Requests[1].BackingClass = "renderer.unknown";
-	EXPECT_FALSE(Durin::FSceneFrameGraphBackingProvider::BuildRetainedTopology(
-		Requests, Frame, Error));
-	EXPECT_NE(Error.find("unknown renderer backing class"), std::string::npos);
 }
 
 TEST(FRendererSceneContractTests, FeatureContributorOrderIsStableAndUnique)

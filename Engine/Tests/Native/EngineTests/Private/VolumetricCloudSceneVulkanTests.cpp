@@ -339,7 +339,18 @@ namespace Durin
 				ExpectedTextureTransitions[Index]) << Index;
 			EXPECT_FALSE(Statistics.bCompileBudgetExceeded) << Index;
 			EXPECT_FALSE(Statistics.bExecuteBudgetExceeded) << Index;
+			const auto& Allocation =
+				GSceneCloudGraphCaptures[Index].AllocationStatistics;
+			EXPECT_GT(Allocation.ActiveResources, 0u) << Index;
+			EXPECT_GE(Allocation.RetainedResources,
+				Allocation.ActiveResources) << Index;
+			EXPECT_GE(Allocation.RetainedBytes, Allocation.ActiveBytes) << Index;
+			EXPECT_EQ(Allocation.Failures, 0u) << Index;
 		}
+		EXPECT_GT(GSceneCloudGraphCaptures.back().AllocationStatistics.ReuseHits,
+			0u);
+		EXPECT_GT(GSceneCloudGraphCaptures.back().AllocationStatistics.ReuseMisses,
+			0u);
 
 		SetSceneRenderGraphCaptureSink(nullptr);
 		SetViewRenderTelemetrySink(nullptr);

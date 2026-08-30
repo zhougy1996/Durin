@@ -52,9 +52,6 @@ namespace Durin
 			uint32 Width,
 			uint32 Height
 		) const -> FSceneFrameTopology;
-		auto ResolveFrameTargets_RenderThread(
-			const FSceneFrameTopology& Topology
-		) -> ERenderViewResult;
 
 		FDefaultTextureResources& DefaultTextures;
 		FEnvironmentLightingResources& EnvironmentLighting;

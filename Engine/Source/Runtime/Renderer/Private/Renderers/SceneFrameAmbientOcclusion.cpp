@@ -67,8 +67,8 @@ namespace Durin
 								| ETextureCreateFlags::SourceCopy)
 							.SetClearValue(FClearValueBinding(
 								1.0f, 1.0f, 1.0f, 1.0f)),
-							.BackingClass = std::string(GetSceneFrameBackingClassName(
-								ESceneFrameBackingClass::AmbientOcclusion))},
+							.ObservationTag = static_cast<uint32>(
+								ERendererTransientTargetGroup::GroundTruthAmbientOcclusion)},
 						ERHIAccess::GraphicsShaderRead);
 			if (bHalfResolution)
 			{
@@ -82,8 +82,8 @@ namespace Durin
 								| ETextureCreateFlags::SourceCopy)
 							.SetClearValue(FClearValueBinding(
 								0.0f, 0.0f, 0.0f, 0.0f)),
-							.BackingClass = std::string(GetSceneFrameBackingClassName(
-								ESceneFrameBackingClass::AmbientOcclusion))},
+							.ObservationTag = static_cast<uint32>(
+								ERendererTransientTargetGroup::GroundTruthAmbientOcclusion)},
 						ERHIAccess::GraphicsShaderRead);
 				GraphResources.GroundTruthAmbientOcclusion[3] =
 					Graph.CreateTexture(Names[3],
@@ -95,8 +95,8 @@ namespace Durin
 								| ETextureCreateFlags::SourceCopy)
 							.SetClearValue(FClearValueBinding(
 								1.0f, 1.0f, 1.0f, 1.0f)),
-							.BackingClass = std::string(GetSceneFrameBackingClassName(
-								ESceneFrameBackingClass::AmbientOcclusion))},
+							.ObservationTag = static_cast<uint32>(
+								ERendererTransientTargetGroup::GroundTruthAmbientOcclusion)},
 						ERHIAccess::GraphicsShaderRead);
 			}
 		}

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "RendererAPI.h"
-#include "RHIResources.h"
+#include "RenderGraph.h"
 
 #include <memory>
 #include <optional>
@@ -29,7 +29,7 @@ namespace Durin
 		Count,
 	};
 
-	class RENDERER_API FRendererTransientTargetPool final
+	class RENDERER_API FRendererTransientTargetPool final : public FRDGAllocator
 	{
 	public:
 		struct FLease
@@ -56,6 +56,9 @@ namespace Durin
 			ERendererTransientTargetGroup Group) const -> uint64;
 		auto GetTotalRetainedBytes_RenderThread() const -> uint64;
 		auto Release_RenderThread() -> void;
+		auto Allocate(std::span<const FRDGAllocationRequest> Requests,
+			FRDGAllocatedResources& OutResources, std::string& OutError)
+			-> bool override;
 
 	private:
 		struct FState;

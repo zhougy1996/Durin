@@ -37,6 +37,7 @@ namespace Durin
 		) -> ESceneFrameGraphExecutionStatus;
 
 		FSceneFrameExecutionPipeline Pipeline;
+		FRDGAllocator& Allocator;
 		bool bReportedRegressionOverage = false;
 		bool bReportedExecutionFailure = false;
 	};

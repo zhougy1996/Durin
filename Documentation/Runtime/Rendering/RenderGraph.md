@@ -14,9 +14,10 @@ compile transfers immutable resource views, pass callbacks, dependencies, and
 transition batches into `FCompiledRenderGraph`; external owners retain the
 physical RHI resources themselves. Graph-created textures and buffers may be
 declared from `FRenderGraphTextureDesc`/`FRenderGraphBufferDesc` without a
-physical pointer. Compilation computes retained lifetimes first; one backing
-resolver receives only retained requests and must publish a complete candidate
-table before recording starts.
+physical pointer. Compilation computes retained lifetimes first;
+`FCompiledRenderGraph::Execute` passes one name-free batch of exact descriptors
+to the `FRDGAllocator` in `FRDGExecutionContext`. The complete returned table
+is held through counted RHI references for the compiled execution lifetime.
 
 The graph is the declaration and scheduling authority. It emits existing
 `FRHIBufferTransition` and `FRHITextureTransition` descriptors, while RHI and
@@ -25,8 +26,9 @@ execution state. Compilation never mutates a command list.
 
 ## Resource Contract
 
-- Imported resources declare their exact initial and final access and remain
-  externally owned. A missing final access is a compile error. Repeated import
+- External resources registered through `RegisterExternalTexture` or
+  `RegisterExternalBuffer` declare exact initial/final access and are retained
+  strongly by physical identity. A missing final access is a compile error. Repeated registration
   of the same non-null physical texture or buffer returns the first graph
   handle when kind, physical description, initial access, and final access all
   agree. The first name and declaration order remain canonical. A conflicting
@@ -36,6 +38,12 @@ execution state. Compilation never mutates a command list.
 - Graph-created resources begin at `ERHIAccess::Discard`, require a stored
   producer before any read or load, and may omit a final state when their
   contents do not cross the graph boundary.
+- `QueueTextureExtraction` and `QueueBufferExtraction` make a resource an
+  explicit culling root, apply its requested final access, and publish a
+  counted reference to the destination only after complete successful
+  execution. Compile, preparation, allocation, or recording failure leaves
+  every destination unchanged. Duplicate resource or destination extraction
+  is a deterministic declaration error.
 - Every use declares one nonempty exact byte range or texture
   aspect/mip/layer range. The compiler partitions partially overlapping
   declarations into exact buffer intervals and texture aspect/mip/layer cells;
@@ -93,10 +101,14 @@ accept only their corresponding graphics/attachment, compute, and transfer
 access families.
 
 An optional compatibility preparation callback runs after successful compile.
-The retained-backing resolver then receives immutable requests containing
-stable identity, logical description, backing class, and retained lifetime.
-Publication is atomic: returning false or omitting one required backing records
-nothing and invokes no pass. Culled logical resources never enter the request.
+The execution allocator then receives immutable `FRDGAllocationRequest`
+records containing only resource ID, kind, exact description, and retained
+lifetime. Allocation is atomic: returning false, omitting one resource, or
+publishing an incompatible description records nothing, publishes no
+extraction destination, and invokes no pass. Culled logical resources never
+enter the batch. The legacy backing resolver remains only for the bounded
+RenderCore and Vulkan transition oracles described below; production does not
+set it.
 
 Render-pass bodies that already own validated attachment initial/final layouts
 use the managed-attachment declaration. The graph records the attachment
@@ -221,6 +233,13 @@ pass/resource/parameter/use/transition records, dependencies, lifetimes,
 culling decisions, and statistics into an owning value that remains valid after
 graph destruction.
 
+`AllocationStatistics` records active/retained resource counts and logical
+bytes, peak active bytes, cumulative reuse hits/misses, evictions, and failures.
+Allocated resource records carry the allocator's stable pointer-free allocation
+ID and hit/miss disposition; external and prebound resources use graph-local
+pointer-free identities. `ObservationTag` may attribute memory to a typed owner,
+but is excluded from compatibility, selection, scheduling, and success.
+
 `FRenderGraphCapture::Parameters` contains one record for every submitted leaf
 field of every parameterized pass, including fields on a culled pass and a
 disengaged optional. The pass declaration index and full field path form its
@@ -266,8 +285,8 @@ New renderer work that crosses pass boundaries must use the graph path:
   execution-only compatibility edges.
 - Declare external effects such as presentation, offscreen output, readback,
   capture, publication, and timestamps as explicit roots when culling is on.
-- Put graph-created resource acquisition in the retained-backing resolver; do
-  not lazily allocate inside pass callbacks.
+- Describe graph-created resources exactly and let the execution allocator
+  acquire retained resources; do not allocate inside pass callbacks.
 - Set named safety limits, structural regression budgets, and CPU budgets beside
   every production graph authoring site. Raising a regression budget requires
   explaining the new pass/resource relationship and extending its contract
@@ -338,9 +357,10 @@ fields mean the route cannot access those capabilities.
 Persistent geometry and feature pipeline preparation complete before graph
 compile. Compute, fragment, disabled, and factor-one routes are therefore part
 of the authored topology rather than callback-time choices. After culling, the
-backing resolver derives target-family requirements solely from retained
-logical resources and atomically publishes only those requested handles from
-the existing transient pool. Only then do callbacks run. Scene failure prevents
+descriptor-keyed Renderer allocator reserves a distinct physical entry for
+every retained logical resource and atomically publishes the complete
+strong-reference table. Diagnostic names and feature routes do not participate
+in compatibility or selection. Only then do callbacks run. Scene failure prevents
 final output work from publishing success, and the surrounding view-state
 transaction commits only after the rooted final-output pass succeeds.
 

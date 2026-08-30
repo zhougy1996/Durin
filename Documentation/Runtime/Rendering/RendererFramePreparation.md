@@ -68,8 +68,9 @@ sampler. The pipeline then derives one immutable `FSceneFrameTopology` value.
 Mutually exclusive Contact Visibility, cloud-shadow, and cloud routes use
 `Disabled`/`Fragment`/`Compute` states rather than independent booleans. Scene
 Color, depth, GBuffer, and output receive graph identities before
-physical target creation; the compiled retained request resolves their backing
-into `FResolvedSceneFrame::Targets` as one publication. Directional-shadow command recording follows
+physical target creation; compiled execution allocates their exact retained
+descriptions through the Renderer RDG allocator. There is no resolved frame-target
+container or scene-name publication step. Directional-shadow command recording follows
 both resolution boundaries as an explicit graph pass; it is never performed by
 logical preparation.
 
@@ -77,26 +78,25 @@ logical preparation.
 
 | Class | Owner | Examples | Frame rule |
 | --- | --- | --- | --- |
-| Imported | Caller, asset, or shared resource owner | Window/offscreen output, material and environment textures, default textures | Pass inputs retain RHI references and declare required access; the graph executor does not release them. |
+| Imported | Caller, asset, or shared resource owner plus graph execution | Window/offscreen output, material and environment textures, default textures | `RegisterExternalTexture` retains a counted RHI reference by physical identity and declares exact boundary access. |
 | Persistent | Feature/shared Renderer owner or view state | Shader maps, PSOs, samplers, fullscreen geometry, material/geometry caches, cloud history | Generation invalidation and ordered owner shutdown remain authoritative. Committed history is never placed in the transient pool. |
-| Frame-transient | `FRendererTransientTargetPool` | Scene Color/depth, GBuffer, GTAO, contact/cloud visibility, deferred/debug output, cloud spatial/composite textures | After compile and culling, retained logical requests derive the exact target families and publish one complete backing table before recording. Culled resources never allocate, and pass execution performs no target creation. |
+| Frame-transient | `FRendererTransientTargetPool` as `FRDGAllocator` | Scene Color/depth, GBuffer, GTAO, contact/cloud visibility, deferred/debug output, cloud spatial/composite textures | After compile and culling, exact retained descriptions allocate as one batch. Culled resources never allocate, and pass execution performs no target creation. |
 
-The transient pool partitions entries by bounded
-`ERendererTransientTargetGroup` identity and keys each group by the complete
-creation description: debug identity, dimension, flags, format, extent, depth,
-array size, mip/sample counts, and clear binding/value. Lookup is bounded to
-one semantic group. A bundle is visible only when every requested texture
-resolves. Failed bundle acquisition discards newly created successful siblings,
-enforces the group budget, and retains the failed generation-aware creation
-slot so an immediate retry is suppressed until manual or device invalidation.
-Per-group retained-byte budgets evict the oldest inactive description while
-preserving every active lease. RHI references held by a lease remain valid if
-its pool entry is later evicted.
+The RDG side of the transient pool keys entries by the complete allocation-
+compatible description: dimension, flags, format, extent, depth, array size,
+mip/sample counts, and clear binding/value for textures, or size, stride, and
+usage for buffers. Debug names, graph IDs, pass names, and feature routes are
+excluded. Equal descriptions reserve distinct entries within one execution;
+inactive compatible entries may be reused by a later execution. The 640 MiB
+graph-wide structural ceiling rejects an oversized active batch and evicts the
+oldest inactive entries when retained storage exceeds the ceiling. Allocation
+publishes only after the entire batch succeeds, and the compiled graph keeps
+every returned RHI reference alive through recording.
 
 Feature release clears feature-local views and persistent payloads; the pool
 owner performs deterministic transient release before the shared coordinator
 is released. Device invalidation reconstructs demanded textures under the new
-generation. The provider does not alias physical memory, infer scheduling, or
+generation. The allocator does not alias physical memory, infer scheduling, or
 introduce synchronization.
 
 ## Render Graph Frame Schedule
@@ -114,8 +114,8 @@ stable order through renderer-private named feature contributors:
    immutable plan, then resolve geometry, palette, shadow, lighting, and cloud
    resources into `FResolvedSceneFrame`. Derive frame topology once.
 4. Compile explicit top-level dependencies and output roots, cull unreachable
-   versions, then resolve retained logical resources as one complete-or-null
-   backing table before any command records.
+   versions, then allocate retained logical descriptions as one complete-or-null
+   strong-reference table before any command records.
 5. Render directional-shadow cascades, then execute GBuffer from its resolved
    target bundle if the production or qualification route requires it.
 6. Build typed deferred inputs and run GTAO, contact visibility, cloud-shadow
@@ -218,12 +218,14 @@ declaration and callback capability. It converts the complete
 prepared plan into feature-specific shadow, geometry, visibility, cloud, or
 view inputs; neither contributors nor their callbacks can discover the whole
 plan or the execution pipeline. `FSceneFrameFeatureRecorders` owns command
-recording through the same narrow contracts. Retained allocation
-policy is a separate `FSceneFrameGraphBackingProvider`: graph descriptions use
-the typed `ESceneFrameBackingClass` boundary, retained requests are converted
-into a request-bounded topology, and logical-to-physical publication succeeds
-only as one complete candidate table. Human-readable backing names remain
-diagnostics rather than allocation policy.
+recording through the same narrow contracts. Retained allocation policy is the
+Renderer-owned implementation of `FRDGAllocator`. It receives only exact
+descriptors and lifetimes from RenderCore, and publishes one complete candidate
+table by resource ID. Human-readable resource names remain diagnostics and
+never reach allocation compatibility or physical selection.
+Feature memory telemetry uses the request's numeric observation tag only for
+attribution; changing the tag cannot change compatibility, allocation success,
+transitions, culling, or command recording.
 
 The graph preserves imported initial/final access, persistent view-state
 history, optional fallback policy, and the temporal/output transaction while
