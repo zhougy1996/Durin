@@ -1,8 +1,8 @@
 # Asset Packages
 
-Summary: Define asset identity, package serialization, runtime residency, loading, and compatibility inspection.
+Summary: Define asset identity, package serialization, runtime residency, loading, and per-package compatibility validation.
 
-Modules: AssetRegistry, Engine, CoreDObject
+Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance
 
 Last reviewed: 2026-08-30
 
@@ -19,8 +19,9 @@ residency, asset loading, and cooked-payload reading. Callers include
 `Asset/PackageSerialization.h` for the exact create/save, asset-mutation, or
 serialization capability. `AssetCook.h` adds Cook
 reachability, cooked-container construction, package serialization for Cook, and
-manifest publication. Explicit `Asset/...` capability headers add offline inspection, compatibility, and
-canonical-resave workflows.
+manifest publication. Runtime `Asset/Compatibility.h` exposes per-package schema
+validation; the target-selected Developer `AssetMaintenance` module owns
+project-wide audit, reports, and canonical-resave workflows.
 
 Public Engine asset headers include narrow leaves such as
 `Asset/CookedAsset.h` and `Asset/Cook.h` when their type layout or method
@@ -586,14 +587,15 @@ boundary, and remove the converter after the baseline becomes current.
 
 ## Structure Compatibility
 
-Ordinary load captures the current reflection catalog and rejects an unknown
+Ordinary load captures the current reflection catalog and uses the same
+descriptor comparison implementation as the compatibility probe. It rejects an unknown
 class, unknown field, or mismatched field signature before object skeleton
 construction. No partially compatible package becomes resident, no retained
 legacy payload is attached to live state, and save has no data-loss escape
 hatch. Editor document opens receive the same structured load failure and keep
 their prior active document or world unchanged.
 
-The read-only compatibility probe is a separate, compact inspection path. The
+The read-only per-package compatibility probe is a compact Runtime inspection path. The
 game thread freezes registered class and property identities into a value-only
 `FReflectionCompatibilityCatalog`; a worker opens one Core random-read handle,
 reads the DURF/DAST directory and metadata sections by declared range, and
@@ -610,11 +612,12 @@ This is metadata compatibility validation, not complete package integrity
 validation: hashes for metadata sections are checked, but the Value-section
 hash is intentionally not recomputed when its payload bytes are skipped.
 Ordinary load and explicit validation retain complete section-hash and payload
-validation. If a package schema is relevant to a registered versioned
-deprecated-property route, compatibility inspection explicitly falls back to
-the complete value decoder so nested migration evidence remains exact; those
-bytes count as read and not skipped. Package size and stable last-write ticks
-bind each result to the registry snapshot and mark a changed input stale.
+validation. Default audit never falls back to complete value decoding. An
+explicit canonical-resave evidence request may decode nested structured values
+only when their exact type/schema/field descriptors match a registered
+versioned deprecated route; those bytes count as read and not skipped. Package
+size and stable last-write ticks bind each result to the registry snapshot and
+mark a changed input stale.
 
 Each terminal record keeps inspection, compatibility, and freshness as
 orthogonal states and reports stable codes for unknown fields, incompatible
@@ -626,11 +629,16 @@ The frozen fixture corpus under
 format and every terminal classification without defining those incompatible
 inputs as supported migration sources.
 
-The editor exposes this probe only through `Tools > Asset Compatibility Audit`.
+The Developer `AssetMaintenance` module owns deterministic project batches,
+mounted-file snapshots, report serialization, and canonical-resave
+orchestration. It is linked by `DurinEditor` and `DurinAssetTool`, not by
+`DurinGame`; Runtime never enumerates a project or constructs a project report.
+
+The editor exposes this operation only through `Tools > Asset Compatibility Audit`.
 Opening or drawing the non-modal window compares already-published registry
 metadata but performs no registry scan and reads no package bytes. `Run Audit`
 is the sole start action: DurinEd snapshots the registry and reflection catalog,
-launches one cancelable worker, and returns compact records through a
+launches one cancelable worker over the shared `AssetMaintenance` batch, and returns compact records through a
 synchronized request-serial mailbox. The game thread owns the path-keyed live
 index, deterministic sorting, filters, counts, finding details, diagnostic
 copying, fingerprint reconciliation, and Content Browser navigation. A changed
@@ -639,7 +647,7 @@ disappear, and project changes or shutdown cancel and drain the worker before
 editor-owned state is released. The window offers no save, rewrite, discard, or
 other data-loss action.
 
-DurinDevTool exposes the same Engine probe through the read-only `asset`
+DurinDevTool exposes the same Developer batch through the read-only `asset`
 default and explicit `asset check` command. The configured game project is the
 default; `--project <descriptor>` overrides it. Its native host enumerates
 auto-scan mount contents without publishing or persisting an asset-registry

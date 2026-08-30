@@ -2,7 +2,7 @@
 
 Summary: Canonicalize reflected identities without reimporting source data.
 
-Last reviewed: 2026-08-27
+Last reviewed: 2026-08-30
 
 Use canonical resave when the Asset Compatibility window or a package context
 menu says **Resave recommended**. This is maintenance of serialized type names;
@@ -11,6 +11,12 @@ it is separate from unsaved authored changes and reimport.
 For one asset, open its Content Browser context menu and choose **Resave
 Package**. **Save Package** is reserved for loaded assets with ordinary authored
 changes. For a multi-selection, choose **Resave Selected Packages**.
+
+Project inspection and batch application are provided by the target-selected
+Developer `AssetMaintenance` service shared by the Editor and
+`DurinAssetTool`. It is not part of the game Runtime; Runtime retains only the
+single-package schema validation and atomic package mechanisms used by the
+service.
 
 For project maintenance, open **Tools > Asset Maintenance > Canonical Resave**,
 run the read-only audit, review stored/current identities and blockers, then

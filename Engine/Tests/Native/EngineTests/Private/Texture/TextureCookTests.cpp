@@ -2,7 +2,6 @@
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
-#include "Asset/CanonicalResave.h"
 #include "Asset/Compatibility.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Components/StaticMeshComponent.h"

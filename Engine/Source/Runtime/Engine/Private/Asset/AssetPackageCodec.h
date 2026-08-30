@@ -33,7 +33,8 @@ namespace Durin::Asset::Private
 		auto (*ProbeCompatibility)(
 			IAssetPackageByteSource&, const FAssetPath&,
 			const FReflectionCompatibilityCatalog&, FAssetPackageCompatibilityRecord&,
-			FAssetCompatibilityProbeStats*, const FAssetCompatibilityCancellationCheck&)
+			FAssetCompatibilityProbeStats*, bool,
+			const FAssetCompatibilityCancellationCheck&)
 			-> FAssetResult = nullptr;
 		auto (*Load)(
 			std::span<const std::byte>, const FAssetPath&, DPackage*&, FAssetLoadReport*,

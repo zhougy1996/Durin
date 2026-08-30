@@ -1,7 +1,8 @@
 #include "AssetTools/IAssetTools.h"
 
 #include "Asset/AssetOperations.h"
-#include "Asset/CanonicalResave.h"
+#include "AssetMaintenance/CanonicalResave.h"
+#include "AssetMaintenance/CompatibilityAudit.h"
 #include "AssetRegistry/Catalog.h"
 #include "Asset/Compatibility.h"
 #include "Asset/Deletion.h"
@@ -272,7 +273,7 @@ namespace Durin
 						: Snapshot.Error);
 			const Asset::FReflectionCompatibilityCatalog Catalog =
 				Asset::FReflectionCompatibilityCatalog::Capture();
-			std::vector<Asset::FAssetPackageCompatibilityRecord> Records;
+			std::vector<Asset::FAssetPackageCompatibilityProbeInput> Inputs;
 			for (const FAssetPath& Path : Request.AssetPaths)
 			{
 				const auto Input = std::ranges::find(
@@ -281,15 +282,17 @@ namespace Durin
 				if (Input == Snapshot.Packages.end())
 					return MakeRejectedAssetOperation(EAssetOperationKind::Save, std::format(
 						"Package {} is not in a content-writable mounted snapshot.", Path.ToString()));
-				auto Probe = Asset::ProbeAssetPackageCompatibility(*Input, Catalog);
-				if (!Probe.Record)
-					return MakeRejectedAssetOperation(EAssetOperationKind::Save, std::format(
-						"Package {} could not be inspected.", Path.ToString()));
-				Records.push_back(std::move(*Probe.Record));
+				Inputs.push_back(*Input);
+				Inputs.back().bIncludeNestedMigrationEvidence = true;
 			}
+			auto Audit = Asset::RunAssetCompatibilityAudit(Inputs, Catalog);
+			if (Audit.Status != Asset::EAssetCompatibilityAuditStatus::Completed
+				|| Audit.Records.size() != Inputs.size())
+				return MakeRejectedAssetOperation(EAssetOperationKind::Save,
+					"Selected packages could not be inspected completely.");
 			Asset::FAssetCanonicalResaveSelection Selection{
 				.Packages = Request.AssetPaths, .bAllowPlainResave = true};
-			auto Plan = Asset::PlanAssetCanonicalResaves(Records, Selection);
+			auto Plan = Asset::PlanAssetCanonicalResaves(Audit.Records, Selection);
 			auto Applied = Asset::ApplyAssetCanonicalResaves(std::move(Plan), Catalog);
 			if (Applied.Status != Asset::EAssetCanonicalResaveApplyStatus::Succeeded)
 				return MakeRejectedAssetOperation(EAssetOperationKind::Save,

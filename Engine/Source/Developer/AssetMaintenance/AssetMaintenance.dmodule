@@ -1,0 +1,12 @@
+{
+    "ModuleName": "AssetMaintenance",
+    "LinkType": "Shared",
+    "PCH": "SharedPCH_DObject",
+    "PrivateDependencies": [],
+    "PublicDependencies": [
+        "AssetRegistry",
+        "Engine"
+    ],
+    "OptionalPrivateDependencies": [],
+    "OptionalPublicDependencies": []
+}

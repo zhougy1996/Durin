@@ -8,7 +8,6 @@
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
-#include "Asset/CanonicalResave.h"
 #include "Asset/Compatibility.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DObject/Class.h"

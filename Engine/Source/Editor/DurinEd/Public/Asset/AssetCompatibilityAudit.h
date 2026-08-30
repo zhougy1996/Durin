@@ -3,6 +3,7 @@
 #include "DurinEdAPI.h"
 #include "AssetRegistry/Catalog.h"
 #include "Asset/Compatibility.h"
+#include "AssetMaintenance/CompatibilityAudit.h"
 #include "Threading/Task.h"
 
 namespace Durin::Editor
@@ -57,10 +58,7 @@ namespace Durin::Editor
 	DURINED_API auto FormatAssetCompatibilityAuditReport(
 		std::span<const Asset::FAssetPackageCompatibilityRecord> Records) -> std::string;
 
-	using FAssetCompatibilityProbe = std::function<Asset::FAssetPackageCompatibilityProbeResult(
-		const Asset::FAssetPackageCompatibilityProbeInput&,
-		const Asset::FReflectionCompatibilityCatalog&,
-		const Asset::FAssetCompatibilityCancellationCheck&)>;
+	using FAssetCompatibilityProbe = Asset::FAssetCompatibilityProbeOperation;
 
 	// Game-thread-owned model for one explicit, request-scoped project audit. Workers
 	// receive copied package inputs and a value-only reflection catalog.

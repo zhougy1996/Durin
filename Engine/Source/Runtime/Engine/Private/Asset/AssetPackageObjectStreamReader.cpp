@@ -1737,7 +1737,36 @@ namespace Durin::Asset::PackageObjectStream
 		}
 		const FReflectionCompatibilityCatalog LiveCatalog =
 			FReflectionCompatibilityCatalog::Capture();
-		for (size_t ObjectIndex = 0; ObjectIndex < Decoded.Objects.size(); ++ObjectIndex)
+		if (!Options.bCooked)
+		{
+			FAssetPackageCompatibilityRecord Preflight;
+			FReaderDiagnostic PreflightDiagnostic;
+			const FAssetResult PreflightResult = ProbeDecodedCompatibility(
+				Decoded, Bytes.size(), true, PackagePath, LiveCatalog,
+				Preflight, &PreflightDiagnostic);
+			if (!PreflightResult)
+			{
+				Fail(Diagnostic, EReaderFailure::InvalidTable,
+					PreflightResult.Message.empty() ? PreflightDiagnostic.Message
+						: PreflightResult.Message);
+				return Finish({EAssetError::CorruptFile, Diagnostic.Message});
+			}
+			if (Preflight.Compatibility != EAssetPackageCompatibility::Compatible)
+			{
+				const FAssetCompatibilityFinding* Finding = Preflight.Findings.empty()
+					? nullptr : &Preflight.Findings.front();
+				const bool bUnknownClass = Finding
+					&& Finding->Code == EAssetCompatibilityFindingCode::UnavailableClass;
+				Fail(Diagnostic, bUnknownClass ? EReaderFailure::UnknownClass
+					: EReaderFailure::ArchiveFailure,
+					Finding && !Finding->Diagnostic.empty() ? Finding->Diagnostic
+						: "Serialized package is incompatible with the live schema.",
+					0, Finding ? Finding->ObjectPath : std::string{});
+				return Finish({bUnknownClass ? EAssetError::UnknownClass
+					: EAssetError::UnsupportedProperty, Diagnostic.Message});
+			}
+		}
+		else for (size_t ObjectIndex = 0; ObjectIndex < Decoded.Objects.size(); ++ObjectIndex)
 		{
 			const FDecodedObject& Object = Decoded.Objects[ObjectIndex];
 			const FReflectionCompatibilityClass* Class =
@@ -2060,6 +2089,59 @@ namespace Durin::Asset::PackageObjectStream
 		return {};
 	}
 
+	auto RequiresDecodedCompatibilityPayloadValues(
+		const FDecodedPackage& Package,
+		const FReflectionCompatibilityCatalog& Catalog) -> bool
+	{
+		std::vector<std::pair<FGuid, int32>> Versions;
+		for (const FCustomVersion& Version : Package.CustomVersions)
+			Versions.emplace_back(Version.Guid, static_cast<int32>(Version.Value));
+		std::unordered_set<uint64> Visiting;
+		std::function<bool(uint64)> ContainsNestedRoute = [&](uint64 TypeId) {
+			if (TypeId == 0 || TypeId > Package.Types.size()) return false;
+			if (!Visiting.insert(TypeId).second) return false;
+			const FDecodedType& Type = Package.Types[static_cast<size_t>(TypeId - 1)];
+			bool bFound = false;
+			if (Type.Opcode == ETypeOpcode::Struct)
+			{
+				const auto Schema = std::ranges::find(
+					Package.Schemas, Type.QualifiedName, &FDecodedSchema::QualifiedName);
+				if (Schema != Package.Schemas.end())
+				{
+					for (const FDecodedField& Field : Schema->Fields)
+					{
+						const FDecodedType* FieldType = TypeAt(Package, Field.TypeId);
+						if (!FieldType) continue;
+						if (Catalog.FindDeprecatedPropertyRoute(Schema->QualifiedName, Field.Name,
+							TypeKind(*FieldType, Package), TypeSignature(*FieldType, Package), Versions)
+							|| ContainsNestedRoute(Field.TypeId))
+						{
+							bFound = true;
+							break;
+						}
+					}
+				}
+			}
+			else if ((Type.Opcode == ETypeOpcode::FixedArray || Type.Opcode == ETypeOpcode::Array)
+				&& Type.ChildTypeIds.size() == 1)
+				bFound = ContainsNestedRoute(Type.ChildTypeIds[0]);
+			else if (Type.Opcode == ETypeOpcode::Map && Type.ChildTypeIds.size() == 2)
+				bFound = ContainsNestedRoute(Type.ChildTypeIds[1]);
+			Visiting.erase(TypeId);
+			return bFound;
+		};
+		for (const FDecodedObjectValues& Values : Package.ObjectValues)
+			for (const FDecodedOverride& Override : Values.Overrides)
+			{
+				const FDecodedSchema* Schema = SchemaAt(Package, Override.SchemaId);
+				if (!Schema || Override.FieldId == 0 || Override.FieldId > Schema->Fields.size())
+					continue;
+				if (ContainsNestedRoute(Schema->Fields[static_cast<size_t>(Override.FieldId - 1)].TypeId))
+					return true;
+			}
+		return false;
+	}
+
 	auto ProbeDecodedCompatibility(FDecodedPackage Package, uint64 PhysicalPackageBytes,
 		bool bPayloadValuesDecoded, const FAssetPath& PackagePath,
 		const FReflectionCompatibilityCatalog& Catalog,
@@ -2203,12 +2285,8 @@ namespace Durin::Asset::PackageObjectStream
 			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
 			return {EAssetError::CorruptFile, Diagnostic.Message};
 		}
-		const bool bNeedsPayloadValues = std::ranges::any_of(
-			Catalog.GetDeprecatedPropertyRoutes(), [&](const auto& Route) {
-				return std::ranges::any_of(Package.Schemas, [&](const auto& Schema) {
-					return Schema.QualifiedName == Route.DeclaringType;
-				});
-			});
+		const bool bNeedsPayloadValues =
+			RequiresDecodedCompatibilityPayloadValues(Package, Catalog);
 		if (bNeedsPayloadValues && !DecodePackage(Bytes, Package, Limits, &Diagnostic))
 		{
 			if (OutDiagnostic) *OutDiagnostic = Diagnostic;

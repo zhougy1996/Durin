@@ -3,7 +3,8 @@
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
-#include "Asset/CanonicalResave.h"
+#include "AssetMaintenance/CanonicalResave.h"
+#include "AssetMaintenance/CompatibilityAudit.h"
 #include "Asset/Compatibility.h"
 #include "Asset/AssetSaveReadiness.h"
 
@@ -916,18 +917,15 @@ int main(int ArgC, char** ArgV)
 			return 1;
 		}
 	}
+	if (Options.Operation == EOperation::Resave)
+		for (auto& Input : Snapshot.Packages)
+			Input.bIncludeNestedMigrationEvidence = true;
 
-	std::vector<Durin::Asset::FAssetPackageCompatibilityRecord> Records;
-	Records.reserve(Snapshot.Packages.size());
-	for (const auto& Input : Snapshot.Packages)
-	{
-		if (GCancelled.load(std::memory_order_relaxed)) return 130;
-		auto Result = Durin::Asset::ProbeAssetPackageCompatibility(
-			Input, Catalog, [] { return GCancelled.load(std::memory_order_relaxed); }
-		);
-		if (Result.Status == Durin::Asset::EAssetCompatibilityProbeStatus::Cancelled) return 130;
-		if (Result.Record) Records.push_back(std::move(*Result.Record));
-	}
+	auto Audit = Durin::Asset::RunAssetCompatibilityAudit(
+		Snapshot.Packages, Catalog,
+		[] { return GCancelled.load(std::memory_order_relaxed); });
+	if (Audit.Status == Durin::Asset::EAssetCompatibilityAuditStatus::Cancelled) return 130;
+	auto& Records = Audit.Records;
 	if (Options.Operation == EOperation::Check)
 	{
 		if (Options.Format == EOutputFormat::Json)

@@ -4,15 +4,17 @@
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
-#include "Asset/CanonicalResave.h"
 #include "Asset/Compatibility.h"
+#if DURIN_WITH_EDITOR
+	#include "AssetMaintenance/CompatibilityAudit.h"
+	#include "AssetMaintenance/CanonicalResave.h"
+#endif
 #include "Asset/AssetPackageV7Codec.h"
 #include "Asset/AssetPackageByteSource.h"
 #include "Asset/AssetPropertyKindTraits.h"
 #include "Asset/PackageVersionPolicy.h"
 #include "Asset/PackageObjectStreamReader.h"
 #include "Asset/PackageObjectStreamWriter.h"
-#include "Asset/CanonicalResave.h"
 #include "Asset/BulkData.h"
 #include "Asset/EditorBulkData.h"
 #include "Asset/EditorBulkDataStorage.h"
@@ -2237,7 +2239,7 @@ TEST(FPackageAssetTests, V7CodecMatchesLiveWriteInspectReferenceMutationAndLoadS
 	FAssetPackageCompatibilityRecord Compatibility;
 	FMemoryAssetPackageByteSource CompatibilitySource(V6);
 	ASSERT_TRUE(Codec.ProbeCompatibility(
-		CompatibilitySource, SourcePath, Catalog, Compatibility, nullptr, {}));
+		CompatibilitySource, SourcePath, Catalog, Compatibility, nullptr, false, {}));
 	EXPECT_EQ(Compatibility.FormatVersion, AssetPackageV7FormatVersion);
 
 	std::vector<std::byte> DirectWrite;
@@ -4813,6 +4815,7 @@ TEST(FPackageAssetTests, CompleteInspectionContainsEveryObjectAndContentFingerpr
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(Path));
 }
 
+#if DURIN_WITH_EDITOR
 TEST(FPackageAssetTests, MountedPackageSnapshotIsDeterministicHashedAndReadOnly)
 {
 	const std::filesystem::path Root =
@@ -4874,6 +4877,55 @@ TEST(FPackageAssetTests, MountedPackageSnapshotIsDeterministicHashedAndReadOnly)
 	EXPECT_EQ(Cancelled.Status, Durin::Asset::EAssetPackageSnapshotStatus::Cancelled);
 	EXPECT_TRUE(Cancelled.Packages.empty());
 }
+
+TEST(FPackageAssetTests, CanonicalResaveReportsPartialAfterACompletedAtomicPackage)
+{
+	InitializeAssetTests();
+	using namespace Durin;
+	using namespace Durin::Asset;
+	FAssetPath FirstPath;
+	FAssetPath SecondPath;
+	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/CanonicalPartialA", FirstPath));
+	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/CanonicalPartialB", SecondPath));
+	DPackageAssetForTest* First = nullptr;
+	DPackageAssetForTest* Second = nullptr;
+	ASSERT_TRUE(CreateAsset(FirstPath, First));
+	ASSERT_TRUE(CreateAsset(SecondPath, Second));
+	ASSERT_TRUE(SavePackage(First->GetPackage()));
+	ASSERT_TRUE(SavePackage(Second->GetPackage()));
+
+	auto Snapshot = CaptureMountedAssetPackageSnapshot();
+	ASSERT_EQ(Snapshot.Status, EAssetPackageSnapshotStatus::Completed);
+	std::vector<FAssetPackageCompatibilityProbeInput> Inputs;
+	for (const FAssetPath& Path : {FirstPath, SecondPath})
+	{
+		const auto Input = std::ranges::find(
+			Snapshot.Packages, Path, &FAssetPackageCompatibilityProbeInput::PackagePath);
+		ASSERT_NE(Input, Snapshot.Packages.end());
+		Inputs.push_back(*Input);
+		Inputs.back().bIncludeNestedMigrationEvidence = true;
+	}
+	const FReflectionCompatibilityCatalog Catalog = FReflectionCompatibilityCatalog::Capture();
+	auto Audit = RunAssetCompatibilityAudit(Inputs, Catalog);
+	ASSERT_EQ(Audit.Status, EAssetCompatibilityAuditStatus::Completed);
+	ASSERT_EQ(Audit.Records.size(), 2u);
+	FAssetCanonicalResaveSelection Selection{
+		.Packages = {FirstPath, SecondPath}, .bAllowPlainResave = true};
+	auto Plan = PlanAssetCanonicalResaves(Audit.Records, Selection);
+	ASSERT_EQ(Plan.Packages.size(), 2u);
+	FAssetCanonicalResaveApplyOptions Options;
+	Options.ShouldFail = [](EAssetCanonicalResaveApplyPhase Phase, size_t Index) {
+		return Phase == EAssetCanonicalResaveApplyPhase::Revalidate && Index == 1;
+	};
+	const auto Applied = ApplyAssetCanonicalResaves(std::move(Plan), Catalog, Options);
+	EXPECT_EQ(Applied.Status, EAssetCanonicalResaveApplyStatus::Partial);
+	EXPECT_EQ(Applied.Plan.Packages[0].Status, EAssetCanonicalResavePackageStatus::Resaved);
+	EXPECT_EQ(Applied.Plan.Packages[1].Status, EAssetCanonicalResavePackageStatus::Failed);
+	EXPECT_EQ(Applied.ChangedPaths.size(), 1u);
+	EXPECT_TRUE(UnloadPackage(FirstPath));
+	EXPECT_TRUE(UnloadPackage(SecondPath));
+}
+#endif
 
 TEST(FPackageAssetTests, PackageSavesRejectReadOnlyContentMounts)
 {

@@ -2,7 +2,6 @@
 #include "DObject/Package.h"
 #include "Panels/ContentBrowserFilesystem.h"
 
-#include "Asset/CanonicalResave.h"
 #include "AssetRegistry/Catalog.h"
 #include "Asset/Compatibility.h"
 #include "Asset/Load.h"

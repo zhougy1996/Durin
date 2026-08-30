@@ -4,7 +4,7 @@ Summary: Define task scheduling, dependencies, cancellation, waiting, and worker
 
 Modules: Core
 
-Last reviewed: 2026-08-18
+Last reviewed: 2026-08-30
 
 Durin's CPU task system provides process-wide bounded background execution for
 runtime and editor subsystems. It owns task admission, dependencies, typed
@@ -380,8 +380,9 @@ The task system schedules CPU work but grants no extra ownership rights:
 
 Subsystems retain completed-result mailboxes when they own streaming, batching,
 latest-wins, or take-result policy. DurinEd's Asset Compatibility Audit uses
-that boundary deliberately: one cancelable worker consumes copied package
-inputs and an immutable reflection catalog, streams value-only records through
+that boundary deliberately: one cancelable worker invokes the UI-neutral
+Developer `AssetMaintenance` batch with copied package inputs and an immutable
+reflection catalog, then streams value-only records through
 its request-serial mailbox, and returns an owned typed terminal summary. A
 `GameThreadDeferred` outcome continuation drains earlier records and publishes
 terminal model state only after rechecking request serial, generation, and weak

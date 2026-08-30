@@ -60,13 +60,14 @@ durin_add_engine_functional_test(EditorOperationTests
 durin_add_engine_functional_test(EditorAssetWorkflowTests
 	KIND feature
 	DOMAINS asset-workflow
-	MODULES asset-tools durin-ed texture-editor
+	MODULES asset-maintenance asset-tools durin-ed texture-editor
 	STACKS editor
 	PRIVATE_SOURCE_OWNER TextureEditor
 	PRIVATE_SOURCE_RATIONALE
 		"TextureEditor-owned import-form state remains private while its reset and inactive-form behavior is white-box tested."
 	RUNTIME_STACK_RATIONALE "Exercises editor asset workflows across DurinEd and Mona UI models."
 	SOURCES
+		Private/Editor/AssetMaintenanceContractTests.cpp
 		Private/Editor/AssetCompatibilityAuditTests.cpp
 		Private/Editor/AssetDestinationValidationTests.cpp
 		Private/Editor/ImportDialogStateTests.cpp

@@ -13,7 +13,6 @@
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
-#include "Asset/CanonicalResave.h"
 #include "Asset/Compatibility.h"
 #include "Actors/StaticMeshActor.h"
 #include "Actors/SkeletalMeshActor.h"

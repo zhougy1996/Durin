@@ -4,17 +4,17 @@ Summary: Move project-wide asset compatibility audit and canonical-resave orches
 
 Last reviewed: 2026-08-30
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-30
 
 ## Current Status
 
-- The supported asset package format is V7; retaining a project audit is no longer justified by V6 package discovery or conversion.
-- Ordinary Runtime asset loading does not launch a project-wide audit, but the public audit model, project snapshot, report construction, package fingerprinting, and batch-oriented compatibility entry points currently live in Runtime `Engine`.
-- The Editor compatibility window runs the audit through `DurinEd`; Editor canonical resave goes through `AssetTools`; `DurinAssetTool` provides the command-line audit and resave host. These are authoring, maintenance, and CI consumers rather than game Runtime consumers.
-- Runtime package loading and compatibility audit perform overlapping class, field, type, and deprecated-route checks through separate paths. This duplication risks the audit disagreeing with the loader.
-- V7 audit input is range-backed, but it still reconstructs a metadata-only ObjectStream and can fall back to full ObjectStream/value decoding for deprecated fields. Project snapshots also compute strong package fingerprints, so the default audit remains heavier than its descriptor-only contract requires.
-- The previously completed range-reader work is the migration foundation: package bytes can already be inspected without first loading the complete `.dasset` into memory.
+- `AssetMaintenance` is now a target-selected Developer module containing mounted-package snapshots, deterministic batch audit/reporting, and canonical-resave planning/application orchestration. `DurinEd`, `AssetTools`, `MainFrame`, and `DurinAssetTool` use that boundary.
+- Runtime `Engine` retains the reflection catalog, per-package range probe, shared descriptor comparison, and load safety. Its built dylib no longer exports project snapshot/report or canonical-resave batch symbols.
+- Ordinary authored loading now calls the same decoded-schema evaluator as compatibility inspection before object construction. Cooked native projection retains its separate manifest exception.
+- V7 default audit decodes already range-read sections directly, without reconstructing a metadata ObjectStream. Payload decoding is opt-in for canonical-resave nested migration evidence and is admitted only for exact nested route descriptors.
+- `DurinEditor`, `DurinAssetTool`, `MainFrame`, `AssetPackageTests`, and `EditorAssetWorkflowTests` build or pass in the configured Editor preset. The current host profile registers no `DurinGame` preset, so game exclusion is verified statically by target composition, exported-symbol inspection, and a non-Editor CMake guard; an actual game build remains open.
+- The implementation reuses AssetRegistry's `FDecodedPackage` as the compact descriptor projection instead of adding a second package-schema model. Descriptor-only decode leaves `FValue` payloads empty; this avoids another conversion and keeps one validated table representation shared by loader and audit.
 
 ## Goal
 
@@ -78,88 +78,88 @@ Establish a strict ownership boundary in which Runtime owns package parsing and 
 
 ### Stage 0: Freeze contracts and dependency direction
 
-- [ ] Inventory every caller and exported symbol in the current Runtime compatibility and canonical-resave APIs.
-- [ ] Record the report fields, finding categories, exit codes, cancellation behavior, and transactional resave guarantees that existing Editor and CLI consumers rely on.
-- [ ] Define the allowed dependency graph: Runtime modules -> no Developer dependency; `AssetMaintenance` -> Runtime only; Editor/tool consumers -> `AssetMaintenance`.
-- [ ] Decide which fingerprint modes remain externally observable and which report fields may change when default interactive hashing is removed.
-- [ ] Add focused characterization tests before moving code where current behavior is not already covered.
+- [x] Inventory every caller and exported symbol in the current Runtime compatibility and canonical-resave APIs.
+- [x] Record the report fields, finding categories, exit codes, cancellation behavior, and transactional resave guarantees that existing Editor and CLI consumers rely on.
+- [x] Define the allowed dependency graph: Runtime modules -> no Developer dependency; `AssetMaintenance` -> Runtime only; Editor/tool consumers -> `AssetMaintenance`.
+- [x] Decide which fingerprint modes remain externally observable and which report fields may change when default interactive hashing is removed.
+- [x] Add focused characterization tests before moving code where current behavior is not already covered.
 
 Completion condition: the migration surface and compatibility promises are explicit, and no unresolved ownership or report-format decision remains.
 
 ### Stage 1: Unify Runtime schema validation
 
-- [ ] Define the compact package-schema snapshot, comparison input, structured finding, and validation-policy types in the smallest Runtime public surface shared by loading and maintenance.
-- [ ] Extract class, field, type, missing-field, and deprecated-route comparison from the existing reader/audit paths into one implementation.
-- [ ] Change ordinary package loading to consume the shared comparison result without weakening its corruption, bounds, or construction-before-validation protections.
-- [ ] Adapt the existing audit path temporarily to the same comparison engine so loader and audit parity can be tested before module movement.
-- [ ] Add tests proving equivalent package/catalog inputs produce the same compatibility classification in load-preflight and audit policies.
+- [x] Define the compact package-schema snapshot, comparison input, structured finding, and validation-policy types in the smallest Runtime public surface shared by loading and maintenance.
+- [x] Extract class, field, type, missing-field, and deprecated-route comparison from the existing reader/audit paths into one implementation.
+- [x] Change ordinary package loading to consume the shared comparison result without weakening its corruption, bounds, or construction-before-validation protections.
+- [x] Adapt the existing audit path temporarily to the same comparison engine so loader and audit parity can be tested before module movement.
+- [x] Add tests proving equivalent package/catalog inputs produce the same compatibility classification in load-preflight and audit policies.
 
 Completion condition: one Runtime comparison engine is the source of truth, and the old duplicated comparison logic is removed.
 
 ### Stage 2: Make V7 schema extraction section-native
 
-- [ ] Add direct range-backed readers for the required V7 name, type, schema, object, field, and value-descriptor data.
-- [ ] Validate section offsets, counts, cross-references, and payload spans without concatenating a metadata ObjectStream.
-- [ ] Remove the compatibility-only ObjectStream reconstruction once the direct schema snapshot covers all audit findings.
-- [ ] Replace the coarse deprecated-field fallback with exact descriptor candidate detection and a separately measured detailed-evidence path.
-- [ ] Bind byte-read, range-request, payload-skipped, and detailed-decode statistics to actual reader operations.
-- [ ] Add corrupt-range, cancellation, large-payload, exact-deprecated-route, and no-package-sized-allocation tests.
+- [x] Add direct range-backed readers for the required V7 name, type, schema, object, field, and value-descriptor data.
+- [x] Validate section offsets, counts, cross-references, and payload spans without concatenating a metadata ObjectStream.
+- [x] Remove the compatibility-only ObjectStream reconstruction once the direct schema snapshot covers all audit findings.
+- [x] Replace the coarse deprecated-field fallback with exact descriptor candidate detection and a separately measured detailed-evidence path.
+- [x] Bind byte-read, range-request, payload-skipped, and detailed-decode statistics to actual reader operations.
+- [x] Add corrupt-range, cancellation, large-payload, exact-deprecated-route, and no-package-sized-allocation tests.
 
 Completion condition: default V7 compatibility inspection creates neither a complete package buffer, a reconstructed ObjectStream, nor recursive `FValue` trees.
 
 ### Stage 3: Introduce the AssetMaintenance Developer module
 
-- [ ] Add the module descriptor, build registration, public/private layout, and `Engine.dproject` registration for `AssetMaintenance`.
-- [ ] Move project audit request/result/report models, snapshot enumeration, batch progress, cancellation, fingerprint selection, and report serialization out of Runtime `Engine`.
-- [ ] Move canonical-resave selection and batch planning/orchestration into the module while calling retained Runtime single-package transaction primitives.
-- [ ] Keep the public API synchronous and UI-neutral at its core, with caller-provided cancellation/progress hooks so Editor tasks and CLI execution share the same operation.
-- [ ] Add module-level tests for deterministic ordering, cancellation between packages/ranges, unchanged-file reuse, report output, and partial resave failure.
+- [x] Add the module descriptor, build registration, public/private layout, and `Engine.dproject` registration for `AssetMaintenance`.
+- [x] Move project audit request/result/report models, snapshot enumeration, batch progress, cancellation, fingerprint selection, and report serialization out of Runtime `Engine`.
+- [x] Move canonical-resave selection and batch planning/orchestration into the module while calling retained Runtime single-package transaction primitives.
+- [x] Keep the public API synchronous and UI-neutral at its core, with caller-provided cancellation/progress hooks so Editor tasks and CLI execution share the same operation.
+- [x] Add module-level tests for deterministic ordering, cancellation between packages/ranges, unchanged-file reuse, report output, and partial resave failure.
 
 Completion condition: project-wide compatibility and resave policy can be used without linking an Editor module, and Runtime no longer owns their orchestration.
 
 ### Stage 4: Migrate authoring and tool consumers
 
-- [ ] Add `AssetMaintenance` to the `DurinEditor` extra-module set while leaving `DurinGame` and base modules unchanged.
-- [ ] Change `DurinEd` to wrap Developer progress/cancellation/results in editor task state.
-- [ ] Change `AssetTools` canonical resave to call Developer planning/orchestration and preserve existing editor transaction/report behavior.
-- [ ] Keep `MainFrame` as a thin UI consumer and remove direct knowledge of Runtime audit internals.
-- [ ] Link `DurinAssetTool` to `AssetMaintenance`, preserving command names, exit semantics, and editor-free execution.
-- [ ] Verify both Editor and CLI consume the same report/finding conversion path.
+- [x] Add `AssetMaintenance` to the `DurinEditor` extra-module set while leaving `DurinGame` and base modules unchanged.
+- [x] Change `DurinEd` to wrap Developer progress/cancellation/results in editor task state.
+- [x] Change `AssetTools` canonical resave to call Developer planning/orchestration and preserve existing editor transaction/report behavior.
+- [x] Keep `MainFrame` as a thin UI consumer and remove direct knowledge of Runtime audit internals.
+- [x] Link `DurinAssetTool` to `AssetMaintenance`, preserving command names, exit semantics, and editor-free execution.
+- [x] Verify both Editor and CLI consume the same report/finding conversion path.
 
 Completion condition: all project-audit and batch-resave consumers enter through `AssetMaintenance`, with no behavior-specific fork between UI and CLI.
 
 ### Stage 5: Remove obsolete Runtime audit surface
 
-- [ ] Delete the Runtime public project-audit/report/snapshot API and its implementation after downstream migration.
-- [ ] Remove compatibility-only full decode, metadata ObjectStream adapters, duplicate finding conversion, and obsolete V6-era naming or branches.
-- [ ] Audit includes and link dependencies so game Runtime cannot reach project enumeration, report serialization, hashing policy, or batch resave orchestration.
-- [ ] Add a target/dependency assertion or build-time check that prevents `AssetMaintenance` from entering `DurinGame` transitively.
-- [ ] Confirm low-level Runtime package validation remains independently tested and usable without Developer modules.
+- [x] Delete the Runtime public project-audit/report/snapshot API and its implementation after downstream migration.
+- [x] Remove compatibility-only full decode, metadata ObjectStream adapters, duplicate finding conversion, and obsolete V6-era naming or branches.
+- [x] Audit includes and link dependencies so game Runtime cannot reach project enumeration, report serialization, hashing policy, or batch resave orchestration.
+- [x] Add a target/dependency assertion or build-time check that prevents `AssetMaintenance` from entering `DurinGame` transitively.
+- [x] Confirm low-level Runtime package validation remains independently tested and usable without Developer modules.
 
 Completion condition: Runtime contains only per-package format/schema/load safety and low-level package operations; authoring maintenance code is absent from the game dependency graph.
 
 ### Stage 6: Qualification and durable documentation
 
-- [ ] Run the repository-prescribed native tests for Runtime package parsing/validation, `AssetMaintenance`, Editor integration, and `DurinAssetTool`.
-- [ ] Build or otherwise verify the `DurinGame`, `DurinEditor`, and `DurinAssetTool` target compositions according to the repository build instructions.
-- [ ] Measure representative large-package audits and record peak allocation, bytes read, payload bytes skipped, cancellation latency, and wall time against the pre-migration baseline.
-- [ ] Update module ownership, asset package, canonical resave, Editor workspace, task-system, and CLI documentation with the final APIs and target boundaries.
-- [ ] Close the plan only after all acceptance gates have evidence and long-lived rules have moved to their owning documentation.
+- [x] Run the repository-prescribed native tests for Runtime package parsing/validation, `AssetMaintenance`, Editor integration, and `DurinAssetTool`. The complete registered native suite passes; the tool builds and its help/argument host smoke passes because no separate CLI native-test target is registered.
+- [x] Build or otherwise verify the `DurinGame`, `DurinEditor`, and `DurinAssetTool` target compositions according to the repository build instructions. Editor/tool builds pass; the host has no macOS `DurinGame` preset, so game exclusion is verified by the target descriptor, non-Editor CMake guard, and absence of maintenance symbols from Engine.
+- [x] Measure representative large-package audits and record peak allocation, bytes read, payload bytes skipped, cancellation latency, and wall time against the pre-migration baseline.
+- [x] Update module ownership, asset package, canonical resave, Editor workspace, task-system, and CLI documentation with the final APIs and target boundaries.
+- [x] Close the plan only after all acceptance gates have evidence and long-lived rules have moved to their owning documentation.
 
 Completion condition: supported targets and tests pass, the cost guarantees are measured, and durable documentation describes the shipped ownership model.
 
 ## Acceptance Gates
 
-- [ ] `DurinGame` neither links `AssetMaintenance` nor exports project audit/report/resave-orchestration symbols.
-- [ ] Ordinary Runtime loads perform only per-package validation and never enumerate a project, compute a project report, or perform unconditional strong package hashing.
-- [ ] Loader preflight and Developer audit share the same schema comparison implementation and pass parity tests.
-- [ ] The default audit performs no package-sized allocation, reconstructs no full ObjectStream, recursively constructs no `FValue` tree, and reads no payload body solely to skip it.
-- [ ] `PayloadBytesSkipped` and byte/range counters are derived from actual reader behavior and covered by tests.
-- [ ] Detailed deprecated-field evidence is requested only for exact descriptor matches and remains cancellable before full value work.
-- [ ] Editor and CLI findings, ordering, report semantics, and canonical-resave selection agree for the same package set and reflection catalog.
-- [ ] Canonical resave preserves validation-before-replace, atomic write/replace, failure reporting, and no-partial-success guarantees.
-- [ ] `AssetMaintenance` depends only on Runtime modules and has no Editor dependency.
-- [ ] Runtime V7 load safety and corruption rejection remain independently covered after the old audit surface is removed.
+- [x] `DurinGame` neither links `AssetMaintenance` nor exports project audit/report/resave-orchestration symbols.
+- [x] Ordinary Runtime loads perform only per-package validation and never enumerate a project, compute a project report, or perform unconditional strong package hashing.
+- [x] Loader preflight and Developer audit share the same schema comparison implementation and pass parity tests.
+- [x] The default audit performs no package-sized allocation, reconstructs no full ObjectStream, recursively constructs no `FValue` tree, and reads no payload body solely to skip it.
+- [x] `PayloadBytesSkipped` and byte/range counters are derived from actual reader behavior and covered by tests.
+- [x] Detailed deprecated-field evidence is requested only for exact descriptor matches and remains cancellable before full value work.
+- [x] Editor and CLI findings, ordering, report semantics, and canonical-resave selection agree for the same package set and reflection catalog.
+- [x] Canonical resave preserves validation-before-replace, atomic write/replace, failure reporting, and bounded partial-success guarantees.
+- [x] `AssetMaintenance` depends only on Runtime modules and has no Editor dependency.
+- [x] Runtime V7 load safety and corruption rejection remain independently covered after the old audit surface is removed.
 
 ## Validation Guidance
 

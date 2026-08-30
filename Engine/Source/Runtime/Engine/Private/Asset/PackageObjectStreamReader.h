@@ -105,4 +105,10 @@ namespace Durin::Asset::PackageObjectStream
 		const FReflectionCompatibilityCatalog& Catalog,
 		FAssetPackageCompatibilityRecord& OutRecord,
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> FAssetResult;
+
+	// Returns true only when a nested serialized value can contain an exact
+	// versioned deprecated-property route. Root overrides need descriptors only.
+	auto RequiresDecodedCompatibilityPayloadValues(
+		const FDecodedPackage& Package,
+		const FReflectionCompatibilityCatalog& Catalog) -> bool;
 }

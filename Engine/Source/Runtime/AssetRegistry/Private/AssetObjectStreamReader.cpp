@@ -492,15 +492,15 @@ namespace Durin::Asset::PackageObjectStream
 			OutValue = std::move(Value); return true;
 		}
 
-		auto DecodeTablesAndValues(std::span<const std::byte> Bytes, FDecodedPackage& Package,
+		auto DecodeTablesAndValues(
+			const std::array<std::span<const std::byte>, RequiredSectionCount>& SectionBytes,
+			const std::array<uint64, RequiredSectionCount>& SectionOffsets,
+			FDecodedPackage& Package,
 			const FReaderLimits& Limits, FReaderDiagnostic& Diagnostic,
 			bool bDecodePayloads = true) -> bool
 		{
-			auto Section = [&](size_t Index) {
-				const auto& Entry = Package.Header.Sections[Index];
-				return Bytes.subspan(Entry.Offset, Entry.Length);
-			};
-			FWireReader Names(Section(0), Package.Header.Sections[0].Offset);
+			auto Section = [&](size_t Index) { return SectionBytes[Index]; };
+			FWireReader Names(Section(0), SectionOffsets[0]);
 			uint64 NameCount = 0;
 			if (!Names.VarUInt(NameCount, Diagnostic) || NameCount > Limits.TableEntries)
 				return Fail(Diagnostic, EReaderFailure::LimitExceeded, "Name count exceeds the configured bound.", Names.Position());
@@ -515,7 +515,7 @@ namespace Durin::Asset::PackageObjectStream
 			}
 			if (!Names.RequireEnd(Diagnostic, EReaderFailure::InvalidTable, "Name section has trailing bytes.")) return false;
 
-			FWireReader Types(Section(1), Package.Header.Sections[1].Offset);
+			FWireReader Types(Section(1), SectionOffsets[1]);
 			uint64 TypeCount = 0;
 			if (!Types.VarUInt(TypeCount, Diagnostic) || TypeCount > Limits.TableEntries)
 				return Fail(Diagnostic, EReaderFailure::LimitExceeded, "Type count exceeds the configured bound.", Types.Position());
@@ -567,7 +567,7 @@ namespace Durin::Asset::PackageObjectStream
 			}
 			if (!Types.RequireEnd(Diagnostic, EReaderFailure::InvalidTable, "Type section has trailing bytes.")) return false;
 
-			FWireReader Schemas(Section(2), Package.Header.Sections[2].Offset);
+			FWireReader Schemas(Section(2), SectionOffsets[2]);
 			uint64 CustomCount = 0;
 			if (!Schemas.VarUInt(CustomCount, Diagnostic) || CustomCount > Limits.CustomVersions)
 				return Fail(Diagnostic, EReaderFailure::LimitExceeded, "Custom-version count exceeds the configured bound.", Schemas.Position());
@@ -606,7 +606,7 @@ namespace Durin::Asset::PackageObjectStream
 			}
 			if (!Schemas.RequireEnd(Diagnostic, EReaderFailure::InvalidTable, "Schema section has trailing bytes.")) return false;
 
-			FWireReader Objects(Section(3), Package.Header.Sections[3].Offset); uint64 ObjectCount = 0;
+			FWireReader Objects(Section(3), SectionOffsets[3]); uint64 ObjectCount = 0;
 			if (!Objects.VarUInt(ObjectCount, Diagnostic) || ObjectCount != Package.Header.ObjectCount)
 				return Fail(Diagnostic, EReaderFailure::InvalidTopology, "Object table count differs from the public summary.", Objects.Position());
 			for (uint64 Index = 0; Index < ObjectCount; ++Index)
@@ -629,7 +629,7 @@ namespace Durin::Asset::PackageObjectStream
 			}
 			if (!Objects.RequireEnd(Diagnostic, EReaderFailure::InvalidTopology, "Object section has trailing bytes.")) return false;
 
-			FWireReader Values(Section(4), Package.Header.Sections[4].Offset); uint64 ValueObjectCount = 0;
+			FWireReader Values(Section(4), SectionOffsets[4]); uint64 ValueObjectCount = 0;
 			if (!Values.VarUInt(ValueObjectCount, Diagnostic) || ValueObjectCount != ObjectCount)
 				return Fail(Diagnostic, EReaderFailure::InvalidValue, "Value-section object count is invalid.", Values.Position());
 			for (uint64 ObjectIndex = 0; ObjectIndex < ValueObjectCount; ++ObjectIndex)
@@ -683,6 +683,22 @@ namespace Durin::Asset::PackageObjectStream
 				Package.ObjectValues.push_back(std::move(ObjectValues));
 			}
 			return Values.RequireEnd(Diagnostic, EReaderFailure::InvalidValue, "Value section has trailing bytes.");
+		}
+
+		auto DecodeTablesAndValues(std::span<const std::byte> Bytes, FDecodedPackage& Package,
+			const FReaderLimits& Limits, FReaderDiagnostic& Diagnostic,
+			bool bDecodePayloads = true) -> bool
+		{
+			std::array<std::span<const std::byte>, RequiredSectionCount> Sections;
+			std::array<uint64, RequiredSectionCount> Offsets;
+			for (size_t Index = 0; Index < RequiredSectionCount; ++Index)
+			{
+				const auto& Entry = Package.Header.Sections[Index];
+				Sections[Index] = Bytes.subspan(Entry.Offset, Entry.Length);
+				Offsets[Index] = Entry.Offset;
+			}
+			return DecodeTablesAndValues(
+				Sections, Offsets, Package, Limits, Diagnostic, bDecodePayloads);
 		}
 
 		auto BuildWriterInput(const FDecodedPackage& Package, FPackageInput& Out,
@@ -1111,6 +1127,25 @@ namespace Durin::Asset::PackageObjectStream
 		FDecodedPackage Result;
 		if (!DecodeHeaderInner(Bytes, Bytes.size(), Result.Header, Limits, Diagnostic)
 			|| !DecodeTablesAndValues(Bytes, Result, Limits, Diagnostic, false))
+		{
+			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic);
+			return false;
+		}
+		OutPackage = std::move(Result);
+		if (OutDiagnostic) OutDiagnostic->Reset();
+		return true;
+	}
+
+	auto DecodePackageDescriptorSections(FValidatedHeader Header,
+		const std::array<std::span<const std::byte>, RequiredSectionCount>& Sections,
+		const std::array<uint64, RequiredSectionCount>& SectionOffsets,
+		FDecodedPackage& OutPackage, const FReaderLimits& Limits,
+		FReaderDiagnostic* OutDiagnostic) -> bool
+	{
+		FReaderDiagnostic Diagnostic;
+		FDecodedPackage Result{.Header = std::move(Header)};
+		if (!DecodeTablesAndValues(
+			Sections, SectionOffsets, Result, Limits, Diagnostic, false))
 		{
 			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic);
 			return false;

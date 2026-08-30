@@ -560,46 +560,17 @@ namespace Durin::Asset::Private::DastV7
 			return true;
 		}
 
-		auto BuildCompatibilityObjectStream(const FParsedPackage& Package,
+		auto BuildEmptyCompatibilityValues(uint64 ExportCount,
 			std::vector<std::byte>& OutBytes) -> bool
 		{
-			FWriter Summary;
-			if (!Summary.String(Package.AssetClass)) return false;
-			Summary.Fixed(static_cast<uint8>(Package.EntryKind));
-			if (!Summary.String(Package.RedirectDestination)) return false;
-			Summary.VarUInt(Package.Imports.size());
-			for (const std::string& Import : Package.Imports)
-				if (!Summary.String(Import)) return false;
-			Summary.VarUInt(Package.ExportCount);
 			FWriter Values;
-			Values.VarUInt(Package.ExportCount);
-			for (uint64 Index = 0; Index < Package.ExportCount; ++Index)
+			Values.VarUInt(ExportCount);
+			for (uint64 Index = 0; Index < ExportCount; ++Index)
 			{
 				Values.VarUInt(1);
 				Values.VarUInt(0);
 			}
-			const std::array<std::span<const std::byte>, 5> Sections{
-				Package.RequiredSections[2], Package.RequiredSections[3],
-				Package.RequiredSections[4], Package.RequiredSections[5], Values.View()};
-			uint64 Total = 13 + Summary.View().size() + Sections.size() * 9;
-			for (const auto Section : Sections) Total += Section.size();
-			if (Total > PackageObjectStream::MaximumPackageBytes
-				|| Total > std::numeric_limits<uint32>::max()) return false;
-			FWriter Writer;
-			Writer.Fixed(DastPackageMagic);
-			Writer.Fixed(AssetPackageObjectStreamVersion);
-			Writer.Fixed(static_cast<uint32>(Summary.View().size()));
-			Writer.Fixed(static_cast<uint8>(Sections.size()));
-			Writer.Append(Summary.View());
-			uint32 Offset = static_cast<uint32>(13 + Summary.View().size() + Sections.size() * 9);
-			for (size_t Index = 0; Index < Sections.size(); ++Index)
-			{
-				Writer.Fixed(static_cast<uint8>(Index + 1)); Writer.Fixed(Offset);
-				Writer.Fixed(static_cast<uint32>(Sections[Index].size()));
-				Offset += static_cast<uint32>(Sections[Index].size());
-			}
-			for (const auto Section : Sections) Writer.Append(Section);
-			OutBytes = Writer.Take();
+			OutBytes = Values.Take();
 			return true;
 		}
 
@@ -755,6 +726,7 @@ namespace Durin::Asset::Private::DastV7
 			const FAssetPath& Path, const FReflectionCompatibilityCatalog& Catalog,
 			FAssetPackageCompatibilityRecord& OutRecord,
 			FAssetCompatibilityProbeStats* OutStats,
+			bool bIncludeNestedMigrationEvidence,
 			const FAssetCompatibilityCancellationCheck& IsCancelled) -> FAssetResult
 		{
 			if (IsCancelled && IsCancelled())
@@ -764,25 +736,34 @@ namespace Durin::Asset::Private::DastV7
 			std::string ReadError;
 			if (!ParseCompatibilityMetadata(Source, Owned, Parsed, IsCancelled, ReadError))
 				return Error(std::move(ReadError));
-			std::vector<std::byte> MetadataStream;
-			if (!BuildCompatibilityObjectStream(Parsed, MetadataStream))
-				return Error("DAST v7 metadata cannot form a bounded compatibility stream.");
+			std::vector<std::byte> EmptyValues;
+			if (!BuildEmptyCompatibilityValues(Parsed.ExportCount, EmptyValues))
+				return Error("DAST v7 metadata cannot form bounded empty value descriptors.");
 			PackageObjectStream::FReaderDiagnostic Diagnostic;
 			PackageObjectStream::FDecodedPackage Package;
-			if (!PackageObjectStream::DecodePackageDescriptors(
-				MetadataStream, Package, {}, &Diagnostic))
+			PackageObjectStream::FValidatedHeader LogicalHeader{
+				.AssetClass = Parsed.AssetClass,
+				.EntryKind = Parsed.EntryKind,
+				.RedirectDestination = Parsed.RedirectDestination,
+				.Dependencies = Parsed.Imports,
+				.ObjectCount = Parsed.ExportCount};
+			const std::array<std::span<const std::byte>, PackageObjectStream::RequiredSectionCount>
+				Sections{Parsed.RequiredSections[2], Parsed.RequiredSections[3],
+					Parsed.RequiredSections[4], Parsed.RequiredSections[5], EmptyValues};
+			const std::array<uint64, PackageObjectStream::RequiredSectionCount> SectionOffsets{
+				Parsed.RequiredEntries[2].Offset, Parsed.RequiredEntries[3].Offset,
+				Parsed.RequiredEntries[4].Offset, Parsed.RequiredEntries[5].Offset,
+				Parsed.RequiredEntries[6].Offset};
+			if (!PackageObjectStream::DecodePackageDescriptorSections(std::move(LogicalHeader),
+				Sections, SectionOffsets, Package, {}, &Diagnostic))
 				return Error(Diagnostic.Message);
 			if (!ScanCompatibilityValueDescriptors(Source, Parsed.RequiredEntries[6],
 				Package, OutStats, IsCancelled, ReadError)) return Error(std::move(ReadError));
 
-			const bool bNeedsPayloadValues = std::ranges::any_of(
-				Catalog.GetDeprecatedPropertyRoutes(), [&](const auto& Route) {
-					return std::ranges::any_of(Package.Schemas, [&](const auto& Schema) {
-						return Schema.QualifiedName == Route.DeclaringType;
-					});
-				});
+			const bool bNeedsPayloadValues =
+				PackageObjectStream::RequiresDecodedCompatibilityPayloadValues(Package, Catalog);
 			FAssetResult Result;
-			if (bNeedsPayloadValues)
+			if (bNeedsPayloadValues && bIncludeNestedMigrationEvidence)
 			{
 				if (Source.GetSize() > std::numeric_limits<size_t>::max())
 					return Error("DAST v7 package exceeds the addressable range.");
@@ -808,9 +789,9 @@ namespace Durin::Asset::Private::DastV7
 				OutRecord.FormatVersion = AssetPackageV7FormatVersion;
 				OutRecord.Fingerprint.FileSize = Source.GetSize();
 				OutRecord.Fingerprint.ReaderVersion = AssetPackageV7FormatVersion;
-				if (OutStats && !bNeedsPayloadValues)
+				if (OutStats && !(bNeedsPayloadValues && bIncludeNestedMigrationEvidence))
 				{
-					uint64 LiveBytes = MetadataStream.size();
+					uint64 LiveBytes = EmptyValues.size();
 					for (const auto& Section : Owned) LiveBytes += Section.size();
 					OutStats->PeakMetadataBytes = std::max(OutStats->PeakMetadataBytes, LiveBytes);
 				}

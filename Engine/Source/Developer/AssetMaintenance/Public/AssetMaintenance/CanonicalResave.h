@@ -1,6 +1,6 @@
 #pragma once
 
-#include "EngineAPI.h"
+#include "AssetMaintenanceAPI.h"
 #include "Asset/Compatibility.h"
 
 namespace Durin::Asset
@@ -92,21 +92,21 @@ namespace Durin::Asset
 		std::string Diagnostic;
 	};
 
-	ENGINE_API auto PlanAssetCanonicalResaves(
+	ASSETMAINTENANCE_API auto PlanAssetCanonicalResaves(
 		std::span<const FAssetPackageCompatibilityRecord> Records,
 		const FAssetCanonicalResaveSelection& Selection = {},
 		const FAssetCompatibilityCancellationCheck& IsCancellationRequested = {})
 		-> FAssetCanonicalResavePlan;
 
-	ENGINE_API auto ApplyAssetCanonicalResaves(
+	ASSETMAINTENANCE_API auto ApplyAssetCanonicalResaves(
 		FAssetCanonicalResavePlan Plan,
 		const FReflectionCompatibilityCatalog& Catalog,
 		const FAssetCanonicalResaveApplyOptions& Options = {},
 		const FAssetCompatibilityCancellationCheck& IsCancellationRequested = {})
 		-> FAssetCanonicalResaveApplyResult;
 
-	ENGINE_API auto SerializeAssetCanonicalResavePlanReport(
+	ASSETMAINTENANCE_API auto SerializeAssetCanonicalResavePlanReport(
 		const FAssetCanonicalResavePlan& Plan) -> std::string;
-	ENGINE_API auto SerializeAssetCanonicalResaveApplyReport(
+	ASSETMAINTENANCE_API auto SerializeAssetCanonicalResaveApplyReport(
 		const FAssetCanonicalResaveApplyResult& Result) -> std::string;
 }

@@ -6,8 +6,6 @@
 
 namespace Durin::Asset
 {
-	inline constexpr uint32 AssetCompatibilityReportSchemaVersion = 3;
-
 	// Stable names are serialized by report schemas; enum ordinals are never persisted.
 	enum class EAssetCompatibilityFindingCode : uint8
 	{
@@ -166,15 +164,9 @@ namespace Durin::Asset
 		int64 ExpectedLastWriteTimeTicks = 0;
 		FXxHash128 ExpectedContentHash;
 		std::string ExpectedReportContentHash;
-	};
-
-	enum class EAssetPackageSnapshotStatus : uint8 { Completed, Cancelled, Failed };
-
-	struct FAssetPackageDiscoverySnapshot
-	{
-		EAssetPackageSnapshotStatus Status = EAssetPackageSnapshotStatus::Completed;
-		std::vector<FAssetPackageCompatibilityProbeInput> Packages;
-		std::string Error;
+		// Opt-in canonical-resave evidence may decode nested structured values.
+		// Descriptor-only audit leaves this false and never reads payload bodies.
+		bool bIncludeNestedMigrationEvidence = false;
 	};
 
 	struct FAssetPackageCompatibilityProbeResult
@@ -185,11 +177,6 @@ namespace Durin::Asset
 	};
 
 	using FAssetCompatibilityCancellationCheck = std::function<bool()>;
-
-	// Captures auto-scan mounts without constructing assets or publishing registry state.
-	ENGINE_API auto CaptureMountedAssetPackageSnapshot(
-		const FAssetCompatibilityCancellationCheck& IsCancellationRequested = {})
-		-> FAssetPackageDiscoverySnapshot;
 
 	ENGINE_API auto ProbeAssetPackageCompatibility(
 		const FAssetPackageCompatibilityProbeInput& Input,
@@ -203,6 +190,4 @@ namespace Durin::Asset
 		int64 LastWriteTimeTicks) -> bool;
 
 	ENGINE_API auto AssetCompatibilityFindingCodeName(EAssetCompatibilityFindingCode Code) -> std::string_view;
-	ENGINE_API auto SerializeAssetCompatibilityReportV1(
-		std::span<const FAssetPackageCompatibilityRecord> Records) -> std::string;
 }

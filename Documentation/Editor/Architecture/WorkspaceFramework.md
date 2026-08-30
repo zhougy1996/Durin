@@ -2,7 +2,7 @@
 
 Summary: Define editor workspaces, documents, panels, commands, layout, and host integration.
 
-Modules: DurinEd, LevelEditor, MainFrame
+Modules: AssetMaintenance, DurinEd, LevelEditor, MainFrame
 
 This document defines editor-host ownership, persistent settings, application
 commands, workspace registration, and document lifecycle contracts.
@@ -212,13 +212,14 @@ dirty and never enables global Save.
 
 Project-wide compatibility review is an explicit application tool rather than
 a workspace document. `MainFrame` owns the non-modal `Tools > Asset
-Compatibility Audit` window and its presentation actions, while `DurinEd` owns
-the request-scoped worker, cancellation, request-serial mailbox, and path-keyed
-result index. Opening or drawing the window does not start work; only `Run
+Compatibility Audit` window and its presentation actions. The Developer
+`AssetMaintenance` module owns the UI-neutral deterministic audit batch;
+`DurinEd` adapts it to the request-scoped worker, cancellation, request-serial
+mailbox, and path-keyed result index. Opening or drawing the window does not start work; only `Run
 Audit` captures the registry and reflection snapshots. The window can reveal a
 selected package through the host-owned Content Browser, but neither `MainFrame`
 nor a concrete asset workspace owns compatibility classification or a write
-action.
+action. `DurinGame` does not select or link `AssetMaintenance`.
 
 The Level workspace composition root constructs panels and document services in
 dependency order, while panel and dialog presenters remain module-private

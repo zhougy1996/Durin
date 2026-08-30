@@ -6,7 +6,6 @@
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
-#include "Asset/CanonicalResave.h"
 #include "Asset/Compatibility.h"
 #include "Asset/AssetPackageV7Codec.h"
 #include "Asset/PackageObjectStreamReader.h"

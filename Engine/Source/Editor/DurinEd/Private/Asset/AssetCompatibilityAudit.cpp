@@ -252,26 +252,18 @@ namespace Durin::Editor
 				uint64 ProcessedPackageCount = 0;
 				try
 				{
-					for (const auto& Input : Inputs)
-					{
-						if (Token.IsCancellationRequested())
-						{
-							return {.Serial = Serial, .ProcessedPackageCount = ProcessedPackageCount,
-								.State = EAssetCompatibilityAuditState::Cancelled};
-						}
-						auto Result = WorkerProbe(Input, Catalog,
-							[&Token] { return Token.IsCancellationRequested(); });
-						if (Result.Status == Asset::EAssetCompatibilityProbeStatus::Cancelled)
-						{
-							return {.Serial = Serial, .ProcessedPackageCount = ProcessedPackageCount,
-								.State = EAssetCompatibilityAuditState::Cancelled};
-						}
-						if (Result.Record)
-						{
-							Queue({.Serial = Serial, .Record = std::move(Result.Record)});
-							++ProcessedPackageCount;
-						}
-					}
+					const auto Result = Asset::RunAssetCompatibilityAudit(
+						Inputs, Catalog,
+						[&Token] { return Token.IsCancellationRequested(); },
+						[&](const Asset::FAssetPackageCompatibilityRecord& Record,
+							uint64 Completed, uint64) {
+							ProcessedPackageCount = Completed;
+							Queue({.Serial = Serial, .Record = Record});
+						},
+						WorkerProbe);
+					if (Result.Status == Asset::EAssetCompatibilityAuditStatus::Cancelled)
+						return {.Serial = Serial, .ProcessedPackageCount = ProcessedPackageCount,
+							.State = EAssetCompatibilityAuditState::Cancelled};
 					return {.Serial = Serial, .ProcessedPackageCount = ProcessedPackageCount,
 						.State = EAssetCompatibilityAuditState::Completed};
 				}

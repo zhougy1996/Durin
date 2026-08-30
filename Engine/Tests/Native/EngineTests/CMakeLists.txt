@@ -15,6 +15,7 @@ set(_durin_content_browser_public
 set(_durin_content_browser_private
 	"${CMAKE_SOURCE_DIR}/Engine/Source/Editor/ContentBrowser/Private")
 set(_durin_editor_test_modules
+	AssetMaintenance
 	DurinEd
 	Mona
 	MonaImGui

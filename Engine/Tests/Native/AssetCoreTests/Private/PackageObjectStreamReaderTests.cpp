@@ -8,7 +8,6 @@
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
-#include "Asset/CanonicalResave.h"
 #include "Asset/Compatibility.h"
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
@@ -356,7 +355,7 @@ TEST(FPackageObjectStreamReaderTests, V7CompatibilityRangeReaderDoesNotReadLarge
 	Durin::Asset::FAssetPackageCompatibilityRecord Record;
 	const auto Catalog = Durin::Asset::FReflectionCompatibilityCatalog::Capture();
 	const auto Result = Durin::Asset::Private::DastV7::GetCodec().ProbeCompatibility(
-		Counting, Path, Catalog, Record, &Stats, {});
+		Counting, Path, Catalog, Record, &Stats, false, {});
 	ASSERT_TRUE(Result) << Result.Message;
 	EXPECT_FALSE(Rejecting.bReadForbiddenRange);
 	EXPECT_EQ(Stats.PayloadBytesSkipped, Override.PayloadSize);
@@ -369,7 +368,7 @@ TEST(FPackageObjectStreamReaderTests, V7CompatibilityRangeReaderDoesNotReadLarge
 		CancellationSource, CancellationStats);
 	uint32 CancellationChecks = 0;
 	const auto Cancelled = Durin::Asset::Private::DastV7::GetCodec().ProbeCompatibility(
-		CancellationCounting, Path, Catalog, Record, &CancellationStats,
+		CancellationCounting, Path, Catalog, Record, &CancellationStats, false,
 		[&] { return ++CancellationChecks >= 20; });
 	EXPECT_FALSE(Cancelled);
 	EXPECT_GE(CancellationChecks, 20u);

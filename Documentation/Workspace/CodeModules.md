@@ -62,6 +62,7 @@ physical root communicates ownership but does not select them for a target.
 | `StaticMeshBuild` | StaticMesh render/collision keys, canonical-geometry recipes, private codecs/functions, one module-owned two-function registration transaction, DDC policy, diagnostics, and collision Runtime adapter | [source](../../Engine/Source/Developer/StaticMeshBuild) |
 | `SkeletalBuild` | SkeletalMesh/AnimationClip keys, canonical-payload recipes, private codecs/functions, one module-owned two-function registration transaction, DDC policy, diagnostics, and uncooked-payload Runtime adapter | [source](../../Engine/Source/Developer/SkeletalBuild) |
 | `TerrainBuild` | TerrainHeightmap canonical-sample and Terrain World keys, private codecs/functions, one six-function registration transaction, typed recipes, DDC policy, Cook production, manifests, diagnostics, and Runtime loading adapters | [source](../../Engine/Source/Developer/TerrainBuild) |
+| `AssetMaintenance` | UI-neutral project asset compatibility batches, mounted-package snapshots, deterministic reports, and canonical-resave planning/application orchestration; selected by authoring and tool targets but excluded from game Runtime | [source](../../Engine/Source/Developer/AssetMaintenance) |
 
 ## Project Modules
 
@@ -85,6 +86,7 @@ gameplay module to [`Sandbox/Source/Runtime/Sandbox`](../../Sandbox/Source/Runti
 | Content Browser | `ContentBrowser`, `MainFrame`, `DurinEd`, `Engine` | `LevelEditor`, `TextureEditor`, and `StaticMeshEditor` for finite built-in import dispatch; feature modules for scoped create/details/context extensions |
 | importing assets | `AssetForgeBuiltins`, `AssetTools`, `DurinEd` | `TextureBuild`, `StaticMeshBuild`, `SkeletalBuild`, or `TerrainBuild` for typed recipes; plus `Engine` and the destination runtime asset type |
 | local asset DDC request flow for StaticMesh, Texture2D/TextureCube/VolumeTexture, skeletal/animation, or Terrain | `DerivedDataCache` | `StaticMeshBuild`, `SkeletalBuild`, `TextureBuild`, or `TerrainBuild` for function inputs, recipe execution, payload validation, typed result reconstruction, and family-owned publication |
+| project compatibility audit and canonical-resave batch | `AssetMaintenance` | `Engine` for per-package schema/load validation and atomic package mechanisms; `DurinEd` and `MainFrame` for Editor task state and presentation; `AssetTools` for editor save policy |
 
 Engine public headers are a repository-owned module contract rather than an
 installed external SDK. They must include what they use and resolve through

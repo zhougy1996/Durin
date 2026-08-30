@@ -320,6 +320,15 @@ namespace Durin::Asset::PackageObjectStream
 	ASSETREGISTRY_API auto DecodePackageDescriptors(std::span<const std::byte> Bytes,
 		FDecodedPackage& OutPackage, const FReaderLimits& Limits = {},
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> bool;
+	// Descriptor decoder for package codecs that already validated and range-read
+	// the five logical object-stream sections. Section offsets are diagnostic-only.
+	ASSETREGISTRY_API auto DecodePackageDescriptorSections(
+		FValidatedHeader Header,
+		const std::array<std::span<const std::byte>, RequiredSectionCount>& Sections,
+		const std::array<uint64, RequiredSectionCount>& SectionOffsets,
+		FDecodedPackage& OutPackage,
+		const FReaderLimits& Limits = {},
+		FReaderDiagnostic* OutDiagnostic = nullptr) -> bool;
 	ASSETREGISTRY_API auto ReencodePackage(const FDecodedPackage& Package,
 		std::vector<std::byte>& OutBytes,
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> bool;

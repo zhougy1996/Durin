@@ -56,6 +56,9 @@ durin_add_asset_functional_test(AssetPackageTests
 target_include_directories(AssetPackageTests PRIVATE
 	${CMAKE_SOURCE_DIR}/Engine/Source/Runtime/Engine/Private
 )
+if(DURIN_WITH_EDITOR)
+	target_link_libraries(AssetPackageTests PRIVATE AssetMaintenance)
+endif()
 durin_add_asset_functional_test(AssetCookTests
 	KIND feature
 	DOMAINS asset-cook
