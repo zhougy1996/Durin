@@ -2,6 +2,7 @@
 import io
 import json
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -13,11 +14,13 @@ REPOSITORY_ROOT = DEV_TOOL_ROOT.parents[1]
 from durin_dev_tool import cli
 from durin_dev_tool import asset
 from durin_dev_tool import storage_qualification
+from durin_dev_tool.context import RepositoryContext
 from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry
 
 
 FIXTURE_ROOT = Path(__file__).resolve().parent / "fixtures"
+REPOSITORY = RepositoryContext.load(REPOSITORY_ROOT)
 
 
 def package(
@@ -103,6 +106,7 @@ def run_handler(tmp_path: Path, report_text: str, format_name: str = "json") -> 
     result = asset.run(
         namespace,
         repository_root=tmp_path,
+        repository_context=REPOSITORY,
         stdout=output,
         stderr=errors,
         executable_resolver=lambda _namespace, _root: executable,
@@ -122,7 +126,36 @@ def test_asset_production_path_uses_runtime_program_service(tmp_path: Path) -> N
         "format_name": "json",
         "baseline": False,
     })()
-    with mock.patch.object(asset, "invoke_runtime_program", return_value=report()) as invoke:
+    with mock.patch.object(asset, "invoke_runtime_program", return_value=report()) as invoke, mock.patch.object(
+        RepositoryContext,
+        "load",
+        side_effect=AssertionError("repository context was rediscovered"),
+    ):
+        assert asset.run(
+            namespace,
+            repository_root=tmp_path,
+            repository_context=REPOSITORY,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+            executable_resolver=lambda *_args: executable,
+        ) == 0
+    assert invoke.call_args.args[2] == ["check", f"--project={project.resolve()}", "--json"]
+
+
+def test_asset_direct_call_loads_only_the_explicit_repository_root(tmp_path: Path) -> None:
+    executable = tmp_path / "DurinAssetTool.exe"
+    executable.touch()
+    project = tmp_path / "Test.dproject"
+    project.write_text("{}", encoding="utf-8")
+    namespace = type("Namespace", (), {
+        "asset_command": "check",
+        "project_path": project,
+        "format_name": "json",
+        "baseline": False,
+    })()
+    with mock.patch.object(
+        RepositoryContext, "load", return_value=REPOSITORY
+    ) as load, mock.patch.object(asset, "invoke_runtime_program", return_value=report()):
         assert asset.run(
             namespace,
             repository_root=tmp_path,
@@ -130,7 +163,7 @@ def test_asset_production_path_uses_runtime_program_service(tmp_path: Path) -> N
             stderr=io.StringIO(),
             executable_resolver=lambda *_args: executable,
         ) == 0
-    assert invoke.call_args.args[2] == ["check", f"--project={project.resolve()}", "--json"]
+    assert load.call_args_list == [mock.call(tmp_path)]
 
 
 def test_registry_defaults_to_check_and_rejects_removed_commands() -> None:
@@ -185,6 +218,13 @@ def test_asset_check_uses_configured_default_project(tmp_path: Path) -> None:
         "baseline": False,
     })()
     calls: list[list[str]] = []
+    repository = replace(
+        REPOSITORY,
+        config=replace(
+            REPOSITORY.config,
+            paths=replace(REPOSITORY.config.paths, default_game_project=project),
+        ),
+    )
 
     def process_runner(arguments: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         calls.append(arguments)
@@ -193,6 +233,7 @@ def test_asset_check_uses_configured_default_project(tmp_path: Path) -> None:
     assert asset.run(
         namespace,
         repository_root=tmp_path,
+        repository_context=repository,
         stdout=io.StringIO(),
         stderr=io.StringIO(),
         executable_resolver=lambda *_args: executable,
@@ -224,6 +265,7 @@ def test_asset_resave_maps_scopes_and_write_intent_to_native_command(tmp_path: P
     assert asset.run(
         namespace,
         repository_root=tmp_path,
+        repository_context=REPOSITORY,
         stdout=output,
         stderr=io.StringIO(),
         executable_resolver=lambda *_args: executable,
@@ -255,6 +297,7 @@ def test_asset_resave_requires_exactly_one_selection_style(tmp_path: Path) -> No
             asset.run(
                 namespace,
                 repository_root=tmp_path,
+                repository_context=REPOSITORY,
                 stdout=io.StringIO(),
                 stderr=io.StringIO(),
                 executable_resolver=lambda *_args: executable,
@@ -311,6 +354,44 @@ def test_storage_qualification_protocol_and_decision_match_current_v6_baseline()
     assert rejected["integrityGates"]["corruptPackages"]
     assert rejected["integrityGates"]["missingExternalPayloads"]
     assert "Mandatory corpus or durability gates failed" in rejected["rationale"]
+
+
+def test_storage_qualification_uses_supplied_repository_context(tmp_path: Path) -> None:
+    repository = REPOSITORY.at_root(tmp_path)
+    namespace = type("Namespace", (), {
+        "output_path": Path("Saved/AuthoredPackageStorageQualification/context-test"),
+        "format_name": "json",
+    })()
+    corpus = {"packageCount": 0, "payloadCount": 0, "reachableExternalBytes": 0}
+    with mock.patch.object(
+        RepositoryContext,
+        "load",
+        side_effect=AssertionError("repository context was rediscovered"),
+    ), mock.patch.object(
+        storage_qualification, "_native_inventory", return_value={"packages": []}
+    ) as inventory, mock.patch.object(
+        storage_qualification, "_summarize_inventory", return_value=corpus
+    ), mock.patch.object(
+        storage_qualification, "_collect_git_baseline", return_value={}
+    ), mock.patch.object(
+        storage_qualification, "_source_control_experiment", return_value={}
+    ), mock.patch.object(
+        storage_qualification, "_synthetic_model", return_value={}
+    ), mock.patch.object(
+        storage_qualification, "_publication_benchmark", return_value={}
+    ), mock.patch.object(
+        storage_qualification, "_decision", return_value={"result": "Retain"}
+    ), mock.patch.object(
+        storage_qualification, "_environment", return_value={}
+    ):
+        assert storage_qualification.run(
+            namespace,
+            repository_root=REPOSITORY_ROOT,
+            repository_context=repository,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        ) == 0
+    assert inventory.call_args.args[1] is repository
 
 
 def test_storage_qualification_inventory_summary_distinguishes_hash_candidates_from_exact_duplicates() -> None:
@@ -411,6 +492,7 @@ def test_asset_baseline_requires_current_format_and_schema(
     assert asset.run(
         namespace,
         repository_root=tmp_path,
+        repository_context=REPOSITORY,
         stdout=output,
         stderr=io.StringIO(),
         executable_resolver=lambda *_args: executable,
@@ -516,7 +598,8 @@ def test_cancel_and_process_failure_are_distinct(tmp_path: Path) -> None:
     })()
     errors = io.StringIO()
     result = asset.run(
-        namespace, repository_root=tmp_path, stdout=io.StringIO(), stderr=errors,
+        namespace, repository_root=tmp_path, repository_context=REPOSITORY,
+        stdout=io.StringIO(), stderr=errors,
         executable_resolver=lambda _namespace, _root: executable,
         process_runner=lambda *_args, **_kwargs: subprocess.CompletedProcess([], 130, "", ""),
     )
@@ -524,7 +607,8 @@ def test_cancel_and_process_failure_are_distinct(tmp_path: Path) -> None:
     assert "cancelled" in errors.getvalue()
     with pytest.raises(DevToolError, match="scan failed"):
         asset.run(
-            namespace, repository_root=tmp_path, stdout=io.StringIO(), stderr=io.StringIO(),
+            namespace, repository_root=tmp_path, repository_context=REPOSITORY,
+            stdout=io.StringIO(), stderr=io.StringIO(),
             executable_resolver=lambda _namespace, _root: executable,
             process_runner=lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1, "", "scan failed"),
         )
@@ -552,6 +636,7 @@ def test_check_invocation_is_read_only_and_missing_project_fails_before_launch(t
     assert asset.run(
         namespace,
         repository_root=tmp_path,
+        repository_context=REPOSITORY,
         stdout=io.StringIO(),
         stderr=io.StringIO(),
         executable_resolver=lambda *_args: executable,
@@ -560,7 +645,7 @@ def test_check_invocation_is_read_only_and_missing_project_fails_before_launch(t
     after = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
     assert before == after
     assert calls == [
-        ([str(executable), "check", f"--project={project}", "--json"], tmp_path)
+        ([str(executable), "check", f"--project={project}", "--json"], REPOSITORY_ROOT)
     ]
 
     project.unlink()
@@ -568,6 +653,7 @@ def test_check_invocation_is_read_only_and_missing_project_fails_before_launch(t
         asset.run(
             namespace,
             repository_root=tmp_path,
+            repository_context=REPOSITORY,
             stdout=io.StringIO(),
             stderr=io.StringIO(),
             executable_resolver=lambda *_args: executable,

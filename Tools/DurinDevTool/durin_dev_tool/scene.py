@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
 from pathlib import Path
 from typing import Callable, TextIO
 
@@ -20,16 +19,6 @@ from .runtime_program import (
     resolve_project,
     select_runtime,
 )
-
-
-def _editor_executable(namespace: argparse.Namespace, repository_root: Path) -> Path:
-    repository = RepositoryContext.load().at_root(repository_root)
-    selection = select_runtime(
-        repository,
-        profile_name=str(getattr(namespace, "profile", "") or ""),
-        preset_name=str(getattr(namespace, "preset", "") or ""),
-    )
-    return locate_executable(selection, ExecutableDescription("Editor", "all"))
 
 
 def _command_arguments(namespace: argparse.Namespace, project: Path) -> list[str]:
@@ -61,21 +50,24 @@ def run(
     namespace: argparse.Namespace,
     *,
     repository_root: Path,
+    repository_context: RepositoryContext | None = None,
     stdout: TextIO,
     stderr: TextIO,
-    executable_resolver: Callable[[argparse.Namespace, Path], Path] = _editor_executable,
+    executable_resolver: Callable[[argparse.Namespace, Path], Path] | None = None,
     command_runner: Callable[..., None] = run_command,
     **_kwargs: object,
 ) -> int:
-    base_repository = RepositoryContext.load()
-    repository = base_repository.at_root(repository_root)
+    repository = repository_context or RepositoryContext.load(repository_root)
     selection = select_runtime(
-        base_repository,
+        repository,
         profile_name=str(getattr(namespace, "profile", "") or ""),
         preset_name=str(getattr(namespace, "preset", "") or ""),
     )
-    selection = replace(selection, repository=repository)
-    executable = executable_resolver(namespace, repository_root)
+    executable = (
+        executable_resolver(namespace, repository.root)
+        if executable_resolver
+        else locate_executable(selection, ExecutableDescription("Editor", "all"))
+    )
     project = resolve_project(repository, Path(namespace.project_path))
     output_path = str(namespace.mounted_output)
     if not output_path.startswith("/") or output_path.endswith("/"):

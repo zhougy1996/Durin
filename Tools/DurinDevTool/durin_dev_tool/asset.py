@@ -6,7 +6,6 @@ import argparse
 import io
 import json
 import subprocess
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, TextIO
 
@@ -29,21 +28,6 @@ POLICY_EXIT_CODE = 3
 SCHEMA_VERSION = 3
 CURRENT_ASSET_FORMAT_VERSION = 7
 SCHEMA_DIRECTORY = Path(__file__).resolve().parents[1] / "schemas"
-
-
-def _runtime_executable(
-    namespace: argparse.Namespace, repository_root: Path
-) -> Path:
-    repository = RepositoryContext.load().at_root(repository_root)
-    selection = select_runtime(
-        repository,
-        profile_name=str(getattr(namespace, "profile", "") or ""),
-        preset_name=str(getattr(namespace, "preset", "") or ""),
-    )
-    return locate_executable(
-        selection,
-        ExecutableDescription("Asset maintenance", "DurinAssetTool", "DurinAssetTool"),
-    )
 
 
 def _validate_report(value: Any) -> dict[str, Any]:
@@ -309,21 +293,27 @@ def run(
     namespace: argparse.Namespace,
     *,
     repository_root: Path,
+    repository_context: RepositoryContext | None = None,
     stdout: TextIO,
     stderr: TextIO,
     process_runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
-    executable_resolver: Callable[[argparse.Namespace, Path], Path] = _runtime_executable,
+    executable_resolver: Callable[[argparse.Namespace, Path], Path] | None = None,
     **_kwargs: object,
 ) -> int:
-    base_repository = RepositoryContext.load()
-    repository = base_repository.at_root(repository_root)
+    repository = repository_context or RepositoryContext.load(repository_root)
     selection = select_runtime(
-        base_repository,
+        repository,
         profile_name=str(getattr(namespace, "profile", "") or ""),
         preset_name=str(getattr(namespace, "preset", "") or ""),
     )
-    selection = replace(selection, repository=repository)
-    executable = executable_resolver(namespace, repository_root)
+    executable = (
+        executable_resolver(namespace, repository.root)
+        if executable_resolver
+        else locate_executable(
+            selection,
+            ExecutableDescription("Asset maintenance", "DurinAssetTool", "DurinAssetTool"),
+        )
+    )
     command = getattr(namespace, "asset_command", "check")
     if command == "check":
         return _run_check(
@@ -331,7 +321,7 @@ def run(
             selection=selection,
             repository=repository,
             executable=executable,
-            repository_root=repository_root,
+            repository_root=repository.root,
             stdout=stdout,
             stderr=stderr,
             process_runner=process_runner,
@@ -342,7 +332,7 @@ def run(
             selection=selection,
             repository=repository,
             executable=executable,
-            repository_root=repository_root,
+            repository_root=repository.root,
             stdout=stdout,
             stderr=stderr,
             process_runner=process_runner,

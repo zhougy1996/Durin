@@ -66,11 +66,13 @@ def select_runtime(
         load_profiles(paths.profile_file),
         requested=profile_name,
         configured=config.default_build_profile,
+        profile_file=paths.profile_file,
     )
     preset = select_preset(
         profile,
         load_configure_presets(paths.preset_file),
         requested=preset_name,
+        preset_file=paths.preset_file,
     )
     return RuntimeSelection(repository, profile, preset)
 

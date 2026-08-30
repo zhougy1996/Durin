@@ -12,7 +12,6 @@ import shutil
 import statistics
 import subprocess
 import time
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, TextIO
 
@@ -91,20 +90,17 @@ def _write_json(path: Path, value: object) -> None:
 
 def _native_inventory(
     namespace: object,
-    repository_root: Path,
+    repository: RepositoryContext,
     stderr: TextIO,
     executable_resolver: Callable[[object, Path], Path] | None = None,
 ) -> dict[str, Any]:
-    base_repository = RepositoryContext.load()
-    repository = base_repository.at_root(repository_root)
     selection = select_runtime(
-        base_repository,
+        repository,
         profile_name=str(getattr(namespace, "profile", "") or ""),
         preset_name=str(getattr(namespace, "preset", "") or ""),
     )
-    selection = replace(selection, repository=repository)
     executable = (
-        executable_resolver(namespace, repository_root)
+        executable_resolver(namespace, repository.root)
         if executable_resolver
         else locate_executable(selection, PROGRAM)
     )
@@ -739,11 +735,14 @@ def run(
     namespace: object,
     *,
     repository_root: Path,
+    repository_context: RepositoryContext | None = None,
     stdout: TextIO,
     stderr: TextIO,
     executable_resolver: Callable[[object, Path], Path] | None = None,
     **_kwargs: object,
 ) -> int:
+    repository = repository_context or RepositoryContext.load(repository_root)
+    repository_root = repository.root
     protocol = json.loads(PROTOCOL_PATH.read_text(encoding="utf-8"))
     output_argument = Path(getattr(namespace, "output_path"))
     output_root = output_argument if output_argument.is_absolute() else repository_root / output_argument
@@ -756,7 +755,7 @@ def run(
     output_root.mkdir(parents=True, exist_ok=True)
 
     inventory = _native_inventory(
-        namespace, repository_root, stderr, executable_resolver=executable_resolver
+        namespace, repository, stderr, executable_resolver=executable_resolver
     )
     _write_json(output_root / "native-inventory.json", inventory)
     corpus = _summarize_inventory(inventory)

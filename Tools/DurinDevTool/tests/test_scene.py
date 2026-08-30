@@ -1,12 +1,18 @@
 
 import io
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
 from durin_dev_tool import scene
+from durin_dev_tool.context import RepositoryContext
 from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry
+
+
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+REPOSITORY = RepositoryContext.load(REPOSITORY_ROOT)
 
 
 def _namespace(arguments: list[str]):
@@ -23,21 +29,27 @@ def test_graybox_build_forwards_one_bounded_startup_command(tmp_path: Path) -> N
     executable.touch()
     calls: list[tuple[list[str], dict[str, object]]] = []
 
-    result = scene.run(
-        _namespace(
-            [
-                "--project", str(project),
-                "--output", "/Game/Levels/Arena",
-                "--width", "24",
-                "--ceiling",
-            ]
-        ),
-        repository_root=tmp_path,
-        stdout=io.StringIO(),
-        stderr=io.StringIO(),
-        executable_resolver=lambda *_: executable,
-        command_runner=lambda command, **kwargs: calls.append((list(command), kwargs)),
-    )
+    with mock.patch.object(
+        RepositoryContext,
+        "load",
+        side_effect=AssertionError("repository context was rediscovered"),
+    ):
+        result = scene.run(
+            _namespace(
+                [
+                    "--project", str(project),
+                    "--output", "/Game/Levels/Arena",
+                    "--width", "24",
+                    "--ceiling",
+                ]
+            ),
+            repository_root=tmp_path,
+            repository_context=REPOSITORY,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+            executable_resolver=lambda *_: executable,
+            command_runner=lambda command, **kwargs: calls.append((list(command), kwargs)),
+        )
 
     assert result == 0
     assert len(calls) == 1
@@ -66,6 +78,7 @@ def test_graybox_build_rejects_invalid_dimension_before_process_start(tmp_path: 
                 "--width", "0",
             ]),
             repository_root=tmp_path,
+            repository_context=REPOSITORY,
             stdout=io.StringIO(),
             stderr=io.StringIO(),
             executable_resolver=lambda *_: executable,
@@ -86,6 +99,7 @@ def test_graybox_build_rejects_non_mounted_output(tmp_path: Path) -> None:
         scene.run(
             namespace,
             repository_root=tmp_path,
+            repository_context=REPOSITORY,
             stdout=io.StringIO(),
             stderr=io.StringIO(),
             executable_resolver=lambda *_: executable,
