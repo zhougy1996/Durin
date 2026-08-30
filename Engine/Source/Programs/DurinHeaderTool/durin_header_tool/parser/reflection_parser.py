@@ -45,6 +45,7 @@ from durin_header_tool.parser.reflection_ast_helpers import (
     _source_base_name,
 )
 from durin_header_tool.parser.property_parser import (
+    HeaderPropertyContext,
     _cpp_type_spelling,
     _make_property,
     _make_property_from_spelling,
@@ -186,6 +187,7 @@ def parse_reflection_header(
     header_path = (module_config.module_dir / header).resolve()
     source = header_path.read_text(encoding="utf-8")
     _validate_preprocessor_context(source)
+    property_context = HeaderPropertyContext.from_source(source)
     tu, dmeta_uses = _parse_translation_unit(
         module_name,
         header,
@@ -241,7 +243,11 @@ def parse_reflection_header(
                 for member in child.get_children():
                     if member.kind == clang.cindex.CursorKind.FIELD_DECL:
                         prop = _make_property(
-                            member, exported_symbols, source, declaring_namespace
+                            member,
+                            exported_symbols,
+                            source,
+                            declaring_namespace,
+                            context=property_context,
                         )
                         if prop:
                             reflected_struct.properties.append(prop)
@@ -253,6 +259,7 @@ def parse_reflection_header(
                     existing_property_names,
                     reject_unsupported=not export_mode,
                     declaring_namespace=declaring_namespace,
+                    context=property_context,
                 ):
                     if prop.name not in existing_property_names:
                         reflected_struct.properties.append(prop)
@@ -321,7 +328,11 @@ def parse_reflection_header(
                         reflected_class.has_destructor = True
                     elif member.kind == clang.cindex.CursorKind.FIELD_DECL:
                         prop = _make_property(
-                            member, exported_symbols, source, declaring_namespace
+                            member,
+                            exported_symbols,
+                            source,
+                            declaring_namespace,
+                            context=property_context,
                         )
                         if prop:
                             reflected_class.properties.append(prop)
@@ -333,6 +344,7 @@ def parse_reflection_header(
                     existing_property_names,
                     reject_unsupported=not export_mode,
                     declaring_namespace=declaring_namespace,
+                    context=property_context,
                 ):
                     if prop.name not in existing_property_names:
                         reflected_class.properties.append(prop)

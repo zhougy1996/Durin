@@ -1,6 +1,7 @@
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
 import math
 from pathlib import Path
 import re
@@ -38,6 +39,25 @@ from durin_header_tool.parser.annotation_rewriter import _annotation_payload, _u
 ExportedSymbols: TypeAlias = dict[str, ExportedSymbolInfo]
 MAX_CONTAINER_PROPERTY_DEPTH = 4
 _DPROPERTY_PATTERN = re.compile(r"\bDPROPERTY\s*\(")
+
+
+@dataclass(frozen=True)
+class HeaderPropertyContext:
+    source: str
+    scanner: CppSourceScanner
+    lines: tuple[str, ...]
+    soft_object_aliases: frozenset[str]
+    weak_object_aliases: frozenset[str]
+
+    @classmethod
+    def from_source(cls, source: str) -> "HeaderPropertyContext":
+        return cls(
+            source=source,
+            scanner=CppSourceScanner(source),
+            lines=tuple(source.splitlines()),
+            soft_object_aliases=frozenset(_soft_object_alias_names(source)),
+            weak_object_aliases=frozenset(_weak_object_alias_names(source)),
+        )
 
 _PROPERTY_KIND_BY_TYPE = {
     "int8": "Int8",
@@ -107,12 +127,13 @@ def _normalize_type_spelling(type_spelling: str) -> str:
     )
 
 
-def _annotation_entries(annotation: str) -> list[str]:
+@lru_cache(maxsize=512)
+def _annotation_entries(annotation: str) -> tuple[str, ...]:
     _, separator, payload = annotation.partition(",")
     if not separator:
-        return []
+        return ()
     payload = _unescape_string_literal(payload)
-    return CppSourceScanner(payload).split_macro_arguments()
+    return tuple(CppSourceScanner(payload).split_macro_arguments())
 
 
 def _property_flags_from_annotation(annotation: str) -> str:
@@ -437,8 +458,11 @@ def _source_template_args(type_spelling: str, template_name: str) -> list[str]:
     return _split_template_args(compact[len(prefix):-1])
 
 
-def _source_declared_type(source: str, field_cursor: clang.cindex.Cursor) -> str:
-    lines = source.splitlines()
+def _source_declared_type(
+    context: HeaderPropertyContext,
+    field_cursor: clang.cindex.Cursor,
+) -> str:
+    lines = context.lines
     line_index = max(field_cursor.location.line - 1, 0)
     for index in range(line_index, min(line_index + 4, len(lines))):
         line = lines[index].strip()
@@ -488,13 +512,15 @@ def _scan_source_properties_for_class(
     known_property_names: set[str] | None = None,
     reject_unsupported: bool = True,
     declaring_namespace: str = "",
+    context: HeaderPropertyContext | None = None,
 ) -> list[ReflectedPropertyInfo]:
+    context = context or HeaderPropertyContext.from_source(source)
     properties: list[ReflectedPropertyInfo] = []
     start_line, end_line = _cursor_source_line_range(source, class_cursor)
     if start_line == 0:
         return properties
 
-    scanner = CppSourceScanner(source)
+    scanner = context.scanner
     class_start = scanner.position_from_line_column(start_line, class_cursor.extent.start.column)
     opening_brace = scanner.find_next_code_position("{", class_start)
     if opening_brace is None:
@@ -505,7 +531,7 @@ def _scan_source_properties_for_class(
 
     in_class = False
     pending_annotation = ""
-    lines = source.splitlines()
+    lines = context.lines
 
     for line_number, line in enumerate(
         lines[start_line - 1:end_line],
@@ -683,65 +709,75 @@ def _tobject_ptr_arg(type_spelling: str) -> str:
     return _source_template_args(normalized, "TObjectPtr")[0] if _source_template_args(normalized, "TObjectPtr") else ""
 
 
-def _is_tsoft_object_ptr(type_spelling: str) -> bool:
+@dataclass(frozen=True)
+class _ObjectWrapperPolicy:
+    template_name: str
+    raw_name: str
+    diagnostic_tag: str
+    description: str
+    property_kind: str
+
+
+_SOFT_OBJECT_POLICY = _ObjectWrapperPolicy(
+    "TSoftObjectPtr", "FSoftObjectPtr", "SOFT", "soft object", "SoftObject"
+)
+_WEAK_OBJECT_POLICY = _ObjectWrapperPolicy(
+    "TWeakObjectPtr", "FWeakObjectPtr", "WEAK", "weak object", "WeakObject"
+)
+_OBJECT_WRAPPER_POLICIES = (_SOFT_OBJECT_POLICY, _WEAK_OBJECT_POLICY)
+
+
+def _is_object_wrapper(type_spelling: str, policy: _ObjectWrapperPolicy) -> bool:
     normalized = type_spelling.replace(" ", "").removeprefix("::")
-    return normalized.startswith("TSoftObjectPtr<") or normalized.startswith("Durin::TSoftObjectPtr<")
+    return normalized.startswith(f"{policy.template_name}<") or normalized.startswith(
+        f"Durin::{policy.template_name}<"
+    )
 
 
-def _tsoft_object_ptr_arg(type_spelling: str) -> str:
+def _object_wrapper_arg(type_spelling: str, policy: _ObjectWrapperPolicy) -> str:
     normalized = type_spelling.strip().removeprefix("::")
     template_name = (
-        "Durin::TSoftObjectPtr"
-        if normalized.replace(" ", "").startswith("Durin::TSoftObjectPtr<")
-        else "TSoftObjectPtr"
+        f"Durin::{policy.template_name}"
+        if normalized.replace(" ", "").startswith(f"Durin::{policy.template_name}<")
+        else policy.template_name
     )
     args = _source_template_args(normalized, template_name)
     return args[0].strip() if len(args) == 1 else ""
 
 
-def _is_tweak_object_ptr(type_spelling: str) -> bool:
-    normalized = type_spelling.replace(" ", "").removeprefix("::")
-    return normalized.startswith("TWeakObjectPtr<") or normalized.startswith("Durin::TWeakObjectPtr<")
-
-
-def _tweak_object_ptr_arg(type_spelling: str) -> str:
-    normalized = type_spelling.strip().removeprefix("::")
-    template_name = (
-        "Durin::TWeakObjectPtr"
-        if normalized.replace(" ", "").startswith("Durin::TWeakObjectPtr<")
-        else "TWeakObjectPtr"
-    )
-    args = _source_template_args(normalized, template_name)
-    return args[0].strip() if len(args) == 1 else ""
-
-
-def _contains_soft_object_spelling(type_spelling: str) -> bool:
+def _contains_object_wrapper_spelling(
+    type_spelling: str,
+    policy: _ObjectWrapperPolicy,
+) -> bool:
     compact = type_spelling.replace(" ", "")
-    return "TSoftObjectPtr" in compact or "FSoftObjectPtr" in compact
+    return policy.template_name in compact or policy.raw_name in compact
 
 
-def _validate_soft_object_spelling(
+def _validate_object_wrapper_spelling(
     type_spelling: str,
     property_name: str,
     line_number: int,
     exported_symbols: ExportedSymbols | None,
-    declaring_namespace: str = "",
+    declaring_namespace: str,
+    policy: _ObjectWrapperPolicy,
 ) -> None:
     location = f"DPROPERTY '{property_name}' at line {line_number}"
     source_compact = type_spelling.strip().replace(" ", "").removeprefix("::")
     normalized = _normalize_type_spelling(type_spelling)
     compact = normalized.replace(" ", "").removeprefix("::")
+    diagnostic = f"DHT-{policy.diagnostic_tag}"
 
-    if "FSoftObjectPtr" in compact:
+    if policy.raw_name in compact:
         raise ValueError(
-            f"[DHT-SOFT001] {location}: raw FSoftObjectPtr is unsupported; "
-            "use TSoftObjectPtr<ReflectedObjectClass>"
+            f"[{diagnostic}001] {location}: raw {policy.raw_name} is unsupported; "
+            f"use {policy.template_name}<ReflectedObjectClass>"
         )
-    if compact in ("TSoftObjectPtr", "Durin::TSoftObjectPtr"):
+    if compact in (policy.template_name, f"Durin::{policy.template_name}"):
         raise ValueError(
-            f"[DHT-SOFT001] {location}: TSoftObjectPtr requires exactly one reflected object class"
+            f"[{diagnostic}001] {location}: {policy.template_name} requires exactly "
+            "one reflected object class"
         )
-    if "TSoftObjectPtr" in compact and (
+    if policy.template_name in compact and (
         source_compact.startswith("const")
         or source_compact.startswith("volatile")
         or source_compact.endswith("*")
@@ -751,74 +787,85 @@ def _validate_soft_object_spelling(
         or source_compact.endswith("volatile")
     ):
         raise ValueError(
-            f"[DHT-SOFT003] {location}: soft object properties do not support "
-            "cv-qualifiers, pointers, or references"
+            f"[{diagnostic}003] {location}: {policy.description} properties do not "
+            "support cv-qualifiers, pointers, or references"
         )
-    if _is_tsoft_object_ptr(type_spelling):
-        target = _tsoft_object_ptr_arg(type_spelling)
+    if _is_object_wrapper(type_spelling, policy):
+        target = _object_wrapper_arg(type_spelling, policy)
         if not target:
             raise ValueError(
-                f"[DHT-SOFT001] {location}: TSoftObjectPtr requires exactly one reflected object class"
+                f"[{diagnostic}001] {location}: {policy.template_name} requires exactly "
+                "one reflected object class"
             )
-        if re.search(r"\b(?:const|volatile)\b", target) \
-            or target.endswith("*") or target.endswith("&"):
+        if (
+            re.search(r"\b(?:const|volatile)\b", target)
+            or target.endswith("*")
+            or target.endswith("&")
+        ):
             raise ValueError(
-                f"[DHT-SOFT003] {location}: soft object target '{target}' must be an unqualified object class"
+                f"[{diagnostic}003] {location}: {policy.description} target '{target}' "
+                "must be an unqualified object class"
             )
-        if exported_symbols:
-            resolved_class = _resolved_symbol_name(
-                (target,), exported_symbols, kinds=("class",),
+        if exported_symbols and not _resolved_symbol_name(
+            (target,),
+            exported_symbols,
+            kinds=("class",),
+            declaring_namespace=declaring_namespace,
+        ):
+            resolved_non_object = _resolved_symbol_name(
+                (target,),
+                exported_symbols,
+                kinds=("struct", "enum"),
                 declaring_namespace=declaring_namespace,
             )
-            if not resolved_class:
-                resolved_non_object = _resolved_symbol_name(
-                    (target,), exported_symbols, kinds=("struct", "enum"),
-                    declaring_namespace=declaring_namespace,
-                )
-                code = "DHT-SOFT004" if resolved_non_object else "DHT-SOFT005"
-                reason = "is not an object class" if resolved_non_object else "could not be resolved"
-                raise ValueError(
-                    f"[{code}] {location}: soft object target '{target}' {reason}"
-                )
+            code = f"{diagnostic}004" if resolved_non_object else f"{diagnostic}005"
+            reason = "is not an object class" if resolved_non_object else "could not be resolved"
+            raise ValueError(
+                f"[{code}] {location}: {policy.description} target '{target}' {reason}"
+            )
         return
     if _is_std_vector(normalized):
         args = _source_template_args(normalized.removeprefix("::"), "std::vector")
         if args:
-            _validate_soft_object_spelling(
-                args[0], property_name, line_number, exported_symbols, declaring_namespace
+            _validate_object_wrapper_spelling(
+                args[0], property_name, line_number, exported_symbols,
+                declaring_namespace, policy,
             )
         return
     if _is_std_unordered_map(normalized):
         args = _source_template_args(normalized.removeprefix("::"), "std::unordered_map")
         if len(args) >= 2:
-            if _contains_soft_object_spelling(args[0]):
+            if _contains_object_wrapper_spelling(args[0], policy):
                 raise ValueError(
-                    f"[DHT-SOFT006] {location}: soft object references are unsupported as Map keys"
+                    f"[{diagnostic}006] {location}: {policy.description} references "
+                    "are unsupported as Map keys"
                 )
-            _validate_soft_object_spelling(
-                args[1], property_name, line_number, exported_symbols, declaring_namespace
+            _validate_object_wrapper_spelling(
+                args[1], property_name, line_number, exported_symbols,
+                declaring_namespace, policy,
             )
         return
-    if "TSoftObjectPtr" in compact:
+    if policy.template_name in compact:
         raise ValueError(
-            f"[DHT-SOFT002] {location}: unsupported soft object declaration '{normalized}'; "
-            "spell TSoftObjectPtr<T> directly"
+            f"[{diagnostic}002] {location}: unsupported {policy.description} declaration "
+            f"'{normalized}'; spell {policy.template_name}<T> directly"
         )
 
 
-def _soft_object_alias_names(source: str) -> set[str]:
+def _object_wrapper_alias_names(source: str, policy: _ObjectWrapperPolicy) -> set[str]:
+    template = re.escape(policy.template_name)
     aliases = {
         match.group(1)
         for match in re.finditer(
-            r"\busing\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
-            r"(?:::)?(?:Durin::)?TSoftObjectPtr\s*<[^;]+>;",
+            rf"\busing\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
+            rf"(?:::)?(?:Durin::)?{template}\s*<[^;]+>;",
             source,
         )
     }
     aliases.update(
         match.group(1)
         for match in re.finditer(
-            r"\btypedef\s+(?:::)?(?:Durin::)?TSoftObjectPtr\s*<[^;]+>\s+"
+            rf"\btypedef\s+(?:::)?(?:Durin::)?{template}\s*<[^;]+>\s+"
             r"([A-Za-z_][A-Za-z0-9_]*)\s*;",
             source,
         )
@@ -826,9 +873,45 @@ def _soft_object_alias_names(source: str) -> set[str]:
     return aliases
 
 
+def _is_tsoft_object_ptr(type_spelling: str) -> bool:
+    return _is_object_wrapper(type_spelling, _SOFT_OBJECT_POLICY)
+
+
+def _tsoft_object_ptr_arg(type_spelling: str) -> str:
+    return _object_wrapper_arg(type_spelling, _SOFT_OBJECT_POLICY)
+
+
+def _contains_soft_object_spelling(type_spelling: str) -> bool:
+    return _contains_object_wrapper_spelling(type_spelling, _SOFT_OBJECT_POLICY)
+
+
+def _validate_soft_object_spelling(
+    type_spelling: str,
+    property_name: str,
+    line_number: int,
+    exported_symbols: ExportedSymbols | None,
+    declaring_namespace: str = "",
+) -> None:
+    _validate_object_wrapper_spelling(
+        type_spelling, property_name, line_number, exported_symbols,
+        declaring_namespace, _SOFT_OBJECT_POLICY,
+    )
+
+
+def _soft_object_alias_names(source: str) -> set[str]:
+    return _object_wrapper_alias_names(source, _SOFT_OBJECT_POLICY)
+
+
+def _is_tweak_object_ptr(type_spelling: str) -> bool:
+    return _is_object_wrapper(type_spelling, _WEAK_OBJECT_POLICY)
+
+
+def _tweak_object_ptr_arg(type_spelling: str) -> str:
+    return _object_wrapper_arg(type_spelling, _WEAK_OBJECT_POLICY)
+
+
 def _contains_weak_object_spelling(type_spelling: str) -> bool:
-    compact = type_spelling.replace(" ", "")
-    return "TWeakObjectPtr" in compact or "FWeakObjectPtr" in compact
+    return _contains_object_wrapper_spelling(type_spelling, _WEAK_OBJECT_POLICY)
 
 
 def _validate_weak_object_spelling(
@@ -838,92 +921,14 @@ def _validate_weak_object_spelling(
     exported_symbols: ExportedSymbols | None,
     declaring_namespace: str = "",
 ) -> None:
-    location = f"DPROPERTY '{property_name}' at line {line_number}"
-    source_compact = type_spelling.strip().replace(" ", "").removeprefix("::")
-    normalized = _normalize_type_spelling(type_spelling)
-    compact = normalized.replace(" ", "").removeprefix("::")
-    if "FWeakObjectPtr" in compact:
-        raise ValueError(
-            f"[DHT-WEAK001] {location}: raw FWeakObjectPtr is unsupported; "
-            "use TWeakObjectPtr<ReflectedObjectClass>"
-        )
-    if compact in ("TWeakObjectPtr", "Durin::TWeakObjectPtr"):
-        raise ValueError(
-            f"[DHT-WEAK001] {location}: TWeakObjectPtr requires exactly one reflected object class"
-        )
-    if "TWeakObjectPtr" in compact and (
-        source_compact.startswith("const") or source_compact.startswith("volatile")
-        or source_compact.endswith("*") or source_compact.endswith("&")
-        or source_compact.endswith("&&") or source_compact.endswith("const")
-        or source_compact.endswith("volatile")
-    ):
-        raise ValueError(
-            f"[DHT-WEAK003] {location}: weak object properties do not support "
-            "cv-qualifiers, pointers, or references"
-        )
-    if _is_tweak_object_ptr(type_spelling):
-        target = _tweak_object_ptr_arg(type_spelling)
-        if not target:
-            raise ValueError(
-                f"[DHT-WEAK001] {location}: TWeakObjectPtr requires exactly one reflected object class"
-            )
-        if re.search(r"\b(?:const|volatile)\b", target) or target.endswith("*") or target.endswith("&"):
-            raise ValueError(
-                f"[DHT-WEAK003] {location}: weak object target '{target}' must be an unqualified object class"
-            )
-        if exported_symbols and not _resolved_symbol_name(
-            (target,), exported_symbols, kinds=("class",),
-            declaring_namespace=declaring_namespace,
-        ):
-            resolved_non_object = _resolved_symbol_name(
-                (target,), exported_symbols, kinds=("struct", "enum"),
-                declaring_namespace=declaring_namespace,
-            )
-            code = "DHT-WEAK004" if resolved_non_object else "DHT-WEAK005"
-            reason = "is not an object class" if resolved_non_object else "could not be resolved"
-            raise ValueError(f"[{code}] {location}: weak object target '{target}' {reason}")
-        return
-    if _is_std_vector(normalized):
-        args = _source_template_args(normalized.removeprefix("::"), "std::vector")
-        if args:
-            _validate_weak_object_spelling(
-                args[0], property_name, line_number, exported_symbols, declaring_namespace
-            )
-        return
-    if _is_std_unordered_map(normalized):
-        args = _source_template_args(normalized.removeprefix("::"), "std::unordered_map")
-        if len(args) >= 2:
-            if _contains_weak_object_spelling(args[0]):
-                raise ValueError(
-                    f"[DHT-WEAK006] {location}: weak object references are unsupported as Map keys"
-                )
-            _validate_weak_object_spelling(
-                args[1], property_name, line_number, exported_symbols, declaring_namespace
-            )
-        return
-    if "TWeakObjectPtr" in compact:
-        raise ValueError(
-            f"[DHT-WEAK002] {location}: unsupported weak object declaration '{normalized}'; "
-            "spell TWeakObjectPtr<T> directly"
-        )
+    _validate_object_wrapper_spelling(
+        type_spelling, property_name, line_number, exported_symbols,
+        declaring_namespace, _WEAK_OBJECT_POLICY,
+    )
 
 
 def _weak_object_alias_names(source: str) -> set[str]:
-    aliases = {
-        match.group(1)
-        for match in re.finditer(
-            r"\busing\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"
-            r"(?:::)?(?:Durin::)?TWeakObjectPtr\s*<[^;]+>;", source,
-        )
-    }
-    aliases.update(
-        match.group(1)
-        for match in re.finditer(
-            r"\btypedef\s+(?:::)?(?:Durin::)?TWeakObjectPtr\s*<[^;]+>\s+"
-            r"([A-Za-z_][A-Za-z0-9_]*)\s*;", source,
-        )
-    )
-    return aliases
+    return _object_wrapper_alias_names(source, _WEAK_OBJECT_POLICY)
 
 
 def _resolved_symbol_name(
@@ -980,14 +985,14 @@ def _cpp_type_spelling(
         arg = _tobject_ptr_arg(type_spelling)
         if arg:
             return f"Durin::TObjectPtr<{_cpp_type_spelling(arg, exported_symbols, declaring_namespace)}>"
-    if _is_tsoft_object_ptr(type_spelling):
-        arg = _tsoft_object_ptr_arg(type_spelling)
-        if arg:
-            return f"Durin::TSoftObjectPtr<{_cpp_type_spelling(arg, exported_symbols, declaring_namespace)}>"
-    if _is_tweak_object_ptr(type_spelling):
-        arg = _tweak_object_ptr_arg(type_spelling)
-        if arg:
-            return f"Durin::TWeakObjectPtr<{_cpp_type_spelling(arg, exported_symbols, declaring_namespace)}>"
+    for policy in _OBJECT_WRAPPER_POLICIES:
+        if _is_object_wrapper(type_spelling, policy):
+            arg = _object_wrapper_arg(type_spelling, policy)
+            if arg:
+                qualified_arg = _cpp_type_spelling(
+                    arg, exported_symbols, declaring_namespace
+                )
+                return f"Durin::{policy.template_name}<{qualified_arg}>"
     if resolved := _resolved_symbol_name(
         (type_spelling,),
         exported_symbols,
@@ -1250,50 +1255,31 @@ def _make_property_from_spelling(
                 flags=flags,
                 is_object_ptr_wrapper=True,
             )
-    if allow_object and _is_tsoft_object_ptr(type_spelling):
-        pointee = _tsoft_object_ptr_arg(type_spelling)
-        if not pointee:
-            return None
-        referenced_type = (
-            pointee
-            if not exported_symbols
-            else _resolved_symbol_name(
-                (pointee,), exported_symbols, kinds=("class",),
-                declaring_namespace=declaring_namespace,
+    if allow_object:
+        for policy in _OBJECT_WRAPPER_POLICIES:
+            if not _is_object_wrapper(type_spelling, policy):
+                continue
+            pointee = _object_wrapper_arg(type_spelling, policy)
+            if not pointee:
+                return None
+            referenced_type = (
+                pointee
+                if not exported_symbols
+                else _resolved_symbol_name(
+                    (pointee,), exported_symbols, kinds=("class",),
+                    declaring_namespace=declaring_namespace,
+                )
             )
-        )
-        if referenced_type:
-            return ReflectedPropertyInfo(
-                name=name,
-                type_name=type_spelling,
-                kind="SoftObject",
-                referenced_type=referenced_type,
-                array_dim=array_dim,
-                element_size=element_size or f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols, declaring_namespace)})",
-                flags=flags,
-            )
-    if allow_object and _is_tweak_object_ptr(type_spelling):
-        pointee = _tweak_object_ptr_arg(type_spelling)
-        if not pointee:
-            return None
-        referenced_type = (
-            pointee
-            if not exported_symbols
-            else _resolved_symbol_name(
-                (pointee,), exported_symbols, kinds=("class",),
-                declaring_namespace=declaring_namespace,
-            )
-        )
-        if referenced_type:
-            return ReflectedPropertyInfo(
-                name=name,
-                type_name=type_spelling,
-                kind="WeakObject",
-                referenced_type=referenced_type,
-                array_dim=array_dim,
-                element_size=element_size or f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols, declaring_namespace)})",
-                flags=flags,
-            )
+            if referenced_type:
+                return ReflectedPropertyInfo(
+                    name=name,
+                    type_name=type_spelling,
+                    kind=policy.property_kind,
+                    referenced_type=referenced_type,
+                    array_dim=array_dim,
+                    element_size=element_size or f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols, declaring_namespace)})",
+                    flags=flags,
+                )
     return None
 
 
@@ -1410,16 +1396,18 @@ def _make_property(
     exported_symbols: ExportedSymbols | None,
     source: str,
     declaring_namespace: str = "",
+    context: HeaderPropertyContext | None = None,
 ) -> ReflectedPropertyInfo | None:
+    context = context or HeaderPropertyContext.from_source(source)
     annotation = _get_annotation(field_cursor)
     if not annotation.startswith("DPROPERTY"):
         return None
 
-    source_type = _source_declared_type(source, field_cursor)
+    source_type = _source_declared_type(context, field_cursor)
     if source_type:
         if any(
             re.search(rf"\b{re.escape(alias)}\b", source_type)
-            for alias in _soft_object_alias_names(source)
+            for alias in context.soft_object_aliases
         ):
             raise ValueError(
                 f"[DHT-SOFT002] DPROPERTY '{field_cursor.spelling}' at line "
@@ -1428,7 +1416,7 @@ def _make_property(
             )
         if any(
             re.search(rf"\b{re.escape(alias)}\b", source_type)
-            for alias in _weak_object_alias_names(source)
+            for alias in context.weak_object_aliases
         ):
             raise ValueError(
                 f"[DHT-WEAK002] DPROPERTY '{field_cursor.spelling}' at line "

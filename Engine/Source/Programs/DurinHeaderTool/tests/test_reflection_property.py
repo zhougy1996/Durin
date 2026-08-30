@@ -70,6 +70,37 @@ from reflection_test_support import reflection_fixture
 
 @pytest.mark.usefixtures("reflection_fixture")
 class TestReflectionProperties:
+    def test_header_property_context_scans_wrapper_aliases_once(self):
+        with (
+            mock.patch.object(
+                property_parser,
+                "_soft_object_alias_names",
+                wraps=property_parser._soft_object_alias_names,
+            ) as soft_aliases,
+            mock.patch.object(
+                property_parser,
+                "_weak_object_alias_names",
+                wraps=property_parser._weak_object_alias_names,
+            ) as weak_aliases,
+            mock.patch.object(configs, "get_module_config", return_value=self.module_config),
+            mock.patch.object(configs, "collect_all_dependent_modules", return_value=set()),
+        ):
+            parse_reflection_header("Fixture", self.header, exported_symbols=self.symbols)
+
+        soft_aliases.assert_called_once()
+        weak_aliases.assert_called_once()
+
+    def test_property_annotation_entries_are_parsed_once(self):
+        annotation = 'DPROPERTY, Edit, DisplayName = "Value"'
+        property_parser._annotation_entries.cache_clear()
+
+        prop = ReflectedPropertyInfo("Value", "float", "Float")
+        property_parser._apply_property_annotation(prop, annotation)
+
+        cache_info = property_parser._annotation_entries.cache_info()
+        assert cache_info.misses == 1
+        assert cache_info.hits >= 4
+
     @pytest.mark.parametrize("spelling", ["uint32", "::uint32"])
     def test_fixed_width_integer_spellings_use_global_canonical_type(self, spelling):
         prop = _make_property_from_spelling("Value", spelling, None)
