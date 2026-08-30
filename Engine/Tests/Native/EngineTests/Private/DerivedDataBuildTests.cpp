@@ -76,6 +76,40 @@ namespace
 		}
 	};
 
+	class FConfigurableTestFunction final : public IBuildFunction
+	{
+	public:
+		FBuildFunctionConfig Config{
+			.CacheBucket = "DerivedDataBuildTests/Config",
+			.ExpectedValueName = "ConfigOutput",
+			.MaximumValueBytes = 1024,
+			.CleanupBudgetBytes = 4096,
+			.CleanupDeleteLimit = 2};
+		mutable uint32 GetConfigCount = 0;
+
+		auto GetConfig() const -> FBuildFunctionConfig override
+		{
+			++GetConfigCount;
+			return Config;
+		}
+
+		auto Validate(const FBuildDefinition&, const FBuildValue& Value,
+			std::string& Error) const -> bool override
+		{
+			const bool bValid = Value.GetName() == "ConfigOutput"
+				&& std::ranges::equal(Value.GetBytes(), Bytes({8}));
+			if (!bValid) Error = "Config output is invalid.";
+			return bValid;
+		}
+
+		auto Build(const FBuildContext&, FBuildValue& Value,
+			std::string&) const -> bool override
+		{
+			Value = FBuildValue::FromOwned("ConfigOutput", Bytes({8}));
+			return true;
+		}
+	};
+
 	auto MakePolicyDefinition(char KeyCharacter) -> FBuildDefinition
 	{
 		FBuildDefinition Definition;
@@ -87,6 +121,64 @@ namespace
 		requiref(Builder.Build(Definition, &Error), "{}", Error);
 		return Definition;
 	}
+}
+
+TEST(FDerivedDataBuildTests, RegistrationRejectsInvalidCompleteFunctionConfig)
+{
+	auto ExpectInvalid = [](FBuildFunctionConfig Config, uint32 IdentityVersion) {
+		auto Function = std::make_shared<FConfigurableTestFunction>();
+		Function->Config = std::move(Config);
+		std::string Error;
+		EXPECT_FALSE(RegisterBuildFunction(
+			{"Durin.Tests.InvalidConfigFunction", IdentityVersion}, Function,
+			GetAssetBuildTestGate(), &Error).IsValid());
+		EXPECT_EQ(Error, "Build function cache configuration is invalid.");
+	};
+
+	FBuildFunctionConfig Config = FConfigurableTestFunction().Config;
+	Config.CacheBucket = "../escape";
+	ExpectInvalid(Config, 1);
+	Config = FConfigurableTestFunction().Config;
+	Config.ExpectedValueName = "Invalid/Output";
+	ExpectInvalid(Config, 2);
+	Config = FConfigurableTestFunction().Config;
+	Config.MaximumValueBytes = 0;
+	ExpectInvalid(Config, 3);
+	Config = FConfigurableTestFunction().Config;
+	Config.CleanupDeleteLimit = 0;
+	ExpectInvalid(Config, 4);
+	Config = FConfigurableTestFunction().Config;
+	Config.CleanupBudgetBytes = 0;
+	ExpectInvalid(Config, 5);
+}
+
+TEST(FDerivedDataBuildTests, RegistrationFreezesValidatedFunctionConfig)
+{
+	FScopedDerivedDataCacheDirectory CacheDirectory;
+	auto Function = std::make_shared<FConfigurableTestFunction>();
+	std::string Error;
+	auto Registration = RegisterBuildFunction(
+		{"Durin.Tests.FrozenConfigFunction", 1}, Function,
+		GetAssetBuildTestGate(), &Error);
+	ASSERT_TRUE(Registration.IsValid()) << Error;
+	ASSERT_EQ(Function->GetConfigCount, 1u);
+
+	Function->Config = {
+		.CacheBucket = "../escape",
+		.ExpectedValueName = "ChangedOutput",
+		.MaximumValueBytes = 1,
+		.CleanupBudgetBytes = 0,
+		.CleanupDeleteLimit = 0};
+	FBuildDefinition Definition;
+	FBuildDefinitionBuilder Builder(
+		{"Durin.Tests.FrozenConfigFunction", 1}, "ConfigOutput");
+	Builder.SetKey(FBuildKey::FromString(std::string(32, 'b')))
+		.AddInput(FBuildValue::FromOwned("ConfigInput", Bytes({1})));
+	ASSERT_TRUE(Builder.Build(Definition, &Error)) << Error;
+	const FBuildOutput Output = FBuildSession().Build(Definition,
+		{.bQueryCache = false, .bStoreBuildResult = false});
+	EXPECT_EQ(Output.Status, EBuildStatus::Built) << Output.Diagnostic;
+	EXPECT_EQ(Function->GetConfigCount, 1u);
 }
 
 TEST(FDerivedDataBuildTests, SessionOwnsColdBuildWarmHitAndQueryOnlyMiss)

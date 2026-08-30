@@ -25,6 +25,8 @@ namespace Durin::DerivedData
 		struct FRegisteredBuildFunction
 		{
 			std::shared_ptr<IBuildFunction> Function;
+			FBuildFunctionConfig Config;
+			FCacheBucket CacheBucket;
 			FModuleOwnedCallbackGate Gate;
 			FModuleOwnedResourceLease Resource;
 			uint64 Generation = 0;
@@ -210,8 +212,12 @@ namespace Durin::DerivedData
 		if (!Function)
 			return SetError(OutError, "Build function is invalid."), FBuildFunctionRegistration{};
 		const FBuildFunctionConfig Config = Function->GetConfig();
-		if (Config.CacheBucket.empty() || Config.ExpectedValueName.empty()
-			|| Config.MaximumValueBytes == 0)
+		const FCacheBucket CacheBucket = FCacheBucket::FromString(Config.CacheBucket);
+		const bool bHasCleanupBudget = Config.CleanupBudgetBytes != 0;
+		const bool bHasCleanupDeleteLimit = Config.CleanupDeleteLimit != 0;
+		if (!CacheBucket.IsValid() || !IsCanonicalIdentityPart(Config.ExpectedValueName)
+			|| Config.MaximumValueBytes == 0
+			|| bHasCleanupBudget != bHasCleanupDeleteLimit)
 			return SetError(OutError, "Build function cache configuration is invalid."), FBuildFunctionRegistration{};
 		auto Resource = OwnerGate.IsValid() ? OwnerGate.RetainResource() : FModuleOwnedResourceLease{};
 		if (OwnerGate.IsValid() && !Resource)
@@ -222,7 +228,7 @@ namespace Durin::DerivedData
 			return SetError(OutError, "Build function identity is already registered."), FBuildFunctionRegistration{};
 		const uint64 Generation = GNextFunctionGeneration++;
 		GFunctions.emplace(Key, FRegisteredBuildFunction{
-			std::move(Function), OwnerGate, std::move(Resource), Generation});
+			std::move(Function), Config, CacheBucket, OwnerGate, std::move(Resource), Generation});
 		FBuildFunctionRegistration Result;
 		Result.Identity = std::move(Identity);
 		Result.Generation = Generation;
@@ -244,6 +250,8 @@ namespace Durin::DerivedData
 				.Diagnostic = "Build request was canceled."};
 
 		std::shared_ptr<IBuildFunction> Function;
+		FBuildFunctionConfig Config;
+		FCacheBucket CacheBucket;
 		FModuleOwnedCallbackGate Gate;
 		FModuleOwnedResourceLease Resource;
 		{
@@ -252,18 +260,18 @@ namespace Durin::DerivedData
 			if (It == GFunctions.end())
 				return Fail(EBuildFailurePhase::FunctionLookup, "Build function is not registered.");
 			Function = It->second.Function;
+			Config = It->second.Config;
+			CacheBucket = It->second.CacheBucket;
 			Gate = It->second.Gate;
 			if (Gate.IsValid()) Resource = Gate.RetainResource();
 		}
 		if (Gate.IsValid() && !Resource) return Fail(EBuildFailurePhase::FunctionLookup,
 			"Build function module owner is retiring.");
-		const FBuildFunctionConfig Config = Function->GetConfig();
 		if (Config.ExpectedValueName != Definition.GetExpectedValueName())
 			return Fail(EBuildFailurePhase::Request, "Build value contract does not match function configuration.");
-		const FCacheBucket CacheBucket = FCacheBucket::FromString(Config.CacheBucket);
 		const FCacheKey CacheKey = FCacheKey::FromString(Definition.GetKey().ToString());
-		if (!CacheBucket.IsValid() || !CacheKey.IsValid())
-			return Fail(EBuildFailurePhase::Request, "Build function cache configuration is invalid.");
+		if (!CacheKey.IsValid())
+			return Fail(EBuildFailurePhase::Request, "Build key is invalid.");
 		FDerivedDataCache& Cache = GetDerivedDataCache();
 		FBuildOutput Result;
 		auto FailResult = [&](EBuildFailurePhase Phase, std::string Message) -> FBuildOutput {
