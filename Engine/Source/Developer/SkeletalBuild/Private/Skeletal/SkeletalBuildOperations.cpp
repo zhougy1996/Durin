@@ -48,7 +48,7 @@ namespace Durin::Asset
 			if (!Builder.Build(Definition, &OutError)) return false;
 			OutOutput = FBuildSession().Build(Definition, {.bQueryCache = true,
 				.bAllowLocalBuild = !LocalBytes.empty(), .bStoreBuildResult = !LocalBytes.empty(),
-				.bRequireStoreSuccess = bRequireStore, .bReturnData = true});
+				.bRequireStoreSuccess = bRequireStore});
 			if (!OutOutput.Succeeded()) { OutError = OutOutput.Diagnostic; return false; }
 			return DecodeSelectedPayload(OutOutput.Value, Key, Context, OutPayload, OutError);
 		}

@@ -70,9 +70,8 @@ namespace Durin::Asset
 		const FBuildOutput Output = FBuildSession().Build(Definition, {
 			.bQueryCache = Request.bPersistDerivedData && Request.bQueryDerivedData,
 			.bAllowLocalBuild = true,
-			.bStoreBuildResult = Request.bPersistDerivedData,
-			.bRequireStoreSuccess = false,
-			.bReturnData = true}, Request.ShouldCancel ? &Cancellation : nullptr);
+			.bStoreBuildResult = Request.bPersistDerivedData},
+			Request.ShouldCancel ? &Cancellation : nullptr);
 		if (!Output.Succeeded()) { OutError = Output.Diagnostic; return false; }
 		std::shared_ptr<const FTerrainHeightmapPayload> Payload;
 		if (!Private::DecodeTerrainHeightmapPayload(Output.Value, Payload, OutError)) return false;
@@ -187,7 +186,7 @@ namespace Durin::Asset
 		}
 		const FBuildOutput Output = FBuildSession().Build(Definition, {
 			.bQueryCache = true, .bAllowLocalBuild = false,
-			.bStoreBuildResult = false, .bReturnData = true});
+			.bStoreBuildResult = false});
 		Result.QueryNanoseconds = Output.PhaseDurations.CacheQueryNanoseconds;
 		Result.DecodeNanoseconds = Output.PhaseDurations.CachedValueValidationNanoseconds;
 		if (!Output.Succeeded())

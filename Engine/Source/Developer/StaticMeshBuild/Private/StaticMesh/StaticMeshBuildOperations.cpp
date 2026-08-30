@@ -598,7 +598,7 @@ namespace Durin::Asset
 		}
 		const FBuildOutput Output = FBuildSession().Build(Definition, {
 			.bQueryCache = true, .bAllowLocalBuild = true,
-			.bStoreBuildResult = true, .bRequireStoreSuccess = false});
+			.bStoreBuildResult = true});
 		if (!Output.Succeeded())
 		{
 			Product.FailureStage = Output.FailurePhase == EBuildFailurePhase::CacheStore
@@ -660,7 +660,7 @@ namespace Durin::Asset
 		if (!Builder.Build(Definition, &OutError)) return false;
 		const FBuildOutput Output = FBuildSession().Build(Definition, {
 			.bQueryCache = true, .bAllowLocalBuild = false,
-			.bStoreBuildResult = false, .bReturnData = true});
+			.bStoreBuildResult = false});
 		if (!Output.Succeeded())
 		{
 			OutError.clear();
@@ -749,7 +749,7 @@ namespace Durin::Asset
 		if (!Builder.Build(Definition, &OutError)) return false;
 		const FBuildOutput Output = FBuildSession().Build(Definition, {
 			.bQueryCache = true, .bAllowLocalBuild = true,
-			.bStoreBuildResult = true, .bRequireStoreSuccess = false});
+			.bStoreBuildResult = true});
 		if (!Output.Succeeded())
 		{
 			OutError = Output.Diagnostic;

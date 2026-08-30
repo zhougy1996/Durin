@@ -68,9 +68,8 @@ namespace Durin::Asset
 		const FBuildOutput Output = FBuildSession().Build(Definition, {
 			.bQueryCache = true,
 			.bAllowLocalBuild = true,
-			.bStoreBuildResult = Request.bPersistDerivedData,
-			.bRequireStoreSuccess = false,
-			.bReturnData = true}, ExecutionControl ? &Cancellation : nullptr);
+			.bStoreBuildResult = Request.bPersistDerivedData},
+			ExecutionControl ? &Cancellation : nullptr);
 		if (ExecutionControl && ExecutionControl->Metrics && Request.bPersistDerivedData)
 		{
 			ExecutionControl->Metrics->PersistenceNanoseconds =
@@ -199,7 +198,7 @@ namespace Durin::Asset
 		}
 		const FBuildOutput Output = FBuildSession().Build(Definition, {
 			.bQueryCache = true, .bAllowLocalBuild = false,
-			.bStoreBuildResult = false, .bReturnData = true});
+			.bStoreBuildResult = false});
 		if (!Output.Succeeded())
 		{
 			OutStatus = Output.Status == EBuildStatus::CacheMiss

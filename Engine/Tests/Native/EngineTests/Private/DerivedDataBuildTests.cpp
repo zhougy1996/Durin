@@ -17,7 +17,7 @@ namespace
 		return Result;
 	}
 
-	auto GetAssetBuildTestGate() -> FModuleOwnedCallbackGate
+	auto GetDerivedDataBuildTestGate() -> FModuleOwnedCallbackGate
 	{
 		static FModuleTestOwner Context("DerivedDataBuildTests.Functions");
 		static auto Registration = Context.CreateOwnedCallbackRegistration(
@@ -214,10 +214,10 @@ TEST(FDerivedDataBuildTests, SessionOwnsColdBuildWarmHitAndQueryOnlyMiss)
 	auto Function = std::make_shared<FSampleFunction>();
 	std::string Error;
 	auto Registration = RegisterBuildFunction(
-		{"Durin.Tests.SampleFunction", 1}, Function, GetAssetBuildTestGate(), &Error);
+		{"Durin.Tests.SampleFunction", 1}, Function, GetDerivedDataBuildTestGate(), &Error);
 	ASSERT_TRUE(Registration.IsValid()) << Error;
 	EXPECT_FALSE(RegisterBuildFunction(
-		{"Durin.Tests.SampleFunction", 1}, Function, GetAssetBuildTestGate(), &Error).IsValid());
+		{"Durin.Tests.SampleFunction", 1}, Function, GetDerivedDataBuildTestGate(), &Error).IsValid());
 	const std::vector<std::byte> KeyInput = Bytes({1, 2, 3});
 	FBuildDefinition Definition;
 	FBuildDefinitionBuilder Builder({"Durin.Tests.SampleFunction", 1}, "SampleOutput");
@@ -298,7 +298,7 @@ TEST(FDerivedDataBuildTests, SessionHonorsExplicitQueryAndStorePolicies)
 	auto Function = std::make_shared<FPolicyTestFunction>();
 	std::string Error;
 	auto Registration = RegisterBuildFunction(
-		{"Durin.Tests.PolicyFunction", 1}, Function, GetAssetBuildTestGate(), &Error);
+		{"Durin.Tests.PolicyFunction", 1}, Function, GetDerivedDataBuildTestGate(), &Error);
 	ASSERT_TRUE(Registration.IsValid()) << Error;
 	const FBuildDefinition Definition = MakePolicyDefinition('a');
 	const FBuildPolicy LocalOnly{
@@ -329,10 +329,10 @@ TEST(FDerivedDataBuildTests, CacheRequiredAndBestEffortWritePoliciesDiffer)
 	auto Function = std::make_shared<FPolicyTestFunction>();
 	std::string Error;
 	auto Registration = RegisterBuildFunction(
-		{"Durin.Tests.PolicyFunction", 1}, Function, GetAssetBuildTestGate(), &Error);
+		{"Durin.Tests.PolicyFunction", 1}, Function, GetDerivedDataBuildTestGate(), &Error);
 	ASSERT_TRUE(Registration.IsValid()) << Error;
 	const FBuildOutput BestEffort = FBuildSession().Build(MakePolicyDefinition('c'),
-		{.bQueryCache = false, .bRequireStoreSuccess = false});
+		{.bQueryCache = false});
 	EXPECT_EQ(BestEffort.Status, EBuildStatus::Built);
 	EXPECT_FALSE(BestEffort.StoreDiagnostic.empty());
 	const FBuildOutput Required = FBuildSession().Build(MakePolicyDefinition('d'),

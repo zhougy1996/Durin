@@ -1200,8 +1200,8 @@ namespace Durin::Asset
 				.bQueryCache = Input.bQueryDerivedData,
 				.bAllowLocalBuild = true,
 				.bStoreBuildResult = Input.bPersistDerivedData,
-				.bRequireStoreSuccess = Input.bPersistDerivedData,
-				.bReturnData = true}, Input.ShouldCancel ? &Cancellation : nullptr);
+				.bRequireStoreSuccess = Input.bPersistDerivedData},
+			Input.ShouldCancel ? &Cancellation : nullptr);
 			if (!Output.Succeeded())
 			{
 				const ETerrainWorldOutcome Outcome = Output.Status == EBuildStatus::Canceled

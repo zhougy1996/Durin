@@ -60,8 +60,7 @@ namespace Durin::Asset
 			if (!Builder.Build(Definition, &OutError)) return false;
 			const FBuildOutput Output = FBuildSession().Build(Definition, {
 				.bQueryCache = bQueryCache, .bAllowLocalBuild = true,
-				.bStoreBuildResult = true, .bRequireStoreSuccess = false,
-				.bReturnData = true});
+				.bStoreBuildResult = true});
 			if (!Output.Succeeded())
 			{
 				OutError = Output.Diagnostic;
@@ -187,7 +186,7 @@ namespace Durin::Asset
 		}
 		const FBuildOutput Output = FBuildSession().Build(Definition, {
 			.bQueryCache = true, .bAllowLocalBuild = false,
-			.bStoreBuildResult = false, .bReturnData = true});
+			.bStoreBuildResult = false});
 		if (!Output.Succeeded())
 		{
 			OutStatus = Output.Status == EBuildStatus::CacheMiss
