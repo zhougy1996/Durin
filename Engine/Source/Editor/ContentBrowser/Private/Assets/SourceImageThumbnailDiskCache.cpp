@@ -2,6 +2,7 @@
 
 #include "Hash/XxHash.h"
 #include "Image/ImageDecoder.h"
+#include "Image/ImageEncoder.h"
 #include "Serialization/BinaryFormat.h"
 #include "Misc/FileTime.h"
 #include "Misc/Paths.h"
@@ -48,87 +49,6 @@ namespace Durin::Editor::ContentBrowser::Private
 				return {};
 			}
 			return Absolute.generic_string();
-		}
-
-		auto AppendBigEndian(std::vector<std::byte>& Bytes, uint32 Value) -> void
-		{
-			Bytes.push_back(static_cast<std::byte>(Value >> 24));
-			Bytes.push_back(static_cast<std::byte>(Value >> 16));
-			Bytes.push_back(static_cast<std::byte>(Value >> 8));
-			Bytes.push_back(static_cast<std::byte>(Value));
-		}
-
-		auto Crc32(std::span<const std::byte> Bytes) -> uint32
-		{
-			uint32 Crc = 0xffffffffu;
-			for (const std::byte Byte : Bytes)
-			{
-				Crc ^= std::to_integer<uint8>(Byte);
-				for (uint32 Bit = 0; Bit < 8; ++Bit)
-					Crc = (Crc >> 1) ^ (0xedb88320u & (0u - (Crc & 1u)));
-			}
-			return ~Crc;
-		}
-
-		auto WritePngChunk(std::vector<std::byte>& Bytes, std::string_view Type, std::span<const std::byte> Payload) -> void
-		{
-			AppendBigEndian(Bytes, static_cast<uint32>(Payload.size()));
-			const size_t CrcStart = Bytes.size();
-			const auto TypeBytes = std::as_bytes(std::span{Type});
-			Bytes.insert(Bytes.end(), TypeBytes.begin(), TypeBytes.end());
-			Bytes.insert(Bytes.end(), Payload.begin(), Payload.end());
-			AppendBigEndian(Bytes, Crc32(std::span(Bytes).subspan(CrcStart)));
-		}
-
-		auto EncodeRgbaPng(const FDecodedSourceImageThumbnail& Thumbnail, std::vector<std::byte>& OutBytes) -> bool
-		{
-			const uint64 ExpectedBytes = static_cast<uint64>(Thumbnail.Width) * Thumbnail.Height * 4;
-			if (Thumbnail.Width == 0 || Thumbnail.Height == 0 || Thumbnail.Pixels.size() != ExpectedBytes) return false;
-
-			std::vector<std::byte> Scanlines;
-			Scanlines.reserve(static_cast<size_t>(ExpectedBytes) + Thumbnail.Height);
-			const size_t RowBytes = static_cast<size_t>(Thumbnail.Width) * 4;
-			for (uint32 Y = 0; Y < Thumbnail.Height; ++Y)
-			{
-				Scanlines.push_back(std::byte{0});
-				Scanlines.insert(Scanlines.end(), Thumbnail.Pixels.begin() + static_cast<ptrdiff_t>(Y * RowBytes),
-					Thumbnail.Pixels.begin() + static_cast<ptrdiff_t>((Y + 1) * RowBytes));
-			}
-
-			std::vector<std::byte> Deflate{std::byte{0x78}, std::byte{0x01}};
-			for (size_t Offset = 0; Offset < Scanlines.size();)
-			{
-				const uint16 BlockSize = static_cast<uint16>(std::min<size_t>(65'535, Scanlines.size() - Offset));
-				const bool bFinal = Offset + BlockSize == Scanlines.size();
-				Deflate.push_back(bFinal ? std::byte{1} : std::byte{0});
-				Deflate.push_back(static_cast<std::byte>(BlockSize));
-				Deflate.push_back(static_cast<std::byte>(BlockSize >> 8));
-				const uint16 Inverse = static_cast<uint16>(~BlockSize);
-				Deflate.push_back(static_cast<std::byte>(Inverse));
-				Deflate.push_back(static_cast<std::byte>(Inverse >> 8));
-				Deflate.insert(Deflate.end(), Scanlines.begin() + static_cast<ptrdiff_t>(Offset),
-					Scanlines.begin() + static_cast<ptrdiff_t>(Offset + BlockSize));
-				Offset += BlockSize;
-			}
-			uint32 S1 = 1;
-			uint32 S2 = 0;
-			for (const std::byte Byte : Scanlines)
-			{
-				S1 = (S1 + std::to_integer<uint8>(Byte)) % 65'521;
-				S2 = (S2 + S1) % 65'521;
-			}
-			AppendBigEndian(Deflate, (S2 << 16) | S1);
-
-			OutBytes = {std::byte{137}, std::byte{80}, std::byte{78}, std::byte{71},
-				std::byte{13}, std::byte{10}, std::byte{26}, std::byte{10}};
-			std::vector<std::byte> Header;
-			AppendBigEndian(Header, Thumbnail.Width);
-			AppendBigEndian(Header, Thumbnail.Height);
-			Header.insert(Header.end(), {std::byte{8}, std::byte{6}, std::byte{0}, std::byte{0}, std::byte{0}});
-			WritePngChunk(OutBytes, "IHDR", Header);
-			WritePngChunk(OutBytes, "IDAT", Deflate);
-			WritePngChunk(OutBytes, "IEND", {});
-			return true;
 		}
 
 		auto DecodeCachedPng(std::span<const std::byte> Bytes, uint32 MaximumDimension,
@@ -249,7 +169,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (Desired.SourceIdentity.empty()) return true;
 
 		std::vector<std::byte> EncodedBytes;
-		if (!EncodeRgbaPng(OutThumbnail, EncodedBytes)) return true;
+		if (!Image::EncodeRgba8Png(
+				OutThumbnail.Pixels, OutThumbnail.Width, OutThumbnail.Height, EncodedBytes)) return true;
 		Impl->ObjectStore.Store(Desired.Key, EncodedBytes);
 		return true;
 	}

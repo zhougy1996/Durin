@@ -1,6 +1,6 @@
 # Core Image Codec
 
-Summary: Defines the asset-independent encoded-image decode boundary owned by Core.
+Summary: Defines the asset-independent encoded-image codec boundary owned by Core.
 
 Modules: Core
 
@@ -10,6 +10,11 @@ owned decoded values live in `Durin::Image`. Core does not attach asset,
 package, source-provenance, import, DDC, Cook, or publication policy to those
 values, and stb headers remain private to one Core implementation translation
 unit.
+
+`Image/ImageEncoder.h` owns the inverse asset-independent boundary for tightly
+packed, top-left-origin RGBA8 pixels. `EncodeRgba8Png` produces a compressed
+RGBA PNG and clears its output on invalid dimensions or byte counts. PNG chunk,
+checksum, filtering, and DEFLATE details remain private to Core.
 
 Memory decode is authoritative. File overloads are thin convenience wrappers
 for non-transactional preview and test callers; direct family importers capture an
@@ -25,7 +30,8 @@ top-left-origin row-major unsigned samples and requires color type 0, 16-bit
 samples, standard compression/filtering, and non-interlaced rows. Every failure
 clears the output value before returning a diagnostic.
 
-Default admission limits are 512 MiB encoded input, 256 million decoded LDR or
+Default decode admission limits are 512 MiB encoded input, 256 million decoded LDR or
 grayscale pixels, and 32 million Radiance pixels with a 16,384 dimension bound.
 Callers may select smaller limits. `ImageCodecTests` owns extension, output,
-orientation, malformed/truncated input, limit, and failure-state contracts.
+orientation, malformed/truncated input, limit, encode round-trip, compression,
+and failure-state contracts.

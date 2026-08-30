@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "Image/ImageDecoder.h"
+#include "Image/ImageEncoder.h"
 #include "NativeTestSupport.h"
 
 namespace Durin::Image
@@ -129,6 +130,44 @@ namespace Durin::Image
 		EXPECT_FALSE(DecodeImageFromMemory(OversizedPng, Image, Error, Limits));
 		EXPECT_EQ(Error, "The decoded image is too large.");
 		EXPECT_TRUE(Image.Pixels.empty());
+	}
+
+	TEST(FImageEncoderTests, EncodesCompressedRgba8ThatRoundTripsThroughCore)
+	{
+		constexpr uint32 Width = 64;
+		constexpr uint32 Height = 64;
+		std::vector<std::byte> Pixels(static_cast<size_t>(Width) * Height * 4);
+		for (size_t Pixel = 0; Pixel < Pixels.size() / 4; ++Pixel)
+		{
+			Pixels[Pixel * 4] = std::byte{24};
+			Pixels[Pixel * 4 + 1] = std::byte{96};
+			Pixels[Pixel * 4 + 2] = std::byte{192};
+			Pixels[Pixel * 4 + 3] = std::byte{255};
+		}
+
+		std::vector<std::byte> Encoded;
+		ASSERT_TRUE(EncodeRgba8Png(Pixels, Width, Height, Encoded));
+		EXPECT_LT(Encoded.size(), Pixels.size() / 4);
+
+		FDecodedImage Decoded;
+		std::string Error;
+		ASSERT_TRUE(DecodeImageFromMemory(Encoded, Decoded, Error)) << Error;
+		EXPECT_EQ(Decoded.Width, Width);
+		EXPECT_EQ(Decoded.Height, Height);
+		EXPECT_EQ(Decoded.Pixels, Pixels);
+	}
+
+	TEST(FImageEncoderTests, RejectsInvalidRgba8AndClearsOutput)
+	{
+		std::vector<std::byte> Encoded = {std::byte{1}};
+		EXPECT_FALSE(EncodeRgba8Png({}, 0, 1, Encoded));
+		EXPECT_TRUE(Encoded.empty());
+
+		constexpr std::array<std::byte, 3> ShortPixels = {
+			std::byte{1}, std::byte{2}, std::byte{3}};
+		Encoded = {std::byte{1}};
+		EXPECT_FALSE(EncodeRgba8Png(ShortPixels, 1, 1, Encoded));
+		EXPECT_TRUE(Encoded.empty());
 	}
 
 	TEST(FImageDecoderTests, DecodesOldAndNewRadianceScanlinesToLinearFloat)
