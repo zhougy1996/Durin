@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Mapping
 
 from ..context import RepositoryContext
-from .config import BuildToolError
+from .errors import BuildToolError
 from .scaffolding_workspace import require_contained_path
 
 

@@ -1,4 +1,5 @@
 import pytest
+import importlib.util
 import json
 import os
 import shutil
@@ -7,26 +8,30 @@ from pathlib import Path
 from unittest import mock
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEV_TOOL_DIR = REPO_ROOT / 'Tools' / 'DurinDevTool'
-from durin_dev_tool.build import config as build_config
-from durin_dev_tool.build import config_io as build_config_io
+from durin_dev_tool.build import config_io, errors, models, selection, settings, toolchain_context
 from durin_dev_tool.bootstrap import preflight, toolchain_selection
 from durin_dev_tool import toolchain
 from durin_dev_tool import configuration
 from durin_dev_tool.context import RepositoryContext
 from durin_dev_tool.errors import DevToolError
 
+BUILD_PATHS = settings.BuildPaths.from_repository(RepositoryContext.load(REPO_ROOT))
+
 class TestBuildConfig:
+
+    def test_legacy_config_facade_is_removed(self) -> None:
+        assert importlib.util.find_spec('durin_dev_tool.build.config') is None
 
     def test_build_paths_are_derived_per_repository_context(self, tmp_path: Path) -> None:
         repository = RepositoryContext.load(REPO_ROOT)
-        first = build_config.BuildPaths.from_repository(repository.at_root(tmp_path / 'first'))
-        second = build_config.BuildPaths.from_repository(repository.at_root(tmp_path / 'second'))
+        first = settings.BuildPaths.from_repository(repository.at_root(tmp_path / 'first'))
+        second = settings.BuildPaths.from_repository(repository.at_root(tmp_path / 'second'))
 
         assert first.root == (tmp_path / 'first').resolve()
         assert second.root == (tmp_path / 'second').resolve()
         assert first.profile_file != second.profile_file
         for legacy_name in ('REPO_ROOT', 'REPOSITORY_CONFIG', 'PROFILE_FILE', 'PRESET_FILE', 'LOCAL_CONFIG_FILE', 'STATE_DIR', 'LOCK_DIR'):
-            assert not hasattr(build_config, legacy_name)
+            assert not hasattr(settings, legacy_name)
 
     def test_build_modules_import_without_loading_repository_context(self) -> None:
         script = '''
@@ -34,7 +39,7 @@ from durin_dev_tool.context import RepositoryContext
 def fail(cls, repository_root=None):
     raise RuntimeError("repository context loaded during import")
 RepositoryContext.load = classmethod(fail)
-from durin_dev_tool.build import config, core, crash, locations, locking
+from durin_dev_tool.build import core, crash, locations, locking, settings
 from durin_dev_tool.build import native_test_registry, opener, operations, process
 from durin_dev_tool.build import purge, recovery, runtime
 '''
@@ -52,20 +57,20 @@ from durin_dev_tool.build import purge, recovery, runtime
 
     def test_missing_config_uses_empty_overrides(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
-        config = build_config.load_local_config(Path(directory) / 'missing.json')
-        assert config == build_config.LocalConfig()
+        config = config_io.load_local_config(Path(directory) / 'missing.json')
+        assert config == models.LocalConfig()
 
     def test_repository_template_uses_automatic_defaults(self) -> None:
-        config = build_config.load_local_config(
+        config = config_io.load_local_config(
             REPO_ROOT / 'Templates' / 'DurinDevTool' / 'DevTool.user.json'
         )
-        assert config == build_config.LocalConfig()
+        assert config == models.LocalConfig()
 
     def test_valid_config_uses_typed_models(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         path = Path(directory) / 'config.json'
         path.write_text(json.dumps({'version': 1, 'build': {'defaultProfile': 'windows-msvc-x64', 'parallelJobs': 8}, 'cmake': {'command': 'custom-cmake'}, 'toolchain': {'environmentScript': 'setup.cmd', 'environmentArguments': ['x64']}}), encoding='utf-8')
-        config = build_config.load_local_config(path)
+        config = config_io.load_local_config(path)
         assert config.cmake_command == 'custom-cmake'
         assert config.jobs == 8
         assert config.environment_setup.arguments == ('x64',)
@@ -74,27 +79,27 @@ from durin_dev_tool.build import purge, recovery, runtime
         directory = tmp_path_factory.mktemp('case')
         path = Path(directory) / 'config.json'
         path.write_text('{', encoding='utf-8')
-        with pytest.raises(build_config.BuildToolError, match='malformed JSON'):
-            build_config.load_local_config(path)
+        with pytest.raises(errors.BuildToolError, match='malformed JSON'):
+            config_io.load_local_config(path)
         path.write_text(json.dumps({'version': 1, 'cmake': {'command': 42}}), encoding='utf-8')
-        with pytest.raises(build_config.BuildToolError, match=r'cmake.*command.*null.*string'):
-            build_config.load_local_config(path)
+        with pytest.raises(errors.BuildToolError, match=r'cmake.*command.*null.*string'):
+            config_io.load_local_config(path)
         path.write_text(json.dumps({'version': 1, 'build': {'parallelJobs': 257}}), encoding='utf-8')
-        with pytest.raises(build_config.BuildToolError, match=r'build.*parallelJobs'):
-            build_config.load_local_config(path)
+        with pytest.raises(errors.BuildToolError, match=r'build.*parallelJobs'):
+            config_io.load_local_config(path)
         path.write_text(json.dumps({'cmakeCommand': 'legacy-cmake'}), encoding='utf-8')
-        with pytest.raises(build_config.BuildToolError, match='unexpected.*cmakeCommand'):
-            build_config.load_local_config(path)
+        with pytest.raises(errors.BuildToolError, match='unexpected.*cmakeCommand'):
+            config_io.load_local_config(path)
 
     def test_repository_profiles_reference_existing_presets(self) -> None:
-        profiles = build_config.load_profiles()
-        presets = build_config.load_configure_presets()
+        profiles = config_io.load_profiles(BUILD_PATHS.profile_file)
+        presets = config_io.load_configure_presets(BUILD_PATHS.preset_file)
         for profile in profiles.values():
             assert profile.default_preset in profile.presets
             assert set(profile.presets).issubset(presets)
 
     def test_repository_profile_orders_presets_for_interactive_selection(self) -> None:
-        profile = build_config.load_profiles()['windows-msvc-x64']
+        profile = config_io.load_profiles(BUILD_PATHS.profile_file)['windows-msvc-x64']
         assert profile.presets == (
             'Win64-Debug-DurinEditor',
             'Win64-Release-DurinEditor',
@@ -106,9 +111,9 @@ from durin_dev_tool.build import purge, recovery, runtime
         )
 
     def test_macos_profile_keeps_application_tests_in_the_default_build_tree(self) -> None:
-        profile = build_config.load_profiles()['macos-xcode-arm64']
+        profile = config_io.load_profiles(BUILD_PATHS.profile_file)['macos-xcode-arm64']
         assert profile.host == 'macos'
-        assert profile.environment_provider is build_config.EnvironmentProvider.INHERIT
+        assert profile.environment_provider is models.EnvironmentProvider.INHERIT
         assert profile.platform == 'MacOS'
         assert profile.default_preset == 'MacOS-arm64-Debug-DurinEditor'
         assert profile.presets == ('MacOS-arm64-Debug-DurinEditor',)
@@ -116,11 +121,11 @@ from durin_dev_tool.build import purge, recovery, runtime
         assert {'ninja', 'clang', 'xcrun'} <= set(profile.required_commands)
 
     def test_repository_profile_presets_enable_native_tests(self) -> None:
-        profiles = build_config.load_profiles()
-        presets = build_config.load_configure_presets()
+        profiles = config_io.load_profiles(BUILD_PATHS.profile_file)
+        presets = config_io.load_configure_presets(BUILD_PATHS.preset_file)
         for profile in profiles.values():
             for preset_name in profile.presets:
-                assert build_config.preset_cache_bool(
+                assert selection.preset_cache_bool(
                     presets[preset_name], 'BUILD_TESTING'
                 ), preset_name
 
@@ -133,12 +138,12 @@ from durin_dev_tool.build import purge, recovery, runtime
         assert [preset['name'] for preset in macos_presets] == [
             'MacOS-arm64-Debug-DurinEditor',
         ]
-        presets = build_config.load_configure_presets()
+        presets = config_io.load_configure_presets(BUILD_PATHS.preset_file)
         default = presets['MacOS-arm64-Debug-DurinEditor']
-        assert build_config.preset_cache_string(default, 'CMAKE_BUILD_TYPE') == 'Debug'
-        assert build_config.preset_cache_string(default, 'CMAKE_OSX_ARCHITECTURES') == 'arm64'
-        assert build_config.preset_cache_string(default, 'DURIN_RUNTIME_VARIANT') == 'DurinEditor'
-        assert not build_config.preset_cache_bool(default, 'DURIN_ENABLE_APPLICATION_TESTS')
+        assert selection.preset_cache_string(default, 'CMAKE_BUILD_TYPE') == 'Debug'
+        assert selection.preset_cache_string(default, 'CMAKE_OSX_ARCHITECTURES') == 'arm64'
+        assert selection.preset_cache_string(default, 'DURIN_RUNTIME_VARIANT') == 'DurinEditor'
+        assert not selection.preset_cache_bool(default, 'DURIN_ENABLE_APPLICATION_TESTS')
         base = next(
             item for item in manifest['configurePresets'] if item['name'] == 'macos-base'
         )
@@ -146,20 +151,20 @@ from durin_dev_tool.build import purge, recovery, runtime
         assert base['cacheVariables']['BUILD_TESTING'] == 'ON'
 
     def test_profiling_presets_are_release_isolated_and_enable_tracy(self) -> None:
-        presets = build_config.load_configure_presets()
+        presets = config_io.load_configure_presets(BUILD_PATHS.preset_file)
         for runtime_variant in ('DurinEditor', 'DurinGame'):
             preset = presets[f'Win64-Release-{runtime_variant}-Profiling']
-            assert build_config.preset_cache_string(preset, 'CMAKE_BUILD_TYPE') == 'Release'
-            assert build_config.preset_cache_string(preset, 'DURIN_RUNTIME_VARIANT') == runtime_variant
-            assert build_config.preset_cache_string(preset, 'DURIN_PRESET_ROLE') == 'Profiling'
-            assert build_config.preset_cache_bool(preset, 'DURIN_ENABLE_TRACY')
-            assert build_config.preset_output_configuration(preset) == 'Release-Profiling'
+            assert selection.preset_cache_string(preset, 'CMAKE_BUILD_TYPE') == 'Release'
+            assert selection.preset_cache_string(preset, 'DURIN_RUNTIME_VARIANT') == runtime_variant
+            assert selection.preset_cache_string(preset, 'DURIN_PRESET_ROLE') == 'Profiling'
+            assert selection.preset_cache_bool(preset, 'DURIN_ENABLE_TRACY')
+            assert selection.preset_output_configuration(preset) == 'Release-Profiling'
 
     def test_fast_configure_is_code_model_only_and_not_buildtool_owned(self) -> None:
-        profiles = build_config.load_profiles()
-        presets = build_config.load_configure_presets()
+        profiles = config_io.load_profiles(BUILD_PATHS.profile_file)
+        presets = config_io.load_configure_presets(BUILD_PATHS.preset_file)
         preset_name = 'Win64-Debug-DurinEditor-FastConfigure'
-        assert build_config.preset_cache_bool(presets[preset_name], 'DURIN_IDE_CODE_MODEL_ONLY')
+        assert selection.preset_cache_bool(presets[preset_name], 'DURIN_IDE_CODE_MODEL_ONLY')
         for profile in profiles.values():
             assert preset_name not in profile.presets
 
@@ -167,49 +172,49 @@ from durin_dev_tool.build import purge, recovery, runtime
         directory = tmp_path_factory.mktemp('case')
         path = Path(directory) / 'CMakePresets.json'
         path.write_text(json.dumps({'configurePresets': [{'name': 'base', 'binaryDir': '${sourceDir}/Build/${presetName}', 'cacheVariables': {'CMAKE_BUILD_TYPE': 'Debug', 'BUILD_TESTING': 'OFF'}}, {'name': 'tests', 'inherits': 'base', 'cacheVariables': {'BUILD_TESTING': 'ON'}}]}), encoding='utf-8')
-        presets = build_config.load_configure_presets(path)
-        assert build_config.preset_cache_string(presets['tests'], 'CMAKE_BUILD_TYPE') == 'Debug'
-        assert build_config.preset_cache_bool(presets['tests'], 'BUILD_TESTING')
+        presets = config_io.load_configure_presets(path)
+        assert selection.preset_cache_string(presets['tests'], 'CMAKE_BUILD_TYPE') == 'Debug'
+        assert selection.preset_cache_bool(presets['tests'], 'BUILD_TESTING')
 
     def test_profile_precedence_and_host_validation(self) -> None:
-        profiles = {'default': build_config.BuildProfile('default', 'windows', 'debug', ('debug',), build_config.EnvironmentProvider.INHERIT, 'Win64', '.exe', True, ()), 'other': build_config.BuildProfile('other', 'windows', 'debug', ('debug',), build_config.EnvironmentProvider.INHERIT, 'Win64', '.exe', False, ())}
-        selected = build_config.select_profile(profiles, requested='other', environment={build_config.PROFILE_ENV_VAR: 'default'}, current_host='windows')
+        profiles = {'default': models.BuildProfile('default', 'windows', 'debug', ('debug',), models.EnvironmentProvider.INHERIT, 'Win64', '.exe', True, ()), 'other': models.BuildProfile('other', 'windows', 'debug', ('debug',), models.EnvironmentProvider.INHERIT, 'Win64', '.exe', False, ())}
+        selected = selection.select_profile(profiles, requested='other', environment={settings.PROFILE_ENV_VAR: 'default'}, current_host='windows', profile_file=BUILD_PATHS.profile_file)
         assert selected.name == 'other'
-        with pytest.raises(build_config.BuildToolError, match='current host'):
-            build_config.select_profile(profiles, requested='other', current_host='linux')
+        with pytest.raises(errors.BuildToolError, match='current host'):
+            selection.select_profile(profiles, requested='other', current_host='linux', profile_file=BUILD_PATHS.profile_file)
 
     def test_job_precedence_and_cpu_fallback(self) -> None:
-        assert build_config.resolve_jobs(3, 6, environment={}, cpu_count=20) == 3
-        assert build_config.resolve_jobs(None, 6, environment={build_config.JOBS_ENV_VAR: '4'}, cpu_count=20) == 4
-        assert build_config.resolve_jobs(None, 6, environment={}, cpu_count=20) == 6
-        assert build_config.resolve_jobs(None, 0, environment={}, cpu_count=20) == 18
+        assert toolchain_context.resolve_jobs(3, 6, environment={}, cpu_count=20) == 3
+        assert toolchain_context.resolve_jobs(None, 6, environment={settings.JOBS_ENV_VAR: '4'}, cpu_count=20) == 4
+        assert toolchain_context.resolve_jobs(None, 6, environment={}, cpu_count=20) == 6
+        assert toolchain_context.resolve_jobs(None, 0, environment={}, cpu_count=20) == 18
 
     def test_invalid_job_environment_is_rejected(self) -> None:
-        with pytest.raises(build_config.BuildToolError, match=build_config.JOBS_ENV_VAR):
-            build_config.resolve_jobs(None, 0, environment={build_config.JOBS_ENV_VAR: 'many'})
+        with pytest.raises(errors.BuildToolError, match=settings.JOBS_ENV_VAR):
+            toolchain_context.resolve_jobs(None, 0, environment={settings.JOBS_ENV_VAR: 'many'})
 
     def test_unknown_preset_is_rejected_with_available_values(self) -> None:
-        profile = next(iter(build_config.load_profiles().values()))
-        presets = build_config.load_configure_presets()
-        with pytest.raises(build_config.BuildToolError, match='Available presets'):
-            build_config.select_preset(profile, presets, requested='missing')
+        profile = next(iter(config_io.load_profiles(BUILD_PATHS.profile_file).values()))
+        presets = config_io.load_configure_presets(BUILD_PATHS.preset_file)
+        with pytest.raises(errors.BuildToolError, match='Available presets'):
+            selection.select_preset(profile, presets, requested='missing', preset_file=BUILD_PATHS.preset_file)
 
     def test_output_configuration_uses_preset_role(self) -> None:
-        standard = build_config.ConfigurePreset('debug', {'cacheVariables': {'CMAKE_BUILD_TYPE': 'Debug'}})
-        profiling = build_config.ConfigurePreset('profiling', {'cacheVariables': {'CMAKE_BUILD_TYPE': 'Release', 'DURIN_PRESET_ROLE': 'Profiling'}})
-        assert build_config.preset_output_configuration(standard) == 'Debug'
-        assert build_config.preset_output_configuration(profiling) == 'Release-Profiling'
+        standard = models.ConfigurePreset('debug', {'cacheVariables': {'CMAKE_BUILD_TYPE': 'Debug'}})
+        profiling = models.ConfigurePreset('profiling', {'cacheVariables': {'CMAKE_BUILD_TYPE': 'Release', 'DURIN_PRESET_ROLE': 'Profiling'}})
+        assert selection.preset_output_configuration(standard) == 'Debug'
+        assert selection.preset_output_configuration(profiling) == 'Release-Profiling'
 
     def test_explicit_cmake_path_takes_precedence(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         requested = Path(directory) / 'cmake.exe'
         requested.touch()
-        resolved = build_config.resolve_cmake_command(str(requested), 'configured', environment={'DURIN_CMAKE_COMMAND': 'environment'})
+        resolved = toolchain_context.resolve_cmake_command(str(requested), 'configured', environment={'DURIN_CMAKE_COMMAND': 'environment'})
         assert Path(resolved) == requested.resolve()
 
     def test_bare_cmake_command_uses_environment_path(self) -> None:
-        with mock.patch.object(build_config, 'find_command', return_value='custom/cmake') as which:
-            resolved = build_config.resolve_cmake_command(
+        with mock.patch.object(toolchain_context, 'find_command', return_value='custom/cmake') as which:
+            resolved = toolchain_context.resolve_cmake_command(
                 '',
                 '',
                 environment={'Path': 'custom-path'},
@@ -218,10 +223,10 @@ from durin_dev_tool.build import purge, recovery, runtime
         which.assert_called_once_with('cmake', {'Path': 'custom-path'})
 
     def test_preset_build_path_cannot_escape_checkout(self, tmp_path_factory: pytest.TempPathFactory) -> None:
-        preset = build_config.ConfigurePreset('escape', {'binaryDir': '${sourceDir}/../outside'})
+        preset = models.ConfigurePreset('escape', {'binaryDir': '${sourceDir}/../outside'})
         directory = tmp_path_factory.mktemp('case')
-        with pytest.raises(build_config.BuildToolError, match='inside the checkout'):
-            build_config.preset_build_directory(preset, root=Path(directory))
+        with pytest.raises(errors.BuildToolError, match='inside the checkout'):
+            selection.preset_build_directory(preset, root=Path(directory))
 
 class TestRepositoryConfig:
 
@@ -243,15 +248,15 @@ class TestRepositoryConfig:
         local_schema = json.loads(
             (DEV_TOOL_DIR / 'DevTool.user.schema.json').read_text(encoding='utf-8')
         )
-        assert set(local_schema['properties']) == build_config_io.LOCAL_CONFIG_FIELDS
+        assert set(local_schema['properties']) == config_io.LOCAL_CONFIG_FIELDS
         assert set(local_schema['properties']['build']['properties']) == (
-            build_config_io.LOCAL_BUILD_FIELDS
+            config_io.LOCAL_BUILD_FIELDS
         )
         assert set(local_schema['properties']['cmake']['properties']) == (
-            build_config_io.LOCAL_CMAKE_FIELDS
+            config_io.LOCAL_CMAKE_FIELDS
         )
         assert set(local_schema['properties']['toolchain']['properties']) == (
-            build_config_io.LOCAL_TOOLCHAIN_FIELDS
+            config_io.LOCAL_TOOLCHAIN_FIELDS
         )
 
     def test_repository_config_resolves_tracked_layout(self) -> None:
@@ -313,7 +318,7 @@ class TestRepositoryConfig:
 
         with mock.patch('builtins.__import__', side_effect=reject_jsonschema):
             assert configuration.load_repository_config(REPO_ROOT).repository_root == REPO_ROOT
-            assert build_config.load_local_config(local_config) == build_config.LocalConfig()
+            assert config_io.load_local_config(local_config) == models.LocalConfig()
 
     @pytest.mark.parametrize(
         ('mutation', 'diagnostic'),
@@ -346,15 +351,15 @@ class TestRepositoryConfig:
         value: dict[str, object] = {'version': 1}
         mutation(value)
         path.write_text(json.dumps(value), encoding='utf-8')
-        with pytest.raises(build_config.BuildToolError, match=diagnostic):
-            build_config.load_local_config(path)
+        with pytest.raises(errors.BuildToolError, match=diagnostic):
+            config_io.load_local_config(path)
 
 
 
 class TestCMakeCodeModelGuard:
 
     def test_code_model_guard_fails_before_target_command_runs(self, tmp_path_factory: pytest.TempPathFactory) -> None:
-        local_config = build_config.load_local_config()
+        local_config = config_io.load_local_config(BUILD_PATHS.local_config_file)
         cmake = local_config.cmake_command or shutil.which('cmake')
         if not cmake:
             pytest.skip('CMake is not available')

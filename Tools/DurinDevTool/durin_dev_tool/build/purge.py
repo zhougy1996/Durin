@@ -6,18 +6,16 @@ import shutil
 from pathlib import Path
 from typing import Callable, Sequence
 
-from .config import (
-    BuildPaths,
-    BuildContext,
-    BuildProfile,
-    BuildToolError,
-    ConfigurePreset,
-    default_build_paths,
+from .build_context import BuildContext
+from .errors import BuildToolError
+from .models import BuildProfile, ConfigurePreset
+from .selection import (
     preset_build_directory,
     preset_cache_string,
     preset_install_directory,
     preset_output_configuration,
 )
+from .settings import BuildPaths, default_build_paths
 from .output import BuildOutput
 from .recovery import interruption_marker_path
 

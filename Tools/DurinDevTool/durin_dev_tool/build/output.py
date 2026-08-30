@@ -13,15 +13,13 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from .config import (
-    Action,
-    BuildContext,
-    BuildToolError,
-    ConcreteRequest,
-    OutputMode,
-    preset_build_directory,
-)
+from .build_context import BuildContext
+from .errors import BuildToolError
+from .models import Action, OutputMode
+from .selection import preset_build_directory
 from .requests import request_target
+from .requests import ConcreteRequest
+from .settings import BuildPaths, default_build_paths
 
 ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 NINJA_PROGRESS_PATTERN = re.compile(r"^\[\d+/\d+(?:\s+[^\]]+)?\](?:\s|$)")
@@ -221,12 +219,17 @@ class BuildOutput:
             self.console.file.flush()
 
     def context(self, context: BuildContext) -> None:
+        paths = (
+            BuildPaths.from_repository(context.repository)
+            if context.repository
+            else default_build_paths()
+        )
         rows: Mapping[str, object] = {
             "Action": context.request.action.value,
             "Profile": context.profile.name,
             "Preset": context.preset.name,
             "Target": context.target or "-",
-            "Build directory": preset_build_directory(context.preset),
+            "Build directory": preset_build_directory(context.preset, root=paths.root),
             "CMake": context.cmake or "not required",
             "Parallel jobs": context.jobs or "not required",
             "Child output": (

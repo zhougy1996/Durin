@@ -5,7 +5,8 @@ from __future__ import annotations
 import os
 import subprocess
 
-from .config import BuildToolError, default_build_paths
+from .errors import BuildToolError
+from .settings import default_build_paths
 from .locations import ResolvedLocation
 
 

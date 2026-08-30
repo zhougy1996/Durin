@@ -14,7 +14,8 @@ from pathlib import Path
 from time import perf_counter, sleep
 from typing import Any, Mapping, Sequence
 
-from .config import BuildToolError, BuildToolInterruptedError, default_build_paths
+from .errors import BuildToolError, BuildToolInterruptedError
+from .settings import default_build_paths
 from .locking import state_file_component
 from .output import BuildOutput
 

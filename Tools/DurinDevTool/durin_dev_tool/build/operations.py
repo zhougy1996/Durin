@@ -12,21 +12,14 @@ from rich.markup import escape
 from rich.table import Table
 from rich.text import Text
 
-from .config import (
-    Action,
-    BuildPaths,
-    BuildContext,
-    BuildToolError,
-    CMAKE_ENV_VARS,
-    ConcreteRequest,
-    JOBS_ENV_VAR,
-    default_build_paths,
-    preset_cache_string,
-)
-from .requests import BaseRequest, SimpleRequest
+from .build_context import BuildContext, create_build_context, derive_build_context
+from .errors import BuildToolError
+from .models import Action
+from .requests import BaseRequest, ConcreteRequest, SimpleRequest
+from .selection import preset_cache_string
+from .settings import CMAKE_ENV_VARS, JOBS_ENV_VAR, BuildPaths, default_build_paths
 from .locations import resolve_all_locations, resolve_location
 from .opener import open_location
-from .build_context import create_build_context, derive_build_context
 from .core import execute_context
 from .toolchain_context import (
     prepare_command_context,

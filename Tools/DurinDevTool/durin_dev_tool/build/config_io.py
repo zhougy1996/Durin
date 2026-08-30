@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from ..json_contract import JsonContractError, decode_json_contract
-from .config import BuildToolError
+from .errors import BuildToolError
 from .models import BuildProfile, ConfigurePreset, EnvironmentProvider, EnvironmentSetup, LocalConfig
 
 

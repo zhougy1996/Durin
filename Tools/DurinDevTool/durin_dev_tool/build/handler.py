@@ -6,14 +6,8 @@ from typing import TextIO
 
 from ..context import CommandIO, RepositoryContext
 
-from .config import (
-    Action,
-    BuildToolError,
-    LinkType,
-    ModuleKind,
-    OutputMode,
-    TestMode,
-)
+from .errors import BuildToolError
+from .models import Action, LinkType, ModuleKind, OutputMode, TestMode
 from .operations import execute_request
 from .requests import (
     BaseRequest,

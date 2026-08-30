@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import BuildToolError
+from .errors import BuildToolError
 from .descriptors import ProjectDescriptor, load_project_descriptor
 
 

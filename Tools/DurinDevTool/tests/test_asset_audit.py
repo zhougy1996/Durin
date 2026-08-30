@@ -14,7 +14,7 @@ REPOSITORY_ROOT = DEV_TOOL_ROOT.parents[1]
 from durin_dev_tool import cli
 from durin_dev_tool import asset
 from durin_dev_tool import storage_qualification
-from durin_dev_tool.build.config import BuildToolError
+from durin_dev_tool.build.errors import BuildToolError
 from durin_dev_tool.context import RepositoryContext
 from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry

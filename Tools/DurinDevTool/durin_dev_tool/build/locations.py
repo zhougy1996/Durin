@@ -7,14 +7,9 @@ from pathlib import Path
 from typing import Callable
 
 from ..context import RepositoryContext
-from .config import (
-    BuildProfile,
-    BuildToolError,
-    ConfigurePreset,
-    preset_build_directory,
-    preset_cache_string,
-    preset_output_configuration,
-)
+from .errors import BuildToolError
+from .models import BuildProfile, ConfigurePreset
+from .selection import preset_build_directory, preset_cache_string, preset_output_configuration
 
 
 LocationResolver = Callable[

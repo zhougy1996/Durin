@@ -7,7 +7,9 @@ from typing import Any, Mapping, Sequence
 
 from ..context import RepositoryContext
 from ..json_contract import JsonContractError, load_json_contract
-from .config import BuildToolError, ConcreteRequest, CreateKind, ModuleKind
+from .errors import BuildToolError
+from .models import CreateKind, ModuleKind
+from .requests import ConcreteRequest
 
 
 DEPENDENCY_FIELDS = (

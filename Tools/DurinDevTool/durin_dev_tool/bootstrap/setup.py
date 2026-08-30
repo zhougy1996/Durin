@@ -15,12 +15,10 @@ from ..context import CommandIO, RepositoryContext
 from ..errors import DevToolError
 from ..python_environment import prepared_python_path
 from ..toolchain import find_command, find_vsdevcmd
-from ..build.config import (
-    BuildToolError,
+from ..build.config_io import load_configure_presets, load_local_config, load_profiles
+from ..build.errors import BuildToolError
+from ..build.selection import (
     host_name,
-    load_configure_presets,
-    load_local_config,
-    load_profiles,
     preset_cache_string,
     preset_output_configuration,
     select_profile,
@@ -172,12 +170,14 @@ def generate_vscode_launch_configuration(
     config = load_local_config(
         repository_root / repository.config.paths.local_build_config
     )
-    profiles = load_profiles(repository.resolve(repository.config.paths.build_profiles))
+    profile_file = repository.resolve(repository.config.paths.build_profiles)
+    profiles = load_profiles(profile_file)
     profile = select_profile(
         profiles,
         configured=config.default_build_profile,
         environment=environment,
         current_host=current_host or host_name(),
+        profile_file=profile_file,
     )
     presets = load_configure_presets(
         repository_root / repository.config.paths.cmake_presets

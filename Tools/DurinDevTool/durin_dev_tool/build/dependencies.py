@@ -7,8 +7,10 @@ from typing import Iterable
 from ..bootstrap.dependency_service import prepare_dependencies
 from ..bootstrap.models import BootstrapError, DependencyRequest
 from ..context import CommandIO, RepositoryContext
-from .config import BuildContext, BuildToolError, preset_cache_bool, preset_cache_string
+from .build_context import BuildContext
+from .errors import BuildToolError
 from .output import BuildOutput
+from .selection import preset_cache_bool, preset_cache_string
 
 
 def _definition_values(definitions: Iterable[str]) -> dict[str, str]:

@@ -7,7 +7,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Mapping
 
-from ..build.config import load_local_config
+from ..build.config_io import load_local_config
 from ..build.locking import BuildToolLock
 from ..context import CommandIO, RepositoryContext
 from . import installer, manifests

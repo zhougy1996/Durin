@@ -7,17 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
-from .build.config import (
-    BuildPaths,
-    BuildProfile,
-    BuildToolError,
-    ConfigurePreset,
-    load_configure_presets,
-    load_local_config,
-    load_profiles,
-    select_preset,
-    select_profile,
-)
+from .build.config_io import load_configure_presets, load_local_config, load_profiles
+from .build.errors import BuildToolError
+from .build.models import BuildProfile, ConfigurePreset
+from .build.selection import select_preset, select_profile
+from .build.settings import BuildPaths
 from .build.locations import resolve_location
 from .build.output import BuildOutput
 from .build.process import run_command

@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence, TextIO
 
 from .build.output import BuildOutput
-from .build.config import BuildToolError, OutputMode
+from .build.errors import BuildToolError
+from .build.models import OutputMode
 from .context import RepositoryContext
 from .errors import DevToolError
 from .json_contract import JsonContractError, parse_json_contract

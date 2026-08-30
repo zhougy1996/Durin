@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from ..build.config import load_local_config
+from ..build.config_io import load_local_config
 from ..context import RepositoryContext
 from ..toolchain import capture_setup_environment, capture_windows_environment, find_command, find_vsdevcmd
 from .preflight import PreflightError, check_cmake, check_msvc_version, find_ninja

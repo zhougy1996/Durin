@@ -5,11 +5,9 @@ import platform
 from pathlib import Path
 from typing import Any, Mapping
 
-from .config import BuildToolError
+from .errors import BuildToolError
 from .models import BuildProfile, ConfigurePreset
-
-
-PROFILE_ENV_VAR = "DURIN_AGENT_BUILD_PROFILE"
+from .settings import PROFILE_ENV_VAR
 
 
 def host_name(system_name: str | None = None) -> str:

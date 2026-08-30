@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Mapping, Sequence
 
-from .config import default_build_paths
+from .settings import default_build_paths
 from .process import command_log_path, prune_command_logs
 
 

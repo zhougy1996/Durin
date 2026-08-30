@@ -6,7 +6,8 @@ import subprocess
 from pathlib import Path
 from typing import Sequence
 
-from ..build.config import BuildToolError, load_local_config
+from ..build.config_io import load_local_config
+from ..build.errors import BuildToolError
 from ..context import CommandIO, RepositoryContext
 from .git import get_worktrees
 from .models import Worktree, WorktreeToolError

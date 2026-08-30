@@ -4,8 +4,13 @@ from dataclasses import dataclass
 from typing import Mapping
 
 from ..context import RepositoryContext
-from .models import Action, BuildProfile, ConfigurePreset, LocalConfig
+from .config_io import load_configure_presets, load_local_config, load_profiles
+from .errors import BuildToolError
+from .models import BuildProfile, ConfigurePreset, LocalConfig
+from .request_validation import normalize_run_request, validate_request
 from .requests import BuildRequest, ConcreteRequest, NativeTestRequest, RebuildRequest
+from .selection import host_name, select_preset, select_profile
+from .settings import BuildPaths
 
 
 @dataclass
@@ -37,17 +42,6 @@ def create_build_context(
     *,
     repository: RepositoryContext,
 ) -> BuildContext:
-    from .config import (
-        BuildPaths,
-        host_name,
-        load_configure_presets,
-        load_local_config,
-        load_profiles,
-        select_preset,
-        select_profile,
-    )
-    from .core import normalize_run_request, validate_request
-
     paths = BuildPaths.from_repository(repository)
     config = load_local_config(paths.local_config_file)
     if request.environment_setup:
@@ -74,20 +68,15 @@ def create_build_context(
 
 
 def derive_build_context(base: BuildContext, request: ConcreteRequest) -> BuildContext:
-    from .config import BuildPaths, default_build_paths, select_preset
-    from .core import normalize_run_request, validate_request
-
-    paths = BuildPaths.from_repository(base.repository) if base.repository else default_build_paths()
+    if base.repository is None:
+        raise BuildToolError("Derived build contexts require an explicit repository context.")
+    paths = BuildPaths.from_repository(base.repository)
     preset = select_preset(base.profile, base.presets, requested=request.preset, preset_file=paths.preset_file)
     request = normalize_run_request(
         request,
         preset=preset,
         root=paths.root,
-        default_project=(
-            base.repository.config.paths.default_game_project
-            if base.repository
-            else RepositoryContext.load(paths.root).config.paths.default_game_project
-        ),
+        default_project=base.repository.config.paths.default_game_project,
     )
     validate_request(request, preset)
     return BuildContext(

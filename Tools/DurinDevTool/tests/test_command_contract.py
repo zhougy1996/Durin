@@ -14,7 +14,7 @@ REPOSITORY_ROOT = PRODUCT_ROOT.parents[1]
 from durin_dev_tool import cli
 from durin_dev_tool.context import CommandIO, RepositoryContext
 from durin_dev_tool.bootstrap import manifests as bootstrap_manifests
-from durin_dev_tool.build.config import BuildToolError
+from durin_dev_tool.build.errors import BuildToolError
 from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry, CommandSpec
 from durin_dev_tool.shell import split_shell_command

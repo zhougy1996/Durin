@@ -10,7 +10,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, Iterable, Sequence
 
-from .config import BuildToolError
+from .errors import BuildToolError
 from .descriptors import load_module_descriptor, load_project_descriptor
 from .scaffolding_workspace import (
     check_balanced_cmake,

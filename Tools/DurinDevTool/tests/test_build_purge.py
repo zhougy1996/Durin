@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 from . import build_request_fixtures as request_fixtures
-from durin_dev_tool.build import config as build_config
+from durin_dev_tool.build import errors, models
 from durin_dev_tool.build import purge as build_purge
 
 
@@ -31,7 +31,7 @@ class TestCore:
         cache = dict(values['cacheVariables'])
         cache['CMAKE_BUILD_TYPE'] = 'Release'
         cache['DURIN_PRESET_ROLE'] = 'Profiling'
-        preset = build_config.ConfigurePreset('profiling', {**values, 'cacheVariables': cache})
+        preset = models.ConfigurePreset('profiling', {**values, 'cacheVariables': cache})
 
         paths = set(build_purge.collect_purge_paths(self.make_profile(), [preset], root=root))
 
@@ -70,7 +70,7 @@ class TestCore:
     def test_purge_rejects_checkout_root(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')
         root = Path(directory)
-        with pytest.raises(build_config.BuildToolError, match='checkout root'):
+        with pytest.raises(errors.BuildToolError, match='checkout root'):
             build_purge.remove_purge_paths([root], root=root)
     def test_purge_removes_only_selected_artifact(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')

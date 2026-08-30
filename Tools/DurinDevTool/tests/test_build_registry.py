@@ -7,7 +7,8 @@ from unittest import mock
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 from durin_dev_tool.build import handler
 from durin_dev_tool.build import operations as build_operations
-from durin_dev_tool.build.config import Action, ConcreteRequest, CreateKind, LinkType, LocalConfig, ModuleKind, OutputMode, OutputOptions, RequestContext
+from durin_dev_tool.build.models import Action, CreateKind, LinkType, LocalConfig, ModuleKind, OutputMode
+from durin_dev_tool.build.requests import ConcreteRequest, OutputOptions, RequestContext
 from durin_dev_tool.errors import DevToolError
 from durin_dev_tool.registry import CommandRegistry
 from durin_dev_tool.build.requests import LocationRequest, SimpleRequest

@@ -8,7 +8,7 @@ from unittest import mock
 import pytest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-from durin_dev_tool.build.config import BuildToolError
+from durin_dev_tool.build.errors import BuildToolError
 from durin_dev_tool.build.native_test_registry import (
     filter_targets,
     is_test_set_selection,

@@ -22,7 +22,7 @@ DEV_TOOL_ROOT = WORKSPACE_ROOT / "Tools" / "DurinDevTool"
 if str(DEV_TOOL_ROOT) not in sys.path:
     sys.path.insert(0, str(DEV_TOOL_ROOT))
 
-from durin_dev_tool.build.config import BuildToolError
+from durin_dev_tool.build.errors import BuildToolError
 from durin_dev_tool.build.descriptors import load_module_descriptor, load_project_descriptor
 
 

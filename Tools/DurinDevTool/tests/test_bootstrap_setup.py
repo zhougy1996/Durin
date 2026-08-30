@@ -9,7 +9,7 @@ from unittest import mock
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 from durin_dev_tool.bootstrap import agent_config, application as bootstrap_application, handler, manifests as dependency_manifests, preflight, setup, toolchain_selection
 from durin_dev_tool.bootstrap.models import BootstrapError
-from durin_dev_tool.build import config as build_config
+from durin_dev_tool.build import models, settings
 from durin_dev_tool.context import CommandIO, RepositoryContext
 from durin_dev_tool.registry import CommandRegistry
 from durin_dev_tool.worktree import transactions as worktree_transactions
@@ -94,7 +94,7 @@ class TestVSCodeConfigLifecycle:
         assert not (root / '.vscode').exists()
 
     def test_launch_configuration_covers_registered_windows_presets(self) -> None:
-        with mock.patch.object(setup, 'load_local_config', return_value=build_config.LocalConfig()):
+        with mock.patch.object(setup, 'load_local_config', return_value=models.LocalConfig()):
             launch = setup.generate_vscode_launch_configuration(
                 REPOSITORY_ROOT,
                 current_host='windows',
@@ -124,7 +124,7 @@ class TestVSCodeConfigLifecycle:
         )
 
     def test_launch_configuration_uses_lldb_for_macos_profile(self) -> None:
-        with mock.patch.object(setup, 'load_local_config', return_value=build_config.LocalConfig()):
+        with mock.patch.object(setup, 'load_local_config', return_value=models.LocalConfig()):
             launch = setup.generate_vscode_launch_configuration(
                 REPOSITORY_ROOT,
                 current_host='macos',

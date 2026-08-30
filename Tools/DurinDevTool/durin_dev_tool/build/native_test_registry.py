@@ -8,7 +8,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from .config import BuildContext, BuildToolError, default_build_paths, preset_build_directory
+from .build_context import BuildContext
+from .errors import BuildToolError
+from .selection import preset_build_directory
+from .settings import default_build_paths
 
 
 SCHEMA_VERSION = 4

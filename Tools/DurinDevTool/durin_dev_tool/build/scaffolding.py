@@ -5,13 +5,9 @@ import re
 from pathlib import Path
 from typing import Sequence
 
-from .config import (
-    BuildToolError,
-    ConcreteRequest,
-    CreateKind,
-    LinkType,
-    ModuleKind,
-)
+from .errors import BuildToolError
+from .models import CreateKind, LinkType, ModuleKind
+from .requests import ConcreteRequest
 from .descriptors import (
     ProjectDescriptor,
     WorkspaceDescriptors,

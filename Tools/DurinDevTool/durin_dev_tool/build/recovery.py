@@ -7,7 +7,9 @@ import os
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .config import Action, BuildToolError, BuildToolInterruptedError, default_build_paths
+from .errors import BuildToolError, BuildToolInterruptedError
+from .models import Action
+from .settings import default_build_paths
 from .locking import read_state_description, state_file_component
 
 

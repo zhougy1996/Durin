@@ -16,20 +16,67 @@ from ..toolchain import (
     find_vsdevcmd,
 )
 from .build_context import BuildContext
-from .config import (
-    BuildPaths,
-    BuildProfile,
-    BuildToolError,
-    EnvironmentProvider,
-    EnvironmentSetup,
-    default_build_paths,
-    resolve_cmake_command,
-    resolve_jobs,
-)
+from .errors import BuildToolError
+from .models import BuildProfile, EnvironmentProvider, EnvironmentSetup
+from .settings import CMAKE_ENV_VARS, JOBS_ENV_VAR, BuildPaths, default_build_paths
 from .locking import state_file_component
 from .recovery import write_json_state
 
 _VISUAL_STUDIO_CACHE_VERSION = 2
+
+
+def resolve_cmake_command(
+    requested: str,
+    configured: str,
+    *,
+    environment: Mapping[str, str] | None = None,
+    local_config_file: Path | None = None,
+) -> str:
+    environment = os.environ if environment is None else environment
+    command = requested
+    if not command:
+        command = next(
+            (environment[name].strip() for name in CMAKE_ENV_VARS if environment.get(name, "").strip()),
+            "",
+        )
+    command = command or configured or "cmake"
+    if Path(command).is_absolute() or any(separator in command for separator in ("/", "\\")):
+        path = Path(command).expanduser()
+        if not path.is_file():
+            raise BuildToolError(f'CMake command does not exist: "{path}"')
+        return str(path.resolve())
+    detected = find_command(command, environment)
+    if not detected:
+        raise BuildToolError(
+            f'CMake command "{command}" was not found. Set --cmake, DURIN_CMAKE_COMMAND, '
+            f'or cmake.command in "{local_config_file or default_build_paths().local_config_file}".'
+        )
+    return detected
+
+
+def resolve_jobs(
+    requested: int | None,
+    configured: int,
+    *,
+    environment: Mapping[str, str] | None = None,
+    cpu_count: int | None = None,
+) -> int:
+    environment = os.environ if environment is None else environment
+    if requested is not None:
+        return requested
+    raw_jobs = environment.get(JOBS_ENV_VAR, "").strip()
+    if raw_jobs:
+        try:
+            jobs = int(raw_jobs)
+        except ValueError as exc:
+            raise BuildToolError(f"{JOBS_ENV_VAR} must be an integer from 1 to 256.") from exc
+        if not 1 <= jobs <= 256:
+            raise BuildToolError(f"{JOBS_ENV_VAR} must be an integer from 1 to 256.")
+        return jobs
+    if configured:
+        return configured
+    detected = os.cpu_count() if cpu_count is None else cpu_count
+    return max(1, min((detected or 1) - 2, 256))
 
 
 def visual_studio_environment_cache_path(

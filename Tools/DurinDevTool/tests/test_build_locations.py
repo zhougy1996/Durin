@@ -9,7 +9,7 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-from durin_dev_tool.build import config as build_config
+from durin_dev_tool.build import build_context, errors, models, requests, settings
 from durin_dev_tool.build import locations as build_locations
 from durin_dev_tool.build import operations as build_operations
 from durin_dev_tool.build import opener as build_opener
@@ -88,13 +88,13 @@ class TestBuildLocations:
         ).path == Path("repo/Engine/Binaries/Win64/Debug/Runtime/DurinEditor/Saved/Logs")
 
     def test_unknown_location_lists_bounded_choices(self) -> None:
-        with pytest.raises(build_config.BuildToolError, match="Available locations: root, build"):
+        with pytest.raises(errors.BuildToolError, match="Available locations: root, build"):
             build_locations.resolve_location("unknown")
 
     def test_context_locations_require_profile_and_preset(self) -> None:
-        with pytest.raises(build_config.BuildToolError, match="selected CMake preset"):
+        with pytest.raises(errors.BuildToolError, match="selected CMake preset"):
             build_locations.resolve_location("build")
-        with pytest.raises(build_config.BuildToolError, match="selected build profile"):
+        with pytest.raises(errors.BuildToolError, match="selected build profile"):
             build_locations.resolve_location("output", preset=make_preset())
 
     def test_runtime_and_test_executable_paths_use_shared_locations(self) -> None:
@@ -145,7 +145,7 @@ class TestBuildLocations:
             build_opener.open_location(location, current_host=current_host)
         popen.assert_called_once_with(
             [command, str(root)],
-            cwd=build_config.default_build_paths().root,
+            cwd=settings.default_build_paths().root,
             stdout=build_opener.subprocess.DEVNULL,
             stderr=build_opener.subprocess.DEVNULL,
         )
@@ -164,7 +164,7 @@ class TestBuildLocations:
             "startfile",
             create=True,
         ) as startfile, pytest.raises(
-            build_config.BuildToolError,
+            errors.BuildToolError,
             match="Runtime directory was not found",
         ) as raised:
             build_opener.open_location(location, current_host="windows")
@@ -177,12 +177,12 @@ class TestBuildLocations:
         profile = make_profile()
         preset = make_preset()
         request = request_fixtures.command_request(
-            build_config.Action.PATH,
+            models.Action.PATH,
             options=request_fixtures.LocationActionOptions(location="runtime"),
         )
-        context = build_config.BuildContext(
+        context = build_context.BuildContext(
             request,
-            build_config.LocalConfig(),
+            models.LocalConfig(),
             profile,
             {preset.name: preset},
             preset,
@@ -207,12 +207,12 @@ class TestBuildLocations:
         profile = make_profile()
         preset = make_preset()
         request = request_fixtures.command_request(
-            build_config.Action.OPEN,
+            models.Action.OPEN,
             options=request_fixtures.LocationActionOptions(location="bin"),
         )
-        context = build_config.BuildContext(
+        context = build_context.BuildContext(
             request,
-            build_config.LocalConfig(),
+            models.LocalConfig(),
             profile,
             {preset.name: preset},
             preset,
@@ -234,7 +234,7 @@ class TestBuildLocations:
         open_location.assert_called_once_with(
             location,
             current_host="windows",
-            root=build_config.default_build_paths().root,
+            root=settings.default_build_paths().root,
         )
         assert f'Opened binaries directory: "{location.path}"' in stdout.getvalue()
 
@@ -242,13 +242,13 @@ class TestBuildLocations:
         profile = make_profile()
         preset = make_preset()
         request = request_fixtures.command_request(
-            build_config.Action.PATH,
-            output=build_config.OutputOptions(plain=True),
+            models.Action.PATH,
+            output=requests.OutputOptions(plain=True),
             options=request_fixtures.LocationActionOptions(all_locations=True),
         )
-        context = build_config.BuildContext(
+        context = build_context.BuildContext(
             request,
-            build_config.LocalConfig(),
+            models.LocalConfig(),
             profile,
             {preset.name: preset},
             preset,
@@ -259,7 +259,7 @@ class TestBuildLocations:
         build_operations.execute_location_request(request, context, output)
         lines = stdout.getvalue().splitlines()
         assert len(lines) == len(build_locations.LOCATION_SPECS)
-        assert lines[0] == f"root\t{build_config.default_build_paths().root}"
+        assert lines[0] == f"root\t{settings.default_build_paths().root}"
         assert [line.partition("\t")[0] for line in lines] == list(
             build_locations.location_names()
         )

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from durin_dev_tool.build import config as build_config
+from durin_dev_tool.build import models, requests
 from durin_dev_tool.build.handler import request_from_namespace
 from durin_dev_tool.build.models import Action, CreateKind, LinkType, ModuleKind, TestMode
 from durin_dev_tool.build.requests import (
@@ -23,7 +23,7 @@ from durin_dev_tool.build.requests import (
 from durin_dev_tool.registry import CommandRegistry
 
 
-def parse_build_request(arguments: list[str]) -> build_config.ConcreteRequest:
+def parse_build_request(arguments: list[str]) -> requests.ConcreteRequest:
     _spec, namespace = CommandRegistry().parse(arguments)
     if getattr(namespace, "selected_preset", ""):
         namespace.preset = namespace.selected_preset
@@ -32,13 +32,13 @@ def parse_build_request(arguments: list[str]) -> build_config.ConcreteRequest:
 
 def make_profile(
     presets: tuple[str, ...] = ("debug", "release"),
-) -> build_config.BuildProfile:
-    return build_config.BuildProfile(
+) -> models.BuildProfile:
+    return models.BuildProfile(
         "test-profile",
         "windows",
         "debug",
         presets,
-        build_config.EnvironmentProvider.INHERIT,
+        models.EnvironmentProvider.INHERIT,
         "Win64",
         ".exe",
         True,
@@ -50,14 +50,14 @@ def make_preset(
     name: str = "debug",
     testing: str | None = "ON",
     runtime_variant: str = "DurinEditor",
-) -> build_config.ConfigurePreset:
+) -> models.ConfigurePreset:
     cache_variables = {
         "CMAKE_BUILD_TYPE": "Debug",
         "DURIN_RUNTIME_VARIANT": runtime_variant,
     }
     if testing is not None:
         cache_variables["BUILD_TESTING"] = testing
-    return build_config.ConfigurePreset(
+    return models.ConfigurePreset(
         name,
         {
             "name": name,

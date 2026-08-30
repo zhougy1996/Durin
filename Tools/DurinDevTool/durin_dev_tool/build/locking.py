@@ -9,7 +9,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Mapping
 
-from .config import BuildToolError, default_build_paths
+from .errors import BuildToolError
+from .settings import default_build_paths
 
 
 def state_file_component(value: str) -> str:

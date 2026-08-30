@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from unittest import mock
 from . import build_request_fixtures as request_fixtures
-from durin_dev_tool.build import config as build_config
+from durin_dev_tool.build import errors
 from durin_dev_tool.build import locking as build_locking
 
 
@@ -16,13 +16,13 @@ class TestCore:
         directory = tmp_path_factory.mktemp('case')
         path = build_locking.lock_file_path(Path(directory))
         with build_locking.BuildToolLock(path, {'pid': 1}):
-            with pytest.raises(build_config.BuildToolError, match='already owns'):
+            with pytest.raises(errors.BuildToolError, match='already owns'):
                 with build_locking.BuildToolLock(path, {'pid': 2}):
                     pass
     def test_inaccessible_lock_reports_acl_recovery(self) -> None:
         path = Path('checkout.lock')
         denied = PermissionError(13, 'Permission denied', str(path))
-        with mock.patch.object(Path, 'open', side_effect=denied), mock.patch.object(build_locking, 'recover_inaccessible_windows_lock', return_value=False), pytest.raises(build_config.BuildToolError) as raised:
+        with mock.patch.object(Path, 'open', side_effect=denied), mock.patch.object(build_locking, 'recover_inaccessible_windows_lock', return_value=False), pytest.raises(errors.BuildToolError) as raised:
             build_locking.open_checkout_lock(path)
         assert 'file-permission problem' in str(raised.value)
         assert 'icacls' in raised.value.recovery

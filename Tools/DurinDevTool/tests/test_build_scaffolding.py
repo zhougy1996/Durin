@@ -5,7 +5,7 @@ from pathlib import Path
 from . import build_request_fixtures as request_fixtures
 REPO_ROOT = Path(__file__).resolve().parents[3]
 from durin_dev_tool.build import operations as build_cli
-from durin_dev_tool.build import config as build_config
+from durin_dev_tool.build import errors
 from durin_dev_tool.build import descriptors as build_descriptors
 from durin_dev_tool.build import scaffolding as build_scaffolding
 from durin_dev_tool.build.output import BuildOutput
@@ -49,10 +49,10 @@ class TestScaffoldingInfrastructure:
         assert tuple((project.descriptor.name for project in discovery.projects)) == ('Engine', 'Sandbox')
         assert discovery.projects[1].cmake_registration == 'Sandbox'
         assert 'Core' in discovery.cmake_targets
-        with pytest.raises(build_config.BuildToolError, match='CMake target'):
+        with pytest.raises(errors.BuildToolError, match='CMake target'):
             build_scaffolding.require_available_cmake_target('core', discovery)
         (root / 'CMakeLists.txt').write_text('add_subdirectory(Engine)\n', encoding='utf-8')
-        with pytest.raises(build_config.BuildToolError, match='Sandbox.*exactly one'):
+        with pytest.raises(errors.BuildToolError, match='Sandbox.*exactly one'):
             build_scaffolding.discover_workspace_projects(root)
 
     def test_destination_checks_cover_containment_overlap_existing_and_case(self, tmp_path_factory: pytest.TempPathFactory) -> None:
@@ -60,17 +60,17 @@ class TestScaffoldingInfrastructure:
         root = Path(directory)
         self.create_discovery_workspace(root)
         discovery = build_scaffolding.discover_workspace_projects(root)
-        with pytest.raises(build_config.BuildToolError, match='inside'):
+        with pytest.raises(errors.BuildToolError, match='inside'):
             build_scaffolding.validate_destination(root.parent / 'Outside', discovery, label='Project destination')
-        with pytest.raises(build_config.BuildToolError, match='overlaps project'):
+        with pytest.raises(errors.BuildToolError, match='overlaps project'):
             build_scaffolding.validate_destination(root / 'Engine' / 'Nested', discovery, label='Project destination')
         existing = root / 'Existing'
         existing.mkdir()
-        with pytest.raises(build_config.BuildToolError, match='already exists'):
+        with pytest.raises(errors.BuildToolError, match='already exists'):
             build_scaffolding.validate_destination(existing, discovery, label='Project destination')
         case_path = root / 'MixedCase'
         case_path.mkdir()
-        with pytest.raises(build_config.BuildToolError, match='case-insensitive'):
+        with pytest.raises(errors.BuildToolError, match='case-insensitive'):
             build_scaffolding.validate_destination(root / 'mixedcase', discovery, label='Project destination')
 
     def test_templates_are_disk_assets_with_explicit_deterministic_variables(self) -> None:
@@ -86,9 +86,9 @@ class TestScaffoldingInfrastructure:
             assert b'{{' not in content
             assert str(REPO_ROOT).encode() not in content
         assert (renderer.template_root / 'module' / 'descriptor.json.template').is_file()
-        with pytest.raises(build_config.BuildToolError, match='missing MODULE_NAME_UPPER'):
+        with pytest.raises(errors.BuildToolError, match='missing MODULE_NAME_UPPER'):
             renderer.render('module/api.h.template', {'MODULE_NAME': 'Gameplay'})
-        with pytest.raises(build_config.BuildToolError, match='unknown EXTRA'):
+        with pytest.raises(errors.BuildToolError, match='unknown EXTRA'):
             renderer.render('module/CMakeLists.txt.template', {'MODULE_NAME': 'Gameplay', 'EXTRA': 'value'})
 
     def test_template_renderers_keep_explicit_roots_isolated(self, tmp_path: Path) -> None:
@@ -158,17 +158,17 @@ class TestScaffoldingInfrastructure:
         root = Path(directory)
         (root / 'CMakeLists.txt').write_bytes(b'add_subdirectory(Engine)\n')
         before = self.snapshot(root)
-        with pytest.raises(build_config.BuildToolError, match='unbalanced'):
+        with pytest.raises(errors.BuildToolError, match='unbalanced'):
             build_scaffolding.ordered_plan(root, (root,), replacements=((root / 'CMakeLists.txt', b'add_subdirectory(Engine\n'),))
         assert self.snapshot(root) == before
 
         def reject_final_state(plan: build_scaffolding.ScaffoldPlan) -> None:
-            raise build_config.BuildToolError('injected descriptor validation failure')
+            raise errors.BuildToolError('injected descriptor validation failure')
         validation_plan = build_scaffolding.ordered_plan(root, (root,), directories=(root / 'Generated',), files=((root / 'Generated' / 'Gameplay.dmodule', b'{\n    "ModuleName": "Gameplay"\n}\n'),), validators=(reject_final_state,))
-        with pytest.raises(build_config.BuildToolError, match='validation failure'):
+        with pytest.raises(errors.BuildToolError, match='validation failure'):
             build_scaffolding.execute_plan(validation_plan)
         assert self.snapshot(root) == before
-        with pytest.raises(build_config.BuildToolError, match='outside'):
+        with pytest.raises(errors.BuildToolError, match='outside'):
             build_scaffolding.ordered_plan(root, (root,), files=((root.parent / 'outside.txt', b'no'),))
 
 class TestModuleScaffolding:
@@ -288,13 +288,13 @@ class TestModuleScaffolding:
         root = Path(directory)
         self.create_workspace(root)
         outside_request = parse_build_request(['create', 'module', 'Outside', '--project', 'Sandbox/Sandbox.dproject', '--path', str(root.parent / 'Outside')])
-        with pytest.raises(build_config.BuildToolError, match='inside'):
+        with pytest.raises(errors.BuildToolError, match='inside'):
             build_scaffolding.plan_module_creation(outside_request, root)
         inside_absolute_request = parse_build_request(['create', 'module', 'Absolute', '--project', 'Sandbox/Sandbox.dproject', '--path', str(root / 'Sandbox' / 'Code' / 'Absolute')])
         inside_plan = build_scaffolding.plan_module_creation(inside_absolute_request, root)
         assert any((operation.path == root / 'Sandbox' / 'Code' / 'Absolute' / 'Absolute.dmodule' for operation in inside_plan.operations))
         overlap_request = parse_build_request(['create', 'module', 'Nested', '--project', 'Sandbox/Sandbox.dproject', '--path', 'Source/Runtime/Sandbox/Nested'])
-        with pytest.raises(build_config.BuildToolError, match='overlaps module'):
+        with pytest.raises(errors.BuildToolError, match='overlaps module'):
             build_scaffolding.plan_module_creation(overlap_request, root)
 
     def test_none_enablement_dry_run_and_conflicts_leave_workspace_unchanged(self, tmp_path_factory: pytest.TempPathFactory) -> None:
@@ -310,7 +310,7 @@ class TestModuleScaffolding:
         conflict = root / 'Sandbox' / 'Source' / 'Runtime' / 'Utility'
         conflict.mkdir()
         before_conflict = self.snapshot(root)
-        with pytest.raises(build_config.BuildToolError, match='already exists'):
+        with pytest.raises(errors.BuildToolError, match='already exists'):
             build_scaffolding.plan_module_creation(request, root)
         assert self.snapshot(root) == before_conflict
 
@@ -369,15 +369,15 @@ class TestProjectScaffolding:
         invalid_requests = ((['create', 'project', 'Sandbox', '--path', 'Another'], 'already exists'), (['create', 'project', 'Core', '--path', 'Another'], 'Initial module name'), (['create', 'project', 'Nested', '--path', 'Games/Nested'], 'direct child'), (['create', 'project', 'InsideEngine', '--path', 'Engine/Nested'], 'overlaps project'), (['create', 'project', 'Unsafe', '--path', 'Unsafe$Path'], 'safely'))
         for arguments, message in invalid_requests:
             before = self.snapshot(root)
-            with pytest.raises(build_config.BuildToolError, match=message):
+            with pytest.raises(errors.BuildToolError, match=message):
                 build_scaffolding.plan_project_creation(parse_build_request(arguments), root)
             assert self.snapshot(root) == before
         outside = root.parent / 'OutsideProject'
-        with pytest.raises(build_config.BuildToolError, match='inside'):
+        with pytest.raises(errors.BuildToolError, match='inside'):
             build_scaffolding.plan_project_creation(parse_build_request(['create', 'project', 'Outside', '--path', str(outside)]), root)
         with (root / 'CMakeLists.txt').open('a', encoding='utf-8') as stream:
             stream.write('add_subdirectory(Stale)\n')
-        with pytest.raises(build_config.BuildToolError, match='already has'):
+        with pytest.raises(errors.BuildToolError, match='already has'):
             build_scaffolding.plan_project_creation(parse_build_request(['create', 'project', 'StaleProject', '--path', 'Stale']), root)
 
     def test_project_creation_failure_restores_root_and_removes_project_tree(self, tmp_path_factory: pytest.TempPathFactory) -> None:

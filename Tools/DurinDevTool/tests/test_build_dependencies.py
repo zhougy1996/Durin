@@ -5,7 +5,7 @@ from unittest import mock
 import pytest
 
 from durin_dev_tool.bootstrap.models import BootstrapError
-from durin_dev_tool.build import config as build_config
+from durin_dev_tool.build import build_context, errors, models
 from durin_dev_tool.build import dependencies
 from durin_dev_tool.build.output import BuildOutput
 
@@ -18,19 +18,19 @@ def make_context(
     testing: str = "ON",
     tracy: str = "OFF",
     defines: tuple[str, ...] = (),
-) -> build_config.BuildContext:
+) -> build_context.BuildContext:
     preset = request_fixtures.make_preset(testing=testing)
     cache = dict(preset.values["cacheVariables"])
     cache["CMAKE_BUILD_TYPE"] = configuration
     cache["DURIN_ENABLE_TRACY"] = tracy
     preset = replace(preset, values={**preset.values, "cacheVariables": cache})
     request = request_fixtures.command_request(
-        build_config.Action.CONFIGURE,
+        models.Action.CONFIGURE,
         options=request_fixtures.BuildActionOptions(defines=defines),
     )
-    return build_config.BuildContext(
+    return build_context.BuildContext(
         request,
-        build_config.LocalConfig(),
+        models.LocalConfig(),
         request_fixtures.make_profile(),
         {preset.name: preset},
         preset,
@@ -89,5 +89,5 @@ def test_configure_definitions_override_preset_dependency_selection() -> None:
 
 def test_dependency_failure_is_reported_as_build_failure() -> None:
     context = make_context()
-    with mock.patch.object(dependencies.RepositoryContext, "load", return_value=mock.sentinel.repository), mock.patch.object(dependencies, "prepare_dependencies", side_effect=BootstrapError("download failed")), pytest.raises(build_config.BuildToolError, match="Could not prepare configure dependencies"):
+    with mock.patch.object(dependencies.RepositoryContext, "load", return_value=mock.sentinel.repository), mock.patch.object(dependencies, "prepare_dependencies", side_effect=BootstrapError("download failed")), pytest.raises(errors.BuildToolError, match="Could not prepare configure dependencies"):
         dependencies.prepare_configure_dependencies(context, make_output())
