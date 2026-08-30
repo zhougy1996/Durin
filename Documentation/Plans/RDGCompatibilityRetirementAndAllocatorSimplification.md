@@ -9,21 +9,22 @@ Completed:
 
 ## Current Status
 
-Stage 4 functional qualification is complete, but two repository gates remain
+Stage 4 functional qualification is complete, but one repository gate remains
 open. The complete runtime build and hidden 10-tick Sandbox Editor smoke pass.
 Focused RenderCore/Renderer/Vulkan coverage, volumetric-cloud qualification,
-and HDR display qualification pass. Three GBuffer qualification attempts
-completed all functional and memory work but failed frozen GPU timing gates;
-two runs explicitly reported unstable samples, so repository guidance requires
-an exclusive quiet GPU rerun rather than a threshold or code change.
+HDR display qualification, `test fast-all`, and `test all` pass. Four GBuffer
+qualification attempts completed all functional and memory work but failed
+frozen GPU timing gates; three runs explicitly reported unstable samples, so
+repository guidance requires an exclusive quiet GPU rerun rather than a
+threshold or code change.
 
-Both `test fast-all` and `test all` stop while linking the unrelated
-`AssetPackageTests` target because `BulkDataTests.cpp` references the existing
-private `EncodePackageBulkDataDirectory` and `DecodePackageBulkDataDirectory`
-implementations without link-visible definitions. Renderer-focused targets do
-not depend on that target. The plan remains Active until the pre-existing asset
-test link failure is resolved and the GBuffer timing gate passes in a quiet
-lane.
+The earlier unrelated `AssetPackageTests` link blocker is resolved; the target
+now builds and passes all 131 tests. The complete aggregate then exposed a stale
+skeletal scene lifecycle assertion that still expected cooked mesh getters to
+load CPU data synchronously. The fixture now explicitly joins the cooked mesh
+request before inspecting payload and RenderData; its focused case and the
+complete aggregate pass. The plan remains Active until the GBuffer timing gate
+passes in a quiet lane.
 
 A Stage 4 follow-on retired the remaining raw-pointer `ImportTexture` /
 `ImportBuffer` and prebound `CreateTexture` / `CreateBuffer` overloads after a
@@ -298,7 +299,7 @@ Leave one allocation and ownership model for graph-created physical resources:
 - [ ] Pass representative GBuffer, ambient occlusion, contact shadow,
   volumetric cloud, present/offscreen, resize, multi-view, allocation-failure,
   recovery, and Editor smoke qualification.
-- [ ] Pass the required build and routine native-test aggregates according to
+- [x] Pass the required build and routine native-test aggregates according to
   repository build and testing guidance.
 - [x] Update lasting Render Graph, renderer frame-preparation, and
   renderer-resource-recovery documentation, then pass changed/all document and
