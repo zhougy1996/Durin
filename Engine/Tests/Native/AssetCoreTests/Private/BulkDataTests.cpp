@@ -7,6 +7,7 @@
 #include "Misc/FileHelper.h"
 #include "NativeTestSupport.h"
 #include "Asset/PackageBulkDataWire.h"
+#include "Threading/Task.h"
 
 namespace
 {
@@ -40,6 +41,27 @@ namespace
 				.Buffer = FSharedByteBuffer::Take(std::vector<std::byte>(Size))};
 		}
 	};
+
+	class FPackageTaskEnvironment final : public testing::Environment
+	{
+	public:
+		auto SetUp() -> void override
+		{
+			bOwnsScheduler = !IsTaskSchedulerRunning();
+			if (bOwnsScheduler) ASSERT_TRUE(InitializeTaskScheduler(2));
+		}
+
+		auto TearDown() -> void override
+		{
+			if (bOwnsScheduler) ShutdownTaskScheduler(true);
+		}
+
+	private:
+		bool bOwnsScheduler = false;
+	};
+
+	[[maybe_unused]] testing::Environment* GPackageTaskEnvironment =
+		testing::AddGlobalTestEnvironment(new FPackageTaskEnvironment());
 }
 
 TEST(FPackageBulkDataWireTests, DirectoryV2MatchesGoldenBytes)
@@ -298,6 +320,23 @@ TEST(FPackageResourceTests, AsyncCancellationAndRetirementConserveTerminalResult
 	EXPECT_TRUE(Resource->IsRetired());
 	EXPECT_EQ(Resource->ReadRangeAsync(0, 1).Wait().Status,
 		EPackageResourceReadStatus::Retired);
+}
+
+TEST(FPackageResourceTests, SchedulerRejectionReturnsTerminalRequests)
+{
+	ShutdownTaskScheduler(true);
+	auto Resource = std::make_shared<FSlowPackageResource>();
+	FPackageResourceRequest Read = Resource->ReadRangeAsync(0, 4);
+	EXPECT_TRUE(Read.IsReady());
+	EXPECT_EQ(Read.Wait().Status, EPackageResourceReadStatus::IoError);
+
+	FPackageResourceRequest Transform = FPackageResourceRequest::Transform(
+		FPackageResourceRequest::Completed({
+			.Status = EPackageResourceReadStatus::Success}),
+		[](FPackageResourceReadResult Result) { return Result; });
+	EXPECT_TRUE(Transform.IsReady());
+	EXPECT_EQ(Transform.Wait().Status, EPackageResourceReadStatus::IoError);
+	EXPECT_TRUE(InitializeTaskScheduler(2));
 }
 
 TEST(FEditorBulkDataTests, SeparatesInstanceAndContentIdentityWithoutForcedLoad)

@@ -10,10 +10,16 @@
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Serialization/Archive.h"
+#include "Threading/Task.h"
 
 namespace
 {
 	constexpr std::string_view DefaultAssetPath = "/Engine/Renderer/DefaultStudioEnvironment";
+
+	struct FTaskSchedulerGuard
+	{
+		~FTaskSchedulerGuard() { Durin::ShutdownTaskScheduler(true); }
+	};
 }
 
 auto main(int ArgumentCount, char** Arguments) -> int
@@ -38,6 +44,12 @@ auto main(int ArgumentCount, char** Arguments) -> int
 	Durin::GIsGameThreadIdInitialized = true;
 	Durin::FNameInit();
 	Durin::DObjectInit();
+	if (!Durin::InitializeTaskScheduler())
+	{
+		std::cerr << "Failed to initialize the Core task scheduler.\n";
+		return 1;
+	}
+	FTaskSchedulerGuard TaskSchedulerGuard;
 
 	std::string Error;
 	const Durin::FMountPoint EngineMount{

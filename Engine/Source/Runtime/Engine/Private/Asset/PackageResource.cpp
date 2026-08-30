@@ -1,6 +1,7 @@
 #include "Asset/PackageResource.h"
 
 #include "Misc/FileHelper.h"
+#include "Threading/Task.h"
 
 namespace Durin::Asset
 {
@@ -8,12 +9,17 @@ namespace Durin::Asset
 	{
 		struct FPackageResourceRequestState
 		{
+			explicit FPackageResourceRequestState(bool bInAwaitingTask = false)
+				: bAwaitingTask(bInAwaitingTask) {}
+
 			mutable std::mutex Mutex;
 			std::condition_variable Ready;
 			std::atomic_bool bCancelled = false;
+			bool bAwaitingTask = false;
 			bool bTerminal = false;
 			FPackageResourceReadResult Result;
 			std::function<void()> OnCancel;
+			FTaskHandle Task;
 
 			auto Complete(FPackageResourceReadResult InResult) -> void
 			{
@@ -24,6 +30,19 @@ namespace Durin::Asset
 					bTerminal = true;
 				}
 				Ready.notify_all();
+			}
+
+			auto SetTask(FTaskHandle InTask) -> void
+			{
+				bool bCancelTask = false;
+				{
+					std::lock_guard Lock(Mutex);
+					Task = std::move(InTask);
+					bAwaitingTask = false;
+					bCancelTask = bCancelled.load(std::memory_order_acquire);
+				}
+				Ready.notify_all();
+				if (bCancelTask && Task.IsValid()) CancelTask(Task);
 			}
 		};
 	}
@@ -91,13 +110,20 @@ namespace Durin::Asset
 			return FPackageResourceRequest::Completed(Result(
 				EPackageResourceReadStatus::Retired, "Package resource is retired."));
 		}
+
+		auto PackageResourceAttribution() -> FTaskAttribution
+		{
+			static const FTaskAttribution Attribution =
+				RegisterTaskAttribution("Engine", "PackageResource");
+			return Attribution;
+		}
 	}
 
 	auto FPackageResourceRequest::IsReady() const -> bool
 	{
 		if (!State) return true;
 		std::lock_guard Lock(State->Mutex);
-		return State->bTerminal;
+		return State->bTerminal || (!State->bAwaitingTask && State->Task.IsComplete());
 	}
 
 	auto FPackageResourceRequest::Cancel() -> void
@@ -105,18 +131,41 @@ namespace Durin::Asset
 		if (!State) return;
 		State->bCancelled.store(true, std::memory_order_release);
 		std::function<void()> OnCancel;
+		FTaskHandle Task;
 		{
 			std::lock_guard Lock(State->Mutex);
 			OnCancel = State->OnCancel;
+			Task = State->Task;
 		}
 		if (OnCancel) OnCancel();
+		if (Task.IsValid()) CancelTask(Task);
 	}
 
 	auto FPackageResourceRequest::Wait() const -> FPackageResourceReadResult
 	{
 		if (!State) return Result(EPackageResourceReadStatus::Retired, "Package request is invalid.");
-		std::unique_lock Lock(State->Mutex);
-		State->Ready.wait(Lock, [&] { return State->bTerminal; });
+		FTaskHandle Task;
+		{
+			std::unique_lock Lock(State->Mutex);
+			State->Ready.wait(Lock, [&] {
+				return State->bTerminal || !State->bAwaitingTask;
+			});
+			if (State->bTerminal) return State->Result;
+			Task = State->Task;
+		}
+		const ETaskState TaskState = WaitTask(Task);
+		{
+			std::lock_guard Lock(State->Mutex);
+			if (State->bTerminal) return State->Result;
+		}
+		if (TaskState == ETaskState::Canceled)
+			State->Complete(Result(EPackageResourceReadStatus::Cancelled,
+				"Package request task was cancelled."));
+		else
+			State->Complete(Result(EPackageResourceReadStatus::IoError,
+				Task.IsValid() ? Task.GetDiagnostic()
+					: "Package request task admission was rejected."));
+		std::lock_guard Lock(State->Mutex);
 		return State->Result;
 	}
 
@@ -133,11 +182,34 @@ namespace Durin::Asset
 		std::function<FPackageResourceReadResult(FPackageResourceReadResult)> Function)
 		-> FPackageResourceRequest
 	{
-		auto State = std::make_shared<Private::FPackageResourceRequestState>();
+		auto State = std::make_shared<Private::FPackageResourceRequestState>(true);
+		FTaskHandle InputTask;
+		if (Input.State)
+		{
+			std::unique_lock Lock(Input.State->Mutex);
+			Input.State->Ready.wait(Lock, [&Input] {
+				return Input.State->bTerminal || !Input.State->bAwaitingTask;
+			});
+			InputTask = Input.State->Task;
+		}
 		State->OnCancel = [Input]() mutable { Input.Cancel(); };
-		std::thread([State, Input = std::move(Input), Function = std::move(Function)]() mutable {
+		auto TransformFunction = [State, Input = std::move(Input),
+			Function = std::move(Function)]() mutable {
 			State->Complete(Function(Input.Wait()));
-		}).detach();
+		};
+		// A direct completed request has no task edge, so schedule the transform as a root.
+		// Otherwise the completion edge guarantees Input.Wait() cannot occupy a Worker.
+		FTaskHandle Task = InputTask.IsValid()
+			? ThenOutcome(InputTask, "PackageResource.Transform",
+				[Function = std::move(TransformFunction)](FTaskOutcome<void>) mutable {
+					Function();
+				}, {.Attribution = PackageResourceAttribution()})
+			: LaunchTask("PackageResource.Transform", std::move(TransformFunction),
+				{.Attribution = PackageResourceAttribution()});
+		if (!Task.IsValid())
+			State->Complete(Result(EPackageResourceReadStatus::IoError,
+				"Package transform task admission was rejected."));
+		State->SetTask(std::move(Task));
 		return FPackageResourceRequest(std::move(State));
 	}
 
@@ -154,11 +226,10 @@ namespace Durin::Asset
 			return FPackageResourceRequest::Completed(Result(
 				EPackageResourceReadStatus::InvalidRange, "Package resource range is invalid."));
 
-		auto State = std::make_shared<Private::FPackageResourceRequestState>();
+		auto State = std::make_shared<Private::FPackageResourceRequestState>(true);
 		{
 			std::lock_guard Lock(Mutex);
 			if (bRetired) return CompleteRetired();
-			++ActiveRequests;
 			++ReadStats.RequestCount;
 			ReadStats.RequestedBytes = Size
 				> std::numeric_limits<uint64>::max() - ReadStats.RequestedBytes
@@ -167,20 +238,21 @@ namespace Durin::Asset
 			Requests.push_back(State);
 		}
 		auto Self = shared_from_this();
-		std::thread([Self = std::move(Self), State, Offset, Size] {
+		FTaskHandle Task = LaunchCancelableTask("PackageResource.ReadRange",
+			[Self = std::move(Self), State, Offset, Size](const FTaskCancellationToken& Token) {
 			FPackageResourceReadResult ReadResult;
-			if (State->bCancelled.load(std::memory_order_acquire))
+			if (Token.IsCancellationRequested()
+				|| State->bCancelled.load(std::memory_order_acquire))
 				ReadResult = Result(EPackageResourceReadStatus::Cancelled,
 					"Package range request was cancelled.");
 			else
 				ReadResult = Self->ReadRangeImpl(Offset, Size, State->bCancelled);
 			State->Complete(std::move(ReadResult));
-			{
-				std::lock_guard Lock(Self->Mutex);
-				--Self->ActiveRequests;
-			}
-			Self->Quiescent.notify_all();
-		}).detach();
+		}, {.Attribution = PackageResourceAttribution()});
+		if (!Task.IsValid())
+			State->Complete(Result(EPackageResourceReadStatus::IoError,
+				"Package read task admission was rejected."));
+		State->SetTask(std::move(Task));
 		return FPackageResourceRequest(std::move(State));
 	}
 
@@ -192,15 +264,21 @@ namespace Durin::Asset
 
 	auto FPackageResource::Retire() -> void
 	{
-		std::unique_lock Lock(Mutex);
-		if (!bRetired)
+		std::vector<std::shared_ptr<Private::FPackageResourceRequestState>> Active;
 		{
+			std::lock_guard Lock(Mutex);
 			bRetired = true;
 			for (auto& Weak : Requests)
-				if (auto State = Weak.lock())
-					State->bCancelled.store(true, std::memory_order_release);
+				if (auto State = Weak.lock()) Active.push_back(std::move(State));
 		}
-		Quiescent.wait(Lock, [&] { return ActiveRequests == 0; });
+		for (const auto& State : Active)
+		{
+			FPackageResourceRequest Request(State);
+			Request.Cancel();
+		}
+		for (const auto& State : Active)
+			(void)FPackageResourceRequest(State).Wait();
+		std::lock_guard Lock(Mutex);
 		Requests.clear();
 	}
 

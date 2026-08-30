@@ -91,9 +91,7 @@ namespace Durin::Asset
 	private:
 		uint64 SegmentExtent = 0;
 		mutable std::mutex Mutex;
-		std::condition_variable Quiescent;
 		bool bRetired = false;
-		uint64 ActiveRequests = 0;
 		FPackageResourceReadStats ReadStats;
 		std::vector<std::weak_ptr<Private::FPackageResourceRequestState>> Requests;
 	};

@@ -2,6 +2,7 @@
 
 #include "Math/Operations.h"
 #include "RHIResources.h"
+#include "Threading/Task.h"
 
 #if defined(_MSC_VER)
 #pragma optimize("t", on)
@@ -14,6 +15,13 @@ namespace Durin
 		constexpr uint32 IrradianceSampleCount = 1024;
 		constexpr uint32 BrdfSampleCount = 1024;
 		constexpr float Pi = 3.14159265358979323846f;
+
+		auto EnvironmentLightingBuildAttribution() -> FTaskAttribution
+		{
+			static const FTaskAttribution Attribution =
+				RegisterTaskAttribution("Engine", "EnvironmentLightingBuild");
+			return Attribution;
+		}
 
 		auto FloatToHalf(float Value) -> uint16
 		{
@@ -225,51 +233,80 @@ namespace Durin
 	auto BuildDefaultStudioEnvironmentData() -> FEnvironmentLightingData
 	{
 		FEnvironmentLightingData Result;
-		std::array<std::future<std::vector<uint16>>, TextureCubeFaceCount>
+		using FPixelData = std::shared_ptr<std::vector<uint16>>;
+		const FTaskLaunchOptions Options{
+			.Attribution = EnvironmentLightingBuildAttribution()};
+		std::array<TTaskHandle<FPixelData>, TextureCubeFaceCount>
 			IrradianceTasks;
 		for (uint32 Face = 0; Face < TextureCubeFaceCount; ++Face)
 		{
-			IrradianceTasks[Face] = std::async(std::launch::async, [Face] {
-				return BuildIrradianceFace(static_cast<ETextureCubeFace>(Face));
-			});
+			IrradianceTasks[Face] = LaunchTask<FPixelData>(
+				"EnvironmentLighting.IrradianceFace", [Face] {
+					return std::make_shared<std::vector<uint16>>(
+						BuildIrradianceFace(static_cast<ETextureCubeFace>(Face)));
+				}, Options);
 		}
 		using FPrefilterFaceData =
 			std::array<std::vector<uint16>, EnvironmentPrefilterMipCount>;
-		std::array<std::future<FPrefilterFaceData>, TextureCubeFaceCount> PrefilterTasks;
+		using FSharedPrefilterFaceData = std::shared_ptr<FPrefilterFaceData>;
+		std::array<TTaskHandle<FSharedPrefilterFaceData>, TextureCubeFaceCount>
+			PrefilterTasks;
 		for (uint32 Face = 0; Face < TextureCubeFaceCount; ++Face)
 		{
-			PrefilterTasks[Face] = std::async(std::launch::async, [Face] {
-				FPrefilterFaceData FaceData;
+			PrefilterTasks[Face] = LaunchTask<FSharedPrefilterFaceData>(
+				"EnvironmentLighting.PrefilterFace", [Face] {
+				auto FaceData = std::make_shared<FPrefilterFaceData>();
 				for (uint32 Mip = 0; Mip < EnvironmentPrefilterMipCount; ++Mip)
 				{
-					FaceData[Mip] = BuildPrefilterFace(
+					(*FaceData)[Mip] = BuildPrefilterFace(
 						static_cast<ETextureCubeFace>(Face), Mip);
 				}
 				return FaceData;
-			});
+			}, Options);
 		}
 		constexpr uint32 LutTaskCount = 16;
 		constexpr uint32 RowsPerTask = EnvironmentBrdfLutDimension / LutTaskCount;
-		std::array<std::future<std::vector<uint16>>, LutTaskCount> LutTasks;
+		std::array<TTaskHandle<FPixelData>, LutTaskCount> LutTasks;
 		for (uint32 Task = 0; Task < LutTaskCount; ++Task)
 		{
-			LutTasks[Task] = std::async(std::launch::async, [Task] {
-				return BuildBrdfLutRows(
-					Task * RowsPerTask, (Task + 1) * RowsPerTask);
-			});
+			LutTasks[Task] = LaunchTask<FPixelData>(
+				"EnvironmentLighting.BrdfLutRows", [Task] {
+					return std::make_shared<std::vector<uint16>>(BuildBrdfLutRows(
+						Task * RowsPerTask, (Task + 1) * RowsPerTask));
+				}, Options);
+		}
+
+		std::vector<FTaskHandle> Tasks;
+		Tasks.reserve(TextureCubeFaceCount * 2 + LutTaskCount);
+		for (const auto& Task : IrradianceTasks) Tasks.push_back(Task.GetTaskHandle());
+		for (const auto& Task : PrefilterTasks) Tasks.push_back(Task.GetTaskHandle());
+		for (const auto& Task : LutTasks) Tasks.push_back(Task.GetTaskHandle());
+		const std::vector<ETaskState> Outcomes = WaitAll(Tasks);
+		for (size_t Index = 0; Index < Outcomes.size(); ++Index)
+		{
+			if (Outcomes[Index] == ETaskState::Succeeded) continue;
+			const std::string Diagnostic = Tasks[Index].IsValid()
+				? Tasks[Index].GetDiagnostic()
+				: "task admission was rejected";
+			throw std::runtime_error(std::format(
+				"Environment lighting build failed: {}.", Diagnostic));
 		}
 		for (uint32 Face = 0; Face < TextureCubeFaceCount; ++Face)
 		{
-			Result.Irradiance[Face] = IrradianceTasks[Face].get();
-			FPrefilterFaceData FaceData = PrefilterTasks[Face].get();
+			const auto Irradiance = IrradianceTasks[Face].GetResultShared();
+			const auto Prefilter = PrefilterTasks[Face].GetResultShared();
+			check(Irradiance && *Irradiance && Prefilter && *Prefilter);
+			Result.Irradiance[Face] = std::move(**Irradiance);
 			for (uint32 Mip = 0; Mip < EnvironmentPrefilterMipCount; ++Mip)
-				Result.Prefiltered[Mip][Face] = std::move(FaceData[Mip]);
+				Result.Prefiltered[Mip][Face] = std::move((**Prefilter)[Mip]);
 		}
 		Result.BrdfLut.reserve(
 			EnvironmentBrdfLutDimension * EnvironmentBrdfLutDimension * 4);
 		for (auto& Task : LutTasks)
 		{
-			std::vector<uint16> Rows = Task.get();
+			const auto TaskResult = Task.GetResultShared();
+			check(TaskResult && *TaskResult);
+			std::vector<uint16>& Rows = **TaskResult;
 			Result.BrdfLut.insert(
 				Result.BrdfLut.end(),
 				std::make_move_iterator(Rows.begin()),
