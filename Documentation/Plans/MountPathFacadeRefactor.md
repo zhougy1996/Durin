@@ -4,12 +4,12 @@ Summary: Replace the broad `PathUtilities` namespace with explicit `FPaths` and 
 
 Last reviewed: 2026-08-30
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-30
 
 ## Current Status
 
-Stages 0 through 3 and the implementation portion of Stage 4 are complete.
+All implementation stages and acceptance gates are complete.
 `FPaths` now owns the physical-path algorithms, `FMountPaths` owns the unchanged
 process-wide registry implementation, and mount types live directly in
 `Durin`. Mutable registry helpers are available only from
@@ -23,12 +23,12 @@ checkout. This avoids landing a transient second public surface while retaining
 the plan's single-registry requirement.
 
 Before editing, `CoreFileSystemTests` passed 45/45 and `AssetPackageTests`
-passed 131/131. After migration, the full configured `all` build passes and the
-same focused targets pass. The complete default native-test selection builds
-and passes 73 of 74 targets; the unrelated
-`FSkeletalSceneLifecycleTests.GltfAndGlbCookDeterministicallyAndLoadRuntimeOnly`
-integration case fails because a runtime-loaded mesh has no payload data. The
-case reproduces in isolation and is the remaining acceptance-gate blocker.
+passed 131/131. After migration, `CoreFileSystemTests` passes 46/46, including
+the new nested-fixture regression, and `AssetPackageTests` passes 131/131. The
+full configured `all` build and all 74 default native-test targets pass. The
+stale skeletal-scene lifecycle assertion encountered during qualification was
+migrated to the established explicit cooked-mesh blocking-load contract; its
+focused integration case passes before the full selection.
 
 ## Goal
 
@@ -155,7 +155,7 @@ final stage; no lasting source-compatibility promise is made.
 - [x] Add the three general path algorithms to `FPaths` and keep their existing
   implementation behavior and platform case rules.
 - [x] Split mount declarations from general path declarations so public header
-  so source-file ownership matches the two public facades.
+  ownership matches the two public facades.
 - [x] Omit the temporary compatibility surface because repository consumers
   migrated atomically; retain the existing single canonical registry state.
 - [x] Add focused native coverage for the canonical registry and test fixture.
@@ -207,7 +207,7 @@ final stage; no lasting source-compatibility promise is made.
 - [x] Run formatting and the repository-prescribed full build after the public
   Core API migration, followed by the complete applicable native-test set.
 - [x] Run changed-document validation and all-plan validation.
-- [ ] Complete the stage only when compatibility code is gone, all acceptance
+- [x] Complete the stage only when compatibility code is gone, all acceptance
   gates pass, and lasting behavior is documented outside this plan.
 
 ## Acceptance Gates
@@ -222,7 +222,7 @@ final stage; no lasting source-compatibility promise is made.
   longest-prefix lookup, dependency checks, and error results remain
   behaviorally unchanged.
 - [x] Existing virtual paths and package identities require no data migration.
-- [ ] The full configured build and applicable native tests pass according to
+- [x] The full configured build and applicable native tests pass according to
   the repository build and testing workflows.
 - [x] Documentation validators pass with no new diagnostics.
 
