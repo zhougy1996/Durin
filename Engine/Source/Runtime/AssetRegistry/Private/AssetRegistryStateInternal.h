@@ -15,6 +15,8 @@ namespace Durin::Asset::Private
 		auto FindRedirectorsTo(const FAssetPath& Destination) const
 			-> std::vector<FAssetPath>;
 		auto CaptureCatalog() const -> FAssetCatalogSnapshot;
+		auto CaptureDependencyClosure(
+			const FAssetPath& Root) const -> FAssetDependencyClosureSnapshot;
 		auto CaptureReferences() const -> FAssetReferenceIndex;
 		auto CaptureSnapshot() const -> FAssetRegistrySnapshot;
 		auto CapturePublication() const -> FAssetRegistryPublication;

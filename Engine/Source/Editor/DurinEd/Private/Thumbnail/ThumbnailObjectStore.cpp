@@ -12,6 +12,7 @@ namespace Durin::Editor
 		constexpr uint32 ThumbnailIndexMagic = 0x58444954; // TIDX
 		constexpr uint32 ThumbnailIndexSchemaVersion = 2;
 		constexpr uint32 MaximumIndexEntries = 1'000'000;
+		constexpr uint32 ThumbnailIndexAccessFlushInterval = 64;
 
 		struct FObjectIndexEntry
 		{
@@ -50,34 +51,16 @@ namespace Durin::Editor
 				Settings.CacheRoot = std::filesystem::path(FPaths::DerivedDataCacheDir()) / "Thumbnails";
 			Settings.CacheRoot = Settings.CacheRoot.lexically_normal();
 			LoadIndex();
-			bool bChanged = false;
-			for (auto It = Entries.begin(); It != Entries.end();)
-			{
-				std::error_code Error;
-				const std::filesystem::path Path = ObjectPath(It->first);
-				std::filesystem::path ResolvedPath;
-				const bool bContained = TryResolveContainedBy(Settings.CacheRoot, Path, ResolvedPath);
-				const uintmax_t Size = bContained
-					? std::filesystem::file_size(ResolvedPath, Error) : 0;
-				if (Error || Size != It->second.EncodedBytes || Size > Settings.MaximumObjectBytes
-					|| !bContained)
-				{
-					It = Entries.erase(It);
-					++Stats.Regenerations;
-					bChanged = true;
-				}
-				else
-					++It;
-			}
 			const size_t PreviousCount = Entries.size();
 			MaintainBudget();
-			if (bChanged || Entries.size() != PreviousCount) SaveIndex();
+			if (Entries.size() != PreviousCount) SaveIndex();
 		}
 
 		FAssetThumbnailPoolStorageSettings Settings;
 		std::unordered_map<std::string, FObjectIndexEntry> Entries;
 		FThumbnailObjectStoreStats Stats;
 		uint64 AccessCounter = 0;
+		uint32 UnsavedAccesses = 0;
 		mutable std::mutex Mutex;
 
 		auto IndexPath() const -> std::filesystem::path { return Settings.CacheRoot / "Index.bin"; }
@@ -133,6 +116,7 @@ namespace Durin::Editor
 			std::error_code Error;
 			std::filesystem::create_directories(Settings.CacheRoot, Error);
 			if (!Error) FFileHelper::SaveArrayToFileAtomically(Writer.GetBytes(), IndexPath());
+			UnsavedAccesses = 0;
 		}
 
 		auto RemoveObject(const FObjectIndexEntry& Entry) -> void
@@ -166,7 +150,11 @@ namespace Durin::Editor
 	{
 	}
 
-	FThumbnailObjectStore::~FThumbnailObjectStore() = default;
+	FThumbnailObjectStore::~FThumbnailObjectStore()
+	{
+		std::lock_guard Lock(Impl->Mutex);
+		if (Impl->UnsavedAccesses != 0) Impl->SaveIndex();
+	}
 
 	auto FThumbnailObjectStore::Load(std::string_view Key, std::vector<std::byte>& OutBytes)
 		-> EThumbnailObjectLoadResult
@@ -196,7 +184,8 @@ namespace Durin::Editor
 			{
 				It->second.LastAccess = ++Impl->AccessCounter;
 				++Impl->Stats.CacheHits;
-				Impl->SaveIndex();
+				if (++Impl->UnsavedAccesses >= ThumbnailIndexAccessFlushInterval)
+					Impl->SaveIndex();
 				return EThumbnailObjectLoadResult::Hit;
 			}
 		}

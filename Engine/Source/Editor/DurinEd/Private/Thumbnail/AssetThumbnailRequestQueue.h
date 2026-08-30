@@ -11,7 +11,8 @@ namespace Durin::Editor
 		FAssetThumbnailGenerationRequest GenerationRequest;
 	};
 
-	// Captures exact-class renderer requests, coalesces cache keys, and enforces queue ordering and bounds.
+	// Coalesces lightweight UI requests immediately, then captures renderer-owned
+	// generation data lazily as scheduler work is admitted.
 	class FAssetThumbnailRequestQueue
 	{
 	public:
@@ -29,7 +30,8 @@ namespace Durin::Editor
 		// Selects renderer-generated pixels without waiting behind a resource-bound rendered job.
 		DURINED_API auto TakeNextGeneratedPixels()
 			-> std::optional<FAssetThumbnailScheduledRequest>;
-		// Advances a captured job only while its key, renderer generation, serial, identity, and revisions remain current.
+		// Advances a captured job only while its key, renderer generation, serial,
+		// identity, and revisions remain current.
 		DURINED_API auto Transition(
 			const FAssetThumbnailScheduledRequest& Job,
 			EAssetThumbnailState ExpectedState,

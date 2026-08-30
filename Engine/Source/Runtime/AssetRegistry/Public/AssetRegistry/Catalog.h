@@ -62,6 +62,17 @@ namespace Durin::Asset
 		}
 	};
 
+	// Owns a revision-consistent projection containing only one asset and its
+	// transitive package dependencies.
+	struct FAssetDependencyClosureSnapshot
+	{
+		uint64 Revision = 0;
+		std::vector<FAssetData> Assets;
+		FAssetResult Result;
+
+		explicit operator bool() const { return Result.Succeeded(); }
+	};
+
 	enum class EAssetPathResolveState : uint8
 	{
 		Resolved,
@@ -156,5 +167,7 @@ namespace Durin::Asset
 		const FAssetPath& Path,
 		const FAssetPathResolveOptions& Options = {}) -> FAssetPathResolveResult;
 	ASSETREGISTRY_API auto CaptureAssetCatalogSnapshot() -> FAssetCatalogSnapshot;
+	ASSETREGISTRY_API auto CaptureAssetDependencyClosure(
+		const FAssetPath& Root) -> FAssetDependencyClosureSnapshot;
 	ASSETREGISTRY_API auto GetAssetCatalogRevision() -> uint64;
 }

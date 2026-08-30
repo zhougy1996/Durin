@@ -131,6 +131,48 @@ namespace
 		EXPECT_EQ(Snapshot.Revision, Snapshot.References.GetRevision());
 	}
 
+	TEST(FAssetMetadataQueryTests, CapturesOnlyRevisionConsistentTransitiveDependencies)
+	{
+		Durin::Testing::InitializeDObjectSystemForTests();
+		Durin::PathUtilities::FScopedMountRegistryFixture Mounts;
+		Durin::PathUtilities::RegisterMountPointForTests(
+			"/MetadataTests/", "MetadataTests/");
+		Durin::FAssetPath Root, Dependency, Unrelated;
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+			"/MetadataTests/ClosureRoot", Root));
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+			"/MetadataTests/ClosureDependency", Dependency));
+		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+			"/MetadataTests/ClosureUnrelated", Unrelated));
+
+		FAssetRegistryPublication Publication = CaptureAssetRegistryPublication();
+		Publication.Assets.insert_or_assign(Root, FAssetData{
+			.PackagePath = Root,
+			.Dependencies = {Dependency}});
+		Publication.Assets.insert_or_assign(Dependency, FAssetData{
+			.PackagePath = Dependency});
+		Publication.Assets.insert_or_assign(Unrelated, FAssetData{
+			.PackagePath = Unrelated});
+		for (const Durin::FAssetPath& Path : {Root, Dependency, Unrelated})
+			Publication.ReferenceFingerprints.insert_or_assign(
+				Path, FAssetPackageFingerprint{});
+		Publication.ReferenceErrors.clear();
+		Publication.bReferenceIndexComplete = true;
+		ASSERT_TRUE(PublishAssetRegistryPublication(std::move(Publication)));
+
+		const FAssetDependencyClosureSnapshot Closure =
+			CaptureAssetDependencyClosure(Root);
+		ASSERT_TRUE(Closure) << Closure.Result.Message;
+		EXPECT_EQ(Closure.Revision, GetAssetCatalogRevision());
+		ASSERT_EQ(Closure.Assets.size(), 2u);
+		EXPECT_EQ(std::ranges::count(Closure.Assets, Root,
+			&FAssetData::PackagePath), 1);
+		EXPECT_EQ(std::ranges::count(Closure.Assets, Dependency,
+			&FAssetData::PackagePath), 1);
+		EXPECT_EQ(std::ranges::count(Closure.Assets, Unrelated,
+			&FAssetData::PackagePath), 0);
+	}
+
 	TEST(FAssetMetadataQueryTests, ExtractsCanonicalObjectStreamReferencesWithoutEngine)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();

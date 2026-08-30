@@ -671,6 +671,9 @@ namespace Durin
 			.CacheRoot = Root,
 			.DiskBudgetBytes = 100,
 			.ObjectExtension = ".bin"});
+		std::vector<std::byte> MissingBytes;
+		EXPECT_EQ(MissingObjectStore.Load("object-key-02", MissingBytes),
+			Editor::EThumbnailObjectLoadResult::Invalid);
 		EXPECT_GE(MissingObjectStore.GetStats().Regenerations, 1u);
 	}
 
@@ -1098,6 +1101,9 @@ namespace Durin
 			"/ThumbnailTests/FakeRendered/QueuedRemoval",
 			"DFakeRenderedAsset",
 			1), Error)) << Error;
+		// Capture one request without taking it into the rendered lane.
+		EXPECT_FALSE(Scheduler.TakeNextGeneratedPixels());
+		ASSERT_EQ(State->Captures, 1u);
 
 		Registration.Reset();
 		EXPECT_EQ(State->InputDestructions, 1u);
@@ -1182,11 +1188,41 @@ namespace Durin
 		ASSERT_TRUE(Registry.Register(Rejecting, Error)) << Error;
 		const Editor::FAssetThumbnailRequest Invalid =
 			MakeThumbnailRequest("/ThumbnailTests/Invalid", "DMaterial", 2);
-		EXPECT_FALSE(Scheduler.Request(Invalid, Error));
+		ASSERT_TRUE(Scheduler.Request(Invalid, Error)) << Error;
+		EXPECT_FALSE(Scheduler.TakeNext());
 		const Editor::FAssetThumbnailView InvalidView = Scheduler.Find(Invalid.Asset.VirtualPath);
 		EXPECT_EQ(InvalidView.State, Editor::EAssetThumbnailState::Invalid);
 		EXPECT_EQ(InvalidView.RequestSerial, 2u);
 		EXPECT_NE(InvalidView.Diagnostic.find("rejected"), std::string::npos);
+	}
+
+	TEST(FAssetThumbnailContractTests, SchedulerDefersAndBoundsRendererCaptureUntilWorkAdmission)
+	{
+		Editor::DThumbnailManager Registry;
+		std::string Error;
+		auto State = std::make_shared<FFakeThumbnailRendererState>();
+		auto Registration = Registry.RegisterScoped(
+			std::make_unique<FFakeThumbnailRenderer>(State), Error);
+		ASSERT_TRUE(Registration) << Error;
+		Editor::FAssetThumbnailRequestQueue Scheduler(Registry);
+		const Editor::FAssetThumbnailRequest First = MakeThumbnailRequest(
+			"/ThumbnailTests/DeferredCapture/First", "DFakeRenderedAsset", 1);
+		const Editor::FAssetThumbnailRequest Second = MakeThumbnailRequest(
+			"/ThumbnailTests/DeferredCapture/Second", "DFakeRenderedAsset", 1,
+			Editor::EAssetThumbnailPriority::Visible);
+
+		ASSERT_TRUE(Scheduler.Request(First, Error)) << Error;
+		ASSERT_TRUE(Scheduler.Request(Second, Error)) << Error;
+		ASSERT_TRUE(Scheduler.Request(Second, Error)) << Error;
+		EXPECT_EQ(State->Captures, 0u);
+		EXPECT_EQ(Scheduler.NumQueued(), 2u);
+
+		const auto Admitted = Scheduler.TakeNext();
+		ASSERT_TRUE(Admitted);
+		EXPECT_EQ(State->Captures, 1u);
+		EXPECT_EQ(Admitted->GenerationRequest.KeyInput.Asset.VirtualPath,
+			Second.Asset.VirtualPath);
+		EXPECT_EQ(Scheduler.NumQueued(), 1u);
 	}
 
 	TEST(FAssetThumbnailContractTests, SchedulerCoalescesAndPromotesVisibleRequests)

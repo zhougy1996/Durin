@@ -186,6 +186,50 @@ namespace Durin::Asset
 		return {.Revision = Revision, .Assets = Assets};
 	}
 
+	auto FAssetRegistryState::CaptureDependencyClosure(
+		const FAssetPath& Root) const -> FAssetDependencyClosureSnapshot
+	{
+		std::shared_lock Lock(Mutex);
+		FAssetDependencyClosureSnapshot Result{.Revision = Revision};
+		const auto RootIt = Assets.find(Root);
+		if (RootIt == Assets.end())
+		{
+			Result.Result = {EAssetError::NotFound,
+				std::format("The Asset Registry has no entry for dependency root '{}'.",
+					Root.GetView())};
+			return Result;
+		}
+
+		std::unordered_set<FAssetPath> Visited;
+		std::vector<const FAssetData*> Pending{&RootIt->second};
+		Visited.emplace(Root);
+		while (!Pending.empty())
+		{
+			const FAssetData* Data = Pending.back();
+			Pending.pop_back();
+			Result.Assets.push_back(*Data);
+			for (const FAssetPath& Dependency : Data->Dependencies)
+			{
+				if (!Visited.emplace(Dependency).second) continue;
+				const auto DependencyIt = Assets.find(Dependency);
+				if (DependencyIt == Assets.end())
+				{
+					Result.Assets.clear();
+					Result.Result = {EAssetError::MissingDependency,
+						std::format("The Asset Registry has no entry for dependency '{}'.",
+							Dependency.GetView())};
+					return Result;
+				}
+				Pending.push_back(&DependencyIt->second);
+			}
+		}
+		std::ranges::sort(Result.Assets,
+			[](const FAssetData& Left, const FAssetData& Right) {
+				return Left.PackagePath.GetView() < Right.PackagePath.GetView();
+			});
+		return Result;
+	}
+
 	auto FAssetRegistryState::CaptureReferences() const -> FAssetReferenceIndex
 	{
 		std::shared_lock Lock(Mutex);
@@ -275,6 +319,12 @@ namespace Durin::Asset
 	auto CaptureAssetCatalogSnapshot() -> FAssetCatalogSnapshot
 	{
 		return Private::GetAssetRegistryState().CaptureCatalog();
+	}
+
+	auto CaptureAssetDependencyClosure(
+		const FAssetPath& Root) -> FAssetDependencyClosureSnapshot
+	{
+		return Private::GetAssetRegistryState().CaptureDependencyClosure(Root);
 	}
 
 	auto GetAssetCatalogRevision() -> uint64

@@ -397,16 +397,27 @@ namespace Durin::Editor::Material
 			return false;
 		}
 
-		const Asset::FAssetCatalogSnapshot Catalog =
-			Asset::CaptureAssetCatalogSnapshot();
-		const Asset::FAssetData* Root = Catalog.FindExact(Request.Asset.VirtualPath);
-		if (Root == nullptr)
+		const Asset::FAssetDependencyClosureSnapshot Closure =
+			Asset::CaptureAssetDependencyClosure(Request.Asset.VirtualPath);
+		if (!Closure)
 		{
-			OutError = std::format(
-				"Material thumbnail registry data is missing for {}.",
-				Request.Asset.VirtualPath.ToString());
+			OutError = Closure.Result.Message.empty()
+				? std::format("Material thumbnail registry data is missing for {}.",
+					Request.Asset.VirtualPath.ToString())
+				: Closure.Result.Message;
 			return false;
 		}
+		const auto RootIt = std::ranges::find_if(
+			Closure.Assets,
+			[&Request](const Asset::FAssetData& Data) {
+				return Data.PackagePath == Request.Asset.VirtualPath;
+			});
+		if (RootIt == Closure.Assets.end())
+		{
+			OutError = "The material dependency closure omitted its root asset.";
+			return false;
+		}
+		const Asset::FAssetData* Root = &*RootIt;
 		if (MakeFingerprint(*Root) != Request.Asset)
 		{
 			OutError = std::format(
@@ -414,18 +425,11 @@ namespace Durin::Editor::Material
 				Request.Asset.VirtualPath.ToString());
 			return false;
 		}
-		std::vector<::Durin::Editor::FAssetThumbnailDependencyNode> Nodes;
-		Nodes.reserve(Catalog.Assets.size());
-		for (const auto& [Path, Data] : Catalog.Assets)
-		{
-			Nodes.push_back({
-				.Package = MakeFingerprint(Data),
-				.Dependencies = Data.Dependencies});
-		}
 		std::vector<::Durin::Editor::FAssetThumbnailPackageFingerprint> Dependencies;
-		if (!::Durin::Editor::BuildAssetThumbnailDependencyClosure(
-				Request.Asset.VirtualPath, Nodes, Dependencies, OutError))
-			return false;
+		Dependencies.reserve(Closure.Assets.size() - 1);
+		for (const Asset::FAssetData& Data : Closure.Assets)
+			if (Data.PackagePath != Request.Asset.VirtualPath)
+				Dependencies.push_back(MakeFingerprint(Data));
 
 		const ::Durin::Editor::FThumbnailVisualContract Visual;
 		OutRequest.KeyInput = {

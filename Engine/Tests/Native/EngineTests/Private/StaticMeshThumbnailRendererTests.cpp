@@ -540,9 +540,11 @@ TEST(FStaticMeshThumbnailRendererTests,
 		.Identity = "/ThumbnailFixtures/Meshes/SM_NewIdentity",
 		.Asset = StaleReimport,
 		.Priority = Durin::Editor::EAssetThumbnailPriority::Visible});
+	Cache.EndFrame();
 	EXPECT_EQ(
 		Cache.Find("/ThumbnailFixtures/Meshes/SM_NewIdentity").State,
 		Durin::Editor::EAssetThumbnailState::Invalid);
+	Cache.BeginFrame();
 	Cache.Request({
 		.Identity = "/ThumbnailFixtures/Meshes/SM_NewIdentity",
 		.Asset = Current,
