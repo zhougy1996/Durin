@@ -9,6 +9,8 @@
 #include "DObject/Package.h"
 #include "Modules/ModuleManager.h"
 
+#include <unordered_set>
+
 namespace Durin
 {
 	namespace
@@ -130,6 +132,72 @@ namespace Durin
 			InPresentation, Program);
 		if (GraphPresentation == InPresentation) return true;
 		GraphPresentation = std::move(InPresentation);
+		AdvanceRevision(MaterialGraphPresentationRevision);
+		MarkPackageDirty();
+		return true;
+	}
+
+	auto DMaterial::ApplyMaterialGraphNodePositions(
+		std::span<const FMaterialGraphNodePresentation> Positions,
+		uint64 ExpectedAuthoredRevision) -> bool
+	{
+		if (MaterialCompileStatus.AuthoredRevision != ExpectedAuthoredRevision
+			|| Positions.size() > MaterialProgramMaxNodeCount)
+			return false;
+		std::unordered_set<FGuid> RequestedNodes;
+		RequestedNodes.reserve(Positions.size());
+		for (const FMaterialGraphNodePresentation& Position : Positions)
+		{
+			if (!Position.NodeId.IsValid()
+				|| !RequestedNodes.insert(Position.NodeId).second
+				|| Position.X < -MaterialGraphPresentationCoordinateLimit
+				|| Position.X > MaterialGraphPresentationCoordinateLimit
+				|| Position.Y < -MaterialGraphPresentationCoordinateLimit
+				|| Position.Y > MaterialGraphPresentationCoordinateLimit
+				|| std::ranges::find(Program.Nodes, Position.NodeId,
+					&FMaterialProgramNode::Id) == Program.Nodes.end())
+				return false;
+		}
+
+		bool bChanged = false;
+		for (const FMaterialGraphNodePresentation& Position : Positions)
+		{
+			auto It = std::ranges::lower_bound(
+				GraphPresentation.Nodes, Position.NodeId, {},
+				&FMaterialGraphNodePresentation::NodeId);
+			if (It == GraphPresentation.Nodes.end() || It->NodeId != Position.NodeId)
+			{
+				GraphPresentation.Nodes.insert(It, Position);
+				bChanged = true;
+			}
+			else if (*It != Position)
+			{
+				*It = Position;
+				bChanged = true;
+			}
+		}
+		if (!bChanged) return true;
+		AdvanceRevision(MaterialGraphPresentationRevision);
+		MarkPackageDirty();
+		return true;
+	}
+
+	auto DMaterial::ApplyMaterialGraphOutputPosition(
+		int32 X, int32 Y, uint64 ExpectedAuthoredRevision) -> bool
+	{
+		if (MaterialCompileStatus.AuthoredRevision != ExpectedAuthoredRevision
+			|| X < -MaterialGraphPresentationCoordinateLimit
+			|| X > MaterialGraphPresentationCoordinateLimit
+			|| Y < -MaterialGraphPresentationCoordinateLimit
+			|| Y > MaterialGraphPresentationCoordinateLimit)
+			return false;
+		if (GraphPresentation.bHasMaterialOutputPosition
+			&& GraphPresentation.MaterialOutputX == X
+			&& GraphPresentation.MaterialOutputY == Y)
+			return true;
+		GraphPresentation.bHasMaterialOutputPosition = true;
+		GraphPresentation.MaterialOutputX = X;
+		GraphPresentation.MaterialOutputY = Y;
 		AdvanceRevision(MaterialGraphPresentationRevision);
 		MarkPackageDirty();
 		return true;

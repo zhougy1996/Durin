@@ -466,65 +466,104 @@ namespace Durin::Editor::Material
 		}
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C) && !SelectedNodes.empty())
 		{
-			FMaterialGraphClipboardPayload Payload;
 			const std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
-			const FMaterialGraphCommandResult Copied =
-				FMaterialGraphOperations::CopySelection(Material, Selection, Payload);
-			ReportCommand(Copied, ReportError);
-			if (Copied) GraphClipboard = std::move(Payload);
+			CopyNodes(Material, Selection, ReportError);
 		}
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_X) && !SelectedNodes.empty())
 		{
-			FMaterialGraphClipboardPayload Payload;
 			const std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
-			const FMaterialGraphCommandResult Cut = FMaterialGraphOperations::CutSelection(
-				Material, Selection, Payload, &Transactions);
-			ReportCommand(Cut, ReportError);
-			if (Cut)
-			{
-				GraphClipboard = std::move(Payload);
-				SelectedNodes.clear();
-			}
+			CutNodes(Material, Transactions, Selection, ReportError);
 		}
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D) && !SelectedNodes.empty())
 		{
 			const std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
-			const FMaterialGraphCommandResult Duplicated =
-				FMaterialGraphOperations::DuplicateNodes(
-					Material, Selection, 40, 40, &Transactions);
-			ReportCommand(Duplicated, ReportError);
-			if (Duplicated)
-			{
-				SelectedNodes.clear();
-				SelectedNodes.insert(Duplicated.GeneratedNodeIds.begin(),
-					Duplicated.GeneratedNodeIds.end());
-			}
+			DuplicateNodes(Material, Transactions, Selection, ReportError);
 		}
 		if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V) && GraphClipboard)
 		{
 			const ImVec2 GraphPosition = Multiply(
 				Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom);
-			const FMaterialGraphCommandResult Pasted = FMaterialGraphOperations::Paste(
-				Material, *GraphClipboard,
-				static_cast<int32>(std::round(GraphPosition.x)),
-				static_cast<int32>(std::round(GraphPosition.y)), &Transactions);
-			ReportCommand(Pasted, ReportError);
-			if (Pasted)
-			{
-				SelectedNodes.clear();
-				SelectedNodes.insert(Pasted.GeneratedNodeIds.begin(),
-					Pasted.GeneratedNodeIds.end());
-			}
+			PasteNodes(Material, Transactions, GraphPosition, ReportError);
 		}
 		if (ImGui::IsKeyPressed(ImGuiKey_Delete) && !SelectedNodes.empty())
 		{
 			const std::vector<FGuid> Selection(SelectedNodes.begin(), SelectedNodes.end());
-			const FMaterialGraphCommandResult Removed =
-				FMaterialGraphOperations::RemoveNodes(Material, Selection, &Transactions);
-			ReportCommand(Removed, ReportError);
-			if (Removed) SelectedNodes.clear();
+			RemoveNodes(Material, Transactions, Selection, ReportError);
 		}
 		if (ImGui::IsKeyPressed(ImGuiKey_F)) FrameNodes(View, CanvasSize);
+	}
+
+	auto FMaterialGraphCanvas::CopyNodes(
+		DMaterial& Material,
+		std::span<const FGuid> NodeIds,
+		const FReportError& ReportError) -> void
+	{
+		FMaterialGraphClipboardPayload Payload;
+		const FMaterialGraphCommandResult Copied =
+			FMaterialGraphOperations::CopySelection(Material, NodeIds, Payload);
+		ReportCommand(Copied, ReportError);
+		if (Copied) GraphClipboard = std::move(Payload);
+	}
+
+	auto FMaterialGraphCanvas::CutNodes(
+		DMaterial& Material,
+		DTransactor& Transactions,
+		std::span<const FGuid> NodeIds,
+		const FReportError& ReportError) -> void
+	{
+		FMaterialGraphClipboardPayload Payload;
+		const FMaterialGraphCommandResult Cut = FMaterialGraphOperations::CutSelection(
+			Material, NodeIds, Payload, &Transactions);
+		ReportCommand(Cut, ReportError);
+		if (!Cut) return;
+		GraphClipboard = std::move(Payload);
+		SelectedNodes.clear();
+	}
+
+	auto FMaterialGraphCanvas::DuplicateNodes(
+		DMaterial& Material,
+		DTransactor& Transactions,
+		std::span<const FGuid> NodeIds,
+		const FReportError& ReportError) -> void
+	{
+		const FMaterialGraphCommandResult Duplicated =
+			FMaterialGraphOperations::DuplicateNodes(
+				Material, NodeIds, 40, 40, &Transactions);
+		ReportCommand(Duplicated, ReportError);
+		if (!Duplicated) return;
+		SelectedNodes.clear();
+		SelectedNodes.insert(Duplicated.GeneratedNodeIds.begin(),
+			Duplicated.GeneratedNodeIds.end());
+	}
+
+	auto FMaterialGraphCanvas::PasteNodes(
+		DMaterial& Material,
+		DTransactor& Transactions,
+		const ImVec2& GraphPosition,
+		const FReportError& ReportError) -> void
+	{
+		if (!GraphClipboard) return;
+		const FMaterialGraphCommandResult Pasted = FMaterialGraphOperations::Paste(
+			Material, *GraphClipboard,
+			static_cast<int32>(std::round(GraphPosition.x)),
+			static_cast<int32>(std::round(GraphPosition.y)), &Transactions);
+		ReportCommand(Pasted, ReportError);
+		if (!Pasted) return;
+		SelectedNodes.clear();
+		SelectedNodes.insert(Pasted.GeneratedNodeIds.begin(),
+			Pasted.GeneratedNodeIds.end());
+	}
+
+	auto FMaterialGraphCanvas::RemoveNodes(
+		DMaterial& Material,
+		DTransactor& Transactions,
+		std::span<const FGuid> NodeIds,
+		const FReportError& ReportError) -> void
+	{
+		const FMaterialGraphCommandResult Removed =
+			FMaterialGraphOperations::RemoveNodes(Material, NodeIds, &Transactions);
+		ReportCommand(Removed, ReportError);
+		if (Removed) SelectedNodes.clear();
 	}
 
 	auto FMaterialGraphCanvas::DrawPalette(
@@ -695,6 +734,120 @@ namespace Durin::Editor::Material
 		}
 		ImGui::SameLine();
 		ImGui::TextDisabled("Up/Down navigate   Enter create   Esc close");
+		ImGui::EndPopup();
+	}
+
+	auto FMaterialGraphCanvas::DrawContextMenu(
+		DMaterial& Material,
+		DTransactor& Transactions,
+		const FMaterialGraphView& View,
+		const FReportError& ReportError) -> void
+	{
+		if (!ImGui::BeginPopup("MaterialGraphContext"))
+		{
+			if (std::holds_alternative<FContextMenuInteraction>(Interaction))
+				ResetInteraction();
+			return;
+		}
+
+		const auto* Context = std::get_if<FContextMenuInteraction>(&Interaction);
+		const FGuid ContextNode = Context ? Context->ContextNode : FGuid{};
+		const std::optional<EMaterialSurfaceOutput> ContextSurfaceOutput =
+			Context ? Context->SurfaceOutput : std::nullopt;
+		const ImVec2 ContextGraphPosition =
+			Context ? Context->GraphPosition : ImVec2{};
+		const auto ContextNodeIt = std::ranges::find(View.Nodes, ContextNode,
+			[](const FMaterialGraphNodeView& Node) { return Node.Node.Id; });
+		const FMaterialGraphNodeView* ContextNodeView =
+			ContextNodeIt == View.Nodes.end() ? nullptr : &*ContextNodeIt;
+		if (ContextNodeView)
+		{
+			std::vector<FGuid> ContextSelection;
+			if (SelectedNodes.contains(ContextNodeView->Node.Id))
+				ContextSelection.assign(SelectedNodes.begin(), SelectedNodes.end());
+			else ContextSelection = {ContextNodeView->Node.Id};
+			FMaterialProgramNode Edited = ContextNodeView->Node;
+			if (ImGui::BeginMenu("Parameter"))
+			{
+				for (const FMaterialGraphCatalogEntry& Entry : Catalog)
+				{
+					if (Entry.NodeTemplate.Opcode != Edited.Opcode
+						|| !Entry.NodeTemplate.ParameterId.IsValid()) continue;
+					ImGui::PushID(Entry.NodeTemplate.ParameterId.ToString().c_str());
+					if (ImGui::MenuItem(Entry.Name.c_str()))
+					{
+						Edited.ParameterId = Entry.NodeTemplate.ParameterId;
+						Edited.ResultType = Entry.NodeTemplate.ResultType;
+						Edited.DisplayName = Entry.NodeTemplate.DisplayName;
+						ReportCommand(FMaterialGraphOperations::ReplaceNode(
+							Material, Edited, &Transactions), ReportError);
+					}
+					ImGui::PopID();
+				}
+				ImGui::EndMenu();
+			}
+			if (ImGui::MenuItem("Copy"))
+				CopyNodes(Material, ContextSelection, ReportError);
+			if (ImGui::MenuItem("Duplicate"))
+				DuplicateNodes(Material, Transactions, ContextSelection, ReportError);
+			if (ImGui::MenuItem("Cut"))
+				CutNodes(Material, Transactions, ContextSelection, ReportError);
+			if (ImGui::MenuItem("Delete"))
+				RemoveNodes(Material, Transactions, ContextSelection, ReportError);
+		}
+		else if (ContextSurfaceOutput)
+		{
+			if (static_cast<size_t>(*ContextSurfaceOutput) == 8)
+			{
+				if (ImGui::MenuItem("Disconnect Surface"))
+					ReportCommand(FMaterialGraphOperations::DisconnectAggregateSurface(
+						Material, &Transactions), ReportError);
+			}
+			else
+			{
+				const FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(
+					View.Outputs, *ContextSurfaceOutput);
+				const ImVec2 SurfacePosition = SurfaceGraphPosition.value_or(
+					SurfaceGraphMinimum(View));
+				const FMaterialGraphSurfaceNodeRequest NodeRequest{
+					.Output = *ContextSurfaceOutput,
+					.X = static_cast<int32>(std::round(SurfacePosition.x
+						- Metrics.NodeWidth - Metrics.ColumnGap)),
+					.Y = static_cast<int32>(std::round(SurfacePosition.y)),
+				};
+				if (Link.SourceNodeId.IsValid()
+					&& ImGui::MenuItem("Disconnect to Default"))
+					ReportCommand(FMaterialGraphOperations::DisconnectSurfaceOutput(
+						Material, *ContextSurfaceOutput, &Transactions), ReportError);
+				if (ImGui::MenuItem("Reset Default"))
+					ReportCommand(FMaterialGraphOperations::ResetSurfaceDefault(
+						Material, *ContextSurfaceOutput, &Transactions), ReportError);
+				if (!Link.SourceNodeId.IsValid()
+					&& ImGui::MenuItem("Promote to Parameter"))
+					ReportCommand(
+						FMaterialGraphOperations::PromoteSurfaceOutputToParameter(
+							Material, NodeRequest, &Transactions), ReportError);
+				if (ImGui::MenuItem("Add Texture"))
+					ReportCommand(FMaterialGraphOperations::AddTextureToSurfaceOutput(
+						Material, NodeRequest, &Transactions), ReportError);
+			}
+		}
+		else
+		{
+			if (GraphClipboard && ImGui::MenuItem("Paste"))
+				PasteNodes(Material, Transactions, ContextGraphPosition, ReportError);
+			if (ImGui::MenuItem("Auto Layout"))
+			{
+				const FMaterialGraphCommandResult Layout = FMaterialGraphOperations::Layout(
+					Material, {}, &Transactions);
+				ReportCommand(Layout, ReportError);
+				if (Layout) SurfaceGraphPosition.reset();
+			}
+			if (ImGui::MenuItem("Create Node...", "Space"))
+				Interaction = FPaletteInteraction{
+					.SourceNode = Context ? Context->SourceNode : FGuid{},
+					.GraphPosition = ContextGraphPosition};
+		}
 		ImGui::EndPopup();
 	}
 
@@ -1633,160 +1786,7 @@ namespace Durin::Editor::Material
 						Subtract(Subtract(Mouse, CanvasMinimum), Pan), 1.0f / Zoom)};
 			}
 
-			if (ImGui::BeginPopup("MaterialGraphContext"))
-			{
-				const auto* Context = std::get_if<FContextMenuInteraction>(&Interaction);
-				const FGuid ContextNode = Context ? Context->ContextNode : FGuid{};
-				const std::optional<EMaterialSurfaceOutput> ContextSurfaceOutput =
-					Context ? Context->SurfaceOutput : std::nullopt;
-				const ImVec2 ContextGraphPosition =
-					Context ? Context->GraphPosition : ImVec2{};
-				const auto ContextNodeIt = std::ranges::find(View.Nodes, ContextNode,
-					[](const FMaterialGraphNodeView& Node) { return Node.Node.Id; });
-				const FMaterialGraphNodeView* ContextNodeView =
-					ContextNodeIt == View.Nodes.end() ? nullptr : &*ContextNodeIt;
-				if (ContextNodeView)
-				{
-					std::vector<FGuid> ContextSelection;
-					if (SelectedNodes.contains(ContextNodeView->Node.Id))
-						ContextSelection.assign(SelectedNodes.begin(), SelectedNodes.end());
-					else ContextSelection = {ContextNodeView->Node.Id};
-					FMaterialProgramNode Edited = ContextNodeView->Node;
-					if (ImGui::BeginMenu("Parameter"))
-					{
-						for (const FMaterialGraphCatalogEntry& Entry : Catalog)
-						{
-							if (Entry.NodeTemplate.Opcode != Edited.Opcode
-								|| !Entry.NodeTemplate.ParameterId.IsValid()) continue;
-							ImGui::PushID(Entry.NodeTemplate.ParameterId.ToString().c_str());
-							if (ImGui::MenuItem(Entry.Name.c_str()))
-							{
-								Edited.ParameterId = Entry.NodeTemplate.ParameterId;
-								Edited.ResultType = Entry.NodeTemplate.ResultType;
-								Edited.DisplayName = Entry.NodeTemplate.DisplayName;
-								ReportCommand(FMaterialGraphOperations::ReplaceNode(
-									Material, Edited, &Transactions), ReportError);
-							}
-							ImGui::PopID();
-						}
-						ImGui::EndMenu();
-					}
-					if (ImGui::MenuItem("Copy"))
-					{
-						FMaterialGraphClipboardPayload Payload;
-						const FMaterialGraphCommandResult Copied =
-							FMaterialGraphOperations::CopySelection(
-								Material, ContextSelection, Payload);
-						ReportCommand(Copied, ReportError);
-						if (Copied) GraphClipboard = std::move(Payload);
-					}
-					if (ImGui::MenuItem("Duplicate"))
-					{
-						const FMaterialGraphCommandResult Duplicated =
-							FMaterialGraphOperations::DuplicateNodes(
-								Material, ContextSelection, 40, 40, &Transactions);
-						ReportCommand(Duplicated, ReportError);
-						if (Duplicated)
-						{
-							SelectedNodes.clear();
-							SelectedNodes.insert(Duplicated.GeneratedNodeIds.begin(),
-								Duplicated.GeneratedNodeIds.end());
-						}
-					}
-					if (ImGui::MenuItem("Cut"))
-					{
-						FMaterialGraphClipboardPayload Payload;
-						const FMaterialGraphCommandResult Cut =
-							FMaterialGraphOperations::CutSelection(
-								Material, ContextSelection, Payload, &Transactions);
-						ReportCommand(Cut, ReportError);
-						if (Cut)
-						{
-							GraphClipboard = std::move(Payload);
-							SelectedNodes.clear();
-						}
-					}
-					if (ImGui::MenuItem("Delete"))
-					{
-						const FMaterialGraphCommandResult Removed =
-							FMaterialGraphOperations::RemoveNodes(
-								Material, ContextSelection, &Transactions);
-						ReportCommand(Removed, ReportError);
-						if (Removed) SelectedNodes.clear();
-					}
-				}
-				else if (ContextSurfaceOutput)
-				{
-					if (static_cast<size_t>(*ContextSurfaceOutput) == 8)
-					{
-						if (ImGui::MenuItem("Disconnect Surface"))
-							ReportCommand(FMaterialGraphOperations::DisconnectAggregateSurface(
-								Material, &Transactions), ReportError);
-					}
-					else
-					{
-					const FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(
-						View.Outputs, *ContextSurfaceOutput);
-					const ImVec2 SurfacePosition = SurfaceGraphPosition.value_or(
-						SurfaceGraphMinimum(View));
-					const FMaterialGraphSurfaceNodeRequest NodeRequest{
-						.Output = *ContextSurfaceOutput,
-						.X = static_cast<int32>(std::round(SurfacePosition.x
-							- Metrics.NodeWidth - Metrics.ColumnGap)),
-						.Y = static_cast<int32>(std::round(SurfacePosition.y)),
-					};
-					if (Link.SourceNodeId.IsValid()
-						&& ImGui::MenuItem("Disconnect to Default"))
-						ReportCommand(FMaterialGraphOperations::DisconnectSurfaceOutput(
-							Material, *ContextSurfaceOutput, &Transactions), ReportError);
-					if (ImGui::MenuItem("Reset Default"))
-						ReportCommand(FMaterialGraphOperations::ResetSurfaceDefault(
-							Material, *ContextSurfaceOutput, &Transactions), ReportError);
-					if (!Link.SourceNodeId.IsValid()
-						&& ImGui::MenuItem("Promote to Parameter"))
-						ReportCommand(
-							FMaterialGraphOperations::PromoteSurfaceOutputToParameter(
-								Material, NodeRequest, &Transactions), ReportError);
-					if (ImGui::MenuItem("Add Texture"))
-						ReportCommand(FMaterialGraphOperations::AddTextureToSurfaceOutput(
-							Material, NodeRequest, &Transactions), ReportError);
-					}
-				}
-				else
-				{
-					if (GraphClipboard && ImGui::MenuItem("Paste"))
-					{
-						const FMaterialGraphCommandResult Pasted =
-							FMaterialGraphOperations::Paste(Material, *GraphClipboard,
-								static_cast<int32>(std::round(ContextGraphPosition.x)),
-								static_cast<int32>(std::round(ContextGraphPosition.y)),
-								&Transactions);
-						ReportCommand(Pasted, ReportError);
-						if (Pasted)
-						{
-							SelectedNodes.clear();
-							SelectedNodes.insert(Pasted.GeneratedNodeIds.begin(),
-								Pasted.GeneratedNodeIds.end());
-						}
-					}
-					if (ImGui::MenuItem("Auto Layout"))
-					{
-						const FMaterialGraphCommandResult Layout =
-							FMaterialGraphOperations::Layout(
-								Material, {}, &Transactions);
-						ReportCommand(Layout, ReportError);
-						if (Layout) SurfaceGraphPosition.reset();
-					}
-					if (ImGui::MenuItem("Create Node...", "Space"))
-						Interaction = FPaletteInteraction{
-							.SourceNode = Context ? Context->SourceNode : FGuid{},
-							.GraphPosition = ContextGraphPosition};
-				}
-				ImGui::EndPopup();
-			}
-			else if (std::holds_alternative<FContextMenuInteraction>(Interaction))
-				ResetInteraction();
-
+			DrawContextMenu(Material, Transactions, View, ReportError);
 			DrawPalette(Material, Transactions, View, ReportError);
 
 			DrawList->PopClipRect();

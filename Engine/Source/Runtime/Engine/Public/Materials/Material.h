@@ -65,6 +65,14 @@ namespace Durin
 			FMaterialProgramValidationResult& OutValidation) -> bool;
 		ENGINE_API auto SetMaterialGraphPresentation(
 			FMaterialGraphPresentation InPresentation) -> bool;
+		// Applies bounded graph-position edits without copying or sanitizing the
+		// complete authored program/presentation. ExpectedAuthoredRevision keeps
+		// an interactive edit from crossing a semantic material change.
+		ENGINE_API auto ApplyMaterialGraphNodePositions(
+			std::span<const FMaterialGraphNodePresentation> Positions,
+			uint64 ExpectedAuthoredRevision) -> bool;
+		ENGINE_API auto ApplyMaterialGraphOutputPosition(
+			int32 X, int32 Y, uint64 ExpectedAuthoredRevision) -> bool;
 		ENGINE_API auto ResolveParameterValue(const FGuid& Id, FResolvedMaterialParameter& OutParameter) const -> bool override;
 		auto GetStaticProperties() const -> const FMaterialStaticProperties& override { return StaticProperties; }
 		ENGINE_API auto GetRenderableStaticProperties() const

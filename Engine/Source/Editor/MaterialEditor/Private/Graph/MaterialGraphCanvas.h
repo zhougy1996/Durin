@@ -115,6 +115,23 @@ namespace Durin::Editor::Material
 			const ImVec2& CanvasMinimum, const ImVec2& CanvasSize,
 			const ImVec2& Mouse, bool bInputAvailable,
 			const FReportError& ReportError) -> void;
+		auto CopyNodes(DMaterial& Material, std::span<const FGuid> NodeIds,
+			const FReportError& ReportError) -> void;
+		auto CutNodes(DMaterial& Material, ::Durin::DTransactor& Transactions,
+			std::span<const FGuid> NodeIds,
+			const FReportError& ReportError) -> void;
+		auto DuplicateNodes(DMaterial& Material,
+			::Durin::DTransactor& Transactions, std::span<const FGuid> NodeIds,
+			const FReportError& ReportError) -> void;
+		auto PasteNodes(DMaterial& Material, ::Durin::DTransactor& Transactions,
+			const ImVec2& GraphPosition,
+			const FReportError& ReportError) -> void;
+		auto RemoveNodes(DMaterial& Material, ::Durin::DTransactor& Transactions,
+			std::span<const FGuid> NodeIds,
+			const FReportError& ReportError) -> void;
+		auto DrawContextMenu(DMaterial& Material,
+			::Durin::DTransactor& Transactions, const FMaterialGraphView& View,
+			const FReportError& ReportError) -> void;
 		auto DrawPalette(DMaterial& Material,
 			::Durin::DTransactor& Transactions, const FMaterialGraphView& View,
 			const FReportError& ReportError) -> void;

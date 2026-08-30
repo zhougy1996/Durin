@@ -352,7 +352,7 @@ TEST(FMaterialGraphOperationsTests, PresentationReachesMaximumNodeBoundAndDuplic
 TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndTransactional)
 {
 	InitializeDObjectSystem();
-	DMaterial* Material = NewObject<DMaterial>(nullptr, "MaterialOutputMovement");
+	DMaterial* Material = MakeExpandedGraphMaterial("MaterialOutputMovement");
 	ASSERT_NE(Material, nullptr);
 	const uint64 Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
 	Durin::Tests::FTestTransactorOwner Transactions;
@@ -365,8 +365,21 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 	EXPECT_TRUE(Material->GetMaterialGraphPresentation().bHasMaterialOutputPosition);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputX, 520);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputY, -80);
+	FMaterialGraphPresentation UnrelatedPresentation =
+		Material->GetMaterialGraphPresentation();
+	ASSERT_FALSE(UnrelatedPresentation.Nodes.empty());
+	UnrelatedPresentation.Nodes.front().X += 37;
+	const FMaterialGraphNodePresentation UnrelatedPosition =
+		UnrelatedPresentation.Nodes.front();
+	ASSERT_TRUE(Material->SetMaterialGraphPresentation(UnrelatedPresentation));
 	ASSERT_TRUE(Transactions->Undo());
-	EXPECT_EQ(Material->GetMaterialGraphPresentation(), OriginalPresentation);
+	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputX,
+		OriginalPresentation.MaterialOutputX);
+	const auto PreservedNode = std::ranges::find(
+		Material->GetMaterialGraphPresentation().Nodes,
+		UnrelatedPosition.NodeId, &FMaterialGraphNodePresentation::NodeId);
+	ASSERT_NE(PreservedNode, Material->GetMaterialGraphPresentation().Nodes.end());
+	EXPECT_EQ(*PreservedNode, UnrelatedPosition);
 	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputX, 520);
 
@@ -1056,6 +1069,56 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 }
 
 TEST(FMaterialGraphOperationsTests,
+	MovePreviewRejectsSemanticChangesAndRestoresOnlyItsPositions)
+{
+	InitializeDObjectSystem();
+	DMaterial* Material = NewObject<DMaterial>(nullptr, "StaleGraphMove");
+	ASSERT_NE(Material, nullptr);
+
+	FMaterialGraphCreateNodeRequest Create;
+	Create.Node.Opcode = EMaterialProgramOpcode::Constant;
+	Create.Node.ResultType = EMaterialProgramValueType::Float;
+	Create.X = 40;
+	Create.Y = 80;
+	const FMaterialGraphCommandResult Created =
+		FMaterialGraphOperations::CreateNode(*Material, Create);
+	ASSERT_TRUE(Created) << Created.Message;
+	ASSERT_EQ(Created.GeneratedNodeIds.size(), 1u);
+	const FGuid NodeId = Created.GeneratedNodeIds.front();
+
+	FMaterialGraphMoveSession MoveSession;
+	ASSERT_TRUE(MoveSession.Begin(*Material, std::span(&NodeId, 1)));
+	const FMaterialGraphNodePresentation Preview{NodeId, 400, 240};
+	ASSERT_TRUE(MoveSession.Apply(std::span(&Preview, 1)));
+
+	FMaterialProgram SemanticEdit = *Material->GetMaterialProgram();
+	SemanticEdit.Outputs.RoughnessDefault.X = 0.37f;
+	FMaterialProgramValidationResult Validation;
+	ASSERT_TRUE(Material->SetMaterialProgram(std::move(SemanticEdit), Validation));
+	const uint64 SemanticRevision =
+		Material->GetMaterialCompileStatus().AuthoredRevision;
+
+	const FMaterialGraphNodePresentation StalePreview{NodeId, 640, 360};
+	const FMaterialGraphCommandResult Rejected =
+		MoveSession.Apply(std::span(&StalePreview, 1));
+	EXPECT_EQ(Rejected.Status, EMaterialGraphCommandStatus::Rejected);
+	EXPECT_FALSE(MoveSession.IsActive());
+	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision,
+		SemanticRevision);
+	EXPECT_FLOAT_EQ(Material->GetMaterialProgram()->Outputs.RoughnessDefault.X,
+		0.37f);
+	const FMaterialGraphView RestoredView =
+		FMaterialGraphOperations::Inspect(*Material);
+	const FMaterialGraphNodeView* Restored = FindViewNode(RestoredView, NodeId);
+	ASSERT_NE(Restored, nullptr);
+	EXPECT_EQ(Restored->Presentation.X, 40);
+	EXPECT_EQ(Restored->Presentation.Y, 80);
+
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests,
 	MaterialOutputPromotionTextureAndDisconnectAreAtomic)
 {
 	InitializeDObjectSystem();
@@ -1186,11 +1249,15 @@ TEST(FMaterialGraphOperationsTests,
 	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
 		CompileGeneration);
 	ASSERT_TRUE(Session.Commit());
+	ASSERT_TRUE(FMaterialGraphOperations::MoveMaterialOutput(
+		*Material, 713, -91));
 
 	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Material->GetVectorParameterValue(
 		MaterialParameters::BaseColorName(), BaseColor));
 	EXPECT_EQ(BaseColor, OriginalBaseColor);
+	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputX, 713);
+	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputY, -91);
 	ASSERT_TRUE(Transactions->Redo());
 	ASSERT_TRUE(Material->GetVectorParameterValue(
 		MaterialParameters::BaseColorName(), BaseColor));
@@ -1205,6 +1272,43 @@ TEST(FMaterialGraphOperationsTests,
 	EXPECT_EQ(BaseColor, FVector3(0.7, 0.8, 0.9));
 	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
 		CompileGeneration);
+
+	Transactions->Reset();
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
+TEST(FMaterialGraphOperationsTests,
+	CompactTransactionAccountingExcludesUnchangedProgramSnapshots)
+{
+	InitializeDObjectSystem();
+	DMaterial* Material = MakeExpandedGraphMaterial("CompactGraphTransactions");
+	ASSERT_NE(Material, nullptr);
+	ASSERT_FALSE(Material->GetMaterialProgram()->Nodes.empty());
+	const FGuid NodeId = Material->GetMaterialProgram()->Nodes.front().Id;
+	const auto OriginalPosition = std::ranges::find(
+		Material->GetMaterialGraphPresentation().Nodes, NodeId,
+		&FMaterialGraphNodePresentation::NodeId);
+	ASSERT_NE(OriginalPosition,
+		Material->GetMaterialGraphPresentation().Nodes.end());
+	Durin::Tests::FTestTransactorOwner Transactions;
+
+	const FMaterialGraphNodePresentation Moved{
+		NodeId, OriginalPosition->X + 17, OriginalPosition->Y + 29};
+	ASSERT_TRUE(FMaterialGraphOperations::MoveNodes(
+		*Material, std::span(&Moved, 1), Transactions.Get()));
+	const size_t PresentationTransactionBytes = Transactions->GetOwnedBytes();
+	EXPECT_GT(PresentationTransactionBytes, 0u);
+
+	ASSERT_TRUE(Transactions->Reset());
+	const float Roughness =
+		Material->GetMaterialProgram()->Outputs.RoughnessDefault.X;
+	ASSERT_TRUE(FMaterialGraphOperations::SetSurfaceDefault(*Material, {
+		.Output = EMaterialSurfaceOutput::Roughness,
+		.Value = {Roughness == 0.41f ? 0.42f : 0.41f, 0.0f, 0.0f, 0.0f}},
+		Transactions.Get()));
+	const size_t SemanticTransactionBytes = Transactions->GetOwnedBytes();
+	EXPECT_GT(SemanticTransactionBytes, PresentationTransactionBytes);
 
 	Transactions->Reset();
 	MarkAsGarbage(Material);
