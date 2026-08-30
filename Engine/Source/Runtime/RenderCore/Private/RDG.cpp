@@ -10,17 +10,14 @@ namespace Durin
 		{
 			std::string Name;
 			ERDGResourceKind Kind = ERDGResourceKind::Texture;
-			FRHITexture* Texture = nullptr;
-			FRHIBuffer* Buffer = nullptr;
-			FTextureRHIRef TextureOwnership;
-			FBufferRHIRef BufferOwnership;
+			FTextureRHIRef Texture;
+			FBufferRHIRef Buffer;
 			FRHITextureDesc TextureDesc;
 			FRHIBufferDesc BufferDesc;
 			uint32 ObservationTag = 0;
 			ERHIAccess InitialAccess = ERHIAccess::Discard;
 			ERHIAccess FinalAccess = ERHIAccess::None;
-			bool bImported = false;
-			bool bRequiresBacking = false;
+			bool bExternal = false;
 			const void* ValueTypeIdentity = nullptr;
 			std::string ValueTypeName;
 			uint32 ValueStorageIndex = std::numeric_limits<uint32>::max();
@@ -48,10 +45,48 @@ namespace Durin
 			bool bStore = true;
 			bool bPassManagedTransition = false;
 			ERHIAccess ResultAccess = ERHIAccess::None;
-			std::string ParameterPath;
-			std::string ShaderBindingName;
+			std::string_view ParameterPath;
+			std::string_view ShaderBindingName;
 			ERHIBindingType ShaderBindingType = ERHIBindingType::Texture;
 		};
+
+		using FOptionalAlias = std::pair<uint32, uint32>;
+		static_assert(sizeof(FOptionalAlias) == 8);
+
+		struct FOptionalAliasTable final
+		{
+			FOptionalAliasTable() = default;
+			explicit FOptionalAliasTable(std::span<const FOptionalAlias> Aliases)
+				: Data(Aliases.empty()
+					? nullptr : std::make_unique<FOptionalAlias[]>(Aliases.size())),
+				  Count(static_cast<uint32>(Aliases.size()))
+			{
+				std::ranges::copy(Aliases, Data.get());
+			}
+			FOptionalAliasTable(const FOptionalAliasTable& Other)
+				: FOptionalAliasTable(Other.View())
+			{
+			}
+			auto operator=(const FOptionalAliasTable& Other)
+				-> FOptionalAliasTable&
+			{
+				if (this != &Other)
+					*this = FOptionalAliasTable(Other);
+				return *this;
+			}
+			FOptionalAliasTable(FOptionalAliasTable&&) noexcept = default;
+			auto operator=(FOptionalAliasTable&&) noexcept
+				-> FOptionalAliasTable& = default;
+
+			auto View() const -> std::span<const FOptionalAlias>
+			{
+				return {Data.get(), Count};
+			}
+
+			std::unique_ptr<FOptionalAlias[]> Data;
+			uint32 Count = 0;
+		};
+		static_assert(sizeof(FOptionalAliasTable) == 16);
 
 		struct FGraphPass
 		{
@@ -64,8 +99,9 @@ namespace Durin
 			bool bRoot = false;
 			std::string RootReason;
 			bool bParameterized = false;
-			const FRDGParametersMetadata* ParametersMetadata = nullptr;
+			const FRDGParameterLayout* ParameterLayout = nullptr;
 			const void* Parameters = nullptr;
+			FOptionalAliasTable OptionalAliases;
 			std::vector<FRDGParameterCapture> ParameterCaptures;
 		};
 
@@ -91,6 +127,7 @@ namespace Durin
 			void* Data = nullptr;
 			size_t Alignment = 0;
 			void (*Destroy)(void*) = nullptr;
+			const FRDGParameterLayout* Layout = nullptr;
 			bool bConstructed = false;
 			bool bFrozen = false;
 		};
@@ -205,7 +242,7 @@ namespace Durin
 				&& BufferDescriptionsEqual(NormalizedActual, Required);
 		}
 
-		auto DescribeImportContract(const FGraphResource& Resource) -> std::string
+		auto DescribeExternalContract(const FGraphResource& Resource) -> std::string
 		{
 			std::ostringstream Stream;
 			Stream << "kind=";
@@ -238,8 +275,7 @@ namespace Durin
 			return Stream.str();
 		}
 
-		auto ImportContractsEqual(const FGraphResource& Left,
-			const FGraphResource& Right) -> bool
+		auto ExternalContractsEqual(const FGraphResource& Left, const FGraphResource& Right) -> bool
 		{
 			if (Left.Kind != Right.Kind
 				|| Left.InitialAccess != Right.InitialAccess
@@ -530,6 +566,13 @@ namespace Durin
 						+ "' has a mismatched wrapper layout";
 					return false;
 				}
+				if (Member.bOptional
+					!= (Member.ReadOptionalValueAddress != nullptr))
+				{
+					OutError = Prefix + " member '" + Member.Name
+						+ "' has inconsistent optional layout";
+					return false;
+				}
 
 				const bool bTextureKind = Member.ResourceKind
 					== ERDGResourceKind::Texture;
@@ -684,7 +727,11 @@ namespace Durin
 		{
 			std::string Prefix = "pass '" + Pass.Name + "'";
 			if (!Use.ParameterPath.empty())
-				Prefix += " parameter '" + Use.ParameterPath + "'";
+			{
+				Prefix += " parameter '";
+				Prefix.append(Use.ParameterPath);
+				Prefix += "'";
+			}
 			return Prefix;
 		}
 
@@ -815,8 +862,11 @@ namespace Durin
 							+ " declares overlapping uses of resource '"
 							+ Resource.Name + "' with ";
 						if (!Pass.Uses[OtherUse].ParameterPath.empty())
-							OutError += "parameter '"
-								+ Pass.Uses[OtherUse].ParameterPath + "'";
+							{
+								OutError += "parameter '";
+								OutError.append(Pass.Uses[OtherUse].ParameterPath);
+								OutError += "'";
+							}
 						else OutError += "an earlier manual declaration";
 						return false;
 					}
@@ -825,11 +875,106 @@ namespace Durin
 		}
 	} // namespace
 
+	auto BuildRDGParameterLayout(const FRDGParametersMetadata* Metadata,
+		uint32 ExpectedSize, uint32 ExpectedAlignment)
+		-> FRDGParameterLayoutBuildResult
+	{
+		FRDGParameterLayoutBuildResult Result;
+		if (!ValidateParameterMetadata(Metadata, ExpectedSize,
+			ExpectedAlignment, Result.Error)
+			|| !ValidateShaderCompositionMetadata(Metadata, Result.Error))
+			return Result;
+
+		auto Layout = std::make_unique<FRDGParameterLayout>();
+		Layout->Metadata = Metadata;
+		std::function<void(const FRDGParametersMetadata*, uint32,
+			const std::string&)> Flatten;
+		Flatten = [&](const FRDGParametersMetadata* StructMetadata,
+			uint32 BaseOffset, const std::string& ParentPath) {
+			for (const FRDGParameterMemberMetadata& Member : StructMetadata->Members)
+			{
+				const uint32 MemberOffset = BaseOffset + Member.Offset;
+				const std::string MemberPath = ParentPath.empty()
+					? std::string(Member.Name) : ParentPath + "." + Member.Name;
+				if (Member.Kind == ERDGParameterMemberKind::Nested)
+				{
+					for (uint32 ElementIndex = 0;
+						ElementIndex < Member.ArraySize; ++ElementIndex)
+					{
+						std::string ElementPath = MemberPath;
+						if (Member.ArraySize > 1)
+							ElementPath += "[" + std::to_string(ElementIndex) + "]";
+						Flatten(Member.NestedParameters,
+							MemberOffset + ElementIndex * Member.ElementSize,
+							ElementPath);
+					}
+					continue;
+				}
+
+				const uint32 LeafIndex = static_cast<uint32>(Layout->Leaves.size());
+				const uint32 FirstElementIndex =
+					static_cast<uint32>(Layout->Elements.size());
+				Layout->Leaves.push_back({&Member, MemberOffset,
+					FirstElementIndex, MemberPath});
+				for (uint32 ElementIndex = 0;
+					ElementIndex < Member.ArraySize; ++ElementIndex)
+				{
+					const uint32 FlatElementIndex =
+						static_cast<uint32>(Layout->Elements.size());
+					std::string FieldPath = std::string(Metadata->StructName)
+						+ "." + MemberPath;
+					if (Member.ArraySize > 1)
+						FieldPath += "[" + std::to_string(ElementIndex) + "]";
+					Layout->Elements.push_back({
+						.Offset = MemberOffset + ElementIndex * Member.ElementSize,
+						.LeafIndex = LeafIndex,
+						.ArrayElementIndex = ElementIndex,
+						.FieldPath = std::move(FieldPath),
+					});
+					auto AddCategory = [&](std::vector<uint32>& Category) {
+						Category.push_back(FlatElementIndex);
+					};
+					switch (Member.Kind)
+					{
+					case ERDGParameterMemberKind::Texture:
+					case ERDGParameterMemberKind::ManagedTexture:
+						AddCategory(Layout->TextureElements); break;
+					case ERDGParameterMemberKind::Buffer:
+						AddCategory(Layout->BufferElements); break;
+					case ERDGParameterMemberKind::ValueRead:
+					case ERDGParameterMemberKind::ValueWrite:
+						AddCategory(Layout->ValueElements); break;
+					case ERDGParameterMemberKind::Token:
+						AddCategory(Layout->TokenElements); break;
+					case ERDGParameterMemberKind::ColorAttachment:
+					case ERDGParameterMemberKind::DepthStencilAttachment:
+					case ERDGParameterMemberKind::ManagedColorAttachment:
+					case ERDGParameterMemberKind::ManagedDepthStencilAttachment:
+						AddCategory(Layout->AttachmentElements); break;
+					case ERDGParameterMemberKind::Nested: break;
+					}
+				}
+				if (Member.bShaderBinding)
+					Layout->ShaderBindings.push_back({Member.ShaderBindingName,
+						LeafIndex});
+			}
+		};
+		Flatten(Metadata, 0, {});
+		Layout->OffsetIndex.resize(Layout->Elements.size());
+		std::iota(Layout->OffsetIndex.begin(), Layout->OffsetIndex.end(), 0u);
+		std::ranges::sort(Layout->OffsetIndex, {},
+			[&](uint32 Index) { return Layout->Elements[Index].Offset; });
+		std::ranges::sort(Layout->ShaderBindings, {},
+			&FRDGParameterShaderBinding::Name);
+		Result.Layout = std::move(Layout);
+		return Result;
+	}
+
 	struct FRDGBuilder::FState
 	{
 		uint64 Owner = 0;
 		std::vector<FGraphResource> Resources;
-		std::unordered_map<const void*, uint32> ImportedResources;
+		std::unordered_map<const void*, uint32> ExternalResources;
 		std::vector<FGraphPass> Passes;
 		std::vector<std::string> DeclarationErrors;
 		std::vector<FGraphExtraction> Extractions;
@@ -844,23 +989,29 @@ namespace Durin
 
 	struct FRDGCompiledGraph::FState
 	{
+		// Keeps all execution-only state for one scheduled pass in one record.
+		struct FCompiledPassRuntime final
+		{
+			FRDGPassExecute Execute;
+			FRDGParameterizedPassExecute ParameterizedExecute;
+			const FRDGParameterLayout* ParameterLayout = nullptr;
+			const void* Parameters = nullptr;
+			FOptionalAliasTable OptionalAliases;
+			std::vector<uint32> ResourceIndices;
+			std::vector<std::pair<uint32, ERDGUse>> ValueUses;
+			std::vector<uint32> BufferTransitionResources;
+			std::vector<uint32> TextureTransitionResources;
+		};
+
 		uint64 Owner = 0;
 		std::vector<FGraphResource> Resources;
 		std::vector<FRDGCompiledPass> Passes;
+		std::vector<FCompiledPassRuntime> RuntimePasses;
 		std::vector<FRDGDependency> Dependencies;
 		std::vector<FRDGResourceLifetime> ResourceLifetimes;
 		std::vector<FRDGCullingDecision> CullingDecisions;
 		std::vector<FRHIBufferTransition> FinalBufferTransitions;
 		std::vector<FRHITextureTransition> FinalTextureTransitions;
-		std::vector<FRDGPassExecute> ExecuteCallbacks;
-		std::vector<FRDGParameterizedPassExecute> ParameterizedExecuteCallbacks;
-		std::vector<const FRDGParametersMetadata*> PassParametersMetadata;
-		std::vector<const void*> PassParameters;
-		std::vector<std::vector<uint32>> PassResourceIndices;
-		std::vector<std::vector<std::pair<uint32, ERDGUse>>>
-			PassValueUses;
-		std::vector<std::vector<uint32>> PassBufferTransitionResources;
-		std::vector<std::vector<uint32>> PassTextureTransitionResources;
 		std::vector<uint32> FinalBufferTransitionResources;
 		std::vector<uint32> FinalTextureTransitionResources;
 		std::vector<FRDGResourceCapture> ResourceCaptures;
@@ -889,6 +1040,7 @@ namespace Durin
 
 	auto FRDGBuilder::AllocateParameterStorage(size_t Size,
 		size_t Alignment, const FRDGParametersMetadata* Metadata,
+		const FRDGParameterLayoutBuildResult& LayoutResult,
 		void (*Destroy)(void*), std::weak_ptr<void>& OutLifetime) -> void*
 	{
 		if (State->bParameterStorageTransferred)
@@ -897,16 +1049,22 @@ namespace Durin
 				"render graph parameter storage was already transferred");
 			return nullptr;
 		}
-		std::string Error;
-		if (!ValidateParameterMetadata(Metadata, static_cast<uint32>(Size),
-			static_cast<uint32>(Alignment), Error)
-			|| !ValidateShaderCompositionMetadata(Metadata, Error))
+		if (LayoutResult.Layout == nullptr)
 		{
-			State->DeclarationErrors.push_back(std::move(Error));
+			State->DeclarationErrors.push_back(LayoutResult.Error);
+			return nullptr;
+		}
+		if (LayoutResult.Layout->Metadata != Metadata
+			|| Metadata->StructSize != Size
+			|| Metadata->StructAlignment != Alignment)
+		{
+			State->DeclarationErrors.emplace_back(
+				"render graph parameter layout does not match its typed metadata");
 			return nullptr;
 		}
 		auto Allocation = std::make_shared<FGraphParameterAllocation>(
 			Size, Alignment, Destroy);
+		Allocation->Layout = LayoutResult.Layout.get();
 		void* Data = Allocation->Data;
 		OutLifetime = Allocation;
 		State->ParameterStorage.Allocations.push_back(std::move(Allocation));
@@ -991,50 +1149,39 @@ namespace Durin
 			State->ValueStorage.Allocations[StorageIndex]->bConstructed = true;
 	}
 
-	auto FRDGBuilder::ImportTexture(std::string_view Name,
-		FRHITexture* Texture, ERHIAccess InitialAccess, ERHIAccess FinalAccess)
+	auto FRDGBuilder::RegisterExternalTexture(
+		const FTextureRHIRef& Texture, std::string_view Name,
+		ERHIAccess InitialAccess, ERHIAccess FinalAccess)
 		-> FRDGTextureHandle
 	{
 		FGraphResource Resource;
 		Resource.Name = Name;
 		Resource.Kind = ERDGResourceKind::Texture;
 		Resource.Texture = Texture;
-		if (Texture != nullptr) Resource.TextureDesc = DescribeTexture(*Texture);
+		if (Texture) Resource.TextureDesc = DescribeTexture(*Texture);
 		Resource.InitialAccess = InitialAccess;
 		Resource.FinalAccess = FinalAccess;
-		Resource.bImported = true;
-		if (Texture != nullptr)
+		Resource.bExternal = true;
+		if (Texture)
 		{
-			const auto Existing = State->ImportedResources.find(Texture);
-			if (Existing != State->ImportedResources.end())
+			const auto Existing = State->ExternalResources.find(Texture.GetReference());
+			if (Existing != State->ExternalResources.end())
 			{
 				const uint32 ExistingIndex = Existing->second;
 				const auto& Canonical = State->Resources[ExistingIndex];
-				if (!ImportContractsEqual(Canonical, Resource))
+				if (!ExternalContractsEqual(Canonical, Resource))
 					State->DeclarationErrors.emplace_back(
-						"conflicting imported physical resource: canonical '"
-						+ Canonical.Name + "' (" + DescribeImportContract(Canonical)
+						"conflicting external physical resource: canonical '"
+						+ Canonical.Name + "' (" + DescribeExternalContract(Canonical)
 						+ ") conflicts with '" + std::string(Name) + "' ("
-						+ DescribeImportContract(Resource) + ")");
+						+ DescribeExternalContract(Resource) + ")");
 				return {State->Owner, ExistingIndex};
 			}
 		}
 		const uint32 Index = static_cast<uint32>(State->Resources.size());
 		State->Resources.push_back(std::move(Resource));
-		if (Texture != nullptr) State->ImportedResources.emplace(Texture, Index);
+		if (Texture) State->ExternalResources.emplace(Texture.GetReference(), Index);
 		return {State->Owner, Index};
-	}
-
-	auto FRDGBuilder::RegisterExternalTexture(
-		const FTextureRHIRef& Texture, std::string_view Name,
-		ERHIAccess InitialAccess, ERHIAccess FinalAccess)
-		-> FRDGTextureHandle
-	{
-		const auto Handle = ImportTexture(Name, Texture.GetReference(), InitialAccess,
-			FinalAccess);
-		if (Handle.Owner == State->Owner && Handle.Index < State->Resources.size())
-			State->Resources[Handle.Index].TextureOwnership = Texture;
-		return Handle;
 	}
 
 	auto FRDGBuilder::CreateTexture(
@@ -1048,57 +1195,7 @@ namespace Durin
 		Resource.TextureDesc = Desc.Texture;
 		Resource.ObservationTag = Desc.ObservationTag;
 		Resource.FinalAccess = FinalAccess;
-		Resource.bRequiresBacking = true;
 		State->Resources.push_back(std::move(Resource));
-		return {State->Owner, Index};
-	}
-
-	auto FRDGBuilder::CreateTexture(std::string_view Name,
-		FRHITexture* Texture, ERHIAccess FinalAccess)
-		-> FRDGTextureHandle
-	{
-		const uint32 Index = static_cast<uint32>(State->Resources.size());
-		FGraphResource Resource;
-		Resource.Name = Name;
-		Resource.Kind = ERDGResourceKind::Texture;
-		Resource.Texture = Texture;
-		if (Texture != nullptr) Resource.TextureDesc = DescribeTexture(*Texture);
-		Resource.FinalAccess = FinalAccess;
-		State->Resources.push_back(std::move(Resource));
-		return {State->Owner, Index};
-	}
-
-	auto FRDGBuilder::ImportBuffer(std::string_view Name,
-		FRHIBuffer* Buffer, ERHIAccess InitialAccess, ERHIAccess FinalAccess)
-		-> FRDGBufferHandle
-	{
-		FGraphResource Resource;
-		Resource.Name = Name;
-		Resource.Kind = ERDGResourceKind::Buffer;
-		Resource.Buffer = Buffer;
-		if (Buffer != nullptr) Resource.BufferDesc = Buffer->GetDesc();
-		Resource.InitialAccess = InitialAccess;
-		Resource.FinalAccess = FinalAccess;
-		Resource.bImported = true;
-		if (Buffer != nullptr)
-		{
-			const auto Existing = State->ImportedResources.find(Buffer);
-			if (Existing != State->ImportedResources.end())
-			{
-				const uint32 ExistingIndex = Existing->second;
-				const auto& Canonical = State->Resources[ExistingIndex];
-				if (!ImportContractsEqual(Canonical, Resource))
-					State->DeclarationErrors.emplace_back(
-						"conflicting imported physical resource: canonical '"
-						+ Canonical.Name + "' (" + DescribeImportContract(Canonical)
-						+ ") conflicts with '" + std::string(Name) + "' ("
-						+ DescribeImportContract(Resource) + ")");
-				return {State->Owner, ExistingIndex};
-			}
-		}
-		const uint32 Index = static_cast<uint32>(State->Resources.size());
-		State->Resources.push_back(std::move(Resource));
-		if (Buffer != nullptr) State->ImportedResources.emplace(Buffer, Index);
 		return {State->Owner, Index};
 	}
 
@@ -1106,11 +1203,34 @@ namespace Durin
 		std::string_view Name, ERHIAccess InitialAccess,
 		ERHIAccess FinalAccess) -> FRDGBufferHandle
 	{
-		const auto Handle = ImportBuffer(Name, Buffer.GetReference(), InitialAccess,
-			FinalAccess);
-		if (Handle.Owner == State->Owner && Handle.Index < State->Resources.size())
-			State->Resources[Handle.Index].BufferOwnership = Buffer;
-		return Handle;
+		FGraphResource Resource;
+		Resource.Name = Name;
+		Resource.Kind = ERDGResourceKind::Buffer;
+		Resource.Buffer = Buffer;
+		if (Buffer) Resource.BufferDesc = Buffer->GetDesc();
+		Resource.InitialAccess = InitialAccess;
+		Resource.FinalAccess = FinalAccess;
+		Resource.bExternal = true;
+		if (Buffer)
+		{
+			const auto Existing = State->ExternalResources.find(Buffer.GetReference());
+			if (Existing != State->ExternalResources.end())
+			{
+				const uint32 ExistingIndex = Existing->second;
+				const auto& Canonical = State->Resources[ExistingIndex];
+				if (!ExternalContractsEqual(Canonical, Resource))
+					State->DeclarationErrors.emplace_back(
+						"conflicting external physical resource: canonical '"
+						+ Canonical.Name + "' (" + DescribeExternalContract(Canonical)
+						+ ") conflicts with '" + std::string(Name) + "' ("
+						+ DescribeExternalContract(Resource) + ")");
+				return {State->Owner, ExistingIndex};
+			}
+		}
+		const uint32 Index = static_cast<uint32>(State->Resources.size());
+		State->Resources.push_back(std::move(Resource));
+		if (Buffer) State->ExternalResources.emplace(Buffer.GetReference(), Index);
+		return {State->Owner, Index};
 	}
 
 	auto FRDGBuilder::CreateBuffer(const FRDGBufferDesc& Desc,
@@ -1123,22 +1243,6 @@ namespace Durin
 		Resource.Kind = ERDGResourceKind::Buffer;
 		Resource.BufferDesc = Desc.Buffer;
 		Resource.ObservationTag = Desc.ObservationTag;
-		Resource.FinalAccess = FinalAccess;
-		Resource.bRequiresBacking = true;
-		State->Resources.push_back(std::move(Resource));
-		return {State->Owner, Index};
-	}
-
-	auto FRDGBuilder::CreateBuffer(std::string_view Name,
-		FRHIBuffer* Buffer, ERHIAccess FinalAccess)
-		-> FRDGBufferHandle
-	{
-		const uint32 Index = static_cast<uint32>(State->Resources.size());
-		FGraphResource Resource;
-		Resource.Name = Name;
-		Resource.Kind = ERDGResourceKind::Buffer;
-		Resource.Buffer = Buffer;
-		if (Buffer != nullptr) Resource.BufferDesc = Buffer->GetDesc();
 		Resource.FinalAccess = FinalAccess;
 		State->Resources.push_back(std::move(Resource));
 		return {State->Owner, Index};
@@ -1238,11 +1342,13 @@ namespace Durin
 
 	auto FRDGBuilder::AddParameterizedPass(std::string_view Name,
 		ERDGPassType Type,
-		const FRDGParametersMetadata* Metadata, void* Parameters,
+		const FRDGParameterLayout* Layout, void* Parameters,
 		std::shared_ptr<void> Lifetime, FRDGPassExecute Execute,
 		FRDGParameterizedPassExecute ParameterizedExecute)
 		-> FRDGPassHandle
 	{
+		const FRDGParametersMetadata* Metadata = Layout != nullptr
+			? Layout->Metadata : nullptr;
 		const std::string StructName = Metadata != nullptr
 			&& Metadata->StructName != nullptr ? Metadata->StructName : "FParameters";
 		const std::string RootPrefix = "pass '" + std::string(Name)
@@ -1253,8 +1359,9 @@ namespace Durin
 				return Candidate.get() == Lifetime.get()
 					&& Candidate->Data == Parameters;
 			});
-		if (Parameters == nullptr || Lifetime == nullptr
-			|| Allocation == State->ParameterStorage.Allocations.end())
+		if (Parameters == nullptr || Lifetime == nullptr || Layout == nullptr
+			|| Allocation == State->ParameterStorage.Allocations.end()
+			|| (*Allocation)->Layout != Layout)
 		{
 			State->DeclarationErrors.push_back(
 				RootPrefix + " has an invalid or foreign parameter allocation");
@@ -1274,30 +1381,31 @@ namespace Durin
 		ParameterizedPass.Execute = std::move(Execute);
 		ParameterizedPass.ParameterizedExecute = std::move(ParameterizedExecute);
 		ParameterizedPass.bParameterized = true;
-		ParameterizedPass.ParametersMetadata = Metadata;
+		ParameterizedPass.ParameterLayout = Layout;
 		ParameterizedPass.Parameters = Parameters;
 
-		std::function<void(const void*, const FRDGParametersMetadata*,
-			const std::string&)> Traverse;
-		Traverse = [&](const void* StructData,
-			const FRDGParametersMetadata* StructMetadata,
-			const std::string& ParentPath) {
-			const auto* Bytes = static_cast<const std::byte*>(StructData);
-			for (const auto& Member : StructMetadata->Members)
+		std::vector<FOptionalAlias> OptionalAliases;
+		const auto* Bytes = static_cast<const std::byte*>(Parameters);
+		for (uint32 LayoutElementIndex = 0;
+			LayoutElementIndex < Layout->Elements.size(); ++LayoutElementIndex)
+		{
+			const FRDGParameterLayoutElement& Element =
+				Layout->Elements[LayoutElementIndex];
+			const FRDGParameterMemberMetadata& Member =
+				*Layout->Leaves[Element.LeafIndex].Metadata;
+			const void* ElementData = Bytes + Element.Offset;
+			const std::string& FieldPath = Element.FieldPath;
+			if (Member.bOptional && Member.ReadOptionalValueAddress != nullptr)
 			{
-				for (uint32 ElementIndex = 0;
-					ElementIndex < Member.ArraySize; ++ElementIndex)
+				const void* ValueAddress = Member.ReadOptionalValueAddress(ElementData);
+				if (ValueAddress != nullptr)
 				{
-					const void* ElementData = Bytes + Member.Offset
-						+ static_cast<size_t>(ElementIndex) * Member.ElementSize;
-					std::string FieldPath = ParentPath + "." + Member.Name;
-					if (Member.ArraySize > 1)
-						FieldPath += "[" + std::to_string(ElementIndex) + "]";
-					if (Member.Kind == ERDGParameterMemberKind::Nested)
-					{
-						Traverse(ElementData, Member.NestedParameters, FieldPath);
-						continue;
-					}
+					const auto AliasOffset = static_cast<uint32>(
+						static_cast<const std::byte*>(ValueAddress) - Bytes);
+					OptionalAliases.emplace_back(
+						AliasOffset, LayoutElementIndex);
+				}
+			}
 
 					FGraphUse DeclaredUse;
 					DeclaredUse.Kind = Member.ResourceKind;
@@ -1433,15 +1541,15 @@ namespace Durin
 						.bPassManagedTransition =
 							DeclaredUse.bPassManagedTransition,
 						.ResultAccess = DeclaredUse.ResultAccess,
-						.ShaderBindingName = DeclaredUse.ShaderBindingName,
+						.ShaderBindingName = std::string(
+							DeclaredUse.ShaderBindingName),
 						.ShaderBindingType = DeclaredUse.ShaderBindingType,
 					});
 					if (bPresent)
 						ParameterizedPass.Uses.push_back(std::move(DeclaredUse));
-				}
-			}
-		};
-		Traverse(Parameters, Metadata, StructName);
+		}
+		std::ranges::sort(OptionalAliases);
+		ParameterizedPass.OptionalAliases = FOptionalAliasTable(OptionalAliases);
 
 		std::string UseError;
 		if (!ValidatePassUses(ParameterizedPass, State->Resources, UseError))
@@ -1690,12 +1798,11 @@ namespace Durin
 			const auto& Resource = State->Resources[ResourceIndex];
 			if (Resource.Name.empty())
 				return Fail("resource[" + std::to_string(ResourceIndex) + "] has an empty name");
-			if (Resource.Kind != ERDGResourceKind::Token
-				&& !Resource.bRequiresBacking && Resource.Texture == nullptr
-				&& Resource.Buffer == nullptr)
+			if (Resource.bExternal
+				&& !Resource.Texture && !Resource.Buffer)
 				return Fail("resource '" + Resource.Name + "' has no physical resource");
-			if (Resource.bImported && Resource.FinalAccess == ERHIAccess::None)
-				return Fail("imported resource '" + Resource.Name + "' has no final access");
+			if (Resource.bExternal && Resource.FinalAccess == ERHIAccess::None)
+				return Fail("external resource '" + Resource.Name + "' has no final access");
 			if (EnumHasAnyFlags(Resource.FinalAccess, ERHIAccess::Discard))
 				return Fail("resource '" + Resource.Name + "' has invalid final access");
 			for (uint32 Other = 0; Other < ResourceIndex; ++Other)
@@ -1703,11 +1810,6 @@ namespace Durin
 				const auto& Previous = State->Resources[Other];
 				if (Previous.Name == Resource.Name)
 					return Fail("duplicate resource name '" + Resource.Name + "'");
-				if (Resource.bImported && Previous.bImported
-					&& Resource.Kind == Previous.Kind
-					&& ((Resource.Texture != nullptr && Resource.Texture == Previous.Texture)
-						|| (Resource.Buffer != nullptr && Resource.Buffer == Previous.Buffer)))
-					return Fail("duplicate imported physical resource '" + Resource.Name + "'");
 			}
 		}
 
@@ -1802,7 +1904,7 @@ namespace Durin
 			{
 				FRangeState Cell;
 				Cell.Use = *Uses.front();
-				Cell.bProduced = Resource.bImported;
+				Cell.bProduced = Resource.bExternal;
 				Cell.Access = Resource.InitialAccess;
 				Cells.push_back(std::move(Cell));
 				continue;
@@ -1827,7 +1929,7 @@ namespace Durin
 						continue;
 					FRangeState Cell;
 					Cell.Use = CellUse;
-					Cell.bProduced = Resource.bImported;
+					Cell.bProduced = Resource.bExternal;
 					Cell.Access = Resource.InitialAccess;
 					Cells.push_back(std::move(Cell));
 				}
@@ -1862,7 +1964,7 @@ namespace Durin
 							continue;
 						FRangeState Cell;
 						Cell.Use = CellUse;
-						Cell.bProduced = Resource.bImported;
+						Cell.bProduced = Resource.bExternal;
 						Cell.Access = Resource.InitialAccess;
 						Cells.push_back(std::move(Cell));
 					}
@@ -1956,17 +2058,10 @@ namespace Durin
 		CompiledState->Extractions = State->Extractions;
 		CompiledState->Budget = State->Budget;
 		CompiledState->Passes.reserve(PassCount);
+		CompiledState->RuntimePasses.reserve(PassCount);
 		CompiledState->Dependencies.reserve(Dependencies.size());
 		CompiledState->ResourceLifetimes.reserve(ResourceCount);
 		CompiledState->CullingDecisions.reserve(PassCount);
-		CompiledState->ExecuteCallbacks.reserve(PassCount);
-		CompiledState->ParameterizedExecuteCallbacks.reserve(PassCount);
-		CompiledState->PassParametersMetadata.reserve(PassCount);
-		CompiledState->PassParameters.reserve(PassCount);
-		CompiledState->PassResourceIndices.reserve(PassCount);
-		CompiledState->PassValueUses.reserve(PassCount);
-		CompiledState->PassBufferTransitionResources.reserve(PassCount);
-		CompiledState->PassTextureTransitionResources.reserve(PassCount);
 		CompiledState->ResourceCaptures.reserve(ResourceCount);
 		for (const auto& Pass : State->Passes)
 			CompiledState->ParameterCaptures.insert(
@@ -1981,10 +2076,8 @@ namespace Durin
 		for (uint32 ResourceIndex = 0; ResourceIndex < State->Resources.size(); ++ResourceIndex)
 		{
 			const auto& Resource = State->Resources[ResourceIndex];
-			CompiledState->ResourceLifetimes.push_back({Resource.Name,
-				std::numeric_limits<uint32>::max(), 0, Resource.bImported, true});
-			CompiledState->ResourceCaptures.push_back({ResourceIndex, Resource.Name,
-				Resource.Kind, Resource.bImported, "unused"});
+			CompiledState->ResourceLifetimes.push_back({Resource.Name, std::numeric_limits<uint32>::max(), 0, Resource.bExternal, true});
+			CompiledState->ResourceCaptures.push_back({ResourceIndex, Resource.Name, Resource.Kind, Resource.bExternal, "unused"});
 			auto& Capture = CompiledState->ResourceCaptures.back();
 			Capture.ValueType = Resource.ValueTypeName;
 			Capture.TextureFormat = Resource.TextureDesc.Format;
@@ -2005,7 +2098,7 @@ namespace Durin
 		{
 			const auto& Resource = State->Resources[Cell.Use.ResourceIndex];
 			Cell.Access = Resource.InitialAccess;
-			Cell.bProduced = Resource.bImported;
+			Cell.bProduced = Resource.bExternal;
 			Cell.Version = 0;
 		}
 		for (uint32 ScheduledIndex : Order)
@@ -2015,24 +2108,28 @@ namespace Durin
 			const uint32 CompiledPassIndex = static_cast<uint32>(CompiledState->Passes.size());
 			FRDGCompiledPass CompiledPass{.Name = Pass.Name, .Type = Pass.Type,
 				.DeclarationIndex = ScheduledIndex,
-				.ParameterStructName = Pass.ParametersMetadata != nullptr
-					&& Pass.ParametersMetadata->StructName != nullptr
-					? Pass.ParametersMetadata->StructName : ""};
-			std::vector<uint32> DeclaredResources;
-			std::vector<std::pair<uint32, ERDGUse>> DeclaredValueUses;
-			std::vector<uint32> BufferTransitionResources;
-			std::vector<uint32> TextureTransitionResources;
-			DeclaredResources.reserve(Pass.Uses.size());
-			BufferTransitionResources.reserve(Pass.Uses.size());
-			TextureTransitionResources.reserve(Pass.Uses.size());
+				.ParameterStructName = Pass.ParameterLayout != nullptr
+					&& Pass.ParameterLayout->Metadata->StructName != nullptr
+					? Pass.ParameterLayout->Metadata->StructName : ""};
+			FRDGCompiledGraph::FState::FCompiledPassRuntime Runtime{
+				.Execute = Pass.Execute,
+				.ParameterizedExecute = Pass.ParameterizedExecute,
+				.ParameterLayout = Pass.ParameterLayout,
+				.Parameters = Pass.Parameters,
+				.OptionalAliases = Pass.OptionalAliases};
+			Runtime.ResourceIndices.reserve(Pass.Uses.size());
+			Runtime.ValueUses.reserve(Pass.Uses.size());
+			Runtime.BufferTransitionResources.reserve(Pass.Uses.size());
+			Runtime.TextureTransitionResources.reserve(Pass.Uses.size());
 			CompiledPass.BufferTransitions.reserve(Pass.Uses.size());
 			CompiledPass.TextureTransitions.reserve(Pass.Uses.size());
 			for (const auto& Use : Pass.Uses)
 			{
-				if (std::ranges::find(DeclaredResources, Use.ResourceIndex) == DeclaredResources.end())
-					DeclaredResources.push_back(Use.ResourceIndex);
+				if (std::ranges::find(Runtime.ResourceIndices, Use.ResourceIndex)
+					== Runtime.ResourceIndices.end())
+					Runtime.ResourceIndices.push_back(Use.ResourceIndex);
 				if (State->Resources[Use.ResourceIndex].ValueTypeIdentity != nullptr)
-					DeclaredValueUses.emplace_back(Use.ResourceIndex, Use.Use);
+					Runtime.ValueUses.emplace_back(Use.ResourceIndex, Use.Use);
 				auto& Lifetime = CompiledState->ResourceLifetimes[Use.ResourceIndex];
 				Lifetime.FirstPass = std::min(Lifetime.FirstPass, CompiledPassIndex);
 				Lifetime.LastPass = CompiledPassIndex;
@@ -2048,15 +2145,13 @@ namespace Durin
 					{
 						if (Use.Kind == ERDGResourceKind::Texture)
 						{
-							CompiledPass.TextureTransitions.push_back({Resource.Texture,
-								Cell.Use.TextureRange, Before, Use.Access});
-							TextureTransitionResources.push_back(Use.ResourceIndex);
+							CompiledPass.TextureTransitions.push_back({Resource.Texture.GetReference(), Cell.Use.TextureRange, Before, Use.Access});
+							Runtime.TextureTransitionResources.push_back(Use.ResourceIndex);
 						}
 						else
 						{
-							CompiledPass.BufferTransitions.push_back({Resource.Buffer,
-								Cell.Use.BufferOffset, Cell.Use.BufferSize, Before, Use.Access});
-							BufferTransitionResources.push_back(Use.ResourceIndex);
+							CompiledPass.BufferTransitions.push_back({Resource.Buffer.GetReference(), Cell.Use.BufferOffset, Cell.Use.BufferSize, Before, Use.Access});
+							Runtime.BufferTransitionResources.push_back(Use.ResourceIndex);
 						}
 						CompiledState->TransitionCaptures.push_back({Use.ResourceIndex,
 							CompiledPassIndex, Before, Use.Access, Cell.Use.TextureRange,
@@ -2068,15 +2163,13 @@ namespace Durin
 						{
 							if (Use.Kind == ERDGResourceKind::Texture)
 							{
-								CompiledPass.TextureTransitions.push_back({Resource.Texture,
-									Cell.Use.TextureRange, Before, Use.Access});
-								TextureTransitionResources.push_back(Use.ResourceIndex);
+								CompiledPass.TextureTransitions.push_back({Resource.Texture.GetReference(), Cell.Use.TextureRange, Before, Use.Access});
+								Runtime.TextureTransitionResources.push_back(Use.ResourceIndex);
 							}
 							else
 							{
-								CompiledPass.BufferTransitions.push_back({Resource.Buffer,
-									Cell.Use.BufferOffset, Cell.Use.BufferSize, Before, Use.Access});
-								BufferTransitionResources.push_back(Use.ResourceIndex);
+								CompiledPass.BufferTransitions.push_back({Resource.Buffer.GetReference(), Cell.Use.BufferOffset, Cell.Use.BufferSize, Before, Use.Access});
+								Runtime.BufferTransitionResources.push_back(Use.ResourceIndex);
 							}
 						}
 						CompiledState->TransitionCaptures.push_back({Use.ResourceIndex,
@@ -2091,7 +2184,8 @@ namespace Durin
 					CompiledState->UseCaptures.push_back({ScheduledIndex, Use.ResourceIndex,
 						Use.Use, Use.Access, Cell.Use.TextureRange, Cell.Use.BufferOffset,
 						Cell.Use.BufferSize, Cell.Version, Use.bDiscard, Use.bStore,
-						Use.ParameterPath, Use.ShaderBindingName,
+						std::string(Use.ParameterPath),
+						std::string(Use.ShaderBindingName),
 						Use.ShaderBindingType});
 					Cell.Access = Use.Kind == ERDGResourceKind::Token
 						? ERHIAccess::None : (Use.bStore
@@ -2101,17 +2195,7 @@ namespace Durin
 				}
 			}
 			CompiledState->Passes.push_back(std::move(CompiledPass));
-			CompiledState->ExecuteCallbacks.push_back(Pass.Execute);
-			CompiledState->ParameterizedExecuteCallbacks.push_back(
-				Pass.ParameterizedExecute);
-			CompiledState->PassParametersMetadata.push_back(Pass.ParametersMetadata);
-			CompiledState->PassParameters.push_back(Pass.Parameters);
-			CompiledState->PassResourceIndices.push_back(std::move(DeclaredResources));
-			CompiledState->PassValueUses.push_back(std::move(DeclaredValueUses));
-			CompiledState->PassBufferTransitionResources.push_back(
-				std::move(BufferTransitionResources));
-			CompiledState->PassTextureTransitionResources.push_back(
-				std::move(TextureTransitionResources));
+			CompiledState->RuntimePasses.push_back(std::move(Runtime));
 		}
 
 		for (const auto& Cell : ExecutionCells)
@@ -2123,15 +2207,13 @@ namespace Durin
 				|| Resource.FinalAccess == Cell.Access) continue;
 			if (Cell.Use.Kind == ERDGResourceKind::Texture)
 			{
-				CompiledState->FinalTextureTransitions.push_back({Resource.Texture,
-					Cell.Use.TextureRange, Cell.Access, Resource.FinalAccess});
+				CompiledState->FinalTextureTransitions.push_back({Resource.Texture.GetReference(), Cell.Use.TextureRange, Cell.Access, Resource.FinalAccess});
 				CompiledState->FinalTextureTransitionResources.push_back(
 					Cell.Use.ResourceIndex);
 			}
 			else
 			{
-				CompiledState->FinalBufferTransitions.push_back({Resource.Buffer,
-					Cell.Use.BufferOffset, Cell.Use.BufferSize, Cell.Access, Resource.FinalAccess});
+				CompiledState->FinalBufferTransitions.push_back({Resource.Buffer.GetReference(), Cell.Use.BufferOffset, Cell.Use.BufferSize, Cell.Access, Resource.FinalAccess});
 				CompiledState->FinalBufferTransitionResources.push_back(
 					Cell.Use.ResourceIndex);
 			}
@@ -2150,15 +2232,15 @@ namespace Durin
 				Capture.Preparation = "culled";
 				Capture.AllocationDisposition = "culled";
 			}
-			else if (Resource.bImported)
+			else if (Resource.bExternal)
 			{
-				Capture.Preparation = "imported";
+				Capture.Preparation = "external";
 				Capture.AllocationDisposition = "external";
 			}
-			else if (!Resource.bRequiresBacking)
+			else if (Resource.Kind == ERDGResourceKind::Token)
 			{
-				Capture.Preparation = "prebound";
-				Capture.AllocationDisposition = "prebound";
+				Capture.Preparation = "logical";
+				Capture.AllocationDisposition = "none";
 			}
 			else
 			{
@@ -2352,25 +2434,25 @@ namespace Durin
 			<< " textures=" << State->FinalTextureTransitions.size() << '\n';
 		for (const auto& Lifetime : State->ResourceLifetimes)
 			Output << "lifetime name=" << Lifetime.Name << " first="
-				<< Lifetime.FirstPass << " last=" << Lifetime.LastPass
-				<< " imported=" << Lifetime.bImported
-				<< " culled=" << Lifetime.bCulled << '\n';
+				   << Lifetime.FirstPass << " last=" << Lifetime.LastPass
+				   << " external=" << Lifetime.bExternal
+				   << " culled=" << Lifetime.bCulled << '\n';
 		for (const auto& Decision : State->CullingDecisions)
 			Output << "culling name=" << Decision.Name << " culled="
 				<< Decision.bCulled << " reason=" << Decision.Reason << '\n';
 		for (const auto& Resource : State->ResourceCaptures)
 			Output << "resource id=" << Resource.ResourceId << " name="
-				<< Resource.Name << " kind=" << static_cast<uint32>(Resource.Kind)
-				<< " imported=" << Resource.bImported << " preparation="
-				<< Resource.Preparation << " allocation="
-				<< Resource.AllocationDisposition << " allocation-id="
-				<< Resource.PhysicalAllocationId << " value-type="
-				<< Resource.ValueType << " format="
-				<< static_cast<uint32>(Resource.TextureFormat) << " extent="
-				<< Resource.TextureExtent.x << 'x' << Resource.TextureExtent.y
-				<< " layers=" << Resource.TextureArraySize << " mips="
-				<< static_cast<uint32>(Resource.TextureMips) << " buffer-size="
-				<< Resource.BufferSize << " stride=" << Resource.BufferStride << '\n';
+				   << Resource.Name << " kind=" << static_cast<uint32>(Resource.Kind)
+				   << " external=" << Resource.bExternal << " preparation="
+				   << Resource.Preparation << " allocation="
+				   << Resource.AllocationDisposition << " allocation-id="
+				   << Resource.PhysicalAllocationId << " value-type="
+				   << Resource.ValueType << " format="
+				   << static_cast<uint32>(Resource.TextureFormat) << " extent="
+				   << Resource.TextureExtent.x << 'x' << Resource.TextureExtent.y
+				   << " layers=" << Resource.TextureArraySize << " mips="
+				   << static_cast<uint32>(Resource.TextureMips) << " buffer-size="
+				   << Resource.BufferSize << " stride=" << Resource.BufferStride << '\n';
 		for (const auto& Parameter : State->ParameterCaptures)
 		{
 			Output << "parameter pass=" << Parameter.PassDeclarationIndex
@@ -2526,17 +2608,13 @@ namespace Durin
 				Capture.PhysicalAllocationId =
 					Candidate.AllocationIds[Request.ResourceId];
 				if (Request.Kind == ERDGResourceKind::Texture)
-				{
-					Resource.TextureOwnership = std::move(
-						Candidate.Textures[Request.ResourceId]);
-					Resource.Texture = Resource.TextureOwnership.GetReference();
-				}
+					Resource.Texture = std::move(
+						Candidate.Textures[Request.ResourceId]
+					);
 				else
-				{
-					Resource.BufferOwnership = std::move(
-						Candidate.Buffers[Request.ResourceId]);
-					Resource.Buffer = Resource.BufferOwnership.GetReference();
-				}
+					Resource.Buffer = std::move(
+						Candidate.Buffers[Request.ResourceId]
+					);
 			}
 		}
 		else if (!State->AllocationRequests.empty())
@@ -2549,38 +2627,36 @@ namespace Durin
 		for (uint32 Index = 0; Index < State->Passes.size(); ++Index)
 		{
 			auto& Pass = State->Passes[Index];
+			auto& Runtime = State->RuntimePasses[Index];
 			for (uint32 TransitionIndex = 0;
 				TransitionIndex < Pass.BufferTransitions.size(); ++TransitionIndex)
-				Pass.BufferTransitions[TransitionIndex].Buffer = State->Resources[
-					State->PassBufferTransitionResources[Index][TransitionIndex]].Buffer;
+				Pass.BufferTransitions[TransitionIndex].Buffer = State->Resources[Runtime.BufferTransitionResources[TransitionIndex]].Buffer.GetReference();
 			for (uint32 TransitionIndex = 0;
 				TransitionIndex < Pass.TextureTransitions.size(); ++TransitionIndex)
-				Pass.TextureTransitions[TransitionIndex].Texture = State->Resources[
-					State->PassTextureTransitionResources[Index][TransitionIndex]].Texture;
+				Pass.TextureTransitions[TransitionIndex].Texture = State->Resources[Runtime.TextureTransitionResources[TransitionIndex]].Texture.GetReference();
 			if (!Pass.BufferTransitions.empty())
 				CommandList.TransitionBuffers(Pass.BufferTransitions);
 			if (!Pass.TextureTransitions.empty())
 				CommandList.TransitionTextures(Pass.TextureTransitions);
-			if (State->ParameterizedExecuteCallbacks[Index])
+			if (Runtime.ParameterizedExecute)
 			{
 				const FRDGPassResources Resources(*this, Index);
 				const FRDGParameterResolver Resolver(Resources,
-					State->PassParametersMetadata[Index],
-					State->PassParameters[Index], Pass.Name, Pass.Type);
-				State->ParameterizedExecuteCallbacks[Index](CommandList, Resolver);
+					Runtime.ParameterLayout, Runtime.OptionalAliases.View(),
+					Runtime.Parameters,
+					Pass.Name, Pass.Type);
+				Runtime.ParameterizedExecute(CommandList, Resolver);
 			}
-			else if (State->ExecuteCallbacks[Index])
+			else if (Runtime.Execute)
 			{
 				const FRDGPassResources Resources(*this, Index);
-				State->ExecuteCallbacks[Index](CommandList, Resources);
+				Runtime.Execute(CommandList, Resources);
 			}
 		}
 		for (uint32 Index = 0; Index < State->FinalBufferTransitions.size(); ++Index)
-			State->FinalBufferTransitions[Index].Buffer = State->Resources[
-				State->FinalBufferTransitionResources[Index]].Buffer;
+			State->FinalBufferTransitions[Index].Buffer = State->Resources[State->FinalBufferTransitionResources[Index]].Buffer.GetReference();
 		for (uint32 Index = 0; Index < State->FinalTextureTransitions.size(); ++Index)
-			State->FinalTextureTransitions[Index].Texture = State->Resources[
-				State->FinalTextureTransitionResources[Index]].Texture;
+			State->FinalTextureTransitions[Index].Texture = State->Resources[State->FinalTextureTransitionResources[Index]].Texture.GetReference();
 		if (!State->FinalBufferTransitions.empty())
 			CommandList.TransitionBuffers(State->FinalBufferTransitions);
 		if (!State->FinalTextureTransitions.empty())
@@ -2589,10 +2665,9 @@ namespace Durin
 		{
 			const auto& Resource = State->Resources[Extraction.ResourceIndex];
 			if (Extraction.Kind == ERDGResourceKind::Texture)
-				*Extraction.TextureDestination = Resource.TextureOwnership
-					? Resource.TextureOwnership : FTextureRHIRef(Resource.Texture);
-			else *Extraction.BufferDestination = Resource.BufferOwnership
-				? Resource.BufferOwnership : FBufferRHIRef(Resource.Buffer);
+				*Extraction.TextureDestination = Resource.Texture;
+			else
+				*Extraction.BufferDestination = Resource.Buffer;
 		}
 		if (OutError != nullptr) OutError->clear();
 		RecordDuration();
@@ -2605,19 +2680,17 @@ namespace Durin
 		requiref(Handle.Owner == Graph.State->Owner
 			&& Handle.Index < Graph.State->Resources.size(),
 			"Render graph callback used an invalid texture handle.");
-		requiref(PassIndex < Graph.State->PassResourceIndices.size()
-			&& std::ranges::find(Graph.State->PassResourceIndices[PassIndex],
-				Handle.Index) != Graph.State->PassResourceIndices[PassIndex].end(),
+		requiref(PassIndex < Graph.State->RuntimePasses.size()
+			&& std::ranges::find(Graph.State->RuntimePasses[PassIndex].ResourceIndices,
+				Handle.Index) != Graph.State->RuntimePasses[PassIndex].ResourceIndices.end(),
 			"Render graph pass '{}' accessed undeclared texture resource {} ('{}').",
 			PassIndex < Graph.State->Passes.size()
 				? Graph.State->Passes[PassIndex].Name : "<invalid>", Handle.Index,
 			Handle.Index < Graph.State->Resources.size()
 				? Graph.State->Resources[Handle.Index].Name : "<invalid>");
 		const auto& Resource = Graph.State->Resources[Handle.Index];
-		requiref(Resource.Kind == ERDGResourceKind::Texture
-			&& Resource.Texture != nullptr,
-			"Render graph callback resolved an unavailable texture.");
-		return Resource.Texture;
+		requiref(Resource.Kind == ERDGResourceKind::Texture && Resource.Texture, "Render graph callback resolved an unavailable texture.");
+		return Resource.Texture.GetReference();
 	}
 
 	auto FRDGPassResources::GetBuffer(
@@ -2626,19 +2699,17 @@ namespace Durin
 		requiref(Handle.Owner == Graph.State->Owner
 			&& Handle.Index < Graph.State->Resources.size(),
 			"Render graph callback used an invalid buffer handle.");
-		requiref(PassIndex < Graph.State->PassResourceIndices.size()
-			&& std::ranges::find(Graph.State->PassResourceIndices[PassIndex],
-				Handle.Index) != Graph.State->PassResourceIndices[PassIndex].end(),
+		requiref(PassIndex < Graph.State->RuntimePasses.size()
+			&& std::ranges::find(Graph.State->RuntimePasses[PassIndex].ResourceIndices,
+				Handle.Index) != Graph.State->RuntimePasses[PassIndex].ResourceIndices.end(),
 			"Render graph pass '{}' accessed undeclared buffer resource {} ('{}').",
 			PassIndex < Graph.State->Passes.size()
 				? Graph.State->Passes[PassIndex].Name : "<invalid>", Handle.Index,
 			Handle.Index < Graph.State->Resources.size()
 				? Graph.State->Resources[Handle.Index].Name : "<invalid>");
 		const auto& Resource = Graph.State->Resources[Handle.Index];
-		requiref(Resource.Kind == ERDGResourceKind::Buffer
-			&& Resource.Buffer != nullptr,
-			"Render graph callback resolved an unavailable buffer.");
-		return Resource.Buffer;
+		requiref(Resource.Kind == ERDGResourceKind::Buffer && Resource.Buffer, "Render graph callback resolved an unavailable buffer.");
+		return Resource.Buffer.GetReference();
 	}
 
 	auto FRDGPassResources::ResolveValue(uint64 Owner, uint32 Index,
@@ -2651,8 +2722,8 @@ namespace Durin
 		requiref(Resource.ValueTypeIdentity != nullptr
 			&& Resource.ValueTypeIdentity == TypeIdentity,
 			"Render graph callback used a wrongly typed value handle.");
-		requiref(PassIndex < Graph.State->PassValueUses.size()
-			&& std::ranges::any_of(Graph.State->PassValueUses[PassIndex],
+		requiref(PassIndex < Graph.State->RuntimePasses.size()
+			&& std::ranges::any_of(Graph.State->RuntimePasses[PassIndex].ValueUses,
 				[&](const auto& Use) {
 					return Use.first == Index && Use.second == (bWrite
 						? ERDGUse::Write : ERDGUse::Read);
@@ -2674,79 +2745,64 @@ namespace Durin
 		-> const FRDGParameterMemberMetadata&
 	{
 		const FRDGParameterMemberMetadata* Found = nullptr;
-		std::function<void(const void*, const FRDGParametersMetadata*)>
-			Traverse;
-		Traverse = [&](const void* StructData,
-			const FRDGParametersMetadata* StructMetadata) {
-			if (Found != nullptr || StructData == nullptr || StructMetadata == nullptr)
-				return;
-			const auto* Bytes = static_cast<const std::byte*>(StructData);
-			for (const auto& Member : StructMetadata->Members)
+		if (Layout != nullptr && Parameters != nullptr && Address != nullptr)
+		{
+			const uintptr_t RootAddress = reinterpret_cast<uintptr_t>(Parameters);
+			const uintptr_t RequestedAddress = reinterpret_cast<uintptr_t>(Address);
+			if (RequestedAddress >= RootAddress
+				&& RequestedAddress - RootAddress < Layout->Metadata->StructSize)
 			{
-				for (uint32 ElementIndex = 0;
-					ElementIndex < Member.ArraySize; ++ElementIndex)
+				const uint32 Offset = static_cast<uint32>(RequestedAddress - RootAddress);
+				uint32 ElementIndex = std::numeric_limits<uint32>::max();
+				if (bOptional)
 				{
-					const void* ElementData = Bytes + Member.Offset
-						+ static_cast<size_t>(ElementIndex) * Member.ElementSize;
-					if (Member.Kind == ERDGParameterMemberKind::Nested)
+					const auto It = std::lower_bound(Layout->OffsetIndex.begin(),
+						Layout->OffsetIndex.end(), Offset,
+						[&](uint32 Index, uint32 Value) {
+							return Layout->Elements[Index].Offset < Value;
+						});
+					if (It != Layout->OffsetIndex.end()
+						&& Layout->Elements[*It].Offset == Offset)
+						ElementIndex = *It;
+				}
+				else
+				{
+					const auto Alias = std::lower_bound(OptionalAliases.begin(),
+						OptionalAliases.end(), Offset,
+						[](const auto& Entry, uint32 Value) {
+							return Entry.first < Value;
+						});
+					if (Alias != OptionalAliases.end() && Alias->first == Offset)
+						ElementIndex = Alias->second;
+					else
 					{
-						Traverse(ElementData, Member.NestedParameters);
-						continue;
-					}
-					if (Member.Kind != ExpectedKind && Member.Kind != AlternateKind)
-						continue;
-
-					const void* ValueAddress = ElementData;
-					if (Member.bOptional)
-					{
-						auto ReadOptionalAddress = [&]<typename Wrapper>() {
-							const auto& Optional = *static_cast<
-								const std::optional<Wrapper>*>(ElementData);
-							ValueAddress = Optional ? static_cast<const void*>(&*Optional)
-								: nullptr;
-						};
-						switch (Member.Kind)
-						{
-						case ERDGParameterMemberKind::Texture:
-							ReadOptionalAddress.template operator()<
-								FRDGTextureParameter>();
-							break;
-						case ERDGParameterMemberKind::Buffer:
-							ReadOptionalAddress.template operator()<
-								FRDGBufferParameter>();
-							break;
-						case ERDGParameterMemberKind::ColorAttachment:
-						case ERDGParameterMemberKind::ManagedColorAttachment:
-							ReadOptionalAddress.template operator()<
-								FRDGColorAttachmentParameter>();
-							break;
-						case ERDGParameterMemberKind::DepthStencilAttachment:
-						case ERDGParameterMemberKind::ManagedDepthStencilAttachment:
-							ReadOptionalAddress.template operator()<
-								FRDGDepthStencilAttachmentParameter>();
-							break;
-						case ERDGParameterMemberKind::ManagedTexture:
-							ReadOptionalAddress.template operator()<
-								FRDGManagedTextureParameter>();
-							break;
-						case ERDGParameterMemberKind::ValueRead:
-						case ERDGParameterMemberKind::ValueWrite:
-						case ERDGParameterMemberKind::Token:
-						case ERDGParameterMemberKind::Nested: break;
-						}
-					}
-					const bool bAddressMatches = bOptional
-						? Member.bOptional && Address == ElementData
-						: Address == ValueAddress;
-					if (bAddressMatches)
-					{
-						Found = &Member;
-						return;
+						const auto It = std::lower_bound(Layout->OffsetIndex.begin(),
+							Layout->OffsetIndex.end(), Offset,
+							[&](uint32 Index, uint32 Value) {
+								return Layout->Elements[Index].Offset < Value;
+							});
+						if (It != Layout->OffsetIndex.end()
+							&& Layout->Elements[*It].Offset == Offset
+							&& !Layout->Leaves[Layout->Elements[*It].LeafIndex]
+								.Metadata->bOptional)
+							ElementIndex = *It;
 					}
 				}
+				if (ElementIndex < Layout->Elements.size())
+				{
+					const auto& Member = *Layout->Leaves[
+						Layout->Elements[ElementIndex].LeafIndex].Metadata;
+					if (Member.bOptional == bOptional
+						&& (Member.Kind == ExpectedKind
+							|| Member.Kind == AlternateKind))
+						Found = &Member;
+					else if (!bOptional && Member.bOptional
+						&& (Member.Kind == ExpectedKind
+							|| Member.Kind == AlternateKind))
+						Found = &Member;
+				}
 			}
-		};
-		Traverse(Parameters, Metadata);
+		}
 		requiref(Found != nullptr,
 			"Render graph pass '{}' parameter resolver accessed a member that is not "
 			"declared by the executing pass parameters (requested capability '{}', "
@@ -2758,7 +2814,8 @@ namespace Durin
 		const void* Data, const FRDGParametersMetadata* InMetadata) const
 		-> void
 	{
-		requiref(Data == Parameters && InMetadata == Metadata,
+		requiref(Data == Parameters && Layout != nullptr
+			&& InMetadata == Layout->Metadata,
 			"Render graph pass '{}' attempted composed shader submission from a "
 			"copied or foreign parameter object.", PassName);
 	}

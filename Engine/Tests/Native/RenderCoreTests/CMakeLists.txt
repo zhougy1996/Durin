@@ -120,3 +120,10 @@ durin_add_render_functional_test(RenderContractTests
 		Private/TextureReferenceTests.cpp
 		Private/TextureResourceLifetimeContractTests.cpp
 )
+
+durin_add_render_functional_test(RDGParameterLayoutQualificationTests
+	KIND qualification
+	DOMAINS renderer
+	MODULES rendercore rhi
+	SOURCES Private/RDGParameterLayoutQualificationTests.cpp
+)

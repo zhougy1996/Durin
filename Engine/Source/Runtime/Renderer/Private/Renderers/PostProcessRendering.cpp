@@ -57,14 +57,12 @@ namespace Durin
 			TRDGValueHandle<FIsolatedDeferredPassResult>
 				DeferredDirectionalLighting;
 			TRDGValueHandle<FPostProcessPassResult> PostProcess;
-			FRDGTokenHandle OutputCompletion;
 		} Channels;
 		Channels.SceneColor = Inputs.SceneColor.Completion;
 		Channels.GBuffer = Inputs.GBuffer.Completion;
 		Channels.DeferredDirectionalLighting = Inputs.Deferred.Completion;
 		Channels.PostProcess = Graph.CreateValue<FPostProcessPassResult>(
 			"Scene.PostProcessValue", "post-process-result");
-		Channels.OutputCompletion = Graph.CreateToken("Scene.OutputCompletion");
 		if (Topology.bGBufferDebug)
 			GraphResources.GBufferDebug = Graph.CreateTexture(
 				FRDGTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
@@ -115,9 +113,6 @@ namespace Durin
 			Parameters->Resources.IsolatedDeferred = {
 				*GraphResources.IsolatedDeferred,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
-		if (!bHasEditorAssistance)
-			Parameters->OutputCompletion = FRDGTokenParameter{
-				Channels.OutputCompletion};
 		const auto PostProcessPass =
 			AddSceneRenderFeaturePass<FPostProcessGraphContributor>(
 				Graph, ERDGPassType::Graphics, std::move(Parameters),
@@ -183,8 +178,7 @@ namespace Durin
 				bPresentOutput ? "present" : "offscreen-output");
 		}
 		return {.Completion = Channels.PostProcess,
-			.Output = GraphResources.Output,
-			.OutputCompletion = Channels.OutputCompletion};
+			.Output = GraphResources.Output};
 	}
 
 	auto FSceneRenderFeatureRecorders::RenderPostProcess_RenderThread(

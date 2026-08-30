@@ -259,6 +259,7 @@ namespace Durin
 		const FRDGParametersMetadata* NestedParameters = nullptr;
 		const void* ValueTypeIdentity = nullptr;
 		bool (*ReadValueHandle)(const void*, uint64&, uint32&) = nullptr;
+		const void* (*ReadOptionalValueAddress)(const void*) = nullptr;
 		// When enabled, this exact graph member also supplies one reflected
 		// shader resource binding. Reflection still owns descriptor coordinates.
 		bool bShaderBinding = false;
@@ -275,13 +276,66 @@ namespace Durin
 		std::span<const FRDGParameterMemberMetadata> Members;
 	};
 
+	// Describes one non-nested member occurrence in a validated parameter type.
+	struct FRDGParameterLayoutLeaf final
+	{
+		const FRDGParameterMemberMetadata* Metadata = nullptr;
+		uint32 Offset = 0;
+		uint32 FirstElementIndex = 0;
+		std::string Path;
+	};
+
+	// Describes one wrapper instance in deterministic metadata order.
+	struct FRDGParameterLayoutElement final
+	{
+		uint32 Offset = 0;
+		uint32 LeafIndex = 0;
+		uint32 ArrayElementIndex = 0;
+		std::string FieldPath;
+	};
+
+	// Maps one reflected shader name to its validated graph leaf group.
+	struct FRDGParameterShaderBinding final
+	{
+		std::string Name;
+		uint32 LeafIndex = 0;
+	};
+
+	// Owns the immutable flattened interpretation shared by one typed parameter
+	// declaration. Runtime values and graph-local handles remain outside it.
+	struct FRDGParameterLayout final
+	{
+		const FRDGParametersMetadata* Metadata = nullptr;
+		std::vector<FRDGParameterLayoutLeaf> Leaves;
+		std::vector<FRDGParameterLayoutElement> Elements;
+		std::vector<uint32> OffsetIndex;
+		std::vector<uint32> TextureElements;
+		std::vector<uint32> BufferElements;
+		std::vector<uint32> ValueElements;
+		std::vector<uint32> TokenElements;
+		std::vector<uint32> AttachmentElements;
+		std::vector<FRDGParameterShaderBinding> ShaderBindings;
+	};
+
+	// Caches either the immutable layout or its deterministic validation error.
+	struct FRDGParameterLayoutBuildResult final
+	{
+		std::unique_ptr<const FRDGParameterLayout> Layout;
+		std::string Error;
+	};
+
+	RENDERCORE_API auto BuildRDGParameterLayout(
+		const FRDGParametersMetadata* Metadata,
+		uint32 ExpectedSize, uint32 ExpectedAlignment)
+		-> FRDGParameterLayoutBuildResult;
+
 	template<typename ParameterStruct, size_t N>
 	constexpr auto MakeInlineRDGParametersMetadata(
 		std::string_view StructName,
 		const std::array<FRDGParameterMemberMetadata, N>& Members)
 		-> FRDGParametersMetadata
 	{
-		return {
+		return FRDGParametersMetadata{
 			.StructName = StructName.data(),
 			.StructSize = static_cast<uint32>(sizeof(ParameterStruct)),
 			.StructAlignment = static_cast<uint32>(alignof(ParameterStruct)),
@@ -295,6 +349,23 @@ namespace Durin
 		{ ParameterStruct::GetRDGParametersMetadata() }
 			-> std::same_as<const FRDGParametersMetadata*>;
 	};
+
+	template<CRDGParameters ParameterStruct>
+	auto GetRDGParameterLayoutBuildResult()
+		-> const FRDGParameterLayoutBuildResult&
+	{
+		static const FRDGParameterLayoutBuildResult Result =
+			BuildRDGParameterLayout(ParameterStruct::GetRDGParametersMetadata(),
+				static_cast<uint32>(sizeof(ParameterStruct)),
+				static_cast<uint32>(alignof(ParameterStruct)));
+		return Result;
+	}
+
+	template<CRDGParameters ParameterStruct>
+	auto GetRDGParameterLayout() -> const FRDGParameterLayout*
+	{
+		return GetRDGParameterLayoutBuildResult<ParameterStruct>().Layout.get();
+	}
 
 	template<typename MemberType>
 	struct TRDGParameterMemberTraits
@@ -353,7 +424,7 @@ namespace Durin
 			"Render graph parameter member type does not match its declaration");
 		static_assert(std::is_standard_layout_v<ParameterStruct>,
 			"Render graph parameter structs must use standard layout");
-		return {
+		auto Metadata = FRDGParameterMemberMetadata{
 			.Name = Name,
 			.Offset = Offset,
 			.ElementSize = FTraits::ElementSize,
@@ -370,6 +441,13 @@ namespace Durin
 			.bPassManagedTransition = bPassManagedTransition,
 			.ResultAccess = ResultAccess,
 		};
+		if constexpr (FTraits::bOptional)
+			Metadata.ReadOptionalValueAddress = [](const void* Element) {
+				const auto& Optional = *static_cast<const std::optional<
+					ExpectedType>*>(Element);
+				return Optional ? static_cast<const void*>(&*Optional) : nullptr;
+			};
+		return Metadata;
 	}
 
 	// Composes a shader SRV/UAV role onto the exact graph resource declaration.
@@ -429,7 +507,7 @@ namespace Durin
 			"Render graph value member type does not match its declaration");
 		static_assert(std::is_standard_layout_v<ParameterStruct>,
 			"Render graph parameter structs must use standard layout");
-		return {
+		auto Metadata = FRDGParameterMemberMetadata{
 			.Name = Name,
 			.Offset = Offset,
 			.ElementSize = FTraits::ElementSize,
@@ -459,6 +537,13 @@ namespace Durin
 				return true;
 			},
 		};
+		if constexpr (FTraits::bOptional)
+			Metadata.ReadOptionalValueAddress = [](const void* Element) {
+				const auto& Optional = *static_cast<const std::optional<
+					typename FTraits::ValueType>*>(Element);
+				return Optional ? static_cast<const void*>(&*Optional) : nullptr;
+			};
+		return Metadata;
 	}
 
 	// A move-only mutable capability for one builder-owned parameter allocation.
@@ -469,7 +554,8 @@ namespace Durin
 		TRDGParametersRef() = default;
 		TRDGParametersRef(TRDGParametersRef&& Other) noexcept
 			: Data(std::exchange(Other.Data, nullptr)),
-			  Lifetime(std::move(Other.Lifetime))
+			  Lifetime(std::move(Other.Lifetime)),
+			  Layout(std::exchange(Other.Layout, nullptr))
 		{
 		}
 		auto operator=(TRDGParametersRef&& Other) noexcept
@@ -479,6 +565,7 @@ namespace Durin
 			{
 				Data = std::exchange(Other.Data, nullptr);
 				Lifetime = std::move(Other.Lifetime);
+				Layout = std::exchange(Other.Layout, nullptr);
 			}
 			return *this;
 		}
@@ -500,13 +587,14 @@ namespace Durin
 	private:
 		friend class FRDGBuilder;
 		TRDGParametersRef(ParameterStruct* InData,
-			std::weak_ptr<void> InLifetime)
-			: Data(InData), Lifetime(std::move(InLifetime))
+			std::weak_ptr<void> InLifetime, const FRDGParameterLayout* InLayout)
+			: Data(InData), Lifetime(std::move(InLifetime)), Layout(InLayout)
 		{
 		}
 
 		ParameterStruct* Data = nullptr;
 		std::weak_ptr<void> Lifetime;
+		const FRDGParameterLayout* Layout = nullptr;
 	};
 
 	// Exposes only resources declared by the executing graph to pass callbacks.
@@ -638,10 +726,12 @@ namespace Durin
 		friend class FRDGShaderParameterScope;
 		explicit FRDGParameterResolver(
 			const FRDGPassResources& InResources,
-			const FRDGParametersMetadata* InMetadata,
+			const FRDGParameterLayout* InLayout,
+			std::span<const std::pair<uint32, uint32>> InOptionalAliases,
 			const void* InParameters, std::string_view InPassName,
 			ERDGPassType InPassType)
-			: Resources(InResources), Metadata(InMetadata), Parameters(InParameters),
+			: Resources(InResources), Layout(InLayout),
+			  OptionalAliases(InOptionalAliases), Parameters(InParameters),
 			  PassName(InPassName), PassType(InPassType)
 		{
 		}
@@ -653,7 +743,8 @@ namespace Durin
 			bool bOptional) const -> const FRDGParameterMemberMetadata&;
 
 		const FRDGPassResources& Resources;
-		const FRDGParametersMetadata* Metadata = nullptr;
+		const FRDGParameterLayout* Layout = nullptr;
+		std::span<const std::pair<uint32, uint32>> OptionalAliases;
 		const void* Parameters = nullptr;
 		std::string_view PassName;
 		ERDGPassType PassType = ERDGPassType::Graphics;
@@ -678,20 +769,21 @@ namespace Durin
 		auto GetData() const -> const void* { return Data; }
 		auto GetMetadata() const -> const FRDGParametersMetadata*
 		{
-			return Metadata;
+			return Layout != nullptr ? Layout->Metadata : nullptr;
 		}
+		auto GetLayout() const -> const FRDGParameterLayout* { return Layout; }
 
 	private:
 		friend class FRDGParameterResolver;
 		FRDGShaderParameterScope(const FRDGParameterResolver& InResolver,
-			const void* InData, const FRDGParametersMetadata* InMetadata)
-			: Resolver(InResolver), Data(InData), Metadata(InMetadata)
+			const void* InData, const FRDGParameterLayout* InLayout)
+			: Resolver(InResolver), Data(InData), Layout(InLayout)
 		{
 		}
 
 		const FRDGParameterResolver& Resolver;
 		const void* Data = nullptr;
-		const FRDGParametersMetadata* Metadata = nullptr;
+		const FRDGParameterLayout* Layout = nullptr;
 	};
 
 	template<CRDGParameters ParameterStruct>
@@ -699,10 +791,9 @@ namespace Durin
 		const ParameterStruct& InParameters) const
 		-> FRDGShaderParameterScope
 	{
-		const auto* InMetadata =
-			ParameterStruct::GetRDGParametersMetadata();
+		const auto* InMetadata = ParameterStruct::GetRDGParametersMetadata();
 		ValidateShaderParametersIdentity(&InParameters, InMetadata);
-		return FRDGShaderParameterScope(*this, &InParameters, InMetadata);
+		return FRDGShaderParameterScope(*this, &InParameters, Layout);
 	}
 
 	using FRDGPassExecute = std::function<void(
@@ -795,7 +886,7 @@ namespace Durin
 		uint32 ResourceId = 0;
 		std::string Name;
 		ERDGResourceKind Kind = ERDGResourceKind::Texture;
-		bool bImported = false;
+		bool bExternal = false;
 		std::string Preparation;
 		std::string AllocationDisposition;
 		uint64 PhysicalAllocationId = 0;
@@ -870,7 +961,7 @@ namespace Durin
 		std::string Name;
 		uint32 FirstPass = 0;
 		uint32 LastPass = 0;
-		bool bImported = false;
+		bool bExternal = false;
 		bool bCulled = false;
 	};
 
@@ -1033,9 +1124,6 @@ namespace Durin
 		auto operator=(FRDGBuilder&&)
 			-> FRDGBuilder& = delete;
 
-		auto ImportTexture(std::string_view Name, FRHITexture* Texture,
-			ERHIAccess InitialAccess, ERHIAccess FinalAccess)
-			-> FRDGTextureHandle;
 		auto RegisterExternalTexture(const FTextureRHIRef& Texture,
 			std::string_view Name, ERHIAccess InitialAccess,
 			ERHIAccess FinalAccess) -> FRDGTextureHandle;
@@ -1043,20 +1131,11 @@ namespace Durin
 			std::string_view Name,
 			ERHIAccess FinalAccess = ERHIAccess::None)
 			-> FRDGTextureHandle;
-		auto CreateTexture(std::string_view Name, FRHITexture* Texture,
-			ERHIAccess FinalAccess = ERHIAccess::None)
-			-> FRDGTextureHandle;
-		auto ImportBuffer(std::string_view Name, FRHIBuffer* Buffer,
-			ERHIAccess InitialAccess, ERHIAccess FinalAccess)
-			-> FRDGBufferHandle;
 		auto RegisterExternalBuffer(const FBufferRHIRef& Buffer,
 			std::string_view Name, ERHIAccess InitialAccess,
 			ERHIAccess FinalAccess) -> FRDGBufferHandle;
 		auto CreateBuffer(const FRDGBufferDesc& Desc,
 			std::string_view Name,
-			ERHIAccess FinalAccess = ERHIAccess::None)
-			-> FRDGBufferHandle;
-		auto CreateBuffer(std::string_view Name, FRHIBuffer* Buffer,
 			ERHIAccess FinalAccess = ERHIAccess::None)
 			-> FRDGBufferHandle;
 		auto CreateToken(std::string_view Name) -> FRDGTokenHandle;
@@ -1093,9 +1172,13 @@ namespace Durin
 		{
 			auto Lifetime = Parameters.Lifetime.lock();
 			void* Data = std::exchange(Parameters.Data, nullptr);
+			const FRDGParameterLayout* Layout =
+				std::exchange(Parameters.Layout, nullptr);
+			if (Layout == nullptr)
+				Layout = GetRDGParameterLayout<ParameterStruct>();
 			Parameters.Lifetime.reset();
 			return AddParameterizedPass(Name, Type,
-				ParameterStruct::GetRDGParametersMetadata(), Data,
+				Layout, Data,
 				std::move(Lifetime), std::move(Execute), {});
 		}
 		template<typename ParameterStruct, typename Execute>
@@ -1116,9 +1199,13 @@ namespace Durin
 				};
 			auto Lifetime = Parameters.Lifetime.lock();
 			void* Data = std::exchange(Parameters.Data, nullptr);
+			const FRDGParameterLayout* Layout =
+				std::exchange(Parameters.Layout, nullptr);
+			if (Layout == nullptr)
+				Layout = GetRDGParameterLayout<ParameterStruct>();
 			Parameters.Lifetime.reset();
 			return AddParameterizedPass(Name, Type,
-				ParameterStruct::GetRDGParametersMetadata(), Data,
+				Layout, Data,
 				std::move(Lifetime), {}, std::move(ErasedExecute));
 		}
 		auto AddDependency(FRDGPassHandle Pass,
@@ -1140,16 +1227,19 @@ namespace Durin
 			static_assert(std::destructible<ParameterStruct>,
 				"Render graph parameter structs must be destructible");
 			std::weak_ptr<void> Lifetime;
+			const auto& LayoutResult =
+				GetRDGParameterLayoutBuildResult<ParameterStruct>();
 			void* Storage = AllocateParameterStorage(sizeof(ParameterStruct),
 				alignof(ParameterStruct),
 				ParameterStruct::GetRDGParametersMetadata(),
+				LayoutResult,
 				[](void* Value) { std::destroy_at(
 					static_cast<ParameterStruct*>(Value)); }, Lifetime);
 			if (Storage == nullptr) return {};
 			auto* Parameters = std::construct_at(
 				static_cast<ParameterStruct*>(Storage));
 			MarkParameterStorageConstructed(Storage);
-			return {Parameters, std::move(Lifetime)};
+			return {Parameters, std::move(Lifetime), LayoutResult.Layout.get()};
 		}
 
 		auto UseTexture(FRDGPassHandle Pass,
@@ -1204,7 +1294,7 @@ namespace Durin
 	private:
 		auto AddParameterizedPass(std::string_view Name,
 			ERDGPassType Type,
-			const FRDGParametersMetadata* Metadata, void* Parameters,
+			const FRDGParameterLayout* Layout, void* Parameters,
 			std::shared_ptr<void> Lifetime, FRDGPassExecute Execute,
 			FRDGParameterizedPassExecute ParameterizedExecute)
 			-> FRDGPassHandle;
@@ -1212,6 +1302,7 @@ namespace Durin
 			std::string_view InvalidHandleError) -> bool;
 		auto AllocateParameterStorage(size_t Size, size_t Alignment,
 			const FRDGParametersMetadata* Metadata,
+			const FRDGParameterLayoutBuildResult& LayoutResult,
 			void (*Destroy)(void*), std::weak_ptr<void>& OutLifetime) -> void*;
 		auto MarkParameterStorageConstructed(void* Storage) -> void;
 		auto AllocateValueStorage(std::string_view Name,

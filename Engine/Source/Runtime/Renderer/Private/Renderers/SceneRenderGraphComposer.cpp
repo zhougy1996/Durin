@@ -283,7 +283,7 @@ namespace Durin
 			.bGBufferDebug = Topology.bGBufferDebug,
 			.bPresentOutput = bPresentOutput,
 			.bHasEditorAssistance = bHasEditorAssistance});
-		(void)FEditorAssistanceGraphContributor::AddPasses({
+		FEditorAssistanceGraphContributor::AddPasses({
 			.Graph = Graph, .Services = Services, .View = PreparedRenderView,
 			.Prepared = PreparedEditorAssistance, .PostProcess = PostProcessOutput,
 			.SceneDepth = GraphResources.SceneDepth, .OutputTarget = OutputTarget,

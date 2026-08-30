@@ -22,11 +22,9 @@ namespace Durin
 	} // namespace
 
 	auto FEditorAssistanceGraphContributor::AddPasses(
-		const FEditorAssistanceGraphInputs& Inputs)
-		-> FEditorAssistanceGraphOutput
+		const FEditorAssistanceGraphInputs& Inputs) -> void
 	{
-		if (!Inputs.bEnabled)
-			return {.OutputCompletion = Inputs.PostProcess.OutputCompletion};
+		if (!Inputs.bEnabled) return;
 		auto& Graph = Inputs.Graph;
 		auto& Services = Inputs.Services;
 		const auto& RecordView = Inputs.View;
@@ -39,15 +37,8 @@ namespace Durin
 		} GraphResources;
 		GraphResources.Output = Inputs.PostProcess.Output;
 		GraphResources.SceneDepth = Inputs.SceneDepth;
-		struct {
-			TRDGValueHandle<FPostProcessPassResult> PostProcess;
-			FRDGTokenHandle OutputCompletion;
-		} Channels;
-		Channels.PostProcess = Inputs.PostProcess.Completion;
-		Channels.OutputCompletion = Inputs.PostProcess.OutputCompletion;
 		auto Parameters = Graph.AllocParameters<FEditorAssistancePassParameters>();
-		Parameters->PostProcess = {.Value = Channels.PostProcess};
-		Parameters->OutputCompletion = {.Token = Channels.OutputCompletion};
+		Parameters->PostProcess = {.Value = Inputs.PostProcess.Completion};
 		const FRDGColorAttachmentParameter Output{
 			.Texture = GraphResources.Output,
 			.Range = {GetTextureAspects(OutputTarget->GetFormat()), 0,
@@ -85,7 +76,6 @@ namespace Durin
 				});
 		Graph.MarkPassRoot(EditorAssistancePass,
 			bPresentOutput ? "present" : "offscreen-output");
-		return {.OutputCompletion = Channels.OutputCompletion};
 	}
 
 	auto FSceneRenderFeatureRecorders::RenderEditorAssistance_RenderThread(

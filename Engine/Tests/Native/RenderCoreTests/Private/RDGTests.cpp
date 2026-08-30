@@ -83,9 +83,9 @@ namespace Durin
 			return {ERHITextureAspect::Color, 0, Mips, 0, 1};
 		}
 
-		auto MakeGraphTexture(const char* Name, uint8 Mips = 1) -> FRHITexture
+		auto MakeGraphTexture(const char* Name, uint8 Mips = 1) -> FTextureRHIRef
 		{
-			return FRHITexture(FRHITextureCreateDesc::Create2D(
+			return MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D(
 				Name, 64, 64, EPixelFormat::RGBA8_UNORM)
 				.SetNumMips(Mips)
 				.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -93,6 +93,35 @@ namespace Durin
 					| ETextureCreateFlags::Storage
 					| ETextureCreateFlags::SourceCopy
 					| ETextureCreateFlags::DestinationCopy));
+		}
+
+		auto DescribeGraphTexture(const FRHITexture& Texture)
+			-> FRDGTextureDesc
+		{
+			FRHITextureDesc Desc(Texture.GetDimension());
+			Desc.Extent = {static_cast<int32>(Texture.GetSizeX()),
+				static_cast<int32>(Texture.GetSizeY())};
+			Desc.Depth = static_cast<uint16>(Texture.GetSizeZ());
+			Desc.Format = Texture.GetFormat();
+			Desc.ArraySize = Texture.GetArraySize();
+			Desc.NumMips = Texture.GetNumMips();
+			Desc.NumSamples = Texture.GetNumSamples();
+			Desc.Flags = Texture.GetFlags();
+			return {.Texture = Desc};
+		}
+
+		auto CreateTestTexture(FRDGBuilder& Builder, std::string_view Name,
+			const FTextureRHIRef& Texture,
+			ERHIAccess FinalAccess = ERHIAccess::None) -> FRDGTextureHandle
+		{
+			return Builder.CreateTexture(DescribeGraphTexture(*Texture), Name, FinalAccess);
+		}
+
+		auto CreateTestBuffer(FRDGBuilder& Builder, std::string_view Name,
+			const FBufferRHIRef& Buffer,
+			ERHIAccess FinalAccess = ERHIAccess::None) -> FRDGBufferHandle
+		{
+			return Builder.CreateBuffer({.Buffer = Buffer->GetDesc()}, Name, FinalAccess);
 		}
 
 		class FTestRDGAllocator final : public FRDGAllocator
@@ -104,6 +133,8 @@ namespace Durin
 			std::vector<FTextureRHIRef> CreatedTextures;
 			FTextureRHIRef TextureOverride;
 			FBufferRHIRef BufferOverride;
+			std::unordered_map<uint32, FTextureRHIRef> TextureOverrides;
+			std::unordered_map<uint32, FBufferRHIRef> BufferOverrides;
 
 			auto Allocate(std::span<const FRDGAllocationRequest> Requests,
 				FRDGAllocatedResources& OutResources, std::string& OutError)
@@ -127,18 +158,22 @@ namespace Durin
 						FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create(
 							"TestRDG", Request.TextureDesc.Dimension);
 						static_cast<FRHITextureDesc&>(Desc) = Request.TextureDesc;
-						auto Texture = TextureOverride
-							? TextureOverride : MakeRefCount<FRHITexture>(Desc);
+						const auto Override = TextureOverrides.find(Request.ResourceId);
+						auto Texture = Override != TextureOverrides.end()
+							? Override->second : (TextureOverride
+								? TextureOverride : MakeRefCount<FRHITexture>(Desc));
 						CreatedTextures.push_back(Texture);
 						if (!OutResources.SetTexture(Request.ResourceId,
 							std::move(Texture), AllocationCount)) return false;
 					}
 					else
 					{
-						auto Buffer = BufferOverride
-							? BufferOverride : MakeRefCount<FRHIBuffer>(
-								FRHIBufferCreateDesc::Create("TestRDG",
-									Request.BufferDesc));
+						const auto Override = BufferOverrides.find(Request.ResourceId);
+						auto Buffer = Override != BufferOverrides.end()
+							? Override->second : (BufferOverride
+								? BufferOverride : MakeRefCount<FRHIBuffer>(
+									FRHIBufferCreateDesc::Create("TestRDG",
+										Request.BufferDesc)));
 						if (!OutResources.SetBuffer(Request.ResourceId,
 							std::move(Buffer), AllocationCount)) return false;
 					}
@@ -715,13 +750,11 @@ namespace Durin
 	TEST_F(FRDGTests,
 		ComposedGraphMetadataCapturesStableBindingAndExactArrayElements)
 	{
-		FRHITexture TextureA = MakeGraphTexture("ComposedA", 2);
-		FRHITexture TextureB = MakeGraphTexture("ComposedB", 2);
+		auto TextureA = MakeGraphTexture("ComposedA", 2);
+		auto TextureB = MakeGraphTexture("ComposedB", 2);
 		FRDGBuilder Builder;
-		const auto HandleA = Builder.ImportTexture("A", &TextureA,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-		const auto HandleB = Builder.ImportTexture("B", &TextureB,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto HandleA = Builder.RegisterExternalTexture(TextureA, "A", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto HandleB = Builder.RegisterExternalTexture(TextureB, "B", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		auto Parameters = Builder.AllocParameters<
 			FComposedTextureArrayParameters>();
 		Parameters->Textures[0] = FRDGTextureParameter{
@@ -736,8 +769,8 @@ namespace Durin
 				const FRDGParameterResolver& Resolver) {
 				const auto ShaderParameters = Resolver.GetShaderParameters(Values);
 				EXPECT_EQ(ShaderParameters.GetData(), &Values);
-				EXPECT_EQ(Resolver.GetTexture(*Values.Textures[0]), &TextureA);
-				EXPECT_EQ(Resolver.GetTexture(*Values.Textures[1]), &TextureB);
+				EXPECT_EQ(Resolver.GetTexture(*Values.Textures[0]), TextureA.GetReference());
+				EXPECT_EQ(Resolver.GetTexture(*Values.Textures[1]), TextureB.GetReference());
 				bExecuted = true;
 			});
 
@@ -776,13 +809,11 @@ namespace Durin
 	TEST_F(FRDGTests,
 		ComposedShaderSubmissionRejectsReflectionArrayExtentBeforeRecording)
 	{
-		FRHITexture TextureA = MakeGraphTexture("BindingExtentA");
-		FRHITexture TextureB = MakeGraphTexture("BindingExtentB");
+		auto TextureA = MakeGraphTexture("BindingExtentA");
+		auto TextureB = MakeGraphTexture("BindingExtentB");
 		FRDGBuilder Builder;
-		const auto HandleA = Builder.ImportTexture("TextureA", &TextureA,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-		const auto HandleB = Builder.ImportTexture("TextureB", &TextureB,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto HandleA = Builder.RegisterExternalTexture(TextureA, "TextureA", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto HandleB = Builder.RegisterExternalTexture(TextureB, "TextureB", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		auto Parameters = Builder.AllocParameters<
 			FComposedTextureArrayParameters>();
 		Parameters->Textures[0] = FRDGTextureParameter{
@@ -895,12 +926,8 @@ namespace Durin
 				EBufferUsageFlags::StructuredBuffer
 					| EBufferUsageFlags::UnorderedAccess));
 		FRDGBuilder Builder;
-		const auto Input = Builder.ImportBuffer("Input",
-			InputBuffer.GetReference(), ERHIAccess::ComputeShaderRead,
-			ERHIAccess::ComputeShaderRead);
-		const auto Output = Builder.ImportBuffer("Output",
-			OutputBuffer.GetReference(), ERHIAccess::ComputeShaderReadWrite,
-			ERHIAccess::ComputeShaderReadWrite);
+		const auto Input = Builder.RegisterExternalBuffer(InputBuffer, "Input", ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
+		const auto Output = Builder.RegisterExternalBuffer(OutputBuffer, "Output", ERHIAccess::ComputeShaderReadWrite, ERHIAccess::ComputeShaderReadWrite);
 		auto Parameters = Builder.AllocParameters<
 			FComposedComputeBufferParameters>();
 		Parameters->InputBuffer = {Input, 16, 32};
@@ -927,8 +954,8 @@ namespace Durin
 		ASSERT_TRUE(Parameters.IsValid());
 		EXPECT_EQ(reinterpret_cast<uintptr_t>(&Parameters.Get()) % 64u, 0u);
 
-		FRHITexture Texture = MakeGraphTexture("ParameterTexture", 2);
-		const auto TextureHandle = Builder.CreateTexture("ParameterTexture", &Texture);
+		auto Texture = MakeGraphTexture("ParameterTexture", 2);
+		const auto TextureHandle = CreateTestTexture(Builder, "ParameterTexture", Texture);
 		const auto TokenHandle = Builder.CreateToken("ParameterToken");
 		Parameters->Input = {TextureHandle,
 			{ERHITextureAspect::Color, 1, 1, 0, 1}};
@@ -953,6 +980,52 @@ namespace Durin
 		auto Result = Builder.Compile();
 		EXPECT_FALSE(Result.IsSuccess());
 		EXPECT_EQ(Result.Error,
+			"render graph parameter metadata for 'FMalformedGraphParameters' member "
+			"'Texture' has an invalid or unstable offset");
+	}
+
+	TEST_F(FRDGTests, ParameterLayoutsAreSharedFlattenedAndTypeIsolated)
+	{
+		const FRDGParameterLayout* First =
+			GetRDGParameterLayout<FGraphParameterLayoutFixture>();
+		const FRDGParameterLayout* Second =
+			GetRDGParameterLayout<FGraphParameterLayoutFixture>();
+		const FRDGParameterLayout* Other =
+			GetRDGParameterLayout<FNestedGraphParameters>();
+		ASSERT_NE(First, nullptr);
+		EXPECT_EQ(First, Second);
+		EXPECT_NE(First, Other);
+		EXPECT_EQ(First->Metadata,
+			FGraphParameterLayoutFixture::GetRDGParametersMetadata());
+		ASSERT_EQ(First->Leaves.size(), 6u);
+		ASSERT_EQ(First->Elements.size(), 7u);
+		EXPECT_EQ(First->Elements[0].FieldPath,
+			"FGraphParameterLayoutFixture.Input");
+		EXPECT_EQ(First->Elements[2].FieldPath,
+			"FGraphParameterLayoutFixture.Buffers[1]");
+		EXPECT_EQ(First->Elements.back().FieldPath,
+			"FGraphParameterLayoutFixture.Nested.Completion");
+		EXPECT_EQ(First->TextureElements.size(), 2u);
+		EXPECT_EQ(First->BufferElements.size(), 2u);
+		EXPECT_EQ(First->AttachmentElements.size(), 2u);
+		EXPECT_EQ(First->TokenElements.size(), 1u);
+		EXPECT_TRUE(First->ValueElements.empty());
+		EXPECT_EQ(First->OffsetIndex.size(), First->Elements.size());
+		const FRDGParameterLayout* Composed =
+			GetRDGParameterLayout<FComposedTextureArrayParameters>();
+		ASSERT_NE(Composed, nullptr);
+		ASSERT_EQ(Composed->ShaderBindings.size(), 1u);
+		EXPECT_EQ(Composed->ShaderBindings[0].Name, "Textures");
+		EXPECT_EQ(Composed->Leaves[
+			Composed->ShaderBindings[0].LeafIndex].Metadata->ArraySize, 2u);
+
+		const auto& InvalidFirst =
+			GetRDGParameterLayoutBuildResult<FMalformedGraphParameters>();
+		const auto& InvalidSecond =
+			GetRDGParameterLayoutBuildResult<FMalformedGraphParameters>();
+		EXPECT_EQ(&InvalidFirst, &InvalidSecond);
+		EXPECT_EQ(InvalidFirst.Layout, nullptr);
+		EXPECT_EQ(InvalidFirst.Error,
 			"render graph parameter metadata for 'FMalformedGraphParameters' member "
 			"'Texture' has an invalid or unstable offset");
 	}
@@ -1045,36 +1118,30 @@ namespace Durin
 	TEST_F(FRDGTests, ParameterizedPassMatchesEveryManualUseKind)
 	{
 		auto BuildCapture = [](bool bParameterized) {
-			FRHITexture InputTexture = MakeGraphTexture("Input");
-			FRHIBuffer Buffer(FRHIBufferCreateDesc::Create(
-				"Buffer", 256, 4, EBufferUsageFlags::UnorderedAccess));
-			FRHITexture ColorTexture = MakeGraphTexture("Color");
-			FRHITexture DepthTexture(FRHITextureCreateDesc::Create2D(
-				"Depth", 64, 64, EPixelFormat::D32)
-				.SetFlags(ETextureCreateFlags::DepthStencilTargetable));
-			FRHITexture ManagedColorTexture = MakeGraphTexture("ManagedColor");
-			FRHITexture ManagedDepthTexture(FRHITextureCreateDesc::Create2D(
-				"ManagedDepth", 64, 64, EPixelFormat::D32)
-				.SetFlags(ETextureCreateFlags::DepthStencilTargetable));
-			FRHITexture ManagedTexture = MakeGraphTexture("ManagedTexture");
+			auto InputTexture = MakeGraphTexture("Input");
+			auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+				"Buffer", 256, 4, EBufferUsageFlags::UnorderedAccess
+			));
+			auto ColorTexture = MakeGraphTexture("Color");
+			auto DepthTexture = MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D(
+								 "Depth", 64, 64, EPixelFormat::D32
+			)
+								 .SetFlags(ETextureCreateFlags::DepthStencilTargetable));
+			auto ManagedColorTexture = MakeGraphTexture("ManagedColor");
+			auto ManagedDepthTexture = MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D(
+								 "ManagedDepth", 64, 64, EPixelFormat::D32
+			)
+								 .SetFlags(ETextureCreateFlags::DepthStencilTargetable));
+			auto ManagedTexture = MakeGraphTexture("ManagedTexture");
 
 			FRDGBuilder Builder;
-			const auto Input = Builder.ImportTexture("Input", &InputTexture,
-				ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-			const auto BufferHandle = Builder.ImportBuffer("Buffer", &Buffer,
-				ERHIAccess::GraphicsShaderReadWrite,
-				ERHIAccess::GraphicsShaderReadWrite);
-			const auto Color = Builder.CreateTexture("Color", &ColorTexture);
-			const auto Depth = Builder.CreateTexture("Depth", &DepthTexture);
-			const auto ManagedColor = Builder.CreateTexture(
-				"ManagedColor", &ManagedColorTexture,
-				ERHIAccess::GraphicsShaderRead);
-			const auto ManagedDepth = Builder.CreateTexture(
-				"ManagedDepth", &ManagedDepthTexture,
-				ERHIAccess::GraphicsShaderRead);
-			const auto Managed = Builder.CreateTexture(
-				"ManagedTexture", &ManagedTexture,
-				ERHIAccess::GraphicsShaderRead);
+			const auto Input = Builder.RegisterExternalTexture(InputTexture, "Input", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+			const auto BufferHandle = Builder.RegisterExternalBuffer(Buffer, "Buffer", ERHIAccess::GraphicsShaderReadWrite, ERHIAccess::GraphicsShaderReadWrite);
+			const auto Color = CreateTestTexture(Builder, "Color", ColorTexture);
+			const auto Depth = CreateTestTexture(Builder, "Depth", DepthTexture);
+			const auto ManagedColor = CreateTestTexture(Builder, "ManagedColor", ManagedColorTexture, ERHIAccess::GraphicsShaderRead);
+			const auto ManagedDepth = CreateTestTexture(Builder, "ManagedDepth", ManagedDepthTexture, ERHIAccess::GraphicsShaderRead);
+			const auto Managed = CreateTestTexture(Builder, "ManagedTexture", ManagedTexture, ERHIAccess::GraphicsShaderRead);
 			const auto Completion = Builder.CreateToken("Completion");
 
 			if (bParameterized)
@@ -1180,17 +1247,14 @@ namespace Durin
 
 	TEST_F(FRDGTests, ParameterizedPassRejectsExactInvalidFieldPaths)
 	{
-		FRHITexture Texture = MakeGraphTexture("Texture");
-		FRHITexture ForeignTexture = MakeGraphTexture("ForeignTexture");
+		auto Texture = MakeGraphTexture("Texture");
+		auto ForeignTexture = MakeGraphTexture("ForeignTexture");
 		FRDGBuilder ForeignBuilder;
-		const auto Foreign = ForeignBuilder.CreateTexture(
-			"ForeignTexture", &ForeignTexture);
+		const auto Foreign = CreateTestTexture(ForeignBuilder, "ForeignTexture", ForeignTexture);
 
 		{
 			FRDGBuilder Builder;
-			const auto Local = Builder.ImportTexture("Texture", &Texture,
-				ERHIAccess::GraphicsShaderRead,
-				ERHIAccess::GraphicsShaderRead);
+			const auto Local = Builder.RegisterExternalTexture(Texture, "Texture", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 			auto Parameters = Builder.AllocParameters<FTwoTextureGraphParameters>();
 			Parameters->Textures = {{{Local, WholeColor()},
 				{Foreign, WholeColor()}}};
@@ -1204,9 +1268,7 @@ namespace Durin
 
 		{
 			FRDGBuilder Builder;
-			const auto Local = Builder.ImportTexture("Texture", &Texture,
-				ERHIAccess::GraphicsShaderRead,
-				ERHIAccess::GraphicsShaderRead);
+			const auto Local = Builder.RegisterExternalTexture(Texture, "Texture", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 			auto Parameters = Builder.AllocParameters<FTwoTextureGraphParameters>();
 			Parameters->Textures = {{{Local,
 				{ERHITextureAspect::Color, 1, 1, 0, 1}},
@@ -1222,9 +1284,7 @@ namespace Durin
 		{
 			auto BuildOverlapError = [&] {
 				FRDGBuilder Builder;
-				const auto Local = Builder.ImportTexture("Texture", &Texture,
-					ERHIAccess::GraphicsShaderRead,
-					ERHIAccess::GraphicsShaderRead);
+				const auto Local = Builder.RegisterExternalTexture(Texture, "Texture", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 				auto Parameters =
 					Builder.AllocParameters<FTwoTextureGraphParameters>();
 				Parameters->Textures = {{{Local, WholeColor()},
@@ -1244,9 +1304,7 @@ namespace Durin
 
 		{
 			FRDGBuilder Builder;
-			const auto Local = Builder.ImportTexture("Texture", &Texture,
-				ERHIAccess::GraphicsShaderRead,
-				ERHIAccess::GraphicsShaderRead);
+			const auto Local = Builder.RegisterExternalTexture(Texture, "Texture", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 			auto Parameters = Builder.AllocParameters<FTwoTextureGraphParameters>();
 			Parameters->Textures = {{{Local, WholeColor()},
 				{Local, WholeColor()}}};
@@ -1306,10 +1364,9 @@ namespace Durin
 
 	TEST_F(FRDGTests, ParameterizedDeclarationFailureIsCallbackAtomic)
 	{
-		FRHITexture Texture = MakeGraphTexture("Texture");
+		auto Texture = MakeGraphTexture("Texture");
 		FRDGBuilder Builder;
-		const auto Local = Builder.ImportTexture("Texture", &Texture,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto Local = Builder.RegisterExternalTexture(Texture, "Texture", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		auto Parameters = Builder.AllocParameters<FTwoTextureGraphParameters>();
 		Parameters->Textures = {{{Local,
 			{ERHITextureAspect::Color, 4, 1, 0, 1}}, {Local, WholeColor()}}};
@@ -1351,22 +1408,18 @@ namespace Durin
 
 	TEST_F(FRDGTests, ParameterResolverResolvesDeclaredGraphicsResources)
 	{
-		FRHITexture InputTexture = MakeGraphTexture("Input");
-		FRHITexture ColorTexture = MakeGraphTexture("Color");
-		FRHITexture DepthTexture(FRHITextureCreateDesc::Create2D(
-			"Depth", 64, 64, EPixelFormat::D32)
-			.SetFlags(ETextureCreateFlags::DepthStencilTargetable));
-		FRHITexture ManagedTexture = MakeGraphTexture("ManagedTexture");
+		auto InputTexture = MakeGraphTexture("Input");
+		auto ColorTexture = MakeGraphTexture("Color");
+		auto DepthTexture = MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D(
+							 "Depth", 64, 64, EPixelFormat::D32
+		)
+							 .SetFlags(ETextureCreateFlags::DepthStencilTargetable));
+		auto ManagedTexture = MakeGraphTexture("ManagedTexture");
 		FRDGBuilder Builder;
-		const auto Input = Builder.ImportTexture("Input", &InputTexture,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-		const auto Color = Builder.CreateTexture("Color", &ColorTexture,
-			ERHIAccess::GraphicsShaderRead);
-		const auto Depth = Builder.ImportTexture("Depth", &DepthTexture,
-			ERHIAccess::DepthStencilReadWrite,
-			ERHIAccess::DepthStencilReadWrite);
-		const auto Managed = Builder.CreateTexture("Managed", &ManagedTexture,
-			ERHIAccess::GraphicsShaderRead);
+		const auto Input = Builder.RegisterExternalTexture(InputTexture, "Input", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto Color = CreateTestTexture(Builder, "Color", ColorTexture, ERHIAccess::GraphicsShaderRead);
+		const auto Depth = Builder.RegisterExternalTexture(DepthTexture, "Depth", ERHIAccess::DepthStencilReadWrite, ERHIAccess::DepthStencilReadWrite);
+		const auto Managed = CreateTestTexture(Builder, "Managed", ManagedTexture, ERHIAccess::GraphicsShaderRead);
 		const auto Completion = Builder.CreateToken("Completion");
 		auto Parameters = Builder.AllocParameters<FGraphParameterLayoutFixture>();
 		Parameters->Input = {Input, WholeColor()};
@@ -1383,58 +1436,80 @@ namespace Durin
 				const FGraphParameterLayoutFixture& Values,
 				const FRDGParameterResolver& Resolver) {
 				static_assert(std::is_const_v<std::remove_reference_t<decltype(Values)>>);
-				EXPECT_EQ(Resolver.GetTexture(Values.Input), &InputTexture);
+				EXPECT_EQ(Resolver.GetTexture(Values.Input), InputTexture.GetReference());
 				EXPECT_EQ(Resolver.GetBuffer(Values.Buffers[0]), nullptr);
 				const auto ColorView = Resolver.GetColorAttachment(Values.Color);
-				EXPECT_EQ(ColorView.Texture, &ColorTexture);
+				EXPECT_EQ(ColorView.Texture, ColorTexture.GetReference());
 				EXPECT_EQ(ColorView.LoadAction, ERHIRenderTargetLoadAction::Clear);
 				EXPECT_TRUE(ColorView.bPassManagedTransition);
 				const auto DepthView = Resolver.GetDepthStencilAttachment(Values.Depth);
-				EXPECT_EQ(DepthView.Texture, &DepthTexture);
-				EXPECT_EQ(Resolver.GetTexture(Values.Managed), &ManagedTexture);
+				EXPECT_EQ(DepthView.Texture, DepthTexture.GetReference());
+				EXPECT_EQ(Resolver.GetTexture(Values.Managed), ManagedTexture.GetReference());
 				++CallbackCount;
 			});
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-		EXPECT_TRUE(Result.Graph->Execute(GetCommandList()));
+		FTestRDGAllocator Allocator;
+		Allocator.TextureOverrides.emplace(1, ColorTexture);
+		Allocator.TextureOverrides.emplace(3, ManagedTexture);
+		FRDGExecutionContext Context{Allocator};
+		EXPECT_TRUE(Result.Graph->Execute(GetCommandList(), Context));
 		EXPECT_EQ(CallbackCount, 1u);
+	}
+
+	TEST_F(FRDGTests, ParameterResolverAuthorizesOptionalObjectAndContainedValue)
+	{
+		auto Texture = MakeGraphTexture("Optional", 2);
+		FRDGBuilder Builder;
+		const auto Handle = Builder.RegisterExternalTexture(Texture, "Optional",
+			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		auto Parameters =
+			Builder.AllocParameters<FComposedTextureArrayParameters>();
+		Parameters->Textures[0] = FRDGTextureParameter{Handle,
+			{ERHITextureAspect::Color, 0, 1, 0, 1}};
+		Parameters->Textures[1] = FRDGTextureParameter{Handle,
+			{ERHITextureAspect::Color, 1, 1, 0, 1}};
+		Builder.AddPass("OptionalAliases", ERDGPassType::Graphics,
+			std::move(Parameters),
+			[&](FRHICommandListImmediate&,
+				const FComposedTextureArrayParameters& Values,
+				const FRDGParameterResolver& Resolver) {
+				EXPECT_EQ(Resolver.GetTexture(Values.Textures[0]),
+					Texture.GetReference());
+				EXPECT_EQ(Resolver.GetTexture(*Values.Textures[1]),
+					Texture.GetReference());
+			});
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		EXPECT_TRUE(Result.Graph->Execute(GetCommandList()));
 	}
 
 	TEST_F(FRDGTests, ParameterResolverSupportsComputeAndCopyDomains)
 	{
-		FRHITexture ComputeTexture = MakeGraphTexture("Compute");
-		FRHITexture CopyTexture = MakeGraphTexture("Copy");
-		FRHIBuffer Buffer(FRHIBufferCreateDesc::Create(
-			"Buffer", 64, 4, EBufferUsageFlags::UnorderedAccess));
+		auto ComputeTexture = MakeGraphTexture("Compute");
+		auto CopyTexture = MakeGraphTexture("Copy");
+		auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+			"Buffer", 64, 4, EBufferUsageFlags::UnorderedAccess
+		));
 		FRDGBuilder Builder;
-		const auto ComputeTextureHandle = Builder.ImportTexture("Compute",
-			&ComputeTexture, ERHIAccess::ComputeShaderRead,
-			ERHIAccess::ComputeShaderRead);
-		const auto CopyTextureHandle = Builder.ImportTexture("Copy", &CopyTexture,
-			ERHIAccess::TransferRead, ERHIAccess::TransferRead);
-		const auto BufferHandle = Builder.ImportBuffer("Buffer", &Buffer,
-			ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
+		const auto ComputeTextureHandle = Builder.RegisterExternalTexture(ComputeTexture, "Compute", ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
+		const auto CopyTextureHandle = Builder.RegisterExternalTexture(CopyTexture, "Copy", ERHIAccess::TransferRead, ERHIAccess::TransferRead);
+		const auto BufferHandle = Builder.RegisterExternalBuffer(Buffer, "Buffer", ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
 		auto ComputeParameters = Builder.AllocParameters<FComputeResolutionParameters>();
 		ComputeParameters->Texture = {ComputeTextureHandle, WholeColor()};
 		ComputeParameters->Buffer = {BufferHandle, 0, 64};
 		uint32 CallbackCount = 0;
-		Builder.AddPass("ResolveCompute", ERDGPassType::Compute,
-			std::move(ComputeParameters),
-			[&](FRHICommandListImmediate&, const FComputeResolutionParameters& Values,
-				const FRDGParameterResolver& Resolver) {
-				EXPECT_EQ(Resolver.GetTexture(Values.Texture), &ComputeTexture);
-				EXPECT_EQ(Resolver.GetBuffer(Values.Buffer), &Buffer);
-				++CallbackCount;
-			});
+		Builder.AddPass("ResolveCompute", ERDGPassType::Compute, std::move(ComputeParameters), [&](FRHICommandListImmediate&, const FComputeResolutionParameters& Values, const FRDGParameterResolver& Resolver) {
+			EXPECT_EQ(Resolver.GetTexture(Values.Texture), ComputeTexture.GetReference());
+			EXPECT_EQ(Resolver.GetBuffer(Values.Buffer), Buffer.GetReference());
+			++CallbackCount;
+		});
 		auto CopyParameters = Builder.AllocParameters<FCopyResolutionParameters>();
 		CopyParameters->Texture = {CopyTextureHandle, WholeColor()};
-		Builder.AddPass("ResolveCopy", ERDGPassType::Copy,
-			std::move(CopyParameters),
-			[&](FRHICommandListImmediate&, const FCopyResolutionParameters& Values,
-				const FRDGParameterResolver& Resolver) {
-				EXPECT_EQ(Resolver.GetTexture(Values.Texture), &CopyTexture);
-				++CallbackCount;
-			});
+		Builder.AddPass("ResolveCopy", ERDGPassType::Copy, std::move(CopyParameters), [&](FRHICommandListImmediate&, const FCopyResolutionParameters& Values, const FRDGParameterResolver& Resolver) {
+			EXPECT_EQ(Resolver.GetTexture(Values.Texture), CopyTexture.GetReference());
+			++CallbackCount;
+		});
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 		EXPECT_TRUE(Result.Graph->Execute(GetCommandList()));
@@ -1445,13 +1520,11 @@ namespace Durin
 	{
 		static_assert(!CTextureResolverArgument<FRDGTextureHandle>);
 		static_assert(!CTextureResolverArgument<FRDGBufferParameter>);
-		FRHITexture FirstTexture = MakeGraphTexture("First", 2);
-		FRHITexture SecondTexture = MakeGraphTexture("Second", 2);
+		auto FirstTexture = MakeGraphTexture("First", 2);
+		auto SecondTexture = MakeGraphTexture("Second", 2);
 		FRDGBuilder Builder;
-		const auto First = Builder.ImportTexture("First", &FirstTexture,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-		const auto Second = Builder.ImportTexture("Second", &SecondTexture,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto First = Builder.RegisterExternalTexture(FirstTexture, "First", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto Second = Builder.RegisterExternalTexture(SecondTexture, "Second", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		auto FirstParameters = Builder.AllocParameters<FTwoTextureGraphParameters>();
 		FirstParameters->Textures = {{{First,
 			{ERHITextureAspect::Color, 0, 1, 0, 1}}, {First,
@@ -1478,10 +1551,9 @@ namespace Durin
 
 	TEST_F(FRDGTests, ParameterResolverRejectsCopiedAndForeignOptionalMembers)
 	{
-		FRHITexture Texture = MakeGraphTexture("Declared", 2);
+		auto Texture = MakeGraphTexture("Declared", 2);
 		FRDGBuilder Builder;
-		const auto Handle = Builder.ImportTexture("Declared", &Texture,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto Handle = Builder.RegisterExternalTexture(Texture, "Declared", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		auto Parameters = Builder.AllocParameters<FTwoTextureGraphParameters>();
 		Parameters->Textures = {{{Handle,
 			{ERHITextureAspect::Color, 0, 1, 0, 1}}, {Handle,
@@ -1503,9 +1575,7 @@ namespace Durin
 		// An empty optional is nullable only when that exact optional object is a
 		// declared field; a foreign empty optional remains an invalid capability.
 		FRDGBuilder OptionalBuilder;
-		const auto OptionalHandle = OptionalBuilder.ImportTexture("Declared",
-			&Texture, ERHIAccess::GraphicsShaderRead,
-			ERHIAccess::GraphicsShaderRead);
+		const auto OptionalHandle = OptionalBuilder.RegisterExternalTexture(Texture, "Declared", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		auto OptionalParameters =
 			OptionalBuilder.AllocParameters<FTwoTextureGraphParameters>();
 		OptionalParameters->Textures = {{{OptionalHandle,
@@ -1576,10 +1646,9 @@ namespace Durin
 
 	TEST_F(FRDGTests, CompilesStableHazardOrderAndExactTextureTransitions)
 	{
-		FRHITexture Texture = MakeGraphTexture("SceneColor");
+		auto Texture = MakeGraphTexture("SceneColor");
 		FRDGBuilder Builder;
-		const auto SceneColor = Builder.CreateTexture(
-			"SceneColor", &Texture, ERHIAccess::GraphicsShaderRead);
+		const auto SceneColor = CreateTestTexture(Builder, "SceneColor", Texture, ERHIAccess::GraphicsShaderRead);
 		const auto Independent = Builder.AddPass(
 			"Independent", ERDGPassType::Copy);
 		const auto Produce = Builder.AddPass(
@@ -1594,6 +1663,10 @@ namespace Durin
 
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		FTestRDGAllocator Allocator;
+		Allocator.TextureOverrides.emplace(0, Texture);
+		FRDGExecutionContext Context{Allocator};
+		ASSERT_TRUE(Result.Graph->Execute(GetCommandList(), Context));
 		ASSERT_EQ(Result.Graph->GetPasses().size(), 3u);
 		EXPECT_EQ(Result.Graph->GetPasses()[0].Name, "Independent");
 		EXPECT_EQ(Result.Graph->GetPasses()[1].Name, "Produce");
@@ -1603,28 +1676,20 @@ namespace Durin
 			(FRDGDependency{1, 2, "SceneColor",
 				ERDGDependencyKind::Value}));
 		ASSERT_EQ(Result.Graph->GetPasses()[1].TextureTransitions.size(), 1u);
-		EXPECT_EQ(Result.Graph->GetPasses()[1].TextureTransitions[0],
-			(FRHITextureTransition{&Texture, WholeColor(), ERHIAccess::Discard,
-				ERHIAccess::ColorAttachmentReadWrite}));
+		EXPECT_EQ(Result.Graph->GetPasses()[1].TextureTransitions[0], (FRHITextureTransition{Texture.GetReference(), WholeColor(), ERHIAccess::Discard, ERHIAccess::ColorAttachmentReadWrite}));
 		ASSERT_EQ(Result.Graph->GetPasses()[2].TextureTransitions.size(), 1u);
-		EXPECT_EQ(Result.Graph->GetPasses()[2].TextureTransitions[0],
-			(FRHITextureTransition{&Texture, WholeColor(),
-				ERHIAccess::ColorAttachmentReadWrite,
-				ERHIAccess::ComputeShaderRead}));
+		EXPECT_EQ(Result.Graph->GetPasses()[2].TextureTransitions[0], (FRHITextureTransition{Texture.GetReference(), WholeColor(), ERHIAccess::ColorAttachmentReadWrite, ERHIAccess::ComputeShaderRead}));
 		ASSERT_EQ(Result.Graph->GetFinalTextureTransitions().size(), 1u);
-		EXPECT_EQ(Result.Graph->GetFinalTextureTransitions()[0],
-			(FRHITextureTransition{&Texture, WholeColor(),
-				ERHIAccess::ComputeShaderRead,
-				ERHIAccess::GraphicsShaderRead}));
+		EXPECT_EQ(Result.Graph->GetFinalTextureTransitions()[0], (FRHITextureTransition{Texture.GetReference(), WholeColor(), ERHIAccess::ComputeShaderRead, ERHIAccess::GraphicsShaderRead}));
 	}
 
 	TEST_F(FRDGTests, CompilesBufferRawWarAndWawDependencies)
 	{
-		FRHIBuffer Buffer(FRHIBufferCreateDesc::Create(
-			"Work", 64, 4, EBufferUsageFlags::UnorderedAccess
-				| EBufferUsageFlags::SourceCopy));
+		auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+			"Work", 64, 4, EBufferUsageFlags::UnorderedAccess | EBufferUsageFlags::SourceCopy
+		));
 		FRDGBuilder Builder;
-		const auto Work = Builder.CreateBuffer("Work", &Buffer);
+		const auto Work = CreateTestBuffer(Builder, "Work", Buffer);
 		const auto Write = Builder.AddPass("Write", ERDGPassType::Compute);
 		Builder.UseBuffer(Write, Work, 0, 64, ERDGUse::Write,
 			ERHIAccess::ComputeShaderReadWrite, true);
@@ -1652,9 +1717,9 @@ namespace Durin
 
 	TEST_F(FRDGTests, RejectsMissingProducerForeignHandleAndCycle)
 	{
-		FRHITexture Texture = MakeGraphTexture("Missing");
+		auto Texture = MakeGraphTexture("Missing");
 		FRDGBuilder MissingProducer;
-		const auto Logical = MissingProducer.CreateTexture("Missing", &Texture);
+		const auto Logical = CreateTestTexture(MissingProducer, "Missing", Texture);
 		const auto Read = MissingProducer.AddPass("Read", ERDGPassType::Graphics);
 		MissingProducer.UseTexture(Read, Logical, WholeColor(),
 			ERDGUse::Read, ERHIAccess::GraphicsShaderRead);
@@ -1663,7 +1728,7 @@ namespace Durin
 		EXPECT_NE(Missing.Error.find("before its producer"), std::string::npos);
 
 		FRDGBuilder ForeignOwner;
-		const auto Foreign = ForeignOwner.CreateTexture("Foreign", &Texture);
+		const auto Foreign = CreateTestTexture(ForeignOwner, "Foreign", Texture);
 		FRDGBuilder ForeignUse;
 		const auto Pass = ForeignUse.AddPass("Use", ERDGPassType::Graphics);
 		ForeignUse.UseTexture(Pass, Foreign, WholeColor(), ERDGUse::Read,
@@ -1692,9 +1757,9 @@ namespace Durin
 
 	TEST_F(FRDGTests, RejectsTextureAspectsOutsideResourceFormat)
 	{
-		FRHITexture Texture = MakeGraphTexture("ColorOnly");
+		auto Texture = MakeGraphTexture("ColorOnly");
 		FRDGBuilder Builder;
-		const auto Resource = Builder.CreateTexture("ColorOnly", &Texture);
+		const auto Resource = CreateTestTexture(Builder, "ColorOnly", Texture);
 		const auto Pass = Builder.AddPass("InvalidAspects",
 			ERDGPassType::Compute);
 		Builder.UseTexture(Pass, Resource,
@@ -1708,9 +1773,9 @@ namespace Durin
 
 	TEST_F(FRDGTests, NormalizesDisjointAndPartiallyOverlappingSubresources)
 	{
-		FRHITexture Texture = MakeGraphTexture("MipChain", 4);
+		auto Texture = MakeGraphTexture("MipChain", 4);
 		FRDGBuilder Builder;
-		const auto Chain = Builder.CreateTexture("MipChain", &Texture);
+		const auto Chain = CreateTestTexture(Builder, "MipChain", Texture);
 		const auto Mip0 = Builder.AddPass("Mip0", ERDGPassType::Compute);
 		Builder.UseTexture(Mip0, Chain, {ERHITextureAspect::Color, 0, 1, 0, 1},
 			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
@@ -1722,7 +1787,7 @@ namespace Durin
 		EXPECT_TRUE(Disjoint.Graph->GetDependencies().empty());
 
 		FRDGBuilder Partial;
-		const auto PartialChain = Partial.CreateTexture("MipChain", &Texture);
+		const auto PartialChain = CreateTestTexture(Partial, "MipChain", Texture);
 		const auto Whole = Partial.AddPass("Whole", ERDGPassType::Compute);
 		Partial.UseTexture(Whole, PartialChain, WholeColor(4),
 			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
@@ -1741,9 +1806,9 @@ namespace Durin
 
 	TEST_F(FRDGTests, DiscardedAttachmentStoreCannotBecomeAProducer)
 	{
-		FRHITexture Texture = MakeGraphTexture("Discarded");
+		auto Texture = MakeGraphTexture("Discarded");
 		FRDGBuilder Builder;
-		const auto Target = Builder.CreateTexture("Discarded", &Texture);
+		const auto Target = CreateTestTexture(Builder, "Discarded", Texture);
 		const auto Clear = Builder.AddPass("Clear", ERDGPassType::Graphics);
 		Builder.UseColorAttachment(Clear, Target, WholeColor(),
 			ERHIRenderTargetLoadAction::Clear,
@@ -1756,15 +1821,13 @@ namespace Durin
 		EXPECT_NE(Result.Error.find("before its producer"), std::string::npos);
 	}
 
-	TEST_F(FRDGTests, PreservesImportedInitialAndFinalStates)
+	TEST_F(FRDGTests, PreservesExternalInitialAndFinalStates)
 	{
-		FRHITexture Texture = MakeGraphTexture("Imported");
+		auto Texture = MakeGraphTexture("Imported");
 		FRDGBuilder Builder;
-		const auto Imported = Builder.ImportTexture("Imported", &Texture,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto External = Builder.RegisterExternalTexture(Texture, "External", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		const auto Compute = Builder.AddPass("Compute", ERDGPassType::Compute);
-		Builder.UseTexture(Compute, Imported, WholeColor(),
-			ERDGUse::Read, ERHIAccess::ComputeShaderRead);
+		Builder.UseTexture(Compute, External, WholeColor(), ERDGUse::Read, ERHIAccess::ComputeShaderRead);
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 		ASSERT_EQ(Result.Graph->GetPasses()[0].TextureTransitions.size(), 1u);
@@ -1777,9 +1840,9 @@ namespace Durin
 
 	TEST_F(FRDGTests, RejectsAttachmentLoadWithoutPriorContents)
 	{
-		FRHITexture Texture = MakeGraphTexture("Load");
+		auto Texture = MakeGraphTexture("Load");
 		FRDGBuilder Builder;
-		const auto Target = Builder.CreateTexture("Load", &Texture);
+		const auto Target = CreateTestTexture(Builder, "Load", Texture);
 		const auto Load = Builder.AddPass("Load", ERDGPassType::Graphics);
 		Builder.UseColorAttachment(Load, Target, WholeColor(),
 			ERHIRenderTargetLoadAction::Load,
@@ -1792,10 +1855,11 @@ namespace Durin
 	TEST_F(FRDGTests, DumpIsDeterministicAndSyntheticCompileCostIsBounded)
 	{
 		auto CompileFixture = [] {
-			static FRHIBuffer Buffer(FRHIBufferCreateDesc::Create(
-				"Fixture", 512, 4, EBufferUsageFlags::UnorderedAccess));
+			static const auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+				"Fixture", 512, 4, EBufferUsageFlags::UnorderedAccess
+			));
 			FRDGBuilder Builder;
-			const auto Work = Builder.CreateBuffer("Fixture", &Buffer);
+			const auto Work = CreateTestBuffer(Builder, "Fixture", Buffer);
 			for (uint32 Index = 0; Index < 128; ++Index)
 			{
 				const auto Pass = Builder.AddPass("Pass" + std::to_string(Index),
@@ -1817,14 +1881,16 @@ namespace Durin
 
 	TEST_F(FRDGTests, CullsUnreachableBranchesAndReportsExactLifetimes)
 	{
-		FRHIBuffer RetainedBuffer(FRHIBufferCreateDesc::Create(
-			"Retained", 64, 4, EBufferUsageFlags::UnorderedAccess));
-		FRHIBuffer CulledBuffer(FRHIBufferCreateDesc::Create(
-			"Culled", 64, 4, EBufferUsageFlags::UnorderedAccess));
+		auto RetainedBuffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+			"Retained", 64, 4, EBufferUsageFlags::UnorderedAccess
+		));
+		auto CulledBuffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+			"Culled", 64, 4, EBufferUsageFlags::UnorderedAccess
+		));
 		FRDGBuilder Builder;
 		Builder.EnablePassCulling();
-		const auto Retained = Builder.CreateBuffer("Retained", &RetainedBuffer);
-		const auto Culled = Builder.CreateBuffer("Culled", &CulledBuffer);
+		const auto Retained = CreateTestBuffer(Builder, "Retained", RetainedBuffer);
+		const auto Culled = CreateTestBuffer(Builder, "Culled", CulledBuffer);
 		const auto Produce = Builder.AddPass("Produce", ERDGPassType::Compute);
 		Builder.UseBuffer(Produce, Retained, 0, 64, ERDGUse::Write,
 			ERHIAccess::ComputeShaderReadWrite, true);
@@ -1853,20 +1919,17 @@ namespace Durin
 		EXPECT_TRUE(Result.Graph->GetCullingDecisions()[2].bCulled);
 	}
 
-	TEST_F(FRDGTests, CanonicalizesEquivalentImportedIdentity)
+	TEST_F(FRDGTests, CanonicalizesEquivalentExternalIdentity)
 	{
-		FRHITexture Texture = MakeGraphTexture("Shared");
-		FRHIBuffer Buffer(FRHIBufferCreateDesc::Create(
-			"SharedBuffer", 64, 4, EBufferUsageFlags::UnorderedAccess));
+		auto Texture = MakeGraphTexture("Shared");
+		auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+			"SharedBuffer", 64, 4, EBufferUsageFlags::UnorderedAccess
+		));
 		FRDGBuilder Builder;
-		const auto FirstTexture = Builder.ImportTexture("First", &Texture,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-		const auto SecondTexture = Builder.ImportTexture("Second", &Texture,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-		const auto FirstBuffer = Builder.ImportBuffer("FirstBuffer", &Buffer,
-			ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
-		const auto SecondBuffer = Builder.ImportBuffer("SecondBuffer", &Buffer,
-			ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
+		const auto FirstTexture = Builder.RegisterExternalTexture(Texture, "First", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto SecondTexture = Builder.RegisterExternalTexture(Texture, "Second", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto FirstBuffer = Builder.RegisterExternalBuffer(Buffer, "FirstBuffer", ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
+		const auto SecondBuffer = Builder.RegisterExternalBuffer(Buffer, "SecondBuffer", ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
 		EXPECT_EQ(FirstTexture, SecondTexture);
 		EXPECT_EQ(FirstBuffer, SecondBuffer);
 		auto Result = Builder.Compile();
@@ -1877,34 +1940,28 @@ namespace Durin
 		EXPECT_EQ(Capture.Resources[1].Name, "FirstBuffer");
 
 		FRDGBuilder OtherBuilder;
-		const auto Other = OtherBuilder.ImportTexture("Other", &Texture,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto Other = OtherBuilder.RegisterExternalTexture(Texture, "Other", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		EXPECT_NE(FirstTexture, Other);
 	}
 
-	TEST_F(FRDGTests, RejectsConflictingImportedIdentityAndDomainMismatch)
+	TEST_F(FRDGTests, RejectsConflictingExternalIdentityAndDomainMismatch)
 	{
-		FRHITexture Texture = MakeGraphTexture("Shared");
-		FRHIBuffer Buffer(FRHIBufferCreateDesc::Create(
-			"SharedBuffer", 64, 4, EBufferUsageFlags::UnorderedAccess));
+		auto Texture = MakeGraphTexture("Shared");
+		auto Buffer = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
+			"SharedBuffer", 64, 4, EBufferUsageFlags::UnorderedAccess
+		));
 		FRDGBuilder Duplicate;
-		Duplicate.ImportTexture("First", &Texture, ERHIAccess::GraphicsShaderRead,
-			ERHIAccess::GraphicsShaderRead);
-		Duplicate.ImportTexture("Second", &Texture, ERHIAccess::ComputeShaderRead,
-			ERHIAccess::GraphicsShaderRead);
+		Duplicate.RegisterExternalTexture(Texture, "First", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		Duplicate.RegisterExternalTexture(Texture, "Second", ERHIAccess::ComputeShaderRead, ERHIAccess::GraphicsShaderRead);
 		auto DuplicateResult = Duplicate.Compile();
 		EXPECT_FALSE(DuplicateResult.IsSuccess());
-		EXPECT_NE(DuplicateResult.Error.find(
-			"conflicting imported physical resource: canonical 'First'"),
-			std::string::npos);
+		EXPECT_NE(DuplicateResult.Error.find("conflicting external physical resource: canonical 'First'"), std::string::npos);
 		EXPECT_NE(DuplicateResult.Error.find("conflicts with 'Second'"),
 			std::string::npos);
 
 		FRDGBuilder BufferConflict;
-		BufferConflict.ImportBuffer("CanonicalBuffer", &Buffer,
-			ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
-		BufferConflict.ImportBuffer("ConflictingBuffer", &Buffer,
-			ERHIAccess::ComputeShaderRead, ERHIAccess::TransferRead);
+		BufferConflict.RegisterExternalBuffer(Buffer, "CanonicalBuffer", ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
+		BufferConflict.RegisterExternalBuffer(Buffer, "ConflictingBuffer", ERHIAccess::ComputeShaderRead, ERHIAccess::TransferRead);
 		auto BufferConflictResult = BufferConflict.Compile();
 		EXPECT_FALSE(BufferConflictResult.IsSuccess());
 		EXPECT_NE(BufferConflictResult.Error.find(
@@ -1912,20 +1969,17 @@ namespace Durin
 		EXPECT_NE(BufferConflictResult.Error.find(
 			"conflicts with 'ConflictingBuffer'"), std::string::npos);
 
-		FRDGBuilder NullImport;
-		const auto NullHandle = NullImport.ImportTexture("Null", nullptr,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		FRDGBuilder NullExternal;
+		const auto NullHandle = NullExternal.RegisterExternalTexture({}, "Null", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		EXPECT_TRUE(NullHandle.IsValid());
-		auto NullResult = NullImport.Compile();
+		auto NullResult = NullExternal.Compile();
 		EXPECT_FALSE(NullResult.IsSuccess());
 		EXPECT_EQ(NullResult.Error, "resource 'Null' has no physical resource");
 
 		FRDGBuilder Domain;
-		const auto Imported = Domain.ImportTexture("Shared", &Texture,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto External = Domain.RegisterExternalTexture(Texture, "Shared", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		const auto Copy = Domain.AddPass("Copy", ERDGPassType::Copy);
-		Domain.UseTexture(Copy, Imported, WholeColor(), ERDGUse::Read,
-			ERHIAccess::GraphicsShaderRead);
+		Domain.UseTexture(Copy, External, WholeColor(), ERDGUse::Read, ERHIAccess::GraphicsShaderRead);
 		auto DomainResult = Domain.Compile();
 		EXPECT_FALSE(DomainResult.IsSuccess());
 		EXPECT_NE(DomainResult.Error.find("incompatible with pass domain"),
@@ -1934,10 +1988,10 @@ namespace Durin
 
 	TEST_F(FRDGTests, DiscardValueCullingDoesNotRetainOverwrittenProducer)
 	{
-		FRHITexture Texture = MakeGraphTexture("Versioned");
+		auto Texture = MakeGraphTexture("Versioned");
 		FRDGBuilder Builder;
 		Builder.EnablePassCulling();
-		const auto Resource = Builder.CreateTexture("Versioned", &Texture);
+		const auto Resource = CreateTestTexture(Builder, "Versioned", Texture);
 		const auto Old = Builder.AddPass("Old", ERDGPassType::Compute);
 		Builder.UseTexture(Old, Resource, WholeColor(), ERDGUse::Write,
 			ERHIAccess::ComputeShaderReadWrite, true);
@@ -1983,13 +2037,11 @@ namespace Durin
 
 	TEST_F(FRDGTests, PassResourceViewRejectsUndeclaredLookup)
 	{
-		FRHITexture DeclaredTexture = MakeGraphTexture("Declared");
-		FRHITexture HiddenTexture = MakeGraphTexture("Hidden");
+		auto DeclaredTexture = MakeGraphTexture("Declared");
+		auto HiddenTexture = MakeGraphTexture("Hidden");
 		FRDGBuilder Builder;
-		const auto Declared = Builder.ImportTexture("Declared", &DeclaredTexture,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-		const auto Hidden = Builder.ImportTexture("Hidden", &HiddenTexture,
-			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto Declared = Builder.RegisterExternalTexture(DeclaredTexture, "Declared", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
+		const auto Hidden = Builder.RegisterExternalTexture(HiddenTexture, "Hidden", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		const auto Pass = Builder.AddPass("Pass", ERDGPassType::Graphics,
 			[=](FRHICommandListImmediate&, const FRDGPassResources& Resources) {
 				Resources.GetTexture(Hidden);
@@ -2004,9 +2056,9 @@ namespace Durin
 
 	TEST_F(FRDGTests, ManagedAttachmentExitStateDrivesFollowingTransition)
 	{
-		FRHITexture Texture = MakeGraphTexture("Managed");
+		auto Texture = MakeGraphTexture("Managed");
 		FRDGBuilder Builder;
-		const auto Target = Builder.CreateTexture("Managed", &Texture);
+		const auto Target = CreateTestTexture(Builder, "Managed", Texture);
 		const auto Render = Builder.AddPass("Render", ERDGPassType::Graphics);
 		Builder.UseManagedColorAttachment(Render, Target, WholeColor(),
 			ERHIRenderTargetLoadAction::Clear,
@@ -2155,37 +2207,42 @@ namespace Durin
 		EXPECT_EQ(Texture.GetRefCount(), InitialReferences);
 	}
 
-	TEST_F(FRDGTests, ExternalAndPreboundCapturesDoNotInventAllocationIdentity)
+	TEST_F(FRDGTests, ExternalAndAllocatedCapturesPublishHonestIdentity)
 	{
 		auto ExternalTexture = MakeRefCount<FRHITexture>(
 			FRHITextureCreateDesc::Create2D(
 				"External", 8, 8, EPixelFormat::RGBA8_UNORM)
 				.SetFlags(ETextureCreateFlags::ShaderResource));
-		auto PreboundTexture = MakeRefCount<FRHITexture>(
+		auto AllocatedTexture = MakeRefCount<FRHITexture>(
 			FRHITextureCreateDesc::Create2D(
-				"Prebound", 8, 8, EPixelFormat::RGBA8_UNORM)
-				.SetFlags(ETextureCreateFlags::RenderTargetable));
+				"Allocated", 8, 8, EPixelFormat::RGBA8_UNORM
+			)
+				.SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource)
+		);
 		FRDGBuilder Builder;
 		const auto External = Builder.RegisterExternalTexture(ExternalTexture,
 			"External", ERHIAccess::GraphicsShaderRead,
 			ERHIAccess::GraphicsShaderRead);
-		const auto Prebound = Builder.CreateTexture(
-			"Prebound", PreboundTexture.GetReference(),
-			ERHIAccess::GraphicsShaderRead);
+		const auto Allocated = CreateTestTexture(Builder, "Allocated", AllocatedTexture, ERHIAccess::GraphicsShaderRead);
 		const auto Pass = Builder.AddPass("Read", ERDGPassType::Graphics);
 		Builder.UseTexture(Pass, External, WholeColor(), ERDGUse::Read,
 			ERHIAccess::GraphicsShaderRead);
-		Builder.UseColorAttachment(Pass, Prebound, WholeColor(),
-			ERHIRenderTargetLoadAction::Clear,
-			ERHIRenderTargetStoreAction::Store);
+		Builder.UseColorAttachment(Pass, Allocated, WholeColor(), ERHIRenderTargetLoadAction::Clear, ERHIRenderTargetStoreAction::Store);
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 		const auto Capture = Result.Graph->Capture();
 		ASSERT_EQ(Capture.Resources.size(), 2u);
 		EXPECT_EQ(Capture.Resources[0].AllocationDisposition, "external");
 		EXPECT_EQ(Capture.Resources[0].PhysicalAllocationId, 0u);
-		EXPECT_EQ(Capture.Resources[1].AllocationDisposition, "prebound");
+		EXPECT_EQ(Capture.Resources[1].AllocationDisposition, "pending");
 		EXPECT_EQ(Capture.Resources[1].PhysicalAllocationId, 0u);
+		FTestRDGAllocator Allocator;
+		Allocator.TextureOverrides.emplace(1, AllocatedTexture);
+		FRDGExecutionContext Context{Allocator};
+		ASSERT_TRUE(Result.Graph->Execute(GetCommandList(), Context));
+		const auto ExecutedCapture = Result.Graph->Capture();
+		EXPECT_EQ(ExecutedCapture.Resources[1].AllocationDisposition, "allocated");
+		EXPECT_NE(ExecutedCapture.Resources[1].PhysicalAllocationId, 0u);
 	}
 
 	TEST_F(FRDGTests, ExternalExtractionRoundTripPublishesAfterExecution)
@@ -2385,26 +2442,24 @@ namespace Durin
 
 	TEST_F(FRDGTests, GBufferManualDeclarationOracleFreezesCompletePassShape)
 	{
-		std::array<FRHITexture, 4> ColorTextures{
+		std::array<FTextureRHIRef, 4> ColorTextures{
 			MakeGraphTexture("Scene.GBuffer.Material"),
 			MakeGraphTexture("Scene.GBuffer.Normals"),
 			MakeGraphTexture("Scene.GBuffer.Surface"),
 			MakeGraphTexture("Scene.GBuffer.Emissive"),
 		};
-		FRHITexture DepthTexture(FRHITextureCreateDesc::Create2D(
-			"Scene.Depth", 64, 64, EPixelFormat::D32)
-			.SetFlags(ETextureCreateFlags::DepthStencilTargetable
-				| ETextureCreateFlags::ShaderResource));
+		auto DepthTexture = MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D(
+							 "Scene.Depth", 64, 64, EPixelFormat::D32
+		)
+							 .SetFlags(ETextureCreateFlags::DepthStencilTargetable | ETextureCreateFlags::ShaderResource));
 		FRDGBuilder Builder;
 		Builder.EnablePassCulling();
 		std::array<FRDGTextureHandle, 4> Colors{};
 		const std::array Names{"Scene.GBuffer.Material", "Scene.GBuffer.Normals",
 			"Scene.GBuffer.Surface", "Scene.GBuffer.Emissive"};
 		for (uint32 Index = 0; Index < Colors.size(); ++Index)
-			Colors[Index] = Builder.CreateTexture(Names[Index], &ColorTextures[Index],
-				ERHIAccess::GraphicsShaderRead);
-		const auto Depth = Builder.CreateTexture("Scene.Depth", &DepthTexture,
-			ERHIAccess::GraphicsShaderRead);
+			Colors[Index] = CreateTestTexture(Builder, Names[Index], ColorTextures[Index], ERHIAccess::GraphicsShaderRead);
+		const auto Depth = CreateTestTexture(Builder, "Scene.Depth", DepthTexture, ERHIAccess::GraphicsShaderRead);
 		const auto Completion = Builder.CreateToken("Scene.GBuffer.Result");
 		uint32 CallbackCount = 0;
 		const auto Pass = Builder.AddPass("Scene.GBuffer",
@@ -2413,7 +2468,7 @@ namespace Durin
 				const FRDGPassResources& Resources) {
 				for (const auto Color : Colors)
 					EXPECT_NE(Resources.GetTexture(Color), nullptr);
-				EXPECT_EQ(Resources.GetTexture(Depth), &DepthTexture);
+				EXPECT_EQ(Resources.GetTexture(Depth), DepthTexture.GetReference());
 				++CallbackCount;
 			});
 		Builder.UseToken(Pass, Completion, ERDGUse::Write);
@@ -2484,7 +2539,12 @@ namespace Durin
 		}
 		ASSERT_EQ(Capture.CullingDecisions.size(), 1u);
 		EXPECT_EQ(Capture.CullingDecisions[0].Reason, "gbuffer-pilot");
-		EXPECT_TRUE(Result.Graph->Execute(GetCommandList()));
+		FTestRDGAllocator Allocator;
+		for (uint32 Index = 0; Index < ColorTextures.size(); ++Index)
+			Allocator.TextureOverrides.emplace(Index, ColorTextures[Index]);
+		Allocator.TextureOverrides.emplace(4, DepthTexture);
+		FRDGExecutionContext Context{Allocator};
+		EXPECT_TRUE(Result.Graph->Execute(GetCommandList(), Context));
 		EXPECT_EQ(CallbackCount, 1u);
 	}
 
@@ -2841,11 +2901,9 @@ namespace Durin
 		{
 			auto Candidate = MakeGraphTexture("Candidate");
 			auto Fallback = MakeGraphTexture("Fallback");
-			FRHITexture* Selected = bCandidateReady ? &Candidate : &Fallback;
+			FTextureRHIRef Selected = bCandidateReady ? Candidate : Fallback;
 			FRDGBuilder Builder;
-			const auto Input = Builder.ImportTexture("Selected.Environment",
-				Selected, ERHIAccess::GraphicsShaderRead,
-				ERHIAccess::GraphicsShaderRead);
+			const auto Input = Builder.RegisterExternalTexture(Selected, "Selected.Environment", ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 			auto Parameters = Builder.AllocParameters<
 				FComposedTextureArrayParameters>();
 			Parameters->Textures[0] = FRDGTextureParameter{

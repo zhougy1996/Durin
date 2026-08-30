@@ -25,6 +25,16 @@ not depend on that target. The plan remains Active until the pre-existing asset
 test link failure is resolved and the GBuffer timing gate passes in a quiet
 lane.
 
+A Stage 4 follow-on retired the remaining raw-pointer `ImportTexture` /
+`ImportBuffer` and prebound `CreateTexture` / `CreateBuffer` overloads after a
+repository inventory confirmed that only `RenderContractTests` used them.
+Tests now retain external resources through counted references and publish
+graph-created backing through `FTestRDGAllocator`. RenderCore stores one counted
+RHI reference per physical resource, distinguishes only external from
+graph-created resources, and no longer carries prebound capture state or raw-
+pointer extraction fallbacks. The Win64 Debug `all` build passes, and
+`RenderContractTests` passes all 104 tests.
+
 Final implementation accounting against the frozen pre-plan source is 357
 production lines added and 949 removed (net -592). Compatibility-symbol count
 is zero. The final representative scene batch requested 13 active resources
@@ -108,7 +118,7 @@ Leave one allocation and ownership model for graph-created physical resources:
 - feature renderers record into caller-provided targets and do not own a
   second frame-transient allocation path;
 - allocation captures distinguish stable pool allocation identity from
-  external or prebound resource identity without presenting graph-local IDs as
+  external resource identity without presenting graph-local IDs as
   physical identities;
 - texture and buffer allocation share one transaction policy with bounded,
   measurable lookup and eviction work; and
@@ -154,9 +164,9 @@ Leave one allocation and ownership model for graph-created physical resources:
   tag may attribute retained bytes, but it cannot participate in descriptor
   compatibility, allocation selection, failure, or eviction priority.
 - **Physical identity is honest and scoped.** RDG pool entries retain stable,
-  pointer-free allocation IDs. Imported and prebound resources use an explicit
-  external/prebound disposition with no fabricated pool allocation ID unless a
-  real cross-capture identity registry is introduced and tested.
+  pointer-free allocation IDs. External resources use an explicit external
+  disposition with no fabricated pool allocation ID unless a real cross-capture
+  identity registry is introduced and tested.
 - **Transactionality precedes publication.** Candidate validation, rollback,
   failure-generation suppression, and complete output publication remain
   all-or-none. Refactoring may not mutate extraction destinations or record a
@@ -296,6 +306,8 @@ Leave one allocation and ownership model for graph-created physical resources:
 - [x] Record final source size, compatibility symbol count, allocation request
   count, retained memory, reuse/eviction observations, and representative
   timing against the Stage 0 baseline.
+- [x] Retire raw-pointer import and prebound creation APIs after migrating their
+  remaining tests to counted external registration and test allocator backing.
 
 #### Acceptance Gate
 
@@ -310,8 +322,8 @@ Leave one allocation and ownership model for graph-created physical resources:
 | --- | --- |
 | Compatibility removal | Repository searches find no resolver, preparation-backing, feature-bundle acquisition, or feature `Ensure*Targets` symbols after their owning stage. |
 | Allocation transaction | Missing, duplicate, incompatible, over-budget, and injected partial creation failures record no pass and publish no extraction destination. |
-| Ownership | Allocated, imported, prebound, extracted, culled, failed, and destroyed graphs retain and release counted RHI references through their documented boundary. |
-| Identity | Pool allocations remain stable and unique where required; imported/prebound captures never fabricate pool identity; names do not affect identity or reuse. |
+| Ownership | Allocated, external, extracted, culled, failed, and destroyed graphs retain and release counted RHI references through their documented boundary. |
+| Identity | Pool allocations remain stable and unique where required; external captures never fabricate pool identity; names do not affect identity or reuse. |
 | Memory | Active, retained, peak, hit, miss, failure, and eviction observations remain deterministic and within the frozen structural ceiling. |
 | Rendering parity | Representative routes preserve pass topology, transitions, output/readbacks, telemetry, present/offscreen behavior, and temporal commit/abort. |
 | Recovery | Resize churn, allocation failure, retry suppression, device/manual generation changes, shutdown, and restart leave no partial or dangling state. |

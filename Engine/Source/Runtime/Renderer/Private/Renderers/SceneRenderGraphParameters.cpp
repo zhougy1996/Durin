@@ -207,46 +207,13 @@ namespace Durin
 		DURIN_VALUE_MEMBER(VolumetricCloud, FVolumetricCloudPassResult),
 		DURIN_VALUE_MEMBER(Completion, FSceneColorPassResult));
 
-	auto FPostProcessPassParameters::GetRDGParametersMetadata()
-		-> const FRDGParametersMetadata*
-	{
-		using FParameters = FPostProcessPassParameters;
-		static const std::array Members = {
-			DURIN_VALUE_MEMBER(SceneColor, FSceneColorPassResult),
-			DURIN_VALUE_MEMBER(GBufferCompletion, FGBufferPassResult),
-			DURIN_VALUE_MEMBER(DeferredLighting, FIsolatedDeferredPassResult),
-			DURIN_VALUE_MEMBER(Completion, FPostProcessPassResult),
-			MakeRDGResourceParameterMemberMetadata<FParameters,
-				decltype(FParameters::OutputCompletion), FRDGTokenParameter>(
-					"OutputCompletion", offsetof(FParameters, OutputCompletion),
-					ERDGParameterMemberKind::Token,
-					ERDGResourceKind::Token,
-					ERDGParameterRangeKind::None,
-					ERDGUse::Write, ERHIAccess::None, true),
-			DURIN_NESTED_RESOURCES};
-		static const auto Metadata = MakeInlineRDGParametersMetadata<
-			FParameters>("FPostProcessPassParameters", Members);
-		return &Metadata;
-	}
-
-	auto FEditorAssistancePassParameters::GetRDGParametersMetadata()
-		-> const FRDGParametersMetadata*
-	{
-		using FParameters = FEditorAssistancePassParameters;
-		static const std::array Members = {
-			DURIN_VALUE_MEMBER(PostProcess, FPostProcessPassResult),
-			MakeRDGResourceParameterMemberMetadata<FParameters,
-				decltype(FParameters::OutputCompletion), FRDGTokenParameter>(
-					"OutputCompletion", offsetof(FParameters, OutputCompletion),
-					ERDGParameterMemberKind::Token,
-					ERDGResourceKind::Token,
-					ERDGParameterRangeKind::None,
-					ERDGUse::Write, ERHIAccess::None, true),
-			DURIN_NESTED_RESOURCES};
-		static const auto Metadata = MakeInlineRDGParametersMetadata<
-			FParameters>("FEditorAssistancePassParameters", Members);
-		return &Metadata;
-	}
+	DURIN_DEFINE_PASS_METADATA(FPostProcessPassParameters,
+		DURIN_VALUE_MEMBER(SceneColor, FSceneColorPassResult),
+		DURIN_VALUE_MEMBER(GBufferCompletion, FGBufferPassResult),
+		DURIN_VALUE_MEMBER(DeferredLighting, FIsolatedDeferredPassResult),
+		DURIN_VALUE_MEMBER(Completion, FPostProcessPassResult));
+	DURIN_DEFINE_PASS_METADATA(FEditorAssistancePassParameters,
+		DURIN_VALUE_MEMBER(PostProcess, FPostProcessPassResult));
 
 #undef DURIN_DEFINE_PASS_METADATA
 #undef DURIN_NESTED_RESOURCES

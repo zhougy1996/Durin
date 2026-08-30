@@ -665,41 +665,10 @@ namespace Durin
 			"Render graph pass '{}' has unavailable composed shader parameters",
 			Resolver.GetPassName());
 
-		struct FComposedMember
-		{
-			const FRDGParameterMemberMetadata* Metadata = nullptr;
-			const void* Data = nullptr;
-			std::string Path;
-		};
-		std::vector<FComposedMember> ComposedMembers;
-		std::function<void(const void*, const FRDGParametersMetadata*,
-			const std::string&)> Traverse;
-		Traverse = [&](const void* StructData,
-			const FRDGParametersMetadata* Metadata,
-			const std::string& ParentPath) {
-			const auto* Bytes = static_cast<const std::byte*>(StructData);
-			for (const FRDGParameterMemberMetadata& Member : Metadata->Members)
-			{
-				const std::string Path = ParentPath.empty()
-					? std::string(Member.Name) : ParentPath + "." + Member.Name;
-				if (Member.Kind == ERDGParameterMemberKind::Nested)
-				{
-					for (uint32 Index = 0; Index < Member.ArraySize; ++Index)
-					{
-						std::string ElementPath = Path;
-						if (Member.ArraySize > 1)
-							ElementPath += "[" + std::to_string(Index) + "]";
-						Traverse(Bytes + Member.Offset
-							+ static_cast<size_t>(Index) * Member.ElementSize,
-							Member.NestedParameters, ElementPath);
-					}
-					continue;
-				}
-				if (Member.bShaderBinding)
-					ComposedMembers.push_back({&Member, Bytes + Member.Offset, Path});
-			}
-		};
-		Traverse(GraphParameters.GetData(), GraphParameters.GetMetadata(), {});
+		const FRDGParameterLayout* Layout = GraphParameters.GetLayout();
+		checkf(Layout != nullptr,
+			"Render graph pass '{}' has unavailable composed parameter layout",
+			Resolver.GetPassName());
 
 		size_t ResolvedCount = 0;
 		for (const FShaderParameterBinding& Binding : ParameterBindings)
@@ -713,31 +682,30 @@ namespace Durin
 
 		for (const FShaderParameterBinding& Binding : ParameterBindings)
 		{
-			const auto MatchesBinding = [&](const FComposedMember& Candidate) {
-				return Candidate.Metadata->ShaderBindingName != nullptr
-					&& std::string_view(Candidate.Metadata->ShaderBindingName)
-						== Binding.Name;
-			};
-			const auto Found = std::ranges::find_if(ComposedMembers, MatchesBinding);
-			if (Found != ComposedMembers.end())
+			const auto Found = std::lower_bound(Layout->ShaderBindings.begin(),
+				Layout->ShaderBindings.end(), Binding.Name,
+				[](const FRDGParameterShaderBinding& Candidate,
+					std::string_view Name) { return Candidate.Name < Name; });
+			if (Found != Layout->ShaderBindings.end() && Found->Name == Binding.Name)
 			{
-				checkf(std::ranges::count_if(ComposedMembers, MatchesBinding) == 1,
-					"Render graph pass '{}' has duplicate composed shader binding '{}'",
-					Resolver.GetPassName(), Binding.Name);
-				const FRDGParameterMemberMetadata& Member = *Found->Metadata;
+				const FRDGParameterLayoutLeaf& Leaf =
+					Layout->Leaves[Found->LeafIndex];
+				const FRDGParameterMemberMetadata& Member = *Leaf.Metadata;
+				const void* LeafData = static_cast<const std::byte*>(
+					GraphParameters.GetData()) + Leaf.Offset;
 				checkf(Member.ShaderBindingType == Binding.Type,
 					"Render graph pass '{}' parameter '{}' shader binding '{}' type "
 					"does not match shader '{}'",
-					Resolver.GetPassName(), Found->Path, Binding.Name, ShaderName);
+					Resolver.GetPassName(), Leaf.Path, Binding.Name, ShaderName);
 				checkf(Member.ArraySize == Binding.ArraySize,
 					"Render graph pass '{}' parameter '{}' shader binding '{}' array "
 					"extent does not match shader '{}'",
-					Resolver.GetPassName(), Found->Path, Binding.Name, ShaderName);
+					Resolver.GetPassName(), Leaf.Path, Binding.Name, ShaderName);
 
 				for (uint32 ArrayElement = 0; ArrayElement < Binding.ArraySize;
 					++ArrayElement)
 				{
-					const void* ElementData = static_cast<const std::byte*>(Found->Data)
+					const void* ElementData = static_cast<const std::byte*>(LeafData)
 						+ static_cast<size_t>(ArrayElement) * Member.ElementSize;
 					FRHIShaderParameterResource Parameter{
 						.SetIndex = Binding.SetIndex,
@@ -754,7 +722,7 @@ namespace Durin
 							checkf(Optional.has_value(),
 								"Render graph pass '{}' parameter '{}[{}]' is unavailable "
 								"for required shader '{}' binding '{}'",
-								Resolver.GetPassName(), Found->Path, ArrayElement,
+								Resolver.GetPassName(), Leaf.Path, ArrayElement,
 								ShaderName, Binding.Name);
 							GraphTexture = &*Optional;
 						}
@@ -768,7 +736,7 @@ namespace Durin
 						checkf(Texture != nullptr && Texture->GetResourceType()
 							== ERHIResourceType::Texture,
 							"Render graph pass '{}' parameter '{}' resolved an unavailable "
-							"texture backing", Resolver.GetPassName(), Found->Path);
+							"texture backing", Resolver.GetPassName(), Leaf.Path);
 						FRHITextureViewDesc Desc = MakeDefaultTextureViewDesc(*Texture,
 							Binding.Type == ERHIBindingType::StorageImage
 								? ERHITextureViewUsage::Storage
@@ -786,7 +754,7 @@ namespace Durin
 						checkf(View,
 							"Render graph pass '{}' parameter '{}' could not create "
 							"an exact view for shader '{}' binding '{}'",
-							Resolver.GetPassName(), Found->Path, ShaderName, Binding.Name);
+							Resolver.GetPassName(), Leaf.Path, ShaderName, Binding.Name);
 						Parameter.Resource = View.GetReference();
 						ExactViews.emplace_back(View.GetReference());
 					}
@@ -800,7 +768,7 @@ namespace Durin
 							checkf(Optional.has_value(),
 								"Render graph pass '{}' parameter '{}[{}]' is unavailable "
 								"for required shader '{}' binding '{}'",
-								Resolver.GetPassName(), Found->Path, ArrayElement,
+								Resolver.GetPassName(), Leaf.Path, ArrayElement,
 								ShaderName, Binding.Name);
 							GraphBuffer = &*Optional;
 						}
@@ -812,7 +780,7 @@ namespace Durin
 						checkf(Parameter.Offset == GraphBuffer->Offset
 							&& Parameter.Size == GraphBuffer->Size,
 							"Render graph pass '{}' parameter '{}' buffer range exceeds "
-							"shader submission limits", Resolver.GetPassName(), Found->Path);
+							"shader submission limits", Resolver.GetPassName(), Leaf.Path);
 					}
 					Resources.push_back(Parameter);
 				}

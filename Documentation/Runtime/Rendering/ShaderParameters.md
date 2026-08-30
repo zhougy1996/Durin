@@ -176,6 +176,13 @@ and other ordinary fields can be supplied from the existing typed shader
 parameter struct in the same call; graph-backed fields in that compatibility
 struct are not read.
 
+Composed submission uses the pass allocation's immutable graph-parameter
+layout. Its validated name-sorted binding table identifies the leaf group, and
+the group's precomputed element offsets enumerate fixed arrays. Execution does
+not rebuild a composed-member list, recount names, construct paths, or recurse
+through graph metadata; shader reflection remains authoritative for descriptor
+coordinates and required array extent.
+
 Selected shaders may consume subsets of a pass object. An optional graph field
 may therefore be absent when its binding is not present in active reflection.
 Once reflection requires the binding, absence is an initialization error rather

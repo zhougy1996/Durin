@@ -155,9 +155,18 @@ store only graph-local handles and exact runtime ranges. Metadata stores the
 invariant use, access, discard, attachment action, managed-transition, and
 result-access intent.
 
+The first typed use in each module compiles that constexpr-friendly metadata
+into one function-local immutable `FRDGParameterLayout`. The layout owns
+root-relative leaf and element offsets, deterministic field paths, compact
+category indices, an offset-sorted authorization index, and a name-sorted
+shader-binding index. A valid type reuses the same layout for every allocation;
+a malformed type reuses its stable validation error. Allocations and compiled
+passes carry the exact layout pointer, so no process-global metadata registry or
+metadata-address lookup participates in graph lifetime.
+
 The parameterized `AddPass` consumes the mutable reference, freezes the
-allocation, and lowers its engaged fields in metadata order into the same
-canonical use model as the manual `Use*` APIs. Submission is atomic: malformed
+allocation, and scans the layout elements once to lower engaged fields into
+the same canonical use model as the manual `Use*` APIs. Submission is atomic: malformed
 metadata, a foreign allocation or handle, an invalid range or access/domain
 combination, overlapping fields, or a reused reference publishes neither a
 pass callback nor a partial use set. A parameterized pass cannot accept manual
@@ -179,6 +188,12 @@ copied wrappers, wrong-kind fields, foreign optionals, and fields from another
 pass are authoring failures. A disengaged optional resolves to absence only
 when that exact optional is a declared member. Cull or incomplete retained
 backing prevents the callback from running.
+
+Resolver authorization normalizes the requested address against the immutable
+parameter root and searches the layout's offset index. Submission records only
+one compact alias for each engaged optional so both the optional object and its
+contained wrapper remain valid call forms even when their addresses differ.
+No resolver call recursively interprets parameter metadata.
 
 Each lowered use owns a deterministic parameter path such as
 `FGBufferPassParameters.Colors[0]`. Validation prefixes the existing normalized
@@ -236,11 +251,11 @@ graph destruction.
 `AllocationStatistics` records active/retained resource counts and logical
 bytes, peak active bytes, cumulative reuse hits/misses, evictions, and failures.
 Allocated resource records carry the allocator's stable, nonzero pointer-free
-allocation ID and hit/miss disposition. External and prebound resources carry
-their explicit disposition with allocation ID zero; culled and failed resources
-also use ID zero. A graph-local resource index is never presented as physical
-identity. `ObservationTag` may attribute memory to a typed owner, but is excluded
-from compatibility, selection, scheduling, eviction priority, and success.
+allocation ID and hit/miss disposition. External resources carry the external
+disposition with allocation ID zero; culled and failed resources also use ID
+zero. A graph-local resource index is never presented as physical identity.
+`ObservationTag` may attribute memory to a typed owner, but is excluded from
+compatibility, selection, scheduling, eviction priority, and success.
 
 The Renderer allocator keys textures and buffers only by exact allocation
 descriptions. Diagnostic names are stored outside compatibility, so renaming a

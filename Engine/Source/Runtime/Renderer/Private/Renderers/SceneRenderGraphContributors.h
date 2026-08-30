@@ -158,12 +158,10 @@ namespace Durin
 		TRDGValueRead<FSceneColorPassResult> SceneColor;
 		TRDGValueRead<FGBufferPassResult> GBufferCompletion;
 		TRDGValueRead<FIsolatedDeferredPassResult> DeferredLighting;
-		TRDGValueWrite<FPostProcessPassResult> Completion;
-		std::optional<FRDGTokenParameter> OutputCompletion;);
+		TRDGValueWrite<FPostProcessPassResult> Completion;);
 	DURIN_DECLARE_SCENE_PASS_PARAMETERS(FEditorAssistancePassParameters,
 		FEditorAssistancePassResources,
-		TRDGValueRead<FPostProcessPassResult> PostProcess;
-		FRDGTokenParameter OutputCompletion;);
+		TRDGValueRead<FPostProcessPassResult> PostProcess;);
 
 #undef DURIN_DECLARE_SCENE_PASS_PARAMETERS
 
@@ -207,12 +205,6 @@ namespace Durin
 
 		static RENDERER_API auto GetRDGParametersMetadata()
 			-> const FRDGParametersMetadata*;
-	};
-
-	template <typename TResult>
-	struct TSceneGraphFeatureOutput
-	{
-		TRDGValueHandle<TResult> Completion;
 	};
 
 	struct FDirectionalShadowGraphOutput final
@@ -279,11 +271,6 @@ namespace Durin
 	{
 		TRDGValueHandle<FPostProcessPassResult> Completion;
 		FRDGTextureHandle Output;
-		FRDGTokenHandle OutputCompletion;
-	};
-	struct FEditorAssistanceGraphOutput final
-	{
-		FRDGTokenHandle OutputCompletion;
 	};
 
 	struct FDirectionalShadowGraphInputs final
@@ -522,8 +509,7 @@ namespace Durin
 		FPostProcessPassResult, "Scene.PostProcess", FPostProcessGraphInputs,
 		FPostProcessGraphOutput);
 	DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR(FEditorAssistanceGraphContributor,
-		bool, "Scene.EditorAssistance", FEditorAssistanceGraphInputs,
-		FEditorAssistanceGraphOutput);
+		bool, "Scene.EditorAssistance", FEditorAssistanceGraphInputs, void);
 
 #undef DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR
 

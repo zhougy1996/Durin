@@ -362,8 +362,7 @@ static_assert(CContributorReturns<Durin::FSceneColorGraphContributor,
 static_assert(CContributorReturns<Durin::FPostProcessGraphContributor,
 	Durin::FPostProcessGraphInputs, Durin::FPostProcessGraphOutput>);
 static_assert(CContributorReturns<Durin::FEditorAssistanceGraphContributor,
-	Durin::FEditorAssistanceGraphInputs,
-	Durin::FEditorAssistanceGraphOutput>);
+	Durin::FEditorAssistanceGraphInputs, void>);
 static_assert(!CHasPreparedView<Durin::FDirectionalShadowGraphInputs>);
 static_assert(!CHasPreparedView<Durin::FPostProcessGraphInputs>);
 static_assert(!CAcceptsContributorInputs<
