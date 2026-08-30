@@ -18,7 +18,7 @@ namespace Durin::Asset::Private
 
 	FAssetMutationJournal::~FAssetMutationJournal()
 	{
-		if (State == EAssetMutationState::RecoveryRequired) return;
+		if (IsMutationJournalRecoveryRequired(*this)) return;
 		const std::string ExpectedOwner = std::format(
 			"durin-asset-mutation\\n{}\\n", OperationId);
 		for (const std::filesystem::path& Root : Roots)
@@ -172,7 +172,7 @@ namespace Durin::Asset::Private
 	}
 
 
-	auto WriteMutationJournalState(FAssetMutationJournal& Journal) -> void
+	auto WriteMutationJournalState(FAssetMutationJournal& Journal) -> FAssetResult
 	{
 		std::string Text = std::format(
 			"version=1\noperation={}\ntype={}\nstate={}\nentries={}\n",
@@ -222,7 +222,12 @@ namespace Durin::Asset::Private
 		const auto Bytes = std::as_bytes(std::span(Text));
 		for (const std::filesystem::path& Root : Journal.Roots)
 		{
-			FFileHelper::SaveArrayToFileAtomically(Bytes, Root / "journal");
+			FFileHelper::FAtomicFileError PublicationError;
+			if (!FFileHelper::SaveArrayToFileAtomically(
+					Bytes, Root / "journal", &PublicationError))
+				return Error(EAssetError::IoError, std::format(
+					"Could not persist asset mutation journal: {}",
+					PublicationError.ToString()));
 		}
 
 		std::string Locator = std::format(
@@ -233,11 +238,38 @@ namespace Durin::Asset::Private
 		std::error_code DirectoryError;
 		std::filesystem::create_directories(
 			Journal.LocatorPath.parent_path(), DirectoryError);
-		if (!DirectoryError)
-		{
-			const auto LocatorBytes = std::as_bytes(std::span(Locator));
-			FFileHelper::SaveArrayToFileAtomically(LocatorBytes, Journal.LocatorPath);
-		}
+		if (DirectoryError)
+			return Error(EAssetError::IoError, std::format(
+				"Could not create asset mutation recovery locator directory {}: {}",
+				Journal.LocatorPath.parent_path().generic_string(),
+				DirectoryError.message()));
+		const auto LocatorBytes = std::as_bytes(std::span(Locator));
+		FFileHelper::FAtomicFileError PublicationError;
+		if (!FFileHelper::SaveArrayToFileAtomically(
+				LocatorBytes, Journal.LocatorPath, &PublicationError))
+			return Error(EAssetError::IoError, std::format(
+				"Could not persist asset mutation recovery locator: {}",
+				PublicationError.ToString()));
+		return {};
+	}
+
+	auto TransitionMutationJournalState(
+		FAssetMutationJournal& Journal,
+		EAssetMutationState State) -> FAssetResult
+	{
+		const EAssetMutationState PreviousState = Journal.State;
+		Journal.State = State;
+		FAssetResult Result = WriteMutationJournalState(Journal);
+		if (!Result) Journal.State = PreviousState;
+		return Result;
+	}
+
+	auto IsMutationJournalRecoveryRequired(
+		const FAssetMutationJournal& Journal) -> bool
+	{
+		return Journal.State == EAssetMutationState::Publishing
+			|| Journal.State == EAssetMutationState::Compensating
+			|| Journal.State == EAssetMutationState::RecoveryRequired;
 	}
 
 

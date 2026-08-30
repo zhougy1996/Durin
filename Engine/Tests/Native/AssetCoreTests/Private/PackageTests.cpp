@@ -3986,6 +3986,67 @@ TEST(FPackageAssetTests, RelocationPublicationFailureRestoresAuthoredState)
 	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(OwnerPath), (std::vector<Durin::FAssetPath>{OldPath}));
 }
 
+TEST(FPackageAssetTests, RelocationDoesNotPublishWhenJournalStateCannotPersist)
+{
+	InitializeAssetTests();
+	Durin::FAssetPath SourcePath;
+	Durin::FAssetPath DestinationPath;
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TestAssets/JournalFailureSource", SourcePath));
+	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		"/TestAssets/JournalFailureDestination", DestinationPath));
+	DPackageAssetForTest* Asset = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreateAsset(SourcePath, Asset));
+	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
+
+	const std::filesystem::path RecoveryRoot =
+		Durin::Testing::GetTestWorkDirectory()
+		/ "Assets" / ".durin-asset-mutation";
+	std::unordered_set<std::string> ExistingOperations;
+	if (std::filesystem::is_directory(RecoveryRoot))
+		for (const std::filesystem::directory_entry& Entry :
+			std::filesystem::directory_iterator(RecoveryRoot))
+			ExistingOperations.insert(Entry.path().filename().generic_string());
+
+	const Durin::Asset::FAssetRelocationMapping Mapping{
+		SourcePath, DestinationPath};
+	Durin::Asset::FAssetMutationSummary Summary;
+	Durin::Asset::FAssetMutationTransaction Transaction;
+	ASSERT_TRUE(Durin::Asset::PrepareAssetRelocationTransaction(
+		std::span{&Mapping, 1}, Summary, Transaction));
+	std::filesystem::path OperationRoot;
+	for (const std::filesystem::directory_entry& Entry :
+		std::filesystem::directory_iterator(RecoveryRoot))
+		if (!ExistingOperations.contains(
+				Entry.path().filename().generic_string()))
+		{
+			OperationRoot = Entry.path();
+			break;
+		}
+	ASSERT_FALSE(OperationRoot.empty());
+	std::error_code ErrorCode;
+	ASSERT_TRUE(std::filesystem::remove(OperationRoot / "journal", ErrorCode));
+	ASSERT_FALSE(ErrorCode);
+	ASSERT_TRUE(std::filesystem::create_directory(
+		OperationRoot / "journal", ErrorCode));
+	ASSERT_FALSE(ErrorCode);
+
+	const Durin::Asset::FAssetResult Result = Transaction.Commit();
+	EXPECT_EQ(Result.Error, Durin::Asset::EAssetError::IoError);
+	EXPECT_NE(Result.Message.find("persist asset mutation journal"),
+		std::string::npos);
+	ASSERT_NE(Durin::Asset::FindAssetExact(SourcePath), nullptr);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(SourcePath)->EntryKind,
+		Durin::Asset::EAssetRegistryEntryKind::Asset);
+	EXPECT_EQ(Durin::Asset::FindAssetExact(DestinationPath), nullptr);
+	EXPECT_EQ(Transaction.GetState(),
+		Durin::Asset::EAssetMutationTransactionState::Prepared);
+
+	ASSERT_TRUE(std::filesystem::remove(OperationRoot / "journal", ErrorCode));
+	ASSERT_FALSE(ErrorCode);
+	Transaction = {};
+}
+
 TEST(FPackageAssetTests, RelocationPreservesExternalAuthoredPathsAndRejectsRealCollision)
 {
 	InitializeAssetTests();

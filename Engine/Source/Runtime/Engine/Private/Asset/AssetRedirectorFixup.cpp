@@ -21,6 +21,7 @@ namespace Durin::Asset
 	using Private::FMutationPackageMetadata;
 	using Private::CollectLoadedPackageSoftReferencesForMutation;
 	using Private::FingerprintRelocationFile;
+	using Private::IsMutationJournalRecoveryRequired;
 	using Private::GetAssetReferenceStoreRegistry;
 	using Private::IsWritableRelocationPath;
 	using Private::LoadRelocationBytes;
@@ -32,6 +33,7 @@ namespace Durin::Asset
 	using Private::RebuildReferenceProjectionForPublishedEntries;
 	using Private::RewritePackageReferencesForMutation;
 	using Private::SaveRelocationBytes;
+	using Private::TransitionMutationJournalState;
 	using Private::WriteMutationJournalState;
 
 	namespace
@@ -602,8 +604,9 @@ namespace Durin::Asset
 			}
 		}
 
-		State->Journal.State = EAssetMutationState::Prepared;
-		WriteMutationJournalState(State->Journal);
+		FAssetResult JournalResult = TransitionMutationJournalState(
+			State->Journal, EAssetMutationState::Prepared);
+		if (!JournalResult) return JournalResult;
 		OutState = std::move(State);
 		return {};
 	}
@@ -638,7 +641,7 @@ namespace Durin::Asset
 			return FAssetRuntimeState::Get().GetMutationCoordinator().CommitRedirectorFixup(Fixup);
 		};
 		TransactionState->IsRecoveryRequired = [Fixup] {
-			return Fixup->Journal.State == EAssetMutationState::RecoveryRequired;
+			return IsMutationJournalRecoveryRequired(Fixup->Journal);
 		};
 		TransactionState->PopulateResultDetails = [Fixup](
 			FAssetMutationResultDetails& Details) {
@@ -777,20 +780,29 @@ namespace Durin::Asset
 			return Error(EAssetError::IoError,
 				"Injected Fix Up original-staging failure.");
 
-		State.Journal.State = EAssetMutationState::Publishing;
-		WriteMutationJournalState(State.Journal);
+		Result = TransitionMutationJournalState(
+			State.Journal, EAssetMutationState::Publishing);
+		if (!Result) return Result;
 		std::vector<size_t> PublishedPackages;
 		std::vector<size_t> PublishedRedirectors;
 		size_t ChangedLiveCount = 0;
 		auto EnterRecovery = [&](std::string Message) -> FAssetResult {
-			State.Journal.State = EAssetMutationState::RecoveryRequired;
-			WriteMutationJournalState(State.Journal);
+			FAssetResult JournalResult = TransitionMutationJournalState(
+				State.Journal, EAssetMutationState::RecoveryRequired);
+			if (!JournalResult)
+				return Error(EAssetError::IoError, std::format(
+					"AssetMutationRecoveryRequired: {}; additionally failed to persist recovery state: {}",
+					Message, JournalResult.Message));
 			return Error(EAssetError::IoError,
 				std::format("AssetMutationRecoveryRequired: {}", Message));
 		};
 		auto Compensate = [&](FAssetResult Failure) -> FAssetResult {
-			State.Journal.State = EAssetMutationState::Compensating;
-			WriteMutationJournalState(State.Journal);
+			FAssetResult JournalResult = TransitionMutationJournalState(
+				State.Journal, EAssetMutationState::Compensating);
+			if (!JournalResult)
+				return Error(EAssetError::IoError, std::format(
+					"AssetMutationRecoveryRequired: compensation did not start because its journal state could not be persisted: {}",
+					JournalResult.Message));
 			for (auto It = PublishedRedirectors.rbegin();
 				It != PublishedRedirectors.rend(); ++It)
 			{
@@ -800,7 +812,8 @@ namespace Durin::Asset
 				Result = PublishRelocationFile(State.Journal.Entries[*It], false);
 				if (!Result) return EnterRecovery(Result.Message);
 				State.Journal.Entries[*It].bCompensated = true;
-				WriteMutationJournalState(State.Journal);
+				JournalResult = WriteMutationJournalState(State.Journal);
+				if (!JournalResult) return EnterRecovery(JournalResult.Message);
 			}
 			for (size_t Count = ChangedLiveCount; Count > 0; --Count)
 			{
@@ -831,10 +844,15 @@ namespace Durin::Asset
 				Result = PublishRelocationFile(State.Journal.Entries[*It], false);
 				if (!Result) return EnterRecovery(Result.Message);
 				State.Journal.Entries[*It].bCompensated = true;
-				WriteMutationJournalState(State.Journal);
+				JournalResult = WriteMutationJournalState(State.Journal);
+				if (!JournalResult) return EnterRecovery(JournalResult.Message);
 			}
-			State.Journal.State = EAssetMutationState::Restored;
-			WriteMutationJournalState(State.Journal);
+			JournalResult = TransitionMutationJournalState(
+				State.Journal, EAssetMutationState::Restored);
+			if (!JournalResult)
+				return Error(EAssetError::IoError, std::format(
+					"AssetMutationRecoveryRequired: compensation completed but the restored journal state could not be persisted: {}",
+					JournalResult.Message));
 			return Failure;
 		};
 
@@ -851,7 +869,8 @@ namespace Durin::Asset
 			if (!Result) return Compensate(std::move(Result));
 			Entry.bCompleted = true;
 			PublishedPackages.push_back(Index);
-			WriteMutationJournalState(State.Journal);
+			Result = WriteMutationJournalState(State.Journal);
+			if (!Result) return Compensate(std::move(Result));
 		}
 		for (FFixupStoreState& Store : State.Stores)
 		{
@@ -936,7 +955,8 @@ namespace Durin::Asset
 				if (!Result) return Compensate(std::move(Result));
 				Entry.bCompleted = true;
 				PublishedRedirectors.push_back(Index);
-				WriteMutationJournalState(State.Journal);
+				Result = WriteMutationJournalState(State.Journal);
+				if (!Result) return Compensate(std::move(Result));
 			}
 		}
 		if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::PublishRegistry))
@@ -969,8 +989,9 @@ namespace Durin::Asset
 		if (!Result) return Compensate(std::move(Result));
 		State.ExpectedRegistryRevision = GetAssetCatalogRevision();
 		State.ExpectedAssets = CaptureAssetCatalogSnapshot().Assets;
-		State.Journal.State = EAssetMutationState::Committed;
-		WriteMutationJournalState(State.Journal);
+		Result = TransitionMutationJournalState(
+			State.Journal, EAssetMutationState::Committed);
+		if (!Result) return Result;
 		return {};
 	}
 }

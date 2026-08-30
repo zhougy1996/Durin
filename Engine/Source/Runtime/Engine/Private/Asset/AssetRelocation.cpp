@@ -22,6 +22,7 @@ namespace Durin::Asset
 	using Private::FAssetMutationJournal;
 	using Private::FAssetMutationJournalEntry;
 	using Private::FingerprintRelocationFile;
+	using Private::IsMutationJournalRecoveryRequired;
 	using Private::IsWritableRelocationPath;
 	using Private::LoadRelocationBytes;
 	using Private::MakePackageFingerprint;
@@ -30,6 +31,7 @@ namespace Durin::Asset
 	using Private::PublishRelocationFile;
 	using Private::RebuildReferenceProjectionForPublishedEntries;
 	using Private::SaveRelocationBytes;
+	using Private::TransitionMutationJournalState;
 	using Private::WriteMutationJournalState;
 
 	namespace
@@ -532,8 +534,9 @@ namespace Durin::Asset
 			}
 		}
 
-		State->Journal.State = EAssetMutationState::Prepared;
-		WriteMutationJournalState(State->Journal);
+		FAssetResult JournalResult = TransitionMutationJournalState(
+			State->Journal, EAssetMutationState::Prepared);
+		if (!JournalResult) return JournalResult;
 		OutState = std::move(State);
 		return {};
 	}
@@ -570,8 +573,7 @@ namespace Durin::Asset
 		};
 		TransactionState->RedoOperation = TransactionState->CommitOperation;
 		TransactionState->IsRecoveryRequired = [Relocation] {
-			return Relocation->Journal.State
-				== EAssetMutationState::RecoveryRequired;
+			return IsMutationJournalRecoveryRequired(Relocation->Journal);
 		};
 		TransactionState->LastResult.State =
 			EAssetMutationTransactionState::Prepared;
@@ -692,8 +694,6 @@ namespace Durin::Asset
 			return Error(EAssetError::IoError,
 				"Injected relocation original-staging failure.");
 
-		State.Journal.State = EAssetMutationState::Publishing;
-		WriteMutationJournalState(State.Journal);
 		std::vector<size_t> Order(State.Journal.Entries.size());
 		for (size_t Index = 0; Index < Order.size(); ++Index)
 			Order[Index] = Index;
@@ -709,19 +709,29 @@ namespace Durin::Asset
 			Entry.bCompleted = false;
 			Entry.bCompensated = false;
 		}
-		WriteMutationJournalState(State.Journal);
+		Result = TransitionMutationJournalState(
+			State.Journal, EAssetMutationState::Publishing);
+		if (!Result) return Result;
 		std::vector<size_t> Published;
 		size_t RelocatedLoadedCount = 0;
 		size_t AppliedPayloadCount = 0;
 		auto EnterRecovery = [&](std::string Message) -> FAssetResult {
-			State.Journal.State = EAssetMutationState::RecoveryRequired;
-			WriteMutationJournalState(State.Journal);
+			FAssetResult JournalResult = TransitionMutationJournalState(
+				State.Journal, EAssetMutationState::RecoveryRequired);
+			if (!JournalResult)
+				return Error(EAssetError::IoError, std::format(
+					"AssetMutationRecoveryRequired: {}; additionally failed to persist recovery state: {}",
+					Message, JournalResult.Message));
 			return Error(EAssetError::IoError,
 				std::format("AssetMutationRecoveryRequired: {}", Message));
 		};
 		auto Compensate = [&](FAssetResult Failure) -> FAssetResult {
-			State.Journal.State = EAssetMutationState::Compensating;
-			WriteMutationJournalState(State.Journal);
+			FAssetResult JournalResult = TransitionMutationJournalState(
+				State.Journal, EAssetMutationState::Compensating);
+			if (!JournalResult)
+				return Error(EAssetError::IoError, std::format(
+					"AssetMutationRecoveryRequired: compensation did not start because its journal state could not be persisted: {}",
+					JournalResult.Message));
 			for (size_t Count = AppliedPayloadCount; Count > 0; --Count)
 				if (State.OwnedPayloads[Count - 1].Restore)
 					State.OwnedPayloads[Count - 1].Restore();
@@ -751,7 +761,8 @@ namespace Durin::Asset
 				if (!RestoreResult)
 					return EnterRecovery(RestoreResult.Message);
 				State.Journal.Entries[*It].bCompensated = true;
-				WriteMutationJournalState(State.Journal);
+				JournalResult = WriteMutationJournalState(State.Journal);
+				if (!JournalResult) return EnterRecovery(JournalResult.Message);
 			}
 			for (FAssetMutationJournalEntry& Entry : State.Journal.Entries)
 			{
@@ -761,8 +772,12 @@ namespace Durin::Asset
 				if (!FingerprintResult)
 					return EnterRecovery(FingerprintResult.Message);
 			}
-			State.Journal.State = EAssetMutationState::Prepared;
-			WriteMutationJournalState(State.Journal);
+			JournalResult = TransitionMutationJournalState(
+				State.Journal, EAssetMutationState::Prepared);
+			if (!JournalResult)
+				return Error(EAssetError::IoError, std::format(
+					"AssetMutationRecoveryRequired: compensation completed but the restored journal state could not be persisted: {}",
+					JournalResult.Message));
 			return Failure;
 		};
 
@@ -777,7 +792,8 @@ namespace Durin::Asset
 			if (!Result) return Compensate(std::move(Result));
 			Published.push_back(Index);
 			Entry.bCompleted = true;
-			WriteMutationJournalState(State.Journal);
+			Result = WriteMutationJournalState(State.Journal);
+			if (!Result) return Compensate(std::move(Result));
 		}
 
 		for (FLoadedRelocationState& Loaded : State.LoadedPackages)
@@ -865,8 +881,9 @@ namespace Durin::Asset
 		if (!Result) return Compensate(std::move(Result));
 		State.ExpectedRegistryRevision = GetAssetCatalogRevision();
 		State.ExpectedAssets = CaptureAssetCatalogSnapshot().Assets;
-		State.Journal.State = EAssetMutationState::Committed;
-		WriteMutationJournalState(State.Journal);
+		Result = TransitionMutationJournalState(
+			State.Journal, EAssetMutationState::Committed);
+		if (!Result) return Result;
 		Private::NotifyAssetMoveObservers(State.Mappings);
 		return {};
 	}
@@ -885,8 +902,19 @@ namespace Durin::Asset
 		FAssetResult Result = RevalidateAssetRelocation(Relocation);
 		if (!Result) return Result;
 
-		State.Journal.State = EAssetMutationState::Publishing;
-		WriteMutationJournalState(State.Journal);
+		Result = TransitionMutationJournalState(
+			State.Journal, EAssetMutationState::Publishing);
+		if (!Result) return Result;
+		auto EnterRecovery = [&](std::string Message) -> FAssetResult {
+			FAssetResult JournalResult = TransitionMutationJournalState(
+				State.Journal, EAssetMutationState::RecoveryRequired);
+			if (!JournalResult)
+				return Error(EAssetError::IoError, std::format(
+					"AssetMutationRecoveryRequired: {}; additionally failed to persist recovery state: {}",
+					Message, JournalResult.Message));
+			return Error(EAssetError::IoError,
+				std::format("AssetMutationRecoveryRequired: {}", Message));
+		};
 		std::vector<size_t> RestoredFiles;
 		for (size_t Count = State.Journal.Entries.size(); Count > 0; --Count)
 		{
@@ -894,15 +922,11 @@ namespace Durin::Asset
 			Result = PublishRelocationFile(
 				State.Journal.Entries[Index], false);
 			if (!Result)
-			{
-				State.Journal.State = EAssetMutationState::RecoveryRequired;
-				WriteMutationJournalState(State.Journal);
-				return Error(EAssetError::IoError, std::format(
-					"AssetMutationRecoveryRequired: {}", Result.Message));
-			}
+				return EnterRecovery(Result.Message);
 			RestoredFiles.push_back(Index);
 			State.Journal.Entries[Index].bCompensated = true;
-			WriteMutationJournalState(State.Journal);
+			Result = WriteMutationJournalState(State.Journal);
+			if (!Result) return EnterRecovery(Result.Message);
 		}
 		for (size_t Count = State.OwnedPayloads.size(); Count > 0; --Count)
 			if (State.OwnedPayloads[Count - 1].Restore)
@@ -912,12 +936,8 @@ namespace Durin::Asset
 			FLoadedRelocationState& Loaded = State.LoadedPackages[Count - 1];
 			if (!Loaded.Package->RelocateAssetPackage(
 					Loaded.Mapping.SourcePath))
-			{
-				State.Journal.State = EAssetMutationState::RecoveryRequired;
-				WriteMutationJournalState(State.Journal);
-				return Error(EAssetError::IoError,
-					"AssetMutationRecoveryRequired: a loaded package could not be restored.");
-			}
+				return EnterRecovery(
+					"a loaded package could not be restored.");
 			Loaded.Package->Rename(FName(Loaded.PrePackageName));
 			Loaded.Package->GetAsset()->Rename(FName(Loaded.PreAssetName));
 			Loaded.Package->ClearDirty();
@@ -930,12 +950,8 @@ namespace Durin::Asset
 				Result = FingerprintRelocationFile(
 					Entry.PhysicalPath, Entry.ExpectedPreFingerprint);
 				if (!Result)
-				{
-					State.Journal.State = EAssetMutationState::RecoveryRequired;
-					WriteMutationJournalState(State.Journal);
-					return Error(EAssetError::IoError,
-						"AssetMutationRecoveryRequired: restored package metadata is unavailable.");
-				}
+					return EnterRecovery(
+						"restored package metadata is unavailable.");
 			}
 			if (!Entry.RegistryPath.IsValid()) continue;
 			auto Data = State.PreAssets.find(Entry.RegistryPath);
@@ -946,12 +962,8 @@ namespace Durin::Asset
 			Data->second.LastWriteTime = std::filesystem::last_write_time(
 				Entry.PhysicalPath, MetadataError);
 			if (MetadataError)
-			{
-				State.Journal.State = EAssetMutationState::RecoveryRequired;
-				WriteMutationJournalState(State.Journal);
-				return Error(EAssetError::IoError,
-					"AssetMutationRecoveryRequired: restored package metadata is unavailable.");
-			}
+				return EnterRecovery(
+					"restored package metadata is unavailable.");
 			Data->second.LastWriteTimeTicks =
 				FileTime::ToStableTicks(
 					Data->second.LastWriteTime);
@@ -979,13 +991,9 @@ namespace Durin::Asset
 			State.Journal.Entries, State.PreAssets,
 			State.PreReferenceEdges, State.PreReferenceFingerprints);
 		if (!ProjectionResult)
-		{
-			State.Journal.State = EAssetMutationState::RecoveryRequired;
-			WriteMutationJournalState(State.Journal);
-			return Error(EAssetError::CorruptFile, std::format(
-				"AssetMutationRecoveryRequired: restored reference projection failed: {}",
+			return EnterRecovery(std::format(
+				"restored reference projection failed: {}",
 				ProjectionResult.Message));
-		}
 
 		const FAssetPublicationState Current = Registry.CapturePreparedState();
 		Result = Registry.PublishPreparedState(State.ExpectedRegistryRevision, {
@@ -998,8 +1006,9 @@ namespace Durin::Asset
 		if (!Result) return Result;
 		State.ExpectedRegistryRevision = GetAssetCatalogRevision();
 		State.ExpectedAssets = CaptureAssetCatalogSnapshot().Assets;
-		State.Journal.State = EAssetMutationState::Restored;
-		WriteMutationJournalState(State.Journal);
+		Result = TransitionMutationJournalState(
+			State.Journal, EAssetMutationState::Restored);
+		if (!Result) return Result;
 		std::vector<FAssetRelocationMapping> Inverse;
 		Inverse.reserve(State.Mappings.size());
 		for (const FAssetRelocationMapping& Mapping : State.Mappings)

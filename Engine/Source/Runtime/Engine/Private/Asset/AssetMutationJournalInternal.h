@@ -77,7 +77,13 @@ namespace Durin::Asset::Private
 		const std::filesystem::path& Path,
 		const PathUtilities::FMountPoint*& OutMount,
 		std::string& OutError) -> bool;
-	auto WriteMutationJournalState(FAssetMutationJournal& Journal) -> void;
+	auto WriteMutationJournalState(FAssetMutationJournal& Journal) -> FAssetResult;
+	// Makes a state visible only after every recovery record accepts it.
+	auto TransitionMutationJournalState(
+		FAssetMutationJournal& Journal,
+		EAssetMutationState State) -> FAssetResult;
+	auto IsMutationJournalRecoveryRequired(
+		const FAssetMutationJournal& Journal) -> bool;
 	auto PublishRelocationFile(
 		const FAssetMutationJournalEntry& Entry,
 		bool bForward) -> FAssetResult;
