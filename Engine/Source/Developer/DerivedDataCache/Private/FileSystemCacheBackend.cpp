@@ -58,7 +58,32 @@ namespace Durin::DerivedData
 
 		std::error_code ErrorCode;
 		const std::filesystem::file_status Status = std::filesystem::symlink_status(Path, ErrorCode);
-		if (ErrorCode || !std::filesystem::exists(Status))
+		if (ErrorCode)
+		{
+			if (ErrorCode == std::errc::no_such_file_or_directory)
+			{
+				for (std::filesystem::path Ancestor = Path.parent_path(); !Ancestor.empty();
+					Ancestor = Ancestor.parent_path())
+				{
+					std::error_code AncestorError;
+					const std::filesystem::file_status AncestorStatus =
+						std::filesystem::symlink_status(Ancestor, AncestorError);
+					if (AncestorError == std::errc::no_such_file_or_directory
+						|| (!AncestorError && !std::filesystem::exists(AncestorStatus)))
+						continue;
+					if (AncestorError)
+						return {ECacheGetStatus::StorageFailure, {},
+							std::format("Failed to inspect cache entry parent: {}", AncestorError.message())};
+					if (!std::filesystem::is_directory(AncestorStatus))
+						return {ECacheGetStatus::StorageFailure, {},
+							"Cache entry parent is not a directory."};
+					return {ECacheGetStatus::Miss, {}, "Cache entry is missing."};
+				}
+			}
+			return {ECacheGetStatus::StorageFailure, {},
+				std::format("Failed to inspect cache entry: {}", ErrorCode.message())};
+		}
+		if (!std::filesystem::exists(Status))
 			return {ECacheGetStatus::Miss, {}, "Cache entry is missing."};
 		if (!std::filesystem::is_regular_file(Status))
 			return {ECacheGetStatus::StorageFailure, {}, "Cache entry is not a regular file."};

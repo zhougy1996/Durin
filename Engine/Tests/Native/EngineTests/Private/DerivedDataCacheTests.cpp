@@ -215,8 +215,8 @@ TEST(FDerivedDataCacheTests, BlockedStorageReturnsFailuresWithoutEscapingRoot)
 	FDerivedDataCache& Cache = GetDerivedDataCache();
 	EXPECT_EQ(Cache.Put({Bucket, MakeKey('1'), Value, 1024}).Status,
 		ECachePutStatus::StorageFailure);
-	EXPECT_NE(Cache.Get({Bucket, MakeKey('1'), 1024}).Status,
-		ECacheGetStatus::Hit);
+	EXPECT_EQ(Cache.Get({Bucket, MakeKey('1'), 1024}).Status,
+		ECacheGetStatus::StorageFailure);
 	EXPECT_EQ(Cache.Trim({Bucket, 0, 1}).Status, ECacheTrimStatus::Complete);
 }
 
