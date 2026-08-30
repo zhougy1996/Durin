@@ -1,12 +1,16 @@
 #include "MaterialGraphOperations.h"
+#include "MaterialAssetCreation.h"
+#include "MaterialDocumentSnapshot.h"
 #include "Graph/MaterialGraphCanvas.h"
 
 #include "MaterialTestSupport.h"
 
+#include "Asset/AssetCompilingManager.h"
 #include "DObject/DefaultObjectGraph.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Editor/Transaction.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialInstance.h"
 #include "Materials/MaterialProgramCompiler.h"
 
 #include <gtest/gtest.h>
@@ -47,6 +51,115 @@ namespace
 			MakeCanonicalMaterialProgram(), Validation)) return nullptr;
 		return Material;
 	}
+}
+
+TEST(FMaterialAssetCreationTests, NewBaseMaterialIsRenderableBeforePublication)
+{
+	InitializeDObjectSystem();
+	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(
+		nullptr, "NewBaseMaterial");
+	ASSERT_NE(Material, nullptr);
+
+	std::string Error;
+	ASSERT_TRUE(Durin::PrepareNewMaterialForEditing(*Material, Error)) << Error;
+	EXPECT_EQ(Material->GetMaterialCompileStatus().State,
+		Durin::EMaterialCompileState::Ready);
+	EXPECT_TRUE(Material->GetAcceptedCompiledProgram());
+	EXPECT_TRUE(Material->GetMaterialProgram()->Nodes.empty());
+	EXPECT_EQ(Material->GetMaterialProgram()->Outputs.BaseColorDefault,
+		(Durin::FMaterialProgramLiteral{0.5f, 0.5f, 0.5f, 0.0f}));
+
+	Durin::MarkAsGarbage(Material);
+	Durin::CollectGarbage();
+}
+
+TEST(FMaterialDocumentSnapshotTests,
+	DiscardRestoresAuthoredAndRenderableBaseMaterialState)
+{
+	InitializeDObjectSystem();
+	DMaterial* Material = NewObject<DMaterial>(nullptr, "DiscardMaterialState");
+	ASSERT_NE(Material, nullptr);
+	std::string Error;
+	ASSERT_TRUE(PrepareNewMaterialForEditing(*Material, Error)) << Error;
+	const FMaterialProgram OriginalProgram = *Material->GetMaterialProgram();
+	const FMaterialGraphPresentation OriginalPresentation =
+		Material->GetMaterialGraphPresentation();
+	const std::shared_ptr<const FMaterialCompilerResult> OriginalCompiled =
+		Material->GetAcceptedCompiledProgram();
+	ASSERT_TRUE(OriginalCompiled);
+	FVector3 OriginalBaseColor;
+	ASSERT_TRUE(Material->GetVectorParameterValue(
+		MaterialParameters::BaseColorName(), OriginalBaseColor));
+
+	FMaterialDocumentSnapshot Snapshot;
+	ASSERT_TRUE(Snapshot.Capture(*Material, Error)) << Error;
+	ASSERT_TRUE(FMaterialGraphOperations::SetSurfaceDefault(*Material, {
+		.Output = EMaterialSurfaceOutput::BaseColor,
+		.Value = {0.1f, 0.2f, 0.3f, 0.0f}}));
+	ASSERT_TRUE(Material->SetMaterialGraphPresentation({
+		.bHasMaterialOutputPosition = true,
+		.MaterialOutputX = 700,
+		.MaterialOutputY = 300}));
+	ASSERT_TRUE(Material->SetVectorParameterValue(
+		MaterialParameters::BaseColorName(), {0.8, 0.7, 0.6}));
+	(void)FAssetCompilingManager::Get().FinishCompilationForObject(*Material);
+	ASSERT_NE(*Material->GetMaterialProgram(), OriginalProgram);
+
+	ASSERT_TRUE(Snapshot.Restore(*Material, Error)) << Error;
+	EXPECT_EQ(*Material->GetMaterialProgram(), OriginalProgram);
+	EXPECT_EQ(Material->GetMaterialGraphPresentation(), OriginalPresentation);
+	FVector3 RestoredBaseColor;
+	ASSERT_TRUE(Material->GetVectorParameterValue(
+		MaterialParameters::BaseColorName(), RestoredBaseColor));
+	EXPECT_EQ(RestoredBaseColor, OriginalBaseColor);
+	ASSERT_TRUE(Material->GetAcceptedCompiledProgram());
+	EXPECT_EQ(Material->GetAcceptedCompiledProgram()->Identity,
+		OriginalCompiled->Identity);
+
+	MarkAsGarbage(Material);
+	CollectGarbage();
+}
+
+TEST(FMaterialDocumentSnapshotTests, DiscardRestoresMaterialInstanceState)
+{
+	InitializeDObjectSystem();
+	DMaterial* Parent = MakeExpandedGraphMaterial("DiscardInstanceParent");
+	DMaterialInstance* Instance = NewObject<DMaterialInstance>(
+		nullptr, "DiscardMaterialInstanceState");
+	ASSERT_NE(Parent, nullptr);
+	ASSERT_NE(Instance, nullptr);
+	ASSERT_TRUE(Instance->SetParent(Parent));
+	const FGuid BaseColorId = MaterialParameters::GetBuiltinParameterIds(
+		MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value;
+	ASSERT_TRUE(Instance->SetParameterOverride(BaseColorId,
+		EMaterialParameterType::Vector,
+		FMaterialParameterValue::MakeVector({0.2, 0.3, 0.4})));
+	const std::vector<FMaterialParameterOverride> OriginalOverrides(
+		Instance->GetParameterOverrides().begin(),
+		Instance->GetParameterOverrides().end());
+
+	FMaterialDocumentSnapshot Snapshot;
+	std::string Error;
+	ASSERT_TRUE(Snapshot.Capture(*Instance, Error)) << Error;
+	ASSERT_TRUE(Instance->ClearParameterOverride(BaseColorId));
+	ASSERT_TRUE(Instance->SetParent(nullptr));
+	ASSERT_TRUE(Instance->SetStaticPropertiesOverride({.bTwoSided = true}));
+
+	ASSERT_TRUE(Snapshot.Restore(*Instance, Error)) << Error;
+	EXPECT_EQ(Instance->GetParent(), Parent);
+	EXPECT_FALSE(Instance->HasStaticPropertiesOverride());
+	ASSERT_EQ(Instance->GetParameterOverrides().size(), OriginalOverrides.size());
+	ASSERT_EQ(Instance->GetParameterOverrides().size(), 1u);
+	EXPECT_EQ(Instance->GetParameterOverrides().front().ParameterId,
+		OriginalOverrides.front().ParameterId);
+	EXPECT_EQ(Instance->GetParameterOverrides().front().Type,
+		OriginalOverrides.front().Type);
+	EXPECT_EQ(Instance->GetParameterOverrides().front().Value,
+		OriginalOverrides.front().Value);
+
+	MarkAsGarbage(Instance);
+	MarkAsGarbage(Parent);
+	CollectGarbage();
 }
 
 TEST(FMaterialGraphOperationsTests, PresentationSanitizationIsIndependentAndBounded)

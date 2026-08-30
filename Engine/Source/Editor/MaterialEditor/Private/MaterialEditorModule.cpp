@@ -5,6 +5,7 @@
 #include "Asset/AssetOperations.h"
 #include "Asset.h"
 #include "Editor/WorkspaceManager.h"
+#include "MaterialAssetCreation.h"
 #include "Workspace/MaterialEditorWorkspace.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
@@ -39,6 +40,14 @@ namespace Durin
 				{
 					OutError = Result ? "Could not create the material asset." : Result.Message;
 					return false;
+				}
+				if constexpr (std::same_as<TMaterial, DMaterial>)
+				{
+					if (!PrepareNewMaterialForEditing(*Material, OutError))
+					{
+						Asset::UnloadPackage(Path);
+						return false;
+					}
 				}
 				Result = Asset::SavePackage(Material->GetPackage());
 				if (!Result)

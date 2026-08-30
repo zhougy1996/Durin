@@ -2,6 +2,7 @@
 #include "Widgets/MaterialParameterPanelModel.h"
 #include "Widgets/MaterialPreview.h"
 #include "Graph/MaterialGraphCanvas.h"
+#include "MaterialDocumentSnapshot.h"
 #include "Settings/MaterialEditorSessionSettings.h"
 
 #include "Asset/AssetCompilingManager.h"
@@ -267,7 +268,15 @@ namespace Durin::Editor::Material
 			SetError(Result ? "The selected asset is not a material." : Result.Message);
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
+		auto Snapshot = std::make_unique<FMaterialDocumentSnapshot>();
+		std::string SnapshotError;
+		if (!Snapshot->Capture(*Material, SnapshotError))
+		{
+			SetError(std::move(SnapshotError));
+			return ::Durin::Editor::EDocumentOpenResult::Rejected;
+		}
 		OpenMaterials.emplace(Document.ResourceId, Material);
+		MaterialSnapshots.emplace(Document.ResourceId, std::move(Snapshot));
 		return ::Durin::Editor::EDocumentOpenResult::Opened;
 	}
 
@@ -297,6 +306,7 @@ namespace Durin::Editor::Material
 		CaptureCanvasViewport(Document);
 		SessionSettings->Save();
 		OpenMaterials.erase(Document.ResourceId);
+		MaterialSnapshots.erase(Document.ResourceId);
 		MaterialPreviews.erase(Document.Id.Value);
 		MaterialGraphCanvases.erase(Document.Id.Value);
 		Documents.Close(Document.ResourceId);
@@ -311,7 +321,22 @@ namespace Durin::Editor::Material
 	auto MMaterialEditor::DiscardDocument(const ::Durin::Editor::FDocumentTab& Document) -> bool
 	{
 		CancelCanvasInteraction(Document.Id.Value);
-		return Documents.Discard(FindOpenMaterial(Document.ResourceId));
+		DMaterialInterface* Material = FindOpenMaterial(Document.ResourceId);
+		const auto SnapshotIt = MaterialSnapshots.find(Document.ResourceId);
+		if (!Material || SnapshotIt == MaterialSnapshots.end()) return false;
+		std::string RestoreError;
+		if (!SnapshotIt->second->Restore(*Material, RestoreError))
+		{
+			SetError(std::move(RestoreError));
+			return false;
+		}
+		if (DPackage* Package = Material->GetPackage())
+		{
+			if (GEditor) GEditor->GetTransactionManager().ForgetPackage(*Package);
+			Package->ClearDirty();
+		}
+		MaterialParameterPanelCache = std::make_unique<FMaterialParameterPanelCache>();
+		return true;
 	}
 
 	auto MMaterialEditor::IsDocumentDirty(const ::Durin::Editor::FDocumentTab& Document) const -> bool
@@ -384,9 +409,21 @@ namespace Durin::Editor::Material
 
 	auto MMaterialEditor::SaveMaterial(DMaterialInterface* Material) -> bool
 	{
-		return Documents.Save(Material, {}, [this](std::string Message) {
+		if (!Documents.Save(Material, {}, [this](std::string Message) {
 			SetError(std::move(Message));
-		});
+		})) return false;
+		const auto OpenIt = std::ranges::find_if(OpenMaterials,
+			[Material](const auto& Entry) { return Entry.second.Get() == Material; });
+		if (OpenIt == OpenMaterials.end()) return true;
+		auto Snapshot = std::make_unique<FMaterialDocumentSnapshot>();
+		std::string SnapshotError;
+		if (!Snapshot->Capture(*Material, SnapshotError))
+		{
+			SetError(std::move(SnapshotError));
+			return false;
+		}
+		MaterialSnapshots[OpenIt->first] = std::move(Snapshot);
+		return true;
 	}
 
 	auto MMaterialEditor::CanUndo() const -> bool
