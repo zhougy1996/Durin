@@ -5,6 +5,8 @@
 #include "Asset/AssetOperations.h"
 #include "Asset.h"
 #include "Editor/WorkspaceManager.h"
+#include "Editor/EditorEngine.h"
+#include "Editor/Transaction.h"
 #include "MaterialAssetCreation.h"
 #include "Workspace/MaterialEditorWorkspace.h"
 #include "Materials/Material.h"
@@ -90,6 +92,10 @@ namespace Durin
 	auto FMaterialEditorModule::ShutdownModule() -> void
 	{
 		UnregisterMaterialEditor();
+		if (GEditor)
+			checkf(GEditor->GetTransactor()
+				->DiscardCustomChangesByModule("MaterialEditor"),
+				"MaterialEditor cannot retire while one of its custom changes is active");
 	}
 
 	auto FMaterialEditorModule::RegisterMaterialEditor(

@@ -146,7 +146,7 @@ namespace Durin::Editor::Level
 			*Context,
 			SessionSettings,
 			*SceneViewportPanel,
-			GEditor->GetTransactionManager(),
+			*GEditor->GetTransactor(),
 			OwnerGate
 		);
 
@@ -177,7 +177,7 @@ namespace Durin::Editor::Level
 				if (ContentBrowserCallbacks.NotifyMountedContentChanged)
 					ContentBrowserCallbacks.NotifyMountedContentChanged();
 				else if (GEditor)
-					GEditor->GetTransactionManager().NotifyMountedContentMutation();
+					GEditor->GetTransactor()->NotifyMountedContentMutation();
 				if (ContentBrowserCallbacks.RevealAsset)
 					ContentBrowserCallbacks.RevealAsset(AssetPath);
 			},
@@ -185,7 +185,7 @@ namespace Durin::Editor::Level
 				if (ContentBrowserCallbacks.NotifyMountedContentChanged)
 					ContentBrowserCallbacks.NotifyMountedContentChanged();
 				else if (GEditor)
-					GEditor->GetTransactionManager().NotifyMountedContentMutation();
+					GEditor->GetTransactor()->NotifyMountedContentMutation();
 				if (ContentBrowserCallbacks.RevealDirectory)
 					ContentBrowserCallbacks.RevealDirectory(DirectoryPath);
 			},
@@ -369,7 +369,7 @@ namespace Durin::Editor::Level
 		if (!Context || !Context->Level || !Context->Level->GetPackage()) return false;
 		DPackage* Package = Context->Level->GetPackage();
 		FLevelDocumentRevisionState::Discard(
-			GEditor ? &GEditor->GetTransactionManager() : nullptr, *Package
+			GEditor ? GEditor->GetTransactor() : nullptr, *Package
 		);
 		return true;
 	}
@@ -507,33 +507,33 @@ namespace Durin::Editor::Level
 	auto MLevelEditor::CanUndo() const -> bool
 	{
 		const bool bDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
-		return !(GEditor && GEditor->IsPlaying()) && !bDragging && GEditor && GEditor->GetTransactionManager().CanUndo();
+		return !(GEditor && GEditor->IsPlaying()) && !bDragging && GEditor && GEditor->GetTransactor()->CanUndo();
 	}
 
 	auto MLevelEditor::CanRedo() const -> bool
 	{
 		const bool bDragging = SceneViewportPanel && SceneViewportPanel->GetTransformGizmo() && SceneViewportPanel->GetTransformGizmo()->IsDragging();
-		return !(GEditor && GEditor->IsPlaying()) && !bDragging && GEditor && GEditor->GetTransactionManager().CanRedo();
+		return !(GEditor && GEditor->IsPlaying()) && !bDragging && GEditor && GEditor->GetTransactor()->CanRedo();
 	}
 
 	auto MLevelEditor::GetUndoDescription() const -> std::string_view
 	{
-		return CanUndo() ? GEditor->GetTransactionManager().GetUndoDescription() : std::string_view{};
+		return CanUndo() ? GEditor->GetTransactor()->GetUndoDescription() : std::string_view{};
 	}
 
 	auto MLevelEditor::GetRedoDescription() const -> std::string_view
 	{
-		return CanRedo() ? GEditor->GetTransactionManager().GetRedoDescription() : std::string_view{};
+		return CanRedo() ? GEditor->GetTransactor()->GetRedoDescription() : std::string_view{};
 	}
 
 	auto MLevelEditor::Undo() -> bool
 	{
-		return CanUndo() && GEditor->GetTransactionManager().Undo();
+		return CanUndo() && GEditor->GetTransactor()->Undo();
 	}
 
 	auto MLevelEditor::Redo() -> bool
 	{
-		return CanRedo() && GEditor->GetTransactionManager().Redo();
+		return CanRedo() && GEditor->GetTransactor()->Redo();
 	}
 
 	auto MLevelEditor::DrawFileMenu() -> void

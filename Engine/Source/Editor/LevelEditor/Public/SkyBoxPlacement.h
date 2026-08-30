@@ -3,9 +3,9 @@
 #include "LevelEditorAPI.h"
 #include "Misc/Name.h"
 
-namespace Durin::Editor
+namespace Durin
 {
-	class FTransactionManager;
+	class DTransactor;
 }
 
 namespace Durin
@@ -36,7 +36,7 @@ namespace Durin::Editor::Level
 			DLevel& Level,
 			DTextureCube* TextureCube,
 			FName RequestedName,
-			::Durin::Editor::FTransactionManager* Transactions,
+			::Durin::DTransactor* Transactions,
 			bool bReadOnly = false) -> FSkyBoxPlacementResult;
 	};
 }

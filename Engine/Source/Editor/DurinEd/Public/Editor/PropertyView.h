@@ -46,7 +46,7 @@ namespace Durin::Editor
 	// Supplies transaction, error, and read-only policy to a property view.
 	struct FPropertyViewContext
 	{
-		FTransactionManager* Transactions = nullptr;
+		DTransactor* Transactor = nullptr;
 		std::function<void(std::string)> ReportError;
 		std::function<bool(const FAssetPath&, std::string&)> RevealAsset;
 		std::function<bool(const FAssetPath&, std::string&)> OpenAsset;
@@ -77,7 +77,7 @@ namespace Durin::Editor
 	};
 
 	// An embeddable immediate-mode property view. It owns only transient widget/edit
-	// state; committed history remains owned by the transaction manager supplied by its host.
+	// state; committed history remains owned by the transactor supplied by its host.
 	class FPropertyView
 	{
 	public:

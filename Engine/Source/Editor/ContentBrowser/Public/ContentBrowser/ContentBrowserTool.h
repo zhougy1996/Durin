@@ -3,6 +3,11 @@
 #include "ContentBrowser/ContentBrowserContracts.h"
 #include "ContentBrowserAPI.h"
 
+namespace Durin
+{
+	class DTransactor;
+}
+
 namespace Durin::Editor::ContentBrowser
 {
 	// Carries browser-owned presentation state across construction boundaries.
@@ -44,7 +49,7 @@ namespace Durin::Editor::ContentBrowser
 		-> std::unique_ptr<IContentBrowserTool>;
 
 	CONTENTBROWSER_API auto ExecuteAssetMoves(
-		FTransactionManager& Transactions, std::span<const FAssetMove> Moves)
+		::Durin::DTransactor& Transactions, std::span<const FAssetMove> Moves)
 		-> FActionResult;
 
 	CONTENTBROWSER_API auto LoadPresentationSettings(

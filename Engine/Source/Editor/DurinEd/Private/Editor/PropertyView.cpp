@@ -1265,7 +1265,7 @@ namespace Durin::Editor
 							FPropertyEditTarget InsertTarget = EditTarget;
 							InsertTarget.Path.back().Selector = EPropertyPathSelector::MapKey;
 							InsertTarget.Path.back().MapKeyData = CaptureMapPathKey(Property->GetKeyProp(), DraftKey);
-							InsertTarget.Path.back().MapKey = MapInsertDraft.Key;
+							InsertTarget.Path.back().MapKey = MapInsertDraft.Key.GetPayload();
 							bChanged = SubmitStructure(std::move(InsertTarget), EPropertyChangeKind::MapInsert,
 								[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft&, std::string& MutationError) {
 									auto* DraftProperty = static_cast<const FMapProperty*>(DraftMap.Property);
@@ -1332,7 +1332,7 @@ namespace Durin::Editor
 					FPropertyEditTarget RemoveTarget = EditTarget;
 					RemoveTarget.Path.back().Selector = EPropertyPathSelector::MapKey;
 					RemoveTarget.Path.back().MapKeyData = SerializedKey;
-					RemoveTarget.Path.back().MapKey = KeySnapshot;
+					RemoveTarget.Path.back().MapKey = KeySnapshot.GetPayload();
 					bChanged |= SubmitStructure(std::move(RemoveTarget), EPropertyChangeKind::MapRemove,
 						[&](const FResolvedPropertyValue& DraftMap, FPropertyValueDraft&, std::string& MutationError) {
 							auto* DraftProperty = static_cast<const FMapProperty*>(DraftMap.Property);
@@ -1411,7 +1411,7 @@ namespace Durin::Editor
 		std::string Error;
 		if (!EditSession.IsActive())
 		{
-			if (!EditSession.Begin(Target, {}, &Error, Context.Transactions))
+			if (!EditSession.Begin(Target, {}, &Error, Context.Transactor))
 			{
 				ReportError(Context, std::move(Error));
 				return false;

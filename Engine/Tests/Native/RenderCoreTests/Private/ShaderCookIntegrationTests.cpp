@@ -5,6 +5,7 @@
 #include "HAL/PlatformLTS.h"
 #include "HAL/PlatformMisc.h"
 #include "Misc/FileHelper.h"
+#include "Misc/MountPaths.h"
 #include "Misc/Paths.h"
 #include "NativeTestSupport.h"
 #include "Shader/ShaderData.h"
@@ -18,10 +19,11 @@ namespace Durin
 		GGameThreadId = FPlatformLTS::GetCurrentThreadId();
 		GIsGameThreadIdInitialized = true;
 		std::string Error;
-		ASSERT_TRUE(PathUtilities::InitDefaultMountPoints(&Error)) << Error;
+		ASSERT_TRUE(FMountPaths::InitDefaultMountPoints(&Error)) << Error;
 		ASSERT_TRUE(FModuleManager::Get().LoadModule("RenderCore"));
 		const FModuleHandle RendererHandle = FPlatformMisc::LoadLibrary(
-			std::format("{}-Renderer{}", DURIN_RUNTIME_VARIANT,
+			std::format("{}{}-Renderer{}", FPlatformMisc::FLibraryPrefix,
+				DURIN_RUNTIME_VARIANT,
 				FPlatformMisc::FLibraryExtension));
 		ASSERT_NE(RendererHandle, nullptr) << FPlatformMisc::GetLastLibraryError();
 		ASSERT_TRUE(FModuleManager::Get().LoadModule("ShaderBuild"));

@@ -2,9 +2,9 @@
 
 #include "Asset/MutationExtensions.h"
 
-namespace Durin::Editor
+namespace Durin
 {
-	class FTransactionManager;
+	class DTransactor;
 }
 
 namespace Durin::Editor::Level
@@ -24,7 +24,7 @@ namespace Durin::Editor::Level
 			FLevelEditorContext& InContext,
 			FLevelEditorSessionSettings& InSessionSettings,
 			FSceneViewportPanel& InSceneViewportPanel,
-			::Durin::Editor::FTransactionManager& InTransactions,
+			::Durin::DTransactor& InTransactions,
 			FModuleOwnedCallbackGate OwnerGate
 		);
 		~FEditorAssetMoveCoordinator();
@@ -38,7 +38,7 @@ namespace Durin::Editor::Level
 		FLevelEditorContext& Context;
 		FLevelEditorSessionSettings& SessionSettings;
 		FSceneViewportPanel& SceneViewportPanel;
-		::Durin::Editor::FTransactionManager& Transactions;
+		::Durin::DTransactor& Transactions;
 		Asset::FAssetMoveObserverHandle ObserverHandle = 0;
 	};
 } // namespace Durin::Editor::Level

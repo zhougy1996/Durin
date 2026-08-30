@@ -8,6 +8,7 @@
 #include "Editor/WorkspaceManager.h"
 #include "Editor/WorkspaceUI.h"
 #include "Editor/EditorEngine.h"
+#include "Editor/Transaction.h"
 #include "Editor/Notification.h"
 #include "ContentBrowser/ContentBrowserTool.h"
 #include "Mona.h"
@@ -203,7 +204,7 @@ namespace Durin::Editor::MainFrame
 						? "Asset reimport failed." : std::move(Result.Message));
 					return;
 				}
-				if (GEditor) GEditor->GetTransactionManager().NotifyMountedContentMutation();
+				if (GEditor) GEditor->GetTransactor()->NotifyMountedContentMutation();
 			};
 			if (!bFromFile)
 			{
@@ -390,38 +391,38 @@ namespace Durin::Editor::MainFrame
 							return Context.WorkspaceManager->OpenAsset(
 								Path, AssetClassName);
 						},
-						.ExecuteTransaction = [](std::unique_ptr<Editor::ITransaction> Transaction) {
-							return GEditor && GEditor->GetTransactionManager().Execute(
+						.ExecuteTransaction = [](std::unique_ptr<Editor::ITransactionCustomChange> Transaction) {
+							return GEditor && GEditor->GetTransactor()->Execute(
 								std::move(Transaction));
 						},
 						.GetMountedContentMutationRevision = [] {
 							return GEditor
-								? GEditor->GetTransactionManager()
-									.GetMountedContentMutationRevision()
+								? GEditor->GetTransactor()
+									->GetMountedContentMutationRevision()
 								: uint64{0};
 						},
 						.NotifyMountedContentMutation = [] {
 							if (GEditor)
-								GEditor->GetTransactionManager()
-									.NotifyMountedContentMutation();
+								GEditor->GetTransactor()
+									->NotifyMountedContentMutation();
 						},
 						.MoveAssets = [](
 							std::span<const ContentBrowser::FAssetMove> Moves) {
 							return GEditor
 								? ContentBrowser::ExecuteAssetMoves(
-									GEditor->GetTransactionManager(), Moves)
+									*GEditor->GetTransactor(), Moves)
 								: ContentBrowser::FActionResult{
-									false, "The editor transaction manager is unavailable."};
+									false, "The editor transactor is unavailable."};
 						},
 						.FixUpRedirectors = [](
 							std::span<const FAssetPath> Redirectors) {
 							if (!GEditor)
 								return ContentBrowser::FActionResult{
-									false, "The editor transaction manager is unavailable."};
+									false, "The editor transactor is unavailable."};
 							const FAssetOperationResult Result =
 								IAssetTools::Get().FixUpRedirectors({
 									.Redirectors = {Redirectors.begin(), Redirectors.end()},
-									.Transactions = &GEditor->GetTransactionManager()});
+									.Transactions = GEditor->GetTransactor()});
 							return ContentBrowser::FActionResult{
 								static_cast<bool>(Result), Result.Message};
 						},
@@ -1061,7 +1062,7 @@ namespace Durin::Editor::MainFrame
 			if (GEditor)
 				Activity.UpdateNotifications(
 					GEditor->GetNotificationManager(),
-					GEditor->GetTransactionManager());
+					*GEditor->GetTransactor());
 			std::shared_ptr<Editor::IWorkspace> ActiveWorkspace;
 			if (const Editor::FDocumentTab* ActiveDocument = WorkspaceManager.GetActiveDocument())
 				ActiveWorkspace = WorkspaceManager.FindWorkspace(ActiveDocument->WorkspaceType);
@@ -1305,6 +1306,10 @@ namespace Durin
 	auto FMainFrameModule::ShutdownModule() -> void
 	{
 		DestroyEditorHost();
+		if (GEditor)
+			checkf(GEditor->GetTransactor()
+				->DiscardCustomChangesByModule("ContentBrowser"),
+				"ContentBrowser cannot retire while one of its custom changes is active");
 	}
 
 	auto FMainFrameModule::CreateEditorHost(

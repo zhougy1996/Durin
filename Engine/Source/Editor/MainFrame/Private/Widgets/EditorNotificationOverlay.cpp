@@ -104,7 +104,7 @@ namespace Durin::Editor::MainFrame
 		bFocusHistoryRequested = false;
 	}
 
-	auto FEditorNotificationOverlay::UpdateNotifications(::Durin::Editor::FNotificationManager& Notifications, ::Durin::Editor::FTransactionManager& Transactions) -> void
+	auto FEditorNotificationOverlay::UpdateNotifications(::Durin::Editor::FNotificationManager& Notifications, ::Durin::DTransactor& Transactions) -> void
 	{
 		PublishTransactionEvents(Notifications, Transactions);
 		Notifications.Tick(ImGui::GetIO().DeltaTime);
@@ -452,7 +452,7 @@ namespace Durin::Editor::MainFrame
 		ImGui::End();
 	}
 
-	auto FEditorNotificationOverlay::PublishTransactionEvents(::Durin::Editor::FNotificationManager& Notifications, ::Durin::Editor::FTransactionManager& Transactions) -> void
+	auto FEditorNotificationOverlay::PublishTransactionEvents(::Durin::Editor::FNotificationManager& Notifications, ::Durin::DTransactor& Transactions) -> void
 	{
 		for (::Durin::Editor::FTransactionEvent& Event : Transactions.ConsumeEvents())
 		{
@@ -473,17 +473,26 @@ namespace Durin::Editor::MainFrame
 			{
 			case ::Durin::Editor::ETransactionEventType::Undone: Desc.Message = std::format("Undid {}", Event.Description); break;
 			case ::Durin::Editor::ETransactionEventType::Redone: Desc.Message = std::format("Redid {}", Event.Description); break;
+			case ::Durin::Editor::ETransactionEventType::Discarded: Desc.Message = std::format("Discarded {}", Event.Description); break;
+			case ::Durin::Editor::ETransactionEventType::Evicted: Desc.Message = std::format("Evicted {}", Event.Description); break;
 			case ::Durin::Editor::ETransactionEventType::Executed:
 			default: Desc.Message = Event.Description; break;
 			}
 			Desc.Details = std::move(Event.Details);
 			Desc.Presentation = ::Durin::Editor::ENotificationPresentation::StatusBar;
 
+			if (Event.Type == ::Durin::Editor::ETransactionEventType::Discarded
+				|| Event.Type == ::Durin::Editor::ETransactionEventType::Evicted)
+			{
+				Notifications.Post(std::move(Desc));
+				continue;
+			}
+
 			const ::Durin::Editor::FTransactionId Id = Event.Id;
 			::Durin::Editor::FNotificationAction Action;
 			Action.Label = bOffersRedo ? "Redo" : "Undo";
 			Action.IsEnabled = [&Transactions, Id, bOffersRedo] {
-				return bOffersRedo ? Transactions.IsRedoHead(Id) : Transactions.IsUndoHead(Id);
+				return bOffersRedo ? Transactions.GetRedoId() == Id : Transactions.GetUndoId() == Id;
 			};
 			Action.Invoke = [&Transactions, Id, bOffersRedo] {
 				if (bOffersRedo) Transactions.Redo(Id);

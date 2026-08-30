@@ -1,5 +1,6 @@
 #include "Misc/MountPathTestSupport.h"
 #include "MaterialTestSupport.h"
+#include "Editor/EditorTransactionTestSupport.h"
 #include "Texture/TextureFactoryTestSupport.h"
 #include "AssetForge/Builtins/StaticMeshImport.h"
 #include "StaticMesh/StaticMeshFactoryTestSupport.h"
@@ -327,16 +328,16 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	const auto RedEntry = std::ranges::find(
 		Model.GetCurrentEntries(), RedIndex, &Durin::Editor::Level::FStaticMeshMaterialSlotDetailsEntry::SlotIndex);
 	ASSERT_NE(RedEntry, Model.GetCurrentEntries().end());
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	Durin::Editor::FPropertyView PropertyView;
 	std::string EditError;
 	const Durin::Editor::FPropertyViewContext Context{
-		.Transactions = &Transactions,
+		.Transactor = Transactions.Get(),
 		.ReportError = [&EditError](std::string Error) { EditError = std::move(Error); }};
 	ASSERT_TRUE(Model.AssignMaterial(PropertyView, Context, *RedEntry, Material));
 	ASSERT_TRUE(EditError.empty());
 	ASSERT_TRUE(Durin::Asset::SavePackage(Component->GetPackage()));
-	Transactions.Clear();
+	Transactions->Reset();
 
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ComponentPath));
 	Material = nullptr;

@@ -16,7 +16,7 @@ It provides:
 
 - synchronous object change notifications;
 - stable member-to-leaf property paths;
-- focused property snapshots with object-reference lifetime protection;
+- retention-neutral property payloads with collector-based history retention;
 - interactive preview, commit, and cancel semantics;
 - one Undo/Redo entry for one continuous interaction;
 - array and map value and structural transactions;
@@ -46,15 +46,18 @@ Editor::FPropertyEditSession
         |
         +--> DObject::PostEditChangeProperty()
         |
-        +--> externally owned Editor::FTransactionManager
+        +--> externally owned DTransactor
                     |
                     v
-          Editor::FPropertyTransaction
+          DTransBuffer / FTransactionObjectRecord
 ```
 
-The view and session own only an edit in progress. Committed history belongs to
-the transaction manager supplied by the host, so edits from Details, Material
-Editor, and other editor surfaces participate in one ordered Undo/Redo history.
+The view and session own only an edit in progress. A live session temporarily
+roots its preview target so the no-history API remains safe; that root is
+released on commit, cancel, or reset and never enters retained history.
+`DTransBuffer` owns the authoritative committed property data, collector edges,
+package revisions, and the one ordered application Undo/Redo stream shared with
+domain commands.
 
 ## Object View Customization
 
@@ -162,13 +165,17 @@ write.
 
 ## Property Snapshots
 
-`FPropertyValueSnapshot` captures one reflected property value rather than a
-whole object. The codec supports primitive values, strings, hard/soft/weak
-object references, structs, arrays, and maps.
+The shared property codec captures one reflected property value rather than a
+whole object. It supports primitive values, strings, hard/soft/weak object
+references, structs, arrays, and maps.
 
-Snapshots recursively retain hard referenced `DObject` instances for as long
-as any snapshot copy exists. Weak properties instead copy their index/generation
-handle and never add the target to the rooted reference set. The generic weak
+`FPropertyValueSnapshotPayload` owns bytes and exact hard-reference handles but
+installs no roots. Active sessions, map paths, and committed property records
+use this payload. `DTransBuffer::AddReferencedObjects()` exposes hard handles
+from pending and retained records to the collector. The legacy
+`FPropertyValueSnapshot` adapter still roots hard references for unmigrated
+callers, but it is not used by property history. Weak properties copy their
+index/generation handle and never gain retention. The generic weak
 Details row reports null, live, expired, or type-mismatched state and permits an
 explicit clear; it never offers a durable asset picker. Unsupported or
 type-mismatched capture and restore operations fail with an error.
@@ -218,6 +225,12 @@ validation plus post-write reaction. A future externally owned canonical value
 must first demonstrate that this split is impossible before a new policy
 contract is introduced.
 
+Interactive validation may defer publication while domain work completes.
+Committed property records remain callback-free and execute synchronously; a
+domain extension must therefore supply a synchronous history path. Texture2D
+keeps asynchronous preview compilation, but Undo/Redo builds and publishes the
+same detached settings synchronously before the reflected write completes.
+
 ## Edit Session Lifecycle
 
 `Editor::FPropertyEditSession` implements one logical edit:
@@ -226,18 +239,22 @@ contract is introduced.
 Begin(target)
   capture original value
   root the target object
+  begin one scoped transactor entry with before == after
 
 Apply(proposal)
   validate/normalize a detached draft
   atomically apply and recapture the actual value
+  replace the pending record's after payload
   notify Interactive when it changed
 
 Commit()
   notify Committed
-  if changed, CommitApplied() one transaction with its affected package
+  end the scoped record
+  install one ID-only legacy ordering bridge
 
 Cancel()
   if changed, restore through the same generic hook path
+  cancel the scoped record
   notify Cancelled
   create no transaction
 ```
@@ -260,24 +277,29 @@ discarding the preview state.
 
 ## Transactions and Dirty State
 
-`Editor::FPropertyTransaction` retains the stable target, before/after
-snapshots, and description. Undo and Redo use the same atomic generic execution
-and rollback path as interactive edits and deliver the same post notification
-with the corresponding origin.
+`Editor::FTransactionObjectRecord` retains the exact target identity, stable
+member locator, path metadata, and root-free before/after payloads. Undo and
+Redo reconstruct a transient target, validate detached state, and use the same
+atomic generic execution and notification path as interactive edits. All
+records prevalidate before the first write; multi-record Undo is reverse order,
+Redo is forward order, and partial failure is rolled back without moving the
+cursor.
 
-The session calls `Editor::FTransactionManager::CommitApplied()` because the live
-interactive edit has already placed the object in its final state. A no-op or
-cancelled edit creates no history entry and does not dirty the package.
+The session opens one scoped transaction, records the before/after object
+payload as interactive edits change the live value, and ends the scope after
+the final committed notification. Ending records the already-applied state; it
+does not write the property a second time. A no-op or cancelled edit creates no
+history entry and does not dirty the package.
 
 Each transaction reports a stable, deduplicated set of affected asset packages.
-`Editor::FTransactionManager` owns editor-session revision metadata for those
+`DTransBuffer` owns editor-session revision metadata for those
 packages: the current revision, the last successfully saved revision, and
 whether that save checkpoint remains trustworthy. Committing a changed edit
 allocates a fresh after-revision. Undo moves to the stored before-revision only
 after value restoration succeeds, and Redo moves back to the after-revision
 only after reapplication succeeds.
 
-For a valid checkpoint, the manager synchronizes the existing
+For a valid checkpoint, the transactor synchronizes the existing
 `DPackage::IsDirty()` compatibility boundary from revision equality. Undoing
 exactly to the saved revision clears dirty; Redoing away sets it again. Saving
 at any history position advances the saved revision only after package save
@@ -290,13 +312,13 @@ checkpoint as well as mark the package dirty. An invalid checkpoint remains
 conservatively dirty across Undo and Redo until a successful save or known-clean
 package activation establishes a new checkpoint. No-op and cancelled edits
 create no transaction or revision and retain their pre-interaction dirty state.
-Revision metadata belongs to the editor transaction manager, is not serialized
+Revision metadata belongs to the editor transactor, is not serialized
 into `DPackage`, and is forgotten with the document/history lifecycle.
 
 Package revision and dirty-state tracking does not imply mounted-content
 discovery invalidation. Reflected edits, including component transforms and
 Spline control-point edits, mutate in-memory package state and do not advance
-the transaction manager's mounted-content mutation revision. Consequently their
+the transactor's mounted-content mutation revision. Consequently their
 Execute, Undo, and Redo transitions never request an asset-registry scan.
 
 ## Container Transactions
@@ -319,7 +341,7 @@ inserting and then renaming a live entry.
 panel or standalone asset editor. A host stores one instance and supplies a
 context containing:
 
-- the externally owned transaction manager;
+- the editor's externally owned transactor;
 - an error-reporting callback; and
 - read-only state.
 
@@ -464,6 +486,8 @@ Engine/Source/Runtime/CoreDObject/Public/DObject/Archive.h
 Engine/Source/Runtime/CoreDObject/Public/DObject/Object.h
 Engine/Source/Editor/DurinEd/Public/Editor/PropertyEditing.h
 Engine/Source/Editor/DurinEd/Public/Editor/PropertyView.h
+Engine/Source/Editor/DurinEd/Public/Editor/TransactionObjectRecord.h
+Engine/Source/Editor/DurinEd/Public/Editor/Transactor.h
 Engine/Source/Editor/DurinEd/Public/Editor/Transaction.h
 Engine/Source/Editor/LevelEditor/Private/Panels/DetailsPanel.cpp
 Engine/Source/Editor/LevelEditor/Public/LevelEditorTransformTargets.h

@@ -235,7 +235,7 @@ namespace Durin::Editor::MainFrame
 						"Usage: asset.fixup_redirectors [rewrite-only|rewrite-and-delete]");
 				if (!GEditor)
 					return FConsoleCommandResult::Failure(
-						"The editor transaction manager is unavailable.");
+						"The editor transactor is unavailable.");
 				std::vector<FAssetPath> Redirectors;
 				for (const auto& [Path, Data] : Asset::CaptureAssetCatalogSnapshot().Assets)
 					if (Data.EntryKind == Asset::EAssetRegistryEntryKind::Redirector)
@@ -248,7 +248,7 @@ namespace Durin::Editor::MainFrame
 				const FAssetOperationResult Result = IAssetTools::Get().FixUpRedirectors({
 					.Redirectors = Redirectors,
 					.bDeleteRedirectors = bDelete,
-					.Transactions = &GEditor->GetTransactionManager()});
+					.Transactions = GEditor->GetTransactor()});
 				return Result ? FConsoleCommandResult::Success(std::format(
 					"Fixed up {} redirector(s) in {} mode.", Redirectors.size(),
 					bDelete ? "rewrite-and-delete" : "rewrite-only"))

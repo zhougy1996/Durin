@@ -1,5 +1,6 @@
 #include "Misc/MountPathTestSupport.h"
 #include "WorldTestSupport.h"
+#include "Editor/EditorTransactionTestSupport.h"
 #include "Actors/SplineMeshActor.h"
 #include "Components/SplineComponent.h"
 #include "Components/SplineMeshComponent.h"
@@ -391,11 +392,11 @@ TEST(FCameraEditingTests, SharedTransactionsPreserveAtomicProjectionSemanticsAnd
 	EXPECT_EQ(NearTarget.Path[0].Property, Projection);
 	EXPECT_EQ(NearTarget.Path[1].Property, NearClip);
 
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	Durin::Editor::FPropertyView View;
 	std::string Error;
 	const Durin::Editor::FPropertyViewContext Context{
-		.Transactions = &Transactions,
+		.Transactor = Transactions.Get(),
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 	auto SubmitFloat = [&](Durin::FProperty* Field, float Value, bool bContinuous) {
@@ -410,24 +411,24 @@ TEST(FCameraEditingTests, SharedTransactionsPreserveAtomicProjectionSemanticsAnd
 	View.FinishActiveEdit(&Context, false);
 	EXPECT_TRUE(Error.empty());
 	EXPECT_FLOAT_EQ(Camera->GetFieldOfViewDegrees(), 90.0f);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Camera->GetFieldOfViewDegrees(), 60.0f);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_FLOAT_EQ(Camera->GetFieldOfViewDegrees(), 90.0f);
 
-	Transactions.Clear();
+	Transactions->Reset();
 	ASSERT_TRUE(SubmitFloat(NearClip, 2000.0f, true));
 	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 2000.0f);
 	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 500000.0f);
 	View.FinishActiveEdit(&Context, true);
 	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 0.1f);
 	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 500000.0f);
-	EXPECT_FALSE(Transactions.CanUndo());
+	EXPECT_FALSE(Transactions->CanUndo());
 
 	ASSERT_TRUE(SubmitFloat(NearClip, -5.0f, false));
 	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 0.001f);
 	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 500000.0f);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Camera->GetNearClip(), 0.1f);
 	EXPECT_FLOAT_EQ(Camera->GetFarClip(), 500000.0f);
 
@@ -438,12 +439,12 @@ TEST(FCameraEditingTests, SharedTransactionsPreserveAtomicProjectionSemanticsAnd
 	ASSERT_TRUE(SubmitFloat(CustomAspectRatio, 20.0f, false));
 	EXPECT_EQ(Camera->GetAspectRatioMode(), Durin::ECameraAspectRatioMode::Custom);
 	EXPECT_FLOAT_EQ(Camera->GetCustomAspectRatio(), 10.0f);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FLOAT_EQ(Camera->GetCustomAspectRatio(), 16.0f / 9.0f);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Camera->GetAspectRatioMode(), Durin::ECameraAspectRatioMode::Viewport);
 
-	Transactions.Clear();
+	Transactions->Reset();
 	Durin::MarkAsGarbage(Camera);
 	Durin::CollectGarbage();
 }

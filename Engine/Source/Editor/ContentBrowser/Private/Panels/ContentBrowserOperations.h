@@ -150,7 +150,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			EContentDeletionMovePhase)> Rename;
 	};
 
-	class FContentDeletionTransaction final : public ::Durin::Editor::ITransaction
+	class FContentDeletionTransaction final : public ::Durin::Editor::ITransactionCustomChange
 	{
 	public:
 		explicit FContentDeletionTransaction(
@@ -162,6 +162,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const
 			-> std::string override;
 		auto MutatesMountedContent() const -> bool override { return true; }
+		auto GetOwningModule() const -> std::string_view override { return "ContentBrowser"; }
 		auto Undo() -> bool override;
 		auto Redo() -> bool override;
 		auto GetState() const -> EContentDeletionTransactionState { return State; }

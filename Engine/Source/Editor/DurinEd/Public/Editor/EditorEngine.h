@@ -2,6 +2,7 @@
 
 #include "DurinEdAPI.h"
 #include "Engine/Engine.h"
+#include "Editor/Transactor.h"
 
 #include "EditorEngine.gen.h"
 
@@ -13,7 +14,6 @@ namespace Durin
 namespace Durin::Editor
 {
 	class FNotificationManager;
-	class FTransactionManager;
 
 	// Tracks the lifecycle transition of a play-in-editor session.
 	enum class EPlayState : uint8
@@ -85,7 +85,7 @@ namespace Durin
 		DURINED_API auto Tick(float DeltaSeconds, bool bIdleMode) -> void override;
 		DURINED_API auto PrepareForShutdown() -> void override;
 		DURINED_API auto BeginDestroy() -> void override;
-		DURINED_API auto GetTransactionManager() -> Editor::FTransactionManager&;
+		auto GetTransactor() const -> DTransactor* { return Trans.Get(); }
 		DURINED_API auto GetNotificationManager() -> Editor::FNotificationManager&;
 		DURINED_API auto StartPlaySession(DLevel* SourceLevel, std::string* OutError = nullptr) -> bool;
 		DURINED_API auto StartPlaySession(const Editor::FPlayRequest& Request, std::string* OutError = nullptr) -> bool;
@@ -127,8 +127,12 @@ namespace Durin
 		DURINED_API auto InitializePlayWindowViewportClient(
 			const FViewportClient* SourceClient) -> void;
 
-		std::unique_ptr<Editor::FTransactionManager> TransactionManager;
 		std::unique_ptr<Editor::FNotificationManager> NotificationManager;
+
+		// Sole editor-session transaction history and revision service.
+		DPROPERTY(Transient)
+		TObjectPtr<DTransactor> Trans;
+
 		// Authoritative world being edited; retained for the editor engine lifetime.
 		DPROPERTY(Transient)
 		TObjectPtr<DWorld> EditorWorld;

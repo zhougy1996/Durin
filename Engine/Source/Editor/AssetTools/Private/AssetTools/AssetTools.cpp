@@ -7,6 +7,8 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "Factories/Factory.h"
+#include "Editor/EditorEngine.h"
+#include "Editor/Transaction.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin
@@ -202,6 +204,10 @@ namespace Durin
 
 	auto FAssetToolsModule::ShutdownModule() -> void
 	{
+		if (GEditor)
+			checkf(GEditor->GetTransactor()
+				->DiscardCustomChangesByModule("AssetTools"),
+				"AssetTools cannot retire while one of its custom changes is active");
 		AssetTools.reset();
 	}
 

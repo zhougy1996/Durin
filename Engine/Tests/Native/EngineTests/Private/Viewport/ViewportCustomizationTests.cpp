@@ -1,4 +1,5 @@
 #include "ViewportTestSupport.h"
+#include "Editor/EditorTransactionTestSupport.h"
 #include "DObject/Class.h"
 #include "Math/Operations.h"
 #include "Actors/SplineMeshActor.h"
@@ -314,10 +315,10 @@ TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDe
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, View));
 	Durin::Editor::Level::FLevelEditorViewportInput Input;
 	Input.bDelete = true;
-	Durin::Editor::FTransactionManager Transactions;
-	ASSERT_TRUE(Manager.Tick(Context, Client, View, Input, &Transactions));
+	Durin::Tests::FTestTransactorOwner Transactions;
+	ASSERT_TRUE(Manager.Tick(Context, Client, View, Input, Transactions.Get()));
 	EXPECT_EQ(Spline->GetNumSplinePoints(), 1u);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Spline->GetNumSplinePoints(), 3u);
 	EXPECT_TRUE(Spline->GetSplineCurve().FindPointIndex(FirstId).has_value());
 	EXPECT_TRUE(Spline->GetSplineCurve().FindPointIndex(SecondId).has_value());
@@ -325,10 +326,10 @@ TEST(FSplineViewportAuthoringTests, ModeUsesGuidMultiSelectionAndTransactionalDe
 	Context.SelectSubElement(Spline, {Durin::Editor::Level::EEditorSubElementKind::Point, FirstId});
 	Input = {};
 	Input.bCancel = true;
-	ASSERT_TRUE(Manager.Tick(Context, Client, View, Input, &Transactions));
+	ASSERT_TRUE(Manager.Tick(Context, Client, View, Input, Transactions.Get()));
 	EXPECT_TRUE(Context.GetSelectedSubElements().empty());
 	EXPECT_EQ(Manager.GetActiveModeId(), "Spline");
-	ASSERT_TRUE(Manager.Tick(Context, Client, View, Input, &Transactions));
+	ASSERT_TRUE(Manager.Tick(Context, Client, View, Input, Transactions.Get()));
 	EXPECT_EQ(Manager.GetActiveModeId(), "Select");
 	EXPECT_EQ(Context.GetSelectedComponent(), Spline);
 	Manager.Shutdown(&Context);

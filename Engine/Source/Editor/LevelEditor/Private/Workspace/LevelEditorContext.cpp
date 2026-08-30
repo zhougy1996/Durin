@@ -168,7 +168,7 @@ namespace Durin::Editor::Level
 		if (!Package && Level) Package = Level->GetPackage();
 		if (!Package || !Package->IsAssetPackage()) return;
 		if (GEditor)
-			GEditor->GetTransactionManager().InvalidateSavedState(*Package);
+			GEditor->GetTransactor()->InvalidateSavedState(*Package);
 		else
 			Package->MarkDirty();
 	}

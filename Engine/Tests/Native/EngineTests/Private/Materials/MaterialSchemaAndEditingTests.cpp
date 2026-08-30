@@ -1,4 +1,5 @@
 #include "MaterialTestSupport.h"
+#include "Editor/EditorTransactionTestSupport.h"
 
 #include "DObject/DefaultObjectGraph.h"
 #include "DObject/MathStructs.h"
@@ -1002,13 +1003,13 @@ TEST(FMaterialTests, ReflectedPositionalMaterialOverrideUsesSharedTransactions)
 	ASSERT_TRUE(Component->SetMaterial(0, Second));
 	ASSERT_TRUE(Durin::CapturePropertyValue(OverridesProperty, Component, 0, Proposed));
 	ASSERT_TRUE(Durin::RestorePropertyValue(OverridesProperty, Component, 0, Original));
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	Durin::Editor::FPropertyEditSession EditSession;
 	ASSERT_TRUE(EditSession.Begin(
 		Durin::Editor::FPropertyEditTarget::ForMember(Component, OverridesProperty),
 		"Edit Material Override",
 		nullptr,
-		&Transactions
+		Transactions.Get()
 	));
 	EXPECT_EQ(EditSession.Apply(Proposed), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_EQ(EditSession.Commit(), Durin::Editor::EPropertyEditResult::Changed);
@@ -1016,15 +1017,15 @@ TEST(FMaterialTests, ReflectedPositionalMaterialOverrideUsesSharedTransactions)
 
 	EXPECT_GT(After.ComponentRevision, Before.ComponentRevision);
 	ExpectColorNear(GetMaterialBinding(After.Material).BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	const FSceneSnapshot Undone = CaptureScene(Harness.Scene);
 	EXPECT_GT(Undone.ComponentRevision, After.ComponentRevision);
 	ExpectColorNear(GetMaterialBinding(Undone.Material).BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	const FSceneSnapshot Redone = CaptureScene(Harness.Scene);
 	EXPECT_GT(Redone.ComponentRevision, Undone.ComponentRevision);
 	ExpectColorNear(GetMaterialBinding(Redone.Material).BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
-	Transactions.Clear();
+	Transactions->Reset();
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();
@@ -1156,11 +1157,11 @@ TEST(FMaterialTests, ReflectedParameterEditCoalescesAndInvalidatesRenderDataAcro
 	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "TransactionalMaterial");
 	const auto Target = MakeMaterialValueTarget(Material, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value, Durin::FName("ScalarValue"));
 	ASSERT_TRUE(Target.has_value());
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
 	Durin::Editor::FPropertyViewContext Context{
-		.Transactions = &Transactions,
+		.Transactor = Transactions.Get(),
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 	const uint64 BeforeVersion = Material->GetRenderStateVersion();
@@ -1178,13 +1179,13 @@ TEST(FMaterialTests, ReflectedParameterEditCoalescesAndInvalidatesRenderDataAcro
 	float Opacity = 0.0f;
 	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::MaterialParameters::OpacityName(), Opacity));
 	EXPECT_FLOAT_EQ(Opacity, 0.4f);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::MaterialParameters::OpacityName(), Opacity));
 	EXPECT_FLOAT_EQ(Opacity, 1.0f);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::MaterialParameters::OpacityName(), Opacity));
 	EXPECT_FLOAT_EQ(Opacity, 0.4f);
-	Transactions.Clear();
+	Transactions->Reset();
 	Durin::MarkAsGarbage(Material);
 	Durin::CollectGarbage();
 }
@@ -1196,11 +1197,11 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksPresentedOwnerSeparatelyFromEdit
 	Durin::DMaterial* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "PropertyViewTarget");
 	const auto Target = MakeMaterialValueTarget(Material, Durin::MaterialParameters::GetBuiltinParameterIds(Durin::MaterialParameters::EMaterialBuiltinParameterRole::Opacity).Value, Durin::FName("ScalarValue"));
 	ASSERT_TRUE(Target.has_value());
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
 	Durin::Editor::FPropertyViewContext Context{
-		.Transactions = &Transactions,
+		.Transactor = Transactions.Get(),
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 	PropertyView.HandleOwnerContext(Context, Owner);
@@ -1219,7 +1220,7 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksPresentedOwnerSeparatelyFromEdit
 	ASSERT_TRUE(Material->GetScalarParameterValue(Durin::MaterialParameters::OpacityName(), Opacity));
 	EXPECT_FLOAT_EQ(Opacity, 1.0f);
 
-	Transactions.Clear();
+	Transactions->Reset();
 	Durin::MarkAsGarbage(Material);
 	Durin::MarkAsGarbage(Owner);
 	Durin::CollectGarbage();
@@ -1239,21 +1240,21 @@ TEST(FMaterialTests, ReflectedPropertyViewTracksMaterialOverrideStructureInShare
 	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.5f));
 	ASSERT_TRUE(Durin::CapturePropertyValue(Property, Instance, 0, Proposed));
 	ASSERT_TRUE(Instance->ClearScalarParameterValue(Durin::MaterialParameters::OpacityName()));
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	std::string Error;
 	Durin::Editor::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(
 		Durin::Editor::FPropertyEditTarget::ForMember(Instance, Property),
-		"Edit Parameter Override", nullptr, &Transactions));
+		"Edit Parameter Override", nullptr, Transactions.Get()));
 	EXPECT_EQ(Session.Apply(Proposed, &Error), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_EQ(Session.Commit(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_TRUE(Instance->HasScalarParameterOverride(Durin::MaterialParameters::OpacityName()));
 	EXPECT_TRUE(Error.empty());
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FALSE(Instance->HasScalarParameterOverride(Durin::MaterialParameters::OpacityName()));
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_TRUE(Instance->HasScalarParameterOverride(Durin::MaterialParameters::OpacityName()));
-	Transactions.Clear();
+	Transactions->Reset();
 	Durin::MarkAsGarbage(Instance);
 	Durin::MarkAsGarbage(Base);
 	Durin::CollectGarbage();
@@ -1287,15 +1288,16 @@ TEST(FMaterialTests, ParentHookRejectsCyclesWithoutCreatingHistory)
 	ASSERT_TRUE(Durin::CapturePropertyValue(ParentProperty, Second, 0, Proposed));
 	ASSERT_TRUE(Durin::RestorePropertyValue(ParentProperty, Second, 0, Original));
 
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	Durin::Editor::FPropertyEditSession Session;
-	ASSERT_TRUE(Session.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Second, ParentProperty), "Edit Parent", nullptr, &Transactions));
+	ASSERT_TRUE(Session.Begin(Durin::Editor::FPropertyEditTarget::ForMember(Second, ParentProperty),
+		"Edit Parent", nullptr, Transactions.Get()));
 	std::string Error;
 	EXPECT_EQ(Session.Apply(Proposed, &Error), Durin::Editor::EPropertyEditResult::Failed);
 	EXPECT_EQ(Error, "A material instance cannot create a parent cycle.");
 	EXPECT_EQ(Second->GetParent(), nullptr);
 	EXPECT_EQ(Session.Commit(), Durin::Editor::EPropertyEditResult::NoChange);
-	EXPECT_FALSE(Transactions.CanUndo());
+	EXPECT_FALSE(Transactions->CanUndo());
 
 	First->SetParent(nullptr);
 	Durin::MarkAsGarbage(Second);
@@ -1332,11 +1334,11 @@ TEST(FMaterialTests, ParentTransactionsRenderFromCurrentCanonicalStorage)
 	ASSERT_TRUE(Durin::CapturePropertyValue(ParentProperty, Instance, 0, Proposed));
 	ASSERT_TRUE(Durin::RestorePropertyValue(ParentProperty, Instance, 0, Original));
 
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	Durin::Editor::FPropertyEditSession CancelledSession;
 	ASSERT_TRUE(CancelledSession.Begin(
 		Durin::Editor::FPropertyEditTarget::ForMember(Instance, ParentProperty),
-		"Edit Parent", nullptr, &Transactions));
+		"Edit Parent", nullptr, Transactions.Get()));
 	ASSERT_EQ(CancelledSession.Apply(Proposed), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_EQ(Instance->GetParent(), SecondParent);
 	const FSceneSnapshot Interactive = CaptureScene(Harness.Scene);
@@ -1349,18 +1351,18 @@ TEST(FMaterialTests, ParentTransactionsRenderFromCurrentCanonicalStorage)
 	Durin::Editor::FPropertyEditSession CommittedSession;
 	ASSERT_TRUE(CommittedSession.Begin(
 		Durin::Editor::FPropertyEditTarget::ForMember(Instance, ParentProperty),
-		"Edit Parent", nullptr, &Transactions));
+		"Edit Parent", nullptr, Transactions.Get()));
 	ASSERT_EQ(CommittedSession.Apply(Proposed), Durin::Editor::EPropertyEditResult::Changed);
 	ASSERT_EQ(CommittedSession.Commit(), Durin::Editor::EPropertyEditResult::Changed);
 	EXPECT_EQ(Instance->GetParent(), SecondParent);
 	const FSceneSnapshot Committed = CaptureScene(Harness.Scene);
 	ExpectColorNear(GetMaterialBinding(Committed.Material).BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
 
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Instance->GetParent(), FirstParent);
 	const FSceneSnapshot Undone = CaptureScene(Harness.Scene);
 	ExpectColorNear(GetMaterialBinding(Undone.Material).BaseColor, Durin::FVector4f(0.1f, 0.2f, 0.3f, 1.0f));
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Instance->GetParent(), SecondParent);
 	const FSceneSnapshot Redone = CaptureScene(Harness.Scene);
 	ExpectColorNear(GetMaterialBinding(Redone.Material).BaseColor, Durin::FVector4f(0.7f, 0.6f, 0.5f, 1.0f));
@@ -1375,7 +1377,7 @@ TEST(FMaterialTests, ParentTransactionsRenderFromCurrentCanonicalStorage)
 	const FSceneSnapshot CurrentParentChanged = CaptureScene(Harness.Scene);
 	EXPECT_EQ(CurrentParentChanged.ComponentRevision, PreviousParentChanged.ComponentRevision);
 	ExpectColorNear(GetMaterialBinding(CurrentParentChanged.Material).BaseColor, Durin::FVector4f(0.2f, 0.8f, 0.4f, 1.0f));
-	Transactions.Clear();
+	Transactions->Reset();
 
 	Component->UnregisterComponent();
 	WaitForRenderingThread();

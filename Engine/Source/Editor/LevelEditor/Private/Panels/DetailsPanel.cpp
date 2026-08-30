@@ -244,7 +244,7 @@ namespace Durin::Editor::Level
 	auto FDetailsPanel::MakePropertyViewContext(FLevelEditorContext& Context) const -> ::Durin::Editor::FPropertyViewContext
 	{
 		return {
-			.Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr,
+			.Transactor = GEditor ? GEditor->GetTransactor() : nullptr,
 			.ReportError = [&Context](std::string Error) { Context.SetError(std::move(Error)); },
 			.RevealAsset = Context.RevealAsset,
 			.OpenAsset = Context.OpenAsset,

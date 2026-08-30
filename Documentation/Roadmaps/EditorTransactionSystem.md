@@ -4,28 +4,49 @@ Summary: Replace transaction-owned manual roots with a GC-integrated editor tran
 
 Last reviewed: 2026-08-30
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-30
 
 ## Current Status
 
-Durin currently has a command-oriented `Editor::ITransaction` contract and an
-ordinary `Editor::FTransactionManager` owned by `DEditorEngine`. The manager
-provides bounded Undo/Redo history, deferred completion, package revision and
-dirty-state tracking, mounted-content mutation revisions, and user-visible
-events. Reflected property editing adds focused before/after snapshots, while
-property snapshots and manager package records keep referenced objects alive
-through counted `FScopedObjectRoot` instances.
+P0 through P4 are complete. CoreDObject provides retention-neutral property
+payloads and exact `FPersistentObjectRef` identity. DurinEd provides the
+reflected service, scoped recording state machine, bounded collector-visible
+history, executable property and custom records, package checkpoints,
+mounted-content revisions, deferred barriers, and application events.
 
-CoreDObject already provides the foundation needed for a collector-integrated
-design: reachable `DObject` instances may report native strong edges through
-`AddReferencedObjects(FReferenceCollector&)`, and reflected strong references
-participate in the same mark phase. No transactor object, persistent transaction
-object reference, automatic object record, scoped transaction, or transaction
-buffer currently exists.
+`DEditorEngine::Trans` is the only editor-session history. Every workspace,
+Activity History surface, property edit, asset mutation, graph edit, Level
+mutation, placement, attachment, and gizmo command routes through
+`DTransBuffer`; the legacy manager, ID bridges, and transaction-specific roots
+are absent. P2 is complete through the
+[Object Transaction And Property Migration](../Plans/ObjectTransactionAndPropertyMigration.md)
+plan, and P3 is complete through the
+[Editor Custom Transaction Migration](../Plans/EditorCustomTransactionMigration.md)
+plan. P4 completed through the
+[Editor Transaction Global Cutover](../Plans/EditorTransactionGlobalCutover.md)
+plan.
 
-No child implementation plan is active. The first plan may start after its P0
-entry gate is satisfied.
+P5 is complete with a decision not to add persistent editor-session replay or
+multi-user transaction exchange now. The evidence does not define a selected
+use case that clears the roadmap's entry gate:
+
+- crash safety for authoritative asset relocation and Fix Up already belongs
+  to the bounded `FAssetMutationJournal` and explicit `RecoveryRequired` state;
+  replaying ordinary editor history would duplicate that recovery boundary;
+- ordinary object records intentionally use process-local object-array handles
+  and generations, so no durable cross-session participant identity or schema
+  migration contract exists;
+- the repository defines no collaboration authority, membership, transport,
+  confidentiality, storage quota, or concurrent-edit conflict policy; and
+- no measured session-loss or collaborative-authoring workload establishes a
+  retention window, replay bound, or product requirement.
+
+The decision is defer-with-entry-gate, not a prohibition. A future concrete
+use case must start a separate roadmap and define durable identity, schema
+evolution, security and authority, bounded storage, and replay/conflict policy
+before implementation. The transient Undo buffer and independent asset
+recovery journal remain the selected architecture.
 
 ## Outcome
 
@@ -92,10 +113,11 @@ snapshot.
 
 ## Milestones
 
-- [ ] **P0: Transaction reference and record foundation.** Create the
-  `EditorTransactionReferenceFoundation` plan after inventorying every current
-  transaction-owned root, raw participant pointer, object creation/deletion
-  command, and module-owned transaction implementation. Deliver
+- [x] **P0: Transaction reference and record foundation.** Execute the
+  [Editor Transaction Reference Foundation](../Plans/EditorTransactionReferenceFoundation.md)
+  plan after its completed inventory of every current transaction-owned root,
+  raw participant pointer, object creation/deletion command, and module-owned
+  transaction implementation. Deliver
   `FPersistentObjectRef` semantics, collector traversal for non-reflected
   transaction records, and focused serialization/restore primitives without
   changing the active editor history. Completion requires GC tests proving that
@@ -104,8 +126,9 @@ snapshot.
   identity behavior is explicit. This milestone depends only on the implemented
   CoreDObject collector and handle contracts.
 
-- [ ] **P1: Transactor and buffer core.** Create the `EditorTransactorCore` plan
-  after P0 completes. Deliver abstract transient `DTransactor`, concrete
+- [x] **P1: Transactor and buffer core.** Execute the
+  [Editor Transactor Core](../Plans/EditorTransactorCore.md) plan. Deliver
+  abstract transient `DTransactor`, concrete
   `DTransBuffer`, `FTransaction`, `FScopedTransaction`, Begin/End/Cancel nesting,
   Undo/Redo barriers, memory-bounded history, event publication, and a transient
   `DEditorEngine` ownership edge. Completion requires the new buffer to pass
@@ -113,7 +136,7 @@ snapshot.
   while running beside—but not yet serving—the legacy manager. This milestone
   depends on P0.
 
-- [ ] **P2: Object and reflected-property transactions.** Create the
+- [x] **P2: Object and reflected-property transactions.** Create the
   `ObjectTransactionAndPropertyMigration` plan after P1 completes. Deliver
   automatic transaction object records for supported reflected edits and move
   `FPropertyEditSession` and `FPropertyTransaction` onto
@@ -124,7 +147,7 @@ snapshot.
   property history to stop installing per-reference roots, with all existing
   reflected-property contract tests passing. This milestone depends on P1.
 
-- [ ] **P3: Custom changes and command migration.** Create the
+- [x] **P3: Custom changes and command migration.** Create the
   `EditorCustomTransactionMigration` plan after P2 completes. Deliver one
   custom-change representation inside `FTransaction` and migrate existing
   `ITransaction` consumers, including asset relocation/deletion adapters,
@@ -136,7 +159,7 @@ snapshot.
   milestone depends on P2 and may be split into bounded module-owned child
   plans after the shared custom-change contract lands.
 
-- [ ] **P4: Global cutover and legacy removal.** Create the
+- [x] **P4: Global cutover and legacy removal.** Create the
   `EditorTransactionGlobalCutover` plan after every required P3 consumer is
   migrated. Route application Undo/Redo, workspace adapters, Activity History,
   saving checkpoints, and test seams through `DEditorEngine::Trans`; remove
@@ -146,7 +169,7 @@ snapshot.
   and updated authoritative editor and GC contracts. This milestone depends on
   all required P3 plans.
 
-- [ ] **P5: Recovery and collaboration evaluation (conditional).** After P4,
+- [x] **P5: Recovery and collaboration evaluation (conditional).** After P4,
   collect evidence for whether Durin needs persistent editor-session replay,
   multi-user transaction exchange, or both. Create a separate roadmap or plan
   only if a selected use case defines durable identity, schema evolution,
@@ -231,6 +254,7 @@ documents.
 ## Related Documentation
 
 - [Garbage Collection](../Runtime/Core/GarbageCollection.md)
+- [Transaction Record Foundation](../Editor/Architecture/TransactionRecords.md)
 - [Reflected Property Editing](../Editor/Architecture/ReflectedPropertyEditing.md)
 - [Editor Workspace Framework](../Editor/Architecture/WorkspaceFramework.md)
 - [Asset Catalog And Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)

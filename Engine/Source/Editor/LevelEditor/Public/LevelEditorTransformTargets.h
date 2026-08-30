@@ -6,6 +6,7 @@
 namespace Durin
 {
 	class DPackage;
+	class FReferenceCollector;
 }
 
 namespace Durin::Editor::Level
@@ -42,6 +43,10 @@ namespace Durin::Editor::Level
 		virtual auto GetPackage() const -> DPackage* { return nullptr; }
 		virtual auto GetLabel() const -> std::string = 0;
 		virtual auto GetCapabilities() const -> ETransformGizmoCapability { return ETransformGizmoCapability::All; }
+		virtual auto AddReferencedObjects(FReferenceCollector& Collector) const -> void
+		{
+			(void)Collector;
+		}
 	};
 
 	struct FTransformGizmoTargetSet

@@ -2,9 +2,9 @@
 
 #include "AssetTools/AssetOperation.h"
 
-namespace Durin::Editor
+namespace Durin
 {
-	class FTransactionManager;
+	class DTransactor;
 }
 
 namespace Durin
@@ -18,13 +18,13 @@ namespace Durin
 	struct FAssetRelocationRequest
 	{
 		std::vector<FAssetRelocation> Mappings;
-		Editor::FTransactionManager* Transactions = nullptr;
+		DTransactor* Transactions = nullptr;
 	};
 
 	struct FAssetRedirectorFixupRequest
 	{
 		std::vector<FAssetPath> Redirectors;
 		bool bDeleteRedirectors = true;
-		Editor::FTransactionManager* Transactions = nullptr;
+		DTransactor* Transactions = nullptr;
 	};
 }

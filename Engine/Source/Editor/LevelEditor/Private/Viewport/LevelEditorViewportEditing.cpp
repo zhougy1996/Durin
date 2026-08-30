@@ -24,7 +24,7 @@ namespace Durin::Editor::Level
 			}
 
 			auto Tick(FLevelEditorContext& Context, FLevelEditorViewportClient& Client, const FSceneView& View,
-				FLevelEditorViewportInput& Input, ::Durin::Editor::FTransactionManager* Transactions) -> bool override
+				FLevelEditorViewportInput& Input, ::Durin::DTransactor* Transactions) -> bool override
 			{
 				LastClient = &Client;
 				const FTransformGizmoTargetSet Targets = GetGizmoTargets(Context);
@@ -236,7 +236,7 @@ namespace Durin::Editor::Level
 	}
 
 	auto FLevelViewportEditModeManager::Tick(FLevelEditorContext& Context, FLevelEditorViewportClient& Client, const FSceneView& View,
-		FLevelEditorViewportInput& Input, ::Durin::Editor::FTransactionManager* Transactions) -> bool
+		FLevelEditorViewportInput& Input, ::Durin::DTransactor* Transactions) -> bool
 	{
 		Synchronize(Context);
 		if (!ActiveMode) return false;

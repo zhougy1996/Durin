@@ -477,6 +477,45 @@ namespace
 		EXPECT_FALSE(ContainsObject(Second));
 	}
 
+	TEST(FPropertyValueSnapshotTests, RetentionNeutralPayloadDoesNotRootHardReferences)
+	{
+		EnsureSnapshotTestsInitialized();
+		struct FObjectOwner
+		{
+			Durin::TObjectPtr<Durin::DObject> Value;
+		};
+		Durin::FObjectProperty Property(
+			Durin::FFieldVariant(), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
+			Durin::EPropertyFlags::None, 1, static_cast<uint16>(offsetof(FObjectOwner, Value)),
+			static_cast<uint16>(sizeof(Durin::TObjectPtr<Durin::DObject>)),
+			Durin::DurinCodeGen::EPropertyGenFlags::Object,
+			Durin::DObject::StaticClass(), true,
+			[](const void* Value) -> Durin::DObject* {
+				return static_cast<const Durin::TObjectPtr<Durin::DObject>*>(Value)->Get();
+			},
+			[](void* Value, Durin::DObject* Object) {
+				*static_cast<Durin::TObjectPtr<Durin::DObject>*>(Value) = Object;
+			});
+
+		Durin::DObject* Referenced = Durin::NewObject<Durin::DObject>(
+			nullptr, Durin::FName("RetentionNeutralSnapshotReference"));
+		const Durin::FObjectHandle Handle = Durin::MakeObjectHandle(Referenced);
+		FObjectOwner Owner{Referenced};
+		Durin::FPropertyValueSnapshotPayload Payload;
+		std::string Error;
+		ASSERT_TRUE(Durin::CapturePropertyValuePayload(
+			&Property, &Owner, 0, Payload, &Error)) << Error;
+		ASSERT_EQ(Payload.GetReferencedObjectHandles().size(), 1u);
+		EXPECT_EQ(Payload.GetReferencedObjectHandles().front(), Handle);
+
+		Owner.Value = nullptr;
+		Durin::CollectGarbage();
+		EXPECT_EQ(Durin::ResolveObjectHandle(Handle), nullptr);
+		EXPECT_FALSE(Durin::RestorePropertyValuePayload(
+			&Property, &Owner, 0, Payload, &Error));
+		EXPECT_FALSE(Error.empty());
+	}
+
 	TEST(FReflectedStructConsumerTests, ManagedStoragePairsLifetimesAndSeparatesCopyModes)
 	{
 		using StructConsumerTest::FLifetimeTracked;

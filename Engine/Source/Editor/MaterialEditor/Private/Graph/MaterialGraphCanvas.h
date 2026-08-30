@@ -5,9 +5,9 @@
 
 #include <variant>
 
-namespace Durin::Editor
+namespace Durin
 {
-	class FTransactionManager;
+	class DTransactor;
 }
 
 namespace Durin::Editor::Material
@@ -22,7 +22,7 @@ namespace Durin::Editor::Material
 
 		auto Draw(
 			DMaterial& Material,
-			FTransactionManager& Transactions,
+			::Durin::DTransactor& Transactions,
 			float Height,
 			const FReportError& ReportError) -> void;
 		auto SelectAndFrame(const FGuid& NodeId) -> bool;
@@ -111,12 +111,12 @@ namespace Durin::Editor::Material
 			const ImVec2& CanvasMinimum, const ImVec2& CanvasMaximum,
 			ImDrawList& DrawList) const -> void;
 		auto HandleKeyboardInput(DMaterial& Material,
-			FTransactionManager& Transactions, const FMaterialGraphView& View,
+			::Durin::DTransactor& Transactions, const FMaterialGraphView& View,
 			const ImVec2& CanvasMinimum, const ImVec2& CanvasSize,
 			const ImVec2& Mouse, bool bInputAvailable,
 			const FReportError& ReportError) -> void;
 		auto DrawPalette(DMaterial& Material,
-			FTransactionManager& Transactions, const FMaterialGraphView& View,
+			::Durin::DTransactor& Transactions, const FMaterialGraphView& View,
 			const FReportError& ReportError) -> void;
 		auto ResetInteraction() -> void;
 

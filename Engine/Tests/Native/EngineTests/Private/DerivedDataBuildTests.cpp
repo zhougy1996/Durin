@@ -131,7 +131,7 @@ TEST(FDerivedDataBuildTests, RegistrationRejectsInvalidCompleteFunctionConfig)
 		std::string Error;
 		EXPECT_FALSE(RegisterBuildFunction(
 			{"Durin.Tests.InvalidConfigFunction", IdentityVersion}, Function,
-			GetAssetBuildTestGate(), &Error).IsValid());
+			GetDerivedDataBuildTestGate(), &Error).IsValid());
 		EXPECT_EQ(Error, "Build function cache configuration is invalid.");
 	};
 
@@ -159,7 +159,7 @@ TEST(FDerivedDataBuildTests, RegistrationFreezesValidatedFunctionConfig)
 	std::string Error;
 	auto Registration = RegisterBuildFunction(
 		{"Durin.Tests.FrozenConfigFunction", 1}, Function,
-		GetAssetBuildTestGate(), &Error);
+		GetDerivedDataBuildTestGate(), &Error);
 	ASSERT_TRUE(Registration.IsValid()) << Error;
 	ASSERT_EQ(Function->GetConfigCount, 1u);
 

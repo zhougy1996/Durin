@@ -897,7 +897,8 @@ int main(int ArgC, char** ArgV)
 		{
 			Durin::FModuleManager::Get().LoadModuleChecked("RenderCore");
 			ShaderInventoryModule.Handle = Durin::FPlatformMisc::LoadLibrary(
-				std::format("{}-Renderer{}", DURIN_RUNTIME_VARIANT,
+				std::format("{}{}-Renderer{}", Durin::FPlatformMisc::FLibraryPrefix,
+					DURIN_RUNTIME_VARIANT,
 					Durin::FPlatformMisc::FLibraryExtension));
 			if (!ShaderInventoryModule.Handle)
 			{

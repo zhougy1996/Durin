@@ -41,11 +41,12 @@ namespace Durin::Editor
 				return;
 			}
 
-			FPropertyValueSnapshot Current;
-			if (!CapturePropertyValue(Property, Target.SnapshotContainer, ArrayIndex, Current, OutError)) return;
+			FPropertyValueSnapshotPayload Current;
+			if (!CapturePropertyValuePayload(
+				Property, Target.SnapshotContainer, ArrayIndex, Current, OutError)) return;
 			if (!Storage.DefaultConstruct(Property, ArrayIndex, OutError)) return;
 			Memory = Storage.GetContainer();
-			if (!RestorePropertyValue(Property, Memory, ArrayIndex, Current, OutError)) return;
+			if (!RestorePropertyValuePayload(Property, Memory, ArrayIndex, Current, OutError)) return;
 			bValid = true;
 		}
 
@@ -57,9 +58,10 @@ namespace Durin::Editor
 		auto GetRootContainer() const -> void* { return Memory; }
 		auto GetRootArrayIndex() const -> uint32 { return ArrayIndex; }
 
-		auto Restore(const FPropertyValueSnapshot& Snapshot, std::string* OutError) -> bool
+		auto Restore(const FPropertyValueSnapshotPayload& Snapshot, std::string* OutError) -> bool
 		{
-			return bValid && RestorePropertyValue(Property, Memory, ArrayIndex, Snapshot, OutError);
+			return bValid
+				&& RestorePropertyValuePayload(Property, Memory, ArrayIndex, Snapshot, OutError);
 		}
 
 		auto Resolve(const FPropertyEditTarget& Source, const FProperty*& OutProperty,
@@ -75,6 +77,12 @@ namespace Durin::Editor
 			OutContainer = Resolved.Container;
 			OutArrayIndex = Resolved.ArrayIndex;
 			return true;
+		}
+
+		auto Capture(FPropertyValueSnapshotPayload& OutSnapshot, std::string* OutError) const -> bool
+		{
+			return bValid
+				&& CapturePropertyValuePayload(Property, Memory, ArrayIndex, OutSnapshot, OutError);
 		}
 
 		auto Capture(FPropertyValueSnapshot& OutSnapshot, std::string* OutError) const -> bool

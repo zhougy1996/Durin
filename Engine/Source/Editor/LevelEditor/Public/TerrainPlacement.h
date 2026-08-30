@@ -5,7 +5,7 @@
 #include "Math/Transform.h"
 #include "Misc/Name.h"
 
-namespace Durin::Editor { class FTransactionManager; }
+namespace Durin { class DTransactor; }
 
 namespace Durin
 {
@@ -87,7 +87,7 @@ namespace Durin::Editor::Level
 	struct FTerrainPlacementExecutionContext
 	{
 		DLevel* OpenLevel = nullptr;
-		::Durin::Editor::FTransactionManager* Transactions = nullptr;
+		::Durin::DTransactor* Transactions = nullptr;
 		bool bReadOnly = false;
 	};
 

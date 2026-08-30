@@ -898,7 +898,7 @@ namespace Durin::Editor::Texture
 	auto MTextureEditor::MakePropertyViewContext() -> ::Durin::Editor::FPropertyViewContext
 	{
 		return {
-			.Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr,
+			.Transactor = GEditor ? GEditor->GetTransactor() : nullptr,
 			.ReportError = [this](std::string Error) { SetError(std::move(Error)); },
 		};
 	}

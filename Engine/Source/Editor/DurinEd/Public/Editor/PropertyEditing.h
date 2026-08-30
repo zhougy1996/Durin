@@ -4,6 +4,8 @@
 #include "DObject/PropertyChange.h"
 #include "DurinEdAPI.h"
 #include "Editor/Transaction.h"
+#include "Editor/TransactionObjectRecord.h"
+#include "Editor/Transactor.h"
 
 namespace Durin
 {
@@ -32,7 +34,7 @@ namespace Durin::Editor
 		EPropertyPathSelector Selector = EPropertyPathSelector::None;
 		uint64 Index = 0;
 		std::vector<std::byte> MapKeyData;
-		FPropertyValueSnapshot MapKey;
+		FPropertyValueSnapshotPayload MapKey;
 	};
 
 	// Describes a reflected edit using a stable snapshot root and logical path.
@@ -57,7 +59,11 @@ namespace Durin::Editor
 		DURINED_API auto ForArrayElement(const FProperty* ElementProperty, uint64 ElementIndex) const -> FPropertyEditTarget;
 		DURINED_API auto ForMapEntry(const FProperty* EntryProperty, std::vector<std::byte> SerializedKey) const -> FPropertyEditTarget;
 		DURINED_API auto ForMapEntry(const FProperty* EntryProperty,
-			FPropertyValueSnapshot KeySnapshot, std::vector<std::byte> SerializedKey) const -> FPropertyEditTarget;
+			FPropertyValueSnapshotPayload KeySnapshot,
+			std::vector<std::byte> SerializedKey) const -> FPropertyEditTarget;
+		DURINED_API auto ForMapEntry(const FProperty* EntryProperty,
+			const FPropertyValueSnapshot& KeySnapshot,
+			std::vector<std::byte> SerializedKey) const -> FPropertyEditTarget;
 
 		// Includes storage identity and key values for same-target mutation recursion protection.
 		DURINED_API auto IsSameMutationTarget(const FPropertyEditTarget& Other) const -> bool;
@@ -65,57 +71,6 @@ namespace Durin::Editor
 		DURINED_API auto IsSameStableTarget(const FPropertyEditTarget& Other) const -> bool;
 		// Treats the changing key value of one continuous map-key rename as the same edit.
 		DURINED_API auto MatchesContinuousEdit(const FPropertyEditTarget& Other) const -> bool;
-	};
-
-	// Restores before/after snapshots for one committed reflected-property edit.
-	class FPropertyTransaction final : public ITransaction
-	{
-	public:
-		DURINED_API FPropertyTransaction(
-			FPropertyEditTarget InTarget,
-			FPropertyValueSnapshot InBefore,
-			FPropertyValueSnapshot InAfter,
-			std::string InDescription
-		);
-		DURINED_API ~FPropertyTransaction() override;
-		FPropertyTransaction(const FPropertyTransaction&) = delete;
-		auto operator=(const FPropertyTransaction&) -> FPropertyTransaction& = delete;
-
-		auto GetDescription() const -> std::string_view override { return Description; }
-		DURINED_API auto GetDetails(ETransactionOperation Operation) const -> std::string override;
-		auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
-		DURINED_API auto Undo() -> bool override;
-		DURINED_API auto Redo() -> bool override;
-		auto IsDeferredOperationPending() const -> bool override { return bDeferredRestorePending; }
-		auto SetDeferredOperationCompletion(
-			FTransactionDeferredCompletion Completion) -> void override
-		{
-			DeferredRestoreCompletion = std::move(Completion);
-		}
-
-	private:
-		struct FDeferredRestoreOwnerState;
-		auto Restore(const FPropertyValueSnapshot& Snapshot, EPropertyChangeOrigin Origin) -> bool;
-		auto CompleteDeferredRestore(
-			bool bSucceeded,
-			std::string Error,
-			FPropertyEditTarget DeferredTarget,
-			FPropertyValueSnapshot ProposedValue,
-			EPropertyChangeOrigin Origin) -> void;
-
-		FPropertyEditTarget Target;
-		FPropertyValueSnapshot Before;
-		FPropertyValueSnapshot After;
-		std::string Description;
-		std::string LastError;
-		std::array<DPackage*, 1> AffectedPackages{};
-		bool bObjectRooted = false;
-		bool bDeferredRestorePending = false;
-		bool bStartingDeferredRestore = false;
-		std::optional<bool> ImmediateDeferredRestoreResult;
-		std::shared_ptr<FDeferredRestoreOwnerState> DeferredRestoreOwnerState;
-		FPropertyEditDeferredCancel CancelDeferredRestore;
-		FTransactionDeferredCompletion DeferredRestoreCompletion;
 	};
 
 	// Reports whether a reflected edit failed, changed nothing, or changed value.
@@ -141,9 +96,11 @@ namespace Durin::Editor
 			// An empty description uses "Edit <MemberProperty>" after target validation.
 			std::string_view InDescription,
 			std::string* OutError = nullptr,
-			FTransactionManager* InTransactionManager = nullptr
+			DTransactor* InTransactor = nullptr
 		) -> bool;
 		DURINED_API auto Apply(const FPropertyValueSnapshot& ProposedValue, std::string* OutError = nullptr) -> EPropertyEditResult;
+		DURINED_API auto Apply(const FPropertyValueSnapshotPayload& ProposedValue,
+			std::string* OutError = nullptr) -> EPropertyEditResult;
 		DURINED_API auto Commit(std::string* OutError = nullptr) -> EPropertyEditResult;
 		DURINED_API auto Cancel(std::string* OutError = nullptr) -> EPropertyEditResult;
 
@@ -152,22 +109,25 @@ namespace Durin::Editor
 		auto HasChanges() const -> bool { return bActive && !(OriginalValue == CurrentValue); }
 		auto HasPendingDeferredEdit() const -> bool { return bDeferredPending; }
 		auto GetDescription() const -> std::string_view { return Description; }
-		auto GetOriginalValue() const -> const FPropertyValueSnapshot& { return OriginalValue; }
-		auto GetCurrentValue() const -> const FPropertyValueSnapshot& { return CurrentValue; }
+		auto GetOriginalValue() const -> const FPropertyValueSnapshotPayload& { return OriginalValue; }
+		auto GetCurrentValue() const -> const FPropertyValueSnapshotPayload& { return CurrentValue; }
 
 	private:
 		struct FDeferredOwnerState;
 		auto CompleteDeferredEdit(
 			bool bSucceeded,
 			std::string Error,
-			FPropertyValueSnapshot ProposedValue) -> void;
+			FPropertyValueSnapshotPayload ProposedValue) -> void;
+		auto UpdateTransactorRecord(std::string* OutError) -> bool;
 		auto Reset() -> void;
 
 		FPropertyEditTarget Target;
-		FPropertyValueSnapshot OriginalValue;
-		FPropertyValueSnapshot CurrentValue;
+		FPropertyValueSnapshotPayload OriginalValue;
+		FPropertyValueSnapshotPayload CurrentValue;
 		std::string Description;
-		FTransactionManager* TransactionManager = nullptr;
+		DTransactor* Transactor = nullptr;
+		std::optional<FScopedTransaction> TransactionScope;
+		uint64 TransactionRecordId = 0;
 		bool bActive = false;
 		bool bObjectRooted = false;
 		bool bDeferredPending = false;

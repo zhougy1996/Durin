@@ -2,8 +2,10 @@
 
 #include "Editor/PropertyEditing.h"
 #include "Editor/Transaction.h"
+#include "Editor/Transactor.h"
 
 #include "DObject/DurinPropertyTypes.h"
+#include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/AssetPath.h"
 #include "DObject/Object.h"
@@ -24,6 +26,27 @@
 
 namespace
 {
+	class FTestTransactorOwner
+	{
+	public:
+		FTestTransactorOwner()
+			: Transactor(Durin::NewObject<Durin::DTransBuffer>(nullptr, MakeName()))
+			, TransactorRoot(Transactor)
+		{}
+
+		auto Get() const -> Durin::DTransBuffer* { return Transactor; }
+
+	private:
+		static auto MakeName() -> Durin::FName
+		{
+			static uint64 NextId = 1;
+			return Durin::FName("ReflectedPropertyTransactor" + std::to_string(NextId++));
+		}
+
+		Durin::DTransBuffer* Transactor = nullptr;
+		Durin::FScopedObjectRoot TransactorRoot;
+	};
+
 	struct FValueContainer
 	{
 		int32 Value = 0;
@@ -71,9 +94,14 @@ namespace
 		std::vector<std::byte> MapKeyData;
 	};
 
-	class DEditObserver final : public Durin::DObject
+	class DEditObserver : public Durin::DObject
 	{
 	public:
+		explicit DEditObserver(
+			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
+			: DObject(Initializer)
+		{}
+
 		auto PreEditChangeProperty(Durin::FPropertyEditProposal& Proposal, std::string& OutError) -> bool override
 		{
 			++PreChangeCount;
@@ -107,6 +135,76 @@ namespace
 		Durin::EPropertyChangeOrigin LastProposalOrigin = Durin::EPropertyChangeOrigin::Edit;
 		Durin::EPropertyChangeKind LastProposalKind = Durin::EPropertyChangeKind::ValueSet;
 		bool bLastProposalHadLeaf = false;
+	};
+
+	class DReflectedTransactionTestObject final : public DEditObserver
+	{
+	public:
+		explicit DReflectedTransactionTestObject(
+			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
+			: DEditObserver(Initializer)
+		{}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& Initializer)
+		{
+			new (Initializer.GetObj()) DReflectedTransactionTestObject(Initializer);
+		}
+
+		static auto StaticClass() -> Durin::DClass*
+		{
+			static Durin::DClass* Class = nullptr;
+			if (Class) return Class;
+			Class = new Durin::DClass(
+				Durin::EC_StaticConstructor, Durin::FName("Tests::DReflectedTransactionTestObject"),
+				sizeof(DReflectedTransactionTestObject), alignof(DReflectedTransactionTestObject),
+				Durin::EObjectFlags::NoFlags, Durin::EClassFlags::None,
+				Durin::EClassCastFlags::DClass,
+				(Durin::DClass::ClassConstructorType)
+					Durin::InternalConstructor<DReflectedTransactionTestObject>);
+			Class->SetSuperStructBase(Durin::DObject::StaticClass());
+			Class->SetTypeNames("DReflectedTransactionTestObject", "", "");
+
+			auto* ValueProperty = new Durin::FNumericProperty(
+				Durin::FFieldVariant(Class), Durin::FName("Value"), Durin::EObjectFlags::NoFlags,
+				Durin::EPropertyFlags::Edit, 1,
+				STRUCT_OFFSET_UINT16(DReflectedTransactionTestObject, Value), sizeof(int32),
+				Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
+			SetTestValueLifecycle<int32>(*ValueProperty);
+			auto* GuidProperty = new Durin::FGuidProperty(
+				Durin::FFieldVariant(Class), Durin::FName("GuidValue"), Durin::EObjectFlags::NoFlags,
+				Durin::EPropertyFlags::Edit, 1,
+				STRUCT_OFFSET_UINT16(DReflectedTransactionTestObject, GuidValue), sizeof(Durin::FGuid),
+				Durin::DurinCodeGen::EPropertyGenFlags::Guid, nullptr);
+			SetTestValueLifecycle<Durin::FGuid>(*GuidProperty);
+			auto* ObjectProperty = new Durin::FObjectProperty(
+				Durin::FFieldVariant(Class), Durin::FName("ObjectValue"), Durin::EObjectFlags::NoFlags,
+				Durin::EPropertyFlags::Edit, 1,
+				STRUCT_OFFSET_UINT16(DReflectedTransactionTestObject, ObjectValue),
+				sizeof(Durin::TObjectPtr<Durin::DObject>),
+				Durin::DurinCodeGen::EPropertyGenFlags::Object, Durin::DObject::StaticClass(), true,
+				[](const void* ValueAddress) -> Durin::DObject* {
+					return static_cast<const Durin::TObjectPtr<Durin::DObject>*>(ValueAddress)->Get();
+				},
+				[](void* ValueAddress, Durin::DObject* Object) {
+					*static_cast<Durin::TObjectPtr<Durin::DObject>*>(ValueAddress) = Object;
+				});
+			SetTestValueLifecycle<Durin::TObjectPtr<Durin::DObject>>(*ObjectProperty);
+			ValueProperty->Next = GuidProperty;
+			GuidProperty->Next = ObjectProperty;
+			Class->ChildProperties = ValueProperty;
+			Class->Register(Durin::DClass::StaticClass, "", "DReflectedTransactionTestObject");
+			Durin::DObjectForceRegistration(Class);
+			return Class;
+		}
+
+		static auto FindProperty(std::string_view Name) -> Durin::FProperty*
+		{
+			return StaticClass()->FindPropertyByName(Durin::FName(Name));
+		}
+
+		int32 Value = 0;
+		Durin::FGuid GuidValue;
+		Durin::TObjectPtr<Durin::DObject> ObjectValue;
 	};
 
 	auto MakeValueProperty() -> std::unique_ptr<Durin::FNumericProperty>

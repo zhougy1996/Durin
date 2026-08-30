@@ -1,4 +1,5 @@
 #include "SkyBoxTestSupport.h"
+#include "Editor/EditorTransactionTestSupport.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Texture/TextureCubeFactoryTestSupport.h"
 #include "Editor/Transaction.h"
@@ -29,17 +30,17 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 
 	Durin::DLevel* Level = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(LevelPath, Level));
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	const Durin::Editor::Level::FSkyBoxPlacementResult Placement =
 		Durin::Editor::Level::FSkyBoxPlacement::PlaceTextureCube(
-			*Level, CubeResult.Asset, "Sky", &Transactions);
+			*Level, CubeResult.Asset, "Sky", Transactions.Get());
 	ASSERT_TRUE(Placement) << Placement.Message;
 	EXPECT_TRUE(Placement.bChanged);
 	auto* Actor = Durin::Cast<Durin::ASkyBoxActor>(Placement.Actor);
 	ASSERT_NE(Actor, nullptr);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Level->FindActorByName("Sky"), nullptr);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	Actor = Durin::Cast<Durin::ASkyBoxActor>(Level->FindActorByName("Sky"));
 	ASSERT_NE(Actor, nullptr);
 	EXPECT_EQ(Durin::ASkyBoxActor::StaticClass()->GetDisplayName(), "Sky Box Actor");
@@ -53,7 +54,7 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	ASSERT_TRUE(Actor->SetActorTransform(Transform));
 	const Durin::FGuid SavedSceneId = Component->GetSkyBoxSceneId();
 	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
-	Transactions.Clear();
+	Transactions->Reset();
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(CubePath));
 
@@ -149,20 +150,20 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	ASSERT_TRUE(Durin::Asset::CreateAsset(LevelPath, Level));
 	auto* Actor = Level->SpawnActor<Durin::ASkyBoxActor>("PanoramaSky");
 	ASSERT_NE(Actor, nullptr);
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	const Durin::Editor::Level::FSkyBoxPlacementResult Placement =
 		Durin::Editor::Level::FSkyBoxPlacement::PlaceTextureCube(
-			*Level, CubeResult.Asset, "UnusedName", &Transactions);
+			*Level, CubeResult.Asset, "UnusedName", Transactions.Get());
 	ASSERT_TRUE(Placement) << Placement.Message;
 	EXPECT_EQ(Placement.Actor, Actor);
 	EXPECT_TRUE(Placement.bChanged);
 	EXPECT_EQ(Actor->GetSkyBoxComponent()->GetTextureCube(), CubeResult.Asset);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Actor->GetSkyBoxComponent()->GetTextureCube(), nullptr);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Actor->GetSkyBoxComponent()->GetTextureCube(), CubeResult.Asset);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
-	Transactions.Clear();
+	Transactions->Reset();
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(LevelPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(CubePath));
 

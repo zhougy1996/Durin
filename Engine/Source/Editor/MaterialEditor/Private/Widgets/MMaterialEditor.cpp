@@ -395,7 +395,7 @@ namespace Durin::Editor::Material
 		}
 		if (DPackage* Package = Material->GetPackage())
 		{
-			if (GEditor) GEditor->GetTransactionManager().ForgetPackage(*Package);
+			if (GEditor) GEditor->GetTransactor()->ForgetPackage(*Package);
 			Package->ClearDirty();
 		}
 		MaterialParameterPanelCache = std::make_unique<FMaterialParameterPanelCache>();
@@ -739,7 +739,7 @@ namespace Durin::Editor::Material
 			return;
 		}
 		FMaterialGraphCanvas& Canvas = GetOrCreateCanvas(Document);
-		Canvas.Draw(*Base, GEditor->GetTransactionManager(), Height,
+		Canvas.Draw(*Base, *GEditor->GetTransactor(), Height,
 			[this](std::string Message) { SetError(std::move(Message)); });
 		const auto [Zoom, Pan] = Canvas.GetViewport();
 		SessionSettings->SetViewport(Document.ResourceId, {.Zoom = Zoom, .Pan = Pan});
@@ -1149,7 +1149,7 @@ namespace Durin::Editor::Material
 	auto MMaterialEditor::MakePropertyViewContext() -> ::Durin::Editor::FPropertyViewContext
 	{
 		return {
-			.Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr,
+			.Transactor = GEditor ? GEditor->GetTransactor() : nullptr,
 			.ReportError = [this](std::string Error) { SetError(std::move(Error)); },
 		};
 	}

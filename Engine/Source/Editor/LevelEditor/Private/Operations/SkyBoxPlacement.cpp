@@ -5,7 +5,7 @@
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
-#include "Editor/Transaction.h"
+#include "Editor/Transactor.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Texture/TextureCube.h"
@@ -54,7 +54,7 @@ namespace Durin::Editor::Level
 		}
 
 		// Creates and removes one actor while preserving its requested level identity.
-		class FCreateSkyBoxTransaction final : public ::Durin::Editor::ITransaction
+		class FCreateSkyBoxTransaction final : public ::Durin::Editor::ITransactionCustomChange
 		{
 		public:
 			FCreateSkyBoxTransaction(DLevel* InLevel, DTextureCube* InTextureCube, FName InActorName)
@@ -64,6 +64,7 @@ namespace Durin::Editor::Level
 			}
 
 			auto GetDescription() const -> std::string_view override { return "Place sky box"; }
+			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
 			auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const -> std::string override
 			{
 				return Operation == ::Durin::Editor::ETransactionOperation::Undo
@@ -88,6 +89,13 @@ namespace Durin::Editor::Level
 				Actor = Created;
 				return true;
 			}
+			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
+			{
+				for (DObject* Object : {static_cast<DObject*>(Level.Get()),
+					static_cast<DObject*>(TextureCube.Get()),
+					static_cast<DObject*>(Actor.Get())})
+					if (Object) Collector.AddReferencedObject(Object);
+			}
 
 		private:
 			TObjectPtr<DLevel> Level;
@@ -98,7 +106,7 @@ namespace Durin::Editor::Level
 		};
 
 		// Restores the cube reference on one existing skybox component.
-		class FSetSkyBoxTextureTransaction final : public ::Durin::Editor::ITransaction
+		class FSetSkyBoxTextureTransaction final : public ::Durin::Editor::ITransactionCustomChange
 		{
 		public:
 			FSetSkyBoxTextureTransaction(DSkyBoxComponent* InComponent, DTextureCube* InBefore, DTextureCube* InAfter)
@@ -108,9 +116,17 @@ namespace Durin::Editor::Level
 			}
 
 			auto GetDescription() const -> std::string_view override { return "Set sky box texture"; }
+			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
 			auto Undo() -> bool override { return Apply(Before.Get()); }
 			auto Redo() -> bool override { return Apply(After.Get()); }
+			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
+			{
+				for (DObject* Object : {static_cast<DObject*>(Component.Get()),
+					static_cast<DObject*>(Before.Get()),
+					static_cast<DObject*>(After.Get())})
+					if (Object) Collector.AddReferencedObject(Object);
+			}
 
 		private:
 			auto Apply(DTextureCube* TextureCube) -> bool
@@ -131,7 +147,7 @@ namespace Durin::Editor::Level
 		DLevel& Level,
 		DTextureCube* TextureCube,
 		FName RequestedName,
-		::Durin::Editor::FTransactionManager* Transactions,
+		::Durin::DTransactor* Transactions,
 		bool bReadOnly) -> FSkyBoxPlacementResult
 	{
 		if (bReadOnly) return {.Message = "The level is read-only."};
@@ -151,7 +167,7 @@ namespace Durin::Editor::Level
 			auto Transaction = std::make_unique<FSetSkyBoxTextureTransaction>(
 				Component, Component->GetTextureCube(), TextureCube);
 			const bool bApplied = Transactions
-				? Transactions->Execute(std::move(Transaction))
+				? static_cast<bool>(Transactions->Execute(std::move(Transaction)))
 				: Transaction->Redo();
 			if (!bApplied) return {.Message = "Failed to replace the active sky box texture."};
 			if (!Transactions && Level.GetPackage()) Level.GetPackage()->MarkDirty();
@@ -161,7 +177,7 @@ namespace Durin::Editor::Level
 		const FName ActorName = MakeUniqueActorName(Level, RequestedName);
 		auto Transaction = std::make_unique<FCreateSkyBoxTransaction>(&Level, TextureCube, ActorName);
 		const bool bApplied = Transactions
-			? Transactions->Execute(std::move(Transaction))
+			? static_cast<bool>(Transactions->Execute(std::move(Transaction)))
 			: Transaction->Redo();
 		if (!bApplied) return {.Message = "Failed to create a sky box actor."};
 		if (!Transactions && Level.GetPackage()) Level.GetPackage()->MarkDirty();

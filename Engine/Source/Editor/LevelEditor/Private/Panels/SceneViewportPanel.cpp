@@ -345,7 +345,7 @@ namespace Durin::Editor::Level
 							const FStaticMeshLevelMutationPlan Plan = FStaticMeshLevelMutations::Plan(Request);
 							const FStaticMeshLevelMutationResult ApplyResult = FStaticMeshLevelMutations::Execute(Plan, {
 								.OpenLevel = Context.Level,
-								.Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr,
+								.Transactions = GEditor ? GEditor->GetTransactor() : nullptr,
 								.bReadOnly = Context.bReadOnly,
 							});
 							if (!ApplyResult)
@@ -391,7 +391,7 @@ namespace Durin::Editor::Level
 							const FTerrainPlacementResult Result = FTerrainPlacement::Execute(
 								FTerrainPlacement::Plan(Request), {
 									.OpenLevel = Context.Level,
-									.Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr,
+									.Transactions = GEditor ? GEditor->GetTransactor() : nullptr,
 									.bReadOnly = Context.bReadOnly});
 							if (!Result) Context.SetError(Result.Diagnostic.Message);
 							else Actor = Result.Actor.Get();
@@ -402,7 +402,7 @@ namespace Durin::Editor::Level
 								*Context.Level,
 								TextureCube,
 								FName(std::format("{}_SkyBox", AssetPath.GetAssetName())),
-								GEditor ? &GEditor->GetTransactionManager() : nullptr,
+								GEditor ? GEditor->GetTransactor() : nullptr,
 								Context.bReadOnly);
 							if (!Result)
 								Context.SetError(Result.Message);
@@ -638,7 +638,7 @@ namespace Durin::Editor::Level
 			|| ImGui::IsMouseHoveringRect(ToolbarLayout.PlayBackgroundMin, ToolbarLayout.PlayBackgroundMax);
 		const bool bPopupOpen = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId);
 		if (bToolbarHovered || bPopupOpen) Input.bLeftMousePressed = false;
-		::Durin::Editor::FTransactionManager* Transactions = GEditor != nullptr ? &GEditor->GetTransactionManager() : nullptr;
+		::Durin::DTransactor* Transactions = GEditor != nullptr ? GEditor->GetTransactor() : nullptr;
 		ViewportClient->Update(Context.Level, Context.GetPrimarySelectedActor(), Input);
 		if (Input.bFocusSelection && !Input.bWantTextInput
 			&& Context.GetPrimarySelectedActor() != nullptr && SceneViewport)

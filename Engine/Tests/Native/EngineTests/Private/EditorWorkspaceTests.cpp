@@ -1,9 +1,12 @@
 #include "Asset.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Class.h"
 #include "DObject/Package.h"
+#include "DObject/Property.h"
 #include "Editor/AssetPicker.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/Transaction.h"
+#include "Editor/Transactor.h"
 #include "Editor/WorkspaceManager.h"
 #include "Editor/WorkspaceRootWindow.h"
 #include "Editor/WorkspaceUI.h"
@@ -23,7 +26,7 @@
 
 namespace
 {
-	class FAppliedPackageEdit final : public Durin::Editor::ITransaction
+	class FAppliedPackageEdit final : public Durin::Editor::ITransactionCustomChange
 	{
 	public:
 		explicit FAppliedPackageEdit(Durin::DPackage& InPackage)
@@ -132,6 +135,34 @@ namespace
 	}
 }
 
+TEST(FEditorTransactorOwnershipTests, OwnsTransientBufferAndClearsOpenHistoryOnShutdown)
+{
+	Durin::Testing::InitializeDObjectSystemForTests();
+	auto* Editor = Durin::NewObject<Durin::DEditorEngine>(nullptr, "TransactorOwnerEditor");
+	ASSERT_NE(Editor, nullptr);
+	auto* Buffer = Durin::Cast<Durin::DTransBuffer>(Editor->GetTransactor());
+	ASSERT_NE(Buffer, nullptr);
+	EXPECT_EQ(Buffer->GetOuter(), Editor);
+	EXPECT_TRUE(Buffer->HasAnyObjectFlags(Durin::EObjectFlags::Transient));
+	Durin::FProperty* TransProperty = Editor->GetClass()->FindPropertyByName("Trans");
+	ASSERT_NE(TransProperty, nullptr);
+	EXPECT_TRUE(TransProperty->HasAnyPropertyFlags(Durin::EPropertyFlags::Transient));
+
+	Durin::Editor::FFocusedTransactionObjectRecord Record;
+	std::string Error;
+	ASSERT_TRUE(Durin::Editor::FFocusedTransactionObjectRecord::Capture(
+		Editor, TransProperty, 0, Record, &Error)) << Error;
+	const auto Scope = Buffer->Begin({"test", "Open during shutdown",
+		Durin::Editor::FPersistentObjectRef(Editor)});
+	ASSERT_TRUE(Scope);
+	ASSERT_TRUE(Buffer->Record(std::move(Record)));
+	Editor->BeginDestroy();
+	EXPECT_EQ(Editor->GetTransactor(), nullptr);
+	EXPECT_EQ(Buffer->GetState(), Durin::Editor::ETransactorState::Destroying);
+	EXPECT_EQ(Buffer->GetHistoryCount(), 0u);
+	EXPECT_EQ(Buffer->GetOwnedBytes(), 0u);
+}
+
 TEST(FEditableAssetDocumentModelTests, UndoToActivatedRevisionClearsDirtyState)
 {
 	Durin::Testing::InitializeDObjectSystemForTests();
@@ -159,8 +190,8 @@ TEST(FEditableAssetDocumentModelTests, UndoToActivatedRevisionClearsDirtyState)
 		.ResourceId = "/EditableAssetDocumentTests/UndoCheckpoint",
 	};
 	ASSERT_TRUE(Documents.Activate(Document, Asset));
-	Durin::Editor::FTransactionManager& Transactions =
-		Editor->GetTransactionManager();
+	Durin::DTransactor& Transactions =
+		*Editor->GetTransactor();
 	const auto OpenRevision = Transactions.GetPackageRevisionState(*Package);
 	ASSERT_TRUE(OpenRevision.has_value());
 	EXPECT_EQ(OpenRevision->CurrentRevision, OpenRevision->SavedRevision);

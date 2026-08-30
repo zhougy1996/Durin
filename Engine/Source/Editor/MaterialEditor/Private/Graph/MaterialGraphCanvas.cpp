@@ -448,7 +448,7 @@ namespace Durin::Editor::Material
 
 	auto FMaterialGraphCanvas::HandleKeyboardInput(
 		DMaterial& Material,
-		FTransactionManager& Transactions,
+		DTransactor& Transactions,
 		const FMaterialGraphView& View,
 		const ImVec2& CanvasMinimum,
 		const ImVec2& CanvasSize,
@@ -529,7 +529,7 @@ namespace Durin::Editor::Material
 
 	auto FMaterialGraphCanvas::DrawPalette(
 		DMaterial& Material,
-		FTransactionManager& Transactions,
+		DTransactor& Transactions,
 		const FMaterialGraphView& View,
 		const FReportError& ReportError) -> void
 	{
@@ -700,7 +700,7 @@ namespace Durin::Editor::Material
 
 	auto FMaterialGraphCanvas::Draw(
 		DMaterial& Material,
-		FTransactionManager& Transactions,
+		DTransactor& Transactions,
 		float Height,
 		const FReportError& ReportError) -> void
 	{

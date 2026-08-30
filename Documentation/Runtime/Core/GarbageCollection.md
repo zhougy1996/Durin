@@ -58,6 +58,7 @@ The mark phase starts from root-set and permanent objects, then follows only the
 - reflected `TObjectPtr` properties
 - `TObjectPtr` elements reached through supported arrays, maps, and nested reflected structs
 - explicit native strong references reported by `DObject::AddReferencedObjects(...)`
+- exact live transaction identities reported by a reachable owner's native record traversal
 - the current object's `Child -> Outer` reference
 - the ready `DClass -> class default` native ownership edge
 
@@ -76,6 +77,34 @@ The collector does not follow:
 - arbitrary pointers on the native stack
 
 A local or otherwise unreflected `TObjectPtr` is a handle, not an automatically discovered root. It keeps an object alive only when it is stored in a reflected reachable field or explicitly reported to the reference collector.
+
+## Collector-Enumerated Transaction Records
+
+DurinEd's [transaction record foundation](../../Editor/Architecture/TransactionRecords.md)
+uses the same native-reference boundary without adding a new GC root source.
+`Editor::FPersistentObjectRef` stores an exact object-array handle and reports a
+reference only when its reachable owner explicitly traverses the non-reflected
+record. It rejects null, stale, physically removed, garbage, and begin-destroyed
+objects and never path-resolves or resurrects them.
+
+Focused transaction payloads store hard references as deduplicated exact
+handles. A record enumerates its target and distinct hard values; weak handles
+and soft paths remain outside collector traversal. Evicting the record removes
+all of its strong edges. A referenced child still retains its Outer chain by
+the ordinary mark rule, while a referenced Outer still does not retain children
+or siblings.
+
+The reachable editor `DTransBuffer` also enumerates pending and retained custom
+participants, transaction package transitions, and tracked package-revision
+state. Package forgetting, redo replacement, eviction, Reset, module drain, and
+editor shutdown erase the corresponding native storage before its collector
+edge disappears; none of these paths installs a transaction-specific manual
+root.
+
+The current rooted `FPropertyValueSnapshot` remains a legacy adapter for active
+property history. Its shared retention-neutral payload installs no roots; the
+adapter alone preserves the old counted-root behavior until property history is
+migrated.
 
 ## Outer Reachability Rules
 

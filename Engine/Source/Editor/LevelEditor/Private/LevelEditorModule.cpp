@@ -6,6 +6,8 @@
 #include "Asset/Mutation.h"
 #include "Asset.h"
 #include "Editor/WorkspaceManager.h"
+#include "Editor/EditorEngine.h"
+#include "Editor/Transaction.h"
 #include "Settings/LevelEditorSessionSettings.h"
 #include "Settings/ProjectDefaultLevelReferenceStore.h"
 #include "Engine/Level.h"
@@ -136,6 +138,10 @@ namespace Durin
 	LEVELEDITOR_API auto FLevelEditorModule::ShutdownModule() -> void
 	{
 		UnregisterLevelEditorWorkspace();
+		if (GEditor)
+			checkf(GEditor->GetTransactor()
+				->DiscardCustomChangesByModule("LevelEditor"),
+				"LevelEditor cannot retire while one of its custom changes is active");
 		UnregisterStartupCommandHandler(GrayboxBuildStartupCommandHandle);
 		GrayboxBuildStartupCommandHandle = 0;
 		Asset::UnregisterAssetReferenceStore(

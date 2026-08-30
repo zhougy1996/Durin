@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "Editor/EditorTransactionTestSupport.h"
 
 #include "Actors/CameraActor.h"
 #include "DObject/DObjectGlobals.h"
@@ -66,26 +67,26 @@ TEST(WorldOutlinerActorAttachmentTests, MultiActorReparentAndDetachRoundTripAsTr
 	ASSERT_TRUE(First->SetActorTransform(FirstTransform));
 	ASSERT_TRUE(Second->SetActorTransform(SecondTransform));
 
-	FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	std::vector<FActorAttachmentTransaction::FEntry> AttachEntries{
 		{First, OldParent, NewParent, FirstTransform, FirstTransform},
 		{Second, nullptr, NewParent, SecondTransform, SecondTransform},
 	};
-	ASSERT_TRUE(Transactions.Execute(
+	ASSERT_TRUE(Transactions->Execute(
 		std::make_unique<FActorAttachmentTransaction>(std::move(AttachEntries), true)));
-	EXPECT_EQ(Transactions.GetUndoDescription(), "Attach actors");
+	EXPECT_EQ(Transactions->GetUndoDescription(), "Attach actors");
 	EXPECT_EQ(First->GetAttachParentActor(), NewParent);
 	EXPECT_EQ(Second->GetAttachParentActor(), NewParent);
 	ExpectTransformNear(First->GetActorTransform(), FirstTransform);
 	ExpectTransformNear(Second->GetActorTransform(), SecondTransform);
 
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(First->GetAttachParentActor(), OldParent);
 	EXPECT_EQ(Second->GetAttachParentActor(), nullptr);
 	ExpectTransformNear(First->GetActorTransform(), FirstTransform);
 	ExpectTransformNear(Second->GetActorTransform(), SecondTransform);
 
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(First->GetAttachParentActor(), NewParent);
 	EXPECT_EQ(Second->GetAttachParentActor(), NewParent);
 
@@ -93,16 +94,16 @@ TEST(WorldOutlinerActorAttachmentTests, MultiActorReparentAndDetachRoundTripAsTr
 		{First, NewParent, nullptr, FirstTransform, FirstTransform},
 		{Second, NewParent, nullptr, SecondTransform, SecondTransform},
 	};
-	ASSERT_TRUE(Transactions.Execute(
+	ASSERT_TRUE(Transactions->Execute(
 		std::make_unique<FActorAttachmentTransaction>(std::move(DetachEntries), false)));
-	EXPECT_EQ(Transactions.GetUndoDescription(), "Detach actors");
+	EXPECT_EQ(Transactions->GetUndoDescription(), "Detach actors");
 	EXPECT_EQ(First->GetAttachParentActor(), nullptr);
 	EXPECT_EQ(Second->GetAttachParentActor(), nullptr);
 
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(First->GetAttachParentActor(), NewParent);
 	EXPECT_EQ(Second->GetAttachParentActor(), NewParent);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(First->GetAttachParentActor(), nullptr);
 	EXPECT_EQ(Second->GetAttachParentActor(), nullptr);
 }
@@ -121,37 +122,37 @@ TEST(WorldOutlinerActorAttachmentTests, SelectedTransformRulesProduceReversibleR
 	ASSERT_TRUE(Parent->SetActorTransform(ParentTransform));
 	ASSERT_TRUE(Child->SetActorTransform(ChildTransform));
 
-	FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	std::vector<FActorAttachmentTransaction::FEntry> Entries;
 	Entries.push_back(MakeActorAttachmentEntry(
 		*Child, *Parent, EAttachmentTransformRule::KeepRelative));
-	ASSERT_TRUE(Transactions.Execute(
+	ASSERT_TRUE(Transactions->Execute(
 		std::make_unique<FActorAttachmentTransaction>(std::move(Entries), true)));
 	EXPECT_EQ(Child->GetAttachParentActor(), Parent);
 	FTransform CombinedTransform = FTransform::Combine(ParentTransform, ChildTransform);
 	ExpectTransformNear(Child->GetActorTransform(), CombinedTransform);
 
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Child->GetAttachParentActor(), nullptr);
 	ExpectTransformNear(Child->GetActorTransform(), ChildTransform);
 
 	Entries.push_back(MakeActorAttachmentEntry(
 		*Child, *Parent, EAttachmentTransformRule::SnapToTarget));
-	ASSERT_TRUE(Transactions.Execute(
+	ASSERT_TRUE(Transactions->Execute(
 		std::make_unique<FActorAttachmentTransaction>(std::move(Entries), true)));
 	EXPECT_EQ(Child->GetAttachParentActor(), Parent);
 	ExpectTransformNear(Child->GetActorTransform(), ParentTransform);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 
 	ASSERT_TRUE(Child->AttachToActor(Parent, EAttachmentTransformRule::KeepRelative));
 	CombinedTransform = Child->GetActorTransform();
 	Entries.push_back(MakeActorDetachmentEntry(
 		*Child, EDetachmentTransformRule::KeepRelative));
-	ASSERT_TRUE(Transactions.Execute(
+	ASSERT_TRUE(Transactions->Execute(
 		std::make_unique<FActorAttachmentTransaction>(std::move(Entries), false)));
 	EXPECT_EQ(Child->GetAttachParentActor(), nullptr);
 	ExpectTransformNear(Child->GetActorTransform(), ChildTransform);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Child->GetAttachParentActor(), Parent);
 	ExpectTransformNear(Child->GetActorTransform(), CombinedTransform);
 }

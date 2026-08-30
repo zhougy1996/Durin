@@ -7,6 +7,7 @@
 #include "Math/Operations.h"
 #include "Math/TransformDecomposition.h"
 #include "DObject/Package.h"
+#include "DObject/ObjectLifecycle.h"
 #include "SceneViewProjection.h"
 #include "Viewport/LevelEditorViewportClient.h"
 #include "MonaImGui.h"
@@ -106,7 +107,7 @@ namespace Durin::Editor::Level
 		}
 
 		// Restores before/after transforms for every target changed by one gizmo drag.
-		class FTransformTargetTransaction final : public ::Durin::Editor::ITransaction
+		class FTransformTargetTransaction final : public ::Durin::Editor::ITransactionCustomChange
 		{
 		public:
 			struct FEntry
@@ -130,10 +131,16 @@ namespace Durin::Editor::Level
 					Description = std::format("{} {} {}", Action, Entries.size(), CollectionLabel);
 			}
 			auto GetDescription() const -> std::string_view override { return Description; }
+			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
 			auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const -> std::string override { return BuildDetails(Operation != ::Durin::Editor::ETransactionOperation::Undo); }
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
 			auto Undo() -> bool override { return Apply(false); }
 			auto Redo() -> bool override { return Apply(true); }
+			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
+			{
+				for (const FEntry& Entry : Entries)
+					if (Entry.Target) Entry.Target->AddReferencedObjects(Collector);
+			}
 
 		private:
 			static auto FormatVector(const FVector3& Value) -> std::string
@@ -214,6 +221,11 @@ namespace Durin::Editor::Level
 			}
 			auto GetPackage() const -> DPackage* override { return Actor ? Actor->GetPackage() : nullptr; }
 			auto GetLabel() const -> std::string override { return Actor ? Actor->GetName() : "Missing Actor"; }
+			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
+			{
+				DObject* Object = Actor.Get();
+				if (Object) Collector.AddReferencedObject(Object);
+			}
 
 		private:
 			TObjectPtr<AActor> Actor;
@@ -522,7 +534,7 @@ namespace Durin::Editor::Level
 		}
 	}
 
-	auto FTransformGizmo::FinishDrag(::Durin::Editor::FTransactionManager* Transactions) -> void
+	auto FTransformGizmo::FinishDrag(::Durin::DTransactor* Transactions) -> void
 	{
 		if (bDragChanged && Transactions)
 		{
@@ -553,12 +565,12 @@ namespace Durin::Editor::Level
 		bDragChanged = false;
 	}
 
-	auto FTransformGizmo::Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, ::Durin::Editor::FTransactionManager* Transactions) -> void
+	auto FTransformGizmo::Update(FLevelEditorContext& Context, const FSceneView& View, const FLevelEditorViewportInput& Input, ::Durin::DTransactor* Transactions) -> void
 	{
 		Update(MakeActorTransformGizmoTargets(Context), View, Input, Transactions);
 	}
 
-	auto FTransformGizmo::Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, ::Durin::Editor::FTransactionManager* Transactions) -> void
+	auto FTransformGizmo::Update(const FTransformGizmoTargetSet& Targets, const FSceneView& View, const FLevelEditorViewportInput& Input, ::Durin::DTransactor* Transactions) -> void
 	{
 		if (IsDragging())
 		{

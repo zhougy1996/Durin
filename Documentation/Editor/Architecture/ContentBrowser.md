@@ -235,7 +235,7 @@ redirector entries and files so Undo/Redo restores their metadata byte-for-byte.
 
 ### Transaction and Recovery
 
-The first deletion executes through the global editor transaction manager, so
+The first deletion executes through the global editor transactor, so
 notification actions, the Edit menu, and keyboard Undo/Redo operate on the same
 history entry. The Content Browser transaction is the sole owner of physical
 staging. It renames maximal roots into a collision-safe, marked operation
@@ -261,8 +261,8 @@ owned for exactly the lifetime of the reachable history entry and cleanup
 validates the exact marked, unmounted root without traversing reparse points.
 
 Successful relocation and Delete transitions declare that they mutate mounted
-content discovery. Execute, Undo, and Redo therefore advance the transaction
-manager's monotonic mounted-content mutation revision. Direct Content Browser
+content discovery. Execute, Undo, and Redo therefore advance the transactor's
+monotonic mounted-content mutation revision. Direct Content Browser
 filesystem operations and import completion publish the same invalidation
 explicitly. Ordinary object, component, reflected-property, Spline, and
 transform-gizmo transactions never publish it; their package revision and dirty

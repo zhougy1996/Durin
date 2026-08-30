@@ -4,7 +4,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
-#include "Editor/Transaction.h"
+#include "Editor/Transactor.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
@@ -313,7 +313,7 @@ namespace Durin::Editor::Level
 			return true;
 		}
 
-		class FStaticMeshLevelMutationTransaction final : public ::Durin::Editor::ITransaction
+		class FStaticMeshLevelMutationTransaction final : public ::Durin::Editor::ITransactionCustomChange
 		{
 		public:
 			FStaticMeshLevelMutationTransaction(const FStaticMeshLevelMutationPlan& Plan)
@@ -323,6 +323,7 @@ namespace Durin::Editor::Level
 			}
 
 			auto GetDescription() const -> std::string_view override { return Description; }
+			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
 			auto GetDetails(::Durin::Editor::ETransactionOperation) const -> std::string override
 			{
 				return LastError.empty()
@@ -332,6 +333,20 @@ namespace Durin::Editor::Level
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
 			auto Undo() -> bool override { return Apply(false); }
 			auto Redo() -> bool override { return Apply(true); }
+			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
+			{
+				DObject* Object = Level.Get();
+				if (Object) Collector.AddReferencedObject(Object);
+				for (const FStaticMeshActorMutationDelta& Delta : Deltas)
+					for (const FStaticMeshActorMutationState* State : {
+						Delta.Before ? &*Delta.Before : nullptr,
+						Delta.After ? &*Delta.After : nullptr})
+						if (State && State->StaticMesh)
+						{
+							Object = State->StaticMesh.Get();
+							Collector.AddReferencedObject(Object);
+						}
+			}
 
 		private:
 			auto Apply(bool bAfter) -> bool
@@ -562,7 +577,7 @@ namespace Durin::Editor::Level
 		}
 		auto Transaction = std::make_unique<FStaticMeshLevelMutationTransaction>(Plan);
 		const bool bSucceeded = Context.Transactions
-			? Context.Transactions->Execute(std::move(Transaction))
+			? static_cast<bool>(Context.Transactions->Execute(std::move(Transaction)))
 			: Transaction->Redo();
 		if (!bSucceeded)
 		{

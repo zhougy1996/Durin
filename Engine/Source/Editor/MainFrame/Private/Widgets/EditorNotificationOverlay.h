@@ -1,9 +1,13 @@
 #pragma once
 
+namespace Durin
+{
+	class DTransactor;
+}
+
 namespace Durin::Editor
 {
 	class FNotificationManager;
-	class FTransactionManager;
 }
 
 namespace Durin::Editor::MainFrame
@@ -23,7 +27,7 @@ namespace Durin::Editor::MainFrame
 	public:
 		FEditorNotificationOverlay() = default;
 		auto DrawHistoryWindow() -> void;
-		auto UpdateNotifications(::Durin::Editor::FNotificationManager& Notifications, ::Durin::Editor::FTransactionManager& Transactions) -> void;
+		auto UpdateNotifications(::Durin::Editor::FNotificationManager& Notifications, ::Durin::DTransactor& Transactions) -> void;
 		auto GetStatusBarHeight() const -> float;
 		auto DrawStatusBar(
 			::Durin::Editor::FNotificationManager& Notifications,
@@ -34,7 +38,7 @@ namespace Durin::Editor::MainFrame
 
 	private:
 		static auto DrawHistory(::Durin::Editor::FNotificationManager& Notifications, bool* bOpen) -> void;
-		static auto PublishTransactionEvents(::Durin::Editor::FNotificationManager& Notifications, ::Durin::Editor::FTransactionManager& Transactions) -> void;
+		static auto PublishTransactionEvents(::Durin::Editor::FNotificationManager& Notifications, ::Durin::DTransactor& Transactions) -> void;
 
 		bool bFocusHistoryRequested = false;
 		bool bHistoryOpen = false;

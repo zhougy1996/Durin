@@ -1,6 +1,7 @@
 #include "Editor/EditorEngine.h"
 #include "Editor/Notification.h"
 #include "Editor/Transaction.h"
+#include "Editor/Transactor.h"
 
 #include "Asset/Mutation.h"
 #include "Asset.h"
@@ -30,9 +31,9 @@ namespace Durin
 
 	DEditorEngine::DEditorEngine(const FObjectInitializer& ObjectInitializer)
 		: Super(ObjectInitializer)
-		, TransactionManager(std::make_unique<Editor::FTransactionManager>())
 		, NotificationManager(std::make_unique<Editor::FNotificationManager>())
 	{
+		Trans = NewObject<DTransBuffer>(this, "Transactor", EObjectFlags::Transient);
 		GEditor = this;
 	}
 
@@ -170,7 +171,11 @@ namespace Durin
 		if (EditorHost)
 			EditorHost->DestroyEditorHost();
 		TeardownPlaySession();
-		TransactionManager->Clear();
+		if (Trans)
+		{
+			Trans->BeginDestroy();
+			Trans = nullptr;
+		}
 		for (const uint64 Handle : ConsoleCommandHandles) FConsoleCommandRegistry::Get().UnregisterCommand(Handle);
 		ConsoleCommandHandles.clear();
 		EditorHost = nullptr;
@@ -322,7 +327,7 @@ namespace Durin
 			SetGameInputWindow(PlayWindow->GetNativeWindow());
 		}
 
-		TransactionManager->Clear();
+		(void)Trans->Reset();
 		const FWorldPlayResult PlayResult = NewPlayWorld->BeginPlay({
 			.GameModeClass = GameModeClass,
 			.ViewTargetOverride = ViewTargetOverride});
@@ -392,7 +397,7 @@ namespace Durin
 			RetiredPlayLevels.emplace_back(LevelToDestroy);
 			RetiredPlayFences.emplace_back(std::move(RetirementFence));
 		}
-		TransactionManager->Clear();
+		(void)Trans->Reset();
 		PlayState = Editor::EPlayState::Stopped;
 		PlayDestination = Editor::EPlayDestination::EmbeddedViewport;
 		ReleaseRetiredPlaySessions();
@@ -561,9 +566,9 @@ namespace Durin
 			{
 				if (bCopiedAny)
 				{
-					TransactionManager->Clear();
+					(void)Trans->Reset();
 					if (DPackage* Package = EditorLevel->GetPackage())
-						TransactionManager->InvalidateSavedState(*Package);
+						Trans->InvalidateSavedState(*Package);
 				}
 				if (OutError) *OutError = std::move(CopyError);
 				return false;
@@ -578,16 +583,11 @@ namespace Durin
 				EditorActor->MarkPackageDirty();
 			}
 		}
-		TransactionManager->Clear();
+		(void)Trans->Reset();
 		if (DPackage* Package = EditorLevel->GetPackage())
-			TransactionManager->InvalidateSavedState(*Package);
+			Trans->InvalidateSavedState(*Package);
 		if (OutAppliedActorCount) *OutAppliedActorCount = static_cast<uint32>(SelectedRoots.size());
 		return true;
-	}
-
-	auto DEditorEngine::GetTransactionManager() -> Editor::FTransactionManager&
-	{
-		return *TransactionManager;
 	}
 
 	auto DEditorEngine::GetNotificationManager() -> Editor::FNotificationManager&

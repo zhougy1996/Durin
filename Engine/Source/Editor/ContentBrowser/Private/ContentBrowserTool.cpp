@@ -47,7 +47,7 @@ namespace Durin::Editor::ContentBrowser
 	}
 
 	auto ExecuteAssetMoves(
-		FTransactionManager& Transactions, std::span<const FAssetMove> Moves)
+		::Durin::DTransactor& Transactions, std::span<const FAssetMove> Moves)
 		-> FActionResult
 	{
 		std::vector<FAssetRelocation> Mappings;

@@ -1,5 +1,6 @@
 #include "Misc/MountPathTestSupport.h"
 #include "TextureTestSupport.h"
+#include "Editor/EditorTransactionTestSupport.h"
 #include "Misc/FileHelper.h"
 #include "Modules/ModuleManager.h"
 #include "Texture/TextureDerivedData.h"
@@ -1046,10 +1047,10 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	ASSERT_NE(AlphaMipModeProperty, nullptr);
 	ASSERT_NE(AlphaCoverageThresholdProperty, nullptr);
 	Durin::Editor::FPropertyView PropertyView;
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	std::string Error;
 	const Durin::Editor::FPropertyViewContext Context{
-		.Transactions = &Transactions,
+		.Transactor = Transactions.Get(),
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 
@@ -1109,12 +1110,12 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	EXPECT_GT(Texture->GetBuildRevision(), InitialRevision);
 	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
 
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
 	EXPECT_TRUE(Texture->IsSRGB());
 	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC3_UNORM_SRGB);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Normal);
 	EXPECT_FALSE(Texture->IsSRGB());
@@ -1123,7 +1124,7 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_TRUE(Texture->IsSRGB());
 	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC5_UNORM);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_FALSE(Texture->IsSRGB());
 	EXPECT_EQ(Texture->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC5_UNORM);
@@ -1136,18 +1137,18 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	ASSERT_TRUE(SubmitCompressionQuality(Durin::ETextureCompressionQuality::High)) << Error;
 	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_EQ(Texture->GetCompressionQuality(), Durin::ETextureCompressionQuality::High);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_EQ(Texture->GetCompressionQuality(), Durin::ETextureCompressionQuality::Normal);
 	EXPECT_EQ(Texture->GetMaxResolution(), 1u);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_EQ(Texture->GetMaxResolution(), 0u);
 	EXPECT_EQ(Texture->GetPlatformData()->Mips.front().Width, 2u);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_EQ(Texture->GetMaxResolution(), 1u);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_EQ(Texture->GetCompressionQuality(), Durin::ETextureCompressionQuality::High);
 	ASSERT_TRUE(SubmitAlphaMipMode(Durin::ETextureAlphaMipMode::PreserveCoverage)) << Error;
@@ -1156,16 +1157,16 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	ASSERT_TRUE(SubmitAlphaCoverageThreshold(0.4f)) << Error;
 	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.4f);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.5f);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_EQ(Texture->GetAlphaMipMode(), Durin::ETextureAlphaMipMode::Average);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_EQ(Texture->GetAlphaMipMode(), Durin::ETextureAlphaMipMode::PreserveCoverage);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.4f);
 
@@ -1188,7 +1189,7 @@ TEST(FTexture2DTests, ReflectedBuildSettingsRebuildTransactionallyAndSupportUndo
 	EXPECT_FALSE(Error.empty());
 	EXPECT_FLOAT_EQ(Texture->GetAlphaCoverageThreshold(), 0.4f);
 
-	Transactions.Clear();
+	Transactions->Reset();
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Transactional", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(
@@ -1211,10 +1212,10 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	Durin::FProperty* UsageProperty = Texture->GetClass()->FindPropertyByName("Usage");
 	ASSERT_NE(UsageProperty, nullptr);
 	Durin::Editor::FPropertyView PropertyView;
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	std::string Error;
 	const Durin::Editor::FPropertyViewContext Context{
-		.Transactions = &Transactions,
+		.Transactor = Transactions.Get(),
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); }};
 	const auto SubmitUsage = [&](Durin::ETextureUsage Usage) {
 		return PropertyView.SubmitPropertyValueEdit(
@@ -1250,7 +1251,7 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	}
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
 	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
-	EXPECT_FALSE(Transactions.CanUndo());
+	EXPECT_FALSE(Transactions->CanUndo());
 	Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
 	{
 		std::lock_guard Lock(Mutex);
@@ -1261,7 +1262,7 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
 	EXPECT_FALSE(Texture->GetPackage()->IsDirty());
-	EXPECT_FALSE(Transactions.CanUndo());
+	EXPECT_FALSE(Transactions->CanUndo());
 
 	bEntered = false;
 	bRelease = false;
@@ -1291,48 +1292,19 @@ TEST(FTexture2DTests, AsyncBuildSettingCancellationAndSupersessionPreserveTransa
 	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::DataMask);
 	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
-	ASSERT_TRUE(Transactions.CanUndo());
-	const Durin::Editor::FTransactionId UndoId = Transactions.GetUndoId();
-	bEntered = false;
-	bRelease = false;
-	Durin::Asset::Private::SetTexture2DCompilationPhaseHookForTests(
-		[&](uint64, Durin::Asset::ETexture2DCompilationPhase Phase) {
-			if (Phase != Durin::Asset::ETexture2DCompilationPhase::Preparing) return;
-			std::unique_lock Lock(Mutex);
-			if (bEntered) return;
-			bEntered = true;
-			Condition.notify_all();
-			Condition.wait(Lock, [&] { return bRelease; });
-		});
-	ASSERT_TRUE(Transactions.Undo());
-	EXPECT_TRUE(Transactions.HasPendingOperation());
-	EXPECT_FALSE(Transactions.CanUndo());
-	EXPECT_FALSE(Transactions.CanRedo());
-	{
-		std::unique_lock Lock(Mutex);
-		ASSERT_TRUE(Condition.wait_for(Lock, std::chrono::seconds(10), [&] {
-			return bEntered;
-		}));
-	}
-	Durin::FAssetCompilingManager::Get().MarkCompilationAsCanceled(*Texture);
-	{
-		std::lock_guard Lock(Mutex);
-		bRelease = true;
-		Condition.notify_all();
-	}
-	Durin::Asset::Private::SetTexture2DCompilationPhaseHookForTests({});
-	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
-	EXPECT_FALSE(Transactions.HasPendingOperation());
-	EXPECT_EQ(Transactions.GetUndoId(), UndoId);
-	EXPECT_TRUE(Transactions.CanUndo());
-	EXPECT_FALSE(Transactions.CanRedo());
-	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::DataMask);
-	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
-	ASSERT_TRUE(Transactions.Undo());
-	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Texture, 10.0));
+	ASSERT_TRUE(Transactions->CanUndo());
+	const Durin::Editor::FTransactionId UndoId = Transactions->GetUndoId();
+	ASSERT_TRUE(Transactions->Undo());
+	EXPECT_FALSE(Transactions->HasPendingOperation());
+	EXPECT_NE(Transactions->GetUndoId(), UndoId);
+	EXPECT_FALSE(Transactions->CanUndo());
+	EXPECT_TRUE(Transactions->CanRedo());
 	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::Color);
+	EXPECT_TRUE(Texture->GetPackage()->IsDirty());
+	ASSERT_TRUE(Transactions->Redo());
+	EXPECT_EQ(Texture->GetUsage(), Durin::ETextureUsage::DataMask);
 
-	Transactions.Clear();
+	Transactions->Reset();
 	Durin::FAssetPath AssetPath;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
 		"/TextureImportTests/AsyncTransactional", AssetPath));

@@ -1,4 +1,5 @@
 #include "Components/SplineComponent.h"
+#include "Editor/EditorTransactionTestSupport.h"
 #include "Components/SplineMeshComponent.h"
 #include "Actors/SplineMeshActor.h"
 #include "Asset/AssetOperations.h"
@@ -360,13 +361,13 @@ TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePat
 	ASSERT_NE(Reflection.Position, nullptr);
 	ASSERT_NE(Reflection.ClosedLoop, nullptr);
 
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	const uint64 MountedContentRevision =
-		Transactions.GetMountedContentMutationRevision();
+		Transactions->GetMountedContentMutationRevision();
 	Durin::Editor::FPropertyView View;
 	std::string Error;
 	const Durin::Editor::FPropertyViewContext Context{
-		.Transactions = &Transactions,
+		.Transactor = Transactions.Get(),
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 	auto SubmitPosition = [&](const Durin::FVector3& Position, bool bContinuous) {
@@ -382,24 +383,24 @@ TEST(FSplineEditingTests, SharedTransactionsPublishSnapshotsAndPreserveStablePat
 	ASSERT_TRUE(SubmitPosition({30.0, 0.0, 0.0}, true));
 	View.FinishActiveEdit(&Context, false);
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(),
+		Transactions->GetMountedContentMutationRevision(),
 		MountedContentRevision);
 	EXPECT_TRUE(Error.empty());
 	EXPECT_NEAR(Spline->GetLocalSplineLength(), 30.0, 1.e-8);
 	EXPECT_EQ(Spline->GetSplinePoint(1)->Id, EditedPointId);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(),
+		Transactions->GetMountedContentMutationRevision(),
 		MountedContentRevision);
 	ExpectVectorNear(Spline->GetSplinePoint(1)->Position, {10.0, 0.0, 0.0});
 	EXPECT_NEAR(Spline->GetLocalSplineLength(), 10.0, 1.e-8);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(),
+		Transactions->GetMountedContentMutationRevision(),
 		MountedContentRevision);
 	ExpectVectorNear(Spline->GetSplinePoint(1)->Position, {30.0, 0.0, 0.0});
 
-	Transactions.Clear();
+	Transactions->Reset();
 	Durin::MarkAsGarbage(Spline);
 	Durin::CollectGarbage();
 }
@@ -430,13 +431,13 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoReconcileWithoutIdent
 	const FSplineReflection Reflection = FSplineReflection::Resolve(Actor->GetSplineComponent());
 	ASSERT_NE(Reflection.Position, nullptr);
 
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	Level->GetPackage()->ClearDirty();
-	Transactions.EstablishSavedState(*Level->GetPackage());
+	Transactions->EstablishSavedState(*Level->GetPackage());
 	Durin::Editor::FPropertyView View;
 	std::string Error;
 	const Durin::Editor::FPropertyViewContext Context{
-		.Transactions = &Transactions,
+		.Transactor = Transactions.Get(),
 		.ReportError = [&Error](std::string Message) { Error = std::move(Message); },
 	};
 	auto SubmitPosition = [&](const Durin::FVector3& Position, bool bContinuous) {
@@ -456,17 +457,17 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoReconcileWithoutIdent
 
 	ASSERT_TRUE(SubmitPosition({130.0, 30.0, 0.0}, true));
 	ASSERT_TRUE(View.FinishActiveEdit(&Context, false));
-	EXPECT_TRUE(Transactions.CanUndo());
-	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_TRUE(Transactions->CanUndo());
+	ASSERT_TRUE(Transactions->Undo());
 	ExpectVectorNear(Actor->GetSplineComponent()->GetSplinePoint(1)->Position, {100.0, 0.0, 0.0});
 	Segments = Actor->FindComponentsByClass<Durin::DSplineMeshComponent>();
 	EXPECT_NE(std::ranges::find(Segments, StableFirst), Segments.end());
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	ExpectVectorNear(Actor->GetSplineComponent()->GetSplinePoint(1)->Position, {130.0, 30.0, 0.0});
 	Segments = Actor->FindComponentsByClass<Durin::DSplineMeshComponent>();
 	EXPECT_NE(std::ranges::find(Segments, StableFirst), Segments.end());
 	EXPECT_TRUE(Error.empty());
-	Transactions.Clear();
+	Transactions->Reset();
 	EXPECT_TRUE(Durin::Asset::UnloadPackage(Level->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));
 }
 

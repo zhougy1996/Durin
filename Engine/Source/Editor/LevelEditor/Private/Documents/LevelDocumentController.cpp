@@ -19,9 +19,9 @@ namespace Durin::Editor::Level
 {
 	namespace
 	{
-		auto GetLevelTransactions() -> ::Durin::Editor::FTransactionManager*
+		auto GetLevelTransactions() -> ::Durin::DTransactor*
 		{
-			return GEditor ? &GEditor->GetTransactionManager() : nullptr;
+			return GEditor ? GEditor->GetTransactor() : nullptr;
 		}
 
 	}

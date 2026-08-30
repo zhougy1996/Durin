@@ -10,6 +10,7 @@
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Editor/AssetPicker.h"
+#include "Editor/EditorTransactionTestSupport.h"
 #include "EngineTestSupport.h"
 #include "LevelEditorCustomizations.h"
 #include "Materials/Material.h"
@@ -26,6 +27,8 @@
 
 namespace
 {
+	using FPropertyTransactionHarness = Durin::Tests::FTestTransactorOwner;
+
 	auto AddSlot(Durin::DStaticMesh* Mesh, std::string_view Name, Durin::DMaterialInterface* Default = nullptr)
 		-> uint32
 	{
@@ -44,10 +47,11 @@ namespace
 		return static_cast<uint32>(Index);
 	}
 
-	auto MakeContext(Durin::Editor::FTransactionManager& Transactions, std::string& Error)
+	auto MakeContext(FPropertyTransactionHarness& Transactions, std::string& Error)
 		-> Durin::Editor::FPropertyViewContext
 	{
-		return {.Transactions = &Transactions, .ReportError = [&Error](std::string Message) { Error = std::move(Message); }};
+		return {.Transactor = Transactions.Get(),
+			.ReportError = [&Error](std::string Message) { Error = std::move(Message); }};
 	}
 }
 
@@ -113,7 +117,7 @@ TEST(FStaticMeshMaterialSlotDetailsTests, FiltersMaterialTypesAndUsesIndexScoped
 
 	EXPECT_TRUE(Durin::Editor::Level::FStaticMeshMaterialSlotDetailsModel::IsSupportedMaterialClass(First->GetClass()));
 	EXPECT_FALSE(Durin::Editor::Level::FStaticMeshMaterialSlotDetailsModel::IsSupportedMaterialClass(Texture->GetClass()));
-	Durin::Editor::FTransactionManager Transactions;
+	FPropertyTransactionHarness Transactions;
 	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
@@ -124,10 +128,10 @@ TEST(FStaticMeshMaterialSlotDetailsTests, FiltersMaterialTypesAndUsesIndexScoped
 	ASSERT_TRUE(WithFirst.AssignMaterial(PropertyView, Context, WithFirst.GetCurrentEntries()[1], Second));
 	EXPECT_EQ(Component->GetMaterialOverride(0), First);
 	EXPECT_EQ(Component->GetMaterialOverride(SecondIndex), Second);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Component->GetMaterialOverride(0), First);
 	EXPECT_EQ(Component->GetMaterialOverride(SecondIndex), nullptr);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Component->GetMaterialOverride(SecondIndex), Second);
 
 	Durin::Editor::Level::FStaticMeshMaterialSlotDetailsModel Replace(Component);
@@ -139,7 +143,7 @@ TEST(FStaticMeshMaterialSlotDetailsTests, FiltersMaterialTypesAndUsesIndexScoped
 	Durin::Editor::Level::FStaticMeshMaterialSlotDetailsModel Reset(Component);
 	ASSERT_TRUE(Reset.ResetOverride(PropertyView, Context, Reset.GetCurrentEntries()[0]));
 	EXPECT_EQ(Component->GetMaterialOverride(0), nullptr);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Component->GetMaterialOverride(0), First);
 
 	Component->SetStaticMesh(Durin::DStaticMesh::CreateDebugTriangle());
@@ -147,14 +151,14 @@ TEST(FStaticMeshMaterialSlotDetailsTests, FiltersMaterialTypesAndUsesIndexScoped
 	ASSERT_TRUE(SmallerMesh.HasStoredOverrides());
 	ASSERT_TRUE(SmallerMesh.ClearOverrides(PropertyView, Context));
 	EXPECT_TRUE(Component->GetOverrideMaterials().empty());
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Component->GetMaterialOverride(0), First);
 	EXPECT_EQ(Component->GetMaterialOverride(1), Second);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_TRUE(Component->GetOverrideMaterials().empty());
 	EXPECT_TRUE(Error.empty());
 
-	Transactions.Clear();
+	Transactions->Reset();
 	Durin::DStaticMesh* CurrentMesh = Component->GetStaticMesh();
 	Durin::MarkAsGarbage(Component);
 	Durin::MarkAsGarbage(CurrentMesh);
@@ -192,7 +196,7 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	EXPECT_EQ(Component->GetClass()->FindPropertyByName("MaterialOverrides"), nullptr);
 	EXPECT_EQ(Component->GetClass()->FindPropertyByName("MaterialOverridesVersion"), nullptr);
 
-	Durin::Editor::FTransactionManager Transactions;
+	FPropertyTransactionHarness Transactions;
 	Durin::Editor::FPropertyView PropertyView;
 	std::string Error;
 	const auto Context = MakeContext(Transactions, Error);
@@ -201,7 +205,7 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	EXPECT_TRUE(Component->GetPackage()->IsDirty());
 	EXPECT_TRUE(Error.empty());
 
-	Transactions.Clear();
+	Transactions->Reset();
 	Durin::MarkAsGarbage(Material);
 	Durin::MarkAsGarbage(Mesh);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Component->GetPackage(), Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved));

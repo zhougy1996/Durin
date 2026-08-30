@@ -1,5 +1,6 @@
 #include "Misc/MountPathTestSupport.h"
 #include "MaterialGraphOperations.h"
+#include "Editor/EditorTransactionTestSupport.h"
 #include "MaterialAssetCreation.h"
 #include "MaterialDocumentSnapshot.h"
 #include "Graph/MaterialGraphCanvas.h"
@@ -354,35 +355,35 @@ TEST(FMaterialGraphOperationsTests, MaterialOutputMovementIsPresentationOnlyAndT
 	DMaterial* Material = NewObject<DMaterial>(nullptr, "MaterialOutputMovement");
 	ASSERT_NE(Material, nullptr);
 	const uint64 Revision = Material->GetMaterialCompileStatus().AuthoredRevision;
-	FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	const FMaterialGraphPresentation OriginalPresentation =
 		Material->GetMaterialGraphPresentation();
 
 	ASSERT_TRUE(FMaterialGraphOperations::MoveMaterialOutput(
-		*Material, 520, -80, &Transactions));
+		*Material, 520, -80, Transactions.Get()));
 	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision, Revision);
 	EXPECT_TRUE(Material->GetMaterialGraphPresentation().bHasMaterialOutputPosition);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputX, 520);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputY, -80);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), OriginalPresentation);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputX, 520);
 
-	Transactions.Clear();
+	Transactions->Reset();
 	FMaterialGraphMoveSession Move;
-	ASSERT_TRUE(Move.BeginMaterialOutput(*Material, &Transactions));
+	ASSERT_TRUE(Move.BeginMaterialOutput(*Material, Transactions.Get()));
 	ASSERT_TRUE(Move.ApplyMaterialOutput(600, 40));
 	ASSERT_TRUE(Move.Cancel());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputX, 520);
-	EXPECT_FALSE(Transactions.CanUndo());
-	ASSERT_TRUE(Move.BeginMaterialOutput(*Material, &Transactions));
+	EXPECT_FALSE(Transactions->CanUndo());
+	ASSERT_TRUE(Move.BeginMaterialOutput(*Material, Transactions.Get()));
 	ASSERT_TRUE(Move.ApplyMaterialOutput(600, 40));
 	ASSERT_TRUE(Move.Commit());
 	EXPECT_EQ(Material->GetMaterialGraphPresentation().MaterialOutputX, 600);
-	EXPECT_TRUE(Transactions.CanUndo());
+	EXPECT_TRUE(Transactions->CanUndo());
 
-	Transactions.Clear();
+	Transactions->Reset();
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -505,13 +506,13 @@ TEST(FMaterialGraphOperationsTests, PaletteCreationAddsVisibleDefaultsInOneTrans
 	ASSERT_NE(Multiply, Catalog.end());
 
 	const FMaterialProgram Before = *Material->GetMaterialProgram();
-	FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	const FMaterialGraphCommandResult Created =
 		FMaterialGraphOperations::CreateNodeWithDefaultInputs(*Material, {
 			.Node = Multiply->NodeTemplate,
 			.X = 400,
 			.Y = 200,
-		}, Multiply->AcceptedInputTypes, &Transactions);
+		}, Multiply->AcceptedInputTypes, Transactions.Get());
 	ASSERT_TRUE(Created) << Created.Message;
 	ASSERT_EQ(Created.GeneratedNodeIds.size(), 3u);
 	const FMaterialGraphView View = FMaterialGraphOperations::Inspect(*Material);
@@ -544,7 +545,7 @@ TEST(FMaterialGraphOperationsTests, PaletteCreationAddsVisibleDefaultsInOneTrans
 		FindViewNode(View, Node->Node.Inputs[1].SourceNodeId);
 	ASSERT_NE(IdentityDefault, nullptr);
 	EXPECT_FLOAT_EQ(IdentityDefault->Node.Literal.X, 1.0f);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(*Material->GetMaterialProgram(), Before);
 
 	MarkAsGarbage(Material);
@@ -754,9 +755,9 @@ TEST(FMaterialGraphOperationsTests,
 		Material->GetMaterialGraphPresentation();
 	const FMaterialNormalizationResult BeforeIdentity = Normalize(*Material);
 	ASSERT_TRUE(BeforeIdentity);
-	FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	const FMaterialGraphCommandResult Pasted = FMaterialGraphOperations::Paste(
-		*Material, Payload, 1200, 400, &Transactions);
+		*Material, Payload, 1200, 400, Transactions.Get());
 	ASSERT_TRUE(Pasted) << Pasted.Message;
 	ASSERT_EQ(Pasted.GeneratedNodeIds.size(), Payload.Nodes.size());
 	std::unordered_set<FGuid> OriginalIds(AllNodes.begin(), AllNodes.end());
@@ -765,16 +766,16 @@ TEST(FMaterialGraphOperationsTests,
 	const FMaterialNormalizationResult AfterIdentity = Normalize(*Material);
 	ASSERT_TRUE(AfterIdentity);
 	EXPECT_EQ(AfterIdentity.Identity, BeforeIdentity.Identity);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(*Material->GetMaterialProgram(), BeforeProgram);
 	EXPECT_EQ(Material->GetMaterialGraphPresentation(), BeforePresentation);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 
 	FMaterialGraphClipboardPayload UnknownVersion = Payload;
 	UnknownVersion.SchemaVersion = 99;
 	const FMaterialProgram BeforeRejected = *Material->GetMaterialProgram();
 	const FMaterialGraphCommandResult Rejected = FMaterialGraphOperations::Paste(
-		*Material, UnknownVersion, 0, 0, &Transactions);
+		*Material, UnknownVersion, 0, 0, Transactions.Get());
 	EXPECT_EQ(Rejected.Status, EMaterialGraphCommandStatus::Rejected);
 	EXPECT_EQ(*Material->GetMaterialProgram(), BeforeRejected);
 
@@ -785,7 +786,7 @@ TEST(FMaterialGraphOperationsTests,
 	const FGuid RequiredSource = Dependent->Inputs.front().SourceNodeId;
 	const FMaterialGraphCommandResult RequiredRemoval =
 		FMaterialGraphOperations::RemoveNodes(
-			*Material, std::span(&RequiredSource, 1), &Transactions);
+			*Material, std::span(&RequiredSource, 1), Transactions.Get());
 	EXPECT_EQ(RequiredRemoval.Status, EMaterialGraphCommandStatus::Rejected);
 	EXPECT_EQ(*Material->GetMaterialProgram(), BeforeRejected);
 	const std::vector<FMaterialProgramLink> ExternalInputs = Dependent->Inputs;
@@ -795,7 +796,7 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_EQ(Partial.Nodes.size(), 1u);
 	EXPECT_EQ(Partial.Nodes.front().Node.Inputs, ExternalInputs);
 	const FMaterialGraphCommandResult PartialPaste =
-		FMaterialGraphOperations::Paste(*Material, Partial, 0, 0, &Transactions);
+		FMaterialGraphOperations::Paste(*Material, Partial, 0, 0, Transactions.Get());
 	ASSERT_TRUE(PartialPaste) << PartialPaste.Message;
 	ASSERT_EQ(PartialPaste.GeneratedNodeIds.size(), 1u);
 	const auto PastedDependent = std::ranges::find(
@@ -803,7 +804,7 @@ TEST(FMaterialGraphOperationsTests,
 		&FMaterialProgramNode::Id);
 	ASSERT_NE(PastedDependent, Material->GetMaterialProgram()->Nodes.end());
 	EXPECT_EQ(PastedDependent->Inputs, ExternalInputs);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(*Material->GetMaterialProgram(), BeforeRejected);
 
 	FMaterialGraphCreateNodeRequest Standalone;
@@ -813,28 +814,28 @@ TEST(FMaterialGraphOperationsTests,
 	Standalone.X = 80;
 	Standalone.Y = 120;
 	const FMaterialGraphCommandResult StandaloneCreated =
-		FMaterialGraphOperations::CreateNode(*Material, Standalone, &Transactions);
+		FMaterialGraphOperations::CreateNode(*Material, Standalone, Transactions.Get());
 	ASSERT_TRUE(StandaloneCreated);
 	const FGuid StandaloneId = StandaloneCreated.GeneratedNodeIds.front();
 	const FMaterialGraphCommandResult Duplicated =
 		FMaterialGraphOperations::DuplicateNodes(
-			*Material, std::span(&StandaloneId, 1), 40, 40, &Transactions);
+			*Material, std::span(&StandaloneId, 1), 40, 40, Transactions.Get());
 	ASSERT_TRUE(Duplicated) << Duplicated.Message;
 	ASSERT_EQ(Duplicated.GeneratedNodeIds.size(), 1u);
 	EXPECT_NE(Duplicated.GeneratedNodeIds.front(), StandaloneId);
 	FMaterialGraphClipboardPayload CutPayload;
 	const FMaterialGraphCommandResult Cut = FMaterialGraphOperations::CutSelection(
-		*Material, std::span(&StandaloneId, 1), CutPayload, &Transactions);
+		*Material, std::span(&StandaloneId, 1), CutPayload, Transactions.Get());
 	ASSERT_TRUE(Cut) << Cut.Message;
 	ASSERT_EQ(CutPayload.Nodes.size(), 1u);
 	EXPECT_EQ(CutPayload.Nodes.front().Node.Id, StandaloneId);
 	EXPECT_EQ(FindViewNode(FMaterialGraphOperations::Inspect(*Material), StandaloneId),
 		nullptr);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	const FMaterialGraphView RestoredCut = FMaterialGraphOperations::Inspect(*Material);
 	EXPECT_NE(FindViewNode(RestoredCut, StandaloneId), nullptr);
 
-	Transactions.Clear();
+	Transactions->Reset();
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -891,7 +892,7 @@ TEST(FMaterialGraphOperationsTests, CanvasProducesBoundedEditingDrawData)
 	IO.IniFilename = nullptr;
 	IO.Fonts->AddFontDefault();
 	IO.Fonts->Build();
-	FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	FMaterialGraphCanvas Canvas;
 
 	const auto DrawAtZoom = [&](float Zoom) {
@@ -901,7 +902,7 @@ TEST(FMaterialGraphOperationsTests, CanvasProducesBoundedEditingDrawData)
 		ImGui::SetNextWindowSize({1200.0f, 720.0f});
 		ImGui::Begin("Material Graph Render Test", nullptr,
 			ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize);
-		Canvas.Draw(*Material, Transactions, 660.0f,
+		Canvas.Draw(*Material, *Transactions.Get(), 660.0f,
 			[](std::string Message) { FAIL() << Message; });
 		ImGui::End();
 		ImGui::Render();
@@ -960,7 +961,7 @@ TEST(FMaterialGraphOperationsTests, CanvasProducesBoundedEditingDrawData)
 	EXPECT_GT(MaximumVertices, 100);
 	EXPECT_LT(MaximumVertices, 100000);
 
-	Transactions.Clear();
+	Transactions->Reset();
 	ImGui::DestroyContext(Context);
 	MarkAsGarbage(Material);
 	CollectGarbage();
@@ -974,7 +975,7 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 	const FMaterialProgram OriginalProgram = *Material->GetMaterialProgram();
 	const uint64 OriginalRevision =
 		Material->GetMaterialCompileStatus().AuthoredRevision;
-	FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 
 	FMaterialGraphCreateNodeRequest Create;
 	Create.Node.Opcode = EMaterialProgramOpcode::Constant;
@@ -983,7 +984,7 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 	Create.X = 120;
 	Create.Y = -80;
 	const FMaterialGraphCommandResult Created =
-		FMaterialGraphOperations::CreateNode(*Material, Create, &Transactions);
+		FMaterialGraphOperations::CreateNode(*Material, Create, Transactions.Get());
 	ASSERT_TRUE(Created) << Created.Message;
 	ASSERT_EQ(Created.GeneratedNodeIds.size(), 1u);
 	const FGuid CreatedId = Created.GeneratedNodeIds.front();
@@ -996,7 +997,7 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 
 	const FMaterialGraphNodePresentation Moved{CreatedId, 320, 160};
 	const FMaterialGraphCommandResult Move =
-		FMaterialGraphOperations::MoveNodes(*Material, std::span(&Moved, 1), &Transactions);
+		FMaterialGraphOperations::MoveNodes(*Material, std::span(&Moved, 1), Transactions.Get());
 	ASSERT_TRUE(Move) << Move.Message;
 	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision,
 		SemanticRevision);
@@ -1012,44 +1013,44 @@ TEST(FMaterialGraphOperationsTests, CommandsAreAtomicAndTransactionsRestoreSeman
 	FMaterialProgramNode Invalid = *CreatedNodeIt;
 	Invalid.Literal.X = std::numeric_limits<float>::quiet_NaN();
 	const FMaterialGraphCommandResult Rejected =
-		FMaterialGraphOperations::ReplaceNode(*Material, std::move(Invalid), &Transactions);
+		FMaterialGraphOperations::ReplaceNode(*Material, std::move(Invalid), Transactions.Get());
 	EXPECT_EQ(Rejected.Status, EMaterialGraphCommandStatus::Rejected);
 	EXPECT_FALSE(Rejected.Diagnostics.empty());
 	EXPECT_EQ(*Material->GetMaterialProgram(), BeforeRejected);
 	EXPECT_EQ(Material->GetMaterialCompileStatus().AuthoredRevision,
 		SemanticRevision);
 
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	const FMaterialGraphView UnmovedGraph = FMaterialGraphOperations::Inspect(*Material);
 	const FMaterialGraphNodeView* UnmovedView = FindViewNode(UnmovedGraph, CreatedId);
 	ASSERT_NE(UnmovedView, nullptr);
 	EXPECT_EQ(UnmovedView->Presentation.X, 120);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(*Material->GetMaterialProgram(), OriginalProgram);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	const FMaterialGraphView RecreatedGraph = FMaterialGraphOperations::Inspect(*Material);
 	EXPECT_NE(FindViewNode(RecreatedGraph, CreatedId), nullptr);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	const FMaterialGraphView RemovedGraph = FMaterialGraphOperations::Inspect(*Material);
 	const FMaterialGraphNodeView* RedoneView = FindViewNode(RemovedGraph, CreatedId);
 	ASSERT_NE(RedoneView, nullptr);
 	EXPECT_EQ(RedoneView->Presentation.X, 320);
 
 	FMaterialGraphMoveSession MoveSession;
-	ASSERT_TRUE(MoveSession.Begin(*Material, std::span(&CreatedId, 1), &Transactions));
+	ASSERT_TRUE(MoveSession.Begin(*Material, std::span(&CreatedId, 1), Transactions.Get()));
 	const FMaterialGraphNodePresentation FirstPreview{CreatedId, 400, 200};
 	const FMaterialGraphNodePresentation SecondPreview{CreatedId, 480, 240};
 	ASSERT_TRUE(MoveSession.Apply(std::span(&FirstPreview, 1)));
 	ASSERT_TRUE(MoveSession.Apply(std::span(&SecondPreview, 1)));
 	ASSERT_TRUE(MoveSession.Commit());
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	const FMaterialGraphView CoalescedUndoGraph = FMaterialGraphOperations::Inspect(*Material);
 	const FMaterialGraphNodeView* CoalescedUndo = FindViewNode(
 		CoalescedUndoGraph, CreatedId);
 	ASSERT_NE(CoalescedUndo, nullptr);
 	EXPECT_EQ(CoalescedUndo->Presentation.X, 320);
 
-	Transactions.Clear();
+	Transactions->Reset();
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -1061,17 +1062,17 @@ TEST(FMaterialGraphOperationsTests,
 	DMaterial* Material = NewObject<DMaterial>(nullptr, "MaterialOutputCommands");
 	ASSERT_NE(Material, nullptr);
 	ASSERT_TRUE(Material->GetMaterialProgram()->Nodes.empty());
-	FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 
 	FMaterialProgramLiteral EditedBaseColor{0.2f, 0.3f, 0.4f, 0.0f};
 	ASSERT_TRUE(FMaterialGraphOperations::SetSurfaceDefault(*Material, {
 		.Output = EMaterialSurfaceOutput::BaseColor,
-		.Value = EditedBaseColor}, &Transactions));
+		.Value = EditedBaseColor}, Transactions.Get()));
 	const FMaterialGraphCommandResult Promoted =
 		FMaterialGraphOperations::PromoteSurfaceOutputToParameter(*Material, {
 			.Output = EMaterialSurfaceOutput::BaseColor,
 			.X = 100,
-			.Y = 200}, &Transactions);
+			.Y = 200}, Transactions.Get());
 	ASSERT_TRUE(Promoted) << Promoted.Message;
 	ASSERT_EQ(Promoted.GeneratedNodeIds.size(), 1u);
 	EXPECT_EQ(Material->GetMaterialProgram()->Nodes.size(), 1u);
@@ -1092,29 +1093,29 @@ TEST(FMaterialGraphOperationsTests,
 	ASSERT_TRUE(FMaterialGraphOperations::SetParameterValue(
 		*Material, MaterialParameters::GetBuiltinParameterIds(MaterialParameters::EMaterialBuiltinParameterRole::BaseColor).Value,
 		FMaterialParameterValue::MakeVector({0.7, 0.6, 0.5}),
-		&Transactions));
+		Transactions.Get()));
 	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
 		CompileGeneration);
 	ASSERT_TRUE(Material->GetVectorParameterValue(
 		MaterialParameters::BaseColorName(), BaseColor));
 	EXPECT_EQ(BaseColor, FVector3(0.7, 0.6, 0.5));
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Material->GetVectorParameterValue(
 		MaterialParameters::BaseColorName(), BaseColor));
 	EXPECT_NEAR(BaseColor.x, 0.2, 1.e-6);
 	EXPECT_NEAR(BaseColor.y, 0.3, 1.e-6);
 	EXPECT_NEAR(BaseColor.z, 0.4, 1.e-6);
-	ASSERT_TRUE(Transactions.Redo());
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Redo());
+	ASSERT_TRUE(Transactions->Undo());
 
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_TRUE(Material->GetMaterialProgram()->Nodes.empty());
 	ASSERT_TRUE(Material->GetVectorParameterValue(
 		MaterialParameters::BaseColorName(), BaseColor));
 	EXPECT_EQ(BaseColor, FVector3(0.5));
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	ASSERT_TRUE(FMaterialGraphOperations::DisconnectSurfaceOutput(
-		*Material, EMaterialSurfaceOutput::BaseColor, &Transactions));
+		*Material, EMaterialSurfaceOutput::BaseColor, Transactions.Get()));
 	EXPECT_FALSE(Material->GetMaterialProgram()->Outputs.BaseColor.SourceNodeId.IsValid());
 	EXPECT_EQ(Material->GetMaterialProgram()->Outputs.BaseColorDefault,
 		EditedBaseColor);
@@ -1126,7 +1127,7 @@ TEST(FMaterialGraphOperationsTests,
 		FMaterialGraphOperations::AddTextureToSurfaceOutput(*Material, {
 			.Output = EMaterialSurfaceOutput::Normal,
 			.X = 400,
-			.Y = 200}, &Transactions);
+			.Y = 200}, Transactions.Get());
 	ASSERT_TRUE(Textured) << Textured.Message;
 	ASSERT_EQ(Textured.GeneratedNodeIds.size(), 5u);
 	const std::vector TextureDependencies = InspectMaterialParameterDependencies(
@@ -1139,10 +1140,10 @@ TEST(FMaterialGraphOperationsTests,
 	const FMaterialNormalizationResult Normalized = Normalize(*Material);
 	ASSERT_TRUE(Normalized);
 	EXPECT_EQ(Normalized.IR.Nodes.size(), 5u);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_FALSE(Material->GetMaterialProgram()->Outputs.Normal.SourceNodeId.IsValid());
 
-	Transactions.Clear();
+	Transactions->Reset();
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }
@@ -1166,9 +1167,9 @@ TEST(FMaterialGraphOperationsTests,
 	FVector3 OriginalBaseColor;
 	ASSERT_TRUE(Material->GetVectorParameterValue(
 		MaterialParameters::BaseColorName(), OriginalBaseColor));
-	FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	FMaterialGraphParameterEditSession Session;
-	ASSERT_TRUE(Session.Begin(*Material, ParameterId, &Transactions));
+	ASSERT_TRUE(Session.Begin(*Material, ParameterId, Transactions.Get()));
 	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeVector(
 		{0.4, 0.5, 0.6})));
 	FVector3 BaseColor;
@@ -1186,16 +1187,16 @@ TEST(FMaterialGraphOperationsTests,
 		CompileGeneration);
 	ASSERT_TRUE(Session.Commit());
 
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Material->GetVectorParameterValue(
 		MaterialParameters::BaseColorName(), BaseColor));
 	EXPECT_EQ(BaseColor, OriginalBaseColor);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	ASSERT_TRUE(Material->GetVectorParameterValue(
 		MaterialParameters::BaseColorName(), BaseColor));
 	EXPECT_EQ(BaseColor, FVector3(0.7, 0.8, 0.9));
 
-	ASSERT_TRUE(Session.Begin(*Material, ParameterId, &Transactions));
+	ASSERT_TRUE(Session.Begin(*Material, ParameterId, Transactions.Get()));
 	ASSERT_TRUE(Session.Apply(FMaterialParameterValue::MakeVector(
 		{0.1, 0.1, 0.1})));
 	ASSERT_TRUE(Session.Cancel());
@@ -1205,7 +1206,7 @@ TEST(FMaterialGraphOperationsTests,
 	EXPECT_EQ(Material->GetMaterialCompileStatus().RequestGeneration,
 		CompileGeneration);
 
-	Transactions.Clear();
+	Transactions->Reset();
 	MarkAsGarbage(Material);
 	CollectGarbage();
 }

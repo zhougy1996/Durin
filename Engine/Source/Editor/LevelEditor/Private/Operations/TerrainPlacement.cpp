@@ -4,7 +4,7 @@
 #include "Components/TerrainComponent.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
-#include "Editor/Transaction.h"
+#include "Editor/Transactor.h"
 #include "Engine/Level.h"
 #include "Math/Operations.h"
 #include "Terrain/TerrainHeightmap.h"
@@ -66,7 +66,7 @@ namespace Durin::Editor::Level
 			return true;
 		}
 
-		class FTerrainPlacementTransaction final : public ::Durin::Editor::ITransaction
+		class FTerrainPlacementTransaction final : public ::Durin::Editor::ITransactionCustomChange
 		{
 		public:
 			explicit FTerrainPlacementTransaction(const FTerrainPlacementPlan& InPlan)
@@ -75,6 +75,7 @@ namespace Durin::Editor::Level
 				AffectedPackages.front() = Plan.Package.Get();
 			}
 			auto GetDescription() const -> std::string_view override { return Plan.Description; }
+			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
 			auto GetDetails(::Durin::Editor::ETransactionOperation) const -> std::string override
 			{
 				return LastError.empty() ? std::format("Place Terrain '{}'", Plan.ActorName.ToString()) : LastError;
@@ -103,6 +104,12 @@ namespace Durin::Editor::Level
 				LastError.clear();
 				ATerrainActor* Actor = nullptr;
 				return Plan.Level && ApplyPlacement(*Plan.Level, Plan, Actor, LastError);
+			}
+			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
+			{
+				for (DObject* Object : {static_cast<DObject*>(Plan.Level.Get()),
+					static_cast<DObject*>(Plan.Heightmap.Get())})
+					if (Object) Collector.AddReferencedObject(Object);
 			}
 
 		private:
@@ -219,7 +226,8 @@ namespace Durin::Editor::Level
 		}
 		auto Transaction = std::make_unique<FTerrainPlacementTransaction>(Plan);
 		const bool bSucceeded = Context.Transactions
-			? Context.Transactions->Execute(std::move(Transaction)) : Transaction->Redo();
+			? static_cast<bool>(Context.Transactions->Execute(std::move(Transaction)))
+			: Transaction->Redo();
 		if (!bSucceeded)
 		{
 			Result.Diagnostic = MakeDiagnostic(ETerrainPlacementError::ExecutionFailed,

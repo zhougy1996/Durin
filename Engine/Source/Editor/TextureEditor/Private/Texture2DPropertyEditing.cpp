@@ -6,6 +6,7 @@
 #include "DObject/WeakObjectPtr.h"
 #include "Editor/PropertyEditing.h"
 #include "Texture/Texture2DCompilation.h"
+#include "Texture/TextureBuildOperations.h"
 #include "Texture/TextureBuilder.h"
 #include "AssetForge/Builtins/Texture2DImport.h"
 
@@ -114,6 +115,25 @@ namespace Durin::Editor::Texture
 			{
 				OutError = "Texture2D property proposal contains invalid build settings.";
 				return false;
+			}
+			if (Proposal.Origin != EPropertyChangeOrigin::Edit)
+			{
+				if (!Texture->GetPackage() || !Texture->GetImportedData().IsValid())
+				{
+					OutError = "Only packaged Texture2D assets with canonical imported pixels can rebuild.";
+					return false;
+				}
+				const FXxHash128 Identity = Texture->GetImportedDataIdentity();
+				return Asset::BuildTexture2DInto(*Texture, {
+					.SourceData = Texture->GetImportedData().ToSourceData(),
+					.SourceContentHashLow = Identity.HashLow,
+					.SourceContentHashHigh = Identity.HashHigh,
+					.Settings = Settings,
+				}, {
+					.bMarkPackageDirty = true,
+					.bReportLoadMutation = false,
+					.bSourceDecoderInvoked = false,
+				}, OutError);
 			}
 
 			const TWeakObjectPtr<DTexture2D> WeakTexture(Texture);

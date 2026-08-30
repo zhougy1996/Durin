@@ -1,4 +1,5 @@
 #include "Panels/ContentBrowserModel.h"
+#include "Editor/EditorTransactionTestSupport.h"
 #include "Panels/ContentBrowserOperations.h"
 
 #include "Asset/Relocation.h"
@@ -70,7 +71,7 @@ namespace
 		return Mutable;
 	}
 
-	class FNoOpEditorTransaction final : public Durin::Editor::ITransaction
+	class FNoOpEditorTransaction final : public Durin::Editor::ITransactionCustomChange
 	{
 	public:
 		auto GetDescription() const -> std::string_view override { return "No-op"; }
@@ -333,21 +334,21 @@ TEST_F(FContentBrowserModelTests, RelocationUsesOneSharedUndoRedoTransaction)
 
 	const FAssetRelocation Mapping{
 		SourcePath, DestinationPath};
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	ASSERT_TRUE(IAssetTools::Get().RelocateAssets({
-		.Mappings = {Mapping}, .Transactions = &Transactions}));
-	EXPECT_EQ(Transactions.GetUndoDescription(), "Move Asset");
+		.Mappings = {Mapping}, .Transactions = Transactions.Get()}));
+	EXPECT_EQ(Transactions->GetUndoDescription(), "Move Asset");
 	EXPECT_EQ(Asset::ResolveAssetPath(SourcePath).FinalPath,
 		DestinationPath);
 
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Asset::FindAssetExact(SourcePath)->EntryKind,
 		Asset::EAssetRegistryEntryKind::Asset);
 	EXPECT_EQ(Asset::FindAssetExact(DestinationPath), nullptr);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(Asset::ResolveAssetPath(SourcePath).FinalPath,
 		DestinationPath);
-	Transactions.Clear();
+	Transactions->Reset();
 }
 
 TEST_F(FContentBrowserModelTests, SearchesRecursivelyButBrowsesImmediateChildren)
@@ -1583,15 +1584,15 @@ TEST_F(FContentBrowserModelTests, EmptyFolderDeletionRoundTripsThroughHistory)
 	EXPECT_EQ(Plan->Summary.AssetCount, 0);
 	EXPECT_EQ(Plan->Summary.FileCount, 0);
 
-	Durin::Editor::FTransactionManager Transactions;
-	ASSERT_TRUE(Transactions.Execute(
+	Durin::Tests::FTestTransactorOwner Transactions;
+	ASSERT_TRUE(Transactions->Execute(
 		std::make_unique<FContentDeletionTransaction>(Plan)));
 	EXPECT_FALSE(std::filesystem::exists(Folder));
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_TRUE(std::filesystem::is_directory(Folder));
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_FALSE(std::filesystem::exists(Folder));
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_TRUE(std::filesystem::is_directory(Folder));
 }
 
@@ -1791,21 +1792,21 @@ TEST_F(FContentBrowserModelTests, MixedFolderAndExternalCompanionRoundTripAsOneT
 	EXPECT_EQ(Plan->Summary.FolderCount, 2);
 	ASSERT_EQ(Plan->MaximalRoots.size(), 2);
 
-	Durin::Editor::FTransactionManager Transactions;
-	ASSERT_TRUE(Transactions.Execute(
+	Durin::Tests::FTestTransactorOwner Transactions;
+	ASSERT_TRUE(Transactions->Execute(
 		std::make_unique<FContentDeletionTransaction>(Plan)));
 	EXPECT_FALSE(std::filesystem::exists(Folder));
 	EXPECT_FALSE(std::filesystem::exists(Companion));
 	EXPECT_EQ(Asset::FindAssetExact(AssetPath), nullptr);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_TRUE(std::filesystem::is_regular_file(OrdinaryFile));
 	EXPECT_TRUE(std::filesystem::is_regular_file(Companion));
 	EXPECT_NE(Asset::FindAssetExact(AssetPath), nullptr);
 	EXPECT_EQ(Asset::FindResidentPackage(AssetPath), nullptr);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_FALSE(std::filesystem::exists(Folder));
 	EXPECT_FALSE(std::filesystem::exists(Companion));
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
 }
 
@@ -1837,35 +1838,35 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionPreservesRegistryWithoutRes
 		Operations, std::span{&Item, 1}, Root / "Undo");
 	ASSERT_TRUE(Plan->CanExecute());
 
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	const uint64 InitialContentRevision =
-		Transactions.GetMountedContentMutationRevision();
+		Transactions->GetMountedContentMutationRevision();
 	auto Transaction = std::make_unique<FContentDeletionTransaction>(Plan);
 	FContentDeletionTransaction* TransactionView = Transaction.get();
-	ASSERT_TRUE(Transactions.Execute(std::move(Transaction)));
+	ASSERT_TRUE(Transactions->Execute(std::move(Transaction)));
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 1);
+		Transactions->GetMountedContentMutationRevision(), InitialContentRevision + 1);
 	EXPECT_FALSE(std::filesystem::exists(PackagePath));
 	EXPECT_EQ(Asset::FindAssetExact(AssetPath), nullptr);
 	EXPECT_EQ(Asset::FindResidentPackage(AssetPath), nullptr);
 	EXPECT_EQ(TransactionView->GetState(), EContentDeletionTransactionState::Applied);
 
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 2);
+		Transactions->GetMountedContentMutationRevision(), InitialContentRevision + 2);
 	EXPECT_TRUE(std::filesystem::is_regular_file(PackagePath));
 	EXPECT_NE(Asset::FindAssetExact(AssetPath), nullptr);
 	EXPECT_EQ(Asset::FindResidentPackage(AssetPath), nullptr);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 3);
+		Transactions->GetMountedContentMutationRevision(), InitialContentRevision + 3);
 	EXPECT_FALSE(std::filesystem::exists(PackagePath));
 	EXPECT_EQ(Asset::FindAssetExact(AssetPath), nullptr);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 4);
+		Transactions->GetMountedContentMutationRevision(), InitialContentRevision + 4);
 	const std::filesystem::path StagingRoot = TransactionView->GetStagingRoot();
-	Transactions.Clear();
+	Transactions->Reset();
 	EXPECT_FALSE(std::filesystem::exists(StagingRoot));
 	ASSERT_TRUE(Asset::DeleteAssetForTesting(AssetPath));
 }
@@ -1942,12 +1943,12 @@ TEST_F(FContentBrowserModelTests, RedirectorDeletionRequiresClosureAndUndoRestor
 				!= std::string::npos;
 		}));
 
-	Durin::Editor::FTransactionManager Transactions;
-	ASSERT_TRUE(Transactions.Execute(
+	Durin::Tests::FTestTransactorOwner Transactions;
+	ASSERT_TRUE(Transactions->Execute(
 		std::make_unique<FContentDeletionTransaction>(Complete)));
 	EXPECT_EQ(Asset::FindAssetExact(OldPath), nullptr);
 	EXPECT_EQ(Asset::FindAssetExact(FinalPath), nullptr);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	AliasData = Asset::FindAssetExact(OldPath);
 	FinalData = Asset::FindAssetExact(FinalPath);
 	ASSERT_NE(AliasData, nullptr);
@@ -1956,10 +1957,10 @@ TEST_F(FContentBrowserModelTests, RedirectorDeletionRequiresClosureAndUndoRestor
 		Asset::EAssetRegistryEntryKind::Redirector);
 	EXPECT_EQ(AliasData->RedirectDestination, FinalPath);
 	EXPECT_EQ(FinalData->EntryKind, Asset::EAssetRegistryEntryKind::Asset);
-	ASSERT_TRUE(Transactions.Redo());
-	ASSERT_TRUE(Transactions.Undo());
-	ASSERT_TRUE(Transactions.Redo());
-	Transactions.Clear();
+	ASSERT_TRUE(Transactions->Redo());
+	ASSERT_TRUE(Transactions->Undo());
+	ASSERT_TRUE(Transactions->Redo());
+	Transactions->Reset();
 }
 
 TEST_F(FContentBrowserModelTests, DeletionTransactionRejectsDestinationAndModificationConflicts)
@@ -1986,31 +1987,31 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionRejectsDestinationAndModifi
 		Operations, std::span{&Item, 1}, Root / "Undo");
 	auto Transaction = std::make_unique<FContentDeletionTransaction>(Plan);
 	FContentDeletionTransaction* View = Transaction.get();
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	const uint64 InitialContentRevision =
-		Transactions.GetMountedContentMutationRevision();
-	ASSERT_TRUE(Transactions.Execute(std::move(Transaction)));
+		Transactions->GetMountedContentMutationRevision();
+	ASSERT_TRUE(Transactions->Execute(std::move(Transaction)));
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 1);
+		Transactions->GetMountedContentMutationRevision(), InitialContentRevision + 1);
 
 	std::filesystem::create_directories(Folder);
-	EXPECT_FALSE(Transactions.Undo());
+	EXPECT_FALSE(Transactions->Undo());
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 1);
+		Transactions->GetMountedContentMutationRevision(), InitialContentRevision + 1);
 	EXPECT_EQ(View->GetState(), EContentDeletionTransactionState::Applied);
 	std::error_code Ec;
 	std::filesystem::remove(Folder, Ec);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 2);
+		Transactions->GetMountedContentMutationRevision(), InitialContentRevision + 2);
 	{
 		std::ofstream File(SourceFile, std::ios::trunc);
 		File << "change";
 	}
 	std::filesystem::last_write_time(SourceFile, ConfirmedWriteTime);
-	EXPECT_FALSE(Transactions.Redo());
+	EXPECT_FALSE(Transactions->Redo());
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(), InitialContentRevision + 2);
+		Transactions->GetMountedContentMutationRevision(), InitialContentRevision + 2);
 	EXPECT_EQ(View->GetState(), EContentDeletionTransactionState::Restored);
 }
 
@@ -2070,8 +2071,8 @@ TEST_F(FContentBrowserModelTests, DeletionUndoRejectsChangedStagedBytes)
 		Operations, std::span{&Item, 1}, Root / "Undo");
 	auto Transaction = std::make_unique<FContentDeletionTransaction>(Plan);
 	FContentDeletionTransaction* View = Transaction.get();
-	Durin::Editor::FTransactionManager Transactions;
-	ASSERT_TRUE(Transactions.Execute(std::move(Transaction)));
+	Durin::Tests::FTestTransactorOwner Transactions;
+	ASSERT_TRUE(Transactions->Execute(std::move(Transaction)));
 	const std::filesystem::path StagedFile =
 		View->GetStagingRoot() / "entry-0000/source.txt";
 	const auto ConfirmedWriteTime = std::filesystem::last_write_time(StagedFile);
@@ -2080,14 +2081,14 @@ TEST_F(FContentBrowserModelTests, DeletionUndoRejectsChangedStagedBytes)
 		File << "change";
 	}
 	std::filesystem::last_write_time(StagedFile, ConfirmedWriteTime);
-	EXPECT_FALSE(Transactions.Undo());
+	EXPECT_FALSE(Transactions->Undo());
 	EXPECT_EQ(View->GetState(), EContentDeletionTransactionState::Applied);
 	{
 		std::ofstream File(StagedFile, std::ios::trunc);
 		File << "source";
 	}
 	std::filesystem::last_write_time(StagedFile, ConfirmedWriteTime);
-	EXPECT_TRUE(Transactions.Undo());
+	EXPECT_TRUE(Transactions->Undo());
 }
 
 TEST_F(FContentBrowserModelTests, DeletionTransactionCompensatesAndRetainsFailedRecovery)
@@ -2182,13 +2183,13 @@ TEST_F(FContentBrowserModelTests, EvictionCleansOwnedDeletionStaging)
 		.Extension = ".txt"};
 	const FContentDeletionPlanPtr Plan = BuildTransactionPlan(
 		Operations, std::span{&Item, 1}, Root / "Undo");
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	auto Transaction = std::make_unique<FContentDeletionTransaction>(Plan);
 	FContentDeletionTransaction* View = Transaction.get();
-	ASSERT_TRUE(Transactions.Execute(std::move(Transaction)));
+	ASSERT_TRUE(Transactions->Execute(std::move(Transaction)));
 	const std::filesystem::path StagingRoot = View->GetStagingRoot();
 	for (size_t Index = 0; Index < 256; ++Index)
-		ASSERT_TRUE(Transactions.Execute(
+		ASSERT_TRUE(Transactions->Execute(
 			std::make_unique<FNoOpEditorTransaction>()));
 	EXPECT_FALSE(std::filesystem::exists(StagingRoot));
 }

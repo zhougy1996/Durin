@@ -1,7 +1,7 @@
 #pragma once
 
 #include "DObject/Package.h"
-#include "Editor/Transaction.h"
+#include "Editor/Transactor.h"
 
 namespace Durin::Editor::Level
 {
@@ -9,7 +9,7 @@ namespace Durin::Editor::Level
 	struct FLevelDocumentRevisionState
 	{
 		static auto CompleteSave(
-			::Durin::Editor::FTransactionManager* Transactions,
+			::Durin::DTransactor* Transactions,
 			DPackage& Package,
 			bool bSucceeded
 		) -> void
@@ -17,10 +17,10 @@ namespace Durin::Editor::Level
 			if (bSucceeded && Transactions) Transactions->MarkSaved(Package);
 		}
 
-		static auto Activate(::Durin::Editor::FTransactionManager* Transactions, DPackage* Package) -> void
+		static auto Activate(::Durin::DTransactor* Transactions, DPackage* Package) -> void
 		{
 			if (!Transactions) return;
-			Transactions->Clear();
+			(void)Transactions->Reset();
 			if (!Package) return;
 			if (Package->IsDirty())
 				Transactions->InvalidateSavedState(*Package);
@@ -28,7 +28,7 @@ namespace Durin::Editor::Level
 				Transactions->EstablishSavedState(*Package);
 		}
 
-		static auto Discard(::Durin::Editor::FTransactionManager* Transactions, DPackage& Package) -> void
+		static auto Discard(::Durin::DTransactor* Transactions, DPackage& Package) -> void
 		{
 			if (Transactions) Transactions->ForgetPackage(Package);
 			Package.ClearDirty();

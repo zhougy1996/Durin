@@ -176,7 +176,7 @@ singleton Level workspace keeps its specialized internal dock-space lifecycle.
 Material and Texture additionally compose
 `Editor::FEditableAssetDocumentModel`. It owns active-resource identity,
 document focus, package dirty/save/discard behavior, and forwarding to the
-global transaction manager without depending on either concrete editor module.
+global editor transactor without depending on either concrete editor module.
 Concrete workspaces still load exact asset types and run hooks before a switch,
 close, discard, or save; Texture retains build cancellation and pending-build
 rejection, while each editor retains its preview and type-specific diagnostics.

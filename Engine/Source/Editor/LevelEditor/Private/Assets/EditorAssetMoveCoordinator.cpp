@@ -15,7 +15,7 @@ namespace Durin::Editor::Level
 		FLevelEditorContext& InContext,
 		FLevelEditorSessionSettings& InSessionSettings,
 		FSceneViewportPanel& InSceneViewportPanel,
-		::Durin::Editor::FTransactionManager& InTransactions,
+		::Durin::DTransactor& InTransactions,
 		FModuleOwnedCallbackGate OwnerGate
 	)
 		: Context(InContext)

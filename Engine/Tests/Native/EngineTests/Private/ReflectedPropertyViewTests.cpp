@@ -13,6 +13,7 @@
 #include "DObject/Package.h"
 #include "DObject/SoftObjectPtr.h"
 #include "Editor/Transaction.h"
+#include "Editor/Transactor.h"
 #include "EngineTestSupport.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPathTestSupport.h"
@@ -23,6 +24,21 @@
 
 namespace
 {
+	class FPropertyViewTestTransactorOwner
+	{
+	public:
+		FPropertyViewTestTransactorOwner()
+			: Transactor(Durin::NewObject<Durin::DTransBuffer>(nullptr, "PropertyViewTestTransactor"))
+			, TransactorRoot(Transactor)
+		{}
+
+		auto Get() const -> Durin::DTransBuffer* { return Transactor; }
+
+	private:
+		Durin::DTransBuffer* Transactor = nullptr;
+		Durin::FScopedObjectRoot TransactorRoot;
+	};
+
 	using FSoftObjectViewValue = Durin::TSoftObjectPtr<Durin::DObject>;
 	using FSoftObjectViewArray = std::vector<FSoftObjectViewValue>;
 	using FSoftObjectViewMap = std::unordered_map<std::string, FSoftObjectViewValue>;
@@ -84,10 +100,22 @@ namespace
 	class DPropertyViewHostTestObject final : public Durin::DObject
 	{
 	public:
+		explicit DPropertyViewHostTestObject(
+			const Durin::FObjectInitializer& Initializer = Durin::FObjectInitializer::Get())
+			: DObject(Initializer)
+		{}
+
 		explicit DPropertyViewHostTestObject(Durin::DClass* Class, Durin::FName Name)
 			: DObject(Class, nullptr, std::move(Name))
 		{
 		}
+
+		static void __DefaultConstructor(const Durin::FObjectInitializer& Initializer)
+		{
+			new (Initializer.GetObj()) DPropertyViewHostTestObject(Initializer);
+		}
+
+		static auto StaticClass() -> Durin::DClass*;
 
 		auto PreEditChangeProperty(Durin::FPropertyEditProposal& Proposal, std::string& OutError) -> bool override
 		{
@@ -119,8 +147,11 @@ namespace
 				Durin::EObjectFlags::Transient,
 				Durin::EClassFlags::Native,
 				Durin::EClassCastFlags::DClass,
-				nullptr
+				(Durin::DClass::ClassConstructorType)
+					Durin::InternalConstructor<DPropertyViewHostTestObject>
 			);
+			Class->SetSuperStructBase(Durin::DObject::StaticClass());
+			Class->SetTypeNames("DPropertyViewHostTestObject", "", "");
 			DPropertyViewHostTestObject OffsetProbe(Class, Durin::FName("OffsetProbe"));
 			const auto Offset = static_cast<uint16>(
 				reinterpret_cast<const uint8*>(&OffsetProbe.Value)
@@ -197,6 +228,8 @@ namespace
 			SoftProperty->Next = ArrayProperty;
 			ArrayProperty->Next = MapProperty;
 			Class->ChildProperties = Property;
+			Class->Register(Durin::DClass::StaticClass, "", "DPropertyViewHostTestObject");
+			Durin::DObjectForceRegistration(Class);
 		}
 
 		Durin::DClass* Class = nullptr;
@@ -213,6 +246,11 @@ namespace
 	{
 		static FPropertyViewHostTestReflection Reflection;
 		return Reflection;
+	}
+
+	auto DPropertyViewHostTestObject::StaticClass() -> Durin::DClass*
+	{
+		return GetPropertyViewHostTestReflection().Class;
 	}
 
 		auto BeginPropertyViewHostPreview(
@@ -570,7 +608,9 @@ TEST(FReflectedPropertyViewTests, WeakObjectInspectionDistinguishesNullLiveAndEx
 TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndMapValues)
 {
 	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
-	DPropertyViewHostTestObject Object(Reflection.Class, Durin::FName("SoftTransactions"));
+	auto* ManagedObject = Durin::NewObject<DPropertyViewHostTestObject>(nullptr, "SoftTransactions");
+	Durin::FScopedObjectRoot ObjectRoot(ManagedObject);
+	auto& Object = *ManagedObject;
 	const Durin::FSoftObjectPath First = MakeSoftObjectPropertyViewPath("First");
 	const Durin::FSoftObjectPath Second = MakeSoftObjectPropertyViewPath("Second");
 	const Durin::FSoftObjectPath Third = MakeSoftObjectPropertyViewPath("Third");
@@ -579,9 +619,11 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 	Object.SoftArray.emplace_back(First);
 	Object.SoftMap.emplace("Alpha", FSoftObjectViewValue(First));
 
-	Durin::Editor::FTransactionManager Transactions;
+	FPropertyViewTestTransactorOwner Transactions;
 	Durin::Editor::FPropertyView View;
-	const Durin::Editor::FPropertyViewContext Context{.Transactions = &Transactions};
+	const Durin::Editor::FPropertyViewContext Context{
+		.Transactor = Transactions.Get(),
+	};
 	auto AssignPath = [](Durin::FSoftObjectPath Path) {
 		return [Path = std::move(Path)](
 			Durin::FProperty* Property, void* Container, uint32 ArrayIndex) {
@@ -597,22 +639,22 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 		Durin::Editor::FPropertyEditTarget::ForMember(&Object, Reflection.SoftProperty, 1),
 		AssignPath(Second), false));
 	EXPECT_EQ(Object.SoftValues[1].GetSoftObjectPath(), Second);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(Object.SoftValues[1].GetSoftObjectPath(), First);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions.Get()->Redo());
 	EXPECT_EQ(Object.SoftValues[1].GetSoftObjectPath(), Second);
-	Transactions.Clear();
+	ASSERT_TRUE(Transactions.Get()->Reset());
 
 	const Durin::Editor::FPropertyEditTarget ArrayTarget =
 		Durin::Editor::FPropertyEditTarget::ForMember(&Object, Reflection.ArrayProperty)
 			.ForArrayElement(Reflection.ArrayInner, 0);
 	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, ArrayTarget, AssignPath(Third), false));
 	EXPECT_EQ(Object.SoftArray[0].GetSoftObjectPath(), Third);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(Object.SoftArray[0].GetSoftObjectPath(), First);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions.Get()->Redo());
 	EXPECT_EQ(Object.SoftArray[0].GetSoftObjectPath(), Third);
-	Transactions.Clear();
+	ASSERT_TRUE(Transactions.Get()->Reset());
 
 	const std::string Alpha = "Alpha";
 	Durin::FPropertyValueSnapshot KeySnapshot;
@@ -622,21 +664,23 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 			.ForMapEntry(Reflection.MapValue, KeySnapshot, KeySnapshot.GetBytes());
 	ASSERT_TRUE(View.SubmitPropertyValueEdit(Context, MapTarget, AssignPath(Fourth), false));
 	EXPECT_EQ(Object.SoftMap.at("Alpha").GetSoftObjectPath(), Fourth);
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions.Get()->Undo());
 	EXPECT_EQ(Object.SoftMap.at("Alpha").GetSoftObjectPath(), First);
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions.Get()->Redo());
 	EXPECT_EQ(Object.SoftMap.at("Alpha").GetSoftObjectPath(), Fourth);
 }
 
 TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransaction)
 {
 	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
-	DPropertyViewHostTestObject Object(Reflection.Class, Durin::FName("BoundedEdit"));
-	Durin::Editor::FTransactionManager Transactions;
+	auto* ManagedObject = Durin::NewObject<DPropertyViewHostTestObject>(nullptr, "BoundedEdit");
+	Durin::FScopedObjectRoot ObjectRoot(ManagedObject);
+	auto& Object = *ManagedObject;
+	FPropertyViewTestTransactorOwner Transactions;
 	Durin::Editor::FPropertyView View;
 	std::string Error;
 	const Durin::Editor::FPropertyViewContext Context{
-		.Transactions = &Transactions,
+		.Transactor = Transactions.Get(),
 		.ReportError = [&](std::string Message) { Error = std::move(Message); },
 	};
 
@@ -648,5 +692,5 @@ TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransac
 		}, false));
 	EXPECT_EQ(Object.Value, 5);
 	EXPECT_NE(Error.find("ClampMax"), std::string::npos);
-	EXPECT_FALSE(Transactions.Undo());
+	EXPECT_FALSE(Transactions.Get()->Undo());
 }

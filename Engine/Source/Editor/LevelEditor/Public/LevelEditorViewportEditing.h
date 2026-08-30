@@ -5,9 +5,9 @@
 #include "SceneView.h"
 #include "Modules/ModularFeature.h"
 
-namespace Durin::Editor
+namespace Durin
 {
-	class FTransactionManager;
+	class DTransactor;
 }
 
 namespace Durin::Editor::Level
@@ -22,7 +22,7 @@ namespace Durin::Editor::Level
 		virtual ~ILevelViewportEditMode() = default;
 		virtual auto Enter(FLevelEditorContext&) -> void {}
 		virtual auto Exit(FLevelEditorContext&, bool) -> void {}
-		virtual auto Tick(FLevelEditorContext&, FLevelEditorViewportClient&, const FSceneView&, FLevelEditorViewportInput&, ::Durin::Editor::FTransactionManager*) -> bool = 0;
+		virtual auto Tick(FLevelEditorContext&, FLevelEditorViewportClient&, const FSceneView&, FLevelEditorViewportInput&, ::Durin::DTransactor*) -> bool = 0;
 		virtual auto GetGizmoTargets(const FLevelEditorContext&) const -> FTransformGizmoTargetSet { return {}; }
 		// Defers self-requested mode switches until Tick has returned to the manager.
 		virtual auto ShouldExit() const -> bool { return false; }
@@ -77,7 +77,7 @@ namespace Durin::Editor::Level
 		LEVELEDITOR_API auto Activate(std::string_view Id, FLevelEditorContext& Context) -> bool;
 		LEVELEDITOR_API auto Synchronize(FLevelEditorContext& Context) -> void;
 		LEVELEDITOR_API auto Tick(FLevelEditorContext& Context, FLevelEditorViewportClient& Client, const FSceneView& View,
-			FLevelEditorViewportInput& Input, ::Durin::Editor::FTransactionManager* Transactions) -> bool;
+			FLevelEditorViewportInput& Input, ::Durin::DTransactor* Transactions) -> bool;
 		LEVELEDITOR_API auto Shutdown(FLevelEditorContext* Context = nullptr) -> void;
 		auto GetActiveModeId() const -> std::string_view { return ActiveId; }
 		auto GetActiveMode() const -> ILevelViewportEditMode* { return ActiveMode.get(); }

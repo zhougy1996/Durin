@@ -12,7 +12,7 @@
 #include "Asset/Relocation.h"
 #include "DObject/Object.h"
 #include "DObject/Package.h"
-#include "Editor/Transaction.h"
+#include "Editor/Transactor.h"
 
 namespace Durin
 {
@@ -56,7 +56,7 @@ namespace Durin
 			Result.bPublished = true;
 		}
 
-		class FAssetMutationEditorTransaction final : public Editor::ITransaction
+		class FAssetMutationEditorTransaction final : public Editor::ITransactionCustomChange
 		{
 		public:
 			FAssetMutationEditorTransaction(
@@ -79,6 +79,7 @@ namespace Durin
 			auto GetDetails(Editor::ETransactionOperation) const
 				-> std::string override { return LastResult.Message; }
 			auto MutatesMountedContent() const -> bool override { return true; }
+			auto GetOwningModule() const -> std::string_view override { return "AssetTools"; }
 			auto Undo() -> bool override
 			{
 				LastResult = Transaction.Undo();
@@ -100,7 +101,7 @@ namespace Durin
 
 		auto CommitMutation(
 			Asset::FAssetMutationTransaction Transaction,
-			Editor::FTransactionManager& Transactions,
+			DTransactor& Transactions,
 			EAssetOperationKind Kind,
 			std::span<const FAssetPath> Affected,
 			std::string Singular,

@@ -8,6 +8,7 @@
 #include "Actors/StaticMeshActor.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
+#include "DObject/ObjectLifecycle.h"
 #include "Engine/Actor.h"
 #include "Engine/Level.h"
 #include "Engine/World.h"
@@ -70,13 +71,13 @@ namespace Durin::Editor::Level
 			const FStaticMeshLevelMutationPlan Plan = FStaticMeshLevelMutations::Plan(Request);
 			return FStaticMeshLevelMutations::Execute(Plan, {
 				.OpenLevel = Context.Level,
-				.Transactions = GEditor ? &GEditor->GetTransactionManager() : nullptr,
+				.Transactions = GEditor ? GEditor->GetTransactor() : nullptr,
 				.bReadOnly = Context.bReadOnly,
 			});
 		}
 
 		// Restores the level's primary-camera selection.
-		class FPrimaryCameraTransaction final : public ::Durin::Editor::ITransaction
+		class FPrimaryCameraTransaction final : public ::Durin::Editor::ITransactionCustomChange
 		{
 		public:
 			FPrimaryCameraTransaction(DLevel* InLevel, ACameraActor* InBefore, ACameraActor* InAfter)
@@ -85,6 +86,7 @@ namespace Durin::Editor::Level
 				AffectedPackages.front() = InLevel ? InLevel->GetPackage() : nullptr;
 			}
 			auto GetDescription() const -> std::string_view override { return "Set primary camera"; }
+			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
 			auto GetDetails(::Durin::Editor::ETransactionOperation) const -> std::string override
 			{
 				return After ? std::format("Set '{}' as the primary camera", After->GetName()) : "Clear the primary camera";
@@ -92,6 +94,13 @@ namespace Durin::Editor::Level
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
 			auto Undo() -> bool override { return Level && Level->SetPrimaryCameraActor(Before.Get()); }
 			auto Redo() -> bool override { return Level && Level->SetPrimaryCameraActor(After.Get()); }
+			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
+			{
+				for (DObject* Object : {static_cast<DObject*>(Level.Get()),
+					static_cast<DObject*>(Before.Get()),
+					static_cast<DObject*>(After.Get())})
+					if (Object) Collector.AddReferencedObject(Object);
+			}
 
 		private:
 			TObjectPtr<DLevel> Level;
@@ -101,7 +110,7 @@ namespace Durin::Editor::Level
 		};
 
 		// Restores visibility for every actor changed by one outliner operation.
-		class FActorVisibilityTransaction final : public ::Durin::Editor::ITransaction
+		class FActorVisibilityTransaction final : public ::Durin::Editor::ITransactionCustomChange
 		{
 		public:
 			// Stores one actor's visibility before and after the outliner action.
@@ -123,6 +132,7 @@ namespace Durin::Editor::Level
 				}
 			}
 			auto GetDescription() const -> std::string_view override { return bShow ? "Show actors" : "Hide actors"; }
+			auto GetOwningModule() const -> std::string_view override { return "LevelEditor"; }
 			auto GetDetails(::Durin::Editor::ETransactionOperation Operation) const -> std::string override
 			{
 				const bool bApplyingAfter = Operation != ::Durin::Editor::ETransactionOperation::Undo;
@@ -132,6 +142,14 @@ namespace Durin::Editor::Level
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override { return AffectedPackages; }
 			auto Undo() -> bool override { return Apply(false); }
 			auto Redo() -> bool override { return Apply(true); }
+			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
+			{
+				for (const FEntry& Entry : Entries)
+				{
+					DObject* Object = Entry.Actor.Get();
+					if (Object) Collector.AddReferencedObject(Object);
+				}
+			}
 
 		private:
 			auto Apply(bool bAfter) -> bool
@@ -262,7 +280,7 @@ namespace Durin::Editor::Level
 		}
 		if (Entries.empty()) return;
 		auto Transaction = std::make_unique<FActorVisibilityTransaction>(std::move(Entries), !bHidden);
-		if (GEditor) GEditor->GetTransactionManager().Execute(std::move(Transaction));
+		if (GEditor) GEditor->GetTransactor()->Execute(std::move(Transaction));
 		else Transaction->Redo();
 	}
 
@@ -331,7 +349,7 @@ namespace Durin::Editor::Level
 				else if (ImGui::MenuItem("Set as Primary Camera"))
 				{
 					auto Transaction = std::make_unique<FPrimaryCameraTransaction>(Context.Level, Context.Level->GetPrimaryCameraActor(), Camera);
-					if (GEditor) GEditor->GetTransactionManager().Execute(std::move(Transaction));
+					if (GEditor) GEditor->GetTransactor()->Execute(std::move(Transaction));
 					else Context.Level->SetPrimaryCameraActor(Camera);
 				}
 			}
@@ -373,7 +391,7 @@ namespace Durin::Editor::Level
 				{
 					auto Transaction = std::make_unique<FActorAttachmentTransaction>(std::move(Entries), true);
 					const bool bSucceeded = GEditor
-						? GEditor->GetTransactionManager().Execute(std::move(Transaction))
+						? static_cast<bool>(GEditor->GetTransactor()->Execute(std::move(Transaction)))
 						: Transaction->Redo();
 					if (!bSucceeded) Context.SetError(std::format("Failed to attach selected actors to '{}'.", Actor->GetName()));
 				}
@@ -447,7 +465,7 @@ namespace Durin::Editor::Level
 			{
 				auto Transaction = std::make_unique<FActorAttachmentTransaction>(std::move(Entries), false);
 				const bool bSucceeded = GEditor
-					? GEditor->GetTransactionManager().Execute(std::move(Transaction))
+					? static_cast<bool>(GEditor->GetTransactor()->Execute(std::move(Transaction)))
 					: Transaction->Redo();
 				if (!bSucceeded) Context.SetError("Failed to detach selected actors.");
 			}

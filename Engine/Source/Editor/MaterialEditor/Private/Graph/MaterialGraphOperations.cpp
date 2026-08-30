@@ -3,7 +3,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "DObject/WeakObjectPtr.h"
-#include "Editor/Transaction.h"
+#include "Editor/Transactor.h"
 #include "Misc/StringHelper.h"
 
 namespace Durin::Editor::Material
@@ -248,7 +248,7 @@ namespace Durin::Editor::Material
 			};
 		}
 
-		class FMaterialGraphTransaction final : public ITransaction
+		class FMaterialGraphTransaction final : public ITransactionCustomChange
 		{
 		public:
 			FMaterialGraphTransaction(
@@ -280,6 +280,7 @@ namespace Durin::Editor::Material
 			{
 				return Description;
 			}
+			auto GetOwningModule() const -> std::string_view override { return "MaterialEditor"; }
 
 			auto GetAffectedPackages() const -> std::span<DPackage* const> override
 			{
@@ -296,6 +297,13 @@ namespace Durin::Editor::Material
 			{
 				return Apply(AfterProgram, AfterPresentation,
 					AfterParameterValue);
+			}
+			auto AddReferencedObjects(FReferenceCollector& Collector) const -> void override
+			{
+				for (DObject* Object : {
+					static_cast<DObject*>(BeforeParameterValue.TextureValue.Get()),
+					static_cast<DObject*>(AfterParameterValue.TextureValue.Get())})
+					if (Object) Collector.AddReferencedObject(Object);
 			}
 
 		private:
@@ -338,14 +346,14 @@ namespace Durin::Editor::Material
 			std::string Description,
 			std::vector<FGuid> Affected,
 			std::vector<FGuid> Generated,
-			FTransactionManager* Transactions)
+			DTransactor* Transactions)
 			-> FMaterialGraphCommandResult
 		{
 			if (!IsValid(&Material))
 				return {.Status = EMaterialGraphCommandStatus::StaleOwner,
 					.Message = "The material graph owner is no longer available."};
 			if (Transactions && Transactions->HasPendingOperation())
-				return MakeRejected("The editor transaction manager is busy.");
+				return MakeRejected("The editor transactor is busy.");
 			const FMaterialProgram BeforeProgram = *Material.GetMaterialProgram();
 			const FMaterialGraphPresentation BeforePresentation =
 				Material.GetMaterialGraphPresentation();
@@ -381,7 +389,7 @@ namespace Durin::Editor::Material
 
 			if (Transactions)
 			{
-				const bool bRecorded = Transactions->CommitApplied(
+				const auto bRecorded = Transactions->CommitApplied(
 					std::make_unique<FMaterialGraphTransaction>(
 					Material,
 					BeforeProgram,
@@ -772,7 +780,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphOperations::CreateNode(
 		DMaterial& Material,
 		FMaterialGraphCreateNodeRequest Request,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		FMaterialProgram Candidate = *Material.GetMaterialProgram();
 		if (Candidate.Nodes.size() >= MaterialProgramMaxNodeCount)
@@ -792,7 +800,7 @@ namespace Durin::Editor::Material
 		DMaterial& Material,
 		FMaterialGraphCreateNodeRequest Request,
 		std::span<const std::vector<EMaterialProgramValueType>> AcceptedInputTypes,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		if (AcceptedInputTypes.size() != Request.Node.Inputs.size())
 			return MakeRejected("The node palette input shape is stale.");
@@ -854,7 +862,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphOperations::ReplaceNode(
 		DMaterial& Material,
 		FMaterialProgramNode Node,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		FMaterialProgram Candidate = *Material.GetMaterialProgram();
 		FMaterialProgramNode* Existing = FindNode(Candidate, Node.Id);
@@ -869,7 +877,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphOperations::RemoveNodes(
 		DMaterial& Material,
 		std::span<const FGuid> NodeIds,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		if (NodeIds.empty()) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		if (NodeIds.size() > MaterialProgramMaxNodeCount)
@@ -923,7 +931,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphOperations::Connect(
 		DMaterial& Material,
 		const FMaterialGraphConnectRequest& Request,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		FMaterialProgram Candidate = *Material.GetMaterialProgram();
 		if (!FindNode(Candidate, Request.SourceNodeId))
@@ -949,7 +957,7 @@ namespace Durin::Editor::Material
 		DMaterial& Material,
 		const FGuid& DestinationNodeId,
 		uint32 DestinationInputIndex,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		FMaterialProgram Candidate = *Material.GetMaterialProgram();
 		FMaterialProgramNode* Destination = FindNode(Candidate, DestinationNodeId);
@@ -966,7 +974,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphOperations::AssignSurfaceOutput(
 		DMaterial& Material,
 		const FMaterialGraphSurfaceOutputRequest& Request,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		FMaterialProgram Candidate = *Material.GetMaterialProgram();
 		if (!FindNode(Candidate, Request.SourceNodeId))
@@ -983,7 +991,7 @@ namespace Durin::Editor::Material
 
 	auto FMaterialGraphOperations::AssignAggregateSurface(
 		DMaterial& Material, const FGuid& SourceNodeId,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		const FMaterialProgram* Current = Material.GetMaterialProgram();
 		if (!Current) return MakeRejected("The material has no authored program.");
@@ -1004,7 +1012,7 @@ namespace Durin::Editor::Material
 	}
 
 	auto FMaterialGraphOperations::DisconnectAggregateSurface(
-		DMaterial& Material, FTransactionManager* Transactions)
+		DMaterial& Material, DTransactor* Transactions)
 		-> FMaterialGraphCommandResult
 	{
 		const FMaterialProgram* Current = Material.GetMaterialProgram();
@@ -1022,7 +1030,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphOperations::DisconnectSurfaceOutput(
 		DMaterial& Material,
 		EMaterialSurfaceOutput Output,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		FMaterialProgram Candidate = *Material.GetMaterialProgram();
 		FMaterialProgramLink& Link = GetMaterialSurfaceOutputLink(
@@ -1039,7 +1047,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphOperations::SetSurfaceDefault(
 		DMaterial& Material,
 		const FMaterialGraphSurfaceDefaultRequest& Request,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		FMaterialProgram Candidate = *Material.GetMaterialProgram();
 		FMaterialProgramLiteral& Value = GetMaterialSurfaceOutputDefault(
@@ -1055,7 +1063,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphOperations::ResetSurfaceDefault(
 		DMaterial& Material,
 		EMaterialSurfaceOutput Output,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		return SetSurfaceDefault(Material, {
 			.Output = Output,
@@ -1067,10 +1075,10 @@ namespace Durin::Editor::Material
 		DMaterial& Material,
 		const FGuid& ParameterId,
 		FMaterialParameterValue Value,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		if (Transactions && Transactions->HasPendingOperation())
-			return MakeRejected("The editor transaction manager is busy.");
+			return MakeRejected("The editor transactor is busy.");
 		const std::vector Dependencies = InspectMaterialParameterDependencies(
 			*Material.GetMaterialProgram(), Material.GetParameterDefinitions());
 		if (std::ranges::none_of(Dependencies, [&](const auto& Dependency) {
@@ -1092,7 +1100,7 @@ namespace Durin::Editor::Material
 			const FMaterialProgram Program = *Material.GetMaterialProgram();
 			const FMaterialGraphPresentation Presentation =
 				Material.GetMaterialGraphPresentation();
-			const bool bRecorded = Transactions->CommitApplied(
+			const auto bRecorded = Transactions->CommitApplied(
 				std::make_unique<FMaterialGraphTransaction>(
 					Material, Program, Presentation, Program, Presentation, false,
 					"Edit Material Parameter", ParameterId, BeforeValue,
@@ -1109,13 +1117,13 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphOperations::PromoteSurfaceOutputToParameter(
 		DMaterial& Material,
 		const FMaterialGraphSurfaceNodeRequest& Request,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		if (static_cast<uint8>(Request.Output)
 			> static_cast<uint8>(EMaterialSurfaceOutput::OpacityMask))
 			return MakeRejected("The material surface output is invalid.");
 		if (Transactions && Transactions->HasPendingOperation())
-			return MakeRejected("The editor transaction manager is busy.");
+			return MakeRejected("The editor transactor is busy.");
 		const FMaterialProgram BeforeProgram = *Material.GetMaterialProgram();
 		if (GetMaterialSurfaceOutputLink(
 			BeforeProgram.Outputs, Request.Output).SourceNodeId.IsValid())
@@ -1168,7 +1176,7 @@ namespace Durin::Editor::Material
 		}
 		if (Transactions)
 		{
-			const bool bRecorded = Transactions->CommitApplied(
+			const auto bRecorded = Transactions->CommitApplied(
 				std::make_unique<FMaterialGraphTransaction>(Material,
 					BeforeProgram, BeforePresentation, Candidate,
 					CandidatePresentation, true,
@@ -1182,7 +1190,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphOperations::AddTextureToSurfaceOutput(
 		DMaterial& Material,
 		const FMaterialGraphSurfaceNodeRequest& Request,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		if (static_cast<uint8>(Request.Output)
 			> static_cast<uint8>(EMaterialSurfaceOutput::OpacityMask))
@@ -1280,7 +1288,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphOperations::MoveNodes(
 		DMaterial& Material,
 		std::span<const FMaterialGraphNodePresentation> Positions,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		if (Positions.empty()) return {.Status = EMaterialGraphCommandStatus::NoChange};
 		if (Positions.size() > MaterialProgramMaxNodeCount)
@@ -1313,7 +1321,7 @@ namespace Durin::Editor::Material
 		DMaterial& Material,
 		int32 X,
 		int32 Y,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		if (X < -MaterialGraphPresentationCoordinateLimit
 			|| X > MaterialGraphPresentationCoordinateLimit
@@ -1577,7 +1585,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphOperations::Layout(
 		DMaterial& Material,
 		std::span<const FGuid> NodeIds,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		FMaterialGraphPresentation Presentation;
 		FMaterialGraphCommandResult Calculated = CalculateLayout(
@@ -1648,7 +1656,7 @@ namespace Durin::Editor::Material
 		const FMaterialGraphClipboardPayload& Payload,
 		int32 X,
 		int32 Y,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		if (Payload.SchemaVersion != CurrentMaterialGraphClipboardSchemaVersion)
 			return MakeRejected("The material graph clipboard schema version is unsupported.");
@@ -1731,7 +1739,7 @@ namespace Durin::Editor::Material
 		std::span<const FGuid> NodeIds,
 		int32 OffsetX,
 		int32 OffsetY,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		FMaterialGraphClipboardPayload Payload;
 		FMaterialGraphCommandResult Copied = CopySelection(Material, NodeIds, Payload);
@@ -1763,7 +1771,7 @@ namespace Durin::Editor::Material
 		DMaterial& Material,
 		std::span<const FGuid> NodeIds,
 		FMaterialGraphClipboardPayload& OutPayload,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		FMaterialGraphCommandResult Copied = CopySelection(
 			Material, NodeIds, OutPayload);
@@ -1781,7 +1789,7 @@ namespace Durin::Editor::Material
 		FMaterialGraphPresentation BeforePresentation;
 		FMaterialGraphPresentation CurrentPresentation;
 		std::unordered_set<FGuid> NodeIds;
-		FTransactionManager* Transactions = nullptr;
+		DTransactor* Transactions = nullptr;
 		bool bMaterialOutput = false;
 		bool bActive = false;
 	};
@@ -1799,7 +1807,7 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphMoveSession::Begin(
 		DMaterial& Material,
 		std::span<const FGuid> NodeIds,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		if (Impl->bActive) return MakeRejected("A material graph move is already active.");
 		if (!IsValid(&Material))
@@ -1808,7 +1816,7 @@ namespace Durin::Editor::Material
 		if (NodeIds.empty() || NodeIds.size() > MaterialProgramMaxNodeCount)
 			return MakeRejected("The material graph move selection is empty or exceeds the node bound.");
 		if (Transactions && Transactions->HasPendingOperation())
-			return MakeRejected("The editor transaction manager is busy.");
+			return MakeRejected("The editor transactor is busy.");
 		Impl->NodeIds.clear();
 		for (const FGuid& Id : NodeIds)
 		{
@@ -1831,14 +1839,14 @@ namespace Durin::Editor::Material
 
 	auto FMaterialGraphMoveSession::BeginMaterialOutput(
 		DMaterial& Material,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		if (Impl->bActive) return MakeRejected("A material graph move is already active.");
 		if (!IsValid(&Material))
 			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
 				.Message = "The material graph owner is no longer available."};
 		if (Transactions && Transactions->HasPendingOperation())
-			return MakeRejected("The editor transaction manager is busy.");
+			return MakeRejected("The editor transactor is busy.");
 		Impl->Material = &Material;
 		Impl->Program = *Material.GetMaterialProgram();
 		Impl->BeforePresentation = Material.GetMaterialGraphPresentation();
@@ -1903,11 +1911,11 @@ namespace Durin::Editor::Material
 				.Message = "The material graph owner is no longer available."};
 		}
 		if (Impl->Transactions && Impl->Transactions->HasPendingOperation())
-			return MakeRejected("The editor transaction manager is busy.");
+			return MakeRejected("The editor transactor is busy.");
 		const bool bChanged = Impl->BeforePresentation != Impl->CurrentPresentation;
 		if (bChanged && Impl->Transactions)
 		{
-			const bool bRecorded = Impl->Transactions->CommitApplied(
+			const auto bRecorded = Impl->Transactions->CommitApplied(
 				std::make_unique<FMaterialGraphTransaction>(
 					*Material,
 					Impl->Program,
@@ -1955,7 +1963,7 @@ namespace Durin::Editor::Material
 		FMaterialParameterValue CurrentValue;
 		FMaterialGraphPresentation Presentation;
 		FMaterialProgram Program;
-		FTransactionManager* Transactions = nullptr;
+		DTransactor* Transactions = nullptr;
 		bool bActive = false;
 	};
 
@@ -1972,14 +1980,14 @@ namespace Durin::Editor::Material
 	auto FMaterialGraphParameterEditSession::Begin(
 		DMaterial& Material,
 		const FGuid& ParameterId,
-		FTransactionManager* Transactions) -> FMaterialGraphCommandResult
+		DTransactor* Transactions) -> FMaterialGraphCommandResult
 	{
 		if (Impl->bActive) return MakeRejected("A material parameter edit is already active.");
 		if (!IsValid(&Material))
 			return {.Status = EMaterialGraphCommandStatus::StaleOwner,
 				.Message = "The material graph owner is no longer available."};
 		if (Transactions && Transactions->HasPendingOperation())
-			return MakeRejected("The editor transaction manager is busy.");
+			return MakeRejected("The editor transactor is busy.");
 		const std::vector Dependencies = InspectMaterialParameterDependencies(
 			*Material.GetMaterialProgram(), Material.GetParameterDefinitions());
 		if (std::ranges::none_of(Dependencies, [&](const auto& Dependency) {
@@ -2037,11 +2045,11 @@ namespace Durin::Editor::Material
 				.Message = "The material graph owner is no longer available."};
 		}
 		if (Impl->Transactions && Impl->Transactions->HasPendingOperation())
-			return MakeRejected("The editor transaction manager is busy.");
+			return MakeRejected("The editor transactor is busy.");
 		const bool bChanged = Impl->BeforeValue != Impl->CurrentValue;
 		if (bChanged && Impl->Transactions)
 		{
-			const bool bRecorded = Impl->Transactions->CommitApplied(
+			const auto bRecorded = Impl->Transactions->CommitApplied(
 				std::make_unique<FMaterialGraphTransaction>(
 					*Material, Impl->Program, Impl->Presentation,
 					Impl->Program, Impl->Presentation, false,

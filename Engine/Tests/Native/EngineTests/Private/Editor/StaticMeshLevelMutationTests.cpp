@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include "Editor/EditorTransactionTestSupport.h"
 
 #include "Actors/CameraActor.h"
 #include "Actors/StaticMeshActor.h"
@@ -78,8 +79,8 @@ TEST(FTerrainPlacementTests, PlacesOneRevisionAtomicallyAndRestoresSavedState)
 	const std::array<uint16, 6> Samples{0, 10'000, 20'000, 30'000, 65'535, 40'000};
 	std::string Error;
 	ASSERT_TRUE(Heightmap->InitializeFromSamples(3, 2, Samples, Error)) << Error;
-	Durin::Editor::FTransactionManager Transactions;
-	Transactions.EstablishSavedState(*Fixture.Package);
+	Durin::Tests::FTestTransactorOwner Transactions;
+	Transactions->EstablishSavedState(*Fixture.Package);
 	auto Request = Durin::Editor::Level::FTerrainPlacement::CaptureTarget(*Fixture.Level);
 	Request.ActorName = "GoldenTerrain";
 	Request.Heightmap = Heightmap;
@@ -92,20 +93,20 @@ TEST(FTerrainPlacementTests, PlacesOneRevisionAtomicallyAndRestoresSavedState)
 	const auto Plan = Durin::Editor::Level::FTerrainPlacement::Plan(Request);
 	ASSERT_TRUE(Plan) << Plan.Diagnostic.Message;
 	const auto Result = Durin::Editor::Level::FTerrainPlacement::Execute(
-		Plan, {Fixture.Level, &Transactions});
+		Plan, {Fixture.Level, Transactions.Get()});
 	ASSERT_TRUE(Result) << Result.Diagnostic.Message;
 	ASSERT_NE(Result.Actor.Get(), nullptr);
 	EXPECT_EQ(Result.Actor->GetTerrainComponent()->GetHeightmap(), Heightmap);
 	EXPECT_DOUBLE_EQ(Result.Actor->GetTerrainComponent()->GetSpacingX(), 2.0);
 	EXPECT_EQ(Result.Actor->GetActorTransform().Translation, Durin::FVector3(4.0, 5.0, 6.0));
 	EXPECT_TRUE(Fixture.Package->IsDirty());
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Fixture.Level->FindActorByName("GoldenTerrain"), nullptr);
 	EXPECT_FALSE(Fixture.Package->IsDirty());
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_NE(Fixture.Level->FindActorByName("GoldenTerrain"), nullptr);
 	EXPECT_TRUE(Fixture.Package->IsDirty());
-	Transactions.Clear();
+	Transactions->Reset();
 }
 
 TEST(FTerrainPlacementTests, RejectsStaleReadOnlyAndInvalidRequestsWithoutMutation)
@@ -202,8 +203,8 @@ TEST(FGrayboxOpenArenaTests, RejectsInvalidDimensionsAndDegenerateBounds)
 TEST(FStaticMeshLevelMutationTests, AppliesOneAtomicBatchAndRestoresSavedRevision)
 {
 	FLevelFixture Fixture;
-	Durin::Editor::FTransactionManager Transactions;
-	Transactions.EstablishSavedState(*Fixture.Package);
+	Durin::Tests::FTestTransactorOwner Transactions;
+	Transactions->EstablishSavedState(*Fixture.Package);
 	Durin::FTransform SecondTransform;
 	SecondTransform.Translation = {3.0, 4.0, 5.0};
 	auto Request = Durin::Editor::Level::FStaticMeshLevelMutations::CaptureTarget(*Fixture.Level);
@@ -213,23 +214,23 @@ TEST(FStaticMeshLevelMutationTests, AppliesOneAtomicBatchAndRestoresSavedRevisio
 	const auto Plan = Durin::Editor::Level::FStaticMeshLevelMutations::Plan(Request);
 	ASSERT_TRUE(Plan) << Plan.Diagnostic.Message;
 	ASSERT_TRUE(Plan.bHasChanges);
-	const auto Result = Durin::Editor::Level::FStaticMeshLevelMutations::Execute(Plan, {Fixture.Level, &Transactions});
+	const auto Result = Durin::Editor::Level::FStaticMeshLevelMutations::Execute(Plan, {Fixture.Level, Transactions.Get()});
 	ASSERT_TRUE(Result) << Result.Diagnostic.Message;
 	EXPECT_TRUE(Result.bChanged);
 	EXPECT_NE(Fixture.Level->FindActorByName("Floor"), nullptr);
 	EXPECT_NE(Fixture.Level->FindActorByName("Wall"), nullptr);
 	EXPECT_TRUE(Fixture.Package->IsDirty());
-	EXPECT_EQ(Transactions.GetUndoDescription(), "Create graybox pieces");
+	EXPECT_EQ(Transactions->GetUndoDescription(), "Create graybox pieces");
 
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(Fixture.Level->FindActorByName("Floor"), nullptr);
 	EXPECT_EQ(Fixture.Level->FindActorByName("Wall"), nullptr);
 	EXPECT_FALSE(Fixture.Package->IsDirty());
-	ASSERT_TRUE(Transactions.Redo());
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_NE(Fixture.Level->FindActorByName("Floor"), nullptr);
 	EXPECT_NE(Fixture.Level->FindActorByName("Wall"), nullptr);
 	EXPECT_TRUE(Fixture.Package->IsDirty());
-	Transactions.Clear();
+	Transactions->Reset();
 }
 
 TEST(FStaticMeshLevelMutationTests, UpdatesRenamesAndRemovesSupportedActors)
@@ -241,8 +242,8 @@ TEST(FStaticMeshLevelMutationTests, UpdatesRenamesAndRemovesSupportedActors)
 	ASSERT_NE(UpdateActor, nullptr);
 	ASSERT_NE(RenameActor, nullptr);
 	ASSERT_NE(RemoveActor, nullptr);
-	Durin::Editor::FTransactionManager Transactions;
-	Transactions.EstablishSavedState(*Fixture.Package);
+	Durin::Tests::FTestTransactorOwner Transactions;
+	Transactions->EstablishSavedState(*Fixture.Package);
 
 	Durin::FTransform ChangedTransform;
 	ChangedTransform.Translation = {8.0, 1.0, 2.0};
@@ -254,18 +255,18 @@ TEST(FStaticMeshLevelMutationTests, UpdatesRenamesAndRemovesSupportedActors)
 	};
 	const auto Plan = Durin::Editor::Level::FStaticMeshLevelMutations::Plan(Request);
 	ASSERT_TRUE(Plan) << Plan.Diagnostic.Message;
-	ASSERT_TRUE(Durin::Editor::Level::FStaticMeshLevelMutations::Execute(Plan, {Fixture.Level, &Transactions}));
+	ASSERT_TRUE(Durin::Editor::Level::FStaticMeshLevelMutations::Execute(Plan, {Fixture.Level, Transactions.Get()}));
 	EXPECT_DOUBLE_EQ(UpdateActor->GetActorTransform().Translation.x, 8.0);
 	EXPECT_EQ(Fixture.Level->FindActorByName("RenameMe"), nullptr);
 	EXPECT_NE(Fixture.Level->FindActorByName("Renamed"), nullptr);
 	EXPECT_EQ(Fixture.Level->FindActorByName("RemoveMe"), nullptr);
 
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_DOUBLE_EQ(UpdateActor->GetActorTransform().Translation.x, 0.0);
 	EXPECT_NE(Fixture.Level->FindActorByName("RenameMe"), nullptr);
 	EXPECT_EQ(Fixture.Level->FindActorByName("Renamed"), nullptr);
 	EXPECT_NE(Fixture.Level->FindActorByName("RemoveMe"), nullptr);
-	Transactions.Clear();
+	Transactions->Reset();
 }
 
 TEST(FStaticMeshLevelMutationTests, RejectsStalePlansWithoutMutation)
@@ -277,12 +278,12 @@ TEST(FStaticMeshLevelMutationTests, RejectsStalePlansWithoutMutation)
 	ASSERT_TRUE(Plan);
 	Fixture.Level->SpawnActor<Durin::ACameraActor>("ExternalChange");
 
-	Durin::Editor::FTransactionManager Transactions;
-	const auto Result = Durin::Editor::Level::FStaticMeshLevelMutations::Execute(Plan, {Fixture.Level, &Transactions});
+	Durin::Tests::FTestTransactorOwner Transactions;
+	const auto Result = Durin::Editor::Level::FStaticMeshLevelMutations::Execute(Plan, {Fixture.Level, Transactions.Get()});
 	EXPECT_FALSE(Result);
 	EXPECT_EQ(Result.Diagnostic.Error, Durin::Editor::Level::EStaticMeshLevelMutationError::StaleTarget);
 	EXPECT_EQ(Fixture.Level->FindActorByName("Planned"), nullptr);
-	EXPECT_FALSE(Transactions.CanUndo());
+	EXPECT_FALSE(Transactions->CanUndo());
 }
 
 TEST(FStaticMeshLevelMutationTests, SuppressesNoOpAndRejectsUnsupportedGraphs)
@@ -290,7 +291,7 @@ TEST(FStaticMeshLevelMutationTests, SuppressesNoOpAndRejectsUnsupportedGraphs)
 	FLevelFixture Fixture;
 	auto* Actor = Fixture.Level->SpawnActor<Durin::AStaticMeshActor>("Stable");
 	ASSERT_NE(Actor, nullptr);
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	auto NoOp = Durin::Editor::Level::FStaticMeshLevelMutations::CaptureTarget(*Fixture.Level);
 	NoOp.Mutations.push_back({
 		.Kind = Durin::Editor::Level::EStaticMeshLevelMutationKind::Update,
@@ -300,10 +301,10 @@ TEST(FStaticMeshLevelMutationTests, SuppressesNoOpAndRejectsUnsupportedGraphs)
 	const auto NoOpPlan = Durin::Editor::Level::FStaticMeshLevelMutations::Plan(NoOp);
 	ASSERT_TRUE(NoOpPlan);
 	EXPECT_FALSE(NoOpPlan.bHasChanges);
-	const auto NoOpResult = Durin::Editor::Level::FStaticMeshLevelMutations::Execute(NoOpPlan, {Fixture.Level, &Transactions});
+	const auto NoOpResult = Durin::Editor::Level::FStaticMeshLevelMutations::Execute(NoOpPlan, {Fixture.Level, Transactions.Get()});
 	EXPECT_TRUE(NoOpResult);
 	EXPECT_FALSE(NoOpResult.bChanged);
-	EXPECT_FALSE(Transactions.CanUndo());
+	EXPECT_FALSE(Transactions->CanUndo());
 
 	ASSERT_NE(Actor->AddInstanceComponent(Durin::DSceneComponent::StaticClass(), "Unsupported"), nullptr);
 	auto Remove = Durin::Editor::Level::FStaticMeshLevelMutations::CaptureTarget(*Fixture.Level);
@@ -320,15 +321,15 @@ TEST(FStaticMeshLevelMutationTests, RejectsReadOnlyAndReplacedDocumentExecution)
 	Request.Mutations = {MakeCreate("Deferred")};
 	const auto Plan = Durin::Editor::Level::FStaticMeshLevelMutations::Plan(Request);
 	ASSERT_TRUE(Plan);
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 
 	const auto ReadOnly = Durin::Editor::Level::FStaticMeshLevelMutations::Execute(
-		Plan, {.OpenLevel = Fixture.Level, .Transactions = &Transactions, .bReadOnly = true});
+		Plan, {.OpenLevel = Fixture.Level, .Transactions = Transactions.Get(), .bReadOnly = true});
 	EXPECT_FALSE(ReadOnly);
 	EXPECT_EQ(ReadOnly.Diagnostic.Error, Durin::Editor::Level::EStaticMeshLevelMutationError::ReadOnly);
 	FLevelFixture Replacement;
 	const auto Replaced = Durin::Editor::Level::FStaticMeshLevelMutations::Execute(
-		Plan, {.OpenLevel = Replacement.Level, .Transactions = &Transactions});
+		Plan, {.OpenLevel = Replacement.Level, .Transactions = Transactions.Get()});
 	EXPECT_FALSE(Replaced);
 	EXPECT_EQ(Replaced.Diagnostic.Error, Durin::Editor::Level::EStaticMeshLevelMutationError::StaleTarget);
 	EXPECT_EQ(Fixture.Level->FindActorByName("Deferred"), nullptr);
@@ -337,20 +338,20 @@ TEST(FStaticMeshLevelMutationTests, RejectsReadOnlyAndReplacedDocumentExecution)
 TEST(FStaticMeshLevelMutationTests, RedoRefusesNameCollisionWithoutChangingHistory)
 {
 	FLevelFixture Fixture;
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	auto Request = Durin::Editor::Level::FStaticMeshLevelMutations::CaptureTarget(*Fixture.Level);
 	Request.Mutations = {MakeCreate("Managed")};
 	const auto Plan = Durin::Editor::Level::FStaticMeshLevelMutations::Plan(Request);
 	ASSERT_TRUE(Plan);
-	ASSERT_TRUE(Durin::Editor::Level::FStaticMeshLevelMutations::Execute(Plan, {Fixture.Level, &Transactions}));
-	ASSERT_TRUE(Transactions.Undo());
+	ASSERT_TRUE(Durin::Editor::Level::FStaticMeshLevelMutations::Execute(Plan, {Fixture.Level, Transactions.Get()}));
+	ASSERT_TRUE(Transactions->Undo());
 	auto* Collision = Fixture.Level->SpawnActor<Durin::ACameraActor>("Managed");
 	ASSERT_NE(Collision, nullptr);
 
-	EXPECT_FALSE(Transactions.Redo());
-	EXPECT_TRUE(Transactions.CanRedo());
+	EXPECT_FALSE(Transactions->Redo());
+	EXPECT_TRUE(Transactions->CanRedo());
 	EXPECT_EQ(Fixture.Level->FindActorByName("Managed"), Collision);
-	Transactions.Clear();
+	Transactions->Reset();
 }
 
 TEST(FStaticMeshLevelMutationTests, RejectsUnavailableAssetBeforeMutation)
@@ -391,8 +392,8 @@ TEST(FStaticMeshLevelMutationTests, RollsBackEveryInjectedLiveMutationFailure)
 		ASSERT_NE(RenameActor, nullptr);
 		ASSERT_NE(RemoveActor, nullptr);
 		ASSERT_NE(UpdateActor, nullptr);
-		Durin::Editor::FTransactionManager Transactions;
-		Transactions.EstablishSavedState(*Fixture.Package);
+		Durin::Tests::FTestTransactorOwner Transactions;
+		Transactions->EstablishSavedState(*Fixture.Package);
 		Durin::FTransform ChangedTransform;
 		ChangedTransform.Translation = {9.0, 8.0, 7.0};
 		auto Request = Durin::Editor::Level::FStaticMeshLevelMutations::CaptureTarget(*Fixture.Level);
@@ -407,9 +408,9 @@ TEST(FStaticMeshLevelMutationTests, RollsBackEveryInjectedLiveMutationFailure)
 		Durin::Editor::Level::Testing::SetStaticMeshLevelMutationFailurePoint(FailurePoint);
 
 		const auto Result = Durin::Editor::Level::FStaticMeshLevelMutations::Execute(
-			Plan, {Fixture.Level, &Transactions});
+			Plan, {Fixture.Level, Transactions.Get()});
 		EXPECT_FALSE(Result);
-		EXPECT_FALSE(Transactions.CanUndo());
+		EXPECT_FALSE(Transactions->CanUndo());
 		EXPECT_NE(Fixture.Level->FindActorByName("RenameSource"), nullptr);
 		EXPECT_EQ(Fixture.Level->FindActorByName("RenameDestination"), nullptr);
 		EXPECT_NE(Fixture.Level->FindActorByName("RemoveSource"), nullptr);
@@ -419,6 +420,6 @@ TEST(FStaticMeshLevelMutationTests, RollsBackEveryInjectedLiveMutationFailure)
 		ASSERT_NE(RestoredUpdate, nullptr);
 		EXPECT_DOUBLE_EQ(RestoredUpdate->GetActorTransform().Translation.x, 0.0);
 		EXPECT_FALSE(Fixture.Package->IsDirty());
-		Transactions.Clear();
+		Transactions->Reset();
 	}
 }

@@ -49,7 +49,7 @@
 
 namespace
 {
-	class FCountingTransaction final : public Durin::Editor::ITransaction
+	class FCountingTransaction final : public Durin::Editor::ITransactionCustomChange
 	{
 	public:
 		explicit FCountingTransaction(int& InValue, int InDelta = 1) : Value(InValue), Delta(InDelta) {}
@@ -69,7 +69,7 @@ namespace
 		bool bFailUndo = false;
 		bool bFailRedo = false;
 	};
-	class FControlledTransaction final : public Durin::Editor::ITransaction
+	class FControlledTransaction final : public Durin::Editor::ITransactionCustomChange
 	{
 	public:
 		FControlledTransaction(int& InValue, FTransactionControl& InControl) : Value(InValue), Control(InControl) {}
@@ -91,7 +91,7 @@ namespace
 		FTransactionControl& Control;
 	};
 
-	class FPackageCountingTransaction final : public Durin::Editor::ITransaction
+	class FPackageCountingTransaction final : public Durin::Editor::ITransactionCustomChange
 	{
 	public:
 		FPackageCountingTransaction(

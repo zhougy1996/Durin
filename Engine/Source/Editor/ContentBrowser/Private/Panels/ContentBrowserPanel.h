@@ -31,7 +31,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		using FFixUpAssets =
 			std::function<Asset::FAssetResult(std::span<const FAssetPath>)>;
 		using FExecuteTransaction =
-			std::function<bool(std::unique_ptr<::Durin::Editor::ITransaction>)>;
+			std::function<bool(std::unique_ptr<::Durin::Editor::ITransactionCustomChange>)>;
 		using FGetMountedContentMutationRevision = std::function<uint64()>;
 		using FNotifyMountedContentMutation = std::function<void()>;
 		using FQueryReimport = std::function<

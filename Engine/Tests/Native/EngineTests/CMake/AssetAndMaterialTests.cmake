@@ -61,6 +61,7 @@ durin_add_engine_functional_test(EditorOperationTests
 	SOURCES
 		Private/Editor/CompensatingAsyncOperationTests.cpp
 		Private/Editor/FactoryTests.cpp
+		Private/Editor/TransactionRecordTests.cpp
 	LIBRARIES AssetTools DurinEd
 )
 

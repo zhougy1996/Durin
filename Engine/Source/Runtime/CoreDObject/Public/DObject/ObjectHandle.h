@@ -23,6 +23,8 @@ namespace Durin
 
 		uint32 Index = InvalidIndex;
 		uint32 Generation = 0;
+
+		friend auto operator==(const FObjectHandle&, const FObjectHandle&) -> bool = default;
 	};
 
 	static_assert(sizeof(FObjectHandle) == sizeof(uint64));

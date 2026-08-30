@@ -1,6 +1,7 @@
 #include "Panels/ActorAttachmentTransaction.h"
 
 #include "Engine/Actor.h"
+#include "DObject/ObjectLifecycle.h"
 
 namespace Durin::Editor::Level
 {
@@ -83,6 +84,16 @@ namespace Durin::Editor::Level
 		if (Operation == ::Durin::Editor::ETransactionOperation::Undo)
 			return std::format("Restore hierarchy for {} actor(s)", Entries.size());
 		return std::format("{} {} actor(s)", bAttaching ? "Attach" : "Detach", Entries.size());
+	}
+
+	auto FActorAttachmentTransaction::AddReferencedObjects(
+		FReferenceCollector& Collector) const -> void
+	{
+		for (const FEntry& Entry : Entries)
+			for (DObject* Object : {static_cast<DObject*>(Entry.Actor.Get()),
+				static_cast<DObject*>(Entry.BeforeParent.Get()),
+				static_cast<DObject*>(Entry.AfterParent.Get())})
+				if (Object) Collector.AddReferencedObject(Object);
 	}
 
 	auto FActorAttachmentTransaction::Apply(bool bAfter) -> bool

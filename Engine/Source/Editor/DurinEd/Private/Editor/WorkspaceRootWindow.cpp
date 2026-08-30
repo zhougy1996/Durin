@@ -127,7 +127,7 @@ namespace Durin::Editor
 		{
 			if (DPackage* Package = Object->GetPackage())
 			{
-				FTransactionManager& Transactions = GEditor->GetTransactionManager();
+				DTransactor& Transactions = *GEditor->GetTransactor();
 				if (!Transactions.GetPackageRevisionState(*Package))
 				{
 					if (Package->IsDirty()) Transactions.InvalidateSavedState(*Package);
@@ -162,7 +162,7 @@ namespace Durin::Editor
 		const Asset::FAssetResult Result = Asset::SavePackage(Object->GetPackage());
 		if (Result)
 		{
-			if (GEditor) GEditor->GetTransactionManager().MarkSaved(*Object->GetPackage());
+			if (GEditor) GEditor->GetTransactor()->MarkSaved(*Object->GetPackage());
 			return true;
 		}
 		if (ReportError) ReportError(Result.Message);
@@ -174,41 +174,41 @@ namespace Durin::Editor
 	{
 		if (!CanSave(Object)) return false;
 		if (BeforeDiscard) BeforeDiscard();
-		if (GEditor) GEditor->GetTransactionManager().ForgetPackage(*Object->GetPackage());
+		if (GEditor) GEditor->GetTransactor()->ForgetPackage(*Object->GetPackage());
 		Object->GetPackage()->ClearDirty();
 		return true;
 	}
 
 	auto FEditableAssetDocumentModel::CanUndo() const -> bool
 	{
-		return GEditor && GEditor->GetTransactionManager().CanUndo();
+		return GEditor && GEditor->GetTransactor()->CanUndo();
 	}
 
 	auto FEditableAssetDocumentModel::CanRedo() const -> bool
 	{
-		return GEditor && GEditor->GetTransactionManager().CanRedo();
+		return GEditor && GEditor->GetTransactor()->CanRedo();
 	}
 
 	auto FEditableAssetDocumentModel::GetUndoDescription() const -> std::string_view
 	{
 		return CanUndo()
-			? GEditor->GetTransactionManager().GetUndoDescription() : std::string_view{};
+			? GEditor->GetTransactor()->GetUndoDescription() : std::string_view{};
 	}
 
 	auto FEditableAssetDocumentModel::GetRedoDescription() const -> std::string_view
 	{
 		return CanRedo()
-			? GEditor->GetTransactionManager().GetRedoDescription() : std::string_view{};
+			? GEditor->GetTransactor()->GetRedoDescription() : std::string_view{};
 	}
 
 	auto FEditableAssetDocumentModel::Undo() -> bool
 	{
-		return CanUndo() && GEditor->GetTransactionManager().Undo();
+		return CanUndo() && GEditor->GetTransactor()->Undo();
 	}
 
 	auto FEditableAssetDocumentModel::Redo() -> bool
 	{
-		return CanRedo() && GEditor->GetTransactionManager().Redo();
+		return CanRedo() && GEditor->GetTransactor()->Redo();
 	}
 
 	auto FReadOnlyAssetDocumentModel::Activate(

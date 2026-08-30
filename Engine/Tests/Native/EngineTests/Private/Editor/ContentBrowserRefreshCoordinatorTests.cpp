@@ -1,4 +1,6 @@
 #include <gtest/gtest.h>
+#include "Editor/EditorTransactionTestSupport.h"
+#include "Editor/EditorTransactionTestSupport.h"
 
 #include "Editor/Transaction.h"
 #include "Panels/ContentBrowserRefreshCoordinator.h"
@@ -7,7 +9,7 @@ using namespace Durin::Editor::ContentBrowser::Private;
 
 namespace
 {
-	class FRefreshTestTransaction final : public Durin::Editor::ITransaction
+	class FRefreshTestTransaction final : public Durin::Editor::ITransactionCustomChange
 	{
 	public:
 		explicit FRefreshTestTransaction(bool bInMutatesMountedContent)
@@ -34,40 +36,40 @@ namespace
 TEST(FContentBrowserRefreshCoordinatorTests,
 	OrdinaryTransactionsNeverPublishMountedContentInvalidation)
 {
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	const uint64 InitialRevision =
-		Transactions.GetMountedContentMutationRevision();
-	ASSERT_TRUE(Transactions.Execute(
+		Transactions->GetMountedContentMutationRevision();
+	ASSERT_TRUE(Transactions->Execute(
 		std::make_unique<FRefreshTestTransaction>(false)));
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(), InitialRevision);
-	ASSERT_TRUE(Transactions.Undo());
+		Transactions->GetMountedContentMutationRevision(), InitialRevision);
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(), InitialRevision);
-	ASSERT_TRUE(Transactions.Redo());
+		Transactions->GetMountedContentMutationRevision(), InitialRevision);
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(), InitialRevision);
+		Transactions->GetMountedContentMutationRevision(), InitialRevision);
 }
 
 TEST(FContentBrowserRefreshCoordinatorTests,
 	MountedContentTransactionsPublishEverySuccessfulTransition)
 {
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	const uint64 InitialRevision =
-		Transactions.GetMountedContentMutationRevision();
-	ASSERT_TRUE(Transactions.Execute(
+		Transactions->GetMountedContentMutationRevision();
+	ASSERT_TRUE(Transactions->Execute(
 		std::make_unique<FRefreshTestTransaction>(true)));
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(), InitialRevision + 1);
-	ASSERT_TRUE(Transactions.Undo());
+		Transactions->GetMountedContentMutationRevision(), InitialRevision + 1);
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(), InitialRevision + 2);
-	ASSERT_TRUE(Transactions.Redo());
+		Transactions->GetMountedContentMutationRevision(), InitialRevision + 2);
+	ASSERT_TRUE(Transactions->Redo());
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(), InitialRevision + 3);
-	Transactions.NotifyMountedContentMutation();
+		Transactions->GetMountedContentMutationRevision(), InitialRevision + 3);
+	Transactions->NotifyMountedContentMutation();
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(), InitialRevision + 4);
+		Transactions->GetMountedContentMutationRevision(), InitialRevision + 4);
 }
 
 TEST(FContentBrowserRefreshCoordinatorTests,

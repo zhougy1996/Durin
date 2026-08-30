@@ -1,4 +1,5 @@
 #include "ViewportTestSupport.h"
+#include "Editor/EditorTransactionTestSupport.h"
 #include "Actors/GameMode.h"
 #include "Actors/PlayerStart.h"
 #include "LevelEditorViewportEditing.h"
@@ -21,7 +22,7 @@ namespace
 		auto Enter(Durin::Editor::Level::FLevelEditorContext&) -> void override { ++Probe->EnterCount; }
 		auto Exit(Durin::Editor::Level::FLevelEditorContext&, bool bForced) -> void override { ++Probe->ExitCount; Probe->ForcedExitCount += bForced; }
 		auto Tick(Durin::Editor::Level::FLevelEditorContext&, Durin::Editor::Level::FLevelEditorViewportClient&, const Durin::FSceneView&,
-			Durin::Editor::Level::FLevelEditorViewportInput&, Durin::Editor::FTransactionManager*) -> bool override { ++Probe->TickCount; return true; }
+			Durin::Editor::Level::FLevelEditorViewportInput&, Durin::DTransactor*) -> bool override { ++Probe->TickCount; return true; }
 	private:
 		std::shared_ptr<FEditModeProbe> Probe;
 	};
@@ -125,30 +126,30 @@ TEST(FTransformGizmoTests, ManipulatesGenericTargetsAndCommitsWithoutActorKnowle
 	Durin::FVector2f HandleScreen;
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, InitialLocation, CenterScreen));
 	ASSERT_TRUE(Durin::SceneViewProjection::ProjectWorldToViewport(View, HandlePoint, HandleScreen));
-	Durin::Editor::FTransactionManager Transactions;
+	Durin::Tests::FTestTransactorOwner Transactions;
 	const uint64 MountedContentRevision =
-		Transactions.GetMountedContentMutationRevision();
+		Transactions->GetMountedContentMutationRevision();
 	Input.bFocused = true;
 	Input.bHovered = true;
 	Input.bLeftMousePressed = true;
 	Input.bLeftMouseDown = true;
 	Input.MousePosition = HandleScreen;
-	Gizmo.Update(Targets, View, Input, &Transactions);
+	Gizmo.Update(Targets, View, Input, Transactions.Get());
 	ASSERT_TRUE(Gizmo.IsDragging());
 	Input.bLeftMousePressed = false;
 	Input.MousePosition += Durin::Math::Normalize(HandleScreen - CenterScreen) * 30.0f;
-	Gizmo.Update(Targets, View, Input, &Transactions);
+	Gizmo.Update(Targets, View, Input, Transactions.Get());
 	EXPECT_GT(Durin::Math::Length(Target->Transform.Translation - InitialLocation), 0.001);
 	Input.bLeftMouseDown = false;
-	Gizmo.Update(Targets, View, Input, &Transactions);
-	ASSERT_TRUE(Transactions.CanUndo());
+	Gizmo.Update(Targets, View, Input, Transactions.Get());
+	ASSERT_TRUE(Transactions->CanUndo());
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(),
+		Transactions->GetMountedContentMutationRevision(),
 		MountedContentRevision);
-	EXPECT_EQ(Transactions.GetUndoDescription(), "Translate 'Probe'");
-	ASSERT_TRUE(Transactions.Undo());
+	EXPECT_EQ(Transactions->GetUndoDescription(), "Translate 'Probe'");
+	ASSERT_TRUE(Transactions->Undo());
 	EXPECT_EQ(
-		Transactions.GetMountedContentMutationRevision(),
+		Transactions->GetMountedContentMutationRevision(),
 		MountedContentRevision);
 	ExpectVectorNear(Target->Transform.Translation, InitialLocation);
 	Target->Capabilities = Durin::Editor::Level::ETransformGizmoCapability::Translate;
@@ -350,8 +351,8 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	Durin::FVector2f HandleScreen;
 	ASSERT_TRUE(Client.ProjectWorldToViewport(InitialLocation, {800.0f, 600.0f}, CenterScreen));
 	ASSERT_TRUE(Client.ProjectWorldToViewport(XHandlePoint, {800.0f, 600.0f}, HandleScreen));
-	Durin::Editor::FTransactionManager TransformTransactions;
-	TransformTransactions.EstablishSavedState(*Package);
+	Durin::Tests::FTestTransactorOwner TransformTransactions;
+	TransformTransactions->EstablishSavedState(*Package);
 	Durin::Editor::Level::FLevelEditorViewportInput DragInput;
 	DragInput.bFocused = true;
 	DragInput.bHovered = true;
@@ -359,56 +360,56 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	DragInput.bLeftMouseDown = true;
 	DragInput.ViewportSize = {800.0f, 600.0f};
 	DragInput.MousePosition = HandleScreen;
-	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
 	ASSERT_TRUE(Client.GetTransformGizmo().IsDragging());
 	DragInput.bLeftMousePressed = false;
 	DragInput.MousePosition += Durin::Math::Normalize(HandleScreen - CenterScreen) * 30.0f;
-	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
 	EXPECT_GT(Durin::Math::Length(Actor->GetActorTransform().Translation - InitialLocation), 0.001);
 	Durin::FSceneView DraggedView;
 	ASSERT_TRUE(Client.CalcSceneView(800, 600, DraggedView));
 	ExpectVectorNear(Durin::FVector3(DraggedView.OverlayPrimitives.front().LocalToWorld[3]), Actor->GetActorTransform().Translation);
 	DragInput.bCancel = true;
-	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
 	ExpectVectorNear(Actor->GetActorTransform().Translation, InitialLocation);
 	EXPECT_FALSE(Package->IsDirty());
-	EXPECT_FALSE(TransformTransactions.CanUndo());
-	EXPECT_TRUE(TransformTransactions.ConsumeEvents().empty());
+	EXPECT_FALSE(TransformTransactions->CanUndo());
+	EXPECT_TRUE(TransformTransactions->ConsumeEvents().empty());
 
 	DragInput.bCancel = false;
 	DragInput.bLeftMousePressed = true;
 	DragInput.bLeftMouseDown = true;
 	DragInput.MousePosition = HandleScreen;
-	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
 	ASSERT_TRUE(Client.GetTransformGizmo().IsDragging());
 	DragInput.bLeftMousePressed = false;
 	DragInput.bLeftMouseDown = false;
-	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
 	EXPECT_FALSE(Package->IsDirty());
-	EXPECT_FALSE(TransformTransactions.CanUndo());
-	EXPECT_TRUE(TransformTransactions.ConsumeEvents().empty());
+	EXPECT_FALSE(TransformTransactions->CanUndo());
+	EXPECT_TRUE(TransformTransactions->ConsumeEvents().empty());
 
 	DragInput.bCancel = false;
 	DragInput.bLeftMousePressed = true;
 	DragInput.bLeftMouseDown = true;
 	DragInput.MousePosition = HandleScreen;
-	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
 	ASSERT_TRUE(Client.GetTransformGizmo().IsDragging());
 	DragInput.bLeftMousePressed = false;
 	DragInput.MousePosition += Durin::Math::Normalize(HandleScreen - CenterScreen) * 30.0f;
-	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
 	DragInput.bLeftMouseDown = false;
-	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, &TransformTransactions);
-	const std::vector<Durin::Editor::FTransactionEvent> TransformEvents = TransformTransactions.ConsumeEvents();
+	Client.GetTransformGizmo().Update(Context, TranslateView, DragInput, TransformTransactions.Get());
+	const std::vector<Durin::Editor::FTransactionEvent> TransformEvents = TransformTransactions->ConsumeEvents();
 	ASSERT_EQ(TransformEvents.size(), 1);
 	EXPECT_EQ(TransformEvents.front().Description, "Translate 'Selected'");
 	EXPECT_NE(TransformEvents.front().Details.find("'Selected'"), std::string::npos);
 	EXPECT_NE(TransformEvents.front().Details.find("Location"), std::string::npos);
 	EXPECT_NE(TransformEvents.front().Details.find("Delta"), std::string::npos);
 	EXPECT_TRUE(Package->IsDirty());
-	ASSERT_TRUE(TransformTransactions.Undo());
+	ASSERT_TRUE(TransformTransactions->Undo());
 	EXPECT_FALSE(Package->IsDirty());
-	ASSERT_TRUE(TransformTransactions.Redo());
+	ASSERT_TRUE(TransformTransactions->Redo());
 	EXPECT_TRUE(Package->IsDirty());
 
 	Client.GetTransformGizmo().SetMode(Durin::Editor::Level::ETransformGizmoMode::Rotate);
