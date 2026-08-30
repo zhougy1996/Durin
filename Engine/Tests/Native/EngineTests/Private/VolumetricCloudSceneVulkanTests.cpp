@@ -351,6 +351,16 @@ namespace Durin
 			0u);
 		EXPECT_GT(GSceneCloudGraphCaptures.back().AllocationStatistics.ReuseMisses,
 			0u);
+		const auto& FinalAllocation =
+			GSceneCloudGraphCaptures.back().AllocationStatistics;
+		std::cout << "RDG_SCENE_ALLOCATION active_resources="
+			<< FinalAllocation.ActiveResources << ",retained_resources="
+			<< FinalAllocation.RetainedResources << ",active_bytes="
+			<< FinalAllocation.ActiveBytes << ",retained_bytes="
+			<< FinalAllocation.RetainedBytes << ",reuse_hits="
+			<< FinalAllocation.ReuseHits << ",reuse_misses="
+			<< FinalAllocation.ReuseMisses << ",evictions="
+			<< FinalAllocation.Evictions << '\n';
 
 		SetSceneRenderGraphCaptureSink(nullptr);
 		SetViewRenderTelemetrySink(nullptr);

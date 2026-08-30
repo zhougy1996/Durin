@@ -14,7 +14,6 @@ namespace Durin
 {
 	class FFullscreenGeometryResources;
 	class FRendererResourceCoordinator;
-	class FRendererTransientTargetPool;
 	class FRHICommandListImmediate;
 	struct FSceneView;
 
@@ -144,8 +143,7 @@ namespace Durin
 
 		FGroundTruthAmbientOcclusionRenderer(
 			FRendererResourceCoordinator& InCoordinator,
-			FFullscreenGeometryResources& InFullscreenGeometry,
-			FRendererTransientTargetPool& InTransientTargets);
+			FFullscreenGeometryResources& InFullscreenGeometry);
 		~FGroundTruthAmbientOcclusionRenderer();
 
 		FGroundTruthAmbientOcclusionRenderer(
@@ -153,9 +151,9 @@ namespace Durin
 		auto operator=(const FGroundTruthAmbientOcclusionRenderer&)
 			-> FGroundTruthAmbientOcclusionRenderer& = delete;
 
-		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height,
+		static auto DescribeTargets(uint32 Width, uint32 Height,
 			EGroundTruthAmbientOcclusionQuality Quality)
-			-> std::optional<FTargets>;
+			-> std::vector<FRHITextureCreateDesc>;
 		auto RenderRaw_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FTargets& Targets,
@@ -177,7 +175,6 @@ namespace Durin
 			FRHITexture* Surface,
 			FRHITexture* Depth,
 			const FSceneView& View) -> bool;
-		auto GetRetainedTargetBytes_RenderThread() const -> uint64;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
@@ -187,7 +184,6 @@ namespace Durin
 
 		FRendererResourceCoordinator& Coordinator;
 		FFullscreenGeometryResources& FullscreenGeometry;
-		FRendererTransientTargetPool& TransientTargets;
 		std::unique_ptr<FState> State;
 	};
 

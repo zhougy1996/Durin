@@ -67,7 +67,6 @@ namespace Durin
 		Channels.OutputCompletion = Graph.CreateToken("Scene.OutputCompletion");
 		if (Topology.bGBufferDebug)
 			GraphResources.GBufferDebug = Graph.CreateTexture(
-				"Scene.GBuffer.Debug",
 				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"GBufferDebugColor", Width, Height,
 					EPixelFormat::RGBA16_FLOAT)
@@ -75,7 +74,8 @@ namespace Durin
 						| ETextureCreateFlags::ShaderResource
 						| ETextureCreateFlags::SourceCopy),
 					.ObservationTag = static_cast<uint32>(
-						ERendererTransientTargetGroup::GBufferDebug)},
+						ERDGAllocationObservation::GBufferDebug)},
+				"Scene.GBuffer.Debug",
 				ERHIAccess::GraphicsShaderRead);
 		auto Parameters = Graph.AllocParameters<FPostProcessPassParameters>();
 		Parameters->SceneColor = {.Value = Channels.SceneColor.Handle};

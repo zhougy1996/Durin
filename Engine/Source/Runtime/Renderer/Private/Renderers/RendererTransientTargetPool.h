@@ -4,7 +4,6 @@
 #include "RenderGraph.h"
 
 #include <memory>
-#include <optional>
 #include <span>
 #include <vector>
 
@@ -12,7 +11,8 @@ namespace Durin
 {
 	class FRendererResourceCoordinator;
 
-	enum class ERendererTransientTargetGroup : uint8
+	// Attributes retained RDG bytes without participating in allocation identity.
+	enum class ERDGAllocationObservation : uint8
 	{
 		Scene,
 		GBuffer,
@@ -29,32 +29,28 @@ namespace Durin
 		Count,
 	};
 
+	// Defines the structural retained-memory ceiling for descriptor-driven RDG
+	// allocation without changing feature attribution or eviction priority.
+	struct FRendererRDGAllocationPolicy final
+	{
+		static constexpr uint64 MaximumRetainedBytes =
+			640ull * 1024ull * 1024ull;
+
+		static constexpr auto IsBatchWithinStructuralBudget(uint64 Bytes) -> bool
+		{
+			return Bytes <= MaximumRetainedBytes;
+		}
+	};
+
 	class RENDERER_API FRendererTransientTargetPool final : public FRDGAllocator
 	{
 	public:
-		struct FLease
-		{
-			std::vector<FTextureRHIRef> Textures;
-			uint64 ActiveBytes = 0;
-
-			auto Get(size_t Index) const -> FRHITexture*
-			{
-				return Index < Textures.size() ? Textures[Index].GetReference()
-					: nullptr;
-			}
-		};
-
 		explicit FRendererTransientTargetPool(
 			FRendererResourceCoordinator& InCoordinator);
 		~FRendererTransientTargetPool();
 
-		auto AcquireBundle_RenderThread(
-			ERendererTransientTargetGroup Group,
-			std::span<const FRHITextureCreateDesc> Descriptions,
-			uint64 MaximumRetainedBytes) -> std::optional<FLease>;
-		auto GetRetainedBytes_RenderThread(
-			ERendererTransientTargetGroup Group) const -> uint64;
-		auto GetTotalRetainedBytes_RenderThread() const -> uint64;
+		auto GetObservedRetainedBytes_RenderThread(
+			ERDGAllocationObservation Observation) const -> uint64;
 		auto Release_RenderThread() -> void;
 		auto Allocate(std::span<const FRDGAllocationRequest> Requests,
 			FRDGAllocatedResources& OutResources, std::string& OutError)

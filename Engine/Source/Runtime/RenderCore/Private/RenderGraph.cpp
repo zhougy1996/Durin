@@ -25,7 +25,6 @@ namespace Durin
 			FBufferRHIRef BufferOwnership;
 			FRHITextureDesc TextureDesc;
 			FRHIBufferDesc BufferDesc;
-			std::string BackingClass;
 			uint32 ObservationTag = 0;
 			ERHIAccess InitialAccess = ERHIAccess::Discard;
 			ERHIAccess FinalAccess = ERHIAccess::None;
@@ -845,7 +844,6 @@ namespace Durin
 		std::vector<FGraphExtraction> Extractions;
 		bool bEnableCulling = false;
 		FRenderGraphPrepare Prepare;
-		FRenderGraphBackingResolver Resolver;
 		FRenderGraphBudget Budget;
 		mutable FGraphParameterStorage ParameterStorage;
 		mutable bool bParameterStorageTransferred = false;
@@ -878,11 +876,9 @@ namespace Durin
 		std::vector<FRenderGraphParameterCapture> ParameterCaptures;
 		std::vector<FRenderGraphUseCapture> UseCaptures;
 		std::vector<FRenderGraphTransitionCapture> TransitionCaptures;
-		std::vector<FRenderGraphPreparationRequest> PreparationRequests;
 		std::vector<FRDGAllocationRequest> AllocationRequests;
 		std::vector<FGraphExtraction> Extractions;
 		FRenderGraphPrepare Prepare;
-		FRenderGraphBackingResolver Resolver;
 		FRenderGraphBudget Budget;
 		FGraphParameterStorage ParameterStorage;
 		FGraphParameterStorage ValueStorage;
@@ -1054,7 +1050,16 @@ namespace Durin
 		const FRenderGraphTextureDesc& Desc, std::string_view Name,
 		ERHIAccess FinalAccess) -> FRenderGraphTextureHandle
 	{
-		return CreateTexture(Name, Desc, FinalAccess);
+		const uint32 Index = static_cast<uint32>(State->Resources.size());
+		FGraphResource Resource;
+		Resource.Name = Name;
+		Resource.Kind = ERenderGraphResourceKind::Texture;
+		Resource.TextureDesc = Desc.Texture;
+		Resource.ObservationTag = Desc.ObservationTag;
+		Resource.FinalAccess = FinalAccess;
+		Resource.bRequiresBacking = true;
+		State->Resources.push_back(std::move(Resource));
+		return {State->Owner, Index};
 	}
 
 	auto FRenderGraphBuilder::CreateTexture(std::string_view Name,
@@ -1068,24 +1073,6 @@ namespace Durin
 		Resource.Texture = Texture;
 		if (Texture != nullptr) Resource.TextureDesc = DescribeTexture(*Texture);
 		Resource.FinalAccess = FinalAccess;
-		Resource.BackingClass = "prebound";
-		State->Resources.push_back(std::move(Resource));
-		return {State->Owner, Index};
-	}
-
-	auto FRenderGraphBuilder::CreateTexture(std::string_view Name,
-		const FRenderGraphTextureDesc& Desc, ERHIAccess FinalAccess)
-		-> FRenderGraphTextureHandle
-	{
-		const uint32 Index = static_cast<uint32>(State->Resources.size());
-		FGraphResource Resource;
-		Resource.Name = Name;
-		Resource.Kind = ERenderGraphResourceKind::Texture;
-		Resource.TextureDesc = Desc.Texture;
-		Resource.BackingClass = Desc.BackingClass;
-		Resource.ObservationTag = Desc.ObservationTag;
-		Resource.FinalAccess = FinalAccess;
-		Resource.bRequiresBacking = true;
 		State->Resources.push_back(std::move(Resource));
 		return {State->Owner, Index};
 	}
@@ -1139,7 +1126,16 @@ namespace Durin
 		std::string_view Name, ERHIAccess FinalAccess)
 		-> FRenderGraphBufferHandle
 	{
-		return CreateBuffer(Name, Desc, FinalAccess);
+		const uint32 Index = static_cast<uint32>(State->Resources.size());
+		FGraphResource Resource;
+		Resource.Name = Name;
+		Resource.Kind = ERenderGraphResourceKind::Buffer;
+		Resource.BufferDesc = Desc.Buffer;
+		Resource.ObservationTag = Desc.ObservationTag;
+		Resource.FinalAccess = FinalAccess;
+		Resource.bRequiresBacking = true;
+		State->Resources.push_back(std::move(Resource));
+		return {State->Owner, Index};
 	}
 
 	auto FRenderGraphBuilder::CreateBuffer(std::string_view Name,
@@ -1153,24 +1149,6 @@ namespace Durin
 		Resource.Buffer = Buffer;
 		if (Buffer != nullptr) Resource.BufferDesc = Buffer->GetDesc();
 		Resource.FinalAccess = FinalAccess;
-		Resource.BackingClass = "prebound";
-		State->Resources.push_back(std::move(Resource));
-		return {State->Owner, Index};
-	}
-
-	auto FRenderGraphBuilder::CreateBuffer(std::string_view Name,
-		const FRenderGraphBufferDesc& Desc, ERHIAccess FinalAccess)
-		-> FRenderGraphBufferHandle
-	{
-		const uint32 Index = static_cast<uint32>(State->Resources.size());
-		FGraphResource Resource;
-		Resource.Name = Name;
-		Resource.Kind = ERenderGraphResourceKind::Buffer;
-		Resource.BufferDesc = Desc.Buffer;
-		Resource.BackingClass = Desc.BackingClass;
-		Resource.ObservationTag = Desc.ObservationTag;
-		Resource.FinalAccess = FinalAccess;
-		Resource.bRequiresBacking = true;
 		State->Resources.push_back(std::move(Resource));
 		return {State->Owner, Index};
 	}
@@ -1526,12 +1504,6 @@ namespace Durin
 		-> void
 	{
 		State->Prepare = std::move(Prepare);
-	}
-
-	auto FRenderGraphBuilder::SetBackingResolver(
-		FRenderGraphBackingResolver Resolver) -> void
-	{
-		State->Resolver = std::move(Resolver);
 	}
 
 	auto FRenderGraphBuilder::SetBudget(const FRenderGraphBudget& Budget) -> void
@@ -1990,7 +1962,6 @@ namespace Durin
 		CompiledState->Owner = State->Owner;
 		CompiledState->Resources = State->Resources;
 		CompiledState->Prepare = State->Prepare;
-		CompiledState->Resolver = State->Resolver;
 		CompiledState->Extractions = State->Extractions;
 		CompiledState->Budget = State->Budget;
 		CompiledState->Passes.reserve(PassCount);
@@ -2012,7 +1983,6 @@ namespace Durin
 				Pass.ParameterCaptures.begin(), Pass.ParameterCaptures.end());
 		CompiledState->UseCaptures.reserve(DeclaredUseCount);
 		CompiledState->TransitionCaptures.reserve(DeclaredUseCount * 2);
-		CompiledState->PreparationRequests.reserve(ResourceCount);
 		CompiledState->AllocationRequests.reserve(ResourceCount);
 		for (const auto& Edge : Dependencies)
 			if (Retained[Edge.BeforePass] && Retained[Edge.AfterPass])
@@ -2023,7 +1993,7 @@ namespace Durin
 			CompiledState->ResourceLifetimes.push_back({Resource.Name,
 				std::numeric_limits<uint32>::max(), 0, Resource.bImported, true});
 			CompiledState->ResourceCaptures.push_back({ResourceIndex, Resource.Name,
-				Resource.Kind, Resource.bImported, Resource.BackingClass, "unused"});
+				Resource.Kind, Resource.bImported, "unused"});
 			auto& Capture = CompiledState->ResourceCaptures.back();
 			Capture.ValueType = Resource.ValueTypeName;
 			Capture.TextureFormat = Resource.TextureDesc.Format;
@@ -2193,30 +2163,16 @@ namespace Durin
 			{
 				Capture.Preparation = "imported";
 				Capture.AllocationDisposition = "external";
-				Capture.PhysicalAllocationId = ResourceIndex + 1;
 			}
 			else if (!Resource.bRequiresBacking)
 			{
 				Capture.Preparation = "prebound";
 				Capture.AllocationDisposition = "prebound";
-				Capture.PhysicalAllocationId = ResourceIndex + 1;
 			}
 			else
 			{
 				Capture.Preparation = "requested";
 				Capture.AllocationDisposition = "pending";
-				FRenderGraphPreparationRequest Request;
-				Request.ResourceId = ResourceIndex;
-				Request.Name = Resource.Name;
-				Request.Kind = Resource.Kind;
-				Request.Texture = {State->Owner, ResourceIndex};
-				Request.Buffer = {State->Owner, ResourceIndex};
-				Request.TextureDesc = Resource.TextureDesc;
-				Request.BufferDesc = Resource.BufferDesc;
-				Request.BackingClass = Resource.BackingClass;
-				Request.FirstPass = Lifetime.FirstPass;
-				Request.LastPass = Lifetime.LastPass;
-				CompiledState->PreparationRequests.push_back(std::move(Request));
 				CompiledState->AllocationRequests.push_back({
 					.ResourceId = ResourceIndex,
 					.Kind = Resource.Kind,
@@ -2414,8 +2370,7 @@ namespace Durin
 		for (const auto& Resource : State->ResourceCaptures)
 			Output << "resource id=" << Resource.ResourceId << " name="
 				<< Resource.Name << " kind=" << static_cast<uint32>(Resource.Kind)
-				<< " imported=" << Resource.bImported << " backing="
-				<< Resource.BackingClass << " preparation="
+				<< " imported=" << Resource.bImported << " preparation="
 				<< Resource.Preparation << " allocation="
 				<< Resource.AllocationDisposition << " allocation-id="
 				<< Resource.PhysicalAllocationId << " value-type="
@@ -2591,64 +2546,6 @@ namespace Durin
 						Candidate.Buffers[Request.ResourceId]);
 					Resource.Buffer = Resource.BufferOwnership.GetReference();
 				}
-			}
-		}
-		else if (State->Resolver && !State->PreparationRequests.empty())
-		{
-			FRenderGraphResourceBackings Candidate(State->Owner,
-				static_cast<uint32>(State->Resources.size()));
-			std::string Error;
-			if (!State->Resolver(State->PreparationRequests, Candidate, Error))
-			{
-				if (OutError != nullptr) *OutError = std::move(Error);
-				RecordDuration();
-				return false;
-			}
-			for (const auto& Request : State->PreparationRequests)
-			{
-				const bool bReady = Request.Kind == ERenderGraphResourceKind::Texture
-					? Candidate.Textures[Request.ResourceId] != nullptr
-					: Candidate.Buffers[Request.ResourceId] != nullptr;
-				if (!bReady)
-				{
-					if (OutError != nullptr)
-						*OutError = "backing resolver omitted retained resource '"
-							+ Request.Name + "'";
-					RecordDuration();
-					return false;
-				}
-				if (Request.Kind == ERenderGraphResourceKind::Texture)
-				{
-					const FRHITextureDesc Actual = DescribeTexture(
-						*Candidate.Textures[Request.ResourceId]);
-					if (!TextureBackingIsCompatible(Actual, Request.TextureDesc))
-					{
-						if (OutError != nullptr) *OutError =
-							"backing resolver returned incompatible texture '"
-							+ Request.Name + "'";
-						RecordDuration();
-						return false;
-					}
-				}
-				else
-				{
-					const auto& Actual = Candidate.Buffers[Request.ResourceId]->GetDesc();
-					if (!BufferBackingIsCompatible(Actual, Request.BufferDesc))
-					{
-						if (OutError != nullptr) *OutError =
-							"backing resolver returned incompatible buffer '"
-							+ Request.Name + "'";
-						RecordDuration();
-						return false;
-					}
-				}
-			}
-			for (const auto& Request : State->PreparationRequests)
-			{
-				auto& Resource = State->Resources[Request.ResourceId];
-				if (Request.Kind == ERenderGraphResourceKind::Texture)
-					Resource.Texture = Candidate.Textures[Request.ResourceId];
-				else Resource.Buffer = Candidate.Buffers[Request.ResourceId];
 			}
 		}
 		else if (!State->AllocationRequests.empty())
@@ -3009,27 +2906,4 @@ namespace Durin
 		return true;
 	}
 
-	FRenderGraphResourceBackings::FRenderGraphResourceBackings(
-		uint64 InOwner, uint32 Count)
-		: Owner(InOwner), Textures(Count), Buffers(Count)
-	{
-	}
-
-	auto FRenderGraphResourceBackings::SetTexture(
-		FRenderGraphTextureHandle Handle, FRHITexture* Texture) -> bool
-	{
-		if (Handle.Owner != Owner || Handle.Index >= Textures.size()
-			|| Texture == nullptr) return false;
-		Textures[Handle.Index] = Texture;
-		return true;
-	}
-
-	auto FRenderGraphResourceBackings::SetBuffer(
-		FRenderGraphBufferHandle Handle, FRHIBuffer* Buffer) -> bool
-	{
-		if (Handle.Owner != Owner || Handle.Index >= Buffers.size()
-			|| Buffer == nullptr) return false;
-		Buffers[Handle.Index] = Buffer;
-		return true;
-	}
 } // namespace Durin

@@ -23,7 +23,6 @@ namespace Durin
 	class FRHICommandListImmediate;
 	class FRenderGraphBuilder;
 	class FCompiledRenderGraph;
-	class FRenderGraphResourceBackings;
 	class FRenderGraphParameterResolver;
 	class FRenderGraphShaderParameters;
 
@@ -87,7 +86,6 @@ namespace Durin
 	struct FRenderGraphTextureDesc final
 	{
 		FRHITextureDesc Texture;
-		std::string BackingClass = "transient";
 		uint32 ObservationTag = 0;
 	};
 
@@ -95,7 +93,6 @@ namespace Durin
 	struct FRenderGraphBufferDesc final
 	{
 		FRHIBufferDesc Buffer;
-		std::string BackingClass = "transient";
 		uint32 ObservationTag = 0;
 	};
 
@@ -111,7 +108,6 @@ namespace Durin
 		friend class FRenderGraphBuilder;
 		friend class FCompiledRenderGraph;
 		friend class FRenderGraphPassResources;
-		friend class FRenderGraphResourceBackings;
 		FRenderGraphTextureHandle(uint64 InOwner, uint32 InIndex)
 			: Owner(InOwner), Index(InIndex) {}
 		uint64 Owner = 0;
@@ -130,7 +126,6 @@ namespace Durin
 		friend class FRenderGraphBuilder;
 		friend class FCompiledRenderGraph;
 		friend class FRenderGraphPassResources;
-		friend class FRenderGraphResourceBackings;
 		FRenderGraphBufferHandle(uint64 InOwner, uint32 InIndex)
 			: Owner(InOwner), Index(InIndex) {}
 		uint64 Owner = 0;
@@ -798,42 +793,6 @@ namespace Durin
 		FRDGAllocator& Allocator;
 	};
 
-	// Names one retained logical resource that requires physical backing.
-	struct FRenderGraphPreparationRequest final
-	{
-		uint32 ResourceId = 0;
-		std::string Name;
-		ERenderGraphResourceKind Kind = ERenderGraphResourceKind::Texture;
-		FRenderGraphTextureHandle Texture;
-		FRenderGraphBufferHandle Buffer;
-		FRHITextureDesc TextureDesc;
-		FRHIBufferDesc BufferDesc;
-		std::string BackingClass;
-		uint32 FirstPass = 0;
-		uint32 LastPass = 0;
-	};
-
-	// Collects one candidate complete backing publication during preparation.
-	class RENDERCORE_API FRenderGraphResourceBackings final
-	{
-	public:
-		auto SetTexture(FRenderGraphTextureHandle Handle, FRHITexture* Texture)
-			-> bool;
-		auto SetBuffer(FRenderGraphBufferHandle Handle, FRHIBuffer* Buffer)
-			-> bool;
-
-	private:
-		friend class FCompiledRenderGraph;
-		explicit FRenderGraphResourceBackings(uint64 InOwner, uint32 Count);
-		uint64 Owner = 0;
-		std::vector<FRHITexture*> Textures;
-		std::vector<FRHIBuffer*> Buffers;
-	};
-
-	using FRenderGraphBackingResolver = std::function<bool(
-		std::span<const FRenderGraphPreparationRequest>,
-		FRenderGraphResourceBackings&, std::string&)>;
-
 	// Records one immutable dependency edge in compiler diagnostics.
 	struct FRenderGraphDependency final
 	{
@@ -852,7 +811,6 @@ namespace Durin
 		std::string Name;
 		ERenderGraphResourceKind Kind = ERenderGraphResourceKind::Texture;
 		bool bImported = false;
-		std::string BackingClass;
 		std::string Preparation;
 		std::string AllocationDisposition;
 		uint64 PhysicalAllocationId = 0;
@@ -1103,10 +1061,6 @@ namespace Durin
 		auto CreateTexture(std::string_view Name, FRHITexture* Texture,
 			ERHIAccess FinalAccess = ERHIAccess::None)
 			-> FRenderGraphTextureHandle;
-		auto CreateTexture(std::string_view Name,
-			const FRenderGraphTextureDesc& Desc,
-			ERHIAccess FinalAccess = ERHIAccess::None)
-			-> FRenderGraphTextureHandle;
 		auto ImportBuffer(std::string_view Name, FRHIBuffer* Buffer,
 			ERHIAccess InitialAccess, ERHIAccess FinalAccess)
 			-> FRenderGraphBufferHandle;
@@ -1118,10 +1072,6 @@ namespace Durin
 			ERHIAccess FinalAccess = ERHIAccess::None)
 			-> FRenderGraphBufferHandle;
 		auto CreateBuffer(std::string_view Name, FRHIBuffer* Buffer,
-			ERHIAccess FinalAccess = ERHIAccess::None)
-			-> FRenderGraphBufferHandle;
-		auto CreateBuffer(std::string_view Name,
-			const FRenderGraphBufferDesc& Desc,
 			ERHIAccess FinalAccess = ERHIAccess::None)
 			-> FRenderGraphBufferHandle;
 		auto CreateToken(std::string_view Name) -> FRenderGraphTokenHandle;
@@ -1192,7 +1142,6 @@ namespace Durin
 			std::string_view Reason = "side-effect") -> void;
 		auto EnablePassCulling() -> void;
 		auto SetExecutionPreparation(FRenderGraphPrepare Prepare) -> void;
-		auto SetBackingResolver(FRenderGraphBackingResolver Resolver) -> void;
 		auto SetBudget(const FRenderGraphBudget& Budget) -> void;
 
 		template<typename ParameterStruct>

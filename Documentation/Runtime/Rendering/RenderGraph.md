@@ -4,7 +4,7 @@ Summary: Define the deterministic frame-local graph compiler and its boundary wi
 
 Modules: RenderCore, RHI
 
-Last reviewed: 2026-08-29
+Last reviewed: 2026-08-30
 
 ## Ownership Boundary
 
@@ -12,8 +12,9 @@ Last reviewed: 2026-08-29
 pass handles are valid only for the builder that created them. A successful
 compile transfers immutable resource views, pass callbacks, dependencies, and
 transition batches into `FCompiledRenderGraph`; external owners retain the
-physical RHI resources themselves. Graph-created textures and buffers may be
-declared from `FRenderGraphTextureDesc`/`FRenderGraphBufferDesc` without a
+physical RHI resources themselves. Graph-created textures and buffers use the
+description-first `CreateTexture`/`CreateBuffer` API with
+`FRenderGraphTextureDesc`/`FRenderGraphBufferDesc` and no
 physical pointer. Compilation computes retained lifetimes first;
 `FCompiledRenderGraph::Execute` passes one name-free batch of exact descriptors
 to the `FRDGAllocator` in `FRDGExecutionContext`. The complete returned table
@@ -100,15 +101,14 @@ an unrecoverable authoring-contract failure. Graphics, compute, and copy passes
 accept only their corresponding graphics/attachment, compute, and transfer
 access families.
 
-An optional compatibility preparation callback runs after successful compile.
+An optional execution-preparation callback runs after successful compile.
 The execution allocator then receives immutable `FRDGAllocationRequest`
 records containing only resource ID, kind, exact description, and retained
 lifetime. Allocation is atomic: returning false, omitting one resource, or
 publishing an incompatible description records nothing, publishes no
 extraction destination, and invokes no pass. Culled logical resources never
-enter the batch. The legacy backing resolver remains only for the bounded
-RenderCore and Vulkan transition oracles described below; production does not
-set it.
+enter the batch. Tests and production use this same counted-reference allocator
+contract; no raw-pointer backing publication path remains.
 
 Render-pass bodies that already own validated attachment initial/final layouts
 use the managed-attachment declaration. The graph records the attachment
@@ -235,10 +235,22 @@ graph destruction.
 
 `AllocationStatistics` records active/retained resource counts and logical
 bytes, peak active bytes, cumulative reuse hits/misses, evictions, and failures.
-Allocated resource records carry the allocator's stable pointer-free allocation
-ID and hit/miss disposition; external and prebound resources use graph-local
-pointer-free identities. `ObservationTag` may attribute memory to a typed owner,
-but is excluded from compatibility, selection, scheduling, and success.
+Allocated resource records carry the allocator's stable, nonzero pointer-free
+allocation ID and hit/miss disposition. External and prebound resources carry
+their explicit disposition with allocation ID zero; culled and failed resources
+also use ID zero. A graph-local resource index is never presented as physical
+identity. `ObservationTag` may attribute memory to a typed owner, but is excluded
+from compatibility, selection, scheduling, eviction priority, and success.
+
+The Renderer allocator keys textures and buffers only by exact allocation
+descriptions. Diagnostic names are stored outside compatibility, so renaming a
+logical graph resource does not change reuse or its stable pool allocation ID.
+Candidate reservation, generation-based failure suppression, rollback,
+publication, and error reporting form one transaction for both resource kinds;
+typed RHI creation remains at the boundary. Retained bytes are maintained
+incrementally and inactive entries are evicted in stable creation order. The
+named structural policy ceiling is 640 MiB; a requested batch above that ceiling
+fails atomically, while observation tags cannot reserve or prioritize memory.
 
 `FRenderGraphCapture::Parameters` contains one record for every submitted leaf
 field of every parameterized pass, including fields on a culled pass and a

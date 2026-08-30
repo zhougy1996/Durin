@@ -10,10 +10,10 @@ namespace Durin
 {
 	class FFullscreenGeometryResources;
 	class FRendererResourceCoordinator;
-	class FRendererTransientTargetPool;
 	class FRHICommandListImmediate;
 
-	// Owns post-process shaders, output pipelines, and size-keyed scene targets.
+	// Owns post-process shaders and output pipelines while recording into
+	// caller-provided scene targets.
 	class FPostProcessRenderer final
 	{
 	public:
@@ -39,8 +39,7 @@ namespace Durin
 
 		FPostProcessRenderer(
 			FRendererResourceCoordinator& InCoordinator,
-			FFullscreenGeometryResources& InFullscreenGeometry,
-			FRendererTransientTargetPool& InTransientTargets);
+			FFullscreenGeometryResources& InFullscreenGeometry);
 		~FPostProcessRenderer();
 
 		FPostProcessRenderer(const FPostProcessRenderer&) = delete;
@@ -49,8 +48,8 @@ namespace Durin
 
 		auto EnsureResources_RenderThread(
 			FRHICommandListImmediate& CommandList) -> bool;
-		auto EnsureSceneTargets_RenderThread(uint32 Width, uint32 Height)
-			-> std::optional<FSceneTargets>;
+		static auto DescribeSceneTargets(uint32 Width, uint32 Height)
+			-> std::array<FRHITextureCreateDesc, 2>;
 		auto Draw_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			FRHITexture* SceneColor,
@@ -67,7 +66,6 @@ namespace Durin
 
 		FRendererResourceCoordinator& Coordinator;
 		FFullscreenGeometryResources& FullscreenGeometry;
-		FRendererTransientTargetPool& TransientTargets;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

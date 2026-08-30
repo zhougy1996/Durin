@@ -219,6 +219,7 @@ namespace Durin
 	) -> bool;
 
 	private:
+		FRendererTransientTargetPool& TransientTargets;
 		FDefaultTextureResources& DefaultTextures;
 		FEnvironmentLightingResources& EnvironmentLighting;
 		FDirectionalShadowRenderer& DirectionalShadowRenderer;

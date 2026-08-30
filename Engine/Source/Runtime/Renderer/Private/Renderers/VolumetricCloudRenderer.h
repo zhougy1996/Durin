@@ -9,16 +9,15 @@
 namespace Durin
 {
 	class FRendererResourceCoordinator;
-	class FRendererTransientTargetPool;
 	class FFullscreenGeometryResources;
 	class FRHICommandListImmediate;
 	struct FSceneView;
 	struct FSceneViewTemporalContext;
 	class FSceneViewState;
 
-	// Owns the complete P1 GPU cloud producer and composition resources. Scene
+	// Owns the complete P1 GPU cloud producer and composition payloads. Scene
 	// authoring remains outside this type: callers publish immutable parameters
-	// and generic texture bindings for one view.
+	// and caller-owned texture targets for one view.
 	class RENDERER_API FVolumetricCloudRenderer final
 	{
 	public:
@@ -96,19 +95,18 @@ namespace Durin
 		};
 
 		FVolumetricCloudRenderer(FRendererResourceCoordinator& InCoordinator,
-			FFullscreenGeometryResources& InFullscreenGeometry,
-			FRendererTransientTargetPool& InTransientTargets);
+			FFullscreenGeometryResources& InFullscreenGeometry);
 		~FVolumetricCloudRenderer();
 		FVolumetricCloudRenderer(const FVolumetricCloudRenderer&) = delete;
 		auto operator=(const FVolumetricCloudRenderer&)
 			-> FVolumetricCloudRenderer& = delete;
 
-		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height)
-			-> std::optional<FTargets>;
-		auto EnsureComputeTargets_RenderThread(uint32 Width, uint32 Height)
-			-> std::optional<FComputeTargets>;
-		auto EnsureCompositeTargets_RenderThread(uint32 Width, uint32 Height)
-			-> std::optional<FTargets>;
+		static auto DescribeFragmentTarget(uint32 Width, uint32 Height)
+			-> FRHITextureCreateDesc;
+		static auto DescribeComputeTarget(uint32 Width, uint32 Height)
+			-> FRHITextureCreateDesc;
+		static auto DescribeCompositeTarget(uint32 Width, uint32 Height)
+			-> FRHITextureCreateDesc;
 		auto EnsureDensitySampler_RenderThread() -> FRHISampler*;
 		auto Render_RenderThread(FRHICommandListImmediate& CommandList,
 			const FTargets* FragmentTargets,
@@ -134,14 +132,12 @@ namespace Durin
 			return Composite_RenderThread(CommandList, CompositeTargets, SceneColor,
 				Cloud, SceneDepth, nullptr, false, false, View);
 		}
-		auto GetRetainedTargetBytes_RenderThread() const -> uint64;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
 		struct FState;
 		FRendererResourceCoordinator& Coordinator;
 		FFullscreenGeometryResources& FullscreenGeometry;
-		FRendererTransientTargetPool& TransientTargets;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

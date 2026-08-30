@@ -1,7 +1,6 @@
 #include "Renderers/GroundTruthAmbientOcclusionRenderer.h"
 
 #include "Renderers/RendererResourceDiagnostics.h"
-#include "Renderers/RendererTransientTargetPool.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
@@ -156,11 +155,9 @@ namespace Durin
 
 	FGroundTruthAmbientOcclusionRenderer::FGroundTruthAmbientOcclusionRenderer(
 		FRendererResourceCoordinator& InCoordinator,
-		FFullscreenGeometryResources& InFullscreenGeometry,
-		FRendererTransientTargetPool& InTransientTargets)
+		FFullscreenGeometryResources& InFullscreenGeometry)
 		: Coordinator(InCoordinator)
 		, FullscreenGeometry(InFullscreenGeometry)
-		, TransientTargets(InTransientTargets)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -344,13 +341,11 @@ namespace Durin
 		return Payload != nullptr;
 	}
 
-	auto FGroundTruthAmbientOcclusionRenderer::EnsureTargets_RenderThread(
+	auto FGroundTruthAmbientOcclusionRenderer::DescribeTargets(
 		uint32 Width, uint32 Height,
-		EGroundTruthAmbientOcclusionQuality Quality) -> std::optional<FTargets>
+		EGroundTruthAmbientOcclusionQuality Quality)
+		-> std::vector<FRHITextureCreateDesc>
 	{
-		if (Width == 0 || Height == 0
-			|| Quality >= EGroundTruthAmbientOcclusionQuality::Count)
-			return std::nullopt;
 		const bool bHalf =
 			Quality == EGroundTruthAmbientOcclusionQuality::HalfResolution;
 		const uint32 NativeWidth = bHalf ? CalculateHalfExtent(Width) : Width;
@@ -386,16 +381,7 @@ namespace Durin
 			Descriptions.push_back(SelectorDesc);
 			Descriptions.push_back(ResolvedDesc);
 		}
-		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			ERendererTransientTargetGroup::GroundTruthAmbientOcclusion,
-			Descriptions, MaximumRetainedBytes);
-		if (!Lease) return std::nullopt;
-		return FTargets{
-			.Raw = Lease->Textures[0],
-			.Scratch = Lease->Textures[1],
-			.Selector = bHalf ? Lease->Textures[2] : FTextureRHIRef{},
-			.Resolved = bHalf ? Lease->Textures[3] : FTextureRHIRef{},
-			.Quality = Quality};
+		return Descriptions;
 	}
 
 	auto FGroundTruthAmbientOcclusionRenderer::RenderRaw_RenderThread(
@@ -756,14 +742,6 @@ namespace Durin
 		CommandList.DrawIndexed(3, 0, 0);
 		CommandList.EndRenderPass();
 		return true;
-	}
-
-	auto FGroundTruthAmbientOcclusionRenderer::
-		GetRetainedTargetBytes_RenderThread() const -> uint64
-	{
-		check(IsInRenderingThread());
-		return TransientTargets.GetRetainedBytes_RenderThread(
-			ERendererTransientTargetGroup::GroundTruthAmbientOcclusion);
 	}
 
 	auto FGroundTruthAmbientOcclusionRenderer::ReleaseResources_RenderThread()

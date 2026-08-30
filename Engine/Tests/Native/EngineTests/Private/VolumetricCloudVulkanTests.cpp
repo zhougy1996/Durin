@@ -9,7 +9,7 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "Renderers/SceneViewState.h"
-#include "Renderers/RendererTransientTargetPool.h"
+#include "RendererFeatureTargetTestFixture.h"
 #include "Renderers/VolumetricCloudRenderer.h"
 #include "Renderers/VolumetricCloudShadowRenderer.h"
 #include "Resources/FullscreenGeometryResources.h"
@@ -118,36 +118,40 @@ namespace Durin
 		InitRenderingThread();
 
 		FRendererResourceCoordinator Coordinator;
-		FRendererTransientTargetPool TransientTargets(Coordinator);
 		FFullscreenGeometryResources FullscreenGeometry;
 		FVolumetricCloudRenderer Clouds(
-			Coordinator, FullscreenGeometry, TransientTargets);
+			Coordinator, FullscreenGeometry);
 		FVolumetricCloudShadowRenderer CloudShadows(
-			Coordinator, FullscreenGeometry, TransientTargets);
+			Coordinator, FullscreenGeometry);
 		auto Results = std::make_shared<std::array<bool, 41>>();
 		VulkanRHI::ArmVulkanCreateFailure(
 			VulkanRHI::EVulkanCreateFailurePoint::Image
 		);
 		EnqueueRenderCommand<FVolumetricCloudTargetLifecycle>(
-			[&Coordinator, &TransientTargets, &Clouds, &CloudShadows,
+			[&Coordinator, &Clouds, &CloudShadows,
 				&FullscreenGeometry, Results](
 				FRHICommandListImmediate& CommandList
 			) {
-				(*Results)[0] = !Clouds.EnsureTargets_RenderThread(64, 32);
-				(*Results)[1] = !Clouds.EnsureTargets_RenderThread(64, 32);
+				(*Results)[0] = !Tests::FRendererFeatureTargetFixture::
+					CreateCloudFragment(64, 32);
+				(*Results)[1] = Tests::FRendererFeatureTargetFixture::
+					CreateCloudFragment(64, 32).has_value();
 				Coordinator.Apply_RenderThread(
 					ERendererResourceInvalidationCause::ManualRetry,
 					FRendererResourceInvalidationTargets{}
 				);
-				auto FragmentTargets = Clouds.EnsureTargets_RenderThread(64, 32);
+				auto FragmentTargets = Tests::FRendererFeatureTargetFixture::
+					CreateCloudFragment(64, 32);
 				(*Results)[2] = FragmentTargets && FragmentTargets->Cloud
 								&& FragmentTargets->Cloud->GetFormat()
 									   == EPixelFormat::RGBA16_FLOAT;
-				auto ComputeTargets = Clouds.EnsureComputeTargets_RenderThread(64, 32);
+				auto ComputeTargets = Tests::FRendererFeatureTargetFixture::
+					CreateCloudCompute(64, 32);
 				(*Results)[3] = ComputeTargets && ComputeTargets->Cloud
 								&& ComputeTargets->SampledView && ComputeTargets->StorageView;
-				(*Results)[4] = Clouds.GetRetainedTargetBytes_RenderThread()
-								== 2ull * 64ull * 32ull * 8ull;
+				(*Results)[4] = FragmentTargets && ComputeTargets
+					&& FVolumetricCloudRenderer::FSpatial::CalculateTargetBytes(64, 32)
+						== 64ull * 32ull * 8ull;
 
 				GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 				auto MakeVolume = [&CommandList](const char* Name, uint8 Value) {
@@ -267,9 +271,9 @@ namespace Durin
 					FUpdateTextureRegion2D(0, 0, 0, 0, 1, 1), 1,
 					std::as_bytes(std::span{&White, 1}));
 				auto ShadowFragmentTargets =
-					CloudShadows.EnsureTargets_RenderThread(64, 32);
+					Tests::FRendererFeatureTargetFixture::CreateCloudShadowFragment(64, 32);
 				auto ShadowComputeTargets =
-					CloudShadows.EnsureComputeTargets_RenderThread(64, 32);
+					Tests::FRendererFeatureTargetFixture::CreateCloudShadowCompute(64, 32);
 				FVolumetricCloudShadowRenderer::FRenderInput ShadowInput{
 					.bRequested = true, .BaseDensity = Base, .DetailDensity = Detail, .Weather = Weather, .SceneDepth = Depth, .DensitySampler = Sampler, .Parameters = Input.Parameters, .View = &View, .QualityTier = FVolumetricCloudRenderer::EQualityTier::High, .Width = 64, .Height = 32
 				};
@@ -295,8 +299,9 @@ namespace Durin
 									 == ShadowComputeTargets->Visibility.GetReference()
 								 && ComputeShadow.Route
 										== FVolumetricCloudShadowRenderer::ERoute::Compute;
-				(*Results)[33] = CloudShadows.GetRetainedTargetBytes_RenderThread()
-								 == 2u * 64u * 32u;
+				(*Results)[33] = ShadowFragmentTargets && ShadowComputeTargets
+					&& FVolumetricCloudShadowRenderer::CalculateTargetBytes(64, 32)
+						== 64u * 32u;
 				std::vector<std::byte> ComputeShadowPixels;
 				CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 				const bool bComputeShadowRead = GDynamicRHI->RHIReadTexture2D(
@@ -352,7 +357,7 @@ namespace Durin
 				);
 				CommandList.EndRenderPass();
 				auto CompositeTargets =
-					Clouds.EnsureCompositeTargets_RenderThread(64, 32);
+					Tests::FRendererFeatureTargetFixture::CreateCloudComposite(64, 32);
 				if (!CompositeTargets)
 				{
 					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
@@ -362,8 +367,7 @@ namespace Durin
 					CommandList, *CompositeTargets, SceneColor, Compute.Cloud, Depth, View
 				);
 				(*Results)[15] = Composite != nullptr;
-				(*Results)[19] = Clouds.GetRetainedTargetBytes_RenderThread()
-								 == 3ull * 64ull * 32ull * 8ull;
+				(*Results)[19] = FragmentTargets && ComputeTargets && CompositeTargets;
 				CommandList.ImmediateFlush(EImmediateFlushType::FlushRHIThread);
 				(*Results)[8] = GDynamicRHI->RHIReadTexture2D(
 									CommandList, Fragment.Cloud, 0, 0, FragmentPixels
@@ -602,8 +606,10 @@ namespace Durin
 										== FVolumetricCloudRenderer::ERoute::Disabled;
 				GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
 
-				auto Fragment4K = Clouds.EnsureTargets_RenderThread(3'840, 2'160);
-				auto Compute4K = Clouds.EnsureComputeTargets_RenderThread(3'840, 2'160);
+				auto Fragment4K = Tests::FRendererFeatureTargetFixture::
+					CreateCloudFragment(3'840, 2'160);
+				auto Compute4K = Tests::FRendererFeatureTargetFixture::
+					CreateCloudCompute(3'840, 2'160);
 				(*Results)[20] = Fragment4K && Fragment4K->Cloud
 								 && Fragment4K->Cloud->GetSizeX() == 3'840
 								 && Fragment4K->Cloud->GetSizeY() == 2'160;
@@ -613,8 +619,8 @@ namespace Durin
 								 && Compute4K->Cloud->GetSizeY() == 2'160;
 				Clouds.ReleaseResources_RenderThread();
 				CloudShadows.ReleaseResources_RenderThread();
-				TransientTargets.Release_RenderThread();
-				(*Results)[35] = CloudShadows.GetRetainedTargetBytes_RenderThread() == 0;
+				(*Results)[35] = !Tests::FRendererFeatureTargetFixture::
+					CreateCloudShadowFragment(0, 0);
 				FullscreenGeometry.ReleaseResources_RenderThread();
 			}
 		);

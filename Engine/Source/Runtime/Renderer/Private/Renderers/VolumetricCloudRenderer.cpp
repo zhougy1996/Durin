@@ -1,7 +1,6 @@
 #include "Renderers/VolumetricCloudRenderer.h"
 
 #include "Renderers/RendererResourceDiagnostics.h"
-#include "Renderers/RendererTransientTargetPool.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
@@ -213,12 +212,10 @@ namespace Durin
 
 	FVolumetricCloudRenderer::FVolumetricCloudRenderer(
 		FRendererResourceCoordinator& InCoordinator,
-		FFullscreenGeometryResources& InFullscreenGeometry,
-		FRendererTransientTargetPool& InTransientTargets
+		FFullscreenGeometryResources& InFullscreenGeometry
 	)
 		: Coordinator(InCoordinator)
 		, FullscreenGeometry(InFullscreenGeometry)
-		, TransientTargets(InTransientTargets)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -258,80 +255,33 @@ namespace Durin
 		GVolumetricCloudCaptureSink.store(Sink, std::memory_order_release);
 	}
 
-	auto FVolumetricCloudRenderer::EnsureTargets_RenderThread(
-		uint32 Width, uint32 Height
-	) -> std::optional<FTargets>
+	auto FVolumetricCloudRenderer::DescribeFragmentTarget(
+		uint32 Width, uint32 Height) -> FRHITextureCreateDesc
 	{
-		check(IsInRenderingThread());
-		const uint64 Bytes = FSpatial::CalculateTargetBytes(Width, Height);
-		if (Width == 0 || Height == 0
-			|| Bytes > FSpatial::MaximumRetainedTargetBytesPerFamily)
-			return std::nullopt;
-		const auto Desc = FRHITextureCreateDesc::Create2D(
+		return FRHITextureCreateDesc::Create2D(
 							  "VolumetricCloudFragment", Width, Height, EPixelFormat::RGBA16_FLOAT
 		)
 							  .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy | ETextureCreateFlags::CPUReadback)
 							  .SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f));
-		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			ERendererTransientTargetGroup::VolumetricCloudFragment,
-			std::span(&Desc, 1),
-			FSpatial::MaximumRetainedTargetBytesPerFamily);
-		if (!Lease) return std::nullopt;
-		return FTargets{.Cloud = Lease->Textures[0]};
 	}
 
-	auto FVolumetricCloudRenderer::EnsureComputeTargets_RenderThread(
-		uint32 Width, uint32 Height
-	) -> std::optional<FComputeTargets>
+	auto FVolumetricCloudRenderer::DescribeComputeTarget(
+		uint32 Width, uint32 Height) -> FRHITextureCreateDesc
 	{
-		check(IsInRenderingThread());
-		const uint64 Bytes = FSpatial::CalculateTargetBytes(Width, Height);
-		if (Width == 0 || Height == 0 || GDynamicRHI == nullptr
-			|| Bytes > FSpatial::MaximumRetainedTargetBytesPerFamily)
-			return std::nullopt;
-		const auto Desc = FRHITextureCreateDesc::Create2D(
+		return FRHITextureCreateDesc::Create2D(
 							  "VolumetricCloudCompute", Width, Height, EPixelFormat::RGBA16_FLOAT
 		)
 							  .SetFlags(ETextureCreateFlags::Storage | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy | ETextureCreateFlags::CPUReadback);
-		if (!GDynamicRHI->RHIIsTextureSupported(Desc)) return std::nullopt;
-		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			ERendererTransientTargetGroup::VolumetricCloudCompute,
-			std::span(&Desc, 1),
-			FSpatial::MaximumRetainedTargetBytesPerFamily);
-		if (!Lease) return std::nullopt;
-		FComputeTargets Targets{.Cloud = Lease->Textures[0]};
-		Targets.SampledView =
-			GDynamicRHI->RHIGetOrCreateTextureView(Lease->Textures[0],
-				MakeDefaultTextureViewDesc(*Lease->Textures[0],
-					ERHITextureViewUsage::Sampled));
-		Targets.StorageView =
-			GDynamicRHI->RHIGetOrCreateTextureView(Lease->Textures[0],
-				MakeDefaultTextureViewDesc(*Lease->Textures[0],
-					ERHITextureViewUsage::Storage));
-		return Targets.SampledView && Targets.StorageView
-			? std::optional<FComputeTargets>{std::move(Targets)} : std::nullopt;
 	}
 
-	auto FVolumetricCloudRenderer::EnsureCompositeTargets_RenderThread(
-		uint32 Width, uint32 Height
-	) -> std::optional<FTargets>
+	auto FVolumetricCloudRenderer::DescribeCompositeTarget(
+		uint32 Width, uint32 Height) -> FRHITextureCreateDesc
 	{
-		check(IsInRenderingThread());
-		const uint64 Bytes = FSpatial::CalculateTargetBytes(Width, Height);
-		if (Width == 0 || Height == 0
-			|| Bytes > FSpatial::MaximumRetainedTargetBytesPerFamily)
-			return std::nullopt;
-		const auto Desc = FRHITextureCreateDesc::Create2D(
+		return FRHITextureCreateDesc::Create2D(
 							  "VolumetricCloudComposite", Width, Height, EPixelFormat::RGBA16_FLOAT
 		)
 							  .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy | ETextureCreateFlags::CPUReadback)
 							  .SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f));
-		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			ERendererTransientTargetGroup::VolumetricCloudComposite,
-			std::span(&Desc, 1),
-			FSpatial::MaximumRetainedTargetBytesPerFamily);
-		if (!Lease) return std::nullopt;
-		return FTargets{.Cloud = Lease->Textures[0]};
 	}
 
 	// Resource resolution, binding, and execution continue below to keep target
@@ -972,19 +922,6 @@ namespace Durin
 		CommandList.DrawIndexed(3, 0, 0);
 		CommandList.EndRenderPass();
 		return CompositeTargets.Cloud;
-	}
-
-	auto FVolumetricCloudRenderer::GetRetainedTargetBytes_RenderThread() const -> uint64
-	{
-		check(IsInRenderingThread());
-		const uint64 Fragment = TransientTargets.GetRetainedBytes_RenderThread(
-			ERendererTransientTargetGroup::VolumetricCloudFragment);
-		const uint64 Compute = TransientTargets.GetRetainedBytes_RenderThread(
-			ERendererTransientTargetGroup::VolumetricCloudCompute);
-		const uint64 Composite = TransientTargets.GetRetainedBytes_RenderThread(
-			ERendererTransientTargetGroup::VolumetricCloudComposite);
-		const uint64 RouteBytes = Compute > std::numeric_limits<uint64>::max() - Fragment ? std::numeric_limits<uint64>::max() : Fragment + Compute;
-		return Composite > std::numeric_limits<uint64>::max() - RouteBytes ? std::numeric_limits<uint64>::max() : RouteBytes + Composite;
 	}
 
 	auto FVolumetricCloudRenderer::ReleaseResources_RenderThread() -> void

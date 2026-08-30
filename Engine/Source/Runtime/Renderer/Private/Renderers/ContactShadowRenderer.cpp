@@ -4,7 +4,6 @@
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
-#include "Renderers/RendererTransientTargetPool.h"
 #include "Math/Operations.h"
 #include "RHI.h"
 #include "RHICommandList.h"
@@ -99,10 +98,8 @@ namespace Durin
 
 	FContactShadowVisibilityRenderer::FContactShadowVisibilityRenderer(
 		FRendererResourceCoordinator& InCoordinator,
-		FFullscreenGeometryResources& InFullscreenGeometry,
-		FRendererTransientTargetPool& InTransientTargets)
+		FFullscreenGeometryResources& InFullscreenGeometry)
 		: Coordinator(InCoordinator), FullscreenGeometry(InFullscreenGeometry),
-		  TransientTargets(InTransientTargets),
 		  State(std::make_unique<FState>()) {}
 
 	FContactShadowVisibilityRenderer::~FContactShadowVisibilityRenderer() = default;
@@ -141,49 +138,24 @@ namespace Durin
 		return {ERoute::FactorOne, ERouteReason::FragmentUnavailable};
 	}
 
-	auto FContactShadowVisibilityRenderer::EnsureTargets_RenderThread(
-		uint32 Width, uint32 Height) -> std::optional<FTargets>
+	auto FContactShadowVisibilityRenderer::DescribeFragmentTarget(
+		uint32 Width, uint32 Height) -> FRHITextureCreateDesc
 	{
-		check(IsInRenderingThread());
-		const std::array Descriptions{FRHITextureCreateDesc::Create2D(
+		return FRHITextureCreateDesc::Create2D(
 			"DirectionalContactVisibility", Width, Height, EPixelFormat::R8_UNORM)
 			.SetFlags(ETextureCreateFlags::RenderTargetable
 				| ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy)
-			.SetClearValue(FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f))};
-		auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			ERendererTransientTargetGroup::ContactFragment, Descriptions,
-			MaximumRetainedBytesPerRoute);
-		if (!Lease) return std::nullopt;
-		return FTargets{.Visibility = Lease->Textures[0]};
+			.SetClearValue(FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f));
 	}
-	auto FContactShadowVisibilityRenderer::EnsureComputeTargets_RenderThread(
-		uint32 Width, uint32 Height) -> std::optional<FComputeTargets>
+	auto FContactShadowVisibilityRenderer::DescribeComputeTarget(
+		uint32 Width, uint32 Height) -> FRHITextureCreateDesc
 	{
-		check(IsInRenderingThread());
-		if (GDynamicRHI == nullptr) return std::nullopt;
-		const std::array Descriptions{FRHITextureCreateDesc::Create2D(
+		return FRHITextureCreateDesc::Create2D(
 			"DirectionalContactVisibilityCompute", Width, Height,
 			EPixelFormat::R8_UNORM)
 			.SetFlags(ETextureCreateFlags::Storage
 				| ETextureCreateFlags::ShaderResource
-				| ETextureCreateFlags::SourceCopy)};
-		if (!GDynamicRHI->RHIIsTextureSupported(Descriptions[0]))
-			return std::nullopt;
-		auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			ERendererTransientTargetGroup::ContactCompute, Descriptions,
-			MaximumRetainedBytesPerRoute);
-		if (!Lease) return std::nullopt;
-		FComputeTargets Targets{.Visibility = Lease->Textures[0]};
-		Targets.SampledView =
-			GDynamicRHI->RHIGetOrCreateTextureView(Targets.Visibility,
-				MakeDefaultTextureViewDesc(*Targets.Visibility,
-					ERHITextureViewUsage::Sampled));
-		Targets.StorageView =
-			GDynamicRHI->RHIGetOrCreateTextureView(Targets.Visibility,
-				MakeDefaultTextureViewDesc(*Targets.Visibility,
-					ERHITextureViewUsage::Storage));
-		return Targets.SampledView && Targets.StorageView
-			? std::optional<FComputeTargets>{std::move(Targets)} : std::nullopt;
+				| ETextureCreateFlags::SourceCopy);
 	}
 	auto FContactShadowVisibilityRenderer::Render_RenderThread(
 		FRHICommandListImmediate& CommandList, bool bRequested,
@@ -513,16 +485,6 @@ namespace Durin
 			CommandList.TransitionTextures(FinalVisibilityTransition);
 		return {.Visibility = FragmentTargets->Visibility,
 			.Route = Decision.Route, .Reason = Decision.Reason};
-	}
-
-	auto FContactShadowVisibilityRenderer::GetRetainedTargetBytes_RenderThread() const
-		-> uint64
-	{
-		check(IsInRenderingThread());
-		return TransientTargets.GetRetainedBytes_RenderThread(
-			ERendererTransientTargetGroup::ContactFragment)
-			+ TransientTargets.GetRetainedBytes_RenderThread(
-				ERendererTransientTargetGroup::ContactCompute);
 	}
 
 	auto FContactShadowVisibilityRenderer::ReleaseResources_RenderThread() -> void

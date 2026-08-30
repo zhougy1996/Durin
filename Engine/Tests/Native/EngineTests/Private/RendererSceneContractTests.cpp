@@ -384,7 +384,16 @@ static_assert(!CHasDirectExecutionCounters<Durin::FResolvedStaticMeshView>);
 static_assert(!CHasDirectExecutionCounters<Durin::FResolvedSkeletalMeshView>);
 static_assert(!CHasDirectExecutionCounters<Durin::FResolvedTerrainView>);
 static_assert(static_cast<uint8>(
-	Durin::ERendererTransientTargetGroup::Count) == 12);
+	Durin::ERDGAllocationObservation::Count) == 12);
+
+TEST(FRendererSceneContractTests, RDGAllocationPolicyKeepsStructuralBoundary)
+{
+	using FPolicy = Durin::FRendererRDGAllocationPolicy;
+	EXPECT_TRUE(FPolicy::IsBatchWithinStructuralBudget(
+		FPolicy::MaximumRetainedBytes));
+	EXPECT_FALSE(FPolicy::IsBatchWithinStructuralBudget(
+		FPolicy::MaximumRetainedBytes + 1));
+}
 
 TEST(FRendererSceneContractTests, QualificationPolicyIsLexicallyScoped)
 {

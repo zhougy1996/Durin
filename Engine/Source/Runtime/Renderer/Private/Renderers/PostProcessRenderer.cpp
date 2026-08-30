@@ -5,7 +5,6 @@
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
-#include "Renderers/RendererTransientTargetPool.h"
 #include "CoreGlobals.h"
 #include "RHI.h"
 #include "RHICommandList.h"
@@ -121,11 +120,9 @@ namespace Durin
 
 	FPostProcessRenderer::FPostProcessRenderer(
 		FRendererResourceCoordinator& InCoordinator,
-		FFullscreenGeometryResources& InFullscreenGeometry,
-		FRendererTransientTargetPool& InTransientTargets)
+		FFullscreenGeometryResources& InFullscreenGeometry)
 		: Coordinator(InCoordinator)
 		, FullscreenGeometry(InFullscreenGeometry)
-		, TransientTargets(InTransientTargets)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -300,12 +297,10 @@ namespace Durin
 		return Payload != nullptr;
 	}
 
-	auto FPostProcessRenderer::EnsureSceneTargets_RenderThread(
-		uint32 Width,
-		uint32 Height) -> std::optional<FSceneTargets>
+	auto FPostProcessRenderer::DescribeSceneTargets(uint32 Width, uint32 Height)
+		-> std::array<FRHITextureCreateDesc, 2>
 	{
-		if (Width == 0 || Height == 0) return std::nullopt;
-		const std::array Descriptions{
+		return {
 			FRHITextureCreateDesc::Create2D("SceneColor", Width, Height,
 				EPixelFormat::RGBA16_FLOAT)
 				.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -317,12 +312,6 @@ namespace Durin
 				.SetFlags(ETextureCreateFlags::DepthStencilTargetable
 					| ETextureCreateFlags::ShaderResource)
 				.SetClearValue(FClearValueBinding(0.0f, 0u))};
-		auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			ERendererTransientTargetGroup::Scene, Descriptions,
-			MaximumRetainedSceneTargetBytes);
-		if (!Lease) return std::nullopt;
-		return FSceneTargets{
-			.Color = Lease->Textures[0], .Depth = Lease->Textures[1]};
 	}
 	auto FPostProcessRenderer::Draw_RenderThread(
 		FRHICommandListImmediate& CommandList,

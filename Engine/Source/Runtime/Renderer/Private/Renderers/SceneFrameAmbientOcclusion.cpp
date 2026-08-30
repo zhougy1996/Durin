@@ -58,8 +58,7 @@ namespace Durin
 				"Scene.AmbientOcclusion.Resolved"};
 			for (uint32 Index = 0; Index < 2; ++Index)
 				GraphResources.GroundTruthAmbientOcclusion[Index] =
-					Graph.CreateTexture(Names[Index],
-						FRenderGraphTextureDesc{.Texture =
+					Graph.CreateTexture(FRenderGraphTextureDesc{.Texture =
 							FRHITextureCreateDesc::Create2D(Names[Index],
 								NativeWidth, NativeHeight, EPixelFormat::R8_UNORM)
 							.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -68,13 +67,12 @@ namespace Durin
 							.SetClearValue(FClearValueBinding(
 								1.0f, 1.0f, 1.0f, 1.0f)),
 							.ObservationTag = static_cast<uint32>(
-								ERendererTransientTargetGroup::GroundTruthAmbientOcclusion)},
+								ERDGAllocationObservation::GroundTruthAmbientOcclusion)}, Names[Index],
 						ERHIAccess::GraphicsShaderRead);
 			if (bHalfResolution)
 			{
 				GraphResources.GroundTruthAmbientOcclusion[2] =
-					Graph.CreateTexture(Names[2],
-						FRenderGraphTextureDesc{.Texture =
+					Graph.CreateTexture(FRenderGraphTextureDesc{.Texture =
 							FRHITextureCreateDesc::Create2D(Names[2],
 								NativeWidth, NativeHeight, EPixelFormat::R8_UNORM)
 							.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -83,11 +81,10 @@ namespace Durin
 							.SetClearValue(FClearValueBinding(
 								0.0f, 0.0f, 0.0f, 0.0f)),
 							.ObservationTag = static_cast<uint32>(
-								ERendererTransientTargetGroup::GroundTruthAmbientOcclusion)},
+								ERDGAllocationObservation::GroundTruthAmbientOcclusion)}, Names[2],
 						ERHIAccess::GraphicsShaderRead);
 				GraphResources.GroundTruthAmbientOcclusion[3] =
-					Graph.CreateTexture(Names[3],
-						FRenderGraphTextureDesc{.Texture =
+					Graph.CreateTexture(FRenderGraphTextureDesc{.Texture =
 							FRHITextureCreateDesc::Create2D(Names[3], Width,
 								Height, EPixelFormat::R8_UNORM)
 							.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -96,7 +93,7 @@ namespace Durin
 							.SetClearValue(FClearValueBinding(
 								1.0f, 1.0f, 1.0f, 1.0f)),
 							.ObservationTag = static_cast<uint32>(
-								ERendererTransientTargetGroup::GroundTruthAmbientOcclusion)},
+								ERDGAllocationObservation::GroundTruthAmbientOcclusion)}, Names[3],
 						ERHIAccess::GraphicsShaderRead);
 			}
 		}
@@ -193,7 +190,8 @@ namespace Durin
 		{
 			++Telemetry.View.AmbientOcclusion.GroundTruthAmbientOcclusionAttemptedViews;
 			Telemetry.View.AmbientOcclusion.GroundTruthAmbientOcclusionRetainedBytes =
-				GroundTruthAmbientOcclusionRenderer.GetRetainedTargetBytes_RenderThread();
+				TransientTargets.GetObservedRetainedBytes_RenderThread(
+					ERDGAllocationObservation::GroundTruthAmbientOcclusion);
 			if (!bGBufferComplete || AmbientOcclusionTargets == nullptr)
 			{
 				Result.Status = EScenePassStatus::Failed;

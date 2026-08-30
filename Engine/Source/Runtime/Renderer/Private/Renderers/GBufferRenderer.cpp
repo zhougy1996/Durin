@@ -5,7 +5,6 @@
 #include "Renderers/RendererResourceDiagnostics.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
-#include "Renderers/RendererTransientTargetPool.h"
 #include "RHI.h"
 #include "Shader/MaterialShader.h"
 #include "Shader/ShaderCompilerCore.h"
@@ -162,22 +161,17 @@ namespace Durin
 				| ERenderResourceGenerationDependency::Device};
 	};
 
-	FGBufferRenderer::FGBufferRenderer(
-		FRendererResourceCoordinator& InCoordinator,
-		FRendererTransientTargetPool& InTransientTargets)
+	FGBufferRenderer::FGBufferRenderer(FRendererResourceCoordinator& InCoordinator)
 		: Coordinator(InCoordinator)
-		, TransientTargets(InTransientTargets)
 		, State(std::make_unique<FState>())
 	{
 	}
 
 	FGBufferRenderer::~FGBufferRenderer() = default;
 
-	auto FGBufferRenderer::EnsureTargets_RenderThread(
-		uint32 Width,
-		uint32 Height) -> std::optional<FTargets>
+	auto FGBufferRenderer::DescribeTargets(uint32 Width, uint32 Height)
+		-> std::array<FRHITextureCreateDesc, 4>
 	{
-		if (Width == 0 || Height == 0) return std::nullopt;
 		auto MakeDesc = [Width, Height](const char* Name, EPixelFormat Format) {
 			return FRHITextureCreateDesc::Create2D(Name, Width, Height, Format)
 				.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -185,20 +179,11 @@ namespace Durin
 					| ETextureCreateFlags::SourceCopy)
 				.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f));
 		};
-		const std::array Descriptions{
+		return {
 			MakeDesc("GBufferMaterial", EPixelFormat::RGBA8_UNORM),
 			MakeDesc("GBufferNormals", EPixelFormat::RGBA8_UNORM),
 			MakeDesc("GBufferSurface", EPixelFormat::RGBA8_UNORM),
 			MakeDesc("GBufferEmissive", EPixelFormat::R11G11B10_FLOAT)};
-		auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			ERendererTransientTargetGroup::GBuffer, Descriptions,
-			MaximumRetainedBytes);
-		if (!Lease) return std::nullopt;
-		return FTargets{
-			.Material = Lease->Textures[0],
-			.Normals = Lease->Textures[1],
-			.Surface = Lease->Textures[2],
-			.Emissive = Lease->Textures[3]};
 	}
 	auto FGBufferRenderer::EnsurePipeline_RenderThread(
 		const FPipelineRequest& Request) -> FPipeline*

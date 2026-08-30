@@ -2,7 +2,6 @@
 
 #include "RenderResourceCreation.h"
 #include "Renderers/RendererResourceDiagnostics.h"
-#include "Renderers/RendererTransientTargetPool.h"
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
@@ -72,33 +71,23 @@ namespace Durin
 
 	FGBufferDebugRenderer::FGBufferDebugRenderer(
 		FRendererResourceCoordinator& InCoordinator,
-		FFullscreenGeometryResources& InFullscreenGeometry,
-		FRendererTransientTargetPool& InTransientTargets)
+		FFullscreenGeometryResources& InFullscreenGeometry)
 		: Coordinator(InCoordinator)
 		, FullscreenGeometry(InFullscreenGeometry)
-		, TransientTargets(InTransientTargets)
 		, State(std::make_unique<FState>())
 	{
 	}
 
 	FGBufferDebugRenderer::~FGBufferDebugRenderer() = default;
 
-	auto FGBufferDebugRenderer::EnsureTargets_RenderThread(
-		uint32 Width, uint32 Height) -> std::optional<FTargets>
+	auto FGBufferDebugRenderer::DescribeTarget(uint32 Width, uint32 Height)
+		-> FRHITextureCreateDesc
 	{
-		check(IsInRenderingThread());
-		if (Width == 0 || Height == 0) return std::nullopt;
-		const auto Desc = FRHITextureCreateDesc::Create2D(
+		return FRHITextureCreateDesc::Create2D(
 			"GBufferDebugColor", Width, Height, EPixelFormat::RGBA16_FLOAT)
 			.SetFlags(ETextureCreateFlags::RenderTargetable
 				| ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy)
 			.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f));
-		const uint64 RetainedBudget = static_cast<uint64>(Width) * Height * 16;
-		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			ERendererTransientTargetGroup::GBufferDebug,
-			std::span(&Desc, 1), RetainedBudget);
-		if (!Lease) return std::nullopt;
-		return FTargets{.Color = Lease->Textures[0]};
 	}
 
 	auto FGBufferDebugRenderer::Render_RenderThread(

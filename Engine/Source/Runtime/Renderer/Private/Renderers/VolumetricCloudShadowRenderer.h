@@ -9,7 +9,6 @@
 namespace Durin
 {
 	class FRendererResourceCoordinator;
-	class FRendererTransientTargetPool;
 	class FFullscreenGeometryResources;
 	class FRHICommandListImmediate;
 	struct FSceneView;
@@ -99,30 +98,27 @@ namespace Durin
 		}
 
 		FVolumetricCloudShadowRenderer(FRendererResourceCoordinator& InCoordinator,
-			FFullscreenGeometryResources& InFullscreenGeometry,
-			FRendererTransientTargetPool& InTransientTargets);
+			FFullscreenGeometryResources& InFullscreenGeometry);
 		~FVolumetricCloudShadowRenderer();
 		FVolumetricCloudShadowRenderer(const FVolumetricCloudShadowRenderer&) = delete;
 		auto operator=(const FVolumetricCloudShadowRenderer&)
 			-> FVolumetricCloudShadowRenderer& = delete;
 
-		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height)
-			-> std::optional<FTargets>;
-		auto EnsureComputeTargets_RenderThread(uint32 Width, uint32 Height)
-			-> std::optional<FComputeTargets>;
+		static auto DescribeFragmentTarget(uint32 Width, uint32 Height)
+			-> FRHITextureCreateDesc;
+		static auto DescribeComputeTarget(uint32 Width, uint32 Height)
+			-> FRHITextureCreateDesc;
 		auto Render_RenderThread(FRHICommandListImmediate& CommandList,
 			const FTargets* FragmentTargets,
 			const FComputeTargets* ComputeTargets,
 			const FRenderInput& Input,
 			const FRenderPolicy& Policy) -> FRenderResult;
-		auto GetRetainedTargetBytes_RenderThread() const -> uint64;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
 		struct FState;
 		FRendererResourceCoordinator& Coordinator;
 		FFullscreenGeometryResources& FullscreenGeometry;
-		FRendererTransientTargetPool& TransientTargets;
 		std::unique_ptr<FState> State;
 	};
 }

@@ -8,7 +8,7 @@
 #include "RHICommandList.h"
 #include "RenderingThread.h"
 #include "Renderers/VolumetricCloudRenderer.h"
-#include "Renderers/RendererTransientTargetPool.h"
+#include "RendererFeatureTargetTestFixture.h"
 #include "Renderers/VolumetricCloudShadowRenderer.h"
 #include "Renderers/SceneViewState.h"
 #include "Resources/FullscreenGeometryResources.h"
@@ -295,16 +295,15 @@ namespace Durin
 		const std::string ExecutionMode = Execution != nullptr ? Execution : "default";
 
 		FRendererResourceCoordinator Coordinator;
-		FRendererTransientTargetPool TransientTargets(Coordinator);
 		FFullscreenGeometryResources FullscreenGeometry;
 		FVolumetricCloudRenderer Clouds(
-			Coordinator, FullscreenGeometry, TransientTargets);
+			Coordinator, FullscreenGeometry);
 		auto Profiles = std::make_shared<std::array<FExtentProfile, Extents.size()>>();
 		auto TierProfiles =
 			std::make_shared<std::array<FTierProfile, QualityTiers.size()>>();
 
 		EnqueueRenderCommand<FProfileVolumetricCloud>(
-			[&Clouds, &Coordinator, &TransientTargets, &FullscreenGeometry,
+			[&Clouds, &Coordinator, &FullscreenGeometry,
 				Profiles, TierProfiles](
 				FRHICommandListImmediate& CommandList
 			) {
@@ -348,13 +347,13 @@ namespace Durin
 					FExtentProfile& Profile = (*Profiles)[ExtentIndex];
 					Profile.Extent = Extents[ExtentIndex];
 					const FExtentFixture& Extent = Profile.Extent;
-					auto FragmentTargets = Clouds.EnsureTargets_RenderThread(
+					auto FragmentTargets = Tests::FRendererFeatureTargetFixture::CreateCloudFragment(
 						Extent.Width, Extent.Height
 					);
-					auto ComputeTargets = Clouds.EnsureComputeTargets_RenderThread(
+					auto ComputeTargets = Tests::FRendererFeatureTargetFixture::CreateCloudCompute(
 						Extent.Width, Extent.Height
 					);
-					auto CompositeTargets = Clouds.EnsureCompositeTargets_RenderThread(
+					auto CompositeTargets = Tests::FRendererFeatureTargetFixture::CreateCloudComposite(
 						Extent.Width, Extent.Height);
 					FTextureRHIRef Depth = GDynamicRHI->RHICreateTexture(
 						CommandList, FRHITextureCreateDesc::Create2D(
@@ -489,10 +488,10 @@ namespace Durin
 							FVolumetricCloudSpatialRenderer::CalculateScaledExtent(
 								Extent.Width, Extent.Height, Policy
 							);
-						auto LowFragment = Clouds.EnsureTargets_RenderThread(
+						auto LowFragment = Tests::FRendererFeatureTargetFixture::CreateCloudFragment(
 							CloudExtent.Width, CloudExtent.Height
 						);
-						auto LowCompute = Clouds.EnsureComputeTargets_RenderThread(
+						auto LowCompute = Tests::FRendererFeatureTargetFixture::CreateCloudCompute(
 							CloudExtent.Width, CloudExtent.Height
 						);
 						FSceneViewState ViewState;
@@ -539,8 +538,9 @@ namespace Durin
 							&& RunTemporalFrame(1) && RunTemporalFrame(2);
 					}
 					GDynamicRHI->RHIEndFrame_RenderThread(CommandList);
-					Profile.RetainedBytes =
-						Clouds.GetRetainedTargetBytes_RenderThread();
+					Profile.RetainedBytes = 3ull
+						* FVolumetricCloudRenderer::FSpatial::CalculateTargetBytes(
+							Extent.Width, Extent.Height);
 					Profile.bComplete = Composite != nullptr
 										&& Profile.Compute.Timing.MedianNanoseconds > 0u
 										&& Profile.Fragment.Timing.MedianNanoseconds > 0u;
@@ -629,24 +629,24 @@ namespace Durin
 							OutputWidth, OutputHeight, Policy
 						);
 					FVolumetricCloudRenderer TierClouds(
-						Coordinator, FullscreenGeometry, TransientTargets
+						Coordinator, FullscreenGeometry
 					);
 					FVolumetricCloudShadowRenderer TierShadows(
-						Coordinator, FullscreenGeometry, TransientTargets
+						Coordinator, FullscreenGeometry
 					);
-					auto FragmentTargets = TierClouds.EnsureTargets_RenderThread(
+					auto FragmentTargets = Tests::FRendererFeatureTargetFixture::CreateCloudFragment(
 						CloudExtent.Width, CloudExtent.Height
 					);
-					auto ComputeTargets = TierClouds.EnsureComputeTargets_RenderThread(
+					auto ComputeTargets = Tests::FRendererFeatureTargetFixture::CreateCloudCompute(
 						CloudExtent.Width, CloudExtent.Height
 					);
 					auto CompositeTargets =
-						TierClouds.EnsureCompositeTargets_RenderThread(
+						Tests::FRendererFeatureTargetFixture::CreateCloudComposite(
 							OutputWidth, OutputHeight);
-					auto ShadowFragmentTargets = TierShadows.EnsureTargets_RenderThread(
+					auto ShadowFragmentTargets = Tests::FRendererFeatureTargetFixture::CreateCloudShadowFragment(
 						OutputWidth, OutputHeight
 					);
-					auto ShadowComputeTargets = TierShadows.EnsureComputeTargets_RenderThread(
+					auto ShadowComputeTargets = Tests::FRendererFeatureTargetFixture::CreateCloudShadowCompute(
 						OutputWidth, OutputHeight
 					);
 					FTextureRHIRef SceneColor = GDynamicRHI->RHICreateTexture(
@@ -831,10 +831,14 @@ namespace Durin
 					Profile.OutlierComponentFraction = ComparedComponents > 0 ? static_cast<double>(OutlierComponents)
 																					/ static_cast<double>(ComparedComponents) :
 																				0.0;
-					Profile.RetainedTargetBytes =
-						TierClouds.GetRetainedTargetBytes_RenderThread();
-					Profile.ShadowRetainedBytes =
-						TierShadows.GetRetainedTargetBytes_RenderThread();
+					Profile.RetainedTargetBytes = 2ull
+						* FVolumetricCloudRenderer::FSpatial::CalculateTargetBytes(
+							CloudExtent.Width, CloudExtent.Height)
+						+ FVolumetricCloudRenderer::FSpatial::CalculateTargetBytes(
+							OutputWidth, OutputHeight);
+					Profile.ShadowRetainedBytes = 2ull
+						* FVolumetricCloudShadowRenderer::CalculateTargetBytes(
+							OutputWidth, OutputHeight);
 					Profile.HistoryBytes =
 						SequenceState.GetVolumetricCloudHistory().GetRetainedBytes();
 					Profile.TotalRetainedBytes = Profile.RetainedTargetBytes
@@ -845,7 +849,6 @@ namespace Durin
 					TierClouds.ReleaseResources_RenderThread();
 					TierShadows.ReleaseResources_RenderThread();
 				}
-				TransientTargets.Release_RenderThread();
 				FullscreenGeometry.ReleaseResources_RenderThread();
 			}
 		);

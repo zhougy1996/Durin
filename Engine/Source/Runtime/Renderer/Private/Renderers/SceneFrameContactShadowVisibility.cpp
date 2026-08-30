@@ -200,7 +200,6 @@ namespace Durin
 				"contact-shadow-visibility-result");
 		if (Topology.UsesContactShadowVisibilityFragment())
 			GraphResources.ContactShadowVisibilityFragment = Graph.CreateTexture(
-				"Scene.ContactShadowVisibility.Fragment",
 				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"DirectionalContactVisibility", Width, Height,
 					EPixelFormat::R8_UNORM)
@@ -209,11 +208,11 @@ namespace Durin
 						| ETextureCreateFlags::SourceCopy)
 					.SetClearValue(FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f)),
 					.ObservationTag = static_cast<uint32>(
-						ERendererTransientTargetGroup::ContactFragment)},
+						ERDGAllocationObservation::ContactFragment)},
+				"Scene.ContactShadowVisibility.Fragment",
 				ERHIAccess::GraphicsShaderRead);
 		if (Topology.UsesContactShadowVisibilityCompute())
 			GraphResources.ContactShadowVisibilityCompute = Graph.CreateTexture(
-				"Scene.ContactShadowVisibility.Compute",
 				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"DirectionalContactShadowVisibilityCompute", Width, Height,
 					EPixelFormat::R8_UNORM)
@@ -221,7 +220,8 @@ namespace Durin
 						| ETextureCreateFlags::ShaderResource
 						| ETextureCreateFlags::SourceCopy),
 					.ObservationTag = static_cast<uint32>(
-						ERendererTransientTargetGroup::ContactCompute)},
+						ERDGAllocationObservation::ContactCompute)},
+				"Scene.ContactShadowVisibility.Compute",
 				ERHIAccess::GraphicsShaderRead);
 		auto FillCommonParameters = [&](auto& Parameters) {
 			Parameters.DirectionalShadow = {
@@ -361,7 +361,10 @@ namespace Durin
 			if (bForceCompute) FragmentContactTargets = nullptr;
 			if (bForceFragment) ComputeContactTargets = nullptr;
 			Telemetry.View.ContactShadow.ContactShadowRetainedBytes =
-				ContactShadowRenderer.GetRetainedTargetBytes_RenderThread();
+				TransientTargets.GetObservedRetainedBytes_RenderThread(
+					ERDGAllocationObservation::ContactFragment)
+				+ TransientTargets.GetObservedRetainedBytes_RenderThread(
+					ERDGAllocationObservation::ContactCompute);
 			const auto ContactResult = ContactShadowRenderer.Render_RenderThread(
 				CommandList, true, FragmentContactTargets, ComputeContactTargets,
 				GBufferTargets->Material, GBufferTargets->Normals,

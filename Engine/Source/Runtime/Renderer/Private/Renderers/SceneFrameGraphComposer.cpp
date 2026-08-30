@@ -133,21 +133,23 @@ namespace Durin
 			GraphResources.SelectedEnvironmentPrefiltered = Prefiltered;
 			GraphResources.SelectedEnvironmentBrdfLut = BrdfLut;
 		}
-		GraphResources.SceneColor = Graph.CreateTexture("Scene.Color",
+		GraphResources.SceneColor = Graph.CreateTexture(
 			FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 				"SceneColor", Width, Height, EPixelFormat::RGBA16_FLOAT)
 				.SetFlags(ETextureCreateFlags::RenderTargetable
 					| ETextureCreateFlags::ShaderResource
 					| ETextureCreateFlags::SourceCopy),
 			.ObservationTag = static_cast<uint32>(
-				ERendererTransientTargetGroup::Scene)}, ERHIAccess::GraphicsShaderRead);
-		GraphResources.SceneDepth = Graph.CreateTexture("Scene.Depth",
+				ERDGAllocationObservation::Scene)}, "Scene.Color",
+			ERHIAccess::GraphicsShaderRead);
+		GraphResources.SceneDepth = Graph.CreateTexture(
 			FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 				"SceneDepth", Width, Height, EPixelFormat::D32)
 				.SetFlags(ETextureCreateFlags::DepthStencilTargetable
 					| ETextureCreateFlags::ShaderResource),
 			.ObservationTag = static_cast<uint32>(
-				ERendererTransientTargetGroup::Scene)}, ERHIAccess::DepthStencilReadWrite);
+				ERDGAllocationObservation::Scene)}, "Scene.Depth",
+			ERHIAccess::DepthStencilReadWrite);
 		GraphResources.Output = Graph.RegisterExternalTexture(
 			FTextureRHIRef(OutputTarget), "Scene.Output",
 			ERHIAccess::Discard,

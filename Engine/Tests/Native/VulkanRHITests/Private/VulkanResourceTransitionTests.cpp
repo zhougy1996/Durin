@@ -15,6 +15,47 @@
 
 namespace Durin::VulkanRHI
 {
+	namespace
+	{
+		// Publishes test-owned counted Vulkan resources through the production RDG
+		// allocation contract without introducing a second ownership path.
+		class FTransitionTestRDGAllocator final : public FRDGAllocator
+		{
+		public:
+			FTransitionTestRDGAllocator(FBufferRHIRef InBuffer,
+				FTextureRHIRef InTexture)
+				: Buffer(std::move(InBuffer)), Texture(std::move(InTexture))
+			{
+			}
+
+			auto Allocate(std::span<const FRDGAllocationRequest> Requests,
+				FRDGAllocatedResources& OutResources, std::string& OutError)
+				-> bool override
+			{
+				for (const FRDGAllocationRequest& Request : Requests)
+				{
+					const bool bPublished =
+						Request.Kind == ERenderGraphResourceKind::Texture
+						? OutResources.SetTexture(Request.ResourceId, Texture,
+							Request.ResourceId + 1)
+						: OutResources.SetBuffer(Request.ResourceId, Buffer,
+							Request.ResourceId + 1);
+					if (!bPublished)
+					{
+						OutError = "test allocator could not publish resource";
+						return false;
+					}
+				}
+				OutError.clear();
+				return true;
+			}
+
+		private:
+			FBufferRHIRef Buffer;
+			FTextureRHIRef Texture;
+		};
+	} // namespace
+
 	TEST(FVulkanResourceTransitionMappingTests, SeparatesGraphicsAndComputeShaderIntent)
 	{
 		const auto Graphics = MapVulkanResourceState(ERHIAccess::GraphicsShaderRead);
@@ -268,22 +309,11 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(PreparationError, "injected allocation failure");
 
 		FRenderGraphBuilder Builder;
-		Builder.SetBackingResolver([&](auto Requests, auto& Backings,
-			std::string&) {
-			EXPECT_EQ(Requests.size(), 2u);
-			bool bComplete = true;
-			for (const auto& Request : Requests)
-				bComplete = (Request.Kind == ERenderGraphResourceKind::Texture
-					? Backings.SetTexture(Request.Texture, Texture.GetReference())
-					: Backings.SetBuffer(Request.Buffer, Buffer.GetReference()))
-					&& bComplete;
-			return bComplete;
-		});
 		const auto GraphBuffer = Builder.CreateBuffer(
-			"GraphBuffer", FRenderGraphBufferDesc{.Buffer = Buffer->GetDesc()},
+			FRenderGraphBufferDesc{.Buffer = Buffer->GetDesc()}, "GraphBuffer",
 			ERHIAccess::VertexBufferRead);
 		const auto GraphTexture = Builder.CreateTexture(
-			"GraphTexture", FRenderGraphTextureDesc{.Texture = TextureDesc},
+			FRenderGraphTextureDesc{.Texture = TextureDesc}, "GraphTexture",
 			ERHIAccess::GraphicsShaderRead);
 		const auto Copy = Builder.AddPass("Copy", ERenderGraphPassType::Copy);
 		Builder.UseBuffer(Copy, GraphBuffer, 0, 64, ERenderGraphUse::Write,
@@ -300,7 +330,12 @@ namespace Durin::VulkanRHI
 			ERHIAccess::GraphicsShaderRead);
 		auto Compiled = Builder.Compile();
 		ASSERT_TRUE(Compiled.IsSuccess()) << Compiled.Error;
-		Compiled.Graph->Execute(Commands);
+		{
+			FTransitionTestRDGAllocator Allocator(Buffer, Texture);
+			FRDGExecutionContext Context{Allocator};
+			std::string Error;
+			ASSERT_TRUE(Compiled.Graph->Execute(Commands, Context, &Error)) << Error;
+		}
 		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThread,
 			ERHISubmitFlags::SubmitToGPU);
 
@@ -314,6 +349,7 @@ namespace Durin::VulkanRHI
 		EXPECT_EQ(VulkanTexture->GetStateTracker().Get(
 			ERHITextureAspect::Color, 0, 0), ERHIAccess::None);
 
+		Compiled.Graph.reset();
 		Buffer = nullptr;
 		Texture = nullptr;
 		Commands.ImmediateFlush(EImmediateFlushType::FlushRHIThreadFlushResources);

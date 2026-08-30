@@ -60,7 +60,6 @@ namespace Durin
 				"Scene.CloudShadowValue", "cloud-shadow-result");
 		if (Topology.UsesCloudShadowFragment())
 			GraphResources.VolumetricCloudShadowFragment = Graph.CreateTexture(
-				"Scene.VolumetricCloudShadow.Fragment",
 				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"VolumetricCloudVisibility", Width, Height,
 					EPixelFormat::R8_UNORM)
@@ -70,11 +69,11 @@ namespace Durin
 						| ETextureCreateFlags::CPUReadback)
 					.SetClearValue(FClearValueBinding(1.0f, 1.0f, 1.0f, 1.0f)),
 					.ObservationTag = static_cast<uint32>(
-						ERendererTransientTargetGroup::VolumetricCloudShadowFragment)},
+						ERDGAllocationObservation::VolumetricCloudShadowFragment)},
+				"Scene.VolumetricCloudShadow.Fragment",
 				ERHIAccess::GraphicsShaderRead);
 		if (Topology.UsesCloudShadowCompute())
 			GraphResources.VolumetricCloudShadowCompute = Graph.CreateTexture(
-				"Scene.VolumetricCloudShadow.Compute",
 				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"VolumetricCloudVisibilityCompute", Width, Height,
 					EPixelFormat::R8_UNORM)
@@ -83,7 +82,8 @@ namespace Durin
 						| ETextureCreateFlags::SourceCopy
 						| ETextureCreateFlags::CPUReadback),
 					.ObservationTag = static_cast<uint32>(
-						ERendererTransientTargetGroup::VolumetricCloudShadowCompute)},
+						ERDGAllocationObservation::VolumetricCloudShadowCompute)},
+				"Scene.VolumetricCloudShadow.Compute",
 				ERHIAccess::GraphicsShaderRead);
 		const bool bCompute = PreparedCloudShadowRoute
 			== FVolumetricCloudShadowRenderer::ERoute::Compute;
@@ -224,7 +224,6 @@ namespace Durin
 			std::max(Topology.VolumetricCloudExtent.y, 0));
 		if (Topology.UsesCloudFragment())
 			GraphResources.VolumetricCloudFragment = Graph.CreateTexture(
-				"Scene.VolumetricCloud.Fragment",
 				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"VolumetricCloudFragment", CloudWidth, CloudHeight,
 					EPixelFormat::RGBA16_FLOAT)
@@ -234,11 +233,11 @@ namespace Durin
 						| ETextureCreateFlags::CPUReadback)
 					.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f)),
 					.ObservationTag = static_cast<uint32>(
-						ERendererTransientTargetGroup::VolumetricCloudFragment)},
+						ERDGAllocationObservation::VolumetricCloudFragment)},
+				"Scene.VolumetricCloud.Fragment",
 				ERHIAccess::GraphicsShaderRead);
 		if (Topology.UsesCloudCompute())
 			GraphResources.VolumetricCloudCompute = Graph.CreateTexture(
-				"Scene.VolumetricCloud.Compute",
 				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"VolumetricCloudCompute", CloudWidth, CloudHeight,
 					EPixelFormat::RGBA16_FLOAT)
@@ -247,11 +246,11 @@ namespace Durin
 						| ETextureCreateFlags::SourceCopy
 						| ETextureCreateFlags::CPUReadback),
 					.ObservationTag = static_cast<uint32>(
-						ERendererTransientTargetGroup::VolumetricCloudCompute)},
+						ERDGAllocationObservation::VolumetricCloudCompute)},
+				"Scene.VolumetricCloud.Compute",
 				ERHIAccess::GraphicsShaderRead);
 		if (Topology.bVolumetricCloudComposite)
 			GraphResources.VolumetricCloudComposite = Graph.CreateTexture(
-				"Scene.VolumetricCloud.Composite",
 				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"VolumetricCloudComposite", Width, Height,
 					EPixelFormat::RGBA16_FLOAT)
@@ -261,7 +260,8 @@ namespace Durin
 						| ETextureCreateFlags::CPUReadback)
 					.SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f)),
 					.ObservationTag = static_cast<uint32>(
-						ERendererTransientTargetGroup::VolumetricCloudComposite)},
+						ERDGAllocationObservation::VolumetricCloudComposite)},
+				"Scene.VolumetricCloud.Composite",
 				ERHIAccess::GraphicsShaderRead);
 		const bool bCompute = PreparedCloudRoute
 			== FVolumetricCloudRenderer::ERoute::Compute;
@@ -550,7 +550,10 @@ namespace Durin
 		if (ReasonIndex < ViewTelemetry.VolumetricCloud.VolumetricCloudShadowRouteReasons.size())
 			++ViewTelemetry.VolumetricCloud.VolumetricCloudShadowRouteReasons[ReasonIndex];
 		ViewTelemetry.VolumetricCloud.VolumetricCloudShadowRetainedBytes =
-			VolumetricCloudShadowRenderer.GetRetainedTargetBytes_RenderThread();
+			TransientTargets.GetObservedRetainedBytes_RenderThread(
+				ERDGAllocationObservation::VolumetricCloudShadowFragment)
+			+ TransientTargets.GetObservedRetainedBytes_RenderThread(
+				ERDGAllocationObservation::VolumetricCloudShadowCompute);
 		if (!Result.Visibility)
 		{
 			++ViewTelemetry.VolumetricCloud.VolumetricCloudShadowFactorOneViews;
@@ -706,7 +709,12 @@ namespace Durin
 				Temporal.bHistoryAccepted, View) :
 			nullptr;
 		ViewTelemetry.VolumetricCloud.VolumetricCloudRetainedBytes =
-			VolumetricCloudRenderer.GetRetainedTargetBytes_RenderThread();
+			TransientTargets.GetObservedRetainedBytes_RenderThread(
+				ERDGAllocationObservation::VolumetricCloudFragment)
+			+ TransientTargets.GetObservedRetainedBytes_RenderThread(
+				ERDGAllocationObservation::VolumetricCloudCompute)
+			+ TransientTargets.GetObservedRetainedBytes_RenderThread(
+				ERDGAllocationObservation::VolumetricCloudComposite);
 		if (Composite != nullptr)
 		{
 			++ViewTelemetry.VolumetricCloud.VolumetricCloudEnabledViews;

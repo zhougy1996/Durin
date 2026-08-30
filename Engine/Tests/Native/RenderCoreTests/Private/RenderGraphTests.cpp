@@ -99,8 +99,11 @@ namespace Durin
 		{
 		public:
 			bool bFail = false;
+			bool bOmitResources = false;
 			uint32 AllocationCount = 0;
 			std::vector<FTextureRHIRef> CreatedTextures;
+			FTextureRHIRef TextureOverride;
+			FBufferRHIRef BufferOverride;
 
 			auto Allocate(std::span<const FRDGAllocationRequest> Requests,
 				FRDGAllocatedResources& OutResources, std::string& OutError)
@@ -111,6 +114,11 @@ namespace Durin
 					OutError = "injected allocation failure";
 					return false;
 				}
+				if (bOmitResources)
+				{
+					OutError.clear();
+					return true;
+				}
 				for (const FRDGAllocationRequest& Request : Requests)
 				{
 					++AllocationCount;
@@ -119,16 +127,18 @@ namespace Durin
 						FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create(
 							"TestRDG", Request.TextureDesc.Dimension);
 						static_cast<FRHITextureDesc&>(Desc) = Request.TextureDesc;
-						auto Texture = MakeRefCount<FRHITexture>(Desc);
+						auto Texture = TextureOverride
+							? TextureOverride : MakeRefCount<FRHITexture>(Desc);
 						CreatedTextures.push_back(Texture);
 						if (!OutResources.SetTexture(Request.ResourceId,
 							std::move(Texture), AllocationCount)) return false;
 					}
 					else
 					{
-						auto Buffer = MakeRefCount<FRHIBuffer>(
-							FRHIBufferCreateDesc::Create("TestRDG",
-								Request.BufferDesc));
+						auto Buffer = BufferOverride
+							? BufferOverride : MakeRefCount<FRHIBuffer>(
+								FRHIBufferCreateDesc::Create("TestRDG",
+									Request.BufferDesc));
 						if (!OutResources.SetBuffer(Request.ResourceId,
 							std::move(Buffer), AllocationCount)) return false;
 					}
@@ -1010,12 +1020,9 @@ namespace Durin
 		GParameterDestructionOrder = &DestructionOrder;
 		FRenderGraphBuilder Builder;
 		auto Parameters = Builder.AllocParameters<FFirstLifetimeGraphParameters>();
-		Builder.SetBackingResolver([](auto, auto&, std::string&) { return true; });
-		const auto Texture = Builder.CreateTexture("MissingBacking",
-			FRenderGraphTextureDesc{
+		const auto Texture = Builder.CreateTexture(FRenderGraphTextureDesc{
 				.Texture = FRHITextureCreateDesc::Create2D("MissingBacking", 16, 16,
-					EPixelFormat::RGBA8_UNORM),
-				.BackingClass = "test"});
+					EPixelFormat::RGBA8_UNORM)}, "MissingBacking");
 		const auto Pass = Builder.AddPass("UseMissingBacking",
 			ERenderGraphPassType::Graphics);
 		Builder.UseColorAttachment(Pass, Texture, WholeColor(),
@@ -1023,7 +1030,10 @@ namespace Durin
 			ERHIRenderTargetStoreAction::Store);
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-		EXPECT_FALSE(Result.Graph->Execute(GetCommandList()));
+		FTestRDGAllocator Allocator;
+		Allocator.bOmitResources = true;
+		FRDGExecutionContext Context{Allocator};
+		EXPECT_FALSE(Result.Graph->Execute(GetCommandList(), Context));
 		EXPECT_TRUE(Parameters.IsValid());
 		EXPECT_TRUE(DestructionOrder.empty());
 		Result.Graph.reset();
@@ -1540,10 +1550,9 @@ namespace Durin
 		}
 		{
 			FRenderGraphBuilder Builder;
-			Builder.SetBackingResolver([](auto, auto&, std::string&) { return true; });
-			const auto Buffer = Builder.CreateBuffer("Unavailable",
+			const auto Buffer = Builder.CreateBuffer(
 				FRenderGraphBufferDesc{.Buffer = FRHIBufferDesc(
-					64, 4, EBufferUsageFlags::UnorderedAccess)});
+					64, 4, EBufferUsageFlags::UnorderedAccess)}, "Unavailable");
 			auto Parameters = Builder.AllocParameters<FUnavailableBufferParameters>();
 			Parameters->Buffer = {Buffer, 0, 64};
 			bool bExecuted = false;
@@ -1553,10 +1562,13 @@ namespace Durin
 					const FRenderGraphParameterResolver&) { bExecuted = true; });
 			auto Result = Builder.Compile();
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+			FTestRDGAllocator Allocator;
+			Allocator.bOmitResources = true;
+			FRDGExecutionContext Context{Allocator};
 			std::string Error;
 			EXPECT_FALSE(Result.Graph->Execute(
-				GetCommandList(), &Error));
-			EXPECT_NE(Error.find("omitted retained resource 'Unavailable'"),
+				GetCommandList(), Context, &Error));
+			EXPECT_NE(Error.find("omitted retained resource id="),
 				std::string::npos);
 			EXPECT_FALSE(bExecuted);
 		}
@@ -1948,12 +1960,10 @@ namespace Durin
 	{
 		FRenderGraphBuilder Builder;
 		Builder.EnablePassCulling();
-		Builder.SetBackingResolver([](auto, auto&, std::string&) { return true; });
 		FRenderGraphBufferDesc Desc{
-			.Buffer = FRHIBufferDesc(64, 4, EBufferUsageFlags::UnorderedAccess),
-			.BackingClass = "test-pool"};
-		const auto Retained = Builder.CreateBuffer("Retained", Desc);
-		const auto Culled = Builder.CreateBuffer("Culled", Desc);
+			.Buffer = FRHIBufferDesc(64, 4, EBufferUsageFlags::UnorderedAccess)};
+		const auto Retained = Builder.CreateBuffer(Desc, "Retained");
+		const auto Culled = Builder.CreateBuffer(Desc, "Culled");
 		const auto Produce = Builder.AddPass("Produce", ERenderGraphPassType::Compute);
 		Builder.UseBuffer(Produce, Retained, 0, 64, ERenderGraphUse::Write,
 			ERHIAccess::ComputeShaderReadWrite, true);
@@ -1966,7 +1976,6 @@ namespace Durin
 		const auto Capture = Result.Graph->Capture();
 		ASSERT_EQ(Capture.Resources.size(), 2u);
 		EXPECT_EQ(Capture.Resources[0].Preparation, "requested");
-		EXPECT_EQ(Capture.Resources[0].BackingClass, "test-pool");
 		EXPECT_EQ(Capture.Resources[1].Preparation, "culled");
 		ASSERT_EQ(Capture.Uses.size(), 1u);
 		EXPECT_EQ(Capture.Uses[0].Version, 1u);
@@ -2019,10 +2028,9 @@ namespace Durin
 	{
 		bool bExecuted = false;
 		FRenderGraphBuilder Builder;
-		Builder.SetBackingResolver([](auto, auto&, std::string&) { return true; });
-		const auto Buffer = Builder.CreateBuffer("Logical",
+		const auto Buffer = Builder.CreateBuffer(
 			FRenderGraphBufferDesc{.Buffer = FRHIBufferDesc(
-				64, 4, EBufferUsageFlags::UnorderedAccess)});
+				64, 4, EBufferUsageFlags::UnorderedAccess)}, "Logical");
 		const auto Pass = Builder.AddPass("Write", ERenderGraphPassType::Compute,
 			[&](FRHICommandListImmediate&, const FRenderGraphPassResources&) {
 				bExecuted = true;
@@ -2031,10 +2039,13 @@ namespace Durin
 			ERHIAccess::ComputeShaderReadWrite, true);
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		FTestRDGAllocator Allocator;
+		Allocator.bOmitResources = true;
+		FRDGExecutionContext Context{Allocator};
 		std::string Error;
-		EXPECT_FALSE(Result.Graph->Execute(GetCommandList(), &Error));
+		EXPECT_FALSE(Result.Graph->Execute(GetCommandList(), Context, &Error));
 		EXPECT_FALSE(bExecuted);
-		EXPECT_NE(Error.find("omitted retained resource"), std::string::npos);
+		EXPECT_NE(Error.find("omitted retained resource id="), std::string::npos);
 	}
 
 	TEST_F(FRenderGraphTests, RDGAllocationIsDescriptorDrivenAndExtractionIsTransactional)
@@ -2144,6 +2155,39 @@ namespace Durin
 		EXPECT_EQ(Texture.GetRefCount(), InitialReferences);
 	}
 
+	TEST_F(FRenderGraphTests, ExternalAndPreboundCapturesDoNotInventAllocationIdentity)
+	{
+		auto ExternalTexture = MakeRefCount<FRHITexture>(
+			FRHITextureCreateDesc::Create2D(
+				"External", 8, 8, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::ShaderResource));
+		auto PreboundTexture = MakeRefCount<FRHITexture>(
+			FRHITextureCreateDesc::Create2D(
+				"Prebound", 8, 8, EPixelFormat::RGBA8_UNORM)
+				.SetFlags(ETextureCreateFlags::RenderTargetable));
+		FRenderGraphBuilder Builder;
+		const auto External = Builder.RegisterExternalTexture(ExternalTexture,
+			"External", ERHIAccess::GraphicsShaderRead,
+			ERHIAccess::GraphicsShaderRead);
+		const auto Prebound = Builder.CreateTexture(
+			"Prebound", PreboundTexture.GetReference(),
+			ERHIAccess::GraphicsShaderRead);
+		const auto Pass = Builder.AddPass("Read", ERenderGraphPassType::Graphics);
+		Builder.UseTexture(Pass, External, WholeColor(), ERenderGraphUse::Read,
+			ERHIAccess::GraphicsShaderRead);
+		Builder.UseColorAttachment(Pass, Prebound, WholeColor(),
+			ERHIRenderTargetLoadAction::Clear,
+			ERHIRenderTargetStoreAction::Store);
+		auto Result = Builder.Compile();
+		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		const auto Capture = Result.Graph->Capture();
+		ASSERT_EQ(Capture.Resources.size(), 2u);
+		EXPECT_EQ(Capture.Resources[0].AllocationDisposition, "external");
+		EXPECT_EQ(Capture.Resources[0].PhysicalAllocationId, 0u);
+		EXPECT_EQ(Capture.Resources[1].AllocationDisposition, "prebound");
+		EXPECT_EQ(Capture.Resources[1].PhysicalAllocationId, 0u);
+	}
+
 	TEST_F(FRenderGraphTests, ExternalExtractionRoundTripPublishesAfterExecution)
 	{
 		auto Texture = MakeRefCount<FRHITexture>(
@@ -2212,21 +2256,14 @@ namespace Durin
 
 	TEST_F(FRenderGraphTests, RejectsBackingWithIncompatibleUsageFlags)
 	{
-		FRHITexture TextureBacking(FRHITextureCreateDesc::Create2D(
+		auto TextureBacking = MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D(
 			"TextureBacking", 16, 16, EPixelFormat::RGBA8_UNORM)
 			.SetFlags(ETextureCreateFlags::ShaderResource));
 		FRenderGraphBuilder TextureBuilder;
-		TextureBuilder.SetBackingResolver(
-			[&](auto Requests, auto& Backings, std::string&) {
-				return Backings.SetTexture(Requests.front().Texture,
-					&TextureBacking);
-			});
-		const auto Texture = TextureBuilder.CreateTexture("LogicalTexture",
-			FRenderGraphTextureDesc{
+		const auto Texture = TextureBuilder.CreateTexture(FRenderGraphTextureDesc{
 				.Texture = FRHITextureCreateDesc::Create2D(
 					"LogicalTexture", 16, 16, EPixelFormat::RGBA8_UNORM)
-					.SetFlags(ETextureCreateFlags::RenderTargetable),
-				.BackingClass = "test"});
+					.SetFlags(ETextureCreateFlags::RenderTargetable)}, "LogicalTexture");
 		const auto TexturePass = TextureBuilder.AddPass(
 			"TextureWrite", ERenderGraphPassType::Graphics);
 		TextureBuilder.UseColorAttachment(TexturePass, Texture, WholeColor(),
@@ -2234,31 +2271,31 @@ namespace Durin
 			ERHIRenderTargetStoreAction::Store);
 		auto TextureResult = TextureBuilder.Compile();
 		ASSERT_TRUE(TextureResult.IsSuccess()) << TextureResult.Error;
+		FTestRDGAllocator TextureAllocator;
+		TextureAllocator.TextureOverride = TextureBacking;
+		FRDGExecutionContext TextureContext{TextureAllocator};
 		std::string Error;
 		EXPECT_FALSE(TextureResult.Graph->Execute(
-			GetCommandList(), &Error));
+			GetCommandList(), TextureContext, &Error));
 		EXPECT_NE(Error.find("incompatible texture"), std::string::npos);
 
-		FRHIBuffer BufferBacking(FRHIBufferCreateDesc::Create(
+		auto BufferBacking = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
 			"BufferBacking", 64, 4, EBufferUsageFlags::StructuredBuffer));
 		FRenderGraphBuilder BufferBuilder;
-		BufferBuilder.SetBackingResolver(
-			[&](auto Requests, auto& Backings, std::string&) {
-				return Backings.SetBuffer(Requests.front().Buffer, &BufferBacking);
-			});
-		const auto Buffer = BufferBuilder.CreateBuffer("LogicalBuffer",
-			FRenderGraphBufferDesc{
+		const auto Buffer = BufferBuilder.CreateBuffer(FRenderGraphBufferDesc{
 				.Buffer = FRHIBufferDesc(
-					64, 4, EBufferUsageFlags::UnorderedAccess),
-				.BackingClass = "test"});
+					64, 4, EBufferUsageFlags::UnorderedAccess)}, "LogicalBuffer");
 		const auto BufferPass = BufferBuilder.AddPass(
 			"BufferWrite", ERenderGraphPassType::Compute);
 		BufferBuilder.UseBuffer(BufferPass, Buffer, 0, 64,
 			ERenderGraphUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
 		auto BufferResult = BufferBuilder.Compile();
 		ASSERT_TRUE(BufferResult.IsSuccess()) << BufferResult.Error;
+		FTestRDGAllocator BufferAllocator;
+		BufferAllocator.BufferOverride = BufferBacking;
+		FRDGExecutionContext BufferContext{BufferAllocator};
 		EXPECT_FALSE(BufferResult.Graph->Execute(
-			GetCommandList(), &Error));
+			GetCommandList(), BufferContext, &Error));
 		EXPECT_NE(Error.find("incompatible buffer"), std::string::npos);
 	}
 
@@ -2270,17 +2307,10 @@ namespace Durin
 			.SetFlags(ETextureCreateFlags::RenderTargetable
 				| ETextureCreateFlags::ShaderResource));
 		FRenderGraphBuilder TextureBuilder;
-		TextureBuilder.SetBackingResolver(
-			[&](auto Requests, auto& Backings, std::string&) {
-				return Backings.SetTexture(Requests.front().Texture,
-					TextureBacking.GetReference());
-			});
-		const auto Texture = TextureBuilder.CreateTexture("LogicalTexture",
-			FRenderGraphTextureDesc{
+		const auto Texture = TextureBuilder.CreateTexture(FRenderGraphTextureDesc{
 				.Texture = FRHITextureCreateDesc::Create2D(
 					"LogicalTexture", 16, 16, EPixelFormat::RGBA8_UNORM)
-					.SetFlags(ETextureCreateFlags::RenderTargetable),
-				.BackingClass = "test"});
+					.SetFlags(ETextureCreateFlags::RenderTargetable)}, "LogicalTexture");
 		const auto TexturePass = TextureBuilder.AddPass(
 			"TextureWrite", ERenderGraphPassType::Graphics);
 		TextureBuilder.UseColorAttachment(TexturePass, Texture, WholeColor(),
@@ -2288,33 +2318,32 @@ namespace Durin
 			ERHIRenderTargetStoreAction::Store);
 		auto TextureResult = TextureBuilder.Compile();
 		ASSERT_TRUE(TextureResult.IsSuccess()) << TextureResult.Error;
+		FTestRDGAllocator TextureAllocator;
+		TextureAllocator.TextureOverride = TextureBacking;
+		FRDGExecutionContext TextureContext{TextureAllocator};
 		std::string Error;
 		EXPECT_TRUE(TextureResult.Graph->Execute(
-			GetCommandList(), &Error)) << Error;
+			GetCommandList(), TextureContext, &Error)) << Error;
 
 		static const auto BufferBacking = MakeRefCount<FRHIBuffer>(
 			FRHIBufferCreateDesc::Create(
 			"BufferBacking", 64, 4, EBufferUsageFlags::UnorderedAccess
 				| EBufferUsageFlags::StructuredBuffer));
 		FRenderGraphBuilder BufferBuilder;
-		BufferBuilder.SetBackingResolver(
-			[&](auto Requests, auto& Backings, std::string&) {
-				return Backings.SetBuffer(Requests.front().Buffer,
-					BufferBacking.GetReference());
-			});
-		const auto Buffer = BufferBuilder.CreateBuffer("LogicalBuffer",
-			FRenderGraphBufferDesc{
+		const auto Buffer = BufferBuilder.CreateBuffer(FRenderGraphBufferDesc{
 				.Buffer = FRHIBufferDesc(
-					64, 4, EBufferUsageFlags::UnorderedAccess),
-				.BackingClass = "test"});
+					64, 4, EBufferUsageFlags::UnorderedAccess)}, "LogicalBuffer");
 		const auto BufferPass = BufferBuilder.AddPass(
 			"BufferWrite", ERenderGraphPassType::Compute);
 		BufferBuilder.UseBuffer(BufferPass, Buffer, 0, 64,
 			ERenderGraphUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
 		auto BufferResult = BufferBuilder.Compile();
 		ASSERT_TRUE(BufferResult.IsSuccess()) << BufferResult.Error;
+		FTestRDGAllocator BufferAllocator;
+		BufferAllocator.BufferOverride = BufferBacking;
+		FRDGExecutionContext BufferContext{BufferAllocator};
 		EXPECT_TRUE(BufferResult.Graph->Execute(
-			GetCommandList(), &Error)) << Error;
+			GetCommandList(), BufferContext, &Error)) << Error;
 	}
 
 	TEST_F(FRenderGraphTests, ExplicitEffectRootSurvivesWithoutResourceOutputs)
@@ -2462,14 +2491,12 @@ namespace Durin
 	TEST_F(FRenderGraphTests, GBufferManualDeclarationOracleKeepsBackingFailureAtomic)
 	{
 		FRenderGraphBuilder Builder;
-		Builder.SetBackingResolver([](auto, auto&, std::string&) { return true; });
-		const auto Material = Builder.CreateTexture("Scene.GBuffer.Material",
-			FRenderGraphTextureDesc{
+		const auto Material = Builder.CreateTexture(FRenderGraphTextureDesc{
 				.Texture = FRHITextureCreateDesc::Create2D("Scene.GBuffer.Material",
 					64, 64, EPixelFormat::RGBA8_UNORM)
 					.SetFlags(ETextureCreateFlags::RenderTargetable
-						| ETextureCreateFlags::ShaderResource),
-				.BackingClass = "renderer.gbuffer"},
+						| ETextureCreateFlags::ShaderResource)},
+			"Scene.GBuffer.Material",
 			ERHIAccess::GraphicsShaderRead);
 		bool bExecuted = false;
 		const auto Pass = Builder.AddPass("Scene.GBuffer",
@@ -2482,10 +2509,13 @@ namespace Durin
 			ERHIAccess::GraphicsShaderRead);
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
+		FTestRDGAllocator Allocator;
+		Allocator.bOmitResources = true;
+		FRDGExecutionContext Context{Allocator};
 		std::string Error;
-		EXPECT_FALSE(Result.Graph->Execute(GetCommandList(), &Error));
+		EXPECT_FALSE(Result.Graph->Execute(GetCommandList(), Context, &Error));
 		EXPECT_FALSE(bExecuted);
-		EXPECT_NE(Error.find("omitted retained resource 'Scene.GBuffer.Material'"),
+		EXPECT_NE(Error.find("omitted retained resource id="),
 			std::string::npos);
 	}
 

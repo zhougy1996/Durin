@@ -13,7 +13,6 @@
 namespace Durin
 {
 	class FRendererResourceCoordinator;
-	class FRendererTransientTargetPool;
 	class FRHICommandListImmediate;
 
 	enum class EGBufferVertexDomain : uint8
@@ -24,8 +23,8 @@ namespace Durin
 		Terrain,
 	};
 
-	// Owns byte-bounded geometry-buffer attachments without selecting the
-	// production opaque rendering path.
+	// Records geometry-buffer work into caller-provided attachments without
+	// selecting the production opaque rendering path.
 	class RENDERER_API FGBufferRenderer final
 	{
 	public:
@@ -79,15 +78,14 @@ namespace Durin
 			std::array<FRHISampler*, 8> Samplers{};
 		};
 
-		FGBufferRenderer(FRendererResourceCoordinator& InCoordinator,
-			FRendererTransientTargetPool& InTransientTargets);
+		FGBufferRenderer(FRendererResourceCoordinator& InCoordinator);
 		~FGBufferRenderer();
 
 		FGBufferRenderer(const FGBufferRenderer&) = delete;
 		auto operator=(const FGBufferRenderer&) -> FGBufferRenderer& = delete;
 
-		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height)
-			-> std::optional<FTargets>;
+		static auto DescribeTargets(uint32 Width, uint32 Height)
+			-> std::array<FRHITextureCreateDesc, 4>;
 		auto EnsurePipeline_RenderThread(const FPipelineRequest& Request)
 			-> FPipeline*;
 		auto BindPipeline_RenderThread(
@@ -101,7 +99,6 @@ namespace Durin
 		struct FState;
 
 		FRendererResourceCoordinator& Coordinator;
-		FRendererTransientTargetPool& TransientTargets;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

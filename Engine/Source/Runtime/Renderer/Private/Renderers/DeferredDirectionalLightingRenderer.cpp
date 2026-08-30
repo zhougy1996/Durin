@@ -4,7 +4,6 @@
 #include "Resources/FullscreenGeometryResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "Resources/RenderTargetLayouts.h"
-#include "Renderers/RendererTransientTargetPool.h"
 #include "RHI.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"
@@ -90,12 +89,10 @@ namespace Durin
 
 	FDeferredDirectionalLightingRenderer::FDeferredDirectionalLightingRenderer(
 		FRendererResourceCoordinator& InCoordinator,
-		FFullscreenGeometryResources& InFullscreenGeometry,
-		FRendererTransientTargetPool& InTransientTargets
+		FFullscreenGeometryResources& InFullscreenGeometry
 	)
 		: Coordinator(InCoordinator)
 		, FullscreenGeometry(InFullscreenGeometry)
-		, TransientTargets(InTransientTargets)
 		, State(std::make_unique<FState>())
 	{
 	}
@@ -213,23 +210,15 @@ namespace Durin
 		return Payload != nullptr;
 	}
 
-	auto FDeferredDirectionalLightingRenderer::EnsureTargets_RenderThread(
-		uint32 Width,
-		uint32 Height
-	) -> std::optional<FTargets>
+	auto FDeferredDirectionalLightingRenderer::DescribeTarget(
+		uint32 Width, uint32 Height) -> FRHITextureCreateDesc
 	{
-		if (Width == 0 || Height == 0) return std::nullopt;
-		const FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(
+		return FRHITextureCreateDesc::Create2D(
 											   "DeferredDirectionalColor", Width, Height,
 											   EPixelFormat::RGBA16_FLOAT
 		)
 											   .SetFlags(ETextureCreateFlags::RenderTargetable | ETextureCreateFlags::ShaderResource | ETextureCreateFlags::SourceCopy)
 											   .SetClearValue(FClearValueBinding(0.0f, 0.0f, 0.0f, 0.0f));
-		const auto Lease = TransientTargets.AcquireBundle_RenderThread(
-			ERendererTransientTargetGroup::DeferredDirectional,
-			std::span(&Desc, 1), MaximumRetainedBytes);
-		if (!Lease) return std::nullopt;
-		return FTargets{.Color = Lease->Textures[0]};
 	}
 
 	auto FDeferredDirectionalLightingRenderer::Render_RenderThread(

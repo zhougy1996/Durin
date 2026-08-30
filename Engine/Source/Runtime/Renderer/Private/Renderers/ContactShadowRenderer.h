@@ -12,7 +12,6 @@ namespace Durin
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
 	class FFullscreenGeometryResources;
-	class FRendererTransientTargetPool;
 	class FRenderGraphShaderParameters;
 	struct FSceneView;
 
@@ -108,18 +107,17 @@ namespace Durin
 
 		FContactShadowVisibilityRenderer(
 			FRendererResourceCoordinator& InCoordinator,
-			FFullscreenGeometryResources& InFullscreenGeometry,
-			FRendererTransientTargetPool& InTransientTargets);
+			FFullscreenGeometryResources& InFullscreenGeometry);
 		~FContactShadowVisibilityRenderer();
 		FContactShadowVisibilityRenderer(
 			const FContactShadowVisibilityRenderer&) = delete;
 		auto operator=(const FContactShadowVisibilityRenderer&)
 			-> FContactShadowVisibilityRenderer& = delete;
 
-		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height)
-			-> std::optional<FTargets>;
-		auto EnsureComputeTargets_RenderThread(uint32 Width, uint32 Height)
-			-> std::optional<FComputeTargets>;
+		static auto DescribeFragmentTarget(uint32 Width, uint32 Height)
+			-> FRHITextureCreateDesc;
+		static auto DescribeComputeTarget(uint32 Width, uint32 Height)
+			-> FRHITextureCreateDesc;
 		auto Render_RenderThread(
 			FRHICommandListImmediate& CommandList, bool bRequested,
 			const FTargets* FragmentTargets,
@@ -129,14 +127,12 @@ namespace Durin
 			const FSceneView& View, const FVector3& LightDirection,
 			uint32 Width, uint32 Height,
 			const FRenderPolicy& Policy) -> FRenderResult;
-		auto GetRetainedTargetBytes_RenderThread() const -> uint64;
 		auto ReleaseResources_RenderThread() -> void;
 
 	private:
 		struct FState;
 		FRendererResourceCoordinator& Coordinator;
 		FFullscreenGeometryResources& FullscreenGeometry;
-		FRendererTransientTargetPool& TransientTargets;
 		std::unique_ptr<FState> State;
 	};
 } // namespace Durin

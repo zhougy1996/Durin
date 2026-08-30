@@ -6,7 +6,7 @@ output transactions.
 
 Modules: Renderer, RenderCore, RHI
 
-Last reviewed: 2026-08-24
+Last reviewed: 2026-08-30
 
 ## Ownership Boundary
 
@@ -88,10 +88,14 @@ mip/sample counts, and clear binding/value for textures, or size, stride, and
 usage for buffers. Debug names, graph IDs, pass names, and feature routes are
 excluded. Equal descriptions reserve distinct entries within one execution;
 inactive compatible entries may be reused by a later execution. The 640 MiB
-graph-wide structural ceiling rejects an oversized active batch and evicts the
-oldest inactive entries when retained storage exceeds the ceiling. Allocation
-publishes only after the entire batch succeeds, and the compiled graph keeps
-every returned RHI reference alive through recording.
+named graph-wide structural policy rejects an oversized active batch and evicts
+the oldest inactive entries when retained storage exceeds the ceiling. Active
+allocation IDs are tracked directly, retained bytes are updated incrementally,
+and stable pool sequence IDs preserve deterministic reuse and eviction. A
+successful pool allocation publishes a nonzero ID across graph executions;
+imported and prebound resources remain outside that identity and publish ID
+zero. Allocation publishes only after the entire batch succeeds, and the
+compiled graph keeps every returned RHI reference alive through recording.
 
 Feature release clears feature-local views and persistent payloads; the pool
 owner performs deterministic transient release before the shared coordinator

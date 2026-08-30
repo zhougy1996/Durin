@@ -13,11 +13,11 @@ namespace Durin
 {
 	class FFullscreenGeometryResources;
 	class FRendererResourceCoordinator;
-	class FRendererTransientTargetPool;
 	class FRHICommandListImmediate;
 	struct FSceneView;
 
-	// Owns the isolated M3 qualification target and typed full-screen payload.
+	// Records isolated directional lighting into a caller-provided target and
+	// owns the typed full-screen payload.
 	class RENDERER_API FDeferredDirectionalLightingRenderer final
 	{
 	public:
@@ -79,8 +79,7 @@ namespace Durin
 
 		FDeferredDirectionalLightingRenderer(
 			FRendererResourceCoordinator& InCoordinator,
-			FFullscreenGeometryResources& InFullscreenGeometry,
-			FRendererTransientTargetPool& InTransientTargets
+			FFullscreenGeometryResources& InFullscreenGeometry
 		);
 		~FDeferredDirectionalLightingRenderer();
 
@@ -93,8 +92,8 @@ namespace Durin
 		auto EnsureResources_RenderThread(
 			FRHICommandListImmediate& CommandList
 		) -> bool;
-		auto EnsureTargets_RenderThread(uint32 Width, uint32 Height)
-			-> std::optional<FTargets>;
+		static auto DescribeTarget(uint32 Width, uint32 Height)
+			-> FRHITextureCreateDesc;
 		auto Render_RenderThread(
 			FRHICommandListImmediate& CommandList,
 			const FTargets& Targets,
@@ -118,7 +117,6 @@ namespace Durin
 
 		FRendererResourceCoordinator& Coordinator;
 		FFullscreenGeometryResources& FullscreenGeometry;
-		FRendererTransientTargetPool& TransientTargets;
 		std::unique_ptr<FState> State;
 	};
 

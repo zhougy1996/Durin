@@ -640,13 +640,12 @@ namespace Durin::Editor::Level
 
 		if (ImGui::CollapsingHeader("Resources and lifetimes"))
 		{
-			if (ImGui::BeginTable("RenderGraphResources", 5,
+			if (ImGui::BeginTable("RenderGraphResources", 4,
 				ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders
 				| ImGuiTableFlags_ScrollY, ImVec2(0.0f, MonaImGui::ScaleUI(240.0f))))
 			{
 				ImGui::TableSetupColumn("Resource");
 				ImGui::TableSetupColumn("Kind");
-				ImGui::TableSetupColumn("Backing");
 				ImGui::TableSetupColumn("Lifetime");
 				ImGui::TableSetupColumn("Preparation");
 				ImGui::TableHeadersRow();
@@ -659,7 +658,6 @@ namespace Durin::Editor::Level
 					ImGui::TextUnformatted(Resource.Kind == ERenderGraphResourceKind::Texture
 						? "Texture" : Resource.Kind == ERenderGraphResourceKind::Buffer
 							? "Buffer" : "Token");
-					ImGui::TableNextColumn(); ImGui::TextUnformatted(Resource.BackingClass.c_str());
 					ImGui::TableNextColumn();
 					if (Index < Capture->ResourceLifetimes.size())
 						ImGui::Text("%u - %u", Capture->ResourceLifetimes[Index].FirstPass,

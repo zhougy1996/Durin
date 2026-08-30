@@ -77,14 +77,14 @@ namespace Durin
 			const std::array Names{"Scene.GBuffer.Material", "Scene.GBuffer.Normals",
 				"Scene.GBuffer.Surface", "Scene.GBuffer.Emissive"};
 			for (uint32 Index = 0; Index < GraphResources.GBuffer.size(); ++Index)
-				GraphResources.GBuffer[Index] = Graph.CreateTexture(Names[Index],
+				GraphResources.GBuffer[Index] = Graph.CreateTexture(
 					FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 						Names[Index], Width, Height, Formats[Index])
 						.SetFlags(ETextureCreateFlags::RenderTargetable
 							| ETextureCreateFlags::ShaderResource
 							| ETextureCreateFlags::SourceCopy),
 						.ObservationTag = static_cast<uint32>(
-							ERendererTransientTargetGroup::GBuffer)},
+							ERDGAllocationObservation::GBuffer)}, Names[Index],
 					ERHIAccess::GraphicsShaderRead);
 		}
 		auto Parameters = Graph.AllocParameters<FGBufferPassParameters>();

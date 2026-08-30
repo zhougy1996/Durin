@@ -95,7 +95,6 @@ namespace Durin
 				"deferred-directional-lighting-result");
 		if (Topology.bIsolatedDeferred)
 			GraphResources.IsolatedDeferred = Graph.CreateTexture(
-				"Scene.DeferredDirectionalLighting.Isolated",
 				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"DeferredDirectionalColor", Width, Height,
 					EPixelFormat::RGBA16_FLOAT)
@@ -103,7 +102,8 @@ namespace Durin
 						| ETextureCreateFlags::ShaderResource
 						| ETextureCreateFlags::SourceCopy),
 					.ObservationTag = static_cast<uint32>(
-						ERendererTransientTargetGroup::DeferredDirectional)},
+						ERDGAllocationObservation::DeferredDirectional)},
+				"Scene.DeferredDirectionalLighting.Isolated",
 				ERHIAccess::GraphicsShaderRead);
 		auto Parameters = Graph.AllocParameters<
 			FDeferredDirectionalLightingPassParameters>();
