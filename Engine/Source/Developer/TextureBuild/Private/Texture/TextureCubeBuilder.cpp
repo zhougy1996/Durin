@@ -1,5 +1,6 @@
 #include "Texture/TextureCubeBuilder.h"
 
+#include "Math/Color.h"
 #include "RHIResources.h"
 
 namespace Durin::Asset::TextureCubeBuilder
@@ -56,22 +57,12 @@ namespace Durin::Asset::TextureCubeBuilder
 
 		auto DecodeSRGB(uint8 Value) -> double
 		{
-			const double Encoded = static_cast<double>(Value) / 255.0;
-			return Encoded <= 0.04045 ? Encoded / 12.92 : std::pow((Encoded + 0.055) / 1.055, 2.4);
-		}
-
-		auto EncodeUNorm(double Value) -> uint8
-		{
-			return static_cast<uint8>(std::floor(std::clamp(Value, 0.0, 1.0) * 255.0 + 0.5));
+			return SRGBToLinear(static_cast<double>(Value) / 255.0);
 		}
 
 		auto EncodeSRGB(double Value) -> uint8
 		{
-			const double Linear = std::clamp(Value, 0.0, 1.0);
-			const double Encoded = Linear <= 0.0031308
-				? 12.92 * Linear
-				: 1.055 * std::pow(Linear, 1.0 / 2.4) - 0.055;
-			return EncodeUNorm(Encoded);
+			return QuantizeUNorm8(LinearToSRGB(Value));
 		}
 
 		auto FilmicToneMap(double Value) -> double
@@ -222,7 +213,7 @@ namespace Durin::Asset::TextureCubeBuilder
 								: static_cast<double>(Encoded) / 255.0);
 						}
 						Face.Pixels[Destination + Channel] = static_cast<std::byte>(
-							Channel < 3 ? EncodeSRGB(Value) : EncodeUNorm(Value));
+							Channel < 3 ? EncodeSRGB(Value) : QuantizeUNorm8(Value));
 					}
 					Face.bHasTransparency |= Face.Pixels[Destination + 3] != static_cast<std::byte>(255);
 				}

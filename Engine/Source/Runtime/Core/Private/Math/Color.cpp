@@ -2,6 +2,36 @@
 
 namespace Durin
 {
+	namespace
+	{
+		auto Clamp01NansTo0(double Value) -> double
+		{
+			const double ClampedLow = Value > 0.0 ? Value : 0.0;
+			return ClampedLow < 1.0 ? ClampedLow : 1.0;
+		}
+	}
+
+	auto LinearToSRGB(double Linear) -> double
+	{
+		Linear = Clamp01NansTo0(Linear);
+		return Linear <= 0.0031308
+			? Linear * 12.92
+			: 1.055 * std::pow(Linear, 1.0 / 2.4) - 0.055;
+	}
+
+	auto SRGBToLinear(double SRGB) -> double
+	{
+		SRGB = Clamp01NansTo0(SRGB);
+		return SRGB <= 0.04045
+			? SRGB / 12.92
+			: std::pow((SRGB + 0.055) / 1.055, 2.4);
+	}
+
+	auto QuantizeUNorm8(double Value) -> uint8
+	{
+		return static_cast<uint8>(Clamp01NansTo0(Value) * 255.0 + 0.5);
+	}
+
 	// Common colors.
 	const FLinearColor FLinearColor::White(1.f, 1.f, 1.f);
 	const FLinearColor FLinearColor::Gray(0.5f, 0.5f, 0.5f);
@@ -73,8 +103,11 @@ namespace Durin
 
 	FColor FLinearColor::ToFColorSRGB() const
 	{
-		//TODO: Use real sRGB here (important)
-		return QuantizeRound();
+		return FColor(
+			QuantizeUNorm8(LinearToSRGB(R)),
+			QuantizeUNorm8(LinearToSRGB(G)),
+			QuantizeUNorm8(LinearToSRGB(B)),
+			QuantizeUNorm8(A));
 	}
 
 	/**

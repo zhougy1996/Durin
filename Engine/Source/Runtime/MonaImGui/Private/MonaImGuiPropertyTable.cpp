@@ -95,18 +95,6 @@ namespace Durin::MonaImGui::PropertyEdit
 			return bChanged;
 		}
 
-		auto LinearToSRGB(float Value) -> float
-		{
-			const float Linear = std::clamp(Value, 0.0f, 1.0f);
-			return Linear <= 0.0031308f ? Linear * 12.92f : 1.055f * std::pow(Linear, 1.0f / 2.4f) - 0.055f;
-		}
-
-		auto SRGBToLinear(float Value) -> float
-		{
-			const float SRGB = std::clamp(Value, 0.0f, 1.0f);
-			return SRGB <= 0.04045f ? SRGB / 12.92f : std::pow((SRGB + 0.055f) / 1.055f, 2.4f);
-		}
-
 		auto QuatToEulerDegrees(const FQuat& Value) -> FVector3
 		{
 			// Invalid quaternion storage should remain recoverable from the editor instead of producing NaN controls.

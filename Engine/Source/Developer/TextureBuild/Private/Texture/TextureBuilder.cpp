@@ -1,5 +1,7 @@
 #include "Texture/TextureBuilder.h"
 
+#include "Math/Color.h"
+
 #include <bc7enc.h>
 #include <rgbcx.h>
 
@@ -138,19 +140,12 @@ namespace Durin::Asset::TextureBuilder
 
 		auto DecodeSRGB(uint8 Value) -> double
 		{
-			const double Encoded = static_cast<double>(Value) / 255.0;
-			return Encoded <= 0.04045 ? Encoded / 12.92 : std::pow((Encoded + 0.055) / 1.055, 2.4);
-		}
-
-		auto EncodeUNorm(double Value) -> uint8
-		{
-			return static_cast<uint8>(std::clamp(Value, 0.0, 1.0) * 255.0 + 0.5);
+			return SRGBToLinear(static_cast<double>(Value) / 255.0);
 		}
 
 		auto EncodeSRGB(double Value) -> uint8
 		{
-			const double Linear = std::clamp(Value, 0.0, 1.0);
-			return EncodeUNorm(Linear <= 0.0031308 ? Linear * 12.92 : 1.055 * std::pow(Linear, 1.0 / 2.4) - 0.055);
+			return QuantizeUNorm8(LinearToSRGB(Value));
 		}
 
 		auto BuildNextMip(
@@ -213,9 +208,9 @@ namespace Durin::Asset::TextureBuilder
 							Y = 0.0;
 							Z = 1.0;
 						}
-						Result.Pixels[DestOffset] = static_cast<std::byte>(EncodeUNorm(X * 0.5 + 0.5));
-						Result.Pixels[DestOffset + 1] = static_cast<std::byte>(EncodeUNorm(Y * 0.5 + 0.5));
-						Result.Pixels[DestOffset + 2] = static_cast<std::byte>(EncodeUNorm(Z * 0.5 + 0.5));
+						Result.Pixels[DestOffset] = static_cast<std::byte>(QuantizeUNorm8(X * 0.5 + 0.5));
+						Result.Pixels[DestOffset + 1] = static_cast<std::byte>(QuantizeUNorm8(Y * 0.5 + 0.5));
+						Result.Pixels[DestOffset + 2] = static_cast<std::byte>(QuantizeUNorm8(Z * 0.5 + 0.5));
 					}
 					else
 					{
@@ -223,10 +218,10 @@ namespace Durin::Asset::TextureBuilder
 						{
 							const double Average = Sum[Channel] / SampleCount;
 							Result.Pixels[DestOffset + Channel] = static_cast<std::byte>(
-								Usage == ETextureUsage::Color && bSRGB ? EncodeSRGB(Average) : EncodeUNorm(Average));
+								Usage == ETextureUsage::Color && bSRGB ? EncodeSRGB(Average) : QuantizeUNorm8(Average));
 						}
 					}
-					Result.Pixels[DestOffset + 3] = static_cast<std::byte>(EncodeUNorm(Sum[3] / SampleCount));
+					Result.Pixels[DestOffset + 3] = static_cast<std::byte>(QuantizeUNorm8(Sum[3] / SampleCount));
 				}
 			}
 			OutResult = std::move(Result);
@@ -240,7 +235,7 @@ namespace Durin::Asset::TextureBuilder
 			double& OutCoverage,
 			const FBuildExecutionControl* ExecutionControl) -> bool
 		{
-			const uint8 EncodedThreshold = EncodeUNorm(Threshold);
+			const uint8 EncodedThreshold = QuantizeUNorm8(Threshold);
 			uint64 CoveredPixelCount = 0;
 			for (uint32 Y = 0; Y < Mip.Height; ++Y)
 			{
@@ -249,7 +244,7 @@ namespace Durin::Asset::TextureBuilder
 				for (uint32 X = 0; X < Mip.Width; ++X)
 				{
 					const size_t Offset = static_cast<size_t>(Y) * Mip.RowPitch + X * ChannelCount + 3;
-					const uint8 AdjustedAlpha = EncodeUNorm(
+					const uint8 AdjustedAlpha = QuantizeUNorm8(
 						static_cast<double>(std::to_integer<uint8>(Mip.Pixels[Offset])) / 255.0 * Scale);
 					if (AdjustedAlpha >= EncodedThreshold) ++CoveredPixelCount;
 				}
@@ -303,7 +298,7 @@ namespace Durin::Asset::TextureBuilder
 				for (uint32 X = 0; X < Mip.Width; ++X)
 				{
 					const size_t Offset = static_cast<size_t>(Y) * Mip.RowPitch + X * ChannelCount + 3;
-					Mip.Pixels[Offset] = static_cast<std::byte>(EncodeUNorm(
+					Mip.Pixels[Offset] = static_cast<std::byte>(QuantizeUNorm8(
 						static_cast<double>(std::to_integer<uint8>(Mip.Pixels[Offset])) / 255.0 * BestScale));
 				}
 			}
