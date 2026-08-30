@@ -4,7 +4,7 @@
 
 namespace Durin
 {
-	struct FRenderGraphCapture;
+	struct FRDGCapture;
 	struct FSceneViewportStatisticsSnapshot;
 }
 
@@ -27,9 +27,9 @@ namespace Durin::Editor::Level
 	private:
 		auto DrawOverview(
 			const FSceneViewportStatisticsSnapshot& Snapshot,
-			const FRenderGraphCapture* Capture) -> void;
+			const FRDGCapture* Capture) -> void;
 		auto DrawScene(const FSceneViewportStatisticsSnapshot& Snapshot) -> void;
-		auto DrawRenderGraph(const FRenderGraphCapture* Capture) -> void;
+		auto DrawRenderGraph(const FRDGCapture* Capture) -> void;
 		auto RequestCapture() -> void;
 
 		FSceneViewportPanel& ViewportPanel;

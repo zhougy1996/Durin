@@ -3,7 +3,7 @@
 #include "Console/ConsoleCommand.h"
 #include "CoreGlobals.h"
 #include "Renderers/SceneRenderer.h"
-#include "RenderGraph.h"
+#include "RDG.h"
 #include "Resources/DefaultTextureResources.h"
 #include "Resources/RendererResourceCoordinator.h"
 #include "RHI.h"
@@ -232,11 +232,11 @@ namespace Durin
 		bool bPresentOutput,
 		const FSceneViewRenderOptions& Options,
 		FSceneViewStatistics* OutStatistics,
-		FRenderGraphCapture* OutRenderGraphCapture) -> ERenderViewResult
+		FRDGCapture* OutRenderGraphCapture) -> ERenderViewResult
 	{
 		if (OutStatistics != nullptr) *OutStatistics = {};
 		if (OutRenderGraphCapture != nullptr)
-			*OutRenderGraphCapture = FRenderGraphCapture{};
+			*OutRenderGraphCapture = FRDGCapture{};
 		auto* RendererScene = dynamic_cast<FScene*>(Scene);
 		const uint64 DrawsBefore = CommandList.GetNumRecordedDrawCommands();
 		const ERenderViewResult Result = SceneRenderer->RenderView_RenderThread(

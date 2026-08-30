@@ -28,7 +28,7 @@
 namespace Durin
 {
 	class FConsoleCommandRegistry;
-	class FRenderGraphSceneFrameExecutor;
+	class FSceneFrameGraphExecutor;
 	class FSceneFrameExecutionPipeline;
 	class FSceneFrameFeatureRecorders;
 	class FRHICommandListImmediate;
@@ -72,7 +72,7 @@ namespace Durin
 			bool bPresentOutput,
 			const FSceneViewRenderOptions& Options,
 			FSceneViewStatistics* OutStatistics,
-			FRenderGraphCapture* OutRenderGraphCapture
+			FRDGCapture* OutRenderGraphCapture
 		) -> ERenderViewResult;
 
 		auto GetResourceCoordinator() -> FRendererResourceCoordinator&
@@ -86,7 +86,7 @@ namespace Durin
 		}
 
 	private:
-		friend class FRenderGraphSceneFrameExecutor;
+		friend class FSceneFrameGraphExecutor;
 		friend class FSceneFrameExecutionPipeline;
 		friend class FSceneFrameFeatureRecorders;
 		auto EnqueueResourceInvalidation(

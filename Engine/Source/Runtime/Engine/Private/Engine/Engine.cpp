@@ -237,7 +237,7 @@ namespace Durin
 					CommandList.SwitchPipeline(ERHIPipeline::Graphics);
 					FSceneViewStatistics Statistics;
 					auto RenderGraphCapture = bCaptureRenderGraph
-						? std::make_shared<FRenderGraphCapture>() : nullptr;
+						? std::make_shared<FRDGCapture>() : nullptr;
 					ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
 					if (RendererModule != nullptr)
 					{
@@ -297,7 +297,7 @@ namespace Durin
 
 							FSceneViewStatistics Statistics;
 							auto RenderGraphCapture = bCaptureRenderGraph
-								? std::make_shared<FRenderGraphCapture>() : nullptr;
+								? std::make_shared<FRDGCapture>() : nullptr;
 							ERenderViewResult Result = ERenderViewResult::RendererResourcesUnavailable;
 							if (RendererModule != nullptr)
 							{

@@ -11,41 +11,41 @@
 
 namespace Durin
 {
-	auto FGBufferPassParameters::GetRenderGraphParametersMetadata()
-		-> const FRenderGraphParametersMetadata*
+	auto FGBufferPassParameters::GetRDGParametersMetadata()
+		-> const FRDGParametersMetadata*
 	{
 		static const std::array Members{
-			MakeRenderGraphValueParameterMemberMetadata<
+			MakeRDGValueParameterMemberMetadata<
 				FGBufferPassParameters, decltype(Completion),
 				FGBufferPassResult>("Completion",
 					offsetof(FGBufferPassParameters, Completion)),
-			MakeRenderGraphResourceParameterMemberMetadata<
+			MakeRDGResourceParameterMemberMetadata<
 				FGBufferPassParameters, decltype(Colors),
-				FRenderGraphColorAttachmentParameter>("Colors",
+				FRDGColorAttachmentParameter>("Colors",
 					offsetof(FGBufferPassParameters, Colors),
-					ERenderGraphParameterMemberKind::ManagedColorAttachment,
-					ERenderGraphResourceKind::Texture,
-					ERenderGraphParameterRangeKind::TextureSubresource,
-					ERenderGraphUse::ReadWrite,
+					ERDGParameterMemberKind::ManagedColorAttachment,
+					ERDGResourceKind::Texture,
+					ERDGParameterRangeKind::TextureSubresource,
+					ERDGUse::ReadWrite,
 					ERHIAccess::ColorAttachmentReadWrite, true,
 					ERHIRenderTargetLoadAction::Clear,
 					ERHIRenderTargetStoreAction::Store, true,
 					ERHIAccess::GraphicsShaderRead),
-			MakeRenderGraphResourceParameterMemberMetadata<
+			MakeRDGResourceParameterMemberMetadata<
 				FGBufferPassParameters, decltype(Depth),
-				FRenderGraphDepthStencilAttachmentParameter>("Depth",
+				FRDGDepthStencilAttachmentParameter>("Depth",
 					offsetof(FGBufferPassParameters, Depth),
-					ERenderGraphParameterMemberKind::ManagedDepthStencilAttachment,
-					ERenderGraphResourceKind::Texture,
-					ERenderGraphParameterRangeKind::TextureSubresource,
-					ERenderGraphUse::ReadWrite,
+					ERDGParameterMemberKind::ManagedDepthStencilAttachment,
+					ERDGResourceKind::Texture,
+					ERDGParameterRangeKind::TextureSubresource,
+					ERDGUse::ReadWrite,
 					ERHIAccess::DepthStencilReadWrite, true,
 					ERHIRenderTargetLoadAction::Clear,
 					ERHIRenderTargetStoreAction::Store, true,
 					ERHIAccess::GraphicsShaderRead),
 		};
 		static const auto Metadata =
-			MakeInlineRenderGraphParametersMetadata<FGBufferPassParameters>(
+			MakeInlineRDGParametersMetadata<FGBufferPassParameters>(
 				"FGBufferPassParameters", Members);
 		return &Metadata;
 	}
@@ -62,12 +62,12 @@ namespace Durin
 		const bool bNeedsGBuffer = Inputs.bNeedsGBuffer;
 		const bool bWantsIsolatedDeferred = Inputs.bWantsIsolatedDeferred;
 		struct {
-			FRenderGraphTextureHandle SceneDepth;
-			std::array<std::optional<FRenderGraphTextureHandle>, 4> GBuffer;
+			FRDGTextureHandle SceneDepth;
+			std::array<std::optional<FRDGTextureHandle>, 4> GBuffer;
 		} GraphResources;
 		GraphResources.SceneDepth = Inputs.Depth;
-		struct { TSceneFrameGraphValue<FGBufferPassResult> GBuffer; } Channels;
-		Channels.GBuffer.Handle = Graph.CreateValue<FGBufferPassResult>(
+		struct { TRDGValueHandle<FGBufferPassResult> GBuffer; } Channels;
+		Channels.GBuffer = Graph.CreateValue<FGBufferPassResult>(
 			"Scene.GBufferValue", "gbuffer-result");
 		if (Inputs.bEnabled)
 		{
@@ -78,7 +78,7 @@ namespace Durin
 				"Scene.GBuffer.Surface", "Scene.GBuffer.Emissive"};
 			for (uint32 Index = 0; Index < GraphResources.GBuffer.size(); ++Index)
 				GraphResources.GBuffer[Index] = Graph.CreateTexture(
-					FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+					FRDGTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 						Names[Index], Width, Height, Formats[Index])
 						.SetFlags(ETextureCreateFlags::RenderTargetable
 							| ETextureCreateFlags::ShaderResource
@@ -88,33 +88,33 @@ namespace Durin
 					ERHIAccess::GraphicsShaderRead);
 		}
 		auto Parameters = Graph.AllocParameters<FGBufferPassParameters>();
-		Parameters->Completion = {Channels.GBuffer.Handle};
+		Parameters->Completion = {Channels.GBuffer};
 		if (GraphResources.GBuffer[0])
 		{
 			for (uint32 Index = 0; Index < GraphResources.GBuffer.size(); ++Index)
 			{
-				Parameters->Colors[Index] = FRenderGraphColorAttachmentParameter{
+				Parameters->Colors[Index] = FRDGColorAttachmentParameter{
 					.Texture = *GraphResources.GBuffer[Index],
 					.Range = {ERHITextureAspect::Color, 0, 1, 0, 1}};
 			}
-			Parameters->Depth = FRenderGraphDepthStencilAttachmentParameter{
+			Parameters->Depth = FRDGDepthStencilAttachmentParameter{
 				.Texture = GraphResources.SceneDepth,
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		}
 		(void)AddSceneFrameFeaturePass<FGBufferGraphContributor>(
-			Graph, ERenderGraphPassType::Graphics, std::move(Parameters),
+			Graph, ERDGPassType::Graphics, std::move(Parameters),
 			[&Services, RecordInputs, &Options,
 				Width, Height, bNeedsGBuffer, bWantsIsolatedDeferred](
 				FRHICommandListImmediate& Commands,
 				const FGBufferPassParameters& PassParameters,
-				const FRenderGraphParameterResolver& Resolver) {
-				const FRenderGraphAttachmentView Depth =
+				const FRDGParameterResolver& Resolver) {
+				const FRDGAttachmentView Depth =
 					Resolver.GetDepthStencilAttachment(PassParameters.Depth);
 				const FPostProcessRenderer::FSceneTargets SceneTargets{
 					.Color = nullptr,
 					.Depth = Depth.Texture};
 				std::optional<FGBufferRenderer::FTargets> GBufferTargets;
-				const FRenderGraphAttachmentView Material =
+				const FRDGAttachmentView Material =
 					Resolver.GetColorAttachment(PassParameters.Colors[0]);
 				if (Material)
 				{
@@ -134,7 +134,7 @@ namespace Durin
 					Options, Width, Height,
 					bNeedsGBuffer, bWantsIsolatedDeferred);
 			});
-		return {.Completion = Channels.GBuffer.Handle,
+		return {.Completion = Channels.GBuffer,
 			.Textures = GraphResources.GBuffer,
 			.Depth = GraphResources.SceneDepth};
 	}

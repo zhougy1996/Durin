@@ -6,17 +6,17 @@ namespace Durin
 {
 	// Owns the public frame-execution boundary. Scene graph authoring is delegated
 	// to the renderer-private composer.
-	class FRenderGraphSceneFrameExecutor final
+	class FSceneFrameGraphExecutor final
 	{
 	public:
-		explicit FRenderGraphSceneFrameExecutor(FSceneRenderer& Renderer);
+		explicit FSceneFrameGraphExecutor(FSceneRenderer& Renderer);
 
-		FRenderGraphSceneFrameExecutor(const FRenderGraphSceneFrameExecutor&) = delete;
-		auto operator=(const FRenderGraphSceneFrameExecutor&)
-			-> FRenderGraphSceneFrameExecutor& = delete;
-		FRenderGraphSceneFrameExecutor(FRenderGraphSceneFrameExecutor&&) = delete;
-		auto operator=(FRenderGraphSceneFrameExecutor&&)
-			-> FRenderGraphSceneFrameExecutor& = delete;
+		FSceneFrameGraphExecutor(const FSceneFrameGraphExecutor&) = delete;
+		auto operator=(const FSceneFrameGraphExecutor&)
+			-> FSceneFrameGraphExecutor& = delete;
+		FSceneFrameGraphExecutor(FSceneFrameGraphExecutor&&) = delete;
+		auto operator=(FSceneFrameGraphExecutor&&)
+			-> FSceneFrameGraphExecutor& = delete;
 
 		auto Execute_RenderThread(
 			FRHICommandListImmediate& CommandList,
@@ -26,14 +26,14 @@ namespace Durin
 			bool bPresentOutput,
 			const FSceneViewRenderOptions& Options,
 			FSceneViewStatistics* OutStatistics,
-			FRenderGraphCapture* OutRenderGraphCapture
+			FRDGCapture* OutRenderGraphCapture
 		) -> ERenderViewResult;
 
 	private:
 		auto CompileAndExecuteGraph_RenderThread(
-			FRenderGraphBuilder& Graph,
+			FRDGBuilder& Graph,
 			FRHICommandListImmediate& CommandList,
-			FRenderGraphCapture* OutRenderGraphCapture
+			FRDGCapture* OutRenderGraphCapture
 		) -> ESceneFrameGraphExecutionStatus;
 
 		FSceneFrameExecutionPipeline Pipeline;

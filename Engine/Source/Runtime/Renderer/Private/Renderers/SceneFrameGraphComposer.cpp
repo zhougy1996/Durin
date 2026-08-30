@@ -9,7 +9,7 @@
 namespace Durin
 {
 	auto FSceneFrameGraphComposer::Compose(
-		FRenderGraphBuilder& Graph,
+		FRDGBuilder& Graph,
 		const FSceneFrameGraphComposeInputs& Inputs,
 		FSceneFrameGraphComposition& Composition) -> void
 	{
@@ -41,23 +41,23 @@ namespace Durin
 		auto& ProductionDeferredParameters =
 			Composition.ProductionDeferredParameters;
 		struct {
-			std::optional<FRenderGraphTextureHandle> DirectionalShadow;
-			FRenderGraphTextureHandle SceneColor;
-			FRenderGraphTextureHandle SceneDepth;
-			FRenderGraphTextureHandle Output;
-			std::optional<FRenderGraphTextureHandle> VolumetricCloudBaseDensity;
-			std::optional<FRenderGraphTextureHandle> VolumetricCloudDetailDensity;
-			std::optional<FRenderGraphTextureHandle> VolumetricCloudWeather;
-			std::optional<FRenderGraphTextureHandle> DefaultWhite;
-			std::optional<FRenderGraphTextureHandle> DefaultShadowArray;
-			std::optional<FRenderGraphTextureHandle> EnvironmentIrradiance;
-			std::optional<FRenderGraphTextureHandle> EnvironmentPrefiltered;
-			std::optional<FRenderGraphTextureHandle> EnvironmentBrdfLut;
+			std::optional<FRDGTextureHandle> DirectionalShadow;
+			FRDGTextureHandle SceneColor;
+			FRDGTextureHandle SceneDepth;
+			FRDGTextureHandle Output;
+			std::optional<FRDGTextureHandle> VolumetricCloudBaseDensity;
+			std::optional<FRDGTextureHandle> VolumetricCloudDetailDensity;
+			std::optional<FRDGTextureHandle> VolumetricCloudWeather;
+			std::optional<FRDGTextureHandle> DefaultWhite;
+			std::optional<FRDGTextureHandle> DefaultShadowArray;
+			std::optional<FRDGTextureHandle> EnvironmentIrradiance;
+			std::optional<FRDGTextureHandle> EnvironmentPrefiltered;
+			std::optional<FRDGTextureHandle> EnvironmentBrdfLut;
 			FRHITexture* SelectedEnvironmentIrradiance = nullptr;
 			FRHITexture* SelectedEnvironmentPrefiltered = nullptr;
 			FRHITexture* SelectedEnvironmentBrdfLut = nullptr;
 		} GraphResources;
-		constexpr FRenderGraphBudget SceneFrameBudget{
+		constexpr FRDGBudget SceneFrameBudget{
 			.MaxPasses = 256,
 			.MaxDependencies = 4096,
 			.MaxBufferTransitions = 4096,
@@ -71,7 +71,7 @@ namespace Durin
 		Graph.SetBudget(SceneFrameBudget);
 		Graph.EnablePassCulling();
 		auto ImportPersistentTexture = [&](std::string_view Name,
-			FRHITexture* Texture) -> std::optional<FRenderGraphTextureHandle> {
+			FRHITexture* Texture) -> std::optional<FRDGTextureHandle> {
 			if (!Texture) return std::nullopt;
 			return Graph.RegisterExternalTexture(FTextureRHIRef(Texture), Name,
 				ERHIAccess::GraphicsShaderRead,
@@ -134,7 +134,7 @@ namespace Durin
 			GraphResources.SelectedEnvironmentBrdfLut = BrdfLut;
 		}
 		GraphResources.SceneColor = Graph.CreateTexture(
-			FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+			FRDGTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 				"SceneColor", Width, Height, EPixelFormat::RGBA16_FLOAT)
 				.SetFlags(ETextureCreateFlags::RenderTargetable
 					| ETextureCreateFlags::ShaderResource
@@ -143,7 +143,7 @@ namespace Durin
 				ERDGAllocationObservation::Scene)}, "Scene.Color",
 			ERHIAccess::GraphicsShaderRead);
 		GraphResources.SceneDepth = Graph.CreateTexture(
-			FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+			FRDGTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 				"SceneDepth", Width, Height, EPixelFormat::D32)
 				.SetFlags(ETextureCreateFlags::DepthStencilTargetable
 					| ETextureCreateFlags::ShaderResource),

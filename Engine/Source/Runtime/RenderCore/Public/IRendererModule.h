@@ -9,7 +9,7 @@ namespace Durin
 	class FRHICommandListImmediate;
 	class FRHITexture;
 	class IScene;
-	struct FRenderGraphCapture;
+	struct FRDGCapture;
 
 	// Reports whether one render-thread view submission produced a complete output.
 	enum class ERenderViewResult : uint8
@@ -38,7 +38,7 @@ namespace Durin
 			bool bPresentOutput,
 			const FSceneViewRenderOptions& Options,
 			FSceneViewStatistics* OutStatistics = nullptr,
-			FRenderGraphCapture* OutRenderGraphCapture = nullptr
+			FRDGCapture* OutRenderGraphCapture = nullptr
 		) -> ERenderViewResult = 0;
 	};
 }

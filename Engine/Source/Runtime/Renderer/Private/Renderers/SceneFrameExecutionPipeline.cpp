@@ -7,7 +7,7 @@
 #include "Renderers/SceneFrameGraphContributors.h"
 #include "Profiling/Profiling.h"
 #include "RHICommandList.h"
-#include "RenderGraph.h"
+#include "RDG.h"
 #include "RenderingThread.h"
 #include "Resources/RenderTargetLayouts.h"
 #include "Scene.h"
@@ -33,15 +33,15 @@ namespace Durin
 			);
 		}
 
-		class FRenderGraphFrameViewStateSubmission final
+		class FFrameViewStateSubmission final
 		{
 		public:
-			explicit FRenderGraphFrameViewStateSubmission(FSceneViewState* InState)
+			explicit FFrameViewStateSubmission(FSceneViewState* InState)
 				: State(InState)
 			{
 			}
 
-			~FRenderGraphFrameViewStateSubmission()
+			~FFrameViewStateSubmission()
 			{
 				if (State != nullptr) State->Abort();
 			}
@@ -176,7 +176,7 @@ namespace Durin
 			);
 			ViewState = nullptr;
 		}
-		FRenderGraphFrameViewStateSubmission ViewStateSubmission(ViewState);
+		FFrameViewStateSubmission ViewStateSubmission(ViewState);
 		if (ViewState != nullptr)
 		{
 			TemporalContext = ViewState->Begin(
@@ -370,7 +370,7 @@ namespace Durin
 			Requirements.bVolumetricCloudComposite = PreparedCloudRoute
 				!= FVolumetricCloudRenderer::ERoute::Disabled;
 		}
-		FRenderGraphBuilder Graph;
+		FRDGBuilder Graph;
 		FSceneFrameGraphComposition Composition;
 		FSceneFrameGraphServices GraphServices{
 			.Recorders = Recorders,

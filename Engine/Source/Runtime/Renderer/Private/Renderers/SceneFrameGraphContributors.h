@@ -2,7 +2,7 @@
 
 #include "Renderers/SceneFrameFeatureRecorders.h"
 #include "Renderers/SceneFrameGraphComposer.h"
-#include "RenderGraph.h"
+#include "RDG.h"
 
 namespace Durin
 {
@@ -14,95 +14,95 @@ namespace Durin
 	struct TypeName final \
 	{ \
 		__VA_ARGS__ \
-		static RENDERER_API auto GetRenderGraphParametersMetadata() \
-			-> const FRenderGraphParametersMetadata*; \
+		static RENDERER_API auto GetRDGParametersMetadata() \
+			-> const FRDGParametersMetadata*; \
 	}
 
 	DURIN_DECLARE_SCENE_PASS_RESOURCES(FDirectionalShadowPassResources,
-		std::optional<FRenderGraphDepthStencilAttachmentParameter>
+		std::optional<FRDGDepthStencilAttachmentParameter>
 			DirectionalShadowOutput;);
 	DURIN_DECLARE_SCENE_PASS_RESOURCES(FAmbientOcclusionPassResources,
-		std::array<std::optional<FRenderGraphTextureParameter>, 4> GBuffer;
-		std::optional<FRenderGraphTextureParameter> SceneDepth;
-		std::array<std::optional<FRenderGraphManagedTextureParameter>, 4>
+		std::array<std::optional<FRDGTextureParameter>, 4> GBuffer;
+		std::optional<FRDGTextureParameter> SceneDepth;
+		std::array<std::optional<FRDGManagedTextureParameter>, 4>
 			AmbientOcclusionManaged;);
 	DURIN_DECLARE_SCENE_PASS_RESOURCES(FVolumetricCloudShadowPassResources,
-		std::optional<FRenderGraphTextureParameter> SceneDepth;
-		std::optional<FRenderGraphTextureParameter> SceneDepthCompute;
-		std::optional<FRenderGraphTextureParameter> CloudBaseDensity;
-		std::optional<FRenderGraphTextureParameter> CloudDetailDensity;
-		std::optional<FRenderGraphTextureParameter> CloudWeather;
-		std::optional<FRenderGraphTextureParameter> CloudBaseDensityCompute;
-		std::optional<FRenderGraphTextureParameter> CloudDetailDensityCompute;
-		std::optional<FRenderGraphTextureParameter> CloudWeatherCompute;
-		std::optional<FRenderGraphManagedTextureParameter> CloudShadowFragmentOutput;
-		std::optional<FRenderGraphTextureParameter> CloudShadowComputeOutput;);
+		std::optional<FRDGTextureParameter> SceneDepth;
+		std::optional<FRDGTextureParameter> SceneDepthCompute;
+		std::optional<FRDGTextureParameter> CloudBaseDensity;
+		std::optional<FRDGTextureParameter> CloudDetailDensity;
+		std::optional<FRDGTextureParameter> CloudWeather;
+		std::optional<FRDGTextureParameter> CloudBaseDensityCompute;
+		std::optional<FRDGTextureParameter> CloudDetailDensityCompute;
+		std::optional<FRDGTextureParameter> CloudWeatherCompute;
+		std::optional<FRDGManagedTextureParameter> CloudShadowFragmentOutput;
+		std::optional<FRDGTextureParameter> CloudShadowComputeOutput;);
 	DURIN_DECLARE_SCENE_PASS_RESOURCES(FDeferredDirectionalLightingPassResources,
-		std::optional<FRenderGraphTextureParameter> DirectionalShadow;
-		std::array<std::optional<FRenderGraphTextureParameter>, 4> GBuffer;
-		std::optional<FRenderGraphTextureParameter> SceneDepth;
-		std::array<std::optional<FRenderGraphTextureParameter>, 4> AmbientOcclusion;
-		std::optional<FRenderGraphTextureParameter> ContactShadowFragment;
-		std::optional<FRenderGraphTextureParameter> ContactShadowCompute;
-		std::optional<FRenderGraphTextureParameter> CloudShadowFragment;
-		std::optional<FRenderGraphTextureParameter> CloudShadowCompute;
-		std::optional<FRenderGraphTextureParameter> DefaultWhite;
-		std::optional<FRenderGraphTextureParameter> DefaultShadowArray;
-		std::optional<FRenderGraphTextureParameter> EnvironmentIrradiance;
-		std::optional<FRenderGraphTextureParameter> EnvironmentPrefiltered;
-		std::optional<FRenderGraphTextureParameter> EnvironmentBrdfLut;
-		std::optional<FRenderGraphColorAttachmentParameter> IsolatedDeferredOutput;);
+		std::optional<FRDGTextureParameter> DirectionalShadow;
+		std::array<std::optional<FRDGTextureParameter>, 4> GBuffer;
+		std::optional<FRDGTextureParameter> SceneDepth;
+		std::array<std::optional<FRDGTextureParameter>, 4> AmbientOcclusion;
+		std::optional<FRDGTextureParameter> ContactShadowFragment;
+		std::optional<FRDGTextureParameter> ContactShadowCompute;
+		std::optional<FRDGTextureParameter> CloudShadowFragment;
+		std::optional<FRDGTextureParameter> CloudShadowCompute;
+		std::optional<FRDGTextureParameter> DefaultWhite;
+		std::optional<FRDGTextureParameter> DefaultShadowArray;
+		std::optional<FRDGTextureParameter> EnvironmentIrradiance;
+		std::optional<FRDGTextureParameter> EnvironmentPrefiltered;
+		std::optional<FRDGTextureParameter> EnvironmentBrdfLut;
+		std::optional<FRDGColorAttachmentParameter> IsolatedDeferredOutput;);
 	DURIN_DECLARE_SCENE_PASS_RESOURCES(FBaseScenePassResources,
-		std::optional<FRenderGraphTextureParameter> DirectionalShadow;
-		std::optional<FRenderGraphTextureParameter> DefaultWhite;
-		std::optional<FRenderGraphTextureParameter> DefaultShadowArray;
-		std::optional<FRenderGraphTextureParameter> EnvironmentIrradiance;
-		std::optional<FRenderGraphTextureParameter> EnvironmentPrefiltered;
-		std::optional<FRenderGraphTextureParameter> EnvironmentBrdfLut;
-		std::optional<FRenderGraphColorAttachmentParameter> SceneColorOutput;
-		std::optional<FRenderGraphManagedTextureParameter> SceneDepthGraphicsToGraphics;
-		std::optional<FRenderGraphManagedTextureParameter> SceneDepthGraphicsToDepth;
-		std::optional<FRenderGraphManagedTextureParameter> SceneDepthDepthToGraphics;
-		std::optional<FRenderGraphManagedTextureParameter> SceneDepthDepthToDepth;);
+		std::optional<FRDGTextureParameter> DirectionalShadow;
+		std::optional<FRDGTextureParameter> DefaultWhite;
+		std::optional<FRDGTextureParameter> DefaultShadowArray;
+		std::optional<FRDGTextureParameter> EnvironmentIrradiance;
+		std::optional<FRDGTextureParameter> EnvironmentPrefiltered;
+		std::optional<FRDGTextureParameter> EnvironmentBrdfLut;
+		std::optional<FRDGColorAttachmentParameter> SceneColorOutput;
+		std::optional<FRDGManagedTextureParameter> SceneDepthGraphicsToGraphics;
+		std::optional<FRDGManagedTextureParameter> SceneDepthGraphicsToDepth;
+		std::optional<FRDGManagedTextureParameter> SceneDepthDepthToGraphics;
+		std::optional<FRDGManagedTextureParameter> SceneDepthDepthToDepth;);
 	DURIN_DECLARE_SCENE_PASS_RESOURCES(FVolumetricCloudSpatialPassResources,
-		std::optional<FRenderGraphTextureParameter> SceneDepth;
-		std::optional<FRenderGraphTextureParameter> SceneDepthCompute;
-		std::optional<FRenderGraphTextureParameter> CloudBaseDensity;
-		std::optional<FRenderGraphTextureParameter> CloudDetailDensity;
-		std::optional<FRenderGraphTextureParameter> CloudWeather;
-		std::optional<FRenderGraphTextureParameter> CloudBaseDensityCompute;
-		std::optional<FRenderGraphTextureParameter> CloudDetailDensityCompute;
-		std::optional<FRenderGraphTextureParameter> CloudWeatherCompute;
-		std::optional<FRenderGraphManagedTextureParameter> CloudFragmentOutput;
-		std::optional<FRenderGraphTextureParameter> CloudComputeOutput;);
+		std::optional<FRDGTextureParameter> SceneDepth;
+		std::optional<FRDGTextureParameter> SceneDepthCompute;
+		std::optional<FRDGTextureParameter> CloudBaseDensity;
+		std::optional<FRDGTextureParameter> CloudDetailDensity;
+		std::optional<FRDGTextureParameter> CloudWeather;
+		std::optional<FRDGTextureParameter> CloudBaseDensityCompute;
+		std::optional<FRDGTextureParameter> CloudDetailDensityCompute;
+		std::optional<FRDGTextureParameter> CloudWeatherCompute;
+		std::optional<FRDGManagedTextureParameter> CloudFragmentOutput;
+		std::optional<FRDGTextureParameter> CloudComputeOutput;);
 	DURIN_DECLARE_SCENE_PASS_RESOURCES(FVolumetricCloudCompositePassResources,
-		std::optional<FRenderGraphTextureParameter> SceneColor;
-		std::optional<FRenderGraphTextureParameter> SceneDepth;
-		std::optional<FRenderGraphTextureParameter> CloudBaseDensity;
-		std::optional<FRenderGraphTextureParameter> CloudDetailDensity;
-		std::optional<FRenderGraphTextureParameter> CloudWeather;
-		std::optional<FRenderGraphTextureParameter> CloudShadowFragment;
-		std::optional<FRenderGraphTextureParameter> CloudShadowCompute;
-		std::optional<FRenderGraphTextureParameter> CloudFragment;
-		std::optional<FRenderGraphTextureParameter> CloudCompute;
-		std::optional<FRenderGraphManagedTextureParameter> CloudCompositeOutput;);
+		std::optional<FRDGTextureParameter> SceneColor;
+		std::optional<FRDGTextureParameter> SceneDepth;
+		std::optional<FRDGTextureParameter> CloudBaseDensity;
+		std::optional<FRDGTextureParameter> CloudDetailDensity;
+		std::optional<FRDGTextureParameter> CloudWeather;
+		std::optional<FRDGTextureParameter> CloudShadowFragment;
+		std::optional<FRDGTextureParameter> CloudShadowCompute;
+		std::optional<FRDGTextureParameter> CloudFragment;
+		std::optional<FRDGTextureParameter> CloudCompute;
+		std::optional<FRDGManagedTextureParameter> CloudCompositeOutput;);
 	DURIN_DECLARE_SCENE_PASS_RESOURCES(FSceneColorPassResources,
-		std::optional<FRenderGraphManagedTextureParameter> SceneColorManaged;
-		std::optional<FRenderGraphManagedTextureParameter> SceneDepthManaged;);
+		std::optional<FRDGManagedTextureParameter> SceneColorManaged;
+		std::optional<FRDGManagedTextureParameter> SceneDepthManaged;);
 	DURIN_DECLARE_SCENE_PASS_RESOURCES(FPostProcessPassResources,
-		std::optional<FRenderGraphColorAttachmentParameter> OutputPresent;
-		std::optional<FRenderGraphColorAttachmentParameter> OutputOffscreen;
-		std::optional<FRenderGraphColorAttachmentParameter> OutputForEditor;
-		std::optional<FRenderGraphTextureParameter> SceneColor;
-		std::optional<FRenderGraphTextureParameter> CloudComposite;
-		std::optional<FRenderGraphTextureParameter> SceneDepth;
-		std::optional<FRenderGraphColorAttachmentParameter> GBufferDebugOutput;
-		std::array<std::optional<FRenderGraphTextureParameter>, 4> GBuffer;
-		std::optional<FRenderGraphTextureParameter> IsolatedDeferred;);
+		std::optional<FRDGColorAttachmentParameter> OutputPresent;
+		std::optional<FRDGColorAttachmentParameter> OutputOffscreen;
+		std::optional<FRDGColorAttachmentParameter> OutputForEditor;
+		std::optional<FRDGTextureParameter> SceneColor;
+		std::optional<FRDGTextureParameter> CloudComposite;
+		std::optional<FRDGTextureParameter> SceneDepth;
+		std::optional<FRDGColorAttachmentParameter> GBufferDebugOutput;
+		std::array<std::optional<FRDGTextureParameter>, 4> GBuffer;
+		std::optional<FRDGTextureParameter> IsolatedDeferred;);
 	DURIN_DECLARE_SCENE_PASS_RESOURCES(FEditorAssistancePassResources,
-		std::optional<FRenderGraphColorAttachmentParameter> EditorOutputPresent;
-		std::optional<FRenderGraphColorAttachmentParameter> EditorOutputOffscreen;
-		std::optional<FRenderGraphDepthStencilAttachmentParameter> EditorDepth;);
+		std::optional<FRDGColorAttachmentParameter> EditorOutputPresent;
+		std::optional<FRDGColorAttachmentParameter> EditorOutputOffscreen;
+		std::optional<FRDGDepthStencilAttachmentParameter> EditorDepth;);
 
 #undef DURIN_DECLARE_SCENE_PASS_RESOURCES
 
@@ -111,194 +111,194 @@ namespace Durin
 	{ \
 		Members \
 		ResourceType Resources; \
-		static RENDERER_API auto GetRenderGraphParametersMetadata() \
-			-> const FRenderGraphParametersMetadata*; \
+		static RENDERER_API auto GetRDGParametersMetadata() \
+			-> const FRDGParametersMetadata*; \
 	}
 
 	DURIN_DECLARE_SCENE_PASS_PARAMETERS(FDirectionalShadowPassParameters,
 		FDirectionalShadowPassResources,
-		TRenderGraphValueWrite<FDirectionalShadowPassResult> Completion;);
+		TRDGValueWrite<FDirectionalShadowPassResult> Completion;);
 	DURIN_DECLARE_SCENE_PASS_PARAMETERS(FAmbientOcclusionPassParameters,
 		FAmbientOcclusionPassResources,
-		TRenderGraphValueRead<FGBufferPassResult> GBufferCompletion;
-		TRenderGraphValueWrite<FGroundTruthAmbientOcclusionPassResult> Completion;);
+		TRDGValueRead<FGBufferPassResult> GBufferCompletion;
+		TRDGValueWrite<FGroundTruthAmbientOcclusionPassResult> Completion;);
 	DURIN_DECLARE_SCENE_PASS_PARAMETERS(FVolumetricCloudShadowPassParameters,
 		FVolumetricCloudShadowPassResources,
-		TRenderGraphValueRead<FGBufferPassResult> GBufferCompletion;
-		TRenderGraphValueWrite<FVolumetricCloudShadowPassResult> Completion;);
+		TRDGValueRead<FGBufferPassResult> GBufferCompletion;
+		TRDGValueWrite<FVolumetricCloudShadowPassResult> Completion;);
 	DURIN_DECLARE_SCENE_PASS_PARAMETERS(FDeferredDirectionalLightingPassParameters,
 		FDeferredDirectionalLightingPassResources,
-		TRenderGraphValueRead<FDirectionalShadowPassResult> DirectionalShadow;
-		TRenderGraphValueRead<FGBufferPassResult> GBufferCompletion;
-		TRenderGraphValueRead<FGroundTruthAmbientOcclusionPassResult> AmbientOcclusion;
-		TRenderGraphValueRead<FContactShadowVisibilityPassResult> ContactShadow;
-		TRenderGraphValueRead<FVolumetricCloudShadowPassResult> CloudShadow;
-		TRenderGraphValueWrite<FIsolatedDeferredPassResult> Completion;);
+		TRDGValueRead<FDirectionalShadowPassResult> DirectionalShadow;
+		TRDGValueRead<FGBufferPassResult> GBufferCompletion;
+		TRDGValueRead<FGroundTruthAmbientOcclusionPassResult> AmbientOcclusion;
+		TRDGValueRead<FContactShadowVisibilityPassResult> ContactShadow;
+		TRDGValueRead<FVolumetricCloudShadowPassResult> CloudShadow;
+		TRDGValueWrite<FIsolatedDeferredPassResult> Completion;);
 	DURIN_DECLARE_SCENE_PASS_PARAMETERS(FBaseScenePassParameters,
 		FBaseScenePassResources,
-		TRenderGraphValueRead<FIsolatedDeferredPassResult> DeferredLighting;
-		TRenderGraphValueWrite<FSceneColorPassResult> Completion;);
+		TRDGValueRead<FIsolatedDeferredPassResult> DeferredLighting;
+		TRDGValueWrite<FSceneColorPassResult> Completion;);
 	DURIN_DECLARE_SCENE_PASS_PARAMETERS(FVolumetricCloudSpatialPassParameters,
 		FVolumetricCloudSpatialPassResources,
-		TRenderGraphValueRead<FSceneColorPassResult> BaseScene;
-		TRenderGraphValueWrite<FVolumetricCloudSpatialPassResult> Completion;);
+		TRDGValueRead<FSceneColorPassResult> BaseScene;
+		TRDGValueWrite<FVolumetricCloudSpatialPassResult> Completion;);
 	DURIN_DECLARE_SCENE_PASS_PARAMETERS(FVolumetricCloudCompositePassParameters,
 		FVolumetricCloudCompositePassResources,
-		TRenderGraphValueRead<FSceneColorPassResult> BaseScene;
-		TRenderGraphValueRead<FVolumetricCloudSpatialPassResult> Spatial;
-		TRenderGraphValueRead<FVolumetricCloudShadowPassResult> CloudShadow;
-		TRenderGraphValueWrite<FVolumetricCloudPassResult> Completion;);
+		TRDGValueRead<FSceneColorPassResult> BaseScene;
+		TRDGValueRead<FVolumetricCloudSpatialPassResult> Spatial;
+		TRDGValueRead<FVolumetricCloudShadowPassResult> CloudShadow;
+		TRDGValueWrite<FVolumetricCloudPassResult> Completion;);
 	DURIN_DECLARE_SCENE_PASS_PARAMETERS(FSceneColorPassParameters,
 		FSceneColorPassResources,
-		TRenderGraphValueRead<FSceneColorPassResult> BaseScene;
-		TRenderGraphValueRead<FVolumetricCloudPassResult> VolumetricCloud;
-		TRenderGraphValueWrite<FSceneColorPassResult> Completion;);
+		TRDGValueRead<FSceneColorPassResult> BaseScene;
+		TRDGValueRead<FVolumetricCloudPassResult> VolumetricCloud;
+		TRDGValueWrite<FSceneColorPassResult> Completion;);
 	DURIN_DECLARE_SCENE_PASS_PARAMETERS(FPostProcessPassParameters,
 		FPostProcessPassResources,
-		TRenderGraphValueRead<FSceneColorPassResult> SceneColor;
-		TRenderGraphValueRead<FGBufferPassResult> GBufferCompletion;
-		TRenderGraphValueRead<FIsolatedDeferredPassResult> DeferredLighting;
-		TRenderGraphValueWrite<FPostProcessPassResult> Completion;
-		std::optional<FRenderGraphTokenParameter> OutputCompletion;);
+		TRDGValueRead<FSceneColorPassResult> SceneColor;
+		TRDGValueRead<FGBufferPassResult> GBufferCompletion;
+		TRDGValueRead<FIsolatedDeferredPassResult> DeferredLighting;
+		TRDGValueWrite<FPostProcessPassResult> Completion;
+		std::optional<FRDGTokenParameter> OutputCompletion;);
 	DURIN_DECLARE_SCENE_PASS_PARAMETERS(FEditorAssistancePassParameters,
 		FEditorAssistancePassResources,
-		TRenderGraphValueRead<FPostProcessPassResult> PostProcess;
-		FRenderGraphTokenParameter OutputCompletion;);
+		TRDGValueRead<FPostProcessPassResult> PostProcess;
+		FRDGTokenParameter OutputCompletion;);
 
 #undef DURIN_DECLARE_SCENE_PASS_PARAMETERS
 
 	struct FGBufferPassParameters final
 	{
-		TRenderGraphValueWrite<FGBufferPassResult> Completion;
-		std::array<std::optional<FRenderGraphColorAttachmentParameter>, 4> Colors;
-		std::optional<FRenderGraphDepthStencilAttachmentParameter> Depth;
+		TRDGValueWrite<FGBufferPassResult> Completion;
+		std::array<std::optional<FRDGColorAttachmentParameter>, 4> Colors;
+		std::optional<FRDGDepthStencilAttachmentParameter> Depth;
 
-		static RENDERER_API auto GetRenderGraphParametersMetadata()
-			-> const FRenderGraphParametersMetadata*;
+		static RENDERER_API auto GetRDGParametersMetadata()
+			-> const FRDGParametersMetadata*;
 	};
 
 	struct FContactShadowGraphicsPassParameters final
 	{
-		TRenderGraphValueRead<FDirectionalShadowPassResult> DirectionalShadow;
-		TRenderGraphValueRead<FGBufferPassResult> GBufferCompletion;
-		TRenderGraphValueWrite<FContactShadowVisibilityPassResult> Completion;
-		std::optional<FRenderGraphTextureParameter> GBufferMaterial;
-		std::optional<FRenderGraphTextureParameter> GBufferNormals;
-		std::optional<FRenderGraphTextureParameter> GBufferSurface;
-		std::optional<FRenderGraphTextureParameter> GBufferEmissive;
-		std::optional<FRenderGraphTextureParameter> SceneDepth;
-		std::optional<FRenderGraphColorAttachmentParameter> Output;
+		TRDGValueRead<FDirectionalShadowPassResult> DirectionalShadow;
+		TRDGValueRead<FGBufferPassResult> GBufferCompletion;
+		TRDGValueWrite<FContactShadowVisibilityPassResult> Completion;
+		std::optional<FRDGTextureParameter> GBufferMaterial;
+		std::optional<FRDGTextureParameter> GBufferNormals;
+		std::optional<FRDGTextureParameter> GBufferSurface;
+		std::optional<FRDGTextureParameter> GBufferEmissive;
+		std::optional<FRDGTextureParameter> SceneDepth;
+		std::optional<FRDGColorAttachmentParameter> Output;
 
-		static RENDERER_API auto GetRenderGraphParametersMetadata()
-			-> const FRenderGraphParametersMetadata*;
+		static RENDERER_API auto GetRDGParametersMetadata()
+			-> const FRDGParametersMetadata*;
 	};
 
 	struct FContactShadowComputePassParameters final
 	{
-		TRenderGraphValueRead<FDirectionalShadowPassResult> DirectionalShadow;
-		TRenderGraphValueRead<FGBufferPassResult> GBufferCompletion;
-		TRenderGraphValueWrite<FContactShadowVisibilityPassResult> Completion;
-		std::optional<FRenderGraphTextureParameter> GBufferMaterial;
-		std::optional<FRenderGraphTextureParameter> GBufferNormals;
-		std::optional<FRenderGraphTextureParameter> GBufferSurface;
-		std::optional<FRenderGraphTextureParameter> GBufferEmissive;
-		std::optional<FRenderGraphTextureParameter> SceneDepth;
-		std::optional<FRenderGraphTextureParameter> ContactVisibilityOutput;
+		TRDGValueRead<FDirectionalShadowPassResult> DirectionalShadow;
+		TRDGValueRead<FGBufferPassResult> GBufferCompletion;
+		TRDGValueWrite<FContactShadowVisibilityPassResult> Completion;
+		std::optional<FRDGTextureParameter> GBufferMaterial;
+		std::optional<FRDGTextureParameter> GBufferNormals;
+		std::optional<FRDGTextureParameter> GBufferSurface;
+		std::optional<FRDGTextureParameter> GBufferEmissive;
+		std::optional<FRDGTextureParameter> SceneDepth;
+		std::optional<FRDGTextureParameter> ContactVisibilityOutput;
 
-		static RENDERER_API auto GetRenderGraphParametersMetadata()
-			-> const FRenderGraphParametersMetadata*;
+		static RENDERER_API auto GetRDGParametersMetadata()
+			-> const FRDGParametersMetadata*;
 	};
 
 	template <typename TResult>
 	struct TSceneGraphFeatureOutput
 	{
-		TRenderGraphValueHandle<TResult> Completion;
+		TRDGValueHandle<TResult> Completion;
 	};
 
 	struct FDirectionalShadowGraphOutput final
 	{
-		TRenderGraphValueHandle<FDirectionalShadowPassResult> Completion;
-		std::optional<FRenderGraphTextureHandle> Shadow;
+		TRDGValueHandle<FDirectionalShadowPassResult> Completion;
+		std::optional<FRDGTextureHandle> Shadow;
 	};
 	struct FGBufferGraphOutput final
 	{
-		TRenderGraphValueHandle<FGBufferPassResult> Completion;
-		std::array<std::optional<FRenderGraphTextureHandle>, 4> Textures;
-		FRenderGraphTextureHandle Depth;
+		TRDGValueHandle<FGBufferPassResult> Completion;
+		std::array<std::optional<FRDGTextureHandle>, 4> Textures;
+		FRDGTextureHandle Depth;
 	};
 	struct FAmbientOcclusionGraphOutput final
 	{
-		TRenderGraphValueHandle<FGroundTruthAmbientOcclusionPassResult> Completion;
-		std::array<std::optional<FRenderGraphTextureHandle>, 4> Textures;
+		TRDGValueHandle<FGroundTruthAmbientOcclusionPassResult> Completion;
+		std::array<std::optional<FRDGTextureHandle>, 4> Textures;
 		EGroundTruthAmbientOcclusionQuality Quality =
 			EGroundTruthAmbientOcclusionQuality::FullResolution;
 	};
 	struct FContactShadowGraphOutput final
 	{
-		TRenderGraphValueHandle<FContactShadowVisibilityPassResult> Completion;
-		std::optional<FRenderGraphTextureHandle> Fragment;
-		std::optional<FRenderGraphTextureHandle> Compute;
+		TRDGValueHandle<FContactShadowVisibilityPassResult> Completion;
+		std::optional<FRDGTextureHandle> Fragment;
+		std::optional<FRDGTextureHandle> Compute;
 	};
 	struct FCloudShadowGraphOutput final
 	{
-		TRenderGraphValueHandle<FVolumetricCloudShadowPassResult> Completion;
-		std::optional<FRenderGraphTextureHandle> Fragment;
-		std::optional<FRenderGraphTextureHandle> Compute;
+		TRDGValueHandle<FVolumetricCloudShadowPassResult> Completion;
+		std::optional<FRDGTextureHandle> Fragment;
+		std::optional<FRDGTextureHandle> Compute;
 	};
 	struct FDeferredLightingGraphOutput final
 	{
-		TRenderGraphValueHandle<FIsolatedDeferredPassResult> Completion;
-		std::optional<FRenderGraphTextureHandle> Isolated;
+		TRDGValueHandle<FIsolatedDeferredPassResult> Completion;
+		std::optional<FRDGTextureHandle> Isolated;
 	};
 	struct FBaseSceneGraphOutput final
 	{
-		TRenderGraphValueHandle<FSceneColorPassResult> Completion;
-		FRenderGraphTextureHandle Color;
-		FRenderGraphTextureHandle Depth;
+		TRDGValueHandle<FSceneColorPassResult> Completion;
+		FRDGTextureHandle Color;
+		FRDGTextureHandle Depth;
 	};
 	struct FCloudSpatialGraphOutput final
 	{
-		TRenderGraphValueHandle<FVolumetricCloudSpatialPassResult> Completion;
-		std::optional<FRenderGraphTextureHandle> Fragment;
-		std::optional<FRenderGraphTextureHandle> Compute;
-		std::optional<FRenderGraphTextureHandle> Composite;
+		TRDGValueHandle<FVolumetricCloudSpatialPassResult> Completion;
+		std::optional<FRDGTextureHandle> Fragment;
+		std::optional<FRDGTextureHandle> Compute;
+		std::optional<FRDGTextureHandle> Composite;
 	};
 	struct FCloudCompositeGraphOutput final
 	{
-		TRenderGraphValueHandle<FVolumetricCloudPassResult> Completion;
-		std::optional<FRenderGraphTextureHandle> Composite;
+		TRDGValueHandle<FVolumetricCloudPassResult> Completion;
+		std::optional<FRDGTextureHandle> Composite;
 	};
 	struct FSceneColorGraphOutput final
 	{
-		TRenderGraphValueHandle<FSceneColorPassResult> Completion;
-		FRenderGraphTextureHandle Color;
-		FRenderGraphTextureHandle Depth;
-		std::optional<FRenderGraphTextureHandle> CloudComposite;
+		TRDGValueHandle<FSceneColorPassResult> Completion;
+		FRDGTextureHandle Color;
+		FRDGTextureHandle Depth;
+		std::optional<FRDGTextureHandle> CloudComposite;
 	};
 	struct FPostProcessGraphOutput final
 	{
-		TRenderGraphValueHandle<FPostProcessPassResult> Completion;
-		FRenderGraphTextureHandle Output;
-		FRenderGraphTokenHandle OutputCompletion;
+		TRDGValueHandle<FPostProcessPassResult> Completion;
+		FRDGTextureHandle Output;
+		FRDGTokenHandle OutputCompletion;
 	};
 	struct FEditorAssistanceGraphOutput final
 	{
-		FRenderGraphTokenHandle OutputCompletion;
+		FRDGTokenHandle OutputCompletion;
 	};
 
 	struct FDirectionalShadowGraphInputs final
 	{
-		FRenderGraphBuilder& Graph;
+		FRDGBuilder& Graph;
 		FSceneFrameGraphServices& Services;
 		FDirectionalShadowRecordInputs Record;
-		std::optional<FRenderGraphTextureHandle> Shadow;
+		std::optional<FRDGTextureHandle> Shadow;
 	};
 	struct FGBufferGraphInputs final
 	{
-		FRenderGraphBuilder& Graph;
+		FRDGBuilder& Graph;
 		FSceneFrameGraphServices& Services;
 		FGBufferRecordInputs Record;
-		FRenderGraphTextureHandle Depth;
+		FRDGTextureHandle Depth;
 		const FSceneViewRenderOptions& Options;
 		uint32 Width;
 		uint32 Height;
@@ -308,7 +308,7 @@ namespace Durin
 	};
 	struct FAmbientOcclusionGraphInputs final
 	{
-		FRenderGraphBuilder& Graph;
+		FRDGBuilder& Graph;
 		FSceneFrameGraphServices& Services;
 		const FSceneView& View;
 		const FSceneViewRenderOptions& Options;
@@ -321,7 +321,7 @@ namespace Durin
 	};
 	struct FContactShadowGraphInputs final
 	{
-		FRenderGraphBuilder& Graph;
+		FRDGBuilder& Graph;
 		FSceneFrameGraphServices& Services;
 		FContactShadowVisibilityRecordInputs Record;
 		const FSceneViewRenderOptions& Options;
@@ -335,14 +335,14 @@ namespace Durin
 	};
 	struct FCloudShadowGraphInputs final
 	{
-		FRenderGraphBuilder& Graph;
+		FRDGBuilder& Graph;
 		FSceneFrameGraphServices& Services;
 		FVolumetricCloudShadowRecordInputs Record;
 		const FGBufferGraphOutput& GBuffer;
-		FRenderGraphTextureHandle SceneDepth;
-		std::optional<FRenderGraphTextureHandle> BaseDensity;
-		std::optional<FRenderGraphTextureHandle> DetailDensity;
-		std::optional<FRenderGraphTextureHandle> Weather;
+		FRDGTextureHandle SceneDepth;
+		std::optional<FRDGTextureHandle> BaseDensity;
+		std::optional<FRDGTextureHandle> DetailDensity;
+		std::optional<FRDGTextureHandle> Weather;
 		FRHITexture* WeatherTexture;
 		FVolumetricCloudShadowRenderer::ERoute Route;
 		ESceneFrameRoute GraphRoute;
@@ -352,7 +352,7 @@ namespace Durin
 	};
 	struct FDeferredLightingGraphInputs final
 	{
-		FRenderGraphBuilder& Graph;
+		FRDGBuilder& Graph;
 		FSceneFrameGraphServices& Services;
 		const FSceneView& View;
 		const FSceneViewRenderOptions& Options;
@@ -361,11 +361,11 @@ namespace Durin
 		const FAmbientOcclusionGraphOutput& AmbientOcclusion;
 		const FContactShadowGraphOutput& ContactShadow;
 		const FCloudShadowGraphOutput& CloudShadow;
-		std::optional<FRenderGraphTextureHandle> DefaultWhite;
-		std::optional<FRenderGraphTextureHandle> DefaultShadowArray;
-		std::optional<FRenderGraphTextureHandle> EnvironmentIrradiance;
-		std::optional<FRenderGraphTextureHandle> EnvironmentPrefiltered;
-		std::optional<FRenderGraphTextureHandle> EnvironmentBrdfLut;
+		std::optional<FRDGTextureHandle> DefaultWhite;
+		std::optional<FRDGTextureHandle> DefaultShadowArray;
+		std::optional<FRDGTextureHandle> EnvironmentIrradiance;
+		std::optional<FRDGTextureHandle> EnvironmentPrefiltered;
+		std::optional<FRDGTextureHandle> EnvironmentBrdfLut;
 		FRHITexture* SelectedEnvironmentIrradiance;
 		FRHITexture* SelectedEnvironmentPrefiltered;
 		FRHITexture* SelectedEnvironmentBrdfLut;
@@ -384,18 +384,18 @@ namespace Durin
 	};
 	struct FBaseSceneGraphInputs final
 	{
-		FRenderGraphBuilder& Graph;
+		FRDGBuilder& Graph;
 		FSceneFrameGraphServices& Services;
 		FSceneGeometryRecordInputs Record;
 		const FDeferredLightingGraphOutput& Deferred;
-		FRenderGraphTextureHandle SceneColor;
-		FRenderGraphTextureHandle SceneDepth;
+		FRDGTextureHandle SceneColor;
+		FRDGTextureHandle SceneDepth;
 		const FDirectionalShadowGraphOutput& DirectionalShadow;
-		std::optional<FRenderGraphTextureHandle> DefaultWhite;
-		std::optional<FRenderGraphTextureHandle> DefaultShadowArray;
-		std::optional<FRenderGraphTextureHandle> EnvironmentIrradiance;
-		std::optional<FRenderGraphTextureHandle> EnvironmentPrefiltered;
-		std::optional<FRenderGraphTextureHandle> EnvironmentBrdfLut;
+		std::optional<FRDGTextureHandle> DefaultWhite;
+		std::optional<FRDGTextureHandle> DefaultShadowArray;
+		std::optional<FRDGTextureHandle> EnvironmentIrradiance;
+		std::optional<FRDGTextureHandle> EnvironmentPrefiltered;
+		std::optional<FRDGTextureHandle> EnvironmentBrdfLut;
 		FRHITexture* SelectedEnvironmentIrradiance;
 		FRHITexture* SelectedEnvironmentPrefiltered;
 		FRHITexture* SelectedEnvironmentBrdfLut;
@@ -406,13 +406,13 @@ namespace Durin
 	};
 	struct FCloudSpatialGraphInputs final
 	{
-		FRenderGraphBuilder& Graph;
+		FRDGBuilder& Graph;
 		FSceneFrameGraphServices& Services;
 		FVolumetricCloudRecordInputs Record;
 		const FBaseSceneGraphOutput& BaseScene;
-		std::optional<FRenderGraphTextureHandle> BaseDensity;
-		std::optional<FRenderGraphTextureHandle> DetailDensity;
-		std::optional<FRenderGraphTextureHandle> Weather;
+		std::optional<FRDGTextureHandle> BaseDensity;
+		std::optional<FRDGTextureHandle> DetailDensity;
+		std::optional<FRDGTextureHandle> Weather;
 		FRHITexture* WeatherTexture;
 		FVolumetricCloudRenderer::ERoute Route;
 		ESceneFrameRoute GraphRoute;
@@ -423,21 +423,21 @@ namespace Durin
 	};
 	struct FCloudCompositeGraphInputs final
 	{
-		FRenderGraphBuilder& Graph;
+		FRDGBuilder& Graph;
 		FSceneFrameGraphServices& Services;
 		FVolumetricCloudRecordInputs Record;
 		const FBaseSceneGraphOutput& BaseScene;
 		const FCloudSpatialGraphOutput& Spatial;
 		const FCloudShadowGraphOutput& CloudShadow;
-		std::optional<FRenderGraphTextureHandle> BaseDensity;
-		std::optional<FRenderGraphTextureHandle> DetailDensity;
-		std::optional<FRenderGraphTextureHandle> Weather;
+		std::optional<FRDGTextureHandle> BaseDensity;
+		std::optional<FRDGTextureHandle> DetailDensity;
+		std::optional<FRDGTextureHandle> Weather;
 		FRHITexture* WeatherTexture;
 		bool bEnabled;
 	};
 	struct FSceneColorGraphInputs final
 	{
-		FRenderGraphBuilder& Graph;
+		FRDGBuilder& Graph;
 		FSceneFrameGraphServices& Services;
 		FSceneGeometryRecordInputs Record;
 		const FBaseSceneGraphOutput& BaseScene;
@@ -448,7 +448,7 @@ namespace Durin
 	};
 	struct FPostProcessGraphInputs final
 	{
-		FRenderGraphBuilder& Graph;
+		FRDGBuilder& Graph;
 		FSceneFrameGraphServices& Services;
 		const FSceneView& RecordView;
 		const FSceneView& View;
@@ -456,7 +456,7 @@ namespace Durin
 		const FSceneColorGraphOutput& SceneColor;
 		const FGBufferGraphOutput& GBuffer;
 		const FDeferredLightingGraphOutput& Deferred;
-		FRenderGraphTextureHandle Output;
+		FRDGTextureHandle Output;
 		FRHITexture* OutputTarget;
 		FPostProcessPassResult& Publication;
 		uint32 Width;
@@ -467,12 +467,12 @@ namespace Durin
 	};
 	struct FEditorAssistanceGraphInputs final
 	{
-		FRenderGraphBuilder& Graph;
+		FRDGBuilder& Graph;
 		FSceneFrameGraphServices& Services;
 		const FSceneView& View;
 		const RendererEditorAssistance::FPrepared& Prepared;
 		const FPostProcessGraphOutput& PostProcess;
-		FRenderGraphTextureHandle SceneDepth;
+		FRDGTextureHandle SceneDepth;
 		FRHITexture* OutputTarget;
 		FPostProcessPassResult& Publication;
 		bool bPresentOutput;
@@ -527,13 +527,13 @@ namespace Durin
 
 #undef DURIN_DECLARE_SCENE_GRAPH_CONTRIBUTOR
 
-	template <typename TContributor, CRenderGraphParameters TParameters,
+	template <typename TContributor, CRDGParameters TParameters,
 		typename TCallback>
 	[[nodiscard]] auto AddSceneFrameFeaturePass(
-		FRenderGraphBuilder& Graph,
-		ERenderGraphPassType Type,
-		TRenderGraphParametersRef<TParameters>&& Parameters,
-		TCallback&& Callback) -> FRenderGraphPassHandle
+		FRDGBuilder& Graph,
+		ERDGPassType Type,
+		TRDGParametersRef<TParameters>&& Parameters,
+		TCallback&& Callback) -> FRDGPassHandle
 	{
 		return Graph.AddPass(TContributor::Name, Type,
 			std::move(Parameters), std::forward<TCallback>(Callback));

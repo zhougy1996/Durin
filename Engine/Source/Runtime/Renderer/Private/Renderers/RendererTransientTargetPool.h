@@ -1,7 +1,7 @@
 #pragma once
 
 #include "RendererAPI.h"
-#include "RenderGraph.h"
+#include "RDG.h"
 
 #include <memory>
 #include <span>

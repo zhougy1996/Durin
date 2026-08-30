@@ -11,7 +11,7 @@
 #include "RenderingThread.h"
 #include "Renderers/SceneVisibility.h"
 #include "Renderers/MeshRendererShared.h"
-#include "Renderers/RenderGraphSceneFrameExecutor.h"
+#include "Renderers/SceneFrameGraphExecutor.h"
 #include "Renderers/SceneFrameGraphContributors.h"
 #include "Renderers/RendererTransientTargetPool.h"
 #include "Renderers/SceneRenderTelemetry.h"
@@ -40,24 +40,24 @@ namespace
 {
 	struct FInspectionOutputParameters final
 	{
-		Durin::FRenderGraphTokenParameter Output;
+		Durin::FRDGTokenParameter Output;
 
-		static auto GetRenderGraphParametersMetadata()
-			-> const Durin::FRenderGraphParametersMetadata*
+		static auto GetRDGParametersMetadata()
+			-> const Durin::FRDGParametersMetadata*
 		{
 			static const std::array Members{
-				Durin::MakeRenderGraphResourceParameterMemberMetadata<
+				Durin::MakeRDGResourceParameterMemberMetadata<
 					FInspectionOutputParameters, decltype(Output),
-					Durin::FRenderGraphTokenParameter>("Output",
+					Durin::FRDGTokenParameter>("Output",
 						offsetof(FInspectionOutputParameters, Output),
-						Durin::ERenderGraphParameterMemberKind::Token,
-						Durin::ERenderGraphResourceKind::Token,
-						Durin::ERenderGraphParameterRangeKind::None,
-						Durin::ERenderGraphUse::Write,
+						Durin::ERDGParameterMemberKind::Token,
+						Durin::ERDGResourceKind::Token,
+						Durin::ERDGParameterRangeKind::None,
+						Durin::ERDGUse::Write,
 						Durin::ERHIAccess::None, true),
 			};
 			static const auto Metadata =
-				Durin::MakeInlineRenderGraphParametersMetadata<
+				Durin::MakeInlineRDGParametersMetadata<
 					FInspectionOutputParameters>(
 						"FInspectionOutputParameters", Members);
 			return &Metadata;
@@ -273,12 +273,12 @@ static_assert(!std::is_copy_constructible_v<Durin::FSceneViewStateOwner>);
 static_assert(!std::is_copy_assignable_v<Durin::FSceneViewStateOwner>);
 static_assert(std::is_move_constructible_v<Durin::FSceneViewStateOwner>);
 static_assert(std::is_move_assignable_v<Durin::FSceneViewStateOwner>);
-static_assert(std::is_final_v<Durin::FRenderGraphSceneFrameExecutor>);
-static_assert(!std::is_empty_v<Durin::FRenderGraphSceneFrameExecutor>);
-static_assert(!std::is_copy_constructible_v<Durin::FRenderGraphSceneFrameExecutor>);
-static_assert(!std::is_copy_assignable_v<Durin::FRenderGraphSceneFrameExecutor>);
-static_assert(!std::is_move_constructible_v<Durin::FRenderGraphSceneFrameExecutor>);
-static_assert(!std::is_move_assignable_v<Durin::FRenderGraphSceneFrameExecutor>);
+static_assert(std::is_final_v<Durin::FSceneFrameGraphExecutor>);
+static_assert(!std::is_empty_v<Durin::FSceneFrameGraphExecutor>);
+static_assert(!std::is_copy_constructible_v<Durin::FSceneFrameGraphExecutor>);
+static_assert(!std::is_copy_assignable_v<Durin::FSceneFrameGraphExecutor>);
+static_assert(!std::is_move_constructible_v<Durin::FSceneFrameGraphExecutor>);
+static_assert(!std::is_move_assignable_v<Durin::FSceneFrameGraphExecutor>);
 static_assert(!CHasPublicQualificationSwitches<
 	Durin::FSceneViewRenderOptions>);
 static_assert(!std::is_copy_constructible_v<
@@ -303,27 +303,27 @@ static_assert(CAcceptsContributorInputs<
 static_assert(CAcceptsContributorInputs<
 	Durin::FGBufferGraphContributor, Durin::FGBufferGraphInputs>);
 static_assert(std::is_standard_layout_v<Durin::FGBufferPassParameters>);
-static_assert(Durin::CRenderGraphParameters<Durin::FGBufferPassParameters>);
-static_assert(Durin::CRenderGraphParameters<
+static_assert(Durin::CRDGParameters<Durin::FGBufferPassParameters>);
+static_assert(Durin::CRDGParameters<
 	Durin::FDirectionalShadowPassParameters>);
-static_assert(Durin::CRenderGraphParameters<
+static_assert(Durin::CRDGParameters<
 	Durin::FAmbientOcclusionPassParameters>);
-static_assert(Durin::CRenderGraphParameters<
+static_assert(Durin::CRDGParameters<
 	Durin::FContactShadowGraphicsPassParameters>);
-static_assert(Durin::CRenderGraphParameters<
+static_assert(Durin::CRDGParameters<
 	Durin::FContactShadowComputePassParameters>);
-static_assert(Durin::CRenderGraphParameters<
+static_assert(Durin::CRDGParameters<
 	Durin::FVolumetricCloudShadowPassParameters>);
-static_assert(Durin::CRenderGraphParameters<
+static_assert(Durin::CRDGParameters<
 	Durin::FDeferredDirectionalLightingPassParameters>);
-static_assert(Durin::CRenderGraphParameters<Durin::FBaseScenePassParameters>);
-static_assert(Durin::CRenderGraphParameters<
+static_assert(Durin::CRDGParameters<Durin::FBaseScenePassParameters>);
+static_assert(Durin::CRDGParameters<
 	Durin::FVolumetricCloudSpatialPassParameters>);
-static_assert(Durin::CRenderGraphParameters<
+static_assert(Durin::CRDGParameters<
 	Durin::FVolumetricCloudCompositePassParameters>);
-static_assert(Durin::CRenderGraphParameters<Durin::FSceneColorPassParameters>);
-static_assert(Durin::CRenderGraphParameters<Durin::FPostProcessPassParameters>);
-static_assert(Durin::CRenderGraphParameters<
+static_assert(Durin::CRDGParameters<Durin::FSceneColorPassParameters>);
+static_assert(Durin::CRDGParameters<Durin::FPostProcessPassParameters>);
+static_assert(Durin::CRDGParameters<
 	Durin::FEditorAssistancePassParameters>);
 static_assert(CAcceptsContributorInputs<
 	Durin::FVolumetricCloudShadowGraphContributor,
@@ -447,9 +447,9 @@ TEST(FRendererSceneContractTests,
 	ContactShadowPilotsComposeExactGraphicsAndComputeShaderAuthority)
 {
 	const auto* Graphics = Durin::FContactShadowGraphicsPassParameters::
-		GetRenderGraphParametersMetadata();
+		GetRDGParametersMetadata();
 	const auto* Compute = Durin::FContactShadowComputePassParameters::
-		GetRenderGraphParametersMetadata();
+		GetRDGParametersMetadata();
 	ASSERT_NE(Graphics, nullptr);
 	ASSERT_NE(Compute, nullptr);
 	ASSERT_EQ(Graphics->Members.size(), 9u);
@@ -469,13 +469,13 @@ TEST(FRendererSceneContractTests,
 	}
 	EXPECT_FALSE(Graphics->Members.back().bShaderBinding);
 	EXPECT_EQ(Graphics->Members.back().Kind,
-		Durin::ERenderGraphParameterMemberKind::ColorAttachment);
+		Durin::ERDGParameterMemberKind::ColorAttachment);
 	EXPECT_TRUE(Compute->Members.back().bShaderBinding);
 	EXPECT_STREQ(Compute->Members.back().ShaderBindingName,
 		"ContactVisibilityOutput");
 	EXPECT_EQ(Compute->Members.back().ShaderBindingType,
 		Durin::ERHIBindingType::StorageImage);
-	EXPECT_EQ(Compute->Members.back().Use, Durin::ERenderGraphUse::Write);
+	EXPECT_EQ(Compute->Members.back().Use, Durin::ERDGUse::Write);
 }
 
 TEST(FRendererSceneContractTests, SceneFrameTopologyUsesExclusiveRoutes)
@@ -522,8 +522,8 @@ TEST(FRendererSceneContractTests, FeatureContributorOrderIsStableAndUnique)
 
 TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
 {
-	const Durin::FRenderGraphParametersMetadata* Metadata =
-		Durin::FGBufferPassParameters::GetRenderGraphParametersMetadata();
+	const Durin::FRDGParametersMetadata* Metadata =
+		Durin::FGBufferPassParameters::GetRDGParametersMetadata();
 	ASSERT_NE(Metadata, nullptr);
 	EXPECT_STREQ(Metadata->StructName, "FGBufferPassParameters");
 	EXPECT_EQ(Metadata->StructSize, sizeof(Durin::FGBufferPassParameters));
@@ -532,19 +532,19 @@ TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
 	const auto& Completion = Metadata->Members[0];
 	EXPECT_STREQ(Completion.Name, "Completion");
 	EXPECT_EQ(Completion.Kind,
-		Durin::ERenderGraphParameterMemberKind::ValueWrite);
+		Durin::ERDGParameterMemberKind::ValueWrite);
 	EXPECT_EQ(Completion.ArraySize, 1u);
 	EXPECT_FALSE(Completion.bOptional);
-	EXPECT_EQ(Completion.Use, Durin::ERenderGraphUse::Write);
+	EXPECT_EQ(Completion.Use, Durin::ERDGUse::Write);
 	EXPECT_TRUE(Completion.bDiscard);
 
 	const auto& Colors = Metadata->Members[1];
 	EXPECT_STREQ(Colors.Name, "Colors");
 	EXPECT_EQ(Colors.Kind,
-		Durin::ERenderGraphParameterMemberKind::ManagedColorAttachment);
+		Durin::ERDGParameterMemberKind::ManagedColorAttachment);
 	EXPECT_EQ(Colors.ArraySize, 4u);
 	EXPECT_TRUE(Colors.bOptional);
-	EXPECT_EQ(Colors.Use, Durin::ERenderGraphUse::ReadWrite);
+	EXPECT_EQ(Colors.Use, Durin::ERDGUse::ReadWrite);
 	EXPECT_EQ(Colors.Access, Durin::ERHIAccess::ColorAttachmentReadWrite);
 	EXPECT_TRUE(Colors.bDiscard);
 	EXPECT_EQ(Colors.LoadAction,
@@ -557,10 +557,10 @@ TEST(FRendererSceneContractTests, GBufferPassParametersOwnThePilotDeclarations)
 	const auto& Depth = Metadata->Members[2];
 	EXPECT_STREQ(Depth.Name, "Depth");
 	EXPECT_EQ(Depth.Kind,
-		Durin::ERenderGraphParameterMemberKind::ManagedDepthStencilAttachment);
+		Durin::ERDGParameterMemberKind::ManagedDepthStencilAttachment);
 	EXPECT_EQ(Depth.ArraySize, 1u);
 	EXPECT_TRUE(Depth.bOptional);
-	EXPECT_EQ(Depth.Use, Durin::ERenderGraphUse::ReadWrite);
+	EXPECT_EQ(Depth.Use, Durin::ERDGUse::ReadWrite);
 	EXPECT_EQ(Depth.Access, Durin::ERHIAccess::DepthStencilReadWrite);
 	EXPECT_TRUE(Depth.bDiscard);
 	EXPECT_EQ(Depth.LoadAction,
@@ -687,7 +687,7 @@ namespace
 			bool,
 			const Durin::FSceneViewRenderOptions&,
 			Durin::FSceneViewStatistics*,
-			Durin::FRenderGraphCapture*) -> Durin::ERenderViewResult override
+			Durin::FRDGCapture*) -> Durin::ERenderViewResult override
 		{
 			return Durin::ERenderViewResult::RendererResourcesUnavailable;
 		}
@@ -697,7 +697,7 @@ namespace
 	};
 
 	std::vector<Durin::FViewRenderTelemetry>* GObservedViewTelemetrySnapshots = nullptr;
-	std::vector<Durin::FRenderGraphCapture>* GObservedRenderGraphCaptures = nullptr;
+	std::vector<Durin::FRDGCapture>* GObservedRenderGraphCaptures = nullptr;
 
 	auto ObserveViewTelemetrySnapshot(
 		const Durin::FViewRenderTelemetry& Telemetry) -> void
@@ -708,7 +708,7 @@ namespace
 		}
 	}
 
-	auto ObserveRenderGraphCapture(const Durin::FRenderGraphCapture& Capture) -> void
+	auto ObserveRenderGraphCapture(const Durin::FRDGCapture& Capture) -> void
 	{
 		if (GObservedRenderGraphCaptures != nullptr)
 			GObservedRenderGraphCaptures->push_back(Capture);
@@ -1217,17 +1217,17 @@ TEST(FRendererSceneContractTests, TelemetrySnapshotSeamDeliversOneImmutableValue
 
 TEST(FRendererSceneContractTests, SceneRenderGraphInspectionPublishesOwningSnapshot)
 {
-	std::vector<Durin::FRenderGraphCapture> Captures;
+	std::vector<Durin::FRDGCapture> Captures;
 	GObservedRenderGraphCaptures = &Captures;
 	Durin::SetSceneRenderGraphCaptureSink(ObserveRenderGraphCapture);
 	{
-		Durin::FRenderGraphBuilder Builder;
+		Durin::FRDGBuilder Builder;
 		Builder.EnablePassCulling();
 		const auto Output = Builder.CreateToken("Scene.Output");
 		auto Parameters = Builder.AllocParameters<FInspectionOutputParameters>();
 		Parameters->Output = {Output};
 		const auto Final = Builder.AddPass(
-			"Scene.FinalOutput", Durin::ERenderGraphPassType::Graphics,
+			"Scene.FinalOutput", Durin::ERDGPassType::Graphics,
 			std::move(Parameters));
 		Builder.MarkPassRoot(Final, "offscreen-output");
 		auto Result = Builder.Compile();
@@ -1542,7 +1542,7 @@ TEST(FRendererSceneContractTests,
 	EXPECT_FALSE(Main->ConsumeRenderGraphCaptureRequest());
 	EXPECT_FALSE(Auxiliary->ConsumeRenderGraphCaptureRequest());
 
-	auto Capture = std::make_shared<Durin::FRenderGraphCapture>();
+	auto Capture = std::make_shared<Durin::FRDGCapture>();
 	Capture->Dump = "main graph";
 	Capture->Statistics.DeclaredPasses = 7;
 	struct FPublishViewportRenderGraphCommand

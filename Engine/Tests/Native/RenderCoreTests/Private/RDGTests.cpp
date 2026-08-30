@@ -1,4 +1,4 @@
-#include "RenderGraph.h"
+#include "RDG.h"
 
 #include "RHICommandList.h"
 #include "Shader/Shader.h"
@@ -12,7 +12,7 @@ namespace Durin
 {
 	namespace
 	{
-		class FRenderGraphTests : public testing::Test
+		class FRDGTests : public testing::Test
 		{
 		protected:
 			auto GetCommandList() -> FRHICommandListImmediate&
@@ -38,19 +38,19 @@ namespace Durin
 
 		struct FTypedValueWriteParameters final
 		{
-			TRenderGraphValueWrite<FTypedValuePayload> Output;
+			TRDGValueWrite<FTypedValuePayload> Output;
 
-			static auto GetRenderGraphParametersMetadata()
-				-> const FRenderGraphParametersMetadata*
+			static auto GetRDGParametersMetadata()
+				-> const FRDGParametersMetadata*
 			{
 				static const std::array Members{
-					MakeRenderGraphValueParameterMemberMetadata<
+					MakeRDGValueParameterMemberMetadata<
 						FTypedValueWriteParameters, decltype(Output),
 						FTypedValuePayload>("Output", offsetof(
 							FTypedValueWriteParameters, Output)),
 				};
 				static const auto Metadata =
-					MakeInlineRenderGraphParametersMetadata<
+					MakeInlineRDGParametersMetadata<
 						FTypedValueWriteParameters>(
 							"FTypedValueWriteParameters", Members);
 				return &Metadata;
@@ -59,19 +59,19 @@ namespace Durin
 
 		struct FTypedValueReadParameters final
 		{
-			TRenderGraphValueRead<FTypedValuePayload> Input;
+			TRDGValueRead<FTypedValuePayload> Input;
 
-			static auto GetRenderGraphParametersMetadata()
-				-> const FRenderGraphParametersMetadata*
+			static auto GetRDGParametersMetadata()
+				-> const FRDGParametersMetadata*
 			{
 				static const std::array Members{
-					MakeRenderGraphValueParameterMemberMetadata<
+					MakeRDGValueParameterMemberMetadata<
 						FTypedValueReadParameters, decltype(Input),
 						FTypedValuePayload>("Input", offsetof(
 							FTypedValueReadParameters, Input)),
 				};
 				static const auto Metadata =
-					MakeInlineRenderGraphParametersMetadata<
+					MakeInlineRDGParametersMetadata<
 						FTypedValueReadParameters>(
 							"FTypedValueReadParameters", Members);
 				return &Metadata;
@@ -122,7 +122,7 @@ namespace Durin
 				for (const FRDGAllocationRequest& Request : Requests)
 				{
 					++AllocationCount;
-					if (Request.Kind == ERenderGraphResourceKind::Texture)
+					if (Request.Kind == ERDGResourceKind::Texture)
 					{
 						FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create(
 							"TestRDG", Request.TextureDesc.Dimension);
@@ -150,108 +150,108 @@ namespace Durin
 
 		struct FNestedGraphParameters final
 		{
-			FRenderGraphTokenParameter Completion;
+			FRDGTokenParameter Completion;
 
-			static auto GetRenderGraphParametersMetadata()
-				-> const FRenderGraphParametersMetadata*;
+			static auto GetRDGParametersMetadata()
+				-> const FRDGParametersMetadata*;
 		};
 
-		auto FNestedGraphParameters::GetRenderGraphParametersMetadata()
-			-> const FRenderGraphParametersMetadata*
+		auto FNestedGraphParameters::GetRDGParametersMetadata()
+			-> const FRDGParametersMetadata*
 		{
 			static const std::array Members{
-				MakeRenderGraphResourceParameterMemberMetadata<
+				MakeRDGResourceParameterMemberMetadata<
 					FNestedGraphParameters, decltype(Completion),
-					FRenderGraphTokenParameter>("Completion",
+					FRDGTokenParameter>("Completion",
 						offsetof(FNestedGraphParameters, Completion),
-						ERenderGraphParameterMemberKind::Token,
-						ERenderGraphResourceKind::Token,
-						ERenderGraphParameterRangeKind::None,
-						ERenderGraphUse::Write, ERHIAccess::None, true),
+						ERDGParameterMemberKind::Token,
+						ERDGResourceKind::Token,
+						ERDGParameterRangeKind::None,
+						ERDGUse::Write, ERHIAccess::None, true),
 			};
 			static const auto Metadata =
-				MakeInlineRenderGraphParametersMetadata<FNestedGraphParameters>(
+				MakeInlineRDGParametersMetadata<FNestedGraphParameters>(
 					"FNestedGraphParameters", Members);
 			return &Metadata;
 		}
 
 		struct alignas(64) FGraphParameterLayoutFixture final
 		{
-			FRenderGraphTextureParameter Input;
-			std::array<std::optional<FRenderGraphBufferParameter>, 2> Buffers;
-			std::optional<FRenderGraphColorAttachmentParameter> Color;
-			FRenderGraphDepthStencilAttachmentParameter Depth;
-			FRenderGraphManagedTextureParameter Managed;
+			FRDGTextureParameter Input;
+			std::array<std::optional<FRDGBufferParameter>, 2> Buffers;
+			std::optional<FRDGColorAttachmentParameter> Color;
+			FRDGDepthStencilAttachmentParameter Depth;
+			FRDGManagedTextureParameter Managed;
 			FNestedGraphParameters Nested;
 
-			static auto GetRenderGraphParametersMetadata()
-				-> const FRenderGraphParametersMetadata*;
+			static auto GetRDGParametersMetadata()
+				-> const FRDGParametersMetadata*;
 		};
 
-		auto FGraphParameterLayoutFixture::GetRenderGraphParametersMetadata()
-			-> const FRenderGraphParametersMetadata*
+		auto FGraphParameterLayoutFixture::GetRDGParametersMetadata()
+			-> const FRDGParametersMetadata*
 		{
 			static const std::array Members{
-				MakeRenderGraphResourceParameterMemberMetadata<
+				MakeRDGResourceParameterMemberMetadata<
 					FGraphParameterLayoutFixture, decltype(Input),
-					FRenderGraphTextureParameter>("Input",
+					FRDGTextureParameter>("Input",
 						offsetof(FGraphParameterLayoutFixture, Input),
-						ERenderGraphParameterMemberKind::Texture,
-						ERenderGraphResourceKind::Texture,
-						ERenderGraphParameterRangeKind::TextureSubresource,
-						ERenderGraphUse::Read,
+						ERDGParameterMemberKind::Texture,
+						ERDGResourceKind::Texture,
+						ERDGParameterRangeKind::TextureSubresource,
+						ERDGUse::Read,
 						ERHIAccess::GraphicsShaderRead),
-				MakeRenderGraphResourceParameterMemberMetadata<
+				MakeRDGResourceParameterMemberMetadata<
 					FGraphParameterLayoutFixture, decltype(Buffers),
-					FRenderGraphBufferParameter>("Buffers",
+					FRDGBufferParameter>("Buffers",
 						offsetof(FGraphParameterLayoutFixture, Buffers),
-						ERenderGraphParameterMemberKind::Buffer,
-						ERenderGraphResourceKind::Buffer,
-						ERenderGraphParameterRangeKind::BufferBytes,
-						ERenderGraphUse::ReadWrite,
+						ERDGParameterMemberKind::Buffer,
+						ERDGResourceKind::Buffer,
+						ERDGParameterRangeKind::BufferBytes,
+						ERDGUse::ReadWrite,
 						ERHIAccess::ComputeShaderReadWrite),
-				MakeRenderGraphResourceParameterMemberMetadata<
+				MakeRDGResourceParameterMemberMetadata<
 					FGraphParameterLayoutFixture, decltype(Color),
-					FRenderGraphColorAttachmentParameter>("Color",
+					FRDGColorAttachmentParameter>("Color",
 						offsetof(FGraphParameterLayoutFixture, Color),
-						ERenderGraphParameterMemberKind::ManagedColorAttachment,
-						ERenderGraphResourceKind::Texture,
-						ERenderGraphParameterRangeKind::TextureSubresource,
-						ERenderGraphUse::ReadWrite,
+						ERDGParameterMemberKind::ManagedColorAttachment,
+						ERDGResourceKind::Texture,
+						ERDGParameterRangeKind::TextureSubresource,
+						ERDGUse::ReadWrite,
 						ERHIAccess::ColorAttachmentReadWrite, true,
 						ERHIRenderTargetLoadAction::Clear,
 						ERHIRenderTargetStoreAction::Store, true,
 						ERHIAccess::GraphicsShaderRead),
-				MakeRenderGraphResourceParameterMemberMetadata<
+				MakeRDGResourceParameterMemberMetadata<
 					FGraphParameterLayoutFixture, decltype(Depth),
-					FRenderGraphDepthStencilAttachmentParameter>("Depth",
+					FRDGDepthStencilAttachmentParameter>("Depth",
 						offsetof(FGraphParameterLayoutFixture, Depth),
-						ERenderGraphParameterMemberKind::DepthStencilAttachment,
-						ERenderGraphResourceKind::Texture,
-						ERenderGraphParameterRangeKind::TextureSubresource,
-						ERenderGraphUse::ReadWrite,
+						ERDGParameterMemberKind::DepthStencilAttachment,
+						ERDGResourceKind::Texture,
+						ERDGParameterRangeKind::TextureSubresource,
+						ERDGUse::ReadWrite,
 						ERHIAccess::DepthStencilReadWrite, false,
 						ERHIRenderTargetLoadAction::Load,
 						ERHIRenderTargetStoreAction::Store),
-				MakeRenderGraphResourceParameterMemberMetadata<
+				MakeRDGResourceParameterMemberMetadata<
 					FGraphParameterLayoutFixture, decltype(Managed),
-					FRenderGraphManagedTextureParameter>("Managed",
+					FRDGManagedTextureParameter>("Managed",
 						offsetof(FGraphParameterLayoutFixture, Managed),
-						ERenderGraphParameterMemberKind::ManagedTexture,
-						ERenderGraphResourceKind::Texture,
-						ERenderGraphParameterRangeKind::TextureSubresource,
-						ERenderGraphUse::Write,
+						ERDGParameterMemberKind::ManagedTexture,
+						ERDGResourceKind::Texture,
+						ERDGParameterRangeKind::TextureSubresource,
+						ERDGUse::Write,
 						ERHIAccess::GraphicsShaderReadWrite, true,
 						ERHIRenderTargetLoadAction::Load,
 						ERHIRenderTargetStoreAction::Store, true,
 						ERHIAccess::GraphicsShaderRead),
-				MakeRenderGraphNestedParameterMemberMetadata<
+				MakeRDGNestedParameterMemberMetadata<
 					FGraphParameterLayoutFixture, decltype(Nested)>("Nested",
 						offsetof(FGraphParameterLayoutFixture, Nested),
-						FNestedGraphParameters::GetRenderGraphParametersMetadata()),
+						FNestedGraphParameters::GetRDGParametersMetadata()),
 			};
 			static const auto Metadata =
-				MakeInlineRenderGraphParametersMetadata<FGraphParameterLayoutFixture>(
+				MakeInlineRDGParametersMetadata<FGraphParameterLayoutFixture>(
 					"FGraphParameterLayoutFixture", Members);
 			return &Metadata;
 		}
@@ -265,12 +265,12 @@ namespace Durin
 				if (GParameterDestructionOrder) GParameterDestructionOrder->push_back(1);
 			}
 
-			static auto GetRenderGraphParametersMetadata()
-				-> const FRenderGraphParametersMetadata*
+			static auto GetRDGParametersMetadata()
+				-> const FRDGParametersMetadata*
 			{
-				static const std::array<FRenderGraphParameterMemberMetadata, 0> Members{};
+				static const std::array<FRDGParameterMemberMetadata, 0> Members{};
 				static const auto Metadata =
-					MakeInlineRenderGraphParametersMetadata<FFirstLifetimeGraphParameters>(
+					MakeInlineRDGParametersMetadata<FFirstLifetimeGraphParameters>(
 						"FFirstLifetimeGraphParameters", Members);
 				return &Metadata;
 			}
@@ -283,12 +283,12 @@ namespace Durin
 				if (GParameterDestructionOrder) GParameterDestructionOrder->push_back(2);
 			}
 
-			static auto GetRenderGraphParametersMetadata()
-				-> const FRenderGraphParametersMetadata*
+			static auto GetRDGParametersMetadata()
+				-> const FRDGParametersMetadata*
 			{
-				static const std::array<FRenderGraphParameterMemberMetadata, 0> Members{};
+				static const std::array<FRDGParameterMemberMetadata, 0> Members{};
 				static const auto Metadata =
-					MakeInlineRenderGraphParametersMetadata<FSecondLifetimeGraphParameters>(
+					MakeInlineRDGParametersMetadata<FSecondLifetimeGraphParameters>(
 						"FSecondLifetimeGraphParameters", Members);
 				return &Metadata;
 			}
@@ -296,24 +296,24 @@ namespace Durin
 
 		struct FMalformedGraphParameters final
 		{
-			FRenderGraphTextureParameter Texture;
+			FRDGTextureParameter Texture;
 
-			static auto GetRenderGraphParametersMetadata()
-				-> const FRenderGraphParametersMetadata*
+			static auto GetRDGParametersMetadata()
+				-> const FRDGParametersMetadata*
 			{
 				static const std::array Members{
-					FRenderGraphParameterMemberMetadata{
+					FRDGParameterMemberMetadata{
 						.Name = "Texture",
 						.Offset = static_cast<uint32>(sizeof(FMalformedGraphParameters)),
 						.ElementSize = static_cast<uint32>(sizeof(Texture)),
-						.Kind = ERenderGraphParameterMemberKind::Texture,
-						.ResourceKind = ERenderGraphResourceKind::Texture,
-						.RangeKind = ERenderGraphParameterRangeKind::TextureSubresource,
+						.Kind = ERDGParameterMemberKind::Texture,
+						.ResourceKind = ERDGResourceKind::Texture,
+						.RangeKind = ERDGParameterRangeKind::TextureSubresource,
 						.Access = ERHIAccess::GraphicsShaderRead,
 					},
 				};
 				static const auto Metadata =
-					MakeInlineRenderGraphParametersMetadata<FMalformedGraphParameters>(
+					MakeInlineRDGParametersMetadata<FMalformedGraphParameters>(
 						"FMalformedGraphParameters", Members);
 				return &Metadata;
 			}
@@ -321,129 +321,129 @@ namespace Durin
 
 		struct FAllGraphUseParameters final
 		{
-			std::array<std::optional<FRenderGraphTextureParameter>, 2> Inputs;
-			FRenderGraphBufferParameter Buffer;
-			FRenderGraphColorAttachmentParameter Color;
-			FRenderGraphDepthStencilAttachmentParameter Depth;
-			FRenderGraphColorAttachmentParameter ManagedColor;
-			std::optional<FRenderGraphDepthStencilAttachmentParameter> ManagedDepth;
-			FRenderGraphManagedTextureParameter ManagedTexture;
+			std::array<std::optional<FRDGTextureParameter>, 2> Inputs;
+			FRDGBufferParameter Buffer;
+			FRDGColorAttachmentParameter Color;
+			FRDGDepthStencilAttachmentParameter Depth;
+			FRDGColorAttachmentParameter ManagedColor;
+			std::optional<FRDGDepthStencilAttachmentParameter> ManagedDepth;
+			FRDGManagedTextureParameter ManagedTexture;
 			FNestedGraphParameters Nested;
 
-			static auto GetRenderGraphParametersMetadata()
-				-> const FRenderGraphParametersMetadata*;
+			static auto GetRDGParametersMetadata()
+				-> const FRDGParametersMetadata*;
 		};
 
-		auto FAllGraphUseParameters::GetRenderGraphParametersMetadata()
-			-> const FRenderGraphParametersMetadata*
+		auto FAllGraphUseParameters::GetRDGParametersMetadata()
+			-> const FRDGParametersMetadata*
 		{
 			static const std::array Members{
-				MakeRenderGraphResourceParameterMemberMetadata<
+				MakeRDGResourceParameterMemberMetadata<
 					FAllGraphUseParameters, decltype(Inputs),
-					FRenderGraphTextureParameter>("Inputs",
+					FRDGTextureParameter>("Inputs",
 						offsetof(FAllGraphUseParameters, Inputs),
-						ERenderGraphParameterMemberKind::Texture,
-						ERenderGraphResourceKind::Texture,
-						ERenderGraphParameterRangeKind::TextureSubresource,
-						ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-				MakeRenderGraphResourceParameterMemberMetadata<
+						ERDGParameterMemberKind::Texture,
+						ERDGResourceKind::Texture,
+						ERDGParameterRangeKind::TextureSubresource,
+						ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+				MakeRDGResourceParameterMemberMetadata<
 					FAllGraphUseParameters, decltype(Buffer),
-					FRenderGraphBufferParameter>("Buffer",
+					FRDGBufferParameter>("Buffer",
 						offsetof(FAllGraphUseParameters, Buffer),
-						ERenderGraphParameterMemberKind::Buffer,
-						ERenderGraphResourceKind::Buffer,
-						ERenderGraphParameterRangeKind::BufferBytes,
-						ERenderGraphUse::ReadWrite,
+						ERDGParameterMemberKind::Buffer,
+						ERDGResourceKind::Buffer,
+						ERDGParameterRangeKind::BufferBytes,
+						ERDGUse::ReadWrite,
 						ERHIAccess::GraphicsShaderReadWrite),
-				MakeRenderGraphResourceParameterMemberMetadata<
+				MakeRDGResourceParameterMemberMetadata<
 					FAllGraphUseParameters, decltype(Color),
-					FRenderGraphColorAttachmentParameter>("Color",
+					FRDGColorAttachmentParameter>("Color",
 						offsetof(FAllGraphUseParameters, Color),
-						ERenderGraphParameterMemberKind::ColorAttachment,
-						ERenderGraphResourceKind::Texture,
-						ERenderGraphParameterRangeKind::TextureSubresource,
-						ERenderGraphUse::ReadWrite,
+						ERDGParameterMemberKind::ColorAttachment,
+						ERDGResourceKind::Texture,
+						ERDGParameterRangeKind::TextureSubresource,
+						ERDGUse::ReadWrite,
 						ERHIAccess::ColorAttachmentReadWrite, false,
 						ERHIRenderTargetLoadAction::Clear,
 						ERHIRenderTargetStoreAction::Store),
-				MakeRenderGraphResourceParameterMemberMetadata<
+				MakeRDGResourceParameterMemberMetadata<
 					FAllGraphUseParameters, decltype(Depth),
-					FRenderGraphDepthStencilAttachmentParameter>("Depth",
+					FRDGDepthStencilAttachmentParameter>("Depth",
 						offsetof(FAllGraphUseParameters, Depth),
-						ERenderGraphParameterMemberKind::DepthStencilAttachment,
-						ERenderGraphResourceKind::Texture,
-						ERenderGraphParameterRangeKind::TextureSubresource,
-						ERenderGraphUse::ReadWrite,
+						ERDGParameterMemberKind::DepthStencilAttachment,
+						ERDGResourceKind::Texture,
+						ERDGParameterRangeKind::TextureSubresource,
+						ERDGUse::ReadWrite,
 						ERHIAccess::DepthStencilReadWrite, false,
 						ERHIRenderTargetLoadAction::Clear,
 						ERHIRenderTargetStoreAction::Store),
-				MakeRenderGraphResourceParameterMemberMetadata<
+				MakeRDGResourceParameterMemberMetadata<
 					FAllGraphUseParameters, decltype(ManagedColor),
-					FRenderGraphColorAttachmentParameter>("ManagedColor",
+					FRDGColorAttachmentParameter>("ManagedColor",
 						offsetof(FAllGraphUseParameters, ManagedColor),
-						ERenderGraphParameterMemberKind::ManagedColorAttachment,
-						ERenderGraphResourceKind::Texture,
-						ERenderGraphParameterRangeKind::TextureSubresource,
-						ERenderGraphUse::ReadWrite,
+						ERDGParameterMemberKind::ManagedColorAttachment,
+						ERDGResourceKind::Texture,
+						ERDGParameterRangeKind::TextureSubresource,
+						ERDGUse::ReadWrite,
 						ERHIAccess::ColorAttachmentReadWrite, false,
 						ERHIRenderTargetLoadAction::Clear,
 						ERHIRenderTargetStoreAction::Store, true,
 						ERHIAccess::GraphicsShaderRead),
-				MakeRenderGraphResourceParameterMemberMetadata<
+				MakeRDGResourceParameterMemberMetadata<
 					FAllGraphUseParameters, decltype(ManagedDepth),
-					FRenderGraphDepthStencilAttachmentParameter>("ManagedDepth",
+					FRDGDepthStencilAttachmentParameter>("ManagedDepth",
 						offsetof(FAllGraphUseParameters, ManagedDepth),
-						ERenderGraphParameterMemberKind::ManagedDepthStencilAttachment,
-						ERenderGraphResourceKind::Texture,
-						ERenderGraphParameterRangeKind::TextureSubresource,
-						ERenderGraphUse::ReadWrite,
+						ERDGParameterMemberKind::ManagedDepthStencilAttachment,
+						ERDGResourceKind::Texture,
+						ERDGParameterRangeKind::TextureSubresource,
+						ERDGUse::ReadWrite,
 						ERHIAccess::DepthStencilReadWrite, false,
 						ERHIRenderTargetLoadAction::Clear,
 						ERHIRenderTargetStoreAction::Store, true,
 						ERHIAccess::GraphicsShaderRead),
-				MakeRenderGraphResourceParameterMemberMetadata<
+				MakeRDGResourceParameterMemberMetadata<
 					FAllGraphUseParameters, decltype(ManagedTexture),
-					FRenderGraphManagedTextureParameter>("ManagedTexture",
+					FRDGManagedTextureParameter>("ManagedTexture",
 						offsetof(FAllGraphUseParameters, ManagedTexture),
-						ERenderGraphParameterMemberKind::ManagedTexture,
-						ERenderGraphResourceKind::Texture,
-						ERenderGraphParameterRangeKind::TextureSubresource,
-						ERenderGraphUse::Write,
+						ERDGParameterMemberKind::ManagedTexture,
+						ERDGResourceKind::Texture,
+						ERDGParameterRangeKind::TextureSubresource,
+						ERDGUse::Write,
 						ERHIAccess::GraphicsShaderReadWrite, true,
 						ERHIRenderTargetLoadAction::Load,
 						ERHIRenderTargetStoreAction::Store, true,
 						ERHIAccess::GraphicsShaderRead),
-				MakeRenderGraphNestedParameterMemberMetadata<
+				MakeRDGNestedParameterMemberMetadata<
 					FAllGraphUseParameters, decltype(Nested)>("Nested",
 						offsetof(FAllGraphUseParameters, Nested),
-						FNestedGraphParameters::GetRenderGraphParametersMetadata()),
+						FNestedGraphParameters::GetRDGParametersMetadata()),
 			};
 			static const auto Metadata =
-				MakeInlineRenderGraphParametersMetadata<FAllGraphUseParameters>(
+				MakeInlineRDGParametersMetadata<FAllGraphUseParameters>(
 					"FAllGraphUseParameters", Members);
 			return &Metadata;
 		}
 
 		struct FTwoTextureGraphParameters final
 		{
-			std::array<FRenderGraphTextureParameter, 2> Textures;
+			std::array<FRDGTextureParameter, 2> Textures;
 
-			static auto GetRenderGraphParametersMetadata()
-				-> const FRenderGraphParametersMetadata*
+			static auto GetRDGParametersMetadata()
+				-> const FRDGParametersMetadata*
 			{
 				static const std::array Members{
-					MakeRenderGraphResourceParameterMemberMetadata<
+					MakeRDGResourceParameterMemberMetadata<
 						FTwoTextureGraphParameters, decltype(Textures),
-						FRenderGraphTextureParameter>("Textures",
+						FRDGTextureParameter>("Textures",
 							offsetof(FTwoTextureGraphParameters, Textures),
-							ERenderGraphParameterMemberKind::Texture,
-							ERenderGraphResourceKind::Texture,
-							ERenderGraphParameterRangeKind::TextureSubresource,
-							ERenderGraphUse::Read,
+							ERDGParameterMemberKind::Texture,
+							ERDGResourceKind::Texture,
+							ERDGParameterRangeKind::TextureSubresource,
+							ERDGUse::Read,
 							ERHIAccess::GraphicsShaderRead),
 				};
 				static const auto Metadata =
-					MakeInlineRenderGraphParametersMetadata<FTwoTextureGraphParameters>(
+					MakeInlineRDGParametersMetadata<FTwoTextureGraphParameters>(
 						"FTwoTextureGraphParameters", Members);
 				return &Metadata;
 			}
@@ -451,25 +451,25 @@ namespace Durin
 
 		struct FComposedTextureArrayParameters final
 		{
-			std::array<std::optional<FRenderGraphTextureParameter>, 2> Textures;
+			std::array<std::optional<FRDGTextureParameter>, 2> Textures;
 
-			static auto GetRenderGraphParametersMetadata()
-				-> const FRenderGraphParametersMetadata*
+			static auto GetRDGParametersMetadata()
+				-> const FRDGParametersMetadata*
 			{
 				static const std::array Members{
-					MakeRenderGraphShaderResourceParameterMemberMetadata<
+					MakeRDGShaderResourceParameterMemberMetadata<
 						FComposedTextureArrayParameters, decltype(Textures),
-						FRenderGraphTextureParameter>("Textures",
+						FRDGTextureParameter>("Textures",
 							offsetof(FComposedTextureArrayParameters, Textures),
-							ERenderGraphParameterMemberKind::Texture,
-							ERenderGraphResourceKind::Texture,
-							ERenderGraphParameterRangeKind::TextureSubresource,
-							ERenderGraphUse::Read,
+							ERDGParameterMemberKind::Texture,
+							ERDGResourceKind::Texture,
+							ERDGParameterRangeKind::TextureSubresource,
+							ERDGUse::Read,
 							ERHIAccess::GraphicsShaderRead,
 							ERHIBindingType::Texture),
 				};
 				static const auto Metadata =
-					MakeInlineRenderGraphParametersMetadata<
+					MakeInlineRDGParametersMetadata<
 						FComposedTextureArrayParameters>(
 							"FComposedTextureArrayParameters", Members);
 				return &Metadata;
@@ -478,25 +478,25 @@ namespace Durin
 
 		struct FMalformedComposedAccessParameters final
 		{
-			FRenderGraphTextureParameter Texture;
+			FRDGTextureParameter Texture;
 
-			static auto GetRenderGraphParametersMetadata()
-				-> const FRenderGraphParametersMetadata*
+			static auto GetRDGParametersMetadata()
+				-> const FRDGParametersMetadata*
 			{
 				static const std::array Members{
-					MakeRenderGraphShaderResourceParameterMemberMetadata<
+					MakeRDGShaderResourceParameterMemberMetadata<
 						FMalformedComposedAccessParameters, decltype(Texture),
-						FRenderGraphTextureParameter>("Texture",
+						FRDGTextureParameter>("Texture",
 							offsetof(FMalformedComposedAccessParameters, Texture),
-							ERenderGraphParameterMemberKind::Texture,
-							ERenderGraphResourceKind::Texture,
-							ERenderGraphParameterRangeKind::TextureSubresource,
-							ERenderGraphUse::Read,
+							ERDGParameterMemberKind::Texture,
+							ERDGResourceKind::Texture,
+							ERDGParameterRangeKind::TextureSubresource,
+							ERDGUse::Read,
 							ERHIAccess::GraphicsShaderRead,
 							ERHIBindingType::StorageImage),
 				};
 				static const auto Metadata =
-					MakeInlineRenderGraphParametersMetadata<
+					MakeInlineRDGParametersMetadata<
 						FMalformedComposedAccessParameters>(
 							"FMalformedComposedAccessParameters", Members);
 				return &Metadata;
@@ -505,35 +505,35 @@ namespace Durin
 
 		struct FComposedComputeBufferParameters final
 		{
-			FRenderGraphBufferParameter InputBuffer;
-			FRenderGraphBufferParameter OutputBuffer;
+			FRDGBufferParameter InputBuffer;
+			FRDGBufferParameter OutputBuffer;
 
-			static auto GetRenderGraphParametersMetadata()
-				-> const FRenderGraphParametersMetadata*
+			static auto GetRDGParametersMetadata()
+				-> const FRDGParametersMetadata*
 			{
 				static const std::array Members{
-					MakeRenderGraphShaderResourceParameterMemberMetadata<
+					MakeRDGShaderResourceParameterMemberMetadata<
 						FComposedComputeBufferParameters, decltype(InputBuffer),
-						FRenderGraphBufferParameter>("InputBuffer",
+						FRDGBufferParameter>("InputBuffer",
 							offsetof(FComposedComputeBufferParameters, InputBuffer),
-							ERenderGraphParameterMemberKind::Buffer,
-							ERenderGraphResourceKind::Buffer,
-							ERenderGraphParameterRangeKind::BufferBytes,
-							ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead,
+							ERDGParameterMemberKind::Buffer,
+							ERDGResourceKind::Buffer,
+							ERDGParameterRangeKind::BufferBytes,
+							ERDGUse::Read, ERHIAccess::ComputeShaderRead,
 							ERHIBindingType::StorageBuffer),
-					MakeRenderGraphShaderResourceParameterMemberMetadata<
+					MakeRDGShaderResourceParameterMemberMetadata<
 						FComposedComputeBufferParameters, decltype(OutputBuffer),
-						FRenderGraphBufferParameter>("OutputBuffer",
+						FRDGBufferParameter>("OutputBuffer",
 							offsetof(FComposedComputeBufferParameters, OutputBuffer),
-							ERenderGraphParameterMemberKind::Buffer,
-							ERenderGraphResourceKind::Buffer,
-							ERenderGraphParameterRangeKind::BufferBytes,
-							ERenderGraphUse::Write,
+							ERDGParameterMemberKind::Buffer,
+							ERDGResourceKind::Buffer,
+							ERDGParameterRangeKind::BufferBytes,
+							ERDGUse::Write,
 							ERHIAccess::ComputeShaderReadWrite,
 							ERHIBindingType::StorageBuffer, nullptr, true),
 				};
 				static const auto Metadata =
-					MakeInlineRenderGraphParametersMetadata<
+					MakeInlineRDGParametersMetadata<
 						FComposedComputeBufferParameters>(
 							"FComposedComputeBufferParameters", Members);
 				return &Metadata;
@@ -542,23 +542,23 @@ namespace Durin
 
 		struct FLargeTokenGraphParameters final
 		{
-			std::array<FRenderGraphTokenParameter, 128> Tokens;
+			std::array<FRDGTokenParameter, 128> Tokens;
 
-			static auto GetRenderGraphParametersMetadata()
-				-> const FRenderGraphParametersMetadata*
+			static auto GetRDGParametersMetadata()
+				-> const FRDGParametersMetadata*
 			{
 				static const std::array Members{
-					MakeRenderGraphResourceParameterMemberMetadata<
+					MakeRDGResourceParameterMemberMetadata<
 						FLargeTokenGraphParameters, decltype(Tokens),
-						FRenderGraphTokenParameter>("Tokens",
+						FRDGTokenParameter>("Tokens",
 							offsetof(FLargeTokenGraphParameters, Tokens),
-							ERenderGraphParameterMemberKind::Token,
-							ERenderGraphResourceKind::Token,
-							ERenderGraphParameterRangeKind::None,
-							ERenderGraphUse::Write, ERHIAccess::None, true),
+							ERDGParameterMemberKind::Token,
+							ERDGResourceKind::Token,
+							ERDGParameterRangeKind::None,
+							ERDGUse::Write, ERHIAccess::None, true),
 				};
 				static const auto Metadata =
-					MakeInlineRenderGraphParametersMetadata<FLargeTokenGraphParameters>(
+					MakeInlineRDGParametersMetadata<FLargeTokenGraphParameters>(
 						"FLargeTokenGraphParameters", Members);
 				return &Metadata;
 			}
@@ -566,31 +566,31 @@ namespace Durin
 
 		struct FComputeResolutionParameters final
 		{
-			FRenderGraphTextureParameter Texture;
-			FRenderGraphBufferParameter Buffer;
+			FRDGTextureParameter Texture;
+			FRDGBufferParameter Buffer;
 
-			static auto GetRenderGraphParametersMetadata()
-				-> const FRenderGraphParametersMetadata*
+			static auto GetRDGParametersMetadata()
+				-> const FRDGParametersMetadata*
 			{
 				static const std::array Members{
-					MakeRenderGraphResourceParameterMemberMetadata<
+					MakeRDGResourceParameterMemberMetadata<
 						FComputeResolutionParameters, decltype(Texture),
-						FRenderGraphTextureParameter>("Texture",
+						FRDGTextureParameter>("Texture",
 							offsetof(FComputeResolutionParameters, Texture),
-							ERenderGraphParameterMemberKind::Texture,
-							ERenderGraphResourceKind::Texture,
-							ERenderGraphParameterRangeKind::TextureSubresource,
-							ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead),
-					MakeRenderGraphResourceParameterMemberMetadata<
+							ERDGParameterMemberKind::Texture,
+							ERDGResourceKind::Texture,
+							ERDGParameterRangeKind::TextureSubresource,
+							ERDGUse::Read, ERHIAccess::ComputeShaderRead),
+					MakeRDGResourceParameterMemberMetadata<
 						FComputeResolutionParameters, decltype(Buffer),
-						FRenderGraphBufferParameter>("Buffer",
+						FRDGBufferParameter>("Buffer",
 							offsetof(FComputeResolutionParameters, Buffer),
-							ERenderGraphParameterMemberKind::Buffer,
-							ERenderGraphResourceKind::Buffer,
-							ERenderGraphParameterRangeKind::BufferBytes,
-							ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead),
+							ERDGParameterMemberKind::Buffer,
+							ERDGResourceKind::Buffer,
+							ERDGParameterRangeKind::BufferBytes,
+							ERDGUse::Read, ERHIAccess::ComputeShaderRead),
 				};
-				static const auto Metadata = MakeInlineRenderGraphParametersMetadata<
+				static const auto Metadata = MakeInlineRDGParametersMetadata<
 					FComputeResolutionParameters>("FComputeResolutionParameters", Members);
 				return &Metadata;
 			}
@@ -598,23 +598,23 @@ namespace Durin
 
 		struct FUnavailableBufferParameters final
 		{
-			FRenderGraphBufferParameter Buffer;
+			FRDGBufferParameter Buffer;
 
-			static auto GetRenderGraphParametersMetadata()
-				-> const FRenderGraphParametersMetadata*
+			static auto GetRDGParametersMetadata()
+				-> const FRDGParametersMetadata*
 			{
 				static const std::array Members{
-					MakeRenderGraphResourceParameterMemberMetadata<
+					MakeRDGResourceParameterMemberMetadata<
 						FUnavailableBufferParameters, decltype(Buffer),
-						FRenderGraphBufferParameter>("Buffer",
+						FRDGBufferParameter>("Buffer",
 							offsetof(FUnavailableBufferParameters, Buffer),
-							ERenderGraphParameterMemberKind::Buffer,
-							ERenderGraphResourceKind::Buffer,
-							ERenderGraphParameterRangeKind::BufferBytes,
-							ERenderGraphUse::Write,
+							ERDGParameterMemberKind::Buffer,
+							ERDGResourceKind::Buffer,
+							ERDGParameterRangeKind::BufferBytes,
+							ERDGUse::Write,
 							ERHIAccess::ComputeShaderReadWrite, true),
 				};
-				static const auto Metadata = MakeInlineRenderGraphParametersMetadata<
+				static const auto Metadata = MakeInlineRDGParametersMetadata<
 					FUnavailableBufferParameters>("FUnavailableBufferParameters", Members);
 				return &Metadata;
 			}
@@ -622,22 +622,22 @@ namespace Durin
 
 		struct FCopyResolutionParameters final
 		{
-			FRenderGraphTextureParameter Texture;
+			FRDGTextureParameter Texture;
 
-			static auto GetRenderGraphParametersMetadata()
-				-> const FRenderGraphParametersMetadata*
+			static auto GetRDGParametersMetadata()
+				-> const FRDGParametersMetadata*
 			{
 				static const std::array Members{
-					MakeRenderGraphResourceParameterMemberMetadata<
+					MakeRDGResourceParameterMemberMetadata<
 						FCopyResolutionParameters, decltype(Texture),
-						FRenderGraphTextureParameter>("Texture",
+						FRDGTextureParameter>("Texture",
 							offsetof(FCopyResolutionParameters, Texture),
-							ERenderGraphParameterMemberKind::Texture,
-							ERenderGraphResourceKind::Texture,
-							ERenderGraphParameterRangeKind::TextureSubresource,
-							ERenderGraphUse::Read, ERHIAccess::TransferRead),
+							ERDGParameterMemberKind::Texture,
+							ERDGResourceKind::Texture,
+							ERDGParameterRangeKind::TextureSubresource,
+							ERDGUse::Read, ERHIAccess::TransferRead),
 				};
-				static const auto Metadata = MakeInlineRenderGraphParametersMetadata<
+				static const auto Metadata = MakeInlineRDGParametersMetadata<
 					FCopyResolutionParameters>("FCopyResolutionParameters", Members);
 				return &Metadata;
 			}
@@ -645,7 +645,7 @@ namespace Durin
 
 		template<typename Argument>
 		concept CTextureResolverArgument = requires(
-			const FRenderGraphParameterResolver& Resolver, const Argument& Value)
+			const FRDGParameterResolver& Resolver, const Argument& Value)
 		{
 			Resolver.GetTexture(Value);
 		};
@@ -680,10 +680,10 @@ namespace Durin
 		}
 	} // namespace
 
-	TEST_F(FRenderGraphTests, GraphParameterMetadataPreservesStableCompleteLayout)
+	TEST_F(FRDGTests, GraphParameterMetadataPreservesStableCompleteLayout)
 	{
 		const auto* Metadata =
-			FGraphParameterLayoutFixture::GetRenderGraphParametersMetadata();
+			FGraphParameterLayoutFixture::GetRDGParametersMetadata();
 		ASSERT_NE(Metadata, nullptr);
 		EXPECT_STREQ(Metadata->StructName, "FGraphParameterLayoutFixture");
 		EXPECT_EQ(Metadata->StructSize, sizeof(FGraphParameterLayoutFixture));
@@ -697,7 +697,7 @@ namespace Durin
 		EXPECT_STREQ(Metadata->Members[5].Name, "Nested");
 		EXPECT_EQ(Metadata->Members[1].ArraySize, 2u);
 		EXPECT_EQ(Metadata->Members[1].ElementSize,
-			sizeof(std::optional<FRenderGraphBufferParameter>));
+			sizeof(std::optional<FRDGBufferParameter>));
 		EXPECT_TRUE(Metadata->Members[1].bOptional);
 		EXPECT_TRUE(Metadata->Members[2].bOptional);
 		EXPECT_EQ(Metadata->Members[2].LoadAction,
@@ -706,34 +706,34 @@ namespace Durin
 		EXPECT_EQ(Metadata->Members[2].ResultAccess,
 			ERHIAccess::GraphicsShaderRead);
 		EXPECT_EQ(Metadata->Members[5].Kind,
-			ERenderGraphParameterMemberKind::Nested);
+			ERDGParameterMemberKind::Nested);
 		ASSERT_NE(Metadata->Members[5].NestedParameters, nullptr);
 		EXPECT_STREQ(Metadata->Members[5].NestedParameters->Members[0].Name,
 			"Completion");
 	}
 
-	TEST_F(FRenderGraphTests,
+	TEST_F(FRDGTests,
 		ComposedGraphMetadataCapturesStableBindingAndExactArrayElements)
 	{
 		FRHITexture TextureA = MakeGraphTexture("ComposedA", 2);
 		FRHITexture TextureB = MakeGraphTexture("ComposedB", 2);
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto HandleA = Builder.ImportTexture("A", &TextureA,
 			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		const auto HandleB = Builder.ImportTexture("B", &TextureB,
 			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		auto Parameters = Builder.AllocParameters<
 			FComposedTextureArrayParameters>();
-		Parameters->Textures[0] = FRenderGraphTextureParameter{
+		Parameters->Textures[0] = FRDGTextureParameter{
 			HandleA, {ERHITextureAspect::Color, 0, 1, 0, 1}};
-		Parameters->Textures[1] = FRenderGraphTextureParameter{
+		Parameters->Textures[1] = FRDGTextureParameter{
 			HandleB, {ERHITextureAspect::Color, 1, 1, 0, 1}};
 		bool bExecuted = false;
-		Builder.AddPass("Composed", ERenderGraphPassType::Graphics,
+		Builder.AddPass("Composed", ERDGPassType::Graphics,
 			std::move(Parameters),
 			[&](FRHICommandListImmediate&,
 				const FComposedTextureArrayParameters& Values,
-				const FRenderGraphParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) {
 				const auto ShaderParameters = Resolver.GetShaderParameters(Values);
 				EXPECT_EQ(ShaderParameters.GetData(), &Values);
 				EXPECT_EQ(Resolver.GetTexture(*Values.Textures[0]), &TextureA);
@@ -760,10 +760,10 @@ namespace Durin
 		EXPECT_TRUE(bExecuted);
 	}
 
-	TEST_F(FRenderGraphTests,
+	TEST_F(FRDGTests,
 		ComposedGraphMetadataRejectsAccessWeakeningBeforePassPublication)
 	{
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		auto Parameters = Builder.AllocParameters<
 			FMalformedComposedAccessParameters>();
 		EXPECT_FALSE(Parameters);
@@ -773,27 +773,27 @@ namespace Durin
 			std::string::npos);
 	}
 
-	TEST_F(FRenderGraphTests,
+	TEST_F(FRDGTests,
 		ComposedShaderSubmissionRejectsReflectionArrayExtentBeforeRecording)
 	{
 		FRHITexture TextureA = MakeGraphTexture("BindingExtentA");
 		FRHITexture TextureB = MakeGraphTexture("BindingExtentB");
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto HandleA = Builder.ImportTexture("TextureA", &TextureA,
 			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		const auto HandleB = Builder.ImportTexture("TextureB", &TextureB,
 			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		auto Parameters = Builder.AllocParameters<
 			FComposedTextureArrayParameters>();
-		Parameters->Textures[0] = FRenderGraphTextureParameter{
+		Parameters->Textures[0] = FRDGTextureParameter{
 			HandleA, WholeColor()};
-		Parameters->Textures[1] = FRenderGraphTextureParameter{
+		Parameters->Textures[1] = FRDGTextureParameter{
 			HandleB, WholeColor()};
-		Builder.AddPass("ComposedExtent", ERenderGraphPassType::Graphics,
+		Builder.AddPass("ComposedExtent", ERDGPassType::Graphics,
 			std::move(Parameters),
 			[](FRHICommandListImmediate&,
 				const FComposedTextureArrayParameters& Values,
-				const FRenderGraphParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) {
 				FRHICommandList Commands;
 				Commands.SwitchPipeline(ERHIPipeline::Graphics);
 				auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(
@@ -803,7 +803,7 @@ namespace Durin
 					.ArraySize = 1}};
 				const auto GraphShaderParameters =
 					Resolver.GetShaderParameters(Values);
-				SetRenderGraphShaderParametersImpl(Commands, Shader.GetReference(),
+				SetRDGShaderParametersImpl(Commands, Shader.GetReference(),
 					"FExtentFixture", EShaderFrequency::Fragment, Bindings,
 					GraphShaderParameters, nullptr, nullptr);
 			});
@@ -813,17 +813,17 @@ namespace Durin
 			"array extent does not match");
 	}
 
-	TEST_F(FRenderGraphTests,
+	TEST_F(FRDGTests,
 		ComposedShaderSubmissionRejectsUnavailableRequiredOptional)
 	{
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		auto Parameters = Builder.AllocParameters<
 			FComposedTextureArrayParameters>();
-		Builder.AddPass("ComposedOptional", ERenderGraphPassType::Graphics,
+		Builder.AddPass("ComposedOptional", ERDGPassType::Graphics,
 			std::move(Parameters),
 			[](FRHICommandListImmediate&,
 				const FComposedTextureArrayParameters& Values,
-				const FRenderGraphParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) {
 				FRHICommandList Commands;
 				Commands.SwitchPipeline(ERHIPipeline::Graphics);
 				auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(
@@ -833,7 +833,7 @@ namespace Durin
 					.ArraySize = 2, .bGraphResource = true}};
 				const auto GraphShaderParameters =
 					Resolver.GetShaderParameters(Values);
-				SetRenderGraphShaderParametersImpl(Commands, Shader.GetReference(),
+				SetRDGShaderParametersImpl(Commands, Shader.GetReference(),
 					"FOptionalFixture", EShaderFrequency::Fragment, Bindings,
 					GraphShaderParameters, nullptr, nullptr);
 			});
@@ -843,18 +843,18 @@ namespace Durin
 			"is unavailable for required shader");
 	}
 
-	TEST_F(FRenderGraphTests,
+	TEST_F(FRDGTests,
 		ComposedShaderSubmissionRejectsMissingGraphAuthorityAndWrongDomain)
 	{
 		auto MakeResult = [](bool bWrongDomain) {
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			auto Parameters = Builder.AllocParameters<
 				FComposedTextureArrayParameters>();
-			Builder.AddPass("ComposedAuthority", ERenderGraphPassType::Graphics,
+			Builder.AddPass("ComposedAuthority", ERDGPassType::Graphics,
 				std::move(Parameters),
 				[bWrongDomain](FRHICommandListImmediate&,
 					const FComposedTextureArrayParameters& Values,
-					const FRenderGraphParameterResolver& Resolver) {
+					const FRDGParameterResolver& Resolver) {
 					FRHICommandList Commands;
 					Commands.SwitchPipeline(ERHIPipeline::Graphics);
 					auto Shader = MakeRefCount<FRHIShader>(FRHIShaderDesc(
@@ -865,7 +865,7 @@ namespace Durin
 						.bGraphResource = true}};
 					const auto GraphShaderParameters =
 						Resolver.GetShaderParameters(Values);
-					SetRenderGraphShaderParametersImpl(Commands,
+					SetRDGShaderParametersImpl(Commands,
 						Shader.GetReference(), "FAuthorityFixture",
 						bWrongDomain ? EShaderFrequency::Compute
 							: EShaderFrequency::Fragment,
@@ -883,7 +883,7 @@ namespace Durin
 			"domain is incompatible");
 	}
 
-	TEST_F(FRenderGraphTests,
+	TEST_F(FRDGTests,
 		ComposedComputeCapturePreservesExactBufferRangesAndWriteAuthority)
 	{
 		static const auto InputBuffer = MakeRefCount<FRHIBuffer>(
@@ -894,7 +894,7 @@ namespace Durin
 			FRHIBufferCreateDesc::Create("ComposedOutput", 128, 4,
 				EBufferUsageFlags::StructuredBuffer
 					| EBufferUsageFlags::UnorderedAccess));
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto Input = Builder.ImportBuffer("Input",
 			InputBuffer.GetReference(), ERHIAccess::ComputeShaderRead,
 			ERHIAccess::ComputeShaderRead);
@@ -905,11 +905,11 @@ namespace Durin
 			FComposedComputeBufferParameters>();
 		Parameters->InputBuffer = {Input, 16, 32};
 		Parameters->OutputBuffer = {Output, 32, 64};
-		Builder.AddPass("ComposedBuffers", ERenderGraphPassType::Compute,
+		Builder.AddPass("ComposedBuffers", ERDGPassType::Compute,
 			std::move(Parameters),
 			[](FRHICommandListImmediate&,
 				const FComposedComputeBufferParameters&,
-				const FRenderGraphParameterResolver&) {});
+				const FRDGParameterResolver&) {});
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 		const auto Capture = Result.Graph->Capture();
@@ -920,9 +920,9 @@ namespace Durin
 		EXPECT_EQ(Capture.Uses[1].BufferSize, 64u);
 	}
 
-	TEST_F(FRenderGraphTests, AllocatesAlignedParametersWithExactRuntimeValues)
+	TEST_F(FRDGTests, AllocatesAlignedParametersWithExactRuntimeValues)
 	{
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		auto Parameters = Builder.AllocParameters<FGraphParameterLayoutFixture>();
 		ASSERT_TRUE(Parameters.IsValid());
 		EXPECT_EQ(reinterpret_cast<uintptr_t>(&Parameters.Get()) % 64u, 0u);
@@ -933,7 +933,7 @@ namespace Durin
 		Parameters->Input = {TextureHandle,
 			{ERHITextureAspect::Color, 1, 1, 0, 1}};
 		Parameters->Buffers[0] = std::nullopt;
-		Parameters->Color = FRenderGraphColorAttachmentParameter{
+		Parameters->Color = FRDGColorAttachmentParameter{
 			TextureHandle, WholeColor(2)};
 		Parameters->Nested.Completion = {TokenHandle};
 
@@ -945,9 +945,9 @@ namespace Durin
 		EXPECT_EQ(Parameters->Nested.Completion.Token, TokenHandle);
 	}
 
-	TEST_F(FRenderGraphTests, RejectsMalformedGraphParameterMetadataAtomically)
+	TEST_F(FRDGTests, RejectsMalformedGraphParameterMetadataAtomically)
 	{
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		auto Parameters = Builder.AllocParameters<FMalformedGraphParameters>();
 		EXPECT_FALSE(Parameters.IsValid());
 		auto Result = Builder.Compile();
@@ -957,12 +957,12 @@ namespace Durin
 			"'Texture' has an invalid or unstable offset");
 	}
 
-	TEST_F(FRenderGraphTests, DestroysUncompiledParametersExactlyOnceInReverseOrder)
+	TEST_F(FRDGTests, DestroysUncompiledParametersExactlyOnceInReverseOrder)
 	{
 		std::vector<int> DestructionOrder;
 		GParameterDestructionOrder = &DestructionOrder;
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			auto First = Builder.AllocParameters<FFirstLifetimeGraphParameters>();
 			auto Second = Builder.AllocParameters<FSecondLifetimeGraphParameters>();
 			ASSERT_TRUE(First.IsValid());
@@ -972,16 +972,16 @@ namespace Durin
 		EXPECT_EQ(DestructionOrder, (std::vector<int>{2, 1}));
 	}
 
-	TEST_F(FRenderGraphTests, KeepsParametersWithBuilderAcrossCompileFailure)
+	TEST_F(FRDGTests, KeepsParametersWithBuilderAcrossCompileFailure)
 	{
 		std::vector<int> DestructionOrder;
 		GParameterDestructionOrder = &DestructionOrder;
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			auto Parameters =
 				Builder.AllocParameters<FFirstLifetimeGraphParameters>();
 			Builder.SetBudget({.MaxPasses = 0});
-			Builder.AddPass("Rejected", ERenderGraphPassType::Graphics);
+			Builder.AddPass("Rejected", ERDGPassType::Graphics);
 			auto Result = Builder.Compile();
 			EXPECT_FALSE(Result.IsSuccess());
 			EXPECT_TRUE(Parameters.IsValid());
@@ -991,14 +991,14 @@ namespace Durin
 		EXPECT_EQ(DestructionOrder, (std::vector<int>{1}));
 	}
 
-	TEST_F(FRenderGraphTests, TransfersParametersToCompiledGraphLifetime)
+	TEST_F(FRDGTests, TransfersParametersToCompiledGraphLifetime)
 	{
 		std::vector<int> DestructionOrder;
 		GParameterDestructionOrder = &DestructionOrder;
-		TRenderGraphParametersRef<FFirstLifetimeGraphParameters> Parameters;
-		std::unique_ptr<FCompiledRenderGraph> Graph;
+		TRDGParametersRef<FFirstLifetimeGraphParameters> Parameters;
+		std::unique_ptr<FRDGCompiledGraph> Graph;
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			Parameters = Builder.AllocParameters<FFirstLifetimeGraphParameters>();
 			auto Result = Builder.Compile();
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
@@ -1014,17 +1014,17 @@ namespace Durin
 		EXPECT_EQ(DestructionOrder, (std::vector<int>{1}));
 	}
 
-	TEST_F(FRenderGraphTests, KeepsTransferredParametersAcrossExecutionFailure)
+	TEST_F(FRDGTests, KeepsTransferredParametersAcrossExecutionFailure)
 	{
 		std::vector<int> DestructionOrder;
 		GParameterDestructionOrder = &DestructionOrder;
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		auto Parameters = Builder.AllocParameters<FFirstLifetimeGraphParameters>();
-		const auto Texture = Builder.CreateTexture(FRenderGraphTextureDesc{
+		const auto Texture = Builder.CreateTexture(FRDGTextureDesc{
 				.Texture = FRHITextureCreateDesc::Create2D("MissingBacking", 16, 16,
 					EPixelFormat::RGBA8_UNORM)}, "MissingBacking");
 		const auto Pass = Builder.AddPass("UseMissingBacking",
-			ERenderGraphPassType::Graphics);
+			ERDGPassType::Graphics);
 		Builder.UseColorAttachment(Pass, Texture, WholeColor(),
 			ERHIRenderTargetLoadAction::Clear,
 			ERHIRenderTargetStoreAction::Store);
@@ -1042,7 +1042,7 @@ namespace Durin
 		EXPECT_EQ(DestructionOrder, (std::vector<int>{1}));
 	}
 
-	TEST_F(FRenderGraphTests, ParameterizedPassMatchesEveryManualUseKind)
+	TEST_F(FRDGTests, ParameterizedPassMatchesEveryManualUseKind)
 	{
 		auto BuildCapture = [](bool bParameterized) {
 			FRHITexture InputTexture = MakeGraphTexture("Input");
@@ -1058,7 +1058,7 @@ namespace Durin
 				.SetFlags(ETextureCreateFlags::DepthStencilTargetable));
 			FRHITexture ManagedTexture = MakeGraphTexture("ManagedTexture");
 
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			const auto Input = Builder.ImportTexture("Input", &InputTexture,
 				ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 			const auto BufferHandle = Builder.ImportBuffer("Buffer", &Buffer,
@@ -1080,7 +1080,7 @@ namespace Durin
 			if (bParameterized)
 			{
 				auto Parameters = Builder.AllocParameters<FAllGraphUseParameters>();
-				Parameters->Inputs[0] = FRenderGraphTextureParameter{
+				Parameters->Inputs[0] = FRDGTextureParameter{
 					Input, WholeColor()};
 				Parameters->Inputs[1] = std::nullopt;
 				Parameters->Buffer = {BufferHandle, 32, 128};
@@ -1089,22 +1089,22 @@ namespace Durin
 					{ERHITextureAspect::Depth, 0, 1, 0, 1}};
 				Parameters->ManagedColor = {ManagedColor, WholeColor()};
 				Parameters->ManagedDepth =
-					FRenderGraphDepthStencilAttachmentParameter{ManagedDepth,
+					FRDGDepthStencilAttachmentParameter{ManagedDepth,
 						{ERHITextureAspect::Depth, 0, 1, 0, 1}};
 				Parameters->ManagedTexture = {Managed, WholeColor()};
 				Parameters->Nested.Completion = {Completion};
 				const auto Pass = Builder.AddPass("AllUses",
-					ERenderGraphPassType::Graphics, std::move(Parameters));
+					ERDGPassType::Graphics, std::move(Parameters));
 				EXPECT_TRUE(Pass.IsValid());
 			}
 			else
 			{
 				const auto Pass = Builder.AddPass(
-					"AllUses", ERenderGraphPassType::Graphics);
+					"AllUses", ERDGPassType::Graphics);
 				Builder.UseTexture(Pass, Input, WholeColor(),
-					ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
+					ERDGUse::Read, ERHIAccess::GraphicsShaderRead);
 				Builder.UseBuffer(Pass, BufferHandle, 32, 128,
-					ERenderGraphUse::ReadWrite,
+					ERDGUse::ReadWrite,
 					ERHIAccess::GraphicsShaderReadWrite);
 				Builder.UseColorAttachment(Pass, Color, WholeColor(),
 					ERHIRenderTargetLoadAction::Clear,
@@ -1123,10 +1123,10 @@ namespace Durin
 					ERHIRenderTargetStoreAction::Store,
 					ERHIAccess::GraphicsShaderRead);
 				Builder.UseManagedTexture(Pass, Managed, WholeColor(),
-					ERenderGraphUse::Write,
+					ERDGUse::Write,
 					ERHIAccess::GraphicsShaderReadWrite,
 					ERHIAccess::GraphicsShaderRead, true);
-				Builder.UseToken(Pass, Completion, ERenderGraphUse::Write);
+				Builder.UseToken(Pass, Completion, ERDGUse::Write);
 			}
 
 			auto Result = Builder.Compile();
@@ -1155,7 +1155,7 @@ namespace Durin
 		EXPECT_EQ(Parameterized.Parameters[1].ResourceId,
 			std::numeric_limits<uint32>::max());
 		EXPECT_EQ(Parameterized.Parameters.back().Kind,
-			ERenderGraphParameterMemberKind::Token);
+			ERDGParameterMemberKind::Token);
 		ASSERT_EQ(Parameterized.Uses.size(), 8u);
 		const std::array ExpectedPaths{
 			"FAllGraphUseParameters.Inputs[0]",
@@ -1178,16 +1178,16 @@ namespace Durin
 			"present=0 resource=none"), std::string::npos);
 	}
 
-	TEST_F(FRenderGraphTests, ParameterizedPassRejectsExactInvalidFieldPaths)
+	TEST_F(FRDGTests, ParameterizedPassRejectsExactInvalidFieldPaths)
 	{
 		FRHITexture Texture = MakeGraphTexture("Texture");
 		FRHITexture ForeignTexture = MakeGraphTexture("ForeignTexture");
-		FRenderGraphBuilder ForeignBuilder;
+		FRDGBuilder ForeignBuilder;
 		const auto Foreign = ForeignBuilder.CreateTexture(
 			"ForeignTexture", &ForeignTexture);
 
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			const auto Local = Builder.ImportTexture("Texture", &Texture,
 				ERHIAccess::GraphicsShaderRead,
 				ERHIAccess::GraphicsShaderRead);
@@ -1195,7 +1195,7 @@ namespace Durin
 			Parameters->Textures = {{{Local, WholeColor()},
 				{Foreign, WholeColor()}}};
 			EXPECT_FALSE(Builder.AddPass("ForeignHandle",
-				ERenderGraphPassType::Graphics, std::move(Parameters)).IsValid());
+				ERDGPassType::Graphics, std::move(Parameters)).IsValid());
 			auto Result = Builder.Compile();
 			EXPECT_EQ(Result.Error,
 				"pass 'ForeignHandle' parameter 'FTwoTextureGraphParameters.Textures[1]' "
@@ -1203,7 +1203,7 @@ namespace Durin
 		}
 
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			const auto Local = Builder.ImportTexture("Texture", &Texture,
 				ERHIAccess::GraphicsShaderRead,
 				ERHIAccess::GraphicsShaderRead);
@@ -1212,7 +1212,7 @@ namespace Durin
 				{ERHITextureAspect::Color, 1, 1, 0, 1}},
 				{Local, WholeColor()}}};
 			EXPECT_FALSE(Builder.AddPass("InvalidRange",
-				ERenderGraphPassType::Graphics, std::move(Parameters)).IsValid());
+				ERDGPassType::Graphics, std::move(Parameters)).IsValid());
 			auto Result = Builder.Compile();
 			EXPECT_EQ(Result.Error,
 				"pass 'InvalidRange' parameter 'FTwoTextureGraphParameters.Textures[0]' "
@@ -1221,7 +1221,7 @@ namespace Durin
 
 		{
 			auto BuildOverlapError = [&] {
-				FRenderGraphBuilder Builder;
+				FRDGBuilder Builder;
 				const auto Local = Builder.ImportTexture("Texture", &Texture,
 					ERHIAccess::GraphicsShaderRead,
 					ERHIAccess::GraphicsShaderRead);
@@ -1230,7 +1230,7 @@ namespace Durin
 				Parameters->Textures = {{{Local, WholeColor()},
 					{Local, {ERHITextureAspect::Color, 0, 1, 0, 1}}}};
 				EXPECT_FALSE(Builder.AddPass("Overlap",
-					ERenderGraphPassType::Graphics,
+					ERDGPassType::Graphics,
 					std::move(Parameters)).IsValid());
 				return Builder.Compile().Error;
 			};
@@ -1243,7 +1243,7 @@ namespace Durin
 		}
 
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			const auto Local = Builder.ImportTexture("Texture", &Texture,
 				ERHIAccess::GraphicsShaderRead,
 				ERHIAccess::GraphicsShaderRead);
@@ -1251,7 +1251,7 @@ namespace Durin
 			Parameters->Textures = {{{Local, WholeColor()},
 				{Local, WholeColor()}}};
 			EXPECT_FALSE(Builder.AddPass("WrongDomain",
-				ERenderGraphPassType::Compute, std::move(Parameters)).IsValid());
+				ERDGPassType::Compute, std::move(Parameters)).IsValid());
 			auto Result = Builder.Compile();
 			EXPECT_EQ(Result.Error,
 				"pass 'WrongDomain' parameter 'FTwoTextureGraphParameters.Textures[0]' "
@@ -1259,31 +1259,31 @@ namespace Durin
 		}
 	}
 
-	TEST_F(FRenderGraphTests, ParameterizedPassRejectsMixedAndConsumedAuthority)
+	TEST_F(FRDGTests, ParameterizedPassRejectsMixedAndConsumedAuthority)
 	{
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			const auto Token = Builder.CreateToken("Token");
 			auto Parameters = Builder.AllocParameters<FNestedGraphParameters>();
 			Parameters->Completion = {Token};
 			const auto Pass = Builder.AddPass("Parameterized",
-				ERenderGraphPassType::Graphics, std::move(Parameters));
+				ERDGPassType::Graphics, std::move(Parameters));
 			ASSERT_TRUE(Pass.IsValid());
-			Builder.UseToken(Pass, Token, ERenderGraphUse::Write);
+			Builder.UseToken(Pass, Token, ERDGUse::Write);
 			auto Result = Builder.Compile();
 			EXPECT_EQ(Result.Error,
 				"pass 'Parameterized' uses parameter declarations and cannot accept manual uses");
 		}
 
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			const auto Token = Builder.CreateToken("Token");
 			auto Parameters = Builder.AllocParameters<FNestedGraphParameters>();
 			Parameters->Completion = {Token};
-			EXPECT_TRUE(Builder.AddPass("First", ERenderGraphPassType::Graphics,
+			EXPECT_TRUE(Builder.AddPass("First", ERDGPassType::Graphics,
 				std::move(Parameters)).IsValid());
 			EXPECT_FALSE(Parameters.IsValid());
-			EXPECT_FALSE(Builder.AddPass("Second", ERenderGraphPassType::Graphics,
+			EXPECT_FALSE(Builder.AddPass("Second", ERDGPassType::Graphics,
 				std::move(Parameters)).IsValid());
 			auto Result = Builder.Compile();
 			EXPECT_EQ(Result.Error,
@@ -1292,11 +1292,11 @@ namespace Durin
 		}
 
 		{
-			FRenderGraphBuilder Owner;
+			FRDGBuilder Owner;
 			auto Parameters = Owner.AllocParameters<FNestedGraphParameters>();
-			FRenderGraphBuilder Other;
+			FRDGBuilder Other;
 			EXPECT_FALSE(Other.AddPass("ForeignAllocation",
-				ERenderGraphPassType::Graphics, std::move(Parameters)).IsValid());
+				ERDGPassType::Graphics, std::move(Parameters)).IsValid());
 			auto Result = Other.Compile();
 			EXPECT_EQ(Result.Error,
 				"pass 'ForeignAllocation' parameter 'FNestedGraphParameters' has an "
@@ -1304,20 +1304,20 @@ namespace Durin
 		}
 	}
 
-	TEST_F(FRenderGraphTests, ParameterizedDeclarationFailureIsCallbackAtomic)
+	TEST_F(FRDGTests, ParameterizedDeclarationFailureIsCallbackAtomic)
 	{
 		FRHITexture Texture = MakeGraphTexture("Texture");
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto Local = Builder.ImportTexture("Texture", &Texture,
 			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		auto Parameters = Builder.AllocParameters<FTwoTextureGraphParameters>();
 		Parameters->Textures = {{{Local,
 			{ERHITextureAspect::Color, 4, 1, 0, 1}}, {Local, WholeColor()}}};
 		bool bExecuted = false;
-		Builder.AddPass("Invalid", ERenderGraphPassType::Graphics,
+		Builder.AddPass("Invalid", ERDGPassType::Graphics,
 			std::move(Parameters),
 			[&](FRHICommandListImmediate&, const FTwoTextureGraphParameters&,
-				const FRenderGraphParameterResolver&) {
+				const FRDGParameterResolver&) {
 				bExecuted = true;
 			});
 		auto Result = Builder.Compile();
@@ -1325,9 +1325,9 @@ namespace Durin
 		EXPECT_FALSE(bExecuted);
 	}
 
-	TEST_F(FRenderGraphTests, ParameterTraversalStaysWithinFoundationBudget)
+	TEST_F(FRDGTests, ParameterTraversalStaysWithinFoundationBudget)
 	{
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		Builder.SetBudget({.MaxCompileMicroseconds = 1'000'000});
 		const auto Started = std::chrono::steady_clock::now();
 		auto Parameters = Builder.AllocParameters<FLargeTokenGraphParameters>();
@@ -1335,7 +1335,7 @@ namespace Durin
 			Parameters->Tokens[Index] = {
 				Builder.CreateToken("Token." + std::to_string(Index))};
 		const auto Pass = Builder.AddPass("LargeParameters",
-			ERenderGraphPassType::Graphics, std::move(Parameters));
+			ERDGPassType::Graphics, std::move(Parameters));
 		ASSERT_TRUE(Pass.IsValid());
 		const auto DeclarationMicroseconds = std::chrono::duration_cast<
 			std::chrono::microseconds>(std::chrono::steady_clock::now() - Started)
@@ -1349,7 +1349,7 @@ namespace Durin
 			"FLargeTokenGraphParameters.Tokens[127]");
 	}
 
-	TEST_F(FRenderGraphTests, ParameterResolverResolvesDeclaredGraphicsResources)
+	TEST_F(FRDGTests, ParameterResolverResolvesDeclaredGraphicsResources)
 	{
 		FRHITexture InputTexture = MakeGraphTexture("Input");
 		FRHITexture ColorTexture = MakeGraphTexture("Color");
@@ -1357,7 +1357,7 @@ namespace Durin
 			"Depth", 64, 64, EPixelFormat::D32)
 			.SetFlags(ETextureCreateFlags::DepthStencilTargetable));
 		FRHITexture ManagedTexture = MakeGraphTexture("ManagedTexture");
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto Input = Builder.ImportTexture("Input", &InputTexture,
 			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		const auto Color = Builder.CreateTexture("Color", &ColorTexture,
@@ -1377,11 +1377,11 @@ namespace Durin
 		Parameters->Managed = {Managed, WholeColor()};
 		Parameters->Nested.Completion = {Completion};
 		uint32 CallbackCount = 0;
-		Builder.AddPass("ResolveGraphics", ERenderGraphPassType::Graphics,
+		Builder.AddPass("ResolveGraphics", ERDGPassType::Graphics,
 			std::move(Parameters),
 			[&](FRHICommandListImmediate&,
 				const FGraphParameterLayoutFixture& Values,
-				const FRenderGraphParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) {
 				static_assert(std::is_const_v<std::remove_reference_t<decltype(Values)>>);
 				EXPECT_EQ(Resolver.GetTexture(Values.Input), &InputTexture);
 				EXPECT_EQ(Resolver.GetBuffer(Values.Buffers[0]), nullptr);
@@ -1400,13 +1400,13 @@ namespace Durin
 		EXPECT_EQ(CallbackCount, 1u);
 	}
 
-	TEST_F(FRenderGraphTests, ParameterResolverSupportsComputeAndCopyDomains)
+	TEST_F(FRDGTests, ParameterResolverSupportsComputeAndCopyDomains)
 	{
 		FRHITexture ComputeTexture = MakeGraphTexture("Compute");
 		FRHITexture CopyTexture = MakeGraphTexture("Copy");
 		FRHIBuffer Buffer(FRHIBufferCreateDesc::Create(
 			"Buffer", 64, 4, EBufferUsageFlags::UnorderedAccess));
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto ComputeTextureHandle = Builder.ImportTexture("Compute",
 			&ComputeTexture, ERHIAccess::ComputeShaderRead,
 			ERHIAccess::ComputeShaderRead);
@@ -1418,20 +1418,20 @@ namespace Durin
 		ComputeParameters->Texture = {ComputeTextureHandle, WholeColor()};
 		ComputeParameters->Buffer = {BufferHandle, 0, 64};
 		uint32 CallbackCount = 0;
-		Builder.AddPass("ResolveCompute", ERenderGraphPassType::Compute,
+		Builder.AddPass("ResolveCompute", ERDGPassType::Compute,
 			std::move(ComputeParameters),
 			[&](FRHICommandListImmediate&, const FComputeResolutionParameters& Values,
-				const FRenderGraphParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) {
 				EXPECT_EQ(Resolver.GetTexture(Values.Texture), &ComputeTexture);
 				EXPECT_EQ(Resolver.GetBuffer(Values.Buffer), &Buffer);
 				++CallbackCount;
 			});
 		auto CopyParameters = Builder.AllocParameters<FCopyResolutionParameters>();
 		CopyParameters->Texture = {CopyTextureHandle, WholeColor()};
-		Builder.AddPass("ResolveCopy", ERenderGraphPassType::Copy,
+		Builder.AddPass("ResolveCopy", ERDGPassType::Copy,
 			std::move(CopyParameters),
 			[&](FRHICommandListImmediate&, const FCopyResolutionParameters& Values,
-				const FRenderGraphParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) {
 				EXPECT_EQ(Resolver.GetTexture(Values.Texture), &CopyTexture);
 				++CallbackCount;
 			});
@@ -1441,13 +1441,13 @@ namespace Durin
 		EXPECT_EQ(CallbackCount, 2u);
 	}
 
-	TEST_F(FRenderGraphTests, ParameterResolverRejectsRawWrongKindAndWrongPassAccess)
+	TEST_F(FRDGTests, ParameterResolverRejectsRawWrongKindAndWrongPassAccess)
 	{
-		static_assert(!CTextureResolverArgument<FRenderGraphTextureHandle>);
-		static_assert(!CTextureResolverArgument<FRenderGraphBufferParameter>);
+		static_assert(!CTextureResolverArgument<FRDGTextureHandle>);
+		static_assert(!CTextureResolverArgument<FRDGBufferParameter>);
 		FRHITexture FirstTexture = MakeGraphTexture("First", 2);
 		FRHITexture SecondTexture = MakeGraphTexture("Second", 2);
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto First = Builder.ImportTexture("First", &FirstTexture,
 			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		const auto Second = Builder.ImportTexture("Second", &SecondTexture,
@@ -1461,14 +1461,14 @@ namespace Durin
 			{ERHITextureAspect::Color, 0, 1, 0, 1}}, {Second,
 			{ERHITextureAspect::Color, 1, 1, 0, 1}}}};
 		const auto* WrongPassMember = &SecondParameters->Textures[0];
-		Builder.AddPass("FirstPass", ERenderGraphPassType::Graphics,
+		Builder.AddPass("FirstPass", ERDGPassType::Graphics,
 			std::move(FirstParameters),
 			[WrongPassMember](FRHICommandListImmediate&,
 				const FTwoTextureGraphParameters&,
-				const FRenderGraphParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) {
 				Resolver.GetTexture(*WrongPassMember);
 			});
-		Builder.AddPass("SecondPass", ERenderGraphPassType::Graphics,
+		Builder.AddPass("SecondPass", ERDGPassType::Graphics,
 			std::move(SecondParameters));
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
@@ -1476,22 +1476,22 @@ namespace Durin
 			"pass 'FirstPass'.*requested capability 'texture'");
 	}
 
-	TEST_F(FRenderGraphTests, ParameterResolverRejectsCopiedAndForeignOptionalMembers)
+	TEST_F(FRDGTests, ParameterResolverRejectsCopiedAndForeignOptionalMembers)
 	{
 		FRHITexture Texture = MakeGraphTexture("Declared", 2);
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto Handle = Builder.ImportTexture("Declared", &Texture,
 			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		auto Parameters = Builder.AllocParameters<FTwoTextureGraphParameters>();
 		Parameters->Textures = {{{Handle,
 			{ERHITextureAspect::Color, 0, 1, 0, 1}}, {Handle,
 			{ERHITextureAspect::Color, 1, 1, 0, 1}}}};
-		const FRenderGraphTextureParameter Copied = Parameters->Textures[0];
-		const std::optional<FRenderGraphTextureParameter> ForeignOptional;
-		Builder.AddPass("Copied", ERenderGraphPassType::Graphics,
+		const FRDGTextureParameter Copied = Parameters->Textures[0];
+		const std::optional<FRDGTextureParameter> ForeignOptional;
+		Builder.AddPass("Copied", ERDGPassType::Graphics,
 			std::move(Parameters),
 			[&](FRHICommandListImmediate&, const FTwoTextureGraphParameters&,
-				const FRenderGraphParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) {
 				if (Copied.Texture.IsValid()) Resolver.GetTexture(Copied);
 				else Resolver.GetTexture(ForeignOptional);
 			});
@@ -1502,7 +1502,7 @@ namespace Durin
 
 		// An empty optional is nullable only when that exact optional object is a
 		// declared field; a foreign empty optional remains an invalid capability.
-		FRenderGraphBuilder OptionalBuilder;
+		FRDGBuilder OptionalBuilder;
 		const auto OptionalHandle = OptionalBuilder.ImportTexture("Declared",
 			&Texture, ERHIAccess::GraphicsShaderRead,
 			ERHIAccess::GraphicsShaderRead);
@@ -1511,10 +1511,10 @@ namespace Durin
 		OptionalParameters->Textures = {{{OptionalHandle,
 			{ERHITextureAspect::Color, 0, 1, 0, 1}}, {OptionalHandle,
 			{ERHITextureAspect::Color, 1, 1, 0, 1}}}};
-		OptionalBuilder.AddPass("ForeignOptional", ERenderGraphPassType::Graphics,
+		OptionalBuilder.AddPass("ForeignOptional", ERDGPassType::Graphics,
 			std::move(OptionalParameters),
 			[&](FRHICommandListImmediate&, const FTwoTextureGraphParameters&,
-				const FRenderGraphParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) {
 				Resolver.GetTexture(ForeignOptional);
 			});
 		auto OptionalResult = OptionalBuilder.Compile();
@@ -1524,19 +1524,19 @@ namespace Durin
 			"not declared by the executing pass parameters");
 	}
 
-	TEST_F(FRenderGraphTests, ParameterizedCallbacksStayAtomicWhenCulledOrUnavailable)
+	TEST_F(FRDGTests, ParameterizedCallbacksStayAtomicWhenCulledOrUnavailable)
 	{
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			Builder.EnablePassCulling();
 			const auto Token = Builder.CreateToken("CulledToken");
 			auto Parameters = Builder.AllocParameters<FNestedGraphParameters>();
 			Parameters->Completion = {Token};
 			bool bExecuted = false;
-			Builder.AddPass("Culled", ERenderGraphPassType::Graphics,
+			Builder.AddPass("Culled", ERDGPassType::Graphics,
 				std::move(Parameters),
 				[&](FRHICommandListImmediate&, const FNestedGraphParameters&,
-					const FRenderGraphParameterResolver&) { bExecuted = true; });
+					const FRDGParameterResolver&) { bExecuted = true; });
 			auto Result = Builder.Compile();
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 			const auto Capture = Result.Graph->Capture();
@@ -1549,17 +1549,17 @@ namespace Durin
 			EXPECT_FALSE(bExecuted);
 		}
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			const auto Buffer = Builder.CreateBuffer(
-				FRenderGraphBufferDesc{.Buffer = FRHIBufferDesc(
+				FRDGBufferDesc{.Buffer = FRHIBufferDesc(
 					64, 4, EBufferUsageFlags::UnorderedAccess)}, "Unavailable");
 			auto Parameters = Builder.AllocParameters<FUnavailableBufferParameters>();
 			Parameters->Buffer = {Buffer, 0, 64};
 			bool bExecuted = false;
-			Builder.AddPass("Unavailable", ERenderGraphPassType::Compute,
+			Builder.AddPass("Unavailable", ERDGPassType::Compute,
 				std::move(Parameters),
 				[&](FRHICommandListImmediate&, const FUnavailableBufferParameters&,
-					const FRenderGraphParameterResolver&) { bExecuted = true; });
+					const FRDGParameterResolver&) { bExecuted = true; });
 			auto Result = Builder.Compile();
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 			FTestRDGAllocator Allocator;
@@ -1574,23 +1574,23 @@ namespace Durin
 		}
 	}
 
-	TEST_F(FRenderGraphTests, CompilesStableHazardOrderAndExactTextureTransitions)
+	TEST_F(FRDGTests, CompilesStableHazardOrderAndExactTextureTransitions)
 	{
 		FRHITexture Texture = MakeGraphTexture("SceneColor");
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto SceneColor = Builder.CreateTexture(
 			"SceneColor", &Texture, ERHIAccess::GraphicsShaderRead);
 		const auto Independent = Builder.AddPass(
-			"Independent", ERenderGraphPassType::Copy);
+			"Independent", ERDGPassType::Copy);
 		const auto Produce = Builder.AddPass(
-			"Produce", ERenderGraphPassType::Graphics);
+			"Produce", ERDGPassType::Graphics);
 		Builder.UseColorAttachment(Produce, SceneColor, WholeColor(),
 			ERHIRenderTargetLoadAction::Clear,
 			ERHIRenderTargetStoreAction::Store);
 		const auto Consume = Builder.AddPass(
-			"Consume", ERenderGraphPassType::Compute);
+			"Consume", ERDGPassType::Compute);
 		Builder.UseTexture(Consume, SceneColor, WholeColor(),
-			ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead);
+			ERDGUse::Read, ERHIAccess::ComputeShaderRead);
 
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
@@ -1600,8 +1600,8 @@ namespace Durin
 		EXPECT_EQ(Result.Graph->GetPasses()[2].Name, "Consume");
 		ASSERT_EQ(Result.Graph->GetDependencies().size(), 1u);
 		EXPECT_EQ(Result.Graph->GetDependencies()[0],
-			(FRenderGraphDependency{1, 2, "SceneColor",
-				ERenderGraphDependencyKind::Value}));
+			(FRDGDependency{1, 2, "SceneColor",
+				ERDGDependencyKind::Value}));
 		ASSERT_EQ(Result.Graph->GetPasses()[1].TextureTransitions.size(), 1u);
 		EXPECT_EQ(Result.Graph->GetPasses()[1].TextureTransitions[0],
 			(FRHITextureTransition{&Texture, WholeColor(), ERHIAccess::Discard,
@@ -1618,30 +1618,30 @@ namespace Durin
 				ERHIAccess::GraphicsShaderRead}));
 	}
 
-	TEST_F(FRenderGraphTests, CompilesBufferRawWarAndWawDependencies)
+	TEST_F(FRDGTests, CompilesBufferRawWarAndWawDependencies)
 	{
 		FRHIBuffer Buffer(FRHIBufferCreateDesc::Create(
 			"Work", 64, 4, EBufferUsageFlags::UnorderedAccess
 				| EBufferUsageFlags::SourceCopy));
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto Work = Builder.CreateBuffer("Work", &Buffer);
-		const auto Write = Builder.AddPass("Write", ERenderGraphPassType::Compute);
-		Builder.UseBuffer(Write, Work, 0, 64, ERenderGraphUse::Write,
+		const auto Write = Builder.AddPass("Write", ERDGPassType::Compute);
+		Builder.UseBuffer(Write, Work, 0, 64, ERDGUse::Write,
 			ERHIAccess::ComputeShaderReadWrite, true);
-		const auto Read = Builder.AddPass("Read", ERenderGraphPassType::Copy);
-		Builder.UseBuffer(Read, Work, 0, 64, ERenderGraphUse::Read,
+		const auto Read = Builder.AddPass("Read", ERDGPassType::Copy);
+		Builder.UseBuffer(Read, Work, 0, 64, ERDGUse::Read,
 			ERHIAccess::TransferRead);
-		const auto Rewrite = Builder.AddPass("Rewrite", ERenderGraphPassType::Compute);
-		Builder.UseBuffer(Rewrite, Work, 0, 64, ERenderGraphUse::Write,
+		const auto Rewrite = Builder.AddPass("Rewrite", ERDGPassType::Compute);
+		Builder.UseBuffer(Rewrite, Work, 0, 64, ERDGUse::Write,
 			ERHIAccess::ComputeShaderReadWrite);
 
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 		ASSERT_EQ(Result.Graph->GetDependencies().size(), 2u);
 		EXPECT_EQ(Result.Graph->GetDependencies()[0].Kind,
-			ERenderGraphDependencyKind::Value);
+			ERDGDependencyKind::Value);
 		EXPECT_EQ(Result.Graph->GetDependencies()[1].Kind,
-			ERenderGraphDependencyKind::Execution);
+			ERDGDependencyKind::Execution);
 		EXPECT_EQ(Result.Graph->GetPasses()[0].BufferTransitions[0].ExpectedBefore,
 			ERHIAccess::Discard);
 		EXPECT_EQ(Result.Graph->GetPasses()[1].BufferTransitions[0].ExpectedBefore,
@@ -1650,121 +1650,121 @@ namespace Durin
 			ERHIAccess::TransferRead);
 	}
 
-	TEST_F(FRenderGraphTests, RejectsMissingProducerForeignHandleAndCycle)
+	TEST_F(FRDGTests, RejectsMissingProducerForeignHandleAndCycle)
 	{
 		FRHITexture Texture = MakeGraphTexture("Missing");
-		FRenderGraphBuilder MissingProducer;
+		FRDGBuilder MissingProducer;
 		const auto Logical = MissingProducer.CreateTexture("Missing", &Texture);
-		const auto Read = MissingProducer.AddPass("Read", ERenderGraphPassType::Graphics);
+		const auto Read = MissingProducer.AddPass("Read", ERDGPassType::Graphics);
 		MissingProducer.UseTexture(Read, Logical, WholeColor(),
-			ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead);
+			ERDGUse::Read, ERHIAccess::GraphicsShaderRead);
 		auto Missing = MissingProducer.Compile();
 		EXPECT_FALSE(Missing.IsSuccess());
 		EXPECT_NE(Missing.Error.find("before its producer"), std::string::npos);
 
-		FRenderGraphBuilder ForeignOwner;
+		FRDGBuilder ForeignOwner;
 		const auto Foreign = ForeignOwner.CreateTexture("Foreign", &Texture);
-		FRenderGraphBuilder ForeignUse;
-		const auto Pass = ForeignUse.AddPass("Use", ERenderGraphPassType::Graphics);
-		ForeignUse.UseTexture(Pass, Foreign, WholeColor(), ERenderGraphUse::Read,
+		FRDGBuilder ForeignUse;
+		const auto Pass = ForeignUse.AddPass("Use", ERDGPassType::Graphics);
+		ForeignUse.UseTexture(Pass, Foreign, WholeColor(), ERDGUse::Read,
 			ERHIAccess::GraphicsShaderRead);
 		auto Invalid = ForeignUse.Compile();
 		EXPECT_FALSE(Invalid.IsSuccess());
 		EXPECT_NE(Invalid.Error.find("invalid resource handle"), std::string::npos);
 
-		FRenderGraphBuilder Cyclic;
-		const auto A = Cyclic.AddPass("A", ERenderGraphPassType::Compute);
-		const auto B = Cyclic.AddPass("B", ERenderGraphPassType::Compute);
+		FRDGBuilder Cyclic;
+		const auto A = Cyclic.AddPass("A", ERDGPassType::Compute);
+		const auto B = Cyclic.AddPass("B", ERDGPassType::Compute);
 		Cyclic.AddDependency(A, B);
 		Cyclic.AddDependency(B, A);
 		auto Cycle = Cyclic.Compile();
 		EXPECT_FALSE(Cycle.IsSuccess());
 		EXPECT_EQ(Cycle.Error, "graph contains a dependency cycle");
 
-		FRenderGraphBuilder SelfDependent;
+		FRDGBuilder SelfDependent;
 		const auto Self = SelfDependent.AddPass(
-			"Self", ERenderGraphPassType::Compute);
+			"Self", ERDGPassType::Compute);
 		SelfDependent.AddDependency(Self, Self);
 		auto SelfCycle = SelfDependent.Compile();
 		EXPECT_FALSE(SelfCycle.IsSuccess());
 		EXPECT_EQ(SelfCycle.Error, "graph contains a dependency cycle");
 	}
 
-	TEST_F(FRenderGraphTests, RejectsTextureAspectsOutsideResourceFormat)
+	TEST_F(FRDGTests, RejectsTextureAspectsOutsideResourceFormat)
 	{
 		FRHITexture Texture = MakeGraphTexture("ColorOnly");
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto Resource = Builder.CreateTexture("ColorOnly", &Texture);
 		const auto Pass = Builder.AddPass("InvalidAspects",
-			ERenderGraphPassType::Compute);
+			ERDGPassType::Compute);
 		Builder.UseTexture(Pass, Resource,
 			{ERHITextureAspect::Color | ERHITextureAspect::Depth, 0, 1, 0, 1},
-			ERenderGraphUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
 
 		auto Result = Builder.Compile();
 		EXPECT_FALSE(Result.IsSuccess());
 		EXPECT_NE(Result.Error.find("invalid texture range"), std::string::npos);
 	}
 
-	TEST_F(FRenderGraphTests, NormalizesDisjointAndPartiallyOverlappingSubresources)
+	TEST_F(FRDGTests, NormalizesDisjointAndPartiallyOverlappingSubresources)
 	{
 		FRHITexture Texture = MakeGraphTexture("MipChain", 4);
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto Chain = Builder.CreateTexture("MipChain", &Texture);
-		const auto Mip0 = Builder.AddPass("Mip0", ERenderGraphPassType::Compute);
+		const auto Mip0 = Builder.AddPass("Mip0", ERDGPassType::Compute);
 		Builder.UseTexture(Mip0, Chain, {ERHITextureAspect::Color, 0, 1, 0, 1},
-			ERenderGraphUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
-		const auto Mip1 = Builder.AddPass("Mip1", ERenderGraphPassType::Compute);
+			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		const auto Mip1 = Builder.AddPass("Mip1", ERDGPassType::Compute);
 		Builder.UseTexture(Mip1, Chain, {ERHITextureAspect::Color, 1, 1, 0, 1},
-			ERenderGraphUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
 		auto Disjoint = Builder.Compile();
 		ASSERT_TRUE(Disjoint.IsSuccess()) << Disjoint.Error;
 		EXPECT_TRUE(Disjoint.Graph->GetDependencies().empty());
 
-		FRenderGraphBuilder Partial;
+		FRDGBuilder Partial;
 		const auto PartialChain = Partial.CreateTexture("MipChain", &Texture);
-		const auto Whole = Partial.AddPass("Whole", ERenderGraphPassType::Compute);
+		const auto Whole = Partial.AddPass("Whole", ERDGPassType::Compute);
 		Partial.UseTexture(Whole, PartialChain, WholeColor(4),
-			ERenderGraphUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
-		const auto OneMip = Partial.AddPass("OneMip", ERenderGraphPassType::Compute);
+			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		const auto OneMip = Partial.AddPass("OneMip", ERDGPassType::Compute);
 		Partial.UseTexture(OneMip, PartialChain,
-			{ERHITextureAspect::Color, 1, 1, 0, 1}, ERenderGraphUse::Read,
+			{ERHITextureAspect::Color, 1, 1, 0, 1}, ERDGUse::Read,
 			ERHIAccess::ComputeShaderRead);
 		auto Overlap = Partial.Compile();
 		ASSERT_TRUE(Overlap.IsSuccess()) << Overlap.Error;
 		ASSERT_EQ(Overlap.Graph->GetDependencies().size(), 1u);
 		EXPECT_EQ(Overlap.Graph->GetDependencies()[0].Kind,
-			ERenderGraphDependencyKind::Value);
+			ERDGDependencyKind::Value);
 		EXPECT_EQ(Overlap.Graph->GetPasses()[0].TextureTransitions.size(), 3u);
 		EXPECT_EQ(Overlap.Graph->GetPasses()[1].TextureTransitions.size(), 1u);
 	}
 
-	TEST_F(FRenderGraphTests, DiscardedAttachmentStoreCannotBecomeAProducer)
+	TEST_F(FRDGTests, DiscardedAttachmentStoreCannotBecomeAProducer)
 	{
 		FRHITexture Texture = MakeGraphTexture("Discarded");
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto Target = Builder.CreateTexture("Discarded", &Texture);
-		const auto Clear = Builder.AddPass("Clear", ERenderGraphPassType::Graphics);
+		const auto Clear = Builder.AddPass("Clear", ERDGPassType::Graphics);
 		Builder.UseColorAttachment(Clear, Target, WholeColor(),
 			ERHIRenderTargetLoadAction::Clear,
 			ERHIRenderTargetStoreAction::DontCare);
-		const auto Read = Builder.AddPass("Read", ERenderGraphPassType::Graphics);
-		Builder.UseTexture(Read, Target, WholeColor(), ERenderGraphUse::Read,
+		const auto Read = Builder.AddPass("Read", ERDGPassType::Graphics);
+		Builder.UseTexture(Read, Target, WholeColor(), ERDGUse::Read,
 			ERHIAccess::GraphicsShaderRead);
 		auto Result = Builder.Compile();
 		EXPECT_FALSE(Result.IsSuccess());
 		EXPECT_NE(Result.Error.find("before its producer"), std::string::npos);
 	}
 
-	TEST_F(FRenderGraphTests, PreservesImportedInitialAndFinalStates)
+	TEST_F(FRDGTests, PreservesImportedInitialAndFinalStates)
 	{
 		FRHITexture Texture = MakeGraphTexture("Imported");
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto Imported = Builder.ImportTexture("Imported", &Texture,
 			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-		const auto Compute = Builder.AddPass("Compute", ERenderGraphPassType::Compute);
+		const auto Compute = Builder.AddPass("Compute", ERDGPassType::Compute);
 		Builder.UseTexture(Compute, Imported, WholeColor(),
-			ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead);
+			ERDGUse::Read, ERHIAccess::ComputeShaderRead);
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 		ASSERT_EQ(Result.Graph->GetPasses()[0].TextureTransitions.size(), 1u);
@@ -1775,12 +1775,12 @@ namespace Durin
 			ERHIAccess::GraphicsShaderRead);
 	}
 
-	TEST_F(FRenderGraphTests, RejectsAttachmentLoadWithoutPriorContents)
+	TEST_F(FRDGTests, RejectsAttachmentLoadWithoutPriorContents)
 	{
 		FRHITexture Texture = MakeGraphTexture("Load");
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto Target = Builder.CreateTexture("Load", &Texture);
-		const auto Load = Builder.AddPass("Load", ERenderGraphPassType::Graphics);
+		const auto Load = Builder.AddPass("Load", ERDGPassType::Graphics);
 		Builder.UseColorAttachment(Load, Target, WholeColor(),
 			ERHIRenderTargetLoadAction::Load,
 			ERHIRenderTargetStoreAction::Store);
@@ -1789,18 +1789,18 @@ namespace Durin
 		EXPECT_NE(Result.Error.find("before its producer"), std::string::npos);
 	}
 
-	TEST_F(FRenderGraphTests, DumpIsDeterministicAndSyntheticCompileCostIsBounded)
+	TEST_F(FRDGTests, DumpIsDeterministicAndSyntheticCompileCostIsBounded)
 	{
 		auto CompileFixture = [] {
 			static FRHIBuffer Buffer(FRHIBufferCreateDesc::Create(
 				"Fixture", 512, 4, EBufferUsageFlags::UnorderedAccess));
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			const auto Work = Builder.CreateBuffer("Fixture", &Buffer);
 			for (uint32 Index = 0; Index < 128; ++Index)
 			{
 				const auto Pass = Builder.AddPass("Pass" + std::to_string(Index),
-					ERenderGraphPassType::Compute);
-				Builder.UseBuffer(Pass, Work, 0, 512, ERenderGraphUse::Write,
+					ERDGPassType::Compute);
+				Builder.UseBuffer(Pass, Work, 0, 512, ERDGUse::Write,
 					ERHIAccess::ComputeShaderReadWrite, Index == 0);
 			}
 			return Builder.Compile();
@@ -1815,25 +1815,25 @@ namespace Durin
 		EXPECT_EQ(First.Graph->GetDependencies().size(), 127u);
 	}
 
-	TEST_F(FRenderGraphTests, CullsUnreachableBranchesAndReportsExactLifetimes)
+	TEST_F(FRDGTests, CullsUnreachableBranchesAndReportsExactLifetimes)
 	{
 		FRHIBuffer RetainedBuffer(FRHIBufferCreateDesc::Create(
 			"Retained", 64, 4, EBufferUsageFlags::UnorderedAccess));
 		FRHIBuffer CulledBuffer(FRHIBufferCreateDesc::Create(
 			"Culled", 64, 4, EBufferUsageFlags::UnorderedAccess));
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		Builder.EnablePassCulling();
 		const auto Retained = Builder.CreateBuffer("Retained", &RetainedBuffer);
 		const auto Culled = Builder.CreateBuffer("Culled", &CulledBuffer);
-		const auto Produce = Builder.AddPass("Produce", ERenderGraphPassType::Compute);
-		Builder.UseBuffer(Produce, Retained, 0, 64, ERenderGraphUse::Write,
+		const auto Produce = Builder.AddPass("Produce", ERDGPassType::Compute);
+		Builder.UseBuffer(Produce, Retained, 0, 64, ERDGUse::Write,
 			ERHIAccess::ComputeShaderReadWrite, true);
-		const auto Consume = Builder.AddPass("Present", ERenderGraphPassType::Compute);
-		Builder.UseBuffer(Consume, Retained, 0, 64, ERenderGraphUse::Read,
+		const auto Consume = Builder.AddPass("Present", ERDGPassType::Compute);
+		Builder.UseBuffer(Consume, Retained, 0, 64, ERDGUse::Read,
 			ERHIAccess::ComputeShaderRead);
 		Builder.MarkPassRoot(Consume, "present");
-		const auto Unused = Builder.AddPass("Unused", ERenderGraphPassType::Compute);
-		Builder.UseBuffer(Unused, Culled, 0, 64, ERenderGraphUse::Write,
+		const auto Unused = Builder.AddPass("Unused", ERDGPassType::Compute);
+		Builder.UseBuffer(Unused, Culled, 0, 64, ERDGUse::Write,
 			ERHIAccess::ComputeShaderReadWrite, true);
 
 		auto Result = Builder.Compile();
@@ -1853,12 +1853,12 @@ namespace Durin
 		EXPECT_TRUE(Result.Graph->GetCullingDecisions()[2].bCulled);
 	}
 
-	TEST_F(FRenderGraphTests, CanonicalizesEquivalentImportedIdentity)
+	TEST_F(FRDGTests, CanonicalizesEquivalentImportedIdentity)
 	{
 		FRHITexture Texture = MakeGraphTexture("Shared");
 		FRHIBuffer Buffer(FRHIBufferCreateDesc::Create(
 			"SharedBuffer", 64, 4, EBufferUsageFlags::UnorderedAccess));
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto FirstTexture = Builder.ImportTexture("First", &Texture,
 			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		const auto SecondTexture = Builder.ImportTexture("Second", &Texture,
@@ -1876,18 +1876,18 @@ namespace Durin
 		EXPECT_EQ(Capture.Resources[0].Name, "First");
 		EXPECT_EQ(Capture.Resources[1].Name, "FirstBuffer");
 
-		FRenderGraphBuilder OtherBuilder;
+		FRDGBuilder OtherBuilder;
 		const auto Other = OtherBuilder.ImportTexture("Other", &Texture,
 			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		EXPECT_NE(FirstTexture, Other);
 	}
 
-	TEST_F(FRenderGraphTests, RejectsConflictingImportedIdentityAndDomainMismatch)
+	TEST_F(FRDGTests, RejectsConflictingImportedIdentityAndDomainMismatch)
 	{
 		FRHITexture Texture = MakeGraphTexture("Shared");
 		FRHIBuffer Buffer(FRHIBufferCreateDesc::Create(
 			"SharedBuffer", 64, 4, EBufferUsageFlags::UnorderedAccess));
-		FRenderGraphBuilder Duplicate;
+		FRDGBuilder Duplicate;
 		Duplicate.ImportTexture("First", &Texture, ERHIAccess::GraphicsShaderRead,
 			ERHIAccess::GraphicsShaderRead);
 		Duplicate.ImportTexture("Second", &Texture, ERHIAccess::ComputeShaderRead,
@@ -1900,7 +1900,7 @@ namespace Durin
 		EXPECT_NE(DuplicateResult.Error.find("conflicts with 'Second'"),
 			std::string::npos);
 
-		FRenderGraphBuilder BufferConflict;
+		FRDGBuilder BufferConflict;
 		BufferConflict.ImportBuffer("CanonicalBuffer", &Buffer,
 			ERHIAccess::ComputeShaderRead, ERHIAccess::ComputeShaderRead);
 		BufferConflict.ImportBuffer("ConflictingBuffer", &Buffer,
@@ -1912,7 +1912,7 @@ namespace Durin
 		EXPECT_NE(BufferConflictResult.Error.find(
 			"conflicts with 'ConflictingBuffer'"), std::string::npos);
 
-		FRenderGraphBuilder NullImport;
+		FRDGBuilder NullImport;
 		const auto NullHandle = NullImport.ImportTexture("Null", nullptr,
 			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		EXPECT_TRUE(NullHandle.IsValid());
@@ -1920,11 +1920,11 @@ namespace Durin
 		EXPECT_FALSE(NullResult.IsSuccess());
 		EXPECT_EQ(NullResult.Error, "resource 'Null' has no physical resource");
 
-		FRenderGraphBuilder Domain;
+		FRDGBuilder Domain;
 		const auto Imported = Domain.ImportTexture("Shared", &Texture,
 			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-		const auto Copy = Domain.AddPass("Copy", ERenderGraphPassType::Copy);
-		Domain.UseTexture(Copy, Imported, WholeColor(), ERenderGraphUse::Read,
+		const auto Copy = Domain.AddPass("Copy", ERDGPassType::Copy);
+		Domain.UseTexture(Copy, Imported, WholeColor(), ERDGUse::Read,
 			ERHIAccess::GraphicsShaderRead);
 		auto DomainResult = Domain.Compile();
 		EXPECT_FALSE(DomainResult.IsSuccess());
@@ -1932,21 +1932,21 @@ namespace Durin
 			std::string::npos);
 	}
 
-	TEST_F(FRenderGraphTests, DiscardValueCullingDoesNotRetainOverwrittenProducer)
+	TEST_F(FRDGTests, DiscardValueCullingDoesNotRetainOverwrittenProducer)
 	{
 		FRHITexture Texture = MakeGraphTexture("Versioned");
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		Builder.EnablePassCulling();
 		const auto Resource = Builder.CreateTexture("Versioned", &Texture);
-		const auto Old = Builder.AddPass("Old", ERenderGraphPassType::Compute);
-		Builder.UseTexture(Old, Resource, WholeColor(), ERenderGraphUse::Write,
+		const auto Old = Builder.AddPass("Old", ERDGPassType::Compute);
+		Builder.UseTexture(Old, Resource, WholeColor(), ERDGUse::Write,
 			ERHIAccess::ComputeShaderReadWrite, true);
 		const auto Replacement = Builder.AddPass("Replacement",
-			ERenderGraphPassType::Compute);
+			ERDGPassType::Compute);
 		Builder.UseTexture(Replacement, Resource, WholeColor(),
-			ERenderGraphUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
-		const auto Consume = Builder.AddPass("Consume", ERenderGraphPassType::Compute);
-		Builder.UseTexture(Consume, Resource, WholeColor(), ERenderGraphUse::Read,
+			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+		const auto Consume = Builder.AddPass("Consume", ERDGPassType::Compute);
+		Builder.UseTexture(Consume, Resource, WholeColor(), ERDGUse::Read,
 			ERHIAccess::ComputeShaderRead);
 		Builder.MarkPassRoot(Consume, "output");
 		auto Result = Builder.Compile();
@@ -1956,20 +1956,20 @@ namespace Durin
 		EXPECT_TRUE(Result.Graph->GetCullingDecisions()[0].bCulled);
 	}
 
-	TEST_F(FRenderGraphTests, RetainedLogicalResourcesPublishExactPreparationCapture)
+	TEST_F(FRDGTests, RetainedLogicalResourcesPublishExactPreparationCapture)
 	{
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		Builder.EnablePassCulling();
-		FRenderGraphBufferDesc Desc{
+		FRDGBufferDesc Desc{
 			.Buffer = FRHIBufferDesc(64, 4, EBufferUsageFlags::UnorderedAccess)};
 		const auto Retained = Builder.CreateBuffer(Desc, "Retained");
 		const auto Culled = Builder.CreateBuffer(Desc, "Culled");
-		const auto Produce = Builder.AddPass("Produce", ERenderGraphPassType::Compute);
-		Builder.UseBuffer(Produce, Retained, 0, 64, ERenderGraphUse::Write,
+		const auto Produce = Builder.AddPass("Produce", ERDGPassType::Compute);
+		Builder.UseBuffer(Produce, Retained, 0, 64, ERDGUse::Write,
 			ERHIAccess::ComputeShaderReadWrite, true);
 		Builder.MarkPassRoot(Produce, "effect");
-		const auto Unused = Builder.AddPass("Unused", ERenderGraphPassType::Compute);
-		Builder.UseBuffer(Unused, Culled, 0, 64, ERenderGraphUse::Write,
+		const auto Unused = Builder.AddPass("Unused", ERDGPassType::Compute);
+		Builder.UseBuffer(Unused, Culled, 0, 64, ERDGUse::Write,
 			ERHIAccess::ComputeShaderReadWrite, true);
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
@@ -1981,20 +1981,20 @@ namespace Durin
 		EXPECT_EQ(Capture.Uses[0].Version, 1u);
 	}
 
-	TEST_F(FRenderGraphTests, PassResourceViewRejectsUndeclaredLookup)
+	TEST_F(FRDGTests, PassResourceViewRejectsUndeclaredLookup)
 	{
 		FRHITexture DeclaredTexture = MakeGraphTexture("Declared");
 		FRHITexture HiddenTexture = MakeGraphTexture("Hidden");
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto Declared = Builder.ImportTexture("Declared", &DeclaredTexture,
 			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
 		const auto Hidden = Builder.ImportTexture("Hidden", &HiddenTexture,
 			ERHIAccess::GraphicsShaderRead, ERHIAccess::GraphicsShaderRead);
-		const auto Pass = Builder.AddPass("Pass", ERenderGraphPassType::Graphics,
-			[=](FRHICommandListImmediate&, const FRenderGraphPassResources& Resources) {
+		const auto Pass = Builder.AddPass("Pass", ERDGPassType::Graphics,
+			[=](FRHICommandListImmediate&, const FRDGPassResources& Resources) {
 				Resources.GetTexture(Hidden);
 			});
-		Builder.UseTexture(Pass, Declared, WholeColor(), ERenderGraphUse::Read,
+		Builder.UseTexture(Pass, Declared, WholeColor(), ERDGUse::Read,
 			ERHIAccess::GraphicsShaderRead);
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
@@ -2002,18 +2002,18 @@ namespace Durin
 			"undeclared texture");
 	}
 
-	TEST_F(FRenderGraphTests, ManagedAttachmentExitStateDrivesFollowingTransition)
+	TEST_F(FRDGTests, ManagedAttachmentExitStateDrivesFollowingTransition)
 	{
 		FRHITexture Texture = MakeGraphTexture("Managed");
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto Target = Builder.CreateTexture("Managed", &Texture);
-		const auto Render = Builder.AddPass("Render", ERenderGraphPassType::Graphics);
+		const auto Render = Builder.AddPass("Render", ERDGPassType::Graphics);
 		Builder.UseManagedColorAttachment(Render, Target, WholeColor(),
 			ERHIRenderTargetLoadAction::Clear,
 			ERHIRenderTargetStoreAction::Store,
 			ERHIAccess::GraphicsShaderRead);
-		const auto Consume = Builder.AddPass("Consume", ERenderGraphPassType::Compute);
-		Builder.UseTexture(Consume, Target, WholeColor(), ERenderGraphUse::Read,
+		const auto Consume = Builder.AddPass("Consume", ERDGPassType::Compute);
+		Builder.UseTexture(Consume, Target, WholeColor(), ERDGUse::Read,
 			ERHIAccess::ComputeShaderRead);
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
@@ -2024,18 +2024,18 @@ namespace Durin
 		EXPECT_EQ(Result.Graph->Capture().Transitions.size(), 3u);
 	}
 
-	TEST_F(FRenderGraphTests, IncompleteBackingPublicationRecordsNoCallback)
+	TEST_F(FRDGTests, IncompleteBackingPublicationRecordsNoCallback)
 	{
 		bool bExecuted = false;
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto Buffer = Builder.CreateBuffer(
-			FRenderGraphBufferDesc{.Buffer = FRHIBufferDesc(
+			FRDGBufferDesc{.Buffer = FRHIBufferDesc(
 				64, 4, EBufferUsageFlags::UnorderedAccess)}, "Logical");
-		const auto Pass = Builder.AddPass("Write", ERenderGraphPassType::Compute,
-			[&](FRHICommandListImmediate&, const FRenderGraphPassResources&) {
+		const auto Pass = Builder.AddPass("Write", ERDGPassType::Compute,
+			[&](FRHICommandListImmediate&, const FRDGPassResources&) {
 				bExecuted = true;
 			});
-		Builder.UseBuffer(Pass, Buffer, 0, 64, ERenderGraphUse::Write,
+		Builder.UseBuffer(Pass, Buffer, 0, 64, ERDGUse::Write,
 			ERHIAccess::ComputeShaderReadWrite, true);
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
@@ -2048,13 +2048,13 @@ namespace Durin
 		EXPECT_NE(Error.find("omitted retained resource id="), std::string::npos);
 	}
 
-	TEST_F(FRenderGraphTests, RDGAllocationIsDescriptorDrivenAndExtractionIsTransactional)
+	TEST_F(FRDGTests, RDGAllocationIsDescriptorDrivenAndExtractionIsTransactional)
 	{
 		FTextureRHIRef FirstExtraction;
 		FTextureRHIRef SecondExtraction;
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		Builder.EnablePassCulling();
-		const FRenderGraphTextureDesc Desc{
+		const FRDGTextureDesc Desc{
 			.Texture = FRHITextureCreateDesc::Create2D(
 				"DiagnosticOnly", 16, 16, EPixelFormat::RGBA8_UNORM)
 				.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -2062,12 +2062,12 @@ namespace Durin
 		const auto First = Builder.CreateTexture(Desc, "Renamed.First");
 		const auto Second = Builder.CreateTexture(Desc, "Renamed.Second");
 		const auto FirstPass = Builder.AddPass(
-			"First", ERenderGraphPassType::Graphics);
+			"First", ERDGPassType::Graphics);
 		Builder.UseColorAttachment(FirstPass, First, WholeColor(),
 			ERHIRenderTargetLoadAction::Clear,
 			ERHIRenderTargetStoreAction::Store);
 		const auto SecondPass = Builder.AddPass(
-			"Second", ERenderGraphPassType::Graphics);
+			"Second", ERDGPassType::Graphics);
 		Builder.UseColorAttachment(SecondPass, Second, WholeColor(),
 			ERHIRenderTargetLoadAction::Clear,
 			ERHIRenderTargetStoreAction::Store);
@@ -2097,22 +2097,22 @@ namespace Durin
 			Capture.Resources[1].PhysicalAllocationId);
 	}
 
-	TEST_F(FRenderGraphTests, RDGAllocationFailurePublishesNoExtractionOrPass)
+	TEST_F(FRDGTests, RDGAllocationFailurePublishesNoExtractionOrPass)
 	{
 		auto Original = MakeRefCount<FRHITexture>(
 			FRHITextureCreateDesc::Create2D(
 				"Original", 4, 4, EPixelFormat::RGBA8_UNORM));
 		FTextureRHIRef Destination = Original;
 		bool bExecuted = false;
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto Texture = Builder.CreateTexture(
-			FRenderGraphTextureDesc{.Texture =
+			FRDGTextureDesc{.Texture =
 				FRHITextureCreateDesc::Create2D(
 					"Logical", 16, 16, EPixelFormat::RGBA8_UNORM)
 					.SetFlags(ETextureCreateFlags::RenderTargetable)},
 			"Logical");
-		const auto Pass = Builder.AddPass("Write", ERenderGraphPassType::Graphics,
-			[&](FRHICommandListImmediate&, const FRenderGraphPassResources&) {
+		const auto Pass = Builder.AddPass("Write", ERDGPassType::Graphics,
+			[&](FRHICommandListImmediate&, const FRDGPassResources&) {
 				bExecuted = true;
 			});
 		Builder.UseColorAttachment(Pass, Texture, WholeColor(),
@@ -2132,7 +2132,7 @@ namespace Durin
 		EXPECT_NE(Error.find("injected allocation failure"), std::string::npos);
 	}
 
-	TEST_F(FRenderGraphTests, ExternalRegistrationRetainsPhysicalResource)
+	TEST_F(FRDGTests, ExternalRegistrationRetainsPhysicalResource)
 	{
 		auto Texture = MakeRefCount<FRHITexture>(
 			FRHITextureCreateDesc::Create2D(
@@ -2140,12 +2140,12 @@ namespace Durin
 				.SetFlags(ETextureCreateFlags::ShaderResource));
 		const int32 InitialReferences = Texture.GetRefCount();
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			const auto External = Builder.RegisterExternalTexture(Texture,
 				"External", ERHIAccess::GraphicsShaderRead,
 				ERHIAccess::GraphicsShaderRead);
-			const auto Pass = Builder.AddPass("Read", ERenderGraphPassType::Graphics);
-			Builder.UseTexture(Pass, External, WholeColor(), ERenderGraphUse::Read,
+			const auto Pass = Builder.AddPass("Read", ERDGPassType::Graphics);
+			Builder.UseTexture(Pass, External, WholeColor(), ERDGUse::Read,
 				ERHIAccess::GraphicsShaderRead);
 			auto Result = Builder.Compile();
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
@@ -2155,7 +2155,7 @@ namespace Durin
 		EXPECT_EQ(Texture.GetRefCount(), InitialReferences);
 	}
 
-	TEST_F(FRenderGraphTests, ExternalAndPreboundCapturesDoNotInventAllocationIdentity)
+	TEST_F(FRDGTests, ExternalAndPreboundCapturesDoNotInventAllocationIdentity)
 	{
 		auto ExternalTexture = MakeRefCount<FRHITexture>(
 			FRHITextureCreateDesc::Create2D(
@@ -2165,15 +2165,15 @@ namespace Durin
 			FRHITextureCreateDesc::Create2D(
 				"Prebound", 8, 8, EPixelFormat::RGBA8_UNORM)
 				.SetFlags(ETextureCreateFlags::RenderTargetable));
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto External = Builder.RegisterExternalTexture(ExternalTexture,
 			"External", ERHIAccess::GraphicsShaderRead,
 			ERHIAccess::GraphicsShaderRead);
 		const auto Prebound = Builder.CreateTexture(
 			"Prebound", PreboundTexture.GetReference(),
 			ERHIAccess::GraphicsShaderRead);
-		const auto Pass = Builder.AddPass("Read", ERenderGraphPassType::Graphics);
-		Builder.UseTexture(Pass, External, WholeColor(), ERenderGraphUse::Read,
+		const auto Pass = Builder.AddPass("Read", ERDGPassType::Graphics);
+		Builder.UseTexture(Pass, External, WholeColor(), ERDGUse::Read,
 			ERHIAccess::GraphicsShaderRead);
 		Builder.UseColorAttachment(Pass, Prebound, WholeColor(),
 			ERHIRenderTargetLoadAction::Clear,
@@ -2188,14 +2188,14 @@ namespace Durin
 		EXPECT_EQ(Capture.Resources[1].PhysicalAllocationId, 0u);
 	}
 
-	TEST_F(FRenderGraphTests, ExternalExtractionRoundTripPublishesAfterExecution)
+	TEST_F(FRDGTests, ExternalExtractionRoundTripPublishesAfterExecution)
 	{
 		auto Texture = MakeRefCount<FRHITexture>(
 			FRHITextureCreateDesc::Create2D(
 				"External", 8, 8, EPixelFormat::RGBA8_UNORM)
 				.SetFlags(ETextureCreateFlags::ShaderResource));
 		FTextureRHIRef Extracted;
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto External = Builder.RegisterExternalTexture(Texture,
 			"External", ERHIAccess::GraphicsShaderRead,
 			ERHIAccess::GraphicsShaderRead);
@@ -2208,13 +2208,13 @@ namespace Durin
 		EXPECT_EQ(Extracted.GetReference(), Texture.GetReference());
 	}
 
-	TEST_F(FRenderGraphTests, DuplicateExtractionFailsWithoutPublishing)
+	TEST_F(FRDGTests, DuplicateExtractionFailsWithoutPublishing)
 	{
 		FTextureRHIRef First;
 		FTextureRHIRef Second;
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto Texture = Builder.CreateTexture(
-			FRenderGraphTextureDesc{.Texture =
+			FRDGTextureDesc{.Texture =
 				FRHITextureCreateDesc::Create2D(
 					"Logical", 8, 8, EPixelFormat::RGBA8_UNORM)
 					.SetFlags(ETextureCreateFlags::RenderTargetable)},
@@ -2231,15 +2231,15 @@ namespace Durin
 		EXPECT_FALSE(Second);
 	}
 
-	TEST_F(FRenderGraphTests, BufferExtractionPublishesCountedAllocation)
+	TEST_F(FRDGTests, BufferExtractionPublishesCountedAllocation)
 	{
 		FBufferRHIRef Extracted;
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto Buffer = Builder.CreateBuffer(
-			FRenderGraphBufferDesc{.Buffer = FRHIBufferDesc(
+			FRDGBufferDesc{.Buffer = FRHIBufferDesc(
 				64, 4, EBufferUsageFlags::UnorderedAccess)}, "LogicalBuffer");
-		const auto Pass = Builder.AddPass("Write", ERenderGraphPassType::Compute);
-		Builder.UseBuffer(Pass, Buffer, 0, 64, ERenderGraphUse::Write,
+		const auto Pass = Builder.AddPass("Write", ERDGPassType::Compute);
+		Builder.UseBuffer(Pass, Buffer, 0, 64, ERDGUse::Write,
 			ERHIAccess::ComputeShaderReadWrite, true);
 		Builder.QueueBufferExtraction(Buffer, &Extracted,
 			ERHIAccess::ComputeShaderRead);
@@ -2254,18 +2254,18 @@ namespace Durin
 		EXPECT_EQ(Extracted->GetDesc().Size, 64u);
 	}
 
-	TEST_F(FRenderGraphTests, RejectsBackingWithIncompatibleUsageFlags)
+	TEST_F(FRDGTests, RejectsBackingWithIncompatibleUsageFlags)
 	{
 		auto TextureBacking = MakeRefCount<FRHITexture>(FRHITextureCreateDesc::Create2D(
 			"TextureBacking", 16, 16, EPixelFormat::RGBA8_UNORM)
 			.SetFlags(ETextureCreateFlags::ShaderResource));
-		FRenderGraphBuilder TextureBuilder;
-		const auto Texture = TextureBuilder.CreateTexture(FRenderGraphTextureDesc{
+		FRDGBuilder TextureBuilder;
+		const auto Texture = TextureBuilder.CreateTexture(FRDGTextureDesc{
 				.Texture = FRHITextureCreateDesc::Create2D(
 					"LogicalTexture", 16, 16, EPixelFormat::RGBA8_UNORM)
 					.SetFlags(ETextureCreateFlags::RenderTargetable)}, "LogicalTexture");
 		const auto TexturePass = TextureBuilder.AddPass(
-			"TextureWrite", ERenderGraphPassType::Graphics);
+			"TextureWrite", ERDGPassType::Graphics);
 		TextureBuilder.UseColorAttachment(TexturePass, Texture, WholeColor(),
 			ERHIRenderTargetLoadAction::Clear,
 			ERHIRenderTargetStoreAction::Store);
@@ -2281,14 +2281,14 @@ namespace Durin
 
 		auto BufferBacking = MakeRefCount<FRHIBuffer>(FRHIBufferCreateDesc::Create(
 			"BufferBacking", 64, 4, EBufferUsageFlags::StructuredBuffer));
-		FRenderGraphBuilder BufferBuilder;
-		const auto Buffer = BufferBuilder.CreateBuffer(FRenderGraphBufferDesc{
+		FRDGBuilder BufferBuilder;
+		const auto Buffer = BufferBuilder.CreateBuffer(FRDGBufferDesc{
 				.Buffer = FRHIBufferDesc(
 					64, 4, EBufferUsageFlags::UnorderedAccess)}, "LogicalBuffer");
 		const auto BufferPass = BufferBuilder.AddPass(
-			"BufferWrite", ERenderGraphPassType::Compute);
+			"BufferWrite", ERDGPassType::Compute);
 		BufferBuilder.UseBuffer(BufferPass, Buffer, 0, 64,
-			ERenderGraphUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
 		auto BufferResult = BufferBuilder.Compile();
 		ASSERT_TRUE(BufferResult.IsSuccess()) << BufferResult.Error;
 		FTestRDGAllocator BufferAllocator;
@@ -2299,20 +2299,20 @@ namespace Durin
 		EXPECT_NE(Error.find("incompatible buffer"), std::string::npos);
 	}
 
-	TEST_F(FRenderGraphTests, AcceptsBackingWithSupersetUsageFlags)
+	TEST_F(FRDGTests, AcceptsBackingWithSupersetUsageFlags)
 	{
 		static const auto TextureBacking = MakeRefCount<FRHITexture>(
 			FRHITextureCreateDesc::Create2D(
 			"TextureBacking", 16, 16, EPixelFormat::RGBA8_UNORM)
 			.SetFlags(ETextureCreateFlags::RenderTargetable
 				| ETextureCreateFlags::ShaderResource));
-		FRenderGraphBuilder TextureBuilder;
-		const auto Texture = TextureBuilder.CreateTexture(FRenderGraphTextureDesc{
+		FRDGBuilder TextureBuilder;
+		const auto Texture = TextureBuilder.CreateTexture(FRDGTextureDesc{
 				.Texture = FRHITextureCreateDesc::Create2D(
 					"LogicalTexture", 16, 16, EPixelFormat::RGBA8_UNORM)
 					.SetFlags(ETextureCreateFlags::RenderTargetable)}, "LogicalTexture");
 		const auto TexturePass = TextureBuilder.AddPass(
-			"TextureWrite", ERenderGraphPassType::Graphics);
+			"TextureWrite", ERDGPassType::Graphics);
 		TextureBuilder.UseColorAttachment(TexturePass, Texture, WholeColor(),
 			ERHIRenderTargetLoadAction::Clear,
 			ERHIRenderTargetStoreAction::Store);
@@ -2329,14 +2329,14 @@ namespace Durin
 			FRHIBufferCreateDesc::Create(
 			"BufferBacking", 64, 4, EBufferUsageFlags::UnorderedAccess
 				| EBufferUsageFlags::StructuredBuffer));
-		FRenderGraphBuilder BufferBuilder;
-		const auto Buffer = BufferBuilder.CreateBuffer(FRenderGraphBufferDesc{
+		FRDGBuilder BufferBuilder;
+		const auto Buffer = BufferBuilder.CreateBuffer(FRDGBufferDesc{
 				.Buffer = FRHIBufferDesc(
 					64, 4, EBufferUsageFlags::UnorderedAccess)}, "LogicalBuffer");
 		const auto BufferPass = BufferBuilder.AddPass(
-			"BufferWrite", ERenderGraphPassType::Compute);
+			"BufferWrite", ERDGPassType::Compute);
 		BufferBuilder.UseBuffer(BufferPass, Buffer, 0, 64,
-			ERenderGraphUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
+			ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite, true);
 		auto BufferResult = BufferBuilder.Compile();
 		ASSERT_TRUE(BufferResult.IsSuccess()) << BufferResult.Error;
 		FTestRDGAllocator BufferAllocator;
@@ -2346,31 +2346,31 @@ namespace Durin
 			GetCommandList(), BufferContext, &Error)) << Error;
 	}
 
-	TEST_F(FRenderGraphTests, ExplicitEffectRootSurvivesWithoutResourceOutputs)
+	TEST_F(FRDGTests, ExplicitEffectRootSurvivesWithoutResourceOutputs)
 	{
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		Builder.EnablePassCulling();
 		const auto Timestamp = Builder.AddPass(
-			"Timestamp", ERenderGraphPassType::Graphics);
+			"Timestamp", ERDGPassType::Graphics);
 		Builder.MarkPassRoot(Timestamp, "timestamp");
-		Builder.AddPass("Unused", ERenderGraphPassType::Graphics);
+		Builder.AddPass("Unused", ERDGPassType::Graphics);
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 		ASSERT_EQ(Result.Graph->GetPasses().size(), 1u);
 		EXPECT_EQ(Result.Graph->GetPasses()[0].Name, "Timestamp");
 	}
 
-	TEST_F(FRenderGraphTests, LogicalTokensDriveDependenciesAndLifetimesWithoutRHIState)
+	TEST_F(FRDGTests, LogicalTokensDriveDependenciesAndLifetimesWithoutRHIState)
 	{
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		Builder.EnablePassCulling();
 		const auto Prepared = Builder.CreateToken("Prepared");
 		const auto Output = Builder.CreateToken("Output");
-		const auto Prepare = Builder.AddPass("Prepare", ERenderGraphPassType::Graphics);
-		Builder.UseToken(Prepare, Prepared, ERenderGraphUse::Write);
-		const auto Render = Builder.AddPass("Render", ERenderGraphPassType::Graphics);
-		Builder.UseToken(Render, Prepared, ERenderGraphUse::Read);
-		Builder.UseToken(Render, Output, ERenderGraphUse::Write);
+		const auto Prepare = Builder.AddPass("Prepare", ERDGPassType::Graphics);
+		Builder.UseToken(Prepare, Prepared, ERDGUse::Write);
+		const auto Render = Builder.AddPass("Render", ERDGPassType::Graphics);
+		Builder.UseToken(Render, Prepared, ERDGUse::Read);
+		Builder.UseToken(Render, Output, ERDGUse::Write);
 		Builder.MarkPassRoot(Render, "present");
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
@@ -2383,7 +2383,7 @@ namespace Durin
 		EXPECT_EQ(Result.Graph->GetResourceLifetimes()[0].LastPass, 1u);
 	}
 
-	TEST_F(FRenderGraphTests, GBufferManualDeclarationOracleFreezesCompletePassShape)
+	TEST_F(FRDGTests, GBufferManualDeclarationOracleFreezesCompletePassShape)
 	{
 		std::array<FRHITexture, 4> ColorTextures{
 			MakeGraphTexture("Scene.GBuffer.Material"),
@@ -2395,9 +2395,9 @@ namespace Durin
 			"Scene.Depth", 64, 64, EPixelFormat::D32)
 			.SetFlags(ETextureCreateFlags::DepthStencilTargetable
 				| ETextureCreateFlags::ShaderResource));
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		Builder.EnablePassCulling();
-		std::array<FRenderGraphTextureHandle, 4> Colors{};
+		std::array<FRDGTextureHandle, 4> Colors{};
 		const std::array Names{"Scene.GBuffer.Material", "Scene.GBuffer.Normals",
 			"Scene.GBuffer.Surface", "Scene.GBuffer.Emissive"};
 		for (uint32 Index = 0; Index < Colors.size(); ++Index)
@@ -2408,15 +2408,15 @@ namespace Durin
 		const auto Completion = Builder.CreateToken("Scene.GBuffer.Result");
 		uint32 CallbackCount = 0;
 		const auto Pass = Builder.AddPass("Scene.GBuffer",
-			ERenderGraphPassType::Graphics,
+			ERDGPassType::Graphics,
 			[&](FRHICommandListImmediate&,
-				const FRenderGraphPassResources& Resources) {
+				const FRDGPassResources& Resources) {
 				for (const auto Color : Colors)
 					EXPECT_NE(Resources.GetTexture(Color), nullptr);
 				EXPECT_EQ(Resources.GetTexture(Depth), &DepthTexture);
 				++CallbackCount;
 			});
-		Builder.UseToken(Pass, Completion, ERenderGraphUse::Write);
+		Builder.UseToken(Pass, Completion, ERDGUse::Write);
 		for (const auto Color : Colors)
 			Builder.UseManagedColorAttachment(Pass, Color, WholeColor(),
 				ERHIRenderTargetLoadAction::Clear,
@@ -2431,24 +2431,24 @@ namespace Durin
 
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-		const FRenderGraphCapture Capture = Result.Graph->Capture();
+		const FRDGCapture Capture = Result.Graph->Capture();
 		ASSERT_EQ(Capture.Passes.size(), 1u);
 		EXPECT_EQ(Capture.Passes[0].Name, "Scene.GBuffer");
-		EXPECT_EQ(Capture.Passes[0].Type, ERenderGraphPassType::Graphics);
+		EXPECT_EQ(Capture.Passes[0].Type, ERDGPassType::Graphics);
 		EXPECT_EQ(Capture.Statistics.DeclaredPasses, 1u);
 		EXPECT_EQ(Capture.Statistics.ScheduledPasses, 1u);
 		EXPECT_EQ(Capture.Statistics.Dependencies, 0u);
 		EXPECT_EQ(Capture.Statistics.TextureTransitions, 0u);
 		ASSERT_EQ(Capture.Uses.size(), 6u);
 		EXPECT_EQ(Capture.Uses[0].ResourceId, 5u);
-		EXPECT_EQ(Capture.Uses[0].Use, ERenderGraphUse::Write);
+		EXPECT_EQ(Capture.Uses[0].Use, ERDGUse::Write);
 		EXPECT_EQ(Capture.Uses[0].Access, ERHIAccess::None);
 		EXPECT_TRUE(Capture.Uses[0].bDiscard);
 		for (uint32 Index = 0; Index < Colors.size(); ++Index)
 		{
 			const auto& Use = Capture.Uses[Index + 1];
 			EXPECT_EQ(Use.ResourceId, Index);
-			EXPECT_EQ(Use.Use, ERenderGraphUse::ReadWrite);
+			EXPECT_EQ(Use.Use, ERDGUse::ReadWrite);
 			EXPECT_EQ(Use.Access, ERHIAccess::ColorAttachmentReadWrite);
 			EXPECT_TRUE(Use.bDiscard);
 			EXPECT_TRUE(Use.bStore);
@@ -2488,10 +2488,10 @@ namespace Durin
 		EXPECT_EQ(CallbackCount, 1u);
 	}
 
-	TEST_F(FRenderGraphTests, GBufferManualDeclarationOracleKeepsBackingFailureAtomic)
+	TEST_F(FRDGTests, GBufferManualDeclarationOracleKeepsBackingFailureAtomic)
 	{
-		FRenderGraphBuilder Builder;
-		const auto Material = Builder.CreateTexture(FRenderGraphTextureDesc{
+		FRDGBuilder Builder;
+		const auto Material = Builder.CreateTexture(FRDGTextureDesc{
 				.Texture = FRHITextureCreateDesc::Create2D("Scene.GBuffer.Material",
 					64, 64, EPixelFormat::RGBA8_UNORM)
 					.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -2500,9 +2500,9 @@ namespace Durin
 			ERHIAccess::GraphicsShaderRead);
 		bool bExecuted = false;
 		const auto Pass = Builder.AddPass("Scene.GBuffer",
-			ERenderGraphPassType::Graphics,
+			ERDGPassType::Graphics,
 			[&](FRHICommandListImmediate&,
-				const FRenderGraphPassResources&) { bExecuted = true; });
+				const FRDGPassResources&) { bExecuted = true; });
 		Builder.UseManagedColorAttachment(Pass, Material, WholeColor(),
 			ERHIRenderTargetLoadAction::Clear,
 			ERHIRenderTargetStoreAction::Store,
@@ -2519,51 +2519,51 @@ namespace Durin
 			std::string::npos);
 	}
 
-	TEST_F(FRenderGraphTests, EnforcesDeterministicStructuralBudgets)
+	TEST_F(FRDGTests, EnforcesDeterministicStructuralBudgets)
 	{
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		Builder.SetBudget({.MaxPasses = 1});
-		Builder.AddPass("First", ERenderGraphPassType::Graphics);
-		Builder.AddPass("Second", ERenderGraphPassType::Graphics);
+		Builder.AddPass("First", ERDGPassType::Graphics);
+		Builder.AddPass("Second", ERDGPassType::Graphics);
 		auto Result = Builder.Compile();
 		EXPECT_FALSE(Result.IsSuccess());
 		EXPECT_EQ(Result.Error,
 			"render graph safety limit exceeded: passes actual=2 limit=1");
 	}
 
-	TEST_F(FRenderGraphTests, ReportsStructuralRegressionBudgetsWithoutRejectingGraph)
+	TEST_F(FRDGTests, ReportsStructuralRegressionBudgetsWithoutRejectingGraph)
 	{
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		Builder.SetBudget({
 			.MaxPasses = 8,
 			.RegressionMaxPasses = 1,
 		});
-		Builder.AddPass("First", ERenderGraphPassType::Graphics);
-		Builder.AddPass("Second", ERenderGraphPassType::Graphics);
+		Builder.AddPass("First", ERDGPassType::Graphics);
+		Builder.AddPass("Second", ERDGPassType::Graphics);
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
-		const FRenderGraphStatistics Statistics = Result.Graph->GetStatistics();
+		const FRDGStatistics Statistics = Result.Graph->GetStatistics();
 		EXPECT_TRUE(Statistics.bPassRegressionBudgetExceeded);
 		EXPECT_TRUE(Statistics.IsStructuralRegressionBudgetExceeded());
 		EXPECT_EQ(Result.Graph->Capture().Budget.RegressionMaxPasses, 1u);
 	}
 
-	TEST_F(FRenderGraphTests, CaptureOwnsPointerFreeDiagnosticsBeyondGraphLifetime)
+	TEST_F(FRDGTests, CaptureOwnsPointerFreeDiagnosticsBeyondGraphLifetime)
 	{
-		FRenderGraphCapture Capture;
+		FRDGCapture Capture;
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			Builder.EnablePassCulling();
 			const auto Value = Builder.CreateValue<FTypedValuePayload>(
 				"Value", "scene-result");
 			auto Write = Builder.AllocParameters<FTypedValueWriteParameters>();
 			Write->Output = {Value};
-			Builder.AddPass("Produce", ERenderGraphPassType::Compute,
+			Builder.AddPass("Produce", ERDGPassType::Compute,
 				std::move(Write));
 			auto Read = Builder.AllocParameters<FTypedValueReadParameters>();
 			Read->Input = {Value};
 			const auto Consume = Builder.AddPass("Consume",
-				ERenderGraphPassType::Graphics, std::move(Read));
+				ERDGPassType::Graphics, std::move(Read));
 			Builder.MarkPassRoot(Consume, "present");
 			auto Result = Builder.Compile();
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
@@ -2580,46 +2580,46 @@ namespace Durin
 		EXPECT_EQ(Capture.Parameters[0].FieldPath,
 			"FTypedValueWriteParameters.Output");
 		EXPECT_EQ(Capture.Parameters[0].Kind,
-			ERenderGraphParameterMemberKind::ValueWrite);
+			ERDGParameterMemberKind::ValueWrite);
 		EXPECT_EQ(Capture.Parameters[1].FieldPath,
 			"FTypedValueReadParameters.Input");
 		EXPECT_NE(Capture.Dump.find("name=Consume"), std::string::npos);
 	}
 
-	TEST_F(FRenderGraphTests, TypedValuesReuseTokenDependencyAndCullingSemantics)
+	TEST_F(FRDGTests, TypedValuesReuseTokenDependencyAndCullingSemantics)
 	{
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		Builder.EnablePassCulling();
 		const auto Value = Builder.CreateValue<FTypedValuePayload>(
 			"Scene.Result", "scene-result");
 		bool bProduced = false;
 		bool bConsumed = false;
 		const auto Produce = Builder.AddPass("Produce",
-			ERenderGraphPassType::Compute,
+			ERDGPassType::Compute,
 			[Value, &bProduced](FRHICommandListImmediate&,
-				const FRenderGraphPassResources& Resources) {
+				const FRDGPassResources& Resources) {
 				auto& Payload = Resources.WriteValue(Value);
 				EXPECT_EQ(reinterpret_cast<uintptr_t>(&Payload) % alignof(
 					FTypedValuePayload), 0u);
 				Payload.Value = 41;
 				bProduced = true;
 			});
-		Builder.UseValue(Produce, Value, ERenderGraphUse::Write);
+		Builder.UseValue(Produce, Value, ERDGUse::Write);
 		const auto Consume = Builder.AddPass("Consume",
-			ERenderGraphPassType::Graphics,
+			ERDGPassType::Graphics,
 			[Value, &bConsumed](FRHICommandListImmediate&,
-				const FRenderGraphPassResources& Resources) {
+				const FRDGPassResources& Resources) {
 				EXPECT_EQ(Resources.ReadValue(Value).Value, 41);
 				bConsumed = true;
 			});
-		Builder.UseValue(Consume, Value, ERenderGraphUse::Read);
+		Builder.UseValue(Consume, Value, ERDGUse::Read);
 		Builder.MarkPassRoot(Consume, "publish");
 
 		auto Result = Builder.Compile();
 		ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 		ASSERT_EQ(Result.Graph->GetDependencies().size(), 1u);
 		EXPECT_EQ(Result.Graph->GetDependencies()[0].Kind,
-			ERenderGraphDependencyKind::Value);
+			ERDGDependencyKind::Value);
 		EXPECT_EQ(Result.Graph->GetDependencies()[0].Cause, "Scene.Result");
 		const auto Capture = Result.Graph->Capture();
 		ASSERT_EQ(Capture.Resources.size(), 1u);
@@ -2630,26 +2630,26 @@ namespace Durin
 		EXPECT_TRUE(bConsumed);
 	}
 
-	TEST_F(FRenderGraphTests, ParameterizedTypedValuesExposeExactCapabilities)
+	TEST_F(FRDGTests, ParameterizedTypedValuesExposeExactCapabilities)
 	{
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto Value = Builder.CreateValue<FTypedValuePayload>(
 			"Scene.ParameterResult", "scene-result");
 		auto Write = Builder.AllocParameters<FTypedValueWriteParameters>();
 		Write->Output = {Value};
-		Builder.AddPass("Write", ERenderGraphPassType::Compute,
+		Builder.AddPass("Write", ERDGPassType::Compute,
 			std::move(Write), [](FRHICommandListImmediate&,
 				const FTypedValueWriteParameters& Parameters,
-				const FRenderGraphParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) {
 				Resolver.WriteValue(Parameters.Output).Value = 73;
 			});
 		auto Read = Builder.AllocParameters<FTypedValueReadParameters>();
 		Read->Input = {Value};
 		const auto ReadPass = Builder.AddPass("Read",
-			ERenderGraphPassType::Graphics, std::move(Read),
+			ERDGPassType::Graphics, std::move(Read),
 			[](FRHICommandListImmediate&,
 				const FTypedValueReadParameters& Parameters,
-				const FRenderGraphParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) {
 				EXPECT_EQ(Resolver.ReadValue(Parameters.Input).Value, 73);
 			});
 		Builder.MarkPassRoot(ReadPass, "publish");
@@ -2660,10 +2660,10 @@ namespace Durin
 		ASSERT_EQ(Capture.Uses.size(), 2u);
 		ASSERT_EQ(Capture.Parameters.size(), 2u);
 		EXPECT_EQ(Capture.Parameters[0].Kind,
-			ERenderGraphParameterMemberKind::ValueWrite);
+			ERDGParameterMemberKind::ValueWrite);
 		EXPECT_EQ(Capture.Parameters[0].ResourceId, Capture.Uses[0].ResourceId);
 		EXPECT_EQ(Capture.Parameters[1].Kind,
-			ERenderGraphParameterMemberKind::ValueRead);
+			ERDGParameterMemberKind::ValueRead);
 		EXPECT_EQ(Capture.Uses[0].ParameterPath,
 			"FTypedValueWriteParameters.Output");
 		EXPECT_EQ(Capture.Uses[1].ParameterPath,
@@ -2671,29 +2671,29 @@ namespace Durin
 		EXPECT_TRUE(Result.Graph->Execute(GetCommandList()));
 	}
 
-	TEST_F(FRenderGraphTests, TypedValuesRejectInvalidWriterAndTypeContracts)
+	TEST_F(FRDGTests, TypedValuesRejectInvalidWriterAndTypeContracts)
 	{
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			const auto Value = Builder.CreateValue<int>(
 				"MissingWriter", "signed-int", 0);
 			const auto Read = Builder.AddPass("Read",
-				ERenderGraphPassType::Graphics);
-			Builder.UseValue(Read, Value, ERenderGraphUse::Read);
+				ERDGPassType::Graphics);
+			Builder.UseValue(Read, Value, ERDGUse::Read);
 			auto Result = Builder.Compile();
 			EXPECT_FALSE(Result.IsSuccess());
 			EXPECT_EQ(Result.Error, "typed value 'MissingWriter' type 'signed-int' "
 				"requires exactly one writer; actual=0");
 		}
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			const auto Value = Builder.CreateValue<int>(
 				"DuplicateWriter", "signed-int", 0);
 			for (const char* Name : {"First", "Second"})
 			{
 				const auto Pass = Builder.AddPass(Name,
-					ERenderGraphPassType::Compute);
-				Builder.UseValue(Pass, Value, ERenderGraphUse::Write);
+					ERDGPassType::Compute);
+				Builder.UseValue(Pass, Value, ERDGUse::Write);
 			}
 			auto Result = Builder.Compile();
 			EXPECT_FALSE(Result.IsSuccess());
@@ -2701,13 +2701,13 @@ namespace Durin
 				"requires exactly one writer; actual=2");
 		}
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			const auto Value = Builder.CreateValue<int>(
 				"WrongType", "signed-int", 0);
-			const auto Wrong = std::bit_cast<TRenderGraphValueHandle<float>>(Value);
+			const auto Wrong = std::bit_cast<TRDGValueHandle<float>>(Value);
 			const auto Pass = Builder.AddPass("Write",
-				ERenderGraphPassType::Compute);
-			Builder.UseValue(Pass, Wrong, ERenderGraphUse::Write);
+				ERDGPassType::Compute);
+			Builder.UseValue(Pass, Wrong, ERDGUse::Write);
 			auto Result = Builder.Compile();
 			EXPECT_FALSE(Result.IsSuccess());
 			EXPECT_EQ(Result.Error, "pass 'Write' declares an invalid, foreign, or "
@@ -2715,11 +2715,11 @@ namespace Durin
 		}
 	}
 
-	TEST_F(FRenderGraphTests, TypedValueStorageTransfersAndDestroysExactlyOnce)
+	TEST_F(FRDGTests, TypedValueStorageTransfersAndDestroysExactlyOnce)
 	{
 		int BuilderDestructions = 0;
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			Builder.CreateValue<FTypedValuePayload>("BuilderOwned", "tracked",
 				&BuilderDestructions);
 		}
@@ -2727,7 +2727,7 @@ namespace Durin
 
 		int CompileFailureDestructions = 0;
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			Builder.CreateValue<FTypedValuePayload>("CompileFailure", "tracked",
 				&CompileFailureDestructions);
 			EXPECT_FALSE(Builder.Compile().IsSuccess());
@@ -2737,13 +2737,13 @@ namespace Durin
 
 		int GraphDestructions = 0;
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			const auto Value = Builder.CreateValue<FTypedValuePayload>(
 				"GraphOwned", "tracked",
 				&GraphDestructions);
 			const auto Write = Builder.AddPass("Write",
-				ERenderGraphPassType::Compute);
-			Builder.UseValue(Write, Value, ERenderGraphUse::Write);
+				ERDGPassType::Compute);
+			Builder.UseValue(Write, Value, ERDGUse::Write);
 			auto Result = Builder.Compile();
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 			EXPECT_EQ(GraphDestructions, 0);
@@ -2754,13 +2754,13 @@ namespace Durin
 
 		int CulledDestructions = 0;
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			Builder.EnablePassCulling();
 			const auto Value = Builder.CreateValue<FTypedValuePayload>(
 				"Culled", "tracked", &CulledDestructions);
 			const auto Write = Builder.AddPass("CulledWrite",
-				ERenderGraphPassType::Compute);
-			Builder.UseValue(Write, Value, ERenderGraphUse::Write);
+				ERDGPassType::Compute);
+			Builder.UseValue(Write, Value, ERDGUse::Write);
 			auto Result = Builder.Compile();
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
 			EXPECT_TRUE(Result.Graph->GetPasses().empty());
@@ -2770,13 +2770,13 @@ namespace Durin
 
 		int PreparationFailureDestructions = 0;
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			const auto Value = Builder.CreateValue<FTypedValuePayload>(
 				"PreparationFailure", "tracked",
 				&PreparationFailureDestructions);
 			const auto Write = Builder.AddPass("Write",
-				ERenderGraphPassType::Compute);
-			Builder.UseValue(Write, Value, ERenderGraphUse::Write);
+				ERDGPassType::Compute);
+			Builder.UseValue(Write, Value, ERDGUse::Write);
 			Builder.MarkPassRoot(Write, "publish");
 			Builder.SetExecutionPreparation([](std::string& Error) {
 				Error = "injected preparation failure";
@@ -2793,19 +2793,19 @@ namespace Durin
 		EXPECT_EQ(PreparationFailureDestructions, 1);
 	}
 
-	TEST_F(FRenderGraphTests, TypedValueResolutionRejectsWrongDirectionAndCopies)
+	TEST_F(FRDGTests, TypedValueResolutionRejectsWrongDirectionAndCopies)
 	{
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			const auto Value = Builder.CreateValue<int>(
 				"WrongDirection", "signed-int", 0);
 			const auto Write = Builder.AddPass("Write",
-				ERenderGraphPassType::Compute,
+				ERDGPassType::Compute,
 				[Value](FRHICommandListImmediate&,
-					const FRenderGraphPassResources& Resources) {
+					const FRDGPassResources& Resources) {
 					(void)Resources.ReadValue(Value);
 				});
-			Builder.UseValue(Write, Value, ERenderGraphUse::Write);
+			Builder.UseValue(Write, Value, ERDGUse::Write);
 			Builder.MarkPassRoot(Write, "publish");
 			auto Result = Builder.Compile();
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;
@@ -2813,17 +2813,17 @@ namespace Durin
 				"wrong-direction capability");
 		}
 		{
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			const auto Value = Builder.CreateValue<FTypedValuePayload>(
 				"CopiedParameter", "scene-result");
 			auto Parameters =
 				Builder.AllocParameters<FTypedValueWriteParameters>();
 			Parameters->Output = {Value};
 			const auto Write = Builder.AddPass("Write",
-				ERenderGraphPassType::Compute, std::move(Parameters),
+				ERDGPassType::Compute, std::move(Parameters),
 				[](FRHICommandListImmediate&,
 					const FTypedValueWriteParameters& Submitted,
-					const FRenderGraphParameterResolver& Resolver) {
+					const FRDGParameterResolver& Resolver) {
 					auto Copy = Submitted.Output;
 					(void)Resolver.WriteValue(Copy);
 				});
@@ -2835,24 +2835,24 @@ namespace Durin
 		}
 	}
 
-	TEST_F(FRenderGraphTests, PrecompileFallbackSelectionCapturesOnlyChosenImport)
+	TEST_F(FRDGTests, PrecompileFallbackSelectionCapturesOnlyChosenImport)
 	{
 		for (const bool bCandidateReady : {false, true})
 		{
 			auto Candidate = MakeGraphTexture("Candidate");
 			auto Fallback = MakeGraphTexture("Fallback");
 			FRHITexture* Selected = bCandidateReady ? &Candidate : &Fallback;
-			FRenderGraphBuilder Builder;
+			FRDGBuilder Builder;
 			const auto Input = Builder.ImportTexture("Selected.Environment",
 				Selected, ERHIAccess::GraphicsShaderRead,
 				ERHIAccess::GraphicsShaderRead);
 			auto Parameters = Builder.AllocParameters<
 				FComposedTextureArrayParameters>();
-			Parameters->Textures[0] = FRenderGraphTextureParameter{
+			Parameters->Textures[0] = FRDGTextureParameter{
 				Input, WholeColor()};
 			Parameters->Textures[1] = std::nullopt;
 			const auto Pass = Builder.AddPass("Consume",
-				ERenderGraphPassType::Graphics, std::move(Parameters));
+				ERDGPassType::Graphics, std::move(Parameters));
 			Builder.MarkPassRoot(Pass, "publish");
 			auto Result = Builder.Compile();
 			ASSERT_TRUE(Result.IsSuccess()) << Result.Error;

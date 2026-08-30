@@ -326,11 +326,11 @@ Leave one allocation and ownership model for graph-created physical resources:
 
 ## Related Code
 
-- `Engine/Source/Runtime/RenderCore/Public/RenderGraph.h`
-- `Engine/Source/Runtime/RenderCore/Private/RenderGraph.cpp`
+- `Engine/Source/Runtime/RenderCore/Public/RDG.h`
+- `Engine/Source/Runtime/RenderCore/Private/RDG.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/RendererTransientTargetPool.h`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/RendererTransientTargetPool.cpp`
-- `Engine/Source/Runtime/Renderer/Private/Renderers/RenderGraphSceneFrameExecutor.cpp`
+- `Engine/Source/Runtime/Renderer/Private/Renderers/SceneFrameGraphExecutor.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneFrameGraphComposer.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneFrameGBuffer.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneFrameAmbientOcclusion.cpp`
@@ -338,7 +338,7 @@ Leave one allocation and ownership model for graph-created physical resources:
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneFrameDeferredDirectionalLighting.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneFramePostProcess.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneFrameVolumetricCloud.cpp`
-- `Engine/Tests/Native/RenderCoreTests/Private/RenderGraphTests.cpp`
+- `Engine/Tests/Native/RenderCoreTests/Private/RDGTests.cpp`
 - `Engine/Tests/Native/VulkanRHITests/Private/VulkanResourceTransitionTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/RendererSceneContractTests.cpp`
 - `Engine/Tests/Native/EngineTests/Private/VolumetricCloudSceneVulkanTests.cpp`

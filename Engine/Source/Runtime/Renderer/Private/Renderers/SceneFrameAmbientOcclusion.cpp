@@ -26,20 +26,20 @@ namespace Durin
 		Topology.bGroundTruthAmbientOcclusion = Inputs.bEnabled;
 		Topology.AmbientOcclusionQuality = Inputs.Quality;
 		struct {
-			FRenderGraphTextureHandle SceneDepth;
-			std::array<std::optional<FRenderGraphTextureHandle>, 4> GBuffer;
-			std::array<std::optional<FRenderGraphTextureHandle>, 4>
+			FRDGTextureHandle SceneDepth;
+			std::array<std::optional<FRDGTextureHandle>, 4> GBuffer;
+			std::array<std::optional<FRDGTextureHandle>, 4>
 				GroundTruthAmbientOcclusion;
 		} GraphResources;
 		GraphResources.GBuffer = Inputs.GBuffer.Textures;
 		GraphResources.SceneDepth = Inputs.GBuffer.Depth;
 		struct {
-			TSceneFrameGraphValue<FGBufferPassResult> GBuffer;
-			TSceneFrameGraphValue<FGroundTruthAmbientOcclusionPassResult>
+			TRDGValueHandle<FGBufferPassResult> GBuffer;
+			TRDGValueHandle<FGroundTruthAmbientOcclusionPassResult>
 				AmbientOcclusion;
 		} Channels;
-		Channels.GBuffer.Handle = Inputs.GBuffer.Completion;
-		Channels.AmbientOcclusion.Handle = Graph.CreateValue<
+		Channels.GBuffer = Inputs.GBuffer.Completion;
+		Channels.AmbientOcclusion = Graph.CreateValue<
 			FGroundTruthAmbientOcclusionPassResult>(
 				"Scene.AmbientOcclusionValue", "ambient-occlusion-result");
 		if (Topology.bGroundTruthAmbientOcclusion)
@@ -58,7 +58,7 @@ namespace Durin
 				"Scene.AmbientOcclusion.Resolved"};
 			for (uint32 Index = 0; Index < 2; ++Index)
 				GraphResources.GroundTruthAmbientOcclusion[Index] =
-					Graph.CreateTexture(FRenderGraphTextureDesc{.Texture =
+					Graph.CreateTexture(FRDGTextureDesc{.Texture =
 							FRHITextureCreateDesc::Create2D(Names[Index],
 								NativeWidth, NativeHeight, EPixelFormat::R8_UNORM)
 							.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -72,7 +72,7 @@ namespace Durin
 			if (bHalfResolution)
 			{
 				GraphResources.GroundTruthAmbientOcclusion[2] =
-					Graph.CreateTexture(FRenderGraphTextureDesc{.Texture =
+					Graph.CreateTexture(FRDGTextureDesc{.Texture =
 							FRHITextureCreateDesc::Create2D(Names[2],
 								NativeWidth, NativeHeight, EPixelFormat::R8_UNORM)
 							.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -84,7 +84,7 @@ namespace Durin
 								ERDGAllocationObservation::GroundTruthAmbientOcclusion)}, Names[2],
 						ERHIAccess::GraphicsShaderRead);
 				GraphResources.GroundTruthAmbientOcclusion[3] =
-					Graph.CreateTexture(FRenderGraphTextureDesc{.Texture =
+					Graph.CreateTexture(FRDGTextureDesc{.Texture =
 							FRHITextureCreateDesc::Create2D(Names[3], Width,
 								Height, EPixelFormat::R8_UNORM)
 							.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -98,8 +98,8 @@ namespace Durin
 			}
 		}
 		auto Parameters = Graph.AllocParameters<FAmbientOcclusionPassParameters>();
-		Parameters->GBufferCompletion = {.Value = Channels.GBuffer.Handle};
-		Parameters->Completion = {.Value = Channels.AmbientOcclusion.Handle};
+		Parameters->GBufferCompletion = {.Value = Channels.GBuffer};
+		Parameters->Completion = {.Value = Channels.AmbientOcclusion};
 		if (GraphResources.GBuffer[0] && Topology.bGroundTruthAmbientOcclusion)
 		{
 			for (uint32 Index = 0; Index < GraphResources.GBuffer.size(); ++Index)
@@ -116,12 +116,12 @@ namespace Durin
 						{ERHITextureAspect::Color, 0, 1, 0, 1}};
 		}
 		(void)AddSceneFrameFeaturePass<FAmbientOcclusionGraphContributor>(
-			Graph, ERenderGraphPassType::Graphics, std::move(Parameters),
+			Graph, ERDGPassType::Graphics, std::move(Parameters),
 			[&Services, RecordView = &RecordView, Topology,
 				&Options, Width, Height, bWantsGroundTruthAmbientOcclusion](
 				FRHICommandListImmediate& Commands,
 				const FAmbientOcclusionPassParameters& PassParameters,
-				const FRenderGraphParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) {
 				std::optional<FGBufferRenderer::FTargets> GBufferTargets;
 				if (PassParameters.Resources.GBuffer[0]
 					&& Topology.bGroundTruthAmbientOcclusion)
@@ -160,7 +160,7 @@ namespace Durin
 						bWantsGroundTruthAmbientOcclusion,
 						Resolver.ReadValue(PassParameters.GBufferCompletion).IsComplete());
 			});
-		return {.Completion = Channels.AmbientOcclusion.Handle,
+		return {.Completion = Channels.AmbientOcclusion,
 			.Textures = GraphResources.GroundTruthAmbientOcclusion,
 			.Quality = Topology.AmbientOcclusionQuality};
 	}

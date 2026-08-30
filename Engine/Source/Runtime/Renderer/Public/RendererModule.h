@@ -34,7 +34,7 @@ namespace Durin
 			bool bPresentOutput,
 			const FSceneViewRenderOptions& Options,
 			FSceneViewStatistics* OutStatistics = nullptr,
-			FRenderGraphCapture* OutRenderGraphCapture = nullptr
+			FRDGCapture* OutRenderGraphCapture = nullptr
 		) -> ERenderViewResult override;
 
 	private:

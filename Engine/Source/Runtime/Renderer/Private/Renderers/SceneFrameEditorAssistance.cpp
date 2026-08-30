@@ -34,21 +34,21 @@ namespace Durin
 		const bool bPresentOutput = Inputs.bPresentOutput;
 		const auto& PreparedEditorAssistance = Inputs.Prepared;
 		struct {
-			FRenderGraphTextureHandle Output;
-			FRenderGraphTextureHandle SceneDepth;
+			FRDGTextureHandle Output;
+			FRDGTextureHandle SceneDepth;
 		} GraphResources;
 		GraphResources.Output = Inputs.PostProcess.Output;
 		GraphResources.SceneDepth = Inputs.SceneDepth;
 		struct {
-			TSceneFrameGraphValue<FPostProcessPassResult> PostProcess;
-			FRenderGraphTokenHandle OutputCompletion;
+			TRDGValueHandle<FPostProcessPassResult> PostProcess;
+			FRDGTokenHandle OutputCompletion;
 		} Channels;
-		Channels.PostProcess.Handle = Inputs.PostProcess.Completion;
+		Channels.PostProcess = Inputs.PostProcess.Completion;
 		Channels.OutputCompletion = Inputs.PostProcess.OutputCompletion;
 		auto Parameters = Graph.AllocParameters<FEditorAssistancePassParameters>();
-		Parameters->PostProcess = {.Value = Channels.PostProcess.Handle};
+		Parameters->PostProcess = {.Value = Channels.PostProcess};
 		Parameters->OutputCompletion = {.Token = Channels.OutputCompletion};
-		const FRenderGraphColorAttachmentParameter Output{
+		const FRDGColorAttachmentParameter Output{
 			.Texture = GraphResources.Output,
 			.Range = {GetTextureAspects(OutputTarget->GetFormat()), 0,
 				OutputTarget->GetNumMips(), 0, OutputTarget->GetArraySize()}};
@@ -61,12 +61,12 @@ namespace Durin
 			.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		const auto EditorAssistancePass =
 			AddSceneFrameFeaturePass<FEditorAssistanceGraphContributor>(
-				Graph, ERenderGraphPassType::Graphics, std::move(Parameters),
+				Graph, ERDGPassType::Graphics, std::move(Parameters),
 				[&Services, &Publication = Inputs.Publication,
 					RecordView = &RecordView, &PreparedEditorAssistance,
 					bPresentOutput](FRHICommandListImmediate& Commands,
 					const FEditorAssistancePassParameters& PassParameters,
-					const FRenderGraphParameterResolver& Resolver) {
+					const FRDGParameterResolver& Resolver) {
 					Publication = Resolver.ReadValue(
 						PassParameters.PostProcess);
 					if (Publication.Result

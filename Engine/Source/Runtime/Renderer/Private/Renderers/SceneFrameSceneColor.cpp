@@ -21,29 +21,29 @@ namespace Durin
 		FSceneFrameTopology Topology;
 		Topology.bVolumetricCloudComposite = Inputs.bVolumetricCloudComposite;
 		struct {
-			FRenderGraphTextureHandle SceneColor;
-			FRenderGraphTextureHandle SceneDepth;
-			std::optional<FRenderGraphTextureHandle> VolumetricCloudComposite;
+			FRDGTextureHandle SceneColor;
+			FRDGTextureHandle SceneDepth;
+			std::optional<FRDGTextureHandle> VolumetricCloudComposite;
 		} GraphResources;
 		GraphResources.SceneColor = Inputs.BaseScene.Color;
 		GraphResources.SceneDepth = Inputs.BaseScene.Depth;
 		GraphResources.VolumetricCloudComposite = Inputs.VolumetricCloud.Composite;
 		struct {
-			TSceneFrameGraphValue<FSceneColorPassResult> BaseScene;
-			TSceneFrameGraphValue<FVolumetricCloudPassResult> VolumetricCloud;
-			TSceneFrameGraphValue<FSceneColorPassResult> SceneColor;
+			TRDGValueHandle<FSceneColorPassResult> BaseScene;
+			TRDGValueHandle<FVolumetricCloudPassResult> VolumetricCloud;
+			TRDGValueHandle<FSceneColorPassResult> SceneColor;
 		} Channels;
-		Channels.BaseScene.Handle = Inputs.BaseScene.Completion;
-		Channels.VolumetricCloud.Handle = Inputs.VolumetricCloud.Completion;
-		Channels.SceneColor.Handle = Graph.CreateValue<FSceneColorPassResult>(
+		Channels.BaseScene = Inputs.BaseScene.Completion;
+		Channels.VolumetricCloud = Inputs.VolumetricCloud.Completion;
+		Channels.SceneColor = Graph.CreateValue<FSceneColorPassResult>(
 			"Scene.ColorValue", "scene-color-result");
 		auto Parameters = Graph.AllocParameters<FSceneColorPassParameters>();
-		Parameters->BaseScene = {.Value = Channels.BaseScene.Handle};
-		Parameters->VolumetricCloud = {.Value = Channels.VolumetricCloud.Handle};
-		Parameters->Completion = {.Value = Channels.SceneColor.Handle};
+		Parameters->BaseScene = {.Value = Channels.BaseScene};
+		Parameters->VolumetricCloud = {.Value = Channels.VolumetricCloud};
+		Parameters->Completion = {.Value = Channels.SceneColor};
 		if (bRequiresDeferredOpaque)
 		{
-			const FRenderGraphTextureHandle Color =
+			const FRDGTextureHandle Color =
 				Topology.bVolumetricCloudComposite
 					&& GraphResources.VolumetricCloudComposite
 				? *GraphResources.VolumetricCloudComposite
@@ -56,12 +56,12 @@ namespace Durin
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0, 1}};
 		}
 		(void)AddSceneFrameFeaturePass<FSceneColorGraphContributor>(
-			Graph, ERenderGraphPassType::Graphics, std::move(Parameters),
+			Graph, ERDGPassType::Graphics, std::move(Parameters),
 			[&Services, &Publication = Inputs.Publication,
 				RecordInputs, Topology, bRequiresDeferredOpaque](
 				FRHICommandListImmediate& Commands,
 				const FSceneColorPassParameters& PassParameters,
-				const FRenderGraphParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) {
 				auto& SceneColorResult = Resolver.WriteValue(
 					PassParameters.Completion);
 				const auto& BaseSceneResult = Resolver.ReadValue(
@@ -96,7 +96,7 @@ namespace Durin
 				ReduceTerrainTelemetry(RecordInputs.Receiver.Terrains,
 					Services.ResolvedFrame.Receiver.Terrains, Services.Telemetry.View);
 			});
-		return {.Completion = Channels.SceneColor.Handle,
+		return {.Completion = Channels.SceneColor,
 			.Color = GraphResources.SceneColor, .Depth = GraphResources.SceneDepth,
 			.CloudComposite = GraphResources.VolumetricCloudComposite};
 	}

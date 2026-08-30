@@ -18,32 +18,32 @@ namespace Durin
 		auto& Graph = Inputs.Graph;
 		auto& Services = Inputs.Services;
 		const auto RecordInputs = Inputs.Record;
-		struct { std::optional<FRenderGraphTextureHandle> DirectionalShadow; }
+		struct { std::optional<FRDGTextureHandle> DirectionalShadow; }
 			GraphResources;
 		GraphResources.DirectionalShadow = Inputs.Shadow;
-		struct { TSceneFrameGraphValue<FDirectionalShadowPassResult>
+		struct { TRDGValueHandle<FDirectionalShadowPassResult>
 			DirectionalShadow; } Channels;
-		Channels.DirectionalShadow.Handle =
+		Channels.DirectionalShadow =
 			Graph.CreateValue<FDirectionalShadowPassResult>(
 				"Scene.DirectionalShadowValue", "directional-shadow-result");
 		auto Parameters = Graph.AllocParameters<FDirectionalShadowPassParameters>();
-		Parameters->Completion = {.Value = Channels.DirectionalShadow.Handle};
+		Parameters->Completion = {.Value = Channels.DirectionalShadow};
 		if (GraphResources.DirectionalShadow)
 			Parameters->Resources.DirectionalShadowOutput = {
 				.Texture = *GraphResources.DirectionalShadow,
 				.Range = {ERHITextureAspect::Depth, 0, 1, 0,
 					DirectionalShadowCascadeCount}};
 		(void)AddSceneFrameFeaturePass<FDirectionalShadowGraphContributor>(
-			Graph, ERenderGraphPassType::Graphics, std::move(Parameters),
+			Graph, ERDGPassType::Graphics, std::move(Parameters),
 			[&Services, RecordInputs](FRHICommandListImmediate& Commands,
 				const FDirectionalShadowPassParameters& PassParameters,
-				const FRenderGraphParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) {
 				Resolver.WriteValue(PassParameters.Completion) =
 					Services.Recorders.RenderDirectionalShadow_RenderThread(Commands,
 						RecordInputs, Resolver.GetDepthStencilAttachment(
 							PassParameters.Resources.DirectionalShadowOutput).Texture);
 			});
-		return {.Completion = Channels.DirectionalShadow.Handle,
+		return {.Completion = Channels.DirectionalShadow,
 			.Shadow = GraphResources.DirectionalShadow};
 	}
 

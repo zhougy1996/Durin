@@ -106,7 +106,7 @@ introduce synchronization.
 ## Render Graph Frame Schedule
 
 `FSceneRenderer::RenderView_RenderThread` delegates to the thin
-`FRenderGraphSceneFrameExecutor`. The executor owns the compile/execute/capture
+`FSceneFrameGraphExecutor`. The executor owns the compile/execute/capture
 boundary. `FSceneFrameGraphComposer` constructs the sole production graph in
 stable order through renderer-private named feature contributors:
 
@@ -143,7 +143,7 @@ execute an alternate production scheduler.
 ## Typed Results and Failure Policy
 
 Each producer creates its own graph-owned typed completion value and returns
-its `TRenderGraphValueHandle<TResult>` in a feature-specific output. The
+its `TRDGValueHandle<TResult>` in a feature-specific output. The
 composer passes that output directly to the exact downstream input; there is
 no frame-wide execution-channel lookup or mutable channel bag. Payload
 storage, one writer, declared readers, dependency lifetime, and callback

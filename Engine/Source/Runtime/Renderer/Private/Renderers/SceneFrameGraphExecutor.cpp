@@ -1,17 +1,17 @@
-#include "Renderers/RenderGraphSceneFrameExecutor.h"
+#include "Renderers/SceneFrameGraphExecutor.h"
 
 #include "Renderers/SceneRendererProfiling.h"
 #include "RHICommandList.h"
 
 namespace Durin
 {
-	FRenderGraphSceneFrameExecutor::FRenderGraphSceneFrameExecutor(
+	FSceneFrameGraphExecutor::FSceneFrameGraphExecutor(
 		FSceneRenderer& Renderer)
 		: Pipeline(Renderer), Allocator(Renderer.TransientTargets)
 	{
 	}
 
-	auto FRenderGraphSceneFrameExecutor::Execute_RenderThread(
+	auto FSceneFrameGraphExecutor::Execute_RenderThread(
 		FRHICommandListImmediate& CommandList,
 		FScene* Scene,
 		const FSceneView& View,
@@ -19,21 +19,21 @@ namespace Durin
 		bool bPresentOutput,
 		const FSceneViewRenderOptions& Options,
 		FSceneViewStatistics* OutStatistics,
-		FRenderGraphCapture* OutRenderGraphCapture
+		FRDGCapture* OutRenderGraphCapture
 	) -> ERenderViewResult
 	{
 		return Pipeline.Execute_RenderThread(CommandList, Scene, View, OutputTarget,
 			bPresentOutput, Options, OutStatistics,
-			[this, &CommandList, OutRenderGraphCapture](FRenderGraphBuilder& Graph) {
+			[this, &CommandList, OutRenderGraphCapture](FRDGBuilder& Graph) {
 				return CompileAndExecuteGraph_RenderThread(
 					Graph, CommandList, OutRenderGraphCapture);
 			});
 	}
 
-	auto FRenderGraphSceneFrameExecutor::CompileAndExecuteGraph_RenderThread(
-		FRenderGraphBuilder& Graph,
+	auto FSceneFrameGraphExecutor::CompileAndExecuteGraph_RenderThread(
+		FRDGBuilder& Graph,
 		FRHICommandListImmediate& CommandList,
-		FRenderGraphCapture* OutRenderGraphCapture
+		FRDGCapture* OutRenderGraphCapture
 	) -> ESceneFrameGraphExecutionStatus
 	{
 		auto CompiledGraph = Graph.Compile();
@@ -43,12 +43,12 @@ namespace Durin
 				CompiledGraph.Error);
 			return ESceneFrameGraphExecutionStatus::CompileFailed;
 		}
-		const FRenderGraphStatistics Statistics =
+		const FRDGStatistics Statistics =
 			CompiledGraph.Graph->GetStatistics();
 		if (Statistics.IsStructuralRegressionBudgetExceeded()
 			&& !bReportedRegressionOverage)
 		{
-			const FRenderGraphBudget& Budget = CompiledGraph.Graph->GetBudget();
+			const FRDGBudget& Budget = CompiledGraph.Graph->GetBudget();
 			DURIN_WARN(
 				"Scene frame graph regression budget exceeded: passes={}/{} "
 				"dependencies={}/{} buffer-transitions={}/{} "

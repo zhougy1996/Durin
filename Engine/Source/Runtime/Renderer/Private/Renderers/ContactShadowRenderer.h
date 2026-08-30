@@ -12,7 +12,7 @@ namespace Durin
 	class FRendererResourceCoordinator;
 	class FRHICommandListImmediate;
 	class FFullscreenGeometryResources;
-	class FRenderGraphShaderParameters;
+	class FRDGShaderParameterScope;
 	struct FSceneView;
 
 	class RENDERER_API FContactShadowVisibilityRenderer final
@@ -78,7 +78,7 @@ namespace Durin
 			bool bFragmentTargetExpected = false;
 			bool bComputeTargetExpected = false;
 			bool bGraphManagedTextureAccess = false;
-			const FRenderGraphShaderParameters* GraphShaderParameters = nullptr;
+			const FRDGShaderParameterScope* GraphShaderParameters = nullptr;
 		};
 
 		static constexpr uint64 BytesPerPixel = 1;

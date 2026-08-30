@@ -5,7 +5,7 @@
 #include "EngineGlobals.h"
 #include "MonaImGui.h"
 #include "Panels/SceneViewportPanel.h"
-#include "RenderGraph.h"
+#include "RDG.h"
 #include "Viewport/ViewportPresentation.h"
 #include "Workspace/LevelEditorWorkspace.h"
 
@@ -13,35 +13,35 @@ namespace Durin::Editor::Level
 {
 	namespace
 	{
-		auto PassTypeLabel(ERenderGraphPassType Type) -> const char*
+		auto PassTypeLabel(ERDGPassType Type) -> const char*
 		{
 			switch (Type)
 			{
-			case ERenderGraphPassType::Graphics: return "Graphics";
-			case ERenderGraphPassType::Compute: return "Compute";
-			case ERenderGraphPassType::Copy: return "Copy";
+			case ERDGPassType::Graphics: return "Graphics";
+			case ERDGPassType::Compute: return "Compute";
+			case ERDGPassType::Copy: return "Copy";
 			}
 			return "Unknown";
 		}
 
-		auto UseLabel(ERenderGraphUse Use) -> const char*
+		auto UseLabel(ERDGUse Use) -> const char*
 		{
 			switch (Use)
 			{
-			case ERenderGraphUse::Read: return "Read";
-			case ERenderGraphUse::Write: return "Write";
-			case ERenderGraphUse::ReadWrite: return "Read / Write";
+			case ERDGUse::Read: return "Read";
+			case ERDGUse::Write: return "Write";
+			case ERDGUse::ReadWrite: return "Read / Write";
 			}
 			return "Unknown";
 		}
 
-		auto DependencyKindLabel(ERenderGraphDependencyKind Kind) -> const char*
+		auto DependencyKindLabel(ERDGDependencyKind Kind) -> const char*
 		{
 			switch (Kind)
 			{
-			case ERenderGraphDependencyKind::Value: return "Value";
-			case ERenderGraphDependencyKind::Execution: return "Execution";
-			case ERenderGraphDependencyKind::Explicit: return "Explicit";
+			case ERDGDependencyKind::Value: return "Value";
+			case ERDGDependencyKind::Execution: return "Execution";
+			case ERDGDependencyKind::Explicit: return "Explicit";
 			}
 			return "Unknown";
 		}
@@ -174,7 +174,7 @@ namespace Durin::Editor::Level
 		else
 			ImGui::TextDisabled("%s", CaptureStatus);
 
-		const FRenderGraphCapture* Capture = bHasCapture
+		const FRDGCapture* Capture = bHasCapture
 			? Graph.Capture.get() : nullptr;
 		if (MonaImGui::BeginContentTabBar("RenderingDiagnosticsTabs"))
 		{
@@ -200,7 +200,7 @@ namespace Durin::Editor::Level
 
 	auto FRenderingDiagnosticsPanel::DrawOverview(
 		const FSceneViewportStatisticsSnapshot& Snapshot,
-		const FRenderGraphCapture* Capture) -> void
+		const FRDGCapture* Capture) -> void
 	{
 		ImGui::Spacing();
 		ImGui::TextUnformatted("Frame");
@@ -236,7 +236,7 @@ namespace Durin::Editor::Level
 			ImGui::TextDisabled("Capture a frame to inspect graph structure and budgets.");
 			return;
 		}
-		const FRenderGraphStatistics& Statistics = Capture->Statistics;
+		const FRDGStatistics& Statistics = Capture->Statistics;
 		if (DrawMetricTableBegin("OverviewRenderGraph"))
 		{
 			DrawValueRow("Passes", std::format("{} scheduled / {} declared",
@@ -266,7 +266,7 @@ namespace Durin::Editor::Level
 			ImGui::TableSetupColumn("Budget", ImGuiTableColumnFlags_WidthStretch);
 			ImGui::TableSetupColumn("Usage", ImGuiTableColumnFlags_WidthFixed,
 				ValueWidth);
-			const FRenderGraphBudget& Budget = Capture->Budget;
+			const FRDGBudget& Budget = Capture->Budget;
 			DrawBudgetRow("Passes", Statistics.DeclaredPasses,
 				Budget.RegressionMaxPasses, Budget.MaxPasses,
 				Statistics.bPassRegressionBudgetExceeded);
@@ -333,7 +333,7 @@ namespace Durin::Editor::Level
 	}
 
 	auto FRenderingDiagnosticsPanel::DrawRenderGraph(
-		const FRenderGraphCapture* Capture) -> void
+		const FRDGCapture* Capture) -> void
 	{
 		ImGui::Spacing();
 		if (Capture == nullptr)
@@ -373,7 +373,7 @@ namespace Durin::Editor::Level
 		{
 			for (size_t Index = 0; Index < Capture->Passes.size(); ++Index)
 			{
-				const FRenderGraphPassCapture& Pass = Capture->Passes[Index];
+				const FRDGPassCapture& Pass = Capture->Passes[Index];
 				if (!ContainsCaseInsensitive(Pass.Name, PassFilter.data())) continue;
 				ImGui::PushID(static_cast<int>(Index));
 				if (ImGui::Selectable(Pass.Name.c_str(),
@@ -386,12 +386,12 @@ namespace Durin::Editor::Level
 			if (SelectedPass >= 0
 				&& static_cast<size_t>(SelectedPass) < Capture->Passes.size())
 			{
-				const FRenderGraphPassCapture& Pass = Capture->Passes[SelectedPass];
+				const FRDGPassCapture& Pass = Capture->Passes[SelectedPass];
 				ImGui::SeparatorText("Selected pass");
 				ImGui::TextWrapped("%s", Pass.Name.c_str());
 				ImGui::TextDisabled("Declaration %u | %s",
 					Pass.DeclarationIndex, PassTypeLabel(Pass.Type));
-				for (const FRenderGraphUseCapture& Use : Capture->Uses)
+				for (const FRDGUseCapture& Use : Capture->Uses)
 				{
 					if (Use.PassDeclarationIndex != Pass.DeclarationIndex
 						|| Use.ResourceId >= Capture->Resources.size()) continue;
@@ -434,7 +434,7 @@ namespace Durin::Editor::Level
 			};
 			if (!Filter.empty())
 			{
-				for (const FRenderGraphDependency& Dependency : Capture->Dependencies)
+				for (const FRDGDependency& Dependency : Capture->Dependencies)
 				{
 					const size_t Before = FindPass(Dependency.BeforePass);
 					const size_t After = FindPass(Dependency.AfterPass);
@@ -471,9 +471,9 @@ namespace Durin::Editor::Level
 					ImGui::GetColorU32(ImGuiCol_TextDisabled), LaneNames[Lane]);
 			}
 
-			auto LaneOf = [](ERenderGraphPassType Type) -> uint32 {
-				return Type == ERenderGraphPassType::Compute ? 1u
-					: Type == ERenderGraphPassType::Copy ? 2u : 0u;
+			auto LaneOf = [](ERDGPassType Type) -> uint32 {
+				return Type == ERDGPassType::Compute ? 1u
+					: Type == ERDGPassType::Copy ? 2u : 0u;
 			};
 			auto NodeMin = [&](size_t Index) -> ImVec2 {
 				return ImVec2(
@@ -499,7 +499,7 @@ namespace Durin::Editor::Level
 			const int32 FocusedPass = HoveredPass >= 0
 				? HoveredPass : bSelectedPassVisible ? SelectedPass : -1;
 
-			for (const FRenderGraphDependency& Dependency : Capture->Dependencies)
+			for (const FRDGDependency& Dependency : Capture->Dependencies)
 			{
 				const size_t Before = FindPass(Dependency.BeforePass);
 				const size_t After = FindPass(Dependency.AfterPass);
@@ -541,8 +541,8 @@ namespace Durin::Editor::Level
 					ControlB = ImVec2(MiddleX, End.y);
 				}
 				ImVec4 Color = ImGui::GetStyleColorVec4(
-					Dependency.Kind == ERenderGraphDependencyKind::Explicit
-						? ImGuiCol_CheckMark : Dependency.Kind == ERenderGraphDependencyKind::Value
+					Dependency.Kind == ERDGDependencyKind::Explicit
+						? ImGuiCol_CheckMark : Dependency.Kind == ERDGDependencyKind::Value
 							? ImGuiCol_TextDisabled : ImGuiCol_Border);
 				if (!bHighlighted) Color.w *= 0.38f;
 				DrawList->AddBezierCubic(Start, ControlA, ControlB, End,
@@ -570,7 +570,7 @@ namespace Durin::Editor::Level
 
 			for (size_t Index : VisiblePasses)
 			{
-				const FRenderGraphPassCapture& Pass = Capture->Passes[Index];
+				const FRDGPassCapture& Pass = Capture->Passes[Index];
 				const ImVec2 Min = NodeMin(Index);
 				const ImVec2 Max(Min.x + NodeWidth, Min.y + NodeHeight);
 				const bool bSelected = SelectedPass == static_cast<int32>(Index);
@@ -600,7 +600,7 @@ namespace Durin::Editor::Level
 					ImGui::TextUnformatted(Pass.Name.c_str());
 					constexpr size_t MaximumTooltipDependencies = 12;
 					size_t DependencyCount = 0;
-					for (const FRenderGraphDependency& Dependency : Capture->Dependencies)
+					for (const FRDGDependency& Dependency : Capture->Dependencies)
 					{
 						const size_t Before = FindPass(Dependency.BeforePass);
 						const size_t After = FindPass(Dependency.AfterPass);
@@ -651,12 +651,12 @@ namespace Durin::Editor::Level
 				ImGui::TableHeadersRow();
 				for (size_t Index = 0; Index < Capture->Resources.size(); ++Index)
 				{
-					const FRenderGraphResourceCapture& Resource = Capture->Resources[Index];
+					const FRDGResourceCapture& Resource = Capture->Resources[Index];
 					ImGui::TableNextRow();
 					ImGui::TableNextColumn(); ImGui::TextUnformatted(Resource.Name.c_str());
 					ImGui::TableNextColumn();
-					ImGui::TextUnformatted(Resource.Kind == ERenderGraphResourceKind::Texture
-						? "Texture" : Resource.Kind == ERenderGraphResourceKind::Buffer
+					ImGui::TextUnformatted(Resource.Kind == ERDGResourceKind::Texture
+						? "Texture" : Resource.Kind == ERDGResourceKind::Buffer
 							? "Buffer" : "Token");
 					ImGui::TableNextColumn();
 					if (Index < Capture->ResourceLifetimes.size())

@@ -8,15 +8,15 @@ Last reviewed: 2026-08-30
 
 ## Ownership Boundary
 
-`FRenderGraphBuilder` owns declarations for one graph. Texture, buffer, and
+`FRDGBuilder` owns declarations for one graph. Texture, buffer, and
 pass handles are valid only for the builder that created them. A successful
 compile transfers immutable resource views, pass callbacks, dependencies, and
-transition batches into `FCompiledRenderGraph`; external owners retain the
+transition batches into `FRDGCompiledGraph`; external owners retain the
 physical RHI resources themselves. Graph-created textures and buffers use the
 description-first `CreateTexture`/`CreateBuffer` API with
-`FRenderGraphTextureDesc`/`FRenderGraphBufferDesc` and no
+`FRDGTextureDesc`/`FRDGBufferDesc` and no
 physical pointer. Compilation computes retained lifetimes first;
-`FCompiledRenderGraph::Execute` passes one name-free batch of exact descriptors
+`FRDGCompiledGraph::Execute` passes one name-free batch of exact descriptors
 to the `FRDGAllocator` in `FRDGExecutionContext`. The complete returned table
 is held through counted RHI references for the compiled execution lifetime.
 
@@ -94,7 +94,7 @@ uses `ERHIAccess::Discard` as its expected-before access; otherwise the prior
 compiled access is exact. Final transition batches restore each used imported
 or explicitly finalized range after the last pass.
 
-`FCompiledRenderGraph::Execute` records each pre-pass batch, invokes the pass
+`FRDGCompiledGraph::Execute` records each pre-pass batch, invokes the pass
 callback with a pass-scoped resource view, and then records final batches.
 Lookup of a foreign, undeclared, incorrectly typed, or unavailable handle is
 an unrecoverable authoring-contract failure. Graphics, compute, and copy passes
@@ -120,14 +120,14 @@ avoids a second explicit barrier competing with RHI render-pass state.
 
 `CreateValue<T>(Name, StableTypeName, ConstructorArguments...)` constructs one
 payload in aligned builder-owned storage and returns a graph-local
-`TRenderGraphValueHandle<T>`. The stable type name is explicit diagnostic
+`TRDGValueHandle<T>`. The stable type name is explicit diagnostic
 metadata rather than RTTI text. One graph cannot assign different stable names
 to the same C++ type or reuse one stable name for different C++ types.
 
 Each typed value requires exactly one declared writer; all consumers declare
 reads. `UseValue` is the bounded manual compatibility declaration. Typed
-parameter members use `TRenderGraphValueWrite<T>` or
-`TRenderGraphValueRead<T>`. Missing or duplicate writers, foreign handles,
+parameter members use `TRDGValueWrite<T>` or
+`TRDGValueRead<T>`. Missing or duplicate writers, foreign handles,
 wrong C++ types, reads before the producer, and invalid directions fail
 deterministically before recording. Values lower to token-shaped compiler uses
 and therefore do not create a second dependency scheduler.
@@ -136,7 +136,7 @@ Successful compilation transfers value payloads and destructor records to the
 compiled graph. Builder destruction and every compile/execute exit path destroy
 each constructed payload exactly once. Culling does not shorten storage
 lifetime, and no payload may outlive its builder or compiled graph.
-`FRenderGraphPassResources::ReadValue`/`WriteValue` and the corresponding
+`FRDGPassResources::ReadValue`/`WriteValue` and the corresponding
 parameter-resolver methods enforce the executing pass's exact declared
 direction. Parameter resolution additionally requires the exact submitted
 wrapper address; copied, wrong-pass, wrong-direction, foreign, or wrongly typed
@@ -172,7 +172,7 @@ therefore observe one stable immutable parameter object for its complete graph
 lifetime.
 
 A parameterized callback receives the const submitted object and a non-copyable
-`FRenderGraphParameterResolver`. The resolver accepts only the exact wrapper or
+`FRDGParameterResolver`. The resolver accepts only the exact wrapper or
 optional-member address declared by that pass and returns typed texture,
 buffer, color-attachment, or depth/stencil-attachment views. Raw handles,
 copied wrappers, wrong-kind fields, foreign optionals, and fields from another
@@ -199,7 +199,7 @@ dependencies and transitions, while cached shader reflection remains
 authoritative for set, binding, and descriptor-array coordinates.
 
 During its callback, a pass obtains a non-copyable
-`FRenderGraphShaderParameters` scope from the exact submitted object and
+`FRDGShaderParameterScope` scope from the exact submitted object and
 resolver. Composed `SetShaderParameters` resolves only those exact members,
 creates counted texture views for their declared subresources, carries exact
 buffer byte ranges, and submits all selected graph and ordinary shader fields
@@ -252,7 +252,7 @@ incrementally and inactive entries are evicted in stable creation order. The
 named structural policy ceiling is 640 MiB; a requested batch above that ceiling
 fails atomically, while observation tags cannot reserve or prioritize memory.
 
-`FRenderGraphCapture::Parameters` contains one record for every submitted leaf
+`FRDGCapture::Parameters` contains one record for every submitted leaf
 field of every parameterized pass, including fields on a culled pass and a
 disengaged optional. The pass declaration index and full field path form its
 stable identity. A present field names the canonical resource ID and preserves
@@ -270,7 +270,7 @@ with resources and normalized uses, and finally follow dependency causes and
 transitions. This order makes a route-selected absent fallback distinguishable
 from a missing compiler use and preserves the declaration/compiler boundary.
 
-`FRenderGraphBudget` separates structural safety limits from regression budgets.
+`FRDGBudget` separates structural safety limits from regression budgets.
 The `Max*` structural limits are deliberately broad deterministic compile gates
 that protect graph construction from catastrophic growth. Errors name the
 exceeded dimension and include actual and limit values. `RegressionMax*`
@@ -319,7 +319,7 @@ The non-parameterized `AddPass` overload and manual `UseTexture`, `UseBuffer`,
 attachment, managed-resource, token, and typed-value declarations remain only
 as an independent oracle for canonical compiler semantics and backend
 transition qualification. Their bounded repository consumers are
-`RenderGraphTests.cpp` and `VulkanResourceTransitionTests.cpp`. They are not a
+`RDGTests.cpp` and `VulkanResourceTransitionTests.cpp`. They are not a
 production Renderer or Renderer contract-fixture authoring option.
 
 `RendererSceneContractTests` scans all production Renderer C++ source and
@@ -340,7 +340,7 @@ owns ordering against GBuffer, depth, deferred lighting, and final output.
 
 ## Scene Frame Graph
 
-`FRenderGraphSceneFrameExecutor` owns the sole production graph's
+`FSceneFrameGraphExecutor` owns the sole production graph's
 compile/execute/capture boundary. `FSceneFrameExecutionPipeline` owns frame
 preparation, topology selection, and commit or abort, while
 `FSceneFrameGraphComposer` wires renderer-private feature contributors in a

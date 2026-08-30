@@ -2,7 +2,7 @@
 
 #include "Renderers/SceneRenderer.h"
 #include "Renderers/SceneRenderPlan.h"
-#include "RenderGraph.h"
+#include "RDG.h"
 
 namespace Durin
 {
@@ -63,12 +63,6 @@ namespace Durin
 		std::optional<FResolvedVolumetricCloud> VolumetricCloud;
 	};
 
-	template <typename TResult>
-	struct TSceneFrameGraphValue
-	{
-		TRenderGraphValueHandle<TResult> Handle;
-	};
-
 	enum class ESceneFrameGraphExecutionStatus : uint8
 	{
 		CompileFailed,
@@ -77,5 +71,5 @@ namespace Durin
 	};
 
 	using FSceneFrameGraphExecute = std::function<ESceneFrameGraphExecutionStatus(
-		FRenderGraphBuilder&)>;
+		FRDGBuilder&)>;
 } // namespace Durin

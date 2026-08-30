@@ -166,7 +166,7 @@ namespace Durin
 	}
 
 	auto FSceneViewport::PublishRenderGraphCapture_RenderThread(
-		std::shared_ptr<const FRenderGraphCapture> Capture,
+		std::shared_ptr<const FRDGCapture> Capture,
 		bool bAvailable) -> void
 	{
 		check(IsInRenderingThread());

@@ -166,7 +166,7 @@ Shaders used by a composed graph pass mark graph-backed declarations with
 the compatibility manual submission path.
 
 The pass calls the overload that accepts its callback-lifetime
-`FRenderGraphShaderParameters` scope. For every reflected binding marked as a
+`FRDGShaderParameterScope` scope. For every reflected binding marked as a
 graph resource, RenderCore locates the uniquely named composed graph member,
 validates binding type and array extent, checks graphics/compute domain and
 graph access, and resolves the member through the active pass resolver. It

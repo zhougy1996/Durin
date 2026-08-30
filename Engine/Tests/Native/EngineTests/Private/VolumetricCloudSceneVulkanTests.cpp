@@ -52,14 +52,14 @@ namespace Durin
 		};
 
 		FViewRenderTelemetry GSceneCloudTelemetry;
-		std::vector<FRenderGraphCapture> GSceneCloudGraphCaptures;
+		std::vector<FRDGCapture> GSceneCloudGraphCaptures;
 
 		auto CaptureSceneCloudTelemetry(const FViewRenderTelemetry& Telemetry) -> void
 		{
 			GSceneCloudTelemetry = Telemetry;
 		}
 
-		auto CaptureSceneCloudGraph(const FRenderGraphCapture& Capture) -> void
+		auto CaptureSceneCloudGraph(const FRDGCapture& Capture) -> void
 		{
 			GSceneCloudGraphCaptures.push_back(Capture);
 		}

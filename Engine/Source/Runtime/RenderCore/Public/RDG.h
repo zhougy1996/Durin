@@ -21,13 +21,13 @@
 namespace Durin
 {
 	class FRHICommandListImmediate;
-	class FRenderGraphBuilder;
-	class FCompiledRenderGraph;
-	class FRenderGraphParameterResolver;
-	class FRenderGraphShaderParameters;
+	class FRDGBuilder;
+	class FRDGCompiledGraph;
+	class FRDGParameterResolver;
+	class FRDGShaderParameterScope;
 
 	// Selects the command domain used by a declared graph pass.
-	enum class ERenderGraphPassType : uint8
+	enum class ERDGPassType : uint8
 	{
 		Graphics,
 		Compute,
@@ -35,7 +35,7 @@ namespace Durin
 	};
 
 	// Describes whether a pass observes or replaces one declared resource range.
-	enum class ERenderGraphUse : uint8
+	enum class ERDGUse : uint8
 	{
 		Read,
 		Write,
@@ -43,7 +43,7 @@ namespace Durin
 	};
 
 	// Selects the stable resource category exposed by graph diagnostics.
-	enum class ERenderGraphResourceKind : uint8
+	enum class ERDGResourceKind : uint8
 	{
 		Texture,
 		Buffer,
@@ -51,7 +51,7 @@ namespace Durin
 	};
 
 	// Selects how one graph-parameter member is lowered into a canonical use.
-	enum class ERenderGraphParameterMemberKind : uint8
+	enum class ERDGParameterMemberKind : uint8
 	{
 		Texture,
 		Buffer,
@@ -67,7 +67,7 @@ namespace Durin
 	};
 
 	// Identifies where an exact runtime range is stored by a parameter wrapper.
-	enum class ERenderGraphParameterRangeKind : uint8
+	enum class ERDGParameterRangeKind : uint8
 	{
 		None,
 		TextureSubresource,
@@ -75,7 +75,7 @@ namespace Durin
 	};
 
 	// Distinguishes semantic value reachability from execution-only ordering.
-	enum class ERenderGraphDependencyKind : uint8
+	enum class ERDGDependencyKind : uint8
 	{
 		Value,
 		Execution,
@@ -83,88 +83,88 @@ namespace Durin
 	};
 
 	// Describes a graph-created texture without requiring physical backing.
-	struct FRenderGraphTextureDesc final
+	struct FRDGTextureDesc final
 	{
 		FRHITextureDesc Texture;
 		uint32 ObservationTag = 0;
 	};
 
 	// Describes a graph-created buffer without requiring physical backing.
-	struct FRenderGraphBufferDesc final
+	struct FRDGBufferDesc final
 	{
 		FRHIBufferDesc Buffer;
 		uint32 ObservationTag = 0;
 	};
 
 	// Identifies one texture registered in a single builder lifetime.
-	class FRenderGraphTextureHandle final
+	class FRDGTextureHandle final
 	{
 	public:
-		FRenderGraphTextureHandle() = default;
+		FRDGTextureHandle() = default;
 		auto IsValid() const -> bool { return Owner != 0; }
-		auto operator==(const FRenderGraphTextureHandle&) const -> bool = default;
+		auto operator==(const FRDGTextureHandle&) const -> bool = default;
 
 	private:
-		friend class FRenderGraphBuilder;
-		friend class FCompiledRenderGraph;
-		friend class FRenderGraphPassResources;
-		FRenderGraphTextureHandle(uint64 InOwner, uint32 InIndex)
+		friend class FRDGBuilder;
+		friend class FRDGCompiledGraph;
+		friend class FRDGPassResources;
+		FRDGTextureHandle(uint64 InOwner, uint32 InIndex)
 			: Owner(InOwner), Index(InIndex) {}
 		uint64 Owner = 0;
 		uint32 Index = 0;
 	};
 
 	// Identifies one buffer registered in a single builder lifetime.
-	class FRenderGraphBufferHandle final
+	class FRDGBufferHandle final
 	{
 	public:
-		FRenderGraphBufferHandle() = default;
+		FRDGBufferHandle() = default;
 		auto IsValid() const -> bool { return Owner != 0; }
-		auto operator==(const FRenderGraphBufferHandle&) const -> bool = default;
+		auto operator==(const FRDGBufferHandle&) const -> bool = default;
 
 	private:
-		friend class FRenderGraphBuilder;
-		friend class FCompiledRenderGraph;
-		friend class FRenderGraphPassResources;
-		FRenderGraphBufferHandle(uint64 InOwner, uint32 InIndex)
+		friend class FRDGBuilder;
+		friend class FRDGCompiledGraph;
+		friend class FRDGPassResources;
+		FRDGBufferHandle(uint64 InOwner, uint32 InIndex)
 			: Owner(InOwner), Index(InIndex) {}
 		uint64 Owner = 0;
 		uint32 Index = 0;
 	};
 
 	// Identifies one pass registered in a single builder lifetime.
-	class FRenderGraphPassHandle final
+	class FRDGPassHandle final
 	{
 	public:
-		FRenderGraphPassHandle() = default;
+		FRDGPassHandle() = default;
 		auto IsValid() const -> bool { return Owner != 0; }
-		auto operator==(const FRenderGraphPassHandle&) const -> bool = default;
+		auto operator==(const FRDGPassHandle&) const -> bool = default;
 
 	private:
-		friend class FRenderGraphBuilder;
-		FRenderGraphPassHandle(uint64 InOwner, uint32 InIndex)
+		friend class FRDGBuilder;
+		FRDGPassHandle(uint64 InOwner, uint32 InIndex)
 			: Owner(InOwner), Index(InIndex) {}
 		uint64 Owner = 0;
 		uint32 Index = 0;
 	};
 
 	// Identifies one logical scheduling value with no physical RHI ownership.
-	class FRenderGraphTokenHandle final
+	class FRDGTokenHandle final
 	{
 	public:
-		FRenderGraphTokenHandle() = default;
+		FRDGTokenHandle() = default;
 		auto IsValid() const -> bool { return Owner != 0; }
-		auto operator==(const FRenderGraphTokenHandle&) const -> bool = default;
+		auto operator==(const FRDGTokenHandle&) const -> bool = default;
 
 	private:
-		friend class FRenderGraphBuilder;
-		FRenderGraphTokenHandle(uint64 InOwner, uint32 InIndex)
+		friend class FRDGBuilder;
+		FRDGTokenHandle(uint64 InOwner, uint32 InIndex)
 			: Owner(InOwner), Index(InIndex) {}
 		uint64 Owner = 0;
 		uint32 Index = 0;
 	};
 
-	namespace RenderGraphPrivate
+	namespace RDGPrivate
 	{
 		template<typename T>
 		inline constexpr uint8 GValueTypeIdentity = 0;
@@ -172,97 +172,97 @@ namespace Durin
 
 	// Identifies one graph-owned payload with a compile-time C++ type.
 	template<typename T>
-	class TRenderGraphValueHandle final
+	class TRDGValueHandle final
 	{
 	public:
-		TRenderGraphValueHandle() = default;
+		TRDGValueHandle() = default;
 		auto IsValid() const -> bool { return Owner != 0; }
-		auto operator==(const TRenderGraphValueHandle&) const -> bool = default;
+		auto operator==(const TRDGValueHandle&) const -> bool = default;
 		auto OwnerForValidation() const -> uint64 { return Owner; }
 		auto IndexForValidation() const -> uint32 { return Index; }
 
 	private:
-		friend class FRenderGraphBuilder;
-		friend class FRenderGraphPassResources;
-		friend class FRenderGraphParameterResolver;
-		TRenderGraphValueHandle(uint64 InOwner, uint32 InIndex)
+		friend class FRDGBuilder;
+		friend class FRDGPassResources;
+		friend class FRDGParameterResolver;
+		TRDGValueHandle(uint64 InOwner, uint32 InIndex)
 			: Owner(InOwner), Index(InIndex) {}
 		uint64 Owner = 0;
 		uint32 Index = 0;
 	};
 
 	// Carries a graph-local texture handle and its exact runtime subresource range.
-	struct FRenderGraphTextureParameter final
+	struct FRDGTextureParameter final
 	{
-		FRenderGraphTextureHandle Texture;
+		FRDGTextureHandle Texture;
 		FRHITextureSubresourceRange Range{};
 	};
 
 	// Carries a graph-local buffer handle and its exact runtime byte range.
-	struct FRenderGraphBufferParameter final
+	struct FRDGBufferParameter final
 	{
-		FRenderGraphBufferHandle Buffer;
+		FRDGBufferHandle Buffer;
 		uint64 Offset = 0;
 		uint64 Size = 0;
 	};
 
 	// Carries one graph-local logical scheduling value.
-	struct FRenderGraphTokenParameter final
+	struct FRDGTokenParameter final
 	{
-		FRenderGraphTokenHandle Token;
+		FRDGTokenHandle Token;
 	};
 
 	// Declares const read access to one graph-owned typed value.
 	template<typename T>
-	struct TRenderGraphValueRead final
+	struct TRDGValueRead final
 	{
-		TRenderGraphValueHandle<T> Value;
+		TRDGValueHandle<T> Value;
 	};
 
 	// Declares mutable write access to one graph-owned typed value.
 	template<typename T>
-	struct TRenderGraphValueWrite final
+	struct TRDGValueWrite final
 	{
-		TRenderGraphValueHandle<T> Value;
+		TRDGValueHandle<T> Value;
 	};
 
 	// Carries a graph-local color attachment and its exact runtime range.
-	struct FRenderGraphColorAttachmentParameter final
+	struct FRDGColorAttachmentParameter final
 	{
-		FRenderGraphTextureHandle Texture;
+		FRDGTextureHandle Texture;
 		FRHITextureSubresourceRange Range{};
 	};
 
 	// Carries a graph-local depth/stencil attachment and its runtime range.
-	struct FRenderGraphDepthStencilAttachmentParameter final
+	struct FRDGDepthStencilAttachmentParameter final
 	{
-		FRenderGraphTextureHandle Texture;
+		FRDGTextureHandle Texture;
 		FRHITextureSubresourceRange Range{};
 	};
 
 	// Carries a graph-local texture whose entry/exit transitions are pass-managed.
-	struct FRenderGraphManagedTextureParameter final
+	struct FRDGManagedTextureParameter final
 	{
-		FRenderGraphTextureHandle Texture;
+		FRDGTextureHandle Texture;
 		FRHITextureSubresourceRange Range{};
 	};
 
-	struct FRenderGraphParametersMetadata;
+	struct FRDGParametersMetadata;
 
 	// Describes one parameter field in stable declaration order.
-	struct FRenderGraphParameterMemberMetadata final
+	struct FRDGParameterMemberMetadata final
 	{
 		const char* Name = nullptr;
 		uint32 Offset = 0;
 		uint32 ElementSize = 0;
 		uint32 ArraySize = 1;
 		bool bOptional = false;
-		ERenderGraphParameterMemberKind Kind =
-			ERenderGraphParameterMemberKind::Texture;
-		ERenderGraphResourceKind ResourceKind = ERenderGraphResourceKind::Texture;
-		ERenderGraphParameterRangeKind RangeKind =
-			ERenderGraphParameterRangeKind::None;
-		ERenderGraphUse Use = ERenderGraphUse::Read;
+		ERDGParameterMemberKind Kind =
+			ERDGParameterMemberKind::Texture;
+		ERDGResourceKind ResourceKind = ERDGResourceKind::Texture;
+		ERDGParameterRangeKind RangeKind =
+			ERDGParameterRangeKind::None;
+		ERDGUse Use = ERDGUse::Read;
 		ERHIAccess Access = ERHIAccess::None;
 		bool bDiscard = false;
 		ERHIRenderTargetLoadAction LoadAction =
@@ -271,7 +271,7 @@ namespace Durin
 			ERHIRenderTargetStoreAction::Store;
 		bool bPassManagedTransition = false;
 		ERHIAccess ResultAccess = ERHIAccess::None;
-		const FRenderGraphParametersMetadata* NestedParameters = nullptr;
+		const FRDGParametersMetadata* NestedParameters = nullptr;
 		const void* ValueTypeIdentity = nullptr;
 		bool (*ReadValueHandle)(const void*, uint64&, uint32&) = nullptr;
 		// When enabled, this exact graph member also supplies one reflected
@@ -282,19 +282,19 @@ namespace Durin
 	};
 
 	// Describes a complete graph-parameter structure without owning its members.
-	struct FRenderGraphParametersMetadata final
+	struct FRDGParametersMetadata final
 	{
 		const char* StructName = nullptr;
 		uint32 StructSize = 0;
 		uint32 StructAlignment = 0;
-		std::span<const FRenderGraphParameterMemberMetadata> Members;
+		std::span<const FRDGParameterMemberMetadata> Members;
 	};
 
 	template<typename ParameterStruct, size_t N>
-	constexpr auto MakeInlineRenderGraphParametersMetadata(
+	constexpr auto MakeInlineRDGParametersMetadata(
 		std::string_view StructName,
-		const std::array<FRenderGraphParameterMemberMetadata, N>& Members)
-		-> FRenderGraphParametersMetadata
+		const std::array<FRDGParameterMemberMetadata, N>& Members)
+		-> FRDGParametersMetadata
 	{
 		return {
 			.StructName = StructName.data(),
@@ -305,14 +305,14 @@ namespace Durin
 	}
 
 	template<typename ParameterStruct>
-	concept CRenderGraphParameters = requires
+	concept CRDGParameters = requires
 	{
-		{ ParameterStruct::GetRenderGraphParametersMetadata() }
-			-> std::same_as<const FRenderGraphParametersMetadata*>;
+		{ ParameterStruct::GetRDGParametersMetadata() }
+			-> std::same_as<const FRDGParametersMetadata*>;
 	};
 
 	template<typename MemberType>
-	struct TRenderGraphParameterMemberTraits
+	struct TRDGParameterMemberTraits
 	{
 		using ValueType = MemberType;
 		static constexpr bool bOptional = false;
@@ -321,8 +321,8 @@ namespace Durin
 	};
 
 	template<typename Value>
-	struct TRenderGraphParameterMemberTraits<std::optional<Value>>
-		: TRenderGraphParameterMemberTraits<Value>
+	struct TRDGParameterMemberTraits<std::optional<Value>>
+		: TRDGParameterMemberTraits<Value>
 	{
 		using ValueType = Value;
 		static constexpr bool bOptional = true;
@@ -330,20 +330,20 @@ namespace Durin
 	};
 
 	template<typename Value, size_t Count>
-	struct TRenderGraphParameterMemberTraits<std::array<Value, Count>>
-		: TRenderGraphParameterMemberTraits<Value>
+	struct TRDGParameterMemberTraits<std::array<Value, Count>>
+		: TRDGParameterMemberTraits<Value>
 	{
 		static_assert(Count > 0, "Render graph parameter arrays cannot be empty");
-		using ValueType = typename TRenderGraphParameterMemberTraits<Value>::ValueType;
+		using ValueType = typename TRDGParameterMemberTraits<Value>::ValueType;
 		static constexpr uint32 ArraySize = static_cast<uint32>(Count);
 		static constexpr uint32 ElementSize = sizeof(Value);
 	};
 
 	template<typename ParameterStruct, typename MemberType, typename ExpectedType>
-	constexpr auto MakeRenderGraphResourceParameterMemberMetadata(
-		const char* Name, uint32 Offset, ERenderGraphParameterMemberKind Kind,
-		ERenderGraphResourceKind ResourceKind,
-		ERenderGraphParameterRangeKind RangeKind, ERenderGraphUse Use,
+	constexpr auto MakeRDGResourceParameterMemberMetadata(
+		const char* Name, uint32 Offset, ERDGParameterMemberKind Kind,
+		ERDGResourceKind ResourceKind,
+		ERDGParameterRangeKind RangeKind, ERDGUse Use,
 		ERHIAccess Access, bool bDiscard = false,
 		ERHIRenderTargetLoadAction LoadAction =
 			ERHIRenderTargetLoadAction::Load,
@@ -351,17 +351,17 @@ namespace Durin
 			ERHIRenderTargetStoreAction::Store,
 		bool bPassManagedTransition = false,
 		ERHIAccess ResultAccess = ERHIAccess::None)
-		-> FRenderGraphParameterMemberMetadata
+		-> FRDGParameterMemberMetadata
 	{
-		using FTraits = TRenderGraphParameterMemberTraits<MemberType>;
+		using FTraits = TRDGParameterMemberTraits<MemberType>;
 		constexpr bool bExpectedWrapper =
-			std::same_as<ExpectedType, FRenderGraphTextureParameter>
-			|| std::same_as<ExpectedType, FRenderGraphBufferParameter>
-			|| std::same_as<ExpectedType, FRenderGraphTokenParameter>
-			|| std::same_as<ExpectedType, FRenderGraphColorAttachmentParameter>
+			std::same_as<ExpectedType, FRDGTextureParameter>
+			|| std::same_as<ExpectedType, FRDGBufferParameter>
+			|| std::same_as<ExpectedType, FRDGTokenParameter>
+			|| std::same_as<ExpectedType, FRDGColorAttachmentParameter>
 			|| std::same_as<ExpectedType,
-				FRenderGraphDepthStencilAttachmentParameter>
-			|| std::same_as<ExpectedType, FRenderGraphManagedTextureParameter>;
+				FRDGDepthStencilAttachmentParameter>
+			|| std::same_as<ExpectedType, FRDGManagedTextureParameter>;
 		static_assert(bExpectedWrapper,
 			"Render graph resource metadata requires a typed graph wrapper");
 		static_assert(std::same_as<typename FTraits::ValueType, ExpectedType>,
@@ -389,15 +389,15 @@ namespace Durin
 
 	// Composes a shader SRV/UAV role onto the exact graph resource declaration.
 	template<typename ParameterStruct, typename MemberType, typename ExpectedType>
-	constexpr auto MakeRenderGraphShaderResourceParameterMemberMetadata(
-		const char* Name, uint32 Offset, ERenderGraphParameterMemberKind Kind,
-		ERenderGraphResourceKind ResourceKind,
-		ERenderGraphParameterRangeKind RangeKind, ERenderGraphUse Use,
+	constexpr auto MakeRDGShaderResourceParameterMemberMetadata(
+		const char* Name, uint32 Offset, ERDGParameterMemberKind Kind,
+		ERDGResourceKind ResourceKind,
+		ERDGParameterRangeKind RangeKind, ERDGUse Use,
 		ERHIAccess Access, ERHIBindingType BindingType,
 		const char* ShaderBindingName = nullptr, bool bDiscard = false)
-		-> FRenderGraphParameterMemberMetadata
+		-> FRDGParameterMemberMetadata
 	{
-		auto Metadata = MakeRenderGraphResourceParameterMemberMetadata<
+		auto Metadata = MakeRDGResourceParameterMemberMetadata<
 			ParameterStruct, MemberType, ExpectedType>(Name, Offset, Kind,
 			ResourceKind, RangeKind, Use, Access, bDiscard);
 		Metadata.bShaderBinding = true;
@@ -408,15 +408,15 @@ namespace Durin
 	}
 
 	template<typename ParameterStruct, typename MemberType>
-	constexpr auto MakeRenderGraphNestedParameterMemberMetadata(
+	constexpr auto MakeRDGNestedParameterMemberMetadata(
 		const char* Name, uint32 Offset,
-		const FRenderGraphParametersMetadata* NestedParameters)
-		-> FRenderGraphParameterMemberMetadata
+		const FRDGParametersMetadata* NestedParameters)
+		-> FRDGParameterMemberMetadata
 	{
-		using FTraits = TRenderGraphParameterMemberTraits<MemberType>;
+		using FTraits = TRDGParameterMemberTraits<MemberType>;
 		static_assert(!FTraits::bOptional,
 			"Only graph resource wrappers can be optional");
-		static_assert(CRenderGraphParameters<typename FTraits::ValueType>,
+		static_assert(CRDGParameters<typename FTraits::ValueType>,
 			"Nested graph parameter members must have registered metadata");
 		static_assert(std::is_standard_layout_v<ParameterStruct>,
 			"Render graph parameter structs must use standard layout");
@@ -425,21 +425,21 @@ namespace Durin
 			.Offset = Offset,
 			.ElementSize = FTraits::ElementSize,
 			.ArraySize = FTraits::ArraySize,
-			.Kind = ERenderGraphParameterMemberKind::Nested,
+			.Kind = ERDGParameterMemberKind::Nested,
 			.NestedParameters = NestedParameters,
 		};
 	}
 
 	template<typename ParameterStruct, typename MemberType, typename T>
-	constexpr auto MakeRenderGraphValueParameterMemberMetadata(
+	constexpr auto MakeRDGValueParameterMemberMetadata(
 		const char* Name, uint32 Offset)
-		-> FRenderGraphParameterMemberMetadata
+		-> FRDGParameterMemberMetadata
 	{
-		using FTraits = TRenderGraphParameterMemberTraits<MemberType>;
+		using FTraits = TRDGParameterMemberTraits<MemberType>;
 		constexpr bool bRead = std::same_as<typename FTraits::ValueType,
-			TRenderGraphValueRead<T>>;
+			TRDGValueRead<T>>;
 		constexpr bool bWrite = std::same_as<typename FTraits::ValueType,
-			TRenderGraphValueWrite<T>>;
+			TRDGValueWrite<T>>;
 		static_assert(bRead || bWrite,
 			"Render graph value member type does not match its declaration");
 		static_assert(std::is_standard_layout_v<ParameterStruct>,
@@ -451,13 +451,13 @@ namespace Durin
 			.ArraySize = FTraits::ArraySize,
 			.bOptional = FTraits::bOptional,
 			.Kind = bRead
-				? ERenderGraphParameterMemberKind::ValueRead
-				: ERenderGraphParameterMemberKind::ValueWrite,
-			.ResourceKind = ERenderGraphResourceKind::Token,
-			.Use = bRead ? ERenderGraphUse::Read : ERenderGraphUse::Write,
+				? ERDGParameterMemberKind::ValueRead
+				: ERDGParameterMemberKind::ValueWrite,
+			.ResourceKind = ERDGResourceKind::Token,
+			.Use = bRead ? ERDGUse::Read : ERDGUse::Write,
 			.bDiscard = bWrite,
 			.ValueTypeIdentity =
-				&RenderGraphPrivate::GValueTypeIdentity<std::remove_cv_t<T>>,
+				&RDGPrivate::GValueTypeIdentity<std::remove_cv_t<T>>,
 			.ReadValueHandle = [](const void* Element, uint64& Owner,
 				uint32& Index) -> bool {
 				const typename FTraits::ValueType* Wrapper = nullptr;
@@ -478,17 +478,17 @@ namespace Durin
 
 	// A move-only mutable capability for one builder-owned parameter allocation.
 	template<typename ParameterStruct>
-	class TRenderGraphParametersRef final
+	class TRDGParametersRef final
 	{
 	public:
-		TRenderGraphParametersRef() = default;
-		TRenderGraphParametersRef(TRenderGraphParametersRef&& Other) noexcept
+		TRDGParametersRef() = default;
+		TRDGParametersRef(TRDGParametersRef&& Other) noexcept
 			: Data(std::exchange(Other.Data, nullptr)),
 			  Lifetime(std::move(Other.Lifetime))
 		{
 		}
-		auto operator=(TRenderGraphParametersRef&& Other) noexcept
-			-> TRenderGraphParametersRef&
+		auto operator=(TRDGParametersRef&& Other) noexcept
+			-> TRDGParametersRef&
 		{
 			if (this != &Other)
 			{
@@ -498,9 +498,9 @@ namespace Durin
 			return *this;
 		}
 
-		TRenderGraphParametersRef(const TRenderGraphParametersRef&) = delete;
-		auto operator=(const TRenderGraphParametersRef&)
-			-> TRenderGraphParametersRef& = delete;
+		TRDGParametersRef(const TRDGParametersRef&) = delete;
+		auto operator=(const TRDGParametersRef&)
+			-> TRDGParametersRef& = delete;
 
 		auto IsValid() const -> bool { return Data != nullptr && !Lifetime.expired(); }
 		explicit operator bool() const { return IsValid(); }
@@ -513,8 +513,8 @@ namespace Durin
 		}
 
 	private:
-		friend class FRenderGraphBuilder;
-		TRenderGraphParametersRef(ParameterStruct* InData,
+		friend class FRDGBuilder;
+		TRDGParametersRef(ParameterStruct* InData,
 			std::weak_ptr<void> InLifetime)
 			: Data(InData), Lifetime(std::move(InLifetime))
 		{
@@ -525,27 +525,27 @@ namespace Durin
 	};
 
 	// Exposes only resources declared by the executing graph to pass callbacks.
-	class RENDERCORE_API FRenderGraphPassResources final
+	class RENDERCORE_API FRDGPassResources final
 	{
 	public:
-		auto GetTexture(FRenderGraphTextureHandle Handle) const -> FRHITexture*;
-		auto GetBuffer(FRenderGraphBufferHandle Handle) const -> FRHIBuffer*;
+		auto GetTexture(FRDGTextureHandle Handle) const -> FRHITexture*;
+		auto GetBuffer(FRDGBufferHandle Handle) const -> FRHIBuffer*;
 		template<typename T>
-		auto ReadValue(TRenderGraphValueHandle<T> Handle) const -> const T&
+		auto ReadValue(TRDGValueHandle<T> Handle) const -> const T&
 		{
 			return *static_cast<const T*>(ResolveValue(Handle.Owner, Handle.Index,
-				&RenderGraphPrivate::GValueTypeIdentity<std::remove_cv_t<T>>, false));
+				&RDGPrivate::GValueTypeIdentity<std::remove_cv_t<T>>, false));
 		}
 		template<typename T>
-		auto WriteValue(TRenderGraphValueHandle<T> Handle) const -> T&
+		auto WriteValue(TRDGValueHandle<T> Handle) const -> T&
 		{
 			return *static_cast<T*>(ResolveValue(Handle.Owner, Handle.Index,
-				&RenderGraphPrivate::GValueTypeIdentity<std::remove_cv_t<T>>, true));
+				&RDGPrivate::GValueTypeIdentity<std::remove_cv_t<T>>, true));
 		}
 
 	private:
-		friend class FCompiledRenderGraph;
-		explicit FRenderGraphPassResources(const FCompiledRenderGraph& InGraph,
+		friend class FRDGCompiledGraph;
+		explicit FRDGPassResources(const FRDGCompiledGraph& InGraph,
 			uint32 InPassIndex)
 			: Graph(InGraph), PassIndex(InPassIndex)
 		{
@@ -553,13 +553,13 @@ namespace Durin
 		auto ResolveValue(uint64 Owner, uint32 Index, const void* TypeIdentity,
 			bool bWrite) const -> void*;
 
-		const FCompiledRenderGraph& Graph;
+		const FRDGCompiledGraph& Graph;
 		uint32 PassIndex = 0;
 	};
 
 	// Carries the physical texture and immutable declaration details for one
 	// color or depth/stencil attachment parameter.
-	struct FRenderGraphAttachmentView final
+	struct FRDGAttachmentView final
 	{
 		FRHITexture* Texture = nullptr;
 		FRHITextureSubresourceRange Range{};
@@ -575,163 +575,163 @@ namespace Durin
 
 	// Resolves only wrapper objects that are members of the executing pass's
 	// immutable parameter allocation. Raw graph handles are intentionally absent.
-	class RENDERCORE_API FRenderGraphParameterResolver final
+	class RENDERCORE_API FRDGParameterResolver final
 	{
 	public:
-		FRenderGraphParameterResolver(const FRenderGraphParameterResolver&) = delete;
-		auto operator=(const FRenderGraphParameterResolver&)
-			-> FRenderGraphParameterResolver& = delete;
-		FRenderGraphParameterResolver(FRenderGraphParameterResolver&&) = delete;
-		auto operator=(FRenderGraphParameterResolver&&)
-			-> FRenderGraphParameterResolver& = delete;
+		FRDGParameterResolver(const FRDGParameterResolver&) = delete;
+		auto operator=(const FRDGParameterResolver&)
+			-> FRDGParameterResolver& = delete;
+		FRDGParameterResolver(FRDGParameterResolver&&) = delete;
+		auto operator=(FRDGParameterResolver&&)
+			-> FRDGParameterResolver& = delete;
 
-		auto GetTexture(const FRenderGraphTextureParameter& Parameter) const
+		auto GetTexture(const FRDGTextureParameter& Parameter) const
 			-> FRHITexture*;
 		auto GetTexture(
-			const std::optional<FRenderGraphTextureParameter>& Parameter) const
+			const std::optional<FRDGTextureParameter>& Parameter) const
 			-> FRHITexture*;
-		auto GetTexture(const FRenderGraphManagedTextureParameter& Parameter) const
+		auto GetTexture(const FRDGManagedTextureParameter& Parameter) const
 			-> FRHITexture*;
 		auto GetTexture(
-			const std::optional<FRenderGraphManagedTextureParameter>& Parameter) const
+			const std::optional<FRDGManagedTextureParameter>& Parameter) const
 			-> FRHITexture*;
-		auto GetBuffer(const FRenderGraphBufferParameter& Parameter) const
+		auto GetBuffer(const FRDGBufferParameter& Parameter) const
 			-> FRHIBuffer*;
 		auto GetBuffer(
-			const std::optional<FRenderGraphBufferParameter>& Parameter) const
+			const std::optional<FRDGBufferParameter>& Parameter) const
 			-> FRHIBuffer*;
 		auto GetColorAttachment(
-			const FRenderGraphColorAttachmentParameter& Parameter) const
-			-> FRenderGraphAttachmentView;
+			const FRDGColorAttachmentParameter& Parameter) const
+			-> FRDGAttachmentView;
 		auto GetColorAttachment(const std::optional<
-			FRenderGraphColorAttachmentParameter>& Parameter) const
-			-> FRenderGraphAttachmentView;
+			FRDGColorAttachmentParameter>& Parameter) const
+			-> FRDGAttachmentView;
 		auto GetDepthStencilAttachment(
-			const FRenderGraphDepthStencilAttachmentParameter& Parameter) const
-			-> FRenderGraphAttachmentView;
+			const FRDGDepthStencilAttachmentParameter& Parameter) const
+			-> FRDGAttachmentView;
 		auto GetDepthStencilAttachment(const std::optional<
-			FRenderGraphDepthStencilAttachmentParameter>& Parameter) const
-			-> FRenderGraphAttachmentView;
+			FRDGDepthStencilAttachmentParameter>& Parameter) const
+			-> FRDGAttachmentView;
 		auto GetPassName() const -> std::string_view { return PassName; }
-		auto GetPassType() const -> ERenderGraphPassType { return PassType; }
-		template<CRenderGraphParameters ParameterStruct>
+		auto GetPassType() const -> ERDGPassType { return PassType; }
+		template<CRDGParameters ParameterStruct>
 		auto GetShaderParameters(const ParameterStruct& InParameters) const
-			-> FRenderGraphShaderParameters;
+			-> FRDGShaderParameterScope;
 		template<typename T>
-		auto ReadValue(const TRenderGraphValueRead<T>& Parameter) const -> const T&
+		auto ReadValue(const TRDGValueRead<T>& Parameter) const -> const T&
 		{
-			FindMember(&Parameter, ERenderGraphParameterMemberKind::ValueRead,
-				ERenderGraphParameterMemberKind::ValueRead, false);
+			FindMember(&Parameter, ERDGParameterMemberKind::ValueRead,
+				ERDGParameterMemberKind::ValueRead, false);
 			return Resources.ReadValue(Parameter.Value);
 		}
 		template<typename T>
-		auto WriteValue(const TRenderGraphValueWrite<T>& Parameter) const -> T&
+		auto WriteValue(const TRDGValueWrite<T>& Parameter) const -> T&
 		{
-			FindMember(&Parameter, ERenderGraphParameterMemberKind::ValueWrite,
-				ERenderGraphParameterMemberKind::ValueWrite, false);
+			FindMember(&Parameter, ERDGParameterMemberKind::ValueWrite,
+				ERDGParameterMemberKind::ValueWrite, false);
 			return Resources.WriteValue(Parameter.Value);
 		}
 		template<typename T>
-		auto ReadValue(const std::optional<TRenderGraphValueRead<T>>& Parameter) const
+		auto ReadValue(const std::optional<TRDGValueRead<T>>& Parameter) const
 			-> const T*
 		{
-			FindMember(&Parameter, ERenderGraphParameterMemberKind::ValueRead,
-				ERenderGraphParameterMemberKind::ValueRead, true);
+			FindMember(&Parameter, ERDGParameterMemberKind::ValueRead,
+				ERDGParameterMemberKind::ValueRead, true);
 			return Parameter ? &Resources.ReadValue(Parameter->Value) : nullptr;
 		}
 		template<typename T>
 		auto WriteValue(
-			const std::optional<TRenderGraphValueWrite<T>>& Parameter) const -> T*
+			const std::optional<TRDGValueWrite<T>>& Parameter) const -> T*
 		{
-			FindMember(&Parameter, ERenderGraphParameterMemberKind::ValueWrite,
-				ERenderGraphParameterMemberKind::ValueWrite, true);
+			FindMember(&Parameter, ERDGParameterMemberKind::ValueWrite,
+				ERDGParameterMemberKind::ValueWrite, true);
 			return Parameter ? &Resources.WriteValue(Parameter->Value) : nullptr;
 		}
 
 	private:
-		friend class FCompiledRenderGraph;
-		friend class FRenderGraphShaderParameters;
-		explicit FRenderGraphParameterResolver(
-			const FRenderGraphPassResources& InResources,
-			const FRenderGraphParametersMetadata* InMetadata,
+		friend class FRDGCompiledGraph;
+		friend class FRDGShaderParameterScope;
+		explicit FRDGParameterResolver(
+			const FRDGPassResources& InResources,
+			const FRDGParametersMetadata* InMetadata,
 			const void* InParameters, std::string_view InPassName,
-			ERenderGraphPassType InPassType)
+			ERDGPassType InPassType)
 			: Resources(InResources), Metadata(InMetadata), Parameters(InParameters),
 			  PassName(InPassName), PassType(InPassType)
 		{
 		}
 		auto ValidateShaderParametersIdentity(const void* Data,
-			const FRenderGraphParametersMetadata* InMetadata) const -> void;
+			const FRDGParametersMetadata* InMetadata) const -> void;
 		auto FindMember(const void* Address,
-			ERenderGraphParameterMemberKind ExpectedKind,
-			ERenderGraphParameterMemberKind AlternateKind,
-			bool bOptional) const -> const FRenderGraphParameterMemberMetadata&;
+			ERDGParameterMemberKind ExpectedKind,
+			ERDGParameterMemberKind AlternateKind,
+			bool bOptional) const -> const FRDGParameterMemberMetadata&;
 
-		const FRenderGraphPassResources& Resources;
-		const FRenderGraphParametersMetadata* Metadata = nullptr;
+		const FRDGPassResources& Resources;
+		const FRDGParametersMetadata* Metadata = nullptr;
 		const void* Parameters = nullptr;
 		std::string_view PassName;
-		ERenderGraphPassType PassType = ERenderGraphPassType::Graphics;
+		ERDGPassType PassType = ERDGPassType::Graphics;
 	};
 
 	// A non-copyable callback-lifetime view of the exact immutable pass object.
 	// It is the only object accepted by composed shader submission.
-	class RENDERCORE_API FRenderGraphShaderParameters final
+	class RENDERCORE_API FRDGShaderParameterScope final
 	{
 	public:
-		FRenderGraphShaderParameters(const FRenderGraphShaderParameters&) = delete;
-		auto operator=(const FRenderGraphShaderParameters&)
-			-> FRenderGraphShaderParameters& = delete;
-		FRenderGraphShaderParameters(FRenderGraphShaderParameters&&) = delete;
-		auto operator=(FRenderGraphShaderParameters&&)
-			-> FRenderGraphShaderParameters& = delete;
+		FRDGShaderParameterScope(const FRDGShaderParameterScope&) = delete;
+		auto operator=(const FRDGShaderParameterScope&)
+			-> FRDGShaderParameterScope& = delete;
+		FRDGShaderParameterScope(FRDGShaderParameterScope&&) = delete;
+		auto operator=(FRDGShaderParameterScope&&)
+			-> FRDGShaderParameterScope& = delete;
 
-		auto GetResolver() const -> const FRenderGraphParameterResolver&
+		auto GetResolver() const -> const FRDGParameterResolver&
 		{
 			return Resolver;
 		}
 		auto GetData() const -> const void* { return Data; }
-		auto GetMetadata() const -> const FRenderGraphParametersMetadata*
+		auto GetMetadata() const -> const FRDGParametersMetadata*
 		{
 			return Metadata;
 		}
 
 	private:
-		friend class FRenderGraphParameterResolver;
-		FRenderGraphShaderParameters(const FRenderGraphParameterResolver& InResolver,
-			const void* InData, const FRenderGraphParametersMetadata* InMetadata)
+		friend class FRDGParameterResolver;
+		FRDGShaderParameterScope(const FRDGParameterResolver& InResolver,
+			const void* InData, const FRDGParametersMetadata* InMetadata)
 			: Resolver(InResolver), Data(InData), Metadata(InMetadata)
 		{
 		}
 
-		const FRenderGraphParameterResolver& Resolver;
+		const FRDGParameterResolver& Resolver;
 		const void* Data = nullptr;
-		const FRenderGraphParametersMetadata* Metadata = nullptr;
+		const FRDGParametersMetadata* Metadata = nullptr;
 	};
 
-	template<CRenderGraphParameters ParameterStruct>
-	auto FRenderGraphParameterResolver::GetShaderParameters(
+	template<CRDGParameters ParameterStruct>
+	auto FRDGParameterResolver::GetShaderParameters(
 		const ParameterStruct& InParameters) const
-		-> FRenderGraphShaderParameters
+		-> FRDGShaderParameterScope
 	{
 		const auto* InMetadata =
-			ParameterStruct::GetRenderGraphParametersMetadata();
+			ParameterStruct::GetRDGParametersMetadata();
 		ValidateShaderParametersIdentity(&InParameters, InMetadata);
-		return FRenderGraphShaderParameters(*this, &InParameters, InMetadata);
+		return FRDGShaderParameterScope(*this, &InParameters, InMetadata);
 	}
 
-	using FRenderGraphExecute = std::function<void(
-		FRHICommandListImmediate&, const FRenderGraphPassResources&)>;
-	using FRenderGraphParameterizedExecute = std::function<void(
-		FRHICommandListImmediate&, const FRenderGraphParameterResolver&)>;
-	using FRenderGraphPrepare = std::function<bool(std::string&)>;
+	using FRDGPassExecute = std::function<void(
+		FRHICommandListImmediate&, const FRDGPassResources&)>;
+	using FRDGParameterizedPassExecute = std::function<void(
+		FRHICommandListImmediate&, const FRDGParameterResolver&)>;
+	using FRDGPrepareCallback = std::function<bool(std::string&)>;
 
 	// Describes one retained graph-created resource for execution allocation.
 	// Diagnostic names are deliberately absent from allocation identity.
 	struct FRDGAllocationRequest final
 	{
 		uint32 ResourceId = 0;
-		ERenderGraphResourceKind Kind = ERenderGraphResourceKind::Texture;
+		ERDGResourceKind Kind = ERDGResourceKind::Texture;
 		FRHITextureDesc TextureDesc;
 		FRHIBufferDesc BufferDesc;
 		uint32 FirstPass = 0;
@@ -768,7 +768,7 @@ namespace Durin
 		}
 
 	private:
-		friend class FCompiledRenderGraph;
+		friend class FRDGCompiledGraph;
 		explicit FRDGAllocatedResources(uint32 Count);
 		std::vector<FTextureRHIRef> Textures;
 		std::vector<FBufferRHIRef> Buffers;
@@ -794,22 +794,22 @@ namespace Durin
 	};
 
 	// Records one immutable dependency edge in compiler diagnostics.
-	struct FRenderGraphDependency final
+	struct FRDGDependency final
 	{
 		uint32 BeforePass = 0;
 		uint32 AfterPass = 0;
 		std::string Cause;
-		ERenderGraphDependencyKind Kind = ERenderGraphDependencyKind::Execution;
+		ERDGDependencyKind Kind = ERDGDependencyKind::Execution;
 
-		auto operator==(const FRenderGraphDependency&) const -> bool = default;
+		auto operator==(const FRDGDependency&) const -> bool = default;
 	};
 
 	// Records one pointer-free declared resource and its preparation outcome.
-	struct FRenderGraphResourceCapture final
+	struct FRDGResourceCapture final
 	{
 		uint32 ResourceId = 0;
 		std::string Name;
-		ERenderGraphResourceKind Kind = ERenderGraphResourceKind::Texture;
+		ERDGResourceKind Kind = ERDGResourceKind::Texture;
 		bool bImported = false;
 		std::string Preparation;
 		std::string AllocationDisposition;
@@ -824,11 +824,11 @@ namespace Durin
 	};
 
 	// Records one exact pointer-free pass use after range normalization.
-	struct FRenderGraphUseCapture final
+	struct FRDGUseCapture final
 	{
 		uint32 PassDeclarationIndex = 0;
 		uint32 ResourceId = 0;
-		ERenderGraphUse Use = ERenderGraphUse::Read;
+		ERDGUse Use = ERDGUse::Read;
 		ERHIAccess Access = ERHIAccess::None;
 		FRHITextureSubresourceRange TextureRange{};
 		uint64 BufferOffset = 0;
@@ -842,18 +842,18 @@ namespace Durin
 	};
 
 	// Records one submitted leaf parameter capability, including optional absence.
-	struct FRenderGraphParameterCapture final
+	struct FRDGParameterCapture final
 	{
 		uint32 PassDeclarationIndex = 0;
 		std::string FieldPath;
-		ERenderGraphParameterMemberKind Kind =
-			ERenderGraphParameterMemberKind::Texture;
-		ERenderGraphResourceKind ResourceKind =
-			ERenderGraphResourceKind::Texture;
+		ERDGParameterMemberKind Kind =
+			ERDGParameterMemberKind::Texture;
+		ERDGResourceKind ResourceKind =
+			ERDGResourceKind::Texture;
 		bool bPresent = false;
 		// Absent optional fields use max uint32 and never name a synthetic resource.
 		uint32 ResourceId = std::numeric_limits<uint32>::max();
-		ERenderGraphUse Use = ERenderGraphUse::Read;
+		ERDGUse Use = ERDGUse::Read;
 		ERHIAccess Access = ERHIAccess::None;
 		FRHITextureSubresourceRange TextureRange{};
 		uint64 BufferOffset = 0;
@@ -867,7 +867,7 @@ namespace Durin
 	};
 
 	// Records one exact pointer-free transition at a pass or graph boundary.
-	struct FRenderGraphTransitionCapture final
+	struct FRDGTransitionCapture final
 	{
 		uint32 ResourceId = 0;
 		uint32 PassIndex = std::numeric_limits<uint32>::max();
@@ -880,7 +880,7 @@ namespace Durin
 	};
 
 	// Reports the retained scheduled interval of one declared resource.
-	struct FRenderGraphResourceLifetime final
+	struct FRDGResourceLifetime final
 	{
 		std::string Name;
 		uint32 FirstPass = 0;
@@ -890,7 +890,7 @@ namespace Durin
 	};
 
 	// Explains whether one declared pass survived explicit-root reachability.
-	struct FRenderGraphCullingDecision final
+	struct FRDGCullingDecision final
 	{
 		std::string Name;
 		bool bCulled = false;
@@ -898,7 +898,7 @@ namespace Durin
 	};
 
 	// Separates catastrophic graph-shape safety limits from observational budgets.
-	struct FRenderGraphBudget final
+	struct FRDGBudget final
 	{
 		uint32 MaxPasses = std::numeric_limits<uint32>::max();
 		uint32 MaxDependencies = std::numeric_limits<uint32>::max();
@@ -915,7 +915,7 @@ namespace Durin
 	};
 
 	// Reports graph shape and CPU cost without affecting execution correctness.
-	struct FRenderGraphStatistics final
+	struct FRDGStatistics final
 	{
 		uint32 DeclaredPasses = 0;
 		uint32 ScheduledPasses = 0;
@@ -942,10 +942,10 @@ namespace Durin
 	};
 
 	// Pointer-free pass record suitable for persistence and tooling.
-	struct FRenderGraphPassCapture final
+	struct FRDGPassCapture final
 	{
 		std::string Name;
-		ERenderGraphPassType Type = ERenderGraphPassType::Graphics;
+		ERDGPassType Type = ERDGPassType::Graphics;
 		uint32 DeclarationIndex = 0;
 		std::string ParameterStructName;
 		uint32 BufferTransitions = 0;
@@ -953,27 +953,27 @@ namespace Durin
 	};
 
 	// Owns an immutable diagnostic snapshot independent of graph/RHI lifetimes.
-	struct FRenderGraphCapture final
+	struct FRDGCapture final
 	{
-		FRenderGraphBudget Budget;
-		FRenderGraphStatistics Statistics;
+		FRDGBudget Budget;
+		FRDGStatistics Statistics;
 		FRDGAllocationStatistics AllocationStatistics;
-		std::vector<FRenderGraphPassCapture> Passes;
-		std::vector<FRenderGraphResourceCapture> Resources;
-		std::vector<FRenderGraphParameterCapture> Parameters;
-		std::vector<FRenderGraphUseCapture> Uses;
-		std::vector<FRenderGraphTransitionCapture> Transitions;
-		std::vector<FRenderGraphDependency> Dependencies;
-		std::vector<FRenderGraphResourceLifetime> ResourceLifetimes;
-		std::vector<FRenderGraphCullingDecision> CullingDecisions;
+		std::vector<FRDGPassCapture> Passes;
+		std::vector<FRDGResourceCapture> Resources;
+		std::vector<FRDGParameterCapture> Parameters;
+		std::vector<FRDGUseCapture> Uses;
+		std::vector<FRDGTransitionCapture> Transitions;
+		std::vector<FRDGDependency> Dependencies;
+		std::vector<FRDGResourceLifetime> ResourceLifetimes;
+		std::vector<FRDGCullingDecision> CullingDecisions;
 		std::string Dump;
 	};
 
 	// Owns the compiled pass order and transition batches for one graph.
-	struct FCompiledRenderGraphPass final
+	struct FRDGCompiledPass final
 	{
 		std::string Name;
-		ERenderGraphPassType Type = ERenderGraphPassType::Graphics;
+		ERDGPassType Type = ERDGPassType::Graphics;
 		uint32 DeclarationIndex = 0;
 		std::string ParameterStructName;
 		std::vector<FRHIBufferTransition> BufferTransitions;
@@ -981,32 +981,32 @@ namespace Durin
 	};
 
 	// Immutable executable result produced only after complete graph validation.
-	class RENDERCORE_API FCompiledRenderGraph final
+	class RENDERCORE_API FRDGCompiledGraph final
 	{
 	public:
-		FCompiledRenderGraph(FCompiledRenderGraph&&) noexcept;
-		auto operator=(FCompiledRenderGraph&&) noexcept
-			-> FCompiledRenderGraph&;
-		~FCompiledRenderGraph();
+		FRDGCompiledGraph(FRDGCompiledGraph&&) noexcept;
+		auto operator=(FRDGCompiledGraph&&) noexcept
+			-> FRDGCompiledGraph&;
+		~FRDGCompiledGraph();
 
-		FCompiledRenderGraph(const FCompiledRenderGraph&) = delete;
-		auto operator=(const FCompiledRenderGraph&)
-			-> FCompiledRenderGraph& = delete;
+		FRDGCompiledGraph(const FRDGCompiledGraph&) = delete;
+		auto operator=(const FRDGCompiledGraph&)
+			-> FRDGCompiledGraph& = delete;
 
-		auto GetPasses() const -> std::span<const FCompiledRenderGraphPass>;
-		auto GetDependencies() const -> std::span<const FRenderGraphDependency>;
+		auto GetPasses() const -> std::span<const FRDGCompiledPass>;
+		auto GetDependencies() const -> std::span<const FRDGDependency>;
 		auto GetResourceLifetimes() const
-			-> std::span<const FRenderGraphResourceLifetime>;
+			-> std::span<const FRDGResourceLifetime>;
 		auto GetCullingDecisions() const
-			-> std::span<const FRenderGraphCullingDecision>;
+			-> std::span<const FRDGCullingDecision>;
 		auto GetFinalBufferTransitions() const
 			-> std::span<const FRHIBufferTransition>;
 		auto GetFinalTextureTransitions() const
 			-> std::span<const FRHITextureTransition>;
 		auto GetCompileMicroseconds() const -> uint64;
-		auto GetBudget() const -> const FRenderGraphBudget&;
-		auto GetStatistics() const -> FRenderGraphStatistics;
-		auto Capture() const -> FRenderGraphCapture;
+		auto GetBudget() const -> const FRDGBudget&;
+		auto GetStatistics() const -> FRDGStatistics;
+		auto Capture() const -> FRDGCapture;
 		auto Dump() const -> std::string;
 		// Runs complete resource preparation before recording any pass command.
 		auto Execute(FRHICommandListImmediate& CommandList,
@@ -1016,80 +1016,80 @@ namespace Durin
 			std::string* OutError = nullptr) const -> bool;
 
 	private:
-		friend class FRenderGraphBuilder;
-		friend class FRenderGraphPassResources;
+		friend class FRDGBuilder;
+		friend class FRDGPassResources;
 		struct FState;
-		explicit FCompiledRenderGraph(std::unique_ptr<FState> InState);
+		explicit FRDGCompiledGraph(std::unique_ptr<FState> InState);
 		auto ExecuteInternal(FRHICommandListImmediate& CommandList,
 			FRDGExecutionContext* Context, std::string* OutError) const -> bool;
 		std::unique_ptr<FState> State;
 	};
 
 	// Publishes either one complete graph or one deterministic compile failure.
-	struct FRenderGraphCompileResult final
+	struct FRDGCompileResult final
 	{
-		std::unique_ptr<FCompiledRenderGraph> Graph;
+		std::unique_ptr<FRDGCompiledGraph> Graph;
 		std::string Error;
 
 		auto IsSuccess() const -> bool { return Graph != nullptr; }
 	};
 
 	// Collects frame-local resources and passes before deterministic compilation.
-	class RENDERCORE_API FRenderGraphBuilder final
+	class RENDERCORE_API FRDGBuilder final
 	{
 	public:
-		FRenderGraphBuilder();
-		~FRenderGraphBuilder();
+		FRDGBuilder();
+		~FRDGBuilder();
 
-		FRenderGraphBuilder(const FRenderGraphBuilder&) = delete;
-		auto operator=(const FRenderGraphBuilder&)
-			-> FRenderGraphBuilder& = delete;
-		FRenderGraphBuilder(FRenderGraphBuilder&&) = delete;
-		auto operator=(FRenderGraphBuilder&&)
-			-> FRenderGraphBuilder& = delete;
+		FRDGBuilder(const FRDGBuilder&) = delete;
+		auto operator=(const FRDGBuilder&)
+			-> FRDGBuilder& = delete;
+		FRDGBuilder(FRDGBuilder&&) = delete;
+		auto operator=(FRDGBuilder&&)
+			-> FRDGBuilder& = delete;
 
 		auto ImportTexture(std::string_view Name, FRHITexture* Texture,
 			ERHIAccess InitialAccess, ERHIAccess FinalAccess)
-			-> FRenderGraphTextureHandle;
+			-> FRDGTextureHandle;
 		auto RegisterExternalTexture(const FTextureRHIRef& Texture,
 			std::string_view Name, ERHIAccess InitialAccess,
-			ERHIAccess FinalAccess) -> FRenderGraphTextureHandle;
-		auto CreateTexture(const FRenderGraphTextureDesc& Desc,
+			ERHIAccess FinalAccess) -> FRDGTextureHandle;
+		auto CreateTexture(const FRDGTextureDesc& Desc,
 			std::string_view Name,
 			ERHIAccess FinalAccess = ERHIAccess::None)
-			-> FRenderGraphTextureHandle;
+			-> FRDGTextureHandle;
 		auto CreateTexture(std::string_view Name, FRHITexture* Texture,
 			ERHIAccess FinalAccess = ERHIAccess::None)
-			-> FRenderGraphTextureHandle;
+			-> FRDGTextureHandle;
 		auto ImportBuffer(std::string_view Name, FRHIBuffer* Buffer,
 			ERHIAccess InitialAccess, ERHIAccess FinalAccess)
-			-> FRenderGraphBufferHandle;
+			-> FRDGBufferHandle;
 		auto RegisterExternalBuffer(const FBufferRHIRef& Buffer,
 			std::string_view Name, ERHIAccess InitialAccess,
-			ERHIAccess FinalAccess) -> FRenderGraphBufferHandle;
-		auto CreateBuffer(const FRenderGraphBufferDesc& Desc,
+			ERHIAccess FinalAccess) -> FRDGBufferHandle;
+		auto CreateBuffer(const FRDGBufferDesc& Desc,
 			std::string_view Name,
 			ERHIAccess FinalAccess = ERHIAccess::None)
-			-> FRenderGraphBufferHandle;
+			-> FRDGBufferHandle;
 		auto CreateBuffer(std::string_view Name, FRHIBuffer* Buffer,
 			ERHIAccess FinalAccess = ERHIAccess::None)
-			-> FRenderGraphBufferHandle;
-		auto CreateToken(std::string_view Name) -> FRenderGraphTokenHandle;
-		auto QueueTextureExtraction(FRenderGraphTextureHandle Texture,
+			-> FRDGBufferHandle;
+		auto CreateToken(std::string_view Name) -> FRDGTokenHandle;
+		auto QueueTextureExtraction(FRDGTextureHandle Texture,
 			FTextureRHIRef* Destination, ERHIAccess FinalAccess) -> void;
-		auto QueueBufferExtraction(FRenderGraphBufferHandle Buffer,
+		auto QueueBufferExtraction(FRDGBufferHandle Buffer,
 			FBufferRHIRef* Destination, ERHIAccess FinalAccess) -> void;
 		template<typename T, typename... Args>
 		requires std::constructible_from<T, Args...> && std::destructible<T>
 		auto CreateValue(std::string_view Name, std::string_view StableTypeName,
-			Args&&... ConstructorArgs) -> TRenderGraphValueHandle<T>
+			Args&&... ConstructorArgs) -> TRDGValueHandle<T>
 		{
 			static_assert(std::is_object_v<T> && !std::is_const_v<T>
 				&& !std::is_volatile_v<T>,
 				"Render graph values require an unqualified object type");
 			uint32 Index = 0;
 			void* Storage = AllocateValueStorage(Name, StableTypeName,
-				&RenderGraphPrivate::GValueTypeIdentity<T>, sizeof(T), alignof(T),
+				&RDGPrivate::GValueTypeIdentity<T>, sizeof(T), alignof(T),
 				[](void* Value) { std::destroy_at(static_cast<T*>(Value)); }, Index);
 			if (Storage == nullptr) return {};
 			std::construct_at(static_cast<T*>(Storage),
@@ -1098,34 +1098,34 @@ namespace Durin
 			return {StateOwner(), Index};
 		}
 
-		auto AddPass(std::string_view Name, ERenderGraphPassType Type,
-			FRenderGraphExecute Execute = {}) -> FRenderGraphPassHandle;
+		auto AddPass(std::string_view Name, ERDGPassType Type,
+			FRDGPassExecute Execute = {}) -> FRDGPassHandle;
 		template<typename ParameterStruct>
-		requires CRenderGraphParameters<ParameterStruct>
-		auto AddPass(std::string_view Name, ERenderGraphPassType Type,
-			TRenderGraphParametersRef<ParameterStruct>&& Parameters,
-			FRenderGraphExecute Execute = {}) -> FRenderGraphPassHandle
+		requires CRDGParameters<ParameterStruct>
+		auto AddPass(std::string_view Name, ERDGPassType Type,
+			TRDGParametersRef<ParameterStruct>&& Parameters,
+			FRDGPassExecute Execute = {}) -> FRDGPassHandle
 		{
 			auto Lifetime = Parameters.Lifetime.lock();
 			void* Data = std::exchange(Parameters.Data, nullptr);
 			Parameters.Lifetime.reset();
 			return AddParameterizedPass(Name, Type,
-				ParameterStruct::GetRenderGraphParametersMetadata(), Data,
+				ParameterStruct::GetRDGParametersMetadata(), Data,
 				std::move(Lifetime), std::move(Execute), {});
 		}
 		template<typename ParameterStruct, typename Execute>
-		requires CRenderGraphParameters<ParameterStruct>
+		requires CRDGParameters<ParameterStruct>
 			&& std::invocable<Execute&, FRHICommandListImmediate&,
-				const ParameterStruct&, const FRenderGraphParameterResolver&>
-		auto AddPass(std::string_view Name, ERenderGraphPassType Type,
-			TRenderGraphParametersRef<ParameterStruct>&& Parameters,
-			Execute&& ExecuteCallback) -> FRenderGraphPassHandle
+				const ParameterStruct&, const FRDGParameterResolver&>
+		auto AddPass(std::string_view Name, ERDGPassType Type,
+			TRDGParametersRef<ParameterStruct>&& Parameters,
+			Execute&& ExecuteCallback) -> FRDGPassHandle
 		{
 			ParameterStruct* TypedData = Parameters.Data;
-			FRenderGraphParameterizedExecute ErasedExecute =
+			FRDGParameterizedPassExecute ErasedExecute =
 				[TypedData, Callback = std::forward<Execute>(ExecuteCallback)](
 					FRHICommandListImmediate& CommandList,
-					const FRenderGraphParameterResolver& Resolver) mutable {
+					const FRDGParameterResolver& Resolver) mutable {
 					std::invoke(Callback, CommandList,
 						static_cast<const ParameterStruct&>(*TypedData), Resolver);
 				};
@@ -1133,20 +1133,20 @@ namespace Durin
 			void* Data = std::exchange(Parameters.Data, nullptr);
 			Parameters.Lifetime.reset();
 			return AddParameterizedPass(Name, Type,
-				ParameterStruct::GetRenderGraphParametersMetadata(), Data,
+				ParameterStruct::GetRDGParametersMetadata(), Data,
 				std::move(Lifetime), {}, std::move(ErasedExecute));
 		}
-		auto AddDependency(FRenderGraphPassHandle Pass,
-			FRenderGraphPassHandle Prerequisite) -> void;
-		auto MarkPassRoot(FRenderGraphPassHandle Pass,
+		auto AddDependency(FRDGPassHandle Pass,
+			FRDGPassHandle Prerequisite) -> void;
+		auto MarkPassRoot(FRDGPassHandle Pass,
 			std::string_view Reason = "side-effect") -> void;
 		auto EnablePassCulling() -> void;
-		auto SetExecutionPreparation(FRenderGraphPrepare Prepare) -> void;
-		auto SetBudget(const FRenderGraphBudget& Budget) -> void;
+		auto SetExecutionPreparation(FRDGPrepareCallback Prepare) -> void;
+		auto SetBudget(const FRDGBudget& Budget) -> void;
 
 		template<typename ParameterStruct>
-		requires CRenderGraphParameters<ParameterStruct>
-		auto AllocParameters() -> TRenderGraphParametersRef<ParameterStruct>
+		requires CRDGParameters<ParameterStruct>
+		auto AllocParameters() -> TRDGParametersRef<ParameterStruct>
 		{
 			static_assert(std::is_standard_layout_v<ParameterStruct>,
 				"Render graph parameter structs must use standard layout");
@@ -1157,7 +1157,7 @@ namespace Durin
 			std::weak_ptr<void> Lifetime;
 			void* Storage = AllocateParameterStorage(sizeof(ParameterStruct),
 				alignof(ParameterStruct),
-				ParameterStruct::GetRenderGraphParametersMetadata(),
+				ParameterStruct::GetRDGParametersMetadata(),
 				[](void* Value) { std::destroy_at(
 					static_cast<ParameterStruct*>(Value)); }, Lifetime);
 			if (Storage == nullptr) return {};
@@ -1167,74 +1167,74 @@ namespace Durin
 			return {Parameters, std::move(Lifetime)};
 		}
 
-		auto UseTexture(FRenderGraphPassHandle Pass,
-			FRenderGraphTextureHandle Texture,
-			const FRHITextureSubresourceRange& Range, ERenderGraphUse Use,
+		auto UseTexture(FRDGPassHandle Pass,
+			FRDGTextureHandle Texture,
+			const FRHITextureSubresourceRange& Range, ERDGUse Use,
 			ERHIAccess Access, bool bDiscard = false) -> void;
-		auto UseBuffer(FRenderGraphPassHandle Pass,
-			FRenderGraphBufferHandle Buffer, uint64 Offset, uint64 Size,
-			ERenderGraphUse Use, ERHIAccess Access,
+		auto UseBuffer(FRDGPassHandle Pass,
+			FRDGBufferHandle Buffer, uint64 Offset, uint64 Size,
+			ERDGUse Use, ERHIAccess Access,
 			bool bDiscard = false) -> void;
-		auto UseColorAttachment(FRenderGraphPassHandle Pass,
-			FRenderGraphTextureHandle Texture,
+		auto UseColorAttachment(FRDGPassHandle Pass,
+			FRDGTextureHandle Texture,
 			const FRHITextureSubresourceRange& Range,
 			ERHIRenderTargetLoadAction LoadAction,
 			ERHIRenderTargetStoreAction StoreAction) -> void;
-		auto UseDepthStencilAttachment(FRenderGraphPassHandle Pass,
-			FRenderGraphTextureHandle Texture,
+		auto UseDepthStencilAttachment(FRDGPassHandle Pass,
+			FRDGTextureHandle Texture,
 			const FRHITextureSubresourceRange& Range,
 			ERHIRenderTargetLoadAction LoadAction,
 			ERHIRenderTargetStoreAction StoreAction) -> void;
 		// Declares an attachment whose render-pass body performs its own RHI
 		// entry/final layout transitions and publishes ResultAccess on exit.
-		auto UseManagedColorAttachment(FRenderGraphPassHandle Pass,
-			FRenderGraphTextureHandle Texture,
+		auto UseManagedColorAttachment(FRDGPassHandle Pass,
+			FRDGTextureHandle Texture,
 			const FRHITextureSubresourceRange& Range,
 			ERHIRenderTargetLoadAction LoadAction,
 			ERHIRenderTargetStoreAction StoreAction,
 			ERHIAccess ResultAccess) -> void;
-		auto UseManagedDepthStencilAttachment(FRenderGraphPassHandle Pass,
-			FRenderGraphTextureHandle Texture,
+		auto UseManagedDepthStencilAttachment(FRDGPassHandle Pass,
+			FRDGTextureHandle Texture,
 			const FRHITextureSubresourceRange& Range,
 			ERHIRenderTargetLoadAction LoadAction,
 			ERHIRenderTargetStoreAction StoreAction,
 			ERHIAccess ResultAccess) -> void;
-		auto UseManagedTexture(FRenderGraphPassHandle Pass,
-			FRenderGraphTextureHandle Texture,
-			const FRHITextureSubresourceRange& Range, ERenderGraphUse Use,
+		auto UseManagedTexture(FRDGPassHandle Pass,
+			FRDGTextureHandle Texture,
+			const FRHITextureSubresourceRange& Range, ERDGUse Use,
 			ERHIAccess EntryAccess, ERHIAccess ResultAccess,
 			bool bDiscard = false) -> void;
-		auto UseToken(FRenderGraphPassHandle Pass, FRenderGraphTokenHandle Token,
-			ERenderGraphUse Use) -> void;
+		auto UseToken(FRDGPassHandle Pass, FRDGTokenHandle Token,
+			ERDGUse Use) -> void;
 		template<typename T>
-		auto UseValue(FRenderGraphPassHandle Pass,
-			TRenderGraphValueHandle<T> Value, ERenderGraphUse Use) -> void
+		auto UseValue(FRDGPassHandle Pass,
+			TRDGValueHandle<T> Value, ERDGUse Use) -> void
 		{
 			UseValueErased(Pass, Value.Owner, Value.Index,
-				&RenderGraphPrivate::GValueTypeIdentity<std::remove_cv_t<T>>, Use);
+				&RDGPrivate::GValueTypeIdentity<std::remove_cv_t<T>>, Use);
 		}
 
-		auto Compile() const -> FRenderGraphCompileResult;
+		auto Compile() const -> FRDGCompileResult;
 
 	private:
 		auto AddParameterizedPass(std::string_view Name,
-			ERenderGraphPassType Type,
-			const FRenderGraphParametersMetadata* Metadata, void* Parameters,
-			std::shared_ptr<void> Lifetime, FRenderGraphExecute Execute,
-			FRenderGraphParameterizedExecute ParameterizedExecute)
-			-> FRenderGraphPassHandle;
-		auto CanDeclareManualUse(FRenderGraphPassHandle Pass,
+			ERDGPassType Type,
+			const FRDGParametersMetadata* Metadata, void* Parameters,
+			std::shared_ptr<void> Lifetime, FRDGPassExecute Execute,
+			FRDGParameterizedPassExecute ParameterizedExecute)
+			-> FRDGPassHandle;
+		auto CanDeclareManualUse(FRDGPassHandle Pass,
 			std::string_view InvalidHandleError) -> bool;
 		auto AllocateParameterStorage(size_t Size, size_t Alignment,
-			const FRenderGraphParametersMetadata* Metadata,
+			const FRDGParametersMetadata* Metadata,
 			void (*Destroy)(void*), std::weak_ptr<void>& OutLifetime) -> void*;
 		auto MarkParameterStorageConstructed(void* Storage) -> void;
 		auto AllocateValueStorage(std::string_view Name,
 			std::string_view StableTypeName, const void* TypeIdentity, size_t Size,
 			size_t Alignment, void (*Destroy)(void*), uint32& OutIndex) -> void*;
 		auto MarkValueStorageConstructed(uint32 ResourceIndex) -> void;
-		auto UseValueErased(FRenderGraphPassHandle Pass, uint64 Owner,
-			uint32 Index, const void* TypeIdentity, ERenderGraphUse Use) -> void;
+		auto UseValueErased(FRDGPassHandle Pass, uint64 Owner,
+			uint32 Index, const void* TypeIdentity, ERDGUse Use) -> void;
 		auto StateOwner() const -> uint64;
 		struct FState;
 		std::unique_ptr<FState> State;

@@ -178,7 +178,7 @@ namespace Durin
 		uint64 RequestedBytes = 0;
 		for (const FRDGAllocationRequest& Request : Requests)
 		{
-			if (Request.Kind == ERenderGraphResourceKind::Texture)
+			if (Request.Kind == ERDGResourceKind::Texture)
 			{
 				FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create(
 					"RDGBudget", Request.TextureDesc.Dimension);
@@ -293,7 +293,7 @@ namespace Durin
 		{
 			FCandidate Candidate{.ResourceId = Request.ResourceId};
 			bool bReserved = false;
-			if (Request.Kind == ERenderGraphResourceKind::Texture)
+			if (Request.Kind == ERDGResourceKind::Texture)
 			{
 				FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create(
 					"RDGTexture", Request.TextureDesc.Dimension);
@@ -305,7 +305,7 @@ namespace Durin
 						OutCandidate.Texture = Texture;
 					}, Candidate);
 			}
-			else if (Request.Kind == ERenderGraphResourceKind::Buffer)
+			else if (Request.Kind == ERDGResourceKind::Buffer)
 			{
 				const FBufferDescriptorKey Key{Request.BufferDesc.Size,
 					Request.BufferDesc.Stride, Request.BufferDesc.Usage};

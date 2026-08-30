@@ -639,25 +639,25 @@ namespace Durin
 		RHICmdList.SetShaderParameters(RHIShader, ResourceParameters);
 	}
 
-	auto SetRenderGraphShaderParametersImpl(
+	auto SetRDGShaderParametersImpl(
 		FRHICommandListBase& RHICmdList,
 		FRHIShader* RHIShader,
 		std::string_view ShaderName,
 		EShaderFrequency ShaderFrequency,
 		std::span<const FShaderParameterBinding> ParameterBindings,
-		const FRenderGraphShaderParameters& GraphParameters,
+		const FRDGShaderParameterScope& GraphParameters,
 		const FShaderParametersMetadata* OrdinaryParametersMetadata,
 		const void* OrdinaryParameterData) -> void
 	{
-		const FRenderGraphParameterResolver& Resolver =
+		const FRDGParameterResolver& Resolver =
 			GraphParameters.GetResolver();
 		const bool bComputeShader = ShaderFrequency == EShaderFrequency::Compute;
 		const bool bGraphicsShader = ShaderFrequency == EShaderFrequency::Vertex
 			|| ShaderFrequency == EShaderFrequency::Fragment;
 		checkf((bComputeShader
-			&& Resolver.GetPassType() == ERenderGraphPassType::Compute)
+			&& Resolver.GetPassType() == ERDGPassType::Compute)
 			|| (bGraphicsShader
-				&& Resolver.GetPassType() == ERenderGraphPassType::Graphics),
+				&& Resolver.GetPassType() == ERDGPassType::Graphics),
 			"Render graph pass '{}' domain is incompatible with shader '{}' frequency",
 			Resolver.GetPassName(), ShaderName);
 		checkf(GraphParameters.GetData() != nullptr
@@ -667,22 +667,22 @@ namespace Durin
 
 		struct FComposedMember
 		{
-			const FRenderGraphParameterMemberMetadata* Metadata = nullptr;
+			const FRDGParameterMemberMetadata* Metadata = nullptr;
 			const void* Data = nullptr;
 			std::string Path;
 		};
 		std::vector<FComposedMember> ComposedMembers;
-		std::function<void(const void*, const FRenderGraphParametersMetadata*,
+		std::function<void(const void*, const FRDGParametersMetadata*,
 			const std::string&)> Traverse;
 		Traverse = [&](const void* StructData,
-			const FRenderGraphParametersMetadata* Metadata,
+			const FRDGParametersMetadata* Metadata,
 			const std::string& ParentPath) {
 			const auto* Bytes = static_cast<const std::byte*>(StructData);
-			for (const FRenderGraphParameterMemberMetadata& Member : Metadata->Members)
+			for (const FRDGParameterMemberMetadata& Member : Metadata->Members)
 			{
 				const std::string Path = ParentPath.empty()
 					? std::string(Member.Name) : ParentPath + "." + Member.Name;
-				if (Member.Kind == ERenderGraphParameterMemberKind::Nested)
+				if (Member.Kind == ERDGParameterMemberKind::Nested)
 				{
 					for (uint32 Index = 0; Index < Member.ArraySize; ++Index)
 					{
@@ -724,7 +724,7 @@ namespace Durin
 				checkf(std::ranges::count_if(ComposedMembers, MatchesBinding) == 1,
 					"Render graph pass '{}' has duplicate composed shader binding '{}'",
 					Resolver.GetPassName(), Binding.Name);
-				const FRenderGraphParameterMemberMetadata& Member = *Found->Metadata;
+				const FRDGParameterMemberMetadata& Member = *Found->Metadata;
 				checkf(Member.ShaderBindingType == Binding.Type,
 					"Render graph pass '{}' parameter '{}' shader binding '{}' type "
 					"does not match shader '{}'",
@@ -744,13 +744,13 @@ namespace Durin
 						.BindingIndex = Binding.BindingIndex,
 						.ArrayElement = ArrayElement,
 						.Type = Binding.Type};
-					if (Member.Kind == ERenderGraphParameterMemberKind::Texture)
+					if (Member.Kind == ERDGParameterMemberKind::Texture)
 					{
-						const FRenderGraphTextureParameter* GraphTexture = nullptr;
+						const FRDGTextureParameter* GraphTexture = nullptr;
 						if (Member.bOptional)
 						{
 							const auto& Optional = *static_cast<const std::optional<
-								FRenderGraphTextureParameter>*>(ElementData);
+								FRDGTextureParameter>*>(ElementData);
 							checkf(Optional.has_value(),
 								"Render graph pass '{}' parameter '{}[{}]' is unavailable "
 								"for required shader '{}' binding '{}'",
@@ -759,7 +759,7 @@ namespace Durin
 							GraphTexture = &*Optional;
 						}
 						else GraphTexture = static_cast<const
-							FRenderGraphTextureParameter*>(ElementData);
+							FRDGTextureParameter*>(ElementData);
 						FRHITexture* Texture = Resolver.GetTexture(*GraphTexture);
 						if (Texture->GetResourceType()
 							== ERHIResourceType::TextureReference)
@@ -792,11 +792,11 @@ namespace Durin
 					}
 					else
 					{
-						const FRenderGraphBufferParameter* GraphBuffer = nullptr;
+						const FRDGBufferParameter* GraphBuffer = nullptr;
 						if (Member.bOptional)
 						{
 							const auto& Optional = *static_cast<const std::optional<
-								FRenderGraphBufferParameter>*>(ElementData);
+								FRDGBufferParameter>*>(ElementData);
 							checkf(Optional.has_value(),
 								"Render graph pass '{}' parameter '{}[{}]' is unavailable "
 								"for required shader '{}' binding '{}'",
@@ -805,7 +805,7 @@ namespace Durin
 							GraphBuffer = &*Optional;
 						}
 						else GraphBuffer = static_cast<const
-							FRenderGraphBufferParameter*>(ElementData);
+							FRDGBufferParameter*>(ElementData);
 						Parameter.Resource = Resolver.GetBuffer(*GraphBuffer);
 						Parameter.Offset = static_cast<uint32>(GraphBuffer->Offset);
 						Parameter.Size = static_cast<uint32>(GraphBuffer->Size);

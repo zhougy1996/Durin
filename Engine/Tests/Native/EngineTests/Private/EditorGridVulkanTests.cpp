@@ -670,7 +670,7 @@ namespace Durin
 		ASSERT_NE(GDynamicRHI, nullptr);
 		InitRenderingThread();
 
-		auto Captures = std::make_shared<std::array<FRenderGraphCapture, 2>>();
+		auto Captures = std::make_shared<std::array<FRDGCapture, 2>>();
 		EnqueueRenderCommand<FRDGDescriptorReuseContract>(
 			[Captures](FRHICommandListImmediate& CommandList) {
 				FRendererResourceCoordinator Coordinator;
@@ -679,15 +679,15 @@ namespace Durin
 					"Diagnostic.First", "Diagnostic.Renamed"};
 				for (size_t Index = 0; Index < Names.size(); ++Index)
 				{
-					FRenderGraphBuilder Builder;
+					FRDGBuilder Builder;
 					const auto Texture = Builder.CreateTexture(
-						FRenderGraphTextureDesc{.Texture =
+						FRDGTextureDesc{.Texture =
 							FRHITextureCreateDesc::Create2D(Names[Index].data(), 32, 16,
 								EPixelFormat::RGBA8_UNORM)
 								.SetFlags(ETextureCreateFlags::RenderTargetable)},
 						Names[Index]);
 					const auto Pass = Builder.AddPass(
-						"Write", ERenderGraphPassType::Graphics);
+						"Write", ERDGPassType::Graphics);
 					Builder.UseColorAttachment(Pass, Texture,
 						{ERHITextureAspect::Color, 0, 1, 0, 1},
 						ERHIRenderTargetLoadAction::Clear,

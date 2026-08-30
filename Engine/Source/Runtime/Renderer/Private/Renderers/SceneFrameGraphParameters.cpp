@@ -3,42 +3,42 @@
 namespace Durin
 {
 #define DURIN_RESOURCE_MEMBER(Field, Wrapper, Kind, ResourceKind, RangeKind, Use, Access, ...) \
-	MakeRenderGraphResourceParameterMemberMetadata<FParameters, \
+	MakeRDGResourceParameterMemberMetadata<FParameters, \
 		decltype(FParameters::Field), Wrapper>(#Field, offsetof(FParameters, Field), \
 			Kind, ResourceKind, RangeKind, Use, Access __VA_OPT__(,) __VA_ARGS__)
 
 
 #define DURIN_TEXTURE(Field, Use, Access, ...) \
-	DURIN_RESOURCE_MEMBER(Field, FRenderGraphTextureParameter, \
-		ERenderGraphParameterMemberKind::Texture, ERenderGraphResourceKind::Texture, \
-		ERenderGraphParameterRangeKind::TextureSubresource, Use, Access __VA_OPT__(,) __VA_ARGS__)
+	DURIN_RESOURCE_MEMBER(Field, FRDGTextureParameter, \
+		ERDGParameterMemberKind::Texture, ERDGResourceKind::Texture, \
+		ERDGParameterRangeKind::TextureSubresource, Use, Access __VA_OPT__(,) __VA_ARGS__)
 #define DURIN_MANAGED_TEXTURE(Field, EntryAccess, Discard, ResultAccess) \
-	DURIN_RESOURCE_MEMBER(Field, FRenderGraphManagedTextureParameter, \
-		ERenderGraphParameterMemberKind::ManagedTexture, ERenderGraphResourceKind::Texture, \
-		ERenderGraphParameterRangeKind::TextureSubresource, ERenderGraphUse::ReadWrite, \
+	DURIN_RESOURCE_MEMBER(Field, FRDGManagedTextureParameter, \
+		ERDGParameterMemberKind::ManagedTexture, ERDGResourceKind::Texture, \
+		ERDGParameterRangeKind::TextureSubresource, ERDGUse::ReadWrite, \
 		EntryAccess, Discard, ERHIRenderTargetLoadAction::Load, \
 		ERHIRenderTargetStoreAction::Store, true, ResultAccess)
 #define DURIN_MANAGED_COLOR(Field, Discard, Load, ResultAccess) \
-	DURIN_RESOURCE_MEMBER(Field, FRenderGraphColorAttachmentParameter, \
-		ERenderGraphParameterMemberKind::ManagedColorAttachment, \
-		ERenderGraphResourceKind::Texture, \
-		ERenderGraphParameterRangeKind::TextureSubresource, ERenderGraphUse::ReadWrite, \
+	DURIN_RESOURCE_MEMBER(Field, FRDGColorAttachmentParameter, \
+		ERDGParameterMemberKind::ManagedColorAttachment, \
+		ERDGResourceKind::Texture, \
+		ERDGParameterRangeKind::TextureSubresource, ERDGUse::ReadWrite, \
 		ERHIAccess::ColorAttachmentReadWrite, Discard, Load, \
 		ERHIRenderTargetStoreAction::Store, true, ResultAccess)
 #define DURIN_MANAGED_DEPTH(Field, Discard, Load, ResultAccess) \
-	DURIN_RESOURCE_MEMBER(Field, FRenderGraphDepthStencilAttachmentParameter, \
-		ERenderGraphParameterMemberKind::ManagedDepthStencilAttachment, \
-		ERenderGraphResourceKind::Texture, \
-		ERenderGraphParameterRangeKind::TextureSubresource, ERenderGraphUse::ReadWrite, \
+	DURIN_RESOURCE_MEMBER(Field, FRDGDepthStencilAttachmentParameter, \
+		ERDGParameterMemberKind::ManagedDepthStencilAttachment, \
+		ERDGResourceKind::Texture, \
+		ERDGParameterRangeKind::TextureSubresource, ERDGUse::ReadWrite, \
 		ERHIAccess::DepthStencilReadWrite, Discard, Load, \
 		ERHIRenderTargetStoreAction::Store, true, ResultAccess)
 #define DURIN_DEFINE_RESOURCE_METADATA(TypeName, ...) \
-	auto TypeName::GetRenderGraphParametersMetadata() \
-		-> const FRenderGraphParametersMetadata* \
+	auto TypeName::GetRDGParametersMetadata() \
+		-> const FRDGParametersMetadata* \
 	{ \
 		using FParameters = TypeName; \
 		static const std::array Members = {__VA_ARGS__}; \
-		static const auto Metadata = MakeInlineRenderGraphParametersMetadata< \
+		static const auto Metadata = MakeInlineRDGParametersMetadata< \
 			FParameters>(#TypeName, Members); \
 		return &Metadata; \
 	}
@@ -47,46 +47,46 @@ namespace Durin
 		DURIN_MANAGED_DEPTH(DirectionalShadowOutput, true,
 			ERHIRenderTargetLoadAction::Clear, ERHIAccess::GraphicsShaderRead));
 	DURIN_DEFINE_RESOURCE_METADATA(FAmbientOcclusionPassResources,
-		DURIN_TEXTURE(GBuffer, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(SceneDepth, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(GBuffer, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(SceneDepth, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
 		DURIN_MANAGED_TEXTURE(AmbientOcclusionManaged,
 			ERHIAccess::GraphicsShaderRead, true, ERHIAccess::GraphicsShaderRead));
 	DURIN_DEFINE_RESOURCE_METADATA(FVolumetricCloudShadowPassResources,
-		DURIN_TEXTURE(SceneDepth, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(SceneDepthCompute, ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead),
-		DURIN_TEXTURE(CloudBaseDensity, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(CloudDetailDensity, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(CloudWeather, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(CloudBaseDensityCompute, ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead),
-		DURIN_TEXTURE(CloudDetailDensityCompute, ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead),
-		DURIN_TEXTURE(CloudWeatherCompute, ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead),
+		DURIN_TEXTURE(SceneDepth, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(SceneDepthCompute, ERDGUse::Read, ERHIAccess::ComputeShaderRead),
+		DURIN_TEXTURE(CloudBaseDensity, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(CloudDetailDensity, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(CloudWeather, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(CloudBaseDensityCompute, ERDGUse::Read, ERHIAccess::ComputeShaderRead),
+		DURIN_TEXTURE(CloudDetailDensityCompute, ERDGUse::Read, ERHIAccess::ComputeShaderRead),
+		DURIN_TEXTURE(CloudWeatherCompute, ERDGUse::Read, ERHIAccess::ComputeShaderRead),
 		DURIN_MANAGED_TEXTURE(CloudShadowFragmentOutput,
 			ERHIAccess::GraphicsShaderRead, true, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(CloudShadowComputeOutput, ERenderGraphUse::Write,
+		DURIN_TEXTURE(CloudShadowComputeOutput, ERDGUse::Write,
 			ERHIAccess::ComputeShaderReadWrite, true));
 	DURIN_DEFINE_RESOURCE_METADATA(FDeferredDirectionalLightingPassResources,
-		DURIN_TEXTURE(DirectionalShadow, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(GBuffer, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(SceneDepth, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(AmbientOcclusion, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(ContactShadowFragment, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(ContactShadowCompute, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(CloudShadowFragment, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(CloudShadowCompute, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(DefaultWhite, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(DefaultShadowArray, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(EnvironmentIrradiance, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(EnvironmentPrefiltered, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(EnvironmentBrdfLut, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(DirectionalShadow, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(GBuffer, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(SceneDepth, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(AmbientOcclusion, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(ContactShadowFragment, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(ContactShadowCompute, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(CloudShadowFragment, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(CloudShadowCompute, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(DefaultWhite, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(DefaultShadowArray, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(EnvironmentIrradiance, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(EnvironmentPrefiltered, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(EnvironmentBrdfLut, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
 		DURIN_MANAGED_COLOR(IsolatedDeferredOutput, true,
 			ERHIRenderTargetLoadAction::Clear, ERHIAccess::GraphicsShaderRead));
 	DURIN_DEFINE_RESOURCE_METADATA(FBaseScenePassResources,
-		DURIN_TEXTURE(DirectionalShadow, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(DefaultWhite, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(DefaultShadowArray, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(EnvironmentIrradiance, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(EnvironmentPrefiltered, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(EnvironmentBrdfLut, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(DirectionalShadow, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(DefaultWhite, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(DefaultShadowArray, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(EnvironmentIrradiance, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(EnvironmentPrefiltered, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(EnvironmentBrdfLut, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
 		DURIN_MANAGED_COLOR(SceneColorOutput, true,
 			ERHIRenderTargetLoadAction::Clear, ERHIAccess::GraphicsShaderRead),
 		DURIN_MANAGED_TEXTURE(SceneDepthGraphicsToGraphics,
@@ -98,28 +98,28 @@ namespace Durin
 		DURIN_MANAGED_TEXTURE(SceneDepthDepthToDepth,
 			ERHIAccess::DepthStencilReadWrite, true, ERHIAccess::DepthStencilReadWrite));
 	DURIN_DEFINE_RESOURCE_METADATA(FVolumetricCloudSpatialPassResources,
-		DURIN_TEXTURE(SceneDepth, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(SceneDepthCompute, ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead),
-		DURIN_TEXTURE(CloudBaseDensity, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(CloudDetailDensity, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(CloudWeather, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(CloudBaseDensityCompute, ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead),
-		DURIN_TEXTURE(CloudDetailDensityCompute, ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead),
-		DURIN_TEXTURE(CloudWeatherCompute, ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead),
+		DURIN_TEXTURE(SceneDepth, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(SceneDepthCompute, ERDGUse::Read, ERHIAccess::ComputeShaderRead),
+		DURIN_TEXTURE(CloudBaseDensity, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(CloudDetailDensity, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(CloudWeather, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(CloudBaseDensityCompute, ERDGUse::Read, ERHIAccess::ComputeShaderRead),
+		DURIN_TEXTURE(CloudDetailDensityCompute, ERDGUse::Read, ERHIAccess::ComputeShaderRead),
+		DURIN_TEXTURE(CloudWeatherCompute, ERDGUse::Read, ERHIAccess::ComputeShaderRead),
 		DURIN_MANAGED_TEXTURE(CloudFragmentOutput,
 			ERHIAccess::GraphicsShaderRead, true, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(CloudComputeOutput, ERenderGraphUse::Write,
+		DURIN_TEXTURE(CloudComputeOutput, ERDGUse::Write,
 			ERHIAccess::ComputeShaderReadWrite, true));
 	DURIN_DEFINE_RESOURCE_METADATA(FVolumetricCloudCompositePassResources,
-		DURIN_TEXTURE(SceneColor, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(SceneDepth, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(CloudBaseDensity, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(CloudDetailDensity, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(CloudWeather, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(CloudShadowFragment, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(CloudShadowCompute, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(CloudFragment, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(CloudCompute, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(SceneColor, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(SceneDepth, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(CloudBaseDensity, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(CloudDetailDensity, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(CloudWeather, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(CloudShadowFragment, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(CloudShadowCompute, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(CloudFragment, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(CloudCompute, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
 		DURIN_MANAGED_TEXTURE(CloudCompositeOutput,
 			ERHIAccess::GraphicsShaderRead, true, ERHIAccess::GraphicsShaderRead));
 	DURIN_DEFINE_RESOURCE_METADATA(FSceneColorPassResources,
@@ -134,13 +134,13 @@ namespace Durin
 			ERHIRenderTargetLoadAction::Clear, ERHIAccess::GraphicsShaderRead),
 		DURIN_MANAGED_COLOR(OutputForEditor, true,
 			ERHIRenderTargetLoadAction::Clear, ERHIAccess::ColorAttachmentReadWrite),
-		DURIN_TEXTURE(SceneColor, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(CloudComposite, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(SceneDepth, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(SceneColor, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(CloudComposite, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(SceneDepth, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
 		DURIN_MANAGED_COLOR(GBufferDebugOutput, true,
 			ERHIRenderTargetLoadAction::Clear, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(GBuffer, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead),
-		DURIN_TEXTURE(IsolatedDeferred, ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead));
+		DURIN_TEXTURE(GBuffer, ERDGUse::Read, ERHIAccess::GraphicsShaderRead),
+		DURIN_TEXTURE(IsolatedDeferred, ERDGUse::Read, ERHIAccess::GraphicsShaderRead));
 	DURIN_DEFINE_RESOURCE_METADATA(FEditorAssistancePassResources,
 		DURIN_MANAGED_COLOR(EditorOutputPresent, false,
 			ERHIRenderTargetLoadAction::Load, ERHIAccess::Present),
@@ -158,19 +158,19 @@ namespace Durin
 #undef DURIN_RESOURCE_MEMBER
 
 #define DURIN_VALUE_MEMBER(Field, ValueType) \
-	MakeRenderGraphValueParameterMemberMetadata<FParameters, \
+	MakeRDGValueParameterMemberMetadata<FParameters, \
 		decltype(FParameters::Field), ValueType>(#Field, offsetof(FParameters, Field))
 #define DURIN_NESTED_RESOURCES \
-	MakeRenderGraphNestedParameterMemberMetadata<FParameters, \
+	MakeRDGNestedParameterMemberMetadata<FParameters, \
 		decltype(FParameters::Resources)>("Resources", offsetof(FParameters, Resources), \
-			decltype(FParameters::Resources)::GetRenderGraphParametersMetadata())
+			decltype(FParameters::Resources)::GetRDGParametersMetadata())
 #define DURIN_DEFINE_PASS_METADATA(TypeName, ...) \
-	auto TypeName::GetRenderGraphParametersMetadata() \
-		-> const FRenderGraphParametersMetadata* \
+	auto TypeName::GetRDGParametersMetadata() \
+		-> const FRDGParametersMetadata* \
 	{ \
 		using FParameters = TypeName; \
 		static const std::array Members = {__VA_ARGS__, DURIN_NESTED_RESOURCES}; \
-		static const auto Metadata = MakeInlineRenderGraphParametersMetadata< \
+		static const auto Metadata = MakeInlineRDGParametersMetadata< \
 			FParameters>(#TypeName, Members); \
 		return &Metadata; \
 	}
@@ -207,8 +207,8 @@ namespace Durin
 		DURIN_VALUE_MEMBER(VolumetricCloud, FVolumetricCloudPassResult),
 		DURIN_VALUE_MEMBER(Completion, FSceneColorPassResult));
 
-	auto FPostProcessPassParameters::GetRenderGraphParametersMetadata()
-		-> const FRenderGraphParametersMetadata*
+	auto FPostProcessPassParameters::GetRDGParametersMetadata()
+		-> const FRDGParametersMetadata*
 	{
 		using FParameters = FPostProcessPassParameters;
 		static const std::array Members = {
@@ -216,34 +216,34 @@ namespace Durin
 			DURIN_VALUE_MEMBER(GBufferCompletion, FGBufferPassResult),
 			DURIN_VALUE_MEMBER(DeferredLighting, FIsolatedDeferredPassResult),
 			DURIN_VALUE_MEMBER(Completion, FPostProcessPassResult),
-			MakeRenderGraphResourceParameterMemberMetadata<FParameters,
-				decltype(FParameters::OutputCompletion), FRenderGraphTokenParameter>(
+			MakeRDGResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::OutputCompletion), FRDGTokenParameter>(
 					"OutputCompletion", offsetof(FParameters, OutputCompletion),
-					ERenderGraphParameterMemberKind::Token,
-					ERenderGraphResourceKind::Token,
-					ERenderGraphParameterRangeKind::None,
-					ERenderGraphUse::Write, ERHIAccess::None, true),
+					ERDGParameterMemberKind::Token,
+					ERDGResourceKind::Token,
+					ERDGParameterRangeKind::None,
+					ERDGUse::Write, ERHIAccess::None, true),
 			DURIN_NESTED_RESOURCES};
-		static const auto Metadata = MakeInlineRenderGraphParametersMetadata<
+		static const auto Metadata = MakeInlineRDGParametersMetadata<
 			FParameters>("FPostProcessPassParameters", Members);
 		return &Metadata;
 	}
 
-	auto FEditorAssistancePassParameters::GetRenderGraphParametersMetadata()
-		-> const FRenderGraphParametersMetadata*
+	auto FEditorAssistancePassParameters::GetRDGParametersMetadata()
+		-> const FRDGParametersMetadata*
 	{
 		using FParameters = FEditorAssistancePassParameters;
 		static const std::array Members = {
 			DURIN_VALUE_MEMBER(PostProcess, FPostProcessPassResult),
-			MakeRenderGraphResourceParameterMemberMetadata<FParameters,
-				decltype(FParameters::OutputCompletion), FRenderGraphTokenParameter>(
+			MakeRDGResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::OutputCompletion), FRDGTokenParameter>(
 					"OutputCompletion", offsetof(FParameters, OutputCompletion),
-					ERenderGraphParameterMemberKind::Token,
-					ERenderGraphResourceKind::Token,
-					ERenderGraphParameterRangeKind::None,
-					ERenderGraphUse::Write, ERHIAccess::None, true),
+					ERDGParameterMemberKind::Token,
+					ERDGResourceKind::Token,
+					ERDGParameterRangeKind::None,
+					ERDGUse::Write, ERHIAccess::None, true),
 			DURIN_NESTED_RESOURCES};
-		static const auto Metadata = MakeInlineRenderGraphParametersMetadata<
+		static const auto Metadata = MakeInlineRDGParametersMetadata<
 			FParameters>("FEditorAssistancePassParameters", Members);
 		return &Metadata;
 	}

@@ -3,7 +3,7 @@
 #include "RenderCoreAPI.h"
 #include "RHICommandList.h"
 #include "RHIResources.h"
-#include "RenderGraph.h"
+#include "RDG.h"
 
 #include "ShaderCompilerCore.h"
 
@@ -293,13 +293,13 @@ namespace Durin
 		const void* ParameterData
 	) -> void;
 
-	RENDERCORE_API auto SetRenderGraphShaderParametersImpl(
+	RENDERCORE_API auto SetRDGShaderParametersImpl(
 		FRHICommandListBase& RHICmdList,
 		FRHIShader* RHIShader,
 		std::string_view ShaderName,
 		EShaderFrequency ShaderFrequency,
 		std::span<const FShaderParameterBinding> ParameterBindings,
-		const FRenderGraphShaderParameters& GraphParameters,
+		const FRDGShaderParameterScope& GraphParameters,
 		const FShaderParametersMetadata* OrdinaryParametersMetadata,
 		const void* OrdinaryParameterData
 	) -> void;
@@ -673,7 +673,7 @@ namespace Durin
 	template<typename ShaderType>
 	auto SetShaderParameters(FRHICommandListBase& RHICmdList,
 		const TShaderRef<ShaderType>& Shader,
-		const FRenderGraphShaderParameters& GraphParameters,
+		const FRDGShaderParameterScope& GraphParameters,
 		const typename ShaderType::FParameters& OrdinaryParameters) -> void
 	{
 		const ShaderType* ShaderContent = Shader.GetShader();
@@ -685,7 +685,7 @@ namespace Durin
 		checkf(ParametersMetadata,
 			"Shader '{}' must provide parameter metadata",
 			ShaderTypeContent->GetName());
-		SetRenderGraphShaderParametersImpl(RHICmdList, Shader.GetRHIShader(),
+		SetRDGShaderParametersImpl(RHICmdList, Shader.GetRHIShader(),
 			ShaderTypeContent->GetName(), ShaderTypeContent->GetFrequency(),
 			ShaderContent->GetParameterBindings(), GraphParameters,
 			ParametersMetadata, &OrdinaryParameters);
@@ -694,13 +694,13 @@ namespace Durin
 	template<typename ShaderType>
 	auto SetShaderParameters(FRHICommandListBase& RHICmdList,
 		const TShaderRef<ShaderType>& Shader,
-		const FRenderGraphShaderParameters& GraphParameters) -> void
+		const FRDGShaderParameterScope& GraphParameters) -> void
 	{
 		const ShaderType* ShaderContent = Shader.GetShader();
 		check(ShaderContent);
 		const FShaderType* ShaderTypeContent = ShaderContent->GetType();
 		checkf(ShaderTypeContent, "Composed shader submission requires a shader type");
-		SetRenderGraphShaderParametersImpl(RHICmdList, Shader.GetRHIShader(),
+		SetRDGShaderParametersImpl(RHICmdList, Shader.GetRHIShader(),
 			ShaderTypeContent->GetName(), ShaderTypeContent->GetFrequency(),
 			ShaderContent->GetParameterBindings(), GraphParameters, nullptr, nullptr);
 	}

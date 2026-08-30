@@ -1,7 +1,7 @@
 #pragma once
 
 #include "RendererAPI.h"
-#include "RenderGraph.h"
+#include "RDG.h"
 #include "RHIResources.h"
 #include "RHI.h"
 #include "RHICommandList.h"
@@ -121,7 +121,7 @@ namespace Durin
 		FRHITexture* Visibility,
 		bool bFiltered);
 	using FSceneRenderGraphCaptureSink = void (*)(
-		const FRenderGraphCapture& Capture);
+		const FRDGCapture& Capture);
 
 	// Development seam receiving each explicitly requested Scene Color GPU interval.
 	RENDERER_API auto SetSceneColorTimingQuerySink(
@@ -192,5 +192,5 @@ namespace Durin
 		-> FGroundTruthAmbientOcclusionCaptureSink;
 	auto GetSceneRenderGraphCaptureSink() -> FSceneRenderGraphCaptureSink;
 	RENDERER_API auto PublishSceneRenderGraphCapture(
-		const FCompiledRenderGraph& Graph) -> void;
+		const FRDGCompiledGraph& Graph) -> void;
 }

@@ -60,7 +60,7 @@ namespace Durin
 	{
 	public:
 		static auto Compose(
-			FRenderGraphBuilder& Graph,
+			FRDGBuilder& Graph,
 			const FSceneFrameGraphComposeInputs& Inputs,
 			FSceneFrameGraphComposition& Composition) -> void;
 	};

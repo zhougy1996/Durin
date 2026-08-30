@@ -2,7 +2,7 @@
 
 #include "Client/Viewport.h"
 #include "Rendering/ViewportDisplaySource.h"
-#include "RenderGraph.h"
+#include "RDG.h"
 #include "ViewRenderStatistics.h"
 #include "SceneViewState.h"
 
@@ -32,7 +32,7 @@ namespace Durin
 	// Identifies the latest explicitly captured graph for one scene viewport.
 	struct FSceneViewportRenderGraphSnapshot
 	{
-		std::shared_ptr<const FRenderGraphCapture> Capture;
+		std::shared_ptr<const FRDGCapture> Capture;
 		uint64 Revision = 0;
 		bool bAvailable = false;
 	};
@@ -79,7 +79,7 @@ namespace Durin
 		ENGINE_API auto RequestRenderGraphCapture() -> void;
 		ENGINE_API auto ConsumeRenderGraphCaptureRequest() -> bool;
 		ENGINE_API auto PublishRenderGraphCapture_RenderThread(
-			std::shared_ptr<const FRenderGraphCapture> Capture,
+			std::shared_ptr<const FRDGCapture> Capture,
 			bool bAvailable) -> void;
 		ENGINE_API auto GetRenderGraphSnapshot() const
 			-> FSceneViewportRenderGraphSnapshot;

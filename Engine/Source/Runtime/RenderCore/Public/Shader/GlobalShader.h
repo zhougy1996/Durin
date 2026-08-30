@@ -253,7 +253,7 @@ namespace Durin
 	auto SetShaderParameters(
 		FRHICommandListBase& RHICmdList,
 		const TShaderMapRef<ShaderType>& Shader,
-		const FRenderGraphShaderParameters& GraphParameters,
+		const FRDGShaderParameterScope& GraphParameters,
 		const typename ShaderType::FParameters& OrdinaryParameters) -> void
 	{
 		SetShaderParameters(

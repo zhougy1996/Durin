@@ -8,7 +8,7 @@
 
 namespace Durin
 {
-	class FRenderGraphShaderParameters;
+	class FRDGShaderParameterScope;
 	struct FDirectionalShadowRecordInputs final
 	{
 		const FPreparedDirectionalShadow* Shadow = nullptr;
@@ -95,7 +95,7 @@ namespace Durin
 		const FContactShadowVisibilityRenderer::FComputeTargets*
 			ComputeContactTargets,
 		const FPostProcessRenderer::FSceneTargets& SceneTargets,
-		const FRenderGraphShaderParameters* ShaderParameters,
+		const FRDGShaderParameterScope* ShaderParameters,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
 		uint32 Height,

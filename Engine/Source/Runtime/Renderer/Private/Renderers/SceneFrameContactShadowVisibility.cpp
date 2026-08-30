@@ -11,152 +11,152 @@
 
 namespace Durin
 {
-	auto FContactShadowGraphicsPassParameters::GetRenderGraphParametersMetadata()
-		-> const FRenderGraphParametersMetadata*
+	auto FContactShadowGraphicsPassParameters::GetRDGParametersMetadata()
+		-> const FRDGParametersMetadata*
 	{
 		using FParameters = FContactShadowGraphicsPassParameters;
 		static const std::array Members = {
-			MakeRenderGraphValueParameterMemberMetadata<FParameters,
+			MakeRDGValueParameterMemberMetadata<FParameters,
 				decltype(FParameters::DirectionalShadow),
 				FDirectionalShadowPassResult>("DirectionalShadow",
 					offsetof(FParameters, DirectionalShadow)),
-			MakeRenderGraphValueParameterMemberMetadata<FParameters,
+			MakeRDGValueParameterMemberMetadata<FParameters,
 				decltype(FParameters::GBufferCompletion), FGBufferPassResult>(
 				"GBufferCompletion", offsetof(FParameters, GBufferCompletion)),
-			MakeRenderGraphValueParameterMemberMetadata<FParameters,
+			MakeRDGValueParameterMemberMetadata<FParameters,
 				decltype(FParameters::Completion),
 				FContactShadowVisibilityPassResult>("Completion",
 					offsetof(FParameters, Completion)),
-			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+			MakeRDGShaderResourceParameterMemberMetadata<FParameters,
 				decltype(FParameters::GBufferMaterial),
-				FRenderGraphTextureParameter>("GBufferMaterial",
+				FRDGTextureParameter>("GBufferMaterial",
 					offsetof(FParameters, GBufferMaterial),
-				ERenderGraphParameterMemberKind::Texture,
-				ERenderGraphResourceKind::Texture,
-				ERenderGraphParameterRangeKind::TextureSubresource,
-				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead,
+				ERDGParameterMemberKind::Texture,
+				ERDGResourceKind::Texture,
+				ERDGParameterRangeKind::TextureSubresource,
+				ERDGUse::Read, ERHIAccess::GraphicsShaderRead,
 				ERHIBindingType::Texture),
-			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+			MakeRDGShaderResourceParameterMemberMetadata<FParameters,
 				decltype(FParameters::GBufferNormals),
-				FRenderGraphTextureParameter>("GBufferNormals",
+				FRDGTextureParameter>("GBufferNormals",
 					offsetof(FParameters, GBufferNormals),
-				ERenderGraphParameterMemberKind::Texture,
-				ERenderGraphResourceKind::Texture,
-				ERenderGraphParameterRangeKind::TextureSubresource,
-				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead,
+				ERDGParameterMemberKind::Texture,
+				ERDGResourceKind::Texture,
+				ERDGParameterRangeKind::TextureSubresource,
+				ERDGUse::Read, ERHIAccess::GraphicsShaderRead,
 				ERHIBindingType::Texture),
-			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+			MakeRDGShaderResourceParameterMemberMetadata<FParameters,
 				decltype(FParameters::GBufferSurface),
-				FRenderGraphTextureParameter>("GBufferSurface",
+				FRDGTextureParameter>("GBufferSurface",
 					offsetof(FParameters, GBufferSurface),
-				ERenderGraphParameterMemberKind::Texture,
-				ERenderGraphResourceKind::Texture,
-				ERenderGraphParameterRangeKind::TextureSubresource,
-				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead,
+				ERDGParameterMemberKind::Texture,
+				ERDGResourceKind::Texture,
+				ERDGParameterRangeKind::TextureSubresource,
+				ERDGUse::Read, ERHIAccess::GraphicsShaderRead,
 				ERHIBindingType::Texture),
-			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+			MakeRDGShaderResourceParameterMemberMetadata<FParameters,
 				decltype(FParameters::GBufferEmissive),
-				FRenderGraphTextureParameter>("GBufferEmissive",
+				FRDGTextureParameter>("GBufferEmissive",
 					offsetof(FParameters, GBufferEmissive),
-				ERenderGraphParameterMemberKind::Texture,
-				ERenderGraphResourceKind::Texture,
-				ERenderGraphParameterRangeKind::TextureSubresource,
-				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead,
+				ERDGParameterMemberKind::Texture,
+				ERDGResourceKind::Texture,
+				ERDGParameterRangeKind::TextureSubresource,
+				ERDGUse::Read, ERHIAccess::GraphicsShaderRead,
 				ERHIBindingType::Texture),
-			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
-				decltype(FParameters::SceneDepth), FRenderGraphTextureParameter>(
+			MakeRDGShaderResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::SceneDepth), FRDGTextureParameter>(
 				"SceneDepth", offsetof(FParameters, SceneDepth),
-				ERenderGraphParameterMemberKind::Texture,
-				ERenderGraphResourceKind::Texture,
-				ERenderGraphParameterRangeKind::TextureSubresource,
-				ERenderGraphUse::Read, ERHIAccess::GraphicsShaderRead,
+				ERDGParameterMemberKind::Texture,
+				ERDGResourceKind::Texture,
+				ERDGParameterRangeKind::TextureSubresource,
+				ERDGUse::Read, ERHIAccess::GraphicsShaderRead,
 				ERHIBindingType::Texture),
-			MakeRenderGraphResourceParameterMemberMetadata<FParameters,
+			MakeRDGResourceParameterMemberMetadata<FParameters,
 				decltype(FParameters::Output),
-				FRenderGraphColorAttachmentParameter>("Output",
+				FRDGColorAttachmentParameter>("Output",
 					offsetof(FParameters, Output),
-				ERenderGraphParameterMemberKind::ColorAttachment,
-				ERenderGraphResourceKind::Texture,
-				ERenderGraphParameterRangeKind::TextureSubresource,
-				ERenderGraphUse::ReadWrite,
+				ERDGParameterMemberKind::ColorAttachment,
+				ERDGResourceKind::Texture,
+				ERDGParameterRangeKind::TextureSubresource,
+				ERDGUse::ReadWrite,
 				ERHIAccess::ColorAttachmentReadWrite, true,
 				ERHIRenderTargetLoadAction::Clear,
 				ERHIRenderTargetStoreAction::Store)};
-		static const auto Metadata = MakeInlineRenderGraphParametersMetadata<
+		static const auto Metadata = MakeInlineRDGParametersMetadata<
 			FParameters>("FContactShadowGraphicsPassParameters", Members);
 		return &Metadata;
 	}
 
-	auto FContactShadowComputePassParameters::GetRenderGraphParametersMetadata()
-		-> const FRenderGraphParametersMetadata*
+	auto FContactShadowComputePassParameters::GetRDGParametersMetadata()
+		-> const FRDGParametersMetadata*
 	{
 		using FParameters = FContactShadowComputePassParameters;
 		static const std::array Members = {
-			MakeRenderGraphValueParameterMemberMetadata<FParameters,
+			MakeRDGValueParameterMemberMetadata<FParameters,
 				decltype(FParameters::DirectionalShadow),
 				FDirectionalShadowPassResult>("DirectionalShadow",
 					offsetof(FParameters, DirectionalShadow)),
-			MakeRenderGraphValueParameterMemberMetadata<FParameters,
+			MakeRDGValueParameterMemberMetadata<FParameters,
 				decltype(FParameters::GBufferCompletion), FGBufferPassResult>(
 				"GBufferCompletion", offsetof(FParameters, GBufferCompletion)),
-			MakeRenderGraphValueParameterMemberMetadata<FParameters,
+			MakeRDGValueParameterMemberMetadata<FParameters,
 				decltype(FParameters::Completion),
 				FContactShadowVisibilityPassResult>("Completion",
 					offsetof(FParameters, Completion)),
-			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+			MakeRDGShaderResourceParameterMemberMetadata<FParameters,
 				decltype(FParameters::GBufferMaterial),
-				FRenderGraphTextureParameter>("GBufferMaterial",
+				FRDGTextureParameter>("GBufferMaterial",
 					offsetof(FParameters, GBufferMaterial),
-				ERenderGraphParameterMemberKind::Texture,
-				ERenderGraphResourceKind::Texture,
-				ERenderGraphParameterRangeKind::TextureSubresource,
-				ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead,
+				ERDGParameterMemberKind::Texture,
+				ERDGResourceKind::Texture,
+				ERDGParameterRangeKind::TextureSubresource,
+				ERDGUse::Read, ERHIAccess::ComputeShaderRead,
 				ERHIBindingType::Texture),
-			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+			MakeRDGShaderResourceParameterMemberMetadata<FParameters,
 				decltype(FParameters::GBufferNormals),
-				FRenderGraphTextureParameter>("GBufferNormals",
+				FRDGTextureParameter>("GBufferNormals",
 					offsetof(FParameters, GBufferNormals),
-				ERenderGraphParameterMemberKind::Texture,
-				ERenderGraphResourceKind::Texture,
-				ERenderGraphParameterRangeKind::TextureSubresource,
-				ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead,
+				ERDGParameterMemberKind::Texture,
+				ERDGResourceKind::Texture,
+				ERDGParameterRangeKind::TextureSubresource,
+				ERDGUse::Read, ERHIAccess::ComputeShaderRead,
 				ERHIBindingType::Texture),
-			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+			MakeRDGShaderResourceParameterMemberMetadata<FParameters,
 				decltype(FParameters::GBufferSurface),
-				FRenderGraphTextureParameter>("GBufferSurface",
+				FRDGTextureParameter>("GBufferSurface",
 					offsetof(FParameters, GBufferSurface),
-				ERenderGraphParameterMemberKind::Texture,
-				ERenderGraphResourceKind::Texture,
-				ERenderGraphParameterRangeKind::TextureSubresource,
-				ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead,
+				ERDGParameterMemberKind::Texture,
+				ERDGResourceKind::Texture,
+				ERDGParameterRangeKind::TextureSubresource,
+				ERDGUse::Read, ERHIAccess::ComputeShaderRead,
 				ERHIBindingType::Texture),
-			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+			MakeRDGShaderResourceParameterMemberMetadata<FParameters,
 				decltype(FParameters::GBufferEmissive),
-				FRenderGraphTextureParameter>("GBufferEmissive",
+				FRDGTextureParameter>("GBufferEmissive",
 					offsetof(FParameters, GBufferEmissive),
-				ERenderGraphParameterMemberKind::Texture,
-				ERenderGraphResourceKind::Texture,
-				ERenderGraphParameterRangeKind::TextureSubresource,
-				ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead,
+				ERDGParameterMemberKind::Texture,
+				ERDGResourceKind::Texture,
+				ERDGParameterRangeKind::TextureSubresource,
+				ERDGUse::Read, ERHIAccess::ComputeShaderRead,
 				ERHIBindingType::Texture),
-			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
-				decltype(FParameters::SceneDepth), FRenderGraphTextureParameter>(
+			MakeRDGShaderResourceParameterMemberMetadata<FParameters,
+				decltype(FParameters::SceneDepth), FRDGTextureParameter>(
 				"SceneDepth", offsetof(FParameters, SceneDepth),
-				ERenderGraphParameterMemberKind::Texture,
-				ERenderGraphResourceKind::Texture,
-				ERenderGraphParameterRangeKind::TextureSubresource,
-				ERenderGraphUse::Read, ERHIAccess::ComputeShaderRead,
+				ERDGParameterMemberKind::Texture,
+				ERDGResourceKind::Texture,
+				ERDGParameterRangeKind::TextureSubresource,
+				ERDGUse::Read, ERHIAccess::ComputeShaderRead,
 				ERHIBindingType::Texture),
-			MakeRenderGraphShaderResourceParameterMemberMetadata<FParameters,
+			MakeRDGShaderResourceParameterMemberMetadata<FParameters,
 				decltype(FParameters::ContactVisibilityOutput),
-				FRenderGraphTextureParameter>("ContactVisibilityOutput",
+				FRDGTextureParameter>("ContactVisibilityOutput",
 					offsetof(FParameters, ContactVisibilityOutput),
-				ERenderGraphParameterMemberKind::Texture,
-				ERenderGraphResourceKind::Texture,
-				ERenderGraphParameterRangeKind::TextureSubresource,
-				ERenderGraphUse::Write, ERHIAccess::ComputeShaderReadWrite,
+				ERDGParameterMemberKind::Texture,
+				ERDGResourceKind::Texture,
+				ERDGParameterRangeKind::TextureSubresource,
+				ERDGUse::Write, ERHIAccess::ComputeShaderReadWrite,
 				ERHIBindingType::StorageImage, nullptr, true)};
-		static const auto Metadata = MakeInlineRenderGraphParametersMetadata<
+		static const auto Metadata = MakeInlineRDGParametersMetadata<
 			FParameters>("FContactShadowComputePassParameters", Members);
 		return &Metadata;
 	}
@@ -175,32 +175,32 @@ namespace Durin
 		FSceneFrameTopology Topology;
 		Topology.ContactShadowVisibility = Inputs.GraphRoute;
 		struct {
-			std::optional<FRenderGraphTextureHandle> DirectionalShadow;
-			FRenderGraphTextureHandle SceneDepth;
-			std::array<std::optional<FRenderGraphTextureHandle>, 4> GBuffer;
-			std::optional<FRenderGraphTextureHandle>
+			std::optional<FRDGTextureHandle> DirectionalShadow;
+			FRDGTextureHandle SceneDepth;
+			std::array<std::optional<FRDGTextureHandle>, 4> GBuffer;
+			std::optional<FRDGTextureHandle>
 				ContactShadowVisibilityFragment;
-			std::optional<FRenderGraphTextureHandle>
+			std::optional<FRDGTextureHandle>
 				ContactShadowVisibilityCompute;
 		} GraphResources;
 		GraphResources.DirectionalShadow = Inputs.DirectionalShadow.Shadow;
 		GraphResources.GBuffer = Inputs.GBuffer.Textures;
 		GraphResources.SceneDepth = Inputs.GBuffer.Depth;
 		struct {
-			TSceneFrameGraphValue<FDirectionalShadowPassResult> DirectionalShadow;
-			TSceneFrameGraphValue<FGBufferPassResult> GBuffer;
-			TSceneFrameGraphValue<FContactShadowVisibilityPassResult>
+			TRDGValueHandle<FDirectionalShadowPassResult> DirectionalShadow;
+			TRDGValueHandle<FGBufferPassResult> GBuffer;
+			TRDGValueHandle<FContactShadowVisibilityPassResult>
 				ContactShadowVisibility;
 		} Channels;
-		Channels.DirectionalShadow.Handle = Inputs.DirectionalShadow.Completion;
-		Channels.GBuffer.Handle = Inputs.GBuffer.Completion;
-		Channels.ContactShadowVisibility.Handle = Graph.CreateValue<
+		Channels.DirectionalShadow = Inputs.DirectionalShadow.Completion;
+		Channels.GBuffer = Inputs.GBuffer.Completion;
+		Channels.ContactShadowVisibility = Graph.CreateValue<
 			FContactShadowVisibilityPassResult>(
 				"Scene.ContactShadowVisibilityValue",
 				"contact-shadow-visibility-result");
 		if (Topology.UsesContactShadowVisibilityFragment())
 			GraphResources.ContactShadowVisibilityFragment = Graph.CreateTexture(
-				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+				FRDGTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"DirectionalContactVisibility", Width, Height,
 					EPixelFormat::R8_UNORM)
 					.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -213,7 +213,7 @@ namespace Durin
 				ERHIAccess::GraphicsShaderRead);
 		if (Topology.UsesContactShadowVisibilityCompute())
 			GraphResources.ContactShadowVisibilityCompute = Graph.CreateTexture(
-				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+				FRDGTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"DirectionalContactShadowVisibilityCompute", Width, Height,
 					EPixelFormat::R8_UNORM)
 					.SetFlags(ETextureCreateFlags::Storage
@@ -225,23 +225,23 @@ namespace Durin
 				ERHIAccess::GraphicsShaderRead);
 		auto FillCommonParameters = [&](auto& Parameters) {
 			Parameters.DirectionalShadow = {
-				.Value = Channels.DirectionalShadow.Handle};
-			Parameters.GBufferCompletion = {.Value = Channels.GBuffer.Handle};
+				.Value = Channels.DirectionalShadow};
+			Parameters.GBufferCompletion = {.Value = Channels.GBuffer};
 			Parameters.Completion = {
-				.Value = Channels.ContactShadowVisibility.Handle};
+				.Value = Channels.ContactShadowVisibility};
 			if (GraphResources.GBuffer[0])
 			{
 				const FRHITextureSubresourceRange ColorRange{
 					ERHITextureAspect::Color, 0, 1, 0, 1};
-				Parameters.GBufferMaterial = FRenderGraphTextureParameter{
+				Parameters.GBufferMaterial = FRDGTextureParameter{
 					*GraphResources.GBuffer[0], ColorRange};
-				Parameters.GBufferNormals = FRenderGraphTextureParameter{
+				Parameters.GBufferNormals = FRDGTextureParameter{
 					*GraphResources.GBuffer[1], ColorRange};
-				Parameters.GBufferSurface = FRenderGraphTextureParameter{
+				Parameters.GBufferSurface = FRDGTextureParameter{
 					*GraphResources.GBuffer[2], ColorRange};
-				Parameters.GBufferEmissive = FRenderGraphTextureParameter{
+				Parameters.GBufferEmissive = FRDGTextureParameter{
 					*GraphResources.GBuffer[3], ColorRange};
-				Parameters.SceneDepth = FRenderGraphTextureParameter{
+				Parameters.SceneDepth = FRDGTextureParameter{
 					GraphResources.SceneDepth,
 					{ERHITextureAspect::Depth, 0, 1, 0, 1}};
 			}
@@ -249,7 +249,7 @@ namespace Durin
 		auto Execute = [&Services, RecordInputs, &Options, Width, Height,
 			bWantsProductionDeferred](FRHICommandListImmediate& Commands,
 			const auto& Parameters,
-			const FRenderGraphParameterResolver& Resolver) {
+			const FRDGParameterResolver& Resolver) {
 			std::optional<FGBufferRenderer::FTargets> GBufferTargets;
 			if (Parameters.GBufferMaterial)
 				GBufferTargets = {
@@ -297,12 +297,12 @@ namespace Durin
 				FContactShadowComputePassParameters>();
 			FillCommonParameters(Parameters.Get());
 			if (GraphResources.ContactShadowVisibilityCompute)
-				Parameters->ContactVisibilityOutput = FRenderGraphTextureParameter{
+				Parameters->ContactVisibilityOutput = FRDGTextureParameter{
 					*GraphResources.ContactShadowVisibilityCompute,
 					{ERHITextureAspect::Color, 0, 1, 0, 1}};
 			(void)AddSceneFrameFeaturePass<
 				FContactShadowVisibilityGraphContributor>(Graph,
-				ERenderGraphPassType::Compute, std::move(Parameters), Execute);
+				ERDGPassType::Compute, std::move(Parameters), Execute);
 		}
 		else
 		{
@@ -310,14 +310,14 @@ namespace Durin
 				FContactShadowGraphicsPassParameters>();
 			FillCommonParameters(Parameters.Get());
 			if (GraphResources.ContactShadowVisibilityFragment)
-				Parameters->Output = FRenderGraphColorAttachmentParameter{
+				Parameters->Output = FRDGColorAttachmentParameter{
 					*GraphResources.ContactShadowVisibilityFragment,
 					{ERHITextureAspect::Color, 0, 1, 0, 1}};
 			(void)AddSceneFrameFeaturePass<
 				FContactShadowVisibilityGraphContributor>(Graph,
-				ERenderGraphPassType::Graphics, std::move(Parameters), Execute);
+				ERDGPassType::Graphics, std::move(Parameters), Execute);
 		}
-		return {.Completion = Channels.ContactShadowVisibility.Handle,
+		return {.Completion = Channels.ContactShadowVisibility,
 			.Fragment = GraphResources.ContactShadowVisibilityFragment,
 			.Compute = GraphResources.ContactShadowVisibilityCompute};
 	}
@@ -331,7 +331,7 @@ namespace Durin
 		const FContactShadowVisibilityRenderer::FComputeTargets*
 			ComputeContactTargets,
 		const FPostProcessRenderer::FSceneTargets& SceneTargets,
-		const FRenderGraphShaderParameters* ShaderParameters,
+		const FRDGShaderParameterScope* ShaderParameters,
 		const FSceneViewRenderOptions& Options,
 		uint32 Width,
 		uint32 Height,

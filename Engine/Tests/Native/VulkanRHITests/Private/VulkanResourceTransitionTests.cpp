@@ -6,7 +6,7 @@
 #include "DynamicRHI.h"
 #include "RHICommandList.h"
 #include "RHIGlobals.h"
-#include "RenderGraph.h"
+#include "RDG.h"
 #include "InlineRHITestScope.h"
 #include "VulkanBuffer.h"
 #include "VulkanTexture.h"
@@ -35,7 +35,7 @@ namespace Durin::VulkanRHI
 				for (const FRDGAllocationRequest& Request : Requests)
 				{
 					const bool bPublished =
-						Request.Kind == ERenderGraphResourceKind::Texture
+						Request.Kind == ERDGResourceKind::Texture
 						? OutResources.SetTexture(Request.ResourceId, Texture,
 							Request.ResourceId + 1)
 						: OutResources.SetBuffer(Request.ResourceId, Buffer,
@@ -287,11 +287,11 @@ namespace Durin::VulkanRHI
 		ASSERT_TRUE(Buffer && Texture);
 		bool bPrepared = false;
 		bool bExecuted = false;
-		FRenderGraphBuilder RejectedBuilder;
+		FRDGBuilder RejectedBuilder;
 		RejectedBuilder.EnablePassCulling();
 		const auto RejectedPass = RejectedBuilder.AddPass("Rejected",
-			ERenderGraphPassType::Graphics,
-			[&](FRHICommandListImmediate&, const FRenderGraphPassResources&) {
+			ERDGPassType::Graphics,
+			[&](FRHICommandListImmediate&, const FRDGPassResources&) {
 				bExecuted = true;
 			});
 		RejectedBuilder.MarkPassRoot(RejectedPass, "external-effect");
@@ -308,25 +308,25 @@ namespace Durin::VulkanRHI
 		EXPECT_FALSE(bExecuted);
 		EXPECT_EQ(PreparationError, "injected allocation failure");
 
-		FRenderGraphBuilder Builder;
+		FRDGBuilder Builder;
 		const auto GraphBuffer = Builder.CreateBuffer(
-			FRenderGraphBufferDesc{.Buffer = Buffer->GetDesc()}, "GraphBuffer",
+			FRDGBufferDesc{.Buffer = Buffer->GetDesc()}, "GraphBuffer",
 			ERHIAccess::VertexBufferRead);
 		const auto GraphTexture = Builder.CreateTexture(
-			FRenderGraphTextureDesc{.Texture = TextureDesc}, "GraphTexture",
+			FRDGTextureDesc{.Texture = TextureDesc}, "GraphTexture",
 			ERHIAccess::GraphicsShaderRead);
-		const auto Copy = Builder.AddPass("Copy", ERenderGraphPassType::Copy);
-		Builder.UseBuffer(Copy, GraphBuffer, 0, 64, ERenderGraphUse::Write,
+		const auto Copy = Builder.AddPass("Copy", ERDGPassType::Copy);
+		Builder.UseBuffer(Copy, GraphBuffer, 0, 64, ERDGUse::Write,
 			ERHIAccess::TransferWrite, true);
 		Builder.UseTexture(Copy, GraphTexture,
-			{ERHITextureAspect::Color, 1, 1, 0, 1}, ERenderGraphUse::Write,
+			{ERHITextureAspect::Color, 1, 1, 0, 1}, ERDGUse::Write,
 			ERHIAccess::TransferWrite, true);
 		const auto Consume = Builder.AddPass(
-			"Consume", ERenderGraphPassType::Graphics);
-		Builder.UseBuffer(Consume, GraphBuffer, 0, 64, ERenderGraphUse::Read,
+			"Consume", ERDGPassType::Graphics);
+		Builder.UseBuffer(Consume, GraphBuffer, 0, 64, ERDGUse::Read,
 			ERHIAccess::VertexBufferRead);
 		Builder.UseTexture(Consume, GraphTexture,
-			{ERHITextureAspect::Color, 1, 1, 0, 1}, ERenderGraphUse::Read,
+			{ERHITextureAspect::Color, 1, 1, 0, 1}, ERDGUse::Read,
 			ERHIAccess::GraphicsShaderRead);
 		auto Compiled = Builder.Compile();
 		ASSERT_TRUE(Compiled.IsSuccess()) << Compiled.Error;

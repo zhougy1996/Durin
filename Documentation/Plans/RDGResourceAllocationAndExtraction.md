@@ -413,8 +413,8 @@ physical compatibility, output, or failure outcome.
 
 ## Related Code
 
-- `Engine/Source/Runtime/RenderCore/Public/RenderGraph.h`
-- `Engine/Source/Runtime/RenderCore/Private/RenderGraph.cpp`
+- `Engine/Source/Runtime/RenderCore/Public/RDG.h`
+- `Engine/Source/Runtime/RenderCore/Private/RDG.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/RendererTransientTargetPool.h`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/RendererTransientTargetPool.cpp`
 - `Engine/Source/Runtime/Renderer/Private/Renderers/SceneFrameGraphComposer.cpp`

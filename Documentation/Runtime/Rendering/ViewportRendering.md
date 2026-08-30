@@ -369,7 +369,7 @@ Full graph inspection is explicitly sampled rather than copied every frame.
 Opening the panel without a capture requests the next frame once; later
 captures occur only through `Capture next frame`. `FSceneViewport` carries the
 request atomically into the exact render submission and publishes an immutable
-owning `FRenderGraphCapture` under a separate revision. Main, window-backed,
+owning `FRDGCapture` under a separate revision. Main, window-backed,
 and auxiliary viewports therefore retain independent graph captures just as
 they retain independent bounded statistics. A failed requested render
 publishes an unavailable capture instead of retaining misleading stale data.

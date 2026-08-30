@@ -138,7 +138,7 @@ namespace
 	};
 
 	Durin::FViewRenderTelemetry GLastTelemetry;
-	Durin::FRenderGraphCapture GLastSceneRenderGraphCapture;
+	Durin::FRDGCapture GLastSceneRenderGraphCapture;
 	bool GReceivedSceneRenderGraphCapture = false;
 	std::vector<std::byte>* GHDRSceneColorPixels = nullptr;
 	std::vector<std::byte>* GHDRPostProcessInputPixels = nullptr;
@@ -153,7 +153,7 @@ namespace
 		GLastTelemetry = Telemetry;
 	}
 
-	auto CaptureSceneRenderGraph(const Durin::FRenderGraphCapture& Capture) -> void
+	auto CaptureSceneRenderGraph(const Durin::FRDGCapture& Capture) -> void
 	{
 		GLastSceneRenderGraphCapture = Capture;
 		GReceivedSceneRenderGraphCapture = true;
@@ -1185,7 +1185,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 	EXPECT_FALSE(
 		GLastSceneRenderGraphCapture.Statistics.bExecuteBudgetExceeded);
 	EXPECT_TRUE(std::ranges::any_of(GLastSceneRenderGraphCapture.Passes,
-		[](const Durin::FRenderGraphPassCapture& Pass) {
+		[](const Durin::FRDGPassCapture& Pass) {
 			return Pass.Name == "Scene.PostProcess";
 		}));
 	Durin::SetSceneRenderGraphCaptureSink(nullptr);

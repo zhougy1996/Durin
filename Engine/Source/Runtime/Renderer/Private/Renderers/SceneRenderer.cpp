@@ -1,6 +1,6 @@
 #include "Renderers/SceneRenderer.h"
 
-#include "Renderers/RenderGraphSceneFrameExecutor.h"
+#include "Renderers/SceneFrameGraphExecutor.h"
 
 #include "Asset.h"
 #include "Console/ConsoleCommand.h"
@@ -251,10 +251,10 @@ namespace Durin
 		bool bPresentOutput,
 		const FSceneViewRenderOptions& Options,
 		FSceneViewStatistics* OutStatistics,
-		FRenderGraphCapture* OutRenderGraphCapture
+		FRDGCapture* OutRenderGraphCapture
 	) -> ERenderViewResult
 	{
-		return FRenderGraphSceneFrameExecutor(*this).Execute_RenderThread(
+		return FSceneFrameGraphExecutor(*this).Execute_RenderThread(
 			CommandList, Scene, View, OutputTarget, bPresentOutput,
 			Options, OutStatistics, OutRenderGraphCapture
 		);

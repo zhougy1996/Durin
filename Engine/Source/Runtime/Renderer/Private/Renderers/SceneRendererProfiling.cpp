@@ -157,12 +157,12 @@ namespace Durin
 		GSceneRenderGraphCaptureSink.store(Sink, std::memory_order_release);
 	}
 
-	auto PublishSceneRenderGraphCapture(const FCompiledRenderGraph& Graph) -> void
+	auto PublishSceneRenderGraphCapture(const FRDGCompiledGraph& Graph) -> void
 	{
 		if (const auto Sink =
 			GSceneRenderGraphCaptureSink.load(std::memory_order_acquire))
 		{
-			const FRenderGraphCapture Capture = Graph.Capture();
+			const FRDGCapture Capture = Graph.Capture();
 			Sink(Capture);
 		}
 	}

@@ -37,13 +37,13 @@ namespace Durin
 		FSceneFrameTopology Topology;
 		Topology.bGBufferDebug = Inputs.bGBufferDebug;
 		struct {
-			FRenderGraphTextureHandle SceneColor;
-			FRenderGraphTextureHandle SceneDepth;
-			FRenderGraphTextureHandle Output;
-			std::array<std::optional<FRenderGraphTextureHandle>, 4> GBuffer;
-			std::optional<FRenderGraphTextureHandle> VolumetricCloudComposite;
-			std::optional<FRenderGraphTextureHandle> IsolatedDeferred;
-			std::optional<FRenderGraphTextureHandle> GBufferDebug;
+			FRDGTextureHandle SceneColor;
+			FRDGTextureHandle SceneDepth;
+			FRDGTextureHandle Output;
+			std::array<std::optional<FRDGTextureHandle>, 4> GBuffer;
+			std::optional<FRDGTextureHandle> VolumetricCloudComposite;
+			std::optional<FRDGTextureHandle> IsolatedDeferred;
+			std::optional<FRDGTextureHandle> GBufferDebug;
 		} GraphResources;
 		GraphResources.SceneColor = Inputs.SceneColor.Color;
 		GraphResources.SceneDepth = Inputs.SceneColor.Depth;
@@ -52,22 +52,22 @@ namespace Durin
 		GraphResources.IsolatedDeferred = Inputs.Deferred.Isolated;
 		GraphResources.Output = Inputs.Output;
 		struct {
-			TSceneFrameGraphValue<FSceneColorPassResult> SceneColor;
-			TSceneFrameGraphValue<FGBufferPassResult> GBuffer;
-			TSceneFrameGraphValue<FIsolatedDeferredPassResult>
+			TRDGValueHandle<FSceneColorPassResult> SceneColor;
+			TRDGValueHandle<FGBufferPassResult> GBuffer;
+			TRDGValueHandle<FIsolatedDeferredPassResult>
 				DeferredDirectionalLighting;
-			TSceneFrameGraphValue<FPostProcessPassResult> PostProcess;
-			FRenderGraphTokenHandle OutputCompletion;
+			TRDGValueHandle<FPostProcessPassResult> PostProcess;
+			FRDGTokenHandle OutputCompletion;
 		} Channels;
-		Channels.SceneColor.Handle = Inputs.SceneColor.Completion;
-		Channels.GBuffer.Handle = Inputs.GBuffer.Completion;
-		Channels.DeferredDirectionalLighting.Handle = Inputs.Deferred.Completion;
-		Channels.PostProcess.Handle = Graph.CreateValue<FPostProcessPassResult>(
+		Channels.SceneColor = Inputs.SceneColor.Completion;
+		Channels.GBuffer = Inputs.GBuffer.Completion;
+		Channels.DeferredDirectionalLighting = Inputs.Deferred.Completion;
+		Channels.PostProcess = Graph.CreateValue<FPostProcessPassResult>(
 			"Scene.PostProcessValue", "post-process-result");
 		Channels.OutputCompletion = Graph.CreateToken("Scene.OutputCompletion");
 		if (Topology.bGBufferDebug)
 			GraphResources.GBufferDebug = Graph.CreateTexture(
-				FRenderGraphTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
+				FRDGTextureDesc{.Texture = FRHITextureCreateDesc::Create2D(
 					"GBufferDebugColor", Width, Height,
 					EPixelFormat::RGBA16_FLOAT)
 					.SetFlags(ETextureCreateFlags::RenderTargetable
@@ -78,11 +78,11 @@ namespace Durin
 				"Scene.GBuffer.Debug",
 				ERHIAccess::GraphicsShaderRead);
 		auto Parameters = Graph.AllocParameters<FPostProcessPassParameters>();
-		Parameters->SceneColor = {.Value = Channels.SceneColor.Handle};
-		Parameters->GBufferCompletion = {.Value = Channels.GBuffer.Handle};
+		Parameters->SceneColor = {.Value = Channels.SceneColor};
+		Parameters->GBufferCompletion = {.Value = Channels.GBuffer};
 		Parameters->DeferredLighting = {
-			.Value = Channels.DeferredDirectionalLighting.Handle};
-		Parameters->Completion = {.Value = Channels.PostProcess.Handle};
+			.Value = Channels.DeferredDirectionalLighting};
+		Parameters->Completion = {.Value = Channels.PostProcess};
 		Parameters->Resources.SceneColor = {GraphResources.SceneColor,
 			{ERHITextureAspect::Color, 0, 1, 0, 1}};
 		if (GraphResources.VolumetricCloudComposite)
@@ -92,7 +92,7 @@ namespace Durin
 		if (Topology.bGBufferDebug)
 			Parameters->Resources.SceneDepth = {GraphResources.SceneDepth,
 				{ERHITextureAspect::Depth, 0, 1, 0, 1}};
-		const FRenderGraphColorAttachmentParameter Output{
+		const FRDGColorAttachmentParameter Output{
 			GraphResources.Output,
 			{GetTextureAspects(OutputTarget->GetFormat()), 0,
 				OutputTarget->GetNumMips(), 0, OutputTarget->GetArraySize()}};
@@ -116,17 +116,17 @@ namespace Durin
 				*GraphResources.IsolatedDeferred,
 				{ERHITextureAspect::Color, 0, 1, 0, 1}};
 		if (!bHasEditorAssistance)
-			Parameters->OutputCompletion = FRenderGraphTokenParameter{
+			Parameters->OutputCompletion = FRDGTokenParameter{
 				Channels.OutputCompletion};
 		const auto PostProcessPass =
 			AddSceneFrameFeaturePass<FPostProcessGraphContributor>(
-				Graph, ERenderGraphPassType::Graphics, std::move(Parameters),
+				Graph, ERDGPassType::Graphics, std::move(Parameters),
 			[&Services, &Publication = Inputs.Publication,
 				RecordView = &RecordView, &View, Topology, &Options,
 				bPresentOutput, bHasEditorAssistance](
 				FRHICommandListImmediate& Commands,
 				const FPostProcessPassParameters& PassParameters,
-				const FRenderGraphParameterResolver& Resolver) {
+				const FRDGParameterResolver& Resolver) {
 				const auto& SceneColorResult = Resolver.ReadValue(
 					PassParameters.SceneColor);
 				auto& PostProcessResult = Resolver.WriteValue(
@@ -182,7 +182,7 @@ namespace Durin
 			Graph.MarkPassRoot(PostProcessPass,
 				bPresentOutput ? "present" : "offscreen-output");
 		}
-		return {.Completion = Channels.PostProcess.Handle,
+		return {.Completion = Channels.PostProcess,
 			.Output = GraphResources.Output,
 			.OutputCompletion = Channels.OutputCompletion};
 	}

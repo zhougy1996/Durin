@@ -6,7 +6,7 @@
 #include "Renderers/SceneRenderer.h"
 #include "Renderers/SceneFrameGraphTypes.h"
 #include "Renderers/SceneFrameFeatureRecorders.h"
-#include "RenderGraph.h"
+#include "RDG.h"
 
 namespace Durin
 {
