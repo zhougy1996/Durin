@@ -121,12 +121,12 @@ namespace Durin::Asset::Private
 
 	auto ResolveAssetPackageReader(IAssetPackageByteSource& Source,
 		const FAssetPackageCodec*& OutCodec, uint32* OutFormatVersion,
-		const FAssetCompatibilityCancellationCheck& IsCancelled) -> FAssetResult
+		const FPackageReadCancellationCheck& IsCancelled) -> FAssetResult
 	{
 		OutCodec = nullptr;
 		if (OutFormatVersion) *OutFormatVersion = 0;
 		if (IsCancelled && IsCancelled())
-			return {EAssetError::IoError, "Asset compatibility inspection was cancelled."};
+			return {EAssetError::IoError, "Asset schema inspection was cancelled."};
 		const size_t PrefixBytes = static_cast<size_t>(std::min<uint64>(
 			Source.GetSize(), BinaryEnvelopePreambleBytes));
 		std::vector<std::byte> Prefix(PrefixBytes);
@@ -152,7 +152,7 @@ namespace Durin::Asset::Private
 		if (Preamble.HeaderBytes > std::numeric_limits<size_t>::max())
 			return {EAssetError::CorruptFile, "BinaryEnvelopeTruncated: front matter is too large."};
 		if (IsCancelled && IsCancelled())
-			return {EAssetError::IoError, "Asset compatibility inspection was cancelled."};
+			return {EAssetError::IoError, "Asset schema inspection was cancelled."};
 		std::vector<std::byte> Header(static_cast<size_t>(Preamble.HeaderBytes));
 		if (!Source.ReadAt(0, Header, &ReadError))
 			return {EAssetError::CorruptFile, std::move(ReadError)};
@@ -174,7 +174,7 @@ namespace Durin::Asset::Private
 			const FAssetPackageCodec& Codec = CandidateCodecs[Index];
 			if (Codec.CodecId.empty() || Codec.FormatVersion == 0
 				|| (Codec.bCanRead && (!Codec.ReadHeader || !Codec.Validate || !Codec.Inspect
-					|| !Codec.ExtractReferences || !Codec.ProbeCompatibility || !Codec.Load))
+					|| !Codec.ExtractReferences || !Codec.InspectSchema || !Codec.Load))
 				|| (Codec.bCanWrite && !Codec.Write)
 				|| (Codec.bCanMutate && (!Codec.RewriteReferences
 					|| !Codec.Relocate || !Codec.WriteRedirector)))

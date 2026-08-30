@@ -1,7 +1,7 @@
 #include "AssetPackageV7Codec.h"
 #include "AssetPackageByteSource.h"
 
-#include "Asset/Compatibility.h"
+#include "Asset/PackageSchema.h"
 #include "Asset/Cook.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/Load.h"
@@ -426,36 +426,36 @@ namespace Durin::Asset::Private::DastV7
 			return {};
 		}
 
-		auto ReadCompatibilityRange(IAssetPackageByteSource& Source, uint64 Offset,
+		auto ReadSchemaRange(IAssetPackageByteSource& Source, uint64 Offset,
 			std::span<std::byte> Output,
-			const FAssetCompatibilityCancellationCheck& IsCancelled,
+			const FPackageReadCancellationCheck& IsCancelled,
 			std::string& OutError) -> bool
 		{
 			constexpr size_t ScratchReadBytes = 64 * 1024;
 			for (size_t Complete = 0; Complete < Output.size();)
 			{
 				if (IsCancelled && IsCancelled())
-					return Fail("Asset compatibility inspection was cancelled.", &OutError);
+					return Fail("Asset schema inspection was cancelled.", &OutError);
 				const size_t Count = std::min(ScratchReadBytes, Output.size() - Complete);
 				if (!Source.ReadAt(Offset + Complete, Output.subspan(Complete, Count), &OutError))
 					return false;
 				Complete += Count;
 			}
 			if (Output.empty() && IsCancelled && IsCancelled())
-				return Fail("Asset compatibility inspection was cancelled.", &OutError);
+				return Fail("Asset schema inspection was cancelled.", &OutError);
 			return true;
 		}
 
-		auto ParseCompatibilityMetadata(IAssetPackageByteSource& Source,
+		auto ParseSchemaMetadata(IAssetPackageByteSource& Source,
 			std::array<std::vector<std::byte>, RequiredSectionCount>& Owned,
 			FParsedPackage& OutPackage,
-			const FAssetCompatibilityCancellationCheck& IsCancelled,
+			const FPackageReadCancellationCheck& IsCancelled,
 			std::string& OutError) -> bool
 		{
 			const size_t PrefixSize = static_cast<size_t>(std::min<uint64>(
 				Source.GetSize(), BinaryEnvelopePreambleBytes));
 			std::vector<std::byte> Prefix(PrefixSize);
-			if (!ReadCompatibilityRange(Source, 0, Prefix, IsCancelled, OutError)) return false;
+			if (!ReadSchemaRange(Source, 0, Prefix, IsCancelled, OutError)) return false;
 			FBinaryEnvelopePreamble Preamble;
 			FBinaryEnvelopeDiagnostic EnvelopeDiagnostic;
 			if (!ParseBinaryEnvelopePrefix(Prefix, Source.GetSize(), EnvelopeLimits,
@@ -464,7 +464,7 @@ namespace Durin::Asset::Private::DastV7
 			if (Preamble.HeaderBytes > std::numeric_limits<size_t>::max())
 				return Fail("DAST v7 front matter exceeds the addressable range.", &OutError);
 			std::vector<std::byte> Header(static_cast<size_t>(Preamble.HeaderBytes));
-			if (!ReadCompatibilityRange(Source, 0, Header, IsCancelled, OutError)) return false;
+			if (!ReadSchemaRange(Source, 0, Header, IsCancelled, OutError)) return false;
 			FValidatedBinaryEnvelope Envelope;
 			if (!ValidateBinaryEnvelopeHeader(Header, Source.GetSize(), EnvelopeLimits,
 				GetRegistry(), Envelope, &EnvelopeDiagnostic))
@@ -534,7 +534,7 @@ namespace Durin::Asset::Private::DastV7
 				if (Entry.Offset + Entry.Size <= Header.size())
 					std::ranges::copy(std::span(Header).subspan(static_cast<size_t>(Entry.Offset),
 						static_cast<size_t>(Entry.Size)), Owned[Index].begin());
-				else if (!ReadCompatibilityRange(Source, Entry.Offset, Owned[Index], IsCancelled, OutError))
+				else if (!ReadSchemaRange(Source, Entry.Offset, Owned[Index], IsCancelled, OutError))
 					return false;
 				if (FXxHash128::HashBuffer(Owned[Index]) != Entry.Hash)
 					return Fail("DAST v7 metadata section hash verification failed.", &OutError);
@@ -560,7 +560,7 @@ namespace Durin::Asset::Private::DastV7
 			return true;
 		}
 
-		auto BuildEmptyCompatibilityValues(uint64 ExportCount,
+		auto BuildEmptySchemaValues(uint64 ExportCount,
 			std::vector<std::byte>& OutBytes) -> bool
 		{
 			FWriter Values;
@@ -574,10 +574,10 @@ namespace Durin::Asset::Private::DastV7
 			return true;
 		}
 
-		auto ScanCompatibilityValueDescriptors(IAssetPackageByteSource& Source,
+		auto ScanSchemaValueDescriptors(IAssetPackageByteSource& Source,
 			const FSectionEntry& Section, PackageObjectStream::FDecodedPackage& Package,
-			FAssetCompatibilityProbeStats* OutStats,
-			const FAssetCompatibilityCancellationCheck& IsCancelled,
+			FPackageSchemaReadStats* OutStats,
+			const FPackageReadCancellationCheck& IsCancelled,
 			std::string& OutError) -> bool
 		{
 			uint64 Offset = Section.Offset;
@@ -586,7 +586,7 @@ namespace Durin::Asset::Private::DastV7
 				if (Offset >= Bound) return Fail(std::format(
 					"DAST v7 value descriptor is truncated at physical offset {}.", Offset), &OutError);
 				std::byte Byte{};
-				if (!ReadCompatibilityRange(Source, Offset, std::span(&Byte, 1), IsCancelled, OutError)) return false;
+				if (!ReadSchemaRange(Source, Offset, std::span(&Byte, 1), IsCancelled, OutError)) return false;
 				Out = std::to_integer<uint8>(Byte); ++Offset; return true;
 			};
 			auto VarUInt = [&](uint64 Bound, uint64& Out) -> bool {
@@ -615,7 +615,7 @@ namespace Durin::Asset::Private::DastV7
 			for (uint64 ObjectIndex = 0; ObjectIndex < ObjectCount; ++ObjectIndex)
 			{
 				if (IsCancelled && IsCancelled())
-					return Fail("Asset compatibility inspection was cancelled.", &OutError);
+					return Fail("Asset schema inspection was cancelled.", &OutError);
 				uint64 BlockSize = 0;
 				if (!VarUInt(End, BlockSize) || BlockSize > End - Offset)
 					return Fail(std::format("DAST v7 object value block is invalid at physical offset {}.", Offset), &OutError);
@@ -629,7 +629,7 @@ namespace Durin::Asset::Private::DastV7
 				for (uint64 Index = 0; Index < OverrideCount; ++Index)
 				{
 					if (IsCancelled && IsCancelled())
-						return Fail("Asset compatibility inspection was cancelled.", &OutError);
+						return Fail("Asset schema inspection was cancelled.", &OutError);
 					PackageObjectStream::FDecodedOverride Override;
 					uint8 Provenance = 0;
 					if (!VarUInt(BlockEnd, Override.SchemaId) || !VarUInt(BlockEnd, Override.FieldId)
@@ -722,22 +722,22 @@ namespace Durin::Asset::Private::DastV7
 				ObjectStream, Source, Out, {}, &Diagnostic);
 		}
 
-		auto ProbeCompatibility(IAssetPackageByteSource& Source,
-			const FAssetPath& Path, const FReflectionCompatibilityCatalog& Catalog,
-			FAssetPackageCompatibilityRecord& OutRecord,
-			FAssetCompatibilityProbeStats* OutStats,
+		auto InspectSchema(IAssetPackageByteSource& Source,
+			const FAssetPath& Path, const FReflectionSchemaCatalog& Catalog,
+			FPackageSchemaInspection& OutRecord,
+			FPackageSchemaReadStats* OutStats,
 			bool bIncludeNestedMigrationEvidence,
-			const FAssetCompatibilityCancellationCheck& IsCancelled) -> FAssetResult
+			const FPackageReadCancellationCheck& IsCancelled) -> FAssetResult
 		{
 			if (IsCancelled && IsCancelled())
-				return {EAssetError::IoError, "Asset compatibility inspection was cancelled."};
+				return {EAssetError::IoError, "Asset schema inspection was cancelled."};
 			std::array<std::vector<std::byte>, RequiredSectionCount> Owned;
 			FParsedPackage Parsed;
 			std::string ReadError;
-			if (!ParseCompatibilityMetadata(Source, Owned, Parsed, IsCancelled, ReadError))
+			if (!ParseSchemaMetadata(Source, Owned, Parsed, IsCancelled, ReadError))
 				return Error(std::move(ReadError));
 			std::vector<std::byte> EmptyValues;
-			if (!BuildEmptyCompatibilityValues(Parsed.ExportCount, EmptyValues))
+			if (!BuildEmptySchemaValues(Parsed.ExportCount, EmptyValues))
 				return Error("DAST v7 metadata cannot form bounded empty value descriptors.");
 			PackageObjectStream::FReaderDiagnostic Diagnostic;
 			PackageObjectStream::FDecodedPackage Package;
@@ -757,23 +757,23 @@ namespace Durin::Asset::Private::DastV7
 			if (!PackageObjectStream::DecodePackageDescriptorSections(std::move(LogicalHeader),
 				Sections, SectionOffsets, Package, {}, &Diagnostic))
 				return Error(Diagnostic.Message);
-			if (!ScanCompatibilityValueDescriptors(Source, Parsed.RequiredEntries[6],
+			if (!ScanSchemaValueDescriptors(Source, Parsed.RequiredEntries[6],
 				Package, OutStats, IsCancelled, ReadError)) return Error(std::move(ReadError));
 
 			const bool bNeedsPayloadValues =
-				PackageObjectStream::RequiresDecodedCompatibilityPayloadValues(Package, Catalog);
+				PackageObjectStream::RequiresDecodedSchemaPayloadValues(Package, Catalog);
 			FAssetResult Result;
 			if (bNeedsPayloadValues && bIncludeNestedMigrationEvidence)
 			{
 				if (Source.GetSize() > std::numeric_limits<size_t>::max())
 					return Error("DAST v7 package exceeds the addressable range.");
 				std::vector<std::byte> Bytes(static_cast<size_t>(Source.GetSize()));
-				if (!ReadCompatibilityRange(Source, 0, Bytes, IsCancelled, ReadError))
+				if (!ReadSchemaRange(Source, 0, Bytes, IsCancelled, ReadError))
 					return Error(std::move(ReadError));
 				std::vector<std::byte> ObjectStream;
 				if (Result = MakeObjectStream(Bytes, ObjectStream, true); !Result) return Result;
-				FAssetCompatibilityProbeStats FallbackStats;
-				Result = PackageObjectStream::ProbeCompatibility(ObjectStream, Path, Catalog,
+				FPackageSchemaReadStats FallbackStats;
+				Result = PackageObjectStream::InspectSchema(ObjectStream, Path, Catalog,
 					OutRecord, &FallbackStats, {}, &Diagnostic);
 				if (OutStats)
 				{
@@ -782,13 +782,11 @@ namespace Durin::Asset::Private::DastV7
 						Bytes.size() + ObjectStream.size());
 				}
 			}
-			else Result = PackageObjectStream::ProbeDecodedCompatibility(std::move(Package),
+			else Result = PackageObjectStream::InspectDecodedPackageSchema(std::move(Package),
 				Source.GetSize(), false, Path, Catalog, OutRecord, &Diagnostic);
 			if (Result)
 			{
 				OutRecord.FormatVersion = AssetPackageV7FormatVersion;
-				OutRecord.Fingerprint.FileSize = Source.GetSize();
-				OutRecord.Fingerprint.ReaderVersion = AssetPackageV7FormatVersion;
 				if (OutStats && !(bNeedsPayloadValues && bIncludeNestedMigrationEvidence))
 				{
 					uint64 LiveBytes = EmptyValues.size();
@@ -972,7 +970,7 @@ namespace Durin::Asset::Private::DastV7
 			.Validate = &Validate,
 			.Inspect = &Inspect,
 			.ExtractReferences = &ExtractReferences,
-			.ProbeCompatibility = &ProbeCompatibility,
+			.InspectSchema = &InspectSchema,
 			.Load = &Load,
 			.Write = &Write,
 			.RewriteReferences = &RewriteReferences,

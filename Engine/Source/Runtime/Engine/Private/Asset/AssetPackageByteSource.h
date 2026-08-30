@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Asset/Compatibility.h"
+#include "Asset/PackageSchema.h"
 #include "Misc/FileHelper.h"
 
 namespace Durin::Asset::Private
@@ -32,6 +32,24 @@ namespace Durin::Asset::Private
 		std::unique_ptr<FFileHelper::IFileHandle> Handle;
 	};
 
+	class FBorrowedFileAssetPackageByteSource final : public IAssetPackageByteSource
+	{
+	public:
+		explicit FBorrowedFileAssetPackageByteSource(FFileHelper::IFileHandle& InHandle)
+			: Handle(InHandle) {}
+		auto GetSize() const -> uint64 override { return Handle.GetSize(); }
+		auto ReadAt(uint64 Offset, std::span<std::byte> Output,
+			std::string* OutError = nullptr) -> bool override
+		{
+			FFileHelper::FFileIoError Error;
+			if (Handle.ReadAt(Offset, Output, &Error)) return true;
+			if (OutError) *OutError = Error.ToString();
+			return false;
+		}
+	private:
+		FFileHelper::IFileHandle& Handle;
+	};
+
 	class FMemoryAssetPackageByteSource final : public IAssetPackageByteSource
 	{
 	public:
@@ -57,7 +75,7 @@ namespace Durin::Asset::Private
 	{
 	public:
 		explicit FCountingAssetPackageByteSource(IAssetPackageByteSource& InInner,
-			FAssetCompatibilityProbeStats& InStats)
+			FPackageSchemaReadStats& InStats)
 			: Inner(InInner), Stats(InStats) {}
 		auto GetSize() const -> uint64 override { return Inner.GetSize(); }
 		auto ReadAt(uint64 Offset, std::span<std::byte> Output,
@@ -69,6 +87,6 @@ namespace Durin::Asset::Private
 		}
 	private:
 		IAssetPackageByteSource& Inner;
-		FAssetCompatibilityProbeStats& Stats;
+		FPackageSchemaReadStats& Stats;
 	};
 }

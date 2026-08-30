@@ -4,7 +4,7 @@
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
-#include "Asset/Compatibility.h"
+#include "AssetMaintenance/CompatibilityAudit.h"
 #if DURIN_WITH_EDITOR
 	#include "AssetMaintenance/CompatibilityAudit.h"
 	#include "AssetMaintenance/CanonicalResave.h"
@@ -2235,12 +2235,12 @@ TEST(FPackageAssetTests, V7CodecMatchesLiveWriteInspectReferenceMutationAndLoadS
 	ASSERT_TRUE(Codec.ExtractReferences(V6, SourcePath, References));
 	ASSERT_EQ(References.size(), 2);
 	EXPECT_EQ(std::ranges::count(References, TargetPath, &FAssetReferenceEdge::TargetPath), 1);
-	const FReflectionCompatibilityCatalog Catalog = FReflectionCompatibilityCatalog::Capture();
-	FAssetPackageCompatibilityRecord Compatibility;
-	FMemoryAssetPackageByteSource CompatibilitySource(V6);
-	ASSERT_TRUE(Codec.ProbeCompatibility(
-		CompatibilitySource, SourcePath, Catalog, Compatibility, nullptr, false, {}));
-	EXPECT_EQ(Compatibility.FormatVersion, AssetPackageV7FormatVersion);
+	const FReflectionSchemaCatalog Catalog = FReflectionSchemaCatalog::Capture();
+	FPackageSchemaInspection SchemaInspection;
+	FMemoryAssetPackageByteSource SchemaSource(V6);
+	ASSERT_TRUE(Codec.InspectSchema(
+		SchemaSource, SourcePath, Catalog, SchemaInspection, nullptr, false, {}));
+	EXPECT_EQ(SchemaInspection.FormatVersion, AssetPackageV7FormatVersion);
 
 	std::vector<std::byte> DirectWrite;
 	ASSERT_TRUE(Codec.Write(Source->GetPackage(), DirectWrite,
@@ -3409,8 +3409,8 @@ TEST(FPackageAssetTests, DastSoftFieldsRoundTripWithoutHardDependenciesOrTargetL
 		DirectField->TypeSignature,
 		"SoftObject:Tests::DPackageAssetForTest:v1"
 	);
-	const Durin::Asset::FReflectionCompatibilityCatalog Catalog =
-		Durin::Asset::FReflectionCompatibilityCatalog::Capture();
+	const Durin::Asset::FReflectionSchemaCatalog Catalog =
+		Durin::Asset::FReflectionSchemaCatalog::Capture();
 	const auto* CatalogClass = Catalog.FindClass("Tests::DSoftPackageAssetForTest");
 	ASSERT_NE(CatalogClass, nullptr);
 	const auto* CatalogField = Catalog.FindField(
@@ -4905,7 +4905,7 @@ TEST(FPackageAssetTests, CanonicalResaveReportsPartialAfterACompletedAtomicPacka
 		Inputs.push_back(*Input);
 		Inputs.back().bIncludeNestedMigrationEvidence = true;
 	}
-	const FReflectionCompatibilityCatalog Catalog = FReflectionCompatibilityCatalog::Capture();
+	const FReflectionSchemaCatalog Catalog = FReflectionSchemaCatalog::Capture();
 	auto Audit = RunAssetCompatibilityAudit(Inputs, Catalog);
 	ASSERT_EQ(Audit.Status, EAssetCompatibilityAuditStatus::Completed);
 	ASSERT_EQ(Audit.Records.size(), 2u);
@@ -5039,18 +5039,18 @@ TEST(FPackageAssetTests, V4PropertyLegacyNameLoadsAndResavesCanonically)
 	std::vector<std::byte> LegacyBytes;
 	ASSERT_TRUE(PackageObjectStream::ReencodePackage(LegacyPackage, LegacyBytes, &ReaderDiagnostic))
 		<< ReaderDiagnostic.Message;
-	const FReflectionCompatibilityCatalog Catalog = FReflectionCompatibilityCatalog::Capture();
+	const FReflectionSchemaCatalog Catalog = FReflectionSchemaCatalog::Capture();
 	const FReflectionSerializedPropertyAlias* Alias =
 		Catalog.FindSerializedPropertyAlias("Tests::DPackageAssetForTest", "LegacyValue");
 	ASSERT_NE(Alias, nullptr);
 	EXPECT_EQ(Alias->CurrentName, "Value");
 
-	FAssetPackageCompatibilityRecord Compatibility;
-	ASSERT_TRUE(PackageObjectStream::ProbeCompatibility(
-		LegacyBytes, LoadPath, Catalog, Compatibility, nullptr, {}, &ReaderDiagnostic))
+	FPackageSchemaInspection SchemaInspection;
+	ASSERT_TRUE(PackageObjectStream::InspectSchema(
+		LegacyBytes, LoadPath, Catalog, SchemaInspection, nullptr, {}, &ReaderDiagnostic))
 		<< ReaderDiagnostic.Message;
-	EXPECT_EQ(Compatibility.Compatibility, EAssetPackageCompatibility::Compatible);
-	EXPECT_TRUE(std::ranges::any_of(Compatibility.CanonicalizationEvidence, [](const auto& Evidence) {
+	EXPECT_EQ(SchemaInspection.Status, EPackageSchemaStatus::Compatible);
+	EXPECT_TRUE(std::ranges::any_of(SchemaInspection.CanonicalizationEvidence, [](const auto& Evidence) {
 		return Evidence.Kind == EAssetReflectedIdentityKind::Property
 			&& Evidence.StoredIdentity == "LegacyValue"
 			&& Evidence.CurrentIdentity == "Value";
@@ -5099,9 +5099,9 @@ TEST(FPackageAssetTests, V4PropertyLegacyNameLoadsAndResavesCanonically)
 	std::vector<std::byte> CollisionBytes;
 	ASSERT_TRUE(PackageObjectStream::ReencodePackage(CollisionPackage, CollisionBytes, &ReaderDiagnostic))
 		<< ReaderDiagnostic.Message;
-	FAssetPackageCompatibilityRecord CollisionCompatibility;
-	const FAssetResult CollisionProbe = PackageObjectStream::ProbeCompatibility(
-		CollisionBytes, LoadPath, Catalog, CollisionCompatibility, nullptr, {}, &ReaderDiagnostic);
+	FPackageSchemaInspection CollisionInspection;
+	const FAssetResult CollisionProbe = PackageObjectStream::InspectSchema(
+		CollisionBytes, LoadPath, Catalog, CollisionInspection, nullptr, {}, &ReaderDiagnostic);
 	EXPECT_EQ(CollisionProbe.Error, EAssetError::CorruptFile);
 	EXPECT_EQ(ReaderDiagnostic.Failure, PackageObjectStream::EReaderFailure::InvalidTable);
 	Loaded.Reset();
@@ -5256,16 +5256,16 @@ TEST(FPackageAssetTests, DeprecatedRoutesMigrateVersionedFieldsAndAuthoredIntent
 	std::vector<std::byte> LegacyBytes;
 	ASSERT_TRUE(PackageObjectStream::ReencodePackage(LegacyPackage, LegacyBytes, &ReaderDiagnostic))
 		<< ReaderDiagnostic.Message;
-	const FReflectionCompatibilityCatalog Catalog = FReflectionCompatibilityCatalog::Capture();
-	FAssetPackageCompatibilityRecord Compatibility;
-	ASSERT_TRUE(PackageObjectStream::ProbeCompatibility(
-		LegacyBytes, LegacyLoadPath, Catalog, Compatibility, nullptr, {}, &ReaderDiagnostic))
+	const FReflectionSchemaCatalog Catalog = FReflectionSchemaCatalog::Capture();
+	FPackageSchemaInspection SchemaInspection;
+	ASSERT_TRUE(PackageObjectStream::InspectSchema(
+		LegacyBytes, LegacyLoadPath, Catalog, SchemaInspection, nullptr, {}, &ReaderDiagnostic))
 		<< ReaderDiagnostic.Message;
-	EXPECT_EQ(Compatibility.Compatibility, EAssetPackageCompatibility::Compatible);
-	EXPECT_EQ(Compatibility.DeprecatedRouteEvidence.size(), 5u);
-	EXPECT_EQ(std::ranges::count(Compatibility.Findings,
-		EAssetCompatibilityFindingCode::DeprecatedRouteUsed,
-		&FAssetCompatibilityFinding::Code), 5);
+	EXPECT_EQ(SchemaInspection.Status, EPackageSchemaStatus::Compatible);
+	EXPECT_EQ(SchemaInspection.DeprecatedRouteEvidence.size(), 5u);
+	EXPECT_EQ(std::ranges::count(SchemaInspection.Issues,
+		EPackageSchemaIssueCode::DeprecatedRouteUsed,
+		&FPackageSchemaIssue::Code), 5);
 	PackageObjectStream::FLoadedAssetPackage Loaded;
 	FAssetLoadReport LoadReport;
 	const FAssetResult Load = PackageObjectStream::LoadAssetPackage(

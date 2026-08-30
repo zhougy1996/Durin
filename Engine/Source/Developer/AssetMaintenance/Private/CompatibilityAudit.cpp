@@ -2,6 +2,7 @@
 
 #include "Hash/XxHash.h"
 #include "Misc/FileTime.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
 namespace Durin::Asset
@@ -206,6 +207,33 @@ namespace Durin::Asset
 			}
 			return "Unknown";
 		}
+
+		auto ToCompatibilityCode(EPackageSchemaIssueCode Code)
+			-> EAssetCompatibilityFindingCode
+		{
+			switch (Code)
+			{
+			case EPackageSchemaIssueCode::UnknownField:
+				return EAssetCompatibilityFindingCode::UnknownField;
+			case EPackageSchemaIssueCode::IncompatibleFieldSignature:
+				return EAssetCompatibilityFindingCode::IncompatibleFieldSignature;
+			case EPackageSchemaIssueCode::DeprecatedRouteUsed:
+				return EAssetCompatibilityFindingCode::DeprecatedRouteUsed;
+			case EPackageSchemaIssueCode::UnavailableClass:
+				return EAssetCompatibilityFindingCode::UnavailableClass;
+			case EPackageSchemaIssueCode::InvalidObjectGraph:
+				return EAssetCompatibilityFindingCode::InvalidObjectGraph;
+			}
+			return EAssetCompatibilityFindingCode::InvalidObjectGraph;
+		}
+
+		auto AddTerminalFailure(FAssetPackageCompatibilityRecord& Record,
+			EAssetCompatibilityFindingCode Code, std::string Diagnostic) -> void
+		{
+			Record.Inspection = EAssetCompatibilityInspection::Failed;
+			Record.Compatibility = EAssetPackageCompatibility::Unsupported;
+			Record.Findings.push_back({.Code = Code, .Diagnostic = std::move(Diagnostic)});
+		}
 	}
 
 	auto CaptureMountedAssetPackageSnapshot(
@@ -318,6 +346,137 @@ namespace Durin::Asset
 			Result.Packages.clear();
 		}
 		return Result;
+	}
+
+	auto ProbeAssetPackageCompatibility(
+		const FAssetPackageCompatibilityProbeInput& Input,
+		const FReflectionCompatibilityCatalog& Catalog,
+		const FAssetCompatibilityCancellationCheck& IsCancellationRequested)
+		-> FAssetPackageCompatibilityProbeResult
+	{
+		FAssetPackageCompatibilityProbeResult Result;
+		auto IsCancelled = [&]() {
+			return IsCancellationRequested && IsCancellationRequested();
+		};
+		if (IsCancelled())
+		{
+			Result.Status = EAssetCompatibilityProbeStatus::Cancelled;
+			return Result;
+		}
+		FAssetPackageCompatibilityRecord Record{
+			.PackagePath = Input.PackagePath,
+			.PhysicalPath = Input.PhysicalPath,
+			.ReportContentHash = Input.ExpectedReportContentHash,
+			.Inspection = EAssetCompatibilityInspection::Ready,
+			.Compatibility = EAssetPackageCompatibility::Compatible};
+		FFileHelper::FFileIoError OpenError;
+		auto Handle = FFileHelper::OpenRead(Input.PhysicalPath, &OpenError);
+		if (!Handle)
+		{
+			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::IoFailure,
+				OpenError.ToString());
+			Result.Record = std::move(Record);
+			return Result;
+		}
+		Record.Fingerprint = {.FileSize = Handle->GetSize(),
+			.ContentHash = Input.ExpectedContentHash};
+		std::error_code TimeError;
+		const auto InitialTime = std::filesystem::last_write_time(Input.PhysicalPath, TimeError);
+		if (TimeError)
+		{
+			AddTerminalFailure(Record, EAssetCompatibilityFindingCode::IoFailure,
+				std::format("Failed to read package timestamp for {}.", Input.PhysicalPath));
+			Result.Record = std::move(Record);
+			return Result;
+		}
+		Record.Fingerprint.LastWriteTimeTicks = FileTime::ToStableTicks(InitialTime);
+
+		FPackageSchemaInspection Inspection;
+		const FAssetResult InspectionResult = InspectAssetPackageSchema(*Handle,
+			Input.PackagePath, Catalog, Inspection, &Result.Stats,
+			Input.bIncludeNestedMigrationEvidence, IsCancelled);
+		if (IsCancelled())
+		{
+			Result.Status = EAssetCompatibilityProbeStatus::Cancelled;
+			return Result;
+		}
+		if (!InspectionResult)
+		{
+			const bool bUnsupported = InspectionResult.Error == EAssetError::UnsupportedVersion;
+			const bool bIo = InspectionResult.Error == EAssetError::IoError
+				|| InspectionResult.Error == EAssetError::NotFound
+				|| InspectionResult.Message.starts_with("File I/O failed");
+			AddTerminalFailure(Record, bUnsupported
+				? EAssetCompatibilityFindingCode::UnsupportedPackageFormat
+				: bIo ? EAssetCompatibilityFindingCode::IoFailure
+				: EAssetCompatibilityFindingCode::CorruptPackage,
+				InspectionResult.Message);
+		}
+		else
+		{
+			Record.FormatVersion = Inspection.FormatVersion;
+			Record.Fingerprint.ReaderVersion = Inspection.FormatVersion;
+			Record.EntryKind = Inspection.EntryKind;
+			Record.Dependencies = std::move(Inspection.Dependencies);
+			Record.Compatibility = Inspection.Status == EPackageSchemaStatus::Compatible
+				? EAssetPackageCompatibility::Compatible
+				: Inspection.Status == EPackageSchemaStatus::Incompatible
+					? EAssetPackageCompatibility::Incompatible
+					: EAssetPackageCompatibility::Unsupported;
+			Record.CanonicalizationEvidence = std::move(Inspection.CanonicalizationEvidence);
+			Record.DeprecatedRouteEvidence = std::move(Inspection.DeprecatedRouteEvidence);
+			for (FPackageSchemaIssue& Issue : Inspection.Issues)
+				Record.Findings.push_back({
+					.Code = ToCompatibilityCode(Issue.Code),
+					.ObjectPath = std::move(Issue.ObjectPath),
+					.ClassIdentity = std::move(Issue.ClassIdentity),
+					.DeclaringType = std::move(Issue.DeclaringType),
+					.FieldName = std::move(Issue.FieldName),
+					.StoredKind = Issue.StoredKind,
+					.StoredTypeSignature = std::move(Issue.StoredTypeSignature),
+					.ExpectedKind = Issue.ExpectedKind,
+					.ExpectedTypeSignature = std::move(Issue.ExpectedTypeSignature),
+					.PayloadSize = Issue.PayloadSize,
+					.PayloadOffset = Issue.PayloadOffset,
+					.Diagnostic = std::move(Issue.Diagnostic)});
+		}
+		std::error_code FinalError;
+		const uintmax_t FinalSize = std::filesystem::file_size(Input.PhysicalPath, FinalError);
+		const auto FinalTime = std::filesystem::last_write_time(Input.PhysicalPath, FinalError);
+		const int64 FinalTicks = FinalError ? 0 : FileTime::ToStableTicks(FinalTime);
+		if (FinalError || FinalSize != Input.ExpectedFileSize
+			|| FinalTicks != Input.ExpectedLastWriteTimeTicks
+			|| FinalSize != Record.Fingerprint.FileSize
+			|| FinalTicks != Record.Fingerprint.LastWriteTimeTicks)
+			Record.Freshness = EAssetCompatibilityFreshness::Stale;
+		Result.Record = std::move(Record);
+		return Result;
+	}
+
+	auto IsAssetPackageCompatibilityRecordCurrent(
+		const FAssetPackageCompatibilityRecord& Record, uintmax_t FileSize,
+		int64 LastWriteTimeTicks) -> bool
+	{
+		return Record.Freshness == EAssetCompatibilityFreshness::Current
+			&& Record.Fingerprint.FileSize == FileSize
+			&& Record.Fingerprint.LastWriteTimeTicks == LastWriteTimeTicks;
+	}
+
+	auto AssetCompatibilityFindingCodeName(EAssetCompatibilityFindingCode Code)
+		-> std::string_view
+	{
+		switch (Code)
+		{
+		case EAssetCompatibilityFindingCode::UnknownField: return "UnknownField";
+		case EAssetCompatibilityFindingCode::IncompatibleFieldSignature: return "IncompatibleFieldSignature";
+		case EAssetCompatibilityFindingCode::DeprecatedRouteUsed: return "DeprecatedRouteUsed";
+		case EAssetCompatibilityFindingCode::UnavailableClass: return "UnavailableClass";
+		case EAssetCompatibilityFindingCode::UnsupportedPackageFormat: return "UnsupportedPackageFormat";
+		case EAssetCompatibilityFindingCode::InvalidObjectGraph: return "InvalidObjectGraph";
+		case EAssetCompatibilityFindingCode::CorruptPackage: return "CorruptPackage";
+		case EAssetCompatibilityFindingCode::IoFailure: return "IoFailure";
+		}
+		return "CorruptPackage";
 	}
 
 	auto RunAssetCompatibilityAudit(

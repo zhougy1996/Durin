@@ -2,7 +2,7 @@
 
 #include "DurinEdAPI.h"
 #include "AssetRegistry/Catalog.h"
-#include "Asset/Compatibility.h"
+#include "AssetMaintenance/CompatibilityAudit.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
 #include "Threading/Task.h"
 

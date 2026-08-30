@@ -4,7 +4,7 @@
 #include "AssetMaintenance/CanonicalResave.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
 #include "AssetRegistry/Catalog.h"
-#include "Asset/Compatibility.h"
+#include "AssetMaintenance/CompatibilityAudit.h"
 #include "Asset/Deletion.h"
 #include "Asset/Load.h"
 #include "Asset/MutationTypes.h"

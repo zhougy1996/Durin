@@ -8,15 +8,15 @@ namespace Durin
 
 namespace Durin::Asset
 {
-	struct FAssetCompatibilityProbeStats;
+	struct FPackageSchemaReadStats;
 	struct FAssetBundleSaveOptions;
 	struct FAssetLoadReport;
-	struct FAssetPackageCompatibilityRecord;
+	struct FPackageSchemaInspection;
 	struct FAssetPackageHeader;
 	struct FAssetPackageInspection;
 	struct FAssetPackageSerializationOptions;
 	struct FAssetRedirectorFixupMapping;
 	struct FAssetReferenceEdge;
 	struct FAssetResult;
-	class FReflectionCompatibilityCatalog;
+	class FReflectionSchemaCatalog;
 }

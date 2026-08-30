@@ -8,7 +8,7 @@
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
-#include "Asset/Compatibility.h"
+#include "Asset/PackageSchema.h"
 #include "CoreGlobals.h"
 #include "DObject/Class.h"
 #include "DObject/DObjectArray.h"
@@ -178,7 +178,7 @@ namespace
 			if (!Output.empty() && Offset < ForbiddenEnd && End > ForbiddenOffset)
 			{
 				bReadForbiddenRange = true;
-				if (OutError) *OutError = "Compatibility probe read a payload range.";
+				if (OutError) *OutError = "Schema inspection read a payload range.";
 				return false;
 			}
 			if (Offset > Bytes.size() || Output.size_bytes() > Bytes.size() - Offset) return false;
@@ -308,29 +308,28 @@ TEST(FPackageObjectStreamReaderTests, ConstructFreeInspectionProjectsKnownAndRet
 		Expected.begin(), Expected.end()), Retained.Payload.end());
 }
 
-TEST(FPackageObjectStreamReaderTests, ConstructFreeCompatibilityReportsUnavailableClassAndBoundedCost)
+TEST(FPackageObjectStreamReaderTests, ConstructFreeSchemaInspectionReportsUnavailableClassAndBoundedCost)
 {
 	const std::vector<std::byte> Bytes = BuildPackage();
-	Durin::Asset::FAssetPackageCompatibilityRecord Record;
-	Durin::Asset::FAssetCompatibilityProbeStats Stats;
+	Durin::Asset::FPackageSchemaInspection Record;
+	Durin::Asset::FPackageSchemaReadStats Stats;
 	Production::FReaderDiagnostic Diagnostic;
 	Durin::FAssetPath Path;
-	const auto Catalog = Durin::Asset::FReflectionCompatibilityCatalog::Capture();
+	const auto Catalog = Durin::Asset::FReflectionSchemaCatalog::Capture();
 	Production::ResetAssetPackageReencodeCountForTesting();
-	ASSERT_TRUE(Production::ProbeCompatibility(Bytes, Path, Catalog, Record, &Stats, {}, &Diagnostic))
+	ASSERT_TRUE(Production::InspectSchema(Bytes, Path, Catalog, Record, &Stats, {}, &Diagnostic))
 		<< Diagnostic.Message;
 	EXPECT_EQ(Production::GetAssetPackageReencodeCountForTesting(), 0);
 	EXPECT_EQ(Record.FormatVersion, 5);
-	EXPECT_EQ(Record.Inspection, Durin::Asset::EAssetCompatibilityInspection::Ready);
-	EXPECT_EQ(Record.Compatibility, Durin::Asset::EAssetPackageCompatibility::Unsupported);
-	ASSERT_EQ(Record.Findings.size(), 1);
-	EXPECT_EQ(Record.Findings.front().Code, Durin::Asset::EAssetCompatibilityFindingCode::UnavailableClass);
+	EXPECT_EQ(Record.Status, Durin::Asset::EPackageSchemaStatus::Unsupported);
+	ASSERT_EQ(Record.Issues.size(), 1);
+	EXPECT_EQ(Record.Issues.front().Code, Durin::Asset::EPackageSchemaIssueCode::UnavailableClass);
 	EXPECT_GT(Stats.MetadataBytesRead, 0);
 	EXPECT_GT(Stats.PayloadBytesSkipped, 0);
 	EXPECT_LT(Stats.MetadataBytesRead, Bytes.size());
 }
 
-TEST(FPackageObjectStreamReaderTests, V7CompatibilityRangeReaderDoesNotReadLargePayload)
+TEST(FPackageObjectStreamReaderTests, V7SchemaRangeReaderDoesNotReadLargePayload)
 {
 	const std::vector<std::byte> ObjectStream = BuildLargePayloadPackage();
 	Production::FDecodedPackage Decoded;
@@ -349,12 +348,12 @@ TEST(FPackageObjectStreamReaderTests, V7CompatibilityRangeReaderDoesNotReadLarge
 	const uint64 PhysicalPayloadOffset = Parsed.RequiredEntries[6].Offset
 		+ Override.PayloadOffset - Decoded.Header.Sections[4].Offset;
 	FRejectingRangeSource Rejecting(PackageBytes, PhysicalPayloadOffset, Override.PayloadSize);
-	Durin::Asset::FAssetCompatibilityProbeStats Stats;
+	Durin::Asset::FPackageSchemaReadStats Stats;
 	Durin::Asset::Private::FCountingAssetPackageByteSource Counting(Rejecting, Stats);
 	Durin::FAssetPath Path;
-	Durin::Asset::FAssetPackageCompatibilityRecord Record;
-	const auto Catalog = Durin::Asset::FReflectionCompatibilityCatalog::Capture();
-	const auto Result = Durin::Asset::Private::DastV7::GetCodec().ProbeCompatibility(
+	Durin::Asset::FPackageSchemaInspection Record;
+	const auto Catalog = Durin::Asset::FReflectionSchemaCatalog::Capture();
+	const auto Result = Durin::Asset::Private::DastV7::GetCodec().InspectSchema(
 		Counting, Path, Catalog, Record, &Stats, false, {});
 	ASSERT_TRUE(Result) << Result.Message;
 	EXPECT_FALSE(Rejecting.bReadForbiddenRange);
@@ -363,11 +362,11 @@ TEST(FPackageObjectStreamReaderTests, V7CompatibilityRangeReaderDoesNotReadLarge
 	EXPECT_LT(Stats.PeakMetadataBytes, PackageBytes.size() / 16);
 
 	FRejectingRangeSource CancellationSource(PackageBytes, PhysicalPayloadOffset, Override.PayloadSize);
-	Durin::Asset::FAssetCompatibilityProbeStats CancellationStats;
+	Durin::Asset::FPackageSchemaReadStats CancellationStats;
 	Durin::Asset::Private::FCountingAssetPackageByteSource CancellationCounting(
 		CancellationSource, CancellationStats);
 	uint32 CancellationChecks = 0;
-	const auto Cancelled = Durin::Asset::Private::DastV7::GetCodec().ProbeCompatibility(
+	const auto Cancelled = Durin::Asset::Private::DastV7::GetCodec().InspectSchema(
 		CancellationCounting, Path, Catalog, Record, &CancellationStats, false,
 		[&] { return ++CancellationChecks >= 20; });
 	EXPECT_FALSE(Cancelled);
@@ -448,24 +447,24 @@ TEST(FPackageObjectStreamReaderTests, LiveUnknownFieldFailsBeforePackagePublicat
 	EXPECT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 }
 
-TEST(FPackageObjectStreamReaderTests, CompatibilityMatchesKnownAndRetainedLiveSchemas)
+TEST(FPackageObjectStreamReaderTests, SchemaInspectionMatchesKnownAndRetainedLiveSchemas)
 {
 	InitializeLiveReaderTest();
-	const auto Catalog = Durin::Asset::FReflectionCompatibilityCatalog::Capture();
-	Durin::Asset::FAssetPackageCompatibilityRecord Record;
+	const auto Catalog = Durin::Asset::FReflectionSchemaCatalog::Capture();
+	Durin::Asset::FPackageSchemaInspection Record;
 	Production::FReaderDiagnostic Diagnostic;
 	Durin::FAssetPath Path;
 	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/V4Reader/Compatibility", Path));
-	ASSERT_TRUE(Production::ProbeCompatibility(BuildLivePackage(), Path, Catalog,
+	ASSERT_TRUE(Production::InspectSchema(BuildLivePackage(), Path, Catalog,
 		Record, nullptr, {}, &Diagnostic)) << Diagnostic.Message;
-	EXPECT_EQ(Record.Compatibility, Durin::Asset::EAssetPackageCompatibility::Compatible);
-	EXPECT_TRUE(Record.Findings.empty());
-	ASSERT_TRUE(Production::ProbeCompatibility(BuildLivePackage(true), Path, Catalog,
+	EXPECT_EQ(Record.Status, Durin::Asset::EPackageSchemaStatus::Compatible);
+	EXPECT_TRUE(Record.Issues.empty());
+	ASSERT_TRUE(Production::InspectSchema(BuildLivePackage(true), Path, Catalog,
 		Record, nullptr, {}, &Diagnostic)) << Diagnostic.Message;
-	EXPECT_EQ(Record.Compatibility, Durin::Asset::EAssetPackageCompatibility::Incompatible);
-	ASSERT_EQ(Record.Findings.size(), 1);
-	EXPECT_EQ(Record.Findings.front().Code,
-		Durin::Asset::EAssetCompatibilityFindingCode::IncompatibleFieldSignature);
+	EXPECT_EQ(Record.Status, Durin::Asset::EPackageSchemaStatus::Incompatible);
+	ASSERT_EQ(Record.Issues.size(), 1);
+	EXPECT_EQ(Record.Issues.front().Code,
+		Durin::Asset::EPackageSchemaIssueCode::IncompatibleFieldSignature);
 }
 
 TEST(FPackageObjectStreamReaderTests, OrdinaryValidationUsesTheV6Envelope)

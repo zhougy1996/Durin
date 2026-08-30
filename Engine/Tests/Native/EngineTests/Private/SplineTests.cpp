@@ -5,7 +5,6 @@
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
-#include "Asset/Compatibility.h"
 #include "CoreGlobals.h"
 #include "DObject/Archive.h"
 #include "DObject/Class.h"

@@ -3,7 +3,6 @@
 #include "Panels/ContentBrowserFilesystem.h"
 
 #include "AssetRegistry/Catalog.h"
-#include "Asset/Compatibility.h"
 #include "Asset/Load.h"
 #include "AssetTools/IAssetTools.h"
 #include "Assets/ContentBrowserThumbnailReferences.h"

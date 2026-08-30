@@ -5,7 +5,6 @@
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
-#include "Asset/Compatibility.h"
 #include "Materials/MaterialInstance.h"
 #include "RenderingThread.h"
 #include "AssetForge/Builtins/SceneImport.h"

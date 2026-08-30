@@ -2,7 +2,7 @@
 
 #include "EngineAPI.h"
 #include "AssetSubsystemFwd.h"
-#include "Asset/Compatibility.h"
+#include "Asset/PackageSchema.h"
 #include "AssetRegistry/Result.h"
 
 namespace Durin
@@ -30,11 +30,11 @@ namespace Durin::Asset::Private
 		auto (*ExtractReferences)(
 			std::span<const std::byte>, const FAssetPath&, std::vector<FAssetReferenceEdge>&)
 			-> FAssetResult = nullptr;
-		auto (*ProbeCompatibility)(
+		auto (*InspectSchema)(
 			IAssetPackageByteSource&, const FAssetPath&,
-			const FReflectionCompatibilityCatalog&, FAssetPackageCompatibilityRecord&,
-			FAssetCompatibilityProbeStats*, bool,
-			const FAssetCompatibilityCancellationCheck&)
+			const FReflectionSchemaCatalog&, FPackageSchemaInspection&,
+			FPackageSchemaReadStats*, bool,
+			const FPackageReadCancellationCheck&)
 			-> FAssetResult = nullptr;
 		auto (*Load)(
 			std::span<const std::byte>, const FAssetPath&, DPackage*&, FAssetLoadReport*,
@@ -64,7 +64,7 @@ namespace Durin::Asset::Private
 	auto ResolveAssetPackageReader(
 		IAssetPackageByteSource& Source, const FAssetPackageCodec*& OutCodec,
 		uint32* OutFormatVersion = nullptr,
-		const FAssetCompatibilityCancellationCheck& IsCancelled = {}) -> FAssetResult;
+		const FPackageReadCancellationCheck& IsCancelled = {}) -> FAssetResult;
 	auto ValidateAssetPackageCodecPolicy(std::string& OutError) -> bool;
 	ENGINE_API auto ValidateAssetPackageCodecTable(
 		std::span<const FAssetPackageCodec> Codecs, std::string& OutError) -> bool;

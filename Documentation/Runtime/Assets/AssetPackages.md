@@ -19,9 +19,10 @@ residency, asset loading, and cooked-payload reading. Callers include
 `Asset/PackageSerialization.h` for the exact create/save, asset-mutation, or
 serialization capability. `AssetCook.h` adds Cook
 reachability, cooked-container construction, package serialization for Cook, and
-manifest publication. Runtime `Asset/Compatibility.h` exposes per-package schema
-validation; the target-selected Developer `AssetMaintenance` module owns
-project-wide audit, reports, and canonical-resave workflows.
+manifest publication. Runtime `Asset/PackageSchema.h` exposes format-neutral,
+per-package schema inspection; the target-selected Developer `AssetMaintenance`
+module owns all compatibility records, probes, reports, fingerprint policy, and
+canonical-resave workflows.
 
 Public Engine asset headers include narrow leaves such as
 `Asset/CookedAsset.h` and `Asset/Cook.h` when their type layout or method
@@ -463,7 +464,7 @@ validates this exact contract with `asset-audit-v3.schema.json` before applying
 audit or baseline policy. The prior v2 schema remains checked in as the frozen
 shape that predates deprecated-route evidence.
 
-`InspectPackage`, `ExtractReferences`, and `ProbeCompatibility` consume the
+`InspectPackage`, `ExtractReferences`, and `InspectSchema` consume the
 same decoded logical model without constructing objects or invoking callbacks.
 Known values project to existing field/reference semantics, including intrinsic
 math Struct payloads and canonical Map routes. Provenance `02` never remaps
@@ -587,18 +588,20 @@ boundary, and remove the converter after the baseline becomes current.
 
 ## Structure Compatibility
 
-Ordinary load captures the current reflection catalog and uses the same
-descriptor comparison implementation as the compatibility probe. It rejects an unknown
-class, unknown field, or mismatched field signature before object skeleton
-construction. No partially compatible package becomes resident, no retained
+Ordinary load queries current classes and properties directly and rejects an
+unknown class, unknown field, or mismatched field signature before object
+skeleton construction. It does not build the worker-side schema catalog or an
+audit record on the Runtime load path. No partially compatible package becomes resident, no retained
 legacy payload is attached to live state, and save has no data-loss escape
 hatch. Editor document opens receive the same structured load failure and keep
 their prior active document or world unchanged.
 
-The read-only per-package compatibility probe is a compact Runtime inspection path. The
-game thread freezes registered class and property identities into a value-only
-`FReflectionCompatibilityCatalog`; a worker opens one Core random-read handle,
-reads the DURF/DAST directory and metadata sections by declared range, and
+The read-only compatibility probe belongs to `AssetMaintenance`. It opens one
+Core random-read handle, passes that borrowed handle to Runtime's neutral
+`InspectAssetPackageSchema`, and maps returned schema issues into the Developer
+compatibility record. Runtime freezes registered class and property identities
+into a value-only `FReflectionSchemaCatalog`, reads the DURF/DAST directory and
+metadata sections by declared range, and
 walks Value framing with physical offsets. It validates ids, outers, ordering,
 lengths, and every payload bound while seeking across unrelated payload extents
 without reading or materializing them. `MetadataBytesRead` counts bytes actually
@@ -616,8 +619,8 @@ validation. Default audit never falls back to complete value decoding. An
 explicit canonical-resave evidence request may decode nested structured values
 only when their exact type/schema/field descriptors match a registered
 versioned deprecated route; those bytes count as read and not skipped. Package
-size and stable last-write ticks bind each result to the registry snapshot and
-mark a changed input stale.
+size and stable last-write ticks are Developer maintenance policy: they bind
+each result to the registry snapshot and mark a changed input stale.
 
 Each terminal record keeps inspection, compatibility, and freshness as
 orthogonal states and reports stable codes for unknown fields, incompatible

@@ -86,29 +86,29 @@ namespace Durin::Asset::PackageObjectStream
 		const FAssetPath& DestinationPath,
 		std::vector<std::byte>& OutBytes) -> FAssetResult;
 
-	ENGINE_API auto ProbeCompatibility(
+	ENGINE_API auto InspectSchema(
 		std::span<const std::byte> Bytes,
 		const FAssetPath& PackagePath,
-		const FReflectionCompatibilityCatalog& Catalog,
-		FAssetPackageCompatibilityRecord& OutRecord,
-		FAssetCompatibilityProbeStats* OutStats = nullptr,
+		const FReflectionSchemaCatalog& Catalog,
+		FPackageSchemaInspection& OutRecord,
+		FPackageSchemaReadStats* OutStats = nullptr,
 		const FReaderLimits& Limits = {},
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> FAssetResult;
 
-	// Compatibility evaluator for package codecs that already decoded the
+	// Schema evaluator for package codecs that already decoded the
 	// canonical logical tables and value descriptors from non-contiguous ranges.
-	auto ProbeDecodedCompatibility(
+	auto InspectDecodedPackageSchema(
 		FDecodedPackage Package,
 		uint64 PhysicalPackageBytes,
 		bool bPayloadValuesDecoded,
 		const FAssetPath& PackagePath,
-		const FReflectionCompatibilityCatalog& Catalog,
-		FAssetPackageCompatibilityRecord& OutRecord,
+		const FReflectionSchemaCatalog& Catalog,
+		FPackageSchemaInspection& OutRecord,
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> FAssetResult;
 
 	// Returns true only when a nested serialized value can contain an exact
 	// versioned deprecated-property route. Root overrides need descriptors only.
-	auto RequiresDecodedCompatibilityPayloadValues(
+	auto RequiresDecodedSchemaPayloadValues(
 		const FDecodedPackage& Package,
-		const FReflectionCompatibilityCatalog& Catalog) -> bool;
+		const FReflectionSchemaCatalog& Catalog) -> bool;
 }

@@ -5,7 +5,7 @@
 #include "AssetCook.h"
 #include "AssetMaintenance/CanonicalResave.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
-#include "Asset/Compatibility.h"
+#include "AssetMaintenance/CompatibilityAudit.h"
 #include "Asset/AssetSaveReadiness.h"
 
 #include "Asset/EditorBulkDataStorage.h"

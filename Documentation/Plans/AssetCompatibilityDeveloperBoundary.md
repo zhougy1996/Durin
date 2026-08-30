@@ -1,6 +1,6 @@
 # Asset Compatibility Developer Boundary Plan
 
-Summary: Move project-wide asset compatibility audit and canonical-resave orchestration into a target-selected Developer module while retaining one shared Runtime schema validator for package load safety.
+Summary: Move asset compatibility policy and maintenance orchestration into a target-selected Developer module while Runtime retains only neutral schema inspection and direct load safety.
 
 Last reviewed: 2026-08-30
 
@@ -10,19 +10,19 @@ Completed: 2026-08-30
 ## Current Status
 
 - `AssetMaintenance` is now a target-selected Developer module containing mounted-package snapshots, deterministic batch audit/reporting, and canonical-resave planning/application orchestration. `DurinEd`, `AssetTools`, `MainFrame`, and `DurinAssetTool` use that boundary.
-- Runtime `Engine` retains the reflection catalog, per-package range probe, shared descriptor comparison, and load safety. Its built dylib no longer exports project snapshot/report or canonical-resave batch symbols.
-- Ordinary authored loading now calls the same decoded-schema evaluator as compatibility inspection before object construction. Cooked native projection retains its separate manifest exception.
+- Runtime `Engine` now exposes only neutral `PackageSchema` reflection snapshots, descriptor inspection, and load safety. Compatibility records, file/freshness policy, cancellation status, statistics mapping, and the file-level probe belong to `AssetMaintenance`; Runtime contains no `AssetCompatibility` API or codec capability.
+- Ordinary authored loading now validates decoded descriptors directly against live reflection before object construction, without constructing the worker-side schema catalog or an audit record. Cooked native projection retains its separate manifest exception.
 - V7 default audit decodes already range-read sections directly, without reconstructing a metadata ObjectStream. Payload decoding is opt-in for canonical-resave nested migration evidence and is admitted only for exact nested route descriptors.
 - `DurinEditor`, `DurinAssetTool`, `MainFrame`, `AssetPackageTests`, and `EditorAssetWorkflowTests` build or pass in the configured Editor preset. The current host profile registers no `DurinGame` preset, so game exclusion is verified statically by target composition, exported-symbol inspection, and a non-Editor CMake guard; an actual game build remains open.
 - The implementation reuses AssetRegistry's `FDecodedPackage` as the compact descriptor projection instead of adding a second package-schema model. Descriptor-only decode leaves `FValue` payloads empty; this avoids another conversion and keeps one validated table representation shared by loader and audit.
 
 ## Goal
 
-Establish a strict ownership boundary in which Runtime owns package parsing and the single source of truth for schema/load validation, a new Developer `AssetMaintenance` module owns project-wide audit and canonical-resave workflow, and Editor modules own only presentation and editor-specific task integration. The normal game target must neither link nor expose the project audit stack.
+Establish a strict ownership boundary in which Runtime owns package parsing, neutral descriptor inspection, and direct load validation, a new Developer `AssetMaintenance` module owns compatibility policy and canonical-resave workflow, and Editor modules own only presentation and editor-specific task integration. The normal game target must neither link nor expose the project audit stack.
 
 ## Scope
 
-- Extract a reusable Runtime package-schema snapshot and comparison result from the existing load and audit implementations.
+- Extract a reusable Runtime package-schema snapshot and neutral inspection result without exposing maintenance records or policy.
 - Add a target-selected `AssetMaintenance` Developer module for project enumeration, audit requests/results, report serialization, cancellation, fingerprint policy, and canonical-resave planning/orchestration.
 - Migrate `DurinEd`, `AssetTools`, `MainFrame`, and `DurinAssetTool` to the new boundary.
 - Replace the V7 metadata-only ObjectStream reconstruction with direct section/descriptor inspection and narrow any detailed decode to exact migration candidates.
@@ -42,7 +42,7 @@ Establish a strict ownership boundary in which Runtime owns package parsing and 
 
 - Runtime `Engine` owns seekable package access, V7 section validation, package-schema extraction, load preflight, and low-level canonical package operations.
 - Introduce a compact package-derived schema representation containing only identity, class/type references, object/field descriptors, value-location facts needed by validation, and package-format evidence. It must not contain recursively decoded `FValue` trees or payload bytes.
-- Introduce one schema comparison engine used by both ordinary package loading and Developer audit. The comparison accepts an explicit reflection/schema catalog and returns structured findings suitable for either load rejection/migration routing or report conversion.
+- Keep worker-side schema comparison in the neutral inspection path; ordinary loading performs direct live-reflection checks without constructing a catalog or maintenance result.
 - Keep load-time validation local to the package being loaded. Runtime must not enumerate projects, compute whole-project reports, schedule audit jobs, or depend on `AssetMaintenance`.
 
 ### Developer boundary
@@ -88,13 +88,13 @@ Completion condition: the migration surface and compatibility promises are expli
 
 ### Stage 1: Unify Runtime schema validation
 
-- [x] Define the compact package-schema snapshot, comparison input, structured finding, and validation-policy types in the smallest Runtime public surface shared by loading and maintenance.
-- [x] Extract class, field, type, missing-field, and deprecated-route comparison from the existing reader/audit paths into one implementation.
-- [x] Change ordinary package loading to consume the shared comparison result without weakening its corruption, bounds, or construction-before-validation protections.
-- [x] Adapt the existing audit path temporarily to the same comparison engine so loader and audit parity can be tested before module movement.
+- [x] Define compact package-schema snapshot, issue, and inspection types in a neutral Runtime surface used by maintenance workers.
+- [x] Keep class, field, type, missing-field, and deprecated-route comparison in the construct-free schema inspector.
+- [x] Change ordinary package loading to validate the same serialized descriptors directly against live reflection without weakening corruption, bounds, or construction-before-validation protections.
+- [x] Keep compatibility classification and report conversion outside Runtime while preserving shared canonical-name and serialized-signature rules.
 - [x] Add tests proving equivalent package/catalog inputs produce the same compatibility classification in load-preflight and audit policies.
 
-Completion condition: one Runtime comparison engine is the source of truth, and the old duplicated comparison logic is removed.
+Completion condition: Runtime exposes no maintenance policy; worker inspection and direct loading enforce equivalent schema safety at their appropriate cost boundary.
 
 ### Stage 2: Make V7 schema extraction section-native
 
@@ -152,7 +152,7 @@ Completion condition: supported targets and tests pass, the cost guarantees are 
 
 - [x] `DurinGame` neither links `AssetMaintenance` nor exports project audit/report/resave-orchestration symbols.
 - [x] Ordinary Runtime loads perform only per-package validation and never enumerate a project, compute a project report, or perform unconditional strong package hashing.
-- [x] Loader preflight and Developer audit share the same schema comparison implementation and pass parity tests.
+- [x] Runtime loading and Developer inspection share canonical name/type-signature rules while the Runtime hot path constructs no audit record or worker catalog.
 - [x] The default audit performs no package-sized allocation, reconstructs no full ObjectStream, recursively constructs no `FValue` tree, and reads no payload body solely to skip it.
 - [x] `PayloadBytesSkipped` and byte/range counters are derived from actual reader behavior and covered by tests.
 - [x] Detailed deprecated-field evidence is requested only for exact descriptor matches and remains cancellable before full value work.
@@ -169,8 +169,9 @@ For performance qualification, include at least one package with a payload much 
 
 ## Related Code and Documentation
 
-- [Runtime compatibility public API](../../Engine/Source/Runtime/Engine/Public/Asset/Compatibility.h)
-- [Runtime compatibility implementation](../../Engine/Source/Runtime/Engine/Private/Asset/AssetCompatibility.cpp)
+- [Runtime package-schema public API](../../Engine/Source/Runtime/Engine/Public/Asset/PackageSchema.h)
+- [Runtime package-schema implementation](../../Engine/Source/Runtime/Engine/Private/Asset/PackageSchema.cpp)
+- [Developer compatibility implementation](../../Engine/Source/Developer/AssetMaintenance/Private/CompatibilityAudit.cpp)
 - [V7 package codec](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageV7Codec.cpp)
 - [ObjectStream reader and load validation](../../Engine/Source/Runtime/Engine/Private/Asset/AssetPackageObjectStreamReader.cpp)
 - [Editor compatibility audit adapter](../../Engine/Source/Editor/DurinEd/Private/Asset/AssetCompatibilityAudit.cpp)

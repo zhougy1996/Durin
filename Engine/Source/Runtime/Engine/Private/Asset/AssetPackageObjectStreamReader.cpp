@@ -2,7 +2,7 @@
 
 #include "AssetPackageArchive.h"
 #include "AssetPackageValueCodec.h"
-#include "Asset/Compatibility.h"
+#include "Asset/PackageSchema.h"
 #include "Asset/Testing.h"
 
 #include "DObject/Class.h"
@@ -1347,7 +1347,7 @@ namespace Durin::Asset::PackageObjectStream
 		}
 
 		auto CanonicalizeSerializedClassName(
-			std::string& Name, const FReflectionCompatibilityCatalog* Catalog = nullptr) -> void
+			std::string& Name, const FReflectionSchemaCatalog* Catalog = nullptr) -> void
 		{
 			if (Catalog)
 			{
@@ -1361,7 +1361,7 @@ namespace Durin::Asset::PackageObjectStream
 		}
 
 		auto CanonicalizeSerializedSchemaName(
-			std::string& Name, const FReflectionCompatibilityCatalog* Catalog = nullptr) -> void
+			std::string& Name, const FReflectionSchemaCatalog* Catalog = nullptr) -> void
 		{
 			if (Catalog)
 			{
@@ -1383,7 +1383,7 @@ namespace Durin::Asset::PackageObjectStream
 		auto CanonicalizeSerializedPropertyName(
 			std::string_view DeclaringType,
 			std::string& Name,
-			const FReflectionCompatibilityCatalog* Catalog = nullptr) -> void
+			const FReflectionSchemaCatalog* Catalog = nullptr) -> void
 		{
 			if (Catalog)
 			{
@@ -1400,7 +1400,7 @@ namespace Durin::Asset::PackageObjectStream
 		}
 
 		auto CanonicalizeSerializedTypeName(
-			FDecodedType& Type, const FReflectionCompatibilityCatalog* Catalog = nullptr) -> void
+			FDecodedType& Type, const FReflectionSchemaCatalog* Catalog = nullptr) -> void
 		{
 			if (Type.QualifiedName.empty()) return;
 			if (Catalog)
@@ -1433,7 +1433,7 @@ namespace Durin::Asset::PackageObjectStream
 		auto GatherCanonicalizationEvidence(
 			const FDecodedPackage& Package,
 			const FAssetPath& PackagePath,
-			const FReflectionCompatibilityCatalog* Catalog = nullptr)
+			const FReflectionSchemaCatalog* Catalog = nullptr)
 			-> std::vector<FAssetCanonicalizationEvidence>
 		{
 			std::vector<FAssetCanonicalizationEvidence> Result;
@@ -1555,12 +1555,12 @@ namespace Durin::Asset::PackageObjectStream
 			return Result;
 		}
 
-		// Converts recognized compatibility aliases at the bytes-to-runtime boundary.
+		// Converts recognized reflection aliases at the bytes-to-runtime boundary.
 		// The raw DecodePackage/ReencodePackage contract remains byte-preserving.
 		auto CanonicalizeSerializedReflectionNames(
 			FDecodedPackage& Package,
 			std::string* OutError = nullptr,
-			const FReflectionCompatibilityCatalog* Catalog = nullptr) -> bool
+			const FReflectionSchemaCatalog* Catalog = nullptr) -> bool
 		{
 			CanonicalizeSerializedClassName(Package.Header.AssetClass, Catalog);
 			for (FDecodedObject& Object : Package.Objects)
@@ -1619,7 +1619,7 @@ namespace Durin::Asset::PackageObjectStream
 		}
 
 		auto GatherNestedDeprecatedRouteEvidence(const FDecodedType& Type, const FValue& Value,
-			const FDecodedPackage& Package, const FReflectionCompatibilityCatalog& Catalog,
+			const FDecodedPackage& Package, const FReflectionSchemaCatalog* Catalog,
 			std::span<const std::pair<FGuid, int32>> Versions, const FAssetPath& PackagePath,
 			std::string_view ObjectPath, std::vector<FAssetDeprecatedRouteEvidence>& Out) -> void
 		{
@@ -1635,23 +1635,34 @@ namespace Durin::Asset::PackageObjectStream
 					if (Field == Schema->Fields.end()) continue;
 					const FDecodedType* ChildType = TypeAt(Package, Field->TypeId);
 					if (!ChildType) continue;
-					const auto Kind = TypeKind(*ChildType, Package);
-					const std::string Signature = TypeSignature(*ChildType, Package);
-					const FReflectionDeprecatedPropertyRoute* Route =
-						Catalog.FindDeprecatedPropertyRoute(Schema->QualifiedName, Field->Name,
-							Kind, Signature, Versions);
-					if (Route)
+					const FReflectionDeprecatedPropertyRoute* SnapshotRoute = Catalog
+						? Catalog->FindDeprecatedPropertyRoute(Schema->QualifiedName, Field->Name,
+							TypeKind(*ChildType, Package), TypeSignature(*ChildType, Package), Versions)
+						: nullptr;
+					FProperty* LiveRoute = Catalog ? nullptr
+						: FindDecodedDeprecatedRoute(Package, *Schema, *Field, *ChildType);
+					if (SnapshotRoute || LiveRoute)
 					{
+						const FPropertyDeprecation* Deprecation = LiveRoute
+							? LiveRoute->GetDeprecation() : nullptr;
+						const FGuid VersionGuid = SnapshotRoute
+							? SnapshotRoute->CustomVersionGuid : Deprecation->CustomVersionGuid;
 						const auto Version = std::ranges::find_if(Versions,
-							[&](const auto& Pair) { return Pair.first == Route->CustomVersionGuid; });
+							[&](const auto& Pair) { return Pair.first == VersionGuid; });
+						std::vector<std::string> MigrationTargets;
+						if (SnapshotRoute) MigrationTargets = SnapshotRoute->MigrationTargets;
+						else for (FName Target : Deprecation->MigrationTargets)
+							MigrationTargets.push_back(Target.ToString());
 						Out.push_back({
 							.PackagePath = PackagePath, .ObjectPath = std::string(ObjectPath),
 							.DeclaringType = Schema->QualifiedName, .StoredFieldName = Field->Name,
-							.DeprecatedPropertyName = Route->DeprecatedPropertyName,
-							.MigrationTargets = Route->MigrationTargets,
-							.CustomVersionGuid = Route->CustomVersionGuid,
+							.DeprecatedPropertyName = SnapshotRoute
+								? SnapshotRoute->DeprecatedPropertyName : LiveRoute->NamePrivate.ToString(),
+							.MigrationTargets = std::move(MigrationTargets),
+							.CustomVersionGuid = VersionGuid,
 							.SourceVersion = Version == Versions.end() ? -1 : Version->second,
-							.DeprecatedBefore = Route->DeprecatedBefore});
+							.DeprecatedBefore = SnapshotRoute
+								? SnapshotRoute->DeprecatedBefore : Deprecation->DeprecatedBefore});
 					}
 					else GatherNestedDeprecatedRouteEvidence(*ChildType, Value.Elements[Index],
 						Package, Catalog, Versions, PackagePath, ObjectPath, Out);
@@ -1735,42 +1746,10 @@ namespace Durin::Asset::PackageObjectStream
 			Fail(Diagnostic, EReaderFailure::InvalidTable, CanonicalizationError);
 			return Finish({EAssetError::CorruptFile, Diagnostic.Message});
 		}
-		const FReflectionCompatibilityCatalog LiveCatalog =
-			FReflectionCompatibilityCatalog::Capture();
-		if (!Options.bCooked)
-		{
-			FAssetPackageCompatibilityRecord Preflight;
-			FReaderDiagnostic PreflightDiagnostic;
-			const FAssetResult PreflightResult = ProbeDecodedCompatibility(
-				Decoded, Bytes.size(), true, PackagePath, LiveCatalog,
-				Preflight, &PreflightDiagnostic);
-			if (!PreflightResult)
-			{
-				Fail(Diagnostic, EReaderFailure::InvalidTable,
-					PreflightResult.Message.empty() ? PreflightDiagnostic.Message
-						: PreflightResult.Message);
-				return Finish({EAssetError::CorruptFile, Diagnostic.Message});
-			}
-			if (Preflight.Compatibility != EAssetPackageCompatibility::Compatible)
-			{
-				const FAssetCompatibilityFinding* Finding = Preflight.Findings.empty()
-					? nullptr : &Preflight.Findings.front();
-				const bool bUnknownClass = Finding
-					&& Finding->Code == EAssetCompatibilityFindingCode::UnavailableClass;
-				Fail(Diagnostic, bUnknownClass ? EReaderFailure::UnknownClass
-					: EReaderFailure::ArchiveFailure,
-					Finding && !Finding->Diagnostic.empty() ? Finding->Diagnostic
-						: "Serialized package is incompatible with the live schema.",
-					0, Finding ? Finding->ObjectPath : std::string{});
-				return Finish({bUnknownClass ? EAssetError::UnknownClass
-					: EAssetError::UnsupportedProperty, Diagnostic.Message});
-			}
-		}
-		else for (size_t ObjectIndex = 0; ObjectIndex < Decoded.Objects.size(); ++ObjectIndex)
+		for (size_t ObjectIndex = 0; ObjectIndex < Decoded.Objects.size(); ++ObjectIndex)
 		{
 			const FDecodedObject& Object = Decoded.Objects[ObjectIndex];
-			const FReflectionCompatibilityClass* Class =
-				LiveCatalog.FindClass(Object.ClassName);
+			DClass* Class = FindClassByQualifiedName(FName(Object.ClassName));
 			if (!Class)
 			{
 				Fail(Diagnostic, EReaderFailure::UnknownClass,
@@ -1787,11 +1766,20 @@ namespace Durin::Asset::PackageObjectStream
 				const FDecodedField& Field =
 					Schema->Fields[static_cast<size_t>(Override.FieldId - 1)];
 				const FDecodedType* Type = TypeAt(Decoded, Field.TypeId);
-				const FReflectionCompatibilityField* Expected =
-					LiveCatalog.FindField(*Class, Schema->QualifiedName, Field.Name);
+				DClass* DeclaringClass = FindClassByQualifiedName(FName(Schema->QualifiedName));
+				bool bDeclaringClassMatches = false;
+				for (DClass* Ancestor = Class; Ancestor; Ancestor = Ancestor->GetSuperClass())
+					if (Ancestor == DeclaringClass)
+					{
+						bDeclaringClassMatches = true;
+						break;
+					}
+				FProperty* Expected = bDeclaringClassMatches
+					? DeclaringClass->FindPropertyByName(FName(Field.Name), false) : nullptr;
 				const bool bCurrentCompatible = Override.Provenance != 2 && Type && Expected
-					&& Expected->Kind == TypeKind(*Type, Decoded)
-					&& Expected->TypeSignature == TypeSignature(*Type, Decoded);
+					&& !Expected->GetDeprecation()
+					&& Expected->GetKind() == TypeKind(*Type, Decoded)
+					&& Private::GetSerializedTypeSignature(Expected) == TypeSignature(*Type, Decoded);
 				const bool bDeprecatedCompatible = Override.Provenance != 2 && Type
 					&& FindDecodedDeprecatedRoute(Decoded, *Schema, Field, *Type);
 				// Cooked native projection fields are validated against the exact
@@ -1933,7 +1921,7 @@ namespace Durin::Asset::PackageObjectStream
 				const FDecodedField& Field = Schema->Fields[Override.FieldId - 1];
 				if (const FDecodedType* Type = TypeAt(Decoded, Field.TypeId))
 					GatherNestedDeprecatedRouteEvidence(*Type, Override.Value, Decoded,
-						LiveCatalog, LoadedCustomVersions, PackagePath,
+						nullptr, LoadedCustomVersions, PackagePath,
 						Decoded.Objects[ObjectIndex].Path, Report.DeprecatedRouteEvidence);
 			}
 		for (size_t ObjectIndex = 0; ObjectIndex < Objects.size(); ++ObjectIndex)
@@ -2089,9 +2077,9 @@ namespace Durin::Asset::PackageObjectStream
 		return {};
 	}
 
-	auto RequiresDecodedCompatibilityPayloadValues(
+	auto RequiresDecodedSchemaPayloadValues(
 		const FDecodedPackage& Package,
-		const FReflectionCompatibilityCatalog& Catalog) -> bool
+		const FReflectionSchemaCatalog& Catalog) -> bool
 	{
 		std::vector<std::pair<FGuid, int32>> Versions;
 		for (const FCustomVersion& Version : Package.CustomVersions)
@@ -2142,10 +2130,10 @@ namespace Durin::Asset::PackageObjectStream
 		return false;
 	}
 
-	auto ProbeDecodedCompatibility(FDecodedPackage Package, uint64 PhysicalPackageBytes,
+	auto InspectDecodedPackageSchema(FDecodedPackage Package, uint64,
 		bool bPayloadValuesDecoded, const FAssetPath& PackagePath,
-		const FReflectionCompatibilityCatalog& Catalog,
-		FAssetPackageCompatibilityRecord& OutRecord,
+		const FReflectionSchemaCatalog& Catalog,
+		FPackageSchemaInspection& OutRecord,
 		FReaderDiagnostic* OutDiagnostic) -> FAssetResult
 	{
 		FReaderDiagnostic Diagnostic;
@@ -2158,32 +2146,27 @@ namespace Durin::Asset::PackageObjectStream
 				Fail(*OutDiagnostic, EReaderFailure::InvalidTable, CanonicalizationError);
 			return {EAssetError::CorruptFile, CanonicalizationError};
 		}
-		FAssetPackageCompatibilityRecord Record{
-			.PackagePath = PackagePath,
-			.Fingerprint = {.FileSize = PhysicalPackageBytes,
-				.ReaderVersion = Version},
+		FPackageSchemaInspection Record{
 			.FormatVersion = Version,
 			.EntryKind = Package.Header.EntryKind,
-			.Inspection = EAssetCompatibilityInspection::Ready,
-			.Compatibility = EAssetPackageCompatibility::Compatible,
-			.Freshness = EAssetCompatibilityFreshness::Current,
+			.Status = EPackageSchemaStatus::Compatible,
 			.CanonicalizationEvidence = std::move(CanonicalizationEvidence)};
 		for (const std::string& Dependency : Package.Header.Dependencies)
 		{
 			FAssetPath Path; if (FAssetPath::TryCreate(Dependency, Path)) Record.Dependencies.push_back(std::move(Path));
 		}
-		std::vector<std::pair<FGuid, int32>> CompatibilityVersions;
+		std::vector<std::pair<FGuid, int32>> SourceVersions;
 		for (const FCustomVersion& CustomVersion : Package.CustomVersions)
-			CompatibilityVersions.emplace_back(
+			SourceVersions.emplace_back(
 				CustomVersion.Guid, static_cast<int32>(CustomVersion.Value));
 		for (size_t ObjectIndex = 0; ObjectIndex < Package.Objects.size(); ++ObjectIndex)
 		{
 			const FDecodedObject& Object = Package.Objects[ObjectIndex];
-			const FReflectionCompatibilityClass* Class = Catalog.FindClass(Object.ClassName);
+			const FReflectionSchemaClass* Class = Catalog.FindClass(Object.ClassName);
 			if (!Class)
 			{
-				Record.Compatibility = EAssetPackageCompatibility::Unsupported;
-				Record.Findings.push_back({.Code = EAssetCompatibilityFindingCode::UnavailableClass,
+				Record.Status = EPackageSchemaStatus::Unsupported;
+				Record.Issues.push_back({.Code = EPackageSchemaIssueCode::UnavailableClass,
 					.ObjectPath = Object.Path, .ClassIdentity = Object.ClassName,
 					.Diagnostic = "Serialized class is unavailable."});
 				continue;
@@ -2200,14 +2183,14 @@ namespace Durin::Asset::PackageObjectStream
 					? "DASTv4:RetainedClosure" : TypeSignature(*Type, Package);
 				const size_t NestedEvidenceBegin = Record.DeprecatedRouteEvidence.size();
 				if (bPayloadValuesDecoded && Type) GatherNestedDeprecatedRouteEvidence(*Type, Override.Value, Package,
-					Catalog, CompatibilityVersions, PackagePath, Object.Path,
+					&Catalog, SourceVersions, PackagePath, Object.Path,
 					Record.DeprecatedRouteEvidence);
 				for (size_t EvidenceIndex = NestedEvidenceBegin;
 					EvidenceIndex < Record.DeprecatedRouteEvidence.size(); ++EvidenceIndex)
 				{
 					const auto& Evidence = Record.DeprecatedRouteEvidence[EvidenceIndex];
-					Record.Findings.push_back({
-						.Code = EAssetCompatibilityFindingCode::DeprecatedRouteUsed,
+					Record.Issues.push_back({
+						.Code = EPackageSchemaIssueCode::DeprecatedRouteUsed,
 						.ObjectPath = Object.Path, .ClassIdentity = Object.ClassName,
 						.DeclaringType = Evidence.DeclaringType,
 						.FieldName = Evidence.StoredFieldName,
@@ -2216,15 +2199,15 @@ namespace Durin::Asset::PackageObjectStream
 				const FReflectionDeprecatedPropertyRoute* DeprecatedRoute =
 					Override.Provenance == 2 ? nullptr : Catalog.FindDeprecatedPropertyRoute(
 						Schema->QualifiedName, Field.Name, StoredKind, StoredSignature,
-						CompatibilityVersions);
+						SourceVersions);
 				if (DeprecatedRoute)
 				{
-					const auto Version = std::ranges::find_if(CompatibilityVersions,
+					const auto Version = std::ranges::find_if(SourceVersions,
 						[&](const auto& Pair) { return Pair.first == DeprecatedRoute->CustomVersionGuid; });
-					const int32 SourceVersion = Version == CompatibilityVersions.end()
+					const int32 SourceVersion = Version == SourceVersions.end()
 						? -1 : Version->second;
-					Record.Findings.push_back({
-						.Code = EAssetCompatibilityFindingCode::DeprecatedRouteUsed,
+					Record.Issues.push_back({
+						.Code = EPackageSchemaIssueCode::DeprecatedRouteUsed,
 						.ObjectPath = Object.Path, .ClassIdentity = Object.ClassName,
 						.DeclaringType = Schema->QualifiedName, .FieldName = Field.Name,
 						.StoredKind = StoredKind, .StoredTypeSignature = StoredSignature,
@@ -2242,12 +2225,12 @@ namespace Durin::Asset::PackageObjectStream
 						.DeprecatedBefore = DeprecatedRoute->DeprecatedBefore});
 					continue;
 				}
-				const FReflectionCompatibilityField* Expected = Catalog.FindField(*Class, Schema->QualifiedName, Field.Name);
+				const FReflectionSchemaField* Expected = Catalog.FindField(*Class, Schema->QualifiedName, Field.Name);
 				if (!Expected)
 				{
-					if (Record.Compatibility == EAssetPackageCompatibility::Compatible)
-						Record.Compatibility = EAssetPackageCompatibility::Incompatible;
-					Record.Findings.push_back({.Code = EAssetCompatibilityFindingCode::UnknownField,
+					if (Record.Status == EPackageSchemaStatus::Compatible)
+						Record.Status = EPackageSchemaStatus::Incompatible;
+					Record.Issues.push_back({.Code = EPackageSchemaIssueCode::UnknownField,
 						.ObjectPath = Object.Path, .ClassIdentity = Object.ClassName,
 						.DeclaringType = Schema->QualifiedName, .FieldName = Field.Name,
 						.StoredKind = StoredKind, .StoredTypeSignature = StoredSignature,
@@ -2256,9 +2239,9 @@ namespace Durin::Asset::PackageObjectStream
 				}
 				else if (Expected->Kind != StoredKind || Expected->TypeSignature != StoredSignature)
 				{
-					if (Record.Compatibility == EAssetPackageCompatibility::Compatible)
-						Record.Compatibility = EAssetPackageCompatibility::Incompatible;
-					Record.Findings.push_back({.Code = EAssetCompatibilityFindingCode::IncompatibleFieldSignature,
+					if (Record.Status == EPackageSchemaStatus::Compatible)
+						Record.Status = EPackageSchemaStatus::Incompatible;
+					Record.Issues.push_back({.Code = EPackageSchemaIssueCode::IncompatibleFieldSignature,
 						.ObjectPath = Object.Path, .ClassIdentity = Object.ClassName,
 						.DeclaringType = Schema->QualifiedName, .FieldName = Field.Name,
 						.StoredKind = StoredKind, .StoredTypeSignature = StoredSignature,
@@ -2273,9 +2256,9 @@ namespace Durin::Asset::PackageObjectStream
 		return {};
 	}
 
-	auto ProbeCompatibility(std::span<const std::byte> Bytes, const FAssetPath& PackagePath,
-		const FReflectionCompatibilityCatalog& Catalog, FAssetPackageCompatibilityRecord& OutRecord,
-		FAssetCompatibilityProbeStats* OutStats, const FReaderLimits& Limits,
+	auto InspectSchema(std::span<const std::byte> Bytes, const FAssetPath& PackagePath,
+		const FReflectionSchemaCatalog& Catalog, FPackageSchemaInspection& OutRecord,
+		FPackageSchemaReadStats* OutStats, const FReaderLimits& Limits,
 		FReaderDiagnostic* OutDiagnostic) -> FAssetResult
 	{
 		FReaderDiagnostic Diagnostic;
@@ -2286,13 +2269,13 @@ namespace Durin::Asset::PackageObjectStream
 			return {EAssetError::CorruptFile, Diagnostic.Message};
 		}
 		const bool bNeedsPayloadValues =
-			RequiresDecodedCompatibilityPayloadValues(Package, Catalog);
+			RequiresDecodedSchemaPayloadValues(Package, Catalog);
 		if (bNeedsPayloadValues && !DecodePackage(Bytes, Package, Limits, &Diagnostic))
 		{
 			if (OutDiagnostic) *OutDiagnostic = Diagnostic;
 			return {EAssetError::CorruptFile, Diagnostic.Message};
 		}
-		FAssetResult Result = ProbeDecodedCompatibility(Package, Bytes.size(),
+		FAssetResult Result = InspectDecodedPackageSchema(Package, Bytes.size(),
 			bNeedsPayloadValues, PackagePath, Catalog, OutRecord, &Diagnostic);
 		if (!Result)
 		{

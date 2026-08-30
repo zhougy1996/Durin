@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetMaintenanceAPI.h"
-#include "Asset/Compatibility.h"
+#include "AssetMaintenance/CompatibilityAudit.h"
 
 namespace Durin::Asset
 {

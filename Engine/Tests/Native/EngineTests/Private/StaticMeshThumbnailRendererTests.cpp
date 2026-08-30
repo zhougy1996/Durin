@@ -9,7 +9,6 @@
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
-#include "Asset/Compatibility.h"
 #include "DObject/Class.h"
 #include "Editor/WorkspaceManager.h"
 #include "MaterialEditorModule.h"

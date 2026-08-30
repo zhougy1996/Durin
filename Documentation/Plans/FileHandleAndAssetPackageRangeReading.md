@@ -169,7 +169,7 @@ Depends on Stage 1.
 - [x] Change codec resolution for compatibility inspection to read the DURF
   prefix from the source while retaining the current span resolver for other
   capabilities.
-- [x] Change `FAssetPackageCodec::ProbeCompatibility` to accept the byte source
+- [x] Change the codec's schema-inspection capability to accept the byte source
   and cancellation callback; keep the capability mandatory for readable codecs.
 - [x] Replace the compatibility path's `LoadFileToArray` with one opened handle
   and bounded reads, preserving stale-input checks and terminal classification.
@@ -238,7 +238,8 @@ Depends on Stages 1-3.
 
 - `Engine/Source/Runtime/Core/Public/Misc/FileHelper.h`
 - `Engine/Source/Runtime/Core/Private/Misc/FileHelper.cpp`
-- `Engine/Source/Runtime/Engine/Private/Asset/AssetCompatibility.cpp`
+- `Engine/Source/Runtime/Engine/Private/Asset/PackageSchema.cpp`
+- `Engine/Source/Developer/AssetMaintenance/Private/CompatibilityAudit.cpp`
 - `Engine/Source/Runtime/Engine/Private/Asset/AssetPackageCodec.h`
 - `Engine/Source/Runtime/Engine/Private/Asset/AssetPackageV7Codec.cpp`
 - `Engine/Source/Runtime/AssetRegistry/Public/AssetRegistry/ObjectStream.h`

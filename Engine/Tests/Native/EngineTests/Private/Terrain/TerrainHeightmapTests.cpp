@@ -2,7 +2,6 @@
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetCook.h"
-#include "Asset/Compatibility.h"
 #include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
