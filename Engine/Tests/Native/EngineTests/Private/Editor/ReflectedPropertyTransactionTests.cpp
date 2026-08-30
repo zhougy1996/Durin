@@ -23,11 +23,26 @@ TEST(FReflectedPropertyEditSessionTests, KeepsTargetAliveForTheSession)
 	EXPECT_FALSE(Durin::GDObjectArray.Contains(Object));
 }
 
+TEST(FReflectedPropertyEditSessionTests, RejectsACollectedTargetBeforeReadingItsSnapshotStorage)
+{
+	InitializeDObjectSystem();
+	auto* Object = Durin::NewObject<DReflectedTransactionTestObject>(nullptr, "CollectedPropertyEditTarget");
+	auto* Property = DReflectedTransactionTestObject::FindProperty("Value");
+	const Durin::Editor::FPropertyEditTarget Target =
+		Durin::Editor::FPropertyEditTarget::ForMember(Object, Property);
+	Durin::CollectGarbage();
+
+	Durin::Editor::FPropertyEditSession Session;
+	std::string Error;
+	EXPECT_FALSE(Session.Begin(Target, "Stale Edit", &Error));
+	EXPECT_EQ(Error, "The reflected-property edit target is no longer live.");
+}
+
 TEST(FReflectedPropertyEditSessionTests, ContinuousCommitCreatesOneUndoRedoTransaction)
 {
 	InitializeDObjectSystem();
 	auto* Object = Durin::NewObject<DReflectedTransactionTestObject>(nullptr, "ContinuousTransactionTarget");
-	Durin::FScopedObjectRoot ObjectRoot(Object);
+	Durin::TStrongObjectPtr<Durin::DObject> ObjectRoot(Object);
 	auto* Property = DReflectedTransactionTestObject::FindProperty("Value");
 	Object->Value = 7;
 	auto Capture = [&](int32 Value) {
@@ -111,7 +126,7 @@ TEST(FReflectedPropertyEditSessionTests, NoOpAndCancelledEditsDoNotCreateTransac
 {
 	InitializeDObjectSystem();
 	auto* Object = Durin::NewObject<DReflectedTransactionTestObject>(nullptr, "NoOpTransactionTarget");
-	Durin::FScopedObjectRoot ObjectRoot(Object);
+	Durin::TStrongObjectPtr<Durin::DObject> ObjectRoot(Object);
 	auto* Property = DReflectedTransactionTestObject::FindProperty("Value");
 	Object->Value = 3;
 	const auto Target = Durin::Editor::FPropertyEditTarget::ForMember(Object, Property);

@@ -1,7 +1,7 @@
 #include "Asset/AssetRetention.h"
 
 #include "Asset.h"
-#include "DObject/ObjectLifecycle.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Threading/RunnableThread.h"
 
 namespace Durin::Editor
@@ -10,12 +10,12 @@ namespace Durin::Editor
 	{
 		FAssetPath Path;
 		DObject* Asset = nullptr;
-		std::optional<FScopedObjectRoot> Root;
+		TStrongObjectPtr<DObject> Root;
 
 		FRetainedAssetState(FAssetPath InPath, DObject* InAsset)
 			: Path(std::move(InPath))
 			, Asset(InAsset)
-			, Root(std::in_place, InAsset)
+			, Root(InAsset)
 		{
 		}
 	};

@@ -12,6 +12,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/ObjectPtr.h"
 #include "DObject/Package.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Components/CameraComponent.h"
 #include "Components/SceneComponent.h"
 #include "Components/SplineComponent.h"
@@ -44,7 +45,7 @@ namespace
 		}
 
 		Durin::DTransBuffer* Transactor = nullptr;
-		Durin::FScopedObjectRoot TransactorRoot;
+		Durin::TStrongObjectPtr<Durin::DObject> TransactorRoot;
 	};
 
 	struct FValueContainer
@@ -205,6 +206,36 @@ namespace
 		int32 Value = 0;
 		Durin::FGuid GuidValue;
 		Durin::TObjectPtr<Durin::DObject> ObjectValue;
+	};
+
+	class FManagedEditObserver
+	{
+	private:
+		static auto CreateObject() -> DReflectedTransactionTestObject*
+		{
+			InitializeDObjectSystem();
+			static uint64 NextId = 1;
+			return Durin::NewObject<DReflectedTransactionTestObject>(
+				nullptr, Durin::FName("ManagedEditObserver" + std::to_string(NextId++)));
+		}
+
+		DReflectedTransactionTestObject* ManagedObject = nullptr;
+		Durin::TStrongObjectPtr<Durin::DObject> StrongObject;
+
+	public:
+		FManagedEditObserver()
+			: ManagedObject(CreateObject())
+			, StrongObject(ManagedObject)
+			, Changes(ManagedObject->Changes)
+			, PreChange(ManagedObject->PreChange)
+		{
+		}
+
+		operator DEditObserver&() const { return *ManagedObject; }
+		auto Get() const -> DEditObserver* { return ManagedObject; }
+
+		std::vector<FCapturedChange>& Changes;
+		std::function<bool(Durin::FPropertyEditProposal&, std::string&)>& PreChange;
 	};
 
 	auto MakeValueProperty() -> std::unique_ptr<Durin::FNumericProperty>

@@ -11,9 +11,9 @@ Completed: 2026-08-30
 
 P0 and P1 are complete. `DTransBuffer` owns bounded GC-visible data history and
 can validate focused records, but it does not yet apply before/after values.
-`FPropertyEditSession` and `FPropertyTransaction` still store rooted legacy
-`FPropertyValueSnapshot` values and commit the executable transaction directly
-to `FTransactionManager`.
+`FPropertyEditSession` now pins its live target with `TStrongObjectPtr`, while
+`FPropertyValueSnapshot` retains hard values through the same native strong
+reference mechanism.
 
 P2 is complete. The legacy manager remains the application-facing ordered
 history until P4, with a data-free legacy bridge preserving ordering and
@@ -67,9 +67,9 @@ the P2 bridge.
   into the pending `FTransaction`. That record makes the original hard values
   collector-visible while the live object changes. Each successful Apply
   replaces the provisional record's after payload.
-- The non-reflected session may keep its target rooted while it owns borrowed
-  live container addresses. The transaction system adds no target or value
-  roots; removing the session root is a separate ownership redesign.
+- The non-reflected session pins its target with `TStrongObjectPtr` before it
+  reads borrowed live container addresses. The transaction system adds no
+  target or value roots.
 
 ### Stable Property Object Records
 
@@ -163,7 +163,7 @@ remain behaviorally unchanged.
   collector traversal while weak/soft values do not gain retention.
 - [x] Prove cancel, bridge redo replacement, legacy eviction/forget/Clear,
   transactor eviction/Reset, and shutdown release property edges.
-- [x] Prove property history owns no `AddToRoot`, `FScopedObjectRoot`, rooted
+- [x] Prove property history owns no `AddToRoot`, manual root flag, rooted
   snapshot, callback, or module-owned deleter.
 - [x] Update the reflected-property and transactor architecture contracts and
   mark P2 complete in the roadmap with exact coexistence boundaries.

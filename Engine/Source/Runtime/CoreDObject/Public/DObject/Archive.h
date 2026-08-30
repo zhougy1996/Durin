@@ -4,6 +4,7 @@
 #include "DObjectFwd.h"
 #include "DObject/ObjectMacros.h"
 #include "DObject/ObjectHandle.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Serialization/Archive.h"
 
 #include <memory>
@@ -275,7 +276,7 @@ namespace Durin
 			const FProperty*, void*, uint32, const FPropertyValueSnapshotPayload&, std::string*) -> bool;
 	};
 
-	// Legacy rooted adapter over the shared retention-neutral property snapshot payload.
+	// Legacy retaining adapter over the shared retention-neutral property snapshot payload.
 	class FPropertyValueSnapshot
 	{
 	public:
@@ -294,8 +295,9 @@ namespace Durin
 	private:
 		FPropertyValueSnapshotPayload Payload;
 		std::vector<DObject*> ReferencedObjects;
-		auto AddReferenceRoots() -> void;
-		auto ReleaseReferenceRoots() -> void;
+		std::vector<TStrongObjectPtr<DObject>> StrongReferences;
+		auto AddStrongReferences() -> void;
+		auto ReleaseStrongReferences() -> void;
 		friend COREDOBJECT_API auto CapturePropertyValue(const FProperty*, const void*, uint32, FPropertyValueSnapshot&, std::string*) -> bool;
 		friend COREDOBJECT_API auto RestorePropertyValue(const FProperty*, void*, uint32, const FPropertyValueSnapshot&, std::string*) -> bool;
 	};

@@ -10,6 +10,7 @@
 #include "DObject/ObjectPtr.h"
 #include "DObject/Property.h"
 #include "DObject/SoftObjectPtr.h"
+#include "DObject/StrongObjectPtr.h"
 #include "DObject/WeakObjectPtr.h"
 #include "EngineTestSupport.h"
 #include "Misc/MountPathTestSupport.h"
@@ -376,7 +377,7 @@ TEST(FFocusedTransactionObjectRecordTests, CollectorTraversalRetainsOnlyTargetAn
 {
 	InitializeDObjectSystem();
 	auto* Owner = Durin::NewObject<DTransactionRecordOwner>(nullptr, Durin::FName("TransactionRecordOwner"));
-	Durin::FScopedObjectRoot OwnerRoot(Owner);
+	Durin::TStrongObjectPtr<Durin::DObject> OwnerRoot(Owner);
 	auto* Outer = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("TransactionRecordOuter"));
 	auto* Target = Durin::NewObject<DTransactionRecordParticipant>(Outer, Durin::FName("TransactionRecordTarget"));
 	auto* Sibling = Durin::NewObject<Durin::DObject>(Outer, Durin::FName("TransactionRecordSibling"));
@@ -420,7 +421,7 @@ TEST(FFocusedTransactionObjectRecordTests, MarkedGarbageTargetIsNotRescued)
 {
 	InitializeDObjectSystem();
 	auto* Owner = Durin::NewObject<DTransactionRecordOwner>(nullptr, Durin::FName("GarbageRecordOwner"));
-	Durin::FScopedObjectRoot OwnerRoot(Owner);
+	Durin::TStrongObjectPtr<Durin::DObject> OwnerRoot(Owner);
 	auto* Target = Durin::NewObject<DTransactionRecordParticipant>(nullptr, Durin::FName("GarbageRecordTarget"));
 	Owner->Records.push_back(CaptureRecord(Target, "Value"));
 	const Durin::FObjectHandle Handle = Durin::MakeObjectHandle(Target);
@@ -434,7 +435,7 @@ TEST(FFocusedTransactionObjectRecordTests, RestoresSupportedValuesIntoDetachedSt
 {
 	InitializeDObjectSystem();
 	auto* Target = Durin::NewObject<DTransactionRecordParticipant>(nullptr, Durin::FName("DetachedRestoreTarget"));
-	Durin::FScopedObjectRoot TargetRoot(Target);
+	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 	auto* Hard = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("DetachedRestoreHard"));
 	auto* Weak = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("DetachedRestoreWeak"));
 	Target->Value = 47;
@@ -482,7 +483,7 @@ TEST(FFocusedTransactionObjectRecordTests, RestoresSupportedValuesIntoDetachedSt
 	}
 
 	auto StaleRecord = CaptureRecord(Target, "Value");
-	TargetRoot = Durin::FScopedObjectRoot(nullptr);
+	TargetRoot = Durin::TStrongObjectPtr<Durin::DObject>(nullptr);
 	Durin::MarkAsGarbage(Target);
 	Durin::CollectGarbage();
 	Durin::FReflectedValueStorage Storage;
@@ -496,7 +497,7 @@ TEST(FFocusedTransactionObjectRecordTests, RejectsIncompatibleResolvedMember)
 	InitializeDObjectSystem();
 	auto* Target = Durin::NewObject<DTransactionRecordParticipant>(
 		nullptr, Durin::FName("IncompatibleRecordTarget"));
-	Durin::FScopedObjectRoot TargetRoot(Target);
+	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 	auto Record = CaptureRecord(Target, "Value");
 	Durin::DClass* Class = DTransactionRecordParticipant::StaticClass();
 	Durin::FField* OriginalProperties = Class->ChildProperties;
@@ -539,9 +540,9 @@ TEST(FTransBufferTests, NestedScopesCancelToSavepointsAndCommitOneEntry)
 {
 	InitializeDObjectSystem();
 	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "NestedTransBuffer");
-	Durin::FScopedObjectRoot BufferRoot(Buffer);
+	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
 	auto* Target = Durin::NewObject<DTransactionRecordParticipant>(nullptr, "NestedTarget");
-	Durin::FScopedObjectRoot TargetRoot(Target);
+	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 
 	Durin::Editor::FScopedTransaction Outer(Buffer, {"property", "Nested edit",
 		Durin::Editor::FPersistentObjectRef(Target)});
@@ -573,7 +574,7 @@ TEST(FTransBufferTests, RejectsInvalidCloseOrderAndRecordingBarriersWithoutCorru
 {
 	InitializeDObjectSystem();
 	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "BarrierTransBuffer");
-	Durin::FScopedObjectRoot BufferRoot(Buffer);
+	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
 	const auto Outer = Buffer->Begin({"test", "Outer"});
 	const auto Inner = Buffer->Begin({"test", "Inner"});
 	ASSERT_TRUE(Outer);
@@ -593,7 +594,7 @@ TEST(FTransBufferTests, RejectsRecursiveTransitionStates)
 {
 	InitializeDObjectSystem();
 	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "RecursiveBarrierTransBuffer");
-	Durin::FScopedObjectRoot BufferRoot(Buffer);
+	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
 	for (const auto State : {Durin::Editor::ETransactorState::Undoing,
 		Durin::Editor::ETransactorState::Redoing})
 	{
@@ -611,9 +612,9 @@ TEST(FTransBufferTests, MoveOnlyScopeClosesOnceAndCancelIsIdempotent)
 {
 	InitializeDObjectSystem();
 	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "MoveScopeTransBuffer");
-	Durin::FScopedObjectRoot BufferRoot(Buffer);
+	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
 	auto* Target = Durin::NewObject<DTransactionRecordParticipant>(nullptr, "MoveScopeTarget");
-	Durin::FScopedObjectRoot TargetRoot(Target);
+	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 	{
 		Durin::Editor::FScopedTransaction First(Buffer, {"test", "Moved scope"});
 		ASSERT_TRUE(Buffer->Record(CaptureRecord(Target, "Value")));
@@ -632,9 +633,9 @@ TEST(FTransBufferTests, MaintainsCursorBranchIdsEventsAndLimits)
 {
 	InitializeDObjectSystem();
 	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "HistoryTransBuffer");
-	Durin::FScopedObjectRoot BufferRoot(Buffer);
+	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
 	auto* Target = Durin::NewObject<DTransactionRecordParticipant>(nullptr, "HistoryTarget");
-	Durin::FScopedObjectRoot TargetRoot(Target);
+	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 	auto Commit = [&](std::string Description) {
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", std::move(Description)});
 		EXPECT_TRUE(Buffer->Record(CaptureRecord(Target, "Value")));
@@ -673,9 +674,9 @@ TEST(FTransBufferTests, DiscardsOversizedEntryAndPreservesFailedUndoCursor)
 {
 	InitializeDObjectSystem();
 	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "FailureTransBuffer");
-	Durin::FScopedObjectRoot BufferRoot(Buffer);
+	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
 	auto* Target = Durin::NewObject<DTransactionRecordParticipant>(nullptr, "FailureTarget");
-	Durin::FScopedObjectRoot TargetRoot(Target);
+	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 	ASSERT_TRUE(Buffer->SetLimits({.MaximumEntries = 4, .MaximumOwnedBytes = 1}));
 	Durin::Editor::FScopedTransaction Oversized(Buffer, {"test", "Oversized"});
 	ASSERT_TRUE(Buffer->Record(CaptureRecord(Target, "Numbers")));
@@ -688,7 +689,7 @@ TEST(FTransBufferTests, DiscardsOversizedEntryAndPreservesFailedUndoCursor)
 	ASSERT_TRUE(Buffer->Record(CaptureRecord(Target, "Value")));
 	ASSERT_TRUE(Valid.End());
 	const auto Id = Buffer->GetUndoId();
-	TargetRoot = Durin::FScopedObjectRoot(nullptr);
+	TargetRoot = Durin::TStrongObjectPtr<Durin::DObject>(nullptr);
 	Durin::MarkAsGarbage(Target);
 	Durin::CollectGarbage();
 	EXPECT_EQ(Buffer->Undo().Code, Durin::Editor::ETransactorResultCode::Failed);
@@ -701,9 +702,9 @@ TEST(FTransBufferTests, ExpectedIdsAndExplicitRemovalPreserveHistoryPosition)
 {
 	InitializeDObjectSystem();
 	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "AddressedTransBuffer");
-	Durin::FScopedObjectRoot BufferRoot(Buffer);
+	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
 	auto* Target = Durin::NewObject<DTransactionRecordParticipant>(nullptr, "AddressedTarget");
-	Durin::FScopedObjectRoot TargetRoot(Target);
+	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 	auto Commit = [&](std::string Description) {
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", std::move(Description)});
 		EXPECT_TRUE(Buffer->Record(CaptureRecord(Target, "Value")));
@@ -736,9 +737,9 @@ TEST(FTransBufferTests, RetainsAnEntryAtTheExactOwnedByteLimit)
 {
 	InitializeDObjectSystem();
 	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "ExactLimitTransBuffer");
-	Durin::FScopedObjectRoot BufferRoot(Buffer);
+	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
 	auto* Target = Durin::NewObject<DTransactionRecordParticipant>(nullptr, "ExactLimitTarget");
-	Durin::FScopedObjectRoot TargetRoot(Target);
+	Durin::TStrongObjectPtr<Durin::DObject> TargetRoot(Target);
 	auto Commit = [&] {
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", "Exact limit"});
 		EXPECT_TRUE(Buffer->Record(CaptureRecord(Target, "Value")));
@@ -758,7 +759,7 @@ TEST(FTransBufferTests, CancellationEvictionAndDestructionReleaseCollectorEdges)
 {
 	InitializeDObjectSystem();
 	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "ReleaseTransBuffer");
-	Durin::FScopedObjectRoot BufferRoot(Buffer);
+	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
 	auto MakeTarget = [](std::string_view Name) {
 		return Durin::NewObject<DTransactionRecordParticipant>(nullptr, Durin::FName(Name));
 	};
@@ -783,13 +784,13 @@ TEST(FTransBufferTests, CancellationEvictionAndDestructionReleaseCollectorEdges)
 	const auto EvictedHandle = Durin::MakeObjectHandle(Evicted);
 	Commit(Evicted, "Evicted");
 	auto* Retained = MakeTarget("RetainedTarget");
-	Durin::FScopedObjectRoot RetainedRoot(Retained);
+	Durin::TStrongObjectPtr<Durin::DObject> RetainedRoot(Retained);
 	Commit(Retained, "Retained");
 	Durin::CollectGarbage();
 	EXPECT_EQ(Durin::ResolveObjectHandle(EvictedHandle), nullptr);
 
 	const auto RetainedHandle = Durin::MakeObjectHandle(Retained);
-	RetainedRoot = Durin::FScopedObjectRoot(nullptr);
+	RetainedRoot = Durin::TStrongObjectPtr<Durin::DObject>(nullptr);
 	Buffer->BeginDestroy();
 	Durin::CollectGarbage();
 	EXPECT_EQ(Durin::ResolveObjectHandle(RetainedHandle), nullptr);
@@ -799,7 +800,7 @@ TEST(FTransBufferTests, CollectorRetainsPendingAndHistoryEdgesAndReleasesBranche
 {
 	InitializeDObjectSystem();
 	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "GCTransBuffer");
-	Durin::FScopedObjectRoot BufferRoot(Buffer);
+	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
 	auto* First = Durin::NewObject<DTransactionRecordParticipant>(nullptr, "GCFirstTarget");
 	auto* Hard = Durin::NewObject<Durin::DObject>(nullptr, "GCHardValue");
 	auto* Weak = Durin::NewObject<Durin::DObject>(nullptr, "GCWeakValue");
@@ -825,7 +826,7 @@ TEST(FTransBufferTests, CollectorRetainsPendingAndHistoryEdgesAndReleasesBranche
 	ASSERT_TRUE(Buffer->Undo());
 
 	auto* Second = Durin::NewObject<DTransactionRecordParticipant>(nullptr, "GCSecondTarget");
-	Durin::FScopedObjectRoot SecondRoot(Second);
+	Durin::TStrongObjectPtr<Durin::DObject> SecondRoot(Second);
 	{
 		Durin::Editor::FScopedTransaction Scope(Buffer, {"test", "Branch GC"});
 		ASSERT_TRUE(Buffer->Record(CaptureRecord(Second, "Value")));
@@ -834,7 +835,7 @@ TEST(FTransBufferTests, CollectorRetainsPendingAndHistoryEdgesAndReleasesBranche
 	EXPECT_EQ(Durin::ResolveObjectHandle(FirstHandle), nullptr);
 	EXPECT_EQ(Durin::ResolveObjectHandle(HardHandle), nullptr);
 	ASSERT_TRUE(Buffer->Reset());
-	SecondRoot = Durin::FScopedObjectRoot(nullptr);
+	SecondRoot = Durin::TStrongObjectPtr<Durin::DObject>(nullptr);
 	const auto SecondHandle = Durin::MakeObjectHandle(Second);
 	Durin::CollectGarbage();
 	EXPECT_EQ(Durin::ResolveObjectHandle(SecondHandle), nullptr);
@@ -844,7 +845,7 @@ TEST(FTransBufferTests, ExecutesCustomChangesAndPreservesCursorOnFailure)
 {
 	InitializeDObjectSystem();
 	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "CustomChangeTransBuffer");
-	Durin::FScopedObjectRoot BufferRoot(Buffer);
+	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
 	int Value = 1;
 	auto Change = std::make_unique<FTestCustomChange>(Value, 1, 2);
 	auto* ChangePtr = Change.get();
@@ -869,7 +870,7 @@ TEST(FTransBufferTests, DeferredCustomChangeBlocksAndCompletesExactlyOnce)
 {
 	InitializeDObjectSystem();
 	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "DeferredCustomTransBuffer");
-	Durin::FScopedObjectRoot BufferRoot(Buffer);
+	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
 	int Value = 5;
 	auto Change = std::make_unique<FTestCustomChange>(Value, 3, 5);
 	auto* ChangePtr = Change.get();
@@ -899,7 +900,7 @@ TEST(FTransBufferTests, CustomReferencesAndModuleDrainReleaseHistory)
 {
 	InitializeDObjectSystem();
 	auto* Buffer = Durin::NewObject<Durin::DTransBuffer>(nullptr, "ModuleCustomTransBuffer");
-	Durin::FScopedObjectRoot BufferRoot(Buffer);
+	Durin::TStrongObjectPtr<Durin::DObject> BufferRoot(Buffer);
 	auto* Referenced = Durin::NewObject<Durin::DObject>(nullptr, "CustomReferencedObject");
 	const Durin::FObjectHandle Handle = Durin::MakeObjectHandle(Referenced);
 	int Value = 1;

@@ -173,8 +173,9 @@ references, structs, arrays, and maps.
 installs no roots. Active sessions, map paths, and committed property records
 use this payload. `DTransBuffer::AddReferencedObjects()` exposes hard handles
 from pending and retained records to the collector. The legacy
-`FPropertyValueSnapshot` adapter still roots hard references for unmigrated
-callers, but it is not used by property history. Weak properties copy their
+`FPropertyValueSnapshot` adapter retains hard references with
+`TStrongObjectPtr` for unmigrated callers, but it is not used by property
+history. Weak properties copy their
 index/generation handle and never gain retention. The generic weak
 Details row reports null, live, expired, or type-mismatched state and permits an
 explicit clear; it never offers a durable asset picker. Unsupported or
@@ -237,9 +238,9 @@ same detached settings synchronously before the reflected write completes.
 
 ```text
 Begin(target)
-  capture original value
-  root the target object
-  begin one scoped transactor entry with before == after
+  pin the exact live target generation with TStrongObjectPtr
+	  capture original value
+	  begin one scoped transactor entry with before == after
 
 Apply(proposal)
   validate/normalize a detached draft

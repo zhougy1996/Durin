@@ -1,11 +1,12 @@
 #pragma once
 
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Editor/Transactor.h"
 
 namespace Durin::Tests
 {
-	// Gives a native test one uniquely named, GC-rooted transaction buffer.
+	// Gives a native test one uniquely named, strongly retained transaction buffer.
 	class FTestTransactorOwner final
 	{
 	public:
@@ -25,6 +26,6 @@ namespace Durin::Tests
 		}
 
 		DTransBuffer* Transactor = nullptr;
-		FScopedObjectRoot TransactorRoot;
+		TStrongObjectPtr<DObject> TransactorRoot;
 	};
 }

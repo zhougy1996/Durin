@@ -6,6 +6,7 @@
 #include "DObject/GarbageCollectionScheduler.h"
 #include "DObject/Object.h"
 #include "DObject/Package.h"
+#include "DObject/StrongObjectPtr.h"
 #include "CoreGlobals.h"
 #include "Misc/Time.h"
 #include "Threading/RunnableThread.h"
@@ -148,48 +149,18 @@ namespace Durin
 		};
 	}
 
-	FScopedObjectRoot::FScopedObjectRoot(DObject* InObject)
-		: Object(InObject)
-	{
-		AddToRoot(Object);
-	}
-
-	FScopedObjectRoot::~FScopedObjectRoot()
-	{
-		RemoveFromRoot(Object);
-	}
-
-	FScopedObjectRoot::FScopedObjectRoot(FScopedObjectRoot&& Other) noexcept
-		: Object(Other.Object)
-	{
-		Other.Object = nullptr;
-	}
-
-	auto FScopedObjectRoot::operator=(FScopedObjectRoot&& Other) noexcept -> FScopedObjectRoot&
-	{
-		if (this == &Other) return *this;
-		RemoveFromRoot(Object);
-		Object = Other.Object;
-		Other.Object = nullptr;
-		return *this;
-	}
-
 	auto AddToRoot(DObject* Object) -> void
 	{
 		CheckObjectThread();
-		if (!Object || Object->IsTemplateObject()) return;
-		check(GDObjectArray.Contains(Object));
-		++Object->RootReferenceCount;
+		if (!GDObjectArray.Contains(Object) || Object->IsTemplateObject()) return;
 		Object->SetInternalFlags(EObjectInternalFlags::RootSet);
 	}
 
 	auto RemoveFromRoot(DObject* Object) -> void
 	{
 		CheckObjectThread();
-		if (!Object) return;
-		check(GDObjectArray.Contains(Object));
-		check(Object->RootReferenceCount > 0);
-		if (--Object->RootReferenceCount == 0) Object->ClearInternalFlags(EObjectInternalFlags::RootSet);
+		if (!GDObjectArray.Contains(Object)) return;
+		Object->ClearInternalFlags(EObjectInternalFlags::RootSet);
 	}
 
 	auto IsValid(const DObject* Object) -> bool
@@ -385,6 +356,7 @@ namespace Durin
 		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates)) Object->ClearInternalFlags(EObjectInternalFlags::Reachable);
 
 		FMarkReferenceCollector Marker;
+		Private::AddStrongObjectReferences(Marker);
 		for (DObject* Object : GDObjectArray.GetAll(EObjectQueryScope::IncludeTemplates))
 		{
 			if (!Object->IsGarbage()

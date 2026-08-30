@@ -11,8 +11,8 @@ Completed: 2026-08-30
 
 P0 is complete. `CoreDObject` now exposes one retention-neutral property
 snapshot payload containing owned bytes and exact hard-reference handles. The
-legacy `FPropertyValueSnapshot` remains a counted-root adapter over that shared
-payload, preserving current property history behavior.
+legacy `FPropertyValueSnapshot` remains a retaining adapter over that shared
+payload and now owns copyable `TStrongObjectPtr` references.
 
 `DurinEd` now provides `FPersistentObjectRef`, a deduplicated transaction
 reference set, a stable top-level member locator, and
@@ -61,14 +61,14 @@ belong to later roadmap plans.
 
 | Owner | Current retention | P0 treatment |
 | --- | --- | --- |
-| [`FPropertyValueSnapshot`](../../Engine/Source/Runtime/CoreDObject/Public/DObject/Archive.h) | Copies retain every hard referenced object with `AddToRoot`; destruction releases the counted roots. | Extract or expose a retention-neutral payload for new records. Preserve the legacy wrapper and its root behavior. |
-| [`FPropertyTransaction`](../../Engine/Source/Editor/DurinEd/Public/Editor/PropertyEditing.h) | Roots `FPropertyEditTarget::Object` for the lifetime of a committed legacy history entry. | Leave unchanged; the new object record uses `FPersistentObjectRef` plus collector traversal. |
-| [`FPropertyEditSession`](../../Engine/Source/Editor/DurinEd/Public/Editor/PropertyEditing.h) | Roots the live edit target while raw snapshot-container addresses and deferred callbacks are active. | Leave unchanged. P2 decides the live-session migration independently from committed record retention. |
-| `FTransactionManager::FTrackedPackageState` (removed by P4) | Stored a raw `DPackage*` and one `FScopedObjectRoot` for tracked revision state. | Leave unchanged; P1/P4 replace package-history ownership after the transactor exists. |
+| [`FPropertyValueSnapshot`](../../Engine/Source/Runtime/CoreDObject/Public/DObject/Archive.h) | Copies now retain every hard referenced object with independently owned `TStrongObjectPtr` values. | The retention-neutral payload remains the transaction-record representation. |
+| [`FPropertyTransaction`](../../Engine/Source/Editor/DurinEd/Public/Editor/PropertyEditing.h) | Committed history uses exact handles and collector traversal. | The object record uses `FPersistentObjectRef` plus collector traversal. |
+| [`FPropertyEditSession`](../../Engine/Source/Editor/DurinEd/Public/Editor/PropertyEditing.h) | Pins the live edit target before using snapshot-container addresses and deferred callbacks. | Temporary native ownership uses `TStrongObjectPtr`. |
+| `FTransactionManager::FTrackedPackageState` (removed by P4) | Historically stored a raw `DPackage*` with a scoped manual root. | P1/P4 replaced package-history ownership after the transactor was introduced. |
 
 `FAssetRetentionService`, preview scenes, default materials, package residency,
-and general-purpose `FScopedObjectRoot` users are not transaction-owned and are
-therefore outside this plan.
+and general-purpose native strong-reference users are not transaction-owned and
+are therefore outside this plan.
 
 ### Production Transaction Implementations
 
@@ -122,7 +122,7 @@ reference never revives an object marked as garbage.
   owning record removes all of its strong edges in the same logical operation.
 - Reuse the existing reflected-property archive semantics through one
   retention-neutral payload/codec rather than creating a competing wire
-  format. Keep the existing `FPropertyValueSnapshot` API and counted-root
+  format. Keep the existing `FPropertyValueSnapshot` API and retaining
   behavior as a legacy adapter until P2.
 - A focused record stores owned participant identity and a stable top-level
   member locator; it does not retain a snapshot-container address. Restore
@@ -151,9 +151,9 @@ reference never revives an object marked as garbage.
 - [x] Define the owned member locator and compatibility check used by a focused
   record; do not retain `SnapshotContainer` or another live storage address.
 - [x] Refactor the existing property snapshot codec just enough to expose one
-  retention-neutral payload that can be wrapped by both the rooted legacy
+  retention-neutral payload that can be wrapped by both the retaining legacy
   snapshot and the collector-enumerated transaction snapshot.
-- [x] Preserve `FPropertyValueSnapshot` copy/move/equality and root-counting
+- [x] Preserve `FPropertyValueSnapshot` copy/move/equality and strong-retention
   behavior with regression coverage before building new record behavior on the
   payload.
 
@@ -195,8 +195,8 @@ Stage 1 is complete when all identity and hierarchy cases pass through ordinary
   `FTransactionManager` or exposing application Undo/Redo.
 
 Stage 2 is complete when focused values round-trip through detached storage,
-hard/weak/soft lifetime behavior is proven, and no new call to `AddToRoot` or
-`FScopedObjectRoot` exists in the transaction foundation.
+hard/weak/soft lifetime behavior is proven, and no new manual root exists in
+the transaction foundation.
 
 ### Stage 3: Qualification And Lasting Contracts
 

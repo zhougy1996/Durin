@@ -198,8 +198,6 @@ namespace Durin
 
 		EObjectInternalFlags InternalFlags = EObjectInternalFlags::None;
 
-		uint32 RootReferenceCount = 0;
-
 		std::shared_ptr<const FAuthoredOverrideLedger> AuthoredOverrideLedger;
 		std::vector<std::pair<FGuid, int32>> LoadedCustomVersions;
 
@@ -215,7 +213,6 @@ namespace Durin
 		friend COREDOBJECT_API auto AddToRoot(DObject* Object) -> void;
 		friend COREDOBJECT_API auto RemoveFromRoot(DObject* Object) -> void;
 		friend COREDOBJECT_API auto MarkAsGarbage(DObject* Object) -> void;
-		friend COREDOBJECT_API auto CollectGarbage() -> void;
 		friend COREDOBJECT_API auto ForEachObjectReference(DObject* Object, FReferenceCollector& Collector) -> void;
 		friend COREDOBJECT_API auto StaticConstructObject(const FStaticConstructObjectParameters& Params) -> DObject*;
 		friend class DPackage;

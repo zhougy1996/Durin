@@ -134,8 +134,8 @@ TEST(FReflectedPropertyEditSessionTests, ArrayElementUsesStableContainerSnapshot
 	auto Inner = MakeValueProperty();
 	auto Array = MakeArrayProperty(*Inner);
 	FArrayValueContainer Container{{3, 7, 11}};
-	DEditObserver Object;
-	Durin::Editor::FPropertyEditTarget ArrayTarget = Durin::Editor::FPropertyEditTarget::ForMember(&Object, Array.get());
+	FManagedEditObserver Object;
+	Durin::Editor::FPropertyEditTarget ArrayTarget = Durin::Editor::FPropertyEditTarget::ForMember(Object.Get(), Array.get());
 	ArrayTarget.SnapshotContainer = &Container;
 	Durin::Editor::FPropertyEditTarget ElementTarget = ArrayTarget.ForArrayElement(Inner.get(), 1);
 	Durin::Editor::FPropertyEditSession Session;
@@ -171,8 +171,8 @@ TEST(FReflectedPropertyEditSessionTests, ArrayStructuralKindsPublishCommittedEle
 	auto Inner = MakeValueProperty();
 	auto Array = MakeArrayProperty(*Inner);
 	FArrayValueContainer Container{{4, 8, 15}};
-	DEditObserver Object;
-	Durin::Editor::FPropertyEditTarget Target = Durin::Editor::FPropertyEditTarget::ForMember(&Object, Array.get());
+	FManagedEditObserver Object;
+	Durin::Editor::FPropertyEditTarget Target = Durin::Editor::FPropertyEditTarget::ForMember(Object.Get(), Array.get());
 	Target.SnapshotContainer = &Container;
 	auto CommitValues = [&](std::vector<int32> Values, Durin::EPropertyChangeKind Kind) {
 		Target.Kind = Kind;
@@ -203,8 +203,8 @@ TEST(FReflectedPropertyEditSessionTests, MapEditsPreserveStableKeyPathsAndStruct
 	auto ValueProperty = MakeValueProperty();
 	auto MapProperty = MakeMapProperty(KeyProperty, *ValueProperty);
 	FMapValueContainer Container{{{"Alpha", 1}, {"Beta", 2}}};
-	DEditObserver Object;
-	Durin::Editor::FPropertyEditTarget MapTarget = Durin::Editor::FPropertyEditTarget::ForMember(&Object, MapProperty.get());
+	FManagedEditObserver Object;
+	Durin::Editor::FPropertyEditTarget MapTarget = Durin::Editor::FPropertyEditTarget::ForMember(Object.Get(), MapProperty.get());
 	MapTarget.SnapshotContainer = &Container;
 	Durin::FPropertyValueSnapshot KeySnapshot;
 	const std::string Alpha = "Alpha";

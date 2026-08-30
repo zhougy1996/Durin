@@ -723,6 +723,13 @@ namespace Durin::Editor
 			Reset();
 			return false;
 		}
+		TargetObject = TStrongObjectPtr<DObject>(MakeObjectHandle(InTarget.Object));
+		if (!TargetObject)
+		{
+			Reset();
+			return Fail("The reflected-property edit target is no longer live.", OutError);
+		}
+		Target.Object = TargetObject.Get();
 		Transactor = InTransactor;
 		Description = InDescription.empty()
 			? std::format("Edit {}", Target.MemberProperty->NamePrivate.ToString())
@@ -733,13 +740,6 @@ namespace Durin::Editor
 			return false;
 		}
 		CurrentValue = OriginalValue;
-		// A session without a transactor still owns a live preview. Retain its target
-		// only for that transient interaction; committed history uses collector edges.
-		if (GDObjectArray.Contains(Target.Object))
-		{
-			AddToRoot(Target.Object);
-			bObjectRooted = true;
-		}
 		if (Transactor)
 		{
 			TransactionScope.emplace(Transactor, FTransactionContext{
@@ -985,10 +985,9 @@ namespace Durin::Editor
 			(void)TransactionScope->Cancel();
 		TransactionScope.reset();
 		TransactionRecordId = 0;
-		if (bObjectRooted && GDObjectArray.Contains(Target.Object)) RemoveFromRoot(Target.Object);
-		bObjectRooted = false;
 		bActive = false;
 		Target = {};
+		TargetObject.Reset();
 		OriginalValue = {};
 		CurrentValue = {};
 		Description.clear();

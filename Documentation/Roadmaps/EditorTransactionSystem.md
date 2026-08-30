@@ -85,8 +85,8 @@ changes coexist in one `FTransaction`; neither is a second history stack.
   workspaces. Transaction context and primary-object identity describe the
   producing tool; they do not create per-workspace history stacks.
 - Make GC reference enumeration, not manual rooting, the normal retention path
-  for committed transaction history. `AddToRoot` and `FScopedObjectRoot` remain
-  valid general lifecycle tools but are not the transaction ownership model.
+  for committed transaction history. Native temporary owners use
+  `TStrongObjectPtr`; manual root flags are not the transaction ownership model.
 - Preserve command/custom-change support for filesystem mutations, async
   operations, graph edits, object creation and deletion, and other behavior
   that cannot be represented safely as a reflected property snapshot.

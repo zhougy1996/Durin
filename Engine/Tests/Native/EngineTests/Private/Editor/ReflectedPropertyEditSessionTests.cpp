@@ -4,7 +4,7 @@ TEST(FReflectedPropertyEditSessionTests, CommitsAndUndoRedoesGuidValues)
 {
 	InitializeDObjectSystem();
 	auto* Object = Durin::NewObject<DReflectedTransactionTestObject>(nullptr, "GuidTransactionTarget");
-	Durin::FScopedObjectRoot ObjectRoot(Object);
+	Durin::TStrongObjectPtr<Durin::DObject> ObjectRoot(Object);
 	auto* Property = DReflectedTransactionTestObject::FindProperty("GuidValue");
 	const Durin::FGuid Original(1, 2, 3, 4);
 	const Durin::FGuid Proposed(0x00112233, 0x44556677, 0x8899aabb, 0xccddeeff);
@@ -30,7 +30,7 @@ TEST(FReflectedPropertyEditSessionTests, AppliesInteractiveValuesAndCommitsOnce)
 {
 	auto Property = MakeValueProperty();
 	FValueContainer Container{7};
-	DEditObserver Object;
+	FManagedEditObserver Object;
 	Durin::Editor::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value"));
 	const Durin::FPropertyValueSnapshot Proposed = CaptureValue(Property.get(), Container, 19);
@@ -50,7 +50,7 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookRejectsAndNormalizesDetached
 {
 	InitializeDObjectSystem();
 	auto* Object = Durin::NewObject<DReflectedTransactionTestObject>(nullptr, "ValidatedTransactionTarget");
-	Durin::FScopedObjectRoot ObjectRoot(Object);
+	Durin::TStrongObjectPtr<Durin::DObject> ObjectRoot(Object);
 	auto* Property = DReflectedTransactionTestObject::FindProperty("Value");
 	Object->Value = 7;
 	FTestTransactorOwner Transactions;
@@ -96,7 +96,7 @@ TEST(FReflectedPropertyEditSessionTests, GenericHookRejectsNestedEditOfSameTarge
 {
 	auto Property = MakeValueProperty();
 	FValueContainer Container{2};
-	DEditObserver Object;
+	FManagedEditObserver Object;
 	Durin::Editor::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Reentrant Edit"));
 	const Durin::FPropertyValueSnapshot NestedProposal = CaptureValue(Property.get(), Container, 6);
@@ -124,7 +124,7 @@ TEST(FReflectedPropertyEditSessionTests, GeneratesDefaultDescriptionOnlyForValid
 
 	auto Property = MakeValueProperty();
 	FValueContainer Container{7};
-	DEditObserver Object;
+	FManagedEditObserver Object;
 	Durin::Editor::FPropertyEditTarget Incomplete = MakeTarget(Object, Property.get(), Container);
 	Incomplete.SnapshotProperty = nullptr;
 	Incomplete.SnapshotContainer = nullptr;
@@ -143,7 +143,7 @@ TEST(FReflectedPropertyEditSessionTests, CancelRestoresOriginalValueAndOwnedPath
 {
 	auto Property = MakeValueProperty();
 	FValueContainer Container{3};
-	DEditObserver Object;
+	FManagedEditObserver Object;
 	Durin::Editor::FPropertyEditTarget Target = MakeTarget(Object, Property.get(), Container);
 	Target.Path[0].Index = 3;
 	Durin::Editor::FPropertyEditSession Session;
@@ -163,7 +163,7 @@ TEST(FReflectedPropertyEditSessionTests, RejectsMutationWithoutChangingOrNotifyi
 {
 	auto Property = MakeValueProperty();
 	FValueContainer Container{5};
-	DEditObserver Object;
+	FManagedEditObserver Object;
 	Object.PreChange = [](Durin::FPropertyEditProposal&, std::string& OutError) {
 		OutError = "Rejected for testing.";
 		return false;
@@ -184,7 +184,7 @@ TEST(FReflectedPropertyEditSessionTests, FailedCancelKeepsSessionRecoverableForR
 {
 	auto Property = MakeValueProperty();
 	FValueContainer Container{5};
-	DEditObserver Object;
+	FManagedEditObserver Object;
 	bool bAllowRestore = false;
 	Object.PreChange = [&](Durin::FPropertyEditProposal& Proposal, std::string& OutError) {
 		if (Proposal.Phase == Durin::EPropertyChangePhase::Cancelled && !bAllowRestore)
@@ -216,7 +216,7 @@ TEST(FReflectedPropertyEditSessionTests, EmitsTerminalEventAfterReturningToOrigi
 {
 	auto Property = MakeValueProperty();
 	FValueContainer Container{5};
-	DEditObserver Object;
+	FManagedEditObserver Object;
 	Durin::Editor::FPropertyEditSession Session;
 	ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "Edit Value"));
 	ASSERT_EQ(Session.Apply(CaptureValue(Property.get(), Container, 8)), Durin::Editor::EPropertyEditResult::Changed);
@@ -233,7 +233,7 @@ TEST(FReflectedPropertyEditSessionTests, NoOpCommitAndSessionDestructionDoNotAba
 {
 	auto Property = MakeValueProperty();
 	FValueContainer Container{13};
-	DEditObserver Object;
+	FManagedEditObserver Object;
 	{
 		Durin::Editor::FPropertyEditSession Session;
 		ASSERT_TRUE(Session.Begin(MakeTarget(Object, Property.get(), Container), "No-op Edit"));

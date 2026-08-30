@@ -2,6 +2,7 @@
 
 #include "DObject/Archive.h"
 #include "DObject/PropertyChange.h"
+#include "DObject/StrongObjectPtr.h"
 #include "DurinEdAPI.h"
 #include "Editor/Transaction.h"
 #include "Editor/TransactionObjectRecord.h"
@@ -122,6 +123,7 @@ namespace Durin::Editor
 		auto Reset() -> void;
 
 		FPropertyEditTarget Target;
+		TStrongObjectPtr<DObject> TargetObject;
 		FPropertyValueSnapshotPayload OriginalValue;
 		FPropertyValueSnapshotPayload CurrentValue;
 		std::string Description;
@@ -129,7 +131,6 @@ namespace Durin::Editor
 		std::optional<FScopedTransaction> TransactionScope;
 		uint64 TransactionRecordId = 0;
 		bool bActive = false;
-		bool bObjectRooted = false;
 		bool bDeferredPending = false;
 		std::shared_ptr<FDeferredOwnerState> DeferredOwnerState;
 		FPropertyEditDeferredCancel CancelDeferredEdit;

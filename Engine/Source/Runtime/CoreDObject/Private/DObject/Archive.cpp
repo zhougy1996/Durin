@@ -1382,14 +1382,14 @@ namespace Durin
 
 	FPropertyValueSnapshot::~FPropertyValueSnapshot()
 	{
-		ReleaseReferenceRoots();
+		ReleaseStrongReferences();
 	}
 
 	FPropertyValueSnapshot::FPropertyValueSnapshot(const FPropertyValueSnapshot& Other)
 		: Payload(Other.Payload)
 		, ReferencedObjects(Other.ReferencedObjects)
 	{
-		AddReferenceRoots();
+		AddStrongReferences();
 	}
 
 	auto FPropertyValueSnapshot::operator=(const FPropertyValueSnapshot& Other) -> FPropertyValueSnapshot&
@@ -1403,19 +1403,23 @@ namespace Durin
 	FPropertyValueSnapshot::FPropertyValueSnapshot(FPropertyValueSnapshot&& Other) noexcept
 		: Payload(std::move(Other.Payload))
 		, ReferencedObjects(std::move(Other.ReferencedObjects))
+		, StrongReferences(std::move(Other.StrongReferences))
 	{
 		Other.Payload = {};
 		Other.ReferencedObjects.clear();
+		Other.StrongReferences.clear();
 	}
 
 	auto FPropertyValueSnapshot::operator=(FPropertyValueSnapshot&& Other) noexcept -> FPropertyValueSnapshot&
 	{
 		if (this == &Other) return *this;
-		ReleaseReferenceRoots();
+		ReleaseStrongReferences();
 		Payload = std::move(Other.Payload);
 		ReferencedObjects = std::move(Other.ReferencedObjects);
+		StrongReferences = std::move(Other.StrongReferences);
 		Other.Payload = {};
 		Other.ReferencedObjects.clear();
+		Other.StrongReferences.clear();
 		return *this;
 	}
 
@@ -1441,19 +1445,15 @@ namespace Durin
 			&& ReferencedObjects == Other.ReferencedObjects;
 	}
 
-	auto FPropertyValueSnapshot::AddReferenceRoots() -> void
+	auto FPropertyValueSnapshot::AddStrongReferences() -> void
 	{
-		for (DObject* Object : ReferencedObjects) AddToRoot(Object);
+		StrongReferences.reserve(ReferencedObjects.size());
+		for (DObject* Object : ReferencedObjects) StrongReferences.emplace_back(Object);
 	}
 
-	auto FPropertyValueSnapshot::ReleaseReferenceRoots() -> void
+	auto FPropertyValueSnapshot::ReleaseStrongReferences() -> void
 	{
-		for (DObject* Object : ReferencedObjects)
-		{
-			// Explicit destruction can invalidate an otherwise rooted reference. Avoid
-			// dereferencing a removed object while tearing down the snapshot afterward.
-			if (GDObjectArray.Contains(Object)) RemoveFromRoot(Object);
-		}
+		StrongReferences.clear();
 		ReferencedObjects.clear();
 	}
 
@@ -1694,7 +1694,7 @@ namespace Durin
 			if (DObject* Object = ResolveObjectHandle(Handle))
 				Snapshot.ReferencedObjects.push_back(Object);
 		}
-		Snapshot.AddReferenceRoots();
+		Snapshot.AddStrongReferences();
 		OutSnapshot = std::move(Snapshot);
 		return true;
 	}

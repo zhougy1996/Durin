@@ -12,6 +12,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
 #include "DObject/SoftObjectPtr.h"
+#include "DObject/StrongObjectPtr.h"
 #include "Editor/Transaction.h"
 #include "Editor/Transactor.h"
 #include "EngineTestSupport.h"
@@ -36,7 +37,7 @@ namespace
 
 	private:
 		Durin::DTransBuffer* Transactor = nullptr;
-		Durin::FScopedObjectRoot TransactorRoot;
+		Durin::TStrongObjectPtr<Durin::DObject> TransactorRoot;
 	};
 
 	using FSoftObjectViewValue = Durin::TSoftObjectPtr<Durin::DObject>;
@@ -441,8 +442,13 @@ TEST(FReflectedPropertyViewTests, GenericStructRendersEditableFields)
 TEST(FReflectedPropertyViewTests, ObjectReplacementWaitsForFailedPreviewRestoration)
 {
 	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
-	DPropertyViewHostTestObject First(Reflection.Class, Durin::FName("First"));
-	DPropertyViewHostTestObject Second(Reflection.Class, Durin::FName("Second"));
+	(void)Reflection;
+	auto* FirstObject = Durin::NewObject<DPropertyViewHostTestObject>(nullptr, Durin::FName("First"));
+	auto* SecondObject = Durin::NewObject<DPropertyViewHostTestObject>(nullptr, Durin::FName("Second"));
+	Durin::TStrongObjectPtr<DPropertyViewHostTestObject> FirstStrong(FirstObject);
+	Durin::TStrongObjectPtr<DPropertyViewHostTestObject> SecondStrong(SecondObject);
+	auto& First = *FirstObject;
+	auto& Second = *SecondObject;
 	Durin::Editor::FPropertyView View;
 	std::string Error;
 	const Durin::Editor::FPropertyViewContext Context{
@@ -468,7 +474,10 @@ TEST(FReflectedPropertyViewTests, ObjectReplacementWaitsForFailedPreviewRestorat
 TEST(FReflectedPropertyViewTests, ReadOnlyTransitionWaitsForFailedPreviewRestoration)
 {
 	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
-	DPropertyViewHostTestObject Object(Reflection.Class, Durin::FName("ReadOnly"));
+	(void)Reflection;
+	auto* ObjectPtr = Durin::NewObject<DPropertyViewHostTestObject>(nullptr, Durin::FName("ReadOnly"));
+	Durin::TStrongObjectPtr<DPropertyViewHostTestObject> ObjectStrong(ObjectPtr);
+	auto& Object = *ObjectPtr;
 	Durin::Editor::FPropertyView View;
 	std::string Error;
 	const Durin::Editor::FPropertyViewContext EditableContext{
@@ -609,7 +618,7 @@ TEST(FReflectedPropertyViewTests, SoftObjectPathEditsUndoRedoFixedArrayArrayAndM
 {
 	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
 	auto* ManagedObject = Durin::NewObject<DPropertyViewHostTestObject>(nullptr, "SoftTransactions");
-	Durin::FScopedObjectRoot ObjectRoot(ManagedObject);
+	Durin::TStrongObjectPtr<Durin::DObject> ObjectRoot(ManagedObject);
 	auto& Object = *ManagedObject;
 	const Durin::FSoftObjectPath First = MakeSoftObjectPropertyViewPath("First");
 	const Durin::FSoftObjectPath Second = MakeSoftObjectPropertyViewPath("Second");
@@ -674,7 +683,7 @@ TEST(FReflectedPropertyViewTests, InvalidBoundedEditDoesNotMutateOrCreateTransac
 {
 	FPropertyViewHostTestReflection& Reflection = GetPropertyViewHostTestReflection();
 	auto* ManagedObject = Durin::NewObject<DPropertyViewHostTestObject>(nullptr, "BoundedEdit");
-	Durin::FScopedObjectRoot ObjectRoot(ManagedObject);
+	Durin::TStrongObjectPtr<Durin::DObject> ObjectRoot(ManagedObject);
 	auto& Object = *ManagedObject;
 	FPropertyViewTestTransactorOwner Transactions;
 	Durin::Editor::FPropertyView View;

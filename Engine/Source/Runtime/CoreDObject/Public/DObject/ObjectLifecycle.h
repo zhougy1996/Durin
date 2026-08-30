@@ -15,21 +15,6 @@ namespace Durin
 		virtual auto AddReferencedObject(DObject*& Object) -> void = 0;
 	};
 
-	// Keeps one object rooted for the lifetime of this movable scope guard.
-	class FScopedObjectRoot
-	{
-	public:
-		COREDOBJECT_API explicit FScopedObjectRoot(DObject* InObject);
-		COREDOBJECT_API ~FScopedObjectRoot();
-		FScopedObjectRoot(const FScopedObjectRoot&) = delete;
-		auto operator=(const FScopedObjectRoot&) -> FScopedObjectRoot& = delete;
-		COREDOBJECT_API FScopedObjectRoot(FScopedObjectRoot&& Other) noexcept;
-		COREDOBJECT_API auto operator=(FScopedObjectRoot&& Other) noexcept -> FScopedObjectRoot&;
-
-	private:
-		DObject* Object = nullptr;
-	};
-
 	// Summarizes the most recent mark-and-sweep collection and its phase timings.
 	struct FGarbageCollectionStats
 	{

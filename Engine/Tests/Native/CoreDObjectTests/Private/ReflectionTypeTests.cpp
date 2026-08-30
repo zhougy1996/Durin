@@ -6,6 +6,7 @@
 #include "DObject/ObjectPtr.h"
 #include "DObject/WeakObjectPtr.h"
 #include "DObject/SoftObjectPtr.h"
+#include "DObject/StrongObjectPtr.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/MathStructs.h"
 #include "DObject/ObjectLifecycle.h"
@@ -3843,27 +3844,32 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::ConfigureAutomaticGarbageCollection(Durin::FGarbageCollectionSettings{}, Durin::FTime::Seconds());
 	}
 
-	TEST(FCoreDObjectReflectionTests, RootReferencesAreCountedAndScopedRootsAreMovable)
+	TEST(FCoreDObjectReflectionTests, RootSetIsIdempotentAndStrongPointersAreComposable)
 	{
 		EnsureDObjectInitialized();
-		Durin::DObject* Object = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCCountedRoot"));
+		Durin::DObject* RootedObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCIdempotentRoot"));
 
-		Durin::AddToRoot(Object);
-		Durin::AddToRoot(Object);
-		Durin::RemoveFromRoot(Object);
+		Durin::AddToRoot(RootedObject);
+		Durin::AddToRoot(RootedObject);
+		Durin::RemoveFromRoot(RootedObject);
 		Durin::CollectGarbage();
-		EXPECT_TRUE(ObjectArrayContains(Object));
-		Durin::RemoveFromRoot(Object);
+		EXPECT_FALSE(ObjectArrayContains(RootedObject));
+
+		Durin::DObject* StrongObject = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCStrongObject"));
+		const Durin::FObjectHandle StrongHandle = Durin::MakeObjectHandle(StrongObject);
+		Durin::TStrongObjectPtr<Durin::DObject> First(StrongObject);
+		Durin::TStrongObjectPtr<Durin::DObject> Second(First);
 
 		{
-			Durin::FScopedObjectRoot First(Object);
-			Durin::FScopedObjectRoot Second(std::move(First));
+			Durin::TStrongObjectPtr<Durin::DObject> Moved(std::move(First));
+			Second.Reset();
 			Durin::CollectGarbage();
-			EXPECT_TRUE(ObjectArrayContains(Object));
+			EXPECT_TRUE(ObjectArrayContains(StrongObject));
 		}
 
 		Durin::CollectGarbage();
-		EXPECT_FALSE(ObjectArrayContains(Object));
+		EXPECT_FALSE(ObjectArrayContains(StrongObject));
+		EXPECT_FALSE(Durin::TStrongObjectPtr<Durin::DObject>(StrongHandle));
 	}
 
 	TEST(FCoreDObjectReflectionTests, DeepOuterChainUsesIterativeMarkAndDestroy)

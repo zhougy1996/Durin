@@ -4,6 +4,8 @@ Summary: Define managed-object reachability, collection, rooting, and destructio
 
 Modules: CoreDObject
 
+Last reviewed: 2026-08-30
+
 Durin uses a synchronous, stop-the-world, non-moving mark-sweep collector for `DObject` instances. Collection runs on the game thread and does not scan the native stack. Object hierarchy and object lifetime are related in one direction only: a reachable child keeps its Outer chain alive, while a reachable Outer does not keep its children alive.
 
 ## Object Registry And Outer Index
@@ -25,8 +27,11 @@ The Outer index is a query accelerator. It does not own objects, create a GC str
 
 The public lifecycle operations are:
 
-- `AddToRoot(DObject*)` and `RemoveFromRoot(DObject*)` maintain counted manual roots.
-- `FScopedObjectRoot` provides a move-only scoped root reference.
+- `AddToRoot(DObject*)` and `RemoveFromRoot(DObject*)` idempotently set and clear
+  one UE-style manual root flag; repeated adds do not create independently owned
+  root references.
+- `TStrongObjectPtr<T>` owns one copyable, collector-visible native strong
+  reference to an exact object generation.
 - `MarkAsGarbage(DObject*)` requests destruction of one object and immediately makes it logically invalid without physically removing it.
 - `MarkObjectHierarchyAsGarbage(DObject*)` iteratively applies the same request to the root and every current structural descendant found through the Outer index.
 - `ReleaseClassDefaultObjects()` clears all class-default ownership derived-first before the host's shutdown collection.
@@ -57,6 +62,7 @@ The mark phase starts from root-set and permanent objects, then follows only the
 
 - reflected `TObjectPtr` properties
 - `TObjectPtr` elements reached through supported arrays, maps, and nested reflected structs
+- live `TStrongObjectPtr` instances registered on the game thread
 - explicit native strong references reported by `DObject::AddReferencedObjects(...)`
 - exact live transaction identities reported by a reachable owner's native record traversal
 - the current object's `Child -> Outer` reference
@@ -77,6 +83,14 @@ The collector does not follow:
 - arbitrary pointers on the native stack
 
 A local or otherwise unreflected `TObjectPtr` is a handle, not an automatically discovered root. It keeps an object alive only when it is stored in a reflected reachable field or explicitly reported to the reference collector.
+
+`TStrongObjectPtr` is the native-owner counterpart. Construction from a live
+object or exact `FObjectHandle` registers a collector root before the caller
+continues; copying creates an independently releasable strong reference, moving
+transfers one, and destruction or `Reset()` releases it. Construction and
+release run on the game thread. A stale, removed, garbage, or begin-destroyed
+generation produces an empty strong pointer. Explicit garbage marking still
+wins over both strong pointers and manual roots.
 
 ## Collector-Enumerated Transaction Records
 
@@ -101,10 +115,10 @@ editor shutdown erase the corresponding native storage before its collector
 edge disappears; none of these paths installs a transaction-specific manual
 root.
 
-The current rooted `FPropertyValueSnapshot` remains a legacy adapter for active
-property history. Its shared retention-neutral payload installs no roots; the
-adapter alone preserves the old counted-root behavior until property history is
-migrated.
+`FPropertyValueSnapshot` is a retaining adapter over the shared
+retention-neutral payload. Each copy owns `TStrongObjectPtr` references for its
+hard object table; transaction records continue to use collector enumeration
+instead of adding independent roots.
 
 ## Outer Reachability Rules
 
@@ -203,6 +217,8 @@ Lifecycle and GC changes must cover:
 - rooted child retaining the complete Outer chain
 - rooted child not retaining a sibling
 - reflected `TObjectPtr`, supported containers, and explicit native strong references
+- copied, moved, reset, stale, and explicitly garbage `TStrongObjectPtr` references
+- idempotent repeated `AddToRoot` followed by one `RemoveFromRoot`
 - garbage objects being collected even when rooted
 - logical invalidation before physical removal
 - hierarchy-wide logical invalidation and explicit reparent escape
