@@ -525,7 +525,7 @@ namespace
 			PackageNode.SetChildValue("formatVersion", Inspection.Header.FormatVersion);
 			PackageNode.SetChildValue("assetClass", Inspection.Header.AssetClassName);
 			PackageNode.SetChildValue("redirectDestination",
-				Inspection.Header.RedirectDestination.GetView());
+				Inspection.Header.RedirectDestination.ToString());
 
 			FJsonNodeRef Objects = PackageNode.AddArray("objects");
 			for (const FAssetPackageObjectInspection& Object : Inspection.Objects)
@@ -555,7 +555,7 @@ namespace
 						: Reference.Kind == EAssetReferenceKind::SoftObject ? "Soft" : "Redirect");
 					ReferenceNode.SetChildValue("sourceObjectId", Reference.SourceObjectId);
 					ReferenceNode.SetChildValue("route", Reference.DisplayRoute);
-					ReferenceNode.SetChildValue("target", Reference.TargetPath.GetView());
+					ReferenceNode.SetChildValue("target", Reference.TargetPath.ToString());
 				}
 			}
 		}

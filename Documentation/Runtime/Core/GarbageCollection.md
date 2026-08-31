@@ -169,7 +169,7 @@ The Outer index is used only to order independently selected candidates so child
 - Reflected `TObjectPtr` fields are GC strong references.
 - Raw `DObject*` fields are not automatically traversed and must not be retained across collection unless another strong reference guarantees lifetime.
 - `TWeakObjectPtr` is non-owning and becomes invalid as soon as its target is pending kill.
-- `TSoftObjectPtr` retains a canonical package-main-asset path plus a weak loaded-object cache. It never keeps the target alive; after collection or package unload, the path remains while the cache stops resolving.
+- `TSoftObjectPtr` retains an exact authored `FObjectPath` plus an epoch-qualified weak loaded-object cache. It never keeps the target alive; collection invalidates the weak handle, while unload, identity mutation, catalog changes, and runtime shutdown invalidate populated caches globally without changing authored identity.
 - Worker threads may carry independent weak-handle copies but may only resolve or assign `DObject` references on the game thread.
 
 Reflected `TWeakObjectPtr<T>` is supported only as explicit `Transient` runtime
@@ -177,7 +177,9 @@ state, including fixed arrays, Array values, Map values, and nested Structs.
 GC schema compilation deliberately ignores every such leaf, so neither direct
 nor container values retain a target. Property snapshots copy the generation
 handle without rooting its target. Weak Map keys are prohibited. `TSoftObjectPtr`
-serializes or snapshots only its path identity; its weak cache is runtime-only.
+serializes or snapshots only its authored path identity; its weak cache and
+cache epoch are runtime-only. Its observable states are `Null`, `Pending`,
+`Valid`, and `Stale`, and `Get()` never initiates lookup or loading.
 
 ## Automatic Collection
 

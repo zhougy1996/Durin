@@ -2,6 +2,7 @@
 #include "DObject/AssetPath.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/PackageLinker.h"
+#include "DObject/SoftObjectPtr.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 
@@ -102,21 +103,60 @@ TEST(FPathIdentityContractTests, RejectsAmbiguousNoncanonicalAndBoundedSpellings
 	EXPECT_EQ(ObjectPath.ToString(), "/Game/Keep.Asset:Child");
 }
 
-TEST(FPathIdentityContractTests, EqualityHashingAndOrderingAreCaseSensitiveAndCanonical)
+TEST(FPathIdentityContractTests, EqualityHashingAndOrderingAreCaseInsensitiveAndDeterministic)
 {
 	auto Fixture = PathMountFixture();
 	ASSERT_TRUE(Fixture.IsValid()) << Fixture.GetError();
 	Durin::FObjectPath Upper;
 	Durin::FObjectPath Lower;
 	Durin::FObjectPath Nested;
+	Durin::FObjectPath NestedLower;
 	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Game/A.Asset", Upper));
 	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Game/a.Asset", Lower));
 	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Game/A.Asset:Child", Nested));
-	EXPECT_NE(Upper, Lower);
-	EXPECT_EQ((std::unordered_set<Durin::FObjectPath>{Upper, Lower}).size(), 2u);
+	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Game/a.asset:child", NestedLower));
+	EXPECT_EQ(Upper, Lower);
+	EXPECT_EQ(Upper.ToString(), "/Game/A.Asset");
+	EXPECT_EQ(Lower.ToString(), "/Game/A.Asset");
+	EXPECT_EQ(std::hash<Durin::FObjectPath>{}(Upper), std::hash<Durin::FObjectPath>{}(Lower));
+	EXPECT_EQ((std::unordered_set<Durin::FObjectPath>{Upper, Lower}).size(), 1u);
+	EXPECT_EQ(Nested, NestedLower);
+	EXPECT_EQ(std::hash<Durin::FObjectPath>{}(Nested),
+		std::hash<Durin::FObjectPath>{}(NestedLower));
 	std::vector Paths{Lower, Nested, Upper};
 	std::ranges::sort(Paths);
-	EXPECT_EQ(Paths, (std::vector{Upper, Nested, Lower}));
+	EXPECT_EQ(Paths, (std::vector{Lower, Upper, Nested}));
+}
+
+TEST(FPathIdentityContractTests, NullAndInternedNameBoundsAreStrictAndAtomic)
+{
+	auto Fixture = PathMountFixture();
+	ASSERT_TRUE(Fixture.IsValid()) << Fixture.GetError();
+	Durin::FPackagePath Package;
+	Durin::FTopLevelAssetPath Asset;
+	Durin::FObjectPath Object;
+	EXPECT_FALSE(Package.IsValid());
+	EXPECT_FALSE(Asset.IsValid());
+	EXPECT_FALSE(Object.IsValid());
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/Keep", Package));
+	ASSERT_TRUE(Durin::FTopLevelAssetPath::TryCreate("/Game/Keep.Asset", Asset));
+	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Game/Keep.Asset", Object));
+	const std::string OversizedPackage = "/Game/" + std::string(Durin::FName::MaxSize, 'p');
+	const std::string OversizedAsset(Durin::FName::MaxSize, 'a');
+	EXPECT_FALSE(Durin::FPackagePath::TryCreate(OversizedPackage, Package));
+	EXPECT_FALSE(Durin::FTopLevelAssetPath::TryCreate(Package, OversizedAsset, Asset));
+	EXPECT_EQ(Package.ToString(), "/Game/Keep");
+	EXPECT_EQ(Asset.ToString(), "/Game/Keep.Asset");
+	EXPECT_EQ(Object.ToString(), "/Game/Keep.Asset");
+	static_assert(sizeof(Durin::FPackagePath) == sizeof(Durin::FName));
+	static_assert(sizeof(Durin::FTopLevelAssetPath) == sizeof(Durin::FName) * 2);
+#if defined(_WIN64)
+	static_assert(sizeof(Durin::FPackagePath) == 12);
+	static_assert(sizeof(Durin::FTopLevelAssetPath) == 24);
+	static_assert(sizeof(Durin::FObjectPath) == 64);
+	static_assert(sizeof(Durin::FSoftObjectPtr) == 80);
+	static_assert(sizeof(Durin::TSoftObjectPtr<Durin::DObject>) == 80);
+#endif
 }
 
 TEST(FPackageLinkerContractTests, PackageIndicesValidateBoundariesAndRoundTrip)

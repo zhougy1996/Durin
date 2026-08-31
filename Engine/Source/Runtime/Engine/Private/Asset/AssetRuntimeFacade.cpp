@@ -185,6 +185,7 @@ namespace Durin::Asset
 	auto ShutdownAssetManager() -> void
 	{
 		FAssetRuntimeState::Get().Shutdown();
+		InvalidateSoftObjectCaches();
 	}
 
 	auto InitializeAssetManager(

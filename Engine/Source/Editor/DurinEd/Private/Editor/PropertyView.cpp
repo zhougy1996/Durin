@@ -332,7 +332,7 @@ namespace Durin::Editor
 			return ViewState;
 		}
 		if (Reference->IsNull()) return ViewState;
-		ViewState.Path = Reference->GetSoftObjectPath().GetAssetPath();
+		ViewState.Path = Reference->GetPath().GetPackagePath();
 
 		const Asset::FSoftObjectResolveResult Resolve = Asset::ResolveSoftObject(
 			*Reference, Property->GetExpectedClass(), Asset::ESoftObjectNullPolicy::Reject);
@@ -899,7 +899,7 @@ namespace Durin::Editor
 			auto* SoftProperty = static_cast<FSoftObjectProperty*>(Property);
 			FSoftObjectPtr* CurrentReference = SoftProperty->GetSoftObjectPtr(Container, ArrayIndex);
 			const FSoftObjectViewState ViewState = InspectSoftObject(SoftProperty, Container, ArrayIndex);
-			FSoftObjectPath SelectedPath = CurrentReference ? CurrentReference->GetSoftObjectPath() : FSoftObjectPath();
+			FObjectPath SelectedPath = CurrentReference ? CurrentReference->GetPath() : FObjectPath();
 			const std::string_view StateLabel = GetSoftObjectStateLabel(ViewState.State);
 			const bool bCanLoad = ViewState.State == ESoftObjectViewState::Unloaded
 				|| (ViewState.State == ESoftObjectViewState::Redirected
@@ -944,10 +944,10 @@ namespace Durin::Editor
 				.AssignPathSelection = [&SelectedPath](std::string_view Path, std::string& Error) {
 					if (Path.empty())
 					{
-						SelectedPath.Reset();
+						SelectedPath = {};
 						return true;
 					}
-					return FSoftObjectPath::TryCreate(Path, SelectedPath, &Error);
+					return FObjectPath::TryCreate(Path, SelectedPath, &Error);
 				},
 				.TrailingAction = LoadAction,
 				.AdditionalTrailingActions = AdditionalActions,

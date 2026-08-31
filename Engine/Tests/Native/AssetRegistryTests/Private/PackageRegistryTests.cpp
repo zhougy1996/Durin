@@ -81,7 +81,7 @@ TEST(FPackageRegistryContractTests, V9FrontMatterProjectsPackageAndTopLevelAsset
 	ASSERT_TRUE(Result) << Result.Message;
 	EXPECT_EQ(Header.FormatVersion, Asset::AssetPackageV9FormatVersion);
 	ASSERT_EQ(Header.TopLevelAssets.size(), 1u);
-	EXPECT_EQ(Header.TopLevelAssets.front().AssetPath.GetView(),
+	EXPECT_EQ(Header.TopLevelAssets.front().AssetPath.ToString(),
 		"/Game/RegistryFixture.RegistryFixture");
 	EXPECT_EQ(Header.TopLevelAssets.front().AssetClassName,
 		"Example::RegistryAsset");
@@ -197,7 +197,7 @@ TEST(FPackageRegistryContractTests, RefreshUsesOnlyFrontMatterAndOnePackageMetad
 	const Asset::FAssetCatalogEntry Data = Asset::FindAssetExact(Owner);
 	ASSERT_TRUE(Data);
 	ASSERT_EQ(Data->TopLevelAssets.size(), 2u);
-	EXPECT_EQ(Data->TopLevelAssets.front().AssetPath.GetView(),
+	EXPECT_EQ(Data->TopLevelAssets.front().AssetPath.ToString(),
 		"/P3/Owner.RegistryFixture");
 	EXPECT_EQ(Data->TopLevelAssets.back().AssetPath, SecondaryPath);
 	const Asset::FTopLevelAssetCatalogEntry Secondary =

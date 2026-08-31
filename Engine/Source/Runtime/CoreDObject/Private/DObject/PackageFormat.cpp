@@ -959,7 +959,7 @@ namespace Durin::ObjectPackage
 				for (const FPackageSummary::FTopLevelAsset& Asset : Frozen.Source->Summary.TopLevelAssets)
 					Assets.push_back(&Asset);
 				std::ranges::sort(Assets, [](const auto* Left, const auto* Right) {
-					return Left->AssetPath.GetView() < Right->AssetPath.GetView();
+					return Left->AssetPath < Right->AssetPath;
 				});
 				Writer->WriteVarUInt(Assets.size());
 				for (const FPackageSummary::FTopLevelAsset* Asset : Assets)

@@ -6,219 +6,76 @@
 namespace Durin
 {
 	class DClass;
-	namespace Asset
-	{
-		class FAssetLoadService;
-	}
+	namespace Asset { class FAssetLoadService; }
 
-	// Stores the persistent exact identity of one top-level asset or subobject.
-	class FSoftObjectPath
-	{
-	public:
-		FSoftObjectPath() = default;
-		FSoftObjectPath(std::nullptr_t) {}
-		explicit FSoftObjectPath(FObjectPath InPath)
-			: ObjectPath(std::move(InPath)) {}
-		// Temporary v8 source adapter that selects the former package-leaf main asset.
-		COREDOBJECT_API explicit FSoftObjectPath(FPackagePath InPath);
+	enum class ESoftObjectPtrState : uint8 { Null, Pending, Valid, Stale };
+	COREDOBJECT_API auto GetSoftObjectCacheEpoch() -> uint64;
+	COREDOBJECT_API auto InvalidateSoftObjectCaches() -> void;
 
-		COREDOBJECT_API static auto TryCreate(
-			std::string_view InPath,
-			FSoftObjectPath& OutPath,
-			std::string* OutError = nullptr) -> bool;
-
-		auto IsNull() const -> bool { return !ObjectPath.IsValid(); }
-		auto GetObjectPath() const -> const FObjectPath& { return ObjectPath; }
-		// Temporary package projection for package-level Registry consumers.
-		auto GetAssetPath() const -> const FPackagePath& { return ObjectPath.GetPackagePath(); }
-		auto ToString() const -> const std::string& { return ObjectPath.ToString(); }
-		auto GetView() const -> std::string_view { return ObjectPath.GetView(); }
-		auto Reset() -> void { ObjectPath = {}; }
-
-		auto operator==(const FSoftObjectPath&) const -> bool = default;
-		auto operator<(const FSoftObjectPath& Other) const -> bool
-		{
-			return GetView() < Other.GetView();
-		}
-
-	private:
-		FObjectPath ObjectPath;
-	};
-
-	// Combines exact persistent identity with a non-owning cache of a loaded object.
 	class FSoftObjectPtr
 	{
 	public:
 		FSoftObjectPtr() = default;
 		FSoftObjectPtr(std::nullptr_t) {}
-		explicit FSoftObjectPtr(FSoftObjectPath InPath)
-			: SoftObjectPath(std::move(InPath))
-		{
-		}
-		explicit FSoftObjectPtr(FPackagePath InPath)
-			: SoftObjectPath(std::move(InPath))
-		{
-		}
-
+		explicit FSoftObjectPtr(FObjectPath InPath) : AuthoredPath(std::move(InPath)) {}
 		FSoftObjectPtr(const FSoftObjectPtr&) = default;
 		auto operator=(const FSoftObjectPtr&) -> FSoftObjectPtr& = default;
 		COREDOBJECT_API FSoftObjectPtr(FSoftObjectPtr&& Other) noexcept;
 		COREDOBJECT_API auto operator=(FSoftObjectPtr&& Other) noexcept -> FSoftObjectPtr&;
+		auto operator=(std::nullptr_t) -> FSoftObjectPtr& { Reset(); return *this; }
 
-		auto operator=(std::nullptr_t) -> FSoftObjectPtr&
-		{
-			Reset();
-			return *this;
-		}
-
-		COREDOBJECT_API auto SetPath(FSoftObjectPath InPath) -> void;
-		auto SetPath(FPackagePath InPath) -> void
-		{
-			SetPath(FSoftObjectPath(std::move(InPath)));
-		}
-
-		// A null object resets the value. A non-null object must have an exact persistent path.
-		COREDOBJECT_API auto TrySetObject(
-			DObject* InObject,
-			const DClass* ExpectedClass = nullptr,
-			std::string* OutError = nullptr) -> bool;
-
-		// Refreshes only the weak cache and requires the object to match the existing path.
-		COREDOBJECT_API auto TrySetLoadedObject(
-			DObject* InObject,
-			const DClass* ExpectedClass = nullptr,
-			std::string* OutError = nullptr) -> bool;
-
+		COREDOBJECT_API auto SetPath(FObjectPath InPath) -> void;
+		COREDOBJECT_API auto TrySetObject(DObject* InObject, const DClass* ExpectedClass = nullptr, std::string* OutError = nullptr) -> bool;
+		COREDOBJECT_API auto TrySetLoadedObject(DObject* InObject, const DClass* ExpectedClass = nullptr, std::string* OutError = nullptr) -> bool;
 		COREDOBJECT_API auto Get(const DClass* ExpectedClass = nullptr) const -> DObject*;
-		auto IsLoaded(const DClass* ExpectedClass = nullptr) const -> bool
-		{
-			return Get(ExpectedClass) != nullptr;
-		}
-		auto IsNull() const -> bool { return SoftObjectPath.IsNull(); }
-		auto GetSoftObjectPath() const -> const FSoftObjectPath& { return SoftObjectPath; }
-		auto Reset() -> void
-		{
-			SoftObjectPath.Reset();
-			ResolvedObjectPath = {};
-			WeakObject.Reset();
-		}
+		COREDOBJECT_API auto GetState(const DClass* ExpectedClass = nullptr) const -> ESoftObjectPtrState;
+		auto IsLoaded(const DClass* ExpectedClass = nullptr) const -> bool { return Get(ExpectedClass) != nullptr; }
+		auto IsNull() const -> bool { return !AuthoredPath.IsValid(); }
+		auto GetPath() const -> const FObjectPath& { return AuthoredPath; }
+		auto Reset() -> void { AuthoredPath = {}; ResetCache(); }
 
-		friend auto operator==(const FSoftObjectPtr& Left, const FSoftObjectPtr& Right) -> bool
-		{
-			return Left.SoftObjectPath == Right.SoftObjectPath;
-		}
-		friend auto operator<(const FSoftObjectPtr& Left, const FSoftObjectPtr& Right) -> bool
-		{
-			return Left.SoftObjectPath < Right.SoftObjectPath;
-		}
+		friend auto operator==(const FSoftObjectPtr& Left, const FSoftObjectPtr& Right) -> bool { return Left.AuthoredPath == Right.AuthoredPath; }
+		friend auto operator<=>(const FSoftObjectPtr& Left, const FSoftObjectPtr& Right) -> std::strong_ordering { return Left.AuthoredPath <=> Right.AuthoredPath; }
 
 	private:
-		COREDOBJECT_API auto TrySetResolvedObject(
-			DObject* InObject,
-			const FPackagePath& AuthoredPath,
-			const FPackagePath& ResolvedPath,
-			const DClass* ExpectedClass,
-			std::string* OutError) -> bool;
-		auto ResetResolvedObject() -> void
-		{
-			ResolvedObjectPath = {};
-			WeakObject.Reset();
-		}
-
-		FSoftObjectPath SoftObjectPath;
-		FObjectPath ResolvedObjectPath;
+		COREDOBJECT_API auto TrySetResolvedObject(DObject* InObject, const FObjectPath& AuthoredPath, const FObjectPath& ResolvedPath, const DClass* ExpectedClass, std::string* OutError) -> bool;
+		auto ResetCache() -> void { WeakObject.Reset(); CacheEpoch = 0; }
+		FObjectPath AuthoredPath;
 		FWeakObjectPtr WeakObject;
-
+		uint64 CacheEpoch = 0;
 		friend class Asset::FAssetLoadService;
 	};
 
-	// Provides typed access without exposing the wrapper's physical layout as reflection ABI.
 	template<typename T>
 	class TSoftObjectPtr
 	{
 	public:
 		TSoftObjectPtr() = default;
 		TSoftObjectPtr(std::nullptr_t) {}
-		explicit TSoftObjectPtr(FSoftObjectPath InPath)
-			: SoftObjectPtr(std::move(InPath))
-		{
-		}
-		explicit TSoftObjectPtr(FPackagePath InPath)
-			: SoftObjectPtr(std::move(InPath))
-		{
-		}
-
-		auto operator=(std::nullptr_t) -> TSoftObjectPtr&
-		{
-			SoftObjectPtr.Reset();
-			return *this;
-		}
-
-		auto SetPath(FSoftObjectPath InPath) -> void { SoftObjectPtr.SetPath(std::move(InPath)); }
-		auto SetPath(FPackagePath InPath) -> void { SoftObjectPtr.SetPath(std::move(InPath)); }
-		auto TrySetObject(DObject* InObject, std::string* OutError = nullptr) -> bool
-		{
-			return SoftObjectPtr.TrySetObject(InObject, GetExpectedClass(), OutError);
-		}
-		auto TrySetLoadedObject(DObject* InObject, std::string* OutError = nullptr) -> bool
-		{
-			return SoftObjectPtr.TrySetLoadedObject(InObject, GetExpectedClass(), OutError);
-		}
-		auto Get() const -> T*
-		{
-			return static_cast<T*>(SoftObjectPtr.Get(GetExpectedClass()));
-		}
+		explicit TSoftObjectPtr(FObjectPath InPath) : SoftObjectPtr(std::move(InPath)) {}
+		explicit TSoftObjectPtr(T* InObject) { (void)TrySetObject(InObject); }
+		auto operator=(std::nullptr_t) -> TSoftObjectPtr& { Reset(); return *this; }
+		auto operator=(T* InObject) -> TSoftObjectPtr& { (void)TrySetObject(InObject); return *this; }
+		auto SetPath(FObjectPath InPath) -> void { SoftObjectPtr.SetPath(std::move(InPath)); }
+		auto TrySetObject(T* InObject, std::string* OutError = nullptr) -> bool { return SoftObjectPtr.TrySetObject(ToDObject(InObject), GetExpectedClass(), OutError); }
+		auto TrySetLoadedObject(T* InObject, std::string* OutError = nullptr) -> bool { return SoftObjectPtr.TrySetLoadedObject(ToDObject(InObject), GetExpectedClass(), OutError); }
+		auto Get() const -> T* { return FromDObject(SoftObjectPtr.Get(GetExpectedClass())); }
+		auto GetState() const -> ESoftObjectPtrState { return SoftObjectPtr.GetState(GetExpectedClass()); }
 		auto IsLoaded() const -> bool { return Get() != nullptr; }
 		auto IsNull() const -> bool { return SoftObjectPtr.IsNull(); }
-		auto GetSoftObjectPath() const -> const FSoftObjectPath& { return SoftObjectPtr.GetSoftObjectPath(); }
+		auto GetPath() const -> const FObjectPath& { return SoftObjectPtr.GetPath(); }
 		auto Reset() -> void { SoftObjectPtr.Reset(); }
-
 		auto GetBase() -> FSoftObjectPtr& { return SoftObjectPtr; }
 		auto GetBase() const -> const FSoftObjectPtr& { return SoftObjectPtr; }
-
-		friend auto operator==(const TSoftObjectPtr& Left, const TSoftObjectPtr& Right) -> bool
-		{
-			return Left.SoftObjectPtr == Right.SoftObjectPtr;
-		}
-		friend auto operator<(const TSoftObjectPtr& Left, const TSoftObjectPtr& Right) -> bool
-		{
-			return Left.SoftObjectPtr < Right.SoftObjectPtr;
-		}
-
+		friend auto operator==(const TSoftObjectPtr& Left, const TSoftObjectPtr& Right) -> bool { return Left.SoftObjectPtr == Right.SoftObjectPtr; }
+		friend auto operator<=>(const TSoftObjectPtr& Left, const TSoftObjectPtr& Right) -> std::strong_ordering { return Left.SoftObjectPtr <=> Right.SoftObjectPtr; }
 	private:
-		static auto GetExpectedClass() -> DClass*
-		{
-			static_assert(std::is_base_of_v<DObject, T>, "TSoftObjectPtr<T> requires T to derive from DObject");
-			return T::StaticClass();
-		}
-
+		static auto ToDObject(T* Object) -> DObject* { if constexpr (TIsCompleteType<T>::value) { static_assert(std::is_base_of_v<DObject, T>, "TSoftObjectPtr<T> requires T to derive from DObject"); return static_cast<DObject*>(Object); } else return reinterpret_cast<DObject*>(Object); }
+		static auto FromDObject(DObject* Object) -> T* { if constexpr (TIsCompleteType<T>::value) { static_assert(std::is_base_of_v<DObject, T>, "TSoftObjectPtr<T> requires T to derive from DObject"); return static_cast<T*>(Object); } else return reinterpret_cast<T*>(Object); }
+		static auto GetExpectedClass() -> DClass* { static_assert(std::is_base_of_v<DObject, T>, "TSoftObjectPtr<T> requires T to derive from DObject"); return T::StaticClass(); }
 		FSoftObjectPtr SoftObjectPtr;
 	};
 }
 
-template<>
-struct std::hash<Durin::FSoftObjectPath>
-{
-	auto operator()(const Durin::FSoftObjectPath& Value) const noexcept -> size_t
-	{
-		return std::hash<Durin::FObjectPath>{}(Value.GetObjectPath());
-	}
-};
-
-template<>
-struct std::hash<Durin::FSoftObjectPtr>
-{
-	auto operator()(const Durin::FSoftObjectPtr& Value) const noexcept -> size_t
-	{
-		return std::hash<Durin::FSoftObjectPath>{}(Value.GetSoftObjectPath());
-	}
-};
-
-template<typename T>
-struct std::hash<Durin::TSoftObjectPtr<T>>
-{
-	auto operator()(const Durin::TSoftObjectPtr<T>& Value) const noexcept -> size_t
-	{
-		return std::hash<Durin::FSoftObjectPath>{}(Value.GetSoftObjectPath());
-	}
-};
+template<> struct std::hash<Durin::FSoftObjectPtr> { auto operator()(const Durin::FSoftObjectPtr& Value) const noexcept -> size_t { return std::hash<Durin::FObjectPath>{}(Value.GetPath()); } };
+template<typename T> struct std::hash<Durin::TSoftObjectPtr<T>> { auto operator()(const Durin::TSoftObjectPtr<T>& Value) const noexcept -> size_t { return std::hash<Durin::FObjectPath>{}(Value.GetPath()); } };

@@ -150,7 +150,7 @@ namespace Durin::ObjectPackage
 		}
 		std::ranges::sort(NewSummary.TopLevelAssets,
 			[](const auto& Left, const auto& Right) {
-				return Left.AssetPath.GetView() < Right.AssetPath.GetView();
+				return Left.AssetPath < Right.AssetPath;
 			});
 
 		for (FPackageImport& Import : Linker.Imports)

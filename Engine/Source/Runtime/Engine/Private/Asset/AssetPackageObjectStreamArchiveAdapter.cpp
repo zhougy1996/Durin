@@ -423,12 +423,12 @@ namespace Durin::Asset::Private
 				}
 			}
 
-			auto SerializeSoftObjectPath(FSoftObjectPath& Value) -> void override
+			auto SerializeSoftObjectValue(FObjectPath& Value) -> void override
 			{
 				if (HasError() || !IsCurrentFieldAvailable()) return;
 				uint8 Kind = 0;
 				if (!Read(Kind)) return;
-				if (Kind == 0) { Value.Reset(); return; }
+				if (Kind == 0) { Value = {}; return; }
 				if (Kind != 1)
 				{
 					FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
@@ -444,8 +444,8 @@ namespace Durin::Asset::Private
 					return;
 				}
 				std::string Error;
-				FSoftObjectPath Loaded;
-				if (!FSoftObjectPath::TryCreate(PathString, Loaded, &Error))
+				FObjectPath Loaded;
+				if (!FObjectPath::TryCreate(PathString, Loaded, &Error))
 				{
 					FailLoad(EAssetError::InvalidPath, EArchiveFailureCode::InvalidPath,
 						Error.empty() ? "Invalid soft object path." : Error);
@@ -962,13 +962,13 @@ namespace Durin::Asset::Private
 				else if (Kind == 2) AppendString(ExternalPath);
 			}
 
-			auto SerializeSoftObjectPath(FSoftObjectPath& Value) -> void override
+			auto SerializeSoftObjectValue(FObjectPath& Value) -> void override
 			{
 				if (HasError() || SuppressedDepth != 0) return;
-				const uint8 Kind = Value.IsNull() ? 0 : 1;
+				const uint8 Kind = Value.IsValid() ? 1 : 0;
 				Append(Kind);
 				if (Kind == 0) return;
-				const std::string_view Path = Value.GetObjectPath().GetView();
+				const std::string Path = Value.ToString();
 				if (Path.empty() || Path.size() > MaximumPackageStringBytes)
 				{
 					Fail(EArchiveFailureCode::InvalidPath,
@@ -1575,8 +1575,8 @@ namespace Durin::Asset::Private
 				if (Out.ReferenceTag == 2)
 				{
 					std::string Path; if (!ReadCapturedString(Node.Raw, Offset, Path)) return Invalid();
-					const auto It = std::ranges::find(Package.HardReferenceTargets, Path,
-						[](const FObjectPath& Value) { return Value.GetView(); });
+					const auto It = std::ranges::find_if(Package.HardReferenceTargets,
+						[&](const FObjectPath& Value) { return Value.ToString() == Path; });
 					if (It == Package.HardReferenceTargets.end()) return Invalid();
 					Out.ReferenceId = uint64(std::distance(Package.HardReferenceTargets.begin(), It) + 1);
 				}
@@ -1628,7 +1628,7 @@ namespace Durin::Asset::Private
 			PackageObjectStream::FPackageInput Input;
 			Input.AssetClass = Summary.AssetClassName;
 			Input.EntryKind = Summary.EntryKind;
-			Input.RedirectDestination = Summary.RedirectDestination.GetView();
+			Input.RedirectDestination = Summary.RedirectDestination.ToString();
 			for (const auto& Dependency : Summary.Dependencies) Input.Dependencies.emplace_back(Dependency.GetView());
 			for (const FObjectPath& Target : Captured.HardReferenceTargets)
 				Input.HardReferenceTargets.push_back(Target.ToString());

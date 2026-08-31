@@ -401,11 +401,11 @@ namespace Durin
 					Ar.SetError("Soft object property has no typed value accessor.");
 					break;
 				}
-				FSoftObjectPath Path = Ar.IsSaving() ? Value->GetSoftObjectPath() : FSoftObjectPath();
-				SerializeArchiveSoftObjectPath(Ar, Path);
+				FObjectPath Path = Ar.IsSaving() ? Value->GetPath() : FObjectPath();
+				SerializeArchiveSoftObjectValue(Ar, Path);
 				if (Ar.IsLoading() && !Ar.HasError())
 				{
-					if (Path.IsNull()) Value->Reset();
+					if (!Path.IsValid()) Value->Reset();
 					else Value->SetPath(std::move(Path));
 				}
 				break;
@@ -905,7 +905,7 @@ namespace Durin
 				Context.Discover(Object);
 			}
 
-			auto SerializeSoftObjectPath(FSoftObjectPath&) -> void override {}
+			auto SerializeSoftObjectValue(FObjectPath&) -> void override {}
 			auto SerializeWeakObjectReference(FWeakObjectPtr&) -> void override {}
 
 		private:
@@ -1217,7 +1217,7 @@ namespace Durin
 	{
 		Fail(EArchiveFailureCode::UnsupportedCapability, "This Archive does not support ObjectReferences.");
 	}
-	auto FObjectArchive::SerializeSoftObjectPath(FSoftObjectPath& Value) -> void
+	auto FObjectArchive::SerializeSoftObjectValue(FObjectPath& Value) -> void
 	{
 		if (!IsCurrentFieldAvailable()) return;
 		if (!HasCapability(EArchiveCapability::SoftObjectReferences))
@@ -1225,10 +1225,10 @@ namespace Durin
 			Fail(EArchiveFailureCode::UnsupportedCapability, "This Archive does not support SoftObjectReferences.");
 			return;
 		}
-		uint8 Kind = IsSaving() && !Value.IsNull() ? 1 : 0;
+		uint8 Kind = IsSaving() && Value.IsValid() ? 1 : 0;
 		*this << Kind;
 		if (HasError()) return;
-		if (Kind == 0) { if (IsLoading()) Value.Reset(); return; }
+		if (Kind == 0) { if (IsLoading()) Value = {}; return; }
 		if (Kind != 1) { Fail(EArchiveFailureCode::InvalidData, "Unknown soft object reference tag."); return; }
 		std::string Path = IsSaving() ? Value.ToString() : std::string();
 		uint64 PathBytes = static_cast<uint64>(Path.size());
@@ -1246,9 +1246,9 @@ namespace Durin
 		if (HasError()) return;
 		if (IsLoading())
 		{
-			FSoftObjectPath Loaded;
+			FObjectPath Loaded;
 			std::string Error;
-			if (!FSoftObjectPath::TryCreate(Path, Loaded, &Error))
+			if (!FObjectPath::TryCreate(Path, Loaded, &Error))
 				Fail(EArchiveFailureCode::InvalidPath, Error.empty() ? "Archive contains an invalid soft object path." : Error);
 			else Value = std::move(Loaded);
 		}
@@ -1370,9 +1370,9 @@ namespace Durin
 		if (auto* ObjectArchive = RequireObjectArchive(Ar)) ObjectArchive->SerializeObjectReference(Value);
 	}
 
-	auto SerializeArchiveSoftObjectPath(FArchive& Ar, FSoftObjectPath& Value) -> void
+	auto SerializeArchiveSoftObjectValue(FArchive& Ar, FObjectPath& Value) -> void
 	{
-		if (auto* ObjectArchive = RequireObjectArchive(Ar)) ObjectArchive->SerializeSoftObjectPath(Value);
+		if (auto* ObjectArchive = RequireObjectArchive(Ar)) ObjectArchive->SerializeSoftObjectValue(Value);
 	}
 
 	auto SerializeArchiveWeakObjectReference(FArchive& Ar, FWeakObjectPtr& Value) -> void

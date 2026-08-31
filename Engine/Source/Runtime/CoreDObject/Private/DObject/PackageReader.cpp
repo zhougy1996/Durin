@@ -387,7 +387,7 @@ namespace Durin::ObjectPackage
 				FObjectPath RedirectDestination;
 				if (!FTopLevelAssetPath::TryCreate(Names[PathId - 1], AssetPath)
 					|| AssetPath.GetPackagePath() != PackagePath
-					|| (!PreviousPath.empty() && !BytewiseLess(PreviousPath, AssetPath.GetView()))
+					|| (!PreviousPath.empty() && !BytewiseLess(PreviousPath, AssetPath.ToString()))
 					|| (RedirectId && !FObjectPath::TryCreate(
 						Names[RedirectId - 1], RedirectDestination)))
 					return Fail(Diagnostic, EPackageReaderFailure::NonCanonical,

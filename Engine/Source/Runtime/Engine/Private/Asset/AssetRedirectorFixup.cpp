@@ -797,8 +797,8 @@ namespace Durin::Asset
 			for (size_t Count = ChangedLiveCount; Count > 0; --Count)
 			{
 				FFixupLiveSoftReference& Live = State.LiveSoftReferences[Count - 1];
-				FSoftObjectPath Path;
-				FSoftObjectPath::TryCreate(Live.PrePath.GetView(), Path);
+				FObjectPath Path;
+				FObjectPath::TryCreate(Live.PrePath.GetView(), Path);
 				Live.Value->SetPath(std::move(Path));
 			}
 			for (auto It = State.Stores.rbegin(); It != State.Stores.rend(); ++It)
@@ -867,8 +867,8 @@ namespace Durin::Asset
 		}
 		for (FFixupLiveSoftReference& Live : State.LiveSoftReferences)
 		{
-			FSoftObjectPath Path;
-			if (!FSoftObjectPath::TryCreate(Live.PostPath.GetView(), Path))
+			FObjectPath Path;
+			if (!FObjectPath::TryCreate(Live.PostPath.GetView(), Path))
 				return Compensate(Error(EAssetError::InvalidPath,
 					"A prepared live soft-reference destination became invalid."));
 			Live.Value->SetPath(std::move(Path));

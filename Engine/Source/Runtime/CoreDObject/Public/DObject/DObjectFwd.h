@@ -4,7 +4,7 @@ namespace Durin
 {
 	class FObjectInitializer;
 	class FWeakObjectPtr;
-	class FSoftObjectPath;
+	class FObjectPath;
 	class FSoftObjectPtr;
 
 	class DObject;

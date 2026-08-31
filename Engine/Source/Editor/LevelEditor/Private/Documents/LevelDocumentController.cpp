@@ -155,10 +155,10 @@ namespace Durin::Editor::Level
 	{
 		const FProjectInfo* Project = GetCurrentProject();
 		if (!Project || DefaultLevel.IsNull()
-			|| !DefaultLevel.GetSoftObjectPath().GetView().starts_with(Project->MountRoot))
+			|| !DefaultLevel.GetPath().GetPackagePath().GetView().starts_with(Project->MountRoot))
 			return true;
 		if (ClearError) ClearError();
-		const FAssetPath& Path = DefaultLevel.GetSoftObjectPath().GetAssetPath();
+		const FAssetPath& Path = DefaultLevel.GetPath().GetPackagePath();
 		const Asset::FAssetPackageLoadSnapshot LoadSnapshot =
 			Asset::CapturePackageLoadSnapshot();
 		DLevel* Level = nullptr;

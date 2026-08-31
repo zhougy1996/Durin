@@ -38,15 +38,27 @@ Ownership is deliberately one-way:
 
 ## Paths And Mounts
 
-Asset identities are extensionless `FAssetPath` values such as
-`/Engine/Materials/Default` or `/Game/Levels/TestLevel`. The first path segment
-must match a registered mount and resolves relative to that mount's single
-content directory. Optional importer source hints use a separate explicitly
-based physical-path contract and never resolve through package mounts.
+Package identities are extensionless `FPackagePath` values such as
+`/Engine/Materials/Default` or `/Game/Levels/TestLevel`. A top-level object adds
+an explicit asset name, for example
+`FTopLevelAssetPath("/Game/Levels/TestLevel.TestLevel")`; a complete object path
+may append a relative Outer chain such as
+`FObjectPath("/Game/Levels/TestLevel.TestLevel:Root.Component")`. The first
+package-path segment must match a registered mount and resolves relative to
+that mount's single content directory. Optional importer source hints use a
+separate explicitly based physical-path contract and never resolve through
+package mounts.
 
-Ordinary `FAssetPath::TryCreate` remains mount-bound. Cook staging may use the
+Ordinary `FPackagePath::TryCreate` remains mount-bound. Cook staging may use the
 explicit `TryCreateProjectContent` factory for a canonical `/Game/...` target
 before the fixed output mount exists; that exception admits no other namespace.
+
+Package and top-level asset names are interned and compare case-insensitively;
+the first accepted spelling is retained for display and serialization.
+Factories reject inputs before the interned-name bound could truncate them.
+The complete path stores only those two interned names and one optional dotted
+subobject string, and subobject traversal uses non-owning component views.
+Discovery rejects case-only duplicate logical package identities.
 
 The immutable Core mount registry publishes `/Engine/` and `/Game/` plus
 validated project-declared extension and external-source mounts. Typed
@@ -57,9 +69,9 @@ against canonical content directories, including symbolic-link targets.
 
 The physical main filename is the resolved virtual path plus `.dasset`. A
 nonempty external BulkData closure uses the stable sibling `.dbulk`. The main
-asset uses the package path as its object path; inner objects append a colon and
-their relative Outer chain, for example
-`/Game/Objects/Test:Root.Component`.
+asset repeats the package leaf as its top-level asset name; inner objects append
+a colon and their relative Outer chain, for example
+`/Game/Objects/Test.Test:Root.Component`.
 
 The mounted `FAssetPath` is part of package validation. DAST v8 includes that
 identity in its canonical name table, and every header, complete-read,
@@ -104,14 +116,18 @@ Choose a reference by ownership and loading behavior:
 | --- | --- |
 | Reflected `TObjectPtr<T>` | Hard package dependency. It loads and retains the target, participates in GC, blocks unload, and blocks deletion outside the deletion set. |
 | Reflected `TWeakObjectPtr<T>` | Transient, non-owning handle to an already loaded object. It is omitted from authored and cooked packages. |
-| Reflected `TSoftObjectPtr<T>` | Typed main-asset identity without eager loading or retention. It persists the authored path and keeps only a weak runtime cache. |
-| `FAssetPath` or path string | Service-defined identity whose owner specifies persistence, move, and load behavior explicitly. |
+| Reflected `TSoftObjectPtr<T>` | Typed exact-object identity without eager loading or retention. It persists an authored `FObjectPath` and keeps only an invalidatable weak runtime cache. |
+| `FPackagePath` or path string | Service-defined package identity whose owner specifies persistence, move, and load behavior explicitly. |
 
-`FSoftObjectPath::TryCreate(...)` validates nullable identity.
+An invalid default `FObjectPath` is the null soft-reference value; non-null
+values pass the ordinary exact-object path factory.
 `ResolveSoftObject(...)` distinguishes `Null`, `NotLoaded`, and `Loaded`
 without loading; `LoadSoftObject(...)` is the explicit typed load boundary.
 Both follow catalog redirect resolution while preserving the authored soft path
-for equality, hashing, and serialization.
+for equality, hashing, ordering, and serialization. Cache population verifies
+the exact resolved object path and expected class. `Get()` performs no lookup,
+redirect resolution, or load, and returns only a live weak object from the
+current global cache epoch.
 
 Hard imports use package indices and may reference another package's main
 export. Soft references serialize only canonical paths. AssetRegistry persists

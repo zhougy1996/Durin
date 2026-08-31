@@ -136,7 +136,7 @@ namespace Durin
 				Node->bHasAtomicValue = true;
 			}
 
-			auto SerializeSoftObjectPath(FSoftObjectPath& Value) -> void override
+			auto SerializeSoftObjectValue(FObjectPath& Value) -> void override
 			{
 				FDefaultDeltaNode* Node = ResolveAtomicTarget();
 				if (!Node || Node->LogicalType.Kind != ETypeKind::SoftObject)
@@ -145,7 +145,7 @@ namespace Durin
 						"Soft reference does not match the active logical descriptor.");
 					return;
 				}
-				Node->TextValue = Value.IsNull() ? std::string{} : Value.ToString();
+				Node->TextValue = Value.IsValid() ? Value.ToString() : std::string{};
 				Node->bHasAtomicValue = true;
 			}
 

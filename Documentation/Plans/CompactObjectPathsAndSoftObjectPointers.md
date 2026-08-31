@@ -9,13 +9,16 @@ Completed:
 
 ## Current Status
 
-`FPackagePath`, `FTopLevelAssetPath`, and `FObjectPath` now distinguish package,
-top-level asset, and complete object identity, but their physical representation
-duplicates owned strings. `FObjectPath` retains a package string, asset string,
-top-level canonical string, allocated subobject-name vector, and another
-canonical string. `FSoftObjectPath` then wraps that value without adding an
-independent identity, while `FSoftObjectPtr` stores both authored and resolved
-complete paths plus a weak handle.
+The compact identity contract and Stages 1-3 are implemented; Stage 0's corpus
+audit remains blocked with the matching Stage 4 qualification gate.
+`FPackagePath`, `FTopLevelAssetPath`, and
+`FObjectPath` now occupy 12, 24, and 64 bytes on Win64, down from 40, 120, and
+184 bytes. `FSoftObjectPath` and per-pointer resolved paths are removed;
+`FSoftObjectPtr` and a representative typed wrapper occupy 80 bytes, down from
+376 bytes, and store only authored identity, weak handle, and cache epoch.
+Case-insensitive identity, first-spelling display, strict interned-name bounds,
+deterministic ordering, allocation-free subobject iteration, exact cache
+population, and the four cache states have focused contract coverage.
 
 This plan is the selected prerequisite for resuming Stage 3 of
 [Package And Object Path Identity](PackageAndObjectPathIdentity.md). DAST v9
@@ -23,10 +26,15 @@ work is paused at its current boundary: this plan may migrate the in-progress
 codec to the selected value-type APIs so the checkout remains buildable, but
 does not advance the package-format cutover.
 
-The maintained asset corpus is the compatibility boundary. The refactor will
-audit and migrate repository-owned content and fixtures, but will not add a
-parallel case-sensitive identity mode, legacy soft-path facade, or general
-external-content compatibility layer.
+Stage 4 is blocked at the pre-existing DAST transition boundary rather than by
+the compact-path changes. The full build and focused CoreDObject, package,
+Registry, reflection, and editor tests pass, but 19 targets in the broad native
+aggregate and `asset check --baseline` cannot qualify the maintained corpus:
+the checked-in runtime reader selects DAST v9 while AssetMaintenance and all 25 maintained
+packages still target DAST v8. The audit reports 25 unsupported packages. This
+plan may not advance or reverse that parent-plan cutover, so it remains Active
+and does not yet unblock Stage 3 of
+[Package And Object Path Identity](PackageAndObjectPathIdentity.md).
 
 ## Goal
 
@@ -166,16 +174,16 @@ closed.
 
 ### Stage 0: Freeze the compact identity contract
 
-- [ ] Inventory path and soft-pointer construction, access, comparison, hash,
+- [x] Inventory path and soft-pointer construction, access, comparison, hash,
   formatting, reflection, serialization, and resolve/load call sites affected
   by removal of cached strings and `FSoftObjectPath`.
-- [ ] Record supported Win64 size/copy baselines for `FPackagePath`,
+- [x] Record supported Win64 size/copy baselines for `FPackagePath`,
   `FTopLevelAssetPath`, `FObjectPath`, `FSoftObjectPtr`, and representative
   `TSoftObjectPtr<T>` values.
 - [ ] Audit maintained assets and fixtures for case-only identity collisions,
   package or asset names that exceed the selected `FName` bound, and paths that
   depend on case-sensitive lookup.
-- [ ] Add contract tests for case-insensitive logical identity, preserved
+- [x] Add contract tests for case-insensitive logical identity, preserved
   display spelling, strict rejection before `FName` truncation, null object
   paths, deterministic ordering, and subobject iteration.
 
@@ -185,16 +193,16 @@ or unsupported identity has an explicit repository-owned migration.
 
 ### Stage 1: Compact the structural path types
 
-- [ ] Store package and asset identity in `FName` values and store only the
+- [x] Store package and asset identity in `FName` values and store only the
   canonical relative subobject string in `FObjectPath`.
-- [ ] Replace cached full strings with builder-based formatting and owned
+- [x] Replace cached full strings with builder-based formatting and owned
   `ToString()` results; replace stored subobject vectors with allocation-free
   component iteration.
-- [ ] Implement case-insensitive equality/hash and deterministic lexical
+- [x] Implement case-insensitive equality/hash and deterministic lexical
   ordering without relying on unstable name-pool indices.
-- [ ] Enforce mount, UTF-8, separator, component, `FName`, and total path bounds
+- [x] Enforce mount, UTF-8, separator, component, `FName`, and total path bounds
   before committing output values; failed factories leave outputs unchanged.
-- [ ] Migrate CoreDObject callers and tests while preserving the distinct
+- [x] Migrate CoreDObject callers and tests while preserving the distinct
   package, top-level asset, and complete object types.
 
 Completion condition: CoreDObject uses the compact representation, path
@@ -203,17 +211,17 @@ and measured Win64 value sizes are recorded against the Stage 0 baseline.
 
 ### Stage 2: Rebuild soft object pointer state
 
-- [ ] Remove `FSoftObjectPath` and migrate null soft serialization to the
+- [x] Remove `FSoftObjectPath` and migrate null soft serialization to the
   default-invalid `FObjectPath` representation.
-- [ ] Reduce `FSoftObjectPtr` to authored identity, weak cache, and cache epoch;
+- [x] Reduce `FSoftObjectPtr` to authored identity, weak cache, and cache epoch;
   remove the stored resolved path and package-only cache validation.
-- [ ] Add the global soft-cache invalidation seam and connect object identity
+- [x] Add the global soft-cache invalidation seam and connect object identity
   mutation, redirect/catalog semantic changes, unload, and runtime shutdown to
   the required invalidation behavior.
-- [ ] Define and test `Null`, `Pending`, `Valid`, and `Stale`, including copy,
+- [x] Define and test `Null`, `Pending`, `Valid`, and `Stale`, including copy,
   move, reset, equality, ordering, hashing, collection, unload, and epoch
   invalidation.
-- [ ] Tighten `TSoftObjectPtr<T>` construction and assignment while retaining
+- [x] Tighten `TSoftObjectPtr<T>` construction and assignment while retaining
   the untyped reflection/service access boundary and incomplete-type-safe
   declaration behavior.
 
@@ -223,18 +231,18 @@ non-loading, typed, weak, and invalidation-safe.
 
 ### Stage 3: Integrate exact runtime resolution and serialization
 
-- [ ] Migrate Archive, linker values, package capture/application, DHT metadata,
+- [x] Migrate Archive, linker values, package capture/application, DHT metadata,
   property lifecycle operations, and editor property views to direct
   `FObjectPath` soft values.
-- [ ] Resolve redirects to transient exact `FObjectPath` results, load the
+- [x] Resolve redirects to transient exact `FObjectPath` results, load the
   owning package explicitly, select the exact top-level asset/subobject, and
   populate the weak cache only after exact path and class validation.
-- [ ] Preserve authored identity across successful resolve/load and redirect
+- [x] Preserve authored identity across successful resolve/load and redirect
   traversal; explicit mutation and relocation remain the only operations that
   rewrite serialized paths.
-- [ ] Adapt the paused DAST v9 implementation and its tests to the new APIs
+- [x] Adapt the paused DAST v9 implementation and its tests to the new APIs
   without advancing its format stage or adding a second wire representation.
-- [ ] Remove all temporary `FSoftObjectPath`, package-main soft-reference, old
+- [x] Remove all temporary `FSoftObjectPath`, package-main soft-reference, old
   accessor, and package-only resolved-cache adapters introduced or retained
   during migration.
 
@@ -247,12 +255,12 @@ package-only cache validation.
 
 - [ ] Re-run the maintained corpus audit and migrate repository-owned spelling
   or content conflicts without adding an external compatibility route.
-- [ ] Run focused Core, CoreDObject, package/linker, Asset Runtime, Registry,
+- [x] Run focused Core, CoreDObject, package/linker, Asset Runtime, Registry,
   reflection, DHT, and affected editor tests according to the repository test
   workflow.
 - [ ] Run the required broad native aggregate and full build for the shared
   Core/CoreDObject ABI change according to the repository build workflow.
-- [ ] Update lasting asset-path, reflection, garbage-collection, and asset
+- [x] Update lasting asset-path, reflection, garbage-collection, and asset
   package contracts; run changed and all-plan documentation validation.
 - [ ] Record final layouts, validation evidence, and the handoff that allows
   Stage 3 of Package And Object Path Identity to resume.

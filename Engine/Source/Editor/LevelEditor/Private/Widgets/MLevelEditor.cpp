@@ -260,9 +260,9 @@ namespace Durin::Editor::Level
 		}
 		if (!Settings.DefaultLevel.empty())
 		{
-			FSoftObjectPath Path;
+			FObjectPath Path;
 			std::string PathError;
-			if (!FSoftObjectPath::TryCreate(Settings.DefaultLevel, Path, &PathError))
+			if (!FObjectPath::TryCreate(Settings.DefaultLevel, Path, &PathError))
 			{
 				DURIN_WARN("Project default level '{}' is invalid: {}", Settings.DefaultLevel, PathError);
 				return false;
@@ -281,7 +281,7 @@ namespace Durin::Editor::Level
 			return false;
 		}
 		const FAssetPath& DefaultLevelPath =
-			DefaultLevel.GetSoftObjectPath().GetAssetPath();
+			DefaultLevel.GetPath().GetPackagePath();
 		if (!DefaultLevel.IsNull()
 			&& !DefaultLevelPath.GetView().starts_with(Project->MountRoot))
 		{
@@ -299,7 +299,7 @@ namespace Durin::Editor::Level
 		}
 		const FProjectGameSettingsResult SaveResult =
 			FProjectGameSettingsStore::ForProject(*Project).SaveDefaultLevel(
-				DefaultLevel.GetSoftObjectPath().ToString());
+				DefaultLevel.GetPath().ToString());
 		if (!SaveResult)
 		{
 			SetError(SaveResult.Message);
@@ -311,8 +311,8 @@ namespace Durin::Editor::Level
 	auto MLevelEditor::ApplyFixedUpDefaultLevelPath(
 		const FAssetPath& Path) -> void
 	{
-		FSoftObjectPath SoftPath;
-		if (!FSoftObjectPath::TryCreate(Path.GetView(), SoftPath)) return;
+		FObjectPath SoftPath;
+		if (!FObjectPath::TryCreate(Path.GetView(), SoftPath)) return;
 		const bool bPendingMatchesSaved = PendingDefaultLevel == DefaultLevel;
 		DefaultLevel.SetPath(SoftPath);
 		if (bPendingMatchesSaved)
@@ -620,7 +620,7 @@ namespace Durin::Editor::Level
 					.ClassPolicy = ::Durin::Editor::EAssetClassPolicy::Exact,
 					.AssignmentMode = ::Durin::Editor::EAssetAssignmentMode::AssetPath,
 					.CurrentSelectionPath =
-						PendingDefaultLevel.GetSoftObjectPath().GetView(),
+						PendingDefaultLevel.GetPath().ToString(),
 					.SearchText = LevelSearchText,
 					.bAllowNone = true,
 					.NoneLabel = "None",
@@ -631,8 +631,8 @@ namespace Durin::Editor::Level
 							PendingDefaultLevel.Reset();
 							return true;
 						}
-						FSoftObjectPath Path;
-						if (!FSoftObjectPath::TryCreate(SelectionPath, Path, &OutError))
+						FObjectPath Path;
+						if (!FObjectPath::TryCreate(SelectionPath, Path, &OutError))
 							return false;
 						PendingDefaultLevel.SetPath(std::move(Path));
 						return true;

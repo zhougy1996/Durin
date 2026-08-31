@@ -64,10 +64,10 @@ namespace Durin
 			}
 			if (!Settings.DefaultLevel.empty())
 			{
-				FSoftObjectPath SoftPath;
+				FObjectPath SoftPath;
 				TSoftObjectPtr<DLevel> DefaultLevel;
 				DLevel* Level = nullptr;
-				if (FSoftObjectPath::TryCreate(Settings.DefaultLevel, SoftPath))
+				if (FObjectPath::TryCreate(Settings.DefaultLevel, SoftPath))
 				{
 					DefaultLevel.SetPath(std::move(SoftPath));
 					const Asset::FAssetResult Result =

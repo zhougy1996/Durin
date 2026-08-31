@@ -27,8 +27,10 @@ namespace Durin::Asset::Private
 					&& std::adjacent_find(Paths.begin(), Paths.end()) == Paths.end();
 			};
 			if (Entry.ObjectCount == 0 || Entry.TopLevelAssets.empty()
-				|| !std::ranges::is_sorted(Entry.TopLevelAssets, {},
-					[](const FTopLevelAssetData& Asset) { return Asset.AssetPath.GetView(); })
+				|| !std::ranges::is_sorted(Entry.TopLevelAssets,
+					[](const FTopLevelAssetData& A, const FTopLevelAssetData& B) {
+						return A.AssetPath < B.AssetPath;
+					})
 				|| std::adjacent_find(Entry.TopLevelAssets.begin(), Entry.TopLevelAssets.end(),
 					[](const FTopLevelAssetData& A, const FTopLevelAssetData& B) {
 						return A.AssetPath == B.AssetPath;
@@ -274,13 +276,13 @@ namespace Durin::Asset::Private
 			Writer.WriteU32(static_cast<uint32>(Entry.TopLevelAssets.size()));
 			for (const FTopLevelAssetData& Asset : Entry.TopLevelAssets)
 			{
-				Writer.WriteString(Asset.AssetPath.GetView());
+				Writer.WriteString(Asset.AssetPath.ToString());
 				Writer.WriteString(Asset.AssetClassName);
-				Writer.WriteString(Asset.RedirectDestination.GetView());
+				Writer.WriteString(Asset.RedirectDestination.ToString());
 			}
 			Writer.WriteString(Entry.AssetClassName);
 			Writer.WriteU8(static_cast<uint8>(Entry.EntryKind));
-			Writer.WriteString(Entry.RedirectDestination.GetView());
+			Writer.WriteString(Entry.RedirectDestination.ToString());
 			Writer.WriteU32(Entry.FormatVersion);
 			Writer.WriteU32(static_cast<uint32>(Entry.Dependencies.size()));
 			for (const FAssetPath& Dependency : Entry.Dependencies) Writer.WriteString(Dependency.GetView());

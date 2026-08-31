@@ -153,7 +153,7 @@ namespace Durin
 			FArchivePropertySaveValue& OutValue) -> EArchivePropertySaveDisposition;
 
 		virtual COREDOBJECT_API auto SerializeObjectReference(DObject*& Value) -> void;
-		virtual COREDOBJECT_API auto SerializeSoftObjectPath(FSoftObjectPath& Value) -> void;
+		virtual COREDOBJECT_API auto SerializeSoftObjectValue(FObjectPath& Value) -> void;
 		virtual COREDOBJECT_API auto SerializeWeakObjectReference(FWeakObjectPtr& Value) -> void;
 
 	protected:
@@ -247,7 +247,7 @@ namespace Durin
 	COREDOBJECT_API auto NotifyArchiveReflectedPropertyValue(
 		FArchive& Ar, FProperty& Property, const void* Container, uint32 ArrayIndex) -> void;
 	COREDOBJECT_API auto SerializeArchiveObjectReference(FArchive& Ar, DObject*& Value) -> void;
-	COREDOBJECT_API auto SerializeArchiveSoftObjectPath(FArchive& Ar, FSoftObjectPath& Value) -> void;
+	COREDOBJECT_API auto SerializeArchiveSoftObjectValue(FArchive& Ar, FObjectPath& Value) -> void;
 	COREDOBJECT_API auto SerializeArchiveWeakObjectReference(FArchive& Ar, FWeakObjectPtr& Value) -> void;
 
 	// Owns property-snapshot bytes and exact hard-reference identities without retaining them.

@@ -6,6 +6,7 @@
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
 #include "DObject/Package.h"
+#include "DObject/SoftObjectPtr.h"
 #include "CoreGlobals.h"
 #include "Threading/RunnableThread.h"
 #include "DeferredRegistry.h"
@@ -144,9 +145,11 @@ namespace Durin
 	auto DObject::Rename(FName InName) -> void
 	{
 		if (IsTemplateObject()) return;
+		if (NamePrivate == InName) return;
 		if (auto* Package = Cast<DPackage>(GetOuter()); Package && Package->IsAssetPackage()
 			&& !Package->CanUseTopLevelAssetName(InName, this)) return;
 		NamePrivate = InName;
+		InvalidateSoftObjectCaches();
 		if (DPackage* Package = GetPackage(); Package && Package->IsAssetPackage()) Package->MarkDirty();
 	}
 
@@ -231,6 +234,7 @@ namespace Durin
 			return;
 		}
 		OuterPrivate = NewOuter;
+		InvalidateSoftObjectCaches();
 	}
 
 	auto DObject::GetOutermost() const -> DObject*

@@ -316,7 +316,7 @@ namespace
 		return Durin::GDObjectArray.Contains(Object);
 	}
 
-	auto MakeSoftPath() -> Durin::FSoftObjectPath
+	auto MakeSoftPath() -> Durin::FObjectPath
 	{
 		static const bool bMounted = [] {
 			const std::filesystem::path Root =
@@ -327,9 +327,9 @@ namespace
 			return true;
 		}();
 		(void)bMounted;
-		Durin::FSoftObjectPath Path;
-		EXPECT_TRUE(Durin::FSoftObjectPath::TryCreate(
-			"/TransactionTests/SoftAsset", Path));
+		Durin::FObjectPath Path;
+		EXPECT_TRUE(Durin::FObjectPath::TryCreate(
+			"/TransactionTests/SoftAsset.SoftAsset", Path));
 		return Path;
 	}
 
@@ -441,7 +441,7 @@ TEST(FFocusedTransactionObjectSnapshotTests, RestoresSupportedValuesIntoDetached
 	Target->Value = 47;
 	Target->Hard = Hard;
 	Target->Weak = Weak;
-	const Durin::FSoftObjectPath SoftPath = MakeSoftPath();
+	const Durin::FObjectPath SoftPath = MakeSoftPath();
 	Target->Soft.SetPath(SoftPath);
 	Target->Numbers = {3, 5, 8};
 	Target->Values = {{"alpha", 11}, {"beta", 13}};
@@ -473,7 +473,7 @@ TEST(FFocusedTransactionObjectSnapshotTests, RestoresSupportedValuesIntoDetached
 			EXPECT_EQ(static_cast<Durin::TWeakObjectPtr<Durin::DObject>*>(Storage.GetValue())->Get(), Weak);
 		if (Name == "Soft")
 			EXPECT_EQ(static_cast<Durin::TSoftObjectPtr<Durin::DObject>*>(Storage.GetValue())
-				->GetSoftObjectPath(), SoftPath);
+				->GetPath(), SoftPath);
 		if (Name == "Numbers")
 			EXPECT_EQ(*static_cast<std::vector<int32>*>(Storage.GetValue()), (std::vector<int32>{3, 5, 8}));
 		if (Name == "Values")

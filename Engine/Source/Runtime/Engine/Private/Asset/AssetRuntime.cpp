@@ -60,7 +60,7 @@ namespace Durin::Asset
 				return nullptr;
 			DObject* Current = Package->FindTopLevelAsset(
 				FName(Path.GetAssetPath().GetAssetName()));
-			for (const std::string& Name : Path.GetSubobjectNames())
+			for (const std::string_view Name : Path.GetSubobjectNames())
 			{
 				if (!Current) return nullptr;
 				const auto Children = GDObjectArray.GetObjectsWithOuter(
@@ -79,6 +79,25 @@ namespace Durin::Asset
 				PackagePath, PackagePath.GetPackageName(), AssetPath);
 			FObjectPath::TryCreate(AssetPath, std::span<const std::string>{}, ObjectPath);
 			return ObjectPath;
+		}
+
+		auto TryRemapRedirectedObjectPath(
+			const FObjectPath& AuthoredPath,
+			const FPackagePath& ResolvedPackagePath,
+			FObjectPath& OutPath,
+			std::string* OutError) -> bool
+		{
+			if (AuthoredPath.GetPackagePath() == ResolvedPackagePath)
+			{
+				OutPath = AuthoredPath;
+				return true;
+			}
+			FTopLevelAssetPath ResolvedAssetPath;
+			if (!FTopLevelAssetPath::TryCreate(
+				ResolvedPackagePath, ResolvedPackagePath.GetPackageName(),
+				ResolvedAssetPath, OutError)) return false;
+			return FObjectPath::TryCreate(
+				ResolvedAssetPath, AuthoredPath.GetSubobjectNames(), OutPath, OutError);
 		}
 
 		auto FindLegacyPackageAsset(DPackage* Package, const FPackagePath& PackagePath)
@@ -744,6 +763,7 @@ namespace Durin::Asset
 				"Package remains referenced by live objects.");
 		}
 		GetPackageResourceManager().RetirePackage(Path.ToString());
+		InvalidateSoftObjectCaches();
 		return {};
 	}
 
@@ -868,7 +888,7 @@ namespace Durin::Asset
 					.State = ESoftObjectResolveState::Null};
 		}
 
-		const FAssetPath& Path = Reference.GetSoftObjectPath().GetAssetPath();
+		const FAssetPath& Path = Reference.GetPath().GetPackagePath();
 		const FAssetPathResolveResult Resolution = Durin::Asset::ResolveAssetPath(
 			Path, {.ExpectedClass = ExpectedClass});
 		if (!Resolution)
@@ -878,7 +898,7 @@ namespace Durin::Asset
 				DPackage* LoadedPackage = FindResidentPackage(Path);
 				DObject* LoadedObject = LoadedPackage
 					? FindPackageObject(LoadedPackage,
-						Reference.GetSoftObjectPath().GetObjectPath()) : nullptr;
+						Reference.GetPath()) : nullptr;
 				if (LoadedObject && !LoadedObject->IsA<DAssetRedirector>())
 				{
 					if (!LoadedObject->IsA(ExpectedClass))
@@ -889,7 +909,8 @@ namespace Durin::Asset
 							.State = ESoftObjectResolveState::NotLoaded};
 					std::string ValidationError;
 					if (!Reference.TrySetResolvedObject(
-						LoadedObject, Path, Path, ExpectedClass, &ValidationError))
+						LoadedObject, Reference.GetPath(), Reference.GetPath(),
+						ExpectedClass, &ValidationError))
 						return {
 							.Result = Error(EAssetError::InvalidObjectGraph, std::move(ValidationError)),
 							.State = ESoftObjectResolveState::NotLoaded};
@@ -899,7 +920,7 @@ namespace Durin::Asset
 						.ResolvedPath = Path};
 				}
 			}
-			Reference.ResetResolvedObject();
+			Reference.ResetCache();
 			return {
 				.Result = AssetPathResolutionError(Resolution),
 				.State = ESoftObjectResolveState::NotLoaded};
@@ -908,22 +929,31 @@ namespace Durin::Asset
 		DPackage* Package = FindResidentPackage(Resolution.FinalPath);
 		if (!Package)
 		{
-			Reference.ResetResolvedObject();
+			Reference.ResetCache();
 			return {
 				.State = ESoftObjectResolveState::NotLoaded,
 				.ResolvedPath = Resolution.FinalPath,
 				.bRedirected = !Resolution.RedirectChain.empty()};
 		}
 
-		const FObjectPath ResolvedObjectPath = Resolution.RedirectChain.empty()
-			? Reference.GetSoftObjectPath().GetObjectPath()
-			: FormerMainPath(Resolution.FinalPath);
+		FObjectPath ResolvedObjectPath;
+		std::string PathError;
+		if (!TryRemapRedirectedObjectPath(
+			Reference.GetPath(), Resolution.FinalPath, ResolvedObjectPath, &PathError))
+		{
+			return {
+				.Result = Error(EAssetError::InvalidPath, std::move(PathError)),
+				.State = ESoftObjectResolveState::NotLoaded,
+				.ResolvedPath = Resolution.FinalPath,
+				.bRedirected = !Resolution.RedirectChain.empty()};
+		}
 		DObject* Object = FindPackageObject(Package, ResolvedObjectPath);
 		if (!Object)
 		{
 			return {
 				.Result = Error(EAssetError::InvalidObjectGraph, std::format(
-					"Loaded package {} has no main asset.", Resolution.FinalPath.ToString())),
+					"Loaded package {} has no object {}.", Resolution.FinalPath.ToString(),
+					ResolvedObjectPath.ToString())),
 				.State = ESoftObjectResolveState::NotLoaded,
 				.ResolvedPath = Resolution.FinalPath,
 				.bRedirected = !Resolution.RedirectChain.empty()};
@@ -941,7 +971,8 @@ namespace Durin::Asset
 
 		std::string ValidationError;
 		if (!Reference.TrySetResolvedObject(
-			Object, Path, Resolution.FinalPath, ExpectedClass, &ValidationError))
+			Object, Reference.GetPath(), ResolvedObjectPath,
+			ExpectedClass, &ValidationError))
 		{
 			return {
 				.Result = Error(EAssetError::InvalidObjectGraph, std::move(ValidationError)),
@@ -976,19 +1007,22 @@ namespace Durin::Asset
 		}
 
 		DObject* LoadedObject = nullptr;
-		const FAssetPath& Path = Reference.GetSoftObjectPath().GetAssetPath();
+		const FAssetPath& Path = Reference.GetPath().GetPackagePath();
 		const FPackagePath& LoadedPackagePath = Resolved.ResolvedPath.IsValid()
 			? Resolved.ResolvedPath : Path;
-		const FObjectPath ResolvedObjectPath = LoadedPackagePath == Path
-			? Reference.GetSoftObjectPath().GetObjectPath()
-			: FormerMainPath(LoadedPackagePath);
+		FObjectPath ResolvedObjectPath;
+		std::string PathError;
+		if (!TryRemapRedirectedObjectPath(
+			Reference.GetPath(), LoadedPackagePath, ResolvedObjectPath, &PathError))
+			return Error(EAssetError::InvalidPath, std::move(PathError));
 		FAssetResult Result = LoadObject(
 			ResolvedObjectPath, ExpectedClass, LoadedObject, OutReport);
 		if (!Result) return Result;
 
 		std::string ValidationError;
 		if (!Reference.TrySetResolvedObject(
-			LoadedObject, Path, Resolved.ResolvedPath, ExpectedClass, &ValidationError))
+			LoadedObject, Reference.GetPath(), ResolvedObjectPath,
+			ExpectedClass, &ValidationError))
 			return Error(EAssetError::InvalidObjectGraph, std::move(ValidationError));
 		OutObject = LoadedObject;
 		return {};

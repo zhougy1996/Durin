@@ -1,6 +1,7 @@
 #include "AssetRegistryStateInternal.h"
 
 #include "DObject/Class.h"
+#include "DObject/SoftObjectPtr.h"
 
 namespace Durin::Asset
 {
@@ -419,7 +420,11 @@ namespace Durin::Asset
 	{
 		FAssetResult Result = Private::GetAssetRegistryState().Publish(
 			std::move(Publication));
-		if (Result) Private::MarkAssetRegistryCachesDirty();
+		if (Result)
+		{
+			Private::MarkAssetRegistryCachesDirty();
+			InvalidateSoftObjectCaches();
+		}
 		return Result;
 	}
 

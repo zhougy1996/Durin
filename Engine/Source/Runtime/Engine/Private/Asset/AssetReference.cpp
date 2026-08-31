@@ -145,10 +145,10 @@ namespace Durin::Asset
 		const FAssetReferenceEdge& Right) -> bool
 	{
 		const auto LeftKey = std::tuple(
-			Left.TargetPath.GetView(), Left.SourcePackage.GetView(), Left.SourceObjectId,
+			Left.TargetPath.ToString(), Left.SourcePackage.GetView(), Left.SourceObjectId,
 			std::string_view(Left.DeclaringType), std::string_view(Left.FieldName), Left.Kind);
 		const auto RightKey = std::tuple(
-			Right.TargetPath.GetView(), Right.SourcePackage.GetView(), Right.SourceObjectId,
+			Right.TargetPath.ToString(), Right.SourcePackage.GetView(), Right.SourceObjectId,
 			std::string_view(Right.DeclaringType), std::string_view(Right.FieldName), Right.Kind);
 		if (LeftKey != RightKey) return LeftKey < RightKey;
 		return CompareReferenceRoute(Left.Route, Right.Route) < 0;
@@ -295,9 +295,9 @@ namespace Durin::Asset
 			if (!Reader.ReadString(PathString, MaximumPackageStringBytes) || PathString.empty())
 				return Error(EAssetError::CorruptFile,
 					std::format("SoftReferencePayloadPath: {} is truncated or overlong.", PropertyPath));
-			FSoftObjectPath SoftPath;
+			FObjectPath SoftPath;
 			std::string PathError;
-			if (!FSoftObjectPath::TryCreate(PathString, SoftPath, &PathError))
+			if (!FObjectPath::TryCreate(PathString, SoftPath, &PathError))
 				return Error(EAssetError::InvalidPath, std::format(
 					"SoftReferenceInvalidPath: {} contains '{}': {}",
 					PropertyPath, PathString, PathError));
@@ -321,7 +321,7 @@ namespace Durin::Asset
 				.FieldName = std::string(Context.FieldName),
 				.Kind = EAssetReferenceKind::SoftObject,
 				.ExpectedClass = ExpectedClass->GetQualifiedName().ToString(),
-				.TargetPath = SoftPath.GetObjectPath(),
+				.TargetPath = SoftPath,
 				.Route = Route,
 				.DisplayRoute = PropertyPath});
 			return {};
@@ -524,7 +524,7 @@ namespace Durin::Asset
 				return Error(EAssetError::TypeMismatch,
 					"SoftReferenceMoveSchemaMismatch: live soft value accessor is unavailable.");
 			if (!Value->IsNull()
-				&& Value->GetSoftObjectPath().GetAssetPath() == Collector.TargetPath)
+				&& Value->GetPath().GetPackagePath() == Collector.TargetPath)
 				Collector.Values.push_back(Value);
 			return {};
 		}
@@ -723,16 +723,16 @@ namespace Durin::Asset
 				return Error(EAssetError::CorruptFile,
 					"AssetReferenceFixupTag: unknown soft reference tag.");
 			std::string PathString;
-			FSoftObjectPath Path;
+			FObjectPath Path;
 			std::string PathError;
 			if (!Reader.ReadString(PathString, MaximumPackageStringBytes)
 				|| PathString.empty())
 				return Error(EAssetError::CorruptFile,
 					"AssetReferenceFixupPath: soft path is truncated or overlong.");
-			if (!FSoftObjectPath::TryCreate(PathString, Path, &PathError))
+			if (!FObjectPath::TryCreate(PathString, Path, &PathError))
 				return Error(EAssetError::InvalidPath, std::move(PathError));
 			if (const FAssetPath* Destination = FindFixupDestination(
-				Path.GetAssetPath(), Mappings))
+				Path.GetPackagePath(), Mappings))
 			{
 				Writer.WriteString(Destination->GetView());
 				++RewriteCount;

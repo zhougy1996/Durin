@@ -159,11 +159,11 @@ namespace Durin::ObjectPackage
 		std::string Result;
 		for (auto It = Chain.rbegin(); It != Chain.rend(); ++It)
 		{
-			std::string_view Name;
+			std::string Name;
 			if (It->IsImport())
 			{
 				const FPackageImport& Import = Imports[It->GetTableIndex()];
-				Name = Import.ObjectPath.IsValid() ? Import.ObjectPath.GetView()
+				Name = Import.ObjectPath.IsValid() ? Import.ObjectPath.ToString()
 					: Import.ObjectName.empty() ? Import.PackageName : Import.ObjectName;
 			}
 			else Name = Exports[It->GetTableIndex()].ObjectName;

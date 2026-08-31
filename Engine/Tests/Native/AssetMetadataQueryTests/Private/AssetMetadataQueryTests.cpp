@@ -55,9 +55,9 @@ namespace
 		std::ranges::sort(Publication.ReferenceEdges,
 			[](const FAssetPackageReferenceEdge& Left,
 				const FAssetPackageReferenceEdge& Right) {
-				return std::tuple(Left.TargetPath.GetView(),
+				return std::tuple(Left.TargetPath.ToString(),
 					Left.SourcePackage.GetView(), Left.Kind)
-					< std::tuple(Right.TargetPath.GetView(),
+					< std::tuple(Right.TargetPath.ToString(),
 						Right.SourcePackage.GetView(), Right.Kind);
 			});
 		Publication.ReferenceErrors.clear();

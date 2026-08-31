@@ -508,10 +508,10 @@ namespace Durin::Asset::Private::DastV9
 						return Error(EAssetError::CorruptFile,
 							"DAST v9 reference traversal encountered an invalid linker value.");
 			std::ranges::sort(References, [](const auto& A, const auto& B) {
-				return std::tuple(A.TargetPath.GetView(), A.SourceObjectId,
+				return std::tuple(A.TargetPath.ToString(), A.SourceObjectId,
 					std::string_view(A.DeclaringType), std::string_view(A.FieldName),
 					std::string_view(A.DisplayRoute), A.Kind)
-					< std::tuple(B.TargetPath.GetView(), B.SourceObjectId,
+					< std::tuple(B.TargetPath.ToString(), B.SourceObjectId,
 						std::string_view(B.DeclaringType), std::string_view(B.FieldName),
 						std::string_view(B.DisplayRoute), B.Kind);
 			});

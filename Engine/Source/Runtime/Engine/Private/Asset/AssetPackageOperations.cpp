@@ -692,9 +692,9 @@ namespace Durin::Asset
 				std::string PathString;
 				if (!Reader.ReadString(PathString, MaximumPackageStringBytes) || PathString.empty())
 					return Error(EAssetError::CorruptFile, "Truncated or overlong soft object path.");
-				FSoftObjectPath Path;
+				FObjectPath Path;
 				std::string PathError;
-				if (!FSoftObjectPath::TryCreate(PathString, Path, &PathError))
+				if (!FObjectPath::TryCreate(PathString, Path, &PathError))
 					return Error(EAssetError::InvalidPath, PathError.empty()
 						? "Invalid soft object path." : std::move(PathError));
 				Reference->SetPath(std::move(Path));

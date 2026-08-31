@@ -4,12 +4,41 @@
 #include "DObject/DObjectArray.h"
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/SoftObjectPtr.h"
+#include "Misc/StringHelper.h"
 
 namespace Durin
 {
-	static auto GetPackageRegistry() -> std::unordered_map<std::string, DPackage*>&
+	struct FPackageRegistryHash
 	{
-		static std::unordered_map<std::string, DPackage*> Registry;
+		auto operator()(std::string_view Value) const noexcept -> size_t
+		{
+			size_t Hash = 1469598103934665603ull;
+			for (const char Character : Value)
+				Hash = (Hash ^ static_cast<uint8>(StringUtils::ToLowerAscii(Character)))
+					* 1099511628211ull;
+			return Hash;
+		}
+	};
+
+	struct FPackageRegistryEqual
+	{
+		auto operator()(std::string_view Left, std::string_view Right) const noexcept -> bool
+		{
+			if (Left.size() != Right.size()) return false;
+			for (size_t Index = 0; Index < Left.size(); ++Index)
+				if (StringUtils::ToLowerAscii(Left[Index])
+					!= StringUtils::ToLowerAscii(Right[Index])) return false;
+			return true;
+		}
+	};
+
+	using FPackageRegistry = std::unordered_map<
+		std::string, DPackage*, FPackageRegistryHash, FPackageRegistryEqual>;
+
+	static auto GetPackageRegistry() -> FPackageRegistry&
+	{
+		static FPackageRegistry Registry;
 		return Registry;
 	}
 
@@ -63,6 +92,7 @@ namespace Durin
 		RegisteredPath = NewPath;
 		Registry.emplace(RegisteredPath, this);
 		MarkDirty();
+		InvalidateSoftObjectCaches();
 		return true;
 	}
 
