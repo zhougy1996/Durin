@@ -4,5 +4,5 @@
 
 namespace Durin::Asset::Private::DastV8
 {
-	auto GetCodec() -> const FAssetPackageCodec&;
+	ENGINE_API auto GetCodec() -> const FAssetPackageCodec&;
 }
