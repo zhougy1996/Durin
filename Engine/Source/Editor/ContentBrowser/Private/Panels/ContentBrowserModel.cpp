@@ -98,7 +98,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			? Asset::FAssetResult{
 				Asset::EAssetError::IoError,
 				"Asset catalog refresh was incomplete."}
-			: Refresh.Errors.front();
+			: Asset::FAssetResult{
+				Asset::EAssetError::IoError, Refresh.Errors.front().Message};
 	}
 
 	auto FContentBrowserModel::PhysicalToVirtualDirectory(

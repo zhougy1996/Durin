@@ -367,10 +367,10 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	ASSERT_TRUE(FPackagePath::TryCreate("/TextureImportTests/ImportedVolume", BaseAssetPath));
 	ASSERT_TRUE(FPackagePath::TryCreate("/TextureImportTests/ImportedDetailVolume", DetailAssetPath));
 	ASSERT_EQ(Asset::FindAssetExact(BaseAssetPath)->FormatVersion,
-		Asset::AssetPackageV9FormatVersion);
+		ObjectPackage::DastV9FormatVersion);
 	const Asset::FAssetCatalogEntry InlineEntry = Asset::FindAssetExact(DetailAssetPath);
 	ASSERT_TRUE(InlineEntry);
-	ASSERT_EQ(InlineEntry->FormatVersion, Asset::AssetPackageV9FormatVersion);
+	ASSERT_EQ(InlineEntry->FormatVersion, ObjectPackage::DastV9FormatVersion);
 	Asset::FAssetPackageInspection InlineInspection;
 	ASSERT_TRUE(Asset::InspectAssetPackage(InlineEntry->PhysicalPath, InlineInspection));
 	std::vector<Asset::FEditorBulkDataStorageDescriptor> InlineDescriptors;
@@ -446,7 +446,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	ASSERT_TRUE(FPackagePath::TryCreate("/TextureImportTests/ProductionVolume", AssetPath));
 	const Asset::FAssetCatalogEntry PackageEntry = Asset::FindAssetExact(AssetPath);
 	ASSERT_TRUE(PackageEntry);
-	ASSERT_EQ(PackageEntry->FormatVersion, Asset::AssetPackageV9FormatVersion);
+	ASSERT_EQ(PackageEntry->FormatVersion, ObjectPackage::DastV9FormatVersion);
 	Asset::FAssetPackageInspection V6Inspection;
 	ASSERT_TRUE(Asset::InspectAssetPackage(PackageEntry->PhysicalPath, V6Inspection));
 	std::vector<Asset::FEditorBulkDataStorageDescriptor> V6Descriptors;
@@ -501,7 +501,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	EXPECT_EQ(Reloaded->GetDerivedDataKey(), V6DerivedDataKey);
 	ASSERT_TRUE(Asset::SavePackage(Reloaded->GetPackage()));
 	ASSERT_EQ(Asset::FindAssetExact(AssetPath)->FormatVersion,
-		Asset::AssetPackageV9FormatVersion);
+		ObjectPackage::DastV9FormatVersion);
 	EXPECT_TRUE(std::filesystem::is_regular_file(V6Companions.front()));
 
 	const std::filesystem::path RollbackCookRoot = std::filesystem::absolute(

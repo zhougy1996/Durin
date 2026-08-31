@@ -1,6 +1,7 @@
 #include "AssetPackageV9Codec.h"
 #include "AssetPackageByteSource.h"
 #include "AssetPackageLinkerAdapter.h"
+#include "AssetRegistryResultAdapter.h"
 
 #include "Asset/PackageInspection.h"
 #include "Asset/RedirectorFixup.h"
@@ -52,8 +53,9 @@ namespace Durin::Asset::Private::DastV9
 				? Context.PackageBytes.size() : Context.PhysicalPackageBytes;
 			const uint64 PhysicalBulkBytes = Context.bResourceBackedBulk
 				? Context.PhysicalBulkBytes : Context.BulkBytes.size();
-			return ReadAssetPackageHeaderBytes(Context.PackageBytes, PhysicalBytes,
-				PhysicalBulkBytes, Context.PackagePath, OutHeader);
+			return Private::ToAssetResult(ReadAssetPackageHeaderBytes(
+				Context.PackageBytes, PhysicalBytes, PhysicalBulkBytes,
+				Context.PackagePath, OutHeader));
 		}
 
 		auto Validate(const FAssetPackageReadContext& Context) -> FAssetResult
@@ -339,7 +341,7 @@ namespace Durin::Asset::Private::DastV9
 			Inspection.Fingerprint = {
 				.FileSize = Context.PackageBytes.size(),
 				.ContentHash = FXxHash128::HashBuffer(Context.PackageBytes),
-				.ReaderVersion = AssetPackageV9FormatVersion};
+				.ReaderVersion = ObjectPackage::DastV9FormatVersion};
 			FInspectionEncodeState EncodeState;
 			for (size_t Index = 0; Index < Linker.Exports.size(); ++Index)
 			{
@@ -364,7 +366,7 @@ namespace Durin::Asset::Private::DastV9
 						.Name = Property.FieldName,
 						.Kind = InspectionPropertyKind(Property.Type),
 						.TypeSignature = TypeSignature(Property.Type),
-						.SourceFormatVersion = AssetPackageV9FormatVersion};
+						.SourceFormatVersion = ObjectPackage::DastV9FormatVersion};
 					if (!EncodeInspectionPayload(Property.Type, Property.Value, Linker,
 						Field.Payload, EncodeState))
 						return Error(EAssetError::CorruptFile,
@@ -408,7 +410,7 @@ namespace Durin::Asset::Private::DastV9
 					.SourceFingerprint = {
 						.FileSize = Context.PackageBytes.size(),
 						.ContentHash = FXxHash128::HashBuffer(Context.PackageBytes),
-						.ReaderVersion = AssetPackageV9FormatVersion},
+						.ReaderVersion = ObjectPackage::DastV9FormatVersion},
 					.SourceObjectId = ObjectId,
 					.SourceClass = Export.ClassName,
 					.DeclaringType = Property.DeclaringType,
@@ -548,7 +550,7 @@ namespace Durin::Asset::Private::DastV9
 			ObjectPackage::FLinkerTables Linker;
 			if (FAssetResult Result = ReadLinker({Main, Bulk, Path, Main.size()}, Linker); !Result)
 				return Result;
-			FPackageSchemaInspection Record{.FormatVersion = AssetPackageV9FormatVersion};
+			FPackageSchemaInspection Record{.FormatVersion = ObjectPackage::DastV9FormatVersion};
 			if (!Linker.Summary.TopLevelAssets.empty())
 				Record.EntryKind = Linker.Summary.TopLevelAssets.front()
 					.RedirectDestination.IsValid()
@@ -622,7 +624,7 @@ namespace Durin::Asset::Private::DastV9
 			return ApplyLivePackageLinker(Linker, Context.PackagePath, OutPackage,
 				OutReport, {.OnSkeletonReady = OnSkeletonReady,
 					.OnSkeletonRollback = OnSkeletonRollback,
-					.SourceFormatVersion = AssetPackageV9FormatVersion,
+					.SourceFormatVersion = ObjectPackage::DastV9FormatVersion,
 					.bCooked = Context.bCooked,
 					.Target = Context.bCooked
 						? FArchiveTarget{.Platform = "Win64", .Profile = "Game"}
@@ -900,7 +902,7 @@ namespace Durin::Asset::Private::DastV9
 	{
 		static const FAssetPackageCodec Codec{
 			.CodecId = "dast-v9",
-			.FormatVersion = AssetPackageV9FormatVersion,
+			.FormatVersion = ObjectPackage::DastV9FormatVersion,
 			.bCanRead = true,
 			.bCanWrite = true,
 			.bCanMutate = true,

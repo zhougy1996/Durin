@@ -6,10 +6,23 @@
 
 namespace Durin::ObjectPackage
 {
+	inline constexpr uint32 DastPackageMagic = 0x54534144;
 	inline constexpr FGuid DastFormatId{
 		0x3c59d1a9, 0x6ceb4e4c, 0xb059452d, 0xb0a5af56};
 	inline constexpr std::string_view DastFormatName = "Durin.BinaryFormat.DAST";
+	inline constexpr uint32 DastV8FormatVersion = 8;
 	inline constexpr uint32 DastV9FormatVersion = 9;
+	inline constexpr uint32 DastObjectStreamVersion = 5;
+	inline constexpr std::array SupportedPackageReaderVersions{DastV9FormatVersion};
+	// Persisted projections use a policy generation so supported-reader sets cannot alias.
+	inline constexpr uint32 PackageReaderPolicyFingerprint = 0x41504309;
+
+	constexpr auto IsSupportedPackageReaderVersion(uint32 Version) -> bool
+	{
+		return std::ranges::find(SupportedPackageReaderVersions, Version)
+			!= SupportedPackageReaderVersions.end();
+	}
+
 	inline constexpr uint32 DastV9RegistryVersion = 2;
 	inline constexpr uint32 DastV8TableVersion = 1;
 	inline constexpr uint32 DastV8FormatHeaderBytes = 32;

@@ -2,9 +2,9 @@
 
 Summary: Define mounted package discovery, immutable catalog and reference projections, and transactional asset relocation, deletion, and path fix-up.
 
-Modules: AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
+Modules: Core, AssetRegistry, Engine, AssetTools, ContentBrowser, DurinEd, LevelEditor
 
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-01
 
 Package identity, serialization, loading, and residency are defined by
 [Asset Packages](AssetPackages.md). Authored, derived, and cooked storage
@@ -53,6 +53,21 @@ former ambiguous root `AssetTools.h` aggregate no longer exists. The supported
 aggregate entry points are defined by
 [Asset Packages](AssetPackages.md#public-capability-boundary). There is no
 public mutable catalog manager.
+
+## Result And Diagnostic Boundary
+
+Core's `FDiagnostic` is the domain-neutral owning value for logs, tools, and UI.
+It carries domain, code, severity, message, and optional context, but never owns
+AssetRegistry or Engine control-flow semantics. Typed domain errors remain the
+authoritative values used by program logic.
+
+AssetRegistry exports `EAssetRegistryError` and `FAssetRegistryResult` for
+discovery, bounded header projection, cache, snapshot, and publication failures.
+Engine exports `EAssetError` and `FAssetResult` for loading, storage, Cook, and
+mutation operations. Engine translates Registry results explicitly at its
+publication and package-header boundaries; AssetRegistry never includes or
+returns the Engine result contract. Both result values can produce an
+`FDiagnostic` for common presentation without erasing their typed error.
 
 ## Reference Projection
 

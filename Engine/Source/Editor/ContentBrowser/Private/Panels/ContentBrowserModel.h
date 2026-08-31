@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Asset/Result.h"
 #include "AssetRegistry/Catalog.h"
 
 #include <filesystem>

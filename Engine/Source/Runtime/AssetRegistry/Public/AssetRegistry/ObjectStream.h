@@ -6,8 +6,8 @@
 
 namespace Durin::Asset::PackageObjectStream
 {
-	inline constexpr uint32 Magic = DastPackageMagic;
-	inline constexpr uint32 Version = AssetPackageObjectStreamVersion;
+	inline constexpr uint32 Magic = ObjectPackage::DastPackageMagic;
+	inline constexpr uint32 Version = ObjectPackage::DastObjectStreamVersion;
 	inline constexpr uint64 MaximumPackageBytes = 256ull * 1024ull * 1024ull;
 	inline constexpr uint64 MaximumStringBytes = 1024ull * 1024ull;
 	inline constexpr uint64 MaximumTableEntries = 1'048'575;

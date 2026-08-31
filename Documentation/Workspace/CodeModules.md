@@ -19,7 +19,7 @@ direction.
 
 | Module | Primary responsibility | Source root |
 | --- | --- | --- |
-| `Core` | Platform abstraction, containers, threading, logging, math, modules, serialization primitives, and low-level utilities | [source](../../Engine/Source/Runtime/Core) |
+| `Core` | Platform abstraction, containers, threading, logging, math, modules, serialization primitives, domain-neutral structured diagnostics, and low-level utilities | [source](../../Engine/Source/Runtime/Core) |
 | `PhysicsCore` | Engine-independent collision shapes, handles, filters, hits, validation, and reference geometry math | [source](../../Engine/Source/Runtime/PhysicsCore) |
 | `Physics` | World-independent physics scene body storage and synchronous query orchestration | [source](../../Engine/Source/Runtime/Physics) |
 | `CoreDObject` | Managed objects, reflection, properties, garbage collection, object serialization, format-neutral package linker tables, canonical reflected Map-key tokens, and canonical DAST v9 read/write | [source](../../Engine/Source/Runtime/CoreDObject) |

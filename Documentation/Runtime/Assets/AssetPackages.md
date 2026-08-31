@@ -4,7 +4,7 @@ Summary: Define asset identity, canonical DAST v9 packages, runtime residency, l
 
 Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance
 
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-01
 
 Durin object assets are stored as versioned `.dasset` packages. A package is a
 residency and persistence container with zero or more independently addressable
@@ -147,6 +147,12 @@ DAST has permanent format identity
 policy registers v9 only. Unknown identities, unsupported versions or features,
 legacy prefixes, corrupt envelopes, and noncanonical encodings fail before
 object construction, mutation, or publication.
+
+`CoreDObject`'s `DObject/PackageFormat.h` is the sole code authority for the
+DAST magic, identity, format and object-stream versions, supported-reader set,
+and persisted-projection reader-policy fingerprint. AssetRegistry and Engine
+consume those constants directly and publish no independent package-format
+copy.
 
 The maintained `Engine/Content` and `Sandbox/Content` corpus is canonical v9.
 Production discovery, save, load, inspection, mutation, Cook, and canonical

@@ -3,6 +3,7 @@
 #include "AssetMutationJournalInternal.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetRelocationExtensionsInternal.h"
+#include "AssetRegistryResultAdapter.h"
 #include "Asset/PackageSerialization.h"
 #include "AssetPackageCodec.h"
 #include "Asset/PackageVersionPolicy.h"
@@ -618,7 +619,7 @@ namespace Durin::Asset
 			uint32 ArrayIndex,
 			FByteReader& Reader,
 			const std::vector<DObject*>& Objects,
-			uint32 SourceVersion = AssetPackageV9FormatVersion) -> FAssetResult
+			uint32 SourceVersion = ObjectPackage::DastV9FormatVersion) -> FAssetResult
 		{
 			const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
 			if (Private::IsByteToolRawScalarKind(Kind))
@@ -996,7 +997,7 @@ namespace Durin::Asset
 			const FPackagePath& Path) -> FAssetResult
 		{
 			const FAssetCatalogEntry Existing = Durin::Asset::FindAssetExact(Path);
-			if (!Existing || IsSupportedAssetPackageReaderVersion(Existing->FormatVersion))
+			if (!Existing || ObjectPackage::IsSupportedPackageReaderVersion(Existing->FormatVersion))
 				return {};
 			return Error(
 				EAssetError::UnsupportedVersion,
@@ -1400,8 +1401,9 @@ namespace Durin::Asset
 			return Error(EAssetError::InvalidPath,
 				"The asset admission path is outside mounted package content.");
 		FAssetPackageHeader Header;
-		if (FAssetResult Result = ReadAssetPackageHeader(PhysicalPath, Path, Header); !Result)
-			return Result;
+		if (FAssetRegistryResult Result = ReadAssetPackageHeader(
+			PhysicalPath, Path, Header); !Result)
+			return Private::ToAssetResult(std::move(Result));
 		FByteArray Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
 			return Error(EAssetError::IoError,
@@ -1496,7 +1498,7 @@ namespace Durin::Asset
 	{
 		OutValue = {};
 		if (Kind != DurinCodeGen::EPropertyGenFlags::BulkData
-			|| SourceFormatVersion != AssetPackageV9FormatVersion) return false;
+			|| SourceFormatVersion != ObjectPackage::DastV9FormatVersion) return false;
 		FByteReader Reader{Payload};
 		uint32 Version = 0;
 		uint8 Placement = 0;
@@ -1592,7 +1594,7 @@ namespace Durin::Asset
 		FByteReader Reader{Payload};
 		return DecodeByteToolValue(
 			&RootProperty, OutValue, 0, Reader, {},
-			SourceFormatVersion == 0 ? AssetPackageV9FormatVersion : SourceFormatVersion)
+			SourceFormatVersion == 0 ? ObjectPackage::DastV9FormatVersion : SourceFormatVersion)
 			&& Reader.Offset == Payload.size();
 	}
 

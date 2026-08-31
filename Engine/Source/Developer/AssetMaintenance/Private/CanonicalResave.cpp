@@ -2,7 +2,7 @@
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/PackageSerialization.h"
 
-#include "AssetRegistry/PackageFormat.h"
+#include "DObject/PackageFormat.h"
 #include "AssetRegistry/Publication.h"
 #include "Hash/XxHash.h"
 #include "Json/Json.h"
@@ -308,7 +308,7 @@ namespace Durin::Asset
 				std::error_code BackupError;
 				std::filesystem::remove(BackupPath, BackupError);
 				RegistrySnapshot.ExpectedRevision = GetAssetCatalogRevision();
-				const FAssetResult RegistryRestored =
+				const FAssetRegistryResult RegistryRestored =
 					PublishAssetRegistryPublication(std::move(RegistrySnapshot));
 				return bPackageRestored && bBulkRestored
 					&& static_cast<bool>(RegistryRestored);

@@ -203,12 +203,12 @@ namespace Durin::Asset
 		}
 
 		auto ValidatePublication(
-			const FAssetRegistryPublication& Publication) -> FAssetResult
+			const FAssetRegistryPublication& Publication) -> FAssetRegistryResult
 		{
 			if (!Publication.bReferenceIndexComplete
 				|| !Publication.ReferenceErrors.empty()
 				|| Publication.ReferenceFingerprints.size() != Publication.Assets.size())
-				return {EAssetError::StaleData,
+				return {EAssetRegistryError::StaleData,
 					"Asset registry publication requires a complete catalog/reference projection."};
 			const auto PathsCanonical = [](const std::vector<FPackagePath>& Paths) {
 				return std::ranges::is_sorted(Paths,
@@ -228,7 +228,7 @@ namespace Durin::Asset
 						Data.SearchableNames.end()) != Data.SearchableNames.end()
 					|| ((Data.BulkSegmentExtent == 0)
 						!= Data.BulkSegmentDigest.IsZero()))
-					return {EAssetError::CorruptFile,
+					return {EAssetRegistryError::CorruptFile,
 						"Asset registry publication contains inconsistent package metadata."};
 				if ((Data.EntryKind == EAssetRegistryEntryKind::Asset
 						&& (Data.RedirectDestination.IsValid()
@@ -239,14 +239,14 @@ namespace Durin::Asset
 							|| Data.Dependencies.size() != 1
 							|| Data.Dependencies.front() != Data.RedirectDestination
 							|| Data.ObjectCount != 1)))
-					return {EAssetError::CorruptFile,
+					return {EAssetRegistryError::CorruptFile,
 						"Asset registry publication contains invalid redirect metadata."};
 				const FAssetPackageFingerprint ExpectedFingerprint{
 					.FileSize = Data.FileSize,
 					.LastWriteTimeTicks = Data.LastWriteTimeTicks,
 					.ReaderVersion = Data.FormatVersion};
 				if (Publication.ReferenceFingerprints.at(Path) != ExpectedFingerprint)
-					return {EAssetError::CorruptFile,
+					return {EAssetRegistryError::CorruptFile,
 						"Asset registry publication fingerprint drifted from catalog metadata."};
 				auto Add = [&](EAssetReferenceKind Kind, const FPackagePath& Target) {
 					ExpectedEdges.push_back({.SourcePackage = Path,
@@ -277,7 +277,7 @@ namespace Durin::Asset
 						&& Left.TargetPath == Right.TargetPath && Left.Kind == Right.Kind;
 				}), ExpectedEdges.end());
 			if (Publication.ReferenceEdges != ExpectedEdges)
-				return {EAssetError::CorruptFile,
+				return {EAssetRegistryError::CorruptFile,
 					"Asset registry publication package edges drifted from catalog metadata."};
 			return {};
 		}
@@ -375,7 +375,7 @@ namespace Durin::Asset
 		const auto RootIt = Assets.find(Root);
 		if (RootIt == Assets.end())
 		{
-			Result.Result = {EAssetError::NotFound,
+			Result.Result = {EAssetRegistryError::NotFound,
 				std::format("The Asset Registry has no entry for dependency root '{}'.",
 					Root.GetView())};
 			return Result;
@@ -396,7 +396,7 @@ namespace Durin::Asset
 				if (DependencyIt == Assets.end())
 				{
 					Result.Assets.clear();
-					Result.Result = {EAssetError::MissingDependency,
+					Result.Result = {EAssetRegistryError::MissingDependency,
 						std::format("The Asset Registry has no entry for dependency '{}'.",
 							Dependency.GetView())};
 					return Result;
@@ -447,14 +447,14 @@ namespace Durin::Asset
 	}
 
 	auto FAssetRegistryState::Publish(
-		FAssetRegistryPublication Publication) -> FAssetResult
+		FAssetRegistryPublication Publication) -> FAssetRegistryResult
 	{
 		std::unique_lock Lock(Mutex);
 		if (Publication.ExpectedRevision != Revision)
-			return {EAssetError::StaleData, std::format(
+			return {EAssetRegistryError::StaleData, std::format(
 				"Asset registry publication expected revision {} but current revision is {}.",
 				Publication.ExpectedRevision, Revision)};
-		if (FAssetResult Validation = ValidatePublication(Publication); !Validation)
+		if (FAssetRegistryResult Validation = ValidatePublication(Publication); !Validation)
 			return Validation;
 		if (Assets == Publication.Assets
 			&& References.Edges == Publication.ReferenceEdges
@@ -537,9 +537,9 @@ namespace Durin::Asset
 	}
 
 	auto PublishAssetRegistryPublication(
-		FAssetRegistryPublication Publication) -> FAssetResult
+		FAssetRegistryPublication Publication) -> FAssetRegistryResult
 	{
-		FAssetResult Result = Private::GetAssetRegistryState().Publish(
+		FAssetRegistryResult Result = Private::GetAssetRegistryState().Publish(
 			std::move(Publication));
 		if (Result)
 		{

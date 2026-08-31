@@ -72,11 +72,11 @@ TEST(FPackageRegistryContractTests, V9FrontMatterProjectsPackageAndTopLevelAsset
 	Durin::FPackagePath PackagePath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/RegistryFixture", PackagePath));
 	Asset::FAssetPackageHeader Header;
-	const Asset::FAssetResult Result = Asset::ReadAssetPackageHeaderBytes(
+	const Asset::FAssetRegistryResult Result = Asset::ReadAssetPackageHeaderBytes(
 		std::span(Main).first(static_cast<size_t>(HeaderBytes)), Main.size(), Bulk.size(),
 		PackagePath, Header);
 	ASSERT_TRUE(Result) << Result.Message;
-	EXPECT_EQ(Header.FormatVersion, Asset::AssetPackageV9FormatVersion);
+	EXPECT_EQ(Header.FormatVersion, Durin::ObjectPackage::DastV9FormatVersion);
 	ASSERT_EQ(Header.TopLevelAssets.size(), 1u);
 	EXPECT_EQ(Header.TopLevelAssets.front().AssetPath.ToString(),
 		"/Game/RegistryFixture.RegistryFixture");
@@ -123,7 +123,7 @@ TEST(FPackageRegistryContractTests, ProductionProjectionRejectsRetiredV7)
 	Durin::Testing::RegisterMountPointForTests("/Game/", ".");
 	std::array<std::byte, Durin::BinaryEnvelopePreambleBytes> Retired{};
 	const Durin::FBinaryEnvelopePreamble Preamble{
-		.FormatId = Asset::DastBinaryFormatId,
+		.FormatId = Durin::ObjectPackage::DastFormatId,
 		.FormatVersion = 7,
 		.HeaderBytes = Retired.size(),
 		.FileBytes = Retired.size()};
@@ -131,9 +131,9 @@ TEST(FPackageRegistryContractTests, ProductionProjectionRejectsRetiredV7)
 	ASSERT_TRUE(Durin::FinalizeBinaryEnvelopeHeader(Retired, Retired.size(),
 		{16ull * 1024ull * 1024ull, 1024ull * 1024ull * 1024ull}));
 	Asset::FAssetPackageHeader Header;
-	const Asset::FAssetResult Result = Asset::ReadAssetPackageHeaderBytes(
+	const Asset::FAssetRegistryResult Result = Asset::ReadAssetPackageHeaderBytes(
 		Retired, Retired.size(), 0, Path("/Game/Retired"), Header);
-	EXPECT_EQ(Result.Error, Asset::EAssetError::UnsupportedVersion);
+	EXPECT_EQ(Result.Error, Asset::EAssetRegistryError::UnsupportedVersion);
 	EXPECT_EQ(Header.FormatVersion, 0u);
 }
 

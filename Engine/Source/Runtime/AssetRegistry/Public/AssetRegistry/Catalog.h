@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetRegistryAPI.h"
-#include "AssetRegistry/Result.h"
+#include "AssetRegistry/RegistryResult.h"
 #include "DObject/AssetPath.h"
 #include "Hash/XxHash.h"
 
@@ -109,7 +109,7 @@ namespace Durin::Asset
 	{
 		uint64 Revision = 0;
 		std::vector<FAssetData> Assets;
-		FAssetResult Result;
+		FAssetRegistryResult Result;
 
 		explicit operator bool() const { return Result.Succeeded(); }
 	};
@@ -198,7 +198,7 @@ namespace Durin::Asset
 		uint64 PriorRevision = 0;
 		uint64 ResultingRevision = 0;
 		FAssetRegistryScanStats CatalogStats;
-		std::vector<FAssetResult> Errors;
+		std::vector<FAssetRegistryResult> Errors;
 		std::string CatalogCacheWarning;
 
 		auto Succeeded() const -> bool

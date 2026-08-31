@@ -1,5 +1,6 @@
 #include "AssetRegistry/Scan.h"
 #include "AssetPublicationCoordinatorInternal.h"
+#include "AssetRegistryResultAdapter.h"
 #include "AssetMutationReferenceInternal.h"
 #include "AssetMutationRegistryInternal.h"
 
@@ -353,6 +354,12 @@ namespace Durin::Asset
 	{
 		if (GetAssetCatalogRevision() != ExpectedRevision)
 			return Error(EAssetError::StaleData, std::format("Asset registry publication expected revision {} but current revision is {}.", ExpectedRevision, GetAssetCatalogRevision()));
-		return PublishAssetRegistryPublication({.ExpectedRevision = ExpectedRevision, .Assets = std::move(State.Assets), .ReferenceEdges = std::move(State.ReferenceEdges), .ReferenceFingerprints = std::move(State.ReferenceFingerprints), .ReferenceErrors = std::move(State.ReferenceErrors), .bReferenceIndexComplete = State.bReferenceIndexComplete});
+		return Private::ToAssetResult(PublishAssetRegistryPublication({
+			.ExpectedRevision = ExpectedRevision,
+			.Assets = std::move(State.Assets),
+			.ReferenceEdges = std::move(State.ReferenceEdges),
+			.ReferenceFingerprints = std::move(State.ReferenceFingerprints),
+			.ReferenceErrors = std::move(State.ReferenceErrors),
+			.bReferenceIndexComplete = State.bReferenceIndexComplete}));
 	}
 } // namespace Durin::Asset

@@ -9,7 +9,7 @@ namespace Durin::Asset
 	{
 		constexpr size_t MaximumReferencesPerSnapshot = 1'000'000;
 
-		auto Error(EAssetError Code, std::string Message) -> FAssetResult
+		auto Error(EAssetRegistryError Code, std::string Message) -> FAssetRegistryResult
 		{
 			return {Code, std::move(Message)};
 		}
@@ -100,7 +100,7 @@ namespace Durin::Asset
 			.CatalogCacheWarning = Candidate.CacheWarning};
 		if (!Refresh.Succeeded()) return Refresh;
 
-		FAssetResult PublishResult = PublishAssetRegistryPublication({
+		FAssetRegistryResult PublishResult = PublishAssetRegistryPublication({
 			.ExpectedRevision = PriorRevision,
 			.Assets = Candidate.Assets,
 			.ReferenceEdges = ReferenceEdges,

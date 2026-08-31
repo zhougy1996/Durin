@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Asset/Result.h"
+
 #include "EngineAPI.h"
 #include "AssetRegistry/Catalog.h"
 #include "Asset/CookedAsset.h"

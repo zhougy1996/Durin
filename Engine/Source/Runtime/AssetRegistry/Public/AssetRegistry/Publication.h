@@ -10,14 +10,14 @@ namespace Durin::Asset
 		std::unordered_map<FPackagePath, FAssetData> Assets;
 		std::vector<FAssetPackageReferenceEdge> ReferenceEdges;
 		std::unordered_map<FPackagePath, FAssetPackageFingerprint> ReferenceFingerprints;
-		std::vector<FAssetResult> ReferenceErrors;
+		std::vector<FAssetRegistryResult> ReferenceErrors;
 		bool bReferenceIndexComplete = false;
 	};
 
 	ASSETREGISTRY_API auto CaptureAssetRegistryPublication()
 		-> FAssetRegistryPublication;
 	ASSETREGISTRY_API auto PublishAssetRegistryPublication(
-		FAssetRegistryPublication Publication) -> FAssetResult;
+		FAssetRegistryPublication Publication) -> FAssetRegistryResult;
 	ASSETREGISTRY_API auto FlushAssetRegistryCaches() -> void;
 	ASSETREGISTRY_API auto IsAssetRegistryCacheDirty() -> bool;
 	ASSETREGISTRY_API auto GetAssetRegistryCacheWarning() -> std::string;

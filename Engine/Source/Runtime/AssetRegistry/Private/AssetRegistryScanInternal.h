@@ -10,7 +10,7 @@ namespace Durin::Asset::Private
 		std::unordered_map<FPackagePath, FAssetData> Assets;
 		std::vector<FRegistryCacheEntry> CacheEntries;
 		FAssetRegistryScanStats Stats;
-		std::vector<FAssetResult> Errors;
+		std::vector<FAssetRegistryResult> Errors;
 		std::string CacheWarning;
 	};
 

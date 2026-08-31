@@ -305,7 +305,7 @@ namespace Durin::Asset::Private
 				if (HasError() || !IsCurrentFieldAvailable()) return;
 				const FArchiveFormatVersion* DastVersion =
 					GetVersionContext().FindFormat(FName("DAST"));
-				if (!DastVersion || DastVersion->Version != AssetPackageV9FormatVersion)
+				if (!DastVersion || DastVersion->Version != ObjectPackage::DastV9FormatVersion)
 				{
 					FailLoad(EAssetError::UnsupportedVersion,
 						EArchiveFailureCode::InvalidData,
@@ -826,7 +826,7 @@ namespace Durin::Asset::Private
 				if (HasError() || SuppressedDepth != 0) return;
 				const FArchiveFormatVersion* DastVersion =
 					GetVersionContext().FindFormat(FName("DAST"));
-				if (!DastVersion || DastVersion->Version != AssetPackageV9FormatVersion)
+				if (!DastVersion || DastVersion->Version != ObjectPackage::DastV9FormatVersion)
 				{
 					Fail(EArchiveFailureCode::InvalidData,
 						"Package bulk fields require a supported DAST package version.");

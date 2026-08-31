@@ -2,7 +2,7 @@
 
 #include "AssetRegistryAPI.h"
 #include "AssetRegistry/Catalog.h"
-#include "AssetRegistry/PackageFormat.h"
+#include "DObject/PackageFormat.h"
 #include "DObject/AssetPath.h"
 #include "Hash/XxHash.h"
 
@@ -38,7 +38,7 @@ namespace Durin::Asset
 	ASSETREGISTRY_API auto ReadAssetPackageHeader(
 		std::string_view PhysicalPath,
 		const FPackagePath& PackagePath,
-		FAssetPackageHeader& OutHeader) -> FAssetResult;
+		FAssetPackageHeader& OutHeader) -> FAssetRegistryResult;
 
 	// Supplies the mounted identity and exact raw-bulk extent required by DAST Registry validation.
 	ASSETREGISTRY_API auto ReadAssetPackageHeaderBytes(
@@ -46,5 +46,5 @@ namespace Durin::Asset
 		uint64 PhysicalFileBytes,
 		uint64 PhysicalBulkBytes,
 		const FPackagePath& PackagePath,
-		FAssetPackageHeader& OutHeader) -> FAssetResult;
+		FAssetPackageHeader& OutHeader) -> FAssetRegistryResult;
 }

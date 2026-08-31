@@ -1,7 +1,7 @@
 #pragma once
 
 #include "AssetSubsystemFwd.h"
-#include "AssetRegistry/Result.h"
+#include "Asset/Result.h"
 #include "PackageObjectStreamWriter.h"
 
 namespace Durin::Asset::PackageObjectStream
@@ -26,7 +26,7 @@ namespace Durin::Asset::PackageObjectStream
 		// resolved, allowing dependency cycles to observe the in-flight package.
 		std::function<FAssetResult(DPackage*)> OnSkeletonReady;
 		std::function<void(DPackage*)> OnSkeletonRollback;
-		uint32 SourceFormatVersion = AssetPackageV9FormatVersion;
+		uint32 SourceFormatVersion = ObjectPackage::DastV9FormatVersion;
 		bool bCooked = false;
 		FArchiveTarget Target;
 	};

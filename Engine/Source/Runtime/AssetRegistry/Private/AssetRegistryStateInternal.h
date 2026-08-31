@@ -23,7 +23,7 @@ namespace Durin::Asset::Private
 		auto CaptureSnapshot() const -> FAssetRegistrySnapshot;
 		auto CapturePublication() const -> FAssetRegistryPublication;
 		auto GetRevision() const -> uint64;
-		auto Publish(FAssetRegistryPublication Publication) -> FAssetResult;
+		auto Publish(FAssetRegistryPublication Publication) -> FAssetRegistryResult;
 
 	private:
 		mutable std::shared_mutex Mutex;

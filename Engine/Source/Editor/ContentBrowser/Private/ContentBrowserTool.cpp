@@ -1,6 +1,6 @@
 #include "ContentBrowser/ContentBrowserTool.h"
 
-#include "AssetRegistry/Result.h"
+#include "Asset/Result.h"
 #include "AssetTools/IAssetTools.h"
 #include "Panels/ContentBrowserPanel.h"
 

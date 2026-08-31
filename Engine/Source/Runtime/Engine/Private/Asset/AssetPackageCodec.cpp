@@ -18,10 +18,10 @@ namespace Durin::Asset::Private
 		{
 			static const FBinaryFormatRegistry Registry = [] {
 				const std::array Descriptors{FBinaryFormatDescriptor{
-					.FormatId = DastBinaryFormatId,
-					.DebugName = std::string(DastBinaryFormatName),
-					.MinimumFormatVersion = AssetPackageV9FormatVersion,
-					.MaximumFormatVersion = AssetPackageV9FormatVersion,
+					.FormatId = ObjectPackage::DastFormatId,
+					.DebugName = std::string(ObjectPackage::DastFormatName),
+					.MinimumFormatVersion = ObjectPackage::DastV9FormatVersion,
+					.MaximumFormatVersion = ObjectPackage::DastV9FormatVersion,
 					.SupportedRequiredFeatures = 0,
 					.Limits = PackageEnvelopeLimits}};
 				FBinaryFormatRegistry Result;
@@ -49,7 +49,7 @@ namespace Durin::Asset::Private
 				return {EAssetError::CorruptFile, "Truncated asset header."};
 			uint32 Magic = 0;
 			std::memcpy(&Magic, Bytes.data(), sizeof(Magic));
-			if (Magic == DastPackageMagic)
+			if (Magic == ObjectPackage::DastPackageMagic)
 			{
 				if (Bytes.size() < sizeof(uint32) * 2)
 					return {EAssetError::CorruptFile, "Truncated asset header."};
@@ -108,7 +108,7 @@ namespace Durin::Asset::Private
 		if (FAssetResult Result = ReadAssetPackageFormatVersion(
 				Bytes, FormatVersion, PhysicalFileBytes); !Result)
 			return Result;
-		if (!IsSupportedAssetPackageReaderVersion(FormatVersion))
+		if (!ObjectPackage::IsSupportedPackageReaderVersion(FormatVersion))
 			return {EAssetError::UnsupportedVersion,
 				std::format("Unsupported DAST package version {}.", FormatVersion)};
 		OutCodec = FindAssetPackageReader(FormatVersion);
@@ -137,7 +137,7 @@ namespace Durin::Asset::Private
 			return {EAssetError::CorruptFile, "Truncated asset header."};
 		uint32 Magic = 0;
 		std::memcpy(&Magic, Prefix.data(), sizeof(Magic));
-		if (Magic == DastPackageMagic)
+		if (Magic == ObjectPackage::DastPackageMagic)
 		{
 			uint32 LegacyVersion = 0;
 			if (Prefix.size() >= sizeof(uint32) * 2)
@@ -159,7 +159,7 @@ namespace Durin::Asset::Private
 		uint32 Version = 0;
 		if (FAssetResult Result = ReadAssetPackageFormatVersion(
 			Header, Version, Source.GetSize()); !Result) return Result;
-		if (!IsSupportedAssetPackageReaderVersion(Version) || !(OutCodec = FindAssetPackageReader(Version)))
+		if (!ObjectPackage::IsSupportedPackageReaderVersion(Version) || !(OutCodec = FindAssetPackageReader(Version)))
 			return {EAssetError::UnsupportedVersion,
 				std::format("Unsupported DAST package version {}.", Version)};
 		if (OutFormatVersion) *OutFormatVersion = Version;
@@ -198,7 +198,7 @@ namespace Durin::Asset::Private
 	auto ValidateAssetPackageCodecPolicy(std::string& OutError) -> bool
 	{
 		if (!ValidateAssetPackageCodecTable(Codecs, OutError)) return false;
-		for (uint32 Version : SupportedAssetPackageReaderVersions)
+		for (uint32 Version : ObjectPackage::SupportedPackageReaderVersions)
 			if (!FindAssetPackageReader(Version))
 			{
 				OutError = std::format(
@@ -223,6 +223,6 @@ namespace Durin::Asset
 
 	auto GetAssetPackageReaderPolicyIdentity() -> uint32
 	{
-		return AssetPackageReaderPolicyFingerprint;
+		return ObjectPackage::PackageReaderPolicyFingerprint;
 	}
 }

@@ -15,15 +15,15 @@ namespace Durin::Asset
 		constexpr FBinaryEnvelopeLimits EnvelopeLimits{
 			MaximumHeaderBytes, MaximumFileBytes};
 
-		auto Error(EAssetError Code, std::string Message) -> FAssetResult
+		auto Error(EAssetRegistryError Code, std::string Message) -> FAssetRegistryResult
 		{
 			return {Code, std::move(Message)};
 		}
 
 		auto ReaderError(const ObjectPackage::FPackageReaderDiagnostic& Diagnostic)
-			-> FAssetResult
+			-> FAssetRegistryResult
 		{
-			return Error(EAssetError::CorruptFile,
+			return Error(EAssetRegistryError::CorruptFile,
 				std::format("DAST v9 Registry projection failed: {}",
 					Diagnostic.Message));
 		}
@@ -32,25 +32,25 @@ namespace Durin::Asset
 	auto ReadAssetPackageHeaderBytes(std::span<const std::byte> FrontMatter,
 		uint64 PhysicalFileBytes, uint64 PhysicalBulkBytes,
 		const FPackagePath& PackagePath, FAssetPackageHeader& OutHeader)
-		-> FAssetResult
+		-> FAssetRegistryResult
 	{
 		OutHeader = {};
 		FBinaryEnvelopePreamble Preamble;
 		FBinaryEnvelopeDiagnostic EnvelopeDiagnostic;
 		if (!ParseBinaryEnvelopePrefix(FrontMatter, PhysicalFileBytes,
 			EnvelopeLimits, Preamble, &EnvelopeDiagnostic))
-			return Error(EAssetError::CorruptFile,
+			return Error(EAssetRegistryError::CorruptFile,
 				std::string(EnvelopeDiagnostic.Message));
-		if (Preamble.FormatId != DastBinaryFormatId
-			|| Preamble.FormatVersion != AssetPackageV9FormatVersion)
-			return Error(EAssetError::UnsupportedVersion,
+		if (Preamble.FormatId != ObjectPackage::DastFormatId
+			|| Preamble.FormatVersion != ObjectPackage::DastV9FormatVersion)
+			return Error(EAssetRegistryError::UnsupportedVersion,
 				std::format("Unsupported DAST package format version {}.",
 					Preamble.FormatVersion));
 		if (Preamble.HeaderBytes > FrontMatter.size())
-			return Error(EAssetError::CorruptFile,
+			return Error(EAssetRegistryError::CorruptFile,
 				"DAST v9 front matter is truncated.");
 		if (!PackagePath.IsValid())
-			return Error(EAssetError::InvalidPath,
+			return Error(EAssetRegistryError::InvalidPath,
 				"DAST v9 Registry projection requires the mounted package identity.");
 
 		ObjectPackage::FPackageV9RegistryData Registry;
@@ -91,21 +91,21 @@ namespace Durin::Asset
 
 	auto ReadAssetPackageHeader(std::string_view PhysicalPath,
 		const FPackagePath& PackagePath, FAssetPackageHeader& OutHeader)
-		-> FAssetResult
+		-> FAssetRegistryResult
 	{
 		OutHeader = {};
 		std::ifstream Stream(
 			std::filesystem::path(PhysicalPath), std::ios::binary | std::ios::ate);
 		if (!Stream)
-			return Error(EAssetError::IoError,
+			return Error(EAssetRegistryError::IoError,
 				std::format("Failed to open asset package {}.", PhysicalPath));
 		const auto End = Stream.tellg();
 		if (End < 0)
-			return Error(EAssetError::IoError,
+			return Error(EAssetRegistryError::IoError,
 				std::format("Failed to size asset package {}.", PhysicalPath));
 		const uint64 FileSize = static_cast<uint64>(End);
 		if (FileSize > MaximumFileBytes)
-			return Error(EAssetError::CorruptFile,
+			return Error(EAssetRegistryError::CorruptFile,
 				"Asset package exceeds the supported byte bound.");
 		Stream.seekg(0);
 		const uint64 InitialSize = std::min<uint64>(
@@ -116,20 +116,20 @@ namespace Durin::Asset
 			Stream.read(reinterpret_cast<char*>(Bytes.data()),
 				static_cast<std::streamsize>(InitialSize));
 			if (!Stream)
-				return Error(EAssetError::IoError,
+				return Error(EAssetRegistryError::IoError,
 					std::format("Failed to read asset package {}.", PhysicalPath));
 		}
 		uint32 Magic = 0;
 		if (Bytes.size() >= sizeof(Magic))
 			std::memcpy(&Magic, Bytes.data(), sizeof(Magic));
-		if (Magic == DastPackageMagic)
+		if (Magic == ObjectPackage::DastPackageMagic)
 		{
 			if (Bytes.size() < sizeof(uint32) * 2)
-				return Error(EAssetError::CorruptFile, "Truncated asset header.");
+				return Error(EAssetRegistryError::CorruptFile, "Truncated asset header.");
 			uint32 LegacyVersion = 0;
 			std::memcpy(&LegacyVersion,
 				Bytes.data() + sizeof(Magic), sizeof(LegacyVersion));
-			return Error(EAssetError::UnsupportedVersion,
+			return Error(EAssetRegistryError::UnsupportedVersion,
 				std::format("Unsupported legacy DAST prefix version {}.",
 					LegacyVersion));
 		}
@@ -141,7 +141,7 @@ namespace Durin::Asset
 			if (!ReadLittleEndianAt(Bytes, 32, Declared)
 				|| Declared < BinaryEnvelopePreambleBytes
 				|| Declared > MaximumHeaderBytes || Declared > FileSize)
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetRegistryError::CorruptFile,
 					"Asset package declares an invalid front-matter extent.");
 			HeaderBytes = Declared;
 			if (Declared > Bytes.size())
@@ -151,7 +151,7 @@ namespace Durin::Asset
 				Stream.read(reinterpret_cast<char*>(Bytes.data() + Previous),
 					static_cast<std::streamsize>(Declared - Previous));
 				if (!Stream)
-					return Error(EAssetError::IoError,
+					return Error(EAssetRegistryError::IoError,
 						std::format("Failed to read asset package {}.",
 							PhysicalPath));
 			}
@@ -165,11 +165,11 @@ namespace Durin::Asset
 		{
 			const uintmax_t Extent = std::filesystem::file_size(BulkPath, BulkEc);
 			if (BulkEc || Extent > ObjectPackage::DastV8MaximumBulkBytes)
-				return Error(EAssetError::CorruptFile,
+				return Error(EAssetRegistryError::CorruptFile,
 					"Asset package bulk segment exceeds the supported byte bound.");
 			BulkBytes = static_cast<uint64>(Extent);
 		}
-		FAssetResult Result = ReadAssetPackageHeaderBytes(
+		FAssetRegistryResult Result = ReadAssetPackageHeaderBytes(
 			Bytes, FileSize, BulkBytes, PackagePath, OutHeader);
 		if (Result) OutHeader.FileBytesRead = HeaderBytes;
 		return Result;

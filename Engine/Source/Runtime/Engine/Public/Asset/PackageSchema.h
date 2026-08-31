@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Asset/Result.h"
+
 #include "EngineAPI.h"
 #include "Asset/Load.h"
 #include "Asset/PackageInspection.h"

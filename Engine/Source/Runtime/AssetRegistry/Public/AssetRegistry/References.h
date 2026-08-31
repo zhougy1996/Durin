@@ -44,13 +44,13 @@ namespace Durin::Asset
 		ASSETREGISTRY_API auto FindTargets(const FPackagePath& Source) const
 			-> std::vector<FPackagePath>;
 		auto IsComplete() const -> bool { return bComplete; }
-		auto GetErrors() const -> std::span<const FAssetResult> { return Errors; }
+		auto GetErrors() const -> std::span<const FAssetRegistryResult> { return Errors; }
 
 	private:
 		uint64 Revision = 0;
 		std::vector<FAssetPackageReferenceEdge> Edges;
 		std::unordered_map<FPackagePath, FAssetPackageFingerprint> SourceFingerprints;
-		std::vector<FAssetResult> Errors;
+		std::vector<FAssetRegistryResult> Errors;
 		bool bComplete = true;
 
 		friend class Private::FAssetRegistryState;

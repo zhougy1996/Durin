@@ -1,5 +1,5 @@
 #include "AssetRegistryCacheInternal.h"
-#include "AssetRegistry/PackageFormat.h"
+#include "DObject/PackageFormat.h"
 
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -93,7 +93,7 @@ namespace Durin::Asset::Private
 		}
 		FBinaryReader Reader(Bytes);
 		uint32 MountCount = 0;
-		if (!Reader.ReadAndValidateHeader(AssetRegistryMagic, AssetRegistrySchemaVersion, AssetPackageReaderPolicyFingerprint)
+		if (!Reader.ReadAndValidateHeader(AssetRegistryMagic, AssetRegistrySchemaVersion, ObjectPackage::PackageReaderPolicyFingerprint)
 			|| !Reader.ReadU32(MountCount) || MountCount > MaximumRegistryEntries)
 		{
 			OutWarning = "Ignoring incompatible or corrupt asset registry cache header.";
@@ -225,7 +225,7 @@ namespace Durin::Asset::Private
 				|| !Reader.ReadHash128(Entry.BulkSegmentDigest)
 				|| ((Entry.BulkSegmentExtent == 0) != Entry.BulkSegmentDigest.IsZero())
 				|| !Reader.ReadU64(Entry.FileSize) || !Reader.ReadI64(Entry.LastWriteTimeTicks)
-				|| !IsSupportedAssetPackageReaderVersion(Entry.FormatVersion)
+				|| !ObjectPackage::IsSupportedPackageReaderVersion(Entry.FormatVersion)
 				|| !std::ranges::binary_search(ExpectedMounts, Entry.MountRoot)
 				|| std::filesystem::path(Entry.RelativePath).is_absolute()
 				|| std::filesystem::path(Entry.RelativePath).extension() != ".dasset"
@@ -265,7 +265,7 @@ namespace Durin::Asset::Private
 			return std::tie(A.MountRoot, A.RelativePath) < std::tie(B.MountRoot, B.RelativePath);
 		});
 		FBinaryWriter Writer;
-		Writer.WriteHeader({AssetRegistryMagic, AssetRegistrySchemaVersion, AssetPackageReaderPolicyFingerprint});
+		Writer.WriteHeader({AssetRegistryMagic, AssetRegistrySchemaVersion, ObjectPackage::PackageReaderPolicyFingerprint});
 		Writer.WriteU32(static_cast<uint32>(Mounts.size()));
 		for (const std::string& Mount : Mounts) Writer.WriteString(Mount);
 		Writer.WriteU64(Entries.size());

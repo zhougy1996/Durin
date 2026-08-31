@@ -139,7 +139,7 @@ namespace Durin
 				DURIN_ERROR(
 					"Asset catalog refresh retained revision {} with {} error(s).",
 					Refresh.ResultingRevision, Refresh.Errors.size());
-				for (const Asset::FAssetResult& Error : Refresh.Errors)
+				for (const Asset::FAssetRegistryResult& Error : Refresh.Errors)
 				{
 					DURIN_ERROR("Asset catalog refresh error: {}", Error.Message);
 				}

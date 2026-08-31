@@ -157,7 +157,7 @@ namespace Durin::Asset
 		std::unordered_map<FPackagePath, FAssetData> PostAssets;
 		std::vector<FAssetReferenceEdge> PostEdges;
 		std::unordered_map<FPackagePath, FAssetPackageFingerprint> PostFingerprints;
-		std::vector<FAssetResult> PostErrors;
+		std::vector<FAssetRegistryResult> PostErrors;
 		bool bPostIndexComplete = false;
 	};
 

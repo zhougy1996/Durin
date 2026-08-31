@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Asset/Result.h"
+
 #include "EngineAPI.h"
 #include "Asset/Relocation.h"
 #include "Modules/ModularFeature.h"

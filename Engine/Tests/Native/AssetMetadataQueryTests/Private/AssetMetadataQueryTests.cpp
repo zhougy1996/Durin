@@ -1,5 +1,5 @@
 #include "AssetRegistry/Catalog.h"
-#include "AssetRegistry/PackageFormat.h"
+#include "DObject/PackageFormat.h"
 #include "AssetRegistry/PackageHeader.h"
 #include "AssetRegistry/PackageTypes.h"
 #include "AssetRegistry/Publication.h"
@@ -19,7 +19,7 @@ namespace
 	{
 		return {.PackagePath = Path,
 			.AssetClassName = "Example::MetadataAsset",
-			.FormatVersion = AssetPackageV9FormatVersion,
+			.FormatVersion = Durin::ObjectPackage::DastV9FormatVersion,
 			.Dependencies = std::move(Hard),
 			.SoftDependencies = std::move(Soft),
 			.ObjectCount = 1,
@@ -27,7 +27,7 @@ namespace
 			.LastWriteTimeTicks = 42};
 	}
 
-	auto RebuildPackageProjection(FAssetRegistryPublication& Publication) -> void
+		auto RebuildPackageProjection(FAssetRegistryPublication& Publication) -> void
 	{
 		Publication.ReferenceEdges.clear();
 		Publication.ReferenceFingerprints.clear();
@@ -64,6 +64,17 @@ namespace
 		Publication.bReferenceIndexComplete = true;
 	}
 
+	TEST(FAssetMetadataQueryTests, RegistryErrorsExposeStructuredDiagnostics)
+	{
+		const FAssetRegistryResult Result{
+			EAssetRegistryError::StaleData, "The expected revision is stale."};
+		const Durin::FDiagnostic Diagnostic = Result.GetDiagnostic();
+		EXPECT_EQ(Diagnostic.Domain, "AssetRegistry");
+		EXPECT_EQ(Diagnostic.Code, "StaleData");
+		EXPECT_TRUE(Diagnostic.IsError());
+		EXPECT_EQ(Diagnostic.Message, Result.Message);
+	}
+
 	TEST(FAssetMetadataQueryTests, SnapshotOwnsExactMetadataWithoutEngine)
 	{
 		Durin::Testing::InitializeDObjectSystemForTests();
@@ -79,29 +90,29 @@ namespace
 				.PackagePath = Path,
 				.PhysicalPath = "Content/Textures/Brick.dasset",
 				.AssetClassName = "Durin::DTexture2D",
-				.FormatVersion = AssetPackageV9FormatVersion}}}};
+				.FormatVersion = Durin::ObjectPackage::DastV9FormatVersion}}}};
 
 		const FAssetData* Data = Snapshot.FindExact(Path);
 		ASSERT_NE(Data, nullptr);
 		EXPECT_EQ(Snapshot.Revision, 17u);
 		EXPECT_EQ(Data->PackagePath, Path);
 		EXPECT_EQ(Data->AssetClassName, "Durin::DTexture2D");
-		EXPECT_EQ(Data->FormatVersion, AssetPackageV9FormatVersion);
+		EXPECT_EQ(Data->FormatVersion, Durin::ObjectPackage::DastV9FormatVersion);
 	}
 
 	TEST(FAssetMetadataQueryTests, OwnsCanonicalDastReaderIdentity)
 	{
-		EXPECT_EQ(AssetPackageV9FormatVersion, 9u);
-		EXPECT_EQ(DastBinaryFormatName, "Durin.BinaryFormat.DAST");
-		EXPECT_TRUE(IsSupportedAssetPackageReaderVersion(9));
-		EXPECT_FALSE(IsSupportedAssetPackageReaderVersion(8));
-		EXPECT_FALSE(IsSupportedAssetPackageReaderVersion(7));
-		EXPECT_FALSE(IsSupportedAssetPackageReaderVersion(6));
+		EXPECT_EQ(Durin::ObjectPackage::DastV9FormatVersion, 9u);
+		EXPECT_EQ(Durin::ObjectPackage::DastFormatName, "Durin.BinaryFormat.DAST");
+		EXPECT_TRUE(Durin::ObjectPackage::IsSupportedPackageReaderVersion(9));
+		EXPECT_FALSE(Durin::ObjectPackage::IsSupportedPackageReaderVersion(8));
+		EXPECT_FALSE(Durin::ObjectPackage::IsSupportedPackageReaderVersion(7));
+		EXPECT_FALSE(Durin::ObjectPackage::IsSupportedPackageReaderVersion(6));
 
 		const FAssetPackageFingerprint Fingerprint{
 			.FileSize = 128,
 			.LastWriteTimeTicks = 42,
-			.ReaderVersion = AssetPackageV9FormatVersion};
+			.ReaderVersion = Durin::ObjectPackage::DastV9FormatVersion};
 		EXPECT_EQ(Fingerprint.ReaderVersion, 9u);
 	}
 
@@ -118,7 +129,7 @@ namespace
 		First.Assets.insert_or_assign(Path, FAssetData{
 			.PackagePath = Path,
 			.AssetClassName = "Durin::DTexture2D",
-			.FormatVersion = AssetPackageV9FormatVersion,
+			.FormatVersion = Durin::ObjectPackage::DastV9FormatVersion,
 			.ObjectCount = 1});
 		RebuildPackageProjection(First);
 		ASSERT_TRUE(PublishAssetRegistryPublication(std::move(First)));
@@ -128,13 +139,13 @@ namespace
 		FAssetRegistryPublication Stale = CaptureAssetRegistryPublication();
 		Stale.ExpectedRevision = Revision;
 		EXPECT_EQ(PublishAssetRegistryPublication(std::move(Stale)).Error,
-			EAssetError::StaleData);
+			EAssetRegistryError::StaleData);
 		EXPECT_TRUE(FindAssetExact(Path));
 
 		FAssetRegistryPublication Incomplete = CaptureAssetRegistryPublication();
 		Incomplete.bReferenceIndexComplete = false;
 		EXPECT_EQ(PublishAssetRegistryPublication(std::move(Incomplete)).Error,
-			EAssetError::StaleData);
+			EAssetRegistryError::StaleData);
 	}
 
 	TEST(FAssetMetadataQueryTests, ConcurrentExpectedRevisionPublishesAtMostOnce)
@@ -164,7 +175,7 @@ namespace
 		FAssetRegistryPublication Stale = CaptureAssetRegistryPublication();
 		Stale.ExpectedRevision = Revision;
 		EXPECT_EQ(PublishAssetRegistryPublication(std::move(Stale)).Error,
-			EAssetError::StaleData);
+			EAssetRegistryError::StaleData);
 
 		const FAssetRegistrySnapshot Snapshot = CaptureAssetRegistrySnapshot();
 		EXPECT_EQ(Snapshot.Revision, Snapshot.Catalog.Revision);

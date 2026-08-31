@@ -25,6 +25,7 @@ durin_add_core_functional_test(CoreUtilityTests
 	Private/CheckedArithmeticTests.cpp
 	Private/ColorTests.cpp
 	Private/ConsoleCommandTests.cpp
+	Private/DiagnosticTests.cpp
 	Private/GuidTests.cpp
 	Private/JsonTests.cpp
 	Private/LoggerTests.cpp

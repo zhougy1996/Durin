@@ -5,4 +5,4 @@
 #include "Asset/CookedAsset.h"
 #include "Asset/Load.h"
 #include "Asset/Redirector.h"
-#include "AssetRegistry/Result.h"
+#include "Asset/Result.h"

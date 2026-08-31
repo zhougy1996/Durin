@@ -4,7 +4,7 @@
 #include "Asset/EditorBulkDataStorageTypes.h"
 #include "AssetRegistry/Catalog.h"
 #include "AssetRegistry/PackageTypes.h"
-#include "AssetRegistry/Result.h"
+#include "Asset/Result.h"
 #include "AssetRegistry/PackageHeader.h"
 #include "DObject/AssetPath.h"
 #include "DObject/DObjectFwd.h"

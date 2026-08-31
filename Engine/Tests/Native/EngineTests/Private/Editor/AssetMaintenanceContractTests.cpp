@@ -2,7 +2,7 @@
 
 #include "AssetMaintenance/CanonicalResave.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
-#include "AssetRegistry/PackageFormat.h"
+#include "DObject/PackageFormat.h"
 #include "DObject/PackageFormat.h"
 #include "Json/Json.h"
 #include "Misc/FileHelper.h"
