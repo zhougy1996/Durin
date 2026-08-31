@@ -1,7 +1,7 @@
 #pragma once
 
 #include "EngineAPI.h"
-#include "Serialization/PayloadDecodeResult.h"
+#include "Serialization/SerializationDefinitions.h"
 #include "Texture/Texture2D.h"
 
 namespace Durin
@@ -64,6 +64,6 @@ namespace Durin
 		std::span<const std::byte> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
-		FVolumeTexturePlatformData& OutPlatformData) -> FPayloadDecodeResult;
+		FVolumeTexturePlatformData& OutPlatformData) -> FDecodeResult;
 
 }

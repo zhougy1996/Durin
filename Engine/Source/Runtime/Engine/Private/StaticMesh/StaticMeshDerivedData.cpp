@@ -399,10 +399,10 @@ namespace Durin
 		auto FailChunkedPayload(
 			const Asset::FChunkedPayloadResult& Result,
 			std::string& OutError,
-			EPayloadDecodeError* OutCode = nullptr) -> bool
+			EDecodeError* OutCode = nullptr) -> bool
 		{
 			if (OutCode && Result.Kind == Asset::EChunkedPayloadFailureKind::Incompatible)
-				*OutCode = EPayloadDecodeError::Incompatible;
+				*OutCode = EDecodeError::Incompatible;
 			return Fail(Asset::DescribeChunkedPayloadFailure(Result.Failure, "Static-mesh payload"), &OutError);
 		}
 	}
@@ -441,14 +441,14 @@ namespace Durin
 		EStaticMeshTargetPlatform ExpectedPlatform,
 		FStaticMeshPayloadData& OutPayload,
 		std::string& OutError,
-		EPayloadDecodeError& OutCode) -> bool
+		EDecodeError& OutCode) -> bool
 	{
 		OutError.clear();
-		OutCode = EPayloadDecodeError::Corrupt;
+		OutCode = EDecodeError::Corrupt;
 		if (Bytes.size() < StaticMeshPayloadHeaderSize) return Fail("Static-mesh payload header is truncated.", &OutError);
 		if (ExpectedPlatform != EStaticMeshTargetPlatform::Win64)
 		{
-			OutCode = EPayloadDecodeError::Incompatible;
+			OutCode = EDecodeError::Incompatible;
 			return Fail("A concrete target platform is required to decode a static-mesh payload.", &OutError);
 		}
 
@@ -465,12 +465,12 @@ namespace Durin
 		if (Reserved0 != 0) return Fail("Static-mesh payload reserved header field is nonzero.", &OutError);
 		if (SchemaVersion != StaticMeshPayloadSchemaVersion)
 		{
-			OutCode = EPayloadDecodeError::Incompatible;
+			OutCode = EDecodeError::Incompatible;
 			return Fail("Static-mesh payload schema version is unsupported.", &OutError);
 		}
 		if (BuilderVersion != StaticMeshBuilderVersion)
 		{
-			OutCode = EPayloadDecodeError::Incompatible;
+			OutCode = EDecodeError::Incompatible;
 			return Fail("Static-mesh payload builder version is unsupported.", &OutError);
 		}
 		if (Platform != static_cast<uint32>(ExpectedPlatform)) return Fail("Static-mesh payload target platform does not match.", &OutError);
@@ -492,9 +492,9 @@ namespace Durin
 	auto ParseStaticMeshSerializedValue(
 		std::span<const std::byte> Bytes,
 		EStaticMeshTargetPlatform ExpectedPlatform,
-		FStaticMeshPayloadData& OutPayload) -> FPayloadDecodeResult
+		FStaticMeshPayloadData& OutPayload) -> FDecodeResult
 	{
-		FPayloadDecodeResult Result;
+		FDecodeResult Result;
 		if (!ParseStaticMeshSerializedValueImpl(
 			Bytes, ExpectedPlatform, OutPayload, Result.Message, Result.Code))
 			return Result;
@@ -632,8 +632,8 @@ namespace Durin
 				& ~(static_cast<uint64>(StaticMeshCollisionPayloadAlignment) - 1);
 		}
 
-		auto CollisionDecodeFailure(EPayloadDecodeError Code, std::string Message)
-			-> FPayloadDecodeResult
+		auto CollisionDecodeFailure(EDecodeError Code, std::string Message)
+			-> FDecodeResult
 		{
 			return {Code, std::move(Message)};
 		}
@@ -843,7 +843,7 @@ namespace Durin
 	auto ParseStaticMeshCollisionSerializedValue(
 		std::span<const std::byte> Bytes,
 		EStaticMeshTargetPlatform ExpectedPlatform,
-		FStaticMeshCollisionPayloadData& OutPayload) -> FPayloadDecodeResult
+		FStaticMeshCollisionPayloadData& OutPayload) -> FDecodeResult
 	{
 		uint32 Reserved0 = 0, Schema = 0, Builder = 0, Platform = 0, Header = 0;
 		uint32 ChunkCount = 0, Alignment = 0, Mode = 0, Policy = 0, Reserved = 0;
@@ -856,17 +856,17 @@ namespace Durin
 			|| !ReadLittleEndianAt(Bytes, 32, StoredSize) || !ReadLittleEndianAt(Bytes, 40, LogicalBytes)
 			|| !ReadLittleEndianAt(Bytes, 48, Checksum) || !ReadLittleEndianAt(Bytes, 56, Policy)
 			|| !ReadLittleEndianAt(Bytes, 60, Reserved))
-			return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL header is truncated.");
+			return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL header is truncated.");
 		if (Schema != StaticMeshCollisionPayloadSchemaVersion
 			|| Builder != StaticMeshCollisionBuilderVersion
 			|| Platform != static_cast<uint32>(ExpectedPlatform))
-			return CollisionDecodeFailure(EPayloadDecodeError::Incompatible, "DCOL version or platform is incompatible.");
+			return CollisionDecodeFailure(EDecodeError::Incompatible, "DCOL version or platform is incompatible.");
 		if (Reserved0 != 0 || Header != StaticMeshCollisionPayloadHeaderSize || ChunkCount != 4
 			|| ChunkCount > MaximumStaticMeshCollisionPayloadChunks
 			|| Alignment != StaticMeshCollisionPayloadAlignment || Mode != 0 || Policy != 0 || Reserved != 0
 			|| StoredSize != Bytes.size() || StoredSize > MaximumStaticMeshCollisionPayloadBytes
 			|| Checksum != FXxHash64::HashBuffer(Bytes.subspan(64)).HashValue)
-			return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL header values or checksum are invalid.");
+			return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL header values or checksum are invalid.");
 		const std::array<uint64, 4> ElementSizes{12, 4, 4, 32};
 		std::array<std::span<const std::byte>, 4> Chunks;
 		std::array<uint64, 4> Counts{};
@@ -884,10 +884,10 @@ namespace Durin
 				|| Offset % Alignment != 0 || Offset < PreviousEnd || Offset > Bytes.size()
 				|| Size > Bytes.size() - Offset || Count > std::numeric_limits<uint64>::max() / ElementSizes[Chunk]
 				|| Count * ElementSizes[Chunk] != Size)
-				return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL chunk table is invalid.");
+				return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL chunk table is invalid.");
 			for (uint64 Padding = PreviousEnd; Padding < Offset; ++Padding)
 				if (Bytes[Padding] != std::byte{0})
-					return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL alignment padding is non-zero.");
+					return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL alignment padding is non-zero.");
 			Chunks[Chunk] = Bytes.subspan(static_cast<size_t>(Offset), static_cast<size_t>(Size));
 			Counts[Chunk] = Count;
 			PreviousEnd = Offset + Size;
@@ -897,7 +897,7 @@ namespace Durin
 			|| Counts[0] > MaximumStaticMeshVerticesPerLOD
 			|| Counts[2] > 2'000'000 || LogicalBytes != Counts[0] * 12 + Counts[1] * 4
 				+ Counts[2] * 4 + Counts[3] * 32)
-			return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL counts or logical byte total are invalid.");
+			return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL counts or logical byte total are invalid.");
 		FStaticMeshCollisionPayloadData Candidate;
 		Candidate.SourceMode = Counts[3] == 0
 			? EBodySetupCollisionSourceMode::ConvexHullFromLOD0
@@ -908,7 +908,7 @@ namespace Durin
 		for (FVector3f& Position : Candidate.Positions)
 			for (uint32 Axis = 0; Axis < 3; ++Axis)
 				if (!PositionReader.ReadFloat(Position[Axis]) || !std::isfinite(Position[Axis]))
-					return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL position data is invalid.");
+					return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL position data is invalid.");
 		auto ReadU32Chunk = [](std::span<const std::byte> Bytes, uint64 Count, std::vector<uint32>& Out) {
 			FPayloadReader Reader(Bytes);
 			Out.resize(static_cast<size_t>(Count));
@@ -917,26 +917,26 @@ namespace Durin
 		};
 		if (!ReadU32Chunk(Chunks[1], Counts[1], Candidate.Indices)
 			|| !ReadU32Chunk(Chunks[2], Counts[2], Candidate.SourceOrdinals))
-			return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL index or ordinal data is invalid.");
+			return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL index or ordinal data is invalid.");
 		FPayloadReader NodeReader(Chunks[3]);
 		Candidate.Nodes.resize(static_cast<size_t>(Counts[3]));
 		for (FCollisionGeometryNode& Node : Candidate.Nodes)
 		{
 			for (uint32 Axis = 0; Axis < 3; ++Axis) if (!NodeReader.ReadFloat(Node.Minimum[Axis]))
-				return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL node data is truncated.");
+				return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL node data is truncated.");
 			if (!NodeReader.ReadU32(Node.First))
-				return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL node data is truncated.");
+				return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL node data is truncated.");
 			for (uint32 Axis = 0; Axis < 3; ++Axis) if (!NodeReader.ReadFloat(Node.Maximum[Axis]))
-				return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL node data is truncated.");
+				return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL node data is truncated.");
 			if (!NodeReader.ReadU32(Node.CountOrSecond))
-				return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, "DCOL node data is truncated.");
+				return CollisionDecodeFailure(EDecodeError::Corrupt, "DCOL node data is truncated.");
 		}
 		if (Candidate.SourceMode == EBodySetupCollisionSourceMode::TriangleMeshFromLOD0)
 			Candidate.LeafTriangles = Candidate.SourceOrdinals;
 		FCollisionGeometryRef Geometry;
 		std::string Error;
 		if (!MakeStaticMeshCollisionGeometry(Candidate, Geometry, Error))
-			return CollisionDecodeFailure(EPayloadDecodeError::Corrupt, std::move(Error));
+			return CollisionDecodeFailure(EDecodeError::Corrupt, std::move(Error));
 		OutPayload = std::move(Candidate);
 		return {};
 	}

@@ -123,10 +123,10 @@ namespace Durin
 
 	static auto ParseEnvironmentLightingSerializedValue(
 		std::span<const std::byte> Bytes,
-		FEnvironmentLightingData& OutData) -> FPayloadDecodeResult
+		FEnvironmentLightingData& OutData) -> FDecodeResult
 	{
-		auto Reject = [](EPayloadDecodeError Code, std::string Message) {
-			return FPayloadDecodeResult{Code, std::move(Message)};
+		auto Reject = [](EDecodeError Code, std::string Message) {
+			return FDecodeResult{Code, std::move(Message)};
 		};
 		FBinaryReader Reader(Bytes);
 		uint32 PixelFormat = 0;
@@ -152,11 +152,11 @@ namespace Durin
 			|| !Reader.ReadU64(ElementCount)
 			|| !Reader.ReadU64(StoredHash))
 		{
-			return Reject(EPayloadDecodeError::Corrupt,
+			return Reject(EDecodeError::Corrupt,
 				"Environment-lighting payload header is invalid.");
 		}
 		if (Reserved0 != 0)
-			return Reject(EPayloadDecodeError::Corrupt,
+			return Reject(EDecodeError::Corrupt,
 				"Environment-lighting payload reserved header field is nonzero.");
 		if (SchemaVersion != EnvironmentLightingPayloadSchemaVersion
 			|| SerializationMarker != BinaryFormatMarker
@@ -167,7 +167,7 @@ namespace Durin
 			|| BrdfLutDimension != EnvironmentBrdfLutDimension
 			|| ElementCount != ExpectedElementCount())
 		{
-			return Reject(EPayloadDecodeError::Incompatible,
+			return Reject(EDecodeError::Incompatible,
 				"Environment-lighting payload layout is incompatible.");
 		}
 		// Producer identity is diagnostic metadata. Runtime compatibility is owned
@@ -175,14 +175,14 @@ namespace Durin
 		(void)ProducerVersion;
 		const uint64 ExpectedBodyBytes = ElementCount * sizeof(uint16);
 		if (ExpectedBodyBytes != Reader.GetRemainingBytes())
-			return Reject(EPayloadDecodeError::Corrupt,
+			return Reject(EDecodeError::Corrupt,
 				"Environment-lighting payload size is invalid.");
 		FByteArray Body;
 		if (!Reader.ReadBytes(Body, ExpectedBodyBytes, ExpectedBodyBytes)
 			|| !Reader.IsAtEnd()
 			|| FXxHash64::HashBuffer(Body).HashValue != StoredHash)
 		{
-			return Reject(EPayloadDecodeError::Corrupt,
+			return Reject(EDecodeError::Corrupt,
 				"Environment-lighting payload checksum does not match.");
 		}
 
@@ -192,14 +192,14 @@ namespace Durin
 			* EnvironmentIrradianceDimension * 4;
 		for (std::vector<uint16>& Face : Candidate.Irradiance)
 			if (!ReadHalfValues(Body, Offset, IrradianceElements, Face))
-				return Reject(EPayloadDecodeError::Corrupt,
+				return Reject(EDecodeError::Corrupt,
 					"Environment-lighting irradiance data is truncated.");
 		for (uint32 Mip = 0; Mip < EnvironmentPrefilterMipCount; ++Mip)
 		{
 			const size_t Dimension = EnvironmentPrefilterDimension >> Mip;
 			for (std::vector<uint16>& Face : Candidate.Prefiltered[Mip])
 				if (!ReadHalfValues(Body, Offset, Dimension * Dimension * 4, Face))
-					return Reject(EPayloadDecodeError::Corrupt,
+					return Reject(EDecodeError::Corrupt,
 						"Environment-lighting prefilter data is truncated.");
 		}
 		if (!ReadHalfValues(
@@ -209,7 +209,7 @@ namespace Durin
 				Candidate.BrdfLut)
 			|| Offset != Body.size() || !Candidate.IsValid())
 		{
-			return Reject(EPayloadDecodeError::Corrupt,
+			return Reject(EDecodeError::Corrupt,
 				"Environment-lighting BRDF LUT data is invalid.");
 		}
 		OutData = std::move(Candidate);

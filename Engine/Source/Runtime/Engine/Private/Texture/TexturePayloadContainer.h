@@ -49,7 +49,7 @@ namespace Durin::TexturePayloadContainer
 		std::span<const std::byte> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
-		FDecodedContainer& OutContainer) -> FPayloadDecodeResult;
+		FDecodedContainer& OutContainer) -> FDecodeResult;
 
 	inline auto GetData(std::span<const std::byte> Bytes, const FRecord& Record)
 		-> std::span<const std::byte>

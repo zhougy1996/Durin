@@ -97,16 +97,16 @@ namespace Durin
 		std::span<const std::byte> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
-		FVolumeTexturePlatformData& OutPlatformData) -> FPayloadDecodeResult
+		FVolumeTexturePlatformData& OutPlatformData) -> FDecodeResult
 	{
-		auto Reject = [](EPayloadDecodeError Code, std::string Message) {
-			return FPayloadDecodeResult{Code, std::move(Message)};
+		auto Reject = [](EDecodeError Code, std::string Message) {
+			return FDecodeResult{Code, std::move(Message)};
 		};
 		if (!IsVolumeTargetSupported(ExpectedPlatform, ExpectedProfile))
-			return Reject(EPayloadDecodeError::Incompatible,
+			return Reject(EDecodeError::Incompatible,
 				"Volume texture expected target is unsupported.");
 		TexturePayloadContainer::FDecodedContainer Container;
-		FPayloadDecodeResult Result = TexturePayloadContainer::Parse(
+		FDecodeResult Result = TexturePayloadContainer::Parse(
 			Bytes, ExpectedPlatform, ExpectedProfile, Container);
 		if (!Result) return Result;
 		const TexturePayloadContainer::FDescriptor& Descriptor = Container.Descriptor;
@@ -114,11 +114,11 @@ namespace Durin
 			|| Descriptor.SliceCount != 1 || Descriptor.MipCount == 0
 			|| Descriptor.MipCount > MaximumTextureMipCount
 			|| Container.Records.size() != Descriptor.MipCount)
-			return Reject(EPayloadDecodeError::Corrupt,
+			return Reject(EDecodeError::Corrupt,
 				"Volume texture payload header layout is invalid.");
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
 		if (!FromVolumeStableFormat(static_cast<uint32>(Descriptor.StableFormat), PixelFormat))
-			return Reject(EPayloadDecodeError::Incompatible,
+			return Reject(EDecodeError::Incompatible,
 				"Volume texture stable format is unsupported.");
 
 		FVolumeTexturePlatformData Candidate;
@@ -130,7 +130,7 @@ namespace Durin
 				|| Record.Coordinate == 0 || Record.Width > MaximumVolumeTextureDimension
 				|| Record.Height > MaximumVolumeTextureDimension
 				|| Record.Coordinate > MaximumVolumeTextureDimension)
-				return Reject(EPayloadDecodeError::Corrupt,
+				return Reject(EDecodeError::Corrupt,
 					"Volume texture mip identity or dimensions are invalid.");
 			if (MipIndex > 0)
 			{
@@ -138,7 +138,7 @@ namespace Durin
 				if (Record.Width != std::max(1u, Previous.Width / 2)
 					|| Record.Height != std::max(1u, Previous.Height / 2)
 					|| Record.Coordinate != std::max(1u, Previous.Depth / 2))
-					return Reject(EPayloadDecodeError::Corrupt,
+					return Reject(EDecodeError::Corrupt,
 						"Volume texture mip progression is invalid.");
 			}
 			const FPixelFormatLayout Slice = GetPixelFormatLayout(
@@ -147,7 +147,7 @@ namespace Durin
 				|| Slice.DataSize != Record.LayerPitch
 				|| Record.Coordinate > std::numeric_limits<uint64>::max() / Record.LayerPitch
 				|| Record.ByteCount != static_cast<uint64>(Record.LayerPitch) * Record.Coordinate)
-				return Reject(EPayloadDecodeError::Corrupt,
+				return Reject(EDecodeError::Corrupt,
 					"Volume texture mip pitches do not match its format.");
 			FVolumeTextureMipData& Mip = Candidate.Mips.emplace_back();
 			Mip.Width = Record.Width;
@@ -159,7 +159,7 @@ namespace Durin
 			Mip.Voxels.assign(Data.begin(), Data.end());
 		}
 		if (!Candidate.IsValid())
-			return Reject(EPayloadDecodeError::Corrupt,
+			return Reject(EDecodeError::Corrupt,
 				"Volume texture payload is incomplete or has trailing data.");
 		OutPlatformData = std::move(Candidate);
 		return {};

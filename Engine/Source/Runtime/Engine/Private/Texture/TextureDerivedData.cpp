@@ -129,16 +129,16 @@ namespace Durin
 		std::span<const std::byte> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
-		FTexturePlatformData& OutPlatformData) -> FPayloadDecodeResult
+		FTexturePlatformData& OutPlatformData) -> FDecodeResult
 	{
-		auto Reject = [](EPayloadDecodeError Code, std::string Message) {
-			return FPayloadDecodeResult{Code, std::move(Message)};
+		auto Reject = [](EDecodeError Code, std::string Message) {
+			return FDecodeResult{Code, std::move(Message)};
 		};
 		if (!IsSupportedTarget(ExpectedPlatform, ExpectedProfile))
-			return Reject(EPayloadDecodeError::Incompatible,
+			return Reject(EDecodeError::Incompatible,
 				"Texture payload expected target is unsupported.");
 		TexturePayloadContainer::FDecodedContainer Container;
-		FPayloadDecodeResult Result = TexturePayloadContainer::Parse(
+		FDecodeResult Result = TexturePayloadContainer::Parse(
 			Bytes, ExpectedPlatform, ExpectedProfile, Container);
 		if (!Result) return Result;
 		const TexturePayloadContainer::FDescriptor& Descriptor = Container.Descriptor;
@@ -146,12 +146,12 @@ namespace Durin
 			|| Descriptor.SliceCount != 1 || Descriptor.MipCount == 0
 			|| Descriptor.MipCount > MaximumTextureMipCount
 			|| Container.Records.size() != Descriptor.MipCount)
-			return Reject(EPayloadDecodeError::Corrupt,
+			return Reject(EDecodeError::Corrupt,
 				"Texture2D payload header layout or counts are invalid.");
 
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
 		if (!FromStablePixelFormat(static_cast<uint32>(Descriptor.StableFormat), PixelFormat))
-			return Reject(EPayloadDecodeError::Incompatible,
+			return Reject(EDecodeError::Incompatible,
 				"Texture payload pixel format identifier is unsupported.");
 
 		FTexturePlatformData Candidate;
@@ -164,20 +164,20 @@ namespace Durin
 				|| Record.Width == 0 || Record.Height == 0
 				|| Record.Width > MaximumTexture2DDimension
 				|| Record.Height > MaximumTexture2DDimension)
-				return Reject(EPayloadDecodeError::Corrupt,
+				return Reject(EDecodeError::Corrupt,
 					"Texture payload subresource identity or dimensions are invalid.");
 			if (MipIndex > 0)
 			{
 				const FTexture2DMipData& PreviousMip = Candidate.Mips.back();
 				if (Record.Width != std::max(PreviousMip.Width / 2, 1u)
 					|| Record.Height != std::max(PreviousMip.Height / 2, 1u))
-					return Reject(EPayloadDecodeError::Corrupt,
+					return Reject(EDecodeError::Corrupt,
 						"Texture payload mip dimensions are not a complete progression.");
 			}
 			const FPixelFormatLayout Layout = GetPixelFormatLayout(
 				PixelFormat, Record.Width, Record.Height);
 			if (Record.RowPitch != Layout.RowPitch || Record.ByteCount != Layout.DataSize)
-				return Reject(EPayloadDecodeError::Corrupt,
+				return Reject(EDecodeError::Corrupt,
 					"Texture payload subresource layout does not match its format.");
 
 			FTexture2DMipData& Mip = Candidate.Mips.emplace_back();
@@ -188,7 +188,7 @@ namespace Durin
 			Mip.Pixels.assign(Data.begin(), Data.end());
 		}
 		if (!IsCompleteMipChain(Candidate))
-			return Reject(EPayloadDecodeError::Corrupt,
+			return Reject(EDecodeError::Corrupt,
 				"Texture payload mip chain is incomplete or invalid.");
 		OutPlatformData = std::move(Candidate);
 		return {};
@@ -262,16 +262,16 @@ namespace Durin
 		std::span<const std::byte> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
-		FTextureCubePlatformData& OutPlatformData) -> FPayloadDecodeResult
+		FTextureCubePlatformData& OutPlatformData) -> FDecodeResult
 	{
-		auto Reject = [](EPayloadDecodeError Code, std::string Message) {
-			return FPayloadDecodeResult{Code, std::move(Message)};
+		auto Reject = [](EDecodeError Code, std::string Message) {
+			return FDecodeResult{Code, std::move(Message)};
 		};
 		if (!IsSupportedTarget(ExpectedPlatform, ExpectedProfile))
-			return Reject(EPayloadDecodeError::Incompatible,
+			return Reject(EDecodeError::Incompatible,
 				"Texture payload expected target is unsupported.");
 		TexturePayloadContainer::FDecodedContainer Container;
-		FPayloadDecodeResult Result = TexturePayloadContainer::Parse(
+		FDecodeResult Result = TexturePayloadContainer::Parse(
 			Bytes, ExpectedPlatform, ExpectedProfile, Container);
 		if (!Result) return Result;
 		const TexturePayloadContainer::FDescriptor& Descriptor = Container.Descriptor;
@@ -279,12 +279,12 @@ namespace Durin
 			|| Descriptor.SliceCount != TextureCubeFaceCount || Descriptor.MipCount == 0
 			|| Descriptor.MipCount > MaximumTextureMipCount
 			|| Container.Records.size() != Descriptor.SliceCount * Descriptor.MipCount)
-			return Reject(EPayloadDecodeError::Corrupt,
+			return Reject(EDecodeError::Corrupt,
 				"TextureCube payload header layout or counts are invalid.");
 
 		EPixelFormat PixelFormat = EPixelFormat::Unknown;
 		if (!FromStablePixelFormat(static_cast<uint32>(Descriptor.StableFormat), PixelFormat))
-			return Reject(EPayloadDecodeError::Incompatible,
+			return Reject(EDecodeError::Incompatible,
 				"Texture payload pixel format identifier is unsupported.");
 
 		FTextureCubePlatformData Candidate;
@@ -297,7 +297,7 @@ namespace Durin
 			if (Record.Coordinate != ExpectedSlice || Record.MipIndex != ExpectedMip
 				|| Record.LayerPitch != 0 || Record.Width == 0 || Record.Height == 0
 				|| Record.Width != Record.Height || Record.Width > MaximumTextureCubeDimension)
-				return Reject(EPayloadDecodeError::Corrupt,
+				return Reject(EDecodeError::Corrupt,
 					"TextureCube payload subresource identity or dimensions are invalid.");
 
 			FTexturePlatformData& Face = Candidate.Faces[ExpectedSlice];
@@ -307,20 +307,20 @@ namespace Durin
 				const FTexture2DMipData& PreviousMip = Face.Mips.back();
 				if (Record.Width != std::max(PreviousMip.Width / 2, 1u)
 					|| Record.Height != std::max(PreviousMip.Height / 2, 1u))
-					return Reject(EPayloadDecodeError::Corrupt,
+					return Reject(EDecodeError::Corrupt,
 						"TextureCube payload mip dimensions are not a complete progression.");
 			}
 			else if (ExpectedSlice > 0)
 			{
 				const FTexture2DMipData& Reference = Candidate.Faces[0].Mips[0];
 				if (Record.Width != Reference.Width || Record.Height != Reference.Height)
-					return Reject(EPayloadDecodeError::Corrupt,
+					return Reject(EDecodeError::Corrupt,
 						"TextureCube payload face dimensions do not match.");
 			}
 			const FPixelFormatLayout Layout = GetPixelFormatLayout(
 				PixelFormat, Record.Width, Record.Height);
 			if (Record.RowPitch != Layout.RowPitch || Record.ByteCount != Layout.DataSize)
-				return Reject(EPayloadDecodeError::Corrupt,
+				return Reject(EDecodeError::Corrupt,
 					"Texture payload subresource layout does not match its format.");
 			if (ExpectedSlice > 0)
 			{
@@ -328,7 +328,7 @@ namespace Durin
 				if (Record.Width != Reference.Width || Record.Height != Reference.Height
 					|| Record.RowPitch != Reference.RowPitch
 					|| Record.ByteCount != Reference.Pixels.size())
-					return Reject(EPayloadDecodeError::Corrupt,
+					return Reject(EDecodeError::Corrupt,
 						"TextureCube payload faces have incompatible mip layouts.");
 			}
 
@@ -340,7 +340,7 @@ namespace Durin
 			Mip.Pixels.assign(Data.begin(), Data.end());
 		}
 		if (!IsCompleteCubeMipChain(Candidate))
-			return Reject(EPayloadDecodeError::Corrupt,
+			return Reject(EDecodeError::Corrupt,
 				"TextureCube payload mip chains are incomplete or invalid.");
 		OutPlatformData = std::move(Candidate);
 		return {};

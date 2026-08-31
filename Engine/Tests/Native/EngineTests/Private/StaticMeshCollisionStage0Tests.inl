@@ -55,14 +55,14 @@ namespace
 	auto DecodeCollisionPayload(
 		std::span<const std::byte> Bytes,
 		EStaticMeshTargetPlatform Platform,
-		FStaticMeshCollisionPayloadData& OutPayload) -> FPayloadDecodeResult
+		FStaticMeshCollisionPayloadData& OutPayload) -> FDecodeResult
 	{
 		FStaticMeshCollisionPayloadData Candidate;
 		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 		Candidate.Serialize(Ar, Platform);
 		if (Ar.HasError())
 			return {Ar.GetFailure()->Code == EArchiveFailureCode::UnsupportedVersion
-				? EPayloadDecodeError::Incompatible : EPayloadDecodeError::Corrupt,
+				? EDecodeError::Incompatible : EDecodeError::Corrupt,
 				Ar.GetFailure()->Message};
 		OutPayload = std::move(Candidate);
 		return {};

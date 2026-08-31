@@ -188,14 +188,14 @@ namespace
 	auto DecodePayload(
 		std::span<const std::byte> Bytes,
 		EStaticMeshTargetPlatform Platform,
-		FStaticMeshPayloadData& OutPayload) -> FPayloadDecodeResult
+		FStaticMeshPayloadData& OutPayload) -> FDecodeResult
 	{
 		FStaticMeshPayloadData Candidate;
 		FCanonicalMemoryReader Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 		Candidate.Serialize(Ar, Platform);
 		if (Ar.HasError())
 			return {Ar.GetFailure()->Code == EArchiveFailureCode::UnsupportedVersion
-				? EPayloadDecodeError::Incompatible : EPayloadDecodeError::Corrupt,
+				? EDecodeError::Incompatible : EDecodeError::Corrupt,
 				Ar.GetFailure()->Message};
 		OutPayload = std::move(Candidate);
 		return {};
@@ -255,14 +255,14 @@ namespace
 
 	auto ExpectDecodeFailure(
 		const Durin::FByteArray& Bytes,
-		EPayloadDecodeError ExpectedCode = EPayloadDecodeError::None) -> void
+		EDecodeError ExpectedCode = EDecodeError::None) -> void
 	{
 		FStaticMeshPayloadData Sentinel = MakeMultiMaterialFixture();
 		const uint32 SentinelSlotCount = Sentinel.MaterialSlotCount;
-		const FPayloadDecodeResult Result =
+		const FDecodeResult Result =
 			DecodePayload(Bytes, EStaticMeshTargetPlatform::Win64, Sentinel);
 		EXPECT_FALSE(Result);
-		if (ExpectedCode != EPayloadDecodeError::None)
+		if (ExpectedCode != EDecodeError::None)
 			EXPECT_EQ(Result.Code, ExpectedCode);
 		EXPECT_FALSE(Result.Message.empty());
 		EXPECT_EQ(Sentinel.MaterialSlotCount, SentinelSlotCount);
@@ -443,7 +443,7 @@ TEST(FBoundedPayloadSerializationTests, PreservesNonDefaultDestinationAcrossEver
 	};
 	auto Parse = [](std::span<const std::byte> Bytes, FTrackedBoundedPayload& Candidate) {
 		Candidate.Value = std::to_integer<int>(Bytes.front());
-		return Durin::FPayloadDecodeResult{};
+		return Durin::FDecodeResult{};
 	};
 	auto ExpectPreserved = [&] {
 		EXPECT_EQ(Destination.Value, 7);
@@ -510,9 +510,9 @@ TEST(FBoundedPayloadSerializationTests, PreservesNonDefaultDestinationAcrossEver
 	ExpectPreserved();
 
 	for (const auto [DecodeCode, ArchiveCode] : std::array{
-			std::pair{Durin::EPayloadDecodeError::Incompatible,
+			std::pair{Durin::EDecodeError::Incompatible,
 				Durin::EArchiveFailureCode::UnsupportedVersion},
-			std::pair{Durin::EPayloadDecodeError::Corrupt,
+			std::pair{Durin::EDecodeError::Corrupt,
 				Durin::EArchiveFailureCode::InvalidData}})
 	{
 		Durin::FCanonicalMemoryReader Reader(
@@ -523,7 +523,7 @@ TEST(FBoundedPayloadSerializationTests, PreservesNonDefaultDestinationAcrossEver
 			{Encoded.size(), "Fixture payload"},
 			Build,
 			[DecodeCode](std::span<const std::byte>, FTrackedBoundedPayload&) {
-				return Durin::FPayloadDecodeResult{DecodeCode, "decode failure"};
+				return Durin::FDecodeResult{DecodeCode, "decode failure"};
 			});
 		ASSERT_TRUE(Reader.HasError());
 		EXPECT_EQ(Reader.GetFailure()->Code, ArchiveCode);
@@ -548,7 +548,7 @@ TEST(FBoundedPayloadSerializationTests, EncodesCurrentSourceAndMovesSuccessfulCa
 			return true;
 		},
 		[](std::span<const std::byte>, FTrackedBoundedPayload&) {
-			return Durin::FPayloadDecodeResult{};
+			return Durin::FDecodeResult{};
 		});
 	EXPECT_FALSE(Writer.HasError()) << Writer.GetError();
 	EXPECT_EQ(SavedBytes, (Durin::FByteArray{std::byte{7}}));
@@ -566,7 +566,7 @@ TEST(FBoundedPayloadSerializationTests, EncodesCurrentSourceAndMovesSuccessfulCa
 			Durin::FByteArray&, std::string&) { return true; },
 		[](std::span<const std::byte> Bytes, FTrackedBoundedPayload& Candidate) {
 			Candidate.Value = std::to_integer<int>(Bytes.front());
-			return Durin::FPayloadDecodeResult{};
+			return Durin::FDecodeResult{};
 		});
 	EXPECT_FALSE(Reader.HasError()) << Reader.GetError();
 	EXPECT_EQ(Destination.Value, 42);
@@ -589,7 +589,7 @@ TEST(FBoundedPayloadSerializationTests, SaveBuildsAndChecksTheEncodedLimitBefore
 		},
 		[&](std::span<const std::byte>, int&) {
 			bParsed = true;
-			return Durin::FPayloadDecodeResult{};
+			return Durin::FDecodeResult{};
 		});
 	EXPECT_FALSE(Writer.HasError()) << Writer.GetError();
 	EXPECT_EQ(Bytes, (Durin::FByteArray{std::byte{1}, std::byte{2}}));
@@ -607,7 +607,7 @@ TEST(FBoundedPayloadSerializationTests, SaveBuildsAndChecksTheEncodedLimitBefore
 			return true;
 		},
 		[](std::span<const std::byte>, int&) {
-			return Durin::FPayloadDecodeResult{};
+			return Durin::FDecodeResult{};
 		});
 	ASSERT_TRUE(OversizedWriter.HasError());
 	EXPECT_EQ(OversizedWriter.GetFailure()->Code, Durin::EArchiveFailureCode::LimitExceeded);
@@ -625,7 +625,7 @@ TEST(FBoundedPayloadSerializationTests, SaveBuildsAndChecksTheEncodedLimitBefore
 			return false;
 		},
 		[](std::span<const std::byte>, int&) {
-			return Durin::FPayloadDecodeResult{};
+			return Durin::FDecodeResult{};
 		});
 	ASSERT_TRUE(FailedWriter.HasError());
 	EXPECT_EQ(FailedWriter.GetFailure()->Code, Durin::EArchiveFailureCode::InvalidData);
@@ -642,7 +642,7 @@ TEST(FBoundedPayloadSerializationTests, SaveBuildsAndChecksTheEncodedLimitBefore
 			return true;
 		},
 		[](std::span<const std::byte>, int&) {
-			return Durin::FPayloadDecodeResult{};
+			return Durin::FDecodeResult{};
 		});
 	EXPECT_FALSE(bBuiltAfterFailure);
 }
@@ -661,7 +661,7 @@ TEST(FBoundedPayloadSerializationTests, LoadRejectsMissingBoundsAndExcessiveInpu
 		[](const int&, Durin::FByteArray&, std::string&) { return true; },
 		[&](std::span<const std::byte>, int&) {
 			bParsed = true;
-			return Durin::FPayloadDecodeResult{};
+			return Durin::FDecodeResult{};
 		});
 	ASSERT_TRUE(Unbounded.HasError());
 	EXPECT_EQ(Unbounded.GetFailure()->Code,
@@ -679,7 +679,7 @@ TEST(FBoundedPayloadSerializationTests, LoadRejectsMissingBoundsAndExcessiveInpu
 		[](const int&, Durin::FByteArray&, std::string&) { return true; },
 		[&](std::span<const std::byte>, int&) {
 			bParsed = true;
-			return Durin::FPayloadDecodeResult{};
+			return Durin::FDecodeResult{};
 		});
 	ASSERT_TRUE(Oversized.HasError());
 	EXPECT_EQ(Oversized.GetFailure()->Code, Durin::EArchiveFailureCode::LimitExceeded);
@@ -703,8 +703,8 @@ TEST(FBoundedPayloadSerializationTests, LoadMapsDecodeFailuresAndCommitsOnlySucc
 		{Encoded.size(), "Fixture payload"},
 		Build,
 		[](std::span<const std::byte>, int&) {
-			return Durin::FPayloadDecodeResult{
-				Durin::EPayloadDecodeError::Incompatible, "unsupported fixture"};
+			return Durin::FDecodeResult{
+				Durin::EDecodeError::Incompatible, "unsupported fixture"};
 		});
 	ASSERT_TRUE(IncompatibleReader.HasError());
 	EXPECT_EQ(IncompatibleReader.GetFailure()->Code,
@@ -719,8 +719,8 @@ TEST(FBoundedPayloadSerializationTests, LoadMapsDecodeFailuresAndCommitsOnlySucc
 		{Encoded.size(), "Fixture payload"},
 		Build,
 		[](std::span<const std::byte>, int&) {
-			return Durin::FPayloadDecodeResult{
-				Durin::EPayloadDecodeError::Corrupt, "corrupt fixture"};
+			return Durin::FDecodeResult{
+				Durin::EDecodeError::Corrupt, "corrupt fixture"};
 		});
 	ASSERT_TRUE(CorruptReader.HasError());
 	EXPECT_EQ(CorruptReader.GetFailure()->Code, Durin::EArchiveFailureCode::InvalidData);
@@ -735,7 +735,7 @@ TEST(FBoundedPayloadSerializationTests, LoadMapsDecodeFailuresAndCommitsOnlySucc
 		Build,
 		[](std::span<const std::byte> Bytes, int& Candidate) {
 			Candidate = std::to_integer<int>(Bytes.front());
-			return Durin::FPayloadDecodeResult{};
+			return Durin::FDecodeResult{};
 		});
 	EXPECT_FALSE(SuccessReader.HasError()) << SuccessReader.GetError();
 	EXPECT_EQ(Published, 42);
@@ -761,7 +761,7 @@ TEST(FStaticMeshPayloadCodecTests, CanonicalFixturesRoundTripDeterministically)
 
 		FStaticMeshPayloadData Decoded;
 		std::string Error;
-		const FPayloadDecodeResult DecodeResult =
+		const FDecodeResult DecodeResult =
 			DecodePayload(First, EStaticMeshTargetPlatform::Win64, Decoded);
 		ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
 		ExpectEquivalent(Decoded, Fixture);
@@ -785,7 +785,7 @@ TEST(FStaticMeshPayloadCodecTests,
 		EXPECT_EQ(First, Second);
 
 		FStaticMeshPayloadData Decoded;
-		const FPayloadDecodeResult Result = DecodePayload(
+		const FDecodeResult Result = DecodePayload(
 			First, EStaticMeshTargetPlatform::Win64, Decoded);
 		ASSERT_TRUE(Result) << Result.Message;
 		ExpectEquivalent(Decoded, Fixture);
@@ -829,7 +829,7 @@ TEST(FStaticMeshPayloadCodecTests, SupportsMeshWithoutUVChannels)
 
 	FStaticMeshPayloadData Decoded;
 	std::string Error;
-	const FPayloadDecodeResult DecodeResult =
+	const FDecodeResult DecodeResult =
 		DecodePayload(Bytes, EStaticMeshTargetPlatform::Win64, Decoded);
 	ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
 	ExpectEquivalent(Decoded, Fixture);
@@ -1145,11 +1145,11 @@ TEST(FStaticMeshPayloadCodecTests, RejectsInvalidEnvelopeAndChunkRanges)
 	Durin::FByteArray PreviousSchema = Valid;
 	WriteU32(PreviousSchema, 4, StaticMeshPayloadSchemaVersion - 1);
 	Rehash(PreviousSchema);
-	ExpectDecodeFailure(PreviousSchema, EPayloadDecodeError::Incompatible);
+	ExpectDecodeFailure(PreviousSchema, EDecodeError::Incompatible);
 	Durin::FByteArray FutureSchema = Valid;
 	WriteU32(FutureSchema, 4, StaticMeshPayloadSchemaVersion + 1);
 	Rehash(FutureSchema);
-	ExpectDecodeFailure(FutureSchema, EPayloadDecodeError::Incompatible);
+	ExpectDecodeFailure(FutureSchema, EDecodeError::Incompatible);
 }
 
 TEST(FStaticMeshPayloadCodecTests, RejectsLimitsCompressionBombAndInvalidEnumValues)
@@ -1244,13 +1244,13 @@ TEST(FStaticMeshPayloadCodecTests, SkipsUnknownOptionalChunksAndRejectsUnknownRe
 	const Durin::FByteArray Valid = Encode(MakeSingleSectionFixture());
 	const Durin::FByteArray Optional = AddUnknownOptionalChunk(Valid, false);
 	FStaticMeshPayloadData Decoded;
-	const FPayloadDecodeResult DecodeResult =
+	const FDecodeResult DecodeResult =
 		DecodePayload(Optional, EStaticMeshTargetPlatform::Win64, Decoded);
 	ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
 	ExpectEquivalent(Decoded, MakeSingleSectionFixture());
 
 	ExpectDecodeFailure(
-		AddUnknownOptionalChunk(Valid, true), EPayloadDecodeError::Incompatible);
+		AddUnknownOptionalChunk(Valid, true), EDecodeError::Incompatible);
 }
 
 TEST(FStaticMeshPayloadCodecTests, EncoderRejectsInvalidLogicalDataWithoutPublishingBytes)

@@ -2,7 +2,7 @@
 
 #include "EngineAPI.h"
 #include "Hash/XxHash.h"
-#include "Serialization/PayloadDecodeResult.h"
+#include "Serialization/SerializationDefinitions.h"
 
 namespace Durin
 {

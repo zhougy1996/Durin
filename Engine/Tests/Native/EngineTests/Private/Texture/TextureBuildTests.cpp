@@ -69,7 +69,7 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game, Bytes, Error)) << Error;
 	Durin::FVolumeTexturePlatformData Decoded;
-	Durin::FPayloadDecodeResult Result = Durin::ParseVolumeTextureSerializedValue(Bytes,
+	Durin::FDecodeResult Result = Durin::ParseVolumeTextureSerializedValue(Bytes,
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game, Decoded);
 	ASSERT_TRUE(Result) << Result.Message;

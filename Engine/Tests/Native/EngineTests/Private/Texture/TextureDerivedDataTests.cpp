@@ -65,7 +65,7 @@ namespace
 	auto LoadPlatformDataValue(
 		std::span<const std::byte> Bytes,
 		std::unique_ptr<Durin::FTexturePlatformData>& OutPlatformData)
-		-> Durin::FPayloadDecodeResult
+		-> Durin::FDecodeResult
 	{
 		auto Candidate = std::make_unique<Durin::FTexturePlatformData>();
 		Durin::FCanonicalMemoryReader Ar(
@@ -79,8 +79,8 @@ namespace
 			return {
 				.Code = Ar.GetFailure()
 					&& Ar.GetFailure()->Code == Durin::EArchiveFailureCode::UnsupportedVersion
-					? Durin::EPayloadDecodeError::Incompatible
-					: Durin::EPayloadDecodeError::Corrupt,
+					? Durin::EDecodeError::Incompatible
+					: Durin::EDecodeError::Corrupt,
 				.Message = std::string(Ar.GetError())};
 		}
 		OutPlatformData = std::move(Candidate);
@@ -175,7 +175,7 @@ TEST(FTextureDerivedDataTests, PayloadRoundTripsDeterministically)
 		ASSERT_GE(First.size(), Durin::TexturePayloadHeaderSize);
 
 		std::unique_ptr<Durin::FTexturePlatformData> Actual;
-		const Durin::FPayloadDecodeResult DecodeResult =
+		const Durin::FDecodeResult DecodeResult =
 			LoadPlatformDataValue(First, Actual);
 		ASSERT_TRUE(DecodeResult) << DecodeResult.Message;
 		ASSERT_NE(Actual, nullptr);
@@ -216,30 +216,30 @@ TEST(FTextureDerivedDataTests, PayloadRejectsMalformedDataTransactionally)
 
 	auto WrongProfile = Bytes;
 	WriteU32(WrongProfile, 16, static_cast<uint32>(Durin::Asset::ECookTargetProfile::EditorValidation));
-	Durin::FPayloadDecodeResult DecodeResult = LoadPlatformDataValue(WrongProfile, Existing);
+	Durin::FDecodeResult DecodeResult = LoadPlatformDataValue(WrongProfile, Existing);
 	EXPECT_FALSE(DecodeResult);
-	EXPECT_EQ(DecodeResult.Code, Durin::EPayloadDecodeError::Incompatible);
+	EXPECT_EQ(DecodeResult.Code, Durin::EDecodeError::Incompatible);
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 
 	auto Corrupt = Bytes;
 	Corrupt.back() ^= std::byte{0xff};
 	DecodeResult = LoadPlatformDataValue(Corrupt, Existing);
 	EXPECT_FALSE(DecodeResult);
-	EXPECT_EQ(DecodeResult.Code, Durin::EPayloadDecodeError::Corrupt);
+	EXPECT_EQ(DecodeResult.Code, Durin::EDecodeError::Corrupt);
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 
 	auto WrongRange = Bytes;
 	WriteU32(WrongRange, Durin::TexturePayloadHeaderSize + 16, 1);
 	DecodeResult = LoadPlatformDataValue(WrongRange, Existing);
 	EXPECT_FALSE(DecodeResult);
-	EXPECT_EQ(DecodeResult.Code, Durin::EPayloadDecodeError::Corrupt);
+	EXPECT_EQ(DecodeResult.Code, Durin::EDecodeError::Corrupt);
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 
 	auto UnsupportedSchema = Bytes;
 	WriteU32(UnsupportedSchema, 4, Durin::TexturePayloadSchemaVersion + 1);
 	DecodeResult = LoadPlatformDataValue(UnsupportedSchema, Existing);
 	EXPECT_FALSE(DecodeResult);
-	EXPECT_EQ(DecodeResult.Code, Durin::EPayloadDecodeError::Incompatible);
+	EXPECT_EQ(DecodeResult.Code, Durin::EDecodeError::Incompatible);
 	EXPECT_EQ(Existing.get(), ExistingAddress);
 
 	auto DifferentBuilder = Bytes;

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Serialization/PayloadDecodeResult.h"
+#include "Serialization/SerializationDefinitions.h"
 #include "Serialization/Archive.h"
 
 namespace Durin
@@ -12,9 +12,9 @@ namespace Durin
 		std::string_view DiagnosticName;
 	};
 
-	inline auto ToPayloadArchiveFailureCode(EPayloadDecodeError Code) -> EArchiveFailureCode
+	inline auto ToPayloadArchiveFailureCode(EDecodeError Code) -> EArchiveFailureCode
 	{
-		return Code == EPayloadDecodeError::Incompatible
+		return Code == EDecodeError::Incompatible
 			? EArchiveFailureCode::UnsupportedVersion
 			: EArchiveFailureCode::InvalidData;
 	}
@@ -36,7 +36,7 @@ namespace Durin
 		static_assert(std::is_invocable_r_v<bool, EncodeFn, const T&,
 			FByteArray&, std::string&>,
 			"Bounded payload encoders must accept the source value, bytes, and error.");
-		static_assert(std::is_invocable_r_v<FPayloadDecodeResult, DecodeFn,
+		static_assert(std::is_invocable_r_v<FDecodeResult, DecodeFn,
 			std::span<const std::byte>, T&>,
 			"Bounded payload decoders must accept bytes and a detached value.");
 
@@ -86,7 +86,7 @@ namespace Durin
 		if (Ar.HasError()) return;
 
 		T LoadedValue;
-		const FPayloadDecodeResult Result = Decode(
+		const FDecodeResult Result = Decode(
 			std::span<const std::byte>(Bytes), LoadedValue);
 		if (!Result)
 		{

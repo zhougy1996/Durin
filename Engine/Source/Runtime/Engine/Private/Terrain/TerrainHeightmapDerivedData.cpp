@@ -104,16 +104,16 @@ namespace Durin
 		std::span<const std::byte> Bytes,
 		Asset::ECookTargetPlatform ExpectedPlatform,
 		Asset::ECookTargetProfile ExpectedProfile,
-		FTerrainHeightmapPayload& OutPayload) -> FPayloadDecodeResult
+		FTerrainHeightmapPayload& OutPayload) -> FDecodeResult
 	{
-		auto Reject = [](EPayloadDecodeError Code, std::string Message) {
-			return FPayloadDecodeResult{.Code = Code, .Message = std::move(Message)};
+		auto Reject = [](EDecodeError Code, std::string Message) {
+			return FDecodeResult{.Code = Code, .Message = std::move(Message)};
 		};
 		if (!IsSupportedTarget(ExpectedPlatform, ExpectedProfile))
-			return Reject(EPayloadDecodeError::Incompatible, "Terrain heightmap expected target is unsupported.");
+			return Reject(EDecodeError::Incompatible, "Terrain heightmap expected target is unsupported.");
 		if (Bytes.size() < TerrainHeightmapPayloadHeaderSize
 			|| Bytes.size() > MaximumTerrainHeightmapPayloadBytes)
-			return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap payload size is invalid.");
+			return Reject(EDecodeError::Corrupt, "Terrain heightmap payload size is invalid.");
 
 		uint32 Reserved0 = 0, Schema = 0, Builder = 0, Platform = 0, Profile = 0;
 		uint32 Width = 0, Height = 0, BaseRegion = 0, LevelCount = 0, NodeCount = 0;
@@ -129,19 +129,19 @@ namespace Durin
 			|| !ReadLittleEndianAt(Bytes, 56, LevelOffset) || !ReadLittleEndianAt(Bytes, 64, SampleOffset)
 			|| !ReadLittleEndianAt(Bytes, 72, HierarchyOffset) || !ReadLittleEndianAt(Bytes, 80, StoredSize)
 			|| !ReadLittleEndianAt(Bytes, 88, StoredHash))
-			return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap payload header is truncated.");
+			return Reject(EDecodeError::Corrupt, "Terrain heightmap payload header is truncated.");
 		if (Reserved0 != 0)
-			return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap payload reserved header field is nonzero.");
+			return Reject(EDecodeError::Corrupt, "Terrain heightmap payload reserved header field is nonzero.");
 		if (Schema != TerrainHeightmapPayloadSchemaVersion || Builder != TerrainHeightmapBuilderVersion)
-			return Reject(EPayloadDecodeError::Incompatible, "Terrain heightmap payload schema or builder is unsupported.");
+			return Reject(EDecodeError::Incompatible, "Terrain heightmap payload schema or builder is unsupported.");
 		if (Platform != static_cast<uint32>(ExpectedPlatform)
 			|| Profile != static_cast<uint32>(ExpectedProfile))
-			return Reject(EPayloadDecodeError::Incompatible, "Terrain heightmap payload target does not match.");
+			return Reject(EDecodeError::Incompatible, "Terrain heightmap payload target does not match.");
 		if (HeaderSize != TerrainHeightmapPayloadHeaderSize
 			|| LevelRecordSize != TerrainHeightmapLevelRecordSize
 			|| LevelOffset != TerrainHeightmapPayloadHeaderSize || LevelCount == 0
 			|| Minimum > Maximum || Maximum > 65535 || StoredSize != Bytes.size())
-			return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap payload header facts are invalid.");
+			return Reject(EDecodeError::Corrupt, "Terrain heightmap payload header facts are invalid.");
 		const uint64 LevelEnd = LevelOffset + static_cast<uint64>(LevelCount) * LevelRecordSize;
 		const uint64 SampleCount = static_cast<uint64>(Width) * Height;
 		const uint64 SampleBytes = SampleCount * sizeof(uint16);
@@ -153,9 +153,9 @@ namespace Durin
 			|| HierarchyOffset % TerrainHeightmapPayloadAlignment != 0
 			|| HierarchyBytes > MaximumTerrainHeightmapHierarchyBytes
 			|| HierarchyOffset > StoredSize || HierarchyBytes != StoredSize - HierarchyOffset)
-			return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap payload ranges or ceilings are invalid.");
+			return Reject(EDecodeError::Corrupt, "Terrain heightmap payload ranges or ceilings are invalid.");
 		if (FXxHash64::HashBuffer(Bytes.subspan(TerrainHeightmapPayloadHeaderSize)).HashValue != StoredHash)
-			return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap payload checksum does not match.");
+			return Reject(EDecodeError::Corrupt, "Terrain heightmap payload checksum does not match.");
 
 		std::vector<FTerrainHeightmapLevel> Levels;
 		Levels.reserve(LevelCount);
@@ -172,28 +172,28 @@ namespace Durin
 				|| !ReadLittleEndianAt(Bytes, Offset + 20, Reserved)
 				|| Reserved != 0 || Level.Width == 0 || Level.Height == 0
 				|| Level.NodeOffset != ExpectedNodeOffset)
-				return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap level table is invalid.");
+				return Reject(EDecodeError::Corrupt, "Terrain heightmap level table is invalid.");
 			const uint64 Count = static_cast<uint64>(Level.Width) * Level.Height;
 			if (Count > NodeCount - ExpectedNodeOffset)
-				return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap level nodes overflow the hierarchy.");
+				return Reject(EDecodeError::Corrupt, "Terrain heightmap level nodes overflow the hierarchy.");
 			ExpectedNodeOffset += Count;
 			Levels.push_back(Level);
 		}
 		if (ExpectedNodeOffset != NodeCount)
-			return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap node count does not match its levels.");
+			return Reject(EDecodeError::Corrupt, "Terrain heightmap node count does not match its levels.");
 
 		std::vector<uint16> Samples(static_cast<size_t>(SampleCount));
 		for (uint64 Index = 0; Index < SampleCount; ++Index)
 			if (!ReadLittleEndianAt(Bytes, SampleOffset + Index * 2, Samples[static_cast<size_t>(Index)]))
-				return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap samples are truncated.");
+				return Reject(EDecodeError::Corrupt, "Terrain heightmap samples are truncated.");
 		std::shared_ptr<const FTerrainHeightmapPayload> BuiltCandidate;
 		std::string BuildError;
 		if (!BuildTerrainHeightmapPayload(Width, Height, Samples, BuiltCandidate, BuildError))
-			return Reject(EPayloadDecodeError::Corrupt, std::move(BuildError));
+			return Reject(EDecodeError::Corrupt, std::move(BuildError));
 		FTerrainHeightmapPayload Candidate = *BuiltCandidate;
 		if (Candidate.Minimum != Minimum || Candidate.Maximum != Maximum
 			|| Candidate.Levels != Levels || Candidate.Nodes.size() != NodeCount)
-			return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap hierarchy metadata is inconsistent.");
+			return Reject(EDecodeError::Corrupt, "Terrain heightmap hierarchy metadata is inconsistent.");
 		for (uint64 Index = 0; Index < NodeCount; ++Index)
 		{
 			uint16 NodeMinimum = 0;
@@ -202,7 +202,7 @@ namespace Durin
 				|| !ReadLittleEndianAt(Bytes, HierarchyOffset + Index * 4 + 2, NodeMaximum)
 				|| Candidate.Nodes[static_cast<size_t>(Index)]
 					!= FTerrainHeightmapMinMaxNode{NodeMinimum, NodeMaximum})
-				return Reject(EPayloadDecodeError::Corrupt, "Terrain heightmap hierarchy extrema are inconsistent.");
+				return Reject(EDecodeError::Corrupt, "Terrain heightmap hierarchy extrema are inconsistent.");
 		}
 		OutPayload = std::move(Candidate);
 		return {};
