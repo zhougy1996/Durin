@@ -64,14 +64,16 @@ namespace Durin
 			}
 			if (!Settings.DefaultLevel.empty())
 			{
-				FObjectPath SoftPath;
-				TSoftObjectPtr<DLevel> DefaultLevel;
+				FPackagePath PackagePath;
+				FObjectPath LevelPath;
 				DLevel* Level = nullptr;
-				if (FObjectPath::TryCreate(Settings.DefaultLevel, SoftPath))
+				std::string PathError;
+				if (FPackagePath::TryCreate(
+						Settings.DefaultLevel, PackagePath, &PathError))
 				{
-					DefaultLevel.SetPath(std::move(SoftPath));
-					const Asset::FAssetResult Result =
-						Asset::LoadSoftObject(DefaultLevel, Level);
+					Asset::FAssetResult Result =
+						Asset::ResolveLevelPackage(PackagePath, LevelPath);
+					if (Result) Result = Asset::LoadObject(LevelPath, Level);
 					if (Result && GetWorld()->SetCurrentLevel(Level))
 					{
 						const FWorldPlayResult PlayResult = GetWorld()->BeginPlay({.GameModeClass = GameMode.GameModeClass});
@@ -89,7 +91,9 @@ namespace Durin
 				}
 				else
 				{
-					StartupError = std::format("Project Game.DefaultLevel '{}' is not a valid soft object path.", Settings.DefaultLevel);
+					StartupError = std::format(
+						"Project Game.DefaultLevel '{}' is not a valid package path: {}",
+						Settings.DefaultLevel, PathError);
 					DURIN_WARN("{}", StartupError);
 				}
 			}

@@ -4,10 +4,10 @@ Summary: Define levels, actors, world ownership, lifecycle mutation, and iterati
 
 Modules: Engine
 
-Last reviewed: 2026-08-20
+Last reviewed: 2026-09-01
 
-`DLevel` is the persistent scene asset. A packaged level is the main asset of a
-`.dasset` package. Levels retain actors through reflected `TObjectPtr` arrays.
+`DLevel` is the persistent scene asset. A packaged level is a top-level asset
+in a `.dasset` package. Levels retain actors through reflected `TObjectPtr` arrays.
 Each Actor's transient reflected `OwnedComponents` array is the ordered runtime
 authority for every live component. The persistent `AuthoredComponents` field
 and `InstanceComponents` provide package and duplication authority. Their Outer
@@ -47,11 +47,13 @@ include sub-level streaming, PIE cloning, or Save As.
 At startup the editor opens the project's optional `Game.DefaultLevel` from
 `Configs/Project.yaml`. `FProjectGameSettingsStore` is the single parser and
 writer used by the Level Editor, standalone startup, and the project-settings
-reference contributor. Editor and runtime code hold the default as
-`TSoftObjectPtr<DLevel>` while YAML preserves its authored path string. Picker
-assignment stores the path without loading; startup/open resolves redirectors
-and validates the final `DLevel`. Relocation leaves YAML unchanged. The
-reference store contributes the default as a typed external Cook root and
+reference contributor. YAML stores a package path rather than exposing the
+package's exact top-level object spelling. Startup and the editor follow package
+redirects, then require the resolved package to contain exactly one top-level
+`DLevel`; zero or multiple matching assets are invalid. The editor retains that
+resolved exact object identity internally, while its picker displays and saves
+the package path without loading the level. Relocation leaves YAML unchanged.
+The reference store contributes the default as a typed external Cook root and
 canonicalizes it in memory for runtime output without editing YAML; explicit
 redirector Fix Up is the only transaction that rewrites the setting. Projects
 without a default level start with an empty editor; missing or invalid defaults

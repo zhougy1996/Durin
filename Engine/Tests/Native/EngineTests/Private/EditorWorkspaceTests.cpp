@@ -710,6 +710,20 @@ TEST(FAssetPickerTests, UsesSoftPathForUnloadedCurrentSelection)
 	EXPECT_EQ(Durin::Editor::AssetPicker::GetAssetPathOrNone(nullptr, {}, "None"), "None");
 }
 
+TEST(FAssetPickerTests, CanPresentExactSelectionsAsPackagePaths)
+{
+	EXPECT_EQ(
+		Durin::Editor::AssetPicker::GetAssetPathDisplayName(
+			"/Game/Levels/GrayboxStage15.GrayboxStage15",
+			Durin::Editor::EAssetPathDisplayMode::PackagePath),
+		"/Game/Levels/GrayboxStage15");
+	EXPECT_EQ(
+		Durin::Editor::AssetPicker::GetAssetPathDisplayName(
+			"/Game/Levels/GrayboxStage15.GrayboxStage15",
+			Durin::Editor::EAssetPathDisplayMode::ExactAssetPath),
+		"/Game/Levels/GrayboxStage15.GrayboxStage15");
+}
+
 TEST(FAssetPickerTests, FiltersCandidatesByPathPrefix)
 {
 	EXPECT_TRUE(Durin::Editor::AssetPicker::MatchesPathPrefix("/Engine/Materials/Default", {}));

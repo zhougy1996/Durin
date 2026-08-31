@@ -192,6 +192,19 @@ namespace Durin::Editor::AssetPicker
 		return ObjectPath.empty() ? GetAssetPathOrNone(Object, NoneLabel) : std::string(ObjectPath);
 	}
 
+	auto GetAssetPathDisplayName(
+		std::string_view ObjectPath,
+		EAssetPathDisplayMode DisplayMode) -> std::string
+	{
+		if (DisplayMode == EAssetPathDisplayMode::PackagePath)
+		{
+			const size_t AssetSeparator = ObjectPath.find('.');
+			if (AssetSeparator != std::string_view::npos)
+				return std::string(ObjectPath.substr(0, AssetSeparator));
+		}
+		return std::string(ObjectPath);
+	}
+
 	auto Draw(const FAssetPickerConfig& Config) -> FAssetPickerResult
 	{
 		FAssetPickerResult PickerResult;
@@ -213,7 +226,9 @@ namespace Durin::Editor::AssetPicker
 
 		const std::string_view NoneLabel = Config.NoneLabel ? Config.NoneLabel : "None";
 		const std::string CurrentPath = GetAssetPathOrNone(Config.CurrentSelection, Config.CurrentSelectionPath, {});
-		std::string Preview = CurrentPath.empty() ? std::string(NoneLabel) : CurrentPath;
+		std::string Preview = CurrentPath.empty()
+			? std::string(NoneLabel)
+			: GetAssetPathDisplayName(CurrentPath, Config.PathDisplayMode);
 		if (!Config.CurrentSelectionStatus.empty()) Preview += std::format(" [{}]", Config.CurrentSelectionStatus);
 		const size_t ActionCount = (Config.TrailingAction ? 1u : 0u) + Config.AdditionalTrailingActions.size();
 		if (ActionCount > 0)
@@ -283,7 +298,14 @@ namespace Durin::Editor::AssetPicker
 					const FTopLevelAssetPath& Path = *Search.MatchingPaths[Index];
 					const std::string PathString = Path.ToString();
 					const bool bSelected = CurrentPath == PathString;
-					if (!ImGui::Selectable(PathString.c_str(), bSelected)) continue;
+					const std::string DisplayPath = Config.PathDisplayMode
+						== EAssetPathDisplayMode::PackagePath
+						? Path.GetPackagePath().ToString()
+						: PathString;
+					const std::string Label = DisplayPath == PathString
+						? PathString
+						: std::format("{}##{}", DisplayPath, PathString);
+					if (!ImGui::Selectable(Label.c_str(), bSelected)) continue;
 					if (bPathAssignment)
 					{
 						AssignPath(PathString);

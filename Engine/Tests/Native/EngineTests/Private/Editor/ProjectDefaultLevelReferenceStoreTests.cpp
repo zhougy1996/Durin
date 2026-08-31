@@ -7,7 +7,9 @@
 #include "DObject/Class.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"
+#include "DObject/Package.h"
 #include "Engine/Level.h"
+#include "Engine/World.h"
 
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
@@ -222,4 +224,55 @@ TEST(FProjectDefaultLevelReferenceStoreTests, CookContributesCanonicalRootWithou
 	const Durin::FYamlDocument Settings = LoadSettings(Scenario);
 	EXPECT_EQ(Settings.GetRootView().GetView("Game")
 		.GetView("DefaultLevel").GetString(), Scenario.OldPath.ToString());
+}
+
+TEST(FProjectDefaultLevelReferenceStoreTests, ResolvesUniqueLevelWithoutInferringPackageLeafName)
+{
+	FDefaultLevelScenario Scenario = BuildScenario("UniqueLevel");
+	auto MountFixture = ConfigureAssets(Scenario);
+	Durin::FObjectPath LevelPath;
+	const Durin::Asset::FAssetResult Result =
+		Durin::Asset::ResolveLevelPackage(Scenario.OldPath, LevelPath);
+	ASSERT_TRUE(Result) << Result.Message;
+	EXPECT_EQ(LevelPath.GetPackagePath(), Scenario.NewPath);
+	EXPECT_EQ(LevelPath.GetAssetPath().GetAssetName(), "Old");
+	EXPECT_NE(LevelPath.GetAssetPath().GetAssetName(),
+		Scenario.NewPath.GetPackageName());
+}
+
+TEST(FProjectDefaultLevelReferenceStoreTests, RejectsPackageWithoutTopLevelLevel)
+{
+	FDefaultLevelScenario Scenario = BuildScenario("NoLevel");
+	auto MountFixture = ConfigureAssets(Scenario);
+	const Durin::FPackagePath WorldPath =
+		MakePath("/DefaultLevelTests/Worlds/OnlyWorld");
+	Durin::DWorld* World = nullptr;
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(WorldPath, World));
+	ASSERT_NE(World, nullptr);
+	ASSERT_TRUE(Durin::Asset::SavePackage(World->GetPackage()));
+
+	Durin::FObjectPath LevelPath;
+	const Durin::Asset::FAssetResult Result =
+		Durin::Asset::ResolveLevelPackage(WorldPath, LevelPath);
+	EXPECT_EQ(Result.Error, Durin::Asset::EAssetError::TypeMismatch);
+	EXPECT_FALSE(LevelPath.IsValid());
+}
+
+TEST(FProjectDefaultLevelReferenceStoreTests, RejectsPackageWithMultipleTopLevelLevels)
+{
+	FDefaultLevelScenario Scenario = BuildScenario("MultipleLevels");
+	auto MountFixture = ConfigureAssets(Scenario);
+	Durin::DPackage* Package =
+		Durin::Asset::FindResidentPackage(Scenario.NewPath);
+	ASSERT_NE(Package, nullptr);
+	Durin::DLevel* Secondary =
+		Durin::NewObject<Durin::DLevel>(Package, "Secondary");
+	ASSERT_NE(Secondary, nullptr);
+	ASSERT_TRUE(Durin::Asset::SavePackage(Package));
+
+	Durin::FObjectPath LevelPath;
+	const Durin::Asset::FAssetResult Result =
+		Durin::Asset::ResolveLevelPackage(Scenario.NewPath, LevelPath);
+	EXPECT_EQ(Result.Error, Durin::Asset::EAssetError::InvalidPackageType);
+	EXPECT_FALSE(LevelPath.IsValid());
 }

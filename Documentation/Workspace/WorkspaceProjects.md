@@ -176,7 +176,10 @@ contribution. `DefaultLevel` is optional. `NativeModule` and `GameModeClass`
 must either both be absent/empty for lifecycle-only play or both be non-empty
 scalars. Updates to the default level preserve the native pair and unrelated
 YAML settings; the obsolete `Editor.DefaultLevel` route is not read as an
-alias.
+alias. `DefaultLevel` names a package, not an exact object path. The package may
+contain other top-level asset types but must contain exactly one top-level
+`DLevel`; startup and editor activation reject packages with zero or multiple
+matching levels instead of deriving an asset name from the package leaf.
 
 `NativeModule` is the logical name passed to `FModuleManager` after reflected
 object initialization. `GameModeClass` must be the exact fully qualified

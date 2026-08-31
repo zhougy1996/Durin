@@ -24,6 +24,13 @@ namespace Durin::Editor
 		AssetPath,
 	};
 
+	// Selects how an exact path-backed asset identity is presented to the user.
+	enum class EAssetPathDisplayMode : uint8
+	{
+		ExactAssetPath,
+		PackagePath,
+	};
+
 	// Defines an optional trailing action rendered beside the asset picker.
 	struct FAssetPickerAction
 	{
@@ -43,6 +50,7 @@ namespace Durin::Editor
 		const DClass* RequiredClass = nullptr;
 		EAssetClassPolicy ClassPolicy = EAssetClassPolicy::Derived;
 		EAssetAssignmentMode AssignmentMode = EAssetAssignmentMode::LoadedObject;
+		EAssetPathDisplayMode PathDisplayMode = EAssetPathDisplayMode::ExactAssetPath;
 		DObject* CurrentSelection = nullptr;
 		// Supplies the current asset identity when the owner stores a soft path
 		// instead of keeping the asset loaded.
@@ -87,6 +95,10 @@ namespace Durin::Editor
 			const DObject* Object,
 			std::string_view ObjectPath,
 			std::string_view NoneLabel
+		) -> std::string;
+		DURINED_API auto GetAssetPathDisplayName(
+			std::string_view ObjectPath,
+			EAssetPathDisplayMode DisplayMode
 		) -> std::string;
 		DURINED_API auto Draw(const FAssetPickerConfig& Config) -> FAssetPickerResult;
 	}
