@@ -11,27 +11,29 @@ namespace Durin
 		class FAssetLoadService;
 	}
 
-	// Stores the persistent identity of one package main asset without loading it.
+	// Stores the persistent exact identity of one top-level asset or subobject.
 	class FSoftObjectPath
 	{
 	public:
 		FSoftObjectPath() = default;
 		FSoftObjectPath(std::nullptr_t) {}
-		explicit FSoftObjectPath(FAssetPath InPath)
-			: AssetPath(std::move(InPath))
-		{
-		}
+		explicit FSoftObjectPath(FObjectPath InPath)
+			: ObjectPath(std::move(InPath)) {}
+		// Temporary v8 source adapter that selects the former package-leaf main asset.
+		COREDOBJECT_API explicit FSoftObjectPath(FPackagePath InPath);
 
 		COREDOBJECT_API static auto TryCreate(
 			std::string_view InPath,
 			FSoftObjectPath& OutPath,
 			std::string* OutError = nullptr) -> bool;
 
-		auto IsNull() const -> bool { return !AssetPath.IsValid(); }
-		auto GetAssetPath() const -> const FAssetPath& { return AssetPath; }
-		auto ToString() const -> const std::string& { return AssetPath.ToString(); }
-		auto GetView() const -> std::string_view { return AssetPath.GetView(); }
-		auto Reset() -> void { AssetPath = {}; }
+		auto IsNull() const -> bool { return !ObjectPath.IsValid(); }
+		auto GetObjectPath() const -> const FObjectPath& { return ObjectPath; }
+		// Temporary package projection for package-level Registry consumers.
+		auto GetAssetPath() const -> const FPackagePath& { return ObjectPath.GetPackagePath(); }
+		auto ToString() const -> const std::string& { return ObjectPath.ToString(); }
+		auto GetView() const -> std::string_view { return ObjectPath.GetView(); }
+		auto Reset() -> void { ObjectPath = {}; }
 
 		auto operator==(const FSoftObjectPath&) const -> bool = default;
 		auto operator<(const FSoftObjectPath& Other) const -> bool
@@ -40,10 +42,10 @@ namespace Durin
 		}
 
 	private:
-		FAssetPath AssetPath;
+		FObjectPath ObjectPath;
 	};
 
-	// Combines persistent path identity with a non-owning cache of a loaded main asset.
+	// Combines exact persistent identity with a non-owning cache of a loaded object.
 	class FSoftObjectPtr
 	{
 	public:
@@ -53,7 +55,7 @@ namespace Durin
 			: SoftObjectPath(std::move(InPath))
 		{
 		}
-		explicit FSoftObjectPtr(FAssetPath InPath)
+		explicit FSoftObjectPtr(FPackagePath InPath)
 			: SoftObjectPath(std::move(InPath))
 		{
 		}
@@ -70,12 +72,12 @@ namespace Durin
 		}
 
 		COREDOBJECT_API auto SetPath(FSoftObjectPath InPath) -> void;
-		auto SetPath(FAssetPath InPath) -> void
+		auto SetPath(FPackagePath InPath) -> void
 		{
 			SetPath(FSoftObjectPath(std::move(InPath)));
 		}
 
-		// A null object resets the value. A non-null object must be a package main asset.
+		// A null object resets the value. A non-null object must have an exact persistent path.
 		COREDOBJECT_API auto TrySetObject(
 			DObject* InObject,
 			const DClass* ExpectedClass = nullptr,
@@ -97,7 +99,7 @@ namespace Durin
 		auto Reset() -> void
 		{
 			SoftObjectPath.Reset();
-			ResolvedPackagePath = {};
+			ResolvedObjectPath = {};
 			WeakObject.Reset();
 		}
 
@@ -113,18 +115,18 @@ namespace Durin
 	private:
 		COREDOBJECT_API auto TrySetResolvedObject(
 			DObject* InObject,
-			const FAssetPath& AuthoredPath,
-			const FAssetPath& ResolvedPath,
+			const FPackagePath& AuthoredPath,
+			const FPackagePath& ResolvedPath,
 			const DClass* ExpectedClass,
 			std::string* OutError) -> bool;
 		auto ResetResolvedObject() -> void
 		{
-			ResolvedPackagePath = {};
+			ResolvedObjectPath = {};
 			WeakObject.Reset();
 		}
 
 		FSoftObjectPath SoftObjectPath;
-		FAssetPath ResolvedPackagePath;
+		FObjectPath ResolvedObjectPath;
 		FWeakObjectPtr WeakObject;
 
 		friend class Asset::FAssetLoadService;
@@ -141,7 +143,7 @@ namespace Durin
 			: SoftObjectPtr(std::move(InPath))
 		{
 		}
-		explicit TSoftObjectPtr(FAssetPath InPath)
+		explicit TSoftObjectPtr(FPackagePath InPath)
 			: SoftObjectPtr(std::move(InPath))
 		{
 		}
@@ -153,7 +155,7 @@ namespace Durin
 		}
 
 		auto SetPath(FSoftObjectPath InPath) -> void { SoftObjectPtr.SetPath(std::move(InPath)); }
-		auto SetPath(FAssetPath InPath) -> void { SoftObjectPtr.SetPath(std::move(InPath)); }
+		auto SetPath(FPackagePath InPath) -> void { SoftObjectPtr.SetPath(std::move(InPath)); }
 		auto TrySetObject(DObject* InObject, std::string* OutError = nullptr) -> bool
 		{
 			return SoftObjectPtr.TrySetObject(InObject, GetExpectedClass(), OutError);
@@ -199,7 +201,7 @@ struct std::hash<Durin::FSoftObjectPath>
 {
 	auto operator()(const Durin::FSoftObjectPath& Value) const noexcept -> size_t
 	{
-		return std::hash<Durin::FAssetPath>{}(Value.GetAssetPath());
+		return std::hash<Durin::FObjectPath>{}(Value.GetObjectPath());
 	}
 };
 

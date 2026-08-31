@@ -32,34 +32,36 @@ namespace Durin
 
 	DPackage::~DPackage()
 	{
-		if (!PackagePath.empty())
+		if (!RegisteredPath.empty())
 		{
-			auto It = GetPackageRegistry().find(PackagePath);
+			auto It = GetPackageRegistry().find(RegisteredPath);
 			if (It != GetPackageRegistry().end() && It->second == this) GetPackageRegistry().erase(It);
 		}
 	}
 
-	auto DPackage::InitializeAssetPackage(const FAssetPath& InPath) -> void
+	auto DPackage::InitializeAssetPackage(const FPackagePath& InPath) -> void
 	{
 		check(GetOuter() == nullptr);
 		check(PackageFlags == EPackageFlags::None);
-		PackagePath = InPath.ToString();
+		PackagePath = InPath;
+		RegisteredPath = InPath.ToString();
 		PackageFlags = EPackageFlags::Asset;
-		RegisterPackage(this, PackagePath);
+		RegisterPackage(this, RegisteredPath);
 	}
 
-	auto DPackage::RelocateAssetPackage(const FAssetPath& InPath) -> bool
+	auto DPackage::RelocateAssetPackage(const FPackagePath& InPath) -> bool
 	{
 		if (!IsAssetPackage()) return false;
 		const std::string NewPath = InPath.ToString();
-		if (NewPath == PackagePath) return true;
+		if (NewPath == RegisteredPath) return true;
 		auto& Registry = GetPackageRegistry();
 		if (auto Existing = Registry.find(NewPath); Existing != Registry.end() && Existing->second != this) return false;
-		auto Old = Registry.find(PackagePath);
+		auto Old = Registry.find(RegisteredPath);
 		if (Old == Registry.end() || Old->second != this) return false;
 		Registry.erase(Old);
-		PackagePath = NewPath;
-		Registry.emplace(PackagePath, this);
+		PackagePath = InPath;
+		RegisteredPath = NewPath;
+		Registry.emplace(RegisteredPath, this);
 		MarkDirty();
 		return true;
 	}
@@ -69,9 +71,9 @@ namespace Durin
 		check(GetOuter() == nullptr);
 		check(PackageFlags == EPackageFlags::None);
 		check(!ModuleName.IsNone());
-		PackagePath = "/Cpp/" + ModuleName.ToString();
+		RegisteredPath = "/Cpp/" + ModuleName.ToString();
 		PackageFlags = EPackageFlags::Cpp;
-		RegisterPackage(this, PackagePath);
+		RegisterPackage(this, RegisteredPath);
 	}
 
 	auto DPackage::SetStandaloneResidency(bool bResident) -> void
@@ -81,17 +83,57 @@ namespace Durin
 		else ObjectFlags &= ~EObjectFlags::Standalone;
 	}
 
+	auto DPackage::AddReferencedObjects(FReferenceCollector& Collector) -> void
+	{
+		Super::AddReferencedObjects(Collector);
+		for (DObject*& Asset : TopLevelAssets) Collector.AddReferencedObject(Asset);
+	}
+
+	auto DPackage::FindTopLevelAsset(FName Name) const -> DObject*
+	{
+		const auto It = std::ranges::find(TopLevelAssets, Name, &DObject::GetFName);
+		return It == TopLevelAssets.end() ? nullptr : *It;
+	}
+
+	auto DPackage::CanUseTopLevelAssetName(FName Name, const DObject* Ignore) const -> bool
+	{
+		return !Name.IsNone() && std::ranges::none_of(TopLevelAssets, [&](const DObject* Existing) {
+			return Existing != Ignore && !Existing->IsGarbage() && Existing->GetFName() == Name;
+		});
+	}
+
+	auto DPackage::RegisterTopLevelAsset(DObject* InAsset) -> bool
+	{
+		if (!IsAssetPackage() || !InAsset || InAsset->GetOuter() != this
+			|| InAsset->IsTemplateObject()
+			|| EnumHasAnyFlags(InAsset->GetObjectFlags(), EObjectFlags::Transient)) return false;
+		if (std::ranges::find(TopLevelAssets, InAsset) != TopLevelAssets.end()) return true;
+		if (!CanUseTopLevelAssetName(InAsset->GetFName())) return false;
+		TopLevelAssets.push_back(InAsset);
+		std::ranges::sort(TopLevelAssets, [](const DObject* Left, const DObject* Right) {
+			return Left->GetName() < Right->GetName();
+		});
+		return true;
+	}
+
+	auto DPackage::UnregisterTopLevelAsset(DObject* InAsset) -> void
+	{
+		std::erase(TopLevelAssets, InAsset);
+		if (LegacyMainAsset == InAsset) LegacyMainAsset = nullptr;
+	}
+
 	auto DPackage::SetAsset(DObject* InAsset) -> bool
 	{
 		if (!IsAssetPackage()) return false;
 		if (InAsset && InAsset->IsTemplateObject()) return false;
 		if (InAsset && InAsset->GetOuter() != this) return false;
-		Asset = InAsset;
+		if (InAsset && !RegisterTopLevelAsset(InAsset)) return false;
+		LegacyMainAsset = InAsset;
 		MarkDirty();
 		return true;
 	}
 
-	auto CreatePackage(const FAssetPath& Path) -> DPackage*
+	auto CreatePackage(const FPackagePath& Path) -> DPackage*
 	{
 		if (!Path.IsValid() || FindPackage(Path.GetView())) return nullptr;
 

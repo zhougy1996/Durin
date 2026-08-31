@@ -144,7 +144,10 @@ namespace Durin
 	auto DObject::Rename(FName InName) -> void
 	{
 		if (IsTemplateObject()) return;
+		if (auto* Package = Cast<DPackage>(GetOuter()); Package && Package->IsAssetPackage()
+			&& !Package->CanUseTopLevelAssetName(InName, this)) return;
 		NamePrivate = InName;
+		if (DPackage* Package = GetPackage(); Package && Package->IsAssetPackage()) Package->MarkDirty();
 	}
 
 
@@ -189,6 +192,14 @@ namespace Durin
 		if (GIsGameThreadIdInitialized) CheckGameThread();
 		NamePrivate = InName;
 		GDObjectArray.Add(this);
+		if (auto* Package = Cast<DPackage>(OuterPrivate); Package && Package->IsAssetPackage()
+			&& !IsTemplateObject()
+			&& !EnumHasAnyFlags(ObjectFlags, EObjectFlags::Transient))
+		{
+			requiref(Package->RegisterTopLevelAsset(this),
+				"Top-level asset name '{}' collides in package '{}'.",
+				GetName(), Package->GetPackagePath());
+		}
 	}
 
 	auto DObject::SetOuterPrivate(DObject* NewOuter) -> void
@@ -206,7 +217,17 @@ namespace Durin
 
 		if (GDObjectArray.Contains(this))
 		{
+			auto* OldPackage = Cast<DPackage>(OuterPrivate);
+			auto* NewPackage = Cast<DPackage>(NewOuter);
+			const bool bPersistentTopLevel = !IsTemplateObject()
+				&& !EnumHasAnyFlags(ObjectFlags, EObjectFlags::Transient);
+			if (NewPackage && NewPackage->IsAssetPackage() && bPersistentTopLevel
+				&& !NewPackage->CanUseTopLevelAssetName(GetFName(), this)) return;
+			if (OldPackage && OldPackage->IsAssetPackage() && bPersistentTopLevel)
+				OldPackage->UnregisterTopLevelAsset(this);
 			GDObjectArray.ReparentObject(this, NewOuter);
+			if (NewPackage && NewPackage->IsAssetPackage() && bPersistentTopLevel)
+				require(NewPackage->RegisterTopLevelAsset(this));
 			return;
 		}
 		OuterPrivate = NewOuter;
@@ -230,15 +251,21 @@ namespace Durin
 		if (!Package) return GetName();
 		if (this == Package) return Package->GetPackagePath();
 		if (Package->IsCppPackage()) return Package->GetPackagePath() + "." + GetName();
-		if (this == Package->GetAsset()) return Package->GetPackagePath();
+
+		const DObject* TopLevel = this;
+		while (TopLevel->GetOuter() && TopLevel->GetOuter() != Package)
+			TopLevel = TopLevel->GetOuter();
+		if (TopLevel->GetOuter() != Package) return GetName();
+		std::string Result = std::format("{}.{}", Package->GetPackagePath(), TopLevel->GetName());
+		if (this == TopLevel) return Result;
 
 		std::vector<std::string> Segments;
-		for (const DObject* Current = this; Current && Current != Package->GetAsset() && Current != Package; Current = Current->GetOuter())
+		for (const DObject* Current = this; Current && Current != TopLevel; Current = Current->GetOuter())
 		{
 			Segments.push_back(Current->GetName());
 		}
 		std::ranges::reverse(Segments);
-		std::string Result = Package->GetPackagePath() + ":";
+		Result += ":";
 		for (size_t Index = 0; Index < Segments.size(); ++Index)
 		{
 			if (Index > 0) Result += ".";

@@ -20,7 +20,7 @@ namespace Durin
 	};
 	ENUM_CLASS_FLAGS(EPackageFlags);
 
-	// Owns an asset or a module's reflected metadata under one globally registered path.
+	// Owns every direct asset export or a module's reflected metadata under one registered path.
 	DCLASS(NoClassDefaultObject)
 	class DPackage : public DObject
 	{
@@ -29,8 +29,13 @@ namespace Durin
 		COREDOBJECT_API explicit DPackage(const FObjectInitializer& ObjectInitializer);
 		COREDOBJECT_API ~DPackage() override;
 
-		auto GetPackagePath() const -> const std::string& { return PackagePath; }
-		auto GetAsset() const -> DObject* { return Asset.Get(); }
+		// Temporary string spelling shared with compiled-in packages during migration.
+		auto GetPackagePath() const -> const std::string& { return RegisteredPath; }
+		auto GetPackagePathIdentity() const -> const FPackagePath& { return PackagePath; }
+		auto GetTopLevelAssets() const -> std::span<DObject* const> { return TopLevelAssets; }
+		COREDOBJECT_API auto FindTopLevelAsset(FName Name) const -> DObject*;
+		// Temporary v8 adapter. New code must select a named top-level asset.
+		auto GetAsset() const -> DObject* { return LegacyMainAsset; }
 		auto IsDirty() const -> bool { return bDirty; }
 		auto IsCanonicalResaveRecommended() const -> bool { return bCanonicalResaveRecommended; }
 		auto GetEditRevision() const -> uint64 { return EditRevision; }
@@ -44,13 +49,14 @@ namespace Durin
 		}
 
 		// Initialization is one-shot and requires an unparented package with no existing kind.
-		COREDOBJECT_API auto InitializeAssetPackage(const FAssetPath& InPath) -> void;
-		COREDOBJECT_API auto RelocateAssetPackage(const FAssetPath& InPath) -> bool;
+		COREDOBJECT_API auto InitializeAssetPackage(const FPackagePath& InPath) -> void;
+		COREDOBJECT_API auto RelocateAssetPackage(const FPackagePath& InPath) -> bool;
 		COREDOBJECT_API auto InitializeCppPackage(FName ModuleName) -> void;
 		// Controls ordinary-GC residency for an asset package. Unload attempts clear
 		// this temporarily and restore it when another strong reference keeps the
 		// package graph reachable.
 		COREDOBJECT_API auto SetStandaloneResidency(bool bResident) -> void;
+		COREDOBJECT_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 
 		// Asset packages accept only an asset whose Outer is this package.
 		COREDOBJECT_API auto SetAsset(DObject* InAsset) -> bool;
@@ -75,13 +81,18 @@ namespace Durin
 		}
 
 	private:
-		// Global registry key, using an asset path or the /Cpp/<Module> namespace.
-		DPROPERTY()
-		std::string PackagePath;
+		// Mounted package identity; invalid only for compiled-in metadata packages.
+		FPackagePath PackagePath;
 
-		// Main persistent asset; structural children remain reachable through Outer relationships.
+		// Global registry key, including the separate /Cpp/<Module> namespace.
 		DPROPERTY()
-		TObjectPtr<DObject> Asset;
+		std::string RegisteredPath;
+
+		// Direct persistent exports are retained as one package residency closure.
+		std::vector<DObject*> TopLevelAssets;
+
+		// Non-owning v8 compatibility selector removed with the production v8 route.
+		DObject* LegacyMainAsset = nullptr;
 
 		EPackageFlags PackageFlags = EPackageFlags::None;
 
@@ -96,11 +107,17 @@ namespace Durin
 		// Monotonic process-local token for optimistic editor plans. Unlike dirty
 		// state, repeated edits remain distinguishable before the next save.
 		uint64 EditRevision = 1;
+
+		COREDOBJECT_API auto RegisterTopLevelAsset(DObject* Asset) -> bool;
+		COREDOBJECT_API auto UnregisterTopLevelAsset(DObject* Asset) -> void;
+		COREDOBJECT_API auto CanUseTopLevelAssetName(FName Name, const DObject* Ignore = nullptr) const -> bool;
+
+		friend class DObject;
 	};
 
 	// Creates a standalone asset package. Invalid paths and paths already owned
 	// by another live package are rejected.
-	COREDOBJECT_API auto CreatePackage(const FAssetPath& Path) -> DPackage*;
+	COREDOBJECT_API auto CreatePackage(const FPackagePath& Path) -> DPackage*;
 	COREDOBJECT_API auto FindPackage(std::string_view PackagePath) -> DPackage*;
 	COREDOBJECT_API auto FindOrCreateCppPackage(FName ModuleName) -> DPackage*;
 	COREDOBJECT_API auto RegisterCompiledInPackage(const char* ModuleName) -> void;

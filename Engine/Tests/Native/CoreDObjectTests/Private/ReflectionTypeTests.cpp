@@ -3322,27 +3322,37 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::CollectGarbage();
 	}
 
-	TEST(FCoreDObjectReflectionTests, PackageKeepsAssetReferenceAndBuildsStableObjectPaths)
+	TEST(FCoreDObjectReflectionTests, PackageRetainsAllTopLevelAssetsAndBuildsStructuralObjectPaths)
 	{
 		EnsureDObjectInitialized();
 		EnsurePackageTestMount();
-		Durin::FAssetPath Path;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/CoreTests/Package", Path));
+		Durin::FPackagePath Path;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/CoreTests/Package", Path));
 		auto* Package = Durin::NewObject<Durin::DPackage>(nullptr, "Package");
 		Package->InitializeAssetPackage(Path);
 		Durin::AddToRoot(Package);
 		Durin::DObject* Asset = Durin::NewObject<Durin::DObject>(Package, "Package");
 		Durin::DObject* Inner = Durin::NewObject<Durin::DObject>(Asset, "Inner");
-		ASSERT_TRUE(Package->SetAsset(Asset));
+		Durin::DObject* Secondary = Durin::NewObject<Durin::DObject>(Package, "Secondary");
 
 		EXPECT_EQ(Package->GetOuter(), nullptr);
 		EXPECT_EQ(Asset->GetPackage(), Package);
-		EXPECT_EQ(Asset->GetObjectPath(), "/CoreTests/Package");
-		EXPECT_EQ(Inner->GetObjectPath(), "/CoreTests/Package:Inner");
+		EXPECT_EQ(Asset->GetObjectPath(), "/CoreTests/Package.Package");
+		EXPECT_EQ(Inner->GetObjectPath(), "/CoreTests/Package.Package:Inner");
+		EXPECT_EQ(Secondary->GetObjectPath(), "/CoreTests/Package.Secondary");
+		ASSERT_EQ(Package->GetTopLevelAssets().size(), 2u);
+		EXPECT_EQ(Package->FindTopLevelAsset("Package"), Asset);
+		EXPECT_EQ(Package->FindTopLevelAsset("Secondary"), Secondary);
+		Secondary->Rename("Package");
+		EXPECT_EQ(Secondary->GetFName(), Durin::FName("Secondary"));
 		Durin::CollectGarbage();
 		EXPECT_TRUE(ObjectArrayContains(Package));
 		EXPECT_TRUE(ObjectArrayContains(Asset));
+		EXPECT_TRUE(ObjectArrayContains(Secondary));
 		EXPECT_FALSE(ObjectArrayContains(Inner));
+		Durin::MarkAsGarbage(Secondary);
+		Durin::CollectGarbage();
+		EXPECT_EQ(Package->FindTopLevelAsset("Secondary"), nullptr);
 
 		Durin::RemoveFromRoot(Package);
 		Durin::MarkObjectHierarchyAsGarbage(Package);
@@ -3352,8 +3362,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	{
 		EnsureDObjectInitialized();
 		EnsurePackageTestMount();
-		Durin::FAssetPath Path;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/CoreTests/CreatedPackage", Path));
+		Durin::FPackagePath Path;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/CoreTests/CreatedPackage", Path));
 
 		Durin::DPackage* Package = Durin::CreatePackage(Path);
 		ASSERT_NE(Package, nullptr);
@@ -3937,13 +3947,12 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Durin::DObject* DirectMapReference = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCSchemaDirectMap"));
 		Durin::DObject* ArrayMapReference = Durin::NewObject<Durin::DObject>(nullptr, Durin::FName("GCSchemaArrayMap"));
 		EnsurePackageTestMount();
-		Durin::FAssetPath SoftAssetPath;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/CoreTests/GCSchemaSoft", SoftAssetPath));
+		Durin::FPackagePath SoftAssetPath;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/CoreTests/GCSchemaSoft", SoftAssetPath));
 		Durin::DPackage* SoftPackage = Durin::NewObject<Durin::DPackage>(nullptr, Durin::FName("GCSchemaSoft"));
 		SoftPackage->InitializeAssetPackage(SoftAssetPath);
 		Durin::DObject* SoftReference =
 			Durin::NewObject<Durin::DObject>(SoftPackage, Durin::FName("GCSchemaSoft"));
-		ASSERT_TRUE(SoftPackage->SetAsset(SoftReference));
 
 		Owner->BaseReference = SharedReference;
 		Owner->DuplicateReference = SharedReference;
@@ -4505,10 +4514,11 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	{
 		EnsureDObjectInitialized();
 		EnsurePackageTestMount();
-		Durin::FAssetPath Path;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/CoreTests/SoftObjectValue", Path));
+		Durin::FPackagePath Path;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/CoreTests/SoftObjectValue", Path));
 		Durin::FSoftObjectPath SoftPath;
-		ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(Path.GetView(), SoftPath));
+		ASSERT_TRUE(Durin::FSoftObjectPath::TryCreate(
+			"/CoreTests/SoftObjectValue.SoftObjectValue", SoftPath));
 		const Durin::FSoftObjectPath ValidSoftPath = SoftPath;
 		EXPECT_FALSE(Durin::FSoftObjectPath::TryCreate("/Unknown/InvalidSoftObject", SoftPath));
 		EXPECT_EQ(SoftPath, ValidSoftPath);
@@ -4517,7 +4527,6 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Package->InitializeAssetPackage(Path);
 		Durin::AddToRoot(Package);
 		Durin::DObject* Asset = Durin::NewObject<Durin::DObject>(Package, "SoftObjectValue");
-		ASSERT_TRUE(Package->SetAsset(Asset));
 
 		Durin::FSoftObjectPtr Reference(SoftPath);
 		EXPECT_FALSE(Reference.IsNull());
@@ -4561,15 +4570,14 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 	{
 		EnsureDObjectInitialized();
 		EnsurePackageTestMount();
-		Durin::FAssetPath Path;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/CoreTests/SoftObjectValidation", Path));
+		Durin::FPackagePath Path;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/CoreTests/SoftObjectValidation", Path));
 
 		auto* Package = Durin::NewObject<Durin::DPackage>(nullptr, "SoftObjectValidation");
 		Package->InitializeAssetPackage(Path);
 		Durin::AddToRoot(Package);
 		Durin::DObject* Asset = Durin::NewObject<Durin::DObject>(Package, "SoftObjectValidation");
 		Durin::DObject* Inner = Durin::NewObject<Durin::DObject>(Asset, "Inner");
-		ASSERT_TRUE(Package->SetAsset(Asset));
 
 		Durin::FSoftObjectPtr Reference;
 		ASSERT_TRUE(Reference.TrySetObject(Asset));
@@ -4577,7 +4585,10 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		std::string Error;
 		EXPECT_FALSE(Reference.TrySetObject(Package, nullptr, &Error));
 		EXPECT_FALSE(Error.empty());
-		EXPECT_FALSE(Reference.TrySetObject(Inner, nullptr, &Error));
+		EXPECT_TRUE(Reference.TrySetObject(Inner, nullptr, &Error));
+		EXPECT_EQ(Reference.GetSoftObjectPath().ToString(),
+			"/CoreTests/SoftObjectValidation.SoftObjectValidation:Inner");
+		ASSERT_TRUE(Reference.TrySetObject(Asset));
 		EXPECT_FALSE(Reference.TrySetObject(Asset, Durin::DPackage::StaticClass(), &Error));
 		Durin::DObject* Unpackaged = Durin::NewObject<Durin::DObject>(nullptr, "UnpackagedSoftObject");
 		EXPECT_FALSE(Reference.TrySetObject(Unpackaged, nullptr, &Error));
@@ -4634,8 +4645,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		EXPECT_TRUE(Accessed->HasValueAccessors());
 		EXPECT_EQ(Accessed->GetOffset(), 0);
 
-		Durin::FAssetPath AssetPath;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/CoreTests/SoftObjectProperty", AssetPath));
+		Durin::FPackagePath AssetPath;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/CoreTests/SoftObjectProperty", AssetPath));
 		Durin::FSoftObjectPath SoftPath(AssetPath);
 		FSoftObjectPropertyOwnerForTest Owner;
 		Owner.Direct.SetPath(SoftPath);
@@ -4669,8 +4680,8 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		auto* DetachedValue = static_cast<Durin::TSoftObjectPtr<Durin::DObject>*>(Detached.GetValue());
 		ASSERT_NE(DetachedValue, nullptr);
 		EXPECT_EQ(DetachedValue->GetSoftObjectPath(), SoftPath);
-		Durin::FAssetPath ReplacementPath;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/CoreTests/SoftObjectPropertyReplacement", ReplacementPath));
+		Durin::FPackagePath ReplacementPath;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/CoreTests/SoftObjectPropertyReplacement", ReplacementPath));
 		Durin::TSoftObjectPtr<Durin::DObject> Replacement(ReplacementPath);
 		ASSERT_TRUE(Detached.CopyAssign(&Replacement));
 		EXPECT_EQ(DetachedValue->GetSoftObjectPath(), Replacement.GetSoftObjectPath());
@@ -4679,7 +4690,6 @@ TEST(FCoreDObjectReflectionTests, ByteBlobArchiveRoundTripsAndRejectsTruncationT
 		Package->InitializeAssetPackage(AssetPath);
 		Durin::AddToRoot(Package);
 		Durin::DObject* Asset = Durin::NewObject<Durin::DObject>(Package, "SoftObjectProperty");
-		ASSERT_TRUE(Package->SetAsset(Asset));
 		FSoftObjectPropertyOwnerForTest CachedOwner;
 		ASSERT_TRUE(CachedOwner.Direct.TrySetObject(Asset));
 		EXPECT_TRUE(Durin::ArePropertyValuesIdentical(Direct, &Owner, 0, &CachedOwner, 0));

@@ -37,9 +37,19 @@ maintained package is therefore deterministically convertible; fixtures will
 cover the additional package-outer, null/soft, redirect, malformed, and
 cross-package cases that the maintained corpus does not contain.
 
-Stage 1 has started with `FPackagePath`, `FTopLevelAssetPath`, and `FObjectPath`.
-The short-lived `FAssetPath` source alias remains only to keep downstream
-package-path consumers buildable while they are migrated.
+Stage 1 is complete. `FPackagePath`, `FTopLevelAssetPath`, and `FObjectPath`
+provide the frozen grammar; `DPackage` automatically registers, strongly
+retains, enumerates, name-checks, reparents, and retires every direct persistent
+export; `DObject::GetObjectPath()` derives the selected top-level root; and soft
+paths now store exact complete object identity. The former reflected
+`DPackage::Asset` owner is gone. A non-owning v8 main selector and the
+short-lived `FAssetPath` source alias remain only as bounded adapters for the
+Stage 2/3 cutover.
+
+Focused `PackageLinkerContractTests` and `CoreObjectTests` pass, covering path
+round trips and failures plus multi-asset retention, rename collision,
+retirement, nested object paths, and exact subobject soft references. Stage 2
+is next: add DAST v9 tables and the construct-free v8 converter.
 
 ## Goal
 
@@ -232,20 +242,20 @@ grammar and top-level asset rules have executable tests.
 
 ### Stage 1: Establish CoreDObject path value types
 
-- [ ] Add the explicit package, top-level asset, and complete object path types
+- [x] Add the explicit package, top-level asset, and complete object path types
   with structural storage, bounded parsers, canonical formatters, comparison,
   hashing, and null behavior.
-- [ ] Migrate mount lookup and `DPackage` to the package-path type without
+- [x] Migrate mount lookup and `DPackage` to the package-path type without
   changing physical resolution.
-- [ ] Remove `DPackage::Asset` as the root/retention authority. Give Package an
+- [x] Remove `DPackage::Asset` as the root/retention authority. Give Package an
   explicit collection/enumeration contract for all direct top-level assets and
   define their registration, GC retention, rename, collision, and retirement
   behavior.
-- [ ] Change `DObject::GetObjectPath()` to emit each package-outer top-level
+- [x] Change `DObject::GetObjectPath()` to emit each package-outer top-level
   asset name and the relative subobject chain beneath that selected root.
-- [ ] Replace `FSoftObjectPath`'s package-only storage with complete object
+- [x] Replace `FSoftObjectPath`'s package-only storage with complete object
   identity while keeping resolution out of CoreDObject.
-- [ ] Add focused path and object-lifecycle tests covering top-level assets, nested
+- [x] Add focused path and object-lifecycle tests covering top-level assets, nested
   objects, multiple top-level assets, invalid separators, duplicate-looking
   names, ordering, hashing, GC retention, and round trips.
 
