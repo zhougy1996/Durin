@@ -16,7 +16,8 @@ namespace Durin
 	class DWorld;
 	class DLevel;
 	class DPackage;
-	class FAssetPath;
+	class FPackagePath;
+	using FAssetPath = FPackagePath;
 }
 
 namespace Durin::Editor::Level

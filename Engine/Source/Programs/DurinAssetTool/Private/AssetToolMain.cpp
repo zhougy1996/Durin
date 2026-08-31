@@ -10,6 +10,7 @@
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/PackageInspection.h"
+#include "Asset/References.h"
 #include "Asset/Cook.h"
 
 #include "Animation/AnimationClip.h"
@@ -60,6 +61,7 @@ namespace
 		Check,
 		Resave,
 		StorageInventory,
+		IdentityAudit,
 		Cook,
 	};
 
@@ -96,6 +98,7 @@ namespace
 		case EOperation::Check: return "check";
 		case EOperation::Resave: return "resave";
 		case EOperation::StorageInventory: return "storage-inventory";
+		case EOperation::IdentityAudit: return "identity-audit";
 		case EOperation::Cook: return "cook";
 		}
 		return "check";
@@ -146,6 +149,7 @@ namespace
 			<< "  DurinAssetTool resave --project=<project.dproject> <scope>... [--apply] [--json]\n"
 			<< "  DurinAssetTool resave --project=<project.dproject> --all [--apply] [--json]\n"
 			<< "  DurinAssetTool storage-inventory --project=<project.dproject>\n"
+			<< "  DurinAssetTool identity-audit --project=<project.dproject>\n"
 			<< "  DurinAssetTool cook --project=<project.dproject> --output=<absolute-path> "
 			<< "--target=win64 --profile=game [--root=/Game/Path]... "
 			<< "[--no-incremental] [--dry-run] [--json]\n";
@@ -181,8 +185,7 @@ namespace
 								| OptionBit(EOption::Root) | OptionBit(EOption::NoIncremental)
 								| OptionBit(EOption::DryRun);
 		const uint16 Allowed = Options.Operation == EOperation::Resave ? Resave : Options.Operation == EOperation::Check ? Check :
-																			  Options.Operation == EOperation::Cook		 ? Cook :
-																														   Storage;
+															  Options.Operation == EOperation::Cook		 ? Cook : Storage;
 		const uint16 Unexpected = Options.SpecifiedOptions & ~Allowed;
 		constexpr EOption OrderedOptions[] = {
 			EOption::Json, EOption::All, EOption::Apply, EOption::Scope,
@@ -249,6 +252,8 @@ namespace
 			OutOptions.Operation = EOperation::Resave;
 		else if (Command == "storage-inventory")
 			OutOptions.Operation = EOperation::StorageInventory;
+		else if (Command == "identity-audit")
+			OutOptions.Operation = EOperation::IdentityAudit;
 		else if (Command == "cook")
 			OutOptions.Operation = EOperation::Cook;
 		else
@@ -492,6 +497,67 @@ namespace
 			for (const std::filesystem::path& Orphan : Package.Orphans)
 				OrphanArray.AppendValue(Orphan.generic_string());
 			PackageNode.SetChildValue("descriptorDiagnostic", Package.DescriptorDiagnostic);
+		}
+		return Document.ToString();
+	}
+
+	auto SerializeIdentityAudit(
+		std::span<const Durin::Asset::FAssetPackageCompatibilityProbeInput> Inputs
+	) -> std::string
+	{
+		using namespace Durin;
+		using namespace Durin::Asset;
+		FJsonDocument Document;
+		FJsonNodeRef Root = Document.GetMutableRoot();
+		Root.EnsureObject();
+		Root.SetChildValue("schemaVersion", 1);
+		FJsonNodeRef Packages = Root.AddArray("packages");
+		for (const FAssetPackageCompatibilityProbeInput& Input : Inputs)
+		{
+			FJsonNodeRef PackageNode = Packages.AppendObject();
+			PackageNode.SetChildValue("packagePath", Input.PackagePath.GetView());
+			FAssetPackageInspection Inspection;
+			const FAssetResult Result = InspectAssetPackage(
+				Input.PhysicalPath, Input.PackagePath, Inspection);
+			PackageNode.SetChildValue("inspection", Result ? "Ready" : "Failed");
+			PackageNode.SetChildValue("diagnostic", Result.Message);
+			if (!Result) continue;
+			PackageNode.SetChildValue("formatVersion", Inspection.Header.FormatVersion);
+			PackageNode.SetChildValue("assetClass", Inspection.Header.AssetClassName);
+			PackageNode.SetChildValue("redirectDestination",
+				Inspection.Header.RedirectDestination.GetView());
+
+			FJsonNodeRef Objects = PackageNode.AddArray("objects");
+			for (const FAssetPackageObjectInspection& Object : Inspection.Objects)
+			{
+				FJsonNodeRef ObjectNode = Objects.AppendObject();
+				ObjectNode.SetChildValue("id", Object.Id);
+				ObjectNode.SetChildValue("outerId", Object.OuterId);
+				ObjectNode.SetChildValue("name", Object.ObjectName);
+				ObjectNode.SetChildValue("class", Object.ClassName);
+				ObjectNode.SetChildValue("path", Object.ObjectPath);
+			}
+
+			std::vector<FAssetReferenceEdge> References;
+			const FAssetResult ReferenceResult = ExtractAssetReferences(
+				Input.PackagePath, Inspection, References);
+			PackageNode.SetChildValue("referenceInspection",
+				ReferenceResult ? "Ready" : "Failed");
+			PackageNode.SetChildValue("referenceDiagnostic", ReferenceResult.Message);
+			FJsonNodeRef ReferenceArray = PackageNode.AddArray("references");
+			if (ReferenceResult)
+			{
+				for (const FAssetReferenceEdge& Reference : References)
+				{
+					FJsonNodeRef ReferenceNode = ReferenceArray.AppendObject();
+					ReferenceNode.SetChildValue("kind",
+						Reference.Kind == EAssetReferenceKind::HardObject ? "Hard"
+						: Reference.Kind == EAssetReferenceKind::SoftObject ? "Soft" : "Redirect");
+					ReferenceNode.SetChildValue("sourceObjectId", Reference.SourceObjectId);
+					ReferenceNode.SetChildValue("route", Reference.DisplayRoute);
+					ReferenceNode.SetChildValue("target", Reference.TargetPath.GetView());
+				}
+			}
 		}
 		return Document.ToString();
 	}
@@ -902,6 +968,11 @@ int main(int ArgC, char** ArgV)
 	if (Options.Operation == EOperation::StorageInventory)
 	{
 		std::cout << SerializeStorageQualificationInventory(Snapshot.Packages) << '\n';
+		return 0;
+	}
+	if (Options.Operation == EOperation::IdentityAudit)
+	{
+		std::cout << SerializeIdentityAudit(Snapshot.Packages) << '\n';
 		return 0;
 	}
 	if (Options.Operation == EOperation::Resave && Options.bApply)

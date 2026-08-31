@@ -28,14 +28,18 @@ now the closure and residency container; independently addressable assets are
 its package-outer exports. “Primary Asset” remains a separate future Asset
 Manager policy rather than a replacement name for `MainExportId`.
 
-This changes the persistent meaning and canonical spelling of non-null soft
-object references and changes Registry from one asset record per package to one
-record per top-level asset. Under the repository's package-version policy these
-are canonical-value and wire-semantic changes, so they must not silently
-redefine DAST v8. The work will introduce the next DAST version with a bounded
-construct-free v8 conversion, migrate the maintained corpus, cut production
-over atomically, and then retire the v8 production reader/writer route. No
-implementation stage has started.
+Stage 0 is complete. The public API and main-asset assumptions are inventoried
+below, DAST v9 is reserved for this cutover, and executable CoreDObject contract
+tests freeze the three structural path kinds. A construct-free audit of all 25
+maintained DAST v8 packages found one package-outer export per package, no soft
+references, no redirectors, and only exact former-main hard imports. Every
+maintained package is therefore deterministically convertible; fixtures will
+cover the additional package-outer, null/soft, redirect, malformed, and
+cross-package cases that the maintained corpus does not contain.
+
+Stage 1 has started with `FPackagePath`, `FTopLevelAssetPath`, and `FObjectPath`.
+The short-lived `FAssetPath` source alias remains only to keep downstream
+package-path consumers buildable while they are migrated.
 
 ## Goal
 
@@ -146,26 +150,79 @@ ambiguous.
   converter implicitly. After corpus migration they select only the new
   package version.
 
+## Stage 0 Identity And Migration Inventory
+
+The frozen path contract is case-sensitive bytewise identity with valid UTF-8,
+no escaping, and rejection of `/`, `\\`, `.`, and `:` inside a component.
+Package, asset, and subobject separators are structural and cannot be quoted.
+Each component is limited to 1,024 bytes and a complete path to 1 MiB. Null is
+represented only by a default-invalid value. Failed parsing leaves the output
+unchanged. Equality, ordering, and hashing use the canonical complete spelling.
+
+| Existing surface | Current meaning | Required replacement |
+| --- | --- | --- |
+| `FAssetPath`, mount lookup, package/files/cache/publication/Cook closure keys | Mounted package | `FPackagePath` |
+| `FAssetData::PackagePath` and catalog map key | Package aliased as one asset | package metadata keyed by `FPackagePath`; asset records keyed by `FTopLevelAssetPath` |
+| Registry dependency and referencer fields | Package edge | `FPackagePath` |
+| Registry redirect destination and redirect resolution result | Package aliased as one asset | `FObjectPath` target and `FTopLevelAssetPath` catalog chain |
+| `FSoftObjectPath`, serialized soft payload, exact reference target | Former main package alias | `FObjectPath`; dependency projection derives its `FPackagePath` |
+| hard import `PackageName`/`ObjectName` | Destination package plus assumed main export | exact `FTopLevelAssetPath`; hard edge derives its package |
+| `DPackage::GetPackagePath`, create/find/relocate | Package string or `FAssetPath` | typed `FPackagePath` |
+| `DObject::GetObjectPath` and inspection object paths | display string with main-asset omission | typed/canonical `FObjectPath` for asset objects; display strings remain derived |
+| physical paths and source hints | file-system identity | remain explicitly physical strings/paths |
+| logical property/schema/diagnostic routes | display-only | remain strings and never enter identity parsing |
+
+| Main-asset invariant | Exact multi-asset replacement |
+| --- | --- |
+| `DPackage::Asset`, `GetAsset()`, and `SetAsset()` | package-owned direct-export collection, exact name lookup, and automatic registration/retirement |
+| `MainExportId` / `FPackageSummary::MainExport` | sorted complete top-level asset records, each bound to one export id |
+| package `AssetClass` | class on each top-level asset record |
+| package `bRedirect` / `RedirectDestination` | redirect state and exact object target on the corresponding top-level asset record |
+| load/create returning the package main asset | `LoadPackage(FPackagePath)` plus exact `LoadObject(FObjectPath)` / top-level lookup |
+| save/capture starting at `GetAsset()` | enumerate every registered package-outer asset and each descendant once |
+| relocation renaming package and inferred leaf asset | package relocation rewrites only the package component; asset rename is a separate exact operation |
+| deletion/fix-up treating one catalog entry as a package | distinguish exact top-level asset deletion from whole-package closure deletion |
+
+No other active plan claims DAST v9. The conversion matrix is frozen as:
+
+| v8 input | v9 result |
+| --- | --- |
+| validated `MainExportId` | one top-level record for that package-outer export |
+| additional package-outer export | one additional independently addressable top-level record |
+| descendant export | preserved beneath its nearest package-outer export |
+| null soft reference | null `FObjectPath` |
+| non-null v8 soft package path | exact former-main `FObjectPath` |
+| cross-package hard import | exact former-main `FTopLevelAssetPath` |
+| redirect destination | exact former-main `FObjectPath` |
+| malformed, missing-main, ambiguous, or noncanonical value | conversion failure with no output |
+
+The 2026-08-31 maintained-corpus audit covered 25 v8 `.dasset` files and eight
+external `.dbulk` companions. All 25 passed full construct-free inspection;
+each has exactly one package-outer export, none contains a soft reference or
+redirect, and every recorded hard import targets the former main asset. The
+offline converter fixtures, rather than authored corpus, own coverage for all
+other rows in the matrix.
+
 ## Implementation Stages
 
 ### Stage 0: Freeze the identity and compatibility contract
 
-- [ ] Inventory every public path-bearing field and function in CoreDObject,
+- [x] Inventory every public path-bearing field and function in CoreDObject,
   AssetRegistry, Engine, AssetMaintenance, Cook, and Editor; classify each as
   package, top-level asset, complete object, physical file, or display-only.
-- [ ] Inventory every `DPackage::Asset`, `GetAsset()`, `MainExportId`,
+- [x] Inventory every `DPackage::Asset`, `GetAsset()`, `MainExportId`,
   package-level asset-class/redirect field, and implicit package-to-main-asset
   load assumption; record its exact multi-asset replacement.
-- [ ] Inventory all maintained DAST v8 export topologies, soft-reference values,
+- [x] Inventory all maintained DAST v8 export topologies, soft-reference values,
   imports, and redirects. Prove which values denote the former main asset and
   record any additional package-outer export, null, malformed, or cross-package
   case that requires explicit converter behavior.
-- [ ] Freeze type names, canonical grammar, separator escaping policy, maximum
+- [x] Freeze type names, canonical grammar, separator escaping policy, maximum
   component/path bounds, case rules, equality, hashing, ordering, and error
   diagnostics in focused contract tests before changing consumers.
-- [ ] Freeze the next package version number and exact conversion matrix after
+- [x] Freeze the next package version number and exact conversion matrix after
   confirming no concurrent package-format plan owns that version.
-- [ ] Record the selected type/API inventory and migration findings in this
+- [x] Record the selected type/API inventory and migration findings in this
   plan before Stage 1 begins.
 
 Completion condition: every existing path and main-asset API plus every

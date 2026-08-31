@@ -11,7 +11,8 @@
 namespace Durin
 {
 	class DLevel;
-	class FAssetPath;
+	class FPackagePath;
+	using FAssetPath = FPackagePath;
 	class FLevelEditorModule;
 }
 

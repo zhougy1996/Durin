@@ -1,6 +1,8 @@
 #include "DObject/CanonicalMapKey.h"
+#include "DObject/AssetPath.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "DObject/PackageLinker.h"
+#include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
 
 #include <gtest/gtest.h>
@@ -24,6 +26,97 @@ namespace
 		EXPECT_TRUE(Package::BuildCanonicalMapKeyToken({.Kind = Kind}, Value, Result, &Error)) << Error;
 		return Result;
 	}
+
+	auto PathMountFixture() -> Durin::Testing::FScopedMountRegistryFixture
+	{
+		const std::array Definitions{
+			Durin::FMountPoint{
+				.VirtualRoot = "/Game/",
+				.Owner = Durin::EMountOwner::Test,
+				.Root = std::filesystem::current_path(),
+			},
+		};
+		return Durin::Testing::FScopedMountRegistryFixture(Definitions);
+	}
+}
+
+TEST(FPathIdentityContractTests, DistinctStructuralKindsRoundTripCanonically)
+{
+	auto Fixture = PathMountFixture();
+	ASSERT_TRUE(Fixture.IsValid()) << Fixture.GetError();
+	Durin::FPackagePath PackagePath;
+	Durin::FTopLevelAssetPath AssetPath;
+	Durin::FObjectPath ObjectPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/Objects/Test", PackagePath));
+	ASSERT_TRUE(Durin::FTopLevelAssetPath::TryCreate(
+		"/Game/Objects/Test.Test", AssetPath));
+	ASSERT_TRUE(Durin::FObjectPath::TryCreate(
+		"/Game/Objects/Test.Test:Root.Component", ObjectPath));
+	EXPECT_EQ(PackagePath.ToString(), "/Game/Objects/Test");
+	EXPECT_EQ(PackagePath.GetPackageName(), "Test");
+	EXPECT_EQ(AssetPath.GetPackagePath(), PackagePath);
+	EXPECT_EQ(AssetPath.GetAssetName(), "Test");
+	EXPECT_EQ(ObjectPath.GetPackagePath(), PackagePath);
+	EXPECT_EQ(ObjectPath.GetAssetPath(), AssetPath);
+	ASSERT_EQ(ObjectPath.GetSubobjectNames().size(), 2u);
+	EXPECT_EQ(ObjectPath.GetSubobjectNames()[0], "Root");
+	EXPECT_EQ(ObjectPath.GetSubobjectNames()[1], "Component");
+	EXPECT_EQ(ObjectPath.ToString(), "/Game/Objects/Test.Test:Root.Component");
+}
+
+TEST(FPathIdentityContractTests, RejectsAmbiguousNoncanonicalAndBoundedSpellingsAtomically)
+{
+	auto Fixture = PathMountFixture();
+	ASSERT_TRUE(Fixture.IsValid()) << Fixture.GetError();
+	Durin::FPackagePath PackagePath;
+	Durin::FTopLevelAssetPath AssetPath;
+	Durin::FObjectPath ObjectPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/Keep", PackagePath));
+	ASSERT_TRUE(Durin::FTopLevelAssetPath::TryCreate("/Game/Keep.Asset", AssetPath));
+	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Game/Keep.Asset:Child", ObjectPath));
+	for (const std::string_view Invalid : {
+		"Game/Package", "/Game/", "/Game/A.B", "/Game/A:B",
+		"/Game//A", "/Game/../A", "/Unknown/A"})
+	{
+		EXPECT_FALSE(Durin::FPackagePath::TryCreate(Invalid, PackagePath)) << Invalid;
+		EXPECT_EQ(PackagePath.ToString(), "/Game/Keep");
+	}
+	for (const std::string_view Invalid : {
+		"/Game/A", "/Game/A.", "/Game/A.Asset.Child", "/Game/A.Asset:Child"})
+	{
+		EXPECT_FALSE(Durin::FTopLevelAssetPath::TryCreate(Invalid, AssetPath)) << Invalid;
+		EXPECT_EQ(AssetPath.ToString(), "/Game/Keep.Asset");
+	}
+	for (const std::string_view Invalid : {
+		"/Game/A", "/Game/A.Asset:", "/Game/A.Asset:.Child",
+		"/Game/A.Asset:Child.", "/Game/A.Asset:Child..Grandchild",
+		"/Game/A.Asset:Child:Grandchild"})
+	{
+		EXPECT_FALSE(Durin::FObjectPath::TryCreate(Invalid, ObjectPath)) << Invalid;
+		EXPECT_EQ(ObjectPath.ToString(), "/Game/Keep.Asset:Child");
+	}
+	const std::string OversizedComponent(
+		Durin::MaximumObjectPathComponentBytes + 1, 'a');
+	EXPECT_FALSE(Durin::FObjectPath::TryCreate(
+		std::format("/Game/A.Asset:{}", OversizedComponent), ObjectPath));
+	EXPECT_EQ(ObjectPath.ToString(), "/Game/Keep.Asset:Child");
+}
+
+TEST(FPathIdentityContractTests, EqualityHashingAndOrderingAreCaseSensitiveAndCanonical)
+{
+	auto Fixture = PathMountFixture();
+	ASSERT_TRUE(Fixture.IsValid()) << Fixture.GetError();
+	Durin::FObjectPath Upper;
+	Durin::FObjectPath Lower;
+	Durin::FObjectPath Nested;
+	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Game/A.Asset", Upper));
+	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Game/a.Asset", Lower));
+	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Game/A.Asset:Child", Nested));
+	EXPECT_NE(Upper, Lower);
+	EXPECT_EQ((std::unordered_set<Durin::FObjectPath>{Upper, Lower}).size(), 2u);
+	std::vector Paths{Lower, Nested, Upper};
+	std::ranges::sort(Paths);
+	EXPECT_EQ(Paths, (std::vector{Upper, Nested, Lower}));
 }
 
 TEST(FPackageLinkerContractTests, PackageIndicesValidateBoundariesAndRoundTrip)
