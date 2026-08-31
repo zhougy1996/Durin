@@ -96,10 +96,14 @@ namespace Durin
 			RenderTargetRHI = RHICreateTexture(Desc);
 			if (RenderTargetRHI != nullptr)
 			{
-				const std::array Transition{FRHITextureTransition::Whole(
-					RenderTargetRHI, ERHIAccess::Discard,
-					ERHIAccess::GraphicsShaderRead)};
-				FRHICommandListImmediate::Get().TransitionTextures(Transition);
+				const FTextureRHIRef NewRenderTarget = RenderTargetRHI;
+				ENQUEUE_RENDER_COMMAND(InitializeSceneViewportRenderTarget)(
+					[NewRenderTarget](FRHICommandListImmediate& CommandList) {
+						const std::array Transition{FRHITextureTransition::Whole(
+							NewRenderTarget, ERHIAccess::Discard,
+							ERHIAccess::GraphicsShaderRead)};
+						CommandList.TransitionTextures(Transition);
+					});
 			}
 		}
 		ViewportRHI = nullptr;
