@@ -1,6 +1,6 @@
 #pragma once
 
-#include "AssetRegistry/Result.h"
+#include "Asset/Result.h"
 #include "DObject/AssetPath.h"
 #include "EngineAPI.h"
 #include "DObject/WeakObjectPtr.h"
