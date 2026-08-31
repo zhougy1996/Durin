@@ -51,6 +51,12 @@ round trips and failures plus multi-asset retention, rename collision,
 retirement, nested object paths, and exact subobject soft references. Stage 2
 is next: add DAST v9 tables and the construct-free v8 converter.
 
+Further DAST v9 work is paused while
+[Compact Object Paths And Soft Object Pointers](CompactObjectPathsAndSoftObjectPointers.md)
+compacts the Stage 1 value types, removes the redundant soft-path layer, and
+freezes weak-cache semantics. That plan must complete before this plan resumes
+its Engine and AssetRegistry cutover.
+
 ## Goal
 
 Give every persisted or diagnostic object identity an unambiguous structural
@@ -373,6 +379,7 @@ and the plan contains an evidence-backed handoff.
 
 ## Related Documentation
 
+- [Compact Object Paths And Soft Object Pointers](CompactObjectPathsAndSoftObjectPointers.md)
 - [Asset Packages](../Runtime/Assets/AssetPackages.md)
 - [Asset Catalog And Mutation](../Runtime/Assets/AssetCatalogAndMutation.md)
 - [Versioning](../Runtime/Assets/Versioning.md)
