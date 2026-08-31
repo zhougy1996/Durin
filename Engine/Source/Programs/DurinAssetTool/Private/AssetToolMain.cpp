@@ -18,6 +18,7 @@
 #include "Engine/Level.h"
 #include "EnvironmentLighting/EnvironmentLighting.h"
 #include "HAL/PlatformMisc.h"
+#include "Json/Json.h"
 #include "Logging/Logger.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Name.h"
@@ -330,31 +331,6 @@ namespace
 		return ValidateOptions(OutOptions, OutError);
 	}
 
-	auto JsonEscape(std::string_view Value) -> std::string
-	{
-		std::string Escaped;
-		Escaped.reserve(Value.size());
-		for (const unsigned char Character : Value)
-		{
-			switch (Character)
-			{
-			case '\"': Escaped += "\\\""; break;
-			case '\\': Escaped += "\\\\"; break;
-			case '\b': Escaped += "\\b"; break;
-			case '\f': Escaped += "\\f"; break;
-			case '\n': Escaped += "\\n"; break;
-			case '\r': Escaped += "\\r"; break;
-			case '\t': Escaped += "\\t"; break;
-			default:
-				if (Character < 0x20)
-					Escaped += std::format("\\u{:04x}", Character);
-				else
-					Escaped.push_back(static_cast<char>(Character));
-			}
-		}
-		return Escaped;
-	}
-
 	struct FQualificationDescriptor
 	{
 		Durin::Asset::FEditorBulkDataStorageDescriptor Descriptor;
@@ -473,54 +449,51 @@ namespace
 			}
 		}
 
-		std::string Json = "{\"schemaVersion\":2,\"inspectionRepeatCount\":5,\"packages\":[";
-		for (size_t PackageIndex = 0; PackageIndex < Packages.size(); ++PackageIndex)
+		FJsonDocument Document;
+		FJsonNodeRef Root = Document.GetMutableRoot();
+		Root.EnsureObject();
+		Root.SetChildValue("schemaVersion", 2);
+		Root.SetChildValue("inspectionRepeatCount", 5);
+		FJsonNodeRef PackageArray = Root.AddArray("packages");
+		for (const FPackage& Package : Packages)
 		{
-			if (PackageIndex != 0) Json += ',';
-			const FPackage& Package = Packages[PackageIndex];
-			Json += std::format(
-				"{{\"packagePath\":\"{}\",\"physicalPath\":\"{}\",\"fileSize\":{},"
-				"\"inspection\":\"{}\",\"diagnostic\":\"{}\",\"formatVersion\":{},\"fileBytesRead\":{},"
-				"\"inspectionNanoseconds\":[",
-				JsonEscape(Package.Input->PackagePath.GetView()), JsonEscape(Package.Input->PhysicalPath),
-				Package.Input->ExpectedFileSize, Package.Result ? "Ready" : "Failed",
-				JsonEscape(Package.Result.Message), Package.Inspection.Header.FormatVersion,
-				Package.Input->ExpectedFileSize
-			);
-			for (size_t Index = 0; Index < Package.InspectionNanoseconds.size(); ++Index)
+			FJsonNodeRef PackageNode = PackageArray.AppendObject();
+			PackageNode.SetChildValue("packagePath", Package.Input->PackagePath.GetView());
+			PackageNode.SetChildValue("physicalPath", Package.Input->PhysicalPath);
+			PackageNode.SetChildValue("fileSize", Package.Input->ExpectedFileSize);
+			PackageNode.SetChildValue("inspection", Package.Result ? "Ready" : "Failed");
+			PackageNode.SetChildValue("diagnostic", Package.Result.Message);
+			PackageNode.SetChildValue("formatVersion", Package.Inspection.Header.FormatVersion);
+			PackageNode.SetChildValue("fileBytesRead", Package.Input->ExpectedFileSize);
+
+			FJsonNodeRef InspectionTimes = PackageNode.AddArray("inspectionNanoseconds");
+			for (const uint64 Nanoseconds : Package.InspectionNanoseconds)
+				InspectionTimes.AppendValue(Nanoseconds);
+
+			FJsonNodeRef DescriptorArray = PackageNode.AddArray("descriptors");
+			for (const FQualificationDescriptor& Item : Package.Descriptors)
 			{
-				if (Index != 0) Json += ',';
-				Json += std::to_string(Package.InspectionNanoseconds[Index]);
-			}
-			Json += "],\"descriptors\":[";
-			for (size_t DescriptorIndex = 0; DescriptorIndex < Package.Descriptors.size(); ++DescriptorIndex)
-			{
-				if (DescriptorIndex != 0) Json += ',';
-				const FQualificationDescriptor& Item = Package.Descriptors[DescriptorIndex];
 				const auto& Descriptor = Item.Descriptor;
-				Json += std::format(
-					"{{\"payloadId\":\"{}\",\"logicalBytes\":{},\"storedBytes\":{},"
-					"\"contentHash\":\"{}\",\"containerHash\":\"{}\",\"storage\":\"{}\","
-					"\"companionPath\":\"{}\",\"reachable\":{},\"diagnostic\":\"{}\","
-					"\"exactDuplicateGroup\":{}}}",
-					Descriptor.PayloadId.ToString(), Descriptor.LogicalByteCount,
-					Descriptor.StoredByteCount, Descriptor.ContentHash.ToString(),
-					Descriptor.ContainerHash.ToString(),
-					Descriptor.StorageKind == EEditorBulkDataStorageKind::Inline ? "Inline" : "External",
-					JsonEscape(Item.CompanionPath.generic_string()), Item.bReachable ? "true" : "false",
-					JsonEscape(Item.Diagnostic), Item.ExactDuplicateGroup
-				);
+				FJsonNodeRef DescriptorNode = DescriptorArray.AppendObject();
+				DescriptorNode.SetChildValue("payloadId", Descriptor.PayloadId.ToString());
+				DescriptorNode.SetChildValue("logicalBytes", Descriptor.LogicalByteCount);
+				DescriptorNode.SetChildValue("storedBytes", Descriptor.StoredByteCount);
+				DescriptorNode.SetChildValue("contentHash", Descriptor.ContentHash.ToString());
+				DescriptorNode.SetChildValue("containerHash", Descriptor.ContainerHash.ToString());
+				DescriptorNode.SetChildValue("storage",
+					Descriptor.StorageKind == EEditorBulkDataStorageKind::Inline ? "Inline" : "External");
+				DescriptorNode.SetChildValue("companionPath", Item.CompanionPath.generic_string());
+				DescriptorNode.SetChildValue("reachable", Item.bReachable);
+				DescriptorNode.SetChildValue("diagnostic", Item.Diagnostic);
+				DescriptorNode.SetChildValue("exactDuplicateGroup", Item.ExactDuplicateGroup);
 			}
-			Json += "],\"orphanCompanions\":[";
-			for (size_t OrphanIndex = 0; OrphanIndex < Package.Orphans.size(); ++OrphanIndex)
-			{
-				if (OrphanIndex != 0) Json += ',';
-				Json += std::format("\"{}\"", JsonEscape(Package.Orphans[OrphanIndex].generic_string()));
-			}
-			Json += std::format("],\"descriptorDiagnostic\":\"{}\"}}", JsonEscape(Package.DescriptorDiagnostic));
+
+			FJsonNodeRef OrphanArray = PackageNode.AddArray("orphanCompanions");
+			for (const std::filesystem::path& Orphan : Package.Orphans)
+				OrphanArray.AppendValue(Orphan.generic_string());
+			PackageNode.SetChildValue("descriptorDiagnostic", Package.DescriptorDiagnostic);
 		}
-		Json += "]}";
-		return Json;
+		return Document.ToString();
 	}
 
 	auto IsValidVirtualPrefix(std::string_view Value) -> bool
@@ -714,37 +687,38 @@ namespace
 	auto SerializeCookRunResult(const Durin::Asset::FCookRunResult& Result)
 		-> std::string
 	{
+		using namespace Durin;
 		using namespace Durin::Asset;
-		std::string Json = std::format(
-			"{{\"schemaVersion\":1,\"status\":\"{}\",\"code\":\"{}\","
-			"\"diagnostic\":\"{}\",\"target\":\"win64\",\"profile\":\"game\","
-			"\"changedBytes\":{},\"reusedBytes\":{},\"peakCapturedBytes\":{},"
-			"\"rangeReadCount\":{},"
-			"\"wallTimeNanoseconds\":{},\"commitTimeNanoseconds\":{},"
-			"\"rollbackTimeNanoseconds\":{},\"packages\":[",
-			CookRunStatusName(Result.Status), JsonEscape(Result.Code),
-			JsonEscape(Result.Diagnostic), Result.ChangedBytes, Result.ReusedBytes,
-			Result.PeakCapturedBytes, Result.RangeReadCount,
-			Result.WallTimeNanoseconds,
-			Result.CommitTimeNanoseconds, Result.RollbackTimeNanoseconds
-		);
-		for (size_t Index = 0; Index < Result.Packages.size(); ++Index)
+		FJsonDocument Document;
+		FJsonNodeRef Root = Document.GetMutableRoot();
+		Root.EnsureObject();
+		Root.SetChildValue("schemaVersion", 1);
+		Root.SetChildValue("status", CookRunStatusName(Result.Status));
+		Root.SetChildValue("code", Result.Code);
+		Root.SetChildValue("diagnostic", Result.Diagnostic);
+		Root.SetChildValue("target", "win64");
+		Root.SetChildValue("profile", "game");
+		Root.SetChildValue("changedBytes", Result.ChangedBytes);
+		Root.SetChildValue("reusedBytes", Result.ReusedBytes);
+		Root.SetChildValue("peakCapturedBytes", Result.PeakCapturedBytes);
+		Root.SetChildValue("rangeReadCount", Result.RangeReadCount);
+		Root.SetChildValue("wallTimeNanoseconds", Result.WallTimeNanoseconds);
+		Root.SetChildValue("commitTimeNanoseconds", Result.CommitTimeNanoseconds);
+		Root.SetChildValue("rollbackTimeNanoseconds", Result.RollbackTimeNanoseconds);
+		FJsonNodeRef PackageArray = Root.AddArray("packages");
+		for (const FCookPackageResult& Package : Result.Packages)
 		{
-			if (Index != 0) Json += ',';
-			const FCookPackageResult& Package = Result.Packages[Index];
-			Json += std::format(
-				"{{\"packagePath\":\"{}\",\"contributor\":\"{}\","
-				"\"status\":\"{}\",\"stage\":\"{}\",\"code\":\"{}\","
-				"\"diagnostic\":\"{}\",\"packageBytes\":{},\"segmentBytes\":{}}}",
-				JsonEscape(Package.PackagePath.GetView()), JsonEscape(Package.Contributor),
-				CookPackageStatusName(Package.Status),
-				CookOperationStageName(Package.Stage), JsonEscape(Package.Code),
-				JsonEscape(Package.Diagnostic), Package.PackageBytes,
-				Package.SegmentBytes
-			);
+			FJsonNodeRef PackageNode = PackageArray.AppendObject();
+			PackageNode.SetChildValue("packagePath", Package.PackagePath.GetView());
+			PackageNode.SetChildValue("contributor", Package.Contributor);
+			PackageNode.SetChildValue("status", CookPackageStatusName(Package.Status));
+			PackageNode.SetChildValue("stage", CookOperationStageName(Package.Stage));
+			PackageNode.SetChildValue("code", Package.Code);
+			PackageNode.SetChildValue("diagnostic", Package.Diagnostic);
+			PackageNode.SetChildValue("packageBytes", Package.PackageBytes);
+			PackageNode.SetChildValue("segmentBytes", Package.SegmentBytes);
 		}
-		Json += "]}";
-		return Json;
+		return Document.ToString();
 	}
 
 	auto RunCook(const FOptions& Options) -> int
