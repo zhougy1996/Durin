@@ -179,7 +179,8 @@ namespace Durin
 					: "The factory could not create the asset.";
 				return MakeRejectedAssetOperation(Kind, std::move(Message));
 			}
-			if (!Asset->IsA(AssetClass) || !Package->SetAsset(Asset))
+			if (!Asset->IsA(AssetClass) || Asset->GetOuter() != Package
+				|| Package->FindTopLevelAsset(Asset->GetFName()) != Asset)
 			{
 				DiscardPackage(Package);
 				return MakeRejectedAssetOperation(

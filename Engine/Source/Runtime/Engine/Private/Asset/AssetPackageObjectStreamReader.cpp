@@ -262,7 +262,13 @@ namespace Durin::Asset::PackageObjectStream
 			case ETypeOpcode::HardRef:
 				Writer.Write(Value.ReferenceTag);
 				if (Value.ReferenceTag == 1) Writer.Write(Value.ReferenceId);
-				else if (Value.ReferenceTag == 2) Writer.WriteString(Package.Header.Dependencies[static_cast<size_t>(Value.ReferenceId - 1)]);
+				else if (Value.ReferenceTag == 2)
+				{
+					const auto& Targets = Package.Header.HardReferenceTargets.empty()
+						? Package.Header.Dependencies
+						: Package.Header.HardReferenceTargets;
+					Writer.WriteString(Targets[static_cast<size_t>(Value.ReferenceId - 1)]);
+				}
 				return true;
 			case ETypeOpcode::SoftRef:
 				Writer.Write(Value.ReferenceTag); if (Value.ReferenceTag == 1) Writer.WriteString(Value.Text); return true;
@@ -742,9 +748,9 @@ namespace Durin::Asset::PackageObjectStream
 				}
 			}
 		}
-		if (Decoded.Objects.empty() || Decoded.Objects.front().ClassName != Decoded.Header.AssetClass)
+		if (Decoded.Objects.empty())
 		{
-			Fail(Diagnostic, EReaderFailure::InvalidTopology, "Main object class differs from the public summary.");
+			Fail(Diagnostic, EReaderFailure::InvalidTopology, "Package has no object exports.");
 			return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 		}
 
@@ -795,7 +801,7 @@ namespace Durin::Asset::PackageObjectStream
 			{
 				FStaticConstructObjectParameters Parameters{
 					Class, Outer, FName(Descriptor.ObjectName), Class->PropertiesSize,
-					Index == 0 ? EObjectFlags::Public : EObjectFlags::NoFlags};
+					Descriptor.OuterId == 0 ? EObjectFlags::Public : EObjectFlags::NoFlags};
 				Parameters.Purpose = EObjectConstructionPurpose::AssetLoad;
 				Object = StaticConstructObject(Parameters);
 				if (Object) DObjectForceRegistration(Object);
@@ -806,11 +812,6 @@ namespace Durin::Asset::PackageObjectStream
 				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 			}
 			Objects[Index] = Object;
-			if (Index == 0 && !Package->SetAsset(Object))
-			{
-				Fail(Diagnostic, EReaderFailure::InvalidTopology, "Could not assign the package main asset."); Rollback();
-				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
-			}
 		}
 		if (Options.OnSkeletonReady)
 		{

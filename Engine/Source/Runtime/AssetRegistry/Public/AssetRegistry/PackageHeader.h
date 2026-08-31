@@ -8,8 +8,17 @@
 
 namespace Durin::Asset
 {
+	struct FAssetPackageTopLevelAssetHeader
+	{
+		FTopLevelAssetPath AssetPath;
+		std::string AssetClassName;
+		FObjectPath RedirectDestination;
+	};
+
 	struct FAssetPackageHeader
 	{
+		FPackagePath PackagePath;
+		std::vector<FAssetPackageTopLevelAssetHeader> TopLevelAssets;
 		std::string AssetClassName;
 		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
 		FAssetPath RedirectDestination;
@@ -31,7 +40,7 @@ namespace Durin::Asset
 		const FAssetPath& PackagePath,
 		FAssetPackageHeader& OutHeader) -> FAssetResult;
 
-	// Supplies the mounted identity and exact raw-bulk extent required by DAST v8 Registry validation.
+	// Supplies the mounted identity and exact raw-bulk extent required by DAST Registry validation.
 	ASSETREGISTRY_API auto ReadAssetPackageHeaderBytes(
 		std::span<const std::byte> FrontMatter,
 		uint64 PhysicalFileBytes,

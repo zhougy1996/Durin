@@ -252,9 +252,9 @@ namespace Durin::Asset
 				return Error(EAssetError::CorruptFile,
 					std::format("AssetReferencePayloadTag: {} has unknown tag {}.", PropertyPath, ReferenceKind));
 			std::string PathString;
-			FAssetPath TargetPath;
+			FObjectPath TargetPath;
 			if (!Reader.ReadString(PathString, MaximumPackageStringBytes)
-				|| !FAssetPath::TryCreate(PathString, TargetPath))
+				|| !FObjectPath::TryCreate(PathString, TargetPath))
 				return Error(EAssetError::InvalidPath,
 					std::format("AssetReferenceInvalidPath: {} has an invalid external path.", PropertyPath));
 			DClass* ExpectedClass = ObjectProperty->GetReferencedClass();
@@ -321,7 +321,7 @@ namespace Durin::Asset
 				.FieldName = std::string(Context.FieldName),
 				.Kind = EAssetReferenceKind::SoftObject,
 				.ExpectedClass = ExpectedClass->GetQualifiedName().ToString(),
-				.TargetPath = SoftPath.GetAssetPath(),
+				.TargetPath = SoftPath.GetObjectPath(),
 				.Route = Route,
 				.DisplayRoute = PropertyPath});
 			return {};
@@ -374,7 +374,7 @@ namespace Durin::Asset
 					0,
 					Reader,
 					{},
-					AssetPackageV8FormatVersion);
+					AssetPackageV9FormatVersion);
 				if (!KeyResult)
 				{
 					KeyResult.Message = std::format("SoftReferenceMapKey[{}]: {}", Index, KeyResult.Message);
@@ -595,11 +595,12 @@ namespace Durin::Asset
 		const FAssetPath& TargetPath,
 		std::vector<FSoftObjectPtr*>& OutValues) -> FAssetResult
 	{
-		if (!Package || !Package->GetAsset())
+		if (!Package || Package->GetTopLevelAssets().empty())
 			return Error(EAssetError::InvalidObjectGraph,
-				"SoftReferenceMoveInvalidPackage: loaded package has no asset.");
+				"SoftReferenceMoveInvalidPackage: loaded package has no top-level assets.");
 		std::vector<DObject*> Objects;
-		GatherObjects(Package->GetAsset(), Objects);
+		for (DObject* Asset : Package->GetTopLevelAssets())
+			GatherObjects(Asset, Objects);
 		FLoadedSoftReferenceCollector Collector{TargetPath, OutValues};
 		FAssetResult Result;
 		for (DObject* Object : Objects)
@@ -779,7 +780,7 @@ namespace Durin::Asset
 					0,
 					Reader,
 					{},
-					AssetPackageV8FormatVersion);
+					AssetPackageV9FormatVersion);
 				if (!Result) return Result;
 				Writer.WriteBytes(Reader.Bytes.subspan(KeyOffset, Reader.Offset - KeyOffset));
 				Result = RewriteSerializedReferenceValue(

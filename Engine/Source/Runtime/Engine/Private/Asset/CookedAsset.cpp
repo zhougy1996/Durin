@@ -485,7 +485,8 @@ namespace Durin::Asset
 	) -> bool
 	{
 		if (!ValidateCookCapturePath(CookRoot, VirtualPackagePath, OutError)) return false;
-		if (!Package || !Package->IsAssetPackage() || !Package->GetAsset())
+		if (!Package || !Package->IsAssetPackage()
+			|| Package->GetTopLevelAssets().empty())
 			return Fail("Cook package projection requires a valid asset package.", OutError);
 		FAssetPath SourcePackagePath;
 		if (!FAssetPath::TryCreate(Package->GetPackagePath(), SourcePackagePath))

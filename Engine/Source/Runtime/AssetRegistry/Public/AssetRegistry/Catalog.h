@@ -18,11 +18,23 @@ namespace Durin::Asset
 		Redirector = 1
 	};
 
+	// Describes one independently addressable package-outer export.
+	struct FTopLevelAssetData
+	{
+		FTopLevelAssetPath AssetPath;
+		std::string AssetClassName;
+		FObjectPath RedirectDestination;
+
+		auto IsRedirector() const -> bool { return RedirectDestination.IsValid(); }
+		auto operator==(const FTopLevelAssetData&) const -> bool = default;
+	};
+
 	// Describes one persistent package without loading its object graph.
 	struct FAssetData
 	{
 		FAssetPath PackagePath;
 		std::string PhysicalPath;
+		std::vector<FTopLevelAssetData> TopLevelAssets;
 		std::string AssetClassName;
 		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
 		FAssetPath RedirectDestination;
@@ -55,6 +67,19 @@ namespace Durin::Asset
 		auto Get() const -> const FAssetData& { return Data.value(); }
 	};
 
+	struct FTopLevelAssetCatalogEntry
+	{
+		uint64 Revision = 0;
+		std::optional<FTopLevelAssetData> Asset;
+		std::optional<FAssetData> Package;
+
+		auto Succeeded() const -> bool { return Asset.has_value() && Package.has_value(); }
+		explicit operator bool() const { return Succeeded(); }
+		auto operator->() const -> const FTopLevelAssetData* { return &Asset.value(); }
+		auto operator==(std::nullptr_t) const -> bool { return !Succeeded(); }
+		auto operator!=(std::nullptr_t) const -> bool { return Succeeded(); }
+	};
+
 	// Owns an immutable registry projection that remains valid across refreshes.
 	struct FAssetCatalogSnapshot
 	{
@@ -65,6 +90,16 @@ namespace Durin::Asset
 		{
 			const auto It = Assets.find(Path);
 			return It == Assets.end() ? nullptr : &It->second;
+		}
+
+		auto FindTopLevelAssetExact(const FTopLevelAssetPath& Path) const
+			-> const FTopLevelAssetData*
+		{
+			const FAssetData* Package = FindExact(Path.GetPackagePath());
+			if (!Package) return nullptr;
+			const auto It = std::ranges::find(
+				Package->TopLevelAssets, Path, &FTopLevelAssetData::AssetPath);
+			return It == Package->TopLevelAssets.end() ? nullptr : &*It;
 		}
 	};
 
@@ -157,6 +192,8 @@ namespace Durin::Asset
 
 	ASSETREGISTRY_API auto FindAssetExact(
 		const FAssetPath& Path) -> FAssetCatalogEntry;
+	ASSETREGISTRY_API auto FindTopLevelAssetExact(
+		const FTopLevelAssetPath& Path) -> FTopLevelAssetCatalogEntry;
 	ASSETREGISTRY_API auto ResolveAssetPath(
 		const FAssetPath& Path,
 		const FAssetPathResolveOptions& Options = {}) -> FAssetPathResolveResult;

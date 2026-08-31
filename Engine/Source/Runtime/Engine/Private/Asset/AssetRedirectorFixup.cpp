@@ -310,7 +310,7 @@ namespace Durin::Asset
 		std::ranges::sort(State->PostEdges, &Private::AssetReferenceLess);
 		for (const FAssetReferenceEdge& Edge : State->PostEdges)
 		{
-			if (!Closure.contains(Edge.TargetPath)) continue;
+			if (!Closure.contains(Edge.TargetPath.GetPackagePath())) continue;
 			State->PackageOccurrences.push_back(Edge);
 			if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete
 				&& Closure.contains(Edge.SourcePackage))
@@ -895,7 +895,7 @@ namespace Durin::Asset
 			return Compensate(Error(EAssetError::IoError,
 				"Injected Fix Up verification failure."));
 		for (const FAssetReferenceEdge& Edge : State.PostEdges)
-			if (FindFixupDestination(Edge.TargetPath, State.Mappings))
+			if (FindFixupDestination(Edge.TargetPath.GetPackagePath(), State.Mappings))
 				return Compensate(Error(EAssetError::InUse, std::format(
 					"Fix Up verification found a remaining package occurrence at {}:{}.",
 					Edge.SourcePackage.ToString(), Edge.DisplayRoute)));

@@ -119,18 +119,6 @@ namespace Durin
 	auto DPackage::UnregisterTopLevelAsset(DObject* InAsset) -> void
 	{
 		std::erase(TopLevelAssets, InAsset);
-		if (LegacyMainAsset == InAsset) LegacyMainAsset = nullptr;
-	}
-
-	auto DPackage::SetAsset(DObject* InAsset) -> bool
-	{
-		if (!IsAssetPackage()) return false;
-		if (InAsset && InAsset->IsTemplateObject()) return false;
-		if (InAsset && InAsset->GetOuter() != this) return false;
-		if (InAsset && !RegisterTopLevelAsset(InAsset)) return false;
-		LegacyMainAsset = InAsset;
-		MarkDirty();
-		return true;
 	}
 
 	auto CreatePackage(const FPackagePath& Path) -> DPackage*

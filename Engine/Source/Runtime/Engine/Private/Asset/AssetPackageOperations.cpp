@@ -34,6 +34,17 @@ namespace Durin::Asset
 {
 	namespace
 	{
+		auto ProjectTopLevelAssetData(const FAssetPackageHeader& Header)
+			-> std::vector<FTopLevelAssetData>
+		{
+			std::vector<FTopLevelAssetData> Result;
+			Result.reserve(Header.TopLevelAssets.size());
+			for (const FAssetPackageTopLevelAssetHeader& Asset : Header.TopLevelAssets)
+				Result.push_back({Asset.AssetPath, Asset.AssetClassName,
+					Asset.RedirectDestination});
+			return Result;
+		}
+
 		auto FailSaveOverride(std::string_view Message, std::string* OutError) -> bool
 		{
 			if (OutError) *OutError = Message;
@@ -271,6 +282,7 @@ namespace Durin::Asset
 		struct FPackageFile
 		{
 			uint32 FormatVersion = 0;
+			std::vector<FTopLevelAssetData> TopLevelAssets;
 			std::string AssetClassName;
 			EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
 			FAssetPath RedirectDestination;
@@ -606,7 +618,7 @@ namespace Durin::Asset
 			uint32 ArrayIndex,
 			FByteReader& Reader,
 			const std::vector<DObject*>& Objects,
-			uint32 SourceVersion = AssetPackageV8FormatVersion) -> FAssetResult
+			uint32 SourceVersion = AssetPackageV9FormatVersion) -> FAssetResult
 		{
 			const DurinCodeGen::EPropertyGenFlags Kind = Property->GetKind();
 			if (Private::IsByteToolRawScalarKind(Kind))
@@ -962,6 +974,7 @@ namespace Durin::Asset
 				if (FAssetResult HeaderResult = Codec->ReadHeader(Context, Header); !HeaderResult)
 					return HeaderResult;
 				OutFile->FormatVersion = Header.FormatVersion;
+				OutFile->TopLevelAssets = ProjectTopLevelAssetData(Header);
 				OutFile->AssetClassName = std::move(Header.AssetClassName);
 				OutFile->EntryKind = Header.EntryKind;
 				OutFile->RedirectDestination = std::move(Header.RedirectDestination);
@@ -1330,6 +1343,7 @@ namespace Durin::Asset
 			PublishedMetadata.push_back(FAssetData{
 				.PackagePath = Staged.Path,
 				.PhysicalPath = Staged.Destination.generic_string(),
+				.TopLevelAssets = Staged.File.TopLevelAssets,
 				.AssetClassName = Staged.File.AssetClassName,
 				.EntryKind = Staged.File.EntryKind,
 				.RedirectDestination = Staged.File.RedirectDestination,
@@ -1409,6 +1423,7 @@ namespace Durin::Asset
 		return Registry.PublishAssetMetadata(FAssetData{
 			.PackagePath = Path,
 			.PhysicalPath = PhysicalPath,
+			.TopLevelAssets = ProjectTopLevelAssetData(Header),
 			.AssetClassName = Header.AssetClassName,
 			.EntryKind = Header.EntryKind,
 			.RedirectDestination = Header.RedirectDestination,
@@ -1445,7 +1460,7 @@ namespace Durin::Asset
 				return Reader.Read(OutValue.ObjectId) && OutValue.ObjectId != 0;
 			std::string PathString;
 			return Reader.ReadString(PathString, MaximumPackageStringBytes)
-				&& FAssetPath::TryCreate(PathString, OutValue.ExternalPath);
+				&& FObjectPath::TryCreate(PathString, OutValue.ExternalPath);
 		}
 	}
 
@@ -1479,7 +1494,7 @@ namespace Durin::Asset
 	{
 		OutValue = {};
 		if (Kind != DurinCodeGen::EPropertyGenFlags::BulkData
-			|| SourceFormatVersion != AssetPackageV8FormatVersion) return false;
+			|| SourceFormatVersion != AssetPackageV9FormatVersion) return false;
 		FByteReader Reader{Payload};
 		uint32 Version = 0;
 		uint8 Placement = 0;
@@ -1575,7 +1590,7 @@ namespace Durin::Asset
 		FByteReader Reader{Payload};
 		return DecodeByteToolValue(
 			&RootProperty, OutValue, 0, Reader, {},
-			SourceFormatVersion == 0 ? AssetPackageV8FormatVersion : SourceFormatVersion)
+			SourceFormatVersion == 0 ? AssetPackageV9FormatVersion : SourceFormatVersion)
 			&& Reader.Offset == Payload.size();
 	}
 
@@ -1733,7 +1748,7 @@ namespace Durin::Asset
 		}
 		for (const FAssetReferenceEdge& Reference : References)
 		{
-			Result = ResolveReference(Reference.TargetPath, Reference.ExpectedClass,
+			Result = ResolveReference(Reference.TargetPath.GetPackagePath(), Reference.ExpectedClass,
 				Reference.DisplayRoute);
 			if (!Result) return Result;
 		}
@@ -1834,6 +1849,7 @@ namespace Durin::Asset
 		FAssetResult RegistryResult = Registry.PublishAssetMetadata(FAssetData{
 			.PackagePath = Path,
 			.PhysicalPath = Destination.generic_string(),
+			.TopLevelAssets = File.TopLevelAssets,
 			.AssetClassName = File.AssetClassName,
 			.EntryKind = File.EntryKind,
 			.RedirectDestination = File.RedirectDestination,

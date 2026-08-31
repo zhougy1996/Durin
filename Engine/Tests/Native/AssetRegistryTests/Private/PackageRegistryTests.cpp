@@ -17,16 +17,40 @@ namespace
 	namespace Asset = Durin::Asset;
 	namespace Package = Durin::ObjectPackage;
 
-	auto MakeRegistryFixture() -> Package::FLinkerTables
+	auto MakeRegistryFixture(
+		std::string_view PackageName = "/Game/RegistryFixture",
+		std::initializer_list<std::string_view> Hard = {"/Game/HardB", "/Game/HardA"},
+		std::initializer_list<std::string_view> Soft = {"/Game/SoftB", "/Game/SoftA"})
+		-> Package::FLinkerTables
 	{
 		Package::FLinkerTables Linker;
-		Linker.Summary.PackageName = "/Game/RegistryFixture";
+		EXPECT_TRUE(Durin::FPackagePath::TryCreate(PackageName, Linker.Summary.PackagePath));
+		Linker.Summary.PackageName = PackageName;
 		Linker.Summary.AssetClass = "Example::RegistryAsset";
 		Linker.Summary.HardPackageReferences = {"/Game/HardB", "/Game/HardA"};
 		Linker.Summary.SoftPackageReferences = {"/Game/SoftB", "/Game/SoftA"};
 		Linker.Summary.SearchableNames = {"Tag.Z", "Tag.A"};
 		Package::FPackageIndex::TryExport(0, Linker.Summary.MainExport);
 		Linker.Exports = {{.ObjectName = "RegistryFixture", .ClassName = "Example::RegistryAsset"}};
+		Durin::FTopLevelAssetPath AssetPath;
+		EXPECT_TRUE(Durin::FTopLevelAssetPath::TryCreate(
+			Linker.Summary.PackagePath, "RegistryFixture", AssetPath));
+		Linker.Summary.TopLevelAssets.push_back({
+			.Export = Linker.Summary.MainExport,
+			.AssetPath = AssetPath,
+			.ClassName = "Example::RegistryAsset"});
+		for (std::string_view Value : Hard)
+		{
+			Durin::FPackagePath Dependency;
+			EXPECT_TRUE(Durin::FPackagePath::TryCreate(Value, Dependency));
+			Linker.Summary.HardPackageDependencies.push_back(std::move(Dependency));
+		}
+		for (std::string_view Value : Soft)
+		{
+			Durin::FPackagePath Dependency;
+			EXPECT_TRUE(Durin::FPackagePath::TryCreate(Value, Dependency));
+			Linker.Summary.SoftPackageDependencies.push_back(std::move(Dependency));
+		}
 		return Linker;
 	}
 
@@ -38,14 +62,14 @@ namespace
 	}
 }
 
-TEST(FPackageRegistryContractTests, V8FrontMatterProjectsPackageLevelMetadata)
+TEST(FPackageRegistryContractTests, V9FrontMatterProjectsPackageAndTopLevelAssetMetadata)
 {
 	Durin::Testing::InitializeDObjectSystemForTests();
 	Durin::Testing::FScopedMountRegistryFixture Mounts;
 	Durin::Testing::RegisterMountPointForTests("/Game/", ".");
 	std::vector<std::byte> Main;
 	std::vector<std::byte> Bulk;
-	ASSERT_TRUE(Package::WritePackageV8(MakeRegistryFixture(), Main, Bulk));
+	ASSERT_TRUE(Package::WritePackageV9(MakeRegistryFixture(), Main, Bulk));
 	uint64 HeaderBytes = 0;
 	ASSERT_TRUE(Durin::ReadLittleEndianAt<uint64>(Main, 32, HeaderBytes));
 	Durin::FAssetPath PackagePath;
@@ -55,7 +79,12 @@ TEST(FPackageRegistryContractTests, V8FrontMatterProjectsPackageLevelMetadata)
 		std::span(Main).first(static_cast<size_t>(HeaderBytes)), Main.size(), Bulk.size(),
 		PackagePath, Header);
 	ASSERT_TRUE(Result) << Result.Message;
-	EXPECT_EQ(Header.FormatVersion, Asset::AssetPackageV8FormatVersion);
+	EXPECT_EQ(Header.FormatVersion, Asset::AssetPackageV9FormatVersion);
+	ASSERT_EQ(Header.TopLevelAssets.size(), 1u);
+	EXPECT_EQ(Header.TopLevelAssets.front().AssetPath.GetView(),
+		"/Game/RegistryFixture.RegistryFixture");
+	EXPECT_EQ(Header.TopLevelAssets.front().AssetClassName,
+		"Example::RegistryAsset");
 	EXPECT_EQ(Header.AssetClassName, "Example::RegistryAsset");
 	EXPECT_EQ(Header.EntryKind, Asset::EAssetRegistryEntryKind::Asset);
 	EXPECT_EQ(Header.ObjectCount, 1u);
@@ -69,14 +98,14 @@ TEST(FPackageRegistryContractTests, V8FrontMatterProjectsPackageLevelMetadata)
 	EXPECT_EQ(Header.BytesRead, HeaderBytes);
 }
 
-TEST(FPackageRegistryContractTests, V8ProjectionRequiresIdentityAndExactBulkExtent)
+TEST(FPackageRegistryContractTests, V9ProjectionRequiresIdentityAndExactBulkExtent)
 {
 	Durin::Testing::InitializeDObjectSystemForTests();
 	Durin::Testing::FScopedMountRegistryFixture Mounts;
 	Durin::Testing::RegisterMountPointForTests("/Game/", ".");
 	std::vector<std::byte> Main;
 	std::vector<std::byte> Bulk;
-	ASSERT_TRUE(Package::WritePackageV8(MakeRegistryFixture(), Main, Bulk));
+	ASSERT_TRUE(Package::WritePackageV9(MakeRegistryFixture(), Main, Bulk));
 	uint64 HeaderBytes = 0;
 	ASSERT_TRUE(Durin::ReadLittleEndianAt<uint64>(Main, 32, HeaderBytes));
 	Durin::FAssetPath Correct;
@@ -120,14 +149,29 @@ TEST(FPackageRegistryContractTests, RefreshUsesOnlyFrontMatterAndOnePackageMetad
 	const std::filesystem::path CacheRoot = WorkRoot / "DerivedDataCache";
 	Durin::Testing::RemoveTestWorkDirectory(WorkRoot);
 	std::filesystem::create_directories(ContentRoot);
+	Durin::Testing::FScopedMountRegistryFixture Mounts;
+	Durin::Testing::RegisterMountPointForTests(
+		"/P3/", ContentRoot.generic_string() + "/");
 
-	Package::FLinkerTables Linker = MakeRegistryFixture();
-	Linker.Summary.PackageName = "/P3/Owner";
+	Package::FLinkerTables Linker = MakeRegistryFixture(
+		"/P3/Owner", {"/P3/HardB", "/P3/HardA"},
+		{"/P3/SoftB", "/P3/SoftA"});
+	Package::FPackageIndex SecondaryExport;
+	ASSERT_TRUE(Package::FPackageIndex::TryExport(1, SecondaryExport));
+	Durin::FTopLevelAssetPath SecondaryPath;
+	ASSERT_TRUE(Durin::FTopLevelAssetPath::TryCreate(
+		Linker.Summary.PackagePath, "Secondary", SecondaryPath));
+	Linker.Exports.push_back({
+		.ObjectName = "Secondary", .ClassName = "Example::SecondaryAsset"});
+	Linker.Summary.TopLevelAssets.push_back({
+		.Export = SecondaryExport,
+		.AssetPath = SecondaryPath,
+		.ClassName = "Example::SecondaryAsset"});
 	Linker.Summary.HardPackageReferences = {"/P3/HardB", "/P3/HardA"};
 	Linker.Summary.SoftPackageReferences = {"/P3/SoftB", "/P3/SoftA"};
 	std::vector<std::byte> Main;
 	std::vector<std::byte> Bulk;
-	ASSERT_TRUE(Package::WritePackageV8(Linker, Main, Bulk));
+	ASSERT_TRUE(Package::WritePackageV9(Linker, Main, Bulk));
 	uint64 HeaderBytes = 0;
 	ASSERT_TRUE(Durin::ReadLittleEndianAt<uint64>(Main, 32, HeaderBytes));
 	ASSERT_LT(HeaderBytes, Main.size());
@@ -136,9 +180,6 @@ TEST(FPackageRegistryContractTests, RefreshUsesOnlyFrontMatterAndOnePackageMetad
 	if (!Bulk.empty()) ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		Bulk, ContentRoot / "Owner.dbulk"));
 
-	Durin::Testing::FScopedMountRegistryFixture Mounts;
-	Durin::Testing::RegisterMountPointForTests(
-		"/P3/", ContentRoot.generic_string() + "/");
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 	const Asset::FAssetCatalogRefreshResult Cold = Asset::RefreshAssetRegistry(
 		Asset::EAssetRegistryScanMode::FullValidation);
@@ -155,6 +196,16 @@ TEST(FPackageRegistryContractTests, RefreshUsesOnlyFrontMatterAndOnePackageMetad
 	const Durin::FAssetPath Owner = Path("/P3/Owner");
 	const Asset::FAssetCatalogEntry Data = Asset::FindAssetExact(Owner);
 	ASSERT_TRUE(Data);
+	ASSERT_EQ(Data->TopLevelAssets.size(), 2u);
+	EXPECT_EQ(Data->TopLevelAssets.front().AssetPath.GetView(),
+		"/P3/Owner.RegistryFixture");
+	EXPECT_EQ(Data->TopLevelAssets.back().AssetPath, SecondaryPath);
+	const Asset::FTopLevelAssetCatalogEntry Secondary =
+		Asset::FindTopLevelAssetExact(SecondaryPath);
+	ASSERT_TRUE(Secondary);
+	EXPECT_EQ(Secondary->AssetClassName, "Example::SecondaryAsset");
+	ASSERT_TRUE(Secondary.Package.has_value());
+	EXPECT_EQ(Secondary.Package->PackagePath, Owner);
 	EXPECT_EQ(Data->Dependencies, (std::vector<Durin::FAssetPath>{
 		Path("/P3/HardA"), Path("/P3/HardB")}));
 	EXPECT_EQ(Data->SoftDependencies, (std::vector<Durin::FAssetPath>{

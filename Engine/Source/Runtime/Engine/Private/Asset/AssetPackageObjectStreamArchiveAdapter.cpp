@@ -53,6 +53,7 @@ namespace Durin::Asset::Private
 		{
 			std::vector<FCapturedObject> Objects;
 			std::vector<FAssetPath> Dependencies;
+			std::vector<FObjectPath> HardReferenceTargets;
 			std::vector<FEditorBulkDataStoragePayload> BulkPayloads;
 			std::vector<std::pair<uint64, uint64>> InternalReferences;
 		};
@@ -304,7 +305,7 @@ namespace Durin::Asset::Private
 				if (HasError() || !IsCurrentFieldAvailable()) return;
 				const FArchiveFormatVersion* DastVersion =
 					GetVersionContext().FindFormat(FName("DAST"));
-				if (!DastVersion || DastVersion->Version != AssetPackageV8FormatVersion)
+				if (!DastVersion || DastVersion->Version != AssetPackageV9FormatVersion)
 				{
 					FailLoad(EAssetError::UnsupportedVersion,
 						EArchiveFailureCode::InvalidData,
@@ -332,7 +333,7 @@ namespace Durin::Asset::Private
 						|| SegmentOffset % Alignment != 0)))
 				{
 					FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-						"DAST v8 authored bulk field metadata is invalid.");
+						"DAST authored bulk field metadata is invalid.");
 					return;
 				}
 				Value = {.PayloadId = InstanceId,
@@ -351,7 +352,7 @@ namespace Durin::Asset::Private
 					if (FXxHash128::HashBuffer(Bytes) != Value.ContentHash)
 					{
 						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-							"DAST v8 inline authored bulk content identity is invalid.");
+							"DAST inline authored bulk content identity is invalid.");
 						return;
 					}
 					Value.Buffer = FSharedByteBuffer::Take(std::move(Bytes));
@@ -362,7 +363,7 @@ namespace Durin::Asset::Private
 						PackagePath.ToString());
 					if (!Value.PackageResource)
 						FailLoad(EAssetError::CorruptFile, EArchiveFailureCode::InvalidData,
-							"DAST v8 package bulk resource was not registered before graph load.");
+							"DAST package bulk resource was not registered before graph load.");
 				}
 			}
 
@@ -389,14 +390,15 @@ namespace Durin::Asset::Private
 				{
 					std::string PathString;
 					if (!ReadString(PathString)) return;
-					FAssetPath Path;
-					if (!FAssetPath::TryCreate(PathString, Path))
+					FObjectPath Path;
+					if (!FObjectPath::TryCreate(PathString, Path))
 					{
 						FailLoad(EAssetError::InvalidPath, EArchiveFailureCode::InvalidPath,
-							"Invalid external object reference.");
+							std::format("Invalid external object reference '{}'.", PathString));
 						return;
 					}
-					FAssetResult Result = FAssetRuntimeState::Get().GetLoadService().LoadAsset(Path, Value);
+					FAssetResult Result = FAssetRuntimeState::Get().GetLoadService().LoadObject(
+						Path, nullptr, Value);
 					if (!Result)
 					{
 						FailLoad(EAssetError::MissingDependency,
@@ -797,6 +799,9 @@ namespace Durin::Asset::Private
 				std::ranges::sort(Package.Dependencies, {}, [](const FAssetPath& Path) {
 					return Path.GetView();
 				});
+				Package.HardReferenceTargets.assign(
+					HardReferenceTargets.begin(), HardReferenceTargets.end());
+				std::ranges::sort(Package.HardReferenceTargets);
 				return std::move(Package);
 			}
 
@@ -821,7 +826,7 @@ namespace Durin::Asset::Private
 				if (HasError() || SuppressedDepth != 0) return;
 				const FArchiveFormatVersion* DastVersion =
 					GetVersionContext().FindFormat(FName("DAST"));
-				if (!DastVersion || DastVersion->Version != AssetPackageV8FormatVersion)
+				if (!DastVersion || DastVersion->Version != AssetPackageV9FormatVersion)
 				{
 					Fail(EArchiveFailureCode::InvalidData,
 						"Package bulk fields require a supported DAST package version.");
@@ -937,23 +942,19 @@ namespace Durin::Asset::Private
 					else
 					{
 						DPackage* ExternalPackage = Value->GetPackage();
-						FAssetPath Path;
-						if (!ExternalPackage || ExternalPackage->GetAsset() != Value)
+						FObjectPath TargetPath;
+						if (!ExternalPackage
+							|| !FObjectPath::TryCreate(Value->GetObjectPath(), TargetPath))
 						{
 							Fail(EArchiveFailureCode::InvalidObjectReference,
-								"Cross-package references may only target a package main asset.");
-							return;
-						}
-						if (!FAssetPath::TryCreate(ExternalPackage->GetPackagePath(), Path))
-						{
-							Fail(EArchiveFailureCode::InvalidPath,
-								"Referenced package has an invalid asset path.");
+								"Cross-package hard references must target an exact persistent object.");
 							return;
 						}
 						Kind = 2;
-						Dependencies.insert(Path);
-						ExternalPaths.push_back(std::move(Path));
-						ExternalPath = ExternalPaths.back().GetView();
+						Dependencies.insert(TargetPath.GetPackagePath());
+						HardReferenceTargets.insert(TargetPath);
+						ExternalPaths.push_back(TargetPath.ToString());
+						ExternalPath = ExternalPaths.back();
 					}
 				}
 				Append(Kind);
@@ -967,7 +968,7 @@ namespace Durin::Asset::Private
 				const uint8 Kind = Value.IsNull() ? 0 : 1;
 				Append(Kind);
 				if (Kind == 0) return;
-				const std::string_view Path = Value.GetAssetPath().GetView();
+				const std::string_view Path = Value.GetObjectPath().GetView();
 				if (Path.empty() || Path.size() > MaximumPackageStringBytes)
 				{
 					Fail(EArchiveFailureCode::InvalidPath,
@@ -1034,7 +1035,7 @@ namespace Durin::Asset::Private
 				Record.Id = It->second;
 				Record.ClassName = Object.GetClass()->GetQualifiedName().ToString();
 				Record.ObjectName = Object.GetName();
-				if (Record.Id != 1)
+				if (Object.GetOuter() != Object.GetPackage())
 				{
 					auto OuterIt = ObjectIds.find(Object.GetOuter());
 					if (OuterIt == ObjectIds.end())
@@ -1184,8 +1185,9 @@ namespace Durin::Asset::Private
 			DObject* CurrentDObject = nullptr;
 			std::vector<FCapturedNode*> NodeStack;
 			uint32 SuppressedDepth = 0;
-			std::unordered_set<FAssetPath> Dependencies;
-			std::vector<FAssetPath> ExternalPaths;
+			std::unordered_set<FPackagePath> Dependencies;
+			std::unordered_set<FObjectPath> HardReferenceTargets;
+			std::vector<std::string> ExternalPaths;
 			std::vector<FResolvedReplacement> ReplacementValues;
 			FXxHash128 ContainerHash;
 			uint64 NextExternalOffset = 0;
@@ -1225,6 +1227,15 @@ namespace Durin::Asset::Private
 		{
 			std::vector<DObject*> Current;
 			GatherObjects(Root, Current);
+			return std::ranges::equal(Current, Frozen);
+		}
+
+		auto HasFrozenPackageGraph(DPackage* Package,
+			std::span<DObject* const> Frozen) -> bool
+		{
+			std::vector<DObject*> Current;
+			if (Package) for (DObject* Asset : Package->GetTopLevelAssets())
+				GatherObjects(Asset, Current);
 			return std::ranges::equal(Current, Frozen);
 		}
 
@@ -1564,8 +1575,10 @@ namespace Durin::Asset::Private
 				if (Out.ReferenceTag == 2)
 				{
 					std::string Path; if (!ReadCapturedString(Node.Raw, Offset, Path)) return Invalid();
-					const auto It = std::ranges::find(Package.Dependencies, Path, [](const FAssetPath& Value) { return Value.GetView(); });
-					if (It == Package.Dependencies.end()) return Invalid(); Out.ReferenceId = uint64(std::distance(Package.Dependencies.begin(), It) + 1);
+					const auto It = std::ranges::find(Package.HardReferenceTargets, Path,
+						[](const FObjectPath& Value) { return Value.GetView(); });
+					if (It == Package.HardReferenceTargets.end()) return Invalid();
+					Out.ReferenceId = uint64(std::distance(Package.HardReferenceTargets.begin(), It) + 1);
 				}
 				break;
 			case K::SoftObject:
@@ -1617,6 +1630,8 @@ namespace Durin::Asset::Private
 			Input.EntryKind = Summary.EntryKind;
 			Input.RedirectDestination = Summary.RedirectDestination.GetView();
 			for (const auto& Dependency : Summary.Dependencies) Input.Dependencies.emplace_back(Dependency.GetView());
+			for (const FObjectPath& Target : Captured.HardReferenceTargets)
+				Input.HardReferenceTargets.push_back(Target.ToString());
 			Input.CustomVersions.assign(CustomVersions.begin(), CustomVersions.end());
 			std::vector<std::string> Paths(Captured.Objects.size());
 			for (const auto& Object : Captured.Objects)
@@ -1730,9 +1745,9 @@ namespace Durin::Asset::PackageObjectStream
 			Diagnostic = {EWriterFailure::InvalidInput, {}, "Only asset packages can be serialized."};
 			return Finish({EAssetError::InvalidPackageType, Diagnostic.Message});
 		}
-		if (!Package || !Package->GetAsset())
+		if (!Package || Package->GetTopLevelAssets().empty())
 		{
-			Diagnostic = {EWriterFailure::InvalidTopology, {}, "Package has no main asset."};
+			Diagnostic = {EWriterFailure::InvalidTopology, {}, "Package has no top-level assets."};
 			return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 		}
 		if (Options.Serialization.Domain == EAssetPackageSaveDomain::Cooked
@@ -1751,7 +1766,8 @@ namespace Durin::Asset::PackageObjectStream
 		}
 
 		std::vector<DObject*> FrozenObjects;
-		Private::GatherObjects(Package->GetAsset(), FrozenObjects);
+		for (DObject* Asset : Package->GetTopLevelAssets())
+			Private::GatherObjects(Asset, FrozenObjects);
 		if (Options.Serialization.SaveOverrides)
 		{
 			for (const FObjectSaveOverride& Override : Options.Serialization.SaveOverrides->GetObjects())
@@ -1764,14 +1780,15 @@ namespace Durin::Asset::PackageObjectStream
 					return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
 				}
 			}
-			const FObjectSaveOverride* RootOverride =
-				Options.Serialization.SaveOverrides->FindObject(*Package->GetAsset());
-			if (RootOverride && RootOverride->bOmitObject)
-			{
-				Diagnostic = {EWriterFailure::InvalidInput, {},
-					"The package main asset cannot be omitted from its own save."};
-				return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
-			}
+			for (DObject* Asset : Package->GetTopLevelAssets())
+				if (const FObjectSaveOverride* RootOverride =
+					Options.Serialization.SaveOverrides->FindObject(*Asset);
+					RootOverride && RootOverride->bOmitObject)
+				{
+					Diagnostic = {EWriterFailure::InvalidInput, {},
+						"A top-level asset cannot be omitted from its own package save."};
+					return Finish({EAssetError::InvalidObjectGraph, Diagnostic.Message});
+				}
 		}
 		std::vector<DObject*> Objects;
 		for (DObject* Object : FrozenObjects)
@@ -1787,7 +1804,7 @@ namespace Durin::Asset::PackageObjectStream
 		{
 			Diagnostic = {EWriterFailure::ArchiveFailure, {}, Result.Message}; return Finish(Result);
 		}
-		if (!Private::HasFrozenObjectGraph(Package->GetAsset(), FrozenObjects))
+		if (!Private::HasFrozenPackageGraph(Package, FrozenObjects))
 		{
 			Diagnostic = {EWriterFailure::ManifestMismatch, {}, "Archive discovery mutated the frozen package object graph."};
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
@@ -1846,7 +1863,7 @@ namespace Durin::Asset::PackageObjectStream
 			for (const FEditorBulkDataStoragePayload& Payload : Captured.BulkPayloads)
 				Options.Serialization.EditorBulkDataStoragePayloads->push_back(Payload);
 		}
-		if (!Private::HasFrozenObjectGraph(Package->GetAsset(), FrozenObjects)
+		if (!Private::HasFrozenPackageGraph(Package, FrozenObjects)
 			|| !Private::EqualManifest(Discovery, Captured))
 		{
 			Diagnostic = {EWriterFailure::ManifestMismatch, {}, "Archive emission changed the frozen object, field, type, dependency, or version manifest."};
@@ -1854,16 +1871,17 @@ namespace Durin::Asset::PackageObjectStream
 		}
 
 		Private::FAuthoredPackageSummary Summary;
-		Summary.AssetClassName = Package->GetAsset()->GetClass()->GetQualifiedName().ToString();
+		DObject* FirstAsset = Package->GetTopLevelAssets().front();
+		Summary.AssetClassName = FirstAsset->GetClass()->GetQualifiedName().ToString();
 		Summary.Dependencies = Captured.Dependencies;
-		if (auto* Redirector = Cast<DAssetRedirector>(Package->GetAsset()))
+		if (auto* Redirector = Cast<DAssetRedirector>(FirstAsset))
 		{
 			Summary.EntryKind = EAssetRegistryEntryKind::Redirector;
 			DObject* Destination = Redirector->GetDestinationObject();
 			DPackage* DestinationPackage = Destination ? Destination->GetPackage() : nullptr;
-			if (!DestinationPackage || DestinationPackage->GetAsset() != Destination
-				|| !FAssetPath::TryCreate(DestinationPackage->GetPackagePath(), Summary.RedirectDestination)
-				|| Summary.RedirectDestination == PackagePath)
+			if (!DestinationPackage || !FAssetPath::TryCreate(
+					DestinationPackage->GetPackagePath(), Summary.RedirectDestination)
+				|| Destination == FirstAsset)
 			{
 				Diagnostic = {EWriterFailure::InvalidInput, {}, "Redirector destination is invalid."};
 				return Finish({EAssetError::CorruptFile, Diagnostic.Message});
@@ -1886,8 +1904,21 @@ namespace Durin::Asset::PackageObjectStream
 			DeltaContext.Target.Profile = Options.Serialization.TargetProfile == ECookTargetProfile::Game
 				? "Game" : "EditorValidation";
 		}
-		if (!BuildDefaultDeltaPlan(
-			Package->GetAsset(), DeltaMode, DeltaPlan, &DeltaDiagnostic, DeltaContext))
+		bool bDeltaBuilt = true;
+		for (DObject* Asset : Package->GetTopLevelAssets())
+		{
+			FDefaultDeltaPlan AssetPlan;
+			if (!BuildDefaultDeltaPlan(
+				Asset, DeltaMode, AssetPlan, &DeltaDiagnostic, DeltaContext))
+			{
+				bDeltaBuilt = false;
+				break;
+			}
+			DeltaPlan.Objects.insert(DeltaPlan.Objects.end(),
+				std::make_move_iterator(AssetPlan.Objects.begin()),
+				std::make_move_iterator(AssetPlan.Objects.end()));
+		}
+		if (!bDeltaBuilt)
 		{
 			auto ReasonName = [](EDefaultDeltaFailureReason Reason) -> std::string_view {
 				switch (Reason)
@@ -1930,6 +1961,26 @@ namespace Durin::Asset::PackageObjectStream
 			Captured, Summary, Objects, DeltaPlan, SchemaMetadata.CustomVersions,
 			Input, Diagnostic))
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
+		for (DObject* Asset : Package->GetTopLevelAssets())
+		{
+			PackageObjectStream::FTopLevelAssetInput Top{
+				.ObjectName = Asset->GetName(),
+				.ClassName = Asset->GetClass()->GetQualifiedName().ToString()};
+			if (auto* Redirector = Cast<DAssetRedirector>(Asset))
+			{
+				DObject* Destination = Redirector->GetDestinationObject();
+				FObjectPath DestinationPath;
+				if (!Destination || Destination == Asset
+					|| !FObjectPath::TryCreate(Destination->GetObjectPath(), DestinationPath))
+				{
+					Diagnostic = {EWriterFailure::InvalidInput, {},
+						"A top-level redirector destination is invalid."};
+					return Finish({EAssetError::CorruptFile, Diagnostic.Message});
+				}
+				Top.RedirectDestination = DestinationPath.ToString();
+			}
+			Input.TopLevelAssets.push_back(std::move(Top));
+		}
 		OutInput = std::move(Input);
 		Diagnostic.Reset();
 		return Finish({});

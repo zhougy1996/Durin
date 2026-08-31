@@ -33,6 +33,15 @@ namespace Durin::Asset
 			const FAssetPath& RedirectorPath,
 			const FAssetPath& DestinationPath,
 			DAssetRedirector*& OutRedirector) -> FAssetResult;
+		auto LoadPackage(
+			const FPackagePath& Path,
+			DPackage*& OutPackage,
+			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+		auto LoadObject(
+			const FObjectPath& Path,
+			const DClass* ExpectedClass,
+			DObject*& OutObject,
+			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
 		auto LoadAsset(
 			const FAssetPath& Path,
 			DObject*& OutAsset,

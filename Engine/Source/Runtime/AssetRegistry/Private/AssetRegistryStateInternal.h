@@ -10,6 +10,8 @@ namespace Durin::Asset::Private
 		FAssetRegistryState();
 
 		auto FindAssetExact(const FAssetPath& Path) const -> FAssetCatalogEntry;
+		auto FindTopLevelAssetExact(const FTopLevelAssetPath& Path) const
+			-> FTopLevelAssetCatalogEntry;
 		auto ResolveAssetPath(const FAssetPath& Path,
 			const FAssetPathResolveOptions& Options = {}) const -> FAssetPathResolveResult;
 		auto FindRedirectorsTo(const FAssetPath& Destination) const

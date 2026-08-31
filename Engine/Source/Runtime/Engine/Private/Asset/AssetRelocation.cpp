@@ -44,6 +44,17 @@ namespace Durin::Asset
 			return {Code, std::move(Message)};
 		}
 
+		auto FormerMainObjectPath(const FPackagePath& PackagePath) -> FObjectPath
+		{
+			FTopLevelAssetPath AssetPath;
+			FObjectPath ObjectPath;
+			FTopLevelAssetPath::TryCreate(
+				PackagePath, PackagePath.GetPackageName(), AssetPath);
+			FObjectPath::TryCreate(
+				AssetPath, std::span<const std::string>{}, ObjectPath);
+			return ObjectPath;
+		}
+
 		auto GetRelocationPhysicalPath(const FAssetPath& Path) -> std::string
 		{
 			const FAssetRuntimeConfiguration& Context =
@@ -74,7 +85,6 @@ namespace Durin::Asset
 			FAssetRelocationMapping Mapping;
 			DPackage* Package = nullptr;
 			std::string PrePackageName;
-			std::string PreAssetName;
 		};
 
 		auto BuildMovedPackageBytes(
@@ -259,8 +269,7 @@ namespace Durin::Asset
 				State->LoadedPackages.push_back({
 					.Mapping = Mapping,
 					.Package = Loaded,
-					.PrePackageName = Loaded->GetName(),
-					.PreAssetName = Loaded->GetAsset()->GetName()});
+					.PrePackageName = Loaded->GetName()});
 			}
 
 			bool bReclaimDestinationRedirector = false;
@@ -376,6 +385,15 @@ namespace Durin::Asset
 			FAssetData MovedData = *SourceData;
 			MovedData.PackagePath = Mapping.DestinationPath;
 			MovedData.PhysicalPath = DestinationFile.generic_string();
+			for (FTopLevelAssetData& Asset : MovedData.TopLevelAssets)
+			{
+				FTopLevelAssetPath Rebased;
+				if (!FTopLevelAssetPath::TryCreate(
+						Mapping.DestinationPath, Asset.AssetPath.GetAssetName(), Rebased))
+					return Error(EAssetError::InvalidPath,
+						"Relocation could not rebase a top-level asset identity.");
+				Asset.AssetPath = std::move(Rebased);
+			}
 			State->PostAssets.erase(Mapping.SourcePath);
 			State->PostAssets.erase(Mapping.DestinationPath);
 			State->PostAssets.emplace(Mapping.DestinationPath,
@@ -383,6 +401,10 @@ namespace Durin::Asset
 			State->PostAssets.emplace(Mapping.SourcePath, FAssetData{
 				.PackagePath = Mapping.SourcePath,
 				.PhysicalPath = SourceFile.generic_string(),
+				.TopLevelAssets = {{
+					.AssetPath = FormerMainObjectPath(Mapping.SourcePath).GetAssetPath(),
+					.AssetClassName = std::string(RedirectorClassName),
+					.RedirectDestination = FormerMainObjectPath(Mapping.DestinationPath)}},
 				.AssetClassName = std::string(RedirectorClassName),
 				.EntryKind = EAssetRegistryEntryKind::Redirector,
 				.RedirectDestination = Mapping.DestinationPath,
@@ -422,6 +444,9 @@ namespace Durin::Asset
 				FAssetData& PostAlias = State->PostAssets.at(AliasPath);
 				PostAlias.RedirectDestination = Mapping.DestinationPath;
 				PostAlias.Dependencies = {Mapping.DestinationPath};
+				if (PostAlias.TopLevelAssets.size() == 1)
+					PostAlias.TopLevelAssets.front().RedirectDestination =
+						FormerMainObjectPath(Mapping.DestinationPath);
 			}
 
 			for (FAssetReferenceEdge& Reference : State->PostReferenceEdges)
@@ -458,8 +483,7 @@ namespace Durin::Asset
 					State->LoadedPackages.push_back({
 						.Mapping = Mapping,
 						.Package = LoadedPackage,
-						.PrePackageName = LoadedPackage->GetName(),
-						.PreAssetName = AssetObject->GetName()});
+						.PrePackageName = LoadedPackage->GetName()});
 				}
 				FAssetOwnedPayloadRelocation Payload;
 				Result = RelocatorInvocation.Relocator(
@@ -710,7 +734,6 @@ namespace Durin::Asset
 					return EnterRecovery(
 						"a loaded package path could not be restored.");
 				Loaded.Package->Rename(FName(Loaded.PrePackageName));
-				Loaded.Package->GetAsset()->Rename(FName(Loaded.PreAssetName));
 				Loaded.Package->ClearDirty();
 			}
 			for (auto It = Published.rbegin(); It != Published.rend(); ++It)
@@ -770,8 +793,6 @@ namespace Durin::Asset
 				return Compensate(Error(EAssetError::AlreadyExists,
 					"A loaded relocation destination became occupied."));
 			Loaded.Package->Rename(FName(
-				Loaded.Mapping.DestinationPath.GetAssetName()));
-			Loaded.Package->GetAsset()->Rename(FName(
 				Loaded.Mapping.DestinationPath.GetAssetName()));
 			Loaded.Package->ClearDirty();
 			++RelocatedLoadedCount;
@@ -906,7 +927,6 @@ namespace Durin::Asset
 				return EnterRecovery(
 					"a loaded package could not be restored.");
 			Loaded.Package->Rename(FName(Loaded.PrePackageName));
-			Loaded.Package->GetAsset()->Rename(FName(Loaded.PreAssetName));
 			Loaded.Package->ClearDirty();
 		}
 

@@ -350,8 +350,13 @@ namespace Durin::Asset
 			}
 			if (Options.PrepareLoadedAsset)
 			{
-				const FAssetResult Prepared = Options.PrepareLoadedAsset(
-					PackagePlan.PackagePath, Package->GetAsset());
+				FAssetResult Prepared;
+				for (DObject* Asset : Package->GetTopLevelAssets())
+				{
+					Prepared = Options.PrepareLoadedAsset(
+						PackagePlan.PackagePath, Asset);
+					if (!Prepared) break;
+				}
 				if (!Prepared)
 				{
 					if (!bWasLoaded) (void)ReleasePackagesLoadedSince(Snapshot);

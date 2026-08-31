@@ -161,14 +161,17 @@ namespace Durin::ObjectPackage
 					"Imports");
 			FPackagePath TargetPackage;
 			FTopLevelAssetPath TargetAsset;
+			FObjectPath TargetObject;
 			std::string Error;
 			if (!FPackagePath::TryCreate(Import.PackageName, TargetPackage, &Error)
 				|| !FTopLevelAssetPath::TryCreate(TargetPackage,
-					TargetPackage.GetPackageName(), TargetAsset, &Error))
+					TargetPackage.GetPackageName(), TargetAsset, &Error)
+				|| !FObjectPath::TryCreate(TargetAsset,
+					std::span<const std::string>{}, TargetObject, &Error))
 				return FailConversion(OutDiagnostic, EPackageV8ConversionFailure::AmbiguousIdentity,
 					"A v8 import cannot be mapped to its former main asset: " + Error,
 					"Imports");
-			Import.ObjectPath = std::move(TargetAsset);
+			Import.ObjectPath = std::move(TargetObject);
 			Import.PackageName.clear();
 			Import.ObjectName.clear();
 			NewSummary.HardPackageDependencies.push_back(std::move(TargetPackage));

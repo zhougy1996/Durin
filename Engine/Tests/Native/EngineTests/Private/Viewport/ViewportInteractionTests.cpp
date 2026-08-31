@@ -325,7 +325,7 @@ TEST(FTransformGizmoTests, BuildsNativeOverlayForSelectedActorModes)
 	InitializeDObjectSystem();
 	Durin::DPackage* Package = MakeRevisionTestPackage("GizmoPackage");
 	Durin::DWorld* World = Durin::NewObject<Durin::DWorld>(Package, "GizmoWorld");
-	ASSERT_TRUE(Package->SetAsset(World));
+	ASSERT_EQ(Package->FindTopLevelAsset(World->GetFName()), World);
 	Durin::DLevel* Level = Durin::NewObject<Durin::DLevel>(World, "GizmoLevel");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Selected");

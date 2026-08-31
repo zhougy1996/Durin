@@ -11,7 +11,7 @@ namespace Durin::Asset::Private
 	namespace
 	{
 		constexpr uint32 AssetRegistryMagic = 0x47455241; // AREG
-		constexpr uint32 AssetRegistrySchemaVersion = 3;
+		constexpr uint32 AssetRegistrySchemaVersion = 4;
 		constexpr uint64 MaximumRegistryEntries = 1000000;
 		constexpr uint32 MaximumRegistryDependencies = 100000;
 		constexpr std::string_view RedirectorClassName =
@@ -26,7 +26,14 @@ namespace Durin::Asset::Private
 					{ return A.GetView() < B.GetView(); })
 					&& std::adjacent_find(Paths.begin(), Paths.end()) == Paths.end();
 			};
-			if (Entry.ObjectCount == 0 || !PathsCanonical(Entry.Dependencies)
+			if (Entry.ObjectCount == 0 || Entry.TopLevelAssets.empty()
+				|| !std::ranges::is_sorted(Entry.TopLevelAssets, {},
+					[](const FTopLevelAssetData& Asset) { return Asset.AssetPath.GetView(); })
+				|| std::adjacent_find(Entry.TopLevelAssets.begin(), Entry.TopLevelAssets.end(),
+					[](const FTopLevelAssetData& A, const FTopLevelAssetData& B) {
+						return A.AssetPath == B.AssetPath;
+					}) != Entry.TopLevelAssets.end()
+				|| !PathsCanonical(Entry.Dependencies)
 				|| !PathsCanonical(Entry.SoftDependencies)
 				|| !std::ranges::is_sorted(Entry.SearchableNames)
 				|| std::adjacent_find(Entry.SearchableNames.begin(), Entry.SearchableNames.end())
@@ -112,11 +119,37 @@ namespace Durin::Asset::Private
 		for (uint64 Index = 0; Index < EntryCount; ++Index)
 		{
 			FRegistryCacheEntry Entry;
+			uint32 TopLevelAssetCount = 0;
+			if (!Reader.ReadString(Entry.MountRoot) || !Reader.ReadString(Entry.RelativePath)
+				|| !Reader.ReadU32(TopLevelAssetCount)
+				|| TopLevelAssetCount > MaximumRegistryDependencies)
+			{
+				OutWarning = "Ignoring corrupt asset registry cache entry.";
+				OutEntries.clear();
+				return false;
+			}
+			for (uint32 AssetIndex = 0; AssetIndex < TopLevelAssetCount; ++AssetIndex)
+			{
+				std::string AssetPathString;
+				std::string RedirectPathString;
+				FTopLevelAssetData Asset;
+				if (!Reader.ReadString(AssetPathString)
+					|| !Reader.ReadString(Asset.AssetClassName)
+					|| !Reader.ReadString(RedirectPathString)
+					|| !FTopLevelAssetPath::TryCreate(AssetPathString, Asset.AssetPath)
+					|| (!RedirectPathString.empty()
+						&& !FObjectPath::TryCreate(RedirectPathString, Asset.RedirectDestination)))
+				{
+					OutWarning = "Ignoring invalid top-level asset metadata in asset registry cache.";
+					OutEntries.clear();
+					return false;
+				}
+				Entry.TopLevelAssets.push_back(std::move(Asset));
+			}
 			uint8 EntryKind = 0;
 			std::string RedirectDestination;
 			uint32 DependencyCount = 0;
-			if (!Reader.ReadString(Entry.MountRoot) || !Reader.ReadString(Entry.RelativePath)
-				|| !Reader.ReadString(Entry.AssetClassName)
+			if (!Reader.ReadString(Entry.AssetClassName)
 				|| !Reader.ReadU8(EntryKind)
 				|| EntryKind > uint8(EAssetRegistryEntryKind::Redirector)
 				|| !Reader.ReadString(RedirectDestination)
@@ -238,6 +271,13 @@ namespace Durin::Asset::Private
 		{
 			Writer.WriteString(Entry.MountRoot);
 			Writer.WriteString(Entry.RelativePath);
+			Writer.WriteU32(static_cast<uint32>(Entry.TopLevelAssets.size()));
+			for (const FTopLevelAssetData& Asset : Entry.TopLevelAssets)
+			{
+				Writer.WriteString(Asset.AssetPath.GetView());
+				Writer.WriteString(Asset.AssetClassName);
+				Writer.WriteString(Asset.RedirectDestination.GetView());
+			}
 			Writer.WriteString(Entry.AssetClassName);
 			Writer.WriteU8(static_cast<uint8>(Entry.EntryKind));
 			Writer.WriteString(Entry.RedirectDestination.GetView());
@@ -290,6 +330,7 @@ namespace Durin::Asset::Private
 			OutEntries.push_back(FRegistryCacheEntry{
 				.MountRoot = Lookup.Mount->VirtualRoot,
 				.RelativePath = RelativeString,
+				.TopLevelAssets = Data.TopLevelAssets,
 				.AssetClassName = Data.AssetClassName,
 				.EntryKind = Data.EntryKind,
 				.RedirectDestination = Data.RedirectDestination,

@@ -4,6 +4,25 @@
 
 namespace Durin::Asset
 {
+	auto LoadPackage(
+		const FPackagePath& Path,
+		DPackage*& OutPackage,
+		FAssetLoadReport* OutReport) -> FAssetResult
+	{
+		return FAssetRuntimeState::Get().GetLoadService().LoadPackage(
+			Path, OutPackage, OutReport);
+	}
+
+	auto LoadObject(
+		const FObjectPath& Path,
+		const DClass* ExpectedClass,
+		DObject*& OutObject,
+		FAssetLoadReport* OutReport) -> FAssetResult
+	{
+		return FAssetRuntimeState::Get().GetLoadService().LoadObject(
+			Path, ExpectedClass, OutObject, OutReport);
+	}
+
 	auto LoadAsset(
 		const FAssetPath& Path,
 		DObject*& OutAsset,

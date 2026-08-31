@@ -267,9 +267,9 @@ namespace Durin::ObjectPackage
 						"A DAST v8 import record is invalid.", "Imports[" + std::to_string(Index) + "]");
 				if (Layout.FormatVersion == DastV9FormatVersion)
 				{
-					FTopLevelAssetPath ObjectPath;
+					FObjectPath ObjectPath;
 					if (ObjectId != 0 || !OuterIndex.IsNull()
-						|| !FTopLevelAssetPath::TryCreate(Names[PackageId - 1], ObjectPath))
+						|| !FObjectPath::TryCreate(Names[PackageId - 1], ObjectPath))
 					{
 						return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
 							"A DAST v9 import target is not an exact top-level asset path.",

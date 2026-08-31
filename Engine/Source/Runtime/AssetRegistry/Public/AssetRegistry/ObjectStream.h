@@ -120,7 +120,7 @@ namespace Durin::Asset::PackageObjectStream
 		uint8 ReferenceTag = 0;
 		uint64 ReferenceId = 0;
 		// Detached live-capture facts. The legacy object-stream codec ignores
-		// these fields; the v8 linker adapter consumes them directly.
+		// these fields; the canonical linker adapter consumes them directly.
 		uint64 BulkElementSize = 1;
 		uint32 BulkAlignment = 1;
 		uint8 BulkStorage = 0;
@@ -150,12 +150,21 @@ namespace Durin::Asset::PackageObjectStream
 		std::vector<FRetainedUnknownOverride> RetainedUnknownOverrides;
 	};
 
+	struct FTopLevelAssetInput
+	{
+		std::string ObjectName;
+		std::string ClassName;
+		std::string RedirectDestination;
+	};
+
 	struct FPackageInput
 	{
 		std::string AssetClass;
 		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
 		std::string RedirectDestination;
 		std::vector<std::string> Dependencies;
+		std::vector<std::string> HardReferenceTargets;
+		std::vector<FTopLevelAssetInput> TopLevelAssets;
 		std::vector<std::string> AdditionalNames;
 		std::vector<FTypePtr> Types;
 		std::vector<FSchemaDescriptor> Schemas;
@@ -245,6 +254,8 @@ namespace Durin::Asset::PackageObjectStream
 		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
 		std::string RedirectDestination;
 		std::vector<std::string> Dependencies;
+		// Detached exact import identities used by the canonical linker load adapter.
+		std::vector<std::string> HardReferenceTargets;
 		uint64 ObjectCount = 0;
 		std::array<FSectionDirectoryEntry, RequiredSectionCount> Sections;
 		uint64 BytesRead = 0;

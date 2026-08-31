@@ -48,7 +48,7 @@ namespace
 			Package = Durin::NewObject<Durin::DPackage>(nullptr, Path.GetAssetName());
 			Package->InitializeAssetPackage(Path);
 			Level = Durin::NewObject<Durin::DLevel>(Package, Path.GetAssetName());
-			EXPECT_TRUE(Package->SetAsset(Level));
+			EXPECT_EQ(Package->FindTopLevelAsset(Level->GetFName()), Level);
 			Package->ClearDirty();
 		}
 

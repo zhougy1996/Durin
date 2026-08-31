@@ -49,14 +49,16 @@ namespace Durin::AssetForge::Builtins
 		DPackage* LoadedPackage = Asset::FindResidentPackage(MaterialPath);
 		if (LoadedPackage)
 		{
-			DMaterial* Loaded = Cast<DMaterial>(LoadedPackage->GetAsset());
+			DObject* TopLevel = LoadedPackage->FindTopLevelAsset(
+				FName(MaterialPath.GetPackageName()));
+			DMaterial* Loaded = Cast<DMaterial>(TopLevel);
 			if (!Loaded)
 			{
 				OutError = std::format(
 					"Standard imported-surface path {} is occupied by {}.",
 					MaterialPath.ToString(),
-					LoadedPackage->GetAsset()
-						? LoadedPackage->GetAsset()->GetClass()->GetQualifiedName().ToString()
+					TopLevel
+						? TopLevel->GetClass()->GetQualifiedName().ToString()
 						: std::string("an invalid package"));
 				return nullptr;
 			}

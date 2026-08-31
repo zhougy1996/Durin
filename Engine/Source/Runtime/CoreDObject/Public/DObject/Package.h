@@ -34,8 +34,6 @@ namespace Durin
 		auto GetPackagePathIdentity() const -> const FPackagePath& { return PackagePath; }
 		auto GetTopLevelAssets() const -> std::span<DObject* const> { return TopLevelAssets; }
 		COREDOBJECT_API auto FindTopLevelAsset(FName Name) const -> DObject*;
-		// Temporary v8 adapter. New code must select a named top-level asset.
-		auto GetAsset() const -> DObject* { return LegacyMainAsset; }
 		auto IsDirty() const -> bool { return bDirty; }
 		auto IsCanonicalResaveRecommended() const -> bool { return bCanonicalResaveRecommended; }
 		auto GetEditRevision() const -> uint64 { return EditRevision; }
@@ -58,8 +56,6 @@ namespace Durin
 		COREDOBJECT_API auto SetStandaloneResidency(bool bResident) -> void;
 		COREDOBJECT_API auto AddReferencedObjects(FReferenceCollector& Collector) -> void override;
 
-		// Asset packages accept only an asset whose Outer is this package.
-		COREDOBJECT_API auto SetAsset(DObject* InAsset) -> bool;
 		auto MarkAsNewlyCreated() -> void
 		{
 			if (IsAssetPackage()) PackageFlags |= EPackageFlags::NewlyCreated;
@@ -90,9 +86,6 @@ namespace Durin
 
 		// Direct persistent exports are retained as one package residency closure.
 		std::vector<DObject*> TopLevelAssets;
-
-		// Non-owning v8 compatibility selector removed with the production v8 route.
-		DObject* LegacyMainAsset = nullptr;
 
 		EPackageFlags PackageFlags = EPackageFlags::None;
 

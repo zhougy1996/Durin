@@ -8,6 +8,7 @@ namespace Durin::Asset::Private
 	{
 		std::string MountRoot;
 		std::string RelativePath;
+		std::vector<FTopLevelAssetData> TopLevelAssets;
 		std::string AssetClassName;
 		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
 		FAssetPath RedirectDestination;

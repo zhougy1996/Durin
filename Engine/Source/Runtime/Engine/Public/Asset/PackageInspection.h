@@ -29,7 +29,7 @@ namespace Durin::Asset
 	{
 		EAssetPackageObjectReferenceKind Kind = EAssetPackageObjectReferenceKind::Null;
 		uint64 ObjectId = 0;
-		FAssetPath ExternalPath;
+		FObjectPath ExternalPath;
 	};
 
 	struct FAssetPackageField

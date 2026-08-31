@@ -143,6 +143,27 @@ namespace Durin::Asset
 		DiscardUnsaved,
 	};
 
+	ENGINE_API auto LoadPackage(
+		const FPackagePath& Path,
+		DPackage*& OutPackage,
+		FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+	ENGINE_API auto LoadObject(
+		const FObjectPath& Path,
+		const DClass* ExpectedClass,
+		DObject*& OutObject,
+		FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
+
+	template<typename T>
+	auto LoadObject(const FObjectPath& Path, T*& OutObject,
+		FAssetLoadReport* OutReport = nullptr) -> FAssetResult
+	{
+		static_assert(std::is_base_of_v<DObject, T>);
+		DObject* Object = nullptr;
+		FAssetResult Result = LoadObject(Path, T::StaticClass(), Object, OutReport);
+		OutObject = Result ? static_cast<T*>(Object) : nullptr;
+		return Result;
+	}
+
 	ENGINE_API auto LoadAsset(
 		const FAssetPath& Path,
 		const DClass* ExpectedClass,

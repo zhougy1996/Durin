@@ -307,7 +307,7 @@ TEST(FCameraComponentTests, SettingsAndLookAtCommitOnceAndIgnoreEquivalentValues
 	auto* Package = Durin::NewObject<Durin::DPackage>(nullptr, Path.GetAssetName());
 	Package->InitializeAssetPackage(Path);
 	auto* World = Durin::NewObject<Durin::DWorld>(Package, "World");
-	ASSERT_TRUE(Package->SetAsset(World));
+	ASSERT_EQ(Package->FindTopLevelAsset(World->GetFName()), World);
 	auto* Level = Durin::NewObject<Durin::DLevel>(World, "Level");
 	ASSERT_TRUE(World->SetCurrentLevel(Level));
 	auto* CameraActor = Level->SpawnActor<Durin::ACameraActor>("Camera");

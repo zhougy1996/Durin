@@ -64,7 +64,7 @@ namespace
 		EXPECT_NE(Package, nullptr);
 		DObject* Asset = NewObject<DObject>(Package, "Root");
 		EXPECT_NE(Asset, nullptr);
-		EXPECT_TRUE(Package->SetAsset(Asset));
+		EXPECT_EQ(Package->FindTopLevelAsset(Asset->GetFName()), Asset);
 		std::vector<std::byte> Bytes;
 		const FAssetResult Result = SerializeAssetPackageBytes(Package, Bytes);
 		EXPECT_TRUE(Result) << Result.Message;

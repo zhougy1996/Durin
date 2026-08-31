@@ -26,7 +26,7 @@ namespace Durin::Asset::PackageObjectStream
 		// resolved, allowing dependency cycles to observe the in-flight package.
 		std::function<FAssetResult(DPackage*)> OnSkeletonReady;
 		std::function<void(DPackage*)> OnSkeletonRollback;
-		uint32 SourceFormatVersion = AssetPackageV8FormatVersion;
+		uint32 SourceFormatVersion = AssetPackageV9FormatVersion;
 		bool bCooked = false;
 		FArchiveTarget Target;
 	};

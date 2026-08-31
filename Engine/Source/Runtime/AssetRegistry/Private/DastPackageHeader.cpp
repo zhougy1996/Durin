@@ -24,7 +24,7 @@ namespace Durin::Asset
 			-> FAssetResult
 		{
 			return Error(EAssetError::CorruptFile,
-				std::format("DAST v8 Registry projection failed: {}",
+				std::format("DAST v9 Registry projection failed: {}",
 					Diagnostic.Message));
 		}
 	}
@@ -42,63 +42,48 @@ namespace Durin::Asset
 			return Error(EAssetError::CorruptFile,
 				std::string(EnvelopeDiagnostic.Message));
 		if (Preamble.FormatId != DastBinaryFormatId
-			|| Preamble.FormatVersion != AssetPackageV8FormatVersion)
+			|| Preamble.FormatVersion != AssetPackageV9FormatVersion)
 			return Error(EAssetError::UnsupportedVersion,
 				std::format("Unsupported DAST package format version {}.",
 					Preamble.FormatVersion));
 		if (Preamble.HeaderBytes > FrontMatter.size())
 			return Error(EAssetError::CorruptFile,
-				"DAST v8 front matter is truncated.");
+				"DAST v9 front matter is truncated.");
 		if (!PackagePath.IsValid())
 			return Error(EAssetError::InvalidPath,
-				"DAST v8 Registry projection requires the mounted package identity.");
+				"DAST v9 Registry projection requires the mounted package identity.");
 
-		ObjectPackage::FPackageV8RegistryData Registry;
+		ObjectPackage::FPackageV9RegistryData Registry;
 		ObjectPackage::FPackageReaderDiagnostic ReaderDiagnostic;
-		if (!ObjectPackage::ReadPackageV8Registry(
+		if (!ObjectPackage::ReadPackageV9Registry(
 			FrontMatter.first(static_cast<size_t>(Preamble.HeaderBytes)),
-			PhysicalFileBytes, PhysicalBulkBytes, PackagePath.GetView(),
+			PhysicalFileBytes, PhysicalBulkBytes, PackagePath,
 			Registry, &ReaderDiagnostic))
 			return ReaderError(ReaderDiagnostic);
 
 		FAssetPackageHeader Header{
-			.AssetClassName = std::move(Registry.AssetClass),
-			.EntryKind = Registry.bRedirect
-				? EAssetRegistryEntryKind::Redirector
-				: EAssetRegistryEntryKind::Asset,
+			.PackagePath = Registry.PackagePath,
 			.FormatVersion = Preamble.FormatVersion,
 			.ObjectCount = Registry.ExportCount,
 			.BulkSegmentExtent = Registry.ExternalBulkBytes,
 			.BulkSegmentDigest = Registry.ExternalBulkHash,
 			.BytesRead = Preamble.HeaderBytes};
-		auto ConvertPaths = [&](const std::vector<std::string>& Source,
-			std::vector<FAssetPath>& Destination,
-			std::string_view Category) -> FAssetResult
+		for (auto& Asset : Registry.TopLevelAssets)
+			Header.TopLevelAssets.push_back({.AssetPath = std::move(Asset.AssetPath),
+				.AssetClassName = std::move(Asset.ClassName),
+				.RedirectDestination = std::move(Asset.RedirectDestination)});
+		Header.Dependencies.assign(Registry.HardPackageReferences.begin(),
+			Registry.HardPackageReferences.end());
+		Header.SoftDependencies.assign(Registry.SoftPackageReferences.begin(),
+			Registry.SoftPackageReferences.end());
+		if (!Header.TopLevelAssets.empty())
 		{
-			for (const std::string& Value : Source)
-			{
-				FAssetPath Path;
-				if (!FAssetPath::TryCreate(Value, Path))
-					return Error(EAssetError::CorruptFile,
-						std::format("DAST v8 Registry {} path is invalid.",
-							Category));
-				Destination.push_back(std::move(Path));
-			}
-			return {};
-		};
-		if (!Registry.RedirectDestination.empty()
-			&& !FAssetPath::TryCreate(
-				Registry.RedirectDestination, Header.RedirectDestination))
-			return Error(EAssetError::CorruptFile,
-				"DAST v8 redirect destination path is invalid.");
-		if (FAssetResult Result = ConvertPaths(
-			Registry.HardPackageReferences, Header.Dependencies,
-			"hard dependency"); !Result)
-			return Result;
-		if (FAssetResult Result = ConvertPaths(
-			Registry.SoftPackageReferences, Header.SoftDependencies,
-			"soft dependency"); !Result)
-			return Result;
+			const auto& First = Header.TopLevelAssets.front();
+			Header.AssetClassName = First.AssetClassName;
+			Header.EntryKind = First.RedirectDestination.IsValid()
+				? EAssetRegistryEntryKind::Redirector : EAssetRegistryEntryKind::Asset;
+			Header.RedirectDestination = First.RedirectDestination.GetPackagePath();
+		}
 		Header.SearchableNames = std::move(Registry.SearchableNames);
 		OutHeader = std::move(Header);
 		return {};

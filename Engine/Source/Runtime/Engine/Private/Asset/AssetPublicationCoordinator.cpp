@@ -226,7 +226,8 @@ namespace Durin::Asset
 				}
 				const FAssetPathResolveResult Resolution =
 					RegistrySnapshot.ResolveAssetPath(
-						Reference.TargetPath, {.ExpectedClass = ReferenceClass});
+						Reference.TargetPath.GetPackagePath(),
+						{.ExpectedClass = ReferenceClass});
 				if (!Resolution)
 				{
 					FAssetResult ResolutionError = AssetPathResolutionError(Resolution);

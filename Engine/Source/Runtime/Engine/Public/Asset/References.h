@@ -37,7 +37,7 @@ namespace Durin::Asset
 		std::string FieldName;
 		EAssetReferenceKind Kind = EAssetReferenceKind::HardObject;
 		std::string ExpectedClass;
-		FAssetPath TargetPath;
+		FObjectPath TargetPath;
 		std::vector<FAssetReferenceRouteSegment> Route;
 		std::string DisplayRoute;
 

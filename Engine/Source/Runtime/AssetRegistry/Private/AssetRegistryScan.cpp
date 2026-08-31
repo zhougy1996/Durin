@@ -93,6 +93,10 @@ namespace Durin::Asset::Private
 					&& CachedIt->second.LastWriteTimeTicks == LastWriteTimeTicks)
 				{
 					Header.AssetClassName = CachedIt->second.AssetClassName;
+					Header.TopLevelAssets.clear();
+					for (const FTopLevelAssetData& Asset : CachedIt->second.TopLevelAssets)
+						Header.TopLevelAssets.push_back({Asset.AssetPath,
+							Asset.AssetClassName, Asset.RedirectDestination});
 					Header.EntryKind = CachedIt->second.EntryKind;
 					Header.RedirectDestination = CachedIt->second.RedirectDestination;
 					Header.FormatVersion = CachedIt->second.FormatVersion;
@@ -142,6 +146,13 @@ namespace Durin::Asset::Private
 				Result.CacheEntries.push_back(FRegistryCacheEntry{
 					.MountRoot = Mount.VirtualRoot,
 					.RelativePath = RelativeString,
+					.TopLevelAssets = [&] {
+						std::vector<FTopLevelAssetData> Assets;
+						for (const auto& Asset : Header.TopLevelAssets)
+							Assets.push_back({Asset.AssetPath, Asset.AssetClassName,
+								Asset.RedirectDestination});
+						return Assets;
+					}(),
 					.AssetClassName = Header.AssetClassName,
 					.EntryKind = Header.EntryKind,
 					.RedirectDestination = Header.RedirectDestination,
@@ -157,6 +168,14 @@ namespace Durin::Asset::Private
 				Result.Assets.emplace(DiskPath, FAssetData{
 					.PackagePath = DiskPath,
 					.PhysicalPath = It->path().generic_string(),
+					.TopLevelAssets = [&] {
+						std::vector<FTopLevelAssetData> Assets;
+						for (auto& Asset : Header.TopLevelAssets)
+							Assets.push_back({std::move(Asset.AssetPath),
+								std::move(Asset.AssetClassName),
+								std::move(Asset.RedirectDestination)});
+						return Assets;
+					}(),
 					.AssetClassName = std::move(Header.AssetClassName),
 					.EntryKind = Header.EntryKind,
 					.RedirectDestination = std::move(Header.RedirectDestination),

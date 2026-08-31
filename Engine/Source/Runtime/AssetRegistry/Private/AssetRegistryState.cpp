@@ -212,6 +212,19 @@ namespace Durin::Asset
 				: std::optional<FAssetData>(It->second)};
 	}
 
+	auto FAssetRegistryState::FindTopLevelAssetExact(
+		const FTopLevelAssetPath& Path) const -> FTopLevelAssetCatalogEntry
+	{
+		std::shared_lock Lock(Mutex);
+		const auto PackageIt = Assets.find(Path.GetPackagePath());
+		if (PackageIt == Assets.end()) return {.Revision = Revision};
+		const auto AssetIt = std::ranges::find(
+			PackageIt->second.TopLevelAssets, Path, &FTopLevelAssetData::AssetPath);
+		if (AssetIt == PackageIt->second.TopLevelAssets.end())
+			return {.Revision = Revision};
+		return {.Revision = Revision, .Asset = *AssetIt, .Package = PackageIt->second};
+	}
+
 	auto FAssetRegistryState::ResolveAssetPath(const FAssetPath& Path,
 		const FAssetPathResolveOptions& Options) const -> FAssetPathResolveResult
 	{
@@ -356,6 +369,12 @@ namespace Durin::Asset
 	auto FindAssetExact(const FAssetPath& Path) -> FAssetCatalogEntry
 	{
 		return Private::GetAssetRegistryState().FindAssetExact(Path);
+	}
+
+	auto FindTopLevelAssetExact(
+		const FTopLevelAssetPath& Path) -> FTopLevelAssetCatalogEntry
+	{
+		return Private::GetAssetRegistryState().FindTopLevelAssetExact(Path);
 	}
 
 	auto ResolveAssetPath(const FAssetPath& Path,

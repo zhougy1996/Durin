@@ -64,7 +64,7 @@ namespace Durin::Asset::Private
 		{
 			if (Depth > ObjectPackage::DastV8MaximumValueDepth)
 			{
-				OutError = "Live reflected type exceeds the v8 nesting limit.";
+				OutError = "Live reflected type exceeds the package nesting limit.";
 				return false;
 			}
 			const auto Kind = LinkerKind(Source.Opcode);
@@ -124,13 +124,13 @@ namespace Durin::Asset::Private
 			const PackageObjectStream::FTypeDescriptor& Type,
 			const PackageObjectStream::FValue& Source,
 			ObjectPackage::FSerializedValue& Out,
-			std::vector<std::string>& SoftReferences,
+			std::vector<FPackagePath>& SoftReferences,
 			size_t ExportCount, size_t ImportCount,
 			std::string& OutError, uint32 Depth = 0) -> bool
 		{
 			if (Depth > ObjectPackage::DastV8MaximumValueDepth)
 			{
-				OutError = "Live reflected value exceeds the v8 nesting limit.";
+				OutError = "Live reflected value exceeds the package nesting limit.";
 				return false;
 			}
 			ObjectPackage::FSerializedValue Result{
@@ -185,7 +185,16 @@ namespace Durin::Asset::Private
 					OutError = "Live soft reference has an invalid tag.";
 					return false;
 				}
-				if (Source.ReferenceTag == 1) SoftReferences.push_back(Source.Text);
+				if (Source.ReferenceTag == 1)
+				{
+					FObjectPath ObjectPath;
+					if (!FObjectPath::TryCreate(Source.Text, ObjectPath))
+					{
+						OutError = "Live soft reference does not carry complete object identity.";
+						return false;
+					}
+					SoftReferences.push_back(ObjectPath.GetPackagePath());
+				}
 			}
 
 			auto ConvertChild = [&](const PackageObjectStream::FTypeDescriptor& ChildType,
@@ -241,7 +250,7 @@ namespace Durin::Asset::Private
 			return true;
 		}
 
-		auto BuildLinkerTables(const PackageObjectStream::FPackageInput& Input,
+			auto BuildLinkerTables(const PackageObjectStream::FPackageInput& Input,
 			std::string_view PackageName, ObjectPackage::FLinkerTables& Out,
 			std::string& OutError) -> bool
 		{
@@ -251,15 +260,32 @@ namespace Durin::Asset::Private
 				return false;
 			}
 			ObjectPackage::FLinkerTables Result;
-			Result.Summary.PackageName = PackageName;
-			Result.Summary.AssetClass = Input.AssetClass;
-			Result.Summary.bRedirect = Input.EntryKind == EAssetRegistryEntryKind::Redirector;
-			Result.Summary.RedirectDestination = Input.RedirectDestination;
-			Result.Summary.HardPackageReferences = Input.Dependencies;
+			if (!FPackagePath::TryCreate(PackageName, Result.Summary.PackagePath))
+			{
+				OutError = "Live package has an invalid package identity.";
+				return false;
+			}
 			Result.Names = Input.AdditionalNames;
-			ObjectPackage::FPackageIndex::TryExport(0, Result.Summary.MainExport);
-			for (const auto& Dependency : Input.Dependencies)
-				Result.Imports.push_back({.PackageName = Dependency});
+			for (const std::string& Dependency : Input.Dependencies)
+			{
+				FPackagePath Path;
+				if (!FPackagePath::TryCreate(Dependency, Path))
+				{
+					OutError = "Live hard dependency has an invalid package identity.";
+					return false;
+				}
+				Result.Summary.HardPackageDependencies.push_back(std::move(Path));
+			}
+			for (const std::string& Target : Input.HardReferenceTargets)
+			{
+				FObjectPath Path;
+				if (!FObjectPath::TryCreate(Target, Path))
+				{
+					OutError = "Live hard reference has an invalid exact object identity.";
+					return false;
+				}
+				Result.Imports.push_back({.ObjectPath = std::move(Path)});
+			}
 			for (const auto& Version : Input.CustomVersions)
 				Result.CustomVersions.push_back({Version.Guid, Version.Value,
 					Version.EmissionValue, Version.MaximumSupported,
@@ -322,6 +348,39 @@ namespace Durin::Asset::Private
 				Result.Exports.push_back({.ObjectName = Source.ObjectName,
 					.ClassName = Source.ClassName, .Outer = Outer});
 			}
+			for (const PackageObjectStream::FTopLevelAssetInput& Top : Input.TopLevelAssets)
+			{
+				const auto Object = std::ranges::find_if(Objects, [&](const auto* Candidate) {
+					return Candidate->OuterPath.empty()
+						&& Candidate->ObjectName == Top.ObjectName
+						&& Candidate->ClassName == Top.ClassName;
+				});
+				if (Object == Objects.end())
+				{
+					OutError = "Live top-level asset metadata is absent from the export topology.";
+					return false;
+				}
+				ObjectPackage::FPackageIndex ExportId;
+				FTopLevelAssetPath AssetPath;
+				FObjectPath RedirectDestination;
+				const size_t ExportIndex = std::distance(Objects.begin(), Object);
+				if (!ObjectPackage::FPackageIndex::TryExport(ExportIndex, ExportId)
+					|| !FTopLevelAssetPath::TryCreate(
+						Result.Summary.PackagePath, Top.ObjectName, AssetPath)
+					|| (!Top.RedirectDestination.empty()
+						&& !FObjectPath::TryCreate(Top.RedirectDestination, RedirectDestination)))
+				{
+					OutError = "Live top-level asset metadata has an invalid identity.";
+					return false;
+				}
+				Result.Summary.TopLevelAssets.push_back({.Export = ExportId,
+					.AssetPath = std::move(AssetPath), .ClassName = Top.ClassName,
+					.RedirectDestination = std::move(RedirectDestination)});
+			}
+			std::ranges::sort(Result.Summary.TopLevelAssets,
+				[](const auto& Left, const auto& Right) {
+					return Left.AssetPath < Right.AssetPath;
+				});
 			for (size_t ExportIndex = 0; ExportIndex < Objects.size(); ++ExportIndex)
 			{
 				const auto Values = std::ranges::find(
@@ -348,8 +407,8 @@ namespace Durin::Asset::Private
 					ObjectPackage::FSerializedValue Value;
 					if (!ToLinkerType(Input, *Field->Type, Type, OutError)
 						|| !ToLinkerValue(Input, *Field->Type, Override.Value, Value,
-							Result.Summary.SoftPackageReferences, Objects.size(),
-							Input.Dependencies.size(), OutError)) return false;
+							Result.Summary.SoftPackageDependencies, Objects.size(),
+							Input.HardReferenceTargets.size(), OutError)) return false;
 					Result.Exports[ExportIndex].Properties.push_back({
 						.DeclaringType = Override.SchemaName,
 						.FieldName = Override.FieldName,
@@ -360,10 +419,10 @@ namespace Durin::Asset::Private
 						.Value = std::move(Value)});
 				}
 			}
-			std::ranges::sort(Result.Summary.SoftPackageReferences);
-			Result.Summary.SoftPackageReferences.erase(std::ranges::unique(
-				Result.Summary.SoftPackageReferences).begin(),
-				Result.Summary.SoftPackageReferences.end());
+			std::ranges::sort(Result.Summary.SoftPackageDependencies);
+			Result.Summary.SoftPackageDependencies.erase(std::ranges::unique(
+				Result.Summary.SoftPackageDependencies).begin(),
+				Result.Summary.SoftPackageDependencies.end());
 			Out = std::move(Result);
 			return true;
 		}
@@ -508,14 +567,14 @@ namespace Durin::Asset::Private
 				{
 					const auto& Import = Linker.Imports[Source.Reference.GetTableIndex()];
 					const auto Dependency = std::ranges::find(
-						Input.Dependencies, Import.PackageName);
-					if (Dependency == Input.Dependencies.end())
+						Input.HardReferenceTargets, Import.ObjectPath.ToString());
+					if (Dependency == Input.HardReferenceTargets.end())
 					{
 						OutError = "Linker import is absent from hard package references.";
 						return false;
 					}
 					Out.ReferenceTag = 2;
-					Out.ReferenceId = std::distance(Input.Dependencies.begin(), Dependency) + 1;
+					Out.ReferenceId = std::distance(Input.HardReferenceTargets.begin(), Dependency) + 1;
 				}
 			}
 			if (Type.Kind == ObjectPackage::EValueKind::Struct)
@@ -571,11 +630,25 @@ namespace Durin::Asset::Private
 			PackageObjectStream::FPackageInput& Out, std::string& OutError) -> bool
 		{
 			PackageObjectStream::FPackageInput Input;
-			Input.AssetClass = Linker.Summary.AssetClass;
-			Input.EntryKind = Linker.Summary.bRedirect
+			if (Linker.Summary.TopLevelAssets.empty())
+			{
+				OutError = "Linker package has no top-level asset metadata.";
+				return false;
+			}
+			const auto& FirstTop = Linker.Summary.TopLevelAssets.front();
+			Input.AssetClass = FirstTop.ClassName;
+			Input.EntryKind = FirstTop.RedirectDestination.IsValid()
 				? EAssetRegistryEntryKind::Redirector : EAssetRegistryEntryKind::Asset;
-			Input.RedirectDestination = Linker.Summary.RedirectDestination;
-			Input.Dependencies = Linker.Summary.HardPackageReferences;
+			Input.RedirectDestination = FirstTop.RedirectDestination.ToString();
+			for (const FPackagePath& Dependency : Linker.Summary.HardPackageDependencies)
+				Input.Dependencies.push_back(Dependency.ToString());
+			for (const auto& Import : Linker.Imports)
+				Input.HardReferenceTargets.push_back(Import.ObjectPath.ToString());
+			for (const auto& Top : Linker.Summary.TopLevelAssets)
+				Input.TopLevelAssets.push_back({
+					.ObjectName = std::string(Top.AssetPath.GetAssetName()),
+					.ClassName = Top.ClassName,
+					.RedirectDestination = Top.RedirectDestination.ToString()});
 			Input.AdditionalNames = Linker.Names;
 			for (const auto& Type : Linker.Types)
 			{
@@ -649,6 +722,7 @@ namespace Durin::Asset::Private
 			Result.Header.EntryKind = Input.EntryKind;
 			Result.Header.RedirectDestination = Input.RedirectDestination;
 			Result.Header.Dependencies = Input.Dependencies;
+			Result.Header.HardReferenceTargets = Input.HardReferenceTargets;
 			Result.Header.ObjectCount = Input.Objects.size();
 			Result.Names = Input.AdditionalNames;
 			Result.CustomVersions.reserve(Input.CustomVersions.size());
@@ -797,7 +871,7 @@ namespace Durin::Asset::Private
 		PackageObjectStream::FLoadedAssetPackage Loaded;
 		PackageObjectStream::FReaderDiagnostic ReaderDiagnostic;
 		auto EffectiveOptions = Options;
-		EffectiveOptions.SourceFormatVersion = AssetPackageV8FormatVersion;
+		EffectiveOptions.SourceFormatVersion = ObjectPackage::DastV9FormatVersion;
 		FAssetResult Result = PackageObjectStream::LoadDecodedAssetPackage(
 			std::move(Decoded), PackagePath, Loaded, OutReport,
 			EffectiveOptions, &ReaderDiagnostic);
