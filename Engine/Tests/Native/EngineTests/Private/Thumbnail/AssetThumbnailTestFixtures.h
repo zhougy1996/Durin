@@ -1,4 +1,5 @@
 #pragma once
+#include "NativeDObjectTestSupport.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Texture/TextureCubeFactoryTestSupport.h"
 
@@ -97,10 +98,10 @@ namespace Durin::Tests
 		{
 			if (!SphereAsset)
 			{
-				FPackagePath SpherePath;
+				FObjectPath SpherePath;
 				std::string Error;
-				if (!FPackagePath::TryCreate(
-						Editor::FThumbnailVisualContract::SphereVirtualPath,
+				if (!FObjectPath::TryCreate(
+						Editor::FThumbnailVisualContract::SphereAssetPath,
 						SpherePath,
 						&Error)
 					|| !Editor::FAssetRetentionService::Acquire(
@@ -324,7 +325,7 @@ namespace Durin::Tests
 			if (Asset::FindResidentPackage(StaticMeshPath) == nullptr)
 			{
 				DObject* Loaded = nullptr;
-				const Asset::FAssetResult Result = Asset::LoadAsset(StaticMeshPath, Loaded);
+				const Asset::FAssetResult Result = Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(StaticMeshPath), Loaded);
 				It->second.StaticMesh = Result ? Cast<DStaticMesh>(Loaded) : nullptr;
 				if (!Result || It->second.StaticMesh == nullptr)
 				{
@@ -378,7 +379,7 @@ namespace Durin::Tests
 		if (!OverrideTextureResult) return Fail(OverrideTextureResult.Message);
 		OutFixtures.OverrideTexture = OverrideTextureResult.Asset;
 
-		Asset::FAssetResult Result = Asset::CreateAsset(MaterialPath, OutFixtures.Material);
+		Asset::FAssetResult Result = Asset::CreatePackageLeafAssetForTesting(MaterialPath, OutFixtures.Material);
 		if (!Result) return Fail(Result.Message);
 		FMaterialProgramValidationResult ProgramValidation;
 		if (!OutFixtures.Material->SetMaterialProgram(
@@ -398,7 +399,7 @@ namespace Durin::Tests
 		Result = Asset::SavePackage(OutFixtures.Material->GetPackage());
 		if (!Result) return Fail(Result.Message);
 
-		Result = Asset::CreateAsset(MaterialInstancePath, OutFixtures.MaterialInstance);
+		Result = Asset::CreatePackageLeafAssetForTesting(MaterialInstancePath, OutFixtures.MaterialInstance);
 		if (!Result) return Fail(Result.Message);
 		if (!OutFixtures.MaterialInstance->SetParent(OutFixtures.Material)
 			|| !OutFixtures.MaterialInstance->SetVectorParameterValue(
@@ -413,7 +414,7 @@ namespace Durin::Tests
 		Result = Asset::SavePackage(OutFixtures.MaterialInstance->GetPackage());
 		if (!Result) return Fail(Result.Message);
 
-		Result = Asset::CreateAsset(StaticMeshPath, OutFixtures.StaticMesh);
+		Result = Asset::CreatePackageLeafAssetForTesting(StaticMeshPath, OutFixtures.StaticMesh);
 		if (!Result) return Fail(Result.Message);
 		Asset::FStaticMeshImportedData ImportedMesh;
 		ImportedMesh.MaterialSlots.push_back({
@@ -445,7 +446,7 @@ namespace Durin::Tests
 		Result = Asset::SavePackage(OutFixtures.StaticMesh->GetPackage());
 		if (!Result) return Fail(Result.Message);
 
-		Result = Asset::CreateAsset(InvalidMaterialInstancePath, OutFixtures.InvalidMaterialInstance);
+		Result = Asset::CreatePackageLeafAssetForTesting(InvalidMaterialInstancePath, OutFixtures.InvalidMaterialInstance);
 		if (!Result) return Fail(Result.Message);
 		Result = Asset::SavePackage(OutFixtures.InvalidMaterialInstance->GetPackage());
 		if (!Result) return Fail(Result.Message);

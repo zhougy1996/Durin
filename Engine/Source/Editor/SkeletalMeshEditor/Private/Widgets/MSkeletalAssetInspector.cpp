@@ -52,15 +52,15 @@ namespace Durin::Editor::SkeletalMesh
 		if (Document.ResourceId.empty() || Document.DocumentKey.empty())
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		if (FindState(Document.DocumentKey)) return ::Durin::Editor::EDocumentOpenResult::Opened;
-		FPackagePath AssetPath;
+		FObjectPath AssetPath;
 		std::string PathError;
-		if (!FPackagePath::TryCreate(Document.ResourceId, AssetPath, &PathError))
+		if (!FObjectPath::TryCreate(Document.ResourceId, AssetPath, &PathError))
 		{
 			ErrorMessage = std::move(PathError);
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		DObject* Asset = nullptr;
-		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Asset);
+		const Asset::FAssetResult Result = Asset::LoadObject(AssetPath, Asset);
 		if (!Result || !Asset || (Asset->GetClass() != DSkeleton::StaticClass()
 			&& Asset->GetClass() != DSkeletalMesh::StaticClass()
 			&& Asset->GetClass() != DAnimationClip::StaticClass()))
@@ -140,9 +140,9 @@ namespace Durin::Editor::SkeletalMesh
 						if (ImGui::Selectable(State.PreviewPeerPaths[static_cast<size_t>(Index)].c_str(),
 							State.SelectedPreviewPeer == Index))
 						{
-							FPackagePath PeerPath; DObject* Peer = nullptr;
-							if (FPackagePath::TryCreate(State.PreviewPeerPaths[static_cast<size_t>(Index)], PeerPath)
-								&& Asset::LoadAsset(PeerPath, Peer))
+							FObjectPath PeerPath; DObject* Peer = nullptr;
+							if (FObjectPath::TryCreate(State.PreviewPeerPaths[static_cast<size_t>(Index)], PeerPath)
+								&& Asset::LoadObject(PeerPath, Peer))
 							{
 								State.SelectedPreviewPeer = Index;
 								State.PreviewPeer = Peer;

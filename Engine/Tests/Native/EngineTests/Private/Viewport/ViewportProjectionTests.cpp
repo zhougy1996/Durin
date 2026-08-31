@@ -17,7 +17,7 @@ TEST(FLevelEditorViewportClientTests, NavigationDoesNotDirtyTheLevelPackage)
 	Durin::FPackagePath Path;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/ViewportTests/NavigationDirty", Path));
 	Durin::DLevel* Level = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Level));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Path, Level));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
 	ASSERT_FALSE(Level->GetPackage()->IsDirty());
 

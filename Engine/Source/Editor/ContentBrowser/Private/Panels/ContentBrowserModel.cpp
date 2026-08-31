@@ -203,14 +203,19 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserModel::RevealAsset(std::string_view AssetPath)
 		-> std::string
 	{
-		FPackagePath Path;
-		if (!FPackagePath::TryCreate(AssetPath, Path)) return {};
-		const Asset::FAssetCatalogEntry Entry = Asset::FindAssetExact(Path);
-		const Asset::FAssetData* Data = Entry.Data ? &*Entry.Data : nullptr;
-		if (!Data) return {};
-		if (Data->EntryKind == Asset::EAssetRegistryEntryKind::Redirector)
+		FTopLevelAssetPath Path;
+		if (!FTopLevelAssetPath::TryCreate(AssetPath, Path)) return {};
+		const Asset::FTopLevelAssetCatalogEntry Entry =
+			Asset::FindTopLevelAssetExact(Path);
+		if (!Entry) return {};
+		if (Entry.Asset->IsRedirector())
 			bShowRedirectors = true;
-		return RevealPhysicalItem(Data->PhysicalPath);
+		(void)RevealPhysicalItem(Entry.Package->PhysicalPath);
+		const std::string StablePath = Path.ToString();
+		return std::ranges::any_of(
+			Items, [&StablePath](const FContentBrowserItem& Item) {
+				return Item.StableId() == StablePath;
+			}) ? StablePath : std::string{};
 	}
 
 	auto FContentBrowserModel::RevealPhysicalItem(
@@ -274,22 +279,22 @@ namespace Durin::Editor::ContentBrowser::Private
 				return true;
 			else if (std::filesystem::is_directory(Status))
 			{
-				ItemsSnapshot.push_back(
-					{EContentBrowserItemKind::Folder,
-						Name,
-						PhysicalToVirtualDirectory(EntryPath.generic_string()),
-						NormalizePath(EntryPath.generic_string())});
+				ItemsSnapshot.push_back({
+					.Kind = EContentBrowserItemKind::Folder,
+					.Name = Name,
+					.VirtualPath = PhysicalToVirtualDirectory(EntryPath.generic_string()),
+					.PhysicalPath = NormalizePath(EntryPath.generic_string()),
+				});
 			}
 			else if (std::filesystem::is_regular_file(Status)
 				&& EntryPath.extension() != ".dasset")
 			{
 				FContentBrowserItem Item{
-					EContentBrowserItemKind::File,
-					Name,
-					{},
-					NormalizePath(EntryPath.generic_string()),
-					{},
-					EntryPath.extension().generic_string()};
+					.Kind = EContentBrowserItemKind::File,
+					.Name = Name,
+					.PhysicalPath = NormalizePath(EntryPath.generic_string()),
+					.Extension = EntryPath.extension().generic_string(),
+				};
 				Item.FileSize = Entry.file_size(EntryError);
 				if (!EntryError)
 					Item.LastWriteTime = Entry.last_write_time(EntryError);
@@ -402,29 +407,33 @@ namespace Durin::Editor::ContentBrowser::Private
 		const FPackagePath& Path,
 		const Asset::FAssetData& Data) -> void
 	{
-		FContentBrowserItem Item{
-			Data.EntryKind == Asset::EAssetRegistryEntryKind::Redirector
-				? EContentBrowserItemKind::Redirector
-				: EContentBrowserItemKind::Asset,
-			std::string(Path.GetAssetName()),
-			Path.ToString(),
-			NormalizePath(Data.PhysicalPath),
-			Data.AssetClassName,
-			".dasset"};
-		Item.RedirectDestination = Data.RedirectDestination;
-		std::error_code FileEc;
-		Item.FileSize = std::filesystem::file_size(Data.PhysicalPath, FileEc);
-		Item.LastWriteTime = Data.LastWriteTime;
-		::Durin::Editor::DThumbnailManager& ThumbnailManager =
-			::Durin::Editor::GetDefaultThumbnailManager();
-		if (ThumbnailManager.Find(Data.AssetClassName))
+		for (const Asset::FTopLevelAssetData& AssetData : Data.TopLevelAssets)
 		{
-			Item.ThumbnailIdentity = Item.VirtualPath;
-			Item.ThumbnailFileSize = Data.FileSize;
-			Item.ThumbnailPackageFormatVersion = Data.FormatVersion;
-			Item.ThumbnailLastWriteTimeTicks = Data.LastWriteTimeTicks;
+			FContentBrowserItem Item{
+				AssetData.IsRedirector()
+					? EContentBrowserItemKind::Redirector
+					: EContentBrowserItemKind::Asset,
+				std::string(AssetData.AssetPath.GetAssetName()),
+				AssetData.AssetPath.ToString(),
+				Path,
+				NormalizePath(Data.PhysicalPath),
+				AssetData.AssetClassName,
+				".dasset"};
+			Item.RedirectDestination = AssetData.RedirectDestination;
+			std::error_code FileEc;
+			Item.FileSize = std::filesystem::file_size(Data.PhysicalPath, FileEc);
+			Item.LastWriteTime = Data.LastWriteTime;
+			::Durin::Editor::DThumbnailManager& ThumbnailManager =
+				::Durin::Editor::GetDefaultThumbnailManager();
+			if (ThumbnailManager.Find(AssetData.AssetClassName))
+			{
+				Item.ThumbnailIdentity = Item.VirtualPath;
+				Item.ThumbnailFileSize = Data.FileSize;
+				Item.ThumbnailPackageFormatVersion = Data.FormatVersion;
+				Item.ThumbnailLastWriteTimeTicks = Data.LastWriteTimeTicks;
+			}
+			ItemsSnapshot.push_back(std::move(Item));
 		}
-		ItemsSnapshot.push_back(std::move(Item));
 	}
 
 	auto FContentBrowserModel::MatchesTypeFilter(

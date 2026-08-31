@@ -178,7 +178,7 @@ TEST(FStaticMeshMaterialSlotDetailsTests, CustomizationHidesCollectionsAndTransa
 	Durin::FPackagePath Path;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSlotDetails/DirtyComponent", Path));
 	Durin::DStaticMeshComponent* Component = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Component));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Path, Component));
 	auto* Mesh = Durin::DStaticMesh::CreateDebugTriangle();
 	auto* Material = Durin::NewObject<Durin::DMaterial>(nullptr, "DirtySlotMaterial");
 	Component->SetStaticMesh(Mesh);

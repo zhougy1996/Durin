@@ -29,8 +29,16 @@
 
 #include <gtest/gtest.h>
 
+#include "NativeDObjectTestSupport.h"
+
 namespace
 {
+	auto MakeAssetPath(const Durin::FPackagePath& PackagePath)
+		-> Durin::FTopLevelAssetPath
+	{
+		return Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(PackagePath);
+	}
+
 	auto RegisterStaticMeshThumbnailRenderer()
 		-> Durin::Editor::FThumbnailRendererRegistrationHandle
 	{
@@ -45,7 +53,8 @@ namespace
 		-> Durin::Editor::FAssetThumbnailPackageFingerprint
 	{
 		return {
-			.VirtualPath = Data.PackagePath,
+			.AssetPath = MakeAssetPath(Data.PackagePath),
+			.PackagePath = Data.PackagePath,
 			.AssetClassName = Data.AssetClassName,
 			.PackageFormatVersion = Data.FormatVersion,
 			.FileSize = static_cast<uint64>(Data.FileSize),
@@ -89,7 +98,7 @@ namespace
 		return std::ranges::any_of(
 			Request.KeyInput.Dependencies,
 			[Path](const Durin::Editor::FAssetThumbnailPackageFingerprint& Dependency) {
-				return Dependency.VirtualPath.GetView() == Path;
+				return Dependency.PackagePath.GetView() == Path;
 			});
 	}
 
@@ -156,7 +165,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 	ASSERT_NE(Data, nullptr);
 	Durin::DStaticMesh* Mesh = nullptr;
 	const Durin::Asset::FAssetResult LoadResult =
-		Durin::Asset::LoadAsset(SplineBoxPath, Mesh);
+		Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(SplineBoxPath), Mesh);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	ASSERT_NE(Mesh, nullptr);
 	ASSERT_TRUE(Mesh->GetLOD0LocalBounds().has_value());
@@ -216,7 +225,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		FirstRequest.KeyInput.Dependencies,
 		{},
 		[](const Durin::Editor::FAssetThumbnailPackageFingerprint& Dependency) {
-			return Dependency.VirtualPath.GetView();
+			return Dependency.PackagePath.GetView();
 		}));
 	EXPECT_TRUE(ContainsDependency(
 		FirstRequest,
@@ -227,7 +236,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 	const auto Input = std::dynamic_pointer_cast<
 		const Durin::Editor::StaticMesh::FStaticMeshThumbnailRendererGenerationInput>(FirstRequest.Input);
 	ASSERT_NE(Input, nullptr);
-	EXPECT_EQ(Input->AssetPath, StaticMeshPath);
+	EXPECT_EQ(Input->AssetPath, MakeAssetPath(StaticMeshPath));
 	EXPECT_EQ(Input->VisualContract.Output, FirstRequest.KeyInput.Output);
 	EXPECT_FALSE(Input->VisualContract.bOutputOpaque);
 	EXPECT_EQ(Input->VisualContract.CameraDirectionX, 2.4f);
@@ -265,7 +274,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/ThumbnailFixtures/Meshes/SM_Missing", MissingPath));
 	Durin::Editor::FAssetThumbnailPackageFingerprint Missing = {
-		.VirtualPath = MissingPath,
+		.AssetPath = MakeAssetPath(MissingPath),
+		.PackagePath = MissingPath,
 		.AssetClassName = Durin::DStaticMesh::StaticClass()
 			->GetQualifiedName().ToString(),
 		.PackageFormatVersion = 1,
@@ -354,10 +364,10 @@ TEST(FStaticMeshThumbnailRendererTests,
 	Cache.Request(
 		MakeFingerprint(*Data), Durin::Editor::EAssetThumbnailPriority::Visible);
 	EXPECT_EQ(
-		Cache.Find(StaticMeshPath).State,
+		Cache.Find(MakeAssetPath(StaticMeshPath)).State,
 		Durin::Editor::EAssetThumbnailState::Queued);
 	Cache.EndFrame();
-	const Durin::Editor::FAssetThumbnailView Routed = Cache.Find(StaticMeshPath);
+	const Durin::Editor::FAssetThumbnailView Routed = Cache.Find(MakeAssetPath(StaticMeshPath));
 	EXPECT_EQ(Routed.State, Durin::Editor::EAssetThumbnailState::Failed);
 	EXPECT_NE(Routed.Diagnostic.find("unavailable"), std::string::npos);
 
@@ -366,13 +376,14 @@ TEST(FStaticMeshThumbnailRendererTests,
 		"/ThumbnailFixtures/Unsupported/A_Unsupported",
 		UnsupportedPath));
 	Cache.Request({
-		.VirtualPath = UnsupportedPath,
+		.AssetPath = MakeAssetPath(UnsupportedPath),
+		.PackagePath = UnsupportedPath,
 		.AssetClassName = "DUnsupportedThumbnailAsset",
 		.PackageFormatVersion = 1,
 		.FileSize = 1,
 		.LastWriteTimeTicks = 1}, Durin::Editor::EAssetThumbnailPriority::Visible);
 	EXPECT_EQ(
-		Cache.Find(UnsupportedPath).State,
+		Cache.Find(MakeAssetPath(UnsupportedPath)).State,
 		Durin::Editor::EAssetThumbnailState::NotRequested);
 	Cache.CancelPendingRequests();
 }
@@ -432,7 +443,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Durin::FlushRenderingCommands();
 		Cache.BeginFrame();
 		EXPECT_EQ(
-			Cache.Find(StaticMeshPath).State,
+			Cache.Find(MakeAssetPath(StaticMeshPath)).State,
 			Durin::Editor::EAssetThumbnailState::NotRequested);
 		EXPECT_EQ(Cache.GetStats().UploadsCompleted, 0u);
 		EXPECT_EQ(Cache.GetStats().LiveGpuTextures, 0u);
@@ -480,7 +491,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Cache.BeginFrame();
 		Cache.Request(Fingerprint, Durin::Editor::EAssetThumbnailPriority::Visible);
 		Cache.EndFrame();
-		EXPECT_EQ(Cache.Find(StaticMeshPath).State, Durin::Editor::EAssetThumbnailState::Queued);
+		EXPECT_EQ(Cache.Find(MakeAssetPath(StaticMeshPath)).State, Durin::Editor::EAssetThumbnailState::Queued);
 		EXPECT_EQ(Cache.GetStats().Generation.DiskHits, 1u);
 		EXPECT_EQ(Cache.GetStats().Generation.Retries, 1u);
 		EXPECT_EQ(Cache.GetStats().Generation.Loads, 0u);
@@ -630,7 +641,7 @@ TEST(FStaticMeshThumbnailRendererTests,
 			Durin::Asset::FindAssetExact(AssetPath);
 		ASSERT_NE(Data, nullptr);
 		Cache.Request(MakeFingerprint(*Data), Durin::Editor::EAssetThumbnailPriority::Visible);
-		EXPECT_EQ(Cache.Find(AssetPath).State, Durin::Editor::EAssetThumbnailState::Queued);
+		EXPECT_EQ(Cache.Find(MakeAssetPath(AssetPath)).State, Durin::Editor::EAssetThumbnailState::Queued);
 	}
 
 	// MainFrame shutdown removes concrete modules in reverse composition order.

@@ -1,4 +1,5 @@
 #include "Misc/MountPathTestSupport.h"
+#include "NativeDObjectTestSupport.h"
 #include "MaterialTestSupport.h"
 #include "Editor/EditorTransactionTestSupport.h"
 #include "Texture/TextureFactoryTestSupport.h"
@@ -161,7 +162,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotDefinitionsRoundTripWithDef
 	EXPECT_EQ(Import.Asset->GetMaterialIndex(Durin::FName("Body")), 0u);
 
 	Durin::DMaterial* DefaultMaterial = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(MaterialPath, DefaultMaterial));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(MaterialPath, DefaultMaterial));
 	ASSERT_TRUE(Durin::Asset::SavePackage(DefaultMaterial->GetPackage()));
 	auto* SlotsProperty = static_cast<Durin::FArrayProperty*>(Import.Asset->GetClass()->FindPropertyByName("MaterialSlots"));
 	ASSERT_NE(SlotsProperty, nullptr);
@@ -174,7 +175,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotDefinitionsRoundTripWithDef
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MaterialPath));
 
 	Durin::DStaticMesh* Loaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(MeshPath, Loaded));
+	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), Loaded));
 	ASSERT_NE(Loaded, nullptr);
 	ASSERT_EQ(Loaded->GetNumMaterialSlots(), 2u);
 	EXPECT_EQ(Loaded->GetMaterialSlot(0)->Name, Durin::FName("Body"));
@@ -244,7 +245,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/StaticMeshSlotReimport/PreservedSlotDefault", PreservedDefaultPath));
 	Durin::DMaterial* PreservedDefault = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(PreservedDefaultPath, PreservedDefault));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(PreservedDefaultPath, PreservedDefault));
 	ASSERT_TRUE(Durin::Asset::SavePackage(PreservedDefault->GetPackage()));
 	ASSERT_TRUE(Renamed->SetImportedDefaultMaterial(0, PreservedDefault, RenameError)) << RenameError;
 	ASSERT_TRUE(Renamed->RenameMaterialSlot(0, Durin::FName("Body"), RenameError)) << RenameError;
@@ -316,13 +317,13 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 		RedSlot - Import.Asset->GetMaterialSlots().data());
 
 	Durin::DMaterial* Material = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(MaterialPath, Material));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(MaterialPath, Material));
 	ASSERT_TRUE(SetExpandedProgram(*Material));
 	Material->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.85, 0.15, 0.1));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Material->GetPackage()));
 	(void)Durin::FAssetCompilingManager::Get().FinishAllCompilation();
 	Durin::DStaticMeshComponent* Component = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(ComponentPath, Component));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(ComponentPath, Component));
 	Component->SetStaticMesh(Import.Asset);
 	Durin::Editor::Level::FStaticMeshMaterialSlotDetailsModel Model(Component);
 	const auto RedEntry = std::ranges::find(
@@ -346,7 +347,7 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	ASSERT_TRUE(MaterialUnload) << MaterialUnload.Message;
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
 	Component = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(ComponentPath, Component));
+	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath), Component));
 	ASSERT_NE(Component, nullptr);
 	ASSERT_NE(Component->GetStaticMesh(), nullptr);
 	(void)Durin::FAssetCompilingManager::Get().FinishAllCompilation();
@@ -429,7 +430,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshImportSettingsPersistAcrossSourceRebuil
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 
 	Durin::DStaticMesh* Loaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
+	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
 	ASSERT_NE(Loaded, nullptr);
 	const auto* LoadedImportData = dynamic_cast<const Durin::AssetForge::Builtins::DStaticMeshImportData*>(
 		Loaded->GetAssetImportData());
@@ -471,13 +472,13 @@ TEST(FStaticMeshMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDep
 	ASSERT_TRUE(MeshImport) << MeshImport.Message;
 	Durin::DMaterial* First = nullptr;
 	Durin::DMaterial* Second = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(FirstMaterialPath, First));
-	ASSERT_TRUE(Durin::Asset::CreateAsset(SecondMaterialPath, Second));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(FirstMaterialPath, First));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(SecondMaterialPath, Second));
 	ASSERT_TRUE(Durin::Asset::SavePackage(First->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Second->GetPackage()));
 
 	Durin::DStaticMeshComponent* Component = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(ComponentPath, Component));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(ComponentPath, Component));
 	Component->SetStaticMesh(MeshImport.Asset);
 	Component->SetMaterial(0, First);
 	Component->SetMaterial(1, Second);
@@ -504,7 +505,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDep
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(MeshPath));
 
 	Durin::DStaticMeshComponent* Loaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(ComponentPath, Loaded));
+	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ComponentPath), Loaded));
 	ASSERT_NE(Loaded, nullptr);
 	ASSERT_NE(Loaded->GetStaticMesh(), nullptr);
 	ASSERT_NE(Loaded->GetStaticMesh()->GetRenderData(), nullptr);
@@ -542,7 +543,7 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	ASSERT_NE(TextureImport.Asset, nullptr);
 
 	Durin::DMaterial* Base = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(BasePath, Base));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(BasePath, Base));
 	ASSERT_TRUE(SetExpandedProgram(*Base));
 	Base->SetVectorParameterValue(Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.2, 0.4, 0.6));
 	Base->SetVectorParameterValue(Durin::MaterialParameters::NormalName(), Durin::FVector3(0.0, 1.0, 1.0));
@@ -557,7 +558,7 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	ASSERT_TRUE(Durin::Asset::SavePackage(Base->GetPackage()));
 
 	Durin::DMaterialInstance* Instance = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(InstancePath, Instance));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(InstancePath, Instance));
 	ASSERT_TRUE(Instance->SetParent(Base));
 	Instance->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.35f);
 	Instance->SetScalarParameterValue(Durin::MaterialParameters::MetallicName(), 0.8f);
@@ -582,7 +583,7 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(TexturePath));
 
 	Durin::DMaterialInstance* Loaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(InstancePath, Loaded));
+	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(InstancePath), Loaded));
 	ASSERT_NE(Loaded->GetParent(), nullptr);
 	Durin::DTexture2D* LoadedTexture = nullptr;
 	ASSERT_TRUE(Loaded->GetTextureParameterValue(
@@ -626,7 +627,7 @@ TEST(FMaterialProgramPackageTests,
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/MaterialProgramTests/Base", Path));
 	Durin::DMaterial* Material = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Material));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Path, Material));
 	Durin::FMaterialProgram Authored =
 		Durin::MakeCanonicalMaterialProgram();
 	std::ranges::reverse(Authored.Nodes);
@@ -659,7 +660,7 @@ TEST(FMaterialProgramPackageTests,
 
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 	Durin::DMaterial* Loaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded));
+	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
 	ASSERT_NE(Loaded, nullptr);
 	ASSERT_NE(Loaded->GetMaterialProgram(), nullptr);
 	EXPECT_EQ(*Loaded->GetMaterialProgram(), Authored);
@@ -671,7 +672,7 @@ TEST(FMaterialProgramPackageTests,
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 
 	Durin::DMaterial* MalformedLoaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, MalformedLoaded));
+	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), MalformedLoaded));
 	auto* ProgramProperty = MalformedLoaded->GetClass()->FindPropertyByName(
 		"Program");
 	ASSERT_NE(ProgramProperty, nullptr);
@@ -685,7 +686,7 @@ TEST(FMaterialProgramPackageTests,
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 	Durin::DMaterial* Rejected = nullptr;
 	const Durin::Asset::FAssetResult RejectedResult =
-		Durin::Asset::LoadAsset(Path, Rejected);
+		Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Rejected);
 	EXPECT_FALSE(RejectedResult);
 	EXPECT_EQ(Rejected, nullptr);
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), nullptr);
@@ -706,14 +707,14 @@ TEST(FStaticMeshMaterialTests, LegacyParameterMapsFailBeforeResidency)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/LegacyMaterialTests/Instance", InstancePath));
 
 	Durin::DMaterial* Base = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(BasePath, Base));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(BasePath, Base));
 	ASSERT_TRUE(SetExpandedProgram(*Base));
 	ASSERT_TRUE(Base->SetVectorParameterValue(
 		Durin::MaterialParameters::BaseColorName(), Durin::FVector3(0.1, 0.2, 0.3)));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Base->GetPackage()));
 
 	Durin::DMaterialInstance* Instance = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(InstancePath, Instance));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(InstancePath, Instance));
 	ASSERT_TRUE(Instance->SetParent(Base));
 	ASSERT_TRUE(Instance->SetScalarParameterValue(Durin::MaterialParameters::OpacityName(), 0.25f));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Instance->GetPackage()));
@@ -734,7 +735,7 @@ TEST(FStaticMeshMaterialTests, LegacyParameterMapsFailBeforeResidency)
 
 	Durin::DMaterialInstance* LoadedInstance = nullptr;
 	const Durin::Asset::FAssetResult Load =
-		Durin::Asset::LoadAsset(InstancePath, LoadedInstance);
+		Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(InstancePath), LoadedInstance);
 	EXPECT_EQ(Load.Error, Durin::Asset::EAssetError::UnsupportedProperty);
 	EXPECT_EQ(LoadedInstance, nullptr);
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(InstancePath), nullptr);

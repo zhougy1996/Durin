@@ -1,4 +1,5 @@
 #include "Misc/MountPathTestSupport.h"
+#include "NativeDObjectTestSupport.h"
 #include "MaterialTestSupport.h"
 #include "Asset/AssetOperations.h"
 #include "Asset/Mutation.h"
@@ -275,7 +276,7 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::DefaultMaterialPackagePath, Path));
 	Durin::DMaterial* Source = nullptr;
-	Durin::Asset::FAssetResult Result = Durin::Asset::LoadAsset(Path, Source);
+	Durin::Asset::FAssetResult Result = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Source);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Source, nullptr);
 	const Durin::FMaterialProgramIdentity ExpectedIdentity =
@@ -321,7 +322,7 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	Durin::DMaterial* Cooked = nullptr;
-	Result = Durin::Asset::LoadAsset(Path, Cooked);
+	Result = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Cooked);
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Cooked, nullptr);
 	ASSERT_TRUE(Cooked->GetAcceptedCompiledProgram());

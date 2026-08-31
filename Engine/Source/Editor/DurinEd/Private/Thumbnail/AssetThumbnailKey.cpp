@@ -9,7 +9,8 @@ namespace Durin::Editor
 	{
 		auto WritePackageFingerprint(FBinaryWriter& Writer, const FAssetThumbnailPackageFingerprint& Package) -> void
 		{
-			Writer.WriteString(Package.VirtualPath.GetView());
+			Writer.WriteString(Package.AssetPath.ToString());
+			Writer.WriteString(Package.PackagePath.GetView());
 			Writer.WriteString(Package.AssetClassName);
 			Writer.WriteU32(Package.PackageFormatVersion);
 			Writer.WriteU64(Package.FileSize);
@@ -34,16 +35,16 @@ namespace Durin::Editor
 		Nodes.reserve(RegistrySnapshot.size());
 		for (const FAssetThumbnailDependencyNode& Node : RegistrySnapshot)
 		{
-			if (!Node.Package.VirtualPath.IsValid())
+			if (!Node.Package.PackagePath.IsValid())
 			{
 				OutError = "The Asset Registry snapshot contains an invalid package path.";
 				return false;
 			}
-			const auto [It, bInserted] = Nodes.emplace(Node.Package.VirtualPath.GetView(), &Node);
+			const auto [It, bInserted] = Nodes.emplace(Node.Package.PackagePath.GetView(), &Node);
 			if (!bInserted)
 			{
 				OutError = std::format("The Asset Registry snapshot contains a duplicate entry for '{}'.",
-					Node.Package.VirtualPath.GetView());
+					Node.Package.PackagePath.GetView());
 				return false;
 			}
 		}
@@ -85,7 +86,7 @@ namespace Durin::Editor
 		}
 
 		std::ranges::sort(OutDependencies, {}, [](const FAssetThumbnailPackageFingerprint& Package) {
-			return Package.VirtualPath.GetView();
+			return Package.PackagePath.GetView();
 		});
 		return true;
 	}
@@ -94,7 +95,7 @@ namespace Durin::Editor
 	{
 		FBinaryWriter Writer;
 		Writer.WriteString("DurinAssetThumbnailKey");
-		Writer.WriteU32(1);
+		Writer.WriteU32(2);
 		WritePackageFingerprint(Writer, Input.Asset);
 		Writer.WriteString(Input.RendererName);
 		Writer.WriteU32(Input.GeneratorSchemaVersion);
@@ -108,7 +109,7 @@ namespace Durin::Editor
 
 		std::vector<FAssetThumbnailPackageFingerprint> Dependencies = Input.Dependencies;
 		std::ranges::sort(Dependencies, {}, [](const FAssetThumbnailPackageFingerprint& Package) {
-			return Package.VirtualPath.GetView();
+			return Package.PackagePath.GetView();
 		});
 		Writer.WriteU64(static_cast<uint64>(Dependencies.size()));
 		for (const FAssetThumbnailPackageFingerprint& Dependency : Dependencies)

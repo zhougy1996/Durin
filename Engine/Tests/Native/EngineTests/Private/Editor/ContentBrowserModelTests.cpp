@@ -22,6 +22,8 @@
 
 #include <gtest/gtest.h>
 
+#include "NativeDObjectTestSupport.h"
+
 namespace
 {
 	using namespace Durin;
@@ -151,8 +153,10 @@ TEST_F(FContentBrowserModelTests, RepeatedNavigationToCurrentDirectoryKeepsPubli
 			.generic_string();
 	ASSERT_TRUE(Model.NavigateToPhysical(Directory));
 	Model.SetSnapshotForTesting(Directory, {
-		{EContentBrowserItemKind::File,
-			"Stable.txt", {}, Directory + "/Stable.txt", {}, ".txt"},
+		{.Kind = EContentBrowserItemKind::File,
+			.Name = "Stable.txt",
+			.PhysicalPath = Directory + "/Stable.txt",
+			.Extension = ".txt"},
 	});
 
 	ASSERT_TRUE(Model.NavigateToPhysical(Directory));
@@ -228,10 +232,13 @@ TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToThumbnails)
 	const auto It = std::ranges::find_if(
 		Model.GetItems(),
 		[&](const FContentBrowserItem& Item) {
-			return Item.VirtualPath == AssetPath.ToString();
+			return Item.PackagePath == AssetPath;
 		});
 	ASSERT_NE(It, Model.GetItems().end());
-	EXPECT_EQ(It->ThumbnailIdentity, AssetPath.ToString());
+	const std::string ExactAssetPath =
+		Testing::MakePackageLeafTopLevelAssetPathForTests(AssetPath).ToString();
+	EXPECT_EQ(It->VirtualPath, ExactAssetPath);
+	EXPECT_EQ(It->ThumbnailIdentity, ExactAssetPath);
 	EXPECT_TRUE(It->ThumbnailSourcePath.empty());
 	EXPECT_EQ(It->ThumbnailFileSize, AssetData->FileSize);
 	EXPECT_EQ(It->ThumbnailPackageFormatVersion, AssetData->FormatVersion);
@@ -340,7 +347,7 @@ TEST_F(FContentBrowserModelTests, RelocationUsesOneSharedUndoRedoTransaction)
 		"/ContentBrowserTests/Folder/TransactionalDestination",
 		DestinationPath));
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreateAsset(SourcePath, Material));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(SourcePath, Material));
 	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
 
 	const FAssetRelocation Mapping{
@@ -394,7 +401,7 @@ TEST_F(FContentBrowserModelTests, RevealAssetClearsFiltersAndPublishesTarget)
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/A/RevealTarget", AssetPath));
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreateAsset(AssetPath, Material));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(AssetPath, Material));
 	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
 
 	FContentBrowserModel Model;
@@ -403,7 +410,8 @@ TEST_F(FContentBrowserModelTests, RevealAssetClearsFiltersAndPublishesTarget)
 	Model.SetSearch("does-not-match");
 	ASSERT_TRUE(Model.GetItems().empty());
 
-	const std::string Revealed = Model.RevealAsset(AssetPath.ToString());
+	const std::string Revealed = Model.RevealAsset(
+		Testing::MakePackageLeafTopLevelAssetPathForTests(AssetPath).ToString());
 
 	EXPECT_FALSE(Revealed.empty());
 	EXPECT_TRUE(Model.GetSearch().empty());
@@ -718,9 +726,12 @@ TEST_F(FContentBrowserModelTests, HidesRedirectorsButPreservesFoldersAndSupports
 {
 	const std::string RootPath =
 		std::filesystem::absolute(Root / "Content").lexically_normal().generic_string();
-	FPackagePath Destination;
+	FObjectPath Destination;
+	ASSERT_TRUE(FObjectPath::TryCreate(
+		"/ContentBrowserTests/Final/Stone.Stone", Destination));
+	FPackagePath RedirectorPackagePath;
 	ASSERT_TRUE(FPackagePath::TryCreate(
-		"/ContentBrowserTests/Final/Stone", Destination));
+		"/ContentBrowserTests/OldStone", RedirectorPackagePath));
 	FContentBrowserModel Model;
 	Model.SetSnapshotForTesting(
 		RootPath,
@@ -731,7 +742,8 @@ TEST_F(FContentBrowserModelTests, HidesRedirectorsButPreservesFoldersAndSupports
 				.PhysicalPath = RootPath + "/Aliases"},
 			{.Kind = EContentBrowserItemKind::Redirector,
 				.Name = "OldStone",
-				.VirtualPath = "/ContentBrowserTests/OldStone",
+				.VirtualPath = "/ContentBrowserTests/OldStone.OldStone",
+				.PackagePath = RedirectorPackagePath,
 				.PhysicalPath = RootPath + "/OldStone.dasset",
 				.AssetClassName = "Durin::Asset::DAssetRedirector",
 				.RedirectDestination = Destination},
@@ -847,7 +859,7 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/A/Original", PastedPath));
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreateAsset(SourcePath, Material));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(SourcePath, Material));
 	FMaterialStaticProperties Properties = Material->GetStaticProperties();
 	Properties.bTwoSided = true;
 	ASSERT_TRUE(Material->SetStaticProperties(Properties));
@@ -867,7 +879,8 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 	const FContentBrowserItem Item{
 		.Kind = EContentBrowserItemKind::Asset,
 		.Name = "Original",
-		.VirtualPath = SourcePath.ToString(),
+		.VirtualPath = Testing::MakePackageLeafTopLevelAssetPathForTests(SourcePath).ToString(),
+		.PackagePath = SourcePath,
 		.PhysicalPath = (Root / "Content/Original.dasset").generic_string(),
 		.AssetClassName = DMaterial::StaticClass()
 			->GetQualifiedName().ToString()};
@@ -875,23 +888,26 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 	const FContentBrowserOperationResult Result = Operations.Duplicate(Item);
 
 	ASSERT_TRUE(Result) << Result.Status.Message;
-	EXPECT_EQ(Result.RevealAssetPath, DuplicatePath.ToString());
+	EXPECT_EQ(Result.RevealAssetPath,
+		Testing::MakePackageLeafTopLevelAssetPathForTests(DuplicatePath).ToString());
 	EXPECT_EQ(Result.FocusPhysicalPath,
 		std::filesystem::absolute(Root / "Content/Original_Copy2.dasset")
 			.lexically_normal().generic_string());
 	DMaterial* Duplicate = nullptr;
-	ASSERT_TRUE(Asset::LoadAsset(DuplicatePath, Duplicate));
+	ASSERT_TRUE(Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(DuplicatePath), Duplicate));
 	ASSERT_NE(Duplicate, nullptr);
 	EXPECT_NE(Duplicate, Material);
 	EXPECT_EQ(Duplicate->GetStaticProperties(), Properties);
 	EXPECT_FALSE(Duplicate->GetPackage()->IsDirty());
 	EXPECT_TRUE(std::filesystem::exists(Result.FocusPhysicalPath));
 	const FContentBrowserOperationResult PastedResult = Operations.Duplicate(
-		SourcePath, "/ContentBrowserTests/A/");
+		Testing::MakePackageLeafTopLevelAssetPathForTests(SourcePath),
+		"/ContentBrowserTests/A/");
 	ASSERT_TRUE(PastedResult) << PastedResult.Status.Message;
-	EXPECT_EQ(PastedResult.RevealAssetPath, PastedPath.ToString());
+	EXPECT_EQ(PastedResult.RevealAssetPath,
+		Testing::MakePackageLeafTopLevelAssetPathForTests(PastedPath).ToString());
 	DMaterial* Pasted = nullptr;
-	ASSERT_TRUE(Asset::LoadAsset(PastedPath, Pasted));
+	ASSERT_TRUE(Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(PastedPath), Pasted));
 	ASSERT_NE(Pasted, nullptr);
 	EXPECT_EQ(Pasted->GetStaticProperties(), Properties);
 	ASSERT_TRUE(Asset::DeleteAssetForTesting(PastedPath));
@@ -906,7 +922,7 @@ TEST_F(FContentBrowserModelTests, UnclaimedSameStemFileRenamesIndependently)
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/Independent", AssetPath));
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreateAsset(AssetPath, Material));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(AssetPath, Material));
 	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
 	const std::filesystem::path FilePath = Root / "Content/Independent.txt";
 	{
@@ -946,7 +962,7 @@ TEST_F(FContentBrowserModelTests, OwnedCompanionIsProtectedAndCommittedFolderMov
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/OwnedFolder/Owned", AssetPath));
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreateAsset(AssetPath, Material));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(AssetPath, Material));
 	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
 	const std::filesystem::path Companion = Folder / "Owned.meta";
 	{
@@ -1022,7 +1038,7 @@ TEST_F(FContentBrowserModelTests, FolderRenameSucceedsWithWarningAfterInjectedCl
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/CleanupDestination/Asset", DestinationPath));
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreateAsset(SourcePath, Material));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(SourcePath, Material));
 	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
 
 	Asset::FAssetMutationTransaction MoveTransaction;
@@ -1179,7 +1195,12 @@ TEST_F(FContentBrowserModelTests, OperationsPropagateMoveFailureAndUseRecursiveD
 	const FContentBrowserItem AssetItem{
 		.Kind = EContentBrowserItemKind::Asset,
 		.Name = "Old",
-		.VirtualPath = "/ContentBrowserTests/Old",
+		.VirtualPath = "/ContentBrowserTests/Old.Old",
+		.PackagePath = [] {
+			FPackagePath Path;
+			FPackagePath::TryCreate("/ContentBrowserTests/Old", Path);
+			return Path;
+		}(),
 		.PhysicalPath = (Root / "Content/Old.dasset").generic_string()};
 	const FContentBrowserOperationResult MoveResult =
 		Operations.Rename(AssetItem, "New");
@@ -1407,9 +1428,9 @@ TEST_F(FContentBrowserModelTests, BatchAnalysisExcludesInternalReferences)
 	DMaterial* Base = nullptr;
 	DMaterialInstance* Internal = nullptr;
 	DMaterialInstance* External = nullptr;
-	ASSERT_TRUE(Asset::CreateAsset(BasePath, Base));
-	ASSERT_TRUE(Asset::CreateAsset(InternalPath, Internal));
-	ASSERT_TRUE(Asset::CreateAsset(ExternalPath, External));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(BasePath, Base));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(InternalPath, Internal));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(ExternalPath, External));
 	ASSERT_TRUE(Internal->SetParent(Base));
 	ASSERT_TRUE(External->SetParent(Base));
 	ASSERT_TRUE(Asset::SavePackage(Base->GetPackage()));
@@ -1478,8 +1499,8 @@ TEST_F(FContentBrowserModelTests, BatchAnalysisBlocksAmbiguousCompanionOwnership
 		"/ContentBrowserTests/CompanionSecond", SecondPath));
 	DMaterial* First = nullptr;
 	DMaterial* Second = nullptr;
-	ASSERT_TRUE(Asset::CreateAsset(FirstPath, First));
-	ASSERT_TRUE(Asset::CreateAsset(SecondPath, Second));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(FirstPath, First));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(SecondPath, Second));
 	ASSERT_TRUE(Asset::SavePackage(First->GetPackage()));
 	ASSERT_TRUE(Asset::SavePackage(Second->GetPackage()));
 	Asset::FAssetCompanionOwnership Ownership;
@@ -1518,7 +1539,7 @@ TEST_F(FContentBrowserModelTests, BatchRevalidationDetectsNewExternalReference)
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/RevalidateExternal", ExternalPath));
 	DMaterial* Base = nullptr;
-	ASSERT_TRUE(Asset::CreateAsset(BasePath, Base));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(BasePath, Base));
 	ASSERT_TRUE(Asset::SavePackage(Base->GetPackage()));
 
 	Asset::FAssetDeletionTransaction Transaction;
@@ -1528,7 +1549,7 @@ TEST_F(FContentBrowserModelTests, BatchRevalidationDetectsNewExternalReference)
 	ASSERT_TRUE(Blockers.empty());
 
 	DMaterialInstance* External = nullptr;
-	ASSERT_TRUE(Asset::CreateAsset(ExternalPath, External));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(ExternalPath, External));
 	ASSERT_TRUE(External->SetParent(Base));
 	ASSERT_TRUE(Asset::SavePackage(External->GetPackage()));
 	const Asset::FAssetResult Commit = Transaction.Commit({
@@ -1641,7 +1662,7 @@ TEST_F(FContentBrowserModelTests, RejectsExternalCompanionOutsideContentMount)
 	ASSERT_NE(Contributor, 0);
 	FContributorReset Reset{Contributor};
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreateAsset(AssetPath, Material));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(AssetPath, Material));
 	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
 
 	FContentBrowserModel Model;
@@ -1717,7 +1738,7 @@ TEST_F(FContentBrowserModelTests, RejectsExternalCompanionReparsePoint)
 	ASSERT_NE(Contributor, 0);
 	FContributorReset Reset{Contributor};
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreateAsset(AssetPath, Material));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(AssetPath, Material));
 	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
 
 	FContentBrowserModel Model;
@@ -1782,7 +1803,7 @@ TEST_F(FContentBrowserModelTests, MixedFolderAndExternalCompanionRoundTripAsOneT
 	ASSERT_NE(Contributor, 0);
 	FContributorReset Reset{Contributor};
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreateAsset(AssetPath, Material));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(AssetPath, Material));
 	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
 
 	FContentBrowserModel Model;
@@ -1829,7 +1850,7 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionPreservesRegistryWithoutRes
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/TransactionalMaterial", AssetPath));
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreateAsset(AssetPath, Material));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(AssetPath, Material));
 	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
 	const std::filesystem::path PackagePath =
 		Asset::FindAssetExact(AssetPath)->PhysicalPath;
@@ -1893,7 +1914,7 @@ TEST_F(FContentBrowserModelTests, RedirectorDeletionRequiresClosureAndUndoRestor
 	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/DeleteRedirectFinal", FinalPath));
 	DMaterial* Material = nullptr;
-	ASSERT_TRUE(Asset::CreateAsset(OldPath, Material));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(OldPath, Material));
 	ASSERT_TRUE(Asset::SavePackage(Material->GetPackage()));
 	const Asset::FAssetRelocationMapping Mapping{OldPath, FinalPath};
 	Asset::FAssetMutationSummary Summary;
@@ -1911,14 +1932,17 @@ TEST_F(FContentBrowserModelTests, RedirectorDeletionRequiresClosureAndUndoRestor
 	const FContentBrowserItem AliasItem{
 		.Kind = EContentBrowserItemKind::Redirector,
 		.Name = "DeleteRedirectOld",
-		.VirtualPath = OldPath.ToString(),
+		.VirtualPath = Testing::MakePackageLeafTopLevelAssetPathForTests(OldPath).ToString(),
+		.PackagePath = OldPath,
 		.PhysicalPath = AliasData->PhysicalPath,
 		.AssetClassName = AliasData->AssetClassName,
-		.RedirectDestination = AliasData->RedirectDestination};
+		.RedirectDestination = Testing::MakePackageLeafAssetObjectPathForTests(
+			AliasData->RedirectDestination)};
 	const FContentBrowserItem FinalItem{
 		.Kind = EContentBrowserItemKind::Asset,
 		.Name = "DeleteRedirectFinal",
-		.VirtualPath = FinalPath.ToString(),
+		.VirtualPath = Testing::MakePackageLeafTopLevelAssetPathForTests(FinalPath).ToString(),
+		.PackagePath = FinalPath,
 		.PhysicalPath = FinalData->PhysicalPath,
 		.AssetClassName = FinalData->AssetClassName};
 

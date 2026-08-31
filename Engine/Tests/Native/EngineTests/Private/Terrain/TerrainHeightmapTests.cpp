@@ -29,6 +29,8 @@
 
 #include <gtest/gtest.h>
 
+#include "NativeDObjectTestSupport.h"
+
 namespace
 {
 	struct FReimportResult
@@ -531,7 +533,7 @@ TEST(FTerrainHeightmapImportTests, RawImportReimportRelocationAndWarmDdcPreserve
 	std::error_code ErrorCode;
 	std::filesystem::remove(Source, ErrorCode);
 	Durin::DTerrainHeightmap* Reloaded = nullptr;
-	const Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadAsset(Path, Reloaded);
+	const Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Reloaded);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
 	EXPECT_TRUE(Reloaded->WasLoadedFromDerivedDataCache());
 	EXPECT_EQ(Reloaded->GetDerivedDataKey(), Key);
@@ -634,7 +636,7 @@ TEST(FTerrainHeightmapImportTests, AuthoredReloadUsesWarmDdcWithoutReopeningSour
 	std::error_code ErrorCode;
 	std::filesystem::remove(Source, ErrorCode);
 	Durin::DTerrainHeightmap* Reloaded = nullptr;
-	const Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadAsset(Path, Reloaded);
+	const Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Reloaded);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
 	ASSERT_NE(Reloaded, nullptr);
 	EXPECT_TRUE(Reloaded->WasLoadedFromDerivedDataCache());
@@ -648,7 +650,7 @@ TEST(FTerrainHeightmapImportTests, AuthoredReloadUsesWarmDdcWithoutReopeningSour
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(Corrupt)), CachePath));
 	Reloaded = nullptr;
-	const Durin::Asset::FAssetResult Rebuilt = Durin::Asset::LoadAsset(Path, Reloaded);
+	const Durin::Asset::FAssetResult Rebuilt = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Reloaded);
 	ASSERT_TRUE(Rebuilt) << Rebuilt.Message;
 	ASSERT_NE(Reloaded, nullptr);
 	EXPECT_FALSE(Reloaded->WasLoadedFromDerivedDataCache());
@@ -687,13 +689,13 @@ TEST(FTerrainHeightmapImportTests, AsyncLoadHandlesWarmDdcCorruptionRecoveryAndM
 	ASSERT_TRUE(Durin::InitializeTaskScheduler(2));
 	ASSERT_TRUE(Durin::InitializeGameThreadDeferredExecutor());
 	Durin::DTerrainHeightmap* Reloaded = nullptr;
-	Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadAsset(Path, Reloaded);
+	Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Reloaded);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
 	ASSERT_NE(Reloaded, nullptr);
 	EXPECT_EQ(Reloaded->GetStatus(), Durin::ETerrainHeightmapStatus::Ready);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 	Reloaded = nullptr;
-	Loaded = Durin::Asset::LoadAsset(Path, Reloaded);
+	Loaded = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Reloaded);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
 	ASSERT_NE(Reloaded, nullptr);
 	const Durin::Asset::FPackageResourceHandle WarmResource =
@@ -712,7 +714,7 @@ TEST(FTerrainHeightmapImportTests, AsyncLoadHandlesWarmDdcCorruptionRecoveryAndM
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(Corrupt)), CachePath));
 	Reloaded = nullptr;
-	Loaded = Durin::Asset::LoadAsset(Path, Reloaded);
+	Loaded = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Reloaded);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
 	ASSERT_TRUE(Durin::WaitForTerrainHeightmapDerivedDataLoad(*Reloaded, Error)) << Error;
 	EXPECT_FALSE(Reloaded->WasLoadedFromDerivedDataCache());
@@ -724,7 +726,7 @@ TEST(FTerrainHeightmapImportTests, AsyncLoadHandlesWarmDdcCorruptionRecoveryAndM
 	std::error_code ErrorCode;
 	std::filesystem::remove(Source, ErrorCode);
 	Reloaded = nullptr;
-	Loaded = Durin::Asset::LoadAsset(Path, Reloaded);
+	Loaded = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Reloaded);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
 	EXPECT_TRUE(Durin::WaitForTerrainHeightmapDerivedDataLoad(*Reloaded, Error)) << Error;
 	EXPECT_EQ(Reloaded->GetStatus(), Durin::ETerrainHeightmapStatus::Ready);

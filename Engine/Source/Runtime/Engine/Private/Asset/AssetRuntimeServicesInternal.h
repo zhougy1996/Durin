@@ -21,13 +21,13 @@ namespace Durin::Asset
 		}
 
 		auto CreateAsset(
-			const FPackagePath& Path,
+			const FTopLevelAssetPath& Path,
 			DClass* Class,
 			size_t Size,
 			DObject*& OutAsset) -> FAssetResult;
 		auto DuplicateAsset(
-			const FPackagePath& SourcePath,
-			const FPackagePath& DestinationPath,
+			const FTopLevelAssetPath& SourcePath,
+			const FTopLevelAssetPath& DestinationPath,
 			DObject*& OutAsset) -> FAssetResult;
 		auto CreateRedirector(
 			const FPackagePath& RedirectorPath,
@@ -41,15 +41,6 @@ namespace Durin::Asset
 			const FObjectPath& Path,
 			const DClass* ExpectedClass,
 			DObject*& OutObject,
-			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
-		auto LoadAsset(
-			const FPackagePath& Path,
-			DObject*& OutAsset,
-			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
-		auto LoadAsset(
-			const FPackagePath& Path,
-			const DClass* ExpectedClass,
-			DObject*& OutAsset,
 			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
 		auto ResolveSoftObject(
 			FSoftObjectPtr& Reference,
@@ -82,16 +73,10 @@ namespace Durin::Asset
 		}
 
 	private:
-		auto LoadAssetFromCatalog(
-			const FAssetData& Data,
-			const DClass* ExpectedClass,
-			DObject*& OutAsset,
-			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
-		auto LoadAssetFromPhysicalPath(
+		auto LoadPackageFromPhysicalPath(
 			const FPackagePath& Path,
 			std::string_view PhysicalPath,
-			const DClass* ExpectedClass,
-			DObject*& OutAsset,
+			DPackage*& OutPackage,
 			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
 		auto LoadPackageInternal(
 			const FPackagePath& Path,
@@ -175,10 +160,6 @@ namespace Durin::Asset
 		auto DeleteAssetForTesting(const FPackagePath& Path) -> FAssetResult;
 
 	private:
-		auto LoadAsset(const FPackagePath& Path, DObject*& OutAsset) -> FAssetResult
-		{
-			return Loader.LoadAsset(Path, OutAsset);
-		}
 		auto FindResidentPackage(const FPackagePath& Path) const -> DPackage*
 		{
 			return Loader.FindResidentPackage(Path);

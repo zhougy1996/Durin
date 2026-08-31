@@ -152,41 +152,48 @@ namespace Durin::AssetForge::Builtins
 		auto CreateCandidate(FPreparedSceneOutput& Output, std::string& OutError) -> bool
 		{
 			Asset::FAssetResult Created;
+			FTopLevelAssetPath AssetPath;
+			if (!FTopLevelAssetPath::TryCreate(
+				Output.AssetPath, Output.AssetPath.GetPackageName(), AssetPath))
+			{
+				OutError = "The scene output top-level asset path is invalid.";
+				return false;
+			}
 			const ESceneOutputKind Kind = Output.Descriptor->Kind;
 			if (Kind == ESceneOutputKind::StaticMesh)
 			{
 				DStaticMesh* Value = nullptr;
-				Created = Asset::CreateAsset(Output.AssetPath, Value);
+				Created = Asset::CreateAsset(AssetPath, Value);
 				Output.Candidate = Value;
 			}
 			else if (Kind == ESceneOutputKind::MaterialInstance)
 			{
 				DMaterialInstance* Value = nullptr;
-				Created = Asset::CreateAsset(Output.AssetPath, Value);
+				Created = Asset::CreateAsset(AssetPath, Value);
 				Output.Candidate = Value;
 			}
 			else if (Kind == ESceneOutputKind::Skeleton)
 			{
 				DSkeleton* Value = nullptr;
-				Created = Asset::CreateAsset(Output.AssetPath, Value);
+				Created = Asset::CreateAsset(AssetPath, Value);
 				Output.Candidate = Value;
 			}
 			else if (Kind == ESceneOutputKind::SkeletalMesh)
 			{
 				DSkeletalMesh* Value = nullptr;
-				Created = Asset::CreateAsset(Output.AssetPath, Value);
+				Created = Asset::CreateAsset(AssetPath, Value);
 				Output.Candidate = Value;
 			}
 			else if (Kind == ESceneOutputKind::AnimationClip)
 			{
 				DAnimationClip* Value = nullptr;
-				Created = Asset::CreateAsset(Output.AssetPath, Value);
+				Created = Asset::CreateAsset(AssetPath, Value);
 				Output.Candidate = Value;
 			}
 			else if (Kind == ESceneOutputKind::Texture2D)
 			{
 				DTexture2D* Value = nullptr;
-				Created = Asset::CreateAsset(Output.AssetPath, Value);
+				Created = Asset::CreateAsset(AssetPath, Value);
 				Output.Candidate = Value;
 			}
 			if (!Created || !Output.Candidate)
@@ -500,12 +507,13 @@ namespace Durin::AssetForge::Builtins
 			if (Descriptor.Kind == ESceneOutputKind::MaterialInstance)
 			{
 				DMaterial* Standard = nullptr;
-				FPackagePath StandardPath;
+				FObjectPath StandardPath;
 				const auto Imported = std::ranges::find(Data.Scene.Materials,
 					Descriptor.SourceIndex, &FImportedMaterial::SourceMaterialIndex);
 				if (Imported == Data.Scene.Materials.end()
-					|| !FPackagePath::TryCreate(ImportedSurfaceMaterialPath, StandardPath, &Error)
-					|| !Asset::LoadAsset(StandardPath, Standard) || !Standard)
+					|| !FObjectPath::TryCreate(
+						ImportedSurfaceMaterialObjectPath, StandardPath, &Error)
+					|| !Asset::LoadObject(StandardPath, Standard) || !Standard)
 				{
 					Abandon(Prepared);
 					return AddError(OutResult, EImportDiagnosticCategory::MissingDependency,

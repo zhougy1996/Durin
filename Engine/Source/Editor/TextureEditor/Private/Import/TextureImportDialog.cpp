@@ -447,6 +447,13 @@ namespace Durin::Editor::Texture
 			return false;
 		}
 		const FPackagePath& AssetPath = DestinationValidation.AssetPath;
+		FTopLevelAssetPath TopLevelAssetPath;
+		if (!FTopLevelAssetPath::TryCreate(
+			AssetPath, AssetPath.GetPackageName(), TopLevelAssetPath))
+		{
+			SetError("The texture top-level asset path is invalid.");
+			return false;
+		}
 		const std::string Path = AssetPath.ToString();
 		const FImportDialogCallbacks CompletionCallbacks = Callbacks;
 		if (State.GetAssetType() == ETextureImportAssetType::VolumeTexture)
@@ -464,7 +471,7 @@ namespace Durin::Editor::Texture
 				nullptr, "VolumeTextureDialogFactory", EObjectFlags::Transient);
 			Factory->SetImportSettings(Settings);
 			const FAssetToolsResult Result = IAssetTools::Get().ImportAsset(
-				AssetPath, DVolumeTexture::StaticClass(),
+				TopLevelAssetPath, DVolumeTexture::StaticClass(),
 				SourcePathBuffer.data(), Factory);
 			if (!Result)
 			{
@@ -494,7 +501,8 @@ namespace Durin::Editor::Texture
 			nullptr, "Texture2DDialogFactory", EObjectFlags::Transient);
 		Factory->SetImportSettings(Settings);
 		const FAssetToolsResult Result = IAssetTools::Get().ImportAsset(
-			AssetPath, DTexture2D::StaticClass(), SourcePathBuffer.data(), Factory);
+			TopLevelAssetPath, DTexture2D::StaticClass(),
+			SourcePathBuffer.data(), Factory);
 		if (!Result)
 		{
 			SetError(Result.Message.empty()

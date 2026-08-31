@@ -27,6 +27,8 @@
 
 #include <gtest/gtest.h>
 
+#include "NativeDObjectTestSupport.h"
+
 #include <future>
 
 namespace
@@ -419,7 +421,7 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoReconcileWithoutIdent
 	Durin::FPackagePath Path;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SplineMeshActorEditing/Transactions", Path));
 	Durin::DLevel* Level = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Level));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Path, Level));
 	auto* Actor = Level->SpawnActor<Durin::ASplineMeshActor>("SplineMeshActor");
 	ASSERT_NE(Actor, nullptr);
 	Actor->SetPathMesh(Durin::DStaticMesh::CreateDebugTriangle(Level));
@@ -485,7 +487,7 @@ TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)
 	Durin::FPackagePath Path;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SplineV2Tests/RoundTrip", Path));
 	Durin::DLevel* Level = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Level));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Path, Level));
 	Durin::AActor* Actor = Level->SpawnActor<Durin::AActor>("SplineActor");
 	auto* Spline = Durin::Cast<Durin::DSplineComponent>(Actor->AddInstanceComponent(Durin::DSplineComponent::StaticClass(), "Path"));
 	ASSERT_NE(Spline, nullptr);
@@ -504,7 +506,7 @@ TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 
 	Durin::DObject* LoadedObject = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, LoadedObject));
+	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), LoadedObject));
 	auto* LoadedLevel = Durin::Cast<Durin::DLevel>(LoadedObject);
 	ASSERT_NE(LoadedLevel, nullptr);
 	auto* LoadedSpline = LoadedLevel->FindActorByName("SplineActor")->FindComponentByClass<Durin::DSplineComponent>();

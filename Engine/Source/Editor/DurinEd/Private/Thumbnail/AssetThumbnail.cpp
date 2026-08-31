@@ -11,7 +11,7 @@ namespace Durin::Editor
 		, RequestedWidth(std::max(1u, InRequestedWidth))
 		, RequestedHeight(std::max(1u, InRequestedHeight))
 	{
-		Pool->AddReferencer(Asset.VirtualPath);
+		Pool->AddReferencer(Asset.AssetPath);
 	}
 
 	FAssetThumbnail::~FAssetThumbnail() { Release(); }
@@ -35,16 +35,16 @@ namespace Durin::Editor
 
 	auto FAssetThumbnail::Release() -> void
 	{
-		if (Pool) Pool->RemoveReferencer(Asset.VirtualPath);
+		if (Pool) Pool->RemoveReferencer(Asset.AssetPath);
 		Pool = nullptr;
 	}
 
 	auto FAssetThumbnail::Reassign(FAssetThumbnailPackageFingerprint InAsset) -> void
 	{
 		if (Asset == InAsset) return;
-		if (Pool) Pool->RemoveReferencer(Asset.VirtualPath);
+		if (Pool) Pool->RemoveReferencer(Asset.AssetPath);
 		Asset = std::move(InAsset);
-		if (Pool) Pool->AddReferencer(Asset.VirtualPath);
+		if (Pool) Pool->AddReferencer(Asset.AssetPath);
 	}
 
 	auto FAssetThumbnail::Request(EAssetThumbnailPriority Priority) -> void
@@ -54,11 +54,11 @@ namespace Durin::Editor
 
 	auto FAssetThumbnail::Refresh() -> void
 	{
-		if (Pool) Pool->Refresh(Asset.VirtualPath);
+		if (Pool) Pool->Refresh(Asset.AssetPath);
 	}
 
 	auto FAssetThumbnail::GetView() const -> FAssetThumbnailView
 	{
-		return Pool ? Pool->Find(Asset.VirtualPath) : FAssetThumbnailView{};
+		return Pool ? Pool->Find(Asset.AssetPath) : FAssetThumbnailView{};
 	}
 }

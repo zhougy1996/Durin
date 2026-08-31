@@ -26,18 +26,18 @@ namespace Durin::Editor::Texture
 			OutError = "The Texture2D thumbnail renderer received the wrong asset class.";
 			return false;
 		}
-		const Asset::FAssetCatalogEntry Entry = Asset::FindAssetExact(Request.Asset.VirtualPath);
-		const Asset::FAssetData* Data = Entry.Data ? &*Entry.Data : nullptr;
-		if (!Data || Data->AssetClassName != Request.Asset.AssetClassName
-			|| Data->FormatVersion != Request.Asset.PackageFormatVersion
-			|| static_cast<uint64>(Data->FileSize) != Request.Asset.FileSize
-			|| Data->LastWriteTimeTicks != Request.Asset.LastWriteTimeTicks)
+		const Asset::FTopLevelAssetCatalogEntry Entry =
+			Asset::FindTopLevelAssetExact(Request.Asset.AssetPath);
+		if (!Entry || Entry->AssetClassName != Request.Asset.AssetClassName
+			|| Entry.Package->FormatVersion != Request.Asset.PackageFormatVersion
+			|| static_cast<uint64>(Entry.Package->FileSize) != Request.Asset.FileSize
+			|| Entry.Package->LastWriteTimeTicks != Request.Asset.LastWriteTimeTicks)
 		{
 			OutError = "Texture2D thumbnail registry data is missing or changed.";
 			return false;
 		}
 		DObject* Loaded = nullptr;
-		const Asset::FAssetResult Load = Asset::LoadAsset(Request.Asset.VirtualPath, Loaded);
+		const Asset::FAssetResult Load = Asset::LoadObject(Request.Asset.AssetPath, Loaded);
 		auto* Texture = Load ? Cast<DTexture2D>(Loaded) : nullptr;
 		const FTextureSourceData* Source = Texture ? Texture->GetSourceData() : nullptr;
 		if (!Texture || !Source || !Source->IsValid())

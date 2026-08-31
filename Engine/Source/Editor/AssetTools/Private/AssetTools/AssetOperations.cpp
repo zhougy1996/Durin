@@ -187,15 +187,17 @@ namespace Durin
 			|| !Request.ResolvePhysicalPackagePath)
 			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
 				"Asset duplication requires a source, destination, and path resolver.");
-		const Asset::FAssetCatalogEntry Source = Asset::FindAssetExact(Request.SourcePath);
-		if (!Source || Source->EntryKind != Asset::EAssetRegistryEntryKind::Asset)
+		const Asset::FTopLevelAssetCatalogEntry Source =
+			Asset::FindTopLevelAssetExact(Request.SourcePath);
+		if (!Source || Source->IsRedirector())
 			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
 				"The copied source is no longer an available real asset.");
 
 		std::string Directory = Request.DestinationDirectory;
 		if (!Directory.ends_with('/')) Directory.push_back('/');
 		const std::string AssetName(Request.SourcePath.GetAssetName());
-		FPackagePath DestinationPath;
+		FTopLevelAssetPath DestinationAssetPath;
+		FPackagePath DestinationPackagePath;
 		std::string DestinationPhysicalPath;
 		for (uint32 Suffix = 0; Suffix <= 10000; ++Suffix)
 		{
@@ -213,17 +215,19 @@ namespace Durin
 				return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
 					std::format("Could not inspect the duplicate destination: {}", Error.message()));
 			if (bExists) continue;
-			DestinationPath = std::move(CandidatePath);
+			if (!FTopLevelAssetPath::TryCreate(
+				CandidatePath, CandidateName, DestinationAssetPath)) continue;
+			DestinationPackagePath = std::move(CandidatePath);
 			DestinationPhysicalPath = std::move(CandidatePhysical);
 			break;
 		}
-		if (!DestinationPath.IsValid())
+		if (!DestinationAssetPath.IsValid())
 			return MakeRejectedAssetOperation(EAssetOperationKind::Duplicate,
 				"Could not find an available copy name in this folder.");
 
 		DObject* DuplicatedAsset = nullptr;
 		Asset::FAssetResult EngineResult = Asset::DuplicateAsset(
-			Request.SourcePath, DestinationPath, DuplicatedAsset);
+			Request.SourcePath, DestinationAssetPath, DuplicatedAsset);
 		if (!EngineResult)
 			return FromEngineResult(EAssetOperationKind::Duplicate, EngineResult);
 		if (Request.bSave)
@@ -234,7 +238,8 @@ namespace Durin
 				FAssetOperationResult Failure = FromEngineResult(
 					EAssetOperationKind::Duplicate, EngineResult);
 				const Asset::FAssetResult Cleanup = Asset::UnloadPackage(
-					DestinationPath, Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
+					DestinationPackagePath,
+					Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
 				if (!Cleanup)
 				{
 					Failure.State = EAssetOperationTerminalState::RecoveryRequired;
@@ -249,7 +254,7 @@ namespace Durin
 			.Persistence = Request.bSave
 				? EAssetOperationPersistenceState::Persisted
 				: EAssetOperationPersistenceState::Dirty,
-			.AffectedAssets = {DestinationPath},
+			.AffectedAssets = {DestinationPackagePath},
 			.Asset = DuplicatedAsset,
 			.Package = DuplicatedAsset->GetPackage(),
 			.PhysicalPath = std::move(DestinationPhysicalPath)};

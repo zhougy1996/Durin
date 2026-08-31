@@ -1,4 +1,5 @@
 #include "Misc/MountPathTestSupport.h"
+#include "NativeDObjectTestSupport.h"
 #include "WorldTestSupport.h"
 
 #include "DObject/Package.h"
@@ -125,14 +126,14 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 	Durin::FPackagePath MeshPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Models/Box", MeshPath));
 	Durin::DStaticMesh* Mesh = nullptr;
-	const Durin::Asset::FAssetResult MeshLoad = Durin::Asset::LoadAsset(MeshPath, Mesh);
+	const Durin::Asset::FAssetResult MeshLoad = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), Mesh);
 	ASSERT_TRUE(MeshLoad) << MeshLoad.Message;
 
 	Durin::FPackagePath LevelPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/LevelReconstruction/Reconstruction", LevelPath));
 	Durin::DLevel* Level = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(LevelPath, Level));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(LevelPath, Level));
 
 	Durin::ADirectionalLightActor* Light =
 		Level->SpawnActor<Durin::ADirectionalLightActor>("DirectionalLight");
@@ -179,7 +180,7 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(MeshPath), nullptr);
 
 	Durin::DLevel* Loaded = nullptr;
-	const Durin::Asset::FAssetResult LevelLoad = Durin::Asset::LoadAsset(LevelPath, Loaded);
+	const Durin::Asset::FAssetResult LevelLoad = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(LevelPath), Loaded);
 	ASSERT_TRUE(LevelLoad) << LevelLoad.Message;
 	EXPECT_NE(Durin::Asset::FindResidentPackage(MeshPath), nullptr);
 	ASSERT_NO_FATAL_FAILURE(ExpectReconstructionManifest(Loaded));

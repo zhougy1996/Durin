@@ -36,8 +36,10 @@ namespace Durin
 				if (!FPackagePath::TryCreate(Directory + Name, Path)
 					|| Asset::FindAssetExact(Path)
 					|| Asset::FindResidentPackage(Path)) continue;
+				FTopLevelAssetPath AssetPath;
+				if (!FTopLevelAssetPath::TryCreate(Path, Name, AssetPath)) continue;
 				TMaterial* Material = nullptr;
-				Asset::FAssetResult Result = Asset::CreateAsset(Path, Material);
+				Asset::FAssetResult Result = Asset::CreateAsset(AssetPath, Material);
 				if (!Result || !Material)
 				{
 					OutError = Result ? "Could not create the material asset." : Result.Message;

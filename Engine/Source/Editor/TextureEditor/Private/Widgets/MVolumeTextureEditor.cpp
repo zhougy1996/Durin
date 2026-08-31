@@ -75,15 +75,15 @@ namespace Durin::Editor::Texture
 	{
 		if (Document.ResourceId.empty()) return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		if (Find(Document.ResourceId)) return ::Durin::Editor::EDocumentOpenResult::Opened;
-		FPackagePath Path;
+		FObjectPath Path;
 		std::string Error;
-		if (!FPackagePath::TryCreate(Document.ResourceId, Path, &Error))
+		if (!FObjectPath::TryCreate(Document.ResourceId, Path, &Error))
 		{
 			SetError(std::move(Error));
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		DVolumeTexture* Texture = nullptr;
-		const Asset::FAssetResult Result = Asset::LoadAsset(Path, Texture);
+		const Asset::FAssetResult Result = Asset::LoadObject(Path, Texture);
 		if (!Result || !Texture)
 		{
 			SetError(Result ? "The selected asset is not a VolumeTexture." : Result.Message);

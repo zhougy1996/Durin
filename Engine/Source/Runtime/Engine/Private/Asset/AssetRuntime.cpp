@@ -71,53 +71,14 @@ namespace Durin::Asset
 			return Current;
 		}
 
-		auto FormerMainPath(const FPackagePath& PackagePath) -> FObjectPath
-		{
-			FTopLevelAssetPath AssetPath;
-			FObjectPath ObjectPath;
-			FTopLevelAssetPath::TryCreate(
-				PackagePath, PackagePath.GetPackageName(), AssetPath);
-			FObjectPath::TryCreate(AssetPath, std::span<const std::string>{}, ObjectPath);
-			return ObjectPath;
-		}
-
-		auto TryRemapRedirectedObjectPath(
-			const FObjectPath& AuthoredPath,
-			const FPackagePath& ResolvedPackagePath,
-			FObjectPath& OutPath,
-			std::string* OutError) -> bool
-		{
-			if (AuthoredPath.GetPackagePath() == ResolvedPackagePath)
-			{
-				OutPath = AuthoredPath;
-				return true;
-			}
-			FTopLevelAssetPath ResolvedAssetPath;
-			if (!FTopLevelAssetPath::TryCreate(
-				ResolvedPackagePath, ResolvedPackagePath.GetPackageName(),
-				ResolvedAssetPath, OutError)) return false;
-			return FObjectPath::TryCreate(
-				ResolvedAssetPath, AuthoredPath.GetSubobjectNames(), OutPath, OutError);
-		}
-
-		auto FindLegacyPackageAsset(DPackage* Package, const FPackagePath& PackagePath)
-			-> DObject*
-		{
-			if (!Package) return nullptr;
-			if (DObject* Exact = FindPackageObject(Package, FormerMainPath(PackagePath)))
-				return Exact;
-			const auto Assets = Package->GetTopLevelAssets();
-			return Assets.size() == 1 ? Assets.front() : nullptr;
-		}
-
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult;
 		auto InspectAssetPackageBytes(
 			std::string_view PhysicalPath,
 			std::span<const std::byte> Bytes,
 			FAssetPackageInspection& OutInspection) -> FAssetResult;
 
-		auto AssetPathResolutionError(
-			const FAssetPathResolveResult& Resolution) -> FAssetResult
+		auto ObjectPathResolutionError(
+			const FObjectPathResolveResult& Resolution) -> FAssetResult
 		{
 			switch (Resolution.State)
 			{
@@ -125,34 +86,35 @@ namespace Durin::Asset
 				return {};
 			case EAssetPathResolveState::NotFound:
 				return Error(EAssetError::NotFound, std::format(
-					"Asset {} is not present in the registry.",
+					"Object {} is not present in the registry.",
 					Resolution.RequestedPath.ToString()));
 			case EAssetPathResolveState::MissingRedirectTarget:
 				return Error(EAssetError::NotFound, std::format(
-					"Asset redirect {} has a missing target {}.",
+					"Object redirect {} has a missing target {}.",
 					Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
 			case EAssetPathResolveState::RedirectCycle:
 				return Error(EAssetError::CircularDependency, std::format(
-					"Asset redirect {} contains a cycle at {}.",
+					"Object redirect {} contains a cycle at {}.",
 					Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
 			case EAssetPathResolveState::RedirectDepthExceeded:
 				return Error(EAssetError::CircularDependency, std::format(
-					"Asset redirect {} exceeds the maximum redirect depth at {}.",
+					"Object redirect {} exceeds the maximum redirect depth at {}.",
 					Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
 			case EAssetPathResolveState::UnknownTargetClass:
 				return Error(EAssetError::UnknownClass, std::format(
-					"Asset {} resolves to a target with an unavailable reflected class.",
+					"Object {} resolves to a target with an unavailable reflected class.",
 					Resolution.RequestedPath.ToString()));
 			case EAssetPathResolveState::RedirectTypeMismatch:
 				return Error(EAssetError::TypeMismatch, std::format(
-					"Asset {} resolves to a target with an incompatible class.",
+					"Object {} resolves to a target with an incompatible class.",
 					Resolution.RequestedPath.ToString()));
 			case EAssetPathResolveState::CorruptRedirector:
 				return Error(EAssetError::CorruptFile, std::format(
-					"CorruptRedirector: asset {} traverses invalid redirect metadata at {}.",
+					"CorruptRedirector: object {} traverses invalid redirect metadata at {}.",
 					Resolution.RequestedPath.ToString(), Resolution.FinalPath.ToString()));
 			}
-			return Error(EAssetError::CorruptFile, "Asset resolution returned an unknown state.");
+			return Error(EAssetError::CorruptFile,
+				"Object resolution returned an unknown state.");
 		}
 
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult
@@ -227,7 +189,7 @@ namespace Durin::Asset
 	{
 	}
 
-	auto FAssetLoadService::CreateAsset(const FPackagePath& Path, DClass* Class, size_t Size, DObject*& OutAsset) -> FAssetResult
+	auto FAssetLoadService::CreateAsset(const FTopLevelAssetPath& Path, DClass* Class, size_t Size, DObject*& OutAsset) -> FAssetResult
 	{
 		OutAsset = nullptr;
 		if (!bAcceptingRequests)
@@ -235,20 +197,20 @@ namespace Durin::Asset
 		if (RuntimeConfiguration.IsCooked())
 			return Error(EAssetError::ReadOnlyMode, "Cooked runtime package mode does not permit asset creation.");
 		if (!Path.IsValid() || !Class || !Class->ClassConstructor) return Error(EAssetError::InvalidPath, "Invalid asset path or class.");
-		if (const FAssetCatalogEntry Existing = FindAssetExact(Path))
-			return Existing->EntryKind == EAssetRegistryEntryKind::Redirector
+		if (const FTopLevelAssetCatalogEntry Existing = FindTopLevelAssetExact(Path))
+			return Existing->IsRedirector()
 				? Error(EAssetError::AlreadyExists, std::format(
 					"Asset {} is occupied by a redirector to {}. Run Fix Up Redirectors or choose another destination.",
 					Path.ToString(), Existing->RedirectDestination.ToString()))
 				: Error(EAssetError::AlreadyExists, std::format(
 					"Asset {} already exists. Choose another destination or delete the existing asset.",
 					Path.ToString()));
-		if (FindResidentPackage(Path))
+		if (FindResidentPackage(Path.GetPackagePath()))
 			return Error(EAssetError::AlreadyExists, std::format(
 				"A loaded package already uses {}. Close it or choose another destination.",
 				Path.ToString()));
 
-		DPackage* Package = CreatePackage(Path);
+		DPackage* Package = CreatePackage(Path.GetPackagePath());
 		if (!Package)
 			return Error(EAssetError::AlreadyExists,
 				"A live package already occupies the asset path.");
@@ -270,8 +232,8 @@ namespace Durin::Asset
 	}
 
 	auto FAssetLoadService::DuplicateAsset(
-		const FPackagePath& SourcePath,
-		const FPackagePath& DestinationPath,
+		const FTopLevelAssetPath& SourcePath,
+		const FTopLevelAssetPath& DestinationPath,
 		DObject*& OutAsset) -> FAssetResult
 	{
 		OutAsset = nullptr;
@@ -285,34 +247,42 @@ namespace Durin::Asset
 			|| SourcePath == DestinationPath)
 			return Error(EAssetError::InvalidPath,
 				"Asset duplication requires distinct valid source and destination paths.");
-		const FAssetCatalogEntry SourceData = FindAssetExact(SourcePath);
+		const FTopLevelAssetCatalogEntry SourceData =
+			FindTopLevelAssetExact(SourcePath);
 		if (!SourceData)
 			return Error(EAssetError::NotFound,
 				std::format("Asset {} is not registered.", SourcePath.ToString()));
-		if (SourceData->EntryKind != EAssetRegistryEntryKind::Asset)
+		if (SourceData->IsRedirector())
 			return Error(EAssetError::InvalidPackageType,
 				"Redirectors cannot be duplicated as assets. Duplicate the final asset instead.");
-		if (const FAssetCatalogEntry Existing = FindAssetExact(DestinationPath))
-			return Existing->EntryKind == EAssetRegistryEntryKind::Redirector
+		if (const FTopLevelAssetCatalogEntry Existing =
+			FindTopLevelAssetExact(DestinationPath))
+			return Existing->IsRedirector()
 				? Error(EAssetError::AlreadyExists, std::format(
 					"Asset {} is occupied by a redirector to {}. Run Fix Up Redirectors or choose another destination.",
 					DestinationPath.ToString(), Existing->RedirectDestination.ToString()))
 				: Error(EAssetError::AlreadyExists, std::format(
 					"Asset {} already exists. Choose another destination or delete the existing asset.",
 					DestinationPath.ToString()));
-		if (FindResidentPackage(DestinationPath))
+		if (FindResidentPackage(DestinationPath.GetPackagePath()))
 			return Error(EAssetError::AlreadyExists, std::format(
 				"A loaded package already uses {}. Close it or choose another destination.",
 				DestinationPath.ToString()));
 
 		DObject* SourceAsset = nullptr;
-		FAssetResult Result = LoadAsset(SourcePath, SourceAsset);
+		FObjectPath SourceObjectPath;
+		if (!FObjectPath::TryCreate(
+			SourcePath, std::span<const std::string>{}, SourceObjectPath))
+			return Error(EAssetError::InvalidPath,
+				"The source top-level asset path is invalid.");
+		FAssetResult Result = LoadObject(
+			SourceObjectPath, nullptr, SourceAsset);
 		if (!Result) return Result;
 		if (!SourceAsset)
 			return Error(EAssetError::InvalidObjectGraph,
-				"The source package has no main asset to duplicate.");
+				"The exact source top-level asset is unavailable for duplication.");
 
-		DPackage* Package = CreatePackage(DestinationPath);
+		DPackage* Package = CreatePackage(DestinationPath.GetPackagePath());
 		if (!Package)
 			return Error(EAssetError::AlreadyExists,
 				"A live package already occupies the duplication destination.");
@@ -370,11 +340,31 @@ namespace Durin::Asset
 			}
 		}
 		DObject* DestinationObject = nullptr;
-		FAssetResult Result = LoadAsset(Resolution.FinalPath, DestinationObject);
+		check(Resolution.FinalAssetData.has_value());
+		const FAssetData& DestinationData = *Resolution.FinalAssetData;
+		const auto DestinationRecord = std::ranges::find(
+			DestinationData.TopLevelAssets, DestinationData.AssetClassName,
+			&FTopLevelAssetData::AssetClassName);
+		if (DestinationRecord == DestinationData.TopLevelAssets.end())
+			return Error(EAssetError::InvalidObjectGraph,
+				"The redirect destination has no exact top-level asset.");
+		FObjectPath DestinationObjectPath;
+		if (!FObjectPath::TryCreate(
+			DestinationRecord->AssetPath, std::span<const std::string>{},
+			DestinationObjectPath))
+			return Error(EAssetError::InvalidPath,
+				"The redirect destination object path is invalid.");
+		FAssetResult Result = LoadObject(
+			DestinationObjectPath, nullptr, DestinationObject);
 		if (!Result) return Result;
 		DObject* CreatedObject = nullptr;
+		FTopLevelAssetPath RedirectorAssetPath;
+		if (!FTopLevelAssetPath::TryCreate(
+			RedirectorPath, RedirectorPath.GetPackageName(), RedirectorAssetPath))
+			return Error(EAssetError::InvalidPath,
+				"The redirector top-level asset path is invalid.");
 		Result = CreateAsset(
-			RedirectorPath,
+			RedirectorAssetPath,
 			DAssetRedirector::StaticClass(),
 			sizeof(DAssetRedirector),
 			CreatedObject);
@@ -382,17 +372,9 @@ namespace Durin::Asset
 		OutRedirector = Cast<DAssetRedirector>(CreatedObject);
 		if (!OutRedirector)
 			return Error(EAssetError::InvalidObjectGraph,
-				"Failed to construct the redirector main asset.");
+				"Failed to construct the redirector top-level asset.");
 		OutRedirector->SetDestinationObject(DestinationObject);
 		return {};
-	}
-
-	auto FAssetLoadService::LoadAsset(
-		const FPackagePath& Path,
-		DObject*& OutAsset,
-		FAssetLoadReport* OutReport) -> FAssetResult
-	{
-		return LoadAsset(Path, nullptr, OutAsset, OutReport);
 	}
 
 	auto FAssetLoadService::LoadPackage(
@@ -410,11 +392,8 @@ namespace Durin::Asset
 		if (!Entry)
 			return Error(EAssetError::NotFound, std::format(
 				"Package {} is not present in the registry.", Path.ToString()));
-		DObject* Ignored = nullptr;
-		FAssetResult Result = LoadAssetFromPhysicalPath(
-			Path, Entry->PhysicalPath, nullptr, Ignored, OutReport);
-		if (Result) OutPackage = FindResidentPackage(Path);
-		return Result;
+		return LoadPackageFromPhysicalPath(
+			Path, Entry->PhysicalPath, OutPackage, OutReport);
 	}
 
 	auto FAssetLoadService::LoadObject(
@@ -424,35 +403,9 @@ namespace Durin::Asset
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
 		OutObject = nullptr;
-		if (!Path.IsValid())
-			return Error(EAssetError::InvalidPath, "An object load requires an exact object path.");
-		if (ExpectedClass && !ExpectedClass->IsChildOf(DObject::StaticClass()))
-			return Error(EAssetError::TypeMismatch, "An object load requires a DObject class.");
-		DPackage* Package = nullptr;
-		FAssetResult Result = LoadPackage(Path.GetPackagePath(), Package, OutReport);
-		if (!Result) return Result;
-		DObject* Object = FindPackageObject(Package, Path);
-		if (!Object)
-			return Error(EAssetError::NotFound, std::format(
-				"Object {} is not present in its loaded package.", Path.ToString()));
-		if (ExpectedClass && !Object->IsA(ExpectedClass))
-			return Error(EAssetError::TypeMismatch, std::format(
-				"Object {} is not a {}.", Path.ToString(),
-				ExpectedClass->GetQualifiedName().ToString()));
-		OutObject = Object;
-		return {};
-	}
-
-	auto FAssetLoadService::LoadAsset(
-		const FPackagePath& Path,
-		const DClass* ExpectedClass,
-		DObject*& OutAsset,
-		FAssetLoadReport* OutReport) -> FAssetResult
-	{
-		OutAsset = nullptr;
 		if (OutReport) *OutReport = {
-			.RequestedPath = Path,
-			.PackagePath = Path};
+			.RequestedPath = Path.GetPackagePath(),
+			.PackagePath = Path.GetPackagePath()};
 		auto Finish = [&](FAssetResult Result) -> FAssetResult
 		{
 			if (OutReport)
@@ -462,71 +415,74 @@ namespace Durin::Asset
 			}
 			return Result;
 		};
-		if (!bAcceptingRequests)
-			return Finish(Error(
-				EAssetError::ShuttingDown,
-				"Asset loading is closed while the asset manager is shutting down."));
+		if (!Path.IsValid())
+			return Finish(Error(EAssetError::InvalidPath, "An object load requires an exact object path."));
 		if (ExpectedClass && !ExpectedClass->IsChildOf(DObject::StaticClass()))
-			return Finish(Error(EAssetError::TypeMismatch, "An asset load requires a DObject class."));
-		if (DPackage* Resident = FindResidentPackage(Path))
-		{
-			DObject* Asset = FindLegacyPackageAsset(Resident, Path);
-			if (Asset && !Asset->IsA<DAssetRedirector>())
-			{
-				if (ExpectedClass && !Asset->IsA(ExpectedClass))
-					return Finish(Error(EAssetError::TypeMismatch, std::format(
-						"Asset {} is not a {}.", Path.ToString(),
-						ExpectedClass->GetQualifiedName().ToString())));
-				OutAsset = Asset;
-				if (OutReport)
-				{
-					OutReport->CatalogRevision = GetAssetCatalogRevision();
-					OutReport->FinalPath = Path;
-					OutReport->FinalAssetClassName =
-						Asset->GetClass()->GetQualifiedName().ToString();
-				}
-				return Finish({});
-			}
-		}
-
-		const FAssetPathResolveResult Resolution = Durin::Asset::ResolveAssetPath(
+			return Finish(Error(EAssetError::TypeMismatch, "An object load requires a DObject class."));
+		if (!bAcceptingRequests)
+			return Finish(Error(EAssetError::ShuttingDown,
+				"Object loading is closed while the asset manager is shutting down."));
+		const FObjectPathResolveResult Resolution = Durin::Asset::ResolveObjectPath(
 			Path, {.ExpectedClass = ExpectedClass});
+		if (!Resolution)
+		{
+			if (Resolution.State == EAssetPathResolveState::NotFound)
+			{
+				DPackage* Resident = FindResidentPackage(Path.GetPackagePath());
+				DObject* ResidentObject = Resident ? FindPackageObject(Resident, Path) : nullptr;
+				if (ResidentObject && (!ExpectedClass || ResidentObject->IsA(ExpectedClass)))
+				{
+					OutObject = ResidentObject;
+					return {};
+				}
+			}
+			if (OutReport)
+			{
+				OutReport->CatalogRevision = Resolution.CatalogRevision;
+				OutReport->FinalPath = Resolution.FinalPath.GetPackagePath();
+			}
+			return Finish(ObjectPathResolutionError(Resolution));
+		}
+		DPackage* Package = nullptr;
+		FAssetResult Result = LoadPackage(
+			Resolution.FinalPath.GetPackagePath(), Package, OutReport);
+		if (!Result) return Finish(Result);
+		DObject* Object = FindPackageObject(Package, Resolution.FinalPath);
+		if (!Object)
+			return Finish(Error(EAssetError::NotFound, std::format(
+				"Object {} is not present in its loaded package.",
+				Resolution.FinalPath.ToString())));
+		if (ExpectedClass && !Object->IsA(ExpectedClass))
+			return Finish(Error(EAssetError::TypeMismatch, std::format(
+				"Object {} is not a {}.", Resolution.FinalPath.ToString(),
+				ExpectedClass->GetQualifiedName().ToString())));
 		if (OutReport)
 		{
+			OutReport->RequestedPath = Path.GetPackagePath();
+			OutReport->FinalPath = Resolution.FinalPath.GetPackagePath();
+			OutReport->PackagePath = Resolution.FinalPath.GetPackagePath();
 			OutReport->CatalogRevision = Resolution.CatalogRevision;
-			OutReport->FinalPath = Resolution.FinalPath;
-			OutReport->RedirectChain = Resolution.RedirectChain;
+			OutReport->RedirectChain.clear();
+			for (const FObjectPath& Redirect : Resolution.RedirectChain)
+				OutReport->RedirectChain.push_back(Redirect.GetPackagePath());
 			if (Resolution.FinalAssetData)
-				OutReport->FinalAssetClassName = Resolution.FinalAssetData->AssetClassName;
+				OutReport->FinalAssetClassName =
+					Resolution.FinalAssetData->AssetClassName;
 		}
-		if (!Resolution)
-			return Finish(AssetPathResolutionError(Resolution));
-		check(Resolution.FinalAssetData.has_value());
-		return Finish(LoadAssetFromCatalog(
-			*Resolution.FinalAssetData, ExpectedClass, OutAsset, OutReport));
+		OutObject = Object;
+		return Finish({});
 	}
 
-	auto FAssetLoadService::LoadAssetFromCatalog(
-		const FAssetData& Data,
-		const DClass* ExpectedClass,
-		DObject*& OutAsset,
-		FAssetLoadReport* OutReport) -> FAssetResult
-	{
-		return LoadAssetFromPhysicalPath(
-			Data.PackagePath, Data.PhysicalPath, ExpectedClass, OutAsset, OutReport);
-	}
-
-	auto FAssetLoadService::LoadAssetFromPhysicalPath(
+	auto FAssetLoadService::LoadPackageFromPhysicalPath(
 		const FPackagePath& Path,
 		std::string_view PhysicalPath,
-		const DClass* ExpectedClass,
-		DObject*& OutAsset,
+		DPackage*& OutPackage,
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
 		DURIN_PROFILE_CPU_ZONE_NAMED("Asset.Load");
 		if (!bAcceptingRequests)
 		{
-			OutAsset = nullptr;
+			OutPackage = nullptr;
 			return Error(
 				EAssetError::ShuttingDown,
 				"Asset loading is closed while the asset manager is shutting down.");
@@ -553,14 +509,6 @@ namespace Durin::Asset
 		DPackage* Package = nullptr;
 		FAssetResult Result = LoadPackageInternal(
 			Path, PhysicalPath, Package, OutReport);
-		if (Result && Package && ExpectedClass)
-		{
-			DObject* Asset = FindLegacyPackageAsset(Package, Path);
-			if (!Asset || !Asset->IsA(ExpectedClass))
-				Result = Error(EAssetError::TypeMismatch, std::format(
-					"Asset {} is not a {}.", Path.ToString(),
-					ExpectedClass->GetQualifiedName().ToString()));
-		}
 		if (bRootLoad) GActiveAssetLoadReport = PreviousLoadReport;
 		--LoadDepth;
 		if (bRootLoad)
@@ -581,7 +529,7 @@ namespace Durin::Asset
 			}
 			TransactionPackages.clear();
 		}
-		OutAsset = Result && Package ? FindLegacyPackageAsset(Package, Path) : nullptr;
+		OutPackage = Result ? Package : nullptr;
 		return Result;
 	}
 
@@ -594,9 +542,6 @@ namespace Durin::Asset
 		DURIN_PROFILE_CPU_ZONE_NAMED("Asset.LoadPackage");
 		if (DPackage* Resident = FindResidentPackage(Path))
 		{
-			if (Resident->GetTopLevelAssets().empty() && !LoadingPackages.contains(Path))
-				return Error(EAssetError::InvalidObjectGraph,
-					"A live asset package has no main asset.");
 			OutPackage = Resident;
 			return {};
 		}
@@ -888,17 +833,16 @@ namespace Durin::Asset
 					.State = ESoftObjectResolveState::Null};
 		}
 
-		const FPackagePath& Path = Reference.GetPath().GetPackagePath();
-		const FAssetPathResolveResult Resolution = Durin::Asset::ResolveAssetPath(
+		const FObjectPath& Path = Reference.GetPath();
+		const FObjectPathResolveResult Resolution = Durin::Asset::ResolveObjectPath(
 			Path, {.ExpectedClass = ExpectedClass});
 		if (!Resolution)
 		{
 			if (Resolution.State == EAssetPathResolveState::NotFound)
 			{
-				DPackage* LoadedPackage = FindResidentPackage(Path);
+				DPackage* LoadedPackage = FindResidentPackage(Path.GetPackagePath());
 				DObject* LoadedObject = LoadedPackage
-					? FindPackageObject(LoadedPackage,
-						Reference.GetPath()) : nullptr;
+					? FindPackageObject(LoadedPackage, Path) : nullptr;
 				if (LoadedObject && !LoadedObject->IsA<DAssetRedirector>())
 				{
 					if (!LoadedObject->IsA(ExpectedClass))
@@ -922,11 +866,12 @@ namespace Durin::Asset
 			}
 			Reference.ResetCache();
 			return {
-				.Result = AssetPathResolutionError(Resolution),
+				.Result = ObjectPathResolutionError(Resolution),
 				.State = ESoftObjectResolveState::NotLoaded};
 		}
 
-		DPackage* Package = FindResidentPackage(Resolution.FinalPath);
+		DPackage* Package = FindResidentPackage(
+			Resolution.FinalPath.GetPackagePath());
 		if (!Package)
 		{
 			Reference.ResetCache();
@@ -936,24 +881,14 @@ namespace Durin::Asset
 				.bRedirected = !Resolution.RedirectChain.empty()};
 		}
 
-		FObjectPath ResolvedObjectPath;
-		std::string PathError;
-		if (!TryRemapRedirectedObjectPath(
-			Reference.GetPath(), Resolution.FinalPath, ResolvedObjectPath, &PathError))
-		{
-			return {
-				.Result = Error(EAssetError::InvalidPath, std::move(PathError)),
-				.State = ESoftObjectResolveState::NotLoaded,
-				.ResolvedPath = Resolution.FinalPath,
-				.bRedirected = !Resolution.RedirectChain.empty()};
-		}
-		DObject* Object = FindPackageObject(Package, ResolvedObjectPath);
+		DObject* Object = FindPackageObject(Package, Resolution.FinalPath);
 		if (!Object)
 		{
 			return {
 				.Result = Error(EAssetError::InvalidObjectGraph, std::format(
-					"Loaded package {} has no object {}.", Resolution.FinalPath.ToString(),
-					ResolvedObjectPath.ToString())),
+					"Loaded package {} has no object {}.",
+					Resolution.FinalPath.GetPackagePath().ToString(),
+					Resolution.FinalPath.ToString())),
 				.State = ESoftObjectResolveState::NotLoaded,
 				.ResolvedPath = Resolution.FinalPath,
 				.bRedirected = !Resolution.RedirectChain.empty()};
@@ -971,7 +906,7 @@ namespace Durin::Asset
 
 		std::string ValidationError;
 		if (!Reference.TrySetResolvedObject(
-			Object, Reference.GetPath(), ResolvedObjectPath,
+			Object, Reference.GetPath(), Resolution.FinalPath,
 			ExpectedClass, &ValidationError))
 		{
 			return {
@@ -1007,14 +942,8 @@ namespace Durin::Asset
 		}
 
 		DObject* LoadedObject = nullptr;
-		const FPackagePath& Path = Reference.GetPath().GetPackagePath();
-		const FPackagePath& LoadedPackagePath = Resolved.ResolvedPath.IsValid()
-			? Resolved.ResolvedPath : Path;
-		FObjectPath ResolvedObjectPath;
-		std::string PathError;
-		if (!TryRemapRedirectedObjectPath(
-			Reference.GetPath(), LoadedPackagePath, ResolvedObjectPath, &PathError))
-			return Error(EAssetError::InvalidPath, std::move(PathError));
+		const FObjectPath& ResolvedObjectPath = Resolved.ResolvedPath.IsValid()
+			? Resolved.ResolvedPath : Reference.GetPath();
 		FAssetResult Result = LoadObject(
 			ResolvedObjectPath, ExpectedClass, LoadedObject, OutReport);
 		if (!Result) return Result;

@@ -26,19 +26,21 @@ namespace Durin::Editor::Material
 			: public ::Durin::Editor::IAssetThumbnailGenerationInput
 		{
 		public:
-			explicit FMaterialThumbnailGenerationInput(FPackagePath InAssetPath)
+			explicit FMaterialThumbnailGenerationInput(FTopLevelAssetPath InAssetPath)
 				: AssetPath(std::move(InAssetPath))
 			{
 			}
 
-			FPackagePath AssetPath;
+			FTopLevelAssetPath AssetPath;
 		};
 
-		auto MakeFingerprint(const Asset::FAssetData& Data)
+		auto MakeFingerprint(const Asset::FAssetData& Data,
+			FTopLevelAssetPath AssetPath = {})
 			-> ::Durin::Editor::FAssetThumbnailPackageFingerprint
 		{
 			return {
-				.VirtualPath = Data.PackagePath,
+				.AssetPath = std::move(AssetPath),
+				.PackagePath = Data.PackagePath,
 				.AssetClassName = Data.AssetClassName,
 				.PackageFormatVersion = Data.FormatVersion,
 				.FileSize = static_cast<uint64>(Data.FileSize),
@@ -169,7 +171,7 @@ namespace Durin::Editor::Material
 		{
 		public:
 			FMaterialThumbnailGenerationSession(
-				FPackagePath InAssetPath,
+				FTopLevelAssetPath InAssetPath,
 				std::string InAssetClassName)
 				: AssetPath(std::move(InAssetPath))
 				, AssetClassName(std::move(InAssetClassName))
@@ -185,7 +187,7 @@ namespace Durin::Editor::Material
 			{
 				std::string SphereError;
 				DObject* Loaded = nullptr;
-				const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Loaded);
+				const Asset::FAssetResult Result = Asset::LoadObject(AssetPath, Loaded);
 				Material = Result ? Cast<DMaterialInterface>(Loaded) : nullptr;
 				if (!Result || Material == nullptr
 					|| Material->GetClass()->GetQualifiedName().ToString() != AssetClassName)
@@ -204,9 +206,9 @@ namespace Durin::Editor::Material
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
 						.Diagnostic = "The material instance has no valid parent."};
 				}
-				FPackagePath SpherePath;
-				if (!FPackagePath::TryCreate(
-						::Durin::Editor::FThumbnailVisualContract::SphereVirtualPath,
+				FObjectPath SpherePath;
+				if (!FObjectPath::TryCreate(
+						::Durin::Editor::FThumbnailVisualContract::SphereAssetPath,
 						SpherePath, &SphereError)
 					|| !::Durin::Editor::FAssetRetentionService::Acquire(
 						SpherePath, SphereAsset, SphereError)
@@ -356,7 +358,7 @@ namespace Durin::Editor::Material
 				World = nullptr;
 			}
 
-			FPackagePath AssetPath;
+			FTopLevelAssetPath AssetPath;
 			std::string AssetClassName;
 			DMaterialInterface* Material = nullptr;
 			uint64 AssetRevision = 0;
@@ -398,19 +400,19 @@ namespace Durin::Editor::Material
 		}
 
 		const Asset::FAssetDependencyClosureSnapshot Closure =
-			Asset::CaptureAssetDependencyClosure(Request.Asset.VirtualPath);
+			Asset::CaptureAssetDependencyClosure(Request.Asset.PackagePath);
 		if (!Closure)
 		{
 			OutError = Closure.Result.Message.empty()
 				? std::format("Material thumbnail registry data is missing for {}.",
-					Request.Asset.VirtualPath.ToString())
+					Request.Asset.AssetPath.ToString())
 				: Closure.Result.Message;
 			return false;
 		}
 		const auto RootIt = std::ranges::find_if(
 			Closure.Assets,
 			[&Request](const Asset::FAssetData& Data) {
-				return Data.PackagePath == Request.Asset.VirtualPath;
+				return Data.PackagePath == Request.Asset.PackagePath;
 			});
 		if (RootIt == Closure.Assets.end())
 		{
@@ -418,30 +420,30 @@ namespace Durin::Editor::Material
 			return false;
 		}
 		const Asset::FAssetData* Root = &*RootIt;
-		if (MakeFingerprint(*Root) != Request.Asset)
+		if (MakeFingerprint(*Root, Request.Asset.AssetPath) != Request.Asset)
 		{
 			OutError = std::format(
 				"Material thumbnail registry data changed for {}; refresh the request snapshot.",
-				Request.Asset.VirtualPath.ToString());
+				Request.Asset.AssetPath.ToString());
 			return false;
 		}
 		std::vector<::Durin::Editor::FAssetThumbnailPackageFingerprint> Dependencies;
 		Dependencies.reserve(Closure.Assets.size() - 1);
 		for (const Asset::FAssetData& Data : Closure.Assets)
-			if (Data.PackagePath != Request.Asset.VirtualPath)
+			if (Data.PackagePath != Request.Asset.PackagePath)
 				Dependencies.push_back(MakeFingerprint(Data));
 
 		const ::Durin::Editor::FThumbnailVisualContract Visual;
 		OutRequest.KeyInput = {
 			.Output = Visual.Output,
 			.PreviewFixtureIdentity = std::string(
-				::Durin::Editor::FThumbnailVisualContract::SphereVirtualPath),
+				::Durin::Editor::FThumbnailVisualContract::SphereAssetPath),
 			.PreviewFixtureVersion =
 				::Durin::Editor::FThumbnailVisualContract::SphereFixtureVersion,
 			.ShaderContractVersion = MaterialThumbnailShaderContract,
 			.Dependencies = std::move(Dependencies)};
 		OutRequest.Input =
-			std::make_shared<FMaterialThumbnailGenerationInput>(Request.Asset.VirtualPath);
+			std::make_shared<FMaterialThumbnailGenerationInput>(Request.Asset.AssetPath);
 		OutRequest.RendererGeneration = RendererGeneration;
 		OutRequest.RequestSerial = Request.RequestSerial;
 		return true;

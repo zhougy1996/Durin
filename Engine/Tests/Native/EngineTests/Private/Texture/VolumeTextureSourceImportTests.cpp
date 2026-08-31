@@ -1,4 +1,5 @@
 #include "TextureTestSupport.h"
+#include "NativeDObjectTestSupport.h"
 #include "Texture/VolumeTextureFactoryTestSupport.h"
 #include "EditorReimportHandler.h"
 
@@ -382,8 +383,8 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	ASSERT_TRUE(Asset::UnloadPackage(DetailAssetPath));
 	DVolumeTexture* ReloadedBase = nullptr;
 	DVolumeTexture* ReloadedDetail = nullptr;
-	ASSERT_TRUE(Asset::LoadAsset(BaseAssetPath, ReloadedBase));
-	ASSERT_TRUE(Asset::LoadAsset(DetailAssetPath, ReloadedDetail));
+	ASSERT_TRUE(Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(BaseAssetPath), ReloadedBase));
+	ASSERT_TRUE(Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(DetailAssetPath), ReloadedDetail));
 	ASSERT_NE(ReloadedBase, nullptr);
 	ASSERT_NE(ReloadedDetail, nullptr);
 	ASSERT_NE(ReloadedBase->GetAssetImportData(), nullptr);
@@ -487,11 +488,11 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	CompanionBytes.back() ^= std::byte{1};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(CompanionBytes, V6Companions.front()));
 	DVolumeTexture* CorruptLoad = nullptr;
-	EXPECT_FALSE(Asset::LoadAsset(AssetPath, CorruptLoad));
+	EXPECT_FALSE(Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), CorruptLoad));
 	CompanionBytes.back() ^= std::byte{1};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(CompanionBytes, V6Companions.front()));
 	DVolumeTexture* Reloaded = nullptr;
-	const Asset::FAssetResult Loaded = Asset::LoadAsset(AssetPath, Reloaded);
+	const Asset::FAssetResult Loaded = Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Reloaded);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
 	ASSERT_NE(Reloaded, nullptr);
 	EXPECT_EQ(Reloaded->GetSourceData().GetVoxelBytes().size(), 128ull * 128 * 128);

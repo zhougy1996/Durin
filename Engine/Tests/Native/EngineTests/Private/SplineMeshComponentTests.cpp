@@ -30,6 +30,8 @@
 
 #include <gtest/gtest.h>
 
+#include "NativeDObjectTestSupport.h"
+
 namespace
 {
 	using namespace Durin;
@@ -106,7 +108,7 @@ TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationS
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Models/SplineBox", Path));
 	DStaticMesh* Mesh = nullptr;
-	const Asset::FAssetResult LoadResult = Asset::LoadAsset(Path, Mesh);
+	const Asset::FAssetResult LoadResult = Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Mesh);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	ASSERT_NE(Mesh, nullptr);
 	const FStaticMeshRenderData* RenderData = Mesh->GetRenderData();
@@ -353,7 +355,7 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 	Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> MeshImport = AssetForge::Builtins::ImportStaticMeshForTest(
 		Source.generic_string(), "/SplineMeshComponentTests/SourceMesh");
 	ASSERT_TRUE(MeshImport) << MeshImport.Message;
-	ASSERT_TRUE(Asset::CreateAsset(Path, Level));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(Path, Level));
 	auto* Actor = Level->SpawnActor<AActor>("SplineMeshActor");
 	auto* Component = Cast<DSplineMeshComponent>(Actor->AddInstanceComponent(
 		DSplineMeshComponent::StaticClass(), FName("SplineMesh")));
@@ -368,7 +370,7 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 	ASSERT_TRUE(Asset::UnloadPackage(Path));
 
 	DObject* LoadedObject = nullptr;
-	ASSERT_TRUE(Asset::LoadAsset(Path, LoadedObject));
+	ASSERT_TRUE(Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), LoadedObject));
 	auto* LoadedLevel = Cast<DLevel>(LoadedObject);
 	ASSERT_NE(LoadedLevel, nullptr);
 	auto* Loaded = LoadedLevel->FindActorByName("SplineMeshActor")
@@ -397,7 +399,7 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	FPackagePath Path;
 	ASSERT_TRUE(FPackagePath::TryCreate("/SplineMeshActorTests/Reconciliation", Path));
 	DLevel* Level = nullptr;
-	ASSERT_TRUE(Asset::CreateAsset(Path, Level));
+	ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(Path, Level));
 	auto* Actor = Level->SpawnActor<ASplineMeshActor>("SplineMeshActor");
 	ASSERT_NE(Actor, nullptr);
 	auto* InitialMesh = CreateAuthoredDebugTriangle(Level, "InitialStaticMesh");
@@ -481,7 +483,7 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 	EXPECT_TRUE(SaveResult) << SaveResult.Message;
 	EXPECT_TRUE(Asset::UnloadPackage(Path));
 	DObject* LoadedObject = nullptr;
-	ASSERT_TRUE(Asset::LoadAsset(Path, LoadedObject));
+	ASSERT_TRUE(Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), LoadedObject));
 	auto* LoadedLevel = Cast<DLevel>(LoadedObject);
 	ASSERT_NE(LoadedLevel, nullptr);
 	auto* LoadedActor = Cast<ASplineMeshActor>(LoadedLevel->FindActorByName("SplineMeshActor"));

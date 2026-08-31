@@ -276,7 +276,7 @@ namespace Durin::Editor
 	{
 		if (!Job.ScheduledJob.GenerationRequest.Cancellation.IsCancelled())
 		{
-			Impl->Scheduler.Cancel(Job.ScheduledJob.GenerationRequest.KeyInput.Asset.VirtualPath);
+			Impl->Scheduler.Cancel(Job.ScheduledJob.GenerationRequest.KeyInput.Asset.AssetPath);
 			++Impl->Stats.Cancellations;
 		}
 	}

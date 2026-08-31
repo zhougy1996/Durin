@@ -18,12 +18,12 @@ namespace Durin::Editor::ContentBrowser::Private
 {
 	namespace
 	{
-		auto ReadAssetClipboard(FPackagePath& OutPath) -> bool
+		auto ReadAssetClipboard(FTopLevelAssetPath& OutPath) -> bool
 		{
 			OutPath = {};
 			const char* Clipboard = ImGui::GetClipboardText();
 			if (!Clipboard) return false;
-			return FPackagePath::TryCreate(Clipboard, OutPath);
+			return FTopLevelAssetPath::TryCreate(Clipboard, OutPath);
 		}
 	}
 
@@ -299,14 +299,14 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		if (Item.Kind == EContentBrowserItemKind::Redirector)
 		{
-			FPackagePath Path;
-			if (!FPackagePath::TryCreate(Item.VirtualPath, Path))
+			FObjectPath Path;
+			if (!FObjectPath::TryCreate(Item.VirtualPath, Path))
 			{
 				SetError("The redirector path is invalid.");
 				return;
 			}
-			const Asset::FAssetPathResolveResult Resolution =
-				Asset::ResolveAssetPath(Path);
+			const Asset::FObjectPathResolveResult Resolution =
+				Asset::ResolveObjectPath(Path);
 			if (!Resolution || !Resolution.FinalAssetData
 				|| !OpenAsset
 				|| !OpenAsset(
@@ -397,7 +397,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserPanel::PasteAsset(
 		std::string_view DestinationDirectory) -> void
 	{
-		FPackagePath SourcePath;
+		FTopLevelAssetPath SourcePath;
 		if (!ReadAssetClipboard(SourcePath)) return;
 		const std::string_view Directory = DestinationDirectory.empty()
 			? std::string_view(Model.GetCurrentVirtualPath())
@@ -414,12 +414,11 @@ namespace Durin::Editor::ContentBrowser::Private
 
 	auto FContentBrowserPanel::HasAssetClipboard() const -> bool
 	{
-		FPackagePath SourcePath;
+		FTopLevelAssetPath SourcePath;
 		if (!ReadAssetClipboard(SourcePath)) return false;
-		const Asset::FAssetCatalogEntry Entry =
-			Asset::FindAssetExact(SourcePath);
-		return Entry
-			&& Entry->EntryKind == Asset::EAssetRegistryEntryKind::Asset;
+		const Asset::FTopLevelAssetCatalogEntry Entry =
+			Asset::FindTopLevelAssetExact(SourcePath);
+		return Entry && !Entry->IsRedirector();
 	}
 
 	auto FContentBrowserPanel::CreateFolder(
@@ -466,23 +465,21 @@ namespace Durin::Editor::ContentBrowser::Private
 			if (Candidate.Kind != EContentBrowserItemKind::Redirector
 				|| !Selection.contains(Candidate.StableId()))
 				continue;
-			FPackagePath Path;
-			if (!FPackagePath::TryCreate(Candidate.VirtualPath, Path))
+			if (!Candidate.PackagePath.IsValid())
 			{
 				SetError("A selected redirector path is invalid.");
 				return;
 			}
-			Redirectors.push_back(std::move(Path));
+			Redirectors.push_back(Candidate.PackagePath);
 		}
 		if (Redirectors.empty())
 		{
-			FPackagePath Path;
-			if (!FPackagePath::TryCreate(Item.VirtualPath, Path))
+			if (!Item.PackagePath.IsValid())
 			{
 				SetError("The redirector path is invalid.");
 				return;
 			}
-			Redirectors.push_back(std::move(Path));
+			Redirectors.push_back(Item.PackagePath);
 		}
 		const Asset::FAssetResult Result =
 			Operations.FixUpRedirectors(Redirectors);

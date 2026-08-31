@@ -55,7 +55,7 @@ namespace Durin
 	{
 	public:
 		auto CreateAsset(
-			const FPackagePath& AssetPath,
+			const FTopLevelAssetPath& AssetPath,
 			DClass* AssetClass,
 			const DFactory* Factory,
 			DObject* Context,
@@ -66,7 +66,7 @@ namespace Durin
 		}
 
 		auto ImportAsset(
-			const FPackagePath& AssetPath,
+			const FTopLevelAssetPath& AssetPath,
 			DClass* AssetClass,
 			std::string_view Filename,
 			const DFactory* Factory,
@@ -117,7 +117,7 @@ namespace Durin
 
 	private:
 		auto CreateWithFactory(
-			const FPackagePath& AssetPath,
+			const FTopLevelAssetPath& AssetPath,
 			DClass* AssetClass,
 			const DFactory* RequestedFactory,
 			std::string_view Filename,
@@ -134,7 +134,8 @@ namespace Durin
 				|| AssetClass->HasAnyClassFlags(EClassFlags::Abstract))
 				return MakeRejectedAssetOperation(
 					Kind, "The requested asset class cannot be constructed.");
-			if (FindPackage(AssetPath.GetView()) || Asset::FindAssetExact(AssetPath))
+			if (FindPackage(AssetPath.GetPackagePath().GetView())
+				|| Asset::FindTopLevelAssetExact(AssetPath))
 				return MakeRejectedAssetOperation(Kind, std::format(
 					"Asset {} already exists.", AssetPath.ToString()));
 			if (bFromFile && Filename.empty())
@@ -158,7 +159,7 @@ namespace Durin
 			if (!ValidateFactory(Factory, AssetClass, Error))
 				return MakeRejectedAssetOperation(Kind, std::move(Error));
 
-			DPackage* Package = CreatePackage(AssetPath);
+			DPackage* Package = CreatePackage(AssetPath.GetPackagePath());
 			if (!Package)
 				return MakeRejectedAssetOperation(
 					Kind, "The destination package could not be created.");
@@ -184,14 +185,14 @@ namespace Durin
 			{
 				DiscardPackage(Package);
 				return MakeRejectedAssetOperation(
-					Kind, "The factory returned an invalid package main asset.");
+					Kind, "The factory returned an invalid top-level asset.");
 			}
 			Package->MarkDirty();
 			Package->MarkAsNewlyCreated();
 			return {
 				.Kind = Kind,
 				.Persistence = EAssetOperationPersistenceState::Dirty,
-				.AffectedAssets = {AssetPath},
+				.AffectedAssets = {AssetPath.GetPackagePath()},
 				.Message = Diagnostics.ToString(),
 				.Asset = Asset,
 				.Package = Package};

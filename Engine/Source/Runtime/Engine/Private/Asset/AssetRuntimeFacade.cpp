@@ -23,27 +23,8 @@ namespace Durin::Asset
 			Path, ExpectedClass, OutObject, OutReport);
 	}
 
-	auto LoadAsset(
-		const FPackagePath& Path,
-		DObject*& OutAsset,
-		FAssetLoadReport* OutReport) -> FAssetResult
-	{
-		return FAssetRuntimeState::Get().GetLoadService().LoadAsset(
-			Path, OutAsset, OutReport);
-	}
-
-	auto LoadAsset(
-		const FPackagePath& Path,
-		const DClass* ExpectedClass,
-		DObject*& OutAsset,
-		FAssetLoadReport* OutReport) -> FAssetResult
-	{
-		return FAssetRuntimeState::Get().GetLoadService().LoadAsset(
-			Path, ExpectedClass, OutAsset, OutReport);
-	}
-
 	auto CreateAsset(
-		const FPackagePath& Path,
+		const FTopLevelAssetPath& Path,
 		DClass* Class,
 		size_t Size,
 		DObject*& OutAsset) -> FAssetResult
@@ -53,8 +34,8 @@ namespace Durin::Asset
 	}
 
 	auto DuplicateAsset(
-		const FPackagePath& SourcePath,
-		const FPackagePath& DestinationPath,
+		const FTopLevelAssetPath& SourcePath,
+		const FTopLevelAssetPath& DestinationPath,
 		DObject*& OutAsset) -> FAssetResult
 	{
 		return FAssetRuntimeState::Get().GetLoadService().DuplicateAsset(

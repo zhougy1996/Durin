@@ -24,39 +24,39 @@ namespace Durin::Editor
 		std::vector<FAssetThumbnailScheduledRequest> CapturedQueue;
 		bool bShuttingDown = false;
 
-		auto RemovePendingRequest(const FPackagePath& AssetPath) -> void
+		auto RemovePendingRequest(const FTopLevelAssetPath& AssetPath) -> void
 		{
 			std::erase_if(PendingRequests,
 				[&AssetPath](const FAssetThumbnailRequest& Request) {
-					return Request.Asset.VirtualPath == AssetPath;
+					return Request.Asset.AssetPath == AssetPath;
 				});
 		}
 
-		auto RemoveCapturedJob(const FPackagePath& AssetPath) -> void
+		auto RemoveCapturedJob(const FTopLevelAssetPath& AssetPath) -> void
 		{
 			std::erase_if(CapturedQueue,
 				[&AssetPath](const FAssetThumbnailScheduledRequest& Job) {
-					return Job.GenerationRequest.KeyInput.Asset.VirtualPath == AssetPath;
+					return Job.GenerationRequest.KeyInput.Asset.AssetPath == AssetPath;
 				});
 		}
 
 		auto CancelEntry(FEntry& Entry) -> void
 		{
 			if (Entry.bCaptured) Entry.GenerationRequest.Cancellation.Cancel();
-			RemovePendingRequest(Entry.Request.Asset.VirtualPath);
-			RemoveCapturedJob(Entry.Request.Asset.VirtualPath);
+			RemovePendingRequest(Entry.Request.Asset.AssetPath);
+			RemoveCapturedJob(Entry.Request.Asset.AssetPath);
 		}
 
 		auto PromoteQueuedRequest(
-			const FPackagePath& AssetPath,
+			const FTopLevelAssetPath& AssetPath,
 			EAssetThumbnailPriority Priority) -> void
 		{
 			if (Priority != EAssetThumbnailPriority::Visible) return;
 			for (FAssetThumbnailRequest& Pending : PendingRequests)
-				if (Pending.Asset.VirtualPath == AssetPath)
+				if (Pending.Asset.AssetPath == AssetPath)
 					Pending.Priority = EAssetThumbnailPriority::Visible;
 			for (FAssetThumbnailScheduledRequest& Captured : CapturedQueue)
-				if (Captured.GenerationRequest.KeyInput.Asset.VirtualPath == AssetPath)
+				if (Captured.GenerationRequest.KeyInput.Asset.AssetPath == AssetPath)
 					Captured.Priority = EAssetThumbnailPriority::Visible;
 		}
 
@@ -72,7 +72,7 @@ namespace Durin::Editor
 			FAssetThumbnailRequest Request = std::move(*Selected);
 			PendingRequests.erase(Selected);
 
-			const std::string AssetPath = Request.Asset.VirtualPath.ToString();
+			const std::string AssetPath = Request.Asset.AssetPath.ToString();
 			const auto Existing = Entries.find(AssetPath);
 			if (Existing == Entries.end()) return false;
 			FEntry& Entry = Existing->second;
@@ -150,7 +150,7 @@ namespace Durin::Editor
 			return false;
 		}
 
-		const std::string AssetPath = Request.Asset.VirtualPath.ToString();
+		const std::string AssetPath = Request.Asset.AssetPath.ToString();
 		if (auto Existing = Impl->Entries.find(AssetPath);
 			Existing != Impl->Entries.end())
 		{
@@ -164,7 +164,7 @@ namespace Durin::Editor
 				&& Request.Asset == Entry.Request.Asset
 				&& Handle.Generation == Entry.RendererGeneration)
 			{
-				Impl->PromoteQueuedRequest(Request.Asset.VirtualPath, Request.Priority);
+				Impl->PromoteQueuedRequest(Request.Asset.AssetPath, Request.Priority);
 				OutError.clear();
 				return true;
 			}
@@ -189,7 +189,7 @@ namespace Durin::Editor
 		return true;
 	}
 
-	auto FAssetThumbnailRequestQueue::Find(const FPackagePath& AssetPath) const
+	auto FAssetThumbnailRequestQueue::Find(const FTopLevelAssetPath& AssetPath) const
 		-> FAssetThumbnailView
 	{
 		const auto It = Impl->Entries.find(AssetPath.ToString());
@@ -247,7 +247,7 @@ namespace Durin::Editor
 		FAssetThumbnailScheduledRequest Job = std::move(*Selected);
 		Impl->CapturedQueue.erase(Selected);
 		const std::string AssetPath =
-			Job.GenerationRequest.KeyInput.Asset.VirtualPath.ToString();
+			Job.GenerationRequest.KeyInput.Asset.AssetPath.ToString();
 		const auto Entry = Impl->Entries.find(AssetPath);
 		const FThumbnailRendererHandle CurrentRenderer = Impl->Registry.Find(
 			Job.GenerationRequest.KeyInput.Asset.AssetClassName);
@@ -282,7 +282,7 @@ namespace Durin::Editor
 		if (Impl->bShuttingDown || Job.GenerationRequest.Cancellation.IsCancelled())
 			return false;
 		const std::string AssetPath =
-			Job.GenerationRequest.KeyInput.Asset.VirtualPath.ToString();
+			Job.GenerationRequest.KeyInput.Asset.AssetPath.ToString();
 		const auto It = Impl->Entries.find(AssetPath);
 		if (It == Impl->Entries.end()) return false;
 		FImpl::FEntry& Entry = It->second;
@@ -310,7 +310,7 @@ namespace Durin::Editor
 		return true;
 	}
 
-	auto FAssetThumbnailRequestQueue::Cancel(const FPackagePath& AssetPath) -> void
+	auto FAssetThumbnailRequestQueue::Cancel(const FTopLevelAssetPath& AssetPath) -> void
 	{
 		const auto It = Impl->Entries.find(AssetPath.ToString());
 		if (It == Impl->Entries.end()) return;

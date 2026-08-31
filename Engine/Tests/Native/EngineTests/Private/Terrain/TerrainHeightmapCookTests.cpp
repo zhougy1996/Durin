@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include "NativeDObjectTestSupport.h"
+
 TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDdc)
 {
 	InitializeDObjectSystem();
@@ -73,7 +75,7 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	Durin::DTerrainHeightmap* Cooked = nullptr;
-	const Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadAsset(AssetPath, Cooked);
+	const Durin::Asset::FAssetResult Loaded = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Cooked);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
 	ASSERT_NE(Cooked, nullptr);
 	ASSERT_NE(Cooked->GetPayload(), nullptr);

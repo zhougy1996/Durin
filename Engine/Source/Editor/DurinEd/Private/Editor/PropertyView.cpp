@@ -332,7 +332,7 @@ namespace Durin::Editor
 			return ViewState;
 		}
 		if (Reference->IsNull()) return ViewState;
-		ViewState.Path = Reference->GetPath().GetPackagePath();
+		ViewState.Path = Reference->GetPath();
 
 		const Asset::FSoftObjectResolveResult Resolve = Asset::ResolveSoftObject(
 			*Reference, Property->GetExpectedClass(), Asset::ESoftObjectNullPolicy::Reject);
@@ -905,7 +905,8 @@ namespace Durin::Editor
 				|| (ViewState.State == ESoftObjectViewState::Redirected
 					&& !ViewState.LoadedObject);
 			const bool bCanReveal = ViewState.Path.IsValid()
-				&& Asset::FindAssetExact(ViewState.Path) && Context.RevealAsset;
+				&& Asset::FindTopLevelAssetExact(ViewState.Path.GetAssetPath())
+				&& Context.RevealAsset;
 
 			const FAssetPickerAction LoadAction{
 				.Icon = Icons::Play,
@@ -925,7 +926,8 @@ namespace Durin::Editor
 					.Tooltip = "Reveal the referenced asset in the Content Browser.",
 					.bEnabled = bCanReveal,
 					.Execute = [&Context, &ViewState](std::string& Error) {
-						return Context.RevealAsset && Context.RevealAsset(ViewState.Path, Error);
+						return Context.RevealAsset
+							&& Context.RevealAsset(ViewState.Path.GetPackagePath(), Error);
 					},
 				},
 			}};
@@ -937,7 +939,7 @@ namespace Durin::Editor
 				.ClassPolicy = EAssetClassPolicy::Derived,
 				.AssignmentMode = EAssetAssignmentMode::AssetPath,
 				.CurrentSelection = ViewState.LoadedObject,
-				.CurrentSelectionPath = ViewState.Path.GetView(),
+				.CurrentSelectionPath = ViewState.Path.ToString(),
 				.CurrentSelectionStatus = StateLabel,
 				.SearchText = AssetSearchText,
 				.bAllowNone = true,

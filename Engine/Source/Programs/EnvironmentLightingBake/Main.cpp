@@ -86,9 +86,16 @@ auto main(int ArgumentCount, char** Arguments) -> int
 		std::cerr << "Invalid built-in asset path: " << Error << '\n';
 		return 1;
 	}
+	Durin::FTopLevelAssetPath TopLevelAssetPath;
+	if (!Durin::FTopLevelAssetPath::TryCreate(
+		AssetPath, AssetPath.GetPackageName(), TopLevelAssetPath, &Error))
+	{
+		std::cerr << "Invalid built-in top-level asset path: " << Error << '\n';
+		return 1;
+	}
 	Durin::DEnvironmentLighting* Asset = nullptr;
 	const Durin::Asset::FAssetResult CreateResult =
-		Durin::Asset::CreateAsset(AssetPath, Asset);
+		Durin::Asset::CreateAsset(TopLevelAssetPath, Asset);
 	if (!CreateResult)
 	{
 		std::cerr << "Failed to create environment-lighting asset: "

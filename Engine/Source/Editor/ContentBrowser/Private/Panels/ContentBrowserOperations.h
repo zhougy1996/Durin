@@ -248,7 +248,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto Duplicate(const FContentBrowserItem& Item)
 			-> FContentBrowserOperationResult;
 		auto Duplicate(
-			const FPackagePath& SourcePath,
+			const FTopLevelAssetPath& SourcePath,
 			std::string_view DestinationDirectory)
 			-> FContentBrowserOperationResult;
 		auto CreateFolder(std::string_view PhysicalDirectory)

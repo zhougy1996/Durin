@@ -29,12 +29,12 @@ versions, never from the saved-by engine release.
 
 `FArchiveVersionContext` carries a named format version separately from
 GUID-keyed custom versions. Object-graph Archives report object-graph v2;
-authored and cooked package Archives report DAST v8. Property snapshots are
+authored and cooked package Archives report DAST v9. Property snapshots are
 process-local and unversioned.
 
 CoreDObject linker tables own the package-local custom-version list, canonical
 GUID order, discovery freeze, known-codec flags, emitted value, optional maximum
-supported value, and whether a version is required for interpretation. The v8
+supported value, and whether a version is required for interpretation. The v9
 writer freezes these facts with all other linker tables. The reader rejects
 duplicates, malformed flags, unsupported required values, or late-discovery
 drift before linker or object publication.
@@ -54,14 +54,14 @@ object publication. Version discovery and emission must agree exactly.
 ## Authored Package Policy
 
 DAST has one permanent nonzero format GUID and current production wire version
-8. Core's bounded DURF validation selects DAST identity; CoreDObject's sole v8
+9. Core's bounded DURF validation selects DAST identity; CoreDObject's sole v9
 reader/writer owns all package tables and tagged-value semantics. Engine's
-immutable ordinary codec policy selects v8 only for header reads, validation,
+immutable ordinary codec policy selects v9 only for header reads, validation,
 inspection, schema probes, reference projection, live load, serialization,
 relocation, fix-up, redirectors, Cook, and canonical resave.
 
 Every production entry requires exact package identity and, when present, the
-complete main/raw-bulk closure. Unknown format identities, non-v8 DAST versions,
+complete main/raw-bulk closure. Unknown format identities, non-v9 DAST versions,
 required features, legacy prefixes, noncanonical bytes, or invalid closure
 facts fail before object construction, mutation, catalog publication, or Dirty
 state changes. Read-only entry points never select a writer.
@@ -73,17 +73,19 @@ change requires a new DAST version and a separately planned corpus transition.
 The Registry cache fingerprints exact source bytes/format and is invalidated by
 any relevant main/bulk change.
 
-Raw `.dbulk` is not a DURF format. DAST v8 Registry and Bulk Directory own its
+Raw `.dbulk` is not a DURF format. DAST v9 Registry and Bulk Directory own its
 extent, whole-segment digest, field ranges, alignments, and per-value digests.
 Asset-family payload schemas and DDC/Cook keys version independently.
 
-## Retired Package Formats
+## Retired And Offline Package Formats
 
-The maintained repository baseline is canonical v8. V7 is not a supported
-reader, writer, discovery, mutation, migration, or runtime fallback. The
-completed corpus migration removed its decoder, adapter, command route, and
-focused fixtures. A mounted non-v8 package fails Registry admission before it
-can publish catalog state.
+The maintained repository baseline is canonical v9. Production discovery,
+load, save, inspection, mutation, Cook, and resave select v9 only. V8 remains a
+bounded offline input to AssetMaintenance's explicit `asset migrate`
+preview/apply workflow and focused conversion fixtures; it is never selected by
+ordinary runtime policy. V7 has no supported reader or migration path. A
+mounted non-v9 package fails Registry admission before it can publish catalog
+state.
 
 ## Early-Development Compatibility
 

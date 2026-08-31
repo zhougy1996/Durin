@@ -89,6 +89,119 @@ namespace Durin::Asset
 			}
 		}
 
+		auto AppendRedirectedSubobjectPath(
+			const FObjectPath& Destination,
+			FSubobjectPathView SourceSubobjects,
+			FObjectPath& OutPath) -> bool
+		{
+			if (SourceSubobjects.empty())
+			{
+				OutPath = Destination;
+				return true;
+			}
+			std::vector<std::string> Components;
+			for (std::string_view Component : Destination.GetSubobjectNames())
+				Components.emplace_back(Component);
+			for (std::string_view Component : SourceSubobjects)
+				Components.emplace_back(Component);
+			return FObjectPath::TryCreate(
+				Destination.GetAssetPath(), Components, OutPath);
+		}
+
+		auto ResolveObjectPathInCatalog(
+			const std::unordered_map<FPackagePath, FAssetData>& Assets,
+			uint64 Revision,
+			const FObjectPath& Path,
+			const FAssetPathResolveOptions& Options) -> FObjectPathResolveResult
+		{
+			FObjectPathResolveResult Result;
+			Result.CatalogRevision = Revision;
+			Result.RequestedPath = Path;
+			FObjectPath Current = Path;
+			std::unordered_set<FObjectPath> Visited;
+			while (true)
+			{
+				const auto PackageIt = Assets.find(Current.GetPackagePath());
+				if (PackageIt == Assets.end())
+				{
+					Result.FinalPath = Current;
+					Result.State = Result.RedirectChain.empty()
+						? EAssetPathResolveState::NotFound
+						: EAssetPathResolveState::MissingRedirectTarget;
+					return Result;
+				}
+				const FAssetData& Package = PackageIt->second;
+				const auto AssetIt = std::ranges::find(
+					Package.TopLevelAssets, Current.GetAssetPath(),
+					&FTopLevelAssetData::AssetPath);
+				if (AssetIt == Package.TopLevelAssets.end())
+				{
+					Result.FinalPath = Current;
+					Result.State = Result.RedirectChain.empty()
+						? EAssetPathResolveState::NotFound
+						: EAssetPathResolveState::MissingRedirectTarget;
+					return Result;
+				}
+				const FTopLevelAssetData& Asset = *AssetIt;
+				if (!Asset.IsRedirector())
+				{
+					if (Asset.AssetClassName == RedirectorClassName)
+					{
+						Result.FinalPath = Current;
+						Result.State = EAssetPathResolveState::CorruptRedirector;
+						return Result;
+					}
+					DClass* TargetClass = FindClassByQualifiedName(FName(Asset.AssetClassName));
+					if (!TargetClass)
+					{
+						Result.FinalPath = Current;
+						Result.State = EAssetPathResolveState::UnknownTargetClass;
+						return Result;
+					}
+					if (Options.ExpectedClass && Current.IsTopLevelAsset()
+						&& !TargetClass->IsChildOf(Options.ExpectedClass))
+					{
+						Result.FinalPath = Current;
+						Result.State = EAssetPathResolveState::RedirectTypeMismatch;
+						return Result;
+					}
+					Result.FinalPath = Current;
+					Result.FinalAssetData = Asset;
+					Result.FinalPackageData = Package;
+					Result.State = EAssetPathResolveState::Resolved;
+					return Result;
+				}
+				if (Asset.AssetClassName != RedirectorClassName)
+				{
+					Result.FinalPath = Current;
+					Result.State = EAssetPathResolveState::CorruptRedirector;
+					return Result;
+				}
+				if (!Visited.insert(Current).second)
+				{
+					Result.FinalPath = Current;
+					Result.State = EAssetPathResolveState::RedirectCycle;
+					return Result;
+				}
+				if (Result.RedirectChain.size() == MaximumRedirectDepth)
+				{
+					Result.FinalPath = Current;
+					Result.State = EAssetPathResolveState::RedirectDepthExceeded;
+					return Result;
+				}
+				Result.RedirectChain.push_back(Current);
+				FObjectPath Redirected;
+				if (!AppendRedirectedSubobjectPath(
+					Asset.RedirectDestination, Current.GetSubobjectNames(), Redirected))
+				{
+					Result.FinalPath = Current;
+					Result.State = EAssetPathResolveState::CorruptRedirector;
+					return Result;
+				}
+				Current = std::move(Redirected);
+			}
+		}
+
 		auto ValidatePublication(
 			const FAssetRegistryPublication& Publication) -> FAssetResult
 		{
@@ -382,6 +495,14 @@ namespace Durin::Asset
 		const FAssetPathResolveOptions& Options) -> FAssetPathResolveResult
 	{
 		return Private::GetAssetRegistryState().ResolveAssetPath(Path, Options);
+	}
+
+	auto ResolveObjectPath(const FObjectPath& Path,
+		const FAssetPathResolveOptions& Options) -> FObjectPathResolveResult
+	{
+		const FAssetCatalogSnapshot Snapshot = CaptureAssetCatalogSnapshot();
+		return ResolveObjectPathInCatalog(
+			Snapshot.Assets, Snapshot.Revision, Path, Options);
 	}
 
 	auto CaptureAssetCatalogSnapshot() -> FAssetCatalogSnapshot

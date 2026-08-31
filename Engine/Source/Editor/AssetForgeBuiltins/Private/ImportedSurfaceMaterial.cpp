@@ -44,7 +44,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		FPackagePath MaterialPath;
 		if (!FPackagePath::TryCreate(
-			ImportedSurfaceMaterialPath, MaterialPath, &OutError)) return nullptr;
+			ImportedSurfaceMaterialPackagePath, MaterialPath, &OutError)) return nullptr;
 
 		DPackage* LoadedPackage = Asset::FindResidentPackage(MaterialPath);
 		if (LoadedPackage)
@@ -71,8 +71,13 @@ namespace Durin::AssetForge::Builtins
 
 		if (Asset::FindAssetExact(MaterialPath))
 		{
+			FObjectPath MaterialObjectPath;
+			if (!FObjectPath::TryCreate(
+				ImportedSurfaceMaterialObjectPath, MaterialObjectPath, &OutError))
+				return nullptr;
 			DMaterial* Loaded = nullptr;
-			const Asset::FAssetResult LoadResult = Asset::LoadAsset(MaterialPath, Loaded);
+			const Asset::FAssetResult LoadResult = Asset::LoadObject(
+				MaterialObjectPath, Loaded);
 			if (!LoadResult)
 			{
 				OutError = std::format(
@@ -106,7 +111,15 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		DMaterial* Created = nullptr;
-		const Asset::FAssetResult CreateResult = Asset::CreateAsset(MaterialPath, Created);
+		FTopLevelAssetPath MaterialAssetPath;
+		if (!FTopLevelAssetPath::TryCreate(
+			MaterialPath, MaterialPath.GetPackageName(), MaterialAssetPath))
+		{
+			OutError = "The imported-surface material asset path is invalid.";
+			return nullptr;
+		}
+		const Asset::FAssetResult CreateResult =
+			Asset::CreateAsset(MaterialAssetPath, Created);
 		if (!CreateResult)
 		{
 			OutError = std::format(

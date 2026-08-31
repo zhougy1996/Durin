@@ -314,12 +314,12 @@ namespace Durin::Editor::Level
 					if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(::Durin::Editor::AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(::Durin::Editor::FAssetDragDropPayload))
 					{
 						const auto* AssetPayload = static_cast<const ::Durin::Editor::FAssetDragDropPayload*>(Payload->Data);
-						FPackagePath AssetPath;
+						FObjectPath AssetPath;
 						DObject* Asset = nullptr;
 						AActor* Actor = nullptr;
-						if (!FPackagePath::TryCreate(AssetPayload->AssetPath.data(), AssetPath))
+						if (!FObjectPath::TryCreate(AssetPayload->AssetPath.data(), AssetPath))
 							Context.SetError("Dropped asset path is invalid.");
-						else if (const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Asset); !Result)
+						else if (const Asset::FAssetResult Result = Asset::LoadObject(AssetPath, Asset); !Result)
 							Context.SetError(Result.Message);
 						else if (DStaticMesh* StaticMesh = Cast<DStaticMesh>(Asset))
 						{
@@ -339,7 +339,7 @@ namespace Durin::Editor::Level
 							Request.Description = "Place static mesh actor";
 							Request.Mutations.push_back({
 								.Kind = EStaticMeshLevelMutationKind::Create,
-								.TargetName = MakeUniqueActorName(*Context.Level, FName(AssetPath.GetAssetName())),
+								.TargetName = MakeUniqueActorName(*Context.Level, FName(AssetPath.GetAssetPath().GetAssetName())),
 								.Desired = {.StaticMesh = StaticMesh, .Transform = PlacementTransform},
 							});
 							const FStaticMeshLevelMutationPlan Plan = FStaticMeshLevelMutations::Plan(Request);
@@ -355,7 +355,7 @@ namespace Durin::Editor::Level
 						}
 						else if (DSkeletalMesh* SkeletalMesh = Cast<DSkeletalMesh>(Asset))
 						{
-							auto* SkeletalMeshActor = Context.Level->SpawnActor<ASkeletalMeshActor>(FName(AssetPath.GetAssetName()));
+							auto* SkeletalMeshActor = Context.Level->SpawnActor<ASkeletalMeshActor>(FName(AssetPath.GetAssetPath().GetAssetName()));
 							if (SkeletalMeshActor)
 							{
 								std::string BindError;
@@ -384,7 +384,7 @@ namespace Durin::Editor::Level
 								PlacementTransform.Translation = Origin + Direction * 5.0;
 							auto Request = FTerrainPlacement::CaptureTarget(*Context.Level);
 							Request.bReadOnly = Context.bReadOnly;
-							Request.ActorName = MakeUniqueActorName(*Context.Level, FName(AssetPath.GetAssetName()));
+							Request.ActorName = MakeUniqueActorName(*Context.Level, FName(AssetPath.GetAssetPath().GetAssetName()));
 							Request.Heightmap = Heightmap;
 							Request.ExpectedHeightmapRevision = Heightmap->GetRevision();
 							Request.Transform = PlacementTransform;
@@ -401,7 +401,7 @@ namespace Durin::Editor::Level
 							const FSkyBoxPlacementResult Result = FSkyBoxPlacement::PlaceTextureCube(
 								*Context.Level,
 								TextureCube,
-								FName(std::format("{}_SkyBox", AssetPath.GetAssetName())),
+								FName(std::format("{}_SkyBox", AssetPath.GetAssetPath().GetAssetName())),
 								GEditor ? GEditor->GetTransactor() : nullptr,
 								Context.bReadOnly);
 							if (!Result)

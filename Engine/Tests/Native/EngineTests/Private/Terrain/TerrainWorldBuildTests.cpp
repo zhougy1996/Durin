@@ -91,7 +91,7 @@ namespace
 		FPackagePath Path;
 		requiref(FPackagePath::TryCreate("/TerrainWorld/PackageTemplate", Path), "Terrain World test package path must be valid.");
 		DObject* Object = nullptr;
-		const Asset::FAssetResult Created = Asset::CreateAsset(Path, Object);
+		const Asset::FAssetResult Created = Asset::CreatePackageLeafAssetForTesting(Path, Object);
 		requiref(Created && Object, "{}", Created.Message);
 		std::vector<std::byte> Bytes;
 		const Asset::FAssetResult Serialized = Asset::SerializeAssetPackageBytes(

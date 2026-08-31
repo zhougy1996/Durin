@@ -1,4 +1,5 @@
 #include "Misc/MountPathTestSupport.h"
+#include "NativeDObjectTestSupport.h"
 #include "WorldTestSupport.h"
 #include "DObject/Package.h"
 #include "Math/Operations.h"
@@ -51,7 +52,7 @@ TEST(FDirectionalLightTests, LinearColorRoundTripsThroughLevelAssets)
 	Durin::FPackagePath Path;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/DirectionalLightTests/ColorRoundTrip", Path));
 	Durin::DLevel* Level = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Level));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Path, Level));
 	Durin::ADirectionalLightActor* Light = Level->SpawnActor<Durin::ADirectionalLightActor>("ColoredLight");
 	ASSERT_NE(Light, nullptr);
 	Durin::FProperty* ColorProperty = Durin::DDirectionalLightComponent::StaticClass()->FindPropertyByName("Color");
@@ -62,7 +63,7 @@ TEST(FDirectionalLightTests, LinearColorRoundTripsThroughLevelAssets)
 	ASSERT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 	Durin::DLevel* Loaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(Path, Loaded));
+	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Loaded));
 	ASSERT_NE(Loaded, nullptr);
 	auto* LoadedLight = dynamic_cast<Durin::ADirectionalLightActor*>(Loaded->FindActorByName("ColoredLight"));
 	ASSERT_NE(LoadedLight, nullptr);
@@ -182,7 +183,7 @@ TEST(FSceneComponentTests, EqualTransformSettersDoNotDirtyTheOwningPackage)
 	Durin::FPackagePath Path;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SceneComponentTests/EqualTransformSetters", Path));
 	Durin::DLevel* Level = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Level));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Path, Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");
 	ASSERT_NE(Actor, nullptr);
 	Durin::DSceneComponent* RootComponent = Actor->GetRootComponent();

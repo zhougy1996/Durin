@@ -369,7 +369,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			"/MaterialThumbnailVulkan/SM_ThumbnailPreview", StaticMeshFixturePath));
 		Durin::DStaticMesh* StaticMeshFixture = nullptr;
-		ASSERT_TRUE(Durin::Asset::CreateAsset(
+		ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(
 			StaticMeshFixturePath, StaticMeshFixture)) << Error;
 		ASSERT_NE(StaticMeshFixture, nullptr);
 		Durin::Asset::FStaticMeshImportedData ImportedMesh;
@@ -454,7 +454,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			"/MaterialThumbnailVulkan/M_StaticMeshThumbnail",
 			StaticMeshMaterialPath));
 		Durin::DMaterial* StaticMeshAssetMaterial = nullptr;
-		ASSERT_TRUE(Durin::Asset::CreateAsset(
+		ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(
 			StaticMeshMaterialPath,
 			StaticMeshAssetMaterial));
 		ASSERT_NE(StaticMeshAssetMaterial, nullptr);

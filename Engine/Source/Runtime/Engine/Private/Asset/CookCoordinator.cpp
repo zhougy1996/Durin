@@ -229,6 +229,13 @@ namespace Durin::Asset
 			return true;
 		}
 
+		auto MakeTopLevelObjectPath(
+			const FTopLevelAssetPath& AssetPath, FObjectPath& OutPath) -> bool
+		{
+			return FObjectPath::TryCreate(
+				AssetPath, std::span<const std::string>{}, OutPath);
+		}
+
 		struct FOutputRecord
 		{
 			ECookManifestEntryKind Kind = ECookManifestEntryKind::CookedPackage;
@@ -762,7 +769,13 @@ namespace Durin::Asset
 			if (Request.ReportProgress) Request.ReportProgress({ECookOperationStage::Load, Path, Index, Packages.size()});
 			const FAssetData* Data = Catalog.FindExact(Path);
 			if (!Data) return Finish(ECookRunStatus::Failed, "stale-registry", std::format("CookStaleRegistry: {} disappeared from the captured catalog.", Path.ToString()));
-			DClass* AssetClass = FindClassByQualifiedName(FName(Data->AssetClassName));
+			if (Data->TopLevelAssets.empty())
+				return Finish(ECookRunStatus::Failed, "missing-top-level-asset",
+					std::format("CookMissingTopLevelAsset: {} has no independently addressable asset.",
+						Path.ToString()));
+			const FTopLevelAssetData& CookRoot = Data->TopLevelAssets.front();
+			DClass* AssetClass = FindClassByQualifiedName(
+				FName(CookRoot.AssetClassName));
 			FResolvedCookContributor Contributor;
 			const FAssetResult Resolution = ResolveCookContributor(AssetClass, Contributor);
 			if (!Resolution)
@@ -800,8 +813,13 @@ namespace Durin::Asset
 				continue;
 			}
 
+			FObjectPath CookRootPath;
+			if (!MakeTopLevelObjectPath(CookRoot.AssetPath, CookRootPath))
+				return Finish(ECookRunStatus::Failed, "invalid-top-level-asset",
+					std::format("CookInvalidTopLevelAsset: {}.",
+						CookRoot.AssetPath.ToString()));
 			DObject* Asset = nullptr;
-			const FAssetResult LoadResult = LoadAsset(Path, Asset);
+			const FAssetResult LoadResult = LoadObject(CookRootPath, nullptr, Asset);
 			if (!LoadResult || !Asset)
 				return Finish(ECookRunStatus::Failed, "load-failed", std::format("CookLoadFailed: {}: {}", Path.ToString(), LoadResult.Message));
 			FCookContext Capture({}, Request.TargetPlatform, Request.TargetProfile, Request.bRetainEditorOnlyData);

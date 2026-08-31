@@ -1,15 +1,16 @@
 # Asset Packages
 
-Summary: Define asset identity, canonical DAST v8 packages, runtime residency, loading, and inspection.
+Summary: Define asset identity, canonical DAST v9 packages, runtime residency, loading, and inspection.
 
 Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance
 
 Last reviewed: 2026-08-31
 
-Durin object assets are stored as versioned `.dasset` packages. One package
-has one public main asset and may contain any number of `DObject` instances
-arranged through the ordinary Outer hierarchy. Outer defines structural
-containment and object paths; it is not by itself a GC strong reference.
+Durin object assets are stored as versioned `.dasset` packages. A package is a
+residency and persistence container with zero or more independently addressable
+top-level assets. Every direct persistent export is a top-level asset; its
+descendants use the ordinary Outer hierarchy. Outer defines structural
+containment and object paths, but is not by itself a GC strong reference.
 
 ## Public Capability Boundary
 
@@ -25,8 +26,9 @@ compatibility and canonical-resave batches.
 Ownership is deliberately one-way:
 
 - `CoreDObject` owns format-neutral linker tables, canonical tagged values,
-  DAST v8 read/write, bounded validation, and package-level Registry projection.
-- `AssetRegistry` owns canonical-v8 mounted-file discovery, bounded front-matter
+  production DAST v9 read/write, bounded validation, and the construct-free v8
+  conversion primitives used only by AssetMaintenance and focused fixtures.
+- `AssetRegistry` owns canonical-v9 mounted-file discovery, bounded front-matter
   reads, and immutable package metadata/dependency snapshots.
 - `Engine` captures live graphs into linker tables, applies validated linker
   tables to unpublished object graphs, owns residency, and provides transient
@@ -53,9 +55,9 @@ Ordinary `FPackagePath::TryCreate` remains mount-bound. Cook staging may use the
 explicit `TryCreateProjectContent` factory for a canonical `/Game/...` target
 before the fixed output mount exists; that exception admits no other namespace.
 
-Package and top-level asset names are interned and compare case-insensitively;
-the first accepted spelling is retained for display and serialization.
-Factories reject inputs before the interned-name bound could truncate them.
+Package, asset, and subobject identities compare case-sensitively by canonical
+UTF-8 spelling. Factories reject invalid separators, empty components, and
+inputs beyond the frozen component or complete-path bounds.
 The complete path stores only those two interned names and one optional dotted
 subobject string, and subobject traversal uses non-owning component views.
 Discovery rejects case-only duplicate logical package identities.
@@ -67,17 +69,17 @@ directories, escapes, missing files, forbidden dependencies, and read-only
 write policy. Existing paths and not-yet-created destinations are checked
 against canonical content directories, including symbolic-link targets.
 
-The physical main filename is the resolved virtual path plus `.dasset`. A
-nonempty external BulkData closure uses the stable sibling `.dbulk`. The main
-asset repeats the package leaf as its top-level asset name; inner objects append
-a colon and their relative Outer chain, for example
-`/Game/Objects/Test.Test:Root.Component`.
+The physical package filename is the resolved virtual package path plus
+`.dasset`. A nonempty external BulkData closure uses the stable sibling
+`.dbulk`. The file does not select an asset: top-level names are serialized
+explicitly, and inner objects append a colon plus their relative Outer chain,
+for example `/Game/Objects/Test.Mesh:Root.Component`.
 
-The mounted `FPackagePath` is part of package validation. DAST v8 includes that
+The mounted `FPackagePath` is part of package validation. DAST v9 includes that
 identity in its canonical name table, and every header, complete-read,
 inspection, mutation, relocation, Cook, and admission call supplies the exact
 identity expected for the physical file. Moving a package therefore requires a
-canonical v8 rewrite; a caller cannot validate the same bytes under an
+canonical v9 rewrite; a caller cannot validate the same bytes under an
 arbitrary path.
 
 ## Runtime Lifetime
@@ -90,16 +92,17 @@ save clears that state only after file and catalog publication.
 `DPackage::IsDirty()` independently records unsaved contents.
 
 Every ordinary asset package is `Standalone`, so GC retains registered
-residency without a manual root. `DPackage::Asset` strongly retains the main
-asset. Other descendants remain alive only through actual GC strong
+residency without a manual root. `DPackage` registers and strongly retains all
+of its direct persistent exports; no distinguished `Asset` pointer exists.
+Descendants remain alive through their top-level graph's actual GC strong
 references, not merely through Outer. Compiled-in reflection metadata instead
 uses rooted `/Cpp/<ModuleName>` packages and is never serialized as `.dasset`.
 
-Public load accepts an exact resident real package first. Otherwise it resolves
-the persistent catalog, follows redirect metadata, validates the complete v8
-closure, and constructs only the final real package. A catalog miss never
-guesses a filename. Redirector packages are constructed only by Engine's exact
-tooling seam.
+`LoadPackage(FPackagePath)` owns closure admission and residency.
+`LoadObject(FObjectPath)` resolves an exact top-level asset or descendant,
+follows asset-level redirects, loads the owning package, and selects the exact
+object. No load API derives an asset name from a package leaf, and a catalog
+miss never guesses a filename.
 
 Unload rejects newly created or dirty packages unless the caller explicitly
 selects `DiscardUnsaved`. It retires `Standalone`, runs GC, and succeeds only
@@ -129,30 +132,30 @@ the exact resolved object path and expected class. `Get()` performs no lookup,
 redirect resolution, or load, and returns only a live weak object from the
 current global cache epoch.
 
-Hard imports use package indices and may reference another package's main
-export. Soft references serialize only canonical paths. AssetRegistry persists
+Hard imports identify an exact top-level asset in another package. Soft
+references serialize complete canonical object paths. AssetRegistry persists
 package-level hard, soft, redirect, and searchable-name facts; exact
 object/property/container occurrences are computed transiently by Engine only
 for tools that need a concrete edit. See
 [Asset Catalog And Mutation](AssetCatalogAndMutation.md).
 
-## Canonical DAST v8 Format
+## Canonical DAST v9 Format
 
 DAST has permanent format identity
 `3c59d1a9-6ceb-4e4c-b059-452db0a5af56`, diagnostic name
-`Durin.BinaryFormat.DAST`, and current production version 8. The ordinary codec
-policy registers v8 only. Unknown identities, unsupported versions or features,
+`Durin.BinaryFormat.DAST`, and current production version 9. The ordinary codec
+policy registers v9 only. Unknown identities, unsupported versions or features,
 legacy prefixes, corrupt envelopes, and noncanonical encodings fail before
 object construction, mutation, or publication.
 
-The maintained `Engine/Content` and `Sandbox/Content` corpus is canonical v8.
+The maintained `Engine/Content` and `Sandbox/Content` corpus is canonical v9.
 Production discovery, save, load, inspection, mutation, Cook, and canonical
 resave reject v7. The completed repository migration removed its converter,
 decoder, command route, and fixtures.
 
 ### Envelope And Sections
 
-A v8 main image contains the 64-byte DURF v1 preamble, a 32-byte DAST format
+A v9 main image contains the 64-byte DURF v1 preamble, a 32-byte DAST format
 header, and nine canonical 48-byte directory entries. The required contiguous
 sections, in order, are:
 
@@ -178,12 +181,12 @@ Exports, Types, Schemas, Values, or payload bytes. Default bounds are 16 MiB
 for front matter, 1 GiB each for the main and external bulk images, 1,048,575
 table entries or container elements, 1 MiB strings, and value depth 64.
 
-Registry records the asset class, redirect state and destination, main-export
-id, export count, sorted unique hard/soft/searchable package facts, plus the
-exact external bulk extent and whole-segment digest. The caller-supplied package
-identity must be canonical UTF-8 and present in the name table. Redirectors
-have one redirect destination and the constrained public shape enforced by
-Registry and complete validation.
+Registry records the package identity and a canonical list of top-level asset
+records. Each record binds an export id to `FTopLevelAssetPath`, class, and an
+optional exact `FObjectPath` redirect destination. Shared sorted
+hard/soft/searchable package facts, export count, and exact external-bulk extent
+and digest remain package-level. No package class, redirect, or main-export id
+exists in v9.
 
 ### Linker Tables And Canonical Values
 
@@ -209,9 +212,9 @@ value kinds, malformed UTF-8, noncanonical order, arithmetic overflow, or a
 limit failure aborts without replacing either output. Identical logical input
 and identity produce byte-identical main/bulk output.
 
-`ReadPackageV8Registry(...)` validates only the declared front matter and
+`ReadPackageV9Registry(...)` validates only the declared front matter and
 physical main/bulk extents before publishing package-level metadata.
-`ReadPackageV8(...)` validates the complete main image and exact external
+`ReadPackageV9(...)` validates the complete main image and exact external
 segment into a detached linker model. It checks tables, indices, topology,
 types, values, section and payload digests, range placement, complete
 consumption, and canonical re-emission before replacing its output. Neither
@@ -241,7 +244,7 @@ Engine's save boundary walks each live object's ordinary
 `DObject::Serialize(...)` Archive to discover and then capture the complete
 effective graph. It resolves defaults and authored provenance, freezes object
 and field manifests, converts every value into detached CoreDObject linker
-tables, and calls `WritePackageV8`. Encoding never dereferences the live graph.
+tables, and calls `WritePackageV9`. Encoding never dereferences the live graph.
 A graph, field, reference, version, or value first seen after discovery is a
 save failure.
 
@@ -251,12 +254,12 @@ explicit. Owned per-save overrides may omit objects/properties or supply copied
 replacement values without mutating live state; validation rejects foreign or
 conflicting entries and hard references to omitted objects.
 
-An ordinary save validates the complete new v8 closure, stages main and bulk
+An ordinary save validates the complete new v9 closure, stages main and bulk
 bytes, publishes them as one recoverable unit, updates Registry state, then
-clears Dirty/NewlyCreated. Existing non-v8 input is unsupported. Failure
+clears Dirty/NewlyCreated. Existing non-v9 input is unsupported. Failure
 restores the prior physical closure, catalog, residency, and dirty state.
 
-Load resolves v8 policy, validates the complete main/bulk closure, and obtains
+Load resolves v9 policy, validates the complete main/bulk closure, and obtains
 one detached `FLinkerTables`. Engine then validates registered classes and
 fields, creates all package/export skeletons and Outer links unpublished,
 resolves hard dependencies, applies detached values through the authored
@@ -266,16 +269,16 @@ transaction publishes residency, dependencies, load reports, and cache state
 only after the whole closure succeeds. Any failure destroys the unpublished
 graph and releases dependencies admitted by the attempt.
 
-Internal references use export indices. Cross-package hard imports target the
-other package's main asset; cycles work because skeletons exist before values
-are applied. Missing fields keep constructor defaults. Unknown classes/fields,
+Internal references use export indices. Cross-package hard imports target an
+exact top-level asset; cycles work because skeletons exist before values are
+applied. Missing fields keep constructor defaults. Unknown classes/fields,
 incompatible recursive types, duplicate Map keys, malformed references,
 callback rejection, or unavailable operations fail the complete load rather
 than partially publishing state.
 
 ## Construct-Free Inspection And Mutation
 
-Engine inspection consumes validated v8 linker tables and projects immutable
+Engine inspection consumes validated v9 linker tables and projects immutable
 objects, fields, recursive values, hard/soft references, and BulkData storage
 descriptors without constructing the inspected classes. It loads no dependency,
 invokes no serializer or `PostLoad`, changes no dirty state, and never publishes
@@ -285,13 +288,14 @@ outside this package boundary.
 Registry refresh uses only package-level front matter. Relocation, redirector
 fix-up, deletion, compatibility maintenance, and Cook first select candidate
 packages from those package edges, then open only the candidates that need an
-exact occurrence or rewrite. Rewrites operate on detached v8 linkers, preserve
+exact occurrence or rewrite. Rewrites operate on detached v9 linkers, preserve
 untouched values, rebuild Registry metadata, validate the exact output closure,
 and enter the shared atomic transaction. No persistent occurrence route,
 display path, or legacy value cache exists.
 
-Relocation rewrites the embedded package identity and affected imports/soft
-paths as required by its transaction. Deletion uses package-level hard blockers
+Package relocation rewrites only the package component and preserves top-level
+asset names and subobject suffixes. Asset rename is a separate exact operation.
+Deletion uses package-level hard blockers
 and exact companion ownership. Cook carries identity plus exact main/bulk bytes
 through canonicalization, reachability, pruning, publication, and runtime
 admission; it never manufactures a legacy raw-segment metadata grammar.
@@ -303,32 +307,34 @@ publication on an unknown class/field or incompatible recursive type. It does
 not create a maintenance report or retain unknown live payloads.
 
 The read-only `AssetMaintenance` compatibility probe freezes registered schema
-identity, invokes Runtime's construct-free v8 schema inspection, and reports
+identity, invokes Runtime's construct-free v9 schema inspection, and reports
 canonical identity/deprecated-route evidence with stable physical offsets and
 fingerprints. It constructs no `DObject`, loads no dependency, invokes no
 callback, and writes no authored file. The Editor compatibility window and
 `DevTool asset check` consume the same deterministic records.
 
-Canonical resave is current-format v8 maintenance, not reimport or format
+Canonical resave is current-format v9 maintenance, not reimport or format
 conversion. Planning captures exact package identity, main/bulk fingerprint,
 format, entry kind, residency, Dirty conflicts, compatibility, and evidence.
-Apply revalidates the fingerprint, loads through the ordinary v8 reader when
+Apply revalidates the fingerprint, loads through the ordinary v9 reader when
 required, waits for family-owned save-readiness recovery, and publishes through
-`SavePackagesAtomically`. Verification rereads the exact v8 closure and
+`SavePackagesAtomically`. Verification rereads the exact v9 closure and
 requires compatible current-format output with no remaining selected evidence;
 failure restores the prior closure and Registry state. Project batches stop at
 cancellation but do not claim project-wide atomicity.
 
-Non-current content is unsupported and canonical resave never selects a legacy
-reader or writer. A future compatibility requirement needs an independently
-scoped migration tool justified by an inventoried source corpus. User-facing
-steps are in [Canonical Resave](../../Editor/Guides/CanonicalResave.md).
+Ordinary load, discovery, save, mutation, Cook, and canonical resave accept v9
+only. The bounded `asset migrate` workflow is the sole v8 boundary: it previews
+and converts detached closures without constructing objects, stale-checks and
+atomically publishes apply results, and verifies canonical v9 re-emission.
+User-facing resave steps are in
+[Canonical Resave](../../Editor/Guides/CanonicalResave.md).
 
 ## Subsystem Boundary
 
 - `CoreDObject`: `DPackage`, `FPackagePath`, reflection, Archive semantics,
-  linker tables, canonical values/Map keys, and DAST v8 codec.
-- `AssetRegistry`: mounted discovery, bounded v8 front-matter projection,
+  linker tables, canonical values/Map keys, and DAST v9 codec.
+- `AssetRegistry`: mounted discovery, bounded v9 front-matter projection,
   package metadata/dependency state, revisions, and rebuildable cache.
 - `Engine`: physical closure I/O, live capture/application, residency,
   dependency loading, exact inspection/mutation, DDC integration, and Cook.

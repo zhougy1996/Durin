@@ -38,6 +38,8 @@
 
 #include <gtest/gtest.h>
 
+#include "NativeDObjectTestSupport.h"
+
 namespace
 {
 	auto WriteNpotTextureFixture(const std::filesystem::path& Path) -> void
@@ -153,7 +155,7 @@ TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 
 	Durin::DTexture2D* Loaded = nullptr;
 	const Durin::Asset::FAssetResult Load =
-		Durin::Asset::LoadAsset(AssetPath, Loaded);
+		Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded);
 	ASSERT_TRUE(Load) << Load.Message;
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->GetDerivedDataDiagnostic().Status,
@@ -316,7 +318,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedTexture", CookedPath));
 	Durin::DTexture2D* CookedTexture = nullptr;
 	const Durin::Asset::FAssetResult LoadResult =
-		Durin::Asset::LoadAsset(CookedPath, CookedTexture);
+		Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(CookedPath), CookedTexture);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	ASSERT_NE(CookedTexture, nullptr);
 	ASSERT_NE(CookedTexture->GetPlatformData(), nullptr);
@@ -486,7 +488,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	const Durin::Asset::FAssetResult MissingBulk =
-		Durin::Asset::LoadAsset(CookedPath, CookedTexture);
+		Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(CookedPath), CookedTexture);
 	EXPECT_FALSE(MissingBulk);
 	EXPECT_EQ(CookedTexture, nullptr);
 	EXPECT_NE(MissingBulk.Message.find("bulk segment"), std::string::npos);
@@ -501,7 +503,7 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 		Durin::FPackagePath Path;
 		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedTexture", Path));
 		Durin::DTexture2D* Texture = nullptr;
-		const Durin::Asset::FAssetResult Result = Durin::Asset::LoadAsset(Path, Texture);
+		const Durin::Asset::FAssetResult Result = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Texture);
 		EXPECT_FALSE(Result);
 		EXPECT_EQ(Texture, nullptr);
 		EXPECT_NE(Result.Message.find(ExpectedText), std::string::npos) << Result.Message;

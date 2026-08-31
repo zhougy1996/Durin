@@ -119,7 +119,7 @@ namespace
 		EXPECT_TRUE(Settings.good());
 		Settings.close();
 		Durin::DLevel* Level = nullptr;
-		EXPECT_TRUE(Durin::Asset::CreateAsset(Scenario.OldPath, Level));
+		EXPECT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Scenario.OldPath, Level));
 		EXPECT_NE(Level, nullptr);
 		if (Level) EXPECT_TRUE(Durin::Asset::SavePackage(Level->GetPackage()));
 		EXPECT_TRUE(Relocate(Scenario.OldPath, Scenario.NewPath));

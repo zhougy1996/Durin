@@ -29,8 +29,8 @@ namespace Durin::Editor
 	struct FSoftObjectViewState
 	{
 		ESoftObjectViewState State = ESoftObjectViewState::Null;
-		FPackagePath Path;
-		FPackagePath ResolvedPath;
+		FObjectPath Path;
+		FObjectPath ResolvedPath;
 		DObject* LoadedObject = nullptr;
 		std::string Message;
 	};

@@ -52,10 +52,11 @@ namespace Durin::Editor::ContentBrowser::Private
 			-> std::optional<::Durin::Editor::FAssetThumbnailPackageFingerprint>
 		{
 			if (!Item.ThumbnailSourcePath.empty()) return std::nullopt;
-			FPackagePath Path;
-			if (!FPackagePath::TryCreate(Item.VirtualPath, Path)) return std::nullopt;
+			FTopLevelAssetPath Path;
+			if (!FTopLevelAssetPath::TryCreate(Item.VirtualPath, Path)) return std::nullopt;
 			return ::Durin::Editor::FAssetThumbnailPackageFingerprint{
-				.VirtualPath = std::move(Path),
+				.AssetPath = std::move(Path),
+				.PackagePath = Item.PackagePath,
 				.AssetClassName = Item.AssetClassName,
 				.PackageFormatVersion = Item.ThumbnailPackageFormatVersion,
 				.FileSize = static_cast<uint64>(Item.ThumbnailFileSize),
@@ -537,8 +538,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			if (Item.Kind == EContentBrowserItemKind::Asset
 				|| Item.Kind == EContentBrowserItemKind::Redirector)
 			{
-				FPackagePath Path;
-				if (FPackagePath::TryCreate(Item.VirtualPath, Path))
+				const FPackagePath& Path = Item.PackagePath;
+				if (Path.IsValid())
 				{
 					if (const Asset::FAssetCatalogEntry Data =
 						Asset::FindAssetExact(Path))
@@ -572,9 +573,11 @@ namespace Durin::Editor::ContentBrowser::Private
 								ReferenceIndex.GetErrors().size() == 1 ? "" : "s"));
 						if (Item.Kind == EContentBrowserItemKind::Redirector)
 						{
-							Row("Destination", Data->RedirectDestination.ToString());
-							const Asset::FAssetPathResolveResult Resolution =
-								Asset::ResolveAssetPath(Path);
+							Row("Destination", Item.RedirectDestination.ToString());
+							FObjectPath ObjectPath;
+							FObjectPath::TryCreate(Item.VirtualPath, ObjectPath);
+							const Asset::FObjectPathResolveResult Resolution =
+								Asset::ResolveObjectPath(ObjectPath);
 							Row("State", ResolveStateLabel(Resolution.State));
 							Row("Final", Resolution.FinalPath.IsValid()
 								? Resolution.FinalPath.ToString()
@@ -869,8 +872,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			QueueContentAction([this, Item] { OpenItem(Item); });
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
-			FPackagePath PackagePath;
-			if (FPackagePath::TryCreate(Item.VirtualPath, PackagePath))
+			const FPackagePath& PackagePath = Item.PackagePath;
+			if (PackagePath.IsValid())
 			{
 				DPackage* LoadedPackage = Asset::FindResidentPackage(PackagePath);
 				const bool bCanSave = LoadedPackage && LoadedPackage->IsDirty();
@@ -889,9 +892,8 @@ namespace Durin::Editor::ContentBrowser::Private
 						if (SelectedItem.Kind == EContentBrowserItemKind::Asset
 							&& Selection.contains(SelectedItem.StableId()))
 						{
-							FPackagePath SelectedPath;
-							if (FPackagePath::TryCreate(SelectedItem.VirtualPath, SelectedPath))
-								SelectedPaths.push_back(std::move(SelectedPath));
+							if (SelectedItem.PackagePath.IsValid())
+								SelectedPaths.push_back(SelectedItem.PackagePath);
 						}
 					QueueContentAction([this, Paths = std::move(SelectedPaths)]() mutable {
 						ResaveAssetPackages(std::move(Paths));
@@ -954,8 +956,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (Item.Kind == EContentBrowserItemKind::Asset
 			|| Item.Kind == EContentBrowserItemKind::Redirector)
 		{
-			FPackagePath Path;
-			if (FPackagePath::TryCreate(Item.VirtualPath, Path))
+			const FPackagePath& Path = Item.PackagePath;
+			if (Path.IsValid())
 			{
 				std::vector<FPackagePath> Referencers;
 				for (const Asset::FAssetPackageReferenceEdge& Edge :
@@ -1178,9 +1180,10 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(::Durin::Editor::AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(::Durin::Editor::FAssetDragDropPayload))
 		{
 			const auto* AssetPayload = static_cast<const ::Durin::Editor::FAssetDragDropPayload*>(Payload->Data);
-			FPackagePath OldPath;
-			if (FPackagePath::TryCreate(AssetPayload->AssetPath.data(), OldPath))
+			FObjectPath OldObjectPath;
+			if (FObjectPath::TryCreate(AssetPayload->AssetPath.data(), OldObjectPath))
 			{
+				const FPackagePath& OldPath = OldObjectPath.GetPackagePath();
 				std::string Destination = bPhysicalDirectory ? PhysicalToVirtualDirectory(DestinationDirectory) : std::string(DestinationDirectory);
 				if (Destination.empty())
 				{

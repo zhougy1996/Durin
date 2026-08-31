@@ -40,11 +40,11 @@ namespace Durin::Sandbox
 
 	auto APlayerPawn::BeginPlay() -> void
 	{
-		FPackagePath MeshPath;
-		const bool bValidMeshPath = FPackagePath::TryCreate(GameplayTuning::GrayboxMeshPath, MeshPath);
+		FObjectPath MeshPath;
+		const bool bValidMeshPath = FObjectPath::TryCreate(GameplayTuning::GrayboxMeshPath, MeshPath);
 		DStaticMesh* Mesh = nullptr;
 		const Asset::FAssetResult LoadResult = bValidMeshPath
-			? Asset::LoadAsset(MeshPath, Mesh)
+			? Asset::LoadObject(MeshPath, Mesh)
 			: Asset::FAssetResult{Asset::EAssetError::InvalidPath, "The configured graybox mesh path is invalid."};
 		if (LoadResult && Mesh)
 		{

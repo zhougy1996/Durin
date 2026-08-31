@@ -31,6 +31,12 @@ namespace Durin::Asset::Private
 		std::vector<std::byte> BulkBytes;
 	};
 
+	struct FAssetRedirectorWriteMapping
+	{
+		FTopLevelAssetPath Source;
+		FObjectPath Destination;
+	};
+
 	// Defines the complete engine-owned capability set for one immutable package format.
 	struct FAssetPackageCodec
 	{
@@ -66,7 +72,8 @@ namespace Durin::Asset::Private
 			const FAssetPackageReadContext&, const FPackagePath&, FAssetPackageEncodedClosure&)
 			-> FAssetResult = nullptr;
 		auto (*WriteRedirector)(
-			const FPackagePath&, const FPackagePath&, FAssetPackageEncodedClosure&)
+			const FPackagePath&, std::span<const FAssetRedirectorWriteMapping>,
+			FAssetPackageEncodedClosure&)
 			-> FAssetResult = nullptr;
 	};
 

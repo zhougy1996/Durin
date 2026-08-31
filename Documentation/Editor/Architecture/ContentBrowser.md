@@ -42,8 +42,11 @@ Editor browser keys are intentionally neither read nor migrated.
 
 - Folders are navigation items and remain visible under every content-type
   filter.
-- Registered `.dasset` packages appear as real assets or redirectors from exact
-  registry metadata. Package files are never duplicated as ordinary files.
+- Every top-level asset record in a registered `.dasset` package appears as its
+  own real-asset or redirector item. Items use canonical
+  `FTopLevelAssetPath` identity while retaining the owning `FPackagePath` for
+  file, save, dependency, and whole-package operations. A multi-asset package
+  therefore yields multiple items but only one package file.
 - Every other regular file appears as a file. A file may be an import source,
   an asset-managed companion, or an unrelated project document; importability
   is a capability rather than an item kind.
@@ -103,8 +106,8 @@ than sequencing Engine mutation phases. **Duplicate** and `Ctrl+D` clone one
 selected real asset into the same writable folder, choosing `_Copy`, `_Copy2`,
 and later suffixes until both catalog and physical destinations are free. The
   complete persistent object graph is copied and published as a clean package.
-  `Ctrl+C` writes one selected real
-asset identity to the system clipboard; `Ctrl+V` pastes it into the current
+  `Ctrl+C` writes the selected canonical top-level asset identity to the system
+clipboard; `Ctrl+V` pastes it into the current
 folder, preserving its name when free and otherwise using the same copy suffix
 sequence. A folder context menu can paste directly into that folder. Opening a
 redirector resolves and opens its final real asset; redirectors are excluded
@@ -137,7 +140,8 @@ not name or construct a concrete asset editor.
 
 ContentBrowser owns item presentation, ordinary-file image decode/cache, and
 request admission. Asset cards retain lightweight `FAssetThumbnail` values and
-submit canonical identity plus visible/prefetch priority to the
+submit the exact `FTopLevelAssetPath`, owning package fingerprint, and
+visible/prefetch priority to the
 `DThumbnailManager`-owned shared `FAssetThumbnailPool`. Cards do not select a
 renderer or production path. `DurinEd` owns scheduling, persistence,
 render/readback/upload, preview scenes, reference pinning, texture reuse, and

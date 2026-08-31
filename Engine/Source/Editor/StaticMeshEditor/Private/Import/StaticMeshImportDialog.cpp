@@ -193,11 +193,19 @@ namespace Durin::Editor::StaticMesh
 			return false;
 		}
 		const FPackagePath& AssetPath = DestinationValidation.AssetPath;
+		FTopLevelAssetPath TopLevelAssetPath;
+		if (!FTopLevelAssetPath::TryCreate(
+			AssetPath, AssetPath.GetPackageName(), TopLevelAssetPath))
+		{
+			SetError("The static-mesh top-level asset path is invalid.");
+			return false;
+		}
 		auto* Factory = NewObject<AssetForge::Builtins::DStaticMeshFactory>(
 			nullptr, "StaticMeshDialogFactory", EObjectFlags::Transient);
 		Factory->SetImportSettings(Coordinates.GetSettings());
 		const FAssetToolsResult Result = IAssetTools::Get().ImportAsset(
-			AssetPath, DStaticMesh::StaticClass(), SourcePathBuffer.data(), Factory);
+			TopLevelAssetPath, DStaticMesh::StaticClass(),
+			SourcePathBuffer.data(), Factory);
 		if (!Result)
 		{
 			SetError(Result.Message.empty()

@@ -102,15 +102,15 @@ namespace Durin::Editor::StaticMesh
 		if (Document.ResourceId.empty()) return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		if (FindState(Document.ResourceId)) return ::Durin::Editor::EDocumentOpenResult::Opened;
 
-		FPackagePath AssetPath;
+		FObjectPath AssetPath;
 		std::string PathError;
-		if (!FPackagePath::TryCreate(Document.ResourceId, AssetPath, &PathError))
+		if (!FObjectPath::TryCreate(Document.ResourceId, AssetPath, &PathError))
 		{
 			ErrorMessage = std::move(PathError);
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		DStaticMesh* Mesh = nullptr;
-		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Mesh);
+		const Asset::FAssetResult Result = Asset::LoadObject(AssetPath, Mesh);
 		if (!Result || !Mesh)
 		{
 			ErrorMessage = Result ? "The selected asset is not a StaticMesh." : Result.Message;

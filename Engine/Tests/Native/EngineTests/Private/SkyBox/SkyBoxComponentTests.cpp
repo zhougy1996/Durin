@@ -1,4 +1,5 @@
 #include "SkyBoxTestSupport.h"
+#include "NativeDObjectTestSupport.h"
 #include "AssetForge/Builtins/TextureCubeImport.h"
 #include "Texture/TextureCubeFactoryTestSupport.h"
 #include "Math/Operations.h"
@@ -210,7 +211,7 @@ TEST(FSkyBoxTests, PackageTracksAndReloadsCubeAssetDependency)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/Cube", CubePath));
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/Actor", ActorPath));
 	Durin::ASkyBoxActor* Actor = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(ActorPath, Actor));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(ActorPath, Actor));
 	Actor->GetSkyBoxComponent()->SetTextureCube(CubeResult.Asset);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Actor->GetPackage()));
 
@@ -221,7 +222,7 @@ TEST(FSkyBoxTests, PackageTracksAndReloadsCubeAssetDependency)
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(ActorPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(CubePath));
 	Durin::ASkyBoxActor* LoadedActor = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(ActorPath, LoadedActor));
+	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(ActorPath), LoadedActor));
 	ASSERT_NE(LoadedActor, nullptr);
 	ASSERT_NE(LoadedActor->GetSkyBoxComponent()->GetTextureCube(), nullptr);
 	EXPECT_EQ(LoadedActor->GetSkyBoxComponent()->GetTextureCube()->GetName(), "Cube");

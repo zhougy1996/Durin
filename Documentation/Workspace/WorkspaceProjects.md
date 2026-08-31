@@ -79,7 +79,7 @@ owning tool or runtime because they require workspace or filesystem context.
 
 A logical mount has one owner `Root`, one configurable relative `ContentPath`,
 and one effective physical directory returned by `GetContentDir()`.
-Extensionless `FAssetPath` package identities resolve relative to that
+Extensionless `FPackagePath` package identities resolve relative to that
 directory. Import source files instead use normalized explicitly based
 physical filenames; they do not acquire package identities or resolve through
 the mount registry:

@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include "NativeDObjectTestSupport.h"
+
 #include "Animation/AnimationClip.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Asset/AssetOperations.h"
@@ -113,7 +115,7 @@ namespace
 		for (const auto& Mapping : Result.Outputs)
 		{
 			Durin::DObject* Object = nullptr;
-			if (!Durin::Asset::LoadAsset(Mapping.AssetPath, Object) || !Object) continue;
+			if (!Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Mapping.AssetPath), Object) || !Object) continue;
 			if (auto* Value = Durin::Cast<Durin::DSkeleton>(Object)) Outputs.Skeletons.push_back(Value);
 			else if (auto* Value = Durin::Cast<Durin::DSkeletalMesh>(Object)) Outputs.SkeletalMeshes.push_back(Value);
 			else if (auto* Value = Durin::Cast<Durin::DAnimationClip>(Object)) Outputs.AnimationClips.push_back(Value);
@@ -219,7 +221,9 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 				Durin::Editor::SkeletalMesh::DSkeletalMeshThumbnailRenderer Renderer;
 				Durin::Editor::FAssetThumbnailGenerationRequest ThumbnailRequest;
 				const Durin::Editor::FAssetThumbnailPackageFingerprint Fingerprint{
-					.VirtualPath = MeshData->PackagePath,
+					.AssetPath = Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(
+						MeshData->PackagePath),
+					.PackagePath = MeshData->PackagePath,
 					.AssetClassName = MeshData->AssetClassName,
 					.PackageFormatVersion = MeshData->FormatVersion,
 					.FileSize = static_cast<uint64>(MeshData->FileSize),
@@ -232,7 +236,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 					ThumbnailRequest.KeyInput.Dependencies,
 					[Mesh](const Durin::Editor::FAssetThumbnailPackageFingerprint& Dependency) {
 						return Mesh->GetSkeleton()
-							&& Dependency.VirtualPath.GetView()
+							&& Dependency.PackagePath.GetView()
 								== Mesh->GetSkeleton()->GetPackage()->GetPackagePath();
 					}));
 				EXPECT_FALSE(std::static_pointer_cast<const
@@ -359,7 +363,9 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 		{
 			Durin::DSkeletalMesh* Mesh = nullptr;
 			const Durin::Asset::FAssetResult LoadMeshResult =
-				Durin::Asset::LoadAsset(MeshPaths[Index], Mesh);
+				Durin::Asset::LoadObject(
+					Durin::Testing::MakePackageLeafAssetObjectPathForTests(
+						MeshPaths[Index]), Mesh);
 			ASSERT_TRUE(LoadMeshResult) << LoadMeshResult.Message;
 			ASSERT_NE(Mesh, nullptr);
 			ASSERT_NE(Mesh->GetSkeleton(), nullptr);
@@ -381,7 +387,9 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 		for (size_t Index = 0; Index < ClipPaths.size(); ++Index)
 		{
 			Durin::DAnimationClip* Clip = nullptr;
-			ASSERT_TRUE(Durin::Asset::LoadAsset(ClipPaths[Index], Clip));
+			ASSERT_TRUE(Durin::Asset::LoadObject(
+				Durin::Testing::MakePackageLeafAssetObjectPathForTests(
+					ClipPaths[Index]), Clip));
 			ASSERT_NE(Clip, nullptr);
 			ASSERT_NE(Clip->GetSkeleton(), nullptr);
 			ASSERT_NE(Clip->GetPayloadData(), nullptr);

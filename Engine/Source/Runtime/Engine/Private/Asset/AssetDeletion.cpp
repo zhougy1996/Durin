@@ -78,7 +78,7 @@ namespace Durin::Asset
 		if (!CompanionResult)
 		{
 			OutAnalysis.Warning = std::format(
-				"Could not determine companion files: {} Only the main asset file will be deleted.",
+				"Could not determine companion files: {} Only the package file will be deleted.",
 				CompanionResult.Message);
 		}
 		return {};

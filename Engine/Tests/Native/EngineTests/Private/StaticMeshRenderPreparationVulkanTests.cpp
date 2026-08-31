@@ -30,6 +30,8 @@
 
 #include <gtest/gtest.h>
 
+#include "NativeDObjectTestSupport.h"
+
 #include <chrono>
 #include <condition_variable>
 #include <format>
@@ -267,7 +269,7 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/CookedStaticMeshRenderPreparation/Mesh", AuthoredPath));
 	Durin::DStaticMesh* AuthoredMesh = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(AuthoredPath, AuthoredMesh));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(AuthoredPath, AuthoredMesh));
 	ASSERT_NE(AuthoredMesh, nullptr);
 	Durin::DStaticMesh* Candidate = Durin::DStaticMesh::CreateDebugTriangle();
 	ASSERT_NE(Candidate, nullptr);
@@ -301,7 +303,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedMesh", CookedPath));
 	Durin::DStaticMesh* CookedMesh = nullptr;
 	const Durin::Asset::FAssetResult Loaded =
-		Durin::Asset::LoadAsset(CookedPath, CookedMesh);
+		Durin::Asset::LoadObject(Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+			CookedPath, AuthoredPath.GetPackageName()), CookedMesh);
 	ASSERT_TRUE(Loaded) << Loaded.Message;
 	ASSERT_NE(CookedMesh, nullptr);
 	ASSERT_EQ(CookedMesh->GetRenderData(), nullptr);

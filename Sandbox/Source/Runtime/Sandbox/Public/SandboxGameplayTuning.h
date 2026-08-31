@@ -29,5 +29,5 @@ namespace Durin::Sandbox::GameplayTuning
 	inline constexpr FVector3 VisualOffset{0.0, 0.0, 1.0};
 	inline constexpr FVector3 VisualScale{0.5, 0.5, 1.0};
 	inline constexpr FVector3 CameraOffset{-6.0, 0.0, 3.0};
-	inline constexpr std::string_view GrayboxMeshPath = "/Game/Models/GrayboxPawn";
+	inline constexpr std::string_view GrayboxMeshPath = "/Game/Models/GrayboxPawn.GrayboxPawn";
 }

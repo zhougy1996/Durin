@@ -327,6 +327,13 @@ namespace Durin::Editor::Texture
 			return false;
 		}
 		const FPackagePath& AssetPath = DestinationValidation.AssetPath;
+		FTopLevelAssetPath TopLevelAssetPath;
+		if (!FTopLevelAssetPath::TryCreate(
+			AssetPath, AssetPath.GetPackageName(), TopLevelAssetPath))
+		{
+			SetError("The texture-cube top-level asset path is invalid.");
+			return false;
+		}
 		std::array<std::string, TextureCubeFaceCount> Sources;
 		AssetForge::Builtins::FTextureCubePanoramaImportSettings PanoramaSettings;
 		if (Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces)
@@ -352,7 +359,7 @@ namespace Durin::Editor::Texture
 		else
 			Factory->ConfigurePanorama(PanoramaSettings);
 		const FAssetToolsResult Result = IAssetTools::Get().ImportAsset(
-			AssetPath, DTextureCube::StaticClass(), Sources[0], Factory);
+			TopLevelAssetPath, DTextureCube::StaticClass(), Sources[0], Factory);
 		if (!Result)
 		{
 			SetError(Result.Message.empty()

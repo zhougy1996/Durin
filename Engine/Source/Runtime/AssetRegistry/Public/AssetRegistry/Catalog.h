@@ -148,6 +148,24 @@ namespace Durin::Asset
 		explicit operator bool() const { return Succeeded(); }
 	};
 
+	// Owns exact object-path redirect resolution from one registry revision.
+	struct FObjectPathResolveResult
+	{
+		EAssetPathResolveState State = EAssetPathResolveState::NotFound;
+		uint64 CatalogRevision = 0;
+		FObjectPath RequestedPath;
+		FObjectPath FinalPath;
+		std::vector<FObjectPath> RedirectChain;
+		std::optional<FTopLevelAssetData> FinalAssetData;
+		std::optional<FAssetData> FinalPackageData;
+
+		auto Succeeded() const -> bool
+		{
+			return State == EAssetPathResolveState::Resolved;
+		}
+		explicit operator bool() const { return Succeeded(); }
+	};
+
 	enum class EAssetRegistryScanMode : uint8
 	{
 		Incremental,
@@ -197,6 +215,9 @@ namespace Durin::Asset
 	ASSETREGISTRY_API auto ResolveAssetPath(
 		const FPackagePath& Path,
 		const FAssetPathResolveOptions& Options = {}) -> FAssetPathResolveResult;
+	ASSETREGISTRY_API auto ResolveObjectPath(
+		const FObjectPath& Path,
+		const FAssetPathResolveOptions& Options = {}) -> FObjectPathResolveResult;
 	ASSETREGISTRY_API auto CaptureAssetCatalogSnapshot() -> FAssetCatalogSnapshot;
 	ASSETREGISTRY_API auto CaptureAssetDependencyClosure(
 		const FPackagePath& Root) -> FAssetDependencyClosureSnapshot;

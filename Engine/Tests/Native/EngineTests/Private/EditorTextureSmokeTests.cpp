@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include "NativeDObjectTestSupport.h"
+
 #include "EngineTestSupport.h"
 #include "Texture/TextureFactoryTestSupport.h"
 
@@ -109,7 +111,7 @@ namespace Durin
 		ASSERT_TRUE(FPackagePath::TryCreate(
 			"/EditorMixedV4/Textures/BaseColor", TexturePath));
 		DMaterial* Material = nullptr;
-		ASSERT_TRUE(Asset::CreateAsset(MaterialPath, Material));
+		ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(MaterialPath, Material));
 		Material->SetTextureParameterValue(
 			MaterialParameters::BaseColorTextureName(), TextureImport.Asset);
 		FinishMaterialCompilation(*Material);
@@ -134,12 +136,12 @@ namespace Durin
 			Asset::FAssetLoadReport MeshReport;
 			Asset::FAssetLoadReport MaterialReport;
 			Asset::FAssetLoadReport TextureReport;
-			EXPECT_TRUE(Asset::LoadAsset(TexturePath, Texture, &TextureReport));
+			EXPECT_TRUE(Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(TexturePath), Texture, &TextureReport));
 			if (Texture)
 				EXPECT_TRUE(Asset::WaitForTexture2DCompilation(*Texture, 10.0));
-			EXPECT_TRUE(Asset::LoadAsset(MaterialPath, LoadedMaterial,
+			EXPECT_TRUE(Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), LoadedMaterial,
 				&MaterialReport));
-			EXPECT_TRUE(Asset::LoadAsset(MeshPath, Mesh, &MeshReport));
+			EXPECT_TRUE(Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), Mesh, &MeshReport));
 			if (LoadedMaterial)
 			{
 				RequestMaterialRecompile(*LoadedMaterial);
@@ -216,8 +218,10 @@ namespace Durin
 		MaterialEditorHarness.Start(MaterialEditorModule);
 		ASSERT_TRUE(MaterialEditorModule.RegisterMaterialEditor(
 			WorkspaceManager, ThumbnailManager));
+		const FObjectPath MaterialObjectPath =
+			Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath);
 		ASSERT_TRUE(WorkspaceManager.OpenAsset(
-			MaterialPath.ToString(),
+			MaterialObjectPath.ToString(),
 			DMaterial::StaticClass()->GetQualifiedName().ToString()));
 		auto MaterialWorkspace = WorkspaceManager.FindWorkspace(
 			Editor::FWorkspaceTypeId("MaterialEditor"));
@@ -271,7 +275,7 @@ namespace Durin
 		FPackagePath MaterialPath;
 		ASSERT_TRUE(FPackagePath::TryCreate("/EditorTextureSmoke/Materials/Textured", MaterialPath));
 		DMaterial* Material = nullptr;
-		ASSERT_TRUE(Asset::CreateAsset(MaterialPath, Material));
+		ASSERT_TRUE(Asset::CreatePackageLeafAssetForTesting(MaterialPath, Material));
 		FMaterialProgramValidationResult ProgramValidation;
 		ASSERT_TRUE(Material->SetMaterialProgram(
 			MakeCanonicalMaterialProgram(), ProgramValidation));

@@ -25,7 +25,7 @@ namespace Durin
 		ASSETTOOLS_API static auto Get() -> IAssetTools&;
 
 		virtual auto CreateAsset(
-			const FPackagePath& AssetPath,
+			const FTopLevelAssetPath& AssetPath,
 			DClass* AssetClass,
 			const DFactory* Factory = nullptr,
 			DObject* Context = nullptr,
@@ -33,13 +33,41 @@ namespace Durin
 			-> FAssetToolsResult = 0;
 
 		virtual auto ImportAsset(
-			const FPackagePath& AssetPath,
+			const FTopLevelAssetPath& AssetPath,
 			DClass* AssetClass,
 			std::string_view Filename,
 			const DFactory* Factory = nullptr,
 			DObject* Context = nullptr,
 			EObjectFlags Flags = EObjectFlags::Public)
 			-> FAssetToolsResult = 0;
+
+		auto CreatePackageLeafAssetForTesting(
+			const FPackagePath& PackagePath,
+			DClass* AssetClass,
+			const DFactory* Factory = nullptr,
+			DObject* Context = nullptr,
+			EObjectFlags Flags = EObjectFlags::Public) -> FAssetToolsResult
+		{
+			FTopLevelAssetPath AssetPath;
+			if (!FTopLevelAssetPath::TryCreate(
+				PackagePath, PackagePath.GetPackageName(), AssetPath)) return {};
+			return CreateAsset(AssetPath, AssetClass, Factory, Context, Flags);
+		}
+
+		auto ImportPackageLeafAssetForTesting(
+			const FPackagePath& PackagePath,
+			DClass* AssetClass,
+			std::string_view Filename,
+			const DFactory* Factory = nullptr,
+			DObject* Context = nullptr,
+			EObjectFlags Flags = EObjectFlags::Public) -> FAssetToolsResult
+		{
+			FTopLevelAssetPath AssetPath;
+			if (!FTopLevelAssetPath::TryCreate(
+				PackagePath, PackagePath.GetPackageName(), AssetPath)) return {};
+			return ImportAsset(
+				AssetPath, AssetClass, Filename, Factory, Context, Flags);
+		}
 
 		// Discards a package created through this service. Unsaved state is
 		// intentionally abandoned and the full object hierarchy is collected.

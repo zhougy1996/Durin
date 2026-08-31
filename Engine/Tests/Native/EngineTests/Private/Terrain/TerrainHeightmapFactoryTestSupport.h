@@ -23,7 +23,7 @@ namespace Durin::AssetForge::Builtins
 		auto* Factory = NewObject<DTerrainHeightmapFactory>(
 			nullptr, "TerrainHeightmapTestFactory", EObjectFlags::Transient);
 		Factory->SetImportSettings(Settings);
-		const FAssetToolsResult Imported = IAssetTools::Get().ImportAsset(
+		const FAssetToolsResult Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
 			ParsedPath, DTerrainHeightmap::StaticClass(), FilePath, Factory);
 		auto* Heightmap = Cast<DTerrainHeightmap>(Imported.Asset);
 		if (!Imported || !Heightmap)

@@ -23,7 +23,7 @@ namespace Durin::AssetForge::Builtins
 		auto* Factory = NewObject<DVolumeTextureFactory>(
 			nullptr, "VolumeTextureTestFactory", EObjectFlags::Transient);
 		Factory->SetImportSettings(Settings);
-		const FAssetToolsResult Imported = IAssetTools::Get().ImportAsset(
+		const FAssetToolsResult Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
 			ParsedPath, DVolumeTexture::StaticClass(), FilePath, Factory);
 		auto* Texture = Cast<DVolumeTexture>(Imported.Asset);
 		if (!Imported || !Texture)

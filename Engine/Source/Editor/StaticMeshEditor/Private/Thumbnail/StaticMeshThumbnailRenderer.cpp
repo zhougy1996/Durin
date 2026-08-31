@@ -16,11 +16,13 @@ namespace Durin::Editor::StaticMesh
 		constexpr double MinimumNearClipDistance = 1.0e-6;
 		constexpr double ClipPaddingFraction = 0.05;
 
-		auto MakeStaticMeshThumbnailFingerprint(const Asset::FAssetData& Data)
+		auto MakeStaticMeshThumbnailFingerprint(const Asset::FAssetData& Data,
+			FTopLevelAssetPath AssetPath = {})
 			-> ::Durin::Editor::FAssetThumbnailPackageFingerprint
 		{
 			return {
-				.VirtualPath = Data.PackagePath,
+				.AssetPath = std::move(AssetPath),
+				.PackagePath = Data.PackagePath,
 				.AssetClassName = Data.AssetClassName,
 				.PackageFormatVersion = Data.FormatVersion,
 				.FileSize = static_cast<uint64>(Data.FileSize),
@@ -37,7 +39,7 @@ namespace Durin::Editor::StaticMesh
 			return false;
 		}
 
-		auto QualifyDiagnostic(const FPackagePath& AssetPath, std::string_view Detail)
+		auto QualifyDiagnostic(const FTopLevelAssetPath& AssetPath, std::string_view Detail)
 			-> std::string
 		{
 			return std::format(
@@ -64,7 +66,7 @@ namespace Durin::Editor::StaticMesh
 			auto Load() -> ::Durin::Editor::FThumbnailRendererSessionUpdate override
 			{
 				DObject* Loaded = nullptr;
-				const Asset::FAssetResult Result = Asset::LoadAsset(Input.AssetPath, Loaded);
+				const Asset::FAssetResult Result = Asset::LoadObject(Input.AssetPath, Loaded);
 				StaticMesh = Result ? Cast<DStaticMesh>(Loaded) : nullptr;
 				if (!Result || StaticMesh == nullptr
 					|| StaticMesh->GetClass() != DStaticMesh::StaticClass())
@@ -319,19 +321,19 @@ namespace Durin::Editor::StaticMesh
 		const Asset::FAssetCatalogSnapshot Catalog =
 			Asset::CaptureAssetCatalogSnapshot();
 		const Asset::FAssetData* Root =
-			Catalog.FindExact(Request.Asset.VirtualPath);
+			Catalog.FindExact(Request.Asset.PackagePath);
 		if (Root == nullptr)
 		{
 			OutError = std::format(
 				"StaticMesh thumbnail registry data is missing for {}.",
-				Request.Asset.VirtualPath.ToString());
+				Request.Asset.AssetPath.ToString());
 			return false;
 		}
-		if (MakeStaticMeshThumbnailFingerprint(*Root) != Request.Asset)
+		if (MakeStaticMeshThumbnailFingerprint(*Root, Request.Asset.AssetPath) != Request.Asset)
 		{
 			OutError = std::format(
 				"StaticMesh thumbnail registry data changed for {}; refresh the request snapshot.",
-				Request.Asset.VirtualPath.ToString());
+				Request.Asset.AssetPath.ToString());
 			return false;
 		}
 
@@ -345,7 +347,7 @@ namespace Durin::Editor::StaticMesh
 		}
 		std::vector<::Durin::Editor::FAssetThumbnailPackageFingerprint> Dependencies;
 		if (!::Durin::Editor::BuildAssetThumbnailDependencyClosure(
-				Request.Asset.VirtualPath, Nodes, Dependencies, OutError))
+				Request.Asset.PackagePath, Nodes, Dependencies, OutError))
 		{
 			return false;
 		}
@@ -373,7 +375,7 @@ namespace Durin::Editor::StaticMesh
 			.Dependencies = std::move(Dependencies)};
 		OutRequest.Input =
 			std::make_shared<FStaticMeshThumbnailRendererGenerationInput>(
-				Request.Asset.VirtualPath, std::move(Visual));
+				Request.Asset.AssetPath, std::move(Visual));
 		OutRequest.RendererGeneration = RendererGeneration;
 		OutRequest.RequestSerial = Request.RequestSerial;
 		return true;

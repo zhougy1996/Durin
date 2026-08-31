@@ -20,10 +20,10 @@ normalized package path; it is never a content mount or a source of package
 bytes. Startup enumerates every registered auto-scan mount once. A package in a
 manual-scan mount remains a valid authored identity but becomes load-visible
 only through explicit admission. Exact file-size and stable last-write-time
-matches may reuse cached class, entry kind, redirect, format, object count,
-main/bulk extents, hard and soft package dependencies, and searchable names.
-New or changed files read only the declared bounded front matter. V8 metadata
-is projected by CoreDObject's construct-free Registry reader. Unsupported
+matches may reuse cached package facts plus the complete top-level asset list:
+exact asset path, class, and optional exact redirect destination. New or changed
+files read only the declared bounded front matter. V9 metadata is projected by
+CoreDObject's construct-free Registry reader. Unsupported
 versions fail before metadata publication; ordinary discovery has no legacy
 header fallback.
 
@@ -83,7 +83,8 @@ unload guards continue to use package-header hard dependencies.
 
 ## Duplication
 
-`DuplicateAsset` clones a real asset's complete persistent object graph into a
+`DuplicateAsset` accepts exact source and destination `FTopLevelAssetPath`
+values and clones that asset's complete persistent object graph into a
 distinct, newly created resident package. Internal references are remapped to
 the cloned inner objects while cross-package references retain their authored
 targets. The result remains unsaved so class-owning editor code can replace
@@ -121,13 +122,14 @@ redirectors, and owned payload moves behind an opaque transaction. `Commit`,
 `Undo`, and `Redo` revalidate and journal the operation; callers cannot publish
 individual phases.
 
-Moving `A -> B` retains a direct redirector. A later `B -> C` retargets upstream
-aliases directly to `C`; reclaiming an alias path requires exact proof that it
-denotes the same real asset. Relocation does not rewrite persistent hard or soft
-paths or arbitrary settings/import stores.
+Moving package `A -> B` retains one redirect record for each moved top-level
+asset and preserves every asset name and descendant suffix. A later move
+retargets upstream exact aliases directly to the final object path; reclaiming
+an alias requires exact proof that it denotes the same real asset. Relocation
+does not invent a package-leaf asset selection.
 
 Owned authored payload closure is metadata-derived, not suffix-guessed. A DAST
-v8 package contributes its validated raw `.dbulk` only when Registry and Bulk
+v9 package contributes its validated raw `.dbulk` only when Registry and Bulk
 Directory bind a nonempty external segment. Relocation, duplication, deletion,
 Undo, Redo, and recovery journal that companion with the `.dasset`. Atomic
 temporaries and `.durin-backup` files are recovery state and never mutation

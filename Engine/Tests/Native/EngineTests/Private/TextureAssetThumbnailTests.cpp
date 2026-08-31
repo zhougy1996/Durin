@@ -20,14 +20,23 @@
 
 #include <gtest/gtest.h>
 
+#include "NativeDObjectTestSupport.h"
+
 namespace
 {
+	auto MakeAssetPath(const Durin::FPackagePath& PackagePath)
+		-> Durin::FTopLevelAssetPath
+	{
+		return Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(PackagePath);
+	}
+
 	auto MakeRequest(const Durin::Asset::FAssetData& Data)
 		-> Durin::Editor::FAssetThumbnailRequest
 	{
 		return {
 			.Asset = {
-				.VirtualPath = Data.PackagePath,
+				.AssetPath = MakeAssetPath(Data.PackagePath),
+				.PackagePath = Data.PackagePath,
 				.AssetClassName = Data.AssetClassName,
 				.PackageFormatVersion = Data.FormatVersion,
 				.FileSize = static_cast<uint64>(Data.FileSize),
@@ -220,8 +229,12 @@ TEST(FTextureAssetThumbnailTests,
 	Durin::FModuleTestHarness ModuleHarness("TextureEditor");
 	ModuleHarness.Start(Module);
 	ASSERT_TRUE(Module.RegisterTextureEditor(Manager, ThumbnailManager));
+	Durin::FPackagePath ParentTexturePackagePath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
+		Durin::Tests::FAssetThumbnailFixtureSet::ParentTexturePath,
+		ParentTexturePackagePath));
 	ASSERT_TRUE(Manager.OpenAsset(
-		std::string(Durin::Tests::FAssetThumbnailFixtureSet::ParentTexturePath),
+		MakeAssetPath(ParentTexturePackagePath).ToString(),
 		Durin::DTexture2D::StaticClass()->GetQualifiedName().ToString()));
 
 	ImGuiContext* Context = ImGui::CreateContext();
@@ -347,7 +360,8 @@ TEST(FTextureCubeThumbnailRendererTests, RendererRejectsMissingRegistryData)
 	std::string Error;
 	EXPECT_FALSE(Renderer.CaptureGenerationRequest({
 		.Asset = {
-			.VirtualPath = MissingPath,
+			.AssetPath = MakeAssetPath(MissingPath),
+			.PackagePath = MissingPath,
 			.AssetClassName =
 				Durin::DTextureCube::StaticClass()->GetQualifiedName().ToString(),
 			.PackageFormatVersion = 1,

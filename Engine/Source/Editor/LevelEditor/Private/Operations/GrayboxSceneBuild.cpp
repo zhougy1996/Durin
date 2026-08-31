@@ -24,7 +24,7 @@ namespace Durin::Editor::Level
 	{
 		constexpr double MinDimension = 0.1;
 		constexpr double MaxDimension = 10000.0;
-		constexpr std::string_view BoxAssetPath = "/Engine/Models/Box";
+		constexpr std::string_view BoxObjectPath = "/Engine/Models/Box.Box";
 
 		auto IsValidDimension(double Value) -> bool
 		{
@@ -308,13 +308,13 @@ namespace Durin::Editor::Level
 			return 3;
 		}
 
-		FPackagePath BoxPath;
-		check(FPackagePath::TryCreate(BoxAssetPath, BoxPath));
+		FObjectPath BoxPath;
+		check(FObjectPath::TryCreate(BoxObjectPath, BoxPath));
 		DStaticMesh* Box = nullptr;
-		const Asset::FAssetResult BoxResult = Asset::LoadAsset(BoxPath, Box);
+		const Asset::FAssetResult BoxResult = Asset::LoadObject(BoxPath, Box);
 		if (!BoxResult || !Box)
 		{
-			DURIN_ERROR("graybox-build: could not load {}: {}", BoxAssetPath, BoxResult.Message);
+			DURIN_ERROR("graybox-build: could not load {}: {}", BoxObjectPath, BoxResult.Message);
 			return 4;
 		}
 		const std::optional<FBox> BoxBounds = Box->GetLOD0LocalBounds();
@@ -350,7 +350,15 @@ namespace Durin::Editor::Level
 		}
 
 		DLevel* Candidate = nullptr;
-		Asset::FAssetResult Result = Asset::CreateAsset(CandidatePath, Candidate);
+		FTopLevelAssetPath CandidateAssetPath;
+		if (!FTopLevelAssetPath::TryCreate(
+			CandidatePath, CandidatePath.GetPackageName(), CandidateAssetPath))
+		{
+			DURIN_ERROR("graybox-build: temporary top-level asset path is invalid.");
+			return 4;
+		}
+		Asset::FAssetResult Result =
+			Asset::CreateAsset(CandidateAssetPath, Candidate);
 		if (!Result || !Candidate)
 		{
 			DURIN_ERROR("graybox-build: could not create candidate: {}", Result.Message);
@@ -390,10 +398,13 @@ namespace Durin::Editor::Level
 			return FailCandidate(5, "could not create the baseline gameplay Actors.");
 		Result = Asset::SavePackage(Candidate->GetPackage());
 		if (!Result) return FailCandidate(6, Result.Message);
+		FObjectPath CandidateObjectPath;
+		if (!FObjectPath::TryCreate(Candidate->GetObjectPath(), CandidateObjectPath))
+			return FailCandidate(6, "the saved level returned an invalid object path.");
 		Result = Asset::UnloadPackage(CandidatePath);
 		if (!Result) return FailCandidate(6, Result.Message);
 		Candidate = nullptr;
-		Result = Asset::LoadAsset(CandidatePath, Candidate);
+		Result = Asset::LoadObject(CandidateObjectPath, Candidate);
 		if (!Result || !Candidate || !VerifyArena(*Candidate, *Box, Layout, Error))
 			return FailCandidate(7, Error.empty() ? Result.Message : Error);
 		Result = Asset::UnloadPackage(CandidatePath);
@@ -409,7 +420,16 @@ namespace Durin::Editor::Level
 		if (!Result) return FailCandidate(6, Result.Message);
 
 		DLevel* Published = nullptr;
-		Result = Asset::LoadAsset(OutputPath, Published);
+		FTopLevelAssetPath PublishedAssetPath;
+		FObjectPath PublishedObjectPath;
+		if (!FTopLevelAssetPath::TryCreate(
+			OutputPath, CandidateObjectPath.GetAssetPath().GetAssetName(),
+			PublishedAssetPath)
+			|| !FObjectPath::TryCreate(
+				PublishedAssetPath, std::span<const std::string>{},
+				PublishedObjectPath))
+			return FailCandidate(7, "could not build the relocated level object path.");
+		Result = Asset::LoadObject(PublishedObjectPath, Published);
 		if (!Result || !Published || !VerifyArena(*Published, *Box, Layout, Error))
 		{
 			if (DPackage* Resident = Asset::FindResidentPackage(OutputPath))

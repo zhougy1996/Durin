@@ -11,17 +11,19 @@ namespace Durin::Editor::SkeletalMesh
 {
 	namespace
 	{
-		auto MakeFingerprint(const Asset::FAssetData& Data)
+		auto MakeFingerprint(const Asset::FAssetData& Data,
+			FTopLevelAssetPath AssetPath = {})
 			-> ::Durin::Editor::FAssetThumbnailPackageFingerprint
 		{
-			return {.VirtualPath = Data.PackagePath,
+			return {.AssetPath = std::move(AssetPath),
+				.PackagePath = Data.PackagePath,
 				.AssetClassName = Data.AssetClassName,
 				.PackageFormatVersion = Data.FormatVersion,
 				.FileSize = static_cast<uint64>(Data.FileSize),
 				.LastWriteTimeTicks = Data.LastWriteTimeTicks};
 		}
 
-		auto Qualify(const FPackagePath& Path, std::string_view Detail) -> std::string
+		auto Qualify(const FTopLevelAssetPath& Path, std::string_view Detail) -> std::string
 		{
 			return std::format("SkeletalMesh '{}' thumbnail generation failed: {}",
 				Path.ToString(), Detail.empty() ? "unknown preview error" : Detail);
@@ -37,7 +39,7 @@ namespace Durin::Editor::SkeletalMesh
 			auto Load() -> ::Durin::Editor::FThumbnailRendererSessionUpdate override
 			{
 				DObject* Loaded = nullptr;
-				const Asset::FAssetResult Result = Asset::LoadAsset(Input.AssetPath, Loaded);
+				const Asset::FAssetResult Result = Asset::LoadObject(Input.AssetPath, Loaded);
 				Mesh = Result ? Cast<DSkeletalMesh>(Loaded) : nullptr;
 				if (!Result || !Mesh || Mesh->GetClass() != DSkeletalMesh::StaticClass())
 					return {.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
@@ -176,8 +178,8 @@ namespace Durin::Editor::SkeletalMesh
 		}
 		const Asset::FAssetCatalogSnapshot Catalog =
 			Asset::CaptureAssetCatalogSnapshot();
-		const Asset::FAssetData* Root = Catalog.FindExact(Request.Asset.VirtualPath);
-		if (!Root || MakeFingerprint(*Root) != Request.Asset)
+		const Asset::FAssetData* Root = Catalog.FindExact(Request.Asset.PackagePath);
+		if (!Root || MakeFingerprint(*Root, Request.Asset.AssetPath) != Request.Asset)
 		{
 			OutError = "Skeletal thumbnail registry data is missing or changed."; return false;
 		}
@@ -186,7 +188,7 @@ namespace Durin::Editor::SkeletalMesh
 		for (const auto& [Path, Data] : Catalog.Assets)
 			Nodes.push_back({.Package = MakeFingerprint(Data), .Dependencies = Data.Dependencies});
 		std::vector<::Durin::Editor::FAssetThumbnailPackageFingerprint> Dependencies;
-		if (!::Durin::Editor::BuildAssetThumbnailDependencyClosure(Request.Asset.VirtualPath,
+		if (!::Durin::Editor::BuildAssetThumbnailDependencyClosure(Request.Asset.PackagePath,
 			Nodes, Dependencies, OutError)) return false;
 		::Durin::Editor::FThumbnailVisualContract Visual;
 		Visual.CameraDirectionX = 2.4f; Visual.CameraDirectionY = -3.2f;
@@ -198,7 +200,7 @@ namespace Durin::Editor::SkeletalMesh
 			.ShaderContractVersion = FSkeletalMeshThumbnailContract::ShaderContractVersion,
 			.Dependencies = std::move(Dependencies)};
 		OutRequest.Input = std::make_shared<FSkeletalMeshThumbnailGenerationInput>(
-			Request.Asset.VirtualPath, std::move(Visual));
+			Request.Asset.AssetPath, std::move(Visual));
 		OutRequest.RendererGeneration = RendererGeneration;
 		OutRequest.RequestSerial = Request.RequestSerial;
 		return true;

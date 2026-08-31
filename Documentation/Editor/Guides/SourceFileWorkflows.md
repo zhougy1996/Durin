@@ -21,7 +21,9 @@ Content Browser exposes a fixed built-in Import menu:
 - **Static Mesh (Geometry Only)...** creates one geometry asset without Scene
   material or texture outputs.
 
-Choose a physical file, then choose the asset path or output directory. The
+Choose a physical file, then choose the exact top-level asset destination or
+output directory. Package/file ownership is derived separately from that
+destination. The
 source row is read-only; selecting a different file uses the file chooser
 rather than editing a virtual source destination.
 
@@ -64,7 +66,7 @@ set even when no hint exists. Both actions capture once, prepare a detached
 candidate, and commit canonical imported data, settings, derived result, and
 hints together. A resolution, decode, build, or cancellation failure leaves
 both live and persisted state unchanged. A later save failure preserves the
-prior canonical DAST v8 main/raw-bulk closure and leaves the complete new live
+prior canonical DAST v9 main/raw-bulk closure and leaves the complete new live
 state Dirty for retry.
 
 These actions are class-aware capabilities supplied by the reflected factory
@@ -81,7 +83,7 @@ recovery.
 Moving or duplicating an asset copies `HintBase + Hint` byte for byte and never
 touches the source. `AssetRelative` therefore rebinds from the destination;
 `ProjectRelative` and `Absolute` retain their physical meaning. Deleting an
-asset does not touch the source. Asset redirectors resolve only asset
+asset does not touch the source. Asset redirectors resolve exact object
 identities; they never redirect source hints.
 
 ## Diagnostics And Recovery

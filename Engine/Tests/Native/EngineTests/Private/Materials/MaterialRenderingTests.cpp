@@ -577,11 +577,11 @@ TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 	Durin::FMountPaths::InitDefaultMountPoints();
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 	for (const std::string_view PathText : {
-		"/Engine/Models/Sphere",
-		"/Engine/Models/Box"})
+		"/Engine/Models/Sphere.Sphere",
+		"/Engine/Models/Box.Box"})
 	{
-		Durin::FPackagePath Path;
-		ASSERT_TRUE(Durin::FPackagePath::TryCreate(PathText, Path));
+		Durin::FObjectPath Path;
+		ASSERT_TRUE(Durin::FObjectPath::TryCreate(PathText, Path));
 		Durin::Editor::FRetainedAsset First;
 		Durin::Editor::FRetainedAsset Second;
 		std::string Error;
@@ -627,10 +627,10 @@ TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionA
 		ASSERT_NE(FindObjectByName(SecondLightName), nullptr);
 
 		Durin::CollectGarbage();
-		Durin::FPackagePath SpherePath;
-		Durin::FPackagePath BoxPath;
-		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Models/Sphere", SpherePath));
-		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Models/Box", BoxPath));
+		Durin::FObjectPath SpherePath;
+		Durin::FObjectPath BoxPath;
+		ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Engine/Models/Sphere.Sphere", SpherePath));
+		ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Engine/Models/Box.Box", BoxPath));
 		Durin::Editor::FRetainedAsset SphereAsset;
 		Durin::Editor::FRetainedAsset BoxAsset;
 		std::string Error;

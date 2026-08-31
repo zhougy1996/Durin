@@ -20,6 +20,8 @@
 
 #include <gtest/gtest.h>
 
+#include "NativeDObjectTestSupport.h"
+
 namespace
 {
 	using namespace Durin;
@@ -142,7 +144,7 @@ TEST(FMaterialAssetCreationTests, BuiltInMaterialsHaveCompletePersistentGraphPre
 		FPackagePath Path;
 		ASSERT_TRUE(FPackagePath::TryCreate(PathString, Path));
 		DMaterial* Material = nullptr;
-		const Asset::FAssetResult Loaded = Asset::LoadAsset(Path, Material);
+		const Asset::FAssetResult Loaded = Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Path), Material);
 		ASSERT_TRUE(Loaded) << Loaded.Message;
 		ASSERT_NE(Material, nullptr);
 		const FMaterialGraphPresentation& Presentation =

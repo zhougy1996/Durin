@@ -204,13 +204,13 @@ namespace Durin::Editor::ContentBrowser::Private
 
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
-			const size_t Slash = Item.VirtualPath.find_last_of('/');
-			FPackagePath OldPath;
+			const std::string OldPackagePath = Item.PackagePath.ToString();
+			const size_t Slash = OldPackagePath.find_last_of('/');
+			const FPackagePath& OldPath = Item.PackagePath;
 			FPackagePath NewPath;
-			if (!FPackagePath::TryCreate(Item.VirtualPath, OldPath)
-				|| Slash == std::string::npos
+			if (!OldPath.IsValid() || Slash == std::string::npos
 				|| !FPackagePath::TryCreate(
-					Item.VirtualPath.substr(0, Slash + 1) + std::string(NewName),
+					OldPackagePath.substr(0, Slash + 1) + std::string(NewName),
 					NewPath))
 				return Failure(
 					Asset::EAssetError::InvalidPath,
@@ -305,21 +305,25 @@ namespace Durin::Editor::ContentBrowser::Private
 			return Failure(
 				Asset::EAssetError::InvalidPackageType,
 				"Only real assets can be duplicated.");
-		FPackagePath SourcePath;
-		if (!FPackagePath::TryCreate(Item.VirtualPath, SourcePath))
+		FTopLevelAssetPath SourcePath;
+		if (!FTopLevelAssetPath::TryCreate(Item.VirtualPath, SourcePath))
+			return Failure(Asset::EAssetError::InvalidPath,
+				"The source top-level asset path is invalid.");
+		if (!SourcePath.IsValid())
 			return Failure(
 				Asset::EAssetError::InvalidPath,
 				"The source asset path is invalid.");
-		const size_t Slash = Item.VirtualPath.find_last_of('/');
+		const std::string SourcePackagePath = SourcePath.GetPackagePath().ToString();
+		const size_t Slash = SourcePackagePath.find_last_of('/');
 		if (Slash == std::string::npos)
 			return Failure(
 				Asset::EAssetError::InvalidPath,
 				"The source asset has no valid destination directory.");
-		return Duplicate(SourcePath, Item.VirtualPath.substr(0, Slash + 1));
+		return Duplicate(SourcePath, SourcePackagePath.substr(0, Slash + 1));
 	}
 
 	auto FContentBrowserOperations::Duplicate(
-		const FPackagePath& SourcePath,
+		const FTopLevelAssetPath& SourcePath,
 		std::string_view DestinationDirectory)
 		-> FContentBrowserOperationResult
 	{
@@ -329,10 +333,9 @@ namespace Durin::Editor::ContentBrowser::Private
 				"Asset paste requires a valid source and destination folder.");
 		std::string Directory(DestinationDirectory);
 		if (!Directory.ends_with('/')) Directory.push_back('/');
-		const Asset::FAssetCatalogEntry SourceData =
-			Asset::FindAssetExact(SourcePath);
-		if (!SourceData
-			|| SourceData->EntryKind != Asset::EAssetRegistryEntryKind::Asset)
+		const Asset::FTopLevelAssetCatalogEntry SourceData =
+			Asset::FindTopLevelAssetExact(SourcePath);
+		if (!SourceData || SourceData->IsRedirector())
 			return Failure(
 				Asset::EAssetError::NotFound,
 				"The copied source is no longer an available real asset.");
@@ -363,7 +366,7 @@ namespace Durin::Editor::ContentBrowser::Private
 
 		FContentBrowserOperationResult Outcome;
 		Outcome.FocusPhysicalPath = Result.PhysicalPath;
-		Outcome.RevealAssetPath = Result.AffectedAssets.front().ToString();
+		Outcome.RevealAssetPath = Result.Asset->GetObjectPath();
 		Outcome.OpenAssetClassName = SourceData->AssetClassName;
 		return Outcome;
 	}

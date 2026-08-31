@@ -19,8 +19,8 @@ namespace Durin::Editor::Material
 		constexpr double PreviewMinDistance = 1.5;
 		constexpr double PreviewMaxDistance = 12.0;
 		constexpr double PreviewZoomScale = 0.85;
-		constexpr std::string_view PreviewSpherePath = "/Engine/Models/Sphere";
-		constexpr std::string_view PreviewBoxPath = "/Engine/Models/Box";
+		constexpr std::string_view PreviewSpherePath = "/Engine/Models/Sphere.Sphere";
+		constexpr std::string_view PreviewBoxPath = "/Engine/Models/Box.Box";
 
 		// Selects the mesh used to visualize a material in the preview scene.
 		enum class EMaterialPreviewShape : uint8
@@ -106,10 +106,10 @@ namespace Durin::Editor::Material
 				return;
 			}
 
-			FPackagePath SpherePath;
-			FPackagePath BoxPath;
-			if (!FPackagePath::TryCreate(PreviewSpherePath, SpherePath, &Error)
-				|| !FPackagePath::TryCreate(PreviewBoxPath, BoxPath, &Error)
+			FObjectPath SpherePath;
+			FObjectPath BoxPath;
+			if (!FObjectPath::TryCreate(PreviewSpherePath, SpherePath, &Error)
+				|| !FObjectPath::TryCreate(PreviewBoxPath, BoxPath, &Error)
 				|| !::Durin::Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, Error)
 				|| !::Durin::Editor::FAssetRetentionService::Acquire(BoxPath, BoxAsset, Error))
 			{

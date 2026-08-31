@@ -63,10 +63,10 @@ namespace Durin::Editor::Level
 
 	auto FLevelDocumentController::RequestOpenLevel(std::string Path) -> ELevelDocumentOpenResult
 	{
-		FPackagePath AssetPath;
-		if (!FPackagePath::TryCreate(Path, AssetPath)) return ELevelDocumentOpenResult::Rejected;
-		const Asset::FAssetPathResolveResult Resolution =
-			Asset::ResolveAssetPath(
+		FObjectPath AssetPath;
+		if (!FObjectPath::TryCreate(Path, AssetPath)) return ELevelDocumentOpenResult::Rejected;
+		const Asset::FObjectPathResolveResult Resolution =
+			Asset::ResolveObjectPath(
 				AssetPath, {.ExpectedClass = DLevel::StaticClass()});
 		if (!Resolution)
 			return ELevelDocumentOpenResult::Rejected;
@@ -198,9 +198,9 @@ namespace Durin::Editor::Level
 	auto FLevelDocumentController::OpenLevel(std::string_view PathString) -> ELevelDocumentOpenResult
 	{
 		if (ClearError) ClearError();
-		FPackagePath Path;
+		FObjectPath Path;
 		std::string PathError;
-		if (!FPackagePath::TryCreate(PathString, Path, &PathError))
+		if (!FObjectPath::TryCreate(PathString, Path, &PathError))
 		{
 			SetError(PathError);
 			return ELevelDocumentOpenResult::Rejected;
@@ -209,7 +209,7 @@ namespace Durin::Editor::Level
 			Asset::CapturePackageLoadSnapshot();
 		DLevel* Level = nullptr;
 		Asset::FAssetResult Result;
-		Result = Asset::LoadAsset(Path, Level);
+		Result = Asset::LoadObject(Path, Level);
 		if (!Result)
 		{
 			SetError(Result.Message);

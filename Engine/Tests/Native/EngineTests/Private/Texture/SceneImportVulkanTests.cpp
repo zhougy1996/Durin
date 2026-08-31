@@ -38,6 +38,8 @@
 
 #include <gtest/gtest.h>
 
+#include "NativeDObjectTestSupport.h"
+
 #include <condition_variable>
 #include <mutex>
 
@@ -158,7 +160,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	// Replace catalog paths captured from the default mounts before mutating test assets.
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 	const Durin::FPackagePath StandardPath =
-		MakeAssetPath(Durin::AssetForge::Builtins::ImportedSurfaceMaterialPath);
+		MakeAssetPath(Durin::AssetForge::Builtins::ImportedSurfaceMaterialPackagePath);
 	std::string MaterialError;
 	ASSERT_NE(Durin::AssetForge::Builtins::EnsureImportedSurfaceMaterial(MaterialError), nullptr)
 		<< MaterialError;
@@ -205,7 +207,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 	ASSERT_TRUE(TexturePath.IsValid());
 	ASSERT_TRUE(MaterialPath.IsValid());
 	Durin::DMaterialInstance* LiveMaterial = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(MaterialPath, LiveMaterial));
+	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), LiveMaterial));
 	ASSERT_NE(LiveMaterial, nullptr);
 	Durin::DTexture2D* LiveTexture = nullptr;
 	ASSERT_TRUE(LiveMaterial->GetTextureParameterValue(
@@ -573,7 +575,7 @@ TEST(FSceneImportVulkanTests, RendersReloadedSrgbTextureAndBaseColorFactor)
 
 	Durin::DStaticMesh* ReloadedMesh = nullptr;
 	const Durin::Asset::FAssetResult ReloadMeshResult =
-		Durin::Asset::LoadAsset(MeshPath, ReloadedMesh);
+		Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MeshPath), ReloadedMesh);
 	ASSERT_TRUE(ReloadMeshResult) << ReloadMeshResult.Message;
 	ASSERT_FALSE(ReloadedMesh->GetDerivedDataDiagnostic().bSourceImporterInvoked);
 	const Durin::FMeshMaterialSlotDefinition* Slot =

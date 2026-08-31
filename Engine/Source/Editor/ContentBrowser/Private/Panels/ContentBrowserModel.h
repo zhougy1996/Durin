@@ -47,10 +47,11 @@ namespace Durin::Editor::ContentBrowser::Private
 		EContentBrowserItemKind Kind = EContentBrowserItemKind::File;
 		std::string Name;
 		std::string VirtualPath;
+		FPackagePath PackagePath;
 		std::string PhysicalPath;
 		std::string AssetClassName;
 		std::string Extension;
-		FPackagePath RedirectDestination;
+		FObjectPath RedirectDestination;
 		std::string ThumbnailIdentity;
 		std::string ThumbnailSourcePath;
 		uintmax_t ThumbnailFileSize = 0;
@@ -60,7 +61,12 @@ namespace Durin::Editor::ContentBrowser::Private
 		uintmax_t FileSize = 0;
 		std::filesystem::file_time_type LastWriteTime{};
 
-		auto StableId() const -> const std::string& { return PhysicalPath; }
+		auto StableId() const -> const std::string&
+		{
+			return Kind == EContentBrowserItemKind::Asset
+				|| Kind == EContentBrowserItemKind::Redirector
+				? VirtualPath : PhysicalPath;
+		}
 	};
 
 	namespace ContentBrowserModel

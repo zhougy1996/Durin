@@ -25,6 +25,8 @@
 #include "Texture/TextureDerivedData.h"
 
 #include <gtest/gtest.h>
+
+#include "NativeDObjectTestSupport.h"
 #include <unordered_set>
 
 TEST(FTextureCubeFactoryTests, ClassLookupDisambiguatesOverlappingExtensions)
@@ -244,7 +246,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/Convention", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	Durin::DTextureCube* Loaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
+	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->GetSourceData(), nullptr);
 	EXPECT_TRUE(Loaded->GetPlatformData()->IsValid());
@@ -257,7 +259,9 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesSixFaceAsset)
 	Durin::FPackagePath RenamedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/RenamedCube", RenamedPath));
 	ASSERT_TRUE(RelocateAssetForTest(AssetPath, RenamedPath));
-	ASSERT_TRUE(Durin::Asset::LoadAsset(RenamedPath, Loaded));
+	ASSERT_TRUE(Durin::Asset::LoadObject(
+		Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+			RenamedPath, AssetPath.GetPackageName()), Loaded));
 	ExpectCubeSourcePath(*Loaded,
 		GetSourceHint(*Loaded, FaceRoles[5]), Faces[5]);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(RenamedPath));
@@ -454,7 +458,7 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/Panorama", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	Durin::DTextureCube* Loaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
+	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
 	ASSERT_NE(Loaded, nullptr);
 	EXPECT_EQ(Loaded->GetSourceLayout(), Durin::ETextureCubeSourceLayout::EquirectangularPanorama);
 	ExpectCubeSourcePath(*Loaded, GetSourceHint(*Loaded, "panorama"), Panorama);
@@ -468,7 +472,9 @@ TEST(FTextureCubeTests, ImportsReloadsMovesAndDeletesPanoramaAsset)
 	Durin::FPackagePath RenamedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/RenamedPanorama", RenamedPath));
 	ASSERT_TRUE(RelocateAssetForTest(AssetPath, RenamedPath));
-	ASSERT_TRUE(Durin::Asset::LoadAsset(RenamedPath, Loaded));
+	ASSERT_TRUE(Durin::Asset::LoadObject(
+		Durin::Testing::MakeTopLevelAssetObjectPathForTests(
+			RenamedPath, AssetPath.GetPackageName()), Loaded));
 	ExpectCubeSourcePath(*Loaded, GetSourceHint(*Loaded, "panorama"), Panorama);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(RenamedPath));
 	ASSERT_TRUE(DeleteAssetClosureForTest({AssetPath, RenamedPath}));
@@ -611,7 +617,7 @@ TEST(FTextureCubeTests, ReimportsPanoramaAtomicallyAndPreservesValidDataOnFailur
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureCubeTests/ReimportPanorama", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	Durin::DTextureCube* Loaded = nullptr;
-	ASSERT_TRUE(Durin::Asset::LoadAsset(AssetPath, Loaded));
+	ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(AssetPath), Loaded));
 	ExpectCubeSourcePath(*Loaded, GetSourceHint(*Loaded, "panorama"),
 		GetPanoramaFixture("AnalyticalHDR.hdr"));
 	EXPECT_EQ(Loaded->GetBuiltFaceDimension(), 4u);
@@ -729,7 +735,7 @@ TEST(FTextureCubeTests, CookIsDeterministicAndRuntimeLoadsWithoutSources)
 	Durin::FPackagePath CookedPath;
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedCube", CookedPath));
 	Durin::DTextureCube* Cooked = nullptr;
-	const Durin::Asset::FAssetResult Load = Durin::Asset::LoadAsset(CookedPath, Cooked);
+	const Durin::Asset::FAssetResult Load = Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(CookedPath), Cooked);
 	ASSERT_TRUE(Load) << Load.Message;
 	ASSERT_NE(Cooked, nullptr);
 	ASSERT_NE(Cooked->GetPlatformData(), nullptr);

@@ -11,11 +11,13 @@ namespace Durin::Editor::Texture
 		constexpr uint32 TextureCubeThumbnailGeneratorSchema = 2;
 		constexpr uint32 TextureCubeThumbnailShaderContract = 2;
 
-		auto MakeFingerprint(const Asset::FAssetData& Data)
+		auto MakeFingerprint(const Asset::FAssetData& Data,
+			FTopLevelAssetPath AssetPath = {})
 			-> ::Durin::Editor::FAssetThumbnailPackageFingerprint
 		{
 			return {
-				.VirtualPath = Data.PackagePath,
+				.AssetPath = std::move(AssetPath),
+				.PackagePath = Data.PackagePath,
 				.AssetClassName = Data.AssetClassName,
 				.PackageFormatVersion = Data.FormatVersion,
 				.FileSize = static_cast<uint64>(Data.FileSize),
@@ -97,7 +99,7 @@ namespace Durin::Editor::Texture
 			: public ::Durin::Editor::IThumbnailRendererSession
 		{
 		public:
-			explicit FTextureCubeThumbnailGenerationSession(FPackagePath InAssetPath)
+			explicit FTextureCubeThumbnailGenerationSession(FTopLevelAssetPath InAssetPath)
 				: AssetPath(std::move(InAssetPath))
 			{
 			}
@@ -105,7 +107,7 @@ namespace Durin::Editor::Texture
 			auto Load() -> ::Durin::Editor::FThumbnailRendererSessionUpdate override
 			{
 				DObject* Loaded = nullptr;
-				const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Loaded);
+				const Asset::FAssetResult Result = Asset::LoadObject(AssetPath, Loaded);
 				TextureCube = Result ? Cast<DTextureCube>(Loaded) : nullptr;
 				if (!Result || TextureCube == nullptr)
 				{
@@ -189,7 +191,7 @@ namespace Durin::Editor::Texture
 			auto ResetPreview() -> void override {}
 
 		private:
-			FPackagePath AssetPath;
+			FTopLevelAssetPath AssetPath;
 			DTextureCube* TextureCube = nullptr;
 			uint64 AssetRevision = 0;
 		};
@@ -219,20 +221,20 @@ namespace Durin::Editor::Texture
 			return false;
 		}
 		const Asset::FAssetCatalogEntry Entry =
-			Asset::FindAssetExact(Request.Asset.VirtualPath);
+			Asset::FindAssetExact(Request.Asset.PackagePath);
 		const Asset::FAssetData* Data = Entry.Data ? &*Entry.Data : nullptr;
 		if (Data == nullptr)
 		{
 			OutError = std::format(
 				"TextureCube thumbnail registry data is missing for {}.",
-				Request.Asset.VirtualPath.ToString());
+				Request.Asset.AssetPath.ToString());
 			return false;
 		}
-		if (MakeFingerprint(*Data) != Request.Asset)
+		if (MakeFingerprint(*Data, Request.Asset.AssetPath) != Request.Asset)
 		{
 			OutError = std::format(
 				"TextureCube thumbnail registry data changed for {}; refresh the request snapshot.",
-				Request.Asset.VirtualPath.ToString());
+				Request.Asset.AssetPath.ToString());
 			return false;
 		}
 
@@ -249,7 +251,7 @@ namespace Durin::Editor::Texture
 			.ShaderContractVersion = TextureCubeThumbnailShaderContract};
 		OutRequest.Input =
 			std::make_shared<FTextureCubeThumbnailGenerationInput>(
-				Request.Asset.VirtualPath);
+				Request.Asset.AssetPath);
 		OutRequest.RendererGeneration = RendererGeneration;
 		OutRequest.RequestSerial = Request.RequestSerial;
 		OutRequest.bHasTransparency = false;

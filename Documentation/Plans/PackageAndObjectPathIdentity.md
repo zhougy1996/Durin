@@ -2,19 +2,17 @@
 
 Summary: Separate package, top-level asset, and subobject identities and support multiple independently addressable top-level assets per package.
 
-Last reviewed: 2026-08-31
+Last reviewed: 2026-09-01
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-09-01
 
 ## Current Status
 
-The repository currently uses `FAssetPath` for a mounted package identity such
-as `/Game/Objects/Test`, gives one designated main asset that same object path,
-and formats every other export as `/Game/Objects/Test:Root.Component`.
-`DPackage::Asset`, `MainExportId`, one package-level asset class, and
-package-only soft references make that main asset a format and runtime
-invariant rather than an editor convention.
+The cutover is complete. Package, top-level asset, and complete object identity
+now use `FPackagePath`, `FTopLevelAssetPath`, and `FObjectPath` respectively.
+Packages own zero or more direct persistent exports without a distinguished
+main asset, and production persistence selects DAST v9 only.
 
 The selected replacement separates the three identities:
 
@@ -46,25 +44,20 @@ paths now store exact complete object identity. The former reflected
 only DAST v9. The construct-free v8 converter remains at the explicit
 AssetMaintenance boundary.
 
-Stage 3's structural Engine and Registry behavior is implemented and qualified,
-including exact object resolution, multi-asset package projection, relocation,
-reference mutation, deletion analysis, Cook, and canonical publication. Its
-final source cutover remains open: the `FAssetPath` source alias is removed,
-but implicit package-to-asset `LoadAsset` entry points are still present and
-must be replaced by exact top-level/object paths before Stage 3 can complete.
-The runtime-consumer cutover is now in progress: persisted hard references are
-parsed and loaded as exact `FObjectPath` values, package dependency preloads use
-`LoadPackage`, and the built-in default material and studio environment request
-their canonical object paths. Package-oriented Cook, relocation, Editor, and
-test callers still require classification before the legacy load entry points
-can be removed.
+Stage 3 is complete. `LoadPackage` owns package closure residency, `LoadObject`
+owns exact object selection, and `CreateAsset`/`DuplicateAsset` require exact
+top-level identities. Persisted references, redirects, relocation, Cook,
+thumbnails, and built-in assets retain exact asset names and descendant suffixes;
+no `LoadAsset`, `FAssetPath`, `GetAsset`, or runtime v8 selection remains.
 
-Stage 4's offline migration path is operational. `asset migrate` supports
+Stages 4 and 5 are complete. `asset migrate` supports
 preview/apply scopes and deterministic JSON reporting; all 25 maintained
 packages were previewed without blockers, migrated from v8 to v9, and accepted
 by `asset check --baseline`. The eight external `.dbulk` companions remained
-byte-identical. Focused tests, the broad native aggregate, and the full `all`
-build pass. Editor/tool identity cleanup and lasting documentation remain.
+byte-identical. Content Browser exposes every top-level record separately while
+retaining package/file ownership, editor consumers and tools use exact paths,
+lasting contracts describe v9 and the multi-asset model, and focused plus broad
+qualification passes.
 
 ## Goal
 
@@ -324,7 +317,7 @@ writer/reader pass exact round-trip qualification.
 - [x] Update Cook reachability and publication so package-level graph traversal
   and closure publication remain package-level while root selection and
   serialized references retain exact top-level/object identity.
-- [ ] Remove temporary path aliases and production v8 codec selection after all
+- [x] Remove temporary path aliases and production v8 codec selection after all
   runtime consumers use the new contracts; remove `GetAsset()` and implicit
   package-to-asset loading rather than retaining a hidden main-asset fallback.
 
@@ -336,17 +329,17 @@ main-asset load, or ambiguous `FAssetPath` API remains.
 
 ### Stage 4: Migrate tools, Editor, and maintained content
 
-- [ ] Update AssetMaintenance, import/reimport, Content Browser, inspectors,
+- [x] Update AssetMaintenance, import/reimport, Content Browser, inspectors,
   thumbnails, transactions, and user-facing diagnostics to request and display
   the correct identity kind.
 - [x] Add a preview/apply project migration command for the new format using
   the established offline migration grammar and deterministic JSON reporting.
 - [x] Preview the complete maintained corpus, resolve every failure explicitly,
   apply the migration, and prove no maintained package remains on v8.
-- [ ] Qualify editor-visible asset selection, rename/move, redirect fix-up,
+- [x] Qualify editor-visible asset selection, rename/move, redirect fix-up,
   per-asset and whole-package deletion blockers, canonical resave, source
   workflows, multi-asset package presentation, and restart behavior.
-- [ ] Remove superseded v8 conversion glue only when no supported migration
+- [x] Remove superseded v8 conversion glue only when no supported migration
   input requires it; keep any retained offline boundary private to Developer
   tooling and focused fixtures.
 
@@ -357,7 +350,7 @@ legacy spelling or implicit main-asset selection.
 
 ### Stage 5: Publish contracts and complete qualification
 
-- [ ] Update the lasting asset-package, serialization, Registry/mutation,
+- [x] Update the lasting asset-package, serialization, Registry/mutation,
   versioning, source-workflow, and user-facing documentation with the final
   identity grammar, multi-asset Package model, and ownership rules.
 - [x] Run focused CoreDObject, package-format, migration, Registry, asset
@@ -365,7 +358,7 @@ legacy spelling or implicit main-asset selection.
   workflow.
 - [x] Complete the broad native aggregate and full `all` build required for the
   shared CoreDObject API and package-format cutover.
-- [ ] Run changed and all-plan documentation validation, record exact evidence,
+- [x] Run changed and all-plan documentation validation, record exact evidence,
   and close every acceptance gate before marking the plan complete.
 
 Completion condition: code, maintained content, tests, and lasting contracts
@@ -385,6 +378,26 @@ and the plan contains an evidence-backed handoff.
 | Operations | Package load, exact asset/object resolution, relocation, asset redirects, per-asset/package deletion, inspection, Cook, and resave preserve the correct identity components. |
 | Cutover | Production policy exposes one reader/writer version and repository searches find no main-asset invariant, ambiguous path alias, or runtime v8 fallback. |
 | Qualification | Focused tests, the required broad native aggregate, full build, corpus audit, and documentation validators pass. |
+
+## Completion Evidence
+
+- Maintained corpus: all 25 inventoried DAST v8 packages converted to v9 and
+  passed `asset check --baseline`; all eight `.dbulk` companions remained
+  byte-identical.
+- Focused regression: `AssetPackageTests` 110/110,
+  `ContentBrowserWorkflowTests` 65/65, `ThumbnailTests` 63/63,
+  `StaticMeshThumbnailTests` 9/9, `MaterialThumbnailTests` 8/8, and
+  `TextureThumbnailTests` 9/9 passed.
+- Broad qualification: `DevTool test affected --agent --plain --output compact`
+  resolved to the complete native-test target set and passed on 2026-09-01;
+  `DevTool build --agent --plain --output compact` completed the full `all`
+  build.
+- Cutover audit: production/test source contains no `LoadAsset`, `FAssetPath`,
+  `DPackage::Asset`, `GetAsset`, or `SetAsset` API; production creation accepts
+  exact top-level paths, while package-leaf fixture behavior is explicitly named.
+- Documentation: changed-scope validation passed for 7 files, all-scope
+  validation passed for 155 files, and plan validation passed for 5 active,
+  17 completed, and 295 archived plans.
 
 ## Related Documentation
 

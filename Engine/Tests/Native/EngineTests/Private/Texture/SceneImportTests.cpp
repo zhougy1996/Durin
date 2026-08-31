@@ -1,4 +1,5 @@
 #include "Misc/MountPathTestSupport.h"
+#include "NativeDObjectTestSupport.h"
 #include "TextureTestSupport.h"
 
 #include "Animation/AnimationClip.h"
@@ -106,7 +107,7 @@ TEST(FSceneImportTests, AssetForgePublishesHeterogeneousGraph)
 	for (const auto& Output : Imported.Outputs)
 	{
 		Durin::DObject* Object = nullptr;
-		EXPECT_TRUE(Durin::Asset::LoadAsset(Output.AssetPath, Object));
+		EXPECT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Object));
 		EXPECT_NE(Object, nullptr);
 	}
 }
@@ -124,7 +125,7 @@ TEST(FSceneImportTests, AssetForgePublishesSkeletalDependencyGraph)
 	for (const auto& Output : Imported.Outputs)
 	{
 		Durin::DObject* Object = nullptr;
-		ASSERT_TRUE(Durin::Asset::LoadAsset(Output.AssetPath, Object));
+		ASSERT_TRUE(Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(Output.AssetPath), Object));
 		Skeletons += Durin::Cast<Durin::DSkeleton>(Object) != nullptr;
 		SkeletalMeshes += Durin::Cast<Durin::DSkeletalMesh>(Object) != nullptr;
 		Animations += Durin::Cast<Durin::DAnimationClip>(Object) != nullptr;

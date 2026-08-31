@@ -22,7 +22,7 @@ namespace Durin::AssetForge::Builtins
 		auto* Factory = NewObject<DTexture2DFactory>(
 			nullptr, "Texture2DTestFactory", EObjectFlags::Transient);
 		Factory->SetImportSettings(Settings);
-		const FAssetToolsResult Imported = IAssetTools::Get().ImportAsset(
+		const FAssetToolsResult Imported = IAssetTools::Get().ImportPackageLeafAssetForTesting(
 			ParsedPath, DTexture2D::StaticClass(), FilePath, Factory);
 		auto* Texture = Cast<DTexture2D>(Imported.Asset);
 		if (!Imported || !Texture)

@@ -161,15 +161,15 @@ namespace Durin::Editor::Texture
 	{
 		if (Document.ResourceId.empty()) return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		if (FindOpenTexture(Document.ResourceId)) return ::Durin::Editor::EDocumentOpenResult::Opened;
-		FPackagePath AssetPath;
+		FObjectPath AssetPath;
 		std::string PathError;
-		if (!FPackagePath::TryCreate(Document.ResourceId, AssetPath, &PathError))
+		if (!FObjectPath::TryCreate(Document.ResourceId, AssetPath, &PathError))
 		{
 			SetError(std::move(PathError));
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		}
 		DTexture2D* Texture = nullptr;
-		const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Texture);
+		const Asset::FAssetResult Result = Asset::LoadObject(AssetPath, Texture);
 		if (!Result || !Texture)
 		{
 			SetError(Result ? "The selected asset is not a Texture2D." : Result.Message);

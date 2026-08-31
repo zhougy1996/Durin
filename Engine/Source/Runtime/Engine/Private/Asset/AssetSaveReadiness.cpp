@@ -9,7 +9,7 @@ namespace Durin
 	{
 		if (!Asset)
 			return {Asset::EAssetError::InvalidObjectGraph,
-				"Loaded package has no main asset."};
+				"Asset save-readiness requires an exact loaded asset."};
 
 		const auto Invoked = FModularFeatureRegistry::Get().InvokeAll<
 			IAssetSaveReadinessFeature>(

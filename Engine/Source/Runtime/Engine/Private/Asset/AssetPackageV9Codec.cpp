@@ -843,46 +843,55 @@ namespace Durin::Asset::Private::DastV9
 			return WriteLinker(std::move(Linker), OutClosure);
 		}
 
-		auto WriteRedirector(const FPackagePath& Source, const FPackagePath& Destination,
+		auto WriteRedirector(const FPackagePath& Source,
+			std::span<const FAssetRedirectorWriteMapping> Mappings,
 			FAssetPackageEncodedClosure& OutClosure) -> FAssetResult
 		{
 			constexpr std::string_view RedirectorClass =
 				"Durin::Asset::DAssetRedirector";
-			ObjectPackage::FPackageIndex Main;
-			ObjectPackage::FPackageIndex Import;
-			ObjectPackage::FPackageIndex::TryExport(0, Main);
-			ObjectPackage::FPackageIndex::TryImport(0, Import);
+			if (Mappings.empty())
+				return Error(EAssetError::InvalidPath,
+					"Redirector creation requires at least one exact asset mapping.");
 			ObjectPackage::FSerializedType ReferenceType{
 				.Kind = ObjectPackage::EValueKind::HardReference,
 				.QualifiedName = "Durin::DObject"};
-			FTopLevelAssetPath SourceAsset;
-			FTopLevelAssetPath DestinationAsset;
-			FObjectPath DestinationObject;
-			if (!FTopLevelAssetPath::TryCreate(Source, Source.GetPackageName(), SourceAsset)
-				|| !FTopLevelAssetPath::TryCreate(
-					Destination, Destination.GetPackageName(), DestinationAsset)
-				|| !FObjectPath::TryCreate(DestinationAsset,
-					std::span<const std::string>{}, DestinationObject))
-				return Error(EAssetError::InvalidPath, "Redirector identity is invalid.");
 			ObjectPackage::FLinkerTables Linker;
 			Linker.Summary.PackagePath = Source;
-			Linker.Summary.TopLevelAssets.push_back({.Export = Main,
-				.AssetPath = SourceAsset, .ClassName = std::string(RedirectorClass),
-				.RedirectDestination = DestinationObject});
-			Linker.Summary.HardPackageDependencies.push_back(Destination);
 			Linker.Types.push_back(ReferenceType);
 			Linker.Schemas.push_back({std::string(RedirectorClass),
 				{{"DestinationObject", ReferenceType, 0}}});
-			Linker.Imports.push_back({.ObjectPath = DestinationObject});
-			Linker.Exports.push_back({
-				.ObjectName = std::string(Source.GetAssetName()),
-				.ClassName = std::string(RedirectorClass),
-				.Properties = {{
-					.DeclaringType = std::string(RedirectorClass),
-					.FieldName = "DestinationObject",
-					.Type = ReferenceType,
-					.Provenance = ObjectPackage::EPropertyProvenance::Explicit,
-					.Value = {.Reference = Import}}}});
+			for (size_t Index = 0; Index < Mappings.size(); ++Index)
+			{
+				const FAssetRedirectorWriteMapping& Mapping = Mappings[Index];
+				if (!Mapping.Source.IsValid() || Mapping.Source.GetPackagePath() != Source
+					|| !Mapping.Destination.IsValid())
+					return Error(EAssetError::InvalidPath, "Redirector identity is invalid.");
+				ObjectPackage::FPackageIndex Export;
+				ObjectPackage::FPackageIndex Import;
+				ObjectPackage::FPackageIndex::TryExport(static_cast<uint32>(Index), Export);
+				ObjectPackage::FPackageIndex::TryImport(static_cast<uint32>(Index), Import);
+				Linker.Summary.TopLevelAssets.push_back({.Export = Export,
+					.AssetPath = Mapping.Source,
+					.ClassName = std::string(RedirectorClass),
+					.RedirectDestination = Mapping.Destination});
+				Linker.Summary.HardPackageDependencies.push_back(
+					Mapping.Destination.GetPackagePath());
+				Linker.Imports.push_back({.ObjectPath = Mapping.Destination});
+				Linker.Exports.push_back({
+					.ObjectName = std::string(Mapping.Source.GetAssetName()),
+					.ClassName = std::string(RedirectorClass),
+					.Properties = {{
+						.DeclaringType = std::string(RedirectorClass),
+						.FieldName = "DestinationObject",
+						.Type = ReferenceType,
+						.Provenance = ObjectPackage::EPropertyProvenance::Explicit,
+						.Value = {.Reference = Import}}}});
+			}
+			std::ranges::sort(Linker.Summary.HardPackageDependencies);
+			Linker.Summary.HardPackageDependencies.erase(std::unique(
+				Linker.Summary.HardPackageDependencies.begin(),
+				Linker.Summary.HardPackageDependencies.end()),
+				Linker.Summary.HardPackageDependencies.end());
 			return WriteLinker(std::move(Linker), OutClosure);
 		}
 	}

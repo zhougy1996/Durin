@@ -146,10 +146,18 @@ namespace Durin::Editor::Level
 			return false;
 		}
 		const FPackagePath& AssetPath = DestinationValidation.AssetPath;
+		FTopLevelAssetPath TopLevelAssetPath;
+		if (!FTopLevelAssetPath::TryCreate(
+			AssetPath, AssetPath.GetPackageName(), TopLevelAssetPath))
+		{
+			SetError("The terrain-heightmap top-level asset path is invalid.");
+			return false;
+		}
 		auto* Factory = NewObject<AssetForge::Builtins::DTerrainHeightmapFactory>(
 			nullptr, "TerrainHeightmapDialogFactory", EObjectFlags::Transient);
 		const FAssetToolsResult Result = IAssetTools::Get().ImportAsset(
-			AssetPath, DTerrainHeightmap::StaticClass(), Source.generic_string(), Factory);
+			TopLevelAssetPath, DTerrainHeightmap::StaticClass(),
+			Source.generic_string(), Factory);
 		if (!Result)
 		{
 			SetError(Result.Message.empty()

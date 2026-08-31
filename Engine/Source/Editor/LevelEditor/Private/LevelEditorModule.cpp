@@ -54,8 +54,10 @@ namespace Durin
 				if (!FPackagePath::TryCreate(Directory + Name, Path)
 					|| Asset::FindAssetExact(Path)
 					|| Asset::FindResidentPackage(Path)) continue;
+				FTopLevelAssetPath AssetPath;
+				if (!FTopLevelAssetPath::TryCreate(Path, Name, AssetPath)) continue;
 				DLevel* Level = nullptr;
-				Asset::FAssetResult Result = Asset::CreateAsset(Path, Level);
+				Asset::FAssetResult Result = Asset::CreateAsset(AssetPath, Level);
 				if (!Result || !Level)
 				{
 					OutError = Result ? "Could not create the level asset." : Result.Message;

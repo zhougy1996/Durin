@@ -42,7 +42,8 @@ namespace Durin
 	// Captures the unloaded package fields that invalidate an asset thumbnail.
 	struct FAssetThumbnailPackageFingerprint
 	{
-		FPackagePath VirtualPath;
+		FTopLevelAssetPath AssetPath;
+		FPackagePath PackagePath;
 		std::string AssetClassName;
 		uint32 PackageFormatVersion = 0;
 		uint64 FileSize = 0;
@@ -66,7 +67,7 @@ namespace Durin
 	struct FThumbnailVisualContract
 	{
 		static constexpr uint32 SchemaVersion = 1;
-		static constexpr std::string_view SphereVirtualPath = "/Engine/Models/Sphere";
+		static constexpr std::string_view SphereAssetPath = "/Engine/Models/Sphere.Sphere";
 		static constexpr uint32 SphereFixtureVersion = 1;
 		static constexpr std::string_view TextureCubeEnvironmentViewIdentity =
 			"/Engine/Editor/TextureCubePreview/WideEnvironment";

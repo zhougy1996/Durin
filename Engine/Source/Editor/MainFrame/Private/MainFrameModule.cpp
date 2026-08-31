@@ -95,15 +95,15 @@ namespace Durin::Editor::MainFrame
 
 		namespace
 		{
-		auto LoadReimportObject(std::string_view AssetPath, FPackagePath& OutPath,
+		auto LoadReimportObject(std::string_view AssetPath, FObjectPath& OutPath,
 			DObject*& OutObject, std::string& OutError) -> bool
 		{
-			if (!FPackagePath::TryCreate(AssetPath, OutPath))
+			if (!FObjectPath::TryCreate(AssetPath, OutPath))
 			{
 				OutError = "The selected asset path is invalid.";
 				return false;
 			}
-			const Asset::FAssetResult Loaded = Asset::LoadAsset(OutPath, OutObject);
+			const Asset::FAssetResult Loaded = Asset::LoadObject(OutPath, OutObject);
 			if (!Loaded || !OutObject)
 			{
 				OutError = Loaded ? "The selected asset could not be loaded." : Loaded.Message;
@@ -188,7 +188,7 @@ namespace Durin::Editor::MainFrame
 		auto ExecuteReimport(bool bFromFile, std::string AssetPath,
 			std::function<void(std::string)> ReportError) -> void
 		{
-			FPackagePath Path;
+			FObjectPath Path;
 			DObject* Object = nullptr;
 			std::string Error;
 			if (!LoadReimportObject(AssetPath, Path, Object, Error))
@@ -427,17 +427,19 @@ namespace Durin::Editor::MainFrame
 								static_cast<bool>(Result), Result.Message};
 						},
 						.QueryReimport = [](std::string_view AssetPath) {
-							FPackagePath Path;
-							if (!FPackagePath::TryCreate(AssetPath, Path))
+							FObjectPath Path;
+							if (!FObjectPath::TryCreate(AssetPath, Path))
 								return ContentBrowser::FReimportAvailability{};
-							DPackage* ExistingPackage = Asset::FindResidentPackage(Path);
+							DPackage* ExistingPackage = Asset::FindResidentPackage(
+								Path.GetPackagePath());
 							DObject* Object = nullptr;
 							std::string Error;
 							if (!LoadReimportObject(AssetPath, Path, Object, Error))
 								return ContentBrowser::FReimportAvailability{};
 							const FReimportCapabilities Capabilities =
 								FReimportManager::GetCapabilities(*Object);
-							if (!ExistingPackage) (void)Asset::UnloadPackage(Path);
+							if (!ExistingPackage)
+								(void)Asset::UnloadPackage(Path.GetPackagePath());
 							return ContentBrowser::FReimportAvailability{
 								Capabilities.bCanReimport,
 								Capabilities.bCanReimportFromFile};

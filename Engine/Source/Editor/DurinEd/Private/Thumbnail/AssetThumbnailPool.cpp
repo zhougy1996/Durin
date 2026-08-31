@@ -14,7 +14,7 @@ namespace Durin::Editor
 	{
 		struct FAssetThumbnailUploadResult
 		{
-			FPackagePath AssetPath;
+			FTopLevelAssetPath AssetPath;
 			std::string AssetClassName;
 			FAssetThumbnailCancellation Cancellation;
 			uint64 RendererGeneration = 0;
@@ -65,7 +65,7 @@ namespace Durin::Editor
 		FAssetThumbnailGeneration Pipeline;
 		std::unique_ptr<FThumbnailPreviewScenePool> ScenePool;
 		std::optional<FAssetThumbnailOutputSettings> SceneOutput;
-		std::unordered_map<FPackagePath, FEntry> Entries;
+		std::unordered_map<FTopLevelAssetPath, FEntry> Entries;
 		std::shared_ptr<FAssetThumbnailAsyncState> AsyncState =
 			std::make_shared<FAssetThumbnailAsyncState>();
 		std::optional<FAssetThumbnailJob> ActiveJob;
@@ -150,7 +150,7 @@ namespace Durin::Editor
 			uint32 Width,
 			uint32 Height) -> void
 		{
-			const FPackagePath& AssetPath = Request.KeyInput.Asset.VirtualPath;
+			const FTopLevelAssetPath& AssetPath = Request.KeyInput.Asset.AssetPath;
 			auto It = Entries.find(AssetPath);
 			if (It == Entries.end() || It->second.Serial != Request.RequestSerial
 				|| !IsCurrent(Request))
@@ -226,7 +226,7 @@ namespace Durin::Editor
 		{
 			FAssetThumbnailGenerationRequest& Request =
 				Job.ScheduledJob.GenerationRequest;
-			if (auto It = Entries.find(Request.KeyInput.Asset.VirtualPath);
+			if (auto It = Entries.find(Request.KeyInput.Asset.AssetPath);
 				It != Entries.end())
 				It->second.bHasTransparency = Request.bHasTransparency;
 			const std::shared_ptr<const FAssetThumbnailGeneratedPixels> Generated =
@@ -292,7 +292,7 @@ namespace Durin::Editor
 			}
 			if (!Error.empty())
 			{
-				if (auto It = Entries.find(Request.KeyInput.Asset.VirtualPath);
+				if (auto It = Entries.find(Request.KeyInput.Asset.AssetPath);
 					It != Entries.end())
 				{
 					It->second.Diagnostic = std::move(Error);
@@ -584,7 +584,7 @@ namespace Durin::Editor
 			if (ActiveJob || ParkedJobs.empty()) return;
 			auto IsVisible = [this](const FParkedJob& Parked) {
 				const auto It = Entries.find(
-					Parked.Job.ScheduledJob.GenerationRequest.KeyInput.Asset.VirtualPath);
+					Parked.Job.ScheduledJob.GenerationRequest.KeyInput.Asset.AssetPath);
 				return It != Entries.end() && It->second.bVisible;
 			};
 			auto Selected = std::ranges::find_if(
@@ -611,8 +611,8 @@ namespace Durin::Editor
 			if (Start.WarmJob)
 			{
 				FAssetThumbnailScheduledRequest& WarmJob = *Start.WarmJob;
-				const FPackagePath& Path =
-					WarmJob.GenerationRequest.KeyInput.Asset.VirtualPath;
+				const FTopLevelAssetPath& Path =
+					WarmJob.GenerationRequest.KeyInput.Asset.AssetPath;
 				if (auto It = Entries.find(Path); It != Entries.end())
 					It->second.bHasTransparency =
 						WarmJob.GenerationRequest.bHasTransparency;
@@ -650,7 +650,7 @@ namespace Durin::Editor
 			FAssetThumbnailJob& Job = *ActiveJob;
 			FAssetThumbnailGenerationRequest& Request =
 				Job.ScheduledJob.GenerationRequest;
-			if (auto It = Entries.find(Request.KeyInput.Asset.VirtualPath);
+			if (auto It = Entries.find(Request.KeyInput.Asset.AssetPath);
 				It != Entries.end())
 				It->second.bHasTransparency = Request.bHasTransparency;
 			if (Request.GeneratedPixels)
@@ -695,8 +695,8 @@ namespace Durin::Editor
 			for (const std::string& Key : SelectThumbnailBudgetEvictions(
 					BudgetEntries, Budgets.GpuTextureBudgetBytes))
 			{
-				FPackagePath Path;
-				if (!FPackagePath::TryCreate(Key, Path)) continue;
+				FTopLevelAssetPath Path;
+				if (!FTopLevelAssetPath::TryCreate(Key, Path)) continue;
 				if (auto It = Entries.find(Path); It != Entries.end())
 				{
 					UnregisterTexture(It->second);
@@ -728,8 +728,8 @@ namespace Durin::Editor
 			for (const std::string& Key : SelectThumbnailBudgetEvictions(
 					BudgetEntries, Budgets.MaximumRetainedEntries))
 			{
-				FPackagePath Path;
-				if (!FPackagePath::TryCreate(Key, Path)) continue;
+				FTopLevelAssetPath Path;
+				if (!FTopLevelAssetPath::TryCreate(Key, Path)) continue;
 				if (auto It = Entries.find(Path); It != Entries.end())
 				{
 					const bool bHadTexture = It->second.Texture != nullptr;
@@ -781,8 +781,8 @@ namespace Durin::Editor
 		const FAssetThumbnailPackageFingerprint& Asset,
 		EAssetThumbnailPriority Priority) -> void
 	{
-		if (!Asset.VirtualPath.IsValid()) return;
-		auto [It, bInserted] = Impl->Entries.try_emplace(Asset.VirtualPath);
+		if (!Asset.AssetPath.IsValid()) return;
+		auto [It, bInserted] = Impl->Entries.try_emplace(Asset.AssetPath);
 		FImpl::FEntry& Entry = It->second;
 		if (bInserted)
 			Entry.Fingerprint = Asset;
@@ -790,7 +790,7 @@ namespace Durin::Editor
 		{
 			const uint64 NextSerial = Entry.Serial + 1;
 			const uint32 ReferencerCount = Entry.ReferencerCount;
-			Impl->Scheduler.Cancel(Asset.VirtualPath);
+			Impl->Scheduler.Cancel(Asset.AssetPath);
 			Impl->UnregisterTexture(Entry);
 			Entry = {};
 			Entry.Fingerprint = Asset;
@@ -819,7 +819,7 @@ namespace Durin::Editor
 		}
 	}
 
-	auto FAssetThumbnailPool::Find(const FPackagePath& AssetPath) const
+	auto FAssetThumbnailPool::Find(const FTopLevelAssetPath& AssetPath) const
 		-> FAssetThumbnailView
 	{
 		FAssetThumbnailView View = Impl->Scheduler.Find(AssetPath);
@@ -841,7 +841,7 @@ namespace Durin::Editor
 		return View;
 	}
 
-	auto FAssetThumbnailPool::AddReferencer(const FPackagePath& AssetPath) -> void
+	auto FAssetThumbnailPool::AddReferencer(const FTopLevelAssetPath& AssetPath) -> void
 	{
 		if (!AssetPath.IsValid()) return;
 		auto [It, Inserted] = Impl->Entries.try_emplace(AssetPath);
@@ -849,14 +849,14 @@ namespace Durin::Editor
 		++It->second.ReferencerCount;
 	}
 
-	auto FAssetThumbnailPool::RemoveReferencer(const FPackagePath& AssetPath) -> void
+	auto FAssetThumbnailPool::RemoveReferencer(const FTopLevelAssetPath& AssetPath) -> void
 	{
 		const auto It = Impl->Entries.find(AssetPath);
 		if (It == Impl->Entries.end() || It->second.ReferencerCount == 0) return;
 		--It->second.ReferencerCount;
 	}
 
-	auto FAssetThumbnailPool::Refresh(const FPackagePath& AssetPath) -> void
+	auto FAssetThumbnailPool::Refresh(const FTopLevelAssetPath& AssetPath) -> void
 	{
 		const auto It = Impl->Entries.find(AssetPath);
 		if (It == Impl->Entries.end()) return;

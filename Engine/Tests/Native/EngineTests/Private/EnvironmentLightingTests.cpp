@@ -119,7 +119,7 @@ TEST(FEnvironmentLightingTests, AssetCooksAuthoredPayloadDirectlyWithoutDdc)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/EnvironmentLightingCook/StudioEnvironment", AssetPath));
 	Durin::DEnvironmentLighting* Asset = nullptr;
-	ASSERT_TRUE(Durin::Asset::CreateAsset(AssetPath, Asset));
+	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(AssetPath, Asset));
 	ASSERT_NE(Asset, nullptr);
 
 	std::vector<std::byte> SourceBytes;

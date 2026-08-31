@@ -23,15 +23,24 @@
 
 #include <gtest/gtest.h>
 
+#include "NativeDObjectTestSupport.h"
+
 namespace
 {
+	auto MakeAssetPath(const Durin::FPackagePath& PackagePath)
+		-> Durin::FTopLevelAssetPath
+	{
+		return Durin::Testing::MakePackageLeafTopLevelAssetPathForTests(PackagePath);
+	}
+
 	auto MakeRequest(
 		const Durin::Asset::FAssetData& Data,
 		uint64 Serial = 1) -> Durin::Editor::FAssetThumbnailRequest
 	{
 		return {
 			.Asset = {
-				.VirtualPath = Data.PackagePath,
+				.AssetPath = MakeAssetPath(Data.PackagePath),
+				.PackagePath = Data.PackagePath,
 				.AssetClassName = Data.AssetClassName,
 				.PackageFormatVersion = Data.FormatVersion,
 				.FileSize = static_cast<uint64>(Data.FileSize),
@@ -65,7 +74,7 @@ namespace
 		return std::ranges::any_of(
 			Request.KeyInput.Dependencies,
 			[Path](const Durin::Editor::FAssetThumbnailPackageFingerprint& Dependency) {
-				return Dependency.VirtualPath.GetView() == Path;
+				return Dependency.PackagePath.GetView() == Path;
 			});
 	}
 }
@@ -188,7 +197,8 @@ TEST(FMaterialThumbnailRendererTests, RendererRejectsMissingRegistryData)
 	std::string Error;
 	EXPECT_FALSE(Renderer.CaptureGenerationRequest({
 		.Asset = {
-			.VirtualPath = MissingPath,
+			.AssetPath = MakeAssetPath(MissingPath),
+			.PackagePath = MissingPath,
 			.AssetClassName =
 				Durin::DMaterial::StaticClass()->GetQualifiedName().ToString(),
 			.PackageFormatVersion = 1,
@@ -284,14 +294,14 @@ TEST(FMaterialThumbnailRendererTests, InvalidInstancePublishesOneStableDiagnosti
 	Cache.BeginFrame();
 	Cache.Request(MakeRequest(*Data).Asset, Durin::Editor::EAssetThumbnailPriority::Visible);
 	Cache.EndFrame();
-	const Durin::Editor::FAssetThumbnailView First = Cache.Find(InvalidPath);
+	const Durin::Editor::FAssetThumbnailView First = Cache.Find(MakeAssetPath(InvalidPath));
 	ASSERT_EQ(First.State, Durin::Editor::EAssetThumbnailState::Failed);
 	EXPECT_NE(First.Diagnostic.find("parent"), std::string::npos);
 
 	Cache.BeginFrame();
 	Cache.Request(MakeRequest(*Data).Asset, Durin::Editor::EAssetThumbnailPriority::Visible);
 	Cache.EndFrame();
-	const Durin::Editor::FAssetThumbnailView Repeated = Cache.Find(InvalidPath);
+	const Durin::Editor::FAssetThumbnailView Repeated = Cache.Find(MakeAssetPath(InvalidPath));
 	EXPECT_EQ(Repeated.State, Durin::Editor::EAssetThumbnailState::Failed);
 	EXPECT_EQ(Repeated.Diagnostic, First.Diagnostic);
 }
@@ -315,7 +325,7 @@ TEST(FMaterialThumbnailRendererTests,
 	ASSERT_NE(MaterialData, nullptr);
 	Durin::DObject* LoadedObject = nullptr;
 	const Durin::Asset::FAssetResult LoadResult =
-		Durin::Asset::LoadAsset(MaterialPath, LoadedObject);
+		Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), LoadedObject);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	auto* Material = Durin::Cast<Durin::DMaterial>(LoadedObject);
 	ASSERT_NE(Material, nullptr);
@@ -365,7 +375,7 @@ TEST(FMaterialThumbnailRendererTests,
 	ASSERT_NE(MaterialData, nullptr);
 	Durin::DObject* LoadedObject = nullptr;
 	const Durin::Asset::FAssetResult LoadResult =
-		Durin::Asset::LoadAsset(MaterialPath, LoadedObject);
+		Durin::Asset::LoadObject(Durin::Testing::MakePackageLeafAssetObjectPathForTests(MaterialPath), LoadedObject);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
 	auto* Material = Durin::Cast<Durin::DMaterial>(LoadedObject);
 	ASSERT_NE(Material, nullptr);

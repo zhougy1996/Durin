@@ -44,17 +44,6 @@ namespace Durin::Asset
 			return {Code, std::move(Message)};
 		}
 
-		auto FormerMainObjectPath(const FPackagePath& PackagePath) -> FObjectPath
-		{
-			FTopLevelAssetPath AssetPath;
-			FObjectPath ObjectPath;
-			FTopLevelAssetPath::TryCreate(
-				PackagePath, PackagePath.GetPackageName(), AssetPath);
-			FObjectPath::TryCreate(
-				AssetPath, std::span<const std::string>{}, ObjectPath);
-			return ObjectPath;
-		}
-
 		auto GetRelocationPhysicalPath(const FPackagePath& Path) -> std::string
 		{
 			const FAssetRuntimeConfiguration& Context =
@@ -121,7 +110,7 @@ namespace Durin::Asset
 
 		auto BuildRedirectorPackageBytes(
 			const FPackagePath& SourcePath,
-			const FPackagePath& DestinationPath,
+			std::span<const Private::FAssetRedirectorWriteMapping> Mappings,
 			uint32 FormatVersion,
 			std::vector<std::byte>& OutBytes) -> FAssetResult
 		{
@@ -132,7 +121,7 @@ namespace Durin::Asset
 					"Redirector creation requires package mutation capability.");
 			Private::FAssetPackageEncodedClosure Closure;
 			FAssetResult Result = Codec->WriteRedirector(
-				SourcePath, DestinationPath, Closure);
+				SourcePath, Mappings, Closure);
 			if (!Result) return Result;
 			OutBytes = std::move(Closure.PackageBytes);
 			return {};
@@ -327,8 +316,22 @@ namespace Durin::Asset
 				Mapping.DestinationPath, MovedBytes);
 			if (!Result) return Result;
 			std::vector<std::byte> SourceRedirectorBytes;
+			std::vector<Private::FAssetRedirectorWriteMapping> RedirectMappings;
+			RedirectMappings.reserve(SourceData->TopLevelAssets.size());
+			for (const FTopLevelAssetData& Asset : SourceData->TopLevelAssets)
+			{
+				FTopLevelAssetPath DestinationAsset;
+				FObjectPath DestinationObject;
+				if (!FTopLevelAssetPath::TryCreate(Mapping.DestinationPath,
+						Asset.AssetPath.GetAssetName(), DestinationAsset)
+					|| !FObjectPath::TryCreate(DestinationAsset,
+						std::span<const std::string>{}, DestinationObject))
+					return Error(EAssetError::InvalidPath,
+						"Relocation could not preserve a top-level asset identity in its redirector.");
+				RedirectMappings.push_back({Asset.AssetPath, std::move(DestinationObject)});
+			}
 			Result = BuildRedirectorPackageBytes(
-				Mapping.SourcePath, Mapping.DestinationPath,
+				Mapping.SourcePath, RedirectMappings,
 				SourceData->FormatVersion,
 				SourceRedirectorBytes);
 			if (!Result) return Result;
@@ -398,13 +401,17 @@ namespace Durin::Asset
 			State->PostAssets.erase(Mapping.DestinationPath);
 			State->PostAssets.emplace(Mapping.DestinationPath,
 				std::move(MovedData));
+			std::vector<FTopLevelAssetData> RedirectAssets;
+			RedirectAssets.reserve(RedirectMappings.size());
+			for (const Private::FAssetRedirectorWriteMapping& Redirect : RedirectMappings)
+				RedirectAssets.push_back({
+					.AssetPath = Redirect.Source,
+					.AssetClassName = std::string(RedirectorClassName),
+					.RedirectDestination = Redirect.Destination});
 			State->PostAssets.emplace(Mapping.SourcePath, FAssetData{
 				.PackagePath = Mapping.SourcePath,
 				.PhysicalPath = SourceFile.generic_string(),
-				.TopLevelAssets = {{
-					.AssetPath = FormerMainObjectPath(Mapping.SourcePath).GetAssetPath(),
-					.AssetClassName = std::string(RedirectorClassName),
-					.RedirectDestination = FormerMainObjectPath(Mapping.DestinationPath)}},
+				.TopLevelAssets = std::move(RedirectAssets),
 				.AssetClassName = std::string(RedirectorClassName),
 				.EntryKind = EAssetRegistryEntryKind::Redirector,
 				.RedirectDestination = Mapping.DestinationPath,
@@ -430,8 +437,25 @@ namespace Durin::Asset
 					AliasData.PhysicalPath, AliasPreBytes);
 				if (!Result) return Result;
 				std::vector<std::byte> AliasPostBytes;
+				std::vector<Private::FAssetRedirectorWriteMapping> AliasMappings;
+				AliasMappings.reserve(AliasData.TopLevelAssets.size());
+				for (const FTopLevelAssetData& AliasAsset : AliasData.TopLevelAssets)
+				{
+					FTopLevelAssetPath DestinationAsset;
+					FObjectPath DestinationObject;
+					const std::string_view AssetName = AliasAsset.RedirectDestination.IsValid()
+						? AliasAsset.RedirectDestination.GetAssetPath().GetAssetName()
+						: AliasAsset.AssetPath.GetAssetName();
+					if (!FTopLevelAssetPath::TryCreate(
+							Mapping.DestinationPath, AssetName, DestinationAsset)
+						|| !FObjectPath::TryCreate(DestinationAsset,
+							std::span<const std::string>{}, DestinationObject))
+						return Error(EAssetError::InvalidPath,
+							"Relocation could not retarget an upstream exact redirector.");
+					AliasMappings.push_back({AliasAsset.AssetPath, std::move(DestinationObject)});
+				}
 				Result = BuildRedirectorPackageBytes(
-					AliasPath, Mapping.DestinationPath,
+					AliasPath, AliasMappings,
 					AliasData.FormatVersion, AliasPostBytes);
 				if (!Result) return Result;
 				Result = AddFileEntry(
@@ -444,9 +468,11 @@ namespace Durin::Asset
 				FAssetData& PostAlias = State->PostAssets.at(AliasPath);
 				PostAlias.RedirectDestination = Mapping.DestinationPath;
 				PostAlias.Dependencies = {Mapping.DestinationPath};
-				if (PostAlias.TopLevelAssets.size() == 1)
-					PostAlias.TopLevelAssets.front().RedirectDestination =
-						FormerMainObjectPath(Mapping.DestinationPath);
+				for (size_t Index = 0;
+					Index < PostAlias.TopLevelAssets.size() && Index < AliasMappings.size();
+					++Index)
+					PostAlias.TopLevelAssets[Index].RedirectDestination =
+						AliasMappings[Index].Destination;
 			}
 
 			for (FAssetReferenceEdge& Reference : State->PostReferenceEdges)
@@ -469,8 +495,19 @@ namespace Durin::Asset
 			if (!Result) return Result;
 			if (RelocatorInvocation.Relocator)
 			{
+				const auto AssetRecord = std::ranges::find(
+					SourceData->TopLevelAssets, SourceData->AssetClassName,
+					&FTopLevelAssetData::AssetClassName);
+				if (AssetRecord == SourceData->TopLevelAssets.end())
+					return Error(EAssetError::InvalidObjectGraph,
+						"The package has no exact top-level asset for its payload relocator.");
+				FObjectPath AssetPath;
+				if (!FObjectPath::TryCreate(
+					AssetRecord->AssetPath, std::span<const std::string>{}, AssetPath))
+					return Error(EAssetError::InvalidPath,
+						"The payload relocator asset path is invalid.");
 				DObject* AssetObject = nullptr;
-				Result = LoadAsset(Mapping.SourcePath, AssetObject);
+				Result = LoadObject(AssetPath, nullptr, AssetObject);
 				if (!Result) return Result;
 				if (std::ranges::none_of(
 						State->LoadedPackages,
