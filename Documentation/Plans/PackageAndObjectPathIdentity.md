@@ -265,22 +265,22 @@ explicitly bounded temporary adapters.
 
 ### Stage 2: Add the new canonical package format and offline conversion
 
-- [ ] Extend the format-neutral linker contract so soft-reference values carry
+- [x] Extend the format-neutral linker contract so soft-reference values carry
   validated complete object paths while Registry summaries carry derived
   package paths.
-- [ ] Replace the single `MainExportId`/asset-class/redirect summary with a
+- [x] Replace the single `MainExportId`/asset-class/redirect summary with a
   canonical top-level asset table bound to exports; validate unique names,
   package Outer topology, per-asset class/redirect shape, and complete coverage.
-- [ ] Add the new canonical reader/writer policy and exact byte fixtures without
+- [x] Add the new canonical reader/writer policy and exact byte fixtures without
   changing unrelated section, BulkData, or object-value semantics.
-- [ ] Implement a construct-free v8-to-current adapter that validates the full
+- [x] Implement a construct-free v8-to-current adapter that validates the full
   main/bulk closure, maps the former main and every package-outer export to
   top-level asset records, rewrites soft/import/redirect values, and rejects
   ambiguous input atomically.
-- [ ] Extend AssetMaintenance plan/apply reporting with source/target
+- [x] Extend AssetMaintenance plan/apply reporting with source/target
   fingerprints, stale checks, deterministic preview, rollback, and canonical
   re-emission verification.
-- [ ] Cover null/main soft references, redirects, nested containers and maps,
+- [x] Cover null/main soft references, redirects, nested containers and maps,
   malformed inputs, stale plans, partial publication failure, and byte-identical
   repeated conversion.
 

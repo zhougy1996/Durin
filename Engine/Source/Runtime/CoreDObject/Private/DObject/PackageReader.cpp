@@ -18,6 +18,7 @@ namespace Durin::ObjectPackage
 		struct FParsedLayout
 		{
 			FBinaryEnvelopePreamble Preamble;
+			uint32 FormatVersion = 0;
 			bool bRedirect = false;
 			std::array<FDirectoryEntry, DastV8SectionCount> Entries;
 			std::span<const std::byte> AvailableBytes;
@@ -108,7 +109,7 @@ namespace Durin::ObjectPackage
 		}
 
 		auto ParseLayout(std::span<const std::byte> Available, uint64 PhysicalBytes,
-			bool bComplete, const FPackageReaderLimits& Limits, FParsedLayout& Out,
+			bool bComplete, uint32 FormatVersion, const FPackageReaderLimits& Limits, FParsedLayout& Out,
 			FPackageReaderDiagnostic* Diagnostic) -> bool
 		{
 			if (!ValidateLimits(Limits, Diagnostic)) return false;
@@ -129,8 +130,8 @@ namespace Durin::ObjectPackage
 			FBinaryFormatRegistry Registry;
 			const FBinaryFormatDescriptor Descriptor{
 				.FormatId = DastFormatId, .DebugName = std::string(DastFormatName),
-				.MinimumFormatVersion = DastV8FormatVersion,
-				.MaximumFormatVersion = DastV8FormatVersion,
+				.MinimumFormatVersion = FormatVersion,
+				.MaximumFormatVersion = FormatVersion,
 				.SupportedRequiredFeatures = 0,
 				.Limits = {Limits.MaximumHeaderBytes, Limits.MaximumPackageBytes}};
 			if (!FBinaryFormatRegistry::Create(std::span(&Descriptor, 1), Registry, &EnvelopeDiagnostic))
@@ -151,7 +152,8 @@ namespace Durin::ObjectPackage
 				|| !ReadAt(Available, DastV8FormatHeaderOffset + 16, SectionCount)
 				|| !ReadAt(Available, DastV8FormatHeaderOffset + 20, EntryBytes)
 				|| !ReadAt(Available, DastV8FormatHeaderOffset + 24, Reserved)
-				|| PackageKind > 1 || Flags != 0 || Directory != DastV8DirectoryOffset
+				|| PackageKind > 1 || (FormatVersion == DastV9FormatVersion && PackageKind != 0)
+				|| Flags != 0 || Directory != DastV8DirectoryOffset
 				|| SectionCount != DastV8SectionCount || EntryBytes != DastV8SectionEntryBytes
 				|| Reserved != 0)
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidFormatHeader,
@@ -159,6 +161,7 @@ namespace Durin::ObjectPackage
 
 			FParsedLayout Parsed;
 			Parsed.Preamble = Preamble;
+			Parsed.FormatVersion = FormatVersion;
 			Parsed.bRedirect = PackageKind == 1;
 			Parsed.AvailableBytes = Available;
 			uint64 ExpectedOffset = DastV8FirstSectionOffset;
@@ -262,8 +265,27 @@ namespace Durin::ObjectPackage
 					|| !FPackageIndex::TryFromRaw(Outer, OuterIndex))
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
 						"A DAST v8 import record is invalid.", "Imports[" + std::to_string(Index) + "]");
-				Imports.push_back({Names[PackageId - 1], ObjectId ? Names[ObjectId - 1] : std::string{},
-					ClassId ? Names[ClassId - 1] : std::string{}, OuterIndex});
+				if (Layout.FormatVersion == DastV9FormatVersion)
+				{
+					FTopLevelAssetPath ObjectPath;
+					if (ObjectId != 0 || !OuterIndex.IsNull()
+						|| !FTopLevelAssetPath::TryCreate(Names[PackageId - 1], ObjectPath))
+					{
+						return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
+							"A DAST v9 import target is not an exact top-level asset path.",
+							"Imports[" + std::to_string(Index) + "]");
+					}
+					Imports.push_back({.ObjectPath = std::move(ObjectPath),
+						.ClassName = ClassId ? Names[ClassId - 1] : std::string{},
+						.Outer = OuterIndex});
+				}
+				else
+				{
+					Imports.push_back({.PackageName = Names[PackageId - 1],
+						.ObjectName = ObjectId ? Names[ObjectId - 1] : std::string{},
+						.ClassName = ClassId ? Names[ClassId - 1] : std::string{},
+						.Outer = OuterIndex});
+				}
 			}
 			if (!Reader.IsAtEnd()) return Fail(Diagnostic, EPackageReaderFailure::InvalidTable,
 				"DAST v8 import table has trailing or malformed bytes.", "Imports");
@@ -321,6 +343,95 @@ namespace Durin::ObjectPackage
 				|| (Registry.ExternalBulkBytes == 0 && !Registry.ExternalBulkHash.IsZero()))
 				return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
 					"DAST v8 Registry bulk binding or extent is invalid.", "Registry.Bulk");
+			Out = std::move(Registry);
+			return true;
+		}
+
+		auto DecodeRegistryV9(const FParsedLayout& Layout,
+			const std::vector<std::string>& Names, const FPackagePath& PackagePath,
+			uint64 PhysicalBulkBytes, FPackageV9RegistryData& Out,
+			FPackageReaderDiagnostic* Diagnostic) -> bool
+		{
+			if (!PackagePath.IsValid()
+				|| !std::ranges::binary_search(Names, PackagePath.GetView(), BytewiseLess))
+				return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
+					"The caller-supplied v9 package identity is absent from the canonical name table.",
+					"Registry.PackagePath");
+			FBinaryReader Reader(Section(Layout, EDastV8Section::Registry));
+			uint32 Version = 0;
+			uint64 ExportCount = 0, AssetCount = 0;
+			if (!Reader.ReadU32(Version) || Version != DastV9RegistryVersion
+				|| !Reader.ReadVarUInt(ExportCount) || ExportCount > DastV8MaximumTableEntries
+				|| !Reader.ReadVarUInt(AssetCount) || AssetCount > ExportCount)
+				return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
+					"DAST v9 Registry identity fields are invalid.", "Registry");
+			FPackageV9RegistryData Registry{
+				.PackagePath = PackagePath,
+				.ExportCount = static_cast<uint32>(ExportCount)};
+			std::unordered_set<uint32> ExportIds;
+			std::string PreviousPath;
+			for (uint64 Index = 0; Index < AssetCount; ++Index)
+			{
+				uint64 ExportId = 0;
+				uint32 PathId = 0, ClassId = 0, RedirectId = 0;
+				if (!Reader.ReadVarUInt(ExportId) || ExportId == 0 || ExportId > ExportCount
+					|| ExportId > std::numeric_limits<uint32>::max()
+					|| !ReadNameId(Reader, Names, PathId)
+					|| !ReadNameId(Reader, Names, ClassId)
+					|| !ReadNameId(Reader, Names, RedirectId, true)
+					|| !ExportIds.insert(static_cast<uint32>(ExportId)).second)
+					return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
+						"A DAST v9 top-level asset record is invalid.",
+						"Registry.TopLevelAssets[" + std::to_string(Index) + "]");
+				FTopLevelAssetPath AssetPath;
+				FObjectPath RedirectDestination;
+				if (!FTopLevelAssetPath::TryCreate(Names[PathId - 1], AssetPath)
+					|| AssetPath.GetPackagePath() != PackagePath
+					|| (!PreviousPath.empty() && !BytewiseLess(PreviousPath, AssetPath.GetView()))
+					|| (RedirectId && !FObjectPath::TryCreate(
+						Names[RedirectId - 1], RedirectDestination)))
+					return Fail(Diagnostic, EPackageReaderFailure::NonCanonical,
+						"DAST v9 top-level asset paths are invalid, duplicate, or out of order.",
+						"Registry.TopLevelAssets[" + std::to_string(Index) + "]");
+				PreviousPath = AssetPath.ToString();
+				Registry.TopLevelAssets.push_back({
+					.ExportId = static_cast<uint32>(ExportId),
+					.AssetPath = std::move(AssetPath),
+					.ClassName = Names[ClassId - 1],
+					.RedirectDestination = std::move(RedirectDestination)});
+			}
+			for (uint32 ListIndex = 0; ListIndex < 3; ++ListIndex)
+			{
+				uint64 Count = 0;
+				if (!Reader.ReadVarUInt(Count) || Count > DastV8MaximumTableEntries)
+					return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
+						"A DAST v9 Registry list count is invalid.", "Registry");
+				uint32 Previous = 0;
+				for (uint64 Index = 0; Index < Count; ++Index)
+				{
+					uint32 Id = 0;
+					if (!ReadNameId(Reader, Names, Id) || Id <= Previous)
+						return Fail(Diagnostic, EPackageReaderFailure::NonCanonical,
+							"A DAST v9 Registry id list is duplicate or out of order.", "Registry");
+					Previous = Id;
+					if (ListIndex == 2) Registry.SearchableNames.push_back(Names[Id - 1]);
+					else
+					{
+						FPackagePath Path;
+						if (!FPackagePath::TryCreate(Names[Id - 1], Path))
+							return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
+								"A DAST v9 dependency is not a canonical mounted package path.", "Registry");
+						(ListIndex == 0 ? Registry.HardPackageReferences
+							: Registry.SoftPackageReferences).push_back(std::move(Path));
+					}
+				}
+			}
+			if (!Reader.ReadU64(Registry.ExternalBulkBytes)
+				|| !Reader.ReadHash128(Registry.ExternalBulkHash) || !Reader.IsAtEnd()
+				|| Registry.ExternalBulkBytes != PhysicalBulkBytes
+				|| (Registry.ExternalBulkBytes == 0 && !Registry.ExternalBulkHash.IsZero()))
+				return Fail(Diagnostic, EPackageReaderFailure::InvalidRegistry,
+					"DAST v9 Registry bulk binding or extent is invalid.", "Registry.Bulk");
 			Out = std::move(Registry);
 			return true;
 		}
@@ -797,13 +908,34 @@ namespace Durin::ObjectPackage
 	{
 		if (OutDiagnostic) OutDiagnostic->Reset();
 		FParsedLayout Layout;
-		if (!ParseLayout(FrontMatter, PhysicalPackageBytes, false, Limits, Layout, OutDiagnostic)) return false;
+		if (!ParseLayout(FrontMatter, PhysicalPackageBytes, false, DastV8FormatVersion,
+			Limits, Layout, OutDiagnostic)) return false;
 		std::vector<std::string> Names;
 		std::vector<FPackageImport> Imports;
 		FPackageV8RegistryData Registry;
 		if (!DecodeNames(Layout, Limits, Names, OutDiagnostic)
 			|| !DecodeImports(Layout, Names, Limits, Imports, OutDiagnostic)
 			|| !DecodeRegistry(Layout, Names, PackageName, PhysicalBulkBytes, Registry, OutDiagnostic)) return false;
+		OutRegistry = std::move(Registry);
+		return true;
+	}
+
+	auto ReadPackageV9Registry(std::span<const std::byte> FrontMatter,
+		uint64 PhysicalPackageBytes, uint64 PhysicalBulkBytes,
+		const FPackagePath& PackagePath, FPackageV9RegistryData& OutRegistry,
+		FPackageReaderDiagnostic* OutDiagnostic, const FPackageReaderLimits& Limits) -> bool
+	{
+		if (OutDiagnostic) OutDiagnostic->Reset();
+		FParsedLayout Layout;
+		if (!ParseLayout(FrontMatter, PhysicalPackageBytes, false, DastV9FormatVersion,
+			Limits, Layout, OutDiagnostic)) return false;
+		std::vector<std::string> Names;
+		std::vector<FPackageImport> Imports;
+		FPackageV9RegistryData Registry;
+		if (!DecodeNames(Layout, Limits, Names, OutDiagnostic)
+			|| !DecodeImports(Layout, Names, Limits, Imports, OutDiagnostic)
+			|| !DecodeRegistryV9(Layout, Names, PackagePath, PhysicalBulkBytes,
+				Registry, OutDiagnostic)) return false;
 		OutRegistry = std::move(Registry);
 		return true;
 	}
@@ -821,7 +953,8 @@ namespace Durin::ObjectPackage
 			return Fail(OutDiagnostic, EPackageReaderFailure::LimitExceeded,
 				"The supplied DAST v8 bulk segment exceeds its limit.");
 		FParsedLayout Layout;
-		if (!ParseLayout(PackageBytes, PackageBytes.size(), true, Limits, Layout, OutDiagnostic)) return false;
+		if (!ParseLayout(PackageBytes, PackageBytes.size(), true, DastV8FormatVersion,
+			Limits, Layout, OutDiagnostic)) return false;
 		FLinkerTables Linker;
 		FPackageV8RegistryData Registry;
 		std::vector<FBulkEntry> BulkEntries;
@@ -905,6 +1038,132 @@ namespace Durin::ObjectPackage
 		OutLinker = std::move(Linker);
 		return true;
 	}
+
+		auto ReadPackageV9Impl(std::span<const std::byte> PackageBytes,
+			std::span<const std::byte> BulkBytes, uint64 PhysicalBulkBytes,
+			bool bExternalPayloadAvailable, const FPackagePath& PackagePath,
+			FLinkerTables& OutLinker, FPackageReaderDiagnostic* OutDiagnostic,
+			const FPackageReaderLimits& Limits) -> bool
+		{
+			if (OutDiagnostic) OutDiagnostic->Reset();
+			if (PhysicalBulkBytes > Limits.MaximumBulkBytes)
+				return Fail(OutDiagnostic, EPackageReaderFailure::LimitExceeded,
+					"The supplied DAST v9 bulk segment exceeds its limit.");
+			FParsedLayout Layout;
+			if (!ParseLayout(PackageBytes, PackageBytes.size(), true, DastV9FormatVersion,
+				Limits, Layout, OutDiagnostic)) return false;
+			FLinkerTables Linker;
+			FPackageV9RegistryData Registry;
+			std::vector<FBulkEntry> BulkEntries;
+			if (!DecodeNames(Layout, Limits, Linker.Names, OutDiagnostic)
+				|| !DecodeImports(Layout, Linker.Names, Limits, Linker.Imports, OutDiagnostic)
+				|| !DecodeRegistryV9(Layout, Linker.Names, PackagePath, PhysicalBulkBytes,
+					Registry, OutDiagnostic)
+				|| !DecodeExports(Layout, Linker.Names, Limits, Linker.Exports, OutDiagnostic)
+				|| Registry.ExportCount != Linker.Exports.size()
+				|| !DecodeTypes(Layout, Linker.Names, Limits, Linker.Types, OutDiagnostic)
+				|| !DecodeSchemas(Layout, Linker.Names, Linker.Types, Limits,
+					Linker.CustomVersions, Linker.Schemas, OutDiagnostic)
+				|| !DecodeValues(Layout, Linker.Names, Linker.Types, Linker.Schemas, Limits,
+					Linker.Exports, OutDiagnostic)
+				|| !DecodeBulkDirectory(Layout, Linker.Names, Limits, BulkEntries, OutDiagnostic))
+			{
+				return OutDiagnostic && OutDiagnostic->Failure != EPackageReaderFailure::None ? false
+					: Fail(OutDiagnostic, EPackageReaderFailure::InvalidTable,
+						"A DAST v9 package table is malformed.");
+			}
+
+			Linker.Summary.PackagePath = PackagePath;
+			Linker.Summary.HardPackageDependencies = Registry.HardPackageReferences;
+			Linker.Summary.SoftPackageDependencies = Registry.SoftPackageReferences;
+			Linker.Summary.SearchableNames = Registry.SearchableNames;
+			std::unordered_set<uint32> TopLevelExports;
+			for (const FPackageV9AssetRegistryData& Asset : Registry.TopLevelAssets)
+			{
+				const uint32 ExportIndex = Asset.ExportId - 1;
+				if (ExportIndex >= Linker.Exports.size()
+					|| !TopLevelExports.insert(ExportIndex).second)
+					return Fail(OutDiagnostic, EPackageReaderFailure::InvalidRegistry,
+						"A DAST v9 top-level asset export id is invalid.", "Registry.TopLevelAssets");
+				const FPackageExport& Export = Linker.Exports[ExportIndex];
+				if (!Export.Outer.IsNull() || Export.ObjectName != Asset.AssetPath.GetAssetName()
+					|| Export.ClassName != Asset.ClassName)
+					return Fail(OutDiagnostic, EPackageReaderFailure::InvalidTopology,
+						"A DAST v9 top-level asset record does not match export topology.",
+						Asset.AssetPath.ToString());
+				FPackageIndex ExportId;
+				if (!FPackageIndex::TryExport(ExportIndex, ExportId))
+					return Fail(OutDiagnostic, EPackageReaderFailure::InvalidIndex,
+						"A DAST v9 top-level asset export id cannot be represented.");
+				Linker.Summary.TopLevelAssets.push_back({
+					.Export = ExportId,
+					.AssetPath = Asset.AssetPath,
+					.ClassName = Asset.ClassName,
+					.RedirectDestination = Asset.RedirectDestination});
+			}
+			for (uint32 ExportIndex = 0; ExportIndex < Linker.Exports.size(); ++ExportIndex)
+				if (Linker.Exports[ExportIndex].Outer.IsNull()
+					&& !TopLevelExports.contains(ExportIndex))
+					return Fail(OutDiagnostic, EPackageReaderFailure::InvalidTopology,
+						"A DAST v9 package-outer export is missing its top-level asset record.",
+						Linker.Exports[ExportIndex].ObjectName);
+
+			if (Registry.ExternalBulkBytes != PhysicalBulkBytes
+				|| (bExternalPayloadAvailable
+					&& (BulkBytes.empty() ? !Registry.ExternalBulkHash.IsZero()
+						: FXxHash128::HashBuffer(BulkBytes) != Registry.ExternalBulkHash)))
+				return Fail(OutDiagnostic, EPackageReaderFailure::HashMismatch,
+					"The external DAST v9 bulk segment binding does not match.", "Registry.Bulk");
+			const auto Inline = Section(Layout, EDastV8Section::InlineBulk);
+			std::array<uint64, 2> Cursors{};
+			size_t UsedBulk = 0;
+			for (uint32 ExportIndex = 0; ExportIndex < Linker.Exports.size(); ++ExportIndex)
+			{
+				FPackageExport& Export = Linker.Exports[ExportIndex];
+				std::string ExportPath;
+				FPackageIndex Index;
+				FPackageIndex::TryExport(ExportIndex, Index);
+				if (!Linker.TryResolvePath(Index, ExportPath)) return Fail(OutDiagnostic,
+					EPackageReaderFailure::InvalidTopology, "The DAST v9 export topology is invalid.", "Exports");
+				for (FPropertyTag& Property : Export.Properties)
+				{
+					const auto SchemaIt = std::ranges::find(Linker.Schemas, Property.DeclaringType,
+						&FSerializedSchema::QualifiedName);
+					const uint32 SchemaId = static_cast<uint32>(SchemaIt - Linker.Schemas.begin() + 1);
+					const auto FieldIt = std::ranges::find(SchemaIt->Fields, Property.FieldName,
+						&FSerializedField::Name);
+					const uint32 FieldId = static_cast<uint32>(FieldIt - SchemaIt->Fields.begin() + 1);
+					const std::string Path = ExportPath + "." + Property.DeclaringType + "." + Property.FieldName;
+					if (!BindBulkValue(Property.Value, Property.Type, Path, ExportIndex + 1,
+						SchemaId, FieldId, Linker.Names, BulkEntries, Inline, BulkBytes,
+						PhysicalBulkBytes, bExternalPayloadAvailable, Cursors, UsedBulk,
+						OutDiagnostic)) return false;
+				}
+			}
+			if (UsedBulk != BulkEntries.size() || Cursors[0] != Inline.size()
+				|| Cursors[1] != PhysicalBulkBytes)
+				return Fail(OutDiagnostic, EPackageReaderFailure::InvalidBulkData,
+					"DAST v9 bulk entries do not consume their exact inline/external segments.",
+					"BulkDirectory");
+
+			std::vector<std::byte> CanonicalMain;
+			FPackageWriterDiagnostic WriterDiagnostic;
+			std::vector<std::byte> CanonicalBulk;
+			const bool bCanonical = bExternalPayloadAvailable
+				? WritePackageV9(Linker, CanonicalMain, CanonicalBulk, &WriterDiagnostic)
+				: WritePackageV9Main(Linker, Registry.ExternalBulkBytes,
+					Registry.ExternalBulkHash, CanonicalMain, &WriterDiagnostic);
+			if (!bCanonical)
+				return Fail(OutDiagnostic, EPackageReaderFailure::NonCanonical,
+					"Decoded DAST v9 data violates the canonical linker contract: "
+						+ WriterDiagnostic.Message, WriterDiagnostic.LogicalPath);
+			if (!std::ranges::equal(CanonicalMain, PackageBytes)
+				|| (bExternalPayloadAvailable && !std::ranges::equal(CanonicalBulk, BulkBytes)))
+				return Fail(OutDiagnostic, EPackageReaderFailure::NonCanonical,
+					"DAST v9 bytes are logically valid but not in canonical writer form.");
+			OutLinker = std::move(Linker);
+			return true;
+		}
 	}
 
 	auto ReadPackageV8(std::span<const std::byte> PackageBytes,
@@ -923,5 +1182,23 @@ namespace Durin::ObjectPackage
 	{
 		return ReadPackageV8Impl(PackageBytes, {}, PhysicalBulkBytes, false,
 			PackageName, OutLinker, OutDiagnostic, Limits);
+	}
+
+	auto ReadPackageV9(std::span<const std::byte> PackageBytes,
+		std::span<const std::byte> BulkBytes, const FPackagePath& PackagePath,
+		FLinkerTables& OutLinker, FPackageReaderDiagnostic* OutDiagnostic,
+		const FPackageReaderLimits& Limits) -> bool
+	{
+		return ReadPackageV9Impl(PackageBytes, BulkBytes, BulkBytes.size(), true,
+			PackagePath, OutLinker, OutDiagnostic, Limits);
+	}
+
+	auto ReadPackageV9Metadata(std::span<const std::byte> PackageBytes,
+		uint64 PhysicalBulkBytes, const FPackagePath& PackagePath,
+		FLinkerTables& OutLinker, FPackageReaderDiagnostic* OutDiagnostic,
+		const FPackageReaderLimits& Limits) -> bool
+	{
+		return ReadPackageV9Impl(PackageBytes, {}, PhysicalBulkBytes, false,
+			PackagePath, OutLinker, OutDiagnostic, Limits);
 	}
 }

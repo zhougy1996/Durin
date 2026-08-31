@@ -32,6 +32,7 @@ namespace Durin::ObjectPackage
 		struct FFrozenPackage
 		{
 			const FLinkerTables* Source = nullptr;
+			bool bV9 = false;
 			std::vector<std::string> Names;
 			std::vector<FSerializedType> Types;
 			std::vector<FSerializedSchema> Schemas;
@@ -424,39 +425,126 @@ namespace Durin::ObjectPackage
 			return true;
 		}
 
-		auto Freeze(const FLinkerTables& Linker, FFrozenPackage& Out,
+		auto ValidateV9ObjectPaths(const FSerializedType& Type,
+			const FSerializedValue& Value, std::string_view Path, uint32 Depth,
+			FPackageWriterDiagnostic* Diagnostic) -> bool
+		{
+			if (Depth > DastV8MaximumValueDepth)
+				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
+					"A v9 value exceeds the nesting limit.", std::string(Path));
+			if (Type.Kind == EValueKind::SoftReference)
+			{
+				FObjectPath ObjectPath;
+				if (!Value.Text.empty() && !FObjectPath::TryCreate(Value.Text, ObjectPath))
+					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
+						"A v9 soft reference is not a canonical complete object path.", std::string(Path));
+				return true;
+			}
+			if (Type.Kind == EValueKind::Struct)
+			{
+				if (Type.Children.size() != Value.Elements.size()) return true;
+				for (size_t Index = 0; Index < Type.Children.size(); ++Index)
+					if (!ValidateV9ObjectPaths(Type.Children[Index], Value.Elements[Index],
+						Path, Depth + 1, Diagnostic)) return false;
+			}
+			else if (Type.Kind == EValueKind::FixedArray || Type.Kind == EValueKind::Array)
+			{
+				if (Type.Children.empty()) return true;
+				for (const FSerializedValue& Element : Value.Elements)
+					if (!ValidateV9ObjectPaths(Type.Children.front(), Element,
+						Path, Depth + 1, Diagnostic)) return false;
+			}
+			else if (Type.Kind == EValueKind::Map)
+			{
+				if (Type.Children.size() != 2) return true;
+				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
+					if (!ValidateV9ObjectPaths(Type.Children[Index % 2], Value.Elements[Index],
+						Path, Depth + 1, Diagnostic)) return false;
+			}
+			return true;
+		}
+
+		auto Freeze(const FLinkerTables& Linker, bool bV9, FFrozenPackage& Out,
 			FPackageWriterDiagnostic* Diagnostic) -> bool
 		{
 			FFrozenPackage Frozen;
 			Frozen.Source = &Linker;
+			Frozen.bV9 = bV9;
 			if (Linker.Imports.size() > DastV8MaximumTableEntries
 				|| Linker.Exports.size() > DastV8MaximumTableEntries
 				|| Linker.Schemas.size() > DastV8MaximumTableEntries)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
 					"A package table exceeds the v8 entry limit.");
 
-			if (!AddName(Frozen.Names, Linker.Summary.PackageName, Diagnostic, "Summary.PackageName")
-				|| !AddName(Frozen.Names, Linker.Summary.AssetClass, Diagnostic, "Summary.AssetClass")
-				|| !AddName(Frozen.Names, Linker.Summary.RedirectDestination, Diagnostic,
-					"Summary.RedirectDestination", !Linker.Summary.bRedirect)) return false;
-			if (Linker.Summary.bRedirect && Linker.Summary.RedirectDestination.empty())
-				return Fail(Diagnostic, EPackageWriterFailure::InvalidInput,
-					"A redirect package requires a destination.", "Summary.RedirectDestination");
-			for (const auto& [List, Path] : {
-				std::pair{&Linker.Summary.HardPackageReferences, "Summary.HardPackageReferences"},
-				std::pair{&Linker.Summary.SoftPackageReferences, "Summary.SoftPackageReferences"},
-				std::pair{&Linker.Summary.SearchableNames, "Summary.SearchableNames"}})
-				for (const std::string& Name : *List)
-					if (!AddName(Frozen.Names, Name, Diagnostic, Path)) return false;
+			if (bV9)
+			{
+				if (!Linker.Summary.PackagePath.IsValid()
+					|| !AddName(Frozen.Names, Linker.Summary.PackagePath.ToString(), Diagnostic,
+						"Summary.PackagePath")) return false;
+				for (const FPackageSummary::FTopLevelAsset& Asset : Linker.Summary.TopLevelAssets)
+				{
+					if (!Asset.Export.IsExport() || Asset.Export.GetTableIndex() >= Linker.Exports.size()
+						|| !Asset.AssetPath.IsValid()
+						|| Asset.AssetPath.GetPackagePath() != Linker.Summary.PackagePath
+						|| Asset.ClassName.empty())
+					{
+						return Fail(Diagnostic, EPackageWriterFailure::InvalidTopology,
+							"A v9 top-level asset record is invalid.", "Summary.TopLevelAssets");
+					}
+					const FPackageExport& Export = Linker.Exports[Asset.Export.GetTableIndex()];
+					if (!Export.Outer.IsNull() || Export.ObjectName != Asset.AssetPath.GetAssetName()
+						|| Export.ClassName != Asset.ClassName)
+					{
+						return Fail(Diagnostic, EPackageWriterFailure::InvalidTopology,
+							"A v9 top-level asset record does not match its package-outer export.",
+							Asset.AssetPath.ToString());
+					}
+					if (!AddName(Frozen.Names, Asset.AssetPath.ToString(), Diagnostic, "Summary.TopLevelAssets.AssetPath")
+						|| !AddName(Frozen.Names, Asset.ClassName, Diagnostic, "Summary.TopLevelAssets.ClassName")
+						|| !AddName(Frozen.Names, Asset.RedirectDestination.ToString(), Diagnostic,
+							"Summary.TopLevelAssets.RedirectDestination", !Asset.RedirectDestination.IsValid())) return false;
+				}
+				for (const FPackagePath& Path : Linker.Summary.HardPackageDependencies)
+					if (!Path.IsValid() || !AddName(Frozen.Names, Path.ToString(), Diagnostic,
+						"Summary.HardPackageDependencies")) return false;
+				for (const FPackagePath& Path : Linker.Summary.SoftPackageDependencies)
+					if (!Path.IsValid() || !AddName(Frozen.Names, Path.ToString(), Diagnostic,
+						"Summary.SoftPackageDependencies")) return false;
+			}
+			else
+			{
+				if (!AddName(Frozen.Names, Linker.Summary.PackageName, Diagnostic, "Summary.PackageName")
+					|| !AddName(Frozen.Names, Linker.Summary.AssetClass, Diagnostic, "Summary.AssetClass")
+					|| !AddName(Frozen.Names, Linker.Summary.RedirectDestination, Diagnostic,
+						"Summary.RedirectDestination", !Linker.Summary.bRedirect)) return false;
+				if (Linker.Summary.bRedirect && Linker.Summary.RedirectDestination.empty())
+					return Fail(Diagnostic, EPackageWriterFailure::InvalidInput,
+						"A redirect package requires a destination.", "Summary.RedirectDestination");
+				for (const auto& [List, Path] : {
+					std::pair{&Linker.Summary.HardPackageReferences, "Summary.HardPackageReferences"},
+					std::pair{&Linker.Summary.SoftPackageReferences, "Summary.SoftPackageReferences"}})
+					for (const std::string& Name : *List)
+						if (!AddName(Frozen.Names, Name, Diagnostic, Path)) return false;
+			}
+			for (const std::string& Name : Linker.Summary.SearchableNames)
+				if (!AddName(Frozen.Names, Name, Diagnostic, "Summary.SearchableNames")) return false;
 			for (const std::string& Name : Linker.Names)
 				if (!AddName(Frozen.Names, Name, Diagnostic, "Names")) return false;
 
 			if (!ResolvePaths(Linker, true, Frozen.ImportPaths, Diagnostic)
 				|| !ResolvePaths(Linker, false, Frozen.ExportPaths, Diagnostic)) return false;
 			for (const FPackageImport& Import : Linker.Imports)
-				if (!AddName(Frozen.Names, Import.PackageName, Diagnostic, "Imports.PackageName")
+			{
+				if (bV9)
+				{
+					if (!Import.ObjectPath.IsValid() || !Import.Outer.IsNull()
+						|| !AddName(Frozen.Names, Import.ObjectPath.ToString(), Diagnostic, "Imports.ObjectPath")
+						|| !AddName(Frozen.Names, Import.ClassName, Diagnostic, "Imports.ClassName", true)) return false;
+				}
+				else if (!AddName(Frozen.Names, Import.PackageName, Diagnostic, "Imports.PackageName")
 					|| !AddName(Frozen.Names, Import.ObjectName, Diagnostic, "Imports.ObjectName", true)
 					|| !AddName(Frozen.Names, Import.ClassName, Diagnostic, "Imports.ClassName", true)) return false;
+			}
 			for (const FPackageExport& Export : Linker.Exports)
 				if (!AddName(Frozen.Names, Export.ObjectName, Diagnostic, "Exports.ObjectName")
 					|| !AddName(Frozen.Names, Export.ClassName, Diagnostic, "Exports.ClassName")) return false;
@@ -489,6 +577,28 @@ namespace Durin::ObjectPackage
 				if (Frozen.ExportPaths[Frozen.ExportOrder[Index - 1]] == Frozen.ExportPaths[Frozen.ExportOrder[Index]])
 					return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
 						"Two exports have the same logical identity.", Frozen.ExportPaths[Frozen.ExportOrder[Index]]);
+			if (bV9)
+			{
+				std::unordered_set<uint32> RecordedExports;
+				std::unordered_set<FTopLevelAssetPath> RecordedPaths;
+				for (const FPackageSummary::FTopLevelAsset& Asset : Linker.Summary.TopLevelAssets)
+				{
+					if (!RecordedExports.insert(Asset.Export.GetTableIndex()).second
+						|| !RecordedPaths.insert(Asset.AssetPath).second)
+					{
+						return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
+							"A v9 top-level asset record is duplicated.", Asset.AssetPath.ToString());
+					}
+				}
+				for (uint32 ExportIndex = 0; ExportIndex < Linker.Exports.size(); ++ExportIndex)
+					if (Linker.Exports[ExportIndex].Outer.IsNull()
+						&& !RecordedExports.contains(ExportIndex))
+					{
+						return Fail(Diagnostic, EPackageWriterFailure::InvalidTopology,
+							"A package-outer export has no v9 top-level asset record.",
+							Linker.Exports[ExportIndex].ObjectName);
+					}
+			}
 
 			Frozen.Schemas = Linker.Schemas;
 			for (FSerializedSchema& Schema : Frozen.Schemas)
@@ -561,6 +671,8 @@ namespace Durin::ObjectPackage
 						return Fail(Diagnostic, EPackageWriterFailure::ManifestMismatch,
 							"A property does not match its frozen schema field.", Path);
 					if (!CollectType(Property.Type, Frozen.Types, Frozen.Names, Diagnostic, Path)) return false;
+					if (bV9 && !ValidateV9ObjectPaths(Property.Type, Property.Value,
+						Path, 0, Diagnostic)) return false;
 					const uint32 FieldId = static_cast<uint32>(std::distance(Schema.Fields.begin(), FieldIt) + 1);
 					if (!CollectValue(Frozen, Property.Type, Property.Value, NewExport + 1,
 						SchemaId, FieldId, Path, 0, Diagnostic)) return false;
@@ -839,19 +951,56 @@ namespace Durin::ObjectPackage
 			};
 
 			auto Writer = MakeWriter();
-			Writer->WriteU32(DastV8RegistryVersion);
-			Writer->WriteVarUInt(FindNameId(Frozen, Frozen.Source->Summary.AssetClass));
-			Writer->WriteVarUInt(FindNameId(Frozen, Frozen.Source->Summary.RedirectDestination));
-			int64 MainExport = 0;
-			if (!RemapIndex(Frozen, Frozen.Source->Summary.MainExport, MainExport, Diagnostic,
-				"Summary.MainExport") || MainExport < 0) return false;
-			Writer->WriteVarUInt(static_cast<uint64>(MainExport));
-			Writer->WriteVarUInt(Frozen.ExportOrder.size());
-			for (const std::vector<std::string>* List : {&Frozen.Source->Summary.HardPackageReferences,
-				&Frozen.Source->Summary.SoftPackageReferences, &Frozen.Source->Summary.SearchableNames})
+			Writer->WriteU32(Frozen.bV9 ? DastV9RegistryVersion : DastV8RegistryVersion);
+			if (Frozen.bV9)
+			{
+				Writer->WriteVarUInt(Frozen.ExportOrder.size());
+				std::vector<const FPackageSummary::FTopLevelAsset*> Assets;
+				for (const FPackageSummary::FTopLevelAsset& Asset : Frozen.Source->Summary.TopLevelAssets)
+					Assets.push_back(&Asset);
+				std::ranges::sort(Assets, [](const auto* Left, const auto* Right) {
+					return Left->AssetPath.GetView() < Right->AssetPath.GetView();
+				});
+				Writer->WriteVarUInt(Assets.size());
+				for (const FPackageSummary::FTopLevelAsset* Asset : Assets)
+				{
+					int64 Export = 0;
+					if (!RemapIndex(Frozen, Asset->Export, Export, Diagnostic,
+						"Summary.TopLevelAssets.Export") || Export <= 0) return false;
+					Writer->WriteVarUInt(static_cast<uint64>(Export));
+					Writer->WriteVarUInt(FindNameId(Frozen, Asset->AssetPath.ToString()));
+					Writer->WriteVarUInt(FindNameId(Frozen, Asset->ClassName));
+					Writer->WriteVarUInt(FindNameId(Frozen, Asset->RedirectDestination.ToString()));
+				}
+			}
+			else
+			{
+				Writer->WriteVarUInt(FindNameId(Frozen, Frozen.Source->Summary.AssetClass));
+				Writer->WriteVarUInt(FindNameId(Frozen, Frozen.Source->Summary.RedirectDestination));
+				int64 MainExport = 0;
+				if (!RemapIndex(Frozen, Frozen.Source->Summary.MainExport, MainExport, Diagnostic,
+					"Summary.MainExport") || MainExport < 0) return false;
+				Writer->WriteVarUInt(static_cast<uint64>(MainExport));
+				Writer->WriteVarUInt(Frozen.ExportOrder.size());
+			}
+			std::array<std::vector<std::string>, 3> RegistryLists;
+			if (Frozen.bV9)
+			{
+				for (const FPackagePath& Path : Frozen.Source->Summary.HardPackageDependencies)
+					RegistryLists[0].push_back(Path.ToString());
+				for (const FPackagePath& Path : Frozen.Source->Summary.SoftPackageDependencies)
+					RegistryLists[1].push_back(Path.ToString());
+			}
+			else
+			{
+				RegistryLists[0] = Frozen.Source->Summary.HardPackageReferences;
+				RegistryLists[1] = Frozen.Source->Summary.SoftPackageReferences;
+			}
+			RegistryLists[2] = Frozen.Source->Summary.SearchableNames;
+			for (const std::vector<std::string>& List : RegistryLists)
 			{
 				std::vector<uint32> Ids;
-				for (const std::string& Name : *List) Ids.push_back(FindNameId(Frozen, Name));
+				for (const std::string& Name : List) Ids.push_back(FindNameId(Frozen, Name));
 				std::ranges::sort(Ids); Ids.erase(std::unique(Ids.begin(), Ids.end()), Ids.end());
 				Writer->WriteVarUInt(Ids.size());
 				for (uint32 Id : Ids) Writer->WriteVarUInt(Id);
@@ -868,8 +1017,9 @@ namespace Durin::ObjectPackage
 			for (uint32 OldIndex : Frozen.ImportOrder)
 			{
 				const FPackageImport& Import = Frozen.Source->Imports[OldIndex];
-				Writer->WriteVarUInt(FindNameId(Frozen, Import.PackageName));
-				Writer->WriteVarUInt(FindNameId(Frozen, Import.ObjectName));
+				Writer->WriteVarUInt(FindNameId(Frozen,
+					Frozen.bV9 ? Import.ObjectPath.ToString() : Import.PackageName));
+				Writer->WriteVarUInt(Frozen.bV9 ? 0 : FindNameId(Frozen, Import.ObjectName));
 				Writer->WriteVarUInt(FindNameId(Frozen, Import.ClassName));
 				int64 Outer = 0; if (!RemapIndex(Frozen, Import.Outer, Outer, Diagnostic, "Imports.Outer")) return false;
 				Writer->WriteVarInt(Outer);
@@ -985,7 +1135,8 @@ namespace Durin::ObjectPackage
 		}
 
 		auto Assemble(std::vector<FSection>& Sections, std::vector<std::byte>& Out,
-			FPackageWriterDiagnostic* Diagnostic, bool bRedirect) -> bool
+			FPackageWriterDiagnostic* Diagnostic, uint32 FormatVersion,
+			bool bRedirect) -> bool
 		{
 			uint64 Cursor = FirstSectionOffset;
 			for (FSection& Section : Sections)
@@ -1003,7 +1154,7 @@ namespace Durin::ObjectPackage
 					"The v8 discovery header exceeds its limit.");
 			std::vector<std::byte> Bytes(static_cast<size_t>(Cursor), std::byte{0});
 			FBinaryEnvelopePreamble Preamble{
-				.FormatId = DastFormatId, .FormatVersion = DastV8FormatVersion,
+				.FormatId = DastFormatId, .FormatVersion = FormatVersion,
 				.RequiredFeatures = 0, .HeaderBytes = HeaderBytes, .FileBytes = Cursor};
 			FBinaryEnvelopeDiagnostic EnvelopeDiagnostic;
 			if (!EncodeBinaryEnvelopePreamble(Preamble,
@@ -1043,7 +1194,7 @@ namespace Durin::ObjectPackage
 	{
 		if (OutDiagnostic) OutDiagnostic->Reset();
 		FFrozenPackage Frozen;
-		if (!Freeze(Linker, Frozen, OutDiagnostic)) return false;
+		if (!Freeze(Linker, false, Frozen, OutDiagnostic)) return false;
 		OutManifest = std::move(Frozen.Manifest);
 		return true;
 	}
@@ -1056,12 +1207,13 @@ namespace Durin::ObjectPackage
 			return Fail(OutDiagnostic, EPackageWriterFailure::AliasedOutput,
 				"The main and bulk output buffers must not alias.");
 		FFrozenPackage Frozen;
-		if (!Freeze(Linker, Frozen, OutDiagnostic)) return false;
+		if (!Freeze(Linker, false, Frozen, OutDiagnostic)) return false;
 		std::vector<FSection> Sections;
 		std::vector<std::byte> BulkBytes;
 		if (!EncodeSections(Frozen, Sections, &BulkBytes, 0, {}, OutDiagnostic)) return false;
 		std::vector<std::byte> PackageBytes;
-		if (!Assemble(Sections, PackageBytes, OutDiagnostic, Linker.Summary.bRedirect)) return false;
+		if (!Assemble(Sections, PackageBytes, OutDiagnostic, DastV8FormatVersion,
+			Linker.Summary.bRedirect)) return false;
 		OutPackageBytes = std::move(PackageBytes);
 		OutBulkBytes = std::move(BulkBytes);
 		return true;
@@ -1077,13 +1229,66 @@ namespace Durin::ObjectPackage
 			return Fail(OutDiagnostic, EPackageWriterFailure::InvalidBulkData,
 				"External BulkData binding is invalid.");
 		FFrozenPackage Frozen;
-		if (!Freeze(Linker, Frozen, OutDiagnostic)) return false;
+		if (!Freeze(Linker, false, Frozen, OutDiagnostic)) return false;
 		std::vector<FSection> Sections;
 		if (!EncodeSections(Frozen, Sections, nullptr, ExternalBulkBytes,
 				ExternalBulkHash, OutDiagnostic)) return false;
 		std::vector<std::byte> PackageBytes;
-		if (!Assemble(Sections, PackageBytes, OutDiagnostic,
+		if (!Assemble(Sections, PackageBytes, OutDiagnostic, DastV8FormatVersion,
 				Linker.Summary.bRedirect)) return false;
+		OutPackageBytes = std::move(PackageBytes);
+		return true;
+	}
+
+	auto FreezePackageV9(const FLinkerTables& Linker, FPackageWriterManifest& OutManifest,
+		FPackageWriterDiagnostic* OutDiagnostic) -> bool
+	{
+		if (OutDiagnostic) OutDiagnostic->Reset();
+		FFrozenPackage Frozen;
+		if (!Freeze(Linker, true, Frozen, OutDiagnostic)) return false;
+		OutManifest = std::move(Frozen.Manifest);
+		return true;
+	}
+
+	auto WritePackageV9(const FLinkerTables& Linker,
+		std::vector<std::byte>& OutPackageBytes,
+		std::vector<std::byte>& OutBulkBytes,
+		FPackageWriterDiagnostic* OutDiagnostic) -> bool
+	{
+		if (OutDiagnostic) OutDiagnostic->Reset();
+		if (&OutPackageBytes == &OutBulkBytes)
+			return Fail(OutDiagnostic, EPackageWriterFailure::AliasedOutput,
+				"The main and bulk output buffers must not alias.");
+		FFrozenPackage Frozen;
+		if (!Freeze(Linker, true, Frozen, OutDiagnostic)) return false;
+		std::vector<FSection> Sections;
+		std::vector<std::byte> BulkBytes;
+		if (!EncodeSections(Frozen, Sections, &BulkBytes, 0, {}, OutDiagnostic)) return false;
+		std::vector<std::byte> PackageBytes;
+		if (!Assemble(Sections, PackageBytes, OutDiagnostic,
+			DastV9FormatVersion, false)) return false;
+		OutPackageBytes = std::move(PackageBytes);
+		OutBulkBytes = std::move(BulkBytes);
+		return true;
+	}
+
+	auto WritePackageV9Main(const FLinkerTables& Linker, uint64 ExternalBulkBytes,
+		FXxHash128 ExternalBulkHash, std::vector<std::byte>& OutPackageBytes,
+		FPackageWriterDiagnostic* OutDiagnostic) -> bool
+	{
+		if (OutDiagnostic) OutDiagnostic->Reset();
+		if (ExternalBulkBytes > DastV8MaximumBulkBytes
+			|| ((ExternalBulkBytes == 0) != ExternalBulkHash.IsZero()))
+			return Fail(OutDiagnostic, EPackageWriterFailure::InvalidBulkData,
+				"External BulkData binding is invalid.");
+		FFrozenPackage Frozen;
+		if (!Freeze(Linker, true, Frozen, OutDiagnostic)) return false;
+		std::vector<FSection> Sections;
+		if (!EncodeSections(Frozen, Sections, nullptr, ExternalBulkBytes,
+			ExternalBulkHash, OutDiagnostic)) return false;
+		std::vector<std::byte> PackageBytes;
+		if (!Assemble(Sections, PackageBytes, OutDiagnostic,
+			DastV9FormatVersion, false)) return false;
 		OutPackageBytes = std::move(PackageBytes);
 		return true;
 	}

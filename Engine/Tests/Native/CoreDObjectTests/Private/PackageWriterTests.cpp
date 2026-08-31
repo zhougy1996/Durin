@@ -2,6 +2,7 @@
 #include "Hash/XxHash.h"
 #include "Serialization/BinaryEnvelope.h"
 #include "Serialization/BinaryFormat.h"
+#include "Misc/MountPathTestSupport.h"
 
 #include <gtest/gtest.h>
 
@@ -181,6 +182,54 @@ namespace
 		return Linker;
 	}
 
+	auto PathMountFixture() -> Durin::Testing::FScopedMountRegistryFixture
+	{
+		const std::array Definitions{
+			Durin::FMountPoint{
+				.VirtualRoot = "/Game/",
+				.Owner = Durin::EMountOwner::Test,
+				.Root = std::filesystem::current_path(),
+			},
+		};
+		return Durin::Testing::FScopedMountRegistryFixture(Definitions);
+	}
+
+	auto ConvertSummaryToV9(Package::FLinkerTables& Linker) -> void
+	{
+		Durin::FPackagePath PackagePath;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(Linker.Summary.PackageName, PackagePath));
+		Package::FPackageSummary Summary;
+		Summary.PackagePath = PackagePath;
+		Summary.SearchableNames = Linker.Summary.SearchableNames;
+		for (const std::string& Dependency : Linker.Summary.HardPackageReferences)
+		{
+			Durin::FPackagePath Path;
+			ASSERT_TRUE(Durin::FPackagePath::TryCreate(Dependency, Path));
+			Summary.HardPackageDependencies.push_back(std::move(Path));
+		}
+		for (const std::string& Dependency : Linker.Summary.SoftPackageReferences)
+		{
+			Durin::FPackagePath Path;
+			ASSERT_TRUE(Durin::FPackagePath::TryCreate(Dependency, Path));
+			Summary.SoftPackageDependencies.push_back(std::move(Path));
+		}
+		for (uint32 Index = 0; Index < Linker.Exports.size(); ++Index)
+		{
+			const Package::FPackageExport& Export = Linker.Exports[Index];
+			if (!Export.Outer.IsNull()) continue;
+			Package::FPackageIndex ExportId;
+			Durin::FTopLevelAssetPath AssetPath;
+			ASSERT_TRUE(Package::FPackageIndex::TryExport(Index, ExportId));
+			ASSERT_TRUE(Durin::FTopLevelAssetPath::TryCreate(
+				PackagePath, Export.ObjectName, AssetPath));
+			Summary.TopLevelAssets.push_back({
+				.Export = ExportId,
+				.AssetPath = std::move(AssetPath),
+				.ClassName = Export.ClassName});
+		}
+		Linker.Summary = std::move(Summary);
+	}
+
 	template<std::unsigned_integral T>
 	auto Read(std::span<const std::byte> Bytes, uint64 Offset) -> T
 	{
@@ -211,6 +260,174 @@ namespace
 			std::span(Main).first(static_cast<size_t>(HeaderBytes)), Main.size(),
 			{Package::DastV8MaximumHeaderBytes, Package::DastV8MaximumPackageBytes}));
 	}
+}
+
+TEST(FPackageV9ContractTests, MultipleTopLevelAssetsRoundTripAndProjectExactRegistry)
+{
+	auto Fixture = PathMountFixture();
+	ASSERT_TRUE(Fixture.IsValid()) << Fixture.GetError();
+	Package::FLinkerTables Linker = MakeFixture();
+	Linker.Exports.push_back({.ObjectName = "Secondary", .ClassName = "Example::Secondary"});
+	ConvertSummaryToV9(Linker);
+	Durin::FObjectPath Redirect;
+	ASSERT_TRUE(Durin::FObjectPath::TryCreate(
+		"/Game/Target.Target:Subobject", Redirect));
+	Linker.Summary.TopLevelAssets[1].RedirectDestination = Redirect;
+
+	std::vector<std::byte> Main;
+	std::vector<std::byte> Bulk;
+	Package::FPackageWriterDiagnostic WriterDiagnostic;
+	ASSERT_TRUE(Package::WritePackageV9(Linker, Main, Bulk, &WriterDiagnostic))
+		<< WriterDiagnostic.Message;
+	EXPECT_EQ(Read<uint32>(Main, 24), Package::DastV9FormatVersion);
+	const Durin::FXxHash128 FixtureHash = Durin::FXxHash128::HashBuffer(Main);
+	EXPECT_EQ(FixtureHash.HashLow, 6770264161647476482ull);
+	EXPECT_EQ(FixtureHash.HashHigh, 2895173423952572740ull);
+	Package::FPackageV9RegistryData Registry;
+	Package::FPackageReaderDiagnostic ReaderDiagnostic;
+	ASSERT_TRUE(Package::ReadPackageV9Registry(
+		std::span(Main).first(static_cast<size_t>(Read<uint64>(Main, 32))),
+		Main.size(), Bulk.size(), Linker.Summary.PackagePath, Registry,
+		&ReaderDiagnostic)) << ReaderDiagnostic.Message;
+	ASSERT_EQ(Registry.TopLevelAssets.size(), 2u);
+	EXPECT_EQ(Registry.TopLevelAssets[0].AssetPath.ToString(),
+		"/Game/WriterFixture.Secondary");
+	EXPECT_EQ(Registry.TopLevelAssets[0].RedirectDestination, Redirect);
+	EXPECT_EQ(Registry.TopLevelAssets[1].AssetPath.ToString(),
+		"/Game/WriterFixture.WriterFixture");
+
+	Package::FLinkerTables Decoded;
+	ASSERT_TRUE(Package::ReadPackageV9(Main, Bulk, Linker.Summary.PackagePath,
+		Decoded, &ReaderDiagnostic)) << ReaderDiagnostic.Message;
+	std::vector<std::byte> ReemittedMain;
+	std::vector<std::byte> ReemittedBulk;
+	ASSERT_TRUE(Package::WritePackageV9(
+		Decoded, ReemittedMain, ReemittedBulk, &WriterDiagnostic));
+	EXPECT_EQ(ReemittedMain, Main);
+	EXPECT_EQ(ReemittedBulk, Bulk);
+}
+
+TEST(FPackageV9ContractTests, V8ConversionRewritesSoftPathsAndAdditionalPackageOuterExports)
+{
+	auto Fixture = PathMountFixture();
+	ASSERT_TRUE(Fixture.IsValid()) << Fixture.GetError();
+	Package::FLinkerTables Legacy = MakeAllKindsFixture();
+	for (Package::FPropertyTag& Property : Legacy.Exports.front().Properties)
+		if (Property.FieldName == "Soft") Property.Value.Text = "/Game/SoftTarget";
+	const Package::FSerializedType SoftType{.Kind = Package::EValueKind::SoftReference};
+	const Package::FSerializedType StringType{.Kind = Package::EValueKind::String};
+	auto AddProperty = [&](std::string Name, Package::FSerializedType Type,
+		Package::FSerializedValue Value) {
+		Legacy.Schemas.front().Fields.push_back({.Name = Name, .Type = Type});
+		Legacy.Exports.front().Properties.push_back({
+			.DeclaringType = "Example::AllKinds", .FieldName = std::move(Name),
+			.Type = std::move(Type), .Value = std::move(Value)});
+	};
+	AddProperty("NullSoft", SoftType, {});
+	AddProperty("SoftArray", {.Kind = Package::EValueKind::Array,
+		.Children = {SoftType}}, {.Elements = {{.Text = "/Game/ArrayTarget"}, {}}});
+	AddProperty("SoftMap", {.Kind = Package::EValueKind::Map,
+		.Children = {StringType, SoftType}},
+		{.Elements = {{.Text = "key"}, {.Text = "/Game/MapTarget"}}});
+	Legacy.Summary.bRedirect = true;
+	Legacy.Summary.RedirectDestination = "/Game/RedirectTarget";
+	Legacy.Summary.HardPackageReferences = {"/Game/HardTarget"};
+	Legacy.Imports.push_back({.PackageName = "/Game/HardTarget"});
+	Legacy.Exports.push_back({.ObjectName = "Secondary", .ClassName = "Example::Secondary"});
+	std::vector<std::byte> V8Main;
+	std::vector<std::byte> V8Bulk;
+	ASSERT_TRUE(Package::WritePackageV8(Legacy, V8Main, V8Bulk));
+
+	std::vector<std::byte> V9Main;
+	std::vector<std::byte> V9Bulk;
+	Package::FPackageV8ConversionDiagnostic Diagnostic;
+	Durin::FPackagePath PackagePath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/AllKinds", PackagePath));
+	ASSERT_TRUE(Package::ConvertPackageV8ToV9(
+		V8Main, V8Bulk, PackagePath, V9Main, V9Bulk, &Diagnostic))
+		<< Diagnostic.Message;
+	Package::FLinkerTables Converted;
+	ASSERT_TRUE(Package::ReadPackageV9(V9Main, V9Bulk, PackagePath, Converted));
+	ASSERT_EQ(Converted.Summary.TopLevelAssets.size(), 2u);
+	ASSERT_EQ(Converted.Summary.SoftPackageDependencies.size(), 3u);
+	EXPECT_EQ(Converted.Summary.SoftPackageDependencies[0].ToString(),
+		"/Game/ArrayTarget");
+	EXPECT_EQ(Converted.Summary.SoftPackageDependencies[1].ToString(),
+		"/Game/MapTarget");
+	EXPECT_EQ(Converted.Summary.SoftPackageDependencies[2].ToString(),
+		"/Game/SoftTarget");
+	const auto Soft = std::ranges::find(
+		Converted.Exports.front().Properties, "Soft", &Package::FPropertyTag::FieldName);
+	ASSERT_NE(Soft, Converted.Exports.front().Properties.end());
+	EXPECT_EQ(Soft->Value.Text, "/Game/SoftTarget.SoftTarget");
+	const auto NullSoft = std::ranges::find(
+		Converted.Exports.front().Properties, "NullSoft", &Package::FPropertyTag::FieldName);
+	const auto SoftArray = std::ranges::find(
+		Converted.Exports.front().Properties, "SoftArray", &Package::FPropertyTag::FieldName);
+	const auto SoftMap = std::ranges::find(
+		Converted.Exports.front().Properties, "SoftMap", &Package::FPropertyTag::FieldName);
+	ASSERT_NE(NullSoft, Converted.Exports.front().Properties.end());
+	ASSERT_NE(SoftArray, Converted.Exports.front().Properties.end());
+	ASSERT_NE(SoftMap, Converted.Exports.front().Properties.end());
+	EXPECT_TRUE(NullSoft->Value.Text.empty());
+	ASSERT_EQ(SoftArray->Value.Elements.size(), 2u);
+	EXPECT_EQ(SoftArray->Value.Elements[0].Text,
+		"/Game/ArrayTarget.ArrayTarget");
+	EXPECT_TRUE(SoftArray->Value.Elements[1].Text.empty());
+	ASSERT_EQ(SoftMap->Value.Elements.size(), 2u);
+	EXPECT_EQ(SoftMap->Value.Elements[1].Text, "/Game/MapTarget.MapTarget");
+	ASSERT_EQ(Converted.Summary.HardPackageDependencies.size(), 1u);
+	EXPECT_EQ(Converted.Summary.HardPackageDependencies[0].ToString(),
+		"/Game/HardTarget");
+	ASSERT_EQ(Converted.Imports.size(), 1u);
+	EXPECT_EQ(Converted.Imports[0].ObjectPath.ToString(),
+		"/Game/HardTarget.HardTarget");
+	const auto MainRecord = std::ranges::find(
+		Converted.Summary.TopLevelAssets, "/Game/AllKinds.AllKinds",
+		[](const Package::FPackageSummary::FTopLevelAsset& Asset) {
+			return Asset.AssetPath.ToString();
+		});
+	ASSERT_NE(MainRecord, Converted.Summary.TopLevelAssets.end());
+	EXPECT_EQ(MainRecord->RedirectDestination.ToString(),
+		"/Game/RedirectTarget.RedirectTarget");
+
+	std::vector<std::byte> RepeatedMain;
+	std::vector<std::byte> RepeatedBulk;
+	ASSERT_TRUE(Package::ConvertPackageV8ToV9(
+		V8Main, V8Bulk, PackagePath, RepeatedMain, RepeatedBulk, &Diagnostic));
+	EXPECT_EQ(RepeatedMain, V9Main);
+	EXPECT_EQ(RepeatedBulk, V9Bulk);
+}
+
+TEST(FPackageV9ContractTests, ConversionAndWriterFailuresAreAtomic)
+{
+	auto Fixture = PathMountFixture();
+	ASSERT_TRUE(Fixture.IsValid()) << Fixture.GetError();
+	Package::FLinkerTables Legacy = MakeAllKindsFixture();
+	std::vector<std::byte> V8Main;
+	std::vector<std::byte> V8Bulk;
+	ASSERT_TRUE(Package::WritePackageV8(Legacy, V8Main, V8Bulk));
+	Durin::FPackagePath PackagePath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/AllKinds", PackagePath));
+	std::vector<std::byte> Main = Bytes({0xaa});
+	std::vector<std::byte> Bulk = Bytes({0xbb});
+	Package::FPackageV8ConversionDiagnostic Diagnostic;
+	EXPECT_FALSE(Package::ConvertPackageV8ToV9(
+		V8Main, V8Bulk, PackagePath, Main, Bulk, &Diagnostic));
+	EXPECT_EQ(Diagnostic.Failure, Package::EPackageV8ConversionFailure::AmbiguousIdentity);
+	EXPECT_EQ(Main, Bytes({0xaa}));
+	EXPECT_EQ(Bulk, Bytes({0xbb}));
+
+	ConvertSummaryToV9(Legacy);
+	const auto InvalidSoft = std::ranges::find(
+		Legacy.Exports.front().Properties, "Soft", &Package::FPropertyTag::FieldName);
+	ASSERT_NE(InvalidSoft, Legacy.Exports.front().Properties.end());
+	InvalidSoft->Value.Text = "/Game/InvalidPackageOnly";
+	Package::FPackageWriterDiagnostic WriterDiagnostic;
+	EXPECT_FALSE(Package::WritePackageV9(Legacy, Main, Bulk, &WriterDiagnostic));
+	EXPECT_EQ(WriterDiagnostic.Failure, Package::EPackageWriterFailure::InvalidValue);
+	EXPECT_EQ(Main, Bytes({0xaa}));
+	EXPECT_EQ(Bulk, Bytes({0xbb}));
 }
 
 TEST(FPackageWriterContractTests, FrozenLayoutAndFixtureHashAreExact)

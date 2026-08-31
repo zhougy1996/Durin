@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreDObjectAPI.h"
+#include "DObject/AssetPath.h"
 #include "Hash/XxHash.h"
 #include "Misc/Guid.h"
 
@@ -150,6 +151,9 @@ namespace Durin::ObjectPackage
 
 	struct FPackageImport
 	{
+		// Exact cross-package top-level target used by DAST v9.
+		FTopLevelAssetPath ObjectPath;
+		// Legacy v8 identity fields retained only by the offline conversion boundary.
 		std::string PackageName;
 		std::string ObjectName;
 		std::string ClassName;
@@ -182,6 +186,21 @@ namespace Durin::ObjectPackage
 
 	struct FPackageSummary
 	{
+		FPackagePath PackagePath;
+		struct FTopLevelAsset
+		{
+			FPackageIndex Export;
+			FTopLevelAssetPath AssetPath;
+			std::string ClassName;
+			FObjectPath RedirectDestination;
+
+			auto operator==(const FTopLevelAsset&) const -> bool = default;
+		};
+		std::vector<FTopLevelAsset> TopLevelAssets;
+		std::vector<FPackagePath> HardPackageDependencies;
+		std::vector<FPackagePath> SoftPackageDependencies;
+
+		// Legacy v8 summary retained only by the offline conversion boundary.
 		std::string PackageName;
 		std::string AssetClass;
 		FPackageIndex MainExport;

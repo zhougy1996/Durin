@@ -163,7 +163,8 @@ namespace Durin::ObjectPackage
 			if (It->IsImport())
 			{
 				const FPackageImport& Import = Imports[It->GetTableIndex()];
-				Name = Import.ObjectName.empty() ? Import.PackageName : Import.ObjectName;
+				Name = Import.ObjectPath.IsValid() ? Import.ObjectPath.GetView()
+					: Import.ObjectName.empty() ? Import.PackageName : Import.ObjectName;
 			}
 			else Name = Exports[It->GetTableIndex()].ObjectName;
 			if (Name.empty()) continue;
