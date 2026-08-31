@@ -708,6 +708,7 @@ namespace Durin::ObjectPackage
 			std::string Path, uint32 ExportId, uint32 SchemaId, uint32 FieldId,
 			const std::vector<std::string>& Names, const std::vector<FBulkEntry>& Entries,
 			std::span<const std::byte> Inline, std::span<const std::byte> External,
+			uint64 ExternalExtent, bool bExternalPayloadAvailable,
 			std::array<uint64, 2>& Cursors, size_t& Used, FPackageReaderDiagnostic* Diagnostic) -> bool
 		{
 			if (Type.Kind == EValueKind::BulkData)
@@ -723,21 +724,37 @@ namespace Durin::ObjectPackage
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidBulkData,
 						"A BulkData directory owner or shape is invalid.", Path);
 				const size_t SegmentIndex = Entry.Storage == EBulkStorageKind::Inline ? 0 : 1;
+				const bool bPayloadAvailable = SegmentIndex == 0 || bExternalPayloadAvailable;
 				const std::span<const std::byte> Segment = SegmentIndex == 0 ? Inline : External;
+				const uint64 SegmentSize = SegmentIndex == 0 ? Inline.size() : ExternalExtent;
 				const uint64 Mask = Entry.Alignment - 1;
 				if (Cursors[SegmentIndex] > std::numeric_limits<uint64>::max() - Mask) return false;
 				const uint64 Expected = (Cursors[SegmentIndex] + Mask) & ~Mask;
-				if (Entry.Offset != Expected || Entry.Offset > Segment.size()
-					|| Entry.Size > Segment.size() - Entry.Offset
-					|| !std::ranges::all_of(Segment.subspan(static_cast<size_t>(Cursors[SegmentIndex]),
-						static_cast<size_t>(Expected - Cursors[SegmentIndex])), [](std::byte Byte) { return Byte == std::byte{0}; }))
+				if (Entry.Offset != Expected || Entry.Offset > SegmentSize
+					|| Entry.Size > SegmentSize - Entry.Offset
+					|| (bPayloadAvailable && !std::ranges::all_of(
+						Segment.subspan(static_cast<size_t>(Cursors[SegmentIndex]),
+							static_cast<size_t>(Expected - Cursors[SegmentIndex])),
+						[](std::byte Byte) { return Byte == std::byte{0}; })))
 					return Fail(Diagnostic, EPackageReaderFailure::InvalidBulkData,
 						"A BulkData range, alignment, or padding is invalid.", Path);
-				const auto Payload = Segment.subspan(static_cast<size_t>(Entry.Offset), static_cast<size_t>(Entry.Size));
-				if (FXxHash128::HashBuffer(Payload) != Entry.Hash)
-					return Fail(Diagnostic, EPackageReaderFailure::HashMismatch,
-						"A BulkData payload digest does not match.", Path);
-				Value.Unsigned = 0; Value.Bytes.assign(Payload.begin(), Payload.end());
+				Value.Unsigned = 0;
+				if (bPayloadAvailable)
+				{
+					const auto Payload = Segment.subspan(static_cast<size_t>(Entry.Offset),
+						static_cast<size_t>(Entry.Size));
+					if (FXxHash128::HashBuffer(Payload) != Entry.Hash)
+						return Fail(Diagnostic, EPackageReaderFailure::HashMismatch,
+							"A BulkData payload digest does not match.", Path);
+					Value.Bytes.assign(Payload.begin(), Payload.end());
+				}
+				else
+				{
+					Value.Bytes.clear();
+					Value.BulkStoredSize = Entry.Size;
+					Value.BulkContentHash = Entry.Hash;
+					Value.bBulkPayloadAvailable = false;
+				}
 				Value.BulkElementSize = Entry.ElementSize; Value.BulkAlignment = Entry.Alignment;
 				Value.BulkOffset = Entry.Offset; Value.BulkStorage = Entry.Storage;
 				Cursors[SegmentIndex] = Entry.Offset + Entry.Size; ++Used;
@@ -747,13 +764,15 @@ namespace Durin::ObjectPackage
 			{
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 					if (!BindBulkValue(Value.Elements[Index], Type.Children[Index], Path + "." + Value.FieldNames[Index],
-						ExportId, SchemaId, FieldId, Names, Entries, Inline, External, Cursors, Used, Diagnostic)) return false;
+						ExportId, SchemaId, FieldId, Names, Entries, Inline, External,
+						ExternalExtent, bExternalPayloadAvailable, Cursors, Used, Diagnostic)) return false;
 			}
 			else if (Type.Kind == EValueKind::Array || Type.Kind == EValueKind::FixedArray)
 			{
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 					if (!BindBulkValue(Value.Elements[Index], Type.Children[0], Path + "[" + std::to_string(Index) + "]",
-						ExportId, SchemaId, FieldId, Names, Entries, Inline, External, Cursors, Used, Diagnostic)) return false;
+						ExportId, SchemaId, FieldId, Names, Entries, Inline, External,
+						ExternalExtent, bExternalPayloadAvailable, Cursors, Used, Diagnostic)) return false;
 			}
 			else if (Type.Kind == EValueKind::Map)
 			{
@@ -761,9 +780,11 @@ namespace Durin::ObjectPackage
 				{
 					const std::string EntryPath = Path + "[" + std::to_string(Index / 2) + "]";
 					if (!BindBulkValue(Value.Elements[Index], Type.Children[0], EntryPath + ".Key", ExportId,
-						SchemaId, FieldId, Names, Entries, Inline, External, Cursors, Used, Diagnostic)
+						SchemaId, FieldId, Names, Entries, Inline, External,
+						ExternalExtent, bExternalPayloadAvailable, Cursors, Used, Diagnostic)
 						|| !BindBulkValue(Value.Elements[Index + 1], Type.Children[1], EntryPath + ".Value", ExportId,
-						SchemaId, FieldId, Names, Entries, Inline, External, Cursors, Used, Diagnostic)) return false;
+						SchemaId, FieldId, Names, Entries, Inline, External,
+						ExternalExtent, bExternalPayloadAvailable, Cursors, Used, Diagnostic)) return false;
 				}
 			}
 			return true;
@@ -787,12 +808,16 @@ namespace Durin::ObjectPackage
 		return true;
 	}
 
-	auto ReadPackageV8(std::span<const std::byte> PackageBytes, std::span<const std::byte> BulkBytes,
-		std::string_view PackageName, FLinkerTables& OutLinker, FPackageReaderDiagnostic* OutDiagnostic,
-		const FPackageReaderLimits& Limits) -> bool
+	namespace
+	{
+		auto ReadPackageV8Impl(std::span<const std::byte> PackageBytes,
+			std::span<const std::byte> BulkBytes, uint64 PhysicalBulkBytes,
+			bool bExternalPayloadAvailable, std::string_view PackageName,
+			FLinkerTables& OutLinker, FPackageReaderDiagnostic* OutDiagnostic,
+			const FPackageReaderLimits& Limits) -> bool
 	{
 		if (OutDiagnostic) OutDiagnostic->Reset();
-		if (BulkBytes.size() > Limits.MaximumBulkBytes)
+		if (PhysicalBulkBytes > Limits.MaximumBulkBytes)
 			return Fail(OutDiagnostic, EPackageReaderFailure::LimitExceeded,
 				"The supplied DAST v8 bulk segment exceeds its limit.");
 		FParsedLayout Layout;
@@ -802,7 +827,7 @@ namespace Durin::ObjectPackage
 		std::vector<FBulkEntry> BulkEntries;
 		if (!DecodeNames(Layout, Limits, Linker.Names, OutDiagnostic)
 			|| !DecodeImports(Layout, Linker.Names, Limits, Linker.Imports, OutDiagnostic)
-			|| !DecodeRegistry(Layout, Linker.Names, PackageName, BulkBytes.size(), Registry, OutDiagnostic)
+			|| !DecodeRegistry(Layout, Linker.Names, PackageName, PhysicalBulkBytes, Registry, OutDiagnostic)
 			|| !DecodeExports(Layout, Linker.Names, Limits, Linker.Exports, OutDiagnostic)
 			|| Registry.ExportCount != Linker.Exports.size()
 			|| !DecodeTypes(Layout, Linker.Names, Limits, Linker.Types, OutDiagnostic)
@@ -827,9 +852,10 @@ namespace Durin::ObjectPackage
 			return Fail(OutDiagnostic, EPackageReaderFailure::InvalidIndex,
 				"The DAST v8 main export id is invalid.", "Registry.MainExport");
 
-		if (Registry.ExternalBulkBytes != BulkBytes.size()
-			|| (BulkBytes.empty() ? !Registry.ExternalBulkHash.IsZero()
-				: FXxHash128::HashBuffer(BulkBytes) != Registry.ExternalBulkHash))
+		if (Registry.ExternalBulkBytes != PhysicalBulkBytes
+			|| (bExternalPayloadAvailable
+				&& (BulkBytes.empty() ? !Registry.ExternalBulkHash.IsZero()
+					: FXxHash128::HashBuffer(BulkBytes) != Registry.ExternalBulkHash)))
 			return Fail(OutDiagnostic, EPackageReaderFailure::HashMismatch,
 				"The external DAST v8 bulk segment binding does not match.", "Registry.Bulk");
 		const auto Inline = Section(Layout, EDastV8Section::InlineBulk);
@@ -852,24 +878,50 @@ namespace Durin::ObjectPackage
 				const uint32 FieldId = static_cast<uint32>(FieldIt - SchemaIt->Fields.begin() + 1);
 				const std::string Path = ExportPath + "." + Property.DeclaringType + "." + Property.FieldName;
 				if (!BindBulkValue(Property.Value, Property.Type, Path, ExportIndex + 1, SchemaId, FieldId,
-					Linker.Names, BulkEntries, Inline, BulkBytes, Cursors, UsedBulk, OutDiagnostic)) return false;
+					Linker.Names, BulkEntries, Inline, BulkBytes, PhysicalBulkBytes,
+					bExternalPayloadAvailable, Cursors, UsedBulk, OutDiagnostic)) return false;
 			}
 		}
-		if (UsedBulk != BulkEntries.size() || Cursors[0] != Inline.size() || Cursors[1] != BulkBytes.size())
+		if (UsedBulk != BulkEntries.size() || Cursors[0] != Inline.size()
+			|| Cursors[1] != PhysicalBulkBytes)
 			return Fail(OutDiagnostic, EPackageReaderFailure::InvalidBulkData,
 				"DAST v8 bulk entries do not consume their exact inline/external segments.", "BulkDirectory");
 
 		std::vector<std::byte> CanonicalMain;
-		std::vector<std::byte> CanonicalBulk;
 		FPackageWriterDiagnostic WriterDiagnostic;
-		if (!WritePackageV8(Linker, CanonicalMain, CanonicalBulk, &WriterDiagnostic))
+		std::vector<std::byte> CanonicalBulk;
+		const bool bCanonical = bExternalPayloadAvailable
+			? WritePackageV8(Linker, CanonicalMain, CanonicalBulk, &WriterDiagnostic)
+			: WritePackageV8Main(Linker, Registry.ExternalBulkBytes,
+				Registry.ExternalBulkHash, CanonicalMain, &WriterDiagnostic);
+		if (!bCanonical)
 			return Fail(OutDiagnostic, EPackageReaderFailure::NonCanonical,
 				"Decoded DAST v8 data violates the canonical linker contract: " + WriterDiagnostic.Message,
 				WriterDiagnostic.LogicalPath);
-		if (!std::ranges::equal(CanonicalMain, PackageBytes) || !std::ranges::equal(CanonicalBulk, BulkBytes))
+		if (!std::ranges::equal(CanonicalMain, PackageBytes)
+			|| (bExternalPayloadAvailable && !std::ranges::equal(CanonicalBulk, BulkBytes)))
 			return Fail(OutDiagnostic, EPackageReaderFailure::NonCanonical,
 				"DAST v8 bytes are logically valid but not in canonical writer form.");
 		OutLinker = std::move(Linker);
 		return true;
+	}
+	}
+
+	auto ReadPackageV8(std::span<const std::byte> PackageBytes,
+		std::span<const std::byte> BulkBytes, std::string_view PackageName,
+		FLinkerTables& OutLinker, FPackageReaderDiagnostic* OutDiagnostic,
+		const FPackageReaderLimits& Limits) -> bool
+	{
+		return ReadPackageV8Impl(PackageBytes, BulkBytes, BulkBytes.size(), true,
+			PackageName, OutLinker, OutDiagnostic, Limits);
+	}
+
+	auto ReadPackageV8Metadata(std::span<const std::byte> PackageBytes,
+		uint64 PhysicalBulkBytes, std::string_view PackageName,
+		FLinkerTables& OutLinker, FPackageReaderDiagnostic* OutDiagnostic,
+		const FPackageReaderLimits& Limits) -> bool
+	{
+		return ReadPackageV8Impl(PackageBytes, {}, PhysicalBulkBytes, false,
+			PackageName, OutLinker, OutDiagnostic, Limits);
 	}
 }

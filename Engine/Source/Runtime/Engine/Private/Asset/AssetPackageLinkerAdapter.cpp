@@ -441,7 +441,10 @@ namespace Durin::Asset::Private
 		auto MakeBulkDescriptor(const ObjectPackage::FSerializedValue& Value,
 			uint64 FieldIndex) -> std::vector<std::byte>
 		{
-			const FXxHash128 Hash = FXxHash128::HashBuffer(Value.Bytes);
+			const uint64 StoredSize = Value.bBulkPayloadAvailable
+				? Value.Bytes.size() : Value.BulkStoredSize;
+			const FXxHash128 Hash = Value.bBulkPayloadAvailable
+				? FXxHash128::HashBuffer(Value.Bytes) : Value.BulkContentHash;
 			FGuid PayloadId{
 				static_cast<uint32>(Hash.HashLow),
 				static_cast<uint32>(Hash.HashLow >> 32),
@@ -458,8 +461,8 @@ namespace Durin::Asset::Private
 			Writer.WriteU32(1);
 			Writer.WriteGuid(PayloadId);
 			Writer.WriteHash128(Hash);
-			Writer.WriteU64(Value.Bytes.size());
-			Writer.WriteU64(Value.Bytes.size());
+			Writer.WriteU64(StoredSize);
+			Writer.WriteU64(StoredSize);
 			Writer.WriteU64(bExternal ? Value.BulkOffset : 0);
 			if (!bExternal) Writer.WriteBytes(Value.Bytes);
 			return Writer.TakeBytes();

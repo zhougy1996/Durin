@@ -20,6 +20,8 @@ namespace Durin::Asset::Private
 		std::span<const std::byte> BulkBytes;
 		FAssetPath PackagePath;
 		uint64 PhysicalPackageBytes = 0;
+		uint64 PhysicalBulkBytes = 0;
+		bool bResourceBackedBulk = false;
 		bool bCooked = false;
 	};
 

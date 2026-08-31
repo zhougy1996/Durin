@@ -403,15 +403,22 @@ namespace Durin::ObjectPackage
 						"A byte blob exceeds the v8 package limit.", std::move(Path));
 				break;
 			case EValueKind::BulkData:
+			{
+				const uint64 BulkSize = Value.bBulkPayloadAvailable
+					? Value.Bytes.size() : Value.BulkStoredSize;
 				if (Value.BulkStorage == EBulkStorageKind::Unset || Value.BulkElementSize == 0
 					|| Value.BulkAlignment == 0 || Value.BulkAlignment > 4096
 					|| (Value.BulkAlignment & (Value.BulkAlignment - 1)) != 0
-					|| Value.Bytes.size() > DastV8MaximumBulkBytes
-					|| (Value.Bytes.size() % Value.BulkElementSize) != 0)
+					|| BulkSize > DastV8MaximumBulkBytes
+					|| (BulkSize % Value.BulkElementSize) != 0
+					|| (!Value.bBulkPayloadAvailable
+						&& (Value.BulkStorage != EBulkStorageKind::External
+							|| !Value.Bytes.empty() || Value.BulkContentHash.IsZero())))
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidBulkData,
 						"BulkData requires explicit valid storage, element size, alignment, and extent.", std::move(Path));
 				Frozen.BulkValues.push_back({&Value, ExportId, SchemaId, FieldId, std::move(Path)});
 				break;
+			}
 			default: break;
 			}
 			return true;
@@ -726,6 +733,19 @@ namespace Durin::ObjectPackage
 			return true;
 		}
 
+		auto AlignPayloadExtent(uint64& Extent, uint32 Alignment,
+			FPackageWriterDiagnostic* Diagnostic, std::string_view Path) -> bool
+		{
+			const uint64 Mask = Alignment - 1;
+			if (Extent > std::numeric_limits<uint64>::max() - Mask)
+				return Fail(Diagnostic, EPackageWriterFailure::ArithmeticOverflow,
+					"BulkData alignment overflowed.", std::string(Path));
+			Extent = (Extent + Mask) & ~Mask;
+			return Extent <= DastV8MaximumBulkBytes || Fail(Diagnostic,
+				EPackageWriterFailure::LimitExceeded,
+				"BulkData padding exceeds the v8 limit.", std::string(Path));
+		}
+
 		struct FPlacedBulk
 		{
 			const FBulkOccurrence* Occurrence = nullptr;
@@ -734,20 +754,47 @@ namespace Durin::ObjectPackage
 		};
 
 		auto PlaceBulk(const FFrozenPackage& Frozen, std::vector<std::byte>& Inline,
-			std::vector<std::byte>& External, std::vector<FPlacedBulk>& Placed,
+			std::vector<std::byte>* External, uint64& ExternalExtent,
+			std::vector<FPlacedBulk>& Placed,
 			FPackageWriterDiagnostic* Diagnostic) -> bool
 		{
 			for (const FBulkOccurrence& Bulk : Frozen.BulkValues)
 			{
 				const FSerializedValue& Value = *Bulk.Value;
-				std::vector<std::byte>& Destination = Value.BulkStorage == EBulkStorageKind::Inline ? Inline : External;
-				if (!AlignPayload(Destination, Value.BulkAlignment, Diagnostic, Bulk.LogicalPath)) return false;
-				const uint64 Offset = Destination.size();
-				if (Value.Bytes.size() > DastV8MaximumBulkBytes - Destination.size())
+				const uint64 BulkSize = Value.bBulkPayloadAvailable
+					? Value.Bytes.size() : Value.BulkStoredSize;
+				const FXxHash128 BulkHash = Value.bBulkPayloadAvailable
+					? FXxHash128::HashBuffer(Value.Bytes) : Value.BulkContentHash;
+				if (Value.BulkStorage == EBulkStorageKind::Inline)
+				{
+					if (!Value.bBulkPayloadAvailable
+						|| !AlignPayload(Inline, Value.BulkAlignment, Diagnostic, Bulk.LogicalPath)) return false;
+					const uint64 Offset = Inline.size();
+					if (BulkSize > DastV8MaximumBulkBytes - Inline.size())
+						return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
+							"BulkData payloads exceed the v8 segment limit.", Bulk.LogicalPath);
+					Inline.insert(Inline.end(), Value.Bytes.begin(), Value.Bytes.end());
+					Placed.push_back({&Bulk, Offset, BulkHash});
+					continue;
+				}
+
+				if (!AlignPayloadExtent(ExternalExtent, Value.BulkAlignment,
+						Diagnostic, Bulk.LogicalPath)
+					|| BulkSize > DastV8MaximumBulkBytes - ExternalExtent)
 					return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
 						"BulkData payloads exceed the v8 segment limit.", Bulk.LogicalPath);
-				Destination.insert(Destination.end(), Value.Bytes.begin(), Value.Bytes.end());
-				Placed.push_back({&Bulk, Offset, FXxHash128::HashBuffer(Value.Bytes)});
+				const uint64 Offset = ExternalExtent;
+				ExternalExtent += BulkSize;
+				if (External)
+				{
+					if (!Value.bBulkPayloadAvailable) return Fail(Diagnostic,
+						EPackageWriterFailure::InvalidBulkData,
+						"External BulkData payload bytes are unavailable for full emission.",
+						Bulk.LogicalPath);
+					External->resize(static_cast<size_t>(Offset), std::byte{0});
+					External->insert(External->end(), Value.Bytes.begin(), Value.Bytes.end());
+				}
+				Placed.push_back({&Bulk, Offset, BulkHash});
 			}
 			return true;
 		}
@@ -766,12 +813,20 @@ namespace Durin::ObjectPackage
 		}
 
 		auto EncodeSections(const FFrozenPackage& Frozen, std::vector<FSection>& Sections,
-			std::vector<std::byte>& External, FPackageWriterDiagnostic* Diagnostic) -> bool
+			std::vector<std::byte>* External, uint64 BoundExternalExtent,
+			FXxHash128 BoundExternalHash, FPackageWriterDiagnostic* Diagnostic) -> bool
 		{
 			std::vector<std::byte> Inline;
 			std::vector<FPlacedBulk> Placed;
-			if (!PlaceBulk(Frozen, Inline, External, Placed, Diagnostic)) return false;
-			const FXxHash128 ExternalHash = External.empty() ? FXxHash128{} : FXxHash128::HashBuffer(External);
+			uint64 ExternalExtent = 0;
+			if (!PlaceBulk(Frozen, Inline, External, ExternalExtent, Placed, Diagnostic)) return false;
+			const FXxHash128 ExternalHash = External
+				? (External->empty() ? FXxHash128{} : FXxHash128::HashBuffer(*External))
+				: BoundExternalHash;
+			if (!External && (ExternalExtent != BoundExternalExtent
+					|| ((ExternalExtent == 0) != ExternalHash.IsZero())))
+				return Fail(Diagnostic, EPackageWriterFailure::InvalidBulkData,
+					"External BulkData descriptors do not match their package binding.");
 
 			auto MakeWriter = [] { return std::make_unique<FBinaryWriter>(
 				FBinaryCursorLimits{DastV8MaximumPackageBytes, DastV8MaximumStringBytes}); };
@@ -801,7 +856,7 @@ namespace Durin::ObjectPackage
 				Writer->WriteVarUInt(Ids.size());
 				for (uint32 Id : Ids) Writer->WriteVarUInt(Id);
 			}
-			Writer->WriteU64(External.size());
+			Writer->WriteU64(ExternalExtent);
 			Writer->WriteHash128(ExternalHash);
 			if (!Publish(EDastV8Section::Registry, std::move(Writer))) return false;
 
@@ -909,10 +964,12 @@ namespace Durin::ObjectPackage
 				Writer->WriteVarUInt(Bulk.Occurrence->SchemaId);
 				Writer->WriteVarUInt(Bulk.Occurrence->FieldId);
 				Writer->WriteVarUInt(FindNameId(Frozen, Bulk.Occurrence->LogicalPath));
-				Writer->WriteU64(Value.Bytes.size()); Writer->WriteHash128(Bulk.Hash);
+				const uint64 BulkSize = Value.bBulkPayloadAvailable
+					? Value.Bytes.size() : Value.BulkStoredSize;
+				Writer->WriteU64(BulkSize); Writer->WriteHash128(Bulk.Hash);
 				Writer->WriteU32(Value.BulkElementSize); Writer->WriteU32(Value.BulkAlignment);
 				Writer->WriteU8(static_cast<uint8>(Value.BulkStorage));
-				Writer->WriteU64(Bulk.Offset); Writer->WriteU64(Value.Bytes.size());
+				Writer->WriteU64(Bulk.Offset); Writer->WriteU64(BulkSize);
 			}
 			if (!Publish(EDastV8Section::BulkDirectory, std::move(Writer))) return false;
 
@@ -1002,11 +1059,32 @@ namespace Durin::ObjectPackage
 		if (!Freeze(Linker, Frozen, OutDiagnostic)) return false;
 		std::vector<FSection> Sections;
 		std::vector<std::byte> BulkBytes;
-		if (!EncodeSections(Frozen, Sections, BulkBytes, OutDiagnostic)) return false;
+		if (!EncodeSections(Frozen, Sections, &BulkBytes, 0, {}, OutDiagnostic)) return false;
 		std::vector<std::byte> PackageBytes;
 		if (!Assemble(Sections, PackageBytes, OutDiagnostic, Linker.Summary.bRedirect)) return false;
 		OutPackageBytes = std::move(PackageBytes);
 		OutBulkBytes = std::move(BulkBytes);
+		return true;
+	}
+
+	auto WritePackageV8Main(const FLinkerTables& Linker, uint64 ExternalBulkBytes,
+		FXxHash128 ExternalBulkHash, std::vector<std::byte>& OutPackageBytes,
+		FPackageWriterDiagnostic* OutDiagnostic) -> bool
+	{
+		if (OutDiagnostic) OutDiagnostic->Reset();
+		if (ExternalBulkBytes > DastV8MaximumBulkBytes
+			|| ((ExternalBulkBytes == 0) != ExternalBulkHash.IsZero()))
+			return Fail(OutDiagnostic, EPackageWriterFailure::InvalidBulkData,
+				"External BulkData binding is invalid.");
+		FFrozenPackage Frozen;
+		if (!Freeze(Linker, Frozen, OutDiagnostic)) return false;
+		std::vector<FSection> Sections;
+		if (!EncodeSections(Frozen, Sections, nullptr, ExternalBulkBytes,
+				ExternalBulkHash, OutDiagnostic)) return false;
+		std::vector<std::byte> PackageBytes;
+		if (!Assemble(Sections, PackageBytes, OutDiagnostic,
+				Linker.Summary.bRedirect)) return false;
+		OutPackageBytes = std::move(PackageBytes);
 		return true;
 	}
 }

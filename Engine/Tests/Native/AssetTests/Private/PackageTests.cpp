@@ -1891,6 +1891,15 @@ TEST(FPackageAssetTests, V8FieldBulkClosureMeetsBoundedLooseFixtureBudgets)
 	EXPECT_LT(MetadataMilliseconds, MetadataLoadBudgetMilliseconds);
 	EXPECT_FALSE(Loaded->Payload.IsMemoryResident());
 	EXPECT_EQ(GetPackageResourceManager().GetRegisteredPackageCount(), 1u);
+	const FPackageResourceHandle Resource =
+		GetPackageResourceManager().FindPackage(Path.ToString());
+	ASSERT_NE(Resource, nullptr);
+	const FPackageResourceReadStats MetadataReadStats = Resource->GetReadStats();
+	EXPECT_GT(MetadataReadStats.ValidationReadCount, 0u);
+	EXPECT_EQ(MetadataReadStats.ValidationBytesRead, PayloadBytes);
+	EXPECT_LE(MetadataReadStats.PeakValidationScratchBytes, 64u * 1024u);
+	EXPECT_EQ(MetadataReadStats.RequestCount, 0u);
+	EXPECT_EQ(MetadataReadStats.RequestedBytes, 0u);
 
 	const auto AccessStart = std::chrono::steady_clock::now();
 	const FPackageResourceReadResult LoadedPayload = Loaded->Payload.GetPayload().Wait();
@@ -1901,6 +1910,10 @@ TEST(FPackageAssetTests, V8FieldBulkClosureMeetsBoundedLooseFixtureBudgets)
 	EXPECT_EQ(LoadedPayload.Buffer.GetSize(), PayloadBytes);
 	EXPECT_TRUE(std::ranges::equal(LoadedPayload.Buffer.GetBytes(), Payload));
 	EXPECT_FALSE(Loaded->Payload.IsMemoryResident());
+	const FPackageResourceReadStats AccessReadStats = Resource->GetReadStats();
+	EXPECT_EQ(AccessReadStats.ValidationBytesRead, PayloadBytes);
+	EXPECT_EQ(AccessReadStats.RequestCount, 1u);
+	EXPECT_EQ(AccessReadStats.RequestedBytes, PayloadBytes);
 
 	const auto SaveStart = std::chrono::steady_clock::now();
 	ASSERT_TRUE(SavePackage(Loaded->GetPackage()));
@@ -1911,7 +1924,10 @@ TEST(FPackageAssetTests, V8FieldBulkClosureMeetsBoundedLooseFixtureBudgets)
 
 	std::cout << "FieldBulkQualification payload_bytes=" << PayloadBytes
 		<< " segment_bytes=" << std::filesystem::file_size(SegmentPath)
-		<< " resident_field_bytes=" << PayloadBytes << " registered_resources=0"
+		<< " resident_field_bytes=0"
+		<< " validation_bytes=" << MetadataReadStats.ValidationBytesRead
+		<< " validation_peak_scratch=" << MetadataReadStats.PeakValidationScratchBytes
+		<< " range_request_bytes=" << AccessReadStats.RequestedBytes
 		<< " metadata_load_ms=" << MetadataMilliseconds
 		<< " first_access_ms=" << AccessMilliseconds
 		<< " save_ms=" << SaveMilliseconds << '\n';
@@ -2320,6 +2336,21 @@ TEST(FPackageAssetTests, V8PreservesExternalPayloadBytesAndPlacement)
 	EXPECT_EQ(Value.BulkStorage, ObjectPackage::EBulkStorageKind::External);
 	EXPECT_EQ(Value.Bytes, Payload);
 	EXPECT_EQ(Bulk, Payload);
+	ObjectPackage::FLinkerTables MetadataLinker;
+	ASSERT_TRUE(ObjectPackage::ReadPackageV8Metadata(
+		V8, Bulk.size(), Path.GetView(), MetadataLinker, &Diagnostic))
+		<< Diagnostic.Message;
+	ASSERT_EQ(MetadataLinker.Exports.size(), 1u);
+	ASSERT_EQ(MetadataLinker.Exports.front().Properties.size(), 1u);
+	const auto& MetadataValue =
+		MetadataLinker.Exports.front().Properties.front().Value;
+	EXPECT_EQ(MetadataValue.BulkStorage,
+		ObjectPackage::EBulkStorageKind::External);
+	EXPECT_FALSE(MetadataValue.bBulkPayloadAvailable);
+	EXPECT_TRUE(MetadataValue.Bytes.empty());
+	EXPECT_EQ(MetadataValue.BulkStoredSize, Payload.size());
+	EXPECT_EQ(MetadataValue.BulkContentHash,
+		FXxHash128::HashBuffer(Payload));
 	ASSERT_TRUE(UnloadPackage(Path));
 }
 

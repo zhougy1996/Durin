@@ -104,44 +104,6 @@ namespace Durin::Asset
 			return {Code, std::move(Message)};
 		}
 
-		auto RecoverLooseBulkBackup(
-			std::string_view PhysicalPath,
-			const FAssetPackageHeader& Header,
-			std::vector<std::byte>& InOutBulkBytes) -> FAssetResult
-		{
-			if (Header.BulkSegmentExtent == 0
-				|| (InOutBulkBytes.size() == Header.BulkSegmentExtent
-					&& FXxHash128::HashBuffer(InOutBulkBytes)
-						== Header.BulkSegmentDigest))
-				return {};
-
-			std::filesystem::path BulkPath(PhysicalPath);
-			BulkPath.replace_extension(".dbulk");
-			std::filesystem::path BackupPath = BulkPath;
-			BackupPath += EditorBulkDataCompanionBackupSuffix;
-			std::vector<std::byte> BackupBytes;
-			if (!FFileHelper::LoadFileToArray(BackupBytes, BackupPath)
-				|| BackupBytes.size() != Header.BulkSegmentExtent
-				|| FXxHash128::HashBuffer(BackupBytes)
-					!= Header.BulkSegmentDigest)
-				return {};
-
-			FFileHelper::FAtomicFileError PublicationError;
-			if (!FFileHelper::SaveArrayToFileAtomically(
-					BackupBytes, BulkPath, &PublicationError))
-				return Error(EAssetError::IoError, std::format(
-					"Asset bulk backup recovery failed: {}",
-					PublicationError.ToString()));
-			std::error_code RemovalError;
-			std::filesystem::remove(BackupPath, RemovalError);
-			if (RemovalError)
-				return Error(EAssetError::IoError, std::format(
-					"Recovered asset bulk backup could not be removed: {}",
-					RemovalError.message()));
-			InOutBulkBytes = std::move(BackupBytes);
-			return {};
-		}
-
 		auto CorruptRedirector(std::string Message) -> FAssetResult
 		{
 			return Error(EAssetError::CorruptFile,
@@ -538,20 +500,20 @@ namespace Durin::Asset
 		if (PhysicalPath.empty()) return Error(EAssetError::InvalidPath, "Asset path cannot be resolved in the selected package mode.");
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath)) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
 		++GActivePackageFileReadCount;
-		std::vector<std::byte> BulkBytes;
 		std::filesystem::path BulkPath(PhysicalPath);
 		BulkPath.replace_extension(".dbulk");
 		std::error_code BulkError;
-		if (std::filesystem::is_regular_file(BulkPath, BulkError)
-			&& !FFileHelper::LoadFileToArray(BulkBytes, BulkPath))
-			return Error(EAssetError::IoError,
-				std::format("Asset {} bulk companion could not be read.", Path.ToString()));
+		uint64 PhysicalBulkBytes = 0;
+		if (std::filesystem::is_regular_file(BulkPath, BulkError))
+			PhysicalBulkBytes = std::filesystem::file_size(BulkPath, BulkError);
 		if (BulkError && BulkError != std::errc::no_such_file_or_directory)
 			return Error(EAssetError::IoError,
 				std::format("Asset {} bulk companion could not be inspected.", Path.ToString()));
 		const Private::FAssetPackageReadContext HeaderContext{
-			.PackageBytes = Bytes, .BulkBytes = BulkBytes, .PackagePath = Path,
+			.PackageBytes = Bytes, .PackagePath = Path,
 			.PhysicalPackageBytes = Bytes.size(),
+			.PhysicalBulkBytes = PhysicalBulkBytes,
+			.bResourceBackedBulk = true,
 			.bCooked = RuntimeConfiguration.IsCooked()};
 		const Private::FAssetPackageCodec* Codec = nullptr;
 		if (FAssetResult Result = Private::ResolveAssetPackageReader(
@@ -561,11 +523,11 @@ namespace Durin::Asset
 			FAssetPackageHeader Header;
 			FAssetResult Result = Codec->ReadHeader(HeaderContext, Header);
 			if (!Result) return Result;
-			Result = RecoverLooseBulkBackup(PhysicalPath, Header, BulkBytes);
-			if (!Result) return Result;
 			const Private::FAssetPackageReadContext ReadContext{
-				.PackageBytes = Bytes, .BulkBytes = BulkBytes, .PackagePath = Path,
+				.PackageBytes = Bytes, .PackagePath = Path,
 				.PhysicalPackageBytes = Bytes.size(),
+				.PhysicalBulkBytes = PhysicalBulkBytes,
+				.bResourceBackedBulk = true,
 				.bCooked = RuntimeConfiguration.IsCooked()};
 			const Private::FMutationPackageMetadata HeaderMetadata{
 				.FormatVersion = Header.FormatVersion,

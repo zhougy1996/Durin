@@ -77,6 +77,29 @@ TEST(FFileHelperTests, PublishesAndReplacesCompleteBytes)
 	EXPECT_EQ(Loaded, std::vector(Second.begin(), Second.end()));
 }
 
+TEST(FFileHelperTests, CopiesFilesThroughAtomicReplacement)
+{
+	const std::filesystem::path Root = TestRoot("CopyReplace");
+	const std::filesystem::path Source = Root / "Source.bin";
+	const std::filesystem::path Destination = Root / "Destination.bin";
+	std::vector<std::byte> Expected(3 * 64 * 1024 + 17);
+	for (size_t Index = 0; Index < Expected.size(); ++Index)
+		Expected[Index] = static_cast<std::byte>((Index * 53 + 7) & 0xff);
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Expected, Source));
+	const std::array Previous{std::byte{0x11}, std::byte{0x22}};
+	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Previous, Destination));
+
+	Durin::FFileHelper::FAtomicFileError Error;
+	ASSERT_TRUE(Durin::FFileHelper::CopyFileAtomically(Source, Destination, &Error))
+		<< Error.ToString();
+	EXPECT_EQ(ReadBytes(Source), Expected);
+	EXPECT_EQ(ReadBytes(Destination), Expected);
+
+	EXPECT_FALSE(Durin::FFileHelper::CopyFileAtomically(
+		Root / "Missing.bin", Destination, &Error));
+	EXPECT_EQ(ReadBytes(Destination), Expected);
+}
+
 TEST(FFileHelperTests, HashesFilesIncrementallyAcrossBufferBoundaries)
 {
 	const std::filesystem::path FilePath = TestRoot("StreamingHash") / "Value.bin";

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreDObjectAPI.h"
+#include "Hash/XxHash.h"
 #include "Misc/Guid.h"
 
 namespace Durin::ObjectPackage
@@ -126,7 +127,10 @@ namespace Durin::ObjectPackage
 		uint32 BulkElementSize = 0;
 		uint32 BulkAlignment = 0;
 		uint64 BulkOffset = 0;
+		uint64 BulkStoredSize = 0;
+		FXxHash128 BulkContentHash;
 		EBulkStorageKind BulkStorage = EBulkStorageKind::Unset;
+		bool bBulkPayloadAvailable = true;
 
 		auto operator==(const FSerializedValue&) const -> bool = default;
 	};

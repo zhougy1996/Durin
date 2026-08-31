@@ -144,6 +144,74 @@ TEST(FPackageResourceTests, LoadsUnloadsAndRetiresAttachedBulkData)
 	EXPECT_EQ(Value.GetState(), EBulkDataState::Retired);
 }
 
+TEST(FPackageResourceTests, AdmissionValidatesEachRangeAndPaddingInOnePass)
+{
+	const uint64 FirstSize = EditorBulkDataExternalThreshold + 1;
+	const uint64 SecondOffset = (FirstSize + EditorBulkDataExternalAlignment - 1)
+		& ~uint64(EditorBulkDataExternalAlignment - 1);
+	const uint64 SecondSize = EditorBulkDataExternalThreshold + 3;
+	std::vector<std::byte> Segment(static_cast<size_t>(SecondOffset + SecondSize));
+	std::ranges::fill(std::span(Segment).first(static_cast<size_t>(FirstSize)),
+		std::byte{0x31});
+	std::ranges::fill(std::span(Segment).subspan(
+		static_cast<size_t>(SecondOffset), static_cast<size_t>(SecondSize)),
+		std::byte{0x72});
+	const std::array Entries{
+		FPackageBulkDataEntry{
+			.FieldIndex = 1,
+			.Placement = EPackageBulkDataPlacement::External,
+			.LogicalSize = FirstSize,
+			.StoredSize = FirstSize,
+			.Alignment = EditorBulkDataExternalAlignment,
+			.ContentId = FXxHash128::HashBuffer(
+				std::span(Segment).first(static_cast<size_t>(FirstSize)))},
+		FPackageBulkDataEntry{
+			.FieldIndex = 2,
+			.Placement = EPackageBulkDataPlacement::External,
+			.LogicalSize = SecondSize,
+			.StoredSize = SecondSize,
+			.SegmentOffset = SecondOffset,
+			.Alignment = EditorBulkDataExternalAlignment,
+			.ContentId = FXxHash128::HashBuffer(std::span(Segment).subspan(
+				static_cast<size_t>(SecondOffset), static_cast<size_t>(SecondSize)))}};
+	FPackageBulkSegmentSummary Summary{
+		.Extent = Segment.size(), .Digest = FXxHash128::HashBuffer(Segment)};
+	const std::filesystem::path Root =
+		Durin::Testing::GetTestWorkDirectory() / "PackageResourceValidation";
+	std::filesystem::create_directories(Root);
+	const std::filesystem::path PackagePath = Root / "Ranges.dasset";
+	std::filesystem::path SegmentPath = PackagePath;
+	SegmentPath.replace_extension(".dbulk");
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Segment, SegmentPath));
+
+	FPackageResourceManager Manager;
+	FPackageResourceHandle Handle;
+	std::string Error;
+	ASSERT_TRUE(Manager.RegisterLoosePackage(
+		"/Tests/Ranges", PackagePath, Summary, Entries, Handle, &Error)) << Error;
+	const FPackageResourceReadStats Stats = Handle->GetReadStats();
+	EXPECT_EQ(Stats.ValidationBytesRead, Segment.size());
+	EXPECT_LE(Stats.PeakValidationScratchBytes, 64u * 1024u);
+	EXPECT_EQ(Stats.RequestCount, 0u);
+	Manager.RetirePackage("/Tests/Ranges");
+
+	Segment[7] ^= std::byte{0x01};
+	Summary.Digest = FXxHash128::HashBuffer(Segment);
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Segment, SegmentPath));
+	EXPECT_FALSE(Manager.RegisterLoosePackage(
+		"/Tests/BadRange", PackagePath, Summary, Entries, Handle, &Error));
+	EXPECT_NE(Error.find("field digest"), std::string::npos);
+
+	Segment[7] ^= std::byte{0x01};
+	ASSERT_GT(SecondOffset, FirstSize);
+	Segment[static_cast<size_t>(FirstSize)] = std::byte{0x01};
+	Summary.Digest = FXxHash128::HashBuffer(Segment);
+	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Segment, SegmentPath));
+	EXPECT_FALSE(Manager.RegisterLoosePackage(
+		"/Tests/BadPadding", PackagePath, Summary, Entries, Handle, &Error));
+	EXPECT_NE(Error.find("padding"), std::string::npos);
+}
+
 TEST(FPackageResourceTests, AsyncCancellationAndRetirementConserveTerminalResults)
 {
 	auto Resource = std::make_shared<FSlowPackageResource>();

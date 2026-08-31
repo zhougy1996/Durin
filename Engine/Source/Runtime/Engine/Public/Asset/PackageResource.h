@@ -31,6 +31,9 @@ namespace Durin::Asset
 
 	struct FPackageResourceReadStats
 	{
+		uint64 ValidationReadCount = 0;
+		uint64 ValidationBytesRead = 0;
+		uint64 PeakValidationScratchBytes = 0;
 		uint64 RequestCount = 0;
 		uint64 RequestedBytes = 0;
 	};
@@ -80,8 +83,9 @@ namespace Durin::Asset
 		auto GetSegmentExtent() const -> uint64 { return SegmentExtent; }
 
 	protected:
-		explicit FPackageResource(uint64 InSegmentExtent)
-			: SegmentExtent(InSegmentExtent) {}
+		explicit FPackageResource(uint64 InSegmentExtent,
+			FPackageResourceReadStats InReadStats = {})
+			: SegmentExtent(InSegmentExtent), ReadStats(InReadStats) {}
 
 		virtual auto ReadRangeImpl(
 			uint64 Offset,

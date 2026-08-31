@@ -35,8 +35,12 @@ namespace Durin::Asset::Private::DastV8
 				return Error(EAssetError::InvalidPath,
 					"DAST v8 requires the mounted package identity.");
 			ObjectPackage::FPackageReaderDiagnostic Diagnostic;
-			if (!ObjectPackage::ReadPackageV8(Context.PackageBytes, Context.BulkBytes,
-				Context.PackagePath.GetView(), Out, &Diagnostic))
+			const bool bRead = Context.bResourceBackedBulk
+				? ObjectPackage::ReadPackageV8Metadata(Context.PackageBytes,
+					Context.PhysicalBulkBytes, Context.PackagePath.GetView(), Out, &Diagnostic)
+				: ObjectPackage::ReadPackageV8(Context.PackageBytes, Context.BulkBytes,
+					Context.PackagePath.GetView(), Out, &Diagnostic);
+			if (!bRead)
 				return ReaderError(Diagnostic);
 			return {};
 		}
@@ -46,8 +50,10 @@ namespace Durin::Asset::Private::DastV8
 		{
 			const uint64 PhysicalBytes = Context.PhysicalPackageBytes == 0
 				? Context.PackageBytes.size() : Context.PhysicalPackageBytes;
+			const uint64 PhysicalBulkBytes = Context.bResourceBackedBulk
+				? Context.PhysicalBulkBytes : Context.BulkBytes.size();
 			return ReadAssetPackageHeaderBytes(Context.PackageBytes, PhysicalBytes,
-				Context.BulkBytes.size(), Context.PackagePath, OutHeader);
+				PhysicalBulkBytes, Context.PackagePath, OutHeader);
 		}
 
 		auto Validate(const FAssetPackageReadContext& Context) -> FAssetResult
@@ -288,12 +294,15 @@ namespace Durin::Asset::Private::DastV8
 					return false;
 				const bool bExternal = Value.BulkStorage
 					== ObjectPackage::EBulkStorageKind::External;
+				const uint64 StoredSize = Value.bBulkPayloadAvailable
+					? Value.Bytes.size() : Value.BulkStoredSize;
 				const uint64 Offset = bExternal
 					? (State.NextExternalOffset + Value.BulkAlignment - 1)
 						& ~uint64(Value.BulkAlignment - 1)
 					: 0;
-				if (bExternal) State.NextExternalOffset = Offset + Value.Bytes.size();
-				const FXxHash128 Hash = FXxHash128::HashBuffer(Value.Bytes);
+				if (bExternal) State.NextExternalOffset = Offset + StoredSize;
+				const FXxHash128 Hash = Value.bBulkPayloadAvailable
+					? FXxHash128::HashBuffer(Value.Bytes) : Value.BulkContentHash;
 				FGuid PayloadId{
 					static_cast<uint32>(Hash.HashLow),
 					static_cast<uint32>(Hash.HashLow >> 32),
@@ -308,8 +317,8 @@ namespace Durin::Asset::Private::DastV8
 				AppendNative(Out, ++State.BulkFieldIndex);
 				AppendNative(Out, PayloadId);
 				AppendNative(Out, Hash);
-				AppendNative(Out, static_cast<uint64>(Value.Bytes.size()));
-				AppendNative(Out, static_cast<uint64>(Value.Bytes.size()));
+				AppendNative(Out, StoredSize);
+				AppendNative(Out, StoredSize);
 				AppendNative(Out, Offset);
 				if (!bExternal)
 					Out.insert(Out.end(), Value.Bytes.begin(), Value.Bytes.end());

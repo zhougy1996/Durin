@@ -49,17 +49,114 @@ namespace Durin::Asset
 
 	namespace
 	{
+		constexpr size_t PackageValidationScratchBytes = 64 * 1024;
+
 		auto Result(EPackageResourceReadStatus Status, std::string Message = {})
 			-> FPackageResourceReadResult
 		{
 			return {.Status = Status, .Message = std::move(Message)};
 		}
 
+		auto ValidateLoosePackageGeneration(
+			const std::filesystem::path& Path,
+			const FPackageBulkSegmentSummary& Summary,
+			std::span<const FPackageBulkDataEntry> Entries,
+			FPackageResourceReadStats& Stats,
+			std::string& OutError) -> bool
+		{
+			FFileHelper::FFileIoError FileError;
+			auto File = FFileHelper::OpenRead(Path, &FileError);
+			if (!File)
+			{
+				OutError = FileError.ToString();
+				return false;
+			}
+			if (File->GetSize() != Summary.Extent)
+			{
+				OutError = "Loose package bulk segment extent does not match the package generation.";
+				return false;
+			}
+
+			std::array<std::byte, PackageValidationScratchBytes> Scratch{};
+			Stats.PeakValidationScratchBytes = std::max<uint64>(
+				Stats.PeakValidationScratchBytes, Scratch.size());
+			FXxHash128Builder SegmentHash;
+			FXxHash128Builder FieldHash;
+			size_t EntryIndex = 0;
+			auto AdvanceToExternal = [&] {
+				while (EntryIndex < Entries.size()
+					&& Entries[EntryIndex].Placement != EPackageBulkDataPlacement::External)
+					++EntryIndex;
+			};
+			AdvanceToExternal();
+			for (uint64 Offset = 0; Offset < Summary.Extent;)
+			{
+				const size_t Count = static_cast<size_t>(std::min<uint64>(
+					Scratch.size(), Summary.Extent - Offset));
+				auto Bytes = std::span(Scratch).first(Count);
+				if (!File->ReadAt(Offset, Bytes, &FileError))
+				{
+					OutError = FileError.ToString();
+					return false;
+				}
+				++Stats.ValidationReadCount;
+				Stats.ValidationBytesRead += Count;
+				SegmentHash.Update(Bytes);
+
+				size_t LocalOffset = 0;
+				while (LocalOffset < Count && EntryIndex < Entries.size())
+				{
+					const FPackageBulkDataEntry& Entry = Entries[EntryIndex];
+					const uint64 AbsoluteOffset = Offset + LocalOffset;
+					if (AbsoluteOffset < Entry.SegmentOffset)
+					{
+						const size_t PaddingBytes = static_cast<size_t>(std::min<uint64>(
+							Count - LocalOffset, Entry.SegmentOffset - AbsoluteOffset));
+						if (std::ranges::any_of(Bytes.subspan(LocalOffset, PaddingBytes),
+								[](std::byte Byte) { return Byte != std::byte{0}; }))
+						{
+							OutError = "Loose package bulk segment has nonzero alignment padding.";
+							return false;
+						}
+						LocalOffset += PaddingBytes;
+						continue;
+					}
+
+					const uint64 EntryEnd = Entry.SegmentOffset + Entry.StoredSize;
+					const size_t PayloadBytes = static_cast<size_t>(std::min<uint64>(
+						Count - LocalOffset, EntryEnd - AbsoluteOffset));
+					FieldHash.Update(Bytes.subspan(LocalOffset, PayloadBytes));
+					LocalOffset += PayloadBytes;
+					if (AbsoluteOffset + PayloadBytes == EntryEnd)
+					{
+						if (FieldHash.Finalize() != Entry.ContentId)
+						{
+							OutError = "Loose package bulk field digest does not match its directory entry.";
+							return false;
+						}
+						FieldHash.Reset();
+						++EntryIndex;
+						AdvanceToExternal();
+					}
+				}
+				Offset += Count;
+			}
+			if (EntryIndex != Entries.size() || SegmentHash.Finalize() != Summary.Digest)
+			{
+				OutError = "Loose package bulk segment digest does not match the package generation.";
+				return false;
+			}
+			OutError.clear();
+			return true;
+		}
+
 		class FLoosePackageResource final : public FPackageResource
 		{
 		public:
-			FLoosePackageResource(std::filesystem::path InSegmentPath, uint64 Extent)
-				: FPackageResource(Extent), SegmentPath(std::move(InSegmentPath)) {}
+			FLoosePackageResource(std::filesystem::path InSegmentPath, uint64 Extent,
+				FPackageResourceReadStats ValidationStats)
+				: FPackageResource(Extent, ValidationStats),
+				  SegmentPath(std::move(InSegmentPath)) {}
 
 		private:
 			auto ReadRangeImpl(uint64 Offset, uint64 Size, const std::atomic_bool& bCancelled)
@@ -335,56 +432,42 @@ namespace Durin::Asset
 		std::filesystem::path BackupPath = SegmentPath;
 		BackupPath += ".durin-backup";
 		std::error_code Error;
-		const auto HasValidGeneration = [&](const std::filesystem::path& Path) {
-			Error.clear();
-			const uint64 Extent = std::filesystem::file_size(Path, Error);
-			FXxHash128 Digest;
-			return !Error && Extent == Summary.Extent
-				&& FFileHelper::HashFileXx128(Path, Digest, Error) && Digest == Summary.Digest;
-		};
-		if (!HasValidGeneration(SegmentPath))
+		FPackageResourceReadStats ValidationStats;
+		std::string PrimaryValidationError;
+		if (!ValidateLoosePackageGeneration(
+				SegmentPath, Summary, Entries, ValidationStats, PrimaryValidationError))
 		{
-			if (!HasValidGeneration(BackupPath))
+			std::string BackupValidationError;
+			if (!ValidateLoosePackageGeneration(
+					BackupPath, Summary, Entries, ValidationStats, BackupValidationError))
 			{
 				if (OutError) *OutError =
-					"Loose package bulk segment and backup do not match the package generation.";
+					"Loose package bulk segment does not match the package generation: "
+					+ PrimaryValidationError + " Backup validation failed: "
+					+ BackupValidationError;
 				return false;
 			}
-			std::vector<std::byte> BackupBytes;
 			FFileHelper::FAtomicFileError PublicationError;
-			if (!FFileHelper::LoadFileToArray(BackupBytes, BackupPath)
-				|| !FFileHelper::SaveArrayToFileAtomically(
-					BackupBytes, SegmentPath, &PublicationError))
+			if (!FFileHelper::CopyFileAtomically(
+					BackupPath, SegmentPath, &PublicationError))
 			{
 				if (OutError) *OutError = "Loose package bulk backup recovery failed.";
 				return false;
 			}
+			std::string RecoveredValidationError;
+			if (!ValidateLoosePackageGeneration(SegmentPath, Summary, Entries,
+					ValidationStats, RecoveredValidationError))
+			{
+				if (OutError) *OutError =
+					"Recovered loose package bulk segment failed validation: "
+					+ RecoveredValidationError;
+				return false;
+			}
 		}
 		std::filesystem::remove(BackupPath, Error);
-		std::ifstream PaddingStream(SegmentPath, std::ios::binary);
-		uint64 Cursor = 0;
-		for (const FPackageBulkDataEntry& Entry : Entries)
-		{
-			if (Entry.Placement != EPackageBulkDataPlacement::External) continue;
-			const uint64 PaddingSize = Entry.SegmentOffset - Cursor;
-			if (PaddingSize != 0)
-			{
-				std::array<std::byte, EditorBulkDataExternalAlignment - 1> Padding{};
-				PaddingStream.seekg(static_cast<std::streamoff>(Cursor), std::ios::beg);
-				PaddingStream.read(reinterpret_cast<char*>(Padding.data()),
-					static_cast<std::streamsize>(PaddingSize));
-				if (PaddingStream.gcount() != static_cast<std::streamsize>(PaddingSize)
-					|| std::ranges::any_of(std::span(Padding).first(
-						static_cast<size_t>(PaddingSize)), [](std::byte Byte) { return Byte != std::byte{0}; }))
-				{
-					if (OutError) *OutError = "Loose package bulk segment has nonzero alignment padding.";
-					return false;
-				}
-			}
-			Cursor = Entry.SegmentOffset + Entry.StoredSize;
-		}
 
-		auto Resource = std::make_shared<FLoosePackageResource>(SegmentPath, Summary.Extent);
+		auto Resource = std::make_shared<FLoosePackageResource>(
+			SegmentPath, Summary.Extent, ValidationStats);
 		FPackageResourceHandle Previous;
 		{
 			std::lock_guard Lock(Mutex);

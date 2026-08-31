@@ -73,10 +73,12 @@ no hash, GUID, DDC key, schema, target, asset path, or physical path.
 
 Only the loose backend stores the mounted `.dasset` path and derives the stable
 `.dbulk` sibling. At package admission it validates the complete external
-segment against the v8 Registry extent and XXH3-128 digest using no more than
-1 MiB scratch and the 1 GiB package limit. It then exposes immutable ranges
-from the already validated Bulk Directory. Metadata-only Registry inspection
-reads no segment bytes and does not create a live resource.
+segment against the v8 Registry extent and XXH3-128 digest, every external
+field digest, and zero alignment padding in one sequential pass using 64 KiB
+scratch and the 1 GiB package limit. It then exposes immutable ranges from the
+already validated Bulk Directory. Backup recovery uses a bounded-memory atomic
+file copy. Metadata-only Registry inspection reads no segment bytes and does
+not create a live resource.
 
 A read is admitted only while the resource is Active and its checked range is
 inside the validated extent. Retirement enters Retiring, rejects new requests,
@@ -123,6 +125,13 @@ The Registry section binds the external segment by exact extent and whole-file
 XXH3-128. Header validation checks declared extent against physical extent;
 complete package validation checks the whole digest and every directory range
 before linker publication or object construction.
+
+Runtime loose loading uses the resource-backed v8 reader. External linker
+values carry only directory offset, extent, alignment, element size, and
+content digest; they do not own payload bytes. Canonical main-package
+validation reconstructs `.dasset` from those descriptors without emitting a
+canonical `.dbulk` buffer. Full closure validation and mutation tools retain
+the owning-byte reader when byte-for-byte external reconstruction is required.
 
 ## Cooked Projection
 
@@ -172,9 +181,11 @@ closure validation and never publish a live package.
 `FPackageAssetTests.V8FieldBulkClosureMeetsBoundedLooseFixtureBudgets` freezes a
 4 MiB uncompressed external field and enforces bounded metadata load, first
 access, and save. Metadata load retains zero payload bytes and issues no range
-request; first access returns one owned 4 MiB buffer through one exact request;
-ordinary save preserves a 4 MiB headerless segment; unload returns the resource
-count to zero. These are regression ceilings, not hardware benchmarks.
+request; admission reads exactly one segment extent with at most 64 KiB
+validation scratch. First access returns one owned 4 MiB buffer through one
+exact request; ordinary save preserves a 4 MiB headerless segment; unload
+returns the resource count to zero. These are regression ceilings, not hardware
+benchmarks.
 
 ## Related Documentation
 

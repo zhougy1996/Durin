@@ -147,6 +147,14 @@ namespace Durin::ObjectPackage
 		std::vector<std::byte>& OutBulkBytes,
 		FPackageWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
 
+	// Emits canonical main bytes from a linker whose external payloads may be descriptors only.
+	COREDOBJECT_API auto WritePackageV8Main(
+		const FLinkerTables& Linker,
+		uint64 ExternalBulkBytes,
+		FXxHash128 ExternalBulkHash,
+		std::vector<std::byte>& OutPackageBytes,
+		FPackageWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
+
 	// Validates exactly the declared front matter and publishes package-level Registry data.
 	COREDOBJECT_API auto ReadPackageV8Registry(
 		std::span<const std::byte> FrontMatter,
@@ -161,6 +169,16 @@ namespace Durin::ObjectPackage
 	COREDOBJECT_API auto ReadPackageV8(
 		std::span<const std::byte> PackageBytes,
 		std::span<const std::byte> BulkBytes,
+		std::string_view PackageName,
+		FLinkerTables& OutLinker,
+		FPackageReaderDiagnostic* OutDiagnostic = nullptr,
+		const FPackageReaderLimits& Limits = {}) -> bool;
+
+	// Validates canonical main bytes and publishes descriptor-only external BulkData values.
+	// The caller must validate the external segment before publishing the linker.
+	COREDOBJECT_API auto ReadPackageV8Metadata(
+		std::span<const std::byte> PackageBytes,
+		uint64 PhysicalBulkBytes,
 		std::string_view PackageName,
 		FLinkerTables& OutLinker,
 		FPackageReaderDiagnostic* OutDiagnostic = nullptr,

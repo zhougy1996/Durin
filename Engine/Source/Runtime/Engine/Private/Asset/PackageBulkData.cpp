@@ -90,6 +90,10 @@ namespace Durin::Asset
 			for (; Cursor < Entry.SegmentOffset; ++Cursor)
 				if (Segment[static_cast<size_t>(Cursor)] != std::byte{0})
 					return Fail("Package bulk segment contains nonzero alignment padding.", OutError);
+			if (FXxHash128::HashBuffer(Segment.subspan(
+					static_cast<size_t>(Entry.SegmentOffset),
+					static_cast<size_t>(Entry.StoredSize))) != Entry.ContentId)
+				return Fail("Package bulk field digest does not match its directory entry.", OutError);
 			Cursor = Entry.SegmentOffset + Entry.StoredSize;
 		}
 		if (OutError) OutError->clear();

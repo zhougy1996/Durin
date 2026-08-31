@@ -675,5 +675,139 @@ namespace Durin
 			return true;
 		}
 
+		auto CopyFileAtomically(
+			const std::filesystem::path& SourcePath,
+			const std::filesystem::path& DestinationPath,
+			FAtomicFileError* OutError
+		) -> bool
+		{
+			FAtomicFileError LocalError;
+			FAtomicFileError* Error = OutError ? OutError : &LocalError;
+			*Error = {};
+
+			std::error_code ErrorCode;
+			const std::filesystem::path Source =
+				std::filesystem::absolute(SourcePath, ErrorCode).lexically_normal();
+			if (ErrorCode)
+			{
+				SetAtomicFileError(Error, EAtomicFileOperation::NormalizeDestination,
+					ErrorCode, SourcePath);
+				return false;
+			}
+			const std::filesystem::path Destination =
+				std::filesystem::absolute(DestinationPath, ErrorCode).lexically_normal();
+			if (ErrorCode)
+			{
+				SetAtomicFileError(Error, EAtomicFileOperation::NormalizeDestination,
+					ErrorCode, DestinationPath);
+				return false;
+			}
+			std::filesystem::create_directories(Destination.parent_path(), ErrorCode);
+			if (ErrorCode)
+			{
+				SetAtomicFileError(Error, EAtomicFileOperation::CreateParentDirectories,
+					ErrorCode, Destination);
+				return false;
+			}
+
+			std::filesystem::path TemporaryPath;
+			bool bCreated = false;
+			for (uint32 Attempt = 0; Attempt < 64 && !bCreated; ++Attempt)
+			{
+				TemporaryPath = MakeTemporaryPath(Destination);
+				ErrorCode.clear();
+				bCreated = std::filesystem::copy_file(Source, TemporaryPath,
+					std::filesystem::copy_options::none, ErrorCode);
+				if (!bCreated)
+				{
+					SetAtomicFileError(Error,
+						ErrorCode == std::errc::file_exists
+							? EAtomicFileOperation::CreateTemporaryFile
+							: EAtomicFileOperation::WriteTemporaryFile,
+						ErrorCode, TemporaryPath);
+					if (ErrorCode == std::errc::file_exists && Attempt + 1 < 64)
+					{
+						*Error = {};
+						if (Attempt < 8) std::this_thread::yield();
+						else std::this_thread::sleep_for(std::chrono::milliseconds(1));
+						continue;
+					}
+					return false;
+				}
+			}
+			if (!bCreated) return false;
+
+#if defined(_WIN32)
+			const HANDLE TemporaryFile = CreateFileW(TemporaryPath.c_str(), GENERIC_WRITE,
+				0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+			if (TemporaryFile == INVALID_HANDLE_VALUE || !FlushFileBuffers(TemporaryFile))
+			{
+				const DWORD NativeError = GetLastError();
+				if (TemporaryFile != INVALID_HANDLE_VALUE) CloseHandle(TemporaryFile);
+				SetAtomicFileError(Error, EAtomicFileOperation::FlushTemporaryFile,
+					{static_cast<int>(NativeError), std::system_category()}, TemporaryPath);
+				std::filesystem::remove(TemporaryPath, ErrorCode);
+				return false;
+			}
+			if (!CloseHandle(TemporaryFile))
+			{
+				SetAtomicFileError(Error, EAtomicFileOperation::CloseTemporaryFile,
+					{static_cast<int>(GetLastError()), std::system_category()}, TemporaryPath);
+				std::filesystem::remove(TemporaryPath, ErrorCode);
+				return false;
+			}
+			DWORD ReplacementError = ERROR_SUCCESS;
+			bool bReplaced = false;
+			for (uint32 Attempt = 0; Attempt < 128; ++Attempt)
+			{
+				if (MoveFileExW(TemporaryPath.c_str(), Destination.c_str(),
+						MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+				{
+					bReplaced = true;
+					break;
+				}
+				ReplacementError = GetLastError();
+				if (ReplacementError != ERROR_SHARING_VIOLATION
+					&& ReplacementError != ERROR_ACCESS_DENIED) break;
+				if (Attempt < 16) std::this_thread::yield();
+				else std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			}
+			if (!bReplaced)
+			{
+				SetAtomicFileError(Error, EAtomicFileOperation::ReplaceDestination,
+					{static_cast<int>(ReplacementError), std::system_category()}, Destination);
+				std::filesystem::remove(TemporaryPath, ErrorCode);
+				return false;
+			}
+#else
+			const int TemporaryFile = open(TemporaryPath.c_str(), O_RDWR);
+			if (TemporaryFile == -1 || fsync(TemporaryFile) != 0)
+			{
+				const int NativeError = errno;
+				if (TemporaryFile != -1) close(TemporaryFile);
+				SetAtomicFileError(Error, EAtomicFileOperation::FlushTemporaryFile,
+					{NativeError, std::system_category()}, TemporaryPath);
+				std::filesystem::remove(TemporaryPath, ErrorCode);
+				return false;
+			}
+			if (close(TemporaryFile) != 0)
+			{
+				SetAtomicFileError(Error, EAtomicFileOperation::CloseTemporaryFile,
+					{errno, std::system_category()}, TemporaryPath);
+				std::filesystem::remove(TemporaryPath, ErrorCode);
+				return false;
+			}
+			std::filesystem::rename(TemporaryPath, Destination, ErrorCode);
+			if (ErrorCode)
+			{
+				SetAtomicFileError(Error, EAtomicFileOperation::ReplaceDestination,
+					ErrorCode, Destination);
+				std::filesystem::remove(TemporaryPath, ErrorCode);
+				return false;
+			}
+#endif
+			return true;
+		}
+
 	} // namespace FFileHelper
 } // namespace Durin

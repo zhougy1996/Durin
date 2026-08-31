@@ -95,5 +95,12 @@ namespace Durin
 			FAtomicFileError* OutError = nullptr
 		) -> bool;
 
+		// Publishes a bounded-memory copy through a sibling temporary file.
+		CORE_API auto CopyFileAtomically(
+			const std::filesystem::path& SourcePath,
+			const std::filesystem::path& DestinationPath,
+			FAtomicFileError* OutError = nullptr
+		) -> bool;
+
 	}
 }
