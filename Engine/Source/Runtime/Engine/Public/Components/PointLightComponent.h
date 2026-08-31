@@ -6,6 +6,8 @@
 
 namespace Durin
 {
+	struct FPointLightSceneData;
+
 	// Publishes a finite-radius omnidirectional light into the render scene.
 	DCLASS()
 	class DPointLightComponent : public DLightComponent

@@ -3,6 +3,7 @@
 #include "EngineAPI.h"
 #include "Materials/MaterialRenderProxy.h"
 #include "RHIResources.h"
+#include "SceneTypes.h"
 
 namespace Durin
 {
@@ -12,36 +13,6 @@ namespace Durin
 	class FVolumetricCloudSceneProxy;
 	struct FSkeletalPosePalette;
 	struct FSplineMeshRenderDynamicData;
-	template<typename TTag>
-	struct TSceneId
-	{
-		uint64 Value = 0;
-		explicit constexpr TSceneId(uint64 InValue = 0) : Value(InValue) {}
-		auto operator<=>(const TSceneId&) const = default;
-	};
-
-	struct FPrimitiveSceneIdTag;
-	struct FLightSceneIdTag;
-	struct FSkyBoxSceneIdTag;
-	struct FVolumetricCloudSceneIdTag;
-	using FPrimitiveSceneId = TSceneId<FPrimitiveSceneIdTag>;
-	using FLightSceneId = TSceneId<FLightSceneIdTag>;
-	using FSkyBoxSceneId = TSceneId<FSkyBoxSceneIdTag>;
-	using FVolumetricCloudSceneId = TSceneId<FVolumetricCloudSceneIdTag>;
-	inline constexpr FPrimitiveSceneId InvalidPrimitiveSceneId;
-	inline constexpr FLightSceneId InvalidLightSceneId;
-	inline constexpr FSkyBoxSceneId InvalidSkyBoxSceneId;
-	inline constexpr FVolumetricCloudSceneId InvalidVolumetricCloudSceneId;
-
-	struct FSceneIdHash
-	{
-		template<typename TTag>
-		auto operator()(TSceneId<TTag> Id) const -> size_t
-		{
-			return std::hash<uint64>{}(Id.Value);
-		}
-	};
-
 	// Captures the renderer-facing directional light state without retaining a component.
 	struct FDirectionalLightSceneData
 	{

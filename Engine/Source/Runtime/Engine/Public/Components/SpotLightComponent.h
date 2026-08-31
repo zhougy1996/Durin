@@ -6,6 +6,8 @@
 
 namespace Durin
 {
+	struct FSpotLightSceneData;
+
 	// Publishes a finite-radius conical light into the render scene.
 	DCLASS()
 	class DSpotLightComponent : public DLightComponent

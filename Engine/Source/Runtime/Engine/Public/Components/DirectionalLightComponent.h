@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Components/LightComponent.h"
-#include "IScene.h"
 
 #include "DirectionalLightComponent.gen.h"
 

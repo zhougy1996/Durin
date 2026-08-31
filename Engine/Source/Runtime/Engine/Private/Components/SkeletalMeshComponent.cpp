@@ -4,8 +4,9 @@
 #include "Components/ComponentMaterialOverride.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Engine/Level.h"
-#include "Rendering/SkeletalMeshSceneProxy.h"
+#include "IScene.h"
 #include "Materials/MaterialInterface.h"
+#include "Rendering/SkeletalMeshSceneProxy.h"
 #include "SkeletalMesh/SkeletalMeshResources.h"
 
 namespace Durin

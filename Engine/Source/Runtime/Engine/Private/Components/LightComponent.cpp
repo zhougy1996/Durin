@@ -1,8 +1,9 @@
 #include "Components/LightComponent.h"
 
 #include "Engine/Actor.h"
-#include "Rendering/LightSceneProxy.h"
+#include "IScene.h"
 #include "Math/Operations.h"
+#include "Rendering/LightSceneProxy.h"
 
 namespace Durin
 {

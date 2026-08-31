@@ -1,7 +1,7 @@
 #pragma once
 
 #include "Components/SceneComponent.h"
-#include "IScene.h"
+#include "SceneTypes.h"
 
 #ifdef _DHT_PARSER
 namespace Durin

@@ -3,8 +3,8 @@
 #include "EngineAPI.h"
 #include "DObject/WeakObjectPtr.h"
 #include "Engine/TickFunction.h"
-#include "IScene.h"
 #include "Math/Box.h"
+#include "SceneTypes.h"
 
 #include "Level.gen.h"
 

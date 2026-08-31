@@ -1,8 +1,8 @@
 #pragma once
 #include "Components/SceneComponent.h"
 #include "Rendering/PrimitiveSceneProxy.h"
-#include "IScene.h"
 #include "Physics/BodyInstance.h"
+#include "SceneTypes.h"
 
 #include "PrimitiveComponent.gen.h"
 
