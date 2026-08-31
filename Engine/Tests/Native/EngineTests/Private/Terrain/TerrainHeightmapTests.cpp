@@ -524,8 +524,8 @@ TEST(FTerrainHeightmapImportTests, RawImportReimportRelocationAndWarmDdcPreserve
 		std::vector<uint16>(Changed.begin(), Changed.end()));
 
 	const std::string Key = Imported.Asset->GetDerivedDataKey();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TerrainHeightmap/RawAsymmetric", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TerrainHeightmap/RawAsymmetric", Path));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Imported.Asset->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 	std::error_code ErrorCode;
@@ -628,8 +628,8 @@ TEST(FTerrainHeightmapImportTests, AuthoredReloadUsesWarmDdcWithoutReopeningSour
 			Source.generic_string(), "/TerrainHeightmap/WarmReload");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	const std::string Key = Imported.Asset->GetDerivedDataKey();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TerrainHeightmap/WarmReload", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TerrainHeightmap/WarmReload", Path));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 	std::error_code ErrorCode;
 	std::filesystem::remove(Source, ErrorCode);
@@ -675,8 +675,8 @@ TEST(FTerrainHeightmapImportTests, AsyncLoadHandlesWarmDdcCorruptionRecoveryAndM
 			Source.generic_string(), "/TerrainHeightmap/AsyncReload");
 	ASSERT_TRUE(Imported) << Imported.Message;
 	const std::string Key = Imported.Asset->GetDerivedDataKey();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TerrainHeightmap/AsyncReload", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TerrainHeightmap/AsyncReload", Path));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 
 	if (!Durin::GIsGameThreadIdInitialized)

@@ -13,9 +13,9 @@ namespace
 {
 	using namespace Durin::Asset;
 
-	auto MakeAssetData(const Durin::FAssetPath& Path,
-		std::vector<Durin::FAssetPath> Hard = {},
-		std::vector<Durin::FAssetPath> Soft = {}) -> FAssetData
+	auto MakeAssetData(const Durin::FPackagePath& Path,
+		std::vector<Durin::FPackagePath> Hard = {},
+		std::vector<Durin::FPackagePath> Soft = {}) -> FAssetData
 	{
 		return {.PackagePath = Path,
 			.AssetClassName = "Example::MetadataAsset",
@@ -38,16 +38,16 @@ namespace
 				.LastWriteTimeTicks = Data.LastWriteTimeTicks,
 				.ReaderVersion = Data.FormatVersion};
 			Publication.ReferenceFingerprints.emplace(Path, Fingerprint);
-			auto Add = [&](EAssetReferenceKind Kind, const Durin::FAssetPath& Target) {
+			auto Add = [&](EAssetReferenceKind Kind, const Durin::FPackagePath& Target) {
 				Publication.ReferenceEdges.push_back({.SourcePackage = Path,
 					.SourceFingerprint = Fingerprint, .Kind = Kind,
 					.TargetPath = Target});
 			};
-			for (const Durin::FAssetPath& Target : Data.Dependencies)
+			for (const Durin::FPackagePath& Target : Data.Dependencies)
 				if (Data.EntryKind != EAssetRegistryEntryKind::Redirector
 					|| Target != Data.RedirectDestination)
 					Add(EAssetReferenceKind::HardObject, Target);
-			for (const Durin::FAssetPath& Target : Data.SoftDependencies)
+			for (const Durin::FPackagePath& Target : Data.SoftDependencies)
 				Add(EAssetReferenceKind::SoftObject, Target);
 			if (Data.EntryKind == EAssetRegistryEntryKind::Redirector)
 				Add(EAssetReferenceKind::Redirect, Data.RedirectDestination);
@@ -70,8 +70,8 @@ namespace
 		Durin::Testing::FScopedMountRegistryFixture Mounts;
 		Durin::Testing::RegisterMountPointForTests(
 			"/MetadataTests/", "MetadataTests/");
-		Durin::FAssetPath Path;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MetadataTests/Textures/Brick", Path));
+		Durin::FPackagePath Path;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/MetadataTests/Textures/Brick", Path));
 
 		FAssetCatalogSnapshot Snapshot{
 			.Revision = 17,
@@ -110,8 +110,8 @@ namespace
 		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::Testing::FScopedMountRegistryFixture Mounts;
 		Durin::Testing::RegisterMountPointForTests("/MetadataTests/", "MetadataTests/");
-		Durin::FAssetPath Path;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MetadataTests/Published", Path));
+		Durin::FPackagePath Path;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/MetadataTests/Published", Path));
 
 		FAssetRegistryPublication First = CaptureAssetRegistryPublication();
 		const uint64 Revision = First.ExpectedRevision;
@@ -142,13 +142,13 @@ namespace
 		Durin::Testing::InitializeDObjectSystemForTests();
 		Durin::Testing::FScopedMountRegistryFixture Mounts;
 		Durin::Testing::RegisterMountPointForTests("/MetadataTests/", "MetadataTests/");
-		Durin::FAssetPath FirstPath, SecondPath;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MetadataTests/ConcurrentA", FirstPath));
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MetadataTests/ConcurrentB", SecondPath));
+		Durin::FPackagePath FirstPath, SecondPath;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/MetadataTests/ConcurrentA", FirstPath));
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/MetadataTests/ConcurrentB", SecondPath));
 		const FAssetRegistryPublication Base = CaptureAssetRegistryPublication();
 		const uint64 Revision = Base.ExpectedRevision;
 		std::atomic<uint32> Successes = 0;
-		auto Publish = [&](const Durin::FAssetPath& InAssetPathValue) {
+		auto Publish = [&](const Durin::FPackagePath& InAssetPathValue) {
 			FAssetRegistryPublication Publication = Base;
 			FAssetData Data = MakeAssetData(InAssetPathValue);
 			Publication.Assets.insert_or_assign(InAssetPathValue, std::move(Data));
@@ -177,12 +177,12 @@ namespace
 		Durin::Testing::FScopedMountRegistryFixture Mounts;
 		Durin::Testing::RegisterMountPointForTests(
 			"/MetadataTests/", "MetadataTests/");
-		Durin::FAssetPath Root, Dependency, Unrelated;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		Durin::FPackagePath Root, Dependency, Unrelated;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			"/MetadataTests/ClosureRoot", Root));
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			"/MetadataTests/ClosureDependency", Dependency));
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			"/MetadataTests/ClosureUnrelated", Unrelated));
 
 		FAssetRegistryPublication Publication = CaptureAssetRegistryPublication();
@@ -212,16 +212,16 @@ namespace
 		Durin::Testing::FScopedMountRegistryFixture Mounts;
 		Durin::Testing::RegisterMountPointForTests(
 			"/MetadataTests/", "MetadataTests/");
-		Durin::FAssetPath SourcePath, TargetPath, SoftPath;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		Durin::FPackagePath SourcePath, TargetPath, SoftPath;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			"/MetadataTests/ReferenceOwner", SourcePath));
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			"/MetadataTests/HardTarget", TargetPath));
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			"/MetadataTests/SoftTarget", SoftPath));
 
-		Durin::FAssetPath RedirectPath;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		Durin::FPackagePath RedirectPath;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			"/MetadataTests/Redirect", RedirectPath));
 		FAssetRegistryPublication Publication = CaptureAssetRegistryPublication();
 		Publication.Assets.insert_or_assign(SourcePath,
@@ -235,7 +235,7 @@ namespace
 		ASSERT_TRUE(PublishAssetRegistryPublication(std::move(Publication)));
 		const FAssetReferenceIndex Index = CaptureAssetReferenceIndex();
 		EXPECT_EQ(Index.FindTargets(SourcePath),
-			(std::vector<Durin::FAssetPath>{TargetPath, SoftPath}));
+			(std::vector<Durin::FPackagePath>{TargetPath, SoftPath}));
 		const auto Referencers = Index.FindReferencers(TargetPath);
 		ASSERT_EQ(Referencers.size(), 2u);
 		EXPECT_EQ(std::ranges::count(Referencers,

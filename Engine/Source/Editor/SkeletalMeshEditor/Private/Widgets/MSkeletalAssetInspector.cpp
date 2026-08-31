@@ -52,9 +52,9 @@ namespace Durin::Editor::SkeletalMesh
 		if (Document.ResourceId.empty() || Document.DocumentKey.empty())
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		if (FindState(Document.DocumentKey)) return ::Durin::Editor::EDocumentOpenResult::Opened;
-		FAssetPath AssetPath;
+		FPackagePath AssetPath;
 		std::string PathError;
-		if (!FAssetPath::TryCreate(Document.ResourceId, AssetPath, &PathError))
+		if (!FPackagePath::TryCreate(Document.ResourceId, AssetPath, &PathError))
 		{
 			ErrorMessage = std::move(PathError);
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;
@@ -140,8 +140,8 @@ namespace Durin::Editor::SkeletalMesh
 						if (ImGui::Selectable(State.PreviewPeerPaths[static_cast<size_t>(Index)].c_str(),
 							State.SelectedPreviewPeer == Index))
 						{
-							FAssetPath PeerPath; DObject* Peer = nullptr;
-							if (FAssetPath::TryCreate(State.PreviewPeerPaths[static_cast<size_t>(Index)], PeerPath)
+							FPackagePath PeerPath; DObject* Peer = nullptr;
+							if (FPackagePath::TryCreate(State.PreviewPeerPaths[static_cast<size_t>(Index)], PeerPath)
 								&& Asset::LoadAsset(PeerPath, Peer))
 							{
 								State.SelectedPreviewPeer = Index;

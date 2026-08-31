@@ -22,8 +22,8 @@ namespace
 	}
 
 	auto RelocateAssetForTest(
-		const Durin::FAssetPath& Source,
-		const Durin::FAssetPath& Destination) -> Durin::Asset::FAssetResult
+		const Durin::FPackagePath& Source,
+		const Durin::FPackagePath& Destination) -> Durin::Asset::FAssetResult
 	{
 		const Durin::Asset::FAssetRelocationMapping Mapping{Source, Destination};
 		Durin::Asset::FAssetMutationSummary Summary;
@@ -85,8 +85,8 @@ TEST(FStaticMeshMaterialTests, ImportedStaticMeshBuildsLODSectionsAndMaterialSlo
 	EXPECT_TRUE(LOD.LocalBounds.bIsValid);
 	EXPECT_TRUE(RenderData->LocalBounds.bIsValid);
 
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MeshImportTests/MultiSection", AssetPath));
+	Durin::FPackagePath AssetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/MeshImportTests/MultiSection", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 }
 
@@ -118,10 +118,10 @@ TEST(FStaticMeshMaterialTests, StaticMeshSourceProvenanceLivesOutsideContentAndS
 	EXPECT_FALSE(std::filesystem::exists(
 		Root / "Content/Models/Environment/Mesh.gltf"));
 
-	Durin::FAssetPath OldPath;
-	Durin::FAssetPath NewPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSourceProvenance/Environment/Mesh", OldPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSourceProvenance/Moved/Mesh", NewPath));
+	Durin::FPackagePath OldPath;
+	Durin::FPackagePath NewPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSourceProvenance/Environment/Mesh", OldPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSourceProvenance/Moved/Mesh", NewPath));
 	ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
 	EXPECT_TRUE(std::filesystem::is_regular_file(StoredSource));
 	ASSERT_NE(Import.Asset->GetAssetImportData(), nullptr);
@@ -143,10 +143,10 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotDefinitionsRoundTripWithDef
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	Durin::Testing::RegisterMountPointForTests("/StaticMeshSlotRoundTrip/", Root.generic_string() + "/");
 
-	Durin::FAssetPath MeshPath;
-	Durin::FAssetPath MaterialPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotRoundTrip/Mesh", MeshPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotRoundTrip/Default", MaterialPath));
+	Durin::FPackagePath MeshPath;
+	Durin::FPackagePath MaterialPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSlotRoundTrip/Mesh", MeshPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSlotRoundTrip/Default", MaterialPath));
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 	Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> Import = Durin::AssetForge::Builtins::ImportStaticMeshForTest(Source.generic_string(), MeshPath.ToString());
 	ASSERT_TRUE(Import) << Import.Message;
@@ -240,8 +240,8 @@ TEST(FStaticMeshMaterialTests, StaticMeshMaterialSlotReconciliationPreservesStab
 	Durin::DStaticMesh* Renamed = ImportBase("Renamed");
 	ASSERT_NE(Renamed, nullptr);
 	std::string RenameError;
-	Durin::FAssetPath PreservedDefaultPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath PreservedDefaultPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/StaticMeshSlotReimport/PreservedSlotDefault", PreservedDefaultPath));
 	Durin::DMaterial* PreservedDefault = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(PreservedDefaultPath, PreservedDefault));
@@ -296,12 +296,12 @@ TEST(FStaticMeshMaterialTests, FixedRowAssignmentRoundTripsByIndex)
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	Durin::Testing::RegisterMountPointForTests("/StaticMeshSlotEndToEnd/", Root.generic_string() + "/");
 
-	Durin::FAssetPath MeshPath;
-	Durin::FAssetPath MaterialPath;
-	Durin::FAssetPath ComponentPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotEndToEnd/Mesh", MeshPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotEndToEnd/RedOverride", MaterialPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotEndToEnd/Component", ComponentPath));
+	Durin::FPackagePath MeshPath;
+	Durin::FPackagePath MaterialPath;
+	Durin::FPackagePath ComponentPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSlotEndToEnd/Mesh", MeshPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSlotEndToEnd/RedOverride", MaterialPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSlotEndToEnd/Component", ComponentPath));
 	const std::filesystem::path BaseSource = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 	const std::filesystem::path MutableSource = Root / "Models/Mesh.gltf";
 	std::filesystem::create_directories(MutableSource.parent_path());
@@ -424,8 +424,8 @@ TEST(FStaticMeshMaterialTests, StaticMeshImportSettingsPersistAcrossSourceRebuil
 		ImportResult.Asset->GetRenderData()->LODResources[0]
 			.VertexBuffers.PositionVertexBuffer.GetPositions();
 
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MeshAxisImportTests/AsymmetricAxes", AssetPath));
+	Durin::FPackagePath AssetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/MeshAxisImportTests/AsymmetricAxes", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 
 	Durin::DStaticMesh* Loaded = nullptr;
@@ -457,14 +457,14 @@ TEST(FStaticMeshMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDep
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	Durin::Testing::RegisterMountPointForTests("/StaticMeshSlotOverrides/", Root.generic_string() + "/");
 
-	Durin::FAssetPath MeshPath;
-	Durin::FAssetPath FirstMaterialPath;
-	Durin::FAssetPath SecondMaterialPath;
-	Durin::FAssetPath ComponentPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotOverrides/Mesh", MeshPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotOverrides/First", FirstMaterialPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotOverrides/Second", SecondMaterialPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/StaticMeshSlotOverrides/Component", ComponentPath));
+	Durin::FPackagePath MeshPath;
+	Durin::FPackagePath FirstMaterialPath;
+	Durin::FPackagePath SecondMaterialPath;
+	Durin::FPackagePath ComponentPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSlotOverrides/Mesh", MeshPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSlotOverrides/First", FirstMaterialPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSlotOverrides/Second", SecondMaterialPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/StaticMeshSlotOverrides/Component", ComponentPath));
 
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 	Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> MeshImport = Durin::AssetForge::Builtins::ImportStaticMeshForTest(Source.generic_string(), MeshPath.ToString());
@@ -527,12 +527,12 @@ TEST(FStaticMeshMaterialTests, MaterialInstanceAssetsRoundTripParentAndOverrides
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	Durin::Testing::RegisterMountPointForTests("/MaterialTests/", Root.generic_string() + "/");
 
-	Durin::FAssetPath BasePath;
-	Durin::FAssetPath InstancePath;
-	Durin::FAssetPath TexturePath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MaterialTests/Base", BasePath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MaterialTests/Instance", InstancePath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/MaterialTests/BaseColorTexture", TexturePath));
+	Durin::FPackagePath BasePath;
+	Durin::FPackagePath InstancePath;
+	Durin::FPackagePath TexturePath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/MaterialTests/Base", BasePath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/MaterialTests/Instance", InstancePath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/MaterialTests/BaseColorTexture", TexturePath));
 
 	const std::filesystem::path TextureSource =
 		Durin::Testing::GetTestWorkDirectory() / "MaterialBaseColor.png";
@@ -622,8 +622,8 @@ TEST(FMaterialProgramPackageTests,
 	Durin::Testing::RegisterMountPointForTests(
 		"/MaterialProgramTests/", Root.generic_string() + "/");
 
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/MaterialProgramTests/Base", Path));
 	Durin::DMaterial* Material = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Material));
@@ -700,10 +700,10 @@ TEST(FStaticMeshMaterialTests, LegacyParameterMapsFailBeforeResidency)
 	Durin::Testing::RemoveTestWorkDirectory(Root);
 	Durin::Testing::RegisterMountPointForTests("/LegacyMaterialTests/", Root.generic_string() + "/");
 
-	Durin::FAssetPath BasePath;
-	Durin::FAssetPath InstancePath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/LegacyMaterialTests/Base", BasePath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/LegacyMaterialTests/Instance", InstancePath));
+	Durin::FPackagePath BasePath;
+	Durin::FPackagePath InstancePath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/LegacyMaterialTests/Base", BasePath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/LegacyMaterialTests/Instance", InstancePath));
 
 	Durin::DMaterial* Base = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(BasePath, Base));

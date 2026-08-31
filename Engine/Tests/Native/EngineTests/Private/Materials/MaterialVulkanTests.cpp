@@ -121,8 +121,8 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		.bContentWritable = true});
 	Durin::Testing::FScopedMountRegistryFixture MountRegistry(MountDefinitions);
 	ASSERT_TRUE(MountRegistry.IsValid()) << MountRegistry.GetError();
-	Durin::FAssetPath SpherePath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath SpherePath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Editor::FThumbnailVisualContract::SphereVirtualPath, SpherePath));
 	Durin::Editor::FRetainedAsset PreloadedSphere;
 	std::string Error;
@@ -169,12 +169,12 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 	Durin::DMaterialInstance* InheritedInstance = nullptr;
 	Durin::DTextureCube* CaptureCube = nullptr;
 	Durin::FRHITextureReferenceRef CaptureCubeReference;
-	Durin::FAssetPath CaptureTexturePath;
-	Durin::FAssetPath DataTexturePath;
-	Durin::FAssetPath NormalTexturePath;
-	Durin::FAssetPath CaptureCubePath;
-	Durin::FAssetPath StaticMeshFixturePath;
-	Durin::FAssetPath StaticMeshMaterialPath;
+	Durin::FPackagePath CaptureTexturePath;
+	Durin::FPackagePath DataTexturePath;
+	Durin::FPackagePath NormalTexturePath;
+	Durin::FPackagePath CaptureCubePath;
+	Durin::FPackagePath StaticMeshFixturePath;
+	Durin::FPackagePath StaticMeshMaterialPath;
 	Durin::DStaticMesh* LowRoughnessMesh =
 		Durin::DStaticMesh::CreateDebugTriangle();
 	Durin::DMaterial* LowRoughnessMaterial =
@@ -274,7 +274,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		ASSERT_TRUE(CaptureInstance->SetScalarParameterValue(
 			Durin::MaterialParameters::RoughnessName(), 0.8f));
 		ASSERT_TRUE(InheritedInstance->SetParent(CaptureMaterial));
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Preview", CaptureTexturePath));
 		const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> TextureResult =
 			Durin::AssetForge::Builtins::ImportTexture2DForTest(
@@ -286,7 +286,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			TextureResult.Asset->GetPlatformData()->PixelFormat,
 			Durin::EPixelFormat::BC3_UNORM_SRGB);
 		EXPECT_GT(TextureResult.Asset->GetPlatformData()->Mips.size(), 1u);
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Data", DataTexturePath));
 		const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> DataTextureResult =
 			Durin::AssetForge::Builtins::ImportTexture2DForTest(
@@ -303,7 +303,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 			DataTextureResult.Asset->GetPlatformData()->PixelFormat,
 			Durin::EPixelFormat::BC7_UNORM);
 		EXPECT_GT(DataTextureResult.Asset->GetPlatformData()->Mips.size(), 1u);
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			"/MaterialThumbnailVulkan/T_Normal", NormalTexturePath));
 		const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> NormalTextureResult =
 			Durin::AssetForge::Builtins::ImportTexture2DForTest(
@@ -366,7 +366,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		const std::vector<std::byte> InheritedAfterPixels =
 			Capture(InheritedInstance);
 
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			"/MaterialThumbnailVulkan/SM_ThumbnailPreview", StaticMeshFixturePath));
 		Durin::DStaticMesh* StaticMeshFixture = nullptr;
 		ASSERT_TRUE(Durin::Asset::CreateAsset(
@@ -450,7 +450,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		EXPECT_GT(GeometryPixels, 64u);
 		EXPECT_LT(GeometryPixels, 64u * 64u);
 
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			"/MaterialThumbnailVulkan/M_StaticMeshThumbnail",
 			StaticMeshMaterialPath));
 		Durin::DMaterial* StaticMeshAssetMaterial = nullptr;
@@ -842,7 +842,7 @@ TEST(FMaterialVulkanTests, ThumbnailPreviewSceneCapturesResolvedMaterialDifferen
 		ASSERT_TRUE(ReloadResult.bSuccess) << ReloadResult.Message;
 		const std::vector<std::byte> ReloadedPixels =
 			Capture(CaptureMaterial);
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			"/MaterialThumbnailVulkan/TC_Preview", CaptureCubePath));
 		const Durin::Testing::TFactoryImportResult<Durin::DTextureCube> CubeResult =
 			Durin::AssetForge::Builtins::ImportTextureCubeFacesForTest(

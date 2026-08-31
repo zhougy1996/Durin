@@ -36,7 +36,7 @@ namespace Durin::AssetForge::Builtins
 		struct FPreparedSceneOutput
 		{
 			const FSceneOutputData* Descriptor = nullptr;
-			FAssetPath AssetPath;
+			FPackagePath AssetPath;
 			FStaticMeshBuildProduct StaticMesh;
 			FSceneTextureBuildProduct Texture;
 			Asset::FSkeletalMeshBuildProduct SkeletalMesh;
@@ -135,7 +135,7 @@ namespace Durin::AssetForge::Builtins
 
 		auto Abandon(std::vector<FPreparedSceneOutput>& Outputs) -> void
 		{
-			std::vector<FAssetPath> Paths;
+			std::vector<FPackagePath> Paths;
 			for (FPreparedSceneOutput& Output : Outputs)
 			{
 				if (Output.Package) Paths.push_back(Output.AssetPath);
@@ -218,7 +218,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto ImportSceneAssets(
 		std::string_view SourceFile,
-		const FAssetPath& DestinationDirectory,
+		const FPackagePath& DestinationDirectory,
 		const FStaticMeshImportSettings& Settings,
 		FSceneImportResult& OutResult,
 		const std::function<bool()>& IsCancellationRequested) -> bool
@@ -500,11 +500,11 @@ namespace Durin::AssetForge::Builtins
 			if (Descriptor.Kind == ESceneOutputKind::MaterialInstance)
 			{
 				DMaterial* Standard = nullptr;
-				FAssetPath StandardPath;
+				FPackagePath StandardPath;
 				const auto Imported = std::ranges::find(Data.Scene.Materials,
 					Descriptor.SourceIndex, &FImportedMaterial::SourceMaterialIndex);
 				if (Imported == Data.Scene.Materials.end()
-					|| !FAssetPath::TryCreate(ImportedSurfaceMaterialPath, StandardPath, &Error)
+					|| !FPackagePath::TryCreate(ImportedSurfaceMaterialPath, StandardPath, &Error)
 					|| !Asset::LoadAsset(StandardPath, Standard) || !Standard)
 				{
 					Abandon(Prepared);

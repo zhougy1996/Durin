@@ -361,10 +361,10 @@ TEST(FVolumeTextureSourceImportTests, ImportsReimportsRepairsAndDisplaysDirectSo
 	const Durin::Testing::TFactoryImportResult<Durin::DVolumeTexture> Detail = ImportVolumeTextureForTest(
 		MovedAtlas.generic_string(), "/TextureImportTests/ImportedDetailVolume", Settings);
 	ASSERT_TRUE(Detail) << Detail.Message;
-	FAssetPath BaseAssetPath;
-	FAssetPath DetailAssetPath;
-	ASSERT_TRUE(FAssetPath::TryCreate("/TextureImportTests/ImportedVolume", BaseAssetPath));
-	ASSERT_TRUE(FAssetPath::TryCreate("/TextureImportTests/ImportedDetailVolume", DetailAssetPath));
+	FPackagePath BaseAssetPath;
+	FPackagePath DetailAssetPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TextureImportTests/ImportedVolume", BaseAssetPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TextureImportTests/ImportedDetailVolume", DetailAssetPath));
 	ASSERT_EQ(Asset::FindAssetExact(BaseAssetPath)->FormatVersion,
 		Asset::AssetPackageV9FormatVersion);
 	const Asset::FAssetCatalogEntry InlineEntry = Asset::FindAssetExact(DetailAssetPath);
@@ -441,8 +441,8 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	const std::vector<std::byte> V6SourceBytes(
 		Imported.Asset->GetSourceData().GetVoxelBytes().begin(),
 		Imported.Asset->GetSourceData().GetVoxelBytes().end());
-	FAssetPath AssetPath;
-	ASSERT_TRUE(FAssetPath::TryCreate("/TextureImportTests/ProductionVolume", AssetPath));
+	FPackagePath AssetPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TextureImportTests/ProductionVolume", AssetPath));
 	const Asset::FAssetCatalogEntry PackageEntry = Asset::FindAssetExact(AssetPath);
 	ASSERT_TRUE(PackageEntry);
 	ASSERT_EQ(PackageEntry->FormatVersion, Asset::AssetPackageV9FormatVersion);

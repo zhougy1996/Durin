@@ -37,7 +37,7 @@ namespace Durin::Editor::StaticMesh
 			return false;
 		}
 
-		auto QualifyDiagnostic(const FAssetPath& AssetPath, std::string_view Detail)
+		auto QualifyDiagnostic(const FPackagePath& AssetPath, std::string_view Detail)
 			-> std::string
 		{
 			return std::format(

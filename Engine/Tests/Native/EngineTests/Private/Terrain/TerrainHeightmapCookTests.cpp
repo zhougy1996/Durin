@@ -56,8 +56,8 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 		*Imported.Asset, "/Game/Height", Cook, Error)) << Error;
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/Height", AssetPath));
+	Durin::FPackagePath AssetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/Height", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	Durin::Asset::ShutdownAssetManager();
 	Durin::CollectGarbage();

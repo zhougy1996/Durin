@@ -162,16 +162,16 @@ namespace Durin::AssetForge::Builtins
 		}
 
 		auto MakeSceneOutputPath(
-			const FAssetPath& DestinationDirectory,
+			const FPackagePath& DestinationDirectory,
 			std::string_view DirectoryName,
 			std::string_view Leaf,
-			FAssetPath& OutPath,
+			FPackagePath& OutPath,
 			std::string& OutError) -> bool
 		{
 			std::filesystem::path OutputPath(DestinationDirectory.ToString());
 			if (!DirectoryName.empty()) OutputPath /= DirectoryName;
 			OutputPath /= Leaf;
-			return FAssetPath::TryCreate(
+			return FPackagePath::TryCreate(
 				OutputPath.generic_string(), OutPath, &OutError);
 		}
 
@@ -299,7 +299,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto BuildScenePlan(
 		const FSourceSnapshot& Snapshot,
-		const FAssetPath& DestinationDirectory,
+		const FPackagePath& DestinationDirectory,
 		const FStaticMeshImportSettings& Settings,
 		FSceneImportPlan& OutPlan,
 		std::vector<FImportOutputSummary>& OutOutputs,
@@ -350,7 +350,7 @@ namespace Durin::AssetForge::Builtins
 			if (CheckCanceled()) return false;
 			const FImportedSkeletonData& Skeleton =
 				OutPlan.Scene.Skeletons[SkeletonIndex];
-			FAssetPath SkeletonPath;
+			FPackagePath SkeletonPath;
 			if (!MakeSceneOutputPath(DestinationDirectory, "Skeletons",
 				MakeUniqueName(Skeleton.SuggestedName,
 					std::format("Skeleton_{}", SkeletonIndex), SkeletonNames),
@@ -365,7 +365,7 @@ namespace Durin::AssetForge::Builtins
 				.Kind = ESceneOutputKind::Skeleton,
 				.SourceIndex = SkeletonIndex});
 		}
-		FAssetPath MeshPath;
+		FPackagePath MeshPath;
 		if (!MakeSceneOutputPath(DestinationDirectory, "Meshes",
 			SceneName, MeshPath, Error)) return false;
 			OutOutputs.push_back({
@@ -405,7 +405,7 @@ namespace Durin::AssetForge::Builtins
 				: std::format("index:{}", MaterialIndex);
 			const std::string MaterialIdentity =
 				std::string("scene:material:") + StableSuffix(MaterialKey);
-			FAssetPath MaterialPath;
+			FPackagePath MaterialPath;
 			if (!MakeSceneOutputPath(DestinationDirectory, "Materials",
 				MakeUniqueName(Material->SourceName, "Material", MaterialNames),
 				MaterialPath, Error)) return false;
@@ -431,7 +431,7 @@ namespace Durin::AssetForge::Builtins
 				{
 					const std::string TextureIdentity =
 						std::string("scene:texture:") + StableSuffix(TextureKey);
-					FAssetPath TexturePath;
+					FPackagePath TexturePath;
 					if (!MakeSceneOutputPath(DestinationDirectory, "Textures",
 						MakeUniqueName(Image.SuggestedName + "_" + std::string(Role),
 							"Image_" + std::string(Role), TextureNames), TexturePath, Error)) return false;
@@ -512,7 +512,7 @@ namespace Durin::AssetForge::Builtins
 				return false;
 			const FImportedSkeletonData& Skeleton =
 				OutPlan.Scene.Skeletons[Mesh.SkeletonIndex];
-			FAssetPath MeshPath;
+			FPackagePath MeshPath;
 			if (!MakeSceneOutputPath(DestinationDirectory, "SkeletalMeshes",
 				MakeUniqueName(Mesh.SuggestedName,
 					std::format("SkeletalMesh_{}", MeshIndex), SkeletalMeshNames),
@@ -540,7 +540,7 @@ namespace Durin::AssetForge::Builtins
 				return false;
 			const FImportedSkeletonData& Skeleton =
 				OutPlan.Scene.Skeletons[Clip.SkeletonIndex];
-			FAssetPath ClipPath;
+			FPackagePath ClipPath;
 			if (!MakeSceneOutputPath(DestinationDirectory, "Animations",
 				MakeUniqueName(Clip.SuggestedName,
 					std::format("Animation_{}", ClipIndex), AnimationNames),

@@ -33,7 +33,7 @@ namespace Durin::AssetForge::Builtins
 
 	ASSETFORGEBUILTINS_API auto ImportSceneAssets(
 		std::string_view SourceFile,
-		const FAssetPath& DestinationDirectory,
+		const FPackagePath& DestinationDirectory,
 		const FStaticMeshImportSettings& Settings,
 		FSceneImportResult& OutResult,
 		const std::function<bool()>& IsCancellationRequested = {}) -> bool;

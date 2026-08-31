@@ -139,8 +139,8 @@ TEST(FTextureCookTests, ColdCookRebuildsFromAuthoredPixelsWithoutSourceOrDdc)
 	FScopedDerivedDataCacheRoot ScopedCache(CacheRoot);
 	const std::filesystem::path Source = Root / "ColdCook.tga";
 	WriteNpotTextureFixture(Source);
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath AssetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TextureColdCookTests/Texture", AssetPath));
 	const Durin::Testing::TFactoryImportResult<Durin::DTexture2D> Imported =
 		Durin::AssetForge::Builtins::ImportTexture2DForTest(
@@ -312,8 +312,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 			CommandList.SwitchPipeline(Durin::ERHIPipeline::Graphics);
 			Durin::GDynamicRHI->RHIBeginFrame_RenderThread(CommandList);
 		});
-	Durin::FAssetPath CookedPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedTexture", CookedPath));
+	Durin::FPackagePath CookedPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedTexture", CookedPath));
 	Durin::DTexture2D* CookedTexture = nullptr;
 	const Durin::Asset::FAssetResult LoadResult =
 		Durin::Asset::LoadAsset(CookedPath, CookedTexture);
@@ -498,8 +498,8 @@ TEST(FTextureCookTests, CookedPackageIsDeterministicAndLoadsWithoutSourceOrDdc)
 			"/Game/", (FailureRoot / "Game").generic_string() + "/");
 		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));
-		Durin::FAssetPath Path;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedTexture", Path));
+		Durin::FPackagePath Path;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedTexture", Path));
 		Durin::DTexture2D* Texture = nullptr;
 		const Durin::Asset::FAssetResult Result = Durin::Asset::LoadAsset(Path, Texture);
 		EXPECT_FALSE(Result);

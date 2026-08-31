@@ -80,8 +80,8 @@ auto main(int ArgumentCount, char** Arguments) -> int
 		return 1;
 	}
 
-	Durin::FAssetPath AssetPath;
-	if (!Durin::FAssetPath::TryCreate(DefaultAssetPath, AssetPath, &Error))
+	Durin::FPackagePath AssetPath;
+	if (!Durin::FPackagePath::TryCreate(DefaultAssetPath, AssetPath, &Error))
 	{
 		std::cerr << "Invalid built-in asset path: " << Error << '\n';
 		return 1;

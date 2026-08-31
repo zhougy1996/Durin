@@ -25,7 +25,7 @@ namespace Durin::Editor::ContentBrowser
 					Asset::EAssetError::IoError, Result.Message};
 		};
 		auto FixUpRedirectors = [FixUp = std::move(Services.FixUpRedirectors)](
-			std::span<const FAssetPath> Redirectors) {
+			std::span<const FPackagePath> Redirectors) {
 			if (!FixUp)
 				return Asset::FAssetResult{
 					Asset::EAssetError::ShuttingDown,

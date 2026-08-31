@@ -145,7 +145,7 @@ namespace Durin::Editor::Level
 			SetError(DestinationValidation.Message);
 			return false;
 		}
-		const FAssetPath& AssetPath = DestinationValidation.AssetPath;
+		const FPackagePath& AssetPath = DestinationValidation.AssetPath;
 		auto* Factory = NewObject<AssetForge::Builtins::DTerrainHeightmapFactory>(
 			nullptr, "TerrainHeightmapDialogFactory", EObjectFlags::Transient);
 		const FAssetToolsResult Result = IAssetTools::Get().ImportAsset(

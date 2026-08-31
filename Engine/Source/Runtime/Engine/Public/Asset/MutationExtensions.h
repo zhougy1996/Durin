@@ -16,7 +16,7 @@ namespace Durin::Asset
 	{
 		std::string ProviderId;
 		std::string StableId;
-		FAssetPath TargetPath;
+		FPackagePath TargetPath;
 		std::string DisplayRoute;
 		std::string ExpectedClass;
 		bool bCookRoot = false;
@@ -27,8 +27,8 @@ namespace Durin::Asset
 	struct FAssetReferenceRewrite
 	{
 		std::string StableId;
-		FAssetPath SourcePath;
-		FAssetPath DestinationPath;
+		FPackagePath SourcePath;
+		FPackagePath DestinationPath;
 
 		auto operator==(const FAssetReferenceRewrite&) const -> bool = default;
 	};
@@ -43,7 +43,7 @@ namespace Durin::Asset
 
 	struct FAssetReferenceStorePackageRewrite
 	{
-		FAssetPath PackagePath;
+		FPackagePath PackagePath;
 		std::vector<std::byte> PreBytes;
 		std::vector<std::byte> PostBytes;
 	};
@@ -90,8 +90,8 @@ namespace Durin::Asset
 
 	using FAssetOwnedPayloadRelocator = std::function<FAssetResult(
 		DObject*,
-		const FAssetPath&,
-		const FAssetPath&,
+		const FPackagePath&,
+		const FPackagePath&,
 		FAssetOwnedPayloadRelocation&
 	)>;
 	using FAssetOwnedPayloadRelocatorHandle = uint64;

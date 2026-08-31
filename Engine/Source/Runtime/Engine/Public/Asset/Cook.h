@@ -109,7 +109,7 @@ namespace Durin::Asset
 	struct FCookSavePlan
 	{
 		std::string VirtualPath;
-		FAssetPath SourcePackagePath;
+		FPackagePath SourcePackagePath;
 		std::vector<std::byte> PackageBytes;
 		std::vector<std::byte> BulkBytes;
 		FPackageBulkSegmentSummary BulkSummary;
@@ -134,8 +134,8 @@ namespace Durin::Asset
 
 	struct FCookPackageResult
 	{
-		FAssetPath RequestedRoot;
-		FAssetPath PackagePath;
+		FPackagePath RequestedRoot;
+		FPackagePath PackagePath;
 		std::string Contributor;
 		std::string Code;
 		std::string Diagnostic;
@@ -148,7 +148,7 @@ namespace Durin::Asset
 	struct FCookProgress
 	{
 		ECookOperationStage Stage = ECookOperationStage::Discovery;
-		FAssetPath PackagePath;
+		FPackagePath PackagePath;
 		uint64 CompletedPackages = 0;
 		uint64 TotalPackages = 0;
 	};
@@ -161,7 +161,7 @@ namespace Durin::Asset
 		std::filesystem::path OutputRoot;
 		ECookTargetPlatform TargetPlatform = ECookTargetPlatform::Invalid;
 		ECookTargetProfile TargetProfile = ECookTargetProfile::Invalid;
-		std::vector<FAssetPath> ExplicitRoots;
+		std::vector<FPackagePath> ExplicitRoots;
 		ECookIncrementalPolicy IncrementalPolicy = ECookIncrementalPolicy::Enabled;
 		bool bRetainEditorOnlyData = false;
 		bool bDryRun = false;
@@ -258,7 +258,7 @@ namespace Durin::Asset
 		) -> bool;
 		ENGINE_API auto AddPackage(
 			std::string VirtualPackagePath,
-			const FAssetPath& SourcePackagePath,
+			const FPackagePath& SourcePackagePath,
 			std::vector<std::byte> PackageBytes,
 			std::string* OutError = nullptr
 		) -> bool;

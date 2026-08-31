@@ -122,14 +122,14 @@ TEST(FLevelAssetTests, ReconstructsIsolatedStaticMeshLevelAndDependencies)
 	Durin::Testing::FScopedMountRegistryFixture MountRegistry(MountDefinitions);
 	ASSERT_TRUE(MountRegistry.IsValid()) << MountRegistry.GetError();
 
-	Durin::FAssetPath MeshPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Engine/Models/Box", MeshPath));
+	Durin::FPackagePath MeshPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Models/Box", MeshPath));
 	Durin::DStaticMesh* Mesh = nullptr;
 	const Durin::Asset::FAssetResult MeshLoad = Durin::Asset::LoadAsset(MeshPath, Mesh);
 	ASSERT_TRUE(MeshLoad) << MeshLoad.Message;
 
-	Durin::FAssetPath LevelPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath LevelPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/LevelReconstruction/Reconstruction", LevelPath));
 	Durin::DLevel* Level = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(LevelPath, Level));

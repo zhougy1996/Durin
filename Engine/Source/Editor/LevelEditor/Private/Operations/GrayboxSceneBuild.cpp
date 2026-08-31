@@ -108,7 +108,7 @@ namespace Durin::Editor::Level
 			return true;
 		}
 
-		auto CleanupCandidate(const FAssetPath& Path) -> bool
+		auto CleanupCandidate(const FPackagePath& Path) -> bool
 		{
 			if (DPackage* Resident = Asset::FindResidentPackage(Path))
 				(void)Asset::UnloadPackage(
@@ -294,8 +294,8 @@ namespace Durin::Editor::Level
 			return 2;
 		}
 		const FProjectInfo* Project = GetCurrentProject();
-		FAssetPath OutputPath;
-		if (!Project || !FAssetPath::TryCreate(OutputText, OutputPath)
+		FPackagePath OutputPath;
+		if (!Project || !FPackagePath::TryCreate(OutputText, OutputPath)
 			|| !OutputPath.ToString().starts_with(Project->MountRoot))
 		{
 			DURIN_ERROR("graybox-build: output must be a valid path in the current project mount.");
@@ -308,8 +308,8 @@ namespace Durin::Editor::Level
 			return 3;
 		}
 
-		FAssetPath BoxPath;
-		check(FAssetPath::TryCreate(BoxAssetPath, BoxPath));
+		FPackagePath BoxPath;
+		check(FPackagePath::TryCreate(BoxAssetPath, BoxPath));
 		DStaticMesh* Box = nullptr;
 		const Asset::FAssetResult BoxResult = Asset::LoadAsset(BoxPath, Box);
 		if (!BoxResult || !Box)
@@ -326,7 +326,7 @@ namespace Durin::Editor::Level
 			return 4;
 		}
 
-		FAssetPath CandidatePath;
+		FPackagePath CandidatePath;
 		const size_t Slash = OutputText.find_last_of('/');
 		const std::string Directory = OutputText.substr(0, Slash + 1);
 		bool bCandidatePathFound = false;
@@ -335,7 +335,7 @@ namespace Durin::Editor::Level
 			const std::string Text = std::format(
 				"{}__GrayboxBuildCandidate_{}_{}", Directory,
 				FPlatformProcess::CurrentProcessId(), Attempt);
-			if (FAssetPath::TryCreate(Text, CandidatePath)
+			if (FPackagePath::TryCreate(Text, CandidatePath)
 				&& !Asset::FindAssetExact(CandidatePath)
 				&& !Asset::FindResidentPackage(CandidatePath))
 			{

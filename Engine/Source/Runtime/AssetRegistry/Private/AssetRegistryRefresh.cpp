@@ -45,7 +45,7 @@ namespace Durin::Asset
 		const std::vector<std::string> MountManifest = Private::GetMountManifest();
 
 		std::vector<FAssetPackageReferenceEdge> ReferenceEdges;
-		std::unordered_map<FAssetPath, FAssetPackageFingerprint> Fingerprints;
+		std::unordered_map<FPackagePath, FAssetPackageFingerprint> Fingerprints;
 
 		std::vector<const FAssetData*> SortedAssets;
 		SortedAssets.reserve(Candidate.Assets.size());
@@ -63,16 +63,16 @@ namespace Durin::Asset
 				.LastWriteTimeTicks = Data->LastWriteTimeTicks,
 				.ReaderVersion = Data->FormatVersion};
 			Fingerprints.emplace(Data->PackagePath, Fingerprint);
-			auto Add = [&](EAssetReferenceKind Kind, const FAssetPath& Target)
+			auto Add = [&](EAssetReferenceKind Kind, const FPackagePath& Target)
 			{
 				ReferenceEdges.push_back({.SourcePackage = Data->PackagePath,
 					.SourceFingerprint = Fingerprint, .Kind = Kind, .TargetPath = Target});
 			};
-			for (const FAssetPath& Dependency : Data->Dependencies)
+			for (const FPackagePath& Dependency : Data->Dependencies)
 				if (Data->EntryKind != EAssetRegistryEntryKind::Redirector
 					|| Dependency != Data->RedirectDestination)
 					Add(EAssetReferenceKind::HardObject, Dependency);
-			for (const FAssetPath& Dependency : Data->SoftDependencies)
+			for (const FPackagePath& Dependency : Data->SoftDependencies)
 				Add(EAssetReferenceKind::SoftObject, Dependency);
 			if (Data->EntryKind == EAssetRegistryEntryKind::Redirector)
 				Add(EAssetReferenceKind::Redirect, Data->RedirectDestination);

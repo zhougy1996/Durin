@@ -353,8 +353,8 @@ namespace
 		);
 		static uint64 NextPackageId = 1;
 		const std::string Name = "Package" + std::to_string(NextPackageId++);
-		Durin::FAssetPath Path;
-		EXPECT_TRUE(Durin::FAssetPath::TryCreate("/ReflectedRevisionTests/" + Name, Path));
+		Durin::FPackagePath Path;
+		EXPECT_TRUE(Durin::FPackagePath::TryCreate("/ReflectedRevisionTests/" + Name, Path));
 		Durin::DPackage* Package = Durin::NewObject<Durin::DPackage>(nullptr, Durin::FName(Name));
 		Package->InitializeAssetPackage(Path);
 		return Package;

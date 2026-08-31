@@ -21,7 +21,7 @@ namespace Durin::Editor::SkeletalMesh
 				.LastWriteTimeTicks = Data.LastWriteTimeTicks};
 		}
 
-		auto Qualify(const FAssetPath& Path, std::string_view Detail) -> std::string
+		auto Qualify(const FPackagePath& Path, std::string_view Detail) -> std::string
 		{
 			return std::format("SkeletalMesh '{}' thumbnail generation failed: {}",
 				Path.ToString(), Detail.empty() ? "unknown preview error" : Detail);

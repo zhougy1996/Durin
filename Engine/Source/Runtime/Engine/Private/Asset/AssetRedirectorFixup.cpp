@@ -103,7 +103,7 @@ namespace Durin::Asset
 	{
 		struct FFixupPackageState
 		{
-			FAssetPath SourcePath;
+			FPackagePath SourcePath;
 			size_t JournalEntry = 0;
 			DPackage* LoadedPackage = nullptr;
 		};
@@ -111,8 +111,8 @@ namespace Durin::Asset
 		struct FFixupLiveSoftReference
 		{
 			FSoftObjectPtr* Value = nullptr;
-			FAssetPath PrePath;
-			FAssetPath PostPath;
+			FPackagePath PrePath;
+			FPackagePath PostPath;
 		};
 
 		struct FFixupStoreState
@@ -127,9 +127,9 @@ namespace Durin::Asset
 		};
 
 		auto FindFixupDestination(
-			const FAssetPath& Source,
+			const FPackagePath& Source,
 			std::span<const FAssetRedirectorFixupMapping> Mappings)
-			-> const FAssetPath*
+			-> const FPackagePath*
 		{
 			const auto It = std::ranges::find(
 				Mappings,
@@ -144,19 +144,19 @@ namespace Durin::Asset
 		EAssetRedirectorFixupMode Mode = EAssetRedirectorFixupMode::RewriteAndDelete;
 		uint64 ExpectedRegistryRevision = 0;
 		uint64 ExpectedStoreRevision = 0;
-		std::vector<FAssetPath> Redirectors;
+		std::vector<FPackagePath> Redirectors;
 		std::vector<FAssetRedirectorFixupMapping> Mappings;
 		std::vector<FAssetReferenceEdge> PackageOccurrences;
 		std::vector<FAssetReferenceStoreOccurrence> StoreOccurrences;
-		std::vector<FAssetPath> DeletableRedirectors;
+		std::vector<FPackagePath> DeletableRedirectors;
 		std::vector<FFixupPackageState> Packages;
 		std::vector<FFixupLiveSoftReference> LiveSoftReferences;
 		std::vector<FFixupStoreState> Stores;
 		FAssetMutationJournal Journal;
-		std::unordered_map<FAssetPath, FAssetData> ExpectedAssets;
-		std::unordered_map<FAssetPath, FAssetData> PostAssets;
+		std::unordered_map<FPackagePath, FAssetData> ExpectedAssets;
+		std::unordered_map<FPackagePath, FAssetData> PostAssets;
 		std::vector<FAssetReferenceEdge> PostEdges;
-		std::unordered_map<FAssetPath, FAssetPackageFingerprint> PostFingerprints;
+		std::unordered_map<FPackagePath, FAssetPackageFingerprint> PostFingerprints;
 		std::vector<FAssetResult> PostErrors;
 		bool bPostIndexComplete = false;
 	};
@@ -173,7 +173,7 @@ namespace Durin::Asset
 	}
 
 	auto FAssetRedirectorFixupSummary::GetRedirectors() const
-		-> std::span<const FAssetPath>
+		-> std::span<const FPackagePath>
 	{
 		return Redirectors;
 	}
@@ -197,13 +197,13 @@ namespace Durin::Asset
 	}
 
 	auto FAssetRedirectorFixupSummary::GetDeletableRedirectors() const
-		-> std::span<const FAssetPath>
+		-> std::span<const FPackagePath>
 	{
 		return DeletableRedirectors;
 	}
 
 	auto FAssetMutationCoordinator::PrepareRedirectorFixupState(
-		std::span<const FAssetPath> Redirectors,
+		std::span<const FPackagePath> Redirectors,
 		EAssetRedirectorFixupMode Mode,
 		std::shared_ptr<FAssetRedirectorFixupState>& OutState) -> FAssetResult
 	{
@@ -225,7 +225,7 @@ namespace Durin::Asset
 
 		auto State = std::make_shared<FAssetRedirectorFixupState>();
 		const FAssetPublicationState Prepared = Registry.CapturePreparedState();
-		const auto FindPrepared = [&](const FAssetPath& Path) -> const FAssetData* {
+		const auto FindPrepared = [&](const FPackagePath& Path) -> const FAssetData* {
 			const auto It = Prepared.Assets.find(Path);
 			return It == Prepared.Assets.end() ? nullptr : &It->second;
 		};
@@ -239,11 +239,11 @@ namespace Durin::Asset
 		InitializeMutationJournal(
 			State->Journal, EAssetMutationOperationKind::RedirectorFixup);
 
-		std::unordered_set<FAssetPath> Closure;
-		std::vector<FAssetPath> Pending(Redirectors.begin(), Redirectors.end());
+		std::unordered_set<FPackagePath> Closure;
+		std::vector<FPackagePath> Pending(Redirectors.begin(), Redirectors.end());
 		while (!Pending.empty())
 		{
-			FAssetPath Alias = std::move(Pending.back());
+			FPackagePath Alias = std::move(Pending.back());
 			Pending.pop_back();
 			if (!Alias.IsValid())
 				return Error(EAssetError::InvalidPath,
@@ -263,15 +263,15 @@ namespace Durin::Asset
 				&& FindResidentPackage(Alias))
 				return Error(EAssetError::InUse,
 					"A loaded redirector must be unloaded before Fix Up deletion.");
-			for (FAssetPath Upstream : Durin::Asset::FindRedirectorsTo(Alias))
+			for (FPackagePath Upstream : Durin::Asset::FindRedirectorsTo(Alias))
 				Pending.push_back(std::move(Upstream));
 		}
 		State->Redirectors.assign(Closure.begin(), Closure.end());
 		std::ranges::sort(State->Redirectors,
-			[](const FAssetPath& Left, const FAssetPath& Right) {
+			[](const FPackagePath& Left, const FPackagePath& Right) {
 				return Left.GetView() < Right.GetView();
 			});
-		for (const FAssetPath& Alias : State->Redirectors)
+		for (const FPackagePath& Alias : State->Redirectors)
 		{
 			const FAssetPathResolveResult Resolution = Durin::Asset::ResolveAssetPath(Alias);
 			if (!Resolution)
@@ -283,14 +283,14 @@ namespace Durin::Asset
 		if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete)
 			State->DeletableRedirectors = State->Redirectors;
 
-		std::map<FAssetPath, uint64, decltype([](const FAssetPath& Left,
-			const FAssetPath& Right) { return Left.GetView() < Right.GetView(); })>
+		std::map<FPackagePath, uint64, decltype([](const FPackagePath& Left,
+			const FPackagePath& Right) { return Left.GetView() < Right.GetView(); })>
 			PackageRewriteCounts;
-		std::unordered_set<FAssetPath> CandidatePackages;
+		std::unordered_set<FPackagePath> CandidatePackages;
 		for (const FAssetPackageReferenceEdge& Edge : Prepared.ReferenceEdges)
 			if (Closure.contains(Edge.TargetPath))
 				CandidatePackages.insert(Edge.SourcePackage);
-		for (const FAssetPath& SourcePath : CandidatePackages)
+		for (const FPackagePath& SourcePath : CandidatePackages)
 		{
 			const FAssetData* Data = FindPrepared(SourcePath);
 			if (!Data) return Error(EAssetError::StaleData,
@@ -319,7 +319,7 @@ namespace Durin::Asset
 		}
 
 		auto AddJournalEntry = [&](const std::filesystem::path& PhysicalPath,
-			const FAssetPath& RegistryPath,
+			const FPackagePath& RegistryPath,
 			EAssetMutationPublicationRole Role,
 			std::optional<std::vector<std::byte>> PreBytes,
 			std::optional<std::vector<std::byte>> PostBytes,
@@ -463,7 +463,7 @@ namespace Durin::Asset
 					|| Occurrence.StableId.empty())
 					return Error(EAssetError::StaleData,
 						"An asset reference store returned an invalid occurrence.");
-				if (const FAssetPath* Destination = FindFixupDestination(
+				if (const FPackagePath* Destination = FindFixupDestination(
 						Occurrence.TargetPath, State->Mappings))
 				{
 					State->StoreOccurrences.push_back(Occurrence);
@@ -567,7 +567,7 @@ namespace Durin::Asset
 
 		if (Mode == EAssetRedirectorFixupMode::RewriteAndDelete)
 		{
-			for (const FAssetPath& Alias : State->Redirectors)
+			for (const FPackagePath& Alias : State->Redirectors)
 			{
 				const FAssetData& Data = State->ExpectedAssets.at(Alias);
 				std::vector<std::byte> PreBytes;
@@ -591,7 +591,7 @@ namespace Durin::Asset
 	}
 
 	auto FAssetMutationCoordinator::PrepareRedirectorFixupTransaction(
-		std::span<const FAssetPath> Redirectors,
+		std::span<const FPackagePath> Redirectors,
 		EAssetRedirectorFixupMode Mode,
 		FAssetRedirectorFixupSummary& OutSummary,
 		FAssetMutationTransaction& OutTransaction) -> FAssetResult
@@ -633,7 +633,7 @@ namespace Durin::Asset
 				Fixup->PackageOccurrences)
 				Details.RewrittenPaths.push_back(Occurrence.SourcePackage);
 			std::ranges::sort(Details.RewrittenPaths,
-				[](const FAssetPath& Left, const FAssetPath& Right) {
+				[](const FPackagePath& Left, const FPackagePath& Right) {
 					return Left.GetView() < Right.GetView();
 				});
 			Details.RewrittenPaths.erase(std::ranges::unique(
@@ -884,11 +884,11 @@ namespace Durin::Asset
 			std::erase_if(State.PostEdges, [&](const FAssetReferenceEdge& Edge) {
 				return std::ranges::binary_search(
 					State.Redirectors, Edge.SourcePackage,
-					[](const FAssetPath& Left, const FAssetPath& Right) {
+					[](const FPackagePath& Left, const FPackagePath& Right) {
 						return Left.GetView() < Right.GetView();
 					});
 			});
-			for (const FAssetPath& Alias : State.Redirectors)
+			for (const FPackagePath& Alias : State.Redirectors)
 				State.PostFingerprints.erase(Alias);
 		}
 		if (ConsumeFixupFailure(EAssetRedirectorFixupFailurePoint::Verify))
@@ -958,7 +958,7 @@ namespace Durin::Asset
 				Data.LastWriteTime);
 		}
 		std::vector<FAssetPackageReferenceEdge> PackageEdges;
-		std::unordered_map<FAssetPath, FAssetPackageFingerprint> PackageFingerprints;
+		std::unordered_map<FPackagePath, FAssetPackageFingerprint> PackageFingerprints;
 		Result = BuildAssetPackageReferenceProjection(
 			State.PostAssets, PackageEdges, PackageFingerprints);
 		if (!Result) return Compensate(std::move(Result));

@@ -205,7 +205,7 @@ namespace Durin::Editor
 	}
 
 	auto FAssetCompatibilityAuditModel::RunAudit(
-		const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets,
+		const std::unordered_map<FPackagePath, Asset::FAssetData>& Assets,
 		Asset::FReflectionCompatibilityCatalog Catalog) -> bool
 	{
 		if (!bAdmissionOpen) return false;
@@ -385,13 +385,13 @@ namespace Durin::Editor
 	}
 
 	auto FAssetCompatibilityAuditModel::ReconcileAssetCatalog(
-		const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets) -> void
+		const std::unordered_map<FPackagePath, Asset::FAssetData>& Assets) -> void
 	{
 		Reconcile(Assets);
 	}
 
 	auto FAssetCompatibilityAuditModel::Tick(
-		const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets) -> void
+		const std::unordered_map<FPackagePath, Asset::FAssetData>& Assets) -> void
 	{
 		Tick();
 		ReconcileAssetCatalog(Assets);
@@ -443,7 +443,7 @@ namespace Durin::Editor
 	}
 
 	auto FAssetCompatibilityAuditModel::Reconcile(
-		const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets) -> void
+		const std::unordered_map<FPackagePath, Asset::FAssetData>& Assets) -> void
 	{
 		bool bPresentationChanged = std::erase_if(
 			Records, [&](const auto& Entry) { return !Assets.contains(Entry.first); }) != 0;
@@ -502,7 +502,7 @@ namespace Durin::Editor
 		++PresentationRevision;
 	}
 
-	auto FAssetCompatibilityAuditModel::FindRecord(const FAssetPath& Path) const
+	auto FAssetCompatibilityAuditModel::FindRecord(const FPackagePath& Path) const
 		-> const Asset::FAssetPackageCompatibilityRecord*
 	{
 		const auto It = Records.find(Path);

@@ -7,9 +7,9 @@ namespace Durin::Asset
 	struct FAssetRegistryPublication
 	{
 		uint64 ExpectedRevision = 0;
-		std::unordered_map<FAssetPath, FAssetData> Assets;
+		std::unordered_map<FPackagePath, FAssetData> Assets;
 		std::vector<FAssetPackageReferenceEdge> ReferenceEdges;
-		std::unordered_map<FAssetPath, FAssetPackageFingerprint> ReferenceFingerprints;
+		std::unordered_map<FPackagePath, FAssetPackageFingerprint> ReferenceFingerprints;
 		std::vector<FAssetResult> ReferenceErrors;
 		bool bReferenceIndexComplete = false;
 	};

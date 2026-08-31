@@ -29,7 +29,7 @@ namespace Durin::Asset
 	// Transient exact object/property occurrence used only by explicit Engine tooling.
 	struct FAssetReferenceEdge
 	{
-		FAssetPath SourcePackage;
+		FPackagePath SourcePackage;
 		FAssetPackageFingerprint SourceFingerprint;
 		uint64 SourceObjectId = 0;
 		std::string SourceClass;
@@ -45,18 +45,18 @@ namespace Durin::Asset
 	};
 
 	ENGINE_API auto ExtractAssetReferences(
-		const FAssetPath& SourcePackage,
+		const FPackagePath& SourcePackage,
 		const FAssetPackageInspection& Inspection,
 		std::vector<FAssetReferenceEdge>& OutReferences
 	) -> FAssetResult;
 
 	ENGINE_API auto BuildCookReachability(
-		std::span<const FAssetPath> Roots,
-		std::vector<FAssetPath>& OutPackages
+		std::span<const FPackagePath> Roots,
+		std::vector<FPackagePath>& OutPackages
 	) -> FAssetResult;
 	ENGINE_API auto BuildCookReachability(
 		const FAssetRegistrySnapshot& RegistrySnapshot,
-		std::span<const FAssetPath> Roots,
-		std::vector<FAssetPath>& OutPackages
+		std::span<const FPackagePath> Roots,
+		std::vector<FPackagePath>& OutPackages
 	) -> FAssetResult;
 } // namespace Durin::Asset

@@ -203,8 +203,8 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserModel::RevealAsset(std::string_view AssetPath)
 		-> std::string
 	{
-		FAssetPath Path;
-		if (!FAssetPath::TryCreate(AssetPath, Path)) return {};
+		FPackagePath Path;
+		if (!FPackagePath::TryCreate(AssetPath, Path)) return {};
 		const Asset::FAssetCatalogEntry Entry = Asset::FindAssetExact(Path);
 		const Asset::FAssetData* Data = Entry.Data ? &*Entry.Data : nullptr;
 		if (!Data) return {};
@@ -399,7 +399,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	}
 
 	auto FContentBrowserModel::AppendAssetItem(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		const Asset::FAssetData& Data) -> void
 	{
 		FContentBrowserItem Item{

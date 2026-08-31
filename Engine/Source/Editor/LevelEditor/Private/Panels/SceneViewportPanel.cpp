@@ -314,10 +314,10 @@ namespace Durin::Editor::Level
 					if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload(::Durin::Editor::AssetDragDropPayloadType); Payload && Payload->IsDelivery() && Payload->DataSize == sizeof(::Durin::Editor::FAssetDragDropPayload))
 					{
 						const auto* AssetPayload = static_cast<const ::Durin::Editor::FAssetDragDropPayload*>(Payload->Data);
-						FAssetPath AssetPath;
+						FPackagePath AssetPath;
 						DObject* Asset = nullptr;
 						AActor* Actor = nullptr;
-						if (!FAssetPath::TryCreate(AssetPayload->AssetPath.data(), AssetPath))
+						if (!FPackagePath::TryCreate(AssetPayload->AssetPath.data(), AssetPath))
 							Context.SetError("Dropped asset path is invalid.");
 						else if (const Asset::FAssetResult Result = Asset::LoadAsset(AssetPath, Asset); !Result)
 							Context.SetError(Result.Message);

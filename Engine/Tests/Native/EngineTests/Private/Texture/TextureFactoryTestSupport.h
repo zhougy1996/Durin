@@ -15,9 +15,9 @@ namespace Durin::AssetForge::Builtins
 		std::string_view AssetPath,
 		const FTexture2DImportSettings& Settings = {}) -> Durin::Testing::TFactoryImportResult<Durin::DTexture2D>
 	{
-		FAssetPath ParsedPath;
+		FPackagePath ParsedPath;
 		std::string Error;
-		if (!FAssetPath::TryCreate(AssetPath, ParsedPath, &Error))
+		if (!FPackagePath::TryCreate(AssetPath, ParsedPath, &Error))
 			return {false, std::move(Error), nullptr};
 		auto* Factory = NewObject<DTexture2DFactory>(
 			nullptr, "Texture2DTestFactory", EObjectFlags::Transient);

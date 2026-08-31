@@ -46,7 +46,7 @@ namespace Durin
 
 	struct FAssetOperationWarning
 	{
-		FAssetPath AssetPath;
+		FPackagePath AssetPath;
 		std::string Details;
 	};
 
@@ -57,7 +57,7 @@ namespace Durin
 		EAssetOperationTerminalState State = EAssetOperationTerminalState::Completed;
 		EAssetOperationPersistenceState Persistence =
 			EAssetOperationPersistenceState::NotApplicable;
-		std::vector<FAssetPath> AffectedAssets;
+		std::vector<FPackagePath> AffectedAssets;
 		std::vector<FAssetOperationWarning> Warnings;
 		std::string Message;
 		DObject* Asset = nullptr;
@@ -78,7 +78,7 @@ namespace Durin
 		EAssetOperationPhase Phase = EAssetOperationPhase::Execute;
 		EAssetOperationPersistenceState Persistence =
 			EAssetOperationPersistenceState::NotApplicable;
-		std::vector<FAssetPath> AffectedAssets;
+		std::vector<FPackagePath> AffectedAssets;
 		std::vector<FAssetOperationWarning> Warnings;
 	};
 

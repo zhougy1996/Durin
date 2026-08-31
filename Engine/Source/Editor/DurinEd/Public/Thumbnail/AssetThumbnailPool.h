@@ -72,10 +72,10 @@ namespace Durin::Editor
 		DURINED_API auto Request(
 			const FAssetThumbnailPackageFingerprint& Asset,
 			EAssetThumbnailPriority Priority) -> void;
-		DURINED_API auto Find(const FAssetPath& AssetPath) const -> FAssetThumbnailView;
-		DURINED_API auto AddReferencer(const FAssetPath& AssetPath) -> void;
-		DURINED_API auto RemoveReferencer(const FAssetPath& AssetPath) -> void;
-		DURINED_API auto Refresh(const FAssetPath& AssetPath) -> void;
+		DURINED_API auto Find(const FPackagePath& AssetPath) const -> FAssetThumbnailView;
+		DURINED_API auto AddReferencer(const FPackagePath& AssetPath) -> void;
+		DURINED_API auto RemoveReferencer(const FPackagePath& AssetPath) -> void;
+		DURINED_API auto Refresh(const FPackagePath& AssetPath) -> void;
 		DURINED_API auto EndFrame() -> void;
 		DURINED_API auto CancelPendingRequests() -> void;
 		DURINED_API auto Clear() -> void;

@@ -178,7 +178,7 @@ namespace Durin::Asset
 		auto InspectAssetPackageBytes(
 			std::string_view PhysicalPath,
 			std::span<const std::byte> Bytes,
-			const FAssetPath& PackagePath,
+			const FPackagePath& PackagePath,
 			FAssetPackageInspection& OutInspection) -> FAssetResult;
 
 		auto AssetPathResolutionError(
@@ -285,9 +285,9 @@ namespace Durin::Asset
 			std::vector<FTopLevelAssetData> TopLevelAssets;
 			std::string AssetClassName;
 			EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
-			FAssetPath RedirectDestination;
-			std::vector<FAssetPath> Dependencies;
-			std::vector<FAssetPath> SoftDependencies;
+			FPackagePath RedirectDestination;
+			std::vector<FPackagePath> Dependencies;
+			std::vector<FPackagePath> SoftDependencies;
 			std::vector<std::string> SearchableNames;
 			uint64 ObjectCount = 0;
 			uint64 BulkSegmentExtent = 0;
@@ -318,17 +318,17 @@ namespace Durin::Asset
 		}
 
 		auto ClassifyPackageIdentity(std::string_view PhysicalPath,
-			FAssetPath& OutPath) -> bool
+			FPackagePath& OutPath) -> bool
 		{
 			std::filesystem::path Path(PhysicalPath);
 			Path.replace_extension();
 			const FAssetPathResult Classified = FMountPaths::ClassifyAssetPath(Path);
-			return Classified && FAssetPath::TryCreate(
+			return Classified && FPackagePath::TryCreate(
 				Classified.NormalizedVirtualPath, OutPath);
 		}
 
 		auto ValidateAssetPackageClosure(std::span<const std::byte> Bytes,
-			std::span<const std::byte> BulkBytes, const FAssetPath& PackagePath)
+			std::span<const std::byte> BulkBytes, const FPackagePath& PackagePath)
 			-> FAssetResult
 		{
 			const Private::FAssetPackageCodec* Codec = nullptr;
@@ -338,7 +338,7 @@ namespace Durin::Asset
 				.PackagePath = PackagePath, .PhysicalPackageBytes = Bytes.size()});
 		}
 
-		auto ValidatePackageWriteAdmission(const FAssetPath& Path) -> FAssetResult
+		auto ValidatePackageWriteAdmission(const FPackagePath& Path) -> FAssetResult
 		{
 			const FMountLookupResult Mount =
 				FMountPaths::FindMountForVirtualPath(Path.GetView());
@@ -361,7 +361,7 @@ namespace Durin::Asset
 		auto ValidateRedirectorHeader(
 			const FPackageFile& File,
 			uint64 ObjectCount,
-			const FAssetPath* SourcePath = nullptr) -> FAssetResult
+			const FPackagePath* SourcePath = nullptr) -> FAssetResult
 		{
 			if (File.EntryKind == EAssetRegistryEntryKind::Asset)
 			{
@@ -586,7 +586,7 @@ namespace Durin::Asset
 			Transaction.bPublished = false;
 		}
 
-		auto GetPhysicalPath(const FAssetPath& Path) -> std::string
+		auto GetPhysicalPath(const FPackagePath& Path) -> std::string
 		{
 			const FAssetRuntimeConfiguration& Context =
 				FAssetRuntimeState::Get().GetRuntimeConfiguration();
@@ -662,9 +662,10 @@ namespace Durin::Asset
 				else if (ReferenceKind == 2)
 				{
 					std::string PathString;
-					FAssetPath Path;
-					if (!Reader.ReadString(PathString) || !FAssetPath::TryCreate(PathString, Path)) return Error(EAssetError::InvalidPath, "Invalid external object reference.");
-					FAssetResult Result = FAssetRuntimeState::Get().GetLoadService().LoadAsset(Path, Value);
+					FObjectPath Path;
+					if (!Reader.ReadString(PathString) || !FObjectPath::TryCreate(PathString, Path)) return Error(EAssetError::InvalidPath, "Invalid external object reference.");
+					FAssetResult Result = FAssetRuntimeState::Get().GetLoadService().LoadObject(
+						Path, ObjectProperty->GetReferencedClass(), Value);
 					if (!Result) return Error(EAssetError::MissingDependency, Result.Message);
 				}
 				else if (ReferenceKind != 0) return Error(EAssetError::CorruptFile, "Unknown object reference kind.");
@@ -921,10 +922,11 @@ namespace Durin::Asset
 			if (ReferenceKind == 2)
 			{
 				std::string PathString;
-				FAssetPath Path;
-				if (!Reader.ReadString(PathString) || !FAssetPath::TryCreate(PathString, Path))
+				FObjectPath Path;
+				if (!Reader.ReadString(PathString) || !FObjectPath::TryCreate(PathString, Path))
 					return Error(EAssetError::InvalidPath, "Invalid external object reference.");
-				return FAssetRuntimeState::Get().GetLoadService().LoadAsset(Path, OutObject);
+				return FAssetRuntimeState::Get().GetLoadService().LoadObject(
+					Path, nullptr, OutObject);
 			}
 			return Error(EAssetError::CorruptFile, "Unknown object reference kind.");
 		}
@@ -959,8 +961,8 @@ namespace Durin::Asset
 			FAssetResult Result = Codec->Write(
 				Package, Closure, EDefaultDeltaMode::NoDelta, EffectiveOptions);
 			if (!Result) return Result;
-			FAssetPath PackagePath;
-			if (!Package || !FAssetPath::TryCreate(Package->GetPackagePath(), PackagePath))
+			FPackagePath PackagePath;
+			if (!Package || !FPackagePath::TryCreate(Package->GetPackagePath(), PackagePath))
 				return Error(EAssetError::InvalidPath, "Package path is invalid.");
 			if (OutFile)
 			{
@@ -991,7 +993,7 @@ namespace Durin::Asset
 
 		auto ValidateSaveVersion(
 			const FAssetPublicationCoordinator& Registry,
-			const FAssetPath& Path) -> FAssetResult
+			const FPackagePath& Path) -> FAssetResult
 		{
 			const FAssetCatalogEntry Existing = Durin::Asset::FindAssetExact(Path);
 			if (!Existing || IsSupportedAssetPackageReaderVersion(Existing->FormatVersion))
@@ -1011,7 +1013,7 @@ namespace Durin::Asset
 		auto ValidateMutationPackageMetadata(
 			const FMutationPackageMetadata& Metadata,
 			uint64 ObjectCount,
-			const FAssetPath* SourcePath) -> FAssetResult
+			const FPackagePath* SourcePath) -> FAssetResult
 		{
 			const FPackageFile File{
 				.FormatVersion = Metadata.FormatVersion,
@@ -1042,7 +1044,7 @@ namespace Durin::Asset
 	}
 
 	auto ValidateAssetPackageBytes(std::span<const std::byte> Bytes,
-		const FAssetPath& PackagePath, std::span<const std::byte> BulkBytes) -> FAssetResult
+		const FPackagePath& PackagePath, std::span<const std::byte> BulkBytes) -> FAssetResult
 	{
 		return ValidateAssetPackageClosure(Bytes, BulkBytes, PackagePath);
 	}
@@ -1083,7 +1085,7 @@ namespace Durin::Asset
 		struct FStagedPackage
 		{
 			DPackage* Package = nullptr;
-			FAssetPath Path;
+			FPackagePath Path;
 			FPackageFile File;
 			std::vector<std::byte> Bytes;
 			std::filesystem::path Destination;
@@ -1107,12 +1109,12 @@ namespace Durin::Asset
 
 		std::vector<FStagedPackage> StagedPackages;
 		StagedPackages.reserve(Packages.size());
-		std::unordered_set<FAssetPath> Paths;
+		std::unordered_set<FPackagePath> Paths;
 		for (DPackage* Package : Packages)
 		{
-			FAssetPath Path;
+			FPackagePath Path;
 			if (!Package || !Package->IsAssetPackage()
-				|| !FAssetPath::TryCreate(Package->GetPackagePath(), Path))
+				|| !FPackagePath::TryCreate(Package->GetPackagePath(), Path))
 				return Error(EAssetError::InvalidPackageType, "The asset bundle contains an invalid package.");
 			if (!Paths.insert(Path).second)
 				return Error(EAssetError::AlreadyExists, std::format(
@@ -1380,13 +1382,13 @@ namespace Durin::Asset
 		return {};
 	}
 
-	auto AdmitAssetPackageToCatalog(const FAssetPath& Path) -> FAssetResult
+	auto AdmitAssetPackageToCatalog(const FPackagePath& Path) -> FAssetResult
 	{
 		return FAssetRuntimeState::Get().GetMutationCoordinator().AdmitAssetPackageToCatalog(Path);
 	}
 
 	auto FAssetMutationCoordinator::AdmitAssetPackageToCatalog(
-		const FAssetPath& Path) -> FAssetResult
+		const FPackagePath& Path) -> FAssetResult
 	{
 		if (!Path.IsValid())
 			return Error(EAssetError::InvalidPath, "The asset admission path is invalid.");
@@ -1599,7 +1601,7 @@ namespace Durin::Asset
 		auto InspectAssetPackageBytes(
 			std::string_view PhysicalPath,
 			std::span<const std::byte> Bytes,
-			const FAssetPath& PackagePath,
+			const FPackagePath& PackagePath,
 			FAssetPackageInspection& OutInspection) -> FAssetResult
 		{
 			OutInspection = {};
@@ -1629,7 +1631,7 @@ namespace Durin::Asset
 
 	auto InspectAssetPackage(std::string_view PhysicalPath, FAssetPackageInspection& OutInspection) -> FAssetResult
 	{
-		FAssetPath PackagePath;
+		FPackagePath PackagePath;
 		if (!ClassifyPackageIdentity(PhysicalPath, PackagePath))
 			return Error(EAssetError::InvalidPath,
 				"DAST v8 inspection requires a mounted package identity.");
@@ -1637,7 +1639,7 @@ namespace Durin::Asset
 	}
 
 	auto InspectAssetPackage(std::string_view PhysicalPath,
-		const FAssetPath& PackagePath,
+		const FPackagePath& PackagePath,
 		FAssetPackageInspection& OutInspection) -> FAssetResult
 	{
 		OutInspection = {};
@@ -1651,7 +1653,7 @@ namespace Durin::Asset
 	auto CanonicalizeAssetPackageForCook(
 		std::span<const std::byte> Bytes,
 		std::span<const std::byte> BulkBytes,
-		const FAssetPath& PackagePath,
+		const FPackagePath& PackagePath,
 		std::vector<std::byte>& OutBytes,
 		std::vector<std::byte>& OutBulkBytes) -> FAssetResult
 	{
@@ -1662,8 +1664,8 @@ namespace Durin::Asset
 	auto CanonicalizeAssetPackageForCook(
 		std::span<const std::byte> Bytes,
 		std::span<const std::byte> BulkBytes,
-		const FAssetPath& SourcePackagePath,
-		const FAssetPath& OutputPackagePath,
+		const FPackagePath& SourcePackagePath,
+		const FPackagePath& OutputPackagePath,
 		std::vector<std::byte>& OutBytes,
 		std::vector<std::byte>& OutBulkBytes) -> FAssetResult
 	{
@@ -1706,7 +1708,7 @@ namespace Durin::Asset
 		if (!Result) return Result;
 		const FAssetPublicationCoordinator& Registry = GetAssetPublicationCoordinator();
 		std::vector<FAssetRedirectorFixupMapping> Mappings;
-		auto ResolveReference = [&](const FAssetPath& Path,
+		auto ResolveReference = [&](const FPackagePath& Path,
 			std::string_view ExpectedClassName, std::string_view Route) -> FAssetResult {
 			DClass* ExpectedClass = nullptr;
 			if (!ExpectedClassName.empty())
@@ -1741,7 +1743,7 @@ namespace Durin::Asset
 					"Cook canonicalization observed inconsistent redirect resolution.");
 			return {};
 		};
-		for (const FAssetPath& Dependency : Header.Dependencies)
+		for (const FPackagePath& Dependency : Header.Dependencies)
 		{
 			Result = ResolveReference(Dependency, {}, "package dependency table");
 			if (!Result) return Result;
@@ -1773,8 +1775,8 @@ namespace Durin::Asset
 		if (!Package || !Package->IsAssetPackage())
 			return Error(EAssetError::InvalidPackageType,
 				"Only asset packages can be saved as asset files.");
-		FAssetPath Path;
-		if (!FAssetPath::TryCreate(Package->GetPackagePath(), Path))
+		FPackagePath Path;
+		if (!FPackagePath::TryCreate(Package->GetPackagePath(), Path))
 			return Error(EAssetError::InvalidPath, "Package path is invalid.");
 		FAssetResult WriteAdmission = ValidatePackageWriteAdmission(Path);
 		if (!WriteAdmission) return WriteAdmission;
@@ -1886,9 +1888,9 @@ namespace Durin::Asset
 	{
 		auto RebuildReferenceProjectionForPublishedEntriesImpl(
 			std::span<const FAssetMutationJournalEntry> Entries,
-			const std::unordered_map<FAssetPath, FAssetData>& Assets,
+			const std::unordered_map<FPackagePath, FAssetData>& Assets,
 			std::vector<FAssetReferenceEdge>& Edges,
-			std::unordered_map<FAssetPath, FAssetPackageFingerprint>& Fingerprints)
+			std::unordered_map<FPackagePath, FAssetPackageFingerprint>& Fingerprints)
 			-> FAssetResult
 		{
 			for (const FAssetMutationJournalEntry& Entry : Entries)
@@ -1923,9 +1925,9 @@ namespace Durin::Asset
 	{
 		auto RebuildReferenceProjectionForPublishedEntries(
 			std::span<const FAssetMutationJournalEntry> Entries,
-			const std::unordered_map<FAssetPath, FAssetData>& Assets,
+			const std::unordered_map<FPackagePath, FAssetData>& Assets,
 			std::vector<FAssetReferenceEdge>& Edges,
-			std::unordered_map<FAssetPath, FAssetPackageFingerprint>& Fingerprints)
+			std::unordered_map<FPackagePath, FAssetPackageFingerprint>& Fingerprints)
 			-> FAssetResult
 		{
 			return RebuildReferenceProjectionForPublishedEntriesImpl(

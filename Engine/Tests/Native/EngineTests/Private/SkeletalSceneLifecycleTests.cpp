@@ -34,10 +34,10 @@ namespace
 		~FRenderingThreadScope() { Durin::ShutdownRenderingThread(); }
 	};
 
-	auto MakeAssetPath(std::string_view Value) -> Durin::FAssetPath
+	auto MakeAssetPath(std::string_view Value) -> Durin::FPackagePath
 	{
-		Durin::FAssetPath Result;
-		EXPECT_TRUE(Durin::FAssetPath::TryCreate(Value, Result));
+		Durin::FPackagePath Result;
+		EXPECT_TRUE(Durin::FPackagePath::TryCreate(Value, Result));
 		return Result;
 	}
 
@@ -123,7 +123,7 @@ namespace
 	}
 
 	auto ExecuteSceneImport(std::string_view Source,
-		const Durin::FAssetPath& Destination)
+		const Durin::FPackagePath& Destination)
 		-> FSceneOutputs
 	{
 		Durin::AssetForge::Builtins::FSceneImportResult Result;
@@ -155,9 +155,9 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 	std::filesystem::create_directories(GameContent / "Scenes");
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 
-	std::vector<Durin::FAssetPath> MeshPaths;
+	std::vector<Durin::FPackagePath> MeshPaths;
 	std::vector<Durin::FSkeletalMeshPayloadData> ExpectedMeshes;
-	std::vector<Durin::FAssetPath> ClipPaths;
+	std::vector<Durin::FPackagePath> ClipPaths;
 	std::vector<Durin::FAnimationClipPayloadData> ExpectedClips;
 	{
 		const std::array<Durin::FMountPoint, 2> MountDefinitions{{
@@ -211,7 +211,7 @@ TEST(FSkeletalSceneLifecycleTests, GltfAndGlbCookDeterministicallyAndLoadRuntime
 			ASSERT_EQ(Initial.Materials.size(), 2u);
 			for (Durin::DSkeletalMesh* Mesh : Initial.SkeletalMeshes)
 			{
-				const Durin::FAssetPath MeshPath =
+				const Durin::FPackagePath MeshPath =
 					MakeAssetPath(Mesh->GetPackage()->GetPackagePath());
 				const Durin::Asset::FAssetCatalogEntry MeshData =
 					Durin::Asset::FindAssetExact(MeshPath);

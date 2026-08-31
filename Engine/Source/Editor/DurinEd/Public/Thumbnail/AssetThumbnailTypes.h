@@ -42,7 +42,7 @@ namespace Durin
 	// Captures the unloaded package fields that invalidate an asset thumbnail.
 	struct FAssetThumbnailPackageFingerprint
 	{
-		FAssetPath VirtualPath;
+		FPackagePath VirtualPath;
 		std::string AssetClassName;
 		uint32 PackageFormatVersion = 0;
 		uint64 FileSize = 0;

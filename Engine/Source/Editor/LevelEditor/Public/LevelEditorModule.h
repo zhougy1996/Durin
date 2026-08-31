@@ -9,7 +9,6 @@
 namespace Durin
 {
 	class FPackagePath;
-	using FAssetPath = FPackagePath;
 }
 
 namespace Durin::Asset { class IAssetReferenceStore; }

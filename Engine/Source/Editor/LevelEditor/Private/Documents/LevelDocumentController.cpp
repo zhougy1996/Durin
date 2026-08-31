@@ -63,8 +63,8 @@ namespace Durin::Editor::Level
 
 	auto FLevelDocumentController::RequestOpenLevel(std::string Path) -> ELevelDocumentOpenResult
 	{
-		FAssetPath AssetPath;
-		if (!FAssetPath::TryCreate(Path, AssetPath)) return ELevelDocumentOpenResult::Rejected;
+		FPackagePath AssetPath;
+		if (!FPackagePath::TryCreate(Path, AssetPath)) return ELevelDocumentOpenResult::Rejected;
 		const Asset::FAssetPathResolveResult Resolution =
 			Asset::ResolveAssetPath(
 				AssetPath, {.ExpectedClass = DLevel::StaticClass()});
@@ -158,7 +158,7 @@ namespace Durin::Editor::Level
 			|| !DefaultLevel.GetPath().GetPackagePath().GetView().starts_with(Project->MountRoot))
 			return true;
 		if (ClearError) ClearError();
-		const FAssetPath& Path = DefaultLevel.GetPath().GetPackagePath();
+		const FPackagePath& Path = DefaultLevel.GetPath().GetPackagePath();
 		const Asset::FAssetPackageLoadSnapshot LoadSnapshot =
 			Asset::CapturePackageLoadSnapshot();
 		DLevel* Level = nullptr;
@@ -198,9 +198,9 @@ namespace Durin::Editor::Level
 	auto FLevelDocumentController::OpenLevel(std::string_view PathString) -> ELevelDocumentOpenResult
 	{
 		if (ClearError) ClearError();
-		FAssetPath Path;
+		FPackagePath Path;
 		std::string PathError;
-		if (!FAssetPath::TryCreate(PathString, Path, &PathError))
+		if (!FPackagePath::TryCreate(PathString, Path, &PathError))
 		{
 			SetError(PathError);
 			return ELevelDocumentOpenResult::Rejected;
@@ -280,9 +280,9 @@ namespace Durin::Editor::Level
 			return false;
 		}
 
-		FAssetPath OldPath;
+		FPackagePath OldPath;
 		std::string PathError;
-		if (!FAssetPath::TryCreate(Package->GetPackagePath(), OldPath, &PathError))
+		if (!FPackagePath::TryCreate(Package->GetPackagePath(), OldPath, &PathError))
 		{
 			SetError(PathError);
 			return false;
@@ -290,8 +290,8 @@ namespace Durin::Editor::Level
 		const std::string OldPathString = OldPath.ToString();
 		const size_t Separator = OldPathString.find_last_of('/');
 		const std::string NewPathString = OldPathString.substr(0, Separator + 1) + std::string(NewName);
-		FAssetPath NewPath;
-		if (!FAssetPath::TryCreate(NewPathString, NewPath, &PathError))
+		FPackagePath NewPath;
+		if (!FPackagePath::TryCreate(NewPathString, NewPath, &PathError))
 		{
 			SetError(PathError);
 			return false;
@@ -352,8 +352,8 @@ namespace Durin::Editor::Level
 		SessionSettings.RestoreViewportState(Level, SceneViewportPanel);
 		if (PreviousPackage && PreviousPackage != Level->GetPackage())
 		{
-			FAssetPath PreviousPath;
-			if (FAssetPath::TryCreate(PreviousPackage->GetPackagePath(), PreviousPath))
+			FPackagePath PreviousPath;
+			if (FPackagePath::TryCreate(PreviousPackage->GetPackagePath(), PreviousPath))
 			{
 				Asset::FAssetResult Result = Asset::UnloadPackage(PreviousPath);
 				if (!Result && Result.Error != Asset::EAssetError::NotFound) DURIN_WARN("Failed to unload previous level: {}", Result.Message);

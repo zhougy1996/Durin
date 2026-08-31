@@ -47,17 +47,17 @@ namespace Durin::Asset
 			OutFingerprint = {.FileSize = Data.FileSize,
 				.LastWriteTimeTicks = Data.LastWriteTimeTicks,
 				.ReaderVersion = Data.FormatVersion};
-			auto Add = [&](EAssetReferenceKind Kind, const FAssetPath& Target)
+			auto Add = [&](EAssetReferenceKind Kind, const FPackagePath& Target)
 			{
 				OutEdges.push_back({.SourcePackage = Data.PackagePath,
 					.SourceFingerprint = OutFingerprint, .Kind = Kind,
 					.TargetPath = Target});
 			};
-			for (const FAssetPath& Dependency : Data.Dependencies)
+			for (const FPackagePath& Dependency : Data.Dependencies)
 				if (Data.EntryKind != EAssetRegistryEntryKind::Redirector
 					|| Dependency != Data.RedirectDestination)
 					Add(EAssetReferenceKind::HardObject, Dependency);
-			for (const FAssetPath& Dependency : Data.SoftDependencies)
+			for (const FPackagePath& Dependency : Data.SoftDependencies)
 				Add(EAssetReferenceKind::SoftObject, Dependency);
 			if (Data.EntryKind == EAssetRegistryEntryKind::Redirector)
 				Add(EAssetReferenceKind::Redirect, Data.RedirectDestination);
@@ -99,8 +99,8 @@ namespace Durin::Asset
 
 
 	auto BuildCookReachability(
-		std::span<const FAssetPath> Roots,
-		std::vector<FAssetPath>& OutPackages
+		std::span<const FPackagePath> Roots,
+		std::vector<FPackagePath>& OutPackages
 	) -> FAssetResult
 	{
 		return BuildCookReachability(
@@ -110,8 +110,8 @@ namespace Durin::Asset
 
 	auto BuildCookReachability(
 		const FAssetRegistrySnapshot& RegistrySnapshot,
-		std::span<const FAssetPath> Roots,
-		std::vector<FAssetPath>& OutPackages
+		std::span<const FPackagePath> Roots,
+		std::vector<FPackagePath>& OutPackages
 	) -> FAssetResult
 	{
 		OutPackages.clear();
@@ -119,13 +119,13 @@ namespace Durin::Asset
 		const FAssetReferenceIndex& ReferenceIndex = RegistrySnapshot.References;
 		struct FPendingCookPath
 		{
-			FAssetPath Path;
+			FPackagePath Path;
 			std::string ExpectedClass;
 			std::string Source;
 		};
 		std::vector<FPendingCookPath> Pending;
 		Pending.reserve(Roots.size());
-		for (const FAssetPath& Root : Roots)
+		for (const FPackagePath& Root : Roots)
 			Pending.push_back({Root, {}, "explicit Cook root"});
 		for (const auto& [Handle, Entry] : GetAssetReferenceStoreRegistry().Stores)
 		{
@@ -149,7 +149,7 @@ namespace Durin::Asset
 				if (Occurrence.bCookRoot)
 					Pending.push_back({Occurrence.TargetPath, Occurrence.ExpectedClass, Occurrence.DisplayRoute});
 		}
-		std::unordered_set<FAssetPath> Visited;
+		std::unordered_set<FPackagePath> Visited;
 		while (!Pending.empty())
 		{
 			std::ranges::sort(Pending, [](const FPendingCookPath& Left, const FPendingCookPath& Right) {
@@ -179,14 +179,14 @@ namespace Durin::Asset
 				);
 				return ResolutionError;
 			}
-			const FAssetPath Source = SourceResolution.FinalPath;
+			const FPackagePath Source = SourceResolution.FinalPath;
 			if (!Visited.insert(Source).second) continue;
 			const FAssetData* SourceData = Catalog.FindExact(Source);
 			if (!SourceData || SourceData->EntryKind != EAssetRegistryEntryKind::Asset)
 				return Error(EAssetError::InvalidPackageType, std::format("CookReachabilityNonAssetPackage: {} is not a real asset.", Source.ToString()));
 			if (!ReferenceIndex.GetSourceFingerprints().contains(Source))
 				return Error(EAssetError::StaleData, std::format("CookReachabilityIncompleteReferenceIndex: {} has no current source entry.", Source.ToString()));
-			for (const FAssetPath& Dependency : SourceData->Dependencies)
+			for (const FPackagePath& Dependency : SourceData->Dependencies)
 			{
 				const FAssetPathResolveResult Resolution =
 					RegistrySnapshot.ResolveAssetPath(Dependency);
@@ -244,16 +244,16 @@ namespace Durin::Asset
 			}
 		}
 		OutPackages.assign(Visited.begin(), Visited.end());
-		std::ranges::sort(OutPackages, [](const FAssetPath& Left, const FAssetPath& Right) {
+		std::ranges::sort(OutPackages, [](const FPackagePath& Left, const FPackagePath& Right) {
 			return Left.GetView() < Right.GetView();
 		});
 		return {};
 	}
 
 	auto BuildAssetPackageReferenceProjection(
-		const std::unordered_map<FAssetPath, FAssetData>& Assets,
+		const std::unordered_map<FPackagePath, FAssetData>& Assets,
 		std::vector<FAssetPackageReferenceEdge>& OutEdges,
-		std::unordered_map<FAssetPath, FAssetPackageFingerprint>& OutFingerprints)
+		std::unordered_map<FPackagePath, FAssetPackageFingerprint>& OutFingerprints)
 		-> FAssetResult
 	{
 		OutEdges.clear();
@@ -306,8 +306,8 @@ namespace Durin::Asset
 			|| !Publication.ReferenceErrors.empty())
 			return Error(EAssetError::StaleData, "Asset metadata cannot publish while the reference index is incomplete.");
 
-		std::unordered_set<FAssetPath> SeenPaths;
-		std::vector<FAssetPath> Paths;
+		std::unordered_set<FPackagePath> SeenPaths;
+		std::vector<FPackagePath> Paths;
 		Paths.reserve(Assets.size());
 		for (const FAssetData& Data : Assets)
 		{
@@ -318,7 +318,7 @@ namespace Durin::Asset
 		}
 		for (FAssetData& Data : Assets)
 		{
-			const FAssetPath Path = Data.PackagePath;
+			const FPackagePath Path = Data.PackagePath;
 			Publication.Assets.insert_or_assign(Path, std::move(Data));
 			Publication.ReferenceFingerprints.erase(Path);
 			std::erase_if(Publication.ReferenceEdges, [&](const FAssetPackageReferenceEdge& Edge) {

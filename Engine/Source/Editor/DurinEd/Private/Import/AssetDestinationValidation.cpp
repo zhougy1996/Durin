@@ -8,7 +8,7 @@ namespace Durin::Editor
 {
 	namespace
 	{
-		auto QueryAssetDestinationOccupancy(const FAssetPath& AssetPath) -> FAssetDestinationOccupancy
+		auto QueryAssetDestinationOccupancy(const FPackagePath& AssetPath) -> FAssetDestinationOccupancy
 		{
 			const Asset::FAssetCatalogEntry Entry = Asset::FindAssetExact(AssetPath);
 			DPackage* ResidentPackage = Asset::FindResidentPackage(AssetPath);
@@ -23,7 +23,7 @@ namespace Durin::Editor
 						? EAssetDestinationOccupantKind::Redirector
 						: EAssetDestinationOccupantKind::Asset,
 				.RedirectDestination = Entry
-					? Entry->RedirectDestination : FAssetPath{}
+					? Entry->RedirectDestination : FPackagePath{}
 			};
 		}
 	} // namespace
@@ -34,7 +34,7 @@ namespace Durin::Editor
 	) -> FAssetDestinationValidation
 	{
 		FAssetDestinationValidation Result;
-		Result.bAssetPathValid = FAssetPath::TryCreate(VirtualPath, Result.AssetPath, &Result.Message);
+		Result.bAssetPathValid = FPackagePath::TryCreate(VirtualPath, Result.AssetPath, &Result.Message);
 		if (!Result.bAssetPathValid) return Result;
 
 		const FAssetPathResult Resolved =
@@ -101,7 +101,7 @@ namespace Durin::Editor
 		-> FContentDirectoryValidation
 	{
 		FContentDirectoryValidation Result;
-		Result.bDirectoryPathValid = FAssetPath::TryCreate(
+		Result.bDirectoryPathValid = FPackagePath::TryCreate(
 			VirtualPath, Result.DirectoryPath, &Result.Message);
 		if (!Result.bDirectoryPathValid) return Result;
 

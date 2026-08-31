@@ -145,8 +145,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 	Durin::FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	std::string Error;
 
-	Durin::FAssetPath SplineBoxPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath SplineBoxPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/Engine/Models/SplineBox", SplineBoxPath));
 	(void)Durin::Asset::UnloadPackage(
 		SplineBoxPath, Durin::Asset::EAssetPackageUnloadPolicy::DiscardUnsaved);
@@ -185,8 +185,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
 	auto RendererRegistration = RegisterStaticMeshThumbnailRenderer();
-	Durin::FAssetPath StaticMeshPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath StaticMeshPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::StaticMeshPath,
 		StaticMeshPath));
 	const Durin::Asset::FAssetCatalogEntry Data =
@@ -261,8 +261,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 {
 	Durin::Tests::RegisterAssetThumbnailFixtureMount();
 	Durin::Editor::StaticMesh::DStaticMeshThumbnailRenderer Renderer;
-	Durin::FAssetPath MissingPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath MissingPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/ThumbnailFixtures/Meshes/SM_Missing", MissingPath));
 	Durin::Editor::FAssetThumbnailPackageFingerprint Missing = {
 		.VirtualPath = MissingPath,
@@ -281,8 +281,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
 	auto RendererRegistration = RegisterStaticMeshThumbnailRenderer();
-	Durin::FAssetPath StaticMeshPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath StaticMeshPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::StaticMeshPath,
 		StaticMeshPath));
 	const Durin::Asset::FAssetCatalogEntry Data =
@@ -303,8 +303,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
 	auto RendererRegistration = RegisterStaticMeshThumbnailRenderer();
-	Durin::FAssetPath StaticMeshPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath StaticMeshPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::StaticMeshPath,
 		StaticMeshPath));
 	const Durin::Asset::FAssetCatalogEntry Data =
@@ -341,8 +341,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
 	auto RendererRegistration = RegisterStaticMeshThumbnailRenderer();
-	Durin::FAssetPath StaticMeshPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath StaticMeshPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::StaticMeshPath,
 		StaticMeshPath));
 	const Durin::Asset::FAssetCatalogEntry Data =
@@ -361,8 +361,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 	EXPECT_EQ(Routed.State, Durin::Editor::EAssetThumbnailState::Failed);
 	EXPECT_NE(Routed.Diagnostic.find("unavailable"), std::string::npos);
 
-	Durin::FAssetPath UnsupportedPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath UnsupportedPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/ThumbnailFixtures/Unsupported/A_Unsupported",
 		UnsupportedPath));
 	Cache.Request({
@@ -388,8 +388,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
 	auto RendererRegistration = RegisterStaticMeshThumbnailRenderer();
-	Durin::FAssetPath StaticMeshPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath StaticMeshPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::StaticMeshPath,
 		StaticMeshPath));
 	const Durin::Asset::FAssetCatalogEntry Data =
@@ -452,8 +452,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
 	auto RendererRegistration = RegisterStaticMeshThumbnailRenderer();
-	Durin::FAssetPath StaticMeshPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath StaticMeshPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::StaticMeshPath,
 		StaticMeshPath));
 	const Durin::Asset::FAssetCatalogEntry Data =
@@ -512,8 +512,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
 	auto RendererRegistration = RegisterStaticMeshThumbnailRenderer();
-	Durin::FAssetPath StaticMeshPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath StaticMeshPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::StaticMeshPath,
 		StaticMeshPath));
 	const Durin::Asset::FAssetCatalogEntry Data =
@@ -624,8 +624,8 @@ TEST(FStaticMeshThumbnailRendererTests,
 		Durin::Tests::FAssetThumbnailFixtureSet::DirectionalCubePath,
 		Durin::Tests::FAssetThumbnailFixtureSet::StaticMeshPath})
 	{
-		Durin::FAssetPath AssetPath;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(Path, AssetPath));
+		Durin::FPackagePath AssetPath;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(Path, AssetPath));
 		const Durin::Asset::FAssetCatalogEntry Data =
 			Durin::Asset::FindAssetExact(AssetPath);
 		ASSERT_NE(Data, nullptr);

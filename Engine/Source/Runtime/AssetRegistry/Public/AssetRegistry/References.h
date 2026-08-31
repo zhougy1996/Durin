@@ -21,10 +21,10 @@ namespace Durin::Asset
 	// Persistent package-level dependency; exact object/property occurrences are transient tooling data.
 	struct FAssetPackageReferenceEdge
 	{
-		FAssetPath SourcePackage;
+		FPackagePath SourcePackage;
 		FAssetPackageFingerprint SourceFingerprint;
 		EAssetReferenceKind Kind = EAssetReferenceKind::HardObject;
-		FAssetPath TargetPath;
+		FPackagePath TargetPath;
 
 		auto operator==(const FAssetPackageReferenceEdge&) const -> bool = default;
 	};
@@ -35,21 +35,21 @@ namespace Durin::Asset
 		auto GetRevision() const -> uint64 { return Revision; }
 		auto GetEdges() const -> std::span<const FAssetPackageReferenceEdge> { return Edges; }
 		auto GetSourceFingerprints() const
-			-> const std::unordered_map<FAssetPath, FAssetPackageFingerprint>&
+			-> const std::unordered_map<FPackagePath, FAssetPackageFingerprint>&
 		{
 			return SourceFingerprints;
 		}
-		ASSETREGISTRY_API auto FindReferencers(const FAssetPath& Target) const
+		ASSETREGISTRY_API auto FindReferencers(const FPackagePath& Target) const
 			-> std::vector<FAssetPackageReferenceEdge>;
-		ASSETREGISTRY_API auto FindTargets(const FAssetPath& Source) const
-			-> std::vector<FAssetPath>;
+		ASSETREGISTRY_API auto FindTargets(const FPackagePath& Source) const
+			-> std::vector<FPackagePath>;
 		auto IsComplete() const -> bool { return bComplete; }
 		auto GetErrors() const -> std::span<const FAssetResult> { return Errors; }
 
 	private:
 		uint64 Revision = 0;
 		std::vector<FAssetPackageReferenceEdge> Edges;
-		std::unordered_map<FAssetPath, FAssetPackageFingerprint> SourceFingerprints;
+		std::unordered_map<FPackagePath, FAssetPackageFingerprint> SourceFingerprints;
 		std::vector<FAssetResult> Errors;
 		bool bComplete = true;
 
@@ -63,13 +63,13 @@ namespace Durin::Asset
 		FAssetReferenceIndex References;
 
 		ASSETREGISTRY_API auto ResolveAssetPath(
-			const FAssetPath& Path,
+			const FPackagePath& Path,
 			const FAssetPathResolveOptions& Options = {}) const
 			-> FAssetPathResolveResult;
 	};
 
 	ASSETREGISTRY_API auto CaptureAssetReferenceIndex() -> FAssetReferenceIndex;
 	ASSETREGISTRY_API auto CaptureAssetRegistrySnapshot() -> FAssetRegistrySnapshot;
-	ASSETREGISTRY_API auto FindRedirectorsTo(const FAssetPath& Destination)
-		-> std::vector<FAssetPath>;
+	ASSETREGISTRY_API auto FindRedirectorsTo(const FPackagePath& Destination)
+		-> std::vector<FPackagePath>;
 }

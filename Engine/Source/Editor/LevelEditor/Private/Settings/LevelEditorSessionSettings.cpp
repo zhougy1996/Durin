@@ -64,8 +64,8 @@ namespace Durin::Editor::Level
 					NormalizedStates;
 				for (const auto& [StoredPath, State] : ProjectStates->second)
 				{
-					FAssetPath Path;
-					if (!FAssetPath::TryCreate(StoredPath, Path)) continue;
+					FPackagePath Path;
+					if (!FPackagePath::TryCreate(StoredPath, Path)) continue;
 					const Asset::FAssetPathResolveResult Resolution =
 						Asset::ResolveAssetPath(
 							Path, {.ExpectedClass = DLevel::StaticClass()});

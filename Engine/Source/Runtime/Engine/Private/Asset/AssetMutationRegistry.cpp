@@ -16,7 +16,7 @@ namespace Durin::Asset
 		}
 
 		auto AppendRegisteredReferenceStoreDeletionProjection(
-			std::span<const FAssetPath> Paths,
+			std::span<const FPackagePath> Paths,
 			std::vector<FAssetDeletionBatchWarning>& OutWarnings,
 			std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> void
 		{
@@ -43,7 +43,7 @@ namespace Durin::Asset
 							SnapshotResult.Message)});
 					continue;
 				}
-				for (const FAssetPath& Path : Paths)
+				for (const FPackagePath& Path : Paths)
 				{
 					std::vector<std::string> Occurrences;
 					for (const FAssetReferenceStoreOccurrence& Occurrence :

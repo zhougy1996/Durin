@@ -18,7 +18,7 @@ namespace Durin::Asset::Private
 	{
 		std::span<const std::byte> PackageBytes;
 		std::span<const std::byte> BulkBytes;
-		FAssetPath PackagePath;
+		FPackagePath PackagePath;
 		uint64 PhysicalPackageBytes = 0;
 		uint64 PhysicalBulkBytes = 0;
 		bool bResourceBackedBulk = false;
@@ -48,7 +48,7 @@ namespace Durin::Asset::Private
 			const FAssetPackageReadContext&, std::vector<FAssetReferenceEdge>&)
 			-> FAssetResult = nullptr;
 		auto (*InspectSchema)(
-			IAssetPackageByteSource&, const FAssetPath&,
+			IAssetPackageByteSource&, const FPackagePath&,
 			const FReflectionSchemaCatalog&, FPackageSchemaInspection&,
 			FPackageSchemaReadStats*, bool,
 			const FPackageReadCancellationCheck&)
@@ -63,10 +63,10 @@ namespace Durin::Asset::Private
 			const FAssetPackageReadContext&, std::span<const FAssetRedirectorFixupMapping>,
 			uint64, FAssetPackageEncodedClosure&) -> FAssetResult = nullptr;
 		auto (*Relocate)(
-			const FAssetPackageReadContext&, const FAssetPath&, FAssetPackageEncodedClosure&)
+			const FAssetPackageReadContext&, const FPackagePath&, FAssetPackageEncodedClosure&)
 			-> FAssetResult = nullptr;
 		auto (*WriteRedirector)(
-			const FAssetPath&, const FAssetPath&, FAssetPackageEncodedClosure&)
+			const FPackagePath&, const FPackagePath&, FAssetPackageEncodedClosure&)
 			-> FAssetResult = nullptr;
 	};
 

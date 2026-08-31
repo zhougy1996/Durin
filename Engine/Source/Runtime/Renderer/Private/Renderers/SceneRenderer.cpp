@@ -40,16 +40,16 @@ namespace Durin
 		FModuleOwnedCallbackGate OwnerGate
 	) -> bool
 	{
-		FAssetPath EnvironmentPath;
+		FObjectPath EnvironmentPath;
 		DEnvironmentLighting* EnvironmentAsset = nullptr;
 		std::string PathError;
 		Asset::FAssetResult EnvironmentResult =
-			FAssetPath::TryCreate(
-				"/Engine/Renderer/DefaultStudioEnvironment",
+			FObjectPath::TryCreate(
+				"/Engine/Renderer/DefaultStudioEnvironment.DefaultStudioEnvironment",
 				EnvironmentPath,
 				&PathError
 			) ?
-				Asset::LoadAsset(EnvironmentPath, EnvironmentAsset) :
+				Asset::LoadObject(EnvironmentPath, EnvironmentAsset) :
 				Asset::FAssetResult{Asset::EAssetError::InvalidPath, std::move(PathError)};
 		if (EnvironmentResult && EnvironmentAsset != nullptr)
 		{

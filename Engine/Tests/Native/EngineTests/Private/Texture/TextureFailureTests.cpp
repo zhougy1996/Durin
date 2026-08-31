@@ -197,8 +197,8 @@ TEST(FTexture2DTests, RejectsUnsupportedSourceWithoutCreatingAsset)
 	EXPECT_EQ(Result.Asset, nullptr);
 	EXPECT_FALSE(Result.Message.empty());
 
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Unsupported", AssetPath));
+	Durin::FPackagePath AssetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/Unsupported", AssetPath));
 	EXPECT_EQ(Durin::Asset::FindAssetExact(AssetPath), nullptr);
 }
 
@@ -206,8 +206,8 @@ TEST(FTexture2DTests, FailureStateRecordsMissingCanonicalDataOnPostLoad)
 {
 	InitializeDObjectSystem();
 	InitializeTextureImportMount();
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/FailureTestMissing", AssetPath));
+	Durin::FPackagePath AssetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/FailureTestMissing", AssetPath));
 	Durin::DTexture2D* Texture = nullptr;
 	Durin::Asset::FAssetResult CreateResult = Durin::Asset::CreateAsset(AssetPath, Texture);
 	ASSERT_TRUE(CreateResult) << CreateResult.Message;
@@ -239,8 +239,8 @@ TEST(FTexture2DTests, FailureState_ReadyAfterSuccessfulPostLoad)
 	EXPECT_EQ(Result.Asset->GetBuildStatus(), Durin::ETextureBuildStatus::Ready);
 	EXPECT_TRUE(Result.Asset->GetLastBuildError().empty());
 
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureFailureTests/Ready", AssetPath));
+	Durin::FPackagePath AssetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureFailureTests/Ready", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	ASSERT_TRUE(Durin::Asset::DeleteAssetForTesting(AssetPath));
 }
@@ -266,8 +266,8 @@ TEST(FTexture2DTests, MissingSourceAndCorruptDdcRebuildFromAuthoredPixels)
 	ASSERT_NE(Texture->GetSourceData(), nullptr);
 	ASSERT_NE(Texture->GetPlatformData(), nullptr);
 
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureInvalidateTests/Invalid", AssetPath));
+	Durin::FPackagePath AssetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureInvalidateTests/Invalid", AssetPath));
 	const std::filesystem::path CopiedSource = Source;
 	ASSERT_TRUE(std::filesystem::remove(CopiedSource));
 
@@ -353,8 +353,8 @@ TEST(FTexture2DTests, ScheduledReimportPublishesOnce)
 
 	WriteNpotTextureFixture(Source);
 	std::string Error;
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath AssetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TextureImportTests/AsyncUnload", AssetPath));
 	ASSERT_TRUE(Durin::AssetForge::Builtins::ReimportTexture2D(
 		*Texture, Error)) << Error;
@@ -397,8 +397,8 @@ TEST(FTexture2DTests, DirectReimportPublishesAndSaves)
 	ASSERT_FALSE(Texture->GetPackage()->IsDirty());
 
 	WriteNpotTextureFixture(Source);
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath AssetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TextureImportTests/ImportRollback", AssetPath));
 	Durin::FReimportResult Reimported;
 	Durin::FReimportManager::Reimport(*Texture, {},

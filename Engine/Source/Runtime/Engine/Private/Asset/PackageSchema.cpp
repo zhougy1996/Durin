@@ -201,7 +201,7 @@ namespace Durin::Asset
 	}
 
 	auto InspectAssetPackageSchema(FFileHelper::IFileHandle& Handle,
-		const FAssetPath& PackagePath, const FReflectionSchemaCatalog& Catalog,
+		const FPackagePath& PackagePath, const FReflectionSchemaCatalog& Catalog,
 		FPackageSchemaInspection& OutInspection, FPackageSchemaReadStats* OutStats,
 		bool bIncludeNestedMigrationEvidence,
 		const FPackageReadCancellationCheck& IsCancellationRequested) -> FAssetResult

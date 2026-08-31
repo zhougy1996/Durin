@@ -302,8 +302,8 @@ TEST(FCameraComponentTests, SettingsAndLookAtCommitOnceAndIgnoreEquivalentValues
 		return true;
 	}();
 	(void)bMountRegistered;
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/CameraComponentTests/AtomicUpdates", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/CameraComponentTests/AtomicUpdates", Path));
 	auto* Package = Durin::NewObject<Durin::DPackage>(nullptr, Path.GetAssetName());
 	Package->InitializeAssetPackage(Path);
 	auto* World = Durin::NewObject<Durin::DWorld>(Package, "World");

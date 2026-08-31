@@ -48,7 +48,7 @@ namespace Durin::AssetForge
 	{
 		std::string StableIdentity;
 		std::string Role;
-		FAssetPath AssetPath;
+		FPackagePath AssetPath;
 		std::string AssetClassName;
 		auto operator==(const FImportOutputSummary&) const -> bool = default;
 	};

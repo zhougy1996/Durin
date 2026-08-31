@@ -26,7 +26,7 @@ namespace Durin::Editor
 		DURINED_API auto GetView() const -> FAssetThumbnailView;
 		auto GetRequestedWidth() const -> uint32 { return RequestedWidth; }
 		auto GetRequestedHeight() const -> uint32 { return RequestedHeight; }
-		auto GetAssetPath() const -> const FAssetPath& { return Asset.VirtualPath; }
+		auto GetAssetPath() const -> const FPackagePath& { return Asset.VirtualPath; }
 
 	private:
 		auto Release() -> void;

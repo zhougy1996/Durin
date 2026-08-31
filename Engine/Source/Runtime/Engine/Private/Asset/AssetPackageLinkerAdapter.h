@@ -15,7 +15,7 @@ namespace Durin::Asset::Private
 
 	auto ApplyLivePackageLinker(
 		const ObjectPackage::FLinkerTables& Linker,
-		const FAssetPath& PackagePath,
+		const FPackagePath& PackagePath,
 		DPackage*& OutPackage,
 		FAssetLoadReport* OutReport,
 		const PackageObjectStream::FLiveLoadOptions& Options = {},

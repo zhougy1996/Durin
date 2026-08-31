@@ -115,8 +115,8 @@ TEST(FEnvironmentLightingTests, AssetCooksAuthoredPayloadDirectlyWithoutDdc)
 	Durin::Testing::RegisterMountPointForTests(
 		"/EnvironmentLightingCook/", (Root / "Content").generic_string() + "/");
 
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath AssetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/EnvironmentLightingCook/StudioEnvironment", AssetPath));
 	Durin::DEnvironmentLighting* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(AssetPath, Asset));
@@ -142,8 +142,8 @@ TEST(FEnvironmentLightingTests, AssetCooksAuthoredPayloadDirectlyWithoutDdc)
 	ASSERT_TRUE(Context.Publish(&Error)) << Error;
 
 	Durin::Asset::FAssetPackageInspection Inspection;
-	Durin::FAssetPath CookedPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreateProjectContent(
+	Durin::FPackagePath CookedPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreateProjectContent(
 		"/Game/StudioEnvironment", CookedPath));
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
 		(CookRoot / "Game/StudioEnvironment.dasset").generic_string(),

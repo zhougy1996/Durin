@@ -75,9 +75,9 @@ namespace Durin::Editor::Texture
 	{
 		if (Document.ResourceId.empty()) return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		if (Find(Document.ResourceId)) return ::Durin::Editor::EDocumentOpenResult::Opened;
-		FAssetPath Path;
+		FPackagePath Path;
 		std::string Error;
-		if (!FAssetPath::TryCreate(Document.ResourceId, Path, &Error))
+		if (!FPackagePath::TryCreate(Document.ResourceId, Path, &Error))
 		{
 			SetError(std::move(Error));
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;

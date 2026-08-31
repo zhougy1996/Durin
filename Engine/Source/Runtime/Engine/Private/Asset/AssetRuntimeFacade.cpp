@@ -24,7 +24,7 @@ namespace Durin::Asset
 	}
 
 	auto LoadAsset(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		DObject*& OutAsset,
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
@@ -33,7 +33,7 @@ namespace Durin::Asset
 	}
 
 	auto LoadAsset(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		const DClass* ExpectedClass,
 		DObject*& OutAsset,
 		FAssetLoadReport* OutReport) -> FAssetResult
@@ -43,7 +43,7 @@ namespace Durin::Asset
 	}
 
 	auto CreateAsset(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		DClass* Class,
 		size_t Size,
 		DObject*& OutAsset) -> FAssetResult
@@ -53,8 +53,8 @@ namespace Durin::Asset
 	}
 
 	auto DuplicateAsset(
-		const FAssetPath& SourcePath,
-		const FAssetPath& DestinationPath,
+		const FPackagePath& SourcePath,
+		const FPackagePath& DestinationPath,
 		DObject*& OutAsset) -> FAssetResult
 	{
 		return FAssetRuntimeState::Get().GetLoadService().DuplicateAsset(
@@ -62,8 +62,8 @@ namespace Durin::Asset
 	}
 
 	auto CreateAssetRedirectorForTesting(
-		const FAssetPath& RedirectorPath,
-		const FAssetPath& DestinationPath,
+		const FPackagePath& RedirectorPath,
+		const FPackagePath& DestinationPath,
 		DAssetRedirector*& OutRedirector) -> FAssetResult
 	{
 		return FAssetRuntimeState::Get().GetLoadService().CreateRedirector(
@@ -106,7 +106,7 @@ namespace Durin::Asset
 	}
 
 	auto PrepareRedirectorFixupTransaction(
-		std::span<const FAssetPath> Redirectors,
+		std::span<const FPackagePath> Redirectors,
 		EAssetRedirectorFixupMode Mode,
 		FAssetRedirectorFixupSummary& OutSummary,
 		FAssetMutationTransaction& OutTransaction) -> FAssetResult
@@ -117,7 +117,7 @@ namespace Durin::Asset
 	}
 
 	auto AnalyzeAssetDeletion(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult
 	{
 		return FAssetRuntimeState::Get().GetMutationCoordinator()
@@ -125,7 +125,7 @@ namespace Durin::Asset
 	}
 
 	auto PrepareAssetDeletionTransaction(
-		std::span<const FAssetPath> Paths,
+		std::span<const FPackagePath> Paths,
 		std::span<const std::filesystem::path> PhysicalRoots,
 		FAssetDeletionTransaction& OutTransaction,
 		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
@@ -135,19 +135,19 @@ namespace Durin::Asset
 			Paths, PhysicalRoots, OutTransaction, OutBlockers);
 	}
 
-	auto DeleteAssetForTesting(const FAssetPath& Path) -> FAssetResult
+	auto DeleteAssetForTesting(const FPackagePath& Path) -> FAssetResult
 	{
 		return FAssetRuntimeState::Get().GetMutationCoordinator()
 			.DeleteAssetForTesting(Path);
 	}
 
-	auto FindResidentPackage(const FAssetPath& Path) -> DPackage*
+	auto FindResidentPackage(const FPackagePath& Path) -> DPackage*
 	{
 		return FAssetRuntimeState::Get().GetLoadService().FindResidentPackage(Path);
 	}
 
 	auto UnloadPackage(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		EAssetPackageUnloadPolicy Policy) -> FAssetResult
 	{
 		return FAssetRuntimeState::Get().GetLoadService().UnloadPackage(Path, Policy);
@@ -157,9 +157,9 @@ namespace Durin::Asset
 		DPackage* Package,
 		EAssetPackageUnloadPolicy Policy) -> FAssetResult
 	{
-		FAssetPath Path;
+		FPackagePath Path;
 		if (!Package || !Package->IsAssetPackage()
-			|| !FAssetPath::TryCreate(Package->GetPackagePath(), Path))
+			|| !FPackagePath::TryCreate(Package->GetPackagePath(), Path))
 			return {EAssetError::InvalidPackageType,
 				"The package to unload is invalid."};
 		FAssetRuntimeState& State = FAssetRuntimeState::Get();

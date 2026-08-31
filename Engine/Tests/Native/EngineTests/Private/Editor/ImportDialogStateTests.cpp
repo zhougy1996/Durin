@@ -13,7 +13,7 @@ namespace
 	using namespace Durin::Editor;
 	using namespace Durin::Editor::Texture;
 
-	auto EmptyOccupancy(const FAssetPath&) -> FAssetDestinationOccupancy
+	auto EmptyOccupancy(const FPackagePath&) -> FAssetDestinationOccupancy
 	{
 		return {};
 	}

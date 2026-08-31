@@ -7,7 +7,7 @@ namespace Durin::Asset::Private
 {
 	struct FAssetRegistryScanCandidate
 	{
-		std::unordered_map<FAssetPath, FAssetData> Assets;
+		std::unordered_map<FPackagePath, FAssetData> Assets;
 		std::vector<FRegistryCacheEntry> CacheEntries;
 		FAssetRegistryScanStats Stats;
 		std::vector<FAssetResult> Errors;

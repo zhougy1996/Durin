@@ -39,7 +39,7 @@ namespace Durin::Asset::Private
 	struct FMutationJournalStageRequest
 	{
 		std::filesystem::path PhysicalPath;
-		FAssetPath RegistryPath;
+		FPackagePath RegistryPath;
 		EAssetMutationPublicationRole Role =
 			EAssetMutationPublicationRole::RealAsset;
 		bool bPreExists = false;
@@ -53,7 +53,7 @@ namespace Durin::Asset::Private
 	struct FAssetMutationJournalEntry
 	{
 		std::filesystem::path PhysicalPath;
-		FAssetPath RegistryPath;
+		FPackagePath RegistryPath;
 		EAssetMutationPublicationRole Role =
 			EAssetMutationPublicationRole::RealAsset;
 		uint64 PublicationOrder = std::numeric_limits<uint64>::max();

@@ -73,7 +73,7 @@ asset repeats the package leaf as its top-level asset name; inner objects append
 a colon and their relative Outer chain, for example
 `/Game/Objects/Test.Test:Root.Component`.
 
-The mounted `FAssetPath` is part of package validation. DAST v8 includes that
+The mounted `FPackagePath` is part of package validation. DAST v8 includes that
 identity in its canonical name table, and every header, complete-read,
 inspection, mutation, relocation, Cook, and admission call supplies the exact
 identity expected for the physical file. Moving a package therefore requires a
@@ -326,7 +326,7 @@ steps are in [Canonical Resave](../../Editor/Guides/CanonicalResave.md).
 
 ## Subsystem Boundary
 
-- `CoreDObject`: `DPackage`, `FAssetPath`, reflection, Archive semantics,
+- `CoreDObject`: `DPackage`, `FPackagePath`, reflection, Archive semantics,
   linker tables, canonical values/Map keys, and DAST v8 codec.
 - `AssetRegistry`: mounted discovery, bounded v8 front-matter projection,
   package metadata/dependency state, revisions, and rebuildable cache.

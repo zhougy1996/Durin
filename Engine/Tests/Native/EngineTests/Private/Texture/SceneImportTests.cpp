@@ -15,10 +15,10 @@
 
 namespace
 {
-	auto MakeAssetPath(std::string_view Value) -> Durin::FAssetPath
+	auto MakeAssetPath(std::string_view Value) -> Durin::FPackagePath
 	{
-		Durin::FAssetPath Result;
-		EXPECT_TRUE(Durin::FAssetPath::TryCreate(Value, Result));
+		Durin::FPackagePath Result;
+		EXPECT_TRUE(Durin::FPackagePath::TryCreate(Value, Result));
 		return Result;
 	}
 
@@ -33,7 +33,7 @@ namespace
 		std::unique_ptr<FRenderingThreadScope> RenderingThread;
 		std::unique_ptr<Durin::Testing::FScopedMountRegistryFixture> Mounts;
 		std::string Source;
-		Durin::FAssetPath DestinationDirectory;
+		Durin::FPackagePath DestinationDirectory;
 
 		FSceneFixture() = default;
 		FSceneFixture(FSceneFixture&& Other) noexcept

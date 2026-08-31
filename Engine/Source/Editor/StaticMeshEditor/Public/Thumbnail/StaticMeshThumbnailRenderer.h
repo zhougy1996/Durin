@@ -53,14 +53,14 @@ namespace Durin::Editor::StaticMesh
 	{
 	public:
 		FStaticMeshThumbnailRendererGenerationInput(
-			FAssetPath InAssetPath,
+			FPackagePath InAssetPath,
 			::Durin::Editor::FThumbnailVisualContract InVisualContract)
 			: AssetPath(std::move(InAssetPath))
 			, VisualContract(std::move(InVisualContract))
 		{
 		}
 
-		FAssetPath AssetPath;
+		FPackagePath AssetPath;
 		::Durin::Editor::FThumbnailVisualContract VisualContract;
 	};
 

@@ -414,9 +414,9 @@ namespace Durin::Editor::Texture
 
 	auto FTextureImportDialog::BrowseDestination() -> void
 	{
-		FAssetPath CurrentAssetPath;
+		FPackagePath CurrentAssetPath;
 		const std::string DefaultFileName =
-			FAssetPath::TryCreate(Destination.GetPath(), CurrentAssetPath)
+			FPackagePath::TryCreate(Destination.GetPath(), CurrentAssetPath)
 				? std::string(CurrentAssetPath.GetAssetName()) + ".dasset"
 				: "Texture.dasset";
 		Destination.Browse("Choose a Texture Asset Path", DefaultFileName,
@@ -446,7 +446,7 @@ namespace Durin::Editor::Texture
 			SetError(DestinationValidation.Message);
 			return false;
 		}
-		const FAssetPath& AssetPath = DestinationValidation.AssetPath;
+		const FPackagePath& AssetPath = DestinationValidation.AssetPath;
 		const std::string Path = AssetPath.ToString();
 		const FImportDialogCallbacks CompletionCallbacks = Callbacks;
 		if (State.GetAssetType() == ETextureImportAssetType::VolumeTexture)

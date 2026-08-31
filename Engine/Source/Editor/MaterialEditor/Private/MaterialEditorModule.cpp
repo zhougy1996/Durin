@@ -27,13 +27,13 @@ namespace Durin
 		{
 			std::string Directory(VirtualDirectory);
 			if (!Directory.ends_with('/')) Directory += '/';
-			FAssetPath Path;
+			FPackagePath Path;
 			for (int32 Suffix = 0; Suffix < 1000; ++Suffix)
 			{
 				const std::string Name = Suffix == 0
 					? std::string(BaseName)
 					: std::format("{}{}", BaseName, Suffix + 1);
-				if (!FAssetPath::TryCreate(Directory + Name, Path)
+				if (!FPackagePath::TryCreate(Directory + Name, Path)
 					|| Asset::FindAssetExact(Path)
 					|| Asset::FindResidentPackage(Path)) continue;
 				TMaterial* Material = nullptr;

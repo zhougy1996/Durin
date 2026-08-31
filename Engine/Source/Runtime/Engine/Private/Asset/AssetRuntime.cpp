@@ -198,8 +198,8 @@ namespace Durin::Asset
 	{
 		if (!GActiveAssetLoadReport || !Object) return;
 		DPackage* Package = Object->GetPackage();
-		FAssetPath PackagePath;
-		if (Package) FAssetPath::TryCreate(Package->GetPackagePath(), PackagePath);
+		FPackagePath PackagePath;
+		if (Package) FPackagePath::TryCreate(Package->GetPackagePath(), PackagePath);
 		GActiveAssetLoadReport->Mutations.push_back({
 			.PackagePath = std::move(PackagePath),
 			.ObjectPath = Object->GetObjectPath(),
@@ -227,7 +227,7 @@ namespace Durin::Asset
 	{
 	}
 
-	auto FAssetLoadService::CreateAsset(const FAssetPath& Path, DClass* Class, size_t Size, DObject*& OutAsset) -> FAssetResult
+	auto FAssetLoadService::CreateAsset(const FPackagePath& Path, DClass* Class, size_t Size, DObject*& OutAsset) -> FAssetResult
 	{
 		OutAsset = nullptr;
 		if (!bAcceptingRequests)
@@ -270,8 +270,8 @@ namespace Durin::Asset
 	}
 
 	auto FAssetLoadService::DuplicateAsset(
-		const FAssetPath& SourcePath,
-		const FAssetPath& DestinationPath,
+		const FPackagePath& SourcePath,
+		const FPackagePath& DestinationPath,
 		DObject*& OutAsset) -> FAssetResult
 	{
 		OutAsset = nullptr;
@@ -334,8 +334,8 @@ namespace Durin::Asset
 	}
 
 	auto FAssetLoadService::CreateRedirector(
-		const FAssetPath& RedirectorPath,
-		const FAssetPath& DestinationPath,
+		const FPackagePath& RedirectorPath,
+		const FPackagePath& DestinationPath,
 		DAssetRedirector*& OutRedirector) -> FAssetResult
 	{
 		OutRedirector = nullptr;
@@ -388,7 +388,7 @@ namespace Durin::Asset
 	}
 
 	auto FAssetLoadService::LoadAsset(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		DObject*& OutAsset,
 		FAssetLoadReport* OutReport) -> FAssetResult
 	{
@@ -444,7 +444,7 @@ namespace Durin::Asset
 	}
 
 	auto FAssetLoadService::LoadAsset(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		const DClass* ExpectedClass,
 		DObject*& OutAsset,
 		FAssetLoadReport* OutReport) -> FAssetResult
@@ -517,7 +517,7 @@ namespace Durin::Asset
 	}
 
 	auto FAssetLoadService::LoadAssetFromPhysicalPath(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		std::string_view PhysicalPath,
 		const DClass* ExpectedClass,
 		DObject*& OutAsset,
@@ -586,7 +586,7 @@ namespace Durin::Asset
 	}
 
 	auto FAssetLoadService::LoadPackageInternal(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		std::string_view PhysicalPath,
 		DPackage*& OutPackage,
 		FAssetLoadReport* OutReport) -> FAssetResult
@@ -710,7 +710,7 @@ namespace Durin::Asset
 		}
 	}
 
-	auto FAssetLoadService::FindResidentPackage(const FAssetPath& Path) const -> DPackage*
+	auto FAssetLoadService::FindResidentPackage(const FPackagePath& Path) const -> DPackage*
 	{
 		DPackage* Package = FindPackage(Path.GetView());
 		return Package && !Package->IsGarbage() && Package->IsAssetPackage()
@@ -720,17 +720,17 @@ namespace Durin::Asset
 	auto FAssetLoadService::IsPackageReferenced(const DPackage* Package) const -> bool
 	{
 		if (!Package) return false;
-		FAssetPath Path;
-		if (!FAssetPath::TryCreate(Package->GetPackagePath(), Path)) return false;
+		FPackagePath Path;
+		if (!FPackagePath::TryCreate(Package->GetPackagePath(), Path)) return false;
 		for (DPackage* OtherPackage : GetResidentAssetPackages())
 		{
 			if (OtherPackage == Package) continue;
-			FAssetPath OtherPath;
-			if (!FAssetPath::TryCreate(OtherPackage->GetPackagePath(), OtherPath))
+			FPackagePath OtherPath;
+			if (!FPackagePath::TryCreate(OtherPackage->GetPackagePath(), OtherPath))
 				continue;
 			const FAssetCatalogEntry Data = FindAssetExact(OtherPath);
 			if (!Data) continue;
-			for (const FAssetPath& Dependency : Data->Dependencies)
+			for (const FPackagePath& Dependency : Data->Dependencies)
 			{
 				const FAssetPathResolveResult Resolution = Durin::Asset::ResolveAssetPath(Dependency);
 				if (Resolution && Resolution.FinalPath == Path) return true;
@@ -740,7 +740,7 @@ namespace Durin::Asset
 	}
 
 	auto FAssetLoadService::UnloadPackage(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		EAssetPackageUnloadPolicy Policy) -> FAssetResult
 	{
 		DPackage* Package = FindResidentPackage(Path);
@@ -772,11 +772,11 @@ namespace Durin::Asset
 		FAssetPackageLoadSnapshot Snapshot;
 		for (DPackage* Package : GetResidentAssetPackages())
 		{
-			FAssetPath Path;
-			if (FAssetPath::TryCreate(Package->GetPackagePath(), Path))
+			FPackagePath Path;
+			if (FPackagePath::TryCreate(Package->GetPackagePath(), Path))
 				Snapshot.ResidentPackages.push_back(std::move(Path));
 		}
-		std::ranges::sort(Snapshot.ResidentPackages, {}, [](const FAssetPath& Path) {
+		std::ranges::sort(Snapshot.ResidentPackages, {}, [](const FPackagePath& Path) {
 			return Path.ToString();
 		});
 		return Snapshot;
@@ -788,7 +788,7 @@ namespace Durin::Asset
 		if (LoadDepth != 0 || !LoadingPackages.empty())
 			return Error(EAssetError::InUse, "A package load is still in progress.");
 
-		std::unordered_set<FAssetPath> Protected(
+		std::unordered_set<FPackagePath> Protected(
 			Snapshot.ResidentPackages.begin(), Snapshot.ResidentPackages.end());
 		bool bChanged = true;
 		while (bChanged)
@@ -796,12 +796,12 @@ namespace Durin::Asset
 			bChanged = false;
 			for (DPackage* Package : GetResidentAssetPackages())
 			{
-				FAssetPath Path;
-				if (!FAssetPath::TryCreate(Package->GetPackagePath(), Path)) continue;
+				FPackagePath Path;
+				if (!FPackagePath::TryCreate(Package->GetPackagePath(), Path)) continue;
 				if (!Protected.contains(Path)) continue;
 				const FAssetCatalogEntry Data = FindAssetExact(Path);
 				if (!Data) continue;
-				for (const FAssetPath& Dependency : Data->Dependencies)
+				for (const FPackagePath& Dependency : Data->Dependencies)
 				{
 					const FAssetPathResolveResult Resolution = Durin::Asset::ResolveAssetPath(Dependency);
 					if (Resolution) bChanged |= Protected.insert(Resolution.FinalPath).second;
@@ -810,18 +810,18 @@ namespace Durin::Asset
 		}
 
 		std::vector<DPackage*> ReleasedPackages;
-		std::vector<FAssetPath> ReleasedPaths;
+		std::vector<FPackagePath> ReleasedPaths;
 		for (DPackage* Package : GetResidentAssetPackages())
 		{
-			FAssetPath Path;
-			if (!FAssetPath::TryCreate(Package->GetPackagePath(), Path)
+			FPackagePath Path;
+			if (!FPackagePath::TryCreate(Package->GetPackagePath(), Path)
 				|| Protected.contains(Path)
 				|| Package->IsNewlyCreated()
 				|| Package->IsDirty()) continue;
 			ReleasedPackages.push_back(Package);
 			ReleasedPaths.push_back(std::move(Path));
 		}
-		for (const FAssetPath& Path : ReleasedPaths)
+		for (const FPackagePath& Path : ReleasedPaths)
 			GetPackageResourceManager().RetirePackage(Path.ToString());
 		for (DPackage* Package : ReleasedPackages)
 		{
@@ -888,7 +888,7 @@ namespace Durin::Asset
 					.State = ESoftObjectResolveState::Null};
 		}
 
-		const FAssetPath& Path = Reference.GetPath().GetPackagePath();
+		const FPackagePath& Path = Reference.GetPath().GetPackagePath();
 		const FAssetPathResolveResult Resolution = Durin::Asset::ResolveAssetPath(
 			Path, {.ExpectedClass = ExpectedClass});
 		if (!Resolution)
@@ -1007,7 +1007,7 @@ namespace Durin::Asset
 		}
 
 		DObject* LoadedObject = nullptr;
-		const FAssetPath& Path = Reference.GetPath().GetPackagePath();
+		const FPackagePath& Path = Reference.GetPath().GetPackagePath();
 		const FPackagePath& LoadedPackagePath = Resolved.ResolvedPath.IsValid()
 			? Resolved.ResolvedPath : Path;
 		FObjectPath ResolvedObjectPath;

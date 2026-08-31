@@ -8,8 +8,10 @@
 
 namespace Durin
 {
-	inline constexpr std::string_view DefaultMaterialAssetPath =
+	inline constexpr std::string_view DefaultMaterialPackagePath =
 		"/Engine/Materials/DefaultMaterial";
+	inline constexpr std::string_view DefaultMaterialObjectPath =
+		"/Engine/Materials/DefaultMaterial.DefaultMaterial";
 
 	// Engine-owned lifetime boundary for the authored default material. The
 	// service never performs lazy loads; an empty proxy means initialization

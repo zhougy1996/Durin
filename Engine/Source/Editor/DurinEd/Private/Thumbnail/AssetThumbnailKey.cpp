@@ -17,7 +17,7 @@ namespace Durin::Editor
 		}
 	} // namespace
 	auto BuildAssetThumbnailDependencyClosure(
-		const FAssetPath& Root,
+		const FPackagePath& Root,
 		std::span<const FAssetThumbnailDependencyNode> RegistrySnapshot,
 		std::vector<FAssetThumbnailPackageFingerprint>& OutDependencies,
 		std::string& OutError) -> bool
@@ -65,7 +65,7 @@ namespace Durin::Editor
 
 			std::vector<std::string_view> SortedDependencies;
 			SortedDependencies.reserve(Node->Dependencies.size());
-			for (const FAssetPath& Dependency : Node->Dependencies)
+			for (const FPackagePath& Dependency : Node->Dependencies)
 				SortedDependencies.push_back(Dependency.GetView());
 			std::ranges::sort(SortedDependencies);
 

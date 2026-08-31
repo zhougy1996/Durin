@@ -48,7 +48,7 @@ namespace
 		std::filesystem::path Root;
 		std::filesystem::path CacheRoot;
 		std::filesystem::path SourcePath;
-		Durin::FAssetPath AssetPath;
+		Durin::FPackagePath AssetPath;
 		Durin::DStaticMesh* Mesh = nullptr;
 	};
 
@@ -64,7 +64,7 @@ namespace
 		Durin::Testing::RegisterMountPointForTests(
 			Mount, (Fixture.Root / "Content").generic_string() + "/");
 		Durin::FPaths::SetDerivedDataCacheDirForTests(Fixture.CacheRoot.generic_string());
-		EXPECT_TRUE(Durin::FAssetPath::TryCreate(Mount + "Mesh", Fixture.AssetPath));
+		EXPECT_TRUE(Durin::FPackagePath::TryCreate(Mount + "Mesh", Fixture.AssetPath));
 		const auto Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "MultiSection.gltf";
 		Fixture.SourcePath = Fixture.Root / "Sources/Mesh.gltf";
 		std::filesystem::create_directories(Fixture.SourcePath.parent_path());
@@ -295,8 +295,8 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 		EXPECT_FALSE(std::filesystem::exists(
 			SecondCookRoot / "Game/CookedCollisionMesh.dbulk"));
 		Durin::Asset::FAssetPackageInspection Inspection;
-		Durin::FAssetPath CookedPath;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreateProjectContent(
+		Durin::FPackagePath CookedPath;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreateProjectContent(
 			"/Game/CookedCollisionMesh", CookedPath));
 		ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
 			(CookRoot / "Game/CookedCollisionMesh.dasset").generic_string(),
@@ -310,8 +310,8 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedCollisionCompanionIsDeterministicAn
 			"/Game/", (CookRoot / "Game").generic_string() + "/");
 		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));
-		Durin::FAssetPath Path;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedCollisionMesh", Path));
+		Durin::FPackagePath Path;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedCollisionMesh", Path));
 		Durin::DStaticMesh* CookedMesh = nullptr;
 		const Durin::Asset::FAssetResult Loaded =
 			Durin::Asset::LoadAsset(Path, CookedMesh);
@@ -370,8 +370,8 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 		EXPECT_FALSE(std::filesystem::exists(
 			SecondCookRoot / "Game/CookedMesh.dbulk"));
 		Durin::Asset::FAssetPackageInspection Inspection;
-		Durin::FAssetPath CookedPath;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreateProjectContent(
+		Durin::FPackagePath CookedPath;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreateProjectContent(
 			"/Game/CookedMesh", CookedPath));
 		ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
 			(CookRoot / "Game/CookedMesh.dasset").generic_string(),
@@ -384,8 +384,8 @@ TEST(FStaticMeshDerivedDataCacheTests, CookedPackageLoadsWithoutSourceOrDerivedD
 			"/Game/", (CookRoot / "Game").generic_string() + "/");
 		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));
-		Durin::FAssetPath Path;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedMesh", Path));
+		Durin::FPackagePath Path;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedMesh", Path));
 		Durin::DStaticMesh* CookedMesh = nullptr;
 		const Durin::Asset::FAssetResult Loaded =
 			Durin::Asset::LoadAsset(Path, CookedMesh);

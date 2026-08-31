@@ -205,8 +205,8 @@ TEST_F(FContentBrowserModelTests, RejectsUnavailableDirectoryWithoutFilesystemEx
 TEST_F(FContentBrowserModelTests, RoutesStaticMeshAssetsToThumbnails)
 {
 	InitializeDObjectSystem();
-	FAssetPath AssetPath;
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	FPackagePath AssetPath;
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/ThumbnailMesh", AssetPath));
 	const Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> Imported = AssetForge::Builtins::ImportStaticMeshForTest(
 		(std::filesystem::path(DURIN_TEST_DATA_DIR)
@@ -332,11 +332,11 @@ TEST_F(FContentBrowserModelTests, ListsGameMountBeforeEngineMount)
 TEST_F(FContentBrowserModelTests, RelocationUsesOneSharedUndoRedoTransaction)
 {
 	InitializeDObjectSystem();
-	FAssetPath SourcePath;
-	FAssetPath DestinationPath;
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	FPackagePath SourcePath;
+	FPackagePath DestinationPath;
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/TransactionalSource", SourcePath));
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/Folder/TransactionalDestination",
 		DestinationPath));
 	DMaterial* Material = nullptr;
@@ -390,8 +390,8 @@ TEST_F(FContentBrowserModelTests, SearchesRecursivelyButBrowsesImmediateChildren
 TEST_F(FContentBrowserModelTests, RevealAssetClearsFiltersAndPublishesTarget)
 {
 	InitializeDObjectSystem();
-	FAssetPath AssetPath;
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	FPackagePath AssetPath;
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/A/RevealTarget", AssetPath));
 	DMaterial* Material = nullptr;
 	ASSERT_TRUE(Asset::CreateAsset(AssetPath, Material));
@@ -718,8 +718,8 @@ TEST_F(FContentBrowserModelTests, HidesRedirectorsButPreservesFoldersAndSupports
 {
 	const std::string RootPath =
 		std::filesystem::absolute(Root / "Content").lexically_normal().generic_string();
-	FAssetPath Destination;
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	FPackagePath Destination;
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/Final/Stone", Destination));
 	FContentBrowserModel Model;
 	Model.SetSnapshotForTesting(
@@ -837,14 +837,14 @@ TEST_F(FContentBrowserModelTests, OperationsRejectCollisionsAndUnmanagedFolders)
 TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName)
 {
 	InitializeDObjectSystem();
-	FAssetPath SourcePath;
-	FAssetPath DuplicatePath;
-	FAssetPath PastedPath;
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	FPackagePath SourcePath;
+	FPackagePath DuplicatePath;
+	FPackagePath PastedPath;
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/Original", SourcePath));
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/Original_Copy2", DuplicatePath));
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/A/Original", PastedPath));
 	DMaterial* Material = nullptr;
 	ASSERT_TRUE(Asset::CreateAsset(SourcePath, Material));
@@ -902,8 +902,8 @@ TEST_F(FContentBrowserModelTests, DuplicatesAssetGraphWithFirstAvailableCopyName
 TEST_F(FContentBrowserModelTests, UnclaimedSameStemFileRenamesIndependently)
 {
 	InitializeDObjectSystem();
-	FAssetPath AssetPath;
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	FPackagePath AssetPath;
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/Independent", AssetPath));
 	DMaterial* Material = nullptr;
 	ASSERT_TRUE(Asset::CreateAsset(AssetPath, Material));
@@ -942,8 +942,8 @@ TEST_F(FContentBrowserModelTests, OwnedCompanionIsProtectedAndCommittedFolderMov
 	InitializeDObjectSystem();
 	const std::filesystem::path Folder = Root / "Content/OwnedFolder";
 	std::filesystem::create_directories(Folder);
-	FAssetPath AssetPath;
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	FPackagePath AssetPath;
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/OwnedFolder/Owned", AssetPath));
 	DMaterial* Material = nullptr;
 	ASSERT_TRUE(Asset::CreateAsset(AssetPath, Material));
@@ -1015,11 +1015,11 @@ TEST_F(FContentBrowserModelTests, FolderRenameSucceedsWithWarningAfterInjectedCl
 	InitializeDObjectSystem();
 	const std::filesystem::path Folder = Root / "Content/CleanupSource";
 	std::filesystem::create_directories(Folder);
-	FAssetPath SourcePath;
-	FAssetPath DestinationPath;
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	FPackagePath SourcePath;
+	FPackagePath DestinationPath;
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/CleanupSource/Asset", SourcePath));
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/CleanupDestination/Asset", DestinationPath));
 	DMaterial* Material = nullptr;
 	ASSERT_TRUE(Asset::CreateAsset(SourcePath, Material));
@@ -1398,12 +1398,12 @@ TEST(FContentDeletionAnalysisTests, RejectsReadOnlyMountBeforeMutation)
 TEST_F(FContentBrowserModelTests, BatchAnalysisExcludesInternalReferences)
 {
 	InitializeDObjectSystem();
-	FAssetPath BasePath;
-	FAssetPath InternalPath;
-	FAssetPath ExternalPath;
-	ASSERT_TRUE(FAssetPath::TryCreate("/ContentBrowserTests/Base", BasePath));
-	ASSERT_TRUE(FAssetPath::TryCreate("/ContentBrowserTests/Internal", InternalPath));
-	ASSERT_TRUE(FAssetPath::TryCreate("/ContentBrowserTests/External", ExternalPath));
+	FPackagePath BasePath;
+	FPackagePath InternalPath;
+	FPackagePath ExternalPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/Base", BasePath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/Internal", InternalPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/ContentBrowserTests/External", ExternalPath));
 	DMaterial* Base = nullptr;
 	DMaterialInstance* Internal = nullptr;
 	DMaterialInstance* External = nullptr;
@@ -1470,11 +1470,11 @@ TEST_F(FContentBrowserModelTests, BatchAnalysisBlocksAmbiguousCompanionOwnership
 	ASSERT_NE(Contributor, 0);
 	FContributorReset Reset{Contributor};
 
-	FAssetPath FirstPath;
-	FAssetPath SecondPath;
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	FPackagePath FirstPath;
+	FPackagePath SecondPath;
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/CompanionFirst", FirstPath));
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/CompanionSecond", SecondPath));
 	DMaterial* First = nullptr;
 	DMaterial* Second = nullptr;
@@ -1511,11 +1511,11 @@ TEST_F(FContentBrowserModelTests, BatchAnalysisBlocksAmbiguousCompanionOwnership
 TEST_F(FContentBrowserModelTests, BatchRevalidationDetectsNewExternalReference)
 {
 	InitializeDObjectSystem();
-	FAssetPath BasePath;
-	FAssetPath ExternalPath;
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	FPackagePath BasePath;
+	FPackagePath ExternalPath;
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/RevalidateBase", BasePath));
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/RevalidateExternal", ExternalPath));
 	DMaterial* Base = nullptr;
 	ASSERT_TRUE(Asset::CreateAsset(BasePath, Base));
@@ -1625,8 +1625,8 @@ TEST_F(FContentBrowserModelTests, RejectsExternalCompanionOutsideContentMount)
 		Asset::FAssetDeleteContributorHandle Handle = 0;
 		~FContributorReset() { Asset::UnregisterAssetDeleteContributor(Handle); }
 	};
-	FAssetPath AssetPath;
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	FPackagePath AssetPath;
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/UnsafeCompanion/Material", AssetPath));
 	const Asset::FAssetDeleteContributorHandle Contributor =
 		Asset::RegisterAssetDeleteContributor(
@@ -1701,8 +1701,8 @@ TEST_F(FContentBrowserModelTests, RejectsExternalCompanionReparsePoint)
 		Asset::FAssetDeleteContributorHandle Handle = 0;
 		~FContributorReset() { Asset::UnregisterAssetDeleteContributor(Handle); }
 	};
-	FAssetPath AssetPath;
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	FPackagePath AssetPath;
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/ReparseCompanion/Material", AssetPath));
 	const Asset::FAssetDeleteContributorHandle Contributor =
 		Asset::RegisterAssetDeleteContributor(
@@ -1766,8 +1766,8 @@ TEST_F(FContentBrowserModelTests, MixedFolderAndExternalCompanionRoundTripAsOneT
 		Asset::FAssetDeleteContributorHandle Handle = 0;
 		~FContributorReset() { Asset::UnregisterAssetDeleteContributor(Handle); }
 	};
-	FAssetPath AssetPath;
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	FPackagePath AssetPath;
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/Mixed/Nested/Material", AssetPath));
 	const Asset::FAssetDeleteContributorHandle Contributor =
 	Asset::RegisterAssetDeleteContributor(
@@ -1825,8 +1825,8 @@ TEST_F(FContentBrowserModelTests, MixedFolderAndExternalCompanionRoundTripAsOneT
 TEST_F(FContentBrowserModelTests, DeletionTransactionPreservesRegistryWithoutResidency)
 {
 	InitializeDObjectSystem();
-	FAssetPath AssetPath;
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	FPackagePath AssetPath;
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/TransactionalMaterial", AssetPath));
 	DMaterial* Material = nullptr;
 	ASSERT_TRUE(Asset::CreateAsset(AssetPath, Material));
@@ -1886,11 +1886,11 @@ TEST_F(FContentBrowserModelTests, DeletionTransactionPreservesRegistryWithoutRes
 TEST_F(FContentBrowserModelTests, RedirectorDeletionRequiresClosureAndUndoRestoresExactAlias)
 {
 	InitializeDObjectSystem();
-	FAssetPath OldPath;
-	FAssetPath FinalPath;
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	FPackagePath OldPath;
+	FPackagePath FinalPath;
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/DeleteRedirectOld", OldPath));
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/ContentBrowserTests/DeleteRedirectFinal", FinalPath));
 	DMaterial* Material = nullptr;
 	ASSERT_TRUE(Asset::CreateAsset(OldPath, Material));

@@ -22,15 +22,15 @@ namespace Durin::Editor
 		bool bResidentPackageNewlyCreated = false;
 		EAssetDestinationOccupantKind OccupantKind =
 			EAssetDestinationOccupantKind::None;
-		FAssetPath RedirectDestination;
+		FPackagePath RedirectDestination;
 	};
 
-	using FAssetDestinationOccupancyQuery = FAssetDestinationOccupancy (*)(const FAssetPath&);
+	using FAssetDestinationOccupancyQuery = FAssetDestinationOccupancy (*)(const FPackagePath&);
 
 	// Carries the complete side-effect-free decision for one editor asset destination.
 	struct FAssetDestinationValidation
 	{
-		FAssetPath AssetPath;
+		FPackagePath AssetPath;
 		const FMountPoint* Mount = nullptr;
 		std::filesystem::path PhysicalPath;
 		bool bAssetPathValid = false;
@@ -41,7 +41,7 @@ namespace Durin::Editor
 		bool bResidentPackageNewlyCreated = false;
 		EAssetDestinationOccupantKind OccupantKind =
 			EAssetDestinationOccupantKind::None;
-		FAssetPath RedirectDestination;
+		FPackagePath RedirectDestination;
 		std::string Message;
 
 		auto AssetExists() const -> bool
@@ -58,7 +58,7 @@ namespace Durin::Editor
 	// Carries the side-effect-free resolution of one virtual asset directory.
 	struct FContentDirectoryValidation
 	{
-		FAssetPath DirectoryPath;
+		FPackagePath DirectoryPath;
 		const FMountPoint* Mount = nullptr;
 		std::filesystem::path PhysicalPath;
 		bool bDirectoryPathValid = false;

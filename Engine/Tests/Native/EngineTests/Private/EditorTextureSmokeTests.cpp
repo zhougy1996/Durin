@@ -99,14 +99,14 @@ namespace Durin
 		const Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> MeshImport = AssetForge::Builtins::ImportStaticMeshForTest(
 			MeshSource.generic_string(), "/EditorMixedV4/Meshes/VisibleMesh");
 		ASSERT_TRUE(MeshImport) << MeshImport.Message;
-		FAssetPath MaterialPath;
-		FAssetPath MeshPath;
-		FAssetPath TexturePath;
-		ASSERT_TRUE(FAssetPath::TryCreate(
+		FPackagePath MaterialPath;
+		FPackagePath MeshPath;
+		FPackagePath TexturePath;
+		ASSERT_TRUE(FPackagePath::TryCreate(
 			"/EditorMixedV4/Materials/Textured", MaterialPath));
-		ASSERT_TRUE(FAssetPath::TryCreate(
+		ASSERT_TRUE(FPackagePath::TryCreate(
 			"/EditorMixedV4/Meshes/VisibleMesh", MeshPath));
-		ASSERT_TRUE(FAssetPath::TryCreate(
+		ASSERT_TRUE(FPackagePath::TryCreate(
 			"/EditorMixedV4/Textures/BaseColor", TexturePath));
 		DMaterial* Material = nullptr;
 		ASSERT_TRUE(Asset::CreateAsset(MaterialPath, Material));
@@ -118,7 +118,7 @@ namespace Durin
 		ASSERT_TRUE(Asset::UnloadPackage(MaterialPath));
 		ASSERT_TRUE(Asset::UnloadPackage(MeshPath));
 		ASSERT_TRUE(Asset::UnloadPackage(TexturePath));
-		for (const FAssetPath& Path : {MaterialPath, MeshPath, TexturePath})
+		for (const FPackagePath& Path : {MaterialPath, MeshPath, TexturePath})
 		{
 			const Asset::FAssetCatalogEntry Data =
 				Asset::FindAssetExact(Path);
@@ -268,8 +268,8 @@ namespace Durin
 		ASSERT_TRUE(MeshImport) << MeshImport.Message;
 		ASSERT_NE(MeshImport.Asset, nullptr);
 
-		FAssetPath MaterialPath;
-		ASSERT_TRUE(FAssetPath::TryCreate("/EditorTextureSmoke/Materials/Textured", MaterialPath));
+		FPackagePath MaterialPath;
+		ASSERT_TRUE(FPackagePath::TryCreate("/EditorTextureSmoke/Materials/Textured", MaterialPath));
 		DMaterial* Material = nullptr;
 		ASSERT_TRUE(Asset::CreateAsset(MaterialPath, Material));
 		FMaterialProgramValidationResult ProgramValidation;
@@ -341,11 +341,11 @@ namespace Durin
 		EXPECT_EQ(
 			CaptureMaterialTextureReference().GetReference(),
 			StableTextureReference);
-		FAssetPath MeshPath;
-		FAssetPath TexturePath;
-		ASSERT_TRUE(FAssetPath::TryCreate(
+		FPackagePath MeshPath;
+		FPackagePath TexturePath;
+		ASSERT_TRUE(FPackagePath::TryCreate(
 			"/EditorTextureSmoke/Meshes/VisibleMesh", MeshPath));
-		ASSERT_TRUE(FAssetPath::TryCreate(
+		ASSERT_TRUE(FPackagePath::TryCreate(
 			"/EditorTextureSmoke/Textures/BaseColor", TexturePath));
 
 		auto CommandStarted = std::make_shared<std::promise<void>>();
@@ -451,8 +451,8 @@ namespace Durin
 			});
 		CommandStartedFuture.wait();
 
-		FAssetPath TexturePath;
-		ASSERT_TRUE(FAssetPath::TryCreate(
+		FPackagePath TexturePath;
+		ASSERT_TRUE(FPackagePath::TryCreate(
 			"/TextureOwnershipSmoke/Texture", TexturePath));
 		const Asset::FAssetResult Unload = Asset::UnloadPackage(TexturePath);
 		AllowCommandCompletion->set_value();

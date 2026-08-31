@@ -103,8 +103,8 @@ TEST(FSplineMeshComponentTests, BuiltInSplineBoxProvidesLongitudinalDeformationS
 	ASSERT_TRUE(Asset::RefreshAssetRegistry());
 	FModuleManager::Get().LoadModuleChecked("StaticMeshBuild");
 	FModuleManager::Get().LoadModuleChecked("AssetForgeBuiltins");
-	FAssetPath Path;
-	ASSERT_TRUE(FAssetPath::TryCreate("/Engine/Models/SplineBox", Path));
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/Engine/Models/SplineBox", Path));
 	DStaticMesh* Mesh = nullptr;
 	const Asset::FAssetResult LoadResult = Asset::LoadAsset(Path, Mesh);
 	ASSERT_TRUE(LoadResult) << LoadResult.Message;
@@ -346,8 +346,8 @@ TEST(FSplineMeshComponentTests, LevelPackageRoundTripsAuthoredFieldsAndRebuildsD
 		Testing::RemoveTestWorkDirectory(Root);
 		Testing::RegisterMountPointForTests("/SplineMeshComponentTests/", Root.generic_string() + "/");
 	}
-	FAssetPath Path;
-	ASSERT_TRUE(FAssetPath::TryCreate("/SplineMeshComponentTests/RoundTrip", Path));
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/SplineMeshComponentTests/RoundTrip", Path));
 	DLevel* Level = nullptr;
 	const std::filesystem::path Source = std::filesystem::path(DURIN_TEST_DATA_DIR) / "Triangle.obj";
 	Durin::Testing::TFactoryImportResult<Durin::DStaticMesh> MeshImport = AssetForge::Builtins::ImportStaticMeshForTest(
@@ -394,8 +394,8 @@ TEST(FSplineMeshActorTests, ReconcilesStableGuidSegmentsFromSplineMutations)
 		Testing::RemoveTestWorkDirectory(Root);
 		Testing::RegisterMountPointForTests("/SplineMeshActorTests/", Root.generic_string() + "/");
 	}
-	FAssetPath Path;
-	ASSERT_TRUE(FAssetPath::TryCreate("/SplineMeshActorTests/Reconciliation", Path));
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/SplineMeshActorTests/Reconciliation", Path));
 	DLevel* Level = nullptr;
 	ASSERT_TRUE(Asset::CreateAsset(Path, Level));
 	auto* Actor = Level->SpawnActor<ASplineMeshActor>("SplineMeshActor");

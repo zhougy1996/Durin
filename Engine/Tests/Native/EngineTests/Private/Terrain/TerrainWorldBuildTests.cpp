@@ -88,8 +88,8 @@ namespace
 		Testing::RegisterMountPointForTests(
 			"/TerrainWorld/", Content.generic_string() + "/"
 		);
-		FAssetPath Path;
-		requiref(FAssetPath::TryCreate("/TerrainWorld/PackageTemplate", Path), "Terrain World test package path must be valid.");
+		FPackagePath Path;
+		requiref(FPackagePath::TryCreate("/TerrainWorld/PackageTemplate", Path), "Terrain World test package path must be valid.");
 		DObject* Object = nullptr;
 		const Asset::FAssetResult Created = Asset::CreateAsset(Path, Object);
 		requiref(Created && Object, "{}", Created.Message);
@@ -538,8 +538,8 @@ TEST(FTerrainWorldBuildTests, CookSupportsPartialInstallAndSourceAndDdcFreeProdu
 	ASSERT_TRUE(ContributeTerrainWorldToCook(
 		CookRequest, Cook, CookedManifest, Outcome, Error
 	)) << Error;
-	FAssetPath PackageTemplatePath;
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	FPackagePath PackageTemplatePath;
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/TerrainWorld/PackageTemplate", PackageTemplatePath));
 	ASSERT_TRUE(Cook.AddPackage(
 		"/Game/Metadata", PackageTemplatePath,

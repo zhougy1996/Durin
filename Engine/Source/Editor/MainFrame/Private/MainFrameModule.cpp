@@ -95,10 +95,10 @@ namespace Durin::Editor::MainFrame
 
 		namespace
 		{
-		auto LoadReimportObject(std::string_view AssetPath, FAssetPath& OutPath,
+		auto LoadReimportObject(std::string_view AssetPath, FPackagePath& OutPath,
 			DObject*& OutObject, std::string& OutError) -> bool
 		{
-			if (!FAssetPath::TryCreate(AssetPath, OutPath))
+			if (!FPackagePath::TryCreate(AssetPath, OutPath))
 			{
 				OutError = "The selected asset path is invalid.";
 				return false;
@@ -188,7 +188,7 @@ namespace Durin::Editor::MainFrame
 		auto ExecuteReimport(bool bFromFile, std::string AssetPath,
 			std::function<void(std::string)> ReportError) -> void
 		{
-			FAssetPath Path;
+			FPackagePath Path;
 			DObject* Object = nullptr;
 			std::string Error;
 			if (!LoadReimportObject(AssetPath, Path, Object, Error))
@@ -415,7 +415,7 @@ namespace Durin::Editor::MainFrame
 									false, "The editor transactor is unavailable."};
 						},
 						.FixUpRedirectors = [](
-							std::span<const FAssetPath> Redirectors) {
+							std::span<const FPackagePath> Redirectors) {
 							if (!GEditor)
 								return ContentBrowser::FActionResult{
 									false, "The editor transactor is unavailable."};
@@ -427,8 +427,8 @@ namespace Durin::Editor::MainFrame
 								static_cast<bool>(Result), Result.Message};
 						},
 						.QueryReimport = [](std::string_view AssetPath) {
-							FAssetPath Path;
-							if (!FAssetPath::TryCreate(AssetPath, Path))
+							FPackagePath Path;
+							if (!FPackagePath::TryCreate(AssetPath, Path))
 								return ContentBrowser::FReimportAvailability{};
 							DPackage* ExistingPackage = Asset::FindResidentPackage(Path);
 							DObject* Object = nullptr;
@@ -1104,7 +1104,7 @@ namespace Durin::Editor::MainFrame
 			DrawProfilingToolStatusDialog(
 				ViewState.bProfilingStatusOpen, ViewState.ProfilingStatusMessage);
 			AssetCompatibilityWindow.Draw(ViewState.bAssetCompatibilityOpen,
-				[&ContentBrowserTool, &ViewState](const FAssetPath& Path) {
+				[&ContentBrowserTool, &ViewState](const FPackagePath& Path) {
 					ViewState.bContentBrowserOpen = true;
 					(void)ContentBrowserTool.RevealAsset(Path.ToString());
 					(void)ContentBrowserTool.RequestFocus();

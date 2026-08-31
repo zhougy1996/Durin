@@ -102,8 +102,8 @@ namespace Durin::Editor::ContentBrowser::Private
 				.bContentWritable = true}};
 		Testing::FScopedMountRegistryFixture Registry(Definitions);
 		ASSERT_TRUE(Registry.IsValid()) << Registry.GetError();
-		FAssetPath CubePath;
-		ASSERT_TRUE(FAssetPath::TryCreate(
+		FPackagePath CubePath;
+		ASSERT_TRUE(FPackagePath::TryCreate(
 			"/ContentBrowserTextureCubeDetails/Sky", CubePath));
 		constexpr std::array<std::string_view, TextureCubeFaceCount> FaceNames{
 			"PositiveX", "NegativeX", "PositiveY", "NegativeY", "PositiveZ", "NegativeZ"};

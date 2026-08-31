@@ -442,7 +442,7 @@ namespace Durin::Asset::PackageObjectStream
 
 		auto GatherCanonicalizationEvidence(
 			const FDecodedPackage& Package,
-			const FAssetPath& PackagePath)
+			const FPackagePath& PackagePath)
 			-> std::vector<FAssetCanonicalizationEvidence>
 		{
 			std::vector<FAssetCanonicalizationEvidence> Result;
@@ -583,7 +583,7 @@ namespace Durin::Asset::PackageObjectStream
 
 		auto GatherNestedDeprecatedRouteEvidence(const FDecodedType& Type, const FValue& Value,
 			const FDecodedPackage& Package,
-			std::span<const std::pair<FGuid, int32>> Versions, const FAssetPath& PackagePath,
+			std::span<const std::pair<FGuid, int32>> Versions, const FPackagePath& PackagePath,
 			std::string_view ObjectPath, std::vector<FAssetDeprecatedRouteEvidence>& Out) -> void
 		{
 			if (Type.Opcode == ETypeOpcode::Struct)
@@ -670,7 +670,7 @@ namespace Durin::Asset::PackageObjectStream
 		CollectGarbage();
 	}
 
-	auto LoadDecodedAssetPackage(FDecodedPackage Decoded, const FAssetPath& PackagePath,
+	auto LoadDecodedAssetPackage(FDecodedPackage Decoded, const FPackagePath& PackagePath,
 		FLoadedAssetPackage& OutPackage, FAssetLoadReport* OutReport,
 		const FLiveLoadOptions& Options, FReaderDiagnostic* OutDiagnostic) -> FAssetResult
 	{
@@ -834,13 +834,13 @@ namespace Durin::Asset::PackageObjectStream
 				Fail(Diagnostic, EReaderFailure::MissingDependency, "Injected dependency failure."); Rollback();
 				return Finish({EAssetError::MissingDependency, Diagnostic.Message});
 			}
-			FAssetPath Path; std::string PathError;
-			if (!FAssetPath::TryCreate(Decoded.Header.Dependencies[Index], Path, &PathError))
+			FPackagePath Path; std::string PathError;
+			if (!FPackagePath::TryCreate(Decoded.Header.Dependencies[Index], Path, &PathError))
 			{
 				Fail(Diagnostic, EReaderFailure::MissingDependency, PathError); Rollback();
 				return Finish({EAssetError::InvalidPath, Diagnostic.Message});
 			}
-			DObject* Dependency = nullptr; FAssetResult Result = LoadAsset(Path, Dependency);
+			DPackage* Dependency = nullptr; FAssetResult Result = LoadPackage(Path, Dependency);
 			if (!Result)
 			{
 				Fail(Diagnostic, EReaderFailure::MissingDependency, Result.Message); Rollback();

@@ -205,11 +205,11 @@ namespace Durin::Editor::ContentBrowser::Private
 		if (Item.Kind == EContentBrowserItemKind::Asset)
 		{
 			const size_t Slash = Item.VirtualPath.find_last_of('/');
-			FAssetPath OldPath;
-			FAssetPath NewPath;
-			if (!FAssetPath::TryCreate(Item.VirtualPath, OldPath)
+			FPackagePath OldPath;
+			FPackagePath NewPath;
+			if (!FPackagePath::TryCreate(Item.VirtualPath, OldPath)
 				|| Slash == std::string::npos
-				|| !FAssetPath::TryCreate(
+				|| !FPackagePath::TryCreate(
 					Item.VirtualPath.substr(0, Slash + 1) + std::string(NewName),
 					NewPath))
 				return Failure(
@@ -305,8 +305,8 @@ namespace Durin::Editor::ContentBrowser::Private
 			return Failure(
 				Asset::EAssetError::InvalidPackageType,
 				"Only real assets can be duplicated.");
-		FAssetPath SourcePath;
-		if (!FAssetPath::TryCreate(Item.VirtualPath, SourcePath))
+		FPackagePath SourcePath;
+		if (!FPackagePath::TryCreate(Item.VirtualPath, SourcePath))
 			return Failure(
 				Asset::EAssetError::InvalidPath,
 				"The source asset path is invalid.");
@@ -319,7 +319,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	}
 
 	auto FContentBrowserOperations::Duplicate(
-		const FAssetPath& SourcePath,
+		const FPackagePath& SourcePath,
 		std::string_view DestinationDirectory)
 		-> FContentBrowserOperationResult
 	{
@@ -352,7 +352,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		const FAssetOperationResult Result = IAssetTools::Get().DuplicateAsset({
 			.SourcePath = SourcePath,
 			.DestinationDirectory = Directory,
-			.ResolvePhysicalPackagePath = [this](const FAssetPath& Path) {
+			.ResolvePhysicalPackagePath = [this](const FPackagePath& Path) {
 				return Model.VirtualToPhysical(Path.ToString() + ".dasset");
 			},
 			.Publish = [this](const FAssetOperationNotification&) {
@@ -420,8 +420,8 @@ namespace Durin::Editor::ContentBrowser::Private
 					Asset::EAssetError::InvalidPath,
 					"An asset inside the folder has an inconsistent virtual path."};
 
-			FAssetPath NewPath;
-			if (!FAssetPath::TryCreate(
+			FPackagePath NewPath;
+			if (!FPackagePath::TryCreate(
 					NewVirtual
 						+ std::string(Path.GetView().substr(OldVirtual.size())),
 					NewPath))
@@ -666,11 +666,11 @@ namespace Durin::Editor::ContentBrowser::Private
 	}
 
 	auto FContentBrowserOperations::CollectRedirectors(
-		std::string_view VirtualDirectory) const -> std::vector<FAssetPath>
+		std::string_view VirtualDirectory) const -> std::vector<FPackagePath>
 	{
 		std::string Prefix(VirtualDirectory);
 		if (!Prefix.empty() && !Prefix.ends_with('/')) Prefix += '/';
-		std::vector<FAssetPath> Redirectors;
+		std::vector<FPackagePath> Redirectors;
 		for (const auto& [Path, Data]
 			: Asset::CaptureAssetCatalogSnapshot().Assets)
 		{
@@ -681,7 +681,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		}
 		std::ranges::sort(
 			Redirectors,
-			[](const FAssetPath& A, const FAssetPath& B) {
+			[](const FPackagePath& A, const FPackagePath& B) {
 				return A.GetView() < B.GetView();
 			});
 		return Redirectors;
@@ -694,7 +694,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			return {
 				Asset::EAssetError::InvalidPath,
 				"Fix Up in Folder requires a mounted virtual directory."};
-		const std::vector<FAssetPath> Redirectors =
+		const std::vector<FPackagePath> Redirectors =
 			CollectRedirectors(VirtualDirectory);
 		if (Redirectors.empty()) return {};
 		return FixUpAssets ? FixUpAssets(Redirectors) : Asset::FAssetResult{
@@ -702,7 +702,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	}
 
 	auto FContentBrowserOperations::FixUpRedirectors(
-		std::span<const FAssetPath> Redirectors) -> Asset::FAssetResult
+		std::span<const FPackagePath> Redirectors) -> Asset::FAssetResult
 	{
 		return FixUpAssets ? FixUpAssets(Redirectors) : Asset::FAssetResult{
 			Asset::EAssetError::ShuttingDown, "Redirector fix-up is unavailable."};
@@ -711,7 +711,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	auto FContentBrowserOperations::FixUpAllRedirectors()
 		-> Asset::FAssetResult
 	{
-		const std::vector<FAssetPath> Redirectors = CollectRedirectors("/");
+		const std::vector<FPackagePath> Redirectors = CollectRedirectors("/");
 		return Redirectors.empty() ? Asset::FAssetResult{}
 			: FixUpAssets ? FixUpAssets(Redirectors) : Asset::FAssetResult{
 				Asset::EAssetError::ShuttingDown, "Redirector fix-up is unavailable."};
@@ -842,7 +842,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::unordered_map<std::string, const Asset::FAssetData*> AssetsByPhysicalPath;
 		for (const auto& [Path, Data] : Catalog.Assets)
 			AssetsByPhysicalPath.emplace(NormalizePath(Data.PhysicalPath), &Data);
-		std::vector<FAssetPath> AssetPaths;
+		std::vector<FPackagePath> AssetPaths;
 		std::vector<std::filesystem::path> PhysicalRoots;
 
 		auto AddPhysicalEntry = [&](const std::filesystem::path& Physical,
@@ -979,7 +979,7 @@ namespace Durin::Editor::ContentBrowser::Private
 					std::format("Could not enumerate folder contents: {}", Ec.message()));
 		}
 
-		std::ranges::sort(AssetPaths, [](const FAssetPath& A, const FAssetPath& B) {
+		std::ranges::sort(AssetPaths, [](const FPackagePath& A, const FPackagePath& B) {
 			return A.GetView() < B.GetView();
 		});
 		AssetPaths.erase(std::unique(AssetPaths.begin(), AssetPaths.end()), AssetPaths.end());

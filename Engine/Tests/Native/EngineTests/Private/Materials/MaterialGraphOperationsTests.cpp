@@ -139,8 +139,8 @@ TEST(FMaterialAssetCreationTests, BuiltInMaterialsHaveCompletePersistentGraphPre
 		"/Engine/Materials/DefaultMaterial",
 		"/Engine/Materials/ImportedSurface"})
 	{
-		FAssetPath Path;
-		ASSERT_TRUE(FAssetPath::TryCreate(PathString, Path));
+		FPackagePath Path;
+		ASSERT_TRUE(FPackagePath::TryCreate(PathString, Path));
 		DMaterial* Material = nullptr;
 		const Asset::FAssetResult Loaded = Asset::LoadAsset(Path, Material);
 		ASSERT_TRUE(Loaded) << Loaded.Message;
@@ -643,8 +643,8 @@ TEST(FMaterialGraphOperationsTests,
 		/ "DurinInitializedGraphLayoutMaterial";
 	Testing::RegisterMountPointForTests(
 		"/MaterialGraphTests/", Root.generic_string() + "/");
-	FAssetPath PackagePath;
-	ASSERT_TRUE(FAssetPath::TryCreate(
+	FPackagePath PackagePath;
+	ASSERT_TRUE(FPackagePath::TryCreate(
 		"/MaterialGraphTests/InitializedGraphLayoutMaterial", PackagePath));
 	DPackage* Package = CreatePackage(PackagePath);
 	ASSERT_NE(Package, nullptr);

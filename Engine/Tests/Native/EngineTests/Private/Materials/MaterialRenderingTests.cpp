@@ -580,8 +580,8 @@ TEST(FMaterialTests, EngineMaterialPreviewMeshesAreSharedRetainedAssets)
 		"/Engine/Models/Sphere",
 		"/Engine/Models/Box"})
 	{
-		Durin::FAssetPath Path;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(PathText, Path));
+		Durin::FPackagePath Path;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(PathText, Path));
 		Durin::Editor::FRetainedAsset First;
 		Durin::Editor::FRetainedAsset Second;
 		std::string Error;
@@ -627,10 +627,10 @@ TEST(FMaterialTests, MaterialPreviewDocumentsShareAssetsAcrossGarbageCollectionA
 		ASSERT_NE(FindObjectByName(SecondLightName), nullptr);
 
 		Durin::CollectGarbage();
-		Durin::FAssetPath SpherePath;
-		Durin::FAssetPath BoxPath;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Engine/Models/Sphere", SpherePath));
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Engine/Models/Box", BoxPath));
+		Durin::FPackagePath SpherePath;
+		Durin::FPackagePath BoxPath;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Models/Sphere", SpherePath));
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Engine/Models/Box", BoxPath));
 		Durin::Editor::FRetainedAsset SphereAsset;
 		Durin::Editor::FRetainedAsset BoxAsset;
 		std::string Error;

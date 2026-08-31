@@ -51,7 +51,7 @@ namespace Durin::Asset::PackageObjectStream
 		DPackage* Package = nullptr;
 		explicit FLoadedAssetPackage(DPackage* InPackage) : Package(InPackage) {}
 		friend auto LoadDecodedAssetPackage(
-			FDecodedPackage, const FAssetPath&, FLoadedAssetPackage&,
+			FDecodedPackage, const FPackagePath&, FLoadedAssetPackage&,
 			FAssetLoadReport*, const FLiveLoadOptions&, FReaderDiagnostic*)
 			-> FAssetResult;
 	};
@@ -60,7 +60,7 @@ namespace Durin::Asset::PackageObjectStream
 	// Engine-owned package wire representation.
 	auto LoadDecodedAssetPackage(
 		FDecodedPackage Package,
-		const FAssetPath& PackagePath,
+		const FPackagePath& PackagePath,
 		FLoadedAssetPackage& OutPackage,
 		FAssetLoadReport* OutReport = nullptr,
 		const FLiveLoadOptions& Options = {},

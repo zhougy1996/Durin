@@ -44,13 +44,13 @@ namespace Durin::Asset
 
 	struct FAssetPackageCompatibilityRecord
 	{
-		FAssetPath PackagePath;
+		FPackagePath PackagePath;
 		std::string PhysicalPath;
 		FAssetPackageFingerprint Fingerprint;
 		std::string ReportContentHash;
 		uint32 FormatVersion = 0;
 		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
-		std::vector<FAssetPath> Dependencies;
+		std::vector<FPackagePath> Dependencies;
 		EAssetCompatibilityInspection Inspection = EAssetCompatibilityInspection::NotChecked;
 		EAssetPackageCompatibility Compatibility = EAssetPackageCompatibility::Unsupported;
 		EAssetCompatibilityFreshness Freshness = EAssetCompatibilityFreshness::Current;
@@ -64,7 +64,7 @@ namespace Durin::Asset
 
 	struct FAssetPackageCompatibilityProbeInput
 	{
-		FAssetPath PackagePath;
+		FPackagePath PackagePath;
 		std::string PhysicalPath;
 		uintmax_t ExpectedFileSize = 0;
 		int64 ExpectedLastWriteTimeTicks = 0;

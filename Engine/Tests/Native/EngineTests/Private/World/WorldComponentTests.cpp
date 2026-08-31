@@ -48,8 +48,8 @@ TEST(FDirectionalLightTests, LinearColorRoundTripsThroughLevelAssets)
 		Durin::Testing::RegisterMountPointForTests("/DirectionalLightTests/", Root.generic_string() + "/");
 	}
 
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/DirectionalLightTests/ColorRoundTrip", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/DirectionalLightTests/ColorRoundTrip", Path));
 	Durin::DLevel* Level = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Level));
 	Durin::ADirectionalLightActor* Light = Level->SpawnActor<Durin::ADirectionalLightActor>("ColoredLight");
@@ -179,8 +179,8 @@ TEST(FSceneComponentTests, EqualTransformSettersDoNotDirtyTheOwningPackage)
 		Durin::Testing::RegisterMountPointForTests("/SceneComponentTests/", Root.generic_string() + "/");
 	}
 
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SceneComponentTests/EqualTransformSetters", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SceneComponentTests/EqualTransformSetters", Path));
 	Durin::DLevel* Level = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Level));
 	Durin::ACameraActor* Actor = Level->SpawnActor<Durin::ACameraActor>("Camera");

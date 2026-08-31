@@ -50,7 +50,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		std::string PhysicalPath;
 		std::string AssetClassName;
 		std::string Extension;
-		FAssetPath RedirectDestination;
+		FPackagePath RedirectDestination;
 		std::string ThumbnailIdentity;
 		std::string ThumbnailSourcePath;
 		uintmax_t ThumbnailFileSize = 0;
@@ -181,7 +181,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	private:
 		struct FIndexedAsset
 		{
-			const FAssetPath* Path = nullptr;
+			const FPackagePath* Path = nullptr;
 			const Asset::FAssetData* Data = nullptr;
 		};
 
@@ -193,7 +193,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			std::error_code& Error) const -> std::filesystem::file_status;
 		auto IsDirectoryAvailable(const std::filesystem::path& Path) const -> bool;
 		auto RefreshAssetDirectoryIndex() -> void;
-		auto AppendAssetItem(const FAssetPath& Path, const Asset::FAssetData& Data)
+		auto AppendAssetItem(const FPackagePath& Path, const Asset::FAssetData& Data)
 			-> void;
 		auto AddEnumerationDiagnostic(
 			EEnumerationDiagnosticKind Kind,

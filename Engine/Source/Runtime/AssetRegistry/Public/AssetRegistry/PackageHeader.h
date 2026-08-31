@@ -21,10 +21,10 @@ namespace Durin::Asset
 		std::vector<FAssetPackageTopLevelAssetHeader> TopLevelAssets;
 		std::string AssetClassName;
 		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
-		FAssetPath RedirectDestination;
+		FPackagePath RedirectDestination;
 		uint32 FormatVersion = 0;
-		std::vector<FAssetPath> Dependencies;
-		std::vector<FAssetPath> SoftDependencies;
+		std::vector<FPackagePath> Dependencies;
+		std::vector<FPackagePath> SoftDependencies;
 		std::vector<std::string> SearchableNames;
 		uint64 ObjectCount = 0;
 		uint64 BulkSegmentExtent = 0;
@@ -37,7 +37,7 @@ namespace Durin::Asset
 	// discovery. This never constructs or loads package objects.
 	ASSETREGISTRY_API auto ReadAssetPackageHeader(
 		std::string_view PhysicalPath,
-		const FAssetPath& PackagePath,
+		const FPackagePath& PackagePath,
 		FAssetPackageHeader& OutHeader) -> FAssetResult;
 
 	// Supplies the mounted identity and exact raw-bulk extent required by DAST Registry validation.
@@ -45,6 +45,6 @@ namespace Durin::Asset
 		std::span<const std::byte> FrontMatter,
 		uint64 PhysicalFileBytes,
 		uint64 PhysicalBulkBytes,
-		const FAssetPath& PackagePath,
+		const FPackagePath& PackagePath,
 		FAssetPackageHeader& OutHeader) -> FAssetResult;
 }

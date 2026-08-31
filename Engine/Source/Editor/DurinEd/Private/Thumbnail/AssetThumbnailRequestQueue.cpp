@@ -24,7 +24,7 @@ namespace Durin::Editor
 		std::vector<FAssetThumbnailScheduledRequest> CapturedQueue;
 		bool bShuttingDown = false;
 
-		auto RemovePendingRequest(const FAssetPath& AssetPath) -> void
+		auto RemovePendingRequest(const FPackagePath& AssetPath) -> void
 		{
 			std::erase_if(PendingRequests,
 				[&AssetPath](const FAssetThumbnailRequest& Request) {
@@ -32,7 +32,7 @@ namespace Durin::Editor
 				});
 		}
 
-		auto RemoveCapturedJob(const FAssetPath& AssetPath) -> void
+		auto RemoveCapturedJob(const FPackagePath& AssetPath) -> void
 		{
 			std::erase_if(CapturedQueue,
 				[&AssetPath](const FAssetThumbnailScheduledRequest& Job) {
@@ -48,7 +48,7 @@ namespace Durin::Editor
 		}
 
 		auto PromoteQueuedRequest(
-			const FAssetPath& AssetPath,
+			const FPackagePath& AssetPath,
 			EAssetThumbnailPriority Priority) -> void
 		{
 			if (Priority != EAssetThumbnailPriority::Visible) return;
@@ -189,7 +189,7 @@ namespace Durin::Editor
 		return true;
 	}
 
-	auto FAssetThumbnailRequestQueue::Find(const FAssetPath& AssetPath) const
+	auto FAssetThumbnailRequestQueue::Find(const FPackagePath& AssetPath) const
 		-> FAssetThumbnailView
 	{
 		const auto It = Impl->Entries.find(AssetPath.ToString());
@@ -310,7 +310,7 @@ namespace Durin::Editor
 		return true;
 	}
 
-	auto FAssetThumbnailRequestQueue::Cancel(const FAssetPath& AssetPath) -> void
+	auto FAssetThumbnailRequestQueue::Cancel(const FPackagePath& AssetPath) -> void
 	{
 		const auto It = Impl->Entries.find(AssetPath.ToString());
 		if (It == Impl->Entries.end()) return;

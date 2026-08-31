@@ -12,7 +12,6 @@ namespace Durin
 {
 	class DLevel;
 	class FPackagePath;
-	using FAssetPath = FPackagePath;
 	class FLevelEditorModule;
 }
 
@@ -86,7 +85,7 @@ namespace Durin::Editor::Level
 		auto DrawProjectSettings() -> void;
 		auto LoadProjectSettings() -> bool;
 		auto SaveProjectSettings() -> bool;
-		auto ApplyFixedUpDefaultLevelPath(const FAssetPath& Path) -> void;
+		auto ApplyFixedUpDefaultLevelPath(const FPackagePath& Path) -> void;
 		auto SetError(std::string Message) -> void;
 		auto StartPlay(::Durin::Editor::EPlayStartLocation StartLocation, ::Durin::Editor::EPlayDestination Destination) -> void;
 		auto ApplyPlayChanges(bool bSelectedOnly) -> void;

@@ -17,7 +17,6 @@ namespace Durin
 	class DLevel;
 	class DPackage;
 	class FPackagePath;
-	using FAssetPath = FPackagePath;
 }
 
 namespace Durin::Editor::Level
@@ -36,8 +35,8 @@ namespace Durin::Editor::Level
 		std::function<void(::Durin::Editor::EPlayStartLocation, ::Durin::Editor::EPlayDestination)> StartPlay;
 		std::function<void(bool)> ApplyPlayChanges;
 		std::function<bool(std::string_view)> ActivateViewportEditMode;
-		std::function<bool(const FAssetPath&, std::string&)> RevealAsset;
-		std::function<bool(const FAssetPath&, std::string&)> OpenAsset;
+		std::function<bool(const FPackagePath&, std::string&)> RevealAsset;
+		std::function<bool(const FPackagePath&, std::string&)> OpenAsset;
 
 		auto Synchronize(DWorld* CurrentWorld) -> void;
 		auto SelectActor(AActor* Actor) -> void;

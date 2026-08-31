@@ -102,9 +102,9 @@ namespace Durin::Editor::StaticMesh
 		if (Document.ResourceId.empty()) return ::Durin::Editor::EDocumentOpenResult::Rejected;
 		if (FindState(Document.ResourceId)) return ::Durin::Editor::EDocumentOpenResult::Opened;
 
-		FAssetPath AssetPath;
+		FPackagePath AssetPath;
 		std::string PathError;
-		if (!FAssetPath::TryCreate(Document.ResourceId, AssetPath, &PathError))
+		if (!FPackagePath::TryCreate(Document.ResourceId, AssetPath, &PathError))
 		{
 			ErrorMessage = std::move(PathError);
 			return ::Durin::Editor::EDocumentOpenResult::Rejected;

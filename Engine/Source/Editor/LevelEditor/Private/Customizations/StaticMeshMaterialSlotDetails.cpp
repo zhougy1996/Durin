@@ -118,9 +118,9 @@ namespace Durin::Editor::Level
 			{
 				FStaticMeshMaterialSlotDetailsModel Model(Component);
 				bool bChanged = false;
-				FAssetPath MaterialPath;
+				FPackagePath MaterialPath;
 				const bool bHasMaterialAsset = Entry.Material && Entry.Material->GetPackage()
-					&& FAssetPath::TryCreate(Entry.Material->GetPackage()->GetPackagePath(), MaterialPath)
+					&& FPackagePath::TryCreate(Entry.Material->GetPackage()->GetPackagePath(), MaterialPath)
 					&& Asset::FindAssetExact(MaterialPath);
 				const std::array<::Durin::Editor::FAssetPickerAction, 2> AssetActions{{
 					{

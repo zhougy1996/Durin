@@ -8,7 +8,7 @@ namespace Durin::Editor::MainFrame
 	class FAssetCompatibilityWindow
 	{
 	public:
-		using FRevealAsset = std::function<void(const FAssetPath&)>;
+		using FRevealAsset = std::function<void(const FPackagePath&)>;
 
 		auto Draw(bool& bOpen, const FRevealAsset& RevealAsset) -> void;
 		auto ProjectChanged() -> void
@@ -49,8 +49,8 @@ namespace Durin::Editor::MainFrame
 		std::vector<size_t> FilteredRecordIndices;
 		size_t CanonicalDebt = 0;
 		size_t FilteredCanonicalDebt = 0;
-		FAssetPath SelectedPath;
-		std::unordered_set<FAssetPath> SelectedPackages;
+		FPackagePath SelectedPath;
+		std::unordered_set<FPackagePath> SelectedPackages;
 		Editor::EAssetCompatibilityAuditFilter Filter = Editor::EAssetCompatibilityAuditFilter::All;
 		Editor::EAssetCompatibilityAuditFilter CachedFilter = Editor::EAssetCompatibilityAuditFilter::All;
 		std::array<char, 256> SearchText{};

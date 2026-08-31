@@ -42,8 +42,8 @@ namespace Durin::AssetForge::Builtins
 	}
 	auto EnsureImportedSurfaceMaterial(std::string& OutError) -> DMaterial*
 	{
-		FAssetPath MaterialPath;
-		if (!FAssetPath::TryCreate(
+		FPackagePath MaterialPath;
+		if (!FPackagePath::TryCreate(
 			ImportedSurfaceMaterialPath, MaterialPath, &OutError)) return nullptr;
 
 		DPackage* LoadedPackage = Asset::FindResidentPackage(MaterialPath);

@@ -23,10 +23,10 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsCreatesAssignsSavesReloadsAndReportsConf
 	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> CubeResult = Durin::AssetForge::Builtins::ImportTextureCubeFacesForTest(
 		GetSkyBoxConventionFaces(), "/SkyBoxAssetTests/EditorWorkflowCube");
 	ASSERT_TRUE(CubeResult) << CubeResult.Message;
-	Durin::FAssetPath CubePath;
-	Durin::FAssetPath LevelPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkyBoxAssetTests/EditorWorkflowCube", CubePath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkyBoxAssetTests/EditorWorkflowLevel", LevelPath));
+	Durin::FPackagePath CubePath;
+	Durin::FPackagePath LevelPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/EditorWorkflowCube", CubePath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/EditorWorkflowLevel", LevelPath));
 
 	Durin::DLevel* Level = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(LevelPath, Level));
@@ -141,10 +141,10 @@ TEST(FSkyBoxEditorWorkflowTests, ImportsPanoramaAssignsSkyAndPersistsSettingsAcr
 	Durin::Testing::TFactoryImportResult<Durin::DTextureCube> CubeResult = Durin::AssetForge::Builtins::ImportTextureCubePanoramaForTest(
 		Panorama.generic_string(), "/SkyBoxAssetTests/PanoramaWorkflowCube", Settings);
 	ASSERT_TRUE(CubeResult) << CubeResult.Message;
-	Durin::FAssetPath CubePath;
-	Durin::FAssetPath LevelPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkyBoxAssetTests/PanoramaWorkflowCube", CubePath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkyBoxAssetTests/PanoramaWorkflowLevel", LevelPath));
+	Durin::FPackagePath CubePath;
+	Durin::FPackagePath LevelPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/PanoramaWorkflowCube", CubePath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/PanoramaWorkflowLevel", LevelPath));
 
 	Durin::DLevel* Level = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(LevelPath, Level));

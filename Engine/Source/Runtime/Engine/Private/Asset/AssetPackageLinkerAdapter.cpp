@@ -855,7 +855,7 @@ namespace Durin::Asset::Private
 	}
 
 	auto ApplyLivePackageLinker(const ObjectPackage::FLinkerTables& Linker,
-		const FAssetPath& PackagePath, DPackage*& OutPackage,
+		const FPackagePath& PackagePath, DPackage*& OutPackage,
 		FAssetLoadReport* OutReport,
 		const PackageObjectStream::FLiveLoadOptions& Options,
 		std::string* OutError) -> FAssetResult

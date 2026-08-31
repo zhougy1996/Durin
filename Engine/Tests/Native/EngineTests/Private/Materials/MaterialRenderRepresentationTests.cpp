@@ -210,16 +210,16 @@ TEST(FDefaultMaterialServiceTests, LoadsAndRetainsOneNeutralAuthoredProxy)
 
 	const auto CookRoots = Durin::GetEngineBuiltInCookRoots();
 	ASSERT_EQ(CookRoots.size(), 1u);
-	EXPECT_EQ(CookRoots[0], Durin::DefaultMaterialAssetPath);
+	EXPECT_EQ(CookRoots[0], Durin::DefaultMaterialPackagePath);
 
 	Durin::ShutdownDefaultMaterialService();
 	EXPECT_FALSE(Durin::IsDefaultMaterialServiceAvailable());
 	EXPECT_FALSE(Durin::GetDefaultMaterialRenderProxy());
 	First = {};
 	Second = {};
-	Durin::FAssetPath DefaultPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
-		Durin::DefaultMaterialAssetPath, DefaultPath));
+	Durin::FPackagePath DefaultPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
+		Durin::DefaultMaterialPackagePath, DefaultPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(DefaultPath));
 	Durin::CollectGarbage();
 	WaitForRenderingThread();
@@ -230,9 +230,9 @@ TEST(FDefaultMaterialServiceTests, MissingEngineContentSelectsErrorTerminal)
 {
 	InitializeDObjectSystem();
 	Durin::ShutdownDefaultMaterialService();
-	Durin::FAssetPath DefaultPath;
-	if (Durin::FAssetPath::TryCreate(
-			Durin::DefaultMaterialAssetPath, DefaultPath))
+	Durin::FPackagePath DefaultPath;
+	if (Durin::FPackagePath::TryCreate(
+			Durin::DefaultMaterialPackagePath, DefaultPath))
 	{
 		Durin::Asset::UnloadPackage(DefaultPath);
 	}
@@ -271,9 +271,9 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 	ASSERT_TRUE(Durin::FMountPaths::InitDefaultMountPoints());
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
-		Durin::DefaultMaterialAssetPath, Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
+		Durin::DefaultMaterialPackagePath, Path));
 	Durin::DMaterial* Source = nullptr;
 	Durin::Asset::FAssetResult Result = Durin::Asset::LoadAsset(Path, Source);
 	ASSERT_TRUE(Result) << Result.Message;
@@ -289,7 +289,7 @@ TEST(FDefaultMaterialCookTests, UnreferencedBuiltInRootPublishesAndLoadsCooked)
 		Durin::Asset::ECookTargetProfile::Game);
 	std::string Error;
 	ASSERT_TRUE(Durin::Asset::ContributeEngineCookAsset(
-		*Source, Durin::DefaultMaterialAssetPath, Cook, Error)) << Error;
+		*Source, Durin::DefaultMaterialPackagePath, Cook, Error)) << Error;
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 	EXPECT_TRUE(std::filesystem::is_regular_file(
 		CookRoot / "Engine/Materials/DefaultMaterial.dasset"));

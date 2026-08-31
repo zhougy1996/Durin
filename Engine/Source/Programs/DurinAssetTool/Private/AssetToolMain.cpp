@@ -47,7 +47,7 @@ namespace
 	auto HandleInterrupt(int) -> void { GCancelled.store(true, std::memory_order_relaxed); }
 
 	auto PrepareCanonicalResaveAsset(
-		const Durin::FAssetPath& Path, Durin::DObject* Asset
+		const Durin::FPackagePath& Path, Durin::DObject* Asset
 	)
 		-> Durin::Asset::FAssetResult
 	{
@@ -619,8 +619,8 @@ namespace
 			}
 			if (bExact)
 			{
-				Durin::FAssetPath Path;
-				if (!Durin::FAssetPath::TryCreate(Value, Path, &OutError))
+				Durin::FPackagePath Path;
+				if (!Durin::FPackagePath::TryCreate(Value, Path, &OutError))
 				{
 					OutError = std::format("invalid scope '{}': {}", Value, OutError);
 					return 2;
@@ -879,12 +879,12 @@ namespace
 	{
 		using namespace Durin;
 		using namespace Durin::Asset;
-		std::vector<FAssetPath> Roots;
+		std::vector<FPackagePath> Roots;
 		for (const std::string& Value : Options.CookRoots)
 		{
-			FAssetPath Path;
+			FPackagePath Path;
 			std::string Error;
-			if (!FAssetPath::TryCreate(Value, Path, &Error))
+			if (!FPackagePath::TryCreate(Value, Path, &Error))
 			{
 				std::cerr << "Error: invalid Cook root '" << Value << "': " << Error << '\n';
 				return 2;

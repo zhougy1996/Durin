@@ -19,10 +19,10 @@ namespace Durin::Asset
 
 	struct FAssetDeleteAnalysis
 	{
-		FAssetPath AssetPath;
-		std::vector<FAssetPath> DirectReferencers;
+		FPackagePath AssetPath;
+		std::vector<FPackagePath> DirectReferencers;
 		std::vector<std::filesystem::path> CompanionFiles;
-		FAssetPath RedirectDestination;
+		FPackagePath RedirectDestination;
 		std::string Warning;
 		bool bLoaded = false;
 		bool bLoading = false;
@@ -49,17 +49,17 @@ namespace Durin::Asset
 	struct FAssetDeletionBatchBlocker
 	{
 		EAssetDeletionBatchBlocker Kind = EAssetDeletionBatchBlocker::MissingAsset;
-		FAssetPath AssetPath;
-		FAssetPath RelatedAssetPath;
+		FPackagePath AssetPath;
+		FPackagePath RelatedAssetPath;
 		std::filesystem::path PhysicalPath;
 		std::string Details;
 	};
 
 	struct FAssetDeletionBatchWarning
 	{
-		FAssetPath TargetPath;
-		std::vector<FAssetPath> RedirectorPaths;
-		std::vector<FAssetPath> SoftReferencerPaths;
+		FPackagePath TargetPath;
+		std::vector<FPackagePath> RedirectorPaths;
+		std::vector<FPackagePath> SoftReferencerPaths;
 		std::vector<std::string> ExternalOccurrences;
 		std::string Details;
 
@@ -131,7 +131,7 @@ namespace Durin::Asset
 	{
 		EAssetCompanionOwnershipState State =
 			EAssetCompanionOwnershipState::Unclaimed;
-		std::vector<FAssetPath> Owners;
+		std::vector<FPackagePath> Owners;
 	};
 
 	ENGINE_API auto QueryAssetCompanionOwnership(
@@ -140,11 +140,11 @@ namespace Durin::Asset
 	) -> FAssetResult;
 
 	ENGINE_API auto AnalyzeAssetDeletion(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		FAssetDeleteAnalysis& OutAnalysis
 	) -> FAssetResult;
 	ENGINE_API auto PrepareAssetDeletionTransaction(
-		std::span<const FAssetPath> Paths,
+		std::span<const FPackagePath> Paths,
 		std::span<const std::filesystem::path> PhysicalRoots,
 		FAssetDeletionTransaction& OutTransaction,
 		std::vector<FAssetDeletionBatchBlocker>& OutBlockers

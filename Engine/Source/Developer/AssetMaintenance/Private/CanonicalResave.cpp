@@ -91,7 +91,7 @@ namespace Durin::Asset
 			return "PackageHeader";
 		}
 
-		auto IsSelected(const FAssetPath& Path, const FAssetCanonicalResaveSelection& Selection) -> bool
+		auto IsSelected(const FPackagePath& Path, const FAssetCanonicalResaveSelection& Selection) -> bool
 		{
 			if (Selection.bWholeProject || (Selection.Mounts.empty() && Selection.Folders.empty()
 				&& Selection.Packages.empty())) return true;

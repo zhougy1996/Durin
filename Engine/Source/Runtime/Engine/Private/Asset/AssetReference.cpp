@@ -31,9 +31,9 @@ namespace Durin::Asset
 			std::string AssetClassName;
 			EAssetRegistryEntryKind EntryKind =
 				EAssetRegistryEntryKind::Asset;
-			FAssetPath RedirectDestination;
-			std::vector<FAssetPath> Dependencies;
-			std::vector<FAssetPath> SoftDependencies;
+			FPackagePath RedirectDestination;
+			std::vector<FPackagePath> Dependencies;
+			std::vector<FPackagePath> SoftDependencies;
 		};
 
 		auto GatherObjects(
@@ -164,7 +164,7 @@ namespace Durin::Asset
 
 	struct FReferenceExtractionContext
 	{
-		const FAssetPath& SourcePackage;
+		const FPackagePath& SourcePackage;
 		const FAssetPackageFingerprint& Fingerprint;
 		const FAssetPackageObjectInspection& Object;
 		std::string_view DeclaringType;
@@ -458,7 +458,7 @@ namespace Durin::Asset
 
 	struct FLoadedSoftReferenceCollector
 	{
-		const FAssetPath& TargetPath;
+		const FPackagePath& TargetPath;
 		std::vector<FSoftObjectPtr*>& Values;
 	};
 
@@ -592,7 +592,7 @@ namespace Durin::Asset
 
 	auto CollectLoadedPackageSoftReferences(
 		DPackage* Package,
-		const FAssetPath& TargetPath,
+		const FPackagePath& TargetPath,
 		std::vector<FSoftObjectPtr*>& OutValues) -> FAssetResult
 	{
 		if (!Package || Package->GetTopLevelAssets().empty())
@@ -624,8 +624,8 @@ namespace Durin::Asset
 	}
 
 	auto FindFixupDestination(
-		const FAssetPath& Source,
-		std::span<const FAssetRedirectorFixupMapping> Mappings) -> const FAssetPath*
+		const FPackagePath& Source,
+		std::span<const FAssetRedirectorFixupMapping> Mappings) -> const FPackagePath*
 	{
 		const auto It = std::ranges::find(Mappings, Source,
 			&FAssetRedirectorFixupMapping::RedirectorPath);
@@ -698,12 +698,12 @@ namespace Durin::Asset
 				return Error(EAssetError::CorruptFile,
 					"AssetReferenceFixupTag: unknown object reference tag.");
 			std::string PathString;
-			FAssetPath Path;
+			FPackagePath Path;
 			if (!Reader.ReadString(PathString, MaximumPackageStringBytes)
-				|| !FAssetPath::TryCreate(PathString, Path))
+				|| !FPackagePath::TryCreate(PathString, Path))
 				return Error(EAssetError::InvalidPath,
 					"AssetReferenceFixupPath: invalid external object path.");
-			if (const FAssetPath* Destination = FindFixupDestination(Path, Mappings))
+			if (const FPackagePath* Destination = FindFixupDestination(Path, Mappings))
 			{
 				Writer.WriteString(Destination->GetView());
 				++RewriteCount;
@@ -731,7 +731,7 @@ namespace Durin::Asset
 					"AssetReferenceFixupPath: soft path is truncated or overlong.");
 			if (!FObjectPath::TryCreate(PathString, Path, &PathError))
 				return Error(EAssetError::InvalidPath, std::move(PathError));
-			if (const FAssetPath* Destination = FindFixupDestination(
+			if (const FPackagePath* Destination = FindFixupDestination(
 				Path.GetPackagePath(), Mappings))
 			{
 				Writer.WriteString(Destination->GetView());
@@ -855,7 +855,7 @@ namespace Durin::Asset
 	auto RewritePackageReferences(
 		std::span<const std::byte> Bytes,
 		std::span<const std::byte> BulkBytes,
-		const FAssetPath& PackagePath,
+		const FPackagePath& PackagePath,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
 		uint64 ExpectedRewriteCount,
 		std::vector<std::byte>& OutBytes) -> FAssetResult
@@ -882,7 +882,7 @@ namespace Durin::Asset
 	auto ReadPackageMetadata(
 		std::span<const std::byte> Bytes,
 		std::span<const std::byte> BulkBytes,
-		const FAssetPath& PackagePath,
+		const FPackagePath& PackagePath,
 		FPackageFile& OutFile) -> FAssetResult
 	{
 		const Private::FAssetPackageCodec* Codec = nullptr;
@@ -911,7 +911,7 @@ namespace Durin::Asset
 		auto RewritePackageReferencesForMutation(
 			std::span<const std::byte> Bytes,
 			std::span<const std::byte> BulkBytes,
-			const FAssetPath& PackagePath,
+			const FPackagePath& PackagePath,
 			std::span<const FAssetRedirectorFixupMapping> Mappings,
 			uint64 ExpectedRewriteCount,
 			std::vector<std::byte>& OutBytes) -> FAssetResult
@@ -924,7 +924,7 @@ namespace Durin::Asset
 		auto ReadMutationPackageMetadata(
 			std::span<const std::byte> Bytes,
 			std::span<const std::byte> BulkBytes,
-			const FAssetPath& PackagePath,
+			const FPackagePath& PackagePath,
 			FMutationPackageMetadata& OutMetadata) -> FAssetResult
 		{
 			FPackageFile File;
@@ -943,7 +943,7 @@ namespace Durin::Asset
 
 		auto CollectLoadedPackageSoftReferencesForMutation(
 			DPackage* Package,
-			const FAssetPath& TargetPath,
+			const FPackagePath& TargetPath,
 			std::vector<FSoftObjectPtr*>& OutValues) -> FAssetResult
 		{
 			return CollectLoadedPackageSoftReferences(
@@ -962,7 +962,7 @@ namespace Durin::Asset
 	namespace
 	{
 		auto ExtractAssetReferencesInternal(
-			const FAssetPath& SourcePackage,
+			const FPackagePath& SourcePackage,
 			const FAssetPackageInspection& Inspection,
 			std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetResult
 		{
@@ -1037,7 +1037,7 @@ namespace Durin::Asset
 	}
 
 	auto ExtractAssetReferences(
-		const FAssetPath& SourcePackage,
+		const FPackagePath& SourcePackage,
 		const FAssetPackageInspection& Inspection,
 		std::vector<FAssetReferenceEdge>& OutReferences) -> FAssetResult
 	{

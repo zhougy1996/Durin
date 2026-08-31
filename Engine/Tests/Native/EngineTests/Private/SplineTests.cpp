@@ -416,8 +416,8 @@ TEST(FSplineMeshActorEditingTests, PreviewCancelUndoAndRedoReconcileWithoutIdent
 		Durin::Testing::RegisterMountPointForTests(
 			"/SplineMeshActorEditing/", Root.generic_string() + "/");
 	}
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SplineMeshActorEditing/Transactions", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SplineMeshActorEditing/Transactions", Path));
 	Durin::DLevel* Level = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Level));
 	auto* Actor = Level->SpawnActor<Durin::ASplineMeshActor>("SplineMeshActor");
@@ -482,8 +482,8 @@ TEST(FSplineComponentTests, LevelPackageRoundTripsV2ControlPointsAndIds)
 		Durin::Testing::RegisterMountPointForTests("/SplineV2Tests/", Root.generic_string() + "/");
 	}
 
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SplineV2Tests/RoundTrip", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SplineV2Tests/RoundTrip", Path));
 	Durin::DLevel* Level = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Level));
 	Durin::AActor* Actor = Level->SpawnActor<Durin::AActor>("SplineActor");

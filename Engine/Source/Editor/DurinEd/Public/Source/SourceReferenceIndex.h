@@ -9,7 +9,7 @@ namespace Durin::Editor
 
 	struct FSourceReference
 	{
-		FAssetPath AssetPath;
+		FPackagePath AssetPath;
 		std::string AssetClassName;
 	};
 

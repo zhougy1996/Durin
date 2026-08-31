@@ -520,7 +520,7 @@ namespace Durin::Asset::Private::DastV9
 		}
 
 		auto InspectSchema(IAssetPackageByteSource& Source,
-			const FAssetPath& Path, const FReflectionSchemaCatalog& Catalog,
+			const FPackagePath& Path, const FReflectionSchemaCatalog& Catalog,
 			FPackageSchemaInspection& OutRecord, FPackageSchemaReadStats* OutStats,
 			bool, const FPackageReadCancellationCheck& IsCancelled) -> FAssetResult
 		{
@@ -677,7 +677,7 @@ namespace Durin::Asset::Private::DastV9
 		{
 			ObjectPackage::FLinkerTables Linker;
 			if (FAssetResult Result = ReadLinker(Context, Linker); !Result) return Result;
-			auto FindDestination = [&](std::string_view Source) -> const FAssetPath* {
+			auto FindDestination = [&](std::string_view Source) -> const FPackagePath* {
 				const auto It = std::ranges::find_if(Mappings, [&](const auto& Mapping) {
 					return Mapping.RedirectorPath.GetView() == Source;
 				});
@@ -685,7 +685,7 @@ namespace Durin::Asset::Private::DastV9
 			};
 			auto RemapObjectPath = [&](const FObjectPath& Source,
 				std::string_view DestinationAssetName, FObjectPath& Out) -> bool {
-				const FAssetPath* Destination = FindDestination(
+				const FPackagePath* Destination = FindDestination(
 					Source.GetPackagePath().GetView());
 				if (!Destination) return false;
 				FTopLevelAssetPath AssetPath;
@@ -712,7 +712,7 @@ namespace Durin::Asset::Private::DastV9
 					FObjectPath Source;
 					FObjectPath Destination;
 					if (!FObjectPath::TryCreate(Value.Text, Source)) return false;
-					if (const FAssetPath* Remapped = FindDestination(
+					if (const FPackagePath* Remapped = FindDestination(
 						Source.GetPackagePath().GetView());
 						Remapped && RemapObjectPath(
 							Source, Remapped->GetPackageName(), Destination))
@@ -794,10 +794,10 @@ namespace Durin::Asset::Private::DastV9
 				for (auto& Property : Export.Properties) RemapValue(Property.Value);
 			Linker.Imports = std::move(Imports);
 			for (FPackagePath& Reference : Linker.Summary.HardPackageDependencies)
-				if (const FAssetPath* Destination = FindDestination(Reference.GetView()))
+				if (const FPackagePath* Destination = FindDestination(Reference.GetView()))
 					Reference = *Destination;
 			for (FPackagePath& Reference : Linker.Summary.SoftPackageDependencies)
-				if (const FAssetPath* Destination = FindDestination(Reference.GetView()))
+				if (const FPackagePath* Destination = FindDestination(Reference.GetView()))
 					Reference = *Destination;
 			for (auto* References : {&Linker.Summary.HardPackageDependencies,
 				&Linker.Summary.SoftPackageDependencies})
@@ -809,7 +809,7 @@ namespace Durin::Asset::Private::DastV9
 				if (Asset.RedirectDestination.IsValid())
 				{
 					FObjectPath Destination;
-					if (const FAssetPath* Remapped = FindDestination(
+					if (const FPackagePath* Remapped = FindDestination(
 						Asset.RedirectDestination.GetPackagePath().GetView());
 						Remapped && RemapObjectPath(Asset.RedirectDestination,
 							Remapped->GetPackageName(), Destination))
@@ -819,7 +819,7 @@ namespace Durin::Asset::Private::DastV9
 		}
 
 		auto Relocate(const FAssetPackageReadContext& Context,
-			const FAssetPath& Destination, FAssetPackageEncodedClosure& OutClosure)
+			const FPackagePath& Destination, FAssetPackageEncodedClosure& OutClosure)
 			-> FAssetResult
 		{
 			ObjectPackage::FLinkerTables Linker;
@@ -843,7 +843,7 @@ namespace Durin::Asset::Private::DastV9
 			return WriteLinker(std::move(Linker), OutClosure);
 		}
 
-		auto WriteRedirector(const FAssetPath& Source, const FAssetPath& Destination,
+		auto WriteRedirector(const FPackagePath& Source, const FPackagePath& Destination,
 			FAssetPackageEncodedClosure& OutClosure) -> FAssetResult
 		{
 			constexpr std::string_view RedirectorClass =

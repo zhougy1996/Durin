@@ -20,9 +20,9 @@ namespace Durin::Asset::Private
 		auto IsValidRegistryCacheHeader(
 			const FRegistryCacheEntry& Entry) -> bool
 		{
-			const auto PathsCanonical = [](const std::vector<FAssetPath>& Paths)
+			const auto PathsCanonical = [](const std::vector<FPackagePath>& Paths)
 			{
-				return std::ranges::is_sorted(Paths, [](const FAssetPath& A, const FAssetPath& B)
+				return std::ranges::is_sorted(Paths, [](const FPackagePath& A, const FPackagePath& B)
 					{ return A.GetView() < B.GetView(); })
 					&& std::adjacent_find(Paths.begin(), Paths.end()) == Paths.end();
 			};
@@ -164,7 +164,7 @@ namespace Durin::Asset::Private
 			}
 			Entry.EntryKind = static_cast<EAssetRegistryEntryKind>(EntryKind);
 			if (!RedirectDestination.empty()
-				&& !FAssetPath::TryCreate(
+				&& !FPackagePath::TryCreate(
 					RedirectDestination, Entry.RedirectDestination))
 			{
 				OutWarning = "Ignoring invalid redirect destination in asset registry cache.";
@@ -175,8 +175,8 @@ namespace Durin::Asset::Private
 			for (uint32 DependencyIndex = 0; DependencyIndex < DependencyCount; ++DependencyIndex)
 			{
 				std::string DependencyString;
-				FAssetPath Dependency;
-				if (!Reader.ReadString(DependencyString) || !FAssetPath::TryCreate(DependencyString, Dependency))
+				FPackagePath Dependency;
+				if (!Reader.ReadString(DependencyString) || !FPackagePath::TryCreate(DependencyString, Dependency))
 				{
 					OutWarning = "Ignoring invalid dependency in asset registry cache.";
 					OutEntries.clear();
@@ -194,8 +194,8 @@ namespace Durin::Asset::Private
 			for (uint32 DependencyIndex = 0; DependencyIndex < SoftCount; ++DependencyIndex)
 			{
 				std::string DependencyString;
-				FAssetPath Dependency;
-				if (!Reader.ReadString(DependencyString) || !FAssetPath::TryCreate(DependencyString, Dependency))
+				FPackagePath Dependency;
+				if (!Reader.ReadString(DependencyString) || !FPackagePath::TryCreate(DependencyString, Dependency))
 				{
 					OutWarning = "Ignoring invalid soft dependency in asset registry cache.";
 					OutEntries.clear();
@@ -285,9 +285,9 @@ namespace Durin::Asset::Private
 			Writer.WriteString(Entry.RedirectDestination.ToString());
 			Writer.WriteU32(Entry.FormatVersion);
 			Writer.WriteU32(static_cast<uint32>(Entry.Dependencies.size()));
-			for (const FAssetPath& Dependency : Entry.Dependencies) Writer.WriteString(Dependency.GetView());
+			for (const FPackagePath& Dependency : Entry.Dependencies) Writer.WriteString(Dependency.GetView());
 			Writer.WriteU32(static_cast<uint32>(Entry.SoftDependencies.size()));
-			for (const FAssetPath& Dependency : Entry.SoftDependencies) Writer.WriteString(Dependency.GetView());
+			for (const FPackagePath& Dependency : Entry.SoftDependencies) Writer.WriteString(Dependency.GetView());
 			Writer.WriteU32(static_cast<uint32>(Entry.SearchableNames.size()));
 			for (const std::string& Name : Entry.SearchableNames) Writer.WriteString(Name);
 			Writer.WriteU64(Entry.ObjectCount);
@@ -305,7 +305,7 @@ namespace Durin::Asset::Private
 		return true;
 	}
 
-	auto BuildRegistryCacheEntries(const std::unordered_map<FAssetPath, FAssetData>& Assets,
+	auto BuildRegistryCacheEntries(const std::unordered_map<FPackagePath, FAssetData>& Assets,
 		std::vector<FRegistryCacheEntry>& OutEntries, std::string& OutWarning) -> bool
 	{
 		OutEntries.clear();

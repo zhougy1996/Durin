@@ -231,7 +231,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		using FMoveAssets =
 			std::function<Asset::FAssetResult(std::span<const FEditorAssetMove>)>;
 		using FFixUpAssets =
-			std::function<Asset::FAssetResult(std::span<const FAssetPath>)>;
+			std::function<Asset::FAssetResult(std::span<const FPackagePath>)>;
 		using FRemoveDirectory = std::function<bool(
 			const std::filesystem::path&, std::error_code&)>;
 
@@ -248,7 +248,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto Duplicate(const FContentBrowserItem& Item)
 			-> FContentBrowserOperationResult;
 		auto Duplicate(
-			const FAssetPath& SourcePath,
+			const FPackagePath& SourcePath,
 			std::string_view DestinationDirectory)
 			-> FContentBrowserOperationResult;
 		auto CreateFolder(std::string_view PhysicalDirectory)
@@ -256,7 +256,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto Move(std::span<const FEditorAssetMove> Moves) -> Asset::FAssetResult;
 		auto FixUpRedirectorsInFolder(std::string_view VirtualDirectory)
 			-> Asset::FAssetResult;
-		auto FixUpRedirectors(std::span<const FAssetPath> Redirectors)
+		auto FixUpRedirectors(std::span<const FPackagePath> Redirectors)
 			-> Asset::FAssetResult;
 		auto FixUpAllRedirectors() -> Asset::FAssetResult;
 
@@ -276,7 +276,7 @@ namespace Durin::Editor::ContentBrowser::Private
 			std::string& OutWarning)
 			-> Asset::FAssetResult;
 		auto CollectRedirectors(std::string_view VirtualDirectory) const
-			-> std::vector<FAssetPath>;
+			-> std::vector<FPackagePath>;
 
 		FContentBrowserModel& Model;
 		FMoveAssets MoveAssets;

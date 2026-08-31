@@ -11,22 +11,22 @@ namespace
 	using namespace Durin;
 	using namespace Durin::Editor;
 
-	auto EmptyOccupancy(const FAssetPath&) -> FAssetDestinationOccupancy
+	auto EmptyOccupancy(const FPackagePath&) -> FAssetDestinationOccupancy
 	{
 		return {};
 	}
 
-	auto RegistryOccupancy(const FAssetPath&) -> FAssetDestinationOccupancy
+	auto RegistryOccupancy(const FPackagePath&) -> FAssetDestinationOccupancy
 	{
 		return {.bRegistryAssetExists = true};
 	}
 
-	auto PublishedPackageOccupancy(const FAssetPath&) -> FAssetDestinationOccupancy
+	auto PublishedPackageOccupancy(const FPackagePath&) -> FAssetDestinationOccupancy
 	{
 		return {.bResidentPackageExists = true};
 	}
 
-	auto NewlyCreatedPackageOccupancy(const FAssetPath&)
+	auto NewlyCreatedPackageOccupancy(const FPackagePath&)
 		-> FAssetDestinationOccupancy
 	{
 		return {
@@ -34,10 +34,10 @@ namespace
 			.bResidentPackageNewlyCreated = true};
 	}
 
-	auto RedirectorOccupancy(const FAssetPath&) -> FAssetDestinationOccupancy
+	auto RedirectorOccupancy(const FPackagePath&) -> FAssetDestinationOccupancy
 	{
-		FAssetPath Destination;
-		(void)FAssetPath::TryCreate("/Project/Textures/Final", Destination);
+		FPackagePath Destination;
+		(void)FPackagePath::TryCreate("/Project/Textures/Final", Destination);
 		return {
 			.bRegistryAssetExists = true,
 			.OccupantKind = EAssetDestinationOccupantKind::Redirector,

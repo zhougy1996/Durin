@@ -21,17 +21,17 @@ namespace Durin::Asset
 		}
 
 		auto CreateAsset(
-			const FAssetPath& Path,
+			const FPackagePath& Path,
 			DClass* Class,
 			size_t Size,
 			DObject*& OutAsset) -> FAssetResult;
 		auto DuplicateAsset(
-			const FAssetPath& SourcePath,
-			const FAssetPath& DestinationPath,
+			const FPackagePath& SourcePath,
+			const FPackagePath& DestinationPath,
 			DObject*& OutAsset) -> FAssetResult;
 		auto CreateRedirector(
-			const FAssetPath& RedirectorPath,
-			const FAssetPath& DestinationPath,
+			const FPackagePath& RedirectorPath,
+			const FPackagePath& DestinationPath,
 			DAssetRedirector*& OutRedirector) -> FAssetResult;
 		auto LoadPackage(
 			const FPackagePath& Path,
@@ -43,11 +43,11 @@ namespace Durin::Asset
 			DObject*& OutObject,
 			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
 		auto LoadAsset(
-			const FAssetPath& Path,
+			const FPackagePath& Path,
 			DObject*& OutAsset,
 			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
 		auto LoadAsset(
-			const FAssetPath& Path,
+			const FPackagePath& Path,
 			const DClass* ExpectedClass,
 			DObject*& OutAsset,
 			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
@@ -61,9 +61,9 @@ namespace Durin::Asset
 			DObject*& OutObject,
 			ESoftObjectNullPolicy NullPolicy,
 			FAssetLoadReport* OutReport) -> FAssetResult;
-		auto FindResidentPackage(const FAssetPath& Path) const -> DPackage*;
+		auto FindResidentPackage(const FPackagePath& Path) const -> DPackage*;
 		auto UnloadPackage(
-			const FAssetPath& Path,
+			const FPackagePath& Path,
 			EAssetPackageUnloadPolicy Policy =
 				EAssetPackageUnloadPolicy::RejectUnsaved) -> FAssetResult;
 		auto CapturePackageLoadSnapshot() const -> FAssetPackageLoadSnapshot;
@@ -88,13 +88,13 @@ namespace Durin::Asset
 			DObject*& OutAsset,
 			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
 		auto LoadAssetFromPhysicalPath(
-			const FAssetPath& Path,
+			const FPackagePath& Path,
 			std::string_view PhysicalPath,
 			const DClass* ExpectedClass,
 			DObject*& OutAsset,
 			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
 		auto LoadPackageInternal(
-			const FAssetPath& Path,
+			const FPackagePath& Path,
 			std::string_view PhysicalPath,
 			DPackage*& OutPackage,
 			FAssetLoadReport* OutReport = nullptr) -> FAssetResult;
@@ -103,9 +103,9 @@ namespace Durin::Asset
 		FAssetPublicationCoordinator& Registry;
 		FAssetRuntimeConfiguration& RuntimeConfiguration;
 		bool& bAcceptingRequests;
-		std::unordered_set<FAssetPath> LoadingPackages;
+		std::unordered_set<FPackagePath> LoadingPackages;
 		uint32 LoadDepth = 0;
-		std::vector<FAssetPath> TransactionPackages;
+		std::vector<FPackagePath> TransactionPackages;
 
 		friend class FAssetMutationCoordinator;
 	};
@@ -131,7 +131,7 @@ namespace Durin::Asset
 		auto SavePackagesAtomically(
 			std::span<DPackage* const> Packages,
 			const FAssetBundleSaveOptions& Options) -> FAssetResult;
-		auto AdmitAssetPackageToCatalog(const FAssetPath& Path) -> FAssetResult;
+		auto AdmitAssetPackageToCatalog(const FPackagePath& Path) -> FAssetResult;
 		auto PrepareAssetRelocationTransaction(
 			std::span<const FAssetRelocationMapping> Mappings,
 			FAssetMutationSummary& OutSummary,
@@ -146,12 +146,12 @@ namespace Durin::Asset
 		auto RestoreAssetRelocation(
 			const std::shared_ptr<FAssetRelocationState>& State) -> FAssetResult;
 		auto PrepareRedirectorFixupTransaction(
-			std::span<const FAssetPath> Redirectors,
+			std::span<const FPackagePath> Redirectors,
 			EAssetRedirectorFixupMode Mode,
 			FAssetRedirectorFixupSummary& OutSummary,
 			FAssetMutationTransaction& OutTransaction) -> FAssetResult;
 		auto PrepareRedirectorFixupState(
-			std::span<const FAssetPath> Redirectors,
+			std::span<const FPackagePath> Redirectors,
 			EAssetRedirectorFixupMode Mode,
 			std::shared_ptr<FAssetRedirectorFixupState>& OutState) -> FAssetResult;
 		auto ValidateRedirectorFixupCommit(
@@ -159,10 +159,10 @@ namespace Durin::Asset
 		auto CommitRedirectorFixup(
 			const std::shared_ptr<FAssetRedirectorFixupState>& State) -> FAssetResult;
 		auto AnalyzeAssetDeletion(
-			const FAssetPath& Path,
+			const FPackagePath& Path,
 			FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult;
 		auto PrepareAssetDeletionTransaction(
-			std::span<const FAssetPath> Paths,
+			std::span<const FPackagePath> Paths,
 			std::span<const std::filesystem::path> PhysicalRoots,
 			FAssetDeletionTransaction& OutTransaction,
 			std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult;
@@ -172,25 +172,25 @@ namespace Durin::Asset
 		auto UnloadAssetDeletionTransaction(const FAssetDeletionTransaction& Transaction) -> FAssetResult;
 		auto RemoveAssetDeletionRegistryProjection(const FAssetDeletionTransaction& Transaction) -> FAssetResult;
 		auto RestoreAssetDeletionRegistryProjection(const FAssetDeletionTransaction& Transaction) -> FAssetResult;
-		auto DeleteAssetForTesting(const FAssetPath& Path) -> FAssetResult;
+		auto DeleteAssetForTesting(const FPackagePath& Path) -> FAssetResult;
 
 	private:
-		auto LoadAsset(const FAssetPath& Path, DObject*& OutAsset) -> FAssetResult
+		auto LoadAsset(const FPackagePath& Path, DObject*& OutAsset) -> FAssetResult
 		{
 			return Loader.LoadAsset(Path, OutAsset);
 		}
-		auto FindResidentPackage(const FAssetPath& Path) const -> DPackage*
+		auto FindResidentPackage(const FPackagePath& Path) const -> DPackage*
 		{
 			return Loader.FindResidentPackage(Path);
 		}
-		auto UnloadPackage(const FAssetPath& Path) -> FAssetResult
+		auto UnloadPackage(const FPackagePath& Path) -> FAssetResult
 		{
 			return Loader.UnloadPackage(Path);
 		}
 
 		FAssetPublicationCoordinator& Registry;
 		FAssetLoadService& Loader;
-		std::unordered_set<FAssetPath>& LoadingPackages;
+		std::unordered_set<FPackagePath>& LoadingPackages;
 		FAssetRuntimeConfiguration& RuntimeConfiguration;
 		bool& bAcceptingRequests;
 	};

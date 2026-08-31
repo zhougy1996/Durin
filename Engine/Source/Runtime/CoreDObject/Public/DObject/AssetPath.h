@@ -93,7 +93,6 @@ namespace Durin
 		std::string SubobjectPath;
 		friend struct std::hash<FObjectPath>;
 	};
-	using FAssetPath = FPackagePath;
 }
 
 template<> struct std::hash<Durin::FPackagePath> { auto operator()(const Durin::FPackagePath& Value) const noexcept -> size_t { return std::hash<Durin::FName>{}(Value.Path); } };

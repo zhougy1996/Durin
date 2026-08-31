@@ -21,7 +21,7 @@ namespace Durin::Editor::Level
 			std::filesystem::path SettingsFile;
 			std::vector<std::byte> Bytes;
 			std::string Fingerprint;
-			FAssetPath Path;
+			FPackagePath Path;
 			bool bFileExists = false;
 		};
 
@@ -89,7 +89,7 @@ namespace Durin::Editor::Level
 			if (!Settings.DefaultLevel.empty())
 			{
 				std::string PathError;
-				if (!FAssetPath::TryCreate(Settings.DefaultLevel, OutState.Path, &PathError))
+				if (!FPackagePath::TryCreate(Settings.DefaultLevel, OutState.Path, &PathError))
 					return StoreError(
 						Asset::EAssetError::InvalidPath,
 						std::format("Project default level is invalid: {}",
@@ -196,8 +196,8 @@ namespace Durin::Editor::Level
 			std::move(UpdatedBytes));
 		auto PreBytes = std::make_shared<std::vector<std::byte>>(
 			std::move(PreState.Bytes));
-		const FAssetPath PrePath = PreState.Path;
-		const FAssetPath PostPath = Rewrites.front().DestinationPath;
+		const FPackagePath PrePath = PreState.Path;
+		const FPackagePath PostPath = Rewrites.front().DestinationPath;
 		const std::filesystem::path SettingsFile = PreState.SettingsFile;
 		const std::string PreFingerprint = PreState.Fingerprint;
 		const std::string PostFingerprint = MakeFingerprint(

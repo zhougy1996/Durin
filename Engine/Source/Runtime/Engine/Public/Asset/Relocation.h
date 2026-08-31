@@ -7,8 +7,8 @@ namespace Durin::Asset
 {
 	struct FAssetRelocationMapping
 	{
-		FAssetPath SourcePath;
-		FAssetPath DestinationPath;
+		FPackagePath SourcePath;
+		FPackagePath DestinationPath;
 
 		auto operator==(const FAssetRelocationMapping&) const -> bool = default;
 	};

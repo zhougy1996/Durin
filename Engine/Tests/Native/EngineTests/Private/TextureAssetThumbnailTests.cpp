@@ -76,8 +76,8 @@ TEST(FTextureAssetThumbnailTests, Texture2DRendererGeneratesCanonicalSquarePixel
 	std::string Error;
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
-	Durin::FAssetPath TexturePath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath TexturePath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::ParentTexturePath,
 		TexturePath));
 	const Durin::Asset::FAssetCatalogEntry Data =
@@ -250,8 +250,8 @@ TEST(FTextureCubeThumbnailRendererTests, RendererCapturesPackageAndCubeVisualCon
 	std::string Error;
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
-	Durin::FAssetPath CubePath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath CubePath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::DirectionalCubePath,
 		CubePath));
 	const Durin::Asset::FAssetCatalogEntry Data =
@@ -299,8 +299,8 @@ TEST(FTextureCubeThumbnailRendererTests,
 	std::string Error;
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error))
 		<< Error;
-	Durin::FAssetPath CubePath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath CubePath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::DirectionalCubePath,
 		CubePath));
 	const Durin::Asset::FAssetCatalogEntry Data =
@@ -339,8 +339,8 @@ TEST(FTextureCubeThumbnailRendererTests,
 TEST(FTextureCubeThumbnailRendererTests, RendererRejectsMissingRegistryData)
 {
 	Durin::Tests::RegisterAssetThumbnailFixtureMount();
-	Durin::FAssetPath MissingPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath MissingPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/ThumbnailFixtures/Textures/TC_Missing", MissingPath));
 	Durin::Editor::Texture::DTextureCubeThumbnailRenderer Renderer;
 	Durin::Editor::FAssetThumbnailGenerationRequest Captured;

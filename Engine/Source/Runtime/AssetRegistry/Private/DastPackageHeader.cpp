@@ -31,7 +31,7 @@ namespace Durin::Asset
 
 	auto ReadAssetPackageHeaderBytes(std::span<const std::byte> FrontMatter,
 		uint64 PhysicalFileBytes, uint64 PhysicalBulkBytes,
-		const FAssetPath& PackagePath, FAssetPackageHeader& OutHeader)
+		const FPackagePath& PackagePath, FAssetPackageHeader& OutHeader)
 		-> FAssetResult
 	{
 		OutHeader = {};
@@ -90,7 +90,7 @@ namespace Durin::Asset
 	}
 
 	auto ReadAssetPackageHeader(std::string_view PhysicalPath,
-		const FAssetPath& PackagePath, FAssetPackageHeader& OutHeader)
+		const FPackagePath& PackagePath, FAssetPackageHeader& OutHeader)
 		-> FAssetResult
 	{
 		OutHeader = {};

@@ -55,7 +55,7 @@ namespace Durin
 	{
 	public:
 		auto CreateAsset(
-			const FAssetPath& AssetPath,
+			const FPackagePath& AssetPath,
 			DClass* AssetClass,
 			const DFactory* Factory,
 			DObject* Context,
@@ -66,7 +66,7 @@ namespace Durin
 		}
 
 		auto ImportAsset(
-			const FAssetPath& AssetPath,
+			const FPackagePath& AssetPath,
 			DClass* AssetClass,
 			std::string_view Filename,
 			const DFactory* Factory,
@@ -81,8 +81,8 @@ namespace Durin
 		{
 			checkf(IsInGameThread(), "Asset package discard must run on the game thread.");
 			if (!Package || !Package->IsAssetPackage()) return false;
-			FAssetPath Path;
-			if (!FAssetPath::TryCreate(Package->GetPackagePath(), Path)) return false;
+			FPackagePath Path;
+			if (!FPackagePath::TryCreate(Package->GetPackagePath(), Path)) return false;
 			return Asset::UnloadPackage(
 				Package, Asset::EAssetPackageUnloadPolicy::DiscardUnsaved).Succeeded();
 		}
@@ -117,7 +117,7 @@ namespace Durin
 
 	private:
 		auto CreateWithFactory(
-			const FAssetPath& AssetPath,
+			const FPackagePath& AssetPath,
 			DClass* AssetClass,
 			const DFactory* RequestedFactory,
 			std::string_view Filename,

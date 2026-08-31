@@ -28,7 +28,7 @@ namespace Durin::Asset
 		FAssetMutationSummary(
 			EAssetMutationOperationKind InOperationKind,
 			uint64 InRegistryRevision,
-			std::vector<FAssetPath> InScope
+			std::vector<FPackagePath> InScope
 		)
 			: OperationKind(InOperationKind)
 			, RegistryRevision(InRegistryRevision)
@@ -41,13 +41,13 @@ namespace Durin::Asset
 			return OperationKind;
 		}
 		auto GetRegistryRevision() const -> uint64 { return RegistryRevision; }
-		auto GetScope() const -> std::span<const FAssetPath> { return Scope; }
+		auto GetScope() const -> std::span<const FPackagePath> { return Scope; }
 
 	private:
 		EAssetMutationOperationKind OperationKind =
 			EAssetMutationOperationKind::Relocation;
 		uint64 RegistryRevision = 0;
-		std::vector<FAssetPath> Scope;
+		std::vector<FPackagePath> Scope;
 	};
 
 	struct FAssetMutationResultDetails
@@ -58,11 +58,11 @@ namespace Durin::Asset
 		uint64 RegistryRevision = 0;
 		bool bStateRestored = false;
 		bool bRecoveryRequired = false;
-		std::vector<FAssetPath> RewrittenPaths;
-		std::vector<FAssetPath> RetainedPaths;
-		std::vector<FAssetPath> DeletedPaths;
-		std::vector<FAssetPath> SkippedPaths;
-		std::vector<FAssetPath> FailedPaths;
+		std::vector<FPackagePath> RewrittenPaths;
+		std::vector<FPackagePath> RetainedPaths;
+		std::vector<FPackagePath> DeletedPaths;
+		std::vector<FPackagePath> SkippedPaths;
+		std::vector<FPackagePath> FailedPaths;
 	};
 
 	class FAssetMutationTransaction

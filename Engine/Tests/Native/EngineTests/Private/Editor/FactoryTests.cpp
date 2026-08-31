@@ -270,8 +270,8 @@ TEST(DFactoryTests, AssetToolsRejectUnsupportedCreationWithoutLeakingPackage)
 {
 	InitializeFactoryTestGameThread();
 	EnsureAssetToolsTestMount();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/AssetToolsTests/UnsupportedFactoryAsset", Path));
 	ASSERT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 
@@ -288,8 +288,8 @@ TEST(DFactoryTests, AssetToolsRequireSourceFilenameBeforeCreatingPackage)
 {
 	InitializeFactoryTestGameThread();
 	EnsureAssetToolsTestMount();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/AssetToolsTests/MissingFactorySource", Path));
 	ASSERT_EQ(Durin::FindPackage(Path.GetView()), nullptr);
 
@@ -341,8 +341,8 @@ TEST(DFactoryTests, FactoryFailureReportsDiagnosticAndDiscardsPackage)
 {
 	InitializeFactoryTestGameThread();
 	EnsureAssetToolsTestMount();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/AssetToolsTests/FactoryFailure", Path));
 	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Fail);
 	const Durin::FAssetToolsResult Result = Durin::IAssetTools::Get().CreateAsset(
@@ -357,8 +357,8 @@ TEST(DFactoryTests, WrongOuterIsRejectedAndPackageIsDiscarded)
 {
 	InitializeFactoryTestGameThread();
 	EnsureAssetToolsTestMount();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/AssetToolsTests/WrongOuter", Path));
 	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::WrongOuter);
 	const Durin::FAssetToolsResult Result = Durin::IAssetTools::Get().CreateAsset(
@@ -372,8 +372,8 @@ TEST(DFactoryTests, WrongClassIsRejectedAndPackageIsDiscarded)
 {
 	InitializeFactoryTestGameThread();
 	EnsureAssetToolsTestMount();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/AssetToolsTests/WrongClass", Path));
 	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::WrongClass);
 	const Durin::FAssetToolsResult Result = Durin::IAssetTools::Get().CreateAsset(
@@ -387,8 +387,8 @@ TEST(DFactoryTests, CreatedPackageSurvivesGcAndCanBeExplicitlyDiscarded)
 {
 	InitializeFactoryTestGameThread();
 	EnsureAssetToolsTestMount();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/AssetToolsTests/ExplicitDiscard", Path));
 	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
 	const Durin::FAssetToolsResult Result = Durin::IAssetTools::Get().CreateAsset(
@@ -412,8 +412,8 @@ TEST(DFactoryTests, SaveFailureLeavesCreatedPackageAvailableForDiscard)
 	Durin::Testing::RemoveTestWorkDirectory(InvalidRoot);
 	const std::array InvalidRootBytes{std::byte{1}};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(InvalidRootBytes, InvalidRoot));
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/AssetToolsSaveFailure/SaveFailure", Path));
 	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
 	const Durin::FAssetToolsResult Result = Durin::IAssetTools::Get().CreateAsset(
@@ -428,8 +428,8 @@ TEST(DFactoryTests, SavedFactoryPackageReloadsWithoutDuplicateLivePackage)
 {
 	InitializeFactoryTestGameThread();
 	EnsureAssetToolsTestMount();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/AssetToolsTests/SaveReload", Path));
 	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
 	const Durin::FAssetToolsResult Result = Durin::IAssetTools::Get().CreateAsset(
@@ -453,8 +453,8 @@ TEST(DFactoryTests, AssetToolsSaveAndDuplicatePublishStructuredCompletionOnce)
 {
 	InitializeFactoryTestGameThread();
 	EnsureAssetToolsTestMount();
-	Durin::FAssetPath SourcePath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath SourcePath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/AssetToolsTests/OperationSource", SourcePath));
 	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
 	const Durin::FAssetToolsResult Created = Durin::IAssetTools::Get().CreateAsset(
@@ -481,7 +481,7 @@ TEST(DFactoryTests, AssetToolsSaveAndDuplicatePublishStructuredCompletionOnce)
 		Durin::IAssetTools::Get().DuplicateAsset({
 			.SourcePath = SourcePath,
 			.DestinationDirectory = "/AssetToolsTests/",
-			.ResolvePhysicalPackagePath = [&Root](const Durin::FAssetPath& Path) {
+			.ResolvePhysicalPackagePath = [&Root](const Durin::FPackagePath& Path) {
 				return (Root / (std::string(Path.GetAssetName()) + ".dasset"))
 					.generic_string();
 			},
@@ -505,8 +505,8 @@ TEST(DFactoryTests, DuplicateSaveFailureDiscardsOnlyDisposableDestination)
 {
 	InitializeFactoryTestGameThread();
 	EnsureAssetToolsTestMount();
-	Durin::FAssetPath SourcePath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath SourcePath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/AssetToolsTests/DuplicateCleanupSource", SourcePath));
 	auto* Factory = MakeFactory(DAssetToolsFactoryForTest::EMode::Success);
 	const Durin::FAssetToolsResult Created = Durin::IAssetTools::Get().CreateAsset(
@@ -527,7 +527,7 @@ TEST(DFactoryTests, DuplicateSaveFailureDiscardsOnlyDisposableDestination)
 		Durin::IAssetTools::Get().DuplicateAsset({
 			.SourcePath = SourcePath,
 			.DestinationDirectory = "/AssetToolsDuplicateSaveFailure/",
-			.ResolvePhysicalPackagePath = [&InvalidRoot](const Durin::FAssetPath& Path) {
+			.ResolvePhysicalPackagePath = [&InvalidRoot](const Durin::FPackagePath& Path) {
 				return (InvalidRoot / (std::string(Path.GetAssetName()) + ".dasset"))
 					.generic_string();
 			},
@@ -536,8 +536,8 @@ TEST(DFactoryTests, DuplicateSaveFailureDiscardsOnlyDisposableDestination)
 			}});
 	EXPECT_FALSE(Duplicated);
 	EXPECT_EQ(Notifications, 0);
-	Durin::FAssetPath DestinationPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath DestinationPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/AssetToolsDuplicateSaveFailure/DuplicateCleanupSource", DestinationPath));
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(DestinationPath), nullptr);
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(SourcePath), Created.Package);

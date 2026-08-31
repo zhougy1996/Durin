@@ -12,11 +12,11 @@ namespace Durin::Asset
 		ENGINE_API auto GetAssetPackageReencodeCountForTesting() -> uint64;
 	} // namespace PackageObjectStream
 	ENGINE_API auto CreateAssetRedirectorForTesting(
-		const FAssetPath& RedirectorPath,
-		const FAssetPath& DestinationPath,
+		const FPackagePath& RedirectorPath,
+		const FPackagePath& DestinationPath,
 		DAssetRedirector*& OutRedirector
 	) -> FAssetResult;
-	ENGINE_API auto DeleteAssetForTesting(const FAssetPath& Path)
+	ENGINE_API auto DeleteAssetForTesting(const FPackagePath& Path)
 		-> FAssetResult;
 	enum class EAssetRedirectorFixupFailurePoint : uint8
 	{

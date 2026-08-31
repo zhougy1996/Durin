@@ -46,12 +46,12 @@ namespace Durin
 		{
 			std::string Directory(VirtualDirectory);
 			if (!Directory.ends_with('/')) Directory += '/';
-			FAssetPath Path;
+			FPackagePath Path;
 			for (int32 Suffix = 0; Suffix < 1000; ++Suffix)
 			{
 				const std::string Name = Suffix == 0
 					? "NewLevel" : std::format("NewLevel{}", Suffix + 1);
-				if (!FAssetPath::TryCreate(Directory + Name, Path)
+				if (!FPackagePath::TryCreate(Directory + Name, Path)
 					|| Asset::FindAssetExact(Path)
 					|| Asset::FindResidentPackage(Path)) continue;
 				DLevel* Level = nullptr;
@@ -102,7 +102,7 @@ namespace Durin
 		require(ThumbnailOperations.IsValid());
 		ProjectDefaultLevelReferenceStore =
 			std::make_unique<FProjectDefaultLevelReferenceStore>(
-				[this](const FAssetPath& Path) {
+				[this](const FPackagePath& Path) {
 					if (const std::shared_ptr<MLevelEditor> Workspace =
 							LevelEditorWorkspace.lock())
 						Workspace->ApplyFixedUpDefaultLevelPath(Path);

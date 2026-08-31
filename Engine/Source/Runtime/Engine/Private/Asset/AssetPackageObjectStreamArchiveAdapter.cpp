@@ -52,7 +52,7 @@ namespace Durin::Asset::Private
 		struct FCapturedPackage
 		{
 			std::vector<FCapturedObject> Objects;
-			std::vector<FAssetPath> Dependencies;
+			std::vector<FPackagePath> Dependencies;
 			std::vector<FObjectPath> HardReferenceTargets;
 			std::vector<FEditorBulkDataStoragePayload> BulkPayloads;
 			std::vector<std::pair<uint64, uint64>> InternalReferences;
@@ -243,7 +243,7 @@ namespace Durin::Asset::Private
 				DObject& InObject,
 				std::span<const FAuthoredPackageFieldRecord> InFields,
 				std::span<DObject* const> InObjects,
-				const FAssetPath& InPackagePath,
+				const FPackagePath& InPackagePath,
 				uint32 SourceVersion,
 				std::span<const FArchiveCustomVersion> CustomVersions,
 				const FArchiveState& Context)
@@ -766,7 +766,7 @@ namespace Durin::Asset::Private
 			DObject& Object;
 			std::span<const FAuthoredPackageFieldRecord> Fields;
 			std::span<DObject* const> Objects;
-			FAssetPath PackagePath;
+			FPackagePath PackagePath;
 			std::vector<uint8> Consumed;
 			std::vector<FLoadScope> Stack;
 			std::vector<FPathType> PathTypes;
@@ -796,7 +796,7 @@ namespace Durin::Asset::Private
 			auto TakePackage() -> FCapturedPackage
 			{
 				Package.Dependencies.assign(Dependencies.begin(), Dependencies.end());
-				std::ranges::sort(Package.Dependencies, {}, [](const FAssetPath& Path) {
+				std::ranges::sort(Package.Dependencies, {}, [](const FPackagePath& Path) {
 					return Path.GetView();
 				});
 				Package.HardReferenceTargets.assign(
@@ -1703,7 +1703,7 @@ namespace Durin::Asset::Private
 		DObject& Object,
 		std::span<const FAuthoredPackageFieldRecord> Fields,
 		std::span<DObject* const> Objects,
-		const FAssetPath& PackagePath,
+		const FPackagePath& PackagePath,
 		uint32 SourceVersion,
 		std::span<const FArchiveCustomVersion> CustomVersions,
 		const FArchiveState& Context) -> FAssetResult
@@ -1758,8 +1758,8 @@ namespace Durin::Asset::PackageObjectStream
 				"Cooked package serialization requires an explicit target platform and profile."};
 			return Finish({EAssetError::UnsupportedProperty, Diagnostic.Message});
 		}
-		FAssetPath PackagePath;
-		if (!FAssetPath::TryCreate(Package->GetPackagePath(), PackagePath))
+		FPackagePath PackagePath;
+		if (!FPackagePath::TryCreate(Package->GetPackagePath(), PackagePath))
 		{
 			Diagnostic = {EWriterFailure::InvalidInput, {}, "Package has an invalid asset path."};
 			return Finish({EAssetError::InvalidPath, Diagnostic.Message});
@@ -1879,7 +1879,7 @@ namespace Durin::Asset::PackageObjectStream
 			Summary.EntryKind = EAssetRegistryEntryKind::Redirector;
 			DObject* Destination = Redirector->GetDestinationObject();
 			DPackage* DestinationPackage = Destination ? Destination->GetPackage() : nullptr;
-			if (!DestinationPackage || !FAssetPath::TryCreate(
+			if (!DestinationPackage || !FPackagePath::TryCreate(
 					DestinationPackage->GetPackagePath(), Summary.RedirectDestination)
 				|| Destination == FirstAsset)
 			{

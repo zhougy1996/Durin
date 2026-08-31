@@ -21,7 +21,7 @@ namespace Durin::Asset
 
 	struct FAssetCanonicalResavePackagePlan
 	{
-		FAssetPath PackagePath;
+		FPackagePath PackagePath;
 		std::string PhysicalPath;
 		FAssetPackageFingerprint Fingerprint;
 		uint32 FormatVersion = 0;
@@ -39,7 +39,7 @@ namespace Durin::Asset
 	{
 		std::vector<std::string> Mounts;
 		std::vector<std::string> Folders;
-		std::vector<FAssetPath> Packages;
+		std::vector<FPackagePath> Packages;
 		bool bWholeProject = false;
 		bool bAllowPlainResave = false;
 	};
@@ -81,7 +81,7 @@ namespace Durin::Asset
 		std::function<bool(EAssetCanonicalResaveApplyPhase, size_t)> ShouldFail;
 		// Tool hosts may wait for editor-only post-load recovery and reject an
 		// asset that has not reached its domain-ready state before serialization.
-		std::function<FAssetResult(const FAssetPath&, DObject*)> PrepareLoadedAsset;
+		std::function<FAssetResult(const FPackagePath&, DObject*)> PrepareLoadedAsset;
 	};
 
 	struct FAssetCanonicalResaveApplyResult

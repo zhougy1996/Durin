@@ -20,16 +20,16 @@
 
 namespace
 {
-	auto MakePath(std::string_view Text) -> Durin::FAssetPath
+	auto MakePath(std::string_view Text) -> Durin::FPackagePath
 	{
-		Durin::FAssetPath Path;
-		EXPECT_TRUE(Durin::FAssetPath::TryCreate(Text, Path));
+		Durin::FPackagePath Path;
+		EXPECT_TRUE(Durin::FPackagePath::TryCreate(Text, Path));
 		return Path;
 	}
 
 	auto Relocate(
-		const Durin::FAssetPath& Source,
-		const Durin::FAssetPath& Destination) -> Durin::Asset::FAssetResult
+		const Durin::FPackagePath& Source,
+		const Durin::FPackagePath& Destination) -> Durin::Asset::FAssetResult
 	{
 		const Durin::Asset::FAssetRelocationMapping Mapping{Source, Destination};
 		Durin::Asset::FAssetMutationSummary Summary;
@@ -63,8 +63,8 @@ namespace
 	{
 		std::filesystem::path Root;
 		Durin::FProjectInfo Project;
-		Durin::FAssetPath OldPath;
-		Durin::FAssetPath NewPath;
+		Durin::FPackagePath OldPath;
+		Durin::FPackagePath NewPath;
 	};
 
 	auto BuildScenario(std::string_view Name) -> FDefaultLevelScenario
@@ -141,9 +141,9 @@ TEST(FProjectDefaultLevelReferenceStoreTests, FixUpRewritesYamlAndPreservesOther
 {
 	FDefaultLevelScenario Scenario = BuildScenario("Rewrite");
 	auto MountFixture = ConfigureAssets(Scenario);
-	Durin::FAssetPath NotifiedPath;
+	Durin::FPackagePath NotifiedPath;
 	Durin::Editor::Level::FProjectDefaultLevelReferenceStore Store(
-		[&](const Durin::FAssetPath& Path) { NotifiedPath = Path; },
+		[&](const Durin::FPackagePath& Path) { NotifiedPath = Path; },
 		[&] { return &Scenario.Project; });
 	FScopedStoreRegistration Registration(Store);
 	Durin::Asset::FAssetRedirectorFixupSummary Summary;
@@ -169,9 +169,9 @@ TEST(FProjectDefaultLevelReferenceStoreTests, VerificationFailureRestoresYamlAnd
 {
 	FDefaultLevelScenario Scenario = BuildScenario("Restore");
 	auto MountFixture = ConfigureAssets(Scenario);
-	Durin::FAssetPath NotifiedPath;
+	Durin::FPackagePath NotifiedPath;
 	Durin::Editor::Level::FProjectDefaultLevelReferenceStore Store(
-		[&](const Durin::FAssetPath& Path) { NotifiedPath = Path; },
+		[&](const Durin::FPackagePath& Path) { NotifiedPath = Path; },
 		[&] { return &Scenario.Project; });
 	FScopedStoreRegistration Registration(Store);
 	Durin::Asset::SetAssetRedirectorFixupFailurePointForTesting(
@@ -215,7 +215,7 @@ TEST(FProjectDefaultLevelReferenceStoreTests, CookContributesCanonicalRootWithou
 		Snapshot.Occurrences.front().ExpectedClass,
 		Durin::DLevel::StaticClass()->GetQualifiedName().ToString());
 
-	std::vector<Durin::FAssetPath> Reachable;
+	std::vector<Durin::FPackagePath> Reachable;
 	ASSERT_TRUE(Durin::Asset::BuildCookReachability(
 		{}, Reachable));
 	EXPECT_EQ(Reachable, (std::vector{Scenario.NewPath}));

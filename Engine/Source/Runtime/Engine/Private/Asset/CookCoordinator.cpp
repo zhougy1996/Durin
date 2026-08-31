@@ -176,7 +176,7 @@ namespace Durin::Asset
 			Builder.Update(Contributor.Name);
 			struct FReferenceFact
 			{
-				FAssetPath Target;
+				FPackagePath Target;
 				std::string ExpectedClass;
 				std::string Route;
 				EAssetReferenceKind Kind = EAssetReferenceKind::HardObject;
@@ -192,7 +192,7 @@ namespace Durin::Asset
 				if (!Resolution) return Fail(std::format("CookFingerprintReferenceResolutionFailed: {}", Edge.TargetPath.ToString()), &OutError);
 				Facts.push_back({Resolution.FinalPath, {}, "package dependency", Edge.Kind});
 			}
-			for (const FAssetPath& Dependency : Data.Dependencies)
+			for (const FPackagePath& Dependency : Data.Dependencies)
 			{
 				const FAssetPathResolveResult Resolution = Registry.ResolveAssetPath(Dependency);
 				if (!Resolution) return Fail(std::format("CookFingerprintDependencyResolutionFailed: {}", Dependency.ToString()), &OutError);
@@ -280,9 +280,9 @@ namespace Durin::Asset
 							return Fail("CookOutputStoreInvalidOpaqueSegment", &OutError);
 						continue;
 					}
-					FAssetPath VirtualPath;
-					if (!FAssetPath::TryCreate(Plan.VirtualPath, VirtualPath)
-						&& !FAssetPath::TryCreateProjectContent(
+					FPackagePath VirtualPath;
+					if (!FPackagePath::TryCreate(Plan.VirtualPath, VirtualPath)
+						&& !FPackagePath::TryCreateProjectContent(
 							Plan.VirtualPath, VirtualPath))
 						return Fail("CookOutputStoreInvalidPackageIdentity", &OutError);
 					const FAssetResult PackageValidation = ValidateAssetPackageBytes(
@@ -701,7 +701,7 @@ namespace Durin::Asset
 		if (IsCancelled(Request.IsCancelled))
 			return Finish(ECookRunStatus::Cancelled, "cancelled", "CookCancelledBeforeDiscovery");
 
-		std::vector<FAssetPath> Roots = Request.ExplicitRoots;
+		std::vector<FPackagePath> Roots = Request.ExplicitRoots;
 		if (const FProjectInfo* Project = GetCurrentProject())
 		{
 			FProjectGameSettings Settings;
@@ -711,19 +711,19 @@ namespace Durin::Asset
 				return Finish(ECookRunStatus::Failed, "project-settings-failed", std::format("CookProjectSettingsFailed: {}", SettingsResult.Message));
 			if (!Settings.DefaultLevel.empty())
 			{
-				FAssetPath DefaultLevel;
+				FPackagePath DefaultLevel;
 				std::string PathError;
-				if (!FAssetPath::TryCreate(Settings.DefaultLevel, DefaultLevel, &PathError))
+				if (!FPackagePath::TryCreate(Settings.DefaultLevel, DefaultLevel, &PathError))
 					return Finish(ECookRunStatus::Failed, "invalid-default-level", std::format("CookInvalidDefaultLevel: {}: {}", Settings.DefaultLevel, PathError));
 				Roots.push_back(std::move(DefaultLevel));
 			}
 		}
-		std::ranges::sort(Roots, [](const FAssetPath& Left, const FAssetPath& Right) {
+		std::ranges::sort(Roots, [](const FPackagePath& Left, const FPackagePath& Right) {
 			return Left.GetView() < Right.GetView();
 		});
 		Roots.erase(std::unique(Roots.begin(), Roots.end()), Roots.end());
 		const FAssetRegistrySnapshot Registry = CaptureAssetRegistrySnapshot();
-		std::vector<FAssetPath> Packages;
+		std::vector<FPackagePath> Packages;
 		const FAssetResult Reachability = BuildCookReachability(
 			Registry, Roots, Packages
 		);
@@ -758,7 +758,7 @@ namespace Durin::Asset
 		{
 			if (IsCancelled(Request.IsCancelled))
 				return Finish(ECookRunStatus::Cancelled, "cancelled", "CookCancelledBeforePackagePreparation");
-			const FAssetPath& Path = Packages[Index];
+			const FPackagePath& Path = Packages[Index];
 			if (Request.ReportProgress) Request.ReportProgress({ECookOperationStage::Load, Path, Index, Packages.size()});
 			const FAssetData* Data = Catalog.FindExact(Path);
 			if (!Data) return Finish(ECookRunStatus::Failed, "stale-registry", std::format("CookStaleRegistry: {} disappeared from the captured catalog.", Path.ToString()));

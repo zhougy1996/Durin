@@ -201,8 +201,8 @@ TEST(FNativeConstructionTests, RepeatedDerivedReconciliationDoesNotDirtyTheLevel
 		Durin::Testing::RegisterMountPointForTests(
 			"/NativeConstructionTests/", Root.generic_string() + "/");
 	}
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/NativeConstructionTests/Dirty", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/NativeConstructionTests/Dirty", Path));
 	Durin::DLevel* Level = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Level));
 	auto TestClass = MakeNativeConstructionTestClass();
@@ -483,8 +483,8 @@ TEST(FLevelAssetTests, SavesLoadsTransformsAttachmentsCameraAndDefaultComponents
 		Durin::Testing::RegisterMountPointForTests("/LevelTests/", Root.generic_string() + "/");
 	}
 
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/LevelTests/TransformRoundTrip", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/LevelTests/TransformRoundTrip", Path));
 	Durin::DLevel* Level = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Level));
 	Durin::ACameraActor* ParentActor = Level->SpawnActor<Durin::ACameraActor>("ParentCamera");

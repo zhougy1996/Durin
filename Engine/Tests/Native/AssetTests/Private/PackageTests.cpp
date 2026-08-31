@@ -196,8 +196,8 @@ namespace
 	}
 
 	auto RelocateAssetForTest(
-		const Durin::FAssetPath& Source,
-		const Durin::FAssetPath& Destination
+		const Durin::FPackagePath& Source,
+		const Durin::FPackagePath& Destination
 	)
 		-> Durin::Asset::FAssetResult
 	{
@@ -208,7 +208,7 @@ namespace
 	}
 
 	auto FixUpRedirectorsForTest(
-		std::span<const Durin::FAssetPath> Redirectors,
+		std::span<const Durin::FPackagePath> Redirectors,
 		Durin::Asset::EAssetRedirectorFixupMode Mode =
 			Durin::Asset::EAssetRedirectorFixupMode::RewriteAndDelete)
 		-> Durin::Asset::FAssetResult
@@ -224,11 +224,11 @@ namespace
 	// Test cleanup follows the production target-plus-alias closure contract while
 	// avoiding a second editor-level filesystem transaction in asset tests.
 	auto DeleteAssetClosureForTest(
-		std::initializer_list<Durin::FAssetPath> Paths
+		std::initializer_list<Durin::FPackagePath> Paths
 	)
 		-> Durin::Asset::FAssetResult
 	{
-		const std::vector<Durin::FAssetPath> DeletionPaths(Paths);
+		const std::vector<Durin::FPackagePath> DeletionPaths(Paths);
 		Durin::Asset::FAssetDeletionTransaction Transaction;
 		std::vector<Durin::Asset::FAssetDeletionBatchBlocker> Blockers;
 		Durin::Asset::FAssetResult Result =
@@ -1468,7 +1468,7 @@ namespace
 	{
 	public:
 		explicit FMemoryAssetReferenceStore(
-			Durin::FAssetPath InPath,
+			Durin::FPackagePath InPath,
 			bool bInCookRoot = false,
 			std::string InExpectedClass = {}
 		)
@@ -1503,8 +1503,8 @@ namespace
 				|| Rewrites.front().StableId != "root"
 				|| Rewrites.front().SourcePath != Path)
 				return {Durin::Asset::EAssetError::StaleData, "Memory reference store preparation is stale."};
-			const Durin::FAssetPath PrePath = Path;
-			const Durin::FAssetPath PostPath = Rewrites.front().DestinationPath;
+			const Durin::FPackagePath PrePath = Path;
+			const Durin::FPackagePath PostPath = Rewrites.front().DestinationPath;
 			OutContribution = {
 				.Fingerprint = std::string(ExpectedFingerprint),
 				.Rewrites = {Rewrites.front()},
@@ -1520,7 +1520,7 @@ namespace
 			return {};
 		}
 
-		Durin::FAssetPath Path;
+		Durin::FPackagePath Path;
 		std::string ExpectedClass;
 		bool bCookRoot = false;
 	};
@@ -1619,7 +1619,7 @@ namespace
 
 #if DURIN_WITH_EDITOR
 	auto MakeCompatibilityProbeInput(
-		const Durin::FAssetPath& PackagePath,
+		const Durin::FPackagePath& PackagePath,
 		const std::filesystem::path& PhysicalPath
 	)
 		-> Durin::Asset::FAssetPackageCompatibilityProbeInput
@@ -1737,8 +1737,8 @@ TEST(FEditorBulkDataTests, SharesImmutableBytesAndReplacesTransactionally)
 TEST(FPackageAssetTests, V8FirstBundleFailureRemovesUncommittedStableSegment)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/V8FirstFailure", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/V8FirstFailure", Path));
 	DBulkPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	std::vector<std::byte> Payload(
@@ -1764,8 +1764,8 @@ TEST(FPackageAssetTests, V8FirstBundleFailureRemovesUncommittedStableSegment)
 TEST(FPackageAssetTests, OrdinaryV8PublishesLoadsAndRollsBackExternalClosure)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/V6ExternalClosure", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/V6ExternalClosure", Path));
 	DBulkPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	std::vector<std::byte> Payload(
@@ -1851,8 +1851,8 @@ TEST(FPackageAssetTests, OrdinaryV8PublishesLoadsAndRollsBackExternalClosure)
 	EXPECT_FALSE(ReloadedBulk->Payload.IsMemoryResident());
 	EXPECT_TRUE(std::ranges::equal(ReloadedPayload.Buffer.GetBytes(), Payload));
 
-	Durin::FAssetPath LivePath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/V6LiveLoad", LivePath));
+	Durin::FPackagePath LivePath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/V6LiveLoad", LivePath));
 	DPackageAssetForTest* LiveAsset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(LivePath, LiveAsset));
 	LiveAsset->Value = 73;
@@ -1879,8 +1879,8 @@ TEST(FPackageAssetTests, V8FieldBulkClosureMeetsBoundedLooseFixtureBudgets)
 	constexpr double FirstAccessBudgetMilliseconds = 500.0;
 	constexpr double SaveBudgetMilliseconds = 2000.0;
 
-	FAssetPath Path;
-	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/FieldBulkQualification", Path));
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/FieldBulkQualification", Path));
 	DBulkPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(CreateAsset(Path, Asset));
 	std::vector<std::byte> Payload(static_cast<size_t>(PayloadBytes));
@@ -1956,11 +1956,11 @@ TEST(FPackageAssetTests, V8FieldBulkClosureMeetsBoundedLooseFixtureBudgets)
 TEST(FPackageAssetTests, V8BundleAndRelocationPreserveCurrentFormat)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath SourcePath;
-	Durin::FAssetPath DestinationPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath SourcePath;
+	Durin::FPackagePath DestinationPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/V6MoveSource", SourcePath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/V6MoveDestination", DestinationPath));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(SourcePath, Asset));
@@ -1993,11 +1993,11 @@ TEST(FPackageAssetTests, V8BundleAndRelocationPreserveCurrentFormat)
 TEST(FPackageAssetTests, RelocationAndDeletionOwnStableAuthoredCompanion)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath SourcePath;
-	Durin::FAssetPath DestinationPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath SourcePath;
+	Durin::FPackagePath DestinationPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/StableBulkMoveSource", SourcePath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/StableBulkMoveDestination", DestinationPath));
 	DBulkPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(SourcePath, Asset));
@@ -2041,12 +2041,12 @@ TEST(FPackageAssetTests, RedirectorFixupPublicationFailuresRestoreAllParticipant
 TEST(FPackageAssetTests, RedirectorFixupRewriteOnlyReportsRetainedAlias)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath OldPath;
-	Durin::FAssetPath NewPath;
-	Durin::FAssetPath OwnerPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/FixupRewriteOnlyOld", OldPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/FixupRewriteOnlyNew", NewPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/FixupRewriteOnlyOwner", OwnerPath));
+	Durin::FPackagePath OldPath;
+	Durin::FPackagePath NewPath;
+	Durin::FPackagePath OwnerPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/FixupRewriteOnlyOld", OldPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/FixupRewriteOnlyNew", NewPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/FixupRewriteOnlyOwner", OwnerPath));
 	DPackageAssetForTest* Target = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(OldPath, Target));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Target->GetPackage()));
@@ -2084,8 +2084,8 @@ TEST(FPackageAssetTests, RedirectorFixupRewriteOnlyReportsRetainedAlias)
 TEST(FPackageAssetTests, HeaderReaderStopsBeforeLargeObjectPayload)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/LargeHeaderOnly", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/LargeHeaderOnly", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	Asset->Scores.resize(100000, 7);
@@ -2108,8 +2108,8 @@ TEST(FPackageAssetTests, HeaderReaderStopsBeforeLargeObjectPayload)
 TEST(FPackageAssetTests, OrdinaryWriterEmitsDurfV1Prefix)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/DurfV1Prefix", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/DurfV1Prefix", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
@@ -2226,14 +2226,14 @@ TEST(FPackageAssetTests, V9CodecMatchesLiveWriteInspectReferenceAndLoadSemantics
 	using namespace Durin;
 	using namespace Durin::Asset;
 	using namespace Durin::Asset::Private;
-	FAssetPath TargetPath;
-	FAssetPath ReplacementPath;
-	FAssetPath SourcePath;
-	FAssetPath RelocatedPath;
-	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/V6Target", TargetPath));
-	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/V6Replacement", ReplacementPath));
-	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/V6Source", SourcePath));
-	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/V6Relocated", RelocatedPath));
+	FPackagePath TargetPath;
+	FPackagePath ReplacementPath;
+	FPackagePath SourcePath;
+	FPackagePath RelocatedPath;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/V6Target", TargetPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/V6Replacement", ReplacementPath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/V6Source", SourcePath));
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/V6Relocated", RelocatedPath));
 	DPackageAssetForTest* Target = nullptr;
 	DPackageAssetForTest* Source = nullptr;
 	ASSERT_TRUE(CreateAsset(TargetPath, Target));
@@ -2330,8 +2330,8 @@ TEST(FPackageAssetTests, V9PreservesExternalPayloadBytesAndPlacement)
 	using namespace Durin;
 	using namespace Durin::Asset;
 	using namespace Durin::Asset::Private;
-	FAssetPath Path;
-	ASSERT_TRUE(FAssetPath::TryCreate("/TestAssets/V6ExternalPayload", Path));
+	FPackagePath Path;
+	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/V6ExternalPayload", Path));
 	DBulkPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(CreateAsset(Path, Asset));
 	std::vector<std::byte> Payload(
@@ -2378,8 +2378,8 @@ TEST(FPackageAssetTests, V9PreservesExternalPayloadBytesAndPlacement)
 TEST(FPackageAssetTests, HeaderReaderRejectsMalformedAndUnboundedDeclarations)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/HeaderValidationSource", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/HeaderValidationSource", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
@@ -2427,21 +2427,21 @@ TEST(FPackageAssetTests, HeaderReaderRejectsMalformedAndUnboundedDeclarations)
 TEST(FPackageAssetTests, RedirectorsRoundTripAndResolveWithoutLoading)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath TargetPath, AliasPath, NormalizedAliasPath, MissingPath,
+	Durin::FPackagePath TargetPath, AliasPath, NormalizedAliasPath, MissingPath,
 		UnregisteredPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/RedirectRoundTripTarget", TargetPath
 	));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/RedirectRoundTripAlias", AliasPath
 	));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/RedirectNormalizedAlias", NormalizedAliasPath
 	));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/RedirectMissingTarget", MissingPath
 	));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/DoesNotExist", UnregisteredPath
 	));
 	DPackageAssetForTest* Target = nullptr;
@@ -2466,7 +2466,7 @@ TEST(FPackageAssetTests, RedirectorsRoundTripAndResolveWithoutLoading)
 	EXPECT_EQ(Header.AssetClassName, "Durin::Asset::DAssetRedirector");
 	EXPECT_EQ(Header.EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
 	EXPECT_EQ(Header.RedirectDestination, TargetPath);
-	EXPECT_EQ(Header.Dependencies, (std::vector<Durin::FAssetPath>{TargetPath}));
+	EXPECT_EQ(Header.Dependencies, (std::vector<Durin::FPackagePath>{TargetPath}));
 	EXPECT_EQ(Header.ObjectCount, 1u);
 	EXPECT_LT(Header.BytesRead, std::filesystem::file_size(AliasFile));
 
@@ -2500,14 +2500,14 @@ TEST(FPackageAssetTests, RedirectorsRoundTripAndResolveWithoutLoading)
 	EXPECT_EQ(Exact->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
 	EXPECT_EQ(Exact->RedirectDestination, TargetPath);
 	const auto Reverse = Durin::Asset::FindRedirectorsTo(TargetPath);
-	EXPECT_EQ(Reverse, (std::vector<Durin::FAssetPath>{NormalizedAliasPath, AliasPath}));
+	EXPECT_EQ(Reverse, (std::vector<Durin::FPackagePath>{NormalizedAliasPath, AliasPath}));
 	const Durin::Asset::FAssetPathResolveResult Resolved =
 		Durin::Asset::ResolveAssetPath(AliasPath);
 	ASSERT_TRUE(Resolved);
 	EXPECT_EQ(Resolved.CatalogRevision, Durin::Asset::GetAssetCatalogRevision());
 	EXPECT_EQ(Resolved.RequestedPath, AliasPath);
 	EXPECT_EQ(Resolved.FinalPath, TargetPath);
-	EXPECT_EQ(Resolved.RedirectChain, (std::vector<Durin::FAssetPath>{AliasPath}));
+	EXPECT_EQ(Resolved.RedirectChain, (std::vector<Durin::FPackagePath>{AliasPath}));
 	ASSERT_TRUE(Resolved.FinalAssetData.has_value());
 	EXPECT_EQ(Resolved.FinalAssetData->PackagePath, TargetPath);
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(AliasPath), nullptr);
@@ -2545,7 +2545,7 @@ TEST(FPackageAssetTests, RedirectorsRoundTripAndResolveWithoutLoading)
 	EXPECT_EQ(RedirectedReport.PackagePath, TargetPath);
 	EXPECT_EQ(RedirectedReport.CatalogRevision, Durin::Asset::GetAssetCatalogRevision());
 	EXPECT_EQ(RedirectedReport.RedirectChain,
-		(std::vector<Durin::FAssetPath>{AliasPath}));
+		(std::vector<Durin::FPackagePath>{AliasPath}));
 	EXPECT_EQ(RedirectedReport.FinalAssetClassName,
 		DPackageAssetForTest::StaticClass()->GetQualifiedName().ToString());
 	EXPECT_EQ(RedirectedReport.Error, Durin::Asset::EAssetError::None);
@@ -2577,10 +2577,10 @@ TEST(FPackageAssetTests, RedirectorsRoundTripAndResolveWithoutLoading)
 TEST(FPackageAssetTests, AuthoredArchiveFreezesNativeFieldsReferencesAndFailures)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath SourcePath;
-	Durin::FAssetPath TargetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/AuthoredArchive", SourcePath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/AuthoredArchiveTarget", TargetPath));
+	Durin::FPackagePath SourcePath;
+	Durin::FPackagePath TargetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/AuthoredArchive", SourcePath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/AuthoredArchiveTarget", TargetPath));
 	DPackageAssetForTest* Target = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(TargetPath, Target));
 	DAuthoredArchiveAssetForTest* Source = nullptr;
@@ -2654,8 +2654,8 @@ TEST(FPackageAssetTests, AuthoredArchiveFreezesNativeFieldsReferencesAndFailures
 TEST(FPackageAssetTests, CookedArchiveDispatchesImmutableTargetProjection)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/CookedArchiveProjection", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/CookedArchiveProjection", Path));
 	DAuthoredArchiveAssetForTest* Source = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Source));
 	Source->NativeValue = 37;
@@ -2712,8 +2712,8 @@ TEST(FPackageAssetTests, CookPublishesHeaderlessRawPlatformDataFields)
 		.bAutoScan = false}};
 	Durin::Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedRawField", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedRawField", Path));
 	DAuthoredArchiveAssetForTest* Source = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Source));
 	const std::vector<std::byte> BulkBytes(
@@ -2825,8 +2825,8 @@ TEST(FPackageAssetTests, CookedInlineOnlyProjectionLoadsWithoutBulkCompanion)
 		.bAutoScan = false}};
 	Durin::Testing::FScopedMountRegistryFixture Mounts(MountDefinitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/MetadataOnly", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/MetadataOnly", Path));
 	DAuthoredArchiveAssetForTest* Source = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Source));
 	Source->NativeValue = 41;
@@ -2883,15 +2883,15 @@ TEST(FPackageAssetTests, CookedInlineOnlyProjectionLoadsWithoutBulkCompanion)
 TEST(FPackageAssetTests, PerSaveOverridesOwnValuesOmitFieldsAndPreserveLiveState)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SaveOverrides", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SaveOverrides", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	Asset->Value = 17;
 	Asset->Label = "LiveLabel";
 	const bool bDirtyBefore = Asset->GetPackage()->IsDirty();
-	Durin::FAssetPath ForeignPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/ForeignSaveOverride", ForeignPath));
+	Durin::FPackagePath ForeignPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/ForeignSaveOverride", ForeignPath));
 	DPackageAssetForTest* Foreign = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(ForeignPath, Foreign));
 
@@ -2976,8 +2976,8 @@ TEST(FPackageAssetTests, PerSaveOverridesOwnValuesOmitFieldsAndPreserveLiveState
 	EXPECT_EQ(Asset->Label, "LiveLabel");
 	EXPECT_EQ(Asset->GetPackage()->IsDirty(), bDirtyBefore);
 
-	Durin::FAssetPath SoftOwnerPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftSaveOverride", SoftOwnerPath));
+	Durin::FPackagePath SoftOwnerPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftSaveOverride", SoftOwnerPath));
 	DSoftPackageAssetForTest* SoftOwner = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(SoftOwnerPath, SoftOwner));
 	Durin::FProperty* DirectProperty = SoftOwner->GetClass()->FindPropertyByName("Direct");
@@ -3001,8 +3001,8 @@ TEST(FPackageAssetTests, PerSaveOverridesOwnValuesOmitFieldsAndPreserveLiveState
 TEST(FPackageAssetTests, SavesLoadsContainersReferencesAndRegistryMetadata)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/RoundTrip", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/RoundTrip", Path));
 
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
@@ -3116,8 +3116,8 @@ TEST(FPackageAssetTests, PackageAndExactObjectLoadsSelectMultipleTopLevelAssets)
 TEST(FPackageAssetTests, EditorOnlyInnerObjectPersistsInspectsAndPrunesForCook)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/EditorOnlyInnerObject", Path));
 	DImportMetadataOwnerForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Owner));
@@ -3214,8 +3214,8 @@ TEST(FPackageAssetTests, EditorOnlyInnerObjectPersistsInspectsAndPrunesForCook)
 TEST(FPackageAssetTests, CoreRegisteredPackageIsResidentWithoutAssetLayerAdoption)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/CoreRegisteredPackage", Path));
 	Durin::DPackage* Package = Durin::CreatePackage(Path);
 	ASSERT_NE(Package, nullptr);
@@ -3229,9 +3229,9 @@ TEST(FPackageAssetTests, CoreRegisteredPackageIsResidentWithoutAssetLayerAdoptio
 TEST(FPackageAssetTests, SoftObjectResolveAndLoadPreservePathAcrossResidencyChanges)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path, AliasPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftObjectTarget", Path));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftObjectAlias", AliasPath));
+	Durin::FPackagePath Path, AliasPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftObjectTarget", Path));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftObjectAlias", AliasPath));
 
 	const uint64 CatalogRevisionBeforeDraft =
 		Durin::Asset::GetAssetCatalogRevision();
@@ -3307,8 +3307,8 @@ TEST(FPackageAssetTests, SoftObjectResolveAndLoadPreservePathAcrossResidencyChan
 	EXPECT_EQ(Reference.Get(), Loaded);
 	EXPECT_EQ(Reference.GetPath().GetPackagePath(), AliasPath);
 	EXPECT_EQ(Loaded->GetPackage()->GetPackagePath(), Path.ToString());
-	Durin::FAssetPath OwnerPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath OwnerPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/SoftRedirectOwner", OwnerPath
 	));
 	DSoftPackageAssetForTest* Owner = nullptr;
@@ -3354,11 +3354,11 @@ TEST(FPackageAssetTests, SoftObjectResolveAndLoadPreservePathAcrossResidencyChan
 TEST(FPackageAssetTests, ResidentUnloadRequiresExplicitUnsavedDiscard)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath NewlyCreatedPath;
-	Durin::FAssetPath PublishedPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath NewlyCreatedPath;
+	Durin::FPackagePath PublishedPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/ResidentNewlyCreated", NewlyCreatedPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/ResidentPublished", PublishedPath));
 
 	DPackageAssetForTest* NewlyCreated = nullptr;
@@ -3444,12 +3444,12 @@ TEST(FPackageAssetTests, SoftObjectNullAndMissingPoliciesReturnStableResults)
 TEST(FPackageAssetTests, SoftArchiveUsesBoundedPathOnlyPayloadsTransactionally)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath OwnerPath;
-	Durin::FAssetPath TargetPath;
-	Durin::FAssetPath SentinelPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftArchiveOwner", OwnerPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftArchiveTarget", TargetPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftArchiveSentinel", SentinelPath));
+	Durin::FPackagePath OwnerPath;
+	Durin::FPackagePath TargetPath;
+	Durin::FPackagePath SentinelPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftArchiveOwner", OwnerPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftArchiveTarget", TargetPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftArchiveSentinel", SentinelPath));
 	DSoftPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(OwnerPath, Owner));
 	Owner->Direct.SetPath(MakeFormerMainObjectPath(TargetPath));
@@ -3496,12 +3496,12 @@ TEST(FPackageAssetTests, SoftArchiveUsesBoundedPathOnlyPayloadsTransactionally)
 TEST(FPackageAssetTests, DastSoftFieldsRoundTripWithoutHardDependenciesOrTargetLoads)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath OwnerPath;
-	Durin::FAssetPath TargetPath;
-	Durin::FAssetPath MissingPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftStage3Owner", OwnerPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftStage3Target", TargetPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftStage3Missing", MissingPath));
+	Durin::FPackagePath OwnerPath;
+	Durin::FPackagePath TargetPath;
+	Durin::FPackagePath MissingPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftStage3Owner", OwnerPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftStage3Target", TargetPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftStage3Missing", MissingPath));
 
 	DPackageAssetForTest* Target = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(TargetPath, Target));
@@ -3616,10 +3616,10 @@ TEST(FPackageAssetTests, DastSoftFieldsRoundTripWithoutHardDependenciesOrTargetL
 TEST(FPackageAssetTests, SoftInspectionRejectsMalformedPayloadsAndPreservesUnknownFields)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath OwnerPath;
-	Durin::FAssetPath TargetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftInspectionOwner", OwnerPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftInspectionTarget", TargetPath));
+	Durin::FPackagePath OwnerPath;
+	Durin::FPackagePath TargetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftInspectionOwner", OwnerPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftInspectionTarget", TargetPath));
 	DSoftPackageAssetForTest* Owner = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(OwnerPath, Owner));
 	Owner->Direct.SetPath(MakeFormerMainObjectPath(TargetPath));
@@ -3686,8 +3686,8 @@ TEST(FPackageAssetTests, SoftInspectionRejectsMalformedPayloadsAndPreservesUnkno
 	RuntimeMismatch.Header.AssetClassName = "Tests::DCodecSourceAsset";
 	EXPECT_EQ(Durin::Asset::ExtractAssetReferences(OwnerPath, RuntimeMismatch, References).Error, Durin::Asset::EAssetError::TypeMismatch);
 
-	Durin::FAssetPath OldPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftInspectionOld", OldPath));
+	Durin::FPackagePath OldPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftInspectionOld", OldPath));
 	DPackageAssetForTest* OldAsset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(OldPath, OldAsset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(OldAsset->GetPackage()));
@@ -3702,8 +3702,8 @@ TEST(FPackageAssetTests, SoftInspectionRejectsMalformedPayloadsAndPreservesUnkno
 	));
 	EXPECT_TRUE(References.empty());
 
-	Durin::FAssetPath OmittedPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath OmittedPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/SoftOmittedFields", OmittedPath
 	));
 	DSoftPackageAssetForTest* Omitted = nullptr;
@@ -3740,14 +3740,14 @@ TEST(FPackageAssetTests, SoftInspectionRejectsMalformedPayloadsAndPreservesUnkno
 TEST(FPackageAssetTests, SoftCookReachabilityAddsSoftTargetsButRejectsMissingAndWrongTypes)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath TargetPath;
-	Durin::FAssetPath OwnerPath;
-	Durin::FAssetPath MissingPath;
-	Durin::FAssetPath WrongTypePath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftCookTarget", TargetPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftCookOwner", OwnerPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftCookMissing", MissingPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftCookWrongType", WrongTypePath));
+	Durin::FPackagePath TargetPath;
+	Durin::FPackagePath OwnerPath;
+	Durin::FPackagePath MissingPath;
+	Durin::FPackagePath WrongTypePath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftCookTarget", TargetPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftCookOwner", OwnerPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftCookMissing", MissingPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftCookWrongType", WrongTypePath));
 
 	DPackageAssetForTest* Target = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(TargetPath, Target));
@@ -3756,52 +3756,52 @@ TEST(FPackageAssetTests, SoftCookReachabilityAddsSoftTargetsButRejectsMissingAnd
 	ASSERT_TRUE(Durin::Asset::CreateAsset(OwnerPath, Owner));
 	Owner->Direct.SetPath(MakeFormerMainObjectPath(TargetPath));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
-	std::vector<Durin::FAssetPath> Reachable;
+	std::vector<Durin::FPackagePath> Reachable;
 	ASSERT_TRUE(Durin::Asset::BuildCookReachability(
-		std::span<const Durin::FAssetPath>(&OwnerPath, 1), Reachable
+		std::span<const Durin::FPackagePath>(&OwnerPath, 1), Reachable
 	));
-	EXPECT_EQ(Reachable, (std::vector<Durin::FAssetPath>{OwnerPath, TargetPath}));
+	EXPECT_EQ(Reachable, (std::vector<Durin::FPackagePath>{OwnerPath, TargetPath}));
 
 	Owner->Direct.SetPath(MakeFormerMainObjectPath(MissingPath));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
-	EXPECT_EQ(Durin::Asset::BuildCookReachability(std::span<const Durin::FAssetPath>(&OwnerPath, 1), Reachable).Error, Durin::Asset::EAssetError::MissingDependency);
+	EXPECT_EQ(Durin::Asset::BuildCookReachability(std::span<const Durin::FPackagePath>(&OwnerPath, 1), Reachable).Error, Durin::Asset::EAssetError::MissingDependency);
 
 	DMathStructAssetForTest* WrongType = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(WrongTypePath, WrongType));
 	ASSERT_TRUE(Durin::Asset::SavePackage(WrongType->GetPackage()));
 	Owner->Direct.SetPath(MakeFormerMainObjectPath(WrongTypePath));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
-	EXPECT_EQ(Durin::Asset::BuildCookReachability(std::span<const Durin::FAssetPath>(&OwnerPath, 1), Reachable).Error, Durin::Asset::EAssetError::TypeMismatch);
+	EXPECT_EQ(Durin::Asset::BuildCookReachability(std::span<const Durin::FPackagePath>(&OwnerPath, 1), Reachable).Error, Durin::Asset::EAssetError::TypeMismatch);
 
 	Owner->Direct.SetPath(MakeFormerMainObjectPath(TargetPath));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
 	DSoftPackageAssetForTest* CycleTarget = nullptr;
-	Durin::FAssetPath CyclePath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftCookCycle", CyclePath));
+	Durin::FPackagePath CyclePath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftCookCycle", CyclePath));
 	ASSERT_TRUE(Durin::Asset::CreateAsset(CyclePath, CycleTarget));
 	CycleTarget->Direct.SetPath(MakeFormerMainObjectPath(OwnerPath));
 	ASSERT_TRUE(Durin::Asset::SavePackage(CycleTarget->GetPackage()));
 	Owner->Direct.SetPath(MakeFormerMainObjectPath(CyclePath));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Owner->GetPackage()));
 	ASSERT_TRUE(Durin::Asset::BuildCookReachability(
-		std::span<const Durin::FAssetPath>(&OwnerPath, 1), Reachable
+		std::span<const Durin::FPackagePath>(&OwnerPath, 1), Reachable
 	));
-	EXPECT_EQ(Reachable, (std::vector<Durin::FAssetPath>{CyclePath, OwnerPath}));
+	EXPECT_EQ(Reachable, (std::vector<Durin::FPackagePath>{CyclePath, OwnerPath}));
 }
 
 TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedBytes)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath OwnerPath;
-	Durin::FAssetPath OldTargetPath;
-	Durin::FAssetPath FinalTargetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath OwnerPath;
+	Durin::FPackagePath OldTargetPath;
+	Durin::FPackagePath FinalTargetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/CookCanonicalOwner", OwnerPath
 	));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/CookCanonicalTargetOld", OldTargetPath
 	));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/CookCanonicalTargetFinal", FinalTargetPath
 	));
 
@@ -3830,12 +3830,12 @@ TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedB
 		DPackageAssetForTest::StaticClass()->GetQualifiedName().ToString()
 	);
 	FScopedReferenceStoreRegistration RuntimeRootRegistration(&RuntimeRoot);
-	std::vector<Durin::FAssetPath> Reachable;
+	std::vector<Durin::FPackagePath> Reachable;
 	ASSERT_TRUE(Durin::Asset::BuildCookReachability(
 		std::span{&OwnerPath, 1}, Reachable
 	));
 	std::vector ExpectedReachable{OwnerPath, FinalTargetPath};
-	std::ranges::sort(ExpectedReachable, [](const Durin::FAssetPath& Left, const Durin::FAssetPath& Right) {
+	std::ranges::sort(ExpectedReachable, [](const Durin::FPackagePath& Left, const Durin::FPackagePath& Right) {
 		return Left.GetView() < Right.GetView();
 	});
 	EXPECT_EQ(Reachable, ExpectedReachable);
@@ -3857,7 +3857,7 @@ TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedB
 	));
 	EXPECT_EQ(
 		CanonicalInspection.Header.Dependencies,
-		(std::vector<Durin::FAssetPath>{FinalTargetPath})
+		(std::vector<Durin::FPackagePath>{FinalTargetPath})
 	);
 	std::vector<Durin::Asset::FAssetReferenceEdge> CanonicalReferences;
 	ASSERT_TRUE(Durin::Asset::ExtractAssetReferences(
@@ -3892,7 +3892,7 @@ TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedB
 		OwnerPath, PublishedHeader));
 	EXPECT_EQ(
 		PublishedHeader.Dependencies,
-		(std::vector<Durin::FAssetPath>{FinalTargetPath})
+		(std::vector<Durin::FPackagePath>{FinalTargetPath})
 	);
 
 	std::vector<std::byte> AuthoredAfterCook;
@@ -3931,12 +3931,12 @@ TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedB
 TEST(FPackageAssetTests, ReferenceIndexInvalidatesSourceSaveMoveAndDeleteMutations)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath TargetPath;
-	Durin::FAssetPath SourcePath;
-	Durin::FAssetPath MovedSourcePath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftMutationTarget", TargetPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftMutationSource", SourcePath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftMutationMoved", MovedSourcePath));
+	Durin::FPackagePath TargetPath;
+	Durin::FPackagePath SourcePath;
+	Durin::FPackagePath MovedSourcePath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftMutationTarget", TargetPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftMutationSource", SourcePath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftMutationMoved", MovedSourcePath));
 	DPackageAssetForTest* Target = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(TargetPath, Target));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Target->GetPackage()));
@@ -3944,7 +3944,7 @@ TEST(FPackageAssetTests, ReferenceIndexInvalidatesSourceSaveMoveAndDeleteMutatio
 	ASSERT_TRUE(Durin::Asset::CreateAsset(SourcePath, Source));
 	Source->Direct.SetPath(MakeFormerMainObjectPath(TargetPath));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Source->GetPackage()));
-	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(SourcePath), (std::vector<Durin::FAssetPath>{TargetPath}));
+	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(SourcePath), (std::vector<Durin::FPackagePath>{TargetPath}));
 
 	Source->Direct.Reset();
 	ASSERT_TRUE(Durin::Asset::SavePackage(Source->GetPackage()));
@@ -3952,8 +3952,8 @@ TEST(FPackageAssetTests, ReferenceIndexInvalidatesSourceSaveMoveAndDeleteMutatio
 	Source->Direct.SetPath(MakeFormerMainObjectPath(TargetPath));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Source->GetPackage()));
 	ASSERT_TRUE(RelocateAssetForTest(SourcePath, MovedSourcePath));
-	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(SourcePath), (std::vector<Durin::FAssetPath>{MovedSourcePath}));
-	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(MovedSourcePath), (std::vector<Durin::FAssetPath>{TargetPath}));
+	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(SourcePath), (std::vector<Durin::FPackagePath>{MovedSourcePath}));
+	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(MovedSourcePath), (std::vector<Durin::FPackagePath>{TargetPath}));
 	ASSERT_TRUE(DeleteAssetClosureForTest({SourcePath, MovedSourcePath}));
 	EXPECT_TRUE(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(MovedSourcePath).empty());
 	EXPECT_TRUE(Durin::Asset::CaptureAssetReferenceIndex().FindReferencers(TargetPath).empty());
@@ -3962,14 +3962,14 @@ TEST(FPackageAssetTests, ReferenceIndexInvalidatesSourceSaveMoveAndDeleteMutatio
 TEST(FPackageAssetTests, RelocationPreservesLoadedAndUnloadedSoftAuthoredPaths)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath OldPath;
-	Durin::FAssetPath NewPath;
-	Durin::FAssetPath LoadedOwnerPath;
-	Durin::FAssetPath UnloadedOwnerPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftMoveTarget", OldPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftMoveTargetRenamed", NewPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftMoveLoadedOwner", LoadedOwnerPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftMoveUnloadedOwner", UnloadedOwnerPath));
+	Durin::FPackagePath OldPath;
+	Durin::FPackagePath NewPath;
+	Durin::FPackagePath LoadedOwnerPath;
+	Durin::FPackagePath UnloadedOwnerPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftMoveTarget", OldPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftMoveTargetRenamed", NewPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftMoveLoadedOwner", LoadedOwnerPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftMoveUnloadedOwner", UnloadedOwnerPath));
 
 	DPackageAssetForTest* Target = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(OldPath, Target));
@@ -4005,11 +4005,11 @@ TEST(FPackageAssetTests, RelocationPreservesLoadedAndUnloadedSoftAuthoredPaths)
 
 	auto LoadedTargets = Durin::Asset::CaptureAssetReferenceIndex().FindTargets(LoadedOwnerPath);
 	auto UnloadedTargets = Durin::Asset::CaptureAssetReferenceIndex().FindTargets(UnloadedOwnerPath);
-	EXPECT_EQ(LoadedTargets, (std::vector<Durin::FAssetPath>{OldPath}));
-	EXPECT_EQ(UnloadedTargets, (std::vector<Durin::FAssetPath>{OldPath}));
+	EXPECT_EQ(LoadedTargets, (std::vector<Durin::FPackagePath>{OldPath}));
+	EXPECT_EQ(UnloadedTargets, (std::vector<Durin::FPackagePath>{OldPath}));
 	ShutdownAssetManagerForRestart();
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
-	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(UnloadedOwnerPath), (std::vector<Durin::FAssetPath>{OldPath}));
+	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(UnloadedOwnerPath), (std::vector<Durin::FPackagePath>{OldPath}));
 	DSoftPackageAssetForTest* ReloadedOwner = nullptr;
 	ASSERT_TRUE(Durin::Asset::LoadAsset(UnloadedOwnerPath, ReloadedOwner));
 	EXPECT_EQ(ReloadedOwner->Direct.GetPath().GetPackagePath(), OldPath);
@@ -4023,16 +4023,16 @@ TEST(FPackageAssetTests, RelocationIgnoresStaleAndReadOnlyUnloadedSoftReferencer
 {
 	InitializeAssetTests();
 	auto RunCase = [](std::string_view Suffix, bool bMakeReadOnly) {
-		Durin::FAssetPath OldPath;
-		Durin::FAssetPath NewPath;
-		Durin::FAssetPath OwnerPath;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		Durin::FPackagePath OldPath;
+		Durin::FPackagePath NewPath;
+		Durin::FPackagePath OwnerPath;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			std::format("/TestAssets/SoftMove{}Target", Suffix), OldPath
 		));
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			std::format("/TestAssets/SoftMove{}TargetRenamed", Suffix), NewPath
 		));
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			std::format("/TestAssets/SoftMove{}Owner", Suffix), OwnerPath
 		));
 		DPackageAssetForTest* Target = nullptr;
@@ -4080,7 +4080,7 @@ TEST(FPackageAssetTests, RelocationIgnoresStaleAndReadOnlyUnloadedSoftReferencer
 		ASSERT_NE(Durin::Asset::FindAssetExact(OldPath), nullptr);
 		EXPECT_EQ(Durin::Asset::FindAssetExact(OldPath)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Redirector);
 		EXPECT_NE(Durin::Asset::FindAssetExact(NewPath), nullptr);
-		EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(OwnerPath), (std::vector<Durin::FAssetPath>{OldPath}));
+		EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(OwnerPath), (std::vector<Durin::FPackagePath>{OldPath}));
 	};
 	RunCase("Stale", false);
 	RunCase("ReadOnly", true);
@@ -4089,12 +4089,12 @@ TEST(FPackageAssetTests, RelocationIgnoresStaleAndReadOnlyUnloadedSoftReferencer
 TEST(FPackageAssetTests, RelocationPublicationFailureRestoresAuthoredState)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath OldPath;
-	Durin::FAssetPath NewPath;
-	Durin::FAssetPath OwnerPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/RelocationRollbackTarget", OldPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/RelocationRollbackRenamed", NewPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/RelocationRollbackOwner", OwnerPath));
+	Durin::FPackagePath OldPath;
+	Durin::FPackagePath NewPath;
+	Durin::FPackagePath OwnerPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/RelocationRollbackTarget", OldPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/RelocationRollbackRenamed", NewPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/RelocationRollbackOwner", OwnerPath));
 	DPackageAssetForTest* Target = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(OldPath, Target));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Target->GetPackage()));
@@ -4119,17 +4119,17 @@ TEST(FPackageAssetTests, RelocationPublicationFailureRestoresAuthoredState)
 	ASSERT_NE(Durin::Asset::FindAssetExact(OldPath), nullptr);
 	EXPECT_EQ(Durin::Asset::FindAssetExact(OldPath)->EntryKind, Durin::Asset::EAssetRegistryEntryKind::Asset);
 	EXPECT_EQ(Durin::Asset::FindAssetExact(NewPath), nullptr);
-	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(OwnerPath), (std::vector<Durin::FAssetPath>{OldPath}));
+	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(OwnerPath), (std::vector<Durin::FPackagePath>{OldPath}));
 }
 
 TEST(FPackageAssetTests, RelocationDoesNotPublishWhenJournalStateCannotPersist)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath SourcePath;
-	Durin::FAssetPath DestinationPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath SourcePath;
+	Durin::FPackagePath DestinationPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/JournalFailureSource", SourcePath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/JournalFailureDestination", DestinationPath));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(SourcePath, Asset));
@@ -4186,12 +4186,12 @@ TEST(FPackageAssetTests, RelocationDoesNotPublishWhenJournalStateCannotPersist)
 TEST(FPackageAssetTests, RelocationPreservesExternalAuthoredPathsAndRejectsRealCollision)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath OldPath;
-	Durin::FAssetPath NewPath;
-	Durin::FAssetPath CollisionPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftMoveExternalTarget", OldPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftMoveExternalTargetRenamed", NewPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftMoveExternalCollision", CollisionPath));
+	Durin::FPackagePath OldPath;
+	Durin::FPackagePath NewPath;
+	Durin::FPackagePath CollisionPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftMoveExternalTarget", OldPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftMoveExternalTargetRenamed", NewPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftMoveExternalCollision", CollisionPath));
 	DPackageAssetForTest* Target = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(OldPath, Target));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Target->GetPackage()));
@@ -4211,12 +4211,12 @@ TEST(FPackageAssetTests, RelocationPreservesExternalAuthoredPathsAndRejectsRealC
 TEST(FPackageAssetTests, RelocationRejectsReadOnlySourceWithoutStagingMutation)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath SourcePath;
-	Durin::FAssetPath DestinationPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath SourcePath;
+	Durin::FPackagePath DestinationPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/ReadOnlyRelocationSource", SourcePath
 	));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/ReadOnlyRelocationDestination", DestinationPath
 	));
 	DPackageAssetForTest* Asset = nullptr;
@@ -4251,11 +4251,11 @@ TEST(FPackageAssetTests, RelocationRejectsReadOnlySourceWithoutStagingMutation)
 TEST(FPackageAssetTests, PreparedRelocationOwnsAndRemovesItsStagingRoot)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath SourcePath;
-	Durin::FAssetPath DestinationPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath SourcePath;
+	Durin::FPackagePath DestinationPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/JournalCleanupSource", SourcePath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/JournalCleanupDestination", DestinationPath));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(SourcePath, Asset));
@@ -4325,10 +4325,10 @@ TEST(FPackageAssetTests, RelocationFailureSeamsPreserveEveryOrdinaryBoundary)
 	};
 	for (size_t Index = 0; Index < Points.size(); ++Index)
 	{
-		Durin::FAssetPath SourcePath;
-		Durin::FAssetPath DestinationPath;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(std::format("/TestAssets/FailureBoundary{}Source", Index), SourcePath));
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(std::format("/TestAssets/FailureBoundary{}Destination", Index), DestinationPath));
+		Durin::FPackagePath SourcePath;
+		Durin::FPackagePath DestinationPath;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(std::format("/TestAssets/FailureBoundary{}Source", Index), SourcePath));
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(std::format("/TestAssets/FailureBoundary{}Destination", Index), DestinationPath));
 		DPackageAssetForTest* Asset = nullptr;
 		ASSERT_TRUE(Durin::Asset::CreateAsset(SourcePath, Asset));
 		ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
@@ -4346,12 +4346,12 @@ TEST(FPackageAssetTests, RelocationFailureSeamsPreserveEveryOrdinaryBoundary)
 		EXPECT_EQ(Durin::Asset::FindAssetExact(DestinationPath), nullptr);
 	}
 
-	Durin::FAssetPath PrepareSource;
-	Durin::FAssetPath PrepareDestination;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath PrepareSource;
+	Durin::FPackagePath PrepareDestination;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/FailurePrepareSource", PrepareSource
 	));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/FailurePrepareDestination", PrepareDestination
 	));
 	DPackageAssetForTest* PrepareAsset = nullptr;
@@ -4375,12 +4375,12 @@ TEST(FPackageAssetTests, RelocationFailureSeamsPreserveEveryOrdinaryBoundary)
 TEST(FPackageAssetTests, CompensationFailureRetainsDiagnosableRecoveryRoot)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath SourcePath;
-	Durin::FAssetPath DestinationPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath SourcePath;
+	Durin::FPackagePath DestinationPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/RecoverySource", SourcePath
 	));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/RecoveryDestination", DestinationPath
 	));
 	DPackageAssetForTest* Asset = nullptr;
@@ -4469,12 +4469,12 @@ namespace
 		-> void
 	{
 		InitializeAssetTests();
-		Durin::FAssetPath OldPath;
-		Durin::FAssetPath NewPath;
-		Durin::FAssetPath OwnerPath;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/FixupOld", OldPath));
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/FixupNew", NewPath));
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/FixupOwner", OwnerPath));
+		Durin::FPackagePath OldPath;
+		Durin::FPackagePath NewPath;
+		Durin::FPackagePath OwnerPath;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/FixupOld", OldPath));
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/FixupNew", NewPath));
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/FixupOwner", OwnerPath));
 		DPackageAssetForTest* Target = nullptr;
 		ASSERT_TRUE(Durin::Asset::CreateAsset(OldPath, Target));
 		ASSERT_TRUE(Durin::Asset::SavePackage(Target->GetPackage()));
@@ -4555,12 +4555,12 @@ namespace
 		-> void
 	{
 		InitializeAssetTests();
-		Durin::FAssetPath OldPath;
-		Durin::FAssetPath NewPath;
-		Durin::FAssetPath OwnerPath;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/FixupFailureOld", OldPath));
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/FixupFailureNew", NewPath));
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/FixupFailureOwner", OwnerPath));
+		Durin::FPackagePath OldPath;
+		Durin::FPackagePath NewPath;
+		Durin::FPackagePath OwnerPath;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/FixupFailureOld", OldPath));
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/FixupFailureNew", NewPath));
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/FixupFailureOwner", OwnerPath));
 		DPackageAssetForTest* Target = nullptr;
 		ASSERT_TRUE(Durin::Asset::CreateAsset(OldPath, Target));
 		ASSERT_TRUE(Durin::Asset::SavePackage(Target->GetPackage()));
@@ -4608,12 +4608,12 @@ namespace
 	auto RunRedirectorFixupRejectsUnavailableProviderWithoutMutationTest() -> void
 	{
 		InitializeAssetTests();
-		Durin::FAssetPath OldPath;
-		Durin::FAssetPath NewPath;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		Durin::FPackagePath OldPath;
+		Durin::FPackagePath NewPath;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			"/TestAssets/FixupProviderGoneOld", OldPath
 		));
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 			"/TestAssets/FixupProviderGoneNew", NewPath
 		));
 		DPackageAssetForTest* Target = nullptr;
@@ -4650,16 +4650,16 @@ namespace
 	{
 		InitializeAssetTests();
 		auto RunCase = [](std::string_view Suffix, bool bReadOnly) {
-			Durin::FAssetPath OldPath;
-			Durin::FAssetPath NewPath;
-			Durin::FAssetPath OwnerPath;
-			ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+			Durin::FPackagePath OldPath;
+			Durin::FPackagePath NewPath;
+			Durin::FPackagePath OwnerPath;
+			ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 				std::format("/TestAssets/Fixup{}Old", Suffix), OldPath
 			));
-			ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+			ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 				std::format("/TestAssets/Fixup{}New", Suffix), NewPath
 			));
-			ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+			ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 				std::format("/TestAssets/Fixup{}Owner", Suffix), OwnerPath
 			));
 			DPackageAssetForTest* Target = nullptr;
@@ -4749,16 +4749,16 @@ namespace
 		};
 		for (size_t Index = 0; Index < FailurePoints.size(); ++Index)
 		{
-			Durin::FAssetPath OldPath;
-			Durin::FAssetPath NewPath;
-			Durin::FAssetPath OwnerPath;
-			ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+			Durin::FPackagePath OldPath;
+			Durin::FPackagePath NewPath;
+			Durin::FPackagePath OwnerPath;
+			ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 				std::format("/TestAssets/FixupMatrix{}Old", Index), OldPath
 			));
-			ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+			ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 				std::format("/TestAssets/FixupMatrix{}New", Index), NewPath
 			));
-			ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+			ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 				std::format("/TestAssets/FixupMatrix{}Owner", Index), OwnerPath
 			));
 			DPackageAssetForTest* Target = nullptr;
@@ -4805,10 +4805,10 @@ namespace
 TEST(FPackageAssetTests, SoftReferencedTargetDeletionLeavesDanglingPathWithoutBlockingTransaction)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath TargetPath;
-	Durin::FAssetPath OwnerPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftDeleteDanglingTarget", TargetPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftDeleteDanglingOwner", OwnerPath));
+	Durin::FPackagePath TargetPath;
+	Durin::FPackagePath OwnerPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftDeleteDanglingTarget", TargetPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftDeleteDanglingOwner", OwnerPath));
 	DPackageAssetForTest* Target = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(TargetPath, Target));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Target->GetPackage()));
@@ -4828,15 +4828,15 @@ TEST(FPackageAssetTests, SoftReferencedTargetDeletionLeavesDanglingPathWithoutBl
 	ASSERT_EQ(Referencers.size(), 1u);
 	EXPECT_EQ(Referencers.front().SourcePackage, OwnerPath);
 
-	std::vector<Durin::FAssetPath> Reachable;
-	EXPECT_EQ(Durin::Asset::BuildCookReachability(std::span<const Durin::FAssetPath>(&OwnerPath, 1), Reachable).Error, Durin::Asset::EAssetError::MissingDependency);
+	std::vector<Durin::FPackagePath> Reachable;
+	EXPECT_EQ(Durin::Asset::BuildCookReachability(std::span<const Durin::FPackagePath>(&OwnerPath, 1), Reachable).Error, Durin::Asset::EAssetError::MissingDependency);
 }
 
 TEST(FPackageAssetTests, DastMapBytesAreCanonicalAcrossInsertionAndBucketHistory)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/MapOrderingBaseline", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/MapOrderingBaseline", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	const std::array<std::pair<std::string, int32>, 8> Entries = {{{"alpha", 1}, {"bravo", 2}, {"charlie", 3}, {"delta", 4}, {"echo", 5}, {"foxtrot", 6}, {"golf", 7}, {"hotel", 8}}};
@@ -4938,8 +4938,8 @@ TEST(FPackageAssetTests, MathStructRegistrationPreservesDirectAndNestedSchemaIde
 TEST(FPackageAssetTests, PrecisionSpecificMathStructsRoundTripThroughPackageObjectStream)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/PrecisionMath", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/PrecisionMath", Path));
 	DMathStructAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	Asset->FloatQuat = Durin::FQuatf(0.5f, 0.25f, -0.5f, 0.75f);
@@ -4964,8 +4964,8 @@ TEST(FPackageAssetTests, PrecisionSpecificMathStructsRoundTripThroughPackageObje
 TEST(FPackageAssetTests, WriterUsesVersionedWireSignaturesForLogicalEncodings)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/WireSignatures", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/WireSignatures", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
@@ -4991,8 +4991,8 @@ TEST(FPackageAssetTests, WriterUsesVersionedWireSignaturesForLogicalEncodings)
 TEST(FPackageAssetTests, CompleteInspectionContainsEveryObjectAndContentFingerprint)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/CompleteInspection", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/CompleteInspection", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	Asset->Value = 17;
@@ -5099,8 +5099,8 @@ TEST(FPackageAssetTests, PackageSavesRejectReadOnlyContentMounts)
 	Durin::Testing::FScopedMountRegistryFixture Mounts(Definitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
 
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/ReadOnly/Blocked", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/ReadOnly/Blocked", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	Durin::DPackage* Package = Asset->GetPackage();
@@ -5123,10 +5123,10 @@ TEST(FPackageAssetTests, PackageSavesRejectReadOnlyContentMounts)
 TEST(FPackageAssetTests, PackageLoadSnapshotReleasesOnlyPackagesIntroducedAfterCapture)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath ExistingPath;
-	Durin::FAssetPath IntroducedPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/ExistingOwnership", ExistingPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/IntroducedOwnership", IntroducedPath));
+	Durin::FPackagePath ExistingPath;
+	Durin::FPackagePath IntroducedPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/ExistingOwnership", ExistingPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/IntroducedOwnership", IntroducedPath));
 
 	DPackageAssetForTest* Existing = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(ExistingPath, Existing));
@@ -5147,11 +5147,11 @@ TEST(FPackageAssetTests, PackageLoadSnapshotReleasesOnlyPackagesIntroducedAfterC
 TEST(FPackageAssetTests, RejectsInvalidPaths)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	EXPECT_FALSE(Durin::FAssetPath::TryCreate("TestAssets/Relative", Path));
-	EXPECT_FALSE(Durin::FAssetPath::TryCreate("/TestAssets/../Escape", Path));
-	EXPECT_FALSE(Durin::FAssetPath::TryCreate("/Unknown/Asset", Path));
-	EXPECT_FALSE(Durin::FAssetPath::TryCreate("/TestAssets/With.dasset", Path));
+	Durin::FPackagePath Path;
+	EXPECT_FALSE(Durin::FPackagePath::TryCreate("TestAssets/Relative", Path));
+	EXPECT_FALSE(Durin::FPackagePath::TryCreate("/TestAssets/../Escape", Path));
+	EXPECT_FALSE(Durin::FPackagePath::TryCreate("/Unknown/Asset", Path));
+	EXPECT_FALSE(Durin::FPackagePath::TryCreate("/TestAssets/With.dasset", Path));
 }
 
 TEST(FPackageAssetTests, RejectsSavingCppPackages)
@@ -5165,8 +5165,8 @@ TEST(FPackageAssetTests, RejectsSavingCppPackages)
 TEST(FPackageAssetTests, PackageEditRevisionAdvancesForRepeatedDirtyEdits)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/EditRevision", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/EditRevision", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	Durin::DPackage* Package = Asset->GetPackage();
@@ -5189,10 +5189,10 @@ TEST(FPackageAssetTests, PackageEditRevisionAdvancesForRepeatedDirtyEdits)
 TEST(FPackageAssetTests, SequentialPackageSavesPublishEarlierPackagesBeforeLaterFailure)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath FirstPath;
-	Durin::FAssetPath BlockedPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/Stage0First", FirstPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/Stage0Blocked/Second", BlockedPath));
+	Durin::FPackagePath FirstPath;
+	Durin::FPackagePath BlockedPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/Stage0First", FirstPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/Stage0Blocked/Second", BlockedPath));
 
 	DPackageAssetForTest* First = nullptr;
 	DPackageAssetForTest* Second = nullptr;
@@ -5235,10 +5235,10 @@ TEST(FPackageAssetTests, SequentialPackageSavesPublishEarlierPackagesBeforeLater
 TEST(FPackageAssetTests, AtomicBundleSaveRestoresFilesRegistryAndDirtyStateOnFailure)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath ExistingPath;
-	Durin::FAssetPath NewPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/AtomicBundleExisting", ExistingPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/AtomicBundleNew", NewPath));
+	Durin::FPackagePath ExistingPath;
+	Durin::FPackagePath NewPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/AtomicBundleExisting", ExistingPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/AtomicBundleNew", NewPath));
 
 	DPackageAssetForTest* Existing = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(ExistingPath, Existing));
@@ -5295,8 +5295,8 @@ TEST(FPackageAssetTests, AtomicBundleSaveRestoresFilesRegistryAndDirtyStateOnFai
 TEST(FPackageAssetTests, OrdinaryV8SavesAreDeterministic)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/OrdinaryV8Policy", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/OrdinaryV8Policy", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	Asset->Value = 41;
@@ -5327,10 +5327,10 @@ TEST(FPackageAssetTests, OrdinaryV8SavesAreDeterministic)
 TEST(FPackageAssetTests, LoadsExternalDependenciesAndPreventsPrematureUnload)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath DependencyPath;
-	Durin::FAssetPath OwnerPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/Dependency", DependencyPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/Owner", OwnerPath));
+	Durin::FPackagePath DependencyPath;
+	Durin::FPackagePath OwnerPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/Dependency", DependencyPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/Owner", OwnerPath));
 
 	DPackageAssetForTest* Dependency = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(DependencyPath, Dependency));
@@ -5365,10 +5365,10 @@ TEST(FPackageAssetTests, LoadsExternalDependenciesAndPreventsPrematureUnload)
 TEST(FPackageAssetTests, RuntimeStrongReferencePreventsUnloadAndRestoresResidency)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath TargetPath, OwnerPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath TargetPath, OwnerPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/RuntimeUnloadTarget", TargetPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/RuntimeUnloadOwner", OwnerPath));
 
 	DPackageAssetForTest* Target = nullptr;
@@ -5397,8 +5397,8 @@ TEST(FPackageAssetTests, RuntimeStrongReferencePreventsUnloadAndRestoresResidenc
 TEST(FPackageAssetTests, RejectsTruncatedPackagesWithoutCachingPartialObjects)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/Corrupt", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/Corrupt", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
@@ -5417,14 +5417,14 @@ TEST(FPackageAssetTests, RejectsTruncatedPackagesWithoutCachingPartialObjects)
 TEST(FPackageAssetTests, RelocationTransactionOwnsStateMachineAndExactUndoRedo)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath First;
-	Durin::FAssetPath FirstMoved;
-	Durin::FAssetPath Second;
-	Durin::FAssetPath SecondMoved;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/BatchFirst", First));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/BatchFirstMoved", FirstMoved));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/BatchSecond", Second));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/BatchSecondMoved", SecondMoved));
+	Durin::FPackagePath First;
+	Durin::FPackagePath FirstMoved;
+	Durin::FPackagePath Second;
+	Durin::FPackagePath SecondMoved;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/BatchFirst", First));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/BatchFirstMoved", FirstMoved));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/BatchSecond", Second));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/BatchSecondMoved", SecondMoved));
 	DPackageAssetForTest* FirstAsset = nullptr;
 	DPackageAssetForTest* SecondAsset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(First, FirstAsset));
@@ -5480,12 +5480,12 @@ TEST(FPackageAssetTests, RelocationTransactionOwnsStateMachineAndExactUndoRedo)
 TEST(FPackageAssetTests, RelocationTransactionRejectsStaleCommitWithoutMutatingState)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Source;
-	Durin::FAssetPath Destination;
-	Durin::FAssetPath Unrelated;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/StaleTransactionSource", Source));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/StaleTransactionDestination", Destination));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/StaleTransactionUnrelated", Unrelated));
+	Durin::FPackagePath Source;
+	Durin::FPackagePath Destination;
+	Durin::FPackagePath Unrelated;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/StaleTransactionSource", Source));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/StaleTransactionDestination", Destination));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/StaleTransactionUnrelated", Unrelated));
 	DPackageAssetForTest* SourceAsset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Source, SourceAsset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(SourceAsset->GetPackage()));
@@ -5512,12 +5512,12 @@ TEST(FPackageAssetTests, RelocationTransactionRejectsStaleCommitWithoutMutatingS
 TEST(FPackageAssetTests, RepeatedRelocationCompressesAliasesAndMoveBackReclaimsSameObject)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath First;
-	Durin::FAssetPath Second;
-	Durin::FAssetPath Third;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/RepeatedA", First));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/RepeatedB", Second));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/RepeatedC", Third));
+	Durin::FPackagePath First;
+	Durin::FPackagePath Second;
+	Durin::FPackagePath Third;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/RepeatedA", First));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/RepeatedB", Second));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/RepeatedC", Third));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(First, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
@@ -5539,12 +5539,12 @@ TEST(FPackageAssetTests, RepeatedRelocationCompressesAliasesAndMoveBackReclaimsS
 	EXPECT_EQ(Durin::Asset::FindAssetExact(Third)->RedirectDestination, First);
 	EXPECT_EQ(Durin::Asset::ResolveAssetPath(Second).FinalPath, First);
 
-	Durin::FAssetPath Unrelated;
-	Durin::FAssetPath UnrelatedAlias;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath Unrelated;
+	Durin::FPackagePath UnrelatedAlias;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/RepeatedUnrelated", Unrelated
 	));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/RepeatedUnrelatedAlias", UnrelatedAlias
 	));
 	DPackageAssetForTest* UnrelatedAsset = nullptr;
@@ -5562,9 +5562,9 @@ TEST(FPackageAssetTests, RepeatedRelocationCompressesAliasesAndMoveBackReclaimsS
 TEST(FPackageAssetTests, PackageIdentityIsEmbeddedAndRewrittenOnRelocation)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath OldPath, NewPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/MoveSource", OldPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/Sub/MoveSource", NewPath));
+	Durin::FPackagePath OldPath, NewPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/MoveSource", OldPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/Sub/MoveSource", NewPath));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(OldPath, Asset));
 	Asset->Label = "movable";
@@ -5602,10 +5602,10 @@ TEST(FPackageAssetTests, PackageIdentityIsEmbeddedAndRewrittenOnRelocation)
 TEST(FPackageAssetTests, RelocationLeavesMountedReferrersAuthoredToAlias)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath OldPath, NewPath, OwnerPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/MoveDependency", OldPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/RenamedDependency", NewPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/MoveOwner", OwnerPath));
+	Durin::FPackagePath OldPath, NewPath, OwnerPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/MoveDependency", OldPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/RenamedDependency", NewPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/MoveOwner", OwnerPath));
 	DPackageAssetForTest* Dependency = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(OldPath, Dependency));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Dependency->GetPackage()));
@@ -5625,8 +5625,8 @@ TEST(FPackageAssetTests, RelocationLeavesMountedReferrersAuthoredToAlias)
 TEST(FPackageAssetTests, DeletesUnreferencedAssetAndRegistryEntry)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/DeleteMe", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/DeleteMe", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
@@ -5647,8 +5647,8 @@ TEST(FPackageAssetTests, DeletesUnreferencedAssetAndRegistryEntry)
 TEST(FPackageAssetTests, UnloadsAndDeletesLoadedUnreferencedAsset)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/LoadedDelete", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/LoadedDelete", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
@@ -5668,9 +5668,9 @@ TEST(FPackageAssetTests, UnloadsAndDeletesLoadedUnreferencedAsset)
 TEST(FPackageAssetTests, RejectsDeletingReferencedAssetWithoutChangingDisk)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath DependencyPath, OwnerPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/DeleteDependency", DependencyPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/DeleteOwner", OwnerPath));
+	Durin::FPackagePath DependencyPath, OwnerPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/DeleteDependency", DependencyPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/DeleteOwner", OwnerPath));
 	DPackageAssetForTest* Dependency = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(DependencyPath, Dependency));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Dependency->GetPackage()));
@@ -5697,8 +5697,8 @@ TEST(FPackageAssetTests, DeletesRegisteredCompanionFile)
 	InitializeAssetTests();
 	RegisterTestDeleteContributor();
 
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/DeleteWithCompanion", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/DeleteWithCompanion", Path));
 	const std::filesystem::path Companion =
 		Durin::Testing::GetTestWorkDirectory() / "Assets" / "DeleteWithCompanion.source";
 	{
@@ -5723,8 +5723,8 @@ TEST(FPackageAssetTests, DeletesMainAssetWhenCompanionInspectionFails)
 {
 	InitializeAssetTests();
 	RegisterTestDeleteContributor();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/DeleteCorruptPackage", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/DeleteCorruptPackage", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
@@ -5747,9 +5747,9 @@ TEST(FPackageAssetTests, DeletesMainAssetWhenCompanionInspectionFails)
 TEST(FPackageAssetTests, DeleteAnalysisDoesNotLeaveTemporaryDependenciesLoaded)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath DependencyPath, OwnerPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/AnalysisDependency", DependencyPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/AnalysisOwner", OwnerPath));
+	Durin::FPackagePath DependencyPath, OwnerPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/AnalysisDependency", DependencyPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/AnalysisOwner", OwnerPath));
 	DPackageAssetForTest* Dependency = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(DependencyPath, Dependency));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Dependency->GetPackage()));
@@ -5770,8 +5770,8 @@ TEST(FPackageAssetTests, DeleteAnalysisDoesNotLeaveTemporaryDependenciesLoaded)
 TEST(FPackageAssetTests, LegacyPackageIsExplicitlyUnsupportedWithoutCatalogMutation)
 {
 	InitializeAssetTests();
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/LegacyVersion", Path));
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/LegacyVersion", Path));
 	DPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
@@ -5822,8 +5822,8 @@ TEST(FPackageAssetTests, ManualScanMountsRequireExplicitAdmissionBeforeLoading)
 			.bContentWritable = true
 		}
 	};
-	Durin::FAssetPath Path;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath Path;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TestAssets/ManualScanAsset", Path
 	));
 	{
@@ -5883,8 +5883,8 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	Durin::Testing::RemoveTestWorkDirectory(WorkRoot);
 	std::filesystem::create_directories(ContentA);
 	auto CreateIdentityBoundFixture = [&](std::string_view Name) {
-		Durin::FAssetPath Path;
-		EXPECT_TRUE(Durin::FAssetPath::TryCreate(
+		Durin::FPackagePath Path;
+		EXPECT_TRUE(Durin::FPackagePath::TryCreate(
 			std::format("/TestAssets/{}", Name), Path));
 		DPackageAssetForTest* Asset = nullptr;
 		EXPECT_TRUE(Durin::Asset::CreateAsset(Path, Asset));
@@ -6027,8 +6027,8 @@ TEST(FPackageAssetTests, RegistryDuplicatePathsReadOnlyTheAcceptedReferenceSourc
 	std::filesystem::create_directories(RootA / "Nested");
 	std::filesystem::create_directories(RootB);
 
-	Durin::FAssetPath SeedPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/Nested/Duplicate", SeedPath));
+	Durin::FPackagePath SeedPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/Nested/Duplicate", SeedPath));
 	DPackageAssetForTest* SeedAsset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(SeedPath, SeedAsset));
 	ASSERT_TRUE(Durin::Asset::SavePackage(SeedAsset->GetPackage()));
@@ -6092,12 +6092,12 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
 	const uint64 EmptyRegistryRevision = Durin::Asset::GetAssetCatalogRevision();
 
-	Durin::FAssetPath FirstPath;
-	Durin::FAssetPath MovedPath;
-	Durin::FAssetPath ImportedPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/LifecycleFirst", FirstPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/LifecycleMoved", MovedPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/LifecycleImported", ImportedPath));
+	Durin::FPackagePath FirstPath;
+	Durin::FPackagePath MovedPath;
+	Durin::FPackagePath ImportedPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/LifecycleFirst", FirstPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/LifecycleMoved", MovedPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/LifecycleImported", ImportedPath));
 
 	DPackageAssetForTest* FirstAsset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(FirstPath, FirstAsset));
@@ -6186,12 +6186,12 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesCheapMetadataAndFullValidationWit
 	Durin::Testing::RemoveTestWorkDirectory(CacheRoot);
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
 
-	Durin::FAssetPath OwnerPath;
-	Durin::FAssetPath TargetAPath;
-	Durin::FAssetPath TargetBPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftCacheOwner", OwnerPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftCacheTargetA", TargetAPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TestAssets/SoftCacheTargetB", TargetBPath));
+	Durin::FPackagePath OwnerPath;
+	Durin::FPackagePath TargetAPath;
+	Durin::FPackagePath TargetBPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftCacheOwner", OwnerPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftCacheTargetA", TargetAPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/SoftCacheTargetB", TargetBPath));
 	DPackageAssetForTest* TargetA = nullptr;
 	DPackageAssetForTest* TargetB = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(TargetAPath, TargetA));
@@ -6212,7 +6212,7 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesCheapMetadataAndFullValidationWit
 	ASSERT_TRUE(InitialRefresh);
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(TargetAPath), nullptr);
 	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(OwnerPath),
-		(std::vector<Durin::FAssetPath>{TargetAPath}));
+		(std::vector<Durin::FPackagePath>{TargetAPath}));
 	const auto CacheFile = CacheRoot / "AssetRegistry" / "Registry.bin";
 	ASSERT_TRUE(std::filesystem::is_regular_file(CacheFile));
 	std::vector<std::byte> FirstCache;
@@ -6240,12 +6240,12 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesCheapMetadataAndFullValidationWit
 	const auto PreservedTimestampRefresh = Durin::Asset::RefreshAssetRegistry();
 	ASSERT_TRUE(PreservedTimestampRefresh);
 	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(OwnerPath),
-		(std::vector<Durin::FAssetPath>{TargetAPath}));
+		(std::vector<Durin::FPackagePath>{TargetAPath}));
 	const auto FullRefresh = Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation);
 	ASSERT_TRUE(FullRefresh);
 	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(OwnerPath),
-		(std::vector<Durin::FAssetPath>{TargetBPath}));
+		(std::vector<Durin::FPackagePath>{TargetBPath}));
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(TargetBPath), nullptr);
 	std::filesystem::last_write_time(
 		OwnerFile, std::filesystem::last_write_time(OwnerFile) + std::chrono::seconds(2));
@@ -6257,7 +6257,7 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesCheapMetadataAndFullValidationWit
 	const auto CorruptCacheRefresh = Durin::Asset::RefreshAssetRegistry();
 	ASSERT_TRUE(CorruptCacheRefresh);
 	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(OwnerPath),
-		(std::vector<Durin::FAssetPath>{TargetBPath}));
+		(std::vector<Durin::FPackagePath>{TargetBPath}));
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(TargetBPath), nullptr);
 	std::vector<std::byte> RecoveredCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(

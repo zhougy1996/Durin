@@ -326,7 +326,7 @@ namespace Durin::Editor::Texture
 			SetError(DestinationValidation.Message);
 			return false;
 		}
-		const FAssetPath& AssetPath = DestinationValidation.AssetPath;
+		const FPackagePath& AssetPath = DestinationValidation.AssetPath;
 		std::array<std::string, TextureCubeFaceCount> Sources;
 		AssetForge::Builtins::FTextureCubePanoramaImportSettings PanoramaSettings;
 		if (Cube.SourceLayout == ETextureCubeSourceLayout::SixFaces)

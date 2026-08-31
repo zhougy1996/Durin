@@ -17,10 +17,10 @@ namespace
 {
 	namespace Package = Durin::ObjectPackage;
 
-	auto MakePath(std::string_view Value) -> Durin::FAssetPath
+	auto MakePath(std::string_view Value) -> Durin::FPackagePath
 	{
-		Durin::FAssetPath Path;
-		EXPECT_TRUE(Durin::FAssetPath::TryCreate(Value, Path));
+		Durin::FPackagePath Path;
+		EXPECT_TRUE(Durin::FPackagePath::TryCreate(Value, Path));
 		return Path;
 	}
 

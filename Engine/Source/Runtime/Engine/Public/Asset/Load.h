@@ -29,7 +29,7 @@ namespace Durin::Asset
 		FAssetResult Result;
 		ESoftObjectResolveState State = ESoftObjectResolveState::Null;
 		DObject* Object = nullptr;
-		FAssetPath ResolvedPath;
+		FPackagePath ResolvedPath;
 		bool bRedirected = false;
 
 		auto Succeeded() const -> bool { return Result.Succeeded(); }
@@ -42,7 +42,7 @@ namespace Durin::Asset
 		FAssetResult Result;
 		ESoftObjectResolveState State = ESoftObjectResolveState::Null;
 		T* Object = nullptr;
-		FAssetPath ResolvedPath;
+		FPackagePath ResolvedPath;
 		bool bRedirected = false;
 
 		auto Succeeded() const -> bool { return Result.Succeeded(); }
@@ -57,7 +57,7 @@ namespace Durin::Asset
 
 	struct FAssetLoadMutation
 	{
-		FAssetPath PackagePath;
+		FPackagePath PackagePath;
 		std::string ObjectPath;
 		std::string HandlerId;
 		std::string Summary;
@@ -81,7 +81,7 @@ namespace Durin::Asset
 
 	struct FAssetCanonicalizationEvidence
 	{
-		FAssetPath PackagePath;
+		FPackagePath PackagePath;
 		std::string StoredIdentity;
 		std::string CurrentIdentity;
 		EAssetReflectedIdentityKind Kind = EAssetReflectedIdentityKind::Class;
@@ -94,7 +94,7 @@ namespace Durin::Asset
 
 	struct FAssetDeprecatedRouteEvidence
 	{
-		FAssetPath PackagePath;
+		FPackagePath PackagePath;
 		std::string ObjectPath;
 		std::string DeclaringType;
 		std::string StoredFieldName;
@@ -109,11 +109,11 @@ namespace Durin::Asset
 
 	struct FAssetLoadReport
 	{
-		FAssetPath RequestedPath;
-		FAssetPath FinalPath;
-		FAssetPath PackagePath;
+		FPackagePath RequestedPath;
+		FPackagePath FinalPath;
+		FPackagePath PackagePath;
 		uint64 CatalogRevision = 0;
-		std::vector<FAssetPath> RedirectChain;
+		std::vector<FPackagePath> RedirectChain;
 		std::string FinalAssetClassName;
 		EAssetError Error = EAssetError::None;
 		std::string ErrorMessage;
@@ -134,7 +134,7 @@ namespace Durin::Asset
 
 	struct FAssetPackageLoadSnapshot
 	{
-		std::vector<FAssetPath> ResidentPackages;
+		std::vector<FPackagePath> ResidentPackages;
 	};
 
 	enum class EAssetPackageUnloadPolicy : uint8
@@ -165,7 +165,7 @@ namespace Durin::Asset
 	}
 
 	ENGINE_API auto LoadAsset(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		const DClass* ExpectedClass,
 		DObject*& OutAsset,
 		FAssetLoadReport* OutReport = nullptr
@@ -173,7 +173,7 @@ namespace Durin::Asset
 
 	template<typename T>
 	auto LoadAsset(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		T*& OutAsset,
 		FAssetLoadReport* OutReport = nullptr
 	) -> FAssetResult
@@ -237,15 +237,15 @@ namespace Durin::Asset
 	}
 
 	ENGINE_API auto LoadAsset(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		DObject*& OutAsset,
 		FAssetLoadReport* OutReport = nullptr
 	) -> FAssetResult;
-	ENGINE_API auto FindResidentPackage(const FAssetPath& Path) -> DPackage*;
+	ENGINE_API auto FindResidentPackage(const FPackagePath& Path) -> DPackage*;
 	// Attempts to release Standalone residency and collect an unreferenced package.
 	// Returns InUse and restores residency when a live strong reference keeps it reachable.
 	ENGINE_API auto UnloadPackage(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		EAssetPackageUnloadPolicy Policy = EAssetPackageUnloadPolicy::RejectUnsaved
 	)
 		-> FAssetResult;

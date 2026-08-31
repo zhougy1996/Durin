@@ -11,8 +11,8 @@ namespace Durin
 {
 	struct FAssetRelocation
 	{
-		FAssetPath SourcePath;
-		FAssetPath DestinationPath;
+		FPackagePath SourcePath;
+		FPackagePath DestinationPath;
 	};
 
 	struct FAssetRelocationRequest
@@ -23,7 +23,7 @@ namespace Durin
 
 	struct FAssetRedirectorFixupRequest
 	{
-		std::vector<FAssetPath> Redirectors;
+		std::vector<FPackagePath> Redirectors;
 		bool bDeleteRedirectors = true;
 		DTransactor* Transactions = nullptr;
 	};

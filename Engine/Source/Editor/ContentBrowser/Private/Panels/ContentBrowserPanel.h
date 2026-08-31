@@ -29,7 +29,7 @@ namespace Durin::Editor::ContentBrowser::Private
 		using FOpenAsset = std::function<bool(const std::string&, const std::string&)>;
 		using FMoveAssets = std::function<Asset::FAssetResult(std::span<const FEditorAssetMove>)>;
 		using FFixUpAssets =
-			std::function<Asset::FAssetResult(std::span<const FAssetPath>)>;
+			std::function<Asset::FAssetResult(std::span<const FPackagePath>)>;
 		using FExecuteTransaction =
 			std::function<bool(std::unique_ptr<::Durin::Editor::ITransactionCustomChange>)>;
 		using FGetMountedContentMutationRevision = std::function<uint64()>;
@@ -113,8 +113,8 @@ namespace Durin::Editor::ContentBrowser::Private
 		auto PasteAsset(std::string_view DestinationDirectory = {}) -> void;
 		auto HasAssetClipboard() const -> bool;
 		auto CreateFolder(std::string_view PhysicalDirectory) -> void;
-		auto SaveAssetPackage(const FAssetPath& Path) -> void;
-		auto ResaveAssetPackages(std::vector<FAssetPath> Paths) -> void;
+		auto SaveAssetPackage(const FPackagePath& Path) -> void;
+		auto ResaveAssetPackages(std::vector<FPackagePath> Paths) -> void;
 		auto FixUpRedirector(const FContentBrowserItem& Item) -> void;
 		auto FixUpFolder(std::string_view VirtualDirectory) -> void;
 		auto FixUpProject() -> void;

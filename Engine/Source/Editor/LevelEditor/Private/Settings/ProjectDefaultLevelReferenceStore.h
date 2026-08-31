@@ -15,7 +15,7 @@ namespace Durin::Editor::Level
 		: public Asset::IAssetReferenceStore
 	{
 	public:
-		using FPathChanged = std::function<void(const FAssetPath&)>;
+		using FPathChanged = std::function<void(const FPackagePath&)>;
 		using FProjectResolver = std::function<const FProjectInfo*()>;
 
 		explicit FProjectDefaultLevelReferenceStore(

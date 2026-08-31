@@ -57,7 +57,7 @@ namespace
 
 	auto RewriteSerializedFieldAsLegacyMap(
 		std::vector<std::byte>& Bytes,
-		const Durin::FAssetPath& PackagePath,
+		const Durin::FPackagePath& PackagePath,
 		std::string_view CurrentName,
 		std::string_view LegacyName
 	) -> bool
@@ -108,7 +108,7 @@ namespace
 	}
 
 	auto ContainsSerializedField(std::span<const std::byte> Bytes,
-		const Durin::FAssetPath& PackagePath, std::string_view Name) -> bool
+		const Durin::FPackagePath& PackagePath, std::string_view Name) -> bool
 	{
 		Durin::ObjectPackage::FLinkerTables Linker;
 		if (!Durin::ObjectPackage::ReadPackageV9(
@@ -319,7 +319,7 @@ namespace
 					== Durin::ERenderCommandAdmissionState::Stopped;
 			if (bOwnsRenderingThread) Durin::InitRenderingThread();
 			if (Durin::FMountPaths::FindMountForVirtualPath(
-					Durin::DefaultMaterialAssetPath))
+					Durin::DefaultMaterialPackagePath))
 			{
 				Durin::InitializeDefaultMaterialService();
 			}
@@ -385,7 +385,7 @@ namespace
 					== Durin::ERenderCommandAdmissionState::Stopped;
 			if (bOwnsRenderingThread) Durin::InitRenderingThread();
 			if (Durin::FMountPaths::FindMountForVirtualPath(
-					Durin::DefaultMaterialAssetPath))
+					Durin::DefaultMaterialPackagePath))
 			{
 				Durin::InitializeDefaultMaterialService();
 			}

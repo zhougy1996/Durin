@@ -27,7 +27,7 @@ namespace Durin
 			159, 129, 129, 129, 1, 0, 12, 252, 1, 255, 253, 45, 119, 109,
 			0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130};
 
-		auto MakePath(std::string_view Value) -> FAssetPath
+		auto MakePath(std::string_view Value) -> FPackagePath
 		{
 			InitializeDObjectSystem();
 			const std::filesystem::path Root = Testing::GetTestWorkDirectory() / "AssetThumbnailContracts";
@@ -37,8 +37,8 @@ namespace Durin
 				std::filesystem::create_directories(Root);
 				Testing::RegisterMountPointForTests("/ThumbnailTests/", Root.generic_string() + "/");
 			}
-			FAssetPath Path;
-			EXPECT_TRUE(FAssetPath::TryCreate(Value, Path));
+			FPackagePath Path;
+			EXPECT_TRUE(FPackagePath::TryCreate(Value, Path));
 			return Path;
 		}
 
@@ -546,7 +546,7 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, DependencyClosureIsSortedAndCycleGuarded)
 	{
-		const FAssetPath Root = MakePath("/ThumbnailTests/Materials/Instance");
+		const FPackagePath Root = MakePath("/ThumbnailTests/Materials/Instance");
 		std::vector<Editor::FAssetThumbnailDependencyNode> Forward = {
 			{MakePackage("/ThumbnailTests/Materials/Instance", "DMaterialInstance", 7, 100, 10),
 				{MakePath("/ThumbnailTests/Textures/BaseColor"), MakePath("/ThumbnailTests/Materials/Parent")}},
@@ -574,7 +574,7 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, MissingDependenciesCannotProduceTrustedClosure)
 	{
-		const FAssetPath Root = MakePath("/ThumbnailTests/Materials/Invalid");
+		const FPackagePath Root = MakePath("/ThumbnailTests/Materials/Invalid");
 		const std::vector<Editor::FAssetThumbnailDependencyNode> Nodes = {
 			{MakePackage("/ThumbnailTests/Materials/Invalid", "DMaterial", 7, 100, 10),
 				{MakePath("/ThumbnailTests/Textures/Missing")}},
@@ -588,7 +588,7 @@ namespace Durin
 
 	TEST(FAssetThumbnailContractTests, DuplicateRegistryEntriesCannotProduceAmbiguousClosure)
 	{
-		const FAssetPath Root = MakePath("/ThumbnailTests/Materials/Duplicate");
+		const FPackagePath Root = MakePath("/ThumbnailTests/Materials/Duplicate");
 		const std::vector<Editor::FAssetThumbnailDependencyNode> Nodes = {
 			{MakePackage("/ThumbnailTests/Materials/Duplicate", "DMaterial", 7, 100, 10), {}},
 			{MakePackage("/ThumbnailTests/Materials/Duplicate", "DMaterial", 7, 100, 10), {}},

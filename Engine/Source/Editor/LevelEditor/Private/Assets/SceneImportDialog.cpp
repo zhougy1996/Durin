@@ -147,7 +147,7 @@ namespace Durin::Editor::Level
 			SetError(DestinationValidation.Message);
 			return false;
 		}
-		const FAssetPath& OutputDirectory = DestinationValidation.DirectoryPath;
+		const FPackagePath& OutputDirectory = DestinationValidation.DirectoryPath;
 		AssetForge::Builtins::FSceneImportResult Result;
 		if (!AssetForge::Builtins::ImportSceneAssets(SourcePathBuffer.data(), OutputDirectory,
 			Coordinates.GetSettings(), Result))

@@ -126,11 +126,11 @@ TEST(FMaterialThumbnailRendererTests, RendererCapturesSortedTransitiveMaterialDe
 	std::string Error;
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error)) << Error;
 
-	Durin::FAssetPath MaterialPath;
-	Durin::FAssetPath InstancePath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath MaterialPath;
+	Durin::FPackagePath InstancePath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::MaterialPath, MaterialPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::MaterialInstancePath, InstancePath));
 	const Durin::Asset::FAssetCatalogEntry MaterialData =
 		Durin::Asset::FindAssetExact(MaterialPath);
@@ -179,8 +179,8 @@ TEST(FMaterialThumbnailRendererTests, RendererCapturesSortedTransitiveMaterialDe
 TEST(FMaterialThumbnailRendererTests, RendererRejectsMissingRegistryData)
 {
 	Durin::Tests::RegisterAssetThumbnailFixtureMount();
-	Durin::FAssetPath MissingPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath MissingPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/ThumbnailFixtures/Materials/M_Missing", MissingPath));
 	Durin::Editor::Material::DMaterialThumbnailRenderer Renderer(
 		Durin::DMaterial::StaticClass()->GetQualifiedName().ToString());
@@ -266,8 +266,8 @@ TEST(FMaterialThumbnailRendererTests, InvalidInstancePublishesOneStableDiagnosti
 	Durin::Tests::FAssetThumbnailFixtureSet Fixtures;
 	std::string Error;
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error)) << Error;
-	Durin::FAssetPath InvalidPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath InvalidPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		Durin::Tests::FAssetThumbnailFixtureSet::InvalidMaterialInstancePath,
 		InvalidPath));
 	const Durin::Asset::FAssetCatalogEntry Data =
@@ -306,8 +306,8 @@ TEST(FMaterialThumbnailRendererTests,
 	std::string Error;
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 
-	Durin::FAssetPath MaterialPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath MaterialPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/Engine/Materials/ImportedSurface",
 		MaterialPath));
 	const Durin::Asset::FAssetCatalogEntry MaterialData =
@@ -357,8 +357,8 @@ TEST(FMaterialThumbnailRendererTests,
 	std::string Error;
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry());
 
-	Durin::FAssetPath MaterialPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath MaterialPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/Engine/Materials/ImportedSurface", MaterialPath));
 	const Durin::Asset::FAssetCatalogEntry MaterialData =
 		Durin::Asset::FindAssetExact(MaterialPath);

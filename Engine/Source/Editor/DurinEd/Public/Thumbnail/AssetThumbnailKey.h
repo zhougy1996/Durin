@@ -8,7 +8,7 @@ namespace Durin::Editor
 	struct FAssetThumbnailDependencyNode
 	{
 		FAssetThumbnailPackageFingerprint Package;
-		std::vector<FAssetPath> Dependencies;
+		std::vector<FPackagePath> Dependencies;
 	};
 
 	// Contains every renderer-neutral field used to derive one persistent cache key.
@@ -26,7 +26,7 @@ namespace Durin::Editor
 
 	// Builds a sorted transitive dependency snapshot; missing or conflicting registry data is invalid.
 	DURINED_API auto BuildAssetThumbnailDependencyClosure(
-		const FAssetPath& Root,
+		const FPackagePath& Root,
 		std::span<const FAssetThumbnailDependencyNode> RegistrySnapshot,
 		std::vector<FAssetThumbnailPackageFingerprint>& OutDependencies,
 		std::string& OutError) -> bool;

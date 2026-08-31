@@ -11,10 +11,10 @@ namespace Durin::Asset::Private
 		std::vector<FTopLevelAssetData> TopLevelAssets;
 		std::string AssetClassName;
 		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
-		FAssetPath RedirectDestination;
+		FPackagePath RedirectDestination;
 		uint32 FormatVersion = 0;
-		std::vector<FAssetPath> Dependencies;
-		std::vector<FAssetPath> SoftDependencies;
+		std::vector<FPackagePath> Dependencies;
+		std::vector<FPackagePath> SoftDependencies;
 		std::vector<std::string> SearchableNames;
 		uint64 ObjectCount = 0;
 		uint64 BulkSegmentExtent = 0;
@@ -36,7 +36,7 @@ namespace Durin::Asset::Private
 		std::vector<FRegistryCacheEntry> Entries,
 		std::string& OutWarning) -> bool;
 	auto BuildRegistryCacheEntries(
-		const std::unordered_map<FAssetPath, FAssetData>& Assets,
+		const std::unordered_map<FPackagePath, FAssetData>& Assets,
 		std::vector<FRegistryCacheEntry>& OutEntries,
 		std::string& OutWarning) -> bool;
 }

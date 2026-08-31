@@ -263,8 +263,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 	Durin::Testing::FScopedMountRegistryFixture MountFixture(Mounts);
 	ASSERT_TRUE(MountFixture.IsValid()) << MountFixture.GetError();
 	ASSERT_TRUE(Durin::Asset::InitializeAssetManager());
-	Durin::FAssetPath AuthoredPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath AuthoredPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/CookedStaticMeshRenderPreparation/Mesh", AuthoredPath));
 	Durin::DStaticMesh* AuthoredMesh = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(AuthoredPath, AuthoredMesh));
@@ -297,8 +297,8 @@ TEST(FStaticMeshRenderPreparationVulkanTests,
 		std::move(CookedConfiguration)));
 	ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 		Durin::Asset::EAssetRegistryScanMode::FullValidation));
-	Durin::FAssetPath CookedPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/CookedMesh", CookedPath));
+	Durin::FPackagePath CookedPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedMesh", CookedPath));
 	Durin::DStaticMesh* CookedMesh = nullptr;
 	const Durin::Asset::FAssetResult Loaded =
 		Durin::Asset::LoadAsset(CookedPath, CookedMesh);

@@ -119,8 +119,8 @@ TEST(FSingleAssetImportTests, FailedFamilyFactoriesDiscardTheirFormalPackages)
 		"/SingleAssetStage2/InvalidVolume",
 		"/SingleAssetStage2/InvalidMesh"})
 	{
-		Durin::FAssetPath Path;
-		ASSERT_TRUE(Durin::FAssetPath::TryCreate(PathText, Path));
+		Durin::FPackagePath Path;
+		ASSERT_TRUE(Durin::FPackagePath::TryCreate(PathText, Path));
 		EXPECT_EQ(Durin::Asset::FindResidentPackage(Path), nullptr);
 	}
 }

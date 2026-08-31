@@ -44,7 +44,7 @@ namespace Durin::Asset
 	}
 
 	auto FAssetMutationCoordinator::AnalyzeAssetDeletion(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		FAssetDeleteAnalysis& OutAnalysis) -> FAssetResult
 	{
 		OutAnalysis = {};
@@ -66,7 +66,7 @@ namespace Durin::Asset
 		}
 		std::ranges::sort(
 			OutAnalysis.DirectReferencers,
-			[](const FAssetPath& A, const FAssetPath& B) {
+			[](const FPackagePath& A, const FPackagePath& B) {
 				return A.GetView() < B.GetView();
 			});
 		OutAnalysis.bLoaded = FindResidentPackage(Path) != nullptr;
@@ -174,7 +174,7 @@ namespace Durin::Asset
 	}
 
 	auto FAssetMutationCoordinator::PrepareAssetDeletionTransaction(
-		std::span<const FAssetPath> Paths,
+		std::span<const FPackagePath> Paths,
 		std::span<const std::filesystem::path> PhysicalRoots,
 		FAssetDeletionTransaction& OutTransaction,
 		std::vector<FAssetDeletionBatchBlocker>& OutBlockers) -> FAssetResult
@@ -188,16 +188,16 @@ namespace Durin::Asset
 				EAssetError::ReadOnlyMode,
 				"Cooked runtime package mode does not permit asset deletion.");
 
-		std::vector<FAssetPath> SortedPaths(Paths.begin(), Paths.end());
+		std::vector<FPackagePath> SortedPaths(Paths.begin(), Paths.end());
 		std::ranges::sort(
 			SortedPaths,
-			[](const FAssetPath& A, const FAssetPath& B) {
+			[](const FPackagePath& A, const FPackagePath& B) {
 				return A.GetView() < B.GetView();
 			});
 		SortedPaths.erase(
 			std::unique(SortedPaths.begin(), SortedPaths.end()),
 			SortedPaths.end());
-		const std::unordered_set<FAssetPath> DeletionSet(
+		const std::unordered_set<FPackagePath> DeletionSet(
 			SortedPaths.begin(), SortedPaths.end());
 		OutToken.RegistryRevision = GetAssetCatalogRevision();
 		OutToken.ReferenceStoreRevision =
@@ -208,8 +208,8 @@ namespace Durin::Asset
 				std::filesystem::absolute(Root).lexically_normal());
 
 		auto AddBlocker = [&](EAssetDeletionBatchBlocker Kind,
-			const FAssetPath& AssetPath,
-			const FAssetPath& RelatedAssetPath,
+			const FPackagePath& AssetPath,
+			const FPackagePath& RelatedAssetPath,
 			std::filesystem::path PhysicalPath,
 			std::string Details) {
 			OutBlockers.push_back({
@@ -220,7 +220,7 @@ namespace Durin::Asset
 				.Details = std::move(Details)});
 		};
 
-		for (const FAssetPath& Path : SortedPaths)
+		for (const FPackagePath& Path : SortedPaths)
 		{
 			const FAssetCatalogEntry Data = FindAssetExact(Path);
 			if (!Path.IsValid() || !Data)
@@ -269,7 +269,7 @@ namespace Durin::Asset
 		// Deletion is closed over final targets and every alias that resolves to them.
 		// This prevents an alias-only delete from silently invalidating authored old paths,
 		// and prevents a target delete from leaving redirectors with no destination.
-		std::unordered_map<FAssetPath, std::vector<FAssetPath>> RedirectorsByTarget;
+		std::unordered_map<FPackagePath, std::vector<FPackagePath>> RedirectorsByTarget;
 		for (const auto& [AliasPath, AliasData] : CaptureAssetCatalogSnapshot().Assets)
 		{
 			if (AliasData.EntryKind != EAssetRegistryEntryKind::Redirector) continue;
@@ -281,11 +281,11 @@ namespace Durin::Asset
 		for (auto& [TargetPath, Redirectors] : RedirectorsByTarget)
 			std::ranges::sort(
 				Redirectors,
-				[](const FAssetPath& A, const FAssetPath& B) {
+				[](const FPackagePath& A, const FPackagePath& B) {
 					return A.GetView() < B.GetView();
 				});
 
-		for (const FAssetPath& Path : SortedPaths)
+		for (const FPackagePath& Path : SortedPaths)
 		{
 			const FAssetCatalogEntry Data = FindAssetExact(Path);
 			if (!Data) continue;
@@ -295,7 +295,7 @@ namespace Durin::Asset
 					Durin::Asset::ResolveAssetPath(Path);
 				if (!Resolution || !DeletionSet.contains(Resolution.FinalPath))
 				{
-					const FAssetPath Related = Resolution.FinalPath.IsValid()
+					const FPackagePath Related = Resolution.FinalPath.IsValid()
 						? Resolution.FinalPath
 						: Data->RedirectDestination;
 					AddBlocker(
@@ -316,8 +316,8 @@ namespace Durin::Asset
 
 			const auto Found = RedirectorsByTarget.find(Path);
 			if (Found == RedirectorsByTarget.end()) continue;
-			std::vector<FAssetPath> SelectedRedirectors;
-			for (const FAssetPath& Redirector : Found->second)
+			std::vector<FPackagePath> SelectedRedirectors;
+			for (const FPackagePath& Redirector : Found->second)
 			{
 				if (DeletionSet.contains(Redirector))
 					SelectedRedirectors.push_back(Redirector);
@@ -346,9 +346,9 @@ namespace Durin::Asset
 		}
 
 		const FAssetReferenceIndex ReferenceIndex = CaptureAssetReferenceIndex();
-		for (const FAssetPath& Path : SortedPaths)
+		for (const FPackagePath& Path : SortedPaths)
 		{
-			std::vector<FAssetPath> SoftReferencers;
+			std::vector<FPackagePath> SoftReferencers;
 			for (const FAssetPackageReferenceEdge& Edge :
 				 ReferenceIndex.FindReferencers(Path))
 			{
@@ -359,7 +359,7 @@ namespace Durin::Asset
 			}
 			std::ranges::sort(
 				SoftReferencers,
-				[](const FAssetPath& A, const FAssetPath& B) {
+				[](const FPackagePath& A, const FPackagePath& B) {
 					return A.GetView() < B.GetView();
 				});
 			SoftReferencers.erase(
@@ -399,7 +399,7 @@ namespace Durin::Asset
 		for (const auto& [OtherPath, OtherData] : CaptureAssetCatalogSnapshot().Assets)
 		{
 			if (DeletionSet.contains(OtherPath)) continue;
-			for (const FAssetPath& Dependency : OtherData.Dependencies)
+			for (const FPackagePath& Dependency : OtherData.Dependencies)
 			{
 				if (!DeletionSet.contains(Dependency)) continue;
 				// Redirect hard blockers have dedicated actionable closure diagnostics.
@@ -420,7 +420,7 @@ namespace Durin::Asset
 			}
 		}
 
-		std::unordered_map<std::string, std::vector<FAssetPath>> CompanionOwners;
+		std::unordered_map<std::string, std::vector<FPackagePath>> CompanionOwners;
 		for (const auto& [OwnerPath, OwnerData] : CaptureAssetCatalogSnapshot().Assets)
 		{
 			std::vector<std::filesystem::path> Files;
@@ -437,7 +437,7 @@ namespace Durin::Asset
 				auto Owners = CompanionOwners[File.generic_string()];
 				std::ranges::sort(
 					Owners,
-					[](const FAssetPath& A, const FAssetPath& B) {
+					[](const FPackagePath& A, const FPackagePath& B) {
 						return A.GetView() < B.GetView();
 					});
 				Owners.erase(std::unique(Owners.begin(), Owners.end()), Owners.end());
@@ -448,7 +448,7 @@ namespace Durin::Asset
 						{},
 						File,
 						"Companion file is claimed by multiple assets.");
-				for (const FAssetPath& Owner : Owners)
+				for (const FPackagePath& Owner : Owners)
 					if (!DeletionSet.contains(Owner))
 						AddBlocker(
 							EAssetDeletionBatchBlocker::ExternalCompanionOwner,
@@ -472,7 +472,7 @@ namespace Durin::Asset
 							PhysicalPath, NormalizedRoot, true);
 				});
 			if (!bInsidePhysicalRoot) continue;
-			for (const FAssetPath& Owner : Owners)
+			for (const FPackagePath& Owner : Owners)
 				if (!DeletionSet.contains(Owner))
 					AddBlocker(
 						EAssetDeletionBatchBlocker::ExternalCompanionOwner,
@@ -509,7 +509,7 @@ namespace Durin::Asset
 			return Error(EAssetError::StaleData,
 				"The asset deletion transaction is empty.");
 		const auto& Token = *Transaction.State;
-		std::vector<FAssetPath> Paths;
+		std::vector<FPackagePath> Paths;
 		Paths.reserve(Token.Entries.size());
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
 			Paths.push_back(Entry.RegistryEntry.PackagePath);
@@ -548,7 +548,7 @@ namespace Durin::Asset
 		std::vector<DPackage*> Packages;
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
 		{
-			const FAssetPath& Path = Entry.RegistryEntry.PackagePath;
+			const FPackagePath& Path = Entry.RegistryEntry.PackagePath;
 			if (LoadingPackages.contains(Path))
 				return Error(EAssetError::InUse, std::format(
 					"Asset {} is currently loading.", Path.ToString()));
@@ -573,7 +573,7 @@ namespace Durin::Asset
 		const auto& Token = *Transaction.State;
 		const uint64 ExpectedRevision = GetAssetCatalogRevision();
 		FAssetPublicationState Prepared = Registry.CapturePreparedState();
-		std::unordered_set<FAssetPath> DeletionSet;
+		std::unordered_set<FPackagePath> DeletionSet;
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
 			DeletionSet.insert(Entry.RegistryEntry.PackagePath);
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
@@ -587,7 +587,7 @@ namespace Durin::Asset
 		for (const auto& [OtherPath, OtherData] : Prepared.Assets)
 		{
 			if (DeletionSet.contains(OtherPath)) continue;
-			for (const FAssetPath& Dependency : OtherData.Dependencies)
+			for (const FPackagePath& Dependency : OtherData.Dependencies)
 				if (DeletionSet.contains(Dependency))
 					return Error(EAssetError::InUse, std::format(
 						"Asset {} gained external referencer {}.",
@@ -595,7 +595,7 @@ namespace Durin::Asset
 		}
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
 		{
-			const FAssetPath& Path = Entry.RegistryEntry.PackagePath;
+			const FPackagePath& Path = Entry.RegistryEntry.PackagePath;
 			Prepared.Assets.erase(Path);
 			Prepared.ReferenceFingerprints.erase(Path);
 			std::erase_if(Prepared.ReferenceEdges,
@@ -614,7 +614,7 @@ namespace Durin::Asset
 		FAssetPublicationState Prepared = Registry.CapturePreparedState();
 		for (const FAssetDeletionBatchEntry& Entry : Token.Entries)
 		{
-			const FAssetPath& Path = Entry.RegistryEntry.PackagePath;
+			const FPackagePath& Path = Entry.RegistryEntry.PackagePath;
 			if (Prepared.Assets.contains(Path) || FindResidentPackage(Path))
 				return Error(EAssetError::AlreadyExists, std::format(
 					"Asset {} already exists and cannot be restored.",
@@ -641,7 +641,7 @@ namespace Durin::Asset
 		return Registry.PublishPreparedState(ExpectedRevision, std::move(Prepared));
 	}
 
-	auto FAssetMutationCoordinator::DeleteAssetForTesting(const FAssetPath& Path)
+	auto FAssetMutationCoordinator::DeleteAssetForTesting(const FPackagePath& Path)
 		-> FAssetResult
 	{
 		if (RuntimeConfiguration.IsCooked())

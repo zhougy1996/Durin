@@ -97,7 +97,7 @@ namespace Durin::Editor::Texture
 			: public ::Durin::Editor::IThumbnailRendererSession
 		{
 		public:
-			explicit FTextureCubeThumbnailGenerationSession(FAssetPath InAssetPath)
+			explicit FTextureCubeThumbnailGenerationSession(FPackagePath InAssetPath)
 				: AssetPath(std::move(InAssetPath))
 			{
 			}
@@ -189,7 +189,7 @@ namespace Durin::Editor::Texture
 			auto ResetPreview() -> void override {}
 
 		private:
-			FAssetPath AssetPath;
+			FPackagePath AssetPath;
 			DTextureCube* TextureCube = nullptr;
 			uint64 AssetRevision = 0;
 		};

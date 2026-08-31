@@ -9,16 +9,16 @@ namespace Durin::Asset::Private
 	public:
 		FAssetRegistryState();
 
-		auto FindAssetExact(const FAssetPath& Path) const -> FAssetCatalogEntry;
+		auto FindAssetExact(const FPackagePath& Path) const -> FAssetCatalogEntry;
 		auto FindTopLevelAssetExact(const FTopLevelAssetPath& Path) const
 			-> FTopLevelAssetCatalogEntry;
-		auto ResolveAssetPath(const FAssetPath& Path,
+		auto ResolveAssetPath(const FPackagePath& Path,
 			const FAssetPathResolveOptions& Options = {}) const -> FAssetPathResolveResult;
-		auto FindRedirectorsTo(const FAssetPath& Destination) const
-			-> std::vector<FAssetPath>;
+		auto FindRedirectorsTo(const FPackagePath& Destination) const
+			-> std::vector<FPackagePath>;
 		auto CaptureCatalog() const -> FAssetCatalogSnapshot;
 		auto CaptureDependencyClosure(
-			const FAssetPath& Root) const -> FAssetDependencyClosureSnapshot;
+			const FPackagePath& Root) const -> FAssetDependencyClosureSnapshot;
 		auto CaptureReferences() const -> FAssetReferenceIndex;
 		auto CaptureSnapshot() const -> FAssetRegistrySnapshot;
 		auto CapturePublication() const -> FAssetRegistryPublication;
@@ -28,7 +28,7 @@ namespace Durin::Asset::Private
 	private:
 		mutable std::shared_mutex Mutex;
 		uint64 Revision = 1;
-		std::unordered_map<FAssetPath, FAssetData> Assets;
+		std::unordered_map<FPackagePath, FAssetData> Assets;
 		FAssetReferenceIndex References;
 	};
 

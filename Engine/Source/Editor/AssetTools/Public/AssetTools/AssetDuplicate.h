@@ -6,10 +6,10 @@ namespace Durin
 {
 	struct FAssetDuplicateRequest
 	{
-		FAssetPath SourcePath;
+		FPackagePath SourcePath;
 		std::string DestinationDirectory;
 		bool bSave = true;
-		std::function<std::string(const FAssetPath&)> ResolvePhysicalPackagePath;
+		std::function<std::string(const FPackagePath&)> ResolvePhysicalPackagePath;
 		FPublishAssetOperation Publish;
 	};
 }

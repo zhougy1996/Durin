@@ -18,7 +18,7 @@ namespace Durin::Asset::Private
 
 		auto ValidateRedirectorHeader(
 			const FAssetPackageHeader& Header,
-			const FAssetPath& Source) -> FAssetResult
+			const FPackagePath& Source) -> FAssetResult
 		{
 			if (Header.EntryKind != EAssetRegistryEntryKind::Redirector)
 				return {};
@@ -57,14 +57,14 @@ namespace Durin::Asset::Private
 				if (!It->is_regular_file(FileEc) || It->path().extension() != ".dasset")
 					continue;
 				++Result.Stats.Enumerated;
-				FAssetPath DiskPath;
+				FPackagePath DiskPath;
 				std::filesystem::path Relative = std::filesystem::relative(
 					It->path(), AssetRoot, FileEc).lexically_normal();
 				const std::string RelativeString = Relative.generic_string();
 				std::filesystem::path PackageRelative = Relative;
 				PackageRelative.replace_extension();
 				if (FileEc || Relative.is_absolute() || RelativeString.starts_with("../")
-					|| !FAssetPath::TryCreate(
+					|| !FPackagePath::TryCreate(
 						Mount.VirtualRoot + PackageRelative.generic_string(), DiskPath))
 				{
 					Result.Errors.push_back(Error(EAssetError::InvalidPath,

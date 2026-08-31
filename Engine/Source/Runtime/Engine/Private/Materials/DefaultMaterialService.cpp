@@ -21,7 +21,7 @@ namespace Durin
 
 		FDefaultMaterialServiceState GDefaultMaterialService;
 		constexpr std::array<std::string_view, 1> GBuiltInCookRoots{
-			DefaultMaterialAssetPath};
+			DefaultMaterialPackagePath};
 
 		auto CheckDefaultMaterialGameThread() -> void
 		{
@@ -38,20 +38,20 @@ namespace Durin
 		}
 		GDefaultMaterialService.bInitialized = true;
 
-		FAssetPath Path;
-		if (!FAssetPath::TryCreate(DefaultMaterialAssetPath, Path))
+		FObjectPath Path;
+		if (!FObjectPath::TryCreate(DefaultMaterialObjectPath, Path))
 		{
 			RecordMaterialFallbackReason(
 				EMaterialFallbackReason::DefaultAssetUnavailable);
 			DURIN_ERROR_CATEGORY(
 				"Material",
 				"DefaultAssetUnavailable: Engine default material path '{}' is invalid; ErrorMaterial will be used.",
-				DefaultMaterialAssetPath);
+				DefaultMaterialObjectPath);
 			return false;
 		}
 
 		DMaterial* Material = nullptr;
-		const Asset::FAssetResult LoadResult = Asset::LoadAsset(Path, Material);
+		const Asset::FAssetResult LoadResult = Asset::LoadObject(Path, Material);
 		if (!LoadResult || Material == nullptr
 			|| Material->GetClass() != DMaterial::StaticClass())
 		{
@@ -60,7 +60,7 @@ namespace Durin
 			DURIN_ERROR_CATEGORY(
 				"Material",
 				"DefaultAssetUnavailable: failed to load exact DMaterial '{}': {}; ErrorMaterial will be used.",
-				DefaultMaterialAssetPath,
+				DefaultMaterialObjectPath,
 				LoadResult.Message.empty()
 					? "asset type or object was invalid"
 					: LoadResult.Message);
@@ -75,7 +75,7 @@ namespace Durin
 			DURIN_ERROR_CATEGORY(
 				"Material",
 				"DefaultAssetUnavailable: material '{}' did not produce a compiled program; ErrorMaterial will be used.",
-				DefaultMaterialAssetPath);
+				DefaultMaterialObjectPath);
 			return false;
 		}
 
@@ -87,7 +87,7 @@ namespace Durin
 			DURIN_ERROR_CATEGORY(
 				"Material",
 				"DefaultAssetUnavailable: material '{}' did not publish a render proxy; ErrorMaterial will be used.",
-				DefaultMaterialAssetPath);
+				DefaultMaterialObjectPath);
 			return false;
 		}
 

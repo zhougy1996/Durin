@@ -192,7 +192,7 @@ namespace Durin::Editor::StaticMesh
 			SetError(DestinationValidation.Message);
 			return false;
 		}
-		const FAssetPath& AssetPath = DestinationValidation.AssetPath;
+		const FPackagePath& AssetPath = DestinationValidation.AssetPath;
 		auto* Factory = NewObject<AssetForge::Builtins::DStaticMeshFactory>(
 			nullptr, "StaticMeshDialogFactory", EObjectFlags::Transient);
 		Factory->SetImportSettings(Coordinates.GetSettings());

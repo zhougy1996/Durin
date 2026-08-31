@@ -8,19 +8,19 @@
 namespace Durin::Asset
 {
 	ENGINE_API auto CreateAsset(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		DClass* Class,
 		size_t Size,
 		DObject*& OutAsset
 	) -> FAssetResult;
 	ENGINE_API auto DuplicateAsset(
-		const FAssetPath& SourcePath,
-		const FAssetPath& DestinationPath,
+		const FPackagePath& SourcePath,
+		const FPackagePath& DestinationPath,
 		DObject*& OutAsset
 	) -> FAssetResult;
 
 	template<typename T>
-	auto CreateAsset(const FAssetPath& Path, T*& OutAsset) -> FAssetResult
+	auto CreateAsset(const FPackagePath& Path, T*& OutAsset) -> FAssetResult
 	{
 		static_assert(std::is_base_of_v<DObject, T>);
 		DObject* Object = nullptr;

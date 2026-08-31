@@ -117,8 +117,8 @@ namespace Durin::Asset
 			std::string* OutError
 		) -> bool
 		{
-			FAssetPath RequestedPath;
-			if (!FAssetPath::TryCreate(
+			FPackagePath RequestedPath;
+			if (!FPackagePath::TryCreate(
 					VirtualPackagePath, RequestedPath
 				))
 				return true;
@@ -446,9 +446,9 @@ namespace Durin::Asset
 		std::string* OutError
 	) -> bool
 	{
-		FAssetPath SourcePackagePath;
-		if (!FAssetPath::TryCreate(VirtualPackagePath, SourcePackagePath)
-			&& !FAssetPath::TryCreateProjectContent(
+		FPackagePath SourcePackagePath;
+		if (!FPackagePath::TryCreate(VirtualPackagePath, SourcePackagePath)
+			&& !FPackagePath::TryCreateProjectContent(
 				VirtualPackagePath, SourcePackagePath))
 			return Fail("Cook package path is not a canonical asset identity.", OutError);
 		return AddPackage(std::move(VirtualPackagePath), SourcePackagePath,
@@ -457,7 +457,7 @@ namespace Durin::Asset
 
 	auto FCookContext::AddPackage(
 		std::string VirtualPackagePath,
-		const FAssetPath& SourcePackagePath,
+		const FPackagePath& SourcePackagePath,
 		std::vector<std::byte> PackageBytes,
 		std::string* OutError
 	) -> bool
@@ -488,8 +488,8 @@ namespace Durin::Asset
 		if (!Package || !Package->IsAssetPackage()
 			|| Package->GetTopLevelAssets().empty())
 			return Fail("Cook package projection requires a valid asset package.", OutError);
-		FAssetPath SourcePackagePath;
-		if (!FAssetPath::TryCreate(Package->GetPackagePath(), SourcePackagePath))
+		FPackagePath SourcePackagePath;
+		if (!FPackagePath::TryCreate(Package->GetPackagePath(), SourcePackagePath))
 			return Fail("Cook source package identity is invalid.", OutError);
 		if (std::ranges::any_of(Packages, [&](const FCookSavePlan& Existing) {
 				return Existing.VirtualPath == VirtualPackagePath;
@@ -557,9 +557,9 @@ namespace Durin::Asset
 			{
 				std::vector<std::byte> CanonicalBytes;
 				std::vector<std::byte> CanonicalBulkBytes;
-				FAssetPath PackagePath;
-				if (!FAssetPath::TryCreate(Plan.VirtualPath, PackagePath)
-					&& !FAssetPath::TryCreateProjectContent(
+				FPackagePath PackagePath;
+				if (!FPackagePath::TryCreate(Plan.VirtualPath, PackagePath)
+					&& !FPackagePath::TryCreateProjectContent(
 						Plan.VirtualPath, PackagePath))
 					return Fail("Cook package path is not a canonical asset identity.", OutError);
 				const FAssetResult CanonicalResult = CanonicalizeAssetPackageForCook(

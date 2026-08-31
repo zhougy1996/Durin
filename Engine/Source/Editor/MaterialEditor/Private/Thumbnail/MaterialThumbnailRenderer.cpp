@@ -26,12 +26,12 @@ namespace Durin::Editor::Material
 			: public ::Durin::Editor::IAssetThumbnailGenerationInput
 		{
 		public:
-			explicit FMaterialThumbnailGenerationInput(FAssetPath InAssetPath)
+			explicit FMaterialThumbnailGenerationInput(FPackagePath InAssetPath)
 				: AssetPath(std::move(InAssetPath))
 			{
 			}
 
-			FAssetPath AssetPath;
+			FPackagePath AssetPath;
 		};
 
 		auto MakeFingerprint(const Asset::FAssetData& Data)
@@ -169,7 +169,7 @@ namespace Durin::Editor::Material
 		{
 		public:
 			FMaterialThumbnailGenerationSession(
-				FAssetPath InAssetPath,
+				FPackagePath InAssetPath,
 				std::string InAssetClassName)
 				: AssetPath(std::move(InAssetPath))
 				, AssetClassName(std::move(InAssetClassName))
@@ -204,8 +204,8 @@ namespace Durin::Editor::Material
 						.State = ::Durin::Editor::EThumbnailRendererSessionState::Failed,
 						.Diagnostic = "The material instance has no valid parent."};
 				}
-				FAssetPath SpherePath;
-				if (!FAssetPath::TryCreate(
+				FPackagePath SpherePath;
+				if (!FPackagePath::TryCreate(
 						::Durin::Editor::FThumbnailVisualContract::SphereVirtualPath,
 						SpherePath, &SphereError)
 					|| !::Durin::Editor::FAssetRetentionService::Acquire(
@@ -356,7 +356,7 @@ namespace Durin::Editor::Material
 				World = nullptr;
 			}
 
-			FAssetPath AssetPath;
+			FPackagePath AssetPath;
 			std::string AssetClassName;
 			DMaterialInterface* Material = nullptr;
 			uint64 AssetRevision = 0;

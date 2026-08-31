@@ -81,8 +81,8 @@ namespace Durin::Editor::Level
 			if (!Level) return "No Level";
 			if (const DPackage* Package = Level->GetPackage())
 			{
-				FAssetPath Path;
-				if (FAssetPath::TryCreate(Package->GetPackagePath(), Path)) return std::string(Path.GetAssetName());
+				FPackagePath Path;
+				if (FPackagePath::TryCreate(Package->GetPackagePath(), Path)) return std::string(Path.GetAssetName());
 			}
 			return Level->GetName().empty() ? "Transient Level" : Level->GetName();
 		}

@@ -20,15 +20,15 @@ namespace Durin::Asset::Private
 	{
 		std::string AssetClassName;
 		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
-		FAssetPath RedirectDestination;
-		std::vector<FAssetPath> Dependencies;
+		FPackagePath RedirectDestination;
+		std::vector<FPackagePath> Dependencies;
 	};
 
 	auto LoadAuthoredObject(
 		DObject& Object,
 		std::span<const FAuthoredPackageFieldRecord> Fields,
 		std::span<DObject* const> Objects,
-		const FAssetPath& PackagePath,
+		const FPackagePath& PackagePath,
 		uint32 SourceVersion,
 		std::span<const FArchiveCustomVersion> CustomVersions = {},
 		const FArchiveState& Context = {}) -> FAssetResult;

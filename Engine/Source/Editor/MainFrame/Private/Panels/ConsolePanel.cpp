@@ -236,12 +236,12 @@ namespace Durin::Editor::MainFrame
 				if (!GEditor)
 					return FConsoleCommandResult::Failure(
 						"The editor transactor is unavailable.");
-				std::vector<FAssetPath> Redirectors;
+				std::vector<FPackagePath> Redirectors;
 				for (const auto& [Path, Data] : Asset::CaptureAssetCatalogSnapshot().Assets)
 					if (Data.EntryKind == Asset::EAssetRegistryEntryKind::Redirector)
 						Redirectors.push_back(Path);
 				std::ranges::sort(Redirectors,
-					[](const FAssetPath& Left, const FAssetPath& Right) {
+					[](const FPackagePath& Left, const FPackagePath& Right) {
 						return Left.GetView() < Right.GetView();
 					});
 				const bool bDelete = Args.empty() || Args[0] == "rewrite-and-delete";

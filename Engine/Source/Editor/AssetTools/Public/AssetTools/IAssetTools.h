@@ -25,7 +25,7 @@ namespace Durin
 		ASSETTOOLS_API static auto Get() -> IAssetTools&;
 
 		virtual auto CreateAsset(
-			const FAssetPath& AssetPath,
+			const FPackagePath& AssetPath,
 			DClass* AssetClass,
 			const DFactory* Factory = nullptr,
 			DObject* Context = nullptr,
@@ -33,7 +33,7 @@ namespace Durin
 			-> FAssetToolsResult = 0;
 
 		virtual auto ImportAsset(
-			const FAssetPath& AssetPath,
+			const FPackagePath& AssetPath,
 			DClass* AssetClass,
 			std::string_view Filename,
 			const DFactory* Factory = nullptr,

@@ -205,10 +205,10 @@ TEST(FSkyBoxTests, PackageTracksAndReloadsCubeAssetDependency)
 		GetSkyBoxConventionFaces(), "/SkyBoxAssetTests/Cube");
 	ASSERT_TRUE(CubeResult) << CubeResult.Message;
 
-	Durin::FAssetPath CubePath;
-	Durin::FAssetPath ActorPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkyBoxAssetTests/Cube", CubePath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkyBoxAssetTests/Actor", ActorPath));
+	Durin::FPackagePath CubePath;
+	Durin::FPackagePath ActorPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/Cube", CubePath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/Actor", ActorPath));
 	Durin::ASkyBoxActor* Actor = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreateAsset(ActorPath, Actor));
 	Actor->GetSkyBoxComponent()->SetTextureCube(CubeResult.Asset);

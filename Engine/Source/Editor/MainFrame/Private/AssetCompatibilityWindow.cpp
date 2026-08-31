@@ -152,7 +152,7 @@ namespace Durin::Editor::MainFrame
 			PresentationCounts = Editor::CountAssetCompatibilityAuditRecords(Records);
 			CanonicalDebt = static_cast<size_t>(std::ranges::count_if(
 				Records, IsCanonicalResaveRecommended));
-			std::erase_if(SelectedPackages, [&](const FAssetPath& Path) {
+			std::erase_if(SelectedPackages, [&](const FPackagePath& Path) {
 				return Audit.FindRecord(Path) == nullptr;
 			});
 			SummaryPresentationRevision = PresentationRevision;
@@ -371,7 +371,7 @@ namespace Durin::Editor::MainFrame
 				const std::string Path = Record->PackagePath.ToString();
 				std::string Folder = Path.substr(0, Path.rfind('/'));
 				if (Folder.empty()) Folder = "/";
-				std::vector<FAssetPath> Packages;
+				std::vector<FPackagePath> Packages;
 				for (const auto& Candidate : Audit.GetPresentationRecords())
 					if (IsCanonicalResaveRecommended(Candidate)
 						&& (Folder == "/" || Candidate.PackagePath.GetView().starts_with(Folder + "/")))
@@ -384,7 +384,7 @@ namespace Durin::Editor::MainFrame
 				ImGui::SameLine();
 				if (ImGui::SmallButton("Preview Mount Recommendations"))
 				{
-					std::vector<FAssetPath> Packages;
+					std::vector<FPackagePath> Packages;
 					for (const auto& Candidate : Audit.GetPresentationRecords())
 						if (IsCanonicalResaveRecommended(Candidate)
 							&& Candidate.PackagePath.GetView().starts_with(Mount.Mount->VirtualRoot))

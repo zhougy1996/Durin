@@ -52,7 +52,7 @@ namespace Durin::AssetForge::Builtins
 
 	auto BuildScenePlan(
 		const FSourceSnapshot& Snapshot,
-		const FAssetPath& DestinationDirectory,
+		const FPackagePath& DestinationDirectory,
 		const FStaticMeshImportSettings& Settings,
 		FSceneImportPlan& OutPlan,
 		std::vector<FImportOutputSummary>& OutOutputs,

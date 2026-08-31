@@ -92,14 +92,14 @@ namespace Durin::Editor::Level
 			StartPlay(StartLocation, Destination);
 		};
 		Context->ApplyPlayChanges = [this](bool bSelectedOnly) { ApplyPlayChanges(bSelectedOnly); };
-		Context->RevealAsset = [this](const FAssetPath& Path, std::string& Error) {
+		Context->RevealAsset = [this](const FPackagePath& Path, std::string& Error) {
 			if (ContentBrowserCallbacks.RevealAsset
 				&& ContentBrowserCallbacks.RevealAsset(Path.ToString()))
 				return true;
 			Error = "The asset could not be revealed in the Content Browser.";
 			return false;
 		};
-		Context->OpenAsset = [this](const FAssetPath& Path, std::string& Error) {
+		Context->OpenAsset = [this](const FPackagePath& Path, std::string& Error) {
 			const Asset::FAssetPathResolveResult Resolution =
 				Asset::ResolveAssetPath(Path);
 			if (Resolution && Resolution.FinalAssetData
@@ -280,7 +280,7 @@ namespace Durin::Editor::Level
 			SetError("No project is open.");
 			return false;
 		}
-		const FAssetPath& DefaultLevelPath =
+		const FPackagePath& DefaultLevelPath =
 			DefaultLevel.GetPath().GetPackagePath();
 		if (!DefaultLevel.IsNull()
 			&& !DefaultLevelPath.GetView().starts_with(Project->MountRoot))
@@ -309,7 +309,7 @@ namespace Durin::Editor::Level
 	}
 
 	auto MLevelEditor::ApplyFixedUpDefaultLevelPath(
-		const FAssetPath& Path) -> void
+		const FPackagePath& Path) -> void
 	{
 		FObjectPath SoftPath;
 		if (!FObjectPath::TryCreate(Path.GetView(), SoftPath)) return;

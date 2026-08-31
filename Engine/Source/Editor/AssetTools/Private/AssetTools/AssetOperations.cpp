@@ -29,7 +29,7 @@ namespace Durin
 		auto FromEngineResult(
 			EAssetOperationKind Kind,
 			const Asset::FAssetResult& Result,
-			std::span<const FAssetPath> Affected = {}) -> FAssetOperationResult
+			std::span<const FPackagePath> Affected = {}) -> FAssetOperationResult
 		{
 			FAssetOperationResult Operation{
 				.Kind = Kind,
@@ -102,7 +102,7 @@ namespace Durin
 			Asset::FAssetMutationTransaction Transaction,
 			DTransactor& Transactions,
 			EAssetOperationKind Kind,
-			std::span<const FAssetPath> Affected,
+			std::span<const FPackagePath> Affected,
 			std::string Singular,
 			std::string Plural,
 			size_t SingularScopeSize = 1) -> FAssetOperationResult
@@ -195,15 +195,15 @@ namespace Durin
 		std::string Directory = Request.DestinationDirectory;
 		if (!Directory.ends_with('/')) Directory.push_back('/');
 		const std::string AssetName(Request.SourcePath.GetAssetName());
-		FAssetPath DestinationPath;
+		FPackagePath DestinationPath;
 		std::string DestinationPhysicalPath;
 		for (uint32 Suffix = 0; Suffix <= 10000; ++Suffix)
 		{
 			const std::string CandidateName = Suffix == 0 ? AssetName
 				: Suffix == 1 ? AssetName + "_Copy"
 				: std::format("{}_Copy{}", AssetName, Suffix);
-			FAssetPath CandidatePath;
-			if (!FAssetPath::TryCreate(Directory + CandidateName, CandidatePath)) continue;
+			FPackagePath CandidatePath;
+			if (!FPackagePath::TryCreate(Directory + CandidateName, CandidatePath)) continue;
 			std::string CandidatePhysical = Request.ResolvePhysicalPackagePath(CandidatePath);
 			if (CandidatePhysical.empty() || Asset::FindAssetExact(CandidatePath)
 				|| Asset::FindResidentPackage(CandidatePath)) continue;
@@ -274,7 +274,7 @@ namespace Durin
 			const Asset::FReflectionCompatibilityCatalog Catalog =
 				Asset::FReflectionCompatibilityCatalog::Capture();
 			std::vector<Asset::FAssetPackageCompatibilityProbeInput> Inputs;
-			for (const FAssetPath& Path : Request.AssetPaths)
+			for (const FPackagePath& Path : Request.AssetPaths)
 			{
 				const auto Input = std::ranges::find(
 					Snapshot.Packages, Path,
@@ -307,7 +307,7 @@ namespace Durin
 			return Result;
 		}
 
-		for (const FAssetPath& Path : Request.AssetPaths)
+		for (const FPackagePath& Path : Request.AssetPaths)
 		{
 			DPackage* Package = Asset::FindResidentPackage(Path);
 			if (!Package || !Package->IsDirty())
@@ -317,7 +317,7 @@ namespace Durin
 		FAssetOperationResult Result{
 			.Kind = EAssetOperationKind::Save,
 			.Persistence = EAssetOperationPersistenceState::Persisted};
-		for (const FAssetPath& Path : Request.AssetPaths)
+		for (const FPackagePath& Path : Request.AssetPaths)
 		{
 			const Asset::FAssetResult Saved =
 				Asset::SavePackage(Asset::FindResidentPackage(Path));
@@ -347,7 +347,7 @@ namespace Durin
 				"Asset relocation is unavailable while another history operation is pending.");
 		if (Request.Mappings.empty()) return {.Kind = EAssetOperationKind::Relocate};
 		std::vector<Asset::FAssetRelocationMapping> Mappings;
-		std::vector<FAssetPath> Affected;
+		std::vector<FPackagePath> Affected;
 		for (const FAssetRelocation& Mapping : Request.Mappings)
 		{
 			Mappings.push_back({Mapping.SourcePath, Mapping.DestinationPath});

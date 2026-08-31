@@ -58,8 +58,8 @@ namespace
 		}();
 		(void)bMounted;
 		static uint64 NextPackage = 1;
-		FAssetPath Path;
-		EXPECT_TRUE(FAssetPath::TryCreate(std::format("/TestCook/Fixture{}", NextPackage++), Path));
+		FPackagePath Path;
+		EXPECT_TRUE(FPackagePath::TryCreate(std::format("/TestCook/Fixture{}", NextPackage++), Path));
 		DPackage* Package = CreatePackage(Path);
 		EXPECT_NE(Package, nullptr);
 		DObject* Asset = NewObject<DObject>(Package, "Root");

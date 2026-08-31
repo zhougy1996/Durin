@@ -891,12 +891,12 @@ TEST(FSkeletalAssetTests, AuthoredReloadRekeysAndRecoversMissingOrCorruptDerived
 	const std::filesystem::path Root = InitializeAssetMount();
 	const std::filesystem::path CacheRoot = Root / "DerivedDataCache";
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
-	Durin::FAssetPath SkeletonPath;
-	Durin::FAssetPath MeshPath;
-	Durin::FAssetPath ClipPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/DdcSkeleton", SkeletonPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/DdcMesh", MeshPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/DdcClip", ClipPath));
+	Durin::FPackagePath SkeletonPath;
+	Durin::FPackagePath MeshPath;
+	Durin::FPackagePath ClipPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkeletalAssetTests/DdcSkeleton", SkeletonPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkeletalAssetTests/DdcMesh", MeshPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkeletalAssetTests/DdcClip", ClipPath));
 	std::string MeshKey = Durin::FXxHash128::HashBuffer("mesh-ddc-key").ToString();
 	std::string ClipKey = Durin::FXxHash128::HashBuffer("clip-ddc-key").ToString();
 
@@ -985,20 +985,20 @@ TEST(FSkeletalAssetTests, RelocationRekeysIndependentOutputsAndMissingAuthoredBu
 	const std::filesystem::path Root = InitializeAssetMount();
 	Durin::FPaths::SetDerivedDataCacheDirForTests(
 		(Root / "RelocationDerivedDataCache").generic_string());
-	Durin::FAssetPath SkeletonPath;
-	Durin::FAssetPath MeshPath;
-	Durin::FAssetPath ClipPath;
-	Durin::FAssetPath RelocatedMeshPath;
-	Durin::FAssetPath RelocatedClipPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath SkeletonPath;
+	Durin::FPackagePath MeshPath;
+	Durin::FPackagePath ClipPath;
+	Durin::FPackagePath RelocatedMeshPath;
+	Durin::FPackagePath RelocatedClipPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/SkeletalAssetTests/RelocationSkeleton", SkeletonPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/SkeletalAssetTests/RelocationMesh", MeshPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/SkeletalAssetTests/RelocationClip", ClipPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/SkeletalAssetTests/Moved/RelocationMesh", RelocatedMeshPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/SkeletalAssetTests/Moved/RelocationClip", RelocatedClipPath));
 
 	Durin::DSkeleton* Skeleton = nullptr;
@@ -1105,14 +1105,14 @@ TEST(FSkeletalAssetTests, AuthoredLoadRebuildsCompleteDependencyGraphWithoutDeri
 	const std::filesystem::path Root = InitializeAssetMount();
 	const std::filesystem::path CacheRoot = Root / "MigrationDerivedDataCache";
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
-	Durin::FAssetPath SkeletonPath;
-	Durin::FAssetPath MeshPath;
-	Durin::FAssetPath ClipPath;
-	Durin::FAssetPath LevelPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/MigrationSkeleton", SkeletonPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/MigrationMesh", MeshPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/MigrationClip", ClipPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/MigrationLevel", LevelPath));
+	Durin::FPackagePath SkeletonPath;
+	Durin::FPackagePath MeshPath;
+	Durin::FPackagePath ClipPath;
+	Durin::FPackagePath LevelPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkeletalAssetTests/MigrationSkeleton", SkeletonPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkeletalAssetTests/MigrationMesh", MeshPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkeletalAssetTests/MigrationClip", ClipPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkeletalAssetTests/MigrationLevel", LevelPath));
 	std::string MeshKey = Durin::FXxHash128::HashBuffer("migration-mesh-key").ToString();
 	std::string ClipKey = Durin::FXxHash128::HashBuffer("migration-clip-key").ToString();
 
@@ -1189,12 +1189,12 @@ TEST(FSkeletalAssetTests, DerivedDataWriteFailureKeepsCompleteMemoryCandidate)
 TEST(FSkeletalAssetTests, AuthoredPackagesRoundTripHardReferencesAndSummaries)
 {
 	InitializeAssetMount();
-	Durin::FAssetPath SkeletonPath;
-	Durin::FAssetPath MeshPath;
-	Durin::FAssetPath ClipPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/RoundTripSkeleton", SkeletonPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/RoundTripMesh", MeshPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/SkeletalAssetTests/RoundTripClip", ClipPath));
+	Durin::FPackagePath SkeletonPath;
+	Durin::FPackagePath MeshPath;
+	Durin::FPackagePath ClipPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkeletalAssetTests/RoundTripSkeleton", SkeletonPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkeletalAssetTests/RoundTripMesh", MeshPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/SkeletalAssetTests/RoundTripClip", ClipPath));
 
 	Durin::DSkeleton* Skeleton = nullptr;
 	Durin::DSkeletalMesh* Mesh = nullptr;
@@ -1299,12 +1299,12 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	Durin::Testing::RegisterMountPointForTests(
 		"/Game/", ContentRoot.generic_string() + "/");
 	Durin::FPaths::SetDerivedDataCacheDirForTests(CacheRoot.generic_string());
-	Durin::FAssetPath SkeletonPath;
-	Durin::FAssetPath MeshPath;
-	Durin::FAssetPath ClipPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/Skeleton", SkeletonPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/Mesh", MeshPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/Game/Clip", ClipPath));
+	Durin::FPackagePath SkeletonPath;
+	Durin::FPackagePath MeshPath;
+	Durin::FPackagePath ClipPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/Skeleton", SkeletonPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/Mesh", MeshPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/Clip", ClipPath));
 	Durin::DSkeleton* Skeleton = nullptr;
 	Durin::DSkeletalMesh* Mesh = nullptr;
 	Durin::DAnimationClip* Clip = nullptr;
@@ -1364,11 +1364,11 @@ TEST(FSkeletalAssetTests, CleanCookIsDeterministicAndRuntimeLoadsWithoutSourceOr
 	EXPECT_FALSE(std::filesystem::exists(FirstCookRoot / "Game/Clip.dbulk"));
 	Durin::Asset::FAssetPackageInspection MeshInspection;
 	Durin::Asset::FAssetPackageInspection ClipInspection;
-	Durin::FAssetPath CookedMeshPath;
-	Durin::FAssetPath CookedClipPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreateProjectContent(
+	Durin::FPackagePath CookedMeshPath;
+	Durin::FPackagePath CookedClipPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreateProjectContent(
 		"/Game/Mesh", CookedMeshPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreateProjectContent(
+	ASSERT_TRUE(Durin::FPackagePath::TryCreateProjectContent(
 		"/Game/Clip", CookedClipPath));
 	ASSERT_TRUE(Durin::Asset::InspectAssetPackage(
 		(FirstCookRoot / "Game/Mesh.dasset").generic_string(),

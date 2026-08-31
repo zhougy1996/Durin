@@ -17,12 +17,12 @@ namespace Durin::Editor::Texture
 		: public ::Durin::Editor::IAssetThumbnailGenerationInput
 	{
 	public:
-		explicit FTextureCubeThumbnailGenerationInput(FAssetPath InAssetPath)
+		explicit FTextureCubeThumbnailGenerationInput(FPackagePath InAssetPath)
 			: AssetPath(std::move(InAssetPath))
 		{
 		}
 
-		FAssetPath AssetPath;
+		FPackagePath AssetPath;
 	};
 
 	// Captures the exact TextureCube package identity and preview visual contract.

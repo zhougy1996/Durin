@@ -185,8 +185,8 @@ TEST(FEditableAssetDocumentModelTests, UndoToActivatedRevisionClearsDirtyState)
 	Durin::Testing::RegisterMountPointForTests(
 		"/EditableAssetDocumentTests/",
 		Durin::Testing::GetTestWorkDirectory().generic_string() + "/");
-	Durin::FAssetPath PackagePath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath PackagePath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/EditableAssetDocumentTests/UndoCheckpoint", PackagePath));
 	Durin::DPackage* Package = Durin::NewObject<Durin::DPackage>(
 		nullptr, "UndoCheckpointPackage");

@@ -49,9 +49,15 @@ AssetMaintenance boundary.
 Stage 3's structural Engine and Registry behavior is implemented and qualified,
 including exact object resolution, multi-asset package projection, relocation,
 reference mutation, deletion analysis, Cook, and canonical publication. Its
-final source cutover remains open: `FAssetPath` aliases and implicit
-package-to-asset `LoadAsset` entry points are still present and must be removed
-before Stage 3 can complete.
+final source cutover remains open: the `FAssetPath` source alias is removed,
+but implicit package-to-asset `LoadAsset` entry points are still present and
+must be replaced by exact top-level/object paths before Stage 3 can complete.
+The runtime-consumer cutover is now in progress: persisted hard references are
+parsed and loaded as exact `FObjectPath` values, package dependency preloads use
+`LoadPackage`, and the built-in default material and studio environment request
+their canonical object paths. Package-oriented Cook, relocation, Editor, and
+test callers still require classification before the legacy load entry points
+can be removed.
 
 Stage 4's offline migration path is operational. `asset migrate` supports
 preview/apply scopes and deterministic JSON reporting; all 25 maintained

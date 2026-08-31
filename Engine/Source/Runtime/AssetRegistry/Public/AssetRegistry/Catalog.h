@@ -32,15 +32,15 @@ namespace Durin::Asset
 	// Describes one persistent package without loading its object graph.
 	struct FAssetData
 	{
-		FAssetPath PackagePath;
+		FPackagePath PackagePath;
 		std::string PhysicalPath;
 		std::vector<FTopLevelAssetData> TopLevelAssets;
 		std::string AssetClassName;
 		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
-		FAssetPath RedirectDestination;
+		FPackagePath RedirectDestination;
 		uint32 FormatVersion = 0;
-		std::vector<FAssetPath> Dependencies;
-		std::vector<FAssetPath> SoftDependencies;
+		std::vector<FPackagePath> Dependencies;
+		std::vector<FPackagePath> SoftDependencies;
 		std::vector<std::string> SearchableNames;
 		uint64 ObjectCount = 0;
 		uint64 BulkSegmentExtent = 0;
@@ -84,9 +84,9 @@ namespace Durin::Asset
 	struct FAssetCatalogSnapshot
 	{
 		uint64 Revision = 0;
-		std::unordered_map<FAssetPath, FAssetData> Assets;
+		std::unordered_map<FPackagePath, FAssetData> Assets;
 
-		auto FindExact(const FAssetPath& Path) const -> const FAssetData*
+		auto FindExact(const FPackagePath& Path) const -> const FAssetData*
 		{
 			const auto It = Assets.find(Path);
 			return It == Assets.end() ? nullptr : &It->second;
@@ -136,9 +136,9 @@ namespace Durin::Asset
 	{
 		EAssetPathResolveState State = EAssetPathResolveState::NotFound;
 		uint64 CatalogRevision = 0;
-		FAssetPath RequestedPath;
-		FAssetPath FinalPath;
-		std::vector<FAssetPath> RedirectChain;
+		FPackagePath RequestedPath;
+		FPackagePath FinalPath;
+		std::vector<FPackagePath> RedirectChain;
 		std::optional<FAssetData> FinalAssetData;
 
 		auto Succeeded() const -> bool
@@ -191,14 +191,14 @@ namespace Durin::Asset
 	};
 
 	ASSETREGISTRY_API auto FindAssetExact(
-		const FAssetPath& Path) -> FAssetCatalogEntry;
+		const FPackagePath& Path) -> FAssetCatalogEntry;
 	ASSETREGISTRY_API auto FindTopLevelAssetExact(
 		const FTopLevelAssetPath& Path) -> FTopLevelAssetCatalogEntry;
 	ASSETREGISTRY_API auto ResolveAssetPath(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		const FAssetPathResolveOptions& Options = {}) -> FAssetPathResolveResult;
 	ASSETREGISTRY_API auto CaptureAssetCatalogSnapshot() -> FAssetCatalogSnapshot;
 	ASSETREGISTRY_API auto CaptureAssetDependencyClosure(
-		const FAssetPath& Root) -> FAssetDependencyClosureSnapshot;
+		const FPackagePath& Root) -> FAssetDependencyClosureSnapshot;
 	ASSETREGISTRY_API auto GetAssetCatalogRevision() -> uint64;
 }

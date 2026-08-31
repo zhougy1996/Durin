@@ -29,8 +29,8 @@ namespace Durin::Editor
 	struct FSoftObjectViewState
 	{
 		ESoftObjectViewState State = ESoftObjectViewState::Null;
-		FAssetPath Path;
-		FAssetPath ResolvedPath;
+		FPackagePath Path;
+		FPackagePath ResolvedPath;
 		DObject* LoadedObject = nullptr;
 		std::string Message;
 	};
@@ -48,8 +48,8 @@ namespace Durin::Editor
 	{
 		DTransactor* Transactor = nullptr;
 		std::function<void(std::string)> ReportError;
-		std::function<bool(const FAssetPath&, std::string&)> RevealAsset;
-		std::function<bool(const FAssetPath&, std::string&)> OpenAsset;
+		std::function<bool(const FPackagePath&, std::string&)> RevealAsset;
+		std::function<bool(const FPackagePath&, std::string&)> OpenAsset;
 		bool bReadOnly = false;
 	};
 

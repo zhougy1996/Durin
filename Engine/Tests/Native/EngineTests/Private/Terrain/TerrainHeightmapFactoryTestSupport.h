@@ -16,9 +16,9 @@ namespace Durin::AssetForge::Builtins
 		const FTerrainHeightmapImportSettings& Settings = {})
 		-> Durin::Testing::TFactoryImportResult<Durin::DTerrainHeightmap>
 	{
-		FAssetPath ParsedPath;
+		FPackagePath ParsedPath;
 		std::string Error;
-		if (!FAssetPath::TryCreate(AssetPath, ParsedPath, &Error))
+		if (!FPackagePath::TryCreate(AssetPath, ParsedPath, &Error))
 			return {false, std::move(Error), nullptr};
 		auto* Factory = NewObject<DTerrainHeightmapFactory>(
 			nullptr, "TerrainHeightmapTestFactory", EObjectFlags::Transient);

@@ -42,7 +42,7 @@ namespace Durin::Editor::AssetPicker
 			FCandidateCacheKey CandidateKey;
 			std::string SearchText;
 			uint32 MaxSearchResults = 0;
-			std::vector<const FAssetPath*> MatchingPaths;
+			std::vector<const FPackagePath*> MatchingPaths;
 			bool bTruncated = false;
 			int LastUsedFrame = -1;
 		};
@@ -51,7 +51,7 @@ namespace Durin::Editor::AssetPicker
 		struct FAssetPickerCache
 		{
 			uint64 RegistryRevision = 0;
-			std::unordered_map<FCandidateCacheKey, std::vector<FAssetPath>, FCandidateCacheKeyHash> Candidates;
+			std::unordered_map<FCandidateCacheKey, std::vector<FPackagePath>, FCandidateCacheKeyHash> Candidates;
 			std::unordered_map<ImGuiID, FSearchCacheEntry> Searches;
 		};
 
@@ -68,12 +68,12 @@ namespace Durin::Editor::AssetPicker
 			return Cache;
 		}
 
-		auto GetCandidatePaths(FAssetPickerCache& Cache, const FCandidateCacheKey& Key) -> const std::vector<FAssetPath>&
+		auto GetCandidatePaths(FAssetPickerCache& Cache, const FCandidateCacheKey& Key) -> const std::vector<FPackagePath>&
 		{
 			auto [Iterator, bInserted] = Cache.Candidates.try_emplace(Key);
 			if (!bInserted) return Iterator->second;
 
-			std::vector<FAssetPath>& Paths = Iterator->second;
+			std::vector<FPackagePath>& Paths = Iterator->second;
 			const Asset::FAssetCatalogSnapshot Snapshot =
 				Asset::CaptureAssetCatalogSnapshot();
 			Paths.reserve(Snapshot.Assets.size());
@@ -85,7 +85,7 @@ namespace Durin::Editor::AssetPicker
 				if (!MatchesClass(FindClassByQualifiedName(Data.AssetClassName), Key.RequiredClass, Key.ClassPolicy)) continue;
 				Paths.push_back(Path);
 			}
-			std::ranges::sort(Paths, {}, &FAssetPath::GetView);
+			std::ranges::sort(Paths, {}, &FPackagePath::GetView);
 			return Paths;
 		}
 
@@ -119,10 +119,10 @@ namespace Durin::Editor::AssetPicker
 			Search.SearchText = SearchText;
 			Search.MaxSearchResults = MaxSearchResults;
 			Search.MatchingPaths.clear();
-			const std::vector<FAssetPath>& CandidatePaths = GetCandidatePaths(Cache, CandidateKey);
+			const std::vector<FPackagePath>& CandidatePaths = GetCandidatePaths(Cache, CandidateKey);
 			Search.MatchingPaths.reserve(std::min<size_t>(CandidatePaths.size(), MaxSearchResults));
 			Search.bTruncated = false;
-			for (const FAssetPath& Path : CandidatePaths)
+			for (const FPackagePath& Path : CandidatePaths)
 			{
 				if (!StringUtils::ContainsInsensitive(Path.GetView(), SearchText)) continue;
 				if (Search.MatchingPaths.size() == MaxSearchResults)
@@ -275,7 +275,7 @@ namespace Durin::Editor::AssetPicker
 			{
 				for (int Index = Clipper.DisplayStart; Index < Clipper.DisplayEnd; ++Index)
 				{
-					const FAssetPath& Path = *Search.MatchingPaths[Index];
+					const FPackagePath& Path = *Search.MatchingPaths[Index];
 					const bool bSelected = CurrentPath == Path.GetView();
 					if (!ImGui::Selectable(Path.ToString().c_str(), bSelected)) continue;
 					if (bPathAssignment)
@@ -309,7 +309,7 @@ namespace Durin::Editor::AssetPicker
 			if (Payload)
 			{
 				std::string DropError;
-				FAssetPath DroppedPath;
+				FPackagePath DroppedPath;
 				bool bCompatible = false;
 				if (Payload->DataSize != sizeof(FAssetDragDropPayload))
 					DropError = "The dragged asset payload is invalid.";
@@ -322,7 +322,7 @@ namespace Durin::Editor::AssetPicker
 						? FindClassByQualifiedName(*ClassName) : nullptr;
 					if (!Path || !ClassName)
 						DropError = "The dragged asset payload is not terminated.";
-					else if (!FAssetPath::TryCreate(*Path, DroppedPath, &DropError))
+					else if (!FPackagePath::TryCreate(*Path, DroppedPath, &DropError))
 					{
 						if (DropError.empty()) DropError = "The dragged asset path is invalid.";
 					}

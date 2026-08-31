@@ -22,9 +22,9 @@ namespace Durin::Editor::SkeletalMesh
 	{
 	public:
 		FSkeletalMeshThumbnailGenerationInput(
-			FAssetPath InAssetPath, ::Durin::Editor::FThumbnailVisualContract InVisual)
+			FPackagePath InAssetPath, ::Durin::Editor::FThumbnailVisualContract InVisual)
 			: AssetPath(std::move(InAssetPath)), Visual(std::move(InVisual)) {}
-		FAssetPath AssetPath;
+		FPackagePath AssetPath;
 		::Durin::Editor::FThumbnailVisualContract Visual;
 	};
 

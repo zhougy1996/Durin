@@ -151,15 +151,15 @@ namespace Durin::Asset
 	ENGINE_API auto CanonicalizeAssetPackageForCook(
 		std::span<const std::byte> Bytes,
 		std::span<const std::byte> BulkBytes,
-		const FAssetPath& PackagePath,
+		const FPackagePath& PackagePath,
 		std::vector<std::byte>& OutBytes,
 		std::vector<std::byte>& OutBulkBytes
 	) -> FAssetResult;
 	ENGINE_API auto CanonicalizeAssetPackageForCook(
 		std::span<const std::byte> Bytes,
 		std::span<const std::byte> BulkBytes,
-		const FAssetPath& SourcePackagePath,
-		const FAssetPath& OutputPackagePath,
+		const FPackagePath& SourcePackagePath,
+		const FPackagePath& OutputPackagePath,
 		std::vector<std::byte>& OutBytes,
 		std::vector<std::byte>& OutBulkBytes
 	) -> FAssetResult;
@@ -206,6 +206,6 @@ namespace Durin::Asset
 		const FAssetBundleSaveOptions& Options = {}
 	) -> FAssetResult;
 	ENGINE_API auto AdmitAssetPackageToCatalog(
-		const FAssetPath& Path
+		const FPackagePath& Path
 	) -> FAssetResult;
 } // namespace Durin::Asset

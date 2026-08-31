@@ -164,7 +164,7 @@ namespace Durin::Asset
 		}
 		std::ranges::sort(
 			OutOwnership.Owners,
-			[](const FAssetPath& A, const FAssetPath& B) {
+			[](const FPackagePath& A, const FPackagePath& B) {
 				return A.GetView() < B.GetView();
 			});
 		OutOwnership.State = OutOwnership.Owners.empty()

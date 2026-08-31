@@ -853,9 +853,9 @@ namespace Durin::Editor
 			DClass* RequiredClass = ObjectProperty->GetReferencedClass();
 			DObject* Current = ObjectProperty->GetObjectPropertyValue(Container, ArrayIndex);
 			DObject* SelectedObject = Current;
-			FAssetPath CurrentAssetPath;
+			FPackagePath CurrentAssetPath;
 			const bool bHasCurrentAsset = Current && Current->GetPackage()
-				&& FAssetPath::TryCreate(Current->GetPackage()->GetPackagePath(), CurrentAssetPath)
+				&& FPackagePath::TryCreate(Current->GetPackage()->GetPackagePath(), CurrentAssetPath)
 				&& Asset::FindAssetExact(CurrentAssetPath);
 			const FAssetPickerAction RevealAction{
 				.Icon = Icons::Crosshairs,

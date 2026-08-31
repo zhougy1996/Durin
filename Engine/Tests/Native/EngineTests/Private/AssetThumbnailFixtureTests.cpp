@@ -9,7 +9,7 @@ namespace
 		std::string_view Dependency
 	) -> bool
 	{
-		Durin::FAssetPath Path;
+		Durin::FPackagePath Path;
 		if (!Durin::Tests::MakeThumbnailFixturePath(Dependency, Path)) return false;
 		return std::ranges::find(Asset.Dependencies, Path) != Asset.Dependencies.end();
 	}
@@ -53,9 +53,9 @@ TEST(FAssetThumbnailFixtureTests, RecordsDirectAndTransitiveDependencyInputs)
 	std::string Error;
 	ASSERT_TRUE(Durin::Tests::CreateAssetThumbnailFixtures(Fixtures, Error)) << Error;
 
-	Durin::FAssetPath MaterialPath;
-	Durin::FAssetPath InstancePath;
-	Durin::FAssetPath StaticMeshPath;
+	Durin::FPackagePath MaterialPath;
+	Durin::FPackagePath InstancePath;
+	Durin::FPackagePath StaticMeshPath;
 	ASSERT_TRUE(Durin::Tests::MakeThumbnailFixturePath(
 		Durin::Tests::FAssetThumbnailFixtureSet::MaterialPath, MaterialPath));
 	ASSERT_TRUE(Durin::Tests::MakeThumbnailFixturePath(

@@ -4,7 +4,6 @@ namespace Durin
 {
 	class DPackage;
 	class FPackagePath;
-	using FAssetPath = FPackagePath;
 }
 
 namespace Durin::Asset

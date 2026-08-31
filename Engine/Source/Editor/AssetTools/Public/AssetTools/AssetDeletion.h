@@ -27,15 +27,15 @@ namespace Durin
 	struct FAssetDeletionBlocker
 	{
 		EAssetDeletionBlocker Kind = EAssetDeletionBlocker::MissingAsset;
-		FAssetPath AssetPath;
-		FAssetPath RelatedAssetPath;
+		FPackagePath AssetPath;
+		FPackagePath RelatedAssetPath;
 		std::filesystem::path PhysicalPath;
 		std::string Details;
 	};
 
 	struct FAssetDeletionEntry
 	{
-		FAssetPath AssetPath;
+		FPackagePath AssetPath;
 		std::string PhysicalPath;
 		std::vector<std::filesystem::path> CompanionFiles;
 		bool bLoaded = false;
@@ -43,7 +43,7 @@ namespace Durin
 
 	struct FAssetDeletionRequest
 	{
-		std::vector<FAssetPath> AssetPaths;
+		std::vector<FPackagePath> AssetPaths;
 		std::vector<std::filesystem::path> PhysicalRoots;
 	};
 

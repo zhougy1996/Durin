@@ -8,11 +8,11 @@ namespace Durin::Editor
 {
 	struct FRetainedAssetState
 	{
-		FAssetPath Path;
+		FPackagePath Path;
 		DObject* Asset = nullptr;
 		TStrongObjectPtr<DObject> Root;
 
-		FRetainedAssetState(FAssetPath InPath, DObject* InAsset)
+		FRetainedAssetState(FPackagePath InPath, DObject* InAsset)
 			: Path(std::move(InPath))
 			, Asset(InAsset)
 			, Root(InAsset)
@@ -39,13 +39,13 @@ namespace Durin::Editor
 		return State ? State->Asset : nullptr;
 	}
 
-	auto FRetainedAsset::GetPath() const -> const FAssetPath*
+	auto FRetainedAsset::GetPath() const -> const FPackagePath*
 	{
 		return State ? &State->Path : nullptr;
 	}
 
 	auto FAssetRetentionService::Acquire(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		FRetainedAsset& OutAsset,
 		std::string& OutError) -> bool
 	{

@@ -35,8 +35,8 @@ namespace
 	}
 
 	auto RelocateAssetForTest(
-		const Durin::FAssetPath& Source,
-		const Durin::FAssetPath& Destination) -> Durin::Asset::FAssetResult
+		const Durin::FPackagePath& Source,
+		const Durin::FPackagePath& Destination) -> Durin::Asset::FAssetResult
 	{
 		const Durin::Asset::FAssetRelocationMapping Mapping{Source, Destination};
 		Durin::Asset::FAssetMutationSummary Summary;
@@ -57,8 +57,8 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 
 	const std::filesystem::path Source = Durin::Testing::GetTestWorkDirectory() / "TextureSource.png";
 	WriteTextureFixture(Source);
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath AssetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TextureImportTests/Transparent", AssetPath));
 	auto* Factory = Durin::NewObject<Durin::AssetForge::Builtins::DTexture2DFactory>(
 		nullptr, "Texture2DFactoryImportTest", Durin::EObjectFlags::Transient);
@@ -176,8 +176,8 @@ TEST(FTexture2DTests, ImportsSourceAndBuildsIndependentPlatformData)
 	EXPECT_EQ(Loaded->GetPlatformData()->PixelFormat, Durin::EPixelFormat::BC3_UNORM_SRGB);
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 
-	Durin::FAssetPath RenamedPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Renamed", RenamedPath));
+	Durin::FPackagePath RenamedPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/Renamed", RenamedPath));
 	ASSERT_TRUE(RelocateAssetForTest(AssetPath, RenamedPath));
 	ASSERT_TRUE(Durin::Asset::LoadAsset(RenamedPath, Loaded));
 	LoadedSource = FindImportedSource(*Loaded);
@@ -213,8 +213,8 @@ TEST(FTexture2DTests, RetainsSourceHintWithoutCopying)
 	ASSERT_NE(DefaultSource, nullptr);
 	EXPECT_EQ(DefaultSource->Hint, DefaultFilename);
 
-	Durin::FAssetPath DefaultAssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath DefaultAssetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TextureImportTests/Textures/FlatDefault", DefaultAssetPath));
 	const Durin::Asset::FAssetCatalogEntry DefaultAssetData =
 		Durin::Asset::FindAssetExact(DefaultAssetPath);
@@ -247,8 +247,8 @@ TEST(FTexture2DTests, RetainsSourceHintWithoutCopying)
 	EXPECT_EQ(CustomSource->Hint, CustomFilename);
 	EXPECT_TRUE(std::filesystem::is_regular_file(CustomInput));
 
-	Durin::FAssetPath CustomAssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate(
+	Durin::FPackagePath CustomAssetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
 		"/TextureImportTests/UI/CustomAsset", CustomAssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(DefaultAssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(
@@ -287,8 +287,8 @@ TEST(FTexture2DTests, VersionedDerivedDataCacheHitsAndRecoversCorruptPayload)
 	EXPECT_TRUE(std::filesystem::is_regular_file(CachePath));
 	const Durin::FTexturePlatformData ExpectedPlatformData = *Result.Asset->GetPlatformData();
 
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureDerivedDataTests/Cached", AssetPath));
+	Durin::FPackagePath AssetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureDerivedDataTests/Cached", AssetPath));
 	const Durin::Asset::FAssetCatalogEntry CachedAssetData =
 		Durin::Asset::FindAssetExact(AssetPath);
 	ASSERT_TRUE(CachedAssetData);
@@ -376,8 +376,8 @@ TEST(FTexture2DTests, TimestampOnlySourceChangeUsesPersistedIdentityWithoutDirty
 	ASSERT_TRUE(Result) << Result.Message;
 	ASSERT_NE(Result.Asset, nullptr);
 
-	Durin::FAssetPath AssetPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/Fingerprint", AssetPath));
+	Durin::FPackagePath AssetPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/Fingerprint", AssetPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(AssetPath));
 	const std::filesystem::path StoredSource = Source;
 	ASSERT_TRUE(std::filesystem::is_regular_file(StoredSource));
@@ -518,10 +518,10 @@ TEST(FTexture2DTests, DerivedDataKeyCoversSourceContentAndBuildSettings)
 	EXPECT_NE(FirstImportedSource->GetContentHash(), SecondImportedSource->GetContentHash());
 	EXPECT_NE(First.Asset->GetDerivedDataKey(), Second.Asset->GetDerivedDataKey());
 
-	Durin::FAssetPath FirstPath;
-	Durin::FAssetPath SecondPath;
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/DerivedKeyFirst", FirstPath));
-	ASSERT_TRUE(Durin::FAssetPath::TryCreate("/TextureImportTests/DerivedKeySecond", SecondPath));
+	Durin::FPackagePath FirstPath;
+	Durin::FPackagePath SecondPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/DerivedKeyFirst", FirstPath));
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TextureImportTests/DerivedKeySecond", SecondPath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(FirstPath));
 	Durin::DTexture2D* Loaded = nullptr;
 	ASSERT_TRUE(Durin::Asset::LoadAsset(FirstPath, Loaded));

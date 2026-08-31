@@ -123,7 +123,7 @@ namespace Durin::Asset
 	{
 		uint32 FormatVersion = 0;
 		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
-		std::vector<FAssetPath> Dependencies;
+		std::vector<FPackagePath> Dependencies;
 		EPackageSchemaStatus Status = EPackageSchemaStatus::Compatible;
 		std::vector<FPackageSchemaIssue> Issues;
 		std::vector<FAssetCanonicalizationEvidence> CanonicalizationEvidence;
@@ -141,7 +141,7 @@ namespace Durin::Asset
 
 	// Reads only the current package format's schema/value descriptors unless nested
 	// migration evidence is explicitly requested. The caller retains handle ownership.
-	ENGINE_API auto InspectAssetPackageSchema(FFileHelper::IFileHandle& Handle, const FAssetPath& PackagePath,
+	ENGINE_API auto InspectAssetPackageSchema(FFileHelper::IFileHandle& Handle, const FPackagePath& PackagePath,
 		const FReflectionSchemaCatalog& Catalog, FPackageSchemaInspection& OutInspection,
 		FPackageSchemaReadStats* OutStats = nullptr,
 		bool bIncludeNestedMigrationEvidence = false,

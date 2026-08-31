@@ -12,7 +12,7 @@ namespace Durin
 
 	struct FAssetSaveRequest
 	{
-		std::vector<FAssetPath> AssetPaths;
+		std::vector<FPackagePath> AssetPaths;
 		EAssetSaveMode Mode = EAssetSaveMode::LoadedDirtyPackage;
 		FPublishAssetOperation Publish;
 	};

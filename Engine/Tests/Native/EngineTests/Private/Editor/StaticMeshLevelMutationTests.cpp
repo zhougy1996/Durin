@@ -40,8 +40,8 @@ namespace
 				return true;
 			}();
 			(void)bRegistered;
-			Durin::FAssetPath Path;
-			const bool bValidPath = Durin::FAssetPath::TryCreate(
+			Durin::FPackagePath Path;
+			const bool bValidPath = Durin::FPackagePath::TryCreate(
 				std::format("/LevelMutationTests/Level_{}", NextId++), Path);
 			EXPECT_TRUE(bValidPath);
 			if (!bValidPath) return;

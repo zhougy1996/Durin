@@ -12,16 +12,16 @@ namespace Durin::Asset
 			"Durin::Asset::DAssetRedirector";
 
 		auto ResolveAssetPathInCatalog(
-			const std::unordered_map<FAssetPath, FAssetData>& Assets,
+			const std::unordered_map<FPackagePath, FAssetData>& Assets,
 			uint64 Revision,
-			const FAssetPath& Path,
+			const FPackagePath& Path,
 			const FAssetPathResolveOptions& Options) -> FAssetPathResolveResult
 		{
 			FAssetPathResolveResult Result;
 			Result.CatalogRevision = Revision;
 			Result.RequestedPath = Path;
-			FAssetPath Current = Path;
-			std::unordered_set<FAssetPath> Visited;
+			FPackagePath Current = Path;
+			std::unordered_set<FPackagePath> Visited;
 			while (true)
 			{
 				const auto It = Assets.find(Current);
@@ -97,9 +97,9 @@ namespace Durin::Asset
 				|| Publication.ReferenceFingerprints.size() != Publication.Assets.size())
 				return {EAssetError::StaleData,
 					"Asset registry publication requires a complete catalog/reference projection."};
-			const auto PathsCanonical = [](const std::vector<FAssetPath>& Paths) {
+			const auto PathsCanonical = [](const std::vector<FPackagePath>& Paths) {
 				return std::ranges::is_sorted(Paths,
-					[](const FAssetPath& Left, const FAssetPath& Right) {
+					[](const FPackagePath& Left, const FPackagePath& Right) {
 						return Left.GetView() < Right.GetView();
 					}) && std::adjacent_find(Paths.begin(), Paths.end()) == Paths.end();
 			};
@@ -135,16 +135,16 @@ namespace Durin::Asset
 				if (Publication.ReferenceFingerprints.at(Path) != ExpectedFingerprint)
 					return {EAssetError::CorruptFile,
 						"Asset registry publication fingerprint drifted from catalog metadata."};
-				auto Add = [&](EAssetReferenceKind Kind, const FAssetPath& Target) {
+				auto Add = [&](EAssetReferenceKind Kind, const FPackagePath& Target) {
 					ExpectedEdges.push_back({.SourcePackage = Path,
 						.SourceFingerprint = ExpectedFingerprint, .Kind = Kind,
 						.TargetPath = Target});
 				};
-				for (const FAssetPath& Target : Data.Dependencies)
+				for (const FPackagePath& Target : Data.Dependencies)
 					if (Data.EntryKind != EAssetRegistryEntryKind::Redirector
 						|| Target != Data.RedirectDestination)
 						Add(EAssetReferenceKind::HardObject, Target);
-				for (const FAssetPath& Target : Data.SoftDependencies)
+				for (const FPackagePath& Target : Data.SoftDependencies)
 					Add(EAssetReferenceKind::SoftObject, Target);
 				if (Data.EntryKind == EAssetRegistryEntryKind::Redirector)
 					Add(EAssetReferenceKind::Redirect, Data.RedirectDestination);
@@ -171,7 +171,7 @@ namespace Durin::Asset
 	}
 
 	auto FAssetReferenceIndex::FindReferencers(
-		const FAssetPath& Target) const -> std::vector<FAssetPackageReferenceEdge>
+		const FPackagePath& Target) const -> std::vector<FAssetPackageReferenceEdge>
 	{
 		std::vector<FAssetPackageReferenceEdge> Result;
 		for (const FAssetPackageReferenceEdge& Reference : Edges)
@@ -180,12 +180,12 @@ namespace Durin::Asset
 	}
 
 	auto FAssetReferenceIndex::FindTargets(
-		const FAssetPath& Source) const -> std::vector<FAssetPath>
+		const FPackagePath& Source) const -> std::vector<FPackagePath>
 	{
-		std::vector<FAssetPath> Result;
+		std::vector<FPackagePath> Result;
 		for (const FAssetPackageReferenceEdge& Reference : Edges)
 			if (Reference.SourcePackage == Source) Result.push_back(Reference.TargetPath);
-		std::ranges::sort(Result, [](const FAssetPath& Left, const FAssetPath& Right) {
+		std::ranges::sort(Result, [](const FPackagePath& Left, const FPackagePath& Right) {
 			return Left.GetView() < Right.GetView();
 		});
 		Result.erase(std::unique(Result.begin(), Result.end()), Result.end());
@@ -193,7 +193,7 @@ namespace Durin::Asset
 	}
 
 	auto FAssetRegistrySnapshot::ResolveAssetPath(
-		const FAssetPath& Path,
+		const FPackagePath& Path,
 		const FAssetPathResolveOptions& Options) const -> FAssetPathResolveResult
 	{
 		return ResolveAssetPathInCatalog(Catalog.Assets, Revision, Path, Options);
@@ -204,7 +204,7 @@ namespace Durin::Asset
 	FAssetRegistryState::FAssetRegistryState() = default;
 
 	auto FAssetRegistryState::FindAssetExact(
-		const FAssetPath& Path) const -> FAssetCatalogEntry
+		const FPackagePath& Path) const -> FAssetCatalogEntry
 	{
 		std::shared_lock Lock(Mutex);
 		const auto It = Assets.find(Path);
@@ -226,7 +226,7 @@ namespace Durin::Asset
 		return {.Revision = Revision, .Asset = *AssetIt, .Package = PackageIt->second};
 	}
 
-	auto FAssetRegistryState::ResolveAssetPath(const FAssetPath& Path,
+	auto FAssetRegistryState::ResolveAssetPath(const FPackagePath& Path,
 		const FAssetPathResolveOptions& Options) const -> FAssetPathResolveResult
 	{
 		std::shared_lock Lock(Mutex);
@@ -234,15 +234,15 @@ namespace Durin::Asset
 	}
 
 	auto FAssetRegistryState::FindRedirectorsTo(
-		const FAssetPath& Destination) const -> std::vector<FAssetPath>
+		const FPackagePath& Destination) const -> std::vector<FPackagePath>
 	{
 		std::shared_lock Lock(Mutex);
-		std::vector<FAssetPath> Result;
+		std::vector<FPackagePath> Result;
 		for (const auto& [Path, Data] : Assets)
 			if (Data.EntryKind == EAssetRegistryEntryKind::Redirector
 				&& Data.RedirectDestination == Destination)
 				Result.push_back(Path);
-		std::ranges::sort(Result, [](const FAssetPath& Left, const FAssetPath& Right) {
+		std::ranges::sort(Result, [](const FPackagePath& Left, const FPackagePath& Right) {
 			return Left.GetView() < Right.GetView();
 		});
 		return Result;
@@ -255,7 +255,7 @@ namespace Durin::Asset
 	}
 
 	auto FAssetRegistryState::CaptureDependencyClosure(
-		const FAssetPath& Root) const -> FAssetDependencyClosureSnapshot
+		const FPackagePath& Root) const -> FAssetDependencyClosureSnapshot
 	{
 		std::shared_lock Lock(Mutex);
 		FAssetDependencyClosureSnapshot Result{.Revision = Revision};
@@ -268,7 +268,7 @@ namespace Durin::Asset
 			return Result;
 		}
 
-		std::unordered_set<FAssetPath> Visited;
+		std::unordered_set<FPackagePath> Visited;
 		std::vector<const FAssetData*> Pending{&RootIt->second};
 		Visited.emplace(Root);
 		while (!Pending.empty())
@@ -276,7 +276,7 @@ namespace Durin::Asset
 			const FAssetData* Data = Pending.back();
 			Pending.pop_back();
 			Result.Assets.push_back(*Data);
-			for (const FAssetPath& Dependency : Data->Dependencies)
+			for (const FPackagePath& Dependency : Data->Dependencies)
 			{
 				if (!Visited.emplace(Dependency).second) continue;
 				const auto DependencyIt = Assets.find(Dependency);
@@ -367,7 +367,7 @@ namespace Durin::Asset
 	}
 	}
 
-	auto FindAssetExact(const FAssetPath& Path) -> FAssetCatalogEntry
+	auto FindAssetExact(const FPackagePath& Path) -> FAssetCatalogEntry
 	{
 		return Private::GetAssetRegistryState().FindAssetExact(Path);
 	}
@@ -378,7 +378,7 @@ namespace Durin::Asset
 		return Private::GetAssetRegistryState().FindTopLevelAssetExact(Path);
 	}
 
-	auto ResolveAssetPath(const FAssetPath& Path,
+	auto ResolveAssetPath(const FPackagePath& Path,
 		const FAssetPathResolveOptions& Options) -> FAssetPathResolveResult
 	{
 		return Private::GetAssetRegistryState().ResolveAssetPath(Path, Options);
@@ -390,7 +390,7 @@ namespace Durin::Asset
 	}
 
 	auto CaptureAssetDependencyClosure(
-		const FAssetPath& Root) -> FAssetDependencyClosureSnapshot
+		const FPackagePath& Root) -> FAssetDependencyClosureSnapshot
 	{
 		return Private::GetAssetRegistryState().CaptureDependencyClosure(Root);
 	}
@@ -428,7 +428,7 @@ namespace Durin::Asset
 		return Result;
 	}
 
-	auto FindRedirectorsTo(const FAssetPath& Destination) -> std::vector<FAssetPath>
+	auto FindRedirectorsTo(const FPackagePath& Destination) -> std::vector<FPackagePath>
 	{
 		return Private::GetAssetRegistryState().FindRedirectorsTo(Destination);
 	}

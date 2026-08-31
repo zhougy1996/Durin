@@ -55,7 +55,7 @@ namespace Durin::Asset
 			return ObjectPath;
 		}
 
-		auto GetRelocationPhysicalPath(const FAssetPath& Path) -> std::string
+		auto GetRelocationPhysicalPath(const FPackagePath& Path) -> std::string
 		{
 			const FAssetRuntimeConfiguration& Context =
 				FAssetRuntimeState::Get().GetRuntimeConfiguration();
@@ -89,9 +89,9 @@ namespace Durin::Asset
 
 		auto BuildMovedPackageBytes(
 			std::span<const std::byte> SourceBytes,
-			const FAssetPath& SourcePath,
+			const FPackagePath& SourcePath,
 			std::span<const std::byte> SourceBulkBytes,
-			const FAssetPath& DestinationPath,
+			const FPackagePath& DestinationPath,
 			std::vector<std::byte>& OutBytes) -> FAssetResult
 		{
 			const Private::FAssetPackageCodec* Codec = nullptr;
@@ -120,8 +120,8 @@ namespace Durin::Asset
 		}
 
 		auto BuildRedirectorPackageBytes(
-			const FAssetPath& SourcePath,
-			const FAssetPath& DestinationPath,
+			const FPackagePath& SourcePath,
+			const FPackagePath& DestinationPath,
 			uint32 FormatVersion,
 			std::vector<std::byte>& OutBytes) -> FAssetResult
 		{
@@ -147,13 +147,13 @@ namespace Durin::Asset
 		FAssetMutationJournal Journal;
 		std::vector<FLoadedRelocationState> LoadedPackages;
 		std::vector<FAssetOwnedPayloadRelocation> OwnedPayloads;
-		std::unordered_map<FAssetPath, FAssetData> PreAssets;
-		std::unordered_map<FAssetPath, FAssetData> PostAssets;
-		std::unordered_map<FAssetPath, FAssetData> ExpectedAssets;
+		std::unordered_map<FPackagePath, FAssetData> PreAssets;
+		std::unordered_map<FPackagePath, FAssetData> PostAssets;
+		std::unordered_map<FPackagePath, FAssetData> ExpectedAssets;
 		std::vector<FAssetReferenceEdge> PreReferenceEdges;
 		std::vector<FAssetReferenceEdge> PostReferenceEdges;
-		std::unordered_map<FAssetPath, FAssetPackageFingerprint> PreReferenceFingerprints;
-		std::unordered_map<FAssetPath, FAssetPackageFingerprint> PostReferenceFingerprints;
+		std::unordered_map<FPackagePath, FAssetPackageFingerprint> PreReferenceFingerprints;
+		std::unordered_map<FPackagePath, FAssetPackageFingerprint> PostReferenceFingerprints;
 	};
 
 	auto FAssetMutationCoordinator::PrepareAssetRelocationState(
@@ -175,7 +175,7 @@ namespace Durin::Asset
 		auto State = std::make_shared<FAssetRelocationState>();
 		State->ExpectedRegistryRevision = GetAssetCatalogRevision();
 		const FAssetPublicationState Prepared = Registry.CapturePreparedState();
-		const auto FindPrepared = [&](const FAssetPath& Path) -> const FAssetData* {
+		const auto FindPrepared = [&](const FPackagePath& Path) -> const FAssetData* {
 			const auto It = Prepared.Assets.find(Path);
 			return It == Prepared.Assets.end() ? nullptr : &It->second;
 		};
@@ -208,10 +208,10 @@ namespace Durin::Asset
 		InitializeMutationJournal(
 			State->Journal, EAssetMutationOperationKind::Relocation);
 
-		std::unordered_set<FAssetPath> Sources;
-		std::unordered_set<FAssetPath> Destinations;
+		std::unordered_set<FPackagePath> Sources;
+		std::unordered_set<FPackagePath> Destinations;
 		auto AddFileEntry = [&](const std::filesystem::path& PhysicalPath,
-			const FAssetPath& RegistryPath,
+			const FPackagePath& RegistryPath,
 			EAssetMutationPublicationRole Role,
 			std::optional<std::vector<std::byte>> PreBytes,
 			std::optional<std::vector<std::byte>> PostBytes) -> FAssetResult {
@@ -539,7 +539,7 @@ namespace Durin::Asset
 		FAssetResult Result = PrepareAssetRelocationState(Mappings, Relocation);
 		if (!Result) return Result;
 
-		std::vector<FAssetPath> Scope;
+		std::vector<FPackagePath> Scope;
 		Scope.reserve(Mappings.size() * 2);
 		for (const FAssetRelocationMapping& Mapping : Mappings)
 		{
@@ -634,7 +634,7 @@ namespace Durin::Asset
 		}
 		for (const FLoadedRelocationState& Loaded : State.LoadedPackages)
 		{
-			const FAssetPath& ExpectedPath = bExpectPost
+			const FPackagePath& ExpectedPath = bExpectPost
 				? Loaded.Mapping.DestinationPath
 				: Loaded.Mapping.SourcePath;
 			if (FindResidentPackage(ExpectedPath) != Loaded.Package)
@@ -856,7 +856,7 @@ namespace Durin::Asset
 
 		const FAssetPublicationState Current = Registry.CapturePreparedState();
 		std::vector<FAssetPackageReferenceEdge> PackageEdges;
-		std::unordered_map<FAssetPath, FAssetPackageFingerprint> PackageFingerprints;
+		std::unordered_map<FPackagePath, FAssetPackageFingerprint> PackageFingerprints;
 		Result = BuildAssetPackageReferenceProjection(
 			State.PostAssets, PackageEdges, PackageFingerprints);
 		if (!Result) return Compensate(std::move(Result));
@@ -984,7 +984,7 @@ namespace Durin::Asset
 
 		const FAssetPublicationState Current = Registry.CapturePreparedState();
 		std::vector<FAssetPackageReferenceEdge> PackageEdges;
-		std::unordered_map<FAssetPath, FAssetPackageFingerprint> PackageFingerprints;
+		std::unordered_map<FPackagePath, FAssetPackageFingerprint> PackageFingerprints;
 		Result = BuildAssetPackageReferenceProjection(
 			State.PreAssets, PackageEdges, PackageFingerprints);
 		if (!Result) return EnterRecovery(std::format(

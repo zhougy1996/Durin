@@ -97,9 +97,9 @@ namespace Durin::Tests
 		{
 			if (!SphereAsset)
 			{
-				FAssetPath SpherePath;
+				FPackagePath SpherePath;
 				std::string Error;
-				if (!FAssetPath::TryCreate(
+				if (!FPackagePath::TryCreate(
 						Editor::FThumbnailVisualContract::SphereVirtualPath,
 						SpherePath,
 						&Error)
@@ -268,9 +268,9 @@ namespace Durin::Tests
 		Editor::FRetainedAsset SphereAsset;
 	};
 
-	inline auto MakeThumbnailFixturePath(std::string_view Value, FAssetPath& OutPath) -> bool
+	inline auto MakeThumbnailFixturePath(std::string_view Value, FPackagePath& OutPath) -> bool
 	{
-		return FAssetPath::TryCreate(Value, OutPath);
+		return FPackagePath::TryCreate(Value, OutPath);
 	}
 
 	inline auto GetAssetThumbnailFixtureRoot() -> std::filesystem::path
@@ -313,7 +313,7 @@ namespace Durin::Tests
 		static std::unordered_map<std::filesystem::path, FAssetThumbnailFixtureSet> CachedFixtures;
 		if (auto It = CachedFixtures.find(Root); It != CachedFixtures.end())
 		{
-			FAssetPath StaticMeshPath;
+			FPackagePath StaticMeshPath;
 			if (!MakeThumbnailFixturePath(
 					FAssetThumbnailFixtureSet::StaticMeshPath,
 					StaticMeshPath))
@@ -345,18 +345,18 @@ namespace Durin::Tests
 			OutError = std::move(Message);
 			return false;
 		};
-		auto MakePath = [&Fail](std::string_view Value, FAssetPath& OutPath) {
+		auto MakePath = [&Fail](std::string_view Value, FPackagePath& OutPath) {
 			return MakeThumbnailFixturePath(Value, OutPath)
 				? true
 				: Fail(std::format("Invalid rendered-thumbnail fixture path: {}.", Value));
 		};
 
-		FAssetPath MaterialPath;
-		FAssetPath MaterialInstancePath;
-		FAssetPath InvalidMaterialInstancePath;
-		FAssetPath ParentTexturePath;
-		FAssetPath OverrideTexturePath;
-		FAssetPath StaticMeshPath;
+		FPackagePath MaterialPath;
+		FPackagePath MaterialInstancePath;
+		FPackagePath InvalidMaterialInstancePath;
+		FPackagePath ParentTexturePath;
+		FPackagePath OverrideTexturePath;
+		FPackagePath StaticMeshPath;
 		if (!MakePath(FAssetThumbnailFixtureSet::MaterialPath, MaterialPath)
 			|| !MakePath(FAssetThumbnailFixtureSet::MaterialInstancePath, MaterialInstancePath)
 			|| !MakePath(FAssetThumbnailFixtureSet::InvalidMaterialInstancePath, InvalidMaterialInstancePath)

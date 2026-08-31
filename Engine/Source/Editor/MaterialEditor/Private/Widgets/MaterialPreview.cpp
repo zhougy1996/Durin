@@ -106,10 +106,10 @@ namespace Durin::Editor::Material
 				return;
 			}
 
-			FAssetPath SpherePath;
-			FAssetPath BoxPath;
-			if (!FAssetPath::TryCreate(PreviewSpherePath, SpherePath, &Error)
-				|| !FAssetPath::TryCreate(PreviewBoxPath, BoxPath, &Error)
+			FPackagePath SpherePath;
+			FPackagePath BoxPath;
+			if (!FPackagePath::TryCreate(PreviewSpherePath, SpherePath, &Error)
+				|| !FPackagePath::TryCreate(PreviewBoxPath, BoxPath, &Error)
 				|| !::Durin::Editor::FAssetRetentionService::Acquire(SpherePath, SphereAsset, Error)
 				|| !::Durin::Editor::FAssetRetentionService::Acquire(BoxPath, BoxAsset, Error))
 			{

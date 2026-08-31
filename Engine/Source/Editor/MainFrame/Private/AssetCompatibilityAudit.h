@@ -72,7 +72,7 @@ namespace Durin::Editor
 
 		MAINFRAME_API auto RunCurrentProjectAudit() -> bool;
 		MAINFRAME_API auto RunAudit(
-			const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets,
+			const std::unordered_map<FPackagePath, Asset::FAssetData>& Assets,
 			Asset::FReflectionCompatibilityCatalog Catalog) -> bool;
 		MAINFRAME_API auto Cancel() -> bool;
 		MAINFRAME_API auto CancelAndDrain() -> void;
@@ -84,12 +84,12 @@ namespace Durin::Editor
 		// Reconciles paths/fingerprints against a caller-owned catalog snapshot.
 		// Callers should use the catalog revision to avoid redundant reconciliation.
 		MAINFRAME_API auto ReconcileAssetCatalog(
-			const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets) -> void;
+			const std::unordered_map<FPackagePath, Asset::FAssetData>& Assets) -> void;
 		// Convenience path for callers that already own a changed catalog snapshot.
-		MAINFRAME_API auto Tick(const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets) -> void;
+		MAINFRAME_API auto Tick(const std::unordered_map<FPackagePath, Asset::FAssetData>& Assets) -> void;
 		MAINFRAME_API auto GetPresentationRecords() const
 			-> const std::vector<Asset::FAssetPackageCompatibilityRecord>&;
-		MAINFRAME_API auto FindRecord(const FAssetPath& Path) const
+		MAINFRAME_API auto FindRecord(const FPackagePath& Path) const
 			-> const Asset::FAssetPackageCompatibilityRecord*;
 
 		auto GetState() const -> EAssetCompatibilityAuditState { return State; }
@@ -104,7 +104,7 @@ namespace Durin::Editor
 		struct FMailbox;
 		struct FPublicationLifetime;
 		auto DrainMailbox() -> void;
-		auto Reconcile(const std::unordered_map<FAssetPath, Asset::FAssetData>& Assets) -> void;
+		auto Reconcile(const std::unordered_map<FPackagePath, Asset::FAssetData>& Assets) -> void;
 		auto InvalidatePresentation() -> void;
 
 		FAssetCompatibilityProbe Probe;
@@ -114,7 +114,7 @@ namespace Durin::Editor
 		FTaskHandle TerminalTask;
 		FTaskGenerationSource Generation;
 		std::shared_ptr<FPublicationLifetime> PublicationLifetime;
-		std::unordered_map<FAssetPath, Asset::FAssetPackageCompatibilityRecord> Records;
+		std::unordered_map<FPackagePath, Asset::FAssetPackageCompatibilityRecord> Records;
 		mutable std::vector<Asset::FAssetPackageCompatibilityRecord> PresentationRecords;
 		mutable uint64 CachedPresentationRevision = std::numeric_limits<uint64>::max();
 		uint64 PresentationRevision = 0;

@@ -272,9 +272,9 @@ namespace Durin::Asset
 						return Result;
 					}
 					Relative.replace_extension();
-					FAssetPath PackagePath;
+					FPackagePath PackagePath;
 					std::string PathError;
-					if (!FAssetPath::TryCreate(Mount.VirtualRoot + Relative.generic_string(),
+					if (!FPackagePath::TryCreate(Mount.VirtualRoot + Relative.generic_string(),
 						PackagePath, &PathError))
 					{
 						Result.Status = EAssetPackageSnapshotStatus::Failed;

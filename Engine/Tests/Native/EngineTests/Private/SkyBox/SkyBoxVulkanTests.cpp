@@ -588,8 +588,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 
 	SceneOwner.reset();
 	Durin::FlushRenderingCommands();
-	Durin::FAssetPath CubePath;
-	if (Durin::FAssetPath::TryCreate("/SkyBoxAssetTests/VulkanPanoramaLdr", CubePath))
+	Durin::FPackagePath CubePath;
+	if (Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/VulkanPanoramaLdr", CubePath))
 	{
 		EXPECT_TRUE(Durin::Asset::DeleteAssetForTesting(CubePath));
 	}
@@ -597,8 +597,8 @@ TEST(FSkyBoxVulkanTests, SamplesPanoramaFacesMipsBoundariesAndHdrWithoutParallax
 	{
 		ADD_FAILURE() << "Failed to create the Vulkan cube cleanup path.";
 	}
-	Durin::FAssetPath HdrCubePath;
-	if (Durin::FAssetPath::TryCreate("/SkyBoxAssetTests/VulkanPanoramaHdr", HdrCubePath))
+	Durin::FPackagePath HdrCubePath;
+	if (Durin::FPackagePath::TryCreate("/SkyBoxAssetTests/VulkanPanoramaHdr", HdrCubePath))
 	{
 		EXPECT_TRUE(Durin::Asset::DeleteAssetForTesting(HdrCubePath));
 	}

@@ -14,7 +14,7 @@ namespace Durin::Asset
 {
 	ENGINE_API auto ValidateAssetPackageBytes(
 		std::span<const std::byte> Bytes,
-		const FAssetPath& PackagePath,
+		const FPackagePath& PackagePath,
 		std::span<const std::byte> BulkBytes = {}
 	) -> FAssetResult;
 
@@ -113,7 +113,7 @@ namespace Durin::Asset
 	) -> FAssetResult;
 	ENGINE_API auto InspectAssetPackage(
 		std::string_view PhysicalPath,
-		const FAssetPath& PackagePath,
+		const FPackagePath& PackagePath,
 		FAssetPackageInspection& OutInspection
 	) -> FAssetResult;
 } // namespace Durin::Asset

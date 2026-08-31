@@ -36,10 +36,10 @@ inline auto GetEngineTestModuleCallbackGate() -> Durin::FModuleOwnedCallbackGate
 // Test cleanup follows the production target-plus-alias closure contract while
 // avoiding an editor filesystem transaction in focused runtime suites.
 inline auto DeleteAssetClosureForTest(
-	std::initializer_list<Durin::FAssetPath> Paths)
+	std::initializer_list<Durin::FPackagePath> Paths)
 	-> Durin::Asset::FAssetResult
 {
-	const std::vector<Durin::FAssetPath> DeletionPaths(Paths);
+	const std::vector<Durin::FPackagePath> DeletionPaths(Paths);
 	Durin::Asset::FAssetDeletionTransaction Transaction;
 	std::vector<Durin::Asset::FAssetDeletionBatchBlocker> Blockers;
 	Durin::Asset::FAssetResult Result =
