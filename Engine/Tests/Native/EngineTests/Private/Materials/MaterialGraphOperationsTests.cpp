@@ -8,7 +8,7 @@
 #include "MaterialTestSupport.h"
 
 #include "Asset/AssetCompilingManager.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "AssetRegistry/Scan.h"
 #include "DObject/DefaultObjectGraph.h"
 #include "DObject/ObjectLifecycle.h"

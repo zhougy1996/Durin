@@ -1,6 +1,6 @@
 #include "Source/SourceReferenceIndex.h"
 
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "Asset/AssetImportData.h"
 #include "Asset/PackageInspection.h"
 #include "StaticMesh/StaticMesh.h"

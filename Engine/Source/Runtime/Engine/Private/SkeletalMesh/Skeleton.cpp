@@ -2,7 +2,7 @@
 
 #include "DObject/Package.h"
 
-#include "AssetCook.h"
+#include "Asset/AssetCook.h"
 #include "Hash/XxHash.h"
 #include "Math/Operations.h"
 #include "Serialization/BinaryFormat.h"

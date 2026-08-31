@@ -2,7 +2,7 @@
 
 #include "Editor/Import/AssetDestinationValidation.h"
 #include "AssetTools/IAssetTools.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "Asset/AssetOperations.h"
 #include "DObject/DObjectGlobals.h"
 #include "Dialogs/FileDialog.h"

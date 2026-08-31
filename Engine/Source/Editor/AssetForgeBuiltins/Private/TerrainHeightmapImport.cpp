@@ -8,7 +8,7 @@
 #include "Asset/AssetOperations.h"
 #include "Asset/SourceHint.h"
 #include "Asset/PackageSerialization.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "DObject/DObjectGlobals.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"

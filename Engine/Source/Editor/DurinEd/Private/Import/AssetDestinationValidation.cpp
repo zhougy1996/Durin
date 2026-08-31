@@ -1,7 +1,7 @@
 #include "Misc/MountPaths.h"
 #include "Editor/Import/AssetDestinationValidation.h"
 
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "DObject/Package.h"
 
 namespace Durin::Editor

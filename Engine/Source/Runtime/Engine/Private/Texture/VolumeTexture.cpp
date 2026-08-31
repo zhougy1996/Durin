@@ -2,7 +2,7 @@
 
 #include "DObject/Package.h"
 
-#include "AssetCook.h"
+#include "Asset/AssetCook.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Serialization/Archive.h"
 #include "Texture/TextureDerivedData.h"

@@ -5,7 +5,7 @@
 #include "EncodedSourceSnapshot.h"
 #include "Asset/AssetOperations.h"
 #include "Asset/SourceHint.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "DObject/DObjectGlobals.h"
 #include "Hash/XxHash.h"
 #include "Image/ImageDecoder.h"

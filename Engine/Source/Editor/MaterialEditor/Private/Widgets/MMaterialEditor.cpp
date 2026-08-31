@@ -7,7 +7,7 @@
 
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/Mutation.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "DObject/Package.h"
 #include "DObject/DurinPropertyTypes.h"
 #include "Editor/AssetPicker.h"

@@ -3,7 +3,7 @@
 #include "Asset/AssetOperations.h"
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
-#include "AssetCook.h"
+#include "Asset/AssetCook.h"
 #include "Animation/AnimationClip.h"
 #include "CoreGlobals.h"
 #include "DObject/Class.h"

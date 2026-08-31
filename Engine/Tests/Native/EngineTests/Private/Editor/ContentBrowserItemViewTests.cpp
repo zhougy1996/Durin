@@ -4,7 +4,7 @@
 #include "Asset/AssetOperations.h"
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
-#include "AssetCook.h"
+#include "Asset/AssetCook.h"
 #include "EngineTestSupport.h"
 #include "Icons/FontAwesomeIcons.h"
 #include "Misc/Paths.h"

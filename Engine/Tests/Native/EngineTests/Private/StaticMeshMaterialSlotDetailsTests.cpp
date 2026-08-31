@@ -3,7 +3,7 @@
 #include "Asset/AssetOperations.h"
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
-#include "AssetCook.h"
+#include "Asset/AssetCook.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"

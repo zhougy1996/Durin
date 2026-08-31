@@ -2,7 +2,7 @@
 
 // StaticMeshEditor owns the complete StaticMesh thumbnail extension.
 
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/Actor.h"
 #include "Engine/World.h"

@@ -1,6 +1,6 @@
 #include "Materials/MaterialInterface.h"
 
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectArray.h"
 #include "DObject/ObjectLifecycle.h"

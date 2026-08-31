@@ -1,6 +1,6 @@
 #include "Widgets/MVolumeTextureEditor.h"
 
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "DObject/Package.h"
 #include "Editor/WorkspaceManager.h"
 #include "MonaCoreGlobals.h"

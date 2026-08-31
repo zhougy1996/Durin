@@ -5,7 +5,7 @@
 #include "DObject/ObjectLifecycle.h"
 #include "ApplicationCore.h"
 #include "Application/ModalLoopTick.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "RHI.h"
 #include "Mona.h"
 #include "Engine/Engine.h"

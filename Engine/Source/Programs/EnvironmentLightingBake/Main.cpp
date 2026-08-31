@@ -1,7 +1,7 @@
 #include "CoreMinimal.h"
 
 #include "Asset/AssetOperations.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "EnvironmentLighting/EnvironmentLighting.h"

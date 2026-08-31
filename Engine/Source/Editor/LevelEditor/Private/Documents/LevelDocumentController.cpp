@@ -3,7 +3,7 @@
 
 #include "Asset/AssetOperations.h"
 #include "Asset/Mutation.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "Editor/EditorEngine.h"
 #include "Editor/Transaction.h"
 #include "Settings/LevelEditorSessionSettings.h"

@@ -1,7 +1,7 @@
 #include "Widgets/MTextureEditor.h"
 
 #include "Asset/AssetCompilingManager.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "DObject/Class.h"
 #include "DObject/Package.h"
 #include "Dialogs/FileDialog.h"

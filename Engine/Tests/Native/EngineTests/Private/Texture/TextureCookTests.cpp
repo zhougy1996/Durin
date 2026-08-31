@@ -2,7 +2,7 @@
 #include "VulkanEngineTestSupport.h"
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
-#include "AssetCook.h"
+#include "Asset/AssetCook.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"

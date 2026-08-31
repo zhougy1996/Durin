@@ -7,7 +7,7 @@
 #include "Asset/AssetOperations.h"
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
-#include "AssetCook.h"
+#include "Asset/AssetCook.h"
 #include "Customizations/CameraEditorCustomizations.h"
 #include "Client/ViewportClient.h"
 #include "Components/CameraComponent.h"

@@ -3,7 +3,7 @@
 #include "Animation/AnimationClip.h"
 #include "DObject/Package.h"
 #include "AssetForge/Builtins/ImportedScene.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "Image/ImageDecoder.h"
 #include "HAL/PlatformProcess.h"
 #include "Materials/Material.h"

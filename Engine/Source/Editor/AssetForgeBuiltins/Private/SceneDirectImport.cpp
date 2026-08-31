@@ -1,7 +1,7 @@
 #include "AssetForge/Builtins/SceneImport.h"
 
 #include "Animation/AnimationClip.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "Asset/AssetOperations.h"
 #include "Asset/AssetCompilingManager.h"
 #include "Asset/SourceHint.h"

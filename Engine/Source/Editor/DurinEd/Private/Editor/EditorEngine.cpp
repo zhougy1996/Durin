@@ -4,7 +4,7 @@
 #include "Editor/Transactor.h"
 
 #include "Asset/Mutation.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "DObject/Archive.h"
 #include "DObject/ObjectLifecycle.h"
 #include "Actors/CameraActor.h"

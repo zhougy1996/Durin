@@ -2,7 +2,7 @@
 
 #include "DObject/Package.h"
 
-#include "AssetCook.h"
+#include "Asset/AssetCook.h"
 #include "Asset/CookedMeshProducts.h"
 #include "Asset/CookedMeshLoadManager.h"
 #include "DObject/Property.h"

@@ -7,7 +7,7 @@
 #include "Renderers/ForwardLighting.h"
 #include "Renderers/TerrainRenderPreparation.h"
 #include "Renderers/VolumetricCloudScenePreparation.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "EnvironmentLighting/EnvironmentLighting.h"
 #include "RHICommandList.h"
 #include "RenderingThread.h"

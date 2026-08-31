@@ -1,7 +1,7 @@
 #include "Materials/DefaultMaterialService.h"
 
 #include "Asset/AssetCompilingManager.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "Materials/Material.h"

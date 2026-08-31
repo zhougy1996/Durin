@@ -1,6 +1,6 @@
 #include "TerrainHeightmapThumbnailRenderer.h"
 
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "DObject/Class.h"
 #include "Terrain/TerrainHeightmap.h"
 

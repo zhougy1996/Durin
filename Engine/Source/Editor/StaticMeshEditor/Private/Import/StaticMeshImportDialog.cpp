@@ -3,7 +3,7 @@
 #include "AssetTools/IAssetTools.h"
 #include "Asset/AssetOperations.h"
 #include "Editor/Import/AssetDestinationValidation.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "Dialogs/FileDialog.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"

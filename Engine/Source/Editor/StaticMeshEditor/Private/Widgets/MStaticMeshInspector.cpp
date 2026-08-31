@@ -1,6 +1,6 @@
 #include "Widgets/MStaticMeshInspector.h"
 
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "DObject/Object.h"
 #include "Editor/WorkspaceManager.h"
 #include "Editor/WorkspaceUI.h"

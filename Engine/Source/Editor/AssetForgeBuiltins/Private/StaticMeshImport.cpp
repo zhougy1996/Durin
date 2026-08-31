@@ -5,7 +5,7 @@
 #include "Asset/AssetOperations.h"
 #include "Asset/PackageSerialization.h"
 #include "Asset/SourceHint.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "AssetForge/Builtins/ImportedScene.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/Package.h"

@@ -2,7 +2,7 @@
 #include "Panels/ContentBrowserFilesystem.h"
 #include "Panels/ContentBrowserItemView.h"
 
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Misc/StringHelper.h"

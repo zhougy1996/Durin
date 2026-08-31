@@ -5,7 +5,7 @@
 #include "Actors/StaticMeshActor.h"
 #include "Asset/AssetOperations.h"
 #include "Asset/Mutation.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/AssetPath.h"
 #include "DObject/Package.h"

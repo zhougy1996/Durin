@@ -32,7 +32,7 @@
 #include "Texture/Texture2D.h"
 #include "Texture/TextureCube.h"
 #include "Texture/VolumeTexture.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "Asset/AssetImportData.h"
 #include "AssetTools/IAssetTools.h"
 #include "EditorReimportHandler.h"

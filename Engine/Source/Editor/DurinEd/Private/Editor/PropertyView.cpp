@@ -1,7 +1,7 @@
 #include "Editor/PropertyView.h"
 #include "Editor/PropertyValueDraft.h"
 
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "Asset/EditorBulkData.h"
 #include "Components/VolumetricCloudComponent.h"
 #include "DObject/Archive.h"

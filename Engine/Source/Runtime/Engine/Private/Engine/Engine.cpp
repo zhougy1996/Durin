@@ -19,7 +19,7 @@
 #include "Profiling/Profiling.h"
 #include "Application/MonaApplication.h"
 #include "Application/MonaEventHandler.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "Window/GenericWindow.h"
 
 #include "DynamicRHI.h"

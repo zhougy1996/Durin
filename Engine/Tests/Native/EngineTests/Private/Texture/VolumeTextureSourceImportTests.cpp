@@ -8,7 +8,7 @@
 #include "Components/VolumetricCloudComponent.h"
 #include "Modules/ModuleManager.h"
 #include "Texture/TextureDerivedData.h"
-#include "AssetCook.h"
+#include "Asset/AssetCook.h"
 #include "Asset/EditorBulkDataStorage.h"
 #include "Asset/PackageInspection.h"
 #include "Misc/FileHelper.h"

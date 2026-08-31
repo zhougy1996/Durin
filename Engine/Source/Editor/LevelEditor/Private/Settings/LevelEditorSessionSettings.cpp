@@ -1,6 +1,6 @@
 #include "Settings/LevelEditorSessionSettings.h"
 
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "DObject/Package.h"
 #include "Engine/Level.h"
 #include "Workspace/LevelEditorContext.h"

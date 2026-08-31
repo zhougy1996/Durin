@@ -4,7 +4,7 @@
 #include "Asset/AssetOperations.h"
 #include "Asset/Deletion.h"
 #include "Asset/Mutation.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "AssetTools/IAssetTools.h"
 #include "DObject/Class.h"
 #include "Misc/FileHelper.h"

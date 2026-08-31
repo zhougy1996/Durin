@@ -4,7 +4,7 @@
 
 #include "DObject/Package.h"
 
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "CoreGlobals.h"
 #include "DObject/DObjectGlobals.h"
 #include "DObject/ObjectLifecycle.h"

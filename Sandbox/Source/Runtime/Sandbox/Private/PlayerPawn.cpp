@@ -1,6 +1,6 @@
 #include "PlayerPawn.h"
 
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "Components/CameraComponent.h"
 #include "Components/ShapeComponent.h"
 #include "Components/StaticMeshComponent.h"

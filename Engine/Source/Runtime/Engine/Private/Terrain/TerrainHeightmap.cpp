@@ -2,7 +2,7 @@
 
 #include "DObject/Package.h"
 
-#include "AssetCook.h"
+#include "Asset/AssetCook.h"
 #include "DObject/Property.h"
 #include "Serialization/Archive.h"
 #include "Terrain/TerrainHeightmapDerivedData.h"

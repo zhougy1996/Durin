@@ -1,7 +1,7 @@
 #include "Texture/TextureBuildOperations.h"
 
 #include "DerivedDataCache/DerivedDataBuildSession.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "Hash/XxHash.h"
 #include "Texture/Texture2DDerivedData.h"
 #include "Texture/TextureBuildFunctionRegistry.h"

@@ -3,7 +3,7 @@
 #include "Asset/AssetOperations.h"
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
-#include "AssetCook.h"
+#include "Asset/AssetCook.h"
 #if DURIN_WITH_EDITOR
 	#include "AssetMaintenance/CompatibilityAudit.h"
 	#include "AssetMaintenance/CanonicalResave.h"

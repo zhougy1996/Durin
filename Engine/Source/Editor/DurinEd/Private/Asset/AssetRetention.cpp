@@ -1,6 +1,6 @@
 #include "Asset/AssetRetention.h"
 
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "DObject/StrongObjectPtr.h"
 #include "Threading/RunnableThread.h"
 

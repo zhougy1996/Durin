@@ -5,7 +5,7 @@
 
 #include "DObject/Package.h"
 
-#include "AssetCook.h"
+#include "Asset/AssetCook.h"
 #include "CoreGlobals.h"
 #include "DObject/Property.h"
 #include "DynamicRHI.h"

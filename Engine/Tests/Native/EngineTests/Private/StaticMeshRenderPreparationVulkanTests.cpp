@@ -2,7 +2,7 @@
 #include "VulkanEngineTestSupport.h"
 #include "Asset/CookedMeshLoadManager.h"
 #include "Asset/Load.h"
-#include "AssetCook.h"
+#include "Asset/AssetCook.h"
 #include "Components/StaticMeshComponent.h"
 #include "DObject/Class.h"
 #include "DObject/ObjectLifecycle.h"

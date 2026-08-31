@@ -1,7 +1,7 @@
 #include "AssetForge/Builtins/SceneImport.h"
 
 #include "Asset/AssetOperations.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "DObject/Package.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialProgramTypes.h"

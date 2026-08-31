@@ -1,7 +1,7 @@
 #include "Widgets/MSkeletalAssetInspector.h"
 
 #include "Animation/AnimationClip.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "DObject/Object.h"
 #include "Editor/WorkspaceManager.h"
 #include "Materials/MaterialInterface.h"

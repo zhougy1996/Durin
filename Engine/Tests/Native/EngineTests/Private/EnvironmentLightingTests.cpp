@@ -2,7 +2,7 @@
 #include "Asset/AssetOperations.h"
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
-#include "AssetCook.h"
+#include "Asset/AssetCook.h"
 #include "EnvironmentLighting/EnvironmentLighting.h"
 #include "Misc/FileHelper.h"
 #include "Misc/FileHelper.h"

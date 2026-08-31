@@ -2,7 +2,7 @@
 #include "AssetRegistry/Scan.h"
 #include "Asset/Mutation.h"
 #include "Asset/PackageSerialization.h"
-#include "AssetCook.h"
+#include "Asset/AssetCook.h"
 #include "AssetMaintenance/CanonicalResave.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
 #include "Asset/AssetSaveReadiness.h"

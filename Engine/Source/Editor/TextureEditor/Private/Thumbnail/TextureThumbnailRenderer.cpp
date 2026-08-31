@@ -1,6 +1,6 @@
 #include "Thumbnail/TextureThumbnailRenderer.h"
 
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "Texture/Texture2D.h"
 
 namespace Durin::Editor::Texture

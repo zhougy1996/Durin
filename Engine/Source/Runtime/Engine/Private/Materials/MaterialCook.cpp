@@ -1,7 +1,7 @@
 #include "Materials/Material.h"
 
-#include "Asset.h"
-#include "AssetCook.h"
+#include "Asset/Asset.h"
+#include "Asset/AssetCook.h"
 #include "DObject/Package.h"
 #include "DObject/Property.h"
 #include "Materials/MaterialCookedProgram.h"

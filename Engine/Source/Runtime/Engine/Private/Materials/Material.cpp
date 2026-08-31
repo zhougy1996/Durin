@@ -4,7 +4,7 @@
 #include "Materials/MaterialCompileLifecycle.h"
 #include "Materials/MaterialCookedProgram.h"
 #include "Materials/MaterialProgramCompiler.h"
-#include "Asset.h"
+#include "Asset/Asset.h"
 #include "DObject/Property.h"
 #include "DObject/Package.h"
 #include "Modules/ModuleManager.h"
