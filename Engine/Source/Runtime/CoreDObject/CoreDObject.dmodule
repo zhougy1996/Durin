@@ -2,7 +2,7 @@
     "ModuleName": "CoreDObject",
     "LinkType": "Shared",
     "PCH": "SharedPCH_Core",
-    "PrivateDependencies": [
+    "PublicDependencies": [
         "Core"
     ],
     "ReflectHeaders": [

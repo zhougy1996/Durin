@@ -2,8 +2,10 @@
     "ModuleName": "RenderCore",
     "LinkType": "Shared",
     "PCH": "SharedPCH_Core",
-    "PrivateDependencies": [
-        "Core",
+    "PublicDependencies": [
         "RHI"
+    ],
+    "PrivateDependencies": [
+        "Core"
     ]
 }
