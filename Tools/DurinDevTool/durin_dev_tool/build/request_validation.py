@@ -76,10 +76,14 @@ def validate_request(request: ConcreteRequest, preset: ConfigurePreset) -> None:
                 "test requires a target, @set selector, or all.",
                 recovery="Run .\\DevTool.bat test list to inspect configured choices.",
             )
-        if request.test_operation not in {"run", "list", "explain"}:
+        if request.test_operation not in {"run", "list", "explain", "affected"}:
             raise BuildToolError(f'Unknown test operation "{request.test_operation}".')
         if request.test_operation != "run" and request.test_mode is not TestMode.ROUTINE:
-            raise BuildToolError("test list and test explain do not accept --mode.")
+            raise BuildToolError("test list, explain, and affected do not accept --mode.")
+        if request.test_operation != "affected" and (request.test_base or request.test_explain_affected):
+            raise BuildToolError("--base and --explain are accepted only by test affected.")
+        if request.test_operation == "affected" and request.test_report_path is not None:
+            raise BuildToolError("test affected does not accept --report; select --mode report explicitly on a bounded set.")
     if request.action is Action.REBUILD and request.target:
         validate_target(request.target, action=request.action)
     if (

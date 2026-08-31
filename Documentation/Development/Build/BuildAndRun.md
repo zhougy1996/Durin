@@ -214,6 +214,8 @@ Use the root wrapper for configuration, builds, and tests:
 .\DevTool.bat build
 .\DevTool.bat build --target LevelEditor
 .\DevTool.bat run
+.\DevTool.bat test affected
+.\DevTool.bat test affected --base origin/main --explain
 .\DevTool.bat test CoreConcurrencyTests FTaskSchedulerTests.*
 .\DevTool.bat test all
 .\DevTool.bat clean
@@ -238,7 +240,8 @@ Run each Python test suite explicitly through pytest:
 ```
 
 Commands are case-insensitive for compatibility, but lowercase is canonical.
-`build` and `test` configure automatically when needed, so an explicit first
+`build` and executable `test` selections configure automatically when needed,
+so an explicit first
 `configure` is optional. Omit `--jobs` to use automatic parallelism; pass
 `--jobs <count>` only when a local limit is required. From another batch file,
 use `call DevTool.bat <arguments>`.
@@ -246,10 +249,10 @@ use `call DevTool.bat <arguments>`.
 `build` and `rebuild` default to target `all`; native-test executables and their
 test-only dependencies are excluded from that default target even when the
 selected preset enables `BUILD_TESTING`. `recover` resumes the target recorded
-by an interrupted operation; `test` always requires an explicit `--target`,
-where `--target all` builds the `DurinNativeTests` aggregate and runs every
-CTest-registered test. The interactive shell also accepts the compact
-`test all` form. `presets`, `status`, `path`, and `open` are also available
+by an interrupted operation. `test affected` derives a bounded batch from Git
+changes, while `test all` builds the `DurinNativeTests` aggregate and runs every
+ordinary CTest-registered test. The interactive shell accepts the same forms.
+`presets`, `status`, `path`, and `open` are also available
 directly, so preset discovery, context inspection, path capture, and artifact
 directory access do not require entering the interactive shell.
 

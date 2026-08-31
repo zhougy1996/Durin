@@ -8,12 +8,22 @@ to obtain sufficient confidence with the smallest relevant test scope.
 Use the first scope that covers the changed behavior:
 
 ```powershell
+.\DevTool.bat test affected
+.\DevTool.bat test affected --base <git-ref>
+.\DevTool.bat test affected --explain
 .\DevTool.bat test <Target> [Suite.Case]
 .\DevTool.bat test "@<domain>"
 .\DevTool.bat test "@domain=<domain>,backend=<backend>"
 .\DevTool.bat test fast-all
 .\DevTool.bat test all
 ```
+
+`test affected` is the default handoff validation for an ordinary code change.
+It maps the current staged, unstaged, and untracked paths to configured native
+test modules and domains, prints the exact selection, then builds the targets
+once and runs them in one parallel CTest invocation. Pass `--base <git-ref>` to
+analyze every change relative to a branch or commit. Pass `--explain` to inspect
+the changed paths and decision without building or running.
 
 When the target name is not already known, query the configured test registry
 instead of inferring it from the source tree:
@@ -31,15 +41,20 @@ directory name. A test beneath it may belong to a focused target such as
 `ViewportTests`; use `test list viewport` to discover that target before
 running it, or select a registered domain when the behavior crosses targets.
 
-1. Start with the smallest affected named target or failing case.
-2. Use a bounded domain or domain/backend set only when behavior crosses test
+1. During implementation, iterate with the smallest affected named target or
+   failing case.
+2. Before handoff, run `test affected` once unless an explicit acceptance gate
+   names a different selection. Do not execute two or more targets through
+   separate commands to assemble coverage; use `affected` or one bounded set so
+   the build and CTest scheduler can batch them.
+3. Use a bounded domain or domain/backend set when behavior crosses test
    targets.
-3. Use `fast-all` for broad non-integration feedback. It includes `contract`,
+4. Use `fast-all` for broad non-integration feedback. It includes `contract`,
    `feature`, and `infrastructure`, but excludes `integration`,
    `characterization`, and `qualification`.
-4. If integration behavior changed, run its exact target or matching bounded
+5. If integration behavior changed, run its exact target or matching bounded
    set even after `fast-all` passes.
-5. Run `test all` only for an explicit gate, a change to shared runtime or test
+6. Run `test all` only for an explicit gate, a change to shared runtime or test
    infrastructure, or concrete evidence that bounded validation is
    insufficient. State the reason before starting it.
 

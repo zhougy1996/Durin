@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from time import perf_counter
 from typing import Any, Sequence
@@ -33,6 +33,7 @@ from .native_test_registry import (
     resolve_selection,
     target_metadata_text,
 )
+from .native_test_impact import analyze_affected_tests, discover_changed_paths
 from .recovery import interruption_marker_path, recoverable_target, recovery_target
 
 CREATE_ACTIONS = {Action.CREATE_MODULE, Action.CREATE_PROJECT}
@@ -460,6 +461,33 @@ def dispatch_request(
         for target in resolved.targets:
             output.raw_line(f"{target.name}\t{target_metadata_text(target)}")
         return
+    if request.action is Action.TEST and request.test_operation == "affected":
+        registry = load_native_test_registry(context)
+        changed_paths = discover_changed_paths(repository.root, request.test_base)
+        affected = analyze_affected_tests(registry, changed_paths)
+        output.info(
+            f'Affected native-test analysis: {len(changed_paths)} changed path(s)'
+            + (f' from base "{request.test_base}".' if request.test_base else ".")
+        )
+        output.info(f"Reason: {'; '.join(affected.reasons)}")
+        if request.test_explain_affected:
+            for path in changed_paths:
+                output.raw_line(path)
+        if affected.run_all:
+            output.info("Resolved selection: all")
+            if request.test_explain_affected:
+                return
+            context.request = replace(request, target="all", test_operation="run")
+        elif affected.targets:
+            output.info(f"Resolved targets: {', '.join(affected.names)}")
+            if request.test_explain_affected:
+                return
+            context.request = replace(request, target="affected", test_operation="run")
+            context.resolved_test_targets = affected.names
+            context.test_selection_explanation = "; ".join(affected.reasons)
+        else:
+            output.info("Resolved selection: no native tests required")
+            return
     execute_context(
         context,
         output,

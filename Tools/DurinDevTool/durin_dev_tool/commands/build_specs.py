@@ -103,17 +103,21 @@ COMMAND_SPECS = (
     build_command(
         "test", "list, explain, build, and run native-test selections",
         TOOL_ARGUMENTS + (
-            argument("selection", nargs="?", default="", help="target, fast-all, @set selector, all, list [query], or explain <selection>"),
+            argument("selection", nargs="?", default="", help="target, affected, fast-all, @set selector, all, list [query], or explain <selection>"),
             argument("case_filter", nargs="?", default=""),
             argument("--filter", default="", help="GoogleTest filter for a single native test target"),
             argument("--mode", choices=("routine", "isolation", "stress", "report", "characterization", "qualification"), default="routine", help="execution scenario (default: routine)"),
             argument("--report", type=Path, default=None, help="JUnit path for report mode (default: preset result directory)"),
             argument("--timeout", type=int, choices=range(0, 86401), default=300, metavar="0..86400", help="test timeout in seconds; 0 disables it (default: 300)"),
+            argument("--base", default="", metavar="REF", help="Git base for test affected (default: current staged, unstaged, and untracked changes)"),
+            argument("--explain", dest="explain_affected", action="store_true", help="explain test affected without building or running"),
         ),
         epilog=(
             "Common examples:\n"
             "  DevTool test CoreUtilityTests\n"
             "  DevTool test CoreUtilityTests Suite.Case\n"
+            "  DevTool test affected\n"
+            "  DevTool test affected --base HEAD~1 --explain\n"
             "  DevTool test fast-all\n"
             "  DevTool test \"@viewport\"\n"
             "  DevTool test all"

@@ -1,6 +1,6 @@
 # Native Test Execution
 
-Last reviewed: 2026-08-20
+Last reviewed: 2026-08-31
 
 This is the complete native-test selection, execution, diagnosis, and
 infrastructure specification. Agents selecting routine task validation should
@@ -15,12 +15,32 @@ Native tests are available from every registered build preset; the default is
 Build and run a test executable through the root wrapper:
 
 ```powershell
+.\DevTool.bat test affected
+.\DevTool.bat test affected --base origin/main
+.\DevTool.bat test affected --explain
 .\DevTool.bat test CoreUtilityTests
 .\DevTool.bat test CoreUtilityTests FJsonDocumentTests.ParseObjectFromString
 .\DevTool.bat test fast-all
 .\DevTool.bat test "@viewport"
 .\DevTool.bat test all
 ```
+
+`test affected` is the change-aware ordinary validation path. Without a base it
+unions staged, unstaged, and untracked Git paths. `--base <git-ref>` instead
+includes tracked changes relative to that ref plus untracked paths. It maps
+production paths below a registered source module to the registry's `MODULES`,
+maps recognizable native-test paths to `DOMAINS`, excludes characterization and
+qualification targets, and executes the resulting targets through one build
+and one parallel CTest selection. Documentation-only or unrelated tooling
+changes may resolve to no native tests. `--explain` prints every input path and
+the decision without building or running.
+
+Impact analysis is deliberately conservative. Shared native-test discovery,
+registry, harness, execution, or unbounded CMake changes resolve to `all`.
+Native-test changes whose ownership cannot be bounded also resolve to `all`
+when no changed production module, exact test filename, or recognizable test
+domain supplies a safe bounded selection. Runtime inputs outside a module known
+to the configured registry conservatively resolve to `all`.
 
 `test fast-all` is the local feedback profile. It selects every configured
 `contract`, `feature`, and `infrastructure` target while excluding all
@@ -82,7 +102,12 @@ measurements that should not extend routine correctness feedback.
 Choose validation by risk and preserve the resolved target names in the
 handoff or CI log:
 
-- Routine changes run the smallest named target that owns the changed behavior.
+- Routine implementation loops run the smallest named target that owns the
+  changed behavior, then use `test affected` once for handoff coverage.
+- Never assemble coverage by invoking two or more whole targets separately.
+  Use `test affected` or one registry set so target builds and CTest execution
+  remain batched and parallel. Separate focused commands are for failure
+  diagnosis after the batch identifies a target or case.
 - Broad local non-integration feedback runs `test fast-all`; it never replaces
   an affected integration target or backend/domain set.
 - Cross-module behavior runs its feature domain, such as `test "@world"` or
@@ -154,6 +179,7 @@ In the interactive shell, use the equivalent commands:
 
 ```text
 DurinDevTool> preset Win64-Debug-DurinEditor
+DurinDevTool> test affected
 DurinDevTool> test CoreUtilityTests
 DurinDevTool> test CoreUtilityTests FJsonDocumentTests.ParseObjectFromString
 DurinDevTool> test all

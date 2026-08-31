@@ -91,6 +91,12 @@ def request_from_namespace(namespace: argparse.Namespace) -> BaseRequest:
             operation, query, target, test_filter = "list", positional_filter, "", ""
         elif positional_selection == "explain":
             operation, query, target, test_filter = "explain", "", positional_filter, ""
+        elif positional_selection == "affected":
+            if positional_filter:
+                raise BuildToolError("test affected accepts a Git base only through --base <ref>")
+            if option_filter:
+                raise BuildToolError("test affected does not accept --filter")
+            operation, query, target, test_filter = "affected", "", "affected", ""
         test_mode = TestMode(str(namespace_value(namespace, "mode", "routine")))
         report_path = namespace_value(namespace, "report", None)
         return NativeTestRequest(
@@ -103,6 +109,8 @@ def request_from_namespace(namespace: argparse.Namespace) -> BaseRequest:
             test_mode=test_mode,
             test_report_path=report_path,
             test_timeout_seconds=int(namespace_value(namespace, "timeout", 300)),
+            test_base=str(namespace_value(namespace, "base", "")),
+            test_explain_affected=bool(namespace_value(namespace, "explain_affected", False)),
         )
     if action is Action.RUN:
         return RunRequest(

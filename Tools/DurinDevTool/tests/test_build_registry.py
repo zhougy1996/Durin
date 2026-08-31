@@ -135,6 +135,14 @@ class TestBuildRegistry:
         assert explaining.test_operation == "explain"
         assert explaining.target == "@viewport"
 
+        affected = handler.request_from_namespace(
+            self.parse(["test", "affected", "--base", "origin/main", "--explain"])
+        )
+        assert affected.test_operation == "affected"
+        assert affected.test_base == "origin/main"
+        assert affected.test_explain_affected
+        assert not affected.requires_toolchain
+
     def test_stage_zero_location_contract_has_stable_unique_names(self) -> None:
         canonical_names = tuple(name for name, _aliases in EXPECTED_LOCATION_CONTRACT)
         all_names = [
