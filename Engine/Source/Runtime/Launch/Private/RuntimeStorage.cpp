@@ -28,67 +28,45 @@ namespace Durin
 			return bExists;
 		}
 
-		auto MigrateLegacyRuntimeFile(
+		auto CreateAppConfigIfMissing(
 			const FRuntimeStoragePaths& Paths,
-			std::string_view FileName,
-			const FRuntimeStorageTestOptions& TestOptions,
+			const std::filesystem::path& AppConfigPath,
 			std::vector<std::string>& Warnings) -> void
 		{
-			const std::filesystem::path LegacyPath = Paths.LaunchDirectory / FileName;
-			const std::filesystem::path SavedPath = Paths.ConfigDirectory / FileName;
-			if (!PathExists(LegacyPath, Warnings) || PathExists(SavedPath, Warnings)) return;
+			if (PathExists(AppConfigPath, Warnings)) return;
 
 			std::error_code Error;
-			if (TestOptions.bForceLegacyFileRenameFailure)
-				Error = std::make_error_code(std::errc::cross_device_link);
-			else
-				std::filesystem::rename(LegacyPath, SavedPath, Error);
+			std::filesystem::copy_file(
+				Paths.AppConfigTemplatePath,
+				AppConfigPath,
+				std::filesystem::copy_options::none,
+				Error);
 			if (!Error) return;
 
-			Error.clear();
-			std::filesystem::copy_file(
-				LegacyPath, SavedPath, std::filesystem::copy_options::none, Error);
-			if (!Error)
-			{
-				std::error_code RemoveError;
-				std::filesystem::remove(LegacyPath, RemoveError);
-				return;
-			}
+			std::error_code InspectError;
+			if (std::filesystem::exists(AppConfigPath, InspectError)) return;
 			Warnings.push_back(std::format(
-				"Could not migrate legacy runtime file '{}' to '{}': {}",
-				LegacyPath.string(), SavedPath.string(), Error.message()));
+				"Could not create application config '{}' from template '{}': {}",
+				AppConfigPath.string(),
+				Paths.AppConfigTemplatePath.string(),
+				Error.message()));
 		}
 	}
 
 	auto PrepareRuntimeStorage(
 		const FRuntimeStoragePaths& Paths,
-		std::string_view InAppConfigFileName,
-		const FRuntimeStorageTestOptions& TestOptions)
+		std::string_view InAppConfigFileName)
 		-> FRuntimeStoragePreparationResult
 	{
 		FRuntimeStoragePreparationResult Result;
+		Result.AppConfigPath = Paths.ConfigDirectory / InAppConfigFileName;
 		std::error_code Error;
 		std::filesystem::create_directories(Paths.SavedDirectory, Error);
 		if (Error)
 		{
 			AddFilesystemWarning(
 				Result.Warnings, "create runtime saved directory", Paths.SavedDirectory, Error);
-			Result.AppConfigPath = Paths.LaunchDirectory / InAppConfigFileName;
 			return Result;
-		}
-
-		const std::filesystem::path LegacyLogs = Paths.LaunchDirectory / "Logs";
-		if (PathExists(LegacyLogs, Result.Warnings)
-			&& !PathExists(Paths.LogDirectory, Result.Warnings))
-		{
-			Error.clear();
-			std::filesystem::rename(LegacyLogs, Paths.LogDirectory, Error);
-			if (Error)
-			{
-				Result.Warnings.push_back(std::format(
-					"Could not migrate legacy log directory '{}' to '{}': {}",
-					LegacyLogs.string(), Paths.LogDirectory.string(), Error.message()));
-			}
 		}
 
 		Error.clear();
@@ -97,7 +75,6 @@ namespace Durin
 		{
 			AddFilesystemWarning(
 				Result.Warnings, "create runtime config directory", Paths.ConfigDirectory, Error);
-			Result.AppConfigPath = Paths.LaunchDirectory / InAppConfigFileName;
 			return Result;
 		}
 		Error.clear();
@@ -108,21 +85,18 @@ namespace Durin
 				Result.Warnings, "create runtime log directory", Paths.LogDirectory, Error);
 		}
 
-		MigrateLegacyRuntimeFile(Paths, InAppConfigFileName, TestOptions, Result.Warnings);
-
-		const std::filesystem::path SavedAppConfig =
-			Paths.ConfigDirectory / InAppConfigFileName;
-		Result.AppConfigPath = PathExists(SavedAppConfig, Result.Warnings)
-			? SavedAppConfig : Paths.LaunchDirectory / InAppConfigFileName;
+		CreateAppConfigIfMissing(Paths, Result.AppConfigPath, Result.Warnings);
 		return Result;
 	}
 
 	auto PrepareRuntimeStorage() -> FRuntimeStoragePreparationResult
 	{
 		return PrepareRuntimeStorage({
-			.LaunchDirectory = FPaths::LaunchDir(),
 			.SavedDirectory = FPaths::LaunchSavedDir(),
 			.ConfigDirectory = FPaths::LaunchConfigsDir(),
-			.LogDirectory = FPaths::LaunchLogsDir()}, AppConfigFileName);
+			.LogDirectory = FPaths::LaunchLogsDir(),
+			.AppConfigTemplatePath = std::filesystem::path(FPaths::LaunchDir())
+				/ "Templates" / std::format("TP_{}", AppConfigFileName)},
+			AppConfigFileName);
 	}
 }

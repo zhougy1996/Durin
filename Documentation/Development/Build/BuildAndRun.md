@@ -635,6 +635,7 @@ CMake, and Ninja have exited for the checkout.
 
 - Editor: `Engine/Binaries/Win64/Debug/Runtime/DurinEditor/DurinEditor.exe`
 - Runtime launcher and modules: `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/`
+- Immutable runtime configuration template: `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/Templates/TP_<RuntimeVariant>.yaml`
 - Runtime configuration and writable state: `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/Saved/Configs/`
 - Runtime logs: `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/Saved/Logs/`
 - Complete native crash artifacts: `Engine/Binaries/<Platform>/<Config>/Runtime/<RuntimeVariant>/Saved/Crashes/<CrashId>/`
@@ -646,7 +647,8 @@ The launcher target is `DurinLauncher`, while the executable name follows the
 active runtime variant. Runtime path discovery assumes the executable remains in
 this repository-relative layout. If editor startup reports a missing DLL, check
 the active runtime directory and the shared configuration-specific `ThirdParty`
-directory.
+directory. On first startup, Launch copies the active immutable template into
+`Saved/Configs/`; later builds and launches preserve the writable configuration.
 
 ## Native crash analysis
 

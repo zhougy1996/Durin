@@ -15,16 +15,13 @@ target_link_libraries(DurinLauncher PRIVATE
     Launch
 )
 
-# Remove the oldest filename and preserve or create the config under Saved/Configs.
-set(legacy_config_file_without_suffix "$<TARGET_FILE_DIR:DurinLauncher>/${DURIN_PROJECT_APP_CONFIG_FILE}")
-set(legacy_config_file "$<TARGET_FILE_DIR:DurinLauncher>/${DURIN_PROJECT_RUNTIME_VARIANT}Config.yaml")
-set(config_file "$<TARGET_FILE_DIR:DurinLauncher>/Saved/Configs/${DURIN_PROJECT_APP_CONFIG_FILE}")
+# Deploy an immutable template; Launch creates the writable config on first startup.
+set(config_template_directory "$<TARGET_FILE_DIR:DurinLauncher>/Templates")
+set(config_template_file "${config_template_directory}/TP_${DURIN_PROJECT_APP_CONFIG_FILE}")
 add_custom_command(TARGET DurinLauncher POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E rm -f ${legacy_config_file}
-    COMMAND ${CMAKE_COMMAND} -E env
-    ${CMAKE_COMMAND} -P "${DURIN_WORKSPACE_DIR}/CMake/Utils/MigrateRuntimeConfigIfMissing.cmake"
-    "${DURIN_PROJECT_CONFIG_DIR}/TP_${DURIN_PROJECT_APP_CONFIG_FILE}" # template file
-    ${legacy_config_file_without_suffix} # previous destination
-    ${config_file} # destination file
+	COMMAND ${CMAKE_COMMAND} -E make_directory ${config_template_directory}
+	COMMAND ${CMAKE_COMMAND} -E copy_if_different
+		"${DURIN_PROJECT_CONFIG_DIR}/TP_${DURIN_PROJECT_APP_CONFIG_FILE}"
+		${config_template_file}
     VERBATIM
 )

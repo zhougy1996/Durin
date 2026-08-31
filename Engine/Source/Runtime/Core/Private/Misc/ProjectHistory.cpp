@@ -1,7 +1,6 @@
 #include "Misc/ProjectHistory.h"
 
 #include "Json/Json.h"
-#include "Misc/FilesystemMigration.h"
 #include "Misc/Paths.h"
 #include "Misc/Project.h"
 #include "Misc/StringHelper.h"
@@ -12,8 +11,6 @@ namespace Durin
 	namespace
 	{
 		constexpr const char* ProjectHistoryFileName = "ProjectHistory.yaml";
-		constexpr const char* LegacySessionFileName = "LevelEditorSession.yaml";
-
 		auto MakeProjectKey(std::string_view ProjectFile) -> std::string
 		{
 			std::string Key = NormalizeProjectFile(ProjectFile);
@@ -60,9 +57,8 @@ namespace Durin
 		}
 	}
 
-	FProjectHistory::FProjectHistory(std::string InHistoryFile, std::string InLegacySessionFile)
+	FProjectHistory::FProjectHistory(std::string InHistoryFile)
 		: HistoryFile(NormalizeProjectFile(InHistoryFile))
-		, LegacySessionFile(InLegacySessionFile.empty() ? std::string{} : NormalizeProjectFile(InLegacySessionFile))
 	{
 	}
 
@@ -95,19 +91,6 @@ namespace Durin
 		}
 		else
 		{
-			if (!LegacySessionFile.empty() && std::filesystem::exists(LegacySessionFile))
-			{
-				FYamlDocument LegacyDocument;
-				if (LegacyDocument.LoadFromFile(LegacySessionFile))
-				{
-					const std::string LegacyProject = LegacyDocument.GetRootView().GetView("RecentProject").GetString();
-					if (!LegacyProject.empty())
-					{
-						const std::string Normalized = NormalizeProjectFile(LegacyProject);
-						Entries.push_back({std::filesystem::path(Normalized).stem().string(), Normalized});
-					}
-				}
-			}
 			RefreshStatuses();
 			return Save(OutError);
 		}
@@ -160,16 +143,6 @@ namespace Durin
 
 	auto MakeDefaultProjectHistory() -> FProjectHistory
 	{
-		const std::string HistoryFile =
-			FPaths::LaunchConfigsDir() + ProjectHistoryFileName;
-		std::string MigrationWarning;
-		if (!MigrateLegacyFileIfMissing(
-				std::filesystem::path(FPaths::LaunchDir()) / ProjectHistoryFileName,
-				HistoryFile,
-				&MigrationWarning))
-			DURIN_WARN("{}", MigrationWarning);
-		return FProjectHistory(
-			HistoryFile,
-			FPaths::LaunchConfigsDir() + LegacySessionFileName);
+		return FProjectHistory(FPaths::LaunchConfigsDir() + ProjectHistoryFileName);
 	}
 }

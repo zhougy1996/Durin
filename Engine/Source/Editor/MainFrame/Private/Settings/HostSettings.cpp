@@ -1,7 +1,6 @@
 #include "Settings/HostSettings.h"
 
 #include "Application/GenericApplication.h"
-#include "Misc/FilesystemMigration.h"
 #include "Misc/Paths.h"
 #include "Yaml/Yaml.h"
 
@@ -35,12 +34,6 @@ namespace Durin::Editor::MainFrame
 		}
 
 		const std::string HostPath = FPaths::LaunchConfigsDir() + HostSettingsFileName;
-		std::string MigrationWarning;
-		if (!MigrateLegacyFileIfMissing(
-				std::filesystem::path(FPaths::LaunchDir()) / HostSettingsFileName,
-				HostPath,
-				&MigrationWarning))
-			DURIN_WARN("{}", MigrationWarning);
 		if (!std::filesystem::exists(HostPath)) return true;
 
 		FYamlDocument Document;

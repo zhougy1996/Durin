@@ -27,7 +27,7 @@ namespace Durin
 	public:
 		static constexpr size_t MaximumRecentProjects = 10;
 
-		CORE_API FProjectHistory(std::string HistoryFile, std::string LegacySessionFile = {});
+		CORE_API explicit FProjectHistory(std::string HistoryFile);
 
 		CORE_API auto Load(std::string* OutError = nullptr) -> bool;
 		CORE_API auto Record(std::string_view ProjectName, std::string_view ProjectFile, std::string* OutError = nullptr) -> bool;
@@ -41,7 +41,6 @@ namespace Durin
 		auto RefreshStatuses() -> void;
 
 		std::string HistoryFile;
-		std::string LegacySessionFile;
 		std::vector<FRecentProjectInfo> Entries;
 	};
 

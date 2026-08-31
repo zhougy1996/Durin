@@ -4,7 +4,7 @@ Summary: Define application startup, frame execution, project admission, and shu
 
 Modules: Launch, ApplicationCore, Engine, MonaCore, Mona, MonaImGui
 
-Last reviewed: 2026-08-26
+Last reviewed: 2026-08-31
 
 This document defines Durin's process startup, frame entry, lifecycle
 integration boundaries, and explicit process-exit ordering.
@@ -53,12 +53,11 @@ loop or public engine-loop header exists.
 
 `FEngineLoop::PreInit()` handles early engine setup, DLL search paths, config
 loading, path mount points, `RenderCore` loading, and reflected object
-initialization. Its private runtime-storage component creates Saved directories,
-migrates the legacy application configuration and log directory, and returns
-the selected app-config path plus pass-local warnings. Feature-owned legacy
-settings migrate immediately before their ImGui, MainFrame, LevelEditor, or
-ProjectHistory owner loads the new path. `PreInit()` loads the app config before
-logger startup and emits the returned warnings only after the logger is ready.
+initialization. Its private runtime-storage component creates Saved directories
+and, when the writable application configuration is absent, copies it from the
+runtime variant's deployed immutable template. Existing writable configuration
+is never overwritten. `PreInit()` loads the canonical Saved config before logger
+startup and emits pass-local preparation warnings only after the logger is ready.
 
 The loop publishes coarse crash phases around pre-initialization, engine
 initialization, running, consumer detachment, service and task shutdown, asset
@@ -222,7 +221,7 @@ isolation and restoration rules in
 ## Logging Integration
 
 `PreInit()` loads application configuration before logger startup and emits
-migration warnings only after the logger is ready. The process runner owns
+runtime-storage preparation warnings only after the logger is ready. The process runner owns
 conditional finalization after engine exit. Record ordering, bounded admission,
 structured history, sink durability, and shutdown behavior are defined by
 [Logging](Logging.md).

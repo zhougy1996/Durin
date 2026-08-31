@@ -3,14 +3,12 @@
 #include "CoreGlobals.h"
 #include "HAL/PlatformLTS.h"
 #include "HAL/PlatformProcess.h"
-#include "Misc/FilesystemMigration.h"
 #include "Misc/Paths.h"
 #include "Misc/MountPaths.h"
 #include "Misc/MountPathTestSupport.h"
 #include "Misc/Project.h"
 #include "Misc/ProjectHistory.h"
 #include "NativeTestSupport.h"
-#include "Yaml/Yaml.h"
 
 #if defined(_WIN32)
 	#include <process.h>
@@ -49,7 +47,6 @@ namespace
 		}
 
 		auto HistoryFile() const -> std::string { return (Root / "ProjectHistory.yaml").generic_string(); }
-		auto LegacyFile() const -> std::string { return (Root / "LevelEditorSession.yaml").generic_string(); }
 
 		std::filesystem::path Root;
 	};
@@ -342,51 +339,4 @@ TEST_F(FProjectHistoryTest, ReloadClassifiesAvailableMissingAndInvalidProjects)
 	EXPECT_EQ(Entries[1].Status, Durin::ERecentProjectStatus::Invalid);
 	EXPECT_EQ(Entries[2].Status, Durin::ERecentProjectStatus::Invalid);
 	EXPECT_EQ(Entries[3].Status, Durin::ERecentProjectStatus::Missing);
-}
-
-TEST_F(FProjectHistoryTest, MigratesLegacyRecentProjectOnlyOnceAndPersistsEmptyHistory)
-{
-	const std::string ProjectFile = WriteProject("Legacy", R"({"ProjectName":"Legacy"})");
-	Durin::FYamlDocument LegacyDocument;
-	Durin::FYamlNodeRef LegacyRoot = LegacyDocument.GetMutableRoot();
-	LegacyRoot.EnsureMap();
-	LegacyRoot.SetChildValue("RecentProject", ProjectFile);
-	ASSERT_TRUE(LegacyDocument.SaveToFile(LegacyFile()));
-
-	Durin::FProjectHistory History(HistoryFile(), LegacyFile());
-	ASSERT_TRUE(History.Load());
-	ASSERT_EQ(History.GetEntries().size(), 1u);
-	EXPECT_EQ(History.GetEntries().front().Name, "Legacy");
-	ASSERT_TRUE(std::filesystem::exists(HistoryFile()));
-
-	ASSERT_TRUE(History.Remove(ProjectFile));
-	Durin::FProjectHistory Reloaded(HistoryFile(), LegacyFile());
-	ASSERT_TRUE(Reloaded.Load());
-	EXPECT_TRUE(Reloaded.GetEntries().empty());
-}
-
-TEST_F(FProjectHistoryTest, FileMigrationPreservesExistingDestinationAndIsIdempotent)
-{
-	const std::filesystem::path Legacy = Root / "Legacy.yaml";
-	const std::filesystem::path Destination = Root / "Saved.yaml";
-	{
-		std::ofstream Stream(Legacy);
-		Stream << "legacy";
-	}
-	std::string Warning;
-	ASSERT_TRUE(Durin::MigrateLegacyFileIfMissing(Legacy, Destination, &Warning));
-	EXPECT_TRUE(Warning.empty());
-	EXPECT_FALSE(std::filesystem::exists(Legacy));
-	ASSERT_TRUE(std::filesystem::exists(Destination));
-
-	{
-		std::ofstream Stream(Legacy);
-		Stream << "new legacy";
-	}
-	ASSERT_TRUE(Durin::MigrateLegacyFileIfMissing(Legacy, Destination, &Warning));
-	EXPECT_TRUE(std::filesystem::exists(Legacy));
-	std::ifstream Stream(Destination);
-	std::string Contents;
-	Stream >> Contents;
-	EXPECT_EQ(Contents, "legacy");
 }
