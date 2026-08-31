@@ -32,7 +32,6 @@ namespace Durin::ObjectPackage
 		struct FFrozenPackage
 		{
 			const FLinkerTables* Source = nullptr;
-			bool bV9 = false;
 			std::vector<std::string> Names;
 			std::vector<FSerializedType> Types;
 			std::vector<FSerializedSchema> Schemas;
@@ -136,7 +135,7 @@ namespace Durin::ObjectPackage
 					"A required package name is empty.", std::string(Path));
 			if (Name.size() > DastV8MaximumStringBytes)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"A package name exceeds the v8 string limit.", std::string(Path));
+					"A package name exceeds the format string limit.", std::string(Path));
 			if (!IsValidUtf8(Name))
 				return Fail(Diagnostic, EPackageWriterFailure::InvalidUtf8,
 					"A package name is not valid UTF-8.", std::string(Path));
@@ -174,7 +173,7 @@ namespace Durin::ObjectPackage
 		{
 			if (Depth > DastV8MaximumValueDepth)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"A serialized type exceeds the v8 nesting limit.", std::string(Path));
+					"A serialized type exceeds the format nesting limit.", std::string(Path));
 			const size_t Children = Type.Children.size();
 			switch (Type.Kind)
 			{
@@ -279,7 +278,7 @@ namespace Durin::ObjectPackage
 		{
 			if (Depth > DastV8MaximumValueDepth)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"A serialized value exceeds the v8 nesting limit.", std::move(Path));
+					"A serialized value exceeds the format nesting limit.", std::move(Path));
 			switch (Type.Kind)
 			{
 			case EValueKind::I8: case EValueKind::I16: case EValueKind::I32: case EValueKind::I64:
@@ -309,7 +308,7 @@ namespace Durin::ObjectPackage
 			case EValueKind::String:
 				if (Value.Text.size() > DastV8MaximumStringBytes || !IsValidUtf8(Value.Text))
 					return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
-						"A serialized string is invalid or exceeds the v8 limit.", std::move(Path));
+						"A serialized string is invalid or exceeds the format limit.", std::move(Path));
 				break;
 			case EValueKind::Name:
 			case EValueKind::SoftReference:
@@ -363,7 +362,7 @@ namespace Durin::ObjectPackage
 			case EValueKind::Array:
 				if (Value.Elements.size() > DastV8MaximumContainerElements)
 					return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-						"An array exceeds the v8 element limit.", std::move(Path));
+						"An array exceeds the format element limit.", std::move(Path));
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 					if (!CollectValue(Frozen, Type.Children.front(), Value.Elements[Index], ExportId,
 						SchemaId, FieldId, Path + "[" + std::to_string(Index) + "]", Depth + 1, Diagnostic)) return false;
@@ -401,7 +400,7 @@ namespace Durin::ObjectPackage
 			case EValueKind::Bytes:
 				if (Value.Bytes.size() > DastV8MaximumPackageBytes)
 					return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-						"A byte blob exceeds the v8 package limit.", std::move(Path));
+						"A byte blob exceeds the format package limit.", std::move(Path));
 				break;
 			case EValueKind::BulkData:
 			{
@@ -464,21 +463,18 @@ namespace Durin::ObjectPackage
 			return true;
 		}
 
-		auto Freeze(const FLinkerTables& Linker, bool bV9, FFrozenPackage& Out,
+		auto Freeze(const FLinkerTables& Linker, FFrozenPackage& Out,
 			FPackageWriterDiagnostic* Diagnostic) -> bool
 		{
 			FFrozenPackage Frozen;
 			Frozen.Source = &Linker;
-			Frozen.bV9 = bV9;
 			if (Linker.Imports.size() > DastV8MaximumTableEntries
 				|| Linker.Exports.size() > DastV8MaximumTableEntries
 				|| Linker.Schemas.size() > DastV8MaximumTableEntries)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"A package table exceeds the v8 entry limit.");
+					"A package table exceeds the format entry limit.");
 
-			if (bV9)
-			{
-				if (!Linker.Summary.PackagePath.IsValid()
+			if (!Linker.Summary.PackagePath.IsValid()
 					|| !AddName(Frozen.Names, Linker.Summary.PackagePath.ToString(), Diagnostic,
 						"Summary.PackagePath")) return false;
 				for (const FPackageSummary::FTopLevelAsset& Asset : Linker.Summary.TopLevelAssets)
@@ -507,25 +503,9 @@ namespace Durin::ObjectPackage
 				for (const FPackagePath& Path : Linker.Summary.HardPackageDependencies)
 					if (!Path.IsValid() || !AddName(Frozen.Names, Path.ToString(), Diagnostic,
 						"Summary.HardPackageDependencies")) return false;
-				for (const FPackagePath& Path : Linker.Summary.SoftPackageDependencies)
-					if (!Path.IsValid() || !AddName(Frozen.Names, Path.ToString(), Diagnostic,
-						"Summary.SoftPackageDependencies")) return false;
-			}
-			else
-			{
-				if (!AddName(Frozen.Names, Linker.Summary.PackageName, Diagnostic, "Summary.PackageName")
-					|| !AddName(Frozen.Names, Linker.Summary.AssetClass, Diagnostic, "Summary.AssetClass")
-					|| !AddName(Frozen.Names, Linker.Summary.RedirectDestination, Diagnostic,
-						"Summary.RedirectDestination", !Linker.Summary.bRedirect)) return false;
-				if (Linker.Summary.bRedirect && Linker.Summary.RedirectDestination.empty())
-					return Fail(Diagnostic, EPackageWriterFailure::InvalidInput,
-						"A redirect package requires a destination.", "Summary.RedirectDestination");
-				for (const auto& [List, Path] : {
-					std::pair{&Linker.Summary.HardPackageReferences, "Summary.HardPackageReferences"},
-					std::pair{&Linker.Summary.SoftPackageReferences, "Summary.SoftPackageReferences"}})
-					for (const std::string& Name : *List)
-						if (!AddName(Frozen.Names, Name, Diagnostic, Path)) return false;
-			}
+			for (const FPackagePath& Path : Linker.Summary.SoftPackageDependencies)
+				if (!Path.IsValid() || !AddName(Frozen.Names, Path.ToString(), Diagnostic,
+					"Summary.SoftPackageDependencies")) return false;
 			for (const std::string& Name : Linker.Summary.SearchableNames)
 				if (!AddName(Frozen.Names, Name, Diagnostic, "Summary.SearchableNames")) return false;
 			for (const std::string& Name : Linker.Names)
@@ -534,17 +514,9 @@ namespace Durin::ObjectPackage
 			if (!ResolvePaths(Linker, true, Frozen.ImportPaths, Diagnostic)
 				|| !ResolvePaths(Linker, false, Frozen.ExportPaths, Diagnostic)) return false;
 			for (const FPackageImport& Import : Linker.Imports)
-			{
-				if (bV9)
-				{
-					if (!Import.ObjectPath.IsValid() || !Import.Outer.IsNull()
-						|| !AddName(Frozen.Names, Import.ObjectPath.ToString(), Diagnostic, "Imports.ObjectPath")
-						|| !AddName(Frozen.Names, Import.ClassName, Diagnostic, "Imports.ClassName", true)) return false;
-				}
-				else if (!AddName(Frozen.Names, Import.PackageName, Diagnostic, "Imports.PackageName")
-					|| !AddName(Frozen.Names, Import.ObjectName, Diagnostic, "Imports.ObjectName", true)
+				if (!Import.ObjectPath.IsValid() || !Import.Outer.IsNull()
+					|| !AddName(Frozen.Names, Import.ObjectPath.ToString(), Diagnostic, "Imports.ObjectPath")
 					|| !AddName(Frozen.Names, Import.ClassName, Diagnostic, "Imports.ClassName", true)) return false;
-			}
 			for (const FPackageExport& Export : Linker.Exports)
 				if (!AddName(Frozen.Names, Export.ObjectName, Diagnostic, "Exports.ObjectName")
 					|| !AddName(Frozen.Names, Export.ClassName, Diagnostic, "Exports.ClassName")) return false;
@@ -555,7 +527,7 @@ namespace Durin::ObjectPackage
 			{
 				const FPackageImport& A = Linker.Imports[Left];
 				const FPackageImport& B = Linker.Imports[Right];
-				return CompareIdentity({{A.PackageName, B.PackageName}, {A.ObjectName, B.ObjectName},
+				return CompareIdentity({{A.ObjectPath.ToString(), B.ObjectPath.ToString()},
 					{A.ClassName, B.ClassName}, {Frozen.ImportPaths[Left], Frozen.ImportPaths[Right]}}) < 0;
 			});
 			Frozen.ImportRemap.resize(Linker.Imports.size());
@@ -577,7 +549,6 @@ namespace Durin::ObjectPackage
 				if (Frozen.ExportPaths[Frozen.ExportOrder[Index - 1]] == Frozen.ExportPaths[Frozen.ExportOrder[Index]])
 					return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
 						"Two exports have the same logical identity.", Frozen.ExportPaths[Frozen.ExportOrder[Index]]);
-			if (bV9)
 			{
 				std::unordered_set<uint32> RecordedExports;
 				std::unordered_set<FTopLevelAssetPath> RecordedPaths;
@@ -629,7 +600,7 @@ namespace Durin::ObjectPackage
 			Frozen.Types.erase(std::unique(Frozen.Types.begin(), Frozen.Types.end()), Frozen.Types.end());
 			if (Frozen.Types.size() > DastV8MaximumTableEntries)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"The canonical type table exceeds the v8 entry limit.");
+					"The canonical type table exceeds the format entry limit.");
 
 			Frozen.CustomVersions = Linker.CustomVersions;
 			std::ranges::sort(Frozen.CustomVersions, [](const FCustomVersion& A, const FCustomVersion& B)
@@ -655,7 +626,7 @@ namespace Durin::ObjectPackage
 						+ Property.DeclaringType + "." + Property.FieldName;
 					if (!Property.Payload.empty())
 						return Fail(Diagnostic, EPackageWriterFailure::InvalidValue,
-							"An opaque retained property payload cannot be emitted as DAST v8.", Path);
+							"An opaque retained property payload cannot be emitted as DAST v9.", Path);
 					if (PropertyIndex != 0 && Properties[PropertyIndex - 1]->DeclaringType == Property.DeclaringType
 						&& Properties[PropertyIndex - 1]->FieldName == Property.FieldName)
 						return Fail(Diagnostic, EPackageWriterFailure::DuplicateIdentity,
@@ -671,7 +642,7 @@ namespace Durin::ObjectPackage
 						return Fail(Diagnostic, EPackageWriterFailure::ManifestMismatch,
 							"A property does not match its frozen schema field.", Path);
 					if (!CollectType(Property.Type, Frozen.Types, Frozen.Names, Diagnostic, Path)) return false;
-					if (bV9 && !ValidateV9ObjectPaths(Property.Type, Property.Value,
+					if (!ValidateV9ObjectPaths(Property.Type, Property.Value,
 						Path, 0, Diagnostic)) return false;
 					const uint32 FieldId = static_cast<uint32>(std::distance(Schema.Fields.begin(), FieldIt) + 1);
 					if (!CollectValue(Frozen, Property.Type, Property.Value, NewExport + 1,
@@ -687,7 +658,7 @@ namespace Durin::ObjectPackage
 			Frozen.Names.erase(std::unique(Frozen.Names.begin(), Frozen.Names.end()), Frozen.Names.end());
 			if (Frozen.Names.size() > DastV8MaximumTableEntries)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"The canonical name table exceeds the v8 entry limit.");
+					"The canonical name table exceeds the format entry limit.");
 
 			Frozen.Manifest.Names = Frozen.Names;
 			Frozen.Manifest.Types = Frozen.Types;
@@ -718,7 +689,7 @@ namespace Durin::ObjectPackage
 		{
 			if (Depth > DastV8MaximumValueDepth)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"A value exceeds the v8 nesting limit.", std::string(Path));
+					"A value exceeds the format nesting limit.", std::string(Path));
 			Writer.WriteU8(static_cast<uint8>(Type.Kind) + 1);
 			switch (Type.Kind)
 			{
@@ -840,7 +811,7 @@ namespace Durin::ObjectPackage
 			const uint64 Aligned = (Current + Mask) & ~Mask;
 			if (Aligned > DastV8MaximumBulkBytes)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"BulkData padding exceeds the v8 limit.", std::string(Path));
+					"BulkData padding exceeds the format limit.", std::string(Path));
 			Bytes.resize(static_cast<size_t>(Aligned), std::byte{0});
 			return true;
 		}
@@ -855,7 +826,7 @@ namespace Durin::ObjectPackage
 			Extent = (Extent + Mask) & ~Mask;
 			return Extent <= DastV8MaximumBulkBytes || Fail(Diagnostic,
 				EPackageWriterFailure::LimitExceeded,
-				"BulkData padding exceeds the v8 limit.", std::string(Path));
+				"BulkData padding exceeds the format limit.", std::string(Path));
 		}
 
 		struct FPlacedBulk
@@ -884,7 +855,7 @@ namespace Durin::ObjectPackage
 					const uint64 Offset = Inline.size();
 					if (BulkSize > DastV8MaximumBulkBytes - Inline.size())
 						return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-							"BulkData payloads exceed the v8 segment limit.", Bulk.LogicalPath);
+							"BulkData payloads exceed the format segment limit.", Bulk.LogicalPath);
 					Inline.insert(Inline.end(), Value.Bytes.begin(), Value.Bytes.end());
 					Placed.push_back({&Bulk, Offset, BulkHash});
 					continue;
@@ -894,7 +865,7 @@ namespace Durin::ObjectPackage
 						Diagnostic, Bulk.LogicalPath)
 					|| BulkSize > DastV8MaximumBulkBytes - ExternalExtent)
 					return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-						"BulkData payloads exceed the v8 segment limit.", Bulk.LogicalPath);
+						"BulkData payloads exceed the format segment limit.", Bulk.LogicalPath);
 				const uint64 Offset = ExternalExtent;
 				ExternalExtent += BulkSize;
 				if (External)
@@ -918,7 +889,7 @@ namespace Durin::ObjectPackage
 			Body(Record);
 			if (Record.HasError())
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"A package record exceeds the v8 limit.");
+					"A package record exceeds the format limit.");
 			Destination.WriteVarUInt(Record.Tell());
 			Destination.WriteBytes(Record.GetBytes());
 			return !Destination.HasError();
@@ -945,14 +916,13 @@ namespace Durin::ObjectPackage
 			auto Publish = [&](EDastV8Section Kind, std::unique_ptr<FBinaryWriter> Writer) -> bool
 			{
 				if (Writer->HasError()) return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"A package section exceeds the v8 limit.");
+					"A package section exceeds the format limit.");
 				Sections.push_back({Kind, Writer->TakeBytes()});
 				return true;
 			};
 
 			auto Writer = MakeWriter();
-			Writer->WriteU32(Frozen.bV9 ? DastV9RegistryVersion : DastV8RegistryVersion);
-			if (Frozen.bV9)
+			Writer->WriteU32(DastV9RegistryVersion);
 			{
 				Writer->WriteVarUInt(Frozen.ExportOrder.size());
 				std::vector<const FPackageSummary::FTopLevelAsset*> Assets;
@@ -973,28 +943,12 @@ namespace Durin::ObjectPackage
 					Writer->WriteVarUInt(FindNameId(Frozen, Asset->RedirectDestination.ToString()));
 				}
 			}
-			else
-			{
-				Writer->WriteVarUInt(FindNameId(Frozen, Frozen.Source->Summary.AssetClass));
-				Writer->WriteVarUInt(FindNameId(Frozen, Frozen.Source->Summary.RedirectDestination));
-				int64 MainExport = 0;
-				if (!RemapIndex(Frozen, Frozen.Source->Summary.MainExport, MainExport, Diagnostic,
-					"Summary.MainExport") || MainExport < 0) return false;
-				Writer->WriteVarUInt(static_cast<uint64>(MainExport));
-				Writer->WriteVarUInt(Frozen.ExportOrder.size());
-			}
 			std::array<std::vector<std::string>, 3> RegistryLists;
-			if (Frozen.bV9)
 			{
 				for (const FPackagePath& Path : Frozen.Source->Summary.HardPackageDependencies)
 					RegistryLists[0].push_back(Path.ToString());
 				for (const FPackagePath& Path : Frozen.Source->Summary.SoftPackageDependencies)
 					RegistryLists[1].push_back(Path.ToString());
-			}
-			else
-			{
-				RegistryLists[0] = Frozen.Source->Summary.HardPackageReferences;
-				RegistryLists[1] = Frozen.Source->Summary.SoftPackageReferences;
 			}
 			RegistryLists[2] = Frozen.Source->Summary.SearchableNames;
 			for (const std::vector<std::string>& List : RegistryLists)
@@ -1017,9 +971,8 @@ namespace Durin::ObjectPackage
 			for (uint32 OldIndex : Frozen.ImportOrder)
 			{
 				const FPackageImport& Import = Frozen.Source->Imports[OldIndex];
-				Writer->WriteVarUInt(FindNameId(Frozen,
-					Frozen.bV9 ? Import.ObjectPath.ToString() : Import.PackageName));
-				Writer->WriteVarUInt(Frozen.bV9 ? 0 : FindNameId(Frozen, Import.ObjectName));
+				Writer->WriteVarUInt(FindNameId(Frozen, Import.ObjectPath.ToString()));
+				Writer->WriteVarUInt(0);
 				Writer->WriteVarUInt(FindNameId(Frozen, Import.ClassName));
 				int64 Outer = 0; if (!RemapIndex(Frozen, Import.Outer, Outer, Diagnostic, "Imports.Outer")) return false;
 				Writer->WriteVarInt(Outer);
@@ -1143,7 +1096,7 @@ namespace Durin::ObjectPackage
 			{
 				if (Section.Bytes.size() > DastV8MaximumPackageBytes - Cursor)
 					return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-						"The assembled package exceeds the v8 file limit.");
+						"The assembled package exceeds the format file limit.");
 				Section.Offset = Cursor;
 				Section.Hash = FXxHash128::HashBuffer(Section.Bytes);
 				Cursor += Section.Bytes.size();
@@ -1151,7 +1104,7 @@ namespace Durin::ObjectPackage
 			const uint64 HeaderBytes = Sections[2].Offset + Sections[2].Bytes.size();
 			if (HeaderBytes > DastV8MaximumHeaderBytes)
 				return Fail(Diagnostic, EPackageWriterFailure::LimitExceeded,
-					"The v8 discovery header exceeds its limit.");
+					"The discovery header exceeds its limit.");
 			std::vector<std::byte> Bytes(static_cast<size_t>(Cursor), std::byte{0});
 			FBinaryEnvelopePreamble Preamble{
 				.FormatId = DastFormatId, .FormatVersion = FormatVersion,
@@ -1189,63 +1142,12 @@ namespace Durin::ObjectPackage
 		}
 	}
 
-	auto FreezePackageV8(const FLinkerTables& Linker, FPackageWriterManifest& OutManifest,
-		FPackageWriterDiagnostic* OutDiagnostic) -> bool
-	{
-		if (OutDiagnostic) OutDiagnostic->Reset();
-		FFrozenPackage Frozen;
-		if (!Freeze(Linker, false, Frozen, OutDiagnostic)) return false;
-		OutManifest = std::move(Frozen.Manifest);
-		return true;
-	}
-
-	auto WritePackageV8(const FLinkerTables& Linker, std::vector<std::byte>& OutPackageBytes,
-		std::vector<std::byte>& OutBulkBytes, FPackageWriterDiagnostic* OutDiagnostic) -> bool
-	{
-		if (OutDiagnostic) OutDiagnostic->Reset();
-		if (&OutPackageBytes == &OutBulkBytes)
-			return Fail(OutDiagnostic, EPackageWriterFailure::AliasedOutput,
-				"The main and bulk output buffers must not alias.");
-		FFrozenPackage Frozen;
-		if (!Freeze(Linker, false, Frozen, OutDiagnostic)) return false;
-		std::vector<FSection> Sections;
-		std::vector<std::byte> BulkBytes;
-		if (!EncodeSections(Frozen, Sections, &BulkBytes, 0, {}, OutDiagnostic)) return false;
-		std::vector<std::byte> PackageBytes;
-		if (!Assemble(Sections, PackageBytes, OutDiagnostic, DastV8FormatVersion,
-			Linker.Summary.bRedirect)) return false;
-		OutPackageBytes = std::move(PackageBytes);
-		OutBulkBytes = std::move(BulkBytes);
-		return true;
-	}
-
-	auto WritePackageV8Main(const FLinkerTables& Linker, uint64 ExternalBulkBytes,
-		FXxHash128 ExternalBulkHash, std::vector<std::byte>& OutPackageBytes,
-		FPackageWriterDiagnostic* OutDiagnostic) -> bool
-	{
-		if (OutDiagnostic) OutDiagnostic->Reset();
-		if (ExternalBulkBytes > DastV8MaximumBulkBytes
-			|| ((ExternalBulkBytes == 0) != ExternalBulkHash.IsZero()))
-			return Fail(OutDiagnostic, EPackageWriterFailure::InvalidBulkData,
-				"External BulkData binding is invalid.");
-		FFrozenPackage Frozen;
-		if (!Freeze(Linker, false, Frozen, OutDiagnostic)) return false;
-		std::vector<FSection> Sections;
-		if (!EncodeSections(Frozen, Sections, nullptr, ExternalBulkBytes,
-				ExternalBulkHash, OutDiagnostic)) return false;
-		std::vector<std::byte> PackageBytes;
-		if (!Assemble(Sections, PackageBytes, OutDiagnostic, DastV8FormatVersion,
-				Linker.Summary.bRedirect)) return false;
-		OutPackageBytes = std::move(PackageBytes);
-		return true;
-	}
-
 	auto FreezePackageV9(const FLinkerTables& Linker, FPackageWriterManifest& OutManifest,
 		FPackageWriterDiagnostic* OutDiagnostic) -> bool
 	{
 		if (OutDiagnostic) OutDiagnostic->Reset();
 		FFrozenPackage Frozen;
-		if (!Freeze(Linker, true, Frozen, OutDiagnostic)) return false;
+		if (!Freeze(Linker, Frozen, OutDiagnostic)) return false;
 		OutManifest = std::move(Frozen.Manifest);
 		return true;
 	}
@@ -1260,7 +1162,7 @@ namespace Durin::ObjectPackage
 			return Fail(OutDiagnostic, EPackageWriterFailure::AliasedOutput,
 				"The main and bulk output buffers must not alias.");
 		FFrozenPackage Frozen;
-		if (!Freeze(Linker, true, Frozen, OutDiagnostic)) return false;
+		if (!Freeze(Linker, Frozen, OutDiagnostic)) return false;
 		std::vector<FSection> Sections;
 		std::vector<std::byte> BulkBytes;
 		if (!EncodeSections(Frozen, Sections, &BulkBytes, 0, {}, OutDiagnostic)) return false;
@@ -1282,7 +1184,7 @@ namespace Durin::ObjectPackage
 			return Fail(OutDiagnostic, EPackageWriterFailure::InvalidBulkData,
 				"External BulkData binding is invalid.");
 		FFrozenPackage Frozen;
-		if (!Freeze(Linker, true, Frozen, OutDiagnostic)) return false;
+		if (!Freeze(Linker, Frozen, OutDiagnostic)) return false;
 		std::vector<FSection> Sections;
 		if (!EncodeSections(Frozen, Sections, nullptr, ExternalBulkBytes,
 			ExternalBulkHash, OutDiagnostic)) return false;

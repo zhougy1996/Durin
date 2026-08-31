@@ -9,9 +9,7 @@ namespace Durin::ObjectPackage
 	inline constexpr FGuid DastFormatId{
 		0x3c59d1a9, 0x6ceb4e4c, 0xb059452d, 0xb0a5af56};
 	inline constexpr std::string_view DastFormatName = "Durin.BinaryFormat.DAST";
-	inline constexpr uint32 DastV8FormatVersion = 8;
 	inline constexpr uint32 DastV9FormatVersion = 9;
-	inline constexpr uint32 DastV8RegistryVersion = 1;
 	inline constexpr uint32 DastV9RegistryVersion = 2;
 	inline constexpr uint32 DastV8TableVersion = 1;
 	inline constexpr uint32 DastV8FormatHeaderBytes = 32;
@@ -80,23 +78,6 @@ namespace Durin::ObjectPackage
 		auto operator==(const FPackageWriterManifest&) const -> bool = default;
 	};
 
-	struct FPackageV8RegistryData
-	{
-		std::string PackageName;
-		std::string AssetClass;
-		bool bRedirect = false;
-		std::string RedirectDestination;
-		uint32 MainExportId = 0;
-		uint32 ExportCount = 0;
-		std::vector<std::string> HardPackageReferences;
-		std::vector<std::string> SoftPackageReferences;
-		std::vector<std::string> SearchableNames;
-		uint64 ExternalBulkBytes = 0;
-		FXxHash128 ExternalBulkHash;
-
-		auto operator==(const FPackageV8RegistryData&) const -> bool = default;
-	};
-
 	struct FPackageV9AssetRegistryData
 	{
 		uint32 ExportId = 0;
@@ -161,26 +142,6 @@ namespace Durin::ObjectPackage
 	};
 
 	// Freezes a detached linker model without emitting package bytes.
-	COREDOBJECT_API auto FreezePackageV8(
-		const FLinkerTables& Linker,
-		FPackageWriterManifest& OutManifest,
-		FPackageWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
-
-	// Emits one atomic DURF/DAST v8 package image and optional raw bulk segment.
-	COREDOBJECT_API auto WritePackageV8(
-		const FLinkerTables& Linker,
-		std::vector<std::byte>& OutPackageBytes,
-		std::vector<std::byte>& OutBulkBytes,
-		FPackageWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
-
-	// Emits canonical main bytes from a linker whose external payloads may be descriptors only.
-	COREDOBJECT_API auto WritePackageV8Main(
-		const FLinkerTables& Linker,
-		uint64 ExternalBulkBytes,
-		FXxHash128 ExternalBulkHash,
-		std::vector<std::byte>& OutPackageBytes,
-		FPackageWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
-
 	COREDOBJECT_API auto FreezePackageV9(
 		const FLinkerTables& Linker,
 		FPackageWriterManifest& OutManifest,
@@ -198,34 +159,6 @@ namespace Durin::ObjectPackage
 		FPackageWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
 
 	// Validates exactly the declared front matter and publishes package-level Registry data.
-	COREDOBJECT_API auto ReadPackageV8Registry(
-		std::span<const std::byte> FrontMatter,
-		uint64 PhysicalPackageBytes,
-		uint64 PhysicalBulkBytes,
-		std::string_view PackageName,
-		FPackageV8RegistryData& OutRegistry,
-		FPackageReaderDiagnostic* OutDiagnostic = nullptr,
-		const FPackageReaderLimits& Limits = {}) -> bool;
-
-	// Validates complete canonical v8 main/bulk bytes and publishes detached linker tables.
-	COREDOBJECT_API auto ReadPackageV8(
-		std::span<const std::byte> PackageBytes,
-		std::span<const std::byte> BulkBytes,
-		std::string_view PackageName,
-		FLinkerTables& OutLinker,
-		FPackageReaderDiagnostic* OutDiagnostic = nullptr,
-		const FPackageReaderLimits& Limits = {}) -> bool;
-
-	// Validates canonical main bytes and publishes descriptor-only external BulkData values.
-	// The caller must validate the external segment before publishing the linker.
-	COREDOBJECT_API auto ReadPackageV8Metadata(
-		std::span<const std::byte> PackageBytes,
-		uint64 PhysicalBulkBytes,
-		std::string_view PackageName,
-		FLinkerTables& OutLinker,
-		FPackageReaderDiagnostic* OutDiagnostic = nullptr,
-		const FPackageReaderLimits& Limits = {}) -> bool;
-
 	COREDOBJECT_API auto ReadPackageV9Registry(
 		std::span<const std::byte> FrontMatter,
 		uint64 PhysicalPackageBytes,
@@ -247,34 +180,5 @@ namespace Durin::ObjectPackage
 		const FPackagePath& PackagePath,
 		FLinkerTables& OutLinker,
 		FPackageReaderDiagnostic* OutDiagnostic = nullptr,
-		const FPackageReaderLimits& Limits = {}) -> bool;
-
-	enum class EPackageV8ConversionFailure : uint8
-	{
-		None,
-		ReadFailure,
-		AmbiguousIdentity,
-		WriteFailure,
-	};
-
-	struct FPackageV8ConversionDiagnostic
-	{
-		EPackageV8ConversionFailure Failure = EPackageV8ConversionFailure::None;
-		std::string LogicalPath;
-		std::string Message;
-		FPackageReaderDiagnostic Reader;
-		FPackageWriterDiagnostic Writer;
-
-		auto Reset() -> void { *this = {}; }
-	};
-
-	// Converts one validated v8 closure into canonical v9 without constructing objects.
-	COREDOBJECT_API auto ConvertPackageV8ToV9(
-		std::span<const std::byte> PackageBytes,
-		std::span<const std::byte> BulkBytes,
-		const FPackagePath& PackagePath,
-		std::vector<std::byte>& OutPackageBytes,
-		std::vector<std::byte>& OutBulkBytes,
-		FPackageV8ConversionDiagnostic* OutDiagnostic = nullptr,
 		const FPackageReaderLimits& Limits = {}) -> bool;
 }

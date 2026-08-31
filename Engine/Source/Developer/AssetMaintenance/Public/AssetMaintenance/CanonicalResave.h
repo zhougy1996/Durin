@@ -24,7 +24,6 @@ namespace Durin::Asset
 		FPackagePath PackagePath;
 		std::string PhysicalPath;
 		FAssetPackageFingerprint Fingerprint;
-		uint32 FormatVersion = 0;
 		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
 		EAssetCanonicalResavePackageStatus Status = EAssetCanonicalResavePackageStatus::Blocked;
 		bool bLoaded = false;
@@ -49,7 +48,6 @@ namespace Durin::Asset
 	{
 		EAssetCanonicalResavePlanStatus Status = EAssetCanonicalResavePlanStatus::Completed;
 		uint64 RegistryRevision = 0;
-		uint32 TargetFormatVersion = 0;
 		std::vector<FAssetCanonicalResavePackagePlan> Packages;
 	};
 

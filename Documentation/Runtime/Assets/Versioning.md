@@ -77,15 +77,12 @@ Raw `.dbulk` is not a DURF format. DAST v9 Registry and Bulk Directory own its
 extent, whole-segment digest, field ranges, alignments, and per-value digests.
 Asset-family payload schemas and DDC/Cook keys version independently.
 
-## Retired And Offline Package Formats
+## Retired Package Formats
 
 The maintained repository baseline is canonical v9. Production discovery,
-load, save, inspection, mutation, Cook, and resave select v9 only. V8 remains a
-bounded offline input to AssetMaintenance's explicit `asset migrate`
-preview/apply workflow and focused conversion fixtures; it is never selected by
-ordinary runtime policy. V7 has no supported reader or migration path. A
-mounted non-v9 package fails Registry admission before it can publish catalog
-state.
+load, save, inspection, mutation, Cook, and resave select v9 only. V7 and v8
+have no reader or migration path. A mounted non-v9 package fails Registry
+admission before it can publish catalog state.
 
 ## Early-Development Compatibility
 

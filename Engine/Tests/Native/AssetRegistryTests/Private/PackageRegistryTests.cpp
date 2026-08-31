@@ -25,18 +25,15 @@ namespace
 	{
 		Package::FLinkerTables Linker;
 		EXPECT_TRUE(Durin::FPackagePath::TryCreate(PackageName, Linker.Summary.PackagePath));
-		Linker.Summary.PackageName = PackageName;
-		Linker.Summary.AssetClass = "Example::RegistryAsset";
-		Linker.Summary.HardPackageReferences = {"/Game/HardB", "/Game/HardA"};
-		Linker.Summary.SoftPackageReferences = {"/Game/SoftB", "/Game/SoftA"};
 		Linker.Summary.SearchableNames = {"Tag.Z", "Tag.A"};
-		Package::FPackageIndex::TryExport(0, Linker.Summary.MainExport);
+		Package::FPackageIndex MainExport;
+		Package::FPackageIndex::TryExport(0, MainExport);
 		Linker.Exports = {{.ObjectName = "RegistryFixture", .ClassName = "Example::RegistryAsset"}};
 		Durin::FTopLevelAssetPath AssetPath;
 		EXPECT_TRUE(Durin::FTopLevelAssetPath::TryCreate(
 			Linker.Summary.PackagePath, "RegistryFixture", AssetPath));
 		Linker.Summary.TopLevelAssets.push_back({
-			.Export = Linker.Summary.MainExport,
+			.Export = MainExport,
 			.AssetPath = AssetPath,
 			.ClassName = "Example::RegistryAsset"});
 		for (std::string_view Value : Hard)
@@ -167,8 +164,6 @@ TEST(FPackageRegistryContractTests, RefreshUsesOnlyFrontMatterAndOnePackageMetad
 		.Export = SecondaryExport,
 		.AssetPath = SecondaryPath,
 		.ClassName = "Example::SecondaryAsset"});
-	Linker.Summary.HardPackageReferences = {"/P3/HardB", "/P3/HardA"};
-	Linker.Summary.SoftPackageReferences = {"/P3/SoftB", "/P3/SoftA"};
 	std::vector<std::byte> Main;
 	std::vector<std::byte> Bulk;
 	ASSERT_TRUE(Package::WritePackageV9(Linker, Main, Bulk));

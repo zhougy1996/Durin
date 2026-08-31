@@ -2,7 +2,6 @@
 
 #include "AssetMaintenance/CanonicalResave.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
-#include "AssetMaintenance/PackageFormatMigration.h"
 #include "AssetRegistry/PackageFormat.h"
 #include "DObject/PackageFormat.h"
 #include "Json/Json.h"
@@ -32,41 +31,6 @@ namespace
 			.PhysicalPath = Input.PhysicalPath,
 			.Inspection = Durin::Asset::EAssetCompatibilityInspection::Ready,
 			.Compatibility = Durin::Asset::EAssetPackageCompatibility::Compatible}};
-	}
-
-	auto MakeMigrationFixture(std::string_view PackageName)
-		-> Durin::ObjectPackage::FLinkerTables
-	{
-		const Package::FSerializedType BulkType{.Kind = Package::EValueKind::BulkData};
-		Package::FSerializedValue Bulk;
-		Bulk.Bytes = {std::byte{0xaa}, std::byte{0xbb}, std::byte{0xcc}};
-		Bulk.BulkElementSize = 1;
-		Bulk.BulkAlignment = 4;
-		Bulk.BulkStorage = Package::EBulkStorageKind::External;
-		Package::FLinkerTables Linker;
-		Linker.Summary.PackageName = std::string(PackageName);
-		Linker.Summary.AssetClass = "Example::Migration";
-		Package::FPackageIndex::TryExport(0, Linker.Summary.MainExport);
-		Linker.Schemas = {{.QualifiedName = "Example::Migration",
-			.Fields = {{.Name = "Payload", .Type = BulkType}}}};
-		Linker.Exports = {{.ObjectName = std::string(
-			PackageName.substr(PackageName.find_last_of('/') + 1)),
-			.ClassName = "Example::Migration",
-			.Properties = {{.DeclaringType = "Example::Migration", .FieldName = "Payload",
-				.Type = BulkType, .Value = std::move(Bulk)}}}};
-		return Linker;
-	}
-
-	auto WriteMigrationFixture(std::string_view PackageName,
-		const std::filesystem::path& MainPath, const std::filesystem::path& BulkPath)
-		-> void
-	{
-		std::vector<std::byte> Main;
-		std::vector<std::byte> Bulk;
-		ASSERT_TRUE(Durin::ObjectPackage::WritePackageV8(
-			MakeMigrationFixture(PackageName), Main, Bulk));
-		ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFileAtomically(Main, MainPath));
-		ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFileAtomically(Bulk, BulkPath));
 	}
 
 	class FAssetMaintenanceContractTests : public testing::Test
@@ -156,98 +120,6 @@ TEST_F(FAssetMaintenanceContractTests, CompatibilityReportKeepsStableSchemaAndPa
 	ASSERT_EQ(Packages.Num(), 2u);
 	EXPECT_EQ(Packages.GetView(0).GetView("packagePath").GetString(), "/Maintenance/A");
 	EXPECT_EQ(Packages.GetView(1).GetView("packagePath").GetString(), "/Maintenance/B");
-}
-
-TEST_F(FAssetMaintenanceContractTests, CanonicalResaveTargetsCurrentPackageFormat)
-{
-	const Durin::Asset::FAssetCanonicalResavePlan Plan =
-		Durin::Asset::PlanAssetCanonicalResaves({}, {});
-
-	EXPECT_EQ(Plan.TargetFormatVersion,
-		Durin::Asset::AssetPackageV9FormatVersion);
-}
-
-TEST_F(FAssetMaintenanceContractTests, PackageFormatMigrationPreviewIsDeterministic)
-{
-	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory();
-	const auto APath = Root / "MigrationA.dasset";
-	const auto ABulkPath = Root / "MigrationA.dbulk";
-	const auto BPath = Root / "MigrationB.dasset";
-	const auto BBulkPath = Root / "MigrationB.dbulk";
-	WriteMigrationFixture("/Maintenance/MigrationA", APath, ABulkPath);
-	WriteMigrationFixture("/Maintenance/MigrationB", BPath, BBulkPath);
-	const std::array Inputs{
-		Durin::Asset::FPackageFormatMigrationInput{
-			.PackagePath = MakePath("/Maintenance/MigrationB"),
-			.MainPath = BPath, .BulkPath = BBulkPath},
-		Durin::Asset::FPackageFormatMigrationInput{
-			.PackagePath = MakePath("/Maintenance/MigrationA"),
-			.MainPath = APath, .BulkPath = ABulkPath}};
-
-	const auto First = Durin::Asset::PlanPackageFormatMigration(Inputs);
-	const auto Second = Durin::Asset::PlanPackageFormatMigration(Inputs);
-	ASSERT_EQ(First.Packages.size(), 2u);
-	EXPECT_EQ(First.Packages[0].Input.PackagePath.ToString(), "/Maintenance/MigrationA");
-	EXPECT_EQ(First.Packages[0].Status,
-		Durin::Asset::EPackageFormatMigrationStatus::Ready);
-	EXPECT_EQ(First.Packages[0].TargetFingerprint,
-		Second.Packages[0].TargetFingerprint);
-	EXPECT_EQ(Durin::Asset::SerializePackageFormatMigrationPlanReport(First),
-		Durin::Asset::SerializePackageFormatMigrationPlanReport(Second));
-}
-
-TEST_F(FAssetMaintenanceContractTests, PackageFormatMigrationRejectsStalePlan)
-{
-	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory();
-	const auto MainPath = Root / "Stale.dasset";
-	const auto BulkPath = Root / "Stale.dbulk";
-	WriteMigrationFixture("/Maintenance/Stale", MainPath, BulkPath);
-	const std::array Inputs{Durin::Asset::FPackageFormatMigrationInput{
-		.PackagePath = MakePath("/Maintenance/Stale"),
-		.MainPath = MainPath, .BulkPath = BulkPath}};
-	auto Plan = Durin::Asset::PlanPackageFormatMigration(Inputs);
-	std::vector<std::byte> Changed;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Changed, MainPath));
-	Changed.back() ^= std::byte{1};
-	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFileAtomically(Changed, MainPath));
-
-	const auto Result = Durin::Asset::ApplyPackageFormatMigration(std::move(Plan));
-	EXPECT_EQ(Result.Status, Durin::Asset::EPackageFormatMigrationApplyStatus::Failed);
-	ASSERT_EQ(Result.Plan.Packages.size(), 1u);
-	EXPECT_EQ(Result.Plan.Packages[0].Status,
-		Durin::Asset::EPackageFormatMigrationStatus::Stale);
-	std::vector<std::byte> After;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(After, MainPath));
-	EXPECT_EQ(After, Changed);
-}
-
-TEST_F(FAssetMaintenanceContractTests, PackageFormatMigrationRollsBackPartialPublication)
-{
-	const std::filesystem::path Root = Durin::Testing::GetTestWorkDirectory();
-	const auto MainPath = Root / "Rollback.dasset";
-	const auto BulkPath = Root / "Rollback.dbulk";
-	WriteMigrationFixture("/Maintenance/Rollback", MainPath, BulkPath);
-	std::vector<std::byte> BeforeMain;
-	std::vector<std::byte> BeforeBulk;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BeforeMain, MainPath));
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BeforeBulk, BulkPath));
-	const std::array Inputs{Durin::Asset::FPackageFormatMigrationInput{
-		.PackagePath = MakePath("/Maintenance/Rollback"),
-		.MainPath = MainPath, .BulkPath = BulkPath}};
-	auto Plan = Durin::Asset::PlanPackageFormatMigration(Inputs);
-	Durin::Asset::FPackageFormatMigrationApplyOptions Options;
-	Options.ShouldFail = [](Durin::Asset::EPackageFormatMigrationApplyPhase Phase, size_t) {
-		return Phase == Durin::Asset::EPackageFormatMigrationApplyPhase::PublishBulk;
-	};
-	const auto Result = Durin::Asset::ApplyPackageFormatMigration(
-		std::move(Plan), Options);
-	EXPECT_EQ(Result.Status, Durin::Asset::EPackageFormatMigrationApplyStatus::Failed);
-	std::vector<std::byte> AfterMain;
-	std::vector<std::byte> AfterBulk;
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterMain, MainPath));
-	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterBulk, BulkPath));
-	EXPECT_EQ(AfterMain, BeforeMain);
-	EXPECT_EQ(AfterBulk, BeforeBulk);
 }
 
 TEST_F(FAssetMaintenanceContractTests, CoreJsonSerializationPreservesControlCharacters)

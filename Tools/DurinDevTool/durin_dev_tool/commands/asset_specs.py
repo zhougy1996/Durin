@@ -27,7 +27,7 @@ JSON_ARGUMENT = argument(
 
 COMMAND_SPEC = CommandSpec(
     "asset",
-    "check, migrate, resave, or inspect authored assets",
+    "check, resave, or inspect authored assets",
     subcommands=(
         CommandSpec(
             "check",
@@ -37,11 +37,6 @@ COMMAND_SPEC = CommandSpec(
             arguments=CONTEXT_ARGUMENTS
             + (
                 PROJECT_ARGUMENT,
-                argument(
-                    "--baseline",
-                    action="store_true",
-                    help="fail unless every package is current and clean",
-                ),
                 JSON_ARGUMENT,
             ),
         ),
@@ -69,34 +64,6 @@ COMMAND_SPEC = CommandSpec(
                     "--apply",
                     action="store_true",
                     help="write the previewed resaves",
-                ),
-                JSON_ARGUMENT,
-            ),
-        ),
-        CommandSpec(
-            "migrate",
-            "preview or apply package-format migration",
-            HANDLER,
-            required_modules=("rich",),
-            arguments=CONTEXT_ARGUMENTS
-            + (
-                argument(
-                    "scopes",
-                    nargs="*",
-                    metavar="SCOPE",
-                    help="package or package-tree path such as /Game/Characters",
-                ),
-                PROJECT_ARGUMENT,
-                argument(
-                    "--all",
-                    dest="whole_project",
-                    action="store_true",
-                    help="select the whole project",
-                ),
-                argument(
-                    "--apply",
-                    action="store_true",
-                    help="write the previewed migration",
                 ),
                 JSON_ARGUMENT,
             ),

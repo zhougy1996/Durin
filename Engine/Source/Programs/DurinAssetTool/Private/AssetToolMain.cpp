@@ -5,7 +5,6 @@
 #include "AssetCook.h"
 #include "AssetMaintenance/CanonicalResave.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
-#include "AssetMaintenance/PackageFormatMigration.h"
 #include "Asset/AssetSaveReadiness.h"
 
 #include "Asset/EditorBulkDataStorage.h"
@@ -61,7 +60,6 @@ namespace
 	{
 		Check,
 		Resave,
-		Migrate,
 		StorageInventory,
 		IdentityAudit,
 		Cook,
@@ -99,7 +97,6 @@ namespace
 		{
 		case EOperation::Check: return "check";
 		case EOperation::Resave: return "resave";
-		case EOperation::Migrate: return "migrate";
 		case EOperation::StorageInventory: return "storage-inventory";
 		case EOperation::IdentityAudit: return "identity-audit";
 		case EOperation::Cook: return "cook";
@@ -151,8 +148,6 @@ namespace
 			<< "  DurinAssetTool check --project=<project.dproject> [--json]\n"
 			<< "  DurinAssetTool resave --project=<project.dproject> <scope>... [--apply] [--json]\n"
 			<< "  DurinAssetTool resave --project=<project.dproject> --all [--apply] [--json]\n"
-			<< "  DurinAssetTool migrate --project=<project.dproject> <scope>... [--apply] [--json]\n"
-			<< "  DurinAssetTool migrate --project=<project.dproject> --all [--apply] [--json]\n"
 			<< "  DurinAssetTool storage-inventory --project=<project.dproject>\n"
 			<< "  DurinAssetTool identity-audit --project=<project.dproject>\n"
 			<< "  DurinAssetTool cook --project=<project.dproject> --output=<absolute-path> "
@@ -189,8 +184,7 @@ namespace
 								| OptionBit(EOption::Target) | OptionBit(EOption::Profile)
 								| OptionBit(EOption::Root) | OptionBit(EOption::NoIncremental)
 								| OptionBit(EOption::DryRun);
-		const uint16 Allowed = (Options.Operation == EOperation::Resave
-			|| Options.Operation == EOperation::Migrate) ? Resave : Options.Operation == EOperation::Check ? Check :
+		const uint16 Allowed = Options.Operation == EOperation::Resave ? Resave : Options.Operation == EOperation::Check ? Check :
 															  Options.Operation == EOperation::Cook		 ? Cook : Storage;
 		const uint16 Unexpected = Options.SpecifiedOptions & ~Allowed;
 		constexpr EOption OrderedOptions[] = {
@@ -223,8 +217,7 @@ namespace
 			}
 			return true;
 		}
-		if (Options.Operation != EOperation::Resave
-			&& Options.Operation != EOperation::Migrate) return true;
+		if (Options.Operation != EOperation::Resave) return true;
 		if (Options.Scopes.empty() && !Options.bWholeProject)
 		{
 			OutError = std::format("{} requires at least one scope or --all.",
@@ -257,8 +250,6 @@ namespace
 			OutOptions.Operation = EOperation::Check;
 		else if (Command == "resave")
 			OutOptions.Operation = EOperation::Resave;
-		else if (Command == "migrate")
-			OutOptions.Operation = EOperation::Migrate;
 		else if (Command == "storage-inventory")
 			OutOptions.Operation = EOperation::StorageInventory;
 		else if (Command == "identity-audit")
@@ -691,85 +682,6 @@ namespace
 		return 0;
 	}
 
-	auto RunPackageFormatMigration(
-		const FOptions& Options,
-		std::span<const Durin::Asset::FAssetPackageCompatibilityProbeInput> Packages
-	) -> int
-	{
-		using namespace Durin;
-		using namespace Durin::Asset;
-		std::vector<FPackageFormatMigrationInput> Inputs;
-		for (const FAssetPackageCompatibilityProbeInput& Package : Packages)
-		{
-			const bool bSelected = Options.bWholeProject
-				|| std::ranges::any_of(Options.Scopes, [&](const std::string& Scope) {
-					if (!IsValidVirtualPrefix(Scope)) return false;
-					const std::string_view Path = Package.PackagePath.GetView();
-					return Path == Scope || (Path.starts_with(Scope)
-						&& Path.size() > Scope.size() && Path[Scope.size()] == '/');
-				});
-			if (!bSelected) continue;
-			std::filesystem::path BulkPath(Package.PhysicalPath);
-			BulkPath.replace_extension(".dbulk");
-			Inputs.push_back({.PackagePath = Package.PackagePath,
-				.MainPath = Package.PhysicalPath, .BulkPath = std::move(BulkPath)});
-		}
-		for (const std::string& Scope : Options.Scopes)
-		{
-			if (!IsValidVirtualPrefix(Scope))
-			{
-				std::cerr << "Error: invalid scope '" << Scope << "'.\n";
-				return 2;
-			}
-			if (!std::ranges::any_of(Inputs, [&](const auto& Input) {
-				const std::string_view Path = Input.PackagePath.GetView();
-				return Path == Scope || (Path.starts_with(Scope)
-					&& Path.size() > Scope.size() && Path[Scope.size()] == '/');
-			}))
-			{
-				std::cerr << "Error: scope '" << Scope << "' matched no discovered package.\n";
-				return 1;
-			}
-		}
-
-		auto Plan = PlanPackageFormatMigration(
-			Inputs, [] { return GCancelled.load(std::memory_order_relaxed); });
-		if (Plan.Status == EPackageFormatMigrationPlanStatus::Cancelled) return 130;
-		if (Options.bApply)
-		{
-			auto Result = ApplyPackageFormatMigration(
-				std::move(Plan), {},
-				[] { return GCancelled.load(std::memory_order_relaxed); });
-			if (Options.Format == EOutputFormat::Json)
-				std::cout << SerializePackageFormatMigrationApplyReport(Result) << '\n';
-			else
-				std::cout << "package-format migration apply: "
-					<< Result.ChangedPaths.size() << " file(s) changed; "
-					<< Result.Diagnostic << '\n';
-			if (Result.Status == EPackageFormatMigrationApplyStatus::Cancelled) return 130;
-			return Result.Status == EPackageFormatMigrationApplyStatus::Succeeded ? 0 : 1;
-		}
-
-		if (Options.Format == EOutputFormat::Json)
-			std::cout << SerializePackageFormatMigrationPlanReport(Plan) << '\n';
-		else
-		{
-			const auto Ready = std::ranges::count(Plan.Packages,
-				EPackageFormatMigrationStatus::Ready,
-				&FPackageFormatMigrationItem::Status);
-			const auto Blocked = Plan.Packages.size() - static_cast<size_t>(Ready);
-			std::cout << "package-format migration plan: " << Ready << " ready, "
-				<< Blocked << " blocked, " << Plan.Packages.size() << " selected\n";
-			for (const FPackageFormatMigrationItem& Package : Plan.Packages)
-				if (Package.Status != EPackageFormatMigrationStatus::Ready)
-					std::cout << "  " << Package.Input.PackagePath.ToString()
-						<< "\n    " << Package.Diagnostic << '\n';
-		}
-		return std::ranges::all_of(Plan.Packages, [](const auto& Package) {
-			return Package.Status == EPackageFormatMigrationStatus::Ready;
-		}) ? 0 : 1;
-	}
-
 	auto PrintCompatibilityCheck(
 		std::span<const Durin::Asset::FAssetPackageCompatibilityRecord> Records
 	) -> void
@@ -1063,8 +975,6 @@ int main(int ArgC, char** ArgV)
 		std::cout << SerializeIdentityAudit(Snapshot.Packages) << '\n';
 		return 0;
 	}
-	if (Options.Operation == EOperation::Migrate)
-		return RunPackageFormatMigration(Options, Snapshot.Packages);
 	if (Options.Operation == EOperation::Resave && Options.bApply)
 	{
 		const Durin::Asset::FAssetCatalogRefreshResult Refresh =

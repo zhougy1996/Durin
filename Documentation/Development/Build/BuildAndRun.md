@@ -493,7 +493,7 @@ command:
 
 ```powershell
 .\DevTool.bat asset
-.\DevTool.bat asset check --baseline
+.\DevTool.bat asset check
 .\DevTool.bat asset resave /Game/Characters
 .\DevTool.bat asset resave /Game/Characters --apply
 .\DevTool.bat asset resave --all --apply
@@ -501,8 +501,7 @@ command:
 ```
 
 Pass `--project <descriptor>` only to override the configured default. `check`
-never writes; `--baseline` returns policy status `3` unless every discovered
-package is current, compatible, fresh, and free of findings or resave evidence.
+never writes and reports schema, canonicalization, and corruption findings.
 `resave` accepts one or more virtual scopes, each matching both an exact package
 and descendants, or the mutually exclusive `--all`. It is a preview unless
 `--apply` is explicit. Human output is the default; `--json` selects stable

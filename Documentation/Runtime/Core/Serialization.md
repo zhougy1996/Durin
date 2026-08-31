@@ -63,7 +63,7 @@ and validation replace caller outputs or destination bytes only on success.
 Core never interprets format-owned sections, asset paths, schemas, codecs, or
 publication policy.
 
-Engine consumes this envelope through canonical DAST v8 object packages. An
+Engine consumes this envelope through canonical DAST v9 object packages. An
 authored or cooked `.dbulk` is deliberately not a DURF envelope: it is the raw
 external BulkData segment bound by its owning package's Registry and Bulk
 Directory. Embedded family payloads and raw DDC `.bin` values likewise do not
@@ -99,21 +99,21 @@ live reflected-property entry and construct-free decoded values use this
 writer. Token construction is transactional: an unsupported type or invalid
 shape leaves the caller's prior output unchanged.
 
-`DObject/PackageFormat.h` owns the construct-free DAST v8 save boundary.
-`FreezePackageV8(...)` validates and canonicalizes names, structural types,
+`DObject/PackageFormat.h` owns the construct-free DAST v9 save boundary.
+`FreezePackageV9(...)` validates and canonicalizes names, structural types,
 schemas, imports, exports, property identities, references, and BulkData facts
-into stable one-based ids. `WritePackageV8(...)` emits detached main and raw
+into stable one-based ids. `WritePackageV9(...)` emits detached main and raw
 external-bulk buffers and replaces neither caller output on failure. Values use
 native `EValueKind` tags, Maps use the sole canonical-key writer, NaNs collapse
 to one quiet pattern while signed zero is retained, and BulkData placement is
 explicit detached input rather than live-object policy. This layer constructs
 no `DObject` and depends on neither AssetRegistry nor Engine.
 
-The same boundary owns bounded v8 reading. `ReadPackageV8Registry(...)`
+The same boundary owns bounded v9 reading. `ReadPackageV9Registry(...)`
 validates an exact declared front-matter span, independently known main/bulk
 extents, the caller-supplied mounted package identity, all directory facts, and
 the header-resident Registry/names/imports before atomically publishing package
-metadata. `ReadPackageV8(...)` validates complete section hashes, tables,
+metadata. `ReadPackageV9(...)` validates complete section hashes, tables,
 recursive native tags, package topology, references, canonical ordering, and
 inline/external BulkData ranges and digests before publishing `FLinkerTables`.
 Successful decode re-emits through the sole writer and requires byte-identical
@@ -227,7 +227,7 @@ Planning compares logical size and verified content identity, never domain
 schema, physical placement, or authority state. Multi-megabyte values still
 contribute one node in enabled and no-delta plans.
 
-DAST v8 does not introduce a second logical Archive dialect. Engine captures
+DAST v9 does not introduce a second logical Archive dialect. Engine captures
 the ordinary object-aware Archive graph into detached `FLinkerTables`, and
 CoreDObject emits the canonical tagged-value sections from that model. Each
 logical BulkData field becomes one linker value with explicit inline/external

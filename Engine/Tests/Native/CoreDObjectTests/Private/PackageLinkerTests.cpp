@@ -217,6 +217,8 @@ TEST(FPackageLinkerContractTests, StructuralTypesCompareDeterministically)
 
 TEST(FPackageLinkerContractTests, CheckedTablesResolvePathsAndRejectInvalidTopology)
 {
+	auto Fixture = PathMountFixture();
+	ASSERT_TRUE(Fixture.IsValid()) << Fixture.GetError();
 	Package::FPackageIndex Root;
 	Package::FPackageIndex Child;
 	ASSERT_TRUE(Package::FPackageIndex::TryExport(0, Root));
@@ -237,13 +239,15 @@ TEST(FPackageLinkerContractTests, CheckedTablesResolvePathsAndRejectInvalidTopol
 	EXPECT_EQ(Path, "Root/Child");
 	Package::FPackageIndex Import;
 	ASSERT_TRUE(Package::FPackageIndex::TryImport(0, Import));
-	Tables.Imports = {{.PackageName = "/Game/External"}};
+	Durin::FObjectPath ExternalPath;
+	ASSERT_TRUE(Durin::FObjectPath::TryCreate("/Game/External.External", ExternalPath));
+	Tables.Imports = {{.ObjectPath = ExternalPath}};
 	EXPECT_TRUE(Tables.TryResolvePath(Import, Path, &Diagnostic));
-	EXPECT_EQ(Path, "/Game/External");
+	EXPECT_EQ(Path, "/Game/External.External");
 	Tables.Exports.front().Outer = Child;
 	EXPECT_FALSE(Tables.TryResolvePath(Child, Path, &Diagnostic));
 	EXPECT_EQ(Diagnostic.Failure, Package::ELinkerFailure::InvalidTopology);
-	EXPECT_EQ(Path, "/Game/External");
+	EXPECT_EQ(Path, "/Game/External.External");
 }
 
 TEST(FPackageLinkerContractTests, CanonicalScalarTokensFreezeOrderingAndFloatNormalization)

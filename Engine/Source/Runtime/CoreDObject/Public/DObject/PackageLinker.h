@@ -151,11 +151,8 @@ namespace Durin::ObjectPackage
 
 	struct FPackageImport
 	{
-		// Exact cross-package top-level or subobject target used by DAST v9.
+		// Exact cross-package top-level or subobject target.
 		FObjectPath ObjectPath;
-		// Legacy v8 identity fields retained only by the offline conversion boundary.
-		std::string PackageName;
-		std::string ObjectName;
 		std::string ClassName;
 		FPackageIndex Outer;
 
@@ -199,15 +196,6 @@ namespace Durin::ObjectPackage
 		std::vector<FTopLevelAsset> TopLevelAssets;
 		std::vector<FPackagePath> HardPackageDependencies;
 		std::vector<FPackagePath> SoftPackageDependencies;
-
-		// Legacy v8 summary retained only by the offline conversion boundary.
-		std::string PackageName;
-		std::string AssetClass;
-		FPackageIndex MainExport;
-		bool bRedirect = false;
-		std::string RedirectDestination;
-		std::vector<std::string> HardPackageReferences;
-		std::vector<std::string> SoftPackageReferences;
 		std::vector<std::string> SearchableNames;
 
 		auto operator==(const FPackageSummary&) const -> bool = default;

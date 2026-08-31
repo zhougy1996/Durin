@@ -161,7 +161,7 @@ When a new large asset extension is introduced, add an explicit LFS rule to `.gi
 
 Do not place `.dasset` under LFS by default. Packages are currently compact,
 and keeping them in normal Git makes ordinary engine and level changes
-self-contained. Ordinary DAST v8 packages keep large authored fields in a raw
+self-contained. Ordinary DAST v9 packages keep large authored fields in a raw
 `.dbulk`; `.dasset` remains ordinary Git and the segment remains LFS. A submit
 must include the package and every newly referenced stable companion. Hidden
 `.dbulk.durin-backup` and atomic temporary files are

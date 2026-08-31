@@ -188,10 +188,9 @@ def test_registry_defaults_to_check_and_rejects_removed_commands() -> None:
 def test_selected_asset_command_grammar_is_frozen() -> None:
     registry = CommandRegistry()
     _, check_namespace = registry.parse(
-        ["asset", "check", "--project", "Sandbox/Sandbox.dproject", "--baseline", "--json"]
+        ["asset", "check", "--project", "Sandbox/Sandbox.dproject", "--json"]
     )
     assert check_namespace.asset_command == "check"
-    assert check_namespace.baseline
     assert check_namespace.format_name == "json"
 
     _, resave_namespace = registry.parse(
@@ -203,13 +202,6 @@ def test_selected_asset_command_grammar_is_frozen() -> None:
     assert resave_namespace.asset_command == "resave"
     assert resave_namespace.scopes == ["/Game/Characters", "/Engine/Materials"]
     assert resave_namespace.apply
-
-    _, migrate_namespace = registry.parse(
-        ["asset", "migrate", "--all", "--apply", "--json"]
-    )
-    assert migrate_namespace.asset_command == "migrate"
-    assert migrate_namespace.whole_project
-    assert migrate_namespace.apply
 
     _, storage_namespace = registry.parse(
         ["asset", "storage", "--project", "Sandbox/Sandbox.dproject"]
@@ -472,56 +464,6 @@ def test_storage_history_is_head_bounded_and_follows_renames(tmp_path: Path) -> 
     history = storage_qualification._history_for_path(tmp_path, "Renamed.dasset")
     assert history["commitTouches"] == 2
     assert history["uniqueMainGitBlobs"] == 1
-
-@pytest.mark.parametrize(
-    ("native_report", "expected"),
-    [
-        (report(package("/Game/Baseline")), 0),
-        (report(package("/Game/Baseline", format_version=2, compatibility="Unsupported", code="UnsupportedPackageFormat")), 3),
-        (report(package("/Game/Baseline", format_version=3)), 3),
-        (report(package("/Game/Baseline", format_version=4, compatibility="Unsupported", code="UnsupportedPackageFormat")), 3),
-        (report(package("/Game/Baseline", format_version=5, compatibility="Unsupported", code="UnsupportedPackageFormat")), 3),
-        (report(package("/Game/Baseline", format_version=6)), 3),
-        (report(package("/Game/Baseline", format_version=7)), 3),
-        (report(package("/Game/Baseline", format_version=8)), 3),
-        (report(package("/Game/Baseline", compatibility="Incompatible", code="UnknownField")), 3),
-        (report(with_canonicalization_evidence(package("/Game/Baseline"))), 3),
-        (report(with_deprecated_route_evidence(package("/Game/Baseline"))), 3),
-        (report(), 3),
-    ],
-)
-def test_asset_baseline_requires_current_format_and_schema(
-    tmp_path: Path, native_report: str, expected: int
-) -> None:
-    executable = tmp_path / "DurinAssetTool.exe"
-    executable.touch()
-    project = tmp_path / "Test.dproject"
-    project.write_text("{}", encoding="utf-8")
-    namespace = type("Namespace", (), {
-        "asset_command": "check",
-        "project_path": project,
-        "format_name": "human",
-        "baseline": True,
-    })()
-    calls: list[list[str]] = []
-
-    def command_runner(arguments: list[str], **_kwargs: object) -> str:
-        calls.append(arguments)
-        return native_report
-
-    output = io.StringIO()
-    assert asset.run(
-        namespace,
-        repository_root=tmp_path,
-        repository_context=REPOSITORY,
-        stdout=output,
-        stderr=io.StringIO(),
-        executable_resolver=lambda *_args: executable,
-        command_runner=command_runner,
-    ) == expected
-    assert calls == [[str(executable), "check", f"--project={project}", "--json"]]
-    assert ("Asset baseline:" in output.getvalue()) == (expected == 0)
-
 
 def test_json_schema_names_and_order_are_preserved(tmp_path: Path) -> None:
     result, output, _ = run_handler(

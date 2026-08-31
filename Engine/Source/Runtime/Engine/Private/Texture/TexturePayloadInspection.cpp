@@ -118,7 +118,7 @@ namespace Durin
 						? "PackageBulkRange" : "PackageInlineBulk")
 					: "PackageBulkField",
 				.Diagnostic = bPresent
-					? "Cooked TXPL field metadata is present in DAST v8."
+					? "Cooked TXPL field metadata is present in DAST v9."
 					: "No valid cooked TXPL field is present."};
 		}
 

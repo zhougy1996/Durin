@@ -324,9 +324,7 @@ failure restores the prior closure and Registry state. Project batches stop at
 cancellation but do not claim project-wide atomicity.
 
 Ordinary load, discovery, save, mutation, Cook, and canonical resave accept v9
-only. The bounded `asset migrate` workflow is the sole v8 boundary: it previews
-and converts detached closures without constructing objects, stale-checks and
-atomically publishes apply results, and verifies canonical v9 re-emission.
+only. Older package formats have no reader or migration boundary.
 User-facing resave steps are in
 [Canonical Resave](../../Editor/Guides/CanonicalResave.md).
 

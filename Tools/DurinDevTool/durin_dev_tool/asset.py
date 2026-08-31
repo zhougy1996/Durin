@@ -1,4 +1,4 @@
-"""Authored asset checking, migration, and canonical resave commands."""
+"""Authored asset checking and canonical resave commands."""
 
 from __future__ import annotations
 
@@ -24,9 +24,7 @@ from .runtime_program import (
     select_runtime,
 )
 
-POLICY_EXIT_CODE = 3
 SCHEMA_VERSION = 3
-CURRENT_ASSET_FORMAT_VERSION = 9
 SCHEMA_DIRECTORY = Path(__file__).resolve().parents[1] / "schemas"
 ASSET_EXECUTABLE = ExecutableDescription(
     "Asset maintenance", "DurinAssetTool", "DurinAssetTool"
@@ -119,23 +117,6 @@ def _render_human(report: Mapping[str, Any], stdout: TextIO) -> None:
                 )
 
 
-def _baseline_failed(report: Mapping[str, Any]) -> bool:
-    packages: Sequence[Mapping[str, Any]] = report["packages"]
-    return (
-        not packages
-        or any(
-            package["formatVersion"] != CURRENT_ASSET_FORMAT_VERSION
-            or package["inspection"] != "Ready"
-            or package["compatibility"] != "Compatible"
-            or package["freshness"] != "Current"
-            or package["findings"]
-            or package["canonicalizationEvidence"]
-            or package["deprecatedRouteEvidence"]
-            for package in packages
-        )
-    )
-
-
 def _project_from_namespace(
     namespace: argparse.Namespace,
     repository: RepositoryContext,
@@ -192,7 +173,6 @@ def _run_check(
     stderr: TextIO,
     command_runner: Callable[..., str] | None,
 ) -> int:
-    is_baseline = bool(getattr(namespace, "baseline", False))
     project = _project_from_namespace(namespace, repository)
     arguments = ["check", f"--project={project}", "--json"]
     native_output = _invoke_asset_program(
@@ -208,24 +188,8 @@ def _run_check(
     report = _read_report(native_output)
     if namespace.format_name == "json":
         print(json.dumps(report, separators=(",", ":"), ensure_ascii=False), file=stdout)
-    elif is_baseline:
-        if _baseline_failed(report):
-            _render_human(report, stdout)
-            print(
-                f"\nAsset baseline rejected: every package must be current DAST v{CURRENT_ASSET_FORMAT_VERSION} "
-                "with no compatibility or resave findings.",
-                file=stdout,
-            )
-        else:
-            print(
-                f"Asset baseline: {len(report['packages'])} current "
-                f"DAST v{CURRENT_ASSET_FORMAT_VERSION} package(s).",
-                file=stdout,
-            )
     else:
         _render_human(report, stdout)
-    if is_baseline:
-        return POLICY_EXIT_CODE if _baseline_failed(report) else 0
     return 0
 
 
@@ -287,16 +251,6 @@ def _run_resave(namespace: argparse.Namespace, **kwargs: Any) -> int:
     )
 
 
-def _run_migrate(namespace: argparse.Namespace, **kwargs: Any) -> int:
-    return _run_scoped_operation(
-        namespace,
-        native_command="migrate",
-        operation_label="migration",
-        interruption_message="Asset package-format migration cancelled.",
-        **kwargs,
-    )
-
-
 def run(
     namespace: argparse.Namespace,
     *,
@@ -335,16 +289,6 @@ def run(
         )
     if command == "resave":
         return _run_resave(
-            namespace,
-            selection=selection,
-            repository=repository,
-            executable=executable,
-            stdout=stdout,
-            stderr=stderr,
-            command_runner=command_runner,
-        )
-    if command == "migrate":
-        return _run_migrate(
             namespace,
             selection=selection,
             repository=repository,

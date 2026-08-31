@@ -130,7 +130,6 @@ namespace Durin::Asset
 				Node.SetChildValue("packagePath", Package.PackagePath.GetView());
 				Node.SetChildValue("physicalPath", Package.PhysicalPath);
 				Node.SetChildValue("status", StatusName(Package.Status));
-				Node.SetChildValue("formatVersion", Package.FormatVersion);
 				Node.SetChildValue("loaded", Package.bLoaded);
 				Node.SetChildValue("dirty", Package.bDirty);
 				Node.SetChildValue("plainResave", Package.bPlainResaveRequested);
@@ -170,7 +169,6 @@ namespace Durin::Asset
 	{
 		FAssetCanonicalResavePlan Plan;
 		Plan.RegistryRevision = GetAssetCatalogRevision();
-		Plan.TargetFormatVersion = AssetPackageV9FormatVersion;
 		std::vector<const FAssetPackageCompatibilityRecord*> Sorted;
 		for (const auto& Record : Records)
 			if (IsSelected(Record.PackagePath, Selection)) Sorted.push_back(&Record);
@@ -189,16 +187,14 @@ namespace Durin::Asset
 			Package.PackagePath = Record->PackagePath;
 			Package.PhysicalPath = Record->PhysicalPath;
 			Package.Fingerprint = Record->Fingerprint;
-			Package.FormatVersion = Record->FormatVersion;
 			Package.EntryKind = Record->EntryKind;
 			Package.bLoaded = Loaded != nullptr;
 			Package.bDirty = Loaded && Loaded->IsDirty();
 			Package.bPlainResaveRequested = Record->EntryKind
 				== EAssetRegistryEntryKind::Asset
-				&& (Record->FormatVersion != Plan.TargetFormatVersion
-					|| (Selection.bAllowPlainResave
-						&& std::ranges::find(Selection.Packages, Record->PackagePath)
-							!= Selection.Packages.end()));
+				&& Selection.bAllowPlainResave
+				&& std::ranges::find(Selection.Packages, Record->PackagePath)
+					!= Selection.Packages.end();
 			Package.Evidence = Record->CanonicalizationEvidence;
 			Package.DeprecatedRouteEvidence = Record->DeprecatedRouteEvidence;
 			if (Record->Inspection != EAssetCompatibilityInspection::Ready
@@ -206,9 +202,6 @@ namespace Durin::Asset
 				Package.Diagnostics.push_back("CompatibilityBlocked: package inspection is not compatible and ready.");
 			if (Record->Freshness != EAssetCompatibilityFreshness::Current)
 				Package.Diagnostics.push_back("StaleFingerprint: package changed during inspection.");
-			if (!IsSupportedAssetPackageReaderVersion(Record->FormatVersion))
-				Package.Diagnostics.push_back(
-					"UnsupportedFormat: canonical resave requires a supported DAST reader.");
 			const FMountLookupResult Mount =
 				FMountPaths::FindMountForVirtualPath(Record->PackagePath.GetView());
 			if (!Mount || !Mount.Mount->bContentWritable)
@@ -427,7 +420,6 @@ namespace Durin::Asset
 					: EAssetPackageCompatibility::Incompatible;
 			}
 			if (bInjectedVerificationFailure || !Verify
-				|| Verification.FormatVersion != Result.Plan.TargetFormatVersion
 				|| Verification.Compatibility != EAssetPackageCompatibility::Compatible
 				|| !Verification.CanonicalizationEvidence.empty()
 				|| !Verification.DeprecatedRouteEvidence.empty())
@@ -494,7 +486,6 @@ namespace Durin::Asset
 		Root.SetChildValue("status",
 			Plan.Status == EAssetCanonicalResavePlanStatus::Completed ? "Completed" : "Cancelled");
 		Root.SetChildValue("registryRevision", Plan.RegistryRevision);
-		Root.SetChildValue("targetFormatVersion", Plan.TargetFormatVersion);
 		AppendPackages(Root.AddArray("packages"), Plan);
 		return Document.ToString();
 	}
@@ -521,7 +512,6 @@ namespace Durin::Asset
 		Root.SetChildValue("mode", "apply");
 		Root.SetChildValue("status", ApplyStatusName(Result.Status));
 		Root.SetChildValue("diagnostic", Result.Diagnostic);
-		Root.SetChildValue("targetFormatVersion", Result.Plan.TargetFormatVersion);
 		AppendPackages(Root.AddArray("packages"), Result.Plan);
 		return Document.ToString();
 	}

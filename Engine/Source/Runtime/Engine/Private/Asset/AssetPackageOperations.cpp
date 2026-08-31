@@ -1612,7 +1612,7 @@ namespace Durin::Asset
 				return Result;
 			if (!PackagePath.IsValid())
 				return Error(EAssetError::InvalidPath,
-					"DAST v8 inspection requires a mounted package identity.");
+					"DAST v9 inspection requires a mounted package identity.");
 			std::vector<std::byte> BulkBytes;
 			if (Result = LoadPackageBulkBytes(PhysicalPath, BulkBytes); !Result)
 				return Result;
@@ -1634,7 +1634,7 @@ namespace Durin::Asset
 		FPackagePath PackagePath;
 		if (!ClassifyPackageIdentity(PhysicalPath, PackagePath))
 			return Error(EAssetError::InvalidPath,
-				"DAST v8 inspection requires a mounted package identity.");
+				"DAST v9 inspection requires a mounted package identity.");
 		return InspectAssetPackage(PhysicalPath, PackagePath, OutInspection);
 	}
 

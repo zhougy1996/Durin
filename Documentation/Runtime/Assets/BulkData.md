@@ -1,6 +1,6 @@
 # Package Bulk Data
 
-Summary: Define reflected BulkData values, canonical DAST v8 placement, package-resource range access, and raw package segments.
+Summary: Define reflected BulkData values, canonical DAST v9 placement, package-resource range access, and raw package segments.
 
 Modules: Engine, CoreDObject, AssetRegistry
 
@@ -92,7 +92,7 @@ SegmentDigestMismatch, Cancelled, Retired, and IoError distinctly. A range read
 checks before/after physical size and rejects a changed segment rather than
 returning a mixed generation.
 
-## DAST v8 Authored Placement
+## DAST v9 Authored Placement
 
 CoreDObject receives BulkData as detached linker values. Each value includes
 logical bytes, element size, power-of-two alignment, and explicit Inline or

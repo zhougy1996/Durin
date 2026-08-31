@@ -19,7 +19,7 @@ namespace Durin::Asset
 			if (Kind == DurinCodeGen::EPropertyGenFlags::BulkData)
 			{
 				if (SourceFormatVersion != AssetPackageV9FormatVersion)
-					return Fail("Authored bulk inspection requires DAST v8 field metadata.", OutError);
+					return Fail("Authored bulk inspection requires DAST v9 field metadata.", OutError);
 				FAssetPackageField Field{.Kind = Kind,
 					.Payload = std::vector<std::byte>(Payload.begin(), Payload.end()),
 					.SourceFormatVersion = SourceFormatVersion};

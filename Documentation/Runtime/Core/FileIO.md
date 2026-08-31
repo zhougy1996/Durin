@@ -75,7 +75,7 @@ Publication has these invariants:
 
 This API publishes one file. Multi-file transactions, asset move/delete
 rollback, and cook ordering retain their owning subsystem's coordination rules.
-DURF/DAST v8 publication uses the same primitive for each complete file;
+DURF/DAST v9 publication uses the same primitive for each complete file;
 sections and their front directory are never updated in place. A package
 transaction first validates detached main/bulk output, stages the optional
 headerless raw `.dbulk`, preserves the prior stable closure, publishes the

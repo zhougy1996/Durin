@@ -40,7 +40,7 @@ COMMAND_CASES = (
     (("test",), "test"),
     (("run",), "run"),
     (("cook",), "cook --output Saved/Cooked --target win64 --target-profile game"),
-    (("asset", "check"), "asset check --baseline --json"),
+    (("asset", "check"), "asset check --json"),
     (("asset", "resave"), "asset resave /Game/Characters --apply"),
     (("asset", "storage"), "asset storage"),
     (
@@ -222,7 +222,7 @@ class TestCommandGrammarContract:
             f"{' '.join(path)}\n{registry.format_command_help(path)}" for path in paths
         )
         assert hashlib.sha256(snapshot.encode()).hexdigest() == (
-            "8c0831dd85ebb8656c34e7f9c6814dcdd37547683b0d9e127289eb1609af9a7b"
+            "bb6ef00140b2b4f4c86b2843d13cee5706537e2ceca6514c4819c49e87edbb3a"
         )
         assert hashlib.sha256(registry.format_help().encode()).hexdigest() == (
             "7d44e1043a23fa443bb05186e4aefdf451b537dcfd8fb6b4439f1aab24dd4f83"
