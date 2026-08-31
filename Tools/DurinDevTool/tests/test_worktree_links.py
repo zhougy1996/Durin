@@ -55,13 +55,43 @@ class TestWorktreeTool:
         specs = [call.args[2] for call in prepare_link.call_args_list]
         assert next(spec for spec in specs if spec.label == 'VS Code').relative_path == REPOSITORY.config.worktrees.vscode_directory
 
-    def test_agent_and_vscode_links_are_data_driven_preserved_specs(self) -> None:
+    def test_shared_directory_specs_are_data_driven(self) -> None:
         specs = worktree_links.shared_directory_specs(REPOSITORY)
-        preserved = {spec.label: spec.relative_path for spec in specs if spec.preserve_existing}
-        assert preserved == {
+        assert {spec.label: spec.relative_path for spec in specs} == {
             'Agent': REPOSITORY.config.worktrees.agent_directory,
             'VS Code': REPOSITORY.config.worktrees.vscode_directory,
+            'Python environment': REPOSITORY.config.worktrees.python_environment,
+            'External dependencies': REPOSITORY.config.worktrees.external_directory,
         }
+
+    def test_prepare_refuses_existing_local_agent_config(self, tmp_path_factory: pytest.TempPathFactory) -> None:
+        root = Path(tmp_path_factory.mktemp('case'))
+        main = root / 'main'
+        linked = root / 'feature'
+        for path in (
+            main / '.agents',
+            main / '.vscode',
+            main / 'Engine' / 'External',
+            main / '.venv',
+            linked / '.agents',
+        ):
+            path.mkdir(parents=True)
+        (linked / '.agents' / 'DevTool.user.json').write_text('{}', encoding='utf-8')
+        worktrees = [Worktree(main, 'main'), Worktree(linked, 'feature')]
+
+        with mock.patch.object(worktree_git, 'get_worktrees', return_value=worktrees), pytest.raises(
+            WorktreeToolError,
+            match='Target Agent already exists',
+        ):
+            worktree_transactions.plan_preparation(
+                linked,
+                source_value=str(main),
+                link_type='auto',
+                repository=REPOSITORY,
+                command_io=CommandIO.system(),
+            )
+
+        assert not (linked / '.agents.pre-link-backup').exists()
 
     def test_remove_refuses_unexpected_directory_links(self, tmp_path_factory: pytest.TempPathFactory) -> None:
         directory = tmp_path_factory.mktemp('case')

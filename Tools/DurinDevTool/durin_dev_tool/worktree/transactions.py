@@ -99,18 +99,7 @@ def plan_preparation(
         raise WorktreeToolError("Prepared source directories are missing:\n" + "\n".join(f"  {item}" for item in missing))
     for item in planned:
         target_path = item.target
-        if item.spec.preserve_existing:
-            backup = target_path.with_name(f"{target_path.name}.pre-link-backup")
-            if (
-                target_path.is_dir()
-                and not links.is_link_like(target_path)
-                and not links.is_empty_directory(target_path)
-                and (backup.exists() or links.is_link_like(backup))
-            ):
-                raise WorktreeToolError(
-                    f'Cannot preserve the existing {item.spec.label} directory because the backup path exists: "{backup}"'
-                )
-        elif target_path.exists() and not links.is_link_like(target_path) and not links.is_empty_directory(target_path):
+        if target_path.exists() and not links.is_link_like(target_path) and not links.is_empty_directory(target_path):
             raise WorktreeToolError(
                 f'Target {item.spec.label} already exists and is not an empty directory or link: "{target_path}"\n'
                 "Move it aside manually if you really want to replace it."

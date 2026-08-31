@@ -38,8 +38,8 @@ same dependency service.
   `Engine/External` store, so first-time configures in linked worktrees cannot
   publish the same package concurrently.
 - The same command links the complete `.agents` directory from that dependency worktree, so machine-local configuration and helper changes are shared immediately.
-- When migrating an existing worktree with a real non-empty `.agents` directory, the helper preserves it as `.agents.pre-link-backup` before creating the link.
-- On Windows, all three shared directories use directory junctions by default; `.agents/DevTool.user.json` remains a regular file in the source worktree and is reached through that shared directory.
+- Preparation refuses an existing non-empty real directory at any shared path; move or remove it explicitly before retrying.
+- On Windows, all four shared directories use directory junctions by default; `.agents/DevTool.user.json` remains a regular file in the source worktree and is reached through that shared directory.
 - Preview the operation with `DevTool worktree prepare --dry-run`.
 - By default, linked Git worktrees pull those links from the main worktree root.
 - Use `--source` when the prepared dependency worktree is not the main worktree root.

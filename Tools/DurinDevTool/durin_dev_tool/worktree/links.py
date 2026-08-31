@@ -18,14 +18,13 @@ from .models import DetachedLink, Worktree, WorktreeToolError
 class SharedDirectorySpec:
     relative_path: Path
     label: str
-    preserve_existing: bool = False
 
 
 def shared_directory_specs(repository: RepositoryContext) -> tuple[SharedDirectorySpec, ...]:
     paths = repository.config.worktrees
     return (
-        SharedDirectorySpec(paths.agent_directory, "Agent", True),
-        SharedDirectorySpec(paths.vscode_directory, "VS Code", True),
+        SharedDirectorySpec(paths.agent_directory, "Agent"),
+        SharedDirectorySpec(paths.vscode_directory, "VS Code"),
         SharedDirectorySpec(paths.python_environment, "Python environment"),
         SharedDirectorySpec(paths.external_directory, "External dependencies"),
     )
@@ -134,43 +133,6 @@ def prepare_directory_link(
     command_io.out(f'Linked {label}: "{target}" -> "{source}"')
 
 
-def prepare_preserved_directory_link(
-    source_root: Path,
-    target_root: Path,
-    *,
-    relative_path: Path,
-    preservation_label: str,
-    link_type: str,
-    dry_run: bool,
-    command_io: CommandIO,
-) -> None:
-    source = (source_root / relative_path).resolve()
-    target = (target_root / relative_path).absolute()
-    backup = target.with_name(f"{target.name}.pre-link-backup")
-    if not source.is_dir():
-        raise WorktreeToolError(f'Source {relative_path.as_posix()} directory does not exist: "{source}"')
-    if target.is_dir() and not is_link_like(target) and not is_empty_directory(target):
-        if backup.exists() or is_link_like(backup):
-            raise WorktreeToolError(
-                f'Cannot preserve the existing {preservation_label} directory because the backup path exists: "{backup}"'
-            )
-        command_io.out(f'Preserving existing {relative_path.as_posix()}: "{target}" -> "{backup}"')
-        if dry_run:
-            command_io.out(f'[dry-run] move "{target}" -> "{backup}"')
-            command_io.out(f'[dry-run] link {relative_path.as_posix()}: "{target}" -> "{source}"')
-            create_directory_link(source, target, link_type=link_type, dry_run=True, command_io=command_io)
-            return
-        target.rename(backup)
-    prepare_directory_link(
-        source,
-        target,
-        label=relative_path.as_posix(),
-        link_type=link_type,
-        dry_run=dry_run,
-        command_io=command_io,
-    )
-
-
 def prepare_shared_directory_link(
     source_root: Path,
     target_root: Path,
@@ -180,25 +142,14 @@ def prepare_shared_directory_link(
     dry_run: bool,
     command_io: CommandIO,
 ) -> None:
-    if spec.preserve_existing:
-        prepare_preserved_directory_link(
-            source_root,
-            target_root,
-            relative_path=spec.relative_path,
-            preservation_label=spec.label,
-            link_type=link_type,
-            dry_run=dry_run,
-            command_io=command_io,
-        )
-    else:
-        prepare_directory_link(
-            source_root / spec.relative_path,
-            target_root / spec.relative_path,
-            label=spec.label,
-            link_type=link_type,
-            dry_run=dry_run,
-            command_io=command_io,
-        )
+    prepare_directory_link(
+        source_root / spec.relative_path,
+        target_root / spec.relative_path,
+        label=spec.label,
+        link_type=link_type,
+        dry_run=dry_run,
+        command_io=command_io,
+    )
 
 
 def require_link_like_status(path: Path) -> bool:

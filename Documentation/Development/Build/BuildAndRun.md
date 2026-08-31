@@ -100,9 +100,9 @@ subprocess; explicit `DevTool dependency prepare` calls recreate the saved
 selection. Both flows are idempotent and can be rerun after an interrupted
 download or build. `DevTool worktree prepare` owns linked-worktree
 preparation: it links `.agents`, `.vscode`, `Engine/External`, and `.venv` from
-the prepared source worktree before running preflight. If a linked worktree
-already has a non-empty local `.agents` or `.vscode` directory, preparation
-preserves it with a `.pre-link-backup` suffix before creating the shared link.
+the prepared source worktree before running preflight. Preparation refuses a
+linked worktree that already has a non-empty local directory at any shared
+path; move or remove that directory explicitly before retrying.
 
 Dependency-backed DurinDevTool commands intentionally require `.venv`; they ask
 for `DevTool setup` in the main checkout or `DevTool worktree prepare` in a
