@@ -140,7 +140,17 @@ class TestVSCodeConfigLifecycle:
                 'stopAtEntry': False,
                 'console': 'integratedTerminal',
                 'MIMode': 'lldb',
-            }
+            },
+            {
+                'name': 'MacOS-arm64-Release-DurinEditor',
+                'type': 'cppdbg',
+                'request': 'launch',
+                'program': '${workspaceFolder}/Engine/Binaries/MacOS/Release/Runtime/DurinEditor/DurinEditor',
+                'cwd': '${workspaceFolder}',
+                'stopAtEntry': False,
+                'console': 'integratedTerminal',
+                'MIMode': 'lldb',
+            },
         ]
 
 class TestBootstrapRegistry:

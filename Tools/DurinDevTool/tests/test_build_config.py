@@ -116,7 +116,10 @@ from durin_dev_tool.build import purge, recovery, runtime
         assert profile.environment_provider is models.EnvironmentProvider.INHERIT
         assert profile.platform == 'MacOS'
         assert profile.default_preset == 'MacOS-arm64-Debug-DurinEditor'
-        assert profile.presets == ('MacOS-arm64-Debug-DurinEditor',)
+        assert profile.presets == (
+            'MacOS-arm64-Debug-DurinEditor',
+            'MacOS-arm64-Release-DurinEditor',
+        )
         assert profile.test_executable_suffix == ''
         assert {'ninja', 'clang', 'xcrun'} <= set(profile.required_commands)
 
@@ -137,13 +140,18 @@ from durin_dev_tool.build import purge, recovery, runtime
         ]
         assert [preset['name'] for preset in macos_presets] == [
             'MacOS-arm64-Debug-DurinEditor',
+            'MacOS-arm64-Release-DurinEditor',
         ]
         presets = config_io.load_configure_presets(BUILD_PATHS.preset_file)
-        default = presets['MacOS-arm64-Debug-DurinEditor']
-        assert selection.preset_cache_string(default, 'CMAKE_BUILD_TYPE') == 'Debug'
-        assert selection.preset_cache_string(default, 'CMAKE_OSX_ARCHITECTURES') == 'arm64'
-        assert selection.preset_cache_string(default, 'DURIN_RUNTIME_VARIANT') == 'DurinEditor'
-        assert not selection.preset_cache_bool(default, 'DURIN_ENABLE_APPLICATION_TESTS')
+        for name, build_type in (
+            ('MacOS-arm64-Debug-DurinEditor', 'Debug'),
+            ('MacOS-arm64-Release-DurinEditor', 'Release'),
+        ):
+            preset = presets[name]
+            assert selection.preset_cache_string(preset, 'CMAKE_BUILD_TYPE') == build_type
+            assert selection.preset_cache_string(preset, 'CMAKE_OSX_ARCHITECTURES') == 'arm64'
+            assert selection.preset_cache_string(preset, 'DURIN_RUNTIME_VARIANT') == 'DurinEditor'
+            assert not selection.preset_cache_bool(preset, 'DURIN_ENABLE_APPLICATION_TESTS')
         base = next(
             item for item in manifest['configurePresets'] if item['name'] == 'macos-base'
         )

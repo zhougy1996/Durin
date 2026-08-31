@@ -139,6 +139,18 @@
         "DURIN_RUNTIME_VARIANT": "DurinEditor",
         "DURIN_ENABLE_APPLICATION_TESTS": "OFF"
       }
+    },
+    {
+      "name": "MacOS-arm64-Release-DurinEditor",
+      "inherits": "macos-base",
+      "binaryDir": "${sourceDir}/Build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/Install/${presetName}",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "DURIN_RUNTIME_VARIANT": "DurinEditor",
+        "DURIN_ENABLE_APPLICATION_TESTS": "OFF"
+      }
     }
   ]
 }

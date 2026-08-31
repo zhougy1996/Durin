@@ -462,10 +462,7 @@ A Release Editor preset is therefore a periodic or risk-triggered lane, not a
 mandatory companion to every Debug Editor build. Broad runtime and
 configuration matrices belong in a designated integration or qualification
 checkout after the changes under test coexist. Feature worktrees should not
-retain non-default build trees merely because the presets are registered. A
-host profile with only one registered preset, such as the current macOS
-profile, uses that preset for routine and handoff validation until another
-qualification lane is registered.
+retain non-default build trees merely because the presets are registered.
 
 ### Selecting a Non-Default Preset
 
@@ -476,6 +473,7 @@ is not the intended target:
 .\DevTool.bat build --preset Win64-Release-DurinEditor --target all
 .\DevTool.bat rebuild --preset Win64-Shipping-DurinGame --target all
 .\DevTool.bat build --preset Win64-Release-DurinEditor-Profiling --target all
+./DevTool build --preset MacOS-arm64-Release-DurinEditor --target all
 ```
 
 `CMakePresets.json` remains the configuration source of truth.

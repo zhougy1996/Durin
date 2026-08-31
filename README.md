@@ -81,12 +81,13 @@ Build the complete editor runtime, then run it on Windows:
 .\DevTool.bat run
 ```
 
-On macOS, use the extensionless launcher. The available preset is
-`MacOS-arm64-Debug-DurinEditor`:
+On macOS, use the extensionless launcher. Debug remains the default; select
+`MacOS-arm64-Release-DurinEditor` explicitly for optimized Editor builds:
 
 ```bash
 ./DevTool status
 ./DevTool build --target all
+./DevTool build --preset MacOS-arm64-Release-DurinEditor --target all
 ```
 
 For the current macOS qualification scope and known runtime limitations, see
