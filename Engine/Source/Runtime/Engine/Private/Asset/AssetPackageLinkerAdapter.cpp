@@ -692,21 +692,23 @@ namespace Durin::Asset::Private
 				}
 				Result.Schemas.push_back(std::move(Decoded));
 			}
-			for (size_t Index = 0; Index < Input.Objects.size(); ++Index)
+			const auto Objects = std::span(Input.Objects);
+			for (size_t Index = 0; Index < Objects.size(); ++Index)
 			{
-				const auto& Object = Input.Objects[Index];
+				const auto& Object = Objects[Index];
 				uint64 OuterId = 0;
 				if (!Object.OuterPath.empty())
 				{
+					const auto PriorObjects = Objects.first(Index);
 					const auto Outer = std::ranges::find(
-						std::span(Input.Objects).first(Index), Object.OuterPath,
+						PriorObjects, Object.OuterPath,
 						&FObjectDescriptor::Path);
-					if (Outer == std::span(Input.Objects).first(Index).end())
+					if (Outer == PriorObjects.end())
 					{
 						OutError = "Live linker object Outer follows its child.";
 						return false;
 					}
-					OuterId = std::distance(Input.Objects.begin(), Outer) + 1;
+					OuterId = std::distance(PriorObjects.begin(), Outer) + 1;
 				}
 				Result.Objects.push_back({Index + 1, OuterId, Object.Path,
 					Object.ClassName, Object.ObjectName});
