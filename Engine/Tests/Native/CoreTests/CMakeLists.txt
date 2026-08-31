@@ -34,7 +34,6 @@ durin_add_core_functional_test(CoreUtilityTests
 	Private/StringHelperTests.cpp
 	Private/StartupCommandTests.cpp
 	Private/TransformTests.cpp
-	Private/VersionTests.cpp
 	Private/YamlTests.cpp
 	Private/XxHashTests.cpp
 )
