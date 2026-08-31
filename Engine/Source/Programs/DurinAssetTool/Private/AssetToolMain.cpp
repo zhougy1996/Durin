@@ -465,11 +465,11 @@ namespace
 			FJsonNodeRef PackageNode = PackageArray.AppendObject();
 			PackageNode.SetChildValue("packagePath", Package.Input->PackagePath.GetView());
 			PackageNode.SetChildValue("physicalPath", Package.Input->PhysicalPath);
-			PackageNode.SetChildValue("fileSize", Package.Input->ExpectedFileSize);
+			PackageNode.SetChildValue("fileSize", static_cast<uint64>(Package.Input->ExpectedFileSize));
 			PackageNode.SetChildValue("inspection", Package.Result ? "Ready" : "Failed");
 			PackageNode.SetChildValue("diagnostic", Package.Result.Message);
 			PackageNode.SetChildValue("formatVersion", Package.Inspection.Header.FormatVersion);
-			PackageNode.SetChildValue("fileBytesRead", Package.Input->ExpectedFileSize);
+			PackageNode.SetChildValue("fileBytesRead", static_cast<uint64>(Package.Input->ExpectedFileSize));
 
 			FJsonNodeRef InspectionTimes = PackageNode.AddArray("inspectionNanoseconds");
 			for (const uint64 Nanoseconds : Package.InspectionNanoseconds)
