@@ -9,7 +9,6 @@ from typing import Any, Sequence
 from ..context import RepositoryContext
 
 from rich.markup import escape
-from rich.table import Table
 from rich.text import Text
 
 from .build_context import BuildContext, create_build_context, derive_build_context
@@ -136,15 +135,7 @@ def show_presets(output: BuildOutput, context: BuildContext, current_preset: str
             suffix = f' [{", ".join(markers)}]' if markers else ""
             output.info(escape(f"  {index:>2}  {preset}{suffix}"))
         return
-    table = Table(
-        title="Registered presets",
-        title_style="bold cyan",
-        header_style="bold white",
-        border_style="bright_black",
-    )
-    table.add_column("#", justify="right", style="cyan")
-    table.add_column("Preset")
-    table.add_column("State")
+    rows: list[tuple[str, object]] = []
     for index, preset in enumerate(context.profile.presets, start=1):
         markers = Text()
         if preset == context.profile.default_preset:
@@ -157,8 +148,12 @@ def show_presets(output: BuildOutput, context: BuildContext, current_preset: str
             preset,
             style="bold green" if preset == current_preset else "",
         )
-        table.add_row(str(index), preset_text, markers)
-    output.console.print(table)
+        if markers:
+            preset_text.append("  [")
+            preset_text.append_text(markers)
+            preset_text.append("]")
+        rows.append((str(index), preset_text))
+    output.key_values("Registered presets", rows)
 
 
 def resolve_shell_preset(value: str, context: BuildContext) -> str:
@@ -256,12 +251,7 @@ def show_status(output: BuildOutput, context: BuildContext) -> None:
         for label, value in values.items():
             output.info(f"{label}: {value}")
         return
-    table = Table(title="DurinDevTool build status")
-    table.add_column("Setting", style="bold cyan")
-    table.add_column("Value")
-    for label, value in values.items():
-        table.add_row(label, str(value))
-    output.console.print(table)
+    output.key_values("DurinDevTool build status", values)
 
 
 def show_locations(output: BuildOutput, context: BuildContext) -> None:
@@ -278,12 +268,10 @@ def show_locations(output: BuildOutput, context: BuildContext) -> None:
         for location in locations:
             output.raw_line(f"{location.spec.name}\t{location.path}")
         return
-    table = Table(title="DurinDevTool locations")
-    table.add_column("Location", style="bold cyan")
-    table.add_column("Path")
-    for location in locations:
-        table.add_row(location.spec.name, str(location.path))
-    output.console.print(table)
+    output.key_values(
+        "DurinDevTool locations",
+        [(location.spec.name, location.path) for location in locations],
+    )
 
 
 def execute_location_request(

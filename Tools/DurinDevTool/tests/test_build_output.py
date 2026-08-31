@@ -4,10 +4,41 @@ import io
 import os
 from pathlib import Path
 from unittest import mock
-from durin_dev_tool.build import errors, models, requests
+from durin_dev_tool.build import build_context, errors, models, requests
 from durin_dev_tool.build.output import BuildOutput
 
 class TestOutput:
+
+    def test_styled_context_has_no_side_borders_or_truncated_values(self) -> None:
+        stdout = io.StringIO()
+        output = BuildOutput(
+            stdout=stdout,
+            stderr=io.StringIO(),
+            force_terminal=True,
+        )
+        preset = request_fixtures.make_preset()
+        context = build_context.BuildContext(
+            request_fixtures.command_request(models.Action.BUILD),
+            models.LocalConfig(),
+            request_fixtures.make_profile(),
+            {preset.name: preset},
+            preset,
+            "windows",
+            cmake="cmake",
+            jobs=14,
+        )
+        long_build_directory = Path("D:/") / ("long-build-directory-" * 8)
+
+        with mock.patch(
+            "durin_dev_tool.build.output.preset_build_directory",
+            return_value=long_build_directory,
+        ):
+            output.context(context)
+
+        text = stdout.getvalue()
+        assert str(long_build_directory) in text
+        assert "…" not in text
+        assert "│" not in text
 
     def test_plain_output_has_no_ansi_sequences(self) -> None:
         stdout = io.StringIO()
@@ -142,6 +173,33 @@ class TestOutput:
         assert 'cmake --build Build' in text
         assert 'Exit code: 1' in text
         assert 'fix the compiler error' in text
+
+    def test_styled_failure_has_no_side_borders_or_truncated_values(self) -> None:
+        stderr = io.StringIO()
+        output = BuildOutput(
+            stdout=io.StringIO(),
+            stderr=stderr,
+            force_terminal=True,
+        )
+        long_command = "cmake --build " + ("long-build-directory/" * 8)
+        long_log_path = Path("D:/") / ("long-log-directory-" * 8) / "build.log"
+        error = errors.BuildToolError(
+            "compile failed",
+            command=long_command.split(),
+            exit_code=1,
+            recovery="rerun the complete build",
+            output_excerpt="compiler output from a child process",
+            log_path=long_log_path,
+        )
+
+        output.failure(error, None, 2.5)
+
+        text = stderr.getvalue()
+        assert long_command in text
+        assert str(long_log_path) in text
+        assert "compiler output from a child process" in text
+        assert "…" not in text
+        assert "│" not in text
 
     def test_failure_without_derived_context_uses_available_request_details(self) -> None:
         stderr = io.StringIO()

@@ -6,11 +6,9 @@ import sys
 import threading
 from contextlib import contextmanager
 from time import perf_counter
-from typing import Iterator, Mapping, TextIO
+from typing import Iterator, Mapping, Sequence, TextIO
 
 from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
 from rich.text import Text
 
 from .build_context import BuildContext
@@ -159,6 +157,53 @@ class BuildOutput:
             self.console.print(f"[dim]$ {command}[/dim]")
             self.flush()
 
+    @staticmethod
+    def _print_rule(console: Console, title: str, color: str) -> None:
+        console.rule(Text(title, style=f"bold {color}"), style=color)
+
+    @staticmethod
+    def _print_key_value_lines(
+        console: Console,
+        rows: Sequence[tuple[str, object]],
+        *,
+        label_style: str,
+    ) -> None:
+        if not rows:
+            return
+        label_width = max(len(label) for label, _value in rows)
+        for label, value in rows:
+            line = Text()
+            line.append(f"{label:<{label_width}}", style=label_style)
+            line.append("  ")
+            if isinstance(value, Text):
+                line.append_text(value)
+            else:
+                line.append(str(value))
+            console.print(line, soft_wrap=True)
+
+    def key_values(
+        self,
+        title: str,
+        rows: Mapping[str, object] | Sequence[tuple[str, object]],
+        *,
+        error: bool = False,
+        color: str = "cyan",
+    ) -> None:
+        items = list(rows.items()) if isinstance(rows, Mapping) else list(rows)
+        console = self.error_console if error else self.console
+        if self.plain:
+            console.print(Text(title))
+            for label, value in items:
+                console.print(Text(f"  {label}: {value}"), soft_wrap=True)
+        else:
+            self._print_rule(console, title, color)
+            self._print_key_value_lines(
+                console,
+                items,
+                label_style=f"bold {color}",
+            )
+        self.flush()
+
     def child_output(
         self,
         text: str,
@@ -248,13 +293,7 @@ class BuildOutput:
                 self.console.print(f"  {label}: {value}")
             self.flush()
             return
-        table = Table.grid(padding=(0, 1))
-        table.add_column(style="bold cyan")
-        table.add_column()
-        for label, value in rows.items():
-            table.add_row(label, str(value))
-        self.console.print(Panel(table, title="DurinDevTool", border_style="cyan"))
-        self.flush()
+        self.key_values("DurinDevTool", rows)
     @contextmanager
     def stage(self, title: str) -> Iterator[None]:
         started = perf_counter()
@@ -326,20 +365,21 @@ class BuildOutput:
             return
 
         if error.output_excerpt:
+            self._print_rule(self.error_console, "Child output excerpt", "red")
             self.error_console.print(
-                Panel(
-                    Text(error.output_excerpt),
-                    title="Child output excerpt",
-                    border_style="red",
-                )
+                Text(error.output_excerpt),
+                soft_wrap=True,
             )
-        body = Text()
-        body.append(str(error), style="bold red")
-        for label, value in details:
-            body.append(f"\n{label}: ", style="bold")
-            body.append(value)
+        self._print_rule(self.error_console, title, "red")
+        self.error_console.print(Text(str(error), style="bold red"), soft_wrap=True)
+        self._print_key_value_lines(
+            self.error_console,
+            details,
+            label_style="bold",
+        )
         if error.recovery:
-            body.append("\nRecovery: ", style="bold yellow")
-            body.append(error.recovery)
-        self.error_console.print(Panel(body, title=title, border_style="red"))
+            recovery = Text("Recovery", style="bold yellow")
+            recovery.append("  ")
+            recovery.append(error.recovery)
+            self.error_console.print(recovery, soft_wrap=True)
         self.flush()
