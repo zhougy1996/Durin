@@ -5,7 +5,6 @@
 #include "AssetCook.h"
 #include "AssetMaintenance/CanonicalResave.h"
 #include "AssetMaintenance/CompatibilityAudit.h"
-#include "AssetMaintenance/PackageMigration.h"
 #include "Asset/AssetSaveReadiness.h"
 
 #include "Asset/EditorBulkDataStorage.h"
@@ -59,7 +58,6 @@ namespace
 	{
 		Check,
 		Resave,
-		MigrateV8,
 		StorageInventory,
 		Cook,
 	};
@@ -96,7 +94,6 @@ namespace
 		{
 		case EOperation::Check: return "check";
 		case EOperation::Resave: return "resave";
-		case EOperation::MigrateV8: return "migrate-v8";
 		case EOperation::StorageInventory: return "storage-inventory";
 		case EOperation::Cook: return "cook";
 		}
@@ -147,8 +144,6 @@ namespace
 			<< "  DurinAssetTool check --project=<project.dproject> [--json]\n"
 			<< "  DurinAssetTool resave --project=<project.dproject> <scope>... [--apply] [--json]\n"
 			<< "  DurinAssetTool resave --project=<project.dproject> --all [--apply] [--json]\n"
-			<< "  DurinAssetTool migrate-v8 --project=<project.dproject> <scope>... [--apply] [--json]\n"
-			<< "  DurinAssetTool migrate-v8 --project=<project.dproject> --all [--apply] [--json]\n"
 			<< "  DurinAssetTool storage-inventory --project=<project.dproject>\n"
 			<< "  DurinAssetTool cook --project=<project.dproject> --output=<absolute-path> "
 			<< "--target=win64 --profile=game [--root=/Game/Path]... "
@@ -184,8 +179,7 @@ namespace
 								| OptionBit(EOption::Target) | OptionBit(EOption::Profile)
 								| OptionBit(EOption::Root) | OptionBit(EOption::NoIncremental)
 								| OptionBit(EOption::DryRun);
-		const uint16 Allowed = (Options.Operation == EOperation::Resave
-			|| Options.Operation == EOperation::MigrateV8) ? Resave : Options.Operation == EOperation::Check ? Check :
+		const uint16 Allowed = Options.Operation == EOperation::Resave ? Resave : Options.Operation == EOperation::Check ? Check :
 																			  Options.Operation == EOperation::Cook		 ? Cook :
 																														   Storage;
 		const uint16 Unexpected = Options.SpecifiedOptions & ~Allowed;
@@ -219,8 +213,7 @@ namespace
 			}
 			return true;
 		}
-		if (Options.Operation != EOperation::Resave
-			&& Options.Operation != EOperation::MigrateV8) return true;
+		if (Options.Operation != EOperation::Resave) return true;
 		if (Options.Scopes.empty() && !Options.bWholeProject)
 		{
 			OutError = std::format("{} requires at least one scope or --all.",
@@ -253,8 +246,6 @@ namespace
 			OutOptions.Operation = EOperation::Check;
 		else if (Command == "resave")
 			OutOptions.Operation = EOperation::Resave;
-		else if (Command == "migrate-v8")
-			OutOptions.Operation = EOperation::MigrateV8;
 		else if (Command == "storage-inventory")
 			OutOptions.Operation = EOperation::StorageInventory;
 		else if (Command == "cook")
@@ -652,96 +643,6 @@ namespace
 		return 0;
 	}
 
-	auto MatchesVirtualPrefix(
-		const Durin::Asset::FAssetPackageCompatibilityProbeInput& Input,
-		std::string_view Prefix) -> bool
-	{
-		const std::string_view Path = Input.PackagePath.GetView();
-		return Path.starts_with(Prefix) && Path.size() > Prefix.size()
-			&& Path[Prefix.size()] == '/';
-	}
-
-	auto RunPackageMigrationV8(const FOptions& Options) -> int
-	{
-		using namespace Durin::Asset;
-		FAssetPackageDiscoverySnapshot Snapshot = CaptureMountedAssetPackageSnapshot(
-			[] { return GCancelled.load(std::memory_order_relaxed); });
-		if (Snapshot.Status == EAssetPackageSnapshotStatus::Cancelled) return 130;
-		if (Snapshot.Status == EAssetPackageSnapshotStatus::Failed)
-		{
-			std::cerr << "Error: " << Snapshot.Error << '\n';
-			return 1;
-		}
-		std::vector<FAssetPackageCompatibilityProbeInput> Selected;
-		if (Options.bWholeProject) Selected = std::move(Snapshot.Packages);
-		else
-		{
-			for (const std::string& Scope : Options.Scopes)
-			{
-				if (!IsValidVirtualPrefix(Scope))
-				{
-					std::cerr << "Error: invalid scope '" << Scope << "'.\n";
-					return 2;
-				}
-				bool bMatched = false;
-				for (const auto& Input : Snapshot.Packages)
-					if (Input.PackagePath.GetView() == Scope
-						|| MatchesVirtualPrefix(Input, Scope))
-					{
-						bMatched = true;
-						if (std::ranges::find(Selected, Input.PackagePath,
-							&FAssetPackageCompatibilityProbeInput::PackagePath)
-							== Selected.end()) Selected.push_back(Input);
-					}
-				if (!bMatched)
-				{
-					std::cerr << "Error: scope '" << Scope
-						<< "' matched no discovered package.\n";
-					return 1;
-				}
-			}
-		}
-		FAssetPackageMigrationPlan Plan = PlanAssetPackageMigrationV8(
-			Selected, [] { return GCancelled.load(std::memory_order_relaxed); });
-		if (Plan.Status == EAssetPackageMigrationPlanStatus::Cancelled) return 130;
-		if (Options.bApply)
-		{
-			FAssetPackageMigrationApplyResult Applied = ApplyAssetPackageMigrationV8(
-				std::move(Plan), {},
-				[] { return GCancelled.load(std::memory_order_relaxed); });
-			if (Options.Format == EOutputFormat::Json)
-				std::cout << SerializeAssetPackageMigrationApplyReport(Applied) << '\n';
-			else
-				std::cout << "migrate-v8 apply: " << Applied.ChangedPaths.size()
-					<< " path(s) changed; " << Applied.Diagnostic << '\n';
-			if (Applied.Status == EAssetPackageMigrationApplyStatus::Cancelled) return 130;
-			return Applied.Status == EAssetPackageMigrationApplyStatus::Succeeded ? 0 : 1;
-		}
-		if (Options.Format == EOutputFormat::Json)
-			std::cout << SerializeAssetPackageMigrationPlanReport(Plan) << '\n';
-		else
-		{
-			const auto Ready = std::ranges::count(Plan.Packages,
-				EAssetPackageMigrationStatus::Ready,
-				&FAssetPackageMigrationRecord::Status);
-			const auto Current = std::ranges::count(Plan.Packages,
-				EAssetPackageMigrationStatus::AlreadyV8,
-				&FAssetPackageMigrationRecord::Status);
-			const auto Blocked = Plan.Packages.size() - Ready - Current;
-			std::cout << "migrate-v8 plan: " << Ready << " ready, "
-				<< Current << " already v8, " << Blocked << " blocked, "
-				<< Plan.Packages.size() << " selected\n";
-			for (const auto& Package : Plan.Packages)
-				if (!Package.Diagnostic.empty())
-					std::cout << "  " << Package.PackagePath.ToString() << ": "
-						<< Package.Diagnostic << '\n';
-		}
-		return std::ranges::any_of(Plan.Packages, [](const auto& Package) {
-			return Package.Status != EAssetPackageMigrationStatus::Ready
-				&& Package.Status != EAssetPackageMigrationStatus::AlreadyV8;
-		}) ? 1 : 0;
-	}
-
 	auto PrintCompatibilityCheck(
 		std::span<const Durin::Asset::FAssetPackageCompatibilityRecord> Records
 	) -> void
@@ -959,10 +860,6 @@ int main(int ArgC, char** ArgV)
 		std::cerr << "Error: " << Error << '\n';
 		return 1;
 	}
-	// The migration host ends here: it needs project mounts and filesystem I/O,
-	// but deliberately never initializes DObject, Engine reflection, or editor services.
-	if (Options.Operation == EOperation::MigrateV8)
-		return RunPackageMigrationV8(Options);
 	Durin::DObjectInit();
 	struct FScopedEditorServices final
 	{

@@ -74,34 +74,6 @@ COMMAND_SPEC = CommandSpec(
             ),
         ),
         CommandSpec(
-            "migrate-v8",
-            "preview or apply the bounded offline DAST v8 migration",
-            HANDLER,
-            required_modules=("rich",),
-            arguments=CONTEXT_ARGUMENTS
-            + (
-                argument(
-                    "scopes",
-                    nargs="*",
-                    metavar="SCOPE",
-                    help="package or package-tree path such as /Game/Characters",
-                ),
-                PROJECT_ARGUMENT,
-                argument(
-                    "--all",
-                    dest="whole_project",
-                    action="store_true",
-                    help="select the whole project",
-                ),
-                argument(
-                    "--apply",
-                    action="store_true",
-                    help="write the previewed v8 conversions",
-                ),
-                JSON_ARGUMENT,
-            ),
-        ),
-        CommandSpec(
             "storage",
             "measure authored package storage",
             STORAGE_HANDLER,

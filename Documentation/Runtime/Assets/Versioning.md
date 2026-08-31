@@ -1,6 +1,6 @@
 # Versioning
 
-Summary: Define engine release, Archive, authored package, custom-version, and offline compatibility contracts.
+Summary: Define engine release, Archive, authored package, custom-version, and compatibility contracts.
 
 Modules: Core, CoreDObject, Engine, AssetRegistry, AssetMaintenance
 
@@ -77,35 +77,24 @@ Raw `.dbulk` is not a DURF format. DAST v8 Registry and Bulk Directory own its
 extent, whole-segment digest, field ranges, alignments, and per-value digests.
 Asset-family payload schemas and DDC/Cook keys version independently.
 
-## Offline V7-To-V8 Boundary
+## Retired Package Formats
 
 The maintained repository baseline is canonical v8. V7 is not a supported
-production reader, writer, mutation route, or runtime fallback. It is accepted
-only as explicit detached input to the bounded construct-free converter in
-AssetRegistry, orchestrated by `AssetMaintenance/PackageMigration.h`.
-
-The converter validates the complete v7 main/raw-bulk closure, rejects
-ambiguous, retained-unknown, unsupported, corrupt, or incomplete input, adapts
-supported facts to format-neutral linker tables, and emits only through the v8
-writer. Plan/apply records bind exact source and target fingerprints; apply
-rechecks stale inputs, reconverts, validates byte-identical v8 re-emission, and
-rolls back publication failure. Ordinary discovery, load, editor startup,
-audit, Cook, and resave never invoke conversion implicitly.
-
-The converter and its focused fixtures remain only to service an explicit
-offline migration command. This is a bounded compatibility capability, not a
-general migration graph or a promise to load arbitrary historical projects.
+reader, writer, discovery, mutation, migration, or runtime fallback. The
+completed corpus migration removed its decoder, adapter, command route, and
+focused fixtures. A mounted non-v8 package fails Registry admission before it
+can publish catalog state.
 
 ## Early-Development Compatibility
 
 Until Durin makes an explicit external compatibility commitment, the
 repository keeps one authored `.dasset` baseline. A future format change first
 inventories real source content and receives a scoped plan. If conversion is
-required, that plan adds only the exact offline converter justified by the
-source corpus, rewrites the tracked corpus explicitly, verifies the restart and
-baseline boundary, and removes obsolete production readers in the same bounded
-effort. Runtime never retains a data-loss save permission or partial-compatibility
-object graph.
+required, that plan adds only the exact temporary offline converter justified
+by the source corpus, rewrites the tracked corpus explicitly, verifies the
+restart and baseline boundary, and removes the converter and obsolete readers
+after the baseline is proven. Runtime never retains a data-loss save permission
+or partial-compatibility object graph.
 
 External-project support windows, release deprecation policy, and downloadable
 migration bundles require a separate release-level decision.

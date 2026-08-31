@@ -310,7 +310,7 @@ namespace Durin::Asset::PackageObjectStream
 		std::vector<FDecodedObjectValues> ObjectValues;
 	};
 
-	// Reuses CoreDObject's canonical writer for a validated decoded v7 Map key.
+	// Builds the stable authored-ledger token for a validated decoded Map key.
 	ASSETREGISTRY_API auto BuildCanonicalMapKeyToken(
 		const FDecodedPackage& Package,
 		const FDecodedType& Type,
@@ -346,11 +346,6 @@ namespace Durin::Asset::PackageObjectStream
 	ASSETREGISTRY_API auto ReencodePackage(const FDecodedPackage& Package,
 		std::vector<std::byte>& OutBytes,
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> bool;
-	// Validates a complete DAST v7 envelope and reconstructs its canonical
-	// construct-free logical object stream.
-	ASSETREGISTRY_API auto ExtractDastObjectStream(
-		std::span<const std::byte> PackageBytes,
-		std::vector<std::byte>& OutObjectStream) -> FAssetResult;
 	ASSETREGISTRY_API auto ResetReencodeCountForTesting() -> void;
 	ASSETREGISTRY_API auto GetReencodeCountForTesting() -> uint64;
 }

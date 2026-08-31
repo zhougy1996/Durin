@@ -4,6 +4,7 @@
 #include "DObject/PackageFormat.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Serialization/BinaryEnvelope.h"
 #include "Serialization/BinaryFormat.h"
 #include "Misc/MountPathTestSupport.h"
 #include "NativeDObjectTestSupport.h"
@@ -87,6 +88,27 @@ TEST(FPackageRegistryContractTests, V8ProjectionRequiresIdentityAndExactBulkExte
 		std::span(Main).first(static_cast<size_t>(HeaderBytes)), Main.size(), 1, Correct, Header));
 	EXPECT_FALSE(Asset::ReadAssetPackageHeaderBytes(
 		std::span(Main).first(static_cast<size_t>(HeaderBytes)), Main.size(), 0, Wrong, Header));
+}
+
+TEST(FPackageRegistryContractTests, ProductionProjectionRejectsRetiredV7)
+{
+	Durin::Testing::InitializeDObjectSystemForTests();
+	Durin::Testing::FScopedMountRegistryFixture Mounts;
+	Durin::Testing::RegisterMountPointForTests("/Game/", ".");
+	std::array<std::byte, Durin::BinaryEnvelopePreambleBytes> Retired{};
+	const Durin::FBinaryEnvelopePreamble Preamble{
+		.FormatId = Asset::DastBinaryFormatId,
+		.FormatVersion = 7,
+		.HeaderBytes = Retired.size(),
+		.FileBytes = Retired.size()};
+	ASSERT_TRUE(Durin::EncodeBinaryEnvelopePreamble(Preamble, Retired));
+	ASSERT_TRUE(Durin::FinalizeBinaryEnvelopeHeader(Retired, Retired.size(),
+		{16ull * 1024ull * 1024ull, 1024ull * 1024ull * 1024ull}));
+	Asset::FAssetPackageHeader Header;
+	const Asset::FAssetResult Result = Asset::ReadAssetPackageHeaderBytes(
+		Retired, Retired.size(), 0, Path("/Game/Retired"), Header);
+	EXPECT_EQ(Result.Error, Asset::EAssetError::UnsupportedVersion);
+	EXPECT_EQ(Header.FormatVersion, 0u);
 }
 
 TEST(FPackageRegistryContractTests, RefreshUsesOnlyFrontMatterAndOnePackageMetadataCache)

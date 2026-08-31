@@ -26,7 +26,7 @@ from .runtime_program import (
 
 POLICY_EXIT_CODE = 3
 SCHEMA_VERSION = 3
-CURRENT_ASSET_FORMAT_VERSION = 7
+CURRENT_ASSET_FORMAT_VERSION = 8
 SCHEMA_DIRECTORY = Path(__file__).resolve().parents[1] / "schemas"
 ASSET_EXECUTABLE = ExecutableDescription(
     "Asset maintenance", "DurinAssetTool", "DurinAssetTool"
@@ -212,12 +212,12 @@ def _run_check(
         if _baseline_failed(report):
             _render_human(report, stdout)
             print(
-                "\nAsset baseline rejected: every package must be current DAST v7 "
+                "\nAsset baseline rejected: every package must be current DAST v8 "
                 "with no compatibility or resave findings.",
                 file=stdout,
             )
         else:
-            print(f"Asset baseline: {len(report['packages'])} current DAST v7 package(s).", file=stdout)
+            print(f"Asset baseline: {len(report['packages'])} current DAST v8 package(s).", file=stdout)
     else:
         _render_human(report, stdout)
     if is_baseline:
@@ -266,46 +266,6 @@ def _run_resave(
     return 0
 
 
-def _run_migrate_v8(
-    namespace: argparse.Namespace,
-    *,
-    selection: RuntimeSelection,
-    repository: RepositoryContext,
-    executable: Path,
-    stdout: TextIO,
-    stderr: TextIO,
-    command_runner: Callable[..., str] | None,
-) -> int:
-    scopes = tuple(getattr(namespace, "scopes", ()) or ())
-    whole_project = bool(getattr(namespace, "whole_project", False))
-    if whole_project and scopes:
-        raise DevToolError("Asset migrate-v8 accepts either scopes or --all, not both.")
-    if not whole_project and not scopes:
-        raise DevToolError("Asset migrate-v8 requires at least one scope or --all.")
-
-    project = _project_from_namespace(namespace, repository)
-    arguments = ["migrate-v8", f"--project={project}"]
-    arguments.extend(scopes)
-    if whole_project:
-        arguments.append("--all")
-    if bool(getattr(namespace, "apply", False)):
-        arguments.append("--apply")
-    if getattr(namespace, "format_name", "human") == "json":
-        arguments.append("--json")
-    native_output = _invoke_asset_program(
-        selection,
-        executable,
-        arguments,
-        stderr=stderr,
-        interruption_message="Asset v8 migration cancelled.",
-        command_runner=command_runner,
-    )
-    if native_output is None:
-        return 130
-    print(native_output, end="" if native_output.endswith("\n") else "\n", file=stdout)
-    return 0
-
-
 def run(
     namespace: argparse.Namespace,
     *,
@@ -344,16 +304,6 @@ def run(
         )
     if command == "resave":
         return _run_resave(
-            namespace,
-            selection=selection,
-            repository=repository,
-            executable=executable,
-            stdout=stdout,
-            stderr=stderr,
-            command_runner=command_runner,
-        )
-    if command == "migrate-v8":
-        return _run_migrate_v8(
             namespace,
             selection=selection,
             repository=repository,

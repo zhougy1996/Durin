@@ -23,6 +23,10 @@ Completed: 2026-08-31
   Cook relocation, external BulkData resource binding and recovery, inactive
   mount isolation, and canonical-resave reporting. All native, build,
   maintained-corpus, retired-route, and documentation gates pass.
+- 2026-08-31: A later post-completion cleanup revalidated the maintained v8
+  corpus and removed the temporary offline v7 converter, migration command,
+  orchestration, and focused fixtures. The gates below record the state at this
+  plan's original completion.
 
 ## Current Status
 

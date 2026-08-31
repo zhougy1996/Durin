@@ -161,7 +161,7 @@ namespace
 	static_assert(Durin::Asset::IsSupportedAssetPackageReaderVersion(
 		Durin::Asset::AssetPackageV8FormatVersion));
 	static_assert(!Durin::Asset::IsSupportedAssetPackageReaderVersion(
-		Durin::Asset::AssetPackageV7FormatVersion));
+		7u));
 
 	auto RelocateAssetsForTest(
 		std::span<const Durin::Asset::FAssetRelocationMapping> Mappings
@@ -2102,7 +2102,7 @@ TEST(FPackageAssetTests, PackageCodecPolicyIsCompleteUniqueAndIndependentOfWireV
 	std::string Error;
 	EXPECT_TRUE(Durin::Asset::ValidateAssetPackageVersionPolicy(Error)) << Error;
 	EXPECT_NE(Durin::Asset::AssetPackageReaderPolicyFingerprint,
-		Durin::Asset::AssetPackageV7FormatVersion);
+		7u);
 	EXPECT_TRUE(Durin::Asset::DastBinaryFormatId.IsValid());
 	EXPECT_EQ(Durin::Asset::DastBinaryFormatId,
 		(Durin::FGuid{0x3c59d1a9, 0x6ceb4e4c, 0xb059452d, 0xb0a5af56}));
@@ -2165,7 +2165,7 @@ TEST(FPackageAssetTests, EnvelopeDispatchUsesPermanentIdentityAndFailsBeforeCode
 	std::array<std::byte, BinaryEnvelopePreambleBytes> Unknown{};
 	const FBinaryEnvelopePreamble UnknownPreamble{
 		.FormatId = {1, 2, 3, 4},
-		.FormatVersion = AssetPackageV7FormatVersion,
+		.FormatVersion = 7,
 		.HeaderBytes = Unknown.size(),
 		.FileBytes = Unknown.size()};
 	ASSERT_TRUE(EncodeBinaryEnvelopePreamble(UnknownPreamble, Unknown));

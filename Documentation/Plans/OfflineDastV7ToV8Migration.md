@@ -17,6 +17,11 @@ no-ops. CoreDObject, AssetRegistry, AssetMaintenance, DurinAssetTool, and Engine
 consumers compile without executing Engine. P5 now owns live linker application,
 the atomic Engine writer/reader cutover, and removal of the remaining v7 live path.
 
+Post-completion cleanup on 2026-08-31 revalidated the complete v8 corpus and
+removed the temporary converter, command route, AssetMaintenance orchestration,
+and focused v7 fixtures. The implementation details below remain historical
+evidence for the completed one-time transition.
+
 ## Maintained Corpus Migration Report
 
 Applied 2026-08-31 with report schema 1. All 25 records reached `Converted`;
@@ -241,7 +246,8 @@ P5 can remove the remaining Engine v7 live path without another corpus rewrite.
 
 ## Related Code and Documentation
 
-- [v7 linker adapter](../../Engine/Source/Runtime/AssetRegistry/Private/PackageLinkerV7Adapter.h)
+- Retired historical path:
+  `Engine/Source/Runtime/AssetRegistry/Private/PackageLinkerV7Adapter.h`
 - [CoreDObject package format](../../Engine/Source/Runtime/CoreDObject/Public/DObject/PackageFormat.h)
 - [AssetMaintenance](../../Engine/Source/Developer/AssetMaintenance)
 - [DurinAssetTool](../../Engine/Source/Programs/DurinAssetTool)

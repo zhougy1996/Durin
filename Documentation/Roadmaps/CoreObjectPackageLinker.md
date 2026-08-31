@@ -15,6 +15,9 @@ Completed: 2026-08-31
   offline migration, 81-target ordinary native aggregate, full build,
   documentation lifecycle, maintained-corpus, and retired-route gates. The
   Core Object Package Linker program is complete.
+- 2026-08-31: Post-completion cleanup confirmed all 25 maintained packages and
+  eight bulk companions are canonical v8, then removed the temporary v7
+  decoder, adapter, migration command, orchestration, and focused fixtures.
 
 ## Current Status
 

@@ -39,29 +39,3 @@ namespace Durin::Asset
 		const FAssetPath& PackagePath,
 		FAssetPackageHeader& OutHeader) -> FAssetResult;
 }
-
-namespace Durin::Asset::Dast
-{
-	struct FPublicSummary
-	{
-		EAssetRegistryEntryKind EntryKind = EAssetRegistryEntryKind::Asset;
-		uint32 MainExportIndex = 0;
-		std::string AssetClass;
-		std::string RedirectDestination;
-		std::vector<std::string> Imports;
-		uint64 ExportCount = 0;
-		uint64 PayloadCount = 0;
-		uint64 BulkSegmentExtent = 0;
-		FXxHash128 BulkSegmentDigest;
-	};
-
-	// Canonical decoder shared by registry header inspection and Engine's full
-	// DAST reader. The two sections must already have passed envelope bounds and
-	// hash validation.
-	ASSETREGISTRY_API auto DecodePublicSummary(
-		std::span<const std::byte> PublicSummaryBytes,
-		std::span<const std::byte> ImportBytes,
-		EAssetRegistryEntryKind EntryKind,
-		FPublicSummary& OutSummary,
-		std::string* OutError = nullptr) -> bool;
-}

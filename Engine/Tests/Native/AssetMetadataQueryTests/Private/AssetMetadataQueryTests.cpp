@@ -79,37 +79,29 @@ namespace
 				.PackagePath = Path,
 				.PhysicalPath = "Content/Textures/Brick.dasset",
 				.AssetClassName = "Durin::DTexture2D",
-				.FormatVersion = 7}}}};
+				.FormatVersion = AssetPackageV8FormatVersion}}}};
 
 		const FAssetData* Data = Snapshot.FindExact(Path);
 		ASSERT_NE(Data, nullptr);
 		EXPECT_EQ(Snapshot.Revision, 17u);
 		EXPECT_EQ(Data->PackagePath, Path);
 		EXPECT_EQ(Data->AssetClassName, "Durin::DTexture2D");
-		EXPECT_EQ(Data->FormatVersion, 7u);
+		EXPECT_EQ(Data->FormatVersion, AssetPackageV8FormatVersion);
 	}
 
 	TEST(FAssetMetadataQueryTests, OwnsCanonicalDastReaderIdentity)
 	{
-		EXPECT_EQ(AssetPackageV7FormatVersion, 7u);
+		EXPECT_EQ(AssetPackageV8FormatVersion, 8u);
 		EXPECT_EQ(DastBinaryFormatName, "Durin.BinaryFormat.DAST");
+		EXPECT_TRUE(IsSupportedAssetPackageReaderVersion(8));
 		EXPECT_FALSE(IsSupportedAssetPackageReaderVersion(7));
 		EXPECT_FALSE(IsSupportedAssetPackageReaderVersion(6));
 
 		const FAssetPackageFingerprint Fingerprint{
 			.FileSize = 128,
 			.LastWriteTimeTicks = 42,
-			.ReaderVersion = AssetPackageV7FormatVersion};
-		EXPECT_EQ(Fingerprint.ReaderVersion, 7u);
-	}
-
-	TEST(FAssetMetadataQueryTests, RejectsMalformedPublicSummaryWithoutEngine)
-	{
-		Dast::FPublicSummary Summary;
-		std::string Error;
-		EXPECT_FALSE(Dast::DecodePublicSummary({}, {},
-			EAssetRegistryEntryKind::Asset, Summary, &Error));
-		EXPECT_EQ(Error, "DAST Public Summary is malformed.");
+			.ReaderVersion = AssetPackageV8FormatVersion};
+		EXPECT_EQ(Fingerprint.ReaderVersion, 8u);
 	}
 
 	TEST(FAssetMetadataQueryTests, PublishesWholeStateAgainstExpectedRevision)
@@ -125,7 +117,7 @@ namespace
 		First.Assets.insert_or_assign(Path, FAssetData{
 			.PackagePath = Path,
 			.AssetClassName = "Durin::DTexture2D",
-			.FormatVersion = AssetPackageV7FormatVersion,
+			.FormatVersion = AssetPackageV8FormatVersion,
 			.ObjectCount = 1});
 		RebuildPackageProjection(First);
 		ASSERT_TRUE(PublishAssetRegistryPublication(std::move(First)));

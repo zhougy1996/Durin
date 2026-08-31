@@ -1,6 +1,6 @@
 # Asset Packages
 
-Summary: Define asset identity, canonical DAST v8 packages, runtime residency, loading, inspection, and bounded offline migration.
+Summary: Define asset identity, canonical DAST v8 packages, runtime residency, loading, and inspection.
 
 Modules: AssetRegistry, Engine, CoreDObject, AssetMaintenance
 
@@ -20,20 +20,19 @@ reads; `Asset/AssetOperations.h` for create/save; `Asset/Mutation.h` for exact
 mutation; and `Asset/PackageSerialization.h` or `Asset/PackageInspection.h` for
 package serialization and construct-free inspection. `AssetCook.h` owns Cook
 reachability and publication. Developer `AssetMaintenance` owns project-wide
-compatibility, canonical-resave, and offline migration batches.
+compatibility and canonical-resave batches.
 
 Ownership is deliberately one-way:
 
 - `CoreDObject` owns format-neutral linker tables, canonical tagged values,
   DAST v8 read/write, bounded validation, and package-level Registry projection.
-- `AssetRegistry` owns mounted-file discovery, bounded front-matter reads,
-  immutable package metadata/dependency snapshots, and the private legacy
-  decoder used only by the explicit offline v7-to-v8 converter.
+- `AssetRegistry` owns canonical-v8 mounted-file discovery, bounded front-matter
+  reads, and immutable package metadata/dependency snapshots.
 - `Engine` captures live graphs into linker tables, applies validated linker
   tables to unpublished object graphs, owns residency, and provides transient
   exact inspection and mutation tools. Engine contains no package-table or
   tagged-value wire parser.
-- `AssetMaintenance` owns deterministic offline conversion/resave plans,
+- `AssetMaintenance` owns deterministic compatibility/resave plans,
   fingerprints, stale checks, reporting, and publication rollback. It is not
   linked into the game Runtime.
 
@@ -132,8 +131,8 @@ object construction, mutation, or publication.
 
 The maintained `Engine/Content` and `Sandbox/Content` corpus is canonical v8.
 Production discovery, save, load, inspection, mutation, Cook, and canonical
-resave do not fall back to v7. V7 remains readable only by the explicit offline
-converter described below.
+resave reject v7. The completed repository migration removed its converter,
+decoder, command route, and fixtures.
 
 ### Envelope And Sections
 
@@ -238,9 +237,8 @@ conflicting entries and hard references to omitted objects.
 
 An ordinary save validates the complete new v8 closure, stages main and bulk
 bytes, publishes them as one recoverable unit, updates Registry state, then
-clears Dirty/NewlyCreated. Existing non-v8 input is not an ordinary save input;
-use the offline converter. Failure restores the prior physical closure,
-catalog, residency, and dirty state.
+clears Dirty/NewlyCreated. Existing non-v8 input is unsupported. Failure
+restores the prior physical closure, catalog, residency, and dirty state.
 
 Load resolves v8 policy, validates the complete main/bulk closure, and obtains
 one detached `FLinkerTables`. Engine then validates registered classes and
@@ -282,24 +280,6 @@ and exact companion ownership. Cook carries identity plus exact main/bulk bytes
 through canonicalization, reachability, pruning, publication, and runtime
 admission; it never manufactures a legacy raw-segment metadata grammar.
 
-## Offline V7-To-V8 Conversion
-
-V7 is accepted only as explicit detached input to
-`AssetRegistry/LegacyPackageConversion.h`. The converter validates the complete
-legacy main/raw-bulk closure, adapts supported facts into `FLinkerTables`,
-resolves each legacy BulkData descriptor, and emits only through
-`WritePackageV8`. Retained unknown payloads, ambiguous custom serialization,
-unsupported values, corruption, or incomplete closure facts fail without
-output. Production codec dispatch never calls this converter.
-
-`AssetMaintenance/PackageMigration.h` owns sorted plan/apply batches. Each
-record captures source and target main/bulk extents and hashes. Apply rechecks
-the source fingerprint, reconverts, compares planned output, publishes with
-rollback, and rereads/re-emits the result. `DurinAssetTool migrate-v8` and
-`DevTool asset migrate-v8` run without Engine object application, editor
-services, Cook, or an application loop. `PackageMigrationTests` retains focused
-v7 fixtures; the maintained content corpus itself is v8.
-
 ## Compatibility And Canonical Resave
 
 Ordinary load queries current classes and properties and fails before skeleton
@@ -323,8 +303,9 @@ requires compatible current-format output with no remaining selected evidence;
 failure restores the prior closure and Registry state. Project batches stop at
 cancellation but do not claim project-wide atomicity.
 
-Non-current content must use the explicit offline converter. Canonical resave
-never selects a legacy writer and has no data-loss escape hatch. User-facing
+Non-current content is unsupported and canonical resave never selects a legacy
+reader or writer. A future compatibility requirement needs an independently
+scoped migration tool justified by an inventoried source corpus. User-facing
 steps are in [Canonical Resave](../../Editor/Guides/CanonicalResave.md).
 
 ## Subsystem Boundary
@@ -335,8 +316,7 @@ steps are in [Canonical Resave](../../Editor/Guides/CanonicalResave.md).
   package metadata/dependency state, revisions, and rebuildable cache.
 - `Engine`: physical closure I/O, live capture/application, residency,
   dependency loading, exact inspection/mutation, DDC integration, and Cook.
-- `AssetMaintenance`: project snapshots, compatibility/resave reports, and the
-  bounded offline v7-to-v8 converter workflow.
+- `AssetMaintenance`: project snapshots and compatibility/resave reports.
 - Asset-family Runtime/Editor modules: canonical imported data, domain payload
   codecs, build/DDC recipes, save readiness, and Cook contributions.
 

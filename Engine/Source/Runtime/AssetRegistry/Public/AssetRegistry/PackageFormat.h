@@ -9,7 +9,6 @@ namespace Durin::Asset
 		0x3c59d1a9, 0x6ceb4e4c, 0xb059452d, 0xb0a5af56};
 	inline constexpr std::string_view DastBinaryFormatName =
 		"Durin.BinaryFormat.DAST";
-	inline constexpr uint32 AssetPackageV7FormatVersion = 7;
 	inline constexpr uint32 AssetPackageV8FormatVersion = 8;
 	inline constexpr uint32 AssetPackageObjectStreamVersion = 5;
 
