@@ -56,8 +56,8 @@ namespace Durin
 		}
 	}
 
-	auto FPackagePath::TryCreate(std::string_view InPath, FPackagePath& OutPath, std::string* OutError) -> bool { if (!IsValid(InPath, OutError)) return false; OutPath = FPackagePath(FName(InPath)); return true; }
-	auto FPackagePath::TryCreateProjectContent(std::string_view InPath, FPackagePath& OutPath, std::string* OutError) -> bool { if (!ValidatePackageSyntax(InPath, OutError)) return false; if (!InPath.starts_with(FMountPaths::ProjectContentMountRoot)) return FailPath("Deferred package path must use the /Game mount.", OutError); OutPath = FPackagePath(FName(InPath)); return true; }
+	auto FPackagePath::TryCreate(std::string_view InPath, FPackagePath& OutPath, std::string* OutError) -> bool { if (!IsValid(InPath, OutError)) return false; OutPath = FPackagePath(FName(InPath, -1)); return true; }
+	auto FPackagePath::TryCreateProjectContent(std::string_view InPath, FPackagePath& OutPath, std::string* OutError) -> bool { if (!ValidatePackageSyntax(InPath, OutError)) return false; if (!InPath.starts_with(FMountPaths::ProjectContentMountRoot)) return FailPath("Deferred package path must use the /Game mount.", OutError); OutPath = FPackagePath(FName(InPath, -1)); return true; }
 	auto FPackagePath::IsValid(std::string_view InPath, std::string* OutError) -> bool { if (!ValidatePackageSyntax(InPath, OutError)) return false; const FMountLookupResult Lookup = FMountPaths::FindMountForVirtualPath(InPath); return Lookup ? true : FailPath(Lookup.Message, OutError); }
 	auto FPackagePath::ToString() const -> std::string { return Path.IsNone() ? std::string{} : Path.ToString(); }
 	auto FPackagePath::GetView() const -> std::string_view { return Path.IsNone() ? std::string_view{} : Path.GetComparisonNameEntry()->MakeView(); }
@@ -76,7 +76,7 @@ namespace Durin
 		if (!InPackagePath.IsValid()) return FailPath("Top-level asset path requires a package path.", OutError);
 		if (!ValidateComponent(InAssetName, "Top-level asset name", OutError, FName::MaxSize - 1)) return false;
 		if (InPackagePath.GetView().size() + 1 + InAssetName.size() > MaximumObjectPathBytes) return FailPath(std::format("Top-level asset path exceeds the {} byte path limit.", MaximumObjectPathBytes), OutError);
-		FTopLevelAssetPath Candidate; Candidate.PackagePath = InPackagePath; Candidate.AssetName = FName(InAssetName); OutPath = std::move(Candidate); return true;
+		FTopLevelAssetPath Candidate; Candidate.PackagePath = InPackagePath; Candidate.AssetName = FName(InAssetName, -1); OutPath = std::move(Candidate); return true;
 	}
 	auto FTopLevelAssetPath::GetAssetName() const -> std::string_view { return AssetName.IsNone() ? std::string_view{} : AssetName.GetComparisonNameEntry()->MakeView(); }
 	auto FTopLevelAssetPath::AppendTo(std::string& Out) const -> void { if (!IsValid()) return; Out.append(PackagePath.GetView()); Out.push_back('.'); Out.append(GetAssetName()); }

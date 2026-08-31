@@ -1,4 +1,4 @@
-"""Authored asset checking and canonical resave commands."""
+"""Authored asset checking, migration, and canonical resave commands."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ from .runtime_program import (
 
 POLICY_EXIT_CODE = 3
 SCHEMA_VERSION = 3
-CURRENT_ASSET_FORMAT_VERSION = 8
+CURRENT_ASSET_FORMAT_VERSION = 9
 SCHEMA_DIRECTORY = Path(__file__).resolve().parents[1] / "schemas"
 ASSET_EXECUTABLE = ExecutableDescription(
     "Asset maintenance", "DurinAssetTool", "DurinAssetTool"
@@ -212,12 +212,16 @@ def _run_check(
         if _baseline_failed(report):
             _render_human(report, stdout)
             print(
-                "\nAsset baseline rejected: every package must be current DAST v8 "
+                f"\nAsset baseline rejected: every package must be current DAST v{CURRENT_ASSET_FORMAT_VERSION} "
                 "with no compatibility or resave findings.",
                 file=stdout,
             )
         else:
-            print(f"Asset baseline: {len(report['packages'])} current DAST v8 package(s).", file=stdout)
+            print(
+                f"Asset baseline: {len(report['packages'])} current "
+                f"DAST v{CURRENT_ASSET_FORMAT_VERSION} package(s).",
+                file=stdout,
+            )
     else:
         _render_human(report, stdout)
     if is_baseline:
@@ -225,9 +229,12 @@ def _run_check(
     return 0
 
 
-def _run_resave(
+def _run_scoped_operation(
     namespace: argparse.Namespace,
     *,
+    native_command: str,
+    operation_label: str,
+    interruption_message: str,
     selection: RuntimeSelection,
     repository: RepositoryContext,
     executable: Path,
@@ -238,12 +245,16 @@ def _run_resave(
     scopes = tuple(getattr(namespace, "scopes", ()) or ())
     whole_project = bool(getattr(namespace, "whole_project", False))
     if whole_project and scopes:
-        raise DevToolError("Asset resave accepts either scopes or --all, not both.")
+        raise DevToolError(
+            f"Asset {operation_label} accepts either scopes or --all, not both."
+        )
     if not whole_project and not scopes:
-        raise DevToolError("Asset resave requires at least one scope or --all.")
+        raise DevToolError(
+            f"Asset {operation_label} requires at least one scope or --all."
+        )
 
     project = _project_from_namespace(namespace, repository)
-    arguments = ["resave", f"--project={project}"]
+    arguments = [native_command, f"--project={project}"]
     arguments.extend(scopes)
     if whole_project:
         arguments.append("--all")
@@ -257,13 +268,33 @@ def _run_resave(
         executable,
         arguments,
         stderr=stderr,
-        interruption_message="Asset canonical resave cancelled.",
+        interruption_message=interruption_message,
         command_runner=command_runner,
     )
     if native_output is None:
         return 130
     print(native_output, end="" if native_output.endswith("\n") else "\n", file=stdout)
     return 0
+
+
+def _run_resave(namespace: argparse.Namespace, **kwargs: Any) -> int:
+    return _run_scoped_operation(
+        namespace,
+        native_command="resave",
+        operation_label="resave",
+        interruption_message="Asset canonical resave cancelled.",
+        **kwargs,
+    )
+
+
+def _run_migrate(namespace: argparse.Namespace, **kwargs: Any) -> int:
+    return _run_scoped_operation(
+        namespace,
+        native_command="migrate",
+        operation_label="migration",
+        interruption_message="Asset package-format migration cancelled.",
+        **kwargs,
+    )
 
 
 def run(
@@ -304,6 +335,16 @@ def run(
         )
     if command == "resave":
         return _run_resave(
+            namespace,
+            selection=selection,
+            repository=repository,
+            executable=executable,
+            stdout=stdout,
+            stderr=stderr,
+            command_runner=command_runner,
+        )
+    if command == "migrate":
+        return _run_migrate(
             namespace,
             selection=selection,
             repository=repository,

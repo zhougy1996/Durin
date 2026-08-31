@@ -65,6 +65,26 @@ TEST(FPathIdentityContractTests, DistinctStructuralKindsRoundTripCanonically)
 	EXPECT_EQ(ObjectPath.ToString(), "/Game/Objects/Test.Test:Root.Component");
 }
 
+TEST(FPathIdentityContractTests, NumericSuffixesRemainPartOfStructuralNames)
+{
+	auto Fixture = PathMountFixture();
+	ASSERT_TRUE(Fixture.IsValid()) << Fixture.GetError();
+	Durin::FPackagePath PackagePath;
+	Durin::FTopLevelAssetPath AssetPath;
+	Durin::FObjectPath ObjectPath;
+	ASSERT_TRUE(Durin::FPackagePath::TryCreate(
+		"/Game/Volumes/Cloud_128", PackagePath));
+	ASSERT_TRUE(Durin::FTopLevelAssetPath::TryCreate(
+		PackagePath, "Texture_64", AssetPath));
+	ASSERT_TRUE(Durin::FObjectPath::TryCreate(
+		"/Game/Volumes/Cloud_128.Texture_64", ObjectPath));
+	EXPECT_EQ(PackagePath.GetView(), "/Game/Volumes/Cloud_128");
+	EXPECT_EQ(PackagePath.GetPackageName(), "Cloud_128");
+	EXPECT_EQ(AssetPath.GetAssetName(), "Texture_64");
+	EXPECT_EQ(AssetPath.ToString(), "/Game/Volumes/Cloud_128.Texture_64");
+	EXPECT_EQ(ObjectPath.ToString(), "/Game/Volumes/Cloud_128.Texture_64");
+}
+
 TEST(FPathIdentityContractTests, RejectsAmbiguousNoncanonicalAndBoundedSpellingsAtomically)
 {
 	auto Fixture = PathMountFixture();

@@ -37,25 +37,28 @@ maintained package is therefore deterministically convertible; fixtures will
 cover the additional package-outer, null/soft, redirect, malformed, and
 cross-package cases that the maintained corpus does not contain.
 
-Stage 1 is complete. `FPackagePath`, `FTopLevelAssetPath`, and `FObjectPath`
+Stages 1 and 2 are complete. `FPackagePath`, `FTopLevelAssetPath`, and `FObjectPath`
 provide the frozen grammar; `DPackage` automatically registers, strongly
 retains, enumerates, name-checks, reparents, and retires every direct persistent
 export; `DObject::GetObjectPath()` derives the selected top-level root; and soft
 paths now store exact complete object identity. The former reflected
-`DPackage::Asset` owner is gone. A non-owning v8 main selector and the
-short-lived `FAssetPath` source alias remain only as bounded adapters for the
-Stage 2/3 cutover.
+`DPackage::Asset` owner is gone, and the production codec now reads and writes
+only DAST v9. The construct-free v8 converter remains at the explicit
+AssetMaintenance boundary.
 
-Focused `PackageLinkerContractTests` and `CoreObjectTests` pass, covering path
-round trips and failures plus multi-asset retention, rename collision,
-retirement, nested object paths, and exact subobject soft references. Stage 2
-is next: add DAST v9 tables and the construct-free v8 converter.
+Stage 3's structural Engine and Registry behavior is implemented and qualified,
+including exact object resolution, multi-asset package projection, relocation,
+reference mutation, deletion analysis, Cook, and canonical publication. Its
+final source cutover remains open: `FAssetPath` aliases and implicit
+package-to-asset `LoadAsset` entry points are still present and must be removed
+before Stage 3 can complete.
 
-Further DAST v9 work is paused while
-[Compact Object Paths And Soft Object Pointers](CompactObjectPathsAndSoftObjectPointers.md)
-compacts the Stage 1 value types, removes the redundant soft-path layer, and
-freezes weak-cache semantics. That plan must complete before this plan resumes
-its Engine and AssetRegistry cutover.
+Stage 4's offline migration path is operational. `asset migrate` supports
+preview/apply scopes and deterministic JSON reporting; all 25 maintained
+packages were previewed without blockers, migrated from v8 to v9, and accepted
+by `asset check --baseline`. The eight external `.dbulk` companions remained
+byte-identical. Focused tests, the broad native aggregate, and the full `all`
+build pass. Editor/tool identity cleanup and lasting documentation remain.
 
 ## Goal
 
@@ -297,22 +300,22 @@ writer/reader pass exact round-trip qualification.
 
 ### Stage 3: Cut Engine and AssetRegistry over to structural identities
 
-- [ ] Update live graph capture/application to enumerate all package-outer
+- [x] Update live graph capture/application to enumerate all package-outer
   top-level assets, retain each complete object graph exactly once, and preserve
   full hard/soft target identity while package summaries contain only derived
   package-level dependency edges.
-- [ ] Split package load from asset/object lookup. Resolve a soft path by loading
+- [x] Split package load from asset/object lookup. Resolve a soft path by loading
   its owning package, selecting the exact top-level asset, following asset-level
   redirects, and then locating its subobject chain; preserve authored identity
   separately from resolved object and package identity.
-- [ ] Migrate Registry catalog, snapshots, cache fingerprints, dependency
+- [x] Migrate Registry catalog, snapshots, cache fingerprints, dependency
   queries, and refresh to one package metadata record plus zero-or-more
   top-level asset records from the new production format.
-- [ ] Update relocation, redirector fix-up, exact reference inspection,
+- [x] Update relocation, redirector fix-up, exact reference inspection,
   deletion, and atomic save transactions to rewrite only the appropriate path
   component, preserve asset/subobject suffixes, and distinguish asset deletion
   from whole-package closure deletion.
-- [ ] Update Cook reachability and publication so package-level graph traversal
+- [x] Update Cook reachability and publication so package-level graph traversal
   and closure publication remain package-level while root selection and
   serialized references retain exact top-level/object identity.
 - [ ] Remove temporary path aliases and production v8 codec selection after all
@@ -330,9 +333,9 @@ main-asset load, or ambiguous `FAssetPath` API remains.
 - [ ] Update AssetMaintenance, import/reimport, Content Browser, inspectors,
   thumbnails, transactions, and user-facing diagnostics to request and display
   the correct identity kind.
-- [ ] Add a preview/apply project migration command for the new format using
+- [x] Add a preview/apply project migration command for the new format using
   the established offline migration grammar and deterministic JSON reporting.
-- [ ] Preview the complete maintained corpus, resolve every failure explicitly,
+- [x] Preview the complete maintained corpus, resolve every failure explicitly,
   apply the migration, and prove no maintained package remains on v8.
 - [ ] Qualify editor-visible asset selection, rename/move, redirect fix-up,
   per-asset and whole-package deletion blockers, canonical resave, source
@@ -351,10 +354,10 @@ legacy spelling or implicit main-asset selection.
 - [ ] Update the lasting asset-package, serialization, Registry/mutation,
   versioning, source-workflow, and user-facing documentation with the final
   identity grammar, multi-asset Package model, and ownership rules.
-- [ ] Run focused CoreDObject, package-format, migration, Registry, asset
+- [x] Run focused CoreDObject, package-format, migration, Registry, asset
   operation, Cook, and affected editor tests according to the repository test
   workflow.
-- [ ] Complete the broad native aggregate and full `all` build required for the
+- [x] Complete the broad native aggregate and full `all` build required for the
   shared CoreDObject API and package-format cutover.
 - [ ] Run changed and all-plan documentation validation, record exact evidence,
   and close every acceptance gate before marking the plan complete.

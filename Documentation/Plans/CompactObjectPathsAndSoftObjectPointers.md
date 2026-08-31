@@ -4,13 +4,12 @@ Summary: Compact structural object paths around interned names and rebuild soft 
 
 Last reviewed: 2026-08-31
 
-Status: Active
-Completed:
+Status: Completed
+Completed: 2026-08-31
 
 ## Current Status
 
-The compact identity contract and Stages 1-3 are implemented; Stage 0's corpus
-audit remains blocked with the matching Stage 4 qualification gate.
+The compact identity contract and all implementation stages are complete.
 `FPackagePath`, `FTopLevelAssetPath`, and
 `FObjectPath` now occupy 12, 24, and 64 bytes on Win64, down from 40, 120, and
 184 bytes. `FSoftObjectPath` and per-pointer resolved paths are removed;
@@ -20,21 +19,12 @@ Case-insensitive identity, first-spelling display, strict interned-name bounds,
 deterministic ordering, allocation-free subobject iteration, exact cache
 population, and the four cache states have focused contract coverage.
 
-This plan is the selected prerequisite for resuming Stage 3 of
-[Package And Object Path Identity](PackageAndObjectPathIdentity.md). DAST v9
-work is paused at its current boundary: this plan may migrate the in-progress
-codec to the selected value-type APIs so the checkout remains buildable, but
-does not advance the package-format cutover.
-
-Stage 4 is blocked at the pre-existing DAST transition boundary rather than by
-the compact-path changes. The full build and focused CoreDObject, package,
-Registry, reflection, and editor tests pass, but 19 targets in the broad native
-aggregate and `asset check --baseline` cannot qualify the maintained corpus:
-the checked-in runtime reader selects DAST v9 while AssetMaintenance and all 25 maintained
-packages still target DAST v8. The audit reports 25 unsupported packages. This
-plan may not advance or reverse that parent-plan cutover, so it remains Active
-and does not yet unblock Stage 3 of
-[Package And Object Path Identity](PackageAndObjectPathIdentity.md).
+The parent [Package And Object Path Identity](PackageAndObjectPathIdentity.md)
+plan supplied the bounded DAST v8-to-v9 migration required to clear the final
+qualification gate. All 25 maintained packages now use DAST v9,
+`asset check --baseline` accepts the complete corpus, the broad native
+aggregate passes, and the full `all` build succeeds. The compact identity work
+therefore unblocks the remaining source-API cutover in the parent plan.
 
 ## Goal
 
@@ -180,7 +170,7 @@ closed.
 - [x] Record supported Win64 size/copy baselines for `FPackagePath`,
   `FTopLevelAssetPath`, `FObjectPath`, `FSoftObjectPtr`, and representative
   `TSoftObjectPtr<T>` values.
-- [ ] Audit maintained assets and fixtures for case-only identity collisions,
+- [x] Audit maintained assets and fixtures for case-only identity collisions,
   package or asset names that exceed the selected `FName` bound, and paths that
   depend on case-sensitive lookup.
 - [x] Add contract tests for case-insensitive logical identity, preserved
@@ -253,16 +243,16 @@ package-only cache validation.
 
 ### Stage 4: Qualify the refactor and unblock DAST v9
 
-- [ ] Re-run the maintained corpus audit and migrate repository-owned spelling
+- [x] Re-run the maintained corpus audit and migrate repository-owned spelling
   or content conflicts without adding an external compatibility route.
 - [x] Run focused Core, CoreDObject, package/linker, Asset Runtime, Registry,
   reflection, DHT, and affected editor tests according to the repository test
   workflow.
-- [ ] Run the required broad native aggregate and full build for the shared
+- [x] Run the required broad native aggregate and full build for the shared
   Core/CoreDObject ABI change according to the repository build workflow.
 - [x] Update lasting asset-path, reflection, garbage-collection, and asset
   package contracts; run changed and all-plan documentation validation.
-- [ ] Record final layouts, validation evidence, and the handoff that allows
+- [x] Record final layouts, validation evidence, and the handoff that allows
   Stage 3 of Package And Object Path Identity to resume.
 
 Completion condition: maintained content and all affected runtime/editor paths

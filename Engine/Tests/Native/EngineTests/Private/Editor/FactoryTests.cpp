@@ -470,7 +470,7 @@ TEST(DFactoryTests, AssetToolsSaveAndDuplicatePublishStructuredCompletionOnce)
 			EXPECT_EQ(Event.Persistence,
 				Durin::EAssetOperationPersistenceState::Persisted);
 		}});
-	ASSERT_TRUE(Saved);
+	ASSERT_TRUE(Saved) << Saved.Message;
 	EXPECT_EQ(SaveNotifications, 1);
 	EXPECT_TRUE(Saved.bPublished);
 

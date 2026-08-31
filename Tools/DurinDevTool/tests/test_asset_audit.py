@@ -30,7 +30,7 @@ def package(
     inspection: str = "Ready",
     compatibility: str = "Compatible",
     freshness: str = "Current",
-    format_version: int = 8,
+    format_version: int = 9,
     code: str | None = None,
 ) -> dict[str, object]:
     findings = [] if code is None else [{
@@ -203,6 +203,13 @@ def test_selected_asset_command_grammar_is_frozen() -> None:
     assert resave_namespace.asset_command == "resave"
     assert resave_namespace.scopes == ["/Game/Characters", "/Engine/Materials"]
     assert resave_namespace.apply
+
+    _, migrate_namespace = registry.parse(
+        ["asset", "migrate", "--all", "--apply", "--json"]
+    )
+    assert migrate_namespace.asset_command == "migrate"
+    assert migrate_namespace.whole_project
+    assert migrate_namespace.apply
 
     _, storage_namespace = registry.parse(
         ["asset", "storage", "--project", "Sandbox/Sandbox.dproject"]
@@ -476,6 +483,7 @@ def test_storage_history_is_head_bounded_and_follows_renames(tmp_path: Path) -> 
         (report(package("/Game/Baseline", format_version=5, compatibility="Unsupported", code="UnsupportedPackageFormat")), 3),
         (report(package("/Game/Baseline", format_version=6)), 3),
         (report(package("/Game/Baseline", format_version=7)), 3),
+        (report(package("/Game/Baseline", format_version=8)), 3),
         (report(package("/Game/Baseline", compatibility="Incompatible", code="UnknownField")), 3),
         (report(with_canonicalization_evidence(package("/Game/Baseline"))), 3),
         (report(with_deprecated_route_evidence(package("/Game/Baseline"))), 3),

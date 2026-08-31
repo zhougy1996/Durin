@@ -170,7 +170,7 @@ namespace Durin::Asset
 	{
 		FAssetCanonicalResavePlan Plan;
 		Plan.RegistryRevision = GetAssetCatalogRevision();
-		Plan.TargetFormatVersion = AssetPackageV8FormatVersion;
+		Plan.TargetFormatVersion = AssetPackageV9FormatVersion;
 		std::vector<const FAssetPackageCompatibilityRecord*> Sorted;
 		for (const auto& Record : Records)
 			if (IsSelected(Record.PackagePath, Selection)) Sorted.push_back(&Record);
@@ -334,10 +334,8 @@ namespace Durin::Asset
 					Result.Diagnostic = "Injected canonical-resave load failure.";
 					return Result;
 				}
-				DObject* Asset = nullptr;
-				FAssetResult Load = LoadAsset(
-					PackagePlan.PackagePath, Asset, &LoadReport);
-				Package = Load && Asset ? Asset->GetPackage() : nullptr;
+				FAssetResult Load = LoadPackage(
+					PackagePlan.PackagePath, Package, &LoadReport);
 				if (!Load || !Package || LoadReport.HasNonUpgradeMutations())
 				{
 					(void)ReleasePackagesLoadedSince(Snapshot);

@@ -164,7 +164,7 @@ TEST_F(FAssetMaintenanceContractTests, CanonicalResaveTargetsCurrentPackageForma
 		Durin::Asset::PlanAssetCanonicalResaves({}, {});
 
 	EXPECT_EQ(Plan.TargetFormatVersion,
-		Durin::Asset::AssetPackageV8FormatVersion);
+		Durin::Asset::AssetPackageV9FormatVersion);
 }
 
 TEST_F(FAssetMaintenanceContractTests, PackageFormatMigrationPreviewIsDeterministic)

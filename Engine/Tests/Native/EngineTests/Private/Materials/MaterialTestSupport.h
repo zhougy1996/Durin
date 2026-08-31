@@ -63,8 +63,8 @@ namespace
 	) -> bool
 	{
 		Durin::ObjectPackage::FLinkerTables Linker;
-		if (!Durin::ObjectPackage::ReadPackageV8(
-			Bytes, {}, PackagePath.GetView(), Linker)) return false;
+		if (!Durin::ObjectPackage::ReadPackageV9(
+			Bytes, {}, PackagePath, Linker)) return false;
 		Durin::ObjectPackage::FSerializedSchema* MatchedSchema = nullptr;
 		Durin::ObjectPackage::FSerializedField* MatchedField = nullptr;
 		for (auto& Schema : Linker.Schemas)
@@ -101,7 +101,7 @@ namespace
 		if (Rewritten == 0) return false;
 		std::vector<std::byte> Main;
 		std::vector<std::byte> Bulk;
-		if (!Durin::ObjectPackage::WritePackageV8(Linker, Main, Bulk) || !Bulk.empty())
+		if (!Durin::ObjectPackage::WritePackageV9(Linker, Main, Bulk) || !Bulk.empty())
 			return false;
 		Bytes = std::move(Main);
 		return true;
@@ -111,8 +111,8 @@ namespace
 		const Durin::FAssetPath& PackagePath, std::string_view Name) -> bool
 	{
 		Durin::ObjectPackage::FLinkerTables Linker;
-		if (!Durin::ObjectPackage::ReadPackageV8(
-			Bytes, {}, PackagePath.GetView(), Linker)) return false;
+		if (!Durin::ObjectPackage::ReadPackageV9(
+			Bytes, {}, PackagePath, Linker)) return false;
 		for (const auto& Schema : Linker.Schemas)
 		{
 			if (std::ranges::any_of(

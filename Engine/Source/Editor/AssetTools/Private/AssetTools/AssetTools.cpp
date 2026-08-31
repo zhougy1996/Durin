@@ -186,6 +186,7 @@ namespace Durin
 				return MakeRejectedAssetOperation(
 					Kind, "The factory returned an invalid package main asset.");
 			}
+			Package->MarkDirty();
 			Package->MarkAsNewlyCreated();
 			return {
 				.Kind = Kind,

@@ -385,13 +385,24 @@ namespace Durin::ObjectPackage
 						"Registry.TopLevelAssets[" + std::to_string(Index) + "]");
 				FTopLevelAssetPath AssetPath;
 				FObjectPath RedirectDestination;
-				if (!FTopLevelAssetPath::TryCreate(Names[PathId - 1], AssetPath)
-					|| AssetPath.GetPackagePath() != PackagePath
-					|| (!PreviousPath.empty() && !BytewiseLess(PreviousPath, AssetPath.ToString()))
-					|| (RedirectId && !FObjectPath::TryCreate(
-						Names[RedirectId - 1], RedirectDestination)))
+				const std::string PackagePrefix = PackagePath.ToString() + ".";
+				const std::string_view SerializedAssetPath = Names[PathId - 1];
+				const std::string_view AssetName = SerializedAssetPath.starts_with(PackagePrefix)
+					? SerializedAssetPath.substr(PackagePrefix.size()) : std::string_view{};
+				if (AssetName.empty() || AssetName.find_first_of(".:") != std::string_view::npos
+					|| !FTopLevelAssetPath::TryCreate(PackagePath, AssetName, AssetPath))
 					return Fail(Diagnostic, EPackageReaderFailure::NonCanonical,
-						"DAST v9 top-level asset paths are invalid, duplicate, or out of order.",
+						std::format("DAST v9 top-level asset path '{}' is invalid.",
+							Names[PathId - 1]),
+						"Registry.TopLevelAssets[" + std::to_string(Index) + "]");
+				if (!PreviousPath.empty() && !BytewiseLess(PreviousPath, AssetPath.ToString()))
+					return Fail(Diagnostic, EPackageReaderFailure::NonCanonical,
+						"DAST v9 top-level asset paths are duplicate or out of order.",
+						"Registry.TopLevelAssets[" + std::to_string(Index) + "]");
+				if (RedirectId && !FObjectPath::TryCreate(
+					Names[RedirectId - 1], RedirectDestination))
+					return Fail(Diagnostic, EPackageReaderFailure::NonCanonical,
+						"A DAST v9 redirect destination is invalid.",
 						"Registry.TopLevelAssets[" + std::to_string(Index) + "]");
 				PreviousPath = AssetPath.ToString();
 				Registry.TopLevelAssets.push_back({

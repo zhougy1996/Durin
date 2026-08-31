@@ -19,7 +19,7 @@ namespace
 	{
 		return {.PackagePath = Path,
 			.AssetClassName = "Example::MetadataAsset",
-			.FormatVersion = AssetPackageV8FormatVersion,
+			.FormatVersion = AssetPackageV9FormatVersion,
 			.Dependencies = std::move(Hard),
 			.SoftDependencies = std::move(Soft),
 			.ObjectCount = 1,
@@ -79,29 +79,30 @@ namespace
 				.PackagePath = Path,
 				.PhysicalPath = "Content/Textures/Brick.dasset",
 				.AssetClassName = "Durin::DTexture2D",
-				.FormatVersion = AssetPackageV8FormatVersion}}}};
+				.FormatVersion = AssetPackageV9FormatVersion}}}};
 
 		const FAssetData* Data = Snapshot.FindExact(Path);
 		ASSERT_NE(Data, nullptr);
 		EXPECT_EQ(Snapshot.Revision, 17u);
 		EXPECT_EQ(Data->PackagePath, Path);
 		EXPECT_EQ(Data->AssetClassName, "Durin::DTexture2D");
-		EXPECT_EQ(Data->FormatVersion, AssetPackageV8FormatVersion);
+		EXPECT_EQ(Data->FormatVersion, AssetPackageV9FormatVersion);
 	}
 
 	TEST(FAssetMetadataQueryTests, OwnsCanonicalDastReaderIdentity)
 	{
-		EXPECT_EQ(AssetPackageV8FormatVersion, 8u);
+		EXPECT_EQ(AssetPackageV9FormatVersion, 9u);
 		EXPECT_EQ(DastBinaryFormatName, "Durin.BinaryFormat.DAST");
-		EXPECT_TRUE(IsSupportedAssetPackageReaderVersion(8));
+		EXPECT_TRUE(IsSupportedAssetPackageReaderVersion(9));
+		EXPECT_FALSE(IsSupportedAssetPackageReaderVersion(8));
 		EXPECT_FALSE(IsSupportedAssetPackageReaderVersion(7));
 		EXPECT_FALSE(IsSupportedAssetPackageReaderVersion(6));
 
 		const FAssetPackageFingerprint Fingerprint{
 			.FileSize = 128,
 			.LastWriteTimeTicks = 42,
-			.ReaderVersion = AssetPackageV8FormatVersion};
-		EXPECT_EQ(Fingerprint.ReaderVersion, 8u);
+			.ReaderVersion = AssetPackageV9FormatVersion};
+		EXPECT_EQ(Fingerprint.ReaderVersion, 9u);
 	}
 
 	TEST(FAssetMetadataQueryTests, PublishesWholeStateAgainstExpectedRevision)
@@ -117,7 +118,7 @@ namespace
 		First.Assets.insert_or_assign(Path, FAssetData{
 			.PackagePath = Path,
 			.AssetClassName = "Durin::DTexture2D",
-			.FormatVersion = AssetPackageV8FormatVersion,
+			.FormatVersion = AssetPackageV9FormatVersion,
 			.ObjectCount = 1});
 		RebuildPackageProjection(First);
 		ASSERT_TRUE(PublishAssetRegistryPublication(std::move(First)));
