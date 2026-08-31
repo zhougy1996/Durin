@@ -10,7 +10,7 @@ from durin_header_tool.model.export_info import ExportedSymbolInfo
 from durin_header_tool.parser.annotation_rewriter import _DMetaUse, _make_dht_parse_source
 
 ExportedSymbols: TypeAlias = dict[str, ExportedSymbolInfo]
-PARSER_CONTEXT_VERSION = "target-predefines-v5"
+PARSER_CONTEXT_VERSION = "target-predefines-v6"
 _FILE_ID_READABLE_PREFIX_LENGTH = 48
 _INCLUDE_PATTERN = re.compile(r'^\s*#\s*include\b[^\r\n]*$', re.MULTILINE)
 _TYPE_DECLARATION_PATTERN = re.compile(r"\b(?:class|struct|enum(?:\s+class)?)\s+([A-Za-z_]\w*)")
@@ -144,7 +144,7 @@ def _synthetic_parser_prelude(
         "using int8 = signed char; using int16 = short; using int32 = int; using int64 = long long;",
         "using uint8 = unsigned char; using uint16 = unsigned short; using uint32 = unsigned int; "
         "using uint64 = unsigned long long;",
-        "class FName {}; struct FGuid {}; class FObjectInitializer {};",
+        "class FName {}; struct FGuid {}; class FObjectInitializer {}; class FByteArray {};",
         "template<class T> class TObjectPtr {}; template<class T> class TSoftObjectPtr {};",
         "}",
     ]

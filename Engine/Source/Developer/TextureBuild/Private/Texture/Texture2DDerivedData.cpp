@@ -27,9 +27,9 @@ namespace Durin::Asset
 	}
 
 	auto BuildTexture2DDerivedDataKeyBytes(
-		const FTexture2DBuildKeyInput& Input) -> std::vector<std::byte>
+		const FTexture2DBuildKeyInput& Input) -> FByteArray
 	{
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
 		const_cast<FTexture2DBuildKeyInput&>(Input).Serialize(Ar);
 		return Bytes;

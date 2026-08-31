@@ -43,7 +43,7 @@ namespace Durin::Asset
 			{
 				Builder.AddTargetFact("PayloadFingerprint", FXxHash128::HashBuffer(LocalBytes).ToString())
 					.AddInput(FBuildValue::FromOwned(std::string(InputName),
-						std::vector<std::byte>(LocalBytes.begin(), LocalBytes.end())));
+						FByteArray(LocalBytes.begin(), LocalBytes.end())));
 			}
 			if (!Builder.Build(Definition, &OutError)) return false;
 			OutOutput = FBuildSession().Build(Definition, {.bQueryCache = true,
@@ -72,7 +72,7 @@ namespace Durin::Asset
 			.MaterialSlotCount = Request.MaterialSlotCount,
 			.TargetPlatform = Request.KeyInput.TargetPlatform,
 			.TargetProfile = Request.KeyInput.TargetProfile};
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		FSkeletalMeshPayloadData& Payload =
 			const_cast<FSkeletalMeshPayloadData&>(*Request.Payload);
 		if (!Private::EncodeSkeletalMeshPayload(Payload, Context, Bytes, OutError)) return false;
@@ -82,7 +82,7 @@ namespace Durin::Asset
 				: Request.KeyInput.ImportedDataIdentity;
 		const std::string Key = BuildSkeletalMeshDerivedDataKey(Request.KeyInput, OutError);
 		if (Key.empty()) return false;
-		const std::vector<std::byte> KeyBytes = BuildSkeletalMeshDerivedDataKeyBytes(Request.KeyInput, OutError);
+		const FByteArray KeyBytes = BuildSkeletalMeshDerivedDataKeyBytes(Request.KeyInput, OutError);
 		FBuildOutput Output;
 		FSkeletalMeshPayloadData SelectedPayload;
 		if (!ExecuteSkeletalSession(Private::SkeletalMeshFunctionName, Private::SkeletalMeshInputName,
@@ -120,7 +120,7 @@ namespace Durin::Asset
 			.SkeletonBoneCount = Request.SkeletonBoneCount,
 			.TargetPlatform = Request.KeyInput.TargetPlatform,
 			.TargetProfile = Request.KeyInput.TargetProfile};
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		FAnimationClipPayloadData& Payload =
 			const_cast<FAnimationClipPayloadData&>(*Request.Payload);
 		if (!Private::EncodeAnimationClipPayload(Payload, Context, Bytes, OutError)) return false;
@@ -130,7 +130,7 @@ namespace Durin::Asset
 				: Request.KeyInput.ImportedDataIdentity;
 		const std::string Key = BuildAnimationClipDerivedDataKey(Request.KeyInput, OutError);
 		if (Key.empty()) return false;
-		const std::vector<std::byte> KeyBytes = BuildAnimationClipDerivedDataKeyBytes(Request.KeyInput, OutError);
+		const FByteArray KeyBytes = BuildAnimationClipDerivedDataKeyBytes(Request.KeyInput, OutError);
 		FBuildOutput Output;
 		FAnimationClipPayloadData SelectedPayload;
 		if (!ExecuteSkeletalSession(Private::AnimationClipFunctionName, Private::AnimationClipInputName,
@@ -183,7 +183,7 @@ namespace Durin::Asset
 			.TargetPlatform = Key.TargetPlatform,
 			.TargetProfile = Key.TargetProfile};
 		const std::string CachedKey = BuildSkeletalMeshDerivedDataKey(Key, OutError);
-		const std::vector<std::byte> KeyBytes =
+		const FByteArray KeyBytes =
 			BuildSkeletalMeshDerivedDataKeyBytes(Key, OutError);
 		if (CachedKey.empty() || KeyBytes.empty()) return false;
 		FBuildOutput CachedOutput;
@@ -266,7 +266,7 @@ namespace Durin::Asset
 			.TargetPlatform = Key.TargetPlatform,
 			.TargetProfile = Key.TargetProfile};
 		const std::string CachedKey = BuildAnimationClipDerivedDataKey(Key, OutError);
-		const std::vector<std::byte> KeyBytes =
+		const FByteArray KeyBytes =
 			BuildAnimationClipDerivedDataKeyBytes(Key, OutError);
 		if (CachedKey.empty() || KeyBytes.empty()) return false;
 		FBuildOutput CachedOutput;

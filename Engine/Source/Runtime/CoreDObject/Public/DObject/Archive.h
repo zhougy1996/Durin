@@ -202,12 +202,12 @@ namespace Durin
 	{
 	public:
 		COREDOBJECT_API explicit FObjectMemoryWriter(
-			std::vector<std::byte>& InBytes,
+			FByteArray& InBytes,
 			EArchivePurpose Purpose = EArchivePurpose::ObjectGraph);
 		COREDOBJECT_API auto SerializeRawBytes(std::span<std::byte> Bytes) -> void override;
 		auto Tell() const -> uint64 override { return static_cast<uint64>(Bytes.size()); }
 	private:
-		std::vector<std::byte>& Bytes;
+		FByteArray& Bytes;
 	};
 
 	// Object-aware canonical memory reader used by graph and reflection adapters.
@@ -257,7 +257,7 @@ namespace Durin
 		FPropertyValueSnapshotPayload() = default;
 		auto IsValid() const -> bool { return Property != nullptr; }
 		auto GetProperty() const -> const FProperty* { return Property; }
-		auto GetBytes() const -> const std::vector<std::byte>& { return Bytes; }
+		auto GetBytes() const -> const FByteArray& { return Bytes; }
 		auto GetReferencedObjectHandles() const -> const std::vector<FObjectHandle>&
 		{
 			return ReferencedObjectHandles;
@@ -268,7 +268,7 @@ namespace Durin
 
 	private:
 		const FProperty* Property = nullptr;
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		std::vector<FObjectHandle> ReferencedObjectHandles;
 		friend COREDOBJECT_API auto CapturePropertyValuePayload(
 			const FProperty*, const void*, uint32, FPropertyValueSnapshotPayload&, std::string*) -> bool;
@@ -288,7 +288,7 @@ namespace Durin
 		COREDOBJECT_API auto operator=(FPropertyValueSnapshot&& Other) noexcept -> FPropertyValueSnapshot&;
 		auto IsValid() const -> bool { return Payload.IsValid(); }
 		auto GetProperty() const -> const FProperty* { return Payload.GetProperty(); }
-		auto GetBytes() const -> const std::vector<std::byte>& { return Payload.GetBytes(); }
+		auto GetBytes() const -> const FByteArray& { return Payload.GetBytes(); }
 		auto GetReferencedObjects() const -> const std::vector<DObject*>& { return ReferencedObjects; }
 		auto GetPayload() const -> const FPropertyValueSnapshotPayload& { return Payload; }
 		COREDOBJECT_API auto operator==(const FPropertyValueSnapshot& Other) const -> bool;
@@ -310,8 +310,8 @@ namespace Durin
 	COREDOBJECT_API auto RestorePropertyValue(const FProperty* Property, void* Container, uint32 ArrayIndex, const FPropertyValueSnapshot& Snapshot, std::string* OutError = nullptr) -> bool;
 	COREDOBJECT_API auto SerializeReflectedPropertyValue(FArchive& Ar, FProperty& Property, void* Container, uint32 ArrayIndex = 0, bool bIncludeRawObjectReferences = false) -> void;
 	COREDOBJECT_API auto SerializeDObjectProperties(FArchive& Ar, DObject& Object) -> void;
-	COREDOBJECT_API auto SaveObjectGraphToMemory(DObject* RootObject, std::vector<std::byte>& OutBytes) -> bool;
-	COREDOBJECT_API auto LoadObjectGraphFromMemory(const std::vector<std::byte>& Bytes) -> DObject*;
+	COREDOBJECT_API auto SaveObjectGraphToMemory(DObject* RootObject, FByteArray& OutBytes) -> bool;
+	COREDOBJECT_API auto LoadObjectGraphFromMemory(const FByteArray& Bytes) -> DObject*;
 	// Duplicates the source Outer tree and optionally returns its object mapping.
 	COREDOBJECT_API auto DuplicateObject(
 		const DObject* SourceObject,

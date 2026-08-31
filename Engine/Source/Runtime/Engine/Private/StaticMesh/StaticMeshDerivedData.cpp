@@ -178,9 +178,9 @@ namespace Durin
 			return Bounds.bIsValid;
 		}
 
-		auto BuildPayloadChunks(const FStaticMeshPayloadData& Payload) -> std::array<std::vector<std::byte>, StaticMeshPayloadRequiredChunkCount>
+		auto BuildPayloadChunks(const FStaticMeshPayloadData& Payload) -> std::array<FByteArray, StaticMeshPayloadRequiredChunkCount>
 		{
-			std::array<std::vector<std::byte>, StaticMeshPayloadRequiredChunkCount> Chunks;
+			std::array<FByteArray, StaticMeshPayloadRequiredChunkCount> Chunks;
 
 			FPayloadWriter Bounds;
 			WriteBounds(Bounds, Payload.LocalBounds);
@@ -410,7 +410,7 @@ namespace Durin
 	auto BuildStaticMeshSerializedValue(
 		const FStaticMeshPayloadData& Payload,
 		EStaticMeshTargetPlatform TargetPlatform,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutError.clear();
@@ -614,13 +614,13 @@ namespace Durin
 
 	namespace
 	{
-		auto WriteCollisionU32(std::vector<std::byte>& Bytes, size_t Offset, uint32 Value) -> void
+		auto WriteCollisionU32(FByteArray& Bytes, size_t Offset, uint32 Value) -> void
 		{
 			for (uint32 Byte = 0; Byte < 4; ++Byte)
 				Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
 		}
 
-		auto WriteCollisionU64(std::vector<std::byte>& Bytes, size_t Offset, uint64 Value) -> void
+		auto WriteCollisionU64(FByteArray& Bytes, size_t Offset, uint64 Value) -> void
 		{
 			for (uint32 Byte = 0; Byte < 8; ++Byte)
 				Bytes[Offset + Byte] = static_cast<std::byte>(Value >> (Byte * 8));
@@ -745,7 +745,7 @@ namespace Durin
 	auto BuildStaticMeshCollisionSerializedValue(
 		const FStaticMeshCollisionPayloadData& Payload,
 		EStaticMeshTargetPlatform TargetPlatform,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
 		if (TargetPlatform != EStaticMeshTargetPlatform::Win64)
@@ -777,7 +777,7 @@ namespace Durin
 			StoredIndices = Payload.Indices;
 			StoredOrdinals = Payload.SourceOrdinals;
 		}
-		std::array<std::vector<std::byte>, 4> Chunks;
+		std::array<FByteArray, 4> Chunks;
 		FPayloadWriter Positions;
 		for (const FVector3f& Position : Payload.Positions)
 			for (uint32 Axis = 0; Axis < 3; ++Axis) Positions.WriteFloat(Position[Axis]);
@@ -799,7 +799,7 @@ namespace Durin
 		Chunks[3] = Nodes.TakeBytes();
 		const std::array<uint64, 4> Counts{Payload.Positions.size(), StoredIndices.size(),
 			StoredOrdinals.size(), Payload.Nodes.size()};
-		std::vector<std::byte> Bytes(StaticMeshCollisionPayloadHeaderSize
+		FByteArray Bytes(StaticMeshCollisionPayloadHeaderSize
 			+ Chunks.size() * StaticMeshCollisionPayloadChunkEntrySize, std::byte{0});
 		for (uint32 Chunk = 0; Chunk < Chunks.size(); ++Chunk)
 		{
@@ -950,7 +950,7 @@ namespace Durin
 			*this,
 			{MaximumStaticMeshPayloadBytes, "Static-mesh payload"},
 			[&](const FStaticMeshPayloadData& Value,
-				std::vector<std::byte>& Bytes, std::string& Error) {
+				FByteArray& Bytes, std::string& Error) {
 				return BuildStaticMeshSerializedValue(
 					Value, TargetPlatform, Bytes, Error);
 			},
@@ -968,7 +968,7 @@ namespace Durin
 			*this,
 			{MaximumStaticMeshCollisionPayloadBytes, "DCOL payload"},
 			[&](const FStaticMeshCollisionPayloadData& Value,
-				std::vector<std::byte>& Bytes, std::string& Error) {
+				FByteArray& Bytes, std::string& Error) {
 				return BuildStaticMeshCollisionSerializedValue(
 					Value, TargetPlatform, Bytes, Error);
 			},

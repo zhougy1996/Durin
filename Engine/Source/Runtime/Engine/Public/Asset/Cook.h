@@ -45,7 +45,7 @@ namespace Durin::Asset
 
 	ENGINE_API auto EncodeCookManifest(
 		const FCookManifest& Manifest,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string* OutError = nullptr
 	) -> bool;
 	ENGINE_API auto DecodeCookManifest(
@@ -110,8 +110,8 @@ namespace Durin::Asset
 	{
 		std::string VirtualPath;
 		FPackagePath SourcePackagePath;
-		std::vector<std::byte> PackageBytes;
-		std::vector<std::byte> BulkBytes;
+		FByteArray PackageBytes;
+		FByteArray BulkBytes;
 		FPackageBulkSegmentSummary BulkSummary;
 		FXxHash128 InputFingerprint;
 		FXxHash128 PackageDigest;
@@ -213,11 +213,11 @@ namespace Durin::Asset
 	{
 		ECookManifestEntryKind Kind = ECookManifestEntryKind::ShaderLibrary;
 		std::string RelativePath;
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		FXxHash128 Digest;
 	};
 
-	ENGINE_API auto EncodeCookState(const FCookState& State, std::vector<std::byte>& OutBytes, std::string* OutError = nullptr) -> bool;
+	ENGINE_API auto EncodeCookState(const FCookState& State, FByteArray& OutBytes, std::string* OutError = nullptr) -> bool;
 	ENGINE_API auto DecodeCookState(std::span<const std::byte> Bytes, FCookState& OutState, std::string* OutError = nullptr) -> bool;
 
 	using FCookFailureInjection = std::function<bool(
@@ -253,13 +253,13 @@ namespace Durin::Asset
 		);
 		ENGINE_API auto AddPackage(
 			std::string VirtualPackagePath,
-			std::vector<std::byte> PackageBytes,
+			FByteArray PackageBytes,
 			std::string* OutError = nullptr
 		) -> bool;
 		ENGINE_API auto AddPackage(
 			std::string VirtualPackagePath,
 			const FPackagePath& SourcePackagePath,
-			std::vector<std::byte> PackageBytes,
+			FByteArray PackageBytes,
 			std::string* OutError = nullptr
 		) -> bool;
 		ENGINE_API auto AddPackage(
@@ -271,8 +271,8 @@ namespace Durin::Asset
 		// manifest rather than by reflected package fields.
 		ENGINE_API auto AddRawPackage(
 			std::string VirtualPackagePath,
-			std::vector<std::byte> PackageBytes,
-			std::vector<std::byte> RawSegmentBytes,
+			FByteArray PackageBytes,
+			FByteArray RawSegmentBytes,
 			std::string* OutError = nullptr
 		) -> bool;
 		ENGINE_API auto Publish(std::string* OutError = nullptr) -> bool;

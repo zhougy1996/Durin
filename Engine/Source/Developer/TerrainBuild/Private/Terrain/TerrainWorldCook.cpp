@@ -138,7 +138,7 @@ namespace Durin::Asset
 		return true;
 	}
 
-	auto EncodeTerrainWorldManifest(const FTerrainWorldManifest& Manifest, std::vector<std::byte>& OutBytes, ETerrainWorldOutcome& OutOutcome, std::string& OutError) -> bool
+	auto EncodeTerrainWorldManifest(const FTerrainWorldManifest& Manifest, FByteArray& OutBytes, ETerrainWorldOutcome& OutOutcome, std::string& OutError) -> bool
 	{
 		OutBytes.clear();
 		if (!Manifest.WorldId.IsValid() || Manifest.SchemaVersion != TerrainWorldSchemaVersion
@@ -347,7 +347,7 @@ namespace Durin::Asset
 		for (FTerrainManifestRegion& Region : Manifest.Regions)
 		{
 			if (!Region.bInstalled) continue;
-			std::vector<std::byte> Segment;
+			FByteArray Segment;
 			for (const FTerrainTileGeneration& Generation : Request.Generations)
 			{
 				FTerrainRegionKey Key;
@@ -372,7 +372,7 @@ namespace Durin::Asset
 			if (!Cook.AddRawPackage(Region.VirtualPackagePath, Request.PackageTemplateBytes, std::move(Segment), &OutError))
 				return Fail(ETerrainWorldOutcome::PublicationFailed, "Terrain World region package could not be staged: " + OutError, OutOutcome, OutError);
 		}
-		std::vector<std::byte> ManifestBytes;
+		FByteArray ManifestBytes;
 		if (!EncodeTerrainWorldManifest(Manifest, ManifestBytes, OutOutcome, OutError)) return false;
 		if (!Cook.AddRawPackage(Request.VirtualWorldRoot + "/Manifest", Request.PackageTemplateBytes, std::move(ManifestBytes), &OutError))
 			return Fail(ETerrainWorldOutcome::PublicationFailed, "Terrain World Cook contribution failed: " + OutError, OutOutcome, OutError);
@@ -413,7 +413,7 @@ namespace Durin::Asset
 			|| !Asset::ResolveCookedPackagePath(RuntimeConfiguration.GetCookRoot(), VirtualPath, PackagePath, &OutError)
 			|| !Asset::ResolveCookedCompanionPath(RuntimeConfiguration.GetCookRoot(), PackagePath, BulkPath, &OutError))
 			return Fail(MapLoadError(OutError), OutError, OutOutcome, OutError);
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, BulkPath))
 			return Fail(ETerrainWorldOutcome::MissingDependency, "Cooked Terrain World manifest segment is missing.", OutOutcome, OutError);
 		FTerrainWorldManifest Decoded;
@@ -444,7 +444,7 @@ namespace Durin::Asset
 		if (!Asset::ResolveCookedPackagePath(RuntimeConfiguration.GetCookRoot(), Region->VirtualPackagePath, PackagePath, &OutError)
 			|| !Asset::ResolveCookedCompanionPath(RuntimeConfiguration.GetCookRoot(), PackagePath, BulkPath, &OutError))
 			return Fail(MapLoadError(OutError), OutError, OutOutcome, OutError);
-		std::vector<std::byte> Segment;
+		FByteArray Segment;
 		if (!FFileHelper::LoadFileToArray(Segment, BulkPath))
 			return Fail(ETerrainWorldOutcome::MissingDependency, "Cooked Terrain region segment is missing.", OutOutcome, OutError);
 		if (Segment.size() != Region->SegmentExtent

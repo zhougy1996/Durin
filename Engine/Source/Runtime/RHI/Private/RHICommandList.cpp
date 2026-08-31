@@ -980,7 +980,7 @@ namespace Durin
 
 			EShaderStageFlags StageFlags;
 			uint32 Offset;
-			std::vector<std::byte> Data;
+			FByteArray Data;
 		};
 
 		struct FWriteBufferCommand
@@ -1014,7 +1014,7 @@ namespace Durin
 
 			TRefCountPtr<FRHIBuffer> Buffer;
 			uint32 Offset;
-			std::vector<std::byte> Data;
+			FByteArray Data;
 		};
 
 		struct FInitializeTextureCommand
@@ -1130,7 +1130,7 @@ namespace Durin
 			uint32 ArraySlice;
 			FUpdateTextureRegion2D Region;
 			uint32 SourcePitch = 0;
-			std::vector<std::byte> Data;
+			FByteArray Data;
 		};
 
 		struct FUpdateTexture3DCommand
@@ -1213,7 +1213,7 @@ namespace Durin
 			FUpdateTextureRegion3D Region;
 			uint32 SourceRowPitch = 0;
 			uint32 SourceDepthPitch = 0;
-			std::vector<std::byte> Data;
+			FByteArray Data;
 		};
 
 		struct FSetShaderParametersCommand
@@ -1408,7 +1408,7 @@ namespace Durin
 		{
 			TRefCountPtr<FRHIBuffer> Buffer;
 			uint32 Offset = 0;
-			std::vector<std::byte> Data;
+			FByteArray Data;
 		};
 
 		std::unordered_map<FRHIBuffer*, std::unique_ptr<FPendingLock>> PendingLocks;
@@ -2075,7 +2075,7 @@ namespace Durin
 		FRHITexture* Texture,
 		uint32 MipIndex,
 		uint32 ArraySlice,
-		std::vector<std::byte>& OutData) -> bool
+		FByteArray& OutData) -> bool
 	{
 		bool bSucceeded = false;
 		Executor->ExecuteSynchronousContextOperation(true,

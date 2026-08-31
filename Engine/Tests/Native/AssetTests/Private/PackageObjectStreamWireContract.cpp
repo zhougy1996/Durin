@@ -15,7 +15,7 @@ namespace Durin::Testing::PackageObjectStream
 		}
 
 		template<typename T>
-		auto WriteLittleEndian(std::vector<std::byte>& Bytes, T Value) -> void
+		auto WriteLittleEndian(Durin::FByteArray& Bytes, T Value) -> void
 		{
 			for (uint32 Index = 0; Index < sizeof(T); ++Index)
 				Bytes.push_back(static_cast<std::byte>(Value >> (Index * 8)));
@@ -274,7 +274,7 @@ namespace Durin::Testing::PackageObjectStream
 
 	auto EncodePublicSummary(
 		const FPublicSummary& Summary,
-		std::vector<std::byte>& OutBytes,
+		Durin::FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
 		if (!ValidateSummary(Summary, OutError))
@@ -298,15 +298,15 @@ namespace Durin::Testing::PackageObjectStream
 
 	auto EncodeEnvelope(
 		const FPublicSummary& Summary,
-		const std::array<std::vector<std::byte>, SectionCount>& Sections,
-		std::vector<std::byte>& OutBytes,
+		const std::array<Durin::FByteArray, SectionCount>& Sections,
+		Durin::FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
-		std::vector<std::byte> SummaryBytes;
+		Durin::FByteArray SummaryBytes;
 		if (!EncodePublicSummary(Summary, SummaryBytes, OutError))
 			return false;
 		uint64 Total = 13 + SummaryBytes.size() + SectionCount * 9;
-		for (const std::vector<std::byte>& Section : Sections)
+		for (const Durin::FByteArray& Section : Sections)
 		{
 			if (Section.size() > std::numeric_limits<uint32>::max() - Total)
 				return Fail(OutError, "section extent overflows uint32");
@@ -329,7 +329,7 @@ namespace Durin::Testing::PackageObjectStream
 			Writer.WriteU32(uint32(Sections[Index].size()));
 			Offset += uint32(Sections[Index].size());
 		}
-		for (const std::vector<std::byte>& Section : Sections)
+		for (const Durin::FByteArray& Section : Sections)
 			Writer.WriteBytes(Section);
 		OutBytes = Writer.TakeBytes();
 		return true;

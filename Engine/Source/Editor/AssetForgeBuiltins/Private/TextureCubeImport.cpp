@@ -406,7 +406,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		FTextureCubeSourceData SourceData;
 		std::array<FXxHash128, TextureCubeFaceCount> Hashes;
-		std::array<std::vector<std::byte>, TextureCubeFaceCount> Bytes;
+		std::array<FByteArray, TextureCubeFaceCount> Bytes;
 		std::array<std::span<const std::byte>, TextureCubeFaceCount> EncodedFaces;
 		std::string Error;
 		for (uint32 Index = 0; Index < TextureCubeFaceCount; ++Index)
@@ -436,7 +436,7 @@ namespace Durin::AssetForge::Builtins
 		if (!IsTextureCubePanoramaSourceExtension(
 			std::filesystem::path(PanoramaFile).extension().generic_string()))
 			return {false, "Panorama source format is unsupported."};
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, PanoramaFile))
 			return {false, "Panorama source is unavailable."};
 		const FXxHash128 Hash = FXxHash128::HashBuffer(Bytes);

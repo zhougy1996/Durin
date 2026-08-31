@@ -1560,13 +1560,13 @@ namespace
 	}
 
 	auto RenameSerializedString(
-		std::vector<std::byte>& Bytes,
+		Durin::FByteArray& Bytes,
 		std::string_view OldValue,
 		std::string_view NewValue
 	) -> bool
 	{
 		if (OldValue.size() != NewValue.size()) return false;
-		std::vector<std::byte> Pattern(sizeof(uint64) + OldValue.size());
+		Durin::FByteArray Pattern(sizeof(uint64) + OldValue.size());
 		const uint64 Length = OldValue.size();
 		std::memcpy(Pattern.data(), &Length, sizeof(Length));
 		std::memcpy(Pattern.data() + sizeof(Length), OldValue.data(), OldValue.size());
@@ -1577,7 +1577,7 @@ namespace
 	}
 
 	auto RenameAllSerializedStrings(
-		std::vector<std::byte>& Bytes,
+		Durin::FByteArray& Bytes,
 		std::string_view OldValue,
 		std::string_view NewValue
 	) -> uint64
@@ -1589,14 +1589,14 @@ namespace
 	}
 
 	auto RenameSerializedStringOccurrence(
-		std::vector<std::byte>& Bytes,
+		Durin::FByteArray& Bytes,
 		std::string_view OldValue,
 		std::string_view NewValue,
 		size_t Occurrence
 	) -> bool
 	{
 		if (OldValue.size() != NewValue.size()) return false;
-		std::vector<std::byte> Pattern(sizeof(uint64) + OldValue.size());
+		Durin::FByteArray Pattern(sizeof(uint64) + OldValue.size());
 		const uint64 Length = OldValue.size();
 		std::memcpy(Pattern.data(), &Length, sizeof(Length));
 		std::memcpy(Pattern.data() + sizeof(Length), OldValue.data(), OldValue.size());
@@ -1627,7 +1627,7 @@ namespace
 		std::error_code Error;
 		const auto LastWriteTime = std::filesystem::last_write_time(PhysicalPath, Error);
 		EXPECT_FALSE(Error);
-		std::vector<std::byte> Bytes;
+		Durin::FByteArray Bytes;
 		EXPECT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, PhysicalPath));
 		return {
 			.PackagePath = PackagePath,
@@ -1647,7 +1647,7 @@ namespace
 		return 0;
 	}
 
-	auto ReadCompatibilityFixtureBytes(std::string_view Name) -> std::vector<std::byte>
+	auto ReadCompatibilityFixtureBytes(std::string_view Name) -> Durin::FByteArray
 	{
 		std::ifstream Stream(std::filesystem::path(DURIN_TEST_DATA_DIR) / std::format("{}.dasset.hex", Name));
 		EXPECT_TRUE(Stream.is_open());
@@ -1655,7 +1655,7 @@ namespace
 		Stream >> Hex;
 		EXPECT_FALSE(Hex.empty());
 		EXPECT_EQ(Hex.size() % 2, 0u);
-		std::vector<std::byte> Bytes(Hex.size() / 2);
+		Durin::FByteArray Bytes(Hex.size() / 2);
 		for (size_t Index = 0; Index < Bytes.size(); ++Index)
 			Bytes[Index] = static_cast<std::byte>((HexDigit(Hex[Index * 2]) << 4) | HexDigit(Hex[Index * 2 + 1]));
 		return Bytes;
@@ -1669,7 +1669,7 @@ namespace
 		Stream >> Hex;
 		ASSERT_FALSE(Hex.empty());
 		ASSERT_EQ(Hex.size() % 2, 0u);
-		std::vector<std::byte> Bytes(Hex.size() / 2);
+		Durin::FByteArray Bytes(Hex.size() / 2);
 		for (size_t Index = 0; Index < Bytes.size(); ++Index)
 			Bytes[Index] = static_cast<std::byte>((HexDigit(Hex[Index * 2]) << 4) | HexDigit(Hex[Index * 2 + 1]));
 		WriteTestBytes(Destination, Bytes);
@@ -1741,7 +1741,7 @@ TEST(FPackageAssetTests, V8FirstBundleFailureRemovesUncommittedStableSegment)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/V8FirstFailure", Path));
 	DBulkPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Path, Asset));
-	std::vector<std::byte> Payload(
+	Durin::FByteArray Payload(
 		static_cast<size_t>(Durin::Asset::EditorBulkDataExternalThreshold + 1),
 		std::byte{0x51});
 	ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
@@ -1768,7 +1768,7 @@ TEST(FPackageAssetTests, OrdinaryV8PublishesLoadsAndRollsBackExternalClosure)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/TestAssets/V6ExternalClosure", Path));
 	DBulkPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Path, Asset));
-	std::vector<std::byte> Payload(
+	Durin::FByteArray Payload(
 		static_cast<size_t>(Durin::Asset::EditorBulkDataExternalThreshold + 17),
 		std::byte{0x5a});
 	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
@@ -1808,13 +1808,13 @@ TEST(FPackageAssetTests, OrdinaryV8PublishesLoadsAndRollsBackExternalClosure)
 		V6Data->PhysicalPath, Inspection, Orphans, &Error)) << Error;
 	EXPECT_TRUE(Orphans.empty());
 
-	std::vector<std::byte> LoadedPayload;
+	Durin::FByteArray LoadedPayload;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(LoadedPayload, Companions.front()));
 	EXPECT_TRUE(std::ranges::equal(LoadedPayload, Payload));
 	EXPECT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 	EXPECT_FALSE(std::filesystem::exists(BackupPath));
 
-	std::vector<std::byte> BeforeFailedReplacement;
+	Durin::FByteArray BeforeFailedReplacement;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		BeforeFailedReplacement, Companions.front()));
 	std::ranges::fill(Payload, std::byte{0x63});
@@ -1827,13 +1827,13 @@ TEST(FPackageAssetTests, OrdinaryV8PublishesLoadsAndRollsBackExternalClosure)
 					return Phase == Durin::Asset::EAssetBundleSavePhase::PublishRegistry;
 				}});
 	EXPECT_EQ(FailedReplacement.Error, Durin::Asset::EAssetError::IoError);
-	std::vector<std::byte> AfterFailedReplacement;
+	Durin::FByteArray AfterFailedReplacement;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		AfterFailedReplacement, Companions.front()));
 	EXPECT_EQ(AfterFailedReplacement, BeforeFailedReplacement);
 	EXPECT_FALSE(std::filesystem::exists(BackupPath));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
-	std::vector<std::byte> AfterCommittedReplacement;
+	Durin::FByteArray AfterCommittedReplacement;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		AfterCommittedReplacement, Companions.front()));
 	EXPECT_NE(AfterCommittedReplacement, BeforeFailedReplacement);
@@ -1883,7 +1883,7 @@ TEST(FPackageAssetTests, V8FieldBulkClosureMeetsBoundedLooseFixtureBudgets)
 	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/FieldBulkQualification", Path));
 	DBulkPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
-	std::vector<std::byte> Payload(static_cast<size_t>(PayloadBytes));
+	Durin::FByteArray Payload(static_cast<size_t>(PayloadBytes));
 	for (size_t Index = 0; Index < Payload.size(); ++Index)
 		Payload[Index] = static_cast<std::byte>((Index * 131u + 17u) & 0xffu);
 	ASSERT_TRUE(Asset->Payload.UpdatePayload(Payload));
@@ -2001,7 +2001,7 @@ TEST(FPackageAssetTests, RelocationAndDeletionOwnStableAuthoredCompanion)
 		"/TestAssets/StableBulkMoveDestination", DestinationPath));
 	DBulkPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(SourcePath, Asset));
-	std::vector<std::byte> Payload(
+	Durin::FByteArray Payload(
 		static_cast<size_t>(Durin::Asset::EditorBulkDataExternalThreshold + 3),
 		std::byte{0x71});
 	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
@@ -2116,7 +2116,7 @@ TEST(FPackageAssetTests, OrdinaryWriterEmitsDurfV1Prefix)
 
 	const auto File =
 		Durin::Testing::GetTestWorkDirectory() / "Assets" / "DurfV1Prefix.dasset";
-	std::vector<std::byte> Bytes;
+	Durin::FByteArray Bytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File));
 	constexpr std::array<std::byte, 8> ExpectedPrefix = {
 		std::byte{0x44}, std::byte{0x55}, std::byte{0x52}, std::byte{0x46},
@@ -2246,9 +2246,9 @@ TEST(FPackageAssetTests, V9CodecMatchesLiveWriteInspectReferenceAndLoadSemantics
 
 	const FAssetCatalogEntry SourceData = FindAssetExact(SourcePath);
 	ASSERT_TRUE(SourceData);
-	std::vector<std::byte> V8;
+	Durin::FByteArray V8;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(V8, SourceData->PhysicalPath));
-	std::vector<std::byte> Bulk;
+	Durin::FByteArray Bulk;
 	std::filesystem::path BulkPath(SourceData->PhysicalPath);
 	BulkPath.replace_extension(".dbulk");
 	if (std::filesystem::is_regular_file(BulkPath))
@@ -2340,18 +2340,18 @@ TEST(FPackageAssetTests, V9PreservesExternalPayloadBytesAndPlacement)
 	ASSERT_TRUE(FPackagePath::TryCreate("/TestAssets/V6ExternalPayload", Path));
 	DBulkPackageAssetForTest* Asset = nullptr;
 	ASSERT_TRUE(CreatePackageLeafAssetForTesting(Path, Asset));
-	std::vector<std::byte> Payload(
+	Durin::FByteArray Payload(
 		static_cast<size_t>(EditorBulkDataExternalThreshold + 17), std::byte{0x6b});
 	ASSERT_TRUE(Asset->Payload.ReplaceBytes(Payload));
 	const FAssetResult BulkSaveResult = SavePackage(Asset->GetPackage());
 	ASSERT_TRUE(BulkSaveResult) << BulkSaveResult.Message;
 	const FAssetCatalogEntry Data = FindAssetExact(Path);
 	ASSERT_TRUE(Data);
-	std::vector<std::byte> V9;
+	Durin::FByteArray V9;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(V9, Data->PhysicalPath));
 	std::filesystem::path BulkPath(Data->PhysicalPath);
 	BulkPath.replace_extension(".dbulk");
-	std::vector<std::byte> Bulk;
+	Durin::FByteArray Bulk;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Bulk, BulkPath));
 	ObjectPackage::FLinkerTables Linker;
 	ObjectPackage::FPackageReaderDiagnostic Diagnostic;
@@ -2391,7 +2391,7 @@ TEST(FPackageAssetTests, HeaderReaderRejectsMalformedAndUnboundedDeclarations)
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 	const auto Root = Durin::Testing::GetTestWorkDirectory() / "Assets";
 	const auto Source = Root / "HeaderValidationSource.dasset";
-	std::vector<std::byte> Valid;
+	Durin::FByteArray Valid;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Valid, Source));
 	ASSERT_GT(Valid.size(), 16u);
 	Durin::Asset::FAssetPackageHeader Header;
@@ -2598,8 +2598,8 @@ TEST(FPackageAssetTests, AuthoredArchiveFreezesNativeFieldsReferencesAndFailures
 
 	GAuthoredArchivePurposes.clear();
 	GAuthoredArchiveFormatVersions.clear();
-	std::vector<std::byte> FirstBytes;
-	std::vector<std::byte> SecondBytes;
+	Durin::FByteArray FirstBytes;
+	Durin::FByteArray SecondBytes;
 	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(Source->GetPackage(), FirstBytes));
 	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(Source->GetPackage(), SecondBytes));
 	EXPECT_EQ(FirstBytes, SecondBytes);
@@ -2641,11 +2641,11 @@ TEST(FPackageAssetTests, AuthoredArchiveFreezesNativeFieldsReferencesAndFailures
 		Source->bLateField = false;
 		Source->bUnsupportedCustomVersion = false;
 		Configure();
-		std::vector<std::byte> Sentinel{std::byte{9}, std::byte{8}, std::byte{7}};
+		Durin::FByteArray Sentinel{std::byte{9}, std::byte{8}, std::byte{7}};
 		const Durin::Asset::FAssetResult Result =
 			Durin::Asset::SerializeAssetPackageBytes(Source->GetPackage(), Sentinel);
 		EXPECT_EQ(Result.Error, ExpectedError);
-		EXPECT_EQ(Sentinel, (std::vector<std::byte>{std::byte{9}, std::byte{8}, std::byte{7}}));
+		EXPECT_EQ(Sentinel, (Durin::FByteArray{std::byte{9}, std::byte{8}, std::byte{7}}));
 	};
 	ExpectAtomicFailure([&] { Source->bSkipSuper = true; },
 		Durin::Asset::EAssetError::UnsupportedProperty);
@@ -2672,10 +2672,10 @@ TEST(FPackageAssetTests, CookedArchiveDispatchesImmutableTargetProjection)
 
 	Durin::Asset::FAssetPackageSerializationOptions Options;
 	Options.Domain = Durin::Asset::EAssetPackageSaveDomain::Cooked;
-	std::vector<std::byte> Bytes{std::byte{0x7f}};
+	Durin::FByteArray Bytes{std::byte{0x7f}};
 	EXPECT_FALSE(Durin::Asset::SerializeAssetPackageBytes(
 		Source->GetPackage(), Bytes, Options));
-	EXPECT_EQ(Bytes, (std::vector<std::byte>{std::byte{0x7f}}));
+	EXPECT_EQ(Bytes, (Durin::FByteArray{std::byte{0x7f}}));
 
 	Options.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64;
 	Options.TargetProfile = Durin::Asset::ECookTargetProfile::Game;
@@ -2722,7 +2722,7 @@ TEST(FPackageAssetTests, CookPublishesHeaderlessRawPlatformDataFields)
 	ASSERT_TRUE(Durin::FPackagePath::TryCreate("/Game/CookedRawField", Path));
 	DAuthoredArchiveAssetForTest* Source = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(Path, Source));
-	const std::vector<std::byte> BulkBytes(
+	const Durin::FByteArray BulkBytes(
 		static_cast<size_t>(Durin::Asset::EditorBulkDataExternalThreshold + 1),
 		std::byte{0x5a});
 	std::string Error;
@@ -2740,13 +2740,13 @@ TEST(FPackageAssetTests, CookPublishesHeaderlessRawPlatformDataFields)
 		CookRoot, Path.GetView(), PackagePath, &Error)) << Error;
 	std::filesystem::path SegmentPath = PackagePath;
 	SegmentPath.replace_extension(".dbulk");
-	std::vector<std::byte> Segment;
+	Durin::FByteArray Segment;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Segment, SegmentPath));
 	EXPECT_EQ(Segment, BulkBytes);
 	ASSERT_GE(Segment.size(), 4u);
 	EXPECT_NE(std::string_view(reinterpret_cast<const char*>(Segment.data()), 4), "DURF");
 
-	std::vector<std::byte> ManifestBytes;
+	Durin::FByteArray ManifestBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		ManifestBytes, CookRoot / "CookManifest.bin"));
 	Durin::Asset::FCookManifest Manifest;
@@ -2852,7 +2852,7 @@ TEST(FPackageAssetTests, CookedInlineOnlyProjectionLoadsWithoutBulkCompanion)
 	std::filesystem::path SegmentPath = PackagePath;
 	SegmentPath.replace_extension(".dbulk");
 	EXPECT_FALSE(std::filesystem::exists(SegmentPath));
-	std::vector<std::byte> ManifestBytes;
+	Durin::FByteArray ManifestBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		ManifestBytes, CookRoot / "CookManifest.bin"));
 	Durin::Asset::FCookManifest Manifest;
@@ -2936,8 +2936,8 @@ TEST(FPackageAssetTests, PerSaveOverridesOwnValuesOmitFieldsAndPreserveLiveState
 
 	Durin::Asset::FAssetPackageSerializationOptions Options;
 	Options.SaveOverrides = Overrides;
-	std::vector<std::byte> FirstBytes;
-	std::vector<std::byte> SecondBytes;
+	Durin::FByteArray FirstBytes;
+	Durin::FByteArray SecondBytes;
 	const Durin::Asset::FAssetResult FirstPackageResult =
 		Durin::Asset::SerializeAssetPackageBytes(
 			Asset->GetPackage(), FirstBytes, Options);
@@ -2973,11 +2973,11 @@ TEST(FPackageAssetTests, PerSaveOverridesOwnValuesOmitFieldsAndPreserveLiveState
 		*Foreign, *ForeignValueProperty, Replacement, &Error));
 	Durin::Asset::FAssetPackageSerializationOptions ForeignOptions;
 	ForeignOptions.SaveOverrides = std::move(ForeignOverrides);
-	std::vector<std::byte> Sentinel{std::byte{1}, std::byte{2}};
+	Durin::FByteArray Sentinel{std::byte{1}, std::byte{2}};
 	const Durin::Asset::FAssetResult ForeignResult =
 		Durin::Asset::SerializeAssetPackageBytes(Asset->GetPackage(), Sentinel, ForeignOptions);
 	EXPECT_FALSE(ForeignResult);
-	EXPECT_EQ(Sentinel, (std::vector<std::byte>{std::byte{1}, std::byte{2}}));
+	EXPECT_EQ(Sentinel, (Durin::FByteArray{std::byte{1}, std::byte{2}}));
 	EXPECT_EQ(Asset->Value, 17);
 	EXPECT_EQ(Asset->Label, "LiveLabel");
 	EXPECT_EQ(Asset->GetPackage()->IsDirty(), bDirtyBefore);
@@ -2994,7 +2994,7 @@ TEST(FPackageAssetTests, PerSaveOverridesOwnValuesOmitFieldsAndPreserveLiveState
 		*SoftOwner, *DirectProperty, ReplacementSoft, &Error)) << Error;
 	Durin::Asset::FAssetPackageSerializationOptions SoftOptions;
 	SoftOptions.SaveOverrides = std::move(SoftOverrides);
-	std::vector<std::byte> SoftBytes;
+	Durin::FByteArray SoftBytes;
 	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(
 		SoftOwner->GetPackage(), SoftBytes, SoftOptions));
 	EXPECT_TRUE(SoftOwner->Direct.IsNull());
@@ -3184,7 +3184,7 @@ TEST(FPackageAssetTests, EditorOnlyInnerObjectPersistsInspectsAndPrunesForCook)
 	CookOptions.Domain = Durin::Asset::EAssetPackageSaveDomain::Cooked;
 	CookOptions.TargetPlatform = Durin::Asset::ECookTargetPlatform::Win64;
 	CookOptions.TargetProfile = Durin::Asset::ECookTargetProfile::Game;
-	std::vector<std::byte> CookedBytes;
+	Durin::FByteArray CookedBytes;
 	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(
 		LoadedOwner->GetPackage(), CookedBytes, CookOptions));
 	const auto CookedFile = std::filesystem::path(Data->PhysicalPath);
@@ -3466,7 +3466,7 @@ TEST(FPackageAssetTests, SoftArchiveUsesBoundedPathOnlyPayloadsTransactionally)
 	);
 	ASSERT_NE(Property, nullptr);
 
-	std::vector<std::byte> Bytes;
+	Durin::FByteArray Bytes;
 	Durin::FMemoryWriter Writer(Bytes);
 	Durin::SerializeReflectedPropertyValue(Writer, *Property, Owner);
 	ASSERT_FALSE(Writer.HasError()) << Writer.GetError();
@@ -3478,7 +3478,7 @@ TEST(FPackageAssetTests, SoftArchiveUsesBoundedPathOnlyPayloadsTransactionally)
 	EXPECT_EQ(Owner->Direct.GetPath().GetPackagePath(), TargetPath);
 	EXPECT_FALSE(Owner->Direct.IsLoaded());
 
-	std::vector<std::byte> OversizedBytes;
+	Durin::FByteArray OversizedBytes;
 	Durin::FMemoryWriter OversizedWriter(OversizedBytes);
 	uint8 ReferenceKind = 1;
 	uint64 OversizedPathSize = 1024 * 1024 + 1;
@@ -3492,7 +3492,7 @@ TEST(FPackageAssetTests, SoftArchiveUsesBoundedPathOnlyPayloadsTransactionally)
 	OversizedReader.SetError("must remain sticky");
 	EXPECT_NE(OversizedReader.GetError().find("1 MiB"), std::string_view::npos);
 
-	std::vector<std::byte> NullBytes{std::byte{0}};
+	Durin::FByteArray NullBytes{std::byte{0}};
 	Durin::FMemoryReader NullReader(NullBytes);
 	Durin::SerializeReflectedPropertyValue(NullReader, *Property, Owner);
 	ASSERT_FALSE(NullReader.HasError());
@@ -3590,13 +3590,13 @@ TEST(FPackageAssetTests, DastSoftFieldsRoundTripWithoutHardDependenciesOrTargetL
 	EXPECT_EQ(Targets[1], TargetPath);
 
 	// The loaded owner and a populated weak cache do not block target unload.
-	std::vector<std::byte> CachedBytes;
+	Durin::FByteArray CachedBytes;
 	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(
 		Owner->GetPackage(), CachedBytes
 	));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(TargetPath));
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(TargetPath), nullptr);
-	std::vector<std::byte> UnloadedBytes;
+	Durin::FByteArray UnloadedBytes;
 	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(
 		Owner->GetPackage(), UnloadedBytes
 	));
@@ -3643,7 +3643,7 @@ TEST(FPackageAssetTests, SoftInspectionRejectsMalformedPayloadsAndPreservesUnkno
 		return nullptr;
 	};
 	auto MakePathPayload = [](uint8 Kind, std::string_view Path) {
-		std::vector<std::byte> Payload{static_cast<std::byte>(Kind)};
+		Durin::FByteArray Payload{static_cast<std::byte>(Kind)};
 		const uint64 Size = Path.size();
 		const auto SizeBytes = std::as_bytes(std::span{&Size, 1});
 		Payload.insert(Payload.end(), SizeBytes.begin(), SizeBytes.end());
@@ -3715,7 +3715,7 @@ TEST(FPackageAssetTests, SoftInspectionRejectsMalformedPayloadsAndPreservesUnkno
 	DSoftPackageAssetForTest* Omitted = nullptr;
 	ASSERT_TRUE(Durin::Asset::CreatePackageLeafAssetForTesting(OmittedPath, Omitted));
 	ASSERT_TRUE(Durin::Asset::SavePackage(Omitted->GetPackage()));
-	std::vector<std::byte> OmittedSoftBytes;
+	Durin::FByteArray OmittedSoftBytes;
 	Durin::Asset::FAssetPackageSerializationOptions OmitSoftFields;
 	OmitSoftFields.PropertyFilter = [](const Durin::DObject*, const Durin::FProperty* Property) {
 		return Property->NamePrivate.ToString() != "Direct"
@@ -3824,7 +3824,7 @@ TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedB
 		Durin::Asset::FindAssetExact(OwnerPath);
 	ASSERT_NE(OwnerData, nullptr);
 	const std::string OwnerPhysicalPath = OwnerData->PhysicalPath;
-	std::vector<std::byte> AuthoredBytes;
+	Durin::FByteArray AuthoredBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		AuthoredBytes, OwnerPhysicalPath
 	));
@@ -3847,8 +3847,8 @@ TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedB
 	EXPECT_EQ(Reachable, ExpectedReachable);
 	EXPECT_EQ(RuntimeRoot.Path, OldTargetPath);
 
-	std::vector<std::byte> CanonicalBytes;
-	std::vector<std::byte> CanonicalBulkBytes;
+	Durin::FByteArray CanonicalBytes;
+	Durin::FByteArray CanonicalBulkBytes;
 	const Durin::Asset::FAssetResult CanonicalResult =
 		Durin::Asset::CanonicalizeAssetPackageForCook(
 			AuthoredBytes, {}, OwnerPath, CanonicalBytes, CanonicalBulkBytes
@@ -3901,7 +3901,7 @@ TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedB
 		(std::vector<Durin::FPackagePath>{FinalTargetPath})
 	);
 
-	std::vector<std::byte> AuthoredAfterCook;
+	Durin::FByteArray AuthoredAfterCook;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		AuthoredAfterCook, OwnerPhysicalPath
 	));
@@ -3910,7 +3910,7 @@ TEST(FPackageAssetTests, CookCanonicalizesRedirectedRootsReferencesAndPublishedB
 	const Durin::Asset::FAssetCatalogEntry AliasData =
 		Durin::Asset::FindAssetExact(OldTargetPath);
 	ASSERT_NE(AliasData, nullptr);
-	std::vector<std::byte> AliasBytes;
+	Durin::FByteArray AliasBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		AliasBytes, AliasData->PhysicalPath
 	));
@@ -4298,7 +4298,7 @@ TEST(FPackageAssetTests, PreparedRelocationOwnsAndRemovesItsStagingRoot)
 		const std::string OperationDirectory =
 			OperationRoot.filename().generic_string();
 		ASSERT_TRUE(OperationDirectory.starts_with("operation-"));
-		std::vector<std::byte> OwnerBytes;
+		Durin::FByteArray OwnerBytes;
 		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 			OwnerBytes, OperationRoot / "owner"));
 		const std::string Owner(
@@ -4428,7 +4428,7 @@ TEST(FPackageAssetTests, CompensationFailureRetainsDiagnosableRecoveryRoot)
 			break;
 		}
 	ASSERT_FALSE(OperationRoot.empty());
-	std::vector<std::byte> JournalBytes;
+	Durin::FByteArray JournalBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		JournalBytes, (OperationRoot / "journal")
 	));
@@ -4448,7 +4448,7 @@ TEST(FPackageAssetTests, CompensationFailureRetainsDiagnosableRecoveryRoot)
 		/ "Saved" / "AssetMutationRecovery";
 	const std::filesystem::path Locator =
 		LocatorRoot / OperationRoot.filename();
-	std::vector<std::byte> LocatorBytes;
+	Durin::FByteArray LocatorBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		LocatorBytes, Locator
 	));
@@ -4498,7 +4498,7 @@ namespace
 		));
 		const auto* BeforeLabel = BeforeInspection.FindField("Label");
 		ASSERT_NE(BeforeLabel, nullptr);
-		const std::vector<std::byte> UnrelatedBytes = BeforeLabel->Payload;
+		const Durin::FByteArray UnrelatedBytes = BeforeLabel->Payload;
 		ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
 		ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
 
@@ -4581,7 +4581,7 @@ namespace
 		ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
 		ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 			Durin::Asset::EAssetRegistryScanMode::FullValidation));
-		std::vector<std::byte> BeforeBytes;
+		Durin::FByteArray BeforeBytes;
 		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BeforeBytes, OwnerFile));
 
 		FMemoryAssetReferenceStore Store(OldPath);
@@ -4596,7 +4596,7 @@ namespace
 		Durin::Asset::SetAssetRedirectorFixupFailurePointForTesting(
 			Durin::Asset::EAssetRedirectorFixupFailurePoint::None
 		);
-		std::vector<std::byte> AfterBytes;
+		Durin::FByteArray AfterBytes;
 		ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterBytes, OwnerFile));
 		EXPECT_EQ(AfterBytes, BeforeBytes);
 		EXPECT_EQ(Store.Path, OldPath);
@@ -4682,7 +4682,7 @@ namespace
 			ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
 				Durin::Asset::EAssetRegistryScanMode::FullValidation
 			));
-			std::vector<std::byte> PreBytes;
+			Durin::FByteArray PreBytes;
 			ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(PreBytes, OwnerFile));
 			std::filesystem::perms OriginalPermissions =
 				std::filesystem::status(OwnerFile).permissions();
@@ -4724,7 +4724,7 @@ namespace
 					Summary,
 					Transaction
 				));
-				std::vector<std::byte> ChangedBytes = PreBytes;
+				Durin::FByteArray ChangedBytes = PreBytes;
 				ASSERT_TRUE(RenameSerializedString(
 					ChangedBytes, "Label", "Ghost"
 				));
@@ -4777,7 +4777,7 @@ namespace
 			const std::string OwnerFile = Durin::Asset::FindAssetExact(OwnerPath)
 											  ->PhysicalPath;
 			ASSERT_TRUE(Durin::Asset::UnloadPackage(OwnerPath));
-			std::vector<std::byte> BeforeBytes;
+			Durin::FByteArray BeforeBytes;
 			ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BeforeBytes, OwnerFile));
 			ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
 			ASSERT_TRUE(Durin::Asset::RefreshAssetRegistry(
@@ -4795,7 +4795,7 @@ namespace
 			);
 			EXPECT_EQ(Result.Error, Durin::Asset::EAssetError::IoError)
 				<< Result.Message;
-			std::vector<std::byte> AfterBytes;
+			Durin::FByteArray AfterBytes;
 			ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterBytes, OwnerFile));
 			EXPECT_EQ(AfterBytes, BeforeBytes);
 			EXPECT_EQ(Store.Path, OldPath);
@@ -4854,7 +4854,7 @@ TEST(FPackageAssetTests, DastMapBytesAreCanonicalAcrossInsertionAndBucketHistory
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 	const auto File = Durin::Testing::GetTestWorkDirectory()
 					  / "Assets" / "MapOrderingBaseline.dasset";
-	std::vector<std::byte> ForwardBytes;
+	Durin::FByteArray ForwardBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(ForwardBytes, File));
 
 	Asset->NamedScores.clear();
@@ -4863,7 +4863,7 @@ TEST(FPackageAssetTests, DastMapBytesAreCanonicalAcrossInsertionAndBucketHistory
 		Asset->NamedScores.emplace(It->first, It->second);
 	Asset->GetPackage()->MarkDirty();
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
-	std::vector<std::byte> ReverseBytes;
+	Durin::FByteArray ReverseBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(ReverseBytes, File));
 
 	EXPECT_EQ(ForwardBytes, ReverseBytes);
@@ -5054,8 +5054,8 @@ TEST(FPackageAssetTests, MountedPackageSnapshotIsDeterministicHashedAndReadOnly)
 			.bAutoScan = false}};
 	Durin::Testing::FScopedMountRegistryFixture Mounts(Definitions);
 	ASSERT_TRUE(Mounts.IsValid()) << Mounts.GetError();
-	std::vector<std::byte> FirstBefore;
-	std::vector<std::byte> SecondBefore;
+	Durin::FByteArray FirstBefore;
+	Durin::FByteArray SecondBefore;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstBefore, First));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondBefore, Second));
 
@@ -5073,8 +5073,8 @@ TEST(FPackageAssetTests, MountedPackageSnapshotIsDeterministicHashedAndReadOnly)
 	EXPECT_EQ(Snapshot.Packages[0].ExpectedReportContentHash.size(), 71u);
 	EXPECT_NE(Snapshot.Packages[0].ExpectedReportContentHash,
 		Snapshot.Packages[1].ExpectedReportContentHash);
-	std::vector<std::byte> FirstAfter;
-	std::vector<std::byte> SecondAfter;
+	Durin::FByteArray FirstAfter;
+	Durin::FByteArray SecondAfter;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstAfter, First));
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondAfter, Second));
 	EXPECT_EQ(FirstAfter, FirstBefore);
@@ -5252,7 +5252,7 @@ TEST(FPackageAssetTests, AtomicBundleSaveRestoresFilesRegistryAndDirtyStateOnFai
 	ASSERT_TRUE(Durin::Asset::SavePackage(Existing->GetPackage()));
 	const Durin::Asset::FAssetData ExistingRegistry =
 		*Durin::Asset::FindAssetExact(ExistingPath);
-	std::vector<std::byte> ExistingBytes;
+	Durin::FByteArray ExistingBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		ExistingBytes, ExistingRegistry.PhysicalPath
 	));
@@ -5275,7 +5275,7 @@ TEST(FPackageAssetTests, AtomicBundleSaveRestoresFilesRegistryAndDirtyStateOnFai
 	);
 	EXPECT_FALSE(Result);
 
-	std::vector<std::byte> RestoredBytes;
+	Durin::FByteArray RestoredBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		RestoredBytes, ExistingRegistry.PhysicalPath
 	));
@@ -5312,10 +5312,10 @@ TEST(FPackageAssetTests, OrdinaryV8SavesAreDeterministic)
 
 	const Durin::Asset::FAssetData Current = *Durin::Asset::FindAssetExact(Path);
 	ASSERT_EQ(Current.FormatVersion, Durin::Asset::AssetPackageV9FormatVersion);
-	std::vector<std::byte> FirstBytes;
+	Durin::FByteArray FirstBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstBytes, Current.PhysicalPath));
-	std::vector<std::byte> FirstSerialization;
-	std::vector<std::byte> SecondSerialization;
+	Durin::FByteArray FirstSerialization;
+	Durin::FByteArray SecondSerialization;
 	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(
 		Asset->GetPackage(), FirstSerialization));
 	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(
@@ -5323,7 +5323,7 @@ TEST(FPackageAssetTests, OrdinaryV8SavesAreDeterministic)
 	EXPECT_EQ(FirstSerialization, SecondSerialization);
 	EXPECT_EQ(FirstSerialization, FirstBytes);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
-	std::vector<std::byte> RepeatedBytes;
+	Durin::FByteArray RepeatedBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(RepeatedBytes, Current.PhysicalPath));
 	EXPECT_EQ(RepeatedBytes, FirstBytes);
 
@@ -5576,7 +5576,7 @@ TEST(FPackageAssetTests, PackageIdentityIsEmbeddedAndRewrittenOnRelocation)
 	Asset->Label = "movable";
 	ASSERT_TRUE(Durin::Asset::SavePackage(Asset->GetPackage()));
 	const auto OldFile = Durin::Testing::GetTestWorkDirectory() / "Assets" / "MoveSource.dasset";
-	std::vector<std::byte> Before;
+	Durin::FByteArray Before;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Before, OldFile));
 	uint32 FormatVersion = 0;
 	ASSERT_TRUE(Durin::ReadLittleEndianAt(Before, 24, FormatVersion));
@@ -5589,7 +5589,7 @@ TEST(FPackageAssetTests, PackageIdentityIsEmbeddedAndRewrittenOnRelocation)
 
 	ASSERT_TRUE(RelocateAssetForTest(OldPath, NewPath));
 	const auto NewFile = Durin::Testing::GetTestWorkDirectory() / "Assets" / "Sub" / "MoveSource.dasset";
-	std::vector<std::byte> After;
+	Durin::FByteArray After;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(After, NewFile));
 	EXPECT_NE(Before, After);
 	EXPECT_TRUE(Durin::Asset::ValidateAssetPackageBytes(After, NewPath));
@@ -5737,7 +5737,7 @@ TEST(FPackageAssetTests, DeletesMainAssetWhenCompanionInspectionFails)
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(Path));
 	const std::filesystem::path File =
 		Durin::Testing::GetTestWorkDirectory() / "Assets" / "DeleteCorruptPackage.dasset";
-	std::vector<std::byte> Bytes;
+	Durin::FByteArray Bytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, File));
 	ASSERT_GT(Bytes.size(), 16u);
 	WriteTestBytes(File, std::span<const std::byte>(Bytes).first(16));
@@ -5919,7 +5919,7 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	EXPECT_GE(InitialRefresh.CatalogStats.DurationMilliseconds, 0.0);
 	EXPECT_EQ(Durin::Asset::CaptureAssetCatalogSnapshot().Assets.size(), 2u);
 	const auto CacheFile = CacheRoot / "AssetRegistry" / "Registry.bin";
-	std::vector<std::byte> FirstCache;
+	Durin::FByteArray FirstCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FirstCache, CacheFile));
 
 	const uint64 StableRevision = Durin::Asset::GetAssetCatalogRevision();
@@ -5931,7 +5931,7 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	EXPECT_EQ(StableRefresh.CatalogStats.HeaderReadAttempts, 0u);
 	EXPECT_EQ(StableRefresh.CatalogStats.HeaderBytesRead, 0u);
 	EXPECT_GE(StableRefresh.CatalogStats.DurationMilliseconds, 0.0);
-	std::vector<std::byte> SecondCache;
+	Durin::FByteArray SecondCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(SecondCache, CacheFile));
 	EXPECT_EQ(SecondCache, FirstCache);
 
@@ -5980,7 +5980,7 @@ TEST(FPackageAssetTests, PersistentRegistryReconcilesChangesAndRecoversFromInval
 	EXPECT_EQ(CorruptCacheRefresh.CatalogStats.Reparsed, 2u);
 	EXPECT_FALSE(CorruptCacheRefresh.CatalogCacheWarning.empty());
 
-	std::vector<std::byte> IncompatibleCache;
+	Durin::FByteArray IncompatibleCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(IncompatibleCache, CacheFile));
 	const uint32 IncompatibleSchema = 99;
 	std::memcpy(IncompatibleCache.data() + sizeof(uint32), &IncompatibleSchema, sizeof(IncompatibleSchema));
@@ -6170,12 +6170,12 @@ TEST(FPackageAssetTests, PersistentRegistryFlushesSuccessfulMutationsAndIgnoresW
 	ImportedAsset->Value = 42;
 	ASSERT_TRUE(Durin::Asset::SavePackage(ImportedAsset->GetPackage()));
 	const auto AuthoredFile = ContentRoot / "LifecycleImported.dasset";
-	std::vector<std::byte> BeforeFailedFlush;
+	Durin::FByteArray BeforeFailedFlush;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BeforeFailedFlush, AuthoredFile));
 	ShutdownAssetManagerForRestart();
 	EXPECT_TRUE(Durin::Asset::IsAssetCatalogSnapshotDirtyForTesting());
 	EXPECT_FALSE(Durin::Asset::GetAssetCatalogCacheWarningForTesting().empty());
-	std::vector<std::byte> AfterFailedFlush;
+	Durin::FByteArray AfterFailedFlush;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(AfterFailedFlush, AuthoredFile));
 	EXPECT_EQ(AfterFailedFlush, BeforeFailedFlush);
 
@@ -6221,14 +6221,14 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesCheapMetadataAndFullValidationWit
 		(std::vector<Durin::FPackagePath>{TargetAPath}));
 	const auto CacheFile = CacheRoot / "AssetRegistry" / "Registry.bin";
 	ASSERT_TRUE(std::filesystem::is_regular_file(CacheFile));
-	std::vector<std::byte> FirstCache;
+	Durin::FByteArray FirstCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		FirstCache, CacheFile
 	));
 
 	const auto WarmRefresh = Durin::Asset::RefreshAssetRegistry();
 	ASSERT_TRUE(WarmRefresh);
-	std::vector<std::byte> SecondCache;
+	Durin::FByteArray SecondCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		SecondCache, CacheFile
 	));
@@ -6265,9 +6265,9 @@ TEST(FPackageAssetTests, SoftReferenceCacheUsesCheapMetadataAndFullValidationWit
 	EXPECT_EQ(Durin::Asset::CaptureAssetReferenceIndex().FindTargets(OwnerPath),
 		(std::vector<Durin::FPackagePath>{TargetBPath}));
 	EXPECT_EQ(Durin::Asset::FindResidentPackage(TargetBPath), nullptr);
-	std::vector<std::byte> RecoveredCache;
+	Durin::FByteArray RecoveredCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		RecoveredCache, CacheFile
 	));
-	EXPECT_NE(RecoveredCache, std::vector<std::byte>(CorruptCache.begin(), CorruptCache.end()));
+	EXPECT_NE(RecoveredCache, Durin::FByteArray(CorruptCache.begin(), CorruptCache.end()));
 }

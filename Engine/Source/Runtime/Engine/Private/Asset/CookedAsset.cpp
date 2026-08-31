@@ -270,7 +270,7 @@ namespace Durin::Asset
 		return true;
 	}
 
-	auto EncodeCookManifest(const FCookManifest& Manifest, std::vector<std::byte>& OutBytes, std::string* OutError) -> bool
+	auto EncodeCookManifest(const FCookManifest& Manifest, FByteArray& OutBytes, std::string* OutError) -> bool
 	{
 		OutBytes.clear();
 		if (!IsValidTarget(Manifest.TargetPlatform, Manifest.TargetProfile))
@@ -306,7 +306,7 @@ namespace Durin::Asset
 		BulkContainer::FBoundedWriter Writer(MaximumManifestBytes);
 		const uint64 RecordBytes = Records.Tell();
 		uint64 FileSize = 0;
-		std::vector<std::byte> Candidate;
+		FByteArray Candidate;
 		if (!BulkContainer::TryAdd(
 				ManifestHeaderSize, RecordBytes, MaximumManifestBytes, FileSize
 			))
@@ -442,7 +442,7 @@ namespace Durin::Asset
 
 	auto FCookContext::AddPackage(
 		std::string VirtualPackagePath,
-		std::vector<std::byte> PackageBytes,
+		FByteArray PackageBytes,
 		std::string* OutError
 	) -> bool
 	{
@@ -458,7 +458,7 @@ namespace Durin::Asset
 	auto FCookContext::AddPackage(
 		std::string VirtualPackagePath,
 		const FPackagePath& SourcePackagePath,
-		std::vector<std::byte> PackageBytes,
+		FByteArray PackageBytes,
 		std::string* OutError
 	) -> bool
 	{
@@ -496,8 +496,8 @@ namespace Durin::Asset
 			})) return Fail("Cook package path is duplicated.", OutError);
 
 		FAssetPackageSerializationOptions Options = MakePackageSerializationOptions();
-		std::vector<std::byte> PackageBytes;
-		std::vector<std::byte> Segment;
+		FByteArray PackageBytes;
+		FByteArray Segment;
 		const FAssetResult Result = SerializeAssetPackageClosure(
 			Package, PackageBytes, Segment, Options);
 		if (!Result)
@@ -520,8 +520,8 @@ namespace Durin::Asset
 
 	auto FCookContext::AddRawPackage(
 		std::string VirtualPackagePath,
-		std::vector<std::byte> PackageBytes,
-		std::vector<std::byte> RawSegmentBytes,
+		FByteArray PackageBytes,
+		FByteArray RawSegmentBytes,
 		std::string* OutError
 	) -> bool
 	{
@@ -555,8 +555,8 @@ namespace Durin::Asset
 		{
 			if (!Plan.bOpaqueRawSegment)
 			{
-				std::vector<std::byte> CanonicalBytes;
-				std::vector<std::byte> CanonicalBulkBytes;
+				FByteArray CanonicalBytes;
+				FByteArray CanonicalBulkBytes;
 				FPackagePath PackagePath;
 				if (!FPackagePath::TryCreate(Plan.VirtualPath, PackagePath)
 					&& !FPackagePath::TryCreateProjectContent(

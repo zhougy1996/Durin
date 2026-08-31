@@ -38,7 +38,7 @@ namespace Durin
 			Shader.SourceEntryPoint = std::move(EntryPoint);
 			Shader.BinaryEntryPoint = "main";
 			Shader.DebugName = Shader.SourceEntryPoint;
-			Shader.Code = std::make_shared<std::vector<std::byte>>(sizeof(Words));
+			Shader.Code = std::make_shared<Durin::FByteArray>(sizeof(Words));
 			std::memcpy(Shader.Code->data(), Words.data(), sizeof(Words));
 			Shader.Hash = FXxHash128::HashBuffer(*Shader.Code);
 			return Shader;
@@ -97,8 +97,8 @@ namespace Durin
 			.ProductionIdentity = {17, 29},
 			.Output = MakeOutput(),
 		};
-		std::vector<std::byte> First;
-		std::vector<std::byte> Second;
+		Durin::FByteArray First;
+		Durin::FByteArray Second;
 		std::string Error;
 		ASSERT_TRUE(EncodeShaderCookedLibrary(
 			EShaderTargetPlatform::Win64, EShaderTargetProfile::Game,
@@ -110,7 +110,7 @@ namespace Durin
 
 		FShaderCookedLibrary Library;
 		ASSERT_TRUE(FShaderCookedLibrary::OpenBytes(
-			std::make_shared<const std::vector<std::byte>>(First),
+			std::make_shared<const Durin::FByteArray>(First),
 			EShaderTargetPlatform::Win64, EShaderTargetProfile::Game,
 			std::span(&Request, 1), Library, Error)) << Error;
 		EXPECT_EQ(Library.GetRecordCount(), 1u);
@@ -133,7 +133,7 @@ namespace Durin
 			.ProductionIdentity = {3, 5},
 			.Output = MakeOutput(),
 		};
-		std::vector<std::byte> Bytes;
+		Durin::FByteArray Bytes;
 		std::string Error;
 		ASSERT_TRUE(EncodeShaderCookedLibrary(
 			EShaderTargetPlatform::Win64, EShaderTargetProfile::Game,
@@ -141,17 +141,17 @@ namespace Durin
 
 		FShaderCookedLibrary Library;
 		EXPECT_FALSE(FShaderCookedLibrary::OpenBytes(
-			std::make_shared<const std::vector<std::byte>>(Bytes),
+			std::make_shared<const Durin::FByteArray>(Bytes),
 			EShaderTargetPlatform::Win64,
 			EShaderTargetProfile::EditorValidation, {}, Library, Error));
 		const FShaderRuntimeRequest Missing = MakeRequest("Tests.Missing");
 		EXPECT_FALSE(FShaderCookedLibrary::OpenBytes(
-			std::make_shared<const std::vector<std::byte>>(Bytes),
+			std::make_shared<const Durin::FByteArray>(Bytes),
 			EShaderTargetPlatform::Win64, EShaderTargetProfile::Game,
 			std::span(&Missing, 1), Library, Error));
 		Bytes.back() ^= std::byte{1};
 		EXPECT_FALSE(FShaderCookedLibrary::OpenBytes(
-			std::make_shared<const std::vector<std::byte>>(Bytes),
+			std::make_shared<const Durin::FByteArray>(Bytes),
 			EShaderTargetPlatform::Win64, EShaderTargetProfile::Game,
 			{}, Library, Error));
 	}

@@ -78,9 +78,9 @@ namespace
 		GGroundTruthAmbientOcclusionResolveTimingQueries = nullptr;
 	std::vector<Durin::FGPUTimingQueryRHIRef>*
 		GGroundTruthAmbientOcclusionFeatureTimingQueries = nullptr;
-	std::vector<std::byte>* GGroundTruthAmbientOcclusionPixels = nullptr;
-	std::vector<std::byte>* GGroundTruthAmbientOcclusionFilteredPixels = nullptr;
-	std::vector<std::byte>* GSpecularAASurfacePixels = nullptr;
+	Durin::FByteArray* GGroundTruthAmbientOcclusionPixels = nullptr;
+	Durin::FByteArray* GGroundTruthAmbientOcclusionFilteredPixels = nullptr;
+	Durin::FByteArray* GSpecularAASurfacePixels = nullptr;
 	Durin::FViewRenderTelemetry GLastTelemetry;
 
 	class FGBufferQualificationEnvironment final : public testing::Environment
@@ -167,7 +167,7 @@ namespace
 	auto ReadColorTexture(
 		Durin::FRHICommandListImmediate& CommandList,
 		Durin::FRHITexture* Source,
-		std::vector<std::byte>& Pixels) -> void
+		Durin::FByteArray& Pixels) -> void
 	{
 		const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
 			"GBufferQualificationColorReadback", Source->GetSizeX(),
@@ -657,7 +657,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 			SpecularAADirectional));
 	Durin::FlushRenderingCommands();
 	auto CaptureSpecularAASurface = [&Renderer, &SpecularAAScene](
-		bool bEnableSpecularAA, std::vector<std::byte>& Pixels) {
+		bool bEnableSpecularAA, Durin::FByteArray& Pixels) {
 		GSpecularAASurfacePixels = &Pixels;
 		Durin::SetGBufferCaptureSink(CaptureSpecularAAGBuffer);
 		Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
@@ -696,8 +696,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		Durin::SetGBufferCaptureSink(nullptr);
 		GSpecularAASurfacePixels = nullptr;
 	};
-	std::vector<std::byte> SpecularAADisabledSurface;
-	std::vector<std::byte> SpecularAAEnabledSurface;
+	Durin::FByteArray SpecularAADisabledSurface;
+	Durin::FByteArray SpecularAAEnabledSurface;
 	CaptureSpecularAASurface(false, SpecularAADisabledSurface);
 	CaptureSpecularAASurface(true, SpecularAAEnabledSurface);
 	ASSERT_EQ(SpecularAADisabledSurface.size(), 32u * 32u * 4u);
@@ -742,7 +742,7 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		constexpr uint32 Height = 192;
 		constexpr std::array<double, 9> MotionPixels{
 			-1.0, -0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75, 1.0};
-		std::array<std::vector<std::byte>, MotionPixels.size()> Frames;
+		std::array<Durin::FByteArray, MotionPixels.size()> Frames;
 		Durin::EnqueueRenderCommand<FGBufferQualificationCommand>(
 			[&Renderer, &SpecularAAScene, bEnableSpecularAA, bEnableFXAA,
 			 Scale, &Frames, &MotionPixels](
@@ -1189,8 +1189,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 	constexpr uint32 CaptureHeight = 180;
 	auto CaptureAmbientOcclusionFrame = [&Renderer, &Scene](
 											uint32 Width, uint32 Height,
-											std::vector<std::byte>& Pixels,
-											std::vector<std::byte>& FilteredPixels
+											Durin::FByteArray& Pixels,
+											Durin::FByteArray& FilteredPixels
 										) {
 		GGroundTruthAmbientOcclusionPixels = &Pixels;
 		GGroundTruthAmbientOcclusionFilteredPixels = &FilteredPixels;
@@ -1251,12 +1251,12 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		GGroundTruthAmbientOcclusionPixels = nullptr;
 		GGroundTruthAmbientOcclusionFilteredPixels = nullptr;
 	};
-	std::vector<std::byte> FirstRawVisibility;
-	std::vector<std::byte> FirstFilteredVisibility;
-	std::vector<std::byte> ResizedRawVisibility;
-	std::vector<std::byte> ResizedFilteredVisibility;
-	std::vector<std::byte> RepeatedRawVisibility;
-	std::vector<std::byte> RepeatedFilteredVisibility;
+	Durin::FByteArray FirstRawVisibility;
+	Durin::FByteArray FirstFilteredVisibility;
+	Durin::FByteArray ResizedRawVisibility;
+	Durin::FByteArray ResizedFilteredVisibility;
+	Durin::FByteArray RepeatedRawVisibility;
+	Durin::FByteArray RepeatedFilteredVisibility;
 	CaptureAmbientOcclusionFrame(
 		CaptureWidth, CaptureHeight,
 		FirstRawVisibility, FirstFilteredVisibility
@@ -1301,8 +1301,8 @@ TEST(FGBufferQualificationTests, FourFamilyPassMeetsFrozenRTX3090TimingAndMemory
 		RaisedTransform, Durin::FVector3{0.5, 0.5, 1.0});
 	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(7), std::make_unique<Durin::FStaticMeshSceneProxy>(StaticQuad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), RaisedTransform);
 	Durin::FlushRenderingCommands();
-	std::vector<std::byte> RaisedContactVisibility;
-	std::vector<std::byte> RaisedContactFilteredVisibility;
+	Durin::FByteArray RaisedContactVisibility;
+	Durin::FByteArray RaisedContactFilteredVisibility;
 	CaptureAmbientOcclusionFrame(
 		CaptureWidth, CaptureHeight,
 		RaisedContactVisibility, RaisedContactFilteredVisibility

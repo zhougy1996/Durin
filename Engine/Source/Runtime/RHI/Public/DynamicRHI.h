@@ -292,7 +292,7 @@ namespace Durin
 			FRHITexture* Texture,
 			uint32 MipIndex,
 			uint32 ArraySlice,
-			std::vector<std::byte>& OutData
+			FByteArray& OutData
 		) -> bool;
 
 		RHI_API auto RHIBlockUntilGPUIdle() -> void;

@@ -97,7 +97,7 @@ TEST(FSkyBoxTests, ActorDefaultsSerializeAndRetainCubeReference)
 	EXPECT_EQ(Durin::ResolveObjectHandle(CubeHandle), Cube);
 	Component->SetTextureCube(nullptr);
 
-	std::vector<std::byte> Bytes;
+	Durin::FByteArray Bytes;
 	ASSERT_TRUE(Durin::SaveObjectGraphToMemory(Actor, Bytes));
 	auto* LoadedActor = Durin::Cast<Durin::ASkyBoxActor>(Durin::LoadObjectGraphFromMemory(Bytes));
 	ASSERT_NE(LoadedActor, nullptr);

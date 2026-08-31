@@ -183,7 +183,7 @@ namespace Durin::Asset
 				if (!Stream)
 					return Result(EPackageResourceReadStatus::IoError,
 						"Package bulk segment range seek failed.");
-				std::vector<std::byte> Bytes(static_cast<size_t>(Size));
+				FByteArray Bytes(static_cast<size_t>(Size));
 				if (Size != 0)
 					Stream.read(reinterpret_cast<char*>(Bytes.data()), static_cast<std::streamsize>(Size));
 				if (Stream.gcount() != static_cast<std::streamsize>(Size))

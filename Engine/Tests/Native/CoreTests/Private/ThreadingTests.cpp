@@ -2666,16 +2666,16 @@ namespace Durin
 		InvalidOptions.Prerequisites = InvalidPrerequisite;
 		EXPECT_FALSE(LaunchTask("AggregateRejected", []() {}, InvalidOptions).IsValid());
 
-		auto Producer = LaunchUniqueTask<std::vector<std::byte>>(
+		auto Producer = LaunchUniqueTask<Durin::FByteArray>(
 			"AggregateUniqueProducer",
-			[]() { return std::vector<std::byte>(128, std::byte{7}); },
+			[]() { return Durin::FByteArray(128, std::byte{7}); },
 			MainOptions,
 			128);
 		ASSERT_EQ(ETaskState::Succeeded, WaitTask(Producer.GetTaskHandle()).TaskState);
 		const FTaskSchedulerDiagnostics Retained = GetTaskSchedulerDiagnostics();
 		EXPECT_EQ(128u, Retained.RetainedUniqueResultBytes);
 		EXPECT_EQ(128u, Find(Retained, "Main").CurrentRetainedUniqueResultBytes);
-		FTaskHandle Consumer = ConsumeThen(std::move(Producer), "AggregateUniqueConsumer", [](std::vector<std::byte>&& Value) {
+		FTaskHandle Consumer = ConsumeThen(std::move(Producer), "AggregateUniqueConsumer", [](Durin::FByteArray&& Value) {
 			EXPECT_EQ(128u, Value.size());
 		});
 		EXPECT_EQ(ETaskState::Succeeded, WaitTask(Consumer).TaskState);

@@ -104,7 +104,7 @@ namespace Durin::AssetForge::Builtins
 		EImportedImageEncoding Encoding = EImportedImageEncoding::Png;
 		uint64 EncodedByteCount = 0;
 		std::optional<uint32> ExternalDependencyIndex;
-		std::vector<std::byte> EmbeddedEncodedBytes;
+		FByteArray EmbeddedEncodedBytes;
 	};
 
 	struct FImportedDependency

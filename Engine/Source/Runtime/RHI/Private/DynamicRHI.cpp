@@ -240,7 +240,7 @@ namespace Durin
 		FRHITexture* Texture,
 		uint32 MipIndex,
 		uint32 ArraySlice,
-		std::vector<std::byte>& OutData) -> bool
+		FByteArray& OutData) -> bool
 	{
 		return RHICmdList.ReadTexture2D(
 			Texture, MipIndex, ArraySlice, OutData);

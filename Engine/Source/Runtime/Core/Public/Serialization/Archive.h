@@ -211,7 +211,7 @@ namespace Durin
 		CORE_API auto ReadBytes(std::span<std::byte> Bytes) -> void;
 		// Transfers an owned byte Blob as a bounded count followed by exact bytes.
 		// Loads commit only after the complete payload has been validated and read.
-		CORE_API auto SerializeByteBlob(std::vector<std::byte>& Bytes) -> void;
+		CORE_API auto SerializeByteBlob(FByteArray& Bytes) -> void;
 		// Transfers one atomic bulk value according to the selected physical policy.
 		// Loading commits only a completely read and hash-verified resident candidate.
 		virtual CORE_API auto SerializeBulkData(
@@ -272,7 +272,7 @@ namespace Durin
 	{
 	public:
 		CORE_API explicit FCanonicalMemoryWriter(
-			std::vector<std::byte>& Bytes,
+			FByteArray& Bytes,
 			EArchivePurpose Purpose = EArchivePurpose::DerivedDataPayload,
 			FArchiveState Context = {},
 			FArchiveVersionContext Versions = {});
@@ -280,7 +280,7 @@ namespace Durin
 		auto Tell() const -> uint64 override { return static_cast<uint64>(Bytes.size()); }
 
 	private:
-		std::vector<std::byte>& Bytes;
+		FByteArray& Bytes;
 	};
 
 	// Loads persistent canonical bytes from a non-owning bounded span.
@@ -331,7 +331,7 @@ namespace Durin
 		uint64 Count = 0;
 	};
 
-	CORE_API auto SerializeByteBuffer(FArchive& Ar, std::vector<std::byte>& Value, uint64 MaximumBytes) -> void;
+	CORE_API auto SerializeByteBuffer(FArchive& Ar, FByteArray& Value, uint64 MaximumBytes) -> void;
 	CORE_API auto SerializeBoundedString(FArchive& Ar, std::string& Value, uint64 MaximumBytes) -> void;
 	CORE_API auto SerializeAlignment(FArchive& Ar, uint64 Alignment) -> void;
 	CORE_API auto RequireArchiveEnd(FArchive& Ar) -> bool;

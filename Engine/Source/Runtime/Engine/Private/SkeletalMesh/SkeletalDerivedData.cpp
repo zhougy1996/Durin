@@ -36,7 +36,7 @@ namespace Durin
 		struct FChunkBytes
 		{
 			uint32 Type = 0;
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 		};
 
 		auto GetSkeletalChunkedPayloadFormat(
@@ -147,7 +147,7 @@ namespace Durin
 			ESkeletalPayloadTargetProfile TargetProfile,
 			std::span<const FChunkBytes> ChunkBytes,
 			uint64 MaximumBytes,
-			std::vector<std::byte>& OutBytes,
+			FByteArray& OutBytes,
 			std::string& OutError) -> bool
 		{
 			if (TargetPlatform != ESkeletalPayloadTargetPlatform::Win64
@@ -234,7 +234,7 @@ namespace Durin
 	auto BuildSkeletalMeshSerializedValue(
 		const FSkeletalMeshPayloadData& Payload,
 		const FSkeletalPayloadSerializationContext& Context,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
 		if (!ValidateSkeletalMeshPayload(
@@ -517,7 +517,7 @@ namespace Durin
 	auto BuildAnimationClipSerializedValue(
 		const FAnimationClipPayloadData& Payload,
 		const FSkeletalPayloadSerializationContext& Context,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
 		if (!ValidateAnimationClipPayload(
@@ -689,7 +689,7 @@ namespace Durin
 			*this,
 			{MaximumSkeletalMeshPayloadBytes, "SkeletalMesh payload"},
 			[&](const FSkeletalMeshPayloadData& Value,
-				std::vector<std::byte>& Bytes, std::string& Error) {
+				FByteArray& Bytes, std::string& Error) {
 				return BuildSkeletalMeshSerializedValue(Value, Context, Bytes, Error);
 			},
 			[&](std::span<const std::byte> Bytes, FSkeletalMeshPayloadData& Candidate) {
@@ -706,7 +706,7 @@ namespace Durin
 			*this,
 			{MaximumAnimationClipPayloadBytes, "AnimationClip payload"},
 			[&](const FAnimationClipPayloadData& Value,
-				std::vector<std::byte>& Bytes, std::string& Error) {
+				FByteArray& Bytes, std::string& Error) {
 				return BuildAnimationClipSerializedValue(Value, Context, Bytes, Error);
 			},
 			[&](std::span<const std::byte> Bytes, FAnimationClipPayloadData& Candidate) {

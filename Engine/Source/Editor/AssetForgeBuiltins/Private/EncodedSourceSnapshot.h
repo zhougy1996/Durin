@@ -10,7 +10,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		std::string Filename;
 		std::filesystem::path PhysicalPath;
-		std::shared_ptr<const std::vector<std::byte>> Bytes;
+		std::shared_ptr<const FByteArray> Bytes;
 		FXxHash128 ContentHash{};
 		uint64 FileSize = 0;
 		int64 LastWriteTime = 0;

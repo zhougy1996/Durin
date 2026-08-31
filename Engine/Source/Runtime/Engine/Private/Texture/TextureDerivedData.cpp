@@ -88,7 +88,7 @@ namespace Durin
 		const FTexturePlatformData& PlatformData,
 		Asset::ECookTargetPlatform TargetPlatform,
 		Asset::ECookTargetProfile TargetProfile,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutError.clear();
@@ -203,7 +203,7 @@ namespace Durin
 			*this,
 			{MaximumTexturePayloadBytes, "Texture platform data"},
 			[&](const FTexturePlatformData& Value,
-				std::vector<std::byte>& Bytes, std::string& Error) {
+				FByteArray& Bytes, std::string& Error) {
 				return BuildTexture2DSerializedValue(Value,
 					Context.TargetPlatform, Context.TargetProfile, Bytes, Error);
 			},
@@ -217,7 +217,7 @@ namespace Durin
 		const FTextureCubePlatformData& PlatformData,
 		Asset::ECookTargetPlatform TargetPlatform,
 		Asset::ECookTargetProfile TargetProfile,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutError.clear();
@@ -355,7 +355,7 @@ namespace Durin
 			*this,
 			{MaximumTexturePayloadBytes, "TextureCube platform data"},
 			[&](const FTextureCubePlatformData& Value,
-				std::vector<std::byte>& Bytes, std::string& Error) {
+				FByteArray& Bytes, std::string& Error) {
 				return BuildTextureCubeSerializedValue(Value,
 					Context.TargetPlatform, Context.TargetProfile, Bytes, Error);
 			},

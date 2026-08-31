@@ -155,7 +155,7 @@ namespace Durin
 
 	struct FShaderCookedLibrary::FState
 	{
-		std::shared_ptr<const std::vector<std::byte>> Bytes;
+		std::shared_ptr<const FByteArray> Bytes;
 		std::vector<FDirectoryRecord> Directory;
 		EShaderTargetPlatform TargetPlatform = EShaderTargetPlatform::Invalid;
 		EShaderTargetProfile TargetProfile = EShaderTargetProfile::Invalid;
@@ -453,7 +453,7 @@ namespace Durin
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
 		std::span<const FShaderCookedLibraryRecord> Records,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -463,7 +463,7 @@ namespace Durin
 		struct FEncoded
 		{
 			FDirectoryRecord Directory;
-			std::vector<std::byte> Payload;
+			FByteArray Payload;
 		};
 		std::vector<FEncoded> Encoded;
 		Encoded.reserve(Records.size());
@@ -548,7 +548,7 @@ namespace Durin
 			Writer.WriteU32(0);
 			Writer.WriteU64(0);
 		}
-		std::vector<std::byte> Candidate = Writer.TakeBytes();
+		FByteArray Candidate = Writer.TakeBytes();
 		Candidate.resize(static_cast<size_t>(Cursor));
 		for (const FEncoded& Item : Encoded)
 			std::ranges::copy(Item.Payload,
@@ -575,7 +575,7 @@ namespace Durin
 		std::string& OutError) -> bool
 	{
 		OutLibrary = {};
-		auto Bytes = std::make_shared<std::vector<std::byte>>();
+		auto Bytes = std::make_shared<FByteArray>();
 		if (!FFileHelper::LoadFileToArray(*Bytes, Path))
 			return Fail(OutError, std::format(
 				"Shader library could not be read: {}", Path.generic_string()));
@@ -584,7 +584,7 @@ namespace Durin
 	}
 
 	auto FShaderCookedLibrary::OpenBytes(
-		std::shared_ptr<const std::vector<std::byte>> Bytes,
+		std::shared_ptr<const FByteArray> Bytes,
 		EShaderTargetPlatform TargetPlatform,
 		EShaderTargetProfile TargetProfile,
 		std::span<const FShaderRuntimeRequest> RequiredRequests,

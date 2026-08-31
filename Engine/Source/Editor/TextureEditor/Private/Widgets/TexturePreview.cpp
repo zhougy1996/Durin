@@ -353,7 +353,7 @@ namespace Durin::Editor::Texture
 		const FPixelFormatLayout Layout = GetPixelFormatLayout(Format, Width, Height);
 		if (Layout.DataSize == 0 || Layout.DataSize > Pixels.size()) return;
 		const size_t PixelCount = static_cast<size_t>(Layout.DataSize);
-		auto PixelSnapshot = std::make_shared<std::vector<std::byte>>(
+		auto PixelSnapshot = std::make_shared<FByteArray>(
 			Pixels.begin(), Pixels.begin() + static_cast<ptrdiff_t>(PixelCount));
 
 		FTextureRHIRef NewTexture;

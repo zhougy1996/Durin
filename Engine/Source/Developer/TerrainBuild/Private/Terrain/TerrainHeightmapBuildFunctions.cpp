@@ -31,7 +31,7 @@ namespace Durin::Asset::Private
 				OutError = "Terrain heightmap local build input is malformed.";
 				return false;
 			}
-			std::vector<std::byte> DecoderBytes;
+			FByteArray DecoderBytes;
 			if (!Reader.ReadBytes(DecoderBytes, DecoderLength, Bytes.size()))
 			{
 				OutError = "Terrain heightmap local build input is malformed.";
@@ -60,7 +60,7 @@ namespace Durin::Asset::Private
 		auto EncodeTerrainHeightmapPayload(const FTerrainHeightmapPayload& Payload,
 			FBuildValue& OutValue, std::string& OutError) -> bool
 		{
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 			FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 			const_cast<FTerrainHeightmapPayload&>(Payload).Serialize(
 				Ar, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game);
@@ -158,7 +158,7 @@ namespace Durin::Asset::Private
 	}
 
 	auto EncodeTerrainHeightmapLocalInput(const FTerrainHeightmapBuildRequest& Request)
-		-> std::vector<std::byte>
+		-> FByteArray
 	{
 		FBinaryWriter Writer;
 		Writer.WriteU32(Request.Width);

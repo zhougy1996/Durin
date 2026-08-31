@@ -35,7 +35,7 @@ TEST(FTerrainHeightmapCookTests, CookedRuntimeLoadsExactPayloadWithoutSourceOrDd
 		"/Game/", ContentRoot.generic_string() + "/");
 	const std::string PreviousDdc = Durin::FPaths::DerivedDataCacheDir();
 	Durin::FPaths::SetDerivedDataCacheDirForTests((Root / "DDC").generic_string());
-	std::vector<std::byte> Raw;
+	Durin::FByteArray Raw;
 	// RAW requires a square sample plane; use a 3x3 asymmetric Gaea/Unity profile.
 	const std::array<uint16, 9> RawSamples{
 		0, 17, 257, 4097, 32'768, 65'535, 111, 222, 333};

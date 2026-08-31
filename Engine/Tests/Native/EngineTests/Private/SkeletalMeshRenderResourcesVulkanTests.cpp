@@ -55,7 +55,7 @@ namespace
 	Durin::FViewRenderTelemetry GLastTelemetry;
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GSceneColorTimingQueries = nullptr;
 	std::vector<Durin::FGPUTimingQueryRHIRef>* GShadowDepthTimingQueries = nullptr;
-	std::array<std::vector<std::byte>*, 4> GGBufferPixels{};
+	std::array<Durin::FByteArray*, 4> GGBufferPixels{};
 	auto CaptureTelemetry(const Durin::FViewRenderTelemetry& Telemetry) -> void
 	{
 		GLastTelemetry = Telemetry;
@@ -117,7 +117,7 @@ namespace
 	}
 
 	auto ValidateCapturedGBuffer(
-		const std::array<std::vector<std::byte>, 4>& Pixels
+		const std::array<Durin::FByteArray, 4>& Pixels
 	) -> void
 	{
 		ASSERT_FALSE(Pixels[0].empty());
@@ -482,7 +482,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	);
 	Durin::FlushRenderingCommands();
 
-	auto Readback = std::make_shared<std::vector<std::byte>>();
+	auto Readback = std::make_shared<Durin::FByteArray>();
 	Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
 		[&Renderer, &Scene, Readback](Durin::FRHICommandListImmediate& CommandList) {
 			Durin::GRenderFrameCounterRenderThread++;
@@ -565,7 +565,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 			Durin::EViewVisibilityMode::FrustumCullingDisabled,
 		Durin::FMatrix ViewProjection = Durin::FMatrix(1.0)
 	) {
-		auto Result = std::make_shared<std::vector<std::byte>>();
+		auto Result = std::make_shared<Durin::FByteArray>();
 		Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
 			[&Renderer, &Scene, Result, Name = std::move(Name),
 			 bEnableGBufferQualification, ShadowCandidate, VisibilityMode,
@@ -605,7 +605,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		return Result;
 	};
 	const auto ZeroLightReadback = RenderLitReadback("ZeroLightSkeletalColor");
-	std::array<std::vector<std::byte>, 4> SkeletalGBufferPixels;
+	std::array<Durin::FByteArray, 4> SkeletalGBufferPixels;
 	for (size_t Index = 0; Index < GGBufferPixels.size(); ++Index)
 		GGBufferPixels[Index] = &SkeletalGBufferPixels[Index];
 	Durin::SetGBufferCaptureSink(CaptureGBuffer);
@@ -1008,8 +1008,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		Durin::FPrimitiveSceneId(1), TranslatedPose
 	);
 	Durin::FlushRenderingCommands();
-	auto TranslatedReadback = std::make_shared<std::vector<std::byte>>();
-	auto AuxiliaryReadback = std::make_shared<std::vector<std::byte>>();
+	auto TranslatedReadback = std::make_shared<Durin::FByteArray>();
+	auto AuxiliaryReadback = std::make_shared<Durin::FByteArray>();
 	Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
 		[&Renderer, &Scene, TranslatedReadback, AuxiliaryReadback](
 			Durin::FRHICommandListImmediate& CommandList
@@ -1080,8 +1080,8 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 	SplineData.Params.SourceForwardMax = 0.8;
 	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FSplineMeshSceneProxy>(SplineSource.get(), std::vector<Durin::FMaterialRenderProxyRef>{Opaque, Masked, Translucent}, 1, SplineData), Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
-	auto SplineReadback = std::make_shared<std::vector<std::byte>>();
-	std::array<std::vector<std::byte>, 4> SplineGBufferPixels;
+	auto SplineReadback = std::make_shared<Durin::FByteArray>();
+	std::array<Durin::FByteArray, 4> SplineGBufferPixels;
 	for (size_t Index = 0; Index < GGBufferPixels.size(); ++Index)
 		GGBufferPixels[Index] = &SplineGBufferPixels[Index];
 	Durin::SetGBufferCaptureSink(CaptureGBuffer);
@@ -1126,7 +1126,7 @@ TEST(FSkeletalMeshRenderResourcesVulkanTests, InitializesRejectsRetriesAndReleas
 		[](std::byte Value) { return Value != std::byte{0}; }));
 	auto CaptureSplineParity = [&](std::string Name,
 								   bool bEnableGBufferQualification = false) {
-		auto Result = std::make_shared<std::vector<std::byte>>();
+		auto Result = std::make_shared<Durin::FByteArray>();
 		Durin::EnqueueRenderCommand<FSkeletalResourceLifecycleCommand>(
 			[&Renderer, &Scene, Result, Name = std::move(Name),
 			 bEnableGBufferQualification](Durin::FRHICommandListImmediate& CommandList) {

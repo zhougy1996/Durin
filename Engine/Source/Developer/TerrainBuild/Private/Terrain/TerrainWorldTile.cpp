@@ -226,7 +226,7 @@ namespace Durin::Asset
 			}
 		}
 
-		auto BuildHeightBody(const FTerrainNormalizedTileInput& Input) -> std::vector<std::byte>
+		auto BuildHeightBody(const FTerrainNormalizedTileInput& Input) -> FByteArray
 		{
 			FBinaryWriter Writer;
 			Writer.WriteU16(257);
@@ -241,7 +241,7 @@ namespace Durin::Asset
 			return static_cast<uint8>(std::distance(Layers.begin(), It));
 		}
 
-		auto BuildCoverageBody(const FTerrainNormalizedTileInput& Input) -> std::vector<std::byte>
+		auto BuildCoverageBody(const FTerrainNormalizedTileInput& Input) -> FByteArray
 		{
 			FBinaryWriter Writer;
 			Writer.WriteU16(257);
@@ -260,7 +260,7 @@ namespace Durin::Asset
 			return Writer.TakeBytes();
 		}
 
-		auto BuildCollisionBody(const FTerrainNormalizedTileInput& Input) -> std::vector<std::byte>
+		auto BuildCollisionBody(const FTerrainNormalizedTileInput& Input) -> FByteArray
 		{
 			FBinaryWriter Writer;
 			Writer.WriteU16(129);
@@ -271,7 +271,7 @@ namespace Durin::Asset
 			return Writer.TakeBytes();
 		}
 
-		auto BuildQueryBody(const FTerrainNormalizedTileInput& Input) -> std::vector<std::byte>
+		auto BuildQueryBody(const FTerrainNormalizedTileInput& Input) -> FByteArray
 		{
 			FBinaryWriter Writer;
 			Writer.WriteU16(129);
@@ -299,7 +299,7 @@ namespace Durin::Asset
 			return Writer.TakeBytes();
 		}
 
-		auto BuildMetadataBody(const FTerrainNormalizedTileInput& Input) -> std::vector<std::byte>
+		auto BuildMetadataBody(const FTerrainNormalizedTileInput& Input) -> FByteArray
 		{
 			FBinaryWriter Writer;
 			const auto [Min, Max] = std::ranges::minmax(Input.Heights);
@@ -1028,7 +1028,7 @@ namespace Durin::Asset
 	auto EncodeTerrainTileProduct(ETerrainTileProductClass ProductClass,
 		const FTerrainTileKey& Tile, const FGuid& GenerationId,
 		std::span<const FXxHash128> Dependencies, std::span<const std::byte> Body,
-		std::vector<std::byte>& OutBytes, ETerrainWorldOutcome& OutOutcome,
+		FByteArray& OutBytes, ETerrainWorldOutcome& OutOutcome,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -1162,7 +1162,7 @@ namespace Durin::Asset
 			return Fail(ETerrainWorldOutcome::Cancelled,
 				"Terrain tile generation was cancelled.", OutOutcome, OutError);
 		FTerrainTileGeneration Candidate{Input.Tile, GenerationId};
-		std::array<std::vector<std::byte>, 5> Bodies;
+		std::array<FByteArray, 5> Bodies;
 		Bodies[ProductIndex(ETerrainTileProductClass::Height)] = BuildHeightBody(Input);
 		Bodies[ProductIndex(ETerrainTileProductClass::Coverage)] = BuildCoverageBody(Input);
 		Bodies[ProductIndex(ETerrainTileProductClass::Collision)] = BuildCollisionBody(Input);

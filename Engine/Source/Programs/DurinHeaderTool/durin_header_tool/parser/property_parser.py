@@ -39,6 +39,7 @@ from durin_header_tool.parser.annotation_rewriter import _annotation_payload, _u
 ExportedSymbols: TypeAlias = dict[str, ExportedSymbolInfo]
 MAX_CONTAINER_PROPERTY_DEPTH = 4
 _DPROPERTY_PATTERN = re.compile(r"\bDPROPERTY\s*\(")
+_BYTE_ARRAY_TYPE_SPELLINGS = frozenset(("FByteArray", "Durin::FByteArray", "::Durin::FByteArray"))
 
 
 @dataclass(frozen=True)
@@ -1033,6 +1034,17 @@ def _make_property_from_spelling(
 ) -> ReflectedPropertyInfo | None:
     type_spelling = _normalize_type_spelling(type_spelling)
     canonical_spelling = _normalize_type_spelling(canonical_spelling)
+    if type_spelling in _BYTE_ARRAY_TYPE_SPELLINGS:
+        if depth != 0:
+            return None
+        return ReflectedPropertyInfo(
+            name=name,
+            type_name=type_spelling,
+            kind="Blob",
+            array_dim=array_dim,
+            element_size=element_size or f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols, declaring_namespace)})",
+            flags=flags,
+        )
     kind = (
         _PROPERTY_KIND_BY_TYPE.get(type_spelling)
         or _PROPERTY_KIND_BY_TYPE.get(canonical_spelling)
@@ -1137,16 +1149,7 @@ def _make_property_from_spelling(
         if _normalize_type_spelling(args[0]) == "bool":
             return None
         if _normalize_type_spelling(args[0]) == "std::byte":
-            if depth != 0:
-                return None
-            return ReflectedPropertyInfo(
-                name=name,
-                type_name=type_spelling,
-                kind="Blob",
-                array_dim=array_dim,
-                element_size=element_size or f"sizeof({_cpp_type_spelling(type_spelling, exported_symbols, declaring_namespace)})",
-                flags=flags,
-            )
+            return None
         inner = _make_property_from_spelling(
             f"{name}_Inner",
             args[0],

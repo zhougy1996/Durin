@@ -510,7 +510,7 @@ namespace Durin
 					"TerrainHeightmap cooked platform data is unavailable.");
 				return;
 			}
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload);
 			const_cast<FTerrainHeightmapPayload&>(*Payload).Serialize(
 				Writer, Asset::ECookTargetPlatform::Win64,

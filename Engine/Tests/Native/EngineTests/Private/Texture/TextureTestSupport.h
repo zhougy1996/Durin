@@ -110,7 +110,7 @@ namespace
 		}
 	}
 
-	auto DecodeFirstCompressedPixel(Durin::EPixelFormat Format, const std::vector<std::byte>& Block)
+	auto DecodeFirstCompressedPixel(Durin::EPixelFormat Format, const Durin::FByteArray& Block)
 		-> std::array<uint8, 4>
 	{
 		std::array<uint8, 64> Pixels{};
@@ -146,9 +146,9 @@ namespace
 			EXPECT_NEAR(Actual[Channel], Expected[Channel], Tolerance) << "channel " << Channel;
 	}
 
-	auto DecodeBC3Mip(const Durin::FTexture2DMipData& Mip) -> std::vector<std::byte>
+	auto DecodeBC3Mip(const Durin::FTexture2DMipData& Mip) -> Durin::FByteArray
 	{
-		std::vector<std::byte> Result(static_cast<size_t>(Mip.Width) * Mip.Height * 4);
+		Durin::FByteArray Result(static_cast<size_t>(Mip.Width) * Mip.Height * 4);
 		const uint32 BlocksWide = (Mip.Width + 3) / 4;
 		const uint32 BlocksHigh = (Mip.Height + 3) / 4;
 		for (uint32 BlockY = 0; BlockY < BlocksHigh; ++BlockY)
@@ -174,7 +174,7 @@ namespace
 		return Result;
 	}
 
-	auto CalculateDecodedCoverage(const std::vector<std::byte>& Pixels, uint8 Threshold) -> double
+	auto CalculateDecodedCoverage(const Durin::FByteArray& Pixels, uint8 Threshold) -> double
 	{
 		size_t CoveredPixelCount = 0;
 		for (size_t Offset = 3; Offset < Pixels.size(); Offset += 4)

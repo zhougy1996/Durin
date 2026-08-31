@@ -110,7 +110,7 @@ namespace Durin::Asset
 		Stream.seekg(0);
 		const uint64 InitialSize = std::min<uint64>(
 			FileSize, BinaryEnvelopePreambleBytes);
-		std::vector<std::byte> Bytes(static_cast<size_t>(InitialSize));
+		FByteArray Bytes(static_cast<size_t>(InitialSize));
 		if (InitialSize != 0)
 		{
 			Stream.read(reinterpret_cast<char*>(Bytes.data()),

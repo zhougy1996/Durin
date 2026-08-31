@@ -31,7 +31,7 @@ namespace Durin::AssetForge::Builtins::Private
 
 		FImportedImage Imported;
 		std::span<const std::byte> EncodedBytes;
-		std::vector<std::byte> OwnedBytes;
+		FByteArray OwnedBytes;
 		std::string EncodingHint;
 		if (const aiTexture* Embedded = Scene.GetEmbeddedTexture(TexturePath.c_str()))
 		{

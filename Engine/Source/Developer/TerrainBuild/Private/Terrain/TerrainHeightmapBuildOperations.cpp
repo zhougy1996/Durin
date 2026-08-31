@@ -42,7 +42,7 @@ namespace Durin::Asset
 			.SourceProfileVersion = TerrainHeightmapImportedDataSchemaVersion,
 			.TargetPlatform = Asset::ECookTargetPlatform::Win64,
 			.TargetProfile = Asset::ECookTargetProfile::Game};
-		const std::vector<std::byte> KeyBytes = BuildTerrainHeightmapDerivedDataKeyBytes(KeyInput, OutError);
+		const FByteArray KeyBytes = BuildTerrainHeightmapDerivedDataKeyBytes(KeyInput, OutError);
 		std::string Key = KeyBytes.empty() ? std::string{} : FXxHash128::HashBuffer(KeyBytes).ToString();
 		if (Key.empty()) return false;
 		FBuildDefinition Definition;

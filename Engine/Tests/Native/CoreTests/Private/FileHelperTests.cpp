@@ -15,7 +15,7 @@ namespace
 		return Root;
 	}
 
-	auto TryReadBytes(const std::filesystem::path& Path, std::vector<std::byte>& OutBytes) -> bool
+	auto TryReadBytes(const std::filesystem::path& Path, Durin::FByteArray& OutBytes) -> bool
 	{
 		std::ifstream File(Path, std::ios::binary);
 		if (!File.is_open()) return false;
@@ -28,15 +28,15 @@ namespace
 		return !File.fail();
 	}
 
-	auto ReadBytes(const std::filesystem::path& Path) -> std::vector<std::byte>
+	auto ReadBytes(const std::filesystem::path& Path) -> Durin::FByteArray
 	{
-		std::vector<std::byte> Bytes;
+		Durin::FByteArray Bytes;
 		EXPECT_TRUE(TryReadBytes(Path, Bytes));
 		return Bytes;
 	}
 
 	auto IsCompleteWriterPayload(
-		const std::vector<std::byte>& Bytes,
+		const Durin::FByteArray& Bytes,
 		std::span<const size_t> ExpectedSizes) -> bool
 	{
 		return std::ranges::find(ExpectedSizes, Bytes.size()) != ExpectedSizes.end()
@@ -72,7 +72,7 @@ TEST(FFileHelperTests, PublishesAndReplacesCompleteBytes)
 
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFileAtomically(Second, Destination, &Error)) << Error.ToString();
 	EXPECT_EQ(ReadBytes(Destination), std::vector(Second.begin(), Second.end()));
-	std::vector<std::byte> Loaded;
+	Durin::FByteArray Loaded;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Loaded, Destination));
 	EXPECT_EQ(Loaded, std::vector(Second.begin(), Second.end()));
 }
@@ -82,7 +82,7 @@ TEST(FFileHelperTests, CopiesFilesThroughAtomicReplacement)
 	const std::filesystem::path Root = TestRoot("CopyReplace");
 	const std::filesystem::path Source = Root / "Source.bin";
 	const std::filesystem::path Destination = Root / "Destination.bin";
-	std::vector<std::byte> Expected(3 * 64 * 1024 + 17);
+	Durin::FByteArray Expected(3 * 64 * 1024 + 17);
 	for (size_t Index = 0; Index < Expected.size(); ++Index)
 		Expected[Index] = static_cast<std::byte>((Index * 53 + 7) & 0xff);
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Expected, Source));
@@ -103,7 +103,7 @@ TEST(FFileHelperTests, CopiesFilesThroughAtomicReplacement)
 TEST(FFileHelperTests, HashesFilesIncrementallyAcrossBufferBoundaries)
 {
 	const std::filesystem::path FilePath = TestRoot("StreamingHash") / "Value.bin";
-	std::vector<std::byte> Bytes(3 * 64 * 1024 + 17);
+	Durin::FByteArray Bytes(3 * 64 * 1024 + 17);
 	for (size_t Index = 0; Index < Bytes.size(); ++Index)
 		Bytes[Index] = static_cast<std::byte>((Index * 37) & 0xff);
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Bytes, FilePath));
@@ -121,7 +121,7 @@ TEST(FFileHelperTests, HashesFilesIncrementallyAcrossBufferBoundaries)
 TEST(FFileHelperTests, RandomReadHandleSupportsExactOutOfOrderRanges)
 {
 	const std::filesystem::path FilePath = TestRoot("RandomRead") / "Value.bin";
-	std::vector<std::byte> Bytes(257);
+	Durin::FByteArray Bytes(257);
 	for (size_t Index = 0; Index < Bytes.size(); ++Index)
 		Bytes[Index] = static_cast<std::byte>((Index * 29) & 0xff);
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(Bytes, FilePath));
@@ -184,11 +184,11 @@ TEST(FFileHelperTests, EmptyFilesClearSuccessfulLoadResults)
 	const std::filesystem::path FilePath = TestRoot("EmptyRead") / "Empty.bin";
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::span<const std::byte>{}, FilePath));
 
-	std::vector<std::byte> Bytes{std::byte{0x11}, std::byte{0x22}};
+	Durin::FByteArray Bytes{std::byte{0x11}, std::byte{0x22}};
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Bytes, FilePath));
 	EXPECT_TRUE(Bytes.empty());
 
-	std::vector<std::byte> RawBytes{std::byte{0x11}, std::byte{0x22}};
+	Durin::FByteArray RawBytes{std::byte{0x11}, std::byte{0x22}};
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(RawBytes, FilePath));
 	EXPECT_TRUE(RawBytes.empty());
 
@@ -217,9 +217,9 @@ TEST(FFileHelperTests, LoadsExactTextBytesAndPreservesResultsOnFailure)
 	EXPECT_FALSE(Durin::FFileHelper::LoadFileToString(Text, MissingPath.generic_string()));
 	EXPECT_EQ(Text, "preserved text");
 
-	std::vector<std::byte> Bytes{std::byte{0x11}, std::byte{0x22}};
+	Durin::FByteArray Bytes{std::byte{0x11}, std::byte{0x22}};
 	EXPECT_FALSE(Durin::FFileHelper::LoadFileToArray(Bytes, MissingPath));
-	EXPECT_EQ(Bytes, (std::vector<std::byte>{std::byte{0x11}, std::byte{0x22}}));
+	EXPECT_EQ(Bytes, (Durin::FByteArray{std::byte{0x11}, std::byte{0x22}}));
 }
 
 TEST(FFileHelperTests, ConcurrentWritersNeverExposePartialBytes)
@@ -267,7 +267,7 @@ TEST(FFileHelperTests, ConcurrentWritersNeverExposePartialBytes)
 		while (!bStart.load(std::memory_order_acquire)) std::this_thread::yield();
 		while (!bStopReader.load(std::memory_order_acquire))
 		{
-			std::vector<std::byte> Bytes;
+			Durin::FByteArray Bytes;
 			if (!Durin::FFileHelper::LoadFileToArray(Bytes, Destination)
 				|| !IsCompleteWriterPayload(Bytes, PayloadSizes))
 			{
@@ -322,7 +322,7 @@ TEST(FFileHelperTests, SupportsStandardAndAtomicIoBeyondMaxPath)
 	EXPECT_TRUE(std::filesystem::is_regular_file(Destination));
 	EXPECT_EQ(std::filesystem::file_size(Destination), First.size());
 
-	std::vector<std::byte> Loaded;
+	Durin::FByteArray Loaded;
 	ASSERT_TRUE(TryReadBytes(Destination, Loaded));
 	EXPECT_EQ(Loaded, std::vector(First.begin(), First.end()));
 

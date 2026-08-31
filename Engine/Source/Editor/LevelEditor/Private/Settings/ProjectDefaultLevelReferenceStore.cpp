@@ -19,7 +19,7 @@ namespace Durin::Editor::Level
 		struct FCapturedProjectDefaultLevel
 		{
 			std::filesystem::path SettingsFile;
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 			std::string Fingerprint;
 			FPackagePath Path;
 			bool bFileExists = false;
@@ -184,7 +184,7 @@ namespace Durin::Editor::Level
 				Asset::EAssetError::ReadOnlyMode,
 				"Project settings are read-only and cannot be fixed up.");
 
-		std::vector<std::byte> UpdatedBytes;
+		FByteArray UpdatedBytes;
 		const FProjectGameSettingsResult UpdateResult =
 			FProjectGameSettingsStore(PreState.SettingsFile).BuildDefaultLevelUpdate(
 				Rewrites.front().DestinationPath.ToString(), UpdatedBytes);
@@ -192,9 +192,9 @@ namespace Durin::Editor::Level
 			return StoreError(
 				Asset::EAssetError::CorruptFile,
 				UpdateResult.Message);
-		auto PostBytes = std::make_shared<std::vector<std::byte>>(
+		auto PostBytes = std::make_shared<FByteArray>(
 			std::move(UpdatedBytes));
-		auto PreBytes = std::make_shared<std::vector<std::byte>>(
+		auto PreBytes = std::make_shared<FByteArray>(
 			std::move(PreState.Bytes));
 		const FPackagePath PrePath = PreState.Path;
 		const FPackagePath PostPath = Rewrites.front().DestinationPath;

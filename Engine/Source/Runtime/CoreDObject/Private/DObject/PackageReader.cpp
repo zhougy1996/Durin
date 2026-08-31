@@ -978,9 +978,9 @@ namespace Durin::ObjectPackage
 					"DAST v9 bulk entries do not consume their exact inline/external segments.",
 					"BulkDirectory");
 
-			std::vector<std::byte> CanonicalMain;
+			FByteArray CanonicalMain;
 			FPackageWriterDiagnostic WriterDiagnostic;
-			std::vector<std::byte> CanonicalBulk;
+			FByteArray CanonicalBulk;
 			const bool bCanonical = bExternalPayloadAvailable
 				? WritePackageV9(Linker, CanonicalMain, CanonicalBulk, &WriterDiagnostic)
 				: WritePackageV9Main(Linker, Registry.ExternalBulkBytes,

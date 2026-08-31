@@ -472,12 +472,13 @@ property editing presents hexadecimal byte data and does not apply arithmetic,
 range, or decimal controls. Fixed C arrays of `std::byte` retain fixed-array
 shape.
 
-A direct `std::vector<std::byte>` is generated as one owned Blob property with
-logical Archive kind `Bytes`; it is not an `FArrayProperty` and exposes only a
-read-only byte-count summary in generic Details. Blob construction,
-destruction, copy, exact equality, snapshots, duplication, and Archive loading
-operate on the complete vector. Blob values contain no object references and
-cannot be Map keys or targets of indexed authored overrides.
+A direct `FByteArray` is generated as one owned Blob property with logical
+Archive kind `Bytes`; it is not an `FArrayProperty` and exposes only a read-only
+byte-count summary in generic Details. `std::vector<std::byte>` is the private
+implementation of `FByteArray`, not a second reflected spelling. Blob
+construction, destruction, copy, exact equality, snapshots, duplication, and
+Archive loading operate on the complete array. Blob values contain no object
+references and cannot be Map keys or targets of indexed authored overrides.
 
 `std::vector<uint8>` remains the existing numeric `Array<UInt8>` contract.
 DurinHeaderTool does not infer Blob intent from a field name or size. The first

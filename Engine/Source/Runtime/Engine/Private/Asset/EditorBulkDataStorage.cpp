@@ -21,7 +21,7 @@ namespace Durin::Asset
 				if (SourceFormatVersion != AssetPackageV9FormatVersion)
 					return Fail("Authored bulk inspection requires DAST v9 field metadata.", OutError);
 				FAssetPackageField Field{.Kind = Kind,
-					.Payload = std::vector<std::byte>(Payload.begin(), Payload.end()),
+					.Payload = FByteArray(Payload.begin(), Payload.end()),
 					.SourceFormatVersion = SourceFormatVersion};
 				FEditorBulkDataStorageDescriptor Descriptor;
 				if (!Field.TryReadEditorBulkDataStorageDescriptor(Descriptor))
@@ -45,7 +45,7 @@ namespace Durin::Asset
 				Reader << DeclaringType << Name << FieldKind << Signature << PayloadSize;
 				if (Reader.HasError() || PayloadSize > Reader.GetRemainingPayloadBytes())
 					return Fail("Inspected authored struct field is truncated.", OutError);
-				std::vector<std::byte> FieldPayload(static_cast<size_t>(PayloadSize));
+				FByteArray FieldPayload(static_cast<size_t>(PayloadSize));
 				if (PayloadSize != 0)
 					Reader.SerializeRawBytes(std::as_writable_bytes(std::span(FieldPayload)));
 				if (Reader.HasError() || !CollectDescriptors(

@@ -54,7 +54,7 @@ namespace Durin::Asset
 		}
 		if (!EnsureTextureBuildFunctions(&OutError)) return false;
 		const FVolumeTextureBuildKeyInput KeyInput = MakeKeyInput(SourceData, Settings);
-		const std::vector<std::byte> KeyBytes = BuildVolumeTextureDerivedDataKeyBytes(
+		const FByteArray KeyBytes = BuildVolumeTextureDerivedDataKeyBytes(
 			KeyInput, OutError);
 		const std::string Key = KeyBytes.empty()
 			? std::string{} : FXxHash128::HashBuffer(KeyBytes).ToString();

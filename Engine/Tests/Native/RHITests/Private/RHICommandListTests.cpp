@@ -11,9 +11,9 @@ namespace Durin
 {
 	namespace
 	{
-		auto MakeByteVector(std::initializer_list<uint8> Values) -> std::vector<std::byte>
+		auto MakeByteVector(std::initializer_list<uint8> Values) -> Durin::FByteArray
 		{
-			std::vector<std::byte> Result;
+			Durin::FByteArray Result;
 			Result.reserve(Values.size());
 			for (uint8 Value : Values) Result.push_back(static_cast<std::byte>(Value));
 			return Result;
@@ -264,7 +264,7 @@ namespace Durin
 			}
 			auto RHIReadTexture2D(
 				FRHITexture*, uint32, uint32,
-				std::vector<std::byte>& OutData) -> bool override
+				Durin::FByteArray& OutData) -> bool override
 			{
 				Operations.emplace_back("ReadTexture2D");
 				OperationThreadRoles.emplace_back(IsInRHIThread());
@@ -331,7 +331,7 @@ namespace Durin
 			std::vector<bool> OperationThreadRoles;
 			FRHITexture* ObservedColorTarget = nullptr;
 			std::array<float, 4> ObservedClearValue{};
-			std::vector<std::byte> ObservedPushConstants;
+			Durin::FByteArray ObservedPushConstants;
 			FRHIShader* ObservedShader = nullptr;
 			std::vector<FRHIShaderParameterResource> ObservedShaderParameters;
 			std::optional<FRHIDrawArguments> ObservedDrawArguments;
@@ -339,8 +339,8 @@ namespace Durin
 			std::optional<std::array<uint32, 3>> ObservedDispatch;
 			FRHIBuffer* ObservedBuffer = nullptr;
 			uint32 ObservedBufferOffset = 0;
-			std::vector<std::byte> ObservedBufferData;
-			std::vector<std::byte> ObservedTextureData;
+			Durin::FByteArray ObservedBufferData;
+			Durin::FByteArray ObservedTextureData;
 			std::vector<FRHIBufferTransition> ObservedBufferTransitions;
 			std::vector<FRHITextureTransition> ObservedTextureTransitions;
 			std::vector<FRHIBufferCopyRegion> ObservedBufferCopyRegions;
@@ -411,9 +411,9 @@ namespace Durin
 	TEST(FRHICommandListTests, OwnedCallableSurvivesSourceMutation)
 	{
 		FRHICommandListExecutor Executor;
-		std::vector<std::byte> Source = MakeByteVector({1, 2, 3, 4});
-		std::vector<std::byte> Replayed;
-		std::vector<std::byte> Owned = Source;
+		Durin::FByteArray Source = MakeByteVector({1, 2, 3, 4});
+		Durin::FByteArray Replayed;
+		Durin::FByteArray Owned = Source;
 		const size_t OwnedPayloadBytes = Owned.capacity() * sizeof(Owned.front());
 		Executor.GetImmediateCommandList().EnqueueLambda(
 			[Owned = std::move(Owned), &Replayed]() { Replayed = Owned; },
@@ -815,7 +815,7 @@ namespace Durin
 		FRHICommandListImmediate& Immediate = Executor.GetImmediateCommandList();
 		TRefCountPtr<FRHITexture> Texture = MakeRefCount<FRHITexture>();
 		const std::array<uint8, 4> UniformData{1, 2, 3, 4};
-		std::vector<std::byte> Readback;
+		Durin::FByteArray Readback;
 
 		Immediate.AcquireBackBuffer(Texture.GetReference());
 		Immediate.AllocateDynamicUniformBuffer(
@@ -927,11 +927,11 @@ namespace Durin
 		FRHICommandListExecutor Executor(Context, RHIThread);
 
 		TRefCountPtr<FTestBuffer> Buffer = MakeRefCount<FTestBuffer>(2048);
-		std::vector<std::byte> BufferSource(2048, std::byte{7});
+		Durin::FByteArray BufferSource(2048, std::byte{7});
 		FRHITextureCreateDesc Desc = FRHITextureCreateDesc::Create2D(
 			"PayloadAccountingTexture", 32, 32, EPixelFormat::RGBA8_UNORM);
 		TRefCountPtr<FRHITexture> Texture = MakeRefCount<FRHITexture>(Desc);
-		std::vector<std::byte> TextureSource(32 * 32 * 4, std::byte{9});
+		Durin::FByteArray TextureSource(32 * 32 * 4, std::byte{9});
 		FUpdateTextureRegion2D Region(0, 0, 0, 0, 32, 32);
 
 		FRHICommandListImmediate& Immediate = Executor.GetImmediateCommandList();
@@ -1327,7 +1327,7 @@ namespace Durin
 		FRHIRenderPassInfo PassInfo;
 		PassInfo.ColorRenderTargets[0] = Texture.GetReference();
 		PassInfo.ColorClearValues[0] = FClearValueBinding(1, 2, 3, 4);
-		std::vector<std::byte> PushBytes = MakeByteVector({1, 2, 3, 4});
+		Durin::FByteArray PushBytes = MakeByteVector({1, 2, 3, 4});
 		std::vector<FRHIShaderParameterResource> Parameters{
 			{.Resource = Buffer.GetReference(), .SetIndex = 1, .BindingIndex = 2,
 				.ArrayElement = 0, .Type = ERHIBindingType::UniformBuffer,

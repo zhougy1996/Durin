@@ -82,7 +82,7 @@ namespace Durin
 		// Backend-visible entry point exported by the compiled binary, such as Vulkan SPIR-V `main`.
 		std::string BinaryEntryPoint = "main";
 		std::string DebugName;
-		std::shared_ptr<std::vector<std::byte>> Code;
+		std::shared_ptr<FByteArray> Code;
 		FXxHash128 Hash{};
 		FShaderReflectionData Reflection;
 	};

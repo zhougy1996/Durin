@@ -19,7 +19,7 @@ namespace Durin::Asset
 		struct FCanonicalResaveFileSnapshot
 		{
 			std::filesystem::path Path;
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 			bool bExisted = false;
 		};
 
@@ -107,7 +107,7 @@ namespace Durin::Asset
 			});
 		}
 
-		auto LoadBytes(std::string_view Path, std::vector<std::byte>& OutBytes) -> bool
+		auto LoadBytes(std::string_view Path, FByteArray& OutBytes) -> bool
 		{
 			return FFileHelper::LoadFileToArray(OutBytes, Path);
 		}
@@ -271,7 +271,7 @@ namespace Durin::Asset
 				Result.Diagnostic = "Injected canonical-resave revalidation failure.";
 				return Result;
 			}
-			std::vector<std::byte> BeforeBytes;
+			FByteArray BeforeBytes;
 			if (!LoadBytes(PackagePlan.PhysicalPath, BeforeBytes)
 				|| !FingerprintMatches(PackagePlan.Fingerprint, BeforeBytes, PackagePlan.PhysicalPath))
 			{
@@ -404,7 +404,7 @@ namespace Durin::Asset
 				return Result;
 			}
 
-			std::vector<std::byte> AfterBytes;
+			FByteArray AfterBytes;
 			FAssetPackageCompatibilityRecord Verification;
 			const bool bInjectedVerificationFailure = Options.ShouldFail
 				&& Options.ShouldFail(EAssetCanonicalResaveApplyPhase::VerifyPackage, Index);

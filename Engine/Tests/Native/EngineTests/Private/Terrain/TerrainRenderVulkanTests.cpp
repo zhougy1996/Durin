@@ -28,7 +28,7 @@ namespace
 {
 	Durin::FViewRenderTelemetry GTelemetry;
 	std::vector<Durin::FViewRenderTelemetry> GTelemetrySnapshots;
-	std::array<std::vector<std::byte>*, 4> GGBufferPixels{};
+	std::array<Durin::FByteArray*, 4> GGBufferPixels{};
 	auto CaptureTelemetry(const Durin::FViewRenderTelemetry& Telemetry) -> void
 	{
 		GTelemetry = Telemetry;
@@ -168,10 +168,10 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesTelemetry)
 		Durin::FMatrix(1.0));
 	Durin::FlushRenderingCommands();
 
-	auto Readback = std::make_shared<std::vector<std::byte>>();
+	auto Readback = std::make_shared<Durin::FByteArray>();
 	auto QualificationReadback =
-		std::make_shared<std::vector<std::byte>>();
-	std::array<std::vector<std::byte>, 4> TerrainGBufferPixels;
+		std::make_shared<Durin::FByteArray>();
+	std::array<Durin::FByteArray, 4> TerrainGBufferPixels;
 	for (size_t Index = 0; Index < GGBufferPixels.size(); ++Index)
 		GGBufferPixels[Index] = &TerrainGBufferPixels[Index];
 	Durin::SetGBufferCaptureSink(CaptureGBuffer);
@@ -372,7 +372,7 @@ TEST(FTerrainRenderVulkanTests, RendersExactHeightPatchAndConservesTelemetry)
 			Patch.LocalBounds, Material, 1),
 		Durin::Math::TranslationMatrix(LargeWorldOrigin));
 	Durin::FlushRenderingCommands();
-	auto LargeCoordinateReadback = std::make_shared<std::vector<std::byte>>();
+	auto LargeCoordinateReadback = std::make_shared<Durin::FByteArray>();
 	Durin::EnqueueRenderCommand<FTerrainRenderCommand>(
 		[&Renderer, &Scene, LargeCoordinateReadback, LargeWorldOrigin](
 			Durin::FRHICommandListImmediate& CommandList) {

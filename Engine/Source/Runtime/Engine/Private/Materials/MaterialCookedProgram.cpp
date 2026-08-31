@@ -57,8 +57,8 @@ namespace Durin
 				Ar, Shader.BinaryEntryPoint, MaterialCookedProgramMaxStringBytes);
 			SerializeBoundedString(
 				Ar, Shader.DebugName, MaterialCookedProgramMaxStringBytes);
-			std::vector<std::byte> Code = Ar.IsSaving() && Shader.Code
-				? *Shader.Code : std::vector<std::byte>{};
+			FByteArray Code = Ar.IsSaving() && Shader.Code
+				? *Shader.Code : FByteArray{};
 			SerializeByteBuffer(Ar, Code, MaterialCookedProgramMaxPayloadBytes);
 			SerializeHash(Ar, Shader.Hash);
 			SerializeBoundedSequence(
@@ -74,7 +74,7 @@ namespace Durin
 					SerializePushRange(Inner, Range);
 				});
 			if (Ar.IsLoading() && !Ar.HasError())
-				Shader.Code = std::make_shared<std::vector<std::byte>>(
+				Shader.Code = std::make_shared<FByteArray>(
 					std::move(Code));
 		}
 
@@ -170,7 +170,7 @@ namespace Durin
 		const FMaterialStaticProperties& StaticProperties,
 		Asset::ECookTargetPlatform TargetPlatform,
 		Asset::ECookTargetProfile TargetProfile,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();

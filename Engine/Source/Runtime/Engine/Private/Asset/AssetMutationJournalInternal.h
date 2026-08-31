@@ -102,7 +102,7 @@ namespace Durin::Asset::Private
 		-> std::filesystem::path;
 	auto LoadRelocationBytes(
 		const std::filesystem::path& Path,
-		std::vector<std::byte>& OutBytes) -> FAssetResult;
+		FByteArray& OutBytes) -> FAssetResult;
 	auto SaveRelocationBytes(
 		const std::filesystem::path& Path,
 		std::span<const std::byte> Bytes) -> FAssetResult;

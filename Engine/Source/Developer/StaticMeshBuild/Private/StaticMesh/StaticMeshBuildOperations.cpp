@@ -584,13 +584,13 @@ namespace Durin::Asset
 			Product.FailureStage = EStaticMeshBuildFailureStage::DerivedDataWrite;
 			return false;
 		}
-		const std::vector<std::byte> KeyBytes = BuildStaticMeshDerivedDataKeyBytes(KeyInput, OutError);
+		const FByteArray KeyBytes = BuildStaticMeshDerivedDataKeyBytes(KeyInput, OutError);
 		FBuildDefinition Definition;
 		FBuildDefinitionBuilder Builder(Private::StaticMeshFunctionName, std::string(Private::StaticMeshValueName));
 		Builder.SetKey(FBuildKey::FromString(Product.DerivedDataKey), KeyBytes)
 			.AddTargetFact("Platform", "Win64")
 			.AddInput(FBuildValue::FromOwned(std::string(Private::StaticMeshInputName),
-				std::vector<std::byte>(CandidateValue.GetBytes().begin(), CandidateValue.GetBytes().end())));
+				FByteArray(CandidateValue.GetBytes().begin(), CandidateValue.GetBytes().end())));
 		if (!Builder.Build(Definition, &OutError))
 		{
 			Product.FailureStage = EStaticMeshBuildFailureStage::Key;
@@ -645,7 +645,7 @@ namespace Durin::Asset
 			.ReconciliationHash = BuildReconciliationHash(
 				Reconciliation.MaterialSlots, Reconciliation.NormalizedSize),
 			.TargetPlatform = EStaticMeshTargetPlatform::Win64};
-		const std::vector<std::byte> KeyBytes =
+		const FByteArray KeyBytes =
 			BuildStaticMeshDerivedDataKeyBytes(KeyInput, OutError);
 		const std::string Key = KeyBytes.empty()
 			? std::string{} : FXxHash128::HashBuffer(KeyBytes).ToString();
@@ -735,7 +735,7 @@ namespace Durin::Asset
 			BuildStaticMeshCollisionDerivedDataKey(KeyInput, OutError);
 		if (OutProduct.DerivedDataKey.empty()) return false;
 
-		const std::vector<std::byte> KeyBytes =
+		const FByteArray KeyBytes =
 			BuildStaticMeshCollisionDerivedDataKeyBytes(KeyInput, OutError);
 		FBuildDefinition Definition;
 		FBuildDefinitionBuilder Builder(

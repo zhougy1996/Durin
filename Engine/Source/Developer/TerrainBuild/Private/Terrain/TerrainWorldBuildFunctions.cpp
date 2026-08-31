@@ -213,7 +213,7 @@ namespace Durin::Asset::Private
 					return false;
 				}
 				OutValue = FBuildValue::FromOwned(std::string(GetTerrainWorldBuildValueName(ProductClass)),
-					std::vector<std::byte>(Input->GetBytes().begin(), Input->GetBytes().end()));
+					FByteArray(Input->GetBytes().begin(), Input->GetBytes().end()));
 				return true;
 			}
 

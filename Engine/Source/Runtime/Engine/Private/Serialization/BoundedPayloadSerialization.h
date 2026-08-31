@@ -34,7 +34,7 @@ namespace Durin
 		static_assert(std::is_move_assignable_v<T>,
 			"Bounded payload values must be move assignable.");
 		static_assert(std::is_invocable_r_v<bool, EncodeFn, const T&,
-			std::vector<std::byte>&, std::string&>,
+			FByteArray&, std::string&>,
 			"Bounded payload encoders must accept the source value, bytes, and error.");
 		static_assert(std::is_invocable_r_v<FPayloadDecodeResult, DecodeFn,
 			std::span<const std::byte>, T&>,
@@ -43,7 +43,7 @@ namespace Durin
 		if (Ar.HasError()) return;
 		if (Ar.IsSaving())
 		{
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 			std::string Error;
 			if (!Encode(std::as_const(Value), Bytes, Error))
 			{
@@ -74,14 +74,14 @@ namespace Durin
 			return;
 		}
 		if (ByteCount > Policy.MaximumBytes
-			|| ByteCount > static_cast<uint64>(std::vector<std::byte>().max_size()))
+			|| ByteCount > static_cast<uint64>(FByteArray().max_size()))
 		{
 			Ar.Fail(EArchiveFailureCode::LimitExceeded,
 				std::string(Policy.DiagnosticName) + " exceeds its stored-size limit.");
 			return;
 		}
 
-		std::vector<std::byte> Bytes(static_cast<size_t>(ByteCount));
+		FByteArray Bytes(static_cast<size_t>(ByteCount));
 		Ar.ReadBytes(std::as_writable_bytes(std::span<std::byte>(Bytes)));
 		if (Ar.HasError()) return;
 

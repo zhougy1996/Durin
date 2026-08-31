@@ -82,7 +82,7 @@ namespace Durin::VulkanRHI
 			const FUpdateTextureRegion3D& UpdateRegion, uint32 SourceRowPitch,
 			uint32 SourceDepthPitch, std::span<const std::byte> SourceData) -> void override;
 
-		auto RHIReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, std::vector<std::byte>& OutData) -> bool override;
+		auto RHIReadTexture2D(FRHITexture* Texture, uint32 MipIndex, uint32 ArraySlice, FByteArray& OutData) -> bool override;
 
 		auto RHIAllocateDynamicUniformBuffer(const void* Data, uint32 Size) -> FRHIUniformBufferRange override;
 		auto RHIAllocateDynamicStorageBuffer(const void* Data, uint32 Size)

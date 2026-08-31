@@ -316,7 +316,7 @@ namespace Durin
 			std::vector<FDefaultDeltaNode*> NodeStack;
 			std::unordered_map<FDefaultDeltaNode*, FCaptureState> CaptureStates;
 			std::unordered_map<FDefaultDeltaNode*,
-				std::unordered_map<uint64, std::vector<std::byte>>> MapKeyTokens;
+				std::unordered_map<uint64, FByteArray>> MapKeyTokens;
 
 			auto CurrentNode() -> FDefaultDeltaNode*
 			{

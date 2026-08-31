@@ -28,7 +28,7 @@ namespace Durin::Asset::Private
 		std::span<const FVector3f> Positions,
 		std::span<const uint32> Indices,
 		EBodySetupCollisionSourceMode Mode,
-		EBodySetupCollisionQueryPolicy Policy) -> std::vector<std::byte>;
+		EBodySetupCollisionQueryPolicy Policy) -> FByteArray;
 	auto DecodeStaticMeshCollisionValue(
 		const FBuildValue& Value,
 		EBodySetupCollisionSourceMode Mode,

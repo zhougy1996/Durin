@@ -154,7 +154,7 @@ namespace Durin
 			return View;
 		}
 
-		auto CountVisiblePixels(const std::vector<std::byte>& Pixels) -> size_t
+		auto CountVisiblePixels(const Durin::FByteArray& Pixels) -> size_t
 		{
 			size_t Result = 0;
 			for (size_t Offset = 0; Offset + 3 < Pixels.size(); Offset += 4)
@@ -218,9 +218,9 @@ namespace Durin
 			const FVector3& Forward,
 			bool bLit = false,
 			bool bSimpleElements = false
-		) -> std::vector<std::byte>
+		) -> Durin::FByteArray
 		{
-			auto Pixels = std::make_shared<std::vector<std::byte>>();
+			auto Pixels = std::make_shared<Durin::FByteArray>();
 			EnqueueRenderCommand<FRenderEditorGridCapture>(
 				[&Renderer, Scene, Forward, Pixels, bLit, bSimpleElements](
 					FRHICommandListImmediate& CommandList
@@ -288,8 +288,8 @@ namespace Durin
 
 		auto FailureResults = std::make_shared<
 			std::array<ERenderViewResult, 2>>();
-		auto FailurePixelsBefore = std::make_shared<std::vector<std::byte>>();
-		auto FailurePixelsAfter = std::make_shared<std::vector<std::byte>>();
+		auto FailurePixelsBefore = std::make_shared<Durin::FByteArray>();
+		auto FailurePixelsAfter = std::make_shared<Durin::FByteArray>();
 		VulkanRHI::ArmVulkanCreateFailure(
 			VulkanRHI::EVulkanCreateFailurePoint::GraphicsPipeline
 		);
@@ -347,9 +347,9 @@ namespace Durin
 						.bSuccess);
 		FlushRenderingCommands();
 
-		auto HDRPixels = std::make_shared<std::vector<std::byte>>();
-		auto DefaultExposurePixels = std::make_shared<std::vector<std::byte>>();
-		auto LowExposurePixels = std::make_shared<std::vector<std::byte>>();
+		auto HDRPixels = std::make_shared<Durin::FByteArray>();
+		auto DefaultExposurePixels = std::make_shared<Durin::FByteArray>();
+		auto LowExposurePixels = std::make_shared<Durin::FByteArray>();
 		std::vector<FGPUTimingQueryRHIRef> PostProcessTimingQueries;
 		GPostProcessTimingQueries = &PostProcessTimingQueries;
 		SetPostProcessTimingQuerySink(CapturePostProcessTiming);
@@ -380,7 +380,7 @@ namespace Durin
 				));
 
 				auto CaptureDisplay = [&](const char* Name, float ExposureEV,
-										  std::vector<std::byte>& Pixels) {
+										  Durin::FByteArray& Pixels) {
 					const auto OutputDesc = FRHITextureCreateDesc::Create2D(
 												Name, 1, 1, EPixelFormat::SRGBA8_UNORM
 					)
@@ -471,7 +471,7 @@ namespace Durin
 			FViewRouteCase{"AssetThumbnail", 96, 96, 0.0f, true}
 		};
 		auto CaptureViewRoute = [&Renderer](const FViewRouteCase& Route, bool bGBufferDebug = false) {
-			auto Pixels = std::make_shared<std::vector<std::byte>>();
+			auto Pixels = std::make_shared<Durin::FByteArray>();
 			EnqueueRenderCommand<FCaptureHDRDisplayContract>(
 				[&Renderer, Route, Pixels, bGBufferDebug](
 					FRHICommandListImmediate& CommandList
@@ -509,7 +509,7 @@ namespace Durin
 			return std::move(*Pixels);
 		};
 		SetViewRenderTelemetrySink(CaptureViewTelemetry);
-		std::array<std::vector<std::byte>, 4> RoutePixels;
+		std::array<Durin::FByteArray, 4> RoutePixels;
 		for (size_t Index = 0; Index < ViewRouteCases.size(); ++Index)
 		{
 			RoutePixels[Index] = CaptureViewRoute(ViewRouteCases[Index]);
@@ -524,17 +524,17 @@ namespace Durin
 		EXPECT_EQ(RoutePixels[3][0], RoutePixels[0][0]);
 		EXPECT_EQ(RoutePixels[3][1], RoutePixels[0][1]);
 		EXPECT_EQ(RoutePixels[3][2], RoutePixels[0][2]);
-		const std::vector<std::byte> MainAfterOtherViews =
+		const Durin::FByteArray MainAfterOtherViews =
 			CaptureViewRoute(ViewRouteCases.front());
 		EXPECT_EQ(MainAfterOtherViews, RoutePixels.front());
 		const std::array<size_t, 5> GBufferRouteOrder{3u, 1u, 2u, 0u, 3u};
-		std::vector<std::byte> FirstThumbnailDebug;
+		Durin::FByteArray FirstThumbnailDebug;
 		for (size_t OrderIndex = 0;
 			 OrderIndex < GBufferRouteOrder.size(); ++OrderIndex)
 		{
 			const FViewRouteCase& Route =
 				ViewRouteCases[GBufferRouteOrder[OrderIndex]];
-			const std::vector<std::byte> DebugPixels =
+			const Durin::FByteArray DebugPixels =
 				CaptureViewRoute(Route, true);
 			EXPECT_EQ(DebugPixels.size(), static_cast<size_t>(Route.Width) * Route.Height * 4u);
 			EXPECT_EQ(GLastViewTelemetry.GBuffer.GBufferEnabledViews, 1u);
@@ -617,9 +617,9 @@ namespace Durin
 		}};
 		for (const FVector3& Forward : CameraDirections)
 		{
-			const std::vector<std::byte> EmptyPixels =
+			const Durin::FByteArray EmptyPixels =
 				RenderGridCapture(Renderer, nullptr, Forward);
-			const std::vector<std::byte> TerrainPixels =
+			const Durin::FByteArray TerrainPixels =
 				RenderGridCapture(Renderer, &Scene, Forward);
 			ASSERT_EQ(EmptyPixels.size(), 129u * 129u * 4u);
 			ASSERT_EQ(TerrainPixels.size(), EmptyPixels.size());
@@ -628,26 +628,26 @@ namespace Durin
 			ASSERT_GT(EmptyVisible, 0u);
 			EXPECT_GE(TerrainVisible, EmptyVisible * 99u / 100u);
 		}
-		const std::vector<std::byte> OccludedPixels = RenderGridCapture(
+		const Durin::FByteArray OccludedPixels = RenderGridCapture(
 			Renderer, &OccluderScene, CameraDirections.front()
 		);
 		EXPECT_EQ(CountVisiblePixels(OccludedPixels), 0u);
 		SetViewRenderTelemetrySink(CaptureViewTelemetry);
-		const std::vector<std::byte> TerrainHybridLit = RenderGridCapture(
+		const Durin::FByteArray TerrainHybridLit = RenderGridCapture(
 			Renderer, &Scene, CameraDirections.front(), true
 		);
 		SetViewRenderTelemetrySink(nullptr);
 		EXPECT_EQ(TerrainHybridLit.size(), 129u * 129u * 4u);
 		EXPECT_EQ(GLastViewTelemetry.Deferred.HybridDeferredEnabledViews, 1u);
 		EXPECT_EQ(GLastViewTelemetry.GBuffer.GBufferTerrainSkippedDraws, 1u);
-		const std::vector<std::byte> SimpleElementPixels = RenderGridCapture(
+		const Durin::FByteArray SimpleElementPixels = RenderGridCapture(
 			Renderer, nullptr, CameraDirections.front(), false, true);
 		ASSERT_EQ(SimpleElementPixels.size(), 129u * 129u * 4u);
 		EXPECT_GT(CountVisiblePixels(SimpleElementPixels), 100u);
 		ASSERT_TRUE(Renderer.RequestResourceInvalidation(
 			ERendererResourceInvalidationCause::Device).bSuccess);
 		FlushRenderingCommands();
-		const std::vector<std::byte> RecoveredSimpleElementPixels =
+		const Durin::FByteArray RecoveredSimpleElementPixels =
 			RenderGridCapture(Renderer, nullptr, CameraDirections.front(),
 				false, true);
 		EXPECT_EQ(RecoveredSimpleElementPixels, SimpleElementPixels);

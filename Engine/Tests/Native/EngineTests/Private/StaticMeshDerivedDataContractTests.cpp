@@ -34,12 +34,12 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 {
 	const Durin::Asset::FStaticMeshBuildKeyInput Input = MakeKeyInput();
 	std::string Error;
-	const std::vector<std::byte> First =
+	const Durin::FByteArray First =
 		Durin::Asset::BuildStaticMeshDerivedDataKeyBytes(Input, Error);
 	ASSERT_TRUE(Error.empty()) << Error;
-	const std::vector<std::byte> Second =
+	const Durin::FByteArray Second =
 		Durin::Asset::BuildStaticMeshDerivedDataKeyBytes(Input, Error);
-	const std::vector<std::byte> Expected = [] {
+	const Durin::FByteArray Expected = [] {
 		const uint8 Values[]{
 		0x04, 0x00, 0x00, 0x00,
 		0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
@@ -50,7 +50,7 @@ TEST(FStaticMeshDerivedDataContractTests, KeyEncodingIsCanonicalAndDeterministic
 		0x05, 0x00, 0x00, 0x00,
 		0x01, 0x00, 0x00, 0x00};
 		const std::span<const std::byte> Bytes = std::as_bytes(std::span{Values});
-		return std::vector<std::byte>(Bytes.begin(), Bytes.end());
+		return Durin::FByteArray(Bytes.begin(), Bytes.end());
 	}();
 
 	EXPECT_EQ(First, Second);
@@ -84,10 +84,10 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 	const Durin::Asset::FStaticMeshCollisionBuildKeyInput Baseline =
 		MakeCollisionKeyInput();
 	std::string Error;
-	const std::vector<std::byte> Bytes =
+	const Durin::FByteArray Bytes =
 		Durin::Asset::BuildStaticMeshCollisionDerivedDataKeyBytes(Baseline, Error);
 	ASSERT_TRUE(Error.empty()) << Error;
-	const std::vector<std::byte> Expected = [] {
+	const Durin::FByteArray Expected = [] {
 		const uint8 Values[]{
 			0x03, 0x00, 0x00, 0x00,
 			0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
@@ -98,7 +98,7 @@ TEST(FStaticMeshDerivedDataContractTests, CollisionKeyCoversCanonicalGeometryAnd
 			0x02, 0x00, 0x00, 0x00,
 			0x01, 0x00, 0x00, 0x00};
 		const std::span<const std::byte> View = std::as_bytes(std::span{Values});
-		return std::vector<std::byte>(View.begin(), View.end());
+		return Durin::FByteArray(View.begin(), View.end());
 	}();
 	EXPECT_EQ(Bytes, Expected);
 	const std::string BaselineKey =

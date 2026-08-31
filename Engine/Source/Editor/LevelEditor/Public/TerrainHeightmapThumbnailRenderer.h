@@ -13,7 +13,7 @@ namespace Durin::Editor::Level
 	// Generates the fixed top-left-oriented grayscale preview from canonical samples.
 	LEVELEDITOR_API auto GenerateTerrainHeightmapThumbnailPixels(
 		const FTerrainHeightmapPayload& Payload,
-		std::vector<std::byte>& OutPixels,
+		FByteArray& OutPixels,
 		std::string& OutError) -> bool;
 
 	// Captures a canonical heightmap payload without source-image or Renderer dependencies.

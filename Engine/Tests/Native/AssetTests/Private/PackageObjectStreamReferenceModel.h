@@ -115,7 +115,7 @@ namespace Durin::Testing::PackageObjectStream
 	struct FFrozenType
 	{
 		FTypePtr Descriptor;
-		std::vector<std::byte> StructuralKey;
+		Durin::FByteArray StructuralKey;
 	};
 
 	struct FFrozenTables
@@ -152,10 +152,10 @@ namespace Durin::Testing::PackageObjectStream
 		std::string& OutError) -> bool;
 	auto EncodeTableSections(
 		const FFrozenTables& Tables,
-		std::array<std::vector<std::byte>, 4>& OutSections,
+		std::array<Durin::FByteArray, 4>& OutSections,
 		std::string& OutError) -> bool;
 	auto DecodeTableSections(
-		const std::array<std::vector<std::byte>, 4>& Sections,
+		const std::array<Durin::FByteArray, 4>& Sections,
 		FFrozenTables& OutTables,
 		std::string& OutError) -> bool;
 
@@ -167,7 +167,7 @@ namespace Durin::Testing::PackageObjectStream
 		double Number = 0;
 		std::string Text;
 		FGuidValue Guid;
-		std::vector<std::byte> ByteData;
+		Durin::FByteArray ByteData;
 		std::vector<double> Components;
 		std::vector<FValue> Elements;
 		std::vector<uint64> FieldIds;
@@ -182,7 +182,7 @@ namespace Durin::Testing::PackageObjectStream
 		const FTypeDescriptor& Type,
 		const FValue& Value,
 		const FFrozenTables& Tables,
-		std::vector<std::byte>& OutBytes,
+		Durin::FByteArray& OutBytes,
 		std::string& OutError) -> bool;
 	auto DecodeValue(
 		const FTypeDescriptor& Type,
@@ -204,7 +204,7 @@ namespace Durin::Testing::PackageObjectStream
 	auto EncodeOverrideBlock(
 		std::span<const FOverrideCandidate> Candidates,
 		const FFrozenTables& Tables,
-		std::vector<std::byte>& OutBytes,
+		Durin::FByteArray& OutBytes,
 		std::string& OutError) -> bool;
 
 	struct FObjectValueInput
@@ -216,7 +216,7 @@ namespace Durin::Testing::PackageObjectStream
 	auto EncodeValueSection(
 		std::span<const FObjectValueInput> Objects,
 		const FFrozenTables& Tables,
-		std::vector<std::byte>& OutBytes,
+		Durin::FByteArray& OutBytes,
 		std::string& OutError) -> bool;
 	auto ValidateValueSection(
 		std::span<const std::byte> Bytes,
@@ -227,7 +227,7 @@ namespace Durin::Testing::PackageObjectStream
 		const FFrozenTables& Tables,
 		uint64 RootSchemaId,
 		uint64 RootFieldId,
-		std::vector<std::byte>& OutBytes,
+		Durin::FByteArray& OutBytes,
 		std::string& OutError) -> bool;
 	auto ValidateRetainedClosure(
 		std::span<const std::byte> Bytes,
@@ -235,11 +235,11 @@ namespace Durin::Testing::PackageObjectStream
 	auto EncodeUnknownValueBody(
 		std::span<const std::byte> Closure,
 		std::span<const std::byte> Payload,
-		std::vector<std::byte>& OutBytes,
+		Durin::FByteArray& OutBytes,
 		std::string& OutError) -> bool;
 	auto ValidateUnknownValueBody(
 		std::span<const std::byte> Bytes,
-		std::vector<std::byte>& OutClosure,
-		std::vector<std::byte>& OutPayload,
+		Durin::FByteArray& OutClosure,
+		Durin::FByteArray& OutPayload,
 		std::string& OutError) -> bool;
 }

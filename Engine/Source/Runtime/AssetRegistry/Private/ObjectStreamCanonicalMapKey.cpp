@@ -241,7 +241,7 @@ namespace Durin::Asset::PackageObjectStream
 
 	auto BuildCanonicalMapKeyToken(const FDecodedPackage& Package,
 		const FDecodedType& Type, const FValue& Value,
-		std::vector<std::byte>& OutToken, FReaderDiagnostic* OutDiagnostic) -> bool
+		FByteArray& OutToken, FReaderDiagnostic* OutDiagnostic) -> bool
 	{
 		if (OutDiagnostic) OutDiagnostic->Reset();
 		const auto It = std::find_if(Package.Types.begin(), Package.Types.end(),
@@ -256,7 +256,7 @@ namespace Durin::Asset::PackageObjectStream
 			TranslatedType, "MapKey")) return false;
 		ObjectPackage::FSerializedValue TranslatedValue;
 		if (!Translator.Value(Type, Value, TranslatedValue, "MapKey")) return false;
-		std::vector<std::byte> Token;
+		FByteArray Token;
 		std::string Error;
 		if (!ObjectPackage::BuildCanonicalMapKeyToken(
 			TranslatedType, TranslatedValue, Token, &Error))

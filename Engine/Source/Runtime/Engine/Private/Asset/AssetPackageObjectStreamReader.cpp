@@ -136,7 +136,7 @@ namespace Durin::Asset::PackageObjectStream
 
 		auto WriteProjectedField(Private::FByteWriter& Writer, std::string_view Owner,
 			std::string_view Name, DurinCodeGen::EPropertyGenFlags Kind,
-			std::string Signature, std::vector<std::byte> Payload) -> void
+			std::string Signature, FByteArray Payload) -> void
 		{
 			Writer.WriteString(Owner); Writer.WriteString(Name); Writer.Write(uint8(Kind));
 			Writer.WriteString(Signature); Writer.Write(uint64(Payload.size())); Writer.WriteBytes(Payload);
@@ -382,7 +382,7 @@ namespace Durin::Asset::PackageObjectStream
 				if (!KeyType || !ValueType || Value.Elements.size() % 2 != 0) return false;
 				for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
 				{
-					std::vector<std::byte> Token;
+					FByteArray Token;
 					if (!BuildCanonicalMapKeyToken(Package, *KeyType, Value.Elements[Index], Token, &Diagnostic)) return false;
 					Path.push_back(FAuthoredOverridePathToken::MapValue(std::move(Token)));
 					if (!RestoreNestedLedger(*ValueType, Value.Elements[Index + 1], Package, Path,

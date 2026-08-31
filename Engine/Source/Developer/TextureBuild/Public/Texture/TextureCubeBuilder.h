@@ -13,7 +13,7 @@ namespace Durin::Asset::TextureCubeBuilder
 
 	struct FTexturePanoramaImage
 	{
-		std::vector<std::byte> Pixels;
+		FByteArray Pixels;
 		uint32 Width = 0;
 		uint32 Height = 0;
 		uint8 SourceChannelCount = 0;

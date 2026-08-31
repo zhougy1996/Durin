@@ -857,7 +857,7 @@ namespace Durin::Asset::PackageObjectStream
 		return Success;
 	}
 
-	auto ReencodePackage(const FDecodedPackage& Package, std::vector<std::byte>& OutBytes,
+	auto ReencodePackage(const FDecodedPackage& Package, FByteArray& OutBytes,
 		FReaderDiagnostic* OutDiagnostic) -> bool
 	{
 		++GReencodeCountForTesting;
@@ -866,7 +866,7 @@ namespace Durin::Asset::PackageObjectStream
 		{
 			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic); return false;
 		}
-		std::vector<std::byte> Bytes; FWriterDiagnostic WriterDiagnostic;
+		FByteArray Bytes; FWriterDiagnostic WriterDiagnostic;
 		if (!WritePackage(Input, Bytes, &WriterDiagnostic))
 		{
 			Diagnostic = {TranslateWriterFailure(WriterDiagnostic.Failure), WriterDiagnostic.LogicalPath,
@@ -938,7 +938,7 @@ namespace Durin::Asset::PackageObjectStream
 		{
 			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic); return false;
 		}
-		std::vector<std::byte> Canonical;
+		FByteArray Canonical;
 		if (!ReencodePackage(Result, Canonical, &Diagnostic))
 		{
 			if (OutDiagnostic) *OutDiagnostic = std::move(Diagnostic); return false;

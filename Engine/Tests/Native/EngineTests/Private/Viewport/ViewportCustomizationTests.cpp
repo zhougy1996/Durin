@@ -123,7 +123,7 @@ TEST(FTerrainHeightmapThumbnailTests, GeneratesFixedCanonicalOrientationAndMarke
 	const std::array<uint16, 6> Samples{0, 10'000, 65'535, 20'000, 30'000, 40'000};
 	std::string Error;
 	ASSERT_TRUE(Durin::BuildTerrainHeightmapPayload(3, 2, Samples, Payload, Error)) << Error;
-	std::vector<std::byte> Pixels;
+	Durin::FByteArray Pixels;
 	ASSERT_TRUE(Durin::Editor::Level::GenerateTerrainHeightmapThumbnailPixels(
 		*Payload, Pixels, Error)) << Error;
 	EXPECT_EQ(Pixels.size(), 256u * 256u * 4u);

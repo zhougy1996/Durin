@@ -275,7 +275,7 @@ namespace Durin
 		{
 			const void* Key = nullptr;
 			const void* Value = nullptr;
-			std::vector<std::byte> KeyToken;
+			FByteArray KeyToken;
 		};
 
 		struct FIdentityMapCollectContext
@@ -364,9 +364,9 @@ namespace Durin
 				}
 			case DurinCodeGen::EPropertyGenFlags::Blob:
 				{
-					const auto& Left = *static_cast<const std::vector<std::byte>*>(
+					const auto& Left = *static_cast<const FByteArray*>(
 						Property->GetValuePtr(LeftContainer, LeftArrayIndex));
-					const auto& Right = *static_cast<const std::vector<std::byte>*>(
+					const auto& Right = *static_cast<const FByteArray*>(
 						Property->GetValuePtr(RightContainer, RightArrayIndex));
 					return Left == Right ? Identical
 						: SetIdentityDiagnostic(Context, Path, Kind, ValueMismatch, Different);
@@ -1850,7 +1850,7 @@ namespace Durin
 		const FProperty* Property,
 		const void* Container,
 		uint32 ArrayIndex,
-		std::vector<std::byte>& OutToken,
+		FByteArray& OutToken,
 		std::string* OutError
 	) -> bool
 	{

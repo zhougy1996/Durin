@@ -129,7 +129,7 @@ namespace Durin::Asset::Private
 			return {EAssetError::IoError, "Asset schema inspection was cancelled."};
 		const size_t PrefixBytes = static_cast<size_t>(std::min<uint64>(
 			Source.GetSize(), BinaryEnvelopePreambleBytes));
-		std::vector<std::byte> Prefix(PrefixBytes);
+		FByteArray Prefix(PrefixBytes);
 		std::string ReadError;
 		if (!Source.ReadAt(0, Prefix, &ReadError))
 			return {EAssetError::NotFound, std::move(ReadError)};
@@ -153,7 +153,7 @@ namespace Durin::Asset::Private
 			return {EAssetError::CorruptFile, "BinaryEnvelopeTruncated: front matter is too large."};
 		if (IsCancelled && IsCancelled())
 			return {EAssetError::IoError, "Asset schema inspection was cancelled."};
-		std::vector<std::byte> Header(static_cast<size_t>(Preamble.HeaderBytes));
+		FByteArray Header(static_cast<size_t>(Preamble.HeaderBytes));
 		if (!Source.ReadAt(0, Header, &ReadError))
 			return {EAssetError::CorruptFile, std::move(ReadError)};
 		uint32 Version = 0;

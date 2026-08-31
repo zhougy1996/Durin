@@ -83,13 +83,13 @@ namespace Durin::Asset
 
 	SKELETALBUILD_API auto BuildSkeletalMeshDerivedDataKeyBytes(
 		const FSkeletalMeshBuildKeyInput& Input,
-		std::string& OutError) -> std::vector<std::byte>;
+		std::string& OutError) -> FByteArray;
 	SKELETALBUILD_API auto BuildSkeletalMeshDerivedDataKey(
 		const FSkeletalMeshBuildKeyInput& Input,
 		std::string& OutError) -> std::string;
 	SKELETALBUILD_API auto BuildAnimationClipDerivedDataKeyBytes(
 		const FAnimationClipBuildKeyInput& Input,
-		std::string& OutError) -> std::vector<std::byte>;
+		std::string& OutError) -> FByteArray;
 	SKELETALBUILD_API auto BuildAnimationClipDerivedDataKey(
 		const FAnimationClipBuildKeyInput& Input,
 		std::string& OutError) -> std::string;

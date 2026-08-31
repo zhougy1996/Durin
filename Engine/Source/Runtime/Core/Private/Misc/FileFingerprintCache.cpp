@@ -61,7 +61,7 @@ namespace Durin
 			}
 		}
 
-		std::vector<std::byte> FileBytes;
+		FByteArray FileBytes;
 		if (!FFileHelper::LoadFileToArray(FileBytes, NormalizedPath))
 		{
 			OutErrorMessage = std::format("Failed to read file: {}", NormalizedPath);

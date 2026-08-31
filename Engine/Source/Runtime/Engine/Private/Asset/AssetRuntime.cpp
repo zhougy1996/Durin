@@ -547,7 +547,7 @@ namespace Durin::Asset
 		}
 		FAssetLoadReport LocalReport{.PackagePath = Path};
 		FAssetLoadReport* CodecReport = OutReport ? OutReport : &LocalReport;
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		if (PhysicalPath.empty()) return Error(EAssetError::InvalidPath, "Asset path cannot be resolved in the selected package mode.");
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath)) return Error(EAssetError::NotFound, std::format("Asset {} was not found.", Path.ToString()));
 		++GActivePackageFileReadCount;

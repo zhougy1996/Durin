@@ -59,13 +59,13 @@ namespace Durin::DerivedData
 		}
 	}
 
-	auto FBuildValue::FromOwned(std::string InName, std::vector<std::byte> InBytes)
+	auto FBuildValue::FromOwned(std::string InName, FByteArray InBytes)
 		-> FBuildValue
 	{
 		FBuildValue Result;
 		Result.Name = std::move(InName);
 		Result.ContentIdentity = FXxHash128::HashBuffer(InBytes);
-		Result.Bytes = std::make_shared<const std::vector<std::byte>>(std::move(InBytes));
+		Result.Bytes = std::make_shared<const FByteArray>(std::move(InBytes));
 		return Result;
 	}
 
@@ -306,7 +306,7 @@ namespace Durin::DerivedData
 			{
 				const std::span<const std::byte> CachedBytes = Query.Value.GetBytes();
 				const FBuildValue CachedValue = FBuildValue::FromOwned(Config.ExpectedValueName,
-					std::vector<std::byte>(CachedBytes.begin(), CachedBytes.end()));
+					FByteArray(CachedBytes.begin(), CachedBytes.end()));
 				std::string Error;
 				bool bValid = false;
 				try

@@ -39,9 +39,9 @@ namespace Durin::Asset
 
 	auto BuildVolumeTextureDerivedDataKeyBytes(
 		const FVolumeTextureBuildKeyInput& Input, std::string& OutError)
-		-> std::vector<std::byte>
+		-> FByteArray
 	{
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
 		const_cast<FVolumeTextureBuildKeyInput&>(Input).Serialize(Ar);
 		OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
@@ -53,7 +53,7 @@ namespace Durin::Asset
 		const FVolumeTextureBuildKeyInput& Input, std::string& OutError)
 		-> std::string
 	{
-		const std::vector<std::byte> Bytes = BuildVolumeTextureDerivedDataKeyBytes(Input, OutError);
+		const FByteArray Bytes = BuildVolumeTextureDerivedDataKeyBytes(Input, OutError);
 		return Bytes.empty() ? std::string{} : FXxHash128::HashBuffer(Bytes).ToString();
 	}
 }

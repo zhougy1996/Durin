@@ -174,7 +174,7 @@ namespace Durin::Asset::BulkContainer
 			return true;
 		}
 
-		auto TryTake(std::vector<std::byte>& OutBytes) -> bool
+		auto TryTake(FByteArray& OutBytes) -> bool
 		{
 			if (!IsValid()) return false;
 			OutBytes = std::move(Bytes);
@@ -193,7 +193,7 @@ namespace Durin::Asset::BulkContainer
 		}
 
 		uint64 MaximumBytes = 0;
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		FFailure Failure;
 	};
 

@@ -36,7 +36,7 @@ namespace
 			.Diagnostic = std::move(ManagerResult.Message)};
 	}
 
-	void AppendBigEndian32(std::vector<std::byte>& Bytes, uint32 Value)
+	void AppendBigEndian32(Durin::FByteArray& Bytes, uint32 Value)
 	{
 		for (int Shift : {24, 16, 8, 0})
 			Bytes.push_back(static_cast<std::byte>(Value >> Shift));
@@ -54,7 +54,7 @@ namespace
 		return ~Crc;
 	}
 
-	void AppendPngChunk(std::vector<std::byte>& Bytes, std::string_view Type,
+	void AppendPngChunk(Durin::FByteArray& Bytes, std::string_view Type,
 		std::span<const std::byte> Payload)
 	{
 		AppendBigEndian32(Bytes, static_cast<uint32>(Payload.size()));
@@ -66,11 +66,11 @@ namespace
 		AppendBigEndian32(Bytes, PngCrc32(std::span(Bytes).subspan(CrcStart)));
 	}
 
-	std::vector<std::byte> MakeHorizontal128CubedAtlasPng()
+	Durin::FByteArray MakeHorizontal128CubedAtlasPng()
 	{
 		constexpr uint32 Width = 16384;
 		constexpr uint32 Height = 128;
-		std::vector<std::byte> Scanlines;
+		Durin::FByteArray Scanlines;
 		Scanlines.reserve(static_cast<size_t>(Height) * (1 + Width * 4));
 		for (uint32 Y = 0; Y < Height; ++Y)
 		{
@@ -83,7 +83,7 @@ namespace
 			}
 		}
 
-		std::vector<std::byte> Deflate{std::byte{0x78}, std::byte{0x01}};
+		Durin::FByteArray Deflate{std::byte{0x78}, std::byte{0x01}};
 		size_t Offset = 0;
 		while (Offset < Scanlines.size())
 		{
@@ -109,7 +109,7 @@ namespace
 		}
 		AppendBigEndian32(Deflate, (AdlerB << 16) | AdlerA);
 
-		std::vector<std::byte> Png{
+		Durin::FByteArray Png{
 			std::byte{137}, std::byte{80}, std::byte{78}, std::byte{71},
 			std::byte{13}, std::byte{10}, std::byte{26}, std::byte{10}};
 		std::array<uint8, 13> Header{};
@@ -129,9 +129,9 @@ namespace
 		return Png;
 	}
 
-	std::vector<std::byte> MakeGrayscaleRgbaPng(uint32 Width, uint32 Height)
+	Durin::FByteArray MakeGrayscaleRgbaPng(uint32 Width, uint32 Height)
 	{
-		std::vector<std::byte> Scanlines;
+		Durin::FByteArray Scanlines;
 		Scanlines.reserve(static_cast<size_t>(Height) * (1 + Width * 4));
 		for (uint32 Y = 0; Y < Height; ++Y)
 		{
@@ -145,7 +145,7 @@ namespace
 			}
 		}
 
-		std::vector<std::byte> Deflate{std::byte{0x78}, std::byte{0x01}};
+		Durin::FByteArray Deflate{std::byte{0x78}, std::byte{0x01}};
 		size_t Offset = 0;
 		while (Offset < Scanlines.size())
 		{
@@ -171,7 +171,7 @@ namespace
 		}
 		AppendBigEndian32(Deflate, (AdlerB << 16) | AdlerA);
 
-		std::vector<std::byte> Png{
+		Durin::FByteArray Png{
 			std::byte{137}, std::byte{80}, std::byte{78}, std::byte{71},
 			std::byte{13}, std::byte{10}, std::byte{26}, std::byte{10}};
 		std::array<uint8, 13> Header{};
@@ -198,7 +198,7 @@ TEST(FVolumeTextureSourceImportTests, InfersCubicLayoutAndScalarChannelFromPngCo
 		Testing::GetTestWorkDirectory() / "VolumeTextureInspection";
 	std::filesystem::create_directories(Directory);
 	const std::filesystem::path AtlasPath = Directory / "Atlas.png";
-	const std::vector<std::byte> Png = MakeGrayscaleRgbaPng(512, 512);
+	const Durin::FByteArray Png = MakeGrayscaleRgbaPng(512, 512);
 	{
 		std::ofstream Stream(AtlasPath, std::ios::binary | std::ios::trunc);
 		ASSERT_TRUE(Stream.is_open());
@@ -418,7 +418,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 		Testing::GetTestWorkDirectory() / "TextureImports/Content/ProductionVolume";
 	std::filesystem::create_directories(SourceDirectory);
 	const std::filesystem::path AtlasPath = SourceDirectory / "Noise128.png";
-	const std::vector<std::byte> Png = MakeHorizontal128CubedAtlasPng();
+	const Durin::FByteArray Png = MakeHorizontal128CubedAtlasPng();
 	{
 		std::ofstream Stream(AtlasPath, std::ios::binary | std::ios::trunc);
 		ASSERT_TRUE(Stream.is_open());
@@ -439,7 +439,7 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 			static_cast<std::byte>(Slice));
 
 	const std::string V6DerivedDataKey = Imported.Asset->GetDerivedDataKey();
-	const std::vector<std::byte> V6SourceBytes(
+	const Durin::FByteArray V6SourceBytes(
 		Imported.Asset->GetSourceData().GetVoxelBytes().begin(),
 		Imported.Asset->GetSourceData().GetVoxelBytes().end());
 	FPackagePath AssetPath;
@@ -474,15 +474,15 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	ASSERT_TRUE(Cook.Publish(&Error)) << Error;
 	EXPECT_TRUE(std::filesystem::exists(CookRoot / "Game/ProductionVolume.dasset"));
 	EXPECT_TRUE(std::filesystem::exists(CookRoot / "Game/ProductionVolume.dbulk"));
-	std::vector<std::byte> V6CookedPackage;
-	std::vector<std::byte> V6CookedBulk;
+	Durin::FByteArray V6CookedPackage;
+	Durin::FByteArray V6CookedBulk;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(
 		V6CookedPackage, CookRoot / "Game/ProductionVolume.dasset"));
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(
 		V6CookedBulk, CookRoot / "Game/ProductionVolume.dbulk"));
 
 	ASSERT_TRUE(Asset::UnloadPackage(AssetPath));
-	std::vector<std::byte> CompanionBytes;
+	Durin::FByteArray CompanionBytes;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(CompanionBytes, V6Companions.front()));
 	ASSERT_FALSE(CompanionBytes.empty());
 	CompanionBytes.back() ^= std::byte{1};
@@ -512,8 +512,8 @@ TEST(FVolumeTextureSourceImportTests, ImportsSavesReloadsReimportsAndCooksHorizo
 	ASSERT_TRUE(Asset::ContributeEngineCookAsset(
 		*Reloaded, "/Game/ProductionVolume", RollbackCook, Error)) << Error;
 	ASSERT_TRUE(RollbackCook.Publish(&Error)) << Error;
-	std::vector<std::byte> RepeatedCookedPackage;
-	std::vector<std::byte> RepeatedCookedBulk;
+	Durin::FByteArray RepeatedCookedPackage;
+	Durin::FByteArray RepeatedCookedBulk;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(
 		RepeatedCookedPackage, RollbackCookRoot / "Game/ProductionVolume.dasset"));
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(

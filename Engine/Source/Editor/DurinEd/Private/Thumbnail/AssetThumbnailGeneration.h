@@ -19,7 +19,7 @@ namespace Durin::Editor
 	{
 		std::optional<FAssetThumbnailJob> ColdJob;
 		std::optional<FAssetThumbnailScheduledRequest> WarmJob;
-		std::vector<std::byte> EncodedBytes;
+		FByteArray EncodedBytes;
 	};
 
 	// Coordinates bounded rendered-thumbnail transitions and persistent publication across owning threads.

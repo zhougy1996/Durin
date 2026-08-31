@@ -156,7 +156,7 @@ namespace Durin::Asset::Private
 		auto EncodeTextureCubePlatformValue(const FTextureCubePlatformData& PlatformData,
 			FBuildValue& OutValue, std::string& OutError) -> bool
 		{
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 			FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 			const_cast<FTextureCubePlatformData&>(PlatformData).Serialize(Ar, {
 				.TargetPlatform = Asset::ECookTargetPlatform::Win64,
@@ -214,7 +214,7 @@ namespace Durin::Asset::Private
 					OutError = "Texture2D build was cancelled.";
 					return false;
 				}
-				std::vector<std::byte> Bytes;
+				FByteArray Bytes;
 				FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 				PlatformData.Serialize(Ar, {
 					.TargetPlatform = Asset::ECookTargetPlatform::Win64,
@@ -331,7 +331,7 @@ namespace Durin::Asset::Private
 				FBinaryReader Reader(Input->GetBytes());
 				FVolumeTextureSourceData Source;
 				FVolumeTextureBuildSettings Settings;
-				std::vector<std::byte> Voxels;
+				FByteArray Voxels;
 				uint32 Schema = 0, Format = 0, Filter = 0;
 				uint64 ByteCount = 0;
 				if (!Reader.ReadU32(Schema)
@@ -357,7 +357,7 @@ namespace Durin::Asset::Private
 				FVolumeTexturePlatformData PlatformData;
 				if (!VolumeTextureBuilder::BuildMipChain(
 					Source, Settings, PlatformData, OutError)) return false;
-				std::vector<std::byte> Bytes;
+				FByteArray Bytes;
 				FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataPayload);
 				PlatformData.Serialize(Ar, {
 					.TargetPlatform = Asset::ECookTargetPlatform::Win64,
@@ -375,7 +375,7 @@ namespace Durin::Asset::Private
 	}
 
 	auto EncodeTexture2DLocalInput(const FTexture2DBuildRequest& Request, bool bSRGB)
-		-> std::vector<std::byte>
+		-> FByteArray
 	{
 		FBinaryWriter Writer;
 		Writer.WriteU32(Request.SourceData.Width);
@@ -408,7 +408,7 @@ namespace Durin::Asset::Private
 	}
 
 	auto EncodeTextureCubeLocalInput(const FTextureCubeSourceData& SourceData)
-		-> std::vector<std::byte>
+		-> FByteArray
 	{
 		FBinaryWriter Writer;
 		for (const FTextureSourceData& Face : SourceData.Faces)
@@ -448,7 +448,7 @@ namespace Durin::Asset::Private
 	}
 
 	auto EncodeVolumeTextureLocalInput(const FVolumeTextureSourceData& SourceData,
-		const FVolumeTextureBuildSettings& Settings) -> std::vector<std::byte>
+		const FVolumeTextureBuildSettings& Settings) -> FByteArray
 	{
 		FBinaryWriter Writer;
 		Writer.WriteU32(SourceData.PayloadSchemaVersion);

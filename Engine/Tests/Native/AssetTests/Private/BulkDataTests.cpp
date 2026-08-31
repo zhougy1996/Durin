@@ -13,9 +13,9 @@ namespace
 	using namespace Durin;
 	using namespace Durin::Asset;
 
-	auto MakeBytes(std::initializer_list<uint8> Values) -> std::vector<std::byte>
+	auto MakeBytes(std::initializer_list<uint8> Values) -> Durin::FByteArray
 	{
-		std::vector<std::byte> Bytes;
+		Durin::FByteArray Bytes;
 		Bytes.reserve(Values.size());
 		for (const uint8 Value : Values) Bytes.push_back(static_cast<std::byte>(Value));
 		return Bytes;
@@ -37,7 +37,7 @@ namespace
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			}
 			return {.Status = EPackageResourceReadStatus::Success,
-				.Buffer = FSharedByteBuffer::Take(std::vector<std::byte>(Size))};
+				.Buffer = FSharedByteBuffer::Take(Durin::FByteArray(Size))};
 		}
 	};
 
@@ -73,7 +73,7 @@ TEST(FBulkDataTests, DefaultValueIsEmpty)
 
 TEST(FBulkDataTests, DetachedLocksResizeAndCopyOnWrite)
 {
-	const std::vector<std::byte> Bytes = MakeBytes({1, 2, 3, 4});
+	const Durin::FByteArray Bytes = MakeBytes({1, 2, 3, 4});
 	FBulkData First;
 	std::string Error;
 	ASSERT_TRUE(FBulkData::TryCreateDetached(Bytes, First, &Error)) << Error;
@@ -102,7 +102,7 @@ TEST(FBulkDataTests, DetachedLocksResizeAndCopyOnWrite)
 TEST(FPackageResourceTests, LoadsUnloadsAndRetiresAttachedBulkData)
 {
 	const uint64 Size = EditorBulkDataExternalThreshold + 1;
-	std::vector<std::byte> Segment(static_cast<size_t>(Size), std::byte{0x6a});
+	Durin::FByteArray Segment(static_cast<size_t>(Size), std::byte{0x6a});
 	const FPackageBulkDataEntry Entry{
 		.FieldIndex = 1,
 		.Placement = EPackageBulkDataPlacement::External,
@@ -150,7 +150,7 @@ TEST(FPackageResourceTests, AdmissionValidatesEachRangeAndPaddingInOnePass)
 	const uint64 SecondOffset = (FirstSize + EditorBulkDataExternalAlignment - 1)
 		& ~uint64(EditorBulkDataExternalAlignment - 1);
 	const uint64 SecondSize = EditorBulkDataExternalThreshold + 3;
-	std::vector<std::byte> Segment(static_cast<size_t>(SecondOffset + SecondSize));
+	Durin::FByteArray Segment(static_cast<size_t>(SecondOffset + SecondSize));
 	std::ranges::fill(std::span(Segment).first(static_cast<size_t>(FirstSize)),
 		std::byte{0x31});
 	std::ranges::fill(std::span(Segment).subspan(
@@ -269,7 +269,7 @@ TEST(FEditorBulkDataTests, SeparatesInstanceAndContentIdentityWithoutForcedLoad)
 	std::string Error;
 	ASSERT_TRUE(FEditorBulkData::TryCreatePackageBacked(
 		FGuid{5, 6, 7, 8}, FXxHash128::HashBuffer(
-			std::vector<std::byte>(4, std::byte{0})), 4,
+			Durin::FByteArray(4, std::byte{0})), 4,
 		{.Resource = Resource, .StoredSize = 4}, PackageBacked, &Error)) << Error;
 	EXPECT_FALSE(PackageBacked.IsMemoryResident());
 	EXPECT_EQ(PackageBacked.GetPayloadSize(), 4u);
@@ -317,7 +317,7 @@ TEST(FEditorBulkDataTests, RequestsAndFailedReplacementConserveCapturedState)
 	std::string Error;
 	ASSERT_TRUE(FEditorBulkData::TryCreatePackageBacked(
 		FGuid{21, 22, 23, 24}, FXxHash128::HashBuffer(
-			std::vector<std::byte>(4, std::byte{0})), 4,
+			Durin::FByteArray(4, std::byte{0})), 4,
 		{.Resource = Resource, .StoredSize = 4}, Value, &Error)) << Error;
 	FPackageResourceRequest Captured = Value.GetPayload();
 	const std::array Replacement{std::byte{4}, std::byte{3}};
@@ -349,7 +349,7 @@ TEST(FPackageResourceRangeTests, SharesBoundedStorageFactsAcrossEditorAndRuntime
 	FEditorBulkData Editor;
 	ASSERT_TRUE(FEditorBulkData::TryCreatePackageBacked(
 		FGuid{31, 32, 33, 34}, FXxHash128::HashBuffer(
-			std::vector<std::byte>(4, std::byte{0})), 4, Range, Editor, &Error)) << Error;
+			Durin::FByteArray(4, std::byte{0})), 4, Range, Editor, &Error)) << Error;
 	FBulkData Runtime;
 	ASSERT_TRUE(FBulkData::TryAttach(
 		{.LogicalSize = 4, .Range = Range}, Runtime, &Error)) << Error;

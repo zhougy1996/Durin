@@ -18,7 +18,7 @@ namespace Durin::TexturePayloadContainer
 	auto Build(
 		const FDescriptor& Descriptor,
 		std::span<const FBuildRecord> Records,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -71,12 +71,12 @@ namespace Durin::TexturePayloadContainer
 		uint64 CurrentOffset = TexturePayloadHeaderSize + Body.GetBytes().size();
 		for (size_t RecordIndex = 0; RecordIndex < Records.size(); ++RecordIndex)
 		{
-			Body.WriteBytes(std::vector<std::byte>(
+			Body.WriteBytes(FByteArray(
 				static_cast<size_t>(DataOffsets[RecordIndex] - CurrentOffset), std::byte{0}));
 			Body.WriteBytes(Records[RecordIndex].Data);
 			CurrentOffset = DataOffsets[RecordIndex] + Records[RecordIndex].Data.size();
 		}
-		const std::vector<std::byte> BodyBytes = Body.TakeBytes();
+		const FByteArray BodyBytes = Body.TakeBytes();
 
 		FBinaryWriter Result;
 		Result.WriteU32(0);

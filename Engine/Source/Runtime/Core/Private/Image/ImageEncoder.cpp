@@ -18,7 +18,7 @@ namespace Durin::Image
 		class FBitWriter
 		{
 		public:
-			explicit FBitWriter(std::vector<std::byte>& InBytes)
+			explicit FBitWriter(FByteArray& InBytes)
 				: Bytes(InBytes)
 			{
 			}
@@ -43,12 +43,12 @@ namespace Durin::Image
 			}
 
 		private:
-			std::vector<std::byte>& Bytes;
+			FByteArray& Bytes;
 			uint64 PendingBits = 0;
 			uint32 PendingBitCount = 0;
 		};
 
-		auto AppendBigEndian(std::vector<std::byte>& Bytes, uint32 Value) -> void
+		auto AppendBigEndian(FByteArray& Bytes, uint32 Value) -> void
 		{
 			Bytes.push_back(static_cast<std::byte>(Value >> 24));
 			Bytes.push_back(static_cast<std::byte>(Value >> 16));
@@ -122,7 +122,7 @@ namespace Durin::Image
 			return (Value * 2'654'435'761u) >> 17;
 		}
 
-		auto AppendCompressedDeflate(std::span<const std::byte> Bytes, std::vector<std::byte>& OutBytes) -> void
+		auto AppendCompressedDeflate(std::span<const std::byte> Bytes, FByteArray& OutBytes) -> void
 		{
 			OutBytes.push_back(std::byte{0x78});
 			OutBytes.push_back(std::byte{0x9c});
@@ -197,7 +197,7 @@ namespace Durin::Image
 		}
 
 		auto WritePngChunk(
-			std::vector<std::byte>& Bytes,
+			FByteArray& Bytes,
 			std::string_view Type,
 			std::span<const std::byte> Payload) -> void
 		{
@@ -214,7 +214,7 @@ namespace Durin::Image
 		std::span<const std::byte> Pixels,
 		uint32 Width,
 		uint32 Height,
-		std::vector<std::byte>& OutEncodedBytes) -> bool
+		FByteArray& OutEncodedBytes) -> bool
 	{
 		OutEncodedBytes.clear();
 		if (Width == 0 || Height == 0 || Width > 0x7fffffffu || Height > 0x7fffffffu) return false;
@@ -225,7 +225,7 @@ namespace Durin::Image
 			|| ExpectedBytes + Height > std::numeric_limits<uint32>::max())
 			return false;
 
-		std::vector<std::byte> Scanlines;
+		FByteArray Scanlines;
 		Scanlines.reserve(static_cast<size_t>(ExpectedBytes) + Height);
 		const size_t RowBytes = static_cast<size_t>(Width) * 4;
 		for (uint32 Y = 0; Y < Height; ++Y)
@@ -240,13 +240,13 @@ namespace Durin::Image
 			}
 		}
 
-		std::vector<std::byte> Deflate;
+		FByteArray Deflate;
 		Deflate.reserve(Scanlines.size() / 2);
 		AppendCompressedDeflate(Scanlines, Deflate);
 
 		OutEncodedBytes = {std::byte{137}, std::byte{80}, std::byte{78}, std::byte{71},
 			std::byte{13}, std::byte{10}, std::byte{26}, std::byte{10}};
-		std::vector<std::byte> Header;
+		FByteArray Header;
 		AppendBigEndian(Header, Width);
 		AppendBigEndian(Header, Height);
 		Header.insert(Header.end(), {

@@ -177,7 +177,7 @@ authored Archive, an active field with a byte logical type.
 operation. It transfers a little-endian `uint64` byte count followed by the
 exact bytes, rejects values above 1 GiB, validates the remaining input before
 allocation, and loads into detached storage before replacing the destination.
-Reflected `std::vector<std::byte>` uses this operation and the logical `Bytes`
+Reflected `FByteArray` uses this operation and the logical `Bytes`
 descriptor. Structured package framing may add its own record length, but must
 not reinterpret the Blob contents or persist vector capacity/allocator state.
 

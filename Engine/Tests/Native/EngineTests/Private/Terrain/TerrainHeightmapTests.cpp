@@ -61,7 +61,7 @@ namespace
 			/ (std::string(Key) + ".bin");
 	}
 
-	auto AppendBigU32(std::vector<std::byte>& Bytes, uint32 Value) -> void
+	auto AppendBigU32(Durin::FByteArray& Bytes, uint32 Value) -> void
 	{
 		Bytes.push_back(static_cast<std::byte>(Value >> 24));
 		Bytes.push_back(static_cast<std::byte>(Value >> 16));
@@ -82,7 +82,7 @@ namespace
 	}
 
 	auto AppendChunk(
-		std::vector<std::byte>& Png,
+		Durin::FByteArray& Png,
 		std::string_view Type,
 		std::span<const std::byte> Data) -> void
 	{
@@ -101,9 +101,9 @@ namespace
 		std::span<const uint16> Samples,
 		uint8 BitDepth = 16,
 		uint8 ColorType = 0,
-		uint8 Interlace = 0) -> std::vector<std::byte>
+		uint8 Interlace = 0) -> Durin::FByteArray
 	{
-		std::vector<std::byte> Raw;
+		Durin::FByteArray Raw;
 		Raw.reserve(static_cast<size_t>(Height) * (1 + static_cast<size_t>(Width) * 2));
 		for (uint32 Y = 0; Y < Height; ++Y)
 		{
@@ -115,7 +115,7 @@ namespace
 				Raw.push_back(static_cast<std::byte>(Sample));
 			}
 		}
-		std::vector<std::byte> Deflate{std::byte{0x78}, std::byte{0x01}};
+		Durin::FByteArray Deflate{std::byte{0x78}, std::byte{0x01}};
 		size_t Offset = 0;
 		while (Offset < Raw.size())
 		{
@@ -140,10 +140,10 @@ namespace
 		}
 		AppendBigU32(Deflate, (B << 16) | A);
 
-		std::vector<std::byte> Png{
+		Durin::FByteArray Png{
 			std::byte{137}, std::byte{80}, std::byte{78}, std::byte{71},
 			std::byte{13}, std::byte{10}, std::byte{26}, std::byte{10}};
-		std::vector<std::byte> Ihdr;
+		Durin::FByteArray Ihdr;
 		AppendBigU32(Ihdr, Width);
 		AppendBigU32(Ihdr, Height);
 		Ihdr.insert(Ihdr.end(), {static_cast<std::byte>(BitDepth),
@@ -162,15 +162,15 @@ namespace
 		std::span<const uint16> Samples) -> void
 	{
 		std::filesystem::create_directories(Path.parent_path());
-		const std::vector<std::byte> Bytes =
+		const Durin::FByteArray Bytes =
 			MakeGrayscale16Png(Width, Height, Samples);
 		ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 			std::as_bytes(std::span(Bytes)), Path));
 	}
 
-	auto MakeRaw16(std::span<const uint16> Samples) -> std::vector<std::byte>
+	auto MakeRaw16(std::span<const uint16> Samples) -> Durin::FByteArray
 	{
-		std::vector<std::byte> Bytes;
+		Durin::FByteArray Bytes;
 		Bytes.reserve(Samples.size() * sizeof(uint16));
 		for (uint16 Sample : Samples)
 		{
@@ -185,7 +185,7 @@ namespace
 		std::span<const uint16> Samples) -> void
 	{
 		std::filesystem::create_directories(Path.parent_path());
-		const std::vector<std::byte> Bytes = MakeRaw16(Samples);
+		const Durin::FByteArray Bytes = MakeRaw16(Samples);
 		ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 			std::as_bytes(std::span(Bytes)), Path));
 	}
@@ -382,8 +382,8 @@ TEST(FTerrainHeightmapDerivedDataTests, KeyAndPayloadRoundTripAreStableAndCorrup
 		.SourceProfileVersion = 1,
 		.bPersistDerivedData = false}, RawProduct, Error)) << Error;
 	EXPECT_EQ(PngProduct.DerivedDataKey, RawProduct.DerivedDataKey);
-	std::vector<std::byte> PngPayloadBytes;
-	std::vector<std::byte> RawPayloadBytes;
+	Durin::FByteArray PngPayloadBytes;
+	Durin::FByteArray RawPayloadBytes;
 	Durin::FCanonicalMemoryWriter PngPayloadWriter(
 		PngPayloadBytes, Durin::EArchivePurpose::DerivedDataPayload);
 	Durin::FCanonicalMemoryWriter RawPayloadWriter(
@@ -395,7 +395,7 @@ TEST(FTerrainHeightmapDerivedDataTests, KeyAndPayloadRoundTripAreStableAndCorrup
 		RawPayloadWriter, Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game);
 	EXPECT_EQ(PngPayloadBytes, RawPayloadBytes);
-	std::vector<std::byte> Bytes;
+	Durin::FByteArray Bytes;
 	Durin::FCanonicalMemoryWriter Writer(Bytes, Durin::EArchivePurpose::DerivedDataPayload);
 	const_cast<Durin::FTerrainHeightmapPayload&>(*Payload).Serialize(
 		Writer, Durin::Asset::ECookTargetPlatform::Win64,
@@ -423,7 +423,7 @@ TEST(FTerrainHeightmapDecoderTests, AcceptsOnlyNonInterlacedGrayscale16Png)
 	const std::array<uint16, 6> Samples{0, 1, 257, 4096, 32'768, 65'535};
 	Durin::Image::FDecodedGrayscale16Image Decoded;
 	std::string Error;
-	const std::vector<std::byte> Valid = MakeGrayscale16Png(3, 2, Samples);
+	const Durin::FByteArray Valid = MakeGrayscale16Png(3, 2, Samples);
 	ASSERT_TRUE(Durin::Image::DecodeGrayscale16PngFromMemory(Valid, Decoded, Error)) << Error;
 	EXPECT_EQ(Decoded.Width, 3);
 	EXPECT_EQ(Decoded.Height, 2);
@@ -449,7 +449,7 @@ TEST(FTerrainHeightmapDecoderTests, DecodesExactSquareU16LeAndRejectsMalformedRa
 	Samples[static_cast<size_t>(Dimension - 1) * Dimension] = 0x9abc;
 	Samples.back() = 0xdef0;
 	Samples[static_cast<size_t>(127) * Dimension + 311] = 65'535;
-	const std::vector<std::byte> Bytes = MakeRaw16(Samples);
+	const Durin::FByteArray Bytes = MakeRaw16(Samples);
 	ASSERT_EQ(Bytes.size(), 526'338);
 	EXPECT_EQ(Bytes[0], std::byte{0x34});
 	EXPECT_EQ(Bytes[1], std::byte{0x12});
@@ -663,7 +663,7 @@ TEST(FTerrainHeightmapImportTests, AsyncLoadHandlesWarmDdcCorruptionRecoveryAndM
 	const std::filesystem::path Root = InitializeHeightmapTests();
 	FScopedDdcRoot Ddc(Root / "AsyncReloadDDC");
 	const std::filesystem::path Source = Root / "Sources/AsyncReload.raw";
-	std::vector<std::byte> Bytes(513u * 513u * sizeof(uint16));
+	Durin::FByteArray Bytes(513u * 513u * sizeof(uint16));
 	for (size_t Index = 0; Index < Bytes.size() / 2; ++Index)
 	{
 		const uint16 Value = static_cast<uint16>(Index);

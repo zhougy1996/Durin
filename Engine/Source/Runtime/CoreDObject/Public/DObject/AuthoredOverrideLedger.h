@@ -22,7 +22,7 @@ namespace Durin
 		FName DeclaringType;
 		FName FieldName;
 		uint64 Index = 0;
-		std::vector<std::byte> MapKeyToken;
+		FByteArray MapKeyToken;
 
 		static COREDOBJECT_API auto Field(FName DeclaringType, FName FieldName)
 			-> FAuthoredOverridePathToken;
@@ -30,7 +30,7 @@ namespace Durin
 			-> FAuthoredOverridePathToken;
 		static COREDOBJECT_API auto ArrayElement(uint64 Index)
 			-> FAuthoredOverridePathToken;
-		static COREDOBJECT_API auto MapValue(std::vector<std::byte> CanonicalKeyToken)
+		static COREDOBJECT_API auto MapValue(FByteArray CanonicalKeyToken)
 			-> FAuthoredOverridePathToken;
 	};
 

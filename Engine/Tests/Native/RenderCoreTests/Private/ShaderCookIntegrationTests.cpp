@@ -28,8 +28,8 @@ namespace Durin
 		ASSERT_NE(RendererHandle, nullptr) << FPlatformMisc::GetLastLibraryError();
 		ASSERT_TRUE(FModuleManager::Get().LoadModule("ShaderBuild"));
 
-		std::vector<std::byte> First;
-		std::vector<std::byte> Second;
+		Durin::FByteArray First;
+		Durin::FByteArray Second;
 		ASSERT_TRUE(BuildCookedShaderLibrary(
 			EShaderTargetPlatform::Win64, EShaderTargetProfile::Game,
 			First, Error)) << Error;
@@ -45,7 +45,7 @@ namespace Durin
 		EXPECT_EQ(Requests.size(), 15u);
 		FShaderCookedLibrary Library;
 		ASSERT_TRUE(FShaderCookedLibrary::OpenBytes(
-			std::make_shared<const std::vector<std::byte>>(First),
+			std::make_shared<const Durin::FByteArray>(First),
 			EShaderTargetPlatform::Win64, EShaderTargetProfile::Game,
 			Requests, Library, Error)) << Error;
 		EXPECT_EQ(Library.GetRecordCount(), Requests.size());

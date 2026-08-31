@@ -648,7 +648,7 @@ namespace Durin::AssetForge::Builtins
 			ESceneTextureDerivation Derivation,
 			float Scale,
 			const FVector3f& ColorScale,
-			std::vector<std::byte>& OutBytes,
+			FByteArray& OutBytes,
 			std::string& OutError) -> bool
 		{
 			Image::FDecodedImage Image;
@@ -659,7 +659,7 @@ namespace Durin::AssetForge::Builtins
 				OutError = "Derived Scene texture exceeds the TGA dimension limit.";
 				return false;
 			}
-			std::vector<std::byte> Pixels(Image.Pixels.size());
+			FByteArray Pixels(Image.Pixels.size());
 			for (size_t Offset = 0; Offset < Image.Pixels.size(); Offset += 4)
 			{
 				uint8 Red = std::to_integer<uint8>(Image.Pixels[Offset + 0]);

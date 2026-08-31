@@ -398,7 +398,7 @@ namespace
 						{
 							Item.CompanionPath = Input.PhysicalPath;
 							Item.CompanionPath.replace_extension(".dbulk");
-							std::vector<std::byte> Segment;
+							FByteArray Segment;
 							if (!FFileHelper::LoadFileToArray(Segment, Item.CompanionPath)
 								|| Descriptor.SegmentOffset > Segment.size()
 								|| Descriptor.StoredByteCount

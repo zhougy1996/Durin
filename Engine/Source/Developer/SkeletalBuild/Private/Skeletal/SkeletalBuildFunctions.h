@@ -16,12 +16,12 @@ namespace Durin::Asset::Private
 	auto EncodeSkeletalMeshPayload(
 		FSkeletalMeshPayloadData& Payload,
 		const FSkeletalPayloadSerializationContext& Context,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string& OutError) -> bool;
 	auto EncodeAnimationClipPayload(
 		FAnimationClipPayloadData& Payload,
 		const FSkeletalPayloadSerializationContext& Context,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string& OutError) -> bool;
 	auto DecodeSkeletalMeshPayload(
 		const FBuildValue& Value, std::string_view Key,

@@ -112,7 +112,7 @@ namespace Durin::Asset::PackageObjectStream
 		uint64 FloatingBits = 0;
 		std::string Text;
 		FGuid Guid;
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		std::vector<uint64> ComponentBits;
 		std::vector<FValue> Elements;
 		std::vector<std::string> FieldNames;
@@ -139,8 +139,8 @@ namespace Durin::Asset::PackageObjectStream
 	{
 		std::string SchemaName;
 		std::string FieldName;
-		std::vector<std::byte> DescriptorClosure;
-		std::vector<std::byte> Payload;
+		FByteArray DescriptorClosure;
+		FByteArray Payload;
 	};
 
 	struct FObjectValueInput
@@ -176,7 +176,7 @@ namespace Durin::Asset::PackageObjectStream
 	// Canonical construct-free DAST object-stream writer. Used by the reader to
 	// prove canonical byte identity without constructing Engine asset objects.
 	ASSETREGISTRY_API auto WritePackage(const FPackageInput& Input,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		FWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
 
 	inline constexpr uint32 MaximumSummaryBytes = 65'535;
@@ -299,8 +299,8 @@ namespace Durin::Asset::PackageObjectStream
 		uint64 FieldId = 0;
 		uint8 Provenance = 0;
 		FValue Value;
-		std::vector<std::byte> DescriptorClosure;
-		std::vector<std::byte> RetainedPayload;
+		FByteArray DescriptorClosure;
+		FByteArray RetainedPayload;
 		uint64 PayloadOffset = 0;
 		uint64 PayloadSize = 0;
 	};
@@ -326,7 +326,7 @@ namespace Durin::Asset::PackageObjectStream
 		const FDecodedPackage& Package,
 		const FDecodedType& Type,
 		const FValue& Value,
-		std::vector<std::byte>& OutToken,
+		FByteArray& OutToken,
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> bool;
 
 	ASSETREGISTRY_API auto ReadHeader(std::span<const std::byte> Bytes,
@@ -355,7 +355,7 @@ namespace Durin::Asset::PackageObjectStream
 		const FReaderLimits& Limits = {},
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> bool;
 	ASSETREGISTRY_API auto ReencodePackage(const FDecodedPackage& Package,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		FReaderDiagnostic* OutDiagnostic = nullptr) -> bool;
 	ASSETREGISTRY_API auto ResetReencodeCountForTesting() -> void;
 	ASSETREGISTRY_API auto GetReencodeCountForTesting() -> uint64;

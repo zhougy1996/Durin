@@ -56,7 +56,7 @@ namespace
 	}
 
 	auto RewriteSerializedFieldAsLegacyMap(
-		std::vector<std::byte>& Bytes,
+		Durin::FByteArray& Bytes,
 		const Durin::FPackagePath& PackagePath,
 		std::string_view CurrentName,
 		std::string_view LegacyName
@@ -99,8 +99,8 @@ namespace
 			}
 		}
 		if (Rewritten == 0) return false;
-		std::vector<std::byte> Main;
-		std::vector<std::byte> Bulk;
+		Durin::FByteArray Main;
+		Durin::FByteArray Bulk;
 		if (!Durin::ObjectPackage::WritePackageV9(Linker, Main, Bulk) || !Bulk.empty())
 			return false;
 		Bytes = std::move(Main);

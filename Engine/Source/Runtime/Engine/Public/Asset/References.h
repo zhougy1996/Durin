@@ -19,7 +19,7 @@ namespace Durin::Asset
 	{
 		EAssetReferenceRouteKind Kind = EAssetReferenceRouteKind::FixedArray;
 		uint64 Index = 0;
-		std::vector<std::byte> MapKeyToken;
+		FByteArray MapKeyToken;
 		std::string DeclaringType;
 		std::string FieldName;
 

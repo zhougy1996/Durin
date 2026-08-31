@@ -148,14 +148,14 @@ namespace Durin::ObjectPackage
 		FPackageWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
 	COREDOBJECT_API auto WritePackageV9(
 		const FLinkerTables& Linker,
-		std::vector<std::byte>& OutPackageBytes,
-		std::vector<std::byte>& OutBulkBytes,
+		FByteArray& OutPackageBytes,
+		FByteArray& OutBulkBytes,
 		FPackageWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
 	COREDOBJECT_API auto WritePackageV9Main(
 		const FLinkerTables& Linker,
 		uint64 ExternalBulkBytes,
 		FXxHash128 ExternalBulkHash,
-		std::vector<std::byte>& OutPackageBytes,
+		FByteArray& OutPackageBytes,
 		FPackageWriterDiagnostic* OutDiagnostic = nullptr) -> bool;
 
 	// Validates exactly the declared front matter and publishes package-level Registry data.

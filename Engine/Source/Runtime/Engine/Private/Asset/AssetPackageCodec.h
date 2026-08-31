@@ -27,8 +27,8 @@ namespace Durin::Asset::Private
 
 	struct FAssetPackageEncodedClosure
 	{
-		std::vector<std::byte> PackageBytes;
-		std::vector<std::byte> BulkBytes;
+		FByteArray PackageBytes;
+		FByteArray BulkBytes;
 	};
 
 	struct FAssetRedirectorWriteMapping

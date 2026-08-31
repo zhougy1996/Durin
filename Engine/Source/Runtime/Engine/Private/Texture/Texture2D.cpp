@@ -101,7 +101,7 @@ namespace Durin
 		const FSharedByteBuffer Payload = Pixels.GetPayload().Wait().Buffer;
 		const std::span<const std::byte> Bytes = Payload.GetBytes();
 		return {
-			.Pixels = std::vector<std::byte>(Bytes.begin(), Bytes.end()),
+			.Pixels = FByteArray(Bytes.begin(), Bytes.end()),
 			.Width = Width,
 			.Height = Height,
 			.SourceChannelCount = SourceChannelCount,
@@ -176,7 +176,7 @@ namespace Durin
 					"Texture2D cooked platform data is unavailable.");
 				return;
 			}
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload);
 			PlatformData->Serialize(Writer, {
 				.TargetPlatform = Asset::ECookTargetPlatform::Win64,

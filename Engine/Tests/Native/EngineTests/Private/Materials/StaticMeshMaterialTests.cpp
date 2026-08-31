@@ -492,7 +492,7 @@ TEST(FStaticMeshMaterialTests, StaticMeshComponentOverridesRoundTripAfterMeshDep
 
 	const std::filesystem::path FixturePath = Durin::Testing::GetTestWorkDirectory()
 		/ "StaticMeshSlotOverrides" / "Component.dasset";
-	std::vector<std::byte> FixtureBytes;
+	Durin::FByteArray FixtureBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(FixtureBytes, FixturePath));
 	EXPECT_FALSE(ContainsSerializedField(FixtureBytes, ComponentPath, "Materials"));
 	EXPECT_FALSE(ContainsSerializedField(FixtureBytes, ComponentPath, "MaterialOverridesVersion"));
@@ -637,8 +637,8 @@ TEST(FMaterialProgramPackageTests,
 	ASSERT_TRUE(Validation);
 	ASSERT_TRUE(Durin::Asset::SavePackage(Material->GetPackage()));
 
-	std::vector<std::byte> FirstSerialization;
-	std::vector<std::byte> SecondSerialization;
+	Durin::FByteArray FirstSerialization;
+	Durin::FByteArray SecondSerialization;
 	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(
 		Material->GetPackage(), FirstSerialization));
 	ASSERT_TRUE(Durin::Asset::SerializeAssetPackageBytes(
@@ -721,13 +721,13 @@ TEST(FStaticMeshMaterialTests, LegacyParameterMapsFailBeforeResidency)
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(InstancePath));
 	ASSERT_TRUE(Durin::Asset::UnloadPackage(BasePath));
 
-	std::vector<std::byte> BaseBytes;
+	Durin::FByteArray BaseBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(BaseBytes, (Root / "Base.dasset")));
 	ASSERT_TRUE(RewriteSerializedFieldAsLegacyMap(
 		BaseBytes, BasePath, "ParameterDefinitions", "VectorParameters"));
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(std::as_bytes(std::span(BaseBytes)), Root / "Base.dasset"));
 
-	std::vector<std::byte> InstanceBytes;
+	Durin::FByteArray InstanceBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(InstanceBytes, (Root / "Instance.dasset")));
 	ASSERT_TRUE(RewriteSerializedFieldAsLegacyMap(
 		InstanceBytes, InstancePath, "ParameterOverrides", "ScalarParameters"));

@@ -9,7 +9,7 @@ namespace Durin::Asset::Private
 
 	struct FByteWriter
 	{
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 
 		template<typename T> auto Write(const T& Value) -> void
 		{

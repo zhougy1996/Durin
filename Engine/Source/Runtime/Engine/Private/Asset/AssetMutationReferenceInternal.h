@@ -29,7 +29,7 @@ namespace Durin::Asset::Private
 		const FPackagePath& PackagePath,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
 		uint64 ExpectedRewriteCount,
-		std::vector<std::byte>& OutBytes) -> FAssetResult;
+		FByteArray& OutBytes) -> FAssetResult;
 	auto ReadMutationPackageMetadata(
 		std::span<const std::byte> Bytes,
 		std::span<const std::byte> BulkBytes,

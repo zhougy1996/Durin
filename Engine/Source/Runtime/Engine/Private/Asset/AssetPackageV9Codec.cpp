@@ -156,13 +156,13 @@ namespace Durin::Asset::Private::DastV9
 		}
 
 		template<typename T>
-		auto AppendNative(std::vector<std::byte>& Out, const T& Value) -> void
+		auto AppendNative(FByteArray& Out, const T& Value) -> void
 		{
 			const auto Bytes = std::as_bytes(std::span(&Value, 1));
 			Out.insert(Out.end(), Bytes.begin(), Bytes.end());
 		}
 
-		auto AppendString(std::vector<std::byte>& Out, std::string_view Value) -> void
+		auto AppendString(FByteArray& Out, std::string_view Value) -> void
 		{
 			AppendNative(Out, static_cast<uint64>(Value.size()));
 			const auto Bytes = std::as_bytes(std::span(Value.data(), Value.size()));
@@ -187,7 +187,7 @@ namespace Durin::Asset::Private::DastV9
 		auto EncodeInspectionPayload(const ObjectPackage::FSerializedType& Type,
 			const ObjectPackage::FSerializedValue& Value,
 			const ObjectPackage::FLinkerTables& Linker,
-			std::vector<std::byte>& Out,
+			FByteArray& Out,
 			FInspectionEncodeState& State) -> bool
 		{
 			using K = ObjectPackage::EValueKind;
@@ -274,7 +274,7 @@ namespace Durin::Asset::Private::DastV9
 						Schema->Fields, Value.FieldNames[Index],
 						&ObjectPackage::FSerializedField::Name);
 					if (Field == Schema->Fields.end()) return false;
-					std::vector<std::byte> Payload;
+					FByteArray Payload;
 					if (!EncodeInspectionPayload(
 						Field->Type, Value.Elements[Index], Linker, Payload, State))
 						return false;
@@ -480,7 +480,7 @@ namespace Durin::Asset::Private::DastV9
 					return false;
 				for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
 				{
-					std::vector<std::byte> Token;
+					FByteArray Token;
 					if (!ObjectPackage::BuildCanonicalMapKeyToken(
 						Type.Children[0], Value.Elements[Index], Token)) return false;
 					Route.push_back({.Kind = EAssetReferenceRouteKind::MapValue,
@@ -529,11 +529,11 @@ namespace Durin::Asset::Private::DastV9
 			if (Source.GetSize() > ObjectPackage::DastV8MaximumPackageBytes
 				|| Source.GetSize() > std::numeric_limits<size_t>::max())
 				return Error(EAssetError::CorruptFile, "DAST package exceeds the byte bound.");
-			std::vector<std::byte> Main(static_cast<size_t>(Source.GetSize()));
+			FByteArray Main(static_cast<size_t>(Source.GetSize()));
 			std::string ReadError;
 			if (!Source.ReadAt(0, Main, &ReadError))
 				return Error(EAssetError::IoError, std::move(ReadError));
-			std::vector<std::byte> Bulk;
+			FByteArray Bulk;
 			const FAssetPathResult Resolved = FMountPaths::ResolveAssetPath(
 				Path.GetView(), EMountPathExistence::AllowMissing);
 			if (Resolved)

@@ -53,7 +53,7 @@ namespace Durin::Asset
 		FTerrainWorldId WorldId;
 		std::vector<FTerrainTileGeneration> Generations;
 		std::vector<FTerrainRegionKey> InstalledRegions;
-		std::vector<std::byte> PackageTemplateBytes;
+		FByteArray PackageTemplateBytes;
 		Asset::ECookTargetPlatform TargetPlatform = Asset::ECookTargetPlatform::Win64;
 		Asset::ECookTargetProfile TargetProfile = Asset::ECookTargetProfile::Game;
 	};
@@ -73,7 +73,7 @@ namespace Durin::Asset
 		const FTerrainTileKey& Tile, FTerrainRegionKey& OutRegion, ETerrainWorldOutcome& OutOutcome, std::string& OutError
 	) -> bool;
 	TERRAINBUILD_API auto EncodeTerrainWorldManifest(
-		const FTerrainWorldManifest& Manifest, std::vector<std::byte>& OutBytes, ETerrainWorldOutcome& OutOutcome, std::string& OutError
+		const FTerrainWorldManifest& Manifest, FByteArray& OutBytes, ETerrainWorldOutcome& OutOutcome, std::string& OutError
 	) -> bool;
 	TERRAINBUILD_API auto DecodeTerrainWorldManifest(
 		std::span<const std::byte> Bytes, const FTerrainWorldId& ExpectedWorld, Asset::ECookTargetPlatform ExpectedPlatform, Asset::ECookTargetProfile ExpectedProfile, FTerrainWorldManifest& OutManifest, ETerrainWorldOutcome& OutOutcome, std::string& OutError

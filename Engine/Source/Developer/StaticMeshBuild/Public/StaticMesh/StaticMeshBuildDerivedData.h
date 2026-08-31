@@ -31,13 +31,13 @@ namespace Durin::Asset
 
 	STATICMESHBUILD_API auto BuildStaticMeshDerivedDataKeyBytes(
 		const FStaticMeshBuildKeyInput& Input,
-		std::string& OutError) -> std::vector<std::byte>;
+		std::string& OutError) -> FByteArray;
 	STATICMESHBUILD_API auto BuildStaticMeshDerivedDataKey(
 		const FStaticMeshBuildKeyInput& Input,
 		std::string& OutError) -> std::string;
 	STATICMESHBUILD_API auto BuildStaticMeshCollisionDerivedDataKeyBytes(
 		const FStaticMeshCollisionBuildKeyInput& Input,
-		std::string& OutError) -> std::vector<std::byte>;
+		std::string& OutError) -> FByteArray;
 	STATICMESHBUILD_API auto BuildStaticMeshCollisionDerivedDataKey(
 		const FStaticMeshCollisionBuildKeyInput& Input,
 		std::string& OutError) -> std::string;

@@ -55,7 +55,7 @@ namespace Durin
 		const FVolumeTexturePlatformData& PlatformData,
 		Asset::ECookTargetPlatform TargetPlatform,
 		Asset::ECookTargetProfile TargetProfile,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -173,7 +173,7 @@ namespace Durin
 			*this,
 			{MaximumTexturePayloadBytes, "Volume texture platform data"},
 			[&](const FVolumeTexturePlatformData& Value,
-				std::vector<std::byte>& Bytes, std::string& Error) {
+				FByteArray& Bytes, std::string& Error) {
 				return BuildVolumeTextureSerializedValue(Value,
 					Context.TargetPlatform, Context.TargetProfile, Bytes, Error);
 			},

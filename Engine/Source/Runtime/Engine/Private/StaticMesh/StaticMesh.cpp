@@ -229,7 +229,7 @@ namespace Durin
 	auto FStaticMeshImportedData::CaptureDecodedData(std::string& OutError) -> bool
 	{
 		if (!ValidateDecodedStaticMeshImportedData(*this, OutError)) return false;
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::BulkData);
 		SerializeStaticMeshImportedValue(Ar, *this);
 		if (Ar.HasError() || Bytes.size() > MaximumStaticMeshImportedDataBytes)

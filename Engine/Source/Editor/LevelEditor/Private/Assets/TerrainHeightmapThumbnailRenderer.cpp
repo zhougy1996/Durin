@@ -25,7 +25,7 @@ namespace Durin::Editor::Level
 
 	auto GenerateTerrainHeightmapThumbnailPixels(
 		const FTerrainHeightmapPayload& Payload,
-		std::vector<std::byte>& OutPixels,
+		FByteArray& OutPixels,
 		std::string& OutError) -> bool
 	{
 		OutPixels.clear();

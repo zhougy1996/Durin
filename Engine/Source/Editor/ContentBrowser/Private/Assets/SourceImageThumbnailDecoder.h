@@ -7,7 +7,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	// Carries decoded RGBA thumbnail pixels and their dimensions.
 	struct FDecodedSourceImageThumbnail
 	{
-		std::vector<std::byte> Pixels;
+		FByteArray Pixels;
 		uint32 Width = 0;
 		uint32 Height = 0;
 		bool bHasTransparency = false;

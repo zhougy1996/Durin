@@ -14,7 +14,7 @@ namespace Durin::Asset::Private
 		"TerrainHeightmapPayload";
 
 	auto EncodeTerrainHeightmapLocalInput(const FTerrainHeightmapBuildRequest& Request)
-		-> std::vector<std::byte>;
+		-> FByteArray;
 	auto DecodeTerrainHeightmapPayload(const FBuildValue& Value,
 		std::shared_ptr<const FTerrainHeightmapPayload>& OutPayload,
 		std::string& OutError) -> bool;

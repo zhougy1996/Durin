@@ -121,9 +121,9 @@ namespace Durin
 				: std::pow((Value + 0.055f) / 1.055f, 2.4f);
 		}
 
-		auto MakeSolidMip(uint32 Size, const std::array<uint8, 4>& Color) -> std::vector<std::byte>
+		auto MakeSolidMip(uint32 Size, const std::array<uint8, 4>& Color) -> Durin::FByteArray
 		{
-			std::vector<std::byte> Pixels(static_cast<size_t>(Size) * Size * 4);
+			Durin::FByteArray Pixels(static_cast<size_t>(Size) * Size * 4);
 			for (size_t Offset = 0; Offset < Pixels.size(); Offset += 4)
 			{
 				std::memcpy(Pixels.data() + Offset, Color.data(), Color.size());
@@ -151,7 +151,7 @@ namespace Durin
 			for (uint32 MipIndex = 0; MipIndex < TestMipCount; ++MipIndex)
 			{
 				const uint32 Size = std::max(1u, 4u >> MipIndex);
-				const std::vector<std::byte> Pixels = MakeSolidMip(Size, Colors[MipIndex]);
+				const Durin::FByteArray Pixels = MakeSolidMip(Size, Colors[MipIndex]);
 				GDynamicRHI->RHIUpdateTexture2D(
 					RHICmdList,
 					Texture,
@@ -575,12 +575,12 @@ namespace Durin
 		GDynamicRHI->RHIUpdateTexture2D(
 			RHICmdList, Texture.GetReference(), 0, 0, UpdateRegion,
 			4 * 4, std::as_bytes(std::span{TextureBytes}));
-		std::vector<std::byte> ReadbackBytes;
+		Durin::FByteArray ReadbackBytes;
 		EXPECT_TRUE(GDynamicRHI->RHIReadTexture2D(
 			RHICmdList, Texture.GetReference(), 0, 0, ReadbackBytes));
 		const std::span<const std::byte> ExpectedTextureBytes =
 			std::as_bytes(std::span{TextureBytes});
-		EXPECT_EQ(ReadbackBytes, std::vector<std::byte>(
+		EXPECT_EQ(ReadbackBytes, Durin::FByteArray(
 			ExpectedTextureBytes.begin(), ExpectedTextureBytes.end()));
 
 		FRHISamplerDesc SamplerDesc;
@@ -599,7 +599,7 @@ namespace Durin
 		EXPECT_EQ(GCommandListExecutor.GetStats().SynchronousOperationCount,
 			SynchronousOperationsBeforeUniforms);
 
-		std::vector<std::byte> OversizedUniformData(
+		Durin::FByteArray OversizedUniformData(
 			4 * 1024 * 1024 + 256, std::byte{0x5a});
 		const FRHIUniformBufferRange UniformRange =
 			RHICmdList.AllocateDynamicUniformBuffer(
@@ -684,14 +684,14 @@ namespace Durin
 						GDynamicRHI->RHIUpdateTexture2D(
 							CommandList, ChurnTexture.GetReference(), 0, 0,
 							ChurnRegion, 4 * 4, std::as_bytes(std::span{ChurnBytes}));
-						std::vector<std::byte> ChurnReadback;
+						Durin::FByteArray ChurnReadback;
 						bChurnSucceeded = bChurnSucceeded
 							&& GDynamicRHI->RHIReadTexture2D(
 								CommandList, ChurnTexture.GetReference(), 0, 0,
 								ChurnReadback)
 							&& ChurnReadback == [&] {
 								const auto Bytes = std::as_bytes(std::span{ChurnBytes});
-								return std::vector<std::byte>(Bytes.begin(), Bytes.end());
+								return Durin::FByteArray(Bytes.begin(), Bytes.end());
 							}();
 					}
 					else
@@ -951,11 +951,11 @@ namespace Durin
 			RHICmdList.TransitionTextures(std::array{FRHITextureTransition{
 				FinalTexture, WholeColor, ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead}});
 
-			std::vector<std::byte> Actual;
+			Durin::FByteArray Actual;
 			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
 				RHICmdList, FinalTexture, 0, 0, Actual)) << Mode;
 			const auto ExpectedBytes = std::as_bytes(std::span{Expected});
-			EXPECT_EQ(Actual, (std::vector<std::byte>(
+			EXPECT_EQ(Actual, (Durin::FByteArray(
 				ExpectedBytes.begin(), ExpectedBytes.end()))) << Mode;
 
 			const FRHITextureCreateDesc CubeDesc = FRHITextureCreateDesc::CreateCube("CopyCube")
@@ -992,11 +992,11 @@ namespace Durin
 			RHICmdList.TransitionTextures(std::array{FRHITextureTransition{
 				DestinationCube, DestinationCubeRange,
 				ERHIAccess::TransferWrite, ERHIAccess::ComputeShaderRead}});
-			std::vector<std::byte> CubeActual;
+			Durin::FByteArray CubeActual;
 			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
 				RHICmdList, DestinationCube, 1, 4, CubeActual)) << Mode;
 			const auto ExpectedCubeBytes = std::as_bytes(std::span{CubeMipBytes});
-			EXPECT_EQ(CubeActual, (std::vector<std::byte>(
+			EXPECT_EQ(CubeActual, (Durin::FByteArray(
 				ExpectedCubeBytes.begin(), ExpectedCubeBytes.end()))) << Mode;
 
 			const FRHITextureCreateDesc CompressedDesc = FRHITextureCreateDesc::Create2D(
@@ -1022,12 +1022,12 @@ namespace Durin
 			RHICmdList.TransitionTextures(std::array{FRHITextureTransition{
 				CompressedDestination, WholeColor,
 				ERHIAccess::TransferWrite, ERHIAccess::GraphicsShaderRead}});
-			std::vector<std::byte> CompressedActual;
+			Durin::FByteArray CompressedActual;
 			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
 				RHICmdList, CompressedDestination, 0, 0, CompressedActual)) << Mode;
 			const auto ExpectedCompressedBytes =
 				std::as_bytes(std::span{CompressedBytes});
-			EXPECT_EQ(CompressedActual, (std::vector<std::byte>(
+			EXPECT_EQ(CompressedActual, (Durin::FByteArray(
 				ExpectedCompressedBytes.begin(), ExpectedCompressedBytes.end()))) << Mode;
 
 			const FRHITextureCreateDesc VolumeDesc = FRHITextureCreateDesc::Create3D(
@@ -1057,11 +1057,11 @@ namespace Durin
 			RHICmdList.TransitionTextures(std::array{FRHITextureTransition{
 				Slice, WholeColor, ERHIAccess::TransferWrite,
 				ERHIAccess::GraphicsShaderRead}});
-			std::vector<std::byte> SliceActual;
+			Durin::FByteArray SliceActual;
 			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
 				RHICmdList, Slice, 0, 0, SliceActual)) << Mode;
 			const auto ExpectedVolumeBytes = std::as_bytes(std::span{VolumeBytes});
-			EXPECT_EQ(SliceActual, (std::vector<std::byte>(
+			EXPECT_EQ(SliceActual, (Durin::FByteArray(
 				ExpectedVolumeBytes.begin() + 16,
 				ExpectedVolumeBytes.begin() + 32))) << Mode;
 			SourceTexture = nullptr;
@@ -1329,16 +1329,16 @@ namespace Durin
 				BufferReadback, WholeColor, ERHIAccess::TransferWrite,
 				ERHIAccess::TransferRead}});
 
-			std::vector<std::byte> ImageBytes;
-			std::vector<std::byte> BufferBytes;
-			std::vector<std::byte> GraphicsBytes;
+			Durin::FByteArray ImageBytes;
+			Durin::FByteArray BufferBytes;
+			Durin::FByteArray GraphicsBytes;
 			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
 				Commands, OutputImage, 0, 0, ImageBytes));
 			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
 				Commands, BufferReadback, 0, 0, BufferBytes));
 			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
 				Commands, GraphicsReadback, 0, 0, GraphicsBytes));
-			std::vector<std::byte> Expected;
+			Durin::FByteArray Expected;
 			for (uint8 Index = 0; Index < 4; ++Index)
 				Expected.insert(Expected.end(), {
 					static_cast<std::byte>(18 + Index),
@@ -1477,13 +1477,13 @@ namespace Durin
 			Commands.TransitionTextures(std::array{FRHITextureTransition{
 				StorageReadback, Whole, ERHIAccess::TransferWrite,
 				ERHIAccess::GraphicsShaderRead}});
-			std::vector<std::byte> OutputBytes;
-			std::vector<std::byte> StorageBytes;
+			Durin::FByteArray OutputBytes;
+			Durin::FByteArray StorageBytes;
 			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(Commands, Output, 0, 0, OutputBytes));
 			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
 				Commands, StorageReadback, 0, 0, StorageBytes));
 			const auto ExpectedSourceBytes = std::as_bytes(std::span{Source});
-			EXPECT_EQ(OutputBytes, (std::vector<std::byte>(
+			EXPECT_EQ(OutputBytes, (Durin::FByteArray(
 				ExpectedSourceBytes.begin(), ExpectedSourceBytes.end())));
 			EXPECT_EQ(StorageBytes, OutputBytes);
 			const FRHIMemoryStatistics MemoryAfter =
@@ -1552,7 +1552,7 @@ namespace Durin
 
 			auto MakeDeterministicBytes = [](uint32 Width, uint32 Height,
 				uint32 Depth, uint8 Seed) {
-				std::vector<std::byte> Bytes(
+				Durin::FByteArray Bytes(
 					static_cast<size_t>(Width) * Height * Depth);
 				for (uint32 Z = 0; Z < Depth; ++Z)
 					for (uint32 Y = 0; Y < Height; ++Y)
@@ -1565,7 +1565,7 @@ namespace Durin
 				return Bytes;
 			};
 			auto MakeVolume = [&](const char* Name, uint32 Size,
-				const std::vector<std::byte>& Bytes) {
+				const Durin::FByteArray& Bytes) {
 				const FRHITextureCreateDesc Desc =
 					FRHITextureCreateDesc::Create3D(Name)
 						.SetExtent(Size, Size).SetDepth(Size)
@@ -1582,11 +1582,11 @@ namespace Durin
 				}
 				return Texture;
 			};
-			const std::vector<std::byte> BaseBytes =
+			const Durin::FByteArray BaseBytes =
 				MakeDeterministicBytes(64, 64, 64, 11);
-			const std::vector<std::byte> DetailBytes =
+			const Durin::FByteArray DetailBytes =
 				MakeDeterministicBytes(32, 32, 32, 29);
-			const std::vector<std::byte> WeatherBytes =
+			const Durin::FByteArray WeatherBytes =
 				MakeDeterministicBytes(64, 64, 1, 47);
 			FTextureRHIRef Base = MakeVolume(
 				"CloudFixtureBase", 64, BaseBytes);
@@ -1672,10 +1672,10 @@ namespace Durin
 				FRHITextureTransition{Output, Whole,
 					ERHIAccess::ComputeShaderReadWrite,
 					ERHIAccess::GraphicsShaderRead}});
-			std::vector<std::byte> Actual;
+			Durin::FByteArray Actual;
 			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
 				Commands, Output, 0, 0, Actual));
-			EXPECT_EQ(Actual, (std::vector<std::byte>{
+			EXPECT_EQ(Actual, (Durin::FByteArray{
 				std::byte{123}, std::byte{213}, std::byte{255}, std::byte{255},
 				std::byte{91}, std::byte{69}, std::byte{95}, std::byte{255}}));
 
@@ -1835,7 +1835,7 @@ namespace Durin
 			Draw(StorageTarget1, StoragePipeline, StorageFragment, StorageView,
 				ERHIBindingType::StorageImage);
 
-			std::vector<std::byte> Pixels;
+			Durin::FByteArray Pixels;
 			ASSERT_TRUE(GDynamicRHI->RHIReadTexture2D(
 				Commands, SampleTarget, 0, 0, Pixels));
 			ASSERT_EQ(Pixels.size(), 64u);

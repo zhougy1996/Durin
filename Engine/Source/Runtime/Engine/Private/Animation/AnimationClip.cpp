@@ -137,7 +137,7 @@ namespace Durin
 		std::string& OutError) -> bool
 	{
 		if (!ValidateAnimationClipPayload(Payload, SkeletonBoneCount, OutError)) return false;
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::BulkData);
 		const_cast<FAnimationClipPayloadData&>(Payload).Serialize(Ar, {
 			.SkeletonBoneCount = SkeletonBoneCount,
@@ -340,7 +340,7 @@ namespace Durin
 					"AnimationClip cooked platform data is unavailable.");
 				return;
 			}
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload);
 			const_cast<FAnimationClipPayloadData&>(*PayloadData).Serialize(Writer, {
 				.SkeletonBoneCount = Skeleton->GetBoneCount(),

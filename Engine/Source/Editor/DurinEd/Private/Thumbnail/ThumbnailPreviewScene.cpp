@@ -159,7 +159,7 @@ namespace Durin::Editor
 			std::mutex Mutex;
 			EThumbnailCaptureState State =
 				EThumbnailCaptureState::Idle;
-			std::vector<std::byte> Pixels;
+			FByteArray Pixels;
 			std::string Error;
 			uint64 Generation = 0;
 		};
@@ -390,7 +390,7 @@ namespace Durin::Editor
 			[Capture, Generation, Renderer, Scene, RenderTarget, View, Options](
 				FRHICommandListImmediate& CommandList
 			) {
-				std::vector<std::byte> Pixels;
+				FByteArray Pixels;
 				std::string Error;
 				if (Renderer == nullptr || Scene == nullptr || RenderTarget == nullptr)
 				{
@@ -424,7 +424,7 @@ namespace Durin::Editor
 	}
 
 	auto FThumbnailPreviewScenePool::PollCapture(
-		std::vector<std::byte>& OutPixels,
+		FByteArray& OutPixels,
 		std::string& OutError
 	) -> EThumbnailCaptureState
 	{

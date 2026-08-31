@@ -25,7 +25,7 @@ namespace Durin::Asset
 
 	TEXTUREBUILD_API auto BuildVolumeTextureDerivedDataKeyBytes(
 		const FVolumeTextureBuildKeyInput& Input, std::string& OutError)
-		-> std::vector<std::byte>;
+		-> FByteArray;
 	TEXTUREBUILD_API auto BuildVolumeTextureDerivedDataKey(
 		const FVolumeTextureBuildKeyInput& Input, std::string& OutError)
 		-> std::string;

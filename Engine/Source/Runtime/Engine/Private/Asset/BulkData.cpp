@@ -8,7 +8,7 @@ namespace Durin::Asset
 		{
 			mutable std::mutex Mutex;
 			FBulkDataMetadata Metadata;
-			std::shared_ptr<std::vector<std::byte>> Allocation;
+			std::shared_ptr<FByteArray> Allocation;
 			EBulkDataState State = EBulkDataState::Empty;
 			uint32 ReadLocks = 0;
 		};
@@ -88,7 +88,7 @@ namespace Durin::Asset
 		auto Candidate = NewEmptyState();
 		Candidate->Metadata.LogicalSize = Bytes.size();
 		Candidate->Metadata.Range.StoredSize = Bytes.size();
-		Candidate->Allocation = std::make_shared<std::vector<std::byte>>(Bytes.begin(), Bytes.end());
+		Candidate->Allocation = std::make_shared<FByteArray>(Bytes.begin(), Bytes.end());
 		Candidate->State = EBulkDataState::Detached;
 		OutValue = FBulkData(std::move(Candidate));
 		if (OutError) OutError->clear();
@@ -144,7 +144,7 @@ namespace Durin::Asset
 					? EBulkDataState::Retired : EBulkDataState::Failed;
 				return Fail(Result.Message.empty() ? "Bulk data range load failed." : Result.Message, OutError);
 			}
-			State->Allocation = std::make_shared<std::vector<std::byte>>(
+			State->Allocation = std::make_shared<FByteArray>(
 				Result.Buffer.GetBytes().begin(), Result.Buffer.GetBytes().end());
 			State->State = EBulkDataState::Resident;
 		}
@@ -177,9 +177,9 @@ namespace Durin::Asset
 		std::lock_guard Lock(State->Mutex);
 		if (State->State != EBulkDataState::Detached && State->State != EBulkDataState::Empty)
 			return Fail("Bulk data write locks require detached storage.", OutError);
-		if (!State->Allocation) State->Allocation = std::make_shared<std::vector<std::byte>>();
+		if (!State->Allocation) State->Allocation = std::make_shared<FByteArray>();
 		else if (State->Allocation.use_count() != 1)
-			State->Allocation = std::make_shared<std::vector<std::byte>>(*State->Allocation);
+			State->Allocation = std::make_shared<FByteArray>(*State->Allocation);
 		State->Metadata.Range.Resource.reset();
 		State->State = EBulkDataState::WriteLocked;
 		OutBytes = *State->Allocation;
@@ -255,7 +255,7 @@ namespace Durin::Asset
 			if (Target->State != EBulkDataState::Loading) return Result;
 			if (Result && Result.Buffer.GetSize() == Metadata.LogicalSize)
 			{
-				Target->Allocation = std::make_shared<std::vector<std::byte>>(
+				Target->Allocation = std::make_shared<FByteArray>(
 					Result.Buffer.GetBytes().begin(), Result.Buffer.GetBytes().end());
 				Target->State = EBulkDataState::Resident;
 			}
@@ -272,7 +272,7 @@ namespace Durin::Asset
 		if (Ar.IsSaving())
 		{
 			FBulkDataMetadata Metadata;
-			std::shared_ptr<std::vector<std::byte>> Allocation;
+			std::shared_ptr<FByteArray> Allocation;
 			{
 				std::lock_guard Lock(State->Mutex);
 				Metadata = State->Metadata;

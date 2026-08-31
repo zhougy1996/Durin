@@ -56,7 +56,7 @@ namespace Durin
 		}
 
 		auto WriteFloat(
-			std::vector<std::byte>& Bytes,
+			FByteArray& Bytes,
 			uint32 Offset,
 			float Value
 		) -> void
@@ -64,9 +64,9 @@ namespace Durin
 			std::memcpy(Bytes.data() + Offset, &Value, sizeof(Value));
 		}
 
-		auto MakeErrorUniformPayload() -> std::vector<std::byte>
+		auto MakeErrorUniformPayload() -> FByteArray
 		{
-			std::vector<std::byte> Result(416, std::byte{0});
+			FByteArray Result(416, std::byte{0});
 			WriteFloat(Result, 0, 1.0f);
 			WriteFloat(Result, 4, 0.0f);
 			WriteFloat(Result, 8, 1.0f);
@@ -85,9 +85,9 @@ namespace Durin
 			return Result;
 		}
 
-		auto MakeCanonicalUniformPayload() -> std::vector<std::byte>
+		auto MakeCanonicalUniformPayload() -> FByteArray
 		{
-			std::vector<std::byte> Result = MakeErrorUniformPayload();
+			FByteArray Result = MakeErrorUniformPayload();
 			WriteFloat(Result, 0, 0.5f);
 			WriteFloat(Result, 4, 0.5f);
 			WriteFloat(Result, 8, 0.5f);

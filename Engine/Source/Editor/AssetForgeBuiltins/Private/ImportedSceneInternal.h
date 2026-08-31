@@ -62,7 +62,7 @@ namespace Durin::AssetForge::Builtins::Private
 	auto ReadFileBytes(
 		const std::filesystem::path& Path,
 		uint64 Limit,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string& OutError) -> bool;
 	auto AppendDependency(
 		FImportedSceneData& Scene,
@@ -101,7 +101,7 @@ namespace Durin::AssetForge::Builtins::Private
 		const FImportedSceneContext& Context,
 		bool bGlb,
 		std::vector<uint32>& OutSourcePrimitiveMaterialIndices,
-		std::vector<std::byte>& OutAssimpProjection) -> bool;
+		FByteArray& OutAssimpProjection) -> bool;
 	auto ImportAssimpFormat(
 		const aiScene& Scene,
 		const FImportedSceneContext& Context) -> bool;

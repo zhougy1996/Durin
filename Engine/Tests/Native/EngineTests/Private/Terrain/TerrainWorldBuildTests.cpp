@@ -80,7 +80,7 @@ namespace
 		std::filesystem::path Root;
 	};
 
-	auto MakePackageTemplate() -> std::vector<std::byte>
+	auto MakePackageTemplate() -> Durin::FByteArray
 	{
 		Testing::InitializeDObjectSystemForTests();
 		const std::filesystem::path Content = Testing::GetTestWorkDirectory() / "TerrainWorldTemplateContent";
@@ -93,7 +93,7 @@ namespace
 		DObject* Object = nullptr;
 		const Asset::FAssetResult Created = Asset::CreatePackageLeafAssetForTesting(Path, Object);
 		requiref(Created && Object, "{}", Created.Message);
-		std::vector<std::byte> Bytes;
+		Durin::FByteArray Bytes;
 		const Asset::FAssetResult Serialized = Asset::SerializeAssetPackageBytes(
 			Object->GetPackage(), Bytes
 		);
@@ -281,7 +281,7 @@ TEST(FTerrainWorldBuildTests, EnvelopeRejectsLegacyClassMismatchCorruptionTraili
 	std::string Error;
 	FTerrainTileGeneration Generation;
 	ASSERT_TRUE(BuildTerrainTileGeneration(Input, Id(9), Generation, Outcome, Error)) << Error;
-	std::vector<std::byte> Bytes = Generation.Products[1].Bytes;
+	Durin::FByteArray Bytes = Generation.Products[1].Bytes;
 	FTerrainTileProduct Product;
 	Bytes[0] = std::byte{'T'};
 	Bytes[1] = std::byte{'W'};
@@ -306,7 +306,7 @@ TEST(FTerrainWorldBuildTests, EnvelopeRejectsLegacyClassMismatchCorruptionTraili
 	Bytes.resize(160u * 1024u + 1u);
 	EXPECT_FALSE(DecodeTerrainTileProduct(Bytes, ETerrainTileProductClass::Height, Product, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::BudgetRejected);
-	std::vector<std::byte> Encoded;
+	Durin::FByteArray Encoded;
 	EXPECT_FALSE(EncodeTerrainTileProduct(ETerrainTileProductClass::Height, Input.Tile, Id(9), {}, std::array{std::byte{0}}, Encoded, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::InvalidDefinition);
 }
@@ -369,7 +369,7 @@ TEST(FTerrainWorldBuildTests, FiveIndependentProductsUseValidatedColdAndWarmDeri
 	const std::filesystem::path HeightObject = Cache.GetRoot()
 											   / "TerrainWorld/TerrainWorldHeight/Objects" / HeightKey.substr(0, 2)
 											   / (HeightKey + ".bin");
-	std::vector<std::byte> Corrupt;
+	Durin::FByteArray Corrupt;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Corrupt, HeightObject));
 	Corrupt.back() ^= std::byte{1};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Corrupt, HeightObject));
@@ -480,14 +480,14 @@ TEST(FTerrainWorldBuildTests, ManifestRoundTripsSignedRegionsAndRejectsLegacyOrC
 	};
 	ETerrainWorldOutcome Outcome{};
 	std::string Error;
-	std::vector<std::byte> Bytes;
+	Durin::FByteArray Bytes;
 	ASSERT_TRUE(EncodeTerrainWorldManifest(Manifest, Bytes, Outcome, Error)) << Error;
 	FTerrainWorldManifest Decoded;
 	ASSERT_TRUE(DecodeTerrainWorldManifest(Bytes, Manifest.WorldId, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game, Decoded, Outcome, Error)) << Error;
 	ASSERT_EQ(Decoded.Regions.size(), 2u);
 	EXPECT_EQ(Decoded.Regions[0].Region.RegionX, -2);
 	EXPECT_EQ(Decoded.Regions[0].Region.RegionY, 3);
-	std::vector<std::byte> Invalid = Bytes;
+	Durin::FByteArray Invalid = Bytes;
 	Invalid[0] = static_cast<std::byte>('D');
 	EXPECT_FALSE(DecodeTerrainWorldManifest(Invalid, Manifest.WorldId, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game, Decoded, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::UnsupportedLegacySchema);
@@ -555,7 +555,7 @@ TEST(FTerrainWorldBuildTests, CookSupportsPartialInstallAndSourceAndDdcFreeProdu
 	ASSERT_TRUE(LoadCookedTerrainWorldManifest(Runtime, "/Game/TerrainWorld", {Id(1)}, Asset::ECookTargetPlatform::Win64, Asset::ECookTargetProfile::Game, LoadedManifest, Outcome, Error)) << Error;
 	FTerrainCookedProductHandle Height;
 	ASSERT_TRUE(LoadCookedTerrainProduct(Runtime, LoadedManifest, First.Tile, Id(9), ETerrainTileProductClass::Height, Height, Outcome, Error)) << Error;
-	EXPECT_EQ(std::vector<std::byte>(Height.GetBytes().begin(), Height.GetBytes().end()), First.Products[1].Bytes);
+	EXPECT_EQ(Durin::FByteArray(Height.GetBytes().begin(), Height.GetBytes().end()), First.Products[1].Bytes);
 	FTerrainCookedProductHandle Missing;
 	EXPECT_FALSE(LoadCookedTerrainProduct(Runtime, LoadedManifest, Second.Tile, Id(10), ETerrainTileProductClass::Height, Missing, Outcome, Error));
 	EXPECT_EQ(Outcome, ETerrainWorldOutcome::Unavailable);
@@ -565,7 +565,7 @@ TEST(FTerrainWorldBuildTests, CookSupportsPartialInstallAndSourceAndDdcFreeProdu
 	ASSERT_TRUE(Asset::ResolveCookedPackagePath(CookRoot, InstalledRecord.VirtualPackagePath, RegionPackage, &Error)) << Error;
 	std::filesystem::path RegionBulk;
 	ASSERT_TRUE(Asset::ResolveCookedCompanionPath(CookRoot, RegionPackage, RegionBulk, &Error)) << Error;
-	std::vector<std::byte> Corrupt;
+	Durin::FByteArray Corrupt;
 	ASSERT_TRUE(FFileHelper::LoadFileToArray(Corrupt, RegionBulk));
 	Corrupt.back() ^= std::byte{1};
 	ASSERT_TRUE(FFileHelper::SaveArrayToFile(Corrupt, RegionBulk));

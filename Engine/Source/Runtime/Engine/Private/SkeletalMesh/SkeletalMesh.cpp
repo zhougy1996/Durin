@@ -266,7 +266,7 @@ namespace Durin
 	{
 		if (!ValidateSkeletalMeshPayload(
 			Payload, SkeletonBoneCount, MaterialSlotCount, OutError)) return false;
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::BulkData);
 		const_cast<FSkeletalMeshPayloadData&>(Payload).Serialize(Ar, {
 			.SkeletonBoneCount = SkeletonBoneCount,
@@ -711,7 +711,7 @@ namespace Durin
 					"SkeletalMesh cooked platform data is unavailable.");
 				return;
 			}
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload);
 			const_cast<FSkeletalMeshPayloadData&>(*PayloadData).Serialize(Writer, {
 				.SkeletonBoneCount = Skeleton->GetBoneCount(),

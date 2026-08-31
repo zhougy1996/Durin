@@ -21,23 +21,23 @@ namespace Durin::Image
 			return Path;
 		}
 
-		auto MakeOldRadianceFixture() -> std::vector<std::byte>
+		auto MakeOldRadianceFixture() -> Durin::FByteArray
 		{
 			constexpr std::string_view Header =
 				"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 2\n";
 			const auto HeaderBytes = std::as_bytes(std::span{Header});
-			std::vector<std::byte> Result(HeaderBytes.begin(), HeaderBytes.end());
+			Durin::FByteArray Result(HeaderBytes.begin(), HeaderBytes.end());
 			Result.insert(Result.end(), {std::byte{128}, std::byte{64}, std::byte{32}, std::byte{131},
 				std::byte{32}, std::byte{64}, std::byte{16}, std::byte{130}});
 			return Result;
 		}
 
-		auto MakeNewRadianceFixture() -> std::vector<std::byte>
+		auto MakeNewRadianceFixture() -> Durin::FByteArray
 		{
 			constexpr std::string_view Header =
 				"#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 1 +X 8\n";
 			const auto HeaderBytes = std::as_bytes(std::span{Header});
-			std::vector<std::byte> Result(HeaderBytes.begin(), HeaderBytes.end());
+			Durin::FByteArray Result(HeaderBytes.begin(), HeaderBytes.end());
 			Result.insert(Result.end(), {std::byte{2}, std::byte{2}, std::byte{0}, std::byte{8}});
 			for (uint8 Value : {32, 64, 128, 131})
 				Result.insert(Result.end(), {std::byte{128 + 8}, static_cast<std::byte>(Value)});
@@ -115,7 +115,7 @@ namespace Durin::Image
 		EXPECT_EQ(Error, "The encoded image is too large.");
 
 		const auto TransparentBytes = std::as_bytes(std::span{TransparentPngBytes});
-		std::vector<std::byte> OversizedPng(TransparentBytes.begin(), TransparentBytes.end());
+		Durin::FByteArray OversizedPng(TransparentBytes.begin(), TransparentBytes.end());
 		// The IHDR advertises 8192 x 8192 pixels; stbi_info reads it without allocating the decoded image.
 		OversizedPng[16] = std::byte{0};
 		OversizedPng[17] = std::byte{0};
@@ -136,7 +136,7 @@ namespace Durin::Image
 	{
 		constexpr uint32 Width = 64;
 		constexpr uint32 Height = 64;
-		std::vector<std::byte> Pixels(static_cast<size_t>(Width) * Height * 4);
+		Durin::FByteArray Pixels(static_cast<size_t>(Width) * Height * 4);
 		for (size_t Pixel = 0; Pixel < Pixels.size() / 4; ++Pixel)
 		{
 			Pixels[Pixel * 4] = std::byte{24};
@@ -145,7 +145,7 @@ namespace Durin::Image
 			Pixels[Pixel * 4 + 3] = std::byte{255};
 		}
 
-		std::vector<std::byte> Encoded;
+		Durin::FByteArray Encoded;
 		ASSERT_TRUE(EncodeRgba8Png(Pixels, Width, Height, Encoded));
 		EXPECT_LT(Encoded.size(), Pixels.size() / 4);
 
@@ -159,7 +159,7 @@ namespace Durin::Image
 
 	TEST(FImageEncoderTests, RejectsInvalidRgba8AndClearsOutput)
 	{
-		std::vector<std::byte> Encoded = {std::byte{1}};
+		Durin::FByteArray Encoded = {std::byte{1}};
 		EXPECT_FALSE(EncodeRgba8Png({}, 0, 1, Encoded));
 		EXPECT_TRUE(Encoded.empty());
 
@@ -174,7 +174,7 @@ namespace Durin::Image
 	{
 		FDecodedFloatImage Image;
 		std::string Error;
-		const std::vector<std::byte> OldFixture = MakeOldRadianceFixture();
+		const Durin::FByteArray OldFixture = MakeOldRadianceFixture();
 		ASSERT_TRUE(DecodeRadianceHDRFromMemory(OldFixture, Image, Error)) << Error;
 		ASSERT_EQ(Image.Pixels.size(), 6u);
 		EXPECT_EQ(Image.Width, 2u);
@@ -186,7 +186,7 @@ namespace Durin::Image
 		EXPECT_FLOAT_EQ(Image.Pixels[4], 1.0f);
 		EXPECT_FLOAT_EQ(Image.Pixels[5], 0.25f);
 
-		const std::vector<std::byte> NewFixture = MakeNewRadianceFixture();
+		const Durin::FByteArray NewFixture = MakeNewRadianceFixture();
 		ASSERT_TRUE(DecodeRadianceHDRFromMemory(NewFixture, Image, Error)) << Error;
 		ASSERT_EQ(Image.Pixels.size(), 24u);
 		for (size_t Pixel = 0; Pixel < 8; ++Pixel)
@@ -209,7 +209,7 @@ namespace Durin::Image
 		EXPECT_TRUE(Image.Pixels.empty());
 		EXPECT_NE(Error.find("signature"), std::string::npos);
 
-		std::vector<std::byte> Truncated = MakeNewRadianceFixture();
+		Durin::FByteArray Truncated = MakeNewRadianceFixture();
 		Truncated.pop_back();
 		EXPECT_FALSE(DecodeRadianceHDRFromMemory(Truncated, Image, Error));
 		EXPECT_TRUE(Image.Pixels.empty());
@@ -217,7 +217,7 @@ namespace Durin::Image
 
 		FRadianceHDRDecodeLimits Limits;
 		Limits.MaximumDecodedPixels = 1;
-		const std::vector<std::byte> OldFixture = MakeOldRadianceFixture();
+		const Durin::FByteArray OldFixture = MakeOldRadianceFixture();
 		EXPECT_FALSE(DecodeRadianceHDRFromMemory(OldFixture, Image, Error, Limits));
 		EXPECT_TRUE(Image.Pixels.empty());
 		EXPECT_NE(Error.find("configured limit"), std::string::npos);

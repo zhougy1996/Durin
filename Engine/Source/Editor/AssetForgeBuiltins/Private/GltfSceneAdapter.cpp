@@ -13,8 +13,8 @@ namespace Durin::AssetForge::Builtins::Private
 	struct FGltfSource
 	{
 		FJsonDocument Document;
-		std::vector<std::vector<std::byte>> Buffers;
-		std::vector<std::byte> GlbBinaryChunkBytes;
+		std::vector<FByteArray> Buffers;
+		FByteArray GlbBinaryChunkBytes;
 		std::vector<uint32> ImageIndices;
 	};
 
@@ -32,7 +32,7 @@ namespace Durin::AssetForge::Builtins::Private
 	auto DecodeBase64(
 		std::string_view Text,
 		uint64 MaxOutputBytes,
-		std::vector<std::byte>& OutBytes) -> bool
+		FByteArray& OutBytes) -> bool
 	{
 		static constexpr std::string_view Alphabet =
 			"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -170,7 +170,7 @@ namespace Durin::AssetForge::Builtins::Private
 	auto NormalizeProjectionTexCoords(
 		FJsonDocument& Projection,
 		FJsonNodeView SourceRoot,
-		const std::vector<std::vector<std::byte>>& Buffers) -> bool
+		const std::vector<FByteArray>& Buffers) -> bool
 	{
 		FJsonNodeRef ProjectionRoot = Projection.GetMutableRoot();
 		FJsonNodeRef Meshes = ProjectionRoot.GetRef("meshes");
@@ -242,7 +242,7 @@ namespace Durin::AssetForge::Builtins::Private
 						|| ViewOffset > Buffers[BufferIndex].size()
 						|| ViewLength > Buffers[BufferIndex].size() - ViewOffset) return false;
 
-					std::vector<std::byte> Converted(static_cast<size_t>(Count) * sizeof(float) * 2);
+					FByteArray Converted(static_cast<size_t>(Count) * sizeof(float) * 2);
 					for (uint64 ElementIndex = 0; ElementIndex < Count; ++ElementIndex)
 					{
 						const size_t SourceOffset = static_cast<size_t>(ViewOffset + AccessorOffset + ElementIndex * Stride);
@@ -283,8 +283,8 @@ namespace Durin::AssetForge::Builtins::Private
 
 	auto BuildAssimpProjection(
 		FJsonNodeView Root,
-		const std::vector<std::vector<std::byte>>& Buffers,
-		std::vector<std::byte>& OutBytes) -> bool
+		const std::vector<FByteArray>& Buffers,
+		FByteArray& OutBytes) -> bool
 	{
 		FJsonDocument Projection;
 		if (!CopyProjectionJson(Root, Projection.GetMutableRoot(), {})) return false;
@@ -311,7 +311,7 @@ namespace Durin::AssetForge::Builtins::Private
 		std::string_view Uri,
 		uint64 MaxOutputBytes,
 		std::string& OutMimeType,
-		std::vector<std::byte>& OutBytes) -> bool
+		FByteArray& OutBytes) -> bool
 	{
 		if (!Uri.starts_with("data:")) return false;
 		const size_t Comma = Uri.find(',');
@@ -521,7 +521,7 @@ namespace Durin::AssetForge::Builtins::Private
 					std::format("buffer:{}", Index), "glTF buffer byte length is invalid or exceeds the limit.");
 			}
 			const FJsonNodeView UriNode = Buffer.GetView("uri");
-			std::vector<std::byte>& Bytes = Source.Buffers[Index];
+			FByteArray& Bytes = Source.Buffers[Index];
 			if (!UriNode.IsValid())
 			{
 				if (Index != 0 || Source.GlbBinaryChunkBytes.empty())
@@ -594,7 +594,7 @@ namespace Durin::AssetForge::Builtins::Private
 		const uint64 Offset = View.GetView("byteOffset").GetUInt(0);
 		const uint64 Length = View.GetView("byteLength").GetUInt(std::numeric_limits<uint64>::max());
 		if (BufferIndex >= Source.Buffers.size() || Length == std::numeric_limits<uint64>::max()) return false;
-		const std::vector<std::byte>& Buffer = Source.Buffers[static_cast<size_t>(BufferIndex)];
+		const FByteArray& Buffer = Source.Buffers[static_cast<size_t>(BufferIndex)];
 		if (Offset > Buffer.size() || Length > Buffer.size() - Offset) return false;
 		OutBytes = std::span<const std::byte>(Buffer).subspan(static_cast<size_t>(Offset), static_cast<size_t>(Length));
 		return true;
@@ -635,7 +635,7 @@ namespace Durin::AssetForge::Builtins::Private
 			Imported.SuggestedName = Image.GetView("name").GetString(std::format("Image_{}", Index));
 			const std::string DeclaredMime = Image.GetView("mimeType").GetString();
 			std::span<const std::byte> EncodedBytes;
-			std::vector<std::byte> OwnedBytes;
+			FByteArray OwnedBytes;
 			const FJsonNodeView UriNode = Image.GetView("uri");
 			if (UriNode.IsValid())
 			{
@@ -1178,7 +1178,7 @@ namespace Durin::AssetForge::Builtins::Private
 		bool bGlb,
 		FSceneDecodeResult& Result,
 		std::vector<uint32>& OutMeshMaterialIndices,
-		std::vector<std::byte>& OutAssimpProjection) -> bool
+		FByteArray& OutAssimpProjection) -> bool
 	{
 		FGltfSource Source;
 		std::string Error;
@@ -1202,7 +1202,7 @@ namespace Durin::AssetForge::Builtins::Private
 		const FImportedSceneContext& Context,
 		bool bGlb,
 		std::vector<uint32>& OutSourcePrimitiveMaterialIndices,
-		std::vector<std::byte>& OutAssimpProjection) -> bool
+		FByteArray& OutAssimpProjection) -> bool
 	{
 		return ImportGltfMetadata(
 			Context.RootPath,

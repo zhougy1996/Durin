@@ -142,7 +142,7 @@ namespace Durin
 					"VolumeTexture cooked platform data is unavailable.");
 				return;
 			}
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload);
 			PlatformData->Serialize(Writer, {
 				.TargetPlatform = Asset::ECookTargetPlatform::Win64,

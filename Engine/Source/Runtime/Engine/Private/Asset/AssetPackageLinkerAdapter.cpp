@@ -498,7 +498,7 @@ namespace Durin::Asset::Private
 		}
 
 		auto MakeBulkDescriptor(const ObjectPackage::FSerializedValue& Value,
-			uint64 FieldIndex) -> std::vector<std::byte>
+			uint64 FieldIndex) -> FByteArray
 		{
 			const uint64 StoredSize = Value.bBulkPayloadAvailable
 				? Value.Bytes.size() : Value.BulkStoredSize;

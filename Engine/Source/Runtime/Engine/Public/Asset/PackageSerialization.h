@@ -152,16 +152,16 @@ namespace Durin::Asset
 		std::span<const std::byte> Bytes,
 		std::span<const std::byte> BulkBytes,
 		const FPackagePath& PackagePath,
-		std::vector<std::byte>& OutBytes,
-		std::vector<std::byte>& OutBulkBytes
+		FByteArray& OutBytes,
+		FByteArray& OutBulkBytes
 	) -> FAssetResult;
 	ENGINE_API auto CanonicalizeAssetPackageForCook(
 		std::span<const std::byte> Bytes,
 		std::span<const std::byte> BulkBytes,
 		const FPackagePath& SourcePackagePath,
 		const FPackagePath& OutputPackagePath,
-		std::vector<std::byte>& OutBytes,
-		std::vector<std::byte>& OutBulkBytes
+		FByteArray& OutBytes,
+		FByteArray& OutBulkBytes
 	) -> FAssetResult;
 	struct FAssetPackageSerializationOptions
 	{
@@ -192,13 +192,13 @@ namespace Durin::Asset
 
 	ENGINE_API auto SerializeAssetPackageBytes(
 		DPackage* Package,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		const FAssetPackageSerializationOptions& Options = {}
 	) -> FAssetResult;
 	ENGINE_API auto SerializeAssetPackageClosure(
 		DPackage* Package,
-		std::vector<std::byte>& OutBytes,
-		std::vector<std::byte>& OutBulkBytes,
+		FByteArray& OutBytes,
+		FByteArray& OutBulkBytes,
 		const FAssetPackageSerializationOptions& Options = {}
 	) -> FAssetResult;
 	ENGINE_API auto SavePackagesAtomically(

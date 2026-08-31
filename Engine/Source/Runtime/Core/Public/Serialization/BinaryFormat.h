@@ -76,8 +76,8 @@ namespace Durin
 		CORE_API auto WriteString(std::string_view Value) -> void;
 		CORE_API auto WriteBytes(std::span<const std::byte> Value) -> void;
 		CORE_API auto WriteHeader(const FBinaryFormatHeader& Header) -> void;
-		auto GetBytes() const -> const std::vector<std::byte>& { return Bytes; }
-		CORE_API auto TakeBytes() -> std::vector<std::byte>;
+		auto GetBytes() const -> const FByteArray& { return Bytes; }
+		CORE_API auto TakeBytes() -> FByteArray;
 		auto Tell() const -> uint64 { return static_cast<uint64>(Bytes.size()); }
 		auto HasError() const -> bool { return bLimitError || Archive.HasError(); }
 
@@ -94,7 +94,7 @@ namespace Durin
 			return true;
 		}
 
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		FBinaryCursorLimits Limits;
 		bool bLimitError = false;
 		FCanonicalMemoryWriter Archive;
@@ -144,7 +144,7 @@ namespace Durin
 		CORE_API auto ReadGuid(FGuid& Value) -> bool;
 		CORE_API auto ReadHash128(FXxHash128& Value) -> bool;
 		CORE_API auto ReadString(std::string& Value, uint64 MaximumBytes = MaximumBinaryStringBytes) -> bool;
-		CORE_API auto ReadBytes(std::vector<std::byte>& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool;
+		CORE_API auto ReadBytes(FByteArray& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool;
 		// Returns a non-owning region whose lifetime is bounded by the reader source.
 		CORE_API auto ReadRegion(
 			std::span<const std::byte>& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool;

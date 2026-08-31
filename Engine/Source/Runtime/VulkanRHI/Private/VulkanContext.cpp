@@ -697,7 +697,7 @@ namespace Durin::VulkanRHI
 		FRHITexture* Texture,
 		uint32 MipIndex,
 		uint32 ArraySlice,
-		std::vector<std::byte>& OutData) -> bool
+		FByteArray& OutData) -> bool
 	{
 		CheckVulkanRHIThread();
 		return RHI->ReadTexture2D(

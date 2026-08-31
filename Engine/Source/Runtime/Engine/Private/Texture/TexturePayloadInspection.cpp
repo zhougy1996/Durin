@@ -239,7 +239,7 @@ namespace Durin
 			{
 				Placement = "EditorPackageCompanion";
 				std::filesystem::path CompanionPath;
-				std::vector<std::byte> CompanionBytes;
+				FByteArray CompanionBytes;
 				std::string StorageError;
 				std::vector<std::filesystem::path> CompanionPaths;
 				if (Package.PhysicalPath.empty()

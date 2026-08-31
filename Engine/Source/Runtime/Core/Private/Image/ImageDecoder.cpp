@@ -279,7 +279,7 @@ namespace Durin::Image
 			return false;
 		}
 
-		std::vector<std::byte> EncodedBytes;
+		FByteArray EncodedBytes;
 		if (!FFileHelper::LoadFileToArray(EncodedBytes, FilePath))
 		{
 			OutError = "Unable to read the image file.";
@@ -377,7 +377,7 @@ namespace Durin::Image
 			OutError = "The grayscale16 PNG file is unavailable, empty, or too large.";
 			return false;
 		}
-		std::vector<std::byte> EncodedBytes;
+		FByteArray EncodedBytes;
 		if (!FFileHelper::LoadFileToArray(EncodedBytes, FilePath))
 		{
 			OutError = "Unable to read the grayscale16 PNG file.";
@@ -523,7 +523,7 @@ namespace Durin::Image
 			OutError = "The Radiance HDR file is empty or too large.";
 			return false;
 		}
-		std::vector<std::byte> EncodedBytes;
+		FByteArray EncodedBytes;
 		if (!FFileHelper::LoadFileToArray(EncodedBytes, FilePath))
 		{
 			OutError = "Unable to read the Radiance HDR file.";

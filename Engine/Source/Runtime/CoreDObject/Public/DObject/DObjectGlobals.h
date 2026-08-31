@@ -542,7 +542,7 @@ namespace Durin
 					  InNameUTF8, InFlags, InArrayDim, InOffset,
 					  EPropertyGenFlags::Blob, EPropertyParamLayout::Blob,
 					  nullptr, nullptr, InMetaData, InNumMetaData)
-				, ValueOps(MakePropertyValueOps<std::vector<std::byte>>())
+				, ValueOps(MakePropertyValueOps<FByteArray>())
 			{
 			}
 

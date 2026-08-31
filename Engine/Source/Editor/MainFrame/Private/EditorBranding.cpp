@@ -15,7 +15,7 @@ namespace Durin::Editor::MainFrame
 	{
 		struct FBrandMip
 		{
-			std::vector<std::byte> Pixels;
+			FByteArray Pixels;
 			uint32 Width = 0;
 			uint32 Height = 0;
 		};

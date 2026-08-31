@@ -154,7 +154,7 @@ namespace Durin
 		Serialize(Bytes.data(), static_cast<uint64>(Bytes.size()));
 	}
 
-	auto FArchive::SerializeByteBlob(std::vector<std::byte>& Bytes) -> void
+	auto FArchive::SerializeByteBlob(FByteArray& Bytes) -> void
 	{
 		constexpr uint64 MaximumBlobBytes = 1024ull * 1024 * 1024;
 		uint64 Size = IsSaving() ? static_cast<uint64>(Bytes.size()) : 0;
@@ -180,7 +180,7 @@ namespace Durin
 			WriteBytes(Bytes);
 			return;
 		}
-		std::vector<std::byte> Candidate(static_cast<size_t>(Size));
+		FByteArray Candidate(static_cast<size_t>(Size));
 		ReadBytes(Candidate);
 		if (!HasError()) Bytes = std::move(Candidate);
 	}
@@ -244,12 +244,12 @@ namespace Durin
 					"Inline bulk descriptor size or content hash does not match its resident bytes.");
 				return;
 			}
-			std::vector<std::byte> Candidate(Bytes.begin(), Bytes.end());
+			FByteArray Candidate(Bytes.begin(), Bytes.end());
 			SerializeByteBlob(Candidate);
 			return;
 		}
 
-		std::vector<std::byte> Candidate;
+		FByteArray Candidate;
 		SerializeByteBlob(Candidate);
 		if (HasError()) return;
 		if (LogicalSize != Candidate.size() || StoredSize != Candidate.size()
@@ -334,7 +334,7 @@ namespace Durin
 	}
 
 	FCanonicalMemoryWriter::FCanonicalMemoryWriter(
-		std::vector<std::byte>& InBytes, EArchivePurpose Purpose, FArchiveState Context,
+		FByteArray& InBytes, EArchivePurpose Purpose, FArchiveState Context,
 		FArchiveVersionContext Versions)
 		: FArchive(MakeMemoryState(EArchiveDirection::Save, Purpose, std::move(Context)),
 			std::move(Versions)), Bytes(InBytes)
@@ -416,12 +416,12 @@ namespace Durin
 		Count += static_cast<uint64>(Bytes.size());
 	}
 
-	auto SerializeByteBuffer(FArchive& Ar, std::vector<std::byte>& Value, uint64 MaximumBytes) -> void
+	auto SerializeByteBuffer(FArchive& Ar, FByteArray& Value, uint64 MaximumBytes) -> void
 	{
 		uint64 Size = Ar.IsSaving() ? static_cast<uint64>(Value.size()) : 0;
 		Ar << Size;
 		if (Ar.HasError()) return;
-		if (Size > MaximumBytes || Size > static_cast<uint64>(std::vector<std::byte>().max_size()))
+		if (Size > MaximumBytes || Size > static_cast<uint64>(FByteArray().max_size()))
 		{
 			Ar.Fail(EArchiveFailureCode::LimitExceeded, "Byte buffer exceeds its serialization limit.");
 			return;
@@ -433,7 +433,7 @@ namespace Durin
 				Ar.Fail(EArchiveFailureCode::TruncatedPayload, "Byte buffer is truncated.");
 				return;
 			}
-			std::vector<std::byte> Loaded(static_cast<size_t>(Size));
+			FByteArray Loaded(static_cast<size_t>(Size));
 			if (Size != 0) Ar.ReadBytes(Loaded);
 			if (!Ar.HasError()) Value = std::move(Loaded);
 		}

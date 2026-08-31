@@ -297,7 +297,7 @@ namespace Durin::AssetForge::Builtins::Private
 		public:
 			FGltfSkeletalDecoder(
 				FJsonNodeView InRoot,
-				const std::vector<std::vector<std::byte>>& InBuffers,
+				const std::vector<FByteArray>& InBuffers,
 				FSceneDecodeResult& InResult)
 				: Root(InRoot), Buffers(InBuffers), Result(InResult) {}
 
@@ -1333,7 +1333,7 @@ namespace Durin::AssetForge::Builtins::Private
 			}
 
 			FJsonNodeView Root;
-			const std::vector<std::vector<std::byte>>& Buffers;
+			const std::vector<FByteArray>& Buffers;
 			FSceneDecodeResult& Result;
 			std::vector<FSourceNode> Nodes;
 			std::vector<FSourceSkin> Skins;
@@ -1347,7 +1347,7 @@ namespace Durin::AssetForge::Builtins::Private
 
 	auto ImportGltfSkeletalData(
 		FJsonNodeView Root,
-		const std::vector<std::vector<std::byte>>& Buffers,
+		const std::vector<FByteArray>& Buffers,
 		FSceneDecodeResult& Result) -> bool
 	{
 		return FGltfSkeletalDecoder(Root, Buffers, Result).Decode();

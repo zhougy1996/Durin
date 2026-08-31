@@ -84,7 +84,7 @@ namespace Durin::AssetForge::Builtins::Private
 	auto ReadFileBytes(
 		const std::filesystem::path& Path,
 		uint64 Limit,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
 		std::error_code ErrorCode;

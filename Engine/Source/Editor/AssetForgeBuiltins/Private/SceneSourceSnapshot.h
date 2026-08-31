@@ -28,7 +28,7 @@ namespace Durin::AssetForge
 		FXxHash128 ContentHash{};
 		uint64 ByteCount = 0;
 		uint32 Depth = 0;
-		std::shared_ptr<const std::vector<std::byte>> Bytes;
+		std::shared_ptr<const FByteArray> Bytes;
 
 		auto GetBytes() const -> std::span<const std::byte>;
 	};

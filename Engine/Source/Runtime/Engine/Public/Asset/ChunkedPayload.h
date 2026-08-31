@@ -97,7 +97,7 @@ namespace Durin::Asset
 		std::array<uint32, 8> HeaderWords,
 		std::span<const FChunkedPayloadInput> Chunks,
 		const FChunkedPayloadFormat& Format,
-		std::vector<std::byte>& OutBytes) -> FChunkedPayloadResult;
+		FByteArray& OutBytes) -> FChunkedPayloadResult;
 
 	// Validates and projects an envelope without interpreting chunk contents.
 	ENGINE_API auto DecodeChunkedPayload(

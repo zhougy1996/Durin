@@ -76,7 +76,7 @@ namespace Durin
 		const FTextureCubeSourceData& Source) -> bool
 	{
 		if (!Source.IsValid()) return false;
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		const uint64 TotalBytes = static_cast<uint64>(Source.Faces[0].Pixels.size())
 			* TextureCubeFaceCount;
 		if (TotalBytes > MaximumTextureCubeImportedPixelBytes) return false;
@@ -107,7 +107,7 @@ namespace Durin
 		{
 			const auto Face = Bytes.subspan(Index * FaceBytes, FaceBytes);
 			Result.Faces[Index] = {
-				.Pixels = std::vector<std::byte>(Face.begin(), Face.end()),
+				.Pixels = FByteArray(Face.begin(), Face.end()),
 				.Width = FaceDimension,
 				.Height = FaceDimension,
 				.SourceChannelCount = SourceChannelCount,
@@ -173,7 +173,7 @@ namespace Durin
 					"TextureCube cooked platform data is unavailable.");
 				return;
 			}
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload);
 			PlatformData->Serialize(Writer, {
 				.TargetPlatform = Asset::ECookTargetPlatform::Win64,

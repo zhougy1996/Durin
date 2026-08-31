@@ -44,8 +44,8 @@ namespace Durin::Asset
 	struct FAssetReferenceStorePackageRewrite
 	{
 		FPackagePath PackagePath;
-		std::vector<std::byte> PreBytes;
-		std::vector<std::byte> PostBytes;
+		FByteArray PreBytes;
+		FByteArray PostBytes;
 	};
 
 	struct FAssetReferenceStoreRewriteContribution

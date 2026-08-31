@@ -70,7 +70,7 @@ namespace Durin
 
 		CORE_API bool FileExists(std::string_view FileName);
 
-		CORE_API bool LoadFileToArray(std::vector<std::byte>& Result, const std::filesystem::path& FilePath);
+		CORE_API bool LoadFileToArray(FByteArray& Result, const std::filesystem::path& FilePath);
 
 		CORE_API bool LoadFileToArray(std::vector<uint32>& Result, const std::filesystem::path& FilePath);
 

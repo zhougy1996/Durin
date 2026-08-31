@@ -85,7 +85,7 @@ namespace Durin
 					"Material cooked program data is unavailable.");
 				return;
 			}
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 			std::string Error;
 			if (!EncodeMaterialCookedProgram(
 					*AcceptedCompiledProgram, AcceptedCompiledStaticProperties,

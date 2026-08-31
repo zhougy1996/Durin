@@ -31,7 +31,7 @@ namespace Durin
 			return Count;
 		}
 
-		auto AppendHalfBytes(std::vector<std::byte>& Bytes, const std::vector<uint16>& Values) -> void
+		auto AppendHalfBytes(FByteArray& Bytes, const std::vector<uint16>& Values) -> void
 		{
 			const size_t Offset = Bytes.size();
 			Bytes.resize(Offset + Values.size() * sizeof(uint16));
@@ -54,7 +54,7 @@ namespace Durin
 
 		auto LoadAuthoredPayload(
 			std::string_view VirtualPackagePath,
-			std::vector<std::byte>& OutBytes,
+			FByteArray& OutBytes,
 			std::string& OutError) -> bool
 		{
 			const std::filesystem::path PayloadPath =
@@ -89,7 +89,7 @@ namespace Durin
 
 	static auto BuildEnvironmentLightingSerializedValue(
 		const FEnvironmentLightingData& Data,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -97,7 +97,7 @@ namespace Durin
 		if (!Data.IsValid())
 			return Fail("Environment-lighting data is incomplete or malformed.", &OutError);
 
-		std::vector<std::byte> Body;
+		FByteArray Body;
 		Body.reserve(static_cast<size_t>(ExpectedElementCount() * sizeof(uint16)));
 		for (const std::vector<uint16>& Face : Data.Irradiance) AppendHalfBytes(Body, Face);
 		for (const auto& Mip : Data.Prefiltered)
@@ -177,7 +177,7 @@ namespace Durin
 		if (ExpectedBodyBytes != Reader.GetRemainingBytes())
 			return Reject(EPayloadDecodeError::Corrupt,
 				"Environment-lighting payload size is invalid.");
-		std::vector<std::byte> Body;
+		FByteArray Body;
 		if (!Reader.ReadBytes(Body, ExpectedBodyBytes, ExpectedBodyBytes)
 			|| !Reader.IsAtEnd()
 			|| FXxHash64::HashBuffer(Body).HashValue != StoredHash)
@@ -224,7 +224,7 @@ namespace Durin
 			{ExpectedElementCount() * sizeof(uint16) + 64,
 				"Environment-lighting payload"},
 			[](const FEnvironmentLightingData& Value,
-				std::vector<std::byte>& Bytes, std::string& Error) {
+				FByteArray& Bytes, std::string& Error) {
 				return BuildEnvironmentLightingSerializedValue(Value, Bytes, Error);
 			},
 			[](std::span<const std::byte> Bytes, FEnvironmentLightingData& Candidate) {
@@ -250,7 +250,7 @@ namespace Durin
 
 	auto DEnvironmentLighting::PostLoad(std::string& OutError) -> bool
 	{
-		std::vector<std::byte> PayloadBytes;
+		FByteArray PayloadBytes;
 		if (Asset::GetAssetRuntimeConfiguration().RequiresCookedPayload())
 		{
 			if (PayloadSchemaVersion != EnvironmentLightingPayloadSchemaVersion
@@ -321,7 +321,7 @@ namespace Durin
 					"EnvironmentLighting cooked platform data is unavailable.");
 				return;
 			}
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::CookedPayload);
 			const_cast<FEnvironmentLightingData&>(*Data).Serialize(Writer);
 			std::string Error;
@@ -351,7 +351,7 @@ namespace Durin
 			return Fail("Environment lighting supports only the Win64 game cook target.", &OutError);
 		}
 		if (!GetPackage()) return Fail("Environment-lighting asset has no package.", &OutError);
-		std::vector<std::byte> PayloadBytes;
+		FByteArray PayloadBytes;
 		if (!LoadAuthoredPayload(GetPackage()->GetPackagePath(), PayloadBytes, OutError)) return false;
 		auto Validated = std::make_shared<FEnvironmentLightingData>();
 		FCanonicalMemoryReader PayloadAr(PayloadBytes, EArchivePurpose::CookedPayload);

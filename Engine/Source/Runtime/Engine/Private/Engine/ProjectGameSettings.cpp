@@ -85,7 +85,7 @@ namespace Durin
 
 	auto FProjectGameSettingsStore::BuildDefaultLevelUpdate(
 		std::string_view DefaultLevel,
-		std::vector<std::byte>& OutBytes) const -> FProjectGameSettingsResult
+		FByteArray& OutBytes) const -> FProjectGameSettingsResult
 	{
 		OutBytes.clear();
 		FYamlDocument Document;
@@ -133,7 +133,7 @@ namespace Durin
 
 	auto FProjectGameSettingsStore::SaveDefaultLevel(std::string_view DefaultLevel) const -> FProjectGameSettingsResult
 	{
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		FProjectGameSettingsResult Result = BuildDefaultLevelUpdate(DefaultLevel, Bytes);
 		if (!Result) return Result;
 		std::error_code DirectoryError;

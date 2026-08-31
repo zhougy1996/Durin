@@ -11,5 +11,5 @@ namespace Durin::Image
 		std::span<const std::byte> Pixels,
 		uint32 Width,
 		uint32 Height,
-		std::vector<std::byte>& OutEncodedBytes) -> bool;
+		FByteArray& OutEncodedBytes) -> bool;
 } // namespace Durin::Image

@@ -135,7 +135,7 @@ namespace Durin::AssetForge
 		FSourceCaptureLimits Limits;
 		std::vector<FSourceSnapshotEntry> Sources;
 		std::unordered_map<std::string, size_t> SourceByIdentity;
-		std::unordered_map<std::string, std::shared_ptr<const std::vector<std::byte>>> PhysicalBytes;
+		std::unordered_map<std::string, std::shared_ptr<const FByteArray>> PhysicalBytes;
 		std::unordered_set<std::string> ProcessedRequests;
 		uint64 AggregateBytes = 0;
 		bool bRootCaptured = false;
@@ -210,7 +210,7 @@ namespace Durin::AssetForge
 					StableIdentity, MetadataError.message());
 				return false;
 			}
-			std::shared_ptr<const std::vector<std::byte>> Bytes;
+			std::shared_ptr<const FByteArray> Bytes;
 			if (const auto Existing = PhysicalBytes.find(PhysicalIdentity);
 				Existing != PhysicalBytes.end())
 			{
@@ -228,7 +228,7 @@ namespace Durin::AssetForge
 						StableIdentity, Error ? Error.message() : "Import source byte limit was exceeded.");
 					return false;
 				}
-				auto MutableBytes = std::make_shared<std::vector<std::byte>>(
+				auto MutableBytes = std::make_shared<FByteArray>(
 					static_cast<size_t>(FileSize));
 				std::ifstream Stream(PhysicalPath, std::ios::binary);
 				bool bRead = Stream.is_open();

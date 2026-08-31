@@ -46,7 +46,7 @@ namespace Durin::AssetForge::Builtins
 	{
 		Asset::FTexture2DBuildProduct Product;
 		std::string SourceFilename;
-		std::vector<std::byte> GeneratedSourceBytes;
+		FByteArray GeneratedSourceBytes;
 		uint64 SourceFileSize = 0;
 	};
 

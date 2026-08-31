@@ -19,7 +19,7 @@ namespace Durin
 		const FMaterialStaticProperties& StaticProperties,
 		Asset::ECookTargetPlatform TargetPlatform,
 		Asset::ECookTargetProfile TargetProfile,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string& OutError) -> bool;
 
 	// Validates a complete bounded target payload before publishing an immutable program.

@@ -223,7 +223,7 @@ namespace Durin::Asset
 		FGuid GenerationId;
 		FXxHash128 BodyHash;
 		std::vector<FXxHash128> Dependencies;
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		std::string DerivedDataKey;
 		ETerrainTileBuildOrigin Origin = ETerrainTileBuildOrigin::LocalBuild;
 	};
@@ -303,7 +303,7 @@ namespace Durin::Asset
 	TERRAINBUILD_API auto EncodeTerrainTileProduct(
 		ETerrainTileProductClass ProductClass, const FTerrainTileKey& Tile,
 		const FGuid& GenerationId, std::span<const FXxHash128> Dependencies,
-		std::span<const std::byte> Body, std::vector<std::byte>& OutBytes,
+		std::span<const std::byte> Body, FByteArray& OutBytes,
 		ETerrainWorldOutcome& OutOutcome, std::string& OutError) -> bool;
 	TERRAINBUILD_API auto DecodeTerrainTileProduct(
 		std::span<const std::byte> Bytes, ETerrainTileProductClass ExpectedClass,

@@ -45,9 +45,9 @@ namespace Durin::Asset
 
 	auto BuildTerrainHeightmapDerivedDataKeyBytes(
 		const FTerrainHeightmapBuildKeyInput& Input,
-		std::string& OutError) -> std::vector<std::byte>
+		std::string& OutError) -> FByteArray
 	{
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		FCanonicalMemoryWriter Ar(Bytes, EArchivePurpose::DerivedDataKey);
 		const_cast<FTerrainHeightmapBuildKeyInput&>(Input).Serialize(Ar);
 		OutError = Ar.HasError() ? Ar.GetFailure()->Message : std::string{};
@@ -59,7 +59,7 @@ namespace Durin::Asset
 		const FTerrainHeightmapBuildKeyInput& Input,
 		std::string& OutError) -> std::string
 	{
-		const std::vector<std::byte> Bytes = BuildTerrainHeightmapDerivedDataKeyBytes(Input, OutError);
+		const FByteArray Bytes = BuildTerrainHeightmapDerivedDataKeyBytes(Input, OutError);
 		return Bytes.empty() ? std::string{} : FXxHash128::HashBuffer(Bytes).ToString();
 	}
 }

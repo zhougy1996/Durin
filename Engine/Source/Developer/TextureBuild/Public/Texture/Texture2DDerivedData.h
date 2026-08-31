@@ -26,7 +26,7 @@ namespace Durin::Asset
 	};
 
 	TEXTUREBUILD_API auto BuildTexture2DDerivedDataKeyBytes(
-		const FTexture2DBuildKeyInput& Input) -> std::vector<std::byte>;
+		const FTexture2DBuildKeyInput& Input) -> FByteArray;
 	TEXTUREBUILD_API auto BuildTexture2DDerivedDataKey(
 		const FTexture2DBuildKeyInput& Input) -> std::string;
 }

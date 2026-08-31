@@ -119,7 +119,7 @@ namespace Durin::ObjectPackage
 		std::string Text;
 		uint32 NameNumber = 0;
 		FGuid Guid;
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		std::vector<uint64> ComponentBits;
 		std::vector<FSerializedValue> Elements;
 		std::vector<std::string> FieldNames;
@@ -144,7 +144,7 @@ namespace Durin::ObjectPackage
 		FSerializedType Type;
 		EPropertyProvenance Provenance = EPropertyProvenance::Implicit;
 		FSerializedValue Value;
-		std::vector<std::byte> Payload;
+		FByteArray Payload;
 
 		auto operator==(const FPropertyTag&) const -> bool = default;
 	};

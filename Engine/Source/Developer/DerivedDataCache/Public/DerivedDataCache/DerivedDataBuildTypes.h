@@ -10,7 +10,7 @@ namespace Durin::DerivedData
 	{
 	public:
 		DERIVEDDATACACHE_API static auto FromOwned(
-			std::string Name, std::vector<std::byte> Bytes) -> FBuildValue;
+			std::string Name, FByteArray Bytes) -> FBuildValue;
 
 		auto GetName() const -> std::string_view { return Name; }
 		// Reserved for content-addressed storage, request deduplication, and remote
@@ -26,7 +26,7 @@ namespace Durin::DerivedData
 	private:
 		std::string Name;
 		FXxHash128 ContentIdentity;
-		std::shared_ptr<const std::vector<std::byte>> Bytes;
+		std::shared_ptr<const FByteArray> Bytes;
 	};
 
 	class FBuildKey

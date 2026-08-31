@@ -380,7 +380,7 @@ namespace Durin::Asset
 					KeyResult.Message = std::format("SoftReferenceMapKey[{}]: {}", Index, KeyResult.Message);
 					return KeyResult;
 				}
-				std::vector<std::byte> KeyToken;
+				FByteArray KeyToken;
 				if (!BuildCanonicalMapKeyToken(
 					Map->GetKeyProp(), KeyStorage.GetContainer(), 0, KeyToken, &StorageError))
 					return Error(EAssetError::TypeMismatch, std::move(StorageError));
@@ -644,7 +644,7 @@ namespace Durin::Asset
 		FProperty* Property,
 		std::span<const std::byte> Payload,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
-		std::vector<std::byte>& OutPayload,
+		FByteArray& OutPayload,
 		uint64& RewriteCount,
 		uint32 ContainerDepth = 0) -> FAssetResult
 	{
@@ -836,7 +836,7 @@ namespace Durin::Asset
 					|| !IsSerializedTypeSignatureCompatible(Field, Signature))
 					return Error(EAssetError::TypeMismatch,
 						"AssetReferenceFixupSchemaMismatch: struct field signature changed.");
-				std::vector<std::byte> RewrittenPayload;
+				FByteArray RewrittenPayload;
 				FAssetResult Result = RewriteSerializedReferenceProperty(
 					Field, FieldPayload, Mappings, RewrittenPayload,
 					RewriteCount, ContainerDepth);
@@ -858,7 +858,7 @@ namespace Durin::Asset
 		const FPackagePath& PackagePath,
 		std::span<const FAssetRedirectorFixupMapping> Mappings,
 		uint64 ExpectedRewriteCount,
-		std::vector<std::byte>& OutBytes) -> FAssetResult
+		FByteArray& OutBytes) -> FAssetResult
 	{
 		const Private::FAssetPackageCodec* Codec = nullptr;
 		if (FAssetResult Result = Private::ResolveAssetPackageReader(Bytes, Codec); !Result)
@@ -914,7 +914,7 @@ namespace Durin::Asset
 			const FPackagePath& PackagePath,
 			std::span<const FAssetRedirectorFixupMapping> Mappings,
 			uint64 ExpectedRewriteCount,
-			std::vector<std::byte>& OutBytes) -> FAssetResult
+			FByteArray& OutBytes) -> FAssetResult
 		{
 			return RewritePackageReferences(
 				Bytes, BulkBytes, PackagePath, Mappings,

@@ -30,9 +30,9 @@ namespace Durin::Asset::Private
 			uint64 Index = 0;
 			FArchiveFieldDescriptor Field;
 			FProperty* ReflectedProperty = nullptr;
-			std::vector<std::byte> Raw;
+			FByteArray Raw;
 			std::vector<FCapturedNode> Children;
-			std::vector<std::byte> BulkBytes;
+			FByteArray BulkBytes;
 			uint64 BulkElementSize = 1;
 			uint32 BulkAlignment = 1;
 			uint8 BulkStorage = 0;
@@ -346,7 +346,7 @@ namespace Durin::Asset::Private
 					.Alignment = Alignment};
 				if (Placement == 0)
 				{
-					std::vector<std::byte> Bytes(static_cast<size_t>(StoredSize));
+					FByteArray Bytes(static_cast<size_t>(StoredSize));
 					ReadBytes(Bytes);
 					if (HasError()) return;
 					if (FXxHash128::HashBuffer(Bytes) != Value.ContentHash)
@@ -1321,7 +1321,7 @@ namespace Durin::Asset::Private
 				return Payload->Descriptor.PayloadId;
 			});
 			if (Sorted.empty()) return {};
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 			FCanonicalMemoryWriter Writer(Bytes, EArchivePurpose::BulkData);
 			uint64 Count = Sorted.size();
 			Writer << Count;

@@ -12,17 +12,17 @@ namespace
 {
 	namespace Package = Durin::ObjectPackage;
 
-	auto Bytes(std::initializer_list<uint8> Values) -> std::vector<std::byte>
+	auto Bytes(std::initializer_list<uint8> Values) -> Durin::FByteArray
 	{
-		std::vector<std::byte> Result;
+		Durin::FByteArray Result;
 		for (uint8 Value : Values) Result.push_back(static_cast<std::byte>(Value));
 		return Result;
 	}
 
 	auto Token(Package::EValueKind Kind, Package::FSerializedValue Value)
-		-> std::vector<std::byte>
+		-> Durin::FByteArray
 	{
-		std::vector<std::byte> Result;
+		Durin::FByteArray Result;
 		std::string Error;
 		EXPECT_TRUE(Package::BuildCanonicalMapKeyToken({.Kind = Kind}, Value, Result, &Error)) << Error;
 		return Result;
@@ -289,7 +289,7 @@ TEST(FPackageLinkerContractTests, CanonicalNamesGuidsEnumsAndStructsHaveExactFra
 		.QualifiedName = "Example::Mode",
 		.Parameter = static_cast<uint64>(Package::EValueKind::I16),
 	};
-	std::vector<std::byte> EnumToken;
+	Durin::FByteArray EnumToken;
 	ASSERT_TRUE(Package::BuildCanonicalMapKeyToken(Enum, {.Signed = -1}, EnumToken));
 	EXPECT_EQ(EnumToken, Bytes({13, 0x7f, 0xff}));
 
@@ -300,7 +300,7 @@ TEST(FPackageLinkerContractTests, CanonicalNamesGuidsEnumsAndStructsHaveExactFra
 	};
 	Package::FSerializedValue StructValue;
 	StructValue.Elements = {{.Signed = 0}, {.Bool = true}};
-	std::vector<std::byte> StructToken;
+	Durin::FByteArray StructToken;
 	ASSERT_TRUE(Package::BuildCanonicalMapKeyToken(Struct, StructValue, StructToken));
 	EXPECT_EQ(StructToken, Bytes({
 		17,
@@ -314,7 +314,7 @@ TEST(FPackageLinkerContractTests, CanonicalNamesGuidsEnumsAndStructsHaveExactFra
 	};
 	Package::FSerializedValue IntrinsicValue;
 	IntrinsicValue.ComponentBits = {std::bit_cast<uint64>(1.0), std::bit_cast<uint64>(-0.0)};
-	std::vector<std::byte> IntrinsicToken;
+	Durin::FByteArray IntrinsicToken;
 	ASSERT_TRUE(Package::BuildCanonicalMapKeyToken(Intrinsic, IntrinsicValue, IntrinsicToken));
 	EXPECT_EQ(IntrinsicToken, Bytes({
 		17,
@@ -334,7 +334,7 @@ TEST(FPackageLinkerContractTests, CanonicalEnumStorageWidthsRemainExact)
 	})
 	{
 		Package::FSerializedType Type{.Kind = EKind::Enum, .Parameter = static_cast<uint64>(Storage)};
-		std::vector<std::byte> Actual;
+		Durin::FByteArray Actual;
 		ASSERT_TRUE(Package::BuildCanonicalMapKeyToken(Type, {.Signed = Value}, Actual));
 		EXPECT_EQ(Actual, Expected);
 	}
@@ -346,7 +346,7 @@ TEST(FPackageLinkerContractTests, CanonicalEnumStorageWidthsRemainExact)
 	})
 	{
 		Package::FSerializedType Type{.Kind = EKind::Enum, .Parameter = static_cast<uint64>(Storage)};
-		std::vector<std::byte> Actual;
+		Durin::FByteArray Actual;
 		ASSERT_TRUE(Package::BuildCanonicalMapKeyToken(Type, {.Unsigned = Value}, Actual));
 		EXPECT_EQ(Actual, Expected);
 	}
@@ -354,7 +354,7 @@ TEST(FPackageLinkerContractTests, CanonicalEnumStorageWidthsRemainExact)
 
 TEST(FPackageLinkerContractTests, CanonicalTokenFailureIsAtomic)
 {
-	std::vector<std::byte> TokenBytes = Bytes({0xaa});
+	Durin::FByteArray TokenBytes = Bytes({0xaa});
 	std::string Error;
 	EXPECT_FALSE(Package::BuildCanonicalMapKeyToken(
 		{.Kind = Package::EValueKind::Map}, {}, TokenBytes, &Error));
@@ -370,8 +370,8 @@ TEST(FPackageLinkerContractTests, LiveReflectedAndDetachedValuesShareCanonicalBy
 		Durin::FFieldVariant(), Durin::FName("Integer"), Durin::EObjectFlags::NoFlags,
 		Durin::EPropertyFlags::None, 1, 0, sizeof(Integer),
 		Durin::DurinCodeGen::EPropertyGenFlags::Int32, nullptr);
-	std::vector<std::byte> Live;
-	std::vector<std::byte> Detached;
+	Durin::FByteArray Live;
+	Durin::FByteArray Detached;
 	std::string Error;
 	ASSERT_TRUE(Durin::BuildCanonicalMapKeyToken(
 		&IntegerProperty, &Integer, 0, Live, &Error)) << Error;

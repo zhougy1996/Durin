@@ -36,8 +36,8 @@ TEST(FBinaryFormatTests, SerializesDeterministicallyAndRejectsIncompatibleOrUnbo
 		return Writer.TakeBytes();
 	};
 
-	const std::vector<std::byte> First = MakeBytes();
-	const std::vector<std::byte> Second = MakeBytes();
+	const Durin::FByteArray First = MakeBytes();
+	const Durin::FByteArray Second = MakeBytes();
 	EXPECT_EQ(First, Second);
 
 	Durin::FBinaryReader Reader(First);
@@ -45,7 +45,7 @@ TEST(FBinaryFormatTests, SerializesDeterministicallyAndRejectsIncompatibleOrUnbo
 	std::string Path;
 	uint64 Size = 0;
 	int64 Ticks = 0;
-	std::vector<std::byte> Payload;
+	Durin::FByteArray Payload;
 	EXPECT_TRUE(Reader.ReadString(Path));
 	EXPECT_TRUE(Reader.ReadU64(Size));
 	EXPECT_TRUE(Reader.ReadI64(Ticks));
@@ -54,7 +54,7 @@ TEST(FBinaryFormatTests, SerializesDeterministicallyAndRejectsIncompatibleOrUnbo
 	EXPECT_EQ(Path, "/Game/Textures/Test");
 	EXPECT_EQ(Size, 42);
 	EXPECT_EQ(Ticks, -123456789);
-	EXPECT_EQ(Payload, (std::vector<std::byte>{std::byte{7}, std::byte{8}, std::byte{9}}));
+	EXPECT_EQ(Payload, (Durin::FByteArray{std::byte{7}, std::byte{8}, std::byte{9}}));
 
 	Durin::FBinaryReader WrongVersion(First);
 	EXPECT_FALSE(WrongVersion.ReadAndValidateHeader(Magic, 4, 2));
@@ -88,23 +88,23 @@ TEST(FBinaryFormatTests, SerializedDataRoundTripsBeyondMaxPath)
 	Writer.WriteString("/Game/LongPath/Texture");
 	Writer.WriteBytes(std::array<std::byte, 4>{
 		std::byte{3}, std::byte{1}, std::byte{4}, std::byte{1}});
-	const std::vector<std::byte> Expected = Writer.TakeBytes();
+	const Durin::FByteArray Expected = Writer.TakeBytes();
 
 	Durin::FFileHelper::FAtomicFileError FileError;
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFileAtomically(Expected, Path, &FileError))
 		<< FileError.ToString();
 
-	std::vector<std::byte> Stored;
+	Durin::FByteArray Stored;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(Stored, Path));
 	Durin::FBinaryReader Reader(Stored);
 	std::string Identity;
-	std::vector<std::byte> Payload;
+	Durin::FByteArray Payload;
 	ASSERT_TRUE(Reader.ReadAndValidateHeader(0x48434143, 7, 3));
 	ASSERT_TRUE(Reader.ReadString(Identity));
 	ASSERT_TRUE(Reader.ReadBytes(Payload, 4, 4));
 	EXPECT_TRUE(Reader.IsAtEnd());
 	EXPECT_EQ(Identity, "/Game/LongPath/Texture");
-	EXPECT_EQ(Payload, (std::vector<std::byte>{
+	EXPECT_EQ(Payload, (Durin::FByteArray{
 		std::byte{3}, std::byte{1}, std::byte{4}, std::byte{1}}));
 
 	std::error_code CleanupError;
@@ -118,7 +118,7 @@ TEST(FBinaryFormatTests, FixedWidthPrimitivesAndRegionsPreserveCanonicalBytes)
 	Writer.WriteU16(0x1234);
 	Writer.WriteI32(-2);
 	Writer.WriteFloat(-0.0f);
-	EXPECT_EQ(Writer.GetBytes(), (std::vector<std::byte>{
+	EXPECT_EQ(Writer.GetBytes(), (Durin::FByteArray{
 		std::byte{0x34}, std::byte{0x12},
 		std::byte{0xfe}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
 		std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x80}}));
@@ -156,11 +156,11 @@ TEST(FBinaryFormatTests, TakeBytesLeavesWriterReadyForAnIndependentSequence)
 	Durin::FBinaryWriter Writer;
 	Writer.WriteU8(0x11);
 	EXPECT_EQ(Writer.TakeBytes(),
-		(std::vector<std::byte>{std::byte{0x11}}));
+		(Durin::FByteArray{std::byte{0x11}}));
 
 	Writer.WriteU16(0x2233);
 	Writer.WriteBytes(std::array<std::byte, 2>{std::byte{0x44}, std::byte{0x55}});
-	EXPECT_EQ(Writer.TakeBytes(), (std::vector<std::byte>{
+	EXPECT_EQ(Writer.TakeBytes(), (Durin::FByteArray{
 		std::byte{0x33}, std::byte{0x22}, std::byte{0x44}, std::byte{0x55}}));
 }
 
@@ -249,7 +249,7 @@ TEST(FBinaryFormatTests, ConfiguredTotalAndFieldLimitsFailWithoutPartialWrites)
 	Writer.WriteU32(7);
 	EXPECT_EQ(Writer.Tell(), 4);
 
-	const std::vector<std::byte> First = Writer.TakeBytes();
+	const Durin::FByteArray First = Writer.TakeBytes();
 	EXPECT_FALSE(Writer.HasError());
 	Writer.WriteU32(7);
 	EXPECT_EQ(Writer.Tell(), 4);

@@ -81,7 +81,7 @@ namespace Durin::Asset
 			const FPackagePath& SourcePath,
 			std::span<const std::byte> SourceBulkBytes,
 			const FPackagePath& DestinationPath,
-			std::vector<std::byte>& OutBytes) -> FAssetResult
+			FByteArray& OutBytes) -> FAssetResult
 		{
 			const Private::FAssetPackageCodec* Codec = nullptr;
 			if (FAssetResult Result = Private::ResolveAssetPackageReader(
@@ -112,7 +112,7 @@ namespace Durin::Asset
 			const FPackagePath& SourcePath,
 			std::span<const Private::FAssetRedirectorWriteMapping> Mappings,
 			uint32 FormatVersion,
-			std::vector<std::byte>& OutBytes) -> FAssetResult
+			FByteArray& OutBytes) -> FAssetResult
 		{
 			const Private::FAssetPackageCodec* Codec =
 				Private::FindAssetPackageWriter(FormatVersion);
@@ -202,8 +202,8 @@ namespace Durin::Asset
 		auto AddFileEntry = [&](const std::filesystem::path& PhysicalPath,
 			const FPackagePath& RegistryPath,
 			EAssetMutationPublicationRole Role,
-			std::optional<std::vector<std::byte>> PreBytes,
-			std::optional<std::vector<std::byte>> PostBytes) -> FAssetResult {
+			std::optional<FByteArray> PreBytes,
+			std::optional<FByteArray> PostBytes) -> FAssetResult {
 			if (Private::ConsumeAssetRelocationFailure(
 					EAssetRelocationFailurePoint::PrepareOutput))
 				return Error(EAssetError::IoError,
@@ -288,10 +288,10 @@ namespace Durin::Asset
 			const std::filesystem::path DestinationFile =
 				NormalizePhysicalPath(
 					GetRelocationPhysicalPath(Mapping.DestinationPath));
-			std::vector<std::byte> SourceBytes;
+			FByteArray SourceBytes;
 			FAssetResult Result = LoadRelocationBytes(SourceFile, SourceBytes);
 			if (!Result) return Result;
-			std::vector<std::byte> DestinationPreBytes;
+			FByteArray DestinationPreBytes;
 			if (bReclaimDestinationRedirector)
 			{
 				Result = LoadRelocationBytes(
@@ -303,8 +303,8 @@ namespace Durin::Asset
 					"Relocation destination file {} already exists.",
 					DestinationFile.generic_string()));
 
-			std::vector<std::byte> MovedBytes;
-			std::vector<std::byte> SourceBulkBytes;
+			FByteArray MovedBytes;
+			FByteArray SourceBulkBytes;
 			std::filesystem::path SourceBulkFile = SourceFile;
 			SourceBulkFile.replace_extension(".dbulk");
 			if (std::filesystem::is_regular_file(SourceBulkFile)
@@ -315,7 +315,7 @@ namespace Durin::Asset
 				SourceBytes, Mapping.SourcePath, SourceBulkBytes,
 				Mapping.DestinationPath, MovedBytes);
 			if (!Result) return Result;
-			std::vector<std::byte> SourceRedirectorBytes;
+			FByteArray SourceRedirectorBytes;
 			std::vector<Private::FAssetRedirectorWriteMapping> RedirectMappings;
 			RedirectMappings.reserve(SourceData->TopLevelAssets.size());
 			for (const FTopLevelAssetData& Asset : SourceData->TopLevelAssets)
@@ -341,7 +341,7 @@ namespace Durin::Asset
 				Mapping.DestinationPath,
 				EAssetMutationPublicationRole::RealAsset,
 				bReclaimDestinationRedirector
-					? std::optional<std::vector<std::byte>>(DestinationPreBytes)
+					? std::optional<FByteArray>(DestinationPreBytes)
 					: std::nullopt,
 				std::move(MovedBytes));
 			if (!Result) return Result;
@@ -369,7 +369,7 @@ namespace Durin::Asset
 					BulkError.empty() ? "Authored bulk relocation inspection failed." : BulkError);
 			for (size_t BulkIndex = 0; BulkIndex < SourceBulkFiles.size(); ++BulkIndex)
 			{
-				std::vector<std::byte> PayloadBytes;
+				FByteArray PayloadBytes;
 				Result = LoadRelocationBytes(SourceBulkFiles[BulkIndex], PayloadBytes);
 				if (!Result) return Result;
 				if (std::filesystem::exists(DestinationBulkFiles[BulkIndex]))
@@ -432,11 +432,11 @@ namespace Durin::Asset
 				if (FindResidentPackage(AliasPath))
 					return Error(EAssetError::InUse,
 						"A loaded upstream redirector cannot be retargeted.");
-				std::vector<std::byte> AliasPreBytes;
+				FByteArray AliasPreBytes;
 				Result = LoadRelocationBytes(
 					AliasData.PhysicalPath, AliasPreBytes);
 				if (!Result) return Result;
-				std::vector<std::byte> AliasPostBytes;
+				FByteArray AliasPostBytes;
 				std::vector<Private::FAssetRedirectorWriteMapping> AliasMappings;
 				AliasMappings.reserve(AliasData.TopLevelAssets.size());
 				for (const FTopLevelAssetData& AliasAsset : AliasData.TopLevelAssets)
@@ -536,7 +536,7 @@ namespace Durin::Asset
 					if (SourcePayload == DestinationPayload)
 						return Error(EAssetError::InvalidPath,
 							"An owned payload relocation has identical paths.");
-					std::vector<std::byte> PayloadBytes;
+					FByteArray PayloadBytes;
 					Result = LoadRelocationBytes(SourcePayload, PayloadBytes);
 					if (!Result) return Result;
 					if (std::filesystem::exists(DestinationPayload))
@@ -662,7 +662,7 @@ namespace Durin::Asset
 				? Entry.StagedPreHash : Entry.StagedPostHash;
 			if (bOutputExists)
 			{
-				std::vector<std::byte> StagedBytes;
+				FByteArray StagedBytes;
 				FAssetResult Result = LoadRelocationBytes(Staged, StagedBytes);
 				if (!Result || FXxHash128::HashBuffer(StagedBytes) != ExpectedHash)
 					return Error(EAssetError::StaleData,

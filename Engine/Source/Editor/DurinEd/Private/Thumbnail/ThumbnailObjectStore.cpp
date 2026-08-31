@@ -71,7 +71,7 @@ namespace Durin::Editor
 
 		auto LoadIndex() -> void
 		{
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 			std::error_code Error;
 			if (!std::filesystem::is_regular_file(IndexPath(), Error)
 				|| !FFileHelper::LoadFileToArray(Bytes, IndexPath()))
@@ -155,7 +155,7 @@ namespace Durin::Editor
 		if (Impl->UnsavedAccesses != 0) Impl->SaveIndex();
 	}
 
-	auto FThumbnailObjectStore::Load(std::string_view Key, std::vector<std::byte>& OutBytes)
+	auto FThumbnailObjectStore::Load(std::string_view Key, FByteArray& OutBytes)
 		-> EThumbnailObjectLoadResult
 	{
 		OutBytes.clear();

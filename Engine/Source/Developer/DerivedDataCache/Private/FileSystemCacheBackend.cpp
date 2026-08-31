@@ -98,7 +98,7 @@ namespace Durin::DerivedData
 		if (FileSize > Request.MaximumValueBytes)
 			return {ECacheGetStatus::ValueTooLarge, {}, "Cache entry exceeds its configured size limit."};
 
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, ResolvedPath))
 			return {ECacheGetStatus::StorageFailure, {}, "Failed to read cache entry."};
 		return {ECacheGetStatus::Hit, FSharedByteBuffer::Take(std::move(Bytes)), {}};

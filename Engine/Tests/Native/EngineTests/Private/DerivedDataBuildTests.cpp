@@ -10,9 +10,9 @@ namespace
 {
 	using namespace Durin;
 	using namespace Durin::DerivedData;
-	auto Bytes(std::initializer_list<uint8> Values) -> std::vector<std::byte>
+	auto Bytes(std::initializer_list<uint8> Values) -> Durin::FByteArray
 	{
-		std::vector<std::byte> Result;
+		Durin::FByteArray Result;
 		for (uint8 Value : Values) Result.push_back(static_cast<std::byte>(Value));
 		return Result;
 	}
@@ -265,7 +265,7 @@ TEST(FDerivedDataBuildTests, SessionOwnsColdBuildWarmHitAndQueryOnlyMiss)
 		BuildFunctionName("Durin.Tests.SampleFunction"), DuplicateFunction,
 		GetDerivedDataBuildTestGate(), &Error).IsValid());
 	EXPECT_EQ(Error, "Build function name is already registered.");
-	const std::vector<std::byte> KeyInput = Bytes({1, 2, 3});
+	const Durin::FByteArray KeyInput = Bytes({1, 2, 3});
 	FBuildDefinition Definition;
 	FBuildDefinitionBuilder Builder(BuildFunctionName("Durin.Tests.SampleFunction"), "SampleOutput");
 	Builder.SetKey(FBuildKey::FromString(FXxHash128::HashBuffer(KeyInput).ToString()), KeyInput)

@@ -55,7 +55,7 @@ namespace Durin
 	struct FMeshDrawSortKey
 	{
 		std::array<uint32, 30> Pipeline{};
-		std::vector<std::byte> MaterialUniform;
+		FByteArray MaterialUniform;
 		std::array<uint32, 1 + MaxVertexElementCount * 5> VertexFactory{};
 		std::array<uint32, 6> Geometry{};
 		uint64 PrimitiveId = 0;

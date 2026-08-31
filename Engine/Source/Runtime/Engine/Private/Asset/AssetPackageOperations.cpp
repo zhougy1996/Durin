@@ -292,13 +292,13 @@ namespace Durin::Asset
 			uint64 ObjectCount = 0;
 			uint64 BulkSegmentExtent = 0;
 			FXxHash128 BulkSegmentDigest;
-			std::vector<std::byte> BulkBytes;
+			FByteArray BulkBytes;
 		};
 
 		auto Error(EAssetError Code, std::string Message) -> FAssetResult { return {Code, std::move(Message)}; }
 
 		auto LoadPackageBulkBytes(std::string_view PhysicalPath,
-			std::vector<std::byte>& OutBytes) -> FAssetResult
+			FByteArray& OutBytes) -> FAssetResult
 		{
 			OutBytes.clear();
 			std::filesystem::path BulkPath(PhysicalPath);
@@ -495,7 +495,7 @@ namespace Durin::Asset
 			}
 			if (OutTransaction.bHadFinal)
 			{
-				std::vector<std::byte> PriorBytes;
+				FByteArray PriorBytes;
 				if (!FFileHelper::LoadFileToArray(PriorBytes, OutTransaction.FinalPath))
 				{
 					OutError = "Prior authored bulk companion is unreadable.";
@@ -535,7 +535,7 @@ namespace Durin::Asset
 			}
 			else
 			{
-				std::vector<std::byte> PriorBytes;
+				FByteArray PriorBytes;
 				if (!FFileHelper::LoadFileToArray(PriorBytes, Transaction.BackupPath))
 				{
 					OutError = "Authored bulk rollback backup is missing or unreadable.";
@@ -566,7 +566,7 @@ namespace Durin::Asset
 			std::string& OutError) -> bool
 		{
 			if (!Transaction.bPublished) return true;
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 			if (!FFileHelper::LoadFileToArray(Bytes, Transaction.FinalPath)
 				|| Bytes.size() != Transaction.Extent
 				|| FXxHash128::HashBuffer(Bytes) != Transaction.ContainerHash)
@@ -945,7 +945,7 @@ namespace Durin::Asset
 
 		auto BuildPackageBytes(
 			DPackage* Package,
-			std::vector<std::byte>& OutBytes,
+			FByteArray& OutBytes,
 			FPackageFile* OutFile = nullptr,
 			const FAssetPackageSerializationOptions& Options = {}) -> FAssetResult
 		{
@@ -1051,7 +1051,7 @@ namespace Durin::Asset
 
 	auto SerializeAssetPackageBytes(
 		DPackage* Package,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		const FAssetPackageSerializationOptions& Options) -> FAssetResult
 	{
 		return BuildPackageBytes(Package, OutBytes, nullptr, Options);
@@ -1059,8 +1059,8 @@ namespace Durin::Asset
 
 	auto SerializeAssetPackageClosure(
 		DPackage* Package,
-		std::vector<std::byte>& OutBytes,
-		std::vector<std::byte>& OutBulkBytes,
+		FByteArray& OutBytes,
+		FByteArray& OutBulkBytes,
 		const FAssetPackageSerializationOptions& Options) -> FAssetResult
 	{
 		FPackageFile File;
@@ -1087,7 +1087,7 @@ namespace Durin::Asset
 			DPackage* Package = nullptr;
 			FPackagePath Path;
 			FPackageFile File;
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 			std::filesystem::path Destination;
 			std::filesystem::path Staged;
 			std::filesystem::path Backup;
@@ -1221,7 +1221,7 @@ namespace Durin::Asset
 					return Error(EAssetError::IoError,
 						"Injected asset-bundle companion publication failure.");
 				}
-				std::vector<std::byte> CompanionBytes;
+				FByteArray CompanionBytes;
 				FPackageBulkSegmentSummary SegmentSummary;
 				std::string CompanionError;
 				CompanionBytes = Staged.File.BulkBytes;
@@ -1402,11 +1402,11 @@ namespace Durin::Asset
 		FAssetPackageHeader Header;
 		if (FAssetResult Result = ReadAssetPackageHeader(PhysicalPath, Path, Header); !Result)
 			return Result;
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
 			return Error(EAssetError::IoError,
 				"The asset package could not be read for admission validation.");
-		std::vector<std::byte> BulkBytes;
+		FByteArray BulkBytes;
 		if (FAssetResult Result = LoadPackageBulkBytes(PhysicalPath, BulkBytes); !Result)
 			return Result;
 		if (FAssetResult Result = ValidateAssetPackageBytes(Bytes, Path, BulkBytes); !Result)
@@ -1613,7 +1613,7 @@ namespace Durin::Asset
 			if (!PackagePath.IsValid())
 				return Error(EAssetError::InvalidPath,
 					"DAST v9 inspection requires a mounted package identity.");
-			std::vector<std::byte> BulkBytes;
+			FByteArray BulkBytes;
 			if (Result = LoadPackageBulkBytes(PhysicalPath, BulkBytes); !Result)
 				return Result;
 			const Private::FAssetPackageReadContext Context{
@@ -1643,7 +1643,7 @@ namespace Durin::Asset
 		FAssetPackageInspection& OutInspection) -> FAssetResult
 	{
 		OutInspection = {};
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		if (!FFileHelper::LoadFileToArray(Bytes, PhysicalPath))
 			return Error(EAssetError::IoError, std::format("Failed to open asset package {}.", PhysicalPath));
 		return InspectAssetPackageBytes(PhysicalPath, Bytes, PackagePath, OutInspection);
@@ -1654,8 +1654,8 @@ namespace Durin::Asset
 		std::span<const std::byte> Bytes,
 		std::span<const std::byte> BulkBytes,
 		const FPackagePath& PackagePath,
-		std::vector<std::byte>& OutBytes,
-		std::vector<std::byte>& OutBulkBytes) -> FAssetResult
+		FByteArray& OutBytes,
+		FByteArray& OutBulkBytes) -> FAssetResult
 	{
 		return CanonicalizeAssetPackageForCook(
 			Bytes, BulkBytes, PackagePath, PackagePath, OutBytes, OutBulkBytes);
@@ -1666,8 +1666,8 @@ namespace Durin::Asset
 		std::span<const std::byte> BulkBytes,
 		const FPackagePath& SourcePackagePath,
 		const FPackagePath& OutputPackagePath,
-		std::vector<std::byte>& OutBytes,
-		std::vector<std::byte>& OutBulkBytes) -> FAssetResult
+		FByteArray& OutBytes,
+		FByteArray& OutBulkBytes) -> FAssetResult
 	{
 		OutBytes.clear();
 		OutBulkBytes.clear();
@@ -1677,8 +1677,8 @@ namespace Durin::Asset
 		if (!Codec->bCanMutate)
 			return Error(EAssetError::UnsupportedVersion,
 				"Cook canonicalization requires package mutation capability.");
-		std::vector<std::byte> RelocatedBytes;
-		std::vector<std::byte> RelocatedBulkBytes;
+		FByteArray RelocatedBytes;
+		FByteArray RelocatedBulkBytes;
 		if (SourcePackagePath != OutputPackagePath)
 		{
 			const Private::FAssetPackageReadContext SourceContext{
@@ -1784,7 +1784,7 @@ namespace Durin::Asset
 		if (!VersionResult) return VersionResult;
 		const std::filesystem::path Destination(GetPhysicalPath(Path));
 		FPackageFile File;
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		FAssetPackageSerializationOptions Serialization;
 		FAssetResult SerializationResult = BuildPackageBytes(
 			Package, Bytes, &File, Serialization);
@@ -1792,7 +1792,7 @@ namespace Durin::Asset
 		std::string CompanionStateError;
 		if (!PrepareEditorBulkDataCompanionState(Destination, CompanionStateError))
 			return Error(EAssetError::IoError, std::move(CompanionStateError));
-		std::vector<std::byte> PriorPackageBytes;
+		FByteArray PriorPackageBytes;
 		std::error_code PackageErrorCode;
 		const bool bHadPriorPackage =
 			std::filesystem::is_regular_file(Destination, PackageErrorCode);
@@ -1808,7 +1808,7 @@ namespace Durin::Asset
 		FEditorBulkDataCompanionTransaction CompanionTransaction;
 		if (!File.BulkBytes.empty())
 		{
-			std::vector<std::byte> CompanionBytes;
+			FByteArray CompanionBytes;
 			FPackageBulkSegmentSummary SegmentSummary;
 			std::string CompanionError;
 			CompanionBytes = File.BulkBytes;

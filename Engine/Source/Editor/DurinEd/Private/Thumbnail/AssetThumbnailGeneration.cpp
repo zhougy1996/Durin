@@ -233,7 +233,7 @@ namespace Durin::Editor
 	{
 		if (!Error.empty())
 			return CompleteEncoding(Job, AssetRevision, ResourceRevision, {}, Error);
-		std::vector<std::byte> EncodedBytes;
+		FByteArray EncodedBytes;
 		if (!Image::EncodeRgba8Png(Pixels, Width, Height, EncodedBytes))
 			return CompleteEncoding(
 				Job,

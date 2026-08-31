@@ -463,13 +463,13 @@ namespace Durin::Editor
 		return Target;
 	}
 
-	auto FPropertyEditTarget::ForMapEntry(const FProperty* EntryProperty, std::vector<std::byte> SerializedKey) const -> FPropertyEditTarget
+	auto FPropertyEditTarget::ForMapEntry(const FProperty* EntryProperty, FByteArray SerializedKey) const -> FPropertyEditTarget
 	{
 		return ForMapEntry(EntryProperty, FPropertyValueSnapshotPayload{}, std::move(SerializedKey));
 	}
 
 	auto FPropertyEditTarget::ForMapEntry(const FProperty* EntryProperty,
-		FPropertyValueSnapshotPayload KeySnapshot, std::vector<std::byte> SerializedKey) const -> FPropertyEditTarget
+		FPropertyValueSnapshotPayload KeySnapshot, FByteArray SerializedKey) const -> FPropertyEditTarget
 	{
 		FPropertyEditTarget Target = *this;
 		Target.LeafProperty = EntryProperty;
@@ -487,7 +487,7 @@ namespace Durin::Editor
 	auto FPropertyEditTarget::ForMapEntry(
 		const FProperty* EntryProperty,
 		const FPropertyValueSnapshot& KeySnapshot,
-		std::vector<std::byte> SerializedKey) const -> FPropertyEditTarget
+		FByteArray SerializedKey) const -> FPropertyEditTarget
 	{
 		return ForMapEntry(
 			EntryProperty, KeySnapshot.GetPayload(), std::move(SerializedKey));

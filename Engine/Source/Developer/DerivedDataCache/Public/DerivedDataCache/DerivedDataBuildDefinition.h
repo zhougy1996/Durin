@@ -39,7 +39,7 @@ namespace Durin::DerivedData
 			FBuildDefinition& OutDefinition, std::string* OutError = nullptr) const -> bool;
 	private:
 		FBuildDefinition Definition;
-		std::vector<std::byte> KeyInput;
+		FByteArray KeyInput;
 		std::string Error;
 	};
 

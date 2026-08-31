@@ -84,7 +84,7 @@ namespace Durin::AssetForge::Builtins
 				return Result;
 			}
 
-			std::vector<std::byte> RootBytes;
+			FByteArray RootBytes;
 			std::string ReadError;
 			if (!Private::ReadFileBytes(RootPath, MaxImportedSceneSourceBytes, RootBytes, ReadError))
 			{
@@ -119,7 +119,7 @@ namespace Durin::AssetForge::Builtins
 			const Private::FImportedSceneContext Context{
 				RootPath, Options.RootSourcePath, RootBytes, Options, Result};
 			std::vector<uint32> SourcePrimitiveMaterialIndices;
-			std::vector<std::byte> AssimpProjection;
+			FByteArray AssimpProjection;
 			if ((bGltf || bGlb)
 				&& !Private::ImportGltfFormat(
 					Context, bGlb, SourcePrimitiveMaterialIndices, AssimpProjection))

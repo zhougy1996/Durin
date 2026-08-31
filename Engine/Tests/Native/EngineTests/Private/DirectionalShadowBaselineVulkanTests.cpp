@@ -141,13 +141,13 @@ namespace
 	Durin::FViewRenderTelemetry GLastTelemetry;
 	Durin::FRDGCapture GLastSceneRenderGraphCapture;
 	bool GReceivedSceneRenderGraphCapture = false;
-	std::vector<std::byte>* GHDRSceneColorPixels = nullptr;
-	std::vector<std::byte>* GHDRPostProcessInputPixels = nullptr;
-	std::vector<std::byte>* GGBufferMaterialPixels = nullptr;
-	std::vector<std::byte>* GGBufferNormalsPixels = nullptr;
-	std::vector<std::byte>* GGBufferSurfacePixels = nullptr;
-	std::vector<std::byte>* GGBufferEmissivePixels = nullptr;
-	std::vector<std::byte>* GDeferredDirectionalPixels = nullptr;
+	Durin::FByteArray* GHDRSceneColorPixels = nullptr;
+	Durin::FByteArray* GHDRPostProcessInputPixels = nullptr;
+	Durin::FByteArray* GGBufferMaterialPixels = nullptr;
+	Durin::FByteArray* GGBufferNormalsPixels = nullptr;
+	Durin::FByteArray* GGBufferSurfacePixels = nullptr;
+	Durin::FByteArray* GGBufferEmissivePixels = nullptr;
+	Durin::FByteArray* GDeferredDirectionalPixels = nullptr;
 
 	auto CaptureTelemetry(const Durin::FViewRenderTelemetry& Telemetry) -> void
 	{
@@ -169,7 +169,7 @@ namespace
 		auto Capture = [&CommandList](
 						   const char* Name,
 						   Durin::FRHITexture* Source,
-						   std::vector<std::byte>* Pixels
+						   Durin::FByteArray* Pixels
 					   ) {
 			if (Pixels == nullptr) return;
 			const auto Desc = Durin::FRHITextureCreateDesc::Create2D(
@@ -214,7 +214,7 @@ namespace
 		auto Capture = [&CommandList](
 						   const char* Name,
 						   Durin::FRHITexture* Source,
-						   std::vector<std::byte>* Pixels,
+						   Durin::FByteArray* Pixels,
 						   Durin::ERHITextureAspect Aspect =
 							   Durin::ERHITextureAspect::Color
 					   ) {
@@ -380,7 +380,7 @@ namespace
 		return Durin::Math::Scale(Transform, Placement.Scale);
 	}
 
-	auto CalculateStatistics(std::string Name, const std::vector<std::byte>& Pixels, const Durin::FViewRenderTelemetry& Telemetry) -> FCaptureStatistics
+	auto CalculateStatistics(std::string Name, const Durin::FByteArray& Pixels, const Durin::FViewRenderTelemetry& Telemetry) -> FCaptureStatistics
 	{
 		FCaptureStatistics Result;
 		Result.Name = std::move(Name);
@@ -414,7 +414,7 @@ namespace
 		return Result;
 	}
 
-	auto CountChangedPixels(const std::vector<std::byte>& First, const std::vector<std::byte>& Second, uint8 ChannelTolerance)
+	auto CountChangedPixels(const Durin::FByteArray& First, const Durin::FByteArray& Second, uint8 ChannelTolerance)
 		-> size_t
 	{
 		if (First.size() != Second.size()) return SIZE_MAX;
@@ -433,14 +433,14 @@ namespace
 		return Changed;
 	}
 
-	auto LuminanceAt(const std::vector<std::byte>& Pixels, uint32 X, uint32 Y) -> int
+	auto LuminanceAt(const Durin::FByteArray& Pixels, uint32 X, uint32 Y) -> int
 	{
 		const size_t Offset = (static_cast<size_t>(Y) * CaptureWidth + X) * 4u;
 		return static_cast<int>((static_cast<unsigned>(ByteValue(Pixels[Offset])) * 54u + static_cast<unsigned>(ByteValue(Pixels[Offset + 1])) * 183u + static_cast<unsigned>(ByteValue(Pixels[Offset + 2])) * 19u) / 256u);
 	}
 
 	auto MaximumTransitionWidth(
-		const std::vector<std::byte>& Pixels
+		const Durin::FByteArray& Pixels
 	) -> size_t
 	{
 		size_t Maximum = 0;
@@ -464,8 +464,8 @@ namespace
 	}
 
 	auto ShadowDifferenceAt(
-		const std::vector<std::byte>& Enabled,
-		const std::vector<std::byte>& Disabled,
+		const Durin::FByteArray& Enabled,
+		const Durin::FByteArray& Disabled,
 		uint32 X,
 		uint32 Y
 	) -> int
@@ -506,8 +506,8 @@ namespace
 	}
 
 	auto CalculateShadowOnlyHighFrequencyFraction(
-		const std::vector<std::byte>& Enabled,
-		const std::vector<std::byte>& Disabled
+		const Durin::FByteArray& Enabled,
+		const Durin::FByteArray& Disabled
 	) -> double
 	{
 		constexpr size_t TransformSize = 256;
@@ -559,7 +559,7 @@ namespace
 	}
 
 
-	auto WritePpm(const std::filesystem::path& Path, const std::vector<std::byte>& Pixels) -> void
+	auto WritePpm(const std::filesystem::path& Path, const Durin::FByteArray& Pixels) -> void
 	{
 		std::ofstream Stream(Path, std::ios::binary);
 		ASSERT_TRUE(Stream.is_open()) << Path.string();
@@ -920,7 +920,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 
 	const std::filesystem::path OutputDirectory =
 		Durin::Testing::CreateTestFixtureDirectory("DirectionalShadowQ0Baseline");
-	std::vector<std::vector<std::byte>> Captures;
+	std::vector<Durin::FByteArray> Captures;
 	std::vector<FCaptureStatistics> Statistics;
 	Captures.reserve(Fixtures.size());
 	Statistics.reserve(Fixtures.size());
@@ -941,7 +941,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, CapturesFrozenLitArtifactsAndSubTexe
 		Scene.AddOrReplaceLight(Durin::FLightSceneId(100), std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
 		Durin::FlushRenderingCommands();
 
-		auto Pixels = std::make_shared<std::vector<std::byte>>();
+		auto Pixels = std::make_shared<Durin::FByteArray>();
 		Durin::EnqueueRenderCommand<FShadowBaselineCommand>(
 			[&Renderer, &Scene, &Fixture, Pixels](
 				Durin::FRHICommandListImmediate& CommandList
@@ -1445,22 +1445,22 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 
 	auto RenderCapture = [&](bool bEnableContactShadows,
 							 bool bShowContactShadowDebug,
-							 std::vector<std::byte>& OutPixels,
+							 Durin::FByteArray& OutPixels,
 							 bool bPerspective = false,
-							 std::vector<std::byte>* HDRSceneColorPixels = nullptr,
-							 std::vector<std::byte>* HDRPostProcessInputPixels = nullptr,
+							 Durin::FByteArray* HDRSceneColorPixels = nullptr,
+							 Durin::FByteArray* HDRPostProcessInputPixels = nullptr,
 							 bool bEnableGBufferQualification = false,
-							 std::vector<std::byte>* GBufferMaterialPixels = nullptr,
-							 std::vector<std::byte>* GBufferSurfacePixels = nullptr,
+							 Durin::FByteArray* GBufferMaterialPixels = nullptr,
+							 Durin::FByteArray* GBufferSurfacePixels = nullptr,
 							 Durin::EGBufferDebugMode GBufferDebugMode =
 								 Durin::EGBufferDebugMode::Disabled,
-							 std::vector<std::byte>* GBufferNormalsPixels = nullptr,
-							 std::vector<std::byte>* GBufferEmissivePixels = nullptr,
+							 Durin::FByteArray* GBufferNormalsPixels = nullptr,
+							 Durin::FByteArray* GBufferEmissivePixels = nullptr,
 							 Durin::ERenderMode RenderMode = Durin::ERenderMode::Lit,
 							 bool bEnableDeferredDirectional = false,
 							 Durin::EDeferredDirectionalDebugMode DeferredDebugMode =
 								 Durin::EDeferredDirectionalDebugMode::Disabled,
-							 std::vector<std::byte>* DeferredDirectionalPixels = nullptr,
+							 Durin::FByteArray* DeferredDirectionalPixels = nullptr,
 							 Durin::EDirectionalShadowCandidate ShadowCandidate =
 								 Durin::EDirectionalShadowCandidate::SingleMap,
 							 Durin::EDirectionalShadowFilterQuality ShadowFilter =
@@ -1470,7 +1470,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 								 float AspectRatioConstraint = 0.0f,
 								 bool bForceFragmentContactVisibility = false)
 		-> Durin::FViewRenderTelemetry {
-		auto Pixels = std::make_shared<std::vector<std::byte>>();
+		auto Pixels = std::make_shared<Durin::FByteArray>();
 		GHDRSceneColorPixels = HDRSceneColorPixels;
 		GHDRPostProcessInputPixels = HDRPostProcessInputPixels;
 		Durin::SetHDRSceneColorCaptureSink(CaptureHDRSceneColor);
@@ -1581,21 +1581,21 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		return GLastTelemetry;
 	};
 
-	std::vector<std::byte> PixelsOff;
-	std::vector<std::byte> HDRSceneOff;
-	std::vector<std::byte> HDRInputOff;
+	Durin::FByteArray PixelsOff;
+	Durin::FByteArray HDRSceneOff;
+	Durin::FByteArray HDRInputOff;
 	const Durin::FViewRenderTelemetry TelemetryOff =
 		RenderCapture(false, false, PixelsOff, false, &HDRSceneOff, &HDRInputOff);
-	std::vector<std::byte> PixelsOn;
-	std::vector<std::byte> HDRSceneOn;
-	std::vector<std::byte> HDRInputOn;
+	Durin::FByteArray PixelsOn;
+	Durin::FByteArray HDRSceneOn;
+	Durin::FByteArray HDRInputOn;
 	const Durin::FViewRenderTelemetry TelemetryOn =
 		RenderCapture(true, false, PixelsOn, false, &HDRSceneOn, &HDRInputOn);
-	std::vector<std::byte> GBufferPixels;
-	std::vector<std::byte> GBufferMaterialPixels;
-	std::vector<std::byte> GBufferNormalsPixels;
-	std::vector<std::byte> GBufferSurfacePixels;
-	std::vector<std::byte> GBufferEmissivePixels;
+	Durin::FByteArray GBufferPixels;
+	Durin::FByteArray GBufferMaterialPixels;
+	Durin::FByteArray GBufferNormalsPixels;
+	Durin::FByteArray GBufferSurfacePixels;
+	Durin::FByteArray GBufferEmissivePixels;
 	const Durin::FViewRenderTelemetry GBufferTelemetry =
 		RenderCapture(false, false, GBufferPixels, false, nullptr, nullptr, true, &GBufferMaterialPixels, &GBufferSurfacePixels, Durin::EGBufferDebugMode::Disabled, &GBufferNormalsPixels, &GBufferEmissivePixels);
 
@@ -1605,12 +1605,12 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Directional.bCastShadows = false;
 	Scene.AddOrReplaceLight(Durin::FLightSceneId(100), std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
 	Durin::FlushRenderingCommands();
-	std::vector<std::byte> ForwardOnlyOutput;
-	std::vector<std::byte> ForwardOnlyHDR;
+	Durin::FByteArray ForwardOnlyOutput;
+	Durin::FByteArray ForwardOnlyHDR;
 	RenderCapture(false, false, ForwardOnlyOutput, false, &ForwardOnlyHDR);
-	std::vector<std::byte> DeferredOutput;
-	std::vector<std::byte> DeferredForwardHDR;
-	std::vector<std::byte> DeferredHDR;
+	Durin::FByteArray DeferredOutput;
+	Durin::FByteArray DeferredForwardHDR;
+	Durin::FByteArray DeferredHDR;
 	const Durin::FViewRenderTelemetry DeferredTelemetry = RenderCapture(
 		false, false, DeferredOutput, false, &DeferredForwardHDR,
 		nullptr, false, nullptr, nullptr,
@@ -1658,9 +1658,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			std::clamp(Encoded, 0.0, 1.0) * 255.0
 		));
 	};
-	auto ExpectDeferredParity = [&](const std::vector<std::byte>& Forward,
-									const std::vector<std::byte>& Deferred,
-									const std::vector<std::byte>& Surface,
+	auto ExpectDeferredParity = [&](const Durin::FByteArray& Forward,
+									const Durin::FByteArray& Deferred,
+									const Durin::FByteArray& Surface,
 									std::string_view Label = {}) {
 		SCOPED_TRACE(Label);
 		ASSERT_EQ(Forward.size(), Deferred.size());
@@ -1703,8 +1703,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		EXPECT_LE(DisplayErrors.back(), 18);
 	};
 	ExpectDeferredParity(ForwardOnlyHDR, DeferredHDR, GBufferSurfacePixels);
-	std::vector<std::byte> HybridOutput;
-	std::vector<std::byte> HybridHDR;
+	Durin::FByteArray HybridOutput;
+	Durin::FByteArray HybridHDR;
 	const Durin::FViewRenderTelemetry HybridTelemetry = RenderCapture(
 		false, false, HybridOutput, false, &HybridHDR, nullptr,
 		false, nullptr, nullptr, Durin::EGBufferDebugMode::Disabled,
@@ -1723,12 +1723,12 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Translucent}, 1), MakeTransform({.Translation = {-0.18, 0.08, -0.4}, .Scale = {0.22, 0.18, 1.0}}));
 	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(3), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{MixedUnlit}, 1), MakeTransform({.Translation = {-0.35, 0.0, -0.45}, .Scale = {0.25, 0.25, 1.0}, .RotationYDegrees = 90.0}));
 	Durin::FlushRenderingCommands();
-	std::vector<std::byte> MixedForwardOutput;
-	std::vector<std::byte> MixedForwardHDR;
+	Durin::FByteArray MixedForwardOutput;
+	Durin::FByteArray MixedForwardHDR;
 	RenderCapture(false, false, MixedForwardOutput, false, &MixedForwardHDR);
-	std::vector<std::byte> MixedHybridOutput;
-	std::vector<std::byte> MixedHybridHDR;
-	std::vector<std::byte> MixedSurface;
+	Durin::FByteArray MixedHybridOutput;
+	Durin::FByteArray MixedHybridHDR;
+	Durin::FByteArray MixedSurface;
 	const Durin::FViewRenderTelemetry MixedHybridTelemetry = RenderCapture(
 		false, false, MixedHybridOutput, false, &MixedHybridHDR, nullptr,
 		false, nullptr, &MixedSurface, Durin::EGBufferDebugMode::Disabled,
@@ -1755,11 +1755,11 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::EDeferredDirectionalDebugMode::Alpha,
 		Durin::EDeferredDirectionalDebugMode::Final
 	};
-	std::vector<std::vector<std::byte>> DeferredDebugImages;
+	std::vector<Durin::FByteArray> DeferredDebugImages;
 	for (const Durin::EDeferredDirectionalDebugMode Mode : DeferredDebugModes)
 	{
 		auto& Image = DeferredDebugImages.emplace_back();
-		std::vector<std::byte> IgnoredOutput;
+		Durin::FByteArray IgnoredOutput;
 		const Durin::FViewRenderTelemetry Telemetry = RenderCapture(
 			false, false, IgnoredOutput, false, nullptr, nullptr,
 			false, nullptr, nullptr, Durin::EGBufferDebugMode::Disabled,
@@ -1772,10 +1772,10 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		EXPECT_TRUE(std::ranges::any_of(Image, [](std::byte Value) { return Value != std::byte{0}; }));
 	}
 	EXPECT_NE(DeferredDebugImages.front(), DeferredDebugImages.back());
-	std::vector<std::byte> DeferredPerspectiveOutput;
-	std::vector<std::byte> DeferredPerspectiveForwardHDR;
-	std::vector<std::byte> DeferredPerspectiveHDR;
-	std::vector<std::byte> DeferredPerspectiveSurface;
+	Durin::FByteArray DeferredPerspectiveOutput;
+	Durin::FByteArray DeferredPerspectiveForwardHDR;
+	Durin::FByteArray DeferredPerspectiveHDR;
+	Durin::FByteArray DeferredPerspectiveSurface;
 	const Durin::FViewRenderTelemetry DeferredPerspectiveTelemetry =
 		RenderCapture(false, false, DeferredPerspectiveOutput, true, &DeferredPerspectiveForwardHDR, nullptr, false, nullptr, &DeferredPerspectiveSurface, Durin::EGBufferDebugMode::Disabled, nullptr, nullptr, Durin::ERenderMode::Lit, true, Durin::EDeferredDirectionalDebugMode::Final, &DeferredPerspectiveHDR);
 	EXPECT_EQ(DeferredPerspectiveTelemetry.Deferred.DeferredDirectionalEnabledViews, 1u);
@@ -1783,10 +1783,10 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	EXPECT_EQ(DeferredPerspectiveHDR.size(), DeferredHDR.size());
 	ExpectDeferredParity(DeferredPerspectiveForwardHDR, DeferredPerspectiveHDR, DeferredPerspectiveSurface);
 
-	std::vector<std::byte> ConstrainedOutput;
-	std::vector<std::byte> ConstrainedForwardHDR;
-	std::vector<std::byte> ConstrainedDeferredHDR;
-	std::vector<std::byte> ConstrainedSurface;
+	Durin::FByteArray ConstrainedOutput;
+	Durin::FByteArray ConstrainedForwardHDR;
+	Durin::FByteArray ConstrainedDeferredHDR;
+	Durin::FByteArray ConstrainedSurface;
 	const Durin::FViewRenderTelemetry ConstrainedTelemetry = RenderCapture(
 		false, false, ConstrainedOutput, false, &ConstrainedForwardHDR,
 		nullptr, false, nullptr, &ConstrainedSurface,
@@ -1817,13 +1817,13 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::EDirectionalShadowFilterQuality::Medium,
 		Durin::EDirectionalShadowFilterQuality::High
 	};
-	std::vector<std::byte> LowShadowDeferredHDR;
+	Durin::FByteArray LowShadowDeferredHDR;
 	for (const Durin::EDirectionalShadowFilterQuality Quality :
 		 ShadowFilterTiers)
 	{
-		std::vector<std::byte> ShadowOutput;
-		std::vector<std::byte> ShadowForwardHDR;
-		std::vector<std::byte> ShadowDeferredHDR;
+		Durin::FByteArray ShadowOutput;
+		Durin::FByteArray ShadowForwardHDR;
+		Durin::FByteArray ShadowDeferredHDR;
 		const Durin::FViewRenderTelemetry ShadowDeferredTelemetry =
 			RenderCapture(false, false, ShadowOutput, false, &ShadowForwardHDR, nullptr, false, nullptr, nullptr, Durin::EGBufferDebugMode::Disabled, nullptr, nullptr, Durin::ERenderMode::Lit, true, Durin::EDeferredDirectionalDebugMode::Final, &ShadowDeferredHDR, Durin::EDirectionalShadowCandidate::SingleMap, Quality);
 		EXPECT_EQ(ShadowDeferredTelemetry.Deferred.DeferredDirectionalEnabledViews, 1u);
@@ -1839,10 +1839,10 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	}
 	EXPECT_NE(LowShadowDeferredHDR, DeferredHDR);
 
-	std::vector<std::byte> CascadeOutput;
-	std::vector<std::byte> CascadeForwardHDR;
-	std::vector<std::byte> CascadeDeferredHDR;
-	std::vector<std::byte> CascadeSurface;
+	Durin::FByteArray CascadeOutput;
+	Durin::FByteArray CascadeForwardHDR;
+	Durin::FByteArray CascadeDeferredHDR;
+	Durin::FByteArray CascadeSurface;
 	const Durin::FViewRenderTelemetry CascadeTelemetry = RenderCapture(
 		false, false, CascadeOutput, true, &CascadeForwardHDR, nullptr,
 		false, nullptr, &CascadeSurface, Durin::EGBufferDebugMode::Disabled,
@@ -1866,10 +1866,10 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(3), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Material}, 1), MakeTransform({.Translation = {-0.35, 0.0, -0.45}, .Scale = {0.25, 0.25, 1.0}, .RotationYDegrees = 90.0}));
 		Durin::FlushRenderingCommands();
 	};
-	auto CaptureDeferredTerm = [&](std::vector<std::byte>& Forward,
-								   std::vector<std::byte>& Deferred,
-								   std::vector<std::byte>& Surface) {
-		std::vector<std::byte> Output;
+	auto CaptureDeferredTerm = [&](Durin::FByteArray& Forward,
+								   Durin::FByteArray& Deferred,
+								   Durin::FByteArray& Surface) {
+		Durin::FByteArray Output;
 		const Durin::FViewRenderTelemetry Telemetry = RenderCapture(
 			false, false, Output, false, &Forward, nullptr, false,
 			nullptr, &Surface, Durin::EGBufferDebugMode::Disabled,
@@ -1885,16 +1885,16 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Durin::FlushRenderingCommands();
 	auto PureLit = MakeMaterial(Durin::EMaterialBlendMode::Opaque, {0.72, 0.72, 0.72}, Durin::EMaterialShadingModel::Lit);
 	SetFixtureMaterial(PureLit);
-	std::vector<std::byte> NoLightForward;
-	std::vector<std::byte> NoLightDeferred;
-	std::vector<std::byte> NoLightSurface;
+	Durin::FByteArray NoLightForward;
+	Durin::FByteArray NoLightDeferred;
+	Durin::FByteArray NoLightSurface;
 	CaptureDeferredTerm(NoLightForward, NoLightDeferred, NoLightSurface);
 
 	auto EmissiveOnly = MakeMaterial(Durin::EMaterialBlendMode::Opaque, {0.0, 0.0, 0.0}, Durin::EMaterialShadingModel::Lit, {4.0, 2.0, 0.5});
 	SetFixtureMaterial(EmissiveOnly);
-	std::vector<std::byte> EmissiveOnlyForward;
-	std::vector<std::byte> EmissiveOnlyDeferred;
-	std::vector<std::byte> EmissiveOnlySurface;
+	Durin::FByteArray EmissiveOnlyForward;
+	Durin::FByteArray EmissiveOnlyDeferred;
+	Durin::FByteArray EmissiveOnlySurface;
 	CaptureDeferredTerm(
 		EmissiveOnlyForward, EmissiveOnlyDeferred, EmissiveOnlySurface
 	);
@@ -1913,9 +1913,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Directional.bCastShadows = false;
 	Scene.AddOrReplaceLight(Durin::FLightSceneId(100), std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
 	SetFixtureMaterial(PureLit);
-	std::vector<std::byte> DirectionalOnlyForward;
-	std::vector<std::byte> DirectionalOnlyDeferred;
-	std::vector<std::byte> DirectionalOnlySurface;
+	Durin::FByteArray DirectionalOnlyForward;
+	Durin::FByteArray DirectionalOnlyDeferred;
+	Durin::FByteArray DirectionalOnlySurface;
 	CaptureDeferredTerm(DirectionalOnlyForward, DirectionalOnlyDeferred, DirectionalOnlySurface);
 	EXPECT_NE(DirectionalOnlyDeferred, NoLightDeferred);
 
@@ -1927,9 +1927,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Point.Range = 6.0f;
 	Scene.AddOrReplaceLight(Durin::FLightSceneId(200), std::make_unique<Durin::FPointLightSceneProxy>(Point));
 	Durin::FlushRenderingCommands();
-	std::vector<std::byte> PointOnlyForward;
-	std::vector<std::byte> PointOnlyDeferred;
-	std::vector<std::byte> PointOnlySurface;
+	Durin::FByteArray PointOnlyForward;
+	Durin::FByteArray PointOnlyDeferred;
+	Durin::FByteArray PointOnlySurface;
 	CaptureDeferredTerm(PointOnlyForward, PointOnlyDeferred, PointOnlySurface);
 	EXPECT_NE(PointOnlyDeferred, NoLightDeferred);
 
@@ -1944,9 +1944,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Spot.OuterConeAngle = 40.0f;
 	Scene.AddOrReplaceLight(Durin::FLightSceneId(201), std::make_unique<Durin::FSpotLightSceneProxy>(Spot));
 	Durin::FlushRenderingCommands();
-	std::vector<std::byte> SpotOnlyForward;
-	std::vector<std::byte> SpotOnlyDeferred;
-	std::vector<std::byte> SpotOnlySurface;
+	Durin::FByteArray SpotOnlyForward;
+	Durin::FByteArray SpotOnlyDeferred;
+	Durin::FByteArray SpotOnlySurface;
 	CaptureDeferredTerm(SpotOnlyForward, SpotOnlyDeferred, SpotOnlySurface);
 	EXPECT_NE(SpotOnlyDeferred, NoLightDeferred);
 	EXPECT_NE(SpotOnlyDeferred, PointOnlyDeferred);
@@ -1971,9 +1971,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	OverflowPoint.Color = {1.0f, 0.0f, 1.0f};
 	Scene.AddOrReplaceLight(Durin::FLightSceneId(204), std::make_unique<Durin::FPointLightSceneProxy>(OverflowPoint));
 	Durin::FlushRenderingCommands();
-	std::vector<std::byte> FourLocalForward;
-	std::vector<std::byte> FourLocalDeferred;
-	std::vector<std::byte> FourLocalSurface;
+	Durin::FByteArray FourLocalForward;
+	Durin::FByteArray FourLocalDeferred;
+	Durin::FByteArray FourLocalSurface;
 	CaptureDeferredTerm(FourLocalForward, FourLocalDeferred, FourLocalSurface);
 	EXPECT_NE(FourLocalDeferred, PointOnlyDeferred);
 	EXPECT_EQ(GLastTelemetry.Lighting.SelectedPointLights, 2u);
@@ -1985,9 +1985,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	InvalidPoint.Range = 0.0f;
 	Scene.AddOrReplaceLight(Durin::FLightSceneId(199), std::make_unique<Durin::FPointLightSceneProxy>(InvalidPoint));
 	Durin::FlushRenderingCommands();
-	std::vector<std::byte> InvalidLocalForward;
-	std::vector<std::byte> InvalidLocalDeferred;
-	std::vector<std::byte> InvalidLocalSurface;
+	Durin::FByteArray InvalidLocalForward;
+	Durin::FByteArray InvalidLocalDeferred;
+	Durin::FByteArray InvalidLocalSurface;
 	CaptureDeferredTerm(
 		InvalidLocalForward, InvalidLocalDeferred, InvalidLocalSurface
 	);
@@ -1995,8 +1995,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	EXPECT_EQ(InvalidLocalDeferred, FourLocalDeferred);
 	EXPECT_EQ(GLastTelemetry.Lighting.RejectedPointLights, 1u);
 
-	std::vector<std::byte> LocalDiagnosticOutput;
-	std::vector<std::byte> LocalDiagnosticHDR;
+	Durin::FByteArray LocalDiagnosticOutput;
+	Durin::FByteArray LocalDiagnosticHDR;
 	const Durin::FViewRenderTelemetry LocalDiagnosticTelemetry = RenderCapture(
 		false, false, LocalDiagnosticOutput, false, nullptr, nullptr,
 		false, nullptr, nullptr, Durin::EGBufferDebugMode::Disabled,
@@ -2017,12 +2017,12 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Scene.AddOrReplaceLight(Durin::FLightSceneId(100), std::make_unique<Durin::FDirectionalLightSceneProxy>(Directional));
 	SetFixtureMaterial(Opaque);
 	Durin::FlushRenderingCommands();
-	std::vector<std::byte> ContactForwardOutput;
-	std::vector<std::byte> ContactForwardHDR;
+	Durin::FByteArray ContactForwardOutput;
+	Durin::FByteArray ContactForwardHDR;
 	RenderCapture(true, false, ContactForwardOutput, false, &ContactForwardHDR);
-	std::vector<std::byte> ContactHybridOutput;
-	std::vector<std::byte> ContactHybridHDR;
-	std::vector<std::byte> ContactHybridSurface;
+	Durin::FByteArray ContactHybridOutput;
+	Durin::FByteArray ContactHybridHDR;
+	Durin::FByteArray ContactHybridSurface;
 	const Durin::FViewRenderTelemetry ContactHybridTelemetry = RenderCapture(
 		true, false, ContactHybridOutput, false, &ContactHybridHDR, nullptr,
 		false, nullptr, &ContactHybridSurface,
@@ -2033,8 +2033,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::EDirectionalShadowFilterQuality::Low,
 		Durin::EDirectionalShadowDiagnosticMode::Lit, 0.0f
 	);
-	std::vector<std::byte> ContactFragmentOutput;
-	std::vector<std::byte> ContactFragmentHDR;
+	Durin::FByteArray ContactFragmentOutput;
+	Durin::FByteArray ContactFragmentHDR;
 	const Durin::FViewRenderTelemetry ContactFragmentTelemetry = RenderCapture(
 		true, false, ContactFragmentOutput, false, &ContactFragmentHDR, nullptr,
 		false, nullptr, nullptr, Durin::EGBufferDebugMode::Disabled,
@@ -2164,7 +2164,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 		Durin::EGBufferDebugMode::ViewPosition,
 		Durin::EGBufferDebugMode::ReconstructionError
 	};
-	std::vector<std::vector<std::byte>> GBufferDebugImages;
+	std::vector<Durin::FByteArray> GBufferDebugImages;
 	for (const Durin::EGBufferDebugMode Mode : GBufferDebugModes)
 	{
 		auto& Image = GBufferDebugImages.emplace_back();
@@ -2201,9 +2201,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			++WithinTolerancePixels;
 	}
 	EXPECT_GT(WithinTolerancePixels, 0u);
-	std::vector<std::byte> ForwardMaterialInputs;
+	Durin::FByteArray ForwardMaterialInputs;
 	RenderCapture(false, false, ForwardMaterialInputs, false, nullptr, nullptr, false, nullptr, nullptr, Durin::EGBufferDebugMode::Disabled, nullptr, nullptr, Durin::ERenderMode::Unlit);
-	std::vector<std::byte> DecodedMaterialInputs;
+	Durin::FByteArray DecodedMaterialInputs;
 	const Durin::FViewRenderTelemetry MaterialABTelemetry = RenderCapture(
 		false, false, DecodedMaterialInputs, false,
 		nullptr, nullptr, false, nullptr, nullptr,
@@ -2224,7 +2224,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	EXPECT_EQ(HDRInputOn.size(), ExpectedHDRBytes);
 	EXPECT_NE(HDRSceneOn, HDRSceneOff);
 	EXPECT_EQ(HDRInputOn, HDRSceneOn);
-	auto ContainsHalfAboveOne = [](const std::vector<std::byte>& Pixels) {
+	auto ContainsHalfAboveOne = [](const Durin::FByteArray& Pixels) {
 		for (size_t Offset = 0; Offset + 7 < Pixels.size(); Offset += 8)
 		{
 			for (size_t Channel = 0; Channel < 3; ++Channel)
@@ -2251,10 +2251,10 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 
 	// The editor's contact-contribution diagnostic is a bounded red mask, not
 	// another lighting mode. Keep it covered by the same near-field fixture.
-	std::vector<std::byte> DebugPixels;
+	Durin::FByteArray DebugPixels;
 	const Durin::FViewRenderTelemetry DebugTelemetry =
 		RenderCapture(true, true, DebugPixels);
-	std::vector<std::byte> FragmentDebugPixels;
+	Durin::FByteArray FragmentDebugPixels;
 	RenderCapture(true, true, FragmentDebugPixels, false, nullptr, nullptr,
 		false, nullptr, nullptr, Durin::EGBufferDebugMode::Disabled,
 		nullptr, nullptr, Durin::ERenderMode::Lit, false,
@@ -2281,8 +2281,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	// One perspective view complements the orthographic fixture without a
 	// costly camera sweep. It catches projection/reconstruction regressions but
 	// does not claim view-independent coverage for this screen-space effect.
-	std::vector<std::byte> PerspectiveOff;
-	std::vector<std::byte> PerspectiveOn;
+	Durin::FByteArray PerspectiveOff;
+	Durin::FByteArray PerspectiveOn;
 	RenderCapture(false, false, PerspectiveOff, true);
 	const Durin::FViewRenderTelemetry PerspectiveTelemetry =
 		RenderCapture(true, false, PerspectiveOn, true);
@@ -2304,7 +2304,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			.Scale = {0.22, 0.18, 1.0}})
 	);
 	Durin::FlushRenderingCommands();
-	std::vector<std::byte> CloseContactDebug;
+	Durin::FByteArray CloseContactDebug;
 	RenderCapture(true, true, CloseContactDebug);
 	size_t CloseContactContributionPixels = 0;
 	for (size_t Pixel = 0; Pixel + 3 < CloseContactDebug.size(); Pixel += 4)
@@ -2345,7 +2345,7 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 			.Scale = {0.22, 0.18, 1.0}, .RotationYDegrees = 65.0})
 	);
 	Durin::FlushRenderingCommands();
-	std::vector<std::byte> ShallowContactDebug;
+	Durin::FByteArray ShallowContactDebug;
 	RenderCapture(true, true, ShallowContactDebug);
 	uint8 ShallowContactPeak = 0u;
 	for (size_t Pixel = 0; Pixel + 3 < ShallowContactDebug.size(); Pixel += 4)
@@ -2355,8 +2355,8 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 
 	Scene.RemovePrimitive(Durin::FPrimitiveSceneId(2));
 	Durin::FlushRenderingCommands();
-	std::vector<std::byte> CoplanarOff;
-	std::vector<std::byte> CoplanarOn;
+	Durin::FByteArray CoplanarOff;
+	Durin::FByteArray CoplanarOn;
 	RenderCapture(false, false, CoplanarOff);
 	const Durin::FViewRenderTelemetry CoplanarTelemetry =
 		RenderCapture(true, false, CoplanarOn);
@@ -2390,9 +2390,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	);
 	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(1), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Emissive}, 1), MakeTransform({.Translation = {0.0, 0.0, -0.5}, .Scale = {0.82, 0.82, 1.0}}));
 	Durin::FlushRenderingCommands();
-	std::vector<std::byte> EmissiveOutput;
-	std::vector<std::byte> EmissiveHDRScene;
-	std::vector<std::byte> EmissiveHDRInput;
+	Durin::FByteArray EmissiveOutput;
+	Durin::FByteArray EmissiveHDRScene;
+	Durin::FByteArray EmissiveHDRInput;
 	RenderCapture(false, false, EmissiveOutput, false, &EmissiveHDRScene, &EmissiveHDRInput);
 	EXPECT_TRUE(ContainsHalfAboveOne(EmissiveHDRScene));
 	EXPECT_EQ(EmissiveHDRInput, EmissiveHDRScene);
@@ -2409,9 +2409,9 @@ TEST(FDirectionalShadowBaselineVulkanTests, ContactShadowRunsAndDarkensNearField
 	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(2), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Unlit}, 1), MakeTransform({.Translation = {-0.18, 0.08, -0.4}, .Scale = {0.22, 0.18, 1.0}}));
 	Scene.AddOrReplacePrimitive(Durin::FPrimitiveSceneId(3), std::make_unique<Durin::FStaticMeshSceneProxy>(Quad.get(), std::vector<Durin::FMaterialRenderProxyRef>{Unlit}, 1), MakeTransform({.Translation = {-0.35, 0.0, -0.45}, .Scale = {0.25, 0.25, 1.0}, .RotationYDegrees = 90.0}));
 	Durin::FlushRenderingCommands();
-	std::vector<std::byte> UnlitOff;
-	std::vector<std::byte> UnlitOn;
-	std::vector<std::byte> UnlitDeferredHDR;
+	Durin::FByteArray UnlitOff;
+	Durin::FByteArray UnlitOn;
+	Durin::FByteArray UnlitDeferredHDR;
 	RenderCapture(false, false, UnlitOff);
 	const Durin::FViewRenderTelemetry UnlitTelemetry =
 		RenderCapture(true, false, UnlitOn, false, nullptr, nullptr, false, nullptr, nullptr, Durin::EGBufferDebugMode::Disabled, nullptr, nullptr, Durin::ERenderMode::Lit, true, Durin::EDeferredDirectionalDebugMode::Final, &UnlitDeferredHDR);

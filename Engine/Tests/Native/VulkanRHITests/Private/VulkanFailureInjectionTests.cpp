@@ -992,7 +992,7 @@ namespace Durin::VulkanRHI
 		ASSERT_TRUE(CompileOutput) << CompileOutput.ErrorMessage;
 		ASSERT_EQ(CompileOutput.CompiledShaders.size(), 2u);
 
-		std::array<std::vector<std::byte>, 2> ModePixels;
+		std::array<Durin::FByteArray, 2> ModePixels;
 		std::array<FRHIDiagnosticSnapshot, 2> ModeSnapshots;
 		const std::array Modes{"inline", "threaded"};
 		_putenv_s("DURIN_VULKAN_VALIDATION", "on");
@@ -1799,7 +1799,7 @@ namespace Durin::VulkanRHI
 		MrtPassInfo.DepthStencilRenderTarget = MrtDepth;
 		MrtPassInfo.ColorClearValues[0] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
 		MrtPassInfo.ColorClearValues[1] = FClearValueBinding(0.0f, 0.0f, 0.0f, 1.0f);
-		std::vector<std::byte> MrtPixels;
+		Durin::FByteArray MrtPixels;
 		GCommandListExecutor.ExecuteSynchronousOperation(false, [&]() {
 			auto* Context = static_cast<FVulkanCommandListContext*>(
 				GDynamicRHI->RHIGetDefaultContext());

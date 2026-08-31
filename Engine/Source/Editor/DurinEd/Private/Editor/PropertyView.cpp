@@ -242,11 +242,11 @@ namespace Durin::Editor
 			return bCaptured;
 		}
 
-		auto CaptureMapPathKey(const FProperty* KeyProperty, const void* Key) -> std::vector<std::byte>
+		auto CaptureMapPathKey(const FProperty* KeyProperty, const void* Key) -> FByteArray
 		{
 			FPropertyValueSnapshot Snapshot;
 			if (!CapturePropertyValue(KeyProperty, Key, 0, Snapshot)) return {};
-			std::vector<std::byte> Result = Snapshot.GetBytes();
+			FByteArray Result = Snapshot.GetBytes();
 			// Snapshot object tokens are local indices. Pointer identities keep distinct
 			// object keys from collapsing to the same synchronous event path.
 			for (DObject* Reference : Snapshot.GetReferencedObjects())
@@ -803,7 +803,7 @@ namespace Durin::Editor
 		}
 		else if (Kind == DurinCodeGen::EPropertyGenFlags::Blob)
 		{
-			const auto& Value = *static_cast<const std::vector<std::byte>*>(
+			const auto& Value = *static_cast<const FByteArray*>(
 				Property->GetValuePtr(Container, ArrayIndex));
 			ImGui::TextDisabled("%s", std::format("{} bytes", Value.size()).c_str());
 		}
@@ -1309,7 +1309,7 @@ namespace Durin::Editor
 					ImGui::PopID();
 					continue;
 				}
-				const std::vector<std::byte> SerializedKey = CaptureMapPathKey(Property->GetKeyProp(), Key);
+				const FByteArray SerializedKey = CaptureMapPathKey(Property->GetKeyProp(), Key);
 
 				FPropertyEditTarget KeyTarget = EditTarget.ForMapEntry(
 					Property->GetKeyProp(), KeySnapshot, SerializedKey);

@@ -346,7 +346,7 @@ namespace Durin::Editor::ContentBrowser::Private
 	{
 		constexpr uint32 Width = 512;
 		constexpr uint32 Height = 256;
-		std::vector<std::byte> TgaBytes(
+		Durin::FByteArray TgaBytes(
 			18 + static_cast<size_t>(Width) * Height * 3, std::byte{0});
 		TgaBytes[2] = std::byte{2};
 		TgaBytes[12] = static_cast<std::byte>(Width & 0xff);

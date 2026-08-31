@@ -190,9 +190,9 @@ namespace Durin
 			return MakeInlineShaderParametersMetadata<ParameterStruct>("FParameters", Members);
 		}
 
-		auto MakeCode(uint8 Seed) -> std::shared_ptr<std::vector<std::byte>>
+		auto MakeCode(uint8 Seed) -> std::shared_ptr<Durin::FByteArray>
 		{
-			auto Code = std::make_shared<std::vector<std::byte>>();
+			auto Code = std::make_shared<Durin::FByteArray>();
 			Code->resize(16);
 			for (size_t Index = 0; Index < Code->size(); ++Index)
 			{

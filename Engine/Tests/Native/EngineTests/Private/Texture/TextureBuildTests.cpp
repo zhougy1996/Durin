@@ -19,7 +19,7 @@ TEST(FVolumeTextureTests, BuildsDeterministicOddThreeAxisMipChain)
 	Source.Height = 3;
 	Source.Depth = 3;
 	Source.Format = Durin::EVolumeTextureFormat::R8_UNORM;
-	std::vector<std::byte> Voxels(27);
+	Durin::FByteArray Voxels(27);
 	for (size_t Index = 0; Index < Voxels.size(); ++Index)
 		Voxels[Index] = static_cast<std::byte>(Index);
 	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
@@ -35,7 +35,7 @@ TEST(FVolumeTextureTests, BuildsDeterministicOddThreeAxisMipChain)
 	EXPECT_EQ(First.Mips[1].Width, 1u);
 	EXPECT_EQ(First.Mips[1].Height, 1u);
 	EXPECT_EQ(First.Mips[1].Depth, 1u);
-	EXPECT_EQ(First.Mips[1].Voxels, (std::vector<std::byte>{std::byte{7}}));
+	EXPECT_EQ(First.Mips[1].Voxels, (Durin::FByteArray{std::byte{7}}));
 	EXPECT_EQ(First.Mips[0].Voxels, Second.Mips[0].Voxels);
 	EXPECT_EQ(First.Mips[1].Voxels, Second.Mips[1].Voxels);
 }
@@ -64,7 +64,7 @@ TEST(FVolumeTextureTests, PayloadRoundTripsAndRejectsCorruption)
 	std::string Error;
 	ASSERT_TRUE(Durin::Asset::VolumeTextureBuilder::BuildMipChain(
 		Source, {}, Platform, Error)) << Error;
-	std::vector<std::byte> Bytes;
+	Durin::FByteArray Bytes;
 	ASSERT_TRUE(Durin::BuildVolumeTextureSerializedValue(Platform,
 		Durin::Asset::ECookTargetPlatform::Win64,
 		Durin::Asset::ECookTargetProfile::Game, Bytes, Error)) << Error;
@@ -278,7 +278,7 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	Source.Height = 128;
 	Source.Depth = 128;
 	Source.Format = Durin::EVolumeTextureFormat::R8_UNORM;
-	std::vector<std::byte> Voxels(128ull * 128 * 128);
+	Durin::FByteArray Voxels(128ull * 128 * 128);
 	for (size_t Index = 0; Index < Voxels.size(); ++Index)
 		Voxels[Index] = static_cast<std::byte>((Index * 37) & 0xff);
 	ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
@@ -372,10 +372,10 @@ TEST(FVolumeTextureTests, Large128CubedSourcePlansSavesAndReloadsAsAtomicBulkDat
 	EXPECT_FALSE(MissingLoad);
 	EXPECT_EQ(Texture, nullptr);
 	std::filesystem::rename(HeldCompanion, EditorBulkDataFiles.front());
-	std::vector<std::byte> CompanionBytes;
+	Durin::FByteArray CompanionBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		CompanionBytes, EditorBulkDataFiles.front()));
-	std::vector<std::byte> CorruptCompanion = CompanionBytes;
+	Durin::FByteArray CorruptCompanion = CompanionBytes;
 	CorruptCompanion.back() ^= std::byte{1};
 	ASSERT_TRUE(Durin::FFileHelper::SaveArrayToFile(
 		std::as_bytes(std::span(CorruptCompanion)),
@@ -440,7 +440,7 @@ TEST(FVolumeTextureTests, BuildsAllPortableFormatsAcrossDegenerateAxes)
 		Source.Height = 3;
 		Source.Depth = 5;
 		Source.Format = Formats[Index];
-		const std::vector<std::byte> Voxels(15 * BytesPerVoxel[Index], std::byte{0});
+		const Durin::FByteArray Voxels(15 * BytesPerVoxel[Index], std::byte{0});
 		ASSERT_TRUE(Source.SetVoxelBytes(Voxels));
 		Durin::FVolumeTextureBuildSettings Settings;
 		Settings.OutputFormat = Formats[Index];
@@ -554,7 +554,7 @@ TEST(FTexture2DTests, CanonicalImportedPixelsRoundTripThroughExternalAuthoredBul
 		Entry->PhysicalPath, Inspection, Companions, &Error)) << Error;
 	ASSERT_EQ(Companions.size(), 1u);
 	ASSERT_TRUE(std::filesystem::is_regular_file(Companions.front()));
-	std::vector<std::byte> CompanionBytes;
+	Durin::FByteArray CompanionBytes;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(
 		CompanionBytes, Companions.front()));
 
@@ -899,8 +899,8 @@ TEST(FTexture2DTests, PreservesMaskedAlphaCoverageWithoutChangingColor)
 	ASSERT_GE(Average.Mips.size(), 2u);
 	ASSERT_EQ(Preserved.Mips.size(), Average.Mips.size());
 
-	const std::vector<std::byte> AveragePixels = DecodeBC3Mip(Average.Mips[1]);
-	const std::vector<std::byte> PreservedPixels = DecodeBC3Mip(Preserved.Mips[1]);
+	const Durin::FByteArray AveragePixels = DecodeBC3Mip(Average.Mips[1]);
+	const Durin::FByteArray PreservedPixels = DecodeBC3Mip(Preserved.Mips[1]);
 	const double SourceCoverage = 20.0 / 64.0;
 	const double AverageError = std::abs(CalculateDecodedCoverage(AveragePixels, 128) - SourceCoverage);
 	const double PreservedError = std::abs(CalculateDecodedCoverage(PreservedPixels, 128) - SourceCoverage);
@@ -1003,7 +1003,7 @@ TEST(FTexture2DTests, PreservesLinearBuildSettingAndRebuildsColorSpace)
 	ExpectPixelNear(DecodeFirstCompressedPixel(Loaded->GetPlatformData()->PixelFormat,
 		Loaded->GetPlatformData()->Mips.back().Pixels), {128, 0, 0, 128});
 
-	const std::vector<std::byte> LinearTail = Loaded->GetPlatformData()->Mips.back().Pixels;
+	const Durin::FByteArray LinearTail = Loaded->GetPlatformData()->Mips.back().Pixels;
 	std::string Error;
 	ASSERT_TRUE(Durin::AssetForge::Builtins::SetTexture2DSRGB(*Loaded, true, Error)) << Error;
 	ASSERT_TRUE(Durin::Asset::WaitForTexture2DCompilation(*Loaded, 10.0))

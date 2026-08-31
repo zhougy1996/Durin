@@ -42,7 +42,7 @@ namespace Durin::TexturePayloadContainer
 	auto Build(
 		const FDescriptor& Descriptor,
 		std::span<const FBuildRecord> Records,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string& OutError) -> bool;
 
 	auto Parse(

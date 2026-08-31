@@ -94,7 +94,7 @@ namespace Durin
 		Archive.WriteBytes(Value);
 	}
 
-	auto FBinaryWriter::TakeBytes() -> std::vector<std::byte>
+	auto FBinaryWriter::TakeBytes() -> FByteArray
 	{
 		bLimitError = false;
 		return std::exchange(Bytes, {});
@@ -118,12 +118,12 @@ namespace Durin
 
 	auto FBinaryReader::ReadU16(uint16& Value) -> bool { return ReadInteger(Value); }
 
-	auto FBinaryReader::ReadBytes(std::vector<std::byte>& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool
+	auto FBinaryReader::ReadBytes(FByteArray& Value, uint64 ByteCount, uint64 MaximumBytes) -> bool
 	{
 		if (HasError() || ByteCount > MaximumBytes || ByteCount > Limits.MaximumFieldBytes
 			|| ByteCount > GetRemainingBytes()
-			|| ByteCount > static_cast<uint64>(std::vector<std::byte>().max_size())) return false;
-		std::vector<std::byte> Loaded(static_cast<size_t>(ByteCount));
+			|| ByteCount > static_cast<uint64>(FByteArray().max_size())) return false;
+		FByteArray Loaded(static_cast<size_t>(ByteCount));
 		if (ByteCount != 0) Archive.ReadBytes(Loaded);
 		if (Archive.HasError()) return false;
 		Value = std::move(Loaded);

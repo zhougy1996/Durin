@@ -59,7 +59,7 @@ namespace Durin::Asset
 		std::array<uint32, 8> HeaderWords,
 		std::span<const FChunkedPayloadInput> Chunks,
 		const FChunkedPayloadFormat& Format,
-		std::vector<std::byte>& OutBytes) -> FChunkedPayloadResult
+		FByteArray& OutBytes) -> FChunkedPayloadResult
 	{
 		if (!IsFormatValid(Format) || Chunks.size() < Format.RequiredChunkCount
 			|| Chunks.size() > Format.MaximumChunkCount)

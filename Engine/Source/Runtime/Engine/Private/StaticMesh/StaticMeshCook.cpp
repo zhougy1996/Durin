@@ -96,7 +96,7 @@ namespace Durin
 				return;
 			}
 			FStaticMeshPayloadData Payload;
-			std::vector<std::byte> RenderBytes;
+			FByteArray RenderBytes;
 			std::string Error;
 			if (!MakeStaticMeshPayloadData(*RenderData, Payload, Error)
 				|| !ValidateStaticMeshMaterialSlotMapping(Payload, MaterialSlots, Error))
@@ -133,7 +133,7 @@ namespace Durin
 					BodySetup->GetCollisionSourceMode()
 						== EBodySetupCollisionSourceMode::ConvexHullFromLOD0 ? Simple : Complex;
 				FStaticMeshCollisionPayloadData CollisionPayload;
-				std::vector<std::byte> CollisionBytes;
+				FByteArray CollisionBytes;
 				if (!Geometry || !MakeStaticMeshCollisionPayloadData(
 					Geometry, BodySetup->GetCollisionQueryPolicy(), CollisionPayload, Error))
 				{

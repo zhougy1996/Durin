@@ -25,7 +25,7 @@ namespace Durin
 		const FTerrainHeightmapPayload& Payload,
 		Asset::ECookTargetPlatform TargetPlatform,
 		Asset::ECookTargetProfile TargetProfile,
-		std::vector<std::byte>& OutBytes,
+		FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
 		OutBytes.clear();
@@ -63,17 +63,17 @@ namespace Durin
 			Body.WriteU32(Level.SampleRegionSize);
 			Body.WriteU32(0);
 		}
-		Body.WriteBytes(std::vector<std::byte>(
+		Body.WriteBytes(FByteArray(
 			static_cast<size_t>(SampleOffset - TerrainHeightmapPayloadHeaderSize - LevelBytes), std::byte{0}));
 		for (uint16 Sample : Payload.Samples) Body.WriteU16(Sample);
-		Body.WriteBytes(std::vector<std::byte>(
+		Body.WriteBytes(FByteArray(
 			static_cast<size_t>(HierarchyOffset - SampleOffset - SampleBytes), std::byte{0}));
 		for (const FTerrainHeightmapMinMaxNode& Node : Payload.Nodes)
 		{
 			Body.WriteU16(Node.Minimum);
 			Body.WriteU16(Node.Maximum);
 		}
-		const std::vector<std::byte> BodyBytes = Body.TakeBytes();
+		const FByteArray BodyBytes = Body.TakeBytes();
 
 		FBinaryWriter Writer;
 		Writer.WriteU32(0);
@@ -218,7 +218,7 @@ namespace Durin
 			*this,
 			{MaximumTerrainHeightmapPayloadBytes, "Terrain heightmap payload"},
 			[&](const FTerrainHeightmapPayload& Value,
-				std::vector<std::byte>& Bytes, std::string& Error) {
+				FByteArray& Bytes, std::string& Error) {
 				return BuildTerrainHeightmapSerializedValue(
 					Value, TargetPlatform, TargetProfile, Bytes, Error);
 			},

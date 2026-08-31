@@ -38,7 +38,7 @@ namespace Durin::Asset
 		std::string Name;
 		DurinCodeGen::EPropertyGenFlags Kind = DurinCodeGen::EPropertyGenFlags::None;
 		std::string TypeSignature;
-		std::vector<std::byte> Payload;
+		FByteArray Payload;
 		uint32 SourceFormatVersion = 0;
 
 		ENGINE_API auto TryReadString(std::string& OutValue) const -> bool;

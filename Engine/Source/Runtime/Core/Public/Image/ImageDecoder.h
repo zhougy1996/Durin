@@ -18,7 +18,7 @@ namespace Durin::Image
 	// Stores decoded RGBA8 pixels and source-image metadata.
 	struct FDecodedImage
 	{
-		std::vector<std::byte> Pixels;
+		FByteArray Pixels;
 		uint32 Width = 0;
 		uint32 Height = 0;
 

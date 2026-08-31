@@ -895,7 +895,7 @@ namespace Durin::VulkanRHI
 
 	auto FVulkanPipelineManager::InitializeDriverPipelineCache() -> void
 	{
-		std::vector<std::byte> FileBytes;
+		FByteArray FileBytes;
 		std::span<const std::byte> InitialData;
 		auto& Stats = Device.GetPipelineCacheStatisticsMutable();
 		const auto& Properties = Device.GetGpuProperties();
@@ -966,7 +966,7 @@ namespace Durin::VulkanRHI
 				DURIN_WARN("Not saving Vulkan pipeline cache because its payload is empty or exceeds {} bytes.", PipelineCacheMaximumBytes);
 				return;
 			}
-			std::vector<std::byte> Bytes(PipelineCachePrefixBytes + Payload.size());
+			FByteArray Bytes(PipelineCachePrefixBytes + Payload.size());
 			const auto WriteU32 = [&Bytes](size_t Offset, uint32 Value) { std::memcpy(Bytes.data() + Offset, &Value, sizeof(Value)); };
 			const auto& Properties = Device.GetGpuProperties();
 			WriteU32(0, PipelineCacheMagic);

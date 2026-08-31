@@ -72,7 +72,7 @@ namespace Durin::Asset::Private
 			std::error_code ErrorCode;
 			if (!std::filesystem::is_regular_file(Root / "owner", ErrorCode))
 				continue;
-			std::vector<std::byte> OwnerBytes;
+			FByteArray OwnerBytes;
 			if (!FFileHelper::LoadFileToArray(
 					OwnerBytes, (Root / "owner"))
 				|| std::string_view(
@@ -139,7 +139,7 @@ namespace Durin::Asset::Private
 
 	auto LoadRelocationBytes(
 		const std::filesystem::path& Path,
-		std::vector<std::byte>& OutBytes) -> FAssetResult
+		FByteArray& OutBytes) -> FAssetResult
 	{
 		OutBytes.clear();
 		if (!FFileHelper::LoadFileToArray(OutBytes, Path))
@@ -166,7 +166,7 @@ namespace Durin::Asset::Private
 		const std::filesystem::path& Path,
 		FAssetPackageFingerprint& OutFingerprint) -> FAssetResult
 	{
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		FAssetResult Result = LoadRelocationBytes(Path, Bytes);
 		if (!Result) return Result;
 		return MakePackageFingerprint(
@@ -471,7 +471,7 @@ namespace Durin::Asset::Private
 					RemoveError.message()));
 			return {};
 		}
-		std::vector<std::byte> Bytes;
+		FByteArray Bytes;
 		FAssetResult Result = LoadRelocationBytes(Staged, Bytes);
 		if (!Result) return Result;
 		std::error_code DirectoryError;

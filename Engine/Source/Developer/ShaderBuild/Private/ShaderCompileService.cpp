@@ -490,7 +490,7 @@ namespace Durin
 				const FShaderCompilerOutput& Output) -> void
 			{
 				using namespace DerivedData;
-				std::vector<std::byte> Bytes;
+				FByteArray Bytes;
 				std::string Error;
 				const FCacheKey Key = ShaderDerivedData::BuildKey(
 					VariantKey, Options);

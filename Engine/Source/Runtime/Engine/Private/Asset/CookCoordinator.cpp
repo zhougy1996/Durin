@@ -350,7 +350,7 @@ namespace Durin::Asset
 				} TransactionCleanup{TransactionRoot};
 
 				FCookManifest PreviousManifest;
-				std::vector<std::byte> PreviousManifestBytes;
+				FByteArray PreviousManifestBytes;
 				const bool bHasPreviousManifest = FFileHelper::LoadFileToArray(
 													  PreviousManifestBytes, Root / "CookManifest.bin"
 												  )
@@ -379,8 +379,8 @@ namespace Durin::Asset
 						return Left.CommitStage < Right.CommitStage;
 					return Left.RelativePath < Right.RelativePath;
 				});
-				std::vector<std::byte> ManifestBytes;
-				std::vector<std::byte> StateBytes;
+				FByteArray ManifestBytes;
+				FByteArray StateBytes;
 				if (!EncodeCookManifest(Manifest, ManifestBytes, &OutError)
 					|| !EncodeCookState(State, StateBytes, &OutError)) return false;
 
@@ -393,7 +393,7 @@ namespace Durin::Asset
 					std::filesystem::create_directories(Staged.parent_path(), ErrorCode);
 					if (ErrorCode || !FFileHelper::SaveArrayToFile(Bytes, Staged))
 						return Fail(std::format("CookStageWriteFailed: {}", Relative), &OutError);
-					std::vector<std::byte> Validation;
+					FByteArray Validation;
 					if (!FFileHelper::LoadFileToArray(Validation, Staged)
 						|| !std::ranges::equal(Validation, Bytes))
 						return Fail(std::format("CookStageValidationFailed: {}", Relative), &OutError);
@@ -561,7 +561,7 @@ namespace Durin::Asset
 		return "discovery";
 	}
 
-	auto EncodeCookState(const FCookState& State, std::vector<std::byte>& OutBytes, std::string* OutError) -> bool
+	auto EncodeCookState(const FCookState& State, FByteArray& OutBytes, std::string* OutError) -> bool
 	{
 		OutBytes.clear();
 		if (State.TargetPlatform == ECookTargetPlatform::Invalid
@@ -745,7 +745,7 @@ namespace Durin::Asset
 		if (Request.IncrementalPolicy == ECookIncrementalPolicy::Enabled
 			&& !Request.OutputRoot.empty())
 		{
-			std::vector<std::byte> Bytes;
+			FByteArray Bytes;
 			bHasPreviousState = FFileHelper::LoadFileToArray(
 									Bytes, Request.OutputRoot / "CookState.bin"
 								)
@@ -795,8 +795,8 @@ namespace Durin::Asset
 							&& Prior->second->FamilyProducerVersion
 								   == Contributor.Registration.FamilyProducerVersion
 							&& ValidateCookHit(Request.OutputRoot, *Prior->second);
-			std::vector<std::byte> ExistingPackageBytes;
-			std::vector<std::byte> ExistingSegmentBytes;
+			FByteArray ExistingPackageBytes;
+			FByteArray ExistingSegmentBytes;
 			if (bCookHit)
 			{
 				bCookHit = FFileHelper::LoadFileToArray(ExistingPackageBytes, Request.OutputRoot / RelativePackagePath(Path.GetView()));
@@ -832,7 +832,7 @@ namespace Durin::Asset
 			if (!AuthoredPackage)
 				return Finish(ECookRunStatus::Failed, "missing-package", std::format("CookMissingPackage: package={}, contributor={}", Path.ToString(), Contributor.Registration.Name));
 			const bool bWasDirty = AuthoredPackage->IsDirty();
-			std::vector<std::byte> AuthoredBytesBefore;
+			FByteArray AuthoredBytesBefore;
 			const FAssetResult BeforeResult = SerializeAssetPackageBytes(
 				AuthoredPackage, AuthoredBytesBefore
 			);
@@ -843,7 +843,7 @@ namespace Durin::Asset
 			);
 			if (!Contribution)
 				return Finish(ECookRunStatus::Failed, "contribution-failed", std::format("CookContributionFailed: package={}, contributor={}, stage=prepare: {}", Path.ToString(), Contributor.Registration.Name, Contribution.Message));
-			std::vector<std::byte> AuthoredBytesAfter;
+			FByteArray AuthoredBytesAfter;
 			const FAssetResult AfterResult = SerializeAssetPackageBytes(
 				AuthoredPackage, AuthoredBytesAfter
 			);
@@ -879,7 +879,7 @@ namespace Durin::Asset
 		if (Request.bDryRun)
 			return Finish(ECookRunStatus::Succeeded, "dry-run", "Cook dry-run captured the complete plan.");
 		std::vector<FCookAuxiliaryOutput> AuxiliaryOutputs;
-		std::vector<std::byte> ShaderLibraryBytes;
+		FByteArray ShaderLibraryBytes;
 		std::string ShaderLibraryError;
 		if (!BuildCookedShaderLibrary(
 				EShaderTargetPlatform::Win64, EShaderTargetProfile::Game,

@@ -15,8 +15,8 @@ namespace Durin
 		FSharedByteBuffer() = default;
 
 		CORE_API static auto Copy(std::span<const std::byte> Bytes) -> FSharedByteBuffer;
-		CORE_API static auto Take(std::vector<std::byte> Bytes) -> FSharedByteBuffer;
-		static auto Share(std::shared_ptr<const std::vector<std::byte>> Bytes)
+		CORE_API static auto Take(FByteArray Bytes) -> FSharedByteBuffer;
+		static auto Share(std::shared_ptr<const FByteArray> Bytes)
 			-> FSharedByteBuffer
 		{
 			return FSharedByteBuffer(std::move(Bytes));
@@ -40,11 +40,11 @@ namespace Durin
 		}
 
 	private:
-		explicit FSharedByteBuffer(std::shared_ptr<const std::vector<std::byte>> InStorage)
+		explicit FSharedByteBuffer(std::shared_ptr<const FByteArray> InStorage)
 			: Storage(std::move(InStorage))
 		{
 		}
 
-		std::shared_ptr<const std::vector<std::byte>> Storage;
+		std::shared_ptr<const FByteArray> Storage;
 	};
 }

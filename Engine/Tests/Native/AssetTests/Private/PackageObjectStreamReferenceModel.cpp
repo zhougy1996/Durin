@@ -179,7 +179,7 @@ namespace Durin::Testing::PackageObjectStream
 			return Valid;
 		}
 
-		auto StructuralKey(const FTypeDescriptor& Type, std::vector<std::byte>& OutKey, std::string& OutError) -> bool
+		auto StructuralKey(const FTypeDescriptor& Type, Durin::FByteArray& OutKey, std::string& OutError) -> bool
 		{
 			FWireWriter Writer;
 			std::unordered_set<const FTypeDescriptor*> Visiting;
@@ -248,7 +248,7 @@ namespace Durin::Testing::PackageObjectStream
 
 	auto FFrozenTables::TypeId(const FTypeDescriptor& Type) const -> uint64
 	{
-		std::vector<std::byte> Key;
+		Durin::FByteArray Key;
 		std::string Error;
 		if (!StructuralKey(Type, Key, Error))
 			return 0;
@@ -311,7 +311,7 @@ namespace Durin::Testing::PackageObjectStream
 		{
 			if (!Type)
 				return Fail(OutError, "null type descriptor");
-			std::vector<std::byte> Key;
+			Durin::FByteArray Key;
 			if (!StructuralKey(*Type, Key, OutError))
 				return false;
 			if (WalkedTypes.insert(Type.get()).second)
@@ -351,8 +351,8 @@ namespace Durin::Testing::PackageObjectStream
 				{
 					if (Left.Name != Right.Name)
 						return ByteLess(Left.Name, Right.Name);
-					std::vector<std::byte> LeftKey;
-					std::vector<std::byte> RightKey;
+					Durin::FByteArray LeftKey;
+					Durin::FByteArray RightKey;
 					std::string Ignored;
 					StructuralKey(*Left.Type, LeftKey, Ignored);
 					StructuralKey(*Right.Type, RightKey, Ignored);
@@ -373,7 +373,7 @@ namespace Durin::Testing::PackageObjectStream
 
 		for (const FTypePtr& Type : DiscoveredTypes)
 		{
-			std::vector<std::byte> Key;
+			Durin::FByteArray Key;
 			if (!StructuralKey(*Type, Key, OutError))
 				return false;
 			const auto It = std::find_if(Result.Types.begin(), Result.Types.end(),
@@ -464,10 +464,10 @@ namespace Durin::Testing::PackageObjectStream
 
 	auto EncodeTableSections(
 		const FFrozenTables& Tables,
-		std::array<std::vector<std::byte>, 4>& OutSections,
+		std::array<Durin::FByteArray, 4>& OutSections,
 		std::string& OutError) -> bool
 	{
-		std::array<std::vector<std::byte>, 4> Result;
+		std::array<Durin::FByteArray, 4> Result;
 		FWireWriter Names;
 		Names.WriteVarUInt(Tables.Names.size());
 		for (const std::string& Name : Tables.Names)
@@ -558,7 +558,7 @@ namespace Durin::Testing::PackageObjectStream
 	}
 
 	auto DecodeTableSections(
-		const std::array<std::vector<std::byte>, 4>& Sections,
+		const std::array<Durin::FByteArray, 4>& Sections,
 		FFrozenTables& OutTables,
 		std::string& OutError) -> bool
 	{
@@ -772,7 +772,7 @@ namespace Durin::Testing::PackageObjectStream
 		FFrozenTables Result;
 		if (!FreezeTables(Input, Result, OutError))
 			return false;
-		std::array<std::vector<std::byte>, 4> Canonical;
+		std::array<Durin::FByteArray, 4> Canonical;
 		if (!EncodeTableSections(Result, Canonical, OutError))
 			return false;
 		if (Canonical != Sections)
@@ -931,7 +931,7 @@ namespace Durin::Testing::PackageObjectStream
 					if (!EncodeValueInner(*Tables.Schemas[SchemaId - 1].Fields[FieldId - 1].Type,
 						Value.Elements[Index], Tables, EncodedWriter, Depth + 1, OutError))
 						return false;
-					const std::vector<std::byte> Encoded = EncodedWriter.TakeBytes();
+					const Durin::FByteArray Encoded = EncodedWriter.TakeBytes();
 					Writer.WriteVarUInt(FieldId);
 					Writer.WriteU8(Value.Provenances[Index]);
 					WriteRecord(Writer, Encoded);
@@ -958,7 +958,7 @@ namespace Durin::Testing::PackageObjectStream
 			{
 				if (Value.Elements.size() % 2 != 0 || Value.Elements.size() / 2 > MaximumContainerElements)
 					return Fail(OutError, "map entry count is invalid");
-				struct FEntry { std::vector<std::byte> Key; std::vector<std::byte> Value; };
+				struct FEntry { Durin::FByteArray Key; Durin::FByteArray Value; };
 				std::vector<FEntry> Entries;
 				for (uint64 Index = 0; Index < Value.Elements.size(); Index += 2)
 				{
@@ -1202,14 +1202,14 @@ namespace Durin::Testing::PackageObjectStream
 				uint64 Count = 0;
 				if (!Reader.ReadVarUInt(Count, OutError) || Count > MaximumContainerElements)
 					return Count > MaximumContainerElements ? Fail(OutError, "map count exceeds bound") : false;
-				std::vector<std::byte> PreviousKey;
+				Durin::FByteArray PreviousKey;
 				for (uint64 Index = 0; Index < Count; ++Index)
 				{
 					FValue Key;
 					FValue MapValue;
 					if (!DecodeValueInner(*Type.Children[0], Reader, Tables, Key, Depth + 1, OutError))
 						return false;
-					std::vector<std::byte> EncodedKey;
+					Durin::FByteArray EncodedKey;
 					if (!EncodeValue(*Type.Children[0], Key, Tables, EncodedKey, OutError))
 						return false;
 					if (!PreviousKey.empty() && !ByteLess(PreviousKey, EncodedKey))
@@ -1263,10 +1263,10 @@ namespace Durin::Testing::PackageObjectStream
 		const FTypeDescriptor& Type,
 		const FValue& Value,
 		const FFrozenTables& Tables,
-		std::vector<std::byte>& OutBytes,
+		Durin::FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
-		std::vector<std::byte> Key;
+		Durin::FByteArray Key;
 		if (!StructuralKey(Type, Key, OutError))
 			return false;
 		FWireWriter Writer;
@@ -1283,7 +1283,7 @@ namespace Durin::Testing::PackageObjectStream
 		FValue& OutValue,
 		std::string& OutError) -> bool
 	{
-		std::vector<std::byte> Key;
+		Durin::FByteArray Key;
 		if (!StructuralKey(Type, Key, OutError))
 			return false;
 		FWireReader Reader(Bytes);
@@ -1298,7 +1298,7 @@ namespace Durin::Testing::PackageObjectStream
 	auto EncodeOverrideBlock(
 		std::span<const FOverrideCandidate> Candidates,
 		const FFrozenTables& Tables,
-		std::vector<std::byte>& OutBytes,
+		Durin::FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
 		struct FOverride
@@ -1306,7 +1306,7 @@ namespace Durin::Testing::PackageObjectStream
 			uint64 SchemaId = 0;
 			uint64 FieldId = 0;
 			uint8 Provenance = 0;
-			std::vector<std::byte> Bytes;
+			Durin::FByteArray Bytes;
 		};
 		std::vector<FOverride> Overrides;
 		for (const FOverrideCandidate& Candidate : Candidates)
@@ -1362,7 +1362,7 @@ namespace Durin::Testing::PackageObjectStream
 	auto EncodeValueSection(
 		std::span<const FObjectValueInput> Objects,
 		const FFrozenTables& Tables,
-		std::vector<std::byte>& OutBytes,
+		Durin::FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
 		if (Objects.size() != Tables.Objects.size())
@@ -1383,7 +1383,7 @@ namespace Durin::Testing::PackageObjectStream
 		{
 			if (!Object)
 				return Fail(OutError, "value section object is missing");
-			std::vector<std::byte> Block;
+			Durin::FByteArray Block;
 			if (!EncodeOverrideBlock(Object->Overrides, Tables, Block, OutError))
 				return false;
 			WriteRecord(Writer, Block);
@@ -1430,8 +1430,8 @@ namespace Durin::Testing::PackageObjectStream
 					return false;
 				if (Provenance == 2)
 				{
-					std::vector<std::byte> Closure;
-					std::vector<std::byte> Payload;
+					Durin::FByteArray Closure;
+					Durin::FByteArray Payload;
 					if (!ValidateUnknownValueBody(ValueBytes, Closure, Payload, OutError))
 						return false;
 				}
@@ -1454,7 +1454,7 @@ namespace Durin::Testing::PackageObjectStream
 		const FFrozenTables& Tables,
 		uint64 RootSchemaId,
 		uint64 RootFieldId,
-		std::vector<std::byte>& OutBytes,
+		Durin::FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
 		if (!Tables.CustomVersions.empty() || !Tables.Objects.empty())
@@ -1462,7 +1462,7 @@ namespace Durin::Testing::PackageObjectStream
 		const FTypeDescriptor* RootType = nullptr;
 		if (!FindFieldType(Tables, RootSchemaId, RootFieldId, RootType, OutError))
 			return false;
-		std::array<std::vector<std::byte>, 4> Sections;
+		std::array<Durin::FByteArray, 4> Sections;
 		if (!EncodeTableSections(Tables, Sections, OutError))
 			return false;
 		FWireWriter Writer;
@@ -1479,7 +1479,7 @@ namespace Durin::Testing::PackageObjectStream
 		std::string& OutError) -> bool
 	{
 		FWireReader Reader(Bytes);
-		std::array<std::vector<std::byte>, 4> Sections;
+		std::array<Durin::FByteArray, 4> Sections;
 		for (uint64 Index = 0; Index < 3; ++Index)
 		{
 			std::span<const std::byte> Section;
@@ -1504,7 +1504,7 @@ namespace Durin::Testing::PackageObjectStream
 	auto EncodeUnknownValueBody(
 		std::span<const std::byte> Closure,
 		std::span<const std::byte> Payload,
-		std::vector<std::byte>& OutBytes,
+		Durin::FByteArray& OutBytes,
 		std::string& OutError) -> bool
 	{
 		if (!ValidateRetainedClosure(Closure, OutError))
@@ -1518,8 +1518,8 @@ namespace Durin::Testing::PackageObjectStream
 
 	auto ValidateUnknownValueBody(
 		std::span<const std::byte> Bytes,
-		std::vector<std::byte>& OutClosure,
-		std::vector<std::byte>& OutPayload,
+		Durin::FByteArray& OutClosure,
+		Durin::FByteArray& OutPayload,
 		std::string& OutError) -> bool
 	{
 		FWireReader Reader(Bytes);
@@ -1528,8 +1528,8 @@ namespace Durin::Testing::PackageObjectStream
 		if (!ReadRecord(Reader, Closure, OutError) || !ValidateRetainedClosure(Closure, OutError)
 			|| !ReadRecord(Reader, Payload, OutError) || !Reader.RequireEnd(OutError))
 			return false;
-		std::vector<std::byte> ClosureCopy(Closure.begin(), Closure.end());
-		std::vector<std::byte> PayloadCopy(Payload.begin(), Payload.end());
+		Durin::FByteArray ClosureCopy(Closure.begin(), Closure.end());
+		Durin::FByteArray PayloadCopy(Payload.begin(), Payload.end());
 		OutClosure = std::move(ClosureCopy);
 		OutPayload = std::move(PayloadCopy);
 		return true;

@@ -11,9 +11,9 @@ namespace
 	using namespace Durin;
 	using namespace Durin::Testing::PackageObjectStream;
 
-	auto Bytes(std::initializer_list<uint8> Values) -> std::vector<std::byte>
+	auto Bytes(std::initializer_list<uint8> Values) -> Durin::FByteArray
 	{
-		std::vector<std::byte> Result;
+		Durin::FByteArray Result;
 		Result.reserve(Values.size());
 		for (uint8 Value : Values) Result.push_back(static_cast<std::byte>(Value));
 		return Result;
@@ -30,7 +30,7 @@ namespace
 		};
 	}
 
-	auto MakeRawEnvelope(std::span<const std::byte> Summary) -> std::vector<std::byte>
+	auto MakeRawEnvelope(std::span<const std::byte> Summary) -> Durin::FByteArray
 	{
 		FWireWriter Writer;
 		Writer.WriteU32(Magic);
@@ -48,7 +48,7 @@ namespace
 		return Writer.TakeBytes();
 	}
 
-	auto StoreU32(std::vector<std::byte>& Data, uint64 Offset, uint32 Value) -> void
+	auto StoreU32(Durin::FByteArray& Data, uint64 Offset, uint32 Value) -> void
 	{
 		ASSERT_LE(Offset + 4, Data.size());
 		for (uint32 Index = 0; Index < 4; ++Index)
@@ -83,7 +83,7 @@ TEST(FPackageObjectStreamWireContractTests, WritesEveryPrimitiveAsExactGoldenByt
 	ASSERT_TRUE(Writer.WriteString("", Error)) << Error;
 	ASSERT_TRUE(Writer.WriteString("A\xe2\x82\xac", Error)) << Error;
 
-	const std::vector<std::byte> Golden = Bytes({
+	const Durin::FByteArray Golden = Bytes({
 		0x7f, 0x34, 0x12, 0xef, 0xcd, 0xab, 0x89,
 		0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01,
 		0x00, 0x00, 0x80, 0x3f,
@@ -131,7 +131,7 @@ TEST(FPackageObjectStreamWireContractTests, WritesEveryPrimitiveAsExactGoldenByt
 
 TEST(FPackageObjectStreamWireContractTests, RejectsNoncanonicalVarUIntUtf8AndUnconsumedBytes)
 {
-	for (const std::vector<std::byte>& Invalid : {
+	for (const Durin::FByteArray& Invalid : {
 		Bytes({0x80, 0x00}),
 		Bytes({0x81, 0x00}),
 		Bytes({0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x02}),
@@ -145,7 +145,7 @@ TEST(FPackageObjectStreamWireContractTests, RejectsNoncanonicalVarUIntUtf8AndUnc
 		EXPECT_FALSE(Error.empty());
 	}
 
-	for (const std::vector<std::byte>& Invalid : {
+	for (const Durin::FByteArray& Invalid : {
 		Bytes({0x01, 0x00}),
 		Bytes({0x02, 0xc0, 0x80}),
 		Bytes({0x03, 0xed, 0xa0, 0x80}),
@@ -161,7 +161,7 @@ TEST(FPackageObjectStreamWireContractTests, RejectsNoncanonicalVarUIntUtf8AndUnc
 		EXPECT_FALSE(Error.empty());
 	}
 
-	const std::vector<std::byte> WithTrailingByte = Bytes({0x00, 0xff});
+	const Durin::FByteArray WithTrailingByte = Bytes({0x00, 0xff});
 	FWireReader Reader(WithTrailingByte);
 	uint8 Value = 0;
 	std::string Error;
@@ -171,7 +171,7 @@ TEST(FPackageObjectStreamWireContractTests, RejectsNoncanonicalVarUIntUtf8AndUnc
 
 TEST(FPackageObjectStreamWireContractTests, ZigZagSignedBoundariesHaveExactGoldenBytes)
 {
-	const std::array<std::pair<int64, std::vector<std::byte>>, 5> Cases = {{
+	const std::array<std::pair<int64, Durin::FByteArray>, 5> Cases = {{
 		{std::numeric_limits<int64>::min(), Bytes({
 			0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01})},
 		{-1, Bytes({0x01})},
@@ -196,12 +196,12 @@ TEST(FPackageObjectStreamWireContractTests, ZigZagSignedBoundariesHaveExactGolde
 
 TEST(FPackageObjectStreamWireContractTests, EncodesEmptyEnvelopeAsExactGoldenBytes)
 {
-	std::array<std::vector<std::byte>, SectionCount> Sections;
-	std::vector<std::byte> Encoded;
+	std::array<Durin::FByteArray, SectionCount> Sections;
+	Durin::FByteArray Encoded;
 	std::string Error;
 	ASSERT_TRUE(EncodeEnvelope(MakeSummary(), Sections, Encoded, Error)) << Error;
 
-	const std::vector<std::byte> Golden = Bytes({
+	const Durin::FByteArray Golden = Bytes({
 		0x44, 0x41, 0x53, 0x54, 0x05, 0x00, 0x00, 0x00,
 		0x06, 0x00, 0x00, 0x00, 0x05,
 		0x01, 0x41, 0x00, 0x00, 0x00, 0x01,
@@ -233,11 +233,11 @@ TEST(FPackageObjectStreamWireContractTests, EncodesNonemptySectionsAndRoundTrips
 		.Dependencies = {"/Engine/A", "/Game/B"},
 		.ObjectCount = 3,
 	};
-	const std::array<std::vector<std::byte>, SectionCount> Sections = {
+	const std::array<Durin::FByteArray, SectionCount> Sections = {
 		Bytes({0xaa}), Bytes({0xbb, 0xcc}), Bytes({}), Bytes({0xdd}), Bytes({0xee, 0xff, 0x11}),
 	};
-	std::vector<std::byte> First;
-	std::vector<std::byte> Second;
+	Durin::FByteArray First;
+	Durin::FByteArray Second;
 	std::string Error;
 	ASSERT_TRUE(EncodeEnvelope(Summary, Sections, First, Error)) << Error;
 	ASSERT_TRUE(EncodeEnvelope(Summary, Sections, Second, Error)) << Error;
@@ -246,7 +246,7 @@ TEST(FPackageObjectStreamWireContractTests, EncodesNonemptySectionsAndRoundTrips
 	FValidatedHeader Header;
 	ASSERT_TRUE(DecodeHeader(First, Header, Error)) << Error;
 	EXPECT_EQ(Header.Summary, Summary);
-	std::vector<std::byte> Reencoded;
+	Durin::FByteArray Reencoded;
 	ASSERT_TRUE(EncodeEnvelope(Header.Summary, Sections, Reencoded, Error)) << Error;
 	EXPECT_EQ(Reencoded, First);
 
@@ -263,13 +263,13 @@ TEST(FPackageObjectStreamWireContractTests, EncodesNonemptySectionsAndRoundTrips
 
 TEST(FPackageObjectStreamWireContractTests, EncodesNonemptySectionsAsExactGoldenDirectory)
 {
-	const std::array<std::vector<std::byte>, SectionCount> Sections = {
+	const std::array<Durin::FByteArray, SectionCount> Sections = {
 		Bytes({0xaa}), Bytes({0xbb, 0xcc}), Bytes({}), Bytes({0xdd}), Bytes({0xee, 0xff, 0x11}),
 	};
-	std::vector<std::byte> Encoded;
+	Durin::FByteArray Encoded;
 	std::string Error;
 	ASSERT_TRUE(EncodeEnvelope(MakeSummary(), Sections, Encoded, Error)) << Error;
-	const std::vector<std::byte> Golden = Bytes({
+	const Durin::FByteArray Golden = Bytes({
 		0x44, 0x41, 0x53, 0x54, 0x05, 0x00, 0x00, 0x00,
 		0x06, 0x00, 0x00, 0x00, 0x05,
 		0x01, 0x41, 0x00, 0x00, 0x00, 0x01,
@@ -285,10 +285,10 @@ TEST(FPackageObjectStreamWireContractTests, EncodesNonemptySectionsAsExactGolden
 
 TEST(FPackageObjectStreamWireContractTests, HeaderOnlyValidationDoesNotInterpretSectionBodies)
 {
-	std::array<std::vector<std::byte>, SectionCount> Sections = {
+	std::array<Durin::FByteArray, SectionCount> Sections = {
 		Bytes({0xff, 0xff}), Bytes({0x80}), Bytes({0x00, 0xff}), Bytes({0xfe}), Bytes({0x80, 0x00}),
 	};
-	std::vector<std::byte> Encoded;
+	Durin::FByteArray Encoded;
 	std::string Error;
 	ASSERT_TRUE(EncodeEnvelope(MakeSummary(), Sections, Encoded, Error)) << Error;
 	FValidatedHeader Header;
@@ -297,13 +297,13 @@ TEST(FPackageObjectStreamWireContractTests, HeaderOnlyValidationDoesNotInterpret
 
 TEST(FPackageObjectStreamWireContractTests, RejectsMalformedSummaryAndDirectoryMutations)
 {
-	std::array<std::vector<std::byte>, SectionCount> Sections;
-	std::vector<std::byte> Valid;
+	std::array<Durin::FByteArray, SectionCount> Sections;
+	Durin::FByteArray Valid;
 	std::string Error;
 	ASSERT_TRUE(EncodeEnvelope(MakeSummary(), Sections, Valid, Error)) << Error;
 	const uint64 Directory = 19;
 
-	std::vector<std::byte> Mutated = Valid;
+	Durin::FByteArray Mutated = Valid;
 	Mutated.pop_back();
 	ExpectHeaderFailure(Mutated, "truncation");
 
@@ -369,8 +369,8 @@ TEST(FPackageObjectStreamWireContractTests, RejectsMalformedSummaryAndDirectoryM
 
 TEST(FPackageObjectStreamWireContractTests, RejectsNoncanonicalSummaryModelsBeforePublication)
 {
-	std::array<std::vector<std::byte>, SectionCount> Sections;
-	std::vector<std::byte> Encoded = Bytes({0xaa});
+	std::array<Durin::FByteArray, SectionCount> Sections;
+	Durin::FByteArray Encoded = Bytes({0xaa});
 	std::string Error;
 
 	FPublicSummary Summary = MakeSummary();

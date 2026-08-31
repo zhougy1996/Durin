@@ -64,8 +64,8 @@ TEST(FPackageRegistryContractTests, V9FrontMatterProjectsPackageAndTopLevelAsset
 	Durin::Testing::InitializeDObjectSystemForTests();
 	Durin::Testing::FScopedMountRegistryFixture Mounts;
 	Durin::Testing::RegisterMountPointForTests("/Game/", ".");
-	std::vector<std::byte> Main;
-	std::vector<std::byte> Bulk;
+	Durin::FByteArray Main;
+	Durin::FByteArray Bulk;
 	ASSERT_TRUE(Package::WritePackageV9(MakeRegistryFixture(), Main, Bulk));
 	uint64 HeaderBytes = 0;
 	ASSERT_TRUE(Durin::ReadLittleEndianAt<uint64>(Main, 32, HeaderBytes));
@@ -100,8 +100,8 @@ TEST(FPackageRegistryContractTests, V9ProjectionRequiresIdentityAndExactBulkExte
 	Durin::Testing::InitializeDObjectSystemForTests();
 	Durin::Testing::FScopedMountRegistryFixture Mounts;
 	Durin::Testing::RegisterMountPointForTests("/Game/", ".");
-	std::vector<std::byte> Main;
-	std::vector<std::byte> Bulk;
+	Durin::FByteArray Main;
+	Durin::FByteArray Bulk;
 	ASSERT_TRUE(Package::WritePackageV9(MakeRegistryFixture(), Main, Bulk));
 	uint64 HeaderBytes = 0;
 	ASSERT_TRUE(Durin::ReadLittleEndianAt<uint64>(Main, 32, HeaderBytes));
@@ -164,8 +164,8 @@ TEST(FPackageRegistryContractTests, RefreshUsesOnlyFrontMatterAndOnePackageMetad
 		.Export = SecondaryExport,
 		.AssetPath = SecondaryPath,
 		.ClassName = "Example::SecondaryAsset"});
-	std::vector<std::byte> Main;
-	std::vector<std::byte> Bulk;
+	Durin::FByteArray Main;
+	Durin::FByteArray Bulk;
 	ASSERT_TRUE(Package::WritePackageV9(Linker, Main, Bulk));
 	uint64 HeaderBytes = 0;
 	ASSERT_TRUE(Durin::ReadLittleEndianAt<uint64>(Main, 32, HeaderBytes));
@@ -239,7 +239,7 @@ TEST(FPackageRegistryContractTests, RefreshUsesOnlyFrontMatterAndOnePackageMetad
 
 	const std::filesystem::path CacheFile =
 		CacheRoot / "AssetRegistry" / "Registry.bin";
-	std::vector<std::byte> CorruptCache;
+	Durin::FByteArray CorruptCache;
 	ASSERT_TRUE(Durin::FFileHelper::LoadFileToArray(CorruptCache, CacheFile));
 	ASSERT_GE(CorruptCache.size(), sizeof(uint32) * 2);
 	const uint32 UnknownSchema = 99;

@@ -34,7 +34,7 @@ namespace Durin::Editor
 		const FProperty* Property = nullptr;
 		EPropertyPathSelector Selector = EPropertyPathSelector::None;
 		uint64 Index = 0;
-		std::vector<std::byte> MapKeyData;
+		FByteArray MapKeyData;
 		FPropertyValueSnapshotPayload MapKey;
 	};
 
@@ -52,19 +52,19 @@ namespace Durin::Editor
 		std::vector<FPropertyEditPathSegment> Path;
 		// Logical identity distinguishes independently edited values that intentionally
 		// share one stable snapshot root, such as GUID-addressed array entries.
-		std::vector<std::byte> LogicalIdentity;
+		FByteArray LogicalIdentity;
 		EPropertyChangeKind Kind = EPropertyChangeKind::ValueSet;
 
 		DURINED_API static auto ForMember(DObject* Object, const FProperty* Property, uint32 ArrayIndex = 0) -> FPropertyEditTarget;
 		DURINED_API auto ForStructMember(const FProperty* Property, uint32 ArrayIndex = 0) const -> FPropertyEditTarget;
 		DURINED_API auto ForArrayElement(const FProperty* ElementProperty, uint64 ElementIndex) const -> FPropertyEditTarget;
-		DURINED_API auto ForMapEntry(const FProperty* EntryProperty, std::vector<std::byte> SerializedKey) const -> FPropertyEditTarget;
+		DURINED_API auto ForMapEntry(const FProperty* EntryProperty, FByteArray SerializedKey) const -> FPropertyEditTarget;
 		DURINED_API auto ForMapEntry(const FProperty* EntryProperty,
 			FPropertyValueSnapshotPayload KeySnapshot,
-			std::vector<std::byte> SerializedKey) const -> FPropertyEditTarget;
+			FByteArray SerializedKey) const -> FPropertyEditTarget;
 		DURINED_API auto ForMapEntry(const FProperty* EntryProperty,
 			const FPropertyValueSnapshot& KeySnapshot,
-			std::vector<std::byte> SerializedKey) const -> FPropertyEditTarget;
+			FByteArray SerializedKey) const -> FPropertyEditTarget;
 
 		// Includes storage identity and key values for same-target mutation recursion protection.
 		DURINED_API auto IsSameMutationTarget(const FPropertyEditTarget& Other) const -> bool;

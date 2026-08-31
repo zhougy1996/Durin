@@ -42,11 +42,11 @@ namespace Durin::Testing::PackageObjectStream
 		auto WriteString(std::string_view Value, std::string& OutError) -> bool;
 		auto WriteBytes(std::span<const std::byte> Value) -> void;
 
-		auto Bytes() const -> const std::vector<std::byte>& { return Data; }
-		auto TakeBytes() -> std::vector<std::byte> { return std::move(Data); }
+		auto Bytes() const -> const Durin::FByteArray& { return Data; }
+		auto TakeBytes() -> Durin::FByteArray { return std::move(Data); }
 
 	private:
-		std::vector<std::byte> Data;
+		Durin::FByteArray Data;
 	};
 
 	class FWireReader
@@ -105,12 +105,12 @@ namespace Durin::Testing::PackageObjectStream
 	auto IsValidUtf8(std::string_view Value) -> bool;
 	auto EncodePublicSummary(
 		const FPublicSummary& Summary,
-		std::vector<std::byte>& OutBytes,
+		Durin::FByteArray& OutBytes,
 		std::string& OutError) -> bool;
 	auto EncodeEnvelope(
 		const FPublicSummary& Summary,
-		const std::array<std::vector<std::byte>, SectionCount>& Sections,
-		std::vector<std::byte>& OutBytes,
+		const std::array<Durin::FByteArray, SectionCount>& Sections,
+		Durin::FByteArray& OutBytes,
 		std::string& OutError) -> bool;
 	auto DecodeHeader(
 		std::span<const std::byte> Bytes,

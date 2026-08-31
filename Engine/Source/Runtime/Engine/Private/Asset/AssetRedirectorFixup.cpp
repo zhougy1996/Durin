@@ -68,7 +68,7 @@ namespace Durin::Asset
 		}
 
 		auto LoadBulkClosure(std::string_view PhysicalPath,
-			std::vector<std::byte>& OutBytes) -> FAssetResult
+			FByteArray& OutBytes) -> FAssetResult
 		{
 			OutBytes.clear();
 			std::filesystem::path BulkPath(PhysicalPath);
@@ -321,8 +321,8 @@ namespace Durin::Asset
 		auto AddJournalEntry = [&](const std::filesystem::path& PhysicalPath,
 			const FPackagePath& RegistryPath,
 			EAssetMutationPublicationRole Role,
-			std::optional<std::vector<std::byte>> PreBytes,
-			std::optional<std::vector<std::byte>> PostBytes,
+			std::optional<FByteArray> PreBytes,
+			std::optional<FByteArray> PostBytes,
 			size_t& OutIndex) -> FAssetResult {
 			return StageMutationJournalEntry(State->Journal, {
 				.PhysicalPath = PhysicalPath,
@@ -356,7 +356,7 @@ namespace Durin::Asset
 			if (Loaded && Loaded->IsDirty())
 				return Error(EAssetError::InUse,
 					"A dirty loaded package blocks redirector Fix Up.");
-			std::vector<std::byte> PreBytes;
+			FByteArray PreBytes;
 			FAssetResult Result = LoadRelocationBytes(Data->PhysicalPath, PreBytes);
 			if (!Result) return Result;
 			const auto Fingerprint = Prepared.ReferenceFingerprints.find(SourcePath);
@@ -371,8 +371,8 @@ namespace Durin::Asset
 					!= Fingerprint->second.LastWriteTimeTicks)
 				return Error(EAssetError::StaleData,
 					"A package referencer changed after reference indexing.");
-			std::vector<std::byte> PostBytes;
-			std::vector<std::byte> BulkBytes;
+			FByteArray PostBytes;
+			FByteArray BulkBytes;
 			Result = LoadBulkClosure(Data->PhysicalPath, BulkBytes);
 			if (!Result) return Result;
 			Result = RewritePackageReferencesForMutation(
@@ -506,13 +506,13 @@ namespace Durin::Asset
 					if (Loaded && Loaded->IsDirty())
 						return Error(EAssetError::InUse,
 							"A dirty external-reference package blocks redirector Fix Up.");
-					std::vector<std::byte> CurrentBytes;
+					FByteArray CurrentBytes;
 					Result = LoadRelocationBytes(Data->PhysicalPath, CurrentBytes);
 					if (!Result) return Result;
 					if (CurrentBytes != PackageRewrite.PreBytes)
 						return Error(EAssetError::StaleData,
 							"An asset reference-store package changed during rewrite preparation.");
-					std::vector<std::byte> BulkBytes;
+					FByteArray BulkBytes;
 					Result = LoadBulkClosure(Data->PhysicalPath, BulkBytes);
 					if (!Result) return Result;
 					Result = ValidateAssetPackageBytes(
@@ -570,7 +570,7 @@ namespace Durin::Asset
 			for (const FPackagePath& Alias : State->Redirectors)
 			{
 				const FAssetData& Data = State->ExpectedAssets.at(Alias);
-				std::vector<std::byte> PreBytes;
+				FByteArray PreBytes;
 				FAssetResult Result = LoadRelocationBytes(Data.PhysicalPath, PreBytes);
 				if (!Result) return Result;
 				size_t Ignored = 0;
@@ -734,7 +734,7 @@ namespace Durin::Asset
 					"A Fix Up file participant changed after analysis.");
 			if (Entry.bPostExists)
 			{
-				std::vector<std::byte> StagedBytes;
+				FByteArray StagedBytes;
 				Result = LoadRelocationBytes(Entry.StagedPostPath, StagedBytes);
 				if (!Result || FXxHash128::HashBuffer(StagedBytes)
 						!= Entry.StagedPostHash)

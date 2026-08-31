@@ -70,7 +70,7 @@ namespace Durin::Asset::PackageObjectStream
 			auto Bytes(std::span<const std::byte> Value) -> void { Writer.WriteBytes(Value); }
 			auto Record(std::span<const std::byte> Value) -> void { VarUInt(Value.size()); Bytes(Value); }
 			auto View() const -> std::span<const std::byte> { return Writer.GetBytes(); }
-			auto Take() -> std::vector<std::byte> { return Writer.TakeBytes(); }
+			auto Take() -> FByteArray { return Writer.TakeBytes(); }
 		private:
 			FBinaryWriter Writer;
 		};
@@ -101,7 +101,7 @@ namespace Durin::Asset::PackageObjectStream
 			FBinaryReader Reader;
 		};
 
-		struct FFrozenType { FTypePtr Descriptor; std::vector<std::byte> Key; };
+		struct FFrozenType { FTypePtr Descriptor; FByteArray Key; };
 		struct FFrozenTables
 		{
 			std::vector<std::string> Names;
@@ -224,7 +224,7 @@ namespace Durin::Asset::PackageObjectStream
 			return true;
 		}
 
-		auto StructuralKey(const FTypeDescriptor& Type, std::vector<std::byte>& Out,
+		auto StructuralKey(const FTypeDescriptor& Type, FByteArray& Out,
 			FWriterDiagnostic& Diagnostic) -> bool
 		{
 			FWireWriter Writer;
@@ -236,7 +236,7 @@ namespace Durin::Asset::PackageObjectStream
 		auto FFrozenTables::TypeId(const FTypeDescriptor& Type) const -> uint64
 		{
 			FWriterDiagnostic Ignored;
-			std::vector<std::byte> Key;
+			FByteArray Key;
 			if (!StructuralKey(Type, Key, Ignored)) return 0;
 			const auto It = std::ranges::find(Types, Key, &FFrozenType::Key);
 			return It == Types.end() ? 0 : uint64(std::distance(Types.begin(), It) + 1);
@@ -259,7 +259,7 @@ namespace Durin::Asset::PackageObjectStream
 			std::unordered_set<const FTypeDescriptor*> Walked;
 			std::function<bool(const FTypePtr&)> DiscoverType = [&](const FTypePtr& Type) -> bool {
 				if (!Type) return Fail(Diagnostic, EWriterFailure::InvalidInput, "A type descriptor is null.");
-				std::vector<std::byte> Key;
+				FByteArray Key;
 				if (!StructuralKey(*Type, Key, Diagnostic)) return false;
 				if (Walked.insert(Type.get()).second)
 				{
@@ -287,7 +287,7 @@ namespace Durin::Asset::PackageObjectStream
 				}
 				std::ranges::sort(Schema.Fields, [&](const auto& A, const auto& B) {
 					if (A.Name != B.Name) return ByteLess(A.Name, B.Name);
-					FWriterDiagnostic Ignored; std::vector<std::byte> AK, BK;
+					FWriterDiagnostic Ignored; FByteArray AK, BK;
 					StructuralKey(*A.Type, AK, Ignored); StructuralKey(*B.Type, BK, Ignored);
 					return AK != BK ? ByteLess(AK, BK) : A.AuthoredFlags < B.AuthoredFlags;
 				});
@@ -302,7 +302,7 @@ namespace Durin::Asset::PackageObjectStream
 
 			for (const auto& Type : DiscoveredTypes)
 			{
-				std::vector<std::byte> Key;
+				FByteArray Key;
 				if (!StructuralKey(*Type, Key, Diagnostic)) return false;
 				if (std::ranges::find(Result.Types, Key, &FFrozenType::Key) == Result.Types.end())
 					Result.Types.push_back({Type, std::move(Key)});
@@ -369,7 +369,7 @@ namespace Durin::Asset::PackageObjectStream
 			Out = std::move(Result); return true;
 		}
 
-		auto EncodeTables(const FFrozenTables& Tables, std::array<std::vector<std::byte>, 4>& Out) -> void
+		auto EncodeTables(const FFrozenTables& Tables, std::array<FByteArray, 4>& Out) -> void
 		{
 			FWireWriter Names;
 			Names.VarUInt(Tables.Names.size()); for (const auto& Name : Tables.Names) Names.String(Name);
@@ -501,7 +501,7 @@ namespace Durin::Asset::PackageObjectStream
 				if (Schema == 0) return Fail(Diagnostic, EWriterFailure::MissingDiscovery, "A Struct schema was not discovered.", std::string(Path));
 				if (Value.FieldNames.size() != Value.Elements.size() || Value.Provenances.size() != Value.Elements.size())
 					return Fail(Diagnostic, EWriterFailure::InvalidValue, "Struct field arrays have mismatched lengths.", std::string(Path));
-				struct FEncoded { uint64 Id; EDefaultDeltaProvenance Provenance; std::vector<std::byte> Bytes; };
+				struct FEncoded { uint64 Id; EDefaultDeltaProvenance Provenance; FByteArray Bytes; };
 				std::vector<FEncoded> Fields;
 				for (size_t Index = 0; Index < Value.Elements.size(); ++Index)
 				{
@@ -534,7 +534,7 @@ namespace Durin::Asset::PackageObjectStream
 			{
 				if (Value.Elements.size() % 2 != 0 || Value.Elements.size() / 2 > MaximumContainerElements)
 					return Fail(Diagnostic, EWriterFailure::InvalidValue, "Map element count is invalid.", std::string(Path));
-				struct FEntry { std::vector<std::byte> Key; std::vector<std::byte> Value; };
+				struct FEntry { FByteArray Key; FByteArray Value; };
 				std::vector<FEntry> Entries;
 				for (size_t Index = 0; Index < Value.Elements.size(); Index += 2)
 				{
@@ -632,7 +632,7 @@ namespace Durin::Asset::PackageObjectStream
 				Types.push_back(std::move(Type));
 			}
 			if (!TypeReader.End()) return false;
-			std::vector<std::vector<std::byte>> TypeKeys(Types.size());
+			std::vector<FByteArray> TypeKeys(Types.size());
 			std::vector<uint8> State(Types.size());
 			std::function<bool(uint64)> BuildKey = [&](uint64 Id) {
 				const size_t Index = size_t(Id - 1);
@@ -683,7 +683,7 @@ namespace Durin::Asset::PackageObjectStream
 		}
 
 		auto EncodeValues(const FPackageInput& Input, const FFrozenTables& Tables,
-			std::vector<std::byte>& Out, FWriterDiagnostic& Diagnostic) -> bool
+			FByteArray& Out, FWriterDiagnostic& Diagnostic) -> bool
 		{
 			if (Input.ObjectValues.size() != Tables.Objects.size())
 				return Fail(Diagnostic, EWriterFailure::ManifestMismatch, "Value-section object count differs from the frozen object table.");
@@ -699,7 +699,7 @@ namespace Durin::Asset::PackageObjectStream
 			for (const auto* Object : ById)
 			{
 				if (!Object) return Fail(Diagnostic, EWriterFailure::ManifestMismatch, "A frozen object has no value block.");
-				struct FOverride { uint64 Schema; uint64 Field; uint8 Provenance; std::vector<std::byte> Bytes; };
+				struct FOverride { uint64 Schema; uint64 Field; uint8 Provenance; FByteArray Bytes; };
 				std::vector<FOverride> Overrides;
 				for (const auto& Known : Object->KnownOverrides)
 				{
@@ -739,7 +739,7 @@ namespace Durin::Asset::PackageObjectStream
 			.Parameter = Parameter, .Children = std::move(Children)});
 	}
 
-	auto WritePackage(const FPackageInput& Input, std::vector<std::byte>& OutBytes,
+	auto WritePackage(const FPackageInput& Input, FByteArray& OutBytes,
 		FWriterDiagnostic* OutDiagnostic) -> bool
 	{
 		FWriterDiagnostic Diagnostic;
@@ -763,11 +763,11 @@ namespace Durin::Asset::PackageObjectStream
 
 		FFrozenTables Tables;
 		if (!FreezeTables(Input, Tables, Diagnostic)) return Finish(false);
-		std::array<std::vector<std::byte>, 4> TableSections;
+		std::array<FByteArray, 4> TableSections;
 		EncodeTables(Tables, TableSections);
-		std::vector<std::byte> Values;
+		FByteArray Values;
 		if (!EncodeValues(Input, Tables, Values, Diagnostic)) return Finish(false);
-		std::array<std::vector<std::byte>, SectionCount> Sections{
+		std::array<FByteArray, SectionCount> Sections{
 			TableSections[0], TableSections[1], TableSections[2], TableSections[3], std::move(Values)};
 
 		FWireWriter Summary; Summary.String(Input.AssetClass); Summary.U8(uint8(Input.EntryKind));
@@ -791,7 +791,7 @@ namespace Durin::Asset::PackageObjectStream
 			Result.U8(Index + 1); Result.U32(Offset); Result.U32(uint32(Sections[Index].size())); Offset += uint32(Sections[Index].size());
 		}
 		for (const auto& Section : Sections) Result.Bytes(Section);
-		std::vector<std::byte> Complete = Result.Take();
+		FByteArray Complete = Result.Take();
 		if (Complete.size() != Total) return Finish(Fail(Diagnostic, EWriterFailure::ManifestMismatch, "Final package extent differs from the frozen manifest."));
 		OutBytes = std::move(Complete);
 		Diagnostic.Reset(); return Finish(true);
